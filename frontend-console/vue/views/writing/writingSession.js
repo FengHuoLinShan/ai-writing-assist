@@ -8,6 +8,33 @@
 
 const sessions = new Map()
 const POINTER_VERSION = 1
+const MAX_PROJECT_SESSIONS = 5
+const MAX_CHAPTER_SNAPSHOTS = 5
+
+function hasUnsafeDirtySnapshot(session) {
+  return [...session.chapters.values()].some((item) => item.dirty && !item.backupComplete)
+}
+
+function trimProjects(activeProjectId) {
+  while (sessions.size > MAX_PROJECT_SESSIONS) {
+    const oldestSafe = [...sessions].find(([projectId, session]) => (
+      projectId !== activeProjectId && !hasUnsafeDirtySnapshot(session)
+    ))
+    if (!oldestSafe) return
+    sessions.delete(oldestSafe[0])
+  }
+}
+
+function trimChapters(session) {
+  while (session.chapters.size > MAX_CHAPTER_SNAPSHOTS) {
+    const oldestSafe = [...session.chapters].find(([chapter, item]) => (
+      chapter !== session.currentChapter && !(item.dirty && !item.backupComplete)
+    ))
+    if (!oldestSafe) return
+    session.chapters.delete(oldestSafe[0])
+    session.sceneByChapter.delete(oldestSafe[0])
+  }
+}
 
 function pointerKey(projectId) {
   return `writing_resume_pointer:v${POINTER_VERSION}:${projectId}`
@@ -64,8 +91,11 @@ function newSession(projectId) {
 
 export function getWritingSession(projectId) {
   if (!projectId) return null
-  if (!sessions.has(projectId)) sessions.set(projectId, newSession(projectId))
-  return sessions.get(projectId)
+  const session = sessions.get(projectId) || newSession(projectId)
+  sessions.delete(projectId)
+  sessions.set(projectId, session)
+  trimProjects(projectId)
+  return session
 }
 
 export function rememberWritingLocation(projectId, location = {}) {
@@ -102,7 +132,11 @@ export function rememberedSceneForChapter(projectId, chapter) {
   return getWritingSession(projectId)?.sceneByChapter.get(Number(chapter)) || null
 }
 
-export function rememberChapterSnapshot(projectId, snapshot = {}, { persist = true } = {}) {
+export function rememberChapterSnapshot(
+  projectId,
+  snapshot = {},
+  { persist = true, backupComplete = false } = {},
+) {
   const chapter = Number(snapshot.chapter)
   const session = getWritingSession(projectId)
   if (!session || !Number.isInteger(chapter) || chapter < 1) return
@@ -119,6 +153,7 @@ export function rememberChapterSnapshot(projectId, snapshot = {}, { persist = tr
     lastSavedTitle: String(snapshot.lastSavedTitle || ""),
     lastSavedContent: String(snapshot.lastSavedContent || ""),
     dirty: snapshot.dirty === true,
+    backupComplete: snapshot.dirty !== true || backupComplete === true,
     cursorOffset: Number(snapshot.cursorOffset) || 0,
     restoreSourceVersion: snapshot.restoreSourceVersion ?? null,
     restoreExpectedVersion: snapshot.restoreExpectedVersion ?? null,
@@ -126,7 +161,9 @@ export function rememberChapterSnapshot(projectId, snapshot = {}, { persist = tr
   }
   session.currentChapter = chapter
   session.currentDraftId = next.draftId
+  session.chapters.delete(chapter)
   session.chapters.set(chapter, next)
+  trimChapters(session)
   if (persist) {
     persistPointer(projectId, {
       chapter,
@@ -140,7 +177,13 @@ export function rememberChapterSnapshot(projectId, snapshot = {}, { persist = tr
 }
 
 export function readChapterSnapshot(projectId, chapter) {
-  const item = getWritingSession(projectId)?.chapters.get(Number(chapter))
+  const session = getWritingSession(projectId)
+  const key = Number(chapter)
+  const item = session?.chapters.get(key)
+  if (item) {
+    session.chapters.delete(key)
+    session.chapters.set(key, item)
+  }
   return item ? { ...item } : null
 }
 

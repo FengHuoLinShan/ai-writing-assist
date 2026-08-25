@@ -84,4 +84,44 @@ describe("writingSession", () => {
     expect(getWritingSession("p1").focusMode).toBe(true)
     expect(getWritingSession("p2").focusMode).toBe(false)
   })
+
+  it("每项目只保留当前章与最近四章", () => {
+    for (let chapter = 1; chapter <= 6; chapter += 1) {
+      rememberChapterSnapshot("p1", { chapter, content: `第${chapter}章` })
+    }
+
+    expect(readChapterSnapshot("p1", 1)).toBeNull()
+    expect(readChapterSnapshot("p1", 2).content).toBe("第2章")
+    expect(getWritingSession("p1").currentChapter).toBe(6)
+  })
+
+  it("不淘汰尚未完成备份的 dirty 章节", () => {
+    rememberChapterSnapshot("p1", { chapter: 1, content: "未备份", dirty: true })
+    for (let chapter = 2; chapter <= 6; chapter += 1) {
+      rememberChapterSnapshot("p1", { chapter, content: `第${chapter}章` })
+    }
+
+    expect(readChapterSnapshot("p1", 1).content).toBe("未备份")
+    expect(readChapterSnapshot("p1", 2)).toBeNull()
+  })
+
+  it("最多保留五个最近项目", () => {
+    for (let project = 1; project <= 6; project += 1) {
+      rememberChapterSnapshot(`p${project}`, { chapter: 1, content: `项目${project}` })
+    }
+
+    expect(readChapterSnapshot("p1", 1)).toBeNull()
+    expect(readChapterSnapshot("p6", 1).content).toBe("项目6")
+  })
+
+  it("项目 LRU 也保留尚未完成备份的 dirty 会话", () => {
+    rememberChapterSnapshot("p1", { chapter: 1, content: "未备份", dirty: true })
+    for (let project = 2; project <= 6; project += 1) {
+      rememberChapterSnapshot(`p${project}`, { chapter: 1, content: `项目${project}` })
+    }
+
+    expect(readChapterSnapshot("p1", 1).content).toBe("未备份")
+    expect(readChapterSnapshot("p2", 1)).toBeNull()
+    expect(readChapterSnapshot("p6", 1).content).toBe("项目6")
+  })
 })

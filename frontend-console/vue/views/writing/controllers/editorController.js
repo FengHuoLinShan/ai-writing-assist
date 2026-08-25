@@ -144,7 +144,7 @@ export function createEditorController({
 
   function saveBackup() {
     const projectId = getProjectId()
-    if (!projectId || !state.chapter) return
+    if (!projectId || !state.chapter) return false
     try {
       localStorage.setItem(backupKey(projectId, state.chapter, state.draftId), JSON.stringify({
         project_id: projectId,
@@ -154,8 +154,10 @@ export function createEditorController({
         content: state.content,
         timestamp: Date.now(),
       }))
+      return true
     } catch {
       // Storage exhaustion must not block typing.
+      return false
     }
   }
 
@@ -163,8 +165,8 @@ export function createEditorController({
     if (localPersistTimer) clearTimeout(localPersistTimer)
     localPersistTimer = null
     if (!state.chapter) return
-    if (dirty()) saveBackup()
-    rememberChapterSnapshot(getProjectId(), snapshot())
+    const backupComplete = dirty() ? saveBackup() : true
+    rememberChapterSnapshot(getProjectId(), snapshot(), { backupComplete })
   }
 
   function scheduleLocalPersistence() {
