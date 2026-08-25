@@ -39,25 +39,6 @@ class EntityType(StrEnum):
     """人物 — 可作为人物模块主实体的正史角色"""
 
 
-class ObjectStatus(StrEnum):
-    """对象生命周期状态 — 用于所有正史和候选对象"""
-
-    draft = "draft"
-    """草稿 — 用户手动创建，尚未确认"""
-    candidate = "candidate"
-    """候选 — AI 生成，等待 review"""
-    canonical = "canonical"
-    """正史 — 已确认进入正史"""
-    deprecated = "deprecated"
-    """弃用 — 不再使用（保留历史）"""
-    ignored = "ignored"
-    """忽略 — 候选被拒绝"""
-    conflicted = "conflicted"
-    """冲突 — 检测到冲突，待处理"""
-    pending = "pending"
-    """待定 — 等待用户决策"""
-
-
 class CandidateAction(StrEnum):
     """候选对象建议动作"""
 

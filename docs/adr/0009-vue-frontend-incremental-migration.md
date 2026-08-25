@@ -23,6 +23,8 @@ keep-alive”与“后续批次”等措辞仅保留 2026-07-18 的决策过程�
   `sceneAlerts` / `versionDiff` 纯 helper；没有其他 `views/writing/` 运行时依赖。
 - 动态用户、AI 与 API 内容继续禁止 `v-html`；命令式 modal 或 Canvas seam 必须集中、可释放，
   且字符串内容显式转义。
+- 当前实现不再保留无 store 的 Pinia 预置状态层；状态继续使用组件内
+  `ref/reactive` 与既有 bridge，待出现真实共享 store 需求时再评估引入。
 - 本次迁移是前端内部所有权调整；HTTP API、数据库 schema 和前端 wire shape 保持不变。
 
 ## 背景与问题

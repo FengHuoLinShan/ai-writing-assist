@@ -1,4 +1,3 @@
-import { createPinia } from "pinia"
 import { createApp } from "vue"
 import ShellApp from "./ShellApp.vue"
 import { createShellServices } from "./shellServices.js"
@@ -7,7 +6,6 @@ export async function mountShell({ target = "#app", services = createShellServic
   const root = typeof target === "string" ? document.querySelector(target) : target
   if (!root) throw new Error("Vue shell mount target is missing")
   const app = createApp(ShellApp, { services, healthIntervalMs })
-  app.use(createPinia())
   const shell = app.mount(root)
   try {
     await services.router.init()

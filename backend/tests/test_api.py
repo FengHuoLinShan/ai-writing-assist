@@ -105,8 +105,17 @@ class TestApiSystem:
         # Assert
         assert resp.status_code == 200
         data = resp.json()
-        assert "modules" in data
-        assert len(data["modules"]) >= 7
+        assert data["modules"] == [
+            "account",
+            "projects",
+            "world",
+            "evidence",
+            "story",
+            "writing",
+            "imports",
+            "interaction",
+            "tasks",
+        ]
 
     async def test_api_debug_frontend_errors_store_list_and_clear(
         self,

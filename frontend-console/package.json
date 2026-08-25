@@ -27,7 +27,6 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
-    "pinia": "^4.0.3",
     "vue": "^3.5.41"
   }
 }

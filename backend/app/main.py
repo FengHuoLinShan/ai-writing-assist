@@ -703,12 +703,14 @@ async def root():
         "docs": None if _public_mode else "/api/docs",
         "openapi": None if _public_mode else "/api/openapi.json",
         "modules": [
+            "account",
             "projects",
             "world",
-            "rag",
-            "context",
+            "evidence",
+            "story",
             "writing",
             "imports",
+            "interaction",
             "tasks",
         ],
     }

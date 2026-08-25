@@ -14,7 +14,6 @@ from shared.enums import (
     ForeshadowingStatus,
     ImportanceLevel,
     KnowledgeLevel,
-    ObjectStatus,
     RelationDirection,
     RelationType,
     RevealLevel,
@@ -42,17 +41,6 @@ class TestEntityType:
 
     def test_member_count(self):
         assert len(EntityType) == 10
-
-
-class TestObjectStatus:
-    def test_values_unique(self):
-        _assert_unique_values(ObjectStatus)
-
-    def test_canonical_value(self):
-        assert ObjectStatus.canonical == "canonical"
-
-    def test_draft_value(self):
-        assert ObjectStatus.draft == "draft"
 
 
 class TestCandidateAction:
