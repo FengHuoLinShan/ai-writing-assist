@@ -56,7 +56,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue"
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
-import { getApi, getAppState, getCloseModal, getConfirm, getEsc, getRouter, getShowModalHtml, getToast } from "../../bridge/index.js"
+import { getApi, getAppState, getCloseModal, getConfirm, getEsc, getRouteQuery, getRouter, getShowModalHtml, getToast } from "../../bridge/index.js"
 import { confirmAiReference } from "../../../shared/aiReferenceModal.js"
 import WorldWorkspace from "./components/WorldWorkspace.vue"
 import PovProseTab from "./components/PovProseTab.vue"
@@ -286,7 +286,7 @@ async function retryPovLoad() {
 async function switchTab(tab) {
   if (!tabs.some((item) => item.key === tab) || tab === activeTab.value) return
   if (!confirmDiscard("整页提案仍有未应用的编辑，确定放弃修改并切换标签吗？")) return
-  const query = new URLSearchParams(router.getCurrentQuery?.()?.toString() || "")
+  const query = getRouteQuery()
   query.set("tab", tab)
   if (props.embedded) {
     query.set("owner_ai", "1")

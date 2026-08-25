@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, ref, watch } from "vue"
-import { getAppState, getRouter } from "../bridge/index.js"
+import { getAppState, getRouteQuery, getRouter } from "../bridge/index.js"
 import GenerateView from "../views/generate/GenerateView.vue"
 import { generateSessionKey } from "../views/generate/generateSession.js"
 import RagSearchView from "../views/rag/RagSearchView.vue"
@@ -96,7 +96,7 @@ const canSaveWriting = computed(() => typeof props.writingActions?.saveDraft ===
 const modeKey = computed(() => `${projectId.value || "none"}:${props.owner}:${mode.value}:${props.sourcePageId || ""}:${props.targetKind || ""}:${props.preset || ""}:${props.checkpointId || ""}`)
 
 function syncOpenQuery(open) {
-  const query = new URLSearchParams(router?.getCurrentQuery?.()?.toString() || "")
+  const query = getRouteQuery()
   const current = query.toString()
   if (open) {
     query.set("owner_ai", "1")
@@ -167,7 +167,7 @@ function selectMode(nextMode) {
     generateProps.value = null
   }
   mode.value = nextMode
-  const query = new URLSearchParams(router?.getCurrentQuery?.()?.toString() || "")
+  const query = getRouteQuery()
   query.set("owner_ai", "1")
   query.set("owner_ai_mode", nextMode)
   router?.commitCurrentQuery?.(query, "replace")

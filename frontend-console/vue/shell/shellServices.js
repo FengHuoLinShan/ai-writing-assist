@@ -35,6 +35,7 @@ export function createShellServices(overrides = {}) {
       getRoute(name) { return router.getRoute?.(name) || fallbackRoute(name) },
       getSubViewTitle(view, subview) { return router.getSubViewTitle?.(view, subview) || subview || "" },
       getLastSubView(view) { return router.getLastSubView?.(view) || null },
+      getCurrentQuery() { return router.getCurrentQuery?.() },
       navigate(...args) { return router.navigate?.(...args) },
       init() { return router.initRouter?.() },
     },

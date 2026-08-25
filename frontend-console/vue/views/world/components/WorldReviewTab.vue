@@ -565,7 +565,7 @@
 
 <script setup>
 import { computed, reactive, ref, watch, onBeforeUnmount, nextTick } from "vue"
-import { getApi, getAppState, getRouter } from "../../../bridge/index.js"
+import { getApi, getAppState, getRouteQuery, getRouter } from "../../../bridge/index.js"
 import { worldSession as session } from "../worldSession.js"
 import { WORLD_CANDIDATE_QUERY_KEYS } from "../logic/worldQuery.js"
 import { reconcileBulkSelection } from "../logic/worldBulkSelection.js"
@@ -709,7 +709,7 @@ function retryLoad() {
 }
 
 const REVIEW_ITEM_QUERY_KEY = "review_item"
-const initialQuery = new URLSearchParams(getRouter()?.getCurrentQuery?.()?.toString?.() || "")
+const initialQuery = getRouteQuery()
 const initialReviewItem = initialQuery.get(REVIEW_ITEM_QUERY_KEY) || ""
 const returnToWorldAi = initialQuery.get("return_to") === "world_ai"
 const returnSubview = initialQuery.get("return_subview") || "objects"
@@ -779,7 +779,7 @@ function isNarrowReviewViewport() {
 
 function syncReviewSelection(key) {
   const router = getRouter()
-  const query = new URLSearchParams(router?.getCurrentQuery?.()?.toString?.() || "")
+  const query = getRouteQuery()
   if (key) query.set(REVIEW_ITEM_QUERY_KEY, key)
   else query.delete(REVIEW_ITEM_QUERY_KEY)
   return router?.commitCurrentQuery?.(query) === true

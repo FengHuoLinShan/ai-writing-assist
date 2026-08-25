@@ -11,7 +11,7 @@
  * getRouter().refresh()（island 重挂载 = onEnter 全量重取）。模态操作由全局
  * modal/router 守卫项目导航；无模态的异步操作在回写 UI 前校验启动时作用域。
  */
-import { getApi, getAppState, getCloseModal, getConfirm, getConfirmAction, getEsc, getRouter, getShowModalHtml, getToast } from "../../../bridge/index.js"
+import { getApi, getAppState, getCloseModal, getConfirm, getConfirmAction, getEsc, getRouteQuery, getRouter, getShowModalHtml, getToast } from "../../../bridge/index.js"
 import { createReferencePicker } from "../../../../shared/referencePicker.js"
 import {
   candidateAction,
@@ -256,7 +256,7 @@ function ownsWorldOperationScope(scope) {
 /** 对应 vanilla _finishEntityMutation；调用方为受全局 modal/router 管理的模态操作。 */
 async function returnToReviewContextOrRefresh() {
   const router = getRouter()
-  const currentQuery = new URLSearchParams(router?.getCurrentQuery?.()?.toString() || "")
+  const currentQuery = getRouteQuery()
   const returnKind = currentQuery.get("return_kind")
   if (["aliases", "relations"].includes(returnKind)) {
     const query = new URLSearchParams({ kind: returnKind })

@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from "vue"
 import RagSearchView from "./RagSearchView.vue"
 import RagStatusPanel from "./components/RagStatusPanel.vue"
-import { getApi, getRouter, useStateKey } from "../../bridge/index.js"
+import { getApi, getRouteQuery, getRouter, useStateKey } from "../../bridge/index.js"
 import { useRagWorkflow } from "./useRagWorkflow.js"
 import { ensurePrewarm } from "./prewarmManager.js"
 import { ragSearchSession } from "./ragSearchSession.js"
@@ -96,7 +96,7 @@ const rebuildForm = ragSearchSession.rebuildForm
 function navigateSub(sub) {
   if (sub === subView.value) return
   const router = getRouter()
-  const query = new URLSearchParams(router.getCurrentQuery?.()?.toString() || "")
+  const query = getRouteQuery()
   router.navigate("rag", sub, true, query)
 }
 

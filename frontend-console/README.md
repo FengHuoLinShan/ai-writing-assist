@@ -236,7 +236,10 @@ frontend-console/
   半挂载失败会执行 `onLeave` 清理。临时跨项目失败只能重试目标或返回项目列表，不恢复旧项目
   DOM；同路由 refresh 重挂载后恢复工作区纵向滚动位置，同项目临时 refresh 保留编辑页，
   403/404/422 等项目失效则 fail-closed。纯呈现控件可通过 `commitCurrentQuery` 就地更新当前
-  hash 与 router 内部 query，不运行 `onEnter/render`；服务端操作的晚到响应只能在发起时
+  hash 与 router 内部 query，不运行 `onEnter/render`；业务代码读取当前 query 统一经 bridge
+  `getRouteQuery()` 独立副本（全仓库唯一的读取防御点），Scene 工作台 query 写入收敛到
+  `sceneModel.commitSceneRouteQuery` 单一入口；shell router 包装层透传 `getCurrentQuery`，
+  设置页携带合法 `return_to` 时恢复隐藏作者壳；服务端操作的晚到响应只能在发起时
   路由/编辑器仍存活时刷新。
 - RP 旅程列表默认折叠搜索；开场输入以淡字提示世界、身份、时间地点和愿望。故事页支持
   流式重连、草稿、安全 Markdown 正文显示、并列的复制/重新生成按钮、完整行动建议卡片点击

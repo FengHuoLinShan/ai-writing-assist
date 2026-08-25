@@ -34,6 +34,16 @@ export function getAppState() {
   return _overrides.state ?? globalThis.appState
 }
 
+/**
+ * 当前路由 query 的独立副本；router 或 query 未就绪时返回空 query。
+ * 是全仓库唯一允许的 query 读取防御点，调用方不得再自行兜底解析
+ * window.location.hash 或复制 getCurrentQuery() 的内部引用。
+ */
+export function getRouteQuery() {
+  const query = getRouter()?.getCurrentQuery?.()
+  return new URLSearchParams(query?.toString?.() || "")
+}
+
 /** toast(message, type) — 全局不可用时降级为空操作，避免阻塞交互。 */
 export function getToast() {
   const toast = _overrides.toast ?? globalThis.toast

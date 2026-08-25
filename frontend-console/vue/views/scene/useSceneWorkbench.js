@@ -28,6 +28,7 @@ import { createSceneModalController } from "./sceneModalController.js"
 import {
   HEALTH_ORDER,
   SCENE_FILTER_DEFAULTS,
+  commitSceneRouteQuery,
   filteredSceneItems,
   healthReasons,
   persistSceneSession,
@@ -38,21 +39,6 @@ import {
   sceneSession,
   sceneWorkbenchParams,
 } from "./sceneModel.js"
-
-function currentHashQuery() {
-  if (typeof window === "undefined") return sceneQuery()
-  const index = window.location.hash.indexOf("?")
-  return new URLSearchParams(index >= 0 ? window.location.hash.slice(index + 1) : "")
-}
-
-function commitSceneHash(projectId, query, mode = "replace", router = null) {
-  if (router?.commitCurrentQuery?.(query, mode) === true) return
-  if (typeof window === "undefined" || !window.history) return
-  const base = `#workbench/${encodeURIComponent(projectId)}/outline/scenes`
-  const hash = query.toString() ? `${base}?${query.toString()}` : base
-  const method = mode === "push" ? "pushState" : "replaceState"
-  window.history[method]({ view: "outline", subView: "scenes", projectId }, "", hash)
-}
 
 export function useSceneWorkbench(props) {
   const api = getApi()
@@ -179,9 +165,9 @@ export function useSceneWorkbench(props) {
     selectedSceneId.value = null
     mobileDetailOpen.value = false
     sceneSaveError.value = null
-    const query = currentHashQuery()
+    const query = sceneQuery()
     query.delete("scene_id")
-    commitSceneHash(projectId, query, "replace", router)
+    commitSceneRouteQuery(projectId, query)
   }
 
   function selectScene(sceneId, historyMode = "push") {
@@ -189,10 +175,10 @@ export function useSceneWorkbench(props) {
     if (selectedSceneId.value !== sceneId) sceneSaveError.value = null
     selectedSceneId.value = sceneId
     mobileDetailOpen.value = true
-    const query = currentHashQuery()
+    const query = sceneQuery()
     query.set("mode", viewMode.value)
     query.set("scene_id", sceneId)
-    commitSceneHash(projectId, query, historyMode, router)
+    commitSceneRouteQuery(projectId, query, historyMode)
     return true
   }
 
@@ -289,10 +275,10 @@ export function useSceneWorkbench(props) {
     clearSelection()
     clearSelectedScene()
     syncSession()
-    const query = currentHashQuery()
+    const query = sceneQuery()
     query.set("mode", mode)
     query.delete("scene_id")
-    commitSceneHash(projectId, query, "push", router)
+    commitSceneRouteQuery(projectId, query, "push")
     await refresh({ preserveSelection: false })
   }
 
@@ -515,8 +501,8 @@ export function useSceneWorkbench(props) {
     activeHealth.value = null
     clearSelection()
     selectedSceneId.value = sceneId
-    const query = currentHashQuery(); query.set("mode", viewMode.value); query.set("scene_id", sceneId)
-    commitSceneHash(projectId, query, "push", router)
+    const query = sceneQuery(); query.set("mode", viewMode.value); query.set("scene_id", sceneId)
+    commitSceneRouteQuery(projectId, query, "push")
     syncSession()
     return refresh()
   }

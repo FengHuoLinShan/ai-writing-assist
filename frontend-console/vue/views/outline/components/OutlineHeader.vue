@@ -64,7 +64,7 @@
 
 <script setup>
 import { computed } from "vue"
-import { getAppState, getRouter } from "../../../bridge/index.js"
+import { getAppState, getRouteQuery, getRouter } from "../../../bridge/index.js"
 import { showCreateArcForm, showCreateThreadForm } from "../logic/outlineStructureOps.js"
 import {
   showOutlineAnalysisForm,
@@ -103,7 +103,7 @@ function navigateSub(sub) {
 
 function closeReview() {
   const router = getRouter()
-  const query = new URLSearchParams(router?.getCurrentQuery?.()?.toString() || "")
+  const query = getRouteQuery()
   query.delete("review")
   router?.replace?.("outline", props.subView, query)
 }

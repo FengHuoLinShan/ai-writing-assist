@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import RagSearchPanel from "./components/RagSearchPanel.vue"
 import RagResultList from "./components/RagResultList.vue"
 import RagEvidenceDrawer from "./components/RagEvidenceDrawer.vue"
-import { getApi, getAppState, getRouter, getToast } from "../../bridge/index.js"
+import { getApi, getAppState, getRouteQuery, getRouter, getToast } from "../../bridge/index.js"
 import { buildRouteQuery, parseRouteQuery } from "./logic/routeState.js"
 import { buildEvidencePayload, normalizeChapterRange } from "./logic/searchPayload.js"
 import { useRagSearch } from "./useRagSearch.js"
@@ -277,7 +277,7 @@ async function submit() {
   }
   const searchRoute = buildRouteQuery(query, payload)
   const route = props.embedded
-    ? new URLSearchParams(getRouter().getCurrentQuery?.()?.toString() || "")
+    ? getRouteQuery()
     : new URLSearchParams()
   const searchKeys = [
     "q", "kind", "content_mode", "visibility", "scope", "chapter_from", "chapter_to",

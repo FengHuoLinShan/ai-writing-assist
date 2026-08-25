@@ -2,7 +2,7 @@
 import { computed } from "vue"
 import GlobalSettingsView from "./GlobalSettingsView.vue"
 import ProjectSettingsView from "./ProjectSettingsView.vue"
-import { getRouter } from "../../bridge/index.js"
+import { getRouteQuery, getRouter } from "../../bridge/index.js"
 import { normalizeRpReturnTarget } from "../../shell/navigation.js"
 
 const props = defineProps({
@@ -21,7 +21,7 @@ const props = defineProps({
 
 const router = getRouter()
 const returningToRp = Boolean(normalizeRpReturnTarget(
-  router?.getCurrentQuery?.()?.get?.("return_to"),
+  getRouteQuery().get("return_to"),
 ))
 const pageTitle = computed(() => props.scope === "project" ? "当前作品设置" : "账户设置")
 const pageHint = computed(() => {

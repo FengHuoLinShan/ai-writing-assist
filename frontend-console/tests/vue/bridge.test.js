@@ -9,6 +9,7 @@ import {
   getConfirm,
   getConfirmAction,
   getEsc,
+  getRouteQuery,
   getRouter,
   getShowModalHtml,
   getToast,
@@ -98,6 +99,34 @@ describe("bridge 外壳 modal 与 esc", () => {
     expect(getEsc()("<b>")).toBe("&lt;b&gt;")
     setBridgeOverrides({ esc: () => "SAFE" })
     expect(getEsc()("<b>")).toBe("SAFE")
+  })
+})
+
+describe("getRouteQuery", () => {
+  it("返回当前 query 的独立副本，修改副本不影响 router 内部对象", () => {
+    const internal = new URLSearchParams("scene_id=s1&mode=hot")
+    setBridgeOverrides({ router: { getCurrentQuery: () => internal } })
+    const copy = getRouteQuery()
+    expect(copy.get("scene_id")).toBe("s1")
+    copy.set("scene_id", "s2")
+    expect(internal.get("scene_id")).toBe("s1")
+  })
+
+  it("getCurrentQuery 缺失或返回空时回落为空 query", () => {
+    setBridgeOverrides({ router: {} })
+    expect(getRouteQuery().toString()).toBe("")
+    setBridgeOverrides({ router: { getCurrentQuery: () => null } })
+    expect(Array.from(getRouteQuery().keys())).toEqual([])
+  })
+
+  it("router 未就绪（无全局 router）时回落为空 query", () => {
+    const original = globalThis.router
+    delete globalThis.router
+    try {
+      expect(getRouteQuery().toString()).toBe("")
+    } finally {
+      globalThis.router = original
+    }
   })
 })
 
