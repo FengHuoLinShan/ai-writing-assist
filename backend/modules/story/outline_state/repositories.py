@@ -1060,7 +1060,8 @@ class SceneRepository:
         scene = self._build_scene(novel_id, data)
         db.add(scene)
         await db.flush()
-        await self.sync_scene_indexes(db, scene)
+        self._add_new_scene_indexes(db, [scene])
+        await db.flush()
         return scene
 
     async def create_many(
@@ -1074,9 +1075,29 @@ class SceneRepository:
             return []
         db.add_all(scenes)
         await db.flush()
-        for scene in scenes:
-            await self.sync_scene_indexes(db, scene)
+        self._add_new_scene_indexes(db, scenes)
+        await db.flush()
         return scenes
+
+    def _add_new_scene_indexes(
+        self,
+        db: AsyncSession,
+        scenes: Sequence[Scene],
+    ) -> None:
+        links = [
+            SceneChapterLink(
+                novel_id=scene.novel_id,
+                scene_id=scene.id,
+                chapter_index=chapter_index,
+            )
+            for scene in scenes
+            for chapter_index in self.chapter_indices_for_scene(scene)
+        ]
+        spans = [span for scene in scenes for span in self.scene_spans_for_scene(scene)]
+        if links:
+            db.add_all(links)
+        if spans:
+            db.add_all(spans)
 
     async def get(self, db: AsyncSession, scene_id: uuid.UUID) -> Scene | None:
         stmt = select(Scene).where(Scene.id == scene_id)

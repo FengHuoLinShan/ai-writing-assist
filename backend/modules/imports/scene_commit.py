@@ -167,6 +167,9 @@ class SceneCommitter:
             novel_id,
             [provenance_key for _, provenance_key in keyed_candidates],
         )
+        pending_creates: list[tuple[FinalSceneCandidate, str, dict[str, Any]]] = []
+        pending_by_key: dict[str, FinalSceneCandidate] = {}
+        deferred_duplicates: list[tuple[FinalSceneCandidate, str]] = []
         for candidate, provenance_key in keyed_candidates:
             existing_scenes = existing_by_key.get(provenance_key, [])
             active_existing = [
@@ -191,30 +194,65 @@ class SceneCommitter:
                 result.conflict_provenance_keys.append(provenance_key)
                 continue
 
+            if provenance_key in pending_by_key:
+                deferred_duplicates.append((candidate, provenance_key))
+                continue
+
             if next_scene_index is None:
                 next_scene_index = await outline_facade.get_next_scene_index(
                     db,
                     novel_id,
                 )
-            created = await outline_facade.create_scene(
+            pending_creates.append(
+                (
+                    candidate,
+                    provenance_key,
+                    _build_scene_data(
+                        candidate,
+                        workflow_id=workflow_id,
+                        provenance_key=provenance_key,
+                        scene_index=next_scene_index,
+                    ),
+                )
+            )
+            pending_by_key[provenance_key] = candidate
+            next_scene_index += 1
+
+        created_by_key: dict[str, dict[str, Any]] = {}
+        if pending_creates:
+            created_scenes = await outline_facade.batch_create_scenes(
                 db,
                 novel_id,
-                _build_scene_data(
-                    candidate,
-                    workflow_id=workflow_id,
-                    provenance_key=provenance_key,
-                    scene_index=next_scene_index,
-                ),
+                [data for _, _, data in pending_creates],
             )
-            next_scene_index += 1
-            result.created_count += 1
-            if candidate.needs_review:
+            if len(created_scenes) != len(pending_creates):
+                raise RuntimeError(
+                    "batch scene creation returned an unexpected row count"
+                )
+            for (candidate, provenance_key, _data), created in zip(
+                pending_creates,
+                created_scenes,
+                strict=True,
+            ):
+                created_by_key[provenance_key] = created
+                result.created_count += 1
+                if candidate.needs_review:
+                    result.review_count += 1
+                else:
+                    result.adopted_count += 1
+                result.created_scene_ids.append(created["id"])
+                result.scene_ids_by_candidate_id[candidate.candidate_id] = created["id"]
+
+        for candidate, provenance_key in deferred_duplicates:
+            created = created_by_key[provenance_key]
+            source_candidate = pending_by_key[provenance_key]
+            result.skipped_count += 1
+            result.skipped_provenance_keys.append(provenance_key)
+            if source_candidate.needs_review:
                 result.review_count += 1
             else:
                 result.adopted_count += 1
-            result.created_scene_ids.append(created["id"])
             result.scene_ids_by_candidate_id[candidate.candidate_id] = created["id"]
-            existing_by_key.setdefault(provenance_key, []).append(created)
         suggestion_payloads: list[dict[str, Any]] = []
         for suggestion in fusion_suggestions:
             payload = (

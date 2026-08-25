@@ -455,11 +455,17 @@ class TestSceneRepository:
         self,
         db_session: AsyncSession,
         sample_novel_id: str,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         from modules.story.outline_state.repositories import SceneRepository
 
         repo = SceneRepository()
         nid = uuid.UUID(hex=sample_novel_id)
+
+        async def fail_sync(*_args, **_kwargs):
+            raise AssertionError("new scenes must not run delete-and-rebuild sync")
+
+        monkeypatch.setattr(repo, "sync_scene_indexes", fail_sync)
 
         scenes = await repo.create_many(
             db_session,

@@ -217,6 +217,7 @@ async def test_scene_commit_reuses_next_scene_index_for_batch(monkeypatch) -> No
     single_provenance_calls = 0
     batch_provenance_calls = 0
     next_index_calls = 0
+    batch_create_calls = 0
     created_indices: list[int] = []
 
     async def fake_get_scenes_by_provenance_key(*_args: object) -> list[dict]:
@@ -238,13 +239,15 @@ async def test_scene_commit_reuses_next_scene_index_for_batch(monkeypatch) -> No
         next_index_calls += 1
         return 5
 
-    async def fake_create_scene(
+    async def fake_batch_create_scenes(
         _db: object,
         _novel_id: str,
-        data: dict,
-    ) -> dict[str, str]:
-        created_indices.append(data["scene_index"])
-        return {"id": str(uuid.uuid4())}
+        rows: list[dict],
+    ) -> list[dict[str, str]]:
+        nonlocal batch_create_calls
+        batch_create_calls += 1
+        created_indices.extend(row["scene_index"] for row in rows)
+        return [{"id": str(uuid.uuid4())} for _row in rows]
 
     monkeypatch.setattr(
         outline_facade,
@@ -262,7 +265,11 @@ async def test_scene_commit_reuses_next_scene_index_for_batch(monkeypatch) -> No
         "get_next_scene_index",
         fake_get_next_scene_index,
     )
-    monkeypatch.setattr(outline_facade, "create_scene", fake_create_scene)
+    monkeypatch.setattr(
+        outline_facade,
+        "batch_create_scenes",
+        fake_batch_create_scenes,
+    )
 
     candidates = [
         make_final_scene_candidate(
@@ -286,6 +293,7 @@ async def test_scene_commit_reuses_next_scene_index_for_batch(monkeypatch) -> No
     assert single_provenance_calls == 0
     assert batch_provenance_calls == 1
     assert next_index_calls == 1
+    assert batch_create_calls == 1
     assert created_indices == [5, 6, 7]
 
 
