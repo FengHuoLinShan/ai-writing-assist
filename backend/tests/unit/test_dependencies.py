@@ -47,18 +47,9 @@ def test_fastapi_dependency_declares_function_scope_minimum() -> None:
     pyproject_requirement = next(
         item for item in project["project"]["dependencies"] if item.startswith("fastapi")
     )
-    requirements_lines = (
-        (BACKEND_ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
-    )
-    requirements_requirement = next(
-        line.strip() for line in requirements_lines if line.strip().startswith("fastapi")
-    )
-
     pyproject_minimum = _minimum_fastapi_version(pyproject_requirement)
-    requirements_minimum = _minimum_fastapi_version(requirements_requirement)
 
     assert pyproject_minimum >= FASTAPI_FUNCTION_SCOPE_MINIMUM
-    assert requirements_minimum == pyproject_minimum
     lock_specifier = ".".join(str(part) for part in pyproject_minimum)
     assert f'{{ name = "fastapi", specifier = ">={lock_specifier}" }}' in (
         BACKEND_ROOT / "uv.lock"

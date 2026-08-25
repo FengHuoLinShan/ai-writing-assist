@@ -201,7 +201,7 @@ single-chapter / fusion wrapper，以及非 runtime seam 的薄包装/死代码�
 - `scene_fusion_phase1c.py` — 高质量导入的相邻 Scene 边界审核、高置信融合与建议生成
 - `scene_fusion.py` — 内部兼容/修复路径使用的候选融合组件；旧 `scene_prefetch.py` / `scene_reinforcement.py` 已删除
 - `deep_import_retry.py` — 深度导入 LLM 错误分类与阶段可控 retry 策略
-- `agent_step_harness.py` — 旧 imports 路径兼容导出；权威实现已迁至 `infrastructure/llm/agent_step_harness.py`
+- 受控 LLM step 统一从 `infrastructure/llm/agent_step_harness.py` 导入
 
 这些文件不改变 HTTP API 或数据库 schema。`async_tasks.result` 会额外返回
 向后兼容的 `phase_artifacts`，用于记录真实服务分阶段 compact artifact、

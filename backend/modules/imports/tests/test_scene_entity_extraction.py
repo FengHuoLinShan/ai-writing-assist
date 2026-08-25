@@ -46,15 +46,6 @@ from modules.imports.llm_schemas import (
 )
 
 
-def test_phase2_runtime_protocol_remains_import_compatible() -> None:
-    from modules.imports.entity_extraction import SceneEntityExtractionRuntime
-    from modules.imports.entity_extraction.scene_entity_runtime import (
-        SceneEntityExtractionRuntime as RuntimeFromModule,
-    )
-
-    assert SceneEntityExtractionRuntime is RuntimeFromModule
-
-
 def test_phase2a_snapshot_replays_prompt_context_but_keeps_source_ids_audit_only() -> (
     None
 ):

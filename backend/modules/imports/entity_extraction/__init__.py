@@ -13,7 +13,6 @@ from modules.imports.entity_extraction import (  # noqa: F401
     scene_entity_llm_adapters,
     scene_entity_parallel,
     scene_entity_persistence,
-    scene_entity_runtime,
     scene_entity_single_scene,
     scene_entity_snapshots,
     scene_entity_strategy,
@@ -107,9 +106,6 @@ from modules.imports.entity_extraction.scene_entity_persistence import (
     SceneEntityPersistenceGateway,
     entity_key,
 )
-from modules.imports.entity_extraction.scene_entity_runtime import (
-    SceneEntityExtractionRuntime,
-)
 from modules.imports.entity_extraction.scene_entity_single_scene import (
     SingleSceneEntityExtractor,
 )
@@ -179,7 +175,6 @@ __all__ = [
     "PHASE2_SMALL_SAMPLE_TARGET_ENTITIES",
     "ParallelSceneEntityExtractor",
     "Phase2ExtractionRoute",
-    "SceneEntityExtractionRuntime",
     "SceneEntityExtractionService",
     "SceneEntityExtractionStrategySelector",
     "SceneEntityPersistenceGateway",

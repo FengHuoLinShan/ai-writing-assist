@@ -276,3 +276,31 @@ class TestCrudServiceDelete:
         with pytest.raises(NotFoundError) as exc:
             await svc.delete(None, ENTITY_ID, novel_id=NOVEL_ID)
         assert exc.value.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "service_factory",
+    ["WorldEntityService", "EntityRelationService", "EventService", "CharacterService"],
+)
+@pytest.mark.asyncio
+async def test_world_services_require_keyword_only_novel_id(service_factory):
+    from modules.world.services import (
+        CharacterService,
+        EntityRelationService,
+        EventService,
+        WorldEntityService,
+    )
+
+    service = {
+        "WorldEntityService": WorldEntityService,
+        "EntityRelationService": EntityRelationService,
+        "EventService": EventService,
+        "CharacterService": CharacterService,
+    }[service_factory]()
+
+    with pytest.raises(TypeError):
+        await service.get(None, "x")
+    with pytest.raises(TypeError):
+        await service.update(None, "x", None)
+    with pytest.raises(TypeError):
+        await service.delete(None, "x")
