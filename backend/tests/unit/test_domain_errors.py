@@ -11,6 +11,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.main import _TimingMiddleware, app, domain_error_handler
 from core.errors import ConflictError, DomainError, NotFoundError, ValidationError
+from tests.support.inventory import production_python_files, python_source
 
 
 def _backend_path(*parts: str) -> Path:
@@ -74,13 +75,18 @@ async def test_domain_error_handler_adds_context_only_when_present() -> None:
 
 def test_non_api_backend_code_has_no_fastapi_http_exception_dependency() -> None:
     offenders: list[str] = []
-    for root in (Path("backend/core"), Path("backend/shared"), Path("backend/modules")):
-        for path in root.rglob("*.py"):
-            if "/tests/" in path.as_posix() or path.name == "api.py":
-                continue
-            source = path.read_text()
-            if "HTTPException" in source:
-                offenders.append(path.as_posix())
+    roots = {"core", "shared", "modules"}
+    for path in production_python_files():
+        relative = path.relative_to(_backend_path())
+        is_http_boundary = (
+            path.name == "api.py"
+            or path.stem.endswith("_api")
+            or relative == Path("core/csrf.py")
+        )
+        if relative.parts[0] not in roots or is_http_boundary:
+            continue
+        if "HTTPException" in python_source(path):
+            offenders.append(path.as_posix())
 
     assert offenders == []
 

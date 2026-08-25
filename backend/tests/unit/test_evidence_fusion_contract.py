@@ -3,20 +3,18 @@
 from __future__ import annotations
 
 import ast
-from pathlib import Path
 
-BACKEND_ROOT = Path(__file__).resolve().parents[2]
+from tests.support.inventory import MODULES_ROOT, module_python_files, python_ast
 
 
 def test_business_consumers_use_only_evidence_facade_or_contracts() -> None:
     violations: list[str] = []
-    modules_root = BACKEND_ROOT / "modules"
     excluded = {"evidence"}
-    for path in modules_root.rglob("*.py"):
-        relative = path.relative_to(modules_root)
-        if relative.parts[0] in excluded or "tests" in relative.parts:
+    for path in module_python_files():
+        relative = path.relative_to(MODULES_ROOT)
+        if relative.parts[0] in excluded:
             continue
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        tree = python_ast(path)
         for node in ast.walk(tree):
             names: list[str] = []
             if isinstance(node, ast.Import):

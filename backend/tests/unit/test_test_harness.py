@@ -62,6 +62,11 @@ def test_repository_inventory_caches_files_sources_and_asts() -> None:
     assert support_file in inventory
     assert support_file in repository_test_python_files()
     assert support_file not in production_python_files()
+    assert all(
+        "__pycache__" not in path.parts
+        and not any(part.startswith(".") for part in path.relative_to(BACKEND_ROOT).parts)
+        for path in inventory
+    )
     assert python_source(support_file) is python_source(support_file)
     assert python_ast(support_file) is python_ast(support_file)
 

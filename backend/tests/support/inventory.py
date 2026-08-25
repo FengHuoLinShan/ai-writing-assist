@@ -8,6 +8,7 @@ assertions and file filters without repeatedly walking and parsing the tree.
 from __future__ import annotations
 
 import ast
+import os
 from functools import cache
 from pathlib import Path
 
@@ -18,16 +19,16 @@ MODULES_ROOT = BACKEND_ROOT / "modules"
 @cache
 def repository_python_files() -> tuple[Path, ...]:
     """Return the cached, non-hidden Python file inventory for the backend."""
-    return tuple(
-        sorted(
-            path
-            for path in BACKEND_ROOT.rglob("*.py")
-            if not any(
-                part.startswith(".")
-                for part in path.relative_to(BACKEND_ROOT).parts
-            )
+    paths: list[Path] = []
+    for directory, children, filenames in os.walk(BACKEND_ROOT, topdown=True):
+        children[:] = sorted(
+            name
+            for name in children
+            if not name.startswith(".") and name != "__pycache__"
         )
-    )
+        root = Path(directory)
+        paths.extend(root / name for name in filenames if name.endswith(".py"))
+    return tuple(sorted(paths))
 
 
 def module_python_files(*, include_tests: bool = False) -> tuple[Path, ...]:
