@@ -187,6 +187,8 @@ describe("ragIsland", () => {
     globalThis.api.world.listCharacters = vi.fn(async () => ({ items: [], total: 0 }))
     globalThis.api.outline.listScenesOrdered = vi.fn(async () => [])
     await views.rag.onEnter()
+    expect(globalThis.api.world.listCharacters).not.toHaveBeenCalled()
+    expect(globalThis.api.outline.listScenesOrdered).not.toHaveBeenCalled()
     document.body.innerHTML = '<div id="workspace-content"></div>'
     const content = document.getElementById("workspace-content")
     content.innerHTML = views.rag.render()

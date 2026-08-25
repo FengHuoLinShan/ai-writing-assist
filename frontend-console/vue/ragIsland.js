@@ -45,6 +45,7 @@ async function loadRag() {
   }
 
   const api = getApi()
+  const needsSearchAssets = (state?.currentSubView || "search") === "search"
   const statusPromise = (async () => {
     try {
       const status = await api.rag.status(projectId)
@@ -69,6 +70,7 @@ async function loadRag() {
   })()
 
   const charactersPromise = (async () => {
+    if (!needsSearchAssets) return []
     if (!api.world?.listCharacters) return []
     try {
       return await loadAllCharacters(projectId)
@@ -78,6 +80,7 @@ async function loadRag() {
   })()
 
   const scenesPromise = (async () => {
+    if (!needsSearchAssets) return []
     if (!api.outline?.listScenesOrdered) return []
     try {
       const result = await api.outline.listScenesOrdered(projectId)
