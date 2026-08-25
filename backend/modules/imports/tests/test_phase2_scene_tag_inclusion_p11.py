@@ -22,7 +22,7 @@ async def test_phase2_scene_loader_keeps_valley_and_transition(
         return expected
 
     monkeypatch.setattr(
-        "modules.outline.facade.get_scenes_by_novel",
+        "modules.story.facade.get_scenes_by_novel",
         fake_get_scenes,
     )
 
@@ -58,7 +58,7 @@ async def test_phase2_coverage_counts_valley_and_transition(
         ]
 
     monkeypatch.setattr(
-        "modules.outline.facade.get_scenes_by_novel",
+        "modules.story.facade.get_scenes_by_novel",
         fake_get_scenes,
     )
 

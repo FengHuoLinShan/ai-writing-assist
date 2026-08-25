@@ -1,8 +1,9 @@
 # Compatibility alias: memory / 长期记忆模块
 
 > `memory` is no longer an independent production module. Its implementation
-> lives under `modules.story.continuity`; this package is retained for one
-> release as a thin import/API/model/schema compatibility layer. New backend
+> lives under `modules.story.continuity`; this package is retained only until
+> the canonical-preparation SHA has been released and verified as a thin
+> import/model/schema compatibility layer. New backend
 > consumers must use `modules.story.facade` / `modules.story.contracts`, while
 > `/api/novels/{novel_id}/memories` and existing task names remain unchanged.
 

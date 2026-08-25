@@ -4,8 +4,6 @@
  * 绕过前端，直接调用后端 REST API 创建/清理测试数据。
  */
 
-import "../../apiContracts.js"
-
 const backendPort = process.env.BACKEND_PORT || "8000"
 const rawApiHost = process.env.API_HOST || `http://localhost:${backendPort}`
 export const API_HOST = rawApiHost.endsWith("/api") ? rawApiHost.slice(0, -4) : rawApiHost
@@ -71,16 +69,6 @@ async function request(path, options = {}) {
   }
 }
 
-async function requestContract(name, params = {}, query = {}, options = {}) {
-  const requestSpec = globalThis.apiContracts.contractRequest(
-    name,
-    params,
-    query,
-    options,
-  )
-  return request(requestSpec.path, requestSpec.options)
-}
-
 export async function createProject(payload) {
   return request("/projects", {
     method: "POST",
@@ -89,14 +77,14 @@ export async function createProject(payload) {
 }
 
 export async function connectAccountLLMProvider(providerId, apiKey) {
-  return request(`/settings/llm-connections/${providerId}`, {
+  return request(`/account/settings/llm-connections/${providerId}`, {
     method: "PUT",
     body: JSON.stringify({ api_key: apiKey }),
   })
 }
 
 export async function clearAccountLLMProvider(providerId) {
-  return request(`/settings/llm-connections/${providerId}`, {
+  return request(`/account/settings/llm-connections/${providerId}`, {
     method: "DELETE",
   })
 }

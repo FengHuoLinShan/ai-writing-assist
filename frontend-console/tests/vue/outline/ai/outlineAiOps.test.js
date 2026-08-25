@@ -38,7 +38,6 @@ import {
   persistActiveWorkflow,
   recoverActiveWorkflows,
   clearActiveWorkflow,
-  normalizeTaskProgress,
 } from "../../../../shared/workflowProgress.js"
 import {
   outlineGenerateManager,
@@ -118,7 +117,7 @@ describe("showOutlineLayerAiForm", () => {
   it("无总纲时提示并导航到 story-outline", async () => {
     const router = { refresh: vi.fn(), navigate: vi.fn() }
     const toast = vi.fn()
-    const bridge = setupBridge({
+    setupBridge({
       api: { outline: { getStoryOutline: vi.fn(async () => ({})) } },
       router,
       toast,

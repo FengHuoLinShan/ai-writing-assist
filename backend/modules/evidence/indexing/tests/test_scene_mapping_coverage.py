@@ -6,7 +6,7 @@ import pytest
 
 from modules.evidence.indexing.facade import get_scene_mapping_coverage
 from modules.evidence.indexing.models import RagChunk
-from modules.outline.models import Scene, SceneSpan
+from modules.story.outline_state.models import Scene, SceneSpan
 
 
 @pytest.mark.asyncio

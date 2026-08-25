@@ -149,7 +149,7 @@ async def test_outline_ai_apis_enqueue_domain_tasks_after_confirmation(
         assert outline_resp.status_code == 201, outline_resp.text
 
     confirmation_resp = await async_client.post(
-        "/api/context/confirm",
+        "/api/evidence/compilation/confirm",
         json={
             "novel_id": novel_id,
             "action": action,
@@ -206,7 +206,7 @@ async def test_p20_requires_explicit_no_eviction_confirmation(
     )
     assert outline_resp.status_code == 201
     confirmation_resp = await async_client.post(
-        "/api/context/confirm",
+        "/api/evidence/compilation/confirm",
         json={
             "novel_id": novel_id,
             "action": "outline.generate",

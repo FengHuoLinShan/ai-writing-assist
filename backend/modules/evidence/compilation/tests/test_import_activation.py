@@ -194,8 +194,8 @@ async def test_import_activation_excludes_future_span_from_cross_chapter_scene(
     db_session,
     test_project_id,
 ) -> None:
-    from modules.outline.repositories import SceneRepository
-    from modules.outline.schemas import SceneCreate
+    from modules.story.outline_state.repositories import SceneRepository
+    from modules.story.outline_state.schemas import SceneCreate
     from modules.world.facade import create_entity
     from modules.writing.facade import create_draft_only
 
@@ -271,8 +271,8 @@ async def test_import_activation_pages_through_all_relevant_relations(
     db_session,
     test_project_id,
 ) -> None:
-    from modules.outline.repositories import SceneRepository
-    from modules.outline.schemas import SceneCreate
+    from modules.story.outline_state.repositories import SceneRepository
+    from modules.story.outline_state.schemas import SceneCreate
     from modules.world.facade import create_entity, create_relation
     from modules.writing.facade import create_draft_only
 
@@ -316,11 +316,11 @@ async def test_import_activation_pages_through_all_relevant_relations(
             db_session,
             test_project_id,
             {
-                    "source_id": str(source["id"]),
-                    "target_id": str(target["id"]),
-                    "relation_type": f"noise-{index:02d}",
-                    "relation_kind": "state",
-                },
+                "source_id": str(source["id"]),
+                "target_id": str(target["id"]),
+                "relation_type": f"noise-{index:02d}",
+                "relation_kind": "state",
+            },
         )
 
     activation = await prepare_import_context_activation(

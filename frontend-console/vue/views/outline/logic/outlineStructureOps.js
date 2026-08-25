@@ -7,12 +7,10 @@
  */
 import { getApi, getAppState, getConfirmAction, getEsc, getRouter, getShowModalHtml, getToast } from "../../../bridge/index.js"
 import { structureAssetDisplay } from "../../../../shared/assetDisplayState.js"
-import { runBulkAction, bulkResultMessage, selectedItemsFrom, getBulkSelection, clearBulkSelection, clearAllBulkSelections } from "./outlineBulkSelection.js"
+import { runBulkAction, bulkResultMessage, selectedItemsFrom, getBulkSelection, clearBulkSelection } from "./outlineBulkSelection.js"
 import {
-  ENTITY_ALLOWED_STATUSES,
   FORESHADOWING_STATUSES,
   FORESHADOWING_STATUS_LABELS,
-  P20_TARGET_BY_SUBVIEW,
   REVEAL_STATUSES,
   REVEAL_STATUS_LABELS,
 } from "./outlineStructure.js"
@@ -25,14 +23,6 @@ export function assetProvenance(asset) {
   return asset?.provenance_meta && typeof asset.provenance_meta === "object"
     ? asset.provenance_meta
     : {}
-}
-
-function structureReviewState(asset) {
-  const meta = assetProvenance(asset)
-  return {
-    reviewed: Boolean(meta.reviewed_at),
-    needsReview: meta.needs_review === true,
-  }
 }
 
 function reviewThreadPayload(thread, reviewedFrom) {
@@ -139,7 +129,6 @@ async function refreshCurrentView(scope, ownsModal = () => true) {
 
 export function showCreateForeshadowingForm(guessLastChapter) {
   const scope = captureOutlineOperationScope()
-  const esc = getEsc()
   const toast = getToast()
   const showModalHtml = getShowModalHtml()
   const defaultChapter = (guessLastChapter && guessLastChapter()) || 1
@@ -274,7 +263,6 @@ export async function updateForeshadowingStatus(id, newStatus) {
 
 export function showCreateRevealForm(guessLastChapter, buildForeshadowingOptions) {
   const scope = captureOutlineOperationScope()
-  const esc = getEsc()
   const toast = getToast()
   const showModalHtml = getShowModalHtml()
   const defaultChapter = (guessLastChapter && guessLastChapter()) || 1
@@ -465,7 +453,6 @@ export async function assignInformationPlan(planId, kind, threadId, unassignedFo
 
 export function showCreateThreadForm() {
   const scope = captureOutlineOperationScope()
-  const esc = getEsc()
   const toast = getToast()
   const showModalHtml = getShowModalHtml()
   const formHtml = `
@@ -610,7 +597,6 @@ export function deleteThread(id) {
 
 export function showCreateArcForm() {
   const scope = captureOutlineOperationScope()
-  const esc = getEsc()
   const toast = getToast()
   const showModalHtml = getShowModalHtml()
   const formHtml = `

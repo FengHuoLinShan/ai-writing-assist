@@ -142,24 +142,3 @@ async def _close_service(service: Any) -> None:
     result = close()
     if inspect.isawaitable(result):
         await result
-
-
-class Injected:
-    """描述符 — 延迟从容器获取服务。
-
-    用法:
-        class RagService:
-            list_characters = Injected("world.list_characters")
-
-            async def some_method(self, db, novel_id):
-                chars = await self.list_characters(db, novel_id)
-    """
-
-    def __init__(self, name: str) -> None:
-        self._name = name
-
-    def __set_name__(self, owner: type, name: str) -> None:
-        self._attr = name
-
-    def __get__(self, obj: object, objtype: type | None = None) -> Any:
-        return get(self._name)

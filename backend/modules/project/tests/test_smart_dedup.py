@@ -193,7 +193,7 @@ async def test_smart_dedup_apply_dispatches_by_asset_type(
         fake_world_apply,
     )
     monkeypatch.setattr(
-        "modules.outline.facade.apply_structure_dedup",
+        "modules.story.facade.apply_structure_dedup",
         fake_outline_apply,
     )
 
@@ -276,7 +276,7 @@ async def test_smart_dedup_scan_sets_recommended_primary(
         fake_world_suggest,
     )
     monkeypatch.setattr(
-        "modules.outline.facade.suggest_structure_dedup",
+        "modules.story.facade.suggest_structure_dedup",
         fake_outline_suggest,
     )
 
@@ -327,7 +327,7 @@ async def test_smart_dedup_scan_marks_alias_derived_title_conflict_high_risk(
         fake_world_suggest,
     )
     monkeypatch.setattr(
-        "modules.outline.facade.suggest_structure_dedup",
+        "modules.story.facade.suggest_structure_dedup",
         fake_outline_suggest,
     )
 

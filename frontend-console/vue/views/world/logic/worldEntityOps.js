@@ -348,7 +348,7 @@ function mountEntityImagePreview(entity, projectId) {
         imageUrl = ""
       }
       preview.src = url
-    } catch (err) {
+    } catch {
       if (ownsPreview() && !controller.signal.aborted) {
         status.textContent = "图片加载失败，不影响保存"
       }
@@ -497,7 +497,6 @@ export function showEntityCreateForm(initial = {}) {
 /** 对应 vanilla editEntity。 */
 export function editEntity(id) {
   const esc = getEsc()
-  const toast = getToast()
   const showModalHtml = getShowModalHtml()
   const entity = findEntity(id)
   if (!entity) return
@@ -727,7 +726,6 @@ export async function acceptCandidate(id) {
 
 /** 对应 vanilla ignoreCandidate。 */
 export async function ignoreCandidate(id) {
-  const esc = getEsc()
   const toast = getToast()
   const candidate = findCandidate(id)
   const isTemporary = candidateAction(candidate) === "temporary_only"

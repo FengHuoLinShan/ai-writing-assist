@@ -1706,8 +1706,8 @@ class TestContextSceneIsolation:
         db_session: AsyncSession,
     ) -> None:
         from modules.evidence.compilation.services.loaders.scene_loader import SceneLoader
-        from modules.outline.repositories import SceneRepository
-        from modules.outline.schemas import SceneCreate
+        from modules.story.outline_state.repositories import SceneRepository
+        from modules.story.outline_state.schemas import SceneCreate
 
         owner_novel = str(uuid.uuid4())
         other_novel = str(uuid.uuid4())
@@ -1748,8 +1748,8 @@ class TestContextSceneIsolation:
         from modules.evidence.compilation.services.constraint_engine import (
             ConstraintEngine,
         )
-        from modules.outline.repositories import SceneRepository
-        from modules.outline.schemas import SceneCreate
+        from modules.story.outline_state.repositories import SceneRepository
+        from modules.story.outline_state.schemas import SceneCreate
 
         owner_novel = str(uuid.uuid4())
         other_scene = await SceneRepository().create(
@@ -1800,21 +1800,21 @@ class TestContextSceneIsolation:
         await db_session.commit()
 
         list_response = await async_client.get(
-            "/api/context/snapshots",
+            "/api/evidence/compilation/snapshots",
             params={"novel_id": owner_novel, "workflow_id": "wf-api"},
         )
         assert list_response.status_code == 200, list_response.text
         assert [item["id"] for item in list_response.json()["items"]] == [created.id]
 
         detail_response = await async_client.get(
-            f"/api/context/snapshots/{created.id}",
+            f"/api/evidence/compilation/snapshots/{created.id}",
             params={"novel_id": owner_novel},
         )
         assert detail_response.status_code == 200, detail_response.text
         assert detail_response.json()["id"] == created.id
 
         forbidden = await async_client.get(
-            f"/api/context/snapshots/{created.id}",
+            f"/api/evidence/compilation/snapshots/{created.id}",
             params={"novel_id": other_novel},
         )
         assert forbidden.status_code == 404
@@ -1862,7 +1862,7 @@ class TestContextSceneIsolation:
         await db_session.commit()
 
         list_response = await async_client.get(
-            "/api/context/snapshots",
+            "/api/evidence/compilation/snapshots",
             params={"novel_id": novel_id, "workflow_id": "wf-light", "limit": 1},
         )
         assert list_response.status_code == 200, list_response.text
@@ -1872,7 +1872,7 @@ class TestContextSceneIsolation:
         assert list_data["items"][0]["has_rendered_context"] is True
 
         detail_response = await async_client.get(
-            f"/api/context/snapshots/{first.id}",
+            f"/api/evidence/compilation/snapshots/{first.id}",
             params={"novel_id": novel_id},
         )
         assert detail_response.status_code == 200, detail_response.text
@@ -2176,7 +2176,7 @@ class TestContextSceneIsolation:
         await db_session.commit()
 
         response = await async_client.post(
-            "/api/context/snapshots/maintenance",
+            "/api/evidence/compilation/snapshots/maintenance",
             json={
                 "novel_id": owner_novel,
                 "workflow_id": "wf-maint-api",
@@ -2189,11 +2189,11 @@ class TestContextSceneIsolation:
         assert data["snapshot_health_summary"]["total_snapshots"] == 1
 
         owner_detail = await async_client.get(
-            f"/api/context/snapshots/{owner.id}",
+            f"/api/evidence/compilation/snapshots/{owner.id}",
             params={"novel_id": owner_novel},
         )
         other_detail = await async_client.get(
-            f"/api/context/snapshots/{other.id}",
+            f"/api/evidence/compilation/snapshots/{other.id}",
             params={"novel_id": other_novel},
         )
         assert owner_detail.json()["status"] == "failed"
@@ -2301,7 +2301,7 @@ class TestContextConfirmation:
         await _add_active_project(db_session, novel_id)
 
         response = await async_client.post(
-            "/api/context/compile",
+            "/api/evidence/compilation/compile",
             json={
                 "novel_id": novel_id,
                 "task": "生成第 1 章正文草稿",
@@ -2344,7 +2344,7 @@ class TestContextConfirmation:
         await _add_active_project(db_session, novel_id)
 
         response = await async_client.post(
-            "/api/context/confirm",
+            "/api/evidence/compilation/confirm",
             json={
                 "novel_id": novel_id,
                 "action": "writing.generate",
@@ -2406,7 +2406,7 @@ class TestContextConfirmation:
         await _add_active_project(db_session, novel_id)
 
         response = await async_client.post(
-            "/api/context/confirm",
+            "/api/evidence/compilation/confirm",
             json={
                 "novel_id": novel_id,
                 "action": "writing.generate",
@@ -2439,7 +2439,7 @@ class TestContextConfirmation:
         await _add_active_project(db_session, novel_id)
 
         response = await async_client.post(
-            "/api/context/compile",
+            "/api/evidence/compilation/compile",
             json={
                 "novel_id": novel_id,
                 "task": "生成第 1 章正文草稿",
@@ -2678,12 +2678,12 @@ class TestContextConfirmation:
         async_client: AsyncClient,
         db_session: AsyncSession,
     ) -> None:
-        """POST /api/context/confirm 应重新编译并保存确认摘要。"""
+        """POST /api/evidence/compilation/confirm 应重新编译并保存确认摘要。"""
         novel_id = "00000000-0000-0000-0000-00000000a101"
         await _add_active_project(db_session, novel_id)
 
         response = await async_client.post(
-            "/api/context/confirm",
+            "/api/evidence/compilation/confirm",
             json={
                 "novel_id": novel_id,
                 "action": "writing.generate",
@@ -3289,7 +3289,7 @@ class TestContextApiIntegration:
         )
 
         response = await async_client.post(
-            "/api/context/compile",
+            "/api/evidence/compilation/compile",
             json={
                 "novel_id": novel_id,
                 "task": "生成场景",
@@ -3322,7 +3322,7 @@ class TestContextApiIntegration:
         )
 
         response = await async_client.post(
-            "/api/context/compile",
+            "/api/evidence/compilation/compile",
             json={
                 "novel_id": novel_id,
                 "task": "生成场景",
@@ -3356,7 +3356,7 @@ class TestContextApiIntegration:
         )
 
         response = await async_client.post(
-            "/api/context/compile",
+            "/api/evidence/compilation/compile",
             json={
                 "novel_id": novel_id,
                 "task": "生成场景",
@@ -3384,7 +3384,7 @@ class TestContextApiIntegration:
         db_session: AsyncSession,
         async_client: AsyncClient,
     ) -> None:
-        """/api/context/render 应返回包含 Tier 标题的 markdown"""
+        """/api/evidence/compilation/render 应返回包含 Tier 标题的 markdown"""
         from modules.project.models import Project
 
         nid = uuid.uuid4()
@@ -3399,7 +3399,7 @@ class TestContextApiIntegration:
         await db_session.flush()
 
         response = await async_client.post(
-            "/api/context/render",
+            "/api/evidence/compilation/render",
             json={
                 "novel_id": nid.hex,
                 "task": "测试渲染",

@@ -52,7 +52,7 @@ Spec 的显式需求优先于实现细节；Spec 内部矛盾应停止并请求 
 `infrastructure/llm` 与 `infrastructure/tasks` 是共享基础层；`map` 是 `world` 拥有的 AI 地图册子系统。
 当前业务模块共 8 个：`account`、`project`、`imports`、`world`、`evidence`、`story`、
 `writing`、`interaction`。Story 内部的 `outline_state` 与 `continuity` 吸收原 outline/memory
-唯一生产实现；旧包只保留一发布周期兼容别名。RAG 索引与 Context 编译/确认归 `evidence`；
+唯一生产实现；旧包只保留待固定 SHA 发布核验后删除的兼容别名。RAG 索引与 Context 编译/确认归 `evidence`；
 账户连接与全局偏好归 `account`，项目偏好与有效配置归
 `project`；`account` 是公开身份与 owner 边界，
 `interaction` 是 RP 私人故事领域，二者都不属于作者小说创作资产三层；
@@ -60,7 +60,8 @@ Spec 的显式需求优先于实现细节；Spec 内部矛盾应停止并请求 
 依赖目标。
 所有者 canonical API 为 `/api/evidence/{indexing,compilation}/*`、
 `/api/account/settings/*` 和 `/api/projects/{project_id}/author-preferences`；
-`/api/rag/*`、`/api/context/*`、`/api/settings/*` 仅是同一 handler 的一发布周期兼容挂载。
+`/api/rag/*`、`/api/context/*`、`/api/settings/*` 仅是同一 handler 的待退场兼容挂载；
+主动调用已迁入 canonical 路径，只在准备版本固定 SHA 发布核验后删除。
 
 - Backend API：`backend/app/main.py`；worker：`backend/run_worker.py`；前端：
   `frontend-console/index.html`。

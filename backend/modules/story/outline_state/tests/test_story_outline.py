@@ -8,7 +8,7 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.outline.models import (
+from modules.story.outline_state.models import (
     ForeshadowingPlan,
     OutlineArc,
     PlotThread,

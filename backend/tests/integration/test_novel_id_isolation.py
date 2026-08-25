@@ -178,14 +178,14 @@ class TestNovelIdIsolation:
         # Arrange
         nid_a, _ = await self._create_project_and_entity(async_client, "A")
         await async_client.post(
-            "/api/rag/chunks",
+            "/api/evidence/indexing/chunks",
             params={"novel_id": nid_a},
             json={"source_type": "text", "text": "A 的机密内容"},
         )
 
         # Act
         resp = await async_client.post(
-            "/api/rag/retrieve",
+            "/api/evidence/indexing/retrieve",
             params={"novel_id": "00000000-0000-0000-0000-000000000000"},
             json={"query": "机密", "top_k": 10},
         )

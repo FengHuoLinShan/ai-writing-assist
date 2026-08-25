@@ -336,7 +336,7 @@ ok
 - 相关测试：context 单测、context E2E、hidden_truth/知识边界集成测试
 
 必须满足：
-- API 支持 POST /api/context/compile 和 POST /api/context/render。
+- API 支持 POST /api/evidence/compilation/compile 和 POST /api/evidence/compilation/render。
 - 编译输出包含 9 段 Tier：Writing Objective、Scene Blueprint、POV Knowledge、Delta Timeline、Open Narrative Obligations、Retrieval Evidence Packs、Style Assets、Hard Constraints、Compiler Warnings。
 - P0 段永不截断；Tier 驱逐顺序为 P4 -> P3 -> P2 -> P1，P0 保留。
 - reveal_mode 支持 author_safe / character 等现有模式；character 模式必须要求 viewpoint_character_id。

@@ -8,14 +8,14 @@ from unittest import mock
 
 import pytest
 
-from modules.outline.generation.models import (
+from modules.story.outline_state.generation.models import (
     GeneratedArc,
     GeneratedScene,
     GeneratedThread,
 )
-from modules.outline.generation.parser import ParsedPlotStructure
-from modules.outline.generation.persister import PlotStructurePersister
-from modules.outline.schemas import (
+from modules.story.outline_state.generation.parser import ParsedPlotStructure
+from modules.story.outline_state.generation.persister import PlotStructurePersister
+from modules.story.outline_state.schemas import (
     ForeshadowingPlanResponse,
     OutlineArcResponse,
     PlotThreadResponse,
@@ -248,7 +248,10 @@ async def test_persist_creates_foreshadowing_and_reveal(
     persister: PlotStructurePersister,
 ) -> None:
     """persister 也写入 foreshadowing / reveal plan。"""
-    from modules.outline.generation.models import ForeshadowingPlan, RevealPlan
+    from modules.story.outline_state.generation.models import (
+        ForeshadowingPlan,
+        RevealPlan,
+    )
 
     parsed = ParsedPlotStructure(
         threads=[],

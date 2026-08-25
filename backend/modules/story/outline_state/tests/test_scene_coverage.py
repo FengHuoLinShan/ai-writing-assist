@@ -4,8 +4,8 @@ import uuid
 
 import pytest
 
-from modules.outline.facade import get_scene_span_coverage
-from modules.outline.models import Scene, SceneSpan
+from modules.story.outline_state.facade import get_scene_span_coverage
+from modules.story.outline_state.models import Scene, SceneSpan
 
 
 @pytest.mark.asyncio

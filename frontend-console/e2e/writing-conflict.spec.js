@@ -49,10 +49,7 @@ test.describe("写作工作台 — 版本冲突", () => {
 
   test("409 冲突 — 其他会话已发布新版本", async ({ page }) => {
     // Step 1: 通过 API 创建 v1 草稿
-    const d1 = await createDraft(testProjectId, 1, "v1 标题", "v1 内容")
-
-    const draftId = d1.draft.id
-    const v1Number = d1.draft.version_number
+    await createDraft(testProjectId, 1, "v1 标题", "v1 内容")
 
     // Step 2: 真实导航加载第 1 章 v1
     await reloadWorkbench(page, "writing")
@@ -73,7 +70,7 @@ test.describe("写作工作台 — 版本冲突", () => {
 
   test("409 冲突 — 其他 Tab 已暂存同一草稿", async ({ browser }) => {
     // Step 1: 通过 API 创建 v1 草稿
-    const d1 = await createDraft(testProjectId, 1, "v1 标题", "v1 内容")
+    await createDraft(testProjectId, 1, "v1 标题", "v1 内容")
 
     // Step 2: 打开两个 Tab
     const context = await browser.newContext()

@@ -95,7 +95,7 @@ describe("errorLogger scoped buckets", () => {
   it("omits request bodies and redacts credentials before storage and upload", () => {
     window.errorLog._lastApiError = {
       method: "PUT",
-      url: "/settings/project?api_key=query-secret",
+      url: "/account/settings/project?api_key=query-secret",
       status: 422,
       response: {
         detail: "Bearer response-secret",

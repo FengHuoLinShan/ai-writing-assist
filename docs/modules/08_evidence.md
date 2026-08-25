@@ -100,7 +100,7 @@ loader 的外部调度契约仍由 `SCOPE_LOADERS` 与各 loader `name` 决定�
 scene checkpoints` 的固定顺序只读。服务端校验 Scene 属于请求项目与章节，
 从 Scene 推导 POV，并始终以请求章节作为可见性截止点。它只读已有 checkpoint，
 不调用 ensure；没有显式关联对象时不回退全项目对象，也不包含 RAG、
-embedding 或 retrieval trace。`POST /api/context/scene-lens` 先经过 owner-aware
+embedding 或 retrieval trace。`POST /api/evidence/compilation/scene-lens` 先经过 owner-aware
 `require_active_project()`，响应项只公开作者语言的 `label + summary + availability`
 及 warnings。
 
@@ -201,7 +201,7 @@ character 模式下，前端完整展示 `role_visible_knowledge`，并把它与
 已采用对象；开启时额外取 review 对象但始终排除历史，并在编译结果中加入“包含未采用的
 世界对象”警告。context confirmation 和 snapshot 是调用审计，不表示建议已被采用。
 
-`POST /api/context/confirm` 会落库一条 `context_confirmations`，并在响应中返回本次编译的 `sections` 和 `budget_events` 供前端展示。这些展示详情不持久化；持久化仍只保存 `selected_asset_ids`、`compile_options`、`warnings`、`result_refs`、`stale_reasons` 等摘要。
+`POST /api/evidence/compilation/confirm` 会落库一条 `context_confirmations`，并在响应中返回本次编译的 `sections` 和 `budget_events` 供前端展示。这些展示详情不持久化；持久化仍只保存 `selected_asset_ids`、`compile_options`、`warnings`、`result_refs`、`stale_reasons` 等摘要。
 其中 `compile_options.chapter_index` 是实际检索锚点，而 `requested_chapter_index` 是作者确认的
 目标章节；两者在普通单章确认中相同。跨章 Scene 使用末章提高相关性时，必须保留后者，避免
 writing 将同一确认错误复用于锚点章节。
@@ -298,35 +298,35 @@ Lifecycle v1 为快照提供显式维护入口：
 ## API
 
 Evidence 是唯一实现。canonical 路径分别使用 `/api/evidence/indexing/*` 与
-`/api/evidence/compilation/*`；为了让现有前端与调用方平滑过渡，下列 `/api/rag/*` 和
-`/api/context/*` 路径保留一发布周期。canonical 与兼容路径挂载同一 endpoint，不存在双
-handler、双服务或双写。下表列出兼容路径；canonical 路径只替换对应前缀，suffix 与 wire
-response 完全一致。
+`/api/evidence/compilation/*`，主动调用方已全部迁入 canonical 路径。`/api/rag/*` 和
+`/api/context/*` 仍作为同 endpoint 兼容挂载，不存在双 handler、双服务或双写；
+待准备版本固定 SHA 完成一次生产发布并核验后删除。下表列出 canonical 路径，兼容
+路径只替换对应前缀，suffix 与 wire response 完全一致。
 
 ```http
-POST /api/rag/chunks
-GET  /api/rag/chunks
-POST /api/rag/retrieve
-POST /api/rag/rebuild
-POST /api/rag/retry-embeddings
-POST /api/context/compile
-POST /api/context/render
-POST /api/context/confirm
-POST /api/context/recompile
-GET  /api/context/snapshots
-GET  /api/context/snapshots/{snapshot_id}
-POST /api/context/snapshots/maintenance
-POST /api/context/evidence/grep
-POST /api/context/evidence/search
-POST /api/context/evidence/read
-POST /api/context/evidence/inspect
-POST /api/context/evidence/trace
-GET/POST /api/context/activation-profiles
-PATCH /api/context/activation-profiles/{profile_id}
-POST /api/context/activation-profiles/{profile_id}/publish
-GET /api/context/activation-profiles/{profile_id}/revisions
-POST /api/context/activation-profiles/{profile_id}/revisions/{version}/restore-draft
-GET/POST /api/context/activation-preview
+POST /api/evidence/indexing/chunks
+GET  /api/evidence/indexing/chunks
+POST /api/evidence/indexing/retrieve
+POST /api/evidence/indexing/rebuild
+POST /api/evidence/indexing/retry-embeddings
+POST /api/evidence/compilation/compile
+POST /api/evidence/compilation/render
+POST /api/evidence/compilation/confirm
+POST /api/evidence/compilation/recompile
+GET  /api/evidence/compilation/snapshots
+GET  /api/evidence/compilation/snapshots/{snapshot_id}
+POST /api/evidence/compilation/snapshots/maintenance
+POST /api/evidence/compilation/evidence/grep
+POST /api/evidence/compilation/evidence/search
+POST /api/evidence/compilation/evidence/read
+POST /api/evidence/compilation/evidence/inspect
+POST /api/evidence/compilation/evidence/trace
+GET/POST /api/evidence/compilation/activation-profiles
+PATCH /api/evidence/compilation/activation-profiles/{profile_id}
+POST /api/evidence/compilation/activation-profiles/{profile_id}/publish
+GET /api/evidence/compilation/activation-profiles/{profile_id}/revisions
+POST /api/evidence/compilation/activation-profiles/{profile_id}/revisions/{version}/restore-draft
+GET/POST /api/evidence/compilation/activation-preview
 ```
 
 ## 不做

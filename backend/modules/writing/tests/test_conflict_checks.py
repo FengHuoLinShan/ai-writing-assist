@@ -122,7 +122,7 @@ async def _create_context_confirmation(
     if scene_id:
         payload["scene_id"] = scene_id
     resp = await async_client.post(
-        "/api/context/confirm",
+        "/api/evidence/compilation/confirm",
         json=payload,
     )
     assert resp.status_code == 201, resp.text

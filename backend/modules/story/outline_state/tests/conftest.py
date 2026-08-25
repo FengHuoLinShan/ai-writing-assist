@@ -6,7 +6,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.outline.schemas import OutlineArcCreate, PlotThreadCreate
+from modules.story.outline_state.schemas import OutlineArcCreate, PlotThreadCreate
 
 
 @pytest_asyncio.fixture
@@ -73,7 +73,7 @@ async def sample_thread(
     sample_novel_id: str,
     thread_data: PlotThreadCreate,
 ) -> tuple[str, PlotThreadCreate]:
-    from modules.outline.repositories import PlotThreadRepository
+    from modules.story.outline_state.repositories import PlotThreadRepository
 
     nid = uuid.UUID(hex=sample_novel_id)
     repo = PlotThreadRepository()
@@ -88,7 +88,7 @@ async def sample_arc(
     sample_novel_id: str,
     arc_data: OutlineArcCreate,
 ) -> tuple[str, OutlineArcCreate]:
-    from modules.outline.repositories import OutlineArcRepository
+    from modules.story.outline_state.repositories import OutlineArcRepository
 
     nid = uuid.UUID(hex=sample_novel_id)
     repo = OutlineArcRepository()

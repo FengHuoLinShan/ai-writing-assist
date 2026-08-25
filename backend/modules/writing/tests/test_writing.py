@@ -93,9 +93,11 @@ def test_writing_services_has_no_top_level_outline_facade_import() -> None:
 
     for node in tree.body:
         if isinstance(node, ast.ImportFrom):
-            assert node.module != "modules.outline.facade"
+            assert node.module != "modules.story.outline_state.facade"
         elif isinstance(node, ast.Import):
-            assert all(alias.name != "modules.outline.facade" for alias in node.names)
+            assert all(
+                alias.name != "modules.story.outline_state.facade" for alias in node.names
+            )
 
 
 @pytest.fixture

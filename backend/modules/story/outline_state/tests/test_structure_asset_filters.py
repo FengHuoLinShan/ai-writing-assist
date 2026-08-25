@@ -7,11 +7,16 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.outline.foreshadowing_repository import ForeshadowingPlanRepository
-from modules.outline.repositories import OutlineArcRepository, PlotThreadRepository
-from modules.outline.reveal_repository import RevealPlanRepository
-from modules.outline.schemas import OutlineArcCreate, PlotThreadCreate
 from modules.project.models import Project
+from modules.story.outline_state.foreshadowing_repository import (
+    ForeshadowingPlanRepository,
+)
+from modules.story.outline_state.repositories import (
+    OutlineArcRepository,
+    PlotThreadRepository,
+)
+from modules.story.outline_state.reveal_repository import RevealPlanRepository
+from modules.story.outline_state.schemas import OutlineArcCreate, PlotThreadCreate
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.api]
 

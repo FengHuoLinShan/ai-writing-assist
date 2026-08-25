@@ -13,14 +13,14 @@ from unittest import mock
 import pytest
 
 # 确保 memory ORM 模型注册到 Base.metadata（conftest 已导入，此处做双重保险）
-import modules.memory.models  # noqa: F401
-from modules.memory.repositories import EventRepository, SnapshotRepository
-from modules.memory.schemas import (
+import modules.story.continuity.models  # noqa: F401
+from modules.story.continuity.repositories import EventRepository, SnapshotRepository
+from modules.story.continuity.schemas import (
     ChapterPanorama,
     MemoryStatusResponse,
     SnapshotResponse,
 )
-from modules.memory.services import MemoryService
+from modules.story.continuity.services import MemoryService
 
 _memory = MemoryService()
 
@@ -493,17 +493,14 @@ async def test_full_rebuild_from_chapter_one_clears_all_and_rebuilds(
     statuses_by_chapter: dict[int, list[str]] = {}
     for snapshot in snaps:
         assert snapshot.novel_id == nid
-        statuses_by_chapter.setdefault(snapshot.chapter_index, []).append(
-            snapshot.status
-        )
+        statuses_by_chapter.setdefault(snapshot.chapter_index, []).append(snapshot.status)
 
     assert len(snaps) == 3
     assert sorted(statuses_by_chapter[1]) == ["current", "stale"]
     assert statuses_by_chapter[2] == ["stale"]
     current_snapshots = [snapshot for snapshot in snaps if snapshot.status == "current"]
     current_keys = [
-        (snapshot.novel_id, snapshot.chapter_index)
-        for snapshot in current_snapshots
+        (snapshot.novel_id, snapshot.chapter_index) for snapshot in current_snapshots
     ]
     assert current_keys == [(nid, 1)]
 

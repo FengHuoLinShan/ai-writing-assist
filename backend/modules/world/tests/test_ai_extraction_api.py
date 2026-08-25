@@ -51,7 +51,7 @@ async def test_world_alias_relation_extract_enqueues_domain_task_after_confirmat
     assert project_resp.status_code == 201
     novel_id = project_resp.json()["id"]
     confirmation_resp = await async_client.post(
-        "/api/context/confirm",
+        "/api/evidence/compilation/confirm",
         json={
             "novel_id": novel_id,
             "action": "world.alias_relations.extract",
@@ -175,7 +175,7 @@ async def test_promoting_extracted_candidate_marks_confirmation_needs_review(
     entity_id = entity_resp.json()["id"]
 
     confirmation_resp = await async_client.post(
-        "/api/context/confirm",
+        "/api/evidence/compilation/confirm",
         json={
             "novel_id": novel_id,
             "action": "world.alias_relations.extract",

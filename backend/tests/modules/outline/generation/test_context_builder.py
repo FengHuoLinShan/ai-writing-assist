@@ -9,11 +9,11 @@ from unittest import mock
 import pytest
 
 from modules.evidence.contracts import StructureContextBundle
-from modules.outline.generation.context_builder import (
+from modules.story.outline_state.generation.context_builder import (
     _CHAPTER_TEXT_LIMIT,
     PlotStructureContextBuilder,
 )
-from modules.outline.generation.context_renderer import (
+from modules.story.outline_state.generation.context_renderer import (
     _PromptTextGuard,
     render_bundle_to_markdown,
     render_chapter_text_sections,
@@ -120,12 +120,12 @@ async def test_build_renders_markdown_and_name_maps(
     db = mock.AsyncMock()
     with (
         mock.patch(
-            "modules.outline.generation.context_builder.context_facade.compile_structure_context",
+            "modules.story.outline_state.generation.context_builder.context_facade.compile_structure_context",
             return_value=sample_bundle,
             autospec=True,
         ) as mock_compile,
         mock.patch(
-            "modules.outline.generation.context_builder.writing_facade.list_latest_drafts_for_chapters",
+            "modules.story.outline_state.generation.context_builder.writing_facade.list_latest_drafts_for_chapters",
             return_value=[],
             autospec=True,
         ) as mock_drafts,
@@ -170,12 +170,12 @@ async def test_build_loads_chapter_texts_via_facade(
 
     with (
         mock.patch(
-            "modules.outline.generation.context_builder.context_facade.compile_structure_context",
+            "modules.story.outline_state.generation.context_builder.context_facade.compile_structure_context",
             return_value=sample_bundle,
             autospec=True,
         ),
         mock.patch(
-            "modules.outline.generation.context_builder.writing_facade.list_latest_drafts_for_chapters",
+            "modules.story.outline_state.generation.context_builder.writing_facade.list_latest_drafts_for_chapters",
             return_value=[draft],
             autospec=True,
         ) as mock_drafts,
@@ -214,12 +214,12 @@ async def test_long_chapter_text_uses_extra_char_only_for_truncation_check(
 
     with (
         mock.patch(
-            "modules.outline.generation.context_builder.context_facade.compile_structure_context",
+            "modules.story.outline_state.generation.context_builder.context_facade.compile_structure_context",
             return_value=sample_bundle,
             autospec=True,
         ),
         mock.patch(
-            "modules.outline.generation.context_builder.writing_facade.list_latest_drafts_for_chapters",
+            "modules.story.outline_state.generation.context_builder.writing_facade.list_latest_drafts_for_chapters",
             return_value=[draft],
             autospec=True,
         ) as mock_drafts,
@@ -269,12 +269,12 @@ async def test_dynamic_text_is_truncated_per_entry(
 
     with (
         mock.patch(
-            "modules.outline.generation.context_builder.context_facade.compile_structure_context",
+            "modules.story.outline_state.generation.context_builder.context_facade.compile_structure_context",
             return_value=bundle,
             autospec=True,
         ),
         mock.patch(
-            "modules.outline.generation.context_builder.writing_facade.list_latest_drafts_for_chapters",
+            "modules.story.outline_state.generation.context_builder.writing_facade.list_latest_drafts_for_chapters",
             return_value=[],
             autospec=True,
         ),
@@ -312,12 +312,12 @@ async def test_injection_patterns_append_context_warnings(
 
     with (
         mock.patch(
-            "modules.outline.generation.context_builder.context_facade.compile_structure_context",
+            "modules.story.outline_state.generation.context_builder.context_facade.compile_structure_context",
             return_value=bundle,
             autospec=True,
         ),
         mock.patch(
-            "modules.outline.generation.context_builder.writing_facade.list_latest_drafts_for_chapters",
+            "modules.story.outline_state.generation.context_builder.writing_facade.list_latest_drafts_for_chapters",
             return_value=[],
             autospec=True,
         ),
@@ -362,12 +362,12 @@ async def test_backticks_and_fake_headings_stay_inside_dynamic_boundary(
 
     with (
         mock.patch(
-            "modules.outline.generation.context_builder.context_facade.compile_structure_context",
+            "modules.story.outline_state.generation.context_builder.context_facade.compile_structure_context",
             return_value=sample_bundle,
             autospec=True,
         ),
         mock.patch(
-            "modules.outline.generation.context_builder.writing_facade.list_latest_drafts_for_chapters",
+            "modules.story.outline_state.generation.context_builder.writing_facade.list_latest_drafts_for_chapters",
             return_value=[draft],
             autospec=True,
         ),
@@ -401,7 +401,7 @@ async def test_existing_scene_summaries_are_wrapped(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """已有 Scene 摘要进入 prompt 前也走边界包装。"""
-    from modules.outline import services as outline_services
+    from modules.story.outline_state import services as outline_services
 
     class FakeSceneService:
         async def get_by_chapter_range_models(

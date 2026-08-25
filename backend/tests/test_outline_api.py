@@ -299,17 +299,18 @@ class TestApiOutlineGenerate:
 
         with (
             mock.patch(
-                "modules.outline.api.require_fresh_confirmation", autospec=True
+                "modules.story.outline_state.api.require_fresh_confirmation",
+                autospec=True,
             ) as mock_require,
             mock.patch(
-                "modules.outline.api.attach_result_ref", autospec=True
+                "modules.story.outline_state.api.attach_result_ref", autospec=True
             ) as mock_attach,
             mock.patch(
-                "modules.outline.api.enqueue_task_with_optional_operation",
+                "modules.story.outline_state.api.enqueue_task_with_optional_operation",
                 autospec=True,
             ) as mock_enqueue,
             mock.patch(
-                "modules.outline.api.P20GenerationService",
+                "modules.story.outline_state.api.P20GenerationService",
                 autospec=True,
             ) as service_cls,
             mock.patch(

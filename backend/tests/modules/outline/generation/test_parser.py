@@ -6,9 +6,12 @@ import pytest
 from pydantic import BaseModel
 
 from infrastructure.llm.schemas import LLMCallRequest
-from modules.outline.generation.context_builder import PlotStructureContext
-from modules.outline.generation.models import SimplePlotThread, SimpleStructureOutput
-from modules.outline.generation.parser import PlotStructureParser
+from modules.story.outline_state.generation.context_builder import PlotStructureContext
+from modules.story.outline_state.generation.models import (
+    SimplePlotThread,
+    SimpleStructureOutput,
+)
+from modules.story.outline_state.generation.parser import PlotStructureParser
 
 
 class _FakeLLMClient:

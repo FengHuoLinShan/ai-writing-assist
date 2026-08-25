@@ -381,7 +381,7 @@ class TestDuplicateImportAndDeprecation:
         novel_with_drafts: str,
     ) -> None:
         from modules.imports.facade import start_deep_import
-        from modules.outline.facade import create_scene
+        from modules.story.outline_state.facade import create_scene
 
         await create_scene(
             db_session,
@@ -417,7 +417,7 @@ class TestDuplicateImportAndDeprecation:
         novel_with_drafts: str,
     ) -> None:
         from modules.imports.facade import start_deep_import
-        from modules.outline.facade import create_scene
+        from modules.story.outline_state.facade import create_scene
         from modules.world.facade import create_entity
 
         await create_scene(
@@ -490,7 +490,7 @@ class TestDuplicateImportAndDeprecation:
 
         from sqlalchemy import select
 
-        from modules.outline.models import Scene
+        from modules.story.outline_state.models import Scene
         from shared.utils import parse_uuid
 
         nid = parse_uuid(novel_with_drafts, "novel_id")
@@ -530,7 +530,7 @@ class TestDuplicateImportAndDeprecation:
         novel_with_drafts: str,
     ) -> None:
         from modules.imports.facade import start_deep_import_stage
-        from modules.outline.facade import create_scene
+        from modules.story.outline_state.facade import create_scene
 
         await create_scene(
             db_session,
@@ -564,9 +564,9 @@ class TestDuplicateImportAndDeprecation:
     ) -> None:
         """novel A 的派生数据不应影响 novel B 的重复检测。"""
         from modules.imports.facade import start_deep_import
-        from modules.outline.facade import create_scene
         from modules.project.schemas import ProjectCreate
         from modules.project.services import ProjectService
+        from modules.story.outline_state.facade import create_scene
 
         other_project = await ProjectService().create_project(
             db_session,

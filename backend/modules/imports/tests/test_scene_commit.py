@@ -9,8 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.imports.llm_schemas import SceneChunk
 from modules.imports.scene_fusion import FinalSceneCandidate
-from modules.outline.repositories import SceneRepository
-from modules.outline.schemas import SceneCreate, SceneUpdate
+from modules.story.outline_state.repositories import SceneRepository
+from modules.story.outline_state.schemas import SceneCreate, SceneUpdate
 
 
 def make_final_scene_candidate(
@@ -63,7 +63,7 @@ def make_final_scene_candidate(
 
 
 async def count_scenes_by_novel(db: AsyncSession, novel_id: str) -> int:
-    from modules.outline.facade import get_scenes_by_novel
+    from modules.story.outline_state.facade import get_scenes_by_novel
 
     return len(await get_scenes_by_novel(db, novel_id))
 
@@ -212,7 +212,7 @@ def test_provenance_key_normalizes_source_order() -> None:
 @pytest.mark.asyncio
 async def test_scene_commit_reuses_next_scene_index_for_batch(monkeypatch) -> None:
     from modules.imports.scene_commit import SceneCommitter
-    from modules.outline import facade as outline_facade
+    from modules.story import facade as outline_facade
 
     single_provenance_calls = 0
     batch_provenance_calls = 0
@@ -295,7 +295,7 @@ async def test_scene_commit_writes_complete_structure_meta(
     sample_novel_id: str,
 ) -> None:
     from modules.imports.scene_commit import SceneCommitter, build_scene_provenance_key
-    from modules.outline.facade import get_scene
+    from modules.story.outline_state.facade import get_scene
 
     candidate = make_final_scene_candidate(fallback_required=True)
 
@@ -392,7 +392,7 @@ async def test_scene_commit_preserves_materialized_exact_source_span(
     sample_novel_id: str,
 ) -> None:
     from modules.imports.scene_commit import SceneCommitter
-    from modules.outline.facade import get_scene_spans_for_scene
+    from modules.story.outline_state.facade import get_scene_spans_for_scene
     from modules.writing.facade import create_published_draft_only
 
     draft = await create_published_draft_only(
@@ -444,7 +444,7 @@ async def test_scene_commit_truncates_long_narrative_tag(
     sample_novel_id: str,
 ) -> None:
     from modules.imports.scene_commit import SceneCommitter
-    from modules.outline.facade import get_scene
+    from modules.story.outline_state.facade import get_scene
 
     candidate = make_final_scene_candidate()
     candidate.narrative_tag = "仪式与意外，灰雾与塔罗会相连，秘密组织雏形"
@@ -469,7 +469,7 @@ async def test_scene_commit_creates_workbench_complete_setup(
     sample_novel_id: str,
 ) -> None:
     from modules.imports.scene_commit import SceneCommitter
-    from modules.outline.scene_workbench import SceneWorkbenchService
+    from modules.story.outline_state.scene_workbench import SceneWorkbenchService
 
     candidate = make_final_scene_candidate(source_chapter_indices=[1])
     candidate.must_happen = "Commit the fused Scene."
@@ -607,7 +607,7 @@ async def test_scene_commit_persists_phase1c_suggestions_with_formal_scene_ids(
     sample_novel_id: str,
 ) -> None:
     from modules.imports.scene_commit import SceneCommitter
-    from modules.outline.scene_workbench import SceneWorkbenchService
+    from modules.story.outline_state.scene_workbench import SceneWorkbenchService
 
     first = make_final_scene_candidate(
         candidate_id="left",
@@ -652,8 +652,8 @@ async def test_reextract_protects_canonical_and_queues_replacement(
     sample_novel_id: str,
 ) -> None:
     from modules.imports.scene_commit import SceneCommitter
-    from modules.outline.facade import create_scene, get_scene
-    from modules.outline.scene_workbench import SceneWorkbenchService
+    from modules.story.outline_state.facade import create_scene, get_scene
+    from modules.story.outline_state.scene_workbench import SceneWorkbenchService
 
     protected = await create_scene(
         db_session,
@@ -713,7 +713,7 @@ async def test_reextract_allows_same_chapter_non_overlapping_exact_spans(
     sample_novel_id: str,
 ) -> None:
     from modules.imports.scene_commit import SceneCommitter
-    from modules.outline.facade import create_scene
+    from modules.story.outline_state.facade import create_scene
     from modules.writing.facade import create_published_draft_only
 
     draft = await create_published_draft_only(

@@ -171,7 +171,7 @@ function sectionTitle(section) { return authorText(section?.title || SECTION_LAB
 function reasonText(value) { return authorText(value).trim() }
 function previewText(section) {
   const value = authorText(section?.preview).trim().replace(/\s+/g, " ")
-  if (!value || /^[\[{<]/.test(value)) return ""
+  if (!value || /^[{<[]/.test(value)) return ""
   return value.length > 240 ? `${value.slice(0, 240)}…` : value
 }
 function statusLabel(status) {

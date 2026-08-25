@@ -214,7 +214,7 @@ async def test_import_generate_publish_and_retrieve_serial_flow(
     )
 
     confirmation = await async_client.post(
-        "/api/context/confirm",
+        "/api/evidence/compilation/confirm",
         json={
             "novel_id": novel_id,
             "action": "writing.generate",

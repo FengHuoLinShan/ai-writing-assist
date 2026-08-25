@@ -619,12 +619,12 @@ class TestConstraintEngine:
         engine = ConstraintEngine()
         with (
             patch(
-                "modules.outline.facade.get_scene_contract",
+                "modules.story.facade.get_scene_contract",
                 autospec=True,
                 side_effect=AssertionError("must not load Scene card"),
             ),
             patch(
-                "modules.outline.facade.get_active_foreshadowing",
+                "modules.story.facade.get_active_foreshadowing",
                 autospec=True,
                 side_effect=AssertionError("must not load future plan"),
             ),
@@ -660,12 +660,12 @@ class TestConstraintEngine:
         db = MagicMock()
         with (
             patch(
-                "modules.outline.facade.get_active_foreshadowing",
+                "modules.story.facade.get_active_foreshadowing",
                 autospec=True,
                 return_value=plans,
             ),
             patch(
-                "modules.outline.facade.get_scene_contract",
+                "modules.story.facade.get_scene_contract",
                 autospec=True,
                 return_value=None,
             ),
@@ -700,12 +700,12 @@ class TestConstraintEngine:
         db = MagicMock()
         with (
             patch(
-                "modules.outline.facade.get_active_foreshadowing",
+                "modules.story.facade.get_active_foreshadowing",
                 autospec=True,
                 return_value=plans,
             ),
             patch(
-                "modules.outline.facade.get_scene_contract",
+                "modules.story.facade.get_scene_contract",
                 autospec=True,
                 return_value=None,
             ),
@@ -736,12 +736,12 @@ class TestConstraintEngine:
         db = MagicMock()
         with (
             patch(
-                "modules.outline.facade.get_active_foreshadowing",
+                "modules.story.facade.get_active_foreshadowing",
                 autospec=True,
                 return_value=plans,
             ),
             patch(
-                "modules.outline.facade.get_scene_contract",
+                "modules.story.facade.get_scene_contract",
                 autospec=True,
                 return_value=None,
             ),
@@ -767,12 +767,12 @@ class TestConstraintEngine:
         db = MagicMock()
         with (
             patch(
-                "modules.outline.facade.get_scene_contract",
+                "modules.story.facade.get_scene_contract",
                 autospec=True,
                 return_value=scene,
             ),
             patch(
-                "modules.outline.facade.get_active_foreshadowing",
+                "modules.story.facade.get_active_foreshadowing",
                 autospec=True,
                 return_value=[],
             ),
@@ -817,12 +817,12 @@ class TestConstraintEngine:
                 return_value=entries,
             ),
             patch(
-                "modules.outline.facade.get_scene_contract",
+                "modules.story.facade.get_scene_contract",
                 autospec=True,
                 return_value=None,
             ),
             patch(
-                "modules.outline.facade.get_active_foreshadowing",
+                "modules.story.facade.get_active_foreshadowing",
                 autospec=True,
                 return_value=[],
             ),
@@ -1032,7 +1032,7 @@ class TestWorldEntitiesLoader:
         decision = MagicMock(has_policy=False)
 
         with patch(
-            "modules.outline.facade.get_reader_reveal_decision",
+            "modules.story.facade.get_reader_reveal_decision",
             autospec=True,
             return_value=decision,
         ):
@@ -2124,7 +2124,7 @@ class TestContextApi:
 
     @pytest.mark.asyncio
     async def test_compile_context_success(self) -> None:
-        """POST /api/context/compile 应返回 Tier 编译结果"""
+        """POST /api/evidence/compilation/compile 应返回 Tier 编译结果"""
         mock_ctx = self._compiled_context()
 
         with patch(
@@ -2205,7 +2205,7 @@ class TestContextApi:
 
     @pytest.mark.asyncio
     async def test_render_context_success(self) -> None:
-        """POST /api/context/render 应返回 Markdown + Tier 编译信息"""
+        """POST /api/evidence/compilation/render 应返回 Markdown + Tier 编译信息"""
         mock_ctx = self._compiled_context()
 
         with (

@@ -770,8 +770,10 @@ async def test_process_scene_creates_context_snapshot_and_links_entity_meta(
             autospec=True,
             return_value={},
         ),
-        patch("modules.memory.facade.replace_scene_memory_events", autospec=True),
-        patch("modules.memory.facade.ensure_scene_checkpoints", autospec=True),
+        patch(
+            "modules.story.facade.replace_scene_memory_events", autospec=True
+        ),
+        patch("modules.story.facade.ensure_scene_checkpoints", autospec=True),
     ):
         llm_call.return_value = extraction
         result = await svc._process_scene(
@@ -1681,8 +1683,10 @@ async def test_process_scene_persists_phase2a_relation_output(
             autospec=True,
             return_value=extraction,
         ),
-        patch("modules.memory.facade.replace_scene_memory_events", autospec=True),
-        patch("modules.memory.facade.ensure_scene_checkpoints", autospec=True),
+        patch(
+            "modules.story.facade.replace_scene_memory_events", autospec=True
+        ),
+        patch("modules.story.facade.ensure_scene_checkpoints", autospec=True),
     ):
         result = await svc._process_scene(
             db_session,

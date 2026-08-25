@@ -432,7 +432,7 @@ class TestApiRoutes:
 
     @pytest.mark.asyncio
     async def test_create_rag_chunk_calls_facade(self):
-        """GREEN: POST /api/rag/chunks 调用 facade.create_chunk"""
+        """GREEN: POST /api/evidence/indexing/chunks 调用 facade.create_chunk"""
         from modules.evidence.indexing.schemas import RagChunkCreate
 
         with patch(
@@ -451,7 +451,7 @@ class TestApiRoutes:
 
     @pytest.mark.asyncio
     async def test_list_rag_chunks_returns_combined_dict(self):
-        """GREEN: GET /api/rag/chunks 组合 items + status"""
+        """GREEN: GET /api/evidence/indexing/chunks 组合 items + status"""
         from modules.evidence.indexing.schemas import RagChunkResponse
 
         mock_chunks = [
@@ -480,7 +480,7 @@ class TestApiRoutes:
 
     @pytest.mark.asyncio
     async def test_retrieve_chunks_converts_contracts_to_responses(self):
-        """GREEN: POST /api/rag/retrieve 将 RagChunkContract 转为 RagChunkResponse"""
+        """Canonical retrieve API converts contracts to responses."""
         from modules.evidence.contracts import RagChunkContract, RagResultBundle
         from modules.evidence.indexing.schemas import RagQuery
 
@@ -540,7 +540,7 @@ class TestApiRoutes:
 
     @pytest.mark.asyncio
     async def test_retrieve_chunks_handles_empty_results(self):
-        """EDGE: POST /api/rag/retrieve 空结果也返回合法 RagResult"""
+        """EDGE: POST /api/evidence/indexing/retrieve 空结果也返回合法 RagResult"""
         from modules.evidence.contracts import RagResultBundle
         from modules.evidence.indexing.schemas import RagQuery
 
@@ -562,7 +562,7 @@ class TestApiRoutes:
 
     @pytest.mark.asyncio
     async def test_get_rag_metrics_returns_snapshot(self):
-        """GREEN: GET /api/rag/metrics 返回指标 + 熔断器状态"""
+        """GREEN: GET /api/evidence/indexing/metrics 返回指标 + 熔断器状态"""
         with (
             patch(
                 "modules.evidence.indexing.metrics.get_metrics", autospec=True
@@ -593,7 +593,7 @@ class TestApiRoutes:
 
     @pytest.mark.asyncio
     async def test_split_text_paragraph_method_uses_chunking_service(self):
-        """GREEN: POST /api/rag/chunks/split 段落分割"""
+        """GREEN: POST /api/evidence/indexing/chunks/split 段落分割"""
         from modules.evidence.indexing.api import split_text
 
         result = await split_text(
@@ -609,7 +609,7 @@ class TestApiRoutes:
 
     @pytest.mark.asyncio
     async def test_split_text_length_method(self):
-        """GREEN: POST /api/rag/chunks/split 固定长度分割"""
+        """GREEN: POST /api/evidence/indexing/chunks/split 固定长度分割"""
         from modules.evidence.indexing.api import split_text
 
         result = await split_text(

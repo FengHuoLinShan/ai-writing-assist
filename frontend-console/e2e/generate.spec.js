@@ -245,7 +245,7 @@ test.describe("生成中心模块", () => {
       })
     })
 
-    await page.route("**/api/context/compile", async (route) => {
+    await page.route("**/api/evidence/compilation/compile", async (route) => {
       const body = route.request().postDataJSON()
       await route.fulfill({
         status: 200,
@@ -268,7 +268,7 @@ test.describe("生成中心模块", () => {
       })
     })
 
-    await page.route("**/api/context/render", async (route) => {
+    await page.route("**/api/evidence/compilation/render", async (route) => {
       const body = route.request().postDataJSON()
       await route.fulfill({
         status: 200,
@@ -900,7 +900,7 @@ test.describe("生成中心模块", () => {
   })
 
   test("整理失败时聚焦就地错误并可重试", async ({ page }) => {
-    await page.route("**/api/context/compile", async (route) => {
+    await page.route("**/api/evidence/compilation/compile", async (route) => {
       await route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ detail: "资料服务暂时忙碌" }) })
     }, { times: 1 })
     await page.locator('[data-action="owner-task-context"]').click()
@@ -923,7 +923,7 @@ test.describe("生成中心模块", () => {
 
   test("角色视角模式缺少视角人物时不提交编译", async ({ page }) => {
     let compileCalled = false
-    await page.route("**/api/context/compile", async (route) => {
+    await page.route("**/api/evidence/compilation/compile", async (route) => {
       compileCalled = true
       await route.fulfill({ status: 500, body: JSON.stringify({ detail: "should not call" }) })
     })
@@ -960,7 +960,7 @@ test.describe("生成中心模块", () => {
       scene_chunks: [],
     })
     const requests = []
-    await page.route("**/api/context/compile", async (route) => {
+    await page.route("**/api/evidence/compilation/compile", async (route) => {
       const body = route.request().postDataJSON()
       requests.push(body)
       const warnings = body.reveal_mode === "character"

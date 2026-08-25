@@ -10,7 +10,6 @@ import {
   WORLD_OBJECT_QUERY_KEYS,
   WORLD_RELATION_FILTER_DEFAULTS,
   WORLD_RELATION_QUERY_KEYS,
-  candidateFiltersFromQuery,
   candidateQueryFromState,
   filtersEqual,
   hasAdvancedObjectFilters,

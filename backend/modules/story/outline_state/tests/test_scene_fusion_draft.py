@@ -7,10 +7,10 @@ from unittest import mock
 import pytest
 from pydantic import ValidationError
 
-from modules.outline.models import SceneSpan
-from modules.outline.repositories import SceneRepository
-from modules.outline.scene_draft_review import mapping_scope_warnings
-from modules.outline.scene_fusion_draft import (
+from modules.story.outline_state.models import SceneSpan
+from modules.story.outline_state.repositories import SceneRepository
+from modules.story.outline_state.scene_draft_review import mapping_scope_warnings
+from modules.story.outline_state.scene_fusion_draft import (
     SceneFusionDraftGenerator,
     SceneFusionEvidence,
     SceneFusionEvidenceLoader,
@@ -19,8 +19,8 @@ from modules.outline.scene_fusion_draft import (
     SceneFusionSemanticOutput,
     _prompt_payload,
 )
-from modules.outline.scene_workbench import SceneWorkbenchService
-from modules.outline.schemas import (
+from modules.story.outline_state.scene_workbench import SceneWorkbenchService
+from modules.story.outline_state.schemas import (
     SceneCreate,
     SceneFusionPreviewRequest,
     SceneFusionSaveRequest,
@@ -202,8 +202,7 @@ async def test_generator_revises_stale_source_boundary_constraint(
                 "core_conflict_status": "not_applicable",
                 "must_happen": "进入灰雾并开始聚会。",
                 "must_not_happen": (
-                    "不能在此场景中进入灰雾或开始聚会；"
-                    "必须停留在即将开始的节点。"
+                    "不能在此场景中进入灰雾或开始聚会；必须停留在即将开始的节点。"
                 ),
                 "confidence": 0.8,
                 "basis": "准备与实施连续。",
@@ -233,9 +232,7 @@ async def test_generator_revises_stale_source_boundary_constraint(
     )
 
     assert len(client.requests) == 2
-    assert result.semantic_fields["must_not_happen"] == (
-        "不能省略准备阶段的安全判断。"
-    )
+    assert result.semantic_fields["must_not_happen"] == ("不能省略准备阶段的安全判断。")
     assert "original_scene_boundary_constraint_not_reconciled" in (
         client.requests[1].messages[1].content
     )

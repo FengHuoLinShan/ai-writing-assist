@@ -3,7 +3,9 @@
 同时提供作者结构化创作工作台和 RP 私人互动故事。作者路径采用三主题换肤视觉系统
 （sticky 晨光便签 / night 暗夜书房 / ink 水墨写意）；RP 路径使用独立、纯白、低干扰的故事壳。
 
-后端 Outline/Memory 的唯一生产实现现归 Story 内部子域，原 API 前缀继续兼容。Scene 写作
+后端 Outline/Memory 的唯一生产实现现归 Story 内部子域，原 API 前缀继续保持。前端
+的 Evidence、账户设置和项目偏好调用分别使用 `/api/evidence/{indexing,compilation}`、
+`/api/account/settings` 和 `/api/projects/{id}/author-preferences` canonical 路径。Scene 写作
 若明确继续使用 stale adopted script，Writing wire 使用 `confirm_stale_story_assets=true`；
 服务端 409 使用 `stale_story_assets` code，前端应保留编辑内容并要求作者确认或刷新。
 
@@ -21,6 +23,7 @@ npm run dev
 常用验证脚本：
 
 ```bash
+npm run lint
 npm run test
 npm run test:watch
 npm run test:e2e:functional
@@ -35,7 +38,8 @@ npm run test:e2e:worker
 `npm run build`（vite build）可作 Vue 构建链冒烟验证；它会生成根级
 `asset-manifest.json`，并在校验所有入口、动态一级路由和生成资源后写出
 `asset-inventory.txt`。inventory 是发布时完整静态资源的受限合同，必须随构建产物一同交付。
-无独立 lint/format 依赖，前端验证以 Vitest、Playwright 和仓库级 diff 检查为主。
+`npm run lint` 使用 ESLint flat config 检查生产 JS、Vue SFC、Vitest、Playwright 与构建配置；
+只启用 JS correctness 和 Vue essential 约束，不承担格式化。
 构建会把仍由 `index.html` 直接加载的兼容运行时脚本复制为 `0644`；生产镜像还会统一保证
 静态目录可遍历、文件可读，避免发布机的私有 `umask` 被继承为 Nginx 403。
 
@@ -133,7 +137,7 @@ frontend-console/
 ├── editorial-theme.css     # 全站主题覆层（--nc-* 原语层；sticky 浅色 / night 深色 / ink 纸色）
 ├── state.js                # Proxy 状态、持久化与订阅；不直接投影 shell DOM
 ├── stateSlices.js          # 状态副作用与 listener 通知 helper
-├── api.js                  # API 封装（auth/projects/world/rag/context/writing/imports/tasks）
+├── api.js                  # API 封装（auth/projects/world/evidence/writing/imports/tasks）
 ├── shared/accountStorage.js # 账号切换/退出时清理项目级浏览器缓存并保留主题
 ├── apiContracts.js         # 共享 API 契约注册表（高风险 wrapper 子集）
 ├── router.js               # Hash router 与 #workspace-content route-host 生命周期

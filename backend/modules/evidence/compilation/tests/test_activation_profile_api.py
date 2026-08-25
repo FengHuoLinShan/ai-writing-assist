@@ -51,7 +51,7 @@ async def test_activation_profile_api_lifecycle_and_structured_preview(
     project = await async_client.post("/api/projects", json={"title": "规则 API"})
     novel_id = project.json()["id"]
     created = await async_client.post(
-        "/api/context/activation-profiles",
+        "/api/evidence/compilation/activation-profiles",
         json=_profile_payload(novel_id, str(uuid.uuid4())),
     )
     assert created.status_code == 201
@@ -59,14 +59,14 @@ async def test_activation_profile_api_lifecycle_and_structured_preview(
     assert profile["status"] == "draft"
 
     listed = await async_client.get(
-        "/api/context/activation-profiles",
+        "/api/evidence/compilation/activation-profiles",
         params={"novel_id": novel_id},
     )
     assert listed.status_code == 200
     assert listed.json()["items"][0]["id"] == profile["id"]
 
     preview = await async_client.post(
-        "/api/context/activation-preview",
+        "/api/evidence/compilation/activation-preview",
         json={
             "novel_id": novel_id,
             "profile_id": profile["id"],
@@ -80,7 +80,7 @@ async def test_activation_profile_api_lifecycle_and_structured_preview(
     assert trace["excluded_items"][0]["excluded_reason"] == "target_missing"
 
     updated = await async_client.patch(
-        f"/api/context/activation-profiles/{profile['id']}",
+        f"/api/evidence/compilation/activation-profiles/{profile['id']}",
         params={"novel_id": novel_id},
         json={"base_version_number": 1, "name": "API 规则二版"},
     )
@@ -88,7 +88,7 @@ async def test_activation_profile_api_lifecycle_and_structured_preview(
     assert updated.json()["version_number"] == 2
 
     conflict = await async_client.patch(
-        f"/api/context/activation-profiles/{profile['id']}",
+        f"/api/evidence/compilation/activation-profiles/{profile['id']}",
         params={"novel_id": novel_id},
         json={"base_version_number": 1, "name": "过期写入"},
     )
@@ -104,20 +104,20 @@ async def test_activation_profile_api_is_novel_scoped_and_legacy_get_survives(
     novel_id = first.json()["id"]
     other_id = second.json()["id"]
     created = await async_client.post(
-        "/api/context/activation-profiles",
+        "/api/evidence/compilation/activation-profiles",
         json=_profile_payload(novel_id, str(uuid.uuid4())),
     )
     profile_id = created.json()["id"]
 
     hidden = await async_client.patch(
-        f"/api/context/activation-profiles/{profile_id}",
+        f"/api/evidence/compilation/activation-profiles/{profile_id}",
         params={"novel_id": other_id},
         json={"base_version_number": 1, "name": "越权"},
     )
     assert hidden.status_code == 404
 
     legacy = await async_client.get(
-        "/api/context/activation-preview",
+        "/api/evidence/compilation/activation-preview",
         params={"novel_id": novel_id, "top_k": 10, "depth": 2},
     )
     assert legacy.status_code == 200

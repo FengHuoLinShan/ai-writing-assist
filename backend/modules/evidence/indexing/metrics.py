@@ -2,7 +2,7 @@
 RAG 检索质量指标
 
 运行时单例，追踪查询数量、降级率、延迟、空结果率、缓存命中率。
-每 100 次查询自动输出聚合 JSON 日志。通过 /api/rag/metrics 暴露。
+每 100 次查询自动输出聚合 JSON 日志。通过 /api/evidence/indexing/metrics 暴露。
 """
 
 from __future__ import annotations

@@ -24,7 +24,6 @@
  * onRendered() 挂载前的 query 漂移检测补载数据；render() 保持同步纯挂载点契约。
  */
 import { createApp } from "vue"
-import { createPinia } from "pinia"
 import { getRouter } from "./bridge/index.js"
 
 /** provide key：island 内向组件暴露守卫注册器（useLeaveGuard 使用）。 */
@@ -75,7 +74,6 @@ export function mountIsland({ viewName, component, load = null }) {
         return
       }
       app = createApp(component, loadedProps)
-      app.use(createPinia())
       app.provide(ISLAND_LEAVE_GUARD, (fn) => { leaveGuard = fn || null })
       app.mount(el)
     },

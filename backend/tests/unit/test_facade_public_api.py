@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import modules.world as world_package
-from modules.outline import facade as outline_facade
+from modules.story.outline_state import facade as outline_facade
 from modules.world import contracts as world_contracts
 from modules.world import facade as world_facade
 

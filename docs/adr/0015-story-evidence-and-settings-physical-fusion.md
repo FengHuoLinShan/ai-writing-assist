@@ -37,6 +37,14 @@
 - Activation Profile 的主 UI 可以收起，但在确认生产数量和历史引用前，不删表、
   revision 或 confirmation/snapshot 中的历史元数据。
 
+## 兼容准备状态（2026-08-25）
+
+前端、活跃测试、E2E、Prompt contracts 和工具已改用 canonical HTTP 与 Python
+命名空间。旧 HTTP 挂载与 `modules.outline` / `modules.memory` / `modules.rag` /
+`modules.context` 仍保留，只由专用兼容契约测试覆盖。删除必须等待该准备版本以
+`origin/main` 可达的固定 SHA 发布一次，并核对生产发布状态后才能进行。
+`/api/outline/*`、Memory HTTP 路径、既有 task type 和所有响应 schema 不在退场范围内。
+
 ## 结果
 
 - 最终业务模块为 `account`、`project`、`imports`、`world`、`evidence`、

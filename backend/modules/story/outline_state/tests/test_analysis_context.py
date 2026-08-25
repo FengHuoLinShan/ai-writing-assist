@@ -7,8 +7,8 @@ import uuid
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.outline.analysis_context import OutlineAnalysisContextService
-from modules.outline.models import (
+from modules.story.outline_state.analysis_context import OutlineAnalysisContextService
+from modules.story.outline_state.models import (
     ForeshadowingPlan,
     OutlineArc,
     PlotThread,

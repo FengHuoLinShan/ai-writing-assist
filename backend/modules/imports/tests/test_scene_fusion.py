@@ -634,7 +634,9 @@ async def test_phase1b_does_not_require_db_or_call_outline_create_scene(
         nonlocal called
         called = True
 
-    monkeypatch.setattr("modules.outline.facade.create_scene", fake_create_scene)
+    monkeypatch.setattr(
+        "modules.story.facade.create_scene", fake_create_scene
+    )
 
     async def llm(_payload: dict) -> dict:
         return {

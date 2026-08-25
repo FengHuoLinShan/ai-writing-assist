@@ -226,27 +226,27 @@
     "interactions.getPreferences": define("GET", () => "/interactions/preferences"),
     "interactions.acknowledgeSeeSeaNotice": define("POST", () => "/interactions/preferences/see-sea-notice"),
 
-    "settings.listGlobalLLMDefaults": define("GET", () => "/settings/llm-defaults"),
-    "settings.updateGlobalLLMDefaults": define("PUT", () => "/settings/llm-defaults", { hasBody: true }),
-    "settings.listLLMConnections": define("GET", () => "/settings/llm-connections"),
-    "settings.getImageConnection": define("GET", () => "/settings/image-connection"),
-    "settings.connectImageProvider": define("PUT", () => "/settings/image-connection", { hasBody: true }),
-    "settings.clearImageProvider": define("DELETE", () => "/settings/image-connection"),
-    "settings.connectLLMProvider": define("PUT", ({ providerId }) => `/settings/llm-connections/${required(providerId, "providerId", "settings.connectLLMProvider")}`, {
+    "settings.listGlobalLLMDefaults": define("GET", () => "/account/settings/llm-defaults"),
+    "settings.updateGlobalLLMDefaults": define("PUT", () => "/account/settings/llm-defaults", { hasBody: true }),
+    "settings.listLLMConnections": define("GET", () => "/account/settings/llm-connections"),
+    "settings.getImageConnection": define("GET", () => "/account/settings/image-connection"),
+    "settings.connectImageProvider": define("PUT", () => "/account/settings/image-connection", { hasBody: true }),
+    "settings.clearImageProvider": define("DELETE", () => "/account/settings/image-connection"),
+    "settings.connectLLMProvider": define("PUT", ({ providerId }) => `/account/settings/llm-connections/${required(providerId, "providerId", "settings.connectLLMProvider")}`, {
       requiredParams: ["providerId"],
       hasBody: true,
     }),
-    "settings.activateLLMProvider": define("POST", ({ providerId }) => `/settings/llm-connections/${required(providerId, "providerId", "settings.activateLLMProvider")}/activate`, {
+    "settings.activateLLMProvider": define("POST", ({ providerId }) => `/account/settings/llm-connections/${required(providerId, "providerId", "settings.activateLLMProvider")}/activate`, {
       requiredParams: ["providerId"],
     }),
-    "settings.listLLMBalances": define("GET", () => "/settings/llm-balances"),
+    "settings.listLLMBalances": define("GET", () => "/account/settings/llm-balances"),
     "settings.getEffectiveLLMSettings": define("GET", ({ projectId }) => `/projects/${required(projectId, "projectId", "settings.getEffectiveLLMSettings")}/effective-llm-settings`, {
       requiredParams: ["projectId"],
     }),
-    "settings.getProjectAuthorPrefs": define("GET", ({ projectId }) => `/settings/projects/${required(projectId, "projectId", "settings.getProjectAuthorPrefs")}/author-preferences`, {
+    "settings.getProjectAuthorPrefs": define("GET", ({ projectId }) => `/projects/${required(projectId, "projectId", "settings.getProjectAuthorPrefs")}/author-preferences`, {
       requiredParams: ["projectId"],
     }),
-    "settings.updateProjectAuthorPrefs": define("PUT", ({ projectId }) => `/settings/projects/${required(projectId, "projectId", "settings.updateProjectAuthorPrefs")}/author-preferences`, {
+    "settings.updateProjectAuthorPrefs": define("PUT", ({ projectId }) => `/projects/${required(projectId, "projectId", "settings.updateProjectAuthorPrefs")}/author-preferences`, {
       requiredParams: ["projectId"],
       hasBody: true,
     }),
@@ -263,31 +263,31 @@
     "imports.resumeDeepImport": define("POST", () => "/imports/deep/resume", { hasBody: true }),
     "imports.abandonDeepImport": define("POST", () => "/imports/deep/abandon", { hasBody: true }),
 
-    "context.confirm": define("POST", () => "/context/confirm", {
+    "context.confirm": define("POST", () => "/evidence/compilation/confirm", {
       hasBody: true,
       timeout: CONTEXT_CONFIRM_TIMEOUT,
     }),
-    "context.compile": define("POST", () => "/context/compile", {
+    "context.compile": define("POST", () => "/evidence/compilation/compile", {
       hasBody: true,
       timeout: CONTEXT_COMPILE_TIMEOUT,
     }),
-    "context.render": define("POST", () => "/context/render", {
+    "context.render": define("POST", () => "/evidence/compilation/render", {
       hasBody: true,
       timeout: CONTEXT_COMPILE_TIMEOUT,
     }),
-    "context.sceneLens": define("POST", () => "/context/scene-lens", {
+    "context.sceneLens": define("POST", () => "/evidence/compilation/scene-lens", {
       hasBody: true,
       requiredBody: ["novel_id", "scene_id", "chapter_index"],
     }),
-    "context.listSnapshots": define("GET", () => "/context/snapshots"),
-    "context.getSnapshot": define("GET", ({ snapshotId }) => `/context/snapshots/${required(snapshotId, "snapshotId", "context.getSnapshot")}`, {
+    "context.listSnapshots": define("GET", () => "/evidence/compilation/snapshots"),
+    "context.getSnapshot": define("GET", ({ snapshotId }) => `/evidence/compilation/snapshots/${required(snapshotId, "snapshotId", "context.getSnapshot")}`, {
       requiredParams: ["snapshotId"],
     }),
-    "context.activationPreview": define("GET", () => "/context/activation-preview"),
-    "context.evidenceHealth": define("GET", () => "/context/evidence-health", {
+    "context.activationPreview": define("GET", () => "/evidence/compilation/activation-preview"),
+    "context.evidenceHealth": define("GET", () => "/evidence/compilation/evidence-health", {
       requiredQuery: ["novel_id"],
     }),
-    "context.listRetrievalTraces": define("GET", () => "/context/retrieval-traces", {
+    "context.listRetrievalTraces": define("GET", () => "/evidence/compilation/retrieval-traces", {
       requiredQuery: ["novel_id"],
     }),
 
@@ -541,25 +541,25 @@
       timeout: AI_TASK_SUBMIT_TIMEOUT,
     }),
 
-    "context.searchEvidence": define("POST", () => "/context/evidence/search", {
+    "context.searchEvidence": define("POST", () => "/evidence/compilation/evidence/search", {
       hasBody: true,
       timeout: RAG_SEARCH_TIMEOUT,
     }),
-    "context.grepEvidence": define("POST", () => "/context/evidence/grep", {
+    "context.grepEvidence": define("POST", () => "/evidence/compilation/evidence/grep", {
       hasBody: true,
       timeout: RAG_SEARCH_TIMEOUT,
     }),
-    "context.readEvidence": define("POST", () => "/context/evidence/read", {
+    "context.readEvidence": define("POST", () => "/evidence/compilation/evidence/read", {
       hasBody: true,
       timeout: RAG_SEARCH_TIMEOUT,
     }),
 
-    "rag.search": define("POST", () => "/rag/retrieve", {
+    "rag.search": define("POST", () => "/evidence/indexing/retrieve", {
       requiredQuery: ["novel_id"],
       hasBody: true,
       timeout: RAG_SEARCH_TIMEOUT,
     }),
-    "rag.prewarm": define("POST", () => "/rag/prewarm", {
+    "rag.prewarm": define("POST", () => "/evidence/indexing/prewarm", {
       hasBody: true,
       timeout: RAG_PREWARM_TIMEOUT,
     }),

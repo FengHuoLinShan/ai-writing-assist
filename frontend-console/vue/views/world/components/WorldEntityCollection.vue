@@ -213,7 +213,7 @@ async function loadThumbnail(entity, { force = false } = {}) {
     }
     thumbnailUrls[id] = url
     thumbnailStates[id] = "ready"
-  } catch (error) {
+  } catch {
     if (ownsThumbnailRequest(id, token, projectId) && !controller.signal.aborted) {
       thumbnailStates[id] = "error"
     }

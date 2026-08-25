@@ -373,12 +373,12 @@ describe("前后端 API 契约", () => {
       timeout: 600000,
     })
     expect(contractPath("context.evidenceHealth", {}, { novel_id: "novel-1" }))
-      .toBe("/context/evidence-health?novel_id=novel-1")
+      .toBe("/evidence/compilation/evidence-health?novel_id=novel-1")
     expect(contractPath("context.listRetrievalTraces", {}, {
       novel_id: "novel-1",
       content_mode: "canonical",
       limit: 20,
-    })).toBe("/context/retrieval-traces?novel_id=novel-1&content_mode=canonical&limit=20")
+    })).toBe("/evidence/compilation/retrieval-traces?novel_id=novel-1&content_mode=canonical&limit=20")
     for (const name of [
       "context.searchEvidence",
       "context.grepEvidence",

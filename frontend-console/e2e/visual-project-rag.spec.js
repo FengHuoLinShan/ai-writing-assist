@@ -100,7 +100,7 @@ test.describe("project / rag 视觉基线", () => {
 
   test("rag 检索结果页 × 三主题", async ({ page, projectFactory, browserErrors }) => {
     const proj = await projectFactory({ title: "视觉基线检索", genre: "scifi", language: "zh" })
-    await page.route("**/api/context/evidence/search", async (route) => {
+    await page.route("**/api/evidence/compilation/evidence/search", async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -136,7 +136,7 @@ test.describe("project / rag 视觉基线", () => {
         }),
       })
     })
-    await page.route("**/api/context/evidence/read", async (route) => {
+    await page.route("**/api/evidence/compilation/evidence/read", async (route) => {
       const payload = route.request().postDataJSON()
       await route.fulfill({
         status: 200,

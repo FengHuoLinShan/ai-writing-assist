@@ -20,7 +20,6 @@ import {
 import {
   editableStoryOutlineContent,
   idempotencyKey,
-  SOURCE_LABELS,
   loadStoryOutlineProps,
   storyOutlineTaskManager,
   validateStoryOutlineContent,

@@ -67,7 +67,7 @@ test.describe("设置流程", () => {
 
   test("账户连接加载失败后可在原位重试", async ({ page }) => {
     let shouldFail = true
-    await page.route("**/api/settings/llm-connections", async (route) => {
+    await page.route("**/api/account/settings/llm-connections", async (route) => {
       if (shouldFail) {
         shouldFail = false
         await route.abort("failed")
@@ -187,11 +187,11 @@ test.describe("设置流程", () => {
     const proj = await createProject({ title: "Prefs Override", language: "zh" })
     testProjectId = proj.id
     const ctx = await request.newContext()
-    await ctx.put(`${apiBase}/settings/author-preferences`, {
+    await ctx.put(`${apiBase}/account/settings/author-preferences`, {
       headers: xhrHeaders,
       data: { editor_font: "mono" },
     })
-    await ctx.put(`${apiBase}/settings/projects/${testProjectId}/author-preferences`, {
+    await ctx.put(`${apiBase}/projects/${testProjectId}/author-preferences`, {
       headers: xhrHeaders,
       data: { editor_font: "serif" },
     })
@@ -205,7 +205,7 @@ test.describe("设置流程", () => {
 
     const ctx2 = await request.newContext()
     await ctx2.delete(
-      `${apiBase}/settings/projects/${testProjectId}/author-preferences/field/editor_font`,
+      `${apiBase}/projects/${testProjectId}/author-preferences/field/editor_font`,
       { headers: xhrHeaders },
     )
     await ctx2.dispose()
@@ -221,7 +221,7 @@ test.describe("设置流程", () => {
     const proj = await createProject({ title: "Localized Author Preferences", language: "zh" })
     testProjectId = proj.id
     const ctx = await request.newContext()
-    const response = await ctx.put(`${apiBase}/settings/projects/${testProjectId}/author-preferences`, {
+    const response = await ctx.put(`${apiBase}/projects/${testProjectId}/author-preferences`, {
       headers: xhrHeaders,
       data: { editor_font: "system", default_focus_mode: false },
     })

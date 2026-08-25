@@ -203,7 +203,7 @@ async def create_scenes(
     entity_ids: dict[str, str],
 ) -> dict[str, Any]:
     """创建 3 个 Scene 卡（第 1-3 章），返回 scene_index → ID 的字典。"""
-    from modules.outline.models import Scene
+    from modules.story.outline_state.models import Scene
 
     result: list[str] = []
     for data in SCENE_DATA:
@@ -316,7 +316,7 @@ async def create_foreshadowing_plans(
     entity_ids: dict[str, str],
 ) -> dict[str, Any]:
     """创建 2 条 ForeshadowingPlan 记录。"""
-    from modules.outline.models import ForeshadowingPlan
+    from modules.story.outline_state.models import ForeshadowingPlan
 
     result: list[str] = []
     for data in FORESHADOWING_PLAN_DATA:

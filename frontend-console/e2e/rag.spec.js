@@ -119,7 +119,7 @@ test.describe("RAG 检索模块", () => {
         failedApiResponses.push(`${response.status()} ${response.request().method()} ${response.url()}`)
       }
     })
-    await page.route("**/api/context/evidence/search", async (route) => {
+    await page.route("**/api/evidence/compilation/evidence/search", async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -293,7 +293,7 @@ test.describe("RAG 检索模块", () => {
 
   test("倒置章节范围在请求前提示并保留条件，修正后才检索", async ({ page }) => {
     const requests = []
-    await page.route("**/api/context/evidence/search", async (route) => {
+    await page.route("**/api/evidence/compilation/evidence/search", async (route) => {
       requests.push(route.request().postDataJSON())
       await route.fulfill({
         status: 200,
@@ -333,7 +333,7 @@ test.describe("RAG 检索模块", () => {
       }
     })
     const requests = []
-    await page.route("**/api/context/evidence/search", async (route) => {
+    await page.route("**/api/evidence/compilation/evidence/search", async (route) => {
       const payload = route.request().postDataJSON()
       requests.push(payload.query)
       const prefix = payload.query === "海港" ? "海港结果" : "旧塔结果"
@@ -361,7 +361,7 @@ test.describe("RAG 检索模块", () => {
         }),
       })
     })
-    await page.route("**/api/context/evidence/read", async (route) => {
+    await page.route("**/api/evidence/compilation/evidence/read", async (route) => {
       const payload = route.request().postDataJSON()
       await route.fulfill({
         status: 200,
@@ -478,7 +478,7 @@ test.describe("RAG 检索模块", () => {
 
   test("搜索空结果", async ({ page }) => {
     // Mock 搜索接口返回空结果，避免新项目无索引导致 API 报错
-    await page.route("**/api/context/evidence/search", async (route) => {
+    await page.route("**/api/evidence/compilation/evidence/search", async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -497,7 +497,7 @@ test.describe("RAG 检索模块", () => {
 
   test("通过真实 RAG chunk 搜索并验证 embedding 降级元数据", async ({ page }) => {
     await page.evaluate(async ({ apiBase, projectId }) => {
-      const resp = await fetch(`${apiBase}/rag/chunks?novel_id=${projectId}`, {
+      const resp = await fetch(`${apiBase}/evidence/indexing/chunks?novel_id=${projectId}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -533,7 +533,7 @@ test.describe("RAG 检索模块", () => {
     await expect(page.locator("#rag-results")).toContainText("没有找到匹配资料", { timeout: 10000 })
 
     const result = await page.evaluate(async ({ apiBase, projectId }) => {
-      const resp = await fetch(`${apiBase}/rag/retrieve?novel_id=${projectId}`, {
+      const resp = await fetch(`${apiBase}/evidence/indexing/retrieve?novel_id=${projectId}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

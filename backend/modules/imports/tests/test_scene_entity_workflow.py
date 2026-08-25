@@ -3,7 +3,6 @@
 覆盖 Phase 2 的实体/关系持久化、auto_ingested 元数据、Delta 记录。
 """
 
-
 from __future__ import annotations
 
 import asyncio
@@ -417,8 +416,7 @@ async def test_phase2b_runs_llm_calls_concurrently_before_serial_persistence(
     assert build_entity_index.await_count == 0
     assert persist_output.await_count == 2
     assert {
-        call.kwargs["context_snapshot_id"]
-        for call in persist_output.await_args_list
+        call.kwargs["context_snapshot_id"] for call in persist_output.await_args_list
     } == {"snapshot-shared"}
 
 
@@ -1035,8 +1033,7 @@ async def test_record_deltas_creates_memory_log(
     )
     assert count == 1
 
-
-    from modules.memory.models import DeltaLog
+    from modules.story.continuity.models import DeltaLog
     from shared.utils import parse_uuid
 
     nid = parse_uuid(novel_with_drafts, "novel_id")
@@ -1050,6 +1047,7 @@ async def test_record_deltas_creates_memory_log(
     assert items[0].meta["scene_id"] == "00000000-0000-0000-0000-000000000002"
     assert items[0].meta["scene_provenance_key"] == "wf-delta:scene:2"
     assert items[0].meta["auto_ingested"] is True
+
 
 @pytest.mark.asyncio
 async def test_process_scene_builds_scene_memory_checkpoints(
@@ -1082,11 +1080,11 @@ async def test_process_scene_builds_scene_memory_checkpoints(
             autospec=True,
         ),
         patch(
-            "modules.memory.facade.replace_scene_memory_events",
+            "modules.story.facade.replace_scene_memory_events",
             autospec=True,
         ) as mock_replace_scene_events,
         patch(
-            "modules.memory.facade.ensure_scene_checkpoints",
+            "modules.story.facade.ensure_scene_checkpoints",
             autospec=True,
         ) as mock_checkpoints,
         patch(
@@ -1786,7 +1784,6 @@ async def test_parallel_llm_fallback_extracts_before_serial_persistence() -> Non
         ),
         _patched_phase2_summaries(svc),
         patch("modules.evidence.facade.succeed_context_snapshot", autospec=True),
-        patch("modules.memory.facade.capture_snapshot", autospec=True),
     ):
         result = await svc._process_scenes_parallel_llm(
             db,
@@ -1908,7 +1905,6 @@ async def test_parallel_phase2_closes_db_transaction_before_provider_call(
         ),
         patch.object(svc, "_record_deltas", autospec=True, return_value=0),
         _patched_phase2_summaries(svc),
-        patch("modules.memory.facade.capture_snapshot", autospec=True),
     ):
         result = await svc._process_scenes_parallel_llm(
             db_session,
@@ -1977,7 +1973,6 @@ async def test_parallel_phase2_format_diagnostics_do_not_throttle_or_skip_scenes
         patch.object(svc, "_persist_entities", autospec=True, return_value=0),
         patch.object(svc, "_record_deltas", autospec=True, return_value=0),
         _patched_phase2_summaries(svc),
-        patch("modules.memory.facade.capture_snapshot", autospec=True),
     ):
         result = await svc._process_scenes_parallel_llm(
             db_session,
@@ -2049,7 +2044,6 @@ async def test_parallel_phase2_transport_throttle_does_not_skip_scenes(
         patch.object(svc, "_persist_entities", autospec=True, return_value=0),
         patch.object(svc, "_record_deltas", autospec=True, return_value=0),
         _patched_phase2_summaries(svc),
-        patch("modules.memory.facade.capture_snapshot", autospec=True),
     ):
         result = await svc._process_scenes_parallel_llm(
             db_session,
@@ -2122,7 +2116,6 @@ async def test_parallel_phase2_single_rate_limit_throttles_without_skipping_scen
         patch.object(svc, "_persist_entities", autospec=True, return_value=0),
         patch.object(svc, "_record_deltas", autospec=True, return_value=0),
         _patched_phase2_summaries(svc),
-        patch("modules.memory.facade.capture_snapshot", autospec=True),
     ):
         result = await svc._process_scenes_parallel_llm(
             db_session,
@@ -2437,7 +2430,6 @@ async def test_bulk_scene_entity_extractor_prefetches_scene_drafts_once() -> Non
             side_effect=list_latest_drafts_for_chapters,
         ),
         patch("modules.evidence.facade.succeed_context_snapshot", autospec=True),
-        patch("modules.memory.facade.capture_snapshot", autospec=True),
     ):
         result = await BulkSceneEntityExtractor(service).run(
             Mock(),
@@ -2456,7 +2448,6 @@ async def test_bulk_scene_entity_extractor_prefetches_scene_drafts_once() -> Non
     assert "第2章正文" in scene_texts[0]
     assert "第2章正文" in scene_texts[1]
     assert "第3章正文" in scene_texts[1]
-
 
 
 @pytest.mark.asyncio

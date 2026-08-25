@@ -46,7 +46,7 @@ beforeEach(() => {
     router,
     toast: vi.fn(),
     showModalHtml: vi.fn(),
-    confirmAction: vi.fn((_message, onConfirm, _confirmText) => {}),
+    confirmAction: vi.fn((_message, _onConfirm, _confirmText) => {}),
   })
 })
 

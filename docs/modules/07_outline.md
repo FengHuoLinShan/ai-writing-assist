@@ -1,7 +1,8 @@
 # Module: Story outline_state / 大纲与结构兼容面
 
-> 当前生产 owner 是 `modules.story.outline_state`，原 `/api/outline` 与
-> `modules.outline` 仅保留兼容入口。表名、任务、CAS、SceneSpan、Workbench、揭示和回滚
+> 当前生产 owner 是 `modules.story.outline_state`。`modules.outline` 仅保留待固定
+> SHA 发布核验后删除的 Python import 兼容入口；`/api/outline/*` 继续保持稳定。
+> 表名、任务、CAS、SceneSpan、Workbench、揭示和回滚
 > 行为不变；新生产消费者通过 `modules.story.facade` / `modules.story.contracts`。
 
 ## 定位
@@ -145,11 +146,10 @@ preview，采用时在单一 savepoint 中原子写入，并记录总纲 revisio
 
 ## 对外 facade
 
-跨模块调用优先走 `modules.outline.facade`。`facade.py` 是兼容 re-export hub，
-内部按 seam 拆到 `scene_facade.py`、`structure_dedup_facade.py`、
+跨模块调用走 `modules.story.facade`。`modules.story.outline_state.facade` 内部
+按 seam 拆到 `scene_facade.py`、`structure_dedup_facade.py`、
 `deep_import_repair_facade.py` 和 `foreshadowing_facade.py`。子 facade 只提升
-outline 内部 locality；旧 `modules.outline.facade.*` 仍是跨模块公共 seam 和测试
-monkeypatch 路径。
+outline 内部 locality；旧 `modules.outline.facade.*` 只由兼容契约测试保留。
 
 当前常用入口包括：
 
@@ -176,7 +176,7 @@ outline 可以只读依赖 `modules.writing.facade` / `modules.writing.contracts
 访问 writing 的 model / repository / service。
 
 writing 侧不在服务模块顶层依赖 outline facade。冲突检查读取 Scene contract 通过可注入
-loader 完成，默认 loader 在调用时 lazy import `modules.outline.facade`。
+loader 完成，默认 loader 在调用时 lazy import `modules.story.facade`。
 
 ## Scene 设计要点
 
@@ -195,7 +195,7 @@ loader 完成，默认 loader 在调用时 lazy import `modules.outline.facade`�
 `chapter_ids` 只更新 `scene_chapter_links`，只有 `scene_chunks` 变化才重建
 `scene_spans`，`source/status` 只镜像 span 生命周期字段，清空物理映射时才显式
 删除 span。因此采用、标记已检查或来源变更不会丢失精确定位、source hash、
-anchor 或 working span。默认只读查询排除 `deprecated` span。跨模块只允许调用 `modules.outline.facade` 中的
+anchor 或 working span。默认只读查询排除 `deprecated` span。跨模块只允许调用 `modules.story.facade` 中的
 `get_scene_spans_by_chapter()` 和 `get_scene_spans_for_scene()`。
 
 span 按 `(novel_id, scene_id, content_mode, part_no)` 唯一。正文版本变化后以

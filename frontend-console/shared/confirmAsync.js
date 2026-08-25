@@ -6,7 +6,7 @@
 export function confirmAsync(
   message,
   confirmText,
-  { confirmAction = globalThis.confirmAction, closeModal = globalThis.closeModal } = {},
+  { confirmAction = globalThis.confirmAction } = {},
 ) {
   return new Promise((resolve) => {
     let settled = false

@@ -88,7 +88,7 @@ async def _generate_with_retry(
     end_chapter: int,
 ) -> dict[str, Any]:
     """调用生成器，如果 LLM 返回空则重试（LLM 输出不稳定）。"""
-    from modules.outline.services import PlotStructureGenerator
+    from modules.story.outline_state.services import PlotStructureGenerator
 
     _generator = PlotStructureGenerator()
     result: dict[str, Any] = {}
@@ -234,7 +234,10 @@ class TestRealOutlineGeneration:
     ) -> None:
         """生成的数据持久化到 DB 且可回读。"""
         # Arrange
-        from modules.outline.services import OutlineArcService, PlotThreadService
+        from modules.story.outline_state.services import (
+            OutlineArcService,
+            PlotThreadService,
+        )
 
         _thread_svc = PlotThreadService()
         _arc_svc = OutlineArcService()
@@ -266,7 +269,7 @@ class TestRealOutlineGeneration:
     ) -> None:
         """多次调用不崩溃，目前无 dedup。"""
         # Arrange
-        from modules.outline.services import PlotThreadService
+        from modules.story.outline_state.services import PlotThreadService
 
         _thread_svc = PlotThreadService()
         novel_id = project_with_world["project_id"]
@@ -354,7 +357,7 @@ class TestOutputContractCoverage:
     ) -> None:
         """验证 DB 中 related_character_ids / related_entity_ids 为空。"""
         # Arrange
-        from modules.outline.services import PlotThreadService
+        from modules.story.outline_state.services import PlotThreadService
 
         _thread_svc = PlotThreadService()
         novel_id = project_with_world["project_id"]

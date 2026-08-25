@@ -906,6 +906,10 @@ export function useWritingWorkspace(props) {
       const result = await api.writing.publish(payload)
       if (generation !== publishGeneration || disposed.value) return
       publishProgress.taskId = result?.task_id || null
+      await reloadChapters()
+      if (result?.new_version !== false && selectedChapter.value) {
+        await selectChapter(selectedChapter.value)
+      }
       publishProgress.phase = result?.task_id ? "running" : "done"
       publishProgress.progress = result?.task_id ? 0 : 100
       publishProgress.message = result?.task_id
@@ -913,10 +917,6 @@ export function useWritingWorkspace(props) {
         : result?.new_version === false
           ? "正文无实质变化，已沿用当前正式正文"
           : "已设为正式正文"
-      await reloadChapters()
-      if (result?.new_version !== false && selectedChapter.value) {
-        await selectChapter(selectedChapter.value)
-      }
       if (result?.task_id) schedulePublishPoll(generation, result.task_id)
     } catch (err) {
       if (generation !== publishGeneration) return

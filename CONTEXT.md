@@ -154,7 +154,7 @@ RAG、writing 或 memory；每个旅程以一个隐藏的 `project_kind=interact
 
 当前业务模块为 `account`、`project`、`world`、`evidence`、`story`、`writing`、
 `imports`、`interaction`；Story 内部的 `outline_state` 与 `continuity` 吸收原 outline/memory
-唯一生产实现，旧包只保留一发布周期兼容别名。RAG 索引与 Context 编译/确认归 evidence，
+唯一生产实现，旧包只保留待准备版本固定 SHA 发布核验后删除的兼容别名。RAG 索引与 Context 编译/确认归 evidence，
 账户连接与全局偏好归 account，项目偏好及有效配置
 归 project；`map` 是 world 子系统，
 `infrastructure/tasks` 是共享基础设施。`interaction` 是 RP 私人故事领域，不属于作者

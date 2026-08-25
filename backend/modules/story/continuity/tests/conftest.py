@@ -6,10 +6,10 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.memory.models import MemoryEvent
-from modules.memory.repositories import EventRepository, SnapshotRepository
-from modules.memory.services import MemoryService
 from modules.project.models import Project
+from modules.story.continuity.models import MemoryEvent
+from modules.story.continuity.repositories import EventRepository, SnapshotRepository
+from modules.story.continuity.services import MemoryService
 
 
 @pytest.fixture

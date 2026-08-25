@@ -147,7 +147,7 @@ describe("api.js cache behavior", () => {
 
     try {
       await expect(window.api.request(
-        "/settings/project?access_token=query-secret",
+        "/account/settings/project?access_token=query-secret",
         {
           method: "PUT",
           body: JSON.stringify({ api_key: "request-api-key", model: "demo" }),
@@ -769,7 +769,7 @@ describe("api.js request headers", () => {
   it("does not force X-Requested-With on GET requests", async () => {
     mockJsonResponse({ ok: true })
 
-    await window.api.request("/settings/llm-defaults")
+    await window.api.request("/account/settings/llm-defaults")
 
     const init = globalThis.fetch.mock.calls[0][1]
     expect(init.headers["X-Requested-With"]).toBeUndefined()
@@ -779,7 +779,7 @@ describe("api.js request headers", () => {
     for (const method of ["PUT", "POST", "DELETE"]) {
       mockJsonResponse({ ok: true })
 
-      await window.api.request(`/settings/header-check-${method}`, { method })
+      await window.api.request(`/account/settings/header-check-${method}`, { method })
 
       const init = globalThis.fetch.mock.calls[0][1]
       expect(init.headers["X-Requested-With"]).toBe("XMLHttpRequest")
@@ -789,7 +789,7 @@ describe("api.js request headers", () => {
   it("lets callers override X-Requested-With", async () => {
     mockJsonResponse({ ok: true })
 
-    await window.api.request("/settings/llm-defaults", {
+    await window.api.request("/account/settings/llm-defaults", {
       method: "PUT",
       headers: { "X-Requested-With": "CustomClient" },
     })

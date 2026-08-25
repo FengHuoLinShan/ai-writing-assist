@@ -14,7 +14,7 @@
  * - outlineAnalysis 使用 novelId 参数轮询、支持显式取消；
  * - plotAutoExtract 简单提交→轮询→终态刷新。
  */
-import { getApi, getAppState, getRouter, getToast } from "../../../bridge/index.js"
+import { getAppState, getRouter, getToast } from "../../../bridge/index.js"
 import {
   clearActiveWorkflow,
   recoverActiveWorkflows,

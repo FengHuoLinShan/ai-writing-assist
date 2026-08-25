@@ -309,7 +309,7 @@ describe("筛选", () => {
     await wrapper.find("#filter-q").setValue("港")
     await wrapper.find('[data-action="apply-filters"]').trigger("click")
     expect(navigateMock).toHaveBeenCalledTimes(1)
-    const [view, subView, replace, query] = navigateMock.mock.calls[0]
+    const [view, subView, _replace, query] = navigateMock.mock.calls[0]
     expect([view, subView]).toEqual(["world", "objects"])
     expect(query.get("entity_type")).toBe("location")
     expect(query.get("q")).toBe("港")

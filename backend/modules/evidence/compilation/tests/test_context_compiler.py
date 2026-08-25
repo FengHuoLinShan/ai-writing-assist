@@ -35,7 +35,7 @@ from modules.evidence.compilation.markdown_renderer import (
 from modules.evidence.compilation.services import CompileOptions
 from modules.evidence.compilation.services.context_compiler import ContextCompiler
 from modules.evidence.compilation.services.protocol import Loader
-from modules.memory.contracts import SCENE_MEMORY_DIMENSIONS
+from modules.story.continuity.contracts import SCENE_MEMORY_DIMENSIONS
 
 
 @pytest.mark.asyncio

@@ -8,7 +8,6 @@
  * 草稿/错误/批量选择落 worldSession（见 worldSession.js 进入协调语义）。
  */
 import { getApi, getAppState, getCloseModal, getConfirmAction, getEsc, getRouter, getShowModalHtml, getToast } from "../../../bridge/index.js"
-import { worldAssetDisplay } from "../../../../shared/assetDisplayState.js"
 import { worldSession } from "../worldSession.js"
 import {
   WORLD_SUGGESTED_ACTION_LABELS,

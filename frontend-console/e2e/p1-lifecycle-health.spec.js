@@ -72,14 +72,14 @@ test.describe("P1 lifecycle and evidence health", () => {
 
   test("RAG status renders evidence health without exposing trace payload", async ({ page }) => {
     project = await createProject({ title: "P1 evidence health", genre: "fantasy", language: "zh" })
-    await page.route("**/api/rag/chunks**", async (route) => {
+    await page.route("**/api/evidence/indexing/chunks**", async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({ total: 2, embedding_failed_count: 0, items: [] }),
       })
     })
-    await page.route("**/api/context/evidence-health**", async (route) => {
+    await page.route("**/api/evidence/compilation/evidence-health**", async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",

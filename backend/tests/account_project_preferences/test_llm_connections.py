@@ -120,9 +120,7 @@ async def test_stale_unkeyed_fingerprint_revalidates_and_upgrades(
     service = SettingsService()
     secret = "unit-test-legacy-fingerprint-key"
     await service.connect_account_llm_provider(db_session, "deepseek", secret)
-    row = (
-        await db_session.execute(select(AccountLLMCredential))
-    ).scalar_one()
+    row = (await db_session.execute(select(AccountLLMCredential))).scalar_one()
     row.key_fingerprint = "0" * 64
     await db_session.flush()
 
@@ -153,9 +151,7 @@ async def test_failed_validation_does_not_store_or_activate(
             "unit-test-rejected-key",
         )
 
-    rows = (
-        await db_session.execute(select(AccountLLMCredential))
-    ).scalars().all()
+    rows = (await db_session.execute(select(AccountLLMCredential))).scalars().all()
     assert rows == []
     state = await SettingsService().get_account_llm_connections(db_session)
     assert state.active_provider_id == "deepseek"
@@ -215,12 +211,18 @@ async def test_provider_credentials_are_owner_isolated(db_session):
         },
     )
 
-    assert decrypt_secret(
-        (await repo.get(db_session, owner_a, "deepseek")).encrypted_api_key
-    ) == "owner-a-key"
-    assert decrypt_secret(
-        (await repo.get(db_session, owner_b, "deepseek")).encrypted_api_key
-    ) == "owner-b-key"
+    assert (
+        decrypt_secret(
+            (await repo.get(db_session, owner_a, "deepseek")).encrypted_api_key
+        )
+        == "owner-a-key"
+    )
+    assert (
+        decrypt_secret(
+            (await repo.get(db_session, owner_b, "deepseek")).encrypted_api_key
+        )
+        == "owner-b-key"
+    )
 
 
 @pytest.mark.asyncio
@@ -264,9 +266,9 @@ async def test_balance_failure_is_auxiliary_and_does_not_disconnect(
     assert balances.items[0].status == "unavailable"
     assert balances.items[0].amount is None
     assert balances.items[0].currency is None
-    assert (
-        await service.get_account_llm_connections(db_session)
-    ).providers[0].connected is True
+    assert (await service.get_account_llm_connections(db_session)).providers[
+        0
+    ].connected is True
 
 
 @pytest.mark.asyncio
@@ -310,7 +312,7 @@ async def test_connection_api_never_returns_key(
     )
 
     response = await async_client.put(
-        "/api/settings/llm-connections/deepseek",
+        "/api/account/settings/llm-connections/deepseek",
         headers=XHR_HEADERS,
         json={"api_key": "unit-test-api-secret"},
     )
@@ -325,7 +327,7 @@ async def test_unconnected_provider_cannot_be_activated(
     async_client: AsyncClient,
 ):
     response = await async_client.post(
-        "/api/settings/llm-connections/kimi/activate",
+        "/api/account/settings/llm-connections/kimi/activate",
         headers=XHR_HEADERS,
     )
 
@@ -345,7 +347,7 @@ async def test_unsupported_provider_is_rejected(
     )
 
     response = await async_client.put(
-        "/api/settings/llm-connections/openai-compatible",
+        "/api/account/settings/llm-connections/openai-compatible",
         headers=XHR_HEADERS,
         json={"api_key": "unit-test-unsupported-key"},
     )
@@ -362,15 +364,13 @@ async def test_kimi_is_hidden_and_rejected_until_real_compatibility_gate(
 ):
     monkeypatch.delenv("ENABLE_ACCOUNT_KIMI_K3", raising=False)
 
-    listing = await async_client.get("/api/settings/llm-connections")
+    listing = await async_client.get("/api/account/settings/llm-connections")
     connect = await async_client.put(
-        "/api/settings/llm-connections/kimi",
+        "/api/account/settings/llm-connections/kimi",
         headers=XHR_HEADERS,
         json={"api_key": "unit-test-gated-key"},
     )
 
-    assert [item["provider_id"] for item in listing.json()["providers"]] == [
-        "deepseek"
-    ]
+    assert [item["provider_id"] for item in listing.json()["providers"]] == ["deepseek"]
     assert connect.status_code == 400
     assert "兼容验证" in connect.json()["detail"]

@@ -2,7 +2,7 @@
   "id": "phase1c_boundary_review",
   "version": 2,
   "owner": "imports",
-  "schema_model": "modules.outline.contracts.SceneBoundaryReviewOutputContract",
+  "schema_model": "modules.story.outline_state.contracts.SceneBoundaryReviewOutputContract",
   "declared_prompt_fields": ["boundaries", "candidate_concerns"],
   "forbidden_fields": ["scene_chunks", "chapter_ids", "status"],
   "required_evidence_field": null,

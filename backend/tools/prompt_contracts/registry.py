@@ -11,9 +11,9 @@ from .probes import PROBES
 CONTRACT_DIR = Path(__file__).resolve().parent / "contracts"
 ALLOWED_SCHEMA_PREFIXES = (
     "modules.imports.",
-    "modules.outline.",
+    "modules.story.outline_state.",
     "modules.world.",
-    "modules.memory.",
+    "modules.story.continuity.",
     "modules.evidence.",
 )
 

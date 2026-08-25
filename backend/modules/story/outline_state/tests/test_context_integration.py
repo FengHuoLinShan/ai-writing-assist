@@ -6,8 +6,8 @@ from unittest import mock
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.outline.schemas import OutlineArcCreate, PlotThreadCreate
-from modules.outline.services import OutlineArcService, PlotThreadService
+from modules.story.outline_state.schemas import OutlineArcCreate, PlotThreadCreate
+from modules.story.outline_state.services import OutlineArcService, PlotThreadService
 from modules.writing.contracts import WritingDraftContract
 
 
@@ -48,7 +48,9 @@ _CONTAINER_GET_PATCHES = [
 def test_plot_structure_context_markdown_includes_rag_evidence_and_warnings() -> None:
     """结构分析 prompt 应包含 RAG 检索证据和降级提示。"""
     from modules.evidence.contracts import StructureContextBundle
-    from modules.outline.generation.context_builder import PlotStructureContextBuilder
+    from modules.story.outline_state.generation.context_builder import (
+        PlotStructureContextBuilder,
+    )
 
     bundle = StructureContextBundle(
         novel_id="00000000-0000-0000-0000-000000000499",
@@ -79,8 +81,10 @@ async def test_plot_structure_context_uses_range_end_as_visible_until(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from modules.evidence.contracts import StructureContextBundle
-    from modules.outline.generation import context_builder
-    from modules.outline.generation.context_builder import PlotStructureContextBuilder
+    from modules.story.outline_state.generation import context_builder
+    from modules.story.outline_state.generation.context_builder import (
+        PlotStructureContextBuilder,
+    )
 
     calls: list[dict] = []
 
@@ -117,7 +121,7 @@ async def test_plot_structure_context_loads_chapter_texts_in_one_batch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """生成结构上下文时，章节正文范围应通过 writing facade 批量加载。"""
-    from modules.outline.generation import context_builder
+    from modules.story.outline_state.generation import context_builder
 
     batch_calls: list[list[int]] = []
 
@@ -174,8 +178,10 @@ async def test_plot_structure_context_loads_scene_summaries_by_chapter_range(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """已有 Scene 摘要应按章节范围查询，不应全量加载后 Python 过滤。"""
-    from modules.outline import services as outline_services
-    from modules.outline.generation.context_builder import PlotStructureContextBuilder
+    from modules.story.outline_state import services as outline_services
+    from modules.story.outline_state.generation.context_builder import (
+        PlotStructureContextBuilder,
+    )
 
     range_calls: list[tuple[str, int, int]] = []
 

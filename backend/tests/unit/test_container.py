@@ -1,7 +1,6 @@
 import pytest
 
 from core.container import (
-    Injected,
     container_scope,
     get,
     override,
@@ -279,25 +278,3 @@ async def test_shutdown_attempts_all_services_and_raises_aggregate_error():
     assert len(exc_info.value.exceptions) == 2
     with pytest.raises(KeyError):
         get("first")
-
-
-class TestInjected:
-    def setup_method(self):
-        reset()
-
-    def test_injected_descriptor_resolves(self):
-        register("world.list_characters", lambda: ["char1"])
-
-        class MyService:
-            list_chars = Injected("world.list_characters")
-
-        svc = MyService()
-        assert svc.list_chars() == ["char1"]
-
-    def test_injected_descriptor_missing_raises(self):
-        class MyService:
-            missing = Injected("not.registered")
-
-        svc = MyService()
-        with pytest.raises(KeyError):
-            svc.missing

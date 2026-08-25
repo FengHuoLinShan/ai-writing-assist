@@ -38,7 +38,7 @@ ADR-0013 记录作者长任务的 operation receipt、最多两个 attempt 和�
 ## 当前读图约定
 
 - 业务模块共 8 个：`account`、`project`、`world`、`evidence`、`story`、`imports`、
-  `writing`、`interaction`。原 `memory` 与 `outline` 目录只是 Story 的一发布周期兼容别名。
+  `writing`、`interaction`。原 `memory` 与 `outline` 目录只是 Story 的待固定 SHA 发布核验后删除的兼容别名。
 - 创作三层为事实层（`project/world`）、结构与连续性层（`story/outline_state`、
   `story/continuity`）和辅助层（`imports/evidence/story/writing`）。RAG 索引和 Context 编译/确认归 `evidence`；
   账户连接与全局偏好归 `account`，项目偏好与有效配置
@@ -47,7 +47,7 @@ ADR-0013 记录作者长任务的 operation receipt、最多两个 attempt 和�
   `infrastructure/llm` 是共享基础设施。
 - Canonical HTTP 所有权与模块一致：`/api/evidence/{indexing,compilation}/*`、
   `/api/account/settings/*`、`/api/projects/{project_id}/author-preferences`；旧 RAG/Context/Settings
-  前缀仅是同一 handler 的一发布周期兼容挂载。
+  前缀仅是同一 handler 的待固定 SHA 发布核验后删除的兼容挂载。
 - `map` 是 `world` 拥有的 AI 地图册子系统；地图册与世界对象图片共用受限 MinIO 连接、但使用
   私有分 bucket，边界见 ADR-0012 / ADR-0014。`geo/review/character/timeline` 已移除或并入现有模块。
 - 世界观恢复、收束、检修、交接、影响预演和“问世界”仍是既有 `world/evidence/frontend`

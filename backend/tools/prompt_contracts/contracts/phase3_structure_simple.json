@@ -2,7 +2,7 @@
   "id": "phase3_structure_simple",
   "version": 1,
   "owner": "outline",
-  "schema_model": "modules.outline.generation.models.SimpleStructureOutput",
+  "schema_model": "modules.story.outline_state.generation.models.SimpleStructureOutput",
   "declared_prompt_fields": [
     "plot_threads",
     "arcs",

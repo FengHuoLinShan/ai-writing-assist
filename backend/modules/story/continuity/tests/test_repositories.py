@@ -6,8 +6,12 @@ from sqlalchemy import select
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.memory.models import DeltaLog, MemorySceneCheckpoint, MemorySnapshot
-from modules.memory.repositories import (
+from modules.story.continuity.models import (
+    DeltaLog,
+    MemorySceneCheckpoint,
+    MemorySnapshot,
+)
+from modules.story.continuity.repositories import (
     DeltaLogRepository,
     EventRepository,
     SceneCheckpointRepository,

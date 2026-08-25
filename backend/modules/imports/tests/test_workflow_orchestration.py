@@ -4,7 +4,6 @@
 候选管理已移除，深度导入全自动执行三步。
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -562,9 +561,7 @@ class TestDeepImportOrchestrator:
                 status="pending",
                 generation=1,
                 recovery_required=False,
-                authorization_snapshot=dict(
-                    active.meta["authorization_snapshot"]
-                ),
+                authorization_snapshot=dict(active.meta["authorization_snapshot"]),
                 llm_execution_snapshot={},
                 prepare_checkpoint={},
                 checkpoints={},
@@ -593,20 +590,22 @@ class TestDeepImportOrchestrator:
         db_session,
     ):
         novel_id = str(uuid.uuid4())
-        db_session.add_all([
-            AsyncTask(
-                task_type="deep_import",
-                status="failed",
-                meta={"novel_id": novel_id, "recovery_required": True},
-                result={},
-            ),
-            AsyncTask(
-                task_type="scene_auto_extraction",
-                status="failed",
-                meta={"novel_id": novel_id},
-                result={"recovery_required": True},
-            ),
-        ])
+        db_session.add_all(
+            [
+                AsyncTask(
+                    task_type="deep_import",
+                    status="failed",
+                    meta={"novel_id": novel_id, "recovery_required": True},
+                    result={},
+                ),
+                AsyncTask(
+                    task_type="scene_auto_extraction",
+                    status="failed",
+                    meta={"novel_id": novel_id},
+                    result={"recovery_required": True},
+                ),
+            ]
+        )
         await db_session.flush()
 
         active = await DeepImportOrchestrator._find_active_import_task(
@@ -824,7 +823,7 @@ class TestDeepImportOrchestrator:
         self,
         db_session,
     ):
-        from modules.outline.models import OutlineArc, PlotThread, Scene
+        from modules.story.outline_state.models import OutlineArc, PlotThread, Scene
         from modules.world.models import CoreEntity
         from shared.utils import parse_uuid
 
@@ -1278,8 +1277,7 @@ class TestDeepImportOrchestrator:
 
         kwargs = orchestrator.workflow.run_entity_extraction_only.await_args.kwargs
         assert (
-            kwargs["project_settings"]["llm"]["model"]
-            == account_llm_connection["model"]
+            kwargs["project_settings"]["llm"]["model"] == account_llm_connection["model"]
         )
         assert kwargs["project_settings"]["llm"]["api_key"] == rotated_key
         assert task.meta["llm_execution_snapshot"] == original_snapshot

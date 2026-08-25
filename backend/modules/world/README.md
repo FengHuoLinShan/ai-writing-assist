@@ -914,7 +914,7 @@ cd frontend-console && BACKEND_PORT=18000 FRONTEND_PORT=18080 npx playwright tes
 - `core.database` — 数据库连接
 - `core.base` — Base ORM、UUIDMixin、TimestampMixin、StatusMixin、NovelMixin
 - `core.dependencies` — DbSession
-- `shared.enums` — EntityType、ObjectStatus、Visibility、CandidateAction 等
+- `shared.enums` — EntityType、Visibility、CandidateAction 等
 - `shared.types` — NovelID、EntityID 等
 - `shared.constants` — DEFAULT_PAGE_SIZE、相似度阈值
 

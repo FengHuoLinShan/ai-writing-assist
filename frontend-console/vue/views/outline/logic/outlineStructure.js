@@ -5,7 +5,7 @@
  * loadStructureProps 解码 query → filters → API 参数。
  */
 
-import { getApi, getAppState } from "../../../bridge/index.js"
+import { getApi } from "../../../bridge/index.js"
 
 // ============================================================
 // 结构资产常量

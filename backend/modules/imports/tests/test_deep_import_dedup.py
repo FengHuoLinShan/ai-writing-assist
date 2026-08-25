@@ -7,14 +7,12 @@ from modules.imports.deep_import_dedup import StructureReviewAgent
 
 @pytest.mark.asyncio
 async def test_structure_review_redacts_credentials_from_degraded_error(monkeypatch):
-    from modules.outline import facade as outline_facade
+    from modules.story import facade as outline_facade
 
     secret = "private-token-value"
 
     async def fail_suggestion(*args, **kwargs):
-        raise RuntimeError(
-            f"Authorization: Bearer {secret} api_key={secret}"
-        )
+        raise RuntimeError(f"Authorization: Bearer {secret} api_key={secret}")
 
     monkeypatch.setattr(
         outline_facade,
@@ -37,7 +35,7 @@ async def test_structure_review_redacts_credentials_from_degraded_error(monkeypa
 async def test_structure_review_applies_only_same_workflow_high_confidence(
     monkeypatch,
 ):
-    from modules.outline import facade as outline_facade
+    from modules.story import facade as outline_facade
 
     async def fake_suggest_structure_dedup(*args, **kwargs):
         return {
@@ -101,7 +99,7 @@ async def test_structure_review_applies_only_same_workflow_high_confidence(
 
 @pytest.mark.asyncio
 async def test_structure_review_ignores_old_only_suggestion_pairs(monkeypatch):
-    from modules.outline import facade as outline_facade
+    from modules.story import facade as outline_facade
 
     async def fake_suggest_structure_dedup(*args, **kwargs):
         return {
@@ -152,7 +150,7 @@ async def test_structure_review_ignores_old_only_suggestion_pairs(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_structure_review_counts_many_to_many_pairs_as_unique_assets(monkeypatch):
-    from modules.outline import facade as outline_facade
+    from modules.story import facade as outline_facade
 
     async def fake_suggest_structure_dedup(*args, **kwargs):
         return {

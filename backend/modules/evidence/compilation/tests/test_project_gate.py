@@ -15,7 +15,7 @@ async def test_context_routes_hide_recycled_and_missing_projects(
     missing_id = str(uuid.uuid4())
 
     active = await async_client.post(
-        "/api/context/compile",
+        "/api/evidence/compilation/compile",
         json={"novel_id": novel_id, "task": "Compile", "scope": "project"},
     )
     assert active.status_code == 200
@@ -25,11 +25,11 @@ async def test_context_routes_hide_recycled_and_missing_projects(
 
     for blocked_id in (novel_id, missing_id):
         compile_response = await async_client.post(
-            "/api/context/compile",
+            "/api/evidence/compilation/compile",
             json={"novel_id": blocked_id, "task": "Compile", "scope": "project"},
         )
         confirm_response = await async_client.post(
-            "/api/context/confirm",
+            "/api/evidence/compilation/confirm",
             json={
                 "novel_id": blocked_id,
                 "action": "writing.generate",
@@ -38,11 +38,11 @@ async def test_context_routes_hide_recycled_and_missing_projects(
             },
         )
         maintenance_response = await async_client.post(
-            "/api/context/snapshots/maintenance",
+            "/api/evidence/compilation/snapshots/maintenance",
             json={"novel_id": blocked_id},
         )
         scene_lens_response = await async_client.post(
-            "/api/context/scene-lens",
+            "/api/evidence/compilation/scene-lens",
             json={
                 "novel_id": blocked_id,
                 "scene_id": str(uuid.uuid4()),
@@ -98,7 +98,7 @@ async def test_evidence_grep_http_returns_author_scene_context(
         "modules.evidence.compilation.api._grep_novel_evidence", fake_grep
     )
     response = await async_client.post(
-        "/api/context/evidence/grep",
+        "/api/evidence/compilation/evidence/grep",
         json={
             "novel_id": novel_id,
             "pattern": "铜铃",

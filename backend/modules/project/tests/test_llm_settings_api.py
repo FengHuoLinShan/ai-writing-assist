@@ -89,9 +89,7 @@ async def test_effective_settings_hide_recycled_project(
     deleted = await async_client.delete(f"/api/projects/{pid}")
     assert deleted.status_code == 204
 
-    llm_response = await async_client.get(
-        f"/api/projects/{pid}/effective-llm-settings"
-    )
+    llm_response = await async_client.get(f"/api/projects/{pid}/effective-llm-settings")
     author_response = await async_client.get(
         f"/api/projects/{pid}/effective-author-preferences"
     )
@@ -328,7 +326,7 @@ async def test_project_connection_fields_cannot_override_account_template(
 ):
     pid = await factory.create_project()
     rejected = await async_client.put(
-        "/api/settings/llm-defaults",
+        "/api/account/settings/llm-defaults",
         headers=XHR_HEADERS,
         json={
             "provider_id": "deepseek",
@@ -396,7 +394,7 @@ async def test_put_project_model_does_not_change_effective_account_model(
 ):
     pid = await factory.create_project()
     rejected = await async_client.put(
-        "/api/settings/llm-defaults",
+        "/api/account/settings/llm-defaults",
         headers=XHR_HEADERS,
         json={
             "provider_id": "deepseek",
@@ -549,7 +547,7 @@ async def test_project_context_keeps_only_project_owned_nonsecret_settings(
         AsyncMock(),
     )
     connected = await async_client.put(
-        "/api/settings/llm-connections/kimi",
+        "/api/account/settings/llm-connections/kimi",
         headers=XHR_HEADERS,
         json={"api_key": "account-runtime-key"},
     )

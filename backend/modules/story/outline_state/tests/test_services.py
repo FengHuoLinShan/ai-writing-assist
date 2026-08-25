@@ -11,13 +11,13 @@ from sqlalchemy.sql.dml import Update
 from sqlalchemy.sql.selectable import Select
 
 from core.errors import NotFoundError
-from modules.outline.schemas import (
+from modules.story.outline_state.schemas import (
     OutlineArcCreate,
     PlotThreadCreate,
     PlotThreadUpdate,
     SceneUpdate,
 )
-from modules.outline.services import (
+from modules.story.outline_state.services import (
     OutlineArcService,
     OutlineStructureCleanupService,
     PlotThreadService,
@@ -43,13 +43,13 @@ def test_outline_facades_have_no_direct_http_exception_dependency() -> None:
 
 
 def test_outline_facade_reexports_subfacade_functions_by_identity() -> None:
-    from modules.outline import (
+    from modules.story.outline_state import (
         deep_import_repair_facade,
         foreshadowing_facade,
         scene_facade,
         structure_dedup_facade,
     )
-    from modules.outline import (
+    from modules.story.outline_state import (
         facade as outline_facade,
     )
 
@@ -74,7 +74,7 @@ def test_outline_facade_reexports_subfacade_functions_by_identity() -> None:
 
 @pytest.mark.asyncio
 async def test_deep_import_repair_service_resolves_world_entities_in_service() -> None:
-    from modules.outline.deep_import_repair_service import (
+    from modules.story.outline_state.deep_import_repair_service import (
         OutlineDeepImportRepairService,
     )
 
@@ -151,11 +151,13 @@ async def test_structure_cleanup_uses_unit_of_work_instead_of_per_asset_update()
 
 @pytest.mark.asyncio
 async def test_get_scene_contract_returns_none_for_domain_not_found(monkeypatch) -> None:
-    from modules.outline.facade import get_scene_contract
+    from modules.story.outline_state.facade import get_scene_contract
 
     service = MagicMock()
     service.get = AsyncMock(side_effect=NotFoundError("Scene missing"))
-    monkeypatch.setattr("modules.outline.services.SceneService", lambda: service)
+    monkeypatch.setattr(
+        "modules.story.outline_state.services.SceneService", lambda: service
+    )
 
     result = await get_scene_contract(MagicMock(), str(uuid.uuid4()), str(uuid.uuid4()))
 
@@ -163,8 +165,8 @@ async def test_get_scene_contract_returns_none_for_domain_not_found(monkeypatch)
 
 
 def test_scene_to_contract_preserves_shape_and_defaults() -> None:
-    from modules.outline.contracts import SceneContract
-    from modules.outline.services import scene_to_contract
+    from modules.story.outline_state.contracts import SceneContract
+    from modules.story.outline_state.services import scene_to_contract
 
     scene = _make_scene(
         scene_id="11111111-1111-1111-1111-111111111111",
@@ -737,7 +739,7 @@ class TestSceneContextWindowFacade:
         monkeypatch,
         sample_novel_id: str,
     ) -> None:
-        from modules.outline import scene_facade
+        from modules.story.outline_state import scene_facade
 
         scene_id = uuid.uuid4()
         contract = SimpleNamespace(

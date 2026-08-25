@@ -6,12 +6,16 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.memory.contracts import SCENE_MEMORY_DIMENSIONS
-from modules.memory.models import MemoryEvent, MemorySceneCheckpoint, MemorySceneSnapshot
-from modules.memory.repositories import EventRepository
-from modules.memory.scene_projection import SceneMemoryProjectionService
-from modules.memory.services import MemoryService
-from modules.outline.models import Scene
+from modules.story.continuity.contracts import SCENE_MEMORY_DIMENSIONS
+from modules.story.continuity.models import (
+    MemoryEvent,
+    MemorySceneCheckpoint,
+    MemorySceneSnapshot,
+)
+from modules.story.continuity.repositories import EventRepository
+from modules.story.continuity.scene_projection import SceneMemoryProjectionService
+from modules.story.continuity.services import MemoryService
+from modules.story.outline_state.models import Scene
 
 
 async def _scene(

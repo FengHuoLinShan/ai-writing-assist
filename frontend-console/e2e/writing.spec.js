@@ -131,7 +131,7 @@ test.describe("写作台模块", () => {
 
     let finishGeneration
     let generationPayload = null
-    await page.route("**/api/context/confirm", async (route) => {
+    await page.route("**/api/evidence/compilation/confirm", async (route) => {
       const body = route.request().postDataJSON()
       await route.fulfill({
         status: 201,
@@ -530,7 +530,7 @@ test.describe("写作台模块", () => {
       }
     })
     // 创建 v1 和 v2
-    const v1 = await createDraft(testProjectId, 1, "第一版", "版本一的正文内容")
+    await createDraft(testProjectId, 1, "第一版", "版本一的正文内容")
     const v2 = await createDraft(testProjectId, 1, "第二版", "版本二的正文内容")
 
     await reloadWorkbench(page, "writing")
@@ -1136,7 +1136,7 @@ test.describe("写作台模块", () => {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }
-    await page.route("**/api/context/confirm", async (route) => {
+    await page.route("**/api/evidence/compilation/confirm", async (route) => {
       await route.fulfill({
         status: 201,
         contentType: "application/json",
