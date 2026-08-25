@@ -231,6 +231,29 @@ async def test_get_entity_relations_custom_pagination_respects_skip_limit(
 
 
 @mock.patch("modules.world.entity_facade._relation_service", autospec=True)
+async def test_get_entity_relations_can_batch_selected_endpoints(
+    mock_relation_service,
+):
+    items = [_relation_response()]
+    mock_relation_service.list_between_entities = mock.AsyncMock(return_value=items)
+    db = mock.AsyncMock()
+
+    result = await get_entity_relations(
+        db,
+        TEST_NOVEL_ID,
+        entity_ids=["entity-1", "entity-2"],
+    )
+
+    assert result == (items, 1)
+    mock_relation_service.list_between_entities.assert_awaited_once_with(
+        db,
+        TEST_NOVEL_ID,
+        ["entity-1", "entity-2"],
+    )
+    mock_relation_service.list.assert_not_called()
+
+
+@mock.patch("modules.world.entity_facade._relation_service", autospec=True)
 async def test_get_entity_relations_service_exception_propagates(mock_relation_service):
     """Exceptions from the underlying service bubble up unchanged."""
     # Arrange

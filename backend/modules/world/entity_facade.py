@@ -327,7 +327,16 @@ async def get_entity_relations(
     novel_id: str,
     skip: int = 0,
     limit: int = 100,
+    *,
+    entity_ids: list[str] | None = None,
 ) -> tuple[list[EntityRelationResponse], int]:
+    if entity_ids is not None:
+        items = await _relation_service.list_between_entities(
+            db,
+            novel_id,
+            entity_ids,
+        )
+        return items, len(items)
     response = await _relation_service.list(db, novel_id, skip=skip, limit=limit)
     if isinstance(response, tuple):
         return response

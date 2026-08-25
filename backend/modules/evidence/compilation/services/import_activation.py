@@ -148,19 +148,11 @@ class ImportContextActivationService:
             for candidate in raw_candidates
             if candidate["entity_id"] not in selected_entity_ids
         ]
-        relations: list[Any] = []
-        relation_skip = 0
-        while True:
-            relation_page, relation_total = await get_entity_relations(
-                db,
-                novel_id,
-                skip=relation_skip,
-                limit=10_000,
-            )
-            relations.extend(relation_page)
-            relation_skip += len(relation_page)
-            if not relation_page or relation_skip >= relation_total:
-                break
+        relations, _relation_total = await get_entity_relations(
+            db,
+            novel_id,
+            entity_ids=sorted(selected_entity_ids),
+        )
         relation_candidates, relation_sources = self._relation_candidates(
             relations,
             selected_candidate_sources,

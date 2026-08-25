@@ -1919,6 +1919,24 @@ class EntityRelationRepository:
         )
         return list((await db.execute(stmt)).scalars().all())
 
+    async def get_between_entities(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        entity_ids: list[uuid.UUID],
+    ) -> list[EntityRelation]:
+        """Load active relations whose two endpoints are both selected."""
+        unique_ids = list(dict.fromkeys(entity_ids))
+        if len(unique_ids) < 2:
+            return []
+        stmt = select(EntityRelation).where(
+            EntityRelation.novel_id == novel_id,
+            EntityRelation.status != "deprecated",
+            EntityRelation.source_id.in_(unique_ids),
+            EntityRelation.target_id.in_(unique_ids),
+        )
+        return list((await db.execute(stmt)).scalars().all())
+
     async def update_endpoint(
         self,
         db: AsyncSession,

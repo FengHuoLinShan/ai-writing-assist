@@ -1161,6 +1161,22 @@ class EntityRelationService(
             total=total,
         )
 
+    async def list_between_entities(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        entity_ids: list[str],
+    ) -> list[EntityRelationResponse]:
+        nid = parse_uuid(novel_id, "novel_id")
+        normalized_ids = [parse_uuid(value, "entity_id") for value in entity_ids]
+        relations = await self.repo.get_between_entities(db, nid, normalized_ids)
+        endpoints = await self._entity_repo.get_by_ids(db, nid, normalized_ids)
+        endpoint_names = {str(entity.id): entity.name for entity in endpoints}
+        return [
+            self._response_with_endpoint_names(relation, endpoint_names)
+            for relation in relations
+        ]
+
     async def update(  # type: ignore[override]
         self,
         db: AsyncSession,
