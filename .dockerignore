@@ -16,6 +16,7 @@
 backend/**/tests
 backend/tests
 backend/evals
+backend/data/dedup_training
 backend/**/test_*.py
 backend/**/*_test.py
 backend/conftest.py

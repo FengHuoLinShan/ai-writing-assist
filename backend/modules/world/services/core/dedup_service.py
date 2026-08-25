@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import os
-import pickle
 import uuid
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -40,100 +36,6 @@ from shared.constants import (
 from shared.enums import CandidateAction
 
 logger = logging.getLogger(__name__)
-
-DEDUP_MODEL_ACTIVE = os.environ.get("DEDUP_MODEL_ACTIVE", "false").lower() == "true"
-
-
-class DedupModelProxy:
-    """去重 LR 模型单例代理。
-
-    负责从 pickle 加载预训练模型，并在加载失败/版本不匹配/维度不匹配时
-    自动回退到 None，由调用方切回 _cascade_score。
-    """
-
-    _instance: DedupModelProxy | None = None
-
-    def __new__(cls) -> DedupModelProxy:
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._load()
-        return cls._instance
-
-    def _load(self) -> None:
-        self._pipeline: Any | None = None
-        self._metadata: dict[str, Any] = {}
-        self._feature_dim = 7
-        self._model_version = "unknown"
-        if not DEDUP_MODEL_ACTIVE:
-            return
-        try:
-            base = Path(__file__).resolve().parents[3] / "data" / "dedup_training"
-            meta_path = base / "dedup_model_metadata.json"
-            model_path = base / "dedup_fusion_model.pkl"
-            with open(meta_path, encoding="utf-8") as fh:
-                self._metadata = json.load(fh)
-            with open(model_path, "rb") as fh:
-                self._pipeline = pickle.load(fh)
-
-            import sklearn
-
-            meta_sklearn = self._metadata.get("sklearn_version")
-            if meta_sklearn and meta_sklearn != sklearn.__version__:
-                logger.warning(
-                    "sklearn version mismatch (metadata=%s, runtime=%s), "
-                    "falling back to cascade",
-                    meta_sklearn,
-                    sklearn.__version__,
-                )
-                self._pipeline = None
-
-            meta_dim = self._metadata.get("feature_dim")
-            if meta_dim is not None and meta_dim != self._feature_dim:
-                logger.warning(
-                    "feature dimension mismatch (metadata=%s, expected=%s), "
-                    "falling back to cascade",
-                    meta_dim,
-                    self._feature_dim,
-                )
-                self._pipeline = None
-
-            self._model_version = self._metadata.get("model_version", "unknown")
-        except FileNotFoundError:
-            logger.warning("Dedup model files not found, falling back to cascade")
-            self._pipeline = None
-        except Exception as exc:
-            logger.warning(
-                "Dedup model load failed: %s",
-                redact_diagnostic(exc, limit=300),
-            )
-            self._pipeline = None
-
-    @property
-    def calibrated_thresholds(self) -> dict[str, float]:
-        """返回模型标定阈值，带默认值保底。"""
-        import copy
-
-        thresholds = copy.copy(self._metadata.get("thresholds", {}))
-        if "theta_merge" not in thresholds:
-            thresholds["theta_merge"] = DEDUP_AUTO_MERGE_THRESHOLD
-        if "theta_review" not in thresholds:
-            thresholds["theta_review"] = DEDUP_REVIEW_THRESHOLD
-        if "theta_discard" not in thresholds:
-            thresholds["theta_discard"] = DEDUP_DISCARD_THRESHOLD
-        return thresholds
-
-    @property
-    def model_version(self) -> str:
-        """返回模型版本字符串。"""
-        return self._model_version
-
-    def predict(self, vector: list[float]) -> tuple[float, str]:
-        if self._pipeline is None:
-            raise RuntimeError("model not loaded")
-        if len(vector) != self._feature_dim:
-            raise ValueError(f"expected {self._feature_dim} features, got {len(vector)}")
-        proba = float(self._pipeline.predict_proba([vector])[0][1])
-        return proba, self._model_version
 
 
 class EntityDedupService:
@@ -284,7 +186,7 @@ class EntityDedupService:
                 semantic_cosine=sem_score,
             )
 
-            # 4. 级联评分（模型优先，失败回退）
+            # 4. 确定性级联评分
             similarity, match_method, action = self._resolve_score(signals)
 
             if similarity >= DEDUP_DISCARD_THRESHOLD:
@@ -303,41 +205,9 @@ class EntityDedupService:
         results.sort(key=lambda r: r.similarity_score, reverse=True)
         return results
 
-    @staticmethod
-    def _model_score(signals) -> tuple[float, str, CandidateAction]:
-        """LR 模型评分：predict_proba → 基于校准阈值的 action。"""
-        proxy = DedupModelProxy()
-        proba, _ = proxy.predict(signals.to_vector())
-        thresholds = proxy.calibrated_thresholds
-        theta_merge = thresholds.get("theta_merge", DEDUP_AUTO_MERGE_THRESHOLD)
-        theta_review = thresholds.get("theta_review", DEDUP_REVIEW_THRESHOLD)
-        theta_discard = thresholds.get("theta_discard", DEDUP_DISCARD_THRESHOLD)
-
-        sim = round(proba, 4)
-        if sim >= theta_merge:
-            return (sim, "lr_model", CandidateAction.merge_with_existing)
-        if sim >= theta_review:
-            return (sim, "lr_model", CandidateAction.needs_user_decision)
-        if sim >= theta_discard:
-            return (sim, "lr_model", CandidateAction.needs_user_decision)
-        return (sim, "lr_model", CandidateAction.ignore)
-
     def _resolve_score(self, signals) -> tuple[float, str, CandidateAction]:
-        """影子模式入口：关闭时直接走级联；开启时优先模型，异常回退。"""
-        cascade_result = self._cascade_score(signals)
-        if not DEDUP_MODEL_ACTIVE:
-            return cascade_result
-        # 无语义向量时回退级联 — 模型在语义缺失下不可靠
-        if signals.semantic_cosine is None:
-            return cascade_result
-        try:
-            return self._model_score(signals)
-        except Exception as exc:
-            logger.warning(
-                "Model inference failed: %s",
-                redact_diagnostic(exc, limit=300),
-            )
-            return cascade_result
+        """使用现有确定性级联评分。"""
+        return self._cascade_score(signals)
 
     @staticmethod
     def _cascade_score(signals) -> tuple[float, str, CandidateAction]:
