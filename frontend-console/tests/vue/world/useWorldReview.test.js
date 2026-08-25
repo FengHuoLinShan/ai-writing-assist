@@ -153,6 +153,12 @@ describe("证据模型", () => {
     expect(pairs.find(([label]) => label === "处理批次")).toBeUndefined()
   })
 
+  it("证据来源使用作者语言而非内部枚举", () => {
+    expect(inlineEvidencePairs({ source: "ai_generated" })).toContainEqual(["来源", "AI 工具"])
+    expect(reviewEvidenceSummary({ source: "manual" }).summary).toBe("手动整理")
+    expect(inlineEvidencePairs({ source: "unknown_pipeline" })).toContainEqual(["来源", "其他来源"])
+  })
+
   it("reviewEvidenceSummary 含诊断 JSON", () => {
     const evidence = reviewEvidenceSummary({ source: "manual", confidence: 0.9, workflow_id: "wf-1" }, "alias", 0.9)
     expect(evidence.summary).toContain("置信度 90%")

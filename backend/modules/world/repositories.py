@@ -1449,7 +1449,14 @@ class EntityRelationRepository:
                         EntityRelation.relation_type.ilike(like_expr),
                         EntityRelation.description.ilike(like_expr),
                         EntityRelation.quote.ilike(like_expr),
-                        CoreEntity.name.ilike(like_expr),
+                        exists().where(
+                            CoreEntity.novel_id == novel_id,
+                            or_(
+                                CoreEntity.id == EntityRelation.source_id,
+                                CoreEntity.id == EntityRelation.target_id,
+                            ),
+                            CoreEntity.name.ilike(like_expr),
+                        ),
                     )
                 )
         if source_chapter_id:
@@ -1459,14 +1466,6 @@ class EntityRelationRepository:
         if strength_max is not None:
             conditions.append(EntityRelation.strength <= strength_max)
         stmt = self._with_endpoint_loads(select(EntityRelation))
-        if q and q.strip():
-            stmt = stmt.join(
-                CoreEntity,
-                or_(
-                    EntityRelation.source_id == CoreEntity.id,
-                    EntityRelation.target_id == CoreEntity.id,
-                ),
-            ).distinct()
         stmt = (
             stmt.where(*conditions)
             .offset(skip)
@@ -1511,7 +1510,14 @@ class EntityRelationRepository:
                         EntityRelation.relation_type.ilike(like_expr),
                         EntityRelation.description.ilike(like_expr),
                         EntityRelation.quote.ilike(like_expr),
-                        CoreEntity.name.ilike(like_expr),
+                        exists().where(
+                            CoreEntity.novel_id == novel_id,
+                            or_(
+                                CoreEntity.id == EntityRelation.source_id,
+                                CoreEntity.id == EntityRelation.target_id,
+                            ),
+                            CoreEntity.name.ilike(like_expr),
+                        ),
                     )
                 )
         if source_chapter_id:
@@ -1520,21 +1526,7 @@ class EntityRelationRepository:
             conditions.append(EntityRelation.strength >= strength_min)
         if strength_max is not None:
             conditions.append(EntityRelation.strength <= strength_max)
-        count_stmt = select(func.count(EntityRelation.id))
-        if q and q.strip():
-            count_stmt = (
-                select(func.count(func.distinct(EntityRelation.id)))
-                .select_from(EntityRelation)
-                .join(
-                    CoreEntity,
-                    or_(
-                        EntityRelation.source_id == CoreEntity.id,
-                        EntityRelation.target_id == CoreEntity.id,
-                    ),
-                )
-                .distinct()
-            )
-        count_stmt = count_stmt.where(*conditions)
+        count_stmt = select(func.count(EntityRelation.id)).where(*conditions)
         total = (await db.execute(count_stmt)).scalar() or 0
         items = await self.list_by_novel(
             db,

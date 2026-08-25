@@ -17,6 +17,29 @@ import { useWorkflowPolling } from "../../composables/useWorkflowPolling.js"
 import { getApi, getAppState, getToast } from "../../bridge/index.js"
 import { ragSearchSession } from "./ragSearchSession.js"
 
+export function validateRebuildRange(form) {
+  const rawStartChapter = String(form?.start ?? "").trim()
+  const rawEndChapter = String(form?.end ?? "").trim()
+  if (!rawStartChapter && !rawEndChapter) return { chapterRange: null, error: "" }
+  if (!rawStartChapter || !rawEndChapter) {
+    return { chapterRange: null, error: "请同时填写起始章节和结束章节" }
+  }
+  const startChapter = Number(rawStartChapter)
+  const endChapter = Number(rawEndChapter)
+  if (
+    !Number.isInteger(startChapter)
+    || !Number.isInteger(endChapter)
+    || startChapter < 1
+    || endChapter < 1
+  ) {
+    return { chapterRange: null, error: "章节范围必须是大于等于 1 的整数" }
+  }
+  if (startChapter > endChapter) {
+    return { chapterRange: null, error: "结束章节不能小于起始章节" }
+  }
+  return { chapterRange: { startChapter, endChapter }, error: "" }
+}
+
 /**
  * 创建索引工作流。
  * @param {{statusFields: object, refreshStatus?: () => Promise<void>}} options
@@ -154,30 +177,10 @@ export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
       return
     }
     const projectId = state.currentProjectId
-    const rawStartChapter = String(form?.start ?? "").trim()
-    const rawEndChapter = String(form?.end ?? "").trim()
-    let chapterRange = null
-    if (rawStartChapter || rawEndChapter) {
-      if (!rawStartChapter || !rawEndChapter) {
-        toast("请同时填写起始章节和结束章节", "warning")
-        return false
-      }
-      const startChapter = Number(rawStartChapter)
-      const endChapter = Number(rawEndChapter)
-      if (
-        !Number.isInteger(startChapter)
-        || !Number.isInteger(endChapter)
-        || startChapter < 1
-        || endChapter < 1
-      ) {
-        toast("章节范围必须是大于等于 1 的整数", "warning")
-        return false
-      }
-      if (startChapter > endChapter) {
-        toast("结束章节不能小于起始章节", "warning")
-        return false
-      }
-      chapterRange = { startChapter, endChapter }
+    const { chapterRange, error } = validateRebuildRange(form)
+    if (error) {
+      toast(error, "warning")
+      return false
     }
     const submission = beginMaintenanceSubmission()
     if (!submission) {

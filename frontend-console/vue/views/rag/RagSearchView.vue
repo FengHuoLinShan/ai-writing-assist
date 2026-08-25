@@ -8,7 +8,7 @@ import { buildRouteQuery, parseRouteQuery } from "./logic/routeState.js"
 import { buildEvidencePayload, normalizeChapterRange } from "./logic/searchPayload.js"
 import { useRagSearch } from "./useRagSearch.js"
 import { useEvidenceDrawer } from "./useEvidenceDrawer.js"
-import { ragSearchSession, resetRagSearchSession } from "./ragSearchSession.js"
+import { ragSearchSession, resetRagSearchSession, scopeRagSessionToProject } from "./ragSearchSession.js"
 
 /**
  * 检索子视图编排 — 表单状态、提交、路由恢复（对应 vanilla 的
@@ -18,7 +18,10 @@ const props = defineProps({
   projectId: { type: String, default: null },
   characters: { type: Array, default: () => [] },
   scenes: { type: Array, default: () => [] },
+  embedded: { type: Boolean, default: false },
 })
+
+scopeRagSessionToProject(props.projectId)
 
 // 表单初值来自路由状态（vanilla 以 routeState 渲染表单）
 const initialRouteQuery = getRouter().getCurrentQuery?.()
@@ -272,7 +275,16 @@ async function submit() {
     getToast()(error, "warning")
     return
   }
-  const route = buildRouteQuery(query, payload)
+  const searchRoute = buildRouteQuery(query, payload)
+  const route = props.embedded
+    ? new URLSearchParams(getRouter().getCurrentQuery?.()?.toString() || "")
+    : new URLSearchParams()
+  const searchKeys = [
+    "q", "kind", "content_mode", "visibility", "scope", "chapter_from", "chapter_to",
+    "cutoff_chapter", "cutoff_scene_id", "cutoff_offset", "character_id", "include_pending",
+  ]
+  for (const key of searchKeys) route.delete(key)
+  for (const [key, value] of searchRoute) route.append(key, value)
   const signature = route.toString()
   const state = getAppState()
   if (state) state.searchQuery = query
@@ -338,6 +350,7 @@ onMounted(() => {
     :scenes="scenes"
     :chapter-range-error="chapterRangeError"
     :ask-world-pending="askingWorld"
+    :search-pending="searching"
     @submit="submit"
     @ask-world="askWorld"
   />
@@ -426,18 +439,15 @@ onMounted(() => {
     @open-scene="openScene"
     @retry="retry()"
     @retry-literal="retry({ literal: true })"
-  >
-    <template #drawer>
-      <RagEvidenceDrawer
-        :open="drawer.open.value"
-        :loading="drawer.loading.value"
-        :content="drawer.content.value"
-        @close="drawer.close"
-        @trace="drawer.traceRef"
-        @navigate-object="drawer.navigateObjectRef"
-        @navigate-scene="drawer.navigateSceneRef"
-        @navigate-chapter="drawer.navigateChapterRef"
-      />
-    </template>
-  </RagResultList>
+  />
+  <RagEvidenceDrawer
+    :open="drawer.open.value"
+    :loading="drawer.loading.value"
+    :content="drawer.content.value"
+    @close="drawer.close"
+    @trace="drawer.traceRef"
+    @navigate-object="drawer.navigateObjectRef"
+    @navigate-scene="drawer.navigateSceneRef"
+    @navigate-chapter="drawer.navigateChapterRef"
+  />
 </template>

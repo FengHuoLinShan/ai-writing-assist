@@ -56,6 +56,8 @@ export function createEditorController({
     saving: false,
     saveError: null,
     loadError: null,
+    candidateAction: null,
+    candidateActionError: null,
   }
   let elements = { title: null, editor: null }
   let autosaveTimer = null
@@ -111,9 +113,9 @@ export function createEditorController({
     return { ...state, dirty: dirty() }
   }
 
-  function emit() {
+  function emit({ persist = true } = {}) {
     const value = snapshot()
-    if (state.chapter) {
+    if (persist && state.chapter) {
       rememberChapterSnapshot(getProjectId(), value)
       rememberWritingLocation(getProjectId(), {
         currentChapter: state.chapter,
@@ -122,7 +124,7 @@ export function createEditorController({
         draftUpdatedAt: state.updatedAt,
       })
     }
-    onChange(value)
+    onChange(value, { persist })
   }
 
   async function refreshVersions(result) {
@@ -250,6 +252,8 @@ export function createEditorController({
     state.restoreExpectedUpdatedAt = options.restoreExpectedUpdatedAt || null
     state.provenanceJson = draft.provenance_json || null
     state.saveError = null
+    state.candidateAction = null
+    state.candidateActionError = null
   }
 
   function applyAutosaveMetadata(draft = {}, savedContent, savedTitle) {
@@ -267,6 +271,7 @@ export function createEditorController({
     const generation = ++loadGeneration
     const lifecycle = lifecycleGeneration
     const projectId = getProjectId()
+    const previousState = { ...state }
     state.chapter = Number(chapter) || null
     state.cursorOffset = 0
     state.loadError = null
@@ -311,9 +316,9 @@ export function createEditorController({
       return true
     } catch (err) {
       if (generation !== loadGeneration || lifecycle !== lifecycleGeneration || projectId !== getProjectId()) return false
-      state.loadError = err?.message || "加载工作稿失败"
+      Object.assign(state, previousState, { loadError: err?.message || "加载工作稿失败" })
       toast(state.loadError, "error")
-      emit()
+      emit({ persist: false })
       return false
     }
   }
@@ -589,8 +594,11 @@ export function createEditorController({
   async function adoptCandidate() {
     if (state.status !== "candidate" || !state.draftId) return null
     const owner = captureCommandOwner()
-    if (!confirm("采用后，这份建议会成为新的未发布工作稿。是否继续？")) return null
+    if (!(await confirmDialog("采用后，这份 AI 建议会成为新的未发布工作稿，原工作稿和建议仍可在版本历史中查看。", "采用到工作稿"))) return null
     if (!ownsCommand(owner)) return null
+    state.candidateAction = "adopt"
+    state.candidateActionError = null
+    emit()
     try {
       const response = await api.writing.adoptDraftCandidate(owner.draftId, owner.projectId)
       if (!ownsCommand(owner)) return null
@@ -602,16 +610,25 @@ export function createEditorController({
       return result
     } catch (err) {
       if (!ownsCommand(owner)) return null
-      toast(err?.message || "采用到工作稿失败", "error")
+      state.candidateActionError = err?.message || "采用到工作稿失败"
+      toast(state.candidateActionError, "error")
       return null
+    } finally {
+      if (ownsCommandTarget(owner) && state.status === "candidate") {
+        state.candidateAction = null
+        emit()
+      }
     }
   }
 
   async function rejectCandidate() {
     if (state.status !== "candidate" || !state.draftId) return false
     const owner = captureCommandOwner()
-    if (!confirm("拒绝后建议会保留在版本历史中。是否继续？")) return false
+    if (!(await confirmDialog("拒绝后，这份 AI 建议会移入版本历史，当前工作稿不会改变。", "拒绝建议"))) return false
     if (!ownsCommand(owner)) return false
+    state.candidateAction = "reject"
+    state.candidateActionError = null
+    emit()
     try {
       await api.writing.deleteDraft(owner.draftId, owner.projectId)
       if (!ownsCommand(owner)) return false
@@ -619,8 +636,14 @@ export function createEditorController({
       return true
     } catch (err) {
       if (!ownsCommand(owner)) return false
-      toast(err?.message || "拒绝建议失败", "error")
+      state.candidateActionError = err?.message || "拒绝建议失败"
+      toast(state.candidateActionError, "error")
       return false
+    } finally {
+      if (ownsCommandTarget(owner) && state.status === "candidate") {
+        state.candidateAction = null
+        emit()
+      }
     }
   }
 

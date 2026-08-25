@@ -51,7 +51,6 @@ import {
   showPlotStructureAutoExtractForm,
   showOutlineGeneratePreview,
   applyOutlineGeneratePreview,
-  collectEditedOutlineGeneratePreview,
   cancelOutlineAnalysisTask,
   generateOutlineLayer,
   analyzeOutline,
@@ -72,7 +71,7 @@ function setupBridge(overrides = {}) {
       tasks: { cancel: vi.fn() },
     },
     state: { currentProjectId: "p-test", currentSubView: "threads", currentView: "outline" },
-    router: { refresh: vi.fn(), navigate: vi.fn() },
+    router: { refresh: vi.fn(), navigate: vi.fn(), replace: vi.fn(), getCurrentQuery: vi.fn(() => new URLSearchParams()) },
     toast: vi.fn(),
     showModalHtml: vi.fn(),
     closeModal: vi.fn(),
@@ -201,6 +200,8 @@ describe("generateOutlineLayer", () => {
       instruction: "写个主线",
     }))
     expect(outlineGenerateManager.state.taskId).toBe("task-gen1")
+    expect(clearActiveWorkflow).toHaveBeenCalledOnce()
+    expect(clearActiveWorkflow).toHaveBeenCalledWith(expect.not.stringMatching(/^task-/))
     expect(toast).toHaveBeenCalledWith("剧情线建议生成任务已提交", "success")
   })
 
@@ -251,60 +252,68 @@ describe("showOutlineGeneratePreview", () => {
     expect(toast).toHaveBeenCalledWith("当前没有可采用的当前层建议", "warning")
   })
 
-  it("有 preview 时 showModalHtml", () => {
+  it("剧情线 preview 进入可刷新审阅页", () => {
+    const router = { refresh: vi.fn(), navigate: vi.fn(), getCurrentQuery: vi.fn(() => new URLSearchParams("status=draft")) }
     const showModalHtml = vi.fn()
-    setupBridge({ showModalHtml })
+    setupBridge({ showModalHtml, router })
     outlineGenerateManager.state.preview = {
       sourceTaskId: "st1",
       contextConfirmationId: "cc1",
-      draftStructure: { threads: [{ title: "主线" }] },
+      draftStructure: { threads: [{ name: "主线" }] },
       warnings: [],
       target: "plot_thread",
       mode: "create",
       overlap: {},
     }
     showOutlineGeneratePreview()
-    expect(showModalHtml).toHaveBeenCalled()
-    const args = showModalHtml.mock.calls[0]
-    expect(args[0]).toContain("建议预览")
-    expect(args[1]).toContain("outline-layer-preview-json")
+    expect(showModalHtml).not.toHaveBeenCalled()
+    expect(router.navigate).toHaveBeenCalledWith("outline", "threads", true, expect.any(URLSearchParams))
+    expect(router.navigate.mock.calls[0][3].toString()).toContain("review=ai")
+    expect(router.navigate.mock.calls[0][3].toString()).toContain("status=draft")
+  })
+
+  it("篇章 preview 进入可刷新审阅页", () => {
+    const router = { navigate: vi.fn(), getCurrentQuery: vi.fn(() => new URLSearchParams("status=draft")) }
+    const showModalHtml = vi.fn()
+    setupBridge({ showModalHtml, router })
+    outlineGenerateManager.state.preview = {
+      sourceTaskId: "st1",
+      contextConfirmationId: "cc1",
+      draftStructure: { arcs: [{ title: "第一部" }] },
+      warnings: [],
+      target: "outline_arc",
+      mode: "create",
+      overlap: {},
+    }
+    showOutlineGeneratePreview()
+    expect(showModalHtml).not.toHaveBeenCalled()
+    expect(router.navigate).toHaveBeenCalledWith("outline", "arcs", true, expect.any(URLSearchParams))
+    expect(router.navigate.mock.calls[0][3].toString()).toContain("review=ai")
+    expect(router.navigate.mock.calls[0][3].toString()).toContain("status=draft")
+  })
+
+  it("场景 preview 进入可刷新审阅页", () => {
+    const router = { navigate: vi.fn(), getCurrentQuery: vi.fn(() => new URLSearchParams("status=draft")) }
+    const showModalHtml = vi.fn()
+    setupBridge({ showModalHtml, router })
+    outlineGenerateManager.state.preview = {
+      sourceTaskId: "st1",
+      contextConfirmationId: "cc1",
+      draftStructure: { scenes: [{ title: "开场" }] },
+      warnings: [],
+      target: "planned_scene",
+      mode: "create",
+      overlap: {},
+    }
+    showOutlineGeneratePreview()
+    expect(showModalHtml).not.toHaveBeenCalled()
+    expect(router.navigate).toHaveBeenCalledWith("outline", "scenes", true, expect.any(URLSearchParams))
+    expect(router.navigate.mock.calls[0][3].toString()).toContain("review=ai")
+    expect(router.navigate.mock.calls[0][3].toString()).toContain("status=draft")
   })
 })
 
 describe("applyOutlineGeneratePreview", () => {
-  it("采用成功时刷新路由", async () => {
-    const applyStructurePreview = vi.fn(async () => ({
-      target: "plot_thread",
-      total_threads: 3,
-      total_arcs: 1,
-    }))
-    const refresh = vi.fn()
-    const closeModal = vi.fn()
-    const toast = vi.fn()
-    setupBridge({
-      api: { outline: { applyStructurePreview } },
-      router: { refresh },
-      closeModal,
-      toast,
-    })
-    outlineGenerateManager.state.preview = {
-      sourceTaskId: "st1",
-      contextConfirmationId: "cc1",
-      draftStructure: { threads: [{ title: "主线" }] },
-      warnings: [],
-      target: "plot_thread",
-      mode: "create",
-      overlap: {},
-    }
-
-    // 在 modal 打开时设置 textarea 的值
-    document.body.innerHTML = `<textarea id="outline-layer-preview-json">{"threads":[]}</textarea>`
-    await applyOutlineGeneratePreview()
-    expect(applyStructurePreview).toHaveBeenCalled()
-    expect(refresh).toHaveBeenCalled()
-    expect(closeModal).toHaveBeenCalled()
-  })
-
   it("旧项目页的采用响应不改动新页面或新预览", async () => {
     let resolveApply
     const applyStructurePreview = vi.fn(() => new Promise((resolve) => { resolveApply = resolve }))
@@ -316,9 +325,8 @@ describe("applyOutlineGeneratePreview", () => {
       target: "plot_thread",
     }
     outlineGenerateManager.state.preview = oldPreview
-    document.body.innerHTML = '<textarea id="outline-layer-preview-json">{"threads":[]}</textarea>'
 
-    const pending = applyOutlineGeneratePreview()
+    const pending = applyOutlineGeneratePreview({ threads: [] })
     await vi.waitFor(() => expect(applyStructurePreview).toHaveBeenCalledWith(expect.objectContaining({
       novel_id: "p-test",
       source_task_id: "st-old",
@@ -328,7 +336,6 @@ describe("applyOutlineGeneratePreview", () => {
     bridge.state.currentProjectId = "p-next"
     bridge.state.currentSubView = "arcs"
     outlineGenerateManager.state.preview = newPreview
-    document.body.innerHTML = '<textarea id="outline-layer-preview-json">{"arcs":[]}</textarea>'
     resolveApply({ target: "plot_thread", total_threads: 1 })
 
     await expect(pending).resolves.toBe(true)
@@ -338,7 +345,7 @@ describe("applyOutlineGeneratePreview", () => {
     expect(bridge.router.refresh).not.toHaveBeenCalled()
   })
 
-  it("当前预览采用失败时保持弹窗并返回 false", async () => {
+  it("当前预览采用失败时保留审阅页并返回 false", async () => {
     const bridge = setupBridge({
       api: { outline: { applyStructurePreview: vi.fn(async () => { throw new Error("版本冲突") }) } },
     })
@@ -348,10 +355,32 @@ describe("applyOutlineGeneratePreview", () => {
       draftStructure: { threads: [] },
       target: "plot_thread",
     }
-    document.body.innerHTML = '<textarea id="outline-layer-preview-json">{"threads":[]}</textarea>'
 
-    await expect(applyOutlineGeneratePreview()).resolves.toBe(false)
+    await expect(applyOutlineGeneratePreview({ threads: [] })).resolves.toBe(false)
     expect(bridge.toast).toHaveBeenCalledWith("版本冲突", "error")
+    expect(bridge.closeModal).not.toHaveBeenCalled()
+    expect(bridge.router.refresh).not.toHaveBeenCalled()
+  })
+
+  it("结构化审阅页直接提交编辑后的 draft 且不关闭其他模态", async () => {
+    const applyStructurePreview = vi.fn(async () => ({ target: "plot_thread", total_threads: 1 }))
+    const bridge = setupBridge({ api: { outline: { applyStructurePreview } } })
+    outlineGenerateManager.state.preview = {
+      sourceTaskId: "st-page",
+      contextConfirmationId: "cc-page",
+      draftStructure: { threads: [{ name: "AI 原稿" }] },
+      target: "plot_thread",
+    }
+    const edited = { result: "proposed", threads: [{ name: "作者修改" }] }
+
+    await expect(applyOutlineGeneratePreview(edited)).resolves.toMatchObject({ total_threads: 1 })
+    expect(applyStructurePreview).toHaveBeenCalledWith({
+      novel_id: "p-test",
+      context_confirmation_id: "cc-page",
+      source_task_id: "st-page",
+      draft_structure: edited,
+      confirmed: true,
+    })
     expect(bridge.closeModal).not.toHaveBeenCalled()
     expect(bridge.router.refresh).not.toHaveBeenCalled()
   })

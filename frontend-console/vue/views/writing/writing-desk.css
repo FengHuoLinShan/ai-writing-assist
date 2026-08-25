@@ -98,6 +98,16 @@
   color: var(--success);
 }
 
+.writing-save-badge--error {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.writing-save-badge--error::before { background: var(--error); }
+
+.writing-save-badge--readonly { color: var(--text-tertiary); }
+.writing-save-badge--readonly::before { background: var(--text-tertiary); }
+
 @keyframes writing-desk-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
@@ -209,6 +219,31 @@
   color: var(--text-secondary);
 }
 
+.writing-editor-state {
+  align-content: center;
+  min-height: 320px;
+}
+
+.writing-editor-state.error-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: var(--space-4);
+  text-align: center;
+}
+
+.writing-save-recovery {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+.writing-save-recovery strong { margin-bottom: var(--space-1); }
+.writing-save-recovery .btn { flex: 0 0 auto; }
+
 /* ----------------------------------------------------------
    2b. 状态栏：38px 通栏，字数进度 · 段落 · 阅读时长 + 保存状态
    ---------------------------------------------------------- */
@@ -298,63 +333,92 @@
   transition: width 0.25s var(--ease-default);
 }
 
-/* 候选审核条：朱红印章卡 */
+/* 候选审核条：明确区分 AI 建议与工作稿 */
 .writing-candidate-review-panel {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px;
+  display: grid;
+  gap: 10px;
   margin: 4px 0 12px;
-  padding: 12px 14px;
-  border: 1px solid var(--archive-red);
-  border-left: 4px solid var(--archive-red);
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--warning) 42%, var(--nc-hairline));
+  border-left: 3px solid var(--warning);
   border-radius: 2px;
-  background:
-    linear-gradient(112deg, transparent 0 88%, var(--archive-red-soft) 88.2% 88.6%, transparent 88.8%),
-    var(--archive-paper-raised);
+  background: color-mix(in srgb, var(--warning) 7%, var(--nc-surface));
+  outline: 0;
+}
+
+.writing-candidate-review-panel:focus-visible {
+  box-shadow: 0 0 0 3px var(--nc-accent-soft);
+  outline: 2px solid var(--nc-accent);
+  outline-offset: 2px;
+}
+
+.writing-candidate-kicker {
+  color: var(--warning);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
 
 .writing-pov-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--archive-red);
+  margin: 3px 0 0;
+  color: var(--nc-ink);
   font-family: var(--font-body);
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 700;
-  letter-spacing: 0.03em;
-}
-
-.writing-pov-title::before {
-  content: "审";
-  display: inline-grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  border: 1.5px solid var(--archive-red);
-  border-radius: 2px;
-  color: var(--archive-red);
-  font-size: 11px;
-  font-weight: 700;
+  line-height: 1.4;
 }
 
 .writing-pov-subtitle {
-  margin-top: 3px;
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.writing-candidate-comparison {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--nc-hairline);
   color: var(--text-secondary);
   font-size: 12px;
 }
 
+.writing-candidate-comparison .btn {
+  flex: 0 0 auto;
+}
+
 .writing-candidate-review-actions {
   display: flex;
+  justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
 }
 
-.writing-candidate-findings {
-  flex-basis: 100%;
+.writing-candidate-reject {
+  color: var(--error);
+}
+
+.writing-candidate-reject:hover {
+  border-color: var(--error);
+  background: var(--error-soft);
+}
+
+.writing-candidate-action-error {
   margin: 0;
-  padding-left: 20px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--error) 32%, var(--nc-hairline));
+  color: var(--error);
+  font-size: 12px;
+}
+
+.writing-candidate-findings {
+  margin: 0;
+  padding: 10px 0 0 20px;
+  border-top: 1px solid var(--nc-hairline);
   color: var(--text-secondary);
   font-size: 12px;
 }
@@ -366,6 +430,15 @@
 .writing-candidate-findings strong,
 .writing-candidate-findings small {
   display: block;
+}
+
+.writing-sheet--candidate {
+  background: color-mix(in srgb, var(--nc-surface-muted) 55%, var(--nc-surface));
+}
+
+.writing-sheet--candidate .novel-editor:read-only {
+  color: var(--nc-ink);
+  cursor: default;
 }
 
 /* 空状态：虚线档案框 + 文 字水印 */
@@ -816,6 +889,22 @@
 }
 
 @media (max-width: 760px) {
+  .writing-tree-rail.is-collapsed .chapter-tree-shell {
+    min-height: 44px;
+  }
+
+  .writing-tree-rail.is-collapsed .chapter-tree-collapse-handle {
+    position: static;
+    width: 100%;
+    min-height: 44px;
+    flex-direction: row;
+    justify-content: center;
+    gap: 3px;
+    padding: 8px 12px;
+    border: 1px solid var(--nc-hairline-strong);
+    border-radius: 2px;
+  }
+
   .writing-tree-rail.is-collapsed .chapter-tree-card,
   .writing-panel-rail.is-collapsed .scene-cockpit {
     min-height: 40px;
@@ -1727,11 +1816,23 @@
   border-bottom: 1px solid var(--archive-rule);
 }
 
-.writing-version-history-item > div:first-child {
+.writing-version-history-summary {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.writing-version-history-summary > div {
   display: flex;
   align-items: baseline;
+  flex-wrap: wrap;
   gap: 10px;
   min-width: 0;
+}
+
+.writing-version-history-summary p {
+  margin: 0;
+  font-size: 12px;
 }
 
 .writing-version-history-item strong {
@@ -1747,14 +1848,53 @@
   letter-spacing: 0.03em;
 }
 
+.writing-version-current {
+  color: var(--archive-red);
+}
+
+.writing-version-compare {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--archive-rule);
+}
+
+.writing-version-compare > summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--archive-ink-soft);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.writing-version-compare[open] > summary {
+  margin-bottom: 8px;
+}
+
+.writing-version-history-menu .action-menu-btn {
+  width: auto;
+  min-width: 44px;
+  height: 34px;
+  padding: 0 10px;
+}
+
+.writing-version-history-menu .action-menu-list {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
 .writing-version-diff-controls {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--archive-rule);
+}
+
+.writing-version-diff-controls label {
+  display: grid;
+  flex: 0 1 190px;
+  gap: 4px;
+  color: var(--archive-ink-soft);
+  font-size: 11px;
 }
 
 .writing-version-diff-controls select {
@@ -1885,13 +2025,85 @@
   text-align: center;
 }
 
-/* 专注模式：稿纸居中拉长 */
-.focus-mode-active .writing-sheet {
-  max-width: 860px;
-  margin-inline: auto;
+/* 专注模式：只保留正文、保存反馈与明确退出路径 */
+body.focus-mode-active #topbar,
+body.focus-mode-active #sidebar,
+body.focus-mode-active #contextual-notes,
+body.focus-mode-active .writing-editor-header {
+  display: none;
 }
 
-.focus-mode-active .writing-editor-header {
+body.focus-mode-active #workspace {
+  margin-inline: var(--space-4);
+  padding-bottom: 0;
+}
+
+body.focus-mode-active #workspace-content {
+  padding-bottom: 0;
+}
+
+.writing-focus-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: min(100%, 860px);
+  min-height: 52px;
+  margin: 0 auto var(--space-3);
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--nc-hairline);
+  background: color-mix(in srgb, var(--nc-bg) 92%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.writing-focus-header__context {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.writing-focus-header__context > span:first-child,
+.writing-focus-header__save {
+  color: var(--nc-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.writing-focus-header__context strong {
+  overflow: hidden;
+  color: var(--nc-ink);
+  font-family: var(--font-body);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#writing-focus-exit {
+  flex: 0 0 auto;
+  min-height: 44px;
+  border-color: var(--nc-hairline-strong);
+  background: var(--nc-surface);
+  color: var(--nc-ink);
+}
+
+#writing-focus-exit kbd {
+  color: var(--nc-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.focus-mode-active .writing-statusbar__font,
+.focus-mode-active .writing-statusbar__focus {
+  display: none;
+}
+
+.focus-mode-active .writing-sheet {
   max-width: 860px;
   margin-inline: auto;
 }
@@ -1909,6 +2121,27 @@
    ---------------------------------------------------------- */
 
 @media (max-width: 760px) {
+  body.focus-mode-active #workspace {
+    margin-inline: var(--space-3);
+  }
+
+  .writing-focus-header {
+    align-items: center;
+    margin-bottom: 8px;
+  }
+
+  .writing-focus-header__context {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .writing-focus-header__save { display: none; }
+
+  #mobile-editor-mode-toggle {
+    min-height: 44px;
+  }
+
   .writing-editor-header {
     position: sticky;
     top: 0;
@@ -1936,6 +2169,14 @@
     padding: 0;
   }
 
+  .writing-editor-state { min-height: 46vh; }
+
+  .writing-save-recovery {
+    align-items: stretch;
+    flex-direction: column;
+    margin: 0 10px;
+  }
+
   .writing-editor-buttons__group {
     padding: 0 7px;
   }
@@ -1949,9 +2190,83 @@
     border-left: 0;
   }
 
-  .writing-candidate-review-panel {
+  .writing-version-history-item {
     align-items: stretch;
-    flex-direction: column;
+  }
+
+  .writing-version-history-item .row-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+    width: 100%;
+  }
+
+  .writing-version-history-menu.open {
+    display: grid;
+    grid-column: 1 / -1;
+    justify-items: stretch;
+    width: 100%;
+  }
+
+  .writing-version-history-menu.open .action-menu-btn {
+    justify-self: end;
+  }
+
+  .writing-version-history-menu.open .action-menu-list {
+    position: static;
+    width: 100%;
+    margin-top: 4px;
+  }
+
+  .writing-version-history-item .row-actions .btn,
+  .writing-version-history-menu .action-menu-btn,
+  .writing-version-history-menu .action-menu-item,
+  .writing-version-diff-controls .btn,
+  .writing-version-diff-controls select {
+    min-height: 44px;
+  }
+
+  .writing-version-diff-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .writing-version-diff-controls label {
+    width: 100%;
+  }
+
+  .writing-version-diff-controls .btn {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .writing-candidate-review-panel {
+    margin-inline: 10px;
+    padding: 14px;
+  }
+
+  .writing-candidate-review-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .writing-candidate-review-actions .btn {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .writing-candidate-comparison {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .writing-candidate-comparison .btn {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .writing-workspace-layout--candidate .writing-statusbar {
+    display: none;
   }
 
   [data-workspace-view="writing"] .modal-content > .modal-header::after {

@@ -240,8 +240,8 @@ export async function loadGenerate(options = {}) {
         ])
         props.povChapters = Array.isArray(chapters?.chapters) ? chapters.chapters : []
         props.povCharacters = characters
-      } catch (err) {
-        props.povLoadWarning = `加载章节或角色失败：${err?.message || "未知错误"}`
+      } catch {
+        props.povLoadWarning = "章节或角色暂时无法加载，请稍后重试。"
       }
     })()
   }

@@ -19,6 +19,8 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - 深度导入 Phase 2b 发现的别名以内联待复核形式写入 `content_json.aliases`，单条别名携带 `status/source/workflow_id/scene_id/confidence/needs_review` 元数据
 - 待复核别名可在确认前修改目标对象、别名文本和别名类型；来源、workflow、Scene、引用和置信度作为只读证据保留
 - `world/review` 统一待处理工作台按全部 / 对象 / 别名 / 关系切换；“全部”只做概览和推荐，三个类型队列各自搜索、筛选、分页与写入，对象库、别名、关系页仍保留全量管理能力
+- 前端从生成中心对象结果读取既有 `suggestion.result_ref_json.id`，用 `entity_id + review_item` 精确打开兼容影子并恢复决策焦点；已采用、忽略、归档或不存在的对象不会因精确深链重新出现在待处理队列，API 与 suggestion wire 不变
+- 已采用关系与别名列表复用各自既有 `q` 查询：关系匹配端点名称、精确类型、描述或引用，别名匹配别名、所属对象或引用；所有条件继续受同一 `novel_id` 门禁和服务端分页约束
 - `link_to_existing` / `alias_of_existing` 候选只有在目标已解析为同项目已采用对象 ID 且不是源候选自身时，才按“已有对象”聚合展示；目标仅有名称、指向待处理对象或指向自身时仍留在普通待处理队列。确认后源候选标记 `status="merged"` 并记录 `resolved_as="alias"`，不硬删除、不提升为正史
 - 深度导入 Phase 2b 发现的关系写入 `entity_relations(status="candidate")`，两端可解析到 canonical / draft / candidate 工作对象；`relation_kind` 只取 `state/social/spatial/causal/temporal/epistemic/intentional`，精确关系仍保存在 `relation_type`
 - 待确认关系可在确认前修改源对象、目标对象、关系类型、描述和强度；引用和来源章节作为只读证据保留，复核审计写入 `review_meta`
@@ -744,10 +746,10 @@ section，且不会进入可投影正文。页面预览保持零写入并把页�
 | GET | `/api/world/entities/{entity_id}/revisions` | 版本历史（legacy，只读兼容） |
 | POST | `/api/world/entities/{entity_id}/rollback` | 回滚到指定 scene_index（优先 TextArchive，无归档时回退到 EntityRevision） |
 | POST | `/api/world/entities/{entity_id}/rollback-by-revision` | 按 revision_id 回滚（`entity_revisions` 兼容） |
-| GET | `/api/world/aliases` | 别名列表 |
+| GET | `/api/world/aliases` | 别名列表；`q` 支持别名、所属对象和引用搜索 |
 | POST | `/api/world/aliases` | 添加别名 |
 | GET | `/api/world/entity-batches` | 实体批次分组列表 |
-| GET | `/api/world/relations` | 关系列表（v3） |
+| GET | `/api/world/relations` | 关系列表（v3）；`q` 支持端点名称、精确类型、描述和引用搜索 |
 | POST | `/api/world/relations` | 创建关系（v3） |
 | PUT | `/api/world/relations/{rel_id}` | 更新关系（v3） |
 | PATCH | `/api/world/relations/{rel_id}/review-edit` | 编辑待确认关系并确认 |

@@ -36,6 +36,46 @@ export function clone(value) {
   return JSON.parse(JSON.stringify(value))
 }
 
+/** 把服务端版本或本地未完成草稿收窄为编辑器可安全修改的字段。 */
+export function editableStoryOutlineContent(raw = {}) {
+  const text = (value) => typeof value === "string" ? value : ""
+  const objects = (value) => Array.isArray(value)
+    ? value.filter((item) => item && typeof item === "object" && !Array.isArray(item))
+    : []
+  const strings = (value) => Array.isArray(value) ? value.filter((item) => typeof item === "string") : []
+  const core = raw?.creative_core && typeof raw.creative_core === "object"
+    ? raw.creative_core
+    : {}
+
+  return {
+    title: text(raw?.title),
+    creative_core: {
+      premise: text(core.premise),
+      tone_and_reader_promise: text(core.tone_and_reader_promise),
+      story_engine: text(core.story_engine),
+      ending_direction: text(core.ending_direction),
+    },
+    outline_markdown: text(raw?.outline_markdown),
+    major_storylines: objects(raw?.major_storylines).map((item) => ({
+      name: text(item.name),
+      narrative_function: text(item.narrative_function),
+      trajectory: text(item.trajectory),
+      intersections: strings(item.intersections),
+      resolution_direction: text(item.resolution_direction),
+    })),
+    macro_movements: objects(raw?.macro_movements).map((item) => ({
+      name: text(item.name),
+      story_state_change: text(item.story_state_change),
+      advanced_storylines: strings(item.advanced_storylines),
+    })),
+    open_decisions: objects(raw?.open_decisions).map((item) => ({
+      question: text(item.question),
+      why_it_matters: text(item.why_it_matters),
+      options: strings(item.options),
+    })),
+  }
+}
+
 export function idempotencyKey() {
   let token
   if (typeof globalThis.crypto?.randomUUID === "function") {
@@ -127,7 +167,7 @@ export function validateStoryOutlineContent(raw) {
 
   if (!Array.isArray(content.macro_movements)) throw new Error("故事推进必须是列表")
   content.macro_movements = content.macro_movements.map((item, index) => {
-    const label = `宏观推进第 ${index + 1} 项`
+    const label = `故事推进第 ${index + 1} 项`
     assertExactKeys(item, ["name", "story_state_change", "advanced_storylines"], label)
     const advanced = stringList(item.advanced_storylines, `${label}推进剧情线`)
     return {
@@ -138,7 +178,7 @@ export function validateStoryOutlineContent(raw) {
   })
   if (!Array.isArray(content.open_decisions)) throw new Error("待决定问题必须是列表")
   content.open_decisions = content.open_decisions.map((item, index) => {
-    const label = `开放决策第 ${index + 1} 项`
+    const label = `待决定问题第 ${index + 1} 项`
     assertExactKeys(item, ["question", "why_it_matters", "options"], label)
     const options = stringList(item.options, `${label}选项`)
     return {

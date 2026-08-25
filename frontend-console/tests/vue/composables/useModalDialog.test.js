@@ -224,6 +224,18 @@ describe("useModalDialog", () => {
     expect(wrapper.get(".modal-content").element.contains(document.activeElement)).toBe(true)
   })
 
+  it("recovers focus when an async update removes the focused dialog control", async () => {
+    const { wrapper } = mountInShell()
+    await nextTick()
+    expect(document.activeElement).toBe(wrapper.get("input").element)
+
+    await wrapper.setProps({ controls: false })
+    await nextTick()
+    await Promise.resolve()
+    await nextTick()
+    expect(document.activeElement).toBe(wrapper.get(".modal-content").element)
+  })
+
   it("ignores stale nested focus and restore work across hide, close, and reopen", async () => {
     const { global } = addGlobalModal()
     const { wrapper, topbar } = mountInShell()

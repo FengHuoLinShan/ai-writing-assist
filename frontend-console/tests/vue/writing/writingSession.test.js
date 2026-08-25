@@ -65,4 +65,23 @@ describe("writingSession", () => {
     expect(getWritingSession("p1")).toMatchObject({ currentChapter: 3, currentDraftId: "d3", currentSceneId: "s3" })
     expect(localStorage.getItem("writing_resume_pointer:v1:p1")).not.toContain("本地正文")
   })
+
+  it("按项目记忆手机完整编辑模式", () => {
+    rememberWritingLocation("p1", { currentChapter: 1, completeEditor: true })
+    rememberWritingLocation("p2", { currentChapter: 1, completeEditor: false })
+    forgetWritingSessionMemory()
+
+    expect(getWritingSession("p1").completeEditor).toBe(true)
+    expect(getWritingSession("p2").completeEditor).toBe(false)
+  })
+
+  it("按项目记忆专注模式，并保留未选择过时的默认态", () => {
+    expect(getWritingSession("fresh").focusMode).toBeNull()
+    rememberWritingLocation("p1", { currentChapter: 1, focusMode: true })
+    rememberWritingLocation("p2", { currentChapter: 1, focusMode: false })
+    forgetWritingSessionMemory()
+
+    expect(getWritingSession("p1").focusMode).toBe(true)
+    expect(getWritingSession("p2").focusMode).toBe(false)
+  })
 })

@@ -53,6 +53,17 @@ describe("ActionMenu", () => {
     expect(wrapper.get(".action-menu-btn").attributes("aria-label")).toBe("改名后的剧情线的更多操作")
   })
 
+  it("可以使用可读文字触发器并原生禁用", async () => {
+    const wrapper = mountMenu({ triggerText: "更多", disabled: true })
+    const trigger = wrapper.get(".action-menu-btn")
+
+    expect(trigger.text()).toBe("更多")
+    expect(trigger.attributes("disabled")).toBeDefined()
+    expect(trigger.attributes("title")).toBe("测试剧情线的更多操作")
+    await trigger.trigger("click")
+    expect(wrapper.classes()).not.toContain("open")
+  })
+
   it("opens through click or native Enter/Space activation without a double toggle", async () => {
     const wrapper = mountMenu()
     const trigger = wrapper.get(".action-menu-btn")

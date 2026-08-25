@@ -13,8 +13,8 @@ const state = plotAutoExtractManager.state
 const rangeText = computed(() => {
   const meta = state.meta
   return meta
-    ? `范围: 章节 ${meta.start_chapter || 1}-${meta.end_chapter || 10}`
-    : "范围: 所选章节"
+    ? `范围：第 ${meta.start_chapter || 1}–${meta.end_chapter || 10} 章`
+    : "范围：所选章节"
 })
 
 const titleText = computed(() => {
@@ -34,7 +34,7 @@ const hasContent = computed(() => !!state.progress)
       :className="'outline-progress-mini'"
       :showTaskId="false"
     >
-      <!-- 默认 slot：可追加操作区 -->
+      <p class="workflow-progress__destination">{{ rangeText }}</p>
     </WorkflowProgressCard>
   </div>
 </template>

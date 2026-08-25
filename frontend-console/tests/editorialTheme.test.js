@@ -106,6 +106,7 @@ describe("editorial archive theme", () => {
   it("keeps the writing sheet editor focus-visible ring intact (pages/writing.md §8.7)", () => {
     const desk = readFileSync(resolve(__dirname, "../vue/views/writing/writing-desk.css"), "utf8")
     expect(desk).toMatch(/\.writing-sheet \.novel-editor:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--archive-red\);/s)
+    expect(theme).toMatch(/:where\([^)]*summary[^)]*\):focus-visible\s*\{[^}]*outline:\s*2px solid var\(--nc-accent\);/s)
   })
 
   it("keeps Scene Lens touch targets at 44px on 390px screens", () => {

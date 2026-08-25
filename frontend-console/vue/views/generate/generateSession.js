@@ -2,8 +2,12 @@ import {
   AI_MESSAGE_LIMIT,
   AI_SELECTED_CHAPTER_LIMIT,
   AI_SELECTED_WORLD_PAGE_LIMIT,
+  REVEAL_OPTIONS,
+  SCOPE_OPTIONS,
+  TASK_PRESETS,
   VISUAL_BRIEF_FIELD_LIMIT,
   VISUAL_BRIEF_PURPOSE_OPTIONS,
+  createDefaultTaskForm,
 } from "./logic/generateLogic.js"
 import { normalizePageProposalDraft } from "./pageProposalSession.js"
 
@@ -20,10 +24,55 @@ const EXTERNAL_DISPOSITIONS = new Set(["compatible", "repair", "candidate", "unm
 const EXTERNAL_PACKET_HISTORY_LIMIT = 20
 const SHA256_RE = /^[0-9a-f]{64}$/
 const VISUAL_BRIEF_PURPOSES = new Set(VISUAL_BRIEF_PURPOSE_OPTIONS.map((item) => item.value))
+const TASK_SCOPES = new Set(SCOPE_OPTIONS.map((item) => item.value))
+const TASK_REVEAL_MODES = new Set(REVEAL_OPTIONS.map((item) => item.value))
 const contextPreviews = new Map()
+const CONTEXT_PREVIEW_STORAGE_PREFIX = "generate_context_preview_v1:"
 
-export function readGenerateContextPreview(projectId) {
-  return contextPreviews.get(projectId || "none") || {
+function boundedText(value, max = 20_000) {
+  return typeof value === "string" ? value.slice(0, max) : ""
+}
+
+function boundedIds(value) {
+  return Array.isArray(value)
+    ? value.filter((item) => typeof item === "string" && item).slice(0, 20)
+    : []
+}
+
+export function normalizeTaskForm(value) {
+  const fallback = createDefaultTaskForm()
+  if (!value || typeof value !== "object" || Array.isArray(value)) return fallback
+  const chapterIndex = Number(value.chapter_index)
+  const budgetTokens = Number(value.budget_tokens)
+  return {
+    task: boundedText(value.task),
+    scope: TASK_SCOPES.has(value.scope) ? value.scope : fallback.scope,
+    entity_ids: boundedIds(value.entity_ids),
+    character_ids: boundedIds(value.character_ids),
+    scene_id: boundedText(value.scene_id, 256),
+    chapter_index: Number.isInteger(chapterIndex) && chapterIndex > 0 ? chapterIndex : null,
+    reveal_mode: TASK_REVEAL_MODES.has(value.reveal_mode) ? value.reveal_mode : fallback.reveal_mode,
+    viewpoint_character_id: boundedText(value.viewpoint_character_id, 256),
+    budget_tokens: Number.isFinite(budgetTokens) ? Math.max(0, Math.min(1_000_000, Math.trunc(budgetTokens))) : 0,
+    include_world_synopsis: value.include_world_synopsis !== false,
+  }
+}
+
+export function normalizePovForm(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { chapterIndex: null, sceneId: "", viewpointCharacterId: "", instruction: "" }
+  }
+  const chapterIndex = Number(value.chapterIndex)
+  return {
+    chapterIndex: Number.isInteger(chapterIndex) && chapterIndex > 0 ? chapterIndex : null,
+    sceneId: boundedText(value.sceneId, 256),
+    viewpointCharacterId: boundedText(value.viewpointCharacterId, 256),
+    instruction: boundedText(value.instruction),
+  }
+}
+
+function emptyContextPreview() {
+  return {
     bundle: null,
     markdown: "",
     source: null,
@@ -31,8 +80,34 @@ export function readGenerateContextPreview(projectId) {
   }
 }
 
-export function writeGenerateContextPreview(projectId, value = {}) {
+export function readGenerateContextPreview(projectId, { storage = globalThis.sessionStorage } = {}) {
   const key = projectId || "none"
+  if (contextPreviews.has(key)) return contextPreviews.get(key)
+  const storageKey = `${CONTEXT_PREVIEW_STORAGE_PREFIX}${key}`
+  try {
+    const raw = storage?.getItem(storageKey)
+    if (!raw) return emptyContextPreview()
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("invalid context preview")
+    if (parsed.bundle && parsed.bundle.novel_id !== projectId) throw new Error("mismatched context preview")
+    if (parsed.request && parsed.request.novel_id !== projectId) throw new Error("mismatched context request")
+    const preview = {
+      bundle: parsed.bundle && typeof parsed.bundle === "object" && !Array.isArray(parsed.bundle) ? parsed.bundle : null,
+      markdown: typeof parsed.markdown === "string" ? parsed.markdown : "",
+      source: ["task", "world"].includes(parsed.source) ? parsed.source : null,
+      request: parsed.request && typeof parsed.request === "object" && !Array.isArray(parsed.request) ? parsed.request : null,
+    }
+    contextPreviews.set(key, preview)
+    return preview
+  } catch {
+    try { storage?.removeItem(storageKey) } catch {}
+    return emptyContextPreview()
+  }
+}
+
+export function writeGenerateContextPreview(projectId, value = {}, { storage = globalThis.sessionStorage } = {}) {
+  const key = projectId || "none"
+  const storageKey = `${CONTEXT_PREVIEW_STORAGE_PREFIX}${key}`
   const preview = {
     bundle: value.bundle || null,
     markdown: value.markdown || "",
@@ -41,10 +116,19 @@ export function writeGenerateContextPreview(projectId, value = {}) {
   }
   if (!preview.bundle && !preview.markdown && !preview.source && !preview.request) {
     contextPreviews.delete(key)
+    try { storage?.removeItem(storageKey) } catch {}
     return
   }
   contextPreviews.delete(key)
   contextPreviews.set(key, preview)
+  try {
+    let serialized = JSON.stringify(preview)
+    if (byteLength(serialized) > GENERATE_STATE_MAX_BYTES && preview.markdown) {
+      serialized = JSON.stringify({ ...preview, markdown: "" })
+    }
+    if (byteLength(serialized) <= GENERATE_STATE_MAX_BYTES) storage?.setItem(storageKey, serialized)
+    else storage?.removeItem(storageKey)
+  } catch {}
   while (contextPreviews.size > GENERATE_STATE_MAX_PROJECTS) {
     contextPreviews.delete(contextPreviews.keys().next().value)
   }
@@ -82,6 +166,9 @@ export function emptyGenerateSession() {
     checkpointId: null,
     checkpointRound: 0,
     checkpointDepth: null,
+    taskPreset: "custom",
+    taskForm: createDefaultTaskForm(),
+    povForm: normalizePovForm(),
   }
 }
 
@@ -192,6 +279,9 @@ function persistedShape(value) {
     checkpointId: typeof value.checkpointId === "string" && value.checkpointId ? value.checkpointId : null,
     checkpointRound: Math.max(0, Math.min(999, Number(value.checkpointRound) || 0)),
     checkpointDepth: ["seed", "candidate", "instance"].includes(value.checkpointDepth) ? value.checkpointDepth : null,
+    taskPreset: TASK_PRESETS[value.taskPreset] ? value.taskPreset : "custom",
+    taskForm: normalizeTaskForm(value.taskForm),
+    povForm: normalizePovForm(value.povForm),
   }
 }
 
@@ -264,6 +354,9 @@ export function readGenerateSession(key, { storage = globalThis.localStorage, no
       checkpointId: typeof parsed.checkpointId === "string" && parsed.checkpointId ? parsed.checkpointId : null,
       checkpointRound: Math.max(0, Math.min(999, Number(parsed.checkpointRound) || 0)),
       checkpointDepth: ["seed", "candidate", "instance"].includes(parsed.checkpointDepth) ? parsed.checkpointDepth : null,
+      taskPreset: TASK_PRESETS[parsed.taskPreset] ? parsed.taskPreset : "custom",
+      taskForm: normalizeTaskForm(parsed.taskForm),
+      povForm: normalizePovForm(parsed.povForm),
     }
   } catch {
     try { storage?.removeItem(key) } catch {}

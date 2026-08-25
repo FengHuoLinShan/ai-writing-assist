@@ -101,6 +101,7 @@ export function useModalDialog({ isOpen, requestClose, canClose = () => true }) 
   const nestedLease = new Set()
   let generation = 0
   let observer = null
+  let dialogObserver = null
   let originObserver = null
   let restoreFrame = null
   let expectedOriginInertMutations = 0
@@ -205,12 +206,28 @@ export function useModalDialog({ isOpen, requestClose, canClose = () => true }) 
     syncNestedModal()
   }
 
+  function observeDialogContent() {
+    dialogObserver?.disconnect()
+    const dialog = dialogRef.value
+    if (!dialog || typeof MutationObserver === "undefined") return
+    dialogObserver = new MutationObserver(() => {
+      const currentGeneration = generation
+      void nextTick(() => {
+        if (currentGeneration !== generation || !isOpen() || globalVisible()) return
+        if (!dialogRef.value?.contains(document.activeElement)) focusInitial()
+      })
+    })
+    dialogObserver.observe(dialog, { childList: true, subtree: true })
+  }
+
   function releaseAll() {
     cancelDeferredRestore()
     release(backgroundLease)
     release(nestedLease)
     observer?.disconnect()
     observer = null
+    dialogObserver?.disconnect()
+    dialogObserver = null
     originObserver?.disconnect()
     originObserver = null
   }
@@ -267,6 +284,7 @@ export function useModalDialog({ isOpen, requestClose, canClose = () => true }) 
       for (const element of lease(backgrounds)) backgroundLease.add(element)
       focusInitial()
       observeNestedModal()
+      observeDialogContent()
     })
   }, { flush: "post", immediate: true })
 

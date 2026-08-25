@@ -107,4 +107,36 @@ describe("writing modal dialog contracts", () => {
     expect(model.open).toBe(false)
     expect(model.diffOpen).toBe(false)
   })
+
+  it("版本历史突出与当前版本比较，并把预览和移入历史收进更多菜单", async () => {
+    const model = reactive({ open: true, loading: false, diffOpen: false, leftId: "v1", rightId: "v2", error: null })
+    const { wrapper } = mountInShell(VersionHistoryDialog, {
+      model,
+      currentId: "v2",
+      versions: [
+        { id: "v2", version_number: 2, status: "draft", title: "第一章", word_count: 20 },
+        { id: "v1", version_number: 1, status: "published", title: "第一章", word_count: 12 },
+      ],
+    })
+    const newest = wrapper.findAll(".writing-version-history-item")[0]
+    const old = wrapper.findAll(".writing-version-history-item")[1]
+    expect(newest.text()).toContain("当前打开")
+    expect(newest.text()).not.toContain("移入历史")
+    expect(old.text()).toContain("从此版本继续写")
+    expect(old.get(".row-actions > .btn").text()).toBe("与当前版本比较")
+    expect(old.get(".row-actions > .btn").attributes("aria-label")).toBe("与当前打开版本比较")
+    expect(old.text()).toContain("12 字")
+    await old.get(".row-actions > .btn").trigger("click")
+    expect(model.leftId).toBe("v1")
+    expect(model.rightId).toBe("v2")
+    expect(wrapper.emitted("compare")).toHaveLength(1)
+
+    await old.get(".action-menu-btn").trigger("click")
+    expect(old.get("[data-action='preview']").text()).toBe("单独预览")
+    expect(old.get("[data-action='delete']").text()).toBe("移入历史")
+    await old.get("[data-action='delete']").trigger("click")
+    expect(wrapper.emitted("delete")?.[0]).toEqual([expect.objectContaining({ id: "v1" })])
+    expect(wrapper.get(".writing-version-diff-controls").text()).toContain("版本 A")
+    expect(wrapper.get(".writing-version-diff-controls").text()).toContain("版本 B")
+  })
 })

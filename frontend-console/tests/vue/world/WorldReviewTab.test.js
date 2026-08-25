@@ -17,9 +17,12 @@ let toastMock
 let confirmCalls
 let apiMock
 let showModalMock
+let currentQuery
+let commitQueryMock
+let refreshMock
 
 const CANDIDATES = [
-  { id: "c1", name: "潮声会", entity_type: "organization", status: "candidate", suggested_action: "create_new", content_json: { _meta: { source: "deep_import" } } },
+  { id: "c1", name: "潮声会", entity_type: "organization", status: "candidate", suggested_action: "create_new", summary: "码头工人的互助行会", importance_level: "important", content_json: { _meta: { source: "deep_import" } } },
   {
     id: "c2", name: "旧灯塔", entity_type: "location", status: "candidate",
     suggested_action: "alias_of_existing",
@@ -80,6 +83,12 @@ beforeEach(() => {
   resetWorldSession()
   navigateMock = vi.fn()
   toastMock = vi.fn()
+  currentQuery = new URLSearchParams()
+  commitQueryMock = vi.fn((query) => {
+    currentQuery = new URLSearchParams(query?.toString?.() || "")
+    return true
+  })
+  refreshMock = vi.fn(async () => true)
   confirmCalls = []
   apiMock = {
     world: {
@@ -93,7 +102,13 @@ beforeEach(() => {
   setBridgeOverrides({
     api: apiMock,
     state: { currentProjectId: "p-rev", currentView: "world" },
-    router: { navigate: navigateMock, refresh: vi.fn(async () => true), replace: vi.fn(async () => true) },
+    router: {
+      navigate: navigateMock,
+      refresh: refreshMock,
+      replace: vi.fn(async () => true),
+      getCurrentQuery: () => currentQuery,
+      commitCurrentQuery: commitQueryMock,
+    },
     toast: toastMock,
     showModalHtml: showModalMock,
     confirmAction: (message, onConfirm, confirmText) => confirmCalls.push({ message, onConfirm, confirmText }),
@@ -114,9 +129,10 @@ describe("二级导航", () => {
     expect(navigateMock.mock.calls[0][3].get("kind")).toBe("objects")
   })
 
-  it("渲染计数徽标并 navigate", async () => {
+  it("队列只保留一段状态说明，计数导航仍可用", async () => {
     const wrapper = mountTab()
-    expect(wrapper.get('[data-author-action="needs_decision"]').text()).toContain("已采用、忽略或过期内容不计入当前待办")
+    expect(wrapper.find('[data-author-action="needs_decision"]').exists()).toBe(false)
+    expect(wrapper.get(".world-list-description").text()).toContain("尚未采用")
     expect(wrapper.find('[data-action="nav-review-objects"]').element.tagName).toBe("BUTTON")
     expect(wrapper.find('[data-action="nav-review-objects"]').attributes("type")).toBe("button")
     expect(wrapper.find('[data-action="nav-review-objects"]').attributes("aria-current")).toBe("page")
@@ -140,14 +156,32 @@ describe("review-objects", () => {
     expect(rows[0].attributes("data-id")).toBe("c1")
   })
 
-  it("候选行动作可见性（create_new：采用/编辑后采用/忽略）", () => {
+  it("对象队列只显示查看入口，决策区展示摘要和完整操作", async () => {
     const wrapper = mountTab()
     const row = wrapper.find('tr[data-id="c1"]')
-    expect(row.find('[data-action="accept-candidate"]').exists()).toBe(true)
-    expect(row.find('[data-action="edit-entity"]').exists()).toBe(true)
-    expect(row.find('[data-action="ignore-candidate"]').exists()).toBe(true)
-    expect(row.find('[data-action="merge-entity"]').exists()).toBe(true) // allowMerge=true
-    expect(row.find('[data-action="resolve-candidate-alias"]').exists()).toBe(true) // allowAlias=true
+    expect(row.text()).toContain("组织 · 重要设定")
+    expect(row.text()).toContain("码头工人的互助行会")
+    expect(row.findAll("button")).toHaveLength(1)
+    await row.get('[data-action="prepare-candidate-review"]').trigger("click")
+    const decision = wrapper.get(".world-review-decision")
+    expect(decision.text()).toContain("决定是否采用“潮声会”")
+    expect(decision.text()).toContain("码头工人的互助行会")
+    expect(decision.find('[data-action="accept-candidate"]').exists()).toBe(true)
+    expect(decision.find('[data-action="edit-entity"]').exists()).toBe(true)
+    expect(decision.find('[data-action="ignore-candidate"]').exists()).toBe(true)
+    expect(decision.find('[data-action="merge-entity"]').exists()).toBe(true)
+    expect(decision.find('[data-action="resolve-candidate-alias"]').exists()).toBe(true)
+    expect(decision.findAll(".btn-primary")).toHaveLength(1)
+    expect(decision.get('[data-action="accept-candidate"]').classes()).toContain("btn-primary")
+  })
+
+  it("建议设为别名时只突出对应决策", async () => {
+    const wrapper = mountTab()
+    await wrapper.get('.world-candidate-alias-item[data-id="c2"] [data-action="prepare-candidate-review"]').trigger("click")
+    const decision = wrapper.get(".world-review-decision")
+    expect(decision.findAll(".btn-primary")).toHaveLength(1)
+    expect(decision.get('[data-action="resolve-candidate-alias"]').classes()).toContain("btn-primary")
+    expect(decision.find('[data-action="accept-candidate"]').exists()).toBe(false)
   })
 
   it("接受候选：乐观移除后 API 失败恢复快照", async () => {
@@ -164,7 +198,8 @@ describe("review-objects", () => {
       confirmAction: (message, onConfirm, confirmText) => confirmCalls.push({ message, onConfirm, confirmText }),
     })
     const wrapper = mountTab()
-    await wrapper.find('tr[data-id="c1"] [data-action="accept-candidate"]').trigger("click")
+    await wrapper.find('tr[data-id="c1"] [data-action="prepare-candidate-review"]').trigger("click")
+    await wrapper.find('.world-review-decision [data-action="accept-candidate"]').trigger("click")
     expect(confirmCalls).toHaveLength(1)
     const confirmPromise = confirmCalls[0].onConfirm()
     // API 仍挂起，乐观移除已落地
@@ -178,10 +213,29 @@ describe("review-objects", () => {
     expect(toastMock).toHaveBeenCalledWith("处理失败：冲突", "error")
   })
 
+  it("深链直接打开目标建议并可返回设定共创", async () => {
+    currentQuery = new URLSearchParams("kind=objects&review_item=c1&return_to=world_ai&return_subview=bible")
+    const wrapper = mountTab()
+    expect(wrapper.get(".world-review-decision").text()).toContain("决定是否采用“潮声会”")
+    expect(wrapper.get(".world-review-origin").text()).toContain("来自设定共创")
+    await wrapper.get('[data-action="return-to-world-ai"]').trigger("click")
+    const [view, subView, updateHistory, query] = navigateMock.mock.calls.at(-1)
+    expect([view, subView, updateHistory]).toEqual(["world", "bible", true])
+    expect(query.get("owner_ai")).toBe("1")
+    expect(query.get("owner_ai_mode")).toBe("world")
+  })
+
+  it("已处理的深链给出明确去向而不是空白决策区", () => {
+    currentQuery = new URLSearchParams("kind=objects&review_item=done&return_to=world_ai")
+    const wrapper = mountTab({ candidates: [], candidateTotal: 0 })
+    expect(wrapper.get(".world-review-queue .empty-state").text()).toContain("已不在待处理队列")
+    expect(wrapper.find('[data-action="return-to-world-ai"]').exists()).toBe(true)
+  })
+
   it("错误态：candidateLoadError 渲染重试按钮", () => {
     const wrapper = mountTab({ candidates: [], candidateTotal: 0, candidateLoadError: "加载失败" })
     expect(wrapper.find('[data-action="retry-candidate-load"]').exists()).toBe(true)
-    expect(wrapper.get('[data-author-action="must_fix"]').text()).toContain("必须修复")
+    expect(wrapper.get('[data-author-action="must_fix"]').text()).toContain("原有资料没有变化")
     expect(wrapper.find('[data-author-action="needs_decision"]').exists()).toBe(false)
   })
 
@@ -190,7 +244,7 @@ describe("review-objects", () => {
     await wrapper.get('tr[data-id="c1"]').trigger("click")
     expect(wrapper.get(".world-review-decision").text()).toContain("潮声会")
     await wrapper.setProps({ candidates: [CANDIDATES[1]], candidateTotal: 1 })
-    expect(wrapper.get(".world-review-decision").text()).toContain("从左侧选择一项")
+    expect(wrapper.get(".world-review-decision").text()).toContain("从左侧队列选择一项")
   })
 
   it("筛选应用 navigate 写 query", async () => {
@@ -224,6 +278,18 @@ describe("review-objects", () => {
     const active = wrapper.get('[data-action="set-candidate-task-filter"][data-filter-value="create_new"]')
     await active.trigger("click")
     expect(navigateMock.mock.calls.at(-1)[3].get("suggested_action")).toBeNull()
+  })
+
+  it("快速筛选有可见分组名，批量栏直接出现在结果后", () => {
+    const wrapper = mountTab()
+    const quickFilters = wrapper.get('[role="group"][aria-labelledby="review-candidate-quick-label"]')
+    expect(wrapper.get("#review-candidate-quick-label").text()).toBe("快速查看")
+    expect(quickFilters.findAll("button")).toHaveLength(4)
+    expect(wrapper.find(".world-review-batch").exists()).toBe(false)
+    const summary = wrapper.get(".world-review-result-summary")
+    const toolbar = wrapper.get('.bulk-toolbar[data-scope="world-candidates"]')
+    expect(summary.element.compareDocumentPosition(toolbar.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(toolbar.get('[data-bulk-action="accept-candidates"]').attributes("disabled")).toBeDefined()
   })
 })
 
@@ -280,20 +346,31 @@ describe("review-aliases", () => {
     expect(card.text()).toContain("2 个待处理别名")
     const rows = card.findAll(".review-member-row")
     expect(rows).toHaveLength(2)
-    expect(rows[0].find('[data-action="prepare-alias-review"]').text()).toBe("处理")
+    expect(rows[0].find('[data-action="prepare-alias-review"]').text()).toBe("查看并决定")
     expect(rows[1].text()).toContain("随对象建议处理")
     expect(rows[1].find('input[data-action="bulk-toggle-one"]').exists()).toBe(false)
   })
 
-  it("单条别名在右侧决策区编辑并确认并入，不再打开弹窗", async () => {
+  it("别名批量栏无需展开并保持零选择禁用", () => {
+    const wrapper = mountTab({ reviewSubView: "review-aliases" })
+    expect(wrapper.get("#review-alias-quick-label").text()).toBe("快速查看")
+    expect(wrapper.find(".world-review-batch").exists()).toBe(false)
+    const toolbar = wrapper.get('.bulk-toolbar[data-scope="world-aliases"]')
+    expect(toolbar.text()).toContain("0别名已选")
+    expect(toolbar.get('[data-bulk-action="review-aliases-batch"]').attributes("disabled")).toBeDefined()
+  })
+
+  it("单条别名在右侧决策区编辑并采用，不再打开弹窗", async () => {
     const wrapper = mountTab({ reviewSubView: "review-aliases" })
     await wrapper.get('[data-action="prepare-alias-review"]').trigger("click")
 
     const panel = wrapper.get(".world-alias-decision")
     expect(showModalMock).not.toHaveBeenCalled()
-    expect(panel.text()).toContain("目标对象（保留）")
+    expect(wrapper.get("#world-review-decision-title").text()).toBe("决定“旧港”的归属")
+    expect(panel.text()).toContain("归属对象")
     expect(panel.text()).toContain("↑")
-    expect(panel.text()).toContain("并入")
+    expect(panel.text()).toContain("加入上方对象的别名")
+    expect(panel.get('[data-action="confirm-alias-merge"]').text()).toBe("采用别名")
     expect(panel.get("#alias-inline-text").element.value).toBe("旧港")
     expect(panel.get("#alias-inline-kind").element.value).toBe("name")
     expect(panel.get("#alias-inline-type").element.value).toBe("name")
@@ -321,6 +398,31 @@ describe("review-aliases", () => {
 
     expect(wrapper.find(".world-alias-decision").exists()).toBe(false)
     expect(worldSession.aliasReviewDrafts["e1::旧港"].alias).toBe("草稿别名")
+  })
+
+  it("选中项写入 URL，刷新后恢复决策位置，稍后决定时清除", async () => {
+    currentQuery = new URLSearchParams({ kind: "aliases" })
+    const wrapper = mountTab({ reviewSubView: "review-aliases" })
+    await wrapper.get('[data-action="prepare-alias-review"]').trigger("click")
+    expect(currentQuery.get("review_item")).toBe("e1::旧港")
+
+    wrapper.unmount()
+    const restored = mountTab({ reviewSubView: "review-aliases" })
+    expect(restored.get("#world-review-decision-title").text()).toBe("决定“旧港”的归属")
+    expect(restored.find(".world-alias-decision").exists()).toBe(true)
+
+    await restored.get('[data-action="cancel-alias-decision"]').trigger("click")
+    expect(currentQuery.get("review_item")).toBeNull()
+  })
+
+  it("别名加载失败提供用户语言、次级诊断与重试", async () => {
+    const wrapper = mountTab({ reviewSubView: "review-aliases", aliasGroups: [], aliasItemTotal: 0, aliasReviewLoadError: "HTTP 503" })
+    const error = wrapper.get('[data-author-action="must_fix"]')
+    expect(error.attributes("role")).toBe("alert")
+    expect(error.text()).toContain("原有资料没有变化")
+    expect(error.get(".review-error-details").text()).toContain("HTTP 503")
+    await error.get('[data-action="retry-alias-review-load"]').trigger("click")
+    expect(refreshMock).toHaveBeenCalledTimes(1)
   })
 
   it("自定义详细类型可显示原值并显式采用类型建议", async () => {
@@ -360,6 +462,22 @@ describe("review-relations", () => {
     expect(wrapper.find(".world-review-queue").exists()).toBe(true)
     expect(wrapper.find(".world-review-decision").exists()).toBe(true)
     expect(wrapper.get(".world-review-mobile-back").text()).toBe("返回队列")
+  })
+
+  it("关系批量栏与快速筛选使用同一层级", () => {
+    const wrapper = mountTab({ reviewSubView: "review-relations" })
+    expect(wrapper.get("#review-relation-quick-label").text()).toBe("快速查看")
+    expect(wrapper.find(".world-review-batch").exists()).toBe(false)
+    expect(wrapper.get('.bulk-toolbar[data-scope="world-relation-groups"]').text()).toContain("0关系组已选")
+  })
+
+  it("关系加载失败可重新加载，技术详情默认收起", async () => {
+    const wrapper = mountTab({ reviewSubView: "review-relations", relationGroups: [], relationItemTotal: 0, relationReviewLoadError: "HTTP 504" })
+    const error = wrapper.get('[data-author-action="must_fix"]')
+    expect(error.attributes("role")).toBe("alert")
+    expect(error.get(".review-error-details").attributes("open")).toBeUndefined()
+    await error.get('[data-action="retry-relation-review-load"]').trigger("click")
+    expect(refreshMock).toHaveBeenCalledTimes(1)
   })
 
   it("高级筛选使用可访问名称并保持关系筛选值与选项语义", async () => {
@@ -410,13 +528,15 @@ describe("review-relations", () => {
     expect(card.text()).toContain("林澈 → 沉钟港")
     expect(card.text()).toContain("1 条候选 · 2 条证据")
     expect(card.text()).toContain("待处理")
-    expect(card.find('[data-action="prepare-relation-review"]').text()).toBe("处理")
+    expect(card.find('[data-action="prepare-relation-review"]').text()).toBe("查看并决定")
     await card.trigger("click")
     await flushPromises()
     expect(showModalMock).not.toHaveBeenCalled()
+    expect(wrapper.get("#world-review-decision-title").text()).toBe("确定“林澈 → 沉钟港”的关系")
     expect(wrapper.findAll('[data-action="relation-person-card"]')).toHaveLength(2)
     expect(wrapper.get('[data-relation-slot="source"]').text()).toContain("拖入人物")
     expect(wrapper.get('[data-relation-slot="target"]').text()).toContain("拖入人物")
+    expect(wrapper.get('[data-action="confirm-relation-decision"]').text()).toBe("采用关系")
   })
 
   it("拖动一张卡会自动完成两端配对并提交现有关系决策", async () => {

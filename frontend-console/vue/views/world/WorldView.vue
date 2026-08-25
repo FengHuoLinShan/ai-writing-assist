@@ -8,30 +8,40 @@
   <div ref="rootEl" class="world-view">
     <div class="view-header view-header--with-tabs world-toolbar">
       <div class="subnav">
-        <button type="button" class="subnav-item" :class="{ active: subView === 'objects' || subView === 'aliases' }" :aria-current="subView === 'objects' ? 'page' : undefined" data-subview="objects" data-action="nav-objects" @click="navigateSub('objects')">人物与设定</button>
+        <button type="button" class="subnav-item" :class="{ active: subView === 'objects' || subView === 'aliases' }" :aria-current="subView === 'objects' || subView === 'aliases' ? 'page' : undefined" data-subview="objects" data-action="nav-objects" @click="navigateSub('objects')">人物与设定</button>
         <button type="button" class="subnav-item" :class="{ active: subView === 'relations' }" :aria-current="subView === 'relations' ? 'page' : undefined" data-subview="relations" data-action="nav-relations" @click="navigateSub('relations')">关系</button>
         <button type="button" class="subnav-item" :class="{ active: subView === 'bible' }" :aria-current="subView === 'bible' ? 'page' : undefined" data-subview="bible" data-action="nav-bible" @click="navigateSub('bible')">世界笔记</button>
-        <button type="button" class="subnav-item" :class="{ active: !!reviewSubView }" :aria-current="reviewSubView ? 'page' : undefined" data-action="nav-review" @click="navigateReview()">需要决定 <span class="badge">{{ reviewTotal }}</span></button>
+        <button type="button" class="subnav-item" :class="{ active: !!reviewSubView }" :aria-current="reviewSubView ? 'page' : undefined" :aria-label="reviewTotal ? `需要决定，${reviewTotal} 项` : undefined" data-action="nav-review" @click="navigateReview()">需要决定 <span v-if="reviewTotal" class="today-count" aria-hidden="true">{{ reviewCountLabel }}</span></button>
       </div>
       <div class="view-header__tail">
-        <span v-if="headerTitle" class="view-header__title">
+        <h1 v-if="headerTitle" class="view-header__title">
           {{ headerTitle.text }} <span class="view-header__count">共 {{ headerTitle.count }} 个</span><span v-if="projectTitle" class="view-toolbar__project" :title="projectTitle">{{ projectTitle }}</span>
-        </span>
+        </h1>
         <div class="view-header__actions">
           <template v-if="subView === 'objects'">
             <button id="btn-new-entity" class="btn btn-sm btn-primary" data-action="new" @click="showEntityCreateForm()">新建人物或设定</button>
-            <details class="world-view-options">
-              <summary class="btn btn-sm">视图与整理</summary>
+            <button class="btn btn-sm" data-action="toggle-extract" @click="toggleExtract">{{ session.autoExtractOpen ? "收起正文整理" : "从正文整理资料" }}</button>
+            <details ref="viewOptionsEl" class="world-view-options" @keydown.esc="closeViewOptions">
+              <summary class="btn btn-sm">浏览方式</summary>
               <div class="world-view-options__panel">
-                <button class="btn btn-sm" data-action="toggle-extract" @click="toggleExtract">{{ session.autoExtractOpen ? "收起" : "打开" }} AI 资料整理</button>
-                <span class="world-object-view-toggle" role="group" aria-label="人物与设定视图">
-                  <button class="btn btn-sm" :class="{ 'btn-primary': localObjectViewMode === 'card' }" data-action="set-object-view" data-view-mode="card" @click="setObjectViewMode('card')">卡片</button>
-                  <button class="btn btn-sm" :class="{ 'btn-primary': localObjectViewMode === 'table' }" data-action="set-object-view" data-view-mode="table" @click="setObjectViewMode('table')">表格</button>
-                </span>
-                <span class="world-discovery-mode-toggle" role="group" aria-label="资料排序">
-                  <button class="btn btn-sm" :class="{ 'btn-primary': discoveryMode === 'hot' }" data-action="set-discovery-mode" data-mode="hot" @click="setDiscoveryMode('hot')">最近相关</button>
-                  <button class="btn btn-sm" :class="{ 'btn-primary': discoveryMode === 'normal' }" data-action="set-discovery-mode" data-mode="normal" @click="setDiscoveryMode('normal')">全部资料</button>
-                </span>
+                <div class="world-view-options__heading">
+                  <strong>浏览方式</strong>
+                  <button type="button" class="btn btn-sm" data-action="close-view-options" @click="closeViewOptions">完成</button>
+                </div>
+                <div class="world-view-options__group">
+                  <span class="world-view-options__label">显示方式</span>
+                  <span class="world-object-view-toggle" role="group" aria-label="人物与设定显示方式">
+                    <button class="btn btn-sm" :aria-pressed="localObjectViewMode === 'card'" data-action="set-object-view" data-view-mode="card" @click="setObjectViewMode('card')">卡片</button>
+                    <button class="btn btn-sm" :aria-pressed="localObjectViewMode === 'table'" data-action="set-object-view" data-view-mode="table" @click="setObjectViewMode('table')">表格</button>
+                  </span>
+                </div>
+                <div class="world-view-options__group">
+                  <span class="world-view-options__label">资料范围</span>
+                  <span class="world-discovery-mode-toggle" role="group" aria-label="资料范围">
+                    <button class="btn btn-sm" :aria-pressed="discoveryMode === 'hot'" data-action="set-discovery-mode" data-mode="hot" @click="setDiscoveryMode('hot')">最近相关</button>
+                    <button class="btn btn-sm" :aria-pressed="discoveryMode === 'normal'" data-action="set-discovery-mode" data-mode="normal" @click="setDiscoveryMode('normal')">全部资料</button>
+                  </span>
+                </div>
               </div>
             </details>
           </template>
@@ -46,6 +56,7 @@
     <OwnerAiDrawer
       :open="aiDrawerOpen"
       owner="world"
+      :initial-mode="props.bibleDeepLink?.ownerAiMode || null"
       :project-id="props.projectId"
       :source-page-id="props.bibleDeepLink?.pageId || props.bibleDeepLink?.ownerAiSourcePageId || null"
       :target-kind="props.bibleDeepLink?.ownerAiTarget || null"
@@ -114,6 +125,7 @@ const props = defineProps({
 })
 
 const rootEl = ref(null)
+const viewOptionsEl = ref(null)
 const aiDrawerOpen = ref(Boolean(props.bibleDeepLink?.ownerAiOpen))
 function openOwnerAi() { aiDrawerOpen.value = true }
 watch(() => props.bibleDeepLink?.ownerAiOpen, (open) => { if (open) aiDrawerOpen.value = true })
@@ -136,6 +148,7 @@ const activeTab = computed(() => TAB_COMPONENTS[props.reviewSubView || props.sub
 const reviewTotal = computed(() => (
   Object.values(props.reviewCounts || {}).reduce((sum, value) => sum + Number(value || 0), 0)
 ))
+const reviewCountLabel = computed(() => reviewTotal.value > 99 ? "99+" : String(reviewTotal.value))
 
 /** 对应 vanilla _renderHeaderTitle（worldView.js:756-779）。 */
 const headerTitle = computed(() => {
@@ -193,6 +206,10 @@ function setDiscoveryMode(mode) {
 /** 对应 vanilla _toggleAutoExtract（worldView.js:842-845）；响应式重绘取代 router.refresh。 */
 function toggleExtract() {
   session.autoExtractOpen = !session.autoExtractOpen
+}
+
+function closeViewOptions() {
+  viewOptionsEl.value?.removeAttribute("open")
 }
 
 onMounted(() => {

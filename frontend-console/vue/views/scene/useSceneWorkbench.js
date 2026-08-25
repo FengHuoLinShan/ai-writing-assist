@@ -6,6 +6,7 @@ import {
   reactive,
   ref,
   shallowRef,
+  watch,
 } from "vue"
 import {
   getApi,
@@ -29,6 +30,7 @@ import {
   SCENE_FILTER_DEFAULTS,
   filteredSceneItems,
   healthReasons,
+  persistSceneSession,
   rememberSceneMode,
   sceneContextAction,
   sceneQuery,
@@ -67,7 +69,7 @@ export function useSceneWorkbench(props) {
   const viewMode = ref(props.viewMode || "hot")
   const selectedSceneId = ref(props.selectedSceneId || null)
   const filters = reactive({ ...SCENE_FILTER_DEFAULTS, ...(props.sceneFilters || {}) })
-  const filterForm = reactive({ ...filters })
+  const filterForm = reactive({ ...filters, ...(session.filterDraft || {}) })
   const activeHealth = ref(props.activeHealth || null)
   const advancedFiltersOpen = ref(Boolean(props.advancedFiltersOpen))
   const selectedIds = shallowRef(new Set())
@@ -75,6 +77,8 @@ export function useSceneWorkbench(props) {
   const narrow = ref(typeof window !== "undefined" && window.innerWidth <= 760)
   const loading = ref(false)
   const loadError = ref(props.sceneLoadError || null)
+  const savingSceneId = ref(null)
+  const sceneSaveError = ref(null)
   const fusionTask = reactive({ taskId: null, meta: null, progress: null, preview: null })
   const requestGeneration = ref(0)
   let disposed = false
@@ -107,9 +111,12 @@ export function useSceneWorkbench(props) {
 
   function syncSession() {
     session.filters = { ...filters }
+    session.filterDraft = { ...filterForm }
     session.activeHealth = activeHealth.value
     session.advancedFiltersOpen = advancedFiltersOpen.value
+    persistSceneSession(projectId, session)
   }
+  watch(filterForm, syncSession, { deep: true, flush: "sync" })
 
   async function loadSuggestions(pending) {
     if (!(pending > 0) || !api.outline.listFusionSuggestions) return []
@@ -171,6 +178,7 @@ export function useSceneWorkbench(props) {
   function clearSelectedScene() {
     selectedSceneId.value = null
     mobileDetailOpen.value = false
+    sceneSaveError.value = null
     const query = currentHashQuery()
     query.delete("scene_id")
     commitSceneHash(projectId, query, "replace", router)
@@ -178,6 +186,7 @@ export function useSceneWorkbench(props) {
 
   function selectScene(sceneId, historyMode = "push") {
     if (!sceneId || !workbench.value?.items?.some((item) => item.scene?.id === sceneId)) return false
+    if (selectedSceneId.value !== sceneId) sceneSaveError.value = null
     selectedSceneId.value = sceneId
     mobileDetailOpen.value = true
     const query = currentHashQuery()
@@ -230,10 +239,11 @@ export function useSceneWorkbench(props) {
       skip: 0,
     })
     activeHealth.value = filters.health || null
+    Object.assign(filterForm, filters)
     clearSelection()
     clearSelectedScene()
     syncSession()
-    await refresh({ preserveSelection: false })
+    return refresh({ preserveSelection: false })
   }
 
   async function resetFilters() {
@@ -244,7 +254,7 @@ export function useSceneWorkbench(props) {
     clearSelection()
     clearSelectedScene()
     syncSession()
-    await refresh({ preserveSelection: false })
+    return refresh({ preserveSelection: false })
   }
 
   async function toggleHealth(health) {
@@ -261,6 +271,7 @@ export function useSceneWorkbench(props) {
   async function toggleSegment(segment) {
     if (viewMode.value !== "hot") return
     filters.segment = filters.segment === segment ? "" : segment
+    filterForm.segment = filters.segment
     filters.skip = 0
     clearSelection()
     clearSelectedScene()
@@ -273,6 +284,7 @@ export function useSceneWorkbench(props) {
     viewMode.value = mode
     rememberSceneMode(projectId, mode)
     filters.segment = ""
+    filterForm.segment = ""
     filters.skip = 0
     clearSelection()
     clearSelectedScene()
@@ -337,11 +349,12 @@ export function useSceneWorkbench(props) {
     if (action.key === "missing_setup") {
       selectScene(sceneId)
       await nextTick()
+      await nextTick()
       const fieldMap = [
         ["goal", "scene-detail-goal"],
-        ["core_conflict", "scene-detail-conflict"],
-        ["must_happen", "scene-detail-must"],
-        ["must_not_happen", "scene-detail-must-not"],
+        ["core_conflict", "scene-detail-core_conflict"],
+        ["must_happen", "scene-detail-must_happen"],
+        ["must_not_happen", "scene-detail-must_not_happen"],
       ]
       const target = fieldMap.find(([field]) => !item.scene?.[field])
       if (target) document.getElementById(target[1])?.focus()
@@ -432,6 +445,9 @@ export function useSceneWorkbench(props) {
   }
 
   async function saveScene(sceneId, draft) {
+    if (!sceneId || savingSceneId.value) return false
+    savingSceneId.value = sceneId
+    sceneSaveError.value = null
     try {
       await api.outline.updateScene(sceneId, projectId, {
         title: draft.title?.trim() || null,
@@ -445,13 +461,18 @@ export function useSceneWorkbench(props) {
         must_not_happen: draft.must_not_happen?.trim() || null,
         pov_character_id: draft.pov_character_id?.trim() || null,
       })
+      if (!owned()) return false
       removeSelection([sceneId])
       toast("场景已保存", "success")
       await refresh()
       return true
     } catch (err) {
-      toast(err.message || "保存场景失败", "error")
+      if (!owned()) return false
+      sceneSaveError.value = err.message || "保存场景失败"
+      toast(sceneSaveError.value, "error")
       return false
+    } finally {
+      if (savingSceneId.value === sceneId) savingSceneId.value = null
     }
   }
 
@@ -606,7 +627,6 @@ export function useSceneWorkbench(props) {
       modalController.showSuggestions(props.focusedSuggestionId)
     }
     window.addEventListener("resize", onResize)
-    document.querySelector(".outline-scene-layout > .subnav")?.dispatchEvent(new Event("workspace:content-rendered", { bubbles: true }))
   })
 
   onBeforeUnmount(() => {
@@ -627,6 +647,7 @@ export function useSceneWorkbench(props) {
     cancelAutoExtraction,
     changePage,
     clearSelectedScene,
+    clearSelection,
     dismissAutoExtraction,
     dismissibleSuggestionCount,
     filterForm,
@@ -651,6 +672,8 @@ export function useSceneWorkbench(props) {
     runContextAction,
     runSelectedContextActions,
     saveScene,
+    savingSceneId,
+    sceneSaveError,
     sceneContextAction,
     sceneReviewState,
     selectScene,

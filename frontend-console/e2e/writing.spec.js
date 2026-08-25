@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
+import { expectNoPageOverflow, expectWithinViewport } from "./helpers/responsive.js"
 import { reloadWorkbench, waitWritingReady } from "./helpers/workbench.js"
 import {
   API_BASE,
@@ -105,6 +106,149 @@ test.describe("写作台模块", () => {
     await expect(page.locator("#writing-save-status")).toHaveText("已保存到工作稿", { timeout: 10000 })
   })
 
+  test("AI 写作建议按当前正文给出主操作，任务可收起并回到审阅", async ({ page, browserErrors, projectFactory, openProjectWorkbench }) => {
+    const failedApiResponses = []
+    page.on("response", (response) => {
+      if (response.url().includes("/api/") && response.status() >= 400) {
+        failedApiResponses.push(`${response.status()} ${response.request().method()} ${response.url()}`)
+      }
+    })
+    const baseCreated = await createDraft(testProjectId, 1, "第一章 雾港来信", "潮声退到石阶之外，石门仍旧紧闭。")
+    const base = baseCreated.draft || baseCreated
+    await createScene(testProjectId, {
+      scene_index: 0,
+      title: "退潮后的石门",
+      narrative_tag: "opening",
+      chapter_ids: ["1"],
+      scene_chunks: [{ chapter_index: 1, start_pos: 0, end_pos: 18 }],
+      goal: "判断是否公开石门",
+      core_conflict: "保护同行者，还是抢先留下证据",
+    })
+    await reloadWorkbench(page, "writing")
+    await waitWritingReady(page, { chapter: 1 })
+    await selectWritingChapter(page, 1)
+    const originalProject = await page.evaluate(() => ({ ...state.currentProject }))
+
+    let finishGeneration
+    let generationPayload = null
+    await page.route("**/api/context/confirm", async (route) => {
+      const body = route.request().postDataJSON()
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "00000000-0000-0000-0000-0000000000b1",
+          novel_id: body.novel_id,
+          action: body.action,
+          task: body.task,
+          scope: body.scope,
+          reveal_mode: body.reveal_mode,
+          context_mode: body.context_mode,
+          selected_asset_ids: {},
+          sections: [],
+          warnings: [],
+        }),
+      })
+    })
+    await page.route("**/api/writing/generate", async (route) => {
+      generationPayload = route.request().postDataJSON()
+      await new Promise((resolve) => { finishGeneration = resolve })
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ draft_id: "candidate-owner-ai" }),
+      })
+    })
+    await page.route("**/api/writing/drafts/candidate-owner-ai?**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "candidate-owner-ai",
+          novel_id: testProjectId,
+          chapter_index: 1,
+          title: "第一章 雾港来信",
+          content: "潮声退到石阶之外，石门仍旧紧闭。守港人举起灯，示意林舟不要回头。",
+          version_number: 2,
+          status: "candidate",
+          provenance_json: { source: "writing_generate", review_required: false },
+          updated_at: "2026-08-23T12:00:00Z",
+        }),
+      })
+    })
+
+    const openAi = page.locator('[data-action="open-owner-ai-drawer"]')
+    await openAi.click()
+    const drawer = page.locator("[data-owner-ai-drawer]")
+    await expect(drawer.locator(".owner-ai-writing__context")).toContainText("第 1 章 · 第一章 雾港来信")
+    await expect(drawer.locator('[data-action="owner-writing-continuation"]')).toHaveClass(/btn-primary/)
+    await expect(drawer.locator(".owner-ai-writing__more")).not.toHaveAttribute("open", "")
+    await drawer.locator(".owner-ai-writing__more > summary").click()
+    await expect(drawer.locator('[data-action="owner-writing-pov"]')).toBeDisabled()
+    await expect(drawer.locator(".owner-ai-writing__more")).toContainText("当前场景还没有设置视角人物")
+
+    await page.reload({ waitUntil: "domcontentloaded" })
+    await page.waitForFunction(() => !state.loading)
+    await expect(drawer).toBeVisible()
+    await expect(drawer.locator('[data-action="owner-writing-continuation"]')).toBeVisible()
+    await page.evaluate(() => window.router.navigate("outline"))
+    await expect(page.locator("#topbar-module")).toContainText("故事结构")
+    await page.goBack()
+    await expect(drawer).toBeVisible()
+    await expect(drawer.locator(".owner-ai-writing__context")).toContainText("第一章 雾港来信")
+
+    const otherProject = await projectFactory({ title: "写作建议隔离对照作品", genre: "mystery", language: "zh" })
+    await openProjectWorkbench(otherProject, "writing")
+    await waitWritingReady(page)
+    await page.locator('[data-action="open-owner-ai-drawer"]').click()
+    await expect(page.locator(".owner-ai-writing__context")).toContainText("还没有选择章节")
+    await expect(page.locator('[data-action="owner-writing-draft"]')).toBeDisabled()
+    await page.locator('[data-action="close-owner-ai-drawer"]').click()
+
+    await openProjectWorkbench(originalProject, "writing")
+    await waitWritingReady(page, { chapter: 1 })
+    await selectWritingChapter(page, 1)
+    await page.locator('[data-action="open-owner-ai-drawer"]').click()
+    await page.setViewportSize({ width: 375, height: 812 })
+    await expectWithinViewport(page.locator('[data-action="owner-writing-continuation"]'))
+    await expectNoPageOverflow(page)
+    await page.setViewportSize({ width: 812, height: 375 })
+    await expectWithinViewport(page.locator('[data-action="owner-writing-continuation"]'))
+    await expectNoPageOverflow(page)
+    await page.setViewportSize({ width: 375, height: 812 })
+
+    await page.locator('[data-action="owner-writing-continuation"]').click()
+    await expect(page.locator("#modal-overlay")).toContainText("AI 参考资料")
+    await page.keyboard.press("Escape")
+    await expect(page.locator("#modal-overlay")).toBeHidden()
+    await expect(drawer).toBeVisible()
+    await expect(page.locator('[data-action="owner-writing-continuation"]')).toBeEnabled()
+
+    await page.locator('[data-action="owner-writing-continuation"]').click()
+    await expect(page.locator("#modal-overlay")).toContainText("AI 参考资料")
+    await page.locator("#modal-footer").getByRole("button", { name: "确认使用" }).click()
+    await expect(page.locator(".owner-ai-writing__progress")).toContainText("可以收起 AI 工具继续写作")
+    await page.locator('[data-action="owner-writing-show-progress"]').click()
+    await expect(drawer).toHaveCount(0)
+    await expect(page.locator("#writing-generation-bar-container")).toBeVisible()
+    await expect.poll(() => typeof finishGeneration).toBe("function")
+    finishGeneration()
+
+    const review = page.locator(".writing-candidate-review-panel")
+    await expect(review).toBeVisible({ timeout: 10000 })
+    await expect(review).toBeFocused()
+    await expect(review).toContainText("这份建议还没有改动工作稿")
+    await expect(page).not.toHaveURL(/(?:\?|&)owner_ai=1/)
+    expect(generationPayload).toMatchObject({
+      novel_id: testProjectId,
+      chapter_index: 1,
+      generation_mode: "continue",
+      base_draft_id: base.id,
+    })
+    expect(browserErrors).toEqual([])
+    expect(failedApiResponses, `失败 API: ${JSON.stringify(failedApiResponses)}`).toEqual([])
+  })
+
   test("发布章节", async ({ page }) => {
     await page.setViewportSize({ width: 1224, height: 768 })
     await createFirstChapter(page)
@@ -189,11 +333,202 @@ test.describe("写作台模块", () => {
     await expect(page.locator("#writing-editor")).toHaveValue(d1Content, { timeout: 5000 })
   })
 
+  test("保存与切章失败时保留正文并可在桌面和手机重试", async ({ page, browserErrors }) => {
+    const expectExpectedFailure = () => {
+      expect(browserErrors.filter((item) => item.kind === "pageerror")).toEqual([])
+      const responses = browserErrors.filter((item) => item.kind === "response" && item.status === 503)
+      const consoleErrors = browserErrors.filter((item) => item.kind === "console")
+      expect(responses.length).toBeGreaterThan(0)
+      expect(consoleErrors).toHaveLength(responses.length)
+      expect(consoleErrors.every((item) => item.text.includes("503"))).toBe(true)
+      expect(browserErrors).toHaveLength(responses.length + consoleErrors.length)
+      browserErrors.length = 0
+    }
+    const d1 = await createDraft(testProjectId, 1, "第一章", "第一章原文")
+    const d2 = await createDraft(testProjectId, 2, "第二章", "第二章原文")
+    await reloadWorkbench(page, "writing")
+    await waitWritingReady(page, { chapter: 1 })
+    await selectWritingChapter(page, 1)
+    await expect(page.locator("#writing-editor")).toHaveValue("第一章原文")
+
+    let failSave = true
+    await page.route(`**/api/writing/drafts/${d1.draft.id}*`, async (route) => {
+      if (route.request().method() !== "PUT" || !failSave) return route.continue()
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ detail: "暂时无法保存" }) })
+    })
+    await page.locator("#writing-editor").fill("第一章未保存正文")
+    await selectWritingChapter(page, 2)
+
+    await expect(page.locator("#writing-retry-save")).toBeVisible()
+    await expect(page.locator("#writing-editor")).toHaveValue("第一章未保存正文")
+    await expect(page.locator("#writing-save-status")).toHaveClass(/writing-save-badge--error/)
+    expectExpectedFailure()
+
+    failSave = false
+    await page.locator("#writing-retry-save").click()
+    await expect(page.locator("#writing-retry-save")).toBeHidden()
+    await expect(page.locator("#writing-save-status")).toHaveText("已保存到工作稿")
+
+    let failLoad = true
+    await page.route(`**/api/writing/drafts/${d2.draft.id}*`, async (route) => {
+      if (route.request().method() !== "GET" || !failLoad) return route.continue()
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ detail: "章节暂时无法加载" }) })
+    })
+    await selectWritingChapter(page, 2)
+    await expect(page.locator("#writing-retry-load")).toBeVisible()
+    await expect(page.locator("#writing-editor")).toHaveCount(0)
+    await expect(page.locator("#writing-editor-container")).toContainText("上一章的内容仍安全保留")
+    expectExpectedFailure()
+
+    failLoad = false
+    await page.locator("#writing-retry-load").click()
+    await expect(page.locator("#writing-editor")).toHaveValue("第二章原文")
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(page.locator("#mobile-note-editor")).toHaveValue("第二章原文")
+    let failMobileSave = true
+    await page.route(`**/api/writing/drafts/${d2.draft.id}*`, async (route) => {
+      if (route.request().method() !== "PUT" || !failMobileSave) return route.continue()
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ detail: "移动网络不可用" }) })
+    })
+    await page.locator("#mobile-note-editor").fill("手机端未保存正文")
+    await page.getByRole("button", { name: "保存工作稿", exact: true }).click()
+    const mobileRecovery = page.locator(".mobile-quick-note .writing-save-recovery")
+    await expect(mobileRecovery).toBeVisible()
+    await expect(mobileRecovery.getByRole("button", { name: "重试保存" })).toBeInViewport()
+    expectExpectedFailure()
+
+    failMobileSave = false
+    await mobileRecovery.getByRole("button", { name: "重试保存" }).click()
+    await expect(mobileRecovery).toBeHidden()
+    await expect(page.locator(".mobile-note-status")).toHaveText("已保存到工作稿")
+    expect(browserErrors).toEqual([])
+  })
+
+  test("AI 建议在刷新和返回后仍先决策，采用前可取消确认", async ({ page, browserErrors, projectFactory }) => {
+    const baseCreated = await createDraft(testProjectId, 1, "第一章 雾港来信", "潮声退到石阶之外，石门仍旧紧闭。")
+    const base = baseCreated.draft || baseCreated
+    const created = await createDraft(testProjectId, 1, "第一章 雾港来信", "潮声退到石阶之外，露出一道从未被记载的门。")
+    const candidate = created.draft || created
+    const otherProject = await projectFactory({ title: "候选隔离对照作品", genre: "mystery", language: "zh" })
+    const adopted = {
+      ...candidate,
+      id: "adopted-candidate",
+      status: "draft",
+      version_number: Number(candidate.version_number || 1) + 1,
+      provenance_json: { source: "ai_generated", adopted_from_candidate_id: candidate.id },
+    }
+    await page.route(`**/api/writing/drafts/${candidate.id}/adopt*`, async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(adopted) })
+    })
+    await page.route(`**/api/writing/drafts/${candidate.id}*`, async (route) => {
+      if (route.request().method() !== "GET") return route.continue()
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ...candidate,
+          status: "candidate",
+          provenance_json: { source: "writing_generate", review_required: false },
+        }),
+      })
+    })
+    await page.route("**/api/writing/chapters/1/versions*", async (route) => {
+      const response = await route.fetch()
+      const body = await response.json()
+      await route.fulfill({
+        response,
+        json: {
+          ...body,
+          versions: (body.versions || []).map((version) => version.id === candidate.id
+            ? { ...version, status: "candidate", display_state: "candidate" }
+            : version.id === base.id ? { ...version, display_state: "active" } : version),
+        },
+      })
+    })
+    await page.route("**/api/writing/drafts/adopted-candidate*", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(adopted) })
+    })
+
+    await reloadWorkbench(page, "writing")
+    await page.evaluate(({ draftId }) => {
+      const query = new URLSearchParams({ chapter_index: "1", draft_id: draftId })
+      return window.router.navigate("writing", null, true, query)
+    }, { draftId: candidate.id })
+    await waitWritingReady(page, { chapter: 1 })
+    const panel = page.locator(".writing-candidate-review-panel")
+    const adoptButton = panel.getByRole("button", { name: "采用到工作稿" })
+    await expect(panel).toBeVisible()
+    await expect(panel).toBeInViewport()
+    await expect(panel).toBeFocused()
+    await expect(page.locator(".writing-candidate-review-actions .btn-primary")).toHaveCount(1)
+    await expect(page.locator("#btn-publish")).toHaveCount(0)
+    await expect(page.locator("#writing-editor")).toHaveAttribute("readonly", "")
+
+    const compareButton = panel.getByRole("button", { name: "与当前工作稿比较" })
+    await compareButton.click()
+    const comparison = page.getByRole("dialog", { name: "版本历史" })
+    await expect(comparison.locator(".writing-version-diff")).toBeFocused()
+    await expect(comparison).toContainText("石门仍旧紧闭")
+    await expect(comparison).toContainText("从未被记载的门")
+    await page.keyboard.press("Escape")
+    await expect(comparison).toBeHidden()
+    await expect(compareButton).toBeFocused()
+
+    await page.reload()
+    await expect(panel).toBeVisible({ timeout: 10000 })
+    await expect(panel).toBeFocused()
+    await page.evaluate(() => window.router.navigate("project-settings"))
+    await expect(page).toHaveURL(/project-settings/)
+    await page.goBack()
+    await expect(panel).toBeVisible({ timeout: 10000 })
+    await expect(panel).toBeFocused()
+    await page.goForward()
+    await expect(page).toHaveURL(/project-settings/)
+    await page.goBack()
+    await expect(panel).toBeVisible({ timeout: 10000 })
+    await expect(panel).toBeFocused()
+
+    await page.locator(".sidebar-project-switcher").click()
+    await page.locator(SEL.projectCard(otherProject.id)).click()
+    await expect(page.locator(SEL.topbarProject)).toHaveText("候选隔离对照作品")
+    await expect(panel).toHaveCount(0)
+    await page.locator(".sidebar-project-switcher").click()
+    await page.locator(SEL.projectCard(testProjectId)).click()
+    await page.evaluate(() => window.router.navigate("writing"))
+    await expect(panel).toBeVisible({ timeout: 10000 })
+    await expect(panel).toBeFocused()
+
+    await adoptButton.click()
+    const confirmation = page.locator("#modal-overlay")
+    const confirmButton = page.locator("#modal-footer").getByRole("button", { name: "采用到工作稿" })
+    await expect(confirmation).toBeVisible()
+    await expect(confirmButton).toBeFocused()
+    await page.keyboard.press("Escape")
+    await expect(confirmation).toBeHidden()
+    await expect(adoptButton).toBeFocused()
+    await expect(panel).toBeVisible()
+
+    await adoptButton.click()
+    await confirmButton.click()
+    await expect(panel).toHaveCount(0)
+    await expect(page.locator("#writing-editor")).not.toHaveAttribute("readonly", "")
+    await expect(page.locator("#writing-editor")).toBeFocused()
+    await expect(page.locator("#btn-publish")).toBeVisible()
+    expect(browserErrors).toEqual([])
+  })
+
   // ============================================================
   // 版本历史查看与恢复
   // ============================================================
 
-  test("版本历史查看与恢复", async ({ page }) => {
+  test("版本历史查看与恢复", async ({ page, browserErrors, projectFactory }) => {
+    const failedApiResponses = []
+    page.on("response", (response) => {
+      if (response.url().includes("/api/") && response.status() >= 400) {
+        failedApiResponses.push(`${response.status()} ${response.request().method()} ${response.url()}`)
+      }
+    })
     // 创建 v1 和 v2
     const v1 = await createDraft(testProjectId, 1, "第一版", "版本一的正文内容")
     const v2 = await createDraft(testProjectId, 1, "第二版", "版本二的正文内容")
@@ -204,22 +539,35 @@ test.describe("写作台模块", () => {
     await expect(page.locator("#writing-editor")).toHaveValue(v2.draft.content)
 
     // 打开版本历史弹窗
-    await page.getByRole("button", { name: "历史", exact: true }).click()
+    await page.getByRole("button", { name: "版本历史", exact: true }).click()
     const versionDialog = page.getByRole("dialog", { name: "版本历史" })
     await expect(versionDialog).toBeVisible({ timeout: 5000 })
     await expect(versionDialog).toContainText("v2")
     await expect(versionDialog).toContainText("v1")
+    await expect(versionDialog.locator(".writing-version-history-item", { hasText: "v2" }).getByRole("button", { name: "移入历史" })).toHaveCount(0)
     const writingOverlay = versionDialog.locator("xpath=..")
+    const initialV1Row = versionDialog.locator(".writing-version-history-item", { hasText: "v1" })
 
-    // 预览 v1（最后一个预览按钮对应 v1）
-    await versionDialog.getByRole("button", { name: "预览" }).last().click()
+    // 旧版本可一步与当前打开版本比较，不必先理解 A/B 选择器。
+    await initialV1Row.getByRole("button", { name: "与当前打开版本比较" }).click()
+    await expect(versionDialog.locator(".writing-version-diff")).toBeFocused()
+    await expect(versionDialog.locator(".writing-version-diff")).toContainText("版本一的正文内容")
+    await expect(versionDialog.locator(".writing-version-diff")).toContainText("版本二的正文内容")
+
+    // 单独预览保留在低频操作菜单中。
+    await initialV1Row.getByRole("button", { name: "版本 v1 的更多操作" }).click()
+    await initialV1Row.getByRole("menuitem", { name: "单独预览" }).click()
     await expect(page.locator("#writing-editor")).toHaveValue("版本一的正文内容", { timeout: 5000 })
-    // v1 非最新版本 → 只读模式，显示"基于此版本创建"
-    const v1Row = versionDialog.locator(".writing-version-history-item", { hasText: "v1" })
-    await expect(v1Row.getByRole("button", { name: "基于此版本创建" })).toBeVisible()
+    await expect(versionDialog).toBeHidden()
+    await expect(page.locator("#writing-editor")).toBeFocused()
+    // v1 非最新版本 → 只读预览后可明确选择“从此版本继续写”
+    await page.getByRole("button", { name: "版本历史", exact: true }).click()
+    const reopenedVersionDialog = page.getByRole("dialog", { name: "版本历史" })
+    const v1Row = reopenedVersionDialog.locator(".writing-version-history-item", { hasText: "v1" })
+    await expect(v1Row.getByRole("button", { name: "从此版本继续写" })).toBeVisible()
 
-    // 点击"基于此版本创建"
-    await v1Row.getByRole("button", { name: "基于此版本创建" }).click()
+    // 点击“从此版本继续写”
+    await v1Row.getByRole("button", { name: "从此版本继续写" }).click()
     const globalConfirmation = page.locator("#modal-overlay")
     await expect(globalConfirmation).toBeVisible()
     await expect(writingOverlay).toHaveAttribute("inert", "")
@@ -229,9 +577,9 @@ test.describe("写作台模块", () => {
     await page.locator("#modal-footer").getByRole("button", { name: "取消" }).click()
     await expect(globalConfirmation).toBeHidden()
     await expect(versionDialog).toBeVisible()
-    await expect(v1Row.getByRole("button", { name: "基于此版本创建" })).toBeFocused()
+    await expect(v1Row.getByRole("button", { name: "从此版本继续写" })).toBeFocused()
 
-    await v1Row.getByRole("button", { name: "基于此版本创建" }).click()
+    await v1Row.getByRole("button", { name: "从此版本继续写" }).click()
     await page.locator("#modal-footer").getByRole("button", { name: "确认恢复" }).click()
     await expect(page.locator("#btn-autosave")).toHaveText("保存为新工作稿")
 
@@ -240,6 +588,47 @@ test.describe("写作台模块", () => {
     await clickWritingTool(page, "#btn-autosave")
     await confirmPublishIfPrompted(page)
     await waitForPublishFeedback(page)
+
+    // 旧版本只移入历史，不删除正文记录。
+    await page.getByRole("button", { name: "版本历史", exact: true }).click()
+    const oldVersionRow = page.getByRole("dialog", { name: "版本历史" })
+      .locator(".writing-version-history-item", { hasText: "v1" })
+    await oldVersionRow.getByRole("button", { name: "版本 v1 的更多操作" }).click()
+    await oldVersionRow.getByRole("menuitem", { name: "移入历史" }).click()
+    await expect(page.locator("#modal-content")).toContainText("正文不会丢失")
+    await page.locator("#modal-footer").getByRole("button", { name: "移入历史" }).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("v1 已移入历史")
+    await expect(oldVersionRow).toContainText("历史")
+    await oldVersionRow.getByRole("button", { name: "版本 v1 的更多操作" }).click()
+    await expect(oldVersionRow.getByRole("menuitem", { name: "移入历史" })).toHaveCount(0)
+    await expect(globalConfirmation).toBeHidden()
+    await expect(versionDialog.locator(":focus")).toHaveCount(1)
+
+    await page.keyboard.press("Escape")
+    await expect(oldVersionRow.getByRole("button", { name: "版本 v1 的更多操作" })).toBeFocused()
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("dialog", { name: "版本历史" })).toBeHidden()
+    await expect(page.getByRole("button", { name: "版本历史", exact: true })).toBeFocused()
+    await page.getByRole("button", { name: "版本历史", exact: true }).click()
+    await page.reload()
+    await waitWritingReady(page, { chapter: 1 })
+    await expect(page.getByRole("dialog", { name: "版本历史" })).toHaveCount(0)
+    await page.evaluate(() => window.router.navigate("project-settings"))
+    await page.goBack()
+    await expect(page.getByRole("button", { name: "版本历史", exact: true })).toBeVisible({ timeout: 10000 })
+    await expect(page.getByRole("dialog", { name: "版本历史" })).toHaveCount(0)
+
+    const otherProject = await projectFactory({ title: "版本历史隔离作品", genre: "mystery", language: "zh" })
+    await createDraft(otherProject.id, 1, "另一部作品", "独立的版本正文")
+    await page.locator(".sidebar-project-switcher").click()
+    await page.locator(SEL.projectCard(otherProject.id)).click()
+    await page.evaluate(() => window.router.navigate("writing"))
+    await waitWritingReady(page, { chapter: 1 })
+    await selectWritingChapter(page, 1)
+    await expect(page.locator("#writing-editor")).toHaveValue("独立的版本正文")
+    await expect(page.getByRole("dialog", { name: "版本历史" })).toHaveCount(0)
+    expect(browserErrors).toEqual([])
+    expect(failedApiResponses).toEqual([])
   })
 
   test("实质变化留版、强制 checkpoint 和发布前撤销", async ({ page }) => {
@@ -260,6 +649,7 @@ test.describe("写作台模块", () => {
     await expect(page.locator("#version-selector")).toContainText("v2")
 
     // 手动版本需显式确认放弃，回到 v1。
+    await openWritingToolMenu(page, "#btn-autosave")
     await page.getByRole("button", { name: "放弃未设为正式正文的更改" }).click()
     await page.locator("#modal-footer").getByRole("button", { name: "放弃更改" }).click()
     await expect(page.locator(SEL.toastContainer)).toContainText("已回到上一版")
@@ -382,9 +772,9 @@ test.describe("写作台模块", () => {
     await reloadWorkbench(page, "writing")
     await waitWritingReady(page, { chapter: 1 })
     await selectWritingChapter(page, 1)
-    await page.getByRole("button", { name: "历史", exact: true }).click()
+    await page.getByRole("button", { name: "版本历史", exact: true }).click()
     await page.locator(".writing-version-history-item", { hasText: "v1" })
-      .getByRole("button", { name: "基于此版本创建" }).click()
+      .getByRole("button", { name: "从此版本继续写" }).click()
     await page.locator("#modal-footer").getByRole("button", { name: "确认恢复" }).click()
     await expect(page.locator("#writing-editor")).toHaveValue("v1")
 
@@ -483,19 +873,47 @@ test.describe("写作台模块", () => {
     await expect(page.getByRole("tab", { name: "地点" })).toHaveClass(/active/)
   })
 
-  test("专注模式隐藏两侧面板后保持桌面阅读宽度", async ({ page }) => {
+  test("专注模式可恢复、可退出，并在桌面与手机保持正文状态", async ({ page, projectFactory, browserErrors }) => {
     await createDraft(testProjectId, 1, "第一章 专注写作", "用于验证专注模式宽度的正文。")
+    const otherProject = await projectFactory({ title: "专注隔离对照作品", genre: "mystery", language: "zh" })
+    await createDraft(otherProject.id, 1, "第一章 对照", "另一部作品的正文。")
     await page.setViewportSize({ width: 1280, height: 800 })
     await reloadWorkbench(page, "writing")
     await waitWritingReady(page)
     await selectWritingChapter(page, 1)
-    await openWritingToolMenu(page, "#btn-conflict-check")
-    await page.locator("#writing-editor-buttons").getByRole("button", { name: "专注模式" }).click()
+    const viewMenu = page.locator("details.writing-page-menu")
+    const focusEntry = viewMenu.locator(":scope > summary")
+    await expect(focusEntry).toHaveAccessibleName("写作视图")
+    await expect(focusEntry).toHaveAttribute("aria-expanded", "false")
+    await focusEntry.click()
+    await expect(focusEntry).toHaveAttribute("aria-expanded", "true")
+    await page.locator("#writing-editor").click()
+    await expect(focusEntry).toHaveAttribute("aria-expanded", "false")
+
+    await focusEntry.focus()
+    await page.keyboard.press("Enter")
+    await page.keyboard.press("Tab")
+    await expect(viewMenu.getByRole("button", { name: "进入专注" })).toBeFocused()
+    await page.keyboard.press("Escape")
+    await expect(focusEntry).toHaveAttribute("aria-expanded", "false")
+    await expect(focusEntry).toBeFocused()
+
+    await focusEntry.click()
+    await viewMenu.getByRole("button", { name: "进入专注" }).click()
 
     await expect(page.locator("body")).toHaveClass(/focus-mode-active/)
     await expect(page.locator("#writing-tree-container")).toBeHidden()
     await expect(page.locator("#writing-panel-container")).toBeHidden()
+    await expect(page.locator("#topbar")).toBeHidden()
+    await expect(page.locator("#sidebar")).toBeHidden()
+    await expect(page.locator(".writing-toolbar")).toHaveCount(0)
+    await expect(page.locator(".writing-editor-header")).toBeHidden()
+    await expect(page.locator(".writing-focus-header")).toContainText("第一章 专注写作")
     await expect(page.locator("#writing-editor")).toBeVisible()
+    await expect(page.locator("#writing-editor")).toBeFocused()
+    const exitBox = await page.locator("#writing-focus-exit").boundingBox()
+    expect(exitBox).not.toBeNull()
+    expect(exitBox.height).toBeGreaterThanOrEqual(44)
 
     const geometry = await page.evaluate(() => {
       const workspace = document.querySelector("#workspace-content")
@@ -523,6 +941,61 @@ test.describe("写作台模块", () => {
     expect(geometry.containerWidth).toBeGreaterThan(geometry.workspaceWidth * 0.8)
     expect(geometry.editorWidth).toBeGreaterThanOrEqual(700)
     expect(geometry.editorCenterOffset).toBeLessThanOrEqual(2)
+
+    await page.keyboard.press("Escape")
+    await expect(page.locator("body")).not.toHaveClass(/focus-mode-active/)
+    await expect(page.locator("#writing-editor")).toHaveValue("用于验证专注模式宽度的正文。")
+    await expect(focusEntry).toBeFocused()
+
+    await page.locator(".writing-statusbar__focus").click()
+    await page.reload()
+    await expect(page.locator(".writing-focus-header")).toBeVisible({ timeout: 10000 })
+    await expect(page.locator("#writing-editor")).toHaveValue("用于验证专注模式宽度的正文。")
+    await expect(page.locator("#writing-editor")).toBeFocused()
+
+    await page.evaluate(() => window.router.navigate("project-settings"))
+    await expect(page).toHaveURL(/project-settings/)
+    await expect(page.locator("body")).not.toHaveClass(/focus-mode-active/)
+    await page.goBack()
+    await expect(page.locator(".writing-focus-header")).toBeVisible({ timeout: 10000 })
+    await page.goForward()
+    await expect(page).toHaveURL(/project-settings/)
+    await page.goBack()
+    await expect(page.locator(".writing-focus-header")).toBeVisible({ timeout: 10000 })
+
+    await page.locator("#writing-focus-exit").click()
+    await page.locator(".sidebar-project-switcher").click()
+    await page.locator(SEL.projectCard(otherProject.id)).click()
+    await page.evaluate(() => window.router.navigate("writing"))
+    await waitWritingReady(page, { chapter: 1 })
+    await selectWritingChapter(page, 1)
+    await expect(page.locator("body")).not.toHaveClass(/focus-mode-active/)
+    await expect(page.locator("#writing-editor")).toHaveValue("另一部作品的正文。")
+
+    await page.locator(".sidebar-project-switcher").click()
+    await page.locator(SEL.projectCard(testProjectId)).click()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.evaluate(() => window.router.navigate("writing"))
+    await waitWritingReady(page)
+    await expect(page.locator(SEL.mobileNoteEditor)).toHaveValue("用于验证专注模式宽度的正文。")
+    await page.locator("details.writing-page-menu > summary").click()
+    const mobileMenu = page.locator("details.writing-page-menu")
+    const mobileMenuBody = mobileMenu.locator(".writing-page-menu__body")
+    await expect(mobileMenuBody).toBeInViewport()
+    for (const button of await mobileMenuBody.getByRole("button").all()) {
+      expect((await button.boundingBox())?.height).toBeGreaterThanOrEqual(44)
+    }
+    await mobileMenu.getByRole("button", { name: "进入专注" }).click()
+    await expect(page.locator(".writing-focus-header")).toBeVisible()
+    await expect(page.locator(SEL.mobileNoteEditor)).toBeFocused()
+    const mobileExitBox = await page.locator("#writing-focus-exit").boundingBox()
+    expect(mobileExitBox).not.toBeNull()
+    expect(mobileExitBox.height).toBeGreaterThanOrEqual(44)
+    expect(await page.evaluate(() => Math.ceil(document.documentElement.scrollWidth - window.innerWidth))).toBeLessThanOrEqual(2)
+    await page.keyboard.press("Escape")
+    await expect(page.locator(SEL.mobileNoteEditor)).toHaveValue("用于验证专注模式宽度的正文。")
+    await expect(page.locator("body")).not.toHaveClass(/focus-mode-active/)
+    expect(browserErrors).toEqual([])
   })
 
   test("桌面内容优先布局让正文占主要宽度且辅助栏可独立收起", async ({ page }) => {
@@ -936,7 +1409,7 @@ test.describe("写作台模块", () => {
       await waitWritingReady(page)
       if (width <= 760) {
         await expect(page.locator("#mobile-note-editor")).toBeVisible({ timeout: 5000 })
-        await expect(page.locator(".mobile-quick-note")).toContainText("完整编辑器")
+        await expect(page.locator(".mobile-quick-note")).toContainText("更多编辑")
       } else {
         await selectWritingChapter(page, 1)
         await expect(page.locator("#writing-editor")).toBeVisible({ timeout: 5000 })
@@ -1008,7 +1481,18 @@ test.describe("写作台模块", () => {
     expect(overflow).toBeLessThanOrEqual(2)
   })
 
-  test("390px 速记切换完整编辑器时保留未保存正文", async ({ page }) => {
+  test("390px 可逆切换完整编辑器并在刷新后恢复模式", async ({ page, projectFactory }) => {
+    const browserErrors = []
+    const failedApiRequests = []
+    page.on("pageerror", (error) => browserErrors.push(error.message))
+    page.on("console", (message) => {
+      if (message.type() === "error") browserErrors.push(message.text())
+    })
+    page.on("requestfailed", (request) => {
+      if (request.url().includes("/api/")) failedApiRequests.push(`${request.method()} ${request.url()}`)
+    })
+    const otherProject = await projectFactory({ title: "移动模式隔离作品", genre: "fantasy", language: "zh" })
+    await createDraft(otherProject.id, 1, "另一个作品", "独立的移动正文")
     await createDraft(testProjectId, 1, "移动切换", "切换前正文")
     await page.setViewportSize({ width: 390, height: 844 })
     await reloadWorkbench(page, "writing")
@@ -1018,10 +1502,58 @@ test.describe("写作台模块", () => {
     await expect(editor).toHaveValue("切换前正文")
     await editor.fill("尚未保存但必须保留的正文")
 
-    await page.getByRole("button", { name: "完整编辑器" }).click()
+    await page.getByRole("button", { name: "打开完整编辑器，可编辑标题、版本与检查" }).click()
 
     await expect(page.locator("#writing-editor")).toBeVisible()
     await expect(page.locator("#writing-editor")).toHaveValue("尚未保存但必须保留的正文")
+    await expect(page.getByRole("button", { name: "返回速记" })).toBeFocused()
+    await page.getByRole("button", { name: "返回速记" }).click()
+    await expect(editor).toHaveValue("尚未保存但必须保留的正文")
+    await expect(editor).toBeFocused()
+
+    await page.getByRole("button", { name: "打开完整编辑器，可编辑标题、版本与检查" }).click()
+    const saveSummary = page.locator("#writing-editor-buttons").getByText("保存", { exact: true })
+    await saveSummary.click()
+    await page.keyboard.press("Escape")
+    await expect(page.locator("#writing-save-tools")).toBeHidden()
+    await expect(saveSummary).toBeFocused()
+    await saveSummary.click()
+    await page.getByRole("button", { name: "保存工作稿", exact: true }).click()
+    await expect(page.locator("#writing-save-tools")).toBeHidden()
+    await expect(page.locator(SEL.toastContainer)).toContainText("已保存到工作稿", { timeout: 10000 })
+    await page.reload()
+    await waitWritingReady(page)
+    await expect(page.locator("#writing-editor")).toBeVisible()
+    await expect(page.getByRole("button", { name: "返回速记" })).toBeVisible()
+
+    await page.evaluate(() => window.router.navigate("project-settings"))
+    await expect(page).toHaveURL(/project-settings/)
+    await page.goBack()
+    await expect(page.locator("#writing-editor")).toBeVisible({ timeout: 10000 })
+    await page.goForward()
+    await expect(page).toHaveURL(/project-settings/)
+    await page.goBack()
+    await expect(page.getByRole("button", { name: "返回速记" })).toBeVisible({ timeout: 10000 })
+
+    await page.setViewportSize({ width: 900, height: 844 })
+    await page.locator(".sidebar-project-switcher").click()
+    await page.locator(SEL.projectCard(otherProject.id)).click()
+    await expect(page.locator(SEL.topbarProject)).toHaveText("移动模式隔离作品")
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.evaluate(() => window.router.navigate("writing"))
+    await waitWritingReady(page, { chapter: 1 })
+    await selectWritingChapter(page, 1)
+    await expect(page.getByLabel("移动端速记正文")).toHaveValue("独立的移动正文")
+
+    await page.setViewportSize({ width: 900, height: 844 })
+    await page.locator(".sidebar-project-switcher").click()
+    await page.locator(SEL.projectCard(testProjectId)).click()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.evaluate(() => window.router.navigate("writing"))
+    await waitWritingReady(page)
+    await expect(page.getByRole("button", { name: "返回速记" })).toBeVisible({ timeout: 10000 })
+    expect(browserErrors).toEqual([])
+    expect(failedApiRequests).toEqual([])
   })
 
   // ============================================================

@@ -80,28 +80,34 @@ describe("表格渲染契约", () => {
     await vi.waitFor(() => expect(showModalHtml).toHaveBeenCalledWith("人物认知进程", expect.any(String), expect.any(Array), { size: "large" }))
   })
 
-  it("行/复选框/状态/来源/注意列与 vanilla 一致", () => {
+  it("表格把对象身份和资料概览收敛为四列并保留注意状态", () => {
     const wrapper = mountTab()
+    expect(wrapper.findAll("thead th").map((cell) => cell.text())).toEqual(["全选当前页对象", "对象", "资料概览", "操作"])
     const rows = wrapper.findAll("tbody tr[data-id]")
     expect(rows).toHaveLength(2)
     expect(rows[0].attributes("data-id")).toBe("e1")
     expect(rows[0].find('input[data-action="bulk-toggle-one"][data-scope="world-objects"][data-id="e1"]').exists()).toBe(true)
-    expect(rows[0].text()).toContain("沉钟港")
-    expect(rows[0].text()).toContain("手动")
-    expect(rows[1].find('[data-label="注意"]').classes()).toContain("world-table-cell--warning")
+    expect(rows[0].get('[data-label="对象"]').text()).toContain("沉钟港")
+    expect(rows[0].get('[data-label="资料概览"]').text()).toContain("旧港")
+    expect(rows[0].get('[data-label="资料概览"]').text()).toContain("来源：手动")
+    expect(rows[1].get(".world-object-table__attention").text()).toContain("需要留意")
     expect(rows[1].find('[data-action="mark-entity-reviewed"]').exists()).toBe(true)
     expect(rows[1].find('[data-action="edit-entity"]').text()).toBe("编辑后采用")
-    expect(rows[0].find('[data-action="upload-entity-image"]').exists()).toBe(true)
     expect(wrapper.find('input[data-action="bulk-toggle-all"][data-scope="world-objects"]').exists()).toBe(true)
   })
 
-  it("行内菜单使用对象名称且保留既有 data-action", async () => {
-    const wrapper = mountTab()
+  it("行内菜单使用对象名称并承载上传图片等低频操作", async () => {
+    const wrapper = mountTab({}, { attachTo: document.body })
     const row = wrapper.find('tbody tr[data-id="e1"]')
+    const input = row.get('input[type="file"]')
+    const inputClick = vi.spyOn(input.element, "click")
     const trigger = row.get(".action-menu-btn")
     expect(trigger.attributes("aria-label")).toBe("沉钟港的更多操作")
     await trigger.trigger("click")
+    expect(row.get('[data-action="upload-entity-image"]').text()).toBe("上传图片")
     expect(row.find('[data-action="delete-entity"]').attributes("data-id")).toBe("e1")
+    await row.get('[data-action="upload-entity-image"]').trigger("click")
+    expect(inputClick).toHaveBeenCalledTimes(1)
   })
 
   it("空态渲染新建入口；错误态 role=alert", () => {
@@ -348,6 +354,28 @@ describe("筛选", () => {
 })
 
 describe("页内视图控件", () => {
+  it("默认使用表格，并以可访问状态分组浏览选项", async () => {
+    const wrapper = shallowMount(WorldView, {
+      props: { projectId: "p-obj", subView: "objects", discoveryMode: "hot" },
+    })
+    const options = wrapper.get(".world-view-options")
+    const table = wrapper.get('[data-action="set-object-view"][data-view-mode="table"]')
+    const card = wrapper.get('[data-action="set-object-view"][data-view-mode="card"]')
+
+    expect(wrapper.findComponent(WorldObjectsTab).props("objectViewMode")).toBe("table")
+    expect(table.attributes("aria-pressed")).toBe("true")
+    expect(card.attributes("aria-pressed")).toBe("false")
+    expect(wrapper.get('[data-action="set-discovery-mode"][data-mode="hot"]').attributes("aria-pressed")).toBe("true")
+    expect(options.get('[role="group"][aria-label="人物与设定显示方式"]').exists()).toBe(true)
+    expect(options.get('[role="group"][aria-label="资料范围"]').exists()).toBe(true)
+    expect(options.find('[data-action="toggle-extract"]').exists()).toBe(false)
+    expect(wrapper.get('[data-action="toggle-extract"]').text()).toBe("从正文整理资料")
+
+    options.element.open = true
+    await options.get('[data-action="close-view-options"]').trigger("click")
+    expect(options.element.open).toBe(false)
+  })
+
   it("需要决定是直达待处理对象的顶层当前页按钮", async () => {
     const wrapper = shallowMount(WorldView, {
       props: {
@@ -364,13 +392,34 @@ describe("页内视图控件", () => {
     expect(review.attributes("type")).toBe("button")
     expect(review.attributes("aria-current")).toBe("page")
     expect(review.classes()).toContain("active")
-    expect(review.text()).toContain("6")
+    expect(review.get(".today-count").text()).toBe("6")
+    expect(review.attributes("aria-label")).toBe("需要决定，6 项")
     expect(objects.attributes("aria-current")).toBeUndefined()
     expect(objects.classes()).not.toContain("active")
     expect(wrapper.find(".world-attention-menu").exists()).toBe(false)
 
     await review.trigger("click")
     expect(navigateMock).toHaveBeenCalledWith("world", "review", true, expect.any(URLSearchParams))
+  })
+
+  it("待决定计数收起零值并限制视觉宽度，别名深链保留当前页语义", async () => {
+    const wrapper = shallowMount(WorldView, {
+      props: {
+        projectId: "p-obj",
+        subView: "aliases",
+        reviewCounts: { objects: 156, aliases: 82, relations: 78 },
+      },
+    })
+    const review = wrapper.get('[data-action="nav-review"]')
+
+    expect(review.get(".today-count").text()).toBe("99+")
+    expect(review.attributes("aria-label")).toBe("需要决定，316 项")
+    expect(wrapper.get('[data-action="nav-objects"]').attributes("aria-current")).toBe("page")
+
+    await wrapper.setProps({ reviewCounts: { objects: 0, aliases: 0, relations: 0 } })
+
+    expect(review.find(".today-count").exists()).toBe(false)
+    expect(review.attributes("aria-label")).toBeUndefined()
   })
 
   it("卡片/表格只切本地呈现并同步 query，不重挂载", async () => {
@@ -397,7 +446,9 @@ describe("页内视图控件", () => {
 
     expect(wrapper.element).toBe(root)
     expect(document.activeElement).toBe(card.element)
-    expect(card.classes()).toContain("btn-primary")
+    expect(card.attributes("aria-pressed")).toBe("true")
+    expect(wrapper.get('[data-action="set-object-view"][data-view-mode="table"]').attributes("aria-pressed")).toBe("false")
+    expect(card.classes()).not.toContain("btn-primary")
     expect(wrapper.findComponent(WorldObjectsTab).props("objectViewMode")).toBe("card")
     expect(commitCurrentQuery).toHaveBeenCalledTimes(1)
     expect(commitCurrentQuery.mock.calls[0][0].get("view")).toBe("card")

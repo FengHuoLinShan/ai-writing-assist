@@ -7,6 +7,8 @@ import {
   hasGenerateSession,
   normalizeConvergenceDraft,
   normalizeExternalPackets,
+  normalizePovForm,
+  normalizeTaskForm,
   normalizeVisualBrief,
   readCreativeContinuation,
   readGenerateContextPreview,
@@ -47,7 +49,10 @@ const visualBrief = {
   stale: false,
 }
 
-beforeEach(() => localStorage.clear())
+beforeEach(() => {
+  localStorage.clear()
+  sessionStorage.clear()
+})
 
 describe("generate Vue bounded session", () => {
   it("isolates project, source page, and target", () => {
@@ -56,10 +61,41 @@ describe("generate Vue bounded session", () => {
     expect(generateSessionKey("p1", null, "core_entity", "world_core")).not.toBe(generateSessionKey("p1", null, "core_entity"))
   })
 
+  it("round-trips a bounded task draft without leaking it across project keys", () => {
+    const key = generateSessionKey("p1")
+    const taskForm = normalizeTaskForm({
+      task: "检查人物动机", scope: "chapter", entity_ids: ["e1"], character_ids: ["c1"],
+      scene_id: "scene-1", chapter_index: 0, budget_tokens: 2_000_000,
+      reveal_mode: "unknown", viewpoint_character_id: "c1", include_world_synopsis: false,
+    })
+    expect(writeGenerateSession(key, { messages: [], taskPreset: "conflict_check", taskForm })).toBe(true)
+    expect(readGenerateSession(key)).toMatchObject({
+      taskPreset: "conflict_check",
+      taskForm: { task: "检查人物动机", scope: "chapter", chapter_index: null, budget_tokens: 1_000_000, reveal_mode: "author_safe", include_world_synopsis: false },
+    })
+    expect(readGenerateSession(generateSessionKey("p2")).taskForm.task).toBe("")
+  })
+
+  it("round-trips a bounded POV form without leaking it across project keys", () => {
+    const key = generateSessionKey("p1")
+    const povForm = normalizePovForm({ chapterIndex: "2", sceneId: "scene-1", viewpointCharacterId: "char-1", instruction: "保持克制" })
+
+    expect(writeGenerateSession(key, { messages: [], povForm })).toBe(true)
+    expect(readGenerateSession(key).povForm).toEqual({ chapterIndex: 2, sceneId: "scene-1", viewpointCharacterId: "char-1", instruction: "保持克制" })
+    expect(readGenerateSession(generateSessionKey("p2")).povForm).toEqual({ chapterIndex: null, sceneId: "", viewpointCharacterId: "", instruction: "" })
+  })
+
   it("上下文预览跨目标保留且按项目隔离", () => {
-    writeGenerateContextPreview("p1", { bundle: { sections: [{ key: "world" }] }, markdown: "# 预览", source: "task", request: { task: "检查" } })
+    writeGenerateContextPreview("p1", { bundle: { novel_id: "p1", sections: [{ key: "world" }] }, markdown: "# 预览", source: "task", request: { novel_id: "p1", task: "检查" } })
     expect(readGenerateContextPreview("p1")).toMatchObject({ markdown: "# 预览", source: "task" })
     expect(readGenerateContextPreview("p2")).toEqual({ bundle: null, markdown: "", source: null, request: null })
+  })
+
+  it("丢弃项目不匹配的会话预览", () => {
+    const key = "generate_context_preview_v1:p1-cross"
+    sessionStorage.setItem(key, JSON.stringify({ bundle: { novel_id: "p2" }, request: { novel_id: "p2" }, source: "task" }))
+    expect(readGenerateContextPreview("p1-cross")).toEqual({ bundle: null, markdown: "", source: null, request: null })
+    expect(sessionStorage.getItem(key)).toBeNull()
   })
 
   it("round-trips a suggestion-bound page proposal draft while old v2 sessions remain compatible", () => {

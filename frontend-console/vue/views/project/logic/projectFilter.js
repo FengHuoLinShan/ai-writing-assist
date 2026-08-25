@@ -46,6 +46,18 @@ const STAGE_LABELS = {
   revising: "修订中",
 }
 
+const GENRE_LABELS = {
+  fantasy: "奇幻",
+  scifi: "科幻",
+  mystery: "悬疑",
+  romance: "言情",
+  wuxia: "武侠",
+}
+
+export function genreLabel(genre) {
+  return GENRE_LABELS[genre] || genre || "未分类"
+}
+
 export function stageLabel(stage) {
   return STAGE_LABELS[stage] || stage
 }

@@ -73,9 +73,9 @@ test.describe("Outline P20 — 真实 LLM 当前层创作", () => {
     )
 
     await page.locator('[data-action="view-outline-generate-preview"]').click()
-    await expect(page.locator(SEL.modalTitle)).toHaveText("剧情线建议预览")
-    await expect(page.locator("#outline-layer-preview-json")).not.toHaveValue("")
-    await page.getByRole("button", { name: "采用到工作结构" }).click()
+    await expect(page.getByRole("heading", { name: "检查剧情线建议" })).toBeVisible()
+    await expect(page.locator("#outline-layer-preview-json")).toHaveCount(0)
+    await page.locator('[data-action="apply-outline-generate-preview"]').click()
     await expect(page.locator(SEL.toastContainer)).toContainText("剧情线已采用")
     await expect(page.locator(SEL.dataTable).locator("tbody tr").first()).toBeVisible()
   })

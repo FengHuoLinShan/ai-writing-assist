@@ -11,8 +11,9 @@ beforeEach(() => vi.clearAllMocks())
 
 describe("ReferencePickerAdapter narrow imperative seam", () => {
   it("owns and explicitly destroys the vanilla widget", () => {
-    const wrapper = mount(ReferencePickerAdapter, { props: { projectId: "p1", sources: [{ kind: "entity", search: vi.fn() }], modelValue: [] } })
+    const wrapper = mount(ReferencePickerAdapter, { props: { projectId: "p1", sources: [{ kind: "entity", search: vi.fn() }], modelValue: [], emptyText: "没有匹配的人物" } })
     expect(createReferencePicker).toHaveBeenCalledOnce()
+    expect(createReferencePicker).toHaveBeenCalledWith(expect.objectContaining({ emptyText: "没有匹配的人物" }))
     wrapper.unmount()
     expect(picker.destroy).toHaveBeenCalledOnce()
   })

@@ -1,7 +1,7 @@
 <!--
   OutlineStoryTab — outline/story-outline 子标签根组件。
   DOM class/id/data-action 保持 E2E 视觉/行为契约；事件由 Vue 绑定。
-  模态框操作（生成表单、手动编辑、历史查看）仍走 showModalHtml 外壳。
+  短任务（生成表单、历史查看）仍走 showModalHtml；手工长表单进入可恢复的路由页面。
 -->
 <template>
   <div class="story-outline-workspace">
@@ -13,29 +13,13 @@
       <div class="empty-icon">!</div>
       <p>故事总览加载失败</p>
       <p class="outline-empty-detail">{{ loadError }}</p>
-      <button class="btn btn-sm" data-action="reload-story-outline" @click="handleReload">重新加载</button>
+      <button type="button" class="btn btn-sm" data-action="reload-story-outline" :disabled="reloading" @click="handleReload">{{ reloading ? '重新加载中…' : '重新加载' }}</button>
     </div>
 
     <!-- ========== 主内容区 ========== -->
     <template v-else>
-    <section class="card" aria-labelledby="story-outline-intro-title">
-      <div class="section-header">
-        <div>
-          <h2 id="story-outline-intro-title">故事总览</h2>
-          <p class="form-hint">在进入具体篇章前，先确定故事的高层方向。采用修改时会保留当前内容为历史版本，不会自动替你改写篇章或场景。</p>
-        </div>
-        <div class="view-header__actions">
-          <button class="btn btn-sm" data-action="edit-story-outline" @click="showManualEditor">{{ hasCurrentRevision ? '编辑为新版本' : '手工创建' }}</button>
-          <button class="btn btn-sm btn-primary" data-action="generate-story-outline" :disabled="hasRunningTask" @click="showGenerateForm">AI 生成故事总览</button>
-          <button class="btn btn-sm btn-ghost" data-action="reload-story-outline" @click="handleReload">重新加载</button>
-        </div>
-      </div>
-      <p v-if="assetLoadError" class="form-error" role="status">{{ assetLoadError }}</p>
-      <p v-if="taskNotice" class="form-error" role="alert">{{ taskNotice }}</p>
-    </section>
-
-    <!-- ========== 任务进度 ========== -->
-    <section v-if="taskProgress" class="outline-progress-card-wrap">
+    <section v-if="taskProgress && (!preview || !taskProgress.terminal)" class="outline-task-status" aria-labelledby="story-outline-active-task-title">
+      <h3 id="story-outline-active-task-title" class="outline-task-status__title">AI 任务</h3>
       <WorkflowProgressCard
         :progress="taskProgress"
         variant="card"
@@ -51,191 +35,168 @@
       </WorkflowProgressCard>
     </section>
 
+    <section
+      class="story-outline-primary"
+      :class="hasCurrentRevision ? 'story-outline-intro' : 'story-outline-onboarding'"
+      aria-labelledby="story-outline-intro-title"
+    >
+      <div class="story-outline-primary__layout">
+        <div class="story-outline-primary__copy">
+          <span v-if="!hasCurrentRevision" class="story-outline-primary__eyebrow">从这里开始</span>
+          <h2 id="story-outline-intro-title">{{ hasCurrentRevision ? '调整整体方向' : '先确定故事方向' }}</h2>
+          <p>{{ hasCurrentRevision
+            ? '编辑或采用 AI 建议都会创建新版本，当前内容保留在历史中，不会自动改写篇章或场景。'
+            : '用核心前提、读者期待和主要推进先锁定全书方向；这里只整理总览，不会自动创建篇章或场景。' }}</p>
+        </div>
+        <div class="story-outline-primary__actions" aria-label="故事总览操作">
+          <template v-if="hasCurrentRevision">
+            <button type="button" class="btn btn-sm btn-primary" data-action="edit-story-outline" @click="openManualEditor">编辑为新版本</button>
+            <button type="button" class="btn btn-sm" data-action="generate-story-outline" :disabled="hasRunningTask" @click="showGenerateForm">AI 生成新方案</button>
+          </template>
+          <template v-else>
+            <button type="button" class="btn btn-sm btn-primary" data-action="generate-story-outline" :disabled="hasRunningTask" @click="showGenerateForm">AI 生成可编辑预览</button>
+            <button type="button" class="btn btn-sm" data-action="edit-story-outline" @click="openManualEditor">手工创建</button>
+          </template>
+          <details class="scene-workbench-tools story-outline-more">
+            <summary class="btn btn-sm btn-ghost">更多</summary>
+            <div class="scene-workbench-tools__menu">
+              <button type="button" class="btn btn-sm" data-action="reload-story-outline" :disabled="reloading" @click="handleReloadFromMenu">{{ reloading ? '重新加载中…' : '重新加载内容' }}</button>
+            </div>
+          </details>
+        </div>
+      </div>
+      <p v-if="!hasCurrentRevision" class="story-outline-primary__note">AI 只生成可编辑预览，由你确认采用后才会成为新版本。</p>
+      <p v-if="assetLoadError" class="form-error" role="status">{{ assetLoadError }}</p>
+      <p v-if="taskNotice" class="form-error" role="alert">{{ taskNotice }}</p>
+    </section>
+
     <!-- ========== 预览编辑器 ========== -->
-    <section v-if="preview" class="card" aria-labelledby="story-outline-preview-title">
-      <div class="section-header">
+    <section v-if="preview" class="story-outline-preview" aria-labelledby="story-outline-preview-title" :aria-busy="applying ? 'true' : undefined">
+      <header class="story-outline-preview__header">
         <div>
-          <h3 id="story-outline-preview-title">AI 故事总览预览</h3>
-          <p class="form-hint">生成结果尚未写入总纲。所有字段都可编辑；只有点击"采用为新版本"才会写入。</p>
+          <span class="story-outline-primary__eyebrow">尚未采用</span>
+          <h3 id="story-outline-preview-title">检查 AI 建议</h3>
+          <p>先按你的想法修改。这里的内容只保存在本机，点击“采用为新版本”后才会写入故事总览。</p>
         </div>
-      </div>
-      <div class="form-group">
-        <label for="story-outline-preview-title-input">标题</label>
-        <input class="form-input" id="story-outline-preview-title-input" :value="previewContent.title" @input="previewContent.title = $event.target.value" />
-      </div>
-      <div class="form-grid form-grid--2">
-        <div class="form-group">
-          <label for="story-outline-preview-premise">核心前提</label>
-          <textarea class="form-textarea" id="story-outline-preview-premise" rows="5" :value="previewContent.creative_core?.premise" @input="previewContent.creative_core.premise = $event.target.value"></textarea>
-        </div>
-        <div class="form-group">
-          <label for="story-outline-preview-tone">基调与读者承诺</label>
-          <textarea class="form-textarea" id="story-outline-preview-tone" rows="5" :value="previewContent.creative_core?.tone_and_reader_promise" @input="previewContent.creative_core.tone_and_reader_promise = $event.target.value"></textarea>
-        </div>
-        <div class="form-group">
-          <label for="story-outline-preview-engine">故事引擎</label>
-          <textarea class="form-textarea" id="story-outline-preview-engine" rows="5" :value="previewContent.creative_core?.story_engine" @input="previewContent.creative_core.story_engine = $event.target.value"></textarea>
-        </div>
-        <div class="form-group">
-          <label for="story-outline-preview-ending">结局方向（可留空）</label>
-          <textarea class="form-textarea" id="story-outline-preview-ending" rows="5" :value="previewEndingRaw" @input="previewEndingRaw = $event.target.value"></textarea>
-        </div>
-      </div>
-      <div class="form-group">
-        <label for="story-outline-preview-markdown">高层总纲（Markdown）</label>
-        <textarea class="form-textarea" id="story-outline-preview-markdown" rows="14" :value="previewContent.outline_markdown" @input="previewContent.outline_markdown = $event.target.value"></textarea>
-      </div>
-      <section class="story-outline-list-editor" aria-labelledby="story-outline-storylines-title">
-        <div class="section-header">
-          <div><h4 id="story-outline-storylines-title">主要剧情线</h4><p class="form-hint">把故事中最重要的发展方向拆成可排序的项目。</p></div>
-          <button class="btn btn-sm" type="button" @click="addItem('major_storylines')">新增剧情线</button>
-        </div>
-        <article v-for="(item, index) in previewContent.major_storylines" :key="`storyline-${index}`" class="card story-outline-list-item">
-          <div class="story-outline-list-item__header"><strong>剧情线 {{ index + 1 }}</strong><ListActions :index="index" :length="previewContent.major_storylines.length" @move="moveItem('major_storylines', index, $event)" @remove="removeItem('major_storylines', index)" /></div>
-          <div class="form-grid form-grid--2">
-            <label class="form-group">名称<input v-model="item.name" class="form-input" /></label>
-            <label class="form-group">作用<input v-model="item.narrative_function" class="form-input" placeholder="它在故事中解决什么" /></label>
-            <label class="form-group">发展轨迹<textarea v-model="item.trajectory" class="form-textarea" rows="3" /></label>
-            <label class="form-group">收束方向<textarea v-model="item.resolution_direction" class="form-textarea" rows="3" /></label>
+        <p class="story-outline-preview__save-state" role="status" aria-live="polite">{{ previewSaveState }}</p>
+      </header>
+      <aside v-if="previewRestored" class="story-outline-editor-notice" role="status">
+        <div><strong>已恢复上次修改</strong><p>你对这份 AI 建议的修改已从本机带回，可以继续核对。</p></div>
+      </aside>
+      <aside v-if="previewConflict" class="story-outline-editor-notice story-outline-editor-notice--warning" role="alert">
+        <div><strong>采用前，当前版本被更新了</strong><p>本机修改没有丢失。先同步最新版本基准，再核对并采用。</p></div>
+        <button type="button" class="btn btn-sm" data-action="sync-story-outline-preview" :disabled="rebasingPreview" @click="rebasePreview">{{ rebasingPreview ? '同步中…' : '同步最新版本' }}</button>
+      </aside>
+      <p v-if="previewStorageError" class="form-error" role="alert">{{ previewStorageError }}</p>
+      <form @submit.prevent="applyPreview">
+        <StoryOutlineEditorFields :model-value="preview.content" prefix="story-outline-preview" />
+        <p v-if="applyError" id="story-outline-apply-error" class="form-error" role="alert" tabindex="-1">{{ applyError }}</p>
+        <footer class="story-outline-preview__actions">
+          <span class="form-hint">修改会自动暂存在本机；尚未采用的内容不会改变当前版本。</span>
+          <div>
+            <button type="button" class="btn btn-sm btn-ghost" data-action="discard-story-outline-preview" :disabled="applying" @click="discardPreview">放弃此建议</button>
+            <button type="submit" class="btn btn-sm btn-primary" data-action="apply-story-outline-preview" :disabled="applying || previewConflict">{{ applying ? '采用中…' : '采用为新版本' }}</button>
           </div>
-          <label class="form-group">交汇点<input class="form-input" :value="listText(item.intersections)" placeholder="多个内容用换行或顿号分开" @input="setList(item, 'intersections', $event.target.value)" /></label>
-        </article>
-        <p v-if="!previewContent.major_storylines.length" class="form-hint story-outline-list-empty">还没有主要剧情线，可以稍后再补充。</p>
-      </section>
-
-      <section class="story-outline-list-editor" aria-labelledby="story-outline-movements-title">
-        <div class="section-header">
-          <div><h4 id="story-outline-movements-title">故事推进</h4><p class="form-hint">记录每个阶段结束后，故事状态发生了什么变化。</p></div>
-          <button class="btn btn-sm" type="button" @click="addItem('macro_movements')">新增推进</button>
-        </div>
-        <article v-for="(item, index) in previewContent.macro_movements" :key="`movement-${index}`" class="card story-outline-list-item">
-          <div class="story-outline-list-item__header"><strong>推进 {{ index + 1 }}</strong><ListActions :index="index" :length="previewContent.macro_movements.length" @move="moveItem('macro_movements', index, $event)" @remove="removeItem('macro_movements', index)" /></div>
-          <div class="form-grid form-grid--2">
-            <label class="form-group">名称<input v-model="item.name" class="form-input" /></label>
-            <label class="form-group">状态变化<textarea v-model="item.story_state_change" class="form-textarea" rows="3" /></label>
-          </div>
-          <label class="form-group">关联剧情线<input class="form-input" :value="listText(item.advanced_storylines)" placeholder="多个名称用换行或顿号分开" @input="setList(item, 'advanced_storylines', $event.target.value)" /></label>
-        </article>
-        <p v-if="!previewContent.macro_movements.length" class="form-hint story-outline-list-empty">还没有故事推进。</p>
-      </section>
-
-      <section class="story-outline-list-editor" aria-labelledby="story-outline-decisions-title">
-        <div class="section-header">
-          <div><h4 id="story-outline-decisions-title">待决定问题</h4><p class="form-hint">保留尚未确定、但会影响后续写作的选择。</p></div>
-          <button class="btn btn-sm" type="button" @click="addItem('open_decisions')">新增问题</button>
-        </div>
-        <article v-for="(item, index) in previewContent.open_decisions" :key="`decision-${index}`" class="card story-outline-list-item">
-          <div class="story-outline-list-item__header"><strong>问题 {{ index + 1 }}</strong><ListActions :index="index" :length="previewContent.open_decisions.length" @move="moveItem('open_decisions', index, $event)" @remove="removeItem('open_decisions', index)" /></div>
-          <div class="form-grid form-grid--2">
-            <label class="form-group">问题<input v-model="item.question" class="form-input" /></label>
-            <label class="form-group">影响<textarea v-model="item.why_it_matters" class="form-textarea" rows="3" /></label>
-          </div>
-          <label class="form-group">可选方向<input class="form-input" :value="listText(item.options)" placeholder="多个方向用换行或顿号分开" @input="setList(item, 'options', $event.target.value)" /></label>
-        </article>
-        <p v-if="!previewContent.open_decisions.length" class="form-hint story-outline-list-empty">暂时没有待决定问题。</p>
-      </section>
-      <textarea id="story-outline-preview-major-storylines" hidden :value="JSON.stringify(previewContent.major_storylines)" />
-      <textarea id="story-outline-preview-macro-movements" hidden :value="JSON.stringify(previewContent.macro_movements)" />
-      <textarea id="story-outline-preview-open-decisions" hidden :value="JSON.stringify(previewContent.open_decisions)" />
-      <p id="story-outline-apply-error" class="form-error" role="alert">{{ applyError }}</p>
-      <div class="form-actions">
-        <button class="btn btn-sm btn-primary" data-action="apply-story-outline-preview" @click="applyPreview">采用为新版本</button>
-        <button class="btn btn-sm btn-ghost" data-action="discard-story-outline-preview" @click="discardPreview">放弃此建议</button>
-      </div>
+        </footer>
+      </form>
     </section>
 
-    <!-- ========== 当前版本 / 空状态 ========== -->
-    <section v-if="currentRevision" class="card" aria-labelledby="story-outline-current-title">
-      <div class="section-header">
-        <div>
-          <h3 id="story-outline-current-title">当前版本 · v{{ currentRevision.version_number }}</h3>
-          <p class="form-hint">{{ sourceLabel(currentRevision.source) }} · {{ formatDate(currentRevision.created_at) }}</p>
-        </div>
-      </div>
-      <section><h4>{{ currentRevision.title }}</h4></section>
-      <div class="form-grid form-grid--2">
-        <div class="card"><h4>核心前提</h4><p>{{ currentRevision.creative_core?.premise }}</p></div>
-        <div class="card"><h4>基调与读者承诺</h4><p>{{ currentRevision.creative_core?.tone_and_reader_promise }}</p></div>
-        <div class="card"><h4>故事引擎</h4><p>{{ currentRevision.creative_core?.story_engine }}</p></div>
-        <div class="card"><h4>结局方向</h4><p>{{ currentRevision.creative_core?.ending_direction || '待决定' }}</p></div>
-      </div>
-      <section><h4>高层总纲</h4><pre class="generate-markdown-pre">{{ currentRevision.outline_markdown }}</pre></section>
-      <section>
-        <h4>主要剧情线</h4>
-        <template v-if="currentRevision.major_storylines?.length">
-          <article v-for="(item, idx) in currentRevision.major_storylines" :key="idx" class="card">
-            <h5>{{ item.name }}</h5>
-            <p><strong>叙事功能：</strong>{{ item.narrative_function }}</p>
-            <p><strong>轨迹：</strong>{{ item.trajectory }}</p>
-            <p><strong>交汇点：</strong>{{ (item.intersections || []).join('、') || '暂无' }}</p>
-            <p><strong>收束方向：</strong>{{ item.resolution_direction }}</p>
-          </article>
-        </template>
-        <p v-else class="form-hint">暂无。</p>
+    <!-- ========== 当前版本 ========== -->
+    <article v-if="currentRevision" class="card story-outline-document" aria-labelledby="story-outline-current-title">
+      <header class="story-outline-document__header">
+        <span class="story-outline-document__version">当前版本 · v{{ currentRevision.version_number }}</span>
+        <h3 id="story-outline-current-title">{{ currentRevision.title }}</h3>
+        <p class="form-hint">{{ sourceLabel(currentRevision.source) }} · {{ formatDate(currentRevision.created_at) }}</p>
+      </header>
+
+      <section class="story-outline-document__section" aria-labelledby="story-outline-core-title">
+        <h4 id="story-outline-core-title">故事核心</h4>
+        <dl class="story-outline-core">
+          <div><dt>核心前提</dt><dd>{{ currentRevision.creative_core?.premise }}</dd></div>
+          <div><dt>基调与读者承诺</dt><dd>{{ currentRevision.creative_core?.tone_and_reader_promise }}</dd></div>
+          <div><dt>故事引擎</dt><dd>{{ currentRevision.creative_core?.story_engine }}</dd></div>
+          <div><dt>结局方向</dt><dd>{{ currentRevision.creative_core?.ending_direction || '待决定' }}</dd></div>
+        </dl>
       </section>
-      <section>
-        <h4>故事推进</h4>
-        <template v-if="currentRevision.macro_movements?.length">
-          <article v-for="(item, idx) in currentRevision.macro_movements" :key="idx" class="card">
-            <h5>{{ item.name }}</h5>
-            <p>{{ item.story_state_change }}</p>
-            <p><strong>推进剧情线：</strong>{{ (item.advanced_storylines || []).join('、') || '暂无' }}</p>
-          </article>
-        </template>
-        <p v-else class="form-hint">暂无。</p>
+
+      <section class="story-outline-document__section" aria-labelledby="story-outline-body-title">
+        <h4 id="story-outline-body-title">总览正文</h4>
+        <p class="story-outline-document__prose">{{ readableOutline(currentRevision.outline_markdown) }}</p>
       </section>
-      <section>
-        <h4>待决定问题</h4>
-        <template v-if="currentRevision.open_decisions?.length">
-          <article v-for="(item, idx) in currentRevision.open_decisions" :key="idx" class="card">
-            <h5>{{ item.question }}</h5>
-            <p>{{ item.why_it_matters }}</p>
-            <p><strong>可选方向：</strong>{{ (item.options || []).join('、') || '暂无' }}</p>
-          </article>
-        </template>
-        <p v-else class="form-hint">暂无。</p>
+
+      <section class="story-outline-document__section" aria-labelledby="story-outline-storylines-read-title">
+        <h4 id="story-outline-storylines-read-title">主要剧情线</h4>
+        <ol v-if="currentRevision.major_storylines?.length" class="story-outline-entry-list">
+          <li v-for="(item, idx) in currentRevision.major_storylines" :key="idx" class="story-outline-entry">
+            <div class="story-outline-entry__title"><span aria-hidden="true">{{ idx + 1 }}</span><h5>{{ item.name }}</h5></div>
+            <dl class="story-outline-entry__details">
+              <div><dt>作用</dt><dd>{{ item.narrative_function }}</dd></div>
+              <div><dt>发展轨迹</dt><dd>{{ item.trajectory }}</dd></div>
+              <div><dt>交汇点</dt><dd>{{ (item.intersections || []).join('、') || '暂无' }}</dd></div>
+              <div><dt>收束方向</dt><dd>{{ item.resolution_direction }}</dd></div>
+            </dl>
+          </li>
+        </ol>
+        <p v-else class="form-hint">还没有主要剧情线。</p>
       </section>
-    </section>
-    <section v-else-if="!loadError && projectId" class="empty-state" aria-labelledby="story-outline-empty-title">
-      <div class="empty-icon">&#128209;</div>
-      <h3 id="story-outline-empty-title">尚未创建故事总览</h3>
-      <p>可以手工创建，也可以让 AI 生成一份完整可编辑的预览。</p>
-    </section>
+
+      <section class="story-outline-document__section" aria-labelledby="story-outline-movements-read-title">
+        <h4 id="story-outline-movements-read-title">故事推进</h4>
+        <ol v-if="currentRevision.macro_movements?.length" class="story-outline-entry-list">
+          <li v-for="(item, idx) in currentRevision.macro_movements" :key="idx" class="story-outline-entry">
+            <div class="story-outline-entry__title"><span aria-hidden="true">{{ idx + 1 }}</span><h5>{{ item.name }}</h5></div>
+            <p class="story-outline-entry__lead">{{ item.story_state_change }}</p>
+            <p class="story-outline-entry__meta"><strong>推进剧情线</strong>{{ (item.advanced_storylines || []).join('、') || '暂无' }}</p>
+          </li>
+        </ol>
+        <p v-else class="form-hint">还没有故事推进。</p>
+      </section>
+
+      <section class="story-outline-document__section" aria-labelledby="story-outline-decisions-read-title">
+        <h4 id="story-outline-decisions-read-title">待决定问题</h4>
+        <ol v-if="currentRevision.open_decisions?.length" class="story-outline-entry-list">
+          <li v-for="(item, idx) in currentRevision.open_decisions" :key="idx" class="story-outline-entry">
+            <div class="story-outline-entry__title"><span aria-hidden="true">{{ idx + 1 }}</span><h5>{{ item.question }}</h5></div>
+            <p class="story-outline-entry__lead">{{ item.why_it_matters }}</p>
+            <p class="story-outline-entry__meta"><strong>可选方向</strong>{{ (item.options || []).join('、') || '暂无' }}</p>
+          </li>
+        </ol>
+        <p v-else class="form-hint">目前没有待决定问题。</p>
+      </section>
+    </article>
 
     <!-- ========== 修订历史 ========== -->
-    <section class="card" aria-labelledby="story-outline-history-title">
-      <div class="section-header">
-        <div>
-          <h3 id="story-outline-history-title">历史版本 · {{ historyTotal }}</h3>
-          <p class="form-hint">采用历史内容会创建一个新版本，不会改写原有历史。</p>
-        </div>
-      </div>
-      <ul v-if="history.length" class="item-list">
-        <li v-for="rev in history" :key="rev.id" class="card">
-          <div class="section-header">
-            <div>
+    <details v-if="pastRevisionTotal || pastRevisions.length" class="card story-outline-history" aria-labelledby="story-outline-history-title">
+      <summary aria-describedby="story-outline-history-hint">
+        <span id="story-outline-history-title" class="story-outline-history__title">过往版本</span>
+        <span class="story-outline-history__count">{{ pastRevisionTotal }} 份</span>
+      </summary>
+      <div class="story-outline-history__body">
+        <p id="story-outline-history-hint" class="form-hint">查看不会改变当前内容；采用时会先确认，并创建一个新版本。</p>
+        <ul class="story-outline-history__list">
+          <li v-for="rev in pastRevisions" :key="rev.id" class="story-outline-history__item">
+            <div class="story-outline-history__copy">
               <strong>v{{ rev.version_number }} · {{ rev.title }}</strong>
-              <p class="form-hint">{{ sourceLabel(rev.source) }} · {{ formatDate(rev.created_at) }}{{ rev.restored_from_revision_id ? ' · 来自历史版本' : '' }}</p>
+              <p class="form-hint">{{ sourceLabel(rev.source) }} · {{ formatDate(rev.created_at) }}{{ rev.restored_from_revision_id ? ' · 来自过往版本' : '' }}</p>
             </div>
-            <div class="view-header__actions">
-              <span v-if="rev.id === current?.current_revision_id || rev.is_current" class="badge badge-success">当前版本</span>
-              <button class="btn btn-sm" data-action="view-story-outline-revision" :data-id="rev.id" @click="viewRevision(rev.id)">查看</button>
-              <button class="btn btn-sm btn-primary" data-action="restore-story-outline-revision" :data-id="rev.id" :disabled="rev.id === current?.current_revision_id || rev.is_current" @click="restoreRevision(rev.id)">采用为新版本</button>
+            <div class="story-outline-history__actions">
+              <button type="button" class="btn btn-sm btn-ghost" data-action="view-story-outline-revision" :data-id="rev.id" @click="viewRevision(rev.id)">查看内容</button>
+              <button type="button" class="btn btn-sm" data-action="restore-story-outline-revision" :data-id="rev.id" @click="restoreRevision(rev.id)">采用为新版本</button>
             </div>
-          </div>
-        </li>
-      </ul>
-      <p v-else class="form-hint">还没有历史版本。</p>
-    </section>
+          </li>
+        </ul>
+      </div>
+    </details>
     </template>
   </div>
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from "vue"
+import { computed, ref } from "vue"
 import WorkflowProgressCard from "../../../components/WorkflowProgressCard.vue"
-import ListActions from "./StoryListActions.vue"
+import StoryOutlineEditorFields from "./StoryOutlineEditorFields.vue"
 import { useStoryOutline } from "./useStoryOutline.js"
+import { getRouter } from "../../../bridge/index.js"
 
 const props = defineProps({
   projectId: { type: String, default: null },
@@ -250,39 +211,7 @@ const props = defineProps({
 
 const ctx = useStoryOutline(props)
 
-// ---- 预览编辑器双向绑定 ----
-
-const previewContent = reactive({
-  title: "",
-  creative_core: { premise: "", tone_and_reader_promise: "", story_engine: "", ending_direction: null },
-  outline_markdown: "",
-  major_storylines: [],
-  macro_movements: [],
-  open_decisions: [],
-})
-
-/** 预览结束时结尾方向原始字符串（null 转 ""）。 */
-const previewEndingRaw = ref("")
-
-/** 同步 preview reactive 副本。 */
-function syncPreview() {
-  const c = ctx.preview.value?.content
-  if (!c) return
-  previewContent.title = c.title || ""
-  previewContent.creative_core.premise = c.creative_core?.premise || ""
-  previewContent.creative_core.tone_and_reader_promise = c.creative_core?.tone_and_reader_promise || ""
-  previewContent.creative_core.story_engine = c.creative_core?.story_engine || ""
-  previewContent.creative_core.ending_direction = c.creative_core?.ending_direction ?? null
-  previewEndingRaw.value = c.creative_core?.ending_direction ?? ""
-  previewContent.outline_markdown = c.outline_markdown || ""
-  previewContent.major_storylines = Array.isArray(c.major_storylines) ? JSON.parse(JSON.stringify(c.major_storylines)) : []
-  previewContent.macro_movements = Array.isArray(c.macro_movements) ? JSON.parse(JSON.stringify(c.macro_movements)) : []
-  previewContent.open_decisions = Array.isArray(c.open_decisions) ? JSON.parse(JSON.stringify(c.open_decisions)) : []
-}
-
-watch(() => ctx.preview.value, (val) => {
-  if (val?.content) syncPreview()
-}, { immediate: true })
+const reloading = ref(false)
 
 // ---- 从 composable 解构（避免模板中写 ctx.xxx） ----
 
@@ -293,12 +222,16 @@ const {
   projectId,
   history,
   historyTotal,
-  characters,
-  entities,
   loadError,
   assetLoadError,
   preview,
   applyError,
+  applying,
+  previewConflict,
+  rebasingPreview,
+  previewRestored,
+  previewStorageError,
+  previewSaveState,
   taskProgress,
   taskNotice,
   cancelPending,
@@ -307,15 +240,23 @@ const {
   showDismissTask,
   showGenerateForm,
   applyPreview,
+  rebasePreview,
   discardPreview,
   cancelTask,
   dismissTask,
-  showManualEditor,
   viewRevision,
   restoreRevision,
   reload,
-  collectEditor,
+  readableOutline,
 } = ctx
+
+const pastRevisions = computed(() => history.value.filter((revision) => (
+  revision.id !== current.value?.current_revision_id && !revision.is_current
+)))
+const pastRevisionTotal = computed(() => Math.max(
+  pastRevisions.value.length,
+  (Number(historyTotal.value) || history.value.length) - (hasCurrentRevision.value ? 1 : 0),
+))
 
 // ---- 辅助函数 ----
 
@@ -326,46 +267,34 @@ const SOURCE_LABELS_RECORD = {
 }
 
 function sourceLabel(source) {
-  return SOURCE_LABELS_RECORD[source] || source || "未知来源"
+  return SOURCE_LABELS_RECORD[source] || "其他方式创建"
 }
 
 function formatDate(value) {
   if (!value) return "时间未知"
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString("zh-CN")
+  return Number.isNaN(date.getTime()) ? "时间未知" : date.toLocaleString("zh-CN")
 }
 
-const NEW_ITEM = {
-  major_storylines: () => ({ name: "", narrative_function: "", trajectory: "", intersections: [], resolution_direction: "" }),
-  macro_movements: () => ({ name: "", story_state_change: "", advanced_storylines: [] }),
-  open_decisions: () => ({ question: "", why_it_matters: "", options: [] }),
-}
-
-function addItem(field) {
-  previewContent[field].push(NEW_ITEM[field]())
-}
-
-function removeItem(field, index) {
-  previewContent[field].splice(index, 1)
-}
-
-function moveItem(field, index, direction) {
-  const target = index + Number(direction)
-  if (target < 0 || target >= previewContent[field].length) return
-  const [item] = previewContent[field].splice(index, 1)
-  previewContent[field].splice(target, 0, item)
-}
-
-function listText(value) {
-  return Array.isArray(value) ? value.join("、") : ""
-}
-
-function setList(item, field, value) {
-  item[field] = String(value || "").split(/[\n、；;]+/u).map((part) => part.trim()).filter(Boolean)
+function openManualEditor() {
+  getRouter()?.navigate("outline", "story-outline", true, new URLSearchParams("edit=1"))
 }
 
 /** 重新加载。 */
 async function handleReload() {
-  await reload()
+  if (reloading.value) return false
+  reloading.value = true
+  try {
+    return await reload()
+  } finally {
+    reloading.value = false
+  }
+}
+
+async function handleReloadFromMenu(event) {
+  const details = event.currentTarget.closest("details")
+  details.open = false
+  details.querySelector(":scope > summary")?.focus()
+  await handleReload()
 }
 </script>

@@ -11,6 +11,7 @@ const props = defineProps({
   mode: { type: String, default: "single" },
   maxItems: { type: Number, default: 1 },
   placeholder: { type: String, default: "按名称搜索" },
+  emptyText: { type: String, default: "没有匹配的对象" },
 })
 const emit = defineEmits(["update:modelValue"])
 const root = ref(null)
@@ -34,6 +35,7 @@ async function mountPicker() {
     mode: props.mode,
     maxItems: props.maxItems,
     placeholder: props.placeholder,
+    emptyText: props.emptyText,
     onChange(_items, refs) {
       if (syncing) return
       emit("update:modelValue", refs.map((item) => item.id))

@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from "vue"
 import { clearActiveWorkflow } from "../../../shared/workflowProgress.js"
-import { getRouter } from "../../bridge/index.js"
+import { getConfirmAction, getRouter, getToast } from "../../bridge/index.js"
 import { writeCreativeContinuation } from "../generate/generateSession.js"
 import { readWritingPointer } from "../writing/writingSession.js"
 
@@ -18,6 +18,8 @@ const props = defineProps({
 })
 
 const router = getRouter()
+const confirmAction = getConfirmAction()
+const toast = getToast()
 const dismissedWorkflowIds = ref(new Set())
 const visibleWorkflows = computed(() => props.workflows.filter((workflow) => !dismissedWorkflowIds.value.has(workflow.taskId)))
 const projectId = computed(() => props.summary?.project_id || props.project?.id || null)
@@ -33,7 +35,8 @@ const importWorkflow = computed(() => (
     : visibleWorkflows.value.find((workflow) => workflow.workflowType === "deep_import") || null
 ))
 const startWorldCore = computed(() => Boolean(
-  !primaryWorld.value
+  props.summary
+  && !primaryWorld.value
   && !continuation.value
   && !importWorkflow.value
   && Number(writing.value.chapter_count || 0) === 0
@@ -42,12 +45,14 @@ const resumeTitle = computed(() => {
   if (primaryWorld.value) return primaryWorld.value.title
   if (continuation.value) return continuation.value.title
   if (importWorkflow.value) return "继续整理导入内容"
+  if (!props.summary) return "继续写作"
   return startWorldCore.value ? "从几个灵感开始" : "开始第一章"
 })
 const primaryLabel = computed(() => {
   if (primaryWorld.value) return primaryWorld.value.destination === "world_suggestion_review" ? "去审查" : "继续创作"
   if (continuation.value) return "继续写作"
   if (importWorkflow.value) return "继续整理"
+  if (!props.summary) return "进入写作"
   return startWorldCore.value ? "开始生长" : "开始第一章"
 })
 const resumeLabel = computed(() => primaryWorld.value ? "接着上次创作" : "接着上次写")
@@ -258,8 +263,15 @@ function openWorkflow(workflow) {
 }
 
 function dismissWorkflow(workflow) {
-  clearActiveWorkflow(workflow.taskId)
-  dismissedWorkflowIds.value = new Set([...dismissedWorkflowIds.value, workflow.taskId])
+  confirmAction(
+    "从首页隐藏后，任务仍可以在对应页面找回。",
+    () => {
+      clearActiveWorkflow(workflow.taskId)
+      dismissedWorkflowIds.value = new Set([...dismissedWorkflowIds.value, workflow.taskId])
+      toast("已从首页隐藏", "success")
+    },
+    "从首页隐藏",
+  )
 }
 
 function retry() {
@@ -275,7 +287,7 @@ function retry() {
         <h1 id="today-title">欢迎回到《{{ projectTitle }}》</h1>
         <p>从上次停下的地方继续，其他整理工作可以稍后处理。</p>
       </div>
-      <button class="btn btn-sm btn-ghost" type="button" @click="router.navigate('project')">切换作品</button>
+      <button class="btn btn-sm btn-ghost" type="button" data-action="switch-project" @click="router.navigate('project')">切换作品</button>
     </header>
 
     <section class="today-resume" aria-labelledby="today-resume-title">
@@ -300,7 +312,7 @@ function retry() {
       </button>
     </section>
 
-    <div v-if="loadError" class="today-inline-warning" role="alert">
+    <div v-if="loadError" class="today-inline-warning error-card" role="alert">
       <div><strong>作品概览暂时没有更新</strong><p>{{ loadError }} 仍然可以直接进入写作。</p></div>
       <button class="btn btn-sm" type="button" @click="retry">重新加载</button>
     </div>
@@ -327,10 +339,10 @@ function retry() {
       </div>
     </section>
 
-    <section v-if="summary" class="today-section" aria-labelledby="today-attention-title">
+    <section class="today-section" aria-labelledby="today-attention-title">
       <div class="today-section__heading">
         <div><h2 id="today-attention-title">需要你决定</h2><p>按正在写的场景优先；不会自动修改作品。</p></div>
-        <span class="today-count">{{ attentionTotal }}</span>
+        <span v-if="summary && attentionTotal" class="today-count">{{ attentionTotal }}</span>
       </div>
       <div v-if="attentionRows.length" class="today-attention-list">
         <article v-for="item in attentionRows" :key="item.key" class="today-attention-row">
@@ -348,8 +360,8 @@ function retry() {
       </div>
       <div v-else-if="hasProjectedAttention" class="empty-state today-attention-empty"><p>当前没有需要你决定的内容</p></div>
       <div v-else class="today-attention-grid">
-        <button v-for="item in attentionCategories" :key="item.key" type="button" class="today-attention-card" @click="openAttentionCategory(item)">
-          <strong>{{ item.value }}</strong><span>{{ item.label }}</span><i>{{ item.value ? '去处理' : '暂无待处理' }}</i>
+        <button v-for="item in attentionCategories" :key="item.key" type="button" class="today-attention-card" :disabled="Boolean(summary) && !item.value" @click="openAttentionCategory(item)">
+          <strong>{{ summary ? item.value : '—' }}</strong><span>{{ item.label }}</span><i>{{ !summary ? '打开查看' : item.value ? '去处理' : '暂无待处理' }}</i>
         </button>
       </div>
       <div v-if="attention.has_more" class="today-attention-footer">

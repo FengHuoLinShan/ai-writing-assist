@@ -6,41 +6,47 @@
 <template>
   <div>
     <!-- 筛选面板 -->
-    <div class="scene-management-filters" aria-label="结构资产筛选">
-      <label class="scene-filter-field">
-        <span>状态</span>
-        <select id="outline-filter-status" class="form-select" v-model="filterForm.status">
-          <option value="">全部状态</option>
-          <option v-for="[val, label] in statusOptions" :key="val" :value="val">{{ label }}</option>
-        </select>
-      </label>
-      <label class="scene-filter-field">
-        <span>来源</span>
-        <select id="outline-filter-source" class="form-select" v-model="filterForm.source">
-          <option value="">全部来源</option>
-          <option v-for="[val, label] in STRUCTURE_SOURCE_OPTIONS" :key="val" :value="val">{{ label }}</option>
-        </select>
-      </label>
-      <label class="scene-filter-field">
-        <span>注意</span>
-        <select id="outline-filter-needs-review" class="form-select" v-model="filterForm.needs_review">
-          <option value="">全部注意原因</option>
-          <option value="true">需要人工检查</option>
-          <option value="false">无注意项</option>
-        </select>
-      </label>
-      <details class="outline-structure-diagnostic-filters" :open="Boolean(filterForm.workflow_id)">
-        <summary>诊断筛选{{ filterForm.workflow_id ? "（1）" : "" }}</summary>
-        <label class="scene-filter-field scene-filter-field--wide">
-          <span>处理批次编号</span>
-          <input class="form-input" id="outline-filter-workflow-id" data-diagnostic-field v-model="filterForm.workflow_id" placeholder="按处理批次编号精确筛选" />
+    <details ref="filterPanel" class="outline-structure-filters">
+      <summary>
+        <span class="outline-structure-filters__label">筛选篇章</span>
+        <span class="outline-structure-filters__summary">{{ activeFilterCount ? `已启用 ${activeFilterCount} 项` : "未启用" }}</span>
+      </summary>
+      <div class="scene-management-filters" aria-label="篇章筛选条件">
+        <label class="scene-filter-field">
+          <span>状态</span>
+          <select id="outline-filter-status" class="form-select" v-model="filterForm.status">
+            <option value="">全部状态</option>
+            <option v-for="[val, label] in statusOptions" :key="val" :value="val">{{ label }}</option>
+          </select>
         </label>
-      </details>
-      <div class="scene-filter-actions">
-        <button class="btn btn-sm btn-primary" data-action="apply-outline-structure-filters" @click="applyFilters">应用</button>
-        <button class="btn btn-sm" data-action="reset-outline-structure-filters" @click="resetFilters">重置</button>
+        <label class="scene-filter-field">
+          <span>来源</span>
+          <select id="outline-filter-source" class="form-select" v-model="filterForm.source">
+            <option value="">全部来源</option>
+            <option v-for="[val, label] in STRUCTURE_SOURCE_OPTIONS" :key="val" :value="val">{{ label }}</option>
+          </select>
+        </label>
+        <label class="scene-filter-field">
+          <span>注意</span>
+          <select id="outline-filter-needs-review" class="form-select" v-model="filterForm.needs_review">
+            <option value="">全部注意原因</option>
+            <option value="true">需要人工检查</option>
+            <option value="false">无注意项</option>
+          </select>
+        </label>
+        <details class="outline-structure-diagnostic-filters" :open="Boolean(filterForm.workflow_id)">
+          <summary>更多筛选{{ filterForm.workflow_id ? "（已填写）" : "" }}</summary>
+          <label class="scene-filter-field scene-filter-field--wide">
+            <span>整理批次编号</span>
+            <input class="form-input" id="outline-filter-workflow-id" data-diagnostic-field v-model="filterForm.workflow_id" placeholder="需要排查某次整理时输入批次编号" />
+          </label>
+        </details>
+        <div class="scene-filter-actions">
+          <button type="button" class="btn btn-sm btn-primary" data-action="apply-outline-structure-filters" @click="applyFilters">应用</button>
+          <button type="button" class="btn btn-sm" data-action="reset-outline-structure-filters" @click="resetFilters">重置</button>
+        </div>
       </div>
-    </div>
+    </details>
 
     <!-- 空态 -->
     <template v-if="arcs.length === 0 && !loadError">
@@ -132,7 +138,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, watch } from "vue"
+import { computed, reactive, ref, watch } from "vue"
 import { getRouter, getToast } from "../../../bridge/index.js"
 import { structureAssetDisplay, displayStateBadgeClass, assetAttentionReasons } from "../../../../shared/assetDisplayState.js"
 import {
@@ -176,6 +182,10 @@ const props = defineProps({
 const statusOptions = computed(() => structureStatusOptions("arcs"))
 
 const scope = "outline-arcs"
+const filterPanel = ref(null)
+const activeFilterCount = computed(() => (
+  ["status", "source", "needs_review", "workflow_id"].filter((key) => Boolean(props.filters?.[key])).length
+))
 const routeSignature = structureQueryFromState("arcs", props.filters).toString()
 const restoredDraft = outlineFilterDrafts[scope]?.routeSignature === routeSignature
   ? outlineFilterDrafts[scope].value
@@ -195,10 +205,13 @@ watch(filterForm, (value) => {
   }
 }, { immediate: true, deep: true, flush: "sync" })
 
-function navigateFilters(filters) {
+async function navigateFilters(filters, restoreFilterFocus = false) {
   const query = structureQueryFromState("arcs", filters)
   outlineFilterDrafts[scope].routeSignature = query.toString()
-  getRouter()?.navigate("outline", "arcs", true, query)
+  const navigated = await getRouter()?.navigate("outline", "arcs", true, query)
+  if (restoreFilterFocus && navigated !== false) {
+    document.querySelector(".outline-structure-filters > summary")?.focus()
+  }
 }
 
 const isSelected = (id) => getBulkSelection(scope).has(String(id))
@@ -274,13 +287,21 @@ function retryLoad() {
 function applyFilters() {
   const f = { ...STRUCTURE_FILTER_DEFAULTS, ...filterForm, skip: 0 }
   Object.assign(filterForm, f)
-  navigateFilters(f)
+  collapseFilters()
+  navigateFilters(f, true)
 }
 
 function resetFilters() {
   Object.assign(filterForm, STRUCTURE_FILTER_DEFAULTS)
   filterForm.skip = 0
-  navigateFilters(filterForm)
+  collapseFilters()
+  navigateFilters(filterForm, true)
+}
+
+function collapseFilters() {
+  if (!filterPanel.value) return
+  filterPanel.value.open = false
+  filterPanel.value.querySelector(":scope > summary")?.focus()
 }
 
 function changePage(delta) {

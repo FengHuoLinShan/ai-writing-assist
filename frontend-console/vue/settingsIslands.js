@@ -26,7 +26,12 @@ async function loadGlobalSettings() {
   ])
   if (connections.status === "rejected") {
     console.error("加载模型连接失败:", connections.reason)
-    getToast()("加载全局设置失败", "error")
+  }
+  if (prefs.status === "rejected") {
+    console.error("加载通用创作偏好失败:", prefs.reason)
+  }
+  if (connections.status === "rejected" || prefs.status === "rejected") {
+    getToast()("部分账户设置暂时无法加载", "error")
   }
   return {
     scope: "account",
@@ -35,10 +40,16 @@ async function loadGlobalSettings() {
     llmConnections: connections.status === "fulfilled"
       ? connections.value
       : null,
+    connectionsLoadError: connections.status === "rejected"
+      ? "模型连接暂时无法加载。"
+      : null,
     llmBalances: balances.status === "fulfilled"
       ? balances.value
       : { items: [] },
     authorPrefs: prefs.status === "fulfilled" ? prefs.value || {} : {},
+    authorPrefsLoadError: prefs.status === "rejected"
+      ? "通用创作偏好暂时无法加载。"
+      : null,
   }
 }
 
@@ -74,6 +85,7 @@ async function loadProjectSettings() {
       projectTitle,
       effectiveLLM: null,
       effectivePrefs: null,
+      loadError: "项目偏好暂时无法加载。已有设置没有改变。",
     }
   }
 }

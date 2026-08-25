@@ -56,7 +56,8 @@ test.describe("世界对象与大纲 chaos", () => {
     try {
       const candidateRow = page.locator(`tr[data-id="${candidate.id}"]`)
       await expect(candidateRow).toContainText(candidate.name)
-      await candidateRow.locator('[data-action="merge-entity"]').click()
+      await candidateRow.getByRole("button", { name: "查看并决定" }).click()
+      await page.locator(".world-review-decision").getByRole("button", { name: "合并到" }).click()
       await expect(page.locator(SEL.modalTitle)).toHaveText("合并对象")
       const picker = page.locator("#merge-target-picker")
       await picker.locator("[data-reference-query]").fill(target.name)
@@ -71,10 +72,10 @@ test.describe("世界对象与大纲 chaos", () => {
 
       await page.locator(SEL.subnavItem("objects")).click()
       await expect(page.locator(SEL.viewTitle)).toHaveText("人物与世界")
-      const targetRow = page.locator(`.world-object-card[data-id="${target.id}"]`)
+      const targetRow = page.locator(`.world-object-table tr[data-id="${target.id}"]`)
       await expect(targetRow).toContainText(target.name)
       await expect(targetRow).toContainText("目标实体保持正史")
-      const entityRow = page.locator(`.world-object-card[data-id="${entity.id}"]`)
+      const entityRow = page.locator(`.world-object-table tr[data-id="${entity.id}"]`)
       await expect(entityRow).toContainText("当前摘要不应变化")
       await entityRow.locator(".action-menu-btn").click()
       await entityRow.locator('[data-action="rollback-entity"]').click()
@@ -158,6 +159,7 @@ test.describe("世界对象与大纲 chaos", () => {
 
     await page.reload()
     await page.waitForFunction(() => !state.loading, { timeout: 10000 })
+    await page.locator(".scene-workbench-tools summary").click()
     await page.locator('[data-action="scene-auto-extract"]').click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("从正文整理场景")
     await page.locator("#scene-auto-extract-start").fill("1")

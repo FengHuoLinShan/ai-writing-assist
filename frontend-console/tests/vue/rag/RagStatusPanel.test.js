@@ -70,6 +70,7 @@ describe("状态页渲染", () => {
     expect(wrapper.text()).toContain("正常")
     expect(wrapper.text()).toContain("128")
     expect(wrapper.text()).toContain("10/12")
+    expect(wrapper.get(".rag-status-overview").element.closest("details")).toBeNull()
     expect(wrapper.findAll(".rag-chunk-table tbody tr")).toHaveLength(1)
     expect(wrapper.find(".rag-chunk-preview").text()).toContain("旧塔的铜铃")
   })
@@ -79,7 +80,8 @@ describe("状态页渲染", () => {
       statusFields: makeStatusFields({ totalChunks: null }),
       apiAvailable: false,
     })
-    expect(wrapper.text()).toContain("与服务器连接断开")
+    expect(wrapper.text()).toContain("暂时无法连接查找服务")
+    expect(wrapper.get('[data-action="retry-rag-status"]').attributes("type")).toBe("button")
   })
 
   it("降级警告与诊断默认展开", () => {
@@ -90,8 +92,8 @@ describe("状态页渲染", () => {
         embeddingDimensionMismatch: true,
       }),
     })
-    expect(wrapper.text()).toContain("索引不完整")
-    expect(wrapper.find(".rag-diagnostics-card").attributes("open")).toBeDefined()
+    expect(wrapper.text()).toContain("部分资料暂时找不到")
+    expect(wrapper.find(".rag-diagnostic-details").attributes("open")).toBeDefined()
     expect(wrapper.text()).toContain("向量维度配置漂移")
   })
 
@@ -102,18 +104,18 @@ describe("状态页渲染", () => {
     expect(wrapper.text()).toContain("8/2")
   })
 
-  it("预热警告产生后诊断自动展开，清除后收回（vanilla 重算语义）", async () => {
+  it("预热警告产生后诊断自动展开，清除后保留作者当前选择", async () => {
     const wrapper = mountPanel()
-    expect(wrapper.find(".rag-diagnostics-card").attributes("open")).toBeUndefined()
+    expect(wrapper.find(".rag-diagnostic-details").attributes("open")).toBeUndefined()
 
     ragSearchSession.prewarmWarning = "Embedding 模型不可用"
     await wrapper.vm.$nextTick()
-    expect(wrapper.find(".rag-diagnostics-card").attributes("open")).toBeDefined()
-    expect(wrapper.text()).toContain("Embedding 模型不可用")
+    expect(wrapper.find(".rag-diagnostic-details").attributes("open")).toBeDefined()
+    expect(wrapper.text()).toContain("语义匹配 模型不可用")
 
     ragSearchSession.prewarmWarning = ""
     await wrapper.vm.$nextTick()
-    expect(wrapper.find(".rag-diagnostics-card").attributes("open")).toBeUndefined()
+    expect(wrapper.find(".rag-diagnostic-details").attributes("open")).toBeDefined()
   })
 
   it("证据健康卡", () => {
@@ -127,8 +129,40 @@ describe("状态页渲染", () => {
       },
     })
     expect(wrapper.text()).toContain("可以改进")
-    expect(wrapper.text()).toContain("Scene 覆盖率不足")
+    expect(wrapper.text()).toContain("场景 覆盖率不足")
     expect(wrapper.get('[data-author-action="can_improve"]').text()).toContain("不代表作品内容有错")
+  })
+
+  it("修复范围就地校验并只保留一个返回入口", async () => {
+    const wrapper = mountPanel()
+    expect(wrapper.findAll('[data-action="nav-search"]')).toHaveLength(1)
+    expect(wrapper.get(".rag-rebuild-form").element.closest(".rag-repair-card")).not.toBeNull()
+
+    await wrapper.get("#rag-rebuild-start").setValue("5")
+    await wrapper.get("#rag-rebuild-end").setValue("2")
+    expect(wrapper.get("#rag-rebuild-range-error").text()).toContain("结束章节不能小于起始章节")
+    expect(wrapper.get("#rag-rebuild-start").attributes("aria-invalid")).toBe("true")
+    expect(wrapper.get('[data-action="rebuild-index"]').attributes("disabled")).toBeDefined()
+
+    await wrapper.get("#rag-rebuild-end").setValue("6")
+    expect(wrapper.find("#rag-rebuild-range-error").exists()).toBe(false)
+    await wrapper.get(".rag-rebuild-form").trigger("submit")
+    expect(wrapper.emitted("rebuild")).toHaveLength(1)
+  })
+
+  it("诊断详情保留维护工具", async () => {
+    const wrapper = mountPanel()
+    await wrapper.get('[data-action="prewarm-rag"]').trigger("click")
+    await wrapper.get('[data-action="retry-embeddings"]').trigger("click")
+    expect(wrapper.emitted("prewarm")).toHaveLength(1)
+    expect(wrapper.emitted("retry-embeddings")).toHaveLength(1)
+  })
+
+  it("维护进行中锁定范围和主操作", () => {
+    const wrapper = mountPanel({ maintenanceBusy: true })
+    expect(wrapper.get("#rag-rebuild-content-mode").attributes("disabled")).toBeDefined()
+    expect(wrapper.get('[data-action="rebuild-index"]').attributes("disabled")).toBeDefined()
+    expect(wrapper.get('[data-action="rebuild-index"]').text()).toContain("正在启动")
   })
 })
 
@@ -163,7 +197,7 @@ describe("检索记录", () => {
     const wrapper = mountPanel()
     await wrapper.find('[data-action="load-retrieval-traces"]').trigger("click")
     await vi.waitFor(() => {
-      expect(wrapper.text()).toContain("检索记录加载失败")
+      expect(wrapper.text()).toContain("近期检索记录暂时无法读取")
     })
   })
 })
@@ -180,6 +214,7 @@ describe("重建进度", () => {
     }
     const wrapper = mountPanel()
     expect(wrapper.find(".workflow-progress").exists()).toBe(true)
+    expect(wrapper.get("#rag-rebuild-progress").element.closest("details")).toBeNull()
     expect(wrapper.find('[data-action="retry-task"]').exists()).toBe(true)
   })
 

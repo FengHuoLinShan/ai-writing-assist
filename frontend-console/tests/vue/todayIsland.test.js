@@ -188,7 +188,9 @@ describe("todayIsland", () => {
   })
 
   it("does not block writing when the summary request fails", async () => {
+    const router = { navigate: vi.fn(), refresh: vi.fn() }
     setBridgeOverrides({
+      router,
       state: { currentProjectId: "p1", currentProject: { id: "p1", title: "雾港" } },
       api: {
         projects: { getWorkspaceSummary: vi.fn(async () => { throw new Error("暂时离线") }) },
@@ -200,6 +202,13 @@ describe("todayIsland", () => {
 
     expect(props.summary).toBeNull()
     expect(props.loadError).toContain("暂时离线")
+    const wrapper = mount(TodayView, { props })
+    expect(wrapper.get("#today-resume-title").text()).toBe("继续写作")
+    expect(wrapper.get(".today-resume__action").text()).toBe("进入写作")
+    expect(wrapper.findAll(".today-attention-card")).toHaveLength(4)
+    expect(wrapper.get(".today-attention-card strong").text()).toBe("—")
+    await wrapper.get(".today-resume__action").trigger("click")
+    expect(router.navigate).toHaveBeenCalledWith("writing", null, true, expect.any(URLSearchParams))
   })
 
   it("uses the single hero action to continue an unfinished import before the first chapter", async () => {
@@ -243,8 +252,10 @@ describe("todayIsland", () => {
 
   it("隐藏首页任务只更新本地卡片，不整页刷新", async () => {
     const router = { navigate: vi.fn(), refresh: vi.fn() }
+    const confirmAction = vi.fn((_message, onConfirm) => onConfirm())
+    const toast = vi.fn()
     persistActiveWorkflow({ taskId: "failed-task", workflowType: "writing_generate", projectId: "p1" })
-    setBridgeOverrides({ router })
+    setBridgeOverrides({ router, confirmAction, toast })
     const wrapper = mount(TodayView, {
       props: {
         project: { id: "p1", title: "雾港" },
@@ -255,8 +266,10 @@ describe("todayIsland", () => {
 
     await wrapper.get(".today-workflow-card__actions .btn-ghost").trigger("click")
 
+    expect(confirmAction).toHaveBeenCalledWith(expect.stringContaining("仍可以在对应页面找回"), expect.any(Function), "从首页隐藏")
     expect(wrapper.find(".today-workflow-card").exists()).toBe(false)
     expect(recoverActiveWorkflows("p1")).toEqual([])
+    expect(toast).toHaveBeenCalledWith("已从首页隐藏", "success")
     expect(router.refresh).not.toHaveBeenCalled()
   })
 

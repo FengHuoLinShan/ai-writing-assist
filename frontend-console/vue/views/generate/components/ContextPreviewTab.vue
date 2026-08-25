@@ -1,22 +1,56 @@
 <template>
-  <div class="card">
-    <div class="card-title">上下文预览</div>
-    <div v-if="sourceText" class="generate-context-preview-source">来自：{{ sourceText }}</div>
+  <article class="card generate-context-preview">
+    <header class="generate-context-preview__header">
+      <div>
+        <span class="generate-context-eyebrow">AI 参考资料</span>
+        <h3 class="card-title">完整参考资料</h3>
+        <p>先确认资料范围和来源；只有复制或导出时才需要准备完整文本。</p>
+      </div>
+      <span v-if="sourceText" class="generate-context-preview-source">整理来源：{{ sourceText }}</span>
+    </header>
+
     <template v-if="bundle">
       <div class="generate-result-actions generate-preview-actions">
-        <button class="btn btn-sm" data-action="render-task-md" :disabled="busy" @click="$emit('render-markdown')">渲染 Markdown</button>
-        <button class="btn btn-sm" data-action="copy-task-md" :disabled="!markdown" @click="$emit('copy-markdown')">复制</button>
-        <button class="btn btn-sm" data-action="export-task-md" :disabled="!markdown" @click="$emit('export-markdown')">导出</button>
-        <button class="btn btn-sm" data-action="switch-generate-subtab" @click="$emit('return')">返回</button>
+        <button class="btn btn-sm" type="button" data-action="switch-generate-subtab" @click="$emit('return')">返回调整</button>
+        <button class="btn btn-sm" :class="{ 'btn-primary': !markdown }" type="button" data-action="render-task-md" :disabled="busy" @click="$emit('render-markdown')">{{ busy ? "正在准备…" : markdown ? "重新准备完整文本" : "准备可复制文本" }}</button>
+        <button v-if="markdown" class="btn btn-sm btn-primary" type="button" data-action="copy-task-md" @click="$emit('copy-markdown')">复制完整文本</button>
+        <button v-if="markdown" class="btn btn-sm" type="button" data-action="export-task-md" @click="$emit('export-markdown')">导出文件</button>
       </div>
-      <div id="gen-task-output"><pre v-if="markdown" class="generate-markdown-pre">{{ markdown }}</pre><ContextBundleView v-else :bundle="bundle" /></div>
+
+      <div id="gen-preview-output" :aria-busy="busy ? 'true' : undefined">
+        <div v-if="busy" class="generate-context-preview__loading" role="status" aria-live="polite">正在准备可复制的完整文本；当前资料摘要仍会保留。</div>
+        <div v-if="error" ref="errorEl" class="error-card generate-task-error" role="alert" tabindex="-1">
+          <strong>暂时没能准备完整文本</strong>
+          <p>{{ error }}</p>
+          <button class="btn btn-sm" type="button" data-action="retry-context-preview" :disabled="busy" @click="$emit('render-markdown')">重试</button>
+        </div>
+        <ContextBundleView :bundle="bundle" />
+        <details v-if="markdown" class="generate-context-markdown" open>
+          <summary><span>可复制的完整文本</span><small>用于外部工具或人工核对</small></summary>
+          <pre class="generate-markdown-pre">{{ markdown }}</pre>
+        </details>
+      </div>
     </template>
-    <p v-else class="generate-context-preview-empty">还未执行任何 AI 生成或上下文编译。去「世界设定」共创，或在「任务」里编译上下文。</p>
-  </div>
+
+    <div v-else class="generate-context-preview-empty">
+      <strong>还没有整理好的参考资料</strong>
+      <p>先说明想完成什么，系统会汇集相关设定、人物和章节资料；不会修改作品。</p>
+      <button class="btn btn-primary" type="button" data-action="start-context-preview" @click="$emit('return')">去整理参考资料</button>
+    </div>
+  </article>
 </template>
 
 <script setup>
+import { nextTick, ref, watch } from "vue"
 import ContextBundleView from "./ContextBundleView.vue"
-defineProps({ bundle: Object, markdown: String, sourceText: String, busy: Boolean })
+
+const props = defineProps({ bundle: Object, markdown: String, sourceText: String, busy: Boolean, error: String })
 defineEmits(["render-markdown", "copy-markdown", "export-markdown", "return"])
+
+const errorEl = ref(null)
+watch(() => props.error, async (error) => {
+  if (!error) return
+  await nextTick()
+  errorEl.value?.focus()
+})
 </script>

@@ -91,7 +91,7 @@ function manualPrewarm() {
   void ensurePrewarm({ force: true })
 }
 
-const rebuildForm = reactive({ contentMode: "canonical", start: "", end: "" })
+const rebuildForm = ragSearchSession.rebuildForm
 
 function navigateSub(sub) {
   if (sub === subView.value) return
@@ -119,7 +119,7 @@ onMounted(async () => {
 <template>
   <div v-if="subView === 'search' && statusFields.statusDegraded" class="rag-search-repair-notice" role="status">
     <span><strong>查找资料尚未准备好</strong>部分内容可能找不到，手写和其他功能不受影响。</span>
-    <button class="btn btn-sm btn-primary" type="button" data-action="nav-status" @click="navigateSub('status')">打开索引诊断</button>
+    <button class="btn btn-sm btn-primary" type="button" data-action="nav-status" @click="navigateSub('status')">查看并修复</button>
   </div>
 
   <RagSearchView
@@ -133,11 +133,13 @@ onMounted(async () => {
     :status-fields="statusFields"
     :evidence-health="props.evidenceHealth"
     :api-available="apiAvailable"
+    :maintenance-busy="workflow.maintenanceBusy.value"
     :rebuild-form="rebuildForm"
     @rebuild="workflow.rebuildIndex(rebuildForm)"
     @prewarm="manualPrewarm"
     @retry-embeddings="workflow.retryEmbeddings()"
     @retry-task="workflow.retryFailedTask()"
+    @retry-status="refreshStatus()"
     @navigate-search="navigateSub('search')"
   />
 </template>

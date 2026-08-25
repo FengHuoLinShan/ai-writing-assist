@@ -13,10 +13,11 @@ const stubs = vi.hoisted(() => ({
   },
   islands: [],
   bases: [],
+  options: [],
 }))
 
 vi.mock("../../vue/mountIsland.js", () => ({
-  mountIsland: vi.fn(() => {
+  mountIsland: vi.fn((options) => {
     const base = {
       onEnter: vi.fn(async () => {}),
       render: vi.fn(() => '<div data-vue-island="outline"></div>'),
@@ -26,6 +27,7 @@ vi.mock("../../vue/mountIsland.js", () => ({
     const island = { ...base }
     stubs.bases.push(base)
     stubs.islands.push(island)
+    stubs.options.push(options)
     return island
   }),
 }))
@@ -53,5 +55,63 @@ describe("outlineIsland scene transition", () => {
     expect(base.render).toHaveBeenCalledTimes(1)
     expect(base.onRendered).toHaveBeenCalledTimes(1)
     expect(base.onLeave).not.toHaveBeenCalled()
+  })
+
+  it("从 story-outline query 恢复独立编辑页", async () => {
+    stubs.appState.currentSubView = "story-outline"
+    stubs.router.getCurrentQuery.mockReturnValue(new URLSearchParams("edit=1"))
+    globalThis.api.outline.getStoryOutline.mockResolvedValue({ current_revision_id: null, revision: null })
+    globalThis.api.outline.listStoryOutlineRevisions.mockResolvedValue({ items: [], total: 0 })
+    globalThis.api.world.listCharacters.mockResolvedValue({ items: [] })
+    globalThis.api.world.listEntities.mockResolvedValue({ items: [] })
+
+    const loaded = await stubs.options[0].load()
+
+    expect(loaded).toMatchObject({ projectId: "p1", subView: "story-outline", editorMode: true })
+  })
+
+  it("在剧情线的 review=ai query 恢复结构化审阅页", async () => {
+    stubs.appState.currentSubView = "threads"
+    stubs.router.getCurrentQuery.mockReturnValue(new URLSearchParams("review=ai&status=draft"))
+    globalThis.api.outline.listThreads.mockResolvedValue({ items: [], total: 0 })
+    globalThis.api.outline.listForeshadowing.mockResolvedValue({ items: [], total: 0 })
+    globalThis.api.outline.listReveals.mockResolvedValue({ items: [], total: 0 })
+
+    const loaded = await stubs.options[0].load()
+
+    expect(loaded).toMatchObject({
+      projectId: "p1",
+      subView: "threads",
+      outlineGenerateReview: true,
+      structureFilters: expect.objectContaining({ status: "draft" }),
+    })
+  })
+
+  it("在篇章的 review=ai query 恢复结构化审阅页", async () => {
+    stubs.appState.currentSubView = "arcs"
+    stubs.router.getCurrentQuery.mockReturnValue(new URLSearchParams("review=ai&status=draft"))
+    globalThis.api.outline.listArcs.mockResolvedValue({ items: [], total: 0 })
+
+    const loaded = await stubs.options[0].load()
+
+    expect(loaded).toMatchObject({
+      projectId: "p1",
+      subView: "arcs",
+      outlineGenerateReview: true,
+      structureFilters: expect.objectContaining({ status: "draft" }),
+    })
+  })
+
+  it("在场景的 review=ai query 直接恢复结构化审阅页", async () => {
+    stubs.appState.currentSubView = "scenes"
+    stubs.router.getCurrentQuery.mockReturnValue(new URLSearchParams("review=ai"))
+
+    const loaded = await stubs.options[0].load()
+
+    expect(loaded).toEqual({
+      projectId: "p1",
+      subView: "scenes",
+      outlineGenerateReview: true,
+    })
   })
 })

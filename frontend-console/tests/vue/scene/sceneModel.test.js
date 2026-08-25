@@ -3,6 +3,7 @@ import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/in
 import {
   SCENE_FILTER_DEFAULTS,
   loadSceneWorkbenchProps,
+  persistSceneSession,
   resetSceneSession,
   sceneSession,
   sceneWorkbenchParams,
@@ -23,6 +24,7 @@ describe("sceneModel", () => {
   }
 
   beforeEach(() => {
+    sessionStorage.clear()
     resetBridgeOverrides()
     resetSceneSession("p1")
     vi.clearAllMocks()
@@ -43,6 +45,26 @@ describe("sceneModel", () => {
       filters: { ...SCENE_FILTER_DEFAULTS, q: "潜入" },
       viewMode: "hot",
     })).toEqual({ skip: 0, limit: 20, view_mode: "hot", q: "潜入" })
+  })
+
+  it("restores validated project filters from the current browser session", () => {
+    sessionStorage.setItem("novel_scene_workbench_session:p2", JSON.stringify({
+      filters: { ...SCENE_FILTER_DEFAULTS, segment: "current", skip: 20, limit: 999, phase1a_fallback: "yes" },
+      filterDraft: { ...SCENE_FILTER_DEFAULTS, q: "尚未应用", skip: 20 },
+      activeHealth: "missing_setup",
+      advancedFiltersOpen: true,
+    }))
+
+    expect(sceneSession("p2")).toEqual({
+      filters: { ...SCENE_FILTER_DEFAULTS, segment: "current", skip: 20 },
+      filterDraft: { ...SCENE_FILTER_DEFAULTS, q: "尚未应用", skip: 20 },
+      activeHealth: "missing_setup",
+      advancedFiltersOpen: true,
+    })
+    persistSceneSession("p2", sceneSession("p2"))
+    expect(JSON.parse(sessionStorage.getItem("novel_scene_workbench_session:p2"))).toEqual(sceneSession("p2"))
+    resetSceneSession("p2")
+    expect(sessionStorage.getItem("novel_scene_workbench_session:p2")).toBeNull()
   })
 
   it("prefetches the selected scene and all durable suggestion pages", async () => {

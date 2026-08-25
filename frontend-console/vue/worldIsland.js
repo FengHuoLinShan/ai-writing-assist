@@ -10,6 +10,7 @@
 import { mountIsland } from "./mountIsland.js"
 import WorldView from "./views/world/WorldView.vue"
 import { getApi, getAppState, getRouter, getToast } from "./bridge/index.js"
+import { worldAssetDisplay } from "../shared/assetDisplayState.js"
 import { markWorldLeft, reconcileWorldEntry, worldSession } from "./views/world/worldSession.js"
 import { autoExtractManager, fusionManager } from "./views/world/workflowManagers.js"
 import {
@@ -121,10 +122,24 @@ export async function loadWorld() {
   const requestedReviewKind = reviewKindFromRoute(subView, query)
 
   reconcileWorldEntry(projectId, subView)
+  if (subView === "relations") {
+    worldSession.relationListFilters = reviewFiltersFromQuery(
+      { q: "", skip: 0, limit: 20 },
+      ["q"],
+      query,
+    )
+  }
+  if (subView === "aliases") {
+    worldSession.aliasListFilters = reviewFiltersFromQuery(
+      { q: "", skip: 0, limit: 20 },
+      ["q"],
+      query,
+    )
+  }
 
   // URL 解码筛选（URL 为事实源；objects 解码语义见 worldView.js:467-487）
   const objectFilters = objectFiltersFromQuery(query)
-  const objectViewMode = query.get("view") === "table" ? "table" : "card"
+  const objectViewMode = query.get("view") === "card" ? "card" : "table"
   const requestedMode = query.get("mode")
   const discoveryMode = requestedMode === "normal" || requestedMode === "hot"
     ? requestedMode
@@ -279,7 +294,9 @@ export async function loadWorld() {
       const data = targetEntityId
         ? await api.world.getEntity(targetEntityId, projectId)
         : await api.world.listEntities(candidateListParams(projectId, props.candidateFilters))
-      const items = targetEntityId ? [data] : (data.items || data || [])
+      const items = targetEntityId
+        ? (worldAssetDisplay(data).displayState === "review" ? [data] : [])
+        : (data.items || data || [])
       // 对应 vanilla _uniqueEntitiesById
       const seen = new Set()
       props.candidates = items.filter((item) => {
@@ -290,8 +307,13 @@ export async function loadWorld() {
       })
       props.candidateTotal = targetEntityId ? props.candidates.length : (Number(data.total ?? props.candidates.length) || 0)
     } catch (err) {
-      props.candidateLoadError = err?.message || "待处理对象加载失败"
-      toast("待处理对象加载失败，可重试", "warning")
+      if (query.get("entity_id") && err?.status === 404) {
+        props.candidates = []
+        props.candidateTotal = 0
+      } else {
+        props.candidateLoadError = err?.message || "待处理对象加载失败"
+        toast("待处理对象加载失败，可重试", "warning")
+      }
     }
   } else if (reviewSubView && requestedReviewKind === "aliases") {
     try {
@@ -342,6 +364,7 @@ export async function loadWorld() {
       const filters = worldSession.relationListFilters
       const data = await api.world.listRelationships({
         novel_id: projectId,
+        q: filters.q,
         skip: filters.skip,
         limit: filters.limit,
         status: "canonical",
@@ -356,6 +379,7 @@ export async function loadWorld() {
       const filters = worldSession.aliasListFilters
       const data = await api.world.listAliases({
         novel_id: projectId,
+        q: filters.q,
         skip: filters.skip,
         limit: filters.limit,
         display_state: "active",

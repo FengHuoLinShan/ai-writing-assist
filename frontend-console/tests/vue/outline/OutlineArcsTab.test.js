@@ -101,15 +101,37 @@ describe("渲染", () => {
 })
 
 describe("筛选", () => {
-  it("应用筛选触发 router.navigate", async () => {
+  it("默认折叠筛选并在摘要显示已启用条件数", () => {
     const wrapper = mount(OutlineArcsTab, {
+      props: {
+        projectId: "p1",
+        subView: "arcs",
+        arcs: SAMPLE_ARCS,
+        arcsTotal: 2,
+        filters: { status: "deprecated", source: "", workflow_id: "batch-1", needs_review: "true", skip: 0, limit: 50 },
+      },
+    })
+    const filters = wrapper.get(".outline-structure-filters")
+    expect(filters.attributes("open")).toBeUndefined()
+    expect(filters.get(":scope > summary").text()).toContain("筛选篇章")
+    expect(filters.get(":scope > summary").text()).toContain("已启用 3 项")
+  })
+
+  it("应用筛选触发 router.navigate、收起面板并把焦点还给摘要", async () => {
+    const wrapper = mount(OutlineArcsTab, {
+      attachTo: document.body,
       props: { projectId: "p1", subView: "arcs", arcs: SAMPLE_ARCS, arcsTotal: 2 },
     })
+    const filters = wrapper.get(".outline-structure-filters")
+    filters.element.open = true
     await wrapper.find('[data-action="apply-outline-structure-filters"]').trigger("click")
     expect(routerCalls.length).toBeGreaterThanOrEqual(1)
     expect(routerCalls[0][0]).toBe("outline")
     expect(routerCalls[0][1]).toBe("arcs")
     expect(routerCalls[0][2]).toBe(true)
+    expect(filters.element.open).toBe(false)
+    expect(filters.get(":scope > summary").element).toBe(document.activeElement)
+    wrapper.unmount()
   })
 
   it("重置筛选触发 router.navigate", async () => {

@@ -27,12 +27,12 @@
   <p v-if="!result" class="generate-empty-copy">对话不写业务数据。生成后只会创建待处理建议；世界书提案应用后也只进入工作稿。</p>
   <div v-else-if="result.kind === 'core_entity'" class="generate-result-card">
     <div class="generate-result-title">{{ entityContent.name || entityContent.title || '未命名对象' }}</div>
-    <div class="generate-result-meta">{{ entityContent.entity_type || result.suggestion?.target_type || '-' }} · 待处理</div>
+    <div class="generate-result-meta">{{ entityTypeLabel }} · 待处理</div>
     <p class="generate-result-summary">{{ entityContent.summary || entityContent.public_info || '世界对象建议已进入待处理。' }}</p>
     <div class="generate-result-actions">
-      <button class="btn btn-sm btn-primary" data-action="open-generated-destination" @click="$emit('open-review')">前往待处理</button>
-      <button class="btn btn-sm" data-action="continue-chat" @click="$emit('continue-chat')">继续聊</button>
-      <button class="btn btn-sm" data-action="generate-another" @click="$emit('clear')">再生成一个</button>
+      <button class="btn btn-sm btn-primary" data-action="open-generated-destination" @click="$emit('open-review')">去待处理审阅</button>
+      <button class="btn btn-sm" data-action="continue-chat" @click="$emit('continue-chat')">继续完善</button>
+      <button class="btn btn-sm" data-action="generate-another" @click="$emit('clear')">重新构思</button>
       <button v-if="contextUsage" class="btn btn-sm" data-action="view-generation-context" @click="$emit('view-context')">查看本次上下文</button>
     </div>
   </div>
@@ -43,7 +43,7 @@
     :aria-busy="busy"
   >
     <div class="generate-result-title">{{ page.title || '未命名页面' }}</div>
-    <div class="generate-result-meta">{{ page.page_type || 'custom' }} · {{ summary }}</div>
+    <div class="generate-result-meta">{{ pageTypeLabel }} · {{ summary }}</div>
     <p v-if="proposal.design_rationale" class="generate-result-summary">{{ proposal.design_rationale }}</p>
     <div v-if="proposal.review_notes?.length" class="generate-page-review-notes">
       <span v-for="note in proposal.review_notes" :key="note" class="badge">{{ note }}</span>
@@ -75,7 +75,7 @@
     <p v-if="jsonError" class="generate-error-text">{{ jsonError }}</p>
     <div class="generate-result-actions">
       <button class="btn btn-sm btn-primary" data-action="apply-world-page-draft" :disabled="busy" @click="apply">应用到工作稿</button>
-      <button class="btn btn-sm" data-action="continue-chat" @click="$emit('continue-chat')">继续聊</button>
+      <button class="btn btn-sm" data-action="continue-chat" @click="$emit('continue-chat')">继续完善</button>
       <button class="btn btn-sm" data-action="generate-another" @click="$emit('clear')">重新生成</button>
       <button v-if="contextUsage" class="btn btn-sm" data-action="view-generation-context" @click="$emit('view-context')">查看本次上下文</button>
     </div>
@@ -85,7 +85,7 @@
 
 <script setup>
 import { computed, reactive, ref, watch } from "vue"
-import { authorDecisionPresentation, sectionDiff } from "../logic/generateLogic.js"
+import { OBJECT_TEMPLATES, authorDecisionPresentation, sectionDiff } from "../logic/generateLogic.js"
 import { buildPageProposalApplyPayload, capturePageProposalDraft, editorFromPageProposal, pageProposalDraftMatches } from "../pageProposalSession.js"
 
 const props = defineProps({
@@ -114,6 +114,10 @@ watch(() => props.proposalResetToken, reset)
 const proposal = computed(() => props.result?.proposal || {})
 const page = computed(() => proposal.value.page || {})
 const entityContent = computed(() => props.result?.suggestion?.payload_json || props.result?.proposal || props.result?.suggestion || {})
+function displayEntityType(value) { return OBJECT_TEMPLATES.find((item) => item.object_template === value)?.label || (value ? "其他世界对象" : "未分类") }
+function displayPageType(value) { return props.categories.find((item) => item.category_key === value)?.name || (value ? "自定义页面" : "未分类页面") }
+const entityTypeLabel = computed(() => displayEntityType(entityContent.value.entity_type || props.result?.suggestion?.target_type))
+const pageTypeLabel = computed(() => displayPageType(page.value.page_type))
 const decision = computed(() => authorDecisionPresentation(props.result?.suggestion?.decision_state || props.result?.decision_state))
 const revisionLink = computed(() => props.result?.suggestion?.revision_link || null)
 const revisionChanges = computed(() => {
@@ -128,8 +132,9 @@ const revisionChanges = computed(() => {
     ? [["名称", "name"], ["类型", "entity_type"], ["摘要", "summary"]]
     : [["标题", "title"], ["类别", "page_type"], ["页面概览", "free_text"]]
   return fields.flatMap(([label, key]) => {
-    const before = String(previous?.[key] || "").slice(0, 180)
-    const after = String(current?.[key] || "").slice(0, 180)
+    const present = key === "entity_type" ? displayEntityType : key === "page_type" ? displayPageType : (value) => String(value || "").slice(0, 180)
+    const before = present(previous?.[key])
+    const after = present(current?.[key])
     return before === after ? [] : [{ label, before, after }]
   })
 })

@@ -70,7 +70,7 @@ describe("结构与导航", () => {
       }),
     })
     expect(wrapper.text()).toContain("请先进入项目")
-    await wrapper.find("#project-settings-goto-global").trigger("click")
+    await wrapper.find("#project-settings-empty-goto-account").trigger("click")
     expect(globalThis.router.navigate).toHaveBeenCalledWith("settings")
   })
 
@@ -78,7 +78,7 @@ describe("结构与导航", () => {
     const wrapper = mount(ProjectSettingsView, { props: makeProps() })
     const tabs = wrapper.findAll(".settings-tab-nav .tab-btn")
     expect(tabs.map((item) => item.text())).toEqual(["创作偏好", "高级导入"])
-    expect(wrapper.text()).toContain("当前模型：DeepSeek · deepseek-v4-flash · 未连接")
+    expect(wrapper.text()).toContain("AI 文本服务：DeepSeek · deepseek-v4-flash · 未连接")
     expect(wrapper.find("#llm-model").exists()).toBe(false)
 
     await wrapper.find("#project-settings-goto-global").trigger("click")
@@ -123,12 +123,22 @@ describe("结构与导航", () => {
     wrapper.unmount()
   })
 
-  it("面板在数据未就绪和保存期间公开真实忙碌状态", async () => {
+  it("面板在加载失败时可重试，保存期间公开真实忙碌状态", async () => {
+    globalThis.api.settings.getEffectiveLLMSettings.mockResolvedValueOnce(makeEffectiveLLM())
+    globalThis.api.settings.getEffectiveAuthorPrefs.mockResolvedValueOnce(makeEffectivePrefs())
     const pending = mount(ProjectSettingsView, {
-      props: makeProps({ effectiveLLM: null, effectivePrefs: null }),
+      props: makeProps({
+        effectiveLLM: null,
+        effectivePrefs: null,
+        loadError: "项目偏好暂时无法加载。已有设置没有改变。",
+      }),
     })
-    expect(pending.get("#project-settings-tab-panel").attributes("aria-busy")).toBe("true")
-    expect(pending.get("#project-settings-tab-panel [role='status']").text()).toBe("加载中…")
+    expect(pending.get("#project-settings-tab-panel").attributes("aria-busy")).toBe("false")
+    expect(pending.get(".settings-load-error").attributes("role")).toBe("alert")
+    await pending.get(".settings-load-error button").trigger("click")
+    await flushPromises()
+    expect(pending.find(".settings-load-error").exists()).toBe(false)
+    expect(pending.find("#author-daily-goal").exists()).toBe(true)
     pending.unmount()
 
     const save = deferred()
@@ -361,6 +371,6 @@ describe("作者偏好", () => {
     })
     expect(wrapper.find("#author-editor-font").element.value).toBe("serif")
     expect(globalThis.api.settings.getEffectiveLLMSettings).not.toHaveBeenCalled()
-    expect(globalThis.toast).toHaveBeenCalledWith("daily_goal 已恢复到全局默认", "success")
+    expect(globalThis.toast).toHaveBeenCalledWith("日更目标已恢复到全局默认", "success")
   })
 })

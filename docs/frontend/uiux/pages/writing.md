@@ -6,8 +6,8 @@
 > 事实来源：`frontend-console/vue/views/writing/` 源码（含 `writing-desk.css` 与
 > `writing-decorations.css`）与 `e2e/writing.spec.js`、`e2e/visual-writing.spec.js`。
 > 所有行号以调研时点的源码为准，漂移时以源码为准并回改本文件。
-> 2026-08 三主题改造（sticky/night/ink 换肤，功能行为零变化）已落地：固定三栏、底部状态栏、
-> 点缀系统均为当前事实；§2 问题清单内逐条标注了本轮后的状态。
+> 2026-08 三主题、保存恢复、候选决策与专注写作改造已落地：固定三栏、底部状态栏、章节加载边界、
+> 保存失败就地重试、AI 建议按当前正文给出下一步、候选先决策后阅读、可恢复专注模式与点缀系统均为当前事实；§2 问题清单内逐条标注了当前状态。
 
 ## 1. 页面定位与目标画像
 
@@ -20,36 +20,33 @@
 - **用户会喜欢的理由**（对应 `user-personas.md` §画像 A）：
   - 写作时就地查看人物/地点/警报（副驾驶 rail），不离开当前思路；
   - 草稿三层保护（会话快照 + localStorage 备份 + 离开守卫），页面切换不丢稿；
-  - AI 候选只进「待处理」，采用/拒绝由作者决定，不静默覆盖正文。
-- **主要摩擦（现状）**：保存失败无重试路径、切章节无加载反馈、移动端速记与桌面编辑器能力割裂。
-  编辑器头部拥挤问题已随底部状态栏落地缓解（§2-5）。详见 §2。
+  - AI 候选只进「待处理」，可先与当前工作稿逐段比较，再由作者采用或拒绝，不静默覆盖正文。
+- **主要摩擦（现状）**：10px 元数据在长期阅读中偏小。details 菜单的展开状态、键盘关闭和触控入口
+  已完成；保存失败恢复、切章加载边界、移动端模式切换和专注写作闭环均已完成。
 - **验证方式**：e2e 场景化验收（§8）；「喜欢」为产品假设，待真实行为数据修正。
 
 ## 2. 现状问题清单（按严重度排序）
 
-> 2026-08 三主题改造后复核：样式类条目（5、6、7、13）大部分随 `writing-desk.css` 重写与
-> `editorial-theme.css` 瘦身消解，条目内旧行号全部失效；功能类条目（1–4、8–12、14、15）
-> 本轮未涉及，保持原状。各条目内标注最新状态。
+> 2026-08 复核：样式类条目（5、6、7、13）大部分随 `writing-desk.css` 重写与
+> `editorial-theme.css` 瘦身消解；保存恢复条目（1–3）已完成。其余条目保持原状。
 
 ### P0 — 直接影响写作安全感
 
-1. **保存失败无恢复路径**：`saveError` 只改徽标文案 + toast（`controllers/editorController.js`），
-   `#writing-save-status` 徽标不可点击、无重试按钮；「已保留本地备份」对作者不可验证。（本轮未涉及。）
-2. **正文加载无反馈**：`loadChapter` 期间无 skeleton/遮罩，切章节时旧正文残留到新数据到达；
-   `editorState.loadError` 无任何组件消费，只在 toast 闪现。违反主规范 §5.9 Loading/Error 归一。
-   （本轮未涉及。）
-3. **保存徽标只读态语义错误**：徽标默认 `::before` 绿点，`saveBadgeClass` 无 readonly 分支
-   （`components/WritingEditor.vue`），只读章节也显示绿色「已保存」观感。（本轮未涉及；
-   徽标 DOM 已平移至底部状态栏，id 不变。）
-4. **「聚焦模式」测试债**：旧视觉用例找按钮名「聚焦模式」，UI 文案为「进入专注」/「专注模式」。
-   2026-08 状态：视觉快照基线正按三主题重录（`writing-desk-{sticky,night,ink}.png` 等，见 §8）；
-   专注按钮现位于底部状态栏右侧；用例名与 UI 文案的一致性问题改文案前必须先解决。
+1. **保存失败无恢复路径**：**已解决**。正文附近持续显示 `role=alert` 的作者说明和“重试保存”；
+   底部徽标使用错误色，本机备份保持可见，保存失败会阻止切章与发布，成功后恢复正常状态。
+2. **正文加载无反馈**：**已解决**。切章期间显示 `.loading-skeleton` 并卸下旧 textarea；失败时
+   显示可重试的 `.error-card`。失败目标不写入项目会话指针，旧章正文与工作稿身份保持不变。
+3. **保存徽标只读态语义错误**：**已解决**。`saveBadgeClass` 已区分 saving / error / readonly /
+   unsaved / saved，只读态使用中性色点，不再沿用绿色已保存观感。
+4. **「聚焦模式」测试债**：**已解决**。UI 统一使用「专注模式 / 进入专注 / 退出专注」，功能 e2e
+   覆盖刷新、路由往返、作品隔离、Esc 与 390px；视觉基线为 `writing-focus-{sticky,mobile-sticky}.png`。
 
 ### P1 — 信息层级与视觉一致性
 
 5. **编辑器头部三行拥挤**：**大部分消解**。字数条、保存/版本状态徽标、字体循环切换与专注按钮
    已移入 38px 底部状态栏（`.writing-statusbar`）；版本选择条保留在编辑器上方工具区。
-   编辑器头收敛为标题组 + 主按钮行 + context 行（版本条 + 冲突条）；≤760px 折行表现执行时复核。
+   编辑器头收敛为标题组 + 主按钮行 + context 行（版本条 + 冲突条）；版本条只保留选择和
+   “版本历史”，重复的外层“比较”已删除，比较能力保留在历史弹窗内。
 6. **三层 CSS 重复/冲突**：**大部分消解**。`writing-desk.css` 已按新设计语言整体重写，
    `editorial-theme.css` 瘦身（旧 Editorial Archive 装饰与死覆写移除）。原 12 处冲突清单的行号
    全部失效，已确认消解的代表项：`.cockpit-tab` 激活色统一为 `--nc-accent` 2px 下划线（accent 蓝
@@ -62,24 +59,26 @@
 8. **重复 id 隐患**：`#writing-conflict-strip` 有两个渲染源（`WritingView.vue` 与
    `WritingWorkflowBars.vue`），当前靠 `:show-conflict="false"` 硬编码回避；打开开关即产生重复 id。
    （本轮未涉及。）
-9. **候选采纳 UI 与正文抢层级**：`.writing-candidate-review-panel` 插在标题与正文之间，此时
-   textarea 只读但仅 `color: text-secondary` 区分；采用/拒绝用原生 `confirm`，与全局
-   `confirmAsync` 模态体系混用。（本轮未涉及；视觉降级目标见 §4.2。）
+9. **候选采纳 UI 与正文抢层级**：**已解决**。审核条紧贴编辑器头部、位于只读正文之前，
+   明示“还没有改动工作稿”；候选态隐藏正常发布与 AI 生成入口，各审查状态只保留一个主操作。
+   存在当前工作稿时可一步打开既有版本差异；采用/拒绝已统一走 `confirmAsync`，处理中禁用全部决策，
+   失败在审核条内保留可重试错误。
 
 ### P2 — 响应式与模式完整性
 
-10. **600–760px 断档 + 双断点体系**：JS `mobileMode` 阈值 600px（`useWritingWorkspace.js`），
-    CSS 布局断点 760/900/1099px；600–760px 区间用户得到「桌面编辑器 + 单列布局」。（本轮未涉及。）
-11. **专注模式不完整**：仅隐藏两栏 rail + 居中稿纸；顶栏/view-header 保留；无键盘快捷键、
-    无状态持久化（`appState._focusMode` 仅存内存）。2026-08 状态：入口移至底部状态栏右侧
-    「专注模式」按钮；`body.focus-mode-active` 下点缀一律隐藏（新增，主规范 §2 点缀系统）；
-    持久化与快捷键仍为待办。
-12. **移动速记能力割裂**：mobileMode 下丢失标题编辑、无字数目标、无版本/冲突入口；操作条吸底
-    现随工作区剩余高度布局并保持在移动底栏上方，不再重复硬编码底栏高度。
+10. **600–760px 断档 + 双断点体系**：**核心断档已解决**。JS `isNarrow` 与主 CSS 断点统一为
+    760px；900/1099px 仍是 cockpit 与 rail 的局部布局阈值。
+11. **专注模式不完整**：**已解决**。全局顶栏、导航、两栏 rail 与编辑器工具区临时隐藏，正文居中；
+    顶部保留章节、保存反馈与 44px「退出专注 Esc」。状态写入项目级安全恢复指针，刷新、路由往返与
+    作品切换隔离；Esc 退出并恢复焦点，正文和自动保存状态不重建。`body.focus-mode-active` 下点缀隐藏。
+12. **移动速记与完整编辑脱节**：**核心切换已解决**。速记继续只承载正文、Scene、保存与设为正式正文；
+    标题、版本和检查通过「更多编辑」渐进展开。两种模式可逆切换、共用当前草稿，完整模式会先收起两侧栏，
+    选择按项目写入既有恢复指针，刷新、前进后退和切换作品后不会串用。速记仍不展示日目标，这是保持低干扰的产品取舍。
 13. **密度断层**：正文由 17px/1.9 调整为 14px/行高 2.0（§4.2），与章节树（12px 标题/10-11px
     元数据）、copilot 高密度的对比有所缓解；10px 元数据低于主规范字阶下限 11px，仍待归并。
-14. **details 菜单无障碍缺陷**：`.writing-tools-menu` 与 `.writing-page-menu` 用原生 `<details>`；
-    点击外部关闭已补齐，`aria-expanded` 同步仍待处理。
+14. **details 菜单无障碍缺陷**：**已解决**。`.writing-tools-menu` 与页头 `.writing-page-menu`
+    均保留原生 `<details>`，已实现外部点击/动作/Escape 关闭、焦点归还和 `aria-expanded` 同步；
+    页头入口补充方向提示与展开视觉态，≤760px 入口和菜单项保持 44px 触控高度。
 15. **空态无插图/icon 体系**：三处空态齐全（ChapterTree / WritingEditor / SceneCockpit）但均未
     使用 `.empty-state .empty-icon`。（本轮未涉及。）
 
@@ -111,11 +110,11 @@ rail 折叠后对应列变为 `--workspace-rail-collapsed` 44px。底部状态�
 - **主对象契约的落实**（主规范 §4）：写作页以固定三栏（238 / 弹性 / 257）替代 64fr/18fr 份额，
   主对象仍是弹性中栏；共享 `--workspace-main-share:64fr` 契约对其他工作台页不变。
   不得为「呼吸感」加宽 rail 或压缩中栏。
-- **专注模式**：进入后两栏 rail `display:none`、稿纸单列居中（≤860px 纸宽）、编辑器 min-height
-  82vh（≥761px）；顶栏保留（字数仪表盘是全局契约），view-header 保留但折叠为单行；
-  **点缀一律隐藏**（主规范 §2）。入口 = 底部状态栏右侧「专注模式」按钮。
-  待办：状态持久化到 sessionStorage（沿用 rail 开合的 `workspace-rail:{pid}:writing:*` 键族模式）、
-  键盘快捷键（产品决定）。
+- **专注模式**：进入后全局顶栏/导航、两栏 rail 与编辑器工具区 `display:none`，稿纸单列居中
+  （≤860px，≥761px 时编辑器 min-height 82vh）；顶部 `.writing-focus-header` 只显示章节、保存反馈与
+  「退出专注 Esc」，底部保留字数/版本/保存状态。**点缀一律隐藏**（主规范 §2）。入口 = 底部状态栏
+  或既有「写作视图 / 更多」菜单；状态复用 `writing_resume_pointer:v1:{projectId}` 的 `focusMode` 字段。
+  默认专注只在章节成功打开后生效，避免隐藏尚未选择章节时的入口。
 - **信息层级**：Primary = 稿纸正文 + 主按钮「设为正式正文」（每屏唯一 primary）；Secondary = 章节树
   当前章、副驾驶手选 Scene 与当前 tab、保存状态；Tertiary = 版本条、状态栏读数、菜单项。层级靠字阶与留白，
   不新增卡片边框（主规范 §0、§4 分隔优先级）。
@@ -146,9 +145,14 @@ rail 折叠后对应列变为 `--workspace-rail-collapsed` 44px。底部状态�
 **编辑器头**（`.writing-editor-header`）：
 
 - 第一行 = `#writing-chapter-title` / `#writing-title-input` + 主按钮 `#btn-publish` +
-  三个 details 菜单（工作稿与版本 / AI 写作助手 / 更多）；第二行 = context 插槽
+  三个 details 菜单（保存 / AI 写作助手 / 检查与导出）；第二行 = context 插槽
   （`#writing-versions-container` 版本选择条 + `#writing-conflict-strip` 冲突条）。
   版本选择条保留在编辑器上方工具区，不随状态栏平移。
+- **版本历史**：当前打开版本只显示状态；其他版本优先提供“与当前版本比较”，旧活跃版本保留
+  “从此版本继续写”。低频的“单独预览 / 移入历史”收入行内“更多”，后者保持后端软废弃语义，
+  不声称删除数据；390px 展开菜单进入文档流，操作不被弹窗裁切。单独预览成功后关闭弹窗并聚焦正文，
+  同章切换前先保存未落盘修改；保存失败时停留当前版本。任意两版比较收入原生折叠区，默认仍为
+  较旧版本 A / 较新版本 B，结果在手机单列中持续显示 A/B 归属。
 - 保存/版本状态徽标（`#writing-save-status`、`#writing-version-info`）与字数条已平移至底部状态栏
   （见下），id 不变，e2e 契约不破。
 - **每屏至多一个 primary**：`#btn-publish` 是中栏唯一 `.btn-primary`；章节框底部的新建入口使用
@@ -165,7 +169,7 @@ rail 折叠后对应列变为 `--workspace-rail-collapsed` 44px。底部状态�
 | min-height | 58vh（专注模式 ≥761px 时 82vh） | 页面级值 |
 | 稿纸 padding | `30px 59px 34px` | 页面级值 |
 | 边框/焦点 | 1px `--nc-hairline`；focus-within 边 `--nc-hairline-strong` + `--nc-accent-soft` 光晕 | 旧顶 3px 墨线、朱红页边线已移除 |
-| 只读区分 | 仅 `color: text-secondary`（现状保持） | 主规范 §5.2 的强化区分（沉底 + not-allowed 光标）仍为待办（§2-9） |
+| 只读区分 | 候选稿纸使用沉底背景、正常正文色与默认光标 | 已与可编辑稿纸分层，不用“禁止”光标暗示内容异常 |
 | 点缀/水印 | 编辑区右上 + 正文下方各 1 组；ink 主题水印字 = `data-watermark`（当前章标题首字） | 硬规则见主规范 §2 点缀系统；实现 `writing-decorations.css` |
 
 **底部状态栏**（`.writing-statusbar`，38px，sticky bottom，通栏 grid-column 1/-1，mono 11px）：
@@ -175,22 +179,22 @@ rail 折叠后对应列变为 `--workspace-rail-collapsed` 44px。底部状态�
   （`.wc-goal-progress`）、段落数、预计阅读时长（字数 / 400 向上取整，`WritingView.vue`
   `statusReadMinutes`）。日目标进度属行内轻量进度，不引入 `.workflow-progress`（主规范 §5.9）。
 - 右：字体循环切换（会话内临时 override，不写偏好存储）→ 专注模式按钮 → 保存/版本状态徽标
-  （`#writing-save-status` / `#writing-version-info`）。
-- 上述 DOM 自 WritingEditor 头部平移，id 全部不变（§7 契约）；保存徽标五态语义与重试/只读修正
-  目标不变（§2-1、§2-3）：
-  - 补只读态分支（无绿点，文案「只读」）；
-  - 保存失败态徽标变为可点击重试按钮，失败文案保留「已保留本地备份」但须可验证；
-  - 状态表达 = 文字 + 色点，不引入彩色 pill（主规范 §5.8）。
+  （`#writing-save-status` / `#writing-version-info`）；专注中隐藏字体与进入按钮，退出入口移至顶部专注栏。
+- 上述 DOM 自 WritingEditor 头部平移，id 全部不变（§7 契约）；保存徽标已实现五态语义：
+  saving / error / readonly / unsaved / saved。错误态重试入口位于正文附近的持续提示，不把紧凑
+  状态徽标改成第二个按钮；状态仍以文字 + 色点表达，不引入彩色 pill（主规范 §5.8）。
 
 **自动保存指示**：五态徽标 + 顶栏 ◆ 点（`#topbar-save-state`）双指示保留，同态同色（§4.4）。
 
 **候选采纳 UI**（`.pov-candidate-panel.writing-candidate-review-panel`，仅 status==='candidate'
 渲染）：
-- 保留「标题与正文之间」的就地位置（符合作者不离开思路的诉求），但视觉降半级：改为 `--warning`
-  系左边线 + `--nc-surface` 底，「待处理」计数语义才允许 accent（主规范 §2 强调色使用约束第 2 条）；
-- 采用/拒绝确认从原生 `confirm` 迁入全局 `confirmAsync` 模态（主规范 §5.6），按钮文案写动作本身
-  （「采用到工作稿」「拒绝建议」已是好文案，保留）；
-- 候选态正文只读区分见上表。
+- 位于编辑器头部之后、只读正文之前；加载完成后焦点进入审核条，刷新和浏览器返回仍恢复该位置。
+- 视觉使用 `--warning` 左边线 + 低对比底，标题先说明工作稿未被改动；只读正文使用沉底稿纸。
+- 存在当前工作稿时显示“与当前工作稿比较”：直接复用版本历史弹窗，以工作稿为版本 A、候选为版本 B；
+  不创建、采用或恢复版本。比较结果聚焦，Esc/关闭后焦点返回触发按钮；没有可比较基线时不显示入口。
+- 按审查状态在“采用到工作稿 / 运行独立语义审查 / 按问题定向返修”中只显示一个 primary；重新审查与拒绝为次操作。
+- 采用/拒绝统一使用全局 `confirmAsync`；Esc/取消不请求 API 并返回触发按钮，失败就地显示且恢复操作。
+- ≤760px 使用完整只读审阅：自动收起章节目录、隐藏只读状态条，决策按钮单列且至少 44px；章节目录仍可从“展开”原生按钮恢复。
 
 **工作流通知**（`WritingWorkflowBars.vue`：发布 / AI 正文建议 / AI 冲突检查 / 深度导入与自动提取）：固定在全局顶栏下方、写作工作区水平居中，从页面上缘向下进入；最宽 360px，窄屏保留 12px 页边距，不参与正文 grid 排版。`prefers-reduced-motion` 下取消位移动画。工作流内容继续复用
 `.workflow-progress*`（主规范 §5.9）；运行、失败、取消、降级、恢复待处理及带查看/审阅/审计/恢复/重试操作的状态持续显示，只有无后续业务操作的成功态在 3 秒后自动关闭。单纯“关闭”不算后续业务操作。同一生命周期已在顶部浮层表达的成功和失败不重复发送全局 toast。版本加载失败 `.writing-empty-hint`（裸文本，§2-7）迁入
@@ -246,6 +250,11 @@ rail 折叠后对应列变为 `--workspace-rail-collapsed` 44px。底部状态�
   表单 560 / 复杂内容 720——版本历史 diff 网格（role=table）归 720 档，冲突详情归 560 档
   （执行时核实现状宽度）。焦点陷阱/Esc/inert 由全局 modal 保证，页面不得自行实现。
 - **候选采用/拒绝的原生 confirm**（§2-9）迁入全局确认模态，文案写动作本身。
+- **Owner AI「写作建议」**：先显示当前章节与关联 Scene；已有已保存正文时只突出「续写这一章」，
+  空章时改为「生成整章建议」。其他写法收入原生 `<details>`；未设置视角人物时保留角色视角入口并
+  原位说明先决条件，不显示可点击的空动作。正文尚未保存时在主操作旁提供既有保存/重试路径；生成中
+  可收起抽屉查看页面顶部的持久任务进度，完成后回到只读候选审阅。抽屉刷新、浏览器历史与项目切换
+  沿用现有 owner route 状态，不能把上一部作品的章节上下文带入当前项目。
 - 映射主规范：§5.6 Modal、§5.7 Toast、§1.4 阴影只用于浮层。
 
 ## 5. 状态覆盖清单
@@ -254,18 +263,18 @@ rail 折叠后对应列变为 `--workspace-rail-collapsed` 44px。底部状态�
 |---|---|---|
 | 无章节空态 | 章节树 `.empty-state` + 框底唯一「新建章节」；编辑器区 `.writing-editor-empty`；副驾驶引导句 | 旧「文」水印已随 Editorial Archive 移除；ink 主题水印字 = 当前章标题首字（`data-watermark`，主规范 §2 点缀系统） |
 | 有章节未选中 | 编辑器区「请从左侧选择章节开始写作」 | 达标 |
-| 章节加载中 | `.loading-skeleton` 稿纸骨架（主规范 §5.9，reduced-motion 禁动画） | **缺失**（§2-2），需新增 |
-| 章节加载失败 | `.error-card`：人话说明 + 重试按钮，就地渲染在中栏 | **缺失**（`loadError` 无消费者，§2-2），需新增 |
+| 章节加载中 | `.loading-skeleton` 稿纸骨架（主规范 §5.9，reduced-motion 禁动画） | 达标；旧正文 textarea 不同时显示 |
+| 章节加载失败 | `.error-card`：人话说明 + 重试按钮，就地渲染在中栏 | 达标；失败目标不覆盖上一章指针或正文 |
 | 保存中 | 徽标「正在保存」（底部状态栏）+ 顶栏 ◆ saving；输入不打断 | 达标 |
 | 已保存 | 徽标「已保存到工作稿」+ toast + 顶栏 ◆ saved | 达标 |
-| 保存失败 | 徽标变错色 + toast + **可点击重试** + 本地备份可验证入口 | 缺重试与可验证性（§2-1） |
-| 只读（候选/正式正文） | 徽标无绿点、文案「只读」；正文视觉只读区分（§4.2 表） | 绿点语义错（§2-3）、区分弱（§2-9） |
+| 保存失败 | 徽标变错色 + toast + 正文附近“重试保存” + 本地备份说明；切章与发布暂时阻断 | 达标；桌面和移动端共用同一恢复状态 |
+| 只读（候选/正式正文） | 徽标使用中性色点、文案「只读」；候选正文使用沉底稿纸 | 达标 |
 | 仅排版差异 | 「排版修改已保留在本地」，不请求后端 | 达标，文案保留 |
-| AI 生成中 | 按钮「生成中…」禁用态（loading 宽度不抖动，主规范 §5.1）；流式输出遵守 reduced-motion | 基本达标（执行时核实流式动画降级） |
-| 候选待处理 | 见 §4.2 候选采纳 UI | 视觉降级 + confirm 归一（§2-9） |
+| AI 生成中 | 写作建议抽屉说明任务可收起，页面顶部持久进度继续反馈；按钮禁用，完成后聚焦候选审阅 | 达标；普通生成仍须执行时核实流式动画降级 |
+| 候选待处理 | 见 §4.2 候选采纳 UI | 达标；含处理中、就地失败与窄屏首屏决策 |
 | 离开恢复 | 三层：路由守卫 confirm + `beforeunload` + 会话快照免确认恢复 / localStorage 跨会话 confirm 恢复 | 达标（机制在，§2 无此项问题），重构不得破坏 |
 | 冲突/并发 | 乐观锁 autosave；发布冲突走全局 `#modal-overlay` | 达标 |
-| 专注模式 | §3 目标态：rail 隐藏、稿纸居中、**点缀一律隐藏**、入口在底部状态栏 | 状态持久化与快捷键仍缺（§2-11） |
+| 专注模式 | §3 目标态：全局 chrome/rail/工具区隐藏、稿纸居中、点缀隐藏、顶部明确退出 | 达标；项目级恢复、Esc、焦点归还及桌面/390px 均有 e2e |
 | 窄屏 <760 | 整页替换 MobileQuickNote（已选章且非只读时）；顶部保留本章 Scene 最小切换 | 不展示完整副驾驶，也不允许关联或管理 Scene |
 
 ## 6. 响应式行为（四档）
@@ -284,9 +293,10 @@ rail 折叠后对应列变为 `--workspace-rail-collapsed` 44px。底部状态�
   600–760px 区间改用 MobileQuickNote）。
 - 移动速记顶部使用与桌面相同的章节级手选 Scene 状态；只提供紧凑选择器，无关联时显示
   「本章未关联 Scene」，不把关联、新建或完整副驾驶塞进移动速记。
-- **桌面模式回切**：「完整编辑器」按钮置 `forceDesktop=true` 并加 body `.force-desktop` class。
-  目标：① 该 class 目前无 CSS 规则，回切后布局依赖既有 ≤760px 单栏 CSS，须验证可用；
-  ② `forceDesktop` 选择应持久化（sessionStorage），避免每次进页重选（执行时核实产品意图）。
+- 候选为只读决策，不进入 MobileQuickNote；≤760px 保留完整审阅内容，自动收起章节目录并隐藏底部只读状态条，保证主次决策均在首屏。
+- **完整编辑模式**：速记中的「更多编辑」置 `forceDesktop=true`，沿用既有 ≤760px 单栏 CSS，
+  并先收起章节目录和写作副驾驶；页头提供「返回速记」，切换后把焦点交给新模式入口。
+  模式选择随项目级写作恢复指针持久化，刷新、前进后退和作品切换均保持隔离；正文与标题仍由同一编辑器状态管理。
 - **断点归并**：rail 折叠 760px、正文移动态随 JS 阈值一并归入 760；900px cockpit max-height 与
   1099px 归 1100 档（主规范 §6：长尾断点逐个审查）。硬编码视口判断（§2-10）收编为共享
   composable 或 CSS 单一来源（执行时定实现）。
@@ -323,6 +333,7 @@ id 与可访问名称不变。
 `#writing-versions-container`、`#publish-status-dot`、`#writing-conflict-strip`（注意双渲染源，§2-8）、
 `#writing-publish-bar-container`、`#writing-deep-import-bar-container`、`#outline-float-panel`、
 `#outline-float-body`、`#mobile-note-wc`、`#auto-extraction-dialog-label` 等 sr-only 标签，
+`#writing-focus-exit`（`aria-keyshortcuts="Escape"`），
 以及顶栏 `#topbar-wordcount` / `#topbar-chapter-wc` / `#topbar-today-wc` / `#topbar-save-state` /
 `#topbar-chapter`。
 
@@ -336,13 +347,13 @@ id 与可访问名称不变。
 **role / 可访问名称**（e2e `getByRole({name})` 直接依赖，改文案必须同步测试）：
 
 - 按钮名：「新建章节」「创建第一章」「打开第 N 章…」（ChapterRow 动态 aria-label）、「上一章」
-  「下一章」「历史」「比较」「展开章节/收起章节」「收起写作副驾驶/展开」（动态）、「打开第 N 章」
-  （OutlineFloat）、「专注模式」「保存工作稿」「保存为新工作稿」「放弃未设为正式正文的更改」
-  「设为正式正文」「继续设为正式正文」「确认恢复」「基于此版本创建」「预览」「定位正文/无正文定位」
+  「下一章」「版本历史」「查看差异」「与当前工作稿比较」「与当前打开版本比较」「展开章节/收起章节」「收起写作副驾驶/展开」（动态）、「打开第 N 章」
+  （OutlineFloat）、「专注模式」「进入专注」「退出专注 Esc」「保存工作稿」「保存为新工作稿」「放弃未设为正式正文的更改」
+  「设为正式正文」「继续设为正式正文」「确认恢复」「从此版本继续写」「移入历史」「单独预览」「定位正文/无正文定位」
   「打开来源/无可打开来源」「生成 AI 修复建议」「补充 AI 软冲突判断」「稍后」「完整编辑器」。
 - dialog 名：「自动提取」「剧情设定冲突检查选项」「剧情设定冲突检查」「版本历史」
   「深度导入快照状态」；aria-label：「章节正文」「移动端速记正文」「选择章节版本」
-  「写作字数仪表盘」「左侧版本/右侧版本」；rail：「章节」「写作副驾驶」。
+  「写作字数仪表盘」「版本差异结果」；rail：「章节」「写作副驾驶」。
 - tab：「警报/人物/地点/设定/地图」（role=tab，`.active` class 断言）。
 - 结构 role：`role=tablist`（`.cockpit-tabs`）、`role=alert`（章节列表失败、版本加载失败）、
   `role=status`（`.mobile-note-status`、冲突条无 latest 时）、`role=table`（版本 diff 网格）、
@@ -372,7 +383,8 @@ id 与可访问名称不变。
 
 **验收标准**：
 
-1. §5 状态覆盖清单逐条可走通，特别是待新增的加载骨架、加载失败 error-card、保存失败重试。
+1. §5 状态覆盖清单逐条可走通，加载骨架、加载失败 error-card、保存失败重试已有单测、功能 e2e
+   与桌面/390px 视觉基线。
 2. 正文排版 = 14px / 行高 2.0 / 编辑区左右 padding 59px，页面级值有注释说明，无游离 px 字号
    （新触碰代码）。
 3. 每个 class 的视觉规则只剩一个权威层（主规范 §1.1）；旧三层冲突清单（§2-6）残留项按源码
@@ -384,6 +396,23 @@ id 与可访问名称不变。
 7. 主规范 §8 无障碍：触控档按钮 ≥42px、focus-visible 2px accent 环不被 desk 层
    `outline/box-shadow` 覆写（`.writing-sheet .novel-editor:focus { box-shadow: none }` 只清
    稿纸光晕、不动全局 outline 环，执行时核实）。
+8. AI 候选在正文前聚焦且只有一个 primary；可一步比较当前工作稿，结果聚焦且 Esc 返回触发按钮；
+   刷新、路由往返、确认取消和采用后恢复编辑均有功能 e2e。桌面/390px 由
+   `writing-candidate-review-{desktop,mobile}-sticky.png` 与 `writing-candidate-compare-mobile-sticky.png` 守住。
+9. 专注模式隐藏全局 chrome/rail/编辑工具，保留章节、保存反馈与 44px 退出入口；进入聚焦正文，Esc
+   退出并归还焦点，刷新、前进后退、作品切换和 390px 正文均不丢失；视觉由
+   `writing-focus-sticky.png` / `writing-focus-mobile-sticky.png` 守住。
+10. 版本历史不展示无法执行的最新版操作；旧版可一步与当前打开版本比较，单独预览与“移入历史”收入
+    “更多”，后者经确认且数据仍可预览。比较结果生成后聚焦结果，390px 菜单完整可见并持续显示版本
+    A/B 归属；视觉由 `writing-version-history-{desktop,mobile}-sticky.png`、
+    `writing-version-history-menu-mobile-sticky.png` 与 `writing-version-diff-mobile-sticky.png` 守住。
+11. 页头“写作视图”菜单公开 `aria-expanded`，外点、动作与 Escape 均能关闭，后两者归还触发器焦点；
+    390px 菜单完整入屏且动作触控高度不少于 44px。视觉由
+    `writing-view-menu-{desktop,mobile}-sticky.png` 守住。
+12. Owner AI 写作建议展示当前章/Scene，按正文状态只突出续写或整章建议；其他写法渐进展开，缺少
+    POV、未保存正文和保存失败都有原位恢复说明。刷新、路由往返、作品切换、Esc 取消 AI 参考弹窗及
+    收起生成任务均有功能 e2e；375px 竖屏与 812×375 横屏无横向溢出，视觉由
+    `owner-ai-writing-advice-{desktop,mobile}-*-darwin.png` 守住。
 
 **验证命令**（工作目录 `frontend-console/`）：
 
@@ -391,8 +420,7 @@ id 与可访问名称不变。
 # 功能 e2e（writing 页主契约）
 npx playwright test e2e/writing.spec.js
 
-# 视觉基线（仅 darwin 有基线；共 3 个用例 5 张快照：
-# writing-desk-{sticky,night,ink}.png、writing-focus-sticky.png、writing-mobile-390-sticky.png）
+# 视觉基线（仅 darwin 有基线；保存恢复与候选决策均覆盖桌面/390px）
 npx playwright test e2e/visual-writing.spec.js
 
 # 全局基建回归（主题 token / 排版 token / 骨架屏 / 模态无障碍，受样式归并影响时必跑）

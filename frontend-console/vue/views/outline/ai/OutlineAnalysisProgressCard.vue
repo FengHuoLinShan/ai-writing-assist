@@ -14,10 +14,10 @@ const cancelPending = ref(false)
 
 const rangeText = computed(() => {
   const meta = state.meta
-  if (!meta) return "范围: 所选章节"
+  if (!meta) return "范围：所选章节"
   const start = meta.start_chapter || 1
   const end = meta.end_chapter || start
-  return `范围: 章节 ${start}-${end}`
+  return `范围：第 ${start}–${end} 章`
 })
 
 const canCancel = computed(() => (
@@ -52,10 +52,10 @@ function dismiss() {
       :className="'outline-progress-mini'"
       :showTaskId="false"
     >
-      <div v-if="canCancel" class="workflow-progress__actions">
-        <button class="btn btn-sm btn-ghost" data-action="cancel-outline-analysis" :disabled="cancelPending" @click="cancel">{{ cancelPending ? "取消中..." : "取消任务" }}</button>
+      <div v-if="canCancel || showDismiss" class="workflow-progress__actions">
+        <button v-if="canCancel" class="btn btn-sm btn-ghost" data-action="cancel-outline-analysis" :disabled="cancelPending" @click="cancel">{{ cancelPending ? "取消中..." : "取消任务" }}</button>
+        <button v-if="showDismiss" class="btn btn-sm btn-ghost" data-action="dismiss-outline-analysis" @click="dismiss">关闭任务</button>
       </div>
     </WorkflowProgressCard>
-    <button v-if="showDismiss" class="btn btn-sm btn-ghost" data-action="dismiss-outline-analysis" @click="dismiss">关闭任务</button>
   </div>
 </template>

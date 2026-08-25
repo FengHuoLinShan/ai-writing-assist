@@ -4,6 +4,7 @@ import WritingView from "../../../vue/views/writing/WritingView.vue"
 import { getAppState, resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 import {
   clearWritingSession,
+  getWritingSession,
   rememberWritingLocation,
 } from "../../../vue/views/writing/writingSession.js"
 import { projectSettingsSession } from "../../../vue/views/settings/projectSettingsSession.js"
@@ -76,6 +77,93 @@ describe("WritingView", () => {
     expect(wrapper.find("#writing-tree-container").text()).not.toContain("Scene <script>")
     expect(wrapper.find("#writing-panel-container").text()).toContain("Scene <script>")
     expect(wrapper.find("script").exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it("页头写作视图菜单同步状态，并可由动作、Escape 和外部点击收起", async () => {
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+    const menu = wrapper.get("details.writing-page-menu")
+    const summary = menu.get("summary")
+
+    expect(summary.attributes("aria-controls")).toBe("writing-page-menu-body")
+    expect(summary.attributes("aria-expanded")).toBe("false")
+    await summary.trigger("click")
+    expect(menu.attributes("open")).toBeDefined()
+    expect(summary.attributes("aria-expanded")).toBe("true")
+
+    await wrapper.get("[data-action='toggle-outline-float']").trigger("keydown", { key: "Escape" })
+    expect(menu.attributes("open")).toBeUndefined()
+    expect(summary.attributes("aria-expanded")).toBe("false")
+    expect(document.activeElement).toBe(summary.element)
+
+    await summary.trigger("click")
+    await wrapper.findAll("button").find((button) => button.text() === "打开故事结构").trigger("click")
+    expect(globalThis.router.navigate).toHaveBeenCalledWith("outline", null)
+    expect(menu.attributes("open")).toBeUndefined()
+    expect(document.activeElement).toBe(summary.element)
+
+    await summary.trigger("click")
+    document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }))
+    await wrapper.vm.$nextTick()
+    expect(menu.attributes("open")).toBeUndefined()
+
+    await summary.trigger("click")
+    await wrapper.findAll("button").find((button) => button.text() === "进入专注").trigger("click")
+    await flushPromises()
+    expect(wrapper.find(".writing-focus-header").exists()).toBe(true)
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }))
+    await flushPromises()
+    expect(wrapper.get("details.writing-page-menu").attributes("open")).toBeUndefined()
+    expect(wrapper.get("details.writing-page-menu > summary").attributes("aria-expanded")).toBe("false")
+    expect(document.activeElement).toBe(wrapper.get("details.writing-page-menu > summary").element)
+    wrapper.unmount()
+  })
+
+  it("专注状态按项目恢复，进入后聚焦正文并可用 Escape 退出", async () => {
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+    const entry = wrapper.get(".writing-statusbar__focus")
+    entry.element.focus()
+    await entry.trigger("click")
+    await flushPromises()
+
+    expect(document.body.classList.contains("focus-mode-active")).toBe(true)
+    expect(wrapper.get(".writing-focus-header").text()).toContain("退出专注 Esc")
+    expect(document.activeElement).toBe(wrapper.get("#writing-editor").element)
+    expect(getWritingSession("p1").focusMode).toBe(true)
+    wrapper.unmount()
+
+    const reloaded = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+    expect(reloaded.find(".writing-focus-header").exists()).toBe(true)
+    expect(document.activeElement).toBe(reloaded.get("#writing-editor").element)
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }))
+    await flushPromises()
+    expect(reloaded.find(".writing-focus-header").exists()).toBe(false)
+    expect(document.body.classList.contains("focus-mode-active")).toBe(false)
+    expect(document.activeElement).toBe(reloaded.get(".writing-statusbar__focus").element)
+    expect(getWritingSession("p1").focusMode).toBe(false)
+    reloaded.unmount()
+  })
+
+  it("默认专注等待章节成功打开，不会先隐藏章节入口", async () => {
+    const wrapper = mount(WritingView, {
+      props: props({
+        requestedLocation: null,
+        authorPreferences: { dailyGoal: null, editorFont: "system", defaultFocusMode: true },
+      }),
+      attachTo: document.body,
+    })
+    await flushPromises()
+    expect(wrapper.find(".writing-focus-header").exists()).toBe(false)
+    expect(wrapper.find(".writing-tree-rail").isVisible()).toBe(true)
+
+    await wrapper.get('[aria-label^="打开第 1 章"]').trigger("click")
+    await flushPromises()
+    expect(wrapper.find(".writing-focus-header").exists()).toBe(true)
+    expect(document.activeElement).toBe(wrapper.get("#writing-editor").element)
     wrapper.unmount()
   })
 
@@ -314,6 +402,107 @@ describe("WritingView", () => {
     wrapper.unmount()
   })
 
+  it("保存失败时留在原章并提供就地重试", async () => {
+    globalThis.api.writing.getVersionHistory.mockImplementation(async (chapter) => ({
+      versions: [{ id: `d${chapter}`, version_number: 1, status: "draft" }],
+    }))
+    globalThis.api.writing.get.mockImplementation(async (id) => ({
+      id,
+      novel_id: "p1",
+      chapter_index: Number(String(id).slice(1)),
+      title: `第 ${String(id).slice(1)} 章`,
+      content: `正文 ${String(id).slice(1)}`,
+      version_number: 1,
+      status: "draft",
+    }))
+    globalThis.api.writing.autosave.mockRejectedValueOnce(new Error("网络暂时不可用"))
+    const wrapper = mount(WritingView, {
+      props: props({
+        chapterList: [1, 2],
+        chapters: {
+          1: { chapter_index: 1, title: "第一章", status: "draft" },
+          2: { chapter_index: 2, title: "第二章", status: "draft" },
+        },
+        scenes: [],
+      }),
+      attachTo: document.body,
+    })
+    await flushPromises()
+    await wrapper.get("#writing-editor").setValue("第一章未保存正文")
+    const vm = wrapper.vm.$.setupState.vm
+
+    expect(await vm.selectChapter(2)).toBe(false)
+    await flushPromises()
+    expect(vm.selectedChapter.value).toBe(1)
+    expect(vm.editorState.chapter).toBe(1)
+    expect(globalThis.api.writing.get).not.toHaveBeenCalledWith("d2", "p1")
+    expect(wrapper.get('[role="alert"]').text()).toContain("工作稿还没有保存")
+    expect(wrapper.get("#writing-save-status").classes()).toContain("writing-save-badge--error")
+    expect(localStorage.getItem("draft_backup_p1_1_d1")).toContain("第一章未保存正文")
+
+    await wrapper.get("#writing-retry-save").trigger("click")
+    await flushPromises()
+    expect(wrapper.find("#writing-retry-save").exists()).toBe(false)
+    expect(wrapper.get("#writing-save-status").text()).toBe("已保存到工作稿")
+
+    expect(await vm.selectChapter(2)).toBe(true)
+    await flushPromises()
+    expect(vm.selectedChapter.value).toBe(2)
+    expect(wrapper.get("#writing-editor").element.value).toBe("正文 2")
+    wrapper.unmount()
+  })
+
+  it("切章加载时隐藏旧正文，失败后可重试同一章", async () => {
+    globalThis.api.writing.getVersionHistory.mockImplementation(async (chapter) => ({
+      versions: [{ id: `d${chapter}`, version_number: 1, status: "draft" }],
+    }))
+    globalThis.api.writing.get.mockImplementation(async (id) => ({
+      id,
+      novel_id: "p1",
+      title: `第 ${String(id).slice(1)} 章`,
+      content: `正文 ${String(id).slice(1)}`,
+      version_number: 1,
+      status: "draft",
+    }))
+    const wrapper = mount(WritingView, {
+      props: props({
+        chapterList: [1, 2],
+        chapters: {
+          1: { chapter_index: 1, title: "第一章", status: "draft" },
+          2: { chapter_index: 2, title: "第二章", status: "draft" },
+        },
+        scenes: [],
+      }),
+      attachTo: document.body,
+    })
+    await flushPromises()
+    expect(wrapper.get("#writing-editor").element.value).toBe("正文 1")
+
+    let rejectDraft
+    globalThis.api.writing.get.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectDraft = reject }))
+    const vm = wrapper.vm.$.setupState.vm
+    const switching = vm.selectChapter(2)
+    await vi.waitFor(() => expect(globalThis.api.writing.get).toHaveBeenLastCalledWith("d2", "p1"))
+    await flushPromises()
+    expect(wrapper.get('[role="status"][aria-busy="true"]').text()).toContain("正在打开第 2 章")
+    expect(wrapper.find("#writing-editor").exists()).toBe(false)
+
+    rejectDraft(new Error("连接超时"))
+    expect(await switching).toBe(false)
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain("第 2 章暂时无法打开")
+    expect(wrapper.get('[role="alert"]').text()).toContain("上一章的内容仍安全保留")
+    expect(vm.editorState.chapter).toBe(1)
+    expect(getAppState().viewStates.writing.currentChapter).toBe(1)
+
+    await wrapper.get("#writing-retry-load").trigger("click")
+    await flushPromises()
+    expect(vm.selectedChapter.value).toBe(2)
+    expect(vm.editorState.chapter).toBe(2)
+    expect(wrapper.get("#writing-editor").element.value).toBe("正文 2")
+    wrapper.unmount()
+  })
+
   it("切章后按章恢复上次手选 Scene", async () => {
     globalThis.api.writing.getVersionHistory.mockImplementation(async (chapter) => ({
       versions: [{ id: `d${chapter}`, version_number: 1, status: "draft" }],
@@ -475,6 +664,71 @@ describe("WritingView", () => {
     wrapper.unmount()
   })
 
+  it("同章预览其他版本前先保存未落盘正文", async () => {
+    const history = { versions: [
+      { id: "d2", version_number: 2, status: "draft" },
+      { id: "d1", version_number: 1, status: "published" },
+    ] }
+    globalThis.api.writing.getVersionHistory.mockResolvedValue(history)
+    globalThis.api.writing.get.mockImplementation(async (id) => ({
+      id,
+      novel_id: "p1",
+      chapter_index: 1,
+      title: "第一章",
+      content: id === "d2" ? "新正文" : "旧正文",
+      version_number: id === "d2" ? 2 : 1,
+      status: id === "d2" ? "draft" : "published",
+    }))
+    const wrapper = mount(WritingView, {
+      props: props({ requestedLocation: { chapter: 1, draftId: "d2" } }),
+      attachTo: document.body,
+    })
+    await vi.waitFor(() => expect(wrapper.get("#writing-editor").element.value).toBe("新正文"))
+    await wrapper.get("#writing-editor").setValue("还没落盘的修改")
+    await wrapper.get("#version-selector").setValue("d1")
+    await flushPromises()
+
+    expect(globalThis.api.writing.autosave).toHaveBeenCalledWith("d2", expect.objectContaining({ content: "还没落盘的修改" }), "p1")
+    const previewCall = globalThis.api.writing.get.mock.calls.findIndex(([id]) => id === "d1")
+    expect(previewCall).toBeGreaterThanOrEqual(0)
+    expect(globalThis.api.writing.autosave.mock.invocationCallOrder.at(-1))
+      .toBeLessThan(globalThis.api.writing.get.mock.invocationCallOrder[previewCall])
+    expect(wrapper.get("#writing-editor").element.value).toBe("旧正文")
+    wrapper.unmount()
+  })
+
+  it("候选可一步比较当前工作稿并聚焦差异结果", async () => {
+    globalThis.api.writing.getVersionHistory.mockResolvedValue({ versions: [
+      { id: "candidate", version_number: 2, status: "candidate", display_state: "candidate" },
+      { id: "base", version_number: 1, status: "published", display_state: "active" },
+    ] })
+    globalThis.api.writing.get.mockImplementation(async (id) => ({
+      id,
+      novel_id: "p1",
+      chapter_index: 1,
+      title: "第一章",
+      content: id === "candidate" ? "候选正文" : "当前工作稿",
+      version_number: id === "candidate" ? 2 : 1,
+      status: id === "candidate" ? "candidate" : "published",
+      provenance_json: id === "candidate" ? { source: "writing_generate", review_required: false } : null,
+    }))
+    const wrapper = mount(WritingView, {
+      props: props({ requestedLocation: { chapter: 1, draftId: "candidate" } }),
+      attachTo: document.body,
+    })
+    await vi.waitFor(() => expect(wrapper.find(".writing-candidate-comparison .btn").exists()).toBe(true))
+
+    await wrapper.get(".writing-candidate-comparison .btn").trigger("click")
+    await flushPromises()
+
+    expect(globalThis.api.writing.get).toHaveBeenCalledWith("base", "p1")
+    expect(globalThis.api.writing.get).toHaveBeenCalledWith("candidate", "p1")
+    expect(wrapper.get('[aria-label="版本历史"]').text()).toContain("当前工作稿")
+    expect(wrapper.get('[aria-label="版本历史"]').text()).toContain("候选正文")
+    await vi.waitFor(() => expect(document.activeElement).toBe(wrapper.get(".writing-version-diff").element))
+    wrapper.unmount()
+  })
+
   it("未选章节时保留项目级提取入口，章节级操作保持禁用", async () => {
     const wrapper = mount(WritingView, { props: props({ requestedLocation: null }), attachTo: document.body })
     await flushPromises()
@@ -564,7 +818,8 @@ describe("WritingView", () => {
     expect(wrapper.find("#outline-float-panel").text()).toContain("剧情 <script>")
     expect(wrapper.find("#outline-float-panel script").exists()).toBe(false)
 
-    await wrapper.findAll("button").find((button) => button.text() === "比较").trigger("click")
+    await wrapper.findAll("button").find((button) => button.text() === "版本历史").trigger("click")
+    await wrapper.findAll("button").find((button) => button.text() === "查看差异").trigger("click")
     await flushPromises()
     expect(wrapper.find('[aria-label="版本历史"]').exists()).toBe(true)
     expect(wrapper.text()).toContain("旧正文")
@@ -721,11 +976,12 @@ describe("WritingView", () => {
     globalThis.api.writing.listChapters.mockResolvedValue({ chapter_indices: [1] })
     const wrapper = mount(WritingView, { props: props({ requestedLocation: { chapter: 1, draftId: "d2" } }), attachTo: document.body })
     await flushPromises()
-    await wrapper.findAll("button").find((button) => button.text() === "历史").trigger("click")
+    await wrapper.findAll("button").find((button) => button.text() === "版本历史").trigger("click")
     const oldVersion = wrapper.findAll(".writing-version-history-item").find((item) => item.text().includes("v1"))
-    await oldVersion.findAll("button").find((button) => button.text() === "基于此版本创建").trigger("click")
+    await oldVersion.findAll("button").find((button) => button.text() === "从此版本继续写").trigger("click")
     await flushPromises()
     expect(wrapper.get("#btn-autosave").text()).toBe("保存为新工作稿")
+    await wrapper.get("#writing-editor").setValue("基于旧稿修订")
     await wrapper.get("#btn-autosave").trigger("click")
     await flushPromises()
     expect(globalThis.api.writing.autosave).not.toHaveBeenCalled()
@@ -734,6 +990,7 @@ describe("WritingView", () => {
       restore_source_version: 1,
       expected_version: 2,
       expected_updated_at: "u2",
+      content: "基于旧稿修订",
     }))
     wrapper.unmount()
   })

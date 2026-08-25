@@ -1,5 +1,5 @@
 <template>
-  <div class="card generate-world-source-bar">
+  <div class="generate-world-source-bar">
     <div>
       <span class="generate-world-source-label">来源</span>
       <strong>{{ sourceLabel }}</strong>
@@ -8,11 +8,6 @@
     <button v-if="sourcePageId" class="btn btn-sm" data-action="return-world-bible" @click="$emit('return-world-bible')">返回世界书</button>
   </div>
   <div v-if="warning" class="generate-template-warning">{{ warning }}</div>
-  <div v-if="!worldCore" class="generate-world-targets" role="group" aria-label="生成目标">
-    <button class="generate-world-target" :class="{ active: targetKind === 'core_entity' }" type="button" :aria-pressed="targetKind === 'core_entity'" data-action="select-world-target" @click="$emit('select-target', 'core_entity')">世界对象</button>
-    <button class="generate-world-target" :class="{ active: targetKind === 'world_bible_page' }" type="button" :aria-pressed="targetKind === 'world_bible_page'" :disabled="!sourcePageId" data-action="select-world-target" @click="$emit('select-target', 'world_bible_page')">完善当前页</button>
-    <button class="generate-world-target" :class="{ active: targetKind === 'world_bible_new_page' }" type="button" :aria-pressed="targetKind === 'world_bible_new_page'" data-action="select-world-target" @click="$emit('select-target', 'world_bible_new_page')">新建世界书页</button>
-  </div>
 
   <div v-if="worldCore" class="card generate-world-core-intro" data-section="world-core-actions">
     <div><strong>先让几个灵感长成世界核心</strong><p>每轮只做一个动作；不会自动生成人物、故事总纲或正式设定。</p></div>
@@ -21,37 +16,86 @@
     </div>
     <p class="generate-empty-copy">快捷动作只会填入下方输入框，你可以修改后再发送。未保存前只保证在当前浏览器恢复。</p>
   </div>
-  <div v-if="targetKind === 'core_entity' && !worldCore" id="generate-template-row" class="generate-template-row generate-template-row--toolbar">
-    <button v-for="template in templates" :key="template.value" class="generate-template-btn" :class="{ active: selectedTemplateId === template.value }"
-      type="button" :aria-pressed="selectedTemplateId === template.value" data-action="select-object-template" :title="template.hint || template.prompt || ''" @click="selectedTemplateId = template.value">{{ template.label }}</button>
-    <button class="btn btn-sm" data-action="edit-object-templates" @click="$emit('edit-templates')">编辑对象模板</button>
-  </div>
-  <div v-else-if="targetKind === 'world_bible_page'" class="generate-world-config">将以当前服务器工作稿优先，生成一份完整的整页重构提案。</div>
-  <div v-else-if="!worldCore" class="generate-world-config">
-    <label>页面类别
-      <select id="generate-new-page-type" v-model="newPageType" class="form-select">
-        <option v-for="category in categories.filter((item) => item.status !== 'archived')" :key="category.category_key" :value="category.category_key">{{ category.name || "未命名类别" }}</option>
-      </select>
-    </label>
-    <label>页面模板（仅作资料组织参考）
-      <select id="generate-new-page-template" v-model="newPageTemplateKey" class="form-select">
-        <option value="">不指定</option>
-        <option v-for="template in pageTemplates.filter((item) => item.status !== 'archived')" :key="template.template_key" :value="template.template_key">{{ template.name || "未命名模板" }} · 第 {{ template.version_number || 1 }} 版</option>
-      </select>
-    </label>
-  </div>
+
+  <section v-if="hasResultState" id="generate-result" class="generate-review-panel" aria-labelledby="generate-result-title">
+    <header class="generate-review-panel__header">
+      <div>
+        <span class="generate-review-panel__eyebrow">本轮建议</span>
+        <h3 id="generate-result-title">{{ resultHeading }}</h3>
+        <p>建议不会自动写入正式设定；请先核对，再决定去向。</p>
+      </div>
+      <span class="badge" :class="{ 'badge-warning': resultError }">{{ resultStateLabel }}</span>
+    </header>
+    <div v-if="loadingResult" class="loading-skeleton generate-result-loading" role="status" aria-live="polite"><p>正在准备可审阅的建议…</p><div class="skeleton loading-skeleton__heading" aria-hidden="true"></div><div class="skeleton loading-skeleton__line" aria-hidden="true"></div><div class="skeleton loading-skeleton__line loading-skeleton__line--medium" aria-hidden="true"></div></div>
+    <template v-else>
+      <div v-if="resultError" class="error-card generate-result-error" role="alert"><strong>暂时没能生成新建议</strong><p>{{ resultError }}</p><button class="btn btn-sm" type="button" data-action="retry-world-suggestion" :disabled="busy" @click="$emit('retry-result')">重新生成</button></div>
+      <WorldResult v-if="result" :result="result" :previous-result="previousResult" :baseline="sourceDraft || sourcePage" :categories="categories" :context-usage="entityContextUsage" :proposal-draft="proposalDraft" :proposal-reset-token="proposalResetToken" :recovered="recoveredPageProposal" :busy="busy"
+        @apply="$emit('apply-page', $event)" @dirty="$emit('proposal-dirty', $event)" @proposal-edit="$emit('proposal-edit', $event)" @clear="$emit('clear-result')" @continue-chat="focusComposer" @open-review="$emit('open-review')" @view-context="$emit('view-context', 'entity')" />
+      <div v-if="sourceRevisionResult" class="generate-template-warning" data-state="source-revision-created">
+        <strong>来源页还有 1 条待处理修订</strong>
+        <p>相邻新页具体改变了来源页的解释。修订已单独保存，仍需你在世界书中审阅；不会随新页一起采用。</p>
+        <button class="btn btn-sm" type="button" @click="$emit('open-source-revision')">返回来源页审阅</button>
+      </div>
+    </template>
+  </section>
+
+  <details v-if="!worldCore" class="generate-world-setup" data-section="world-direction">
+    <summary>
+      <span><small>本轮方向</small><strong>{{ worldDirectionSummary }}</strong></span>
+      <span class="generate-world-setup__action">调整</span>
+    </summary>
+    <div class="generate-world-setup__body">
+      <div class="generate-world-targets" role="group" aria-label="生成目标">
+        <span class="generate-world-targets__label">生成什么</span>
+        <button class="generate-world-target" :class="{ active: targetKind === 'core_entity' }" type="button" :aria-pressed="targetKind === 'core_entity'" data-action="select-world-target" @click="$emit('select-target', 'core_entity')">世界对象</button>
+        <button class="generate-world-target" :class="{ active: targetKind === 'world_bible_page' }" type="button" :aria-pressed="targetKind === 'world_bible_page'" :disabled="!sourcePageId" data-action="select-world-target" @click="$emit('select-target', 'world_bible_page')">完善当前页</button>
+        <button class="generate-world-target" :class="{ active: targetKind === 'world_bible_new_page' }" type="button" :aria-pressed="targetKind === 'world_bible_new_page'" data-action="select-world-target" @click="$emit('select-target', 'world_bible_new_page')">新建世界书页</button>
+      </div>
+      <p v-if="!sourcePageId" class="generate-empty-copy">“完善当前页”需要从世界书页面进入。</p>
+      <div v-if="targetKind === 'core_entity'" id="generate-template-row" class="generate-template-row generate-template-row--toolbar">
+        <label class="generate-template-select" for="generate-object-template">
+          <span>对象类型</span>
+          <select id="generate-object-template" v-model="selectedTemplateId" class="form-select" data-action="select-object-template" aria-describedby="generate-object-template-hint">
+            <option v-for="template in templates" :key="template.value" :value="template.value">{{ template.label }}</option>
+          </select>
+        </label>
+        <p id="generate-object-template-hint" class="generate-template-hint">{{ selectedTemplateHint }}</p>
+        <button class="btn btn-sm" data-action="edit-object-templates" @click="$emit('edit-templates')">编辑对象模板</button>
+      </div>
+      <div v-else-if="targetKind === 'world_bible_page'" class="generate-world-config">将以当前服务器工作稿优先，生成一份完整的整页重构提案。</div>
+      <div v-else class="generate-world-config">
+        <label>页面类别
+          <select id="generate-new-page-type" v-model="newPageType" class="form-select">
+            <option v-for="category in categories.filter((item) => item.status !== 'archived')" :key="category.category_key" :value="category.category_key">{{ category.name || "未命名类别" }}</option>
+          </select>
+        </label>
+        <label>页面模板（仅作资料组织参考）
+          <select id="generate-new-page-template" v-model="newPageTemplateKey" class="form-select">
+            <option value="">不指定</option>
+            <option v-for="template in pageTemplates.filter((item) => item.status !== 'archived')" :key="template.template_key" :value="template.template_key">{{ template.name || "未命名模板" }} · 第 {{ template.version_number || 1 }} 版</option>
+          </select>
+        </label>
+      </div>
+    </div>
+  </details>
 
   <div class="generate-chatbox">
     <div class="generate-chat-main">
       <div class="card generate-chat-panel">
-        <div id="generate-chat-messages" class="generate-chat-messages">
-          <p v-if="!messages.length" class="generate-empty-copy">{{ worldCore ? "先写下几个你真正在意的灵感；系统会逐轮补规则、连因果、做压力测试。" : "可以直接说“帮我设计一个反派”，也可以先粘贴外部聊完的内容。" }}</p>
+        <div id="generate-chat-messages" ref="messagesEl" class="generate-chat-messages" @scroll="rememberMessagePosition">
+          <div v-if="!messages.length" class="generate-chat-empty">
+            <strong>{{ worldCore ? "先写下几个真正重要的灵感" : "先说你想创造或推敲什么" }}</strong>
+            <p>{{ worldCore ? "系统会逐轮补规则、连因果并做压力测试。" : "可以从一个人物、地点或规则开始，也可以粘贴已经聊过的材料。" }}</p>
+          </div>
           <div v-for="(message, index) in messages" v-else :key="index" class="generate-chat-message" :class="[message.role, { pending: message.pending, error: message.error }]">
             <div class="generate-chat-role">{{ message.role === 'assistant' ? 'AI' : '你' }}</div>
-            <div class="generate-chat-bubble">{{ message.content }}</div>
+            <div class="generate-chat-bubble" :role="message.pending ? 'status' : message.error ? 'alert' : undefined" :aria-live="message.pending ? 'polite' : undefined" :aria-busy="message.pending ? 'true' : undefined">
+              <span>{{ message.content }}</span>
+              <button v-if="message.error && index === messages.length - 1" class="btn btn-sm" type="button" data-action="retry-chat-message" @click="$emit('retry-chat', message)">再试一次</button>
+            </div>
           </div>
         </div>
-        <div class="generate-convergence-action">
+        <div v-if="hasAuthorInput || convergenceDraft" class="generate-convergence-action">
           <div>
             <strong>准备做决定时，可以先收束本轮</strong>
             <span v-if="nearMessageLimit">对话接近 40 条发送边界，收束仍需你主动开始。</span>
@@ -61,7 +105,7 @@
         </div>
         <details v-if="sourcePageId && targetKind === 'world_bible_new_page'" class="generate-exploration" data-section="adjacent-exploration">
           <summary>从当前页向旁边探索一步</summary>
-          <p>AI 只列最多 3 个有证据的相邻缺口，不生成正文。你选中 1 个后，顶部生成按钮才会创建独立待处理建议；未选项不会入队。</p>
+          <p>AI 只列最多 3 个有证据的相邻缺口，不生成正文。你选中 1 个后，可在输入区下方创建独立待处理建议；未选项不会入队。</p>
           <button class="btn btn-sm" data-action="explore-world" type="button" :disabled="busy" @click="$emit('explore')">{{ explorationPending ? "寻找中…" : explorationDraft ? "重新寻找" : "寻找相邻缺口" }}</button>
           <div v-if="explorationDraft" class="generate-exploration__results">
             <div v-if="explorationDraft.stale" class="generate-template-warning">来源、对话或已选资料已变化。旧入口仅供回看，不能生成。</div>
@@ -214,47 +258,52 @@
             </article>
           </div>
         </details>
-        <div class="generate-composer">
+        <form class="generate-composer" @submit.prevent="$emit('send-chat')">
+          <label class="generate-composer__label" for="generate-chat-input">{{ messages.length ? "继续完善这个世界" : "说说你想创造或推敲什么" }}</label>
           <textarea
             id="generate-chat-input"
             v-model="composer"
             class="generate-chat-input"
             rows="4"
+            aria-describedby="generate-chat-input-hint"
             :placeholder="worldCore ? '写下一个灵感，或修改上方已填入的单轮动作。' : '说明你想创造、推敲或重构的世界设定。AI 会同时关注创意与逻辑。'"
             @compositionstart="composing = true"
             @compositionend="composing = false"
             @keydown="onComposerKeydown"
           />
-          <button
-            class="btn btn-sm generate-composer-send"
-            data-action="send-chat-message"
-            type="button"
-            :disabled="busy || !composer.trim()"
-            @click="$emit('send-chat')"
-          >{{ chatPending ? "发送中…" : "发送" }}</button>
-        </div>
+          <div class="generate-composer__footer">
+            <span id="generate-chat-input-hint">内容会保存在当前浏览器；生成建议也会参考尚未发送的文字</span>
+            <div class="generate-composer__actions">
+              <button v-if="!worldCore" class="btn generate-composer-generate" data-action="generate-world-suggestion" type="button" :disabled="busy" @click="$emit('generate-result')">{{ loadingResult ? "正在生成…" : generateLabel }}</button>
+              <button class="btn btn-primary generate-composer-send" data-action="send-chat-message" type="submit" :disabled="busy || !composer.trim()">{{ chatPending ? "正在发送…" : "发送" }}</button>
+            </div>
+          </div>
+        </form>
       </div>
     </div>
     <details class="workspace-rail generate-side-rail workspace-rail--right" :open="railOpen" :data-workspace-rail-key="railKey" @toggle="onRailToggle">
-      <summary class="workspace-rail__summary" :aria-label="`${railOpen ? '收起' : '展开'}上下文与结果`">
-        <span class="workspace-rail__title">上下文与结果</span>
+      <summary class="workspace-rail__summary" :aria-label="`${railOpen ? '收起' : '展开'}本轮参考资料`">
+        <span class="workspace-rail__title">本轮参考资料</span>
+        <span class="generate-reference-rail-summary">{{ referenceSummary }}</span>
         <span class="workspace-rail__chevron" aria-hidden="true">⌄</span>
       </summary>
-      <div class="workspace-rail__body"><div class="generate-chat-side">
-        <div class="card generate-settings-card">
-          <div class="generate-card-title-row"><div class="card-title">上下文</div></div>
-          <div class="generate-side-options">
+      <div class="workspace-rail__body">
+        <div class="generate-reference-panel">
+          <div class="generate-reference-overview">
+            <strong>AI 会参考什么</strong>
+            <p>{{ referenceSummary }}</p>
+          </div>
+          <div class="generate-reference-primary">
             <label class="generate-quality-toggle"><input id="generate-quality-pro" v-model="qualityPro" type="checkbox" /><span>加强复核（会多检查一遍）</span></label>
             <label class="generate-quality-toggle"><input id="generate-include-world-synopsis" v-model="includeWorldSynopsis" type="checkbox" /><span>使用世界观简介</span></label>
-            <label class="generate-quality-toggle generate-quality-toggle--stacked"><span>已发布 AI 参考规则（显式启用）</span>
-              <select id="generate-activation-profile" v-model="activationProfileId" class="form-select"><option :value="null">不启用</option><option v-for="profile in activationProfiles" :key="profile.id" :value="profile.id">{{ profile.name }} · v{{ profile.version_number }}</option></select>
-            </label>
-            <div id="generate-chat-context-usage"><button v-if="chatContextUsage" class="btn btn-sm" data-action="view-generation-context" @click="$emit('view-context', 'chat')">查看最近聊天上下文</button></div>
-            <button class="btn btn-sm" data-action="select-source-chapters" @click="$emit('select-chapters')">附带正文</button>
           </div>
-          <p class="generate-empty-copy">单次最多附带 20 章；长对话只发送最近 40 条消息。</p>
-          <div id="generate-selected-chapters" class="generate-attachment-summary">{{ chapterSummary }}</div>
-          <details class="generate-world-context-panel"><summary>展开精确上下文</summary>
+          <div class="generate-reference-chapters">
+            <div><strong>正文</strong><span id="generate-selected-chapters" class="generate-attachment-summary">{{ chapterSummary }}</span></div>
+            <button class="btn btn-sm" data-action="select-source-chapters" @click="$emit('select-chapters')">选择正文</button>
+          </div>
+          <p class="generate-empty-copy">正文最多 20 章；对话较长时参考最近 40 条。</p>
+          <details class="generate-world-context-panel">
+            <summary><span>指定重点资料</span><small>{{ preciseContextSummary }}</small></summary>
             <label>当前场景<select id="generate-world-scene" v-model="selectedSceneId" class="form-select"><option value="">不指定</option><option v-for="scene in scenes" :key="scene.id" :value="scene.id">{{ scene.title || scene.name || '未命名场景' }}</option></select></label>
             <label>剧情线<select id="generate-world-threads" v-model="selectedThreadIds" class="form-select" multiple size="4"><option v-for="thread in threads" :key="thread.id" :value="thread.id">{{ thread.title || thread.name || "未命名剧情线" }}</option></select></label>
             <label>人物（不手动选择时，自动参考最相关的最多 6 位）<select id="generate-world-characters" v-model="selectedCharacterIds" class="form-select" multiple size="4"><option v-for="item in characters" :key="characterId(item)" :value="characterId(item)">{{ item.name || item.display_name || "未命名人物" }}</option></select></label>
@@ -263,27 +312,22 @@
             <p v-else class="generate-empty-copy">暂无其他已采用的世界书页可作参考。</p>
             <p v-if="relatedWorldPages.length" class="generate-empty-copy">所选页只作本轮聊天、收束与建议的参考；不会合并、修改或自动采用。</p>
           </details>
+          <details class="generate-reference-more">
+            <summary>更多参考设置</summary>
+            <label class="generate-quality-toggle generate-quality-toggle--stacked"><span>创作规则（可选）</span>
+              <select id="generate-activation-profile" v-model="activationProfileId" class="form-select"><option :value="null">不启用</option><option v-for="profile in activationProfiles" :key="profile.id" :value="profile.id">{{ profile.name }} · v{{ profile.version_number }}</option></select>
+              <small>只使用你已经发布并在这里选择的规则。</small>
+            </label>
+            <div id="generate-chat-context-usage"><button v-if="chatContextUsage" class="btn btn-sm btn-ghost" data-action="view-generation-context" @click="$emit('view-context', 'chat')">查看最近一次参考资料</button></div>
+          </details>
         </div>
-        <div class="card"><div class="card-title">结果</div><div id="generate-result" class="generate-result">
-          <div v-if="loadingResult" class="loading">正在{{ generateLabel }}...</div>
-          <template v-else>
-            <p v-if="resultError" class="generate-error-text">{{ resultError }}</p>
-            <WorldResult v-if="result || !resultError" :result="result" :previous-result="previousResult" :baseline="sourceDraft || sourcePage" :categories="categories" :context-usage="entityContextUsage" :proposal-draft="proposalDraft" :proposal-reset-token="proposalResetToken" :recovered="recoveredPageProposal" :busy="busy"
-              @apply="$emit('apply-page', $event)" @dirty="$emit('proposal-dirty', $event)" @proposal-edit="$emit('proposal-edit', $event)" @clear="$emit('clear-result')" @continue-chat="focusComposer" @open-review="$emit('open-review')" @view-context="$emit('view-context', 'entity')" />
-            <div v-if="sourceRevisionResult" class="generate-template-warning" data-state="source-revision-created">
-              <strong>来源页还有 1 条待处理修订</strong>
-              <p>相邻新页具体改变了来源页的解释。修订已单独保存，仍需你在世界书中审阅；不会随新页一起采用。</p>
-              <button class="btn btn-sm" type="button" @click="$emit('open-source-revision')">返回来源页审阅</button>
-            </div>
-          </template>
-        </div></div>
-      </div></div>
+      </div>
     </details>
   </div>
 </template>
 
 <script setup>
-import { computed, nextTick, ref } from "vue"
+import { computed, nextTick, ref, watch } from "vue"
 import {
   EXTERNAL_HANDOFF_PACKET_CHAR_LIMIT,
   VISUAL_BRIEF_PURPOSE_OPTIONS,
@@ -303,7 +347,7 @@ const props = defineProps({
   explorationDraft: Object, explorationPending: Boolean, explorationSelection: Object, sourceRevisionResult: Object,
   worldCore: Boolean, successfulRounds: { type: Number, default: 0 }, checkpointRound: { type: Number, default: 0 }, checkpointPending: Boolean, checkpointSaved: Boolean,
 })
-const emit = defineEmits(["send-chat", "select-target", "edit-templates", "return-world-bible", "select-chapters", "apply-page", "proposal-dirty", "proposal-edit", "clear-result", "open-review", "view-context", "converge", "set-convergence-disposition", "edit-convergence-message", "apply-convergence-message", "dismiss-convergence", "open-convergence-source", "copy-handoff", "download-handoff", "open-story-outline", "create-visual-brief", "edit-visual-brief", "confirm-visual-brief", "copy-visual-brief", "download-visual-brief", "preview-visual-map", "preview-external-packet", "clear-external-packet", "explore", "select-exploration", "dismiss-exploration", "open-source-revision", "prefill-world-core", "save-world-core-checkpoint"])
+const emit = defineEmits(["send-chat", "retry-chat", "generate-result", "retry-result", "select-target", "edit-templates", "return-world-bible", "select-chapters", "apply-page", "proposal-dirty", "proposal-edit", "clear-result", "open-review", "view-context", "converge", "set-convergence-disposition", "edit-convergence-message", "apply-convergence-message", "dismiss-convergence", "open-convergence-source", "copy-handoff", "download-handoff", "open-story-outline", "create-visual-brief", "edit-visual-brief", "confirm-visual-brief", "copy-visual-brief", "download-visual-brief", "preview-visual-map", "preview-external-packet", "clear-external-packet", "explore", "select-exploration", "dismiss-exploration", "open-source-revision", "prefill-world-core", "save-world-core-checkpoint"])
 const selectedTemplateId = defineModel("selectedTemplateId", { type: String, required: true })
 const messages = defineModel("messages", { type: Array, required: true })
 const composer = defineModel("composer", { type: String, required: true })
@@ -319,14 +363,27 @@ const selectedEntityIds = defineModel("selectedEntityIds", { type: Array, requir
 const selectedWorldPageIds = defineModel("selectedWorldPageIds", { type: Array, required: true })
 const newPageType = defineModel("newPageType", { type: String, required: true })
 const newPageTemplateKey = defineModel("newPageTemplateKey", { type: String, required: true })
+const selectedTemplate = computed(() => (props.templates || []).find((item) => item.value === selectedTemplateId.value))
+const selectedTemplateHint = computed(() => selectedTemplate.value?.hint || "用于帮助 AI 组织提案；采用前仍可调整对象类型。")
 const qualityPro = computed({ get: () => qualityMode.value === "pro", set: (value) => { qualityMode.value = value ? "pro" : "fast" } })
 const sourceLabel = computed(() => {
   const source = props.sourceDraft || props.sourcePage
   return source ? `${source.title || "未命名页面"}${props.sourceDraft ? " · 工作稿" : " · 已发布"}` : "整个项目"
 })
+const worldDirectionSummary = computed(() => {
+  if (props.targetKind === "world_bible_page") return `完善当前页 · ${sourceLabel.value}`
+  if (props.targetKind === "world_bible_new_page") return "新建世界书页"
+  return `世界对象 · ${selectedTemplate.value?.label || "不指定类型"}`
+})
 const chapterSummary = computed(() => selectedChapters.value.length ? `已附带 ${selectedChapters.value.length} 章：${selectedChapters.value.map((item) => `第${item.chapter_index}章`).join("、")}` : "未附带正文")
 const relatedWorldPages = computed(() => (props.pages || []).filter((item) => item.id !== props.sourcePageId))
 const selectedRelatedWorldPageIds = computed(() => selectedWorldPageIds.value.filter((id) => relatedWorldPages.value.some((item) => item.id === id)))
+const preciseContextCount = computed(() => Number(Boolean(selectedSceneId.value)) + selectedThreadIds.value.length + selectedCharacterIds.value.length + selectedEntityIds.value.length + selectedRelatedWorldPageIds.value.length)
+const preciseContextSummary = computed(() => preciseContextCount.value ? `已指定 ${preciseContextCount.value} 项` : "自动选择相关资料")
+const referenceSummary = computed(() => [includeWorldSynopsis.value ? "世界观简介" : null, selectedChapters.value.length ? `${selectedChapters.value.length} 章正文` : null, preciseContextCount.value ? `${preciseContextCount.value} 项重点` : null, activationProfileId.value ? "已选创作规则" : null, qualityPro.value ? "加强复核" : "常规复核"].filter(Boolean).join(" · "))
+const hasResultState = computed(() => Boolean(props.loadingResult || props.resultError || props.result || props.sourceRevisionResult))
+const resultStateLabel = computed(() => props.loadingResult ? "正在生成" : props.resultError ? "需要重试" : "待你审阅")
+const resultHeading = computed(() => props.loadingResult ? "正在准备建议" : props.resultError ? (props.result ? "新建议未生成，上一份仍可审阅" : "这次建议没有生成") : "审阅后再决定去向")
 const generateLabel = computed(() => props.explorationSelection ? "生成所选探索建议" : ({ core_entity: "生成世界对象建议", world_bible_page: "生成整页提案", world_bible_new_page: "生成新页提案" })[props.targetKind] || "生成建议")
 const hasAuthorInput = computed(() => composer.value.trim() || messages.value.some((item) => item.role === "user" && !item.pending && !item.error))
 const nearMessageLimit = computed(() => messages.value.filter((item) => !item.pending && !item.error).length >= 36)
@@ -357,9 +414,21 @@ function packetStatus(status) { return ({ previewed: "已形成预览", incomple
 const railKey = computed(() => `workspace-rail:${props.projectId || "global"}:generate:assistant`)
 const railOpen = ref(readRail())
 const composing = ref(false)
-function readRail() { try { return sessionStorage.getItem(`workspace-rail:${props.projectId || "global"}:generate:assistant`) !== "closed" } catch { return true } }
+const messagesEl = ref(null)
+let stickToLatest = true
+function readRail() {
+  try {
+    const stored = sessionStorage.getItem(`workspace-rail:${props.projectId || "global"}:generate:assistant`)
+    if (stored) return stored !== "closed"
+  } catch {}
+  return !globalThis.matchMedia?.("(max-width: 900px)")?.matches
+}
 function onRailToggle(event) { railOpen.value = event.target.open; try { sessionStorage.setItem(railKey.value, railOpen.value ? "open" : "closed") } catch {} }
 async function focusComposer() { await nextTick(); document.getElementById("generate-chat-input")?.focus() }
+async function focusLatestChatError() { await nextTick(); document.querySelector('[data-action="retry-chat-message"]')?.focus() }
+async function scrollToLatest(force = false) { await nextTick(); if (messagesEl.value && (force || stickToLatest)) messagesEl.value.scrollTop = messagesEl.value.scrollHeight }
+function rememberMessagePosition(event) { const element = event.currentTarget; stickToLatest = element.scrollHeight - element.scrollTop - element.clientHeight < 56 }
+watch(() => [messages.value.length, messages.value.at(-1)?.content], () => { void scrollToLatest() })
 function onComposerKeydown(event) {
   if (composing.value || event.isComposing) return
   if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
@@ -367,5 +436,5 @@ function onComposerKeydown(event) {
     if (!props.busy && composer.value.trim()) emit("send-chat")
   }
 }
-defineExpose({ focusComposer })
+defineExpose({ focusComposer, focusLatestChatError, scrollToLatest })
 </script>

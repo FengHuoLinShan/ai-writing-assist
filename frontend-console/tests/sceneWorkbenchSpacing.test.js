@@ -9,7 +9,7 @@ const styles = readFileSync(resolve(__dirname, "../styles.css"), "utf8")
 describe("Scene workbench spacing", () => {
   it("keeps outline tabs inset from their frame", () => {
     expect(styles).toMatch(
-      /\.outline-scene-layout > \.subnav\s*\{[^}]*gap:\s*var\(--space-2\);[^}]*padding:\s*var\(--space-2\) var\(--space-3\);/s,
+      /\.outline-scene-layout > \.outline-toolbar\s*\{[^}]*gap:\s*var\(--space-2\);[^}]*padding:\s*var\(--space-2\) var\(--space-3\);/s,
     )
   })
 
@@ -38,6 +38,46 @@ describe("Scene workbench spacing", () => {
   it("aligns the health explanation with card content", () => {
     expect(styles).toMatch(
       /\.scene-health-count-note\s*\{[^}]*margin:\s*0;[^}]*padding-inline:\s*var\(--space-4\);/s,
+    )
+  })
+
+  it("keeps progress filters touchable and scene metadata readable", () => {
+    expect(styles).toMatch(
+      /\.scene-progress-filter,\s*\.world-hot-facet\s*\{[^}]*min-height:\s*44px;/s,
+    )
+    expect(styles).toMatch(
+      /\.scene-workbench-row__meta\s*\{[^}]*font-size:\s*var\(--text-xs\);[^}]*line-height:\s*var\(--leading-normal\);/s,
+    )
+    expect(styles).toMatch(
+      /\.scene-workbench-row__meta > span:not\(:last-child\)::after\s*\{[^}]*content:\s*"·";/s,
+    )
+    expect(styles).toMatch(
+      /\.scene-workbench-row__summary\s*\{[^}]*font-size:\s*var\(--text-sm\);[^}]*line-height:\s*var\(--leading-normal\);/s,
+    )
+    for (const segment of ["current", "upcoming", "past", "unassigned"]) {
+      expect(styles).toContain(`.scene-progress-filter--${segment}`)
+      expect(styles).toContain(`.scene-progress-chip--${segment}`)
+    }
+  })
+
+  it("keeps refresh feedback and empty-state actions readable without another card system", () => {
+    expect(styles).toMatch(
+      /\.scene-workbench-refresh\s*\{[^}]*min-height:\s*44px;[^}]*background:\s*var\(--accent-soft\);/s,
+    )
+    expect(styles).toMatch(
+      /\.scene-workbench-empty\s*\{[^}]*min-height:\s*220px;[^}]*border:\s*1px dashed var\(--border\);/s,
+    )
+    expect(styles).toMatch(
+      /\.scene-workbench-empty \.actions\s*\{[^}]*flex-wrap:\s*wrap;/s,
+    )
+  })
+
+  it("uses one evenly spaced AI task stack with touchable mobile actions", () => {
+    expect(styles).toMatch(
+      /\.outline-task-status\s*\{[^}]*display:\s*grid;[^}]*gap:\s*var\(--space-2\);/s,
+    )
+    expect(styles).toMatch(
+      /@media \(max-width: 760px\)[\s\S]*\.outline-task-status \.workflow-progress__actions \.btn,[\s\S]*min-height:\s*44px;/s,
     )
   })
 })

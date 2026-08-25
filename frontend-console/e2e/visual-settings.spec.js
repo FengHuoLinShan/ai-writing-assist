@@ -22,10 +22,15 @@ const xhrHeaders = { "X-Requested-With": "XMLHttpRequest" }
 async function applyTheme(page, theme) {
   await page.locator(`.theme-dot[data-theme-value="${theme}"]`).click()
   await expect(page.locator("html")).toHaveAttribute("data-theme", theme)
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
 }
 
 async function screenshotSettingsPage(page, name) {
   await page.evaluate(() => document.fonts.ready.then(() => true))
+  await page.evaluate(() => {
+    window.scrollTo(0, 0)
+    document.querySelector("#workspace-content")?.scrollTo(0, 0)
+  })
   await expect(page.locator("#toast-container > *")).toHaveCount(0, { timeout: 3000 })
   await expect(page).toHaveScreenshot(name, {
     fullPage: true,
@@ -66,17 +71,16 @@ test.describe("settings 视觉基线", () => {
   })
 
   test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => localStorage.clear())
     await page.goto("/")
-    await page.evaluate(() => localStorage.clear())
-    await page.reload()
   })
 
   test("账户设置页 × 三主题", async ({ page }) => {
     await page.goto("/#settings")
     // hash-only goto 在 SPA 中偶发不触发重新渲染，reload 强制 initRouter 按 URL hash 渲染（确定性）
     await page.reload()
-    await expect(page.locator("#workspace-content").getByRole("heading", { name: "账户与模型连接" })).toBeVisible({ timeout: 10000 })
-    await expect(page.getByRole("button", { name: "保存作者偏好" })).toBeVisible()
+    await expect(page.locator("#workspace-content").getByRole("heading", { name: "账户设置" })).toBeVisible({ timeout: 10000 })
+    await expect(page.getByRole("button", { name: "保存创作偏好" })).toBeVisible()
     for (const theme of THEMES) {
       await applyTheme(page, theme)
       await screenshotSettingsPage(page, `settings-global-${theme}.png`)
@@ -86,8 +90,7 @@ test.describe("settings 视觉基线", () => {
   test("项目设置页 × 三主题 + 两个 Tab", async ({ page, projectFactory }) => {
     const proj = await projectFactory({ title: "视觉基线项目", language: "zh" })
     await page.goto(`/#workbench/${proj.id}/project-settings`)
-    await page.reload()
-    await expect(page.locator("#workspace-content").getByRole("heading", { name: /^项目偏好/ })).toBeVisible({ timeout: 10000 })
+    await expect(page.locator("#workspace-content").getByRole("heading", { name: "当前作品设置" })).toBeVisible({ timeout: 10000 })
     await expect(page.getByRole("tab", { name: "创作偏好" })).toHaveAttribute("aria-selected", "true")
     for (const theme of THEMES) {
       await applyTheme(page, theme)
@@ -103,5 +106,37 @@ test.describe("settings 视觉基线", () => {
     await page.getByRole("tab", { name: "创作偏好" }).click()
     await expect(page.getByText(/日更目标/)).toBeVisible()
     await screenshotSettingsPage(page, "settings-project-tab-author.png")
+  })
+
+  test.describe("390px", () => {
+    test.use({ viewport: { width: 390, height: 844 } })
+
+    test("账户与项目设置保持单栏且无横向溢出", async ({ page, projectFactory }) => {
+      await page.goto("/#settings")
+      await page.reload()
+      await expect(page.getByRole("heading", { name: "账户设置" })).toBeVisible({ timeout: 10000 })
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+      await screenshotSettingsPage(page, "settings-global-mobile-sticky.png")
+
+      const proj = await projectFactory({ title: "窄屏设置项目", language: "zh" })
+      await page.goto(`/#workbench/${proj.id}/project-settings`)
+      await expect(page.getByRole("heading", { name: "当前作品设置" })).toBeVisible({ timeout: 10000 })
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+      await expect(page.locator("#topbar-project")).toBeHidden()
+      await expect(page.locator("#topbar-module")).toBeVisible()
+      const topbarBoxes = await page.locator("#topbar").evaluate((topbar) => {
+        const box = (selector) => {
+          const rect = topbar.querySelector(selector)?.getBoundingClientRect()
+          return rect ? { left: rect.left, right: rect.right } : null
+        }
+        return { left: box(".topbar-left"), center: box(".topbar-center"), right: box(".topbar-right") }
+      })
+      expect(topbarBoxes.left.right).toBeLessThanOrEqual(topbarBoxes.center.left + 1)
+      expect(topbarBoxes.center.right).toBeLessThanOrEqual(topbarBoxes.right.left + 1)
+      for (const button of await page.locator(".settings-shell button:visible").all()) {
+        expect((await button.boundingBox())?.height || 0).toBeGreaterThanOrEqual(42)
+      }
+      await screenshotSettingsPage(page, "settings-project-mobile-sticky.png")
+    })
   })
 })
