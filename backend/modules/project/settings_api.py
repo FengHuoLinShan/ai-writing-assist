@@ -1,4 +1,4 @@
-"""One-release `/api/settings` aliases for project-owned preferences."""
+"""Project-owned preference routes."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -73,10 +73,3 @@ async def api_reset_project_author_prefs_field(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-# One-release compatibility mounts. Canonical owner routes mount these same
-# endpoint routers from the account/project composition roots.
-router = APIRouter(prefix="/api/settings")
-router.include_router(defaults_handler_router)
-router.include_router(handler_router, prefix="/projects")

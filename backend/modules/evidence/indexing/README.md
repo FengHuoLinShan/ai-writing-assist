@@ -3,7 +3,7 @@
 ## 定位
 
 Evidence 的 indexing 子域负责从结构化小说知识库和文本片段中检索与当前创作任务相关的信息。
-Canonical API 前缀为 `/api/evidence/indexing`；`/api/rag` 是待准备版本固定 SHA 发布核验后删除的同 handler 兼容挂载。
+Canonical API 前缀为 `/api/evidence/indexing`；旧 `/api/rag` 前缀已退场。
 
 `get_scene_mapping_coverage()` 是只读稳定 facade，对 chapter-text chunk 批量对账
 `scene_id + scene_span_id + source_id + source_content_hash + offset overlap`，分开返回
@@ -107,7 +107,7 @@ project facade 的 `ProjectSummary` 窄投影读取，不再跨模块消费 `Pro
 nullable `scene_span_id` 指向 outline 派生的 `SceneSpan`。`scene_span_id` 不加
 跨模块硬 FK，避免 RAG ORM 依赖 outline 内部模型。索引章节时：
 
-1. 通过 `modules.story.facade.get_scene_spans_by_chapter` 读取当前章节 span；旧 `modules.outline.facade` 仅为兼容路径。
+1. 通过 `modules.story.facade.get_scene_spans_by_chapter` 读取当前章节 span。
 2. 优先用 chunk 的字符偏移与 span 的 `start_offset/end_offset` 做重叠匹配。
 3. 命中 span 时同时写入 `scene_id` 与 `scene_span_id`。
 4. 只有 source draft/hash 一致且 mapping 精确的 span 可写入自动 Scene 归因。
@@ -159,7 +159,7 @@ from modules.evidence.contracts import RagChunkContract, RagQueryContract, RagRe
 from modules.evidence.facade import retrieve, split_text_into_chunks, get_ordered_chapter_chunks
 ```
 
-`modules.rag` 只是待准备版本固定 SHA 发布核验后删除的兼容 import alias，新生产调用不应继续使用。
+旧 `modules.rag` import alias 已退场。
 
 ### Facade 方法
 
@@ -307,7 +307,7 @@ context 的作者可见 evidence wire；`/api/evidence/indexing/retrieve` 仍只
 
 ```bash
 cd backend
-pytest modules/rag/tests/ -m "not real_llm and not external_data"
+pytest modules/evidence/indexing/tests/ -m "not real_llm and not external_data"
 
 # 真实 embedding 提供方只在显式验收中调用
 cd ../.. && make test-real-llm

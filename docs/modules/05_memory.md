@@ -1,7 +1,7 @@
-# Module: Story continuity / 长期记忆兼容面
+# Module: Story continuity / 长期记忆
 
-> 当前生产 owner 是 `modules.story.continuity`。`modules.memory` 仅保留待固定 SHA
-> 发布核验后删除的 Python import 兼容入口；`/api/novels/{novel_id}/memories`
+> 当前生产 owner 是 `modules.story.continuity`。旧 `modules.memory` Python import
+> 兼容入口已退场；`/api/novels/{novel_id}/memories`
 > 继续保持稳定。表名、任务、snapshot/checkpoint/rollback 行为不变；
 > 新生产消费者通过 `modules.story.facade` / `modules.story.contracts`。
 
@@ -82,5 +82,5 @@ POST /api/novels/{novel_id}/memories/scene-checkpoints/repair
 
 ```bash
 cd backend
-pytest modules/memory/tests/ -v
+pytest modules/story/continuity/tests/ -v
 ```

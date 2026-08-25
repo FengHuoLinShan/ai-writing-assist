@@ -1,8 +1,6 @@
 schema_version = 1
 
-# One-release import/HTTP aliases. These directories are not independent
-# business modules and must not be counted as architecture owners.
-compatibility_modules = ["rag", "context", "memory", "outline"]
+compatibility_modules = []
 
 # This registry is the machine-readable inventory for current architecture
 # documentation. Historical plans, audits, acceptance reports and archived
@@ -63,7 +61,6 @@ api_prefixes = [
   "/api/account",
   "/api/auth/wechat",
   "/api/auth/reauth/wechat",
-  "/api/settings",
 ]
 
 [[components]]
@@ -72,7 +69,7 @@ kind = "business"
 source_roots = ["backend/modules/project"]
 design_docs = ["docs/modules/01_project.md"]
 code_docs = ["backend/modules/project/README.md"]
-api_prefixes = ["/api/projects", "/api/settings"]
+api_prefixes = ["/api/projects"]
 
 [[components]]
 name = "imports"
@@ -95,8 +92,6 @@ name = "story"
 kind = "business"
 source_roots = [
   "backend/modules/story",
-  "backend/modules/outline",
-  "backend/modules/memory",
 ]
 design_docs = [
   "docs/modules/05_memory.md",
@@ -115,8 +110,6 @@ name = "evidence"
 kind = "business"
 source_roots = [
   "backend/modules/evidence",
-  "backend/modules/rag",
-  "backend/modules/context",
 ]
 design_docs = ["docs/modules/08_evidence.md"]
 code_docs = [
@@ -124,7 +117,7 @@ code_docs = [
   "backend/modules/evidence/indexing/README.md",
   "backend/modules/evidence/compilation/README.md",
 ]
-api_prefixes = ["/api/evidence", "/api/rag", "/api/context"]
+api_prefixes = ["/api/evidence"]
 
 [[components]]
 name = "writing"

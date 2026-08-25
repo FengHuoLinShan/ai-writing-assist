@@ -21,13 +21,11 @@
   retrieval trace 和索引 freshness 均沿用原行为；
 - 检索结果只是候选，编译阶段按 source ID/hash 回读 writing 原文并再次执行可见性门禁。
 
-## 兼容期
+## HTTP 与 import 边界
 
 canonical HTTP 路径为 `/api/evidence/indexing/*` 与
-`/api/evidence/compilation/*`，主动调用方已全部迁入这两个前缀。`/api/rag/*` 与
-`/api/context/*` 仍挂载同一组 Evidence endpoint，只等待兼容准备版本以固定 SHA
-完成一次生产发布后退场。`modules.rag` 与 `modules.context` 同期仅作薄 import
-alias，不注册 handler、不声明 ORM、不创建 service，也不拥有任何写入路径。
+`/api/evidence/compilation/*`。旧 `/api/rag/*`、`/api/context/*` 与
+`modules.rag`、`modules.context` 已在兼容准备版本完成固定 SHA 生产发布后退场。
 
 ## 验证
 
