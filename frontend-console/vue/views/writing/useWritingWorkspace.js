@@ -246,7 +246,7 @@ export function useWritingWorkspace(props) {
     confirm,
     confirmDialog,
     getProjectId: () => projectId,
-    onChange: (value, { persist = true } = {}) => {
+    onChange: (value, { persist = true, hot = false } = {}) => {
       Object.assign(editorState, value)
       if (!persist) return
       if (value.chapter && chapters[value.chapter] && !["candidate", "deprecated"].includes(value.status)) {
@@ -257,9 +257,12 @@ export function useWritingWorkspace(props) {
           status: value.status,
         }
       }
-      syncLegacyState()
-      dispatchDashboardUpdate()
-      refreshSceneAlerts()
+      syncLegacyState({ persistLocation: !hot })
+      if (hot) scheduleInputDerivedUpdate()
+      else {
+        dispatchDashboardUpdate()
+        refreshSceneAlerts()
+      }
     },
     onVersionChanged: async () => {
       if (!selectedChapter.value || getAppState()?.currentProjectId !== projectId) return
@@ -331,7 +334,7 @@ export function useWritingWorkspace(props) {
     onProgress: (value) => Object.assign(generationTask, value),
   })
 
-  function syncLegacyState() {
+  function syncLegacyState({ persistLocation = true } = {}) {
     if (!appState) return
     const currentChapter = editorState.loadError ? editorState.chapter : selectedChapter.value
     const currentSceneId = currentScene.value?.id || null
@@ -360,13 +363,15 @@ export function useWritingWorkspace(props) {
       isReadonly: editorState.readonly,
       currentSceneId,
     }
-    rememberWritingLocation(projectId, {
-      currentChapter,
-      currentDraftId: editorState.draftId,
-      draftVersion: editorState.versionNumber,
-      draftUpdatedAt: editorState.updatedAt,
-      currentSceneId,
-    })
+    if (persistLocation) {
+      rememberWritingLocation(projectId, {
+        currentChapter,
+        currentDraftId: editorState.draftId,
+        draftVersion: editorState.versionNumber,
+        draftUpdatedAt: editorState.updatedAt,
+        currentSceneId,
+      })
+    }
   }
 
   function dailyWordcountKeys() {
@@ -422,6 +427,16 @@ export function useWritingWorkspace(props) {
         saveState: chapterIndex == null ? "saved" : editorState.saving ? "saving" : editorState.dirty ? "unsaved" : "saved",
       },
     }))
+  }
+
+  let inputDerivedFrame = null
+  function scheduleInputDerivedUpdate() {
+    if (inputDerivedFrame != null) return
+    inputDerivedFrame = requestAnimationFrame(() => {
+      inputDerivedFrame = null
+      dispatchDashboardUpdate()
+      refreshSceneAlerts()
+    })
   }
 
   async function loadVersions(chapter, generation) {
@@ -1393,6 +1408,10 @@ export function useWritingWorkspace(props) {
     event.returnValue = ""
   }
 
+  function pageHide() {
+    editor.persist()
+  }
+
   function resize() {
     isNarrow.value = window.innerWidth <= 760
   }
@@ -1405,6 +1424,7 @@ export function useWritingWorkspace(props) {
 
   onMounted(async () => {
     window.addEventListener("beforeunload", beforeUnload)
+    window.addEventListener("pagehide", pageHide)
     window.addEventListener("resize", resize)
     await deepImport.recover()
     dispatchDashboardUpdate()
@@ -1442,11 +1462,14 @@ export function useWritingWorkspace(props) {
     versionDiffGeneration += 1
     if (publishTimer) clearTimeout(publishTimer)
     publishTimer = null
+    if (inputDerivedFrame != null) cancelAnimationFrame(inputDerivedFrame)
+    inputDerivedFrame = null
     editor.dispose()
     commands.dispose()
     deepImport.dispose()
     conflictActions.dispose()
     window.removeEventListener("beforeunload", beforeUnload)
+    window.removeEventListener("pagehide", pageHide)
     window.removeEventListener("resize", resize)
     document.body.classList.remove("focus-mode-active", "force-desktop")
     dispatchDashboardUpdate(null)

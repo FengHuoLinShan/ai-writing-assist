@@ -102,7 +102,7 @@ export function rememberedSceneForChapter(projectId, chapter) {
   return getWritingSession(projectId)?.sceneByChapter.get(Number(chapter)) || null
 }
 
-export function rememberChapterSnapshot(projectId, snapshot = {}) {
+export function rememberChapterSnapshot(projectId, snapshot = {}, { persist = true } = {}) {
   const chapter = Number(snapshot.chapter)
   const session = getWritingSession(projectId)
   if (!session || !Number.isInteger(chapter) || chapter < 1) return
@@ -127,14 +127,16 @@ export function rememberChapterSnapshot(projectId, snapshot = {}) {
   session.currentChapter = chapter
   session.currentDraftId = next.draftId
   session.chapters.set(chapter, next)
-  persistPointer(projectId, {
-    chapter,
-    draftId: next.draftId,
-    draftVersion: next.versionNumber,
-    draftUpdatedAt: next.updatedAt,
-    sceneId: session.sceneByChapter.get(chapter) || null,
-    cursorOffset: next.cursorOffset,
-  })
+  if (persist) {
+    persistPointer(projectId, {
+      chapter,
+      draftId: next.draftId,
+      draftVersion: next.versionNumber,
+      draftUpdatedAt: next.updatedAt,
+      sceneId: session.sceneByChapter.get(chapter) || null,
+      cursorOffset: next.cursorOffset,
+    })
+  }
 }
 
 export function readChapterSnapshot(projectId, chapter) {

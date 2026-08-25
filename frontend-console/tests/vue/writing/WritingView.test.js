@@ -348,6 +348,7 @@ describe("WritingView", () => {
     await editor.setValue("作者新输入")
     expect(editor.element.value).toBe("作者新输入")
     expect(wrapper.find("#writing-save-status").text()).toBe("尚未保存")
+    window.dispatchEvent(new Event("pagehide"))
     expect(localStorage.getItem("draft_backup_p1_1_d1")).toContain("作者新输入")
     wrapper.unmount()
   })
@@ -1083,13 +1084,20 @@ describe("WritingView", () => {
     })
     await flushPromises()
     await wrapper.get("#writing-editor").setValue("第一章四字")
-    expect(events.at(-1)).toMatchObject({ chapterIndex: 1, chapterWords: 5, todayWords: 15 })
+    await vi.waitFor(() => expect(events.at(-1)).toMatchObject({
+      chapterIndex: 1,
+      chapterWords: 5,
+      todayWords: 15,
+    }))
 
     const vm = wrapper.vm.$.setupState.vm
     await vm.selectChapter(2)
     await flushPromises()
     await wrapper.get("#writing-editor").setValue("二章三字")
-    expect(events.at(-1)).toMatchObject({ chapterIndex: 2, chapterWords: 4 })
+    await vi.waitFor(() => expect(events.at(-1)).toMatchObject({
+      chapterIndex: 2,
+      chapterWords: 4,
+    }))
 
     // 章 1 的 5 字已折叠进 base：今日 = 10 + 5 + 4
     expect(events.at(-1).todayWords).toBe(19)
@@ -1114,7 +1122,7 @@ describe("WritingView", () => {
     })
     await flushPromises()
     await reloaded.get("#writing-editor").setValue("二章三字")
-    expect(events2.at(-1).todayWords).toBe(19)
+    await vi.waitFor(() => expect(events2.at(-1).todayWords).toBe(19))
     reloaded.unmount()
     window.removeEventListener("writing:dashboard-update", listener2)
   })
@@ -1374,7 +1382,12 @@ describe("WritingView", () => {
     const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
     await flushPromises()
     await wrapper.get("#writing-editor").setValue("作者输入")
-    expect(events.at(-1)).toEqual({ chapterIndex: 1, chapterWords: 4, todayWords: 14, saveState: "unsaved" })
+    await vi.waitFor(() => expect(events.at(-1)).toEqual({
+      chapterIndex: 1,
+      chapterWords: 4,
+      todayWords: 14,
+      saveState: "unsaved",
+    }))
     expect(wrapper.find('[data-action="toggle-outline-float"]').exists()).toBe(true)
     wrapper.unmount()
     expect(events.at(-1)).toEqual({ chapterIndex: null, chapterWords: 0, todayWords: 0, saveState: "saved" })

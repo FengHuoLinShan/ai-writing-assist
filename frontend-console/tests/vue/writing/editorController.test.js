@@ -55,6 +55,7 @@ describe("editorController", () => {
   afterEach(() => vi.useRealTimers())
 
   it("只通过显式 element refs 读写编辑器并保存 project/chapter session", async () => {
+    vi.useFakeTimers()
     const { controller } = makeController()
     await controller.loadChapter(1)
     document.body.innerHTML = '<input id="title"><textarea id="body"></textarea>'
@@ -67,7 +68,33 @@ describe("editorController", () => {
 
     expect(controller.snapshot()).toMatchObject({ content: "本地修改", dirty: true })
     expect(readChapterSnapshot("p1", 1)).toMatchObject({ content: "本地修改", dirty: true })
+    expect(localStorage.getItem("draft_backup_p1_1_d1")).toBeNull()
+    await vi.advanceTimersByTimeAsync(250)
     expect(localStorage.getItem("draft_backup_p1_1_d1")).toContain("本地修改")
+    controller.dispose()
+  })
+
+  it("100 次连续输入只执行一次 trailing 备份和指针持久化", async () => {
+    vi.useFakeTimers()
+    const storage = vi.spyOn(localStorage, "setItem")
+    const { controller } = makeController()
+    await controller.loadChapter(1)
+    document.body.innerHTML = '<textarea id="body"></textarea>'
+    const editor = document.getElementById("body")
+    controller.attach({ title: null, editor })
+    storage.mockClear()
+
+    for (let index = 0; index < 100; index += 1) {
+      editor.value = `连续输入-${index}`
+      editor.dispatchEvent(new Event("input"))
+    }
+
+    expect(readChapterSnapshot("p1", 1).content).toBe("连续输入-99")
+    expect(storage).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(250)
+    const keys = storage.mock.calls.map(([key]) => key)
+    expect(keys.filter((key) => key === "draft_backup_p1_1_d1")).toHaveLength(1)
+    expect(keys.filter((key) => key === "writing_resume_pointer:v1:p1")).toHaveLength(1)
     controller.dispose()
   })
 
@@ -240,6 +267,7 @@ describe("editorController", () => {
     fallback.controller.attach({ title: null, editor: currentEditor })
     currentEditor.value = "当前稿新输入"
     currentEditor.dispatchEvent(new Event("input"))
+    fallback.controller.persist()
     expect(localStorage.getItem("draft_backup_p1_1_old")).toContain("旧稿未保存正文")
     expect(localStorage.getItem("draft_backup_p1_1_d1")).toContain("当前稿新输入")
     fallback.controller.dispose()

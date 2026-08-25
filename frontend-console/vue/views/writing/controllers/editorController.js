@@ -3,8 +3,9 @@ import {
   readChapterSnapshot,
   readWritingPointer,
   rememberChapterSnapshot,
-  rememberWritingLocation,
 } from "../writingSession.js"
+
+const LOCAL_PERSIST_DELAY = 250
 
 export function substantiveWritingText(text) {
   return String(text || "").replace(/\s/gu, "")
@@ -61,6 +62,7 @@ export function createEditorController({
   }
   let elements = { title: null, editor: null }
   let autosaveTimer = null
+  let localPersistTimer = null
   let cursorTimer = null
   let selectionHandler = null
   let keyupHandler = null
@@ -113,18 +115,12 @@ export function createEditorController({
     return { ...state, dirty: dirty() }
   }
 
-  function emit({ persist = true } = {}) {
+  function emit({ persist = true, durable = true, hot = false } = {}) {
     const value = snapshot()
     if (persist && state.chapter) {
-      rememberChapterSnapshot(getProjectId(), value)
-      rememberWritingLocation(getProjectId(), {
-        currentChapter: state.chapter,
-        currentDraftId: state.draftId,
-        draftVersion: state.versionNumber,
-        draftUpdatedAt: state.updatedAt,
-      })
+      rememberChapterSnapshot(getProjectId(), value, { persist: durable })
     }
-    onChange(value, { persist })
+    onChange(value, hot ? { persist, hot: true } : { persist })
   }
 
   async function refreshVersions(result) {
@@ -161,6 +157,19 @@ export function createEditorController({
     } catch {
       // Storage exhaustion must not block typing.
     }
+  }
+
+  function flushLocalPersistence() {
+    if (localPersistTimer) clearTimeout(localPersistTimer)
+    localPersistTimer = null
+    if (!state.chapter) return
+    if (dirty()) saveBackup()
+    rememberChapterSnapshot(getProjectId(), snapshot())
+  }
+
+  function scheduleLocalPersistence() {
+    if (localPersistTimer) clearTimeout(localPersistTimer)
+    localPersistTimer = setTimeout(flushLocalPersistence, LOCAL_PERSIST_DELAY)
   }
 
   function clearBackup(draftId = state.draftId) {
@@ -268,6 +277,7 @@ export function createEditorController({
   }
 
   async function loadChapter(chapter, options = {}) {
+    flushLocalPersistence()
     const generation = ++loadGeneration
     const lifecycle = lifecycleGeneration
     const projectId = getProjectId()
@@ -336,15 +346,16 @@ export function createEditorController({
     state.title = elements.title?.value ?? state.title
     state.content = elements.editor?.value ?? state.content
     editRevision += 1
-    saveBackup()
-    emit()
+    emit({ durable: false, hot: true })
+    scheduleLocalPersistence()
     scheduleAutosave()
   }
 
   function updateCursor() {
     if (!elements.editor || document.activeElement !== elements.editor) return
     state.cursorOffset = elements.editor.selectionStart || 0
-    emit()
+    emit({ durable: false, hot: true })
+    scheduleLocalPersistence()
   }
 
   function attach({ title, editor }) {
@@ -364,6 +375,7 @@ export function createEditorController({
   }
 
   function detach() {
+    flushLocalPersistence()
     if (elements.title) elements.title.removeEventListener("input", handleInput)
     if (elements.editor) {
       elements.editor.removeEventListener("input", handleInput)
@@ -379,6 +391,7 @@ export function createEditorController({
   }
 
   async function autosave({ successMessage = "已保存到工作稿", createIfMissing = false } = {}) {
+    flushLocalPersistence()
     if (autosaveTimer) clearTimeout(autosaveTimer)
     autosaveTimer = null
     if (state.saving && !savePromise) {
@@ -483,6 +496,7 @@ export function createEditorController({
   }
 
   async function checkpoint() {
+    flushLocalPersistence()
     if (!state.draftId || state.readonly || state.saving) return null
     if (autosaveTimer) clearTimeout(autosaveTimer)
     autosaveTimer = null
@@ -670,7 +684,7 @@ export function createEditorController({
   function persist() {
     if (elements.title) state.title = elements.title.value
     if (elements.editor) state.content = elements.editor.value
-    if (dirty()) saveBackup()
+    flushLocalPersistence()
     emit()
   }
 
@@ -681,6 +695,8 @@ export function createEditorController({
     loadGeneration += 1
     if (autosaveTimer) clearTimeout(autosaveTimer)
     autosaveTimer = null
+    if (localPersistTimer) clearTimeout(localPersistTimer)
+    localPersistTimer = null
     detach()
   }
 
