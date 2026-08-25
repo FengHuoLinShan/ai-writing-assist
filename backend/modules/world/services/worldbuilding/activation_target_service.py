@@ -59,68 +59,167 @@ class WorldBibleActivationTargetService:
         items: list[WorldBibleActivationTargetContract] = []
         visited: set[str] = set()
         while queue and len(visited) < 256:
-            target, depth, expanded_from, source_kind = queue.popleft()
-            target_hash = target.target_hash()
-            if target_hash in visited:
-                continue
-            visited.add(target_hash)
-            resolved = await self._resolve_one(
+            depth = queue[0][1]
+            frontier: list[tuple[TargetRef, int, dict[str, str] | None, str]] = []
+            while queue and queue[0][1] == depth and len(visited) < 256:
+                entry = queue.popleft()
+                target_hash = entry[0].target_hash()
+                if target_hash in visited:
+                    continue
+                visited.add(target_hash)
+                frontier.append(entry)
+            entities, pages, projections, related_by_entity = await self._load_frontier(
                 db,
                 nid,
-                target,
+                [entry[0] for entry in frontier],
                 projection_type=projection_type,
-                reveal_mode=reveal_mode,
-                expanded_from=expanded_from,
-                source_kind=source_kind,
+                relation_types=relation_filter if depth < max_depth else set(),
             )
-            if resolved.excluded_reason:
-                excluded.append(resolved)
-                continue
-            items.append(resolved)
-            if depth >= max_depth:
-                continue
-            if target.target_type == "world_bible_page" and expand_page_links:
-                for raw_link in resolved.linked_target_refs:
-                    try:
-                        linked = normalize_target_ref(raw_link)
-                    except Exception:
-                        excluded.append(
-                            self._excluded(
-                                novel_id,
-                                raw_link,
-                                reason="target_missing",
-                                expanded_from=target.canonical_dict(),
-                            )
-                        )
-                        continue
-                    queue.append(
-                        (
-                            linked,
-                            depth + 1,
-                            target.canonical_dict(),
-                            "page_linked",
-                        )
-                    )
-            if target.target_type == "core_entity" and relation_filter:
-                related = await self._related_targets(
+            for target, _, expanded_from, source_kind in frontier:
+                resolved = await self._resolve_one(
                     db,
                     nid,
-                    target.target_id,
-                    relation_filter,
+                    target,
+                    projection_type=projection_type,
+                    reveal_mode=reveal_mode,
+                    expanded_from=expanded_from,
+                    source_kind=source_kind,
+                    entities=entities,
+                    pages=pages,
+                    projections=projections,
                 )
-                queue.extend(
-                    (
-                        related_target,
-                        depth + 1,
-                        target.canonical_dict(),
-                        "relation",
+                if resolved.excluded_reason:
+                    excluded.append(resolved)
+                    continue
+                items.append(resolved)
+                if depth >= max_depth:
+                    continue
+                if target.target_type == "world_bible_page" and expand_page_links:
+                    for raw_link in resolved.linked_target_refs:
+                        try:
+                            linked = normalize_target_ref(raw_link)
+                        except Exception:
+                            excluded.append(
+                                self._excluded(
+                                    novel_id,
+                                    raw_link,
+                                    reason="target_missing",
+                                    expanded_from=target.canonical_dict(),
+                                )
+                            )
+                            continue
+                        queue.append(
+                            (
+                                linked,
+                                depth + 1,
+                                target.canonical_dict(),
+                                "page_linked",
+                            )
+                        )
+                if target.target_type == "core_entity" and relation_filter:
+                    queue.extend(
+                        (
+                            related_target,
+                            depth + 1,
+                            target.canonical_dict(),
+                            "relation",
+                        )
+                        for related_target in related_by_entity.get(
+                            target.target_id,
+                            (),
+                        )
                     )
-                    for related_target in related
-                )
         return WorldBibleActivationResolutionContract(
             novel_id=str(nid),
             items=items,
             excluded_items=excluded,
+        )
+
+    async def _load_frontier(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        targets: list[TargetRef],
+        *,
+        projection_type: str,
+        relation_types: set[str],
+    ) -> tuple[
+        dict[uuid.UUID, CoreEntity],
+        dict[uuid.UUID, WorldBiblePage],
+        dict[uuid.UUID, WorldBiblePageProjection],
+        dict[str, list[TargetRef]],
+    ]:
+        entity_ids: set[uuid.UUID] = set()
+        page_ids: set[uuid.UUID] = set()
+        for target in targets:
+            try:
+                target_id = parse_uuid(target.target_id, "target_id")
+            except Exception:
+                continue
+            if target.target_type == "core_entity":
+                entity_ids.add(target_id)
+            elif target.target_type == "world_bible_page":
+                page_ids.add(target_id)
+
+        entities = {}
+        if entity_ids:
+            rows = await db.scalars(
+                select(CoreEntity).where(
+                    CoreEntity.novel_id == novel_id,
+                    CoreEntity.id.in_(entity_ids),
+                )
+            )
+            entities = {item.id: item for item in rows.all()}
+        pages = {}
+        projections = {}
+        if page_ids:
+            page_rows = await db.scalars(
+                select(WorldBiblePage).where(
+                    WorldBiblePage.novel_id == novel_id,
+                    WorldBiblePage.id.in_(page_ids),
+                )
+            )
+            pages = {item.id: item for item in page_rows.all()}
+            projection_rows = await db.scalars(
+                select(WorldBiblePageProjection).where(
+                    WorldBiblePageProjection.novel_id == novel_id,
+                    WorldBiblePageProjection.page_id.in_(page_ids),
+                    WorldBiblePageProjection.projection_type == projection_type,
+                )
+            )
+            projections = {item.page_id: item for item in projection_rows.all()}
+
+        related: dict[str, set[str]] = {str(item): set() for item in entity_ids}
+        if entity_ids and relation_types:
+            relation_rows = await db.scalars(
+                select(EntityRelation).where(
+                    EntityRelation.novel_id == novel_id,
+                    EntityRelation.status.in_(list(CONFIRMED_STATUSES)),
+                    EntityRelation.relation_type.in_(sorted(relation_types)),
+                    or_(
+                        EntityRelation.source_id.in_(entity_ids),
+                        EntityRelation.target_id.in_(entity_ids),
+                    ),
+                )
+            )
+            for relation in relation_rows.all():
+                source_id = str(relation.source_id)
+                target_id = str(relation.target_id)
+                if relation.source_id in entity_ids:
+                    related[source_id].add(target_id)
+                if relation.target_id in entity_ids:
+                    related[target_id].add(source_id)
+        return (
+            entities,
+            pages,
+            projections,
+            {
+                key: [
+                    TargetRef(target_type="core_entity", target_id=target_id)
+                    for target_id in sorted(values)
+                ]
+                for key, values in related.items()
+            },
         )
 
     async def page_source_manifest(
@@ -169,6 +268,9 @@ class WorldBibleActivationTargetService:
         reveal_mode: str,
         expanded_from: dict[str, str] | None,
         source_kind: str,
+        entities: dict[uuid.UUID, CoreEntity] | None = None,
+        pages: dict[uuid.UUID, WorldBiblePage] | None = None,
+        projections: dict[uuid.UUID, WorldBiblePageProjection] | None = None,
     ) -> WorldBibleActivationTargetContract:
         if target.target_type == "core_entity":
             return await self._resolve_entity(
@@ -178,6 +280,7 @@ class WorldBibleActivationTargetService:
                 reveal_mode=reveal_mode,
                 expanded_from=expanded_from,
                 source_kind=source_kind,
+                entities=entities,
             )
         if target.target_type == "world_bible_page":
             return await self._resolve_page(
@@ -188,6 +291,8 @@ class WorldBibleActivationTargetService:
                 reveal_mode=reveal_mode,
                 expanded_from=expanded_from,
                 source_kind=source_kind,
+                pages=pages,
+                projections=projections,
             )
         return self._excluded(
             str(novel_id),
@@ -205,6 +310,7 @@ class WorldBibleActivationTargetService:
         reveal_mode: str,
         expanded_from: dict[str, str] | None,
         source_kind: str,
+        entities: dict[uuid.UUID, CoreEntity] | None = None,
     ) -> WorldBibleActivationTargetContract:
         try:
             target_id = parse_uuid(target.target_id, "target_id")
@@ -215,10 +321,14 @@ class WorldBibleActivationTargetService:
                 reason="target_missing",
                 expanded_from=expanded_from,
             )
-        entity = await db.scalar(
-            select(CoreEntity).where(
-                CoreEntity.novel_id == novel_id,
-                CoreEntity.id == target_id,
+        entity = (
+            entities.get(target_id)
+            if entities is not None
+            else await db.scalar(
+                select(CoreEntity).where(
+                    CoreEntity.novel_id == novel_id,
+                    CoreEntity.id == target_id,
+                )
             )
         )
         if entity is None:
@@ -289,6 +399,8 @@ class WorldBibleActivationTargetService:
         reveal_mode: str,
         expanded_from: dict[str, str] | None,
         source_kind: str,
+        pages: dict[uuid.UUID, WorldBiblePage] | None = None,
+        projections: dict[uuid.UUID, WorldBiblePageProjection] | None = None,
     ) -> WorldBibleActivationTargetContract:
         try:
             target_id = parse_uuid(target.target_id, "target_id")
@@ -299,10 +411,14 @@ class WorldBibleActivationTargetService:
                 reason="target_missing",
                 expanded_from=expanded_from,
             )
-        page = await db.scalar(
-            select(WorldBiblePage).where(
-                WorldBiblePage.novel_id == novel_id,
-                WorldBiblePage.id == target_id,
+        page = (
+            pages.get(target_id)
+            if pages is not None
+            else await db.scalar(
+                select(WorldBiblePage).where(
+                    WorldBiblePage.novel_id == novel_id,
+                    WorldBiblePage.id == target_id,
+                )
             )
         )
         if page is None:
@@ -322,11 +438,15 @@ class WorldBibleActivationTargetService:
                 expanded_from=expanded_from,
             )
         source_hash = WorldBibleLifecycleService.projection_source_hash(page)
-        projection = await db.scalar(
-            select(WorldBiblePageProjection).where(
-                WorldBiblePageProjection.novel_id == novel_id,
-                WorldBiblePageProjection.page_id == page.id,
-                WorldBiblePageProjection.projection_type == projection_type,
+        projection = (
+            projections.get(page.id)
+            if projections is not None
+            else await db.scalar(
+                select(WorldBiblePageProjection).where(
+                    WorldBiblePageProjection.novel_id == novel_id,
+                    WorldBiblePageProjection.page_id == page.id,
+                    WorldBiblePageProjection.projection_type == projection_type,
+                )
             )
         )
         ready = bool(
@@ -364,37 +484,6 @@ class WorldBibleActivationTargetService:
             fallback=not ready,
             warnings=warnings,
         )
-
-    async def _related_targets(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        entity_id: str,
-        relation_types: set[str],
-    ) -> list[TargetRef]:
-        try:
-            seed = parse_uuid(entity_id, "entity_id")
-        except Exception:
-            return []
-        result = await db.execute(
-            select(EntityRelation).where(
-                EntityRelation.novel_id == novel_id,
-                EntityRelation.status.in_(list(CONFIRMED_STATUSES)),
-                EntityRelation.relation_type.in_(sorted(relation_types)),
-                or_(
-                    EntityRelation.source_id == seed,
-                    EntityRelation.target_id == seed,
-                ),
-            )
-        )
-        targets = {
-            str(relation.target_id if relation.source_id == seed else relation.source_id)
-            for relation in result.scalars().all()
-        }
-        return [
-            TargetRef(target_type="core_entity", target_id=target_id)
-            for target_id in sorted(targets)
-        ]
 
     @staticmethod
     def _fallback_page_content(page: WorldBiblePage, *, reveal_mode: str) -> str:
