@@ -182,14 +182,14 @@ def test_frontend_browser_gate_keeps_its_independent_risk_contract() -> None:
     assert steps["Upload frontend functional browser diagnostics"]["if"] == "failure()"
 
 
-def test_frontend_unit_gate_lints_before_tests_and_build() -> None:
+def test_frontend_unit_gate_lints_before_tests_without_duplicate_build() -> None:
     workflow = _load_yaml(REPOSITORY_ROOT / ".github/workflows/frontend-ci.yml")
     steps = workflow["jobs"]["frontend-unit-quality"]["steps"]
     commands = [step.get("run") for step in steps]
 
     lint_index = commands.index("npm run lint")
     assert lint_index < commands.index("npm test")
-    assert lint_index < commands.index("npm run build")
+    assert "npm run build" not in commands
 
 
 def test_ask_world_report_is_written_to_the_uploaded_backend_path() -> None:

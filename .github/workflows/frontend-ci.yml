@@ -46,9 +46,6 @@ jobs:
       - name: Run frontend unit tests
         run: npm test
 
-      - name: Build frontend production bundle
-        run: npm run build
-
   frontend-functional-browser:
     name: Frontend functional browser
     runs-on: ubuntu-24.04
