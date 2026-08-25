@@ -42,9 +42,9 @@ test.describe("world 视觉基线", () => {
   })
 
   test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => localStorage.clear())
     await page.goto("/")
-    await page.evaluate(() => localStorage.clear())
-    await page.reload()
+    await page.addStyleTag({ content: "*, *::before, *::after { transition: none !important; }" })
   })
 
   test("world 对象库 × 三主题", async ({ page, projectFactory }) => {
@@ -56,7 +56,7 @@ test.describe("world 视觉基线", () => {
 
     await openWorkbench(page, proj, "world", "objects")
     await expect(page.locator(".world-hot-overview")).toBeVisible({ timeout: 10000 })
-    await expect(page.locator(".world-object-card[data-id]")).toHaveCount(4)
+    await expect(page.locator(".world-object-table tr[data-id]")).toHaveCount(4)
     for (const theme of THEMES) {
       await applyTheme(page, theme)
       await screenshotPage(page, `world-objects-${theme}.png`)
@@ -78,6 +78,38 @@ test.describe("world 视觉基线", () => {
     }
   })
 
+  test("world 待处理直达建议 × 桌面与手机", async ({ page, projectFactory }) => {
+    const proj = await projectFactory({ title: "视觉基线直达建议", genre: "fantasy", language: "zh" })
+    const candidate = await createEntity(proj.id, {
+      name: "沈无咎",
+      entity_type: "character",
+      status: "candidate",
+      summary: "旧友型反派，公开温和，暗中推动主角面对旧秩序。",
+      importance_level: "important",
+    })
+
+    await openWorkbench(page, proj, "world", "review-objects")
+    await page.evaluate(async ({ candidateId }) => {
+      await window.router.navigate("world", "review", true, new URLSearchParams({
+        kind: "objects",
+        entity_id: candidateId,
+        review_item: candidateId,
+        return_to: "world_ai",
+        return_subview: "objects",
+      }))
+    }, { candidateId: candidate.id })
+    await page.waitForFunction(() => !state.loading, { timeout: 10000 })
+    await expect(page.locator(".world-review-decision")).toContainText("决定是否采用“沈无咎”")
+    await applyTheme(page, "sticky")
+    await screenshotPage(page, "world-review-focused-desktop-sticky.png")
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(page.locator(".world-review-workbench")).toHaveClass(/is-detail-open/)
+    await screenshotPage(page, "world-review-focused-mobile-sticky.png")
+    await page.getByRole("button", { name: "忽略", exact: true }).scrollIntoViewIfNeeded()
+    await screenshotPage(page, "world-review-focused-mobile-actions-sticky.png")
+  })
+
   test("world 世界书 × 三主题", async ({ page, projectFactory }) => {
     const proj = await projectFactory({ title: "视觉基线世界书", genre: "fantasy", language: "zh" })
     await createWorldBiblePage(proj.id, { title: "世界基本背景", page_type: "background" })
@@ -90,5 +122,16 @@ test.describe("world 视觉基线", () => {
       await applyTheme(page, theme)
       await screenshotPage(page, `world-bible-${theme}.png`)
     }
+  })
+
+  test("world 世界书 × 手机宽度", async ({ page, projectFactory }) => {
+    const proj = await projectFactory({ title: "手机视觉基线世界书", genre: "fantasy", language: "zh" })
+    await createWorldBiblePage(proj.id, { title: "世界基本背景", page_type: "background" })
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await openWorkbench(page, proj, "world", "bible")
+    await expect(page.locator(".world-bible-workspace")).toBeVisible({ timeout: 10000 })
+    await applyTheme(page, "sticky")
+    await screenshotPage(page, "world-bible-mobile-sticky.png")
   })
 })

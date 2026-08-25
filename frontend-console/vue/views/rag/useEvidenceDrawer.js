@@ -94,7 +94,7 @@ export function useEvidenceDrawer() {
         content.value = {
           type: "object",
           title: hit.title,
-          itemJson: JSON.stringify(result.item || {}, null, 2),
+          item: result.item || {},
           evidenceCount: result.evidence_count || 0,
           isWorldObject: isWorldObjectRef(hit.target_ref),
           warnings: result.warnings || [],
@@ -102,7 +102,7 @@ export function useEvidenceDrawer() {
       }
     } catch (err) {
       if (!isCurrent(request) || err?.name === "AbortError") return
-      content.value = { type: "error", message: `读取失败：${err.message}` }
+      content.value = { type: "error", message: "证据读取失败，请关闭后再次打开这条结果。" }
     } finally {
       if (controller === request.controller) {
         controller = null
@@ -137,7 +137,7 @@ export function useEvidenceDrawer() {
       }
     } catch (err) {
       if (!isCurrent(request) || err?.name === "AbortError") return
-      content.value = { type: "error", message: `追踪失败：${err.message}` }
+      content.value = { type: "error", message: "原文证据追踪失败，请关闭后再试一次。" }
     } finally {
       if (controller === request.controller) {
         controller = null

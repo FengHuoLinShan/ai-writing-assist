@@ -4,14 +4,15 @@
       ref="trigger"
       class="action-menu-btn"
       type="button"
-      title="更多操作"
+      :title="triggerLabel"
       :id="triggerId"
       :aria-label="triggerLabel"
       aria-haspopup="menu"
       :aria-expanded="String(open)"
       :aria-controls="listId"
+      :disabled="disabled"
       @click.stop="toggle"
-    >···</button>
+    >{{ triggerText }}</button>
     <div :id="listId" class="action-menu-list" role="menu" :aria-labelledby="triggerId">
       <button
         v-for="(item, index) in items"
@@ -37,6 +38,8 @@ const props = defineProps({
   menuId: { type: String, required: true },
   items: { type: Array, default: () => [] }, // [{ action, label, class?, data? }]
   label: { type: String, default: "更多操作" },
+  triggerText: { type: String, default: "···" },
+  disabled: { type: Boolean, default: false },
 })
 const emit = defineEmits(["select"])
 

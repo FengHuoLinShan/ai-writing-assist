@@ -8,19 +8,41 @@
   <div>
     <p class="world-list-description">管理世界对象的别名、称号和化名。别名不独立创建对象。</p>
 
+    <form class="review-search-bar world-canonical-search" role="search" aria-label="查找已采用别名" @submit.prevent="applySearch">
+      <label class="world-review-quick-label" for="world-alias-search">查找别名</label>
+      <input
+        id="world-alias-search"
+        v-model="searchQuery"
+        class="form-input"
+        type="search"
+        placeholder="别名、所属对象或引用"
+        autocomplete="off"
+      >
+      <button class="btn btn-primary" type="submit">查找</button>
+      <button v-if="session.aliasListFilters.q" class="btn" type="button" @click="clearSearch">清除搜索</button>
+    </form>
+
     <!-- 错误态 -->
-    <div v-if="aliasesLoadError && !aliases.length" class="empty-state">
+    <div v-if="aliasesLoadError && !aliases.length" class="error-card" role="alert">
+      <strong>别名暂时没有加载出来</strong>
       <p>{{ aliasesLoadError }}</p>
+      <button class="btn btn-sm" type="button" @click="retryLoad">重新加载</button>
     </div>
 
     <!-- 空态 -->
     <div v-else-if="!aliases.length" class="empty-state">
-      <p>还没有设置别名。</p>
-      <p class="world-text-dim">别名可以帮助你管理角色的化名、称号和绰号。</p>
+      <p>{{ session.aliasListFilters.q ? "没有找到匹配的别名。" : "还没有设置别名。" }}</p>
+      <p class="world-text-dim">
+        {{ session.aliasListFilters.q ? "换个关键词，或清除搜索查看全部。" : "别名可以帮助你管理角色的化名、称号和绰号。" }}
+      </p>
     </div>
 
     <!-- 别名列表 -->
     <template v-else>
+      <p class="world-review-result-summary" role="status">
+        当前结果：{{ aliasesTotal }} 个别名
+      </p>
+
       <WorldBulkToolbar
         scope="world-aliases"
         :actions="[
@@ -33,7 +55,7 @@
         @run="onBulkAction"
       />
 
-      <table class="data-table">
+      <table class="data-table table-card-list world-canonical-list world-alias-list">
         <thead>
           <tr>
             <th class="selection-cell">
@@ -55,25 +77,39 @@
               <td class="selection-cell">
                 <WorldSelectionInput mode="one" scope="world-aliases" :id="aliasKeyOf(a)" :label="`选择别名 ${a.alias || ''}`" />
               </td>
-              <td v-if="index === 0" :rowspan="group.aliases.length" class="world-table-cell--type" style="vertical-align:top;">
+              <td
+                v-if="index === 0"
+                :rowspan="group.aliases.length"
+                class="world-table-cell--type world-alias-group-cell"
+                data-label="对象"
+              >
                 <div>{{ group.entityName }}</div>
-                <div v-if="group.aliases.length > 1" class="world-text-dim" style="margin-top:4px;">{{ group.aliases.length }} 个别名</div>
+                <div v-if="group.aliases.length > 1" class="world-text-dim world-alias-group-count">{{ group.aliases.length }} 个别名</div>
               </td>
-              <td>{{ a.alias }}</td>
-              <td>
+              <td class="world-alias-mobile-entity" data-label="对象">{{ group.entityName }}</td>
+              <td data-label="别名">{{ a.alias || "未填写" }}</td>
+              <td data-label="分类与类型">
                 <span class="badge" :class="a.alias_kind ? 'badge-canonical' : 'badge-candidate'">{{ kindLabel(reviewTypeCatalog, "alias", a.alias_kind) }}</span>
                 <div class="world-text-dim">{{ detailTypeLabel(reviewTypeCatalog, "alias", a.alias_type) }}</div>
               </td>
-              <td><span class="badge" :class="statusBadgeClassOf(a)">{{ statusLabelOf(a) }}</span></td>
-              <td class="world-table-cell--muted">{{ sourceLabelOf(a) }}</td>
-              <td>{{ a.confidence ? `${(a.confidence * 100).toFixed(0)}%` : "-" }}</td>
-              <td style="max-width:220px;color:var(--text-dim);font-size:12px;">
-                <template v-if="inlineEvidencePairs(a).length">
-                  <div v-for="([label, value]) in inlineEvidencePairs(a)" :key="label"><strong>{{ label }}：</strong>{{ value }}</div>
+              <td data-label="状态"><span class="badge" :class="statusBadgeClassOf(a)">{{ statusLabelOf(a) }}</span></td>
+              <td class="world-table-cell--muted" data-label="来源">{{ sourceLabelOf(a) }}</td>
+              <td data-label="置信度">{{ confidenceLabelOf(a) }}</td>
+              <td class="world-table-cell--dim" data-label="来源与证据">
+                <template v-if="authorEvidencePairs(a).length">
+                  <div class="world-canonical-evidence">
+                    <div v-for="([label, value]) in authorEvidencePairs(a)" :key="label"><strong>{{ label }}：</strong>{{ value }}</div>
+                  </div>
                 </template>
-                <template v-else>-</template>
+                <template v-else>暂无引用说明</template>
+                <details v-if="diagnosticEvidencePairs(a).length" class="world-canonical-diagnostics">
+                  <summary>诊断信息</summary>
+                  <div class="world-canonical-diagnostics__items">
+                    <div v-for="([label, value]) in diagnosticEvidencePairs(a)" :key="label"><strong>{{ label }}：</strong>{{ value }}</div>
+                  </div>
+                </details>
               </td>
-              <td>
+              <td data-label="操作">
                 <div class="row-actions">
                   <span v-if="a.managed_by_suggestion" class="world-text-dim">随对象建议处理</span>
                   <template v-else>
@@ -100,11 +136,12 @@
 </template>
 
 <script setup>
-import { computed, watch } from "vue"
+import { computed, ref, watch } from "vue"
 import { getRouter, getConfirmAction, getToast } from "../../../bridge/index.js"
 import { worldSession as session } from "../worldSession.js"
-import { deleteAlias, inlineEvidencePairs, syncRelationsAliasesRegistry, runCanonicalBulkAction, aliasKey, showAliasEditForm } from "../logic/worldRelationsAliasesOps.js"
+import { deleteAlias, syncRelationsAliasesRegistry, runCanonicalBulkAction, aliasKey, showAliasEditForm } from "../logic/worldRelationsAliasesOps.js"
 import { selectedItemsFrom, getBulkSelection, reconcileBulkSelection } from "../logic/worldBulkSelection.js"
+import { reviewQueryFromState } from "../logic/worldQuery.js"
 import { displayStateBadgeClass, worldAssetDisplay } from "../../../../shared/assetDisplayState.js"
 import { detailTypeLabel, kindLabel } from "../logic/worldTypeCatalog.js"
 import WorldBulkToolbar from "./WorldBulkToolbar.vue"
@@ -117,6 +154,11 @@ const props = defineProps({
   aliasesTotal: { type: Number, default: 0 },
   aliasesLoadError: { type: String, default: null },
   reviewTypeCatalog: { type: Object, default: () => ({}) },
+})
+
+const searchQuery = ref(session.aliasListFilters.q || "")
+watch(() => session.aliasListFilters.q, (value) => {
+  searchQuery.value = value || ""
 })
 
 // 注册表同步
@@ -135,7 +177,7 @@ const aliasGroups = computed(() => {
       group = {
         entityKey,
         entityId: alias.entity_id || "",
-        entityName: alias.entity_name || (alias.entity_id ? `${String(alias.entity_id).slice(0, 8)}...` : "未知对象"),
+        entityName: alias.entity_name || "未知对象",
         aliases: [],
       }
       byEntity.set(entityKey, group)
@@ -156,7 +198,27 @@ function aliasKeyOf(a) {
 }
 
 function sourceLabelOf(a) {
-  return a.source === "deep_import" ? "深度导入" : (a.source || "-")
+  return { deep_import: "深度导入", manual: "手动", ai_generated: "AI 生成" }[a.source] || a.source || "未记录"
+}
+
+function confidenceLabelOf(a) {
+  return a.confidence != null ? `${(Number(a.confidence) * 100).toFixed(0)}%` : "未记录"
+}
+
+function authorEvidencePairs(a) {
+  return [
+    ["章节", Number(a.source_chapter_index) > 0 ? a.source_chapter_index : ""],
+    ["场景", Number(a.scene_index) > 0 ? a.scene_index : ""],
+    ["引用", a.quote],
+  ].filter(([, value]) => value != null && String(value).trim() !== "")
+}
+
+function diagnosticEvidencePairs(a) {
+  return [
+    ["处理批次", a.workflow_id],
+    ["场景标识", Number(a.scene_index) > 0 ? "" : a.scene_id],
+    ["章节标识", Number(a.source_chapter_index) > 0 ? "" : a.source_chapter_id],
+  ].filter(([, value]) => value != null && String(value).trim() !== "")
 }
 
 function statusLabelOf(a) {
@@ -187,6 +249,26 @@ function onPageChange(delta) {
   if (newSkip < 0) return
   if (newSkip >= props.aliasesTotal) return
   filters.skip = newSkip
+  navigateAliases(filters)
+}
+
+function applySearch() {
+  const filters = session.aliasListFilters
+  filters.q = searchQuery.value.trim()
+  filters.skip = 0
+  navigateAliases(filters)
+}
+
+function clearSearch() {
+  searchQuery.value = ""
+  applySearch()
+}
+
+function navigateAliases(filters) {
+  getRouter()?.navigate?.("world", "aliases", true, reviewQueryFromState(filters, ["q"]))
+}
+
+function retryLoad() {
   getRouter()?.refresh?.()
 }
 

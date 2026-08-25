@@ -74,7 +74,7 @@ describe("账户模型连接", () => {
     overrideProjectId(null)
     const wrapper = mount(GlobalSettingsView, { props: makeProps() })
 
-    expect(wrapper.text()).toContain("账户与模型连接")
+    expect(wrapper.text()).toContain("AI 文本服务")
     expect(wrapper.findAll(".account-provider-card")).toHaveLength(2)
     expect(wrapper.text()).toContain("deepseek-v4-flash")
     expect(wrapper.text()).toContain("kimi-k3")
@@ -84,13 +84,22 @@ describe("账户模型连接", () => {
     expect(wrapper.find("#llm-base-url").exists()).toBe(false)
     expect(wrapper.find("#llm-temperature").exists()).toBe(false)
     expect(wrapper.text()).not.toContain("owner: local")
+    expect(wrapper.get(".settings-advanced-section").attributes("open")).toBeUndefined()
   })
 
-  it("有当前项目时可返回项目设置", async () => {
-    overrideProjectId("p1")
-    const wrapper = mount(GlobalSettingsView, { props: makeProps() })
-    await wrapper.find("#goto-recent-project-btn").trigger("click")
-    expect(globalThis.router.navigate).toHaveBeenCalledWith("project-settings")
+  it("模型连接加载失败时提供可重试错误态", async () => {
+    globalThis.api.settings.listLLMConnections.mockResolvedValueOnce(makeConnections())
+    const wrapper = mount(GlobalSettingsView, {
+      props: makeProps({ llmConnections: null, connectionsLoadError: "模型连接暂时无法加载。" }),
+    })
+
+    expect(wrapper.get(".settings-load-error").attributes("role")).toBe("alert")
+    expect(wrapper.findAll(".account-provider-card")).toHaveLength(0)
+    await wrapper.get(".settings-load-error button").trigger("click")
+    await flushPromises()
+
+    expect(wrapper.findAll(".account-provider-card")).toHaveLength(2)
+    expect(wrapper.find(".settings-load-error").exists()).toBe(false)
   })
 
   it("未连接模板必须先填 Key", async () => {
@@ -100,6 +109,8 @@ describe("账户模型连接", () => {
 
     expect(globalThis.toast).toHaveBeenCalledWith("请先填写 API Key", "warning")
     expect(globalThis.api.settings.connectLLMProvider).not.toHaveBeenCalled()
+    expect(wrapper.get("#account-key-error").attributes("role")).toBe("alert")
+    expect(wrapper.get("#account-llm-api-key").attributes("aria-invalid")).toBe("true")
   })
 
   it("模型模板单选组按标准键盘行为选择并移动焦点", async () => {
@@ -138,12 +149,14 @@ describe("账户模型连接", () => {
     const connection = deferred()
     const balances = deferred()
     const author = deferred()
-    globalThis.api.settings.activateLLMProvider.mockReturnValue(connection.promise)
+    globalThis.api.settings.connectLLMProvider.mockReturnValue(connection.promise)
     globalThis.api.settings.listLLMBalances.mockReturnValueOnce(balances.promise)
     globalThis.api.settings.updateGlobalAuthorPrefs.mockReturnValue(author.promise)
     const wrapper = mount(GlobalSettingsView, { props: makeProps() })
     const connectionSection = wrapper.get(".account-connection-section")
 
+    await wrapper.findAll(".account-provider-card")[1].trigger("click")
+    await wrapper.find("#account-llm-api-key").setValue("pending-key")
     void wrapper.find("#account-llm-save").trigger("click")
     await Promise.resolve()
     expect(connectionSection.attributes("aria-busy")).toBe("true")
@@ -156,10 +169,11 @@ describe("账户模型连接", () => {
     await flushPromises()
     expect(connectionSection.attributes("aria-busy")).toBe("false")
 
+    await wrapper.find("#author-daily-goal").setValue("800")
     void wrapper.find("#global-author-save").trigger("click")
     await Promise.resolve()
     const authorSection = wrapper.findAll(".settings-section")
-      .find((section) => section.text().includes("作者偏好"))
+      .find((section) => section.text().includes("创作偏好"))
     expect(authorSection.attributes("aria-busy")).toBe("true")
     expect(wrapper.get("#global-author-save").attributes("aria-busy")).toBe("true")
     author.resolve()
@@ -268,6 +282,8 @@ describe("账户模型连接", () => {
     })
     const wrapper = mount(GlobalSettingsView, { props: makeProps() })
 
+    await wrapper.findAll(".account-provider-card")[1].trigger("click")
+    await wrapper.find("#account-llm-api-key").setValue("journey-key")
     const saving = wrapper.find("#account-llm-save").trigger("click")
     await vi.waitFor(() => expect(globalThis.api.settings.listLLMBalances).toHaveBeenCalled())
     wrapper.unmount()
@@ -288,6 +304,8 @@ describe("账户模型连接", () => {
       },
     })
     const wrapper = mount(GlobalSettingsView, { props: makeProps() })
+    await wrapper.findAll(".account-provider-card")[1].trigger("click")
+    await wrapper.find("#account-llm-api-key").setValue("journey-key")
     const saving = wrapper.find("#account-llm-save").trigger("click")
     await vi.waitFor(() => expect(globalThis.api.settings.listLLMBalances).toHaveBeenCalled())
 
@@ -300,10 +318,16 @@ describe("账户模型连接", () => {
   })
 
   it("已验证模板留空 Key 时直接激活，不重复验证", async () => {
-    const wrapper = mount(GlobalSettingsView, { props: makeProps() })
+    const connections = makeConnections({
+      providers: makeConnections().providers.map((provider) => (
+        provider.provider_id === "kimi" ? { ...provider, connected: true } : provider
+      )),
+    })
+    const wrapper = mount(GlobalSettingsView, { props: makeProps({ llmConnections: connections }) })
+    await wrapper.findAll(".account-provider-card")[1].trigger("click")
     await wrapper.find("#account-llm-save").trigger("click")
 
-    expect(globalThis.api.settings.activateLLMProvider).toHaveBeenCalledWith("deepseek")
+    expect(globalThis.api.settings.activateLLMProvider).toHaveBeenCalledWith("kimi")
     expect(globalThis.api.settings.connectLLMProvider).not.toHaveBeenCalled()
   })
 
@@ -318,7 +342,10 @@ describe("账户模型连接", () => {
       },
     })
     const valid = mount(GlobalSettingsView, { props: makeProps() })
+    await valid.findAll(".account-provider-card")[1].trigger("click")
+    await valid.find("#account-llm-api-key").setValue("valid-return-key")
     await valid.find("#account-llm-save").trigger("click")
+    await flushPromises()
     expect(navigate).toHaveBeenCalledWith(
       "interaction",
       "11111111-1111-4111-8111-111111111111",
@@ -335,7 +362,10 @@ describe("账户模型连接", () => {
       },
     })
     const invalid = mount(GlobalSettingsView, { props: makeProps() })
+    await invalid.findAll(".account-provider-card")[1].trigger("click")
+    await invalid.find("#account-llm-api-key").setValue("invalid-return-key")
     await invalid.find("#account-llm-save").trigger("click")
+    await flushPromises()
     expect(navigate).not.toHaveBeenCalled()
   })
 
@@ -406,6 +436,7 @@ describe("作者偏好", () => {
     const wrapper = mount(GlobalSettingsView, { props: makeProps() })
     await wrapper.find("#author-daily-goal").setValue("500")
     await wrapper.find("#global-author-save").trigger("click")
+    await flushPromises()
 
     expect(globalThis.api.settings.updateGlobalAuthorPrefs).toHaveBeenCalledWith({
       daily_goal: 500,
@@ -413,5 +444,18 @@ describe("作者偏好", () => {
       default_focus_mode: false,
     })
     expect(globalThis.toast).toHaveBeenCalledWith("作者偏好已保存", "success")
+    expect(wrapper.get(".settings-save-state").text()).not.toBe("")
+  })
+
+  it("越界日更目标显示字段内错误并聚焦", async () => {
+    const wrapper = mount(GlobalSettingsView, { attachTo: document.body, props: makeProps() })
+    await wrapper.find("#author-daily-goal").setValue("100001")
+    await wrapper.find("#global-author-save").trigger("click")
+    await vi.waitFor(() => expect(document.activeElement?.id).toBe("author-daily-goal"))
+
+    expect(wrapper.get("#author-daily-goal").attributes("aria-invalid")).toBe("true")
+    expect(wrapper.get("#author-daily-goal-error").text()).toContain("0-100000")
+    expect(globalThis.api.settings.updateGlobalAuthorPrefs).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 })

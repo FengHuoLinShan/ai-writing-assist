@@ -263,6 +263,34 @@ class TestRelationshipCRUD:
         items = resp.json().get("items", [])
         assert len(items) >= 3
 
+    async def test_relationship_search_matches_endpoint_and_description(self, ctx):
+        """PostgreSQL 搜索不应因关系 JSON 证据列而失败或重复。"""
+        client, pid, eids = ctx
+        target = await client.post(
+            f"/api/world/entities?novel_id={pid}",
+            json={"name": "检索专用港口", "entity_type": "location"},
+        )
+        assert target.status_code == 201, target.text
+        created = await client.post(
+            f"/api/world/relations?novel_id={pid}",
+            json={
+                "source_id": eids["克莱恩·莫雷蒂"],
+                "target_id": target.json()["id"],
+                "relation_type": "ally_of",
+                "description": "雨夜结盟",
+            },
+        )
+        assert created.status_code == 201, created.text
+
+        for query in ("检索专用港口", "雨夜结盟"):
+            response = await client.get(
+                "/api/world/relations",
+                params={"novel_id": pid, "q": query},
+            )
+            assert response.status_code == 200, response.text
+            assert response.json()["total"] == 1
+            assert response.json()["items"][0]["id"] == created.json()["id"]
+
     async def test_relationship_delete_returns_204(self, ctx):
         """删除关系应返回 204"""
         client, pid, eids = ctx

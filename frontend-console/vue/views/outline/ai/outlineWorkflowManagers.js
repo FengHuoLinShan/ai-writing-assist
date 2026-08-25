@@ -58,7 +58,10 @@ export const outlineGenerateManager = createWorkflowManager({
     const activeTarget = state.preview?.target || state.meta?.target || "plot_thread"
     return activeTarget === currentTarget
   },
-  onScopeReset: (state) => { state.preview = null },
+  onScopeReset: (state) => {
+    state.preview = null
+    state.applyError = null
+  },
   skipRecover: (state, scopeMatches) => state.preview && scopeMatches,
   matchRecovered: (workflows) => {
     const appState = getAppState()
@@ -120,6 +123,7 @@ export function captureOutlineGeneratePreview(task, progress) {
     return null
   }
   state.taskId = sourceTaskId
+  state.applyError = null
   state.preview = {
     sourceTaskId,
     contextConfirmationId,
@@ -142,6 +146,7 @@ export function resetOutlineGenerateState() {
   s.meta = null
   s.progress = null
   s.preview = null
+  s.applyError = null
   s.ownerProjectId = null
   s.submitting = false
 }

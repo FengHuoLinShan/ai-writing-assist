@@ -11,18 +11,18 @@
     :aria-busy="editorMutationPending"
   >
     <!-- toolbar -->
-    <div class="view-header world-bible-toolbar">
-      <div class="view-header__title">
-        世界书
-        <span class="view-header__count">{{ pages.length }} 个页面</span>
+    <div class="world-bible-toolbar">
+      <div class="world-bible-toolbar__title">
+        <h1>世界笔记</h1>
+        <span>{{ pages.length }} 个页面</span>
       </div>
-      <div class="view-header__actions">
-        <span class="world-bible-toolbar__modes" role="group" aria-label="世界书展示模式">
+      <div class="world-bible-toolbar__actions">
+        <span class="world-bible-toolbar__modes" role="group" aria-label="世界笔记展示方式">
           <button
             v-for="(label, mode) in modeLabels"
             :key="mode"
-            class="btn btn-sm"
-            :class="{ 'btn-primary': displayMode === mode }"
+            class="btn btn-sm btn-ghost"
+            :class="{ 'is-active': displayMode === mode }"
             data-action="bible-set-display-mode"
             :data-mode="mode"
             :aria-pressed="displayMode === mode"
@@ -30,17 +30,22 @@
           >{{ label }}</button>
         </span>
         <button class="btn btn-sm btn-primary" data-action="bible-new-page" @click="createPage">新建页面</button>
-        <button class="btn btn-sm" data-action="bible-manage-categories" @click="openCategoryManager">管理分类</button>
-        <button class="btn btn-sm" data-action="bible-manage-page-templates" @click="openPageTemplateManager">页面模板</button>
-        <button class="btn btn-sm" data-action="bible-open-worldbook-import" @click="worldbookImportOpen = true">导入目录</button>
-        <button class="btn btn-sm" data-action="bible-open-suggestions" @click="openSuggestions">创设建议</button>
-        <button class="btn btn-sm" data-action="bible-open-conflicts" @click="openConflicts">冲突检查</button>
-        <button
-          class="btn btn-sm"
-          data-action="bible-inspect-current-page"
-          :disabled="!activePage && !semanticInspectionPending"
-          @click="inspectCurrentPage"
-        >{{ semanticInspectionPending ? "停止检修" : "检修当前页" }}</button>
+        <details class="world-bible-toolbar__more" data-section="bible-toolbar-more">
+          <summary class="btn btn-sm btn-ghost">更多工具</summary>
+          <div class="world-bible-toolbar__more-actions">
+            <button class="btn btn-sm" data-action="bible-manage-categories" @click="openCategoryManager">管理分类</button>
+            <button class="btn btn-sm" data-action="bible-manage-page-templates" @click="openPageTemplateManager">页面模板</button>
+            <button class="btn btn-sm" data-action="bible-open-worldbook-import" @click="worldbookImportOpen = true">导入目录</button>
+            <button class="btn btn-sm" data-action="bible-open-suggestions" @click="openSuggestions">创设建议</button>
+            <button class="btn btn-sm" data-action="bible-open-conflicts" @click="openConflicts">冲突检查</button>
+            <button
+              class="btn btn-sm"
+              data-action="bible-inspect-current-page"
+              :disabled="!activePage && !semanticInspectionPending"
+              @click="inspectCurrentPage"
+            >{{ semanticInspectionPending ? "停止检修" : "检修当前页" }}</button>
+          </div>
+        </details>
       </div>
     </div>
 
@@ -126,7 +131,7 @@
             </div>
             <p class="world-bible-page-card__summary">{{ pageExcerpt(page) }}</p>
             <div class="world-bible-page-card__footer">
-              <span>{{ projectionTask?.meta?.page_id === page.id ? `投影：${taskStatusLabel(projectionTask.status || 'pending')}` : '投影：按页查看' }}</span>
+              <span>{{ projectionTask?.meta?.page_id === page.id ? `写作参考：${taskStatusLabel(projectionTask.status || 'pending')}` : '写作参考：打开后查看' }}</span>
             </div>
             <div class="world-bible-page-card__actions">
               <button class="btn btn-sm btn-primary" data-action="bible-open-page-card" :data-page-id="page.id" @click="openPageCard(page.id)">打开编辑</button>
@@ -209,7 +214,7 @@
             </div>
             <p class="world-bible-page-card__summary">{{ pageExcerpt(page) }}</p>
             <div class="world-bible-page-card__footer">
-              <span>{{ projectionTask?.meta?.page_id === page.id ? `投影：${taskStatusLabel(projectionTask.status || 'pending')}` : '投影：按页查看' }}</span>
+              <span>{{ projectionTask?.meta?.page_id === page.id ? `写作参考：${taskStatusLabel(projectionTask.status || 'pending')}` : '写作参考：打开后查看' }}</span>
             </div>
             <div class="world-bible-page-card__actions">
               <button class="btn btn-sm btn-primary" data-action="bible-open-page-card" :data-page-id="page.id" @click="openPageCard(page.id)">打开编辑</button>
@@ -267,12 +272,20 @@
     <!-- EDITOR mode (default) -->
     <template v-else>
       <!-- synopsis panel -->
-      <section class="panel world-bible-synopsis-panel">
-        <div class="world-bible-panel__header">
+      <details
+        class="panel world-bible-synopsis-panel"
+        data-section="bible-synopsis"
+        :open="['queued', 'running'].includes(synopsis?.status)"
+      >
+        <summary class="world-bible-support-summary">
           <div>
-            <h2>世界观简介 <span class="badge">创作参考</span></h2>
+            <strong>世界观简介</strong>
+            <span class="badge">创作参考</span>
             <div class="world-bible-page-meta">AI 整理的参考资料；不会替代你已确认的核心设定。</div>
           </div>
+          <span class="world-bible-support-summary__status">{{ taskStatusLabel(synopsis?.status || 'missing') }}</span>
+        </summary>
+        <div class="world-bible-synopsis-panel__body">
           <div class="world-bible-panel__actions">
             <button
               class="btn btn-sm btn-primary"
@@ -285,24 +298,24 @@
             <button class="btn btn-sm" data-action="bible-toggle-synopsis-auto" @click="toggleSynopsisAuto">{{ synopsis?.auto_refresh_enabled ? '关闭自动维护' : '启用自动维护' }}</button>
             <button v-if="synopsis?.pinned" class="btn btn-sm" data-action="bible-unpin-synopsis" @click="unpinSynopsis">取消固定并刷新</button>
           </div>
-        </div>
-        <div class="world-bible-page-meta">
-          状态：{{ taskStatusLabel(synopsis?.status || 'missing') }}
-          <template v-if="synopsis?.current_revision">
-            · 第 {{ synopsis.current_revision.version_number }} 版
-            <template v-if="synopsis.current_revision.coverage_json?.source_count != null">
-              · 覆盖 {{ synopsis.current_revision.coverage_json.source_count }} 个来源
+          <div class="world-bible-page-meta">
+            状态：{{ taskStatusLabel(synopsis?.status || 'missing') }}
+            <template v-if="synopsis?.current_revision">
+              · 第 {{ synopsis.current_revision.version_number }} 版
+              <template v-if="synopsis.current_revision.coverage_json?.source_count != null">
+                · 覆盖 {{ synopsis.current_revision.coverage_json.source_count }} 个来源
+              </template>
             </template>
-          </template>
+          </div>
+          <pre v-if="synopsis?.current_revision?.rendered_text" class="generate-markdown-pre">{{ synopsis.current_revision.rendered_text }}</pre>
+          <div v-else class="world-bible-empty-hint">尚未生成简介；需要时会根据当前已保存资料准备临时参考。</div>
+          <details v-if="synopsisTask || (synopsis?.warnings || []).length" class="world-bible-diagnostics">
+            <summary>诊断信息</summary>
+            <div v-if="synopsisTask">任务编号：{{ synopsisTask.task_id || '未提供' }}</div>
+            <div v-for="(w, i) in (synopsis?.warnings || [])" :key="i" class="world-bible-projection-status__hint">{{ w }}</div>
+          </details>
         </div>
-        <pre v-if="synopsis?.current_revision?.rendered_text" class="generate-markdown-pre">{{ synopsis.current_revision.rendered_text }}</pre>
-        <div v-else class="world-bible-empty-hint">尚无成功版本；生成中心启用时会使用有界确定性降级资料。</div>
-        <details v-if="synopsisTask || (synopsis?.warnings || []).length" class="world-bible-diagnostics">
-          <summary>诊断信息</summary>
-          <div v-if="synopsisTask">任务编号：{{ synopsisTask.task_id || '未提供' }}</div>
-          <div v-for="(w, i) in (synopsis?.warnings || [])" :key="i" class="world-bible-projection-status__hint">{{ w }}</div>
-        </details>
-      </section>
+      </details>
 
       <!-- editor layout -->
       <div class="world-bible-layout">
@@ -355,12 +368,17 @@
               </div>
               <div class="world-bible-panel__actions">
                 <button v-if="activePage?.id" class="btn btn-sm" data-action="bible-improve-with-ai" @click="openInGenerationCenter">用 AI 完善此页</button>
-                <button class="btn btn-sm" data-action="bible-save-page" @click="savePage()">保存工作稿</button>
+                <button class="btn btn-sm" :class="{ 'btn-primary': !canPublish }" data-action="bible-save-page" @click="savePage()">保存工作稿</button>
                 <button v-if="canPublish" class="btn btn-sm btn-primary" data-action="bible-publish-page" @click="publishDraft">保存并发布</button>
-                <button v-if="isWorkingDraft" class="btn btn-sm" data-action="bible-discard-draft" @click="discardDraft">丢弃工作稿</button>
-                <button v-if="activePage?.id" class="btn btn-sm" data-action="bible-page-history" @click="openPageHistory">版本历史</button>
-                <button v-if="activePage?.id && !isWorkingDraft && activePage?.status !== 'archived'" class="btn btn-sm" data-action="bible-archive-page" @click="archivePage">归档页面</button>
-                <button v-if="activePage?.id" class="btn btn-sm" data-action="bible-refresh-projection" @click="refreshProjection(false)">刷新投影</button>
+                <details v-if="activePage?.id || isWorkingDraft" class="world-bible-editor-tools" data-section="bible-page-tools">
+                  <summary class="btn btn-sm btn-ghost">页面工具</summary>
+                  <div class="world-bible-editor-tools__actions">
+                    <button v-if="isWorkingDraft" class="btn btn-sm" data-action="bible-discard-draft" @click="discardDraft">丢弃工作稿</button>
+                    <button v-if="activePage?.id" class="btn btn-sm" data-action="bible-page-history" @click="openPageHistory">版本历史</button>
+                    <button v-if="activePage?.id && !isWorkingDraft && activePage?.status !== 'archived'" class="btn btn-sm" data-action="bible-archive-page" @click="archivePage">归档页面</button>
+                    <button v-if="activePage?.id" class="btn btn-sm" data-action="bible-refresh-projection" @click="refreshProjection(false)">更新写作参考</button>
+                  </div>
+                </details>
               </div>
             </div>
             <div class="world-bible-editor-layout">
@@ -374,22 +392,27 @@
                       <option v-for="cat in categoryOptions(editSource.page_type)" :key="cat.category_key" :value="cat.category_key">{{ cat.name }}</option>
                     </select>
                   </label>
-                  <label>排序
-                    <input class="form-input" id="bible-sort-order" type="number" :value="editSource.sort_order || 0" />
-                  </label>
-                  <label>页面模板
-                    <select class="form-select" id="bible-page-template">
-                      <option value="">空白页</option>
-                      <option v-for="tpl in pageTemplates" :key="tpl.template_key" :value="tpl.template_key" :selected="editSource.template_key === tpl.template_key">
-                        {{ tpl.name }} · v{{ tpl.version_number }}{{ tpl.builtin ? ' · 内置' : '' }}
-                      </option>
-                    </select>
-                  </label>
                 </div>
-                <div class="world-bible-template-actions">
-                  <button class="btn btn-sm" data-action="bible-apply-page-template" @click="applySelectedPageTemplate">应用模板到工作稿</button>
-                  <span v-if="editSource.template_key" class="badge">{{ editSource.template_key }} · v{{ editSource.template_version || 1 }}</span>
-                </div>
+                <details class="world-bible-page-settings" data-section="bible-page-settings">
+                  <summary>页面设置</summary>
+                  <div class="generate-form-grid">
+                    <label>页面顺序
+                      <input class="form-input" id="bible-sort-order" type="number" :value="editSource.sort_order || 0" />
+                    </label>
+                    <label>页面模板
+                      <select class="form-select" id="bible-page-template">
+                        <option value="">空白页</option>
+                        <option v-for="tpl in pageTemplates" :key="tpl.template_key" :value="tpl.template_key" :selected="editSource.template_key === tpl.template_key">
+                          {{ tpl.name }} · v{{ tpl.version_number }}{{ tpl.builtin ? ' · 内置' : '' }}
+                        </option>
+                      </select>
+                    </label>
+                  </div>
+                  <div class="world-bible-template-actions">
+                    <button class="btn btn-sm" data-action="bible-apply-page-template" @click="applySelectedPageTemplate">应用模板到工作稿</button>
+                    <span v-if="editSource.template_key" class="badge">{{ activeTemplateLabel }} · 第 {{ editSource.template_version || 1 }} 版</span>
+                  </div>
+                </details>
                 <label class="bible-ai-field">
                   页面概览
                   <textarea class="form-textarea world-bible-editor" id="bible-free-text" rows="8">{{ editSource.free_text || '' }}</textarea>
@@ -400,7 +423,7 @@
                   <div class="world-bible-sections__header">
                     <div>
                       <strong>页面分区</strong>
-                      <div class="world-bible-page-meta">按内容用途分段整理；创作辅助范围和技术标识默认收起。</div>
+                      <div class="world-bible-page-meta">按内容用途分段整理；创作辅助范围和维护信息默认收起。</div>
                     </div>
                     <button class="btn btn-sm" data-action="bible-section-add" @click="addSection">新增分区</button>
                   </div>
@@ -436,7 +459,7 @@
                         <details class="world-bible-section-advanced" data-section="bible-section-advanced">
                           <summary>创作辅助与高级设置</summary>
                           <div class="world-bible-section-advanced__body">
-                            <p class="world-bible-page-meta">默认设置适合普通资料。“公开世界常识”只描述故事内的知识范围，不会把页面公开给其他用户；“自动整理”控制页面摘要等派生资料，你显式选择整页作参考时仍可能读取本段。</p>
+                            <p class="world-bible-page-meta">默认设置适合普通资料。“公开世界常识”只描述故事内的知识范围，不会把页面公开给其他用户；“自动整理”控制 AI 是否据此准备摘要等参考资料，你明确选择整页作参考时仍可能读取本段。</p>
                             <div class="generate-form-grid">
                               <label>默认可见范围<select class="form-select" data-section-field="sensitivity_hint">
                                 <option value="author_safe" :selected="section.sensitivity_hint === 'author_safe'">作者规划可见</option>
@@ -444,15 +467,18 @@
                                 <option value="public_baseline" :selected="section.sensitivity_hint === 'public_baseline'">公开世界常识</option>
                               </select></label>
                               <label>自动整理<select class="form-select" data-section-field="projection_policy">
-                                <option value="eligible" :selected="section.projection_policy === 'eligible'">允许生成派生资料</option>
-                                <option value="excluded" :selected="section.projection_policy === 'excluded'">不生成派生资料</option>
+                                <option value="eligible" :selected="section.projection_policy === 'eligible'">参与自动整理</option>
+                                <option value="excluded" :selected="section.projection_policy === 'excluded'">不参与自动整理</option>
                               </select></label>
                             </div>
-                            <p class="world-bible-page-meta">稳定分区标识：<code>{{ section.section_id }}</code></p>
-                            <label class="bible-ai-field">
-                              局部引用标识（通常无需修改；每行一个，必须来自本页“关联资产”）
-                              <textarea class="form-textarea" data-section-field="linked_asset_ref_hashes" rows="2">{{ (section.linked_asset_ref_hashes || []).join('\n') }}</textarea>
-                            </label>
+                            <details class="world-bible-diagnostics">
+                              <summary>维护信息</summary>
+                              <p class="world-bible-page-meta">分区标识：<code>{{ section.section_id }}</code></p>
+                              <label class="bible-ai-field">
+                                局部引用标识（通常无需修改；每行一个，必须来自本页“关联资产”）
+                                <textarea class="form-textarea" data-section-field="linked_asset_ref_hashes" rows="2">{{ (section.linked_asset_ref_hashes || []).join('\n') }}</textarea>
+                              </label>
+                            </details>
                           </div>
                         </details>
                       </article>
@@ -511,44 +537,53 @@
         </main>
 
         <!-- activation inspector (right) -->
-        <aside class="panel world-bible-inspector">
-          <div class="world-bible-inspector__header">
+        <details
+          class="panel world-bible-inspector"
+          data-section="bible-ai-reference-rules"
+          :open="Boolean(currentProfile || activationTrace)"
+        >
+          <summary class="world-bible-support-summary">
             <div>
               <strong>AI 参考规则</strong>
               <div class="world-bible-page-meta">资料发布与规则发布相互独立。</div>
             </div>
-            <button class="btn btn-sm" data-action="bible-activation-new" @click="openActivationProfileEditor()">新建</button>
-          </div>
-          <label class="bible-ai-field">
-            规则方案
-            <select class="form-select" id="bible-activation-profile" v-model="activeActivationProfileId">
-              <option value="">未选择</option>
-              <option v-for="prof in activationProfiles" :key="prof.id" :value="prof.id">
-                {{ prof.name || '未命名规则方案' }} · 第 {{ prof.version_number }} 版 · {{ activationProfileStatusLabel(prof.status) }}
-              </option>
-            </select>
-          </label>
-          <template v-if="currentProfile">
-            <div class="world-bible-profile-summary">
-              <div><span class="badge">{{ activationProfileStatusLabel(currentProfile.status) }}</span> {{ currentProfile.name || '未命名规则方案' }}</div>
-              <div>{{ currentProfile.rules_json?.length || 0 }} 条规则 · 适用于 {{ currentProfile.applicable_actions_json?.length || 0 }} 类 AI 操作</div>
-            </div>
-            <div class="world-bible-inspector__actions">
-              <button class="btn btn-sm" data-action="bible-activation-edit" @click="openActivationProfileEditor(currentProfile)">编辑工作稿</button>
-              <button class="btn btn-sm btn-primary" data-action="bible-activation-publish" :disabled="currentProfile.status === 'archived'" @click="publishActivationProfile">发布规则</button>
+            <span class="world-bible-support-summary__status">{{ currentProfile ? activationProfileStatusLabel(currentProfile.status) : '按需设置' }}</span>
+          </summary>
+          <div class="world-bible-inspector__body">
+            <div class="world-bible-inspector__header">
+              <span class="world-bible-page-meta">仅在需要精确控制 AI 参考资料时设置。</span>
+              <button class="btn btn-sm" data-action="bible-activation-new" @click="openActivationProfileEditor()">新建规则</button>
             </div>
             <label class="bible-ai-field">
-              试运行任务文本
-              <textarea class="form-textarea" id="bible-activation-task" rows="4" placeholder="例如：描写北境商队使用银币"></textarea>
+              规则方案
+              <select class="form-select" id="bible-activation-profile" v-model="activeActivationProfileId">
+                <option value="">未选择</option>
+                <option v-for="prof in activationProfiles" :key="prof.id" :value="prof.id">
+                  {{ prof.name || '未命名规则方案' }} · 第 {{ prof.version_number }} 版 · {{ activationProfileStatusLabel(prof.status) }}
+                </option>
+              </select>
             </label>
-            <button class="btn btn-sm" data-action="bible-activation-dry-run" @click="dryRunActivationProfile">执行试运行</button>
-          </template>
-          <div v-else class="world-bible-empty-hint">创建或选择规则方案后，可配置关键词、排除词和固定参考资料。</div>
-          <!-- activation trace -->
-          <div v-if="activationTrace" class="world-bible-activation-trace">
+            <template v-if="currentProfile">
+              <div class="world-bible-profile-summary">
+                <div><span class="badge">{{ activationProfileStatusLabel(currentProfile.status) }}</span> {{ currentProfile.name || '未命名规则方案' }}</div>
+                <div>{{ currentProfile.rules_json?.length || 0 }} 条规则 · 用于 {{ currentProfile.applicable_actions_json?.length || 0 }} 种写作场景</div>
+              </div>
+              <div class="world-bible-inspector__actions">
+                <button class="btn btn-sm" data-action="bible-activation-edit" @click="openActivationProfileEditor(currentProfile)">编辑工作稿</button>
+                <button class="btn btn-sm btn-primary" data-action="bible-activation-publish" :disabled="currentProfile.status === 'archived'" @click="publishActivationProfile">发布规则</button>
+              </div>
+              <label class="bible-ai-field">
+                要预览的写作任务
+                <textarea class="form-textarea" id="bible-activation-task" rows="4" placeholder="例如：描写北境商队使用银币"></textarea>
+              </label>
+              <button class="btn btn-sm" data-action="bible-activation-dry-run" @click="dryRunActivationProfile">预览参考结果</button>
+            </template>
+            <div v-else class="world-bible-empty-hint">创建或选择规则方案后，可配置关键词、排除词和固定参考资料。</div>
+            <!-- activation trace -->
+            <div v-if="activationTrace" class="world-bible-activation-trace">
             <div class="world-bible-section-title">本次参考资料</div>
             <div v-for="(item, index) in (activationTrace.rule_evaluations || [])" :key="item.rule_id || index" class="world-bible-trace-rule" :class="{ 'is-matched': item.matched }">
-              规则 {{ index + 1 }} · {{ item.matched ? '命中' : '未命中' }} · {{ item.candidate_count || 0 }} 个候选
+              第 {{ index + 1 }} 条规则 · {{ item.matched ? '适用' : '不适用' }} · 找到 {{ item.candidate_count || 0 }} 份资料
               <div v-if="(item.blocked_clauses || []).length">{{ item.blocked_clauses.map(activationTraceReasonLabel).join('、') }}</div>
             </div>
             <div class="world-bible-trace-group">
@@ -563,7 +598,7 @@
               <div v-else class="world-bible-empty-hint">无</div>
             </div>
             <div class="world-bible-trace-group">
-              <strong>被排除 / 裁剪 ({{ (activationTrace.excluded_items || []).length }})</strong>
+              <strong>未加入 ({{ (activationTrace.excluded_items || []).length }})</strong>
               <template v-if="(activationTrace.excluded_items || []).length">
                 <div v-for="item in (activationTrace.excluded_items || [])" :key="item.label || item.target?.target_id" class="world-bible-trace-item">
                   <strong>{{ item.label || '未命名资料' }}</strong>
@@ -572,9 +607,10 @@
               </template>
               <div v-else class="world-bible-empty-hint">无</div>
             </div>
-            <div v-for="(w, i) in (activationTrace.warnings || [])" :key="i" class="world-bible-projection-status__hint">{{ w }}</div>
+            <div v-for="(w, i) in (activationTrace.warnings || [])" :key="i" class="world-bible-projection-status__hint">{{ activationTraceWarningLabel(w) }}</div>
+            </div>
           </div>
-        </aside>
+        </details>
       </div>
     </template>
   </section>
@@ -756,6 +792,7 @@ const authorOpenQuestionSourceCount = computed(
   () => new Set(authorOpenQuestions.value.map((item) => item.sourceKey)).size,
 )
 const currentProfile = computed(() => activationProfiles.value.find((p) => p.id === activeActivationProfileId.value) || null)
+const activeTemplateLabel = computed(() => pageTemplates.value.find((template) => template.template_key === editSource.value?.template_key)?.name || "当前模板")
 function activationProfileStatusLabel(status) {
   return ({ draft: "工作稿", published: "已发布", archived: "已归档" })[status] || "状态未知"
 }
@@ -776,6 +813,10 @@ function activationTraceReasonLabel(reason) {
     global_budget_evicted: "超出本次总参考篇幅",
     global_budget_truncated: "因本次总参考篇幅而缩短",
   })[reason] || "未满足当前参考规则"
+}
+function activationTraceWarningLabel(warning) {
+  return ({ projection_stale: "部分写作参考可能不是最新版本，请先更新页面的写作参考。" })[warning]
+    || "部分参考资料需要检查。"
 }
 const galleryMeta = computed(() => {
   const meta = typeMeta(galleryCategory.value || "custom")

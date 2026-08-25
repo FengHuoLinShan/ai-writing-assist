@@ -76,6 +76,11 @@ async function publishCurrentDraft(page) {
   return publishedPage
 }
 
+async function openDisclosure(page, section) {
+  const details = page.locator(`[data-section='${section}']`)
+  if (await details.getAttribute("open") === null) await details.locator("summary").first().click()
+}
+
 async function stopWorker(worker) {
   if (!worker || worker.exitCode !== null) return
   worker.kill("SIGINT")
@@ -120,6 +125,7 @@ test.describe("世界书工作台", () => {
   })
 
   test("页面创建、正文保存、投影刷新、审核弹窗和子视图切换都可用", async ({ page }) => {
+    test.setTimeout(60_000)
     const failedResponses = []
     const consoleErrors = []
 
@@ -138,7 +144,10 @@ test.describe("世界书工作台", () => {
 
     await expect(page.locator(".world-bible-workspace")).toBeVisible()
     await expect(page.locator(SEL.emptyState)).toContainText("创建一个世界书页面")
+    await expect(page.locator("[data-section='world-health']")).not.toHaveAttribute("open", "")
+    await expect(page.locator("[data-section='bible-synopsis']")).not.toHaveAttribute("open", "")
 
+    await openDisclosure(page, "bible-toolbar-more")
     await page.locator("[data-action='bible-manage-page-templates']").click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("页面模板")
     await page.locator("#bible-template-key").fill("e2e_trade_guide")
@@ -172,6 +181,7 @@ test.describe("世界书工作台", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("已发布", { timeout: 10000 })
     await expect(page.locator(".world-bible-editor-panel > .world-bible-panel__header .world-bible-page-meta")).toContainText("已采用")
 
+    await openDisclosure(page, "bible-ai-reference-rules")
     await page.locator("[data-action='bible-activation-new']").click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("新建 AI 参考规则")
     await page.locator("#bible-profile-name").fill("E2E 贸易规则")
@@ -180,14 +190,15 @@ test.describe("世界书工作台", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("规则工作稿已保存", { timeout: 10000 })
     await page.locator("#bible-activation-task").fill("描写北境商队支付银币")
     await page.locator("[data-action='bible-activation-dry-run']").click()
-    await expect(page.locator(".world-bible-activation-trace")).toContainText("命中")
+    await expect(page.locator(".world-bible-activation-trace")).toContainText("第 1 条规则 · 适用")
+    await expect(page.locator(".world-bible-activation-trace")).not.toContainText("projection_stale")
     await expect(page.locator(".world-bible-activation-trace")).toContainText("E2E 世界基本背景")
     await page.locator("[data-action='bible-activation-publish']").click()
     await page.locator(SEL.modalFooter).locator(SEL.btnDanger).click()
     await expect(page.locator(SEL.toastContainer)).toContainText("AI 参考规则已发布", { timeout: 10000 })
     await expect(page.locator(".world-bible-profile-summary")).toContainText("已发布")
 
-    const displayModes = page.getByRole("group", { name: "世界书展示模式", exact: true })
+    const displayModes = page.getByRole("group", { name: "世界笔记展示方式", exact: true })
     const editorMode = displayModes.locator("[data-mode='editor']")
     const galleryMode = displayModes.locator("[data-mode='gallery']")
     const filterMode = displayModes.locator("[data-mode='filter']")
@@ -259,6 +270,7 @@ test.describe("世界书工作台", () => {
     await expectNoAppErrors(page, "关联图范围切换后")
     await editorMode.click()
 
+    await openDisclosure(page, "bible-page-tools")
     await page.locator("[data-action='bible-refresh-projection']").click()
     await expectProjectionDone(page, workerHandle)
     await expect(page.locator(".world-bible-workspace")).toContainText("进度 100%")
@@ -278,6 +290,7 @@ test.describe("世界书工作台", () => {
     await expect(page.locator("#bible-activation-profile option", { hasText: "E2E 贸易规则" })).toContainText("已发布")
     await expectNoAppErrors(page, "页面刷新恢复后")
 
+    await openDisclosure(page, "bible-page-tools")
     await page.locator("[data-action='bible-page-history']").click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("世界书页面版本")
     await expect(page.locator(SEL.modalBody)).toContainText("v1")
@@ -290,19 +303,28 @@ test.describe("世界书工作台", () => {
     await page.locator(SEL.modalFooter).locator(".btn-danger").click()
     await expect(page.locator(SEL.toastContainer)).toContainText("已丢弃")
 
+    await openDisclosure(page, "bible-toolbar-more")
     await page.locator("[data-action='bible-manage-categories']").click()
     await page.locator("#bible-category-key").fill("technology")
     await page.locator("#bible-category-name").fill("技术体系")
     await page.locator("#bible-category-icon").fill("技术")
+    const categoryRefresh = page.waitForResponse((response) => (
+      response.request().method() === "GET"
+      && response.url().includes("/api/world/bible/categories")
+      && response.status() === 200
+    ))
     await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
     await expect(page.locator(SEL.toastContainer)).toContainText("类别已创建")
+    await categoryRefresh
 
+    await openDisclosure(page, "bible-toolbar-more")
     await page.locator("[data-action='bible-open-suggestions']").click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("创设建议")
     await expect(page.locator(SEL.modalBody)).toContainText("暂无待处理建议")
     await page.locator(SEL.modalClose).click()
     await expectNoAppErrors(page, "建议弹窗后")
 
+    await openDisclosure(page, "bible-toolbar-more")
     await page.locator("[data-action='bible-open-conflicts']").click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("冲突检查")
     await expect(page.locator(SEL.modalBody)).toContainText("暂无冲突检查项")
@@ -312,6 +334,11 @@ test.describe("世界书工作台", () => {
     await page.locator(SEL.subnavItem("objects")).click()
     await expect(page).toHaveURL(new RegExp(`#workbench/${testProject.id}/world/objects`))
     await expect(page.locator(".world-bible-workspace")).toHaveCount(0)
+    await page.goBack()
+    await expect(page.locator(".world-bible-workspace")).toBeVisible()
+    await expect(page.locator("#bible-free-text")).toHaveValue(freeText)
+    await page.goForward()
+    await expect(page).toHaveURL(new RegExp(`#workbench/${testProject.id}/world/objects`))
     await page.locator(SEL.subnavItem("bible")).click()
     await expect(page.locator(".world-bible-workspace")).toBeVisible()
     await expect(page.locator("#bible-free-text")).toHaveValue(freeText)

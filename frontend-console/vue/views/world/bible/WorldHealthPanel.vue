@@ -1,5 +1,9 @@
 <template>
-  <details class="panel world-health-panel" open data-section="world-health">
+  <details
+    class="panel world-health-panel"
+    data-section="world-health"
+    :open="busy || Boolean(error) || ['block'].includes(run?.gate) || ['failed', 'stale'].includes(run?.status)"
+  >
     <summary>
       <strong>世界健康</strong>
       <span class="badge" :class="gateClass">{{ statusLabel }}</span>

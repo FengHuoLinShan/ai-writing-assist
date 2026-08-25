@@ -6,6 +6,7 @@ import { expectNoPageOverflow, expectWithinViewport } from "./helpers/responsive
 
 test.describe("RAG 检索模块", () => {
   let testProjectId = null
+  let testProject = null
 
   test.beforeAll(async () => {
     await waitForBackend(60000)
@@ -17,6 +18,7 @@ test.describe("RAG 检索模块", () => {
       genre: "scifi",
       language: "zh",
     })
+    testProject = project
     testProjectId = project.id
 
     await openWorkbench(page, project, "rag", "status")
@@ -26,17 +28,26 @@ test.describe("RAG 检索模块", () => {
     if (testProjectId) {
       try { await cleanupProject(testProjectId) } catch {}
       testProjectId = null
+      testProject = null
     }
   })
 
   test("修复查找页面优先展示用户可理解的状态", async ({ page }) => {
     await expect(page.locator(SEL.viewTitle)).toHaveText("查找")
     await expect(page.getByRole("heading", { name: "查找资料尚未准备好" })).toBeVisible()
+    await expect(page.getByLabel("使用哪一版正文")).toBeVisible()
+    await expect(page.locator(".rag-status-overview")).toBeVisible()
     await expect(page.locator('[data-action="rebuild-index"]')).toHaveText("修复查找功能")
-    await expect(page.locator(".rag-diagnostic-details")).toContainText("诊断详情")
+    const diagnostics = page.locator(".rag-diagnostic-details")
+    await expect(diagnostics).not.toHaveAttribute("open", "")
+    await diagnostics.locator("summary").click()
+    await expect(page.locator('[data-action="prewarm-rag"]')).toBeVisible()
   })
 
-  test("键盘从修复页返回查找并可用浏览器后退恢复", async ({ page }) => {
+  test("键盘返回查找、浏览器后退并保留当前修复范围", async ({ page }) => {
+    await page.getByLabel("使用哪一版正文").selectOption("working")
+    await page.getByLabel("从第几章").fill("2")
+    await page.getByLabel("到第几章").fill("4")
     const returnToSearch = page.locator('.rag-repair-card [data-action="nav-search"]')
     await expect(returnToSearch).toHaveAttribute("type", "button")
     await returnToSearch.focus()
@@ -53,21 +64,148 @@ test.describe("RAG 检索模块", () => {
     await page.goBack()
     await expect(page.getByRole("heading", { name: "查找资料尚未准备好" })).toBeVisible()
     await expect(page.locator('[data-action="rebuild-index"]')).toBeVisible()
+    await expect(page.getByLabel("使用哪一版正文")).toHaveValue("working")
+    await expect(page.getByLabel("从第几章")).toHaveValue("2")
+    await expect(page.getByLabel("到第几章")).toHaveValue("4")
     await expectNoPageOverflow(page)
   })
 
-  test("390px 下检索输入和主操作可见且无水平溢出", async ({ page }) => {
+  test("390px 下主操作和更多条件可见、可理解且无水平溢出", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.locator('.rag-repair-card [data-action="nav-search"]').click()
 
     const input = page.getByLabel("检索关键词")
     const searchButton = page.locator('[data-action="do-search"]')
+    const searchKind = page.locator("#rag-search-kind")
+    const contentMode = page.locator("#rag-content-mode")
     await expect(input).toBeVisible()
+    await expect(page.getByText("想查什么", { exact: true })).toBeVisible()
+    await expect(searchButton).toHaveText("查找资料")
     await expectWithinViewport(input)
     await expectWithinViewport(searchButton)
+    await expectWithinViewport(searchKind)
+    await expectWithinViewport(contentMode)
     await expectNoPageOverflow(page)
     await expect(input).toHaveCSS("min-height", "44px")
-    await expect(searchButton).toHaveCSS("min-height", "42px")
+    await expect(searchButton).toHaveCSS("min-height", "44px")
+
+    const advanced = page.locator('[data-role="rag-advanced-filters"]')
+    await expect(advanced.locator('[data-role="rag-advanced-summary"]')).toHaveText("视角、章节和资料范围")
+    await advanced.locator("summary").click()
+    await expect(page.getByText("从哪里查", { exact: true })).toBeVisible()
+    await expect(page.getByText("按谁能看到的内容查", { exact: true })).toBeVisible()
+    await expect(page.locator("#rag-cutoff-field")).toBeHidden()
+    await expect(page.locator("#rag-character-field")).toBeHidden()
+    await page.locator("#rag-visibility-mode").selectOption("reader")
+    await expect(page.locator("#rag-cutoff-field")).toBeVisible()
+    await expect(page.locator("#rag-character-field")).toBeHidden()
+    await page.locator("#rag-visibility-mode").selectOption("character")
+    await expect(page.locator("#rag-character-field")).toBeVisible()
+    await page.locator("#rag-visibility-mode").selectOption("author")
+    await expect(page.locator("#rag-cutoff-field")).toBeHidden()
+    const includePending = page.locator("#rag-include-pending")
+    await expect(includePending).toBeDisabled()
+    await expect(page.locator("#rag-include-pending-help")).toContainText("先勾选“世界设定”")
+    await page.locator('[data-search-scope="world"]').check()
+    await expect(includePending).toBeEnabled()
+    await expect(page.locator("#rag-include-pending-help")).toContainText("还未采用")
+    await expectNoPageOverflow(page)
+  })
+
+  test("AI 工具内查找保留抽屉、搜索状态和手机安全边界", async ({ page, browserErrors }) => {
+    const failedApiResponses = []
+    page.on("response", (response) => {
+      if (response.url().includes("/api/") && response.status() >= 400) {
+        failedApiResponses.push(`${response.status()} ${response.request().method()} ${response.url()}`)
+      }
+    })
+    await page.route("**/api/context/evidence/search", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          total: 1,
+          hits: [{
+            kind: "manuscript",
+            title: "旧塔铜铃",
+            snippet: "旧塔的铜铃在换岗时响起。",
+            score: 0.92,
+            chapter_index: 1,
+            source_ref: { content_mode: "canonical", chapter_index: 1, version_number: 1 },
+          }],
+          warnings: [],
+          degraded: false,
+        }),
+      })
+    })
+    await openWorkbench(page, testProject, "writing")
+    await page.setViewportSize({ width: 375, height: 812 })
+
+    const trigger = page.locator('[data-action="open-owner-ai-drawer"]')
+    await trigger.click()
+    const drawer = page.locator("[data-owner-ai-drawer]")
+    const closeButton = page.locator('[data-action="close-owner-ai-drawer"]')
+    await expect(closeButton).toBeFocused()
+    await page.getByRole("tab", { name: "查找资料", exact: true }).click()
+    await expect(page.locator(".owner-ai-drawer__hint")).toContainText("打开来源不会修改正文或设定")
+
+    const [drawerBox, topbarBox, mobileNavBox] = await Promise.all([
+      drawer.boundingBox(),
+      page.locator("#topbar").boundingBox(),
+      page.locator(".sidebar-mobile-nav").boundingBox(),
+    ])
+    expect(drawerBox.y).toBeGreaterThanOrEqual(topbarBox.y + topbarBox.height - 1)
+    expect(drawerBox.y + drawerBox.height).toBeLessThanOrEqual(mobileNavBox.y + 1)
+    await expect(closeButton).toHaveCSS("min-height", "44px")
+    await expectNoPageOverflow(page)
+
+    await page.keyboard.press("Escape")
+    await expect(drawer).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+    await expect(page).not.toHaveURL(/(?:\?|&)owner_ai=1/)
+
+    await trigger.click()
+    await expect(page.getByRole("tabpanel", { name: "查找资料" })).toBeVisible()
+    const input = page.locator("#owner-ai-panel-evidence #rag-search-input")
+    await input.fill("旧塔")
+    await input.press("Enter")
+    await expect(page).toHaveURL(/owner_ai=1/)
+    await expect(page).toHaveURL(/owner_ai_mode=evidence/)
+    await expect(page).toHaveURL(/q=%E6%97%A7%E5%A1%94/)
+    await expect(drawer).toBeVisible()
+    await expect(page.locator("#owner-ai-panel-evidence .rag-result-card")).toHaveCount(1)
+
+    await page.goBack()
+    await expect(drawer).toBeVisible()
+    await expect(input).toHaveValue("")
+    await expect(page.locator("#owner-ai-panel-evidence .rag-result-card")).toHaveCount(0)
+    await page.goForward()
+    await expect(input).toHaveValue("旧塔")
+    await expect(page.locator("#owner-ai-panel-evidence .rag-result-card")).toHaveCount(1)
+
+    await page.reload()
+    await page.waitForFunction(() => !state.loading)
+    await expect(page.getByRole("tab", { name: "查找资料", exact: true })).toHaveAttribute("aria-selected", "true")
+    await expect(page.locator("#owner-ai-panel-evidence #rag-search-input")).toHaveValue("旧塔")
+    await expect(page.locator("#owner-ai-panel-evidence .rag-result-card")).toHaveCount(1)
+
+    await page.setViewportSize({ width: 812, height: 375 })
+    await expectWithinViewport(closeButton)
+    await expectNoPageOverflow(page)
+
+    const switchedProject = await createProject({ title: "AI 抽屉查找切换目标", genre: "fantasy", language: "zh" })
+    try {
+      await openWorkbench(page, switchedProject, "writing")
+      await expect(page.locator("[data-owner-ai-drawer]")).toHaveCount(0)
+      await page.locator('[data-action="open-owner-ai-drawer"]').click()
+      await page.getByRole("tab", { name: "查找资料", exact: true }).click()
+      await expect(page.locator("#owner-ai-panel-evidence #rag-search-input")).toHaveValue("")
+      await expect(page.locator("#owner-ai-panel-evidence .rag-result-card")).toHaveCount(0)
+    } finally {
+      await cleanupProject(switchedProject.id)
+    }
+    expect(browserErrors, `浏览器错误: ${JSON.stringify(browserErrors)}`).toHaveLength(0)
+    expect(failedApiResponses, `失败 API: ${JSON.stringify(failedApiResponses)}`).toHaveLength(0)
   })
 
   test("390px 下问世界先给可打开引用，明确保存后才进入待处理", async ({ page }) => {
@@ -186,7 +324,14 @@ test.describe("RAG 检索模块", () => {
     expect(requests[0]).toMatchObject({ chapter_from: 10, chapter_to: 10 })
   })
 
-  test("58 条证据按 20 条渐进展示并由 URL 前进后退恢复", async ({ page }) => {
+  test("58 条证据按 20 条渐进展示并由 URL 前进后退恢复", async ({ page, browserErrors }) => {
+    const browserErrorStart = browserErrors.length
+    const failedApiResponses = []
+    page.on("response", (response) => {
+      if (response.url().includes("/api/") && response.status() >= 400) {
+        failedApiResponses.push(`${response.status()} ${response.request().method()} ${response.url()}`)
+      }
+    })
     const requests = []
     await page.route("**/api/context/evidence/search", async (route) => {
       const payload = route.request().postDataJSON()
@@ -202,6 +347,7 @@ test.describe("RAG 检索模块", () => {
             kind: "manuscript",
             title: `${prefix} ${index + 1}`,
             snippet: `${payload.query}的固定证据 ${index + 1}`,
+            score: 0.92 - (index % 5) * 0.05,
             chapter_index: index + 1,
             source_ref: {
               content_mode: "canonical",
@@ -239,16 +385,50 @@ test.describe("RAG 检索模块", () => {
 
     await expect(page).toHaveURL(/q=%E6%97%A7%E5%A1%94/)
     await expect(page.locator(".rag-result-card")).toHaveCount(20)
+    await expect(page.getByRole("heading", { name: "查找结果" })).toBeVisible()
     await expect(page.locator(".rag-result-count")).toContainText("找到 58")
+    await expect(page.locator(".rag-result-score-help")).toHaveText("匹配度仅用于本次结果排序")
+    await expect(page.locator(".rag-result-score").first()).toContainText(/匹配度\s*92%/)
     await page.locator('[data-action="load-more-results"]').click()
     await expect(page.locator(".rag-result-card")).toHaveCount(40)
     await page.locator('[data-action="load-more-results"]').click()
     await expect(page.locator(".rag-result-card")).toHaveCount(58)
     await expect(page.locator('[data-action="load-more-results"]')).toHaveCount(0)
 
-    await page.locator('[data-action="open-hit"]').first().click()
-    await expect(page.locator("#rag-evidence-drawer")).toContainText("旧塔的铜铃")
+    const firstOpenButton = page.locator('[data-action="open-hit"]').first()
+    await firstOpenButton.click()
+    const drawer = page.locator("#rag-evidence-drawer")
+    await expect(drawer).toContainText("旧塔的铜铃")
+    await expect(drawer).toHaveAttribute("role", "dialog")
+    await expect(drawer).toHaveAttribute("aria-modal", "true")
+    await expect(page.locator('[data-action="close-drawer"]')).toBeFocused()
+    await page.locator(".rag-evidence-overlay").click({ position: { x: 20, y: 20 } })
+    await expect(drawer).toHaveCount(0)
+    await expect(firstOpenButton).toBeFocused()
+
+    await firstOpenButton.click()
+    await expect(drawer).toContainText("旧塔的铜铃")
+    await page.keyboard.press("Escape")
+    await expect(drawer).toHaveCount(0)
+    await expect(firstOpenButton).toBeFocused()
+
+    await page.setViewportSize({ width: 375, height: 812 })
+    await expect(firstOpenButton).toHaveCSS("min-height", "44px")
+    await expectNoPageOverflow(page)
+    await firstOpenButton.click()
+    await expectWithinViewport(drawer)
+    await expectNoPageOverflow(page)
+    await expect(page.locator('[data-action="close-drawer"]')).toHaveCSS("min-height", "44px")
     await page.locator('[data-action="close-drawer"]').click()
+    await expect(firstOpenButton).toBeFocused()
+
+    await page.setViewportSize({ width: 812, height: 375 })
+    await firstOpenButton.click()
+    await expectWithinViewport(drawer)
+    await expectWithinViewport(page.locator('[data-action="close-drawer"]'))
+    await expectNoPageOverflow(page)
+    await page.keyboard.press("Escape")
+    await expect(firstOpenButton).toBeFocused()
 
     const searchInput = page.getByLabel("检索关键词")
     await searchInput.fill("海港")
@@ -275,6 +455,25 @@ test.describe("RAG 检索模块", () => {
     await expect(page.getByLabel("检索关键词")).toHaveValue("旧塔")
     await expect(page.locator(".rag-result-card")).toHaveCount(20)
     expect(requests).toEqual(["旧塔", "海港", "旧塔", "旧塔"])
+
+    await page.reload()
+    await expect(page.getByLabel("检索关键词")).toHaveValue("旧塔")
+    await expect(page.locator(".rag-result-card")).toHaveCount(20)
+    expect(requests).toEqual(["旧塔", "海港", "旧塔", "旧塔", "旧塔"])
+
+    const switchedProject = await createProject({ title: "RAG 切换目标", genre: "fantasy", language: "zh" })
+    try {
+      await page.locator('[data-action="open-hit"]').first().click()
+      await expect(drawer).toBeVisible()
+      await openWorkbench(page, switchedProject, "rag", "search")
+      await expect(page.locator("#rag-evidence-drawer")).toHaveCount(0)
+      await expect(page.getByLabel("检索关键词")).toHaveValue("")
+    } finally {
+      await cleanupProject(switchedProject.id)
+    }
+
+    expect(browserErrors.slice(browserErrorStart), `浏览器错误: ${JSON.stringify(browserErrors.slice(browserErrorStart))}`).toHaveLength(0)
+    expect(failedApiResponses, `失败 API: ${JSON.stringify(failedApiResponses)}`).toHaveLength(0)
   })
 
   test("搜索空结果", async ({ page }) => {
@@ -291,7 +490,9 @@ test.describe("RAG 检索模块", () => {
     await page.locator("#rag-search-input").fill("不存在的词")
     await page.locator('[data-action="do-search"]').click()
 
-    await expect(page.locator("#rag-results")).toContainText("未找到匹配结果", { timeout: 10000 })
+    await expect(page.locator("#rag-results")).toContainText("没有找到匹配资料", { timeout: 10000 })
+    await expect(page.locator("#rag-results")).toContainText("试试缩短关键词")
+    await expect(page.locator('[data-action="retry-literal-search"]')).toHaveAttribute("type", "button")
   })
 
   test("通过真实 RAG chunk 搜索并验证 embedding 降级元数据", async ({ page }) => {
@@ -329,7 +530,7 @@ test.describe("RAG 检索模块", () => {
     await page.locator('[data-action="do-search"]').click()
 
     // 小说检索页只展示统一证据接口校验过的命中；孤立的旧 RAG chunk 不应直接进入作者证据视图。
-    await expect(page.locator("#rag-results")).toContainText("未找到匹配结果", { timeout: 10000 })
+    await expect(page.locator("#rag-results")).toContainText("没有找到匹配资料", { timeout: 10000 })
 
     const result = await page.evaluate(async ({ apiBase, projectId }) => {
       const resp = await fetch(`${apiBase}/rag/retrieve?novel_id=${projectId}`, {
@@ -352,9 +553,15 @@ test.describe("RAG 检索模块", () => {
     expect(result.warnings).toContain("embedding 降级为关键词检索")
   })
 
-  test("重建索引按钮可点击", async ({ page }) => {
+  test("修复范围先就地校验，再提交真实修复任务", async ({ page }) => {
+    await page.getByLabel("从第几章").fill("5")
+    await page.getByLabel("到第几章").fill("2")
+    await expect(page.locator("#rag-rebuild-range-error")).toContainText("结束章节不能小于起始章节")
+    await expect(page.locator('[data-action="rebuild-index"]')).toBeDisabled()
+
+    await page.getByLabel("从第几章").fill("1")
+    await page.getByLabel("到第几章").fill("1")
     await page.locator('[data-action="rebuild-index"]').click()
-    // 重建索引会提交异步任务，至少应该显示 toast
     await expect(page.locator(SEL.toastContainer)).toContainText("索引", { timeout: 10000 })
   })
 })

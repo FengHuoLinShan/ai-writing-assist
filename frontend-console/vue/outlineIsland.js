@@ -47,6 +47,9 @@ async function loadOutline() {
 
   if (subView === "scenes") {
     outlineGenerateManager.recover(projectId)
+    if (query.get("review") === "ai") {
+      return { projectId, subView, outlineGenerateReview: true }
+    }
     sceneAutoExtractManager.recover(projectId)
     sceneRuntimeManager.recover(projectId, query.get("scene_id") || null)
     try {
@@ -67,13 +70,20 @@ async function loadOutline() {
 
   if (subView === "story-outline") {
     const storyProps = await loadStoryOutlineProps(projectId)
-    return { projectId, subView, ...storyProps }
+    return { projectId, subView, editorMode: query.get("edit") === "1", ...storyProps }
   }
 
   // threads / arcs
   const filters = structureFiltersFromQuery(subView, query)
   const structureProps = await loadStructureProps({ projectId, subView, filters })
-  return { projectId, subView, structureFilters: filters, ...structureProps }
+  return {
+    projectId,
+    subView,
+    outlineGenerateReview: query.get("review") === "ai" && (subView === "threads" || subView === "arcs"),
+    structureFilters: filters,
+    informationFocus: query.get("information") || null,
+    ...structureProps,
+  }
 }
 
 function saveSubnavScroll() {

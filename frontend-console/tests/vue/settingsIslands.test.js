@@ -61,6 +61,9 @@ describe("settings island（全局设置）", () => {
     await island.onRendered()
 
     expect(content.querySelector(".global-settings-view")).toBeTruthy()
+    expect(content.querySelector(".settings-shell h1")?.textContent).toBe("账户设置")
+    expect(content.querySelector('[data-action="settings-scope-account"]')?.getAttribute("aria-current"))
+      .toBe("page")
     expect(content.querySelector("#account-llm-save")).toBeTruthy()
     expect(content.querySelector(".account-provider-card")?.textContent)
       .toContain("DeepSeek")
@@ -78,9 +81,10 @@ describe("settings island（全局设置）", () => {
     content.innerHTML = island.render()
     await island.onRendered()
 
-    expect(globalThis.toast).toHaveBeenCalledWith("加载全局设置失败", "error")
+    expect(globalThis.toast).toHaveBeenCalledWith("部分账户设置暂时无法加载", "error")
     expect(content.querySelector(".global-settings-view")).toBeTruthy()
-    expect(content.textContent).toContain("模型连接")
+    expect(content.textContent).toContain("模型连接暂时无法加载")
+    expect(content.querySelector(".settings-load-error")?.getAttribute("role")).toBe("alert")
     island.onLeave()
   })
 
@@ -171,6 +175,27 @@ describe("project-settings island（项目设置）", () => {
     expect(content.querySelector(".project-settings-view")).toBeTruthy()
     expect(content.textContent).toContain("测试项目")
     expect(content.querySelectorAll(".settings-tab-nav .tab-btn")).toHaveLength(2)
+    expect(content.querySelector(".settings-shell h1")?.textContent).toBe("当前作品设置")
+    island.onLeave()
+  })
+
+  it("预取失败时渲染可重试错误态而不是永久加载", async () => {
+    setBridgeOverrides({
+      state: { currentProjectId: "p1", currentProject: { title: "测试项目" } },
+      tryMigrateLocalAuthorPreferences: vi.fn(),
+    })
+    globalThis.api.settings.getEffectiveLLMSettings.mockRejectedValue(new Error("网络错误"))
+    globalThis.api.settings.getEffectiveAuthorPrefs.mockResolvedValue({})
+
+    const island = views["project-settings"]
+    await island.onEnter()
+    const content = setupWorkspace()
+    content.innerHTML = island.render()
+    await island.onRendered()
+
+    expect(content.querySelector(".settings-load-error")?.getAttribute("role")).toBe("alert")
+    expect(content.textContent).toContain("当前作品的设置暂时无法加载")
+    expect(content.textContent).not.toContain("加载中…")
     island.onLeave()
   })
 })

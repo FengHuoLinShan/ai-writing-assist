@@ -54,10 +54,10 @@ export const SCOPE_OPTIONS = [
 ].map(([value, label]) => ({ value, label }))
 
 export const REVEAL_OPTIONS = [
-  ["author_safe", "作者安全模式（隐藏隐藏真相）"],
-  ["author_full", "作者全知模式（显示所有信息）"],
-  ["reader", "读者模式（仅显示读者已知信息）"],
-  ["character", "角色视角模式（按人物知识边界）"],
+  ["author_safe", "作者（不包含隐藏真相）"],
+  ["author_full", "作者（包含全部资料）"],
+  ["reader", "读者（按阅读进度）"],
+  ["character", "角色（按人物所知）"],
 ].map(([value, label]) => ({ value, label }))
 
 export function listItems(data) {

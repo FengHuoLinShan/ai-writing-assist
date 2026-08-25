@@ -2,6 +2,7 @@
 import { computed } from "vue"
 import {
   formatNumber,
+  genreLabel,
   projectActivityTime,
   projectMonogram,
   projectName,
@@ -31,13 +32,12 @@ const created = computed(() => (
 const stats = computed(() => projectStats(props.project))
 const activeTime = computed(() => projectActivityTime(props.project))
 const stage = computed(() => (props.project.current_stage ? stageLabel(props.project.current_stage) : "创作进行中"))
-const genre = computed(() => props.project.genre || "未分类")
+const genre = computed(() => genreLabel(props.project.genre))
 const monogram = computed(() => projectMonogram(props.project))
 const description = computed(() => props.project.tone || props.project.description || "还没有写下作品简介，先从下一章继续。")
 
 const cardClasses = computed(() => [
   "project-card",
-  props.index === 0 ? "project-card--lead" : "",
   `project-card--variant-${props.index % 4}`,
   props.isCurrent ? "current" : "",
 ].filter(Boolean).join(" "))
@@ -52,9 +52,8 @@ const cardClasses = computed(() => [
     @click="emit('open', project.id)"
   >
     <div class="project-card__visual" aria-hidden="true">
-      <span class="project-card__visual-code">PROJECT / {{ String(index + 1).padStart(2, "0") }}</span>
+      <span class="project-card__visual-code">作品 / {{ String(index + 1).padStart(2, "0") }}</span>
       <strong>{{ monogram }}</strong>
-      <span class="project-card__visual-genre">{{ String(genre).toUpperCase() }}</span>
       <i class="project-card__visual-line"></i>
       <i class="project-card__visual-block"></i>
     </div>
@@ -77,7 +76,7 @@ const cardClasses = computed(() => [
           <span class="status-dot" :class="isCanonical ? 'canonical' : 'draft'"></span>
           <span>{{ isCanonical ? "进行中" : "已归档" }}</span>
         </div>
-        <span v-if="isCurrent" class="project-current-badge">CURRENT / 当前项目</span>
+        <span v-if="isCurrent" class="project-current-badge">当前项目</span>
       </div>
       <div class="project-card__eyebrow">
         <span>{{ genre }}</span>
@@ -88,15 +87,15 @@ const cardClasses = computed(() => [
       <p class="project-desc">{{ description }}</p>
       <dl class="project-stats" aria-label="项目统计">
         <div :title="stats.wordCountTitle">
-          <dt>WORDS / 字数</dt>
+          <dt>字数</dt>
           <dd>{{ stats.wordCountText }}</dd>
         </div>
         <div :title="stats.chapterCountTitle">
-          <dt>CHAPTERS / 章节</dt>
+          <dt>章节</dt>
           <dd>{{ stats.chapterCountText }}</dd>
         </div>
         <div :title="activeTime.full">
-          <dt>UPDATED / 最近</dt>
+          <dt>最近更新</dt>
           <dd>{{ activeTime.relative }}</dd>
         </div>
       </dl>

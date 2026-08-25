@@ -8,7 +8,7 @@
  *
  * 配套导出供卡片组件/编排方调用：
  *   showOutlineGeneratePreview / applyOutlineGeneratePreview
- *   collectEditedOutlineGeneratePreview / cancelOutlineAnalysisTask
+ *   cancelOutlineAnalysisTask
  *   generateOutlineLayer / analyzeOutline
  *
  * 所有模态经 bridge showModalHtml/confirmAction 展示；
@@ -16,7 +16,7 @@
  * 提交后 adopt 结果到对应的模块级管理器。
  */
 import { getApi, getAppState, getRouter, getToast, getShowModalHtml, getCloseModal, getConfirmAction, getEsc } from "../../../bridge/index.js"
-import { createOperationId, normalizeTaskProgress, persistActiveWorkflow } from "../../../../shared/workflowProgress.js"
+import { clearActiveWorkflow, createOperationId, normalizeTaskProgress, persistActiveWorkflow } from "../../../../shared/workflowProgress.js"
 import { confirmAiReference } from "../../../../shared/aiReferenceModal.js"
 import { importAuthorizationNotice, importAuthorizationPayload } from "../../../../shared/importAuthorization.js"
 import { getBulkSelection } from "../logic/outlineBulkSelection.js"
@@ -24,7 +24,6 @@ import {
   outlineGenerateManager,
   outlineAnalysisManager,
   plotAutoExtractManager,
-  resetOutlineGenerateState,
   resetOutlineAnalysisState,
   clearOutlineGenerateWorkflowsForTarget,
   outlineAnalysisContextSummary,
@@ -154,6 +153,7 @@ export async function generateOutlineLayer({ target, mode, instruction, selected
   const { api, state, toast } = getBridge()
   const projectId = state?.currentProjectId
   if (!projectId) { toast("请先选择项目", "warning"); return }
+  let operationId = null
   try {
     const label = P20_TARGET_LABELS[target]
     const selectionContext = target === "plot_thread"
@@ -172,7 +172,7 @@ export async function generateOutlineLayer({ target, mode, instruction, selected
       ...selectionContext,
     })
     if (state?.currentProjectId !== projectId) throw new Error("项目已切换，请在当前项目重新发起创作")
-    const operationId = createOperationId()
+    operationId = createOperationId()
     const meta = {
       start_chapter: startChapter,
       end_chapter: endChapter,
@@ -197,6 +197,7 @@ export async function generateOutlineLayer({ target, mode, instruction, selected
       operation_id: operationId,
     })
     if (!result?.task_id) throw new Error("内容生成未能开始，请稍后重试")
+    clearActiveWorkflow(operationId)
 
     if (state?.currentProjectId !== projectId) {
       persistActiveWorkflow({
@@ -215,105 +216,60 @@ export async function generateOutlineLayer({ target, mode, instruction, selected
     toast(`${label}建议生成任务已提交`, "success")
     return result
   } catch (err) {
+    if (operationId) clearActiveWorkflow(operationId)
     if (err?.message === "已取消 AI 参考资料确认") throw err
     toast(err.message || "操作失败", "error")
     throw err
   }
 }
 
-/**
- * 显示 outline generate 预览模态框。
- * 对应 vanilla _showOutlineGeneratePreview (L2108-2121) + _renderOutlineGeneratePreview (L2086-2105)。
- */
+/** 进入当前层建议的可刷新审阅页。 */
 export function showOutlineGeneratePreview() {
-  const { toast, showModalHtml, esc, closeModal } = getBridge()
+  const { toast, router } = getBridge()
   const preview = outlineGenerateManager.state.preview
   if (!preview) {
     toast("当前没有可采用的当前层建议", "warning")
     return
   }
-  const draft = preview.draftStructure || {}
-  const targetLabel = P20_TARGET_LABELS[preview.target] || "结构"
-  const overlaps = preview.overlap?.[preview.target === "plot_thread" ? "plot_threads" : preview.target === "outline_arc" ? "outline_arcs" : "scenes"] || []
-
-  const html = `
-    <div class="outline-generate-preview">
-      <div class="outline-preview-notice">
-        <strong>${esc(targetLabel)}待处理建议</strong>
-        <p>这里只包含当前层资产。JSON 可完整编辑；采用时会再次按严格契约、所选资产和上下文指纹校验。</p>
-        <p>模式：${preview.mode === "revise" ? "修订所选" : "新增设计"} · 当前层已有 ${esc(String(overlaps.length))} 项可能重叠资产</p>
-      </div>
-      ${(preview.warnings || []).length ? `<section class="outline-preview-attention"><h4>需要注意</h4><ul>${preview.warnings.map((item) => `<li>${esc(item)}</li>`).join("")}</ul></section>` : ""}
-      ${overlaps.length ? `<details class="outline-preview-section"><summary>重叠范围</summary><ul>${overlaps.map((item) => `<li>${esc(item.name || item.title || item.ref)}</li>`).join("")}</ul></details>` : ""}
-      <label class="form-group">完整结构化预览
-        <textarea class="form-textarea outline-preview-json" id="outline-layer-preview-json" rows="28" spellcheck="false">${esc(JSON.stringify(draft, null, 2))}</textarea>
-      </label>
-    </div>
-  `
-
-  showModalHtml(`${targetLabel}建议预览`, html, [
-    {
-      text: "采用到工作结构",
-      class: "btn-primary",
-      handler: () => applyOutlineGeneratePreview(),
-    },
-    { text: "关闭", class: "btn-ghost", handler: closeModal },
-  ], { size: "full" })
-}
-
-/**
- * 从预览模态框收集编辑后的 draft structure。
- * 对应 vanilla _collectEditedOutlineGeneratePreview (L2123-2133)。
- */
-export function collectEditedOutlineGeneratePreview() {
-  const raw = document.getElementById("outline-layer-preview-json")?.value
-  if (!raw) return JSON.parse(JSON.stringify(outlineGenerateManager.state.preview?.draftStructure || {}))
-  try {
-    const parsed = JSON.parse(raw)
-    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") throw new Error()
-    return parsed
-  } catch {
-    throw new Error("预览必须是有效的 JSON 对象")
+  const subView = { plot_thread: "threads", outline_arc: "arcs", planned_scene: "scenes" }[preview.target]
+  if (!subView) {
+    toast("这份结构建议暂时无法打开，请重新生成", "warning")
+    return
   }
+  const query = new URLSearchParams(router?.getCurrentQuery?.()?.toString() || "")
+  query.set("review", "ai")
+  router?.navigate?.("outline", subView, true, query)
 }
 
-/**
- * 采用 outline generate preview。
- * 对应 vanilla _applyOutlineGeneratePreview (L2135-2169)。
- */
-export async function applyOutlineGeneratePreview() {
-  const { api, state, toast, closeModal, router } = getBridge()
+/** 采用结构化审阅页提交的当前层建议。 */
+export async function applyOutlineGeneratePreview(editedDraft) {
+  const { api, state, toast } = getBridge()
   const preview = outlineGenerateManager.state.preview
-  if (!preview) return false
+  if (!preview || !editedDraft) return false
   const owner = {
     projectId: state?.currentProjectId,
     view: state?.currentView,
     subView: state?.currentSubView,
     preview,
-    modal: document.getElementById("outline-layer-preview-json"),
   }
   const ownsResult = () => Boolean(
     state?.currentProjectId === owner.projectId
     && state?.currentView === owner.view
     && state?.currentSubView === owner.subView
     && outlineGenerateManager.state.preview === owner.preview
-    && (!owner.modal || (
-      owner.modal.isConnected
-      && document.getElementById("outline-layer-preview-json") === owner.modal
-    )),
   )
   try {
+    outlineGenerateManager.state.applyError = null
     const response = await api.outline.applyStructurePreview({
       novel_id: owner.projectId,
       context_confirmation_id: preview.contextConfirmationId,
       source_task_id: preview.sourceTaskId,
-      draft_structure: collectEditedOutlineGeneratePreview(),
+      draft_structure: editedDraft,
       confirmed: true,
     })
     if (!ownsResult()) return true
     const appliedTarget = response?.target || preview.target || outlineGenerateManager.state.meta?.target || "plot_thread"
     clearOutlineGenerateWorkflowsForTarget(appliedTarget)
-    resetOutlineGenerateState()
 
     const counts = [
       response?.total_threads != null ? `剧情线 ${response.total_threads}` : "",
@@ -321,11 +277,13 @@ export async function applyOutlineGeneratePreview() {
       response?.total_scenes != null ? `场景 ${response.total_scenes}` : "",
     ].filter(Boolean).join(" · ")
     toast(`${P20_TARGET_LABELS[response?.target] || "结构"}已采用${counts ? `：${counts}` : ""}`, "success")
-    closeModal()
-    router?.refresh?.()
     return response
   } catch (err) {
     if (!ownsResult()) return true
+    outlineGenerateManager.state.applyError = {
+      status: Number(err?.status || err?.response?.status) || null,
+      message: err.message || "采用失败",
+    }
     toast(err.message || "采用失败", "error")
     return false
   }

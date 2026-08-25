@@ -8,41 +8,47 @@
 <template>
   <div>
     <!-- === 筛选面板（vanilla _renderStructureFilters "threads" L890-911） === -->
-    <div class="scene-management-filters" aria-label="结构资产筛选">
-      <label class="scene-filter-field">
-        <span>状态</span>
-        <select id="outline-filter-status" class="form-select" v-model="filterForm.status">
-          <option value="">全部状态</option>
-          <option v-for="[val, label] in threadStatusOptions" :key="val" :value="val">{{ label }}</option>
-        </select>
-      </label>
-      <label class="scene-filter-field">
-        <span>来源</span>
-        <select id="outline-filter-source" class="form-select" v-model="filterForm.source">
-          <option value="">全部来源</option>
-          <option v-for="[val, label] in STRUCTURE_SOURCE_OPTIONS" :key="val" :value="val">{{ label }}</option>
-        </select>
-      </label>
-      <label class="scene-filter-field">
-        <span>注意</span>
-        <select id="outline-filter-needs-review" class="form-select" v-model="filterForm.needs_review">
-          <option value="">全部注意原因</option>
-          <option value="true">需要人工检查</option>
-          <option value="false">无注意项</option>
-        </select>
-      </label>
-      <details class="outline-structure-diagnostic-filters" :open="Boolean(filterForm.workflow_id)">
-        <summary>诊断筛选{{ filterForm.workflow_id ? "（1）" : "" }}</summary>
-        <label class="scene-filter-field scene-filter-field--wide">
-          <span>处理批次编号</span>
-          <input class="form-input" id="outline-filter-workflow-id" data-diagnostic-field v-model="filterForm.workflow_id" placeholder="按处理批次编号精确筛选" />
+    <details ref="filterPanel" class="outline-structure-filters">
+      <summary>
+        <span class="outline-structure-filters__label">筛选剧情线</span>
+        <span class="outline-structure-filters__summary">{{ activeFilterCount ? `已启用 ${activeFilterCount} 项` : "未启用" }}</span>
+      </summary>
+      <div class="scene-management-filters" aria-label="剧情线筛选条件">
+        <label class="scene-filter-field">
+          <span>状态</span>
+          <select id="outline-filter-status" class="form-select" v-model="filterForm.status">
+            <option value="">全部状态</option>
+            <option v-for="[val, label] in threadStatusOptions" :key="val" :value="val">{{ label }}</option>
+          </select>
         </label>
-      </details>
-      <div class="scene-filter-actions">
-        <button class="btn btn-sm btn-primary" data-action="apply-outline-structure-filters" @click="applyFilters">应用</button>
-        <button class="btn btn-sm" data-action="reset-outline-structure-filters" @click="resetFilters">重置</button>
+        <label class="scene-filter-field">
+          <span>来源</span>
+          <select id="outline-filter-source" class="form-select" v-model="filterForm.source">
+            <option value="">全部来源</option>
+            <option v-for="[val, label] in STRUCTURE_SOURCE_OPTIONS" :key="val" :value="val">{{ label }}</option>
+          </select>
+        </label>
+        <label class="scene-filter-field">
+          <span>注意</span>
+          <select id="outline-filter-needs-review" class="form-select" v-model="filterForm.needs_review">
+            <option value="">全部注意原因</option>
+            <option value="true">需要人工检查</option>
+            <option value="false">无注意项</option>
+          </select>
+        </label>
+        <details class="outline-structure-diagnostic-filters" :open="Boolean(filterForm.workflow_id)">
+          <summary>更多筛选{{ filterForm.workflow_id ? "（已填写）" : "" }}</summary>
+          <label class="scene-filter-field scene-filter-field--wide">
+            <span>整理批次编号</span>
+            <input class="form-input" id="outline-filter-workflow-id" data-diagnostic-field v-model="filterForm.workflow_id" placeholder="需要排查某次整理时输入批次编号" />
+          </label>
+        </details>
+        <div class="scene-filter-actions">
+          <button type="button" class="btn btn-sm btn-primary" data-action="apply-outline-structure-filters" @click="applyFilters">应用</button>
+          <button type="button" class="btn btn-sm" data-action="reset-outline-structure-filters" @click="resetFilters">重置</button>
+        </div>
       </div>
-    </div>
+    </details>
 
     <!-- === 剧情线列表（vanilla _renderThreads L1152-1207） === -->
     <template v-if="threads.length > 0">
@@ -88,7 +94,7 @@
             </td>
             <td data-label="状态"><span class="badge" :class="threadStatusBadgeClass(t)">{{ threadStatusLabel(t) }}</span></td>
             <td data-label="名称">{{ t.name || t.title }}</td>
-            <td data-label="类型" class="outline-asset-meta">{{ t.thread_type || "-" }}</td>
+            <td data-label="类型" class="outline-asset-meta">{{ threadTypeLabel(t) }}</td>
             <td data-label="标记">
               <template v-if="threadBadges(t).length">
                 <span v-for="badge in threadBadges(t)" :key="`${badge.text}-${badge.cls}`" class="badge" :class="badge.cls">{{ badge.text }}</span>
@@ -128,18 +134,41 @@
     </div>
 
     <!-- === 信息推进（vanilla _renderThreadInformationProgression L1258-1288） === -->
-    <section class="outline-information-progress" id="outline-thread-information">
-      <h3>信息推进</h3>
-      <p class="writing-form-hint">伏笔与揭示在这里按同一条信息运动统一查看；底层计划仍供写作与上下文流程使用。</p>
+    <section
+      ref="informationSection"
+      class="outline-information-progress"
+      :class="{ 'is-deep-linked': informationFocusKind && !hasInformationFocusMatch }"
+      id="outline-thread-information"
+      tabindex="-1"
+      aria-labelledby="outline-thread-information-title"
+    >
+      <h3 id="outline-thread-information-title">信息推进</h3>
+      <p class="writing-form-hint">伏笔、暗示、揭示与兑现按同一条线索和章节排列；未归类的计划可在下方归入剧情线。</p>
       <template v-if="threads.length > 0">
-        <details v-for="thread in threads" :key="thread.id || thread.thread_id" class="outline-preview-section" :open="threadInformationPlans(thread).length === 0">
-          <summary>{{ thread.name || thread.title || "剧情线" }} · 信息推进 {{ informationMovements(thread).size }}</summary>
+        <details
+          v-for="thread in threads"
+          :key="thread.id || thread.thread_id"
+          class="outline-preview-section"
+          :class="{ 'is-deep-linked': threadHasInformationFocus(thread) }"
+          :data-thread-id="thread.id || thread.thread_id"
+          :data-information-focus-match="threadHasInformationFocus(thread) ? 'true' : undefined"
+          :open="informationMovements(thread).size > 0"
+        >
+          <summary>
+            <span>{{ thread.name || thread.title || "剧情线" }}</span>
+            <span class="outline-information-count">{{ informationMovements(thread).size }} 条推进</span>
+          </summary>
           <template v-if="informationMovements(thread).size">
-            <ol v-for="(items, idx) in informationMovementGroups(thread)" :key="idx" class="outline-information-timeline">
-              <li v-for="item in items" :key="item.plan.id" class="outline-information-node">
-                <span class="badge">{{ item.kind === "foreshadowing" ? "暗示 / 兑现" : "局部 / 完整揭示" }}</span>
-                <span v-if="informationPlanChapter(item.plan, item.kind)" class="outline-asset-mono">第 {{ informationPlanChapter(item.plan, item.kind) }} 章</span>
-                <span>{{ informationPlanContent(item.plan, item.kind) }}</span>
+            <ol class="outline-information-timeline">
+              <li v-for="(items, idx) in informationMovementGroups(thread)" :key="idx" class="outline-information-movement">
+                <h4>推进 {{ idx + 1 }}</h4>
+                <ul class="outline-information-events">
+                  <li v-for="item in items" :key="item.plan.id" class="outline-information-node" :data-kind="item.kind">
+                    <span class="outline-information-node__kind">{{ item.kind === "foreshadowing" ? "暗示 / 兑现" : "局部 / 完整揭示" }}</span>
+                    <span v-if="informationPlanChapter(item.plan, item.kind)" class="outline-asset-mono">第 {{ informationPlanChapter(item.plan, item.kind) }} 章</span>
+                    <span class="outline-information-node__content">{{ informationPlanContent(item.plan, item.kind) }}</span>
+                  </li>
+                </ul>
               </li>
             </ol>
           </template>
@@ -150,12 +179,12 @@
 
       <!-- 未归入剧情线 -->
       <details class="outline-preview-section" :open="unassignedPlans.length > 0">
-        <summary>未归入剧情线（{{ unassignedPlans.length }}）</summary>
+        <summary><span>未归入剧情线</span><span class="outline-information-count">（{{ unassignedPlans.length }}）</span></summary>
         <template v-if="unassignedPlans.length">
-          <ul>
+          <ul class="outline-information-unassigned-list">
             <li v-for="item in unassignedPlans" :key="`${item.kind}-${item.plan.id}`" class="outline-information-unassigned">
-              <span>{{ item.kind === "foreshadowing" ? (item.plan.name || item.plan.summary) : item.plan.secret_summary }}</span>
-              <select class="form-select" data-role="information-thread-assignment" :data-kind="item.kind" :data-id="item.plan.id" v-model="assignmentValues[`${item.kind}-${item.plan.id}`]" @change="assignPlan(item.kind, item.plan.id, $event.target.value)">
+              <span>{{ informationPlanName(item) }}</span>
+              <select class="form-select" data-role="information-thread-assignment" :data-kind="item.kind" :data-id="item.plan.id" :aria-label="`将 ${informationPlanName(item)} 归入剧情线`" v-model="assignmentValues[`${item.kind}-${item.plan.id}`]" @change="assignPlan(item.kind, item.plan.id, $event.target.value)">
                 <option value="">选择剧情线…</option>
                 <option v-for="thread in threads" :key="thread.id || thread.thread_id" :value="thread.id || thread.thread_id">{{ thread.name || thread.title || thread.id || thread.thread_id }}</option>
               </select>
@@ -169,7 +198,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, watch } from "vue"
+import { computed, nextTick, onMounted, reactive, ref, watch } from "vue"
 import { getRouter } from "../../../bridge/index.js"
 import { structureAssetDisplay, displayStateBadgeClass, assetAttentionReasons } from "../../../../shared/assetDisplayState.js"
 import {
@@ -201,6 +230,7 @@ const THREAD_BULK_ACTIONS = [
   { action: "review-threads", label: "批量采用 / 标记已检查", className: "btn-primary" },
   { action: "delete-threads", label: "批量删除", className: "btn-danger" },
 ]
+const THREAD_TYPE_LABELS = { main: "主线", sub: "支线", background: "暗线" }
 
 const props = defineProps({
   projectId: { type: String, default: null },
@@ -212,6 +242,7 @@ const props = defineProps({
   reveals: { type: Array, default: () => [] },
   unassignedForeshadowing: { type: Array, default: () => [] },
   unassignedReveals: { type: Array, default: () => [] },
+  informationFocus: { type: String, default: null },
   filters: { type: Object, default: () => ({ ...STRUCTURE_FILTER_DEFAULTS }) },
 })
 
@@ -219,6 +250,10 @@ const threadStatusOptions = computed(() => structureStatusOptions("threads"))
 
 // ---- Filters ----
 const threadScope = "outline-threads"
+const filterPanel = ref(null)
+const activeFilterCount = computed(() => (
+  ["status", "source", "needs_review", "workflow_id"].filter((key) => Boolean(props.filters?.[key])).length
+))
 const routeSignature = structureQueryFromState("threads", props.filters).toString()
 const restoredDraft = outlineFilterDrafts[threadScope]?.routeSignature === routeSignature
   ? outlineFilterDrafts[threadScope].value
@@ -238,10 +273,13 @@ watch(filterForm, (value) => {
   }
 }, { immediate: true, deep: true, flush: "sync" })
 
-function navigateFilters(filters) {
+async function navigateFilters(filters, restoreFilterFocus = false) {
   const query = structureQueryFromState("threads", filters)
   outlineFilterDrafts[threadScope].routeSignature = query.toString()
-  getRouter()?.navigate("outline", "threads", true, query)
+  const navigated = await getRouter()?.navigate("outline", "threads", true, query)
+  if (restoreFilterFocus && navigated !== false) {
+    document.querySelector(".outline-structure-filters > summary")?.focus()
+  }
 }
 
 const threadsTotal = computed(() => props.threadsTotal || 0)
@@ -266,6 +304,12 @@ const unassignedPlans = computed(() => [
   ...(props.unassignedForeshadowing || []).map((plan) => ({ kind: "foreshadowing", plan })),
   ...(props.unassignedReveals || []).map((plan) => ({ kind: "reveal", plan })),
 ])
+const informationFocusKind = computed(() => ({
+  foreshadowing: "foreshadowing",
+  reveals: "reveal",
+})[props.informationFocus] || null)
+const hasInformationFocusMatch = computed(() => props.threads.some(threadHasInformationFocus))
+const informationSection = ref(null)
 
 // ---- Assignment values (track selection per plan) ----
 const assignmentValues = reactive({})
@@ -307,6 +351,10 @@ function informationMovementGroups(thread) {
   return Array.from(informationMovements(thread).values())
 }
 
+function threadHasInformationFocus(thread) {
+  return Boolean(informationFocusKind.value && threadInformationPlans(thread).some((item) => item.kind === informationFocusKind.value))
+}
+
 function informationPlanChapter(plan, kind) {
   if (kind === "foreshadowing") {
     return plan.planned_seed_chapter || plan.planned_payoff_chapter || null
@@ -320,6 +368,21 @@ function informationPlanContent(plan, kind) {
   return plan.secret_summary
 }
 
+function informationPlanName(item) {
+  return item.kind === "foreshadowing"
+    ? (item.plan.name || item.plan.summary || "未命名伏笔")
+    : (item.plan.secret_summary || "未命名揭示")
+}
+
+onMounted(async () => {
+  if (!informationFocusKind.value) return
+  await nextTick()
+  const target = informationSection.value?.querySelector('[data-information-focus-match="true"] > summary')
+    || informationSection.value
+  target?.scrollIntoView?.({ block: "center" })
+  target?.focus?.({ preventScroll: true })
+})
+
 // ---- Status helpers ----
 function threadStatusLabel(t) {
   const safeStatus = new Set(["canonical", "draft", "candidate", "deprecated"]).has(t.status) ? t.status : "draft"
@@ -329,6 +392,7 @@ function threadStatusBadgeClass(t) {
   const safeStatus = new Set(["canonical", "draft", "candidate", "deprecated"]).has(t.status) ? t.status : "draft"
   return displayStateBadgeClass(structureAssetDisplay({ ...t, status: safeStatus }).displayState)
 }
+function threadTypeLabel(t) { return THREAD_TYPE_LABELS[t.thread_type] || "未分类" }
 
 // ---- Badges ----
 function threadBadges(t) {
@@ -384,12 +448,19 @@ function retryLoad() { getRouter()?.refresh() }
 function applyFilters() {
   const f = { ...STRUCTURE_FILTER_DEFAULTS, ...filterForm, skip: 0 }
   Object.assign(filterForm, f)
-  navigateFilters(f)
+  collapseFilters()
+  navigateFilters(f, true)
 }
 function resetFilters() {
   Object.assign(filterForm, STRUCTURE_FILTER_DEFAULTS)
   filterForm.skip = 0
-  navigateFilters(filterForm)
+  collapseFilters()
+  navigateFilters(filterForm, true)
+}
+function collapseFilters() {
+  if (!filterPanel.value) return
+  filterPanel.value.open = false
+  filterPanel.value.querySelector(":scope > summary")?.focus()
 }
 function changePage(delta) {
   const total = props.threadsTotal || 0

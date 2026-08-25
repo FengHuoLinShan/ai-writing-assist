@@ -4,6 +4,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { mount } from "@vue/test-utils"
+import { nextTick } from "vue"
 import RagSearchView from "../../../vue/views/rag/RagSearchView.vue"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 import { ragSearchSession, resetRagSearchSession } from "../../../vue/views/rag/ragSearchSession.js"
@@ -122,6 +123,32 @@ describe("表单初始化（路由为权威来源）", () => {
     expect(wrapper.find(".rag-advanced-filters").attributes("open")).toBeDefined()
     expect(wrapper.find('[data-role="rag-advanced-summary"]').text()).toContain("第 2–5 章")
   })
+
+  it("主查询和常用条件有可见标签与说明", () => {
+    overrideRouterQuery("")
+    const wrapper = mount(RagSearchView, { props: { projectId: "p1", characters: [], scenes: [] } })
+
+    expect(wrapper.get("form.novel-search-panel").exists()).toBe(true)
+    expect(wrapper.get('label[for="rag-search-input"]').text()).toContain("想查什么")
+    expect(wrapper.get("#rag-search-kind").attributes("aria-describedby")).toBe("rag-search-kind-help")
+    expect(wrapper.get("#rag-content-mode").attributes("aria-describedby")).toBe("rag-content-mode-help")
+    expect(wrapper.get('[data-role="rag-advanced-summary"]').text()).toBe("视角、章节和资料范围")
+    expect(wrapper.get("#rag-include-pending").attributes("disabled")).toBeDefined()
+    expect(wrapper.get("#rag-include-pending-help").text()).toContain("先勾选“世界设定”")
+  })
+
+  it("字面搜索锁定正文范围并解释原因", async () => {
+    overrideRouterQuery("")
+    const wrapper = mount(RagSearchView, { props: { projectId: "p1", characters: [], scenes: [] } })
+    await wrapper.get('[data-search-scope="world"]').setValue(true)
+    await wrapper.get("#rag-include-pending").setValue(true)
+    await wrapper.get("#rag-search-kind").setValue("literal")
+
+    expect(wrapper.get('[data-search-scope="world"]').attributes("disabled")).toBeDefined()
+    expect(wrapper.get('[data-search-scope="outline"]').attributes("disabled")).toBeDefined()
+    expect(wrapper.get("#rag-include-pending").element.checked).toBe(false)
+    expect(wrapper.text()).toContain("字面搜索只查正文")
+  })
 })
 
 describe("提交", () => {
@@ -131,7 +158,7 @@ describe("提交", () => {
     const input = wrapper.find("#rag-search-input")
     await input.setValue("旧塔")
     const originalInput = input.element
-    await wrapper.find('[data-action="do-search"]').trigger("click")
+    await wrapper.get("form.novel-search-panel").trigger("submit")
 
     const router = (await import("../../../vue/bridge/index.js")).getRouter()
     expect(router.navigate).not.toHaveBeenCalled()
@@ -145,6 +172,23 @@ describe("提交", () => {
     expect(ragSearchSession.formRouteSignature).toBe(route.toString())
   })
 
+  it("嵌入 AI 工具时保留外层页面和抽屉路由状态", async () => {
+    overrideRouterQuery("owner_ai=1&owner_ai_mode=evidence&chapter_index=2")
+    const wrapper = mount(RagSearchView, {
+      props: { projectId: "p1", characters: [], scenes: [], embedded: true },
+    })
+    await wrapper.get("#rag-search-input").setValue("旧塔")
+    await wrapper.get("form.novel-search-panel").trigger("submit")
+
+    const router = (await import("../../../vue/bridge/index.js")).getRouter()
+    const route = router.commitCurrentQuery.mock.calls.at(-1)[0]
+    expect(route.get("owner_ai")).toBe("1")
+    expect(route.get("owner_ai_mode")).toBe("evidence")
+    expect(route.get("chapter_index")).toBe("2")
+    expect(route.get("q")).toBe("旧塔")
+    await vi.waitFor(() => expect(globalThis.api.context.searchEvidence).toHaveBeenCalled())
+  })
+
   it("签名未变时本地直接搜索，不重复导航", async () => {
     overrideRouterQuery("q=旧塔&kind=smart&content_mode=canonical&visibility=author&scope=manuscript")
     const wrapper = mount(RagSearchView, { props: { projectId: "p1", characters: [], scenes: [] } })
@@ -153,7 +197,7 @@ describe("提交", () => {
     globalThis.api.context.searchEvidence.mockClear()
 
     const router = (await import("../../../vue/bridge/index.js")).getRouter()
-    await wrapper.find('[data-action="do-search"]').trigger("click")
+    await wrapper.get("form.novel-search-panel").trigger("submit")
     await vi.waitFor(() => expect(globalThis.api.context.searchEvidence).toHaveBeenCalled())
     expect(router.navigate).not.toHaveBeenCalled()
   })
@@ -163,7 +207,7 @@ describe("提交", () => {
     const wrapper = mount(RagSearchView, { props: { projectId: "p1", characters: [], scenes: [] } })
     await wrapper.find("#rag-search-input").setValue("旧塔")
     await wrapper.find("#rag-visibility-mode").setValue("reader")
-    await wrapper.find('[data-action="do-search"]').trigger("click")
+    await wrapper.get("form.novel-search-panel").trigger("submit")
     expect(globalThis.toast).toHaveBeenCalledWith("读者/角色视角必须设置可见截止章", "warning")
     expect(globalThis.api.context.searchEvidence).not.toHaveBeenCalled()
   })
@@ -175,7 +219,7 @@ describe("提交", () => {
     await wrapper.find("#rag-search-input").setValue("旧塔")
     await wrapper.find("#rag-chapter-from").setValue("10")
     await wrapper.find("#rag-chapter-to").setValue("5")
-    await wrapper.find('[data-action="do-search"]').trigger("click")
+    await wrapper.get("form.novel-search-panel").trigger("submit")
 
     expect(wrapper.find("#rag-chapter-range-error").text()).toBe("起始章不能大于结束章")
     expect(wrapper.find("#rag-chapter-from").element.value).toBe("10")
@@ -187,7 +231,7 @@ describe("提交", () => {
     expect(globalThis.api.context.searchEvidence).not.toHaveBeenCalled()
 
     await wrapper.find("#rag-chapter-to").setValue("10")
-    await wrapper.find('[data-action="do-search"]').trigger("click")
+    await wrapper.get("form.novel-search-panel").trigger("submit")
     expect(wrapper.find("#rag-chapter-range-error").exists()).toBe(false)
     expect(wrapper.find("#rag-chapter-from").attributes("aria-invalid")).toBeUndefined()
     expect(router.commitCurrentQuery).toHaveBeenCalledWith(expect.any(URLSearchParams), "push")
@@ -396,6 +440,25 @@ describe("问世界", () => {
 })
 
 describe("路由恢复", () => {
+  it("检索期间保留稳定骨架并播报状态", async () => {
+    let resolveSearch
+    globalThis.api.context.searchEvidence = vi.fn(() => new Promise((resolve) => {
+      resolveSearch = resolve
+    }))
+    overrideRouterQuery("q=旧塔&kind=smart&content_mode=canonical&visibility=author&scope=manuscript")
+    const wrapper = mount(RagSearchView, { props: { projectId: "p1", characters: [], scenes: [] } })
+
+    await vi.waitFor(() => expect(globalThis.api.context.searchEvidence).toHaveBeenCalled())
+    expect(wrapper.find(".loading-skeleton").attributes("role")).toBe("status")
+    expect(wrapper.find("#rag-results").attributes("aria-busy")).toBe("true")
+    expect(wrapper.find(".sr-only").text()).toContain("正在查找作品资料")
+    expect(wrapper.get('[data-action="do-search"]').attributes("disabled")).toBeDefined()
+    expect(wrapper.get('[data-action="do-search"]').text()).toBe("查找中…")
+
+    resolveSearch({ total: 0, hits: [], warnings: [], degraded: false })
+    await vi.waitFor(() => expect(wrapper.find("#rag-results").attributes("aria-busy")).toBeUndefined())
+  })
+
   it("挂载时按路由恢复并渲染结果", async () => {
     overrideRouterQuery("q=旧塔&kind=smart&content_mode=canonical&visibility=author&scope=manuscript")
     const wrapper = mount(RagSearchView, { props: { projectId: "p1", characters: [], scenes: [] } })
@@ -403,6 +466,7 @@ describe("路由恢复", () => {
       expect(wrapper.findAll(".rag-result-card")).toHaveLength(3)
     })
     expect(wrapper.find(".rag-result-count").text()).toContain("找到 3")
+    expect(wrapper.find(".rag-result-score").exists()).toBe(false)
     // signature 为 URLSearchParams 序列化结果（中文按百分号编码）
     expect(ragSearchSession.lastExecutedRouteSignature).toBe(
       new URLSearchParams("q=旧塔&kind=smart&content_mode=canonical&visibility=author&scope=manuscript").toString(),
@@ -441,7 +505,7 @@ describe("路由恢复", () => {
     expect(router.navigate).not.toHaveBeenCalled()
 
     await wrapper.find("#rag-chapter-from").setValue("2")
-    await wrapper.find('[data-action="do-search"]').trigger("click")
+    await wrapper.get("form.novel-search-panel").trigger("submit")
     expect(wrapper.find("#rag-chapter-range-error").exists()).toBe(false)
     expect(router.commitCurrentQuery).toHaveBeenCalledWith(expect.any(URLSearchParams), "push")
     expect(router.navigate).not.toHaveBeenCalled()
@@ -466,11 +530,34 @@ describe("路由恢复", () => {
     const wrapper = mount(RagSearchView, { props: { projectId: "p1", characters: [], scenes: [] } })
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(ragSearchSession.hits).toEqual([])
-    expect(wrapper.find(".rag-search-empty").text()).toContain("输入关键词后搜索")
+    expect(wrapper.find(".rag-search-empty").text()).toContain("输入人物、地点、事件或原文片段")
   })
 })
 
 describe("结果交互", () => {
+  it("无结果时给出下一步并可就地换用字面搜索", async () => {
+    overrideRouterQuery("q=旧塔&kind=smart&content_mode=canonical&visibility=author&scope=manuscript")
+    globalThis.api.context.searchEvidence = vi.fn(async () => ({
+      total: 0,
+      hits: [],
+      warnings: [],
+      degraded: false,
+    }))
+    globalThis.api.context.grepEvidence = vi.fn(async () => ({
+      total: 0,
+      hits: [],
+      warnings: [],
+      degraded: false,
+    }))
+
+    const wrapper = mount(RagSearchView, { props: { projectId: "p1", characters: [], scenes: [] } })
+    await vi.waitFor(() => expect(wrapper.get(".rag-results-empty h2").text()).toBe("没有找到匹配资料"))
+    expect(wrapper.find(".rag-results-empty").text()).toContain("试试缩短关键词")
+
+    await wrapper.get('[data-action="retry-literal-search"]').trigger("click")
+    await vi.waitFor(() => expect(globalThis.api.context.grepEvidence).toHaveBeenCalled())
+  })
+
   it("卡片直接展示父 Scene 与当前创作关系并可跳转", async () => {
     overrideRouterQuery(
       "q=铜铃&kind=smart&content_mode=canonical&visibility=author&scope=manuscript",
@@ -484,6 +571,7 @@ describe("结果交互", () => {
         kind: "manuscript",
         title: "第十一章",
         snippet: "林晚在旧塔找到铜铃。",
+        score: 0.91,
         chapter_index: 11,
         source_ref: { content_mode: "canonical", chapter_index: 11, version_number: 1 },
         scene_refs: [{
@@ -520,7 +608,9 @@ describe("结果交互", () => {
     expect(wrapper.find(".rag-result-context").text()).toContain("场景 10 · 进入旧塔")
     expect(wrapper.findAll(".rag-result-context__summary")).toHaveLength(2)
     expect(wrapper.find(".rag-result-context").text()).toContain("剧情承接")
-    expect(wrapper.find(".rag-result-evidence-label").text()).toBe("命中依据")
+    expect(wrapper.find(".rag-result-evidence-label").text()).toBe("匹配内容")
+    expect(wrapper.find(".rag-result-score").text()).toContain("匹配度91%")
+    expect(wrapper.find(".rag-result-score-help").text()).toBe("匹配度仅用于本次结果排序")
     expect(globalThis.api.context.searchEvidence).toHaveBeenCalledWith(
       expect.objectContaining({ context_scene_id: "scene-12" }),
       expect.any(Object),
@@ -570,11 +660,13 @@ describe("结果交互", () => {
     await vi.waitFor(() => expect(wrapper.findAll(".rag-result-card")).toHaveLength(3))
     await wrapper.find('[data-action="open-hit"]').trigger("click")
     await vi.waitFor(() => {
-      expect(wrapper.find("#rag-evidence-drawer").text()).toContain("旧塔的铜铃在夜里响起")
+      expect(document.getElementById("rag-evidence-drawer")?.textContent).toContain("旧塔的铜铃在夜里响起")
     })
-    expect(wrapper.find("#rag-evidence-drawer mark").text()).toBe("铜铃")
+    expect(document.querySelector("#rag-evidence-drawer mark")?.textContent).toBe("铜铃")
+    expect(document.getElementById("rag-evidence-drawer")?.getAttribute("role")).toBe("dialog")
 
-    await wrapper.find('[data-action="close-drawer"]').trigger("click")
-    expect(wrapper.find("#rag-evidence-drawer").attributes("hidden")).toBeDefined()
+    document.querySelector('[data-action="close-drawer"]')?.click()
+    await nextTick()
+    expect(document.getElementById("rag-evidence-drawer")).toBeNull()
   })
 })

@@ -4,32 +4,46 @@
   组件根负责子标签分派、进度/结果区与场景工作台的所有权切换。
 -->
 <template>
-  <SceneWorkbenchView
-    v-if="subView === 'scenes'"
-    :project-id="projectId"
-    :workbench="workbench"
-    :fusion-suggestions="fusionSuggestions"
-    :view-mode="viewMode"
-    :selected-scene-id="selectedSceneId"
-    :focused-suggestion-id="focusedSuggestionId"
-    :scene-filters="sceneFilters"
-    :active-health="activeHealth"
-    :advanced-filters-open="advancedFiltersOpen"
-    :scene-load-error="sceneLoadError"
-  />
+  <template v-if="subView === 'scenes'">
+    <OutlineHeader v-if="outlineGenerateReview" :sub-view="subView" :review-mode="true" />
+    <SceneWorkbenchView
+      v-else
+      :project-id="projectId"
+      :workbench="workbench"
+      :fusion-suggestions="fusionSuggestions"
+      :view-mode="viewMode"
+      :selected-scene-id="selectedSceneId"
+      :focused-suggestion-id="focusedSuggestionId"
+      :scene-filters="sceneFilters"
+      :active-health="activeHealth"
+      :advanced-filters-open="advancedFiltersOpen"
+      :scene-load-error="sceneLoadError"
+    />
+  </template>
   <template v-else>
-    <OutlineHeader :sub-view="subView" :structure-totals="structureTotals" />
+    <OutlineHeader :sub-view="subView" :structure-totals="structureTotals" :review-mode="outlineGenerateReview" />
   </template>
   <template v-if="subView === 'threads' || subView === 'arcs'">
-    <div v-if="hasAnyProgress" class="outline-toolbar-status">
+    <section v-if="hasAnyProgress && !outlineGenerateReview" class="outline-task-status" aria-labelledby="outline-active-tasks-title">
+      <h3 id="outline-active-tasks-title" class="outline-task-status__title">AI 任务</h3>
       <OutlineAnalysisProgressCard />
       <OutlineGenerateProgressCard />
       <PlotAutoExtractProgressCard />
-    </div>
-    <OutlineAnalysisResultCard />
+    </section>
+    <OutlineAnalysisResultCard v-if="!outlineGenerateReview" />
   </template>
+  <OutlineScenePreviewPage
+    v-if="subView === 'scenes' && outlineGenerateReview"
+    :project-id="projectId"
+  />
+  <OutlineStoryEditorPage
+    v-else-if="subView === 'story-outline' && editorMode"
+    :project-id="projectId"
+    :current="current"
+    :load-error="loadError"
+  />
   <OutlineStoryTab
-    v-if="subView === 'story-outline'"
+    v-else-if="subView === 'story-outline'"
     :project-id="projectId"
     :current="current"
     :history="history"
@@ -38,6 +52,14 @@
     :entities="entities"
     :load-error="loadError"
     :asset-load-error="assetLoadError"
+  />
+  <OutlineThreadPreviewPage
+    v-else-if="subView === 'threads' && outlineGenerateReview"
+    :project-id="projectId"
+  />
+  <OutlineArcPreviewPage
+    v-else-if="subView === 'arcs' && outlineGenerateReview"
+    :project-id="projectId"
   />
   <OutlineThreadsTab
     v-else-if="subView === 'threads'"
@@ -50,6 +72,7 @@
     :reveals="reveals"
     :unassigned-foreshadowing="unassignedForeshadowing"
     :unassigned-reveals="unassignedReveals"
+    :information-focus="informationFocus"
     :filters="structureFilters"
   />
   <OutlineArcsTab
@@ -68,8 +91,12 @@ import { computed, onMounted } from "vue"
 import OutlineHeader from "./components/OutlineHeader.vue"
 import OutlineAnalysisProgressCard from "./ai/OutlineAnalysisProgressCard.vue"
 import OutlineGenerateProgressCard from "./ai/OutlineGenerateProgressCard.vue"
+import OutlineArcPreviewPage from "./ai/OutlineArcPreviewPage.vue"
+import OutlineScenePreviewPage from "./ai/OutlineScenePreviewPage.vue"
+import OutlineThreadPreviewPage from "./ai/OutlineThreadPreviewPage.vue"
 import PlotAutoExtractProgressCard from "./ai/PlotAutoExtractProgressCard.vue"
 import OutlineAnalysisResultCard from "./ai/OutlineAnalysisResultCard.vue"
+import OutlineStoryEditorPage from "./story/OutlineStoryEditorPage.vue"
 import OutlineStoryTab from "./story/OutlineStoryTab.vue"
 import OutlineThreadsTab from "./components/OutlineThreadsTab.vue"
 import OutlineArcsTab from "./components/OutlineArcsTab.vue"
@@ -83,7 +110,9 @@ import {
 const props = defineProps({
   projectId: { type: String, default: null },
   subView: { type: String, default: "story-outline" },
+  editorMode: { type: Boolean, default: false },
   structureFilters: { type: Object, default: () => ({}) },
+  outlineGenerateReview: { type: Boolean, default: false },
   // story-outline 分支（storyOutlineData.loadStoryOutlineProps）
   current: { type: Object, default: null },
   history: { type: Array, default: () => [] },
@@ -99,6 +128,7 @@ const props = defineProps({
   reveals: { type: Array, default: () => [] },
   unassignedForeshadowing: { type: Array, default: () => [] },
   unassignedReveals: { type: Array, default: () => [] },
+  informationFocus: { type: String, default: null },
   structureTotals: { type: Object, default: () => ({ threads: 0, arcs: 0, foreshadowing: 0, reveals: 0 }) },
   structureLoadErrors: { type: Object, default: () => ({}) },
   // scenes 分支（sceneModel.loadSceneWorkbenchProps）

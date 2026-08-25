@@ -48,11 +48,11 @@ test.describe("世界对象 — 关系与别名", () => {
 
     // 刷新获取实体 ID
     await reloadWorkbench(page, "world", "objects")
-    await expect(page.locator(".world-object-card-grid")).toContainText("源对象")
-    await expect(page.locator(".world-object-card-grid")).toContainText("目标对象")
+    await expect(page.locator(SEL.dataTable)).toContainText("源对象")
+    await expect(page.locator(SEL.dataTable)).toContainText("目标对象")
 
-    const sourceId = await page.locator(".world-object-card", { hasText: "源对象" }).getAttribute("data-id")
-    const targetId = await page.locator(".world-object-card", { hasText: "目标对象" }).getAttribute("data-id")
+    const sourceId = await page.locator("tr[data-id]", { hasText: "源对象" }).getAttribute("data-id")
+    const targetId = await page.locator("tr[data-id]", { hasText: "目标对象" }).getAttribute("data-id")
 
     // When: 切换到关系子标签，创建关系
     await page.locator(SEL.subnavItem("relations")).click()
@@ -84,11 +84,84 @@ test.describe("世界对象 — 关系与别名", () => {
     await expect(page.locator(SEL.workspaceContent)).not.toContainText("测试关系描述")
   })
 
+  test("正式关系刷新后仍可管理，手机端保留完整操作", async ({ page, browserErrors }) => {
+    const source = await createEntity(testProjectId, { name: "移动端源对象", entity_type: "character", status: "canonical" })
+    const target = await createEntity(testProjectId, { name: "移动端目标对象", entity_type: "character", status: "canonical" })
+    const otherTarget = await createEntity(testProjectId, { name: "备用目标对象", entity_type: "location", status: "canonical" })
+    await createRelation(testProjectId, {
+      source_id: source.id,
+      target_id: target.id,
+      relation_type: "friend_of",
+      description: "手机端也能完整管理",
+      strength: 0.8,
+      status: "canonical",
+      review_meta: {
+        workflow_id: "e2e-internal-workflow",
+        scene_index: 4,
+        source_chapter_index: 2,
+        quote: "他们一直互相照应。",
+      },
+    })
+    await createRelation(testProjectId, {
+      source_id: source.id,
+      target_id: otherTarget.id,
+      relation_type: "ally_of",
+      relation_kind: "social",
+      description: "另一条正式关系",
+      strength: 0.5,
+      status: "canonical",
+    })
+
+    await reloadWorkbench(page, "world", "relations")
+    await expect(page.locator("table.world-canonical-list")).toHaveClass(/table-card-list/)
+    await expect(page.locator(".world-canonical-list")).toContainText("手机端也能完整管理")
+
+    await page.reload()
+    await expect(page.locator(".world-canonical-list")).toContainText("手机端也能完整管理")
+
+    const relationSearch = page.getByRole("search", { name: "查找已采用关系" })
+    await relationSearch.getByLabel("查找关系").fill("完整管理")
+    const relationSearchResponse = page.waitForResponse((response) => (
+      response.url().includes("/api/world/relations?")
+      && response.url().includes("q=%E5%AE%8C%E6%95%B4%E7%AE%A1%E7%90%86")
+      && response.status() === 200
+    ))
+    await relationSearch.getByRole("button", { name: "查找", exact: true }).click()
+    await relationSearchResponse
+    await expect(page).toHaveURL(/q=%E5%AE%8C%E6%95%B4%E7%AE%A1%E7%90%86/)
+    await expect(page.locator(".world-canonical-list tbody tr[data-id]")).toHaveCount(1)
+    await expect(page.locator(".world-canonical-list")).not.toContainText("另一条正式关系")
+
+    await page.reload()
+    await expect(relationSearch.getByLabel("查找关系")).toHaveValue("完整管理")
+    await page.goBack()
+    await expect(page).not.toHaveURL(/q=/)
+    await expect(page.locator(".world-canonical-list")).toContainText("另一条正式关系")
+    await page.goForward()
+    await expect(page).toHaveURL(/q=/)
+    await expect(page.locator(".world-canonical-list tbody tr[data-id]")).toHaveCount(1)
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    const relationRow = page.locator("tr", { hasText: "手机端也能完整管理" })
+    for (const label of ["源对象", "关系分类与类型", "目标对象", "状态", "描述", "来源与证据", "操作"]) {
+      await expect(relationRow.locator(`td[data-label="${label}"]`)).toBeVisible()
+    }
+    await expect(relationRow.getByRole("button", { name: "编辑" })).toBeVisible()
+    await expect(relationRow.getByRole("button", { name: "删除" })).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+
+    await relationRow.getByRole("button", { name: "编辑" }).click()
+    await expect(page.locator(SEL.modalTitle)).toHaveText("编辑关系")
+    await page.locator(SEL.modalClose).click()
+    await expect(page.locator(SEL.modalOverlay)).toHaveClass(/hidden/)
+    expect(browserErrors).toEqual([])
+  })
+
   /*
    * 别名管理 API 已就绪：POST /api/world/aliases、DELETE /api/world/entities/:id/aliases
    * 前端 worldView.js 通过"别名"子标签提供创建/删除 UI。
    */
-  test("创建别名并显示在列表中", async ({ page }) => {
+  test("创建别名并显示在列表中", async ({ page, projectFactory, browserErrors }) => {
     // Given: 已存在一个实体
     await page.locator("#btn-new-entity").click()
     await page.locator("#create-entity-name").fill("主角")
@@ -98,8 +171,8 @@ test.describe("世界对象 — 关系与别名", () => {
 
     // 刷新获取实体 ID
     await reloadWorkbench(page, "world", "objects")
-    await expect(page.locator(".world-object-card-grid")).toContainText("主角")
-    const entityId = await page.locator(".world-object-card", { hasText: "主角" }).getAttribute("data-id")
+    await expect(page.locator(SEL.dataTable)).toContainText("主角")
+    const entityId = await page.locator("tr[data-id]", { hasText: "主角" }).getAttribute("data-id")
 
     // When: 通过兼容深链进入别名管理，创建别名
     await reloadWorkbench(page, "world", "aliases")
@@ -130,10 +203,68 @@ test.describe("世界对象 — 关系与别名", () => {
     await expect(page.locator(SEL.dataTable)).toContainText("昵称")
     await expect(page.locator(SEL.dataTable)).toContainText("代号")
     await expect(page.locator(SEL.dataTable)).toContainText("别名")
+
+    await page.reload()
+    await expect(page.locator("table.world-alias-list")).toHaveClass(/table-card-list/)
+
+    const aliasSearch = page.getByRole("search", { name: "查找已采用别名" })
+    await aliasSearch.getByLabel("查找别名").fill("代号")
+    const aliasSearchResponse = page.waitForResponse((response) => (
+      response.url().includes("/api/world/aliases?")
+      && response.url().includes("q=%E4%BB%A3%E5%8F%B7")
+      && response.status() === 200
+    ))
+    await aliasSearch.getByRole("button", { name: "查找", exact: true }).click()
+    await aliasSearchResponse
+    await expect(page).toHaveURL(/q=%E4%BB%A3%E5%8F%B7/)
+    await expect(page.locator(".world-alias-list tbody tr[data-id]")).toHaveCount(1)
+    await expect(page.locator(".world-alias-list")).not.toContainText("小名")
+
+    await page.reload()
+    await expect(aliasSearch.getByLabel("查找别名")).toHaveValue("代号")
+    await page.goBack()
+    await expect(page).not.toHaveURL(/q=/)
+    await expect(page.locator(".world-alias-list")).toContainText("小名")
+    await page.goForward()
+    await expect(page).toHaveURL(/q=/)
+    await expect(page.locator(".world-alias-list tbody tr[data-id]")).toHaveCount(1)
+    await aliasSearch.getByRole("button", { name: "清除搜索" }).click()
+    await expect(page).not.toHaveURL(/q=/)
+    await expect(page.locator(".world-alias-list")).toContainText("小名")
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    const aliasRow = page.locator('tr[data-id]').filter({ hasText: "小名" })
+    await expect(aliasRow.locator('.world-alias-mobile-entity[data-label="对象"]')).toContainText("主角")
+    for (const label of ["别名", "分类与类型", "状态", "来源", "置信度", "来源与证据", "操作"]) {
+      await expect(aliasRow.locator(`td[data-label="${label}"]`)).toBeVisible()
+    }
+    await expect(aliasRow.getByRole("button", { name: "编辑" })).toBeVisible()
+    await expect(aliasRow.getByRole("button", { name: "删除" })).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+
+    await aliasRow.getByRole("button", { name: "编辑" }).click()
+    await expect(page.locator(SEL.modalTitle)).toHaveText("编辑别名")
+    await page.locator(SEL.modalClose).click()
+    await expect(page.locator(SEL.modalOverlay)).toHaveClass(/hidden/)
+
+    const otherProject = await projectFactory({ title: "无别名的新作品", genre: "fantasy", language: "zh" })
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.locator(".sidebar-project-switcher").click()
+    await expect(page.locator(SEL.viewTitle)).toHaveText("作品档案")
+    await page.locator(SEL.projectCard(otherProject.id)).click()
+    await expect(page.locator(SEL.topbarProject)).toHaveText("无别名的新作品")
+    await page.evaluate(() => window.router.navigate("world", "aliases"))
+    await expect(page.getByRole("search", { name: "查找已采用别名" }).getByLabel("查找别名")).toHaveValue("")
+    await expect(page).not.toHaveURL(/q=/)
+    expect(browserErrors).toEqual([])
   })
 
   test("待处理别名和关系使用统一筛选结构并保留 URL 语义", async ({ page }) => {
     await reloadWorkbench(page, "world", "review-aliases")
+    await expect(page.getByText("快速查看", { exact: true })).toBeVisible()
+    const aliasBulk = page.locator('.bulk-toolbar[data-scope="world-aliases"]')
+    await expect(aliasBulk).toBeVisible()
+    await expect(aliasBulk.locator('[data-bulk-action="review-aliases-batch"]')).toBeDisabled()
     await page.getByRole("button", { name: "更多筛选", exact: true }).click()
     await page.getByLabel("按场景序号筛选待处理别名", { exact: true }).fill("3")
     await page.getByLabel("待处理别名详细类型范围", { exact: true }).selectOption("custom")
@@ -144,6 +275,10 @@ test.describe("世界对象 — 关系与别名", () => {
     await expect(page).toHaveURL(/page_size=50/)
 
     await reloadWorkbench(page, "world", "review-relations")
+    await expect(page.getByText("快速查看", { exact: true })).toBeVisible()
+    const relationBulk = page.locator('.bulk-toolbar[data-scope="world-relation-groups"]')
+    await expect(relationBulk).toBeVisible()
+    await expect(relationBulk.locator('[data-bulk-action="apply-relation-decisions"]')).toBeDisabled()
     await page.getByRole("button", { name: "更多筛选", exact: true }).click()
     await page.getByLabel("按详细类型筛选待处理关系", { exact: true }).selectOption("friend_of")
     await page.getByLabel("待处理关系最低强度", { exact: true }).fill("0.7")
@@ -154,6 +289,15 @@ test.describe("世界对象 — 关系与别名", () => {
     await expect(page).toHaveURL(/strength_min=0.7/)
     await expect(page).toHaveURL(/has_quote=true/)
     await expect(page).toHaveURL(/page_size=50/)
+
+    await page.locator('[data-action="nav-review-aliases"]').click()
+    await expect(page).toHaveURL(/kind=aliases/)
+    await page.goBack()
+    await expect(page).toHaveURL(/kind=relations/)
+    await page.goForward()
+    await expect(page).toHaveURL(/kind=aliases/)
+    await page.reload()
+    await expect(page.locator('.bulk-toolbar[data-scope="world-aliases"]')).toBeVisible()
   })
 
   test("普通别名和单条关系可在决策栏直接采用", async ({ page }) => {
@@ -165,8 +309,8 @@ test.describe("世界对象 — 关系与别名", () => {
     await reloadWorkbench(page, "world", "review-aliases")
     await page.locator(".review-member-row", { hasText: "直接采用别名" }).click()
     const aliasDecision = page.locator(".world-alias-decision")
-    await expect(aliasDecision).toContainText("目标对象（保留）")
-    await expect(aliasDecision).toContainText("待并入别名")
+    await expect(aliasDecision).toContainText("归属对象")
+    await expect(aliasDecision).toContainText("待采用名称")
     await expect(page.locator(SEL.modalOverlay)).toHaveClass(/hidden/)
     await aliasDecision.locator('[data-action="confirm-alias-merge"]').click()
     await expect(page.locator(SEL.toastContainer)).toContainText("别名已采用", { timeout: 10000 })
@@ -312,12 +456,28 @@ test.describe("世界对象 — 关系与别名", () => {
 
     const back = page.getByRole("button", { name: "返回队列", exact: true })
     await expect(back).toBeFocused()
+    await expect(page).toHaveURL(/review_item=/)
     await expect(page.locator(".world-review-decision")).toBeVisible()
     await expect(page.locator(".world-review-queue")).toBeHidden()
 
     await back.click()
     await expect(row).toBeFocused()
+    await expect(page).not.toHaveURL(/review_item=/)
     await expect(page.locator(".world-review-queue")).toBeVisible()
+
+    await row.click()
+    await page.reload()
+    await expect(page.locator("#world-review-decision-title")).toContainText("移动端焦点别名")
+    await expect(page.locator(".world-review-queue")).toBeHidden()
+
+    const adopt = page.getByRole("button", { name: "采用别名", exact: true })
+    await adopt.scrollIntoViewIfNeeded()
+    const [adoptBox, navBox] = await Promise.all([
+      adopt.boundingBox(),
+      page.locator(".sidebar-mobile-nav").boundingBox(),
+    ])
+    expect(adoptBox.height).toBeGreaterThanOrEqual(44)
+    expect(adoptBox.y + adoptBox.height).toBeLessThanOrEqual(navBox.y)
   })
 
   test("390px 关系决策可点选配对且没有横向溢出", async ({ page }) => {

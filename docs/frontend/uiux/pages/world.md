@@ -29,41 +29,31 @@
 
 ### P0 — 阻断核心循环的反馈缺失
 
-1. **页面级加载态完全缺失**：world 全部子视图无 loading/skeleton/aria-busy
-   （`vue/views/world/` 全目录 grep 零命中；worldIsland.js 只在 catch 分支写 `*LoadError`）。
-   加载期间直接渲染空态，首进审核队列会先闪「没有待处理对象」假空态
-   （`world/components/WorldReviewTab.vue:63-69`）。
-2. **review-aliases / review-relations 错误态无 `role="alert"`、无重试按钮**
-   （`WorldReviewTab.vue:194-197, 295-298`），与 review-objects 的完整错误态
-   （`:56-62`，含 `role="alert"` + 重试）不一致；relations/aliases 正式列表错误态
-   同样只有一行裸文案（`world/components/WorldRelationsTab.vue:11-13`、
-   `world/components/WorldAliasesTab.vue:12-14`）。用户无法区分「真的没有」与「没加载出来」。
+1. **已解决：共享路由骨架覆盖 world 全部子视图**。`router.js` 在业务 loader 完成前渲染
+   `role="status"`、`aria-busy="true"` 的通用骨架，`mountIsland` 只在数据返回后挂载组件；
+   1800ms 延迟实测子视图切换期间不会闪空态（2026-08-23）。world 不再重复维护第二套
+   页面级 skeleton，局部任务仍使用各自的明确进度反馈。
+2. **已解决：relations / aliases 正式列表错误态统一**。两者均使用 `role="alert"` +
+   “重新加载”，内部处理批次与原始场景/章节标识默认收进“诊断信息”（2026-08-23）；
+   review-objects / review-aliases / review-relations 同样具备可重试错误态。
 
 ### P1 — 核心循环体验断裂
 
-3. **「需要处理」角标为 0 时仍显示「0」**（`world/WorldView.vue:15`，`<span class="badge">`
-   无 v-if）；badge 无 99+ 上限，三位数会撑破 subnav 项高度；下拉面板内三项用裸
-   `<strong>` 计数（`:17-19`），与 summary 的 badge 视觉不一致。
-4. **审核入口 `<details>` 下拉无 ESC 关闭、无点击外部关闭的显式处理**
-   （`WorldView.vue:14-21`，仅 `navigateSub` 里手动 `open=false`，`:145`）；
-   `aria-expanded` 未绑定，展开态对辅助技术不可见。
-5. **三队列批量操作条位置不统一**：review-objects 的批量条在最顶、筛选面板之上，
-   且 `v-if="localCandidates.length"` 仅非空渲染（`WorldReviewTab.vue:19-31`）；
-   review-aliases / review-relations 的批量条在筛选之后、列表之前（`:203, 304`）。
-   三个同构队列肌肉记忆断裂。
-6. **审核筛选三层堆叠、语义重叠**：搜索条 + `.review-quick-filters` 快捷按钮 +
-   已激活筛选 chips + 折叠筛选面板同时存在（`WorldReviewTab.vue:163-192, 267-293`）；
-   「按场景筛选」自由输入嵌在快捷筛选按钮行内（`:272`），交互模型混杂。
-   review-objects 筛选面板 8 个控件一字排开，无分组、无可见 label（全靠 placeholder，
-   `:33-53`），数字输入与文本输入无法区分。
-7. **objects 头部操作密度过高、层级混乱**：新建、AI 资料整理开关、卡片/表格切换、
-   最近相关/全部切换四种不同权重的功能挤在一个「视图与整理」details 里
-   （`WorldView.vue:30-43`）；选中态用 `btn-primary` 表达（`:35-41`）而非
-   `aria-pressed`，与 bible 模式切换（`WorldBibleTab.vue:15` 用 `aria-pressed`）模块内不一致。
-8. **卡片/表格默认视图三处来源漂移**：WorldView prop 默认 `"table"`
-   （`WorldView.vue:77`）；worldIsland URL 解码缺省 fallback 为 `"card"`
-   （`vue/worldIsland.js:107`）；discoveryMode 另有 localStorage 偏好。
-   同一偏好三套默认值，必然漂移。
+3. **已解决：「需要决定」角标按注意力语义显示**。0 项时隐藏，超过 99 项显示 `99+`，
+   辅助技术仍通过按钮可访问名称获得精确总数；复用 Today 的注意力计数样式，不新增同义
+   badge（2026-08-23）。
+4. **已解决：审核入口改为直接导航按钮**。不再使用需要额外关闭语义的 `<details>`；
+   点击后直达统一“需要决定”工作台，当前页使用 `aria-current="page"`（2026-08-23）。
+5. **已解决：三队列批量操作条位置统一**。对象、别名、关系都在「当前结果」后直接显示
+   同一个批量栏；正常队列为 0 项时保持可见但禁用写入动作，加载失败时隐藏（2026-08-23）。
+6. **已解决：审核筛选按作者任务分层**。三个队列统一为「常驻搜索 → 有可见名称的快速查看
+   → 已启用条件 → 更多筛选」；快速项只承载高频任务，场景、章节、置信度、类型和证据等
+   精确条件保留在带可见 label 的折叠面板内，URL 恢复语义不变（2026-08-23）。
+7. **已解决：objects 头部操作按任务分层**。「从正文整理资料」成为独立次级动作；
+   「浏览方式」只保留显示方式与资料范围两组切换，并用 `aria-pressed` 暴露当前状态；
+   窄屏面板提供明确的「完成」关闭动作（2026-08-23）。
+8. **已解决：卡片/表格默认视图统一**。URL 未指定或值无效时统一回落「表格」，组件
+   prop 默认同为 `"table"`；旧 `view=card` / `view=table` 链接继续有效（2026-08-23）。
 
 ### P2 — 一致性与可读性
 
@@ -73,25 +63,25 @@
    review-aliases/relations 与 bible 空态完全无图标（`:198, 299`、
    `world/bible/WorldBibleTab.vue:40`）。editorial 主题只对 `.empty-icon` 统一处理
    （`editorial-theme.css:995-998`），emoji 与纸面质感冲突。
-10. **行内硬编码 style 散落**：`style="margin-bottom:12px;"`（`WorldReviewTab.vue:10,33,171,276`）、
-    `style="max-width:220px;color:var(--text-dim);font-size:12px;"`（`:139`、
-    `WorldAliasesTab.vue:67`）等——主题覆层无法接管，是 editorial 适配盲区，
-    亦违反主规范 §1.4「组件样式只允许引用 token」。
-11. **对象表格 9 列密度过高**，「注意」列为原因枚举拼接
-    （`world/components/WorldEntityCollection.vue:37`），摘要列 ellipsis 与证据列
-    220px max-width 并存，列宽策略不统一。
-12. **relations / aliases 正式列表无任何筛选与搜索**（`WorldRelationsTab.vue` 全文无
-    filter 控件；分页 state 存 session 而非 URL，`:138-145`），大项目只能靠分页翻找；
-    与审核队列 8 控件筛选相比能力倒挂。
-13. **bible editor 暴露内部枚举与工程概念**：分区类型/敏感度/投影策略下拉直接展示
-    `markdown` / `author_safe` / `eligible` 等英文枚举（`WorldBibleTab.vue:325-337`）；
-    右栏直接暴露 Activation Profile、试运行、token 容量（`:411-433`）。
-    违反 AGENTS.md 与主规范 §0「不暴露内部枚举」。
-14. **bible 页内双 header**：view-header（含 subnav）之下再渲染一层
-    `.world-bible-toolbar`（`WorldBibleTab.vue:9-33`），三模式 + 5 个平级按钮无主次，
-    首屏视觉焦点分散。
-15. **`.world-review-touch-target` 只有 media query 内的样式、无基样式定义**
-    （`styles.css` 的 `.world-*` 唯一定义点），命名即补丁。
+10. **已解决：待决定工作台移除行内视觉样式**。二级导航、更多筛选间距和对象证据单元格
+    均改为 token 驱动的语义 class，三种主题可统一接管（2026-08-23）。
+11. **已解决：对象表格按作者扫读任务收敛为四列**。状态、类型、名称与近期标签合并为
+    「对象」，摘要、来源与重要度合并为「资料概览」；无注意事项时不再常驻空列，有事项时
+    在对象名下显示短提示。行内只保留编辑和当下必须处理的动作，上传图片、合并、回滚、
+    知识与删除继续保留在既有更多菜单（2026-08-23）。
+12. **已解决：relations / aliases 正式列表支持就地搜索**。关系可按端点名称、类型与描述，别名可按
+    别名、所属对象与引用查找；输入带可见中文标签并支持 Enter 提交、清除和无结果恢复提示。
+    搜索词与分页共用 URL 恢复，刷新、前进/后退和项目切换不会串用旧条件（2026-08-23）。
+13. **已解决：bible editor 改用作者语言并渐进展开**。`markdown` / `author_safe` /
+    `eligible` 等 wire 值保持不变，但界面只显示“普通资料”“作者规划可见”“参与自动整理”等
+    中文；分区标识和局部引用标识收进“维护信息”，规则预览与后端警告码也改为可读说明
+    （2026-08-23）。
+14. **已解决：bible 页内双 header 与同级按钮堆叠已收敛**。页内标题改为独立区块工具行，
+    不再复用 `.view-header` 的页面级视觉；新建页面是唯一主按钮，分类、模板、导入、建议、
+    冲突和检修收进“更多工具”，页面历史、归档、丢弃和写作参考更新收进“页面工具”
+    （2026-08-23）。
+15. **已解决：窄屏待决定工作台统一最小触控尺寸**：工作台范围内按钮不小于
+    44px，决策页底部预留固定导航安全距离（2026-08-23）。
 16. **诊断信息折叠 `<details>` 三处重复、无统一组件**（`WorldObjectsTab.vue:78`、
     `WorldReviewTab.vue:43,173,275`），展开态绑定逻辑各异。
 17. **分页器 `total <= limit` 时整体消失**（`world/components/WorldPager.vue:6`），
@@ -132,18 +122,19 @@
 - 「需要处理」是直达统一工作台的 subnav 项，总计数用 §5.8 待处理角标（朱红小圆点 +
   mono 数字）；**计数为 0 时角标整体隐藏**；计数 >99 显示「99+」。工作台内四个类型
   tab 使用同一计数语义，不再通过 `<details>` 下拉承载队列导航。
-- 「视图与整理」details 拆分：AI 资料整理开关提升为独立二级按钮（它是动作不是视图设置）；
-  卡片/表格、最近相关/全部两组切换改用 `role="group"` + `aria-pressed`（与 bible
-  模式切换一致），不再用 `btn-primary` 表达选中。
-- 视图模式默认值收敛为单一来源：prop 默认、URL 缺省 fallback、localStorage 偏好
-  三处统一为「表格」一处定义（worldIsland 解码层），消除 §2-8 的漂移。
+- 「从正文整理资料」是独立二级动作；「浏览方式」details 只承载卡片/表格、
+  最近相关/全部资料两组 `role="group"` + `aria-pressed` 切换，不用 `btn-primary`
+  表达选中；窄屏用面板内「完成」明确关闭。
+- 视图模式默认值统一为「表格」：worldIsland URL 解码与两个组件 prop 同值；显式
+  `view=card` / `view=table` 继续随 URL 恢复。
 
 ### 4.2 对象库（卡片 + 表格双视图；映射 §5.3 Card / §5.4 Table / §5.10）
 
-- **表格视图**（默认，工作台密度）：9 列收敛——「注意」列改为 6px 语义色点 + 截断
-  摘要（hover title 看全文），不整段拼接枚举文案；操作列右对齐，行内操作全部
-  `.btn-text` / `.btn-icon`（§5.4），更多动作收敛进既有 ActionMenu。
-  选中行 `--bg-active` + 左侧 3px 朱红 `--line-active`。
+- **表格视图**（默认，工作台密度）：选择列之外只保留「对象 / 资料概览 / 操作」。名称是
+  第一视觉锚点，类型、状态和近期标签作为同组辅助信息；摘要最多显示两行并保留全文 title，
+  来源与重要度退为次级元数据。只有存在注意事项时才显示 6px 语义色点和短提示，不再为正常
+  对象渲染一列破折号。操作列右对齐，保留编辑及当前必须处理的动作，低频操作进入既有
+  ActionMenu；全部业务能力与 `data-action` 契约不变。
 - **卡片视图**：仅用于浏览/挑选场景；卡片 = paper-raised + `--line-subtle`，无阴影
   （§5.3）。有图时顶部显示上半部分裁切缩略图，无图沿用 `entityAvatarColor` 首字色块；卡片为
   等高纵向布局，底部操作区贴底且不再放“编辑”。整卡可点击并支持 Enter/Space，打开现有编辑
@@ -164,17 +155,27 @@
 > scene 的场景候选项、map 的动态事件待处理等同类队列必须复用同一套 class 语义与
 > 布局顺序，不得各自发明；world 三队列自身先收敛为完全同构，再向其他模块推广。
 
-- **布局顺序统一**（三个类型队列一致）：队列说明 → 常驻搜索 → 任务标签 → 已启用条件
+- **布局顺序统一**（三个类型队列一致）：队列说明 → 常驻搜索 →「快速查看」任务标签 → 已启用条件
   → 更多筛选 → 当前结果 → 批量处理 → 列表 / 分页。批量操作条恒渲染于结果摘要之后、
   列表正上方（消除 §2-5 的位置分裂；未选中时操作按钮 disabled，计数显示「未选中」）。
-- **候选条目**：review-objects 候选表格沿用 `.data-table.table-card-list`；候选动作
-  徽标 `.candidate-action-badge--*` 改为「文字 + 色点」（§5.8），不用彩色 pill。
+- **候选条目**：review-objects 候选表格沿用 `.data-table.table-card-list`；名称、中文类型、
+  重要程度与两行摘要合并为「待处理对象」，来源缺失时明确显示「未附来源」，不暴露 raw 类型。
+  候选动作徽标 `.candidate-action-badge--*` 改为「文字 + 色点」（§5.8），不用彩色 pill。
   「建议设为别名」「名称相似」分组卡保留（分组是本队列的真实决策单元），组头
   「全选本组」与组级操作用 `.btn-text`。
-- **采纳 / 拒绝**：行内主动作「采用」= 行内唯一 `.btn-primary`（行级，不违反每屏
-  一个 primary——屏幕级 primary 是头部「新建」）；「忽略·设为临时」用 `.btn-danger`
-  的文字/边框形态（非实心）。普通别名和关系在桌面右侧决策区预览并提交，390px 改为
-  全屏复核页；主按钮文案写动作本身（「采用别名」「采用关系」）。
+- **采纳 / 拒绝**：对象、别名与关系队列条目都只提供次级「查看并决定」；完整摘要、
+  AI 建议、来源依据与全部可用决策集中到桌面右侧决策区或 390px 全页复核页。对象决策只让
+  AI 建议对应的采用 / 设为别名 / 合并动作成为主按钮；只有「采用别名 / 采用关系」是
+  `.btn-primary`，忽略保持
+  危险文字/边框形态，「稍后再决定」是普通次级按钮。别名决策使用「归属对象、待采用名称、
+  名称用途、具体称呼」等作者语言，不在主操作层暴露内部归并心智。
+- **选择恢复与焦点**：当前待决定项写入前端 URL query `review_item`，刷新、浏览器前进/后退
+  都恢复同一条，项目 ID 改变后不复用旧选择。桌面选中后聚焦带标题的决策区；窄屏聚焦
+  「返回队列」，返回后恢复原条目焦点。
+- **共创闭环**：设定共创生成对象建议后，以兼容影子的 `result_ref_json.id` 同时写入
+  `entity_id + review_item`，直接加载并选中该条，不要求作者在全队列重新搜索；决策区保留
+  「返回继续完善」。已采用、忽略、归档或不存在的精确对象只显示已离队提示，不重新进入
+  待处理列表。旧的无精确 ID 深链继续进入对象队列。
 - **批量操作**：三队列 scope 独立的 `.bulk-toolbar` 保留；批量按钮继续走 confirmAction
   二次确认（AGENTS.md 危险操作约束）；批量结果用 toast 反馈（§5.7），乐观更新失败
   回滚时 toast 说明「未生效，请重试」。
@@ -206,12 +207,17 @@
 
 - **去双 header**：`.world-bible-toolbar` 与 view-header 视觉分层——toolbar 收窄为
   区块级工具行（区块标题 + 模式切换 role="group" aria-pressed + 操作按钮组），
-  「新建页面」为该区块唯一 `.btn-primary`，其余 `.btn-ghost`。
-- **枚举中文化**（消除 §2-13）：分区类型/敏感度/投影策略下拉全部经中文映射表展示
-  （如 `markdown`→「自由文本」、`author_safe`→「作者限定」——具体文案执行时与产品
-  确认）；右栏 Activation Profile / 试运行 / token 容量收敛进「AI 参考规则」折叠
+  「新建页面」为该区块唯一 `.btn-primary`；分类、模板、导入、建议、冲突和检修收进
+  原生「更多工具」，不再与展示模式平级抢占首屏。
+- **枚举中文化**（消除 §2-13）：分区类型/敏感度/投影策略下拉全部经中文映射展示
+  （如 `markdown`→「普通资料」、`author_safe`→「作者规划可见」）；右栏规则方案、预览任务与
+  单次参考篇幅收敛进「AI 参考规则」折叠
   区块，默认收起，属诊断能力次级入口（AGENTS.md 渐进展开原则）。
-- editor 三栏布局 `18fr 57fr 25fr` 保留（符合内容优先契约主栏 64-68% 的意图）；
+- **编辑优先**：世界健康与世界观简介默认只显示可读状态摘要；校验运行、失败或阻断时世界
+  健康自动展开，简介生成中自动展开。编辑器只常驻「用 AI 完善、保存工作稿、保存并发布」；
+  历史、归档、丢弃和写作参考更新收进「页面工具」，排序与模板收进「页面设置」。
+- editor 三栏布局在 AI 参考规则展开时保留 `18fr 57fr 25fr`；默认收起时主栏扩为
+  `18fr 67fr 15fr`（符合内容优先契约主栏 64-68% 的意图）；
   gallery/filter 模式的分类卡保留交错入场动效，`prefers-reduced-motion` 下降级（§7）。
 
 ### 4.5 更多筛选面板（objects 与三个类型队列共用模式；映射 §5.10）
@@ -228,14 +234,15 @@
 
 | 区域 | 加载 | 空态 | 错误 | 备注 |
 |---|---|---|---|---|
-| objects | **新增** `.loading-skeleton` 表格骨架（§5.9 归一，禁第四种） | 保留引导型空态 + 新建 CTA；图标入 `.empty-icon` | `.error-card` 基准 + `role="alert"` + 重试（现状有 alert 无重试，补重试） | 加载期间不得渲染空态 |
-| review-objects | **新增** 骨架（候选行形态） | 正面反馈：「全部处理完，没有待处理对象」+ 一句引导（现状「没有待处理对象」文案升级） | 现状完整（`role="alert"` + 重试），图标「!」换 `.empty-icon` 体系 | 三段分组各自的局部空态不另做 |
-| review-aliases | **新增** 骨架 | 同上正面反馈（「别名建议都处理完了」） | **补** `role="alert"` + 重试按钮（现状裸文案） | 行内错误 `.review-item-error[role="alert"]` 保留 |
-| review-relations | **新增** 骨架 | 同上正面反馈（「关系建议都处理完了」） | **补** `role="alert"` + 重试按钮 | 同上 |
-| relations / aliases 正式列表 | **新增** 骨架 | 保留现有空态，补一句引导 | **补** `role="alert"` + 重试（现状一行裸文案） | |
-| bible（三模式） | synopsis/projection 任务沿用 WorkflowProgressCard；页面级**新增**骨架 | gallery/filter/editor 各保留现有空态，图标入 `.empty-icon` | 投影失败沿用「重试投影」按钮，错误文案人话化 | |
+| objects | 首进与筛选导航沿用共享路由骨架 | 保留引导型空态 + 新建 CTA；图标入 `.empty-icon` | `.error-card` 基准 + `role="alert"` + 重试（现状有 alert 无重试，补重试） | 加载期间不得渲染空态 |
+| review-objects | 首进与筛选导航沿用共享路由骨架 | 正面反馈：「全部处理完，没有待处理对象」+ 一句引导（现状「没有待处理对象」文案升级） | 现状完整（`role="alert"` + 重试），图标「!」换 `.empty-icon` 体系 | 三段分组各自的局部空态不另做 |
+| review-aliases | 首进与筛选导航沿用共享路由骨架 | 同上正面反馈（「别名建议都处理完了」） | 已有 `role="alert"` + 重试；诊断信息默认收起 | 行内错误 `.review-item-error[role="alert"]` 保留 |
+| review-relations | 首进与筛选导航沿用共享路由骨架 | 同上正面反馈（「关系建议都处理完了」） | 已有 `role="alert"` + 重试；诊断信息默认收起 | 同上 |
+| relations 正式列表 | 首进、搜索与分页沿用共享路由骨架 | 无资料时保留引导；搜索无结果时保留搜索栏与清除提示 | 已有 `role="alert"` + 重试；内部标识默认收进“诊断信息” | 搜索词与分页写入 URL |
+| aliases 正式列表 | 首进、搜索与分页沿用共享路由骨架 | 无资料时保留引导；搜索无结果时保留搜索栏与清除提示 | 已有 `role="alert"` + 重试；内部标识默认收进“诊断信息” | 搜索词与分页写入 URL |
+| bible（三模式） | 首进沿用共享路由骨架；synopsis/projection 任务沿用 WorkflowProgressCard | gallery/filter/editor 各保留现有空态，图标入 `.empty-icon` | 投影失败沿用「重试投影」按钮，错误文案人话化 | |
 | 批量操作反馈 | 操作 pending 期间按钮 disabled + loading（§7 反馈闭环） | — | 乐观更新回滚时 toast「操作未生效，请重试」 | 选择状态不持久化（现状合理，保留） |
-| 窄屏 | 骨架随布局降档 | 空态 CTA 全宽、触控 ≥42px | 重试按钮 ≥44px（`.world-review-touch-target` 补基样式） | 见 §6 |
+| 窄屏 | 骨架随布局降档 | 空态 CTA 全宽、待决定工作台按钮 ≥44px | 重试按钮 ≥44px，决策页底部留出固定导航安全距离 | 见 §6 |
 
 统一规则：空态与错误态**不得同形**——空态无重试、错误态必有重试；加载态与空态
 不得同屏先后闪现（有加载态期间隐藏空态）。「全部处理完」类空态是正面反馈，
@@ -246,16 +253,16 @@
 现状断点 720/760/980/600 并存，执行时按主规范 §6 归并到 760/1100 两档；
 下表为目标行为，迁移期间保持 390px 零横向溢出（`world.spec.js:62-69` 回归矩阵）。
 
-- **Desktop（≥1440）**：现状形态。对象表格 9 列全显；bible 三栏 `18fr 57fr 25fr`；
+- **Desktop（≥1440）**：对象表格使用「对象 / 资料概览 / 操作」三组信息；bible 三栏 `18fr 57fr 25fr`；
   subnav 单行。
 - **Laptop（1100–1440）**：同 Desktop；bible 三栏按比例收窄，rail 不低于
   `--workspace-rail-*-min`。
 - **Tablet（760–1100）**：bible 三栏塌为两栏、inspector 移到侧列（现 761-1100 规则
-  保留并齐到 760 起）；候选分组条目单列（现 ≤980 规则归入本档）；对象表格允许
-  隐藏「来源/注意」低优先列（执行时核实列宽余量，若不足则提前卡片化）。
+  保留并齐到 760 起）；候选分组条目单列（现 ≤980 规则归入本档）；对象表格沿用三组信息，
+  不再依靠隐藏来源或注意事项维持列宽。
 - **Mobile（<760）**：subnav 两列换行（editorial-theme.css:1334-1348 现状保留）；
-  所有 `.data-table` 一律卡片化——relations / aliases 表格**补** `table-card-list`
-  与 `data-label`（现仅 objects/候选表格有，§2 缺口）；「需要处理」与「视图与整理」
+  relations / aliases 正式表格已复用 `table-card-list` 与 `data-label`，完整保留归属对象、
+  分类、状态、证据与操作；「需要处理」与「视图与整理」
   下拉面板改底部浮层（现 ≤600 规则归入本档）；按钮 ≥42px、输入 ≥44px；
   bible 单栏、inspector 归位文档流尾。
 
@@ -292,7 +299,8 @@ world 全部组件头部注释声明「DOM class/id/data-action 逐节点保留�
   `open-entity-map` `promote-entity` `rollback-entity` `knowledge-entity` `delete-entity`
   `fuse-entities` `alias-entities` `delete-entities`
 - 审核：`accept-candidate` `ignore-candidate` `resolve-candidate-alias` `accept-candidates`
-  `ignore-candidates` `retry-candidate-load` `apply/reset-candidate-review-filters`
+  `ignore-candidates` `retry-candidate-load` `retry-alias-review-load` `retry-relation-review-load`
+  `apply/reset-candidate-review-filters`
   `apply/reset-alias-review-filters` `apply/reset-relation-review-filters`
   `set-alias-quick-filter` `set-relation-quick-filter` `apply-relation-scene-quick`
   `remove-review-filter` `prepare-alias-review` `prepare-relation-review`
@@ -315,14 +323,16 @@ world 全部组件头部注释声明「DOM class/id/data-action 逐节点保留�
 
 ### 7.3 role / 可访问名称 / 其他语义钩子
 
-- `role="alert"`：objects 错误态（WorldObjectsTab.vue:130）、review-objects 错误态
-  （WorldReviewTab.vue:57）、行内错误 `.review-item-error`（:241, 337）；§5 要求补齐的
-  四处错误态新增后同样保留。
+- `role="alert"`：objects、正式关系与正式别名错误态、三类 review 队列错误态与行内
+  `.review-item-error`；队列错误的原始技术信息收在默认折叠的「诊断信息」。
 - `role="group"` + `aria-label`：bible 模式切换、对象视图/排序切换、bible 分类组。
-- `aria-current="page"`：全部 subnav 项（一、二级）。
+- `aria-current="page"`：全部 subnav 项（一、二级）；aliases 深链继续把“人物与设定”标为当前页。
+- `aria-label`：需要决定有内容时保留精确总数，视觉角标超过 99 仅显示 `99+`。
+- `aria-labelledby="world-review-decision-title"`：决策区的可访问标题；选中项后焦点按桌面/窄屏规则移动。
 - `aria-expanded` / `aria-controls`：筛选面板 toggle（world-objects.spec.js 回归）。
 - `aria-pressed`：bible 模式/分类按钮；§4.1 后视图切换组同样使用。
 - `role="note"`：提取提示（WorldObjectsTab.vue:19）、bible 资料页提示（WorldBibleTab.vue:248）。
+- `role="search"` + 可见中文 label：正式关系与正式别名的就地搜索；搜索失败、空态和清除操作时入口仍保留。
 - 结构钩子：`data-subview`（selectors.js:136）、`data-filter-panel`、`data-diagnostic-field`、
   `data-bible-page-id/draft-id`、`data-section-id`、`data-target-id`（候选别名分组）、
   `data-group-id`、`tr[data-id]`、`data-label`（表格卡片化）、

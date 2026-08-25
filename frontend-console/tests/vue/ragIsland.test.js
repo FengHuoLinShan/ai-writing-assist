@@ -174,7 +174,7 @@ describe("ragIsland", () => {
     const content = document.getElementById("workspace-content")
     content.innerHTML = views.rag.render()
     await views.rag.onRendered()
-    expect(content.textContent).toContain("与服务器连接断开")
+    expect(content.textContent).toContain("暂时无法连接查找服务")
     views.rag.onLeave()
   })
 
@@ -191,7 +191,7 @@ describe("ragIsland", () => {
     const content = document.getElementById("workspace-content")
     content.innerHTML = views.rag.render()
     await views.rag.onRendered()
-    expect(content.textContent).toContain("与服务器连接断开")
+    expect(content.textContent).toContain("暂时无法连接查找服务")
     views.rag.onLeave()
   })
 

@@ -5,13 +5,11 @@ import { describe, expect, it } from "vitest"
 
 const files = [
   "vue/views/outline/components/OutlineHeader.vue",
-  "vue/views/scene/SceneWorkbenchView.vue",
   "vue/views/world/WorldView.vue",
   "vue/views/world/components/WorldReviewTab.vue",
 ]
 const expectedClickableCounts = new Map([
   ["vue/views/outline/components/OutlineHeader.vue", 4],
-  ["vue/views/scene/SceneWorkbenchView.vue", 3],
   ["vue/views/world/WorldView.vue", 4],
   ["vue/views/world/components/WorldReviewTab.vue", 4],
 ])
@@ -37,17 +35,16 @@ describe("scoped subnav accessibility source contract", () => {
       for (const tag of clickable) {
         expect(tag.startsWith("<button")).toBe(true)
         expect(tag).toContain('type="button"')
-        if (!file.endsWith("SceneWorkbenchView.vue")) expect(tag).toContain("aria-current")
+        expect(tag).toContain("aria-current")
       }
     }
   })
 
-  it("allows only Scene current marker as a non-clickable current span", () => {
-    const source = readFileSync(join(root, "vue/views/scene/SceneWorkbenchView.vue"), "utf8")
-    const currentSpans = openingTags(source).filter((tag) => tag.startsWith("<span") && hasStaticClass(tag, "subnav-item"))
-    expect(currentSpans).toHaveLength(1)
-    expect(currentSpans[0]).toContain('data-action="nav-scenes"')
-    expect(currentSpans[0]).toContain('aria-current="page"')
-    expect(currentSpans[0]).not.toContain("@click")
+  it("keeps outline navigation in one shared header", () => {
+    const header = readFileSync(join(root, "vue/views/outline/components/OutlineHeader.vue"), "utf8")
+    const scene = readFileSync(join(root, "vue/views/scene/SceneWorkbenchView.vue"), "utf8")
+    expect(header).toContain('data-action="nav-scenes"')
+    expect(scene).toContain('<OutlineHeader sub-view="scenes"')
+    expect(scene).not.toContain('class="subnav"')
   })
 })

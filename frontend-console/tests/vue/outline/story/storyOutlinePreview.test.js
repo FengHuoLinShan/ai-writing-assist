@@ -3,7 +3,7 @@
  * 测试 task done → preview 创建、校验失败、apply/discard 行为。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
-import { flushPromises, mount } from "@vue/test-utils"
+import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils"
 import OutlineStoryTab from "../../../../vue/views/outline/story/OutlineStoryTab.vue"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../../vue/bridge/index.js"
 import { storyOutlineTaskManager } from "../../../../vue/views/outline/story/storyOutlineData.js"
@@ -20,6 +20,8 @@ vi.mock("../../../../shared/workflowProgress.js", async (importOriginal) => {
 })
 
 import { pollTaskProgress } from "../../../../shared/workflowProgress.js"
+
+enableAutoUnmount(afterEach)
 
 function contentFixture(overrides = {}) {
   return {
@@ -103,6 +105,7 @@ beforeEach(() => {
 afterEach(() => {
   resetBridgeOverrides()
   vi.unstubAllGlobals()
+  vi.useRealTimers()
 })
 
 describe("预览 · 任务完成创建 preview", () => {
@@ -130,11 +133,72 @@ describe("预览 · 任务完成创建 preview", () => {
     await wrapper.vm.$nextTick()
 
     expect(wrapper.find("#story-outline-preview-title").exists()).toBe(true)
-    expect(wrapper.text()).toContain("AI 故事总览预览")
+    expect(wrapper.text()).toContain("检查 AI 建议")
     expect(wrapper.find("#story-outline-preview-title-input").element.value).toBe("霜城纪事")
     expect(wrapper.find('[data-action="apply-story-outline-preview"]').exists()).toBe(true)
     expect(wrapper.find('[data-action="discard-story-outline-preview"]').exists()).toBe(true)
+    expect(wrapper.find(".outline-task-status").exists()).toBe(false)
     expect(toast).toHaveBeenCalledWith("故事总览建议已生成，请编辑后明确采用", "success")
+  })
+
+  it("刷新后恢复同一项目和任务的本机修改", async () => {
+    vi.useFakeTimers()
+    const state = { currentProjectId: "p1" }
+    const toast = vi.fn()
+    setBridgeOverrides({ toast, state })
+    const wrapper = mount(OutlineStoryTab, { props: makeProps(), attachTo: document.body })
+    storyOutlineTaskManager.adopt(
+      { task_id: "task-local-draft", status: "running" },
+      { action: "outline.story_outline.generate", novel_id: "p1", apply_idempotency_key: "draft-key" },
+      "p1",
+    )
+    vi.mocked(pollTaskProgress).mock.calls[0][0].onDone(
+      { taskId: "task-local-draft", done: true, terminal: true },
+      taskFixture(contentFixture({ title: "AI 初稿" })),
+    )
+    await wrapper.vm.$nextTick()
+    await wrapper.find("#story-outline-preview-title-input").setValue("作者恢复稿")
+    await vi.advanceTimersByTimeAsync(260)
+
+    expect(JSON.parse(localStorage.getItem("story-outline-preview-draft:p1")).content.title).toBe("作者恢复稿")
+    state.currentProjectId = "p2"
+    await wrapper.setProps({ projectId: "p2" })
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find("#story-outline-preview-title").exists()).toBe(false)
+    expect(JSON.parse(localStorage.getItem("story-outline-preview-draft:p1")).project_id).toBe("p1")
+    wrapper.unmount()
+
+    state.currentProjectId = "p1"
+    const restored = mount(OutlineStoryTab, { props: makeProps(), attachTo: document.body })
+    await restored.vm.$nextTick()
+    expect(restored.find("#story-outline-preview-title-input").element.value).toBe("作者恢复稿")
+    expect(restored.text()).toContain("已恢复上次修改")
+    expect(toast).toHaveBeenCalledTimes(1)
+    restored.unmount()
+    vi.useRealTimers()
+  })
+
+  it("不恢复项目标记不匹配的本机草稿", async () => {
+    localStorage.setItem("story-outline-preview-draft:p1", JSON.stringify({
+      project_id: "p2",
+      task_id: "task-wrong-project",
+      content: contentFixture({ title: "其他项目的修改" }),
+    }))
+    setBridgeOverrides({ toast: vi.fn(), state: { currentProjectId: "p1" } })
+    const wrapper = mount(OutlineStoryTab, { props: makeProps() })
+    storyOutlineTaskManager.adopt(
+      { task_id: "task-wrong-project", status: "running" },
+      { action: "outline.story_outline.generate", novel_id: "p1" },
+      "p1",
+    )
+    vi.mocked(pollTaskProgress).mock.calls[0][0].onDone(
+      { taskId: "task-wrong-project", done: true, terminal: true },
+      taskFixture(contentFixture({ title: "当前项目建议" })),
+    )
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find("#story-outline-preview-title-input").element.value).toBe("当前项目建议")
+    expect(wrapper.text()).not.toContain("已恢复上次修改")
   })
 
   it("任务返回的 apply_status=applied 时显示已采用提示", async () => {
@@ -201,6 +265,29 @@ describe("预览 · 任务完成创建 preview", () => {
       macro_movements: [{ name: "中段", story_state_change: "世界变化", advanced_storylines: ["主线"] }],
       open_decisions: [{ question: "是否公开？", why_it_matters: "影响信任", options: ["公开", "保留"] }],
     }))
+    wrapper.unmount()
+  })
+
+  it("采用前校验可编辑内容并聚焦错误", async () => {
+    setBridgeOverrides({ toast: vi.fn(), state: { currentProjectId: "p1" } })
+    const wrapper = mount(OutlineStoryTab, { props: makeProps(), attachTo: document.body })
+    storyOutlineTaskManager.adopt(
+      { task_id: "task-invalid-edit", status: "running" },
+      { action: "outline.story_outline.generate", novel_id: "p1" },
+      "p1",
+    )
+    vi.mocked(pollTaskProgress).mock.calls[0][0].onDone(
+      { taskId: "task-invalid-edit", done: true, terminal: true },
+      taskFixture(contentFixture()),
+    )
+    await wrapper.vm.$nextTick()
+    await wrapper.find("#story-outline-preview-title-input").setValue("")
+    await wrapper.find('[data-action="apply-story-outline-preview"]').trigger("click")
+    await flushPromises()
+
+    expect(globalThis.api.outline.applyStoryOutlinePreview).not.toHaveBeenCalled()
+    expect(wrapper.find("#story-outline-apply-error").text()).toContain("标题不能为空")
+    expect(document.activeElement).toBe(wrapper.find("#story-outline-apply-error").element)
     wrapper.unmount()
   })
 
@@ -310,6 +397,62 @@ describe("预览 · 任务完成创建 preview", () => {
     }))
     expect(globalThis.api.outline.applyStoryOutlinePreview.mock.calls[0][0].idempotency_key).not.toBe("key-before-rebase")
     expect(wrapper.text()).toContain("当前版本 · v3")
+    wrapper.unmount()
+  })
+
+  it("409 后保留本机修改，同步最新版本后可重试采用", async () => {
+    setBridgeOverrides({ toast: vi.fn(), state: { currentProjectId: "p1" } })
+    const current = revisionFixture("rev-1", 1, "旧总纲")
+    const wrapper = mount(OutlineStoryTab, {
+      props: makeProps({ current: { current_revision_id: "rev-1", revision: current } }),
+      attachTo: document.body,
+    })
+    storyOutlineTaskManager.adopt(
+      { task_id: "task-conflict", status: "running" },
+      {
+        action: "outline.story_outline.generate",
+        novel_id: "p1",
+        apply_base_revision_id: "rev-1",
+        apply_idempotency_key: "conflict-key",
+      },
+      "p1",
+    )
+    vi.mocked(pollTaskProgress).mock.calls[0][0].onDone(
+      { taskId: "task-conflict", done: true, terminal: true },
+      taskFixture(contentFixture({ title: "AI 初稿" })),
+    )
+    await wrapper.vm.$nextTick()
+    await wrapper.find("#story-outline-preview-title-input").setValue("作者未采用稿")
+
+    globalThis.api.outline.applyStoryOutlinePreview.mockRejectedValueOnce(Object.assign(new Error("版本冲突"), { status: 409 }))
+    await wrapper.find('[data-action="apply-story-outline-preview"]').trigger("submit")
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("当前版本被更新了")
+    expect(wrapper.find('[data-action="apply-story-outline-preview"]').attributes("disabled")).toBeDefined()
+    expect(JSON.parse(localStorage.getItem("story-outline-preview-draft:p1")).content.title).toBe("作者未采用稿")
+
+    mockReloadTo(revisionFixture("rev-2", 2, "最新总纲"))
+    await wrapper.find('[data-action="sync-story-outline-preview"]').trigger("click")
+    await flushPromises()
+
+    expect(globalThis.api.clearCache).toHaveBeenCalled()
+    expect(wrapper.find("#story-outline-preview-title-input").element.value).toBe("作者未采用稿")
+    expect(wrapper.find('[data-action="apply-story-outline-preview"]').attributes("disabled")).toBeUndefined()
+
+    globalThis.api.outline.applyStoryOutlinePreview.mockResolvedValueOnce({ version_number: 3 })
+    mockReloadTo(revisionFixture("rev-3", 3, "已采用总纲"))
+    await wrapper.find('[data-action="apply-story-outline-preview"]').trigger("submit")
+    await flushPromises()
+
+    expect(globalThis.api.outline.applyStoryOutlinePreview).toHaveBeenLastCalledWith(expect.objectContaining({
+      novel_id: "p1",
+      source_task_id: "task-conflict",
+      title: "作者未采用稿",
+      base_revision_id: "rev-2",
+      confirmed: true,
+    }))
+    expect(localStorage.getItem("story-outline-preview-draft:p1")).toBeNull()
     wrapper.unmount()
   })
 

@@ -30,12 +30,9 @@ export const worldSession = reactive({
   // 批量选择：scope -> Set<string>
   bulkSelections: {},
 
-  // relations/aliases 子标签的分页（vanilla _relationFilters/_aliasFilters 的模块
-  // 单例语义：这两个子标签不从 query 解码筛选，分页点击只就地改 skip 并把
-  // page/page_size 写进 URL 作装饰，worldView.js:3832-3861；跨进入保留，
-  // 浏览器刷新才归零）。
-  relationListFilters: { skip: 0, limit: 20 },
-  aliasListFilters: { skip: 0, limit: 20 },
+  // 正式关系和别名都以 URL 恢复搜索与分页。
+  relationListFilters: { q: "", skip: 0, limit: 20 },
+  aliasListFilters: { q: "", skip: 0, limit: 20 },
 
   // bible 会话（vanilla worldBibleView 模块单例：跨进入保留"上次页面"）。
   // activePageId 只存 id；匹配不到已加载页面时由组件回退到 pages[0]
@@ -140,8 +137,8 @@ export function resetWorldSession() {
   worldSession.processingReviewIds = {}
   worldSession.reviewReceipt = null
   worldSession.bulkSelections = {}
-  worldSession.relationListFilters = { skip: 0, limit: 20 }
-  worldSession.aliasListFilters = { skip: 0, limit: 20 }
+  worldSession.relationListFilters = { q: "", skip: 0, limit: 20 }
+  worldSession.aliasListFilters = { q: "", skip: 0, limit: 20 }
   worldSession.bible = {
     activePageId: null,
     activeDraftId: null,

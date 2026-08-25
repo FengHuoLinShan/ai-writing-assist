@@ -166,25 +166,14 @@ async function retryProjects() {
 <template>
   <section class="project-catalog" aria-labelledby="project-catalog-title">
     <header class="project-archive-hero project-toolbar">
-      <div class="project-archive-hero__folio" aria-hidden="true">
-        <span>NC</span>
-        <strong>{{ String(Math.max(totalCount, 1)).padStart(2, "0") }}</strong>
-        <span>2026</span>
-      </div>
       <div class="project-archive-hero__copy">
-        <div class="project-archive-hero__kicker">
-          <span>STORY ARCHIVE</span>
-          <i aria-hidden="true"></i>
-          <span>全部项目</span>
-        </div>
         <h1 id="project-catalog-title"><span>作品</span><em>档案</em></h1>
         <p>收拢每一个世界，标记每一次续写。让正在发生的故事始终位于视线中心。</p>
       </div>
       <div class="project-archive-hero__summary">
-        <span class="project-archive-hero__summary-label">PROJECT INDEX</span>
         <strong data-role="project-total-count">{{ totalCount }} 个项目</strong>
         <div class="project-archive-hero__current">
-          <span>CURRENT / 当前</span>
+          <span>当前作品</span>
           <b :title="currentName">{{ currentName }}</b>
         </div>
         <div class="project-archive-hero__actions">
@@ -193,9 +182,6 @@ async function retryProjects() {
           <button class="btn btn-ghost" data-action="manage-projects" @click="session.manageMode = !session.manageMode">{{ session.manageMode ? "完成管理" : "管理作品" }}</button>
           <button v-if="session.manageMode" class="btn btn-ghost" data-action="recycle-bin" @click="showRecycleBin()">回收站</button>
         </div>
-      </div>
-      <div class="project-archive-hero__geometry" aria-hidden="true">
-        <i></i><i></i><i></i><i></i>
       </div>
     </header>
 
@@ -235,7 +221,7 @@ async function retryProjects() {
       <div class="project-index-bar">
         <div class="view-toolbar project-search-toolbar" role="search" aria-label="搜索项目">
           <label for="project-search-input">
-            <span aria-hidden="true">SEARCH / 01</span>
+            <span aria-hidden="true">搜索作品</span>
             <span class="sr-only">按名称搜索</span>
           </label>
           <input
@@ -317,7 +303,7 @@ async function retryProjects() {
             <i></i>
           </div>
           <div class="project-card-placeholder__copy">
-            <span>NEW FILE / {{ String(visibleProjects.length + 1).padStart(2, "0") }}</span>
+            <span>新作品 / {{ String(visibleProjects.length + 1).padStart(2, "0") }}</span>
             <strong>创建新项目</strong>
             <p>为一个新世界建立独立档案。</p>
           </div>

@@ -19,6 +19,7 @@ const props = defineProps({
   projectTitle: { type: String, default: "" },
   effectiveLLM: { type: Object, default: null },
   effectivePrefs: { type: Object, default: null },
+  loadError: { type: String, default: null },
 })
 
 const TABS = [
@@ -49,6 +50,15 @@ const deepImportForm = ref(
 const authorBaseline = ref(JSON.stringify(authorForm.value))
 const deepImportBaseline = ref(JSON.stringify(deepImportForm.value))
 const deepImportValidationError = ref(null)
+const projectLoadError = ref(props.loadError || (
+  props.projectId && (!props.effectiveLLM || !props.effectivePrefs)
+    ? "项目偏好暂时无法加载。已有设置没有改变。"
+    : ""
+))
+const loadPending = ref(false)
+const authorValidationError = ref("")
+const authorFeedback = ref(null)
+const deepImportFeedback = ref(null)
 let disposed = false
 
 function ownsProjectSettings(projectId) {
@@ -69,6 +79,26 @@ const activeModelLabel = computed(() => {
   const connected = Boolean(effectiveLLM.value?.api_key_configured?.value)
   return `${label}${model ? ` · ${model}` : ""}${connected ? "" : " · 未连接"}`
 })
+const authorDirty = computed(() => JSON.stringify(authorForm.value) !== authorBaseline.value)
+const deepImportDirty = computed(() => JSON.stringify(deepImportForm.value) !== deepImportBaseline.value)
+const authorState = computed(() => {
+  if (authorFeedback.value) return authorFeedback.value
+  return authorDirty.value
+    ? { kind: "pending", message: "有未保存修改" }
+    : { kind: "success", message: "已保存" }
+})
+const deepImportState = computed(() => {
+  if (deepImportFeedback.value) return deepImportFeedback.value
+  return deepImportDirty.value
+    ? { kind: "pending", message: "有未保存修改" }
+    : { kind: "success", message: "已保存" }
+})
+
+const AUTHOR_FIELD_LABELS = {
+  daily_goal: "日更目标",
+  editor_font: "编辑器字体",
+  default_focus_mode: "默认专注模式",
+}
 
 const deepImportButton = useSaveButton()
 const authorButton = useSaveButton()
@@ -143,6 +173,22 @@ async function refreshEffective({
   return true
 }
 
+async function retryProjectSettings() {
+  const projectId = props.projectId
+  loadPending.value = true
+  projectLoadError.value = ""
+  try {
+    const loaded = await refreshEffective({}, projectId)
+    if (loaded) projectLoadError.value = ""
+  } catch {
+    if (ownsProjectSettings(projectId)) {
+      projectLoadError.value = "项目偏好暂时无法加载。已有设置没有改变。"
+    }
+  } finally {
+    loadPending.value = false
+  }
+}
+
 async function reconcileAfterMutation(options, projectId) {
   try {
     return await refreshEffective(options, projectId)
@@ -161,23 +207,32 @@ async function saveDeepImport() {
   const out = buildDeepImportPayload(deepImportForm.value)
   if (!out.ok) {
     deepImportValidationError.value = out
+    deepImportFeedback.value = { kind: "error", message: "请修正标出的参数后再保存" }
     return toast(out.error, "warning")
   }
   deepImportValidationError.value = null
   deepImportButton.saving.value = true
+  deepImportFeedback.value = { kind: "pending", message: "正在保存…" }
   try {
     await getApi().projects.updateLlmSettings(projectId, {
       deep_import: out.value,
     })
     if (!ownsProjectSettings(projectId)) return
+    const unchanged = JSON.stringify(deepImportForm.value) === submittedForm
+    if (unchanged) deepImportBaseline.value = submittedForm
+    deepImportFeedback.value = { kind: "success", message: "高级导入设置已保存" }
     toast("深度导入参数已保存", "success")
-    await reconcileAfterMutation({
+    const reconciled = await reconcileAfterMutation({
       author: false,
-      deepImport: JSON.stringify(deepImportForm.value) === submittedForm,
+      deepImport: unchanged,
     }, projectId)
+    if (!reconciled && ownsProjectSettings(projectId)) {
+      deepImportFeedback.value = { kind: "warning", message: "已保存；暂时无法重新读取最新设置" }
+    }
   } catch (err) {
     if (!ownsProjectSettings(projectId)) return
-    toast(err.message || "保存失败", "error")
+    deepImportFeedback.value = { kind: "error", message: err.message || "保存失败，请稍后重试。" }
+    toast(deepImportFeedback.value.message, "error")
     deepImportButton.flashError()
   } finally {
     deepImportButton.saving.value = false
@@ -192,10 +247,15 @@ async function resetDeepImport() {
     await getApi().settings.resetLLMSettingsField(projectId, "deep_import")
     if (!ownsProjectSettings(projectId)) return
     toast("深度导入参数已恢复默认", "success")
-    await reconcileAfterMutation({ author: false }, projectId)
+    deepImportFeedback.value = { kind: "success", message: "已恢复默认设置" }
+    const reconciled = await reconcileAfterMutation({ author: false }, projectId)
+    if (!reconciled && ownsProjectSettings(projectId)) {
+      deepImportFeedback.value = { kind: "warning", message: "已恢复默认；暂时无法重新读取" }
+    }
   } catch (err) {
     if (!ownsProjectSettings(projectId)) return
-    toast(err.message || "重置失败", "error")
+    deepImportFeedback.value = { kind: "error", message: err.message || "恢复默认失败，请稍后重试。" }
+    toast(deepImportFeedback.value.message, "error")
   }
 }
 
@@ -205,19 +265,34 @@ async function saveAuthorPrefs() {
   const submittedForm = JSON.stringify(authorForm.value)
   const prefs = buildAuthorPrefsPayload(authorForm.value)
   const validation = validateAuthorPreferences(prefs)
-  if (!validation.ok) return toast(validation.message, "warning")
+  if (!validation.ok) {
+    authorValidationError.value = validation.message
+    authorFeedback.value = { kind: "error", message: "请修正日更目标后再保存" }
+    toast(validation.message, "warning")
+    void nextTick(() => document.getElementById("author-daily-goal")?.focus())
+    return
+  }
   authorButton.saving.value = true
+  authorValidationError.value = ""
+  authorFeedback.value = { kind: "pending", message: "正在保存…" }
   try {
     await getApi().settings.updateProjectAuthorPrefs(projectId, prefs)
     if (!ownsProjectSettings(projectId)) return
+    const unchanged = JSON.stringify(authorForm.value) === submittedForm
+    if (unchanged) authorBaseline.value = submittedForm
+    authorFeedback.value = { kind: "success", message: "当前作品的创作偏好已保存" }
     toast("作者偏好已保存", "success")
-    await reconcileAfterMutation({
-      author: JSON.stringify(authorForm.value) === submittedForm,
+    const reconciled = await reconcileAfterMutation({
+      author: unchanged,
       deepImport: false,
     }, projectId)
+    if (!reconciled && ownsProjectSettings(projectId)) {
+      authorFeedback.value = { kind: "warning", message: "已保存；暂时无法重新读取最新设置" }
+    }
   } catch (err) {
     if (!ownsProjectSettings(projectId)) return
-    toast(err.message || "保存失败", "error")
+    authorFeedback.value = { kind: "error", message: err.message || "保存失败，请稍后重试。" }
+    toast(authorFeedback.value.message, "error")
     authorButton.flashError()
   } finally {
     authorButton.saving.value = false
@@ -242,10 +317,13 @@ async function resetAuthorPrefsField(field) {
     if (authorForm.value[field] === submittedFieldValue) {
       authorForm.value = { ...authorForm.value, [field]: refreshedForm[field] }
     }
-    toast(`${field} 已恢复到全局默认`, "success")
+    const fieldLabel = AUTHOR_FIELD_LABELS[field] || "这个选项"
+    authorFeedback.value = { kind: "success", message: `${fieldLabel}已恢复到全局默认` }
+    toast(`${fieldLabel}已恢复到全局默认`, "success")
   } catch (err) {
     if (!ownsProjectSettings(projectId)) return
-    toast(err.message || "重置失败", "error")
+    authorFeedback.value = { kind: "error", message: err.message || "恢复默认失败，请稍后重试。" }
+    toast(authorFeedback.value.message, "error")
   }
 }
 
@@ -253,6 +331,16 @@ function hasUnsavedChanges() {
   return JSON.stringify(authorForm.value) !== authorBaseline.value
     || JSON.stringify(deepImportForm.value) !== deepImportBaseline.value
 }
+
+watch(authorForm, () => {
+  authorValidationError.value = ""
+  authorFeedback.value = null
+}, { deep: true })
+
+watch(deepImportForm, () => {
+  deepImportValidationError.value = null
+  deepImportFeedback.value = null
+}, { deep: true })
 
 useLeaveGuard(() => (
   !hasUnsavedChanges()
@@ -276,44 +364,38 @@ onBeforeUnmount(() => {
   <div v-if="!props.projectId" class="project-settings-view empty-state settings-empty-state">
     <p class="empty-hint">请先进入项目</p>
     <button
-      id="project-settings-goto-global"
+      id="project-settings-empty-goto-account"
       class="btn btn-link"
       @click="gotoGlobalSettings"
     >返回账户与模型连接</button>
   </div>
 
   <div v-else class="project-settings-view">
-    <div class="view-header view-header--with-tabs section-header">
-      <h2 class="view-header__title">
-        项目偏好
-        <span class="view-header__project">{{ props.projectTitle }}</span>
-      </h2>
-      <nav class="subnav settings-tab-nav" role="tablist" aria-label="项目偏好">
-        <button
-          v-for="item in TABS"
-          :key="item.key"
-          class="tab-btn"
-          :class="{ active: tab === item.key }"
-          :data-tab="item.key"
-          :id="tabId(item.key)"
-          ref="tabButtons"
-          role="tab"
-          :aria-selected="tab === item.key"
-          aria-controls="project-settings-tab-panel"
-          :tabindex="tab === item.key ? 0 : -1"
-          @click="tab = item.key"
-          @keydown="onTabKeydown($event, item.key)"
-        >{{ item.label }}</button>
-      </nav>
-    </div>
+    <nav class="settings-tab-nav" role="tablist" aria-label="当前作品设置">
+      <button
+        v-for="item in TABS"
+        :key="item.key"
+        class="tab-btn"
+        :class="{ active: tab === item.key }"
+        :data-tab="item.key"
+        :id="tabId(item.key)"
+        ref="tabButtons"
+        role="tab"
+        :aria-selected="tab === item.key"
+        aria-controls="project-settings-tab-panel"
+        :tabindex="tab === item.key ? 0 : -1"
+        @click="tab = item.key"
+        @keydown="onTabKeydown($event, item.key)"
+      >{{ item.label }}</button>
+    </nav>
 
-    <aside class="settings-account-model-notice">
-      <span>当前模型：{{ activeModelLabel }}</span>
+    <aside v-if="dataReady" class="settings-account-model-notice">
+      <span>AI 文本服务：{{ activeModelLabel }}</span>
       <button
         id="project-settings-goto-global"
         class="btn btn-sm btn-link"
         @click="gotoGlobalSettings"
-      >管理账户与模型连接</button>
+      >管理连接</button>
     </aside>
 
     <div
@@ -321,21 +403,36 @@ onBeforeUnmount(() => {
       class="settings-tab-content"
       role="tabpanel"
       :aria-labelledby="tabId(tab)"
-      :aria-busy="!dataReady || activeTabSaving"
+      :aria-busy="loadPending || activeTabSaving"
     >
-      <template v-if="dataReady">
-        <div v-if="tab === 'deep'" class="deep-import-tab">
+      <div v-if="projectLoadError" class="error-card settings-load-error" role="alert">
+        <div>
+          <strong>当前作品的设置暂时无法加载</strong>
+          <p>已有偏好和导入设置没有改变，可以重新加载。</p>
+        </div>
+        <button class="btn btn-primary" type="button" :disabled="loadPending" @click="retryProjectSettings">
+          {{ loadPending ? "正在加载…" : "重新加载" }}
+        </button>
+      </div>
+      <template v-else-if="dataReady">
+        <section v-if="tab === 'deep'" class="settings-section deep-import-tab">
+          <div class="settings-section-heading">
+            <div>
+              <h2>高级导入设置</h2>
+              <p>只在导入结果不理想或模型响应不稳定时调整。</p>
+            </div>
+            <button class="btn btn-sm btn-link" @click="gotoWriting">返回写作工作台</button>
+          </div>
           <p class="settings-section-hint">
-            这些高级参数只影响本项目的深度导入；模型与密钥由“账户与模型连接”统一管理。
+            这些参数只影响当前作品的深度导入；模型与密钥仍由账户设置统一管理。
           </p>
           <p class="deep-import-source-hint">
-            深度导入参数
+            当前来源
             <SourceLabel
               :source="deepImportSource.source"
               :value="deepImportSource.value"
             />
           </p>
-          <button class="btn btn-sm btn-link" @click="gotoWriting">返回写作工作台</button>
           <DeepImportFields v-model="deepImportForm" :validation-error="deepImportValidationError" />
           <div class="settings-actions">
             <button
@@ -355,13 +452,21 @@ onBeforeUnmount(() => {
               class="btn btn-link"
               @click="resetDeepImport"
             >恢复默认</button>
+            <p class="settings-save-state" :class="`is-${deepImportState.kind}`" role="status">{{ deepImportState.message }}</p>
           </div>
-        </div>
+        </section>
 
-        <div v-else class="author-prefs-tab" data-mode="project">
+        <section v-else class="settings-section author-prefs-tab" data-mode="project">
+          <div class="settings-section-heading">
+            <div>
+              <h2>当前作品的创作偏好</h2>
+              <p>这里只覆盖当前作品；恢复后继续跟随账户默认值。</p>
+            </div>
+          </div>
           <AuthorPreferencesForm
             v-model="authorForm"
             :source-map="effectivePrefs"
+            :errors="{ daily_goal: authorValidationError }"
             @reset-field="resetAuthorPrefsField"
           />
           <div class="settings-actions">
@@ -375,11 +480,12 @@ onBeforeUnmount(() => {
               :disabled="authorButton.saving.value"
               :aria-busy="authorButton.saving.value"
               @click="saveAuthorPrefs"
-            >保存作者偏好</button>
+            >保存创作偏好</button>
+            <p class="settings-save-state" :class="`is-${authorState.kind}`" role="status">{{ authorState.message }}</p>
           </div>
-        </div>
+        </section>
       </template>
-      <template v-else><p role="status">加载中…</p></template>
+      <p v-else role="status">正在加载当前作品的设置…</p>
     </div>
   </div>
 </template>

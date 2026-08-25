@@ -1,52 +1,66 @@
 <template>
   <div class="generate-task-workspace">
-    <div class="generate-task-cards" role="group" aria-label="任务预设">
-      <button v-for="(item, key) in TASK_PRESETS" :key="key" class="generate-task-card" :class="{ active: preset === key }" type="button" :aria-pressed="preset === key" :data-preset="key" data-action="select-task-preset" @click="$emit('select-preset', key)">
-        <h4>{{ item.label }}</h4><p>{{ item.task || '填写自定义任务描述' }}</p>
-      </button>
-    </div>
-    <div class="generate-task-form">
-      <div class="card">
-        <div class="card-title">任务参数</div>
-        <div class="form-group"><label for="gen-task">任务描述 *</label><textarea id="gen-task" v-model="form.task" class="form-textarea" rows="2" placeholder="如：为旧档案缺页篇生成 10 章章节卡" /></div>
-        <details class="gen-form-section generate-task-section"><summary>高级设置</summary>
-          <div class="form-group"><label for="gen-scope">范围</label><select id="gen-scope" v-model="form.scope" class="form-select"><option v-for="item in SCOPE_OPTIONS" :key="item.value" :value="item.value">{{ item.label }}</option></select></div>
-          <div class="form-group"><label>相关对象</label><ReferencePickerAdapter id="gen-entities-picker" v-model="form.entity_ids" :project-id="projectId" :sources="[entitySource]" mode="multiple" :max-items="20" placeholder="按名称搜索世界对象" /><input id="gen-entities" type="hidden" :value="form.entity_ids.join(',')" /></div>
-          <div class="form-group"><label>相关人物</label><ReferencePickerAdapter id="gen-characters-picker" v-model="form.character_ids" :project-id="projectId" :sources="[characterSource]" mode="multiple" :max-items="20" placeholder="按姓名或别名搜索人物" /><input id="gen-characters" type="hidden" :value="form.character_ids.join(',')" /></div>
-          <div class="form-group"><label for="gen-chapter">章节索引</label><input id="gen-chapter" v-model.number="form.chapter_index" class="form-input" type="number" min="1" placeholder="当前章节（可选）" @change="clearScene" /></div>
-          <div class="form-group"><label>当前 Scene</label><ReferencePickerAdapter id="gen-scene-picker" v-model="sceneIds" :project-id="projectId" :sources="[sceneSource]" placeholder="按标题、目标或冲突搜索 Scene" /><input id="gen-scene" type="hidden" :value="form.scene_id || ''" /></div>
-          <div class="form-group"><label for="gen-budget">上下文预算 (tokens)</label><input id="gen-budget" v-model.number="form.budget_tokens" class="form-input" type="number" min="0" max="1000000" aria-describedby="gen-budget-hint" /><p id="gen-budget-hint" class="generate-form-hint">0 表示不做应用层裁剪；由实际模型上下文窗口决定上限。</p></div>
-          <div class="form-group"><label for="gen-reveal">揭示模式</label><select id="gen-reveal" v-model="form.reveal_mode" class="form-select" @change="syncReveal"><option v-for="item in REVEAL_OPTIONS" :key="item.value" :value="item.value">{{ item.label }}</option></select></div>
-          <label class="generate-quality-toggle"><input id="gen-include-world-synopsis" v-model="form.include_world_synopsis" type="checkbox" :disabled="synopsisDisabled" /><span>在作者模式中加入世界观简介</span></label>
-          <p id="gen-world-synopsis-visibility-hint" class="generate-form-hint" :hidden="!synopsisDisabled">读者/角色模式强制排除作者全知简介。</p>
-          <div v-show="form.reveal_mode === 'character'" id="gen-viewpoint-character-group" class="form-group"><label>视角人物 *</label><ReferencePickerAdapter id="gen-viewpoint-character-picker" v-model="viewpointIds" :project-id="projectId" :sources="[characterSource]" placeholder="选择视角人物" /><input id="gen-viewpoint-character" type="hidden" :value="form.viewpoint_character_id || ''" /><p class="generate-form-hint">视角人物与“相关人物”独立选择，提交时仍使用稳定内部引用。</p></div>
-        </details>
-      </div>
-      <div class="card generate-task-result">
-        <div class="card-title generate-task-output-header"><span>输出</span><span><button class="btn btn-sm" data-action="copy-task-md" :disabled="!markdown" @click="$emit('copy-markdown')">复制</button><button class="btn btn-sm" data-action="export-task-md" :disabled="!markdown" @click="$emit('export-markdown')">导出</button></span></div>
-        <div id="gen-task-output">
-          <div v-if="pending" class="loading">编译中...</div>
-          <p v-else-if="error" class="generate-error-text">{{ error }}</p>
-          <ContextBundleView v-else-if="bundle" :bundle="bundle" />
-          <p v-else class="generate-empty-copy">选择任务或填写描述后编译、预览上下文；此页签不会启动不存在的业务执行链路。</p>
+    <div class="generate-task-main">
+      <form class="card generate-task-parameter-card" @submit.prevent="$emit('run-task')">
+        <div><h3 class="card-title">整理任务参考资料</h3><p class="generate-task-intro">只整理参考资料，不会修改正文或设定。</p></div>
+        <div class="form-group">
+          <label for="gen-task-preset">常用任务（可选）</label>
+          <select id="gen-task-preset" class="form-select" :value="preset" aria-describedby="gen-task-preset-hint" data-action="select-task-preset" @change="$emit('select-preset', $event.target.value)">
+            <option v-for="(item, key) in TASK_PRESETS" :key="key" :value="key">{{ item.label }}</option>
+          </select>
+          <p id="gen-task-preset-hint" class="generate-form-hint">选择后会填入下方任务，你仍可以继续改写。</p>
         </div>
-      </div>
+        <div class="form-group"><label for="gen-task">想完成什么 *</label><textarea id="gen-task" v-model="form.task" class="form-textarea" rows="3" required aria-describedby="gen-task-hint" placeholder="如：为旧档案缺页篇整理 10 章章节卡所需资料"></textarea><p id="gen-task-hint" class="generate-form-hint">写清目标即可，范围和人物等条件可以在下方补充。</p></div>
+        <details class="gen-form-section generate-task-section"><summary><span>更多条件</span><small>范围、视角和参考对象</small></summary>
+          <div class="form-group"><label for="gen-scope">参考范围</label><select id="gen-scope" v-model="form.scope" class="form-select"><option v-for="item in SCOPE_OPTIONS" :key="item.value" :value="item.value">{{ item.label }}</option></select></div>
+          <div class="form-group"><label>重点参考的世界对象</label><ReferencePickerAdapter id="gen-entities-picker" v-model="form.entity_ids" :project-id="projectId" :sources="[entitySource]" mode="multiple" :max-items="20" placeholder="按名称搜索世界对象" /><input id="gen-entities" type="hidden" :value="form.entity_ids.join(',')" /></div>
+          <div class="form-group"><label>重点参考的人物</label><ReferencePickerAdapter id="gen-characters-picker" v-model="form.character_ids" :project-id="projectId" :sources="[characterSource]" mode="multiple" :max-items="20" placeholder="按姓名或别名搜索人物" /><input id="gen-characters" type="hidden" :value="form.character_ids.join(',')" /></div>
+          <div class="form-group"><label for="gen-chapter">当前章节</label><input id="gen-chapter" v-model.number="form.chapter_index" class="form-input" type="number" min="1" placeholder="选填，如 12" @change="clearScene" /></div>
+          <div class="form-group"><label>当前场景</label><ReferencePickerAdapter id="gen-scene-picker" v-model="sceneIds" :project-id="projectId" :sources="[sceneSource]" placeholder="按标题、目标或冲突搜索场景" /><input id="gen-scene" type="hidden" :value="form.scene_id || ''" /></div>
+          <div class="form-group"><label for="gen-budget">资料长度上限</label><input id="gen-budget" v-model.number="form.budget_tokens" class="form-input" type="number" min="0" max="1000000" aria-describedby="gen-budget-hint" /><p id="gen-budget-hint" class="generate-form-hint">留为 0 时自动适配当前模型；只有资料过长时才需要限制。</p></div>
+          <div class="form-group"><label for="gen-reveal">可参考的信息</label><select id="gen-reveal" v-model="form.reveal_mode" class="form-select" @change="syncReveal"><option v-for="item in REVEAL_OPTIONS" :key="item.value" :value="item.value">{{ item.label }}</option></select></div>
+          <label class="generate-quality-toggle"><input id="gen-include-world-synopsis" v-model="form.include_world_synopsis" type="checkbox" :disabled="synopsisDisabled" /><span>在作者模式中加入世界观简介</span></label>
+          <p id="gen-world-synopsis-visibility-hint" class="generate-form-hint" :hidden="!synopsisDisabled">读者或角色视角不会包含作者才知道的简介。</p>
+          <div v-show="form.reveal_mode === 'character'" id="gen-viewpoint-character-group" class="form-group"><label>从谁的视角判断 *</label><ReferencePickerAdapter id="gen-viewpoint-character-picker" v-model="viewpointIds" :project-id="projectId" :sources="[characterSource]" placeholder="选择视角人物" /><input id="gen-viewpoint-character" type="hidden" :value="form.viewpoint_character_id || ''" /><p class="generate-form-hint">这里只限制角色知道什么，不会改变上面的重点参考人物。</p></div>
+        </details>
+        <div class="generate-task-submit"><button class="btn btn-primary" type="submit" data-action="run-task" :disabled="pending">{{ pending ? '正在整理…' : '整理参考资料' }}</button><span>结果会显示在右侧并保留在当前任务中。</span></div>
+      </form>
+
+      <section class="card generate-task-result" aria-labelledby="generate-task-result-title">
+        <div class="generate-task-output-header"><div><h3 id="generate-task-result-title" class="card-title">本次参考资料</h3><p>确认资料是否足够，再带入下一步工作。</p></div>
+          <div v-if="bundle" class="generate-task-output-actions">
+            <button class="btn btn-sm btn-primary" type="button" data-action="render-task-md" :disabled="pending || !form.task" @click="$emit('render-markdown')">查看完整资料</button>
+            <button class="btn btn-sm" type="button" data-action="apply-to-chat" :disabled="pending || !form.task" @click="$emit('apply-to-chat')">带到世界设定对话</button>
+          </div>
+        </div>
+        <div id="gen-task-output" :aria-busy="pending ? 'true' : undefined">
+          <div v-if="pending" class="loading-skeleton generate-task-loading" role="status" aria-live="polite"><p>{{ pendingLabel }}</p><div class="skeleton loading-skeleton__heading" aria-hidden="true"></div><div class="skeleton loading-skeleton__line" aria-hidden="true"></div><div class="skeleton loading-skeleton__line loading-skeleton__line--medium" aria-hidden="true"></div></div>
+          <template v-else>
+            <div v-if="error" ref="errorEl" class="error-card generate-task-error" role="alert" tabindex="-1"><strong>{{ errorAction === 'render' ? '暂时没能准备完整资料' : '暂时没能整理完成' }}</strong><p>{{ error }}</p><button class="btn btn-sm" type="button" data-action="retry-task-context" @click="retry">重试</button></div>
+            <ContextBundleView v-if="bundle" :bundle="bundle" />
+            <div v-else-if="!error" class="generate-task-empty"><strong>还没有整理结果</strong><p>填写任务后，这里会汇集相关设定、人物和章节资料；不会自动改动作品。</p></div>
+          </template>
+        </div>
+      </section>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed } from "vue"
+import { computed, nextTick, ref, watch } from "vue"
 import { getApi } from "../../../bridge/index.js"
 import { structureAssetDisplay, worldAssetDisplay } from "../../../../shared/assetDisplayState.js"
 import { TASK_PRESETS, SCOPE_OPTIONS, REVEAL_OPTIONS } from "../logic/generateLogic.js"
 import ReferencePickerAdapter from "./ReferencePickerAdapter.vue"
 import ContextBundleView from "./ContextBundleView.vue"
 
-const props = defineProps({ projectId: { type: String, required: true }, preset: { type: String, default: "custom" }, bundle: Object, markdown: String, pending: Boolean, error: String })
-defineEmits(["select-preset", "copy-markdown", "export-markdown"])
+const props = defineProps({ projectId: { type: String, required: true }, preset: { type: String, default: "custom" }, bundle: Object, pending: Boolean, pendingLabel: { type: String, default: "正在整理与任务有关的资料…" }, error: String, errorAction: { type: String, default: "compile" } })
+const emit = defineEmits(["select-preset", "run-task", "render-markdown", "apply-to-chat"])
 const form = defineModel("form", { type: Object, required: true })
 const api = getApi()
+const errorEl = ref(null)
+watch(() => props.error, async (error) => { if (error) { await nextTick(); errorEl.value?.focus() } })
+function retry() { emit(props.errorAction === "render" ? "render-markdown" : "run-task") }
 
 function entityItem(item, kind) {
   const display = worldAssetDisplay(item)

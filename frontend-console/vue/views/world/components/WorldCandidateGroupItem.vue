@@ -16,7 +16,7 @@
       <WorldInlineEvidence :pairs="evidencePairs" />
     </div>
     <div class="row-actions">
-      <WorldCandidateActions :candidate="candidate" :action-options="actionOptions" />
+      <button type="button" class="btn btn-sm world-review-queue-action" data-action="prepare-candidate-review" :data-id="id" @click.stop="emit('select', id, $event)">查看并决定</button>
     </div>
   </article>
 </template>
@@ -25,14 +25,12 @@
 import { computed } from "vue"
 import { candidateMeta, entityId } from "../logic/worldEntityHelpers.js"
 import { inlineEvidencePairs } from "../logic/useWorldReview.js"
-import WorldCandidateActions from "./WorldCandidateActions.vue"
 import WorldInlineEvidence from "./WorldInlineEvidence.vue"
 import WorldSelectionInput from "./WorldSelectionInput.vue"
 
 const props = defineProps({
   candidate: { type: Object, required: true },
   badgeLabel: { type: String, required: true },
-  actionOptions: { type: Object, default: () => ({}) },
   active: { type: Boolean, default: false },
 })
 const emit = defineEmits(["select"])

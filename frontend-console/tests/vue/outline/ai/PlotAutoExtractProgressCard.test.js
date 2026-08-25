@@ -47,6 +47,7 @@ describe("渲染契约", () => {
     const wrapper = mount(PlotAutoExtractProgressCard)
     expect(wrapper.find(".outline-progress-card-wrap").exists()).toBe(true)
     expect(wrapper.findComponent({ name: "WorkflowProgressCard" }).exists()).toBe(true)
+    expect(wrapper.get(".workflow-progress__destination").text()).toBe("范围：第 3–7 章")
   })
 
   it("meta 中的章节范围文本", () => {
@@ -61,5 +62,6 @@ describe("渲染契约", () => {
     }
     const wrapper = mount(PlotAutoExtractProgressCard)
     expect(wrapper.text()).toContain("剧情线自动提取")
+    expect(wrapper.text()).toContain("范围：第 1–5 章")
   })
 })

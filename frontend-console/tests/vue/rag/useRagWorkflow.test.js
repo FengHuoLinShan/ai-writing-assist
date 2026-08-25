@@ -351,9 +351,11 @@ describe("项目会话隔离", () => {
     ragSearchSession.prewarmState = "ready"
     ragSearchSession.prewarmWarning = "旧项目警告"
     ragSearchSession.prewarmResult = { embedding_dim: 512 }
+    ragSearchSession.rebuildForm = { contentMode: "working", start: "2", end: "4" }
 
     expect(scopeRagSessionToProject("p-old")).toBe(false)
     expect(ragSearchSession.prewarmResult).toEqual({ embedding_dim: 512 })
+    expect(ragSearchSession.rebuildForm).toEqual({ contentMode: "working", start: "2", end: "4" })
 
     expect(scopeRagSessionToProject("p-new")).toBe(true)
     expect(ragSearchSession.ownerProjectId).toBe("p-new")
@@ -363,6 +365,7 @@ describe("项目会话隔离", () => {
     expect(ragSearchSession.prewarmState).toBe("idle")
     expect(ragSearchSession.prewarmWarning).toBe("")
     expect(ragSearchSession.prewarmResult).toBeNull()
+    expect(ragSearchSession.rebuildForm).toEqual({ contentMode: "canonical", start: "", end: "" })
   })
 })
 

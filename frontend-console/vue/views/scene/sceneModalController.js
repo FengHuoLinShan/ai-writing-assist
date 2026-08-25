@@ -95,16 +95,65 @@ export function createSceneModalController({
     activeReview = null
   }
 
-  function renderImpact(preview) {
+  const impactFieldLabels = new Map(REVIEW_FIELDS)
+  const impactChapterLabel = (chapterIds) => sceneChapterLabel({ chapter_ids: chapterIds || [] })
+  const sceneTitle = (scene, fallback) => scene?.title || fallback
+
+  function renderRelatedImpact(preview) {
+    return `<section class="scene-impact-section" aria-label="关联内容">
+      <h3>关联内容</h3>
+      <dl class="scene-impact-related">
+        <div><dt>剧情线</dt><dd>${esc(preview?.related_threads?.count ?? 0)} 条</dd></div>
+        <div><dt>伏笔</dt><dd>${esc(preview?.related_foreshadowing?.count ?? 0)} 条</dd></div>
+        <div><dt>揭示</dt><dd>${esc(preview?.related_reveals?.count ?? 0)} 条</dd></div>
+      </dl>
+      <p class="scene-impact-note">这里仅提示受关注的数量，请在确认后复核关联是否仍准确。</p>
+    </section>`
+  }
+
+  function renderImpactWarnings(preview) {
     const warnings = (preview?.warnings || []).map((item) => `<li>${esc(item)}</li>`).join("")
+    return warnings ? `<aside class="scene-impact-warning" role="note"><strong>请留意</strong><ul>${warnings}</ul></aside>` : ""
+  }
+
+  function impactFieldValue(field, value, after = false) {
+    if (field === "pov_character_id") {
+      if (!value) return "未设置"
+      return after ? "沿用来源场景的视角人物" : "已有设置"
+    }
+    if (value && typeof value === "object") return "已更新"
+    return formatValue(value) || "未填写"
+  }
+
+  function renderFieldImpact(preview) {
+    const changes = Object.entries(preview?.field_changes || {})
+      .filter(([field, change]) => impactFieldLabels.has(field) && change && typeof change === "object")
+    if (!changes.length) {
+      return `<section class="scene-impact-section" aria-label="创作要素"><h3>创作要素</h3><p class="scene-impact-note">目标、冲突等创作要素保持当前内容，不会被来源场景覆盖。</p></section>`
+    }
+    return `<section class="scene-impact-section" aria-label="创作要素"><h3>创作要素</h3><dl class="scene-impact-changes">
+      ${changes.map(([field, change]) => `<div><dt>${esc(impactFieldLabels.get(field))}</dt><dd><span>${esc(impactFieldValue(field, change.before))}</span><span aria-hidden="true">→</span><strong>${esc(impactFieldValue(field, change.after, true))}</strong></dd></div>`).join("")}
+    </dl></section>`
+  }
+
+  function renderImpact(preview, targetSceneId, sourceSceneIds) {
+    const mapping = preview?.chapter_mapping_change || {}
+    const target = findScene(targetSceneId) || preview?.scene
+    const targetTitle = sceneTitle(target, "保留场景")
+    const sources = sourceSceneIds.map((id, index) => ({
+      id,
+      title: sceneTitle(findScene(id), `待合并场景 ${index + 1}`),
+    }))
     return `
       <div class="scene-impact-preview">
-        <div><strong>操作</strong><span>${esc(preview?.operation || "")}</span></div>
-        <div><strong>章节映射变化</strong><pre>${esc(JSON.stringify(preview?.chapter_mapping_change || {}, null, 2))}</pre></div>
-        <div><strong>字段变化</strong><pre>${esc(JSON.stringify(preview?.field_changes || {}, null, 2))}</pre></div>
-        <div><strong>关联剧情线</strong><span>${esc(preview?.related_threads?.count ?? 0)} 条</span></div>
-        <div><strong>关联伏笔 / 揭示</strong><span>${esc(preview?.related_foreshadowing?.count ?? 0)} / ${esc(preview?.related_reveals?.count ?? 0)}</span></div>
-        ${warnings ? `<ul>${warnings}</ul>` : ""}
+        <p class="scene-impact-lead">${sources.length + 1} 个场景将合并为 1 个。确认后保留「${esc(targetTitle)}」，其余场景移入历史。</p>
+        <section class="scene-impact-section" aria-label="合并结果"><h3>合并结果</h3><dl>
+          <div><dt>保留场景</dt><dd><strong>${esc(targetTitle)}</strong><span>${esc(impactChapterLabel(mapping.before?.[targetSceneId]))} → ${esc(impactChapterLabel(mapping.after?.[targetSceneId]))}</span></dd></div>
+          <div><dt>并入后移入历史</dt><dd><ul class="scene-impact-list">${sources.map((source) => `<li><strong>${esc(source.title)}</strong><span>${esc(impactChapterLabel(mapping.before?.[source.id]))}</span></li>`).join("")}</ul></dd></div>
+        </dl></section>
+        ${renderFieldImpact(preview)}
+        ${renderRelatedImpact(preview)}
+        ${renderImpactWarnings(preview)}
       </div>`
   }
 
@@ -121,7 +170,7 @@ export function createSceneModalController({
       return false
     }
     if (!owns(ownerGeneration)) return false
-    showModalHtml("合并场景影响预览", renderImpact(preview), [
+    showModalHtml("合并场景影响预览", renderImpact(preview, targetSceneId, sourceSceneIds), [
       { text: "取消", class: "", handler: closeModal },
       {
         text: "确认合并",
@@ -561,13 +610,24 @@ export function createSceneModalController({
     }
     if (!owns(ownerGeneration)) return false
     const impact = preview?.chapter_mapping_change?.after || {}
+    const drafts = preview?.draft_scenes || []
+    const source = findScene(sceneId)
+    const retainedTitle = sceneTitle(drafts[0], sceneTitle(source, "原场景"))
+    const createdTitle = sceneTitle(drafts[1], sceneTitle(preview?.new_scene, "新场景"))
+    const retainedChapters = drafts[0]?.chapter_ids || impact[sceneId] || []
+    const createdChapters = drafts[1]?.chapter_ids || preview?.new_scene?.chapter_ids || preview?.field_changes?.new_scene?.chapter_ids || []
     showModalHtml("场景拆分预览", `<div class="scene-fusion-preview">
       ${reviewTable(["字段", "原场景", "建议 A", "建议 B"], splitDraftRows(preview))}
       <section class="scene-split-impact-summary" aria-label="拆分影响摘要"><h3>影响摘要</h3>
-        <p>章节映射：${esc(Object.entries(impact).map(([id, ids]) => `${id}: ${(ids || []).join("、") || "无"}`).join("；") || "以表格为准")}</p>
-        <p>关联剧情线：${esc(preview?.related_threads?.count ?? 0)} 条</p>
-        <p>关联伏笔 / 揭示：${esc(preview?.related_foreshadowing?.count ?? 0)} / ${esc(preview?.related_reveals?.count ?? 0)}</p>
-      </section></div>`, [
+        <p class="scene-impact-note">正文内容不会修改；确认前仍可在上方编辑标题与创作要素。</p>
+        <dl>
+          <div><dt>保留原场景</dt><dd><strong>${esc(retainedTitle)}</strong><span>${esc(impactChapterLabel(retainedChapters))}</span></dd></div>
+          <div><dt>创建新场景</dt><dd><strong>${esc(createdTitle)}</strong><span>${esc(impactChapterLabel(createdChapters))}</span></dd></div>
+        </dl>
+      </section>
+      ${renderRelatedImpact(preview)}
+      ${renderImpactWarnings(preview)}
+    </div>`, [
       { text: "取消", class: "", handler: closeModal },
       {
         text: "确认拆分",

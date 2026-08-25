@@ -158,6 +158,7 @@ test.describe("世界对象与大纲 chaos", () => {
 
     await page.reload()
     await page.waitForFunction(() => !state.loading, { timeout: 10000 })
+    await page.locator(".scene-workbench-tools summary").click()
     await page.locator('[data-action="scene-auto-extract"]').click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("从正文整理场景")
     await page.locator("#scene-auto-extract-start").fill("1")

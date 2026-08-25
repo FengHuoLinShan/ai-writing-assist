@@ -5,7 +5,7 @@
     <OwnerAiDrawer
       :open="aiDrawerOpen"
       :owner="aiDrawerOwner"
-      :initial-mode="['task', 'preview', 'pov_prose'].includes(props.ownerAiMode) ? props.ownerAiMode : null"
+      :initial-mode="props.ownerAiMode || null"
       :project-id="props.projectId"
       :source-page-id="aiDrawerSourcePageId"
       :target-kind="aiDrawerTargetKind"
@@ -13,24 +13,51 @@
       :checkpoint-id="aiDrawerCheckpointId"
       :chapter="vm.selectedChapter.value"
       :scene-id="vm.currentScene.value?.id || null"
-      :writing-actions="{ generateDraft: vm.generateDraft, generateContinuation: vm.generateContinuation, generatePovDraft: vm.generatePovDraft }"
+      :writing-actions="{ generateDraft: vm.generateDraft, generateContinuation: vm.generateContinuation, generatePovDraft: vm.generatePovDraft, saveDraft: vm.saveMobileNote }"
       :writing-busy="vm.generationLoading.value"
+      :writing-context="writingAiContext"
       @close="aiDrawerOpen = false"
     />
   </template>
   <template v-else>
-  <div class="view-header writing-toolbar">
+  <header v-if="vm.focusMode.value" class="writing-focus-header" aria-label="专注写作">
+    <div class="writing-focus-header__context">
+      <span>专注写作</span>
+      <strong>{{ focusChapterLabel }}</strong>
+      <span v-if="hasEditableChapter" class="writing-focus-header__save" aria-live="polite">{{ vm.saveStatus.value }}</span>
+    </div>
+    <button
+      id="writing-focus-exit"
+      type="button"
+      class="btn btn-sm"
+      aria-keyshortcuts="Escape"
+      @click="exitFocusMode"
+    >退出专注 <kbd aria-hidden="true">Esc</kbd></button>
+  </header>
+  <div v-else class="view-header writing-toolbar">
     <div class="view-header__title">
       写作
       <span class="view-header__count">共 {{ vm.chapterList.value.length }} 章</span>
     </div>
     <div class="view-header__actions">
-      <details class="writing-page-menu">
-        <summary class="btn btn-sm">写作视图</summary>
-        <div class="writing-page-menu__body" @click="closeViewMenu">
-          <button class="btn btn-sm" @click="vm.toggleFocusMode">{{ vm.focusMode.value ? '退出专注' : '进入专注' }}</button>
-          <button class="btn btn-sm" data-action="toggle-outline-float" @click="vm.toggleOutlineFloat">故事结构浮窗</button>
-          <button class="btn btn-sm" @click="vm.navigateOutline">打开故事结构</button>
+      <button
+        v-if="vm.isNarrow.value && vm.forceDesktop.value && vm.editorState.status !== 'candidate'"
+        id="mobile-editor-mode-toggle"
+        ref="quickModeButton"
+        type="button"
+        class="btn btn-sm btn-ghost"
+        @click="returnToQuickNote"
+      >返回速记</button>
+      <details ref="viewMenuEl" class="writing-page-menu" @toggle="onViewMenuToggle" @keydown="onViewMenuKeydown">
+        <summary
+          class="btn btn-sm"
+          aria-controls="writing-page-menu-body"
+          :aria-expanded="String(viewMenuOpen)"
+        >写作视图 <span class="writing-page-menu__chevron" aria-hidden="true">⌄</span></summary>
+        <div id="writing-page-menu-body" class="writing-page-menu__body" @click="closeViewMenuAfterAction">
+          <button type="button" class="btn btn-sm" :disabled="!hasEditableChapter" @click="toggleFocusMode">进入专注</button>
+          <button type="button" class="btn btn-sm" data-action="toggle-outline-float" @click="vm.toggleOutlineFloat">故事结构浮窗</button>
+          <button type="button" class="btn btn-sm" @click="vm.navigateOutline">打开故事结构</button>
         </div>
       </details>
       <button type="button" class="btn btn-sm" data-action="open-owner-ai-drawer" @click="openOwnerAi({ owner: 'writing' })">AI 工具</button>
@@ -40,6 +67,7 @@
   <MobileQuickNote
     v-if="vm.mobileMode.value"
     :state="vm.editorState"
+    :chapter="vm.selectedChapter.value"
     :scenes="vm.chapterScenes.value"
     :selected-scene-id="vm.selectedSceneId.value"
     :scene="vm.currentScene.value"
@@ -50,7 +78,8 @@
     @load-lens="vm.loadSceneLens"
     @save="vm.saveMobileNote"
     @publish="vm.publish"
-    @desktop="vm.switchDesktopMode"
+    @desktop="openCompleteEditor"
+    @retry-load="vm.retryChapterLoad"
   />
 
   <WritingWorkflowBars
@@ -78,7 +107,11 @@
     @dismiss-conflict-task="vm.dismissConflictTask"
   />
 
-  <div v-if="!vm.mobileMode.value" class="writing-workspace-layout">
+  <div
+    v-if="!vm.mobileMode.value"
+    class="writing-workspace-layout"
+    :class="{ 'writing-workspace-layout--candidate': vm.editorState.status === 'candidate' }"
+  >
     <aside
       class="workspace-rail writing-tree-rail workspace-rail--left"
       :class="{ 'is-collapsed': !leftRailOpen }"
@@ -102,6 +135,7 @@
     <main id="writing-editor-container" :data-watermark="watermarkChar">
       <WritingEditor
         :state="vm.editorState"
+        :target-chapter="vm.selectedChapter.value"
         :has-chapters="vm.chapterList.value.length > 0"
         :save-status="vm.saveStatus.value"
         :editor-font="effectiveEditorFont"
@@ -110,6 +144,7 @@
         :generation-loading="vm.generationLoading.value"
         :conflict-loading="vm.conflictState.loading"
         :review-result="vm.generationTask.result"
+        :candidate-comparison-available="vm.candidateComparisonAvailable.value"
         :attach="vm.attachEditor"
         :detach="vm.detachEditor"
         @autosave="vm.autosave"
@@ -126,8 +161,9 @@
         @reject="rejectCandidate"
         @semantic-review="vm.reviewCandidate"
         @targeted-revision="vm.reviseCandidate"
+        @compare-candidate="vm.compareCandidateWithWorkingDraft"
         @export="vm.exportChapter"
-        @toggle-focus="vm.toggleFocusMode"
+        @retry-load="vm.retryChapterLoad"
       >
         <template #context-actions>
           <div v-if="vm.activeVersions.value.length" id="writing-versions-container" class="writing-version-bar writing-version-bar--compact">
@@ -150,8 +186,7 @@
               </select>
             </span>
             <span id="publish-status-dot" class="publish-status-dot" :class="{ active: vm.publishProgress.active }" />
-            <button class="btn btn-sm writing-btn-compact" title="版本历史" @click="vm.openVersionHistory">历史</button>
-            <button v-if="vm.versions.value.length >= 2" class="btn btn-sm writing-btn-compact" title="比较两个版本" @click="openVersionDiff">比较</button>
+            <button class="btn btn-sm writing-btn-compact" @click="vm.openVersionHistory">版本历史</button>
           </div>
           <div
             v-if="vm.conflictState.latest || vm.conflictState.error"
@@ -226,7 +261,7 @@
           :title="`正文字体：${editorFontLabel}（跟随创作偏好，点此临时切换）`"
           @click="cycleEditorFont"
         >字体 · {{ editorFontLabel }}</button>
-        <button type="button" class="writing-statusbar__focus" @click="vm.toggleFocusMode">{{ vm.focusMode.value ? '退出专注' : '专注模式' }}</button>
+        <button type="button" class="writing-statusbar__focus" :disabled="!hasEditableChapter" @click="toggleFocusMode">专注模式</button>
       </div>
     </footer>
   </div>
@@ -254,7 +289,8 @@
   <VersionHistoryDialog
     :model="vm.versionDialog"
     :versions="vm.versions.value"
-    @preview="vm.switchVersion"
+    :current-id="vm.editorState.draftId"
+    @preview="previewVersion"
     @restore="vm.restoreVersion"
     @delete="vm.deleteVersion"
     @compare="vm.compareVersions"
@@ -262,7 +298,7 @@
   <OwnerAiDrawer
     :open="aiDrawerOpen"
     :owner="aiDrawerOwner"
-    :initial-mode="['task', 'preview', 'pov_prose'].includes(props.ownerAiMode) ? props.ownerAiMode : null"
+    :initial-mode="props.ownerAiMode || null"
     :project-id="props.projectId"
     :source-page-id="aiDrawerSourcePageId"
     :target-kind="aiDrawerTargetKind"
@@ -270,15 +306,16 @@
     :checkpoint-id="aiDrawerCheckpointId"
     :chapter="vm.selectedChapter.value"
     :scene-id="vm.currentScene.value?.id || null"
-    :writing-actions="{ generateDraft: vm.generateDraft, generateContinuation: vm.generateContinuation, generatePovDraft: vm.generatePovDraft }"
+    :writing-actions="{ generateDraft: vm.generateDraft, generateContinuation: vm.generateContinuation, generatePovDraft: vm.generatePovDraft, saveDraft: vm.saveMobileNote }"
     :writing-busy="vm.generationLoading.value"
+    :writing-context="writingAiContext"
     @close="aiDrawerOpen = false"
   />
   </template>
 </template>
 
 <script setup>
-import { computed, ref } from "vue"
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import ChapterTree from "./components/ChapterTree.vue"
 import AutoExtractionDialog from "./components/AutoExtractionDialog.vue"
 import ConflictDetailDialog from "./components/ConflictDetailDialog.vue"
@@ -311,6 +348,10 @@ const props = defineProps({
 })
 
 const vm = useWritingWorkspace(props)
+const quickModeButton = ref(null)
+const viewMenuEl = ref(null)
+const viewMenuOpen = ref(false)
+let focusOrigin = null
 const aiDrawerOpen = ref(Boolean(props.ownerAiOpen))
 const aiDrawerOwner = ref(props.ownerAiMode === "world" ? "world" : "writing")
 const aiDrawerSourcePageId = ref(null)
@@ -334,7 +375,10 @@ const conflictSummary = computed(() => (
 ))
 
 /* 状态栏：纯展示派生，不触发任何请求 */
-const hasEditableChapter = computed(() => Number.isInteger(Number(vm.editorState.chapter)) && Number(vm.editorState.chapter) > 0)
+const hasEditableChapter = computed(() => Number.isInteger(Number(vm.selectedChapter.value))
+  && Number(vm.selectedChapter.value) > 0
+  && !vm.editorState.loading
+  && !vm.editorState.loadError)
 const statusWordCount = computed(() => String(vm.editorState.content || "").length)
 const statusParagraphCount = computed(() => String(vm.editorState.content || "").replace(/\r\n?/g, "\n").split(/\n+/).filter((item) => item.trim()).length)
 const statusReadMinutes = computed(() => Math.max(1, Math.ceil(statusWordCount.value / 400)))
@@ -350,9 +394,31 @@ const versionLabel = computed(() => (
 ))
 const saveBadgeClass = computed(() => ({
   "writing-save-badge--saving": Boolean(vm.editorState.saving),
-  "writing-save-badge--unsaved": !vm.editorState.saving && vm.editorState.dirty,
-  "writing-save-badge--saved": !vm.editorState.saving && !vm.editorState.dirty,
+  "writing-save-badge--error": !vm.editorState.saving && Boolean(vm.editorState.saveError),
+  "writing-save-badge--readonly": !vm.editorState.saving && !vm.editorState.saveError && vm.editorState.readonly,
+  "writing-save-badge--unsaved": !vm.editorState.saving && !vm.editorState.saveError && !vm.editorState.readonly && vm.editorState.dirty,
+  "writing-save-badge--saved": !vm.editorState.saving && !vm.editorState.saveError && !vm.editorState.readonly && !vm.editorState.dirty,
 }))
+const focusChapterLabel = computed(() => {
+  const chapter = Number(vm.selectedChapter.value)
+  const title = String(vm.editorState.title || vm.chapters?.[chapter]?.title || "").trim()
+  if (!Number.isInteger(chapter) || chapter < 1) return "选择章节后开始"
+  return `第 ${chapter} 章${title ? ` · ${title}` : ""}`
+})
+const writingAiContext = computed(() => {
+  const content = String(vm.editorState.content || "")
+  const scene = vm.currentScene.value
+  return {
+    chapterTitle: String(vm.editorState.title || vm.chapters?.[vm.selectedChapter.value]?.title || "").trim(),
+    hasContent: Boolean(content.trim()),
+    hasUnsavedContent: content !== String(vm.editorState.lastSavedContent || "") || (!vm.editorState.draftId && Boolean(content.trim())),
+    readonly: Boolean(vm.editorState.readonly),
+    saving: Boolean(vm.editorState.saving),
+    saveError: vm.editorState.saveError || "",
+    sceneTitle: String(scene?.title || "").trim(),
+    hasPovCharacter: Boolean(scene?.pov_character_id),
+  }
+})
 
 /* 正文字体：默认跟随创作偏好，状态栏按钮只做本次会话的临时切换，不写入偏好存储 */
 const editorFontChoices = ["system", "serif", "sans", "mono"]
@@ -387,8 +453,93 @@ const leftRailOpen = ref(
 )
 const rightRailOpen = ref(stored("reference", typeof window === "undefined" || window.innerWidth > 1099))
 
-function closeViewMenu(event) {
-  event.currentTarget.closest("details").open = false
+function openCompleteEditor() {
+  leftRailOpen.value = false
+  rightRailOpen.value = false
+  vm.switchDesktopMode()
+  nextTick(() => quickModeButton.value?.focus())
+}
+
+function returnToQuickNote() {
+  vm.switchMobileMode()
+  nextTick(() => document.querySelector("#mobile-note-editor")?.focus())
+}
+
+function focusWritingEditor() {
+  document.querySelector(vm.mobileMode.value ? "#mobile-note-editor" : "#writing-editor")?.focus()
+}
+
+function setFocusMode(active) {
+  if (active) focusOrigin = document.activeElement
+  if (!vm.setFocusMode(active)) return false
+  nextTick(() => {
+    if (active) {
+      focusWritingEditor()
+      return
+    }
+    const originHidden = focusOrigin?.closest?.("details:not([open])")
+    const originWasViewMenu = focusOrigin?.closest?.(".writing-page-menu")
+    const fallback = document.querySelector(originWasViewMenu
+      ? ".writing-page-menu > summary"
+      : ".writing-statusbar__focus") || document.querySelector(".writing-page-menu > summary")
+    if (focusOrigin?.isConnected && !originHidden && !focusOrigin.disabled) focusOrigin.focus()
+    else fallback?.focus()
+  })
+  return true
+}
+
+function toggleFocusMode() {
+  if (viewMenuEl.value?.open) closeViewMenu(true)
+  return setFocusMode(!vm.focusMode.value)
+}
+function exitFocusMode() { return setFocusMode(false) }
+function onFocusKeydown(event) {
+  if (event.key !== "Escape" || !vm.focusMode.value) return
+  event.preventDefault()
+  exitFocusMode()
+}
+
+onMounted(() => {
+  window.addEventListener("keydown", onFocusKeydown)
+  document.addEventListener("pointerdown", onDocumentPointerdown)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onFocusKeydown)
+  document.removeEventListener("pointerdown", onDocumentPointerdown)
+})
+
+watch([vm.focusMode, vm.mobileMode], ([active]) => {
+  if (active) nextTick(focusWritingEditor)
+})
+watch([() => vm.editorState.status, vm.isNarrow], ([status, narrow]) => {
+  if (status === "candidate" && narrow) leftRailOpen.value = false
+})
+
+function closeViewMenu(restoreFocus = false) {
+  if (!viewMenuEl.value) return
+  viewMenuEl.value.open = false
+  viewMenuOpen.value = false
+  if (restoreFocus) viewMenuEl.value.querySelector(":scope > summary")?.focus()
+}
+
+function onViewMenuToggle(event) {
+  viewMenuOpen.value = event.currentTarget.open
+}
+
+function closeViewMenuAfterAction(event) {
+  const button = event.target.closest?.("button")
+  if (button && !button.disabled) closeViewMenu(true)
+}
+
+function onViewMenuKeydown(event) {
+  if (event.key !== "Escape" || !viewMenuEl.value?.open) return
+  event.preventDefault()
+  event.stopPropagation()
+  closeViewMenu(true)
+}
+
+function onDocumentPointerdown(event) {
+  if (viewMenuEl.value && !viewMenuEl.value.contains(event.target)) closeViewMenu()
 }
 
 function toggleRail(rail) {
@@ -406,8 +557,10 @@ async function rejectCandidate() {
   if (await vm.rejectCandidate()) await vm.selectChapter(vm.selectedChapter.value)
 }
 
-function openVersionDiff() {
-  vm.openVersionHistory()
-  vm.compareVersions()
+async function previewVersion(draftId) {
+  if (!await vm.switchVersion(draftId)) return
+  vm.versionDialog.open = false
+  await nextTick()
+  requestAnimationFrame(focusWritingEditor)
 }
 </script>

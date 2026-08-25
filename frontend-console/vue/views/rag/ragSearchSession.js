@@ -21,6 +21,7 @@ export const ragSearchSession = reactive({
   formState: null,
   formRouteSignature: "",
   drawerRefs: [],
+  rebuildForm: { contentMode: "canonical", start: "", end: "" },
   // 索引维护：重建/重试进度（跨重挂载保留，与 vanilla 单例一致）
   rebuildProgress: null,
   rebuildInfo: null,
@@ -47,6 +48,7 @@ export function scopeRagSessionToProject(projectId) {
   ragSearchSession.prewarmState = "idle"
   ragSearchSession.prewarmWarning = ""
   ragSearchSession.prewarmResult = null
+  ragSearchSession.rebuildForm = { contentMode: "canonical", start: "", end: "" }
   return true
 }
 

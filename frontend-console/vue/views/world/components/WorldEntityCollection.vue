@@ -13,37 +13,45 @@
       select-all-label="全选当前页对象"
       @run="$emit('bulk-run', $event)"
     />
-    <table v-if="objectViewMode !== 'card'" class="data-table table-card-list world-table--no-top-border">
+    <table v-if="objectViewMode !== 'card'" class="data-table table-card-list world-table--no-top-border world-object-table">
       <thead>
         <tr>
           <th class="selection-cell"><WorldSelectionInput mode="all" scope="world-objects" :ids="visibleIds" label="全选当前页对象" /></th>
-          <th>状态</th>
-          <th>类型</th>
-          <th>名称</th>
-          <th>来源</th>
-          <th>注意</th>
-          <th>重要度</th>
-          <th>摘要</th>
-          <th>操作</th>
+          <th class="world-object-table__identity">对象</th>
+          <th class="world-object-table__overview">资料概览</th>
+          <th class="world-object-table__actions">操作</th>
         </tr>
       </thead>
       <tbody>
         <tr v-for="entity in entities" :key="idOf(entity)" :data-id="idOf(entity)" class="clickable">
           <td class="selection-cell"><WorldSelectionInput mode="one" scope="world-objects" :id="idOf(entity)" :label="`选择 ${entity.name || '对象'}`" /></td>
-          <td data-label="状态"><span class="badge" :class="displayOf(entity).statusClass">{{ displayOf(entity).label }}</span></td>
-          <td data-label="类型" class="world-table-cell--type">{{ cardTypeLabel(entity) }}</td>
-          <td data-label="名称">{{ entity.name }}<span v-if="showNewBadge" class="badge badge-new">新</span><span v-if="entity.ranking" class="world-ranking-badges" :title="rankingTitle(entity)"><span v-for="label in entity.ranking.labels || []" :key="label" class="badge" :class="label === 'hot' ? 'badge-warning' : 'badge-info'">{{ label === 'hot' ? '近期热点' : '重要' }}</span></span></td>
-          <td data-label="来源" class="world-table-cell--muted">{{ sourceText(entity) }}</td>
-          <td data-label="注意" :class="needsReview(entity) ? 'world-table-cell--warning' : 'world-table-cell--muted'">{{ displayOf(entity).attentionText }}</td>
-          <td data-label="重要度">{{ entity.importance ?? entity.importance_score ?? "-" }}</td>
-          <td data-label="摘要" class="world-table-cell--muted world-table-cell--ellipsis">{{ entity.summary || entity.public_info || "-" }}</td>
-          <td data-label="操作">
+          <td data-label="对象" class="world-object-table__identity">
+            <div class="world-object-table__title">
+              <strong>{{ entity.name || "未命名对象" }}</strong>
+              <span v-if="showNewBadge" class="badge badge-new">新</span>
+            </div>
+            <div class="world-object-table__meta">
+              <span class="world-table-cell--type">{{ cardTypeLabel(entity) }}</span>
+              <span class="badge" :class="displayOf(entity).statusClass">{{ displayOf(entity).label }}</span>
+              <span v-if="entity.ranking" class="world-ranking-badges" :title="rankingTitle(entity)"><span v-for="label in entity.ranking.labels || []" :key="label" class="badge" :class="label === 'hot' ? 'badge-warning' : 'badge-info'">{{ label === 'hot' ? '近期热点' : '重要' }}</span></span>
+            </div>
+            <p v-if="displayOf(entity).attentionReasons.length" class="world-object-table__attention">
+              需要留意：{{ displayOf(entity).attentionReasons.join("、") }}
+            </p>
+          </td>
+          <td data-label="资料概览" class="world-object-table__overview">
+            <p class="world-object-table__summary" :title="entity.summary || entity.public_info || '暂无摘要'">{{ entity.summary || entity.public_info || "暂无摘要" }}</p>
+            <div class="world-object-table__facts">
+              <span>来源：{{ sourceText(entity) }}</span>
+              <span>重要度：{{ importanceText(entity) }}</span>
+            </div>
+          </td>
+          <td data-label="操作" class="world-object-table__actions">
             <div class="row-actions">
               <button v-if="showReviewAction(entity)" class="btn btn-sm btn-primary" data-action="mark-entity-reviewed" :data-id="idOf(entity)" @click="markEntityReviewed(idOf(entity))">标记已检查</button>
               <button class="btn btn-sm btn-primary" data-action="edit-entity" :data-id="idOf(entity)" @click="editEntity(idOf(entity))">{{ canPromote(entity) ? "编辑后采用" : "编辑" }}</button>
               <input :id="imageInputId(entity)" class="sr-only" type="file" accept="image/png,image/jpeg" tabindex="-1" :aria-label="`选择${entity.name || '对象'}图片`" :disabled="isImageUploading(entity)" @click.stop @change.stop="uploadEntityImage(entity, $event)" />
-              <button class="btn btn-sm" data-action="upload-entity-image" :data-id="idOf(entity)" :disabled="isImageUploading(entity)" @click.stop="openImagePicker(entity)">{{ isImageUploading(entity) ? "上传中..." : "上传图片" }}</button>
-              <button v-if="canMerge(entity)" class="btn btn-sm" data-action="merge-entity" :data-id="idOf(entity)" @click="showMergeForm(idOf(entity))">合并</button>
+              <span v-if="isImageUploading(entity)" class="world-object-table__upload-status" role="status">图片上传中…</span>
               <ActionMenu :menu-id="`entity-actions-${idOf(entity)}`" :label="`${entity.name || '对象'}的更多操作`" :items="tableMenuItems(entity)" @select="onMenuSelect" />
             </div>
           </td>
@@ -74,7 +82,7 @@
         <div class="world-object-card__facts">
           <span>来源：{{ sourceText(entity) }}</span>
           <span v-if="displayOf(entity).attentionReasons.length">注意：{{ displayOf(entity).attentionReasons.join("、") }}</span>
-          <span>重要度：{{ entity.importance ?? entity.importance_score ?? "-" }}</span>
+          <span>重要度：{{ importanceText(entity) }}</span>
           <span v-if="entity.ranking">综合分：{{ entity.ranking.combined_score ?? 0 }} · 近十二章 {{ entity.ranking.recent_12_chapter_occurrences ?? 0 }} 次</span>
         </div>
         <div class="world-object-card__actions">
@@ -119,7 +127,6 @@ const props = defineProps({
 defineEmits(["bulk-run"])
 
 const idOf = entityId
-const needsReview = entityNeedsReview
 
 const visibleIds = computed(() => props.entities.map((item) => entityId(item)).filter(Boolean))
 
@@ -322,12 +329,15 @@ function displayOf(entity) {
     label: display.label,
     statusClass: displayStateBadgeClass(display.displayState),
     attentionReasons: display.attentionReasons,
-    attentionText: display.attentionReasons.join("、") || "—",
   }
 }
 
 function sourceText(entity) {
-  return { deep_import: "深度导入", manual: "手动", ai_generated: "AI 生成" }[entity.source] || entity.source || "-"
+  return { deep_import: "深度导入", manual: "手动", ai_generated: "AI 生成" }[entity.source] || "未记录"
+}
+
+function importanceText(entity) {
+  return entity.importance ?? entity.importance_score ?? "未记录"
 }
 
 function cardTypeLabel(entity) {
@@ -352,6 +362,8 @@ const showReviewAction = (entity) => Boolean(entityId(entity)) && !isSuggestionS
 function tableMenuItems(entity) {
   const id = entityId(entity)
   return [
+    ...(!isImageUploading(entity) ? [{ action: "upload-entity-image", label: "上传图片", data: { id } }] : []),
+    ...(canMerge(entity) ? [{ action: "merge-entity", label: "合并", data: { id } }] : []),
     ...(canPromote(entity) ? [{ action: "promote-entity", label: "采用", data: { id } }] : []),
     ...(!isSuggestionShadow(entity) ? [{ action: "rollback-entity", label: "回滚", data: { id } }] : []),
     ...(isCharacter(entity) ? [{ action: "knowledge-entity", label: "知识", data: { id } }] : []),
@@ -371,6 +383,8 @@ function cardMenuItems(entity) {
 }
 
 const MENU_HANDLERS = {
+  "upload-entity-image": (id) => openImagePicker(id),
+  "merge-entity": (id) => showMergeForm(id),
   "promote-entity": (id) => promoteEntity(id),
   "rollback-entity": (id) => showRollbackForm(id),
   "knowledge-entity": (id) => showKnowledgeForm(id),

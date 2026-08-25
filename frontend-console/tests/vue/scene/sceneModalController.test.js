@@ -117,7 +117,18 @@ describe("scene modal workflows", () => {
   })
 
   it("previews and confirms a mechanical merge with the selected target", async () => {
-    api.outline.previewSceneMerge.mockResolvedValue({ operation: "merge", warnings: [] })
+    api.outline.previewSceneMerge.mockResolvedValue({
+      operation: "merge",
+      chapter_mapping_change: {
+        before: { s1: ["1", "2"], s2: ["3"] },
+        after: { s1: ["1", "2", "3"], s2: [] },
+      },
+      field_changes: { goal: { before: null, after: "取得密信" } },
+      related_threads: { count: 1 },
+      related_foreshadowing: { count: 2 },
+      related_reveals: { count: 0 },
+      warnings: ["关联资产仅提示，不会自动阻断合并。"],
+    })
     api.outline.mergeScenes.mockResolvedValue({ status: "merged" })
 
     expect(controller.startSelectedMerge(["s1", "s2"])).toBe(true)
@@ -126,6 +137,15 @@ describe("scene modal workflows", () => {
       target_scene_id: "s1",
       source_scene_ids: ["s2"],
     })
+    const previewText = document.getElementById("modal-body").textContent
+    expect(previewText).toContain("保留「潜入」")
+    expect(previewText).toContain("撤离")
+    expect(previewText).toContain("第 1 章 / 第 2 章 → 第 1 章 / 第 2 章 / 第 3 章")
+    expect(previewText).toContain("取得密信")
+    expect(previewText).not.toContain("s1")
+    expect(previewText).not.toContain("s2")
+    expect(previewText).not.toContain("merge")
+    expect(document.querySelector("#modal-body pre")).toBeNull()
 
     await action("确认合并")()
     expect(api.outline.mergeScenes).toHaveBeenCalledWith("p1", {
@@ -208,8 +228,8 @@ describe("scene modal workflows", () => {
   it("previews a chapter split and saves the edited drafts", async () => {
     api.outline.previewSceneSplit.mockResolvedValue({
       draft_scenes: [
-        { title: "前半段", narrative_tag: "draft" },
-        { title: "后半段", narrative_tag: "turning_point" },
+        { title: "前半段", narrative_tag: "draft", chapter_ids: ["1"] },
+        { title: "后半段", narrative_tag: "turning_point", chapter_ids: ["2"] },
       ],
       field_references: {}, chapter_mapping_change: { after: { s1: ["1"], new: ["2"] } },
     })
@@ -217,6 +237,15 @@ describe("scene modal workflows", () => {
 
     expect(controller.startSplit("s1")).toBe(true)
     await action("生成拆分预览")()
+    const previewText = document.getElementById("modal-body").textContent
+    expect(previewText).toContain("保留原场景")
+    expect(previewText).toContain("前半段")
+    expect(previewText).toContain("第 1 章")
+    expect(previewText).toContain("创建新场景")
+    expect(previewText).toContain("后半段")
+    expect(previewText).toContain("第 2 章")
+    expect(previewText).not.toContain("s1")
+    expect(document.querySelector("#modal-body pre")).toBeNull()
     document.getElementById("scene-split-1-title").value = "作者修订后半段"
     await action("确认拆分")()
 

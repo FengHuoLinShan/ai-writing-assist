@@ -203,8 +203,10 @@ describe("渲染契约", () => {
   it("工具栏包含新建、管理分类、模板、目录导入、建议和冲突按钮", () => {
     const wrapper = mountTab()
     const toolbar = wrapper.find(".world-bible-toolbar")
+    const moreTools = toolbar.get("[data-section='bible-toolbar-more']")
     expect(toolbar.exists()).toBe(true)
-    expect(toolbar.text()).toContain("世界书")
+    expect(toolbar.classes()).not.toContain("view-header")
+    expect(toolbar.get("h1").text()).toBe("世界笔记")
     expect(toolbar.text()).toContain("2 个页面")
     expect(toolbar.find("[data-action='bible-new-page']").exists()).toBe(true)
     expect(toolbar.find("[data-action='bible-manage-categories']").exists()).toBe(true)
@@ -213,6 +215,8 @@ describe("渲染契约", () => {
     expect(toolbar.find("[data-action='bible-open-suggestions']").exists()).toBe(true)
     expect(toolbar.find("[data-action='bible-open-conflicts']").exists()).toBe(true)
     expect(toolbar.find("[data-action='bible-inspect-current-page']").exists()).toBe(true)
+    expect(moreTools.attributes("open")).toBeUndefined()
+    expect(moreTools.get("summary").text()).toBe("更多工具")
   })
 
   it("汇总已保存的未决项，以工作稿覆盖正式页并可打开来源", async () => {
@@ -256,7 +260,7 @@ describe("渲染契约", () => {
   it("展示模式切换按钮组", () => {
     const wrapper = mountTab()
     const modes = wrapper.find(".world-bible-toolbar__modes")
-    expect(modes.attributes()).toMatchObject({ role: "group", "aria-label": "世界书展示模式" })
+    expect(modes.attributes()).toMatchObject({ role: "group", "aria-label": "世界笔记展示方式" })
     expect(modes.findAll("button")).toHaveLength(4)
     expect(modes.find("[data-mode='editor']").exists()).toBe(true)
     expect(modes.find("[data-mode='graph']").exists()).toBe(true)
@@ -269,11 +273,21 @@ describe("渲染契约", () => {
 
   it("编辑器模式显示 synopsis 面板、page nav、editor 和 inspector", () => {
     const wrapper = mountTab()
-    expect(wrapper.find(".world-bible-synopsis-panel").exists()).toBe(true)
+    const synopsis = wrapper.get(".world-bible-synopsis-panel")
+    expect(synopsis.exists()).toBe(true)
+    expect(synopsis.attributes("open")).toBeUndefined()
     expect(wrapper.find(".world-bible-layout").exists()).toBe(true)
     expect(wrapper.find(".world-bible-page-nav").exists()).toBe(true)
     expect(wrapper.find(".world-bible-editor-panel").exists()).toBe(true)
     expect(wrapper.find(".world-bible-inspector").exists()).toBe(true)
+  })
+
+  it("无 AI 参考规则时默认收起次级配置", () => {
+    const wrapper = mountTab({ bible: { ...defaultBible(), activationProfiles: [] } })
+    const inspector = wrapper.get("[data-section='bible-ai-reference-rules']")
+
+    expect(inspector.attributes("open")).toBeUndefined()
+    expect(inspector.get("summary").text()).toContain("按需设置")
   })
 
   it("AI 参考规则使用作者可读状态，不暴露内部标识", () => {
@@ -282,7 +296,7 @@ describe("渲染契约", () => {
 
     expect(inspector.text()).toContain("规则方案")
     expect(inspector.text()).toContain("工作稿")
-    expect(inspector.text()).toContain("适用于 1 类 AI 操作")
+    expect(inspector.text()).toContain("用于 1 种写作场景")
     expect(inspector.text()).not.toContain("Activation Profile")
     expect(inspector.text()).not.toContain("writing.world")
     expect(inspector.text()).not.toContain("writing.generate")
@@ -298,6 +312,8 @@ describe("渲染契约", () => {
     expect(wrapper.find("#bible-page-type").exists()).toBe(true)
     expect(wrapper.find("#bible-free-text").exists()).toBe(true)
     expect(wrapper.find("#bible-sort-order").exists()).toBe(true)
+    expect(wrapper.get("[data-section='bible-page-settings']").attributes("open")).toBeUndefined()
+    expect(wrapper.get("[data-section='bible-page-settings'] summary").text()).toBe("页面设置")
     // sections
     expect(wrapper.find(".world-bible-sections").exists()).toBe(true)
     expect(wrapper.findAll(".world-bible-section-editor").length).toBeGreaterThanOrEqual(1)
@@ -473,6 +489,7 @@ describe("编辑器行为", () => {
     expect(sections[0].find("[data-section-field='section_type']").text()).not.toContain("asset_collection")
     expect(sections[0].find("[data-section='bible-section-advanced']").attributes("open")).toBeUndefined()
     expect(sections[0].find("[data-section='bible-section-advanced'] summary").text()).toBe("创作辅助与高级设置")
+    expect(sections[0].find(".world-bible-diagnostics").attributes("open")).toBeUndefined()
   })
 
   it("折叠高级设置仍按原 wire 字段保存分区控制", async () => {
@@ -1864,6 +1881,7 @@ describe("激活面板", () => {
       rule_evaluations: [{ rule_id: "writing.generate.internal", matched: false, candidate_count: 1, blocked_clauses: ["scope_mismatch"] }],
       items: [{ label: "北境税制", target: { target_id: "raw-included-id" }, activation_reason: "rule:internal -> page", token_after: 321 }],
       excluded_items: [{ target: { target_id: "raw-excluded-id" }, activation_reason: "rule:internal", excluded_reason: "rule_token_cap", token_before: 654 }],
+      warnings: ["projection_stale"],
     })
     const wrapper = mountTab()
 
@@ -1872,12 +1890,14 @@ describe("激活面板", () => {
     await vi.waitFor(() => expect(wrapper.find(".world-bible-activation-trace").exists()).toBe(true))
 
     const text = wrapper.find(".world-bible-activation-trace").text()
-    expect(text).toContain("规则 1 · 未命中")
+    expect(text).toContain("第 1 条规则 · 不适用 · 找到 1 份资料")
     expect(text).toContain("当前任务不适用")
     expect(text).toContain("符合当前参考规则并已加入")
     expect(text).toContain("超出当前参考篇幅")
     expect(text).not.toContain("writing.generate.internal")
     expect(text).not.toContain("rule_token_cap")
+    expect(text).not.toContain("projection_stale")
+    expect(text).toContain("部分写作参考可能不是最新版本")
     expect(text).not.toContain("raw-included-id")
     expect(text).not.toContain("raw-excluded-id")
     expect(text).not.toContain("321")

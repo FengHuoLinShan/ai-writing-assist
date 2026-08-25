@@ -71,6 +71,7 @@ describe("WorldHealthPanel", () => {
   it("用作者语言呈现空态和两种校验范围", () => {
     const wrapper = mountPanel()
 
+    expect(wrapper.attributes("open")).toBeUndefined()
     expect(wrapper.text()).toContain("世界健康")
     expect(wrapper.text()).toContain("尚未校验")
     expect(wrapper.get('[data-action="world-health-run-targeted"]').text()).toContain("当前工作稿")
@@ -201,6 +202,7 @@ describe("WorldHealthPanel", () => {
     const wrapper = mountPanel({
       initialRun: completedRun({ status: "stale", gate: "block" }),
     })
+    expect(wrapper.attributes("open")).toBe("")
     expect(wrapper.text()).toContain("已失效")
     expect(wrapper.text()).toContain("旧回执不再能用于发布或采用")
 

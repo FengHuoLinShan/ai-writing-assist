@@ -25,6 +25,8 @@ function validPointer(projectId, value) {
       : null,
     draftUpdatedAt: typeof value.draftUpdatedAt === "string" && value.draftUpdatedAt ? value.draftUpdatedAt : null,
     sceneId: typeof value.sceneId === "string" && value.sceneId ? value.sceneId : null,
+    completeEditor: value.completeEditor === true,
+    focusMode: typeof value.focusMode === "boolean" ? value.focusMode : null,
     cursorOffset: Math.max(0, Number(value.cursorOffset) || 0),
     pointerUpdatedAt: Number(value.pointerUpdatedAt) || 0,
   }
@@ -53,6 +55,8 @@ function newSession(projectId) {
     currentChapter: pointer?.chapter || null,
     currentDraftId: pointer?.draftId || null,
     currentSceneId: pointer?.sceneId || null,
+    completeEditor: pointer?.completeEditor === true,
+    focusMode: typeof pointer?.focusMode === "boolean" ? pointer.focusMode : null,
     sceneByChapter: new Map(pointer?.sceneId ? [[pointer.chapter, pointer.sceneId]] : []),
     chapters: new Map(),
   }
@@ -69,6 +73,8 @@ export function rememberWritingLocation(projectId, location = {}) {
   if (!session) return
   session.currentChapter = location.currentChapter ?? session.currentChapter
   session.currentDraftId = location.currentDraftId ?? session.currentDraftId
+  if (Object.hasOwn(location, "completeEditor")) session.completeEditor = location.completeEditor === true
+  if (Object.hasOwn(location, "focusMode")) session.focusMode = location.focusMode === true
   if (Object.hasOwn(location, "currentSceneId")) {
     session.currentSceneId = location.currentSceneId || null
     const chapter = Number(location.currentChapter ?? session.currentChapter)
@@ -85,6 +91,8 @@ export function rememberWritingLocation(projectId, location = {}) {
       ...(Object.hasOwn(location, "draftVersion") ? { draftVersion: location.draftVersion } : {}),
       ...(Object.hasOwn(location, "draftUpdatedAt") ? { draftUpdatedAt: location.draftUpdatedAt } : {}),
       sceneId: session.currentSceneId,
+      completeEditor: session.completeEditor,
+      focusMode: session.focusMode,
       ...(Object.hasOwn(location, "cursorOffset") ? { cursorOffset: location.cursorOffset } : {}),
     })
   }

@@ -80,10 +80,24 @@ describe("openHit（原文）", () => {
     // 不抛错且不写入内容即视为清理成功
     expect(drawer.content.value).toBeNull()
   })
+
+  it("读取失败给作者恢复路径且不暴露内部错误", async () => {
+    globalThis.api.context.readEvidence = vi.fn(async () => { throw new Error("internal stack detail") })
+    const scope = effectScope()
+    const drawer = scope.run(() => useEvidenceDrawer())
+    await drawer.openHit(sourceHit)
+
+    expect(drawer.content.value).toEqual({
+      type: "error",
+      message: "证据读取失败，请关闭后再次打开这条结果。",
+    })
+    expect(drawer.content.value.message).not.toContain("internal")
+    scope.stop()
+  })
 })
 
 describe("openHit（对象）与追踪", () => {
-  it("inspect 对象并渲染 JSON", async () => {
+  it("inspect 对象并保留作者可读内容", async () => {
     globalThis.api.context.inspectEvidence = vi.fn(async () => ({
       item: { name: "旧塔" },
       evidence_count: 3,
@@ -95,6 +109,8 @@ describe("openHit（对象）与追踪", () => {
 
     expect(drawer.content.value.type).toBe("object")
     expect(drawer.content.value.isWorldObject).toBe(true)
+    expect(drawer.content.value.item).toEqual({ name: "旧塔" })
+    expect(drawer.content.value).not.toHaveProperty("itemJson")
     expect(ragSearchSession.drawerRefs).toHaveLength(1)
     scope.stop()
   })

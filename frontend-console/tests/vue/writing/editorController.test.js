@@ -10,8 +10,9 @@ import {
 
 function deferred() {
   let resolve
-  const promise = new Promise((next) => { resolve = next })
-  return { promise, resolve }
+  let reject
+  const promise = new Promise((next, fail) => { resolve = next; reject = fail })
+  return { promise, resolve, reject }
 }
 
 function makeController(overrides = {}) {
@@ -30,16 +31,20 @@ function makeController(overrides = {}) {
     ...overrides.api,
   }
   const toast = vi.fn()
+  const onChange = vi.fn()
   const onVersionChanged = vi.fn()
+  const confirm = overrides.confirm || vi.fn(() => true)
+  const confirmDialog = overrides.confirmDialog || vi.fn(async () => true)
   const controller = createEditorController({
     api,
     toast,
-    confirm: vi.fn(() => true),
+    confirm,
+    confirmDialog,
     getProjectId: () => projectId,
-    onChange: vi.fn(),
+    onChange,
     onVersionChanged,
   })
-  return { controller, api, toast, onVersionChanged, setProject: (value) => { projectId = value } }
+  return { controller, api, toast, confirm, confirmDialog, onChange, onVersionChanged, setProject: (value) => { projectId = value } }
 }
 
 describe("editorController", () => {
@@ -270,6 +275,24 @@ describe("editorController", () => {
     expect(controller.snapshot().loadError).toBe("指定工作稿不存在")
     expect(api.writing.getVersionHistory).not.toHaveBeenCalled()
     expect(toast).toHaveBeenCalledWith("指定工作稿不存在", "error")
+    controller.dispose()
+  })
+
+  it("章节加载失败时保留上一章身份且不持久化失败目标", async () => {
+    const { controller, api, onChange } = makeController()
+    await controller.loadChapter(1)
+    api.writing.get.mockRejectedValueOnce(new Error("第二章暂时不可用"))
+
+    expect(await controller.loadChapter(2, { draftId: "d2" })).toBe(false)
+    expect(controller.snapshot()).toMatchObject({
+      chapter: 1,
+      draftId: "d1",
+      content: "原文",
+      loadError: "第二章暂时不可用",
+    })
+    expect(readWritingPointer("p1")).toMatchObject({ chapter: 1, draftId: "d1" })
+    expect(readChapterSnapshot("p1", 2)).toBeNull()
+    expect(onChange.mock.calls.at(-1)[1]).toEqual({ persist: false })
     controller.dispose()
   })
 
@@ -568,6 +591,42 @@ describe("editorController", () => {
     expect(await adopting).toBeNull()
     expect(controller.snapshot()).toMatchObject({ chapter: 2, draftId: "d1", content: "原文" })
     expect(toast).not.toHaveBeenCalledWith("已采用到工作稿", "success")
+    controller.dispose()
+  })
+
+  it("采用和拒绝都经过应用内确认，取消时不发请求", async () => {
+    const confirmDialog = vi.fn(async () => false)
+    const { controller, api } = makeController({ confirmDialog })
+    api.writing.get.mockResolvedValueOnce({ id: "candidate", novel_id: "p1", title: "建议", content: "建议正文", version_number: 2, status: "candidate" })
+    await controller.loadChapter(1, { draftId: "candidate" })
+
+    expect(await controller.adoptCandidate()).toBeNull()
+    expect(api.writing.adoptDraftCandidate).not.toHaveBeenCalled()
+    expect(confirmDialog).toHaveBeenLastCalledWith(expect.stringContaining("原工作稿"), "采用到工作稿")
+
+    expect(await controller.rejectCandidate()).toBe(false)
+    expect(api.writing.deleteDraft).not.toHaveBeenCalled()
+    expect(confirmDialog).toHaveBeenLastCalledWith(expect.stringContaining("当前工作稿不会改变"), "拒绝建议")
+    controller.dispose()
+  })
+
+  it("采用失败后恢复操作并保留就地错误", async () => {
+    const late = deferred()
+    const { controller, api } = makeController()
+    api.writing.get.mockResolvedValueOnce({ id: "candidate", novel_id: "p1", title: "建议", content: "建议正文", version_number: 2, status: "candidate" })
+    api.writing.adoptDraftCandidate.mockReturnValue(late.promise)
+    await controller.loadChapter(1, { draftId: "candidate" })
+
+    const adopting = controller.adoptCandidate()
+    await vi.waitFor(() => expect(controller.snapshot().candidateAction).toBe("adopt"))
+    late.reject(new Error("网络暂时不可用"))
+
+    expect(await adopting).toBeNull()
+    expect(controller.snapshot()).toMatchObject({
+      status: "candidate",
+      candidateAction: null,
+      candidateActionError: "网络暂时不可用",
+    })
     controller.dispose()
   })
 

@@ -52,6 +52,7 @@ describe("渲染契约", () => {
     const wrapper = mount(OutlineGenerateProgressCard)
     expect(wrapper.find(".outline-progress-card-wrap").exists()).toBe(true)
     expect(wrapper.findComponent({ name: "WorkflowProgressCard" }).exists()).toBe(true)
+    expect(wrapper.get(".workflow-progress__destination").text()).toBe("新增设计")
   })
 
   it("有 preview 时渲染预览就绪区与按钮", () => {
@@ -65,7 +66,8 @@ describe("渲染契约", () => {
     expect(wrapper.find(".outline-preview-ready").exists()).toBe(true)
     const btn = wrapper.find('[data-action="view-outline-generate-preview"]')
     expect(btn.exists()).toBe(true)
-    expect(btn.text()).toBe("查看并采用")
+    expect(btn.text()).toBe("检查建议")
+    expect(btn.element.closest(".workflow-progress")).not.toBeNull()
   })
 
   it("无 preview 时隐藏预览就绪区", () => {

@@ -19,7 +19,7 @@ const routes = {
   // route entry lets old bookmarks resolve without keeping a second page.
   today: { title: "写作首页", subViews: [], requiresProject: true },
   world: { title: "人物与世界", requiresProject: true, defaultSubView: "objects", subViews: ["objects", "review", "relations", "aliases", "bible"], subViewTitles: { objects: "人物与设定", review: "需要决定", relations: "关系", aliases: "人物与设定 · 别名", bible: "世界笔记" } },
-  rag: { title: "查找", requiresProject: true, defaultSubView: "search", subViews: ["search", "status"], subViewTitles: { search: "查找", status: "索引诊断" } },
+  rag: { title: "查找", requiresProject: true, defaultSubView: "search", subViews: ["search", "status"], subViewTitles: { search: "查找", status: "修复查找" } },
   outline: { title: "故事结构", requiresProject: true, defaultSubView: "story-outline", subViews: ["story-outline", "arcs", "threads", "scenes"], subViewTitles: { "story-outline": "故事总览", arcs: "篇章", threads: "剧情线", scenes: "场景" } },
   scene: { title: "场景", subViews: [], requiresProject: true, dynamicSubView: true },
   writing: { title: "写作", subViews: [], requiresProject: true },

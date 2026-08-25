@@ -235,9 +235,22 @@ export function reviewKindLabel(kind, value) {
   return kindLabel(reviewRegistry.reviewTypeCatalog, kind, value)
 }
 
+function reviewSourceLabel(source) {
+  return {
+    deep_import: "深度导入",
+    manual: "手动整理",
+    manual_edit: "手动编辑",
+    manual_rollback: "手动回滚",
+    ai_generated: "AI 工具",
+    ai_import: "AI 导入整理",
+    ai_world_generation_center: "设定共创",
+    worldbook_import: "世界书导入",
+  }[source] || (source ? "其他来源" : "")
+}
+
 /** 对应 vanilla _reviewEvidenceSummaryHtml；返回渲染模型而非 HTML。 */
 export function reviewEvidenceSummary(item = {}, kind = "alias", numericValue = null) {
-  const source = item.source === "deep_import" ? "深度导入" : item.source
+  const source = reviewSourceLabel(item.source)
   const summary = [
     source,
     item.scene_index != null ? `场景 ${item.scene_index}` : "",
@@ -299,7 +312,7 @@ function relationDecisionReusesCanonical(group, decision) {
 /** 对应 vanilla _inlineEvidenceHtml；返回键值对数组供模板渲染。 */
 export function inlineEvidencePairs(item = {}) {
   return [
-    ["来源", item.source === "deep_import" ? "深度导入" : item.source],
+    ["来源", reviewSourceLabel(item.source)],
     ["处理批次", item.workflow_id],
     ["章节", item.source_chapter_index],
     ["场景", item.scene_index || item.scene_id],
@@ -330,7 +343,7 @@ export function inlineRelationEvidencePairs(relation = {}) {
     }).filter(Boolean).join("；")
     : ""
   return [
-    ["来源", reviewMeta.source === "deep_import" ? "深度导入" : reviewMeta.source],
+    ["来源", reviewSourceLabel(reviewMeta.source)],
     ["处理批次", reviewMeta.workflow_id],
     ["场景", normalizedSceneLabel],
     ["章节", reviewMeta.source_chapter_index ?? relation.source_chapter_id],

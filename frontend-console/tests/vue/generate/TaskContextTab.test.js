@@ -85,18 +85,43 @@ describe("task context reference search", () => {
     expect(api.outline.listScenesByChapter).toHaveBeenCalledWith("p1", 3)
   })
 
-  it("exposes task presets and native task controls with stable accessible names", () => {
-    const presetGroup = wrapper.get('[role="group"][aria-label="任务预设"]')
-    expect(presetGroup.get('[data-preset="custom"]').attributes()).toMatchObject({ type: "button", "aria-pressed": "true" })
-    expect(presetGroup.get('[data-preset="plot"]').attributes("aria-pressed")).toBe("false")
+  it("exposes task presets and native task controls with stable accessible names", async () => {
+    const preset = wrapper.get("#gen-task-preset")
+    expect(preset.attributes()).toMatchObject({ "aria-describedby": "gen-task-preset-hint", "data-action": "select-task-preset" })
+    expect(preset.element.value).toBe("custom")
+    expect(Array.from(preset.element.options).map((option) => option.text)).toEqual(["生成剧情线", "润色正文", "检查冲突", "自定义任务"])
+    await preset.setValue("plot")
+    expect(wrapper.emitted("select-preset").at(-1)).toEqual(["plot"])
 
-    for (const [controlId, labelText] of [["gen-task", "任务描述 *"], ["gen-scope", "范围"], ["gen-chapter", "章节索引"], ["gen-budget", "上下文预算 (tokens)"], ["gen-reveal", "揭示模式"]]) {
+    for (const [controlId, labelText] of [["gen-task-preset", "常用任务（可选）"], ["gen-task", "想完成什么 *"], ["gen-scope", "参考范围"], ["gen-chapter", "当前章节"], ["gen-budget", "资料长度上限"], ["gen-reveal", "可参考的信息"]]) {
       const control = wrapper.get(`#${controlId}`).element
       const label = wrapper.get(`label[for="${controlId}"]`).element
       expect(label.textContent).toBe(labelText)
       expect(label.htmlFor).toBe(control.id)
     }
     expect(wrapper.get("#gen-budget").attributes("aria-describedby")).toBe("gen-budget-hint")
-    expect(wrapper.get("#gen-budget-hint").text()).toContain("0 表示不做应用层裁剪")
+    expect(wrapper.get("#gen-task-preset-hint").text()).toContain("继续改写")
+    expect(wrapper.get("#gen-task").attributes()).toMatchObject({ required: "", "aria-describedby": "gen-task-hint" })
+    expect(wrapper.get("#gen-budget-hint").text()).toContain("自动适配当前模型")
+    expect(wrapper.get('button[data-action="run-task"]').attributes("type")).toBe("submit")
+  })
+
+  it("shows one primary next step only after reference material is ready", async () => {
+    expect(wrapper.find(".generate-task-output-actions").exists()).toBe(false)
+
+    await wrapper.setProps({ bundle: { sections: [], warnings: [], truncated: [], evicted: [] } })
+
+    const actions = wrapper.get(".generate-task-output-actions")
+    const buttons = actions.findAll("button")
+    expect(buttons.map((button) => button.text())).toEqual(["查看完整资料", "带到世界设定对话"])
+    expect(buttons[0].classes()).toContain("btn-primary")
+    expect(buttons[1].classes()).not.toContain("btn-primary")
+    expect(actions.find('[data-action="copy-task-md"]').exists()).toBe(false)
+    expect(actions.find('[data-action="export-task-md"]').exists()).toBe(false)
+
+    await buttons[0].trigger("click")
+    await buttons[1].trigger("click")
+    expect(wrapper.emitted("render-markdown")).toHaveLength(1)
+    expect(wrapper.emitted("apply-to-chat")).toHaveLength(1)
   })
 })

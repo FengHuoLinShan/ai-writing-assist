@@ -173,6 +173,10 @@ export function useWritingWorkspace(props) {
     lastSavedContent: "",
     cursorOffset: 0,
     saving: false,
+    saveError: null,
+    candidateAction: null,
+    candidateActionError: null,
+    loading: false,
     dirty: false,
     loadError: null,
   })
@@ -191,8 +195,10 @@ export function useWritingWorkspace(props) {
   const versionDialog = reactive({ open: false, diffOpen: false, leftId: null, rightId: null, diff: null, loading: false, error: null })
   const generationLoading = ref(false)
   const generationTask = reactive({ taskId: null, progress: null, result: null })
-  const focusMode = ref(Boolean(props.authorPreferences?.defaultFocusMode))
-  const forceDesktop = ref(false)
+  const writingSession = getWritingSession(projectId)
+  const focusMode = ref(false)
+  let pendingInitialFocus = writingSession?.focusMode ?? Boolean(props.authorPreferences?.defaultFocusMode)
+  const forceDesktop = ref(Boolean(writingSession?.completeEditor))
   const isNarrow = ref(typeof window !== "undefined" && window.innerWidth <= 760)
   const disposed = ref(false)
   let selectionGeneration = 0
@@ -202,6 +208,7 @@ export function useWritingWorkspace(props) {
   let versionDiffGeneration = 0
   let publishTimer = null
   let lastPublishPayload = null
+  let lastChapterSelection = null
 
   const activeScenes = computed(() => scenes.value.filter(activeScene).sort(compareScenes))
   const chapterScenes = computed(() => activeScenes.value.filter((scene) => (
@@ -211,12 +218,18 @@ export function useWritingWorkspace(props) {
     chapterScenes.value.find((scene) => scene.id === selectedSceneId.value) || null
   ))
   const mobileMode = computed(() => isNarrow.value && !forceDesktop.value && selectedChapter.value && !editorState.readonly)
-  const canEdit = computed(() => selectedChapter.value != null && !editorState.readonly)
+  const canEdit = computed(() => selectedChapter.value != null && !editorState.readonly && !editorState.loading && !editorState.loadError)
   const activeVersions = computed(() => versions.value.filter((version) => (
     version.display_state
       ? version.display_state === "active"
       : !["candidate", "deprecated"].includes(version.status)
   )))
+  const candidateComparisonAvailable = computed(() => editorState.status === "candidate"
+    && Boolean(editorState.draftId)
+    && versions.value.some((version) => version.id === editorState.draftId)
+    && versions.value.some((version) => version.id !== editorState.draftId && (
+      version.display_state ? version.display_state === "active" : !["candidate", "deprecated"].includes(version.status)
+    )))
   const saveStatus = computed(() => {
     if (editorState.saving) return "正在保存"
     if (editorState.saveError) return "保存失败，已保留本地备份"
@@ -233,8 +246,9 @@ export function useWritingWorkspace(props) {
     confirm,
     confirmDialog,
     getProjectId: () => projectId,
-    onChange: (value) => {
+    onChange: (value, { persist = true } = {}) => {
       Object.assign(editorState, value)
+      if (!persist) return
       if (value.chapter && chapters[value.chapter] && !["candidate", "deprecated"].includes(value.status)) {
         chapters[value.chapter] = {
           ...chapters[value.chapter],
@@ -319,11 +333,12 @@ export function useWritingWorkspace(props) {
 
   function syncLegacyState() {
     if (!appState) return
+    const currentChapter = editorState.loadError ? editorState.chapter : selectedChapter.value
     const currentSceneId = currentScene.value?.id || null
     appState._chapterList = chapterList.value
     appState._chapters = chapters
     appState._scenes = scenes.value
-    appState._currentChapter = selectedChapter.value
+    appState._currentChapter = currentChapter
     appState._currentSceneId = currentSceneId
     appState._currentContent = editorState.content
     appState._currentTitle = editorState.title
@@ -339,14 +354,14 @@ export function useWritingWorkspace(props) {
     appState.viewStates.writing = {
       ...(appState.viewStates.writing || {}),
       projectId,
-      currentChapter: selectedChapter.value,
+      currentChapter,
       currentDraftId: editorState.draftId,
       currentVersionNumber: editorState.versionNumber,
       isReadonly: editorState.readonly,
       currentSceneId,
     }
     rememberWritingLocation(projectId, {
-      currentChapter: selectedChapter.value,
+      currentChapter,
       currentDraftId: editorState.draftId,
       draftVersion: editorState.versionNumber,
       draftUpdatedAt: editorState.updatedAt,
@@ -433,32 +448,60 @@ export function useWritingWorkspace(props) {
     const rememberedSceneId = rememberedSceneForChapter(projectId, next)
     const generation = ++selectionGeneration
     const chapterChanged = selectedChapter.value !== next
-    if (selectedChapter.value && chapterChanged) await editor.autosave()
+    if (selectedChapter.value && chapterChanged) {
+      await editor.autosave()
+      if (editor.hasUnsavedChanges() && editor.snapshot().saveError) return false
+    }
     if (generation !== selectionGeneration || disposed.value) return false
     selectedChapter.value = next
     selectedSceneId.value = null
-    void loadSceneContext()
     if (chapterChanged) versions.value = []
     if (!next) {
+      lastChapterSelection = null
+      editorState.loading = false
       await editor.loadChapter(null)
       syncLegacyState()
       return true
     }
-    const [loaded] = await Promise.all([
-      editor.loadChapter(next, options),
-      loadVersions(next, generation),
-    ])
-    if (!loaded || generation !== selectionGeneration || disposed.value) return false
-    const available = activeScenes.value.filter((scene) => sceneMatchesChapter(scene, next))
-    const requestedScene = available.find((scene) => scene.id === options.sceneId)
-    const rememberedScene = available.find((scene) => scene.id === rememberedSceneId)
-    selectedSceneId.value = requestedScene?.id
-      || rememberedScene?.id
-      || available[0]?.id
-      || null
-    syncLegacyState()
-    await loadSceneContext()
-    return true
+    lastChapterSelection = { chapter: next, options: { ...options } }
+    const showsChapterBoundary = chapterChanged
+      || Number(editorState.chapter) !== next
+      || Boolean(editorState.loadError)
+    editorState.loading = showsChapterBoundary
+    editorState.loadError = null
+    try {
+      const [loaded] = await Promise.all([
+        editor.loadChapter(next, options),
+        loadVersions(next, generation),
+      ])
+      if (!loaded || generation !== selectionGeneration || disposed.value) {
+        if (!loaded && generation === selectionGeneration) versions.value = []
+        return false
+      }
+      const available = activeScenes.value.filter((scene) => sceneMatchesChapter(scene, next))
+      const requestedScene = available.find((scene) => scene.id === options.sceneId)
+      const rememberedScene = available.find((scene) => scene.id === rememberedSceneId)
+      selectedSceneId.value = requestedScene?.id
+        || rememberedScene?.id
+        || available[0]?.id
+        || null
+      syncLegacyState()
+      if (pendingInitialFocus) {
+        pendingInitialFocus = false
+        editorState.loading = false
+        setFocusMode(true)
+      }
+      await loadSceneContext()
+      return true
+    } finally {
+      if (generation === selectionGeneration) editorState.loading = false
+    }
+  }
+
+  function retryChapterLoad() {
+    const target = lastChapterSelection
+    if (!target || target.chapter !== selectedChapter.value) return false
+    return selectChapter(target.chapter, { ...target.options })
   }
 
   async function selectScene(sceneId) {
@@ -655,10 +698,15 @@ export function useWritingWorkspace(props) {
 
   async function switchVersion(draftId) {
     const version = versions.value.find((item) => item.id === draftId)
-    if (!version || !selectedChapter.value) return
+    if (!version || !selectedChapter.value) return false
+    if (version.id === editorState.draftId) return true
+    if (editor.hasUnsavedChanges()) {
+      await editor.autosave()
+      if (editor.hasUnsavedChanges() && editor.snapshot().saveError) return false
+    }
     const active = versions.value.filter((item) => item.display_state ? item.display_state === "active" : !["candidate", "deprecated"].includes(item.status))
     const latest = active[0] || active.reduce((best, item) => Number(item.version_number) > Number(best?.version_number || 0) ? item : best, null)
-    await selectChapter(selectedChapter.value, {
+    return selectChapter(selectedChapter.value, {
       draftId,
       versionNumber: version.version_number,
       isReadonly: version.id !== latest?.id || ["candidate", "deprecated"].includes(version.status),
@@ -668,10 +716,42 @@ export function useWritingWorkspace(props) {
     })
   }
 
+  function prepareVersionComparison() {
+    const candidates = versions.value.filter((item) => item.id)
+    if (candidates.length < 2) {
+      versionDialog.leftId = null
+      versionDialog.rightId = null
+      return candidates
+    }
+    const ids = new Set(candidates.map((item) => item.id))
+    if (!ids.has(versionDialog.leftId)) versionDialog.leftId = candidates[1].id
+    if (!ids.has(versionDialog.rightId)) versionDialog.rightId = candidates[0].id
+    return candidates
+  }
+
   function openVersionHistory() {
+    prepareVersionComparison()
     versionDialog.open = true
     versionDialog.diffOpen = false
     versionDialog.error = null
+  }
+
+  async function compareCandidateWithWorkingDraft() {
+    if (!candidateComparisonAvailable.value) return false
+    const base = versions.value
+      .filter((version) => version.id !== editorState.draftId && (
+        version.display_state ? version.display_state === "active" : !["candidate", "deprecated"].includes(version.status)
+      ))
+      .reduce((latest, version) => Number(version.version_number) > Number(latest?.version_number || 0) ? version : latest, null)
+    if (!base) return false
+    versionDialog.leftId = base.id
+    versionDialog.rightId = editorState.draftId
+    versionDialog.open = true
+    versionDialog.diffOpen = false
+    versionDialog.diff = null
+    versionDialog.error = null
+    await compareVersions()
+    return versionDialog.diffOpen
   }
 
   async function restoreVersion(version) {
@@ -700,20 +780,19 @@ export function useWritingWorkspace(props) {
       toast("不能删除唯一版本、最新版本或只读历史", "warning")
       return
     }
-    if (!confirm(`确定删除 v${version.version_number}？`)) return
+    if (!await confirmDialog(`将 v${version.version_number} 移入历史？正文不会丢失，仍可在版本历史中预览。`, "移入历史")) return
     try {
       await api.writing.deleteDraft(version.id, projectId)
       await loadVersions(selectedChapter.value, selectionGeneration)
+      toast(`v${version.version_number} 已移入历史`, "success")
     } catch (err) {
       toast(err?.message || "删除版本失败", "error")
     }
   }
 
   async function compareVersions() {
-    const candidates = versions.value.filter((item) => item.id)
+    const candidates = prepareVersionComparison()
     if (candidates.length < 2) return
-    versionDialog.leftId ||= candidates[1]?.id || candidates[0].id
-    versionDialog.rightId ||= candidates[0].id
     if (versionDialog.leftId === versionDialog.rightId) {
       versionDialog.error = "请选择两个不同版本"
       return
@@ -852,7 +931,10 @@ export function useWritingWorkspace(props) {
   async function publish() {
     if (!canEdit.value || !editorState.content.trim() || publishProgress.active) return
     if (!(await confirmBeforePublish())) return
-    await editor.autosave()
+    if (!editorState.restoreSourceVersion) {
+      await editor.autosave()
+      if (editor.hasUnsavedChanges() && editor.snapshot().saveError) return null
+    }
     if (disposed.value || getAppState()?.currentProjectId !== projectId) return
     return submitPublish(buildPublishPayload())
   }
@@ -1279,8 +1361,22 @@ export function useWritingWorkspace(props) {
     URL.revokeObjectURL(url)
   }
 
-  function toggleFocusMode() { focusMode.value = !focusMode.value }
-  function switchDesktopMode() { forceDesktop.value = true }
+  function setFocusMode(active) {
+    const next = active === true
+    if (next && (!selectedChapter.value || editorState.loading || editorState.loadError)) return false
+    focusMode.value = next
+    rememberWritingLocation(projectId, { focusMode: next })
+    return true
+  }
+  function toggleFocusMode() { return setFocusMode(!focusMode.value) }
+  function switchDesktopMode() {
+    forceDesktop.value = true
+    rememberWritingLocation(projectId, { completeEditor: true })
+  }
+  function switchMobileMode() {
+    forceDesktop.value = false
+    rememberWritingLocation(projectId, { completeEditor: false })
+  }
   function attachEditor(elements) { editor.attach(elements) }
   function detachEditor() { editor.detach() }
 
@@ -1355,10 +1451,11 @@ export function useWritingWorkspace(props) {
     document.body.classList.remove("focus-mode-active", "force-desktop")
     dispatchDashboardUpdate(null)
     if (appState) {
+      const currentChapter = editorState.loadError ? editorState.chapter : selectedChapter.value
       appState.viewStates = appState.viewStates || {}
       appState.viewStates.writing = {
         projectId,
-        currentChapter: selectedChapter.value,
+        currentChapter,
         currentDraftId: editorState.draftId,
         currentVersionNumber: editorState.versionNumber,
         isReadonly: editorState.readonly,
@@ -1400,10 +1497,13 @@ export function useWritingWorkspace(props) {
     focusMode,
     forceDesktop,
     mobileMode,
+    isNarrow,
     canEdit,
     activeVersions,
+    candidateComparisonAvailable,
     saveStatus,
     selectChapter,
+    retryChapterLoad,
     selectScene,
     loadSceneLens,
     associateScene,
@@ -1453,13 +1553,16 @@ export function useWritingWorkspace(props) {
     locateConflictItem: (itemId) => locateConflictItem(conflictDialog.check, itemId),
     openConflictSource: (itemId) => openConflictSource(conflictDialog.check, itemId),
     openVersionHistory,
+    compareCandidateWithWorkingDraft,
     restoreVersion,
     deleteVersion,
     compareVersions,
     exportChapter,
+    setFocusMode,
     toggleFocusMode,
     toggleOutlineFloat,
     switchDesktopMode,
+    switchMobileMode,
     navigateOutline: () => router?.navigate?.("outline", null),
     navigateSceneWorkbench,
   }

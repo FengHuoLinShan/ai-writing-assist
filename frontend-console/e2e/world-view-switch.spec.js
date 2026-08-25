@@ -54,10 +54,10 @@ test.describe("worldView 子视图切换", () => {
     await openWorkbench(page, { id: testProjectId, title: "视图切换测试项目" }, "world", "objects")
 
     await page.locator(".world-view-options > summary").click()
-    await expect(page.locator('[data-action="set-discovery-mode"][data-mode="hot"]')).toHaveClass(/btn-primary/)
+    await expect(page.locator('[data-action="set-discovery-mode"][data-mode="hot"]')).toHaveAttribute("aria-pressed", "true")
     await page.locator('[data-action="set-discovery-mode"][data-mode="normal"]').click()
     await expect(page).toHaveURL(new RegExp(`world/objects\\?.*mode=normal`))
-    await expect(page.locator('[data-action="set-discovery-mode"][data-mode="normal"]')).toHaveClass(/btn-primary/)
+    await expect(page.locator('[data-action="set-discovery-mode"][data-mode="normal"]')).toHaveAttribute("aria-pressed", "true")
     await expect.poll(() => page.evaluate(
       (projectId) => localStorage.getItem(`novel_view_mode:${projectId}:world-objects`),
       testProjectId,
@@ -65,6 +65,7 @@ test.describe("worldView 子视图切换", () => {
 
     const reviewEntry = page.locator('[data-action="nav-review"]')
     await expect(reviewEntry).toBeVisible()
+    await expect(reviewEntry.locator(".today-count")).toHaveCount(0)
     await reviewEntry.click()
     await expect(page).toHaveURL(new RegExp(`world/review(?:$|\\?)`))
     await expect(reviewEntry).toHaveAttribute("aria-current", "page")
@@ -97,7 +98,30 @@ test.describe("worldView 子视图切换", () => {
     expect(consoleErrors, `控制台报错: ${JSON.stringify(consoleErrors)}`).toHaveLength(0)
   })
 
-  test("热点模式真实展示降级状态和重要标签并支持卡片视图", async ({ page }) => {
+  test("别名队列加载失败可重试，详情默认收起", async ({ page }) => {
+    let attempts = 0
+    await page.route("**/api/world/aliases/review-groups**", async (route) => {
+      attempts += 1
+      if (attempts === 1) {
+        await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ detail: "temporary unavailable" }) })
+        return
+      }
+      await route.continue()
+    })
+
+    await openWorkbench(page, { id: testProjectId, title: "视图切换测试项目" }, "world", "review-aliases")
+
+    const alert = page.locator('[role="alert"][data-author-action="must_fix"]')
+    await expect(alert).toContainText("待决定别名没有加载出来")
+    await expect(alert).toContainText("原有资料没有变化，可以重新加载")
+    await expect(alert.locator("details")).not.toHaveAttribute("open", "")
+
+    await alert.getByRole("button", { name: "重新加载", exact: true }).click()
+    await expect(alert).toBeHidden()
+    expect(attempts).toBe(2)
+  })
+
+  test("热点模式默认使用表格，并让显式卡片链接在刷新后恢复", async ({ page }) => {
     const entity = await createEntity(testProjectId, {
       entity_type: "character",
       name: "热点主角",
@@ -114,18 +138,30 @@ test.describe("worldView 子视图切换", () => {
     )
 
     await expect(page.getByText("近期出场索引暂不可用")).toBeVisible()
-    const card = page.locator(`.world-object-card[data-id="${entity.id}"]`)
-    await expect(card).toBeVisible()
-    await expect(card).toContainText("重要")
-
-    await page.locator(".world-view-options > summary").click()
-    await page.locator('[data-action="set-object-view"][data-view-mode="table"]').click()
     const tableRow = page.locator(`tr[data-id="${entity.id}"]`)
     await expect(tableRow).toContainText("热点主角")
     await expect(tableRow).toContainText("重要")
 
-    await expect(page.locator(".world-view-options")).toHaveAttribute("open", "")
-    await page.locator('[data-action="set-object-view"][data-view-mode="card"]').click()
+    await page.locator(".world-view-options > summary").click()
+    const cardButton = page.locator('[data-action="set-object-view"][data-view-mode="card"]')
+    await expect(page.locator('[data-action="set-object-view"][data-view-mode="table"]')).toHaveAttribute("aria-pressed", "true")
+    await cardButton.click()
+    const card = page.locator(`.world-object-card[data-id="${entity.id}"]`)
     await expect(card).toBeVisible()
+    await expect(card).toContainText("重要")
+    await expect(cardButton).toHaveAttribute("aria-pressed", "true")
+    await expect(page).toHaveURL(new RegExp(`world/objects\\?.*view=card`))
+
+    await page.reload()
+    await expect(card).toBeVisible()
+
+    await page.locator(".world-view-options > summary").click()
+    await page.locator('[data-action="set-object-view"][data-view-mode="table"]').click()
+    await expect(tableRow).toContainText("热点主角")
+    await expect(tableRow).toContainText("重要")
+
+    await expect(page.locator(".world-view-options")).toHaveAttribute("open", "")
+    await page.locator('[data-action="close-view-options"]').click()
+    await expect(page.locator(".world-view-options")).not.toHaveAttribute("open", "")
   })
 })

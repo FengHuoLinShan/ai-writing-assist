@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { flushPromises, mount } from "@vue/test-utils"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 import { sceneAutoExtractManager } from "../../../vue/views/scene/sceneAutoExtractManager.js"
+import { resetSceneSession } from "../../../vue/views/scene/sceneModel.js"
 import SceneWorkbenchView from "../../../vue/views/scene/SceneWorkbenchView.vue"
 
 const payload = {
@@ -66,11 +67,14 @@ describe("SceneWorkbenchView", () => {
     },
     tasks: { get: vi.fn(), cancel: vi.fn() },
     imports: { startStage: vi.fn() },
+    world: { listEntities: vi.fn(), getEntity: vi.fn() },
   }
 
   beforeEach(() => {
     localStorage.clear()
     sessionStorage.clear()
+    resetSceneSession("p1")
+    window.innerWidth = 1024
     window.history.replaceState({}, "", "#workbench/p1/outline/scenes")
     vi.clearAllMocks()
     sceneAutoExtractManager.resetMemory()
@@ -79,6 +83,8 @@ describe("SceneWorkbenchView", () => {
     api.outline.updateScene.mockResolvedValue({ id: "s1" })
     api.outline.reviewSceneWorkbench.mockResolvedValue({ status: "reviewed" })
     api.outline.reviewSceneSourceMappings.mockResolvedValue({ status: "reviewed" })
+    api.world.listEntities.mockResolvedValue({ items: [] })
+    api.world.getEntity.mockResolvedValue({ id: "c1", name: "沈岚", entity_type: "character", status: "canonical", summary: "王城密探" })
     latestModal = null
     toast = vi.fn()
     closeModal = vi.fn()
@@ -159,12 +165,139 @@ describe("SceneWorkbenchView", () => {
   it("renders the full main workbench with escaped API text and no HTML injection", () => {
     createWrapper()
 
-    expect(wrapper.find(".outline-scene-layout > .subnav").exists()).toBe(true)
+    expect(wrapper.find(".outline-scene-layout > .outline-toolbar").exists()).toBe(true)
+    expect(wrapper.findAll(".outline-scene-layout .subnav")).toHaveLength(1)
     expect(wrapper.find('[aria-label="场景筛选"]').exists()).toBe(true)
     expect(wrapper.findAll(".scene-workbench-row")).toHaveLength(2)
     expect(wrapper.find('.scene-workbench-row[data-id="s1"] .scene-workbench-row__title').text())
       .toBe("<img src=x onerror=alert(1)>")
     expect(wrapper.find('.scene-workbench-row[data-id="s1"] img').exists()).toBe(false)
+  })
+
+  it("默认折叠筛选，在摘要显示已启用条件和未应用修改", async () => {
+    createWrapper({ sceneFilters: { status: "draft" } })
+    const panel = wrapper.get(".scene-workbench-filters")
+    expect(panel.attributes("open")).toBeUndefined()
+    expect(panel.get(":scope > summary").text()).toContain("搜索与筛选")
+    expect(panel.get(":scope > summary").text()).toContain("已启用 1 项")
+
+    panel.element.open = true
+    await wrapper.get("#scene-filter-q").setValue("尚未应用")
+    expect(panel.get(":scope > summary").text()).toContain("有未应用修改")
+  })
+
+  it("成功应用后收起筛选并把焦点还给摘要", async () => {
+    createWrapper()
+    const panel = wrapper.get(".scene-workbench-filters")
+    panel.element.open = true
+    await wrapper.get("#scene-filter-q").setValue("潜入")
+    await wrapper.get('[data-action="apply-scene-filters"]').trigger("click")
+    await flushPromises()
+
+    expect(panel.attributes("open")).toBeUndefined()
+    expect(panel.get(":scope > summary").element).toBe(document.activeElement)
+    expect(panel.get(":scope > summary").text()).toContain("已启用 1 项")
+    expect(panel.get(":scope > summary").text()).not.toContain("未应用修改")
+  })
+
+  it("未应用筛选草稿在工作台重挂载后仍保留", async () => {
+    createWrapper()
+    const panel = wrapper.get(".scene-workbench-filters")
+    panel.element.open = true
+    await wrapper.get("#scene-filter-q").setValue("离开后继续")
+    wrapper.unmount()
+    wrapper = null
+
+    createWrapper()
+    expect(wrapper.get(".scene-workbench-filters").get(":scope > summary").text()).toContain("有未应用修改")
+    expect(wrapper.get("#scene-filter-q").element.value).toBe("离开后继续")
+  })
+
+  it("区分初始空态与筛选无结果，并提供直接下一步", async () => {
+    const emptyWorkbench = {
+      ...payload,
+      total: 0,
+      items: [],
+      progress: { as_of_chapter: null, current: 0, upcoming: 0, past: 0, unassigned: 0 },
+      health: Object.fromEntries(Object.entries(payload.health).map(([key, value]) => [key, { ...value, count: 0 }])),
+    }
+    api.outline.getSceneWorkbench.mockResolvedValue(emptyWorkbench)
+    createWrapper({ workbench: emptyWorkbench })
+
+    expect(wrapper.get(".scene-workbench-empty h2").text()).toBe("还没有场景")
+    expect(wrapper.get('[data-action="empty-scene-auto-extract"]').text()).toBe("从正文整理场景")
+    expect(wrapper.get('[data-action="empty-ai-create-planned-scene"]').text()).toBe("AI 创作细纲")
+    await wrapper.get('[data-action="empty-scene-auto-extract"]').trigger("click")
+    expect(latestModal?.title).toBe("从正文整理场景")
+
+    wrapper.unmount()
+    wrapper = null
+    createWrapper({ workbench: emptyWorkbench, sceneFilters: { q: "不存在的场景" } })
+    expect(wrapper.get(".scene-workbench-empty h2").text()).toBe("没有找到符合条件的场景")
+    await wrapper.get('[data-action="clear-scene-empty-filters"]').trigger("click")
+    await flushPromises()
+
+    expect(api.outline.getSceneWorkbench).toHaveBeenCalledWith("p1", null, expect.not.objectContaining({ q: expect.anything() }))
+    expect(wrapper.get(".scene-workbench-empty h2").text()).toBe("还没有场景")
+  })
+
+  it("局部刷新时禁用旧列表，失败后保留内容并可重试", async () => {
+    let rejectRefresh
+    api.outline.getSceneWorkbench.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectRefresh = reject }))
+    createWrapper()
+    const panel = wrapper.get(".scene-workbench-filters")
+    panel.element.open = true
+    await wrapper.get("#scene-filter-q").setValue("潜入")
+    await wrapper.get('[data-action="apply-scene-filters"]').trigger("click")
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.get(".scene-workbench__organize").attributes("aria-busy")).toBe("true")
+    expect(wrapper.get(".scene-workbench__content").attributes("inert")).toBe("")
+    expect(wrapper.get(".scene-workbench-refresh").text()).toContain("正在更新场景列表")
+
+    rejectRefresh(new Error("网络暂不可用"))
+    await flushPromises()
+    expect(wrapper.get('.scene-workbench-refresh[role="alert"]').text()).toContain("当前内容仍保留")
+    expect(wrapper.findAll(".scene-workbench-row")).toHaveLength(2)
+    expect(wrapper.get(".scene-workbench__content").attributes("inert")).toBeUndefined()
+    expect(panel.attributes("open")).toBeDefined()
+
+    api.outline.getSceneWorkbench.mockResolvedValueOnce(payload)
+    await wrapper.get('[data-action="retry-scene-refresh"]').trigger("click")
+    await flushPromises()
+    expect(wrapper.find(".scene-workbench-refresh").exists()).toBe(false)
+    expect(wrapper.get(".scene-workbench__organize").attributes("aria-busy")).toBe("false")
+  })
+
+  it("exposes progress filters as pressed buttons and labels each scene segment", () => {
+    const workbench = {
+      ...payload,
+      items: payload.items.map((item, index) => ({ ...item, segment: index ? "upcoming" : "current" })),
+    }
+    createWrapper({ workbench, sceneFilters: { segment: "current" } })
+
+    expect(wrapper.get(".scene-workbench-overview").attributes("open")).toBe("")
+    const filters = wrapper.findAll('[data-action="filter-progress-segment"]')
+    expect(filters).toHaveLength(4)
+    expect(filters.map((filter) => filter.attributes("aria-pressed"))).toEqual(["true", "false", "false", "false"])
+    expect(filters.map((filter) => filter.attributes("class"))).toEqual(expect.arrayContaining([
+      expect.stringContaining("scene-progress-filter--current"),
+      expect.stringContaining("scene-progress-filter--upcoming"),
+      expect.stringContaining("scene-progress-filter--past"),
+      expect.stringContaining("scene-progress-filter--unassigned"),
+    ]))
+    expect(wrapper.get('.scene-workbench-row[data-id="s1"] .scene-progress-chip').classes()).toContain("scene-progress-chip--current")
+  })
+
+  it("窄屏默认收起场景概况并在摘要优先显示当前筛选", () => {
+    window.innerWidth = 390
+    createWrapper({ sceneFilters: { segment: "upcoming", health: "missing_setup" } })
+
+    const overview = wrapper.get(".scene-workbench-overview")
+    expect(overview.attributes("open")).toBeUndefined()
+    expect(overview.get(":scope > summary").text()).toContain("后续 1 · 缺设定 1")
+    expect(overview.findAll('[data-action="filter-progress-segment"]')).toHaveLength(4)
+    expect(overview.findAll('[data-action="filter-health"]')).toHaveLength(4)
   })
 
   it("opens a focused fusion suggestion from a Today deep link", async () => {
@@ -186,38 +319,115 @@ describe("SceneWorkbenchView", () => {
     expect(row.find('[data-action="open-writing-scene"]').attributes("data-id")).toBe("s2")
   })
 
-  it("keeps Scene current marker non-interactive while sibling navigation uses buttons", async () => {
+  it("uses the shared current-aware outline navigation", async () => {
     createWrapper()
-    for (const action of ["nav-story-outline", "nav-arcs", "nav-threads"]) {
+    for (const action of ["nav-story-outline", "nav-arcs", "nav-threads", "nav-scenes"]) {
       const item = wrapper.find(`[data-action="${action}"]`)
       expect(item.element.tagName).toBe("BUTTON")
       expect(item.attributes("type")).toBe("button")
-      expect(item.attributes("aria-current")).toBeUndefined()
+      expect(item.attributes("aria-current")).toBe(action === "nav-scenes" ? "page" : undefined)
     }
-    const current = wrapper.find('[data-action="nav-scenes"]')
-    expect(current.element.tagName).toBe("SPAN")
-    expect(current.attributes("aria-current")).toBe("page")
 
     router.navigate.mockClear()
     await wrapper.find('[data-action="nav-threads"]').trigger("click")
     expect(router.navigate).toHaveBeenCalledWith("outline", "threads")
-    await current.trigger("click")
-    expect(router.navigate).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps one primary scene action and moves low-frequency tools into a disclosure", () => {
+    createWrapper()
+    const actions = wrapper.get('[aria-label="场景操作"]')
+    expect(actions.findAll(".btn-primary")).toHaveLength(1)
+    expect(actions.get('[data-action="ai-create-planned-scene"]').text()).toBe("AI 创作细纲")
+    expect(actions.get(".scene-workbench-tools summary").text()).toBe("整理工具")
+    expect(actions.get('[data-action="scene-auto-extract"]').text()).toBe("从正文整理场景")
+    expect(actions.find('[data-role="smart-dedup-action"]').exists()).toBe(true)
+    expect(actions.get('[data-mode="hot"]').attributes("aria-pressed")).toBe("true")
+    expect(actions.get('[data-mode="normal"]').attributes("aria-pressed")).toBe("false")
+  })
+
+  it("把场景 AI 进度与操作统一放在标题下方任务区", () => {
+    sceneAutoExtractManager.state.meta = { start_chapter: 2, end_chapter: 6 }
+    sceneAutoExtractManager.state.progress = {
+      taskId: "scene-extract-progress",
+      statusLabel: "整理中",
+      percent: 40,
+      hasPercent: true,
+      terminal: false,
+      failed: false,
+      done: false,
+      cancelled: false,
+      availableActions: ["cancel"],
+    }
+    createWrapper()
+
+    const region = wrapper.get(".outline-task-status")
+    expect(region.get(".outline-task-status__title").text()).toBe("AI 任务")
+    const card = region.get('[data-role="scene-auto-extract-progress"] .workflow-progress')
+    expect(card.text()).toContain("范围：第 2–6 章")
+    expect(card.get('[data-action="cancel-scene-auto-extract"]').element.closest(".workflow-progress")).toBe(card.element)
   })
 
   it("selects and bulk-selects in place without rerouting or resetting scroll", async () => {
     createWrapper()
     const organize = wrapper.find(".scene-workbench__organize").element
     organize.scrollTop = 88
+    expect(wrapper.find(".scene-detail-rail").exists()).toBe(false)
+    expect(wrapper.find(".scene-fusion-toolbar").exists()).toBe(false)
 
     await wrapper.find('.scene-workbench-row[data-id="s2"] [data-action="select-workbench-scene"]').trigger("click")
     await wrapper.find('.scene-workbench-row[data-id="s2"] input[data-action="toggle-fusion-selection"]').setValue(true)
 
     expect(wrapper.find('.scene-workbench-row[data-id="s2"]').classes()).toContain("is-selected")
+    expect(wrapper.get(".scene-detail-rail").text()).toContain("撤离")
     expect(window.location.hash).toContain("scene_id=s2")
     expect(router.navigate).not.toHaveBeenCalled()
     expect(organize.scrollTop).toBe(88)
-    expect(wrapper.find(".scene-fusion-toolbar").text()).toContain("1")
+    const toolbar = wrapper.get(".scene-fusion-toolbar")
+    expect(toolbar.get('[role="status"]').text()).toContain("1个场景已选")
+    expect(toolbar.findAll(".btn-primary")).toHaveLength(1)
+
+    await toolbar.get('[data-action="toggle-visible-fusion-selection"]').trigger("click")
+    expect(wrapper.findAll('input[data-action="toggle-fusion-selection"]:checked')).toHaveLength(2)
+    await wrapper.get('[data-action="clear-fusion-selection"]').trigger("click")
+    expect(wrapper.find(".scene-fusion-toolbar").exists()).toBe(false)
+    expect(wrapper.findAll('input[data-action="toggle-fusion-selection"]:checked')).toHaveLength(0)
+  })
+
+  it("用分组长表单编辑并从桌面详情安全返回列表", async () => {
+    const confirm = vi.fn(() => false)
+    setBridgeOverrides({ confirm })
+    createWrapper({ selectedSceneId: "s1" })
+
+    expect(wrapper.findAll(".scene-detail-section legend").map((legend) => legend.text())).toEqual(["基本信息", "创作要点"])
+    expect(wrapper.get(".scene-detail-summary h4").text()).toBe("章节与来源")
+    const save = wrapper.get('[data-action="save-scene-detail"]')
+    const actions = wrapper.get(".scene-detail-actions")
+    const more = actions.get(".scene-detail-action-menu .action-menu-btn")
+    expect(save.attributes("disabled")).toBeDefined()
+    expect(save.text()).toBe("已保存")
+    expect(actions.findAll(":scope > .btn-primary")).toHaveLength(1)
+    expect(more.text()).toBe("更多")
+    expect(more.attributes("aria-label")).toContain("更多结构操作")
+    expect(actions.get('[data-action="start-merge-scene"]').text()).toBe("合并场景")
+    expect(actions.get('[data-action="start-split-scene"]').text()).toBe("拆分场景")
+    expect(actions.get('[data-action="start-merge-scene"]').element.parentElement.classList.contains("action-menu-list")).toBe(true)
+
+    await wrapper.get("#scene-detail-title").setValue("尚未保存的标题")
+    expect(save.attributes("disabled")).toBeUndefined()
+    expect(save.text()).toBe("保存修改")
+    expect(more.attributes("disabled")).toBeDefined()
+    expect(more.attributes("aria-label")).toContain("请先保存或放弃当前修改")
+    expect(actions.findAll(":scope > button")[1].attributes("disabled")).toBeDefined()
+    await wrapper.get('[data-action="close-scene-detail"]').trigger("click")
+    expect(confirm).toHaveBeenCalledWith("当前场景有未保存修改，确定放弃并继续吗？")
+    expect(wrapper.find(".scene-detail-rail").exists()).toBe(true)
+
+    await wrapper.get("#scene-detail-title").setValue("<img src=x onerror=alert(1)>")
+    const opener = wrapper.get('.scene-workbench-row[data-id="s1"] [data-action="select-workbench-scene"]')
+    await wrapper.get('[data-action="close-scene-detail"]').trigger("click")
+    await flushPromises()
+    expect(wrapper.find(".scene-detail-rail").exists()).toBe(false)
+    expect(document.activeElement).toBe(opener.element)
   })
 
   it.each([
@@ -335,6 +545,8 @@ describe("SceneWorkbenchView", () => {
     expect(wrapper.find(".scene-workbench__organize").element).toBe(organize)
     expect(organize.scrollTop).toBe(88)
     expect(document.activeElement).toBe(normalMode)
+    expect(wrapper.get('[data-mode="normal"]').attributes("aria-pressed")).toBe("true")
+    expect(wrapper.get('[data-mode="hot"]').attributes("aria-pressed")).toBe("false")
     expect(window.location.hash).toContain("mode=normal")
   })
 
@@ -352,6 +564,107 @@ describe("SceneWorkbenchView", () => {
     expect(api.outline.getSceneWorkbench).toHaveBeenCalledWith("p1", "s1", expect.objectContaining({
       view_mode: "hot",
     }))
+  })
+
+  it("用人物名称显示视角人物，清空后 wire 仍提交 null", async () => {
+    const item = actionItem("edit")
+    item.scene.pov_character_id = "c1"
+    const workbench = actionPayload([item])
+    api.outline.getSceneWorkbench.mockResolvedValue(workbench)
+    createWrapper({ workbench, selectedSceneId: "s1" })
+    await flushPromises()
+
+    expect(wrapper.get("#scene-detail-pov-character [data-reference-selected]").text()).toContain("沈岚")
+    expect(wrapper.get("#scene-detail-pov-character [data-reference-selected]").text()).toContain("王城密探")
+    expect(wrapper.find("#scene-detail-pov_character_id").exists()).toBe(false)
+
+    await wrapper.get("#scene-detail-pov-character [data-reference-remove]").trigger("click")
+    await wrapper.get('[data-action="save-scene-detail"]').trigger("click")
+    await flushPromises()
+
+    expect(api.outline.updateScene).toHaveBeenCalledWith("s1", "p1", expect.objectContaining({
+      pov_character_id: null,
+    }))
+  })
+
+  it("opens the mobile detail as a dialog, focuses the missing field, and restores the row focus", async () => {
+    window.innerWidth = 390
+    const item = actionItem("missing_setup")
+    item.scene.goal = "目标"
+    item.scene.core_conflict = null
+    const workbench = actionPayload([item])
+    createWrapper({ workbench })
+
+    const opener = wrapper.get('[data-action="context-complete-setup"]')
+    opener.element.focus()
+    await opener.trigger("click")
+    await flushPromises()
+
+    const dialog = wrapper.get('.scene-workbench-drawer__dialog')
+    expect(dialog.attributes("role")).toBe("dialog")
+    expect(dialog.attributes("aria-modal")).toBe("true")
+    expect(document.activeElement?.id).toBe("scene-detail-core_conflict")
+
+    await wrapper.get(".scene-workbench-drawer").trigger("keydown", { key: "Escape" })
+    await flushPromises()
+    expect(wrapper.find(".scene-workbench-drawer").exists()).toBe(false)
+    expect(document.activeElement).toBe(opener.element)
+  })
+
+  it("keeps an unsaved mobile detail draft until the author confirms leaving", async () => {
+    window.innerWidth = 390
+    let confirmDiscard
+    globalThis.confirmAction.mockImplementation((_message, onConfirm) => { confirmDiscard = onConfirm })
+    createWrapper()
+
+    const opener = wrapper.get('.scene-workbench-row[data-id="s1"] [data-action="select-workbench-scene"]')
+    opener.element.focus()
+    await opener.trigger("click")
+    await wrapper.get("#scene-detail-title").setValue("尚未保存的标题")
+    const beforeUnload = new Event("beforeunload", { cancelable: true })
+    window.dispatchEvent(beforeUnload)
+    expect(beforeUnload.defaultPrevented).toBe(true)
+    await wrapper.get('[data-action="close-scene-detail"]').trigger("click")
+    await flushPromises()
+
+    expect(globalThis.confirmAction).toHaveBeenCalledWith("放弃尚未保存的场景修改？", expect.any(Function), "放弃修改")
+    expect(wrapper.find(".scene-workbench-drawer").exists()).toBe(true)
+
+    confirmDiscard()
+    await flushPromises()
+    expect(wrapper.find(".scene-workbench-drawer").exists()).toBe(false)
+    expect(document.activeElement).toBe(opener.element)
+  })
+
+  it("does not discard a desktop detail draft when another scene is selected", async () => {
+    const confirm = vi.fn(() => false)
+    setBridgeOverrides({ confirm })
+    createWrapper({ selectedSceneId: "s1" })
+    await wrapper.get("#scene-detail-title").setValue("尚未保存的标题")
+
+    await wrapper.get('.scene-workbench-row[data-id="s2"] [data-action="select-workbench-scene"]').trigger("click")
+
+    expect(confirm).toHaveBeenCalledWith("当前场景有未保存修改，确定放弃并继续吗？")
+    expect(wrapper.get("#scene-detail-title").element.value).toBe("尚未保存的标题")
+    expect(wrapper.get('.scene-workbench-row[data-id="s1"]').classes()).toContain("is-selected")
+  })
+
+  it("keeps the detail draft and shows an inline error when saving fails", async () => {
+    let rejectSave
+    api.outline.updateScene.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectSave = reject }))
+    createWrapper({ selectedSceneId: "s1" })
+    await wrapper.get("#scene-detail-title").setValue("失败后保留")
+
+    await wrapper.get('[data-action="save-scene-detail"]').trigger("click")
+    await flushPromises()
+    expect(wrapper.get('[data-action="save-scene-detail"]').attributes("disabled")).toBeDefined()
+    expect(wrapper.get('[data-action="save-scene-detail"]').text()).toBe("保存中...")
+    expect(wrapper.get("#scene-detail-pov-character").element.closest(".scene-detail-field")?.getAttribute("aria-disabled")).toBe("true")
+
+    rejectSave(new Error("网络暂不可用"))
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toBe("保存失败：网络暂不可用")
+    expect(wrapper.get("#scene-detail-title").element.value).toBe("失败后保留")
   })
 
   it("does not adopt a late auto-extraction task after the view is unmounted", async () => {

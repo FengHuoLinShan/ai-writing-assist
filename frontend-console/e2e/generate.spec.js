@@ -5,6 +5,7 @@ import { openWorkbench } from "./helpers/workbench.js"
 import {
   createProject,
   cleanupProject,
+  createDraft,
   createWorldBibleDraft,
   createWorldBiblePage,
   createEntity,
@@ -13,6 +14,15 @@ import {
   listWorldBibleDrafts,
   waitForBackend,
 } from "./helpers/api-client.js"
+
+async function openPovWorkbench(page, project) {
+  await openWorkbench(page, project, "writing")
+  await page.locator('[data-action="open-owner-ai-drawer"]').click()
+  const povWorkbench = page.locator('[data-action="owner-writing-pov-workbench"]')
+  if (!await povWorkbench.isVisible()) await page.locator(".owner-ai-writing__more > summary").click()
+  await povWorkbench.click()
+  await expect(page.locator("#generate-mode-panel-pov_prose")).toBeVisible({ timeout: 10000 })
+}
 
 test.describe("生成中心模块", () => {
   let testProjectId = null
@@ -185,6 +195,7 @@ test.describe("生成中心模块", () => {
               novel_id: testProjectId,
               target_type: "core_entity_draft",
               status: "pending",
+              result_ref_json: { type: "core_entity_compatibility", id: "generated-candidate-e2e" },
               payload_json: {
                 entity_type: postBody.target.template || "character",
                 name: "沈无咎",
@@ -247,13 +258,22 @@ test.describe("生成中心模块", () => {
           total_tokens: 1200,
           budget_tokens: body.budget_tokens || 4000,
           sections: [
-            { key: "project", tier: "core", token_count: 200, truncated: false },
-            { key: "characters", tier: "standard", token_count: 1000, truncated: true },
+            { key: "project", tier: 0, token_count: 200, truncated: false, title: "项目概况", preview: "视觉基线参考资料 · fantasy", status: "canonical", activation_reason: "当前项目", sources: [{ type: "project", id: body.novel_id, label: "当前作品", status: "canonical" }] },
+            { key: "characters", tier: 1, token_count: 1000, truncated: true, title: "相关人物", preview: "与当前任务关系最紧密的人物资料。", status: "canonical", activation_reason: "与任务目标相关", sources: [{ type: "character", id: "character-1", label: "相关人物资料", status: "canonical" }], truncated_reason: "超过资料长度后保留相关部分" },
           ],
           evicted: ["rag_chunks"],
           truncated: ["characters"],
           warnings: [],
         }),
+      })
+    })
+
+    await page.route("**/api/context/render", async (route) => {
+      const body = route.request().postDataJSON()
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ markdown: `# 任务参考资料\n\n${body.task}` }),
       })
     })
 
@@ -273,14 +293,22 @@ test.describe("生成中心模块", () => {
     await expect(page.locator("#workspace-content")).toContainText("人物")
     await expect(page.locator("#workspace-content")).toContainText("加强复核")
     await expect(page.locator("#workspace-content")).toContainText("生成世界对象建议")
-    await expect(page.locator("#workspace-content")).toContainText("世界设定")
-    await expect(page.locator("#workspace-content")).toContainText("任务")
-    await expect(page.locator("#workspace-content")).toContainText("上下文预览")
+    await expect(page.getByRole("tablist", { name: "AI 工具类别" })).toBeVisible()
+    await expect(page.getByRole("tab", { name: "设定共创" })).toHaveAttribute("aria-selected", "true")
+    await expect(page.getByRole("tab", { name: "整理资料" })).toBeVisible()
+    await expect(page.getByRole("tab", { name: "查找资料" })).toBeVisible()
+    await expect(page.getByRole("tablist", { name: "生成模式" })).toHaveCount(0)
+    await expect(page.locator('[data-section="world-direction"]')).not.toHaveAttribute("open", "")
+    await expect(page.locator('[data-section="world-direction"] > summary')).toContainText("世界对象 · 不带模板")
+    expect(await page.locator('[data-action="generate-world-suggestion"]').evaluate((element) => element.closest("form")?.classList.contains("generate-composer"))).toBe(true)
+    await expect(page.locator('[data-action="converge-world"]')).toHaveCount(0)
+    await expect(page.locator("#generate-object-template")).toHaveValue("builtin:none")
     await expect(page.locator("#workspace-content")).not.toContainText("粘贴已有对话")
   })
 
   test("零章节项目在角色视角正文给出前置条件并前往写作台", async ({ page }) => {
-    await page.getByRole("tab", { name: "角色视角正文" }).click()
+    const project = await page.evaluate(() => state.currentProject)
+    await openPovWorkbench(page, project)
     await expect(page.getByText("角色视角正文需要先准备章节")).toBeVisible()
     await expect(page.getByRole("button", { name: "生成角色视角正文" })).toHaveCount(0)
     await expect(page.locator("#generate-pov-chapter")).toHaveCount(0)
@@ -293,25 +321,95 @@ test.describe("生成中心模块", () => {
     await expect(page.getByRole("button", { name: "新建章节", exact: true })).toBeVisible()
   })
 
+  test("角色视角正文保留表单、路由位置和项目隔离", async ({ page, projectFactory, browserErrors }) => {
+    const project = await page.evaluate(() => state.currentProject)
+    const character = await createEntity(testProjectId, { name: "林舟", entity_type: "character", status: "canonical", summary: "谨慎的巡港人" })
+    await createDraft(testProjectId, 1, "第一章 潮门初启", "潮声退到石阶之外，露出一道从未被记载的门。")
+    await createScene(testProjectId, {
+      scene_index: 0,
+      title: "退潮后的石门",
+      narrative_tag: "opening",
+      chapter_ids: ["1"],
+      scene_chunks: [{ chapter_index: 1, start_pos: 0, end_pos: 24 }],
+      goal: "判断是否公开石门",
+      core_conflict: "保护同行者，还是抢先留下证据",
+    })
+    await openPovWorkbench(page, project)
+    await page.locator("#generate-pov-chapter").selectOption("1")
+    await expect(page.locator("#generate-pov-scene option")).toHaveCount(2)
+    await page.locator("#generate-pov-scene").selectOption({ label: "退潮后的石门" })
+    await page.locator("#generate-pov-character").selectOption(character.id)
+    await page.locator("#generate-pov-instruction").fill("保持克制，让林舟先观察刻痕。")
+
+    const generate = page.locator('[data-action="generate-pov-prose"]')
+    await expect(generate).toHaveText("生成正文建议")
+    expect(await generate.evaluate((element) => element.closest("form") !== null)).toBe(true)
+    await expect(page.locator("#workspace-content")).toContainText("角色只会知道自己应当知道的事")
+    await expect(page.locator("#workspace-content")).not.toContainText("逐事实可见性过滤链")
+    await expect(page.locator("#workspace-content")).not.toContainText("结构化 POV 面板")
+
+    await generate.click()
+    await expect(page.locator(SEL.modalTitle)).toHaveText("AI 参考资料")
+    await page.locator("#modal-footer").getByRole("button", { name: "取消" }).click()
+    await expect(page.locator("#generate-pov-instruction")).toHaveValue("保持克制，让林舟先观察刻痕。")
+
+    await page.reload()
+    await page.waitForFunction(() => !state.loading)
+    await expect(page.getByRole("tab", { name: "写作建议" })).toHaveAttribute("aria-selected", "true")
+    await expect(page).toHaveURL(/owner_ai_mode=pov_prose/)
+    await expect(page.locator("#generate-pov-scene")).toHaveValue(/.+/)
+    await expect(page.locator("#generate-pov-character")).toHaveValue(character.id)
+    await expect(page.locator("#generate-pov-instruction")).toHaveValue("保持克制，让林舟先观察刻痕。")
+
+    await page.evaluate(() => window.router.navigate("outline"))
+    await expect(page.locator("#topbar-module")).toContainText("故事结构")
+    await page.goBack()
+    await expect(page.getByRole("tab", { name: "写作建议" })).toHaveAttribute("aria-selected", "true")
+    await expect(page.locator("#generate-pov-instruction")).toHaveValue("保持克制，让林舟先观察刻痕。")
+    await page.goForward()
+    await expect(page.locator("#topbar-module")).toContainText("故事结构")
+    await page.goBack()
+    await expect(page.locator("#generate-pov-instruction")).toHaveValue("保持克制，让林舟先观察刻痕。")
+
+    const otherProject = await projectFactory({ title: "另一本书", genre: "fantasy", language: "zh" })
+    await openPovWorkbench(page, otherProject)
+    await expect(page.getByText("角色视角正文需要先准备章节")).toBeVisible()
+    await openPovWorkbench(page, project)
+    await expect(page.locator("#generate-pov-instruction")).toHaveValue("保持克制，让林舟先观察刻痕。")
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await generate.scrollIntoViewIfNeeded()
+    await expectNoPageOverflow(page)
+    expect((await generate.boundingBox()).height).toBeGreaterThanOrEqual(44)
+    expect(browserErrors, `浏览器错误: ${JSON.stringify(browserErrors)}`).toHaveLength(0)
+  })
+
   test("生成中心模式与高级任务控件可用键盘和名称访问", async ({ page }) => {
-    const generateTabs = page.getByRole("tablist", { name: "生成模式" })
-    const worldTab = generateTabs.getByRole("tab", { name: "世界设定", exact: true })
-    const povTab = generateTabs.getByRole("tab", { name: "角色视角正文", exact: true })
-    const taskTab = generateTabs.getByRole("tab", { name: "任务", exact: true })
+    await page.setViewportSize({ width: 375, height: 812 })
+    const generateTabs = page.getByRole("tablist", { name: "AI 工具类别" })
+    const worldTab = generateTabs.getByRole("tab", { name: "设定共创", exact: true })
+    const taskTab = generateTabs.getByRole("tab", { name: "整理资料", exact: true })
+    await expectNoPageOverflow(page)
+    for (const tab of await generateTabs.getByRole("tab").all()) {
+      expect((await tab.boundingBox()).height).toBeGreaterThanOrEqual(44)
+    }
+    await page.emulateMedia({ reducedMotion: "reduce" })
+    await page.locator("html").evaluate((element) => { element.style.fontSize = "125%" })
+    await expectNoPageOverflow(page)
+    await page.locator("html").evaluate((element) => { element.style.fontSize = "" })
     await expect(worldTab).toHaveAttribute("aria-selected", "true")
     await worldTab.focus()
     await page.keyboard.press("ArrowRight")
-    await expect(povTab).toBeFocused()
+    await expect(taskTab).toBeFocused()
     await expect(worldTab).toHaveAttribute("aria-selected", "true")
 
     await taskTab.click()
-    await expect(taskTab).toHaveAttribute("aria-selected", "true")
-    await expect(page.getByRole("tabpanel", { name: "任务" })).toBeVisible()
-    await page.getByText("高级设置", { exact: true }).click()
-    await expect(page.getByLabel("范围")).toBeVisible()
-    await expect(page.getByLabel("章节索引")).toBeVisible()
-    await expect(page.getByLabel("上下文预算 (tokens)")).toBeVisible()
-    await expect(page.getByLabel("揭示模式")).toBeVisible()
+    await expect(page.getByRole("tabpanel", { name: "整理资料" })).toBeVisible()
+    await page.getByText("更多条件", { exact: true }).click()
+    await expect(page.getByLabel("参考范围")).toBeVisible()
+    await expect(page.getByLabel("当前章节")).toBeVisible()
+    await expect(page.getByLabel("资料长度上限")).toBeVisible()
+    await expect(page.getByLabel("可参考的信息")).toBeVisible()
   })
 
   test("世界共创聊天不会打开 AI 参考资料确认", async ({ page }) => {
@@ -320,6 +418,90 @@ test.describe("生成中心模块", () => {
 
     await expect(page.locator("#generate-chat-messages")).toContainText("旧友型反派")
     await expect(page.locator(SEL.modalTitle)).not.toHaveText("AI 参考资料")
+  })
+
+  test("世界共创输入区在桌面、手机和矮窗口不遮挡操作", async ({ page }) => {
+    const composer = page.locator("#generate-chat-input")
+    const send = page.locator('[data-action="send-chat-message"]')
+    await composer.fill("推敲潮汐城市的夜间交通规则")
+    await composer.evaluate((element) => { element.style.height = "144px" })
+
+    for (const viewport of [
+      { width: 1440, height: 900 },
+      { width: 390, height: 844 },
+      { width: 812, height: 375 },
+    ]) {
+      await page.setViewportSize(viewport)
+      await send.evaluate((element) => element.scrollIntoView({ block: "center" }))
+      await expect(composer).toBeVisible()
+      await expect(send).toBeVisible()
+      await expectNoPageOverflow(page)
+      const inputBox = await composer.boundingBox()
+      const sendBox = await send.boundingBox()
+      expect(inputBox).not.toBeNull()
+      expect(sendBox).not.toBeNull()
+      expect(sendBox.y).toBeGreaterThanOrEqual(inputBox.y + inputBox.height)
+      expect(sendBox.height).toBeGreaterThanOrEqual(44)
+      if (viewport.width <= 760) expect(sendBox.y + sendBox.height).toBeLessThanOrEqual(viewport.height - 64)
+    }
+  })
+
+  test("手机参考资料栏支持键盘、刷新、历史和作品隔离", async ({ page, browserErrors }) => {
+    let secondProject = null
+    const key = `workspace-rail:${testProjectId}:generate:assistant`
+    try {
+      await page.setViewportSize({ width: 375, height: 812 })
+      await page.evaluate((storageKey) => sessionStorage.removeItem(storageKey), key)
+      await page.reload({ waitUntil: "domcontentloaded" })
+      await page.waitForFunction(() => !state.loading)
+
+      const rail = page.locator(".generate-side-rail")
+      const summary = rail.locator(":scope > summary")
+      await expect(rail).not.toHaveAttribute("open", "")
+      await summary.focus()
+      await page.keyboard.press("Enter")
+      await expect(rail).toHaveAttribute("open", "")
+
+      await page.reload({ waitUntil: "domcontentloaded" })
+      await expect(rail).toHaveAttribute("open", "")
+      await page.evaluate(() => window.router.navigate("outline"))
+      await expect(page.locator("#topbar-module")).toContainText("故事结构")
+      await page.goBack()
+      await expect(rail).toHaveAttribute("open", "")
+
+      secondProject = await createProject({ title: "参考栏隔离对照作品", genre: "fantasy", language: "zh" })
+      await openWorkbench(page, secondProject, "generate")
+      await expect(rail).not.toHaveAttribute("open", "")
+      await openWorkbench(page, { id: testProjectId, title: "生成测试项目", genre: "fantasy", language: "zh" }, "generate")
+      await expect(rail).toHaveAttribute("open", "")
+      expect(browserErrors, `浏览器错误: ${JSON.stringify(browserErrors)}`).toHaveLength(0)
+    } finally {
+      if (secondProject?.id) await cleanupProject(secondProject.id)
+    }
+  })
+
+  test("世界共创失败保留问题并可原位重试", async ({ page }) => {
+    const chatRoute = "**/api/world/generation-center/chat"
+    let attempts = 0
+    await page.unroute(chatRoute)
+    await page.route(chatRoute, async (route) => {
+      attempts += 1
+      if (attempts === 1) {
+        await route.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify({ detail: "暂时无法回复" }) })
+        return
+      }
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ reply: "重试后已恢复" }) })
+    })
+
+    await page.locator("#generate-chat-input").fill("不要丢掉这个问题")
+    await page.getByRole("button", { name: "发送", exact: true }).click()
+    const retry = page.getByRole("button", { name: "再试一次" })
+    await expect(retry).toBeVisible()
+    await expect(retry).toBeFocused()
+    await retry.click()
+    await expect(page.locator("#generate-chat-messages")).toContainText("重试后已恢复")
+    await expect(page.locator(".generate-chat-message.user")).toHaveCount(1)
+    expect(attempts).toBe(2)
   })
 
   test("刷新中断聊天后恢复确定的本地终态，不重复或接受迟到回复", async ({ page }) => {
@@ -344,7 +526,7 @@ test.describe("生成中心模块", () => {
     try {
       await page.locator("#generate-chat-input").fill("刷新前的问题")
       await page.getByRole("button", { name: "发送" }).click()
-      await expect(page.locator("#generate-chat-messages")).toContainText("正在思考...")
+      await expect(page.locator("#generate-chat-messages")).toContainText("正在理解你的目标")
       await expect.poll(() => chatRequests).toBe(1)
 
       await page.reload({ waitUntil: "domcontentloaded" })
@@ -362,7 +544,24 @@ test.describe("生成中心模块", () => {
     }
   })
 
-  test("粘贴外部对话后生成世界对象建议", async ({ page }) => {
+  test("粘贴外部对话后生成世界对象建议", async ({ page, browserErrors }) => {
+    await page.route("**/api/world/entities/generated-candidate-e2e?*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "generated-candidate-e2e",
+          novel_id: testProjectId,
+          name: "沈无咎",
+          entity_type: "character",
+          status: "candidate",
+          summary: "旧友型反派，公开温和，暗中推动主角面对旧秩序。",
+          importance_level: "important",
+          suggested_action: "create_new",
+          content_json: { _meta: { suggestion_id: "suggestion-generate-e2e", compatibility_shadow: true, source: "ai_generated" } },
+        }),
+      })
+    })
     await page.locator("#generate-chat-input").fill("外部 Chatbox：反派不是纯恶人。")
     await page.locator("#generate-quality-pro").check()
     await page.getByRole("button", { name: "生成世界对象建议" }).click()
@@ -370,11 +569,46 @@ test.describe("生成中心模块", () => {
     await expect(page.locator("#generate-result")).toContainText("沈无咎", { timeout: 15000 })
     await expect(page.locator("#generate-result")).toContainText("待处理")
     await expect(page.locator("#generate-result")).not.toContainText("已发布")
-    await expect(page.locator("#generate-result")).toContainText("前往待处理")
+    await expect(page.locator("#generate-result")).toContainText("去待处理审阅")
+
+    await page.getByRole("button", { name: "去待处理审阅" }).click()
+    await expect(page).toHaveURL(/world\/review\?kind=objects.*entity_id=generated-candidate-e2e.*review_item=generated-candidate-e2e/)
+    await expect(page.locator(".world-review-decision")).toContainText("决定是否采用“沈无咎”")
+    await expect(page.locator(".world-review-decision")).toContainText("旧友型反派")
+    await expect(page.locator(".world-review-decision")).toContainText("人物 · 重要设定")
+
+    await page.reload()
+    await expect(page.locator(".world-review-decision")).toContainText("决定是否采用“沈无咎”")
+    await page.goBack()
+    await expect(page.locator("#generate-chat-messages")).toContainText("外部 Chatbox：反派不是纯恶人。")
+    await page.goForward()
+    await expect(page.locator(".world-review-decision")).toContainText("决定是否采用“沈无咎”")
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(page.locator(".world-review-workbench")).toHaveClass(/is-detail-open/)
+    const backToQueue = page.getByRole("button", { name: "返回队列" })
+    await expect.poll(async () => (await backToQueue.boundingBox())?.height || 0).toBeGreaterThanOrEqual(44)
+    const ignore = page.getByRole("button", { name: "忽略", exact: true })
+    await ignore.scrollIntoViewIfNeeded()
+    await expect.poll(async () => {
+      const actionBox = await ignore.boundingBox()
+      const navBox = await page.locator(".sidebar-mobile-nav").boundingBox()
+      return Boolean(actionBox && navBox && actionBox.y + actionBox.height <= navBox.y)
+    }).toBe(true)
+    const returnToAi = page.getByRole("button", { name: "返回继续完善" })
+    await returnToAi.scrollIntoViewIfNeeded()
+    await returnToAi.click()
+    await expect(page.getByRole("dialog", { name: "AI 工具" })).toBeVisible()
+    await expect(page.locator("#generate-chat-messages")).toContainText("外部 Chatbox：反派不是纯恶人。")
+    expect(browserErrors).toEqual([])
   })
 
   test("生成中心直接新建整页提案，编辑后只进入世界书工作稿", async ({ page }) => {
+    const directionSummary = page.locator('[data-section="world-direction"] > summary')
+    await directionSummary.click()
     await page.getByRole("button", { name: "新建世界书页" }).click()
+    await expect(directionSummary).toContainText("新建世界书页")
+    await directionSummary.click()
     await expect(page.getByRole("button", { name: "新建世界书页" })).toHaveClass(/active/)
 
     await page.locator("#generate-chat-input").fill("创建一页关于龙息潮的世界规则")
@@ -528,6 +762,7 @@ test.describe("生成中心模块", () => {
     await page.waitForFunction(() => !state.loading, { timeout: 10000 })
     await page.locator("#generate-chat-input").fill("只属于页面完善会话")
     await page.getByRole("button", { name: "发送" }).click()
+    await page.locator('[data-section="world-direction"] > summary').click()
     await page.getByRole("button", { name: "世界对象" }).click()
     await expect(page.locator("#generate-chat-messages")).not.toContainText("只属于页面完善会话")
     await page.locator("#generate-chat-input").fill("基于这页创建一个商会对象")
@@ -538,31 +773,146 @@ test.describe("生成中心模块", () => {
     }))
     expect(worldSuggestionRequests.at(-1).target.kind).toBe("core_entity")
 
+    await page.locator('[data-section="world-direction"] > summary').click()
     await page.getByRole("button", { name: "完善当前页" }).click()
     await expect(page.locator("#generate-chat-messages")).toContainText("只属于页面完善会话")
     await expect(page.locator("#generate-include-world-synopsis")).toBeChecked()
   })
 
-  test("任务标签可执行上下文编译", async ({ page }) => {
-    await page.getByRole("tab", { name: "任务", exact: true }).click()
-    await page.locator("#gen-task").fill("生成剧情线")
+  test("任务参考资料在当前流程完成并适配窄屏", async ({ page, browserErrors }) => {
+    const failedResponses = []
+    page.on("response", (response) => { if (response.status() >= 400) failedResponses.push({ status: response.status(), url: response.url() }) })
+    await page.locator('[data-action="owner-task-context"]').click()
+    await page.setViewportSize({ width: 375, height: 812 })
+    const task = page.locator("#gen-task")
+    const run = page.getByRole("button", { name: "整理参考资料" })
+    const resultActions = page.locator(".generate-task-output-actions")
+    await expect(page.getByLabel("常用任务（可选）")).toHaveValue("custom")
+    await expect(resultActions).toHaveCount(0)
+    await expect(task).toBeInViewport()
+    await expect(run).toBeInViewport()
+    await expectNoPageOverflow(page)
+    await page.emulateMedia({ reducedMotion: "reduce" })
+    await page.locator("html").evaluate((element) => { element.style.fontSize = "125%" })
+    await task.focus()
+    await expect(task).toBeInViewport()
+    await expectNoPageOverflow(page)
+    await page.locator("html").evaluate((element) => { element.style.fontSize = "" })
+    await task.fill("生成剧情线")
+    await expect(resultActions).toHaveCount(0)
 
-    await page.getByRole("button", { name: "编译上下文" }).click()
+    await run.click()
 
-    await expect(page.locator("#gen-task-output")).toContainText("已加载 2 段上下文", { timeout: 15000 })
-    await expect(page.locator("#gen-task-output")).toContainText("characters")
+    await expect(page.locator("#gen-task-output")).toContainText("已准备 2 类参考资料", { timeout: 15000 })
+    await expect(resultActions).toBeVisible()
+    await expect(resultActions.getByRole("button")).toHaveCount(2)
+    await expect(resultActions.getByRole("button", { name: "查看完整资料" })).toHaveClass(/btn-primary/)
+    await expect(resultActions.getByRole("button", { name: "带到世界设定对话" })).not.toHaveClass(/btn-primary/)
+    await expect(resultActions.locator('[data-action="copy-task-md"], [data-action="export-task-md"]')).toHaveCount(0)
+    await expect(page.locator("#gen-task-output")).toContainText("相关人物")
+    await expect(page.locator(".generate-context-overview")).not.toContainText("author_safe")
+    await expect(page.locator(".generate-context-diagnostics")).not.toHaveAttribute("open", "")
+    await expect(page.getByRole("tabpanel", { name: "整理资料" })).toBeVisible()
+
+    await resultActions.getByRole("button", { name: "带到世界设定对话" }).click()
+    const categories = page.getByRole("tablist", { name: "AI 工具类别" })
+    await expect(categories.getByRole("tab", { name: "设定共创", exact: true })).toHaveAttribute("aria-selected", "true")
+    await expect(page.locator("#generate-chat-messages")).toContainText("生成剧情线")
+    await expect(page.locator("#generate-chat-messages")).toContainText("已整理 2 类参考资料")
+    await categories.getByRole("tab", { name: "整理资料", exact: true }).click()
+    await expect(resultActions).toBeVisible()
+
+    await expectNoPageOverflow(page)
+    expect((await run.boundingBox()).height).toBeGreaterThanOrEqual(44)
+    await page.setViewportSize({ width: 812, height: 375 })
+    await expectNoPageOverflow(page)
+    expect(failedResponses).toEqual([])
+    expect(browserErrors).toEqual([])
   })
 
-  test("上下文预览标签展示最近一次编译结果", async ({ page }) => {
-    await page.getByRole("tab", { name: "任务", exact: true }).click()
-    await page.locator('[data-preset="plot"]').click()
-    await page.getByRole("button", { name: "编译上下文" }).click()
-    await expect(page.locator("#gen-task-output")).toContainText("已加载 2 段上下文", { timeout: 15000 })
+  test("完整参考资料可刷新、返回并按项目隔离", async ({ page, projectFactory, browserErrors }) => {
+    const project = await page.evaluate(() => state.currentProject)
+    await page.locator('[data-action="owner-task-context"]').click()
+    await page.locator("#gen-task-preset").selectOption("plot")
+    await expect(page.locator("#gen-task")).toHaveValue("基于当前设定梳理主线、支线和伏笔推进。")
+    await page.getByRole("button", { name: "整理参考资料" }).click()
+    await expect(page.locator("#gen-task-output")).toContainText("已准备 2 类参考资料", { timeout: 15000 })
 
-    await page.getByRole("tab", { name: "上下文预览" }).click()
+    await page.getByRole("button", { name: "查看完整资料" }).click()
 
-    await expect(page.locator("#workspace-content")).toContainText("上下文预览")
-    await expect(page.locator("#workspace-content")).toContainText("任务：生成剧情线")
+    await expect(page.locator("#workspace-content")).toContainText("完整参考资料")
+    await expect(page.locator("#workspace-content")).toContainText("任务：基于当前设定梳理主线")
+    await expect(page.locator("#gen-preview-output")).toContainText("已准备 2 类参考资料")
+    await expect(page.locator("#gen-preview-output")).toContainText("基于当前设定梳理主线")
+
+    await page.reload({ waitUntil: "domcontentloaded" })
+    await expect(page.locator("#gen-preview-output")).toContainText("已准备 2 类参考资料", { timeout: 10000 })
+    await expect(page).toHaveURL(/owner_ai_mode=preview/)
+    await page.getByRole("button", { name: "返回调整" }).click()
+    await expect(page.locator("#gen-task-preset")).toHaveValue("plot")
+    await expect(page.locator("#gen-task")).toHaveValue("基于当前设定梳理主线、支线和伏笔推进。")
+
+    const secondProject = await projectFactory({ title: "参考资料隔离项目", genre: "fantasy" })
+    await openWorkbench(page, secondProject, "generate")
+    await page.locator('[data-action="owner-task-context"]').click()
+    await expect(page.locator("#gen-task-output")).not.toContainText("已准备 2 类参考资料")
+    await openWorkbench(page, project, "generate")
+    await page.locator('[data-action="owner-task-context"]').click()
+    await page.getByRole("button", { name: "查看完整资料" }).click()
+    await expect(page.locator("#gen-preview-output")).toContainText("已准备 2 类参考资料")
+    expect(browserErrors).toEqual([])
+  })
+
+  test("任务草稿可跨类别、刷新和浏览器前进恢复，并按项目隔离", async ({ page }) => {
+    let secondProject
+    try {
+      await page.locator('[data-action="owner-task-context"]').click()
+      await page.locator("#gen-task").fill("刷新后继续整理的任务")
+      await page.getByText("更多条件", { exact: true }).click()
+      await page.locator("#gen-scope").selectOption("chapter")
+      await expect.poll(() => page.evaluate((id) => {
+        const prefix = `generate_world_workspace_state_v2_${id}`
+        return Object.keys(localStorage)
+          .filter((key) => key.startsWith(prefix))
+          .map((key) => JSON.parse(localStorage.getItem(key))?.taskForm?.task)
+          .find(Boolean) || ""
+      }, testProjectId)).toBe("刷新后继续整理的任务")
+
+      await page.locator('[data-action="owner-evidence"]').click()
+      await page.locator('[data-action="owner-task-context"]').click()
+      await expect(page.locator("#gen-task")).toHaveValue("刷新后继续整理的任务")
+      await expect(page.locator("#gen-scope")).toHaveValue("chapter")
+      await expect(page).toHaveURL(/owner_ai_mode=task/)
+
+      await page.reload({ waitUntil: "domcontentloaded" })
+      await expect(page.locator("#gen-task")).toHaveValue("刷新后继续整理的任务", { timeout: 10000 })
+      await page.goBack()
+      await page.goForward()
+      await expect(page.locator("#gen-task")).toHaveValue("刷新后继续整理的任务", { timeout: 10000 })
+
+      secondProject = await createProject({ title: "任务隔离项目", genre: "fantasy", language: "zh" })
+      await openWorkbench(page, secondProject, "generate")
+      await page.locator('[data-action="owner-task-context"]').click()
+      await expect(page.locator("#gen-task")).toHaveValue("")
+    } finally {
+      if (secondProject?.id) await cleanupProject(secondProject.id)
+    }
+  })
+
+  test("整理失败时聚焦就地错误并可重试", async ({ page }) => {
+    await page.route("**/api/context/compile", async (route) => {
+      await route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ detail: "资料服务暂时忙碌" }) })
+    }, { times: 1 })
+    await page.locator('[data-action="owner-task-context"]').click()
+    await page.locator("#gen-task").fill("检查失败恢复")
+    await page.getByRole("button", { name: "整理参考资料" }).click()
+
+    const error = page.locator(".generate-task-error")
+    await expect(error).toContainText("当前任务内容仍保留")
+    await expect(error).not.toContainText("资料服务暂时忙碌")
+    await expect(error).toBeFocused()
+    await page.getByRole("button", { name: "重试" }).click()
+    await expect(page.locator("#gen-task-output")).toContainText("已准备 2 类参考资料", { timeout: 15000 })
   })
 
   test("没有聊天或粘贴内容时给出警告", async ({ page }) => {
@@ -578,11 +928,11 @@ test.describe("生成中心模块", () => {
       await route.fulfill({ status: 500, body: JSON.stringify({ detail: "should not call" }) })
     })
 
-    await page.getByRole("tab", { name: "任务", exact: true }).click()
+    await page.locator('[data-action="owner-task-context"]').click()
     await page.locator(".gen-form-section summary").click()
     await page.locator("#gen-reveal").selectOption("character")
     await page.locator("#gen-task").fill("写角色视角场景")
-    await page.getByRole("button", { name: "编译上下文" }).click()
+    await page.getByRole("button", { name: "整理参考资料" }).click()
 
     await expect(page.locator(SEL.toastContainer)).toContainText("角色视角模式必须选择视角人物", { timeout: 10000 })
     expect(compileCalled).toBeFalsy()
@@ -635,7 +985,7 @@ test.describe("生成中心模块", () => {
       })
     })
 
-    await page.getByRole("tab", { name: "任务", exact: true }).click()
+    await page.locator('[data-action="owner-task-context"]').click()
     await page.locator(".gen-form-section summary").click()
     await page.locator("#gen-reveal").selectOption("character")
 
@@ -650,10 +1000,10 @@ test.describe("生成中心模块", () => {
     await selectReference("#gen-scene-picker", "潜入王宫", "潜入王宫")
     await selectReference("#gen-viewpoint-character-picker", "顾临渊", "顾临渊")
     await page.locator("#gen-task").fill("写角色视角场景")
-    await page.getByRole("button", { name: "编译上下文" }).click()
+    await page.getByRole("button", { name: "整理参考资料" }).click()
 
     await expect(page.locator("#workspace-content")).toContainText("误以为", { timeout: 10000 })
-    await expect(page.locator("#workspace-content")).not.toContainText("隐藏真相")
+    await expect(page.locator("#gen-task-output")).not.toContainText("隐藏真相")
     expect(requests.at(-1).reveal_mode).toBe("character")
     expect(requests.at(-1).entity_ids).toEqual([relatedEntity.id])
     expect(requests.at(-1).character_ids).toEqual([viewpointCharacter.id])
@@ -662,6 +1012,7 @@ test.describe("生成中心模块", () => {
   })
 
   test("编辑模板弹窗可查看提示词并创建新模板", async ({ page }) => {
+    await page.locator('[data-section="world-direction"] > summary').click()
     await page.getByRole("button", { name: "编辑对象模板" }).click()
 
     await expect(page.locator(SEL.modalTitle)).toHaveText("编辑模板")

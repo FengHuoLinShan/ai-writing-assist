@@ -16,7 +16,7 @@ const rangeText = computed(() => {
   if (!meta) return "当前层创作"
   const modeLabel = meta.mode === "revise" ? "修订所选" : "新增设计"
   const chapterRange = meta.start_chapter
-    ? ` · 第 ${meta.start_chapter}-${meta.end_chapter || meta.start_chapter} 章`
+    ? ` · 第 ${meta.start_chapter}–${meta.end_chapter || meta.start_chapter} 章`
     : ""
   return `${modeLabel}${chapterRange}`
 })
@@ -38,19 +38,19 @@ const hasContent = computed(() => !!state.progress)
       :className="'outline-progress-mini'"
       :showTaskId="false"
     >
-      <!-- 默认 slot：可追加操作区 -->
+      <p class="workflow-progress__destination">{{ rangeText }}</p>
+      <div
+        v-if="state.preview"
+        class="outline-preview-ready"
+        role="status"
+      >
+        <span>建议尚未写入工作结构。请先检查和编辑，再明确采用。</span>
+        <button
+          class="btn btn-sm btn-primary"
+          data-action="view-outline-generate-preview"
+          @click="showOutlineGeneratePreview"
+        >检查建议</button>
+      </div>
     </WorkflowProgressCard>
-    <div
-      v-if="state.preview"
-      class="outline-preview-ready"
-      role="status"
-    >
-      <span>建议尚未写入工作结构。请先检查和编辑，再明确采用。</span>
-      <button
-        class="btn btn-sm btn-primary"
-        data-action="view-outline-generate-preview"
-        @click="showOutlineGeneratePreview"
-      >查看并采用</button>
-    </div>
   </div>
 </template>

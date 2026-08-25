@@ -117,7 +117,7 @@ test.describe("项目模块", () => {
     await page.reload()
     await expect(page.locator(SEL.projectGrid)).toBeVisible()
     await expect(page.locator(SEL.projectCard(project.id))).toContainText("列表测试项目")
-    await expect(page.locator(SEL.projectCard(project.id))).toContainText("scifi")
+    await expect(page.locator(SEL.projectCard(project.id))).toContainText("科幻")
   })
 
   test("创建占位卡可用键盘打开新建项目并保持窄屏可见", async ({ page }) => {
@@ -135,6 +135,7 @@ test.describe("项目模块", () => {
     await expect(placeholder).toHaveAttribute("tabindex", "0")
     await expect(page.locator(SEL.projectSelectVisible)).toHaveText("全选当前可见项目")
     await page.setViewportSize({ width: 390, height: 844 })
+    await expectWithinViewport(page.locator("#project-search-input"))
     await placeholder.focus()
     await expect(placeholder).toBeFocused()
     await expectWithinViewport(placeholder)

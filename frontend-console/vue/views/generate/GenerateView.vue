@@ -1,5 +1,5 @@
 <template>
-  <div class="view-header view-header--with-tabs generate-toolbar">
+  <div v-if="!embedded" class="view-header view-header--with-tabs generate-toolbar">
     <div class="subnav generate-subtabs" role="tablist" aria-label="生成模式">
       <button v-for="item in tabs" :key="item.key" :id="tabId(item.key)" class="generate-subtab" :class="{ active: activeTab === item.key }"
         type="button" role="tab" :aria-selected="activeTab === item.key" :aria-controls="tabPanelId(item.key)" :tabindex="activeTab === item.key ? 0 : -1"
@@ -7,21 +7,10 @@
     </div>
     <div class="view-header__actions">
       <span v-if="projectTitle" class="view-toolbar__project" :title="projectTitle">{{ projectTitle }}</span>
-      <template v-if="activeTab === 'world' && !isWorldCore">
-        <span class="generate-suggestion-note">对象建议会一并参考输入框中尚未发送的内容</span>
-        <button class="btn btn-sm btn-primary" data-action="generate-world-suggestion" :disabled="worldBusy" @click="requestWorldSuggestion">{{ generateLabel }}</button>
-      </template>
-      <button v-else-if="activeTab === 'pov_prose' && !pov.loading && pov.chapters.length" class="btn btn-sm btn-primary" data-action="generate-pov-prose" :disabled="povPending" @click="generatePov">生成角色视角正文</button>
-      <template v-else-if="activeTab === 'task'">
-        <button class="btn btn-sm btn-primary" data-action="run-task" :disabled="taskPending" @click="compileTask(false)">编译上下文</button>
-        <button class="btn btn-sm" data-action="preview-task-context" :disabled="taskPending" @click="compileTask(true)">预览上下文</button>
-        <button class="btn btn-sm" data-action="render-task-md" :disabled="taskPending" @click="renderTaskMarkdown">渲染 Markdown</button>
-        <button class="btn btn-sm" data-action="apply-to-chat" @click="applyTaskToChat">应用到聊天</button>
-      </template>
     </div>
   </div>
 
-  <div v-if="activeTab === 'world'" :id="tabPanelId('world')" class="generate-tab-panel" role="tabpanel" :aria-labelledby="tabId('world')">
+  <div v-if="activeTab === 'world'" :id="tabPanelId('world')" class="generate-tab-panel" :role="embedded ? undefined : 'tabpanel'" :aria-labelledby="embedded ? undefined : tabId('world')">
     <WorkflowProgressCard
       v-if="worldTaskProgress"
       :progress="worldTaskProgress"
@@ -46,21 +35,21 @@
       v-model:selected-world-page-ids="session.selectedWorldPageIds"
       v-model:new-page-type="session.newPageType" v-model:new-page-template-key="session.newPageTemplateKey"
       @select-target="selectTarget" @edit-templates="openTemplateEditor" @return-world-bible="returnToWorldBible" @select-chapters="openChapterPicker"
-      @send-chat="sendChat" @converge="convergeWorld" @set-convergence-disposition="setConvergenceDisposition" @edit-convergence-message="editConvergenceMessage" @apply-convergence-message="applyConvergenceMessage" @dismiss-convergence="dismissConvergence" @open-convergence-source="openConvergenceSource"
+      @send-chat="sendChat" @retry-chat="retryChat" @generate-result="requestWorldSuggestion" @retry-result="requestWorldSuggestion" @converge="convergeWorld" @set-convergence-disposition="setConvergenceDisposition" @edit-convergence-message="editConvergenceMessage" @apply-convergence-message="applyConvergenceMessage" @dismiss-convergence="dismissConvergence" @open-convergence-source="openConvergenceSource"
       @prefill-world-core="prefillWorldCore" @save-world-core-checkpoint="saveWorldCoreCheckpoint"
       @explore="exploreWorld" @select-exploration="selectExploration" @dismiss-exploration="dismissExploration" @open-source-revision="openSourceRevision"
       @copy-handoff="copyWorldHandoff" @download-handoff="downloadWorldHandoff" @open-story-outline="openStoryOutline" @preview-external-packet="previewExternalPacket" @clear-external-packet="session.externalPacketDraft = ''"
       @create-visual-brief="createVisualBrief" @edit-visual-brief="editVisualBrief" @confirm-visual-brief="confirmVisualBrief" @copy-visual-brief="copyVisualBrief" @download-visual-brief="downloadVisualBrief" @preview-visual-map="previewVisualMap"
       @apply-page="applyWorldPage" @proposal-dirty="pageProposalDirty = $event" @proposal-edit="capturePageProposalEdit" @clear-result="requestWorldSuggestion" @open-review="openReview" @view-context="viewGenerationContext" />
   </div>
-  <div v-else-if="activeTab === 'pov_prose'" :id="tabPanelId('pov_prose')" class="generate-tab-panel" role="tabpanel" :aria-labelledby="tabId('pov_prose')">
-    <PovProseTab v-model:form="povForm" :loading="pov.loading" :chapters="pov.chapters" :scenes="pov.scenes" :characters="pov.characters" :warning="pov.warning" :submission="povSubmission" :pending="povPending" :progress="povProgress" :error="povError" @change-chapter="changePovChapter" @change-scene="changePovScene" @cancel="cancelPovTask" @open-result="openPovResult" @open-writing="openPovWriting" @return-world="switchTab('world')" />
+  <div v-else-if="activeTab === 'pov_prose'" :id="tabPanelId('pov_prose')" class="generate-tab-panel" :role="embedded ? undefined : 'tabpanel'" :aria-labelledby="embedded ? undefined : tabId('pov_prose')">
+    <PovProseTab v-model:form="povForm" :loading="pov.loading" :chapters="pov.chapters" :scenes="pov.scenes" :characters="pov.characters" :warning="pov.warning" :submission="povSubmission" :pending="povPending" :progress="povProgress" :error="povError" @change-chapter="changePovChapter" @change-scene="changePovScene" @generate="generatePov" @retry-load="retryPovLoad" @cancel="cancelPovTask" @open-result="openPovResult" @open-writing="openPovWriting" @return-world="switchTab('world')" />
   </div>
-  <div v-else-if="activeTab === 'task'" :id="tabPanelId('task')" class="generate-tab-panel" role="tabpanel" :aria-labelledby="tabId('task')">
-    <TaskContextTab v-model:form="taskForm" :project-id="projectId" :preset="taskPreset" :bundle="lastContextBundle" :markdown="lastContextMarkdown" :pending="taskPending" :error="taskError" @select-preset="selectTaskPreset" @copy-markdown="copyTaskMarkdown" @export-markdown="exportTaskMarkdown" />
+  <div v-else-if="activeTab === 'task'" :id="tabPanelId('task')" class="generate-tab-panel" :role="embedded ? undefined : 'tabpanel'" :aria-labelledby="embedded ? undefined : tabId('task')">
+    <TaskContextTab v-model:form="taskForm" :project-id="projectId" :preset="taskPreset" :bundle="lastContextBundle" :pending="taskPending" :pending-label="taskPendingLabel" :error="taskError" :error-action="taskErrorAction" @select-preset="selectTaskPreset" @run-task="compileTask" @render-markdown="renderTaskMarkdown" @apply-to-chat="applyTaskToChat" />
   </div>
-  <div v-else :id="tabPanelId('preview')" class="generate-tab-panel" role="tabpanel" :aria-labelledby="tabId('preview')">
-    <ContextPreviewTab :bundle="lastContextBundle" :markdown="lastContextMarkdown" :source-text="contextSourceText" :busy="taskPending" @render-markdown="renderTaskMarkdown" @copy-markdown="copyTaskMarkdown" @export-markdown="exportTaskMarkdown" @return="switchTab(lastContextSource === 'world' ? 'world' : 'task')" />
+  <div v-else :id="tabPanelId('preview')" class="generate-tab-panel" :role="embedded ? undefined : 'tabpanel'" :aria-labelledby="embedded ? undefined : tabId('preview')">
+    <ContextPreviewTab :bundle="lastContextBundle" :markdown="lastContextMarkdown" :source-text="contextSourceText" :busy="taskPending" :error="taskError" @render-markdown="renderTaskMarkdown" @copy-markdown="copyTaskMarkdown" @export-markdown="exportTaskMarkdown" @return="switchTab(lastContextSource === 'world' ? 'world' : 'task')" />
   </div>
 </template>
 
@@ -85,6 +74,7 @@ import {
 } from "../../../shared/workflowProgress.js"
 import {
   clearCreativeContinuation,
+  readGenerateSession,
   readCreativeContinuation,
   readGenerateContextPreview,
   writeCreativeContinuation,
@@ -101,12 +91,15 @@ import {
 
 const props = defineProps({
   projectId: { type: String, default: null }, tab: { type: String, default: "world" }, preset: { type: String, default: "custom" },
+  embedded: { type: Boolean, default: false },
+  handoffSessionKey: { type: String, default: null },
   sourcePageId: { type: String, default: null }, targetKind: { type: String, default: "core_entity" }, sessionKey: { type: String, required: true },
   initialSession: { type: Object, required: true }, templates: { type: Array, default: () => [] }, activationProfiles: { type: Array, default: () => [] },
   sourcePage: Object, sourceDraft: Object, worldCategories: { type: Array, default: () => [] }, worldPageTemplates: { type: Array, default: () => [] }, worldPages: { type: Array, default: () => [] },
   worldScenes: { type: Array, default: () => [] }, worldThreads: { type: Array, default: () => [] }, worldCharacters: { type: Array, default: () => [] }, worldEntities: { type: Array, default: () => [] },
   worldWorkspaceWarning: String, worldSourceUnavailable: { type: Boolean, default: false }, restoredWorldResult: Object, restoredPreviousWorldResult: Object, povChapters: { type: Array, default: () => [] }, povCharacters: { type: Array, default: () => [] }, povLoadWarning: String,
 })
+const emit = defineEmits(["select-mode"])
 
 const api = getApi(); const appState = getAppState(); const router = getRouter(); const toast = getToast(); const confirm = getConfirm()
 const showModalHtml = getShowModalHtml(); const closeModal = getCloseModal(); const esc = getEsc()
@@ -119,8 +112,11 @@ const composer = ref(props.initialSession.composer || "")
 const templates = ref(props.templates.length ? props.templates : [...OBJECT_TEMPLATES])
 const activationProfiles = ref(props.activationProfiles)
 const activeTab = ref(props.tab)
-const taskPreset = ref(TASK_PRESETS[props.preset] ? props.preset : "custom")
-const taskForm = ref(applyTaskPreset(createDefaultTaskForm(), taskPreset.value))
+const routeTaskPreset = props.preset !== "custom" && TASK_PRESETS[props.preset] ? props.preset : null
+const taskPreset = ref(routeTaskPreset || (TASK_PRESETS[props.initialSession.taskPreset] ? props.initialSession.taskPreset : "custom"))
+const taskForm = ref(routeTaskPreset
+  ? applyTaskPreset({ ...createDefaultTaskForm(), ...props.initialSession.taskForm }, routeTaskPreset)
+  : { ...createDefaultTaskForm(), ...props.initialSession.taskForm })
 const restoredContext = readGenerateContextPreview(props.projectId)
 const lastContextBundle = ref(restoredContext.bundle); const lastContextMarkdown = ref(restoredContext.markdown); const lastContextSource = ref(restoredContext.source); const lastContextRequest = ref(restoredContext.request)
 const worldResult = ref(props.restoredWorldResult); const previousWorldResult = ref(props.restoredPreviousWorldResult); const chatContextUsage = ref(null); const entityContextUsage = ref(null); const worldError = ref("")
@@ -129,14 +125,14 @@ const initialPageProposalDraft = pageProposalDraftMatches(worldResult.value, ses
 const pageProposalDirty = ref(Boolean(initialPageProposalDraft))
 const recoveredPageProposal = ref(Boolean(initialPageProposalDraft))
 const pageProposalEditorResetToken = ref(0)
-const taskPending = ref(false); const taskError = ref("")
+const taskPending = ref(false); const taskPendingStage = ref(""); const taskError = ref(""); const taskErrorAction = ref("compile")
 const chatPending = ref(false); const convergencePending = ref(false); const explorationPending = ref(false); const suggestionPending = ref(false); const applyPending = ref(false); const checkpointPending = ref(false)
 const explorationDraft = ref(null); const explorationSelection = ref(null); const sourceRevisionResult = ref(null)
 const worldWorkspaceRef = ref(null)
 const sourceUnavailable = ref(props.worldSourceUnavailable)
 const world = reactive({ sourcePage: props.sourcePage, sourceDraft: props.sourceDraft, categories: props.worldCategories, pageTemplates: props.worldPageTemplates, pages: props.worldPages, scenes: props.worldScenes, threads: props.worldThreads, characters: props.worldCharacters, entities: props.worldEntities, warning: props.worldWorkspaceWarning, loaded: props.tab === "world" })
-const pov = reactive({ chapters: props.povChapters, scenes: [], characters: props.povCharacters, warning: props.povLoadWarning, loaded: props.tab === "pov_prose", loading: false })
-const povForm = ref({ chapterIndex: null, sceneId: "", viewpointCharacterId: "", instruction: "" })
+const pov = reactive({ chapters: props.povChapters, scenes: [], characters: props.povCharacters, warning: props.povLoadWarning, loaded: props.tab === "pov_prose" && !props.povLoadWarning, loading: false })
+const povForm = ref({ chapterIndex: null, sceneId: "", viewpointCharacterId: "", instruction: "", ...props.initialSession.povForm })
 const povSubmission = ref(null); const povPending = ref(false); const povProgress = ref(null); const povError = ref("")
 const povTaskId = ref(null)
 let modalGeneration = 0
@@ -145,11 +141,11 @@ let povSceneGeneration = 0
 let copiedBuiltinTemplate = null
 let templateMutationPending = false
 let worldTaskPoller = null
+let chatStageTimers = []
 
-const tabs = [{ key: "world", label: "世界设定" }, { key: "pov_prose", label: "角色视角正文" }, { key: "task", label: "任务" }, { key: "preview", label: "上下文预览" }]
+const tabs = [{ key: "world", label: "世界设定" }, { key: "pov_prose", label: "角色视角正文" }, { key: "task", label: "任务" }, { key: "preview", label: "完整参考资料" }]
 const projectTitle = computed(() => appState?.currentProject?.title || appState?.currentProject?.name || "")
 const isWorldCore = computed(() => props.preset === "world_core")
-const generateLabel = computed(() => explorationSelection.value ? "生成所选探索建议" : ({ core_entity: "生成世界对象建议", world_bible_page: "生成整页提案", world_bible_new_page: "生成新页提案" })[props.targetKind] || "生成建议")
 const worldBusy = computed(() => (
   sourceUnavailable.value
   || chatPending.value
@@ -160,7 +156,13 @@ const worldBusy = computed(() => (
   || checkpointPending.value
   || Boolean(worldTaskProgress.value && !worldTaskProgress.value.terminal)
 ))
-const contextSourceText = computed(() => lastContextSource.value === "world" ? "世界设定共创" : lastContextSource.value === "task" ? `任务：${TASK_PRESETS[taskPreset.value]?.label || "自定义任务"}` : "")
+const contextSourceText = computed(() => {
+  if (lastContextSource.value === "world") return "世界设定共创"
+  if (lastContextSource.value !== "task") return ""
+  const task = String(lastContextBundle.value?.task || lastContextRequest.value?.task || TASK_PRESETS[taskPreset.value]?.label || "自定义任务")
+  return `任务：${task.length > 60 ? `${task.slice(0, 60)}…` : task}`
+})
+const taskPendingLabel = computed(() => taskPendingStage.value === "render" ? "正在准备可复制的完整文本…" : "正在整理与任务有关的资料…")
 const worldHandoffMarkdown = computed(() => buildWorldHandoffMarkdown({ projectTitle: projectTitle.value, targetKind: props.targetKind, sourcePage: world.sourcePage, sourceDraft: world.sourceDraft, convergenceDraft: session.convergenceDraft }))
 const visualBriefMarkdown = computed(() => buildVisualBriefMarkdown({ handoffMarkdown: worldHandoffMarkdown.value, visualBrief: session.visualBrief, convergenceDraft: session.convergenceDraft }))
 const visualBriefCurrent = computed(() => visualBriefMatchesConvergence(session.visualBrief, session.convergenceDraft))
@@ -174,7 +176,7 @@ function persistContextPreview() {
   })
 }
 function persist() {
-  const saved = writeGenerateSession(props.sessionKey, { ...session, composer: composer.value }, { notify: notifyOnce })
+  const saved = writeGenerateSession(props.sessionKey, { ...session, composer: composer.value, taskPreset: taskPreset.value, taskForm: taskForm.value, povForm: povForm.value }, { notify: notifyOnce })
   if (!saved) clearGenerateContinuation()
   return saved
 }
@@ -200,6 +202,15 @@ function clearGenerateContinuation() {
 }
 watch(session, persist, { deep: true })
 watch(composer, () => { if (persist()) rememberGenerateContinuation() })
+watch([taskPreset, taskForm], () => {
+  taskError.value = ""
+  taskErrorAction.value = "compile"
+  persist()
+}, { deep: true, immediate: true })
+watch(povForm, () => {
+  povError.value = ""
+  persist()
+}, { deep: true })
 watch(worldResult, (result) => {
   if (!session.pageProposalDraft) return
   if (!result) return
@@ -260,12 +271,49 @@ async function ensureWorld() {
 async function ensurePov() {
   if (pov.loaded || pov.loading) return
   pov.loading = true
+  pov.warning = null
   const scope = owner.begin()
   try { const [chapters, characters] = await Promise.all([api.writing.listChapters(props.projectId), loadAll((skip) => api.world.listCharacters({ novel_id: props.projectId, skip, limit: PAGE_SIZE }))]); if (!owner.isActive(scope)) return; pov.chapters = chapters?.chapters || []; pov.characters = characters; pov.warning = null; pov.loaded = true }
-  catch (err) { if (owner.isActive(scope)) pov.warning = `加载章节或角色失败：${err?.message || "未知错误"}` } finally { owner.finish(scope); pov.loading = false }
+  catch { if (owner.isActive(scope)) pov.warning = "章节或角色暂时无法加载，请稍后重试。" } finally { owner.finish(scope); pov.loading = false }
 }
 
-async function switchTab(tab) { if (!tabs.some((item) => item.key === tab) || tab === activeTab.value) return; if (!confirmDiscard("整页提案仍有未应用的编辑，确定放弃修改并切换标签吗？")) return; activeTab.value = tab; if (tab === "world") await ensureWorld(); if (tab === "pov_prose") await ensurePov() }
+async function retryPovLoad() {
+  pov.loaded = false
+  await ensurePov()
+  if (pov.loaded && povForm.value.chapterIndex) await changePovChapter(povForm.value.chapterIndex, { preserveSelection: true })
+}
+
+async function switchTab(tab) {
+  if (!tabs.some((item) => item.key === tab) || tab === activeTab.value) return
+  if (!confirmDiscard("整页提案仍有未应用的编辑，确定放弃修改并切换标签吗？")) return
+  const query = new URLSearchParams(router.getCurrentQuery?.()?.toString() || "")
+  query.set("tab", tab)
+  if (props.embedded) {
+    query.set("owner_ai", "1")
+    query.set("owner_ai_mode", tab)
+    const currentOwner = activeTab.value === "world" || props.preset === "world_core" ? "world" : "writing"
+    const targetOwner = tab === "world" ? "world" : tab === "pov_prose" ? "writing" : currentOwner
+    if (targetOwner !== currentOwner) {
+      persist()
+      await router.replace?.("generate", null, query)
+      return
+    }
+    const currentCategory = activeTab.value === "world" ? "world" : activeTab.value === "pov_prose" ? "writing" : "task"
+    const targetCategory = tab === "world" ? "world" : tab === "pov_prose" ? "writing" : "task"
+    if (targetCategory !== currentCategory) {
+      persist()
+      emit("select-mode", tab)
+      return
+    }
+  }
+  activeTab.value = tab
+  router.commitCurrentQuery?.(query, "replace")
+  if (tab === "world") await ensureWorld()
+  if (tab === "pov_prose") {
+    await ensurePov()
+    if (pov.loaded && povForm.value.chapterIndex) await changePovChapter(povForm.value.chapterIndex, { preserveSelection: true })
+  }
+}
 function tabId(tab) { return `generate-mode-tab-${tab}` }
 function tabPanelId(tab) { return `generate-mode-panel-${tab}` }
 function onTabKeydown(event, tab) {
@@ -317,23 +365,56 @@ watch(() => session.externalPacketDraft, (value, previous) => {
   markVisualBriefStale()
 })
 function captureComposer() { const text = composer.value.trim(); if (!text) return false; session.messages.push({ role: "user", content: text }); composer.value = ""; return true }
-function beforeUnload() { persist(); owner.dispose() }
+function clearChatStages() { chatStageTimers.forEach(clearTimeout); chatStageTimers = [] }
+function beginChatStages(pending) {
+  clearChatStages()
+  pending.content = "正在理解你的目标…"
+  chatStageTimers = [
+    setTimeout(() => { if (pending.pending) pending.content = "正在核对相关设定和前文…" }, 2500),
+    setTimeout(() => { if (pending.pending) pending.content = "正在组织可以继续讨论的回复…" }, 8000),
+  ]
+}
+function beforeUnload() { clearChatStages(); persist(); owner.dispose() }
 function armBeforeUnload() { window.addEventListener("beforeunload", beforeUnload) }
 function disarmBeforeUnload() { window.removeEventListener("beforeunload", beforeUnload) }
 
-async function sendChat() {
-  if (worldBusy.value) return false
-  if (!composer.value.trim()) return toast("请输入要聊的内容", "warning")
-  captureComposer(); const pending = reactive({ role: "assistant", content: "正在思考...", pending: true }); session.messages.push(pending); if (persist()) rememberGenerateContinuation(); const scope = owner.begin(); armBeforeUnload(); chatPending.value = true
+async function requestChatReply(pending) {
+  const scope = owner.begin()
+  beginChatStages(pending)
+  armBeforeUnload()
+  chatPending.value = true
+  await worldWorkspaceRef.value?.scrollToLatest?.(true)
   try { const response = await api.generate.worldChat(currentWorldPayload(), { signal: scope.controller.signal }); if (!owner.isActive(scope)) return; chatContextUsage.value = response?.context_usage || null; pending.content = response?.reply || "生成完成，但没有返回回复。"; pending.pending = false; if (isWorldCore.value) session.successfulRounds = Math.min(999, Number(session.successfulRounds || 0) + 1); persist() }
-  catch (err) { if (!owner.isActive(scope)) return; pending.content = `聊天失败：${err?.message || "未知错误"}`; pending.pending = false; pending.error = true; persist(); toast(pending.content, "error") }
+  catch (err) { if (!owner.isActive(scope)) return; pending.content = `暂时没能回复：${err?.message || "未知错误"}`; pending.pending = false; pending.error = true; persist(); toast("回复失败，刚才的问题仍保留，可以直接重试", "error") }
   finally {
+    const settledHere = owner.isActive(scope)
+    clearChatStages()
     owner.finish(scope)
     disarmBeforeUnload()
     chatPending.value = false
-    await nextTick()
-    worldWorkspaceRef.value?.focusComposer?.()
+    if (settledHere) {
+      await nextTick()
+      if (pending.error) worldWorkspaceRef.value?.focusLatestChatError?.()
+      else worldWorkspaceRef.value?.focusComposer?.()
+    }
   }
+}
+async function sendChat() {
+  if (worldBusy.value) return false
+  if (!composer.value.trim()) return toast("请输入要聊的内容", "warning")
+  captureComposer()
+  const pending = reactive({ role: "assistant", content: "", pending: true })
+  session.messages.push(pending)
+  if (persist()) rememberGenerateContinuation()
+  return requestChatReply(pending)
+}
+async function retryChat(message) {
+  if (worldBusy.value || !message?.error || session.messages.at(-1) !== message) return false
+  message.error = false
+  message.interrupted = false
+  message.pending = true
+  if (persist()) rememberGenerateContinuation()
+  return requestChatReply(message)
 }
 function rememberExternalPacket(hash, position, characterCount, status, receipt = {}) {
   session.externalPackets = [...(session.externalPackets || []), {
@@ -794,9 +875,47 @@ function selectTarget(kind) { if (kind === props.targetKind) return; if (!confir
 function returnToWorldBible() { if (!confirmDiscard("整页提案仍有未应用的编辑，确定放弃修改并离开吗？")) return; persist(); const query = new URLSearchParams(); if (props.sourcePageId) query.set("page_id", props.sourcePageId); router.navigate("world", "bible", true, query) }
 function openStoryOutline() { if (!confirmDiscard("整页提案仍有未应用的编辑，确定放弃修改并前往故事总览吗？")) return; persist(); router.navigate("outline", "story-outline") }
 function openSourceRevision() { const query = new URLSearchParams(); if (props.sourcePageId) query.set("page_id", props.sourcePageId); router.navigate("world", "bible", true, query) }
-function openReview() { router.navigate("world", "review", true, new URLSearchParams("kind=objects")) }
+function openReview() {
+  const query = new URLSearchParams({ kind: "objects" })
+  const resultRef = worldResult.value?.suggestion?.result_ref_json
+  const candidateId = resultRef?.type === "core_entity_compatibility" ? String(resultRef.id || "") : ""
+  if (candidateId) {
+    query.set("entity_id", candidateId)
+    query.set("review_item", candidateId)
+  }
+  if (props.embedded) {
+    query.set("return_to", "world_ai")
+    const subView = String(appState?.currentSubView || "")
+    if (["objects", "relations", "bible"].includes(subView)) query.set("return_subview", subView)
+  }
+  router.navigate("world", "review", true, query)
+}
 
-async function changePovChapter(value) { const chapterIndex = value ? Number(value) : null; const generation = ++povSceneGeneration; povForm.value = { ...povForm.value, chapterIndex, sceneId: "", viewpointCharacterId: "" }; povSubmission.value = null; pov.scenes = []; if (!chapterIndex) return; const scope = owner.begin(); try { const data = await api.outline.listScenesByChapter(props.projectId, chapterIndex); if (generation === povSceneGeneration && Number(povForm.value.chapterIndex) === chapterIndex && owner.isActive(scope)) pov.scenes = Array.isArray(data) ? data : data?.items || [] } catch (err) { if (generation === povSceneGeneration && Number(povForm.value.chapterIndex) === chapterIndex && owner.isActive(scope)) pov.warning = `加载场景失败：${err?.message || "未知错误"}` } finally { owner.finish(scope) } }
+async function changePovChapter(value, { preserveSelection = false } = {}) {
+  const chapterIndex = value ? Number(value) : null
+  const previous = preserveSelection ? { ...povForm.value } : null
+  const generation = ++povSceneGeneration
+  povForm.value = preserveSelection ? { ...povForm.value, chapterIndex } : { ...povForm.value, chapterIndex, sceneId: "", viewpointCharacterId: "" }
+  povSubmission.value = null
+  pov.scenes = []
+  pov.warning = null
+  if (!chapterIndex) return
+  const scope = owner.begin()
+  try {
+    const data = await api.outline.listScenesByChapter(props.projectId, chapterIndex)
+    if (generation !== povSceneGeneration || Number(povForm.value.chapterIndex) !== chapterIndex || !owner.isActive(scope)) return
+    pov.scenes = Array.isArray(data) ? data : data?.items || []
+    if (previous) {
+      const scene = pov.scenes.find((item) => item.id === previous.sceneId)
+      const role = scene && pov.characters.some((item) => characterId(item) === previous.viewpointCharacterId)
+        ? previous.viewpointCharacterId
+        : scene?.pov_character_id && pov.characters.some((item) => characterId(item) === scene.pov_character_id) ? scene.pov_character_id : ""
+      povForm.value = { ...povForm.value, sceneId: scene?.id || "", viewpointCharacterId: role }
+    }
+  } catch {
+    if (generation === povSceneGeneration && Number(povForm.value.chapterIndex) === chapterIndex && owner.isActive(scope)) pov.warning = "这个章节的场景暂时无法加载，请重试。"
+  } finally { owner.finish(scope) }
+}
 function changePovScene(id) { const scene = pov.scenes.find((item) => item.id === id); povForm.value = { ...povForm.value, sceneId: id || "", viewpointCharacterId: scene?.pov_character_id || "" }; povSubmission.value = null }
 function abortableDelay(ms, signal) { return new Promise((resolve, reject) => { const timer = setTimeout(resolve, ms); signal.addEventListener("abort", () => { clearTimeout(timer); reject(new DOMException("Aborted", "AbortError")) }, { once: true }) }) }
 async function waitForPovTask(taskId, scope) { while (owner.isActive(scope)) { let task; try { task = await api.tasks.get(taskId, props.projectId) } catch (err) { if (!owner.isActive(scope)) throw new DOMException("Aborted", "AbortError"); if (Number(err?.status) === 404) { clearActiveWorkflow(taskId, receiptStorage); throw new Error("未找到原任务，请重新开始。") } await abortableDelay(1500, scope.controller.signal); continue } if (!owner.isActive(scope)) throw new DOMException("Aborted", "AbortError"); povProgress.value = Number(task?.progress || 0); if (task?.status === "done") { if (!task.result?.draft_id) throw new Error("任务已完成，但正文建议未能加载"); return task } if (task?.status === "failed") { clearActiveWorkflow(taskId, receiptStorage); throw new Error(task.error_message || task.result?.error_message || "角色视角正文生成失败") } if (task?.status === "cancelled") { clearActiveWorkflow(taskId, receiptStorage); throw new Error("角色视角正文生成已取消") } await abortableDelay(1500, scope.controller.signal) } throw new DOMException("Aborted", "AbortError") }
@@ -804,21 +923,46 @@ async function generatePov() {
   if (povPending.value) return false
   const form = { ...povForm.value }; if (!form.chapterIndex) return toast("请先选择章节", "warning"); if (!form.sceneId) return toast("请先选择场景", "warning"); if (!form.viewpointCharacterId) return toast("请先选择视角角色", "warning")
   povPending.value = true; povProgress.value = null; povError.value = ""; const scope = owner.begin()
-  try { const confirmation = await confirmAiReference({ novel_id: props.projectId, action: "writing.generate", task: "基于所选场景和视角角色的有限认知，生成正文建议预览", scope: "chapter", chapter_index: form.chapterIndex, scene_id: form.sceneId, reveal_mode: "character", viewpoint_character_id: form.viewpointCharacterId, character_ids: [form.viewpointCharacterId], include_pending_objects: false, budget_tokens: 0 }); if (!owner.isActive(scope)) return; const operationId = createOperationId(); const meta = { kind: "pov_prose", sessionKey: props.sessionKey, chapterIndex: form.chapterIndex, sceneId: form.sceneId, viewpointCharacterId: form.viewpointCharacterId, sceneLabel: pov.scenes.find((item) => item.id === form.sceneId)?.title || "", roleLabel: pov.characters.find((item) => characterId(item) === form.viewpointCharacterId)?.name || "" }; persistActiveWorkflow({ taskId: operationId, workflowType: "writing_generate", label: "生成角色视角正文", projectId: props.projectId, view: "generate", meta }, receiptStorage); povTaskId.value = operationId; let result; try { result = await api.writing.generate({ novel_id: props.projectId, chapter_index: form.chapterIndex, title: pov.chapters.find((item) => Number(item.chapter_index) === Number(form.chapterIndex))?.title || `第 ${form.chapterIndex} 章`, instruction: buildPovInstruction(form.instruction, confirmation.user_note), context_confirmation_id: confirmation.id, operation_id: operationId }) } catch (err) { if (Number(err?.status) >= 400 && Number(err?.status) < 500) { clearActiveWorkflow(operationId, receiptStorage); throw err } result = { task_id: operationId } } if (!owner.isActive(scope)) return; const taskId = result?.task_id || operationId; if (taskId !== operationId) { clearActiveWorkflow(operationId, receiptStorage); persistActiveWorkflow({ taskId, workflowType: "writing_generate", label: "生成角色视角正文", projectId: props.projectId, view: "generate", meta }, receiptStorage) } const task = await waitForPovTask(taskId, scope); result = { ...result, ...(task.result || {}), task_status: task.status }; if (!owner.isActive(scope)) return; povSubmission.value = { result, ...meta }; toast("角色视角正文建议已生成", "success") }
-  catch (err) { if (!owner.isActive(scope) || err?.name === "AbortError") return; if (err?.message === "已取消 AI 参考资料确认") return; povError.value = err?.message || "未知错误"; toast(`角色视角正文生成失败：${povError.value}`, "error") }
+  try { const confirmation = await confirmAiReference({ novel_id: props.projectId, action: "writing.generate", task: "基于所选场景和视角角色的有限认知，生成正文建议预览", scope: "chapter", chapter_index: form.chapterIndex, scene_id: form.sceneId, reveal_mode: "character", viewpoint_character_id: form.viewpointCharacterId, character_ids: [form.viewpointCharacterId], include_pending_objects: false, budget_tokens: 0 }); if (!owner.isActive(scope)) return; const operationId = createOperationId(); const meta = { kind: "pov_prose", sessionKey: props.sessionKey, chapterIndex: form.chapterIndex, sceneId: form.sceneId, viewpointCharacterId: form.viewpointCharacterId, sceneLabel: pov.scenes.find((item) => item.id === form.sceneId)?.title || "", roleLabel: pov.characters.find((item) => characterId(item) === form.viewpointCharacterId)?.name || "" }; persistActiveWorkflow({ taskId: operationId, workflowType: "writing_generate", label: "生成角色视角正文", projectId: props.projectId, view: "generate", meta }, receiptStorage); povTaskId.value = operationId; let result; try { result = await api.writing.generate({ novel_id: props.projectId, chapter_index: form.chapterIndex, title: pov.chapters.find((item) => Number(item.chapter_index) === Number(form.chapterIndex))?.title || `第 ${form.chapterIndex} 章`, instruction: buildPovInstruction(form.instruction, confirmation.user_note), context_confirmation_id: confirmation.id, operation_id: operationId }) } catch (err) { if (Number(err?.status) >= 400 && Number(err?.status) < 500) { clearActiveWorkflow(operationId, receiptStorage); throw err } result = { task_id: operationId } } if (!owner.isActive(scope)) return; const taskId = result?.task_id || operationId; if (taskId !== operationId) { clearActiveWorkflow(operationId, receiptStorage); persistActiveWorkflow({ taskId, workflowType: "writing_generate", label: "生成角色视角正文", projectId: props.projectId, view: "generate", meta }, receiptStorage) } povTaskId.value = taskId; const task = await waitForPovTask(taskId, scope); result = { ...result, ...(task.result || {}), task_status: task.status }; if (!owner.isActive(scope)) return; povSubmission.value = { result, ...meta }; toast("角色视角正文建议已生成", "success") }
+  catch (err) { if (!owner.isActive(scope) || err?.name === "AbortError") return; if (err?.message === "已取消 AI 参考资料确认") return; showPovFailure(err) }
   finally { owner.finish(scope); povPending.value = false; povTaskId.value = null }
 }
-async function cancelPovTask() { if (!povTaskId.value) return false; await api.tasks.cancel(povTaskId.value, props.projectId); return true }
-async function recoverPovTask(workflow) { povPending.value = true; povProgress.value = null; povError.value = ""; povTaskId.value = workflow.taskId; const scope = owner.begin(); try { const task = await waitForPovTask(workflow.taskId, scope); if (!owner.isActive(scope)) return; povSubmission.value = { result: task.result || {}, ...(workflow.meta || {}) }; toast("已恢复角色视角正文建议", "success") } catch (err) { if (owner.isActive(scope) && err?.name !== "AbortError") { povError.value = err?.message || "未知错误"; toast(`角色视角正文生成失败：${povError.value}`, "error") } } finally { owner.finish(scope); povPending.value = false; povTaskId.value = null } }
+function showPovFailure(error) {
+  const cancelled = error?.message === "角色视角正文生成已取消"
+  povError.value = cancelled ? "这次生成已取消，当前选择和作者指令仍保留。" : error?.message || "未知错误"
+  toast(cancelled ? "已取消生成，当前选择仍保留" : `角色视角正文生成失败：${povError.value}`, cancelled ? "info" : "error")
+}
+async function cancelPovTask() {
+  if (!povTaskId.value) return false
+  try { await api.tasks.cancel(povTaskId.value, props.projectId); return true }
+  catch { toast("暂时无法取消，生成仍在继续，请稍后重试。", "error"); return false }
+}
+async function recoverPovTask(workflow) { povPending.value = true; povProgress.value = null; povError.value = ""; povTaskId.value = workflow.taskId; const scope = owner.begin(); try { const task = await waitForPovTask(workflow.taskId, scope); if (!owner.isActive(scope)) return; povSubmission.value = { result: task.result || {}, ...(workflow.meta || {}) }; toast("已恢复角色视角正文建议", "success") } catch (err) { if (owner.isActive(scope) && err?.name !== "AbortError") showPovFailure(err) } finally { owner.finish(scope); povPending.value = false; povTaskId.value = null } }
 function openPovResult(submission) { const draftId = submission?.result?.draft_id || submission?.result?.draft?.id || ""; const workflow = recoverActiveWorkflows(props.projectId, receiptStorage).find((item) => item.workflowType === "writing_generate" && item.view === "generate" && item.meta?.kind === "pov_prose" && item.meta?.sessionKey === props.sessionKey); if (workflow) clearActiveWorkflow(workflow.taskId, receiptStorage); appState.viewStates.writing = { projectId: props.projectId, currentChapter: submission.chapterIndex, currentDraftId: draftId || null, isReadonly: Boolean(draftId) }; const query = new URLSearchParams({ chapter_index: String(submission.chapterIndex) }); if (draftId) query.set("draft_id", draftId); router.navigate("writing", null, true, query) }
 function openPovWriting() { router.navigate("writing") }
 
 function selectTaskPreset(key) { if (!TASK_PRESETS[key]) return; taskPreset.value = key; taskForm.value = applyTaskPreset(taskForm.value, key) }
-async function compileTask(silent) { if (taskPending.value) return false; const payload = buildTaskPayload(props.projectId, taskForm.value); const error = validateTaskPayload(payload); if (error) return toast(error, "warning"); lastContextRequest.value = payload; lastContextSource.value = "task"; lastContextMarkdown.value = ""; taskPending.value = true; taskError.value = ""; const scope = owner.begin(); try { const data = await api.context.compile(payload, { signal: scope.controller.signal }); if (!owner.isActive(scope)) return; lastContextBundle.value = data; activeTab.value = "preview" } catch (err) { if (!owner.isActive(scope)) return; taskError.value = `编译失败：${err?.message || "未知错误"}`; if (!silent) toast(taskError.value, "error") } finally { owner.finish(scope); taskPending.value = false } }
-async function renderTaskMarkdown() { if (taskPending.value) return false; const payload = lastContextRequest.value || buildTaskPayload(props.projectId, taskForm.value); const error = validateTaskPayload(payload); if (error) return toast(error, "warning"); taskPending.value = true; taskError.value = ""; const scope = owner.begin(); try { const data = await api.context.render(payload, { signal: scope.controller.signal }); if (owner.isActive(scope)) lastContextMarkdown.value = data?.markdown || "" } catch (err) { if (owner.isActive(scope)) taskError.value = `渲染失败：${err?.message || "未知错误"}` } finally { owner.finish(scope); taskPending.value = false } }
-function copyTaskMarkdown() { if (!lastContextMarkdown.value) return; navigator.clipboard.writeText(lastContextMarkdown.value).then(() => toast("上下文 Markdown 已复制到剪贴板", "success")).catch(() => toast("复制失败，请手动选择复制", "warning")) }
+async function compileTask() { if (taskPending.value) return false; taskErrorAction.value = "compile"; const payload = buildTaskPayload(props.projectId, taskForm.value); const error = validateTaskPayload(payload); if (error) { taskError.value = error; toast(error, "warning"); return false } lastContextRequest.value = payload; lastContextSource.value = "task"; lastContextMarkdown.value = ""; taskPendingStage.value = "compile"; taskPending.value = true; taskError.value = ""; const scope = owner.begin(); try { const data = await api.context.compile(payload, { signal: scope.controller.signal }); if (!owner.isActive(scope)) return; lastContextBundle.value = data; toast("参考资料已整理", "success") } catch { if (!owner.isActive(scope)) return; taskError.value = "暂时没能整理参考资料。请检查网络后重试；当前任务内容仍保留。" } finally { owner.finish(scope); taskPending.value = false; taskPendingStage.value = "" } }
+async function renderTaskMarkdown() { if (taskPending.value) return false; taskErrorAction.value = "render"; const payload = lastContextRequest.value || buildTaskPayload(props.projectId, taskForm.value); const error = validateTaskPayload(payload); if (error) { taskError.value = error; toast(error, "warning"); return false } taskPendingStage.value = "render"; taskPending.value = true; taskError.value = ""; const scope = owner.begin(); try { const data = await api.context.render(payload, { signal: scope.controller.signal }); if (owner.isActive(scope)) { lastContextMarkdown.value = data?.markdown || ""; await switchTab("preview") } } catch { if (owner.isActive(scope)) taskError.value = "暂时没能准备完整文本。请重试；已整理的参考资料仍保留。" } finally { owner.finish(scope); taskPending.value = false; taskPendingStage.value = "" } }
+function copyTaskMarkdown() { if (!lastContextMarkdown.value) return; navigator.clipboard.writeText(lastContextMarkdown.value).then(() => toast("完整参考资料已复制到剪贴板", "success")).catch(() => toast("复制失败，请手动选择复制", "warning")) }
 function exportTaskMarkdown() { if (!lastContextMarkdown.value) return; const url = URL.createObjectURL(new Blob([lastContextMarkdown.value], { type: "text/markdown;charset=utf-8" })); const link = document.createElement("a"); link.href = url; link.download = `context-${projectTitle.value || "project"}-${Date.now()}.md`; link.click(); URL.revokeObjectURL(url); toast("上下文已导出为 Markdown 文件", "success") }
-async function applyTaskToChat() { if (!taskForm.value.task) return toast("当前没有任务内容", "warning"); session.messages.push({ role: "user", content: taskForm.value.task }); if (lastContextBundle.value?.sections?.length) session.messages.push({ role: "assistant", content: `已加载 ${lastContextBundle.value.sections.length} 段上下文，共 ${lastContextBundle.value.total_tokens || 0} tokens。` }); activeTab.value = "world"; await ensureWorld() }
+async function applyTaskToChat() {
+  if (!taskForm.value.task) return toast("当前没有任务内容", "warning")
+  const messages = [
+    { role: "user", content: taskForm.value.task },
+    ...(lastContextBundle.value?.sections?.length
+      ? [{ role: "assistant", content: `已整理 ${lastContextBundle.value.sections.length} 类参考资料；可以继续说明你希望如何处理。` }]
+      : []),
+  ]
+  if (props.handoffSessionKey && props.handoffSessionKey !== props.sessionKey) {
+    const target = readGenerateSession(props.handoffSessionKey)
+    target.messages = [...target.messages, ...messages].slice(-AI_MESSAGE_LIMIT)
+    if (!writeGenerateSession(props.handoffSessionKey, target, { notify: notifyOnce })) return toast("暂时无法带到世界设定对话；当前资料仍保留。", "warning")
+  } else {
+    session.messages = [...session.messages, ...messages].slice(-AI_MESSAGE_LIMIT)
+  }
+  await switchTab("world")
+}
 
 function captureModalOwner(control = null) {
   const body = document.getElementById("modal-body")
@@ -957,6 +1101,7 @@ const recoveredWorldTask = recoverActiveWorkflows(props.projectId, receiptStorag
 if (recoveredWorldTask) startWorldTaskPolling(recoveredWorldTask.taskId, recoveredWorldTask.meta)
 const recoveredPovTask = recoverActiveWorkflows(props.projectId, receiptStorage).find((item) => item.workflowType === "writing_generate" && item.view === "generate" && item.meta?.kind === "pov_prose" && item.meta?.sessionKey === props.sessionKey)
 if (recoveredPovTask) void recoverPovTask(recoveredPovTask)
+if (activeTab.value === "pov_prose" && povForm.value.chapterIndex) void changePovChapter(povForm.value.chapterIndex, { preserveSelection: true })
 
-onBeforeUnmount(() => { disarmBeforeUnload(); persist(); worldTaskPoller?.stop(); owner.dispose(); if (ownsModal(ownedModal)) closeModal() })
+onBeforeUnmount(() => { clearChatStages(); disarmBeforeUnload(); persist(); worldTaskPoller?.stop(); owner.dispose(); if (ownsModal(ownedModal)) closeModal() })
 </script>

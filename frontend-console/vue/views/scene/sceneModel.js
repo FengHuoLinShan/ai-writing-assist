@@ -22,15 +22,15 @@ export const SOURCE_OPTIONS = [
   ["manual_fusion", "融合结果"],
 ]
 
-export const BOUNDARY_STATUS_OPTIONS = [["uncertain", "边界不确定"]]
+export const BOUNDARY_STATUS_OPTIONS = [["uncertain", "范围待确认"]]
 export const PHASE_OPTIONS = [
-  ["phase1a_fallback", "Phase 1A fallback"],
-  ["phase1b_fusion", "Phase 1B fusion"],
+  ["phase1a_fallback", "正文切分降级结果"],
+  ["phase1b_fusion", "场景融合阶段"],
 ]
 export const CONFIDENCE_BAND_OPTIONS = [
-  ["low", "低于 0.5"],
-  ["medium", "0.5-0.8"],
-  ["high", "0.8 以上"],
+  ["low", "较低（低于 0.5）"],
+  ["medium", "一般（0.5–0.8）"],
+  ["high", "较高（0.8 以上）"],
 ]
 
 export const TAG_OPTIONS = [
@@ -63,21 +63,59 @@ export const SCENE_FILTER_DEFAULTS = Object.freeze({
 })
 
 const sessions = new Map()
+const SCENE_SESSION_PREFIX = "novel_scene_workbench_session:"
+
+function defaultSceneSession() {
+  return {
+    filters: { ...SCENE_FILTER_DEFAULTS },
+    filterDraft: { ...SCENE_FILTER_DEFAULTS },
+    activeHealth: null,
+    advancedFiltersOpen: false,
+  }
+}
+
+function sceneSessionStorageKey(projectId) {
+  return `${SCENE_SESSION_PREFIX}${String(projectId || "none")}`
+}
+
+function storedSceneSession(projectId) {
+  try {
+    const stored = JSON.parse(sessionStorage.getItem(sceneSessionStorageKey(projectId)) || "null")
+    if (!stored || typeof stored !== "object") return defaultSceneSession()
+    const filters = { ...SCENE_FILTER_DEFAULTS }
+    for (const [key, defaultValue] of Object.entries(SCENE_FILTER_DEFAULTS)) {
+      if (typeof stored.filters?.[key] === typeof defaultValue) filters[key] = stored.filters[key]
+    }
+    filters.skip = Number.isInteger(filters.skip) && filters.skip >= 0 ? filters.skip : 0
+    filters.limit = Number.isInteger(filters.limit) && filters.limit > 0 && filters.limit <= 100 ? filters.limit : 20
+    const activeHealth = HEALTH_ORDER.some(([key]) => key === stored.activeHealth) ? stored.activeHealth : null
+    const filterDraft = { ...filters }
+    for (const [key, defaultValue] of Object.entries(SCENE_FILTER_DEFAULTS)) {
+      if (typeof stored.filterDraft?.[key] === typeof defaultValue) filterDraft[key] = stored.filterDraft[key]
+    }
+    return { filters, filterDraft, activeHealth, advancedFiltersOpen: stored.advancedFiltersOpen === true }
+  } catch {
+    return defaultSceneSession()
+  }
+}
 
 export function sceneSession(projectId) {
   const key = String(projectId || "none")
-  if (!sessions.has(key)) {
-    sessions.set(key, {
-      filters: { ...SCENE_FILTER_DEFAULTS },
-      activeHealth: null,
-      advancedFiltersOpen: false,
-    })
-  }
+  if (!sessions.has(key)) sessions.set(key, storedSceneSession(projectId))
   return sessions.get(key)
+}
+
+export function persistSceneSession(projectId, session) {
+  try {
+    sessionStorage.setItem(sceneSessionStorageKey(projectId), JSON.stringify(session))
+  } catch {
+    // 浏览器存储不可用时仍保留当前页面内状态。
+  }
 }
 
 export function resetSceneSession(projectId) {
   sessions.delete(String(projectId || "none"))
+  try { sessionStorage.removeItem(sceneSessionStorageKey(projectId)) } catch {}
 }
 
 export function sceneQuery() {
@@ -164,7 +202,9 @@ export async function loadSceneWorkbenchProps(projectId) {
   const session = sceneSession(projectId)
   if (selectedSceneId) {
     session.filters = { ...SCENE_FILTER_DEFAULTS }
+    session.filterDraft = { ...SCENE_FILTER_DEFAULTS }
     session.activeHealth = null
+    persistSceneSession(projectId, session)
   }
   const viewMode = initialSceneMode(projectId, query)
   const params = sceneWorkbenchParams({
@@ -195,6 +235,7 @@ export async function loadSceneWorkbenchProps(projectId) {
   const effectiveSkip = Number(workbench?.skip)
   if (Number.isInteger(effectiveSkip) && effectiveSkip >= 0) {
     session.filters.skip = effectiveSkip
+    persistSceneSession(projectId, session)
   }
   const pending = Number(workbench?.fusion_suggestions?.pending_count || 0)
   const fusionSuggestions = []

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
+import { resetWorldSession, worldSession } from "../../../vue/views/world/worldSession.js"
 
 function deferred() {
   let resolve
@@ -11,6 +12,69 @@ function deferred() {
 describe("world island deep links", () => {
   beforeEach(() => {
     resetBridgeOverrides()
+    resetWorldSession()
+  })
+
+  it("formal relation page is restored from the URL", async () => {
+    const listRelationships = vi.fn().mockResolvedValue({ items: [], total: 42 })
+    setBridgeOverrides({
+      api: { world: {
+        listEntities: vi.fn().mockResolvedValue({ total: 0 }),
+        listEntityTypes: vi.fn().mockResolvedValue({ items: [] }),
+        getReviewTypeCatalog: vi.fn().mockResolvedValue({}),
+        listAliases: vi.fn().mockResolvedValue({ total: 0 }),
+        listRelationships,
+      } },
+      state: { currentProjectId: "novel-1", currentSubView: "relations" },
+      router: {
+        getCurrentQuery: () => new URLSearchParams("page=2&q=雨夜"),
+        registerView: vi.fn(),
+      },
+      toast: vi.fn(),
+    })
+    const { loadWorld } = await import("../../../vue/worldIsland.js")
+
+    await loadWorld()
+
+    expect(worldSession.relationListFilters).toEqual({ q: "雨夜", skip: 20, limit: 20 })
+    expect(listRelationships).toHaveBeenCalledWith({
+      novel_id: "novel-1",
+      q: "雨夜",
+      skip: 20,
+      limit: 20,
+      status: "canonical",
+    })
+  })
+
+  it("formal alias page is restored from the URL", async () => {
+    const listAliases = vi.fn().mockResolvedValue({ items: [], total: 42 })
+    setBridgeOverrides({
+      api: { world: {
+        listEntities: vi.fn().mockResolvedValue({ total: 0 }),
+        listEntityTypes: vi.fn().mockResolvedValue({ items: [] }),
+        getReviewTypeCatalog: vi.fn().mockResolvedValue({}),
+        listAliases,
+        listRelationships: vi.fn().mockResolvedValue({ total: 0 }),
+      } },
+      state: { currentProjectId: "novel-1", currentSubView: "aliases" },
+      router: {
+        getCurrentQuery: () => new URLSearchParams("page=2&q=旧名"),
+        registerView: vi.fn(),
+      },
+      toast: vi.fn(),
+    })
+    const { loadWorld } = await import("../../../vue/worldIsland.js")
+
+    await loadWorld()
+
+    expect(worldSession.aliasListFilters).toEqual({ q: "旧名", skip: 20, limit: 20 })
+    expect(listAliases).toHaveBeenCalledWith({
+      novel_id: "novel-1",
+      q: "旧名",
+      skip: 20,
+      limit: 20,
+      display_state: "active",
+    })
   })
 
   it("entity_id loads exactly one project entity", async () => {
@@ -43,6 +107,7 @@ describe("world island deep links", () => {
     expect(api.world.getEntity).toHaveBeenCalledWith("entity-1", "novel-1")
     expect(api.world.listEntities).not.toHaveBeenCalledWith(expect.objectContaining({ display_state: "active" }))
     expect(props.entities).toEqual([entity])
+    expect(props.objectViewMode).toBe("table")
   })
 
   it("review entity deep link bypasses the paginated candidate list", async () => {
@@ -70,6 +135,32 @@ describe("world island deep links", () => {
     expect(api.world.getEntity).toHaveBeenCalledWith("entity-21", "novel-1")
     expect(props.candidates).toEqual([entity])
     expect(props.candidateTotal).toBe(1)
+  })
+
+  it("processed review deep link does not reinsert an adopted entity into the queue", async () => {
+    const api = {
+      world: {
+        getEntity: vi.fn().mockResolvedValue({ id: "entity-done", name: "已采用对象", status: "canonical" }),
+        listEntities: vi.fn().mockResolvedValue({ total: 0 }),
+        listEntityTypes: vi.fn().mockResolvedValue({ items: [] }),
+        getReviewTypeCatalog: vi.fn().mockResolvedValue({}),
+        listAliases: vi.fn().mockResolvedValue({ total: 0 }),
+        listRelationships: vi.fn().mockResolvedValue({ total: 0 }),
+      },
+    }
+    setBridgeOverrides({
+      api,
+      state: { currentProjectId: "novel-1", currentSubView: "review-objects" },
+      router: { getCurrentQuery: () => new URLSearchParams("entity_id=entity-done&review_item=entity-done"), registerView: vi.fn() },
+      toast: vi.fn(),
+    })
+    const { loadWorld } = await import("../../../vue/worldIsland.js")
+
+    const props = await loadWorld()
+
+    expect(props.candidates).toEqual([])
+    expect(props.candidateTotal).toBe(0)
+    expect(props.candidateLoadError).toBeNull()
   })
 
   it.each([

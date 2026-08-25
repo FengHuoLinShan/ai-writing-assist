@@ -5,6 +5,7 @@ import { describe, it, expect } from "vitest"
 import {
   filterProjects,
   formatRelativeTime,
+  genreLabel,
   projectActivityMs,
   projectActivityTime,
   projectCountLabel,
@@ -84,6 +85,12 @@ describe("标签与名称", () => {
   it("stageLabel 映射与回退", () => {
     expect(stageLabel("world_building")).toBe("世界构建")
     expect(stageLabel("custom-stage")).toBe("custom-stage")
+  })
+
+  it("genreLabel 使用作者可读题材并保留自定义值", () => {
+    expect(genreLabel("scifi")).toBe("科幻")
+    expect(genreLabel("自定义题材")).toBe("自定义题材")
+    expect(genreLabel("")).toBe("未分类")
   })
 
   it("projectCountLabel", () => {

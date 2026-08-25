@@ -14,6 +14,8 @@ const ALIASES = [
   { entity_id: "e2", alias: "旧港", alias_kind: "name", alias_type: "name", entity_name: "沉钟港", status: "canonical", source: "manual", confidence: 0.85 },
 ]
 
+let router
+
 function mountTab(propOverrides = {}) {
   return mount(WorldAliasesTab, {
     props: {
@@ -32,6 +34,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   localStorage.clear()
   resetWorldSession()
+  router = { navigate: vi.fn(), refresh: vi.fn(async () => true) }
   setBridgeOverrides({
     api: {
       world: {
@@ -40,7 +43,7 @@ beforeEach(() => {
       },
     },
     state: { currentProjectId: "p-alias", currentView: "world" },
-    router: { navigate: vi.fn(), refresh: vi.fn(async () => true) },
+    router,
     toast: vi.fn(),
     showModalHtml: vi.fn(),
     confirmAction: vi.fn((_message, onConfirm, _confirmText) => {}),
@@ -55,13 +58,24 @@ describe("渲染", () => {
   it("描述文本与空态", () => {
     const wrapper = mountTab({ aliases: [], aliasesTotal: 0 })
     expect(wrapper.text()).toContain("管理世界对象的别名、称号和化名")
+    expect(wrapper.get('[role="search"]').attributes("aria-label")).toBe("查找已采用别名")
     expect(wrapper.find(".empty-state").exists()).toBe(true)
+  })
+
+  it("搜索无结果时保留搜索入口和恢复提示", () => {
+    worldSession.aliasListFilters.q = "不存在"
+    const wrapper = mountTab({ aliases: [], aliasesTotal: 0 })
+    expect(wrapper.get("#world-alias-search").element.value).toBe("不存在")
+    expect(wrapper.find(".empty-state").text()).toContain("没有找到匹配的别名")
+    expect(wrapper.find(".empty-state").text()).toContain("清除搜索")
   })
 
   it("别名表结构：列头、行数据、data-id, rowspan", () => {
     const wrapper = mountTab()
     const table = wrapper.find("table.data-table")
     expect(table.exists()).toBe(true)
+    expect(table.classes()).toContain("table-card-list")
+    expect(table.classes()).toContain("world-alias-list")
     const rows = wrapper.findAll("tbody tr[data-id]")
     // 3 个别名 = 3 行
     expect(rows).toHaveLength(3)
@@ -82,7 +96,34 @@ describe("渲染", () => {
     expect(rows[1].text()).toContain("名称")
     expect(rows[2].text()).toContain("旧港")
     expect(rows[2].text()).toContain("名称")
+    expect(rows[2].text()).toContain("手动")
+    expect(rows[2].text()).not.toContain("manual")
     expect(rows[0].find('[data-action="edit-alias"]').exists()).toBe(true)
+    expect(wrapper.findAll(".world-alias-mobile-entity").map((cell) => cell.text())).toEqual([
+      "主角", "主角", "沉钟港",
+    ])
+    expect(rows[1].findAll("td[data-label]").map((cell) => cell.attributes("data-label"))).toEqual([
+      "对象", "别名", "分类与类型", "状态", "来源", "置信度", "来源与证据", "操作",
+    ])
+  })
+
+  it("内部标识默认收进诊断信息", () => {
+    const wrapper = mountTab({
+      aliases: [{
+        ...ALIASES[0],
+        workflow_id: "750d04f2-private-workflow",
+        scene_index: 0,
+        scene_id: "scene-private-id",
+        source_chapter_id: "chapter-private-id",
+        quote: "作者可读引用",
+      }],
+      aliasesTotal: 1,
+    })
+
+    expect(wrapper.find(".world-canonical-evidence").text()).toBe("引用：作者可读引用")
+    expect(wrapper.find(".world-canonical-evidence").text()).not.toContain("private")
+    expect(wrapper.find(".world-canonical-diagnostics summary").text()).toBe("诊断信息")
+    expect(wrapper.find(".world-canonical-diagnostics").text()).toContain("750d04f2-private-workflow")
   })
 
   it("删除按钮携带 data-entity-id 和 data-alias", () => {
@@ -114,9 +155,11 @@ describe("渲染", () => {
 })
 
 describe("错误态", () => {
-  it("aliasesLoadError 渲染", () => {
+  it("aliasesLoadError 提供可感知错误与重试", async () => {
     const wrapper = mountTab({ aliases: [], aliasesTotal: 0, aliasesLoadError: "加载别名失败。" })
-    expect(wrapper.find(".empty-state").text()).toContain("加载别名失败。")
+    expect(wrapper.find('[role="alert"]').text()).toContain("加载别名失败。")
+    await wrapper.get('[role="alert"] button').trigger("click")
+    expect(router.refresh).toHaveBeenCalledOnce()
   })
 })
 
@@ -126,13 +169,33 @@ describe("分页", () => {
     expect(wrapper.findComponent({ name: "WorldPager" }).exists()).toBe(true)
   })
 
-  it("翻页更新 session 并调用 router.refresh", async () => {
+  it("翻页更新 session 并写入 URL", async () => {
+    worldSession.aliasListFilters.q = "主角"
     const wrapper = mountTab({ aliases: ALIASES, aliasesTotal: 25 })
     const pager = wrapper.findComponent({ name: "WorldPager" })
     expect(worldSession.aliasListFilters.skip).toBe(0)
     pager.vm.$emit("change", 1)
     await wrapper.vm.$nextTick()
     expect(worldSession.aliasListFilters.skip).toBe(20)
+    expect(router.navigate.mock.calls[0][3].get("q")).toBe("主角")
+    expect(router.navigate.mock.calls[0][3].get("page")).toBe("2")
+  })
+})
+
+describe("搜索", () => {
+  it("提交和清除搜索时重置页码并更新 URL", async () => {
+    worldSession.aliasListFilters.skip = 20
+    const wrapper = mountTab()
+    await wrapper.get("#world-alias-search").setValue("  旧代号  ")
+    await wrapper.get('[role="search"]').trigger("submit")
+
+    expect(worldSession.aliasListFilters).toEqual({ q: "旧代号", skip: 0, limit: 20 })
+    expect(router.navigate.mock.calls[0][3].get("q")).toBe("旧代号")
+    expect(router.navigate.mock.calls[0][3].has("page")).toBe(false)
+
+    await wrapper.get('[role="search"] button[type="button"]').trigger("click")
+    expect(worldSession.aliasListFilters.q).toBe("")
+    expect(router.navigate.mock.calls[1][3].toString()).toBe("")
   })
 })
 
