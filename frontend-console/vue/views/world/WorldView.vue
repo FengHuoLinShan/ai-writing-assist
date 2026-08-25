@@ -54,6 +54,7 @@
     </div>
     <component :is="activeTab" v-bind="$props" :object-view-mode="localObjectViewMode" v-if="activeTab" />
     <OwnerAiDrawer
+      v-if="aiDrawerMounted"
       :open="aiDrawerOpen"
       owner="world"
       :initial-mode="props.bibleDeepLink?.ownerAiMode || null"
@@ -68,7 +69,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from "vue"
+import { computed, defineAsyncComponent, onMounted, ref, watch } from "vue"
 import { getAppState, getRouter } from "../../bridge/index.js"
 import { worldSession as session } from "./worldSession.js"
 import { objectQueryFromState } from "./logic/worldQuery.js"
@@ -76,11 +77,19 @@ import { clearBulkSelection } from "./logic/worldBulkSelection.js"
 import { showEntityCreateForm } from "./logic/worldEntityOps.js"
 import { showAliasCreateForm, showRelationCreateForm } from "./logic/worldRelationsAliasesOps.js"
 import WorldObjectsTab from "./components/WorldObjectsTab.vue"
-import WorldReviewTab from "./components/WorldReviewTab.vue"
 import WorldRelationsTab from "./components/WorldRelationsTab.vue"
 import WorldAliasesTab from "./components/WorldAliasesTab.vue"
-import WorldBibleTab from "./bible/WorldBibleTab.vue"
-import OwnerAiDrawer from "../../components/OwnerAiDrawer.vue"
+
+const lazyView = (loader) => defineAsyncComponent({
+  loader,
+  onError(_error, retry, fail, attempts) {
+    if (attempts < 2) retry()
+    else fail()
+  },
+})
+const WorldReviewTab = lazyView(() => import("./components/WorldReviewTab.vue"))
+const WorldBibleTab = lazyView(() => import("./bible/WorldBibleTab.vue"))
+const OwnerAiDrawer = lazyView(() => import("../../components/OwnerAiDrawer.vue"))
 
 const props = defineProps({
   projectId: { type: String, default: null },
@@ -127,8 +136,16 @@ const props = defineProps({
 const rootEl = ref(null)
 const viewOptionsEl = ref(null)
 const aiDrawerOpen = ref(Boolean(props.bibleDeepLink?.ownerAiOpen))
-function openOwnerAi() { aiDrawerOpen.value = true }
-watch(() => props.bibleDeepLink?.ownerAiOpen, (open) => { if (open) aiDrawerOpen.value = true })
+const aiDrawerMounted = ref(aiDrawerOpen.value)
+function openOwnerAi() {
+  aiDrawerMounted.value = true
+  aiDrawerOpen.value = true
+}
+watch(() => props.bibleDeepLink?.ownerAiOpen, (open) => {
+  if (!open) return
+  aiDrawerMounted.value = true
+  aiDrawerOpen.value = true
+})
 const localObjectViewMode = ref(props.objectViewMode === "card" ? "card" : "table")
 watch(() => props.objectViewMode, (mode) => { localObjectViewMode.value = mode === "card" ? "card" : "table" })
 

@@ -87,25 +87,33 @@
 </template>
 
 <script setup>
-import { computed, onMounted } from "vue"
+import { computed, defineAsyncComponent, onMounted } from "vue"
 import OutlineHeader from "./components/OutlineHeader.vue"
 import OutlineAnalysisProgressCard from "./ai/OutlineAnalysisProgressCard.vue"
 import OutlineGenerateProgressCard from "./ai/OutlineGenerateProgressCard.vue"
-import OutlineArcPreviewPage from "./ai/OutlineArcPreviewPage.vue"
-import OutlineScenePreviewPage from "./ai/OutlineScenePreviewPage.vue"
-import OutlineThreadPreviewPage from "./ai/OutlineThreadPreviewPage.vue"
 import PlotAutoExtractProgressCard from "./ai/PlotAutoExtractProgressCard.vue"
 import OutlineAnalysisResultCard from "./ai/OutlineAnalysisResultCard.vue"
 import OutlineStoryEditorPage from "./story/OutlineStoryEditorPage.vue"
 import OutlineStoryTab from "./story/OutlineStoryTab.vue"
-import OutlineThreadsTab from "./components/OutlineThreadsTab.vue"
-import OutlineArcsTab from "./components/OutlineArcsTab.vue"
-import SceneWorkbenchView from "../scene/SceneWorkbenchView.vue"
 import {
   outlineAnalysisManager,
   outlineGenerateManager,
   plotAutoExtractManager,
 } from "./ai/outlineWorkflowManagers.js"
+
+const lazyView = (loader) => defineAsyncComponent({
+  loader,
+  onError(_error, retry, fail, attempts) {
+    if (attempts < 2) retry()
+    else fail()
+  },
+})
+const OutlineArcPreviewPage = lazyView(() => import("./ai/OutlineArcPreviewPage.vue"))
+const OutlineScenePreviewPage = lazyView(() => import("./ai/OutlineScenePreviewPage.vue"))
+const OutlineThreadPreviewPage = lazyView(() => import("./ai/OutlineThreadPreviewPage.vue"))
+const OutlineThreadsTab = lazyView(() => import("./components/OutlineThreadsTab.vue"))
+const OutlineArcsTab = lazyView(() => import("./components/OutlineArcsTab.vue"))
+const SceneWorkbenchView = lazyView(() => import("../scene/SceneWorkbenchView.vue"))
 
 defineProps({
   projectId: { type: String, default: null },
