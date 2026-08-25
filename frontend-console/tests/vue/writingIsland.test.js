@@ -66,4 +66,41 @@ describe("writingIsland", () => {
     expect(document.querySelector(".view-header__count")?.textContent).toContain("1")
     island.onLeave()
   })
+
+  it("Writing Home 只加载今日继续数据", async () => {
+    const state = {
+      currentProjectId: "p1",
+      currentProject: { id: "p1", title: "测试小说" },
+      viewStates: {},
+    }
+    const api = globalThis.api
+    api.writing.listChapters.mockClear()
+    api.writing.getVersionHistory.mockClear()
+    api.outline.listScenesOrdered.mockClear()
+    api.settings.getEffectiveAuthorPrefs.mockClear()
+    api.projects.getWorkspaceSummary.mockResolvedValue({
+      project_id: "p1",
+      writing: {},
+      attention: { items: [] },
+    })
+    api.world.listBibleDrafts.mockResolvedValue({ items: [] })
+    api.world.listSuggestions.mockResolvedValue({ items: [] })
+    setBridgeOverrides({
+      state,
+      api,
+      router: { getCurrentQuery: () => new URLSearchParams("home=1") },
+    })
+
+    const island = createWritingIsland()
+    await island.onEnter()
+
+    expect(api.writing.listChapters).not.toHaveBeenCalled()
+    expect(api.outline.listScenesOrdered).not.toHaveBeenCalled()
+    expect(api.settings.getEffectiveAuthorPrefs).not.toHaveBeenCalled()
+    document.getElementById("workspace-content").innerHTML = island.render()
+    await island.onRendered()
+    expect(document.querySelector('[data-writing-home="true"]')).toBeTruthy()
+    expect(api.writing.getVersionHistory).not.toHaveBeenCalled()
+    island.onLeave()
+  })
 })

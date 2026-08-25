@@ -68,13 +68,13 @@ function compareScenes(left, right) {
     || String(left?.id || "").localeCompare(String(right?.id || ""))
 }
 
-export async function loadWritingProps() {
+export async function loadWritingProps({ homeMode: requestedHomeMode } = {}) {
   const api = getApi()
   const state = getAppState()
   const router = getRouter()
   const projectId = state?.currentProjectId || null
   const query = new URLSearchParams(router?.getCurrentQuery?.()?.toString() || "")
-  const homeMode = query.get("home") === "1"
+  const homeMode = requestedHomeMode ?? query.get("home") === "1"
   const result = {
     projectId,
     chapterList: [],
@@ -88,6 +88,7 @@ export async function loadWritingProps() {
     ownerAiMode: query.get("owner_ai_mode") || "writing",
   }
   if (!projectId || !api) return result
+  if (homeMode) return result
 
   const session = getWritingSession(projectId)
   const queryChapter = Number(query.get("chapter_index") || 0)
@@ -1418,11 +1419,12 @@ export function useWritingWorkspace(props) {
 
   watch(focusMode, (active) => {
     document.body.classList.toggle("focus-mode-active", active)
-    syncLegacyState()
+    if (!homeMode.value) syncLegacyState()
   }, { immediate: true })
   watch(forceDesktop, (active) => document.body.classList.toggle("force-desktop", active), { immediate: true })
 
   onMounted(async () => {
+    if (homeMode.value) return
     window.addEventListener("beforeunload", beforeUnload)
     window.addEventListener("pagehide", pageHide)
     window.addEventListener("resize", resize)
@@ -1468,11 +1470,13 @@ export function useWritingWorkspace(props) {
     commands.dispose()
     deepImport.dispose()
     conflictActions.dispose()
-    window.removeEventListener("beforeunload", beforeUnload)
-    window.removeEventListener("pagehide", pageHide)
-    window.removeEventListener("resize", resize)
+    if (!homeMode.value) {
+      window.removeEventListener("beforeunload", beforeUnload)
+      window.removeEventListener("pagehide", pageHide)
+      window.removeEventListener("resize", resize)
+    }
     document.body.classList.remove("focus-mode-active", "force-desktop")
-    dispatchDashboardUpdate(null)
+    if (!homeMode.value) dispatchDashboardUpdate(null)
     if (appState) {
       const currentChapter = editorState.loadError ? editorState.chapter : selectedChapter.value
       appState.viewStates = appState.viewStates || {}

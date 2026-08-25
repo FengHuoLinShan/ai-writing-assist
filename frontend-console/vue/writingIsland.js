@@ -6,9 +6,10 @@ import { loadWritingProps } from "./views/writing/useWritingWorkspace.js"
 import { loadTodayProps } from "./todayIsland.js"
 
 async function loadWriting() {
-  const props = await loadWritingProps()
   const query = new URLSearchParams(getRouter()?.getCurrentQuery?.()?.toString() || "")
-  if (query.get("home") === "1") {
+  const homeMode = query.get("home") === "1"
+  const props = await loadWritingProps({ homeMode })
+  if (homeMode) {
     // Reuse the existing continuation/recovery data contract while rendering
     // it inside Writing. No chapter pointer is consumed in home mode.
     props.homeProps = await loadTodayProps()
