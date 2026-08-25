@@ -55,6 +55,10 @@ World, Memory, or Writing changes. One-click card freshness is based on a
 source hash of the outline projection, stable compiled-context sections/text,
 and character ID, excluding the card itself.
 
+Scene asset reads batch-load card and script revisions with two bounded `IN`
+queries. The common Story baseline is hashed once, then per-script exclusion
+hashes are derived in memory; basis hashes and stale decisions remain identical.
+
 Manual apply payloads carrying `source_task_id` or `context_snapshot_id` are
 accepted only when the completed task is same-novel and has the expected Story
 task type/action; snapshot IDs must match the completed result. Provider calls

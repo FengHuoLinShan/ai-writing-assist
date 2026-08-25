@@ -169,7 +169,7 @@ Root `modules.world.facade` 是纯 re-export hub，用来保持旧跨模块 impo
 `worldbuilding_facade.py` 承载世界书上下文激活入口：
 `preview_worldbuilding_activation()` 委托确定性 activation preview 服务；
 `get_world_bible_projection_candidates()` 和 `get_world_bible_page_source_manifest()`
-为 context 提供 novel-scoped TargetRef 解析、最大深度 2 的有界展开与来源 hash；
+为 context 提供 novel-scoped TargetRef 解析、最大深度 2 的有界展开与来源 hash；activation target 按 BFS 层批量读取实体、页面 projection 和关系，原队列顺序、循环检测、256 项上限及过期 projection 回退不变；
 `mark_worldbuilding_context_stale()` 保持函数内 lazy import `modules.evidence.facade`，
 避免扩大 evidence ↔ world 循环 import 风险。
 

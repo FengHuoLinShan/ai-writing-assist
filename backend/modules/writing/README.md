@@ -90,6 +90,7 @@ class WritingDraftContract:
 ```python
 async def create_draft_only(db: AsyncSession, novel_id: str, chapter_index: int, title: str | None = None, content: str = "") -> WritingDraftContract
 async def create_published_draft_only(db: AsyncSession, novel_id: str, chapter_index: int, title: str | None = None, content: str = "") -> WritingDraftContract
+async def create_published_drafts_only(db: AsyncSession, novel_id: str, chapters: list[dict[str, object]]) -> list[WritingDraftContract]
 async def create_draft(db: AsyncSession, novel_id: str, chapter_index: int, title: str | None = None, content: str = "") -> tuple[WritingDraftContract, str]
 async def get_draft(db: AsyncSession, novel_id: str, draft_id: str) -> WritingDraftContract | None
 async def adopt_candidate_to_working(db: AsyncSession, novel_id: str, draft_id: str, *, adopted_by: str = "author") -> WritingDraftContract
@@ -105,7 +106,7 @@ async def read_manuscript_range(db, novel_id, source_ref, *, before_paragraphs=0
 async def build_manuscript_range_ref(db, novel_id, draft_id, start_offset, end_offset) -> SourceRangeRefContract
 ```
 
-通过 `facade.create_draft` 创建已发布正文版本并提交 `publish_chapter` 章节发布任务；`facade.create_published_draft_only` 只创建已发布正文版本，不入队；`facade.create_draft_only` 仅创建草稿，不会提交发布任务。facade create 系列返回跨模块 `WritingDraftContract`，API 层负责适配为 `WritingDraftResponse`。导入模块等内部调用方不需要直接访问 RAG 模块。
+通过 `facade.create_draft` 创建已发布正文版本并提交 `publish_chapter` 章节发布任务；`facade.create_published_draft_only` 只创建一个已发布正文版本，批量导入使用 `create_published_drafts_only`，按章节顺序取得既有 advisory lock、分组读取最大版本并统一 flush；两者都不入队。`facade.create_draft_only` 仅创建草稿，不会提交发布任务。facade create 系列返回跨模块 `WritingDraftContract`，API 层负责适配为 `WritingDraftResponse`。导入模块等内部调用方不需要直接访问 RAG 模块。
 AI 生成结果会在 `provenance_json` 中记录 `source_confirmation_id` 和来源任务。兼容期内底层仍以 `candidate` 保存建议，但 API/contract 投影为 `display_state=review` 和 `source=ai_generated`，不将其当作工作稿。
 
 `publish_chapter` 通过 Evidence indexing 的 task-only DI port 执行索引：先在 worker fence 下结束

@@ -102,6 +102,7 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
   对象原型属性。主视图切换后仍恢复最后子标签，公开 hash 与生命周期契约不变。
 - 作者 shell 的桌面主导航固定为“写作、人物与世界、故事结构、地图、查找”；移动端固定为
   “写作、世界、结构、全部”。项目切换器位于导航顶部，导入与项目偏好从“更多”进入，AI 工具在 owner 页就地打开；旧入口仅保留兼容路由，或由上下文错误进入。`writing?home=1` 是作者有效项目的默认续接页；`today` 仅为薄兼容别名。
+- `writing?home=1` 不装载章节、全部 Scene、编辑偏好或编辑器恢复监听；普通写作入口保持完整初始化。RAG 状态子页同样不装载未使用的人物和 Scene 列表。
 - `WritingHomeView` 通过 `writingIsland` 复用 `todayIsland` 的 loader，把本机 Writing 指针作为可选排序焦点传给项目摘要，并行组合世界书工作稿和 generation-center pending 页面建议；项目摘要中的 Writing / World / Outline 待决事项按后端顺序展示，已进入投影的建议不再重复显示为未完成创作；超过 6 条时使用 `more_targets` 打开去掉单条 item 绑定的领域处理范围，不用旧计数猜测来源；
   导航不调用 LLM。项目级本地创作指针只允许 `generate / world_bible_draft /
   world_suggestion_review` 三种结构化 route，只有作者编辑/发送、打开/保存工作稿、进入/应用建议
@@ -116,6 +117,8 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
   author 项目。RP 草稿按旅程保存在本地，服务端流式 buffer/分支/回顾负责跨刷新恢复。
 - `outline` 的规范默认子视图是 `story-outline`，作者导航层级为“故事总览 → 篇章 → 剧情线 → 场景”。`outline/story-outline?edit=1` 是可刷新、可前后退的手工编辑页；AI 预览留在故事总览页内，两者草稿均按项目隔离在本机并受离开/冲突保护。旧 `scene` 路由重定向到 `outline/scenes`，旧 `outline/foreshadowing` 与 `outline/reveals` 重定向到剧情线的信息推进区域。
 - router 不再保留 KeepAlive/DocumentFragment 缓存；所有视图离开时卸载。写作快照、Outline/Scene workflow 与滚动位置采用显式项目隔离 session 恢复，详见 [ADR-0009 附录 A](../adr/0009-appendix-a-keep-alive-policy.md)
+- Writing session 使用原生 `Map` 保留当前章和最近四章、最近五个项目；未完成本地备份的 dirty 快照不可淘汰。正文输入立即更新内存，本地备份和恢复指针合并为 250ms trailing 写入，并在保存、切换、卸载及页面离开前强制 flush；网络自动保存仍为 3 秒。
+- World/Outline 默认骨架和常用首屏同步加载；World Bible、“需要决定”、AI 抽屉，以及 Outline 的结构标签、AI 预览和 Scene 工作台使用 Vue 原生异步组件，chunk 失败自动重试一次。
 - 写作页另以项目隔离的本机安全指针保存最后章节、工作稿 ID/版本/更新时间、手选 Scene、光标偏移与指针更新时间，不保存正文。Writing Home 把章节与 Scene 作为 workspace-summary 的可选排序焦点；服务端验证归属后才用于相关性排序。续写仍仅在服务器续写章与本机章节一致时携带 Scene；编辑器仅在工作稿 ID、版本和更新时间全部一致时恢复并 clamp 光标，且不主动聚焦。本机指针指向的工作稿失效时清理其工作稿/光标身份并回退当前有效版；显式 URL 工作稿则保留错误。章节加载失败不会把目标章与上一章工作稿混写到该指针，正文区改为可重试错误态；保存失败保留本机备份并在成功前阻止切章和正式正文提交。账户切换与退出会清理该指针。
 - 世界对象库和 Scene 工作台使用 `mode=normal|hot`；URL 优先于按“项目 + 页面”保存的 localStorage 偏好，无偏好默认热点。切换模式保留通用筛选，清除模式专属筛选、分页偏移和批量选择。
 - Scene 工作台的筛选、详情和复核状态由 `useSceneWorkbench` 持有；当前 Scene 与模式通过 `outline/scenes?mode=...&scene_id=...` 写入浏览器历史，Writing Home 可额外用 `suggestion_id` 定位并打开仍待处理的融合建议。热点默认请求 `anchor=latest`，显式 Scene、分页、阶段或管理筛选时不自动锚定。桌面无 `scene_id` 时只渲染通栏列表；选中后才显示详情栏，前进、后退、刷新和后端对齐分页的恢复语义不变。

@@ -40,6 +40,7 @@ auto 工作版本在发布前撤回到手动 checkpoint 内容时，auto 版本�
 ```python
 async def create_draft_only(db, novel_id, chapter_index, title: str | None = None, content: str = "") -> WritingDraftContract
 async def create_published_draft_only(db, novel_id, chapter_index, title: str | None = None, content: str = "") -> WritingDraftContract
+async def create_published_drafts_only(db, novel_id, chapters: list[dict[str, object]]) -> list[WritingDraftContract]
 async def create_draft(db, novel_id, chapter_index, title: str | None = None, content: str = "") -> tuple[WritingDraftContract, str]
 async def get_draft(db, draft_id) -> WritingDraftContract | None
 async def adopt_candidate_to_working(db, novel_id, draft_id, *, adopted_by="author") -> WritingDraftContract
@@ -53,6 +54,8 @@ async def read_manuscript_range(db, novel_id, source_ref, *, before_paragraphs=0
 ```
 
 facade 的 create 系列只暴露跨模块 `WritingDraftContract`，不返回 API response schema；REST API 层继续负责把 contract 适配为 `WritingDraftResponse`，保持 HTTP response body 不变。
+
+文件导入通过批量入口一次锁定排序后的章节键、分组读取各章最大版本并统一 `add_all` / flush；版本唯一约束、事务回滚和逐章发布任务语义不变。
 
 ## 跨模块依赖
 

@@ -170,7 +170,7 @@ Phase 1c 仅在 `high_quality=true` 时运行：先按窗口批量审阅完整�
 ## API
 
 ```
-POST /api/imports/upload                    # 上传并导入；201 表示导入记录、章节工作稿和发布任务已提交，可立即读取
+POST /api/imports/upload                    # 上传并导入；201 表示导入记录、批量章节工作稿和发布任务已提交，可立即读取
 GET  /api/imports                           # 导入记录列表
 GET  /api/imports/{id}                     # 导入记录详情
 POST /api/imports/deep                     # 提交深度导入任务；重复导入需 force=true
@@ -204,7 +204,7 @@ coverage、checkpoint 和脱敏 provider summary。
 
 ## 跨模块依赖
 
-- 写入导入章节正文通过 `writing.facade.create_draft`
+- 写入导入章节正文通过 `writing.facade.create_published_drafts_only` 批量持久化；逐章 `publish_chapter` 任务及整批事务回滚保持不变
 - Scene 阶段通过 outline facade / DI handler 提交已授权且带来源/回滚元数据的 `scenes`
 - Phase 2a / 2b 通过 world facade / DI handler 写入 `core_entities` / 关系数据和 Delta
 - Phase 2 后通过 `memory.facade.capture_snapshot` 记录记忆快照

@@ -43,6 +43,8 @@ API 前缀为 `/api/story`。资源式路径提供人物卡 revision CRUD、恢�
 
 `get_scene_story_assets` 是 Outline/Writing 的窄只读 seam，只投影当前人物卡和每个脚本文件的
 文件 metadata + adopted revision；未采用的 current 草稿不会改变 execution bundle hash。
+读取时分别用一次 `IN` 查询装载人物卡 current revision 与脚本 current/adopted revision；公共
+Story baseline 只计算一次，再在内存派生排除当前脚本的 basis hash，返回字段和 stale 语义不变。
 
 ## AI、来源与用户控制
 
