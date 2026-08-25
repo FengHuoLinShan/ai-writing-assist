@@ -51,7 +51,7 @@ test.describe("Outline View — 剧情线与篇章", () => {
     await page.locator('[data-action="nav-threads"]').click()
     await expect(page.locator(SEL.dataTable)).toBeVisible()
     await expect(page.locator(SEL.dataTable)).toContainText("主线剧情")
-    await expect(page.locator(SEL.dataTable)).toContainText("main")
+    await expect(page.locator(SEL.dataTable)).toContainText("主线")
   })
 
   test("剧情线与篇章只突出创作入口并渐进展开分析整理工具", async ({ page }) => {
@@ -77,7 +77,7 @@ test.describe("Outline View — 剧情线与篇章", () => {
     await expect(page.locator(SEL.modalTitle)).toHaveText("AI 分析大纲")
     await page.keyboard.press("Escape")
     await expect(page.locator(SEL.modalOverlay)).toHaveClass(/hidden/)
-    await expect(analyze).toBeFocused()
+    await expect(threadSummary).toBeFocused()
 
     await page.locator('[data-action="nav-arcs"]').click()
     const arcActions = page.getByLabel("篇章操作")
@@ -454,7 +454,7 @@ test.describe("Outline View — 剧情线与篇章", () => {
     await reloadWorkbench(page, "outline", "scenes")
     await page.locator('[data-action="nav-threads"]').click()
     await expect(page.locator(SEL.dataTable)).toContainText("修改后的剧情线")
-    await expect(page.locator(SEL.dataTable)).toContainText("sub")
+    await expect(page.locator(SEL.dataTable)).toContainText("支线")
   })
 
   test("删除剧情线", async ({ page }) => {

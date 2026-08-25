@@ -36,7 +36,7 @@
             <button type="button" class="btn btn-sm" data-action="ai-create-plot-thread" @click="showOutlineLayerAiForm('plot_thread')">AI 创作剧情线</button>
             <details class="scene-workbench-tools outline-structure-tools">
               <summary class="btn btn-sm">分析与整理</summary>
-              <div class="scene-workbench-tools__menu" @click="closeToolMenu">
+              <div class="scene-workbench-tools__menu" @click.capture="closeToolMenu">
                 <button type="button" class="btn btn-sm" data-action="analyze-outline" :disabled="analysisBusy" @click="showOutlineAnalysisForm()">{{ analysisBusy ? "AI 分析中" : "AI 分析大纲" }}</button>
                 <button type="button" class="btn btn-sm" data-action="plot-structure-auto-extract" :disabled="plotExtractBusy" @click="showPlotStructureAutoExtractForm()">{{ plotExtractBusy ? "提取中..." : "从正文提取剧情线" }}</button>
                 <span data-role="smart-dedup-action"></span>
@@ -48,7 +48,7 @@
             <button type="button" class="btn btn-sm" data-action="ai-create-outline-arc" @click="showOutlineLayerAiForm('outline_arc')">AI 规划篇章</button>
             <details class="scene-workbench-tools outline-structure-tools">
               <summary class="btn btn-sm">分析与整理</summary>
-              <div class="scene-workbench-tools__menu" @click="closeToolMenu">
+              <div class="scene-workbench-tools__menu" @click.capture="closeToolMenu">
                 <button type="button" class="btn btn-sm" data-action="analyze-outline" :disabled="analysisBusy" @click="showOutlineAnalysisForm()">{{ analysisBusy ? "AI 分析中" : "AI 分析大纲" }}</button>
                 <button type="button" class="btn btn-sm" data-action="plot-structure-auto-extract" :disabled="plotExtractBusy" @click="showPlotStructureAutoExtractForm()">{{ plotExtractBusy ? "整理中..." : "从正文整理篇章" }}</button>
                 <span data-role="smart-dedup-action"></span>
@@ -110,6 +110,8 @@ function closeReview() {
 
 function closeToolMenu(event) {
   if (!event.target.closest?.("button")) return
-  event.currentTarget.closest("details").open = false
+  const details = event.currentTarget.closest("details")
+  details.open = false
+  details.querySelector("summary")?.focus()
 }
 </script>

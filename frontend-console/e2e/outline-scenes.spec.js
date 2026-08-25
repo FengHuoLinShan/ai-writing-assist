@@ -46,7 +46,6 @@ test.describe("Outline View — 场景工作台", () => {
     await expect(filters).not.toHaveAttribute("open", "")
     await expect(summary).toContainText("搜索与筛选")
     await expect(summary).toContainText("未启用")
-    await page.screenshot({ path: "/Users/tywww/.codex/visualizations/2026/08/22/01a029ee-6daf-72f0-8ce5-e79389d40439/outline-scene-filters-after-desktop.png", fullPage: true })
 
     await summary.focus()
     await summary.press("Enter")
@@ -95,7 +94,6 @@ test.describe("Outline View — 场景工作台", () => {
     await page.locator("html").evaluate((element) => { element.style.fontSize = "125%" })
     await expectNoPageOverflow(page)
     await expect(page.locator(SEL.toastItems)).toHaveCount(0, { timeout: 10000 })
-    await page.screenshot({ path: "/Users/tywww/.codex/visualizations/2026/08/22/01a029ee-6daf-72f0-8ce5-e79389d40439/outline-scene-filters-after-mobile-night.png", fullPage: true })
     await summary.focus()
     await summary.press("Enter")
     for (const control of await filters.locator("input:not([type=checkbox]):visible, select:visible, button:visible, summary:visible, label.scene-filter-checkbox:visible").all()) {
@@ -136,7 +134,6 @@ test.describe("Outline View — 场景工作台", () => {
     const checkbox = (sceneId) => page.locator(`.scene-workbench-row[data-id="${sceneId}"] input[data-action="toggle-fusion-selection"]`)
     await expect(toolbar).toHaveCount(0)
     await expect(page.getByRole("button", { name: "全选当前列表" })).toHaveCount(0)
-    await page.screenshot({ path: "/Users/tywww/.codex/visualizations/2026/08/22/01a029ee-6daf-72f0-8ce5-e79389d40439/outline-scene-bulk-after-desktop.png", fullPage: true })
 
     await checkbox(scenes[0].id).focus()
     await checkbox(scenes[0].id).press("Space")
@@ -181,7 +178,6 @@ test.describe("Outline View — 场景工作台", () => {
     await expectNoPageOverflow(page)
     await expect(page.locator(SEL.toastItems)).toHaveCount(0, { timeout: 10000 })
     await page.locator(".scene-workbench-row").first().scrollIntoViewIfNeeded()
-    await page.screenshot({ path: "/Users/tywww/.codex/visualizations/2026/08/22/01a029ee-6daf-72f0-8ce5-e79389d40439/outline-scene-bulk-after-mobile-night.png", fullPage: true })
 
     await checkbox(scenes[0].id).focus()
     await checkbox(scenes[0].id).press("Space")
@@ -197,7 +193,6 @@ test.describe("Outline View — 场景工作台", () => {
       expect(await button.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
     }
     await toolbar.scrollIntoViewIfNeeded()
-    await page.screenshot({ path: "/Users/tywww/.codex/visualizations/2026/08/22/01a029ee-6daf-72f0-8ce5-e79389d40439/outline-scene-bulk-after-mobile-selected-night.png", fullPage: true })
     await toolbar.getByRole("button", { name: "退出选择" }).click()
     await expect(toolbar).toHaveCount(0)
     await expect(checkbox(scenes[0].id)).not.toBeChecked()
@@ -335,7 +330,6 @@ test.describe("Outline View — 场景工作台", () => {
     await expect(review).not.toContainText("parent_arc_ref")
     await expect(review).not.toContainText("pov_character_ref")
     await expect(page.locator(SEL.toastItems)).toHaveCount(0, { timeout: 10000 })
-    await page.screenshot({ path: "/Users/tywww/.codex/visualizations/2026/08/22/01a029ee-6daf-72f0-8ce5-e79389d40439/outline-scene-ai-review-after-desktop.png", fullPage: true })
 
     const title = page.locator("#outline-scene-preview-0-title")
     await title.fill("作者修订后的潮门开场")
@@ -370,7 +364,6 @@ test.describe("Outline View — 场景工作台", () => {
     await expectNoPageOverflow(page)
     await expect.poll(() => page.locator('[data-action="apply-outline-generate-preview"]').evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
     await expect(page.locator(SEL.toastItems)).toHaveCount(0, { timeout: 10000 })
-    await page.screenshot({ path: "/Users/tywww/.codex/visualizations/2026/08/22/01a029ee-6daf-72f0-8ce5-e79389d40439/outline-scene-ai-review-after-mobile-night.png", fullPage: true })
     await page.setViewportSize({ width: 844, height: 390 })
     await expectNoPageOverflow(page)
 
@@ -1021,7 +1014,10 @@ test.describe("Outline View — 场景工作台", () => {
 
     const targetRow = page.locator(".scene-workbench-row", { hasText: "密道入口" })
     await targetRow.locator('[data-action="select-workbench-scene"]').click()
-    await page.locator('.scene-detail-panel [data-action="start-merge-scene"]').click()
+    const detailMore = page.locator('.scene-detail-panel .scene-detail-action-menu .action-menu-btn')
+    const mergeButton = page.locator('.scene-detail-panel').getByRole("menuitem", { name: "合并场景" })
+    await detailMore.click()
+    await mergeButton.click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("选择要合并的场景")
 
     const picker = page.locator("#scene-merge-reference-picker")
@@ -1041,12 +1037,12 @@ test.describe("Outline View — 场景工作台", () => {
 
     await page.keyboard.press("Escape")
     await expect(page.locator(SEL.modalOverlay)).toBeHidden()
-    const mergeButton = page.locator('.scene-detail-panel [data-action="start-merge-scene"]')
-    await expect(mergeButton).toBeFocused()
+    await expect(detailMore).toBeFocused()
 
     await page.locator('.theme-dot[data-theme-value="night"]').click()
     await expect(page.locator("html")).toHaveAttribute("data-theme", "night")
     await page.setViewportSize({ width: 390, height: 844 })
+    await detailMore.click()
     await mergeButton.click()
     await picker.locator("[data-reference-query]").fill("潜入王宫")
     await picker.locator("[data-reference-result]", { hasText: "潜入王宫" }).click()

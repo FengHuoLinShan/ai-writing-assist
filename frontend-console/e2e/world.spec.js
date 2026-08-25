@@ -55,13 +55,13 @@ test.describe("世界对象模块", () => {
     // 刷新页面验证列表
     await reloadWorkbench(page, "world", "objects")
 
-    await expect(page.locator(".world-object-card-grid")).toBeVisible()
-    await expect(page.locator(".world-object-card-grid")).toContainText("测试城堡")
-    await expect(page.locator(".world-object-card-grid")).toContainText("地点")
+    await expect(page.locator(".world-object-table")).toBeVisible()
+    await expect(page.locator(".world-object-table")).toContainText("测试城堡")
+    await expect(page.locator(".world-object-table")).toContainText("地点")
 
     await runResponsiveMatrix(page, async () => {
       await expectNoPageOverflow(page)
-      await expect(page.locator(".world-object-card-grid")).toBeVisible()
+      await expect(page.locator(".world-object-table")).toBeVisible()
     }, [
       { width: 900, height: 800 },
       { width: 600, height: 800 },
@@ -79,10 +79,10 @@ test.describe("世界对象模块", () => {
 
     // 刷新以显示列表
     await reloadWorkbench(page, "world", "objects")
-    await expect(page.locator(".world-object-card-grid")).toContainText("编辑前名称")
+    await expect(page.locator(".world-object-table")).toContainText("编辑前名称")
 
-    // When: 点击卡片详情，修改字段并保存
-    await page.locator('[data-action="open-entity-detail"]').first().click()
+    // When: 点击表格中的编辑入口，修改字段并保存
+    await page.locator('.world-object-table [data-action="edit-entity"]').first().click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("编辑世界对象")
 
     await page.locator("#edit-entity-name").fill("编辑后名称")
@@ -99,8 +99,8 @@ test.describe("世界对象模块", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("已保存", { timeout: 10000 })
 
     await reloadWorkbench(page, "world", "objects")
-    await expect(page.locator(".world-object-card-grid")).toContainText("编辑后名称")
-    await expect(page.locator(".world-object-card-grid")).toContainText("势力/派系")
+    await expect(page.locator(".world-object-table")).toContainText("编辑后名称")
+    await expect(page.locator(".world-object-table")).toContainText("势力/派系")
   })
 
   test("上传、查看并替换对象图片", async ({ page }) => {
@@ -112,6 +112,8 @@ test.describe("世界对象模块", () => {
     })
     await reloadWorkbench(page, "world", "objects")
     await page.setViewportSize({ width: 390, height: 844 })
+    await page.locator(".world-view-options > summary").click()
+    await page.locator('[data-action="set-object-view"][data-view-mode="card"]').click()
 
     const card = page.locator(`.world-object-card[data-id="${entity.id}"]`)
     const input = page.locator(`#world-entity-image-${encodeURIComponent(entity.id)}`)
@@ -160,7 +162,8 @@ test.describe("世界对象模块", () => {
 
     const row = page.locator(`tr[data-id="${candidate.id}"]`)
     await expect(row).toContainText("待微调星门")
-    await row.locator('[data-action="edit-entity"]').click()
+    await row.getByRole("button", { name: "查看并决定" }).click()
+    await page.locator(".world-review-decision").getByRole("button", { name: "编辑后采用" }).click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("编辑后采用世界对象")
 
     await page.locator("#edit-entity-name").fill("已微调星门")
@@ -171,8 +174,8 @@ test.describe("世界对象模块", () => {
     })
 
     await reloadWorkbench(page, "world", "objects")
-    await expect(page.locator(".world-object-card-grid")).toContainText("已微调星门")
-    await expect(page.locator(".world-object-card-grid")).toContainText("作者微调后的概要")
+    await expect(page.locator(".world-object-table")).toContainText("已微调星门")
+    await expect(page.locator(".world-object-table")).toContainText("作者微调后的概要")
   })
 
   test("别名建议和高相似名称在待处理中合并展示", async ({ page }) => {
@@ -227,7 +230,9 @@ test.describe("世界对象模块", () => {
     const similarGroup = page.locator(".world-candidate-similar-group")
     await expect(similarGroup).toContainText("克莱恩")
     await expect(similarGroup).toContainText("克莱恩·莫雷蒂")
-    await expect(similarGroup.locator('[data-action="merge-entity"]')).toHaveCount(2)
+    await expect(similarGroup.getByRole("button", { name: "查看并决定" })).toHaveCount(2)
+    await similarGroup.getByRole("button", { name: "查看并决定" }).first().click()
+    await expect(page.locator(".world-review-decision").getByRole("button", { name: "合并到" })).toBeVisible()
   })
 
   test("删除世界对象", async ({ page }) => {
@@ -239,10 +244,10 @@ test.describe("世界对象模块", () => {
 
     // 刷新以显示列表
     await reloadWorkbench(page, "world", "objects")
-    await expect(page.locator(".world-object-card-grid")).toContainText("待删除对象")
+    await expect(page.locator(".world-object-table")).toContainText("待删除对象")
 
     // When: 打开卡片内更多菜单并点击删除，确认删除
-    const deleteCard = page.locator(".world-object-card", { hasText: "待删除对象" })
+    const deleteCard = page.locator(".world-object-table tr", { hasText: "待删除对象" })
     await deleteCard.locator(".action-menu-btn").click()
     await deleteCard.locator('[data-action="delete-entity"]').click()
 
@@ -294,7 +299,8 @@ test.describe("世界对象模块", () => {
     await expect(page.locator(SEL.dataTable)).toContainText("候选实体")
 
     // When: 在待处理列表中点击合并，按名称选择目标对象
-    await page.locator('tr:has-text("候选实体") [data-action="merge-entity"]').click()
+    await page.locator('tr:has-text("候选实体")').getByRole("button", { name: "查看并决定" }).click()
+    await page.locator(".world-review-decision").getByRole("button", { name: "合并到" }).click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("合并对象")
     const mergePicker = page.locator("#merge-target-picker")
     await mergePicker.locator("[data-reference-query]").fill("目标实体")
@@ -342,7 +348,8 @@ test.describe("世界对象模块", () => {
     await expect(page.getByText("共 21 条")).toBeVisible()
     await expect(visibleCandidateItems).toHaveCount(20)
 
-    await candidateItem(candidates[0].id).locator('[data-action="merge-entity"]').click()
+    await candidateItem(candidates[0].id).getByRole("button", { name: "查看并决定" }).click()
+    await page.locator(".world-review-decision").getByRole("button", { name: "合并到" }).click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("合并对象")
     const mergePicker = page.locator("#merge-target-picker")
     await mergePicker.locator("[data-reference-query]").fill("同名目标")
@@ -372,9 +379,9 @@ test.describe("世界对象模块", () => {
     await seedEntityArchive(testProjectId, entity.id, "归档摘要", { sceneIndex: 5 })
 
     await reloadWorkbench(page, "world", "objects")
-    await expect(page.locator(".world-object-card-grid")).toContainText("待回滚实体")
+    await expect(page.locator(".world-object-table")).toContainText("待回滚实体")
 
-    const rollbackCard = page.locator(".world-object-card", { hasText: "待回滚实体" })
+    const rollbackCard = page.locator(".world-object-table tr", { hasText: "待回滚实体" })
     await rollbackCard.locator(".action-menu-btn").click()
     await rollbackCard.locator('[data-action="rollback-entity"]').click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("回滚对象")
@@ -403,11 +410,11 @@ test.describe("世界对象模块", () => {
     })
 
     await reloadWorkbench(page, "world", "objects")
-    await expect(page.locator(".world-object-card-grid")).toContainText("主角")
-    await expect(page.locator(".world-object-card-grid")).toContainText("秘密组织")
+    await expect(page.locator(".world-object-table")).toContainText("主角")
+    await expect(page.locator(".world-object-table")).toContainText("秘密组织")
 
     // When: 打开人物卡片的更多菜单并点击"知识"按钮，填写知识条目
-    const characterCard = page.locator(".world-object-card", { hasText: "主角" })
+    const characterCard = page.locator(".world-object-table tr", { hasText: "主角" })
     await characterCard.locator(".action-menu-btn").click()
     await characterCard.locator('[data-action="knowledge-entity"]').click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("人物认知进程")
@@ -428,8 +435,8 @@ test.describe("世界对象模块", () => {
     await createEntity(testProjectId, { name: "测试组织", entity_type: "faction", status: "canonical" })
 
     await reloadWorkbench(page, "world", "objects")
-    await expect(page.locator(".world-object-card-grid")).toContainText("测试地点")
-    await expect(page.locator(".world-object-card-grid")).toContainText("测试组织")
+    await expect(page.locator(".world-object-table")).toContainText("测试地点")
+    await expect(page.locator(".world-object-table")).toContainText("测试组织")
 
     const filterToggle = page.locator(
       '[data-action="toggle-filter-panel"][data-filter-key="objects"]',
@@ -439,8 +446,8 @@ test.describe("世界对象模块", () => {
     await page.locator("#filter-entity-type").selectOption("location")
     await page.locator('[data-action="apply-filters"]').click()
 
-    await expect(page.locator(".world-object-card-grid")).toContainText("测试地点")
-    await expect(page.locator(".world-object-card-grid")).not.toContainText("测试组织")
+    await expect(page.locator(".world-object-table")).toContainText("测试地点")
+    await expect(page.locator(".world-object-table")).not.toContainText("测试组织")
   })
 
   test("按名称搜索对象", async ({ page }) => {
@@ -448,7 +455,7 @@ test.describe("世界对象模块", () => {
     await createEntity(testProjectId, { name: "其他对象", entity_type: "item", status: "canonical" })
 
     await reloadWorkbench(page, "world", "objects")
-    await expect(page.locator(".world-object-card-grid")).toContainText("搜索目标")
+    await expect(page.locator(".world-object-table")).toContainText("搜索目标")
 
     const filterToggle = page.locator(
       '[data-action="toggle-filter-panel"][data-filter-key="objects"]',
@@ -458,8 +465,8 @@ test.describe("世界对象模块", () => {
     await page.locator("#filter-q").fill("搜索目标")
     await page.locator('[data-action="apply-filters"]').click()
 
-    await expect(page.locator(".world-object-card-grid")).toContainText("搜索目标")
-    await expect(page.locator(".world-object-card-grid")).not.toContainText("其他对象")
+    await expect(page.locator(".world-object-table")).toContainText("搜索目标")
+    await expect(page.locator(".world-object-table")).not.toContainText("其他对象")
   })
 
   test("对象库分页", async ({ page }) => {
@@ -468,10 +475,10 @@ test.describe("世界对象模块", () => {
     }
 
     await reloadWorkbench(page, "world", "objects")
-    await expect(page.locator(".world-object-card-grid")).toContainText("分页对象 0")
+    await expect(page.locator(".world-object-table")).toContainText("分页对象 0")
     await expect(page.locator(SEL.workspaceContent)).toContainText("第 1 / 2 页，共 22 条")
 
-    const firstPageRows = await page.locator(".world-object-card").allTextContents()
+    const firstPageRows = await page.locator(".world-object-table tbody tr").allTextContents()
     expect(firstPageRows).toHaveLength(20)
 
     // 默认每页 20 条，应出现分页信息
@@ -482,7 +489,7 @@ test.describe("世界对象模块", () => {
     await expect(page.locator('[data-action="next-page"]')).toBeDisabled()
     await expect(page.locator('[data-action="prev-page"]')).toBeEnabled()
 
-    const secondPageRows = await page.locator(".world-object-card").allTextContents()
+    const secondPageRows = await page.locator(".world-object-table tbody tr").allTextContents()
     expect(secondPageRows).toHaveLength(2)
     expect(secondPageRows).not.toEqual(firstPageRows.slice(0, 2))
     expect(secondPageRows.join("\n")).toContain("分页对象")
