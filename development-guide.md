@@ -208,8 +208,7 @@ judging the frontend/backend connection.
 
 Owner-aligned HTTP prefixes are `/api/evidence/indexing/*`, `/api/evidence/compilation/*`,
 `/api/account/settings/*`, and `/api/projects/{project_id}/author-preferences`.
-The former `/api/rag/*`, `/api/context/*`, and `/api/settings/*` prefixes are one-release
-mount aliases of the same handlers, not separate services.
+The former `/api/rag/*`, `/api/context/*`, and `/api/settings/*` prefixes have been retired.
 
 ## Module Structure
 

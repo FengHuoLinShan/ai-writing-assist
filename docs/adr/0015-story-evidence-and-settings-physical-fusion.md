@@ -45,6 +45,14 @@
 `origin/main` 可达的固定 SHA 发布一次，并核对生产发布状态后才能进行。
 `/api/outline/*`、Memory HTTP 路径、既有 task type 和所有响应 schema 不在退场范围内。
 
+## 兼容退场状态（2026-08-25）
+
+兼容准备版本 `2e46f1b2e3936c9ec52989da9abde21d3201bdb3` 已从 `origin/main`
+通过固定 SHA 生产发布，且权威发布状态、服务器 detached HEAD、公开 HTTPS、API 与数据库
+健康检查均核验通过。随后删除 `modules.outline` / `modules.memory` / `modules.rag` /
+`modules.context` 与旧 `/api/rag/*`、`/api/context/*`、`/api/settings/*` 挂载。
+`/api/outline/*`、Memory HTTP 路径、task type、响应 schema、ORM 与数据库表均保持不变。
+
 ## 结果
 
 - 最终业务模块为 `account`、`project`、`imports`、`world`、`evidence`、

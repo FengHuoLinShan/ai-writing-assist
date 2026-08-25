@@ -37,15 +37,12 @@ Three layers:
 - **API** (via root `backend/conftest.py` `async_client`): HTTP happy path + error path
 
 Account connection/global preference coverage and project preference/effective composition coverage share
-`backend/tests/account_project_preferences/`; the one-release `/api/settings` aliases are tested there without
-reintroducing a settings domain module.
+`backend/tests/account_project_preferences/` and use owner-aligned canonical routes.
 
 Evidence indexing/compilation 回归集中在 `backend/modules/evidence/`；
-`backend/tests/unit/test_evidence_fusion_contract.py` 保证旧 RAG/Context import 仅是同一实现的
-薄别名，且业务调用方只经 `modules.evidence.facade/contracts` 访问。
-`backend/tests/unit/test_canonical_owner_api_aliases.py` 还保证 owner-aligned canonical
-路径与一发布周期旧路径挂载的是同一 endpoint，且 OpenAPI、response model
-与 CSRF dependency 等价。
+`backend/tests/unit/test_evidence_fusion_contract.py` 保证业务调用方只经
+`modules.evidence.facade/contracts` 访问；`backend/tests/unit/test_retired_owner_paths.py`
+保证已退场的 RAG、Context 与 Settings HTTP 前缀返回 404。
 
 ## Test execution layers
 
@@ -291,7 +288,7 @@ import 复用 fixture；这会让 `conftest` 的解析取决于 pytest 收集顺
 Key points:
 - Root conftest owns model registration, the shared schema, DI reset, and FastAPI dependency override cleanup.
 - Each test starts with an empty logical database through transaction rollback; do not add per-module `create_all()` fixtures.
-- Feature fixtures may import the concrete models they construct (for example `modules.outline.models` for `scenes` / `scene_spans`); `WritingDraft` itself has no `chapter_cards` FK.
+- Feature fixtures may import the concrete models they construct (for example `modules.story.outline_state.models` for `scenes` / `scene_spans`); `WritingDraft` itself has no `chapter_cards` FK.
 
 ### Mock conventions
 

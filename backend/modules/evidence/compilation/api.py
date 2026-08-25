@@ -701,9 +701,3 @@ async def get_context_snapshot(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return ContextSnapshotResponse(**snapshot.__dict__)
-
-
-# One-release HTTP compatibility mount. Canonical Evidence routes mount the
-# same endpoint router from ``modules.evidence.api``.
-router = APIRouter(prefix="/api/context")
-router.include_router(handler_router)

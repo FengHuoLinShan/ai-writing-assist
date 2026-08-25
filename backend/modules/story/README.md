@@ -34,9 +34,8 @@ is: `story_outline_heads`, `story_outline_revisions`, `plot_threads`,
 `reveal_plans`, `memory_events`, `memory_snapshots`, `memory_scene_checkpoints`,
 `memory_scene_snapshots`, and `delta_log`. Active callers and owner tests use
 `modules.story.outline_state`, `modules.story.continuity`, and the stable
-`modules.story.facade`. The old `modules.outline` and `modules.memory` packages
-remain import/API/model aliases only until the canonical-preparation SHA has been
-released once; they contain no second service, repository, task, or ORM implementation.
+`modules.story.facade`. The old `modules.outline` and `modules.memory` import
+aliases were removed after the canonical-preparation SHA completed production release.
 
 The existing public prefixes remain `/api/outline` and
 `/api/novels/{novel_id}/memories`, alongside `/api/story`.

@@ -298,10 +298,8 @@ Lifecycle v1 为快照提供显式维护入口：
 ## API
 
 Evidence 是唯一实现。canonical 路径分别使用 `/api/evidence/indexing/*` 与
-`/api/evidence/compilation/*`，主动调用方已全部迁入 canonical 路径。`/api/rag/*` 和
-`/api/context/*` 仍作为同 endpoint 兼容挂载，不存在双 handler、双服务或双写；
-待准备版本固定 SHA 完成一次生产发布并核验后删除。下表列出 canonical 路径，兼容
-路径只替换对应前缀，suffix 与 wire response 完全一致。
+`/api/evidence/compilation/*`。旧 `/api/rag/*` 和 `/api/context/*` 已在兼容准备版本
+完成固定 SHA 生产发布并核验后退场。下表列出当前路径。
 
 ```http
 POST /api/evidence/indexing/chunks

@@ -38,7 +38,6 @@ owner 门禁。
 - `/api/auth/wechat`：Authing 微信登录；
 - `/api/auth/reauth/wechat`：微信重新认证。
 - `/api/account/settings/*`：账户连接、图片连接、余额与全局偏好的 canonical 路径；
-- `/api/settings/*`：待准备版本固定 SHA 发布核验后删除的兼容路径，挂载同一 endpoint。
 
 account facade 只向 project 暴露 secret-free 的运行时 contract。project 打开文本或图片 client 时
 再按已通过 owner 门禁的项目读取当前轮换后的账户 Key；Key 不进入 API、日志、项目 JSON 或任务

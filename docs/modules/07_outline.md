@@ -1,7 +1,7 @@
-# Module: Story outline_state / 大纲与结构兼容面
+# Module: Story outline_state / 大纲与结构
 
-> 当前生产 owner 是 `modules.story.outline_state`。`modules.outline` 仅保留待固定
-> SHA 发布核验后删除的 Python import 兼容入口；`/api/outline/*` 继续保持稳定。
+> 当前生产 owner 是 `modules.story.outline_state`。旧 `modules.outline` Python import
+> 兼容入口已退场；`/api/outline/*` 继续保持稳定。
 > 表名、任务、CAS、SceneSpan、Workbench、揭示和回滚
 > 行为不变；新生产消费者通过 `modules.story.facade` / `modules.story.contracts`。
 
@@ -149,7 +149,7 @@ preview，采用时在单一 savepoint 中原子写入，并记录总纲 revisio
 跨模块调用走 `modules.story.facade`。`modules.story.outline_state.facade` 内部
 按 seam 拆到 `scene_facade.py`、`structure_dedup_facade.py`、
 `deep_import_repair_facade.py` 和 `foreshadowing_facade.py`。子 facade 只提升
-outline 内部 locality；旧 `modules.outline.facade.*` 只由兼容契约测试保留。
+outline 内部 locality。
 
 当前常用入口包括：
 
@@ -285,5 +285,5 @@ OpenAPI 标记 deprecated；来源 Scene 在 worker 写回前按项目和来源�
 
 ```bash
 cd backend
-pytest modules/outline/tests/ -v
+pytest modules/story/outline_state/tests/ -v
 ```

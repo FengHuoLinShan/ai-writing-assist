@@ -253,9 +253,3 @@ async def split_text(
         "total": len(chunks),
         "method": method,
     }
-
-
-# One-release HTTP compatibility mount. Canonical Evidence routes mount the
-# same endpoint router from ``modules.evidence.api``.
-router = APIRouter(prefix="/api/rag")
-router.include_router(handler_router)

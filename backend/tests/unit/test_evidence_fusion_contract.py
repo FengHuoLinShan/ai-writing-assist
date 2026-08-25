@@ -1,42 +1,17 @@
-"""Physical-fusion guards: one implementation with one-release aliases."""
+"""Physical-fusion guard: consumers use the Evidence owner seam."""
 
 from __future__ import annotations
 
 import ast
 from pathlib import Path
 
-from modules.context import contracts as legacy_context_contracts
-from modules.context import facade as legacy_context_facade
-from modules.context import models as legacy_context_models
-from modules.evidence import contracts, facade
-from modules.evidence.compilation import models as compilation_models
-from modules.evidence.indexing import models as indexing_models
-from modules.rag import contracts as legacy_rag_contracts
-from modules.rag import facade as legacy_rag_facade
-from modules.rag import models as legacy_rag_models
-
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
-
-
-def test_legacy_imports_reexport_the_evidence_implementation() -> None:
-    assert legacy_rag_facade.retrieve is facade.retrieve
-    assert legacy_context_facade.confirm_context is facade.confirm_context
-    assert legacy_rag_contracts.RagChunkContract is contracts.RagChunkContract
-    assert (
-        legacy_context_contracts.ContextSnapshotRequest
-        is contracts.ContextSnapshotRequest
-    )
-    assert legacy_rag_models.RagChunk is indexing_models.RagChunk
-    assert (
-        legacy_context_models.ContextConfirmation
-        is compilation_models.ContextConfirmation
-    )
 
 
 def test_business_consumers_use_only_evidence_facade_or_contracts() -> None:
     violations: list[str] = []
     modules_root = BACKEND_ROOT / "modules"
-    excluded = {"evidence", "rag", "context"}
+    excluded = {"evidence"}
     for path in modules_root.rglob("*.py"):
         relative = path.relative_to(modules_root)
         if relative.parts[0] in excluded or "tests" in relative.parts:

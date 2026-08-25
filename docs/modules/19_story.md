@@ -9,8 +9,8 @@ World 仍拥有 canonical Character，Outline 仍拥有 Scene；Story 通过 fac
 Story 同时拥有原 Outline 与 Memory 的唯一生产实现，内部子域位于
 `backend/modules/story/outline_state` 与 `backend/modules/story/continuity`。保留原表名、任务
 类型、CAS、snapshot/checkpoint/rollback、SceneSpan、Workbench、揭示状态和 TextArchive/World
-回滚边界；`backend/modules/outline` 与 `backend/modules/memory` 仅在一个发布周期内作为薄
-import/API/model/schema 兼容层存在，不包含第二套 service/repository/task/ORM 逻辑。
+回滚边界；旧 `backend/modules/outline` 与 `backend/modules/memory` 兼容层已在准备版本
+完成固定 SHA 生产发布后退场。
 
 融合后的完整 Story-owned 表清单为：`story_outline_heads`、`story_outline_revisions`、
 `plot_threads`、`outline_arcs`、`scenes`、`scene_spans`、`scene_fusion_suggestions`、
