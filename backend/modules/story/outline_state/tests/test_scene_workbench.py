@@ -2211,10 +2211,10 @@ class TestSceneWorkbenchApi:
         await _create_draft(async_client, test_project_id, 1, "第一章")
         service = SceneWorkbenchService()
 
-        async def fail_sync(_db, _scene):  # type: ignore[no-untyped-def]
+        def fail_sync(_db, _scenes):  # type: ignore[no-untyped-def]
             raise RuntimeError("link sync failed")
 
-        monkeypatch.setattr(service.repo, "sync_chapter_links", fail_sync)
+        monkeypatch.setattr(service.repo, "_add_new_scene_indexes", fail_sync)
         transaction = await db_session.begin_nested()
         with pytest.raises(RuntimeError, match="link sync failed"):
             await service.create_scene_for_chapter(
