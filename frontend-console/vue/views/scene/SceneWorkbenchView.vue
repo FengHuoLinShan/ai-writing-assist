@@ -268,7 +268,7 @@
 </template>
 
 <script setup>
-import { computed, defineComponent, h, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue"
+import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import { structureAssetDisplay, worldAssetDisplay } from "../../../shared/assetDisplayState.js"
 import { confirmAsync } from "../../../shared/confirmAsync.js"
 import { getApi, getConfirm } from "../../bridge/index.js"
@@ -320,6 +320,10 @@ const props = defineProps({
   activeHealth: { type: String, default: null },
   advancedFiltersOpen: { type: Boolean, default: false },
   sceneLoadError: { type: String, default: null },
+})
+
+onMounted(() => {
+  document.querySelector(".outline-toolbar")?.dispatchEvent(new Event("workspace:content-rendered", { bubbles: true }))
 })
 
 const api = getApi()

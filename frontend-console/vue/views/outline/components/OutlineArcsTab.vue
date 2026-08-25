@@ -210,6 +210,7 @@ async function navigateFilters(filters, restoreFilterFocus = false) {
   outlineFilterDrafts[scope].routeSignature = query.toString()
   const navigated = await getRouter()?.navigate("outline", "arcs", true, query)
   if (restoreFilterFocus && navigated !== false) {
+    await new Promise(requestAnimationFrame)
     document.querySelector(".outline-structure-filters > summary")?.focus()
   }
 }

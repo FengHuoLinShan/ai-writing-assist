@@ -278,6 +278,7 @@ async function navigateFilters(filters, restoreFilterFocus = false) {
   outlineFilterDrafts[threadScope].routeSignature = query.toString()
   const navigated = await getRouter()?.navigate("outline", "threads", true, query)
   if (restoreFilterFocus && navigated !== false) {
+    await new Promise(requestAnimationFrame)
     document.querySelector(".outline-structure-filters > summary")?.focus()
   }
 }
