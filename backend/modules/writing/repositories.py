@@ -85,6 +85,61 @@ class WritingDraftRepository:
         await db.flush()
         return draft
 
+    async def create_many_with_status(
+        self,
+        db: AsyncSession,
+        data_items: Sequence[WritingDraftCreate],
+        *,
+        status: str,
+    ) -> list[WritingDraft]:
+        """Create versioned drafts with one grouped version read and one flush."""
+        if not data_items:
+            return []
+        novel_ids = {uuid.UUID(hex=item.novel_id) for item in data_items}
+        if len(novel_ids) != 1:
+            raise ValueError("batch drafts must belong to one novel")
+        novel_id = novel_ids.pop()
+        chapter_indices = sorted({item.chapter_index for item in data_items})
+        await self.lock_version_chapters_for_revalidation(
+            db,
+            novel_id,
+            chapter_indices,
+        )
+        rows = await db.execute(
+            select(
+                WritingDraft.chapter_index,
+                func.max(WritingDraft.version_number),
+            )
+            .where(
+                WritingDraft.novel_id == novel_id,
+                WritingDraft.chapter_index.in_(chapter_indices),
+            )
+            .group_by(WritingDraft.chapter_index)
+        )
+        next_versions = {
+            int(chapter): int(version or 0) + 1 for chapter, version in rows.all()
+        }
+        drafts: list[WritingDraft] = []
+        for data in data_items:
+            version = next_versions.get(data.chapter_index, 1)
+            next_versions[data.chapter_index] = version + 1
+            drafts.append(
+                WritingDraft(
+                    novel_id=novel_id,
+                    chapter_index=data.chapter_index,
+                    title=data.title,
+                    content=data.content,
+                    content_hash=hash_text(data.content),
+                    conflict_check_snapshot_json=None,
+                    provenance_json=data.provenance_json,
+                    version_number=version,
+                    status=status,
+                )
+            )
+        db.add_all(drafts)
+        await db.flush()
+        return drafts
+
     async def get(
         self,
         db: AsyncSession,

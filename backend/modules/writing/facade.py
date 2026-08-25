@@ -27,6 +27,7 @@ __all__ = [
     "create_draft",
     "create_draft_only",
     "create_published_draft_only",
+    "create_published_drafts_only",
     "get_author_attention_items",
     "get_draft",
     "get_latest_draft_for_chapter",
@@ -78,6 +79,24 @@ async def create_published_draft_only(
         content=content,
     )
     return await _service.create_published_draft_contract(db, data)
+
+
+async def create_published_drafts_only(
+    db: AsyncSession,
+    novel_id: str,
+    chapters: list[dict[str, object]],
+) -> list[WritingDraftContract]:
+    """批量创建已发布正文版本（纯持久化，不入队任务）。"""
+    data_items = [
+        WritingDraftCreate(
+            novel_id=novel_id,
+            chapter_index=int(chapter["chapter_index"]),
+            title=chapter.get("title") or f"第{chapter['chapter_index']}章",
+            content=str(chapter.get("content") or ""),
+        )
+        for chapter in chapters
+    ]
+    return await _service.create_published_draft_contracts(db, data_items)
 
 
 async def create_draft(

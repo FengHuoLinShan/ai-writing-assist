@@ -246,6 +246,22 @@ class WritingDraftService:
         draft = await self.create_published_draft(db, data)
         return self._to_contract(draft)
 
+    async def create_published_draft_contracts(
+        self,
+        db: AsyncSession,
+        data_items: list[WritingDraftCreate],
+    ) -> list[WritingDraftContract]:
+        sanitized = [_sanitize_draft_create(item)[0] for item in data_items]
+        drafts = await self._repo.create_many_with_status(
+            db,
+            sanitized,
+            status="published",
+        )
+        return [
+            self._to_contract(WritingDraftResponse.model_validate(draft))
+            for draft in drafts
+        ]
+
     async def publish_draft_result(
         self,
         db: AsyncSession,

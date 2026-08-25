@@ -812,7 +812,7 @@ class TestImportService:
         monkeypatch.setattr(service._repo, "update_status", _broken_update_status)
 
         with patch(
-            "modules.imports.services.create_published_draft_only",
+            "modules.imports.services.create_published_drafts_only",
             side_effect=RuntimeError("draft write failed"),
             autospec=True,
         ):
@@ -885,7 +885,7 @@ class TestUnexpectedImportErrorPersistence:
         monkeypatch.setattr(service._repo, "update_status", spy_update_status)
 
         with patch(
-            "modules.imports.services.create_published_draft_only",
+            "modules.imports.services.create_published_drafts_only",
             side_effect=RuntimeError(
                 "(psycopg2.errors.UniqueViolation) UPDATE imports SET secret='k'"
             ),

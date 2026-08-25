@@ -311,6 +311,39 @@ def test_character_reveal_guard_matches_normalized_hidden_text() -> None:
 
 class TestWritingDraftRepository:
     @pytest.mark.asyncio
+    async def test_create_many_reads_versions_once_and_flushes_once(self) -> None:
+        novel_id = uuid.uuid4()
+        rows = MagicMock()
+        rows.all.return_value = [(1, 3)]
+        db = MagicMock()
+        db.get_bind.return_value = SimpleNamespace(
+            dialect=SimpleNamespace(name="sqlite")
+        )
+        db.execute = AsyncMock(return_value=rows)
+        db.flush = AsyncMock()
+        items = [
+            WritingDraftCreate(
+                novel_id=str(novel_id),
+                chapter_index=chapter,
+                content=f"chapter-{chapter}",
+            )
+            for chapter in range(1, 101)
+        ]
+
+        drafts = await WritingDraftRepository().create_many_with_status(
+            db,
+            items,
+            status="published",
+        )
+
+        assert len(drafts) == 100
+        assert drafts[0].version_number == 4
+        assert drafts[-1].version_number == 1
+        db.execute.assert_awaited_once()
+        db.flush.assert_awaited_once()
+        db.add_all.assert_called_once_with(drafts)
+
+    @pytest.mark.asyncio
     async def test_create(
         self,
         repo: WritingDraftRepository,

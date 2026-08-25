@@ -98,3 +98,88 @@ async def test_concurrent_first_versions_are_serialized_per_chapter() -> None:
             )
             await db.execute(delete(Project).where(Project.id == novel_id))
         await engine.dispose()
+
+
+async def test_overlapping_batches_are_serialized_and_keep_monotonic_versions() -> None:
+    engine = create_async_engine(DATABASE_URL, pool_size=3, max_overflow=0)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    novel_id = uuid.uuid4()
+    first_created = asyncio.Event()
+    release_first = asyncio.Event()
+    second_started = asyncio.Event()
+
+    def draft(chapter: int, content: str) -> WritingDraftCreate:
+        return WritingDraftCreate(
+            novel_id=str(novel_id),
+            chapter_index=chapter,
+            content=content,
+        )
+
+    async def create_first() -> list[int]:
+        async with sessions() as db:
+            await db.begin()
+            drafts = await WritingDraftRepository().create_many_with_status(
+                db,
+                [draft(2, "first-2"), draft(1, "first-1")],
+                status="published",
+            )
+            first_created.set()
+            await release_first.wait()
+            await db.commit()
+            return [item.version_number for item in drafts]
+
+    async def create_second() -> list[int]:
+        await first_created.wait()
+        async with sessions() as db:
+            await db.begin()
+            second_started.set()
+            drafts = await WritingDraftRepository().create_many_with_status(
+                db,
+                [draft(3, "second-3"), draft(2, "second-2")],
+                status="published",
+            )
+            await db.commit()
+            return [item.version_number for item in drafts]
+
+    first_task: asyncio.Task[list[int]] | None = None
+    second_task: asyncio.Task[list[int]] | None = None
+    try:
+        async with sessions.begin() as db:
+            db.add(Project(id=novel_id, title="writing batch concurrency"))
+
+        first_task = asyncio.create_task(create_first())
+        await first_created.wait()
+        second_task = asyncio.create_task(create_second())
+        await second_started.wait()
+
+        done, _pending = await asyncio.wait({second_task}, timeout=0.1)
+        assert not done, "the overlapping batch must wait for the shared chapter lock"
+
+        release_first.set()
+        versions = await asyncio.gather(first_task, second_task)
+        assert versions == [[1, 1], [1, 2]]
+
+        async with sessions() as db:
+            chapter_two = await WritingDraftRepository().get_version_history(
+                db,
+                novel_id,
+                2,
+            )
+            assert [item.version_number for item in chapter_two] == [2, 1]
+    finally:
+        release_first.set()
+        pending = [
+            task
+            for task in (first_task, second_task)
+            if task is not None and not task.done()
+        ]
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        async with sessions.begin() as db:
+            await db.execute(
+                delete(WritingDraft).where(WritingDraft.novel_id == novel_id)
+            )
+            await db.execute(delete(Project).where(Project.id == novel_id))
+        await engine.dispose()
