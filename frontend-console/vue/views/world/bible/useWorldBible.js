@@ -20,6 +20,16 @@ import { authorDecisionPresentation } from "../../generate/logic/generateLogic.j
 
 const PROJECTION_TYPE = "context_brief"
 const BIBLE_DISPLAY_MODES = new Set(["editor", "gallery", "filter", "graph"])
+const NEW_CATEGORY_VALUE = "__new_category__"
+
+export const BIBLE_CATEGORY_PRESETS = [
+  { key: "technology", name: "技术体系", description: "技术、工程、能源与制造", color: "#2563EB", icon: "技术" },
+  { key: "power_system", name: "力量体系", description: "魔法、能力、等级、限制与代价", color: "#DC2626", icon: "力量" },
+  { key: "governance", name: "政治制度", description: "权力结构、法律、治理与继承", color: "#7C3AED", icon: "制度" },
+  { key: "economy", name: "经济贸易", description: "货币、资源、产业与交换", color: "#D97706", icon: "贸易" },
+  { key: "religion", name: "宗教信仰", description: "神话、教派、仪式与禁忌", color: "#9333EA", icon: "信仰" },
+  { key: "culture_language", name: "文化语言", description: "语言、命名、习俗与艺术", color: "#059669", icon: "文化" },
+]
 
 /** Deterministic, intentionally non-physical layout for the optional SVG aid. */
 export function knowledgeGraphLayout(nodes, edges, maxNodes = 40) {
@@ -44,7 +54,7 @@ export const BIBLE_PAGE_TYPES = {
   item: { label: "物品", title: "重要物品", desc: "装备、资源和关键道具", color: "#9333ea", symbol: "IT" },
   secret: { label: "秘密", title: "秘密", desc: "伏笔、真相和隐藏信息", color: "#7c3aed", symbol: "SE" },
   source_material: { label: "导入资料", title: "导入资料", desc: "尚未发布的外部世界书资料", color: "#475569", symbol: "IM" },
-  custom: { label: "自定义", title: "自定义", desc: "尚未归入固定类别的设定", color: "#6b7280", symbol: "CU" },
+  custom: { label: "未分类", title: "未分类", desc: "尚未归入其他类别的设定", color: "#6b7280", symbol: "未分" },
 }
 
 const BIBLE_FALLBACK_TYPE = {
@@ -94,7 +104,12 @@ export function useWorldBible(props) {
   // ---- data from props (pre-fetched by worldIsland load()) ----
   const projectId = computed(() => props.projectId)
   const pages = computed(() => props.bible?.pages || [])
-  const categories = computed(() => props.bible?.categories || [])
+  const savedCategories = reactive(new Map())
+  const categories = computed(() => {
+    const merged = new Map((props.bible?.categories || []).map((category) => [category.id || category.category_key, category]))
+    for (const [id, category] of savedCategories) merged.set(id, category)
+    return Array.from(merged.values())
+  })
   const savedDrafts = reactive(new Map())
   const drafts = computed(() => {
     const merged = new Map((props.bible?.drafts || []).map((draft) => [draft.id, draft]))
@@ -418,6 +433,7 @@ export function useWorldBible(props) {
 
   // ---- page navigation / categories ----
   function typeMeta(type) {
+    if (type === "custom") return BIBLE_PAGE_TYPES.custom
     const category = categories.value.find((c) => c.category_key === type)
     if (category) {
       return {
@@ -485,9 +501,15 @@ export function useWorldBible(props) {
           .filter((k) => k !== "item")
           .map((k) => ({ category_key: k, name: BIBLE_PAGE_TYPES[k].title }))
     if (selected && !cats.some((c) => c.category_key === selected)) {
-      cats.push({ category_key: selected, name: `${selected}（历史类别）` })
+      cats.push({ category_key: selected, name: selected === "custom" ? "未分类" : `${selected}（历史类别）` })
     }
-    return cats
+    return cats.map((category) => category.category_key === "custom" ? { ...category, name: "未分类" } : category)
+  }
+
+  function rememberCategory(category, fallback = {}) {
+    const saved = { ...fallback, ...category }
+    savedCategories.set(saved.id || saved.category_key, saved)
+    return saved
   }
 
   // ---- editor state (baseline / unsaved changes) ----
@@ -979,22 +1001,42 @@ export function useWorldBible(props) {
 
   // ---- create page ----
   function createPage() {
+    showCreatePageStep({
+      title: "世界基本背景",
+      categoryKey: "background",
+      templateKey: "",
+    })
+  }
+
+  function readCreatePageStep(state) {
+    state.title = document.getElementById("bible-create-title")?.value ?? state.title
+    state.categoryKey = document.getElementById("bible-create-type")?.value || state.categoryKey
+    state.templateKey = document.getElementById("bible-create-template")?.value ?? state.templateKey
+    return state
+  }
+
+  function showCreatePageStep(state) {
+    const options = categoryOptions(state.categoryKey).filter((category) => category.category_key !== "custom")
+    if (state.categoryKey && state.categoryKey !== NEW_CATEGORY_VALUE && !options.some((category) => category.category_key === state.categoryKey)) {
+      options.push({ category_key: state.categoryKey, name: typeMeta(state.categoryKey).title })
+    }
     const formHtml = `
       <div class="form-group">
-        <label>页面标题 *</label>
-        <input class="form-input" id="bible-create-title" value="世界基本背景" />
+        <label for="bible-create-title">页面标题 *</label>
+        <input class="form-input" id="bible-create-title" value="${esc(state.title)}" />
       </div>
       <div class="form-group">
-        <label>页面类型</label>
+        <label for="bible-create-type">页面分类</label>
         <select class="form-select" id="bible-create-type">
-          ${categoryOptions("background").map((c) => `<option value="${esc(c.category_key)}">${esc(c.name)}</option>`).join("")}
+          ${options.map((category) => `<option value="${esc(category.category_key)}"${category.category_key === state.categoryKey ? " selected" : ""}>${esc(category.name)}</option>`).join("")}
+          <option value="${NEW_CATEGORY_VALUE}">＋新建分类…</option>
         </select>
       </div>
       <div class="form-group">
-        <label>页面模板</label>
+        <label for="bible-create-template">页面模板</label>
         <select class="form-select" id="bible-create-template">
-          <option value="">空白页</option>
-          ${pageTemplates.value.map((t) => `<option value="${esc(t.template_key)}">${esc(t.name)} · v${esc(t.version_number)}</option>`).join("")}
+          <option value=""${state.templateKey ? "" : " selected"}>空白页</option>
+          ${pageTemplates.value.map((template) => `<option value="${esc(template.template_key)}"${template.template_key === state.templateKey ? " selected" : ""}>${esc(template.name)} · v${esc(template.version_number)}</option>`).join("")}
         </select>
       </div>
     `
@@ -1003,20 +1045,26 @@ export function useWorldBible(props) {
         text: "创建",
         class: "btn-primary",
         handler: async () => {
+          readCreatePageStep(state)
+          if (state.categoryKey === NEW_CATEGORY_VALUE || state.categoryKey === "custom") {
+            state.previousCategoryKey ||= "background"
+            showCategoryCreator(state)
+            return false
+          }
           const owner = captureEditorOwner()
           const modalOwner = captureModalOwner(document.getElementById("bible-create-title"))
-          const title = document.getElementById("bible-create-title")?.value?.trim()
+          const title = state.title.trim()
           if (!title) {
             toast("请输入页面标题", "warning")
             return false
           }
           try {
-            const templateKey = document.getElementById("bible-create-template")?.value || ""
+            const templateKey = state.templateKey
             const template = pageTemplates.value.find((t) => t.template_key === templateKey)
             const createPayload = {
               novel_id: owner.novelId,
               title,
-              page_type: document.getElementById("bible-create-type")?.value || "custom",
+              page_type: state.categoryKey,
             }
             if (templateKey) {
               createPayload.template_key = templateKey
@@ -1050,7 +1098,20 @@ export function useWorldBible(props) {
           }
         },
       },
+      { text: "取消", class: "btn-ghost", handler: closeModal },
     ])
+    const categorySelect = document.getElementById("bible-create-type")
+    if (Array.from(categorySelect?.options || []).some((option) => option.value === state.categoryKey)) categorySelect.value = state.categoryKey
+    const templateSelect = document.getElementById("bible-create-template")
+    if (templateSelect) templateSelect.value = state.templateKey
+    categorySelect?.addEventListener("change", (event) => {
+      const previousCategoryKey = state.categoryKey
+      readCreatePageStep(state)
+      if (event.target.value === NEW_CATEGORY_VALUE) {
+        state.previousCategoryKey = previousCategoryKey
+        showCategoryCreator(state)
+      }
+    })
   }
 
   // ---- projection ----
@@ -1937,30 +1998,195 @@ export function useWorldBible(props) {
   }
 
   // ---- category manager ----
+  function matchingCategory(draft) {
+    const name = draft.name.trim().toLocaleLowerCase()
+    return categories.value.find((category) => (
+      (draft.presetKey && category.category_key === draft.presetKey)
+      || (name && String(category.name || "").trim().toLocaleLowerCase() === name)
+    )) || null
+  }
+
+  function categoryActionLabel(draft, forPage = false) {
+    const existing = matchingCategory(draft)
+    if (existing?.status === "archived") return "恢复并使用"
+    if (existing) return "使用此分类"
+    return forPage ? "创建并用于此页面" : "创建并使用此分类"
+  }
+
+  function readCategoryCreator(draft) {
+    draft.name = document.getElementById("bible-category-name")?.value ?? draft.name
+    draft.description = document.getElementById("bible-category-description")?.value ?? draft.description
+    draft.color = (document.getElementById("bible-category-color")?.value || draft.color).toUpperCase()
+    draft.icon = document.getElementById("bible-category-icon")?.value ?? draft.icon
+    return draft
+  }
+
+  function updateCategoryCreatorAction(draft, pageState) {
+    readCategoryCreator(draft)
+    const action = document.querySelector("#modal-footer .btn-primary")
+    if (action) action.textContent = categoryActionLabel(draft, Boolean(pageState))
+    const existing = matchingCategory(draft)
+    const hint = document.getElementById("bible-category-existing-hint")
+    if (hint) hint.textContent = existing
+      ? (existing.status === "archived" ? "已有同名的归档分类，将恢复后使用。" : "已有这个分类，将直接使用。")
+      : ""
+  }
+
+  function showCategoryCreator(pageState = null) {
+    const categoryDraft = pageState?.categoryDraft || {
+      presetKey: "",
+      name: "",
+      description: "",
+      color: "#64748B",
+      icon: "",
+    }
+    if (pageState) pageState.categoryDraft = categoryDraft
+    const body = `
+      <p class="world-bible-empty-hint">选一个常用分类再调整，或者自己命名。</p>
+      <div class="world-bible-category-preset-grid" role="group" aria-label="常用分类">
+        ${BIBLE_CATEGORY_PRESETS.map((preset) => `
+          <button type="button" class="world-bible-category-preset${categoryDraft.presetKey === preset.key ? " is-active" : ""}" data-bible-category-preset="${preset.key}" aria-pressed="${categoryDraft.presetKey === preset.key}" style="--world-bible-type-color:${preset.color}">
+            <strong>${preset.name}</strong><span>${preset.description}</span>
+          </button>
+        `).join("")}
+        <button type="button" class="world-bible-category-preset${categoryDraft.presetKey ? "" : " is-active"}" data-bible-category-preset="" aria-pressed="${!categoryDraft.presetKey}">
+          <strong>自己命名</strong><span>为这个世界创建专属分类</span>
+        </button>
+      </div>
+      <div class="form-group"><label for="bible-category-name">分类名称 *</label><input class="form-input" id="bible-category-name" value="${esc(categoryDraft.name)}" placeholder="例如：天文与历法" /></div>
+      <div class="form-group"><label for="bible-category-description">用途说明</label><input class="form-input" id="bible-category-description" value="${esc(categoryDraft.description)}" placeholder="这类页面主要记录什么" /></div>
+      <p id="bible-category-existing-hint" class="world-bible-category-existing-hint" role="status"></p>
+      <details class="world-bible-category-appearance">
+        <summary>外观设置（可选）</summary>
+        <div class="world-bible-category-appearance__fields">
+          <div><label for="bible-category-color">颜色</label><input id="bible-category-color" type="color" value="${esc(categoryDraft.color)}" /></div>
+          <div><label for="bible-category-icon">卡片标记</label><input class="form-input" id="bible-category-icon" maxlength="16" value="${esc(categoryDraft.icon)}" placeholder="最多 16 个字" /></div>
+        </div>
+      </details>
+    `
+    showModalHtml(pageState ? "为页面新建分类" : "新建世界书分类", body, [
+      { text: categoryActionLabel(categoryDraft, Boolean(pageState)), class: "btn-primary", handler: () => saveCategoryFromCreator(categoryDraft, pageState) },
+      {
+        text: "返回",
+        class: "btn-ghost",
+        handler: () => {
+          readCategoryCreator(categoryDraft)
+          if (pageState) {
+            pageState.categoryKey = pageState.previousCategoryKey || "background"
+            showCreatePageStep(pageState)
+          } else {
+            openCategoryManager()
+          }
+          return false
+        },
+      },
+      { text: "取消", class: "btn-ghost", handler: closeModal },
+    ], { size: "large" })
+
+    document.querySelectorAll("[data-bible-category-preset]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const presetKey = button.getAttribute("data-bible-category-preset") || ""
+        const preset = BIBLE_CATEGORY_PRESETS.find((item) => item.key === presetKey)
+        categoryDraft.presetKey = presetKey
+        categoryDraft.name = preset?.name || ""
+        categoryDraft.description = preset?.description || ""
+        categoryDraft.color = preset?.color || "#64748B"
+        categoryDraft.icon = preset?.icon || ""
+        document.querySelectorAll("[data-bible-category-preset]").forEach((item) => {
+          item.classList.toggle("is-active", item === button)
+          item.setAttribute("aria-pressed", String(item === button))
+        })
+        const values = {
+          "bible-category-name": categoryDraft.name,
+          "bible-category-description": categoryDraft.description,
+          "bible-category-color": categoryDraft.color,
+          "bible-category-icon": categoryDraft.icon,
+        }
+        for (const [id, value] of Object.entries(values)) {
+          const input = document.getElementById(id)
+          if (input) input.value = value
+        }
+        updateCategoryCreatorAction(categoryDraft, pageState)
+        document.getElementById("bible-category-name")?.focus()
+      })
+    })
+    ;["bible-category-name", "bible-category-description", "bible-category-color", "bible-category-icon"].forEach((id) => {
+      document.getElementById(id)?.addEventListener("input", () => updateCategoryCreatorAction(categoryDraft, pageState))
+    })
+    updateCategoryCreatorAction(categoryDraft, pageState)
+  }
+
+  async function saveCategoryFromCreator(draft, pageState) {
+    readCategoryCreator(draft)
+    draft.name = draft.name.trim()
+    if (!draft.name) {
+      toast("请填写分类名称", "warning")
+      return false
+    }
+    const owner = captureEditorOwner()
+    const modalOwner = captureModalOwner(document.getElementById("bible-category-name"))
+    const existing = matchingCategory(draft)
+    try {
+      let category = existing
+      if (existing?.status === "archived") {
+        const restored = await api.world.updateBibleCategory(existing.id, { status: "active" }, owner.novelId)
+        category = { ...existing, status: "active", ...restored }
+      } else if (!existing) {
+        const payload = {
+          novel_id: owner.novelId,
+          category_key: draft.presetKey || `custom_${globalThis.crypto.randomUUID().replaceAll("-", "")}`,
+          name: draft.name,
+          description: draft.description.trim() || null,
+          color: draft.color || "#64748B",
+          icon: draft.icon.trim() || draft.name.slice(0, 2),
+          sort_order: 100,
+        }
+        const created = await api.world.createBibleCategory(payload)
+        category = { ...payload, status: "active", builtin: false, ...created }
+      }
+      if (!ownsEditor(owner) || !ownsModalOwner(modalOwner)) return true
+      rememberCategory(category)
+      toast(existing ? (existing.status === "archived" ? "分类已恢复" : "已使用现有分类") : "分类已创建", "success")
+      if (pageState) {
+        pageState.categoryKey = category.category_key
+        pageState.previousCategoryKey = category.category_key
+        showCreatePageStep(pageState)
+      } else {
+        openCategoryManager()
+      }
+      return true
+    } catch (err) {
+      if (ownsEditor(owner) && ownsModalOwner(modalOwner)) {
+        toast(err.message || "创建分类失败", "error")
+        return false
+      }
+      return true
+    }
+  }
+
   function openCategoryManager() {
     const custom = categories.value.filter((c) => !c.builtin)
     const body = `
-      <div class="world-bible-suggestion-list">
+      <div class="world-bible-category-manager-list">
         ${custom.length ? custom.map((item) => `
-          <div class="world-bible-suggestion-item">
-            <strong>${esc(item.name)}</strong> · ${esc(item.category_key)} · ${esc(item.status)}
+          <article class="world-bible-category-manager-card" style="--world-bible-type-color:${esc(item.color || "#64748B")}">
+            <span class="world-bible-category-manager-card__marker">${esc(item.icon || String(item.name || "").slice(0, 2))}</span>
+            <div class="world-bible-category-manager-card__body"><strong>${esc(item.name)}</strong><p>${esc(item.description || "暂无说明")}</p></div>
+            <span class="badge">${item.status === "archived" ? "已归档" : "使用中"}</span>
             <div class="world-bible-suggestion-item__actions">
               <button class="btn btn-sm" data-bible-category-edit="${esc(item.id)}">编辑</button>
               ${item.status !== "archived"
                 ? `<button class="btn btn-sm" data-bible-category-archive="${esc(item.id)}">归档</button>`
                 : `<button class="btn btn-sm" data-bible-category-restore="${esc(item.id)}">恢复</button>`}
             </div>
-          </div>
-        `).join("") : `<div class="world-bible-empty-hint">尚无自定义类别</div>`}
-        <div class="form-group"><label>类别键（创建后不可修改）</label><input class="form-input" id="bible-category-key" placeholder="technology" /></div>
-        <div class="form-group"><label>名称</label><input class="form-input" id="bible-category-name" placeholder="技术体系" /></div>
-        <div class="form-group"><label>说明</label><input class="form-input" id="bible-category-description" /></div>
-        <div class="form-group"><label>颜色</label><input class="form-input" id="bible-category-color" value="#64748B" /></div>
-        <div class="form-group"><label>图标短文本</label><input class="form-input" id="bible-category-icon" maxlength="16" /></div>
-        <div class="form-group"><label>排序</label><input class="form-input" id="bible-category-order" type="number" value="100" /></div>
+          </article>
+        `).join("") : `<div class="world-bible-empty-hint">还没有为这个世界创建专属分类。</div>`}
       </div>
     `
-    showModalHtml("管理世界书类别", body, [{ text: "创建类别", class: "btn-primary", handler: () => createCategoryFromModal() }], { size: "large" })
+    showModalHtml("管理世界书分类", body, [
+      { text: "新建分类", class: "btn-primary", handler: () => { showCategoryCreator(); return false } },
+      { text: "关闭", class: "btn-ghost", handler: closeModal },
+    ], { size: "large" })
     document.querySelectorAll("[data-bible-category-edit]").forEach((button) => {
       button.addEventListener("click", () => editCategory(button.getAttribute("data-bible-category-edit")))
     })
@@ -1972,69 +2198,37 @@ export function useWorldBible(props) {
     })
   }
 
-  async function createCategoryFromModal() {
-    const categoryKey = document.getElementById("bible-category-key")?.value?.trim() || ""
-    const name = document.getElementById("bible-category-name")?.value?.trim() || ""
-    if (!categoryKey || !name) {
-      toast("请填写类别键和名称", "warning")
-      return false
-    }
-    const owner = captureEditorOwner()
-    const modalOwner = captureModalOwner(document.getElementById("bible-category-key"))
-    try {
-      await api.world.createBibleCategory({
-        novel_id: owner.novelId,
-        category_key: categoryKey,
-        name,
-        description: document.getElementById("bible-category-description")?.value || null,
-        color: document.getElementById("bible-category-color")?.value || "#64748B",
-        icon: document.getElementById("bible-category-icon")?.value || "",
-        sort_order: Number(document.getElementById("bible-category-order")?.value || 100),
-      })
-      if (!ownsEditor(owner) || !ownsModalOwner(modalOwner)) return true
-      closeModal()
-      toast("类别已创建；类别键后续不可修改", "success")
-      router.refresh()
-    } catch (err) {
-      if (ownsEditor(owner) && ownsModalOwner(modalOwner)) {
-        toast(err.message || "创建类别失败", "error")
-        return false
-      }
-      return true
-    }
-  }
-
   function editCategory(categoryId) {
     const item = categories.value.find((c) => c.id === categoryId)
     if (!item || item.builtin) return
     const body = `
-      <p class="world-bible-empty-hint">稳定键 ${esc(item.category_key)} 创建后不可修改。</p>
-      <div class="form-group"><label>名称</label><input class="form-input" id="bible-category-edit-name" value="${esc(item.name)}" /></div>
-      <div class="form-group"><label>说明</label><input class="form-input" id="bible-category-edit-description" value="${esc(item.description || "")}" /></div>
-      <div class="form-group"><label>颜色</label><input class="form-input" id="bible-category-edit-color" value="${esc(item.color || "#64748B")}" /></div>
-      <div class="form-group"><label>图标短文本</label><input class="form-input" id="bible-category-edit-icon" maxlength="16" value="${esc(item.icon || "")}" /></div>
-      <div class="form-group"><label>排序</label><input class="form-input" id="bible-category-edit-order" type="number" value="${esc(item.sort_order || 0)}" /></div>
+      <div class="form-group"><label for="bible-category-edit-name">分类名称 *</label><input class="form-input" id="bible-category-edit-name" value="${esc(item.name)}" /></div>
+      <div class="form-group"><label for="bible-category-edit-description">用途说明</label><input class="form-input" id="bible-category-edit-description" value="${esc(item.description || "")}" /></div>
+      <details class="world-bible-category-appearance"><summary>外观设置（可选）</summary><div class="world-bible-category-appearance__fields">
+        <div><label for="bible-category-edit-color">颜色</label><input id="bible-category-edit-color" type="color" value="${esc(item.color || "#64748B")}" /></div>
+        <div><label for="bible-category-edit-icon">卡片标记</label><input class="form-input" id="bible-category-edit-icon" maxlength="16" value="${esc(item.icon || "")}" /></div>
+      </div></details>
     `
-    showModalHtml("编辑世界书类别", body, [{ text: "保存", class: "btn-primary", handler: () => saveCategory(categoryId) }])
+    showModalHtml("编辑世界书分类", body, [{ text: "保存", class: "btn-primary", handler: () => saveCategory(categoryId) }])
   }
 
   async function saveCategory(categoryId) {
     const name = document.getElementById("bible-category-edit-name")?.value?.trim() || ""
-    if (!name) { toast("类别名称不能为空", "warning"); return false }
+    if (!name) { toast("分类名称不能为空", "warning"); return false }
     const owner = captureEditorOwner()
     const modalOwner = captureModalOwner(document.getElementById("bible-category-edit-name"))
     try {
-      await api.world.updateBibleCategory(categoryId, {
+      const updated = await api.world.updateBibleCategory(categoryId, {
         name,
         description: document.getElementById("bible-category-edit-description")?.value || null,
         color: document.getElementById("bible-category-edit-color")?.value || "#64748B",
         icon: document.getElementById("bible-category-edit-icon")?.value || "",
-        sort_order: Number(document.getElementById("bible-category-edit-order")?.value || 0),
       }, owner.novelId)
       if (!ownsEditor(owner) || !ownsModalOwner(modalOwner)) return true
-      closeModal()
-      toast("类别已更新", "success")
-      router.refresh()
+      rememberCategory(updated, { ...categories.value.find((category) => category.id === categoryId), name })
+      toast("分类已更新", "success")
+      openCategoryManager()
+      return true
     } catch (err) {
       if (ownsEditor(owner) && ownsModalOwner(modalOwner)) {
         toast(err.message || "更新类别失败", "error")
@@ -2046,15 +2240,17 @@ export function useWorldBible(props) {
 
   function archiveCategory(categoryId) {
     // vanilla 走 confirmAction 应用模态（worldBibleView.js:1876），非原生 confirm
-    return confirmAction("归档该类别？现有页面不会删除，但不能再将工作稿切换到该类别。", async () => {
+    return confirmAction("归档该分类？现有页面不会删除，但不能再将工作稿切换到该分类。", async () => {
       const owner = captureEditorOwner()
       const modalOwner = captureModalOwner()
       try {
-        await api.world.updateBibleCategory(categoryId, { status: "archived" }, owner.novelId)
+        const current = categories.value.find((category) => category.id === categoryId)
+        const archived = await api.world.updateBibleCategory(categoryId, { status: "archived" }, owner.novelId)
         if (!ownsEditor(owner) || !ownsModalOwner(modalOwner)) return true
-        closeModal()
-        toast("类别已归档，现有页面已保留", "success")
-        router.refresh()
+        rememberCategory(archived, { ...current, status: "archived" })
+        toast("分类已归档，现有页面已保留", "success")
+        openCategoryManager()
+        return true
       } catch (err) {
         if (ownsEditor(owner) && ownsModalOwner(modalOwner)) {
           toast(err.message || "归档类别失败", "error")
@@ -2069,11 +2265,13 @@ export function useWorldBible(props) {
     const novelId = projectId.value
     const modalOwner = captureModalOwner(ownerNode)
     try {
-      await api.world.updateBibleCategory(categoryId, { status: "active" }, novelId)
+      const current = categories.value.find((category) => category.id === categoryId)
+      const restored = await api.world.updateBibleCategory(categoryId, { status: "active" }, novelId)
       if (!ownsProject(novelId) || !ownsModalOwner(modalOwner)) return false
-      closeModal()
-      toast("类别已恢复，可重新用于工作稿", "success")
-      router.refresh()
+      rememberCategory(restored, { ...current, status: "active" })
+      toast("分类已恢复，可重新用于工作稿", "success")
+      openCategoryManager()
+      return true
     } catch (err) {
       if (ownsProject(novelId) && ownsModalOwner(modalOwner)) toast(err.message || "恢复类别失败", "error")
       return false

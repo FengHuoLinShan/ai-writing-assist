@@ -30,19 +30,25 @@
           >{{ label }}</button>
         </span>
         <button class="btn btn-sm btn-primary" data-action="bible-new-page" @click="createPage">新建页面</button>
-        <details class="world-bible-toolbar__more" data-section="bible-toolbar-more">
-          <summary class="btn btn-sm btn-ghost">更多工具</summary>
-          <div class="world-bible-toolbar__more-actions">
-            <button class="btn btn-sm" data-action="bible-manage-categories" @click="openCategoryManager">管理分类</button>
-            <button class="btn btn-sm" data-action="bible-manage-page-templates" @click="openPageTemplateManager">页面模板</button>
-            <button class="btn btn-sm" data-action="bible-open-worldbook-import" @click="worldbookImportOpen = true">导入目录</button>
-            <button class="btn btn-sm" data-action="bible-open-suggestions" @click="openSuggestions">创设建议</button>
-            <button class="btn btn-sm" data-action="bible-open-conflicts" @click="openConflicts">冲突检查</button>
+        <details
+          ref="toolbarMoreEl"
+          class="world-bible-toolbar__more scene-workbench-tools"
+          data-section="bible-toolbar-more"
+          @toggle="toolbarMoreOpen = $event.currentTarget.open"
+          @keydown.esc.stop.prevent="closeToolbarMore(true)"
+        >
+          <summary class="btn btn-sm btn-ghost" aria-controls="world-bible-more-tools" :aria-expanded="String(toolbarMoreOpen)">更多工具</summary>
+          <div id="world-bible-more-tools" class="world-bible-toolbar__more-actions scene-workbench-tools__menu" role="group" aria-label="更多工具">
+            <button class="btn btn-sm" data-action="bible-manage-categories" @click="runToolbarAction(openCategoryManager)">管理分类</button>
+            <button class="btn btn-sm" data-action="bible-manage-page-templates" @click="runToolbarAction(openPageTemplateManager)">页面模板</button>
+            <button class="btn btn-sm" data-action="bible-open-worldbook-import" @click="runToolbarAction(() => { worldbookImportOpen = true })">导入目录</button>
+            <button class="btn btn-sm" data-action="bible-open-suggestions" @click="runToolbarAction(openSuggestions)">创设建议</button>
+            <button class="btn btn-sm" data-action="bible-open-conflicts" @click="runToolbarAction(openConflicts)">冲突检查</button>
             <button
               class="btn btn-sm"
               data-action="bible-inspect-current-page"
               :disabled="!activePage && !semanticInspectionPending"
-              @click="inspectCurrentPage"
+              @click="runToolbarAction(inspectCurrentPage)"
             >{{ semanticInspectionPending ? "停止检修" : "检修当前页" }}</button>
           </div>
         </details>
@@ -633,6 +639,8 @@ const props = defineProps({
 })
 
 const rootEl = ref(null)
+const toolbarMoreEl = ref(null)
+const toolbarMoreOpen = ref(false)
 const worldbookImportOpen = ref(Boolean(props.bibleDeepLink?.openWorldbookImport))
 const validationRun = ref(props.bible?.validationRun || null)
 const validationPolicy = ref(props.bible?.validationPolicy || { active: false })
@@ -641,6 +649,24 @@ watch(() => props.bibleDeepLink?.openWorldbookImport, (open) => {
 })
 
 const modeLabels = { editor: "编辑", gallery: "图鉴", filter: "筛选", graph: "关联图" }
+
+function closeToolbarMore(restoreFocus = false) {
+  if (!toolbarMoreEl.value?.open) return
+  toolbarMoreEl.value.open = false
+  toolbarMoreOpen.value = false
+  if (restoreFocus) nextTick(() => toolbarMoreEl.value?.querySelector("summary")?.focus())
+}
+
+function runToolbarAction(action) {
+  const summary = toolbarMoreEl.value?.querySelector("summary")
+  closeToolbarMore(false)
+  summary?.focus()
+  action()
+}
+
+function onToolbarOutsideClick(event) {
+  if (toolbarMoreEl.value?.open && !toolbarMoreEl.value.contains(event.target)) closeToolbarMore(false)
+}
 
 const {
   displayMode,
@@ -1084,6 +1110,7 @@ async function publishActivationProfile() {
 onMounted(() => {
   rootEl.value?.dispatchEvent(new Event("workspace:content-rendered", { bubbles: true }))
   mountAssetRefPicker()
+  document.addEventListener("click", onToolbarOutsideClick)
 })
 
 onBeforeUnmount(() => {
@@ -1092,6 +1119,7 @@ onBeforeUnmount(() => {
   assetRefPicker?.destroy?.()
   assetRefPicker = null
   destroyActivationTargetPicker()
+  document.removeEventListener("click", onToolbarOutsideClick)
 })
 
 function mountAssetRefPicker() {

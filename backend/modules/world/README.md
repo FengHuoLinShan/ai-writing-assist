@@ -177,10 +177,12 @@ TargetRef 的 hash，`projection_policy` 和 `sensitivity_hint` 只能收紧投�
 应用模板只改服务器工作稿；恢复历史模板会把旧快照写成当前模板的新版本，不覆盖历史，也
 不会自动改写已发布页面。
 
-内置类别为 `background/species/faction/location/rule/secret/custom`。项目自定义类别只
-保存 `key/name/description/color/icon/sort_order/status/default_template_key`；默认模板只影响
-新建页面选择，`category_key` 创建后不可修改，归档不删除历史页面，也不定义模板 schema
-或资产激活规则。
+内置类别为 `background/species/faction/location/rule/secret/custom`。`custom` 仅作为历史页面、
+缺省调用与外部消费者的兼容兜底；作者从新建页面入口选择“新建分类”时，先创建项目
+自定义分类，再用该分类创建工作稿，不会主动产生新的 `page_type="custom"` 页面。
+项目自定义类别只保存 `key/name/description/color/icon/sort_order/status/default_template_key`；
+默认模板只影响新建页面选择，`category_key` 创建后不可修改，归档不删除历史页面，
+也不定义模板 schema 或资产激活规则。
 
 `world_bible_synopsis` 是独立的作者模式 P1 section，UI 名称为“世界观简介”。它由 LLM
 从已采用结构化世界事实和 `canonical/confirmed` 页面派生，允许按资料本身选择最有用的

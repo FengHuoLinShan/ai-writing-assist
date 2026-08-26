@@ -143,13 +143,24 @@ function installModalHost() {
   overlay.className = "hidden"
   const body = document.createElement("div")
   body.id = "modal-body"
+  const footer = document.createElement("div")
+  footer.id = "modal-footer"
   overlay.appendChild(body)
+  overlay.appendChild(footer)
   document.body.appendChild(overlay)
-  showModalHtmlMock.mockImplementation((_title, html) => {
+  showModalHtmlMock.mockImplementation((_title, html, buttons = []) => {
     body.innerHTML = html
+    footer.innerHTML = ""
+    for (const descriptor of buttons) {
+      const button = document.createElement("button")
+      button.className = `btn ${descriptor.class || ""}`
+      button.textContent = descriptor.text
+      button.addEventListener("click", () => descriptor.handler?.())
+      footer.appendChild(button)
+    }
     overlay.classList.remove("hidden")
   })
-  return { overlay, body }
+  return { overlay, body, footer }
 }
 
 function mountTab(propOverrides = {}) {
@@ -217,6 +228,46 @@ describe("渲染契约", () => {
     expect(toolbar.find("[data-action='bible-inspect-current-page']").exists()).toBe(true)
     expect(moreTools.attributes("open")).toBeUndefined()
     expect(moreTools.get("summary").text()).toBe("更多工具")
+    expect(moreTools.get("summary").attributes("aria-expanded")).toBe("false")
+    expect(moreTools.get("[role='group'][aria-label='更多工具']").classes()).toContain("scene-workbench-tools__menu")
+  })
+
+  it("更多工具支持 Escape、外部点击和动作后的焦点恢复", async () => {
+    const wrapper = mountTab()
+    const moreTools = wrapper.get("[data-section='bible-toolbar-more']")
+    const summary = moreTools.get("summary")
+
+    moreTools.element.open = true
+    await moreTools.trigger("toggle")
+    expect(summary.attributes("aria-expanded")).toBe("true")
+    await moreTools.trigger("keydown", { key: "Escape" })
+    await nextTick()
+    expect(moreTools.element.open).toBe(false)
+    expect(document.activeElement).toBe(summary.element)
+
+    moreTools.element.open = true
+    await moreTools.trigger("toggle")
+    document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    await nextTick()
+    expect(moreTools.element.open).toBe(false)
+
+    moreTools.element.open = true
+    await moreTools.trigger("toggle")
+    await moreTools.get("[data-action='bible-manage-categories']").trigger("click")
+    await nextTick()
+    expect(moreTools.element.open).toBe(false)
+    expect(document.activeElement).toBe(summary.element)
+  })
+
+  it("禁用的更多工具动作不关闭菜单", async () => {
+    const wrapper = mountTab({ bible: { pages: [], categories: [], drafts: [], synopsis: null, pageTemplates: [], activationProfiles: [] } })
+    const moreTools = wrapper.get("[data-section='bible-toolbar-more']")
+    moreTools.element.open = true
+    await moreTools.trigger("toggle")
+
+    await moreTools.get("[data-action='bible-inspect-current-page']").trigger("click")
+
+    expect(moreTools.element.open).toBe(true)
   })
 
   it("汇总已保存的未决项，以工作稿覆盖正式页并可打开来源", async () => {
@@ -843,7 +894,7 @@ describe("模态操作", () => {
     saved.resolve({ ...DRAFT_1, free_text: "未保存修改" })
 
     await expect(saving).resolves.toBe(true)
-    expect(showModalHtmlMock.mock.calls.at(-1)[0]).toBe("管理世界书类别")
+    expect(showModalHtmlMock.mock.calls.at(-1)[0]).toBe("管理世界书分类")
     expect(closeModalMock).not.toHaveBeenCalled()
     expect(navigateMock).not.toHaveBeenCalled()
     expect(toastMock).not.toHaveBeenCalledWith("工作稿已保存；正式页面尚未变化", "success")
@@ -968,6 +1019,180 @@ describe("模态操作", () => {
     expect(showModalHtmlMock.mock.calls[0][0]).toBe("新建世界书页面")
     const html = showModalHtmlMock.mock.calls[0][1]
     expect(html).toContain("bible-create-title")
+    expect(html).toContain("页面分类")
+    expect(html).toContain('<option value="__new_category__">＋新建分类…</option>')
+    expect(html).not.toContain('<option value="custom"')
+  })
+
+  it("新建页面在同一弹窗进入分类第二步并可返回保留表单", async () => {
+    const wrapper = mountTab()
+    installModalHost()
+
+    await wrapper.find("[data-action='bible-new-page']").trigger("click")
+    document.getElementById("bible-create-title").value = "云海历法"
+    document.getElementById("bible-create-template").value = "e2e_trade_guide"
+    const type = document.getElementById("bible-create-type")
+    type.value = "__new_category__"
+    type.dispatchEvent(new Event("change", { bubbles: true }))
+
+    expect(showModalHtmlMock.mock.calls.at(-1)[0]).toBe("为页面新建分类")
+    expect(document.querySelectorAll("[data-bible-category-preset]")).toHaveLength(7)
+    expect(document.getElementById("bible-category-key")).toBeNull()
+    expect(document.getElementById("bible-category-order")).toBeNull()
+    expect(document.getElementById("bible-category-color").type).toBe("color")
+
+    document.querySelector("[data-bible-category-preset='technology']").click()
+    expect(document.getElementById("bible-category-name").value).toBe("技术体系")
+    expect(document.getElementById("bible-category-description").value).toBe("技术、工程、能源与制造")
+    expect(document.getElementById("bible-category-icon").value).toBe("技术")
+    expect(document.querySelector("[data-bible-category-preset='technology']").getAttribute("aria-pressed")).toBe("true")
+
+    document.querySelector("#modal-footer .btn-ghost").click()
+    expect(showModalHtmlMock.mock.calls.at(-1)[0]).toBe("新建世界书页面")
+    expect(document.getElementById("bible-create-title").value).toBe("云海历法")
+    expect(document.getElementById("bible-create-template").value).toBe("e2e_trade_guide")
+    expect(document.getElementById("bible-create-type").value).toBe("background")
+  })
+
+  it("六个预设值精确填充并将新分类用于工作稿", async () => {
+    const api = (await import("../../../../vue/bridge/index.js")).getApi()
+    const presets = [
+      ["technology", "技术体系", "技术、工程、能源与制造", "#2563EB", "技术"],
+      ["power_system", "力量体系", "魔法、能力、等级、限制与代价", "#DC2626", "力量"],
+      ["governance", "政治制度", "权力结构、法律、治理与继承", "#7C3AED", "制度"],
+      ["economy", "经济贸易", "货币、资源、产业与交换", "#D97706", "贸易"],
+      ["religion", "宗教信仰", "神话、教派、仪式与禁忌", "#9333EA", "信仰"],
+      ["culture_language", "文化语言", "语言、命名、习俗与艺术", "#059669", "文化"],
+    ]
+    const wrapper = mountTab()
+    installModalHost()
+    await wrapper.find("[data-action='bible-new-page']").trigger("click")
+    const type = document.getElementById("bible-create-type")
+    type.value = "__new_category__"
+    type.dispatchEvent(new Event("change", { bubbles: true }))
+
+    for (const [key, name, description, color, icon] of presets) {
+      document.querySelector(`[data-bible-category-preset='${key}']`).click()
+      expect(document.getElementById("bible-category-name").value).toBe(name)
+      expect(document.getElementById("bible-category-description").value).toBe(description)
+      expect(document.getElementById("bible-category-color").value.toUpperCase()).toBe(color)
+      expect(document.getElementById("bible-category-icon").value).toBe(icon)
+    }
+
+    document.querySelector("[data-bible-category-preset='technology']").click()
+    api.world.createBibleCategory = vi.fn().mockResolvedValue({
+      id: "cat-tech", category_key: "technology", name: "技术体系", description: "技术、工程、能源与制造",
+      color: "#2563EB", icon: "技术", sort_order: 100, status: "active", builtin: false,
+    })
+    api.world.createBibleDraft = vi.fn().mockResolvedValue({ ...DRAFT_FREE, id: "draft-tech", title: "世界基本背景", page_type: "technology" })
+    await showModalHtmlMock.mock.calls.at(-1)[2][0].handler()
+
+    expect(showModalHtmlMock.mock.calls.at(-1)[1]).toContain('<option value="technology" selected>')
+    expect(Array.from(document.getElementById("bible-create-type").options).map((option) => [option.value, option.selected])).toEqual([
+      ["background", false], ["species", false], ["technology", true], ["__new_category__", false],
+    ])
+    await showModalHtmlMock.mock.calls.at(-1)[2][0].handler()
+    expect(api.world.createBibleDraft).toHaveBeenCalledWith(expect.objectContaining({ page_type: "technology" }))
+    expect(api.world.createBibleDraft.mock.calls[0][0].page_type).not.toBe("custom")
+  })
+
+  it("自己命名使用浏览器 UUID 生成内部键并自动取卡片标记", async () => {
+    const api = (await import("../../../../vue/bridge/index.js")).getApi()
+    const uuid = vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue("12345678-1234-4abc-8def-1234567890ab")
+    api.world.createBibleCategory = vi.fn(async (payload) => ({ id: "cat-own", ...payload, status: "active", builtin: false }))
+    const wrapper = mountTab()
+    installModalHost()
+    await wrapper.find("[data-action='bible-new-page']").trigger("click")
+    const type = document.getElementById("bible-create-type")
+    type.value = "__new_category__"
+    type.dispatchEvent(new Event("change", { bubbles: true }))
+    document.getElementById("bible-category-name").value = "天文历法"
+    document.getElementById("bible-category-name").dispatchEvent(new Event("input", { bubbles: true }))
+
+    await showModalHtmlMock.mock.calls.at(-1)[2][0].handler()
+
+    expect(api.world.createBibleCategory).toHaveBeenCalledWith(expect.objectContaining({
+      category_key: "custom_1234567812344abc8def1234567890ab",
+      name: "天文历法",
+      icon: "天文",
+      sort_order: 100,
+    }))
+    uuid.mockRestore()
+  })
+
+  it("预设分类已存在时直接复用而不重复创建", async () => {
+    const api = (await import("../../../../vue/bridge/index.js")).getApi()
+    api.world.createBibleCategory = vi.fn()
+    const technology = {
+      id: "cat-tech", category_key: "technology", name: "技术体系",
+      description: "技术、工程、能源与制造", color: "#2563EB", icon: "技术",
+      sort_order: 100, status: "active", builtin: false,
+    }
+    const wrapper = mountTab({ bible: { ...defaultBible(), categories: [...CATEGORIES, technology] } })
+    installModalHost()
+
+    await wrapper.find("[data-action='bible-new-page']").trigger("click")
+    const type = document.getElementById("bible-create-type")
+    type.value = "__new_category__"
+    type.dispatchEvent(new Event("change", { bubbles: true }))
+    document.querySelector("[data-bible-category-preset='technology']").click()
+
+    expect(document.querySelector("#modal-footer .btn-primary").textContent).toBe("使用此分类")
+    await showModalHtmlMock.mock.calls.at(-1)[2][0].handler()
+    expect(api.world.createBibleCategory).not.toHaveBeenCalled()
+    expect(document.getElementById("bible-create-type").value).toBe("technology")
+  })
+
+  it("预设分类已归档时恢复后使用", async () => {
+    const api = (await import("../../../../vue/bridge/index.js")).getApi()
+    const technology = {
+      id: "cat-tech", category_key: "technology", name: "技术体系",
+      description: "技术、工程、能源与制造", color: "#2563EB", icon: "技术",
+      sort_order: 100, status: "archived", builtin: false,
+    }
+    api.world.createBibleCategory = vi.fn()
+    api.world.updateBibleCategory = vi.fn().mockResolvedValue({ ...technology, status: "active" })
+    const wrapper = mountTab({ bible: { ...defaultBible(), categories: [...CATEGORIES, technology] } })
+    installModalHost()
+
+    await wrapper.find("[data-action='bible-new-page']").trigger("click")
+    const type = document.getElementById("bible-create-type")
+    type.value = "__new_category__"
+    type.dispatchEvent(new Event("change", { bubbles: true }))
+    document.querySelector("[data-bible-category-preset='technology']").click()
+
+    expect(document.querySelector("#modal-footer .btn-primary").textContent).toBe("恢复并使用")
+    await showModalHtmlMock.mock.calls.at(-1)[2][0].handler()
+    expect(api.world.updateBibleCategory).toHaveBeenCalledWith("cat-tech", { status: "active" }, "p1")
+    expect(api.world.createBibleCategory).not.toHaveBeenCalled()
+    expect(document.getElementById("bible-create-type").value).toBe("technology")
+  })
+
+  it("分类创建响应晚到时不污染新弹窗或本地分类", async () => {
+    const api = (await import("../../../../vue/bridge/index.js")).getApi()
+    const created = deferred()
+    api.world.createBibleCategory = vi.fn(() => created.promise)
+    const wrapper = mountTab()
+    installModalHost()
+
+    await wrapper.find("[data-action='bible-new-page']").trigger("click")
+    const type = document.getElementById("bible-create-type")
+    type.value = "__new_category__"
+    type.dispatchEvent(new Event("change", { bubbles: true }))
+    document.getElementById("bible-category-name").value = "天文历法"
+    const saving = showModalHtmlMock.mock.calls.at(-1)[2][0].handler()
+    await vi.waitFor(() => expect(api.world.createBibleCategory).toHaveBeenCalled())
+    await wrapper.find("[data-action='bible-manage-page-templates']").trigger("click")
+    created.resolve({
+      id: "cat-late", category_key: "custom_late", name: "天文历法",
+      color: "#64748B", icon: "天文", sort_order: 100, status: "active", builtin: false,
+    })
+    await saving
+
+    expect(showModalHtmlMock.mock.calls.at(-1)[0]).toBe("页面模板")
+    await wrapper.find("[data-action='bible-manage-categories']").trigger("click")
+    expect(showModalHtmlMock.mock.calls.at(-1)[1]).not.toContain("天文历法")
+    expect(toastMock).not.toHaveBeenCalledWith("分类已创建", "success")
   })
 
   it("创建页面后就地打开返回的工作稿", async () => {
@@ -1002,7 +1227,7 @@ describe("模态操作", () => {
     const wrapper = mountTab()
     document.body.insertAdjacentHTML("beforeend", `
       <input id="bible-create-title" value="新建页" />
-      <select id="bible-create-type"><option value="custom" selected>自定义</option></select>
+      <select id="bible-create-type"><option value="background" selected>背景</option></select>
       <select id="bible-create-template"><option value="" selected>空白页</option></select>
     `)
 
@@ -1011,14 +1236,14 @@ describe("模态操作", () => {
     await vi.waitFor(() => expect(api.world.createBibleDraft).toHaveBeenCalledWith(expect.objectContaining({ novel_id: "p1", title: "新建页" })))
     await wrapper.find("[data-bible-page-id='page-2']").trigger("click")
     await wrapper.find("[data-action='bible-manage-categories']").trigger("click")
-    expect(showModalHtmlMock.mock.calls.at(-1)[0]).toBe("管理世界书类别")
+    expect(showModalHtmlMock.mock.calls.at(-1)[0]).toBe("管理世界书分类")
     created.resolve({ id: "draft-new", page_id: null, title: "新建页", page_type: "custom", sections_json: [], linked_asset_refs_json: [] })
     await expect(creating).resolves.toBe(true)
 
     expect(worldSession.bible.activePageId).toBe("page-2")
     expect(worldSession.bible.activeDraftId).toBeNull()
     expect(closeModalMock).not.toHaveBeenCalled()
-    expect(showModalHtmlMock.mock.calls.at(-1)[0]).toBe("管理世界书类别")
+    expect(showModalHtmlMock.mock.calls.at(-1)[0]).toBe("管理世界书分类")
     expect(toastMock).not.toHaveBeenCalledWith(expect.stringContaining("工作稿已创建"), "success")
     expect(router.refresh).not.toHaveBeenCalled()
   })
@@ -1031,7 +1256,7 @@ describe("模态操作", () => {
     const wrapper = mountTab()
     document.body.insertAdjacentHTML("beforeend", `
       <input id="bible-create-title" value="新建页" />
-      <select id="bible-create-type"><option value="custom" selected>自定义</option></select>
+      <select id="bible-create-type"><option value="background" selected>背景</option></select>
       <select id="bible-create-template"><option value="" selected>空白页</option></select>
     `)
 
@@ -1043,7 +1268,7 @@ describe("模态操作", () => {
     created.reject(new Error("旧请求失败"))
 
     await expect(creating).resolves.toBe(true)
-    expect(showModalHtmlMock.mock.calls.at(-1)[0]).toBe("管理世界书类别")
+    expect(showModalHtmlMock.mock.calls.at(-1)[0]).toBe("管理世界书分类")
     expect(toastMock).not.toHaveBeenCalledWith("旧请求失败", "error")
     expect(router.refresh).not.toHaveBeenCalled()
   })
@@ -1052,7 +1277,7 @@ describe("模态操作", () => {
     const wrapper = mountTab()
     await wrapper.find("[data-action='bible-manage-categories']").trigger("click")
     expect(showModalHtmlMock).toHaveBeenCalled()
-    expect(showModalHtmlMock.mock.calls[0][0]).toBe("管理世界书类别")
+    expect(showModalHtmlMock.mock.calls[0][0]).toBe("管理世界书分类")
   })
 
   it("恢复分类响应晚到时不关闭或刷新新项目", async () => {
@@ -1080,7 +1305,7 @@ describe("模态操作", () => {
     expect(router.refresh).not.toHaveBeenCalled()
   })
 
-  it("恢复分类在原项目仍按原流程关闭并刷新", async () => {
+  it("恢复分类在原项目就地更新管理列表", async () => {
     const api = (await import("../../../../vue/bridge/index.js")).getApi()
     const router = (await import("../../../../vue/bridge/index.js")).getRouter()
     api.world.updateBibleCategory = vi.fn().mockResolvedValue({ id: "cat-archived", status: "active" })
@@ -1092,10 +1317,11 @@ describe("模态操作", () => {
 
     await wrapper.find("[data-action='bible-manage-categories']").trigger("click")
     document.querySelector("[data-bible-category-restore='cat-archived']").click()
-    await vi.waitFor(() => expect(closeModalMock).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(showModalHtmlMock.mock.calls.at(-1)[0]).toBe("管理世界书分类"))
 
-    expect(toastMock).toHaveBeenCalledWith("类别已恢复，可重新用于工作稿", "success")
-    expect(router.refresh).toHaveBeenCalledTimes(1)
+    expect(toastMock).toHaveBeenCalledWith("分类已恢复，可重新用于工作稿", "success")
+    expect(closeModalMock).not.toHaveBeenCalled()
+    expect(router.refresh).not.toHaveBeenCalled()
   })
 
   it("恢复分类响应晚到时不关闭同页新弹窗", async () => {
@@ -1247,7 +1473,7 @@ describe("模态操作", () => {
     await wrapper.find("[data-action='bible-manage-categories']").trigger("click")
     let [, categoryBody, categoryButtons] = showModalHtmlMock.mock.calls.at(-1)
     document.body.innerHTML = categoryBody
-    await expect(categoryButtons[0].handler()).resolves.toBe(false)
+    expect(categoryButtons[0].handler()).toBe(false)
 
     showModalHtmlMock.mockClear()
     await wrapper.find("[data-action='bible-manage-page-templates']").trigger("click")
@@ -1477,8 +1703,8 @@ describe("模态操作", () => {
 
     await expect(opening).resolves.toBe(false)
     expect(showModalHtmlMock).toHaveBeenCalledTimes(1)
-    expect(showModalHtmlMock.mock.calls.at(-1)[0]).toBe("管理世界书类别")
-    expect(body.textContent).toContain("类别键")
+    expect(showModalHtmlMock.mock.calls.at(-1)[0]).toBe("管理世界书分类")
+    expect(body.textContent).not.toContain("类别键")
   })
 
   it("用作者语言折叠展示生成时的决定摘要", async () => {
