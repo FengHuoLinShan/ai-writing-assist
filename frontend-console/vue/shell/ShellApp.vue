@@ -65,14 +65,14 @@ const showAuthorChrome = computed(() => {
     return false
   }
   if (shellState.currentView === "settings") {
-    const returnTarget = services.router.getCurrentQuery?.()?.get?.("return_to") || ""
+    const returnTarget = services.router.getCurrentQuery()?.get("return_to") || ""
     if (normalizeRpReturnTarget(returnTarget)) return false
   }
   return true
 })
 
 const projectTitle = computed(() => shellState.currentProject?.title || shellState.currentProject?.name || "")
-const moduleTitle = computed(() => services.router.getRoute(shellState.currentView)?.title || shellState.currentView || "项目")
+const moduleTitle = computed(() => services.router.getRoute(shellState.currentView).title)
 const submoduleTitle = computed(() => services.router.getSubViewTitle(shellState.currentView, shellState.currentSubView))
 const viewNote = computed(() => ({
   project: "选择一部作品，或从空白和已有正文开始。",

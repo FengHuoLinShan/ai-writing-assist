@@ -1,12 +1,12 @@
 /** Writing Phase 4 Vue island. Router cutover is performed separately. */
 import { mountIsland } from "./mountIsland.js"
-import { getRouter } from "./bridge/index.js"
+import { getRouteQuery, getRouter } from "./bridge/index.js"
 import WritingView from "./views/writing/WritingView.vue"
 import { loadWritingProps } from "./views/writing/useWritingWorkspace.js"
 import { loadTodayProps } from "./todayIsland.js"
 
 async function loadWriting() {
-  const query = new URLSearchParams(getRouter()?.getCurrentQuery?.()?.toString() || "")
+  const query = getRouteQuery()
   const homeMode = query.get("home") === "1"
   const props = await loadWritingProps({ homeMode })
   if (homeMode) {

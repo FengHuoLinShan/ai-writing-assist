@@ -1,5 +1,5 @@
 import { structureAssetDisplay } from "../../../shared/assetDisplayState.js"
-import { getApi, getAppState, getRouter } from "../../bridge/index.js"
+import { getApi, getAppState, getRouteQuery, getRouter } from "../../bridge/index.js"
 
 export const HEALTH_ORDER = [
   ["unreviewed", "未复核"],
@@ -119,7 +119,7 @@ export function resetSceneSession(projectId) {
 }
 
 export function sceneQuery() {
-  return new URLSearchParams(getRouter()?.getCurrentQuery?.()?.toString() || "")
+  return getRouteQuery()
 }
 
 export function sceneIdFromQuery(query = sceneQuery()) {
@@ -184,15 +184,24 @@ export function sceneWorkbenchParams({ filters, viewMode, selectedSceneId = null
   return params
 }
 
-function replaceSceneIdInHash(projectId, query) {
-  if (typeof window === "undefined" || !window.history) return
+/**
+ * 场景工作台 query 提交的唯一入口。优先走 router 的就地 commit seam
+ * （保持 canonical hash 与 leave guard 一致）；返回 false 只发生在路由尚未
+ * 挂载时——loadSceneWorkbenchProps 在 island onEnter 期间执行，此时路由还在
+ * pending，只能直接重写 history。
+ */
+export function commitSceneRouteQuery(projectId, query, mode = "replace") {
+  const router = getRouter()
+  if (router?.commitCurrentQuery?.(query, mode) === true) return true
+  if (typeof window === "undefined" || !window.history) return false
   const base = `#workbench/${encodeURIComponent(projectId)}/outline/scenes`
   const hash = query.toString() ? `${base}?${query.toString()}` : base
-  window.history.replaceState(
+  window.history[mode === "push" ? "pushState" : "replaceState"](
     { view: "outline", subView: "scenes", projectId },
     "",
     hash,
   )
+  return true
 }
 
 export async function loadSceneWorkbenchProps(projectId) {
@@ -224,7 +233,7 @@ export async function loadSceneWorkbenchProps(projectId) {
       && err?.detail === "Scene not found"
     if (!canRecover) throw err
     query.delete("scene_id")
-    replaceSceneIdInHash(projectId, query)
+    commitSceneRouteQuery(projectId, query)
     workbench = await api.outline.getSceneWorkbench(
       projectId,
       null,

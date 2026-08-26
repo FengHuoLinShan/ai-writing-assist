@@ -15,7 +15,7 @@
  * 表单字段通过 DOM id 读取（遵循共享模态框契约，内容仍为已转义 HTML 字符串）。
  * 提交后 adopt 结果到对应的模块级管理器。
  */
-import { getApi, getAppState, getRouter, getToast, getShowModalHtml, getCloseModal, getConfirmAction, getEsc } from "../../../bridge/index.js"
+import { getApi, getAppState, getRouteQuery, getRouter, getToast, getShowModalHtml, getCloseModal, getConfirmAction, getEsc } from "../../../bridge/index.js"
 import { clearActiveWorkflow, createOperationId, normalizeTaskProgress, persistActiveWorkflow } from "../../../../shared/workflowProgress.js"
 import { confirmAiReference } from "../../../../shared/aiReferenceModal.js"
 import { importAuthorizationNotice, importAuthorizationPayload } from "../../../../shared/importAuthorization.js"
@@ -236,7 +236,7 @@ export function showOutlineGeneratePreview() {
     toast("这份结构建议暂时无法打开，请重新生成", "warning")
     return
   }
-  const query = new URLSearchParams(router?.getCurrentQuery?.()?.toString() || "")
+  const query = getRouteQuery()
   query.set("review", "ai")
   router?.navigate?.("outline", subView, true, query)
 }

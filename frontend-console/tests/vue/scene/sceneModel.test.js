@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 import {
   SCENE_FILTER_DEFAULTS,
+  commitSceneRouteQuery,
   loadSceneWorkbenchProps,
   persistSceneSession,
   resetSceneSession,
@@ -93,5 +94,28 @@ describe("sceneModel", () => {
     expect(props.focusedSuggestionId).toBe("sg-50")
     expect(props.fusionSuggestions).toHaveLength(51)
     expect(props.sceneFilters.skip).toBe(20)
+  })
+
+  it("404 恢复时清除 scene_id 并经 commitCurrentQuery 就地更新 query", async () => {
+    router.getCurrentQuery.mockReturnValue(new URLSearchParams("scene_id=missing"))
+    api.outline.getSceneWorkbench
+      .mockRejectedValueOnce(Object.assign(new Error("Scene not found"), { status: 404, detail: "Scene not found" }))
+      .mockResolvedValueOnce({ items: [], total: 0, skip: 0, fusion_suggestions: { pending_count: 0 } })
+    const commitCurrentQuery = vi.fn(() => true)
+    setBridgeOverrides({ state, router: { ...router, commitCurrentQuery }, api })
+
+    const props = await loadSceneWorkbenchProps("p1")
+
+    expect(props.selectedSceneId).toBeNull()
+    expect(commitCurrentQuery).toHaveBeenCalledWith(expect.any(URLSearchParams), "replace")
+    expect(commitCurrentQuery.mock.calls[0][0].get("scene_id")).toBeNull()
+  })
+
+  it("路由未挂载时 commitSceneRouteQuery 直接重写 history 兜底", () => {
+    window.history.replaceState({}, "", "#workbench/p1/outline/scenes?scene_id=s1")
+    commitSceneRouteQuery("p1", new URLSearchParams("mode=hot"))
+    expect(window.location.hash).toBe("#workbench/p1/outline/scenes?mode=hot")
+    commitSceneRouteQuery("p1", new URLSearchParams(), "push")
+    expect(window.location.hash).toBe("#workbench/p1/outline/scenes")
   })
 })

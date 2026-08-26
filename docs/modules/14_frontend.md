@@ -193,9 +193,15 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
 - Vue 页内的主题化辅助栏由 SFC 模板渲染，并以 `项目 + 页面 + 栏位` 为 key
   在 `sessionStorage` 保存折叠状态。辅助栏折叠不得重置选择、筛选、滚动位置或未保存编辑内容。
 - 卡片/表格、展开/收起、选中与其他纯呈现控件只更新局部状态；同路由仅需同步
-  hash query 时使用 router 的就地 query seam，不重新执行 `onEnter/render`。确需重取
+  hash query 时使用 router 的就地 query seam，不重新执行 `onEnter/render`。业务代码
+  读取当前路由 query 统一经 bridge `getRouteQuery()`（返回独立副本，是唯一的读取
+  防御点），不得各自解析 `window.location.hash` 或复制 router 内部 query 引用；
+  Scene 工作台写入 query 统一走 `sceneModel.commitSceneRouteQuery`，仅路由未挂载的
+  `onEnter` 恢复场景才直接重写 history。确需重取
   服务端数据的操作也必须在返回后复核发起时的项目、路由/编辑器 owner，不得用旧响应
   重挂载用户已切换到的页面。同路由强制刷新恢复工作区纵向滚动位置。
+- 设置页从 RP 进入且携带合法 `return_to` 时隐藏作者壳（顶栏与侧栏），shell 的
+  router 包装层经 `getCurrentQuery` 透传当前 query。
 - 写作专注模式高于普通辅助栏状态；中等宽度重排第三栏，`760px` 及以下使用单栏、抽屉或手风琴，不允许产生页面级横向溢出。
 - Vue 业务页使用 `vue/components/WorkflowProgressCard.vue` 渲染任务卡：普通运行/完成态
   显示紧凑摘要，失败或调用方标记 `attentionRequired` 的恢复、重试和确认状态

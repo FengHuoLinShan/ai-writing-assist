@@ -1,4 +1,5 @@
-import { getRouter } from "../../bridge/index.js"
+import { getRouteQuery } from "../../bridge/index.js"
+import { commitSceneRouteQuery, sceneQuery } from "./sceneModel.js"
 
 export const SCENE_RUNTIME_TABS = Object.freeze([
   { id: "management", label: "管理", description: "筛选、编辑和整理场景" },
@@ -247,35 +248,18 @@ export function normalizeSceneRuntimeTab(value) {
 }
 
 export function runtimeTabFromQuery(query = null) {
-  const source = query || getRouter()?.getCurrentQuery?.() || new URLSearchParams()
+  const source = query || getRouteQuery()
   return normalizeSceneRuntimeTab(source.get("tab") || source.get("scene_tab"))
 }
 
-function currentHashQuery(router = getRouter()) {
-  const routeQuery = router?.getCurrentQuery?.()
-  if (routeQuery) return new URLSearchParams(routeQuery.toString())
-  if (typeof window === "undefined") return new URLSearchParams()
-  const index = window.location.hash.indexOf("?")
-  return new URLSearchParams(index >= 0 ? window.location.hash.slice(index + 1) : "")
-}
-
-export function commitSceneRuntimeTab(projectId, sceneId, tab, mode = "push", router = getRouter()) {
-  const query = currentHashQuery(router)
+export function commitSceneRuntimeTab(projectId, sceneId, tab, mode = "push") {
+  const query = sceneQuery()
   const normalized = normalizeSceneRuntimeTab(tab)
   if (sceneId) query.set("scene_id", String(sceneId))
   if (normalized === "management") query.delete("tab")
   else query.set("tab", normalized)
   query.delete("scene_tab")
-  if (router?.commitCurrentQuery?.(query, mode) === true) return true
-  if (typeof window === "undefined" || !window.history) return false
-  const base = `#workbench/${encodeURIComponent(projectId)}/outline/scenes`
-  const hash = query.toString() ? `${base}?${query.toString()}` : base
-  window.history[mode === "push" ? "pushState" : "replaceState"](
-    { view: "outline", subView: "scenes", projectId },
-    "",
-    hash,
-  )
-  return true
+  return commitSceneRouteQuery(projectId, query, mode)
 }
 
 export function tabLabel(tab) {

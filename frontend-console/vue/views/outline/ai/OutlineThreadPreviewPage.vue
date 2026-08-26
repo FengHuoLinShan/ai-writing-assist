@@ -213,7 +213,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useLeaveGuard } from "../../../composables/useLeaveGuard.js"
-import { getConfirmAction, getRouter, getToast } from "../../../bridge/index.js"
+import { getConfirmAction, getRouteQuery, getRouter, getToast } from "../../../bridge/index.js"
 import { applyOutlineGeneratePreview } from "./outlineAiOps.js"
 import {
   clearOutlineGenerateWorkflowsForTarget,
@@ -373,7 +373,7 @@ function clearDraft() {
 
 function closeReview(shouldSave = true) {
   if (shouldSave) saveDraft()
-  const query = new URLSearchParams(router?.getCurrentQuery?.()?.toString() || "")
+  const query = getRouteQuery()
   query.delete("review")
   router?.replace?.("outline", "threads", query)
 }
@@ -495,7 +495,7 @@ async function apply() {
       draft.value = null
       resetOutlineGenerateState()
       applying.value = false
-      const query = new URLSearchParams(router?.getCurrentQuery?.()?.toString() || "")
+      const query = getRouteQuery()
       query.delete("review")
       await router?.replace?.("outline", "threads", query)
     }

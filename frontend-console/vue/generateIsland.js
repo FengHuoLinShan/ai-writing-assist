@@ -2,7 +2,7 @@
  * generate Vue island 注册入口。由 app.js import 并注册到现有 hash router。
  */
 import { mountIsland } from "./mountIsland.js"
-import { getApi, getAppState, getRouter, getToast } from "./bridge/index.js"
+import { getApi, getAppState, getRouteQuery, getRouter, getToast } from "./bridge/index.js"
 import GenerateView from "./views/generate/GenerateView.vue"
 import {
   clearCreativeContinuation,
@@ -87,12 +87,11 @@ async function restoreSuggestion(api, projectId, suggestionId, sourcePageId, tar
 export async function loadGenerate(options = {}) {
   const api = getApi()
   const appState = getAppState()
-  const router = getRouter()
   const toast = getToast()
   const projectId = options.projectId ?? appState?.currentProjectId ?? null
   const query = options.query
     ? new URLSearchParams(options.query)
-    : new URLSearchParams(router?.getCurrentQuery?.()?.toString() || "")
+    : getRouteQuery()
   const tab = VALID_TABS.has(options.tab) ? options.tab : VALID_TABS.has(query.get("tab")) ? query.get("tab") : "world"
   const preset = options.preset === "world_core"
     ? "world_core"

@@ -36,6 +36,7 @@ vi.mock("../../vue/bridge/index.js", () => ({
   getApi: () => globalThis.api,
   getAppState: () => stubs.appState,
   getEsc: () => (value) => String(value ?? ""),
+  getRouteQuery: () => new URLSearchParams(stubs.router.getCurrentQuery()?.toString() || ""),
   getRouter: () => stubs.router,
 }))
 

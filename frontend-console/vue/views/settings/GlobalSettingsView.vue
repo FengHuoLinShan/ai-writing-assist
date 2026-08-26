@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import AuthorPreferencesForm from "./components/AuthorPreferencesForm.vue"
-import { getApi, getConfirm, getRouter, getToast } from "../../bridge/index.js"
+import { getApi, getConfirm, getRouteQuery, getRouter, getToast } from "../../bridge/index.js"
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
 import { useSaveButton } from "../../composables/useSaveButton.js"
 import { normalizeRpReturnTarget } from "../../shell/navigation.js"
@@ -50,7 +50,7 @@ const authorButton = useSaveButton()
 let disposed = false
 let connectionFormRevision = 0
 const returnTarget = normalizeRpReturnTarget(
-  getRouter()?.getCurrentQuery?.()?.get?.("return_to"),
+  getRouteQuery().get("return_to"),
 )
 const returningToRp = Boolean(returnTarget)
 

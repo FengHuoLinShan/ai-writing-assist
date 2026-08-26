@@ -9,7 +9,6 @@ import {
 import {
   getApi,
   getAppState,
-  getRouter,
   getToast,
 } from "../../bridge/index.js"
 import { confirmAiReference } from "../../../shared/aiReferenceModal.js"
@@ -220,7 +219,6 @@ function acceptedBeatPayload(simulation) {
 
 export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneId }) {
   const api = getApi() || {}
-  const router = getRouter()
   const toast = getToast()
   const activeTab = ref(runtimeTabFromQuery())
   const characters = ref([])
@@ -507,7 +505,7 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
     const changed = activeTab.value !== normalized
     activeTab.value = normalized
     if (sceneId.value) sceneRuntimeSession(projectId, sceneId.value).activeTab = normalized
-    commitSceneRuntimeTab(projectId, sceneId.value, normalized, "push", router)
+    commitSceneRuntimeTab(projectId, sceneId.value, normalized, "push")
     if (!changed && normalized !== "management") void loadWorkspace()
   }
 

@@ -11,6 +11,7 @@ import {
   getAppState,
   getConfirm,
   getConfirmAction,
+  getRouteQuery,
   getRouter,
   getToast,
 } from "../../bridge/index.js"
@@ -71,9 +72,8 @@ function compareScenes(left, right) {
 export async function loadWritingProps({ homeMode: requestedHomeMode } = {}) {
   const api = getApi()
   const state = getAppState()
-  const router = getRouter()
   const projectId = state?.currentProjectId || null
-  const query = new URLSearchParams(router?.getCurrentQuery?.()?.toString() || "")
+  const query = getRouteQuery()
   const homeMode = requestedHomeMode ?? query.get("home") === "1"
   const result = {
     projectId,

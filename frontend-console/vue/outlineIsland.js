@@ -22,7 +22,7 @@ import { loadSceneWorkbenchProps } from "./views/scene/sceneModel.js"
 import { sceneAutoExtractManager } from "./views/scene/sceneAutoExtractManager.js"
 import { sceneRuntimeManager } from "./views/scene/sceneRuntimeManager.js"
 import { scopeBulkSelectionsToProject } from "./views/outline/logic/outlineBulkSelection.js"
-import { getAppState, getRouter } from "./bridge/index.js"
+import { getAppState, getRouteQuery, getRouter } from "./bridge/index.js"
 
 function stopAiManagers() {
   outlineGenerateManager.stop()
@@ -39,10 +39,9 @@ function recoverAiManagers(projectId) {
 /** outline island 数据预取：四个子标签都返回 Vue 根组件 props。 */
 async function loadOutline() {
   const appState = getAppState()
-  const router = getRouter()
   const projectId = appState?.currentProjectId || null
   const subView = appState?.currentSubView || "story-outline"
-  const query = new URLSearchParams(router?.getCurrentQuery?.()?.toString() || "")
+  const query = getRouteQuery()
   scopeBulkSelectionsToProject(projectId)
 
   if (subView === "scenes") {

@@ -9,7 +9,7 @@
  */
 import { mountIsland } from "./mountIsland.js"
 import WorldView from "./views/world/WorldView.vue"
-import { getApi, getAppState, getRouter, getToast } from "./bridge/index.js"
+import { getApi, getAppState, getRouteQuery, getRouter, getToast } from "./bridge/index.js"
 import { worldAssetDisplay } from "../shared/assetDisplayState.js"
 import { markWorldLeft, reconcileWorldEntry, worldSession } from "./views/world/worldSession.js"
 import { autoExtractManager, fusionManager } from "./views/world/workflowManagers.js"
@@ -112,13 +112,12 @@ async function findReviewGroup(fetchPage, params, groupId) {
 
 export async function loadWorld() {
   const appState = getAppState()
-  const router = getRouter()
   const api = getApi()
   const toast = getToast()
   const projectId = appState?.currentProjectId || null
   const subView = appState?.currentSubView || "objects"
   const reviewSubView = normalizeReviewSubView(subView)
-  const query = new URLSearchParams(router?.getCurrentQuery?.()?.toString() || "")
+  const query = getRouteQuery()
   const requestedReviewKind = reviewKindFromRoute(subView, query)
 
   reconcileWorldEntry(projectId, subView)
