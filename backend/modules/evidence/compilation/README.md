@@ -24,17 +24,6 @@ indexing 负责“找”，compilation 负责“选、裁、确认、追踪”�
   可解释、可预算裁剪的 P1 参考资料
 - 为 `world.map_atlas.generate` operation 编译 author-full canonical 背景；只在作者显式开启时加入工作稿
 
-ADR-0017 的 canonical 路径已切换到 formal Canon。`WorldEntitiesLoader` 只经
-`world.facade.get_world_canon_context()` 读取 C 选中的 exact Entity/Page revisions 和
-Name/typed scalar/binary relation facts；不导入 world ORM，不从 mutable Profile/Relation
-或 MemoryEvent fallback。`context_mode=working` 或作者显式纳入待处理对象时，
-才使用原 working projection。Writing、世界生成和地图册共用这条 canonical 路径。
-
-编译器把实际 `world_canon_revision_id` 和 `world_canon_manifest_digest` 回写到
-`CompileOptions`。confirmation 持久化两者，回放时重读同一 C；生成任务的
-`ContextSnapshot` 同时在 `compile_options` 和 `included_asset_ids.world_canon_revision`
-固定来源。
-
 ## 不负责
 
 - 不直接执行 LLM 调用

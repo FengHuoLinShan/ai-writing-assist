@@ -411,7 +411,6 @@ class TestEntityServiceList:
             mock_repo.get_for_update = AsyncMock(return_value=existing)
             mock_repo.update = AsyncMock(return_value=existing)
             svc = WorldEntityService()
-            svc._record_authority = AsyncMock()
 
             result = await svc.promote(
                 db,
@@ -421,9 +420,6 @@ class TestEntityServiceList:
             )
 
             assert result.entity_id == entity_id
-            svc._record_authority.assert_awaited_once_with(
-                db, existing, action="promote"
-            )
             mock_repo.update.assert_awaited_once()
             assert mock_repo.update.await_args.args[1] is existing
 

@@ -192,6 +192,7 @@ class WorldBiblePageRevision(Base, UUIDMixin, TimestampMixin):
     )
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
     snapshot_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    revision_digest: Mapped[str] = mapped_column(String(64), nullable=False)
     revision_reason: Mapped[str] = mapped_column(String(64), nullable=False)
 
 

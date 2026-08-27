@@ -16,10 +16,6 @@
 > [ADR-0007](0007-world-generation-center-consolidation.md) 取代；本 ADR 的所有权与安全边界继续有效。
 > 2026-08-21 补充：下文 `context` 指当前 `evidence/compilation` 子域；表名、API 路径、
 > Activation Profile revision、confirmation/snapshot 与安全语义不变。
-> 2026-08-27 补充：[ADR-0017](0017-world-authority-and-unified-cards.md) 增加 world 自有的
-> Assert/Canon 权威层。页面仍默认只拥有 documentary 资料，不因发布自动产生世界事实；
-> Canon 基座只固定 exact 页面 revision。Evidence 仍独占选择、预算、可见性与 snapshot，
-> 已经 world facade 消费 C-pinned 事实和资料。
 
 ### 1. world 拥有资料，context 拥有激活
 
@@ -29,8 +25,7 @@
 
 ### 2. 页面不是事实源或 Prompt
 
-世界书页面只组织和解释既有事实。已切换 family 的结构化事实归 world Assert/Canon evaluator；
-尚未切换的 Profile/关系等继续沿用既有 owner，且不得被 evaluator 当作 fallback；
+世界书页面只组织和解释既有事实。结构化事实仍归 CoreEntity/Profile/关系/地图事实等拥有者；
 正文识别出的新事实先进入建议。页面内容始终作为不可信参考资料渲染，不能选择 Prompt role、
 depth、outlet、工具或 system scaffold。
 
@@ -66,3 +61,8 @@ depth、outlet、工具或 system scaffold。
 ### C. 复制 SillyTavern entry 与 Prompt 插槽
 
 拒绝。资料、规则和 Prompt 耦合会破坏 Pydantic 边界、可重放性和安全门禁。
+
+> 2026-08-27 补充：[ADR-0017](0017-world-fact-authority-and-canon-revisions.md) 已在不改变
+> 本 ADR 所有权边界的前提下，把已发布 PageRevision 的 exact ref 选入追加式
+> CanonRevision。这只固定 documentary canon 版本；页面仍不自动成为结构化
+> Assert，也不取得 Prompt、激活、预算或可见性的所有权。

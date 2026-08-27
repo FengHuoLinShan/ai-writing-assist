@@ -9,6 +9,7 @@ from .common import (
     Boolean,
     Float,
     ForeignKey,
+    Integer,
     Mapped,
     StatusMixin,
     String,
@@ -144,6 +145,7 @@ class EntityProfileTemplate(Base, UUIDMixin, TimestampMixin, StatusMixin):
     __tablename__ = "entity_profile_templates"
     __table_args__ = (
         UniqueConstraint("novel_id", "profile_type", name="uq_profile_template_type"),
+        UniqueConstraint("novel_id", "id", name="uq_profile_template_novel_id"),
         {"comment": "通用世界资产模板"},
     )
 
@@ -156,6 +158,7 @@ class EntityProfileTemplate(Base, UUIDMixin, TimestampMixin, StatusMixin):
     profile_type: Mapped[str] = mapped_column(String(64), nullable=False)
     template_schema_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     display_schema_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
 
 class GenericEntityProfile(Base, UUIDMixin, TimestampMixin, StatusMixin):

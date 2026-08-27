@@ -24,7 +24,6 @@ def alias_service() -> EntityAliasService:
         repo=MagicMock(),
         context_marker=AsyncMock(return_value=0),
         activity_requester=AsyncMock(return_value=None),
-        authority_recorder=AsyncMock(return_value=None),
     )
     service._require_legacy_canon_write_allowed = AsyncMock()  # type: ignore[method-assign]
     return service

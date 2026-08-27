@@ -285,11 +285,6 @@ class GenerationBackgroundService:
             "world_bible_activation",
         }
         included: dict[str, list[str]] = {
-            "world_canon_revision": (
-                [options.world_canon_revision_id]
-                if options.world_canon_revision_id
-                else []
-            ),
             "world_bible_draft": [],
             "world_bible_synopsis_revision": (
                 [str(options.world_synopsis_revision_id)]
@@ -454,8 +449,6 @@ class GenerationBackgroundService:
                 "world_synopsis_revision_id": options.world_synopsis_revision_id,
                 "world_synopsis_source_hash": options.world_synopsis_source_hash,
                 "world_synopsis_block_hash": options.world_synopsis_block_hash,
-                "world_canon_revision_id": options.world_canon_revision_id,
-                "world_canon_manifest_digest": options.world_canon_manifest_digest,
                 "activation_profile_id": options.activation_profile_id,
                 "activation_profile_version": options.activation_profile_version,
                 "activation_profile_rule_hash": options.activation_profile_rule_hash,

@@ -486,8 +486,6 @@ class ContextConfirmationService:
             "world_synopsis_revision_id": options.world_synopsis_revision_id,
             "world_synopsis_source_hash": options.world_synopsis_source_hash,
             "world_synopsis_block_hash": options.world_synopsis_block_hash,
-            "world_canon_revision_id": options.world_canon_revision_id,
-            "world_canon_manifest_digest": options.world_canon_manifest_digest,
             "activation_profile_id": options.activation_profile_id,
             "activation_profile_version": options.activation_profile_version,
             "activation_profile_rule_hash": options.activation_profile_rule_hash,

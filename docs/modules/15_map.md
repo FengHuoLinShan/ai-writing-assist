@@ -17,8 +17,6 @@
 - World 关系新增的七类 `relation_kind` 只是审核与检索分类；地图册继续消费原有精确 `relation_type` 和已确认资料，不改变规划、来源 hash、采用或图片状态机。
 - 世界书的 `world_validation` 回执不取代地图册自有的候选审核、来源 hash 和图片采用门禁；
   地图册不读取或写入 `world_validation_runs`。
-- 地图册不写 Assert，其 canonical 世界来源已由 Evidence 经 world facade 消费固定
-  Canon 事实/资料投影；该变更不改变地图候选采用或图片状态机。
 
 ## 用户状态
 
@@ -48,7 +46,7 @@ ORM 位于 `backend/modules/world/map_atlas_models.py`。
 
 地图册不新增公开 Context scope。`world.map_atlas.generate` operation 固定使用
 `reveal_mode=author_full`，由 generation-background 调用
-world facade 的 C-pinned canonical 投影（上限 160），并以 RAG
+`world.facade.get_world_background(context_mode="canonical", limit=160)`，并以 RAG
 `purpose=map_atlas` 补充已确认/已发布资料。工作稿只在作者打开开关时通过既有 seam 加入；
 候选对象始终排除。
 
@@ -61,7 +59,7 @@ Wiki 与 RAG 合计最多 8000 字，每批最多 40000 字；抽取前释放事
 余量时加入。
 每页 prompt 以地点完整名称为语义锚点，但要求图中不出现文字、字母、数字、方向箭头、距离、
 比例尺、图例或层级标签；前端标注层只展示地点或地标名称，不展示层级、方向、距离、比例或图例。
-run 保存 context snapshot、来源 hash、source manifest 与实际 Canon revision；“补全/更新”只处理缺失
+run 保存 context snapshot、来源 hash 和 source manifest；“补全/更新”只处理缺失
 节点或来源 hash 已变化的节点，完整重做是次级操作。
 
 ## 图片工作流与计费恢复

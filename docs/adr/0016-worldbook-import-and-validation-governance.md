@@ -50,9 +50,6 @@ Markdown/YAML/JSON 目录，不能通过现有小说文稿导入白名单表达�
 - draft publish 与 adoption package apply 只消费当前 manifest/policy/dependency hash 匹配的
   validation receipt。普通 warning 可由作者保留证据后签收；`fail`、`author-required`、
   `insufficient-evidence` 和 stale 不可绕过。
-- validation receipt 只证明本次输入与校验政策，不证明事实为真，也不创建 Assert 或移动
-  Canon head。依据 ADR-0017，目录导入的 include subset 只有在后续 B promotion 事务中经作者
-  明确采用，才可原子创建 Assert + CanonRevision；任一成员无效时整批零写入。
 
 ### 4. 任务、预算与保留
 
@@ -94,3 +91,8 @@ Markdown/YAML/JSON 目录，不能通过现有小说文稿导入白名单表达�
 
 拒绝。task 是 transport；verdict、签收、manifest/policy hash 和 stale 生命周期属于 world
 领域，必须有可查询、可失效的领域记录。
+
+> 2026-08-27 补充：[ADR-0017](0017-world-fact-authority-and-canon-revisions.md) 已将
+> validation receipt 与 Canon admission receipt 明确分离。前者仅证明冻结输入的校验
+> 结果；只有后者能在当前 owner 确认、exact input 复验和 head CAS 后选择新
+> CanonRevision。World Bible 发布现已在同一 Admit 事务中完成该选择。

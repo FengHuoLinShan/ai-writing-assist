@@ -38,8 +38,6 @@ class _ProvenanceCompiler:
         options.world_synopsis_revision_id = "synopsis-revision-1"
         options.world_synopsis_source_hash = "source-hash-1"
         options.world_synopsis_block_hash = "block-hash-1"
-        options.world_canon_revision_id = "canon-revision-1"
-        options.world_canon_manifest_digest = "canon-digest-1"
         options.activation_profile_version = 3
         options.activation_profile_rule_hash = "rule-hash-1"
         options.activation_source_hashes = ["activation-source-1"]
@@ -152,11 +150,6 @@ async def test_service_owns_compilation_usage_and_snapshot_provenance() -> None:
     assert request.included_asset_ids["world_bible_synopsis_revision"] == [
         "synopsis-revision-1"
     ]
-    assert request.included_asset_ids["world_canon_revision"] == [
-        "canon-revision-1"
-    ]
-    assert request.compile_options["world_canon_revision_id"] == "canon-revision-1"
-    assert request.compile_options["world_canon_manifest_digest"] == "canon-digest-1"
     assert request.included_asset_ids["activation_profile"] == ["profile-1"]
     assert request.included_asset_ids["activation_target_hash"] == ["activation-target-1"]
     assert request.context_summary["actual_included_asset_ids"] == (

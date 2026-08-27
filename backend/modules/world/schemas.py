@@ -18,10 +18,6 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic import ValidationError as PydanticValidationError
 
-from modules.world.authority_schemas import (
-    WorldPromotionCandidateV1,
-    WorldPromotionPreviewResponse,
-)
 from modules.world.llm_schemas import (
     GeneratedWorldCoreConvergence,
     GeneratedWorldGenerationDecisionState,
@@ -2074,9 +2070,6 @@ class WorldEntityContext(BaseModel):
     status: str = "canonical"
     aliases: list[str] = Field(default_factory=list)
     related_entity_ids: list[str] = Field(default_factory=list)
-    source_type: str = "world_entity"
-    source_revision_id: str | None = None
-    canon_revision_id: str | None = None
 
     @field_validator("entity_id", mode="before")
     @classmethod
@@ -2091,8 +2084,6 @@ class WorldContextBundle(BaseModel):
     entities: list[WorldEntityContext] = Field(default_factory=list)
     total_count: int = 0
     reveal_mode: str = "author_safe"
-    canon_revision_id: str | None = None
-    canon_manifest_digest: str | None = None
 
 
 class CharacterContextItem(BaseModel):
@@ -3319,6 +3310,7 @@ class WorldBiblePageRevisionResponse(BaseModel):
     page_id: str
     version_number: int
     snapshot_json: dict = Field(default_factory=dict)
+    revision_digest: str
     revision_reason: str
     created_at: datetime | None = None
 
@@ -4379,9 +4371,6 @@ class WorldAdoptionPackagePayload(BaseModel):
     )
     source_manifest_hash: str = Field(..., min_length=64, max_length=64)
     items: list[WorldAdoptionPackageItem] = Field(..., min_length=1, max_length=32)
-    formal_promotions: list[WorldPromotionCandidateV1] = Field(
-        default_factory=list, max_length=256
-    )
 
     @field_validator("source_manifest_hash", "checkpoint_manifest_hash")
     @classmethod
@@ -4411,16 +4400,11 @@ class WorldAdoptionPackagePreviewResponse(BaseModel):
     expected_preview_hash: str
     canon_diff: list[dict[str, Any]] = Field(default_factory=list)
     omissions: list[str] = Field(default_factory=list)
-    formal_promotion_preview: WorldPromotionPreviewResponse | None = None
 
 
 class WorldAdoptionPackageApplyRequest(BaseModel):
     expected_preview_hash: str = Field(..., min_length=64, max_length=64)
     validation_run_id: uuid.UUID | None = None
-    formal_expected_previous_head: uuid.UUID | None = None
-    formal_preview_digest: str | None = Field(
-        default=None, pattern=r"^[0-9a-f]{64}$"
-    )
 
 
 def _suggestion_decision_state(

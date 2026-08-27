@@ -1034,11 +1034,6 @@ async def test_world_bible_loader_pins_actual_synopsis_provenance(
     assert persisted["world_synopsis_revision_id"] == "revision-1"
     assert persisted["world_synopsis_source_hash"] == "source-hash-1"
     assert persisted["world_synopsis_block_hash"] == "block-hash-1"
-    options.world_canon_revision_id = "canon-revision-1"
-    options.world_canon_manifest_digest = "canon-digest-1"
-    persisted = ContextConfirmationService._compile_options_json(options)
-    assert persisted["world_canon_revision_id"] == "canon-revision-1"
-    assert persisted["world_canon_manifest_digest"] == "canon-digest-1"
 
 
 # ============================================================
@@ -3208,8 +3203,6 @@ async def _setup_character_knowledge(
     """
     from modules.project.models import Project
     from modules.world.models import Character, CharacterKnowledge, CoreEntity
-    from modules.world.schemas import CoreEntityCreate
-    from modules.world.services.core.entity_service import WorldEntityService
 
     nid = uuid.uuid4()
     novel_id_hex = nid.hex
@@ -3241,21 +3234,21 @@ async def _setup_character_knowledge(
         )
     )
 
-    await db_session.flush()
+    target_id = uuid.uuid4()
     hidden_truth = "源堡是诡秘之主的唯一性"
-    target = await WorldEntityService().create(
-        db_session,
-        novel_id_hex,
-        CoreEntityCreate(
+    db_session.add(
+        CoreEntity(
+            id=target_id,
+            novel_id=nid,
             entity_type="location",
             name="源堡",
             summary="神秘的源质空间",
             hidden_truth=hidden_truth,
+            status="canonical",
             importance_level="core",
             importance=0.9,
-        ),
+        )
     )
-    target_id = uuid.UUID(target.id)
     db_session.add(
         CharacterKnowledge(
             id=uuid.uuid4(),

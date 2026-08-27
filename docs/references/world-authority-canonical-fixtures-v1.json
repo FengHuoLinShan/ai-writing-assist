@@ -1,0 +1,339 @@
+{
+  "schema_version": "world-authority-canonical-fixtures.v1",
+  "canonicalization": {
+    "json": "python-json-sort-keys-utf8-v1",
+    "digest": "sha256-lower-hex",
+    "unicode": "NFC",
+    "line_endings": "LF",
+    "floats": "forbidden",
+    "array_order": "significant"
+  },
+  "cases": [
+    {
+      "name": "authorization_policy_explicit",
+      "normalized": {
+        "kind": "canon_authorization_policy",
+        "version": 1,
+        "policy_id": "world.canon.explicit-author",
+        "authorizer": "current_project_owner",
+        "executor_kinds": [
+          "account_request"
+        ],
+        "requires_explicit_confirmation": true,
+        "requires_expected_head": true,
+        "allows_ai_authorizer": false
+      },
+      "expected_canonical_json": "{\"allows_ai_authorizer\":false,\"authorizer\":\"current_project_owner\",\"executor_kinds\":[\"account_request\"],\"kind\":\"canon_authorization_policy\",\"policy_id\":\"world.canon.explicit-author\",\"requires_expected_head\":true,\"requires_explicit_confirmation\":true,\"version\":1}",
+      "expected_sha256": "2ee3ff5a3c5d64259b5712a3d17f869b6d717e1efd0325effb8cebd1f328d1b6"
+    },
+    {
+      "name": "authorization_policy_persisted_workflow",
+      "normalized": {
+        "kind": "canon_authorization_policy",
+        "version": 1,
+        "policy_id": "world.canon.persisted-workflow",
+        "authorizer": "persisted_project_owner",
+        "executor_kinds": [
+          "task_attempt"
+        ],
+        "requires_current_owner_at_commit": true,
+        "requires_expected_head": true,
+        "requires_persisted_exact_scope": true,
+        "allows_ai_authorizer": false
+      },
+      "expected_canonical_json": "{\"allows_ai_authorizer\":false,\"authorizer\":\"persisted_project_owner\",\"executor_kinds\":[\"task_attempt\"],\"kind\":\"canon_authorization_policy\",\"policy_id\":\"world.canon.persisted-workflow\",\"requires_current_owner_at_commit\":true,\"requires_expected_head\":true,\"requires_persisted_exact_scope\":true,\"version\":1}",
+      "expected_sha256": "bdced8af8cc6eb4619c73a2f4592e323b37c0778f2c638cfb51818df4be4f0ef"
+    },
+    {
+      "name": "authorization_policy_bootstrap",
+      "normalized": {
+        "kind": "canon_authorization_policy",
+        "version": 1,
+        "policy_id": "world.canon.bootstrap-empty",
+        "authorizer": "closed_bootstrap_subject",
+        "executor_kinds": [
+          "bootstrap"
+        ],
+        "requires_empty_manifest": true,
+        "allows_ai_authorizer": false
+      },
+      "expected_canonical_json": "{\"allows_ai_authorizer\":false,\"authorizer\":\"closed_bootstrap_subject\",\"executor_kinds\":[\"bootstrap\"],\"kind\":\"canon_authorization_policy\",\"policy_id\":\"world.canon.bootstrap-empty\",\"requires_empty_manifest\":true,\"version\":1}",
+      "expected_sha256": "a1104c58dcb18c278a1fab2b5b944b4f76d05a49d9a22a2412df1e9e7b56cc29"
+    },
+    {
+      "name": "canon_kernel_v1",
+      "normalized": {
+        "kind": "canon_kernel",
+        "version": 1,
+        "artifact_id": "world.canon-kernel",
+        "canonicalization": "python-json-sort-keys-utf8-v1",
+        "manifest_version": 1,
+        "statement_claim_ref_max_depth": 1
+      },
+      "expected_canonical_json": "{\"artifact_id\":\"world.canon-kernel\",\"canonicalization\":\"python-json-sort-keys-utf8-v1\",\"kind\":\"canon_kernel\",\"manifest_version\":1,\"statement_claim_ref_max_depth\":1,\"version\":1}",
+      "expected_sha256": "f8d47106cd0c8803739815de39439bbb6d6d95e4b0657d63763060f82671ff6c"
+    },
+    {
+      "name": "empty_rule_set_v1",
+      "normalized": {
+        "kind": "canon_rule_set",
+        "version": 1,
+        "artifact_id": "world.canon-rules.empty",
+        "rules": []
+      },
+      "expected_canonical_json": "{\"artifact_id\":\"world.canon-rules.empty\",\"kind\":\"canon_rule_set\",\"rules\":[],\"version\":1}",
+      "expected_sha256": "c110c7c624f2715b92eb5b0283b316470fbb8b2a6ab49379c157ec014920bad1"
+    },
+    {
+      "name": "statement_schema_v1",
+      "normalized": {
+        "kind": "statement_schema",
+        "version": 1,
+        "artifact_id": "world.statement-schema",
+        "statement_kinds": {
+          "entity_name": 1,
+          "entity_scalar": 1,
+          "entity_relation": 1
+        },
+        "scalar_kinds": {
+          "text": 1,
+          "integer": 1,
+          "decimal": 1,
+          "boolean": 1,
+          "enum": 1
+        }
+      },
+      "expected_canonical_json": "{\"artifact_id\":\"world.statement-schema\",\"kind\":\"statement_schema\",\"scalar_kinds\":{\"boolean\":1,\"decimal\":1,\"enum\":1,\"integer\":1,\"text\":1},\"statement_kinds\":{\"entity_name\":1,\"entity_relation\":1,\"entity_scalar\":1},\"version\":1}",
+      "expected_sha256": "3eda28fd8a246e2c44cfd36683b754b221de5a340ce0c04be58a85f186c6c81e"
+    },
+    {
+      "name": "page_section_target_ref",
+      "normalized": {
+        "kind": "target_ref",
+        "version": 1,
+        "revision": {
+          "resource": {
+            "kind": "world_bible_page",
+            "version": 1,
+            "novel_id": "11111111-1111-4111-8111-111111111111",
+            "resource_id": "22222222-2222-4222-8222-222222222222"
+          },
+          "revision_id": "33333333-3333-4333-8333-333333333333",
+          "revision_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "selector": {
+          "kind": "world_bible_page.section",
+          "version": 1,
+          "payload": {
+            "section_id": "sec-origin"
+          }
+        }
+      },
+      "expected_canonical_json": "{\"kind\":\"target_ref\",\"revision\":{\"resource\":{\"kind\":\"world_bible_page\",\"novel_id\":\"11111111-1111-4111-8111-111111111111\",\"resource_id\":\"22222222-2222-4222-8222-222222222222\",\"version\":1},\"revision_digest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"revision_id\":\"33333333-3333-4333-8333-333333333333\"},\"selector\":{\"kind\":\"world_bible_page.section\",\"payload\":{\"section_id\":\"sec-origin\"},\"version\":1},\"version\":1}",
+      "expected_sha256": "fa5949d79341e134e010aa4ab20a48e496d62220ea46a9f7ac8a7da619dbb9e2"
+    },
+    {
+      "name": "entity_name_statement",
+      "input": {
+        "kind": "entity_name",
+        "version": 1,
+        "subject": {
+          "novel_id": "11111111-1111-4111-8111-111111111111",
+          "referent_id": "44444444-4444-4444-8444-444444444444"
+        },
+        "name": "  沈 岚  "
+      },
+      "normalized": {
+        "kind": "entity_name",
+        "version": 1,
+        "subject": {
+          "novel_id": "11111111-1111-4111-8111-111111111111",
+          "referent_id": "44444444-4444-4444-8444-444444444444"
+        },
+        "name": "沈 岚"
+      },
+      "expected_canonical_json": "{\"kind\":\"entity_name\",\"name\":\"沈 岚\",\"subject\":{\"novel_id\":\"11111111-1111-4111-8111-111111111111\",\"referent_id\":\"44444444-4444-4444-8444-444444444444\"},\"version\":1}",
+      "expected_sha256": "a760458834132c10210d3bc857ad76116388c0f77756d0ea3ae1cf9fc7f8dcae"
+    },
+    {
+      "name": "entity_decimal_statement",
+      "input_decimal": "+001.7800",
+      "normalized": {
+        "kind": "entity_scalar",
+        "version": 1,
+        "subject": {
+          "novel_id": "11111111-1111-4111-8111-111111111111",
+          "referent_id": "44444444-4444-4444-8444-444444444444"
+        },
+        "field": {
+          "schema_revision": {
+            "resource": {
+              "kind": "entity_profile_template",
+              "version": 1,
+              "novel_id": "11111111-1111-4111-8111-111111111111",
+              "resource_id": "66666666-6666-4666-8666-666666666666"
+            },
+            "revision_id": "77777777-7777-4777-8777-777777777777",
+            "revision_digest": "2222222222222222222222222222222222222222222222222222222222222222"
+          },
+          "field_key": "height_m"
+        },
+        "value": {
+          "kind": "decimal",
+          "version": 1,
+          "value": "1.78"
+        }
+      },
+      "expected_canonical_json": "{\"field\":{\"field_key\":\"height_m\",\"schema_revision\":{\"resource\":{\"kind\":\"entity_profile_template\",\"novel_id\":\"11111111-1111-4111-8111-111111111111\",\"resource_id\":\"66666666-6666-4666-8666-666666666666\",\"version\":1},\"revision_digest\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"revision_id\":\"77777777-7777-4777-8777-777777777777\"}},\"kind\":\"entity_scalar\",\"subject\":{\"novel_id\":\"11111111-1111-4111-8111-111111111111\",\"referent_id\":\"44444444-4444-4444-8444-444444444444\"},\"value\":{\"kind\":\"decimal\",\"value\":\"1.78\",\"version\":1},\"version\":1}",
+      "expected_sha256": "20a37c3d9f6a68ac708d38ddb1a0496bf7ff4d470454d5fb729be4b647c22bf5"
+    },
+    {
+      "name": "entity_relation_statement",
+      "normalized": {
+        "kind": "entity_relation",
+        "version": 1,
+        "subject": {
+          "novel_id": "11111111-1111-4111-8111-111111111111",
+          "referent_id": "44444444-4444-4444-8444-444444444444"
+        },
+        "relation_kind": "social",
+        "relation_type": "隶属于",
+        "object": {
+          "novel_id": "11111111-1111-4111-8111-111111111111",
+          "referent_id": "55555555-5555-4555-8555-555555555555"
+        }
+      },
+      "expected_canonical_json": "{\"kind\":\"entity_relation\",\"object\":{\"novel_id\":\"11111111-1111-4111-8111-111111111111\",\"referent_id\":\"55555555-5555-4555-8555-555555555555\"},\"relation_kind\":\"social\",\"relation_type\":\"隶属于\",\"subject\":{\"novel_id\":\"11111111-1111-4111-8111-111111111111\",\"referent_id\":\"44444444-4444-4444-8444-444444444444\"},\"version\":1}",
+      "expected_sha256": "543f5afc175931eb4b2341d5208d3081f7dbd58bec3a2905e81336adbbe8e923"
+    },
+    {
+      "name": "statement_claim_ref",
+      "normalized": {
+        "kind": "statement_claim_ref",
+        "version": 1,
+        "regime": "objective_world.v1",
+        "polarity": "negative",
+        "statement": {
+          "kind": "entity_relation",
+          "version": 1,
+          "subject": {
+            "novel_id": "11111111-1111-4111-8111-111111111111",
+            "referent_id": "44444444-4444-4444-8444-444444444444"
+          },
+          "relation_kind": "social",
+          "relation_type": "隶属于",
+          "object": {
+            "novel_id": "11111111-1111-4111-8111-111111111111",
+            "referent_id": "55555555-5555-4555-8555-555555555555"
+          }
+        },
+        "time_scope": {
+          "kind": "point",
+          "version": 1,
+          "calendar_ref": {
+            "artifact_id": "example.story-calendar",
+            "version": 1,
+            "digest": "6666666666666666666666666666666666666666666666666666666666666666"
+          },
+          "value": 10
+        }
+      },
+      "expected_canonical_json": "{\"kind\":\"statement_claim_ref\",\"polarity\":\"negative\",\"regime\":\"objective_world.v1\",\"statement\":{\"kind\":\"entity_relation\",\"object\":{\"novel_id\":\"11111111-1111-4111-8111-111111111111\",\"referent_id\":\"55555555-5555-4555-8555-555555555555\"},\"relation_kind\":\"social\",\"relation_type\":\"隶属于\",\"subject\":{\"novel_id\":\"11111111-1111-4111-8111-111111111111\",\"referent_id\":\"44444444-4444-4444-8444-444444444444\"},\"version\":1},\"time_scope\":{\"calendar_ref\":{\"artifact_id\":\"example.story-calendar\",\"digest\":\"6666666666666666666666666666666666666666666666666666666666666666\",\"version\":1},\"kind\":\"point\",\"value\":10,\"version\":1},\"version\":1}",
+      "expected_sha256": "48b7d1694202f31a6733da0d6806ce47631945079dcbee9fd69d3c9b5fb94dac",
+      "expected_admission": "unsupported_calendar"
+    },
+    {
+      "name": "empty_c0_manifest",
+      "normalized": {
+        "kind": "canon_manifest",
+        "version": 1,
+        "active_resources": [],
+        "selected_assertions": [],
+        "kernel_ref": {
+          "artifact_id": "world.canon-kernel",
+          "version": 1,
+          "digest": "f8d47106cd0c8803739815de39439bbb6d6d95e4b0657d63763060f82671ff6c"
+        },
+        "schema_refs": [
+          {
+            "artifact_id": "world.statement-schema",
+            "version": 1,
+            "digest": "3eda28fd8a246e2c44cfd36683b754b221de5a340ce0c04be58a85f186c6c81e"
+          }
+        ],
+        "rule_ref": {
+          "artifact_id": "world.canon-rules.empty",
+          "version": 1,
+          "digest": "c110c7c624f2715b92eb5b0283b316470fbb8b2a6ab49379c157ec014920bad1"
+        },
+        "validation_policy_ref": null,
+        "calendar_ref": null,
+        "pinned_dependencies": [],
+        "family_authority": {
+          "name": "formal-disabled",
+          "typed_scalar": "formal-disabled",
+          "binary_relation": "formal-disabled",
+          "event_time": "formal-disabled",
+          "belief": "formal-disabled"
+        }
+      },
+      "expected_canonical_json": "{\"active_resources\":[],\"calendar_ref\":null,\"family_authority\":{\"belief\":\"formal-disabled\",\"binary_relation\":\"formal-disabled\",\"event_time\":\"formal-disabled\",\"name\":\"formal-disabled\",\"typed_scalar\":\"formal-disabled\"},\"kernel_ref\":{\"artifact_id\":\"world.canon-kernel\",\"digest\":\"f8d47106cd0c8803739815de39439bbb6d6d95e4b0657d63763060f82671ff6c\",\"version\":1},\"kind\":\"canon_manifest\",\"pinned_dependencies\":[],\"rule_ref\":{\"artifact_id\":\"world.canon-rules.empty\",\"digest\":\"c110c7c624f2715b92eb5b0283b316470fbb8b2a6ab49379c157ec014920bad1\",\"version\":1},\"schema_refs\":[{\"artifact_id\":\"world.statement-schema\",\"digest\":\"3eda28fd8a246e2c44cfd36683b754b221de5a340ce0c04be58a85f186c6c81e\",\"version\":1}],\"selected_assertions\":[],\"validation_policy_ref\":null,\"version\":1}",
+      "expected_sha256": "7a440090e099969e1d690b250e439ddd7d6d808dcd4edaf00694f394967f8f55"
+    },
+    {
+      "name": "empty_c0_admission_input",
+      "normalized": {
+        "kind": "bootstrap_empty",
+        "version": 1,
+        "novel_id": "11111111-1111-4111-8111-111111111111",
+        "expected_previous_head": null
+      },
+      "expected_canonical_json": "{\"expected_previous_head\":null,\"kind\":\"bootstrap_empty\",\"novel_id\":\"11111111-1111-4111-8111-111111111111\",\"version\":1}",
+      "expected_sha256": "fdc85af4e5735e5442fe683296908a126fd4fe57e4d07135505acd3bb72ee756"
+    },
+    {
+      "name": "empty_c0_receipt",
+      "normalized": {
+        "kind": "canon_admission_receipt",
+        "version": 1,
+        "novel_id": "11111111-1111-4111-8111-111111111111",
+        "canon_revision_id": "99999999-9999-4999-8999-999999999999",
+        "manifest_digest": "7a440090e099969e1d690b250e439ddd7d6d808dcd4edaf00694f394967f8f55",
+        "decision": {
+          "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "digest": "fdc85af4e5735e5442fe683296908a126fd4fe57e4d07135505acd3bb72ee756"
+        },
+        "authorizer": {
+          "kind": "bootstrap",
+          "version": 1,
+          "subject": "world.canon.bootstrap"
+        },
+        "executor": {
+          "kind": "bootstrap",
+          "version": 1,
+          "subject": "world.canon.bootstrap"
+        },
+        "authorization_policy": {
+          "artifact_id": "world.canon.bootstrap-empty",
+          "version": 1,
+          "digest": "a1104c58dcb18c278a1fab2b5b944b4f76d05a49d9a22a2412df1e9e7b56cc29"
+        },
+        "authorization_decision": "allow",
+        "action": "bootstrap_empty_canon",
+        "affected_families": [],
+        "affected_resources": [],
+        "admission_input": {
+          "kind": "bootstrap_empty",
+          "version": 1,
+          "novel_id": "11111111-1111-4111-8111-111111111111",
+          "expected_previous_head": null
+        },
+        "admission_input_digest": "fdc85af4e5735e5442fe683296908a126fd4fe57e4d07135505acd3bb72ee756",
+        "expected_previous_head": null,
+        "committed_at": "2026-08-27T00:00:00Z"
+      },
+      "expected_canonical_json": "{\"action\":\"bootstrap_empty_canon\",\"admission_input\":{\"expected_previous_head\":null,\"kind\":\"bootstrap_empty\",\"novel_id\":\"11111111-1111-4111-8111-111111111111\",\"version\":1},\"admission_input_digest\":\"fdc85af4e5735e5442fe683296908a126fd4fe57e4d07135505acd3bb72ee756\",\"affected_families\":[],\"affected_resources\":[],\"authorization_decision\":\"allow\",\"authorization_policy\":{\"artifact_id\":\"world.canon.bootstrap-empty\",\"digest\":\"a1104c58dcb18c278a1fab2b5b944b4f76d05a49d9a22a2412df1e9e7b56cc29\",\"version\":1},\"authorizer\":{\"kind\":\"bootstrap\",\"subject\":\"world.canon.bootstrap\",\"version\":1},\"canon_revision_id\":\"99999999-9999-4999-8999-999999999999\",\"committed_at\":\"2026-08-27T00:00:00Z\",\"decision\":{\"digest\":\"fdc85af4e5735e5442fe683296908a126fd4fe57e4d07135505acd3bb72ee756\",\"id\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\"},\"executor\":{\"kind\":\"bootstrap\",\"subject\":\"world.canon.bootstrap\",\"version\":1},\"expected_previous_head\":null,\"kind\":\"canon_admission_receipt\",\"manifest_digest\":\"7a440090e099969e1d690b250e439ddd7d6d808dcd4edaf00694f394967f8f55\",\"novel_id\":\"11111111-1111-4111-8111-111111111111\",\"version\":1}",
+      "expected_sha256": "5d0f7eea56f2156a607edfa5b7c92d8587fb85cb248989647c04a30c4d17b7e9"
+    }
+  ]
+}

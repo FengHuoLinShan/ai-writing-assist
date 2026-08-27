@@ -125,7 +125,6 @@ class EntityRevisionService:
         current = await self._entity_repo.get_for_update(db, eid)
         if current is None or current.novel_id != nid:
             raise NotFoundError(f"CoreEntity {entity_id} not found")
-        was_canonical = current.status == "canonical"
 
         # 锁定当前实体后再打快照，避免并发类型修改保存过期状态。
         await self.create_snapshot(db, entity_id, novel_id, revision_reason="rollback")
@@ -171,8 +170,6 @@ class EntityRevisionService:
         entity = await self._entity_repo.update(db, current, update_data)
         if entity is None:
             raise NotFoundError(f"CoreEntity {entity_id} not found after rollback")
-        if was_canonical or entity.status == "canonical":
-            await self._record_authority(db, entity)
 
         if type_changed:
             await self._invalidate_type_change(db, novel_id, entity_id)
@@ -197,7 +194,6 @@ class EntityRevisionService:
         entity = await self._entity_repo.get_for_update(db, eid)
         if entity is None or entity.novel_id != nid:
             raise NotFoundError(f"CoreEntity {entity_id} not found")
-        was_canonical = entity.status == "canonical"
 
         stmt = (
             select(TextArchive)
@@ -319,8 +315,6 @@ class EntityRevisionService:
         )
         db.add(rollback_archive)
         await db.flush()
-        if was_canonical or entity.status == "canonical":
-            await self._record_authority(db, entity)
         await self._request_activity_refresh(db, novel_id)
 
         return {
@@ -329,14 +323,6 @@ class EntityRevisionService:
             "restored_fields": restored_fields,
             "warnings": warnings,
         }
-
-    @staticmethod
-    async def _record_authority(db: AsyncSession, entity) -> None:  # noqa: ANN001
-        from modules.world.services.worldbuilding.world_authority_service import (
-            WorldAuthorityService,
-        )
-
-        await WorldAuthorityService().record_entity_revision(db, entity)
 
     @staticmethod
     async def _invalidate_type_change(

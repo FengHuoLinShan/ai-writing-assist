@@ -359,7 +359,6 @@ class EntityDedupService:
                 ),
                 status_code=422,
             )
-        candidate_was_canonical = candidate.status == "canonical"
         candidate_meta = dict((candidate.content_json or {}).get("_meta") or {})
         if candidate_meta.get("compatibility_shadow") is True and candidate_meta.get(
             "suggestion_id"
@@ -449,15 +448,6 @@ class EntityDedupService:
                 )
 
         await db.flush()
-        from modules.world.services.worldbuilding.world_authority_service import (
-            WorldAuthorityService,
-        )
-
-        authority = WorldAuthorityService()
-        if target.status == "canonical":
-            await authority.record_entity_revision(db, target)
-        if candidate_was_canonical:
-            await authority.record_entity_revision(db, candidate)
         from modules.world.services.core.entity_activity_invalidation import (
             request_entity_activity_reannotation,
         )

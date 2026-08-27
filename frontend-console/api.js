@@ -1137,8 +1137,11 @@ const api = {
     },
 
     async publishBibleDraft(draftId, novelId, expectedImpactScopeHash = null, validationRunId = null) {
+      const head = await request(withQuery("/world/canon/head", { novel_id: novelId }))
       return post(withQuery(`/world/bible/drafts/${draftId}/publish`, {
         novel_id: novelId,
+        expected_canon_head: head.current_revision.id,
+        canon_decision_id: crypto.randomUUID(),
         expected_impact_scope_hash: expectedImpactScopeHash || undefined,
         validation_run_id: validationRunId || undefined,
       }))

@@ -55,12 +55,10 @@ class EntityAliasService:
         repo: CoreEntityRepository | None = None,
         context_marker=None,
         activity_requester=None,
-        authority_recorder=None,
     ) -> None:
         self.repo = repo or CoreEntityRepository()
         self._context_marker = context_marker
         self._activity_requester = activity_requester
-        self._authority_recorder = authority_recorder
 
     @staticmethod
     async def _require_legacy_canon_write_allowed(
@@ -917,8 +915,6 @@ class EntityAliasService:
         content["aliases"] = aliases
         entity.content_json = content
         await db.flush()
-        if entity.status == "canonical" and status in ACTIVE_ALIAS_STATUSES:
-            await self._record_authority(db, entity)
         await self._request_activity_refresh(db, novel_id)
         return self._alias_response(entity, alias_payload)
 
@@ -983,11 +979,6 @@ class EntityAliasService:
             content["aliases"] = aliases
             entity.content_json = content
             await db.flush()
-            if entity.status == "canonical" and (
-                current_status in ACTIVE_ALIAS_STATUSES
-                or updated.get("status") in ACTIVE_ALIAS_STATUSES
-            ):
-                await self._record_authority(db, entity)
             await self._request_activity_refresh(db, novel_id)
             return {
                 "entity_id": str(entity.id),
@@ -1115,15 +1106,6 @@ class EntityAliasService:
             affected_ids.add(str(target.id))
 
         await db.flush()
-        if confirm_review:
-            await self._record_authority(
-                db,
-                *(
-                    entity
-                    for entity in {source.id: source, target.id: target}.values()
-                    if entity.status == "canonical"
-                ),
-            )
         for changed_id in affected_ids:
             await self._mark_context_changed(
                 db,
@@ -1273,15 +1255,6 @@ class EntityAliasService:
             CoreEntityUpdate(status="merged", content_json=candidate_content),
         )
         await db.flush()
-        await self._record_authority(
-            db,
-            *(
-                entity
-                for entity in [target, candidate]
-                if entity.status == "canonical"
-                or (entity.id == candidate.id and source_was_canonical)
-            ),
-        )
 
         await self._mark_context_changed(
             db,
@@ -1471,41 +1444,19 @@ class EntityAliasService:
         aliases = list(content.get("aliases", []))
         new_aliases: list = []
         found = False
-        deleted_active = False
         normalized_alias = alias.strip()
         for alias_item in aliases:
             existing, _ = self._normalize_alias_item(alias_item)
             if existing == normalized_alias:
                 found = True
-                deleted_active = (
-                    not isinstance(alias_item, dict)
-                    or alias_item.get("status") in ACTIVE_ALIAS_STATUSES
-                )
                 continue
             new_aliases.append(alias_item)
 
         if not found:
             raise NotFoundError(f"Alias not found: {alias}")
-        if deleted_active:
-            await self._require_legacy_canon_write_allowed(db, novel_id)
 
         content["aliases"] = new_aliases
         entity.content_json = content
         await db.flush()
-        if entity.status == "canonical" and deleted_active:
-            await self._record_authority(db, entity)
         await self._request_activity_refresh(db, novel_id)
         return {"entity_id": str(entity.id), "alias": alias, "deleted": True}
-
-    async def _record_authority(self, db: AsyncSession, *entities) -> None:  # noqa: ANN002
-        recorder = self._authority_recorder
-        if recorder is None:
-            from modules.world.services.worldbuilding.world_authority_service import (
-                WorldAuthorityService,
-            )
-
-            recorder = WorldAuthorityService().record_entity_revision
-        # ponytail: one Canon child per touched entity; batch commits can replace this
-        # only if multi-entity alias edits become a measured history-volume problem.
-        for entity in entities:
-            await recorder(db, entity)

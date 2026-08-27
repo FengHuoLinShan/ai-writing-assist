@@ -8,6 +8,10 @@ imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用�
 
 ## 核心原则
 
+- 作者项目拥有空 `C0`、唯一 Canon head 和追加式 CanonRevision 历史；
+  World Bible 发布通过唯一 Admit 原子 seal PageRevision、选入新 manifest 并推进 head。
+- Phase 0 只启用 C0、Page documentary selection 和追加式 revert；所有 formal
+  family 仍是 `formal-disabled`，`world_assertions` 没有准入入口。
 - 对象抽取不是 NER，而是长期创作资产识别
 - 人工创建对象、关系和别名时，保存即表示采用；CoreEntity 默认写入 `canonical` 并记录 `created_by / approved_by`
 - 普通 AI 创设统一先写 `creation_suggestion_queue`。生成中心返回判别式 suggestion result，
@@ -76,11 +80,10 @@ RAG 或 LLM 上下文。
 - `entity_revisions` — 实体快照版本表（旧版快照；当前活跃回滚优先使用 `TextArchive`，无归档时回退到 `EntityRevision`）
 - `characters` — 人物档案（entity_id PK+FK → core_entities.id）
 - `character_knowledge` — 人物知识边界
-- `species_profiles` / `faction_profiles` / `location_profiles` / `rule_profiles` / `item_profiles` / `secret_profiles` / `entity_profile_templates` / `generic_entity_profiles` — 世界对象的类型化 Profile 与模板
+- `world_assertions` / `world_canon_revisions` / `world_canon_heads` — 封闭 Assert carrier、完整不可变 manifest/receipt 历史与每项目唯一 head
+- `species_profiles` / `faction_profiles` / `location_profiles` / `rule_profiles` / `item_profiles` / `secret_profiles` / `entity_profile_templates` / `entity_profile_template_revisions` / `generic_entity_profiles` — 世界对象的类型化 Profile、模板与可精确引用的模板修订
 - `generation_prompt_templates` / `generation_prompt_template_revisions` — 项目生成模板及不可变版本
-- `world_bible_categories` / `world_bible_page_drafts` / `world_bible_pages` / `world_bible_page_revisions` / `world_bible_page_projections` — 世界书类别、服务器工作稿、含稳定 sections 的已发布页和派生投影
-- `world_assertions` / `world_canon_revisions` / `world_canon_heads` — 不可变有限断言、完整 Canon manifest/receipt 与每项目唯一 CAS head；empty C0 不提升 legacy 事实，页面发布只选择 exact revision
-- `entity_profile_template_revisions` — Profile template 的 immutable Schema revision；页面 template 仍只负责布局
+- `world_bible_categories` / `world_bible_page_drafts` / `world_bible_pages` / `world_bible_page_revisions` / `world_bible_page_projections` — 世界书类别、服务器工作稿、含稳定 sections 的已发布页、带 digest 的不可变修订和派生投影
 - `world_validation_runs` — 持久化 targeted/full 校验输入、分片 hash、结果、预算、新鲜度与作者签收
 - `world_bible_page_templates` / `world_bible_page_template_revisions` — 项目页面布局模板及不可变历史；内置模板仍由代码注册
 - `world_bible_synopsis_heads` / `world_bible_synopsis_revisions` — 作者版世界观简介的刷新状态、授权与不可变版本
@@ -106,6 +109,7 @@ RAG 或 LLM 上下文。
 - `models/character.py`：人物档案和人物知识边界。
 - `models/profiles.py`：世界资产 profile、模板和通用档案。
 - `models/worldbuilding.py`：生成模板、World Bible、知识标签、创设建议和冲突队列。
+- `models/authority.py`：不可变 Assert、CanonRevision/head 和 Profile Template revision。
 - `models/common.py`：共享 SQLAlchemy imports 与 pgvector/SQLite embedding column helper。
 
 ## 服务
@@ -186,7 +190,6 @@ async def backfill_entity_embeddings(db, novel_id, *, batch_size=64) -> int
 
 # ---- Entity Context ----
 async def get_world_context(db, novel_id, entity_ids=None, ..., include_review=False) -> WorldContextBundle
-async def get_world_canon_context(db, novel_id, *, canon_revision_id=None, entity_ids=None, reveal_mode="author_safe", limit=20) -> WorldContextBundle
 async def expand_related_entities(db, novel_id, seed_entity_ids, depth=1, limit=20) -> list[CoreEntityContext]
 
 # ---- Author workbench attention ----
@@ -244,7 +247,8 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 `get_entity_importance_map` 是给 RAG 派生 chunk 使用的 adopted-only 窄投影；只包含
 `canonical` 对象的 ID、importance 和 importance level，不暴露 ORM 或待处理对象。
 
-World Bible 页面是资料组织层，不是结构化事实源。`free_text` 是兼容概览，`sections_json`
+World Bible 页面是资料组织层，不是结构化事实源。发布后的精确 PageRevision
+由 Canon manifest 选为 documentary canon，但页面文字不会自动生成 Assert。`free_text` 是兼容概览，`sections_json`
 保存最多 64 个稳定、有序的 markdown/checklist/asset_collection 资料段；section 引用只能
 指向页面级已校验 TargetRef。`TargetRef.relation` 默认 `informs`，允许
 `requires/informs/derives/conflicts`，关系类型参与 target hash；为兼容旧 wire，
@@ -312,6 +316,11 @@ PUT    /api/world/knowledge/{knowledge_id}
 DELETE /api/world/knowledge/{knowledge_id}
 
 # World Bible 工作稿、历史和简介
+GET    /api/world/canon/head
+GET    /api/world/canon/revisions/{revision_id}
+POST   /api/world/canon/admissions/preview
+POST   /api/world/canon/admissions
+POST   /api/world/canon/revert
 GET/POST/PATCH /api/world/bible/categories
 GET/POST/PATCH/DELETE /api/world/bible/drafts
 GET/POST /api/world/bible/page-templates
@@ -320,7 +329,7 @@ GET    /api/world/bible/page-templates/{template_id}/revisions
 POST   /api/world/bible/page-templates/{template_id}/revisions/{version}/restore-draft
 POST   /api/world/bible/drafts/{draft_id}/apply-template
 GET    /api/world/bible/drafts/{draft_id}/publish-impact
-POST   /api/world/bible/drafts/{draft_id}/publish
+POST   /api/world/bible/drafts/{draft_id}/publish  # requires expected_canon_head + canon_decision_id
 POST   /api/world/bible/pages/{page_id}/refresh-projection
 GET    /api/world/bible/pages/{page_id}/revisions
 POST   /api/world/bible/pages/{page_id}/revisions/{version}/restore-draft
@@ -329,19 +338,6 @@ PATCH  /api/world/bible/synopsis/auto-refresh
 GET    /api/world/bible/synopsis/revisions
 POST   /api/world/bible/synopsis/revisions/{revision_id}/restore
 POST   /api/world/bible/synopsis/unpin
-
-# World Canon（owner-only 诊断/显式准入）
-GET    /api/world/canon
-GET    /api/world/canon/{canon_revision_id}
-POST   /api/world/canon/initialize/preview
-POST   /api/world/canon/initialize
-POST   /api/world/canon/revert
-POST   /api/world/profile-templates
-POST   /api/world/profile-templates/{template_id}/revisions
-POST   /api/world/profile-templates/{template_id}/adopt
-POST   /api/world/canon/promotions/preview
-POST   /api/world/canon/promotions
-POST   /api/world/formal-query
 
 # 生成中心 world 工作区
 POST   /api/world/generation-center/chat

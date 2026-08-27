@@ -4,12 +4,12 @@ from __future__ import annotations
 
 
 async def initialize_world_canon(db, novel_id: str) -> None:
-    """Create the empty C0 for a newly created author project."""
+    """Create the idempotent empty canon root for one author project."""
     from modules.world.services.worldbuilding.world_authority_service import (
         WorldAuthorityService,
     )
 
-    await WorldAuthorityService().ensure_initialized(db, novel_id)
+    await WorldAuthorityService().initialize_empty_canon(db, novel_id)
 
 
 async def assemble_post_import_adoption_package(db, request):
@@ -64,30 +64,6 @@ async def get_world_background(
         db,
         novel_id,
         context_mode=context_mode,
-        reveal_mode=reveal_mode,
-        limit=limit,
-    )
-
-
-async def get_world_canon_context(
-    db,
-    novel_id: str,
-    *,
-    canon_revision_id: str | None = None,
-    entity_ids: list[str] | None = None,
-    reveal_mode: str = "author_safe",
-    limit: int = 20,
-):
-    """Return exact C-pinned facts and documentary resources for Context."""
-    from modules.world.services.worldbuilding.world_authority_service import (
-        WorldAuthorityService,
-    )
-
-    return await WorldAuthorityService().canon_context(
-        db,
-        novel_id,
-        canon_revision_id=canon_revision_id,
-        entity_ids=entity_ids,
         reveal_mode=reveal_mode,
         limit=limit,
     )

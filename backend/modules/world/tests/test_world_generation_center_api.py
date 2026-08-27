@@ -39,6 +39,7 @@ from modules.world.models import (
     WorldBiblePage,
     WorldBiblePageDraft,
 )
+from modules.world.tests.helpers import publish_bible_draft
 
 pytestmark = pytest.mark.usefixtures("account_llm_connection")
 
@@ -357,9 +358,10 @@ async def _create_published_page(
         },
     )
     assert created.status_code == 201, created.text
-    published = await async_client.post(
-        f"/api/world/bible/drafts/{created.json()['id']}/publish",
-        params={"novel_id": novel_id},
+    published = await publish_bible_draft(
+        async_client,
+        novel_id,
+        created.json()["id"],
     )
     assert published.status_code == 200, published.text
     return published.json()
@@ -2191,9 +2193,10 @@ async def test_page_generation_persists_unresolved_choices_in_author_only_sectio
         json={},
     )
     assert applied.status_code == 200, applied.text
-    published = await async_client.post(
-        f"/api/world/bible/drafts/{applied.json()['draft']['id']}/publish",
-        params={"novel_id": novel_id},
+    published = await publish_bible_draft(
+        async_client,
+        novel_id,
+        applied.json()["draft"]["id"],
     )
     assert published.status_code == 200, published.text
     assert any(

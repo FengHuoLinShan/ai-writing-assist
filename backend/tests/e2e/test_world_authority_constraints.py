@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from modules.project.models import Project
@@ -12,7 +12,7 @@ from modules.world.models import WorldCanonHead, WorldCanonRevision
 
 
 @pytest.mark.asyncio
-async def test_postgresql_rejects_direct_canon_revision_delete(
+async def test_postgresql_rejects_direct_canon_revision_mutation(
     async_client, db_session
 ) -> None:
     created = await async_client.post("/api/projects", json={"title": "Immutable Canon"})
@@ -21,9 +21,9 @@ async def test_postgresql_rejects_direct_canon_revision_delete(
 
     with pytest.raises(DBAPIError, match="immutable"):
         await db_session.execute(
-            delete(WorldCanonRevision).where(
-                WorldCanonRevision.id == head.canon_revision_id
-            )
+            update(WorldCanonRevision)
+            .where(WorldCanonRevision.id == head.current_revision_id)
+            .values(manifest_digest="0" * 64)
         )
 
 
@@ -36,15 +36,20 @@ async def test_postgresql_rejects_cross_novel_canon_parent(
     first_id = uuid.UUID(first.json()["id"])
     second_id = uuid.UUID(second.json()["id"])
     first_head = await db_session.get(WorldCanonHead, first_id)
-    now = datetime.now(UTC)
+    first_revision = await db_session.get(
+        WorldCanonRevision, first_head.current_revision_id
+    )
     invalid = WorldCanonRevision(
+        id=uuid.uuid4(),
         novel_id=second_id,
-        parent_id=first_head.canon_revision_id,
-        kernel_spec_version="world-kernel.v1",
-        manifest_json={},
-        manifest_digest="0" * 64,
-        admission_receipt_json={},
-        created_at=now,
+        version_number=1,
+        parent_revision_id=first_revision.id,
+        manifest_json=first_revision.manifest_json,
+        manifest_digest=first_revision.manifest_digest,
+        receipt_json=first_revision.receipt_json,
+        decision_id=uuid.uuid4(),
+        decision_digest="0" * 64,
+        created_at=datetime.now(UTC),
     )
     db_session.add(invalid)
 

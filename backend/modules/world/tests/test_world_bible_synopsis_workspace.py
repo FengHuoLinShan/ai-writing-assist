@@ -44,6 +44,7 @@ from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
 from modules.world.services.worldbuilding.world_bible_synopsis_service import (
     WorldBibleSynopsisService,
 )
+from modules.world.tests.helpers import publish_bible_draft
 
 
 class _FakeSynopsisClient:
@@ -1410,11 +1411,13 @@ async def test_synopsis_manifest_prioritizes_published_world_bible_pages(
     )
     await lifecycle.publish_draft(db_session, project_novel_id, draft.id)
 
-    manifest, _source_hash, _omitted = (
-        await WorldBibleSynopsisService().build_source_manifest(
-            db_session,
-            project_novel_id,
-        )
+    (
+        manifest,
+        _source_hash,
+        _omitted,
+    ) = await WorldBibleSynopsisService().build_source_manifest(
+        db_session,
+        project_novel_id,
     )
 
     assert manifest[0]["type"] == "world_bible_page"
@@ -1771,9 +1774,10 @@ async def test_world_bible_api_uses_working_draft_and_legacy_patch_conflicts(
     )
     assert draft_response.status_code == 201
     draft_id = draft_response.json()["id"]
-    publish_response = await async_client.post(
-        f"/api/world/bible/drafts/{draft_id}/publish",
-        params={"novel_id": project_novel_id},
+    publish_response = await publish_bible_draft(
+        async_client,
+        project_novel_id,
+        draft_id,
     )
     assert publish_response.status_code == 200
     page_id = publish_response.json()["id"]

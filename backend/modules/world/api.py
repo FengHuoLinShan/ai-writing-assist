@@ -23,6 +23,7 @@ from infrastructure.tasks.facade import (
     enqueue_task_with_optional_operation,
     get_operation_task,
 )
+from modules.account.facade import current_account_id
 from modules.evidence.facade import attach_result_ref, require_fresh_confirmation
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
@@ -31,21 +32,14 @@ from modules.project.facade import (
 from modules.project.facade import (
     require_active_project_exclusive as _require_active_project_exclusive,
 )
-from modules.world.authority_schemas import (
-    EntityProfileTemplateAdoptRequest,
-    EntityProfileTemplateCreateRequest,
-    EntityProfileTemplateResponse,
-    EntityProfileTemplateRevisionCreateRequest,
-    WorldCanonInitializePreviewRequest,
-    WorldCanonInitializePreviewResponse,
-    WorldCanonInitializeRequest,
-    WorldCanonRevertRequest,
-    WorldCanonSummaryResponse,
-    WorldFormalQueryRequest,
-    WorldFormalQueryResponse,
-    WorldPromotionApplyRequest,
-    WorldPromotionPreviewRequest,
-    WorldPromotionPreviewResponse,
+from modules.world.authority import (
+    CanonAdmissionPreviewRequest,
+    CanonAdmissionPreviewResponse,
+    CanonAdmissionRequest,
+    CanonHeadResponse,
+    CanonRevertRequest,
+    CanonRevisionResponse,
+    RevertInputV1,
 )
 from modules.world.entity_fusion import WorldEntityFusionService
 from modules.world.schemas import (
@@ -150,6 +144,7 @@ from modules.world.schemas import (
     WorldBibleSynopsisRefreshResponse,
     WorldBibleSynopsisResponse,
     WorldBibleSynopsisRevisionListResponse,
+    WorldBibleValidationReceipt,
     WorldbookImportApplyRequest,
     WorldbookImportApplyResponse,
     WorldbookImportManifest,
@@ -278,90 +273,66 @@ async def _require_active_novel_id(
 ActiveNovelIdQuery = Annotated[str, Depends(_require_active_novel_id)]
 
 
-@router.get("/canon", response_model=WorldCanonSummaryResponse)
-async def get_current_world_canon(
+@router.get("/canon/head", response_model=CanonHeadResponse)
+async def get_world_canon_head(
     db: DbSession,
     *,
     novel_id: ActiveNovelIdQuery,
-) -> WorldCanonSummaryResponse:
-    return await _world_authority_service.current_summary(db, novel_id)
+) -> CanonHeadResponse:
+    return await _world_authority_service.get_head(db, novel_id)
 
 
-@router.post(
-    "/canon/initialize/preview",
-    response_model=WorldCanonInitializePreviewResponse,
-)
-async def preview_world_canon_initialization(
-    db: DbSession,
-    data: WorldCanonInitializePreviewRequest,
-    *,
-    novel_id: ActiveNovelIdQuery,
-) -> WorldCanonInitializePreviewResponse:
-    return await _world_authority_service.initialize_preview(db, novel_id, data)
-
-
-@router.post("/canon/initialize", response_model=WorldCanonSummaryResponse)
-async def initialize_world_canon(
-    db: DbSession,
-    data: WorldCanonInitializeRequest,
-    *,
-    novel_id: ActiveNovelIdQuery,
-) -> WorldCanonSummaryResponse:
-    return await _world_authority_service.initialize(db, novel_id, data)
-
-
-@router.post("/canon/revert", response_model=WorldCanonSummaryResponse)
-async def revert_world_canon(
-    db: DbSession,
-    data: WorldCanonRevertRequest,
-    *,
-    novel_id: ActiveNovelIdQuery,
-) -> WorldCanonSummaryResponse:
-    return await _world_authority_service.revert(db, novel_id, data)
-
-
-@router.post(
-    "/canon/promotions/preview",
-    response_model=WorldPromotionPreviewResponse,
-)
-async def preview_world_canon_promotion(
-    db: DbSession,
-    data: WorldPromotionPreviewRequest,
-    *,
-    novel_id: ActiveNovelIdQuery,
-) -> WorldPromotionPreviewResponse:
-    return await _world_authority_service.promotion_preview(db, novel_id, data)
-
-
-@router.post("/canon/promotions", response_model=WorldCanonSummaryResponse)
-async def apply_world_canon_promotion(
-    db: DbSession,
-    data: WorldPromotionApplyRequest,
-    *,
-    novel_id: ActiveNovelIdQuery,
-) -> WorldCanonSummaryResponse:
-    return await _world_authority_service.promote(db, novel_id, data)
-
-
-@router.post("/formal-query", response_model=WorldFormalQueryResponse)
-async def formal_world_query(
-    db: DbSession,
-    data: WorldFormalQueryRequest,
-    *,
-    novel_id: ActiveNovelIdQuery,
-) -> WorldFormalQueryResponse:
-    return await _world_authority_service.formal_query(db, novel_id, data)
-
-
-@router.get("/canon/{canon_revision_id}", response_model=WorldCanonSummaryResponse)
+@router.get("/canon/revisions/{revision_id}", response_model=CanonRevisionResponse)
 async def get_world_canon_revision(
     db: DbSession,
-    canon_revision_id: uuid.UUID,
+    revision_id: str,
     *,
     novel_id: ActiveNovelIdQuery,
-) -> WorldCanonSummaryResponse:
-    return await _world_authority_service.revision_summary(
-        db, novel_id, canon_revision_id
+) -> CanonRevisionResponse:
+    return await _world_authority_service.get_revision(db, novel_id, revision_id)
+
+
+@router.post("/canon/admissions/preview", response_model=CanonAdmissionPreviewResponse)
+async def preview_world_canon_admission(
+    db: DbSession,
+    data: CanonAdmissionPreviewRequest,
+) -> CanonAdmissionPreviewResponse:
+    await require_active_project(db, str(data.novel_id))
+    return await _world_authority_service.preview(db, data)
+
+
+@router.post("/canon/admissions", response_model=CanonRevisionResponse)
+async def admit_world_canon_change(
+    db: DbSession,
+    data: CanonAdmissionRequest,
+) -> CanonRevisionResponse:
+    await _require_active_project_exclusive(db, str(data.novel_id))
+    return await _world_authority_service.admit(
+        db,
+        data,
+        authorizer_id=current_account_id(),
+    )
+
+
+@router.post("/canon/revert", response_model=CanonRevisionResponse)
+async def revert_world_canon(
+    db: DbSession,
+    data: CanonRevertRequest,
+) -> CanonRevisionResponse:
+    await _require_active_project_exclusive(db, str(data.novel_id))
+    return await _world_authority_service.admit(
+        db,
+        CanonAdmissionRequest(
+            novel_id=data.novel_id,
+            decision_id=data.decision_id,
+            expected_previous_head=data.expected_previous_head,
+            confirmed=True,
+            input=RevertInputV1(
+                novel_id=data.novel_id,
+                target_revision_id=data.target_revision_id,
+            ),
+        ),
+        authorizer_id=current_account_id(),
     )
 
 
@@ -753,50 +724,6 @@ async def list_world_profiles(
     return WorldProfileListResponse(items=items, total=total)
 
 
-@router.post(
-    "/profile-templates",
-    response_model=EntityProfileTemplateResponse,
-    status_code=201,
-)
-async def create_entity_profile_template(
-    db: DbSession,
-    data: EntityProfileTemplateCreateRequest,
-) -> EntityProfileTemplateResponse:
-    await require_active_project(db, str(data.novel_id))
-    return await _profile_service.create_template(db, data)
-
-
-@router.post(
-    "/profile-templates/{template_id}/revisions",
-    response_model=EntityProfileTemplateResponse,
-    status_code=201,
-)
-async def create_entity_profile_template_revision(
-    db: DbSession,
-    template_id: str,
-    data: EntityProfileTemplateRevisionCreateRequest,
-    *,
-    novel_id: ActiveNovelIdQuery,
-) -> EntityProfileTemplateResponse:
-    return await _profile_service.add_template_revision(
-        db, novel_id, template_id, data
-    )
-
-
-@router.post(
-    "/profile-templates/{template_id}/adopt",
-    response_model=EntityProfileTemplateResponse,
-)
-async def adopt_entity_profile_template(
-    db: DbSession,
-    template_id: str,
-    data: EntityProfileTemplateAdoptRequest,
-    *,
-    novel_id: ActiveNovelIdQuery,
-) -> EntityProfileTemplateResponse:
-    return await _profile_service.adopt_template(db, novel_id, template_id, data)
-
-
 @router.get("/profiles/{entity_id}", response_model=WorldProfileResponse)
 async def get_world_profile(
     db: DbSession,
@@ -1151,8 +1078,9 @@ async def publish_bible_draft(
     db: DbSession,
     draft_id: str,
     *,
-    novel_id: ActiveNovelIdQuery,
-    published_by: str | None = Query(default=None, max_length=64),
+    novel_id: NovelIdQuery,
+    expected_canon_head: uuid.UUID = Query(...),
+    canon_decision_id: uuid.UUID = Query(...),
     expected_impact_scope_hash: str | None = Query(
         default=None,
         min_length=64,
@@ -1161,13 +1089,43 @@ async def publish_bible_draft(
     ),
     validation_run_id: uuid.UUID | None = Query(default=None),
 ) -> WorldBiblePageResponse:
-    return await _bible_lifecycle_service.publish_draft(
+    await _require_active_project_exclusive(db, novel_id)
+    preview = await _world_authority_service.preview(
         db,
-        novel_id,
-        draft_id,
-        published_by=published_by,
-        expected_impact_scope_hash=expected_impact_scope_hash,
-        validation_run_id=str(validation_run_id) if validation_run_id else None,
+        CanonAdmissionPreviewRequest(
+            novel_id=novel_id,
+            expected_previous_head=expected_canon_head,
+            input={
+                "kind": "page_publish",
+                "version": 1,
+                "novel_id": novel_id,
+                "draft_id": draft_id,
+                "expected_impact_scope_hash": expected_impact_scope_hash,
+                "validation_run_id": validation_run_id,
+            },
+        ),
+    )
+    admission = await _world_authority_service.admit(
+        db,
+        CanonAdmissionRequest(
+            novel_id=novel_id,
+            decision_id=canon_decision_id,
+            expected_previous_head=expected_canon_head,
+            confirmed=True,
+            input=preview.normalized_input,
+        ),
+        authorizer_id=current_account_id(),
+    )
+    page = await _bible_service.get_page(
+        db, novel_id, admission.changes["published_page_id"]
+    )
+    receipt = admission.changes.get("publication_receipt")
+    return page.model_copy(
+        update={
+            "validation_receipt": (
+                WorldBibleValidationReceipt.model_validate(receipt) if receipt else None
+            )
+        }
     )
 
 

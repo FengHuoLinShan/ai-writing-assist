@@ -69,26 +69,14 @@ async def _default_get_world_context(*args: Any, **kwargs: Any) -> Any:
     return await get_world_context(*args, **kwargs)
 
 
-async def _default_get_world_canon_context(*args: Any, **kwargs: Any) -> Any:
-    from modules.world.facade import get_world_canon_context
-
-    return await get_world_canon_context(*args, **kwargs)
-
-
 class WorldEntitiesLoader(Loader):
     """加载世界对象，按重要性排序并受 budget 限制"""
 
     def __init__(
         self,
         get_world_context_fn: _GetWorldContextFn = _default_get_world_context,
-        get_world_canon_context_fn: _GetWorldContextFn | None = None,
     ) -> None:
         self._get_world_context = get_world_context_fn
-        self._get_world_canon_context = get_world_canon_context_fn or (
-            _default_get_world_canon_context
-            if get_world_context_fn is _default_get_world_context
-            else get_world_context_fn
-        )
 
     @property
     def name(self) -> str:
@@ -100,19 +88,9 @@ class WorldEntitiesLoader(Loader):
         options: CompileOptions,
         bundle: StructureContextBundle,
     ) -> None:
-        map_atlas = options.consumer_action == "world.map_atlas.generate"
-        core_limit = 160 if map_atlas else CONTEXT_BUDGET.get("core_entities", 8)
-        normal_limit = 0 if map_atlas else CONTEXT_BUDGET.get("normal_entities", 8)
+        core_limit = CONTEXT_BUDGET.get("core_entities", 8)
+        normal_limit = CONTEXT_BUDGET.get("normal_entities", 8)
         all_limit = core_limit + normal_limit
-        use_canon_context = (
-            options.context_mode == "canonical"
-            and not options.include_pending_objects
-        )
-        context_reader = (
-            self._get_world_canon_context
-            if use_canon_context
-            else self._get_world_context
-        )
         generation_action = options.consumer_action in {
             "outline.analyze",
             "world.generation.chat",
@@ -121,6 +99,35 @@ class WorldEntitiesLoader(Loader):
             "world.generation.world_bible_page",
             "world.map_atlas.generate",
         }
+        if options.consumer_action == "world.map_atlas.generate":
+            from modules.world.facade import get_world_background
+
+            background = await get_world_background(
+                db,
+                options.novel_id,
+                context_mode=options.context_mode,
+                reveal_mode=options.reveal_mode,
+                limit=160,
+            )
+            bundle.world_entities = [
+                {
+                    "id": item.asset_id,
+                    "entry_id": item.entry_id,
+                    "entity_type": item.asset_type,
+                    "name": item.title,
+                    "summary": item.summary,
+                    "status": item.status,
+                    "sensitivity": item.sensitivity,
+                    "importance": item.importance,
+                    "source_ids": item.source_ids,
+                    "source_type": item.asset_type,
+                    "source_ref": {"source_hash": item.source_hash},
+                    "title": item.title,
+                }
+                for item in background.entries
+            ]
+            bundle.budget_used["core_entities"] = len(bundle.world_entities)
+            return
         related_candidates = _related_entity_candidates(options, bundle)
         related_ids = [entity_id for entity_id, _reason in related_candidates]
 
@@ -131,23 +138,16 @@ class WorldEntitiesLoader(Loader):
                     "剧情线和检索证据的顺序裁剪"
                 )
             limited_ids = related_ids[:all_limit]
-            context_kwargs = {
-                "entity_ids": limited_ids,
-                "reveal_mode": options.reveal_mode,
-                "limit": all_limit,
-            }
-            if use_canon_context and options.world_canon_revision_id:
-                context_kwargs["canon_revision_id"] = options.world_canon_revision_id
-            elif not use_canon_context:
-                context_kwargs.update(
-                    current_chapter=(
-                        options.visible_until_chapter or options.chapter_index
-                    ),
-                    include_review=options.include_pending_objects,
-                )
-            ctx = await context_reader(db, options.novel_id, **context_kwargs)
+            ctx = await self._get_world_context(
+                db,
+                options.novel_id,
+                entity_ids=limited_ids,
+                reveal_mode=options.reveal_mode,
+                limit=all_limit,
+                current_chapter=options.visible_until_chapter or options.chapter_index,
+                include_review=options.include_pending_objects,
+            )
             raw_entities = [_entity_dict(e) for e in ctx.entities] if ctx else []
-            self._pin_canon(options, ctx)
             entities = _filter_world_entities(
                 raw_entities,
                 include_pending_objects=options.include_pending_objects,
@@ -174,22 +174,15 @@ class WorldEntitiesLoader(Loader):
             bundle.budget_used["core_entities"] = 0
             bundle.budget_used["normal_entities"] = 0
         else:
-            context_kwargs = {
-                "reveal_mode": options.reveal_mode,
-                "limit": core_limit + normal_limit,
-            }
-            if use_canon_context and options.world_canon_revision_id:
-                context_kwargs["canon_revision_id"] = options.world_canon_revision_id
-            elif not use_canon_context:
-                context_kwargs.update(
-                    current_chapter=(
-                        options.visible_until_chapter or options.chapter_index
-                    ),
-                    include_review=options.include_pending_objects,
-                )
-            ctx = await context_reader(db, options.novel_id, **context_kwargs)
+            ctx = await self._get_world_context(
+                db,
+                options.novel_id,
+                reveal_mode=options.reveal_mode,
+                limit=core_limit + normal_limit,
+                current_chapter=options.visible_until_chapter or options.chapter_index,
+                include_review=options.include_pending_objects,
+            )
             raw_entities = [_entity_dict(e) for e in ctx.entities] if ctx else []
-            self._pin_canon(options, ctx)
             entities = _filter_world_entities(
                 raw_entities,
                 include_pending_objects=options.include_pending_objects,
@@ -247,17 +240,6 @@ class WorldEntitiesLoader(Loader):
                     ent["hidden_truth"] = f"{AUTHOR_ONLY_WARNING} {ent['hidden_truth']}"
         if options.reveal_mode in {"reader", "character"}:
             await self._apply_reader_visibility(db, options, bundle)
-
-    @staticmethod
-    def _pin_canon(options: CompileOptions, context: Any) -> None:
-        if context is None:
-            return
-        options.world_canon_revision_id = getattr(
-            context, "canon_revision_id", None
-        )
-        options.world_canon_manifest_digest = getattr(
-            context, "canon_manifest_digest", None
-        )
 
     async def _apply_reader_visibility(
         self,

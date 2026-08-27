@@ -77,10 +77,6 @@ class CompileOptions:
     """确认/回放时记录的简介规范化来源 hash"""
     world_synopsis_block_hash: str | None = None
     """确认/回放时记录的实际上下文块 hash"""
-    world_canon_revision_id: str | None = None
-    """canonical 上下文实际读取的不可变 World Canon revision"""
-    world_canon_manifest_digest: str | None = None
-    """World Canon 完整 manifest digest"""
     activation_profile_id: str | None = None
     """显式选择的 Activation Profile；为空时不启用规则"""
     activation_profile_version: int | None = None

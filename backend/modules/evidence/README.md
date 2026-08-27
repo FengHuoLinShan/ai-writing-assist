@@ -20,9 +20,6 @@
 - reader/character 可见性、hidden truth guard、confirmation 精确失效、snapshot 生命周期、
   retrieval trace 和索引 freshness 均沿用原行为；
 - 检索结果只是候选，编译阶段按 source ID/hash 回读 writing 原文并再次执行可见性门禁。
-- canonical world 上下文只经 world facade 读取某个 Canon revision 选中的 exact
-  Entity/Page revisions 与 Assert；confirmation/snapshot 固定实际 C ID 和 manifest digest，
-  回放不从 mutable Profile/Relation/MemoryEvent 回退。
 
 ## HTTP 与 import 边界
 

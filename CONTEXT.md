@@ -22,6 +22,8 @@ README、ORM 模型与 Alembic migration。当前文档范围由
 | 目标引用 | TargetRef | `shared.target_ref` | 跨模块定位事实的 `target_type` / `target_id` / `target_path` 结构。 |
 | 文本归档 | TextArchive | `text_archive` | 长文本字段的回滚归档。 |
 | 实体修订 | EntityRevision | `entity_revisions` | 兼容型实体快照；活跃回滚优先查 TextArchive。 |
+| 世界正典修订 | CanonRevision | `world_canon_revisions` / `world_canon_heads` | 每个作者项目的完整、不可变选择 manifest 及唯一当前 head；每次变更追加修订并保存准入回执，不原地改写历史。 |
+| 世界断言 | WorldAssertion | `world_assertions` | Phase 0 已建立封闭、不可变 carrier，但所有 formal family 仍为 `formal-disabled`；当前 API 不准入断言，不可将 legacy 行冒充为 Assert。 |
 
 `canonical` 关系边以 `(novel_id, source_id, target_id, relation_type)` 作为 PostgreSQL
 业务幂等键。所有对象与关系操作必须保持 `novel_id` 隔离。
@@ -32,10 +34,7 @@ README、ORM 模型与 Alembic migration。当前文档范围由
 |---|---|---|
 | 世界书页 | `world_bible_pages` | 作者可编辑的世界观组织页；它引用和解释事实，但不拥有 CoreEntity/关系等已采用事实。 |
 | 世界书类别与工作稿 | `world_bible_categories` / `world_bible_page_drafts` | 自定义类别只定义展示信息；工作稿是可丢弃的服务器编辑快照，发布后才以页面 revision 进入已采用世界观。 |
-| 世界书修订与投影 | `world_bible_page_revisions` / `world_bible_page_projections` | 页面保存点与可编译的派生投影；投影是缓存，不是事实源。 |
-| 世界事实断言 | `world_assertions` | world 自有、不可变、按 `novel_id` 隔离的有限 Name/typed scalar/binary relation Statement；只有 canonical Name 写入或作者显式 B promotion 可创建，不自动提升 legacy Profile/Relation。 |
-| Canon 历史与当前指针 | `world_canon_revisions` / `world_canon_heads` | revision 保存完整、不可变 manifest 与内联授权 receipt；head 是每项目唯一 CAS 指针，只能前进到直接子。每部作者小说从不选择 legacy 事实的 empty C0 开始，回滚也追加新 revision。 |
-| Profile 模板修订 | `entity_profile_template_revisions` | 为未来 typed Schema 固定 exact immutable revision；页面模板只负责布局，不能冒充事实 Schema。 |
+| 世界书修订与投影 | `world_bible_page_revisions` / `world_bible_page_projections` | PageRevision 是带持久化 digest 的封闭页面快照；发布在同一 Admit 事务中选入新 CanonRevision。投影是缓存，不是事实源。 |
 | 世界观简介 | `world_bible_synopsis_heads` / `world_bible_synopsis_revisions` | 仅作者模式可用的 P1 LLM 派生背景；revision 不可变且可回滚，head 只协调 stale、pin、刷新任务与持久化自动授权。它不替代确定性 `World Core Brief`，reader/character 不得读取。 |
 | 页面模板 | 代码注册表 + `template_key` / `template_version` | 内置模板目前不使用 `world_bible_page_templates` 数据表。 |
 | 生成模板 | `generation_prompt_templates` / revisions | 项目级 Prompt 模板及版本；运行时仍受固定 scaffold 与 Pydantic 输出契约约束。 |
@@ -46,12 +45,6 @@ README、ORM 模型与 Alembic migration。当前文档范围由
 | 冲突队列 | `conflict_check_queue` | 世界设定冲突与叙事风险的待处理项；它是当前表，不是未来预留。 |
 | 世界设计 checkpoint | `creation_suggestion_queue` 中的 `world_design_checkpoint.v1` | 作者显式保存、不可采用的分阶段世界状态；内嵌 `world-state 0.1.0` 完整 taxonomy，未有证据的区域保持 gap/not-run。 |
 | 世界书校验回执 | `world_validation_runs` | 对冻结 policy/manifest/dependency/target 的 targeted/full 校验证据；只证明结构与已登记证据，不等于文学质量或作者采纳。激活项目策略后，新鲜回执是工作稿发布和采用包应用的硬门禁。 |
-
-页面发布会在同一事务选择 exact `WorldBiblePageRevision` 并推进 Canon head，但默认
-创建零 Assert。canonical Name 写入会封存 exact `EntityRevision` 并原子更换 Name Assert；
-typed field 与 binary relation 只有经 exact Profile Schema + source revision 的显式 B promotion
-才进入 WorldEval。Evidence/Writing/地图册的 canonical 世界上下文只经 world facade 读取固定 C，
-并把 C ID/manifest digest 写入 confirmation 或 snapshot；不从 mutable Profile/Relation/MemoryEvent fallback。
 
 ## 3. 结构、正文与导入
 

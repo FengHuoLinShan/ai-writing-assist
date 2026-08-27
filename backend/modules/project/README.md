@@ -17,7 +17,8 @@ project 模块负责统一项目隔离根。作者项目使用 `project_kind=aut
 - 根据项目 owner 打开账户级文本与图片连接；项目只保留非 secret 工作流设置和可恢复 snapshot
 - 提供项目级智能去重扫描入口，聚合各业务模块自己的去重建议
 - 提供作者“今日工作”所需的只读工作台摘要，不返回正文、owner、密钥或内部任务信息
-- 创建作者项目时经 `world.facade.initialize_world_canon()` 在同一事务建立空的 C0；隐藏 interaction 项目不建立 World Canon
+- 创建作者项目时经 world facade 在同一事务初始化空的 Canon `C0/head`；
+  `interaction` 隐藏项目不创建 Canon head
 
 ## 边界
 

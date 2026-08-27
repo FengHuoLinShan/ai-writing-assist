@@ -41,13 +41,6 @@ context 本身不拥有业务事实，但当前**有自己的确认与审计记�
 - `outline`
 - `evidence/indexing`
 
-canonical world 来源现在只经 `world.facade.get_world_canon_context()` 读取：
-`WorldEntitiesLoader` 消费 C 选中的 exact Entity/Page revisions 与
-Name/typed scalar/binary relation Assert，不从 mutable Profile/Relation/MemoryEvent 回退。
-`CompileOptions` 记录实际 `world_canon_revision_id` 和 manifest digest；confirmation 回放
-重读同一 C，生成 snapshot 还在 `included_asset_ids.world_canon_revision` 固定该来源。
-`context_mode=working` 或显式纳入待处理对象时才走 working projection。
-
 ## 编译模式
 
 地图册不新增公开 scope。generation-background 对 `world.map_atlas.generate` 固定使用
@@ -94,12 +87,12 @@ reader 视角不沿用作者 section 组装：编译器只纳入公开/已揭示
 | Loader | 当前来源 |
 |--------|----------|
 | `ProjectLoader` | `project.facade` |
-| `WorldEntitiesLoader` / `CharactersLoader` | canonical 读 `world.facade` 的 C-pinned 投影；working 读显式工作投影 |
+| `WorldEntitiesLoader` / `CharactersLoader` | `world.facade` |
 | `EventsLoader` | `world.facade.get_events_context()` |
 | `MemoryRecordsLoader` | `memory` 全景查询 |
 | `OutlineArcLoader` / `SceneLoader` / `PlotThreadsLoader` | `outline` 服务与 facade |
 | `RagChunksLoader` | `evidence.facade.retrieve()` |
-| `WorldBibleLoader` | C-pinned 页面修订由 world context 投影输入；另读作者简介与显式选中工作稿 |
+| `WorldBibleLoader` | `world.facade` 的作者简介与显式选中工作稿 |
 
 loader 的外部调度契约仍由 `SCOPE_LOADERS` 与各 loader `name` 决定；具体依赖统一为构造函数注入 callable。默认 callable 委托上表既有来源，因此 API、schema、bundle shape 和 ContextCompiler 外部行为不变。测试可直接传入 fake callable；`load()` 内不做 facade local import，也不直接访问 DI container。
 

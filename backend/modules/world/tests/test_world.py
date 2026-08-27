@@ -11,7 +11,6 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,7 +43,6 @@ from modules.world.services import (
     WorldEntityService,
 )
 from modules.world.services.core.dedup_service import EntityDedupService
-from modules.world.tests.helpers import _create_project
 
 
 @pytest.mark.asyncio
@@ -198,11 +196,9 @@ async def test_core_entity_update_loaded_entity_does_not_fetch_again(
 # ============================================================
 
 
-@pytest_asyncio.fixture
-async def novel_id(db_session: AsyncSession) -> str:
-    novel_id = str(uuid.uuid4())
-    await _create_project(db_session, novel_id)
-    return novel_id
+@pytest.fixture
+def novel_id() -> str:
+    return str(uuid.uuid4())
 
 
 @pytest.fixture
@@ -446,7 +442,6 @@ class TestWorldNovelIsolation:
         novel_id: str,
     ) -> None:
         other_novel_id = str(uuid.uuid4())
-        await _create_project(db_session, other_novel_id)
         character_entity = await entity_service.create(
             db_session,
             novel_id,
@@ -493,7 +488,6 @@ class TestWorldNovelIsolation:
         novel_id: str,
     ) -> None:
         other_novel_id = str(uuid.uuid4())
-        await _create_project(db_session, other_novel_id)
         character_entity = await entity_service.create(
             db_session,
             novel_id,
@@ -882,8 +876,7 @@ class TestWorldNovelIsolation:
             (
                 await db_session.execute(
                     select(EntityRevision).where(
-                        EntityRevision.entity_id == uuid.UUID(created.id),
-                        ~EntityRevision.revision_reason.like("canon_%"),
+                        EntityRevision.entity_id == uuid.UUID(created.id)
                     )
                 )
             )
@@ -938,12 +931,7 @@ class TestWorldNovelIsolation:
             novel_id=novel_id,
         )
         assert deleted.status == "deprecated"
-        visible_revisions = await db_session.execute(
-            select(EntityRevision.id).where(
-                ~EntityRevision.revision_reason.like("canon_%")
-            )
-        )
-        assert visible_revisions.scalars().all() == []
+        assert (await db_session.execute(select(EntityRevision.id))).scalars().all() == []
 
 
 class TestEntityDedupService:
