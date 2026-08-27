@@ -11,6 +11,10 @@ valid、dangling、wrong-source 和 expected-overlap 分母。它是覆盖健康
 RAG P@5/MRR/R@10 语义质量评测。
 它不是复杂 GraphRAG 系统，也不是自动剧情推理系统。
 
+indexing 仍是可重建的候选召回和排序层，不定义 World Canon。canonical Context
+是否纳入某个世界事实或页面修订，只由 compilation 通过 world facade 消费的
+C-pinned manifest 决定；RAG 命中不会把候选自动升级为正式事实。
+
 ## 负责
 
 - 文本分块（按段落 / 按长度 / 中文小说分块）；`split_by_length` 对任意

@@ -973,6 +973,9 @@ async def _create_world_entity(
     **kwargs: object,
 ) -> str:
     from modules.world.models import CoreEntity
+    from modules.world.services.worldbuilding.world_authority_service import (
+        WorldAuthorityService,
+    )
 
     eid = uuid.uuid4()
     entity = CoreEntity(
@@ -988,6 +991,7 @@ async def _create_world_entity(
     )
     db.add(entity)
     await db.flush()
+    await WorldAuthorityService().record_entity_revision(db, entity, action="adopt")
     return str(eid)
 
 
@@ -1093,7 +1097,7 @@ async def test_world_entities_loader_reveal_mode_author_safe_masks_hidden_truth(
 
 
 @pytest.mark.asyncio
-async def test_world_entities_loader_author_only_reveals_hidden_truth(
+async def test_world_entities_loader_author_full_reveals_hidden_truth(
     db_session: AsyncSession,
     test_project_id: str,
 ):
@@ -1110,7 +1114,7 @@ async def test_world_entities_loader_author_only_reveals_hidden_truth(
     options = _compile_options(
         test_project_id,
         entity_ids=None,
-        reveal_mode="author_only",
+        reveal_mode="author_full",
     )
     bundle = _bundle(test_project_id)
 

@@ -6,6 +6,7 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
+from pydantic import TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +16,14 @@ from modules.account.contracts import AccountPrincipal
 from modules.account.models import Account
 from modules.project.schemas import ProjectCreate
 from modules.project.services import ProjectService
+from modules.world.authority_schemas import (
+    EntityProfileFieldSchemaV1,
+    EntityProfileTemplateCreateRequest,
+    ResourceRevisionRefV1,
+    StatementValueV1,
+    WorldFormalQueryRequest,
+    WorldPromotionCandidateV1,
+)
 from modules.world.contracts import (
     PostImportSceneSourceContract,
     PostImportWorldAdoptionRequestContract,
@@ -46,6 +55,10 @@ from modules.world.services.core.entity_relation_service import EntityRelationSe
 from modules.world.services.core.entity_service import WorldEntityService
 from modules.world.services.worldbuilding.adoption_package_service import (
     WorldAdoptionPackageService,
+)
+from modules.world.services.worldbuilding.profile_service import WorldProfileService
+from modules.world.services.worldbuilding.world_authority_service import (
+    WorldAuthorityService,
 )
 from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
     WorldBibleLifecycleService,
@@ -1035,6 +1048,121 @@ async def test_candidate_relation_is_promoted_instead_of_recreated(
         )
     ).scalar_one()
     assert promoted.status == "canonical"
+
+
+@pytest.mark.asyncio
+async def test_package_applies_exact_formal_promotion_with_same_transaction(
+    db_session: AsyncSession,
+    project_novel_id: str,
+) -> None:
+    entity = await WorldEntityService().create(
+        db_session,
+        project_novel_id,
+        CoreEntityCreate(entity_type="starship", name="远航号"),
+    )
+    template = await WorldProfileService().create_template(
+        db_session,
+        EntityProfileTemplateCreateRequest(
+            novel_id=project_novel_id,
+            profile_type="starship",
+            fields=[
+                EntityProfileFieldSchemaV1(
+                    key="crew_count",
+                    label="船员数",
+                    value_type="integer",
+                )
+            ],
+        ),
+    )
+    page = await WorldBibleLifecycleService().create_page(
+        db_session,
+        WorldBiblePageCreate(
+            novel_id=project_novel_id,
+            title="编制依据",
+            status="canonical",
+            free_text="核定船员三十人。",
+        ),
+    )
+    page_revision = (
+        await db_session.execute(
+            select(WorldBiblePageRevision)
+            .where(WorldBiblePageRevision.page_id == uuid.UUID(page.id))
+            .order_by(WorldBiblePageRevision.version_number.desc())
+        )
+    ).scalars().first()
+    statement = TypeAdapter(StatementValueV1).validate_python(
+        {
+            "kind": "typed_scalar",
+            "version": 1,
+            "subject_entity_id": entity.id,
+            "field_key": "crew_count",
+            "value_type": "integer",
+            "value": 30,
+        }
+    )
+    promotion = WorldPromotionCandidateV1(
+        statement=statement,
+        schema_revision_ref=ResourceRevisionRefV1(
+            resource_kind="entity_profile_template",
+            resource_id=template.template_id,
+            revision_kind="entity_profile_template_revision",
+            revision_id=template.revision_id,
+            selector="whole",
+        ),
+        source_revision_ref=ResourceRevisionRefV1(
+            resource_kind="world_bible_page",
+            resource_id=uuid.UUID(page.id),
+            revision_kind="world_bible_page_revision",
+            revision_id=page_revision.id,
+            selector="free_text",
+        ),
+    )
+    manifest = hashlib.sha256(b"formal-package").hexdigest()
+    package = WorldAdoptionPackagePayload(
+        schema_version="world_adoption_package.v1",
+        source_manifest_hash=manifest,
+        items=[
+            {
+                "item_key": "ship",
+                "kind": "core_entity",
+                "disposition": "include",
+                "authority_kind": "canonical_baseline",
+                "source_refs": [_source_ref(manifest)],
+                "payload": {"operation": "existing_ref", "entity_id": entity.id},
+            }
+        ],
+        formal_promotions=[promotion],
+    )
+    service = WorldAdoptionPackageService()
+    saved = await service.save(
+        db_session,
+        WorldAdoptionPackageSaveRequest(novel_id=project_novel_id, package=package),
+    )
+    preview = await service.preview(db_session, project_novel_id, saved.id)
+    formal_preview = preview.formal_promotion_preview
+
+    assert formal_preview is not None
+    applied = await service.apply(
+        db_session,
+        project_novel_id,
+        saved.id,
+        WorldAdoptionPackageApplyRequest(
+            expected_preview_hash=preview.expected_preview_hash,
+            formal_expected_previous_head=formal_preview.expected_previous_head,
+            formal_preview_digest=formal_preview.preview_digest,
+        ),
+    )
+    query = await WorldAuthorityService().formal_query(
+        db_session,
+        project_novel_id,
+        WorldFormalQueryRequest(statement=statement),
+    )
+
+    assert applied.status == "accepted"
+    assert applied.result_ref_json["formal_canon_revision_id"] == str(
+        query.canon_revision_id
+    )
+    assert query.verdict == "true"
 
 
 @pytest.mark.asyncio

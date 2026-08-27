@@ -2039,8 +2039,11 @@ class EntityRevisionRepository:
         *,
         skip: int = 0,
         limit: int = 20,
+        include_canon: bool = False,
     ) -> tuple[list[EntityRevision], int]:
         conditions = [EntityRevision.entity_id == entity_id]
+        if not include_canon:
+            conditions.append(~EntityRevision.revision_reason.like("canon_%"))
         count_stmt = select(func.count(EntityRevision.id)).where(*conditions)
         total = (await db.execute(count_stmt)).scalar() or 0
 

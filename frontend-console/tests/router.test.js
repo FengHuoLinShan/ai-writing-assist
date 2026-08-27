@@ -815,7 +815,7 @@ describe("subview memory", () => {
     await window.router.navigate("world", "map", false)
 
     expect(state.currentView).toBe("world")
-    expect(state.currentSubView).toBe("objects")
+    expect(state.currentSubView).toBe("bible")
   })
 })
 
@@ -1066,8 +1066,8 @@ describe("route guard and normalization", () => {
 
     expect(state.currentProjectId).toBe("p1")
     expect(state.currentView).toBe("world")
-    expect(state.currentSubView).toBe("objects")
-    expect(window.location.hash).toBe("#workbench/p1/world/objects")
+    expect(state.currentSubView).toBe("bible")
+    expect(window.location.hash).toBe("#workbench/p1/world/bible")
   })
 
   it("defaults the outline workspace to the top-level story outline", async () => {

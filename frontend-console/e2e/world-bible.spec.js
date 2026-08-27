@@ -144,6 +144,9 @@ test.describe("世界书工作台", () => {
 
     await expect(page.locator(".world-bible-workspace")).toBeVisible()
     await page.evaluate(() => { document.documentElement.style.zoom = "1.1" })
+    await expect(page.locator("[data-action='bible-set-display-mode'][data-mode='gallery']")).toHaveAttribute("aria-pressed", "true")
+    await expect(page.locator(SEL.emptyState)).toContainText("还没有人物或世界资料")
+    await page.locator("[data-action='bible-set-display-mode'][data-mode='editor']").click()
     await expect(page.locator(SEL.emptyState)).toContainText("创建一个世界书页面")
     await expect(page.locator("[data-section='world-health']")).not.toHaveAttribute("open", "")
     await expect(page.locator("[data-section='bible-synopsis']")).not.toHaveAttribute("open", "")
@@ -230,7 +233,7 @@ test.describe("世界书工作台", () => {
     await expect(editorMode).toHaveAttribute("aria-pressed", "false")
     await expect(galleryMode).toHaveAttribute("aria-pressed", "true")
     await expect(filterMode).toHaveAttribute("aria-pressed", "false")
-    await expect(page.locator(".world-bible-gallery")).toContainText("世界书图鉴")
+    await expect(page.locator(".world-bible-gallery__hero h2")).toHaveText("人物与世界")
     await page.locator("[data-action='bible-gallery-open'][data-category='technology']").click()
     await expect(page.locator(".world-bible-page-card")).toContainText("E2E 世界基本背景")
     await page.locator(".world-bible-page-card", { hasText: "E2E 世界基本背景" })

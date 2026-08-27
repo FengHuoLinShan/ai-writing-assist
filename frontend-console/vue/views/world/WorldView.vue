@@ -8,9 +8,9 @@
   <div ref="rootEl" class="world-view">
     <div class="view-header view-header--with-tabs world-toolbar">
       <div class="subnav">
-        <button type="button" class="subnav-item" :class="{ active: subView === 'objects' || subView === 'aliases' }" :aria-current="subView === 'objects' || subView === 'aliases' ? 'page' : undefined" data-subview="objects" data-action="nav-objects" @click="navigateSub('objects')">人物与设定</button>
+        <button type="button" class="subnav-item" :class="{ active: subView === 'bible' }" :aria-current="subView === 'bible' ? 'page' : undefined" data-subview="bible" data-action="nav-bible" @click="navigateSub('bible')">人物与世界</button>
+        <button type="button" class="subnav-item" :class="{ active: subView === 'objects' || subView === 'aliases' }" :aria-current="subView === 'objects' || subView === 'aliases' ? 'page' : undefined" data-subview="objects" data-action="nav-objects" @click="navigateSub('objects')">对象库</button>
         <button type="button" class="subnav-item" :class="{ active: subView === 'relations' }" :aria-current="subView === 'relations' ? 'page' : undefined" data-subview="relations" data-action="nav-relations" @click="navigateSub('relations')">关系</button>
-        <button type="button" class="subnav-item" :class="{ active: subView === 'bible' }" :aria-current="subView === 'bible' ? 'page' : undefined" data-subview="bible" data-action="nav-bible" @click="navigateSub('bible')">世界笔记</button>
         <button type="button" class="subnav-item" :class="{ active: !!reviewSubView }" :aria-current="reviewSubView ? 'page' : undefined" :aria-label="reviewTotal ? `需要决定，${reviewTotal} 项` : undefined" data-action="nav-review" @click="navigateReview()">需要决定 <span v-if="reviewTotal" class="today-count" aria-hidden="true">{{ reviewCountLabel }}</span></button>
       </div>
       <div class="view-header__tail">
@@ -52,7 +52,13 @@
         </div>
       </div>
     </div>
-    <component :is="activeTab" v-bind="$props" :object-view-mode="localObjectViewMode" v-if="activeTab" />
+    <component
+      :is="activeTab"
+      v-if="activeTab"
+      v-bind="$props"
+      :object-view-mode="localObjectViewMode"
+      :default-display-mode="subView === 'bible' ? 'gallery' : undefined"
+    />
     <OwnerAiDrawer
       v-if="aiDrawerMounted"
       :open="aiDrawerOpen"
@@ -93,7 +99,7 @@ const OwnerAiDrawer = lazyView(() => import("../../components/OwnerAiDrawer.vue"
 
 const props = defineProps({
   projectId: { type: String, default: null },
-  subView: { type: String, default: "objects" },
+  subView: { type: String, default: "bible" },
   reviewSubView: { type: String, default: "" },
   reviewKind: { type: String, default: "all" },
   entityTypes: { type: Array, default: () => [] },
@@ -129,6 +135,7 @@ const props = defineProps({
   aliasesTotal: { type: Number, default: 0 },
   aliasesLoadError: { type: String, default: null },
   bible: { type: Object, default: null },
+  worldCardFilters: { type: Object, default: () => ({ q: "", kind: "all", type: "" }) },
   bibleDeepLink: { type: Object, default: () => ({ draftId: "", pageId: "" }) },
   knowledgeCharacterId: { type: String, default: "" },
 })

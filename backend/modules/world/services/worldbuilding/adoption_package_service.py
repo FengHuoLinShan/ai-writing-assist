@@ -13,6 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, ValidationError
 from modules.project.facade import get_project_context, require_active_project
+from modules.world.authority_schemas import (
+    WorldPromotionApplyRequest,
+    WorldPromotionPreviewRequest,
+)
 from modules.world.contracts import PostImportWorldAdoptionResultContract
 from modules.world.models import CoreEntity, CreationSuggestion, EntityRelation
 from modules.world.schemas import (
@@ -471,11 +475,23 @@ class WorldAdoptionPackageService:
         baseline = await self._authoritative_baseline(db, novel_id, package)
         page_diffs = await self._page_diffs(db, novel_id, package)
         baseline["pages"] = page_diffs
+        formal_preview = None
+        if package.formal_promotions:
+            from modules.world.services.worldbuilding.world_authority_service import (
+                WorldAuthorityService,
+            )
+
+            formal_preview = await WorldAuthorityService().promotion_preview(
+                db,
+                novel_id,
+                WorldPromotionPreviewRequest(items=package.formal_promotions),
+            )
         return WorldAdoptionPackagePreviewResponse(
             suggestion=CreationSuggestionResponse.model_validate(suggestion),
             expected_preview_hash=self._preview_hash(package, baseline),
             canon_diff=[*await self._canon_diff(db, novel_id, package), *page_diffs],
             omissions=omissions,
+            formal_promotion_preview=formal_preview,
         )
 
     async def apply(
@@ -528,6 +544,33 @@ class WorldAdoptionPackageService:
             target_id=suggestion_id,
             target_hash=request.expected_preview_hash,
         )
+        formal_canon_revision_id = None
+        if package.formal_promotions:
+            if (
+                request.formal_expected_previous_head is None
+                or request.formal_preview_digest is None
+            ):
+                raise ValidationError("Formal promotion preview is required")
+            from modules.world.services.worldbuilding.world_authority_service import (
+                WorldAuthorityService,
+            )
+
+            formal_summary = await WorldAuthorityService().promote(
+                db,
+                novel_id,
+                WorldPromotionApplyRequest(
+                    items=package.formal_promotions,
+                    expected_previous_head=request.formal_expected_previous_head,
+                    preview_digest=request.formal_preview_digest,
+                    confirmed=True,
+                ),
+            )
+            formal_canon_revision_id = str(formal_summary.canon_revision_id)
+        elif (
+            request.formal_expected_previous_head is not None
+            or request.formal_preview_digest is not None
+        ):
+            raise ValidationError("Package has no formal promotions")
         suggestion = await self._suggestions._claim_pending(db, novel_id, suggestion_id)
         frozen_canon_diff = await self._canon_diff(db, novel_id, package)
         local_refs: dict[str, str] = {}
@@ -759,6 +802,7 @@ class WorldAdoptionPackageService:
                 "source_manifest_hash": package.source_manifest_hash,
                 "preview_hash": request.expected_preview_hash,
                 "authorization_actor": authorization_actor,
+                "formal_canon_revision_id": formal_canon_revision_id,
                 "item_provenance": [
                     item.model_dump(mode="json") for item in package.items
                 ],

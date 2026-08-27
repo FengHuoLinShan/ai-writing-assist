@@ -25,7 +25,8 @@ from modules.evidence.compilation.services.confirmation_service import (
 from modules.evidence.compilation.services.context_compiler import ContextCompiler
 from modules.project.models import Project
 from modules.world.models import CoreEntity, EntityRelation
-from modules.world.schemas import WorldBiblePageDraftCreate
+from modules.world.schemas import CoreEntityCreate, WorldBiblePageDraftCreate
+from modules.world.services.core.entity_service import WorldEntityService
 from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
     WorldBibleLifecycleService,
 )
@@ -709,15 +710,15 @@ async def test_generation_snapshot_audits_profile_and_source_hashes(
     db_session,
     test_project_id: str,
 ) -> None:
-    entity = CoreEntity(
-        novel_id=uuid.UUID(test_project_id),
-        entity_type="item",
-        name="北境银币",
-        summary="商路通货。",
-        status="canonical",
+    entity = await WorldEntityService().create(
+        db_session,
+        test_project_id,
+        CoreEntityCreate(
+            entity_type="item",
+            name="北境银币",
+            summary="商路通货。",
+        ),
     )
-    db_session.add(entity)
-    await db_session.flush()
     service = ActivationProfileService()
     profile = await service.create_profile(
         db_session,

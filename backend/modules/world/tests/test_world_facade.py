@@ -12,6 +12,7 @@ import uuid
 from unittest.mock import MagicMock
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -44,6 +45,7 @@ from modules.world.services import (
 )
 from modules.world.services.core.dedup_service import EntityDedupService
 from modules.world.services.core.entity_relation_service import EntityRelationService
+from modules.world.tests.helpers import _create_project
 from modules.world.world_background import WorldBackgroundAggregation
 
 
@@ -63,9 +65,11 @@ def test_deep_import_alias_repair_preserves_existing_kind() -> None:
     assert normalized["type"] == "塔罗会称号"
 
 
-@pytest.fixture
-def novel_id() -> str:
-    return str(uuid.uuid4())
+@pytest_asyncio.fixture
+async def novel_id(db_session: AsyncSession) -> str:
+    novel_id = str(uuid.uuid4())
+    await _create_project(db_session, novel_id)
+    return novel_id
 
 
 @pytest.fixture

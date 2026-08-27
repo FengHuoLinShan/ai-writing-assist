@@ -127,7 +127,7 @@ export function useWorldBible(props) {
   const bibleDeepLink = computed(() => props.bibleDeepLink || { draftId: "", pageId: "" })
 
   // ---- reactive state (对应 vanilla 模块单例字段) ----
-  const displayMode = ref(storedDisplayPref(projectId.value, "displayMode", "editor"))
+  const displayMode = ref(storedDisplayPref(projectId.value, "displayMode", props.defaultDisplayMode || "editor"))
   const activeCategory = ref(storedDisplayPref(projectId.value, "activeCategory", "all"))
   const galleryCategory = ref(null)
   const activeActivationProfileId = ref(worldSession.bible.activeActivationProfileId || null)
@@ -238,12 +238,14 @@ export function useWorldBible(props) {
         activePageId.value = requestedDraft.page_id
           ? (pages.value.find((p) => p.id === requestedDraft.page_id)?.id || null)
           : null
+        displayMode.value = "editor"
       }
     } else if (dl.pageId) {
       const requestedPage = pages.value.find((p) => p.id === dl.pageId)
       if (requestedPage) {
         activePageId.value = requestedPage.id
         activeDraftId.value = draftForActivePage.value?.id || null
+        displayMode.value = "editor"
       }
     }
 

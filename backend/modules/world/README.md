@@ -340,6 +340,10 @@ PNG 后才进入地图册私有 S3。此例外不改变 imports 的文稿上传�
 | `world_validation_runs` | 冻结校验输入、分片/结果哈希、coverage/budget 账本、verdict/gate 与 warning 签收回执 |
 | `world_bible_synopsis_revisions` | 作者版世界观简介的不可变 LLM 派生版本 |
 | `entity_revisions` | 实体快照版本表（旧版快照；当前活跃回滚优先使用 `TextArchive`，无归档时回退到 `EntityRevision`） |
+| `world_assertions` | 不可变、带 `novel_id` 的有限 Name/typed scalar/binary relation Statement；不从 legacy 对象自动回填 |
+| `world_canon_revisions` | 单父、完整 manifest 与内联 admission receipt；历史 revision 不随 current row 漂移 |
+| `world_canon_heads` | 每项目唯一可变 CAS 指针；只前进到当前 head 的直接子，revert 同样追加 |
+| `entity_profile_template_revisions` | Profile template 的 exact immutable Schema revision |
 | `map_atlas_runs` | AI 地图册计划、上下文快照、任务进度与停止状态 |
 | `map_atlas_nodes` | 封面到街道/室内的层级节点与采用状态 |
 | `map_atlas_pages` | 独立候选/已采用/拒绝/移出图片与派生链 |
@@ -606,6 +610,7 @@ async def backfill_entity_embeddings(db, novel_id, *, batch_size=64) -> int
 
 # ---- Entity Context ----
 async def get_world_context(db, novel_id, entity_ids=None, ..., include_review=False) -> WorldContextBundle
+async def get_world_canon_context(db, novel_id, *, canon_revision_id=None, entity_ids=None, reveal_mode="author_safe", limit=20) -> WorldContextBundle
 async def expand_related_entities(db, novel_id, seed_entity_ids, depth=1, limit=20) -> list[CoreEntityContext]
 
 # ---- Author workbench attention ----
@@ -658,7 +663,9 @@ async def get_character_location_id(db, novel_id, character_id) -> str | None
 async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | None
 ```
 
-`get_world_context` 默认在查询层只返回 `canonical`，不会泄漏待处理对象。
+`get_world_canon_context` 是 Evidence/Writing/地图册 canonical 读取的稳定 seam；它只投影
+C 固定的 exact revisions 和 selected Assert，既不读 latest，也不 fallback legacy current rows。
+`get_world_context` 保留为 working/review 兼容投影，默认只返回 `canonical`，不会泄漏待处理对象。
 `get_entity_importance_map` 同样只投影 `canonical` 对象的 ID、importance 和
 importance level；RAG 章节索引通过该稳定 facade 生成可重建 chunk 分数，不读取 world ORM，
 也不让待处理对象影响已采用正文的检索排序。
@@ -686,6 +693,17 @@ importance level；RAG 章节索引通过该稳定 facade 生成可重建 chunk 
 | POST | `/api/world/suggestions/{suggestion_id}/reject` | 拒绝建议 |
 | POST | `/api/world/core-checkpoints` | 显式保存不可采用的 `world_core_checkpoint.v1` |
 | POST | `/api/world/design-checkpoints` | 显式保存不可采用的 `world_design_checkpoint.v1`；新生成中心每三轮使用此入口 |
+| GET | `/api/world/canon` | 读取当前 C 的有界摘要；首次访问兼容创建 empty C0，不返回 raw manifest/receipt |
+| GET | `/api/world/canon/{canon_revision_id}` | 读取同项目不可变历史 C 的有界摘要，不移动 head |
+| POST | `/api/world/canon/initialize/preview` | 对旧项目 exact PageRevision subset 做零写入预演并绑定当前 head |
+| POST | `/api/world/canon/initialize` | 复验 preview/head 后从 C0 原子追加初始化 revision |
+| POST | `/api/world/canon/revert` | 以当前 head 为父复制目标完整 manifest，追加新 C；不让 head 后退 |
+| POST | `/api/world/profile-templates` | 创建 typed Profile Schema candidate 及 immutable v1 revision；不改变 Canon |
+| POST | `/api/world/profile-templates/{template_id}/revisions` | 封存新 Schema revision；旧 revision 继续可回放 |
+| POST | `/api/world/profile-templates/{template_id}/adopt` | 选择未来新 Profile 默认固定的 Schema；不补写历史值 |
+| POST | `/api/world/canon/promotions/preview` | 对 exact Schema/source 与 B promotion 集合零写入预演 |
+| POST | `/api/world/canon/promotions` | 复验 head/digest 后原子选入 typed scalar/binary relation Assert |
+| POST | `/api/world/formal-query` | 只对固定 C 的 selected Assert 返回 true/false/both/unknown、来源与 S/F/I/X |
 | POST | `/api/world/bible/imports/preview` | 受限预览目录清单；返回统计、映射与 hash，不回显正文 |
 | GET | `/api/world/bible/imports/{suggestion_id}` | 恢复 pending 导入的紧凑预览 |
 | POST | `/api/world/bible/imports/{suggestion_id}/apply` | 以 preview hash 创建/更新未发布工作稿并写入冲突队列 |
@@ -706,6 +724,18 @@ canonical relation 是 `existing_ref` no-op，不合并或改写。每个新建�
 package、item、来源、authority 与 manifest provenance；同一对象再次被采纳时追加
 `world_adoptions` 回执历史，不覆盖旧来源。RuleProfile 与 alias 仍不属于该
 package contract。
+
+Canon v1 已启用：项目创建产生 empty C0；页面发布在同一事务封存
+`WorldBiblePageRevision` 并替换 manifest 中的 exact documentary revision，默认不创建
+Assert。canonical 对象名称/别名经唯一 Name seam 封存 `EntityRevision` 并推进 C；
+custom typed field 与 binary relation 只有经 exact Profile Schema/source 的 B promotion 才进入
+formal evaluator。legacy Profile/`EntityRelation` 仍可作编辑/展示载体，但 WorldEval 不 fallback。
+
+`CreateTemplate`、`AdoptSchema` 和 `PromoteHistoricalContent` 是三个独立动作：默认值只预填
+新 Profile，每个 Profile 固定 exact Schema revision，历史值必须显式 B promotion。
+Adoption Package 可携带 formal promotion，preview/apply 与 package 共用事务和 head fence。
+v1 只接受预览时已存在的 exact resource revisions；同包新建页/对象的 local ref promotion、
+A 型正文 owner、event/time 求值和 belief 仍 fail closed/后置。
 
 package 也可携带一个完整的 `world_bible_page` create/replace 提案：它只在同一 package
 中有页面项时，经现有 draft → publish lifecycle 创建正式 revision。eligible 页面文字必须有

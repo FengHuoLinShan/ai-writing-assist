@@ -79,6 +79,8 @@ RAG 或 LLM 上下文。
 - `species_profiles` / `faction_profiles` / `location_profiles` / `rule_profiles` / `item_profiles` / `secret_profiles` / `entity_profile_templates` / `generic_entity_profiles` — 世界对象的类型化 Profile 与模板
 - `generation_prompt_templates` / `generation_prompt_template_revisions` — 项目生成模板及不可变版本
 - `world_bible_categories` / `world_bible_page_drafts` / `world_bible_pages` / `world_bible_page_revisions` / `world_bible_page_projections` — 世界书类别、服务器工作稿、含稳定 sections 的已发布页和派生投影
+- `world_assertions` / `world_canon_revisions` / `world_canon_heads` — 不可变有限断言、完整 Canon manifest/receipt 与每项目唯一 CAS head；empty C0 不提升 legacy 事实，页面发布只选择 exact revision
+- `entity_profile_template_revisions` — Profile template 的 immutable Schema revision；页面 template 仍只负责布局
 - `world_validation_runs` — 持久化 targeted/full 校验输入、分片 hash、结果、预算、新鲜度与作者签收
 - `world_bible_page_templates` / `world_bible_page_template_revisions` — 项目页面布局模板及不可变历史；内置模板仍由代码注册
 - `world_bible_synopsis_heads` / `world_bible_synopsis_revisions` — 作者版世界观简介的刷新状态、授权与不可变版本
@@ -184,6 +186,7 @@ async def backfill_entity_embeddings(db, novel_id, *, batch_size=64) -> int
 
 # ---- Entity Context ----
 async def get_world_context(db, novel_id, entity_ids=None, ..., include_review=False) -> WorldContextBundle
+async def get_world_canon_context(db, novel_id, *, canon_revision_id=None, entity_ids=None, reveal_mode="author_safe", limit=20) -> WorldContextBundle
 async def expand_related_entities(db, novel_id, seed_entity_ids, depth=1, limit=20) -> list[CoreEntityContext]
 
 # ---- Author workbench attention ----
@@ -326,6 +329,19 @@ PATCH  /api/world/bible/synopsis/auto-refresh
 GET    /api/world/bible/synopsis/revisions
 POST   /api/world/bible/synopsis/revisions/{revision_id}/restore
 POST   /api/world/bible/synopsis/unpin
+
+# World Canon（owner-only 诊断/显式准入）
+GET    /api/world/canon
+GET    /api/world/canon/{canon_revision_id}
+POST   /api/world/canon/initialize/preview
+POST   /api/world/canon/initialize
+POST   /api/world/canon/revert
+POST   /api/world/profile-templates
+POST   /api/world/profile-templates/{template_id}/revisions
+POST   /api/world/profile-templates/{template_id}/adopt
+POST   /api/world/canon/promotions/preview
+POST   /api/world/canon/promotions
+POST   /api/world/formal-query
 
 # 生成中心 world 工作区
 POST   /api/world/generation-center/chat

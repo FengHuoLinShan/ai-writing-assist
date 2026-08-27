@@ -6,6 +6,12 @@ and preserves the historical ``modules.world.models`` import path.
 
 from __future__ import annotations
 
+from .authority import (
+    EntityProfileTemplateRevision,
+    WorldAssertion,
+    WorldCanonHead,
+    WorldCanonRevision,
+)
 from .character import Character, CharacterKnowledge
 from .core import CoreEntity, EntityRelation, EntityRevision, Event, TextArchive
 from .profiles import (
@@ -59,6 +65,7 @@ __all__ = [
     "EntityAlias",
     "EntityCandidate",
     "EntityProfileTemplate",
+    "EntityProfileTemplateRevision",
     "EntityRelation",
     "EntityRevision",
     "Event",
@@ -87,6 +94,9 @@ __all__ = [
     "WorldBibleSynopsisHead",
     "WorldBibleSynopsisRevision",
     "WorldValidationRun",
+    "WorldAssertion",
+    "WorldCanonHead",
+    "WorldCanonRevision",
     "WorldEntity",
     "WorldEntityAlias",
     "_ProfileMixin",

@@ -87,7 +87,7 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
 | `vue/views/rag/RagView.vue` / `vue/views/outline/components/OutlineHeader.vue` / `vue/views/scene/SceneWorkbenchView.vue` / `vue/views/world/WorldView.vue` / `vue/views/world/components/WorldReviewTab.vue` | 可切换子导航使用原生 button，当前项公开 `aria-current="page"`；Scene 工作台当前项保持非交互，避免同路由刷新 |
 | `vue/views/writing/WritingView.vue` | 纯章节目录、工作稿编辑器、手选 Scene 副驾驶与 AI 建议采用；光标不切换 Scene，AI/检查/发布统一消费手选 Scene；桌面与移动端共用白名单“本场”摘要，POV 可见资料只在点击后加载并隔离晚到响应；移动速记在 390px 使用原生 details，并可逆进入按项目恢复的完整编辑模式；自动保存、导入和候选采用继续保持原安全语义 |
 | `vue/views/writing/components/WritingWorkflowBars.vue` | 写作台长任务完成卡；深度导入额外显示自动归并数与遗留复核组数，有遗留项时用作者语言引导到现有“人物与世界 → 智能去重”，不自动发起第二次全项目扫描 |
-| `vue/views/world/WorldView.vue` | `world` 路由（Vue island）；对象库普通/热点双模式、`world/review` 统一“需要决定”工作台、历史筛选；工作台用队列 + 决策区处理对象/别名/关系，窄屏分步显示；热点模式显示重要/近期热点聚合并使用服务端全量排序；世界书编辑概览/结构化 sections、管理页面模板和 AI 参考规则，并以“工作稿保存 → 明确发布”维护页面；世界书内置关联图模式复用只读 `GET /api/world/knowledge-graph`；`map` 子标签现在只做兼容跳转 |
+| `vue/views/world/WorldView.vue` | `world` 路由（Vue island）；默认 `world/bible` 用 `page/entity` 形态标记的统一卡片总览组合资料页、可恢复工作稿与已采用世界对象，查找/形态/类型筛选写入 URL，局部加载失败不遮蔽另一类资料；对象库保留普通/热点双模式，`world/review` 保留统一“需要决定”工作台与对象/别名/关系决策；原世界书编辑、稳定 sections、页面模板、AI 参考规则、“工作稿保存 → 明确发布”和只读关联图均保持；`map` 子标签只做兼容跳转 |
 | `vue/views/map/MapWorkspaceView.vue` | AI 地图册一级工作台：一键生成/更新、本次候选、已采用画廊、来源分类、冲突确认、停止恢复、图片编辑与标注。 |
 | `vue/views/outline/OutlineView.vue` | `outline` 的 Vue island 主视图；顶层为“故事总览、篇章、剧情线、场景”。故事总览的 AI 生成弹窗优先显示三项作者问题并渐进展开参考资料；AI 预览与 `?edit=1` 手工页共用结构化重复项编辑器，两类未采用修改都按项目本机恢复；提交仍适配原 wire payload，版本历史不可原地改写 |
 | `vue/views/scene/SceneWorkbenchView.vue` | 由 `outline/scenes` 承载的 Scene 普通/热点双模式、管理筛选、当前剧情定位、拆分/合并/替换、复核与自动提取整理；旧 `scene` 路由仅作兼容重定向 |

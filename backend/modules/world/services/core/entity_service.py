@@ -141,6 +141,7 @@ class WorldEntityService(
 
         obj = await self.repo.create(db, nid, data)
         if obj.status == "canonical":
+            await self._record_authority(db, obj, action="adopt")
             if obj.entity_type == "character":
                 from modules.world.services.core.character_service import (
                     CharacterService,
@@ -455,6 +456,7 @@ class WorldEntityService(
         existing = await self.repo.get_for_update(db, rid)
         self._assert_found_in_novel(existing, id, nid)
         assert existing is not None
+        was_canonical = existing.status == "canonical"
 
         if existing.status == "canonical" and not _validation_prechecked:
             from modules.world.services.worldbuilding.world_validation_service import (
@@ -553,6 +555,8 @@ class WorldEntityService(
 
         updated = await self.repo.update(db, existing, data)
         self._assert_found_in_novel(updated, id, nid)
+        if was_canonical or updated.status == "canonical":
+            await self._record_authority(db, updated)
         if updated.status == "canonical" and updated.entity_type == "character":
             from modules.world.services.core.character_service import CharacterService
 
@@ -651,6 +655,7 @@ class WorldEntityService(
             raise ValidationError("该实体由待处理建议管理，请通过对应建议执行忽略")
         if existing.status == "deprecated":
             return
+        was_canonical = existing.status == "canonical"
 
         try:
             async with db.begin_nested():
@@ -669,6 +674,8 @@ class WorldEntityService(
 
         existing.status = "deprecated"
         await db.flush()
+        if was_canonical:
+            await self._record_authority(db, existing)
 
         from modules.world.services.worldbuilding.synopsis_invalidation import (
             mark_synopsis_source_changed,
@@ -825,6 +832,7 @@ class WorldEntityService(
         updated = await self.repo.update(db, entity, update_data)
         self._assert_found_in_novel(updated, entity_id, nid)
         assert updated is not None
+        await self._record_authority(db, updated, action="promote")
         if updated.entity_type == "character":
             from modules.world.services.core.character_service import CharacterService
 
@@ -876,4 +884,21 @@ class WorldEntityService(
             entity_id=str(updated.id),
             status=updated.status,
             approved_by=updated.approved_by,
+        )
+
+    @staticmethod
+    async def _record_authority(
+        db: AsyncSession,
+        entity: Any,
+        *,
+        action: str = "canonical_edit",
+    ) -> None:
+        from modules.world.services.worldbuilding.world_authority_service import (
+            WorldAuthorityService,
+        )
+
+        await WorldAuthorityService().record_entity_revision(
+            db,
+            entity,
+            action=action,
         )

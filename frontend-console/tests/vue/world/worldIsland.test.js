@@ -331,6 +331,51 @@ describe("world island deep links", () => {
     expect(props.bibleDeepLink).toMatchObject({ openConflicts: true, conflictId: "conflict-1" })
   })
 
+  it("loads active entities for the unified World Bible card home with URL filters", async () => {
+    const listEntities = vi.fn(async (params) => (
+      params.display_state === "active"
+        ? { items: [{ id: "entity-1", name: "雾港", entity_type: "location" }], total: 61 }
+        : { items: [], total: 0 }
+    ))
+    const api = {
+      world: {
+        listEntityTypes: vi.fn().mockResolvedValue({ items: [] }),
+        getReviewTypeCatalog: vi.fn().mockResolvedValue({}),
+        listEntities,
+        listAliases: vi.fn().mockResolvedValue({ total: 0 }),
+        listRelationships: vi.fn().mockResolvedValue({ total: 0 }),
+        listBiblePages: vi.fn().mockResolvedValue({ items: [] }),
+        listBibleCategories: vi.fn().mockResolvedValue({ items: [] }),
+        listBibleDrafts: vi.fn().mockResolvedValue({ items: [] }),
+        getBibleSynopsis: vi.fn().mockResolvedValue(null),
+      },
+    }
+    setBridgeOverrides({
+      api,
+      state: { currentProjectId: "novel-1", currentSubView: "bible" },
+      router: {
+        getCurrentQuery: () => new URLSearchParams("kind=entity&type=location&q=%E9%9B%BE%E6%B8%AF"),
+        registerView: vi.fn(),
+      },
+      toast: vi.fn(),
+    })
+    const { loadWorld } = await import("../../../vue/worldIsland.js")
+
+    const props = await loadWorld()
+
+    expect(listEntities).toHaveBeenCalledWith(expect.objectContaining({
+      novel_id: "novel-1",
+      display_state: "active",
+      view_mode: "normal",
+      q: "雾港",
+      entity_type: "location",
+      skip: 0,
+      limit: 50,
+    }))
+    expect(props.worldCardFilters).toEqual({ kind: "entity", type: "location", q: "雾港" })
+    expect(props.bible).toMatchObject({ entities: [{ id: "entity-1" }], entityTotal: 61, entitiesLoadError: null })
+  })
+
   it("starts independent shared and object requests concurrently", async () => {
     const entityTypes = deferred()
     const entityStarted = deferred()

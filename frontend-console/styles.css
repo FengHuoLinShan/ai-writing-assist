@@ -1401,8 +1401,8 @@ html, body {
 
 @media (max-width: 520px) {
   .world-bible-toolbar__more .world-bible-toolbar__more-actions {
-    right: auto;
-    left: 0;
+    right: 0;
+    left: auto;
   }
 
   .world-bible-toolbar__more-actions .btn,
@@ -1533,6 +1533,71 @@ html, body {
   margin: var(--space-1) 0 0;
   color: var(--text-tertiary);
   font-size: var(--text-sm);
+}
+
+.world-card-filters {
+  display: grid;
+  grid-template-columns: minmax(220px, 2fr) repeat(2, minmax(150px, 1fr)) auto;
+  gap: var(--space-3);
+  align-items: end;
+  margin-bottom: var(--space-4);
+}
+
+.world-card-filters label {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.world-card-filters input,
+.world-card-filters select {
+  width: 100%;
+  min-width: 0;
+}
+
+.world-card-filters__actions,
+.world-card-empty-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.world-card-grid {
+  margin-bottom: var(--space-5);
+}
+
+.world-card .world-bible-page-card__summary {
+  flex: 1;
+}
+
+@media (max-width: 760px) {
+  .world-card-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .world-card-filters__search,
+  .world-card-filters__actions {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 390px) {
+  .world-card-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .world-card-filters__search,
+  .world-card-filters__actions {
+    grid-column: auto;
+  }
+
+  .world-card-filters__actions .btn,
+  .world-card-empty-actions .btn {
+    min-height: 44px;
+    flex: 1 1 100%;
+  }
 }
 
 .world-bible-category-grid {

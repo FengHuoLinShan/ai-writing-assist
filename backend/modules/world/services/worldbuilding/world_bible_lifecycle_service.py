@@ -1369,7 +1369,22 @@ class WorldBibleLifecycleService:
         mark_projections_stale: bool = False,
         context_reason: str | None = None,
     ) -> None:
-        await self._add_revision(db, page, revision_reason=revision_reason)
+        revision = await self._add_revision(db, page, revision_reason=revision_reason)
+        await db.flush()
+        from modules.world.services.worldbuilding.world_authority_service import (
+            WorldAuthorityService,
+        )
+
+        await WorldAuthorityService().record_page_revision(
+            db,
+            page,
+            revision,
+            action=(
+                "publish_page"
+                if revision_reason in {"legacy_create", "manual_publish"}
+                else "canonical_edit"
+            ),
+        )
         if mark_projections_stale:
             await self._mark_page_projections_stale(db, page)
         if context_reason:
@@ -1567,29 +1582,29 @@ class WorldBibleLifecycleService:
         page: WorldBiblePage,
         *,
         revision_reason: str,
-    ) -> None:
-        db.add(
-            WorldBiblePageRevision(
-                novel_id=page.novel_id,
-                page_id=page.id,
-                version_number=page.version_number,
-                revision_reason=revision_reason,
-                snapshot_json={
-                    "page_type": page.page_type,
-                    "page_key": page.page_key,
-                    "title": page.title,
-                    "status": page.status,
-                    "page_meta_json": page.page_meta_json,
-                    "free_text": page.free_text,
-                    "sections_json": page.sections_json,
-                    "linked_asset_refs_json": page.linked_asset_refs_json,
-                    "activation_defaults_json": page.activation_defaults_json,
-                    "template_key": page.template_key,
-                    "template_version": page.template_version,
-                    "sort_order": page.sort_order,
-                },
-            )
+    ) -> WorldBiblePageRevision:
+        revision = WorldBiblePageRevision(
+            novel_id=page.novel_id,
+            page_id=page.id,
+            version_number=page.version_number,
+            revision_reason=revision_reason,
+            snapshot_json={
+                "page_type": page.page_type,
+                "page_key": page.page_key,
+                "title": page.title,
+                "status": page.status,
+                "page_meta_json": page.page_meta_json,
+                "free_text": page.free_text,
+                "sections_json": page.sections_json,
+                "linked_asset_refs_json": page.linked_asset_refs_json,
+                "activation_defaults_json": page.activation_defaults_json,
+                "template_key": page.template_key,
+                "template_version": page.template_version,
+                "sort_order": page.sort_order,
+            },
         )
+        db.add(revision)
+        return revision
 
     @staticmethod
     async def _mark_page_projections_stale(

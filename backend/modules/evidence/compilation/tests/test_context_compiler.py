@@ -442,20 +442,20 @@ class TestContextCompiler:
     async def test_map_atlas_world_loader_keeps_canonical_author_full_contract(
         self,
         db_session: AsyncSession,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         from modules.evidence.compilation.services.loaders.world_entities_loader import (
             WorldEntitiesLoader,
         )
-        from modules.world import facade as world_facade
-
         observed: dict[str, object] = {}
 
-        async def fake_background(_db, _novel_id, **kwargs):
+        async def fake_canon(_db, _novel_id, **kwargs):
             observed.update(kwargs)
-            return SimpleNamespace(entries=[])
+            return SimpleNamespace(
+                entities=[],
+                canon_revision_id="canon-map",
+                canon_manifest_digest="digest-map",
+            )
 
-        monkeypatch.setattr(world_facade, "get_world_background", fake_background)
         options = CompileOptions(
             novel_id=str(uuid.uuid4()),
             task="规划 AI 地图册",
@@ -470,13 +470,85 @@ class TestContextCompiler:
             scope=options.scope,
         )
 
-        await WorldEntitiesLoader().load(db_session, options, bundle)
+        await WorldEntitiesLoader(get_world_canon_context_fn=fake_canon).load(
+            db_session, options, bundle
+        )
 
         assert observed == {
-            "context_mode": "canonical",
             "reveal_mode": "author_full",
             "limit": 160,
         }
+        assert options.world_canon_revision_id == "canon-map"
+        assert options.world_canon_manifest_digest == "digest-map"
+
+    @pytest.mark.asyncio
+    async def test_world_loader_pins_canon_and_uses_legacy_only_for_working(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        from modules.evidence.compilation.services.loaders.world_entities_loader import (
+            WorldEntitiesLoader,
+        )
+
+        calls: list[tuple[str, dict]] = []
+
+        async def canon_reader(*_args, **kwargs):
+            calls.append(("canon", kwargs))
+            return SimpleNamespace(
+                entities=[],
+                canon_revision_id="canon-1",
+                canon_manifest_digest="digest-1",
+            )
+
+        async def legacy_reader(*_args, **kwargs):
+            calls.append(("legacy", kwargs))
+            return SimpleNamespace(entities=[])
+
+        loader = WorldEntitiesLoader(legacy_reader, canon_reader)
+        canonical = CompileOptions(
+            novel_id=str(uuid.uuid4()),
+            task="编译正典上下文",
+            scope="world",
+            world_canon_revision_id="requested-canon",
+        )
+        await loader.load(
+            db_session,
+            canonical,
+            StructureContextBundle(
+                novel_id=canonical.novel_id,
+                task=canonical.task,
+                scope=canonical.scope,
+            ),
+        )
+        working = CompileOptions(
+            novel_id=str(uuid.uuid4()),
+            task="编译工作视图",
+            scope="world",
+            context_mode="working",
+        )
+        await loader.load(
+            db_session,
+            working,
+            StructureContextBundle(
+                novel_id=working.novel_id,
+                task=working.task,
+                scope=working.scope,
+            ),
+        )
+
+        assert calls[0] == (
+            "canon",
+            {
+                "reveal_mode": "author_safe",
+                "limit": 16,
+                "canon_revision_id": "requested-canon",
+            },
+        )
+        assert calls[1][0] == "legacy"
+        assert "include_review" in calls[1][1]
+        assert canonical.world_canon_revision_id == "canon-1"
+        assert canonical.world_canon_manifest_digest == "digest-1"
+        assert working.world_canon_revision_id is None
 
     @pytest.mark.asyncio
     async def test_rag_loader_propagates_retrieval_warnings(
@@ -705,6 +777,8 @@ class TestContextCompiler:
         """RED: character 视角 false_belief 应显示误解，不暴露 hidden_truth"""
         from modules.project.models import Project
         from modules.world.models import Character, CharacterKnowledge, CoreEntity
+        from modules.world.schemas import CoreEntityCreate
+        from modules.world.services.core.entity_service import WorldEntityService
 
         nid = uuid.uuid4()
         novel_id = str(nid)
@@ -738,19 +812,19 @@ class TestContextCompiler:
         )
 
         # 目标实体：带 hidden_truth
-        target_id = uuid.uuid4()
-        db_session.add(
-            CoreEntity(
-                id=target_id,
-                novel_id=nid,
+        await db_session.flush()
+        target = await WorldEntityService().create(
+            db_session,
+            novel_id,
+            CoreEntityCreate(
                 entity_type="faction",
                 name="暗影组织",
                 summary="一个神秘组织。",
                 hidden_truth="真实隐藏真相：首领是国王。",
-                status="canonical",
                 importance_level="core",
-            )
+            ),
         )
+        target_id = uuid.UUID(target.id)
 
         # 人物知识边界：false_belief
         db_session.add(
@@ -797,6 +871,8 @@ class TestContextCompiler:
         """RED: 非 character 模式下，无 knowledge 记录的世界对象应被保留"""
         from modules.project.models import Project
         from modules.world.models import Character, CoreEntity
+        from modules.world.schemas import CoreEntityCreate
+        from modules.world.services.core.entity_service import WorldEntityService
 
         nid = uuid.uuid4()
         novel_id = str(nid)
@@ -828,18 +904,17 @@ class TestContextCompiler:
             )
         )
 
-        target_id = uuid.uuid4()
-        db_session.add(
-            CoreEntity(
-                id=target_id,
-                novel_id=nid,
+        await db_session.flush()
+        await WorldEntityService().create(
+            db_session,
+            novel_id,
+            CoreEntityCreate(
                 entity_type="faction",
                 name="暗影组织",
                 summary="一个神秘组织。",
                 hidden_truth="真实隐藏真相：首领是国王。",
-                status="canonical",
                 importance_level="core",
-            )
+            ),
         )
         await db_session.flush()
 
@@ -869,6 +944,8 @@ class TestContextCompiler:
         """character 视角下，无 knowledge 记录不等同 unknown，只保留公开最小视图。"""
         from modules.project.models import Project
         from modules.world.models import Character, CoreEntity
+        from modules.world.schemas import CoreEntityCreate
+        from modules.world.services.core.entity_service import WorldEntityService
 
         nid = uuid.uuid4()
         novel_id = str(nid)
@@ -900,19 +977,18 @@ class TestContextCompiler:
             )
         )
 
-        target_id = uuid.uuid4()
-        db_session.add(
-            CoreEntity(
-                id=target_id,
-                novel_id=nid,
+        await db_session.flush()
+        await WorldEntityService().create(
+            db_session,
+            novel_id,
+            CoreEntityCreate(
                 entity_type="faction",
                 name="暗影组织",
                 summary="作者摘要：这个组织由国王秘密操纵。",
                 public_info="公开信息：城中传闻有暗影组织活动。",
                 hidden_truth="真实隐藏真相：首领是国王。",
-                status="canonical",
                 importance_level="core",
-            )
+            ),
         )
         await db_session.flush()
 

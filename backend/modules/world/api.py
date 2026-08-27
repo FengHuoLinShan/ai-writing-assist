@@ -31,6 +31,22 @@ from modules.project.facade import (
 from modules.project.facade import (
     require_active_project_exclusive as _require_active_project_exclusive,
 )
+from modules.world.authority_schemas import (
+    EntityProfileTemplateAdoptRequest,
+    EntityProfileTemplateCreateRequest,
+    EntityProfileTemplateResponse,
+    EntityProfileTemplateRevisionCreateRequest,
+    WorldCanonInitializePreviewRequest,
+    WorldCanonInitializePreviewResponse,
+    WorldCanonInitializeRequest,
+    WorldCanonRevertRequest,
+    WorldCanonSummaryResponse,
+    WorldFormalQueryRequest,
+    WorldFormalQueryResponse,
+    WorldPromotionApplyRequest,
+    WorldPromotionPreviewRequest,
+    WorldPromotionPreviewResponse,
+)
 from modules.world.entity_fusion import WorldEntityFusionService
 from modules.world.schemas import (
     AliasKind,
@@ -188,6 +204,9 @@ from modules.world.services.worldbuilding.generation_prompt_template_service imp
 from modules.world.services.worldbuilding.knowledge_graph_service import (
     WorldKnowledgeGraphService,
 )
+from modules.world.services.worldbuilding.world_authority_service import (
+    WorldAuthorityService,
+)
 from modules.world.services.worldbuilding.world_generation_center_service import (
     WorldGenerationCenterService,
 )
@@ -245,6 +264,7 @@ _knowledge_graph_service = WorldKnowledgeGraphService()
 _generation_template_service = GenerationPromptTemplateService()
 _worldbook_import_service = WorldbookImportService()
 _world_validation_service = WorldValidationService()
+_world_authority_service = WorldAuthorityService()
 
 
 async def _require_active_novel_id(
@@ -256,6 +276,93 @@ async def _require_active_novel_id(
 
 
 ActiveNovelIdQuery = Annotated[str, Depends(_require_active_novel_id)]
+
+
+@router.get("/canon", response_model=WorldCanonSummaryResponse)
+async def get_current_world_canon(
+    db: DbSession,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldCanonSummaryResponse:
+    return await _world_authority_service.current_summary(db, novel_id)
+
+
+@router.post(
+    "/canon/initialize/preview",
+    response_model=WorldCanonInitializePreviewResponse,
+)
+async def preview_world_canon_initialization(
+    db: DbSession,
+    data: WorldCanonInitializePreviewRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldCanonInitializePreviewResponse:
+    return await _world_authority_service.initialize_preview(db, novel_id, data)
+
+
+@router.post("/canon/initialize", response_model=WorldCanonSummaryResponse)
+async def initialize_world_canon(
+    db: DbSession,
+    data: WorldCanonInitializeRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldCanonSummaryResponse:
+    return await _world_authority_service.initialize(db, novel_id, data)
+
+
+@router.post("/canon/revert", response_model=WorldCanonSummaryResponse)
+async def revert_world_canon(
+    db: DbSession,
+    data: WorldCanonRevertRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldCanonSummaryResponse:
+    return await _world_authority_service.revert(db, novel_id, data)
+
+
+@router.post(
+    "/canon/promotions/preview",
+    response_model=WorldPromotionPreviewResponse,
+)
+async def preview_world_canon_promotion(
+    db: DbSession,
+    data: WorldPromotionPreviewRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldPromotionPreviewResponse:
+    return await _world_authority_service.promotion_preview(db, novel_id, data)
+
+
+@router.post("/canon/promotions", response_model=WorldCanonSummaryResponse)
+async def apply_world_canon_promotion(
+    db: DbSession,
+    data: WorldPromotionApplyRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldCanonSummaryResponse:
+    return await _world_authority_service.promote(db, novel_id, data)
+
+
+@router.post("/formal-query", response_model=WorldFormalQueryResponse)
+async def formal_world_query(
+    db: DbSession,
+    data: WorldFormalQueryRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldFormalQueryResponse:
+    return await _world_authority_service.formal_query(db, novel_id, data)
+
+
+@router.get("/canon/{canon_revision_id}", response_model=WorldCanonSummaryResponse)
+async def get_world_canon_revision(
+    db: DbSession,
+    canon_revision_id: uuid.UUID,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldCanonSummaryResponse:
+    return await _world_authority_service.revision_summary(
+        db, novel_id, canon_revision_id
+    )
 
 
 async def _read_worldbook_import_manifest(request: Request) -> WorldbookImportManifest:
@@ -644,6 +751,50 @@ async def list_world_profiles(
         limit=limit,
     )
     return WorldProfileListResponse(items=items, total=total)
+
+
+@router.post(
+    "/profile-templates",
+    response_model=EntityProfileTemplateResponse,
+    status_code=201,
+)
+async def create_entity_profile_template(
+    db: DbSession,
+    data: EntityProfileTemplateCreateRequest,
+) -> EntityProfileTemplateResponse:
+    await require_active_project(db, str(data.novel_id))
+    return await _profile_service.create_template(db, data)
+
+
+@router.post(
+    "/profile-templates/{template_id}/revisions",
+    response_model=EntityProfileTemplateResponse,
+    status_code=201,
+)
+async def create_entity_profile_template_revision(
+    db: DbSession,
+    template_id: str,
+    data: EntityProfileTemplateRevisionCreateRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> EntityProfileTemplateResponse:
+    return await _profile_service.add_template_revision(
+        db, novel_id, template_id, data
+    )
+
+
+@router.post(
+    "/profile-templates/{template_id}/adopt",
+    response_model=EntityProfileTemplateResponse,
+)
+async def adopt_entity_profile_template(
+    db: DbSession,
+    template_id: str,
+    data: EntityProfileTemplateAdoptRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> EntityProfileTemplateResponse:
+    return await _profile_service.adopt_template(db, novel_id, template_id, data)
 
 
 @router.get("/profiles/{entity_id}", response_model=WorldProfileResponse)

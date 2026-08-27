@@ -261,6 +261,7 @@ class TestEntityRevisionService:
         entity_repo.get_for_update = AsyncMock(return_value=entity)
         repo.get_revision = AsyncMock(return_value=revision)
         svc.create_snapshot = AsyncMock(return_value={})
+        svc._record_authority = AsyncMock()
         db = MagicMock()
         eid = str(entity.id)
         rid = str(revision.id)
@@ -275,6 +276,7 @@ class TestEntityRevisionService:
         )
         repo.get_revision.assert_awaited_once_with(db, uuid.UUID(hex=rid))
         entity_repo.update.assert_awaited_once()
+        svc._record_authority.assert_awaited_once_with(db, entity)
         assert result["id"] == str(entity.id)
         assert result["name"] == entity.name
 

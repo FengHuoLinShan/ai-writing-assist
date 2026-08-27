@@ -54,6 +54,9 @@ provider/model/预算与配置哈希；执行时按项目 owner 重新读取该 
 - ProjectService：项目 CRUD + 软删除/恢复/永久删除
 - ProjectWorkspaceSummaryService：在 owner/活跃作者项目门禁后，只读聚合续写位置、章节/字数和场景优先待处理事项
 
+作者项目创建会在同一事务内经 world 的稳定 facade 建立空 World Canon C0；失败时项目创建整体回滚。
+interaction 隐藏项目不建立 Canon，也不进入作者世界观工作区。
+
 ## Facade
 
 ```python
