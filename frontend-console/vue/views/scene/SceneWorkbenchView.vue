@@ -562,7 +562,7 @@ function menuItems(item) {
   const scene = item.scene
   return [
     { action: "open-writing-scene", label: "打开写作", data: { id: scene.id } },
-    { action: "add-scene-task", label: "添加到我的任务", data: { id: scene.id } },
+    { action: "add-scene-task", label: "添加到计划中的任务", data: { id: scene.id } },
     { action: "start-merge-scene", label: "合并", data: { id: scene.id } },
     { action: "start-split-scene", label: "拆分", data: { id: scene.id } },
     ...(scene.structure_meta?.organize_ignored && !structureAssetDisplay(scene).isHistory ? [{ action: "restore-scene-organize", label: "恢复整理提醒", data: { id: scene.id } }] : []),

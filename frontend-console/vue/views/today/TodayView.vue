@@ -365,7 +365,7 @@ function retry() {
     <section v-if="summary" class="today-section today-author-tasks" aria-labelledby="today-author-tasks-title">
       <div class="today-section__heading">
         <div>
-          <h2 id="today-author-tasks-title">我的任务</h2>
+          <h2 id="today-author-tasks-title">计划中的任务</h2>
           <p>今天 {{ authorTasks.today_count }} 项 · 收件箱 {{ authorTasks.inbox_count }} 项</p>
         </div>
         <div class="today-author-tasks__actions">

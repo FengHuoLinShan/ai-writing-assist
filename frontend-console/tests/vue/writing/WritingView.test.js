@@ -83,7 +83,7 @@ describe("WritingView", () => {
   it("可从当前章节就地建立作者任务", async () => {
     const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
     await flushPromises()
-    const button = wrapper.findAll(".writing-toolbar button").find((item) => item.text() === "添加到我的任务")
+    const button = wrapper.findAll(".writing-toolbar button").find((item) => item.text() === "添加到计划中的任务")
 
     await button.trigger("click")
 

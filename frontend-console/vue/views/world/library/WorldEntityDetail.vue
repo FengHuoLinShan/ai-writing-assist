@@ -23,7 +23,7 @@ const display = computed(() => worldAssetDisplay(props.entity))
         <p><span>{{ typeLabel }}</span> · <span class="badge" :class="displayStateBadgeClass(display.displayState)">{{ display.label }}</span></p>
       </div>
       <div class="world-entity-detail__actions">
-        <button type="button" class="btn btn-sm" @click="emit('create-task')">添加到我的任务</button>
+        <button type="button" class="btn btn-sm" @click="emit('create-task')">添加到计划中的任务</button>
         <button type="button" class="btn btn-sm btn-primary" @click="emit('edit')">编辑资料</button>
       </div>
     </header>

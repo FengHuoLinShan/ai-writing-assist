@@ -34,7 +34,7 @@ test.describe("作者任务工作台", () => {
         scope: "inbox",
       }))
     })
-    await expect(page.getByRole("heading", { name: "我的任务" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "计划中的任务" })).toBeVisible()
   }
 
   async function createInBatches(items, create, batchSize = 10) {
@@ -158,7 +158,7 @@ test.describe("作者任务工作台", () => {
         .locator("[data-action='open-world-card']")
         .click()
       await expect(page.getByRole("heading", { name: target.name })).toBeVisible()
-      await page.getByRole("button", { name: "添加到我的任务" }).click()
+      await page.getByRole("button", { name: "添加到计划中的任务" }).click()
       await expect(page).toHaveURL(/writing\?home=1&panel=tasks&scope=inbox/)
       const localDate = await page.evaluate(() => {
         const now = new Date()
