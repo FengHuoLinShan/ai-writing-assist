@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import uuid
 from copy import deepcopy
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -350,6 +350,106 @@ async def test_page_admission_is_idempotent_and_revert_is_append_only(
         await authority.get_revision(db_session, project_novel_id, str(reverted.id))
     assert replay_error.value.code == "canon_revision_digest_mismatch"
     reverted_model.receipt_json = valid_revert_receipt
+
+
+async def test_manifest_replay_handles_long_history_without_recursive_queries(
+    db_session,
+    project_novel_id: str,
+    monkeypatch,
+) -> None:
+    authority = WorldAuthorityService()
+    lifecycle = WorldBibleLifecycleService()
+    c0 = await authority.initialize_empty_canon(db_session, project_novel_id)
+    draft = await lifecycle.create_draft(
+        db_session,
+        WorldBiblePageDraftCreate(
+            novel_id=project_novel_id,
+            title="长链页面",
+            page_type="background",
+        ),
+    )
+    preview = await authority.preview(
+        db_session,
+        CanonAdmissionPreviewRequest(
+            novel_id=project_novel_id,
+            expected_previous_head=c0.id,
+            input=PagePublishPreviewInputV1(
+                novel_id=project_novel_id,
+                draft_id=draft.id,
+            ),
+        ),
+    )
+    admitted = await authority.admit(
+        db_session,
+        CanonAdmissionRequest(
+            novel_id=project_novel_id,
+            decision_id=uuid.uuid4(),
+            expected_previous_head=c0.id,
+            confirmed=True,
+            input=preview.normalized_input,
+        ),
+        authorizer_id=BOOTSTRAP_ACCOUNT_ID,
+    )
+    first = await db_session.get(WorldCanonRevision, admitted.id)
+    assert first is not None
+    exact = ExactResourceRevisionRef.model_validate(
+        first.manifest_json["active_resources"][0]
+    )
+    page_revision = await db_session.get(WorldBiblePageRevision, exact.revision_id)
+    assert page_revision is not None
+
+    revisions = {c0.id: c0, first.id: first}
+    parent = first
+    page_revision_count = 1100
+    for version in range(2, page_revision_count + 1):
+        revision_id = uuid.uuid4()
+        decision_id = uuid.uuid4()
+        created_at = datetime.now(UTC)
+        receipt = deepcopy(first.receipt_json)
+        receipt["canon_revision_id"] = str(revision_id)
+        receipt["expected_previous_head"] = str(parent.id)
+        receipt["decision"] = {
+            "id": str(decision_id),
+            "digest": authority._decision_digest(
+                receipt["admission_input"],
+                parent.id,
+            ),
+        }
+        receipt["committed_at"] = created_at.isoformat()
+        current = WorldCanonRevision(
+            id=revision_id,
+            novel_id=uuid.UUID(project_novel_id),
+            version_number=version,
+            parent_revision_id=parent.id,
+            manifest_json=deepcopy(first.manifest_json),
+            manifest_digest=first.manifest_digest,
+            receipt_json=receipt,
+            decision_id=decision_id,
+            decision_digest=receipt["decision"]["digest"],
+            created_at=created_at,
+        )
+        revisions[current.id] = current
+        parent = current
+
+    async def get_revision(_db, novel_id, revision_id):
+        revision = revisions[revision_id]
+        assert revision.novel_id == novel_id
+        return revision
+
+    resolve_count = 0
+
+    async def resolve_revision(_db, _ref, *, for_admission):
+        nonlocal resolve_count
+        assert for_admission is False
+        resolve_count += 1
+        return page_revision.snapshot_json
+
+    monkeypatch.setattr(authority, "_get_revision_model", get_revision)
+    monkeypatch.setattr(authority, "_resolve_revision", resolve_revision)
+
+    await authority._validate_manifest_replay(db_session, parent)
+
+    assert resolve_count == 1
 
 
 async def test_admission_rejects_changed_draft_without_advancing_head(

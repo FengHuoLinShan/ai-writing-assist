@@ -751,52 +751,76 @@ class WorldAuthorityService:
         db: AsyncSession,
         revision: WorldCanonRevision,
     ) -> None:
-        try:
-            manifest = CanonManifestV1.model_validate(revision.manifest_json)
-            manifest_digest = canonical_digest(manifest)
-        except (TypeError, ValueError):
-            self._digest_mismatch()
-        if manifest_digest != revision.manifest_digest:
-            self._digest_mismatch()
-        try:
-            receipt = CanonAdmissionReceiptV1.model_validate(revision.receipt_json)
-        except (TypeError, ValueError):
-            self._digest_mismatch()
-        if (
-            receipt.novel_id != revision.novel_id
-            or receipt.canon_revision_id != revision.id
-            or receipt.manifest_digest != revision.manifest_digest
-            or receipt.decision.id != revision.decision_id
-            or receipt.decision.digest != revision.decision_digest
-            or receipt.expected_previous_head != revision.parent_revision_id
-            or _as_utc(receipt.committed_at) != _as_utc(revision.created_at)
-        ):
-            self._digest_mismatch()
-        if isinstance(receipt.admission_input, BootstrapEmptyInputV1):
+        pending = [revision]
+        validated_revisions: set[uuid.UUID] = set()
+        resolved_refs: dict[
+            tuple[str, uuid.UUID, uuid.UUID, uuid.UUID, str], dict[str, Any]
+        ] = {}
+        while pending:
+            current = pending.pop()
+            if current.id in validated_revisions:
+                continue
+            validated_revisions.add(current.id)
+            try:
+                manifest = CanonManifestV1.model_validate(current.manifest_json)
+                manifest_digest = canonical_digest(manifest)
+            except (TypeError, ValueError):
+                self._digest_mismatch()
+            if manifest_digest != current.manifest_digest:
+                self._digest_mismatch()
+            try:
+                receipt = CanonAdmissionReceiptV1.model_validate(current.receipt_json)
+            except (TypeError, ValueError):
+                self._digest_mismatch()
             if (
-                revision.version_number != 0
-                or revision.parent_revision_id is not None
-                or revision.decision_id != bootstrap_decision_id(revision.novel_id)
-                or manifest != empty_canon_manifest()
+                receipt.novel_id != current.novel_id
+                or receipt.canon_revision_id != current.id
+                or receipt.manifest_digest != current.manifest_digest
+                or receipt.decision.id != current.decision_id
+                or receipt.decision.digest != current.decision_digest
+                or receipt.expected_previous_head != current.parent_revision_id
+                or _as_utc(receipt.committed_at) != _as_utc(current.created_at)
             ):
                 self._digest_mismatch()
-        elif isinstance(receipt.admission_input, PagePublishInputV1):
-            await self._validate_page_publish_replay(
+            dependencies: tuple[WorldCanonRevision, ...] = ()
+            if isinstance(receipt.admission_input, BootstrapEmptyInputV1):
+                if (
+                    current.version_number != 0
+                    or current.parent_revision_id is not None
+                    or current.decision_id
+                    != bootstrap_decision_id(current.novel_id)
+                    or manifest != empty_canon_manifest()
+                ):
+                    self._digest_mismatch()
+            elif isinstance(receipt.admission_input, PagePublishInputV1):
+                dependencies = (
+                    await self._validate_page_publish_replay(
+                        db,
+                        current,
+                        manifest,
+                        receipt,
+                        resolved_refs,
+                    ),
+                )
+            elif isinstance(receipt.admission_input, RevertInputV1):
+                dependencies = await self._validate_revert_replay(
+                    db,
+                    current,
+                    receipt,
+                )
+            await self._validate_resource_refs(
                 db,
-                revision,
+                current.novel_id,
+                receipt.affected_resources,
+                resolved_refs,
+            )
+            await self._validate_manifest_refs(
+                db,
+                current.novel_id,
                 manifest,
-                receipt,
+                resolved_refs,
             )
-        elif isinstance(receipt.admission_input, RevertInputV1):
-            await self._validate_revert_replay(
-                db,
-                revision,
-                receipt,
-            )
-        for ref in receipt.affected_resources:
-            self._require_same_novel(revision.novel_id, ref.resource.novel_id)
-            await self._resolve_revision(db, ref, for_admission=False)
-        await self._validate_manifest_refs(db, revision.novel_id, manifest)
+            pending.extend(dependencies)
 
     async def _validate_page_publish_replay(
         self,
@@ -804,7 +828,10 @@ class WorldAuthorityService:
         revision: WorldCanonRevision,
         manifest: CanonManifestV1,
         receipt: CanonAdmissionReceiptV1,
-    ) -> None:
+        resolved_refs: dict[
+            tuple[str, uuid.UUID, uuid.UUID, uuid.UUID, str], dict[str, Any]
+        ],
+    ) -> WorldCanonRevision:
         admission_input = receipt.admission_input
         if (
             not isinstance(admission_input, PagePublishInputV1)
@@ -827,8 +854,12 @@ class WorldAuthorityService:
             revision.novel_id,
             revision.parent_revision_id,
         )
-        await self._validate_manifest_replay(db, parent)
-        parent_manifest = CanonManifestV1.model_validate(parent.manifest_json)
+        if parent.version_number + 1 != revision.version_number:
+            self._digest_mismatch()
+        try:
+            parent_manifest = CanonManifestV1.model_validate(parent.manifest_json)
+        except (TypeError, ValueError):
+            self._digest_mismatch()
         expected_resources = [
             item
             for item in parent_manifest.active_resources
@@ -846,7 +877,7 @@ class WorldAuthorityService:
         ):
             self._digest_mismatch()
 
-        snapshot = await self._resolve_revision(db, affected, for_admission=False)
+        snapshot = await self._resolve_replay_ref(db, affected, resolved_refs)
         draft_snapshot = admission_input.draft_snapshot
         for field in (
             "title",
@@ -863,22 +894,66 @@ class WorldAuthorityService:
                 self._digest_mismatch()
         if snapshot.get("status") != "canonical":
             self._digest_mismatch()
+        return parent
+
+    async def _validate_resource_refs(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        refs: list[ExactResourceRevisionRef],
+        resolved_refs: dict[
+            tuple[str, uuid.UUID, uuid.UUID, uuid.UUID, str], dict[str, Any]
+        ]
+        | None = None,
+    ) -> None:
+        for ref in refs:
+            self._require_same_novel(novel_id, ref.resource.novel_id)
+            await self._resolve_replay_ref(db, ref, resolved_refs)
+
+    async def _resolve_replay_ref(
+        self,
+        db: AsyncSession,
+        ref: ExactResourceRevisionRef,
+        resolved_refs: dict[
+            tuple[str, uuid.UUID, uuid.UUID, uuid.UUID, str], dict[str, Any]
+        ]
+        | None,
+    ) -> dict[str, Any]:
+        key = (
+            ref.resource.kind,
+            ref.resource.novel_id,
+            ref.resource.resource_id,
+            ref.revision_id,
+            ref.revision_digest,
+        )
+        if resolved_refs is not None and key in resolved_refs:
+            return resolved_refs[key]
+        snapshot = await self._resolve_revision(db, ref, for_admission=False)
+        if resolved_refs is not None:
+            resolved_refs[key] = snapshot
+        return snapshot
 
     async def _validate_manifest_refs(
         self,
         db: AsyncSession,
         novel_id: uuid.UUID,
         manifest: CanonManifestV1,
+        resolved_refs: dict[
+            tuple[str, uuid.UUID, uuid.UUID, uuid.UUID, str], dict[str, Any]
+        ]
+        | None = None,
     ) -> None:
-        for ref in manifest.active_resources:
-            self._require_same_novel(novel_id, ref.resource.novel_id)
-            await self._resolve_revision(db, ref, for_admission=False)
+        await self._validate_resource_refs(
+            db,
+            novel_id,
+            manifest.active_resources,
+            resolved_refs,
+        )
         if manifest.validation_policy_ref is not None:
             ref = manifest.validation_policy_ref
-            self._require_same_novel(novel_id, ref.resource.novel_id)
             if ref.resource.kind != "world_bible_page":
                 self._invalid_reference("Validation policy must be a World Bible page")
-            await self._resolve_revision(db, ref, for_admission=False)
+            await self._validate_resource_refs(db, novel_id, [ref], resolved_refs)
         if manifest.calendar_ref is not None:
             self._invalid_reference("No supported world calendar is registered")
         for dependency in manifest.pinned_dependencies:
@@ -1092,7 +1167,7 @@ class WorldAuthorityService:
         db: AsyncSession,
         revision: WorldCanonRevision,
         receipt: CanonAdmissionReceiptV1,
-    ) -> None:
+    ) -> tuple[WorldCanonRevision, WorldCanonRevision]:
         admission_input = receipt.admission_input
         if not isinstance(admission_input, RevertInputV1):
             self._digest_mismatch()
@@ -1111,18 +1186,24 @@ class WorldAuthorityService:
             revision.novel_id,
             admission_input.target_revision_id,
         )
+        if (
+            parent.version_number + 1 != revision.version_number
+            or target.version_number >= revision.version_number
+        ):
+            self._digest_mismatch()
         try:
             expected_judgment = self._revert_compatibility_judgment(parent, target)
-        except DomainError:
+            target_manifest = CanonManifestV1.model_validate(target.manifest_json)
+        except (DomainError, TypeError, ValueError):
             self._digest_mismatch()
         if (
             admission_input.compatibility_judgment != expected_judgment
             or revision.manifest_digest != target.manifest_digest
             or receipt.affected_resources
-            != CanonManifestV1.model_validate(target.manifest_json).active_resources
+            != target_manifest.active_resources
         ):
             self._digest_mismatch()
-        await self._validate_manifest_replay(db, target)
+        return parent, target
 
     async def _response(
         self,
