@@ -139,10 +139,14 @@ test.describe("作者任务工作台", () => {
       const pageOverview = page.locator("#bible-free-text")
       await pageOverview.fill("未保存的港口补充")
       const leaveDialog = page.waitForEvent("dialog")
-      await page.locator('[data-view="writing"]:visible').click()
+      const writingNav = width === 390
+        ? page.locator(".sidebar-mobile-nav button", { hasText: "写作" })
+        : page.locator('.nav-item[data-view="today"]')
+      const leaveClick = writingNav.click()
       const dialog = await leaveDialog
       expect(dialog.message()).toContain("未保存修改")
       await dialog.dismiss()
+      await leaveClick
       await expect(pageOverview).toHaveValue("未保存的港口补充")
       await pageOverview.fill("记录沉钟港的船期和税则。")
       await page.getByRole("button", { name: /返回资料库/ }).click()
