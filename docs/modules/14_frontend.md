@@ -103,7 +103,7 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
 - 作者 shell 的桌面主导航固定为“写作、人物与世界、故事结构、地图、查找”；移动端固定为
   “写作、世界、结构、全部”。项目切换器位于导航顶部，导入与项目偏好从“更多”进入，AI 工具在 owner 页就地打开；旧入口仅保留兼容路由，或由上下文错误进入。`writing?home=1` 是作者有效项目的默认续接页；`today` 仅为薄兼容别名。
 - `writing?home=1` 不装载章节、全部 Scene、编辑偏好或编辑器恢复监听；普通写作入口保持完整初始化。RAG 状态子页同样不装载未使用的人物和 Scene 列表。
-- `writing?home=1&panel=tasks&scope=today|inbox|later|completed|archived` 是作者任务的可恢复 URL 状态；列表与 workspace-summary 都传浏览器本地 `on_date`，PATCH 带 `expected_updated_at` 且同状态重试不改写时间。不新增一级任务导航或前端状态库。未保存正文/世界页仍使用原项目隔离 session 和离开门禁。
+- `writing?home=1&panel=tasks&scope=today|inbox|later|completed|archived` 是作者任务的可恢复 URL 状态；列表与 workspace-summary 都传浏览器本地 `on_date`，PATCH 带 `expected_updated_at` 且同状态重试不改写时间。409 保留表单输入并刷新最新版本，作者再次保存才重试；进行中的写入会暂时阻止任务页导航，成功后用无重载 query replace 清除来源参数。不新增一级任务导航或前端状态库。未保存正文/世界页仍使用原项目隔离 session 和离开门禁。
 - `WritingHomeView` 通过 `writingIsland` 复用 `todayIsland` 的 loader，把本机 Writing 指针作为可选排序焦点传给项目摘要，并行组合世界书工作稿和 generation-center pending 页面建议；项目摘要中的 Writing / World / Outline 待决事项按后端顺序展示，已进入投影的建议不再重复显示为未完成创作；超过 6 条时使用 `more_targets` 打开去掉单条 item 绑定的领域处理范围，不用旧计数猜测来源；
   导航不调用 LLM。项目级本地创作指针只允许 `generate / world_bible_draft /
   world_suggestion_review` 三种结构化 route，只有作者编辑/发送、打开/保存工作稿、进入/应用建议

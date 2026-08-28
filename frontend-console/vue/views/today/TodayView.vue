@@ -35,8 +35,9 @@ const authorTasks = computed(() => props.summary?.author_tasks || {
   later_count: 0,
   preview: [],
 })
+const completedTaskIds = ref(new Set())
 const authorTaskPreview = computed(() => Array.isArray(authorTasks.value.preview)
-  ? authorTasks.value.preview.slice(0, 3)
+  ? authorTasks.value.preview.filter((task) => !completedTaskIds.value.has(task.id)).slice(0, 3)
   : [])
 const taskBusyIds = ref(new Set())
 const primaryWorld = computed(() => props.creativeContinuation || (!continuation.value ? props.worldContinuations[0] || null : null))
@@ -147,6 +148,7 @@ async function completeTask(task, event) {
       status: "completed",
       expected_updated_at: task.updated_at || undefined,
     })
+    completedTaskIds.value = new Set([...completedTaskIds.value, task.id])
     toast("任务已完成", "success")
     router.refresh()
   } catch (error) {

@@ -15,7 +15,9 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
   bootstrap 主体承担；AI、worker、validation result 和请求体字段不能授权。
 - 历史 replay 不只校验 receipt/manifest 各自 digest；bootstrap 必须是确定性空 C0，
   page publish 必须把唯一 affected PageRevision 与父 manifest 转换、工作稿快照和
-  canonical 页面快照相互绑定；任一部分被独立替换都 fail closed。
+  canonical 页面快照相互绑定，revert 的 affected resources 必须等于目标 manifest；
+  任一部分被独立替换都 fail closed。Phase 0 migration 可为旧 PageRevision 中既有的有限浮点
+  JSON 生成兼容 digest 并继续 replay；新 Canon 输入仍拒绝浮点和非有限数。
 - Phase 0 所有 formal family 仍为 `formal-disabled`；`world_assertions` 仅为封闭
   carrier，当前不提供 Assert 准入或形式推理。
 - 对象抽取不是 NER，而是长期创作资产识别

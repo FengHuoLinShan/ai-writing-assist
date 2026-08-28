@@ -17,6 +17,7 @@ const activeScope = ["today", "inbox", "later", "completed", "archived"].include
 const tasks = useAuthorTasks(props.projectId, activeScope)
 const formOpen = ref(Boolean(props.source))
 const editingTask = ref(null)
+const navigationBusy = computed(() => tasks.loading.value || tasks.busyIds.value.size > 0)
 const heading = computed(() => activeScope === "archived" ? "已归档" : "我的任务")
 const tabs = computed(() => [
   ["today", "今天", tasks.counts.value.today],
@@ -27,6 +28,11 @@ const tabs = computed(() => [
 
 function navigateScope(scope) {
   router.navigate("writing", null, true, new URLSearchParams({ home: "1", panel: "tasks", scope }))
+}
+
+function clearTaskSource() {
+  const query = new URLSearchParams({ home: "1", panel: "tasks", scope: activeScope })
+  if (router.commitCurrentQuery?.(query, "replace") !== true) navigateScope(activeScope)
 }
 
 function openWritingHome() {
@@ -42,7 +48,7 @@ async function save(payload) {
   formOpen.value = false
   editingTask.value = null
   tasks.clearConflict()
-  if (!editing && props.source) navigateScope(activeScope)
+  if (!editing && props.source) clearTaskSource()
 }
 
 function edit(task) {
@@ -63,16 +69,16 @@ function closeForm() {
   <main class="author-tasks" aria-labelledby="author-tasks-title">
     <header class="author-tasks__header">
       <div>
-        <button type="button" class="btn btn-sm btn-ghost" @click="openWritingHome">← 写作首页</button>
+        <button type="button" class="btn btn-sm btn-ghost" :disabled="navigationBusy" @click="openWritingHome">← 写作首页</button>
         <h1 id="author-tasks-title">{{ heading }}</h1>
         <p>这是你主动安排的待办；“需要你决定”和后台整理仍在各自区域处理。</p>
       </div>
-      <button type="button" class="btn btn-primary" @click="formOpen = true">＋ 添加任务</button>
+      <button type="button" class="btn btn-primary" :disabled="navigationBusy" @click="formOpen = true">＋ 添加任务</button>
     </header>
 
     <nav class="author-task-tabs" aria-label="任务视图">
-      <button v-for="tab in tabs" :key="tab[0]" type="button" class="btn btn-sm" :aria-current="activeScope === tab[0] ? 'page' : undefined" @click="navigateScope(tab[0])">{{ tab[1] }} <span v-if="tab[2]">{{ tab[2] }}</span></button>
-      <button type="button" class="btn btn-sm btn-ghost author-task-tabs__archive" :aria-current="activeScope === 'archived' ? 'page' : undefined" @click="navigateScope('archived')">已归档</button>
+      <button v-for="tab in tabs" :key="tab[0]" type="button" class="btn btn-sm" :disabled="navigationBusy" :aria-current="activeScope === tab[0] ? 'page' : undefined" @click="navigateScope(tab[0])">{{ tab[1] }} <span v-if="tab[2]">{{ tab[2] }}</span></button>
+      <button type="button" class="btn btn-sm btn-ghost author-task-tabs__archive" :disabled="navigationBusy" :aria-current="activeScope === 'archived' ? 'page' : undefined" @click="navigateScope('archived')">已归档</button>
     </nav>
 
     <AuthorTaskForm v-if="formOpen" :task="editingTask" :source="editingTask?.source || source" :busy="tasks.loading.value" @submit="save" @cancel="closeForm" />

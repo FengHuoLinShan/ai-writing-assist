@@ -33,7 +33,7 @@ beforeEach(() => {
       patchAuthorTask: vi.fn(async (_projectId, _taskId, payload) => task(payload)),
     },
   }
-  router = { navigate: vi.fn(), refresh: vi.fn() }
+  router = { navigate: vi.fn(), refresh: vi.fn(), commitCurrentQuery: vi.fn(() => true) }
   toast = vi.fn()
   setBridgeOverrides({ api, router, toast })
 })
@@ -74,13 +74,9 @@ describe("作者任务工作台", () => {
       title: "核对《港口制度》",
       source: { kind: "world_page", id: "page-1" },
     }))
-    expect(router.navigate).toHaveBeenCalledWith(
-      "writing",
-      null,
-      true,
-      expect.any(URLSearchParams),
-    )
-    expect(router.navigate.mock.calls.at(-1)[3].has("task_source_id")).toBe(false)
+    expect(router.commitCurrentQuery).toHaveBeenCalledWith(expect.any(URLSearchParams), "replace")
+    expect(router.commitCurrentQuery.mock.calls.at(-1)[0].has("task_source_id")).toBe(false)
+    expect(router.navigate).not.toHaveBeenCalled()
   })
 
   it("冲突后保留输入，并仅在作者再次保存时使用最新版本", async () => {

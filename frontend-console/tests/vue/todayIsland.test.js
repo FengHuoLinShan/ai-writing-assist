@@ -50,12 +50,14 @@ describe("todayIsland", () => {
     expect(wrapper.get("[aria-labelledby='today-workflows-title']").text()).toContain("正在检查重复资料")
     expect(wrapper.findAll('input[type="checkbox"]')).toHaveLength(1)
 
-    await wrapper.get('.today-author-task-row input[type="checkbox"]').trigger("change")
-    expect(patchAuthorTask).toHaveBeenCalledWith("p1", "task-1", { status: "completed", expected_updated_at: "u1" })
-
     await wrapper.get(".today-author-task-row .btn").trigger("click")
     expect(router.navigate.mock.calls.at(-1)[0]).toBe("world")
     expect(router.navigate.mock.calls.at(-1)[3].get("page_id")).toBe("page-1")
+
+    await wrapper.get('.today-author-task-row input[type="checkbox"]').trigger("change")
+    await flushPromises()
+    expect(patchAuthorTask).toHaveBeenCalledWith("p1", "task-1", { status: "completed", expected_updated_at: "u1" })
+    expect(wrapper.find(".today-author-task-row").exists()).toBe(false)
   })
 
   it("首页任务冲突时恢复复选框并刷新最新摘要", async () => {
