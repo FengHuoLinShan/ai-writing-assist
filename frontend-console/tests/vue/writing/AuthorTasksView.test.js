@@ -81,9 +81,11 @@ describe("作者任务工作台", () => {
 
   it("冲突后保留输入，并仅在作者再次保存时使用最新版本", async () => {
     const latest = task({ title: "其他位置的标题", updated_at: "2026-08-27T11:00:00Z" })
-    api.projects.listAuthorTasks
-      .mockResolvedValueOnce({ items: [task()], total: 1, counts: { inbox: 1 } })
-      .mockResolvedValue({ items: [latest], total: 1, counts: { inbox: 1 } })
+    api.projects.listAuthorTasks.mockImplementation(async (_projectId, _query, options) => ({
+      items: [options?.cache === "no-store" ? latest : task()],
+      total: 1,
+      counts: { inbox: 1 },
+    }))
     api.projects.patchAuthorTask
       .mockRejectedValueOnce(Object.assign(new Error("任务已更新"), { status: 409 }))
       .mockResolvedValueOnce(task({ title: "保留的作者输入", updated_at: "2026-08-27T12:00:00Z" }))
@@ -102,6 +104,11 @@ describe("作者任务工作台", () => {
     expect(wrapper.get("#author-task-date").element.value).toBe("2026-09-01")
     expect(wrapper.get(".author-task-conflict").text()).toContain("再次保存")
     expect(api.projects.patchAuthorTask).toHaveBeenCalledTimes(1)
+    expect(api.projects.listAuthorTasks).toHaveBeenLastCalledWith(
+      "p1",
+      expect.objectContaining({ scope: "inbox" }),
+      { cache: "no-store" },
+    )
 
     await wrapper.get(".author-task-form").trigger("submit")
     await flushPromises()
