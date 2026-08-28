@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import unicodedata
 import uuid
@@ -81,7 +82,7 @@ def _clean_text(value: str) -> str:
     return unicodedata.normalize("NFC", value.replace("\r\n", "\n").replace("\r", "\n"))
 
 
-def _canonical_value(value: Any) -> Any:
+def _canonical_value(value: Any, *, allow_legacy_float: bool = False) -> Any:
     if isinstance(value, BaseModel):
         value = value.model_dump(mode="python")
     if isinstance(value, uuid.UUID):
@@ -92,20 +93,31 @@ def _canonical_value(value: Any) -> Any:
         normalized = value.astimezone(UTC)
         return normalized.isoformat().replace("+00:00", "Z")
     if isinstance(value, float):
-        raise ValueError("floats are forbidden in canonical values")
+        if not allow_legacy_float or not math.isfinite(value):
+            raise ValueError("floats are forbidden in canonical values")
+        return value
     if isinstance(value, str):
         return _clean_text(value)
     if isinstance(value, list):
-        return [_canonical_value(item) for item in value]
+        return [
+            _canonical_value(item, allow_legacy_float=allow_legacy_float)
+            for item in value
+        ]
     if isinstance(value, tuple):
-        return [_canonical_value(item) for item in value]
+        return [
+            _canonical_value(item, allow_legacy_float=allow_legacy_float)
+            for item in value
+        ]
     if isinstance(value, dict):
         normalized: dict[str, Any] = {}
         for key, item in value.items():
             normalized_key = _clean_text(str(key))
             if normalized_key in normalized:
                 raise ValueError("canonical object keys must remain unique")
-            normalized[normalized_key] = _canonical_value(item)
+            normalized[normalized_key] = _canonical_value(
+                item,
+                allow_legacy_float=allow_legacy_float,
+            )
         return normalized
     return value
 
@@ -119,6 +131,17 @@ def canonical_json(value: Any) -> str:
         separators=(",", ":"),
         allow_nan=False,
     )
+
+
+def _legacy_canonical_digest(value: Any) -> str:
+    canonical = json.dumps(
+        _canonical_value(value, allow_legacy_float=True),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def canonical_digest(value: Any) -> str:
@@ -632,6 +655,23 @@ def resource_revision_digest(
     snapshot: dict[str, Any],
 ) -> str:
     return canonical_digest(
+        {
+            "kind": "resource_revision_digest_input",
+            "version": 1,
+            "resource": resource,
+            "revision_id": revision_id,
+            "snapshot": snapshot,
+        }
+    )
+
+
+def legacy_resource_revision_digest(
+    resource: ResourceRef,
+    revision_id: uuid.UUID,
+    snapshot: dict[str, Any],
+) -> str:
+    """Verify snapshots accepted before Canon v1 rejected JSON floats."""
+    return _legacy_canonical_digest(
         {
             "kind": "resource_revision_digest_input",
             "version": 1,

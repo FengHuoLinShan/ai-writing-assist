@@ -43,6 +43,7 @@ from modules.world.authority import (
     bootstrap_decision_id,
     canonical_digest,
     empty_canon_manifest,
+    legacy_resource_revision_digest,
     resource_revision_digest,
 )
 from modules.world.models import (
@@ -73,6 +74,17 @@ def _fail(
 
 def _as_utc(value: datetime) -> datetime:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+def _replay_resource_digest(
+    resource: ResourceRef,
+    revision_id: uuid.UUID,
+    snapshot: dict[str, Any],
+) -> str:
+    try:
+        return resource_revision_digest(resource, revision_id, snapshot)
+    except ValueError:
+        return legacy_resource_revision_digest(resource, revision_id, snapshot)
 
 
 class WorldAuthorityService:
@@ -685,7 +697,7 @@ class WorldAuthorityService:
                 self._unavailable_reference()
             if revision.revision_digest != ref.revision_digest:
                 self._digest_mismatch()
-            actual = resource_revision_digest(
+            actual = _replay_resource_digest(
                 resource, revision.id, revision.snapshot_json
             )
             if actual != ref.revision_digest:
@@ -716,7 +728,7 @@ class WorldAuthorityService:
                 self._unavailable_reference()
             if revision.revision_digest != ref.revision_digest:
                 self._digest_mismatch()
-            actual = resource_revision_digest(
+            actual = _replay_resource_digest(
                 resource, revision.id, revision.snapshot_json
             )
             if actual != ref.revision_digest:
@@ -779,7 +791,7 @@ class WorldAuthorityService:
             await self._validate_revert_replay(
                 db,
                 revision,
-                receipt.admission_input,
+                receipt,
             )
         for ref in receipt.affected_resources:
             self._require_same_novel(revision.novel_id, ref.resource.novel_id)
@@ -1079,8 +1091,11 @@ class WorldAuthorityService:
         self,
         db: AsyncSession,
         revision: WorldCanonRevision,
-        admission_input: RevertInputV1,
+        receipt: CanonAdmissionReceiptV1,
     ) -> None:
+        admission_input = receipt.admission_input
+        if not isinstance(admission_input, RevertInputV1):
+            self._digest_mismatch()
         if (
             revision.parent_revision_id is None
             or admission_input.expected_previous_head != revision.parent_revision_id
@@ -1103,6 +1118,8 @@ class WorldAuthorityService:
         if (
             admission_input.compatibility_judgment != expected_judgment
             or revision.manifest_digest != target.manifest_digest
+            or receipt.affected_resources
+            != CanonManifestV1.model_validate(target.manifest_json).active_resources
         ):
             self._digest_mismatch()
         await self._validate_manifest_replay(db, target)

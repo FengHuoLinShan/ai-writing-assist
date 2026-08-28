@@ -12,6 +12,7 @@ from sqlalchemy.engine import URL, Engine, make_url
 
 from alembic import command
 from core.base import Base
+from modules.world.authority import ResourceRef, legacy_resource_revision_digest
 from tests.e2e.config import DATABASE_URL
 
 
@@ -196,6 +197,118 @@ def test_old_dynamic_baseline_objects_do_not_break_upgrade(monkeypatch) -> None:
         command.upgrade(config, "20260703_scene_chapter_links")
         command.upgrade(config, "head")
 
+        _assert_current_schema(target_engine, expected_heads)
+
+
+def test_world_authority_upgrade_preserves_legacy_float_snapshots(monkeypatch) -> None:
+    with _disposable_database() as (migration_url, target_engine):
+        config, expected_heads = _migration_config(monkeypatch, migration_url)
+        command.upgrade(config, "20260822_relation_alias_kinds")
+
+        owner_id = uuid4()
+        novel_id = uuid4()
+        page_id = uuid4()
+        revision_id = uuid4()
+        now = datetime.now(UTC)
+        snapshot = {
+            "page_type": "rule",
+            "page_key": "legacy-float",
+            "title": "Legacy float",
+            "status": "canonical",
+            "page_meta_json": {"weight": 0.5},
+            "free_text": None,
+            "sections_json": [],
+            "linked_asset_refs_json": [],
+            "activation_defaults_json": {},
+            "template_key": None,
+            "template_version": 1,
+            "sort_order": 0,
+        }
+        with target_engine.begin() as connection:
+            metadata = MetaData()
+            accounts = Table("accounts", metadata, autoload_with=connection)
+            projects = Table("projects", metadata, autoload_with=connection)
+            pages = Table("world_bible_pages", metadata, autoload_with=connection)
+            revisions = Table(
+                "world_bible_page_revisions", metadata, autoload_with=connection
+            )
+            connection.execute(
+                accounts.insert().values(
+                    id=owner_id,
+                    status="active",
+                    support_code=f"MIG-{owner_id.hex[:12]}",
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            connection.execute(
+                projects.insert().values(
+                    id=novel_id,
+                    owner_id=owner_id,
+                    project_kind="author",
+                    title="Legacy float project",
+                    language="zh",
+                    default_reveal_policy="author_safe",
+                    settings={},
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            connection.execute(
+                pages.insert().values(
+                    id=page_id,
+                    novel_id=novel_id,
+                    page_type="rule",
+                    page_key="legacy-float",
+                    title="Legacy float",
+                    status="canonical",
+                    page_meta_json=snapshot["page_meta_json"],
+                    free_text=None,
+                    sections_json=[],
+                    linked_asset_refs_json=[],
+                    activation_defaults_json={},
+                    template_key=None,
+                    template_version=1,
+                    version_number=1,
+                    sort_order=0,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            connection.execute(
+                revisions.insert().values(
+                    id=revision_id,
+                    novel_id=novel_id,
+                    page_id=page_id,
+                    version_number=1,
+                    snapshot_json=snapshot,
+                    revision_reason="legacy_publish",
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+
+        command.upgrade(config, "head")
+
+        with target_engine.connect() as connection:
+            revisions = Table(
+                "world_bible_page_revisions",
+                MetaData(),
+                autoload_with=connection,
+            )
+            stored_digest = connection.execute(
+                select(revisions.c.revision_digest).where(revisions.c.id == revision_id)
+            ).scalar_one()
+
+        assert stored_digest == legacy_resource_revision_digest(
+            ResourceRef(
+                kind="world_bible_page",
+                novel_id=novel_id,
+                resource_id=page_id,
+            ),
+            revision_id,
+            snapshot,
+        )
         _assert_current_schema(target_engine, expected_heads)
 
 

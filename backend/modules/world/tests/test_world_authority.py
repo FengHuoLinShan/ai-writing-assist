@@ -23,6 +23,7 @@ from modules.world.authority import (
     ExactResourceRevisionRef,
     PageDraftSnapshotV1,
     PagePublishPreviewInputV1,
+    ResourceRef,
     RevertPreviewInputV1,
     StatementClaimRefV1,
     StatementValueV1,
@@ -31,9 +32,12 @@ from modules.world.authority import (
     WorldBiblePageSectionSelectorPayload,
     canonical_digest,
     canonical_json,
+    legacy_resource_revision_digest,
+    resource_revision_digest,
 )
 from modules.world.models import (
     WorldBiblePageDraft,
+    WorldBiblePageRevision,
     WorldCanonHead,
     WorldCanonRevision,
 )
@@ -115,6 +119,16 @@ def test_canonical_model_datetime_is_utc_and_identifiers_are_ascii() -> None:
     )
     with pytest.raises(ValueError, match="timezone"):
         canonical_json(naive)
+    with pytest.raises(ValueError, match="floats"):
+        resource_revision_digest(
+            ResourceRef(
+                kind="world_bible_page",
+                novel_id=uuid.uuid4(),
+                resource_id=uuid.uuid4(),
+            ),
+            uuid.uuid4(),
+            {"weight": 0.5},
+        )
     with pytest.raises(PydanticValidationError):
         WorldBiblePageSectionSelectorPayload(section_id="中文分区")
     with pytest.raises(PydanticValidationError):
@@ -213,6 +227,29 @@ async def test_page_admission_is_idempotent_and_revert_is_append_only(
         novel_id=uuid.UUID(project_novel_id),
     )
     assert snapshot["title"] == "北境贸易"
+    page_revision = await db_session.get(WorldBiblePageRevision, exact.revision_id)
+    original_snapshot = deepcopy(page_revision.snapshot_json)
+    legacy_snapshot = deepcopy(original_snapshot)
+    legacy_snapshot["page_meta_json"] = {"weight": 0.5}
+    legacy_digest = legacy_resource_revision_digest(
+        exact.resource,
+        exact.revision_id,
+        legacy_snapshot,
+    )
+    page_revision.snapshot_json = legacy_snapshot
+    page_revision.revision_digest = legacy_digest
+    await db_session.flush()
+    legacy_exact = exact.model_copy(update={"revision_digest": legacy_digest})
+    assert (
+        await authority.resolve_target(
+            db_session,
+            TargetRefV1(revision=legacy_exact, selector=WholeSelector()),
+            novel_id=uuid.UUID(project_novel_id),
+        )
+    )["page_meta_json"] == {"weight": 0.5}
+    page_revision.snapshot_json = original_snapshot
+    page_revision.revision_digest = exact.revision_digest
+    await db_session.flush()
     wrong_digest = exact.model_copy(update={"revision_digest": "0" * 64})
     with pytest.raises(DomainError) as digest_error:
         await authority.resolve_target(
@@ -286,6 +323,17 @@ async def test_page_admission_is_idempotent_and_revert_is_append_only(
     reverted_model = await db_session.get(WorldCanonRevision, reverted.id)
     assert reverted_model is not None
     valid_revert_receipt = deepcopy(reverted_model.receipt_json)
+    invalid_affected_resources = deepcopy(valid_revert_receipt)
+    invalid_affected_resources["affected_resources"] = [
+        exact.model_dump(mode="json")
+    ]
+    reverted_model.receipt_json = invalid_affected_resources
+    await db_session.flush()
+    with pytest.raises(DomainError) as affected_error:
+        await authority.get_revision(db_session, project_novel_id, str(reverted.id))
+    assert affected_error.value.code == "canon_revision_digest_mismatch"
+    reverted_model.receipt_json = valid_revert_receipt
+    await db_session.flush()
     invalid_revert_receipt = deepcopy(valid_revert_receipt)
     invalid_input = invalid_revert_receipt["admission_input"]
     invalid_input["compatibility_judgment"]["target_manifest_digest"] = (

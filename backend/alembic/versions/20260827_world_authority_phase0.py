@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import unicodedata
 import uuid
 from datetime import UTC, datetime
@@ -48,7 +49,9 @@ _BOOTSTRAP_POLICY_REF = {
 
 def _canonical_value(value: Any) -> Any:
     if isinstance(value, float):
-        raise ValueError("floats are forbidden in world authority canonical values")
+        if not math.isfinite(value):
+            raise ValueError("non-finite floats cannot be migrated")
+        return value
     if isinstance(value, str):
         return unicodedata.normalize(
             "NFC", value.replace("\r\n", "\n").replace("\r", "\n")
