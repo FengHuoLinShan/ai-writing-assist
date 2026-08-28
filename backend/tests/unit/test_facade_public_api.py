@@ -47,6 +47,7 @@ WORLD_FACADE_API = {
     "get_world_bible_synopsis_context",
     "get_world_bible_working_pages_context",
     "get_world_context",
+    "initialize_world_canon",
     "list_auto_ingested_entities",
     "list_characters",
     "list_entities",

@@ -112,6 +112,12 @@ async def test_workspace_summary_for_empty_project_is_safe_and_additive(
             "has_more": False,
             "more_targets": [],
         },
+        "author_tasks": {
+            "today_count": 0,
+            "inbox_count": 0,
+            "later_count": 0,
+            "preview": [],
+        },
     }
 
 

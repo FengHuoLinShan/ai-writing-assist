@@ -17,6 +17,9 @@
 - World 关系新增的七类 `relation_kind` 只是审核与检索分类；地图册继续消费原有精确 `relation_type` 和已确认资料，不改变规划、来源 hash、采用或图片状态机。
 - 世界书的 `world_validation` 回执不取代地图册自有的候选审核、来源 hash 和图片采用门禁；
   地图册不读取或写入 `world_validation_runs`。
+- ADR-0017 Phase 0 只把 World Bible PageRevision 选入 Canon；地图册尚未切换为
+  CanonRevision 消费者，仍按下文的已确认 Context/RAG/World Bible 来源与 hash
+  门禁运行，不从 `world_assertions` 或 Canon manifest 双读。
 
 ## 用户状态
 

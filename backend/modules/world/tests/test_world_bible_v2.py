@@ -262,7 +262,9 @@ async def test_sections_survive_publish_revision_and_restore_draft(
             template_version=1,
         ),
     )
-    page = await lifecycle.publish_draft(db_session, project_novel_id, draft.id)
+    page = await lifecycle._seal_draft_for_admission(
+        db_session, project_novel_id, draft.id
+    )
     revision = await db_session.scalar(
         select(WorldBiblePageRevision).where(
             WorldBiblePageRevision.page_id == uuid.UUID(page.id),
@@ -324,7 +326,7 @@ async def test_publish_impact_lists_shortest_backlinks_and_rejects_graph_drift(
                 ),
             ),
         )
-        return await lifecycle.publish_draft(
+        return await lifecycle._seal_draft_for_admission(
             db_session,
             project_novel_id,
             draft.id,
@@ -346,7 +348,7 @@ async def test_publish_impact_lists_shortest_backlinks_and_rejects_graph_drift(
             linked_asset_refs_json=[{"type": "world_bible_page", "id": indirect.id}]
         ),
     )
-    source = await lifecycle.publish_draft(
+    source = await lifecycle._seal_draft_for_admission(
         db_session,
         project_novel_id,
         cycle_draft.id,
@@ -392,7 +394,7 @@ async def test_publish_impact_lists_shortest_backlinks_and_rejects_graph_drift(
 
     await publish("新增引用页", ref_id=source.id)
     with pytest.raises(ConflictError) as exc_info:
-        await lifecycle.publish_draft(
+        await lifecycle._seal_draft_for_admission(
             db_session,
             project_novel_id,
             working.id,
@@ -428,7 +430,9 @@ async def test_publish_impact_is_honest_about_untracked_and_unavailable_refs(
             page_type="background",
         ),
     )
-    source = await lifecycle.publish_draft(db_session, novel_id, source_draft.id)
+    source = await lifecycle._seal_draft_for_admission(
+        db_session, novel_id, source_draft.id
+    )
     mention_draft = await lifecycle.create_draft(
         db_session,
         WorldBiblePageDraftCreate(
@@ -438,7 +442,7 @@ async def test_publish_impact_is_honest_about_untracked_and_unavailable_refs(
             free_text="这里提到源页面，但没有显式引用。",
         ),
     )
-    await lifecycle.publish_draft(db_session, novel_id, mention_draft.id)
+    await lifecycle._seal_draft_for_admission(db_session, novel_id, mention_draft.id)
     working = await lifecycle.get_or_create_page_draft(db_session, novel_id, source.id)
 
     empty = await lifecycle.preview_publish_impact(db_session, novel_id, working.id)
@@ -454,7 +458,7 @@ async def test_publish_impact_is_honest_about_untracked_and_unavailable_refs(
             page_type="background",
         ),
     )
-    foreign = await lifecycle.publish_draft(
+    foreign = await lifecycle._seal_draft_for_admission(
         db_session,
         other_novel_id,
         foreign_draft.id,
@@ -582,7 +586,9 @@ async def test_projection_hash_and_spans_include_eligible_sections(
             sections_json=[_section("currency", "货币")],
         ),
     )
-    published = await lifecycle.publish_draft(db_session, project_novel_id, draft.id)
+    published = await lifecycle._seal_draft_for_admission(
+        db_session, project_novel_id, draft.id
+    )
     page = await db_session.get(WorldBiblePage, uuid.UUID(published.id))
     assert page is not None
     first_hash = lifecycle.projection_source_hash(page)
@@ -600,7 +606,7 @@ async def test_projection_hash_and_spans_include_eligible_sections(
         working.id,
         WorldBiblePageDraftUpdate(sections_json=[_section("currency", "新货币")]),
     )
-    await lifecycle.publish_draft(db_session, project_novel_id, working.id)
+    await lifecycle._seal_draft_for_admission(db_session, project_novel_id, working.id)
     await db_session.refresh(page)
     second_hash = lifecycle.projection_source_hash(page)
     assert second_hash != first_hash
@@ -637,7 +643,7 @@ async def test_metadata_update_keeps_historical_refs_and_stales_projection(
             linked_asset_refs_json=[{"type": "core_entity", "id": str(entity.id)}],
         ),
     )
-    published = await lifecycle.publish_draft(
+    published = await lifecycle._seal_draft_for_admission(
         db_session,
         project_novel_id,
         draft.id,
@@ -694,7 +700,7 @@ async def test_page_source_state_owns_generation_baseline_identity(
             free_text="正式内容",
         ),
     )
-    published = await lifecycle.publish_draft(
+    published = await lifecycle._seal_draft_for_admission(
         db_session,
         project_novel_id,
         draft.id,

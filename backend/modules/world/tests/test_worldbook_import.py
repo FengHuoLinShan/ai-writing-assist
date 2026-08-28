@@ -165,7 +165,7 @@ async def test_validation_policy_import_stays_a_draft_until_explicit_publish(
     assert (
         await WorldValidationService().active_policy(db_session, project_novel_id) is None
     )
-    await WorldBibleLifecycleService().publish_draft(
+    await WorldBibleLifecycleService()._seal_draft_for_admission(
         db_session, project_novel_id, str(draft.id)
     )
     active = await WorldValidationService().active_policy(db_session, project_novel_id)

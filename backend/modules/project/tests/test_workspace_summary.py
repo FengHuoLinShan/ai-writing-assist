@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
 from core.errors import ValidationError
-from modules.project.schemas import ProjectResponse
+from modules.project.schemas import ProjectResponse, WorkspaceAuthorTasksSummaryResponse
 from modules.project.workspace_service import ProjectWorkspaceSummaryService
 from modules.world.contracts import WorldAttentionSummaryContract
 from modules.writing.contracts import (
@@ -58,8 +58,12 @@ async def test_workspace_summary_composes_safe_author_projection() -> None:
     )
     outline_attention_reader = AsyncMock(return_value=6)
     outline_item_reader = AsyncMock(return_value=[])
+    author_task_summary_reader = AsyncMock(
+        return_value=WorkspaceAuthorTasksSummaryResponse()
+    )
     service = ProjectWorkspaceSummaryService(
         project_reader=project_reader,
+        author_task_summary_reader=author_task_summary_reader,
         writing_stats_reader=writing_stats_reader,
         chapter_index_reader=chapter_index_reader,
         latest_drafts_reader=latest_drafts_reader,
@@ -69,7 +73,8 @@ async def test_workspace_summary_composes_safe_author_projection() -> None:
         writing_attention_reader=AsyncMock(return_value=[]),
     )
 
-    result = await service.get_summary(db, "novel-1")
+    author_date = date(2026, 1, 4)
+    result = await service.get_summary(db, "novel-1", on_date=author_date)
 
     assert result.project_id == "novel-1"
     assert result.continuation is not None
@@ -88,6 +93,12 @@ async def test_workspace_summary_composes_safe_author_projection() -> None:
         "has_more": False,
         "more_targets": [],
     }
+    assert result.author_tasks.model_dump() == {
+        "today_count": 0,
+        "inbox_count": 0,
+        "later_count": 0,
+        "preview": [],
+    }
     project_reader.assert_awaited_once_with(db, "novel-1")
     latest_drafts_reader.assert_awaited_once_with(
         db,
@@ -100,6 +111,11 @@ async def test_workspace_summary_composes_safe_author_projection() -> None:
         "novel-1",
         status_filter=["candidate", "proposal"],
     )
+    author_task_summary_reader.assert_awaited_once_with(
+        db,
+        "novel-1",
+        on_date=author_date,
+    )
 
 
 @pytest.mark.asyncio
@@ -109,6 +125,9 @@ async def test_workspace_summary_skips_draft_load_for_empty_project() -> None:
     service = ProjectWorkspaceSummaryService(
         project_reader=AsyncMock(
             return_value=ProjectResponse(id="empty-1", title="空白作品")
+        ),
+        author_task_summary_reader=AsyncMock(
+            return_value=WorkspaceAuthorTasksSummaryResponse()
         ),
         writing_stats_reader=AsyncMock(
             return_value=WritingProjectStatsContract(novel_id="empty-1")
@@ -169,6 +188,9 @@ async def test_workspace_summary_validates_focus_and_sorts_actionable_items() ->
     service = ProjectWorkspaceSummaryService(
         project_reader=AsyncMock(
             return_value=ProjectResponse(id="novel-1", title="长夜")
+        ),
+        author_task_summary_reader=AsyncMock(
+            return_value=WorkspaceAuthorTasksSummaryResponse()
         ),
         writing_stats_reader=AsyncMock(
             return_value=WritingProjectStatsContract(novel_id="novel-1")

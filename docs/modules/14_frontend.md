@@ -83,11 +83,11 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
 | `vue/views/interaction/JourneyListView.vue` | `journeys` 路由；扁平旅程列表、新旅程、归档入口和按需搜索 |
 | `vue/views/interaction/InteractionView.vue` | `interaction/{journey_id}` 路由；故事阅读、composer、流式恢复、分支、回顾、看海与右侧定位 |
 | `vue/views/project/ProjectView.vue` | `project` 路由（Vue island）；紧凑作品档案，默认主操作为“继续创作”，搜索/筛选单行展示；批量、编辑、删除和回收站只在“管理作品”模式出现；无作品时优先显示新建与导入 |
-| `vue/views/writing/WritingHomeView.vue` / `vue/views/today/TodayView.vue` | `writing?home=1` 的写作首页；复用 Today 的正文/世界设定续接主卡、按当前 Scene 优先的最多 6 条跨领域待决投影和最多 3 个项目隔离的长任务恢复；移动端不自动打开第一章，事项只深链到所属领域。摘要失败时不误判为空项目，仍保留写作与各领域降级入口；失败/未知任务需确认才从首页隐藏 |
+| `vue/views/writing/home/WritingHomeView.vue` / `AuthorTasksView.vue` / `vue/views/today/TodayView.vue` | `writing?home=1` 的写作首页；唯一主行动后显示最多 3 项“我的任务”，`panel=tasks` 提供今天/收件箱/之后/已完成与次级归档。作者任务可完成；领域待决只返回所属页，后台整理只显示进度/恢复，三者不混用勾选。章节、Scene 与世界 Page/Entity 可就地建任务并返回类型化来源 |
 | `vue/views/rag/RagView.vue` / `vue/views/outline/components/OutlineHeader.vue` / `vue/views/scene/SceneWorkbenchView.vue` / `vue/views/world/WorldView.vue` / `vue/views/world/components/WorldReviewTab.vue` | 可切换子导航使用原生 button，当前项公开 `aria-current="page"`；Scene 工作台当前项保持非交互，避免同路由刷新 |
 | `vue/views/writing/WritingView.vue` | 纯章节目录、工作稿编辑器、手选 Scene 副驾驶与 AI 建议采用；光标不切换 Scene，AI/检查/发布统一消费手选 Scene；桌面与移动端共用白名单“本场”摘要，POV 可见资料只在点击后加载并隔离晚到响应；移动速记在 390px 使用原生 details，并可逆进入按项目恢复的完整编辑模式；自动保存、导入和候选采用继续保持原安全语义 |
 | `vue/views/writing/components/WritingWorkflowBars.vue` | 写作台长任务完成卡；深度导入额外显示自动归并数与遗留复核组数，有遗留项时用作者语言引导到现有“人物与世界 → 智能去重”，不自动发起第二次全项目扫描 |
-| `vue/views/world/WorldView.vue` | `world` 路由（Vue island）；对象库普通/热点双模式、`world/review` 统一“需要决定”工作台、历史筛选；工作台用队列 + 决策区处理对象/别名/关系，窄屏分步显示；热点模式显示重要/近期热点聚合并使用服务端全量排序；世界书编辑概览/结构化 sections、管理页面模板和 AI 参考规则，并以“工作稿保存 → 明确发布”维护页面；世界书内置关联图模式复用只读 `GET /api/world/knowledge-graph`；`map` 子标签现在只做兼容跳转 |
+| `vue/views/world/WorldView.vue` / `vue/views/world/{library,pages}/` | `world` 路由（Vue island）；可见子导航只有资料库/关系/需要决定。`world/bible` 用同一 `page/entity` tagged Card read model 组合资料页、工作稿和已采用对象；浅层目录只有全部/工作稿/按类型，cards/list、搜索、形态、类型和状态写 URL，列表滚动位置按项目+查询保留在 session。Entity 详情/别名在资料库内打开；旧 `objects/aliases` 查询规范化，原对象库图片/批量/回滚/人物认知从次级工具继续可达，review 旧深链仍定位统一工作台。对象搜索保留服务端别名/隐藏资料命中，局部失败不遮蔽 Page；桌面目录+内容两栏，AI 参考规则是内容栏内按需展开的 `details`，不会生成第三栏；760px 以下单栏且主操作至少 44px。编辑、发布 CAS/恢复、历史、模板、导入和校验仍是内容工具；关联图作为完整次级工具独立在 `world/pages/WorldBibleKnowledgeGraph.vue` |
 | `vue/views/map/MapWorkspaceView.vue` | AI 地图册一级工作台：一键生成/更新、本次候选、已采用画廊、来源分类、冲突确认、停止恢复、图片编辑与标注。 |
 | `vue/views/outline/OutlineView.vue` | `outline` 的 Vue island 主视图；顶层为“故事总览、篇章、剧情线、场景”。故事总览的 AI 生成弹窗优先显示三项作者问题并渐进展开参考资料；AI 预览与 `?edit=1` 手工页共用结构化重复项编辑器，两类未采用修改都按项目本机恢复；提交仍适配原 wire payload，版本历史不可原地改写 |
 | `vue/views/scene/SceneWorkbenchView.vue` | 由 `outline/scenes` 承载的 Scene 普通/热点双模式、管理筛选、当前剧情定位、拆分/合并/替换、复核与自动提取整理；旧 `scene` 路由仅作兼容重定向 |
@@ -103,6 +103,7 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
 - 作者 shell 的桌面主导航固定为“写作、人物与世界、故事结构、地图、查找”；移动端固定为
   “写作、世界、结构、全部”。项目切换器位于导航顶部，导入与项目偏好从“更多”进入，AI 工具在 owner 页就地打开；旧入口仅保留兼容路由，或由上下文错误进入。`writing?home=1` 是作者有效项目的默认续接页；`today` 仅为薄兼容别名。
 - `writing?home=1` 不装载章节、全部 Scene、编辑偏好或编辑器恢复监听；普通写作入口保持完整初始化。RAG 状态子页同样不装载未使用的人物和 Scene 列表。
+- `writing?home=1&panel=tasks&scope=today|inbox|later|completed|archived` 是作者任务的可恢复 URL 状态；列表与 workspace-summary 都传浏览器本地 `on_date`，PATCH 带 `expected_updated_at` 且同状态重试不改写时间。409 保留表单输入并刷新最新版本，作者再次保存才重试；进行中的写入会暂时阻止任务页导航，成功后用无重载 query replace 清除来源参数。不新增一级任务导航或前端状态库。未保存正文/世界页仍使用原项目隔离 session 和离开门禁。
 - `WritingHomeView` 通过 `writingIsland` 复用 `todayIsland` 的 loader，把本机 Writing 指针作为可选排序焦点传给项目摘要，并行组合世界书工作稿和 generation-center pending 页面建议；项目摘要中的 Writing / World / Outline 待决事项按后端顺序展示，已进入投影的建议不再重复显示为未完成创作；超过 6 条时使用 `more_targets` 打开去掉单条 item 绑定的领域处理范围，不用旧计数猜测来源；
   导航不调用 LLM。项目级本地创作指针只允许 `generate / world_bible_draft /
   world_suggestion_review` 三种结构化 route，只有作者编辑/发送、打开/保存工作稿、进入/应用建议
@@ -120,7 +121,7 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
 - Writing session 使用原生 `Map` 保留当前章和最近四章、最近五个项目；未完成本地备份的 dirty 快照不可淘汰。正文输入立即更新内存，本地备份和恢复指针合并为 250ms trailing 写入，并在保存、切换、卸载及页面离开前强制 flush；网络自动保存仍为 3 秒。
 - World/Outline 默认骨架和常用首屏同步加载；World Bible、“需要决定”、AI 抽屉，以及 Outline 的结构标签、AI 预览和 Scene 工作台使用 Vue 原生异步组件，chunk 失败自动重试一次。
 - 写作页另以项目隔离的本机安全指针保存最后章节、工作稿 ID/版本/更新时间、手选 Scene、光标偏移与指针更新时间，不保存正文。Writing Home 把章节与 Scene 作为 workspace-summary 的可选排序焦点；服务端验证归属后才用于相关性排序。续写仍仅在服务器续写章与本机章节一致时携带 Scene；编辑器仅在工作稿 ID、版本和更新时间全部一致时恢复并 clamp 光标，且不主动聚焦。本机指针指向的工作稿失效时清理其工作稿/光标身份并回退当前有效版；显式 URL 工作稿则保留错误。章节加载失败不会把目标章与上一章工作稿混写到该指针，正文区改为可重试错误态；保存失败保留本机备份并在成功前阻止切章和正式正文提交。账户切换与退出会清理该指针。
-- 世界对象库和 Scene 工作台使用 `mode=normal|hot`；URL 优先于按“项目 + 页面”保存的 localStorage 偏好，无偏好默认热点。切换模式保留通用筛选，清除模式专属筛选、分页偏移和批量选择。
+- 资料库使用 `layout=cards|list` 与 `q/kind/type/state`；旧对象库 `mode=normal|hot` 只在兼容组件中保留。Scene 工作台仍使用 `mode=normal|hot`，URL 优先于项目偏好。
 - Scene 工作台的筛选、详情和复核状态由 `useSceneWorkbench` 持有；当前 Scene 与模式通过 `outline/scenes?mode=...&scene_id=...` 写入浏览器历史，Writing Home 可额外用 `suggestion_id` 定位并打开仍待处理的融合建议。热点默认请求 `anchor=latest`，显式 Scene、分页、阶段或管理筛选时不自动锚定。桌面无 `scene_id` 时只渲染通栏列表；选中后才显示详情栏，前进、后退、刷新和后端对齐分页的恢复语义不变。
 - Writing Home 跳转 `world/review` 时以 `kind=objects|aliases|relations` 携带精确 `entity_id` / `group_id`；对象直接读取目标，别名与关系按现有分页查找目标组。A→B 与 B→A 是两条有向提醒，各自携带对应 `group_id`。旧 `review-objects` / `review-aliases` / `review-relations` 深链会保留定位参数并重定向到统一工作台。
 - `map` 路由会解析 query 上下文，用于承接写作页和世界页跳转

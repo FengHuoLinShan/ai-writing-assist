@@ -61,3 +61,8 @@ depth、outlet、工具或 system scaffold。
 ### C. 复制 SillyTavern entry 与 Prompt 插槽
 
 拒绝。资料、规则和 Prompt 耦合会破坏 Pydantic 边界、可重放性和安全门禁。
+
+> 2026-08-27 补充：[ADR-0017](0017-world-fact-authority-and-canon-revisions.md) 已在不改变
+> 本 ADR 所有权边界的前提下，把已发布 PageRevision 的 exact ref 选入追加式
+> CanonRevision。这只固定 documentary canon 版本；页面仍不自动成为结构化
+> Assert，也不取得 Prompt、激活、预算或可见性的所有权。

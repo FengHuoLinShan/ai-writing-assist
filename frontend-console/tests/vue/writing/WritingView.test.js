@@ -80,6 +80,21 @@ describe("WritingView", () => {
     wrapper.unmount()
   })
 
+  it("可从当前章节就地建立作者任务", async () => {
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+    const button = wrapper.findAll(".writing-toolbar button").find((item) => item.text() === "添加到我的任务")
+
+    await button.trigger("click")
+
+    const call = globalThis.router.navigate.mock.calls.at(-1)
+    expect(call.slice(0, 3)).toEqual(["writing", null, true])
+    expect(call[3].get("panel")).toBe("tasks")
+    expect(call[3].get("task_source_kind")).toBe("writing_chapter")
+    expect(call[3].get("task_source_id")).toBe("1")
+    wrapper.unmount()
+  })
+
   it("页头写作视图菜单同步状态，并可由动作、Escape 和外部点击收起", async () => {
     const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
     await flushPromises()

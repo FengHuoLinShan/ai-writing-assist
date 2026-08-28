@@ -34,6 +34,9 @@ async def _create_project(db_session: AsyncSession, novel_id: str | uuid.UUID) -
     )
     db_session.add(project)
     await db_session.flush()
+    from modules.world.facade import initialize_world_canon
+
+    await initialize_world_canon(db_session, str(pid))
 
 
 async def _create_entity(

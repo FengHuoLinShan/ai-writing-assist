@@ -5,10 +5,33 @@
 
 from __future__ import annotations
 
+import uuid
+
+from httpx import AsyncClient, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.utils import _create_entity as _create_entity
 from tests.utils import _create_project as _create_project
+
+
+async def publish_bible_draft(
+    client: AsyncClient,
+    novel_id: str,
+    draft_id: str,
+    *,
+    expected_impact_scope_hash: str | None = None,
+) -> Response:
+    """Publish through the owner-confirmed canon adapter."""
+    head = await client.get("/api/world/canon/head", params={"novel_id": novel_id})
+    assert head.status_code == 200, head.text
+    params = {
+        "novel_id": novel_id,
+        "expected_canon_head": head.json()["current_revision"]["id"],
+        "canon_decision_id": str(uuid.uuid4()),
+    }
+    if expected_impact_scope_hash is not None:
+        params["expected_impact_scope_hash"] = expected_impact_scope_hash
+    return await client.post(f"/api/world/bible/drafts/{draft_id}/publish", params=params)
 
 
 async def _create_location_entity(

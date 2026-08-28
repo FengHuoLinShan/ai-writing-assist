@@ -354,6 +354,21 @@ describe("筛选", () => {
 })
 
 describe("页内视图控件", () => {
+  it("次级对象工具返回 canonical 资料库总览", async () => {
+    const wrapper = shallowMount(WorldView, {
+      props: {
+        projectId: "p-obj",
+        subView: "bible",
+        bibleDeepLink: { openObjectTools: true },
+      },
+    })
+
+    await wrapper.get(".view-header__actions > .btn-ghost").trigger("click")
+
+    expect(localStorage.getItem("worldBible:p-obj:displayMode")).toBe("gallery")
+    expect(navigateMock).toHaveBeenCalledWith("world", "bible")
+  })
+
   it("默认使用表格，并以可访问状态分组浏览选项", async () => {
     const wrapper = shallowMount(WorldView, {
       props: { projectId: "p-obj", subView: "objects", discoveryMode: "hot" },
@@ -386,7 +401,7 @@ describe("页内视图控件", () => {
       },
     })
     const review = wrapper.get('[data-action="nav-review"]')
-    const objects = wrapper.get('[data-action="nav-objects"]')
+    const library = wrapper.get('[data-action="nav-bible"]')
 
     expect(review.element.tagName).toBe("BUTTON")
     expect(review.attributes("type")).toBe("button")
@@ -394,8 +409,8 @@ describe("页内视图控件", () => {
     expect(review.classes()).toContain("active")
     expect(review.get(".today-count").text()).toBe("6")
     expect(review.attributes("aria-label")).toBe("需要决定，6 项")
-    expect(objects.attributes("aria-current")).toBeUndefined()
-    expect(objects.classes()).not.toContain("active")
+    expect(library.attributes("aria-current")).toBeUndefined()
+    expect(library.classes()).not.toContain("active")
     expect(wrapper.find(".world-attention-menu").exists()).toBe(false)
 
     await review.trigger("click")
@@ -414,7 +429,7 @@ describe("页内视图控件", () => {
 
     expect(review.get(".today-count").text()).toBe("99+")
     expect(review.attributes("aria-label")).toBe("需要决定，316 项")
-    expect(wrapper.get('[data-action="nav-objects"]').attributes("aria-current")).toBe("page")
+    expect(wrapper.get('[data-action="nav-bible"]').attributes("aria-current")).toBe("page")
 
     await wrapper.setProps({ reviewCounts: { objects: 0, aliases: 0, relations: 0 } })
 

@@ -271,7 +271,7 @@
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import { structureAssetDisplay, worldAssetDisplay } from "../../../shared/assetDisplayState.js"
 import { confirmAsync } from "../../../shared/confirmAsync.js"
-import { getApi, getConfirm } from "../../bridge/index.js"
+import { getApi, getConfirm, getRouter } from "../../bridge/index.js"
 import ActionMenu from "../../components/ActionMenu.vue"
 import WorkflowProgressCard from "../../components/WorkflowProgressCard.vue"
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
@@ -280,6 +280,7 @@ import OutlineGenerateProgressCard from "../outline/ai/OutlineGenerateProgressCa
 import { showOutlineLayerAiForm } from "../outline/ai/outlineAiOps.js"
 import { outlineGenerateManager } from "../outline/ai/outlineWorkflowManagers.js"
 import OutlineHeader from "../outline/components/OutlineHeader.vue"
+import { authorTaskPanelQuery } from "../writing/home/authorTaskSource.js"
 import ReferencePickerAdapter from "../generate/components/ReferencePickerAdapter.vue"
 import CharacterCardsPanel from "./CharacterCardsPanel.vue"
 import SceneAutoExtractProgressCard from "./SceneAutoExtractProgressCard.vue"
@@ -321,6 +322,7 @@ const props = defineProps({
   advancedFiltersOpen: { type: Boolean, default: false },
   sceneLoadError: { type: String, default: null },
 })
+const router = getRouter()
 
 onMounted(() => {
   document.querySelector(".outline-toolbar")?.dispatchEvent(new Event("workspace:content-rendered", { bubbles: true }))
@@ -560,6 +562,7 @@ function menuItems(item) {
   const scene = item.scene
   return [
     { action: "open-writing-scene", label: "打开写作", data: { id: scene.id } },
+    { action: "add-scene-task", label: "添加到我的任务", data: { id: scene.id } },
     { action: "start-merge-scene", label: "合并", data: { id: scene.id } },
     { action: "start-split-scene", label: "拆分", data: { id: scene.id } },
     ...(scene.structure_meta?.organize_ignored && !structureAssetDisplay(scene).isHistory ? [{ action: "restore-scene-organize", label: "恢复整理提醒", data: { id: scene.id } }] : []),
@@ -569,6 +572,13 @@ function menuItems(item) {
 }
 function handleMenu(item, menu) {
   if (menu.action === "open-writing-scene") return openWriting(item.scene)
+  if (menu.action === "add-scene-task") {
+    return router.navigate("writing", null, true, authorTaskPanelQuery({
+      kind: "outline_scene",
+      id: item.scene.id,
+      title: `处理场景：${item.scene.title || "未命名场景"}`,
+    }))
+  }
   if (menu.action === "start-merge-scene") return modalController.startMerge(item.scene.id)
   if (menu.action === "start-split-scene") return modalController.startSplit(item.scene.id)
   if (menu.action === "restore-scene-organize") return vm.reviewScenes([item.scene.id], "restore_structure")

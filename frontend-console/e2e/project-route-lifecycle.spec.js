@@ -92,9 +92,7 @@ test.describe("共享项目路由生命周期", () => {
 
     releaseMetadata.resolve()
     await expect(page.locator(SEL.worldBibleWorkspace)).toBeVisible({ timeout: 10_000 })
-    await expect(page.locator(SEL.worldBibleWorkspace)).toContainText(
-      "创建一个世界书页面",
-    )
+    await expect(page.locator(SEL.worldBibleNewPage)).toBeVisible()
     await expect(page.locator(SEL.worldBibleWorkspace)).not.toContainText(
       "只属于项目 A 的世界书",
     )
@@ -172,10 +170,7 @@ test.describe("共享项目路由生命周期", () => {
     expect(metadataRequestCount).toBe(1)
 
     releaseMetadata.resolve()
-    await expect(page.locator(SEL.worldBibleWorkspace)).toContainText(
-      "创建一个世界书页面",
-      { timeout: 10_000 },
-    )
+    await expect(page.locator(SEL.worldBibleNewPage)).toBeVisible({ timeout: 10_000 })
     expect(browserErrors).toEqual([])
   })
 })

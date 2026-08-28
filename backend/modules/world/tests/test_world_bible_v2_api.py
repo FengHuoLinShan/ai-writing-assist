@@ -1,6 +1,8 @@
 import pytest
 from httpx import AsyncClient
 
+from modules.world.tests.helpers import publish_bible_draft
+
 
 @pytest.mark.asyncio
 async def test_page_template_and_section_api_workflow(
@@ -57,10 +59,7 @@ async def test_page_template_and_section_api_workflow(
     assert applied.status_code == 200
     assert applied.json()["sections_json"][0]["section_id"] == "currency"
 
-    published = await async_client.post(
-        f"/api/world/bible/drafts/{draft['id']}/publish",
-        params={"novel_id": novel_id},
-    )
+    published = await publish_bible_draft(async_client, novel_id, draft["id"])
     assert published.status_code == 200
     assert published.json()["sections_json"][0]["title"] == "货币与交换"
     assert published.json()["template_key"] == "trade_guide"
@@ -97,9 +96,10 @@ async def test_publish_impact_preview_is_project_scoped_and_binds_new_client(
             "page_type": "background",
         },
     )
-    published = await async_client.post(
-        f"/api/world/bible/drafts/{initial.json()['id']}/publish",
-        params={"novel_id": novel_id},
+    published = await publish_bible_draft(
+        async_client,
+        novel_id,
+        initial.json()["id"],
     )
     working = await async_client.post(
         "/api/world/bible/drafts",
@@ -121,12 +121,11 @@ async def test_publish_impact_preview_is_project_scoped_and_binds_new_client(
     assert preview.json()["affected_pages"] == []
     assert preview.json()["not_checked"]
 
-    republished = await async_client.post(
-        f"/api/world/bible/drafts/{draft_id}/publish",
-        params={
-            "novel_id": novel_id,
-            "expected_impact_scope_hash": preview.json()["impact_scope_hash"],
-        },
+    republished = await publish_bible_draft(
+        async_client,
+        novel_id,
+        draft_id,
+        expected_impact_scope_hash=preview.json()["impact_scope_hash"],
     )
     assert republished.status_code == 200
     assert republished.json()["version_number"] == 2

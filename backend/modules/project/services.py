@@ -157,6 +157,10 @@ class ProjectService:
             if self._uses_default_repo
             else await self._repo.create(db, data)
         )
+        if self._uses_default_repo:
+            from modules.world.facade import initialize_world_canon
+
+            await initialize_world_canon(db, str(project.id))
         return await self._response_with_stats(db, project)
 
     async def create_interaction_project(

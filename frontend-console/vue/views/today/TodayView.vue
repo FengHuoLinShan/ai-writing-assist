@@ -1,8 +1,9 @@
 <script setup>
 import { computed, ref } from "vue"
 import { clearActiveWorkflow } from "../../../shared/workflowProgress.js"
-import { getConfirmAction, getRouter, getToast } from "../../bridge/index.js"
+import { getApi, getConfirmAction, getRouter, getToast } from "../../bridge/index.js"
 import { writeCreativeContinuation } from "../generate/generateSession.js"
+import { openAuthorTaskSource } from "../writing/home/authorTaskSource.js"
 import { readWritingPointer } from "../writing/writingSession.js"
 
 const props = defineProps({
@@ -18,6 +19,7 @@ const props = defineProps({
 })
 
 const router = getRouter()
+const api = getApi()
 const confirmAction = getConfirmAction()
 const toast = getToast()
 const dismissedWorkflowIds = ref(new Set())
@@ -27,6 +29,17 @@ const projectTitle = computed(() => props.project?.title || props.project?.name 
 const continuation = computed(() => props.summary?.continuation || null)
 const writing = computed(() => props.summary?.writing || { chapter_count: 0, word_count: 0 })
 const attention = computed(() => props.summary?.attention || {})
+const authorTasks = computed(() => props.summary?.author_tasks || {
+  today_count: 0,
+  inbox_count: 0,
+  later_count: 0,
+  preview: [],
+})
+const completedTaskIds = ref(new Set())
+const authorTaskPreview = computed(() => Array.isArray(authorTasks.value.preview)
+  ? authorTasks.value.preview.filter((task) => !completedTaskIds.value.has(task.id)).slice(0, 3)
+  : [])
+const taskBusyIds = ref(new Set())
 const primaryWorld = computed(() => props.creativeContinuation || (!continuation.value ? props.worldContinuations[0] || null : null))
 const unfinishedWorld = computed(() => props.worldContinuations.filter((item) => item.key !== primaryWorld.value?.key))
 const importWorkflow = computed(() => (
@@ -120,6 +133,33 @@ function openWriting() {
     }
   }
   router.navigate("writing", null, true, query)
+}
+
+function openTasks(scope = "today") {
+  router.navigate("writing", null, true, new URLSearchParams({ home: "1", panel: "tasks", scope }))
+}
+
+async function completeTask(task, event) {
+  if (!task?.id || taskBusyIds.value.has(task.id)) return
+  const checkbox = event?.currentTarget
+  taskBusyIds.value = new Set([...taskBusyIds.value, task.id])
+  try {
+    await api.projects.patchAuthorTask(projectId.value, task.id, {
+      status: "completed",
+      expected_updated_at: task.updated_at || undefined,
+    })
+    completedTaskIds.value = new Set([...completedTaskIds.value, task.id])
+    toast("任务已完成", "success")
+    router.refresh()
+  } catch (error) {
+    if (checkbox) checkbox.checked = false
+    toast(error?.message || "任务更新失败", "error")
+    if (error?.status === 409) router.refresh()
+  } finally {
+    const next = new Set(taskBusyIds.value)
+    next.delete(task.id)
+    taskBusyIds.value = next
+  }
 }
 
 function runPrimaryAction() {
@@ -322,6 +362,32 @@ function retry() {
       <button v-if="worldLoadError" class="btn btn-sm" type="button" @click="retry">重新加载</button>
     </div>
 
+    <section v-if="summary" class="today-section today-author-tasks" aria-labelledby="today-author-tasks-title">
+      <div class="today-section__heading">
+        <div>
+          <h2 id="today-author-tasks-title">我的任务</h2>
+          <p>今天 {{ authorTasks.today_count }} 项 · 收件箱 {{ authorTasks.inbox_count }} 项</p>
+        </div>
+        <div class="today-author-tasks__actions">
+          <button type="button" class="btn btn-sm" @click="openTasks('inbox')">＋ 添加</button>
+          <button type="button" class="btn btn-sm btn-ghost" @click="openTasks('today')">查看全部</button>
+        </div>
+      </div>
+      <ul v-if="authorTaskPreview.length" class="today-author-task-list">
+        <li v-for="task in authorTaskPreview" :key="task.id" class="today-author-task-row">
+          <label class="today-author-task-row__check">
+            <input type="checkbox" :disabled="taskBusyIds.has(task.id)" :aria-label="`完成任务：${task.title}`" @change="completeTask(task, $event)">
+          </label>
+          <strong>{{ task.title }}</strong>
+          <button v-if="task.source?.available" type="button" class="btn btn-sm btn-ghost" @click="openAuthorTaskSource(task.source, router)">{{ task.source.label }} →</button>
+          <span v-else-if="task.source">来源已失效</span>
+        </li>
+      </ul>
+      <div v-else class="today-author-task-empty">
+        <p>今天没有待办；需要时可以记下一项，不会混入系统决定或后台整理。</p>
+      </div>
+    </section>
+
     <section v-if="unfinishedWorld.length" class="today-section" aria-labelledby="today-unfinished-world-title">
       <div class="today-section__heading">
         <div>
@@ -385,3 +451,17 @@ function retry() {
     </section>
   </main>
 </template>
+
+<style scoped>
+.today-author-tasks__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.today-author-task-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.today-author-task-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 44px; padding: 8px 10px; border: 1px solid var(--border); }
+.today-author-task-row__check { display: grid; width: 44px; height: 44px; place-items: center; cursor: pointer; }
+.today-author-task-row__check input { width: 20px; height: 20px; }
+.today-author-task-row span { color: var(--text-muted); }
+.today-author-task-empty { padding: var(--space-5); border: 1px dashed var(--border); border-radius: var(--radius-xl); }
+@media (max-width: 760px) {
+  .today-author-task-row { grid-template-columns: auto minmax(0, 1fr); }
+  .today-author-task-row > :last-child:not(strong) { grid-column: 2; justify-self: start; }
+}
+</style>

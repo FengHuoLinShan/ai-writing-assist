@@ -3,6 +3,15 @@
 from __future__ import annotations
 
 
+async def initialize_world_canon(db, novel_id: str) -> None:
+    """Create the idempotent empty canon root for one author project."""
+    from modules.world.services.worldbuilding.world_authority_service import (
+        WorldAuthorityService,
+    )
+
+    await WorldAuthorityService().initialize_empty_canon(db, novel_id)
+
+
 async def assemble_post_import_adoption_package(db, request):
     """Create or return the one pending package for a completed deep import."""
     from modules.world.services.worldbuilding.adoption_package_service import (

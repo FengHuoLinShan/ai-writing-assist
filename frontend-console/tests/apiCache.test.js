@@ -129,6 +129,130 @@ describe("api.js cache behavior", () => {
     )
   })
 
+  it("世界书发布在网络响应丢失后复用同一决定与预期版本", async () => {
+    const ok = (body) => ({ ok: true, status: 200, json: async () => body })
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(ok({ current_revision: { id: "canon-head-1" } }))
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+
+    await expect(window.api.world.publishBibleDraft(
+      "draft-retry",
+      "novel-retry",
+      "a".repeat(64),
+      "validation-1",
+    )).rejects.toThrow("无法访问 API 服务")
+
+    const firstPublishUrl = globalThis.fetch.mock.calls[1][0]
+    const firstQuery = new URL(firstPublishUrl, "http://local").searchParams
+    const storedKey = "worldBiblePublishAttempt:novel-retry:draft-retry"
+    expect(JSON.parse(sessionStorage.getItem(storedKey))).toEqual({
+      expectedCanonHead: "canon-head-1",
+      decisionId: firstQuery.get("canon_decision_id"),
+      expectedImpactScopeHash: "a".repeat(64),
+      validationRunId: "validation-1",
+    })
+
+    globalThis.fetch.mockClear()
+    globalThis.fetch.mockResolvedValueOnce(ok({ id: "page-1", status: "canonical" }))
+    await expect(window.api.world.publishBibleDraft(
+      "draft-retry",
+      "novel-retry",
+      "a".repeat(64),
+      "validation-1",
+    )).resolves.toMatchObject({ id: "page-1" })
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+    const retryQuery = new URL(globalThis.fetch.mock.calls[0][0], "http://local").searchParams
+    expect(retryQuery.get("expected_canon_head")).toBe("canon-head-1")
+    expect(retryQuery.get("canon_decision_id")).toBe(firstQuery.get("canon_decision_id"))
+    expect(sessionStorage.getItem(storedKey)).toBeNull()
+  })
+
+  it("会话存储写入失败时仍用内存尝试恢复发布", async () => {
+    const ok = (body) => ({ ok: true, status: 200, json: async () => body })
+    const setItem = vi.spyOn(sessionStorage, "setItem").mockImplementation(() => {
+      throw new Error("quota exceeded")
+    })
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(ok({ current_revision: { id: "canon-memory-head" } }))
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+
+    try {
+      await expect(window.api.world.publishBibleDraft("draft-memory", "novel-memory"))
+        .rejects.toThrow("无法访问 API 服务")
+      expect(sessionStorage.getItem("worldBiblePublishAttempt:novel-memory:draft-memory")).toBeNull()
+      const firstQuery = new URL(globalThis.fetch.mock.calls[1][0], "http://local").searchParams
+
+      globalThis.fetch.mockClear()
+      globalThis.fetch.mockResolvedValueOnce(ok({ id: "page-memory", status: "canonical" }))
+      await window.api.world.publishBibleDraft("draft-memory", "novel-memory")
+
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+      const retryQuery = new URL(globalThis.fetch.mock.calls[0][0], "http://local").searchParams
+      expect(retryQuery.get("expected_canon_head")).toBe("canon-memory-head")
+      expect(retryQuery.get("canon_decision_id")).toBe(firstQuery.get("canon_decision_id"))
+    } finally {
+      setItem.mockRestore()
+    }
+  })
+
+  it("世界书发布在明确 stale 后放弃旧决定", async () => {
+    const ok = (body) => ({ ok: true, status: 200, json: async () => body })
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(ok({ current_revision: { id: "canon-head-old" } }))
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        json: async () => ({ error: "canon_admission_stale", detail: "World canon changed" }),
+      })
+
+    await expect(window.api.world.publishBibleDraft("draft-stale", "novel-stale"))
+      .rejects.toMatchObject({ status: 409 })
+    expect(sessionStorage.getItem("worldBiblePublishAttempt:novel-stale:draft-stale")).toBeNull()
+
+    globalThis.fetch.mockResolvedValueOnce(ok({ current_revision: { id: "canon-head-new" } }))
+      .mockResolvedValueOnce(ok({ id: "page-2", status: "canonical" }))
+    await window.api.world.publishBibleDraft("draft-stale", "novel-stale")
+
+    const retryQuery = new URL(globalThis.fetch.mock.calls[3][0], "http://local").searchParams
+    expect(retryQuery.get("expected_canon_head")).toBe("canon-head-new")
+  })
+
+  it("世界书发布在明确校验拒绝后使用新校验结果", async () => {
+    const ok = (body) => ({ ok: true, status: 200, json: async () => body })
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(ok({ current_revision: { id: "canon-validation-old" } }))
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        json: async () => ({ error: "required_validation", detail: "Validation required" }),
+      })
+
+    await expect(window.api.world.publishBibleDraft(
+      "draft-validation",
+      "novel-validation",
+      null,
+      "validation-old",
+    )).rejects.toMatchObject({ status: 409 })
+    expect(sessionStorage.getItem(
+      "worldBiblePublishAttempt:novel-validation:draft-validation",
+    )).toBeNull()
+
+    globalThis.fetch
+      .mockResolvedValueOnce(ok({ current_revision: { id: "canon-validation-new" } }))
+      .mockResolvedValueOnce(ok({ id: "page-validation", status: "canonical" }))
+    await window.api.world.publishBibleDraft(
+      "draft-validation",
+      "novel-validation",
+      null,
+      "validation-new",
+    )
+
+    const retryQuery = new URL(globalThis.fetch.mock.calls[3][0], "http://local").searchParams
+    expect(retryQuery.get("expected_canon_head")).toBe("canon-validation-new")
+    expect(retryQuery.get("validation_run_id")).toBe("validation-new")
+  })
+
   it("omits request bodies and redacts secrets from failed-request diagnostics", async () => {
     const previousErrorLog = window.errorLog
     window.errorLog = { _lastApiError: null }

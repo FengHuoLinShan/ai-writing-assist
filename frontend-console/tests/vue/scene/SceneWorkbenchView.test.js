@@ -319,6 +319,20 @@ describe("SceneWorkbenchView", () => {
     expect(row.find('[data-action="open-writing-scene"]').attributes("data-id")).toBe("s2")
   })
 
+  it("可从 Scene 就地建立带封闭来源的作者任务", async () => {
+    createWrapper()
+    const row = wrapper.find('.scene-workbench-row[data-id="s2"]')
+    await row.get(".action-menu-btn").trigger("click")
+    await row.get('[data-action="add-scene-task"]').trigger("click")
+
+    const call = router.navigate.mock.calls.at(-1)
+    expect(call.slice(0, 3)).toEqual(["writing", null, true])
+    expect(call[3].get("panel")).toBe("tasks")
+    expect(call[3].get("task_source_kind")).toBe("outline_scene")
+    expect(call[3].get("task_source_id")).toBe("s2")
+    expect(call[3].get("task_title")).toContain("撤离")
+  })
+
   it("uses the shared current-aware outline navigation", async () => {
     createWrapper()
     for (const action of ["nav-story-outline", "nav-arcs", "nav-threads", "nav-scenes"]) {

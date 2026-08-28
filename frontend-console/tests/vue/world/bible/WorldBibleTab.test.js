@@ -6,6 +6,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { enableAutoUnmount, mount } from "@vue/test-utils"
 import { nextTick } from "vue"
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 
 vi.mock("../../../../shared/referencePicker.js", () => ({
   createReferencePicker: vi.fn(() => ({ destroy: vi.fn(), resolve: vi.fn(), getRefs: vi.fn(() => []) })),
@@ -16,12 +18,17 @@ vi.mock("../../../../shared/workflowProgress.js", () => ({
 }))
 
 vi.mock("../../../../shared/assetDisplayState.js", () => ({
-  displayStateBadgeClass: vi.fn((state) => state === "canonical" || state === "confirmed" ? "badge-canonical" : "badge-draft"),
-  worldAssetDisplay: vi.fn((item) => ({
-    label: item?.status === "canonical" || item?.status === "confirmed" ? "已采用" : item?.status === "draft" ? "草稿" : "历史",
-    displayState: item?.status || "draft",
-    isHistory: item?.status === "archived",
-  })),
+  displayStateBadgeClass: vi.fn((state) => state === "active" ? "badge-canonical" : "badge-draft"),
+  worldAssetDisplay: vi.fn((item) => {
+    const status = item?.status || ""
+    if (item?.display_state === "archived" || status === "archived") {
+      return { label: "历史", displayState: "archived", isHistory: true }
+    }
+    if (item?.display_state === "active" || ["active", "canonical", "confirmed", "published"].includes(status)) {
+      return { label: "已采用", displayState: "active", isHistory: false }
+    }
+    return { label: "待处理", displayState: "review", isHistory: false }
+  }),
 }))
 
 import WorldBibleTab from "../../../../vue/views/world/bible/WorldBibleTab.vue"
@@ -217,11 +224,12 @@ describe("渲染契约", () => {
     const moreTools = toolbar.get("[data-section='bible-toolbar-more']")
     expect(toolbar.exists()).toBe(true)
     expect(toolbar.classes()).not.toContain("view-header")
-    expect(toolbar.get("h1").text()).toBe("世界笔记")
-    expect(toolbar.text()).toContain("2 个页面")
+    expect(toolbar.get("h1").text()).toBe("资料库")
+    expect(toolbar.text()).toContain("2 个资料页")
     expect(toolbar.find("[data-action='bible-new-page']").exists()).toBe(true)
     expect(toolbar.find("[data-action='bible-manage-categories']").exists()).toBe(true)
     expect(toolbar.find("[data-action='bible-manage-page-templates']").exists()).toBe(true)
+    expect(toolbar.find("[data-action='bible-open-object-tools']").exists()).toBe(true)
     expect(toolbar.find("[data-action='bible-open-worldbook-import']").exists()).toBe(true)
     expect(toolbar.find("[data-action='bible-open-suggestions']").exists()).toBe(true)
     expect(toolbar.find("[data-action='bible-open-conflicts']").exists()).toBe(true)
@@ -250,6 +258,7 @@ describe("渲染契约", () => {
     document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }))
     await nextTick()
     expect(moreTools.element.open).toBe(false)
+    expect(document.activeElement).toBe(summary.element)
 
     moreTools.element.open = true
     await moreTools.trigger("toggle")
@@ -308,29 +317,77 @@ describe("渲染契约", () => {
     expect(wrapper.get("#bible-title").element.value).toBe("新页工作稿")
   })
 
-  it("展示模式切换按钮组", () => {
-    const wrapper = mountTab()
-    const modes = wrapper.find(".world-bible-toolbar__modes")
-    expect(modes.attributes()).toMatchObject({ role: "group", "aria-label": "世界笔记展示方式" })
-    expect(modes.findAll("button")).toHaveLength(4)
-    expect(modes.find("[data-mode='editor']").exists()).toBe(true)
-    expect(modes.find("[data-mode='graph']").exists()).toBe(true)
-    expect(modes.find("[data-mode='gallery']").exists()).toBe(true)
-    expect(modes.find("[data-mode='filter']").exists()).toBe(true)
-    expect(modes.find("[data-mode='editor']").attributes("aria-pressed")).toBe("true")
-    expect(modes.find("[data-mode='gallery']").attributes("aria-pressed")).toBe("false")
-    expect(modes.find("[data-mode='filter']").attributes("aria-pressed")).toBe("false")
+  it("浏览只暴露卡片和列表，编辑时提供返回资料库", () => {
+    const editor = mountTab()
+    expect(editor.find(".world-bible-toolbar__modes").exists()).toBe(false)
+    expect(editor.find("[data-action='bible-open-graph']").exists()).toBe(true)
+    expect(editor.text()).toContain("返回资料库")
+
+    const library = mountTab({ defaultDisplayMode: "gallery" })
+    const modes = library.get(".world-bible-toolbar__modes")
+    expect(modes.attributes()).toMatchObject({ role: "group", "aria-label": "资料库显示方式" })
+    expect(modes.findAll("button")).toHaveLength(2)
+    expect(modes.get("[data-layout='cards']").attributes("aria-pressed")).toBe("true")
+    expect(modes.get("[data-layout='list']").attributes("aria-pressed")).toBe("false")
   })
 
-  it("编辑器模式显示 synopsis 面板、page nav、editor 和 inspector", () => {
+  it("普通资料库入口忽略旧展示偏好，显式页面深链仍精确打开", () => {
+    localStorage.setItem("worldBible:p1:displayMode", "graph")
+
+    const library = mountTab({ defaultDisplayMode: "gallery" })
+    expect(library.find(".world-library-layout").exists()).toBe(true)
+    library.unmount()
+
+    const deepLink = mountTab({
+      defaultDisplayMode: "gallery",
+      bibleDeepLink: { draftId: "", pageId: "page-2" },
+    })
+    expect(deepLink.get("#bible-title").element.value).toBe("种族设定")
+  })
+
+  it("从资料返回时按项目与查询恢复滚动位置", async () => {
+    const content = document.createElement("div")
+    content.id = "workspace-content"
+    document.body.appendChild(content)
+    const filters = { q: "北境", kind: "all", type: "", state: "", layout: "cards" }
+    const first = mountTab({ defaultDisplayMode: "gallery", worldCardFilters: filters })
+    content.scrollTop = 240
+
+    await first.get("[data-action='open-world-card']").trigger("click")
+    expect(worldSession.bible.libraryScrollPositions["p1:q=%E5%8C%97%E5%A2%83"]).toBe(240)
+    first.unmount()
+    content.scrollTop = 0
+
+    mountTab({ defaultDisplayMode: "gallery", worldCardFilters: filters })
+    await vi.waitFor(() => expect(content.scrollTop).toBe(240))
+  })
+
+  it("编辑器桌面只保留目录与内容两列，AI 规则在内容内按需展开", () => {
     const wrapper = mountTab()
     const synopsis = wrapper.get(".world-bible-synopsis-panel")
+    const layout = wrapper.get(".world-bible-layout")
+    const content = layout.get(".world-bible-content-column")
+    const inspector = content.get(".world-bible-inspector")
     expect(synopsis.exists()).toBe(true)
     expect(synopsis.attributes("open")).toBeUndefined()
-    expect(wrapper.find(".world-bible-layout").exists()).toBe(true)
-    expect(wrapper.find(".world-bible-page-nav").exists()).toBe(true)
-    expect(wrapper.find(".world-bible-editor-panel").exists()).toBe(true)
-    expect(wrapper.find(".world-bible-inspector").exists()).toBe(true)
+    expect(Array.from(layout.element.children)).toHaveLength(2)
+    expect(layout.element.children[0].classList).toContain("world-bible-nav-rail")
+    expect(layout.element.children[1]).toBe(content.element)
+    expect(content.find(".world-bible-editor-panel").exists()).toBe(true)
+    expect(inspector.element.parentElement).toBe(content.element)
+  })
+
+  it("两列 CSS 不会因 AI 规则折叠状态恢复第三列，760px 以下单列", () => {
+    const styles = readFileSync(resolve(import.meta.dirname, "../../../../styles.css"), "utf8")
+    const layoutRules = Array.from(styles.matchAll(/\.world-bible-layout\s*\{([^}]*)\}/g), (match) => match[1])
+
+    expect(layoutRules.length).toBeGreaterThan(0)
+    for (const rule of layoutRules) {
+      const columns = rule.match(/grid-template-columns:\s*([^;]+);/)?.[1]
+      if (columns) expect((columns.match(/minmax\(/g) || []).length).toBeLessThanOrEqual(2)
+    }
+    expect(styles).not.toContain(".world-bible-layout:has(.world-bible-inspector")
+    expect(styles).toMatch(/@media \(max-width: 760px\)[\s\S]*\.world-bible-layout,[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\)/)
   })
 
   it("无 AI 参考规则时默认收起次级配置", () => {
@@ -398,9 +455,8 @@ describe("显示模式切换", () => {
     expect(wrapper.find("[data-mode='filter']").attributes("aria-pressed")).toBe("false")
     expect(wrapper.find(".world-bible-gallery").exists()).toBe(true)
     expect(wrapper.find(".world-bible-gallery__hero").exists()).toBe(true)
-    expect(wrapper.find(".world-bible-category-grid").exists()).toBe(true)
-    // category cards
-    expect(wrapper.findAll(".world-bible-category-card").length).toBeGreaterThanOrEqual(1)
+    expect(wrapper.find(".world-library-directory").exists()).toBe(true)
+    expect(wrapper.find(".world-card-grid").exists()).toBe(true)
   })
 
   it("gallery 模式钻取分类", async () => {
@@ -424,6 +480,143 @@ describe("显示模式切换", () => {
     await nextTick()
     // back to gallery home - should show gallery hero
     expect(wrapper.find(".world-bible-gallery__hero").exists()).toBe(true)
+  })
+
+  it("统一卡片首次空态提供两个明确起点", () => {
+    const wrapper = mountTab({
+      defaultDisplayMode: "gallery",
+      bible: { pages: [], categories: [], drafts: [], entities: [], synopsis: null, pageTemplates: [], activationProfiles: [] },
+    })
+
+    expect(wrapper.get(".world-bible-gallery__hero").text()).toContain("人物与世界")
+    const empty = wrapper.get(".world-card-empty-actions")
+    expect(empty.text()).toContain("新建人物或设定")
+    expect(empty.text()).toContain("新建资料页")
+  })
+
+  it("对象加载失败时保留资料页卡片和原位重试", () => {
+    const wrapper = mountTab({
+      defaultDisplayMode: "gallery",
+      bible: { ...defaultBible(), entities: [], entitiesLoadError: "网络暂不可用" },
+    })
+
+    const error = wrapper.get("[data-author-action='retry']")
+    expect(error.attributes("role")).toBe("alert")
+    expect(error.text()).toContain("资料页和工作稿仍可使用")
+    expect(error.get("button").text()).toBe("重新加载")
+    expect(wrapper.findAll(".world-card").length).toBeGreaterThan(0)
+  })
+
+  it("对象加载失败且没有资料页时不显示误导性空态", () => {
+    const wrapper = mountTab({
+      defaultDisplayMode: "gallery",
+      bible: { ...defaultBible(), pages: [], drafts: [], entities: [], entitiesLoadError: "网络暂不可用" },
+    })
+
+    expect(wrapper.get("[data-author-action='retry']").text()).toContain("重新加载")
+    expect(wrapper.text()).not.toContain("还没有人物或世界资料")
+    expect(wrapper.text()).not.toContain("没有找到符合条件的资料")
+  })
+
+  it("统一卡片依页面真实状态显示，不把草稿和待处理标成已采用", () => {
+    const wrapper = mountTab({
+      defaultDisplayMode: "gallery",
+      bible: {
+        ...defaultBible(),
+        drafts: [],
+        entities: [],
+        pages: [
+          { ...PAGE_1, id: "page-draft", status: "draft" },
+          { ...PAGE_1, id: "page-candidate", status: "candidate" },
+          { ...PAGE_1, id: "page-active", status: "canonical" },
+        ],
+      },
+    })
+
+    const labels = wrapper.findAll(".world-card .badge").map((badge) => badge.text())
+    expect(labels).toEqual(expect.arrayContaining(["工作稿", "待处理", "已采用"]))
+    expect(wrapper.findAll(".world-card").every((card) => card.attributes("data-world-card-id") === undefined)).toBe(true)
+  })
+
+  it("卡片和列表共用同一组资料，并从 URL 恢复列表视图", () => {
+    const wrapper = mountTab({
+      defaultDisplayMode: "gallery",
+      worldCardFilters: { q: "", kind: "all", type: "", state: "", layout: "list" },
+    })
+
+    expect(wrapper.find(".world-card-grid").exists()).toBe(false)
+    expect(wrapper.findAll(".world-library-list__row")).toHaveLength(3)
+    expect(wrapper.get("[data-layout='list']").attributes("aria-pressed")).toBe("true")
+  })
+
+  it("打开资料页或工作稿时保留筛选并写入精确深链", async () => {
+    const wrapper = mountTab({
+      defaultDisplayMode: "gallery",
+      worldCardFilters: { q: "", kind: "page", type: "", state: "", layout: "list" },
+    })
+    const cards = wrapper.findAll(".world-library-list__row")
+
+    await cards.find((card) => card.text().includes("种族设定"))
+      .get("[data-action='open-world-card']").trigger("click")
+    let query = navigateMock.mock.calls.at(-1)[3]
+    expect(query.get("kind")).toBe("page")
+    expect(query.get("layout")).toBe("list")
+    expect(query.get("page_id")).toBe("page-2")
+    expect(query.get("draft_id")).toBeNull()
+
+    await cards.find((card) => card.text().includes("世界基本背景"))
+      .get("[data-action='open-world-card']").trigger("click")
+    query = navigateMock.mock.calls.at(-1)[3]
+    expect(query.get("draft_id")).toBe("draft-1")
+    expect(query.get("page_id")).toBeNull()
+  })
+
+  it("浅层目录将工作稿和类型筛选写回 URL", async () => {
+    const wrapper = mountTab({ defaultDisplayMode: "gallery" })
+    const working = wrapper.findAll(".world-library-directory__desktop button")
+      .find((button) => button.text().includes("工作稿"))
+
+    await working.trigger("click")
+
+    expect(navigateMock).toHaveBeenCalledWith("world", "bible", true, expect.any(URLSearchParams))
+    const query = navigateMock.mock.calls.at(-1)[3]
+    expect(query.get("state")).toBe("working")
+    expect(query.get("kind")).toBe("page")
+  })
+
+  it("可从资料页原位建立作者任务", async () => {
+    const wrapper = mountTab({ defaultDisplayMode: "gallery" })
+    const pageCard = wrapper.findAll(".world-card").find((card) => card.text().includes("世界基本背景"))
+
+    await pageCard.get("[data-action='world-card-create-task']").trigger("click")
+
+    expect(navigateMock).toHaveBeenCalledWith("writing", null, true, expect.any(URLSearchParams))
+    const query = navigateMock.mock.calls.at(-1)[3]
+    expect(query.get("panel")).toBe("tasks")
+    expect(query.get("task_source_kind")).toBe("world_page")
+    expect(query.get("task_source_id")).toBe("page-1")
+  })
+
+  it("对象详情和别名在资料库内打开，返回保留筛选", async () => {
+    const entity = {
+      id: "entity-1", name: "沉钟港", entity_type: "location", summary: "北境港口", display_state: "active",
+      content_json: { aliases: [{ alias: "旧港", alias_kind: "name", alias_type: "name" }] },
+    }
+    const wrapper = mountTab({
+      defaultDisplayMode: "gallery",
+      bible: { ...defaultBible(), entities: [entity], entityTotal: 1 },
+      bibleDeepLink: { draftId: "", pageId: "", entityId: "entity-1", entitySection: "aliases" },
+      worldCardFilters: { q: "港", kind: "entity", type: "location", state: "", layout: "cards" },
+      entityTypes: [{ value: "location", label: "地点" }],
+    })
+
+    expect(wrapper.get(".world-entity-detail").text()).toContain("沉钟港")
+    expect(wrapper.get(".world-entity-detail__aliases").text()).toContain("旧港")
+    await wrapper.get(".world-entity-detail .btn-ghost").trigger("click")
+    const query = navigateMock.mock.calls.at(-1)[3]
+    expect(query.get("q")).toBe("港")
+    expect(query.get("kind")).toBe("entity")
+    expect(query.get("entity_id")).toBeNull()
   })
 
   it("gallery 模式从页面卡打开编辑", async () => {

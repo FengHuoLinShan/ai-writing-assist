@@ -6,7 +6,7 @@
  * 投影轮询 / 简介轮询等后台任务使用 useWorkflowPolling。
  */
 import { computed, reactive, ref, watch } from "vue"
-import { getApi, getAppState, getRouter, getToast, getConfirm, getConfirmAction, getShowModalHtml, getCloseModal, getEsc, getErrorLog } from "../../../bridge/index.js"
+import { getApi, getAppState, getRouteQuery, getRouter, getToast, getConfirm, getConfirmAction, getShowModalHtml, getCloseModal, getEsc, getErrorLog } from "../../../bridge/index.js"
 import { useLeaveGuard } from "../../../composables/useLeaveGuard.js"
 import { worldSession } from "../../world/worldSession.js"
 import { pollTaskProgress } from "../../../../shared/workflowProgress.js"
@@ -17,45 +17,20 @@ import {
   writeCreativeContinuation,
 } from "../../generate/generateSession.js"
 import { authorDecisionPresentation } from "../../generate/logic/generateLogic.js"
+import {
+  editorPayloadFromSource,
+  editorSourceKey,
+  formatAssetRefs,
+  normalizeEditorPayload,
+  parseAssetRefs,
+  readDraftFromDom,
+} from "../pages/worldBiblePageEditor.js"
+import { BIBLE_CATEGORY_PRESETS, BIBLE_PAGE_TYPES } from "../pages/worldBiblePresentation.js"
+import { publishImpactHtml, publishReceiptHtml } from "../pages/worldBiblePublishing.js"
 
 const PROJECTION_TYPE = "context_brief"
 const BIBLE_DISPLAY_MODES = new Set(["editor", "gallery", "filter", "graph"])
 const NEW_CATEGORY_VALUE = "__new_category__"
-
-export const BIBLE_CATEGORY_PRESETS = [
-  { key: "technology", name: "技术体系", description: "技术、工程、能源与制造", color: "#2563EB", icon: "技术" },
-  { key: "power_system", name: "力量体系", description: "魔法、能力、等级、限制与代价", color: "#DC2626", icon: "力量" },
-  { key: "governance", name: "政治制度", description: "权力结构、法律、治理与继承", color: "#7C3AED", icon: "制度" },
-  { key: "economy", name: "经济贸易", description: "货币、资源、产业与交换", color: "#D97706", icon: "贸易" },
-  { key: "religion", name: "宗教信仰", description: "神话、教派、仪式与禁忌", color: "#9333EA", icon: "信仰" },
-  { key: "culture_language", name: "文化语言", description: "语言、命名、习俗与艺术", color: "#059669", icon: "文化" },
-]
-
-/** Deterministic, intentionally non-physical layout for the optional SVG aid. */
-export function knowledgeGraphLayout(nodes, edges, maxNodes = 40) {
-  const visible = [...nodes].sort((a, b) => String(a.id).localeCompare(String(b.id))).slice(0, maxNodes)
-  const ids = new Set(visible.map((node) => node.id))
-  const lanes = { world_bible_page: [], core_entity: [] }
-  for (const node of visible) (lanes[node.kind] || lanes.core_entity).push(node)
-  const positions = Object.fromEntries(visible.map((node) => {
-    const lane = node.kind === "world_bible_page" ? 0 : 1
-    const index = lanes[node.kind]?.indexOf(node) ?? 0
-    return [node.id, { x: 110 + lane * 300, y: 56 + index * 72 }]
-  }))
-  return { nodes: visible, edges: edges.filter((edge) => ids.has(edge.source_id) && ids.has(edge.target_id)).slice(0, 80), positions }
-}
-
-export const BIBLE_PAGE_TYPES = {
-  background: { label: "背景", title: "世界基本背景", desc: "世界观、历史和基础设定", color: "#6366f1", symbol: "BG" },
-  species: { label: "种族", title: "种族", desc: "种族、生物和特殊生命体", color: "#dc2626", symbol: "SP" },
-  faction: { label: "势力", title: "势力", desc: "组织、阵营和权力结构", color: "#d97706", symbol: "FA" },
-  location: { label: "地点", title: "地点", desc: "城市、地理和关键场景", color: "#16a34a", symbol: "LO" },
-  rule: { label: "规则", title: "规则体系", desc: "法则、能力体系和限制", color: "#475569", symbol: "RU" },
-  item: { label: "物品", title: "重要物品", desc: "装备、资源和关键道具", color: "#9333ea", symbol: "IT" },
-  secret: { label: "秘密", title: "秘密", desc: "伏笔、真相和隐藏信息", color: "#7c3aed", symbol: "SE" },
-  source_material: { label: "导入资料", title: "导入资料", desc: "尚未发布的外部世界书资料", color: "#475569", symbol: "IM" },
-  custom: { label: "未分类", title: "未分类", desc: "尚未归入其他类别的设定", color: "#6b7280", symbol: "未分" },
-}
 
 const BIBLE_FALLBACK_TYPE = {
   label: "其他", title: "其他", desc: "未识别类别的世界书页面", color: "#64748b", symbol: "OT",
@@ -127,7 +102,8 @@ export function useWorldBible(props) {
   const bibleDeepLink = computed(() => props.bibleDeepLink || { draftId: "", pageId: "" })
 
   // ---- reactive state (对应 vanilla 模块单例字段) ----
-  const displayMode = ref(storedDisplayPref(projectId.value, "displayMode", "editor"))
+  const displayMode = ref(props.defaultDisplayMode
+    || storedDisplayPref(projectId.value, "displayMode", "editor"))
   const activeCategory = ref(storedDisplayPref(projectId.value, "activeCategory", "all"))
   const galleryCategory = ref(null)
   const activeActivationProfileId = ref(worldSession.bible.activeActivationProfileId || null)
@@ -146,12 +122,6 @@ export function useWorldBible(props) {
   const editorMutationPending = ref(false)
   const beforeUnloadBound = ref(false)
   const suggestionBatchKey = ref(null)
-  const knowledgeGraph = ref(null)
-  const graphLoading = ref(false)
-  const graphError = ref(null)
-  const graphScope = ref("local")
-  const graphDepth = ref(1)
-  let graphRequest = 0
   let disposed = false
   let activationGeneration = 0
   let projectionGeneration = 0
@@ -238,12 +208,14 @@ export function useWorldBible(props) {
         activePageId.value = requestedDraft.page_id
           ? (pages.value.find((p) => p.id === requestedDraft.page_id)?.id || null)
           : null
+        displayMode.value = "editor"
       }
     } else if (dl.pageId) {
       const requestedPage = pages.value.find((p) => p.id === dl.pageId)
       if (requestedPage) {
         activePageId.value = requestedPage.id
         activeDraftId.value = draftForActivePage.value?.id || null
+        displayMode.value = "editor"
       }
     }
 
@@ -297,6 +269,16 @@ export function useWorldBible(props) {
     worldSession.bible.editorBaselineKey = editorBaselineKey.value
   }
 
+  function replaceEditorDeepLink({ pageId = null, draftId = null } = {}) {
+    const query = getRouteQuery()
+    query.delete("entity_id")
+    query.delete("page_id")
+    query.delete("draft_id")
+    if (draftId) query.set("draft_id", draftId)
+    else if (pageId) query.set("page_id", pageId)
+    router.commitCurrentQuery?.(query, "replace")
+  }
+
   function rememberDraft(draft) {
     if (!draft?.id) return
     writeCreativeContinuation(projectId.value, {
@@ -342,47 +324,6 @@ export function useWorldBible(props) {
     displayMode.value = mode
     if (mode !== "gallery") galleryCategory.value = null
     saveDisplayPref(projectId.value, "displayMode", mode)
-    if (mode === "graph") void loadKnowledgeGraph()
-  }
-
-  function graphParams() {
-    const page = activePage.value
-    if (!page?.id) return { novel_id: projectId.value, scope: "global" }
-    return { novel_id: projectId.value, scope: graphScope.value, root_type: "world_bible_page", root_id: page.id, depth: graphDepth.value }
-  }
-
-  async function loadKnowledgeGraph() {
-    if (!activePage.value?.id) graphScope.value = "global"
-    const request = ++graphRequest
-    graphLoading.value = true
-    graphError.value = null
-    try {
-      const result = await api.world.getKnowledgeGraph(graphParams())
-      if (disposed || request !== graphRequest) return false
-      knowledgeGraph.value = result
-      return true
-    } catch (err) {
-      if (!disposed && request === graphRequest) graphError.value = err.message || "关联图加载失败"
-      return false
-    } finally {
-      if (!disposed && request === graphRequest) graphLoading.value = false
-    }
-  }
-
-  function setGraphDepth(depth) {
-    if (!activePage.value?.id) {
-      graphScope.value = "global"
-      void loadKnowledgeGraph()
-      return
-    }
-    graphDepth.value = depth === 2 ? 2 : 1
-    graphScope.value = "local"
-    void loadKnowledgeGraph()
-  }
-
-  function setGraphScope(scope) {
-    graphScope.value = scope === "global" || !activePage.value?.id ? "global" : "local"
-    void loadKnowledgeGraph()
   }
 
   function setActiveCategory(category) {
@@ -406,13 +347,13 @@ export function useWorldBible(props) {
     if (!page) return
     if (editorHasUnsavedChanges() && !confirm("当前页面有未保存修改，确定放弃并打开其他页面吗？")) return
     activePageId.value = page.id
-    graphRequest += 1
     activeDraftId.value = draftForActivePage.value?.id || null
     displayMode.value = "editor"
     galleryCategory.value = null
     saveDisplayPref(projectId.value, "displayMode", "editor")
     resetEditorBaseline()
     syncSession()
+    replaceEditorDeepLink({ pageId: page.id })
     restoreProjectionTask(page.id)
   }
 
@@ -421,13 +362,13 @@ export function useWorldBible(props) {
     if (!draft) return
     if (editorHasUnsavedChanges() && !confirm("当前页面有未保存修改，确定放弃并切换工作稿吗？")) return
     activeDraftId.value = draft.id
-    graphRequest += 1
     activePageId.value = draft.page_id
       ? (pages.value.find((p) => p.id === draft.page_id)?.id || null)
       : null
     displayMode.value = "editor"
     resetEditorBaseline()
     syncSession()
+    replaceEditorDeepLink({ draftId: draft.id })
     rememberDraft(draft)
   }
 
@@ -513,48 +454,6 @@ export function useWorldBible(props) {
   }
 
   // ---- editor state (baseline / unsaved changes) ----
-  function editorSourceKey(source) {
-    if (!source) return null
-    if (source.id && (Object.prototype.hasOwnProperty.call(source, "page_id") || source.base_version_number != null)) {
-      return `draft:${source.id}:${source.updated_at || ""}`
-    }
-    return `page:${source.id || ""}:${source.version_number || 0}`
-  }
-
-  function editorPayloadFromSource(source) {
-    return {
-      title: source?.title || "",
-      page_type: source?.page_type || "custom",
-      free_text: source?.free_text || "",
-      sort_order: Number(source?.sort_order || 0),
-      linked_asset_refs_json: source?.linked_asset_refs_json || [],
-      sections_json: source?.sections_json || [],
-    }
-  }
-
-  function normalizeEditorPayload(payload = {}) {
-    const sections = Array.isArray(payload.sections_json) ? [...payload.sections_json] : []
-    sections.sort((a, b) => Number(a?.sort_order || 0) - Number(b?.sort_order || 0)
-      || String(a?.section_id || "").localeCompare(String(b?.section_id || "")))
-    return {
-      title: String(payload.title || ""),
-      page_type: String(payload.page_type || "custom"),
-      free_text: String(payload.free_text || ""),
-      sort_order: Number(payload.sort_order || 0),
-      linked_asset_refs_json: Array.isArray(payload.linked_asset_refs_json) ? payload.linked_asset_refs_json : [],
-      sections_json: sections.map((item, i) => ({
-        section_id: item?.section_id || "",
-        section_type: item?.section_type || "markdown",
-        title: item?.title || "",
-        body_markdown: item?.body_markdown || "",
-        sort_order: (i + 1) * 10,
-        linked_asset_ref_hashes: Array.isArray(item?.linked_asset_ref_hashes) ? item.linked_asset_ref_hashes : [],
-        projection_policy: item?.projection_policy || "eligible",
-        sensitivity_hint: item?.sensitivity_hint || "author_safe",
-      })),
-    }
-  }
-
   function setEditorBaseline(source) {
     editorBaselineKey.value = editorSourceKey(source)
     editorBaseline.value = source ? normalizeEditorPayload(editorPayloadFromSource(source)) : null
@@ -563,19 +462,6 @@ export function useWorldBible(props) {
 
   function resetEditorBaseline() {
     setEditorBaseline(editSource.value)
-  }
-
-  /** 读取当前 DOM 中的编辑器值（供 _savePage / _captureSectionsFromDom 等价功能使用）。 */
-  function readDraftFromDom(title, pageType, freeText, sortOrder, assetRefs, sections) {
-    if (!title?.trim()) throw new Error("标题不能为空")
-    return {
-      title: title.trim(),
-      page_type: pageType || "custom",
-      free_text: freeText || "",
-      sort_order: Number(sortOrder || 0),
-      linked_asset_refs_json: parseAssetRefs(assetRefs || ""),
-      sections_json: sections || [],
-    }
   }
 
   function editorHasUnsavedChanges() {
@@ -636,28 +522,6 @@ export function useWorldBible(props) {
   if (typeof window !== "undefined" && !beforeUnloadBound.value) {
     window.addEventListener("beforeunload", handleBeforeUnload)
     beforeUnloadBound.value = true
-  }
-
-  // ---- asset refs ----
-  function parseAssetRefs(value) {
-    const raw = String(value || "").trim()
-    if (!raw) return []
-    if (raw.startsWith("[")) {
-      const parsed = JSON.parse(raw)
-      if (!Array.isArray(parsed) || parsed.some((item) => !item || typeof item !== "object" || Array.isArray(item))) {
-        throw new Error("无效资产引用")
-      }
-      return parsed.map((item) => ({ ...item }))
-    }
-    return raw.split(/\n+/).map((line) => line.trim()).filter(Boolean).map((line) => {
-      const sep = line.indexOf(":")
-      if (sep < 1 || sep === line.length - 1) throw new Error(`无效资产引用：${line}`)
-      return { type: line.slice(0, sep).trim(), id: line.slice(sep + 1).trim() }
-    })
-  }
-
-  function formatAssetRefs(refs) {
-    return JSON.stringify(Array.isArray(refs) ? refs : [])
   }
 
   // ---- CRUD: Save / Publish / Discard ----
@@ -803,49 +667,6 @@ export function useWorldBible(props) {
   // Force reactive update signal for sections
   const sectionsSignal = ref(0)
 
-  function publishImpactHtml(impact) {
-    const affected = Array.isArray(impact?.affected_pages) ? impact.affected_pages : []
-    const automatic = Array.isArray(impact?.automatic_actions) ? impact.automatic_actions : []
-    const notChecked = Array.isArray(impact?.not_checked) ? impact.not_checked : []
-    const omissions = Array.isArray(impact?.omissions) ? impact.omissions : []
-    const affectedHtml = affected.length
-      ? `<ul>${affected.map((item) => {
-          const path = (item.path || []).map((node) => node.title || "未命名页面").join(" ← ")
-          const sections = item.path?.at(-1)?.section_titles || []
-          return `<li><strong>${esc(item.title || "未命名页面")}</strong> · v${Number(item.version_number || 1)}${sections.length ? ` · 分区：${sections.map(esc).join("、")}` : ""}<details><summary>查看显式引用路径</summary><p>${esc(path)}</p></details></li>`
-        }).join("")}</ul>`
-      : `<p class="world-bible-empty-hint">未发现显式引用；自由文本和其他创作领域未检查。</p>`
-    const omissionLabels = {
-      invalid_page_reference: "页面引用格式损坏",
-      unavailable_page_reference: "页面引用不可用或不在当前项目",
-      response_limit: "显式下游未在本次列表展开",
-    }
-    const omissionHtml = omissions.length
-      ? `<div role="alert"><strong>本次预演不完整</strong><ul>${omissions.map((item) => `<li>${Number(item.count || 1)} 条${esc(omissionLabels[item.reason] || "引用未能检查")}</li>`).join("")}</ul><p>这些遗漏不代表没有影响；仍由你决定是否发布。</p></div>`
-      : ""
-    return `<section class="world-bible-impact-preview">
-      <p><strong>${esc(impact?.source?.title || "当前页面")}</strong>${impact?.source?.page_version ? ` · 当前已发布 v${Number(impact.source.page_version)}` : " · 新页面"}</p>
-      <p>本次显式引用变化：新增 ${Number(impact?.added_outgoing_refs || 0)}，移除 ${Number(impact?.removed_outgoing_refs || 0)}。</p>
-      <h3>发布后会自动处理</h3><ul>${automatic.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>
-      <h3>建议核对（${affected.length}）</h3>${affectedHtml}
-      ${omissionHtml}
-      <h3>本次未检查</h3><ul>${notChecked.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>
-    </section>`
-  }
-
-  function publishReceiptHtml(receipt) {
-    const checked = Array.isArray(receipt?.checked) ? receipt.checked : []
-    const notChecked = Array.isArray(receipt?.not_checked) ? receipt.not_checked : []
-    const omissions = Array.isArray(receipt?.omissions) ? receipt.omissions : []
-    return `<section class="world-bible-impact-preview">
-      <p><strong>定向检查</strong> · ${esc(receipt?.scope_label || "当前页面")} · 已发布 v${Number(receipt?.source_version || 1)}</p>
-      <p>这份回执只证明下列本地检查实际运行，不表示整个世界观语义完全正确。</p>
-      <h3>已检查</h3><ul>${checked.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>
-      <h3>未检查</h3><ul>${notChecked.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>
-      <h3>本次遗漏</h3>${omissions.length ? `<ul>${omissions.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>` : "<p>已列范围内无结构遗漏；未运行项仍见上方。</p>"}
-    </section>`
-  }
-
   async function commitPublish(draft, expectedImpactScopeHash = null) {
     if (editorMutationPending.value) return false
     const owner = captureEditorOwner()
@@ -867,12 +688,13 @@ export function useWorldBible(props) {
       clearDraftContinuation(draft.id)
       activeDraftId.value = null
       activePageId.value = page.id
+      replaceEditorDeepLink({ pageId: page.id })
       toast("页面已发布，世界观简介已标记为需要刷新", "success")
       await router.refresh()
       if (page.validation_receipt) {
         showModalHtml(
           "发布完成 · 检查回执",
-          publishReceiptHtml(page.validation_receipt),
+          publishReceiptHtml(page.validation_receipt, esc),
           [{ text: "知道了", class: "btn-primary", handler: closeModal }],
           { size: "large" },
         )
@@ -903,7 +725,7 @@ export function useWorldBible(props) {
       )
       showModalHtml(
         "发布前影响核对",
-        publishImpactHtml(impact),
+        publishImpactHtml(impact, esc),
         [
           { text: "继续编辑", class: "btn-ghost", handler: closeModal },
           {
@@ -952,6 +774,7 @@ export function useWorldBible(props) {
           activePageId.value = pages.value[0]?.id || null
         }
         syncSession()
+        replaceEditorDeepLink({ pageId: activePageId.value })
         toast("工作稿已丢弃", "success")
         router.refresh()
       } catch (err) {
@@ -1087,6 +910,7 @@ export function useWorldBible(props) {
             saveDisplayPref(owner.novelId, "displayMode", "editor")
             setEditorBaseline(draft)
             syncSession()
+            replaceEditorDeepLink({ draftId: draft.id })
             toast("工作稿已创建；发布后才进入世界观简介来源", "success")
             return true
           } catch (err) {
@@ -2529,12 +2353,6 @@ export function useWorldBible(props) {
     suggestions,
     conflicts,
     semanticInspectionPending,
-    knowledgeGraph,
-    graphLoading,
-    graphError,
-    graphScope,
-    graphDepth,
-
     // computed helpers
     pages,
     categories,
@@ -2546,9 +2364,6 @@ export function useWorldBible(props) {
     initialize,
     onBeforeUnmount,
     setDisplayMode,
-    loadKnowledgeGraph,
-    setGraphDepth,
-    setGraphScope,
     setActiveCategory,
     openGalleryCategory,
     backToGalleryHome,

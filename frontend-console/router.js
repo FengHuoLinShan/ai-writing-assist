@@ -18,7 +18,7 @@ const routes = {
   // Today is now the compatibility name for the writing home.  Keeping the
   // route entry lets old bookmarks resolve without keeping a second page.
   today: { title: "写作首页", subViews: [], requiresProject: true },
-  world: { title: "人物与世界", requiresProject: true, defaultSubView: "objects", subViews: ["objects", "review", "relations", "aliases", "bible"], subViewTitles: { objects: "人物与设定", review: "需要决定", relations: "关系", aliases: "人物与设定 · 别名", bible: "世界笔记" } },
+  world: { title: "人物与世界", requiresProject: true, defaultSubView: "bible", subViews: ["bible", "objects", "review", "relations", "aliases"], subViewTitles: { bible: "资料库", objects: "资料库", review: "需要决定", relations: "关系", aliases: "资料库 · 别名" } },
   rag: { title: "查找", requiresProject: true, defaultSubView: "search", subViews: ["search", "status"], subViewTitles: { search: "查找", status: "修复查找" } },
   outline: { title: "故事结构", requiresProject: true, defaultSubView: "story-outline", subViews: ["story-outline", "arcs", "threads", "scenes"], subViewTitles: { "story-outline": "故事总览", arcs: "篇章", threads: "剧情线", scenes: "场景" } },
   scene: { title: "场景", subViews: [], requiresProject: true, dynamicSubView: true },
@@ -404,6 +404,41 @@ function _normalizeRoute({ projectId = null, viewName = "project", subView = nul
     targetQuery = new URLSearchParams(targetQuery)
     targetQuery.set("kind", kindByLegacySubView[targetSubView])
     targetSubView = "review"
+  }
+
+  // 旧对象库深链映射到同一资料库投影。高级筛选参数保留在
+  // query 中，以便兼容期的资料库加载器继续解码；不创建第二套数据源。
+  if (targetView === "world" && targetSubView === "objects") {
+    const libraryQuery = new URLSearchParams(targetQuery)
+    if (!libraryQuery.get("type") && libraryQuery.get("entity_type")) {
+      libraryQuery.set("type", libraryQuery.get("entity_type"))
+    }
+    if (!libraryQuery.get("state") && libraryQuery.get("display_state")) {
+      libraryQuery.set("state", libraryQuery.get("display_state"))
+    }
+    if (!libraryQuery.get("layout") && libraryQuery.get("view")) {
+      libraryQuery.set("layout", libraryQuery.get("view") === "table" ? "list" : "cards")
+    }
+    libraryQuery.set("kind", "entity")
+    if (!libraryQuery.get("entity_id")) {
+      libraryQuery.set("open", "object-tools")
+    } else {
+      libraryQuery.delete("entity_type")
+      libraryQuery.delete("display_state")
+      libraryQuery.delete("view")
+    }
+    targetQuery = libraryQuery
+    targetSubView = "bible"
+  }
+
+  // 带对象定位的旧别名深链在资料库中打开该对象；无定位时仍保留
+  // 旧批量别名工具，避免在兼容期丢失管理能力。
+  if (targetView === "world" && targetSubView === "aliases" && targetQuery.get("entity_id")) {
+    const libraryQuery = new URLSearchParams(targetQuery)
+    libraryQuery.set("kind", "entity")
+    libraryQuery.set("open", "aliases")
+    targetQuery = libraryQuery
+    targetSubView = "bible"
   }
 
   let route = routes[targetView]

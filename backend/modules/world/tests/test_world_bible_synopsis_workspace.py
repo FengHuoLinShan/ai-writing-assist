@@ -44,6 +44,7 @@ from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
 from modules.world.services.worldbuilding.world_bible_synopsis_service import (
     WorldBibleSynopsisService,
 )
+from modules.world.tests.helpers import publish_bible_draft
 
 
 class _FakeSynopsisClient:
@@ -134,7 +135,7 @@ async def _prepare_synopsis_task(
             free_text="长夜之后建立了星海帝国。",
         ),
     )
-    published = await lifecycle.publish_draft(db_session, novel_id, draft.id)
+    published = await lifecycle._seal_draft_for_admission(db_session, novel_id, draft.id)
     page = await db_session.get(WorldBiblePage, uuid.UUID(published.id))
     assert page is not None
     service = WorldBibleSynopsisService()
@@ -953,7 +954,7 @@ async def test_draft_publish_creates_revision_and_conflict_keeps_draft(
             free_text="最初版本。",
         ),
     )
-    page = await service.publish_draft(db_session, project_novel_id, draft.id)
+    page = await service._seal_draft_for_admission(db_session, project_novel_id, draft.id)
     assert page.status == "canonical"
     assert page.version_number == 1
     first_revision = await db_session.scalar(
@@ -980,7 +981,7 @@ async def test_draft_publish_creates_revision_and_conflict_keeps_draft(
     await db_session.flush()
 
     with pytest.raises(ConflictError):
-        await service.publish_draft(db_session, project_novel_id, working.id)
+        await service._seal_draft_for_admission(db_session, project_novel_id, working.id)
     assert await db_session.get(WorldBiblePageDraft, uuid.UUID(working.id)) is not None
 
 
@@ -1117,7 +1118,9 @@ async def test_suggestion_edit_applies_to_working_draft_only(
             free_text="已发布正文。",
         ),
     )
-    page = await lifecycle.publish_draft(db_session, project_novel_id, source.id)
+    page = await lifecycle._seal_draft_for_admission(
+        db_session, project_novel_id, source.id
+    )
     queue = SuggestionQueueService()
     baseline_hash = lifecycle.source_content_hash(
         title=page.title,
@@ -1202,7 +1205,9 @@ async def test_suggestion_explicit_empty_page_text_does_not_restore_ai_text(
             free_text="已发布正文。",
         ),
     )
-    page = await lifecycle.publish_draft(db_session, project_novel_id, source.id)
+    page = await lifecycle._seal_draft_for_admission(
+        db_session, project_novel_id, source.id
+    )
     queue = SuggestionQueueService()
     baseline_hash = lifecycle.source_content_hash(
         title=page.title,
@@ -1277,7 +1282,7 @@ async def test_synopsis_discards_unattributed_claim_and_persists_provenance(
             free_text="星海帝国建立于长夜之后。",
         ),
     )
-    await lifecycle.publish_draft(db_session, project_novel_id, draft.id)
+    await lifecycle._seal_draft_for_admission(db_session, project_novel_id, draft.id)
     service = WorldBibleSynopsisService()
     manifest, source_hash, _omitted = await service.build_source_manifest(
         db_session,
@@ -1408,13 +1413,15 @@ async def test_synopsis_manifest_prioritizes_published_world_bible_pages(
             free_text="这是作者已经整理并发布的上位世界资料。",
         ),
     )
-    await lifecycle.publish_draft(db_session, project_novel_id, draft.id)
+    await lifecycle._seal_draft_for_admission(db_session, project_novel_id, draft.id)
 
-    manifest, _source_hash, _omitted = (
-        await WorldBibleSynopsisService().build_source_manifest(
-            db_session,
-            project_novel_id,
-        )
+    (
+        manifest,
+        _source_hash,
+        _omitted,
+    ) = await WorldBibleSynopsisService().build_source_manifest(
+        db_session,
+        project_novel_id,
     )
 
     assert manifest[0]["type"] == "world_bible_page"
@@ -1436,7 +1443,7 @@ async def test_synopsis_context_is_author_only_even_when_requested(
             free_text="角色尚不知道的世界真相。",
         ),
     )
-    await lifecycle.publish_draft(db_session, project_novel_id, draft.id)
+    await lifecycle._seal_draft_for_admission(db_session, project_novel_id, draft.id)
     compiler = ContextCompiler()
     author = await compiler.compile_with_tiers(
         db_session,
@@ -1519,7 +1526,9 @@ async def test_synopsis_source_hash_cas_keeps_obsolete_result_superseded(
             free_text="旧来源。",
         ),
     )
-    page = await lifecycle.publish_draft(db_session, project_novel_id, draft.id)
+    page = await lifecycle._seal_draft_for_admission(
+        db_session, project_novel_id, draft.id
+    )
     service = WorldBibleSynopsisService()
     _old_manifest, old_hash, _omitted = await service.build_source_manifest(
         db_session,
@@ -1572,7 +1581,7 @@ async def test_synopsis_same_hash_result_requires_active_task_ownership(
             free_text="同一个来源哈希。",
         ),
     )
-    await lifecycle.publish_draft(db_session, project_novel_id, draft.id)
+    await lifecycle._seal_draft_for_admission(db_session, project_novel_id, draft.id)
     service = WorldBibleSynopsisService()
     manifest, source_hash, _omitted = await service.build_source_manifest(
         db_session,
@@ -1728,7 +1737,9 @@ async def test_synopsis_excludes_world_bible_page_with_pending_conflict(
             free_text="与结构化事实冲突的文字。",
         ),
     )
-    page = await lifecycle.publish_draft(db_session, project_novel_id, draft.id)
+    page = await lifecycle._seal_draft_for_admission(
+        db_session, project_novel_id, draft.id
+    )
     db_session.add(
         ConflictCheckQueueItem(
             novel_id=uuid.UUID(project_novel_id),
@@ -1771,9 +1782,10 @@ async def test_world_bible_api_uses_working_draft_and_legacy_patch_conflicts(
     )
     assert draft_response.status_code == 201
     draft_id = draft_response.json()["id"]
-    publish_response = await async_client.post(
-        f"/api/world/bible/drafts/{draft_id}/publish",
-        params={"novel_id": project_novel_id},
+    publish_response = await publish_bible_draft(
+        async_client,
+        project_novel_id,
+        draft_id,
     )
     assert publish_response.status_code == 200
     page_id = publish_response.json()["id"]

@@ -11,18 +11,21 @@ import uuid
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import Response
+from fastapi.routing import APIRoute
 from pydantic import ValidationError as PydanticValidationError
 
 from core.api_params import NovelIdQuery
 from core.config import get_settings
 from core.csrf import require_xhr_request
 from core.dependencies import DbSession
-from core.errors import ConflictError
+from core.errors import ConflictError, DomainError
 from infrastructure.tasks.facade import (
     enqueue_task_with_optional_operation,
     get_operation_task,
 )
+from modules.account.facade import current_account_id
 from modules.evidence.facade import attach_result_ref, require_fresh_confirmation
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
@@ -30,6 +33,15 @@ from modules.project.facade import (
 )
 from modules.project.facade import (
     require_active_project_exclusive as _require_active_project_exclusive,
+)
+from modules.world.authority import (
+    CanonAdmissionPreviewRequest,
+    CanonAdmissionPreviewResponse,
+    CanonAdmissionRequest,
+    CanonHeadResponse,
+    CanonRevertRequest,
+    CanonRevisionResponse,
+    RevertPreviewInputV1,
 )
 from modules.world.entity_fusion import WorldEntityFusionService
 from modules.world.schemas import (
@@ -188,6 +200,9 @@ from modules.world.services.worldbuilding.generation_prompt_template_service imp
 from modules.world.services.worldbuilding.knowledge_graph_service import (
     WorldKnowledgeGraphService,
 )
+from modules.world.services.worldbuilding.world_authority_service import (
+    WorldAuthorityService,
+)
 from modules.world.services.worldbuilding.world_generation_center_service import (
     WorldGenerationCenterService,
 )
@@ -217,7 +232,59 @@ from modules.world.world_object_images import (
 )
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
-router = APIRouter(prefix="/api/world", tags=["world"])
+_CANON_BODY_PATHS = frozenset(
+    {
+        "/api/world/canon/admissions/preview",
+        "/api/world/canon/admissions",
+        "/api/world/canon/revert",
+    }
+)
+
+
+def _canon_validation_error_code(exc: RequestValidationError) -> str:
+    for error in exc.errors():
+        location = tuple(error.get("loc") or ())
+        if "selector" in location:
+            return "canon_reference_invalid"
+        if "assertions" not in location:
+            continue
+        assertion_index = location.index("assertions")
+        assertion_location = location[assertion_index + 2 :]
+        if (
+            assertion_location == ("statement",)
+            and error.get("type") == "union_tag_invalid"
+        ):
+            return "unsupported_statement_kind"
+    if any("assertions" in tuple(error.get("loc") or ()) for error in exc.errors()):
+        return "invalid_statement_value"
+    return "canon_reference_invalid"
+
+
+class _WorldApiRoute(APIRoute):
+    def get_route_handler(self):
+        route_handler = super().get_route_handler()
+
+        async def handle_canon_validation(request: Request):
+            try:
+                return await route_handler(request)
+            except RequestValidationError as exc:
+                if request.url.path in _CANON_BODY_PATHS:
+                    code = _canon_validation_error_code(exc)
+                    raise DomainError(
+                        "Canon request is invalid",
+                        code=code,
+                        status_code=422,
+                    ) from exc
+                raise
+
+        return handle_canon_validation
+
+
+router = APIRouter(
+    prefix="/api/world",
+    tags=["world"],
+    route_class=_WorldApiRoute,
+)
 
 _entity_service = WorldEntityService()
 _entity_image_service = WorldObjectImageService()
@@ -245,6 +312,7 @@ _knowledge_graph_service = WorldKnowledgeGraphService()
 _generation_template_service = GenerationPromptTemplateService()
 _worldbook_import_service = WorldbookImportService()
 _world_validation_service = WorldValidationService()
+_world_authority_service = WorldAuthorityService()
 
 
 async def _require_active_novel_id(
@@ -256,6 +324,77 @@ async def _require_active_novel_id(
 
 
 ActiveNovelIdQuery = Annotated[str, Depends(_require_active_novel_id)]
+
+
+@router.get("/canon/head", response_model=CanonHeadResponse)
+async def get_world_canon_head(
+    db: DbSession,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> CanonHeadResponse:
+    return await _world_authority_service.get_head(db, novel_id)
+
+
+@router.get("/canon/revisions/{revision_id}", response_model=CanonRevisionResponse)
+async def get_world_canon_revision(
+    db: DbSession,
+    revision_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> CanonRevisionResponse:
+    return await _world_authority_service.get_revision(db, novel_id, revision_id)
+
+
+@router.post("/canon/admissions/preview", response_model=CanonAdmissionPreviewResponse)
+async def preview_world_canon_admission(
+    db: DbSession,
+    data: CanonAdmissionPreviewRequest,
+) -> CanonAdmissionPreviewResponse:
+    await require_active_project(db, str(data.novel_id))
+    return await _world_authority_service.preview(db, data)
+
+
+@router.post("/canon/admissions", response_model=CanonRevisionResponse)
+async def admit_world_canon_change(
+    db: DbSession,
+    data: CanonAdmissionRequest,
+) -> CanonRevisionResponse:
+    await _require_active_project_exclusive(db, str(data.novel_id))
+    return await _world_authority_service.admit(
+        db,
+        data,
+        authorizer_id=current_account_id(),
+    )
+
+
+@router.post("/canon/revert", response_model=CanonRevisionResponse)
+async def revert_world_canon(
+    db: DbSession,
+    data: CanonRevertRequest,
+) -> CanonRevisionResponse:
+    await _require_active_project_exclusive(db, str(data.novel_id))
+    preview = await _world_authority_service.preview(
+        db,
+        CanonAdmissionPreviewRequest(
+            novel_id=data.novel_id,
+            expected_previous_head=data.expected_previous_head,
+            input=RevertPreviewInputV1(
+                novel_id=data.novel_id,
+                target_revision_id=data.target_revision_id,
+            ),
+        ),
+    )
+    return await _world_authority_service.admit(
+        db,
+        CanonAdmissionRequest(
+            novel_id=data.novel_id,
+            decision_id=data.decision_id,
+            expected_previous_head=data.expected_previous_head,
+            confirmed=True,
+            input=preview.normalized_input,
+        ),
+        authorizer_id=current_account_id(),
+    )
 
 
 async def _read_worldbook_import_manifest(request: Request) -> WorldbookImportManifest:
@@ -701,8 +840,33 @@ async def create_bible_page(
     db: DbSession,
     data: WorldBiblePageCreate,
 ) -> WorldBiblePageResponse:
-    await require_active_project(db, data.novel_id)
-    return await _bible_service.create_page(db, data)
+    if data.status not in {"canonical", "confirmed"}:
+        await require_active_project(db, data.novel_id)
+        return await _bible_service.create_page(db, data)
+    await _require_active_project_exclusive(db, data.novel_id)
+    expected_canon_head = await _world_authority_service.lock_head_for_admission(
+        db, data.novel_id
+    )
+    async with db.begin_nested():
+        staged = await _bible_service.create_page(
+            db,
+            data.model_copy(update={"status": "draft"}),
+        )
+        draft = await _bible_lifecycle_service.create_draft(
+            db,
+            WorldBiblePageDraftCreate(
+                novel_id=data.novel_id,
+                page_id=staged.id,
+                created_by=data.created_by,
+            ),
+        )
+        return await _bible_lifecycle_service.admit_draft(
+            db,
+            data.novel_id,
+            draft.id,
+            authorizer_id=current_account_id(),
+            expected_canon_head=expected_canon_head,
+        )
 
 
 @router.get("/bible/pages/{page_id}", response_model=WorldBiblePageResponse)
@@ -723,7 +887,70 @@ async def update_bible_page(
     *,
     novel_id: ActiveNovelIdQuery,
 ) -> WorldBiblePageResponse:
-    return await _bible_service.update_page(db, novel_id, page_id, data)
+    current = await _bible_service.get_page(db, novel_id, page_id)
+    payload = data.model_dump(mode="json", exclude_unset=True)
+    if set(payload) <= {"updated_by"}:
+        return await _bible_service.update_page(db, novel_id, page_id, data)
+    if (
+        current.status in {"canonical", "confirmed"}
+        and payload.get("status") == "archived"
+        and set(payload) <= {"status", "updated_by"}
+    ):
+        return await _bible_service.update_page(db, novel_id, page_id, data)
+    needs_admission = current.status in {
+        "canonical",
+        "confirmed",
+        "archived",
+    } or payload.get("status") in {"canonical", "confirmed"}
+    if not needs_admission:
+        return await _bible_service.update_page(db, novel_id, page_id, data)
+    if payload.get("status") not in {None, "canonical", "confirmed"}:
+        raise ConflictError(
+            "This World Bible status change is not supported by Canon admission",
+            code="canon_admission_required",
+            context={"next_action": "create_and_publish_world_bible_draft"},
+        )
+    if "activation_defaults_json" in payload:
+        raise ConflictError(
+            "Activation defaults cannot be changed through the legacy page adapter",
+            code="canon_admission_required",
+            context={"next_action": "create_and_publish_world_bible_draft"},
+        )
+    await _require_active_project_exclusive(db, novel_id)
+    expected_canon_head = await _world_authority_service.lock_head_for_admission(
+        db, novel_id
+    )
+    async with db.begin_nested():
+        draft = await _bible_lifecycle_service.create_draft(
+            db,
+            WorldBiblePageDraftCreate(
+                novel_id=novel_id,
+                page_id=page_id,
+                created_by=payload.get("updated_by"),
+            ),
+        )
+        draft_payload = {
+            key: value
+            for key, value in payload.items()
+            if key not in {"status", "activation_defaults_json", "updated_by"}
+        }
+        if draft_payload:
+            draft = await _bible_lifecycle_service.update_draft(
+                db,
+                novel_id,
+                draft.id,
+                WorldBiblePageDraftUpdate(
+                    **draft_payload,
+                    updated_by=payload.get("updated_by"),
+                ),
+            )
+        return await _bible_lifecycle_service.admit_draft(
+            db,
+            novel_id,
+            draft.id,
+            authorizer_id=current_account_id(),
+            expected_canon_head=expected_canon_head,
+        )
 
 
 @router.get("/bible/categories", response_model=WorldBibleCategoryListResponse)
@@ -850,8 +1077,9 @@ async def get_world_validation_policy_status(
 async def activate_world_validation_policy(
     db: DbSession,
     *,
-    novel_id: ActiveNovelIdQuery,
+    novel_id: NovelIdQuery,
 ) -> WorldBiblePageResponse:
+    await _require_active_project_exclusive(db, novel_id)
     return await _world_validation_service.activate_builtin_policy(db, novel_id)
 
 
@@ -1000,8 +1228,9 @@ async def publish_bible_draft(
     db: DbSession,
     draft_id: str,
     *,
-    novel_id: ActiveNovelIdQuery,
-    published_by: str | None = Query(default=None, max_length=64),
+    novel_id: NovelIdQuery,
+    expected_canon_head: uuid.UUID | None = Query(default=None),
+    canon_decision_id: uuid.UUID | None = Query(default=None),
     expected_impact_scope_hash: str | None = Query(
         default=None,
         min_length=64,
@@ -1010,13 +1239,21 @@ async def publish_bible_draft(
     ),
     validation_run_id: uuid.UUID | None = Query(default=None),
 ) -> WorldBiblePageResponse:
-    return await _bible_lifecycle_service.publish_draft(
+    if (expected_canon_head is None) != (canon_decision_id is None):
+        raise HTTPException(
+            status_code=422,
+            detail="expected_canon_head and canon_decision_id must be provided together",
+        )
+    await _require_active_project_exclusive(db, novel_id)
+    return await _bible_lifecycle_service.admit_draft(
         db,
         novel_id,
         draft_id,
-        published_by=published_by,
+        authorizer_id=current_account_id(),
+        expected_canon_head=expected_canon_head,
+        canon_decision_id=canon_decision_id,
         expected_impact_scope_hash=expected_impact_scope_hash,
-        validation_run_id=str(validation_run_id) if validation_run_id else None,
+        validation_run_id=validation_run_id,
     )
 
 
@@ -1398,8 +1635,9 @@ async def apply_world_adoption_package(
     suggestion_id: str,
     data: WorldAdoptionPackageApplyRequest,
     *,
-    novel_id: ActiveNovelIdQuery,
+    novel_id: NovelIdQuery,
 ) -> CreationSuggestionResponse:
+    await _require_active_project_exclusive(db, novel_id)
     try:
         async with db.begin_nested():
             return await _adoption_package_service.apply(

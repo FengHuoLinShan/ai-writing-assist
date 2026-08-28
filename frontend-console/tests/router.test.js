@@ -815,7 +815,7 @@ describe("subview memory", () => {
     await window.router.navigate("world", "map", false)
 
     expect(state.currentView).toBe("world")
-    expect(state.currentSubView).toBe("objects")
+    expect(state.currentSubView).toBe("bible")
   })
 })
 
@@ -884,7 +884,7 @@ describe("route guard and normalization", () => {
 
     expect(window.router.commitCurrentQuery(new URLSearchParams({ view: "card" }))).toBe(true)
     expect(window.router.getCurrentQuery().get("view")).toBe("card")
-    expect(window.location.hash).toBe("#workbench/p1/world/objects?view=card")
+    expect(window.location.hash).toBe("#workbench/p1/world/bible?view=card")
     expect(onEnter).toHaveBeenCalledTimes(1)
     expect(render).toHaveBeenCalledTimes(1)
 
@@ -945,15 +945,15 @@ describe("route guard and normalization", () => {
     state.currentProjectId = "project-a"
     state.currentProject = { id: "project-a", title: "项目 A" }
     state.currentView = "world"
-    state.currentSubView = "objects"
-    window.history.replaceState(null, "", "#workbench/project-a/world/objects")
+    state.currentSubView = "bible"
+    window.history.replaceState(null, "", "#workbench/project-a/world/bible")
     await window.router.initRouter()
 
     window.history.replaceState(null, "", "#workbench/project-b/world/objects")
     window.dispatchEvent(new PopStateEvent("popstate"))
     await vi.waitFor(() => expect(canLeave).toHaveBeenCalledTimes(1))
 
-    expect(window.location.hash).toBe("#workbench/project-a/world/objects")
+    expect(window.location.hash).toBe("#workbench/project-a/world/bible")
     expect(content.querySelector("#guarded-project")?.textContent).toBe("project-a")
     expect(content.querySelector(".loading-skeleton")).toBeNull()
     expect(api.projects.get).not.toHaveBeenCalled()
@@ -1066,8 +1066,8 @@ describe("route guard and normalization", () => {
 
     expect(state.currentProjectId).toBe("p1")
     expect(state.currentView).toBe("world")
-    expect(state.currentSubView).toBe("objects")
-    expect(window.location.hash).toBe("#workbench/p1/world/objects")
+    expect(state.currentSubView).toBe("bible")
+    expect(window.location.hash).toBe("#workbench/p1/world/bible")
   })
 
   it("defaults the outline workspace to the top-level story outline", async () => {
@@ -1182,6 +1182,53 @@ describe("route guard and normalization", () => {
     expect(state.currentView).toBe("world")
     expect(state.currentSubView).toBe("review")
     expect(window.location.hash).toBe("#workbench/p1/world/review?kind=objects")
+  })
+
+  it("将旧对象库查询规范化到同一资料库", async () => {
+    addWorkspace()
+    registerBasicView("world")
+    api.projects.get.mockResolvedValue({ id: "p1", title: "项目一" })
+    window.history.replaceState(null, "", "#workbench/p1/world/objects?q=%E6%B8%AF&entity_type=location&display_state=archived&view=table&entity_id=e1")
+
+    await window.router.initRouter()
+
+    expect(state.currentSubView).toBe("bible")
+    expect(window.router.getCurrentQuery().get("q")).toBe("港")
+    expect(window.router.getCurrentQuery().get("kind")).toBe("entity")
+    expect(window.router.getCurrentQuery().get("type")).toBe("location")
+    expect(window.router.getCurrentQuery().get("state")).toBe("archived")
+    expect(window.router.getCurrentQuery().get("layout")).toBe("list")
+    expect(window.router.getCurrentQuery().get("entity_id")).toBe("e1")
+    expect(window.location.hash).not.toContain("/objects")
+  })
+
+  it("将旧对象库总览作为资料库次级工具保留", async () => {
+    addWorkspace()
+    registerBasicView("world")
+    api.projects.get.mockResolvedValue({ id: "p1", title: "项目一" })
+    window.history.replaceState(null, "", "#workbench/p1/world/objects?view=table")
+
+    await window.router.initRouter()
+
+    expect(state.currentSubView).toBe("bible")
+    expect(window.router.getCurrentQuery().get("kind")).toBe("entity")
+    expect(window.router.getCurrentQuery().get("open")).toBe("object-tools")
+    expect(window.location.hash).not.toContain("/objects")
+  })
+
+  it("将带对象定位的旧别名深链打开资料库对象别名区", async () => {
+    addWorkspace()
+    registerBasicView("world")
+    api.projects.get.mockResolvedValue({ id: "p1", title: "项目一" })
+    window.history.replaceState(null, "", "#workbench/p1/world/aliases?entity_id=e1&q=%E6%B8%AF")
+
+    await window.router.initRouter()
+
+    expect(state.currentSubView).toBe("bible")
+    expect(window.router.getCurrentQuery().get("kind")).toBe("entity")
+    expect(window.router.getCurrentQuery().get("entity_id")).toBe("e1")
+    expect(window.router.getCurrentQuery().get("open")).toBe("aliases")
+    expect(window.router.getCurrentQuery().get("q")).toBe("港")
   })
 
   it.each([
@@ -1489,8 +1536,8 @@ describe("refresh forces project sync", () => {
     expect(state.currentProjectId).toBe("project-a")
     expect(state.currentProject).toEqual({ id: "project-a", title: "项目 A" })
     expect(state.currentView).toBe("world")
-    expect(state.currentSubView).toBe("objects")
-    expect(window.location.hash).toBe("#workbench/project-a/world/objects")
+    expect(state.currentSubView).toBe("bible")
+    expect(window.location.hash).toBe("#workbench/project-a/world/bible?kind=entity&open=object-tools")
   })
 
   it("silently settles a request rejected because a newer sync aborted it", async () => {
@@ -1550,8 +1597,8 @@ describe("refresh forces project sync", () => {
     await expect(initializing).resolves.toBe(false)
 
     expect(state.currentProjectId).toBe("project-b")
-    expect(state.currentSubView).toBe("objects")
-    expect(window.location.hash).toBe("#workbench/project-b/world/objects")
+    expect(state.currentSubView).toBe("bible")
+    expect(window.location.hash).toBe("#workbench/project-b/world/bible?kind=entity&open=object-tools")
   })
 })
 

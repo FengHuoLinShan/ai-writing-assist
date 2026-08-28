@@ -17,6 +17,9 @@ project 模块负责统一项目隔离根。作者项目使用 `project_kind=aut
 - 根据项目 owner 打开账户级文本与图片连接；项目只保留非 secret 工作流设置和可恢复 snapshot
 - 提供项目级智能去重扫描入口，聚合各业务模块自己的去重建议
 - 提供作者“今日工作”所需的只读工作台摘要，不返回正文、owner、密钥或内部任务信息
+- 拥有作者主动记录的轻量任务；它不承载领域“需要决定”或 `infrastructure/tasks` 后台流程
+- 创建作者项目时经 world facade 在同一事务初始化空的 Canon `C0/head`；
+  `interaction` 隐藏项目不创建 Canon head
 
 ## 边界
 
@@ -34,6 +37,7 @@ project 模块负责统一项目隔离根。作者项目使用 `project_kind=aut
 |------|------|
 | `projects` | 小说项目基础元信息 |
 | `project_author_preferences` | 每个项目最多一行的作者偏好覆盖 |
+| `project_author_tasks` | 按 `novel_id` 隔离的作者轻量待办；只保存封闭来源 kind + ID |
 | `smart_dedup_workbench_decisions` | 项目级去重工作台的 `keep_separate` 指纹裁决 |
 
 ### projects 表字段
@@ -162,7 +166,9 @@ deep-import 快照在提交时已将项目值、环境覆盖和代码默认
 | POST | `/api/projects` | 创建项目 |
 | GET | `/api/projects` | 项目列表 |
 | GET | `/api/projects/{project_id}` | 项目详情 |
-| GET | `/api/projects/{project_id}/workspace-summary` | 作者工作台摘要：续写位置、章节/字数统计和场景优先待处理事项 |
+| GET | `/api/projects/{project_id}/workspace-summary` | 作者工作台摘要：续写位置、统计、场景优先待决与最多 3 项今日任务；前端用可选 `on_date` 传作者本地日期 |
+| GET/POST | `/api/projects/{project_id}/author-tasks` | 按今天/收件箱/之后/完成/归档列出，或新建作者任务 |
+| PATCH | `/api/projects/{project_id}/author-tasks/{task_id}` | 编辑、完成、重开、归档、恢复或清除失效来源；真实变更须带 `expected_updated_at`，同状态重试幂等 |
 | PUT | `/api/projects/{project_id}` | 更新项目 |
 | DELETE | `/api/projects/{project_id}` | 软删除项目（移至回收站）并取消未完成任务 |
 | GET | `/api/projects/recycle-bin` | 回收站列表 |
@@ -180,7 +186,7 @@ deep-import 快照在提交时已将项目值、环境覆盖和代码默认
 
 `workspace-summary` 先通过项目 API 的当前账户 owner 与活跃作者项目门禁，再由
 `ProjectWorkspaceService` 只读聚合 writing、world 和 outline 的稳定 facade。响应固定包含
-`project_id`、可空 `continuation`、`writing` 和 `attention`；调用方不能传 owner 或额外
+`project_id`、可空 `continuation`、`writing`、`attention` 和加性 `author_tasks`；调用方不能传 owner 或额外
 `novel_id`。`attention` 保留原分类计数和 `total`，并增加最多 6 条的 `items`、去重后的
 `actionable_total` 与 `has_more`；截断后按领域处理范围去重的 `more_targets` 提供不绑定单条 item
 的类型化队列入口，会清空 item/chapter/Scene/page/suggestion 定位字段（只有必须逐项打开的 `world_adoption` 采用包保留精确 target），避免同类隐藏事项重复或无法到达。每条只包含作者可读标题、摘要、行动类型、
@@ -191,6 +197,11 @@ deep-import 快照在提交时已将项目值、环境覆盖和代码默认
 Scene、本章、项目级，再按需要决定、严重度、更新时间和稳定 key。最近正文只返回章节序号、
 标题、更新时间和是否存在未正式化改动，不返回正文内容。任一业务投影都使用门禁确认后的同一
 个 `project_id` 作为 `novel_id`，不建立跨模块 ORM 依赖，也不提供跨领域处理写入口。
+
+`project_author_tasks` 只有标题、可选备注/日期、`open/completed/archived` 和一个可选来源。
+创建与更新 schema 拒绝 `owner_id` / `novel_id` 和任意 URL；来源只能是
+`world_page | world_entity | writing_chapter | outline_scene`，并通过对应模块稳定 facade 验证属于同一项目。
+任务 ID 读写同时过滤 `novel_id`，浏览器请求先过当前 owner 门禁；不硬删除，失效来源只标记不可用并保留作者文字。
 
 单个和批量永久删除都必须显式提交 `confirmed=true`，且只能删除已在回收站的
 项目。批量请求会去重 ID；任一项目不在回收站时整批拒绝，不会部分删除。

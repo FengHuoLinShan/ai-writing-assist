@@ -93,6 +93,18 @@
     "projects.getWorkspaceSummary": define("GET", ({ id }) => `/projects/${required(id, "id", "projects.getWorkspaceSummary")}/workspace-summary`, {
       requiredParams: ["id"],
     }),
+    "projects.listAuthorTasks": define("GET", ({ id }) => `/projects/${required(id, "id", "projects.listAuthorTasks")}/author-tasks`, {
+      requiredParams: ["id"],
+    }),
+    "projects.createAuthorTask": define("POST", ({ id }) => `/projects/${required(id, "id", "projects.createAuthorTask")}/author-tasks`, {
+      requiredParams: ["id"],
+      requiredBody: ["title"],
+      hasBody: true,
+    }),
+    "projects.patchAuthorTask": define("PATCH", ({ id, taskId }) => `/projects/${required(id, "id", "projects.patchAuthorTask")}/author-tasks/${required(taskId, "taskId", "projects.patchAuthorTask")}`, {
+      requiredParams: ["id", "taskId"],
+      hasBody: true,
+    }),
     "projects.create": define("POST", () => "/projects", { hasBody: true }),
     "projects.update": define("PUT", ({ id }) => `/projects/${required(id, "id", "projects.update")}`, {
       requiredParams: ["id"],

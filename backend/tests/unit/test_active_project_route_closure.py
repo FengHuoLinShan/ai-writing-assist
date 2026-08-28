@@ -71,7 +71,10 @@ PROJECT_OWNED_ACTIVE_BOUNDARIES = {
     "GET /api/projects/{project_id}/author-preferences": (
         "get_project_author_preferences"
     ),
+    "GET /api/projects/{project_id}/author-tasks": "list_tasks",
     "GET /api/projects/{project_id}/workspace-summary": "get_summary",
+    "PATCH /api/projects/{project_id}/author-tasks/{task_id}": "patch_task",
+    "POST /api/projects/{project_id}/author-tasks": "create_task",
     "POST /api/projects/{project_id}/smart-dedup/apply": "get_project",
     "POST /api/projects/{project_id}/smart-dedup/scan": "get_project",
     "PUT /api/projects/{project_id}": "update_project",

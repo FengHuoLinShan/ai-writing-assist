@@ -3310,6 +3310,7 @@ class WorldBiblePageRevisionResponse(BaseModel):
     page_id: str
     version_number: int
     snapshot_json: dict = Field(default_factory=dict)
+    revision_digest: str
     revision_reason: str
     created_at: datetime | None = None
 

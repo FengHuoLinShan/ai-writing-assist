@@ -8,6 +8,10 @@ imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用�
 
 ## 核心原则
 
+- 作者项目拥有空 `C0`、唯一 Canon head 和追加式 CanonRevision 历史；
+  World Bible 发布通过唯一 Admit 原子 seal PageRevision、选入新 manifest 并推进 head。
+- Phase 0 只启用 C0、Page documentary selection 和追加式 revert；所有 formal
+  family 仍是 `formal-disabled`，`world_assertions` 没有准入入口。
 - 对象抽取不是 NER，而是长期创作资产识别
 - 人工创建对象、关系和别名时，保存即表示采用；CoreEntity 默认写入 `canonical` 并记录 `created_by / approved_by`
 - 普通 AI 创设统一先写 `creation_suggestion_queue`。生成中心返回判别式 suggestion result，
@@ -16,8 +20,9 @@ imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用�
 - 作者可显式保存 typed `world_design_checkpoint.v1`（不可采用；旧的
   `world_core_checkpoint.v1` 继续可读）和
   `world_adoption_package.v1`（pending）；package preview 零写入，apply 仅原子采用
-  `include + proposed` 的 CoreEntity / EntityRelation。`open/rejected`、RuleProfile、别名和
-  World Bible 页面不属于 v1 package 操作。
+  `include + proposed` 的 CoreEntity / EntityRelation，并可携带一个完整 World Bible
+  Page create/replace；页面部分在 package 预锁 Canon head 后通过唯一 Admit 选入
+  新 CanonRevision。`open/rejected`、RuleProfile 和别名不属于 v1 package 操作。
 - design checkpoint 以独立 envelope 内嵌 `world-state 0.1.0`，固定保存世界观引擎 19 区、
   6 个再生产循环、F01–F22、C01–C05、四类情境测试、T01–T12 与 fiction-core 六阶段。
   从 World Core 产生的首个 checkpoint 深度为 `seed`，未知区域明确记录为 gap/not-run。
@@ -43,7 +48,7 @@ imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用�
 - 别名不建新对象，存储于 `core_entities.content_json.aliases` JSON 字段；`kind=name/title/identity` 是稳定最小分类，开放短文本 `type` 保留精确类型。通用 CoreEntity create/update/promote 也经同一别名规范化；active 自定义类型缺 kind 以 422 拒绝，candidate 可暂缺
 - 待处理别名可在采用前修改目标对象、别名文本和别名类型；证据来源、workflow、Scene、引用和置信度保持只读
 - `link_to_existing` / `alias_of_existing` 待处理项可设为已有对象别名，源兼容对象标记 `status="merged"` 并记录 `resolved_as="alias"`，不硬删除、不采用为独立对象
-- 世界对象 UI 的“待处理”入口按对象 / 别名 / 关系三个子 tab 聚合；对象库、别名、关系页继续作为全量管理入口，历史默认隐藏。正式关系和别名可在全量列表修改两层类型并移动端点/所属对象
+- 世界对象 UI 的“需要决定”按对象 / 别名 / 关系三个队列聚合；已采用 Page/工作稿/CoreEntity 在 `world/bible` 资料库共用 tagged Card 投影，只暴露“资料库、关系、需要决定”子导航。Entity 详情与别名在资料库内打开，旧 `objects/aliases` 保留深链解析和批量兼容工具；历史默认隐藏。正式关系和别名仍可修改两层类型并移动端点/所属对象
 - 正式关系和别名列表提供就地 `q` 搜索并把搜索词、分页写入前端 URL；关系按端点名称、精确类型、描述或引用匹配，别名按别名、所属对象或引用匹配，刷新、前进/后退与项目切换继续以当前项目 `novel_id` 为边界
 - 待处理关系可在采用前编辑源对象、目标对象、关系分类、精确类型、描述和强度；`relation_kind` 只取 `state/social/spatial/causal/temporal/epistemic/intentional`，`relation_type` 原样保留，来源章节、引用等证据只读，人工审计写入 `entity_relations.review_meta`
 - 待处理关系按有向对象对分组，别名按 owner 对象分组；Scene 不是关系归并边界，反向关系不自动归并
@@ -76,9 +81,10 @@ RAG 或 LLM 上下文。
 - `entity_revisions` — 实体快照版本表（旧版快照；当前活跃回滚优先使用 `TextArchive`，无归档时回退到 `EntityRevision`）
 - `characters` — 人物档案（entity_id PK+FK → core_entities.id）
 - `character_knowledge` — 人物知识边界
-- `species_profiles` / `faction_profiles` / `location_profiles` / `rule_profiles` / `item_profiles` / `secret_profiles` / `entity_profile_templates` / `generic_entity_profiles` — 世界对象的类型化 Profile 与模板
+- `world_assertions` / `world_canon_revisions` / `world_canon_heads` — 封闭 Assert carrier、完整不可变 manifest/receipt 历史与每项目唯一 head
+- `species_profiles` / `faction_profiles` / `location_profiles` / `rule_profiles` / `item_profiles` / `secret_profiles` / `entity_profile_templates` / `entity_profile_template_revisions` / `generic_entity_profiles` — 世界对象的类型化 Profile、模板与可精确引用的模板修订
 - `generation_prompt_templates` / `generation_prompt_template_revisions` — 项目生成模板及不可变版本
-- `world_bible_categories` / `world_bible_page_drafts` / `world_bible_pages` / `world_bible_page_revisions` / `world_bible_page_projections` — 世界书类别、服务器工作稿、含稳定 sections 的已发布页和派生投影
+- `world_bible_categories` / `world_bible_page_drafts` / `world_bible_pages` / `world_bible_page_revisions` / `world_bible_page_projections` — 世界书类别、服务器工作稿、含稳定 sections 的已发布页、带 digest 的不可变修订和派生投影
 - `world_validation_runs` — 持久化 targeted/full 校验输入、分片 hash、结果、预算、新鲜度与作者签收
 - `world_bible_page_templates` / `world_bible_page_template_revisions` — 项目页面布局模板及不可变历史；内置模板仍由代码注册
 - `world_bible_synopsis_heads` / `world_bible_synopsis_revisions` — 作者版世界观简介的刷新状态、授权与不可变版本
@@ -104,6 +110,7 @@ RAG 或 LLM 上下文。
 - `models/character.py`：人物档案和人物知识边界。
 - `models/profiles.py`：世界资产 profile、模板和通用档案。
 - `models/worldbuilding.py`：生成模板、World Bible、知识标签、创设建议和冲突队列。
+- `models/authority.py`：不可变 Assert、CanonRevision/head 和 Profile Template revision。
 - `models/common.py`：共享 SQLAlchemy imports 与 pgvector/SQLite embedding column helper。
 
 ## 服务
@@ -241,7 +248,8 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 `get_entity_importance_map` 是给 RAG 派生 chunk 使用的 adopted-only 窄投影；只包含
 `canonical` 对象的 ID、importance 和 importance level，不暴露 ORM 或待处理对象。
 
-World Bible 页面是资料组织层，不是结构化事实源。`free_text` 是兼容概览，`sections_json`
+World Bible 页面是资料组织层，不是结构化事实源。发布后的精确 PageRevision
+由 Canon manifest 选为 documentary canon，但页面文字不会自动生成 Assert。`free_text` 是兼容概览，`sections_json`
 保存最多 64 个稳定、有序的 markdown/checklist/asset_collection 资料段；section 引用只能
 指向页面级已校验 TargetRef。`TargetRef.relation` 默认 `informs`，允许
 `requires/informs/derives/conflicts`，关系类型参与 target hash；为兼容旧 wire，
@@ -309,6 +317,11 @@ PUT    /api/world/knowledge/{knowledge_id}
 DELETE /api/world/knowledge/{knowledge_id}
 
 # World Bible 工作稿、历史和简介
+GET    /api/world/canon/head
+GET    /api/world/canon/revisions/{revision_id}
+POST   /api/world/canon/admissions/preview
+POST   /api/world/canon/admissions
+POST   /api/world/canon/revert
 GET/POST/PATCH /api/world/bible/categories
 GET/POST/PATCH/DELETE /api/world/bible/drafts
 GET/POST /api/world/bible/page-templates
@@ -317,7 +330,7 @@ GET    /api/world/bible/page-templates/{template_id}/revisions
 POST   /api/world/bible/page-templates/{template_id}/revisions/{version}/restore-draft
 POST   /api/world/bible/drafts/{draft_id}/apply-template
 GET    /api/world/bible/drafts/{draft_id}/publish-impact
-POST   /api/world/bible/drafts/{draft_id}/publish
+POST   /api/world/bible/drafts/{draft_id}/publish  # requires expected_canon_head + canon_decision_id
 POST   /api/world/bible/pages/{page_id}/refresh-projection
 GET    /api/world/bible/pages/{page_id}/revisions
 POST   /api/world/bible/pages/{page_id}/revisions/{version}/restore-draft

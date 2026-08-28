@@ -13,6 +13,7 @@ import { getApi, getAppState, getRouteQuery, getRouter, getToast } from "./bridg
 import { worldAssetDisplay } from "../shared/assetDisplayState.js"
 import { markWorldLeft, reconcileWorldEntry, worldSession } from "./views/world/worldSession.js"
 import { autoExtractManager, fusionManager } from "./views/world/workflowManagers.js"
+import { worldCardFiltersFromQuery } from "./views/world/bible/worldCards.js"
 import {
   REVIEW_ALIAS_KIND_FALLBACK,
   REVIEW_ALIAS_TYPE_FALLBACK,
@@ -115,7 +116,7 @@ export async function loadWorld() {
   const api = getApi()
   const toast = getToast()
   const projectId = appState?.currentProjectId || null
-  const subView = appState?.currentSubView || "objects"
+  const subView = appState?.currentSubView || "bible"
   const reviewSubView = normalizeReviewSubView(subView)
   const query = getRouteQuery()
   const requestedReviewKind = reviewKindFromRoute(subView, query)
@@ -194,6 +195,7 @@ export async function loadWorld() {
     aliasesTotal: 0,
     aliasesLoadError: null,
     bible: null,
+    worldCardFilters: worldCardFiltersFromQuery(query),
     bibleDeepLink: {
       draftId: query.get("draft_id") || "",
       pageId: query.get("page_id") || "",
@@ -210,6 +212,9 @@ export async function loadWorld() {
       ownerAiTarget: query.get("target") || "",
       ownerAiPreset: query.get("preset") || "",
       ownerAiCheckpointId: query.get("checkpoint_id") || "",
+      entityId: query.get("entity_id") || "",
+      entitySection: query.get("open") === "aliases" ? "aliases" : "",
+      openObjectTools: query.get("open") === "object-tools",
     },
     knowledgeCharacterId: query.get("knowledge_character_id") || "",
   }
@@ -262,7 +267,7 @@ export async function loadWorld() {
   ])
 
   // 子标签数据（vanilla render 阶段按子标签加载）
-  if (subView === "objects") {
+  if (subView === "objects" || props.bibleDeepLink.openObjectTools) {
     await Promise.all([
       (async () => {
         try {
@@ -389,7 +394,8 @@ export async function loadWorld() {
       props.aliasesLoadError = "加载别名失败。"
     }
   } else if (subView === "bible") {
-    const [pages, categories, drafts, synopsis, pageTemplates, activationProfiles, validationRun, validationPolicy] = await Promise.all([
+    const cardFilters = props.worldCardFilters
+    const [pages, categories, drafts, synopsis, pageTemplates, activationProfiles, validationRun, validationPolicy, cardEntities] = await Promise.all([
       api.world.listBiblePages({ novel_id: projectId }),
       api.world.listBibleCategories(projectId, true),
       api.world.listBibleDrafts(projectId),
@@ -406,6 +412,23 @@ export async function loadWorld() {
       api.world.getWorldValidationPolicyStatus
         ? api.world.getWorldValidationPolicyStatus(projectId).catch(() => ({ active: false }))
         : Promise.resolve({ active: false }),
+      cardFilters.kind === "page" || cardFilters.state === "working" || !api.world.listEntities
+        ? Promise.resolve({ items: [], total: 0 })
+        : (props.bibleDeepLink.entityId
+          ? api.world.getEntity(props.bibleDeepLink.entityId, projectId).then((item) => ({ items: [item], total: 1 }))
+          : api.world.listEntities({
+          novel_id: projectId,
+          display_state: ["active", "review", "archived"].includes(cardFilters.state) ? cardFilters.state : "active",
+          view_mode: "normal",
+          q: cardFilters.q || undefined,
+          entity_type: cardFilters.type || undefined,
+          source: cardFilters.source || undefined,
+          workflow_id: cardFilters.workflowId || undefined,
+          needs_review: cardFilters.needsReview === "true" ? true : cardFilters.needsReview === "false" ? false : undefined,
+          auto_ingested: cardFilters.autoIngested === "true" ? true : cardFilters.autoIngested === "false" ? false : undefined,
+          skip: 0,
+          limit: 50,
+        })).catch((error) => ({ items: [], total: 0, loadError: error?.message || "人物与设定加载失败" })),
     ])
     props.bible = {
       pages: pages?.items || [],
@@ -416,6 +439,9 @@ export async function loadWorld() {
       activationProfiles: activationProfiles?.items || [],
       validationRun,
       validationPolicy,
+      entities: cardEntities?.items || [],
+      entityTotal: Number(cardEntities?.total || 0),
+      entitiesLoadError: cardEntities?.loadError || null,
     }
   }
   return props

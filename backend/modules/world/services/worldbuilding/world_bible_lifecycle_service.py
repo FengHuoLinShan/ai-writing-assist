@@ -14,6 +14,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError, ValidationError
+from modules.world.authority import ResourceRef, resource_revision_digest
 from modules.world.models import (
     CoreEntity,
     EntityRelation,
@@ -238,6 +239,23 @@ class WorldBibleLifecycleService:
         )
         before_status = page.status
         next_status = payload.get("status", before_status)
+        workflow_archive = (
+            before_status in self._ADOPTED_STATUSES
+            and next_status == "archived"
+            and set(payload) <= {"status", "updated_by"}
+        )
+        if workflow_archive:
+            for key, value in payload.items():
+                setattr(page, key, value)
+            await self._mark_page_projections_stale(db, page)
+            await self.mark_page_context_changed(
+                db,
+                page,
+                reason="world_bible_page_archived",
+            )
+            await self._mark_synopsis_stale(db, str(page.novel_id))
+            await db.flush()
+            return WorldBiblePageResponse.model_validate(page)
         projection_input_changed = free_text_changed or any(
             key in payload
             for key in {
@@ -623,7 +641,89 @@ class WorldBibleLifecycleService:
         )
         return await self._build_publish_impact(db, draft, page)
 
-    async def publish_draft(
+    async def admit_draft(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        draft_id: str,
+        *,
+        authorizer_id: str | uuid.UUID,
+        expected_canon_head: uuid.UUID | None = None,
+        canon_decision_id: uuid.UUID | None = None,
+        expected_impact_scope_hash: str | None = None,
+        validation_run_id: str | uuid.UUID | None = None,
+        validation_prechecked: bool = False,
+    ) -> WorldBiblePageResponse:
+        """Publish a draft only through the Phase 0 Canon Preview/Admit seam."""
+        from modules.world.authority import (
+            CanonAdmissionPreviewRequest,
+            CanonAdmissionRequest,
+        )
+        from modules.world.services.worldbuilding.world_authority_service import (
+            WorldAuthorityService,
+        )
+
+        authority = WorldAuthorityService()
+        admission = None
+        if expected_canon_head is not None and canon_decision_id is not None:
+            admission = await authority.get_admitted_page_publish(
+                db,
+                novel_id,
+                canon_decision_id,
+                expected_previous_head=expected_canon_head,
+                draft_id=draft_id,
+                expected_impact_scope_hash=expected_impact_scope_hash,
+                validation_run_id=validation_run_id,
+            )
+        head_id = expected_canon_head
+        if admission is None:
+            if head_id is None:
+                head_id = (await authority.get_head(db, novel_id)).current_revision.id
+            preview = await authority.preview(
+                db,
+                CanonAdmissionPreviewRequest(
+                    novel_id=novel_id,
+                    expected_previous_head=head_id,
+                    input={
+                        "kind": "page_publish",
+                        "version": 1,
+                        "novel_id": novel_id,
+                        "draft_id": draft_id,
+                        "expected_impact_scope_hash": expected_impact_scope_hash,
+                        "validation_run_id": validation_run_id,
+                    },
+                ),
+            )
+            admission = await authority.admit(
+                db,
+                CanonAdmissionRequest(
+                    novel_id=novel_id,
+                    decision_id=canon_decision_id or uuid.uuid4(),
+                    expected_previous_head=head_id,
+                    confirmed=True,
+                    input=preview.normalized_input,
+                ),
+                authorizer_id=parse_uuid(str(authorizer_id), "authorizer_id"),
+                validation_prechecked=validation_prechecked,
+            )
+        page = await self._get_page_model(
+            db,
+            novel_id,
+            admission.changes["published_page_id"],
+        )
+        receipt = admission.changes.get("publication_receipt")
+        response = WorldBiblePageResponse.model_validate(page)
+        return response.model_copy(
+            update={
+                "validation_receipt": (
+                    WorldBibleValidationReceipt.model_validate(receipt)
+                    if receipt
+                    else None
+                )
+            }
+        )
+
+    async def _seal_draft_for_admission(
         self,
         db: AsyncSession,
         novel_id: str,
@@ -710,6 +810,13 @@ class WorldBibleLifecycleService:
                 raise ConflictError(
                     "World Bible page changed after this draft was created"
                 )
+            current_revision = await db.scalar(
+                select(WorldBiblePageRevision.id).where(
+                    WorldBiblePageRevision.novel_id == page.novel_id,
+                    WorldBiblePageRevision.page_id == page.id,
+                    WorldBiblePageRevision.version_number == page.version_number,
+                )
+            )
             page.page_type = draft.page_type
             page.title = draft.title
             page.page_meta_json = draft.page_meta_json
@@ -720,7 +827,8 @@ class WorldBibleLifecycleService:
             page.template_key = draft.template_key
             page.template_version = draft.template_version
             page.status = "canonical"
-            page.version_number += 1
+            if current_revision is not None:
+                page.version_number += 1
             page.updated_by = published_by or draft.updated_by
         await self._mark_draft_context_changed(
             db,
@@ -1567,29 +1675,38 @@ class WorldBibleLifecycleService:
         page: WorldBiblePage,
         *,
         revision_reason: str,
-    ) -> None:
-        db.add(
-            WorldBiblePageRevision(
-                novel_id=page.novel_id,
-                page_id=page.id,
-                version_number=page.version_number,
-                revision_reason=revision_reason,
-                snapshot_json={
-                    "page_type": page.page_type,
-                    "page_key": page.page_key,
-                    "title": page.title,
-                    "status": page.status,
-                    "page_meta_json": page.page_meta_json,
-                    "free_text": page.free_text,
-                    "sections_json": page.sections_json,
-                    "linked_asset_refs_json": page.linked_asset_refs_json,
-                    "activation_defaults_json": page.activation_defaults_json,
-                    "template_key": page.template_key,
-                    "template_version": page.template_version,
-                    "sort_order": page.sort_order,
-                },
-            )
+    ) -> WorldBiblePageRevision:
+        revision_id = uuid.uuid4()
+        snapshot = {
+            "page_type": page.page_type,
+            "page_key": page.page_key,
+            "title": page.title,
+            "status": page.status,
+            "page_meta_json": page.page_meta_json,
+            "free_text": page.free_text,
+            "sections_json": page.sections_json,
+            "linked_asset_refs_json": page.linked_asset_refs_json,
+            "activation_defaults_json": page.activation_defaults_json,
+            "template_key": page.template_key,
+            "template_version": page.template_version,
+            "sort_order": page.sort_order,
+        }
+        resource = ResourceRef(
+            kind="world_bible_page",
+            novel_id=page.novel_id,
+            resource_id=page.id,
         )
+        revision = WorldBiblePageRevision(
+            id=revision_id,
+            novel_id=page.novel_id,
+            page_id=page.id,
+            version_number=page.version_number,
+            revision_reason=revision_reason,
+            snapshot_json=snapshot,
+            revision_digest=resource_revision_digest(resource, revision_id, snapshot),
+        )
+        db.add(revision)
+        return revision
 
     @staticmethod
     async def _mark_page_projections_stale(

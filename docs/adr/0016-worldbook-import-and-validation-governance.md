@@ -91,3 +91,8 @@ Markdown/YAML/JSON 目录，不能通过现有小说文稿导入白名单表达�
 
 拒绝。task 是 transport；verdict、签收、manifest/policy hash 和 stale 生命周期属于 world
 领域，必须有可查询、可失效的领域记录。
+
+> 2026-08-27 补充：[ADR-0017](0017-world-fact-authority-and-canon-revisions.md) 已将
+> validation receipt 与 Canon admission receipt 明确分离。前者仅证明冻结输入的校验
+> 结果；只有后者能在当前 owner 确认、exact input 复验和 head CAS 后选择新
+> CanonRevision。World Bible 发布现已在同一 Admit 事务中完成该选择。

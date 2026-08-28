@@ -84,6 +84,9 @@
 ## 参考与历史资料
 
 - `references/` — 当前实现可查阅但不构成契约的分析和历史设计依据；包括
+  [`world-object-worldbook-unification-research.md`](references/world-object-worldbook-unification-research.md)（世界对象、世界书与 Card 统一研究）、
+  [`2026-08-27-frontend-world-task-workspace-research.md`](references/2026-08-27-frontend-world-task-workspace-research.md)（统一卡片后的世界资料库、作者任务与前端目录研究）、
+  [`world-authority-canonical-fixtures-v1.json`](references/world-authority-canonical-fixtures-v1.json)（World Authority v1 规范字节夹具）、
   [`map-prd-v1.1.md`](references/map-prd-v1.1.md)、
   [`2026-07-14-novalist-map-capability-analysis.md`](references/2026-07-14-novalist-map-capability-analysis.md)、
   [`2026-07-14-novalist-sillytavern-worldbook-design-analysis.md`](references/2026-07-14-novalist-sillytavern-worldbook-design-analysis.md)、
@@ -150,6 +153,8 @@
 13. [`audit/2026-07-25-真实用户场景持续发散排查.md`](audit/2026-07-25-真实用户场景持续发散排查.md) — 持续进行中的真实用户操作台账：前端直观性、状态恢复、后端异常、真实 LLM 与逐轮未覆盖组合
 14. [`references/2026-08-13-worldbook-system-enhancement-plan.md`](references/2026-08-13-worldbook-system-enhancement-plan.md) — 基于详细世界书样本与当前代码能力核对形成的增量需求、差距矩阵和分阶段计划
 15. [`audit/2026-08-13-defensive-code-audit.md`](audit/2026-08-13-defensive-code-audit.md) — 仅后端生产代码的去冗余、哈希与异常定向审计
+16. [`references/world-object-worldbook-unification-research.md`](references/world-object-worldbook-unification-research.md) — 世界对象、世界书、统一 Card 与事实权威的研究和实施交接
+17. [`references/world-authority-canonical-fixtures-v1.json`](references/world-authority-canonical-fixtures-v1.json) — Phase 0 canonical JSON 与 SHA-256 可执行夹具
 
 ## 当前状态
 

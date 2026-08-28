@@ -9,6 +9,7 @@ import {
   readCreativeContinuation,
 } from "./views/generate/generateSession.js"
 import { readWritingPointer } from "./views/writing/writingSession.js"
+import { localAuthorDate } from "./views/writing/home/useAuthorTasks.js"
 
 const WORKFLOW_LIMIT = 3
 const SUGGESTION_PAGE_LIMIT = 50
@@ -143,7 +144,10 @@ async function loadWorkflow(api, workflow, projectId) {
   try {
     const task = await api.tasks.get(workflow.taskId, projectId)
     const progress = normalizeTaskProgress(task, workflow.workflowType)
-    if (progress.done || progress.cancelled) {
+    const needsAuthorReview = progress.done
+      && workflow.workflowType === "story_outline_generate"
+      && task?.result?.apply_status !== "applied"
+    if ((progress.done && !needsAuthorReview) || progress.cancelled) {
       clearActiveWorkflow(workflow.taskId)
       return null
     }
@@ -195,6 +199,7 @@ export async function loadTodayProps() {
     api.projects.getWorkspaceSummary(projectId, {
       focus_chapter_index: writingPointer?.chapter,
       focus_scene_id: writingPointer?.sceneId,
+      on_date: localAuthorDate(),
     }),
     api.world?.listBibleDrafts ? api.world.listBibleDrafts(projectId) : Promise.resolve({ items: [] }),
     api.world?.listSuggestions

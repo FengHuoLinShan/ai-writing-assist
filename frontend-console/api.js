@@ -111,6 +111,48 @@ function _authorizationHeaders(headers = {}) {
 const _apiCache = new Map()
 const _pendingRequests = new Map()
 const _cacheGenerations = new Map()
+const _biblePublishAttempts = new Map()
+
+function _biblePublishAttemptKey(novelId, draftId) {
+  return `worldBiblePublishAttempt:${novelId}:${draftId}`
+}
+
+function _readBiblePublishAttempt(novelId, draftId) {
+  const key = _biblePublishAttemptKey(novelId, draftId)
+  let raw
+  try {
+    raw = sessionStorage.getItem(key)
+  } catch {
+    return _biblePublishAttempts.get(key) || null
+  }
+  if (!raw) return _biblePublishAttempts.get(key) || null
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed?.expectedCanonHead && parsed?.decisionId) {
+      _biblePublishAttempts.set(key, parsed)
+      return parsed
+    }
+  } catch { /* clear corrupt record below */ }
+  _biblePublishAttempts.delete(key)
+  try {
+    sessionStorage.removeItem(key)
+  } catch {
+    // The invalid in-memory copy is already gone.
+  }
+  return null
+}
+
+function _writeBiblePublishAttempt(novelId, draftId, attempt) {
+  const key = _biblePublishAttemptKey(novelId, draftId)
+  _biblePublishAttempts.set(key, attempt)
+  try { sessionStorage.setItem(key, JSON.stringify(attempt)) } catch { /* unavailable */ }
+}
+
+function _clearBiblePublishAttempt(novelId, draftId) {
+  const key = _biblePublishAttemptKey(novelId, draftId)
+  _biblePublishAttempts.delete(key)
+  try { sessionStorage.removeItem(key) } catch { /* unavailable */ }
+}
 
 function _cacheKey(path, options) {
   const method = (options.method || "GET").toUpperCase()
@@ -713,6 +755,18 @@ const api = {
       return contractFetch("projects.getWorkspaceSummary", { id }, query, options)
     },
 
+    async listAuthorTasks(id, query = {}, options = {}) {
+      return contractFetch("projects.listAuthorTasks", { id }, query, options)
+    },
+
+    async createAuthorTask(id, payload, options = {}) {
+      return contractJson("projects.createAuthorTask", { id }, {}, payload, options)
+    },
+
+    async patchAuthorTask(id, taskId, payload, options = {}) {
+      return contractJson("projects.patchAuthorTask", { id, taskId }, {}, payload, options)
+    },
+
     async update(id, payload) {
       return contractJson("projects.update", { id }, {}, payload)
     },
@@ -1137,11 +1191,34 @@ const api = {
     },
 
     async publishBibleDraft(draftId, novelId, expectedImpactScopeHash = null, validationRunId = null) {
-      return post(withQuery(`/world/bible/drafts/${draftId}/publish`, {
-        novel_id: novelId,
-        expected_impact_scope_hash: expectedImpactScopeHash || undefined,
-        validation_run_id: validationRunId || undefined,
-      }))
+      let attempt = _readBiblePublishAttempt(novelId, draftId)
+      if (!attempt) {
+        const head = await request(withQuery("/world/canon/head", { novel_id: novelId }), { cache: "no-store" })
+        if (!head?.current_revision?.id) throw new Error("暂时无法确认世界设定版本，请稍后重试")
+        attempt = {
+          expectedCanonHead: head.current_revision.id,
+          decisionId: crypto.randomUUID(),
+          expectedImpactScopeHash: expectedImpactScopeHash || null,
+          validationRunId: validationRunId || null,
+        }
+        _writeBiblePublishAttempt(novelId, draftId, attempt)
+      }
+      try {
+        const result = await post(withQuery(`/world/bible/drafts/${draftId}/publish`, {
+          novel_id: novelId,
+          expected_canon_head: attempt.expectedCanonHead,
+          canon_decision_id: attempt.decisionId,
+          expected_impact_scope_hash: attempt.expectedImpactScopeHash || undefined,
+          validation_run_id: attempt.validationRunId || undefined,
+        }))
+        _clearBiblePublishAttempt(novelId, draftId)
+        return result
+      } catch (error) {
+        if (Number(error?.status) >= 400 && Number(error?.status) < 500) {
+          _clearBiblePublishAttempt(novelId, draftId)
+        }
+        throw error
+      }
     },
 
     async listBiblePageRevisions(pageId, novelId) {

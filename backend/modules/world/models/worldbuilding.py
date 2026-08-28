@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import CheckConstraint, text
+from sqlalchemy import CheckConstraint, ForeignKeyConstraint, text
 
 from .common import (
     JSON,
@@ -133,6 +133,7 @@ class WorldBiblePage(Base, UUIDMixin, TimestampMixin, StatusMixin):
     __tablename__ = "world_bible_pages"
     __table_args__ = (
         UniqueConstraint("novel_id", "page_key", name="uq_world_bible_page_key"),
+        UniqueConstraint("novel_id", "id", name="uq_world_bible_page_novel_id"),
         {"comment": "World Bible 手册页面"},
     )
 
@@ -175,6 +176,12 @@ class WorldBiblePageRevision(Base, UUIDMixin, TimestampMixin):
             "version_number",
             name="uq_world_bible_page_revision_version",
         ),
+        ForeignKeyConstraint(
+            ["novel_id", "page_id"],
+            ["world_bible_pages.novel_id", "world_bible_pages.id"],
+            ondelete="CASCADE",
+            name="fk_world_bible_page_revision_same_novel",
+        ),
         {"comment": "World Bible 页面版本"},
     )
 
@@ -192,6 +199,7 @@ class WorldBiblePageRevision(Base, UUIDMixin, TimestampMixin):
     )
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
     snapshot_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    revision_digest: Mapped[str] = mapped_column(String(64), nullable=False)
     revision_reason: Mapped[str] = mapped_column(String(64), nullable=False)
 
 
