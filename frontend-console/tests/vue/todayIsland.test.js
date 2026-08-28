@@ -262,6 +262,43 @@ describe("todayIsland", () => {
     expect(props.workflows).toEqual([expect.objectContaining({ stateUnknown: true, statusLabel: "状态暂不可用" })])
   })
 
+  it("保留已完成但尚待作者审阅的故事总览收据", async () => {
+    const state = { currentProjectId: "p1", currentProject: { id: "p1", title: "雾港" } }
+    persistActiveWorkflow({
+      taskId: "story-outline-task",
+      workflowType: "story_outline_generate",
+      projectId: "p1",
+      view: "outline",
+    })
+    persistActiveWorkflow({
+      taskId: "applied-story-outline-task",
+      workflowType: "story_outline_generate",
+      projectId: "p1",
+      view: "outline",
+    })
+    setBridgeOverrides({
+      state,
+      api: {
+        projects: { getWorkspaceSummary: vi.fn(async () => ({ project_id: "p1" })) },
+        tasks: { get: vi.fn(async (taskId) => ({
+          task_id: taskId,
+          task_type: "story_outline_generate",
+          status: "done",
+          result: { apply_status: taskId.startsWith("applied-") ? "applied" : null },
+        })) },
+      },
+    })
+
+    const props = await loadTodayProps()
+
+    expect(props.workflows).toEqual([expect.objectContaining({
+      taskId: "story-outline-task",
+      workflowType: "story_outline_generate",
+      done: true,
+    })])
+    expect(recoverActiveWorkflows("p1").map((workflow) => workflow.taskId)).toEqual(["story-outline-task"])
+  })
+
   it("does not block writing when the summary request fails", async () => {
     const router = { navigate: vi.fn(), refresh: vi.fn() }
     setBridgeOverrides({

@@ -144,7 +144,10 @@ async function loadWorkflow(api, workflow, projectId) {
   try {
     const task = await api.tasks.get(workflow.taskId, projectId)
     const progress = normalizeTaskProgress(task, workflow.workflowType)
-    if (progress.done || progress.cancelled) {
+    const needsAuthorReview = progress.done
+      && workflow.workflowType === "story_outline_generate"
+      && task?.result?.apply_status !== "applied"
+    if ((progress.done && !needsAuthorReview) || progress.cancelled) {
       clearActiveWorkflow(workflow.taskId)
       return null
     }
