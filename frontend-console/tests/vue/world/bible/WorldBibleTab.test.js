@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
 vi.mock("../../../../shared/referencePicker.js", () => ({
-  createReferencePicker: vi.fn(() => ({ destroy: vi.fn(), resolve: vi.fn(), getRefs: vi.fn(() => []) })),
+  createReferencePicker: vi.fn((options) => ({ destroy: vi.fn(), resolve: vi.fn(), getRefs: vi.fn(() => []), onOpen: options.onOpen })),
 }))
 
 vi.mock("../../../../shared/workflowProgress.js", () => ({
@@ -617,6 +617,28 @@ describe("显示模式切换", () => {
     expect(query.get("q")).toBe("港")
     expect(query.get("kind")).toBe("entity")
     expect(query.get("entity_id")).toBeNull()
+  })
+
+  it("关联资产保留对象深链并进入统一详情，未保存时仍受离开门禁保护", async () => {
+    const wrapper = mountTab({
+      worldCardFilters: { q: "港", kind: "entity", type: "location", state: "", layout: "list" },
+    })
+    await wrapper.get("#bible-title").setValue("未保存的修改")
+    const picker = createReferencePicker.mock.results.at(-1).value
+
+    confirmMock.mockReturnValueOnce(false)
+    picker.onOpen({ kind: "core_entity", id: "entity-1" })
+    expect(navigateMock).not.toHaveBeenCalled()
+
+    confirmMock.mockReturnValueOnce(true)
+    picker.onOpen({ kind: "core_entity", id: "entity-1" })
+    const [view, subView, updateHistory, query] = navigateMock.mock.calls.at(-1)
+    expect([view, subView, updateHistory]).toEqual(["world", "bible", true])
+    expect(query.get("entity_id")).toBe("entity-1")
+    expect(query.get("q")).toBe("港")
+    expect(query.get("kind")).toBe("entity")
+    expect(query.get("type")).toBe("location")
+    expect(query.get("layout")).toBe("list")
   })
 
   it("gallery 模式从页面卡打开编辑", async () => {

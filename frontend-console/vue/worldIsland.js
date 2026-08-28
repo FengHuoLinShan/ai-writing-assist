@@ -412,10 +412,10 @@ export async function loadWorld() {
       api.world.getWorldValidationPolicyStatus
         ? api.world.getWorldValidationPolicyStatus(projectId).catch(() => ({ active: false }))
         : Promise.resolve({ active: false }),
-      cardFilters.kind === "page" || cardFilters.state === "working" || !api.world.listEntities
-        ? Promise.resolve({ items: [], total: 0 })
-        : (props.bibleDeepLink.entityId
-          ? api.world.getEntity(props.bibleDeepLink.entityId, projectId).then((item) => ({ items: [item], total: 1 }))
+      props.bibleDeepLink.entityId
+        ? api.world.getEntity(props.bibleDeepLink.entityId, projectId).then((item) => ({ items: [item], total: 1 }))
+        : (cardFilters.kind === "page" || cardFilters.state === "working" || !api.world.listEntities
+          ? Promise.resolve({ items: [], total: 0 })
           : api.world.listEntities({
           novel_id: projectId,
           display_state: ["active", "review", "archived"].includes(cardFilters.state) ? cardFilters.state : "active",

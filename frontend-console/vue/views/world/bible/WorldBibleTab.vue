@@ -1319,7 +1319,11 @@ function openAssetRef(type, id) {
   const router = getRouter()
   if (["world_bible_page", "page"].includes(type)) { openPageCard(id); return }
   if (["relation", "entity_relation"].includes(type)) { router.navigate("world", "relations"); return }
-  if (["core_entity", "entity", "profile", "event"].includes(type)) { router.navigate("world", "objects"); return }
+  if (["core_entity", "entity", "profile", "event"].includes(type)) {
+    setDisplayMode("gallery")
+    if (displayMode.value === "gallery") openWorldCard({ kind: "entity", id })
+    return
+  }
   getToast()("该引用类型暂无可用的编辑入口", "warning")
 }
 

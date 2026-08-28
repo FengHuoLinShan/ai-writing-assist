@@ -1608,6 +1608,21 @@ html, body {
     min-height: 44px;
     flex: 1 1 100%;
   }
+
+  .author-task-row,
+  .author-task-row__actions .btn,
+  button.author-task-source {
+    min-height: 44px;
+  }
+
+  .author-task-row__actions {
+    gap: 8px;
+  }
+
+  button.author-task-source {
+    display: inline-flex;
+    align-items: center;
+  }
 }
 
 .world-bible-category-grid {

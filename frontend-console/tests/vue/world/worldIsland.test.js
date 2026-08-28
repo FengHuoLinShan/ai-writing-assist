@@ -376,6 +376,40 @@ describe("world island deep links", () => {
     expect(props.bible).toMatchObject({ entities: [{ id: "entity-1" }], entityTotal: 61, entitiesLoadError: null })
   })
 
+  it("loads an exact unified-library entity even when returning to page-only filters", async () => {
+    const entity = { id: "entity-1", name: "沉钟港", entity_type: "location" }
+    const api = {
+      world: {
+        listEntityTypes: vi.fn().mockResolvedValue({ items: [] }),
+        getReviewTypeCatalog: vi.fn().mockResolvedValue({}),
+        getEntity: vi.fn().mockResolvedValue(entity),
+        listEntities: vi.fn().mockResolvedValue({ total: 0 }),
+        listAliases: vi.fn().mockResolvedValue({ total: 0 }),
+        listRelationships: vi.fn().mockResolvedValue({ total: 0 }),
+        listBiblePages: vi.fn().mockResolvedValue({ items: [] }),
+        listBibleCategories: vi.fn().mockResolvedValue({ items: [] }),
+        listBibleDrafts: vi.fn().mockResolvedValue({ items: [] }),
+        getBibleSynopsis: vi.fn().mockResolvedValue(null),
+      },
+    }
+    setBridgeOverrides({
+      api,
+      state: { currentProjectId: "novel-1", currentSubView: "bible" },
+      router: {
+        getCurrentQuery: () => new URLSearchParams("kind=page&state=working&layout=list&entity_id=entity-1"),
+        registerView: vi.fn(),
+      },
+      toast: vi.fn(),
+    })
+    const { loadWorld } = await import("../../../vue/worldIsland.js")
+
+    const props = await loadWorld()
+
+    expect(api.world.getEntity).toHaveBeenCalledWith("entity-1", "novel-1")
+    expect(props.worldCardFilters).toMatchObject({ kind: "page", state: "working", layout: "list" })
+    expect(props.bible.entities).toEqual([entity])
+  })
+
   it("starts independent shared and object requests concurrently", async () => {
     const entityTypes = deferred()
     const entityStarted = deferred()
