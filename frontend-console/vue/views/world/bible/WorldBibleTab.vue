@@ -661,7 +661,7 @@ const props = defineProps({
   entityTypes: { type: Array, default: () => [] },
   reviewTypeCatalog: { type: Object, default: () => ({}) },
   worldCardFilters: { type: Object, default: () => ({ q: "", kind: "all", type: "", state: "", layout: "cards" }) },
-  defaultDisplayMode: { type: String, default: "editor" },
+  defaultDisplayMode: { type: String, default: null },
 })
 
 const rootEl = ref(null)
@@ -877,14 +877,16 @@ function restoreLibraryScroll() {
 
 function openWorldCard(card) {
   rememberLibraryScroll()
+  const query = worldCardQuery(cardFilters.value)
   if (card.kind === "entity") {
-    const query = worldCardQuery(cardFilters.value)
     query.set("entity_id", card.id)
     getRouter()?.navigate("world", "bible", true, query)
     return
   }
-  if (card.id) openPageCard(card.id)
-  else if (card.draftId) openDraft(card.draftId)
+  if (card.draftId) query.set("draft_id", card.draftId)
+  else if (card.id) query.set("page_id", card.id)
+  else return
+  getRouter()?.navigate("world", "bible", true, query)
 }
 
 function createTaskForWorldCard(card) {

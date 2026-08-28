@@ -6,7 +6,7 @@
  * 投影轮询 / 简介轮询等后台任务使用 useWorkflowPolling。
  */
 import { computed, reactive, ref, watch } from "vue"
-import { getApi, getAppState, getRouter, getToast, getConfirm, getConfirmAction, getShowModalHtml, getCloseModal, getEsc, getErrorLog } from "../../../bridge/index.js"
+import { getApi, getAppState, getRouteQuery, getRouter, getToast, getConfirm, getConfirmAction, getShowModalHtml, getCloseModal, getEsc, getErrorLog } from "../../../bridge/index.js"
 import { useLeaveGuard } from "../../../composables/useLeaveGuard.js"
 import { worldSession } from "../../world/worldSession.js"
 import { pollTaskProgress } from "../../../../shared/workflowProgress.js"
@@ -102,7 +102,8 @@ export function useWorldBible(props) {
   const bibleDeepLink = computed(() => props.bibleDeepLink || { draftId: "", pageId: "" })
 
   // ---- reactive state (对应 vanilla 模块单例字段) ----
-  const displayMode = ref(storedDisplayPref(projectId.value, "displayMode", props.defaultDisplayMode || "editor"))
+  const displayMode = ref(props.defaultDisplayMode
+    || storedDisplayPref(projectId.value, "displayMode", "editor"))
   const activeCategory = ref(storedDisplayPref(projectId.value, "activeCategory", "all"))
   const galleryCategory = ref(null)
   const activeActivationProfileId = ref(worldSession.bible.activeActivationProfileId || null)
@@ -268,6 +269,16 @@ export function useWorldBible(props) {
     worldSession.bible.editorBaselineKey = editorBaselineKey.value
   }
 
+  function replaceEditorDeepLink({ pageId = null, draftId = null } = {}) {
+    const query = getRouteQuery()
+    query.delete("entity_id")
+    query.delete("page_id")
+    query.delete("draft_id")
+    if (draftId) query.set("draft_id", draftId)
+    else if (pageId) query.set("page_id", pageId)
+    router.commitCurrentQuery?.(query, "replace")
+  }
+
   function rememberDraft(draft) {
     if (!draft?.id) return
     writeCreativeContinuation(projectId.value, {
@@ -342,6 +353,7 @@ export function useWorldBible(props) {
     saveDisplayPref(projectId.value, "displayMode", "editor")
     resetEditorBaseline()
     syncSession()
+    replaceEditorDeepLink({ pageId: page.id })
     restoreProjectionTask(page.id)
   }
 
@@ -356,6 +368,7 @@ export function useWorldBible(props) {
     displayMode.value = "editor"
     resetEditorBaseline()
     syncSession()
+    replaceEditorDeepLink({ draftId: draft.id })
     rememberDraft(draft)
   }
 
@@ -675,6 +688,7 @@ export function useWorldBible(props) {
       clearDraftContinuation(draft.id)
       activeDraftId.value = null
       activePageId.value = page.id
+      replaceEditorDeepLink({ pageId: page.id })
       toast("页面已发布，世界观简介已标记为需要刷新", "success")
       await router.refresh()
       if (page.validation_receipt) {
@@ -760,6 +774,7 @@ export function useWorldBible(props) {
           activePageId.value = pages.value[0]?.id || null
         }
         syncSession()
+        replaceEditorDeepLink({ pageId: activePageId.value })
         toast("工作稿已丢弃", "success")
         router.refresh()
       } catch (err) {
@@ -895,6 +910,7 @@ export function useWorldBible(props) {
             saveDisplayPref(owner.novelId, "displayMode", "editor")
             setEditorBaseline(draft)
             syncSession()
+            replaceEditorDeepLink({ draftId: draft.id })
             toast("工作稿已创建；发布后才进入世界观简介来源", "success")
             return true
           } catch (err) {

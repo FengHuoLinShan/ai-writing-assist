@@ -331,6 +331,20 @@ describe("渲染契约", () => {
     expect(modes.get("[data-layout='list']").attributes("aria-pressed")).toBe("false")
   })
 
+  it("普通资料库入口忽略旧展示偏好，显式页面深链仍精确打开", () => {
+    localStorage.setItem("worldBible:p1:displayMode", "graph")
+
+    const library = mountTab({ defaultDisplayMode: "gallery" })
+    expect(library.find(".world-library-layout").exists()).toBe(true)
+    library.unmount()
+
+    const deepLink = mountTab({
+      defaultDisplayMode: "gallery",
+      bibleDeepLink: { draftId: "", pageId: "page-2" },
+    })
+    expect(deepLink.get("#bible-title").element.value).toBe("种族设定")
+  })
+
   it("从资料返回时按项目与查询恢复滚动位置", async () => {
     const content = document.createElement("div")
     content.id = "workspace-content"
@@ -341,7 +355,6 @@ describe("渲染契约", () => {
 
     await first.get("[data-action='open-world-card']").trigger("click")
     expect(worldSession.bible.libraryScrollPositions["p1:q=%E5%8C%97%E5%A2%83"]).toBe(240)
-    await first.findAll("button").find((button) => button.text().includes("返回资料库")).trigger("click")
     first.unmount()
     content.scrollTop = 0
 
@@ -534,6 +547,28 @@ describe("显示模式切换", () => {
     expect(wrapper.find(".world-card-grid").exists()).toBe(false)
     expect(wrapper.findAll(".world-library-list__row")).toHaveLength(3)
     expect(wrapper.get("[data-layout='list']").attributes("aria-pressed")).toBe("true")
+  })
+
+  it("打开资料页或工作稿时保留筛选并写入精确深链", async () => {
+    const wrapper = mountTab({
+      defaultDisplayMode: "gallery",
+      worldCardFilters: { q: "", kind: "page", type: "", state: "", layout: "list" },
+    })
+    const cards = wrapper.findAll(".world-library-list__row")
+
+    await cards.find((card) => card.text().includes("种族设定"))
+      .get("[data-action='open-world-card']").trigger("click")
+    let query = navigateMock.mock.calls.at(-1)[3]
+    expect(query.get("kind")).toBe("page")
+    expect(query.get("layout")).toBe("list")
+    expect(query.get("page_id")).toBe("page-2")
+    expect(query.get("draft_id")).toBeNull()
+
+    await cards.find((card) => card.text().includes("世界基本背景"))
+      .get("[data-action='open-world-card']").trigger("click")
+    query = navigateMock.mock.calls.at(-1)[3]
+    expect(query.get("draft_id")).toBe("draft-1")
+    expect(query.get("page_id")).toBeNull()
   })
 
   it("浅层目录将工作稿和类型筛选写回 URL", async () => {

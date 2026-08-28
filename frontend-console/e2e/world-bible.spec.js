@@ -198,7 +198,7 @@ test.describe("世界书工作台", () => {
     await page.locator("[data-action='bible-save-page']").click()
     await expect(page.locator(SEL.toastContainer)).toContainText("已保存", { timeout: 10000 })
     await expect(page.locator("[data-action='bible-publish-page']")).toBeVisible()
-    await publishCurrentDraft(page)
+    const publishedPage = await publishCurrentDraft(page)
     await expect(page.locator(".world-bible-editor-panel > .world-bible-panel__header .world-bible-page-meta")).toContainText("已采用")
 
     await openDisclosure(page, "bible-ai-reference-rules")
@@ -227,6 +227,8 @@ test.describe("世界书工作台", () => {
     await page.locator(".world-bible-page-card", { hasText: "E2E 世界基本背景" })
       .locator("[data-action='open-world-card']")
       .click()
+    await expect(page).toHaveURL(new RegExp(`page_id=${publishedPage.id}`))
+    await page.reload()
     await expect(page.locator("#bible-free-text")).toHaveValue(freeText)
     await expectNoAppErrors(page, "展示模式切换后")
 
@@ -279,7 +281,7 @@ test.describe("世界书工作台", () => {
     await expectProjectionDone(page, workerHandle)
     await expectNoAppErrors(page, "强制刷新后")
 
-    await reloadWorkbench(page, "world", "bible")
+    await page.reload()
     await expect(page.locator(".world-bible-workspace")).toContainText("E2E 世界基本背景")
     await expect(page.locator("#bible-free-text")).toHaveValue(freeText)
     await expect(page.locator("[data-section-field='body_markdown']").first()).toHaveValue("北境使用银币进行贸易。")
