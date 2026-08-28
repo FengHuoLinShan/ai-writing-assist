@@ -13,6 +13,7 @@ FROM nginx:1.31.3-alpine@sha256:4a73073bd557c65b759505da037898b61f1be6cbcc3c2c3a
 COPY frontend-console/nginx.production.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist/ /usr/share/nginx/html/
 RUN set -eu; \
+    apk add --upgrade --no-cache libcrypto3=3.5.8-r0 libssl3=3.5.8-r0; \
     for asset in asset-manifest.json asset-inventory.txt index.html; do \
       test -f "/usr/share/nginx/html/$asset"; \
       test ! -L "/usr/share/nginx/html/$asset"; \
