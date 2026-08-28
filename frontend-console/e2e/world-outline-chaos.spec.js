@@ -70,7 +70,7 @@ test.describe("世界对象与大纲 chaos", () => {
       await expect(candidateRow).toContainText(candidate.name)
       await expect(page.locator(".data-table tbody tr")).toHaveCount(1)
 
-      await page.locator(SEL.subnavItem("objects")).click()
+      await openWorkbench(page, project, "world", "objects")
       await expect(page.locator(SEL.viewTitle)).toHaveText("人物与世界")
       const targetRow = page.locator(`.world-object-table tr[data-id="${target.id}"]`)
       await expect(targetRow).toContainText(target.name)
