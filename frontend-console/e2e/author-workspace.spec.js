@@ -43,6 +43,16 @@ test.describe("作者任务工作台", () => {
     }
   }
 
+  async function switchLibraryLayout(page, label) {
+    if ((page.viewportSize()?.width || 1280) > 760) {
+      await page.locator("#sidebar-context-slot button", { hasText: label }).click()
+      return
+    }
+    const tools = page.locator(".world-sidebar-tools-mobile")
+    if (await tools.getAttribute("open") === null) await tools.locator("summary").click()
+    await tools.locator("button", { hasText: label }).click()
+  }
+
   test("返回作者两步内继续最近正文，并在 390px 保留带文字导航", async ({ page }) => {
     project = await createProject({ title: "今日工作续写", genre: "fantasy", language: "zh" })
     await createDraft(project.id, 3, "雾港来信", "潮声越过窗沿。")
@@ -109,17 +119,15 @@ test.describe("作者任务工作台", () => {
 
       await page.setViewportSize({ width, height: 844 })
       await openWorkbench(page, project, "world", "bible")
-      await page.getByRole("group", { name: "资料库显示方式" })
-        .getByRole("button", { name: "列表" })
-        .click()
       await page.getByRole("search").getByRole("searchbox", { name: "搜索资料" }).fill("港口资料")
       await page.getByRole("search").getByRole("button", { name: "查找" }).click()
+      await switchLibraryLayout(page, "切换到列表")
       await expect(page).toHaveURL(/world\/bible\?.*q=%E6%B8%AF%E5%8F%A3%E8%B5%84%E6%96%99/)
       await expect(page).toHaveURL(/layout=list/)
       await expect(page.locator(".world-library-list__row")).toHaveCount(25)
 
       const content = page.locator("#workspace-content")
-      await content.evaluate((element) => { element.scrollTop = 260 })
+      await content.evaluate((element) => { element.scrollTop = 80 })
       const savedTop = await content.evaluate((element) => element.scrollTop)
       expect(savedTop).toBeGreaterThan(0)
       await page.locator(".world-library-list__row", { hasText: "港口资料总览" })
@@ -129,10 +137,12 @@ test.describe("作者任务工作台", () => {
       await page.getByRole("button", { name: `打开 ${linkedEntity.name}` }).click()
       await expect(page).toHaveURL(new RegExp(`world/bible\\?.*q=.*layout=list.*entity_id=${linkedEntity.id}`))
       await expect(page.getByRole("heading", { name: linkedEntity.name })).toBeVisible()
-      await page.getByRole("button", { name: /返回资料库/ }).click()
+      await page.locator(".world-entity-detail__back").click()
       await expect(page).toHaveURL(/world\/bible\?.*q=.*layout=list/)
       await expect(page.locator(".world-library-list__row", { hasText: "港口资料总览" })).toBeVisible()
+      await expect.poll(() => content.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
 
+      await content.evaluate((element) => { element.scrollTop = 1 })
       await page.locator(".world-library-list__row", { hasText: "港口资料总览" })
         .locator("[data-action='open-world-card']")
         .click()
@@ -158,7 +168,7 @@ test.describe("作者任务工作台", () => {
         .locator("[data-action='open-world-card']")
         .click()
       await expect(page.getByRole("heading", { name: target.name })).toBeVisible()
-      await page.getByRole("button", { name: "添加到计划中的任务" }).click()
+      await page.locator(".world-entity-detail").getByRole("button", { name: "添加到计划中的任务" }).click()
       await expect(page).toHaveURL(/writing\?home=1&panel=tasks&scope=inbox/)
       const localDate = await page.evaluate(() => {
         const now = new Date()
@@ -267,7 +277,7 @@ test.describe("作者任务工作台", () => {
       free_text: "对象列表失败时这页仍应出现。",
     })
     await createEntity(project.id, {
-      name: "重试后出现的灯塔",
+      name: "重试后出现的港口灯塔",
       entity_type: "location",
       status: "canonical",
       summary: "用于局部恢复验收。",
@@ -287,11 +297,13 @@ test.describe("作者任务工作台", () => {
     })
 
     await openWorkbench(page, project, "world", "bible")
+    await page.getByRole("search").getByRole("searchbox", { name: "搜索资料" }).fill("港口")
+    await page.getByRole("search").getByRole("button", { name: "查找" }).click()
     await expect(page.getByRole("alert")).toContainText("资料页和工作稿仍可使用")
     await expect(page.locator(".world-bible-page-card", { hasText: "仍可使用的港口页" })).toBeVisible()
     await page.getByRole("button", { name: "重新加载" }).click()
     await expect(page.getByRole("alert")).toHaveCount(0)
-    await expect(page.locator(".world-card", { hasText: "重试后出现的灯塔" })).toBeVisible()
+    await expect(page.locator(".world-card", { hasText: "重试后出现的港口灯塔" })).toBeVisible()
   })
 
   test("默认前 50 条之外的对象仍可通过服务端搜索找到", async ({ page }) => {
@@ -320,6 +332,7 @@ test.describe("作者任务工作台", () => {
     ))
 
     await openWorkbench(page, project, "world", "bible")
+    await page.locator(".world-type-card", { hasText: "地点" }).click()
     await expect(page.getByText("已显示前 50 个人物或设定")).toBeVisible()
     await expect(page.locator(".world-card", { hasText: hiddenTarget.name })).toHaveCount(0)
     const searchRequest = page.waitForRequest((request) => {

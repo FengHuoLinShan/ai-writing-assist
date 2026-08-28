@@ -183,6 +183,13 @@ function mountTab(propOverrides = {}) {
   })
 }
 
+async function openNewPage() {
+  document.querySelector("#sidebar-context-slot [data-action='bible-new-resource']").click()
+  await nextTick()
+  document.querySelector("[data-action='bible-new-page-choice']").click()
+  await nextTick()
+}
+
 enableAutoUnmount(afterEach)
 
 beforeEach(() => {
@@ -196,6 +203,7 @@ beforeEach(() => {
   closeModalMock = vi.fn()
   confirmActionMock = vi.fn((message, handler) => handler())
   appState = { currentProjectId: "p1", currentView: "world" }
+  document.body.insertAdjacentHTML("afterbegin", '<div id="sidebar-context-slot"></div>')
   setBridgeOverrides({
     state: appState,
     router: { navigate: navigateMock, refresh: vi.fn(async () => true), renderCurrentView: vi.fn() },
@@ -218,65 +226,29 @@ describe("渲染契约", () => {
     expect(wrapper.find("section.world-bible-workspace").exists()).toBe(true)
   })
 
-  it("工具栏包含新建、管理分类、模板、目录导入、建议和冲突按钮", () => {
-    const wrapper = mountTab()
-    const toolbar = wrapper.find(".world-bible-toolbar")
-    const moreTools = toolbar.get("[data-section='bible-toolbar-more']")
-    expect(toolbar.exists()).toBe(true)
-    expect(toolbar.classes()).not.toContain("view-header")
-    expect(toolbar.get("h1").text()).toBe("资料库")
-    expect(toolbar.text()).toContain("2 个资料页")
-    expect(toolbar.find("[data-action='bible-new-page']").exists()).toBe(true)
-    expect(toolbar.find("[data-action='bible-manage-categories']").exists()).toBe(true)
-    expect(toolbar.find("[data-action='bible-manage-page-templates']").exists()).toBe(true)
-    expect(toolbar.find("[data-action='bible-open-object-tools']").exists()).toBe(true)
-    expect(toolbar.find("[data-action='bible-open-worldbook-import']").exists()).toBe(true)
-    expect(toolbar.find("[data-action='bible-open-suggestions']").exists()).toBe(true)
-    expect(toolbar.find("[data-action='bible-open-conflicts']").exists()).toBe(true)
-    expect(toolbar.find("[data-action='bible-inspect-current-page']").exists()).toBe(true)
-    expect(moreTools.attributes("open")).toBeUndefined()
-    expect(moreTools.get("summary").text()).toBe("更多工具")
-    expect(moreTools.get("summary").attributes("aria-expanded")).toBe("false")
-    expect(moreTools.get("[role='group'][aria-label='更多工具']").classes()).toContain("scene-workbench-tools__menu")
+  it("资料库首页把常用工具注入一级侧栏", () => {
+    mountTab({ defaultDisplayMode: "gallery" })
+    const tools = document.querySelector("#sidebar-context-slot .world-sidebar-tools")
+    expect(tools).not.toBeNull()
+    expect(tools.textContent).toContain("新建资料")
+    expect(tools.textContent).toContain("世界健康")
+    expect(tools.textContent).toContain("页面中的未决项")
+    expect(tools.textContent).toContain("AI 工具")
+    expect(tools.textContent).toContain("更多工具")
   })
 
-  it("更多工具支持 Escape、外部点击和动作后的焦点恢复", async () => {
-    const wrapper = mountTab()
-    const moreTools = wrapper.get("[data-section='bible-toolbar-more']")
-    const summary = moreTools.get("summary")
-
-    moreTools.element.open = true
-    await moreTools.trigger("toggle")
-    expect(summary.attributes("aria-expanded")).toBe("true")
-    await moreTools.trigger("keydown", { key: "Escape" })
+  it("更多工具弹窗支持 Escape 并恢复触发按钮焦点", async () => {
+    mountTab({ defaultDisplayMode: "gallery" })
+    const trigger = document.querySelector("[data-action='world-tool-more']")
+    trigger.focus()
+    trigger.click()
     await nextTick()
-    expect(moreTools.element.open).toBe(false)
-    expect(document.activeElement).toBe(summary.element)
-
-    moreTools.element.open = true
-    await moreTools.trigger("toggle")
-    document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    const dialog = document.querySelector(".world-tool-dialog")
+    expect(dialog?.textContent).toContain("管理分类")
+    dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
     await nextTick()
-    expect(moreTools.element.open).toBe(false)
-    expect(document.activeElement).toBe(summary.element)
-
-    moreTools.element.open = true
-    await moreTools.trigger("toggle")
-    await moreTools.get("[data-action='bible-manage-categories']").trigger("click")
-    await nextTick()
-    expect(moreTools.element.open).toBe(false)
-    expect(document.activeElement).toBe(summary.element)
-  })
-
-  it("禁用的更多工具动作不关闭菜单", async () => {
-    const wrapper = mountTab({ bible: { pages: [], categories: [], drafts: [], synopsis: null, pageTemplates: [], activationProfiles: [] } })
-    const moreTools = wrapper.get("[data-section='bible-toolbar-more']")
-    moreTools.element.open = true
-    await moreTools.trigger("toggle")
-
-    await moreTools.get("[data-action='bible-inspect-current-page']").trigger("click")
-
-    expect(moreTools.element.open).toBe(true)
+    expect(document.querySelector(".world-tool-dialog")).toBeNull()
+    await vi.waitFor(() => expect(document.activeElement).toBe(trigger))
   })
 
   it("汇总已保存的未决项，以工作稿覆盖正式页并可打开来源", async () => {
@@ -296,25 +268,26 @@ describe("渲染契约", () => {
       { ...DRAFT_FREE, sections_json: [openSection("* [ ] 禁术的代价是什么")] },
     ]
 
-    const wrapper = mountTab({ bible })
-    const panel = wrapper.get("[data-section='bible-open-questions']")
-
-    expect(panel.find("summary").text()).toContain("3 项")
-    expect(panel.find("summary").text()).toContain("3 个已保存页面")
-    expect(panel.text()).toContain("新税率由谁批准")
-    expect(panel.text()).toContain("灵族故乡如何命名")
-    expect(panel.text()).toContain("禁术的代价是什么")
-    expect(panel.text()).not.toContain("正式页里的旧税率问题")
-    expect(panel.text()).not.toContain("已决定的税率")
-    expect(panel.text()).not.toContain("已归档的旧问题")
-
-    await panel.get("[data-bible-open-question-page-id='page-2']").trigger("click")
+    const wrapper = mountTab({ bible, defaultDisplayMode: "gallery" })
+    document.querySelector("[data-action='world-tool-questions']").click()
     await nextTick()
-    expect(wrapper.get("#bible-title").element.value).toBe("种族设定")
+    let panel = document.querySelector(".world-tool-dialog")
+    expect(panel.textContent).toContain("新税率由谁批准")
+    expect(panel.textContent).toContain("灵族故乡如何命名")
+    expect(panel.textContent).toContain("禁术的代价是什么")
+    expect(panel.textContent).not.toContain("正式页里的旧税率问题")
+    expect(panel.textContent).not.toContain("已决定的税率")
+    expect(panel.textContent).not.toContain("已归档的旧问题")
 
-    await panel.get("[data-bible-open-question-draft-id='draft-free']").trigger("click")
+    panel.querySelector("[data-bible-open-question-page-id='page-2']").click()
+    await vi.waitFor(() => expect(wrapper.get("#bible-title").element.value).toBe("种族设定"))
+
+    await wrapper.get("[data-mode='gallery']").trigger("click")
+    document.querySelector("[data-action='world-tool-questions']").click()
     await nextTick()
-    expect(wrapper.get("#bible-title").element.value).toBe("新页工作稿")
+    panel = document.querySelector(".world-tool-dialog")
+    panel.querySelector("[data-bible-open-question-draft-id='draft-free']").click()
+    await vi.waitFor(() => expect(wrapper.get("#bible-title").element.value).toBe("新页工作稿"))
   })
 
   it("浏览只暴露卡片和列表，编辑时提供返回资料库", () => {
@@ -324,18 +297,16 @@ describe("渲染契约", () => {
     expect(editor.text()).toContain("返回资料库")
 
     const library = mountTab({ defaultDisplayMode: "gallery" })
-    const modes = library.get(".world-bible-toolbar__modes")
-    expect(modes.attributes()).toMatchObject({ role: "group", "aria-label": "资料库显示方式" })
-    expect(modes.findAll("button")).toHaveLength(2)
-    expect(modes.get("[data-layout='cards']").attributes("aria-pressed")).toBe("true")
-    expect(modes.get("[data-layout='list']").attributes("aria-pressed")).toBe("false")
+    expect(library.find(".world-bible-toolbar__modes").exists()).toBe(false)
+    expect(library.find(".world-type-grid").exists()).toBe(true)
+    expect(document.querySelector("#sidebar-context-slot")?.textContent).toContain("新建资料")
   })
 
   it("普通资料库入口忽略旧展示偏好，显式页面深链仍精确打开", () => {
     localStorage.setItem("worldBible:p1:displayMode", "graph")
 
     const library = mountTab({ defaultDisplayMode: "gallery" })
-    expect(library.find(".world-library-layout").exists()).toBe(true)
+    expect(library.find(".world-library-content").exists()).toBe(true)
     library.unmount()
 
     const deepLink = mountTab({
@@ -438,11 +409,10 @@ describe("渲染契约", () => {
     expect(nav.find("[data-bible-page-id='page-2']").exists()).toBe(true)
   })
 
-  it("空的 bible 显示空态", () => {
-    const wrapper = mountTab({ bible: { pages: [], categories: [], drafts: [], synopsis: null, pageTemplates: [], activationProfiles: [] } })
-    expect(wrapper.find(".empty-state").exists()).toBe(true)
-    expect(wrapper.text()).toContain("创建一个世界书页面")
-    expect(wrapper.get("[data-section='bible-open-questions'] summary").text()).toContain("0 项")
+  it("空的 bible 在资料库入口显示类型首页", () => {
+    const wrapper = mountTab({ defaultDisplayMode: "gallery", bible: { pages: [], categories: [], drafts: [], synopsis: null, pageTemplates: [], activationProfiles: [] } })
+    expect(wrapper.find(".world-type-grid").exists()).toBe(true)
+    expect(document.querySelector("[data-action='world-tool-questions']")?.textContent).toContain("页面中的未决项")
   })
 })
 
@@ -455,8 +425,8 @@ describe("显示模式切换", () => {
     expect(wrapper.find("[data-mode='filter']").attributes("aria-pressed")).toBe("false")
     expect(wrapper.find(".world-bible-gallery").exists()).toBe(true)
     expect(wrapper.find(".world-bible-gallery__hero").exists()).toBe(true)
-    expect(wrapper.find(".world-library-directory").exists()).toBe(true)
-    expect(wrapper.find(".world-card-grid").exists()).toBe(true)
+    expect(wrapper.find(".world-library-directory").exists()).toBe(false)
+    expect(wrapper.find(".world-type-grid").exists()).toBe(true)
   })
 
   it("gallery 模式钻取分类", async () => {
@@ -482,19 +452,19 @@ describe("显示模式切换", () => {
     expect(wrapper.find(".world-bible-gallery__hero").exists()).toBe(true)
   })
 
-  it("统一卡片首次空态提供两个明确起点", () => {
+  it("资料库首页提供统一创建入口和常用类型", () => {
     const wrapper = mountTab({
       defaultDisplayMode: "gallery",
       bible: { pages: [], categories: [], drafts: [], entities: [], synopsis: null, pageTemplates: [], activationProfiles: [] },
     })
 
     expect(wrapper.get(".world-bible-gallery__hero").text()).toContain("人物与世界")
-    const empty = wrapper.get(".world-card-empty-actions")
-    expect(empty.text()).toContain("新建人物或设定")
-    expect(empty.text()).toContain("新建资料页")
+    expect(wrapper.get(".world-type-grid").text()).toContain("人物")
+    expect(wrapper.get(".world-type-grid").text()).toContain("工作稿")
+    expect(document.querySelector("[data-action='bible-new-resource']")?.textContent).toContain("新建资料")
   })
 
-  it("对象加载失败时保留资料页卡片和原位重试", () => {
+  it("对象计数加载失败时保留类型首页和原位重试", () => {
     const wrapper = mountTab({
       defaultDisplayMode: "gallery",
       bible: { ...defaultBible(), entities: [], entitiesLoadError: "网络暂不可用" },
@@ -504,7 +474,7 @@ describe("显示模式切换", () => {
     expect(error.attributes("role")).toBe("alert")
     expect(error.text()).toContain("资料页和工作稿仍可使用")
     expect(error.get("button").text()).toBe("重新加载")
-    expect(wrapper.findAll(".world-card").length).toBeGreaterThan(0)
+    expect(wrapper.find(".world-type-grid").exists()).toBe(true)
   })
 
   it("对象加载失败且没有资料页时不显示误导性空态", () => {
@@ -521,6 +491,7 @@ describe("显示模式切换", () => {
   it("统一卡片依页面真实状态显示，不把草稿和待处理标成已采用", () => {
     const wrapper = mountTab({
       defaultDisplayMode: "gallery",
+      worldCardFilters: { q: "", kind: "page", type: "", state: "", layout: "cards" },
       bible: {
         ...defaultBible(),
         drafts: [],
@@ -541,12 +512,12 @@ describe("显示模式切换", () => {
   it("卡片和列表共用同一组资料，并从 URL 恢复列表视图", () => {
     const wrapper = mountTab({
       defaultDisplayMode: "gallery",
-      worldCardFilters: { q: "", kind: "all", type: "", state: "", layout: "list" },
+      worldCardFilters: { q: "", kind: "page", type: "", state: "", layout: "list" },
     })
 
     expect(wrapper.find(".world-card-grid").exists()).toBe(false)
     expect(wrapper.findAll(".world-library-list__row")).toHaveLength(3)
-    expect(wrapper.get("[data-layout='list']").attributes("aria-pressed")).toBe("true")
+    expect(document.querySelector("#sidebar-context-slot")?.textContent).toContain("切换到卡片")
   })
 
   it("打开资料页或工作稿时保留筛选并写入精确深链", async () => {
@@ -571,9 +542,9 @@ describe("显示模式切换", () => {
     expect(query.get("page_id")).toBeNull()
   })
 
-  it("浅层目录将工作稿和类型筛选写回 URL", async () => {
+  it("类型首页将工作稿写回 URL", async () => {
     const wrapper = mountTab({ defaultDisplayMode: "gallery" })
-    const working = wrapper.findAll(".world-library-directory__desktop button")
+    const working = wrapper.findAll(".world-type-card")
       .find((button) => button.text().includes("工作稿"))
 
     await working.trigger("click")
@@ -585,7 +556,7 @@ describe("显示模式切换", () => {
   })
 
   it("可从资料页原位建立作者任务", async () => {
-    const wrapper = mountTab({ defaultDisplayMode: "gallery" })
+    const wrapper = mountTab({ defaultDisplayMode: "gallery", worldCardFilters: { q: "", kind: "page", type: "", state: "", layout: "cards" } })
     const pageCard = wrapper.findAll(".world-card").find((card) => card.text().includes("世界基本背景"))
 
     await pageCard.get("[data-action='world-card-create-task']").trigger("click")
@@ -600,6 +571,7 @@ describe("显示模式切换", () => {
   it("工作稿改名时仍使用明确的正式页来源名称", async () => {
     const wrapper = mountTab({
       defaultDisplayMode: "gallery",
+      worldCardFilters: { q: "", kind: "page", type: "", state: "", layout: "cards" },
       bible: {
         ...defaultBible(),
         pages: [{ ...PAGE_1, title: "七大正神" }, PAGE_2],
@@ -1266,8 +1238,8 @@ describe("模态操作", () => {
   })
 
   it("创建新页面弹模态", async () => {
-    const wrapper = mountTab()
-    await wrapper.find("[data-action='bible-new-page']").trigger("click")
+    mountTab()
+    await openNewPage()
     expect(showModalHtmlMock).toHaveBeenCalled()
     expect(showModalHtmlMock.mock.calls[0][0]).toBe("新建世界书页面")
     const html = showModalHtmlMock.mock.calls[0][1]
@@ -1278,10 +1250,10 @@ describe("模态操作", () => {
   })
 
   it("新建页面在同一弹窗进入分类第二步并可返回保留表单", async () => {
-    const wrapper = mountTab()
+    mountTab()
     installModalHost()
 
-    await wrapper.find("[data-action='bible-new-page']").trigger("click")
+    await openNewPage()
     document.getElementById("bible-create-title").value = "云海历法"
     document.getElementById("bible-create-template").value = "e2e_trade_guide"
     const type = document.getElementById("bible-create-type")
@@ -1317,9 +1289,9 @@ describe("模态操作", () => {
       ["religion", "宗教信仰", "神话、教派、仪式与禁忌", "#9333EA", "信仰"],
       ["culture_language", "文化语言", "语言、命名、习俗与艺术", "#059669", "文化"],
     ]
-    const wrapper = mountTab()
+    mountTab()
     installModalHost()
-    await wrapper.find("[data-action='bible-new-page']").trigger("click")
+    await openNewPage()
     const type = document.getElementById("bible-create-type")
     type.value = "__new_category__"
     type.dispatchEvent(new Event("change", { bubbles: true }))
@@ -1353,9 +1325,9 @@ describe("模态操作", () => {
     const api = (await import("../../../../vue/bridge/index.js")).getApi()
     const uuid = vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue("12345678-1234-4abc-8def-1234567890ab")
     api.world.createBibleCategory = vi.fn(async (payload) => ({ id: "cat-own", ...payload, status: "active", builtin: false }))
-    const wrapper = mountTab()
+    mountTab()
     installModalHost()
-    await wrapper.find("[data-action='bible-new-page']").trigger("click")
+    await openNewPage()
     const type = document.getElementById("bible-create-type")
     type.value = "__new_category__"
     type.dispatchEvent(new Event("change", { bubbles: true }))
@@ -1381,10 +1353,10 @@ describe("模态操作", () => {
       description: "技术、工程、能源与制造", color: "#2563EB", icon: "技术",
       sort_order: 100, status: "active", builtin: false,
     }
-    const wrapper = mountTab({ bible: { ...defaultBible(), categories: [...CATEGORIES, technology] } })
+    mountTab({ bible: { ...defaultBible(), categories: [...CATEGORIES, technology] } })
     installModalHost()
 
-    await wrapper.find("[data-action='bible-new-page']").trigger("click")
+    await openNewPage()
     const type = document.getElementById("bible-create-type")
     type.value = "__new_category__"
     type.dispatchEvent(new Event("change", { bubbles: true }))
@@ -1405,10 +1377,10 @@ describe("模态操作", () => {
     }
     api.world.createBibleCategory = vi.fn()
     api.world.updateBibleCategory = vi.fn().mockResolvedValue({ ...technology, status: "active" })
-    const wrapper = mountTab({ bible: { ...defaultBible(), categories: [...CATEGORIES, technology] } })
+    mountTab({ bible: { ...defaultBible(), categories: [...CATEGORIES, technology] } })
     installModalHost()
 
-    await wrapper.find("[data-action='bible-new-page']").trigger("click")
+    await openNewPage()
     const type = document.getElementById("bible-create-type")
     type.value = "__new_category__"
     type.dispatchEvent(new Event("change", { bubbles: true }))
@@ -1428,7 +1400,7 @@ describe("模态操作", () => {
     const wrapper = mountTab()
     installModalHost()
 
-    await wrapper.find("[data-action='bible-new-page']").trigger("click")
+    await openNewPage()
     const type = document.getElementById("bible-create-type")
     type.value = "__new_category__"
     type.dispatchEvent(new Event("change", { bubbles: true }))
@@ -1461,7 +1433,7 @@ describe("模态操作", () => {
     const wrapper = mountTab()
     installModalHost()
 
-    await wrapper.find("[data-action='bible-new-page']").trigger("click")
+    await openNewPage()
     document.getElementById("bible-create-title").value = "新建设定页"
     await showModalHtmlMock.mock.calls.at(-1)[2][0].handler()
     await nextTick()
@@ -1484,7 +1456,7 @@ describe("模态操作", () => {
       <select id="bible-create-template"><option value="" selected>空白页</option></select>
     `)
 
-    await wrapper.find("[data-action='bible-new-page']").trigger("click")
+    await openNewPage()
     const creating = showModalHtmlMock.mock.calls.at(-1)[2][0].handler()
     await vi.waitFor(() => expect(api.world.createBibleDraft).toHaveBeenCalledWith(expect.objectContaining({ novel_id: "p1", title: "新建页" })))
     await wrapper.find("[data-bible-page-id='page-2']").trigger("click")
@@ -1513,7 +1485,7 @@ describe("模态操作", () => {
       <select id="bible-create-template"><option value="" selected>空白页</option></select>
     `)
 
-    await wrapper.find("[data-action='bible-new-page']").trigger("click")
+    await openNewPage()
     const creating = showModalHtmlMock.mock.calls.at(-1)[2][0].handler()
     await vi.waitFor(() => expect(api.world.createBibleDraft).toHaveBeenCalled())
     await wrapper.find("[data-bible-page-id='page-2']").trigger("click")
@@ -1657,7 +1629,7 @@ describe("模态操作", () => {
     await buttons[0].handler()
 
     showModalHtmlMock.mockClear()
-    await wrapper.find("[data-action='bible-new-page']").trigger("click")
+    await openNewPage()
     const [, createBody] = showModalHtmlMock.mock.calls.at(-1)
     expect(createBody).toContain('<option value="trade_guide">贸易模板 · v1</option>')
     expect(router.refresh).not.toHaveBeenCalled()
@@ -1681,7 +1653,7 @@ describe("模态操作", () => {
     await buttons[0].handler()
 
     showModalHtmlMock.mockClear()
-    await wrapper.find("[data-action='bible-new-page']").trigger("click")
+    await openNewPage()
     const [, createBody] = showModalHtmlMock.mock.calls.at(-1)
     expect(createBody).toContain('<option value="trade_guide">贸易模板二版 · v2</option>')
     expect(router.refresh).not.toHaveBeenCalled()
@@ -1708,7 +1680,7 @@ describe("模态操作", () => {
     await vi.waitFor(() => expect(toastMock).toHaveBeenCalledWith("历史模板已恢复为新版本", "success"))
 
     showModalHtmlMock.mockClear()
-    await wrapper.find("[data-action='bible-new-page']").trigger("click")
+    await openNewPage()
     const [, createBody] = showModalHtmlMock.mock.calls.at(-1)
     expect(createBody).toContain('<option value="trade_guide">已恢复贸易模板 · v2</option>')
     expect(router.refresh).not.toHaveBeenCalled()
@@ -1717,7 +1689,7 @@ describe("模态操作", () => {
   it("页面、类别和模板必填校验失败时保留当前弹窗", async () => {
     const wrapper = mountTab()
 
-    await wrapper.find("[data-action='bible-new-page']").trigger("click")
+    await openNewPage()
     let [, pageBody, pageButtons] = showModalHtmlMock.mock.calls.at(-1)
     document.body.innerHTML = pageBody
     document.getElementById("bible-create-title").value = ""

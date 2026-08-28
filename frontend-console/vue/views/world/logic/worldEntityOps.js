@@ -190,6 +190,7 @@ function entityTypeControlHtml(prefix, currentType = "") {
   const customOptions = renderOptions("custom")
   return `
     <select class="form-select" id="${prefix}-entity-type">
+      <option value="" ${currentType ? "" : "selected"} disabled>请选择资料类型</option>
       <optgroup label="系统类型">${systemOptions}</optgroup>
       ${customOptions ? `<optgroup label="项目自定义类型">${customOptions}</optgroup>` : ""}
       <option value="${CUSTOM_ENTITY_TYPE_SENTINEL}">＋ 新建自定义类型…</option>
@@ -411,7 +412,7 @@ function aliasEvidenceHtml(item = {}) {
 // ============================================================
 
 /** 对应 vanilla _showCreateForm。 */
-export function showEntityCreateForm(initial = {}) {
+export function showEntityCreateForm(initial = {}, options = {}) {
   const esc = getEsc()
   const toast = getToast()
   const showModalHtml = getShowModalHtml()
@@ -450,12 +451,18 @@ export function showEntityCreateForm(initial = {}) {
           summary: document.getElementById("create-entity-summary")?.value || "",
         }
         if (!payload.entity_type) {
-          toast("请输入自定义类型名称", "warning")
+          const custom = document.getElementById("create-entity-type")?.value === CUSTOM_ENTITY_TYPE_SENTINEL
+          toast(custom ? "请输入自定义类型名称" : "请选择资料类型", "warning")
           return false
         }
         submissionPending = true
         try {
-          await getApi().world.createEntity(payload, projectId)
+          const created = await getApi().world.createEntity(payload, projectId)
+          if (typeof options.onCreated === "function") {
+            const handled = await options.onCreated(created)
+            toast(`对象 "${name}" 已创建`, "success")
+            return handled !== false
+          }
         } catch (err) {
           const detail = createConflictDetail(err)
           if (detail?.requires_confirmation) {
@@ -470,7 +477,12 @@ export function showEntityCreateForm(initial = {}) {
                 if (forceSubmissionPending) return false
                 forceSubmissionPending = true
                 try {
-                  await getApi().world.createEntity({ ...payload, force_create: true }, projectId)
+                  const created = await getApi().world.createEntity({ ...payload, force_create: true }, projectId)
+                  if (typeof options.onCreated === "function") {
+                    const handled = await options.onCreated(created)
+                    toast(`对象 "${name}" 已创建`, "success")
+                    return handled !== false
+                  }
                 } catch (err2) {
                   forceSubmissionPending = false
                   toast(`创建失败：${err2.message}`, "error")
@@ -479,7 +491,7 @@ export function showEntityCreateForm(initial = {}) {
                 return finishEntityMutation(`对象 "${name}" 已创建`)
               },
               "强制创建",
-              () => showEntityCreateForm(payload),
+              () => showEntityCreateForm(payload, options),
             )
             return false
           }
@@ -492,6 +504,10 @@ export function showEntityCreateForm(initial = {}) {
     },
   ])
   bindEntityTypeControl("create")
+  if (!initial.entity_type) {
+    const typeSelect = document.getElementById("create-entity-type")
+    if (typeSelect) typeSelect.value = ""
+  }
 }
 
 /** 对应 vanilla editEntity。 */

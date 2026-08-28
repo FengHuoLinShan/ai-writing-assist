@@ -52,6 +52,7 @@ test.describe("共享项目路由生命周期", () => {
     })
 
     await openWorkbench(page, projectA, "world", "bible")
+    await switchWorldProject(page, projectA.id, sourcePage.id)
     await expect(page.locator(SEL.worldBibleWorkspace)).toContainText(
       "只属于项目 A 的世界书",
     )
@@ -92,7 +93,7 @@ test.describe("共享项目路由生命周期", () => {
 
     releaseMetadata.resolve()
     await expect(page.locator(SEL.worldBibleWorkspace)).toBeVisible({ timeout: 10_000 })
-    await expect(page.locator(SEL.worldBibleNewPage)).toBeVisible()
+    await expect(page.locator(SEL.worldBibleNewResource)).toBeVisible()
     await expect(page.locator(SEL.worldBibleWorkspace)).not.toContainText(
       "只属于项目 A 的世界书",
     )
@@ -121,9 +122,11 @@ test.describe("共享项目路由生命周期", () => {
       sections_json: [],
     })
     await openWorkbench(page, projectA, "world", "bible")
+    await switchWorldProject(page, projectA.id, sourcePage.id)
     await expect(page.locator(SEL.worldBibleWorkspace)).toContainText("弹窗守卫来源页")
 
-    await page.locator(SEL.worldBibleNewPage).click()
+    await page.locator(SEL.worldBibleNewResource).click()
+    await page.locator(SEL.worldBibleNewPageChoice).click()
     await expect(page.locator(SEL.modalOverlay)).toBeVisible()
     await page.locator(SEL.worldBibleCreateTitle).fill("尚未保存的新页面")
 
@@ -170,7 +173,7 @@ test.describe("共享项目路由生命周期", () => {
     expect(metadataRequestCount).toBe(1)
 
     releaseMetadata.resolve()
-    await expect(page.locator(SEL.worldBibleNewPage)).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator(SEL.worldBibleNewResource)).toBeVisible({ timeout: 10_000 })
     expect(browserErrors).toEqual([])
   })
 })

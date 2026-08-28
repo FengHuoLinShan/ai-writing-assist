@@ -11,11 +11,14 @@ beforeEach(() => {
   clearDocument()
   document.body.innerHTML = `
     <div id="app">
-      <main id="workspace">
-        <div id="workspace-content">
-          <span data-role="smart-dedup-action"></span>
-        </div>
-      </main>
+      <div id="main-layout">
+        <div id="sidebar-context-slot"></div>
+        <main id="workspace">
+          <div id="workspace-content">
+            <span data-role="smart-dedup-action"></span>
+          </div>
+        </main>
+      </div>
     </div>
   `
   App._smartDedup = createSmartDedupManager({
@@ -116,6 +119,19 @@ describe("App smart dedup integration", () => {
     App._renderGlobalActions()
     document.querySelector('[data-action="start-smart-dedup"]').click()
 
+    expect(startScan).toHaveBeenCalledTimes(1)
+  })
+
+  it("renders and delegates the teleported sidebar action", () => {
+    const startScan = vi.spyOn(App._smartDedup, "startScan").mockImplementation(() => {})
+    const mount = document.createElement("span")
+    mount.dataset.role = "smart-dedup-action"
+    document.getElementById("sidebar-context-slot").appendChild(mount)
+
+    App._renderGlobalActions()
+    mount.querySelector('[data-action="start-smart-dedup"]').click()
+
+    expect(mount.textContent).toContain("智能去重")
     expect(startScan).toHaveBeenCalledTimes(1)
   })
 

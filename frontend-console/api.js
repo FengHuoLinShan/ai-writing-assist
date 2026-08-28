@@ -1096,6 +1096,14 @@ const api = {
       return contractFetch("world.getEntity", { id }, { novel_id: novelId })
     },
 
+    async getCharacter(id, novelId) {
+      return contractFetch("world.getCharacter", { id }, { novel_id: novelId })
+    },
+
+    async updateCharacter(id, payload, novelId) {
+      return contractJson("world.updateCharacter", { id }, { novel_id: novelId }, payload)
+    },
+
     async fetchEntityImage(id, novelId, variant = "full", options = {}) {
       return contractFetch(
         "world.fetchEntityImage",

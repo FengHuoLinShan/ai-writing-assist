@@ -217,6 +217,7 @@ const App = {
     this._unbindGlobalActions()
     const workspace = document.getElementById("workspace")
     if (!workspace) return
+    const clickRoot = document.getElementById("main-layout") || workspace
 
     this._workspaceClickHandler = (event) => {
       const button = event.target?.closest?.("[data-action]")
@@ -227,33 +228,36 @@ const App = {
       }
     }
     this._workspaceRenderedHandler = () => this._renderGlobalActions()
-    workspace.addEventListener("click", this._workspaceClickHandler)
+    clickRoot.addEventListener("click", this._workspaceClickHandler)
     workspace.addEventListener("workspace:content-rendered", this._workspaceRenderedHandler)
     this._workspace = workspace
+    this._globalActionRoot = clickRoot
   },
 
   _unbindGlobalActions() {
     if (this._workspace) {
-      this._workspace.removeEventListener("click", this._workspaceClickHandler)
       this._workspace.removeEventListener("workspace:content-rendered", this._workspaceRenderedHandler)
     }
+    this._globalActionRoot?.removeEventListener("click", this._workspaceClickHandler)
     this._workspace = null
+    this._globalActionRoot = null
     this._workspaceClickHandler = null
     this._workspaceRenderedHandler = null
   },
 
   _renderGlobalActions() {
-    const mount = document.querySelector('#workspace-content [data-role="smart-dedup-action"]')
-    if (!mount) return
+    const mounts = document.querySelectorAll('[data-role="smart-dedup-action"]')
+    if (!mounts.length) return
 
     const supportedView = state.currentView === "world" || state.currentView === "outline"
     if (!state.currentProjectId || !supportedView || !this._smartDedup) {
-      mount.replaceChildren()
+      mounts.forEach((mount) => mount.replaceChildren())
       return
     }
 
     // SmartDedup 只返回内部生成的静态按钮/进度标记，不含用户或 AI 文本。
-    mount.innerHTML = this._smartDedup.renderActionButton(this._smartDedup.getState().progress)
+    const html = this._smartDedup.renderActionButton(this._smartDedup.getState().progress)
+    mounts.forEach((mount) => { mount.innerHTML = html })
   },
 
   _restoreProjectState() {

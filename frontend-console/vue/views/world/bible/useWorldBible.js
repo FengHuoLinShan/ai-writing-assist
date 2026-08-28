@@ -507,9 +507,13 @@ export function useWorldBible(props) {
     return confirm(message)
   }
 
+  let externalLeaveGuard = null
+  function setExternalLeaveGuard(fn) { externalLeaveGuard = typeof fn === "function" ? fn : null }
+
   // ---- leave guard ----
   useLeaveGuard(() => {
     return confirmDiscardEditorChanges("当前世界书页面有未保存修改，确定放弃并离开吗？")
+      && (!externalLeaveGuard || externalLeaveGuard())
   })
 
   // 应用内导航有 useLeaveGuard；刷新/关闭标签页必须依赖 beforeunload，
@@ -2395,6 +2399,7 @@ export function useWorldBible(props) {
     openPageTemplateManager,
     openPageHistory,
     archivePage,
+    setExternalLeaveGuard,
     editorHasUnsavedChanges,
 
     // helpers

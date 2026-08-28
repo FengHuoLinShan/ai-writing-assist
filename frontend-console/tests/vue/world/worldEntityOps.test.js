@@ -129,6 +129,31 @@ describe("showEntityCreateForm", () => {
     expect(apiMock.world.createEntity).not.toHaveBeenCalled()
   })
 
+  it("类型必须显式选择", async () => {
+    showEntityCreateForm()
+    document.body.innerHTML = modalCalls[0].html
+    document.getElementById("create-entity-name").value = "未分类资料"
+    document.getElementById("create-entity-type").value = ""
+
+    await modalCalls[0].buttons[0].handler()
+
+    expect(toastCalls).toContainEqual(["请选择资料类型", "warning"])
+    expect(apiMock.world.createEntity).not.toHaveBeenCalled()
+  })
+
+  it("创建成功把返回对象交给来源页打开", async () => {
+    const created = { id: "entity-new", name: "雾港", entity_type: "location" }
+    apiMock.world.createEntity.mockResolvedValueOnce(created)
+    const onCreated = vi.fn(() => true)
+    showEntityCreateForm({ entity_type: "location" }, { onCreated })
+    document.body.innerHTML = modalCalls[0].html
+    document.getElementById("create-entity-name").value = "雾港"
+
+    await modalCalls[0].buttons[0].handler()
+
+    expect(onCreated).toHaveBeenCalledWith(created)
+  })
+
   it("相似对象确认取消后可从原表单重试", async () => {
     apiMock.world.createEntity
       .mockRejectedValueOnce({ status: 409, detail: { requires_confirmation: true, similar_entities: [{ name: "雾岭" }] } })
