@@ -36,7 +36,8 @@
   </header>
   <div v-else class="view-header writing-toolbar">
     <div class="view-header__title">
-      写作
+      <button type="button" class="btn btn-sm btn-ghost writing-home-back" data-action="open-writing-home" @click="openWritingHome">← 写作首页</button>
+      <span>写作</span>
       <span class="view-header__count">共 {{ vm.chapterList.value.length }} 章</span>
     </div>
     <div class="view-header__actions">
@@ -379,6 +380,9 @@ function addChapterTask() {
     id: String(vm.selectedChapter.value),
     title: vm.editorState.title || `第 ${vm.selectedChapter.value} 章`,
   }))
+}
+function openWritingHome() {
+  router.navigate("writing", null, true, new URLSearchParams({ home: "1" }))
 }
 const conflictSummary = computed(() => (
   vm.conflictState.error

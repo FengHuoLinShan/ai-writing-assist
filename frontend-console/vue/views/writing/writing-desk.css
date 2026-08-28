@@ -10,6 +10,15 @@
    1. 编辑器外壳与工具栏
    ---------------------------------------------------------- */
 
+.writing-toolbar .view-header__title {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 760px) {
+  .writing-toolbar .writing-home-back { min-height: 44px; }
+}
+
 .writing-editor-shell {
   min-width: 0;
 }

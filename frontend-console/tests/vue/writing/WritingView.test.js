@@ -96,6 +96,18 @@ describe("WritingView", () => {
     wrapper.unmount()
   })
 
+  it("可从写作台返回写作首页", async () => {
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.get('[data-action="open-writing-home"]').trigger("click")
+
+    const call = globalThis.router.navigate.mock.calls.at(-1)
+    expect(call.slice(0, 3)).toEqual(["writing", null, true])
+    expect(call[3].get("home")).toBe("1")
+    wrapper.unmount()
+  })
+
   it("页头写作视图菜单同步状态，并可由动作、Escape 和外部点击收起", async () => {
     const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
     await flushPromises()
