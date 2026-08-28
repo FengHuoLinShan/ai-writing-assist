@@ -66,6 +66,7 @@ describe("作者任务工作台", () => {
     await flushPromises()
 
     expect(wrapper.get("#author-task-title").element.value).toBe("核对《港口制度》")
+    expect(wrapper.get(".author-task-form__heading p").text()).toContain("港口制度")
     await wrapper.get(".author-task-form").trigger("submit")
     await flushPromises()
 
@@ -73,6 +74,43 @@ describe("作者任务工作台", () => {
       title: "核对《港口制度》",
       source: { kind: "world_page", id: "page-1" },
     }))
+    expect(router.navigate).toHaveBeenCalledWith(
+      "writing",
+      null,
+      true,
+      expect.any(URLSearchParams),
+    )
+    expect(router.navigate.mock.calls.at(-1)[3].has("task_source_id")).toBe(false)
+  })
+
+  it("冲突后保留输入，并仅在作者再次保存时使用最新版本", async () => {
+    const latest = task({ title: "其他位置的标题", updated_at: "2026-08-27T11:00:00Z" })
+    api.projects.listAuthorTasks
+      .mockResolvedValueOnce({ items: [task()], total: 1, counts: { inbox: 1 } })
+      .mockResolvedValue({ items: [latest], total: 1, counts: { inbox: 1 } })
+    api.projects.patchAuthorTask
+      .mockRejectedValueOnce(Object.assign(new Error("任务已更新"), { status: 409 }))
+      .mockResolvedValueOnce(task({ title: "保留的作者输入", updated_at: "2026-08-27T12:00:00Z" }))
+
+    const wrapper = mount(AuthorTasksView, { props: { projectId: "p1", scope: "inbox" } })
+    await flushPromises()
+    await wrapper.findAll("button").find((button) => button.text() === "编辑").trigger("click")
+    await wrapper.get("#author-task-title").setValue("保留的作者输入")
+    await wrapper.get(".author-task-form").trigger("submit")
+    await flushPromises()
+
+    expect(wrapper.get("#author-task-title").element.value).toBe("保留的作者输入")
+    expect(wrapper.get(".author-task-conflict").text()).toContain("再次保存")
+    expect(api.projects.patchAuthorTask).toHaveBeenCalledTimes(1)
+
+    await wrapper.get(".author-task-form").trigger("submit")
+    await flushPromises()
+
+    expect(api.projects.patchAuthorTask).toHaveBeenNthCalledWith(2, "p1", "task-1", expect.objectContaining({
+      title: "保留的作者输入",
+      expected_updated_at: "2026-08-27T11:00:00Z",
+    }))
+    expect(wrapper.find(".author-task-form").exists()).toBe(false)
   })
 
   it("完成、重开、归档与恢复都走带版本的 PATCH", async () => {

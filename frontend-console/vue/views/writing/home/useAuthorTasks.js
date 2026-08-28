@@ -1,6 +1,8 @@
 import { onMounted, ref } from "vue"
 import { getApi, getToast } from "../../../bridge/index.js"
 
+const TASK_SCOPES = ["today", "inbox", "later", "completed", "archived"]
+
 export function localAuthorDate() {
   const now = new Date()
   const offset = now.getTimezoneOffset() * 60_000
@@ -15,6 +17,7 @@ export function useAuthorTasks(projectId, scope) {
   const loading = ref(false)
   const loadError = ref("")
   const busyIds = ref(new Set())
+  const conflict = ref(null)
   let loadGeneration = 0
 
   async function load() {
@@ -30,6 +33,7 @@ export function useAuthorTasks(projectId, scope) {
       if (generation !== loadGeneration) return
       items.value = Array.isArray(result?.items) ? result.items : []
       counts.value = result?.counts || counts.value
+      return items.value
     } catch (error) {
       if (generation !== loadGeneration) return
       loadError.value = error?.message || "任务暂时无法加载"
@@ -57,15 +61,45 @@ export function useAuthorTasks(projectId, scope) {
     if (!task?.id || busyIds.value.has(task.id)) return null
     busyIds.value = new Set([...busyIds.value, task.id])
     try {
+      const expectedUpdatedAt = conflict.value?.taskId === task.id
+        ? conflict.value.updatedAt
+        : task.updated_at
+      if (!expectedUpdatedAt) return null
       const updated = await api.projects.patchAuthorTask(projectId, task.id, {
         ...payload,
-        expected_updated_at: task.updated_at || undefined,
+        expected_updated_at: expectedUpdatedAt,
       })
+      conflict.value = null
       await load()
       return updated
     } catch (error) {
-      toast(error?.message || "任务更新失败", "error")
-      if (error?.status === 409) await load()
+      if (error?.status === 409) {
+        const currentItems = await load()
+        let latest = currentItems?.find((item) => item.id === task.id) || null
+        for (const nextScope of TASK_SCOPES) {
+          if (latest) break
+          if (nextScope === scope) continue
+          try {
+            const result = await api.projects.listAuthorTasks(projectId, {
+              scope: nextScope,
+              on_date: localAuthorDate(),
+              limit: 100,
+            })
+            latest = result?.items?.find((item) => item.id === task.id) || null
+          } catch {
+            // The current list remains usable; another scope may still resolve the baseline.
+          }
+        }
+        conflict.value = {
+          taskId: task.id,
+          updatedAt: latest?.updated_at || null,
+          message: latest
+            ? "任务已在其他位置更新。你的输入已保留，请确认后再次保存。"
+            : "任务状态已变化，请关闭表单后重新打开。",
+        }
+      } else {
+        toast(error?.message || "任务更新失败", "error")
+      }
       return null
     } finally {
       const next = new Set(busyIds.value)
@@ -74,6 +108,10 @@ export function useAuthorTasks(projectId, scope) {
     }
   }
 
+  function clearConflict() {
+    conflict.value = null
+  }
+
   onMounted(load)
-  return { items, counts, loading, loadError, busyIds, load, create, patch }
+  return { items, counts, loading, loadError, busyIds, conflict, load, create, patch, clearConflict }
 }

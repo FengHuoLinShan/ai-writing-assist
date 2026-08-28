@@ -138,8 +138,9 @@ function openTasks(scope = "today") {
   router.navigate("writing", null, true, new URLSearchParams({ home: "1", panel: "tasks", scope }))
 }
 
-async function completeTask(task) {
+async function completeTask(task, event) {
   if (!task?.id || taskBusyIds.value.has(task.id)) return
+  const checkbox = event?.currentTarget
   taskBusyIds.value = new Set([...taskBusyIds.value, task.id])
   try {
     await api.projects.patchAuthorTask(projectId.value, task.id, {
@@ -149,7 +150,9 @@ async function completeTask(task) {
     toast("任务已完成", "success")
     router.refresh()
   } catch (error) {
+    if (checkbox) checkbox.checked = false
     toast(error?.message || "任务更新失败", "error")
+    if (error?.status === 409) router.refresh()
   } finally {
     const next = new Set(taskBusyIds.value)
     next.delete(task.id)
@@ -371,7 +374,7 @@ function retry() {
       <ul v-if="authorTaskPreview.length" class="today-author-task-list">
         <li v-for="task in authorTaskPreview" :key="task.id" class="today-author-task-row">
           <label class="today-author-task-row__check">
-            <input type="checkbox" :disabled="taskBusyIds.has(task.id)" :aria-label="`完成任务：${task.title}`" @change="completeTask(task)">
+            <input type="checkbox" :disabled="taskBusyIds.has(task.id)" :aria-label="`完成任务：${task.title}`" @change="completeTask(task, $event)">
           </label>
           <strong>{{ task.title }}</strong>
           <button v-if="task.source?.available" type="button" class="btn btn-sm btn-ghost" @click="openAuthorTaskSource(task.source, router)">{{ task.source.label }} →</button>

@@ -9,10 +9,12 @@ export function authorTaskSourceFromQuery(query) {
   const kind = query?.get?.("task_source_kind") || ""
   const id = query?.get?.("task_source_id") || ""
   if (!SOURCE_KINDS.has(kind) || !id) return null
+  const taskTitle = String(query?.get?.("task_title") || "").trim().slice(0, 255)
   return {
     kind,
     id,
-    taskTitle: String(query?.get?.("task_title") || "").trim().slice(0, 255),
+    taskTitle,
+    label: taskTitle,
   }
 }
 

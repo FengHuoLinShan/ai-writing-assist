@@ -11,7 +11,7 @@ describe("作者任务来源路由", () => {
     const query = authorTaskPanelQuery({ kind: "world_entity", id: "e1", title: "核对沉钟港" })
     expect(query.toString()).not.toContain("http")
     expect(authorTaskSourceFromQuery(query)).toEqual({
-      kind: "world_entity", id: "e1", taskTitle: "核对沉钟港",
+      kind: "world_entity", id: "e1", taskTitle: "核对沉钟港", label: "核对沉钟港",
     })
     expect(authorTaskSourceFromQuery(new URLSearchParams("task_source_kind=url&task_source_id=https://example.com"))).toBeNull()
   })

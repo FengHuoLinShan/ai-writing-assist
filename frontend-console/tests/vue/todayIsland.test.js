@@ -1,4 +1,4 @@
-import { mount } from "@vue/test-utils"
+import { flushPromises, mount } from "@vue/test-utils"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../vue/bridge/index.js"
 import { persistActiveWorkflow, recoverActiveWorkflows } from "../../shared/workflowProgress.js"
@@ -56,6 +56,40 @@ describe("todayIsland", () => {
     await wrapper.get(".today-author-task-row .btn").trigger("click")
     expect(router.navigate.mock.calls.at(-1)[0]).toBe("world")
     expect(router.navigate.mock.calls.at(-1)[3].get("page_id")).toBe("page-1")
+  })
+
+  it("首页任务冲突时恢复复选框并刷新最新摘要", async () => {
+    const router = { navigate: vi.fn(), refresh: vi.fn() }
+    const patchAuthorTask = vi.fn(async () => {
+      throw Object.assign(new Error("任务已更新"), { status: 409 })
+    })
+    setBridgeOverrides({
+      router,
+      api: { projects: { patchAuthorTask } },
+      toast: vi.fn(),
+    })
+    const wrapper = mount(TodayView, { props: {
+      project: { id: "p1", title: "雾港" },
+      summary: {
+        project_id: "p1",
+        writing: {},
+        attention: {},
+        author_tasks: {
+          today_count: 1,
+          inbox_count: 0,
+          later_count: 0,
+          preview: [{ id: "task-1", title: "核对港口规则", updated_at: "u1" }],
+        },
+      },
+    } })
+    const checkbox = wrapper.get('.today-author-task-row input[type="checkbox"]')
+    checkbox.element.checked = true
+
+    await checkbox.trigger("change")
+    await flushPromises()
+
+    expect(checkbox.element.checked).toBe(false)
+    expect(router.refresh).toHaveBeenCalledTimes(1)
   })
 
   it("只在服务器续写章与本机指针一致时带入 Scene", async () => {

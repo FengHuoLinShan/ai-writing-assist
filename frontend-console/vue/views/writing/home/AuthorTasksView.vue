@@ -34,21 +34,26 @@ function openWritingHome() {
 }
 
 async function save(payload) {
-  const ok = editingTask.value
+  const editing = Boolean(editingTask.value)
+  const ok = editing
     ? Boolean(await tasks.patch(editingTask.value, payload))
     : await tasks.create(payload)
   if (!ok) return
   formOpen.value = false
   editingTask.value = null
+  tasks.clearConflict()
+  if (!editing && props.source) navigateScope(activeScope)
 }
 
 function edit(task) {
+  tasks.clearConflict()
   editingTask.value = task
   formOpen.value = true
   nextTick(() => document.getElementById("author-task-title")?.focus())
 }
 
 function closeForm() {
+  tasks.clearConflict()
   formOpen.value = false
   editingTask.value = null
 }
@@ -71,6 +76,7 @@ function closeForm() {
     </nav>
 
     <AuthorTaskForm v-if="formOpen" :task="editingTask" :source="editingTask?.source || source" :busy="tasks.loading.value" @submit="save" @cancel="closeForm" />
+    <p v-if="tasks.conflict.value" class="author-task-conflict field-error" role="alert">{{ tasks.conflict.value.message }}</p>
 
     <div v-if="tasks.loadError.value" class="error-card" role="alert">
       <p>{{ tasks.loadError.value }}</p>
@@ -129,6 +135,7 @@ function closeForm() {
 .author-task-row__actions { display: flex; flex-wrap: wrap; justify-content: end; gap: 6px; }
 .author-task-source { width: fit-content; padding: 0; border: 0; color: var(--accent); background: transparent; text-align: left; text-decoration: underline; cursor: pointer; }
 .author-task-source.is-missing { color: var(--text-muted); text-decoration: none; }
+.author-task-conflict { margin: 0 0 12px; color: var(--danger); }
 @media (max-width: 760px) {
   .author-tasks { padding: 16px; }
   .author-tasks__header { align-items: stretch; flex-direction: column; }
