@@ -326,6 +326,8 @@ html, body {
   align-items: stretch;
   padding: var(--space-4) var(--space-3);
   gap: var(--space-2);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   z-index: 90;
 }
 
@@ -337,6 +339,14 @@ html, body {
   gap: var(--space-2);
   width: 100%;
 }
+
+#sidebar-context-slot {
+  flex: 0 0 auto;
+  min-height: 0;
+  margin-top: var(--space-3);
+}
+
+#sidebar-context-slot:empty { display: none; }
 
 .nav-section {
   display: none;
@@ -6250,6 +6260,7 @@ kbd {
     padding: 0;
     border-top: var(--line-subtle);
     border-right: 0;
+    overflow: visible;
     z-index: 500;
   }
   #toast-container {
@@ -15636,6 +15647,7 @@ button.rp-journey-card__main:hover {
   .project-catalog .project-archive-hero__actions .btn { flex: 1 1 auto; }
   .sidebar-project-switcher,
   #nav-list,
+  #sidebar-context-slot,
   .sidebar-footer { display: none; }
   .sidebar-mobile-nav {
     display: grid;

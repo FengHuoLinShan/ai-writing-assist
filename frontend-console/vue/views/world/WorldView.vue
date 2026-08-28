@@ -45,13 +45,11 @@
               </div>
             </details>
           </template>
-          <button v-if="subView === 'relations'" class="btn btn-sm btn-primary" data-action="create-relation" @click="showRelationCreateForm(reviewTypeCatalog)">新建关系</button>
           <button v-if="subView === 'aliases'" class="btn btn-sm btn-primary" data-action="create-alias" @click="showAliasCreateForm(reviewTypeCatalog)">新建别名</button>
-          <button type="button" class="btn btn-sm" data-action="open-owner-ai-drawer" @click="openOwnerAi">AI 工具</button>
-          <span data-role="smart-dedup-action"></span>
         </div>
       </div>
     </div>
+    <WorldSidebarToolCard v-if="sidebarToolActions.length" :actions="sidebarToolActions" :show-smart-dedup="subView === 'relations'" @select="handleSidebarTool" />
     <component
       :is="activeTab"
       v-if="activeTab"
@@ -85,6 +83,7 @@ import { showAliasCreateForm, showRelationCreateForm } from "./logic/worldRelati
 import WorldObjectsTab from "./components/WorldObjectsTab.vue"
 import WorldRelationsTab from "./components/WorldRelationsTab.vue"
 import WorldAliasesTab from "./components/WorldAliasesTab.vue"
+import WorldSidebarToolCard from "./components/WorldSidebarToolCard.vue"
 
 const lazyView = (loader) => defineAsyncComponent({
   loader,
@@ -180,6 +179,33 @@ const reviewTotal = computed(() => (
   Object.values(props.reviewCounts || {}).reduce((sum, value) => sum + Number(value || 0), 0)
 ))
 const reviewCountLabel = computed(() => reviewTotal.value > 99 ? "99+" : String(reviewTotal.value))
+const nextReviewKind = computed(() => ["objects", "aliases", "relations"].find((kind) => Number(props.reviewCounts?.[kind] || 0)) || "all")
+const sidebarToolActions = computed(() => {
+  if (props.subView === "relations") return [
+    { key: "new-relation", label: "新建关系", primary: true },
+    { key: "review-relations", label: "待决定关系", badge: props.reviewCounts?.relations || 0 },
+    { key: "ai", label: "AI 工具" },
+    { key: "library", label: "返回资料库" },
+    { key: "more", label: "更多工具" },
+  ]
+  if (props.reviewSubView) return [
+    { key: "start-review", label: "开始处理", primary: true, disabled: !reviewTotal.value },
+    { key: "review-objects", label: "对象", badge: props.reviewCounts?.objects || 0 },
+    { key: "review-aliases", label: "别名", badge: props.reviewCounts?.aliases || 0 },
+    { key: "review-relations", label: "关系", badge: props.reviewCounts?.relations || 0 },
+    { key: "library", label: "返回资料库" },
+  ]
+  return []
+})
+
+function handleSidebarTool(key) {
+  if (key === "new-relation") { showRelationCreateForm(props.reviewTypeCatalog); return }
+  if (key === "start-review") { navigateReview(nextReviewKind.value); return }
+  if (key.startsWith("review-")) { navigateReview(key.slice(7)); return }
+  if (key === "ai") { openOwnerAi(); return }
+  if (key === "library") { navigateSub("bible"); return }
+  if (key === "more") getRouter()?.navigate("world", "bible", true, new URLSearchParams({ open: "object-tools" }))
+}
 
 /** 对应 vanilla _renderHeaderTitle（worldView.js:756-779）。 */
 const headerTitle = computed(() => {

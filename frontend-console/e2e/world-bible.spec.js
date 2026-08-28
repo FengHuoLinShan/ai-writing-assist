@@ -81,6 +81,27 @@ async function openDisclosure(page, section) {
   if (await details.getAttribute("open") === null) await details.locator("summary").first().click()
 }
 
+async function clickWorldTool(page, label) {
+  if ((page.viewportSize()?.width || 1280) > 760) {
+    const desktop = page.locator("#sidebar-context-slot button", { hasText: label })
+    await desktop.first().click()
+    return
+  }
+  const mobileTools = page.locator(".world-sidebar-tools-mobile")
+  if (await mobileTools.getAttribute("open") === null) await mobileTools.locator("summary").click()
+  await mobileTools.locator("button:visible", { hasText: label }).first().click()
+}
+
+async function openNewPageFlow(page) {
+  await clickWorldTool(page, "新建资料")
+  await page.locator(SEL.worldBibleNewPageChoice).click()
+}
+
+async function openMoreTool(page, label) {
+  await clickWorldTool(page, "更多工具")
+  await page.getByRole("dialog").getByRole("button", { name: label, exact: true }).evaluate((button) => button.click())
+}
+
 async function stopWorker(worker) {
   if (!worker || worker.exitCode !== null) return
   worker.kill("SIGINT")
@@ -144,16 +165,14 @@ test.describe("世界书工作台", () => {
 
     await expect(page.locator(".world-bible-workspace")).toBeVisible()
     await page.evaluate(() => { document.documentElement.style.zoom = "1.1" })
-    await expect(page.locator("[data-action='bible-set-display-mode'][data-mode='gallery']")).toHaveAttribute("aria-pressed", "true")
-    await expect(page.locator(SEL.emptyState)).toContainText("还没有人物或世界资料")
-    await expect(page.locator("[data-section='world-health']")).not.toHaveAttribute("open", "")
+    await expect(page.locator(".world-type-grid")).toBeVisible()
+    await expect(page.locator(".world-type-card")).toHaveCount(8)
+    await clickWorldTool(page, "世界健康")
+    await expect(page.getByRole("dialog")).toContainText("世界健康")
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("dialog")).toBeHidden()
 
-    const toolbar = page.locator(".world-bible-toolbar")
-    const toolbarHeight = await toolbar.evaluate((element) => element.getBoundingClientRect().height)
-    await openDisclosure(page, "bible-toolbar-more")
-    await expect(page.locator("#world-bible-more-tools")).toBeVisible()
-    expect(await toolbar.evaluate((element) => element.getBoundingClientRect().height)).toBe(toolbarHeight)
-    await page.locator("[data-action='bible-manage-page-templates']").click()
+    await openMoreTool(page, "页面模板")
     await expect(page.locator(SEL.modalTitle)).toHaveText("页面模板")
     await page.locator("#bible-template-key").fill("e2e_trade_guide")
     await page.locator("#bible-template-name").fill("E2E 贸易模板")
@@ -161,7 +180,7 @@ test.describe("世界书工作台", () => {
     await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
     await expect(page.locator(SEL.toastContainer)).toContainText("页面模板已创建", { timeout: 10000 })
 
-    await page.locator("[data-action='bible-new-page']").click()
+    await openNewPageFlow(page)
     await expect(page.locator(SEL.modalTitle)).toHaveText("新建世界书页面")
     await page.locator("#bible-create-title").fill("E2E 世界基本背景")
     await page.locator("#bible-create-template").selectOption("e2e_trade_guide")
@@ -220,10 +239,11 @@ test.describe("世界书工作台", () => {
 
     await page.getByRole("button", { name: /返回资料库/ }).click()
     await expect(page.locator(".world-bible-gallery__hero h2")).toHaveText("人物与世界")
-    const libraryModes = page.getByRole("group", { name: "资料库显示方式", exact: true })
-    await libraryModes.getByRole("button", { name: "列表" }).click()
+    await page.getByRole("search").getByRole("searchbox").fill("E2E 世界基本背景")
+    await page.getByRole("search").getByRole("button", { name: "查找", exact: true }).click()
+    await clickWorldTool(page, "切换到列表")
     await expect(page.locator(".world-library-list")).toContainText("E2E 世界基本背景")
-    await libraryModes.getByRole("button", { name: "卡片" }).click()
+    await clickWorldTool(page, "切换到卡片")
     await page.locator(".world-bible-page-card", { hasText: "E2E 世界基本背景" })
       .locator("[data-action='open-world-card']")
       .click()
@@ -238,8 +258,7 @@ test.describe("世界书工作台", () => {
         && url.searchParams.get("scope") === "local"
         && url.searchParams.get("depth") === "1"
     })
-    await openDisclosure(page, "bible-toolbar-more")
-    await page.locator("[data-action='bible-open-graph']").click()
+    await openMoreTool(page, "关联图")
     expect((await oneHopResponse).status()).toBe(200)
     await expect(page.locator(".world-bible-graph")).toBeVisible()
     await expect(page.locator(".world-bible-graph [role='alert']")).toHaveCount(0)
@@ -264,6 +283,8 @@ test.describe("世界书工作台", () => {
     await expect(page.locator(".world-bible-graph [role='alert']")).toHaveCount(0)
     await expectNoAppErrors(page, "关联图范围切换后")
     await page.getByRole("button", { name: /返回资料库/ }).click()
+    await page.getByRole("search").getByRole("searchbox").fill("E2E 世界基本背景")
+    await page.getByRole("search").getByRole("button", { name: "查找", exact: true }).click()
     await page.locator(".world-bible-page-card", { hasText: "E2E 世界基本背景" })
       .locator("[data-action='open-world-card']")
       .click()
@@ -301,8 +322,7 @@ test.describe("世界书工作台", () => {
     await page.locator(SEL.modalFooter).locator(".btn-danger").click()
     await expect(page.locator(SEL.toastContainer)).toContainText("已丢弃")
 
-    await openDisclosure(page, "bible-toolbar-more")
-    await page.locator("[data-action='bible-manage-categories']").click()
+    await openMoreTool(page, "管理分类")
     await expect(page.locator(SEL.modalTitle)).toHaveText("管理世界书分类")
     await expect(page.locator(SEL.modalBody)).toContainText("技术体系")
     await expect(page.locator(SEL.modalBody)).toContainText("使用中")
@@ -310,15 +330,13 @@ test.describe("世界书工作台", () => {
     await expect(page.locator(SEL.modalBody)).not.toContainText("technology")
     await page.getByRole("button", { name: "关闭", exact: true }).click()
 
-    await openDisclosure(page, "bible-toolbar-more")
-    await page.locator("[data-action='bible-open-suggestions']").click()
+    await openMoreTool(page, "创设建议")
     await expect(page.locator(SEL.modalTitle)).toHaveText("创设建议")
     await expect(page.locator(SEL.modalBody)).toContainText("暂无待处理建议")
     await page.locator(SEL.modalClose).click()
     await expectNoAppErrors(page, "建议弹窗后")
 
-    await openDisclosure(page, "bible-toolbar-more")
-    await page.locator("[data-action='bible-open-conflicts']").click()
+    await openMoreTool(page, "冲突检查")
     await expect(page.locator(SEL.modalTitle)).toHaveText("冲突检查")
     await expect(page.locator(SEL.modalBody)).toContainText("暂无冲突检查项")
     await page.locator(SEL.modalClose).click()
@@ -349,12 +367,12 @@ test.describe("世界书工作台", () => {
     await page.setViewportSize({ width: 390, height: 844 })
     await reloadWorkbench(page, "world", "bible")
 
-    await openDisclosure(page, "bible-toolbar-more")
-    await expectWithinViewportWidth(page.locator("#world-bible-more-tools"))
+    await clickWorldTool(page, "更多工具")
+    await expectWithinViewportWidth(page.getByRole("dialog"))
     await expectNoPageOverflow(page)
-    await page.locator("summary[aria-controls='world-bible-more-tools']").click()
+    await page.keyboard.press("Escape")
 
-    await page.locator("[data-action='bible-new-page']").click()
+    await openNewPageFlow(page)
     await page.locator("#bible-create-title").fill("移动端世界书")
     await page.locator("#bible-create-type").selectOption("__new_category__")
     await expect(page.locator(".world-bible-category-preset-grid")).toBeVisible()

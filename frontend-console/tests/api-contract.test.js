@@ -246,6 +246,9 @@ describe("前后端 API 契约", () => {
     expect(getApiContract("world.getEntity").method).toBe("GET")
     expect(contractPath("world.getEntity", { id: "entity-1" }, { novel_id: "novel-1" }))
       .toBe("/world/entities/entity-1?novel_id=novel-1")
+    expect(contractPath("world.getCharacter", { id: "entity-1" }, { novel_id: "novel-1" }))
+      .toBe("/world/characters/entity-1?novel_id=novel-1")
+    expect(getApiContract("world.updateCharacter").method).toBe("PUT")
     expect(getApiContract("world.fetchEntityImage").method).toBe("GET")
     expect(contractPath("world.fetchEntityImage", { id: "entity-1" }, {
       novel_id: "novel-1",

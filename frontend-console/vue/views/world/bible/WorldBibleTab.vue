@@ -10,56 +10,28 @@
     :inert="editorMutationPending || undefined"
     :aria-busy="editorMutationPending"
   >
-    <!-- toolbar -->
-    <div class="world-bible-toolbar">
+    <WorldSidebarToolCard :actions="sidebarActions" show-smart-dedup @select="handleSidebarAction" />
+    <!-- 旧扩展动作保留隐藏兼容 seam；创建入口已迁移为 bible-new-resource。 -->
+    <span hidden aria-hidden="true">
+      <button v-for="(label, mode) in legacyModeLabels" :key="mode" type="button" data-action="bible-set-display-mode" :data-mode="mode" :aria-pressed="displayMode === mode" @click="setDisplayMode(mode)">{{ label }}</button>
+      <button type="button" data-action="bible-manage-categories" @click="openCategoryManager">管理分类</button>
+      <button type="button" data-action="bible-manage-page-templates" @click="openPageTemplateManager">页面模板</button>
+      <button type="button" data-action="bible-open-worldbook-import" @click="worldbookImportOpen = true">导入目录</button>
+      <button type="button" data-action="bible-open-suggestions" @click="openSuggestions">创设建议</button>
+      <button type="button" data-action="bible-open-conflicts" @click="openConflicts">冲突检查</button>
+      <button type="button" data-action="bible-open-graph" @click="setDisplayMode('graph')">关联图</button>
+      <button type="button" data-action="bible-inspect-current-page" @click="inspectCurrentPage">{{ semanticInspectionPending ? '停止检修' : '检修当前页' }}</button>
+    </span>
+
+    <!-- 编辑器和次级工具仍保留就地状态操作；资料库首页操作移入一级侧栏。 -->
+    <div v-if="displayMode !== 'gallery'" class="world-bible-toolbar">
       <div class="world-bible-toolbar__title">
         <h1>资料库</h1>
-        <span>{{ pages.length }} 个资料页 · {{ bibleEntityTotal }} 个人物或设定</span>
+        <span>{{ displayMode === 'editor' ? '编辑资料页' : '次级资料工具' }}</span>
       </div>
       <div class="world-bible-toolbar__actions">
-        <span v-if="displayMode === 'gallery'" class="world-bible-toolbar__modes" role="group" aria-label="资料库显示方式">
-          <button
-            v-for="option in layoutOptions"
-            :key="option.value"
-            class="btn btn-sm btn-ghost"
-            :class="{ 'is-active': cardFilters.layout === option.value }"
-            data-action="bible-set-library-layout"
-            :data-layout="option.value"
-            :aria-pressed="cardFilters.layout === option.value"
-            @click="setLibraryLayout(option.value)"
-          >{{ option.label }}</button>
-        </span>
-        <button v-else class="btn btn-sm btn-ghost" type="button" @click="returnToLibrary">← 返回资料库</button>
-        <!-- 保留旧 DOM 动作作为兼容 seam，不再向用户暴露四个平级模式。 -->
-        <span hidden aria-hidden="true">
-          <button v-for="(label, mode) in legacyModeLabels" :key="mode" type="button" data-action="bible-set-display-mode" :data-mode="mode" :aria-pressed="displayMode === mode" @click="setDisplayMode(mode)">{{ label }}</button>
-        </span>
-        <button v-if="displayMode === 'gallery'" class="btn btn-sm" data-action="bible-new-entity" @click="showEntityCreateForm()">新建人物或设定</button>
-        <button class="btn btn-sm btn-primary" data-action="bible-new-page" @click="createPage">{{ displayMode === 'gallery' ? '新建资料页' : '新建页面' }}</button>
-        <details
-          ref="toolbarMoreEl"
-          class="world-bible-toolbar__more scene-workbench-tools"
-          data-section="bible-toolbar-more"
-          @toggle="toolbarMoreOpen = $event.currentTarget.open"
-          @keydown.esc.stop.prevent="closeToolbarMore(true)"
-        >
-          <summary class="btn btn-sm btn-ghost" aria-controls="world-bible-more-tools" :aria-expanded="String(toolbarMoreOpen)">更多工具</summary>
-          <div id="world-bible-more-tools" class="world-bible-toolbar__more-actions scene-workbench-tools__menu" role="group" aria-label="更多工具">
-            <button class="btn btn-sm" data-action="bible-manage-categories" @click="runToolbarAction(openCategoryManager)">管理分类</button>
-            <button class="btn btn-sm" data-action="bible-manage-page-templates" @click="runToolbarAction(openPageTemplateManager)">页面模板</button>
-            <button class="btn btn-sm" data-action="bible-open-object-tools" @click="runToolbarAction(openObjectTools)">人物与设定工具</button>
-            <button class="btn btn-sm" data-action="bible-open-graph" @click="runToolbarAction(() => setDisplayMode('graph'))">关联图</button>
-            <button class="btn btn-sm" data-action="bible-open-worldbook-import" @click="runToolbarAction(() => { worldbookImportOpen = true })">导入目录</button>
-            <button class="btn btn-sm" data-action="bible-open-suggestions" @click="runToolbarAction(openSuggestions)">创设建议</button>
-            <button class="btn btn-sm" data-action="bible-open-conflicts" @click="runToolbarAction(openConflicts)">冲突检查</button>
-            <button
-              class="btn btn-sm"
-              data-action="bible-inspect-current-page"
-              :disabled="!activePage && !semanticInspectionPending"
-              @click="runToolbarAction(inspectCurrentPage)"
-            >{{ semanticInspectionPending ? "停止检修" : "检修当前页" }}</button>
-          </div>
-        </details>
+        <button class="btn btn-sm btn-ghost" type="button" @click="returnToLibrary">← 返回资料库</button>
+        <button class="btn btn-sm" type="button" @click="toolDialog = 'more'">更多工具</button>
       </div>
     </div>
 
@@ -70,44 +42,42 @@
       @close="worldbookImportOpen = false"
     />
 
-    <WorldHealthPanel
-      :project-id="projectId"
-      :target-type="bibleDeepLink.adoptionPackageId ? 'world_adoption_package' : 'world_bible_draft'"
-      :target-id="bibleDeepLink.adoptionPackageId || activeDraft?.id || ''"
-      :requires-full-scope="validationRequiresFullScope"
-      :initial-run="validationRun"
-      :policy-status="validationPolicy"
-      @updated="validationRun = $event"
-      @policy-updated="validationPolicy = $event"
-      @open-source="openValidationSource"
-    />
-
-    <details class="panel world-bible-open-questions" data-section="bible-open-questions">
-      <summary>
-        <strong>待我决定</strong>
-        <span class="badge">{{ authorOpenQuestions.length }} 项</span>
-        <span class="world-bible-open-questions__hint">
-          {{ authorOpenQuestions.length
-            ? `来自 ${authorOpenQuestionSourceCount} 个已保存页面`
-            : "当前没有已保存的未决项" }}
-        </span>
-      </summary>
-      <div v-if="authorOpenQuestions.length" class="world-bible-open-questions__list">
-        <button
-          v-for="entry in authorOpenQuestions"
-          :key="entry.key"
-          type="button"
-          class="btn world-bible-open-question"
-          :data-bible-open-question-page-id="entry.pageId || undefined"
-          :data-bible-open-question-draft-id="entry.draftId || undefined"
-          @click="openAuthorOpenQuestion(entry)"
-        >
-          <span>{{ entry.question }}</span>
-          <small>{{ entry.sourceTitle }} · {{ entry.draftId ? "工作稿" : "已发布页" }}</small>
+    <WorldToolDialog :open="Boolean(toolDialog)" :title="toolDialogTitle" @close="toolDialog = ''">
+      <WorldHealthPanel
+        v-if="toolDialog === 'health'"
+        :project-id="projectId"
+        :target-type="bibleDeepLink.adoptionPackageId ? 'world_adoption_package' : 'world_bible_draft'"
+        :target-id="bibleDeepLink.adoptionPackageId || activeDraft?.id || ''"
+        :requires-full-scope="validationRequiresFullScope"
+        :initial-run="validationRun"
+        :policy-status="validationPolicy"
+        @updated="validationRun = $event"
+        @policy-updated="validationPolicy = $event"
+        @open-source="openValidationSource"
+      />
+      <div v-else-if="toolDialog === 'questions'" class="world-bible-open-questions__list">
+        <button v-for="entry in authorOpenQuestions" :key="entry.key" type="button" class="btn world-bible-open-question" :data-bible-open-question-page-id="entry.pageId || undefined" :data-bible-open-question-draft-id="entry.draftId || undefined" @click="openQuestionFromDialog(entry)">
+          <span>{{ entry.question }}</span><small>{{ entry.sourceTitle }} · {{ entry.draftId ? "工作稿" : "已发布页" }}</small>
         </button>
+        <p v-if="!authorOpenQuestions.length" class="world-bible-empty-hint">当前没有已保存的未决项。</p>
       </div>
-      <p v-else class="world-bible-empty-hint">AI 保留下来的未决选择会在这里汇总；这里只统计保存过的未勾选项目。</p>
-    </details>
+      <div v-else-if="toolDialog === 'types'" class="world-more-types">
+        <button v-for="type in extraTypeOptions" :key="type.value" type="button" class="btn" @click="selectMoreType(type.value)">{{ type.label }}</button>
+      </div>
+      <div v-else-if="toolDialog === 'create'" class="world-create-choices">
+        <button type="button" class="btn btn-primary" data-action="bible-new-entity-choice" @click="createEntityFromDialog">人物或具体设定</button>
+        <button type="button" class="btn" data-action="bible-new-page-choice" @click="createPageFromDialog">资料页</button>
+      </div>
+      <div v-else-if="toolDialog === 'more'" class="world-more-tools">
+        <button class="btn" type="button" @click="runDialogAction(openCategoryManager)">管理分类</button>
+        <button class="btn" type="button" @click="runDialogAction(openPageTemplateManager)">页面模板</button>
+        <button class="btn" type="button" @click="runDialogAction(openObjectTools)">人物与设定工具</button>
+        <button class="btn" type="button" @click="runDialogAction(() => setDisplayMode('graph'))">关联图</button>
+        <button class="btn" type="button" @click="runDialogAction(() => { worldbookImportOpen = true })">导入目录</button>
+        <button class="btn" type="button" @click="runDialogAction(openSuggestions)">创设建议</button>
+        <button class="btn" type="button" @click="runDialogAction(openConflicts)">冲突检查</button>
+      </div>
+    </WorldToolDialog>
 
     <!-- ==================== display modes ==================== -->
 
@@ -151,26 +121,40 @@
         </div>
         <div v-else class="empty-state"><p>这个分类下还没有世界书页面。</p></div>
       </div>
-      <div v-else class="panel world-bible-gallery world-library-layout">
-        <WorldLibraryDirectory :filters="cardFilters" :types="cardTypeOptions" :working-count="workingCardCount" @select="applyCardFilters" />
-        <div class="world-library-content">
-          <WorldEntityDetail
-            v-if="selectedEntity"
-            :entity="selectedEntity"
-            :type-label="cardMeta({ kind: 'entity', typeKey: selectedEntity.entity_type }).label"
-            :aliases-open="props.bibleDeepLink?.entitySection === 'aliases'"
-            @back="returnToLibrary"
-            @edit="editSelectedEntity"
-            @create-alias="createAliasForSelectedEntity"
-            @edit-alias="editAliasForSelectedEntity"
-            @create-task="createTaskForWorldEntity(selectedEntity)"
-          />
-          <template v-else>
-            <div class="world-bible-gallery__hero">
-              <h2>人物与世界</h2>
-              <p>在一处找回人物、地点、势力、物品、事件、规则和资料页。</p>
-            </div>
-            <form class="world-card-filters" role="search" @submit.prevent="applyCardFilters()">
+      <div v-else class="panel world-bible-gallery world-library-content">
+        <WorldEntityDetail
+          v-if="selectedEntity"
+          :entity="selectedEntity"
+          :project-id="projectId"
+          :type-label="cardMeta({ kind: 'entity', typeKey: selectedEntity.entity_type }).label"
+          :aliases-open="props.bibleDeepLink?.entitySection === 'aliases'"
+          @back="returnToLibrary"
+          @edit="editSelectedEntity"
+          @create-alias="createAliasForSelectedEntity"
+          @edit-alias="editAliasForSelectedEntity"
+          @create-task="createTaskForWorldEntity(selectedEntity)"
+          @profile-dirty="entityProfileDirty = $event"
+        />
+        <template v-else-if="showTypeHome">
+          <div class="world-bible-gallery__hero">
+            <h2>人物与世界</h2>
+            <p>按类型浏览和管理长期创作资料。</p>
+          </div>
+          <form class="world-card-filters world-card-filters--home" role="search" @submit.prevent="applyCardFilters()">
+            <label class="world-card-filters__search"><span>搜索资料</span><input v-model="cardSearch" type="search" maxlength="120" placeholder="名称、别名或内容" /></label>
+            <div class="world-card-filters__actions"><button class="btn btn-sm btn-primary" type="submit">查找</button></div>
+          </form>
+          <div v-if="props.bible?.entitiesLoadError" class="empty-state" role="alert" data-author-action="retry">
+            <p>人物与设定数量暂时没有加载出来；资料页和工作稿仍可使用。</p><button class="btn btn-sm" type="button" @click="retryCards">重新加载</button>
+          </div>
+          <WorldLibraryTypeGrid :cards="commonTypeCards" :working-count="workingCardCount" @select="selectTypeCard" @more="toolDialog = 'types'" />
+        </template>
+        <template v-else>
+          <header class="world-type-results__header">
+            <button type="button" class="btn btn-sm btn-ghost" @click="clearCardFilters">← 全部类型</button>
+            <div><h2>{{ activeTypeLabel }}</h2><p>{{ typeResultCount }} 项资料</p></div>
+          </header>
+          <form class="world-card-filters" role="search" @submit.prevent="applyCardFilters()">
               <label class="world-card-filters__search">
                 <span>搜索资料</span>
                 <input v-model="cardSearch" type="search" maxlength="120" placeholder="名称、别名或内容" />
@@ -187,30 +171,14 @@
                 <button class="btn btn-sm btn-primary" type="submit">查找</button>
                 <button v-if="hasCardFilters" class="btn btn-sm" type="button" @click="clearCardFilters">清除</button>
               </div>
-            </form>
-            <div v-if="props.bible?.entitiesLoadError" class="empty-state" role="alert" data-author-action="retry">
-              <p>人物与设定暂时没有加载出来；资料页和工作稿仍可使用。</p>
-              <button class="btn btn-sm" type="button" @click="retryCards">重新加载</button>
-            </div>
-            <WorldLibraryCards v-if="unifiedCards.length && cardFilters.layout === 'cards'" :cards="unifiedCards" :meta-for="cardMeta" @open="openWorldCard" @create-task="createTaskForWorldCard" />
-            <WorldLibraryList v-else-if="unifiedCards.length" :cards="unifiedCards" :meta-for="cardMeta" @open="openWorldCard" @create-task="createTaskForWorldCard" />
-            <div v-else-if="hasCardFilters && !props.bible?.entitiesLoadError" class="empty-state">
-              <p>没有找到符合条件的资料。</p>
-              <button class="btn btn-sm" type="button" @click="clearCardFilters">查看全部</button>
-            </div>
-            <div v-else-if="!props.bible?.entitiesLoadError" class="empty-state">
-              <p>还没有人物或世界资料。可以先建一个具体设定，也可以从空白资料页开始。</p>
-              <div class="world-card-empty-actions">
-                <button class="btn btn-sm" type="button" @click="showEntityCreateForm()">新建人物或设定</button>
-                <button class="btn btn-sm btn-primary" type="button" @click="createPage">新建资料页</button>
-              </div>
-            </div>
-            <p v-if="entityCardsTruncated" class="world-bible-empty-hint">已显示前 50 个人物或设定；可继续使用搜索精确定位。</p>
-            <div v-if="pages.length" hidden aria-hidden="true">
-              <button v-for="item in categoryItems(true)" :key="item.type" type="button" data-action="bible-gallery-open" :data-category="item.type" @click="openGalleryCategory(item.type)">{{ item.meta.title }}</button>
-            </div>
-          </template>
-        </div>
+          </form>
+          <div v-if="props.bible?.entitiesLoadError" class="empty-state" role="alert" data-author-action="retry"><p>人物与设定暂时没有加载出来；资料页和工作稿仍可使用。</p><button class="btn btn-sm" type="button" @click="retryCards">重新加载</button></div>
+          <WorldLibraryCards v-if="unifiedCards.length && cardFilters.layout === 'cards'" :cards="unifiedCards" :meta-for="cardMeta" @open="openWorldCard" @create-task="createTaskForWorldCard" />
+          <WorldLibraryList v-else-if="unifiedCards.length" :cards="unifiedCards" :meta-for="cardMeta" @open="openWorldCard" @create-task="createTaskForWorldCard" />
+          <div v-else-if="!props.bible?.entitiesLoadError" class="empty-state"><p>没有找到符合条件的资料。</p><button class="btn btn-sm btn-primary" type="button" @click="toolDialog = 'create'">新建资料</button></div>
+          <p v-if="entityCardsTruncated" class="world-bible-empty-hint">已显示前 50 个人物或设定；可继续使用搜索精确定位。</p>
+        </template>
+        <div v-if="pages.length" hidden aria-hidden="true"><button v-for="item in categoryItems(true)" :key="item.type" type="button" data-action="bible-gallery-open" :data-category="item.type" @click="openGalleryCategory(item.type)">{{ item.meta.title }}</button></div>
       </div>
     </template>
 
@@ -643,10 +611,12 @@ import { authorTaskPanelQuery } from "../../writing/home/authorTaskSource.js"
 import { editEntity, showEntityCreateForm, syncWorldListRegistry } from "../logic/worldEntityOps.js"
 import { showAliasCreateForm, showAliasEditForm, syncRelationsAliasesRegistry } from "../logic/worldRelationsAliasesOps.js"
 import { worldSession } from "../worldSession.js"
+import WorldSidebarToolCard from "../components/WorldSidebarToolCard.vue"
+import WorldToolDialog from "../components/WorldToolDialog.vue"
 import WorldEntityDetail from "../library/WorldEntityDetail.vue"
 import WorldLibraryCards from "../library/WorldLibraryCards.vue"
-import WorldLibraryDirectory from "../library/WorldLibraryDirectory.vue"
 import WorldLibraryList from "../library/WorldLibraryList.vue"
+import WorldLibraryTypeGrid from "../library/WorldLibraryTypeGrid.vue"
 import WorldBibleKnowledgeGraph from "../pages/WorldBibleKnowledgeGraph.vue"
 import WorldbookImportPanel from "./WorldbookImportPanel.vue"
 import WorldHealthPanel from "./WorldHealthPanel.vue"
@@ -665,36 +635,17 @@ const props = defineProps({
 })
 
 const rootEl = ref(null)
-const toolbarMoreEl = ref(null)
-const toolbarMoreOpen = ref(false)
+const toolDialog = ref("")
 const worldbookImportOpen = ref(Boolean(props.bibleDeepLink?.openWorldbookImport))
 const validationRun = ref(props.bible?.validationRun || null)
 const validationPolicy = ref(props.bible?.validationPolicy || { active: false })
+const entityProfileDirty = ref(false)
 let libraryScrollRestoreTimer = null
 watch(() => props.bibleDeepLink?.openWorldbookImport, (open) => {
   if (open) worldbookImportOpen.value = true
 })
 
-const layoutOptions = [{ value: "cards", label: "卡片" }, { value: "list", label: "列表" }]
 const legacyModeLabels = { gallery: "总览", editor: "编辑资料页", filter: "资料页筛选", graph: "关联图" }
-
-function closeToolbarMore(restoreFocus = false) {
-  if (!toolbarMoreEl.value?.open) return
-  toolbarMoreEl.value.open = false
-  toolbarMoreOpen.value = false
-  if (restoreFocus) nextTick(() => toolbarMoreEl.value?.querySelector("summary")?.focus())
-}
-
-function runToolbarAction(action) {
-  const summary = toolbarMoreEl.value?.querySelector("summary")
-  closeToolbarMore(false)
-  summary?.focus()
-  action()
-}
-
-function onToolbarOutsideClick(event) {
-  if (toolbarMoreEl.value?.open && !toolbarMoreEl.value.contains(event.target)) closeToolbarMore(true)
-}
 
 const {
   displayMode,
@@ -749,6 +700,7 @@ const {
   openPageTemplateManager,
   openPageHistory,
   archivePage,
+  setExternalLeaveGuard,
 
   typeMeta,
   categoryItems,
@@ -765,7 +717,9 @@ const {
   esc,
 } = useWorldBible(props)
 
-const cardFilters = computed(() => props.worldCardFilters || { q: "", kind: "all", type: "", state: "", layout: "cards" })
+setExternalLeaveGuard(() => !entityProfileDirty.value || confirm("人物档案有未保存修改，确定放弃并离开吗？"))
+
+const cardFilters = computed(() => ({ q: "", kind: "all", type: "", state: "", layout: "cards", ...(props.worldCardFilters || {}) }))
 const cardSearch = ref(cardFilters.value.q || "")
 watch(() => cardFilters.value.q, (value) => { cardSearch.value = value || "" })
 const bibleEntityTotal = computed(() => Number(props.bible?.entityTotal || 0))
@@ -816,6 +770,110 @@ const cardTypeOptions = computed(() => {
   return Array.from(labels, ([value, label]) => ({ value, label }))
     .sort((left, right) => left.label.localeCompare(right.label, "zh-CN"))
 })
+const COMMON_TYPE_KEYS = ["character", "location", "faction", "item", "event", "rule"]
+const COMMON_TYPE_META = {
+  character: ["人物", "人"], location: ["地点", "地"], faction: ["势力／派系", "势"],
+  item: ["物品", "物"], event: ["事件", "事"], rule: ["规则", "规"],
+}
+const entityTypeCounts = computed(() => new Map((props.bible?.entityFacets || []).map((item) => [item.entity_type, Number(item.count || 0)])))
+const pageTypeCounts = computed(() => {
+  const counts = new Map()
+  for (const item of [...pages.value, ...drafts.value]) {
+    const key = item.page_type || "custom"
+    counts.set(key, (counts.get(key) || 0) + 1)
+  }
+  return counts
+})
+const countForType = (value) => Number(entityTypeCounts.value.get(value) || 0) + Number(pageTypeCounts.value.get(value) || 0)
+const commonTypeCards = computed(() => COMMON_TYPE_KEYS.map((value) => {
+  const option = cardTypeOptions.value.find((item) => item.value === value)
+  return { value, label: option?.label || COMMON_TYPE_META[value][0], symbol: COMMON_TYPE_META[value][1], count: countForType(value) }
+}))
+const extraTypeOptions = computed(() => cardTypeOptions.value.filter((item) => !COMMON_TYPE_KEYS.includes(item.value)))
+const showTypeHome = computed(() => displayMode.value === "gallery" && !selectedEntity.value && !galleryCategory.value && !hasCardFilters.value)
+const activeTypeLabel = computed(() => {
+  if (cardFilters.value.state === "working") return "工作稿"
+  if (cardFilters.value.type) return cardTypeOptions.value.find((item) => item.value === cardFilters.value.type)?.label || cardFilters.value.type
+  if (cardFilters.value.q) return `“${cardFilters.value.q}”的搜索结果`
+  return "全部资料"
+})
+const typeResultCount = computed(() => cardFilters.value.state === "working" ? workingCardCount.value : cardFilters.value.type ? countForType(cardFilters.value.type) : unifiedCards.value.length)
+const sidebarActions = computed(() => {
+  if (selectedEntity.value) return [
+    { key: "edit", label: "编辑资料", primary: true },
+    { key: "all", label: "返回资料库" },
+    { key: "task", label: "添加到计划中的任务" },
+    { key: "more", label: "更多工具" },
+  ]
+  if (!showTypeHome.value) return [
+    { key: "create", dataAction: "bible-new-resource", label: cardFilters.value.type ? `新建${activeTypeLabel.value}` : "新建资料", primary: true },
+    { key: "all", label: "返回全部类型" },
+    { key: cardFilters.value.layout === "cards" ? "list" : "cards", label: cardFilters.value.layout === "cards" ? "切换到列表" : "切换到卡片" },
+    { key: "ai", label: "AI 工具" },
+    { key: "more", label: "更多工具" },
+  ]
+  return [
+    { key: "create", dataAction: "bible-new-resource", label: "＋ 新建资料", primary: true },
+    { key: "health", label: "世界健康" },
+    { key: "questions", label: "页面中的未决项", badge: authorOpenQuestions.value.length },
+    { key: "ai", label: "AI 工具" },
+    { key: "more", label: "更多工具" },
+  ]
+})
+const toolDialogTitle = computed(() => ({ health: "世界健康", questions: "页面中的未决项", types: "更多类型", create: "新建资料", more: "更多工具" })[toolDialog.value] || "资料工具")
+
+function handleSidebarAction(key) {
+  if (["create", "health", "questions", "more"].includes(key)) { toolDialog.value = key; return }
+  if (key === "all") { clearCardFilters(); return }
+  if (key === "cards" || key === "list") { setLibraryLayout(key); return }
+  if (key === "edit") { editSelectedEntity(); return }
+  if (key === "task" && selectedEntity.value) { createTaskForWorldEntity(selectedEntity.value); return }
+  if (key === "ai") {
+    const query = worldCardQuery(cardFilters.value)
+    query.set("owner_ai", "1")
+    query.set("owner_ai_mode", "world")
+    getRouter()?.navigate("world", "bible", true, query)
+  }
+}
+
+function selectTypeCard(value) {
+  cardSearch.value = ""
+  if (value === "working") applyCardFilters({ q: "", state: "working", type: "", kind: "page" })
+  else applyCardFilters({ q: "", state: "", type: value, kind: "all" })
+}
+
+function selectMoreType(value) {
+  toolDialog.value = ""
+  nextTick(() => selectTypeCard(value))
+}
+
+function runDialogAction(action) {
+  toolDialog.value = ""
+  nextTick(action)
+}
+
+function createEntityFromDialog() {
+  const selectedType = props.entityTypes.some((item) => item.value === cardFilters.value.type) ? cardFilters.value.type : ""
+  toolDialog.value = ""
+  nextTick(() => showEntityCreateForm({ entity_type: selectedType }, {
+    onCreated: (entity) => {
+      const query = worldCardQuery({ ...cardFilters.value, type: entity.entity_type || selectedType })
+      query.set("entity_id", entity.id || entity.entity_id)
+      getRouter()?.navigate("world", "bible", true, query)
+      return true
+    },
+  }))
+}
+
+function createPageFromDialog() {
+  toolDialog.value = ""
+  nextTick(createPage)
+}
+
+function openQuestionFromDialog(entry) {
+  toolDialog.value = ""
+  nextTick(() => openAuthorOpenQuestion(entry))
+}
 function openGraphEntity(entityId) {
   getRouter()?.navigate("world", "objects", true, new URLSearchParams({ entity_id: entityId }))
 }
@@ -883,7 +941,7 @@ function restoreLibraryScroll() {
 }
 
 function openWorldCard(card) {
-  rememberLibraryScroll()
+  if (displayMode.value === "gallery" && !selectedEntity.value) rememberLibraryScroll()
   const query = worldCardQuery(cardFilters.value)
   if (card.kind === "entity") {
     query.set("entity_id", card.id)
@@ -970,9 +1028,6 @@ const authorOpenQuestions = computed(() => {
     })
   })
 })
-const authorOpenQuestionSourceCount = computed(
-  () => new Set(authorOpenQuestions.value.map((item) => item.sourceKey)).size,
-)
 const currentProfile = computed(() => activationProfiles.value.find((p) => p.id === activeActivationProfileId.value) || null)
 const activeTemplateLabel = computed(() => pageTemplates.value.find((template) => template.template_key === editSource.value?.template_key)?.name || "当前模板")
 function activationProfileStatusLabel(status) {
@@ -1277,7 +1332,6 @@ async function publishActivationProfile() {
 onMounted(() => {
   rootEl.value?.dispatchEvent(new Event("workspace:content-rendered", { bubbles: true }))
   mountAssetRefPicker()
-  document.addEventListener("click", onToolbarOutsideClick)
   restoreLibraryScroll()
 })
 
@@ -1288,7 +1342,6 @@ onBeforeUnmount(() => {
   assetRefPicker?.destroy?.()
   assetRefPicker = null
   destroyActivationTargetPicker()
-  document.removeEventListener("click", onToolbarOutsideClick)
 })
 
 function mountAssetRefPicker() {
@@ -1349,13 +1402,20 @@ function assetRefId(ref) {
 </script>
 
 <style scoped>
-.world-library-layout { display: grid; grid-template-columns: minmax(170px, 220px) minmax(0, 1fr); gap: 20px; align-items: start; }
 .world-library-content { min-width: 0; }
 .world-library-content :deep(.world-bible-page-card__actions) { flex-wrap: wrap; }
+.world-type-results__header { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+.world-type-results__header h2, .world-type-results__header p { margin: 0; }
+.world-type-results__header p { margin-top: 3px; color: var(--text-muted); }
+.world-more-types, .world-more-tools, .world-create-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.world-more-types .btn, .world-more-tools .btn, .world-create-choices .btn { min-height: 48px; justify-content: flex-start; }
+.world-bible-open-questions__list { display: grid; gap: 8px; }
+.world-bible-open-question { display: flex; min-height: 48px; align-items: flex-start; justify-content: space-between; gap: 12px; text-align: left; }
+.world-bible-open-question small { color: var(--text-muted); }
 @media (max-width: 760px) {
-  .world-library-layout { grid-template-columns: minmax(0, 1fr); gap: 14px; }
   .world-bible-toolbar__actions .btn, .world-bible-toolbar__actions summary { min-height: 44px; }
   .world-card-filters { grid-template-columns: minmax(0, 1fr); }
   .world-card-filters input, .world-card-filters select, .world-card-filters .btn { min-height: 44px; }
+  .world-more-types, .world-more-tools, .world-create-choices { grid-template-columns: minmax(0, 1fr); }
 }
 </style>

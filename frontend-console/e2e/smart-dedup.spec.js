@@ -20,6 +20,16 @@ function suggestion(index, overrides = {}) {
   }
 }
 
+async function startSmartDedup(page) {
+  if ((page.viewportSize()?.width || 1280) > 760) {
+    await page.locator('#sidebar-context-slot [data-action="start-smart-dedup"]').click()
+    return
+  }
+  const mobileTools = page.locator(".world-sidebar-tools-mobile")
+  if (await mobileTools.getAttribute("open") === null) await mobileTools.locator("summary").click()
+  await mobileTools.locator('[data-action="start-smart-dedup"]').click()
+}
+
 test.describe("智能去重", () => {
   let testProjectId = null
 
@@ -86,10 +96,10 @@ test.describe("智能去重", () => {
 
     await openWorkbench(page, project, "world")
 
-    await expect(page.locator('.world-toolbar [data-role="smart-dedup-action"]')).toHaveCount(1)
+    await expect(page.locator('#sidebar-context-slot [data-role="smart-dedup-action"]')).toHaveCount(1)
     await expect(page.locator("#workspace-header")).toHaveCount(0)
 
-    await page.locator('[data-action="start-smart-dedup"]').click()
+    await startSmartDedup(page)
     await expect(page.locator("#toast-container")).toContainText("智能去重扫描完成", { timeout: 10000 })
 
     await expect(page.locator("#modal-title")).toHaveText("智能去重建议")
@@ -117,7 +127,7 @@ test.describe("智能去重", () => {
       ]),
     })
     expect(applyPayload.suggestions).toHaveLength(7)
-    await expect(page.locator('[data-role="smart-dedup-action"]')).toContainText("智能去重")
+    await expect(page.locator('[data-role="smart-dedup-action"]:visible')).toContainText("智能去重")
   })
 
   test("应用一条建议后可以再次扫描并保持页面可交互", async ({ page }) => {
@@ -209,7 +219,7 @@ test.describe("智能去重", () => {
 
     await openWorkbench(page, project, "world")
 
-    await page.locator('[data-action="start-smart-dedup"]').click()
+    await startSmartDedup(page)
     await expect(page.locator("#modal-title")).toHaveText("智能去重建议", { timeout: 10000 })
     await expect(page.locator('[data-smart-dedup-index="0"]')).toBeChecked()
     await expect(page.locator('[data-smart-dedup-index="1"]')).not.toBeChecked()
@@ -217,14 +227,14 @@ test.describe("智能去重", () => {
     await page.getByRole("button", { name: "应用选中建议" }).click()
     await expect(page.locator("#toast-container")).toContainText("已应用 1 条智能去重建议", { timeout: 10000 })
     expect(applyPayload.suggestions).toHaveLength(1)
-    await expect(page.locator('[data-role="smart-dedup-action"]')).toContainText("智能去重")
+    await expect(page.locator('[data-role="smart-dedup-action"]:visible')).toContainText("智能去重")
 
-    await page.locator('[data-action="start-smart-dedup"]').click()
+    await startSmartDedup(page)
     await expect(page.locator("#modal-title")).toHaveText("智能去重建议", { timeout: 10000 })
     await expect(page.locator("#modal-body")).toContainText("沈澜")
     await expect(page.locator("#modal-body")).toContainText("高风险别名命中")
     await expect(page.locator('[data-smart-dedup-index="0"]')).not.toBeChecked()
-    await expect(page.locator('[data-role="smart-dedup-action"]')).toContainText("查看去重建议")
+    await expect(page.locator('[data-role="smart-dedup-action"]:visible')).toContainText("查看去重建议")
     expect(await page.locator("body").innerText({ timeout: 5000 })).toContain("智能去重建议")
     expect(scanCount).toBe(2)
   })
@@ -288,9 +298,9 @@ test.describe("智能去重", () => {
 
     await openWorkbench(page, project, "world")
 
-    await page.locator('[data-action="start-smart-dedup"]').click()
+    await startSmartDedup(page)
     await expect(page.locator("#modal-body")).toContainText("没有发现可处理的重复资产", { timeout: 10000 })
-    await expect(page.locator('[data-role="smart-dedup-action"]')).toContainText("智能去重")
+    await expect(page.locator('[data-role="smart-dedup-action"]:visible')).toContainText("智能去重")
 
     await page.getByRole("button", { name: "重新扫描" }).click()
     await expect(page.locator("#modal-title")).toHaveText("智能去重建议", { timeout: 10000 })
@@ -372,7 +382,7 @@ test.describe("智能去重", () => {
 
     await page.setViewportSize({ width: 600, height: 900 })
     await openWorkbench(page, project, "world")
-    await page.locator('[data-action="start-smart-dedup"]').click()
+    await startSmartDedup(page)
 
     await expect(page.locator("#modal-title")).toHaveText("智能去重裁决工作台", { timeout: 10000 })
     await expect(page.locator("#modal-content")).toHaveAttribute("data-modal-size", "large")

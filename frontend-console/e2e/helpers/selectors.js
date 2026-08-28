@@ -93,7 +93,8 @@ export const SEL = {
 
   // 世界书
   worldBibleWorkspace: ".world-bible-workspace",
-  worldBibleNewPage: '[data-action="bible-new-page"]',
+  worldBibleNewResource: '#sidebar-context-slot [data-action="bible-new-resource"]',
+  worldBibleNewPageChoice: '[data-action="bible-new-page-choice"]',
   worldBibleCreateTitle: "#bible-create-title",
   worldBibleSavePage: '[data-action="bible-save-page"]',
   worldBiblePublishPage: '[data-action="bible-publish-page"]',

@@ -395,6 +395,13 @@ export async function loadWorld() {
     }
   } else if (subView === "bible") {
     const cardFilters = props.worldCardFilters
+    const typeHome = !props.bibleDeepLink.entityId
+      && !props.bibleDeepLink.pageId
+      && !props.bibleDeepLink.draftId
+      && !cardFilters.q
+      && !cardFilters.type
+      && !cardFilters.state
+      && cardFilters.kind === "all"
     const [pages, categories, drafts, synopsis, pageTemplates, activationProfiles, validationRun, validationPolicy, cardEntities] = await Promise.all([
       api.world.listBiblePages({ novel_id: projectId }),
       api.world.listBibleCategories(projectId, true),
@@ -414,6 +421,10 @@ export async function loadWorld() {
         : Promise.resolve({ active: false }),
       props.bibleDeepLink.entityId
         ? api.world.getEntity(props.bibleDeepLink.entityId, projectId).then((item) => ({ items: [item], total: 1 }))
+        : typeHome
+          ? (api.world.listEntities
+            ? api.world.listEntities({ novel_id: projectId, display_state: "active", view_mode: "hot", skip: 0, limit: 1 })
+            : Promise.resolve({ items: [], total: 0 }))
         : (cardFilters.kind === "page" || cardFilters.state === "working" || !api.world.listEntities
           ? Promise.resolve({ items: [], total: 0 })
           : api.world.listEntities({
@@ -441,6 +452,7 @@ export async function loadWorld() {
       validationPolicy,
       entities: cardEntities?.items || [],
       entityTotal: Number(cardEntities?.total || 0),
+      entityFacets: cardEntities?.facets?.by_type || [],
       entitiesLoadError: cardEntities?.loadError || null,
     }
   }

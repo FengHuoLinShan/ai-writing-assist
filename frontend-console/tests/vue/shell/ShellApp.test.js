@@ -28,6 +28,8 @@ describe("ShellApp", () => {
     expect(wrapper.get("#topbar-module").text()).toBe("人物与世界")
     expect(wrapper.get("#topbar-submodule").text()).toContain("人物与设定")
     expect(wrapper.get('.nav-item[data-view="world"]').classes()).toContain("active")
+    expect(wrapper.get("#sidebar").element.tagName).toBe("ASIDE")
+    expect(wrapper.get("#sidebar-context-slot").exists()).toBe(true)
     expect(wrapper.get("#workspace-content").attributes("data-imperative-route-host")).toBe("hash-router")
 
     services.updateState("currentView", "generate")

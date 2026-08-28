@@ -3,6 +3,11 @@ import { SEL } from "./helpers/selectors.js"
 import { openWorkbench } from "./helpers/workbench.js"
 import { cleanupProject, createEntity, createProject, listEntityTypes, waitForBackend } from "./helpers/api-client.js"
 
+async function openObjectTools(page) {
+  await page.locator("#sidebar-context-slot").getByRole("button", { name: "更多工具", exact: true }).click()
+  await page.getByRole("dialog").getByRole("button", { name: "人物与设定工具", exact: true }).click()
+}
+
 test.describe("世界对象入口", () => {
   let testProjectIds = []
 
@@ -81,8 +86,7 @@ test.describe("世界对象入口", () => {
     await expect(page.locator(SEL.viewTitle)).toHaveText("人物与世界")
     await expect(page.locator(SEL.subnavItem("bible"))).toHaveClass(/active/)
     await expect(page.locator(".world-bible-workspace")).toBeVisible()
-    await page.locator("[data-section='bible-toolbar-more'] > summary").click()
-    await page.locator("[data-action='bible-open-object-tools']").click()
+    await openObjectTools(page)
     await expect(table).toContainText("沉钟港")
     await expect(page).not.toHaveURL(/\/map/)
 
@@ -135,16 +139,11 @@ test.describe("世界对象入口", () => {
     await page.locator(SEL.modalFooter).getByRole("button", { name: "编辑后采用" }).click()
 
     await page.locator(SEL.subnavItem("bible")).click()
-    await page.locator("[data-section='bible-toolbar-more'] > summary").click()
-    await page.locator("[data-action='bible-open-object-tools']").click()
-    await expect(page.locator("table.world-object-table")).toContainText("月廷")
-    await expect(page.locator("table.world-object-table")).toContainText("宗教/神祇")
-    const filterToggle = page.locator('[data-action="toggle-filter-panel"][data-filter-key="objects"]')
-    if (await page.locator("#filter-entity-type").isHidden()) await filterToggle.click()
-    await page.locator("#filter-entity-type").selectOption("宗教/神祇")
-    await page.getByRole("button", { name: "应用", exact: true }).click()
-    await expect(page).toHaveURL(/entity_type=%E5%AE%97%E6%95%99%2F%E7%A5%9E%E7%A5%87/)
-    await expect(page.locator("table.world-object-table")).toContainText("月廷")
+    await page.getByRole("button", { name: /更多类型/ }).click()
+    await page.getByRole("dialog").getByRole("button", { name: "宗教/神祇", exact: true }).click()
+    await expect(page).toHaveURL(/type=%E5%AE%97%E6%95%99%2F%E7%A5%9E%E7%A5%87/)
+    await expect(page.locator(".world-card-grid")).toContainText("月廷")
+    await expect(page.locator(".world-card-grid")).toContainText("宗教/神祇")
 
     const ownCatalog = await listEntityTypes(project.id)
     const otherCatalog = await listEntityTypes(otherProject.id)

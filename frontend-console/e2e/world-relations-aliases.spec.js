@@ -58,7 +58,7 @@ test.describe("世界对象 — 关系与别名", () => {
     await page.locator(SEL.subnavItem("relations")).click()
     await expect(page.locator(SEL.subnavItem("relations"))).toHaveClass(/active/)
 
-    await page.locator('[data-action="create-relation"]').click()
+    await page.locator('#sidebar-context-slot [data-action="world-tool-new-relation"]').click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("新建关系")
 
     await page.locator("#rel-source").selectOption(sourceId)

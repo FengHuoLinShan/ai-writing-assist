@@ -239,6 +239,7 @@ test.describe("世界对象模块", () => {
     // Given: 已存在一个世界对象
     await page.locator("#btn-new-entity").click()
     await page.locator("#create-entity-name").fill("待删除对象")
+    await page.locator("#create-entity-type").selectOption("character")
     await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
     await expect(page.locator(SEL.toastContainer)).toContainText("已创建", { timeout: 10000 })
 

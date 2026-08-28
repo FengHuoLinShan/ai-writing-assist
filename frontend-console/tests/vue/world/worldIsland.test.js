@@ -376,6 +376,29 @@ describe("world island deep links", () => {
     expect(props.bible).toMatchObject({ entities: [{ id: "entity-1" }], entityTotal: 61, entitiesLoadError: null })
   })
 
+  it("loads exact full-project type facets for the type-card home", async () => {
+    const listEntities = vi.fn().mockResolvedValue({
+      items: [{ id: "entity-1", name: "雾港", entity_type: "location" }],
+      total: 156,
+      facets: { by_type: [{ entity_type: "location", count: 42 }] },
+    })
+    setBridgeOverrides({
+      api: { world: {
+        listEntityTypes: vi.fn().mockResolvedValue({ items: [] }), getReviewTypeCatalog: vi.fn().mockResolvedValue({}), listEntities,
+        listBiblePages: vi.fn().mockResolvedValue({ items: [] }), listBibleCategories: vi.fn().mockResolvedValue({ items: [] }), listBibleDrafts: vi.fn().mockResolvedValue({ items: [] }), getBibleSynopsis: vi.fn().mockResolvedValue(null),
+      } },
+      state: { currentProjectId: "novel-1", currentSubView: "bible" },
+      router: { getCurrentQuery: () => new URLSearchParams(), registerView: vi.fn() },
+      toast: vi.fn(),
+    })
+    const { loadWorld } = await import("../../../vue/worldIsland.js")
+
+    const props = await loadWorld()
+
+    expect(listEntities).toHaveBeenCalledWith({ novel_id: "novel-1", display_state: "active", view_mode: "hot", skip: 0, limit: 1 })
+    expect(props.bible).toMatchObject({ entityTotal: 156, entityFacets: [{ entity_type: "location", count: 42 }] })
+  })
+
   it("loads an exact unified-library entity even when returning to page-only filters", async () => {
     const entity = { id: "entity-1", name: "沉钟港", entity_type: "location" }
     const api = {

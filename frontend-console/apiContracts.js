@@ -383,6 +383,15 @@
       requiredParams: ["id"],
       requiredQuery: ["novel_id"],
     }),
+    "world.getCharacter": define("GET", ({ id }) => `/world/characters/${required(id, "id", "world.getCharacter")}`, {
+      requiredParams: ["id"],
+      requiredQuery: ["novel_id"],
+    }),
+    "world.updateCharacter": define("PUT", ({ id }) => `/world/characters/${required(id, "id", "world.updateCharacter")}`, {
+      requiredParams: ["id"],
+      requiredQuery: ["novel_id"],
+      hasBody: true,
+    }),
     "world.fetchEntityImage": define("GET", ({ id }) => `/world/entities/${required(id, "id", "world.fetchEntityImage")}/image`, {
       requiredParams: ["id"],
       requiredQuery: ["novel_id", "variant"],

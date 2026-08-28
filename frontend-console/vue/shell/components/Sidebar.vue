@@ -1,17 +1,20 @@
 <template>
-  <nav id="sidebar" aria-label="主导航">
+  <aside id="sidebar">
     <button class="sidebar-project-switcher" type="button" title="切换作品" @click="$emit('navigate', 'project')">
       <span class="sidebar-project-switcher__mark" aria-hidden="true">◆</span>
       <span class="sidebar-project-switcher__copy"><small>当前作品</small><strong>{{ projectTitle || '选择作品' }}</strong></span>
       <span aria-hidden="true">⌄</span>
     </button>
-    <ul id="nav-list" class="sidebar-desktop-nav">
-      <li v-for="item in SHELL_NAV_ITEMS" :key="item.view" class="nav-item" :class="{ active: currentView === item.view || (item.view === 'today' && currentView === 'writing') }"
-        :data-view="item.view" :title="item.title" role="button" tabindex="0"
-        @click="$emit('navigate', item.view)" @keydown.enter.prevent="$emit('navigate', item.view)" @keydown.space.prevent="$emit('navigate', item.view)">
-        <NavIcon :name="item.icon" /><span class="nav-label">{{ item.label }}</span>
-      </li>
-    </ul>
+    <nav aria-label="主导航">
+      <ul id="nav-list" class="sidebar-desktop-nav">
+        <li v-for="item in SHELL_NAV_ITEMS" :key="item.view" class="nav-item" :class="{ active: currentView === item.view || (item.view === 'today' && currentView === 'writing') }"
+          :data-view="item.view" :title="item.title" role="button" tabindex="0"
+          @click="$emit('navigate', item.view)" @keydown.enter.prevent="$emit('navigate', item.view)" @keydown.space.prevent="$emit('navigate', item.view)">
+          <NavIcon :name="item.icon" /><span class="nav-label">{{ item.label }}</span>
+        </li>
+      </ul>
+    </nav>
+    <div id="sidebar-context-slot" aria-label="当前页面工具"></div>
     <div class="sidebar-footer">
       <details class="sidebar-more" :open="moreOpen" @toggle="moreOpen = $event.target.open">
         <summary class="nav-item" :class="{ active: moreActive }"><span class="sidebar-more__icon" aria-hidden="true">•••</span><span class="nav-label">更多</span></summary>
@@ -24,21 +27,21 @@
         </div>
       </details>
     </div>
-    <div class="sidebar-mobile-nav" aria-label="移动端主导航">
+    <nav class="sidebar-mobile-nav" aria-label="移动端主导航">
       <button v-for="item in SHELL_MOBILE_NAV_ITEMS" :key="item.view" type="button" :class="{ active: currentView === item.view || (item.view === 'today' && currentView === 'writing') }" @click="navigateMobile(item.view)">
         <NavIcon :name="item.icon" /><span>{{ item.label }}</span>
       </button>
       <button ref="mobileMoreTrigger" type="button" :class="{ active: mobileMoreOpen || moreActive }" aria-controls="sidebar-mobile-sheet" :aria-expanded="mobileMoreOpen" @click="toggleMobileMore">
         <span class="sidebar-more__icon" aria-hidden="true">•••</span><span>全部</span>
       </button>
-    </div>
+    </nav>
     <div v-if="mobileMoreOpen" id="sidebar-mobile-sheet" ref="mobileSheet" class="sidebar-mobile-sheet" role="dialog" aria-label="全部功能" @keydown.esc.stop.prevent="closeMobileMore(true)">
       <button type="button" @click="navigateMobile('map')"><NavIcon name="map" /><span>地图</span></button>
       <button type="button" @click="navigateMobile('rag')"><NavIcon name="search" /><span>查找</span></button>
       <button v-for="item in SHELL_MORE_ITEMS" :key="`mobile-${item.label}`" type="button" @click="navigateMobile(item.view)"><NavIcon :name="item.icon" /><span>{{ item.label }}</span></button>
       <button type="button" @click="showHelp"><span class="help-icon">?</span><span>帮助</span></button>
     </div>
-  </nav>
+  </aside>
 </template>
 
 <script setup>
