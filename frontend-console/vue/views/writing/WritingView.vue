@@ -377,7 +377,7 @@ function addChapterTask() {
   router.navigate("writing", null, true, authorTaskPanelQuery({
     kind: "writing_chapter",
     id: String(vm.selectedChapter.value),
-    title: `处理章节：${vm.editorState.title || `第 ${vm.selectedChapter.value} 章`}`,
+    title: vm.editorState.title || `第 ${vm.selectedChapter.value} 章`,
   }))
 }
 const conflictSummary = computed(() => (

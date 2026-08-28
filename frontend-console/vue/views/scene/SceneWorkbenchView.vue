@@ -576,7 +576,7 @@ function handleMenu(item, menu) {
     return router.navigate("writing", null, true, authorTaskPanelQuery({
       kind: "outline_scene",
       id: item.scene.id,
-      title: `处理场景：${item.scene.title || "未命名场景"}`,
+      title: item.scene.title || "未命名场景",
     }))
   }
   if (menu.action === "start-merge-scene") return modalController.startMerge(item.scene.id)

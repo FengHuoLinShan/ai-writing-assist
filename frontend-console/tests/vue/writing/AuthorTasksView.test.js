@@ -92,10 +92,14 @@ describe("作者任务工作台", () => {
     await flushPromises()
     await wrapper.findAll("button").find((button) => button.text() === "编辑").trigger("click")
     await wrapper.get("#author-task-title").setValue("保留的作者输入")
+    await wrapper.get("#author-task-note").setValue("保留的备注")
+    await wrapper.get("#author-task-date").setValue("2026-09-01")
     await wrapper.get(".author-task-form").trigger("submit")
     await flushPromises()
 
     expect(wrapper.get("#author-task-title").element.value).toBe("保留的作者输入")
+    expect(wrapper.get("#author-task-note").element.value).toBe("保留的备注")
+    expect(wrapper.get("#author-task-date").element.value).toBe("2026-09-01")
     expect(wrapper.get(".author-task-conflict").text()).toContain("再次保存")
     expect(api.projects.patchAuthorTask).toHaveBeenCalledTimes(1)
 
@@ -104,6 +108,8 @@ describe("作者任务工作台", () => {
 
     expect(api.projects.patchAuthorTask).toHaveBeenNthCalledWith(2, "p1", "task-1", expect.objectContaining({
       title: "保留的作者输入",
+      note: "保留的备注",
+      due_date: "2026-09-01",
       expected_updated_at: "2026-08-27T11:00:00Z",
     }))
     expect(wrapper.find(".author-task-form").exists()).toBe(false)

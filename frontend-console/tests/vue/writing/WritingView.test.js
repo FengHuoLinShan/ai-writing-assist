@@ -92,6 +92,7 @@ describe("WritingView", () => {
     expect(call[3].get("panel")).toBe("tasks")
     expect(call[3].get("task_source_kind")).toBe("writing_chapter")
     expect(call[3].get("task_source_id")).toBe("1")
+    expect(call[3].get("task_title")).toBe("<img src=x>")
     wrapper.unmount()
   })
 
