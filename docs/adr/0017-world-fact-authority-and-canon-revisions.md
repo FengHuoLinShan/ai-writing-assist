@@ -94,7 +94,8 @@ Statement、receipt 或 authorization-policy 表。资源继续由现有专用 h
 - Phase 0 已实现封闭 wire、精确 resolver、C0/head、内联 receipt 回放、追加式
   Preview/Admit/Revert 与 World Bible PageRevision 选择。
 - 所有 formal family 仍为 `formal-disabled`；Assert 准入、task-attempt 执行、family cutover、
-  查询推理和统一卡片 UI 仍需后续独立实现与门禁。
+  查询推理仍需后续独立实现与门禁。Phase 1 统一卡片首页已作为不改
+  DB 的 Page/CoreEntity tagged read model 独立落地，不扩大本 ADR 的权威范围。
 
 ## 拒绝方案
 

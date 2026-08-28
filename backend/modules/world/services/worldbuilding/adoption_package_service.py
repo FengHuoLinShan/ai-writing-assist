@@ -37,6 +37,9 @@ from modules.world.schemas import (
 from modules.world.services.worldbuilding.suggestion_queue_service import (
     SuggestionQueueService,
 )
+from modules.world.services.worldbuilding.world_authority_service import (
+    WorldAuthorityService,
+)
 from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
     WorldBibleLifecycleService,
 )
@@ -498,6 +501,13 @@ class WorldAdoptionPackageService:
         package = self._package(pending)
         await self._validate_checkpoint_lineage(db, novel_id, package)
         authorization_actor = await self._active_owner_actor(db, novel_id)
+        authority = WorldAuthorityService()
+        expected_canon_head = None
+        if any(
+            item.disposition == "include" and item.kind == "world_bible_page"
+            for item in package.items
+        ):
+            expected_canon_head = await authority.lock_head_for_admission(db, novel_id)
         baseline = await self._authoritative_baseline(db, novel_id, package)
         baseline["pages"] = await self._page_diffs(
             db, novel_id, package, lock_universe=True, for_update=True
@@ -722,14 +732,18 @@ class WorldAdoptionPackageService:
             actual_impact = await self._bible_lifecycle.preview_publish_impact(
                 db, novel_id, draft.id
             )
-            page = await self._bible_lifecycle.publish_draft(
+            page = await self._bible_lifecycle.admit_draft(
                 db,
                 novel_id,
                 draft.id,
-                published_by=authorization_actor,
+                authorizer_id=authorization_actor,
+                expected_canon_head=expected_canon_head,
                 expected_impact_scope_hash=actual_impact.impact_scope_hash,
-                _validation_prechecked=True,
+                validation_prechecked=True,
             )
+            expected_canon_head = (
+                await authority.get_head(db, novel_id)
+            ).current_revision.id
             results.append(
                 {
                     "item_key": item.item_key,

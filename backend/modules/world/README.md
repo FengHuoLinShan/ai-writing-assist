@@ -13,6 +13,9 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
   工作稿漂移时 409 且保留工作稿。
 - Canon receipt 的 authorizer 只能由服务端取得的当前 owner 账户或封闭 C0
   bootstrap 主体承担；AI、worker、validation result 和请求体字段不能授权。
+- 历史 replay 不只校验 receipt/manifest 各自 digest；bootstrap 必须是确定性空 C0，
+  page publish 必须把唯一 affected PageRevision 与父 manifest 转换、工作稿快照和
+  canonical 页面快照相互绑定；任一部分被独立替换都 fail closed。
 - Phase 0 所有 formal family 仍为 `formal-disabled`；`world_assertions` 仅为封闭
   carrier，当前不提供 Assert 准入或形式推理。
 - 对象抽取不是 NER，而是长期创作资产识别
@@ -25,7 +28,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
   `kind=name|title|identity` 保存稳定最小分类，以开放短文本 `type` 保存精确类型
 - 深度导入 Phase 2b 发现的别名以内联待复核形式写入 `content_json.aliases`，单条别名携带 `status/source/workflow_id/scene_id/confidence/needs_review` 元数据
 - 待复核别名可在确认前修改目标对象、别名文本和别名类型；来源、workflow、Scene、引用和置信度作为只读证据保留
-- `world/review` 统一待处理工作台按全部 / 对象 / 别名 / 关系切换；“全部”只做概览和推荐，三个类型队列各自搜索、筛选、分页与写入，对象库、别名、关系页仍保留全量管理能力
+- `world/review` 统一待处理工作台按全部 / 对象 / 别名 / 关系切换；“全部”只做概览和推荐，三个类型队列各自搜索、筛选、分页与写入。已采用 Page/工作稿/CoreEntity 在 `world/bible` 资料库以同一 tagged Card read model 浏览；关系仍是主入口，旧 `objects/aliases` 只作深链兼容与批量工具
 - 前端从生成中心对象结果读取既有 `suggestion.result_ref_json.id`，用 `entity_id + review_item` 精确打开兼容影子并恢复决策焦点；已采用、忽略、归档或不存在的对象不会因精确深链重新出现在待处理队列，API 与 suggestion wire 不变
 - 已采用关系与别名列表复用各自既有 `q` 查询：关系匹配端点名称、精确类型、描述或引用，别名匹配别名、所属对象或引用；所有条件继续受同一 `novel_id` 门禁和服务端分页约束
 - `link_to_existing` / `alias_of_existing` 候选只有在目标已解析为同项目已采用对象 ID 且不是源候选自身时，才按“已有对象”聚合展示；目标仅有名称、指向待处理对象或指向自身时仍留在普通待处理队列。确认后源候选标记 `status="merged"` 并记录 `resolved_as="alias"`，不硬删除、不提升为正史
@@ -160,6 +163,11 @@ projection / 简介 / context 失效，以及生成中心使用的页面/工作�
 引用进入 omission，不能把“0 个显式引用”说成“0 个影响”。生成建议与应用建议
 复用同一内容 hash、draft identity 和更新时间比较；`WorldBibleService` 只保留页面查询与
 projection 任务编排，激活解析不再调用它的私有 hash helper。
+
+正式页内容变化统一调用 lifecycle 的 `admit_draft()`，内部经 Canon Preview/Admit 后才允许
+seal 页面修订；实际 seal 方法是 Authority 独占的内部 seam。旧页面 POST/PATCH 由 API adapter
+转换为工作稿发布。纯 `status=archived` 只归档当前 workflow head，不改历史 PageRevision 或
+Canon selection；恢复归档页仍须产生新工作稿和新 CanonRevision。
 
 页面 projection refresh 以
 `("page_projection", page_id, projection_type)` 调用 tasks facade 的数据库级 keyed
@@ -344,7 +352,7 @@ PNG 后才进入地图册私有 S3。此例外不改变 imports 的文稿上传�
 | `world_bible_categories` | 项目自定义世界书类别；内置类别不落库 |
 | `world_bible_page_drafts` | 新页或已有页的服务器工作稿与发布基线版本 |
 | `world_bible_pages` | 已发布作者手册页面；新版 UI 只发布为 canonical |
-| `world_bible_page_revisions` | 页面发布点的不可变快照与 `revision_digest`，项目/页面/版本唯一 |
+| `world_bible_page_revisions` | 页面发布点的不可变快照与 `revision_digest`，项目/页面/版本唯一，并以复合外键阻止跨项目页面引用 |
 | `world_bible_page_projections` | 与页面版本/source hash 绑定的派生投影 |
 | `world_bible_page_templates` | 项目自定义页面布局模板；与代码内置模板 key 隔离 |
 | `world_bible_page_template_revisions` | 页面模板每次修改/恢复产生的不可变快照 |
@@ -705,7 +713,7 @@ importance level；RAG 章节索引通过该稳定 facade 生成可重建 chunk 
 | POST | `/api/world/canon/admissions/preview` | 冻结 Page publish 或 revert 的 exact input，零写入 |
 | POST | `/api/world/canon/admissions` | 当前 owner 显式确认后的唯一 Admit；服务端注入 authorizer/executor |
 | POST | `/api/world/canon/revert` | 追加一个选择旧 manifest 的新 revision，不移动 head 回旧记录 |
-| POST | `/api/world/bible/drafts/{draft_id}/publish` | 兼容发布 adapter；必须提交 `expected_canon_head` 与 `canon_decision_id`，内部只调用 Admit |
+| POST | `/api/world/bible/drafts/{draft_id}/publish` | 兼容发布 adapter；新客户端成对提交 `expected_canon_head` 与 `canon_decision_id` 以支持安全重放，旧客户端可同时省略，内部均只调用 Admit |
 | POST | `/api/world/bible/imports/preview` | 受限预览目录清单；返回统计、映射与 hash，不回显正文 |
 | GET | `/api/world/bible/imports/{suggestion_id}` | 恢复 pending 导入的紧凑预览 |
 | POST | `/api/world/bible/imports/{suggestion_id}/apply` | 以 preview hash 创建/更新未发布工作稿并写入冲突队列 |
@@ -728,7 +736,8 @@ package、item、来源、authority 与 manifest provenance；同一对象再次
 package contract。
 
 package 也可携带一个完整的 `world_bible_page` create/replace 提案：它只在同一 package
-中有页面项时，经现有 draft → publish lifecycle 创建正式 revision。eligible 页面文字必须有
+中有页面项时预锁 Canon head，再经 draft → Preview/Admit 创建正式 revision 并选入新
+CanonRevision。eligible 页面文字必须有
 同包已采用 item/source 的 claim mapping；open/rejected 只能放 `projection_policy=excluded`
 section，且不会进入可投影正文。页面预览保持零写入并把页面版本/impact scope 纳入 package hash。
 | POST | `/api/world/generation-center/chat` | 世界工作区共创聊天；按作者选择的来源/目标加载上下文，不创建建议、不写业务资产 |

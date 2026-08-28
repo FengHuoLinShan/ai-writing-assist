@@ -85,6 +85,7 @@
 
 - `references/` — 当前实现可查阅但不构成契约的分析和历史设计依据；包括
   [`world-object-worldbook-unification-research.md`](references/world-object-worldbook-unification-research.md)（世界对象、世界书与 Card 统一研究）、
+  [`2026-08-27-frontend-world-task-workspace-research.md`](references/2026-08-27-frontend-world-task-workspace-research.md)（统一卡片后的世界资料库、作者任务与前端目录研究）、
   [`world-authority-canonical-fixtures-v1.json`](references/world-authority-canonical-fixtures-v1.json)（World Authority v1 规范字节夹具）、
   [`map-prd-v1.1.md`](references/map-prd-v1.1.md)、
   [`2026-07-14-novalist-map-capability-analysis.md`](references/2026-07-14-novalist-map-capability-analysis.md)、

@@ -193,7 +193,8 @@ describe("前后端 API 契约", () => {
     expect(contractPath("projects.getWorkspaceSummary", { id: "project-1" }, {
       focus_chapter_index: 3,
       focus_scene_id: "scene-1",
-    })).toBe("/projects/project-1/workspace-summary?focus_chapter_index=3&focus_scene_id=scene-1")
+      on_date: "2026-08-28",
+    })).toBe("/projects/project-1/workspace-summary?focus_chapter_index=3&focus_scene_id=scene-1&on_date=2026-08-28")
   })
 
   it("API 基址默认同源并规范化显式 API_HOST", () => {

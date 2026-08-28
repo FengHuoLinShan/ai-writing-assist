@@ -372,7 +372,7 @@ describe("world island deep links", () => {
       skip: 0,
       limit: 50,
     }))
-    expect(props.worldCardFilters).toEqual({ kind: "entity", type: "location", q: "雾港" })
+    expect(props.worldCardFilters).toMatchObject({ kind: "entity", type: "location", q: "雾港", state: "", layout: "cards" })
     expect(props.bible).toMatchObject({ entities: [{ id: "entity-1" }], entityTotal: 61, entitiesLoadError: null })
   })
 

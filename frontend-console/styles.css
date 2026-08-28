@@ -1400,9 +1400,19 @@ html, body {
 }
 
 @media (max-width: 520px) {
+  .world-bible-toolbar {
+    position: relative;
+  }
+
+  .world-bible-toolbar__more {
+    position: static;
+  }
+
   .world-bible-toolbar__more .world-bible-toolbar__more-actions {
-    right: 0;
-    left: auto;
+    right: var(--space-3);
+    left: var(--space-3);
+    width: auto;
+    max-width: none;
   }
 
   .world-bible-toolbar__more-actions .btn,
@@ -11743,25 +11753,24 @@ kbd {
 /* 世界书 */
 .world-bible-layout {
   display: grid;
-  grid-template-columns: minmax(176px, 18fr) minmax(0, 57fr) minmax(240px, 25fr);
+  grid-template-columns: minmax(176px, 240px) minmax(0, 1fr);
   gap: var(--space-4);
 }
 
 .world-bible-layout:has(.world-bible-nav-rail:not([open])) {
-  grid-template-columns: var(--workspace-rail-collapsed) minmax(0, 1fr) minmax(240px, 320px);
+  grid-template-columns: var(--workspace-rail-collapsed) minmax(0, 1fr);
 }
 
-.world-bible-layout:has(.world-bible-inspector:not([open])) {
-  grid-template-columns: minmax(176px, 18fr) minmax(0, 67fr) minmax(180px, 15fr);
-}
-
-.world-bible-layout:has(.world-bible-nav-rail:not([open])):has(.world-bible-inspector:not([open])) {
-  grid-template-columns: var(--workspace-rail-collapsed) minmax(0, 1fr) minmax(180px, 240px);
-}
-
+.world-bible-content-column,
 .world-bible-editor-panel,
 .world-bible-inspector {
   min-width: 0;
+}
+
+.world-bible-content-column {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
 }
 
 .world-bible-support-summary {
@@ -12297,10 +12306,6 @@ details[open] > .world-bible-support-summary::after {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .world-bible-inspector {
-    grid-column: auto;
-  }
-
   .world-bible-panel__header {
     align-items: stretch;
     flex-direction: column;
@@ -12414,14 +12419,15 @@ details[open] > .world-bible-support-summary::after {
 /* 世界书 */
 .world-bible-layout {
   display: grid;
-  grid-template-columns: minmax(176px, 18fr) minmax(0, 57fr) minmax(240px, 25fr);
+  grid-template-columns: minmax(176px, 240px) minmax(0, 1fr);
   gap: var(--space-4);
 }
 
 .world-bible-layout:has(.world-bible-nav-rail:not([open])) {
-  grid-template-columns: var(--workspace-rail-collapsed) minmax(0, 1fr) minmax(240px, 320px);
+  grid-template-columns: var(--workspace-rail-collapsed) minmax(0, 1fr);
 }
 
+.world-bible-content-column,
 .world-bible-editor-panel,
 .world-bible-inspector {
   min-width: 0;
@@ -12505,14 +12511,8 @@ details[open] > .world-bible-support-summary::after {
     grid-template-columns: minmax(176px, 24fr) minmax(0, 76fr);
   }
 
-  .world-bible-layout:has(.world-bible-nav-rail:not([open])),
-  .world-bible-layout:has(.world-bible-inspector:not([open])),
-  .world-bible-layout:has(.world-bible-nav-rail:not([open])):has(.world-bible-inspector:not([open])) {
+  .world-bible-layout:has(.world-bible-nav-rail:not([open])) {
     grid-template-columns: var(--workspace-rail-collapsed) minmax(0, 1fr);
-  }
-
-  .world-bible-inspector {
-    grid-column: 2;
   }
 }
 
@@ -12735,14 +12735,8 @@ details[open] > .world-bible-support-summary::after {
 
 @media (max-width: 760px) {
   .world-bible-layout,
-  .world-bible-layout:has(.world-bible-nav-rail:not([open])),
-  .world-bible-layout:has(.world-bible-inspector:not([open])),
-  .world-bible-layout:has(.world-bible-nav-rail:not([open])):has(.world-bible-inspector:not([open])) {
+  .world-bible-layout:has(.world-bible-nav-rail:not([open])) {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .world-bible-inspector {
-    grid-column: auto;
   }
 
   .world-bible-panel__header {

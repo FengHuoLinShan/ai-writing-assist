@@ -11,6 +11,7 @@ import {
   writeGenerateSession,
 } from "../../vue/views/generate/generateSession.js"
 import { rememberWritingLocation } from "../../vue/views/writing/writingSession.js"
+import { localAuthorDate } from "../../vue/views/writing/home/useAuthorTasks.js"
 
 beforeEach(() => {
   localStorage.clear()
@@ -20,6 +21,43 @@ beforeEach(() => {
 afterEach(() => resetBridgeOverrides())
 
 describe("todayIsland", () => {
+  it("作者任务、需要决定和后台整理保持三种不同交互", async () => {
+    const router = { navigate: vi.fn(), refresh: vi.fn() }
+    const patchAuthorTask = vi.fn(async () => ({}))
+    setBridgeOverrides({
+      router,
+      api: { projects: { patchAuthorTask } },
+      toast: vi.fn(),
+    })
+    const wrapper = mount(TodayView, { props: {
+      project: { id: "p1", title: "雾港" },
+      summary: {
+        project_id: "p1", writing: {},
+        author_tasks: {
+          today_count: 1, inbox_count: 2, later_count: 1,
+          preview: [{ id: "task-1", title: "核对港口规则", updated_at: "u1", source: { kind: "world_page", id: "page-1", label: "港口制度", available: true } }],
+        },
+        attention: {
+          items: [{ key: "decision-1", source_kind: "world_object", title: "确认别名", summary: "选择正式名称", author_action: "needs_decision", relevance: "project_general", severity: "medium", target: { kind: "world_review_aliases", item_id: "group-1" } }],
+          actionable_total: 1,
+        },
+      },
+      workflows: [{ taskId: "worker-1", workflowType: "smart_dedup_scan", percent: 30 }],
+    } })
+
+    expect(wrapper.get(".today-author-tasks").text()).toContain("核对港口规则")
+    expect(wrapper.get("[aria-labelledby='today-attention-title']").text()).toContain("确认别名")
+    expect(wrapper.get("[aria-labelledby='today-workflows-title']").text()).toContain("正在检查重复资料")
+    expect(wrapper.findAll('input[type="checkbox"]')).toHaveLength(1)
+
+    await wrapper.get('.today-author-task-row input[type="checkbox"]').trigger("change")
+    expect(patchAuthorTask).toHaveBeenCalledWith("p1", "task-1", { status: "completed", expected_updated_at: "u1" })
+
+    await wrapper.get(".today-author-task-row .btn").trigger("click")
+    expect(router.navigate.mock.calls.at(-1)[0]).toBe("world")
+    expect(router.navigate.mock.calls.at(-1)[3].get("page_id")).toBe("page-1")
+  })
+
   it("只在服务器续写章与本机指针一致时带入 Scene", async () => {
     const router = { navigate: vi.fn(), refresh: vi.fn() }
     setBridgeOverrides({ router })
@@ -49,6 +87,7 @@ describe("todayIsland", () => {
     expect(getWorkspaceSummary).toHaveBeenCalledWith("p1", {
       focus_chapter_index: 3,
       focus_scene_id: "s3",
+      on_date: localAuthorDate(),
     })
   })
 

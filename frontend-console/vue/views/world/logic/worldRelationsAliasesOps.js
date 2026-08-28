@@ -215,7 +215,7 @@ export async function showRelationCreateForm(reviewTypeCatalog = {}) {
 }
 
 /** 对应 vanilla showAliasCreateForm（worldView.js:3086-3124）。 */
-export async function showAliasCreateForm(reviewTypeCatalog = {}) {
+export async function showAliasCreateForm(reviewTypeCatalog = {}, initial = {}) {
   const esc = getEsc()
   const toast = getToast()
   const showModalHtml = getShowModalHtml()
@@ -286,6 +286,12 @@ export async function showAliasCreateForm(reviewTypeCatalog = {}) {
       }
     },
   }])
+  if (initial.entityId) {
+    const select = document.getElementById("alias-entity")
+    if (select?.querySelector(`option[value="${CSS.escape(String(initial.entityId))}"]`)) {
+      select.value = String(initial.entityId)
+    }
+  }
   bindTypeKindControls({
     typeSelect: document.getElementById("alias-type"),
     customInput: document.getElementById("alias-type-custom"),

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +16,7 @@ from modules.project.schemas import (
     WorkspaceAttentionMoreTargetResponse,
     WorkspaceAttentionSummaryResponse,
     WorkspaceAttentionTargetResponse,
+    WorkspaceAuthorTasksSummaryResponse,
     WorkspaceContinuationResponse,
     WorkspaceWritingSummaryResponse,
 )
@@ -49,10 +50,9 @@ WorldAttentionReader = Callable[
     [AsyncSession, str], Awaitable[WorldAttentionSummaryContract]
 ]
 OutlineAttentionReader = Callable[..., Awaitable[int]]
-AuthorAttentionReader = Callable[
-    [AsyncSession, str], Awaitable[Sequence[object]]
-]
+AuthorAttentionReader = Callable[[AsyncSession, str], Awaitable[Sequence[object]]]
 SceneReader = Callable[..., Awaitable[object | None]]
+AuthorTaskSummaryReader = Callable[..., Awaitable[WorkspaceAuthorTasksSummaryResponse]]
 
 _ATTENTION_LIMIT = 6
 _RELEVANCE_RANK = {
@@ -176,6 +176,7 @@ class ProjectWorkspaceSummaryService:
         self,
         *,
         project_reader: ProjectReader,
+        author_task_summary_reader: AuthorTaskSummaryReader,
         writing_stats_reader: WritingStatsReader = get_project_writing_stats,
         chapter_index_reader: ChapterIndexReader = list_chapter_indices,
         latest_drafts_reader: LatestDraftsReader = list_latest_drafts_for_chapters,
@@ -188,6 +189,7 @@ class ProjectWorkspaceSummaryService:
         scene_reader: SceneReader = get_scene_contract,
     ) -> None:
         self._project_reader = project_reader
+        self._author_task_summary_reader = author_task_summary_reader
         self._writing_stats_reader = writing_stats_reader
         self._chapter_index_reader = chapter_index_reader
         self._latest_drafts_reader = latest_drafts_reader
@@ -204,6 +206,7 @@ class ProjectWorkspaceSummaryService:
         *,
         focus_chapter_index: int | None = None,
         focus_scene_id: str | None = None,
+        on_date: date | None = None,
     ) -> ProjectWorkspaceSummaryResponse:
         project = await self._project_reader(db, project_id)
         novel_id = project.id
@@ -229,6 +232,11 @@ class ProjectWorkspaceSummaryService:
         )
         outline_items = await self._outline_item_reader(db, novel_id)
         writing_items = await self._writing_attention_reader(db, novel_id)
+        author_tasks = await self._author_task_summary_reader(
+            db,
+            novel_id,
+            on_date=on_date or datetime.now(UTC).date(),
+        )
 
         continuation = None
         if latest is not None:
@@ -313,4 +321,5 @@ class ProjectWorkspaceSummaryService:
                 has_more=actionable_total > _ATTENTION_LIMIT,
                 more_targets=more_targets,
             ),
+            author_tasks=author_tasks,
         )

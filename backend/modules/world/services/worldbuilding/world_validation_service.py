@@ -34,6 +34,7 @@ from modules.world.models import (
 )
 from modules.world.schemas import (
     WorldBiblePageCreate,
+    WorldBiblePageDraftCreate,
     WorldBiblePageResponse,
     WorldDesignCheckpointPayload,
     WorldValidationFinding,
@@ -47,6 +48,9 @@ from modules.world.schemas import (
 )
 from modules.world.services.worldbuilding.adoption_package_service import (
     WorldAdoptionPackageService,
+)
+from modules.world.services.worldbuilding.world_authority_service import (
+    WorldAuthorityService,
 )
 from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
     WorldBibleLifecycleService,
@@ -67,6 +71,7 @@ _ADOPTED_STATUSES = ("canonical", "confirmed")
 class WorldValidationService:
     def __init__(self) -> None:
         self._lifecycle = WorldBibleLifecycleService()
+        self._authority = WorldAuthorityService()
         self._adoption = WorldAdoptionPackageService()
 
     @staticmethod
@@ -177,22 +182,46 @@ class WorldValidationService:
         policy = self.builtin_policy().model_copy(
             update={"policy_version": "project-default-v1"}
         )
-        return await self._lifecycle.create_page(
-            db,
-            WorldBiblePageCreate(
-                novel_id=novel_id,
-                page_key=_POLICY_PAGE_KEY,
-                page_type="rule",
-                title="世界书校验策略",
-                status="canonical",
-                page_meta_json={"validation_policy": policy.model_dump(mode="json")},
-                free_text=(
-                    "已启用世界书结构、证据、依赖和作者裁定门禁。"
-                    "语义审计需在高级策略中明确启用。"
-                ),
-                created_by="world_health",
-            ),
+        context = await get_project_context(db, novel_id)
+        if context is None or not context.owner_id:
+            raise ConflictError("Active project owner is unavailable")
+        expected_canon_head = await self._authority.lock_head_for_admission(
+            db, novel_id
         )
+        async with db.begin_nested():
+            staged = await self._lifecycle.create_page(
+                db,
+                WorldBiblePageCreate(
+                    novel_id=novel_id,
+                    page_key=_POLICY_PAGE_KEY,
+                    page_type="rule",
+                    title="世界书校验策略",
+                    status="draft",
+                    page_meta_json={
+                        "validation_policy": policy.model_dump(mode="json")
+                    },
+                    free_text=(
+                        "已启用世界书结构、证据、依赖和作者裁定门禁。"
+                        "语义审计需在高级策略中明确启用。"
+                    ),
+                    created_by="world_health",
+                ),
+            )
+            draft = await self._lifecycle.create_draft(
+                db,
+                WorldBiblePageDraftCreate(
+                    novel_id=novel_id,
+                    page_id=staged.id,
+                    created_by="world_health",
+                ),
+            )
+            return await self._lifecycle.admit_draft(
+                db,
+                novel_id,
+                draft.id,
+                authorizer_id=context.owner_id,
+                expected_canon_head=expected_canon_head,
+            )
 
     async def create_run(
         self,

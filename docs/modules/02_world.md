@@ -20,8 +20,9 @@ imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用�
 - 作者可显式保存 typed `world_design_checkpoint.v1`（不可采用；旧的
   `world_core_checkpoint.v1` 继续可读）和
   `world_adoption_package.v1`（pending）；package preview 零写入，apply 仅原子采用
-  `include + proposed` 的 CoreEntity / EntityRelation。`open/rejected`、RuleProfile、别名和
-  World Bible 页面不属于 v1 package 操作。
+  `include + proposed` 的 CoreEntity / EntityRelation，并可携带一个完整 World Bible
+  Page create/replace；页面部分在 package 预锁 Canon head 后通过唯一 Admit 选入
+  新 CanonRevision。`open/rejected`、RuleProfile 和别名不属于 v1 package 操作。
 - design checkpoint 以独立 envelope 内嵌 `world-state 0.1.0`，固定保存世界观引擎 19 区、
   6 个再生产循环、F01–F22、C01–C05、四类情境测试、T01–T12 与 fiction-core 六阶段。
   从 World Core 产生的首个 checkpoint 深度为 `seed`，未知区域明确记录为 gap/not-run。
@@ -47,7 +48,7 @@ imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用�
 - 别名不建新对象，存储于 `core_entities.content_json.aliases` JSON 字段；`kind=name/title/identity` 是稳定最小分类，开放短文本 `type` 保留精确类型。通用 CoreEntity create/update/promote 也经同一别名规范化；active 自定义类型缺 kind 以 422 拒绝，candidate 可暂缺
 - 待处理别名可在采用前修改目标对象、别名文本和别名类型；证据来源、workflow、Scene、引用和置信度保持只读
 - `link_to_existing` / `alias_of_existing` 待处理项可设为已有对象别名，源兼容对象标记 `status="merged"` 并记录 `resolved_as="alias"`，不硬删除、不采用为独立对象
-- 世界对象 UI 的“待处理”入口按对象 / 别名 / 关系三个子 tab 聚合；对象库、别名、关系页继续作为全量管理入口，历史默认隐藏。正式关系和别名可在全量列表修改两层类型并移动端点/所属对象
+- 世界对象 UI 的“需要决定”按对象 / 别名 / 关系三个队列聚合；已采用 Page/工作稿/CoreEntity 在 `world/bible` 资料库共用 tagged Card 投影，只暴露“资料库、关系、需要决定”子导航。Entity 详情与别名在资料库内打开，旧 `objects/aliases` 保留深链解析和批量兼容工具；历史默认隐藏。正式关系和别名仍可修改两层类型并移动端点/所属对象
 - 正式关系和别名列表提供就地 `q` 搜索并把搜索词、分页写入前端 URL；关系按端点名称、精确类型、描述或引用匹配，别名按别名、所属对象或引用匹配，刷新、前进/后退与项目切换继续以当前项目 `novel_id` 为边界
 - 待处理关系可在采用前编辑源对象、目标对象、关系分类、精确类型、描述和强度；`relation_kind` 只取 `state/social/spatial/causal/temporal/epistemic/intentional`，`relation_type` 原样保留，来源章节、引用等证据只读，人工审计写入 `entity_relations.review_meta`
 - 待处理关系按有向对象对分组，别名按 owner 对象分组；Scene 不是关系归并边界，反向关系不自动归并

@@ -77,14 +77,17 @@ test.describe("世界对象入口", () => {
 
     await page.locator(SEL.navItem("world")).click()
 
-    await expect(page).toHaveURL(new RegExp(`#workbench/${project.id}/world/objects`))
+    await expect(page).toHaveURL(new RegExp(`#workbench/${project.id}/world/bible`))
     await expect(page.locator(SEL.viewTitle)).toHaveText("人物与世界")
-    await expect(page.locator(SEL.subnavItem("objects"))).toHaveClass(/active/)
+    await expect(page.locator(SEL.subnavItem("bible"))).toHaveClass(/active/)
+    await expect(page.locator(".world-bible-workspace")).toBeVisible()
+    await page.locator("[data-section='bible-toolbar-more'] > summary").click()
+    await page.locator("[data-action='bible-open-object-tools']").click()
     await expect(table).toContainText("沉钟港")
     await expect(page).not.toHaveURL(/\/map/)
 
     await page.goBack()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("地图")
+    await expect(page.locator(".world-bible-workspace")).toBeVisible()
     await page.goForward()
     await expect(table).toContainText("沉钟港")
 
@@ -131,7 +134,9 @@ test.describe("世界对象入口", () => {
     await page.locator("#edit-custom-entity-type").fill("宗教/神祇")
     await page.locator(SEL.modalFooter).getByRole("button", { name: "编辑后采用" }).click()
 
-    await page.locator(SEL.subnavItem("objects")).click()
+    await page.locator(SEL.subnavItem("bible")).click()
+    await page.locator("[data-section='bible-toolbar-more'] > summary").click()
+    await page.locator("[data-action='bible-open-object-tools']").click()
     await expect(page.locator("table.world-object-table")).toContainText("月廷")
     await expect(page.locator("table.world-object-table")).toContainText("宗教/神祇")
     const filterToggle = page.locator('[data-action="toggle-filter-panel"][data-filter-key="objects"]')

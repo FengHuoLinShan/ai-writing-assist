@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import WorldBibleTab from "../../../../vue/views/world/bible/WorldBibleTab.vue"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../../vue/bridge/index.js"
-import { knowledgeGraphLayout } from "../../../../vue/views/world/bible/useWorldBible.js"
+import { knowledgeGraphLayout } from "../../../../vue/views/world/pages/worldBiblePresentation.js"
 
 const page = { id: "p1", novel_id: "n1", title: "北境", page_type: "location", status: "canonical", sections_json: [], linked_asset_refs_json: [] }
 const graph = { nodes: [{ id: "p1", kind: "world_bible_page", label: "北境" }, { id: "e1", kind: "core_entity", label: "银币" }], edges: [{ id: "edge", kind: "page_entity_reference", source_id: "p1", target_id: "e1", via_relation_id: "r1" }], truncated: false, truncation_reasons: [], omitted_counts: { bad_or_unavailable_ref: 0, page_scan_overflow: 0 } }

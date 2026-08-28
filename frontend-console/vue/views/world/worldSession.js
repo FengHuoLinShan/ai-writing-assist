@@ -42,6 +42,7 @@ export const worldSession = reactive({
     activeDraftId: null,
     editorBaseline: null,
     editorBaselineKey: null,
+    libraryScrollPositions: {},
   },
 
   _route: { active: false, projectId: null, subView: null },
@@ -118,6 +119,7 @@ export function reconcileWorldEntry(projectId, subView) {
       activeDraftId: null,
       editorBaseline: null,
       editorBaselineKey: null,
+      libraryScrollPositions: {},
     }
   }
   worldSession._route = { active: true, projectId: normalizedProjectId, subView }
@@ -144,6 +146,7 @@ export function resetWorldSession() {
     activeDraftId: null,
     editorBaseline: null,
     editorBaselineKey: null,
+    libraryScrollPositions: {},
   }
   worldSession._route = { active: false, projectId: null, subView: null }
 }

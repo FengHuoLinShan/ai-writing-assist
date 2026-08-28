@@ -2610,7 +2610,11 @@ Phase 0 通过的最低判据是：四项事实均有封闭 wire、约束、事�
    采用流程时，必须先实现提交时 owner/scope/lease 重验。
 3. evidence/compiler、世界查询和写作上下文尚未以 CanonRevision 为输入；在读取
    cutover 前，现有 legacy 行仍承担其当前语义。
-4. “人物与世界”统一卡片主页、历史与百科查询仍未实现；下一步宜先交付
-   只读 Card union/read model，消费已有 Page/CoreEntity 与 Canon 摘要，不预支形式推理。
+4. Phase 1 “人物与世界”统一卡片主页已以只读 Page/CoreEntity tagged
+   read model 落地；它不建 Card 表、不改写领域对象，也不预支形式推理。历史与
+   百科查询仍未实现。
 
 本次没有修改 `world-model-evolution-research.md` 或 MCEW 探索式文档。
+
+统一卡片落地后的前端资料库、目录、作者任务与渐进式目录拆分，见
+[`2026-08-27-frontend-world-task-workspace-research.md`](2026-08-27-frontend-world-task-workspace-research.md)。

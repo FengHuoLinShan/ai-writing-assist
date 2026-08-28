@@ -56,7 +56,7 @@ test.describe("worldView 子视图切换", () => {
     await page.locator(".world-view-options > summary").click()
     await expect(page.locator('[data-action="set-discovery-mode"][data-mode="hot"]')).toHaveAttribute("aria-pressed", "true")
     await page.locator('[data-action="set-discovery-mode"][data-mode="normal"]').click()
-    await expect(page).toHaveURL(new RegExp(`world/objects\\?.*mode=normal`))
+    await expect(page).toHaveURL(new RegExp(`world/bible\\?.*mode=normal.*open=object-tools`))
     await expect(page.locator('[data-action="set-discovery-mode"][data-mode="normal"]')).toHaveAttribute("aria-pressed", "true")
     await expect.poll(() => page.evaluate(
       (projectId) => localStorage.getItem(`novel_view_mode:${projectId}:world-objects`),
@@ -69,7 +69,7 @@ test.describe("worldView 子视图切换", () => {
     await reviewEntry.click()
     await expect(page).toHaveURL(new RegExp(`world/review(?:$|\\?)`))
     await expect(reviewEntry).toHaveAttribute("aria-current", "page")
-    await expect(page.locator('[data-action="nav-objects"]')).not.toHaveClass(/active/)
+    await expect(page.locator('[data-subview="bible"]')).not.toHaveClass(/active/)
     await expect(page.locator('[data-action="nav-review-all"]')).toHaveClass(/active/)
 
     await page.locator('[data-action="nav-review-objects"]').click()
@@ -117,8 +117,8 @@ test.describe("worldView 子视图切换", () => {
     await expect(alert.locator("details")).not.toHaveAttribute("open", "")
 
     await alert.getByRole("button", { name: "重新加载", exact: true }).click()
+    await expect.poll(() => attempts).toBe(2)
     await expect(alert).toBeHidden()
-    expect(attempts).toBe(2)
   })
 
   test("热点模式默认使用表格，并让显式卡片链接在刷新后恢复", async ({ page }) => {
@@ -150,7 +150,7 @@ test.describe("worldView 子视图切换", () => {
     await expect(card).toBeVisible()
     await expect(card).toContainText("重要")
     await expect(cardButton).toHaveAttribute("aria-pressed", "true")
-    await expect(page).toHaveURL(new RegExp(`world/objects\\?.*view=card`))
+    await expect(page).toHaveURL(new RegExp(`world/bible\\?.*view=card.*open=object-tools`))
 
     await page.reload()
     await expect(card).toBeVisible()

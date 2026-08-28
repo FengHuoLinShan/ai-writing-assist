@@ -9,6 +9,7 @@ project 模块是每部小说的根聚合。所有小说业务模块通过 `nove
 
 - `projects` — id / owner_id / title / genre / tone / language / target_length / current_stage / default_reveal_policy / settings / deleted_at
 - `project_author_preferences` — 每个项目最多一行的作者偏好覆盖
+- `project_author_tasks` — 按 `novel_id` 隔离的轻量作者待办；封闭来源只保存 kind + 同项目对象 ID
 
 `owner_id → accounts.id` 非空。项目 API、回收站、项目上下文和 worker 提交门禁均按当前
 owner 过滤；跨账号访问返回 404，业务响应不返回 `owner_id`。owner 门禁不替代任何
@@ -51,8 +52,10 @@ provider/model/预算与配置哈希；执行时按项目 owner 重新读取该 
 
 ## 服务
 
-- ProjectService：项目 CRUD + 软删除/恢复/永久删除
+- ProjectService：项目 CRUD + 软删除/恢复/永久删除；创建作者项目时在同一
+  事务内通过 world facade 初始化空 `C0` 与唯一 Canon head，失败则项目不落库
 - ProjectWorkspaceSummaryService：在 owner/活跃作者项目门禁后，只读聚合续写位置、章节/字数和场景优先待处理事项
+- AuthorTaskService：在同一 owner + `novel_id` 边界内持有项目 `FOR SHARE` 门禁，新建、分组、完成/重开与归档作者任务，并经稳定 facade 解析来源；变更用 `expected_updated_at` 防止晚到响应覆盖新状态
 
 ## Facade
 
@@ -65,13 +68,18 @@ async def lock_project_ids_for_owner(db, owner_id) -> list[UUID]
 物化账户运行时 provider/model/Key。LLM 调用通过 project 的 client 或 secret-free
 execution snapshot seam 解析当前 owner 凭据。
 
+`initialize_world_canon()` 是项目创建组合根唯一使用的窄 world facade；project
+不读写 Canon 表、manifest 或 receipt，后续准入仍完全归 world 拥有。
+
 ## API
 
 ```
 POST   /api/projects                          # 创建项目
 GET    /api/projects                           # 项目列表
 GET    /api/projects/{id}                      # 项目详情
-GET    /api/projects/{id}/workspace-summary    # 今日工作只读摘要
+GET    /api/projects/{id}/workspace-summary    # 今日工作只读摘要，可带作者本地 on_date
+GET/POST /api/projects/{id}/author-tasks        # 列出分组或新建作者任务
+PATCH  /api/projects/{id}/author-tasks/{task_id} # 编辑/完成/重开/归档/恢复
 PUT    /api/projects/{id}                      # 更新项目
 DELETE /api/projects/{id}                      # 软删除（移至回收站）
 GET    /api/projects/recycle-bin               # 回收站列表
@@ -87,13 +95,18 @@ POST   /api/projects/{id}/restore              # 恢复项目
 DELETE /api/projects/{id}/permanent            # 永久删除（级联）
 ```
 
-工作台摘要固定返回 `project_id`、可空 `continuation`、`writing` 与 `attention`。`attention`
+工作台摘要固定返回 `project_id`、可空 `continuation`、`writing`、`attention` 与加性 `author_tasks`。`attention`
 保留原计数和 `total`，增加最多 6 条 `items`、`actionable_total`、`has_more`，以及按领域类型
 去重且不绑定单条 item 的隐藏领域入口 `more_targets`；除必须逐项打开的 `world_adoption` 采用包外，该入口清空 item/chapter/Scene/page/suggestion 定位字段。API 先通过
 当前账户项目读取门禁，再以同一 ID 调用 writing/world/outline 稳定 facade；调用方不能指定 owner
 或额外 `novel_id`。可选 `focus_chapter_index` / `focus_scene_id` 只影响固定排序，Scene 必须经
 Outline seam 验证属于当前项目，并以 `chapter_ids` 或 `scene_chunks` 验证指定章节。该投影不返回正文、内部任务、密钥或 owner 信息，
 空作品返回零计数、空事项和空续写位置。
+
+`author_tasks` 摘要只返回今日/收件箱/之后计数和最多 3 条今日预览。任务本体只有
+标题、可选备注/日期、`open/completed/archived` 与一个封闭来源；请求不接受 owner/
+`novel_id` 或任意路由。来源限于 `world_page | world_entity | writing_chapter | outline_scene`，
+经对应模块 facade 验证同项目。失效来源不删任务，已归档任务不硬删除。
 
 项目级智能去重只聚合各资产模块的建议；`schema_version=2` 任务结果同时提供
 group 裁决和 legacy suggestions。group apply 必须引用原扫描任务，服务端以任务结果

@@ -8,8 +8,7 @@
   <div ref="rootEl" class="world-view">
     <div class="view-header view-header--with-tabs world-toolbar">
       <div class="subnav">
-        <button type="button" class="subnav-item" :class="{ active: subView === 'bible' }" :aria-current="subView === 'bible' ? 'page' : undefined" data-subview="bible" data-action="nav-bible" @click="navigateSub('bible')">人物与世界</button>
-        <button type="button" class="subnav-item" :class="{ active: subView === 'objects' || subView === 'aliases' }" :aria-current="subView === 'objects' || subView === 'aliases' ? 'page' : undefined" data-subview="objects" data-action="nav-objects" @click="navigateSub('objects')">对象库</button>
+        <button type="button" class="subnav-item" :class="{ active: subView === 'bible' || subView === 'objects' || subView === 'aliases' }" :aria-current="subView === 'bible' || subView === 'objects' || subView === 'aliases' ? 'page' : undefined" data-subview="bible" data-action="nav-bible" @click="navigateSub('bible')">资料库</button>
         <button type="button" class="subnav-item" :class="{ active: subView === 'relations' }" :aria-current="subView === 'relations' ? 'page' : undefined" data-subview="relations" data-action="nav-relations" @click="navigateSub('relations')">关系</button>
         <button type="button" class="subnav-item" :class="{ active: !!reviewSubView }" :aria-current="reviewSubView ? 'page' : undefined" :aria-label="reviewTotal ? `需要决定，${reviewTotal} 项` : undefined" data-action="nav-review" @click="navigateReview()">需要决定 <span v-if="reviewTotal" class="today-count" aria-hidden="true">{{ reviewCountLabel }}</span></button>
       </div>
@@ -18,7 +17,8 @@
           {{ headerTitle.text }} <span class="view-header__count">共 {{ headerTitle.count }} 个</span><span v-if="projectTitle" class="view-toolbar__project" :title="projectTitle">{{ projectTitle }}</span>
         </h1>
         <div class="view-header__actions">
-          <template v-if="subView === 'objects'">
+          <button v-if="objectToolsOpen" type="button" class="btn btn-sm btn-ghost" @click="returnToLibrary">← 返回资料库</button>
+          <template v-if="subView === 'objects' || objectToolsOpen">
             <button id="btn-new-entity" class="btn btn-sm btn-primary" data-action="new" @click="showEntityCreateForm()">新建人物或设定</button>
             <button class="btn btn-sm" data-action="toggle-extract" @click="toggleExtract">{{ session.autoExtractOpen ? "收起正文整理" : "从正文整理资料" }}</button>
             <details ref="viewOptionsEl" class="world-view-options" @keydown.esc="closeViewOptions">
@@ -135,7 +135,7 @@ const props = defineProps({
   aliasesTotal: { type: Number, default: 0 },
   aliasesLoadError: { type: String, default: null },
   bible: { type: Object, default: null },
-  worldCardFilters: { type: Object, default: () => ({ q: "", kind: "all", type: "" }) },
+  worldCardFilters: { type: Object, default: () => ({ q: "", kind: "all", type: "", state: "", layout: "cards" }) },
   bibleDeepLink: { type: Object, default: () => ({ draftId: "", pageId: "" }) },
   knowledgeCharacterId: { type: String, default: "" },
 })
@@ -167,7 +167,14 @@ const TAB_COMPONENTS = {
   bible: WorldBibleTab,
 }
 
-const activeTab = computed(() => TAB_COMPONENTS[props.reviewSubView || props.subView] || null)
+const objectToolsOpen = computed(() => (
+  props.subView === "bible" && props.bibleDeepLink?.openObjectTools
+))
+const activeTab = computed(() => (
+  objectToolsOpen.value
+    ? WorldObjectsTab
+    : TAB_COMPONENTS[props.reviewSubView || props.subView] || null
+))
 
 const reviewTotal = computed(() => (
   Object.values(props.reviewCounts || {}).reduce((sum, value) => sum + Number(value || 0), 0)
@@ -176,7 +183,7 @@ const reviewCountLabel = computed(() => reviewTotal.value > 99 ? "99+" : String(
 
 /** 对应 vanilla _renderHeaderTitle（worldView.js:756-779）。 */
 const headerTitle = computed(() => {
-  if (props.subView === "objects") return { text: "人物与设定", count: props.entitiesTotal }
+  if (props.subView === "objects" || objectToolsOpen.value) return { text: "人物与设定工具", count: props.entitiesTotal }
   if (props.reviewSubView) return { text: "需要决定", count: reviewTotal.value }
   if (props.subView === "relations") return { text: "关系", count: props.relationsTotal }
   if (props.subView === "aliases") return { text: "别名", count: props.aliasesTotal }
@@ -192,6 +199,15 @@ function navigateSub(sub) {
   getRouter()?.navigate("world", sub)
 }
 
+function returnToLibrary() {
+  try {
+    localStorage.setItem(`worldBible:${props.projectId}:displayMode`, "gallery")
+  } catch {
+    // 偏好不可写时仍可返回 canonical 资料库路由。
+  }
+  navigateSub("bible")
+}
+
 function navigateReview(kind = "all") {
   const query = new URLSearchParams()
   if (kind !== "all") query.set("kind", kind)
@@ -200,6 +216,10 @@ function navigateReview(kind = "all") {
 
 function navigateObjectsQuery(nextFilters, viewMode = localObjectViewMode.value, mode = props.discoveryMode) {
   const query = objectQueryFromState(nextFilters, viewMode, mode)
+  if (objectToolsOpen.value) {
+    query.set("kind", "entity")
+    query.set("open", "object-tools")
+  }
   if (session.objectFilterDraft) session.objectFilterDraft.routeSignature = query.toString()
   getRouter()?.navigate("world", "objects", true, query)
 }
@@ -210,6 +230,10 @@ function setObjectViewMode(mode) {
   if (next === localObjectViewMode.value) return
   localObjectViewMode.value = next
   const query = objectQueryFromState(props.objectFilters, next, props.discoveryMode)
+  if (objectToolsOpen.value) {
+    query.set("kind", "entity")
+    query.set("open", "object-tools")
+  }
   if (session.objectFilterDraft) session.objectFilterDraft.routeSignature = query.toString()
   if (getRouter()?.commitCurrentQuery?.(query) !== true) navigateObjectsQuery(props.objectFilters, next)
 }
@@ -241,3 +265,9 @@ onMounted(() => {
   rootEl.value?.dispatchEvent(new Event("workspace:content-rendered", { bubbles: true }))
 })
 </script>
+
+<style scoped>
+@media (max-width: 760px) {
+  .world-toolbar .subnav-item { min-height: 44px; }
+}
+</style>

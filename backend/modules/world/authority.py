@@ -13,6 +13,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import (
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     StrictBool,
@@ -22,19 +23,58 @@ from pydantic import (
 )
 
 Sha256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
-Identifier = Annotated[str, Field(min_length=1, max_length=128)]
 
 
 class AuthorityValue(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-def _clean_identifier(value: str) -> str:
+def _clean_trimmed_text(value: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError("value must be text")
     normalized = value.replace("\r\n", "\n").replace("\r", "\n")
     normalized = unicodedata.normalize("NFC", normalized).strip()
     if not normalized:
-        raise ValueError("identifier must not be blank")
+        raise ValueError("value must not be blank")
     return normalized
+
+
+def _clean_identifier(value: str) -> str:
+    normalized = _clean_trimmed_text(value)
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]*", normalized):
+        raise ValueError("identifier must use the v1 ASCII pattern")
+    return normalized
+
+
+def _clean_section_identifier(value: str) -> str:
+    normalized = _clean_trimmed_text(value)
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", normalized):
+        raise ValueError("section identifier must use the v1 ASCII pattern")
+    return normalized
+
+
+def _clean_page_type_identifier(value: str) -> str:
+    normalized = _clean_trimmed_text(value)
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", normalized):
+        raise ValueError("page type must use the v1 ASCII pattern")
+    return normalized
+
+
+Identifier = Annotated[
+    str,
+    BeforeValidator(_clean_identifier),
+    Field(min_length=1, max_length=128),
+]
+SectionIdentifier = Annotated[
+    str,
+    BeforeValidator(_clean_section_identifier),
+    Field(min_length=1, max_length=64),
+]
+PageTypeIdentifier = Annotated[
+    str,
+    BeforeValidator(_clean_page_type_identifier),
+    Field(min_length=1, max_length=64),
+]
 
 
 def _clean_text(value: str) -> str:
@@ -43,7 +83,7 @@ def _clean_text(value: str) -> str:
 
 def _canonical_value(value: Any) -> Any:
     if isinstance(value, BaseModel):
-        value = value.model_dump(mode="json")
+        value = value.model_dump(mode="python")
     if isinstance(value, uuid.UUID):
         return str(value)
     if isinstance(value, datetime):
@@ -264,9 +304,7 @@ class WorldBiblePageFieldSelector(AuthorityValue):
 
 
 class WorldBiblePageSectionSelectorPayload(AuthorityValue):
-    section_id: Identifier
-
-    _normalize_section_id = field_validator("section_id")(_clean_identifier)
+    section_id: SectionIdentifier
 
 
 class WorldBiblePageSectionSelector(AuthorityValue):
@@ -287,8 +325,6 @@ class WorldBiblePageMetadataSelector(AuthorityValue):
 
 class EntityProfileTemplateFieldSelectorPayload(AuthorityValue):
     field_key: Identifier
-
-    _normalize_field_key = field_validator("field_key")(_clean_identifier)
 
 
 class EntityProfileTemplateFieldSelector(AuthorityValue):
@@ -352,7 +388,7 @@ class DecimalScalarV1(AuthorityValue):
     @field_validator("value")
     @classmethod
     def normalize_decimal(cls, value: str) -> str:
-        value = _clean_identifier(value)
+        value = _clean_trimmed_text(value)
         if not re.fullmatch(r"[+-]?[0-9]+(?:\.[0-9]+)?", value):
             raise ValueError("decimal must be plain decimal text")
         try:
@@ -376,9 +412,6 @@ class EnumScalarV1(AuthorityValue):
     version: Literal[1] = 1
     value: Identifier
 
-    _normalize_value = field_validator("value")(_clean_identifier)
-
-
 type ScalarValueV1 = Annotated[
     TextScalarV1 | IntegerScalarV1 | DecimalScalarV1 | BooleanScalarV1 | EnumScalarV1,
     Field(discriminator="kind"),
@@ -391,14 +424,12 @@ class EntityNameStatementV1(AuthorityValue):
     subject: ReferentRefV1
     name: Annotated[str, Field(min_length=1, max_length=255)]
 
-    _normalize_name = field_validator("name")(_clean_identifier)
+    _normalize_name = field_validator("name")(_clean_trimmed_text)
 
 
 class EntityScalarFieldV1(AuthorityValue):
     schema_revision: ExactResourceRevisionRef
     field_key: Identifier
-
-    _normalize_field_key = field_validator("field_key")(_clean_identifier)
 
 
 class EntityScalarStatementV1(AuthorityValue):
@@ -422,7 +453,7 @@ class EntityRelationStatementV1(AuthorityValue):
     relation_type: Annotated[str, Field(min_length=1, max_length=128)]
     object: ReferentRefV1
 
-    _normalize_relation_type = field_validator("relation_type")(_clean_identifier)
+    _normalize_relation_type = field_validator("relation_type")(_clean_trimmed_text)
 
 
 type StatementValueV1 = Annotated[
@@ -630,18 +661,17 @@ class PageDraftSnapshotV1(AuthorityValue):
     page_id: uuid.UUID | None = None
     base_version_number: int | None = Field(default=None, ge=1)
     title: str
-    page_type: Identifier
+    page_type: PageTypeIdentifier
     page_meta_json: dict[str, Any]
     free_text: str | None = None
     sections_json: list[dict[str, Any]]
     linked_asset_refs_json: list[dict[str, Any]]
     sort_order: int
-    template_key: str | None = None
+    template_key: Identifier | None = None
     template_version: int = Field(ge=1)
     updated_at: datetime
 
     _normalize_title = field_validator("title")(_clean_text)
-    _normalize_page_type = field_validator("page_type")(_clean_identifier)
 
 
 class PagePublishInputV1(AuthorityValue):
@@ -663,11 +693,23 @@ class AssertBatchInputV1(AuthorityValue):
     source_refs: list[TargetRefV1]
 
 
+class RevertCompatibilityJudgmentV1(AuthorityValue):
+    kind: Literal["revert_compatibility_judgment"] = (
+        "revert_compatibility_judgment"
+    )
+    version: Literal[1] = 1
+    current_manifest_digest: Sha256
+    target_manifest_digest: Sha256
+    result: Literal["compatible"] = "compatible"
+
+
 class RevertInputV1(AuthorityValue):
     kind: Literal["revert"] = "revert"
     version: Literal[1] = 1
     novel_id: uuid.UUID
     target_revision_id: uuid.UUID
+    expected_previous_head: uuid.UUID
+    compatibility_judgment: RevertCompatibilityJudgmentV1
 
 
 class FamilyCutoverInputV1(AuthorityValue):
@@ -807,6 +849,12 @@ class CanonAdmissionReceiptV1(AuthorityValue):
         )
         if self.decision.digest != expected_decision_digest:
             raise ValueError("decision digest does not match")
+        if (
+            isinstance(self.admission_input, RevertInputV1)
+            and self.admission_input.expected_previous_head
+            != self.expected_previous_head
+        ):
+            raise ValueError("revert input does not match its expected head")
         if isinstance(self.executor, AccountRequestExecutorRefV1):
             if (
                 self.executor.account_id != self.authorizer.account_id

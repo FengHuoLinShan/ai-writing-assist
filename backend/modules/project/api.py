@@ -4,6 +4,9 @@ Project API Router
 
 from __future__ import annotations
 
+from datetime import UTC, date, datetime
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from core.csrf import require_xhr_request
@@ -12,7 +15,12 @@ from infrastructure.tasks.facade import (
     enqueue_task_with_optional_operation,
     get_operation_task,
 )
+from modules.project.author_task_service import AuthorTaskService
 from modules.project.schemas import (
+    AuthorTaskCreateRequest,
+    AuthorTaskListResponse,
+    AuthorTaskPatchRequest,
+    AuthorTaskResponse,
     LLMFieldResetResponse,
     LLMProviderTemplateListResponse,
     ProjectBulkPermanentDeleteRequest,
@@ -40,9 +48,11 @@ from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 _service = ProjectService()
+_author_task_service = AuthorTaskService(_service)
 _smart_dedup_service = SmartDedupService()
 _workspace_summary_service = ProjectWorkspaceSummaryService(
-    project_reader=_service.get_project
+    project_reader=_service.get_project,
+    author_task_summary_reader=_author_task_service.get_workspace_summary,
 )
 
 
@@ -257,6 +267,7 @@ async def api_get_project_workspace_summary(
     project_id: str,
     focus_chapter_index: int | None = Query(default=None, ge=0),
     focus_scene_id: str | None = Query(default=None),
+    on_date: date | None = Query(default=None),
 ) -> ProjectWorkspaceSummaryResponse:
     """Return the safe, task-oriented read model for the author's project home."""
     return await _workspace_summary_service.get_summary(
@@ -264,7 +275,63 @@ async def api_get_project_workspace_summary(
         project_id,
         focus_chapter_index=focus_chapter_index,
         focus_scene_id=focus_scene_id,
+        on_date=on_date,
     )
+
+
+@router.get(
+    "/{project_id}/author-tasks",
+    response_model=AuthorTaskListResponse,
+)
+async def api_list_author_tasks(
+    db: DbSession,
+    project_id: str,
+    scope: Literal["today", "inbox", "later", "completed", "archived"] = Query(
+        default="today"
+    ),
+    on_date: date | None = Query(default=None),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=100),
+) -> AuthorTaskListResponse:
+    """List one project task view without exposing domain or worker tasks."""
+    return await _author_task_service.list_tasks(
+        db,
+        project_id,
+        scope=scope,
+        on_date=on_date or datetime.now(UTC).date(),
+        skip=skip,
+        limit=limit,
+    )
+
+
+@router.post(
+    "/{project_id}/author-tasks",
+    response_model=AuthorTaskResponse,
+    status_code=201,
+    dependencies=[Depends(require_xhr_request)],
+)
+async def api_create_author_task(
+    db: DbSession,
+    project_id: str,
+    data: AuthorTaskCreateRequest,
+) -> AuthorTaskResponse:
+    """Create an author-owned task; initial status is always open."""
+    return await _author_task_service.create_task(db, project_id, data)
+
+
+@router.patch(
+    "/{project_id}/author-tasks/{task_id}",
+    response_model=AuthorTaskResponse,
+    dependencies=[Depends(require_xhr_request)],
+)
+async def api_patch_author_task(
+    db: DbSession,
+    project_id: str,
+    task_id: str,
+    data: AuthorTaskPatchRequest,
+) -> AuthorTaskResponse:
+    """Edit, complete, reopen, archive, or detach one author task."""
+    return await _author_task_service.patch_task(db, project_id, task_id, data)
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)

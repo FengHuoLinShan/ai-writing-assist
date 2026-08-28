@@ -34,7 +34,7 @@ README、ORM 模型与 Alembic migration。当前文档范围由
 |---|---|---|
 | 世界书页 | `world_bible_pages` | 作者可编辑的世界观组织页；它引用和解释事实，但不拥有 CoreEntity/关系等已采用事实。 |
 | 世界书类别与工作稿 | `world_bible_categories` / `world_bible_page_drafts` | 自定义类别只定义展示信息；工作稿是可丢弃的服务器编辑快照，发布后才以页面 revision 进入已采用世界观。 |
-| 世界书修订与投影 | `world_bible_page_revisions` / `world_bible_page_projections` | PageRevision 是带持久化 digest 的封闭页面快照；发布在同一 Admit 事务中选入新 CanonRevision。投影是缓存，不是事实源。 |
+| 世界书修订与投影 | `world_bible_page_revisions` / `world_bible_page_projections` | PageRevision 是带持久化 digest 和 same-novel 复合外键的封闭页面快照；发布在同一 Admit 事务中选入新 CanonRevision。旧 POST/PATCH 由 adapter 转成工作稿发布；纯页面归档只改 workflow head 状态，不改写已选历史 revision。投影是缓存，不是事实源。 |
 | 世界观简介 | `world_bible_synopsis_heads` / `world_bible_synopsis_revisions` | 仅作者模式可用的 P1 LLM 派生背景；revision 不可变且可回滚，head 只协调 stale、pin、刷新任务与持久化自动授权。它不替代确定性 `World Core Brief`，reader/character 不得读取。 |
 | 页面模板 | 代码注册表 + `template_key` / `template_version` | 内置模板目前不使用 `world_bible_page_templates` 数据表。 |
 | 生成模板 | `generation_prompt_templates` / revisions | 项目级 Prompt 模板及版本；运行时仍受固定 scaffold 与 Pydantic 输出契约约束。 |
@@ -104,6 +104,7 @@ contract 消费它们。
 - **正文成熟度**：正文使用“工作稿 / 已发布”；Scene 等确有编辑生命周期的内容可显示工作稿。未采用的 AI 正文是待处理建议，不是普通工作稿。
 - **来源与注意原因**：`source`、`attention_reasons` 和 `suggested_action` 与生命周期分离。`conflicted`、低置信、POV 风险、`needs_review` 是注意原因，不是新的主状态。
 - **内部状态**：`candidate` / `proposal` / `canonical`、地图册页面 checkpoint、任务 `pending/running/failed` 和审计 confirmation/snapshot 可用于实现和诊断，但不得作为并列的作者心智模型。
+- **作者任务**：`project_author_tasks` 是 project 拥有、按 `novel_id` 隔离的轻量个人待办；只含标题、备注、`open/completed/archived`、可选日期与一个封闭类型来源。它不同于领域“需要决定”和 `infrastructure/tasks` 后台流程，后两者不能被勾选完成。
 - **授权自动流水线**：深度导入等流水线必须在启动时持久化授权策略与范围；规则明确且可回滚的结果可自动采用，冲突、低置信和无法消歧结果进入待处理，完成结果按已采用/待处理/未采用汇总。
 - **历史状态**：`deprecated` / `ignored` / `merged` / `rolled_back` 等进入历史并默认从主工作区隐藏；除项目永久删除和地图等明确操作外不默认硬删除。
 - **novel_id**：项目隔离键。任何跨模块 facade、查询、合并、任务和恢复流程都不得跨项目

@@ -104,6 +104,13 @@ def _assert_current_schema(engine: Engine, expected_heads: set[str]) -> None:
             item["name"]: item for item in inspector.get_indexes("async_tasks")
         }
         task_foreign_keys = inspector.get_foreign_keys("async_tasks")
+        world_bible_page_unique_constraints = {
+            tuple(item["column_names"])
+            for item in inspector.get_unique_constraints("world_bible_pages")
+        }
+        world_bible_revision_foreign_keys = inspector.get_foreign_keys(
+            "world_bible_page_revisions"
+        )
         task_triggers = set(
             connection.execute(
                 text(
@@ -117,6 +124,7 @@ def _assert_current_schema(engine: Engine, expected_heads: set[str]) -> None:
     assert set(Base.metadata.tables) <= tables
     assert missing_columns == {}
     assert "smart_dedup_workbench_decisions" in tables
+    assert "project_author_tasks" in tables
     assert {
         "map_atlas_runs",
         "map_atlas_nodes",
@@ -156,6 +164,15 @@ def _assert_current_schema(engine: Engine, expected_heads: set[str]) -> None:
         and foreign_key.get("referred_table") == "projects"
         and (foreign_key.get("options") or {}).get("ondelete", "").upper() == "CASCADE"
         for foreign_key in task_foreign_keys
+    )
+    assert ("novel_id", "id") in world_bible_page_unique_constraints
+    assert any(
+        foreign_key.get("constrained_columns") == ["novel_id", "page_id"]
+        and foreign_key.get("referred_table") == "world_bible_pages"
+        and foreign_key.get("referred_columns") == ["novel_id", "id"]
+        and (foreign_key.get("options") or {}).get("ondelete", "").upper()
+        == "CASCADE"
+        for foreign_key in world_bible_revision_foreign_keys
     )
     assert "trg_async_tasks_novel_id_identity" in task_triggers
 

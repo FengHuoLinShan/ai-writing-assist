@@ -5,6 +5,7 @@ import pytest_asyncio
 from pydantic import ValidationError as PydanticValidationError
 
 from core.errors import ConflictError, NotFoundError, ValidationError
+from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID
 from modules.evidence.compilation.contracts import CompileOptions
 from modules.evidence.compilation.facade import compile_generation_background
 from modules.evidence.compilation.models import ContextConfirmation, ContextSnapshot
@@ -24,6 +25,7 @@ from modules.evidence.compilation.services.confirmation_service import (
 )
 from modules.evidence.compilation.services.context_compiler import ContextCompiler
 from modules.project.models import Project
+from modules.world.facade import initialize_world_canon
 from modules.world.models import CoreEntity, EntityRelation
 from modules.world.schemas import WorldBiblePageDraftCreate
 from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
@@ -126,10 +128,12 @@ async def test_profile_dry_run_publish_update_keeps_old_published_revision(
             free_text="北境通用银币，冬季商路关闭。",
         ),
     )
-    page = await WorldBibleLifecycleService().publish_draft(
+    await initialize_world_canon(db_session, project_novel_id)
+    page = await WorldBibleLifecycleService().admit_draft(
         db_session,
         project_novel_id,
         draft.id,
+        authorizer_id=BOOTSTRAP_ACCOUNT_ID,
     )
     service = ActivationProfileService()
     profile = await service.create_profile(
@@ -558,10 +562,12 @@ async def test_world_activation_resolution_does_not_leak_cross_novel_page(
             free_text="不可泄露",
         ),
     )
-    page = await WorldBibleLifecycleService().publish_draft(
+    await initialize_world_canon(db_session, other_novel_id)
+    page = await WorldBibleLifecycleService().admit_draft(
         db_session,
         other_novel_id,
         draft.id,
+        authorizer_id=BOOTSTRAP_ACCOUNT_ID,
     )
     from modules.world.facade import get_world_bible_projection_candidates
 
@@ -653,7 +659,13 @@ async def test_confirmation_fixes_profile_revision_and_page_change_marks_stale(
             free_text="旧商路说明",
         ),
     )
-    page = await lifecycle.publish_draft(db_session, test_project_id, draft.id)
+    await initialize_world_canon(db_session, test_project_id)
+    page = await lifecycle.admit_draft(
+        db_session,
+        test_project_id,
+        draft.id,
+        authorizer_id=BOOTSTRAP_ACCOUNT_ID,
+    )
     profiles = ActivationProfileService()
     profile = await profiles.create_profile(
         db_session,
@@ -697,7 +709,12 @@ async def test_confirmation_fixes_profile_revision_and_page_change_marks_stale(
         working.id,
         WorldBiblePageDraftUpdate(free_text="新商路说明"),
     )
-    await lifecycle.publish_draft(db_session, test_project_id, working.id)
+    await lifecycle.admit_draft(
+        db_session,
+        test_project_id,
+        working.id,
+        authorizer_id=BOOTSTRAP_ACCOUNT_ID,
+    )
     stored = await db_session.get(ContextConfirmation, uuid.UUID(confirmation.id))
     assert stored is not None
     assert stored.result_status == "stale_context"

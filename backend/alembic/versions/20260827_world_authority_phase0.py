@@ -239,6 +239,19 @@ def _create_tables() -> None:
         "entity_profile_template_revisions",
         ["template_id"],
     )
+    op.create_unique_constraint(
+        "uq_world_bible_page_novel_id",
+        "world_bible_pages",
+        ["novel_id", "id"],
+    )
+    op.create_foreign_key(
+        "fk_world_bible_page_revision_same_novel",
+        "world_bible_page_revisions",
+        "world_bible_pages",
+        ["novel_id", "page_id"],
+        ["novel_id", "id"],
+        ondelete="CASCADE",
+    )
 
 
 def _backfill_revision_digests() -> None:
@@ -469,6 +482,16 @@ def downgrade() -> None:
     ):
         op.execute(f"DROP TRIGGER IF EXISTS trg_{table}_authority_immutable ON {table}")
     op.execute("DROP FUNCTION IF EXISTS reject_world_authority_immutable_write")
+    op.drop_constraint(
+        "fk_world_bible_page_revision_same_novel",
+        "world_bible_page_revisions",
+        type_="foreignkey",
+    )
+    op.drop_constraint(
+        "uq_world_bible_page_novel_id",
+        "world_bible_pages",
+        type_="unique",
+    )
     op.drop_table("entity_profile_template_revisions")
     op.drop_constraint(
         "uq_profile_template_novel_id",

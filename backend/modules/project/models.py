@@ -5,9 +5,19 @@ Project 数据模型
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import JSON, CheckConstraint, DateTime, ForeignKey, Index, String, text
+from sqlalchemy import (
+    JSON,
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.base import Base, TimestampMixin, UUIDMixin, UUIDType
@@ -145,5 +155,65 @@ class SmartDedupWorkbenchDecision(Base, UUIDMixin, TimestampMixin):
     )
     source_scan_task_id: Mapped[str] = mapped_column(String(36), nullable=False)
     superseded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class ProjectAuthorTask(Base, UUIDMixin, TimestampMixin):
+    """Author-owned lightweight task, distinct from async worker tasks."""
+
+    __tablename__ = "project_author_tasks"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('open', 'completed', 'archived')",
+            name="ck_project_author_tasks_status",
+        ),
+        CheckConstraint(
+            "length(trim(title)) > 0",
+            name="ck_project_author_tasks_title_not_blank",
+        ),
+        CheckConstraint(
+            "note IS NULL OR length(note) <= 4000",
+            name="ck_project_author_tasks_note_length",
+        ),
+        CheckConstraint(
+            "(source_kind IS NULL) = (source_id IS NULL)",
+            name="ck_project_author_tasks_source_pair",
+        ),
+        CheckConstraint(
+            "source_kind IS NULL OR source_kind IN "
+            "('world_page', 'world_entity', 'writing_chapter', 'outline_scene')",
+            name="ck_project_author_tasks_source_kind",
+        ),
+        CheckConstraint(
+            "(status = 'completed' AND completed_at IS NOT NULL) OR "
+            "(status <> 'completed' AND completed_at IS NULL)",
+            name="ck_project_author_tasks_completed_at",
+        ),
+        Index(
+            "ix_project_author_tasks_scope",
+            "novel_id",
+            "status",
+            "due_date",
+            "updated_at",
+        ),
+        {"comment": "作者个人轻量待办；不承载领域决定或后台任务"},
+    )
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        UUIDType,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="open", index=True
+    )
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    source_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    source_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

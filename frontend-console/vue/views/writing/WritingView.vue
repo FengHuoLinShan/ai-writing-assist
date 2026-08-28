@@ -61,6 +61,7 @@
         </div>
       </details>
       <button type="button" class="btn btn-sm" data-action="open-owner-ai-drawer" @click="openOwnerAi({ owner: 'writing' })">AI 工具</button>
+      <button type="button" class="btn btn-sm" :disabled="!vm.selectedChapter.value" @click="addChapterTask">添加到我的任务</button>
     </div>
   </div>
 
@@ -327,8 +328,10 @@ import SceneCockpit from "./components/SceneCockpit.vue"
 import VersionHistoryDialog from "./components/VersionHistoryDialog.vue"
 import WritingEditor from "./components/WritingEditor.vue"
 import WritingWorkflowBars from "./components/WritingWorkflowBars.vue"
-import WritingHomeView from "./WritingHomeView.vue"
+import WritingHomeView from "./home/WritingHomeView.vue"
+import { authorTaskPanelQuery } from "./home/authorTaskSource.js"
 import OwnerAiDrawer from "../../components/OwnerAiDrawer.vue"
+import { getRouter } from "../../bridge/index.js"
 import { useWritingWorkspace } from "./useWritingWorkspace.js"
 import "./writing-desk.css"
 import "./writing-decorations.css"
@@ -348,6 +351,7 @@ const props = defineProps({
 })
 
 const vm = useWritingWorkspace(props)
+const router = getRouter()
 const quickModeButton = ref(null)
 const viewMenuEl = ref(null)
 const viewMenuOpen = ref(false)
@@ -366,6 +370,15 @@ function openOwnerAi(context = {}) {
   aiDrawerCheckpointId.value = context.checkpointId || null
   aiDrawerOpen.value = true
   return true
+}
+
+function addChapterTask() {
+  if (!vm.selectedChapter.value) return
+  router.navigate("writing", null, true, authorTaskPanelQuery({
+    kind: "writing_chapter",
+    id: String(vm.selectedChapter.value),
+    title: `处理章节：${vm.editorState.title || `第 ${vm.selectedChapter.value} 章`}`,
+  }))
 }
 const conflictSummary = computed(() => (
   vm.conflictState.error

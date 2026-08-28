@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import uuid
+from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -17,13 +19,16 @@ from modules.world.authority import (
     CanonAdmissionRequest,
     CanonManifestV1,
     DecimalScalarV1,
+    EnumScalarV1,
     ExactResourceRevisionRef,
+    PageDraftSnapshotV1,
     PagePublishPreviewInputV1,
     RevertPreviewInputV1,
     StatementClaimRefV1,
     StatementValueV1,
     TargetRefV1,
     WholeSelector,
+    WorldBiblePageSectionSelectorPayload,
     canonical_digest,
     canonical_json,
 )
@@ -84,6 +89,38 @@ def test_fixture_wire_shapes_match_closed_models() -> None:
         CanonManifestV1.model_validate(duplicate_manifest)
 
 
+def test_canonical_model_datetime_is_utc_and_identifiers_are_ascii() -> None:
+    snapshot = PageDraftSnapshotV1(
+        draft_id=uuid.uuid4(),
+        title="中文标题",
+        page_type=" background ",
+        page_meta_json={},
+        sections_json=[],
+        linked_asset_refs_json=[],
+        sort_order=0,
+        template_version=1,
+        updated_at=datetime(
+            2026,
+            8,
+            27,
+            8,
+            tzinfo=timezone(timedelta(hours=8)),
+        ),
+    )
+    assert snapshot.page_type == "background"
+    assert '"updated_at":"2026-08-27T00:00:00Z"' in canonical_json(snapshot)
+
+    naive = snapshot.model_copy(
+        update={"updated_at": datetime(2026, 8, 27, 0, 0)}
+    )
+    with pytest.raises(ValueError, match="timezone"):
+        canonical_json(naive)
+    with pytest.raises(PydanticValidationError):
+        WorldBiblePageSectionSelectorPayload(section_id="中文分区")
+    with pytest.raises(PydanticValidationError):
+        EnumScalarV1(value="中文枚举")
+
+
 async def test_page_admission_is_idempotent_and_revert_is_append_only(
     db_session,
     project_novel_id: str,
@@ -93,6 +130,20 @@ async def test_page_admission_is_idempotent_and_revert_is_append_only(
     c0 = await authority.initialize_empty_canon(db_session, project_novel_id)
     assert c0.version_number == 0
     assert await authority.initialize_empty_canon(db_session, project_novel_id) is c0
+    valid_c0_receipt = deepcopy(c0.receipt_json)
+    valid_c0_decision_id = c0.decision_id
+    tampered_c0_decision_id = uuid.uuid4()
+    tampered_c0_receipt = deepcopy(valid_c0_receipt)
+    tampered_c0_receipt["decision"]["id"] = str(tampered_c0_decision_id)
+    c0.receipt_json = tampered_c0_receipt
+    c0.decision_id = tampered_c0_decision_id
+    await db_session.flush()
+    with pytest.raises(DomainError) as bootstrap_error:
+        await authority.get_revision(db_session, project_novel_id, str(c0.id))
+    assert bootstrap_error.value.code == "canon_revision_digest_mismatch"
+    c0.receipt_json = valid_c0_receipt
+    c0.decision_id = valid_c0_decision_id
+    await db_session.flush()
 
     draft = await lifecycle.create_draft(
         db_session,
@@ -135,13 +186,22 @@ async def test_page_admission_is_idempotent_and_revert_is_append_only(
     admitted_model = await db_session.get(WorldCanonRevision, admitted.id)
     assert admitted_model is not None
     await authority.get_revision(db_session, project_novel_id, str(admitted_model.id))
-    valid_receipt = admitted_model.receipt_json
+    valid_receipt = deepcopy(admitted_model.receipt_json)
     invalid_receipt = {**valid_receipt, "manifest_digest": "0" * 64}
     admitted_model.receipt_json = invalid_receipt
     await db_session.flush()
     with pytest.raises(DomainError) as receipt_error:
         await authority.get_revision(db_session, project_novel_id, str(admitted_model.id))
     assert receipt_error.value.code == "canon_revision_digest_mismatch"
+    admitted_model.receipt_json = valid_receipt
+    await db_session.flush()
+    unbound_receipt = deepcopy(valid_receipt)
+    unbound_receipt["affected_resources"] = []
+    admitted_model.receipt_json = unbound_receipt
+    await db_session.flush()
+    with pytest.raises(DomainError) as transition_error:
+        await authority.get_revision(db_session, project_novel_id, str(admitted_model.id))
+    assert transition_error.value.code == "canon_revision_digest_mismatch"
     admitted_model.receipt_json = valid_receipt
     await db_session.flush()
     exact = ExactResourceRevisionRef.model_validate(
@@ -169,6 +229,23 @@ async def test_page_admission_is_idempotent_and_revert_is_append_only(
     )
     assert retried.id == admitted.id
     assert await db_session.scalar(select(func.count(WorldCanonRevision.id))) == 2
+    recovered = await authority.get_admitted_page_publish(
+        db_session,
+        project_novel_id,
+        decision_id,
+        expected_previous_head=c0.id,
+        draft_id=draft.id,
+    )
+    assert recovered is not None and recovered.id == admitted.id
+    with pytest.raises(DomainError) as reused_error:
+        await authority.get_admitted_page_publish(
+            db_session,
+            project_novel_id,
+            decision_id,
+            expected_previous_head=c0.id,
+            draft_id=uuid.uuid4(),
+        )
+    assert reused_error.value.code == "canon_decision_id_reused"
 
     revert_preview = await authority.preview(
         db_session,
@@ -180,6 +257,15 @@ async def test_page_admission_is_idempotent_and_revert_is_append_only(
                 target_revision_id=c0.id,
             ),
         ),
+    )
+    assert revert_preview.normalized_input.expected_previous_head == admitted.id
+    assert (
+        revert_preview.normalized_input.compatibility_judgment.current_manifest_digest
+        == admitted_model.manifest_digest
+    )
+    assert (
+        revert_preview.normalized_input.compatibility_judgment.target_manifest_digest
+        == c0.manifest_digest
     )
     reverted = await authority.admit(
         db_session,
@@ -195,6 +281,27 @@ async def test_page_admission_is_idempotent_and_revert_is_append_only(
     assert reverted.version_number == 2
     assert reverted.parent_revision_id == admitted.id
     assert reverted.changes["resource_count"] == 0
+    await authority.get_revision(db_session, project_novel_id, str(reverted.id))
+
+    reverted_model = await db_session.get(WorldCanonRevision, reverted.id)
+    assert reverted_model is not None
+    valid_revert_receipt = deepcopy(reverted_model.receipt_json)
+    invalid_revert_receipt = deepcopy(valid_revert_receipt)
+    invalid_input = invalid_revert_receipt["admission_input"]
+    invalid_input["compatibility_judgment"]["target_manifest_digest"] = (
+        admitted_model.manifest_digest
+    )
+    invalid_input_digest = canonical_digest(invalid_input)
+    invalid_revert_receipt["admission_input_digest"] = invalid_input_digest
+    invalid_decision_digest = authority._decision_digest(invalid_input, admitted.id)
+    invalid_revert_receipt["decision"]["digest"] = invalid_decision_digest
+    reverted_model.receipt_json = invalid_revert_receipt
+    reverted_model.decision_digest = invalid_decision_digest
+    await db_session.flush()
+    with pytest.raises(DomainError) as replay_error:
+        await authority.get_revision(db_session, project_novel_id, str(reverted.id))
+    assert replay_error.value.code == "canon_revision_digest_mismatch"
+    reverted_model.receipt_json = valid_revert_receipt
 
 
 async def test_admission_rejects_changed_draft_without_advancing_head(

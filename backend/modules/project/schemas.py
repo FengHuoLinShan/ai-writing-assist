@@ -5,7 +5,7 @@ Project Pydantic Schemas
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -147,6 +147,138 @@ class WorkspaceWritingSummaryResponse(BaseModel):
     word_count: int = Field(default=0, ge=0)
 
 
+AuthorTaskStatus = Literal["open", "completed", "archived"]
+AuthorTaskSourceKind = Literal[
+    "world_page",
+    "world_entity",
+    "writing_chapter",
+    "outline_scene",
+]
+
+
+class AuthorTaskSourceInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: AuthorTaskSourceKind
+    id: str = Field(..., min_length=1, max_length=64)
+
+    @field_validator("id")
+    @classmethod
+    def normalize_source_id(cls, value: str) -> str:
+        value = value.strip()
+        if not value or "\x00" in value:
+            raise ValueError("source id must not be empty")
+        return value
+
+
+class AuthorTaskCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(..., min_length=1, max_length=255)
+    note: str | None = Field(default=None, max_length=4000)
+    due_date: date | None = None
+    source: AuthorTaskSourceInput | None = None
+
+    @field_validator("title")
+    @classmethod
+    def normalize_title(cls, value: str) -> str:
+        return _sanitize_title(value)
+
+    @field_validator("note")
+    @classmethod
+    def normalize_note(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if "\x00" in value:
+            raise ValueError("note must not contain null bytes")
+        return value.strip() or None
+
+
+class AuthorTaskPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    note: str | None = Field(default=None, max_length=4000)
+    due_date: date | None = None
+    source: AuthorTaskSourceInput | None = None
+    status: AuthorTaskStatus | None = None
+    expected_updated_at: datetime | None = None
+
+    @field_validator("title")
+    @classmethod
+    def normalize_title(cls, value: str | None) -> str | None:
+        return _sanitize_title(value) if value is not None else None
+
+    @field_validator("note")
+    @classmethod
+    def normalize_note(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if "\x00" in value:
+            raise ValueError("note must not contain null bytes")
+        return value.strip() or None
+
+    @model_validator(mode="after")
+    def require_change(self) -> AuthorTaskPatchRequest:
+        if not (self.model_fields_set - {"expected_updated_at"}):
+            raise ValueError("at least one task field is required")
+        return self
+
+
+class AuthorTaskSourceResponse(BaseModel):
+    kind: AuthorTaskSourceKind
+    id: str
+    label: str
+    available: bool = True
+
+
+class AuthorTaskResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    title: str
+    note: str | None = None
+    status: AuthorTaskStatus
+    due_date: date | None = None
+    source: AuthorTaskSourceResponse | None = None
+    created_at: datetime
+    updated_at: datetime | None = None
+    completed_at: datetime | None = None
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def coerce_id_to_str(cls, value: object) -> str:
+        return str(value)
+
+
+class AuthorTaskCountsResponse(BaseModel):
+    today: int = Field(default=0, ge=0)
+    inbox: int = Field(default=0, ge=0)
+    later: int = Field(default=0, ge=0)
+    completed: int = Field(default=0, ge=0)
+
+
+class AuthorTaskListResponse(BaseModel):
+    items: list[AuthorTaskResponse] = Field(default_factory=list)
+    total: int = Field(default=0, ge=0)
+    counts: AuthorTaskCountsResponse = Field(default_factory=AuthorTaskCountsResponse)
+
+
+class WorkspaceAuthorTaskPreviewResponse(BaseModel):
+    id: str
+    title: str
+    due_date: date | None = None
+    source: AuthorTaskSourceResponse | None = None
+    updated_at: datetime | None = None
+
+
+class WorkspaceAuthorTasksSummaryResponse(BaseModel):
+    today_count: int = Field(default=0, ge=0)
+    inbox_count: int = Field(default=0, ge=0)
+    later_count: int = Field(default=0, ge=0)
+    preview: list[WorkspaceAuthorTaskPreviewResponse] = Field(default_factory=list)
+
+
 class WorkspaceAttentionTargetResponse(BaseModel):
     kind: Literal[
         "writing_conflict",
@@ -204,9 +336,7 @@ class WorkspaceAttentionSummaryResponse(BaseModel):
     items: list[WorkspaceAttentionItemResponse] = Field(default_factory=list)
     actionable_total: int = Field(default=0, ge=0)
     has_more: bool = False
-    more_targets: list[WorkspaceAttentionMoreTargetResponse] = Field(
-        default_factory=list
-    )
+    more_targets: list[WorkspaceAttentionMoreTargetResponse] = Field(default_factory=list)
 
 
 class ProjectWorkspaceSummaryResponse(BaseModel):
@@ -219,6 +349,9 @@ class ProjectWorkspaceSummaryResponse(BaseModel):
     )
     attention: WorkspaceAttentionSummaryResponse = Field(
         default_factory=WorkspaceAttentionSummaryResponse
+    )
+    author_tasks: WorkspaceAuthorTasksSummaryResponse = Field(
+        default_factory=WorkspaceAuthorTasksSummaryResponse
     )
 
 

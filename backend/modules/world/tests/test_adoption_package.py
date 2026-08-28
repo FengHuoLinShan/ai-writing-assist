@@ -23,6 +23,8 @@ from modules.world.models import (
     WorldBiblePage,
     WorldBiblePageDraft,
     WorldBiblePageRevision,
+    WorldCanonHead,
+    WorldCanonRevision,
 )
 from modules.world.models.core import CoreEntity, EntityRelation
 from modules.world.schemas import (
@@ -708,6 +710,15 @@ async def test_package_creates_entity_and_publishes_new_world_bible_page(
         TargetRef(target_type="core_entity", target_id=target_id).target_hash(),
         TargetRef(target_type="entity_relation", target_id=relation_id).target_hash(),
     ]
+    head = await db_session.get(WorldCanonHead, uuid.UUID(project_novel_id))
+    assert head is not None
+    canon = await db_session.get(WorldCanonRevision, head.current_revision_id)
+    assert canon is not None
+    assert any(
+        item["resource"]["kind"] == "world_bible_page"
+        and item["resource"]["resource_id"] == page_ref["id"]
+        for item in canon.manifest_json["active_resources"]
+    )
     assert page.sections_json[0]["title"] == "local:city"
     repeated = await service.apply(
         db_session,
@@ -1395,7 +1406,9 @@ async def test_api_page_publish_failure_rolls_back_package(
     async def fail_publish(*_args, **_kwargs):
         raise RuntimeError("publish failed")
 
-    monkeypatch.setattr(WorldBibleLifecycleService, "publish_draft", fail_publish)
+    monkeypatch.setattr(
+        WorldBibleLifecycleService, "_seal_draft_for_admission", fail_publish
+    )
     before = {
         model: len(
             (

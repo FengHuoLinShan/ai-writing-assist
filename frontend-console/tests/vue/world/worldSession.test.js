@@ -42,11 +42,11 @@ describe("reconcileWorldEntry", () => {
     reconcileWorldEntry("p1", "objects")
     worldSession.relationReviewDrafts = { g1: { action: "merge" } }
     worldSession.reviewReceipt = { title: "旧项目结果" }
-    worldSession.bible = { activePageId: "page-p1", activeDraftId: "draft-p1", editorBaseline: { title: "旧项目" }, editorBaselineKey: "page-p1" }
+    worldSession.bible = { activePageId: "page-p1", activeDraftId: "draft-p1", editorBaseline: { title: "旧项目" }, editorBaselineKey: "page-p1", libraryScrollPositions: { "p1:q=old": 200 } }
     expect(reconcileWorldEntry("p2", "objects")).toBe(true)
     expect(worldSession.relationReviewDrafts).toEqual({})
     expect(worldSession.reviewReceipt).toBeNull()
-    expect(worldSession.bible).toEqual({ activePageId: null, activeDraftId: null, editorBaseline: null, editorBaselineKey: null })
+    expect(worldSession.bible).toEqual({ activePageId: null, activeDraftId: null, editorBaseline: null, editorBaselineKey: null, libraryScrollPositions: {} })
   })
 
   it("同项目重新进入保留 bible 上次页面", () => {
