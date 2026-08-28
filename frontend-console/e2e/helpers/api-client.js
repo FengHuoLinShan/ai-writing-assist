@@ -76,6 +76,13 @@ export async function createProject(payload) {
   })
 }
 
+export async function createAuthorTask(projectId, payload) {
+  return request(`/projects/${projectId}/author-tasks`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
 export async function connectAccountLLMProvider(providerId, apiKey) {
   return request(`/account/settings/llm-connections/${providerId}`, {
     method: "PUT",
@@ -268,6 +275,12 @@ export async function createEntity(novelId, data) {
   return request(`/world/entities?novel_id=${encodeURIComponent(novelId)}`, {
     method: "POST",
     body: JSON.stringify(data),
+  })
+}
+
+export async function deleteEntity(novelId, entityId) {
+  return request(`/world/entities/${entityId}?novel_id=${encodeURIComponent(novelId)}`, {
+    method: "DELETE",
   })
 }
 

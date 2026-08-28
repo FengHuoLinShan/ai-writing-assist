@@ -330,7 +330,7 @@ describe("SceneWorkbenchView", () => {
     expect(call[3].get("panel")).toBe("tasks")
     expect(call[3].get("task_source_kind")).toBe("outline_scene")
     expect(call[3].get("task_source_id")).toBe("s2")
-    expect(call[3].get("task_title")).toContain("撤离")
+    expect(call[3].get("task_title")).toBe("撤离")
   })
 
   it("uses the shared current-aware outline navigation", async () => {

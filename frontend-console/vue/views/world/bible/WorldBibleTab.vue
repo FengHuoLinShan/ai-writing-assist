@@ -383,7 +383,7 @@
                 <div class="world-bible-page-meta">{{ typeMeta(editSource.page_type).label }} · {{ isWorkingDraft ? '工作稿' : statusLabel(activePage?.status) }}</div>
               </div>
               <div class="world-bible-panel__actions">
-                <button v-if="activePage?.id" class="btn btn-sm btn-ghost" data-action="bible-create-author-task" @click="createTaskForWorldPage">添加到我的任务</button>
+                <button v-if="activePage?.id" class="btn btn-sm btn-ghost" data-action="bible-create-author-task" @click="createTaskForWorldPage">添加到计划中的任务</button>
                 <button v-if="activePage?.id" class="btn btn-sm" data-action="bible-improve-with-ai" @click="openInGenerationCenter">用 AI 完善此页</button>
                 <button class="btn btn-sm" :class="{ 'btn-primary': !canPublish }" data-action="bible-save-page" @click="savePage()">保存工作稿</button>
                 <button v-if="canPublish" class="btn btn-sm btn-primary" data-action="bible-publish-page" @click="publishDraft">保存并发布</button>
@@ -787,6 +787,13 @@ const selectedEntity = computed(() => {
   if (!id) return null
   return (props.bible?.entities || []).find((item) => (item.id || item.entity_id) === id) || null
 })
+watch(() => selectedEntity.value?.id || selectedEntity.value?.entity_id || "", (id) => {
+  if (!id) return
+  nextTick(() => {
+    const content = document.getElementById("workspace-content")
+    if (content) content.scrollTop = 0
+  })
+}, { immediate: true })
 watch(() => [props.bible?.entities, props.entityTypes, props.reviewTypeCatalog], ([entities, entityTypes, reviewTypeCatalog]) => {
   const items = Array.isArray(entities) ? entities : []
   syncWorldListRegistry({ entities: items, entityTypes })
@@ -895,7 +902,10 @@ function createTaskForWorldCard(card) {
     return
   }
   const kind = card.kind === "entity" ? "world_entity" : "world_page"
-  getRouter()?.navigate("writing", null, true, authorTaskPanelQuery({ kind, id: card.id, title: card.title }))
+  const title = card.kind === "page"
+    ? pages.value.find((page) => page.id === card.id)?.title || card.title
+    : card.title
+  getRouter()?.navigate("writing", null, true, authorTaskPanelQuery({ kind, id: card.id, title }))
 }
 
 function createTaskForWorldEntity(entity) {
@@ -904,7 +914,7 @@ function createTaskForWorldEntity(entity) {
 
 function createTaskForWorldPage() {
   if (!activePage.value?.id) return
-  createTaskForWorldCard({ kind: "page", id: activePage.value.id, title: editSource.value?.title || activePage.value.title })
+  createTaskForWorldCard({ kind: "page", id: activePage.value.id, title: activePage.value.title })
 }
 
 function editSelectedEntity() {
@@ -1319,7 +1329,11 @@ function openAssetRef(type, id) {
   const router = getRouter()
   if (["world_bible_page", "page"].includes(type)) { openPageCard(id); return }
   if (["relation", "entity_relation"].includes(type)) { router.navigate("world", "relations"); return }
-  if (["core_entity", "entity", "profile", "event"].includes(type)) { router.navigate("world", "objects"); return }
+  if (["core_entity", "entity", "profile", "event"].includes(type)) {
+    setDisplayMode("gallery")
+    if (displayMode.value === "gallery") openWorldCard({ kind: "entity", id })
+    return
+  }
   getToast()("该引用类型暂无可用的编辑入口", "warning")
 }
 

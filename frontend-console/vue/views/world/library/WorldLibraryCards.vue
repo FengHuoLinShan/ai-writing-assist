@@ -28,7 +28,7 @@ const emit = defineEmits(["open", "create-task"])
         <span v-if="card.draftId">已保留未发布修改</span>
       </div>
       <div class="world-bible-page-card__actions">
-        <button class="btn btn-sm btn-ghost" type="button" data-action="world-card-create-task" @click="emit('create-task', card)">添加到我的任务</button>
+        <button class="btn btn-sm btn-ghost" type="button" data-action="world-card-create-task" @click="emit('create-task', card)">添加到计划中的任务</button>
         <button class="btn btn-sm btn-primary" type="button" data-action="open-world-card" @click="emit('open', card)">{{ card.state === 'working' ? '继续编辑' : '打开' }}</button>
       </div>
     </article>

@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
 vi.mock("../../../../shared/referencePicker.js", () => ({
-  createReferencePicker: vi.fn(() => ({ destroy: vi.fn(), resolve: vi.fn(), getRefs: vi.fn(() => []) })),
+  createReferencePicker: vi.fn((options) => ({ destroy: vi.fn(), resolve: vi.fn(), getRefs: vi.fn(() => []), onOpen: options.onOpen })),
 }))
 
 vi.mock("../../../../shared/workflowProgress.js", () => ({
@@ -597,6 +597,24 @@ describe("显示模式切换", () => {
     expect(query.get("task_source_id")).toBe("page-1")
   })
 
+  it("工作稿改名时仍使用明确的正式页来源名称", async () => {
+    const wrapper = mountTab({
+      defaultDisplayMode: "gallery",
+      bible: {
+        ...defaultBible(),
+        pages: [{ ...PAGE_1, title: "七大正神" }, PAGE_2],
+        drafts: [{ ...DRAFT_1, title: "七大正神教会" }, DRAFT_FREE],
+      },
+    })
+    const pageCard = wrapper.findAll(".world-card").find((card) => card.text().includes("七大正神教会"))
+
+    await pageCard.get("[data-action='world-card-create-task']").trigger("click")
+
+    const query = navigateMock.mock.calls.at(-1)[3]
+    expect(query.get("task_source_id")).toBe("page-1")
+    expect(query.get("task_title")).toBe("七大正神")
+  })
+
   it("对象详情和别名在资料库内打开，返回保留筛选", async () => {
     const entity = {
       id: "entity-1", name: "沉钟港", entity_type: "location", summary: "北境港口", display_state: "active",
@@ -617,6 +635,48 @@ describe("显示模式切换", () => {
     expect(query.get("q")).toBe("港")
     expect(query.get("kind")).toBe("entity")
     expect(query.get("entity_id")).toBeNull()
+  })
+
+  it("打开对象详情时回到顶部，让小屏返回入口立即可见", async () => {
+    const content = document.createElement("div")
+    content.id = "workspace-content"
+    content.scrollTop = 320
+    document.body.appendChild(content)
+    const entity = {
+      id: "entity-1", name: "沉钟港", entity_type: "location", summary: "北境港口", display_state: "active",
+      content_json: { aliases: [] },
+    }
+
+    const wrapper = mountTab({
+      defaultDisplayMode: "gallery",
+      bible: { ...defaultBible(), entities: [entity], entityTotal: 1 },
+      bibleDeepLink: { draftId: "", pageId: "", entityId: "entity-1" },
+    })
+
+    await vi.waitFor(() => expect(content.scrollTop).toBe(0))
+    expect(wrapper.get(".world-entity-detail__back").text()).toContain("返回资料库")
+  })
+
+  it("关联资产保留对象深链并进入统一详情，未保存时仍受离开门禁保护", async () => {
+    const wrapper = mountTab({
+      worldCardFilters: { q: "港", kind: "entity", type: "location", state: "", layout: "list" },
+    })
+    await wrapper.get("#bible-title").setValue("未保存的修改")
+    const picker = createReferencePicker.mock.results.at(-1).value
+
+    confirmMock.mockReturnValueOnce(false)
+    picker.onOpen({ kind: "core_entity", id: "entity-1" })
+    expect(navigateMock).not.toHaveBeenCalled()
+
+    confirmMock.mockReturnValueOnce(true)
+    picker.onOpen({ kind: "core_entity", id: "entity-1" })
+    const [view, subView, updateHistory, query] = navigateMock.mock.calls.at(-1)
+    expect([view, subView, updateHistory]).toEqual(["world", "bible", true])
+    expect(query.get("entity_id")).toBe("entity-1")
+    expect(query.get("q")).toBe("港")
+    expect(query.get("kind")).toBe("entity")
+    expect(query.get("type")).toBe("location")
+    expect(query.get("layout")).toBe("list")
   })
 
   it("gallery 模式从页面卡打开编辑", async () => {

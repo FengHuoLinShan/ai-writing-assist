@@ -18,12 +18,12 @@ const display = computed(() => worldAssetDisplay(props.entity))
   <article class="world-entity-detail" aria-labelledby="world-entity-detail-title">
     <header class="world-entity-detail__header">
       <div>
-        <button type="button" class="btn btn-sm btn-ghost" @click="emit('back')">← 返回资料库</button>
+        <button type="button" class="btn btn-sm btn-ghost world-entity-detail__back" @click="emit('back')">← 返回资料库</button>
         <h2 id="world-entity-detail-title">{{ entity.name || '未命名人物或设定' }}</h2>
         <p><span>{{ typeLabel }}</span> · <span class="badge" :class="displayStateBadgeClass(display.displayState)">{{ display.label }}</span></p>
       </div>
       <div class="world-entity-detail__actions">
-        <button type="button" class="btn btn-sm" @click="emit('create-task')">添加到我的任务</button>
+        <button type="button" class="btn btn-sm" @click="emit('create-task')">添加到计划中的任务</button>
         <button type="button" class="btn btn-sm btn-primary" @click="emit('edit')">编辑资料</button>
       </div>
     </header>
@@ -59,5 +59,9 @@ const display = computed(() => worldAssetDisplay(props.entity))
   .world-entity-detail__header { flex-direction: column; }
   .world-entity-detail__actions { width: 100%; justify-content: stretch; }
   .world-entity-detail__actions .btn, .world-entity-detail__aliases .btn { min-height: 44px; }
+}
+@media (max-width: 390px) {
+  .world-entity-detail__back, .world-entity-detail__aliases summary { min-height: 44px; }
+  .world-entity-detail__aliases summary { padding-block: 10px; }
 }
 </style>

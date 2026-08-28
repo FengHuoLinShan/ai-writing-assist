@@ -18,7 +18,7 @@ const tasks = useAuthorTasks(props.projectId, activeScope)
 const formOpen = ref(Boolean(props.source))
 const editingTask = ref(null)
 const navigationBusy = computed(() => tasks.loading.value || tasks.busyIds.value.size > 0)
-const heading = computed(() => activeScope === "archived" ? "已归档" : "我的任务")
+const heading = computed(() => activeScope === "archived" ? "已归档" : "计划中的任务")
 const tabs = computed(() => [
   ["today", "今天", tasks.counts.value.today],
   ["inbox", "收件箱", tasks.counts.value.inbox],

@@ -20,7 +20,7 @@ export function useAuthorTasks(projectId, scope) {
   const conflict = ref(null)
   let loadGeneration = 0
 
-  async function load() {
+  async function load(options = {}) {
     const generation = ++loadGeneration
     loading.value = true
     loadError.value = ""
@@ -29,7 +29,7 @@ export function useAuthorTasks(projectId, scope) {
         scope,
         on_date: localAuthorDate(),
         limit: 100,
-      })
+      }, options)
       if (generation !== loadGeneration) return
       items.value = Array.isArray(result?.items) ? result.items : []
       counts.value = result?.counts || counts.value
@@ -74,7 +74,7 @@ export function useAuthorTasks(projectId, scope) {
       return updated
     } catch (error) {
       if (error?.status === 409) {
-        const currentItems = await load()
+        const currentItems = await load({ cache: "no-store" })
         let latest = currentItems?.find((item) => item.id === task.id) || null
         for (const nextScope of TASK_SCOPES) {
           if (latest) break
@@ -84,7 +84,7 @@ export function useAuthorTasks(projectId, scope) {
               scope: nextScope,
               on_date: localAuthorDate(),
               limit: 100,
-            })
+            }, { cache: "no-store" })
             latest = result?.items?.find((item) => item.id === task.id) || null
           } catch {
             // The current list remains usable; another scope may still resolve the baseline.
