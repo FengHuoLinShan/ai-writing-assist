@@ -6,6 +6,7 @@ import json
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import BaseModel
@@ -18,6 +19,7 @@ from evals.cli import (
     _judge_batches,
     _judge_status,
     _rag_preflight,
+    _run_context_planner_evaluation,
     _run_workflow_evaluation,
 )
 from evals.codex_executor import (
@@ -46,8 +48,9 @@ from evals.readiness import (
     SAFETY_REVIEW_ERROR,
     assess_baseline_readiness,
 )
+from evals.runners.context_planner import _source_health
 from evals.runners.outline import evaluate_outline_cases, run_outline_preview_cases
-from evals.runners.rag import evaluate_rag_cases
+from evals.runners.rag import _calibrate_selection_thresholds, evaluate_rag_cases
 from evals.runners.scene import evaluate_scene_cases, run_scene_workflow_cases
 from evals.runners.world import evaluate_world_cases, run_world_workflow_cases
 from evals.schemas import (
@@ -950,6 +953,27 @@ async def test_rag_runner_uses_facade_shape_and_scores_ids() -> None:
     assert rag_metrics["source_hash_validity"].available is False
     assert rag_metrics["ragas_context_precision"].available is False
     assert rag_metrics["macro_scenario_mrr"].details["scenario_count"] == 1
+    assert result.run_context["split_summaries"]["test"] == {
+        "case_count": 1,
+        "answerable_count": 1,
+        "no_answer_count": 0,
+        "p_at_5": 1.0,
+        "mrr": 1.0,
+        "r_at_10": 1.0,
+        "no_answer_false_positive_rate": 0.0,
+        "mean_result_count": 1.0,
+        "degraded_rate": 0.0,
+    }
+    assert result.case_results[0]["result_count"] == 1
+    assert result.case_results[0]["retrieved_candidates"] == [
+        {"context_id": "fixture:chapter:1", "score": None, "chapter_index": 1}
+    ]
+    assert result.run_context["selection_calibration"] == {
+        "calibration_split": "dev",
+        "available": False,
+        "reason": "dev split requires answerable and no-answer cases",
+        "selected": None,
+    }
     assert result.completed_at is not None
     assert result.started_at <= result.completed_at
 
@@ -1008,6 +1032,66 @@ async def test_rag_ranking_metrics_exclude_no_answer_cases() -> None:
         "no_answer_case_count": 1,
     }
     assert result.case_results[1]["ranking_eligible"] is False
+
+
+def test_rag_selection_calibration_uses_only_dev_and_requires_safety() -> None:
+    report = _calibrate_selection_thresholds(
+        [
+            {
+                "split": "dev",
+                "no_answer": False,
+                "relevant_ids": {"chapter-1"},
+                "candidates": [
+                    {"context_id": "chapter-1", "score": 0.9},
+                    {"context_id": "noise", "score": 0.2},
+                ],
+            },
+            {
+                "split": "dev",
+                "no_answer": True,
+                "relevant_ids": set(),
+                "candidates": [{"context_id": "noise", "score": 0.1}],
+            },
+            {
+                "split": "test",
+                "no_answer": True,
+                "relevant_ids": set(),
+                "candidates": [{"context_id": "test-only", "score": 1.0}],
+            },
+        ]
+    )
+
+    assert report["available"] is True
+    assert report["feasible_combination_count"] > 0
+    assert report["selected"]["absolute_threshold"] > 0.1
+    assert report["selected"]["p_at_5"] == 1.0
+    assert report["selected"]["no_answer_false_positive_rate"] == 0.0
+
+
+def test_context_planner_source_health_detects_stale_and_cross_novel_evidence() -> None:
+    valid_hash = "a" * 64
+    health = _source_health(
+        [
+            {
+                "novel_id": "novel-1",
+                "source_content_hash": valid_hash,
+                "source_ref": {"source_hash": valid_hash},
+            },
+            {
+                "novel_id": "novel-2",
+                "source_content_hash": "b" * 64,
+                "source_ref": {"source_hash": "c" * 64},
+            },
+        ],
+        novel_id="novel-1",
+    )
+
+    assert health == {
+        "source_hash_check_count": 2,
+        "source_hash_failure_count": 1,
+        "stale_evidence_count": 1,
+        "cross_novel_leakage_count": 1,
+    }
 
 
 @pytest.mark.asyncio
@@ -1933,7 +2017,12 @@ async def test_workflow_eval_cli_dispatches_rag_and_writes_versioned_result(
             case_results=[{"case_id": cases[0].case_id}],
         )
 
+    registrations: list[bool] = []
     monkeypatch.setattr("core.database.get_manager", lambda: manager)
+    monkeypatch.setattr(
+        "app.bootstrap.register_container_services",
+        lambda ignore_existing=False: registrations.append(ignore_existing),
+    )
     monkeypatch.setattr("evals.runners.rag.evaluate_rag_cases", evaluate)
 
     async def preflight(*_args, **_kwargs):
@@ -1988,6 +2077,93 @@ async def test_workflow_eval_cli_dispatches_rag_and_writes_versioned_result(
     assert len(result.system_under_test.profile_hash) == 64
     assert result.run_context["rag_preflight"]["ready"] is True
     assert result.errors == ["unfrozen_dataset_smoke_only"]
+    assert registrations == [True]
+
+
+@pytest.mark.asyncio
+async def test_context_planner_cli_registers_composition_root_and_forwards_llm_flag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset = tmp_path / "dataset.jsonl"
+    dataset.write_text(
+        _case(
+            EvalSuite.rag,
+            "rag-context-cli",
+            {"context_ids": ["fixture:chapter:1"]},
+        ).model_dump_json()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    class SessionContext:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, *_args):
+            return None
+
+    class Manager:
+        session_factory = SessionContext
+
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+    manager = Manager()
+    captured: dict[str, object] = {}
+
+    async def evaluate(db, novel_id, cases, **kwargs):
+        captured.update(
+            db=db,
+            novel_id=novel_id,
+            case_ids=[case.case_id for case in cases],
+            kwargs=kwargs,
+        )
+        return {"passed": True}
+
+    registrations: list[bool] = []
+    close_embedding = AsyncMock()
+    shutdown = AsyncMock()
+    monkeypatch.setattr("core.database.get_manager", lambda: manager)
+    monkeypatch.setattr(
+        "app.bootstrap.register_container_services",
+        lambda ignore_existing=False: registrations.append(ignore_existing),
+    )
+    monkeypatch.setattr(
+        "evals.runners.context_planner.evaluate_context_planner_cases",
+        evaluate,
+    )
+    monkeypatch.setattr(
+        "infrastructure.embedding.client.BgeEmbeddingClient.close_instance",
+        close_embedding,
+    )
+    monkeypatch.setattr("core.container.shutdown", shutdown)
+    output = tmp_path / "context-planner.json"
+
+    await _run_context_planner_evaluation(
+        dataset=dataset,
+        novel_id="novel-context-cli",
+        dataset_version="v1",
+        sut_profile="fixture",
+        output=output,
+        include_llm_planner=True,
+    )
+
+    assert registrations == [True]
+    assert captured["novel_id"] == "novel-context-cli"
+    assert captured["case_ids"] == ["rag-context-cli"]
+    assert captured["kwargs"] == {
+        "dataset_version": "v1",
+        "sut_profile": "fixture",
+        "include_llm_planner": True,
+    }
+    assert json.loads(output.read_text(encoding="utf-8")) == {"passed": True}
+    assert manager.closed is True
+    close_embedding.assert_awaited_once()
+    shutdown.assert_awaited_once()
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import re
+import unicodedata
 
 from modules.evidence.indexing.models import RagChunk
 from shared.constants import (
@@ -18,21 +19,24 @@ from shared.constants import (
     RAG_VECTOR_WEIGHT,
 )
 
-_CHINESE_SEP_RE = re.compile(r"[\s,，.。!！?？、·]+")
+_CHINESE_SEP_RE = re.compile(r"[^\w\u4e00-\u9fff]+")
+_MAX_CN_NGRAM_SOURCE_LENGTH = 8
+_MAX_QUERY_NGRAMS = 96
 
 
 def smart_tokenize_chinese(query: str) -> list[str]:
     """中文查询分词：按常见分隔符切分，过滤单字。"""
     if not query or not query.strip():
         return []
-    raw_terms = _CHINESE_SEP_RE.split(query.strip())
+    normalized = unicodedata.normalize("NFKC", query).strip()
+    raw_terms = _CHINESE_SEP_RE.split(normalized)
     return [term.lower() for term in raw_terms if len(term) >= 2]
 
 
 def keyword_query_terms(query: str) -> list[str]:
     """提取 SQL 召回/评分共用关键词，兼容无空格中文复合查询。"""
     terms: list[str] = []
-    for raw_term in (q.strip() for q in query.split()):
+    for raw_term in smart_tokenize_chinese(query):
         if not raw_term:
             continue
         term = raw_term.lower()
@@ -40,9 +44,17 @@ def keyword_query_terms(query: str) -> list[str]:
         compact = re.sub(r"\s+", "", term)
         if len(compact) < 4 or not any("\u4e00" <= ch <= "\u9fff" for ch in compact):
             continue
+        grams: list[str] = []
         for size in range(2, min(4, len(compact)) + 1):
             for idx in range(0, len(compact) - size + 1):
-                terms.append(compact[idx : idx + size])
+                grams.append(compact[idx : idx + size])
+        if len(compact) > _MAX_CN_NGRAM_SOURCE_LENGTH and len(grams) > _MAX_QUERY_NGRAMS:
+            last = len(grams) - 1
+            grams = [
+                grams[round(index * last / (_MAX_QUERY_NGRAMS - 1))]
+                for index in range(_MAX_QUERY_NGRAMS)
+            ]
+        terms.extend(grams)
     return list(dict.fromkeys(terms))
 
 

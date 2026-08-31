@@ -2,17 +2,28 @@ from __future__ import annotations
 
 import hashlib
 import uuid
-from dataclasses import dataclass, field
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
-from modules.evidence.compilation.contracts import CompileOptions, StructureContextBundle
+from modules.evidence.compilation.contracts import (
+    CompileOptions,
+    StructureContextBundle,
+)
 from modules.evidence.compilation.facade import get_evidence_health, list_retrieval_traces
 from modules.evidence.compilation.models import ContextRetrievalTrace
 from modules.evidence.compilation.services.loaders.rag_chunks_loader import (
     RagChunksLoader,
+    _default_fused_reranker,
+    _FusedRerankExecution,
+)
+from modules.evidence.compilation.services.retrieval_query_planner import (
+    QueryPlanExpansionOutcome,
+    RetrievalQueryPlanner,
 )
 from modules.evidence.compilation.services.retrieval_trace_service import (
     RetrievalTraceService,
@@ -466,3 +477,239 @@ async def test_retrieval_exception_still_records_exactly_one_degraded_trace(
     assert traces[0].degraded is True
     assert traces[0].warning_codes == ["clause_retrieval_failed"]
     assert traces[0].safe_empty_reason == "retrieval_degraded_empty"
+
+
+@pytest.mark.asyncio
+async def test_loader_runs_multi_query_rrf_then_one_fused_rerank(
+    db_session,
+    test_project_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = RagChunkContract(
+        id=str(uuid.uuid4()),
+        novel_id=test_project_id,
+        source_type="chapter_text",
+        chapter_index=1,
+        text="直接证据",
+    )
+    second = replace(first, id=str(uuid.uuid4()), chapter_index=2, text="干扰证据")
+    retrieve_calls: list[dict] = []
+
+    async def retrieve(*_args, **kwargs):
+        retrieve_calls.append(kwargs)
+        chunks = [first, second] if len(retrieve_calls) == 1 else [first]
+        return _FakeRagResult(chunks=chunks)
+
+    async def expand(_db, options, plan):
+        extra = [
+            replace(
+                plan.clauses[0],
+                clause_id="llm_support_1",
+                query_text="原问题支持证据",
+                reason_code="llm_support_query",
+            ),
+            replace(
+                plan.clauses[0],
+                clause_id="llm_counter_2",
+                query_text="原问题反证",
+                reason_code="llm_counter_query",
+            ),
+        ]
+        return QueryPlanExpansionOutcome(
+            plan=replace(
+                plan,
+                version="context-query-v2-llm",
+                clauses=[*plan.clauses, *extra],
+            ),
+            invoked=True,
+            expanded=True,
+            latency_ms=4.0,
+        )
+
+    rerank_calls: list[list[str]] = []
+
+    async def rerank(_db, _options, _plan, chunks, scores, **kwargs):
+        rerank_calls.append([str(chunk.id) for chunk in chunks])
+        assert scores[str(first.id)] > scores[str(second.id)]
+        assert kwargs["should_run"] is True
+        return _FusedRerankExecution(
+            chunks=[first],
+            invoked=True,
+            latency_ms=6.0,
+        )
+
+    async def rehydrate(_db, _options, chunks, _bundle, *, activations, **_kwargs):
+        return [
+            {
+                "id": str(chunk.id),
+                "activation_reasons": activations[str(chunk.id)]["reason_codes"],
+            }
+            for chunk in chunks
+        ], {}
+
+    async def discard_trace(*_args, **_kwargs):
+        return None
+
+    loader = RagChunksLoader(
+        retrieve_fn=retrieve,
+        trace_recorder=discard_trace,
+        plan_expander=expand,
+        fused_reranker=rerank,
+    )
+    monkeypatch.setattr(loader, "_rehydrate_chunks", rehydrate)
+    options = CompileOptions(
+        novel_id=test_project_id,
+        task="原问题为什么之后发生变化？",
+        scope="full",
+        retrieval_purpose="conflict_review",
+    )
+    bundle = StructureContextBundle(
+        novel_id=test_project_id,
+        task=options.task,
+        scope=options.scope,
+    )
+
+    await loader.load(db_session, options, bundle)
+
+    assert len(retrieve_calls) == 3
+    assert all(call["rerank"] is False for call in retrieve_calls)
+    assert rerank_calls == [[str(first.id), str(second.id)]]
+    assert bundle.rag_chunks == [
+        {
+            "id": str(first.id),
+            "activation_reasons": [
+                "task_intent",
+                "llm_support_query",
+                "llm_counter_query",
+            ],
+        }
+    ]
+    assert bundle.retrieval_trace["plan_version"] == "context-query-v2-llm"
+    assert bundle.retrieval_trace["latency_metadata"]["planner_ms"] == 4.0
+    assert bundle.retrieval_trace["latency_metadata"]["planner_invoked"] == 1.0
+    assert bundle.retrieval_trace["latency_metadata"]["planner_fallback"] == 0.0
+    assert bundle.retrieval_trace["latency_metadata"]["rerank_ms"] == 6.0
+    assert bundle.retrieval_trace["latency_metadata"]["reranker_invoked"] == 1.0
+    assert bundle.retrieval_trace["drop_counts"] == {
+        "duplicate_candidate": 2,
+        "reranker_filtered": 1,
+    }
+
+
+@pytest.mark.asyncio
+async def test_saturated_single_clause_requests_one_fused_rerank(
+    db_session,
+    test_project_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chunks = [
+        RagChunkContract(
+            id=str(uuid.uuid4()),
+            novel_id=test_project_id,
+            source_type="chapter_text",
+            chapter_index=index + 1,
+            text=f"候选 {index + 1}",
+        )
+        for index in range(8)
+    ]
+
+    async def retrieve(*_args, **_kwargs):
+        return _FakeRagResult(chunks=chunks)
+
+    async def expand(_db, _options, plan):
+        return QueryPlanExpansionOutcome(plan=plan)
+
+    rerank = AsyncMock(return_value=_FusedRerankExecution(chunks=chunks, invoked=True))
+
+    async def rehydrate(_db, _options, values, _bundle, **_kwargs):
+        return [{"id": str(chunk.id)} for chunk in values], {}
+
+    async def discard_trace(*_args, **_kwargs):
+        return None
+
+    loader = RagChunksLoader(
+        retrieve_fn=retrieve,
+        trace_recorder=discard_trace,
+        plan_expander=expand,
+        fused_reranker=rerank,
+    )
+    monkeypatch.setattr(loader, "_rehydrate_chunks", rehydrate)
+    options = CompileOptions(
+        novel_id=test_project_id,
+        task="查找空间是否存在支持证据",
+        scope="full",
+        retrieval_purpose="writing_generation",
+        top_k=8,
+    )
+    bundle = StructureContextBundle(
+        novel_id=test_project_id,
+        task=options.task,
+        scope=options.scope,
+    )
+
+    await loader.load(db_session, options, bundle)
+
+    rerank.assert_awaited_once()
+    assert rerank.await_args.kwargs["should_run"] is True
+    assert bundle.retrieval_trace["latency_metadata"]["reranker_invoked"] == 1.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("purpose", "expected_count", "reason"),
+    [
+        ("manual_search", 2, None),
+        ("writing_generation", 0, "reranker_failed_closed"),
+    ],
+)
+async def test_fused_reranker_failure_is_open_only_for_manual_search(
+    monkeypatch: pytest.MonkeyPatch,
+    purpose: str,
+    expected_count: int,
+    reason: str | None,
+) -> None:
+    monkeypatch.setattr(
+        "core.config.get_settings",
+        lambda: SimpleNamespace(reranker_enabled=True),
+    )
+
+    @asynccontextmanager
+    async def open_client(*_args, **_kwargs):
+        yield SimpleNamespace()
+
+    rerank = AsyncMock(side_effect=RuntimeError("provider unavailable"))
+    monkeypatch.setattr(
+        "modules.project.facade.open_project_llm_client",
+        open_client,
+    )
+    monkeypatch.setattr(
+        "modules.evidence.indexing.reranker.rerank_results",
+        rerank,
+    )
+    options = CompileOptions(
+        novel_id=str(uuid.uuid4()),
+        task="复杂问题",
+        scope="full",
+        retrieval_purpose=purpose,
+    )
+    plan = RetrievalQueryPlanner().plan(options)
+    chunks = [
+        SimpleNamespace(id=str(uuid.uuid4()), score=0.2),
+        SimpleNamespace(id=str(uuid.uuid4()), score=0.1),
+    ]
+
+    outcome = await _default_fused_reranker(
+        None,  # type: ignore[arg-type]
+        options,
+        plan,
+        chunks,
+        {str(chunk.id): float(chunk.score) for chunk in chunks},
+        top_k=8,
+        should_run=True,
+    )
+
+    assert len(outcome.chunks) == expected_count
+    assert outcome.safe_empty_reason == reason
+    assert outcome.degraded is True
+    rerank.assert_awaited_once()
+    assert rerank.await_args.kwargs["force"] is True

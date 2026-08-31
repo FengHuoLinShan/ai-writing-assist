@@ -11,7 +11,7 @@
 |---|---|---|
 | `README.md` | 项目入口 | 产品简介、启动方式与主要模块入口。 |
 | `AGENTS.md` | Agent 硬约束 | 协作协议、安全/数据边界与终止条件。 |
-| `CLAUDE.md` | Agent 开发导航 | 架构导航、开发入口、命名与测试约定。 |
+| `CLAUDE.md` | Claude Code 适配 | 通过 `@AGENTS.md` 导入共享规则，不维护第二套契约。 |
 | `CONTEXT.md` | 领域上下文 | 稳定领域术语与跨模块语义。 |
 | `DECISIONS.md` | 临时决策日志 | 设计演进中的轻量决策；长期架构决策进入 `adr/`。 |
 | `NOTES.md` | 实现笔记 | 仍在维护的实现边界和后续同步事项。 |
@@ -29,12 +29,12 @@
 
 ## 指导文件分工
 
-- 根目录 `AGENTS.md` 记录所有编码 Agent 的硬约束、协作协议和终止条件
-- 根目录 `CLAUDE.md` 记录编码 Agent 的开发入口、架构导航和命名约定
+- 根目录 `AGENTS.md` 记录所有编码 Agent 的共享硬约束、协作协议和终止条件
+- 根目录及模块 `CLAUDE.md` 只为 Claude Code 导入同目录 `AGENTS.md`
 - 项目结构、目录设计、分层架构写入 [`00_整体设计.md`](00_整体设计.md)
 - 开发命令与工程规则写入根目录 `development-guide.md`
 - 测试要求与 Review 分级写入根目录 `testing-guide.md`
-- 模块专属约束写入模块 README 或模块级 `CLAUDE.md`
+- 模块专属硬约束写入最近的 `AGENTS.md`；模块 README 继续保存职责、接口和测试事实
 
 ## 权威性与历史分类
 
@@ -104,7 +104,7 @@
 ## 代码邻近文档与运行记录
 
 - 根目录 `deploy/README.md` 是 `zy` 的生产拓扑、决策门禁、发布、备份与恢复入口。
-- `backend/modules/*/README.md`、模块级 `CLAUDE.md` 与 `backend/infrastructure/*/README.md`
+- `backend/modules/*/README.md`、模块级 `AGENTS.md` 与 `backend/infrastructure/*/README.md`
   是代码邻近的模块接口/实现说明，随相应代码维护。
 - `backend/prompts/` 是运行时 Prompt 模板；其清单与调用契约由
   `prompts/Prompt体系设计.md` 维护。
@@ -127,10 +127,10 @@
 2. `00_整体设计.md`
 3. `01_数据库设计.md`
 4. `AGENTS.md`
-5. `CLAUDE.md`
+5. `development-guide.md` 与 `testing-guide.md`
 
 如果要开发某个模块：
-1. 先读根目录 `CLAUDE.md` 或 `AGENTS.md`
+1. 先读根目录及目标目录最近的 `AGENTS.md`
 2. 用户可见功能加读 `product/user-personas.md`
 3. 再读 `development-guide.md` 和 `testing-guide.md`
 4. 继续读对应 `modules/<模块>.md` 与模块 README

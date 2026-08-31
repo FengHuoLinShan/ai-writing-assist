@@ -1,5 +1,9 @@
 # Testing Guide — 测试与 Review 规则
 
+测试目录的局部约束见 `backend/tests/AGENTS.md`；Claude Code 通过同目录 `CLAUDE.md` 导入。
+目标模块内部测试可按该文件直接检查 implementation，跨模块行为仍优先从 facade、DI port 或
+HTTP 验证。
+
 ## Review Severity Levels
 
 ### P0 — Blocking (must fix before merge)
@@ -55,6 +59,8 @@ Evidence indexing/compilation 回归集中在 `backend/modules/evidence/`；
 | `make test` | Modules, infrastructure, unit, SQLite integration, prompt contracts; narrow with `TESTS=<path>` or `ARGS=<pytest-args>` | None; excludes E2E, real LLM, and external source data |
 | `make test-fast-coverage TEST_WORKERS=2` | Same fast layer with parallel production-code coverage and an 85% gate | None |
 | `make eval-ask-world` | Ask World project/API contracts, then retrieval, citation-fixture, refusal and integrity thresholds | None; targeted API tests plus deterministic synthetic evidence, not a semantic-answer quality claim |
+| `make eval-context-planner NOVEL_ID=<id> OUTPUT=<path>` | 冻结 RAG 数据上对比 task-direct 与确定性 Planner，输出 split/purpose、MRR/P@5/R@10、结果数、source hash、stale/跨项目与延迟 | 已建立同一冻结语料索引的本地项目；不调 LLM |
+| `make eval-context-planner NOVEL_ID=<id> LLM_PLANNER=1 OUTPUT=<path>` | 在上述对比中增加 `planner-v2-llm`，仅向当前项目模型发送 dev split 中达到复杂度门槛的查询 | 显式付费/外部模型验收；train/test 不发送给 Planner |
 | `make docs-check` | Architecture registry, modules, ORM tables, API prefixes, tasks, routes, Prompt/ADR inventory, links and Draw.io structure | Python 3.12 standard library only |
 | `make docs-check BASE_REF=origin/main` | Full inventory plus current-branch document-impact coverage | Local `origin/main` ref |
 | `make test-ci TEST_WORKERS=2` | Cross-stack local quality gate: docs, secrets, dependency audits, Ruff, deploy contracts, backend coverage/RuntimeWarning, and frontend Vitest | Locked backend/frontend dependencies; excludes PostgreSQL, browser, image, and paid/manual suites |

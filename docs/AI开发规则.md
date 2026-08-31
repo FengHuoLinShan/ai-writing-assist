@@ -1,33 +1,26 @@
-# AI 开发规则索引
+# AI 编码 Agent 指令索引
 
-> 本文档已精简为索引。原内容已分散到以下活跃文档，请以这些文档为准。
+## 指令加载
 
-## 必读文件
+- `AGENTS.md` 是跨工具共享的单一约束源；根文件放全局不变量，目录内更近的
+  `AGENTS.md` 只补充局部规则。
+- `CLAUDE.md` 只用 `@AGENTS.md` 把同目录规则导入 Claude Code，不复制架构、命令、模型选择
+  或验收清单。
+- 模块 README 记录当前职责、稳定接口和测试入口；`development-guide.md`、
+  `testing-guide.md`、ADR 与 Skill 承载按需流程和长篇解释。
 
-| 文件 | 职责 |
-|------|------|
-| 根目录 `CLAUDE.md` | 编码 Agent 开发入口（架构、流程、命名） |
-| 根目录 `AGENTS.md` | 所有编码 Agent 的协作规则与禁止事项 |
-| `development-guide.md` | 开发命令、模块结构、架构原则、工程规则 |
-| `testing-guide.md` | 测试要求、Review 分级、安全测试清单 |
-| `docs/00_整体设计.md` | 项目定位、分层架构、目录结构、模块职责、技术栈 |
-| `docs/核心业务场景与预期行为.md` | E2E 测试编写参考（Given-When-Then）与开发轮次计划 |
-| 模块目录 `README.md` | 单模块职责、表、API、facade、测试方式 |
-| 模块目录 `CLAUDE.md`（若有） | 该模块的特殊禁止事项、风险陷阱和不可绕过的边界 |
+## 写入门槛
+
+1. 只写会改变实现、Review 或停止决策，且无法从当前代码安全推断的项目事实。
+2. 把重复失败提炼为可验证的不变量，不记录事故经过、一次性状态或易变文件清单。
+3. Root 规则只放跨仓库边界；局部规则放最近的 `AGENTS.md`，避免所有任务都加载无关细节。
+4. 能由 schema、测试、lint、CI 或权限系统强制的规则优先机器化，文字只解释语义与安全路径。
+5. 删除后不会提高犯错概率的内容应删除；规则与代码、ADR 或同层规则冲突时立即修正。
 
 ## 开发前读取顺序
 
-1. `AGENTS.md` → 禁止事项与协作规则
-2. `CLAUDE.md` → 开发入口与架构导航
-3. 目标模块 `README.md` → 稳定接口 → 测试
-4. 按任务补读：实现任务读 `development-guide.md` / `testing-guide.md`，架构或数据库任务读 `docs/00_整体设计.md`、`docs/01_数据库设计.md`、相关 ADR 和 migration
+1. 根目录与目标目录的 `AGENTS.md`。
+2. 目标模块 README、稳定接口和测试。
+3. 按任务补读开发/测试指南、`CONTEXT.md`、数据库设计、ADR 或产品画像。
 
-## 关键规则速查
-
-- **模块边界**：模块 A 只能导入模块 B 的 `contracts.py` / `facade.py`，禁止直接导入 `models.py` / `repositories.py` / `services.py`
-- **数据规则**：AI 生成内容默认 candidate → 用户确认 → canonical；深度导入等用户确认的自动流水线可直接写入 canonical
-- **安全规则**：API Key 不写日志/不返前端；不 `eval` / `exec` LLM 输出；合并/删除/废弃需二次确认
-- **测试规则**：每个模块自带 `tests/`，修改后至少运行该模块测试；跨模块流程放在 `tests/integration/`
-- **文档同步**：修改 `contracts.py`、`facade.py`、API 路由、Pydantic schema、数据库表结构后，必须同步更新模块 README、测试、调用方和 `docs/` 对应文件
-
-详细规则请查阅上述活跃文档。
+本页只解释指令分层，不复制 `AGENTS.md` 的业务规则。

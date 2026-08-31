@@ -162,7 +162,7 @@ eval-ask-world:  ## Run Ask World API contracts, then the offline evidence-ranki
 	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) python -m evals.ask_world $(if $(DATASET),$(DATASET),) $(if $(OUTPUT),--output $(OUTPUT),)
 
 eval-context-planner:  ## Compare task-direct and planner-v1 on accepted RAG cases
-	cd $(BACKEND_DIR) && python -m evals.cli context-planner $(or $(DATASET),evals/datasets/local/pilot-v2-work/pilot-v1.1.accepted.jsonl) --novel-id $(NOVEL_ID) --dataset-version $(or $(DATASET_VERSION),pilot-v1.1) --sut-profile $(or $(SUT_PROFILE),local) --output $(or $(OUTPUT),evals/artifacts/results/$(or $(SUT_PROFILE),local)/$(or $(DATASET_VERSION),pilot-v1.1)/context-planner.result.json)
+	cd $(BACKEND_DIR) && python -m evals.cli context-planner $(or $(DATASET),evals/datasets/local/pilot-v2-work/pilot-v1.1.accepted.jsonl) --novel-id $(NOVEL_ID) --dataset-version $(or $(DATASET_VERSION),pilot-v1.1) --sut-profile $(or $(SUT_PROFILE),local) --output $(or $(OUTPUT),evals/artifacts/results/$(or $(SUT_PROFILE),local)/$(or $(DATASET_VERSION),pilot-v1.1)/context-planner.result.json) $(if $(LLM_PLANNER),--llm-planner,)
 
 lint:  ## Run ruff linter
 	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) ruff check .

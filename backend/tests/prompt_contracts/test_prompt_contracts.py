@@ -39,6 +39,7 @@ def test_registry_loads_all_deep_import_contracts() -> None:
         "p20_planned_scene",
         "scene_entity_extraction",
         "story_outline",
+        "rag_query_planner",
         "rag_reranker",
     }
 

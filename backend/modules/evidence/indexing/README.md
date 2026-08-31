@@ -134,11 +134,16 @@ compilation 必须再按当前 writing source ID/hash 回读，并用版本绑�
 ## 混合评分公式
 
 ```
-score = 0.45 × vector_score
-      + 0.30 × keyword_score
-      + 0.15 × relation_score
-      + 0.10 × importance_score
+score = 0.50 × vector_score
+      + 0.25 × keyword_score
+      + 0.12 × relation_score
+      + 0.13 × importance_score
 ```
+
+中文查询先经 NFKC 归一化并按非文字/数字符号分词；短专名保留 2–4 字模糊词项，
+长查询最多均匀保留 96 个 n-gram，避免词项数随问题长度无界增长。项目词典只在
+查询精确命中已采用名称/别名，或调用方显式提供对象 ID 时扩展，不再用任意短
+n-gram 把其它对象并入查询。
 
 索引版本 `cn-novel-v1` 使用正文 offset、chunk_index 和 embedding_status 记录索引质量。embedding 失败不阻塞索引，但会写入 warnings 并让前端提示“结果可能不准确”。失败或待重新向量化的 chunk 可通过 `rag_retry_embeddings` 任务重试 embedding；该任务不重新切段、不删除 chunk，也不修改来源元数据。
 
@@ -275,9 +280,11 @@ context 的作者可见 evidence wire；`/api/evidence/indexing/retrieve` 仍只
 ## 依赖注入约定
 
 - `RetrievalOrchestrator` 构造函数可注入 `repo / scorer / query_expander / reranker_fn / embedder_fn / metrics / circuit_breaker`，默认使用仓库/评分器/容器单例。
-- `RERANKER_ENABLED=true` 时，`search / context / extraction` 都可以在去重后候选数
-  大于 `top_k` 时调用 project runtime LLM。reranker 完整读取已有 `2 * top_k`
-  候选池及每个 chunk 全文，不再按 24 个候选或前 300 字二次裁剪；调用方可以通过
+- `RERANKER_ENABLED=true` 时，直接 `search / context / extraction` 可在去重后候选数
+  大于 `top_k` 时调用 project runtime LLM。Context 路径会禁用每条子查询的
+  局部重排；当 LLM Planner 成功扩展，或确定性候选刚好填满最终窗口而
+  支持度存疑时，先用 RRF 融合，再对合并候选池只重排一次。reranker 完整读取候选池
+  及每个 chunk 全文，不再按 24 个候选或前 300 字二次裁剪；调用方可以通过
   可选 `retrieval_purpose` 说明下游用途。模型严格区分直接证据、辅助证据、反证、
   仅主题相关和无关内容；它先审阅完整集合，再只返回值得保留的服务端短引用，无价值候选
   可以省略，避免把重复输出清单误当成检索质量。
@@ -291,6 +298,8 @@ context 的作者可见 evidence wire；`/api/evidence/indexing/retrieve` 仍只
   固定 30%/70% 混分。作者检索页按重排顺序聚合章节，不再按原始分二次洗牌；展示摘要聚焦
   查询命中的正文位置，但阅读引用仍保持原始精确来源。Embedding 仍只读取
   `EMBEDDING_*` 配置，不继承项目 chat profile。
+- Context 融合重排失败时，`manual_search` 保留确定性结果并标记 degraded；送入
+  AI Context 的其它 purpose 失败关闭为空证据，不把存疑候选继续交给下游模型。
 - Pilot v1.1 的旧 P@5/MRR/R@10 把 no-answer case 错误纳入
   ranking 聚合，且 visibility cutoff 未落入机器可执行字段，
   因此旧数值已作废。新 runner 只对 answerable case 聚合 ranking

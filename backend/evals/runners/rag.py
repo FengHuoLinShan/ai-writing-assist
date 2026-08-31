@@ -41,6 +41,8 @@ async def evaluate_rag_cases(
     source_hash_checks = 0
     source_hash_failures = 0
     scenario_values: dict[str, dict[str, list[float]]] = {}
+    split_values: dict[str, list[dict[str, Any]]] = {}
+    calibration_items: list[dict[str, Any]] = []
 
     for case in cases:
         if case.suite != EvalSuite.rag:
@@ -58,8 +60,16 @@ async def evaluate_rag_cases(
         )
         relevant_ids = set(case.reference.get("context_ids") or [])
         logical_prefix = _logical_context_prefix(relevant_ids)
+        retrieved_candidates = [
+            {
+                "context_id": _logical_chunk_id(chunk, logical_prefix),
+                "score": float(chunk.score) if chunk.score is not None else None,
+                "chapter_index": chunk.chapter_index,
+            }
+            for chunk in bundle.chunks
+        ]
         retrieved_ids = _deduplicate(
-            [_logical_chunk_id(chunk, logical_prefix) for chunk in bundle.chunks]
+            [item["context_id"] for item in retrieved_candidates]
         )
         no_answer = bool(case.reference.get("no_answer"))
         if no_answer:
@@ -111,7 +121,11 @@ async def evaluate_rag_cases(
             {
                 "case_id": case.case_id,
                 "scenario": case.scenario,
+                "split": case.split.value,
                 "retrieved_ids": retrieved_ids,
+                "retrieved_candidates": retrieved_candidates,
+                "result_count": len(retrieved_ids),
+                "degraded": bundle.degraded,
                 "p_at_5": p5,
                 "r_at_10": r10,
                 "reciprocal_rank": rr,
@@ -119,6 +133,15 @@ async def evaluate_rag_cases(
                 "ranking_eligible": ranking_eligible,
                 "visibility_leakage": case_leakage,
                 "warnings": bundle.warnings,
+            }
+        )
+        split_values.setdefault(case.split.value, []).append(case_results[-1])
+        calibration_items.append(
+            {
+                "split": case.split.value,
+                "no_answer": no_answer,
+                "relevant_ids": relevant_ids,
+                "candidates": retrieved_candidates,
             }
         )
 
@@ -225,11 +248,168 @@ async def evaluate_rag_cases(
         suite=EvalSuite.rag,
         dataset_id=dataset_id,
         dataset_version=dataset_version,
+        run_context={
+            "selection_calibration": _calibrate_selection_thresholds(calibration_items),
+            "split_summaries": {
+                split: _split_summary(items)
+                for split, items in sorted(split_values.items())
+            },
+        },
         metrics=metrics,
         case_results=case_results,
         started_at=started_at,
         completed_at=datetime.now(UTC),
     )
+
+
+def _calibrate_selection_thresholds(items: list[dict[str, Any]]) -> dict[str, Any]:
+    dev = [item for item in items if item["split"] == "dev"]
+    answerable = [item for item in dev if not item["no_answer"]]
+    no_answer = [item for item in dev if item["no_answer"]]
+    if not answerable or not no_answer:
+        return {
+            "calibration_split": "dev",
+            "available": False,
+            "reason": "dev split requires answerable and no-answer cases",
+            "selected": None,
+        }
+
+    absolute_thresholds = {0.0}
+    relative_margins = {0.0}
+    for item in dev:
+        candidates = item["candidates"]
+        scores = [
+            float(candidate["score"])
+            for candidate in candidates
+            if candidate["score"] is not None
+        ]
+        absolute_thresholds.update(scores)
+        if scores:
+            relative_margins.update(max(0.0, scores[0] - score) for score in scores)
+
+    feasible: list[dict[str, float]] = []
+    tested = 0
+    for absolute_threshold in sorted(absolute_thresholds):
+        for relative_margin in sorted(relative_margins):
+            tested += 1
+            metrics = _selection_metrics(
+                dev,
+                absolute_threshold=absolute_threshold,
+                relative_margin=relative_margin,
+            )
+            if (
+                metrics["no_answer_false_positive_rate"] <= 0.05
+                and metrics["r_at_10"] >= 0.75
+            ):
+                feasible.append(
+                    {
+                        "absolute_threshold": absolute_threshold,
+                        "relative_margin": relative_margin,
+                        **metrics,
+                    }
+                )
+
+    selected = max(
+        feasible,
+        key=lambda item: (
+            item["mrr"],
+            item["p_at_5"],
+            item["r_at_10"],
+            -item["mean_result_count"],
+            item["absolute_threshold"],
+            -item["relative_margin"],
+        ),
+        default=None,
+    )
+    return {
+        "calibration_split": "dev",
+        "available": True,
+        "constraints": {
+            "no_answer_false_positive_rate_lte": 0.05,
+            "r_at_10_gte": 0.75,
+        },
+        "tested_combination_count": tested,
+        "feasible_combination_count": len(feasible),
+        "selected": selected,
+    }
+
+
+def _selection_metrics(
+    items: list[dict[str, Any]],
+    *,
+    absolute_threshold: float,
+    relative_margin: float,
+) -> dict[str, float]:
+    p_at_5: list[float] = []
+    r_at_10: list[float] = []
+    reciprocal_ranks: list[float] = []
+    false_positives: list[float] = []
+    result_counts: list[float] = []
+    for item in items:
+        selected_ids = _select_candidate_ids(
+            item["candidates"],
+            absolute_threshold=absolute_threshold,
+            relative_margin=relative_margin,
+        )
+        result_counts.append(float(len(selected_ids)))
+        if item["no_answer"]:
+            false_positives.append(float(bool(selected_ids)))
+            continue
+        relevant_ids = set(item["relevant_ids"])
+        p_at_5.append(precision_at_k(selected_ids, relevant_ids, 5))
+        r_at_10.append(recall_at_k(selected_ids, relevant_ids, 10))
+        reciprocal_ranks.append(reciprocal_rank(selected_ids, relevant_ids))
+    return {
+        "p_at_5": _mean(p_at_5),
+        "mrr": _mean(reciprocal_ranks),
+        "r_at_10": _mean(r_at_10),
+        "no_answer_false_positive_rate": _mean(false_positives),
+        "mean_result_count": _mean(result_counts),
+    }
+
+
+def _select_candidate_ids(
+    candidates: list[dict[str, Any]],
+    *,
+    absolute_threshold: float,
+    relative_margin: float,
+) -> list[str]:
+    scores = [
+        float(candidate["score"])
+        for candidate in candidates
+        if candidate["score"] is not None
+    ]
+    if not scores:
+        return []
+    floor = max(absolute_threshold, scores[0] - relative_margin)
+    selected: list[str] = []
+    for candidate in candidates:
+        score = candidate["score"]
+        context_id = str(candidate["context_id"])
+        if score is None or float(score) < floor or context_id in selected:
+            continue
+        selected.append(context_id)
+        if len(selected) == 8:
+            break
+    return selected
+
+
+def _split_summary(items: list[dict[str, Any]]) -> dict[str, Any]:
+    answerable = [item for item in items if item["ranking_eligible"]]
+    no_answer = [item for item in items if not item["ranking_eligible"]]
+    return {
+        "case_count": len(items),
+        "answerable_count": len(answerable),
+        "no_answer_count": len(no_answer),
+        "p_at_5": _mean([float(item["p_at_5"]) for item in answerable]),
+        "mrr": _mean([float(item["reciprocal_rank"]) for item in answerable]),
+        "r_at_10": _mean([float(item["r_at_10"]) for item in answerable]),
+        "no_answer_false_positive_rate": _mean(
+            [float(bool(item["retrieved_ids"])) for item in no_answer]
+        ),
+        "mean_result_count": _mean([float(item["result_count"]) for item in items]),
+        "degraded_rate": _mean([float(item["degraded"]) for item in items]),
+    }
 
 
 def _retrieval_visibility(case: DatasetCase) -> str | None:

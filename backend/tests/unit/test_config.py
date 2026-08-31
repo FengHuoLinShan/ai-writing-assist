@@ -198,6 +198,12 @@ class TestSettingsFromEnvFactoryFields:
                 31,
             ),
             ("RERANKER_ENABLED", "true", "reranker_enabled", True),
+            (
+                "RAG_QUERY_PLANNER_ENABLED",
+                "true",
+                "rag_query_planner_enabled",
+                True,
+            ),
         ],
     )
     def test_environment_backed_fields_are_evaluated_per_instance(

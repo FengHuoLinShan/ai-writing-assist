@@ -8,7 +8,6 @@ RAG 查询扩展
 from __future__ import annotations
 
 import logging
-import re
 import time
 import uuid
 from collections.abc import Awaitable, Callable
@@ -120,22 +119,6 @@ def _match_project_terms(
     return character_ids, entity_ids, thread_ids
 
 
-def _cn_ngrams(term: str, min_n: int = 2, max_n: int = 4) -> list[str]:
-    """提取中文查询的 n-gram，用于模糊匹配别名。"""
-    compact = re.sub(r"\s+", "", term)
-    if not compact or not any("\u4e00" <= ch <= "\u9fff" for ch in compact):
-        return []
-    grams: list[str] = []
-    seen: set[str] = set()
-    for n in range(min_n, min(max_n, len(compact)) + 1):
-        for i in range(0, len(compact) - n + 1):
-            gram = compact[i : i + n]
-            if gram not in seen:
-                seen.add(gram)
-                grams.append(gram)
-    return grams
-
-
 async def _expand_query_with_project_terms(
     db: AsyncSession,
     novel_id: uuid.UUID,
@@ -161,10 +144,7 @@ async def _expand_query_with_project_terms(
     compact_query = query.replace(" ", "")
     for item in terms:
         term = item["term"]
-        if term in query or term in compact_query or query in term:
-            requested.add((item["type"], item["id"]))
-            continue
-        if any(gram in term for gram in _cn_ngrams(query)):
+        if term in query or term in compact_query:
             requested.add((item["type"], item["id"]))
 
     expanded: list[str] = [query]
@@ -173,10 +153,6 @@ async def _expand_query_with_project_terms(
             continue
         if item["term"] not in expanded:
             expanded.append(item["term"])
-
-    for gram in _cn_ngrams(query):
-        if gram not in expanded:
-            expanded.append(gram)
 
     return " ".join(expanded)
 
@@ -216,10 +192,7 @@ class QueryExpander:
         compact_query = query.replace(" ", "")
         for item in terms:
             term = item["term"]
-            if term in query or term in compact_query or query in term:
-                requested.add((item["type"], item["id"]))
-                continue
-            if any(gram in term for gram in _cn_ngrams(query)):
+            if term in query or term in compact_query:
                 requested.add((item["type"], item["id"]))
 
         expanded: list[str] = [query]
@@ -228,9 +201,5 @@ class QueryExpander:
                 continue
             if item["term"] not in expanded:
                 expanded.append(item["term"])
-
-        for gram in _cn_ngrams(query):
-            if gram not in expanded:
-                expanded.append(gram)
 
         return " ".join(expanded)

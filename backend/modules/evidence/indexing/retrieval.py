@@ -400,6 +400,7 @@ class RetrievalOrchestrator:
         top_k: int = 12,
         reference_chapter_index: int | None = None,
         retrieval_purpose: str | None = None,
+        rerank: bool | None = None,
     ) -> RagResultBundle:
         """混合检索编排：embedding 生成 → 混合搜索 → 去重 → 重排序 → 指标记录。"""
         import time as _time
@@ -444,7 +445,7 @@ class RetrievalOrchestrator:
                 degraded = True
                 warnings.append("BGE 服务熔断中，本次检索已降级为关键词匹配")
 
-        rerank_enabled = _is_rerank_enabled(mode)
+        rerank_enabled = _is_rerank_enabled(mode) and rerank is not False
         candidate_top_k = top_k * 2 if rerank_enabled else top_k
         _search_t0 = _time.monotonic()
         scored_chunks = await self.hybrid_search(

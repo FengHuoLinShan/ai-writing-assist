@@ -108,6 +108,13 @@ RAG 文本只用于候选召回。`RagChunksLoader` 按 chunk 的 source draft/h
 重读原文，不匹配则丢弃并告警；进入 `CompiledContext` 的 section metadata 保留
 source refs/hash，不把未校验的 chunk text 当作事实。
 
+复杂作者查询可在 `RAG_QUERY_PLANNER_ENABLED=true` 时调用一次受约束的项目 LLM，
+在保留原 Query 和所有确定性过滤的前提下补充最多两条 support/counter 软查询。
+reader、character、deep import 和 map 不走该首版路径。多查询结果先 RRF 合并，
+在 LLM 扩展成功或确定性候选窗口饱和时可选地只重排一次，最终仍经上述
+writing/hash/visibility 门禁。两个开关默认关闭，
+未通过冻结 dev 评测时不允许宣称质量提升。
+
 ## 小说证据编排
 
 `NovelEvidenceService` 集中编排 writing、RAG、outline 和 world，暴露确定性

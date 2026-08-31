@@ -2,13 +2,21 @@ from __future__ import annotations
 
 import uuid
 from time import perf_counter
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
 from modules.evidence.compilation.contracts import CompileOptions
 from modules.evidence.compilation.services.context_compiler import SCOPE_LOADERS
 from modules.evidence.compilation.services.retrieval_query_planner import (
+    LLMQueryPlannerOutput,
+    LLMQueryVariant,
+    QueryPlannerIntent,
+    QueryPlannerRole,
     RetrievalQueryPlanner,
+    expand_query_plan,
+    query_complexity_score,
 )
 
 
@@ -200,6 +208,21 @@ def test_empty_generic_input_produces_no_clause() -> None:
     assert plan.clauses == []
 
 
+def test_single_clause_uses_final_top_k_without_double_candidate_pool() -> None:
+    options = CompileOptions(
+        novel_id=str(uuid.uuid4()),
+        task="查找精确证据",
+        scope="full",
+        retrieval_purpose="manual_search",
+        top_k=8,
+    )
+
+    plan = RetrievalQueryPlanner().plan(options)
+
+    assert len(plan.clauses) == 1
+    assert plan.clauses[0].top_k == 8
+
+
 def test_planner_normalizes_and_bounds_task_text() -> None:
     options = CompileOptions(
         novel_id=str(uuid.uuid4()),
@@ -235,3 +258,263 @@ def test_planner_local_p95_is_below_two_milliseconds() -> None:
 
     durations.sort()
     assert durations[int(len(durations) * 0.95) - 1] < 2.0
+
+
+@pytest.mark.asyncio
+async def test_simple_query_does_not_call_llm_planner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    options = CompileOptions(
+        novel_id=str(uuid.uuid4()),
+        task="查找克莱恩",
+        scope="full",
+        retrieval_purpose="manual_search",
+    )
+    plan = RetrievalQueryPlanner().plan(options)
+    generate = AsyncMock()
+    monkeypatch.setattr(
+        "modules.evidence.compilation.services.retrieval_query_planner.run_managed_structured",
+        generate,
+    )
+
+    outcome = await expand_query_plan(
+        None,  # type: ignore[arg-type]
+        options,
+        plan,
+        enabled=True,
+        llm_client=SimpleNamespace(  # type: ignore[arg-type]
+            model_name="deepseek-v4-flash",
+            provider="deepseek",
+        ),
+    )
+
+    assert query_complexity_score(options) == 0
+    assert outcome.plan == plan
+    assert outcome.invoked is False
+    generate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_complex_query_adds_grounded_soft_clause_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entity_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
+    character_ids = [str(uuid.uuid4())]
+    thread_ids = [str(uuid.uuid4())]
+    options = CompileOptions(
+        novel_id=str(uuid.uuid4()),
+        task="克莱恩在决裂之前为什么改变立场？",
+        scope="full",
+        chapter_index=7,
+        visible_until_chapter=6,
+        entity_ids=entity_ids,
+        character_ids=character_ids,
+        thread_ids=thread_ids,
+        retrieval_purpose="conflict_review",
+    )
+    plan = RetrievalQueryPlanner().plan(options)
+    generate = AsyncMock(
+        return_value=LLMQueryPlannerOutput(
+            intent=QueryPlannerIntent.causal,
+            queries=[
+                LLMQueryVariant(
+                    role=QueryPlannerRole.support,
+                    query_text="克莱恩决裂之前改变立场的原因",
+                    grounding_spans=["克莱恩", "决裂之前"],
+                ),
+                LLMQueryVariant(
+                    role=QueryPlannerRole.counter,
+                    query_text="克莱恩决裂之前没有改变立场的证据",
+                    grounding_spans=["克莱恩", "改变立场"],
+                ),
+            ],
+        )
+    )
+    monkeypatch.setattr(
+        "modules.evidence.compilation.services.retrieval_query_planner.run_managed_structured",
+        generate,
+    )
+
+    outcome = await expand_query_plan(
+        None,  # type: ignore[arg-type]
+        options,
+        plan,
+        enabled=True,
+        llm_client=SimpleNamespace(  # type: ignore[arg-type]
+            model_name="deepseek-v4-flash",
+            provider="deepseek",
+        ),
+    )
+
+    assert outcome.invoked is True
+    assert outcome.expanded is True
+    assert outcome.degraded is False
+    assert len(outcome.plan.clauses) == 3
+    assert outcome.plan.clauses[0].query_text == plan.clauses[0].query_text
+    assert {clause.reason_code for clause in outcome.plan.clauses[1:]} == {
+        "llm_support_query",
+        "llm_counter_query",
+    }
+    base = outcome.plan.clauses[0]
+    for clause in outcome.plan.clauses[1:]:
+        assert clause.entity_ids == base.entity_ids == entity_ids
+        assert clause.character_ids == base.character_ids == character_ids
+        assert clause.thread_ids == base.thread_ids == thread_ids
+        assert clause.chapter_index == base.chapter_index == 7
+        assert clause.scene_id == base.scene_id
+        assert clause.strict_scene_filter == base.strict_scene_filter
+    assert outcome.plan.visible_until_chapter == plan.visible_until_chapter
+    generate.assert_awaited_once()
+    request = generate.await_args.args[1]
+    assert request.max_tokens == 8_192
+    assert request.extra == {
+        "thinking": {"type": "enabled"},
+        "reasoning_effort": "high",
+    }
+    assert generate.await_args.kwargs["max_fix_attempts"] == 0
+    assert generate.await_args.kwargs["transport_retries"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [TimeoutError(), ValueError("schema invalid")])
+async def test_llm_planner_timeout_or_schema_failure_falls_back_without_retry(
+    monkeypatch: pytest.MonkeyPatch,
+    failure: Exception,
+) -> None:
+    options = CompileOptions(
+        novel_id=str(uuid.uuid4()),
+        task="克莱恩之后为什么与之前的立场冲突？",
+        scope="full",
+        retrieval_purpose="conflict_review",
+    )
+    plan = RetrievalQueryPlanner().plan(options)
+    generate = AsyncMock(side_effect=failure)
+    monkeypatch.setattr(
+        "modules.evidence.compilation.services.retrieval_query_planner.run_managed_structured",
+        generate,
+    )
+
+    outcome = await expand_query_plan(
+        None,  # type: ignore[arg-type]
+        options,
+        plan,
+        enabled=True,
+        llm_client=SimpleNamespace(model_name="test-model"),  # type: ignore[arg-type]
+    )
+
+    assert outcome.plan == plan
+    assert outcome.invoked is True
+    assert outcome.degraded is True
+    assert outcome.warning_code == "llm_query_planner_failed"
+    generate.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_llm_planner_cannot_expand_an_empty_deterministic_plan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    options = CompileOptions(
+        novel_id=str(uuid.uuid4()),
+        task="之前与之后为什么发生冲突？",
+        scope="world",
+        retrieval_purpose="world_fusion",
+    )
+    plan = RetrievalQueryPlanner().plan(options)
+    generate = AsyncMock()
+    monkeypatch.setattr(
+        "modules.evidence.compilation.services.retrieval_query_planner.run_managed_structured",
+        generate,
+    )
+
+    outcome = await expand_query_plan(
+        None,  # type: ignore[arg-type]
+        options,
+        plan,
+        enabled=True,
+        llm_client=SimpleNamespace(model_name="test-model"),  # type: ignore[arg-type]
+    )
+
+    assert plan.clauses == []
+    assert outcome.plan == plan
+    assert outcome.invoked is False
+    generate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_llm_planner_rejects_new_numeric_fact_and_falls_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    options = CompileOptions(
+        novel_id=str(uuid.uuid4()),
+        task="克莱恩之后为什么改变立场？",
+        scope="full",
+        retrieval_purpose="conflict_review",
+    )
+    plan = RetrievalQueryPlanner().plan(options)
+    monkeypatch.setattr(
+        "modules.evidence.compilation.services.retrieval_query_planner.run_managed_structured",
+        AsyncMock(
+            return_value=LLMQueryPlannerOutput(
+                intent=QueryPlannerIntent.causal,
+                queries=[
+                    LLMQueryVariant(
+                        role=QueryPlannerRole.support,
+                        query_text="第99章克莱恩之后改变立场的原因",
+                        grounding_spans=["克莱恩", "之后"],
+                    )
+                ],
+            )
+        ),
+    )
+
+    outcome = await expand_query_plan(
+        None,  # type: ignore[arg-type]
+        options,
+        plan,
+        enabled=True,
+        llm_client=SimpleNamespace(model_name="test-model"),  # type: ignore[arg-type]
+    )
+
+    assert outcome.plan == plan
+    assert outcome.invoked is True
+    assert outcome.degraded is True
+    assert outcome.warning_code == "llm_query_planner_failed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("purpose", "reveal_mode"),
+    [
+        ("reader_context", "reader"),
+        ("character_context", "character"),
+        ("import_scene_activation", "author_safe"),
+        ("map_atlas", "author_full"),
+    ],
+)
+async def test_llm_planner_never_expands_disabled_safety_paths(
+    purpose: str,
+    reveal_mode: str,
+) -> None:
+    options = CompileOptions(
+        novel_id=str(uuid.uuid4()),
+        task="之前与之后为什么发生矛盾和变化？",
+        scope="full",
+        retrieval_purpose=purpose,
+        reveal_mode=reveal_mode,
+        scene_id=str(uuid.uuid4()) if reveal_mode == "character" else None,
+        viewpoint_character_id=(
+            str(uuid.uuid4()) if reveal_mode == "character" else None
+        ),
+    )
+    plan = RetrievalQueryPlanner().plan(options)
+
+    outcome = await expand_query_plan(
+        None,  # type: ignore[arg-type]
+        options,
+        plan,
+        enabled=True,
+        llm_client=SimpleNamespace(model_name="test-model"),  # type: ignore[arg-type]
+    )
+
+    assert outcome.invoked is False
+    assert outcome.plan == plan

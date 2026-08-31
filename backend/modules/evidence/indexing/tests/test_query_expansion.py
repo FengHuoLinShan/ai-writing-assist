@@ -11,26 +11,10 @@ import pytest
 
 from modules.evidence.indexing.query_expansion import (
     QueryExpander,
-    _cn_ngrams,
     _load_project_terms,
     _match_project_terms,
     clear_project_terms_cache,
 )
-
-
-class TestCnNgrams:
-    def test_chinese_ngrams(self) -> None:
-        grams = _cn_ngrams("克莱恩")
-        assert "克莱" in grams
-        assert "莱恩" in grams
-        assert "克莱恩" in grams
-
-    def test_non_chinese_returns_empty(self) -> None:
-        assert _cn_ngrams("hello world") == []
-
-    def test_respects_max_n(self) -> None:
-        grams = _cn_ngrams("一二三四五六", max_n=3)
-        assert max(len(g) for g in grams) <= 3
 
 
 class TestMatchProjectTerms:
@@ -78,6 +62,32 @@ class TestQueryExpander:
         expander = QueryExpander(term_loader=_empty)
         result = await expander.expand(None, uuid.uuid4(), "测试")  # type: ignore[arg-type]
         assert result == "测试"
+
+    @pytest.mark.asyncio
+    async def test_only_exact_project_term_matches_expand_aliases(self) -> None:
+        async def _fake_loader(db: Any, novel_id: uuid.UUID) -> list[dict[str, str]]:
+            return [
+                {"term": "克莱恩", "id": "char-1", "type": "character"},
+                {"term": "周明瑞", "id": "char-1", "type": "character"},
+                {"term": "莱恩河", "id": "place-1", "type": "entity"},
+            ]
+
+        expander = QueryExpander(term_loader=_fake_loader)
+        result = await expander.expand(
+            None,  # type: ignore[arg-type]
+            uuid.uuid4(),
+            "克莱恩后来为什么改变了立场？",
+        )
+
+        assert result.split() == ["克莱恩后来为什么改变了立场？", "克莱恩", "周明瑞"]
+        assert "莱恩河" not in result
+
+        partial = await expander.expand(
+            None,  # type: ignore[arg-type]
+            uuid.uuid4(),
+            "克莱",
+        )
+        assert partial == "克莱"
 
 
 class TestLoadProjectTerms:

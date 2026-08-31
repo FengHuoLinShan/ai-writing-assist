@@ -25,6 +25,7 @@
 | `p20_evidence_audit.md` | P20 候选的项目证据、已物化范围与外部正史污染审计 | `P20GenerationService` |
 | `p20_scope_rule_audit.md` | P20 候选的层级权限、世界规则与人物边界审计 | `P20GenerationService` |
 | `p20_author_instruction_audit.md` | P20 候选逐字段遵守本次作者明确边界的独立审计 | `P20GenerationService` |
+| `rag_query_planner.md` | 复杂作者查询的受约束 support/counter 软查询规划 | `modules.evidence.compilation.services.retrieval_query_planner` |
 | `rag_reranker.md` | 模式感知的 RAG 证据价值排序与 abstention | `modules.evidence.indexing.reranker` |
 | `scene_entity_extraction.md` | 深度导入 Phase 2a，Scene 世界对象、Delta 与不确定项抽取 | imports |
 | `map_atlas_workflow.py` | 内联 step `world.map_atlas.plan.structured`：把已确认资料规划为最多 20 页的地图册层级；图片 Prompt 交给固定 Image API | world 地图册 |
@@ -48,7 +49,7 @@
 Phase 1a Scene slicing、anchor repair、continuous-gap recovery、Phase 1b Scene enrichment、
 Phase 1c Scene fusion、Phase 2 world extraction、
 Phase 2b alias/relation、Phase 3 simple structure、StoryOutline preview、P20 三类当前层
-创作、P21 RAG evidence reranker，以及 Generation Center 的
+创作、RAG query planner、P21 RAG evidence reranker，以及 Generation Center 的
 `world_generation_core_entity`、`world_generation_world_bible_page`、
 `world_generation_world_bible_new_page` 和 `world_bible_synopsis`。检查入口是
 `make prompt-contracts` 或 `cd backend && python -m tools.prompt_contracts check`。
@@ -138,6 +139,15 @@ materializer 投影到 `foreshadowing_plans` / `reveal_plans`，两边用同一
 `information_movement_id` 关联。
 
 ### RAG 证据重排序类
+
+`evidence.query_planner` 是默认关闭的检索前置软查询步骤。服务端先用确定性规则
+判断复杂度，只向项目 owner 当前已验证连接发送原问题、purpose 和已有 clause 原因。
+模型只能返回 intent、最多两条 support/counter query、来自原问题的 grounding spans 和
+不确定项；不能生成 ID、可见性、章节/Scene 过滤、Canon 状态或答案。服务端保留原
+Query，拒绝未在原问题中 grounding 或新增数字事实的扩展，并始终复用原 clause 的
+硬过滤。该步骤最多一次调用、30 秒超时，不做 schema/format/transport 重试；
+DeepSeek 固定使用 `high` reasoning effort 和 8192 输出 token 预算；其它
+provider 不注入专有参数。失败直接回退确定性计划。
 
 `rag.reranker.generate` 只在确定性混合检索和 embedding 去重之后工作，不负责回答查询、
 生成创作内容或裁决项目事实。`RERANKER_ENABLED` 默认关闭；开启后，`search`、`context`

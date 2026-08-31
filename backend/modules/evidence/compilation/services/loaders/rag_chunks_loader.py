@@ -25,13 +25,17 @@ from modules.evidence.compilation.contracts import (
 )
 from modules.evidence.compilation.services.protocol import Loader
 from modules.evidence.compilation.services.retrieval_query_planner import (
+    QueryPlanExpansionOutcome,
     RetrievalQueryPlanner,
+    expand_query_plan,
 )
 
 logger = logging.getLogger(__name__)
 
 _RetrieveFn = Callable[..., Awaitable[Any]]
 _TraceRecorder = Callable[..., Awaitable[Any]]
+_PlanExpander = Callable[..., Awaitable[QueryPlanExpansionOutcome]]
+_FusedReranker = Callable[..., Awaitable[Any]]
 
 
 @dataclass
@@ -44,6 +48,18 @@ class _PlanExecution:
     unique_count: int = 0
     duplicate_count: int = 0
     degraded: bool = False
+    scores: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass
+class _FusedRerankExecution:
+    chunks: list = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    warning_codes: list[str] = field(default_factory=list)
+    degraded: bool = False
+    invoked: bool = False
+    latency_ms: float = 0.0
+    safe_empty_reason: str | None = None
 
 
 async def _default_retrieve(*args: Any, **kwargs: Any) -> Any:
@@ -82,6 +98,109 @@ async def _default_record_trace(
     return await service.record(db, novel_id=novel_id, payload=payload)
 
 
+async def _default_fused_reranker(
+    db: AsyncSession,
+    options: CompileOptions,
+    plan: RetrievalQueryPlan,
+    chunks: list,
+    scores: dict[str, float],
+    *,
+    top_k: int,
+    should_run: bool,
+) -> _FusedRerankExecution:
+    from core.config import get_settings
+
+    if not should_run or not get_settings().reranker_enabled or len(chunks) <= 1:
+        return _FusedRerankExecution(chunks=chunks)
+
+    from modules.evidence.indexing.reranker import (
+        RERANKER_TOTAL_TIMEOUT_SECONDS,
+        RerankerSupportStatus,
+        rerank_results,
+    )
+    from modules.project.facade import open_project_llm_client
+
+    started = time.monotonic()
+    scored_chunks = [
+        (
+            chunk,
+            scores.get(str(chunk.id), float(getattr(chunk, "score", 0.0) or 0.0)),
+        )
+        for chunk in chunks
+    ]
+    try:
+        async with open_project_llm_client(
+            db,
+            options.novel_id,
+            timeout_override=RERANKER_TOTAL_TIMEOUT_SECONDS,
+        ) as client:
+            outcome = await rerank_results(
+                options.task,
+                scored_chunks,
+                top_k=top_k,
+                retrieval_mode=(
+                    "extraction"
+                    if any(clause.mode == "extraction" for clause in plan.clauses)
+                    else "context"
+                ),
+                retrieval_purpose=plan.purpose,
+                llm_client=client,
+                force=True,
+            )
+    except Exception as exc:
+        if plan.purpose == "manual_search":
+            return _FusedRerankExecution(
+                chunks=chunks,
+                warnings=[
+                    "融合重排失败，已保留确定性搜索结果: "
+                    f"{redact_diagnostic(exc, limit=200)}"
+                ],
+                warning_codes=["fused_rerank_failed_open"],
+                degraded=True,
+                invoked=True,
+                latency_ms=(time.monotonic() - started) * 1000,
+            )
+        return _FusedRerankExecution(
+            chunks=[],
+            warnings=["融合重排失败，AI 上下文已安全留空"],
+            warning_codes=["fused_rerank_failed_closed"],
+            degraded=True,
+            invoked=True,
+            latency_ms=(time.monotonic() - started) * 1000,
+            safe_empty_reason="reranker_failed_closed",
+        )
+
+    reranked = [chunk for chunk, _score in outcome.chunks]
+    if outcome.degraded and plan.purpose != "manual_search":
+        return _FusedRerankExecution(
+            chunks=[],
+            warnings=[outcome.warning or "重排无法可靠判断，AI 上下文已安全留空"],
+            warning_codes=["fused_rerank_uncertain_closed"],
+            degraded=True,
+            invoked=True,
+            latency_ms=(time.monotonic() - started) * 1000,
+            safe_empty_reason="reranker_uncertain_closed",
+        )
+    return _FusedRerankExecution(
+        chunks=reranked,
+        warnings=[outcome.warning] if outcome.warning else [],
+        warning_codes=(
+            ["fused_rerank_unsupported"]
+            if outcome.support_status == RerankerSupportStatus.unsupported
+            else []
+        ),
+        degraded=outcome.degraded,
+        invoked=True,
+        latency_ms=(time.monotonic() - started) * 1000,
+        safe_empty_reason=(
+            "reranker_unsupported"
+            if not reranked
+            and outcome.support_status == RerankerSupportStatus.unsupported
+            else None
+        ),
+    )
+
+
 class RagChunksLoader(Loader):
     """加载 RAG 检索片段"""
 
@@ -90,10 +209,14 @@ class RagChunksLoader(Loader):
         retrieve_fn: _RetrieveFn = _default_retrieve,
         trace_recorder: _TraceRecorder = _default_record_trace,
         planner: RetrievalQueryPlanner | None = None,
+        plan_expander: _PlanExpander = expand_query_plan,
+        fused_reranker: _FusedReranker = _default_fused_reranker,
     ) -> None:
         self._retrieve = retrieve_fn
         self._record = trace_recorder
         self._planner = planner or RetrievalQueryPlanner()
+        self._expand_plan = plan_expander
+        self._rerank_fused = fused_reranker
 
     @property
     def name(self) -> str:
@@ -106,13 +229,15 @@ class RagChunksLoader(Loader):
         bundle: StructureContextBundle,
     ) -> None:
         started = time.monotonic()
-        rag_limit = options.top_k or CONTEXT_BUDGET.get("rag_chunks", 8)
+        rag_limit = min(8, options.top_k or CONTEXT_BUDGET.get("rag_chunks", 8))
 
         rag_visibility: str | None = None
         if options.reveal_mode == "reader":
             rag_visibility = "reader_known"
 
         plan = self._planner.plan(options)
+        plan_expansion = await self._expand_plan(db, options, plan)
+        plan = plan_expansion.plan
         strict_scene_filter = (
             options.reveal_mode == "character" and options.scene_id is not None
         )
@@ -136,6 +261,15 @@ class RagChunksLoader(Loader):
             "warning_codes": [],
             "latency_metadata": {},
         }
+        trace["latency_metadata"]["planner_ms"] = plan_expansion.latency_ms
+        trace["latency_metadata"]["planner_invoked"] = float(plan_expansion.invoked)
+        trace["latency_metadata"]["planner_fallback"] = float(
+            plan_expansion.invoked and plan_expansion.degraded
+        )
+        if plan_expansion.warning_code:
+            trace["warning_codes"].append(plan_expansion.warning_code)
+        if plan_expansion.warning and plan_expansion.warning not in bundle.warnings:
+            bundle.warnings.append(plan_expansion.warning)
         retrieve_started = time.monotonic()
         execution = await self._execute_plan(
             db,
@@ -149,12 +283,34 @@ class RagChunksLoader(Loader):
         trace["candidate_count"] = execution.candidate_count
         trace["unique_count"] = execution.unique_count
         trace["degraded"] = execution.degraded
-        trace["warning_codes"] = execution.warning_codes
+        trace["degraded"] = trace["degraded"] or plan_expansion.degraded
+        trace["warning_codes"].extend(execution.warning_codes)
+        fused = await self._rerank_fused(
+            db,
+            options,
+            plan,
+            execution.chunks,
+            execution.scores,
+            top_k=rag_limit,
+            should_run=(plan_expansion.expanded or execution.unique_count >= rag_limit),
+        )
+        trace["latency_metadata"]["rerank_ms"] = fused.latency_ms
+        trace["latency_metadata"]["reranker_invoked"] = float(fused.invoked)
+        trace["degraded"] = trace["degraded"] or fused.degraded
+        trace["warning_codes"].extend(fused.warning_codes)
+        trace["warning_codes"] = list(dict.fromkeys(trace["warning_codes"]))
+        for warning in fused.warnings:
+            if warning not in bundle.warnings:
+                bundle.warnings.append(warning)
+        reranker_filtered = max(0, len(execution.chunks) - len(fused.chunks))
+        execution.chunks = fused.chunks
         initial_drops = Counter()
         if execution.duplicate_count:
             initial_drops["duplicate_candidate"] = execution.duplicate_count
-        if execution.unique_count > rag_limit:
-            initial_drops["rank_budget"] = execution.unique_count - rag_limit
+        if reranker_filtered:
+            initial_drops["reranker_filtered"] = reranker_filtered
+        if len(execution.chunks) > rag_limit:
+            initial_drops["rank_budget"] = len(execution.chunks) - rag_limit
         if strict_scene_filter:
             warning = (
                 "RAG 已按当前 Scene 严格过滤；无 Scene 标注或其它 Scene 的片段"
@@ -165,7 +321,7 @@ class RagChunksLoader(Loader):
         for warning in execution.warnings:
             if warning not in bundle.warnings:
                 bundle.warnings.append(warning)
-        if execution.degraded and "RAG 检索降级" not in bundle.warnings:
+        if trace["degraded"] and "RAG 检索降级" not in bundle.warnings:
             bundle.warnings.append("RAG 检索降级")
         if execution.chunks:
             rehydrate_started = time.monotonic()
@@ -185,7 +341,7 @@ class RagChunksLoader(Loader):
 
         bundle.budget_used["rag_chunks"] = len(bundle.rag_chunks)
         trace["hydrated_count"] = len(bundle.rag_chunks)
-        trace["safe_empty_reason"] = _safe_empty_reason(
+        trace["safe_empty_reason"] = fused.safe_empty_reason or _safe_empty_reason(
             trace,
             strict_scene_filter=strict_scene_filter,
         )
@@ -227,6 +383,7 @@ class RagChunksLoader(Loader):
                     reference_chapter_index=options.chapter_index,
                     visible_until_chapter=plan.visible_until_chapter,
                     retrieval_purpose=plan.purpose,
+                    rerank=False,
                 )
             except Exception:
                 degraded = True
@@ -270,6 +427,7 @@ class RagChunksLoader(Loader):
             unique_count=len(chunks_by_id),
             duplicate_count=max(0, candidate_count - len(chunks_by_id)),
             degraded=degraded,
+            scores=scores,
         )
 
     async def _rehydrate_chunks(
@@ -383,7 +541,8 @@ def _safe_empty_reason(trace: dict, *, strict_scene_filter: bool) -> str | None:
     if int(trace.get("candidate_count") or 0) == 0:
         return "no_retrieval_match"
     non_hydration_drops = sum(
-        int(drops.get(reason) or 0) for reason in ("duplicate_candidate", "rank_budget")
+        int(drops.get(reason) or 0)
+        for reason in ("duplicate_candidate", "reranker_filtered", "rank_budget")
     )
     attempted_hydrations = max(
         0,
@@ -392,7 +551,7 @@ def _safe_empty_reason(trace: dict, *, strict_scene_filter: bool) -> str | None:
     hydration_drops = {
         reason: count
         for reason, count in drops.items()
-        if reason not in {"duplicate_candidate", "rank_budget"}
+        if reason not in {"duplicate_candidate", "reranker_filtered", "rank_budget"}
     }
     if hydration_drops and sum(hydration_drops.values()) == attempted_hydrations:
         source_invalid_reasons = {

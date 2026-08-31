@@ -10,7 +10,8 @@
 
 所有 `/goal` 都必须遵守：
 
-- 开始前读取 `AGENTS.md`、`CLAUDE.md`、`development-guide.md`、`testing-guide.md`，再读目标模块 README / contracts / facade。
+- 开始前读取根目录及目标目录最近的 `AGENTS.md`、`development-guide.md`、
+  `testing-guide.md`，再读目标模块 README / contracts / facade。
 - 用户可见功能必须读取 `docs/product/user-personas.md`，明确目标画像、用户任务、喜欢它的
   理由、前端舒适度、主要摩擦和验证方式；功能可以只服务一类画像。
 - 不跨模块 import 其他模块的 `models.py` / `repositories.py` / `services.py`；跨模块只走 contracts / facade / DI port。

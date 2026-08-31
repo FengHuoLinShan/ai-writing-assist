@@ -4,6 +4,12 @@
 
 AI 长篇小说结构化创作引擎 (AI Novel Structural Engine) v2.0 — a structured creation system for Chinese long-form novels. Backend: Python FastAPI + async SQLAlchemy + PostgreSQL 17 + pgvector + pg_trgm. Frontend: Vue 3 SFC console with the existing hash router retained as a narrow route-host seam (ADR-0009).
 
+## Agent instruction sources
+
+`AGENTS.md` is the only shared coding-agent contract. Read the repository root file and the nearest
+directory-local `AGENTS.md`, then the target module README. `CLAUDE.md` files only import the adjacent
+`AGENTS.md` for Claude Code; they are not a second architecture or command reference.
+
 ## Commands
 
 ### One-command dev start
@@ -65,6 +71,8 @@ make test-deploy                 # Deployment static/CLI contracts; no Compose o
 make test-production-images      # Build pinned production Dockerfiles and run independent image smoke checks
 make test-frontend FRONTEND_ARGS="stateTopbarHelp.test.js"  # Frontend Vitest
 make eval-ask-world             # Offline Ask World retrieval/citation launch gate
+make eval-context-planner NOVEL_ID='<fixture-project-id>' OUTPUT=/tmp/context-planner.json
+make eval-context-planner NOVEL_ID='<fixture-project-id>' LLM_PLANNER=1 OUTPUT=/tmp/context-planner-llm-dev.json  # explicit model calls; dev split only
 make audit-backend-deps          # Locked backend audit; all extras, temporary no-fix exceptions re-open on fix
 make audit-frontend-deps         # Frontend lockfile audit; high/critical findings fail
 make docs-check                  # Current architecture inventory and link/diagram checks

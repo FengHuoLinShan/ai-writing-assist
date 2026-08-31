@@ -1,0 +1,22 @@
+{
+  "intent": "causal",
+  "queries": [
+    {
+      "role": "support",
+      "query_text": "克莱恩决裂之前改变立场的原因",
+      "grounding_spans": [
+        "克莱恩",
+        "决裂之前"
+      ]
+    },
+    {
+      "role": "counter",
+      "query_text": "克莱恩决裂之前没有改变立场的证据",
+      "grounding_spans": [
+        "克莱恩",
+        "改变立场"
+      ]
+    }
+  ],
+  "uncertainties": []
+}

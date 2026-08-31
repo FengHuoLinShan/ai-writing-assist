@@ -201,8 +201,7 @@ def _validate_candidate_references(output: RerankerOutput, refs: list[str]) -> N
     unknown = sorted(set(actual) - set(refs))
     if unknown:
         raise ValueError(
-            "reranker returned unknown candidate_ref values: "
-            f"unknown={unknown}"
+            f"reranker returned unknown candidate_ref values: unknown={unknown}"
         )
 
 
@@ -278,10 +277,11 @@ async def rerank_results(
     retrieval_purpose: str | None = None,
     llm_client: LLMClient | None = None,
     model: str | None = None,
+    force: bool = False,
 ) -> RerankOutcome:
     """Rerank candidates, filter non-evidence, and support explicit abstention."""
 
-    if len(scored_chunks) <= top_k:
+    if len(scored_chunks) <= top_k and not force:
         return RerankOutcome(
             chunks=scored_chunks,
             support_status=RerankerSupportStatus.uncertain,

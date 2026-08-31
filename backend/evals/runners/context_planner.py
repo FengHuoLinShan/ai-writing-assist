@@ -4,16 +4,22 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from evals.metrics import precision_at_k, recall_at_k
+from evals.metrics import precision_at_k, recall_at_k, reciprocal_rank
 from evals.schemas import DatasetCase, EvalSuite
 from modules.evidence.compilation.services.loaders.rag_chunks_loader import (
     RagChunksLoader,
+    _FusedRerankExecution,
+)
+from modules.evidence.compilation.services.retrieval_query_planner import (
+    QueryPlanExpansionOutcome,
+    expand_query_plan,
 )
 from modules.evidence.contracts import (
     CompileOptions,
@@ -79,18 +85,47 @@ async def evaluate_context_planner_cases(
     *,
     dataset_version: str,
     sut_profile: str,
+    include_llm_planner: bool = False,
 ) -> dict[str, Any]:
     started_at = datetime.now(UTC)
 
     async def discard_trace(*_args: Any, **_kwargs: Any) -> None:
         return None
 
+    async def deterministic_expansion(_db, _options, plan):
+        return QueryPlanExpansionOutcome(plan=plan)
+
+    async def llm_expansion(actual_db, options, plan):
+        return await expand_query_plan(actual_db, options, plan, enabled=True)
+
+    async def deterministic_rerank(
+        _db,
+        _options,
+        _plan,
+        chunks,
+        _scores,
+        **_kwargs,
+    ):
+        return _FusedRerankExecution(chunks=chunks)
+
     strategies = {
         "task-direct": RagChunksLoader(
-            planner=TaskDirectPlanner(), trace_recorder=discard_trace
+            planner=TaskDirectPlanner(),
+            trace_recorder=discard_trace,
+            plan_expander=deterministic_expansion,
+            fused_reranker=deterministic_rerank,
         ),
-        "planner-v1": RagChunksLoader(trace_recorder=discard_trace),
+        "planner-v1": RagChunksLoader(
+            trace_recorder=discard_trace,
+            plan_expander=deterministic_expansion,
+            fused_reranker=deterministic_rerank,
+        ),
     }
+    if include_llm_planner:
+        strategies["planner-v2-llm"] = RagChunksLoader(
+            trace_recorder=discard_trace,
+            plan_expander=llm_expansion,
+        )
     results: dict[str, list[dict[str, Any]]] = {name: [] for name in strategies}
     projection_unavailable: list[dict[str, str]] = []
     rag_cases = [case for case in cases if case.suite == EvalSuite.rag]
@@ -108,6 +143,8 @@ async def evaluate_context_planner_cases(
         prefix = _logical_context_prefix(set(case.reference.get("context_ids") or []))
         relevant = set(case.reference.get("context_ids") or [])
         for strategy, loader in strategies.items():
+            if strategy == "planner-v2-llm" and case.split.value != "dev":
+                continue
             bundle = StructureContextBundle(
                 novel_id=novel_id,
                 task=options.task,
@@ -133,13 +170,16 @@ async def evaluate_context_planner_cases(
                 for chunk in bundle.rag_chunks
                 for reason in chunk.get("activation_reasons", [])
             ]
+            source_health = _source_health(bundle.rag_chunks, novel_id=novel_id)
             results[strategy].append(
                 {
                     "case_id": case.case_id,
+                    "split": case.split.value,
                     "purpose": options.retrieval_purpose,
                     "no_answer": no_answer,
                     "retrieved_ids": retrieved,
                     "p_at_5": precision_at_k(retrieved, relevant, 5),
+                    "mrr": reciprocal_rank(retrieved, relevant),
                     "r_at_10": recall_at_k(retrieved, relevant, 10),
                     "visibility_leakage": leakage,
                     "reason_coverage": (
@@ -156,6 +196,13 @@ async def evaluate_context_planner_cases(
                         or bundle.retrieval_trace.get("safe_empty_reason")
                     ),
                     "safe_empty_reason": bundle.retrieval_trace.get("safe_empty_reason"),
+                    "result_count": len(retrieved),
+                    "degraded": bool(bundle.retrieval_trace.get("degraded")),
+                    "warning_codes": list(
+                        bundle.retrieval_trace.get("warning_codes") or []
+                    ),
+                    "plan_version": bundle.retrieval_trace.get("plan_version"),
+                    **source_health,
                     "retrieve_call_count": len(
                         bundle.retrieval_trace.get("clause_summaries") or []
                     ),
@@ -184,20 +231,61 @@ async def evaluate_context_planner_cases(
         "empty_reason_classification_complete": (
             planner["safe_empty_classification_rate"] == 1.0
         ),
-        "latency_ratio_within_1_8": (
+        "source_hash_validity_one": planner["source_hash_validity"] == 1.0,
+        "stale_evidence_zero": planner["stale_evidence_count"] == 0,
+        "cross_novel_leakage_zero": planner["cross_novel_leakage_count"] == 0,
+        "simple_latency_ratio_within_1_1": (
             direct["latency_p95_ms"] == 0
-            or planner["latency_p95_ms"] / direct["latency_p95_ms"] <= 1.8
+            or planner["latency_p95_ms"] / direct["latency_p95_ms"] <= 1.1
         ),
         "precision_strata_within_relaxed_1pp_tolerance": relaxed_precision_strata,
     }
     strict_targets = {
-        "no_answer_false_positive_rate_lte_0_20": (
-            planner["no_answer_false_positive_rate"] <= 0.20
+        "p_at_5_gte_0_80": planner["p_at_5"] >= 0.80,
+        "mrr_gte_0_85": planner["mrr"] >= 0.85,
+        "r_at_10_gte_0_75": planner["r_at_10"] >= 0.75,
+        "no_answer_false_positive_rate_lte_0_05": (
+            planner["no_answer_false_positive_rate"] <= 0.05
         ),
         "precision_first_strata_gain_20pct_or_p_at_5_0_80": (
             _strict_precision_strata_target(direct, planner)
         ),
     }
+    llm_dev_gates = None
+    if include_llm_planner:
+        baseline_dev = planner["by_split"].get("dev", {})
+        llm_dev = summaries["planner-v2-llm"]["by_split"].get("dev", {})
+        llm_dev_gates = {
+            "p_at_5_gte_0_80": float(llm_dev.get("p_at_5") or 0.0) >= 0.80,
+            "mrr_gte_0_85": float(llm_dev.get("mrr") or 0.0) >= 0.85,
+            "r_at_10_gte_0_75": float(llm_dev.get("r_at_10") or 0.0) >= 0.75,
+            "no_answer_false_positive_rate_lte_0_05": float(
+                llm_dev.get("no_answer_false_positive_rate") or 0.0
+            )
+            <= 0.05,
+            "recall_drop_within_5pp": float(llm_dev.get("r_at_10") or 0.0)
+            >= float(baseline_dev.get("r_at_10") or 0.0) - 0.05,
+            "visibility_leakage_zero": int(
+                summaries["planner-v2-llm"]["visibility_leakage_count"]
+            )
+            == 0,
+            "cross_novel_leakage_zero": int(
+                summaries["planner-v2-llm"]["cross_novel_leakage_count"]
+            )
+            == 0,
+            "source_hash_validity_one": summaries["planner-v2-llm"][
+                "source_hash_validity"
+            ]
+            == 1.0,
+            "stale_evidence_zero": int(
+                summaries["planner-v2-llm"]["stale_evidence_count"]
+            )
+            == 0,
+            "latency_p95_lte_30s": float(summaries["planner-v2-llm"]["latency_p95_ms"])
+            <= 30_000,
+            "degraded_rate_lte_0_05": float(summaries["planner-v2-llm"]["degraded_rate"])
+            <= 0.05,
+        }
     unavailable_by_purpose: dict[str, int] = {}
     for item in projection_unavailable:
         purpose = item["purpose"]
@@ -227,6 +315,7 @@ async def evaluate_context_planner_cases(
         },
         "gates": gates,
         "strict_targets": strict_targets,
+        "llm_dev_gates": llm_dev_gates,
         "passed": all(gates.values()),
         "acceptance_status": (
             "pass_with_known_quality_and_dataset_limits"
@@ -241,6 +330,8 @@ async def evaluate_context_planner_cases(
             "unavailable, not as zero-score retrieval.",
             "Strict quality targets are reported separately and are not relaxed "
             "into a claim that RAG quality is satisfactory.",
+            "The optional LLM strategy runs only the frozen dev split; train and "
+            "test are never sent to the planner in this command.",
         ],
         "started_at": started_at.isoformat(),
         "completed_at": datetime.now(UTC).isoformat(),
@@ -328,10 +419,13 @@ def _summarize(items: list[dict[str, Any]]) -> dict[str, Any]:
     no_answer = [item for item in items if item["no_answer"]]
     latencies = sorted(float(item["latency_ms"]) for item in items)
     by_purpose: dict[str, list[dict[str, Any]]] = {}
+    by_split: dict[str, list[dict[str, Any]]] = {}
     for item in items:
         by_purpose.setdefault(item["purpose"], []).append(item)
+        by_split.setdefault(item["split"], []).append(item)
     return {
         "p_at_5": _mean([item["p_at_5"] for item in answerable]),
+        "mrr": _mean([item["mrr"] for item in answerable]),
         "r_at_10": _mean([item["r_at_10"] for item in answerable]),
         "no_answer_false_positive_rate": _mean(
             [float(bool(item["retrieved_ids"])) for item in no_answer]
@@ -345,12 +439,55 @@ def _summarize(items: list[dict[str, Any]]) -> dict[str, Any]:
         "mean_retrieve_call_count": _mean(
             [item["retrieve_call_count"] for item in items]
         ),
+        "mean_result_count": _mean([item["result_count"] for item in items]),
+        "degraded_rate": _mean([float(item["degraded"]) for item in items]),
+        "source_hash_check_count": sum(item["source_hash_check_count"] for item in items),
+        "source_hash_validity": _ratio_valid(
+            sum(item["source_hash_failure_count"] for item in items),
+            sum(item["source_hash_check_count"] for item in items),
+        ),
+        "stale_evidence_count": sum(item["stale_evidence_count"] for item in items),
+        "cross_novel_leakage_count": sum(
+            item["cross_novel_leakage_count"] for item in items
+        ),
+        "by_split": {
+            split: {
+                "case_count": len(values),
+                "p_at_5": _mean(
+                    [item["p_at_5"] for item in values if not item["no_answer"]]
+                ),
+                "mrr": _mean([item["mrr"] for item in values if not item["no_answer"]]),
+                "r_at_10": _mean(
+                    [item["r_at_10"] for item in values if not item["no_answer"]]
+                ),
+                "no_answer_false_positive_rate": _mean(
+                    [
+                        float(bool(item["retrieved_ids"]))
+                        for item in values
+                        if item["no_answer"]
+                    ]
+                ),
+                "mean_result_count": _mean([item["result_count"] for item in values]),
+                "source_hash_validity": _ratio_valid(
+                    sum(item["source_hash_failure_count"] for item in values),
+                    sum(item["source_hash_check_count"] for item in values),
+                ),
+                "stale_evidence_count": sum(
+                    item["stale_evidence_count"] for item in values
+                ),
+                "cross_novel_leakage_count": sum(
+                    item["cross_novel_leakage_count"] for item in values
+                ),
+            }
+            for split, values in sorted(by_split.items())
+        },
         "by_purpose": {
             purpose: {
                 "case_count": len(values),
                 "p_at_5": _mean(
                     [item["p_at_5"] for item in values if not item["no_answer"]]
                 ),
+                "mrr": _mean([item["mrr"] for item in values if not item["no_answer"]]),
                 "r_at_10": _mean(
                     [item["r_at_10"] for item in values if not item["no_answer"]]
                 ),
@@ -358,6 +495,34 @@ def _summarize(items: list[dict[str, Any]]) -> dict[str, Any]:
             for purpose, values in sorted(by_purpose.items())
         },
     }
+
+
+def _source_health(chunks: list[dict[str, Any]], *, novel_id: str) -> dict[str, int]:
+    checks = failures = stale = cross_novel = 0
+    for chunk in chunks:
+        cross_novel += int(str(chunk.get("novel_id") or "") != novel_id)
+        source_ref = dict(chunk.get("source_ref") or {})
+        current_hash = str(source_ref.get("source_hash") or "")
+        indexed_hash = str(chunk.get("source_content_hash") or "")
+        if current_hash or indexed_hash:
+            checks += 1
+            mismatch = not (
+                re.fullmatch(r"[0-9a-f]{64}", current_hash)
+                and re.fullmatch(r"[0-9a-f]{64}", indexed_hash)
+                and current_hash == indexed_hash
+            )
+            failures += int(mismatch)
+            stale += int(mismatch)
+    return {
+        "source_hash_check_count": checks,
+        "source_hash_failure_count": failures,
+        "stale_evidence_count": stale,
+        "cross_novel_leakage_count": cross_novel,
+    }
+
+
+def _ratio_valid(failures: int, checks: int) -> float | None:
+    return 1.0 - failures / checks if checks else None
 
 
 def _precision_strata_within_tolerance(

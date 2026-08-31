@@ -252,6 +252,7 @@ def main() -> None:
     context_planner_parser.add_argument("--dataset-version", required=True)
     context_planner_parser.add_argument("--sut-profile", required=True)
     context_planner_parser.add_argument("--output", type=Path, required=True)
+    context_planner_parser.add_argument("--llm-planner", action="store_true")
 
     readiness_parser = subparsers.add_parser("baseline-check")
     readiness_parser.add_argument("dataset", type=Path)
@@ -439,6 +440,7 @@ def main() -> None:
                 dataset_version=args.dataset_version,
                 sut_profile=args.sut_profile,
                 output=args.output,
+                include_llm_planner=args.llm_planner,
             )
         )
     elif args.command == "freeze":
@@ -491,18 +493,31 @@ async def _run_context_planner_evaluation(
     dataset_version: str,
     sut_profile: str,
     output: Path,
+    include_llm_planner: bool = False,
 ) -> None:
+    from app.bootstrap import register_container_services
     from core.database import get_manager
     from evals.runners.context_planner import evaluate_context_planner_cases
 
-    async with get_manager().session_factory() as db:
-        report = await evaluate_context_planner_cases(
-            db,
-            novel_id,
-            _load_cases(dataset),
-            dataset_version=dataset_version,
-            sut_profile=sut_profile,
-        )
+    register_container_services(ignore_existing=True)
+    manager = get_manager()
+    try:
+        async with manager.session_factory() as db:
+            report = await evaluate_context_planner_cases(
+                db,
+                novel_id,
+                _load_cases(dataset),
+                dataset_version=dataset_version,
+                sut_profile=sut_profile,
+                include_llm_planner=include_llm_planner,
+            )
+    finally:
+        from core.container import shutdown
+        from infrastructure.embedding.client import BgeEmbeddingClient
+
+        await BgeEmbeddingClient.close_instance()
+        await shutdown()
+        await manager.close()
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_suffix(output.suffix + ".tmp")
     temporary.write_text(
@@ -583,12 +598,9 @@ async def _run_workflow_evaluation(
     from core.database import get_manager
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    container_registered = False
-    if "world" in selected:
-        from app.bootstrap import register_container_services
+    from app.bootstrap import register_container_services
 
-        register_container_services(ignore_existing=True)
-        container_registered = True
+    register_container_services(ignore_existing=True)
     manager = get_manager()
     try:
         async with manager.session_factory() as db:
@@ -668,10 +680,9 @@ async def _run_workflow_evaluation(
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         await BgeEmbeddingClient.close_instance()
-        if container_registered:
-            from core.container import shutdown
+        from core.container import shutdown
 
-            await shutdown()
+        await shutdown()
         await manager.close()
 
 

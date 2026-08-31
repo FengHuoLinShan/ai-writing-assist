@@ -488,6 +488,9 @@ class Settings:
     reranker_enabled: bool = field(
         default_factory=lambda: _env_bool("RERANKER_ENABLED", False)
     )
+    rag_query_planner_enabled: bool = field(
+        default_factory=lambda: _env_bool("RAG_QUERY_PLANNER_ENABLED", False)
+    )
 
     # --- 运行环境 ---
     app_env: str = field(default_factory=lambda: _env("APP_ENV", "development"))

@@ -43,7 +43,6 @@ task_catalogs = [
 ]
 prompt_catalog = "docs/prompts/Prompt体系设计.md"
 module_catalogs = [
-  "CLAUDE.md",
   "CONTEXT.md",
   "docs/README.md",
   "docs/00_整体设计.md",
@@ -347,6 +346,8 @@ description = "Architecture documentation process and gate changes"
 source_globs = [
   "AGENTS.md",
   "CLAUDE.md",
+  "backend/**/AGENTS.md",
+  "backend/**/CLAUDE.md",
   "Makefile",
   ".github/pull_request_template.md",
   ".github/workflows/architecture-docs.yml",

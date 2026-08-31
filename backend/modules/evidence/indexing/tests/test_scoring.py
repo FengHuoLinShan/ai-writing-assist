@@ -14,6 +14,7 @@ from modules.evidence.indexing.scoring import (
     compute_relation_score,
     compute_temporal_decay,
     cosine_similarity,
+    keyword_query_terms,
     smart_tokenize_chinese,
 )
 
@@ -48,8 +49,32 @@ class TestSmartTokenizeChinese:
         assert "klein" in terms
         assert "渴望" in terms
 
+    def test_nfkc_punctuation_variants_are_equivalent(self) -> None:
+        assert smart_tokenize_chinese("克莱恩，灰雾？") == smart_tokenize_chinese(
+            "克莱恩,灰雾?"
+        )
+
 
 class TestKeywordScore:
+    def test_long_chinese_question_uses_bounded_long_ngrams(self) -> None:
+        query = "克莱恩在决裂之前为什么改变了继承立场"
+        terms = keyword_query_terms(query)
+        assert terms[0] == query
+        assert len(terms) <= 97
+        assert all(len(term) >= 2 for term in terms[1:])
+        assert any("继承立场" in term for term in terms)
+
+    def test_keyword_terms_ignore_punctuation_width(self) -> None:
+        assert keyword_query_terms("克莱恩，灰雾？") == keyword_query_terms(
+            "克莱恩,灰雾?"
+        )
+
+    def test_short_chinese_compound_keeps_bounded_ngrams(self) -> None:
+        terms = keyword_query_terms("森林令牌")
+        assert "森林" in terms
+        assert "令牌" in terms
+        assert "森林令牌" in terms
+
     def test_match(self) -> None:
         assert compute_keyword_score("艾伦在森林中行走", ["森林"]) == 1.0
 

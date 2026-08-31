@@ -208,9 +208,24 @@ revision/source/block hash、section/token metadata 和后续产物引用。
 
 ## 检索计划与运行健康
 
-`RetrievalQueryPlanner` 是 context 拥有的纯确定性函数，不调 LLM。它把 purpose、Scene、
-entity/character/thread 和 visibility 组装为最多 3 条 clause；RAG 仍只执行单条受控检索。
-loader 按稳定 RRF 合并，然后统一回读 writing 正文并复核 source hash/可见截止。
+`RetrievalQueryPlanner` 仍是 context 拥有的纯确定性边界，把 purpose、Scene、
+entity/character/thread 和 visibility 组装为最多 3 条 clause。单 clause 只使用最终
+`top_k`，多 clause 才分配扩大的总候选预算，避免同章重复 chunk 挤掉正确章节。
+
+`RAG_QUERY_PLANNER_ENABLED=false` 是默认。显式开启后，仅 `author_safe/author_full` 且
+复杂度分数至少为 2 的查询会调用一次项目当前模型；长度、时间、因果/比较/冲突、
+多对象和指定分析 purpose 各计 1 分。reader、character、deep import 和 map 首版禁用；
+确定性计划为空时也不得扩宽。LLM 严格输出最多 2 条 support/counter 软查询，
+原查询始终保留；`novel_id`、章节/Scene 截止、可见性、Canon 和来源类型不进入模型
+可控字段。DeepSeek 请求固定使用 `high` reasoning effort 和 8192 输出 token 预算；
+其它 provider 不注入专有思考参数。每次最多一次 provider 调用，不做
+schema/format/transport 重试；30 秒超时、schema 或 grounding 失败时直接回退原计划。
+
+loader 对所有 clause 按稳定 RRF 合并去重，最多保留 8 条最小充分候选；开启
+`RERANKER_ENABLED` 后，仅在 LLM 扩展成功或确定性候选窗口饱和时对融合池重排
+一次。随后统一回读 writing 正文并复核
+source hash/可见截止。trace 只保存 query hash/长度、clause reason、planner/rerank 耗时、
+调用/回退标志、候选/剔除计数和 safe-empty 原因，不保存原问题或正文。
 
 `GET /api/evidence/compilation/evidence-health` 组合 Outline SceneSpan 覆盖、RAG 映射覆盖和近期 trace；
 `GET /api/evidence/compilation/retrieval-traces` 只返回隐私安全的运行摘要。无运行样本时 health 是
