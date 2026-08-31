@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { flushPromises, mount } from "@vue/test-utils"
 import WritingView from "../../../vue/views/writing/WritingView.vue"
 import { getAppState, resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
+import { ISLAND_LEAVE_GUARD } from "../../../vue/mountIsland.js"
 import {
   clearWritingSession,
   getWritingSession,
@@ -466,7 +467,9 @@ describe("WritingView", () => {
     expect(vm.editorState.chapter).toBe(1)
     expect(globalThis.api.writing.get).not.toHaveBeenCalledWith("d2", "p1")
     expect(wrapper.get('[role="alert"]').text()).toContain("工作稿还没有保存")
+    expect(wrapper.get('[role="alert"]').text()).toContain("本地备份仍保留在这台设备上")
     expect(wrapper.get("#writing-save-status").classes()).toContain("writing-save-badge--error")
+    expect(wrapper.get("#writing-save-status").text()).toBe("保存失败，本地备份已保留")
     expect(localStorage.getItem("draft_backup_p1_1_d1")).toContain("第一章未保存正文")
 
     await wrapper.get("#writing-retry-save").trigger("click")
@@ -478,6 +481,84 @@ describe("WritingView", () => {
     await flushPromises()
     expect(vm.selectedChapter.value).toBe(2)
     expect(wrapper.get("#writing-editor").element.value).toBe("正文 2")
+    wrapper.unmount()
+  })
+
+  it("移动速记本地备份失败时显示丢失风险并由离开守卫二次确认", async () => {
+    const previousWidth = window.innerWidth
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 })
+    let guard = null
+    const originalSetItem = localStorage.setItem.bind(localStorage)
+    const storage = vi.spyOn(localStorage, "setItem").mockImplementation((key, value) => {
+      if (String(key).startsWith("draft_backup_")) {
+        throw new DOMException("quota", "QuotaExceededError")
+      }
+      return originalSetItem(key, value)
+    })
+    globalThis.api.writing.autosave.mockRejectedValueOnce(new Error("网络暂时不可用"))
+    confirmMock.mockReturnValueOnce(false).mockReturnValueOnce(true)
+    const wrapper = mount(WritingView, {
+      props: props(),
+      attachTo: document.body,
+      global: {
+        provide: {
+          [ISLAND_LEAVE_GUARD]: (fn) => { guard = fn },
+        },
+      },
+    })
+    await flushPromises()
+    await wrapper.get(".mobile-note-editor").setValue("只留在当前页面的移动正文")
+
+    await wrapper.vm.$.setupState.vm.autosave()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("保存失败，本地备份不可用")
+    expect(wrapper.text()).toContain("离开或刷新会丢失未保存修改")
+    expect(wrapper.get(".mobile-note-editor").element.value).toBe("只留在当前页面的移动正文")
+    expect(guard()).toBe(false)
+    expect(confirmMock).toHaveBeenLastCalledWith(
+      "当前修改尚未保存，浏览器也无法写入本地备份。离开后这些修改会丢失，仍要离开吗？",
+    )
+    expect(guard()).toBe(true)
+
+    storage.mockRestore()
+    wrapper.unmount()
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: previousWidth })
+  })
+
+  it("远端保存期间的新输入无法本地备份时立即显示丢失风险", async () => {
+    const late = deferred()
+    const originalSetItem = localStorage.setItem.bind(localStorage)
+    const storage = vi.spyOn(localStorage, "setItem").mockImplementation((key, value) => {
+      if (String(key).startsWith("draft_backup_")) {
+        throw new DOMException("quota", "QuotaExceededError")
+      }
+      return originalSetItem(key, value)
+    })
+    globalThis.api.writing.autosave.mockReturnValueOnce(late.promise)
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+    await wrapper.get("#writing-editor").setValue("先提交的正文")
+
+    const saving = wrapper.vm.$.setupState.vm.autosave()
+    await wrapper.get("#writing-editor").setValue("请求期间继续输入的正文")
+    late.resolve({
+      id: "d1",
+      novel_id: "p1",
+      title: "<img src=x>",
+      content: "先提交的正文",
+      version_number: 2,
+      status: "draft",
+    })
+    await saving
+    await flushPromises()
+
+    expect(wrapper.get("#writing-save-status").text()).toBe("本地备份不可用")
+    expect(wrapper.get("#writing-save-status").classes()).toContain("writing-save-badge--error")
+    expect(wrapper.get('[role="alert"]').text()).toContain("当前修改只保留在这个页面")
+    expect(wrapper.get("#writing-editor").element.value).toBe("请求期间继续输入的正文")
+
+    storage.mockRestore()
     wrapper.unmount()
   })
 

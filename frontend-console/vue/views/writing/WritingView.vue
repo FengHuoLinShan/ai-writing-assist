@@ -409,12 +409,15 @@ const goalPercent = computed(() => (
 const versionLabel = computed(() => (
   vm.editorState.versionNumber ? `v${vm.editorState.versionNumber}${vm.editorState.readonly ? "（只读）" : ""}` : "未选择版本"
 ))
+const backupUnavailable = computed(() => (
+  vm.editorState.dirty && vm.editorState.backupComplete === false
+))
 const saveBadgeClass = computed(() => ({
   "writing-save-badge--saving": Boolean(vm.editorState.saving),
-  "writing-save-badge--error": !vm.editorState.saving && Boolean(vm.editorState.saveError),
-  "writing-save-badge--readonly": !vm.editorState.saving && !vm.editorState.saveError && vm.editorState.readonly,
-  "writing-save-badge--unsaved": !vm.editorState.saving && !vm.editorState.saveError && !vm.editorState.readonly && vm.editorState.dirty,
-  "writing-save-badge--saved": !vm.editorState.saving && !vm.editorState.saveError && !vm.editorState.readonly && !vm.editorState.dirty,
+  "writing-save-badge--error": !vm.editorState.saving && (Boolean(vm.editorState.saveError) || backupUnavailable.value),
+  "writing-save-badge--readonly": !vm.editorState.saving && !vm.editorState.saveError && !backupUnavailable.value && vm.editorState.readonly,
+  "writing-save-badge--unsaved": !vm.editorState.saving && !vm.editorState.saveError && !backupUnavailable.value && !vm.editorState.readonly && vm.editorState.dirty,
+  "writing-save-badge--saved": !vm.editorState.saving && !vm.editorState.saveError && !backupUnavailable.value && !vm.editorState.readonly && !vm.editorState.dirty,
 }))
 const focusChapterLabel = computed(() => {
   const chapter = Number(vm.selectedChapter.value)

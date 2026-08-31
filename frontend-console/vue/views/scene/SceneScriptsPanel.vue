@@ -7,7 +7,8 @@
         <p>这里是本场的可编辑剧本草稿。保存或提交前仍需作者确认，正式正文继续在写作页维护。</p>
       </div>
       <div class="scene-runtime-panel__actions">
-        <span v-if="savedAt" class="scene-runtime-saved">草稿已保存</span>
+        <span v-if="backupUnavailable" class="form-error" role="alert">本地暂存不可用，离开或刷新会丢失未保存修改</span>
+        <span v-else-if="savedAt" class="scene-runtime-saved">草稿已保存</span>
         <button type="button" class="btn btn-sm" :disabled="saving || !scene" data-action="save-scene-script-draft" @click="$emit('save', { adopt: false })">{{ saving ? "保存中..." : "保存新版本" }}</button>
         <button type="button" class="btn btn-sm" :disabled="saving || !scene" data-action="adopt-scene-script-draft" @click="$emit('save', { adopt: true })">保存并采用</button>
         <button type="button" class="btn btn-sm" :disabled="scriptGenerating || !scene" data-action="generate-scene-script" @click="$emit('generate')">{{ scriptGenerating ? "生成中..." : "生成剧本建议" }}</button>
@@ -80,6 +81,7 @@ const props = defineProps({
   historyLoading: Boolean,
   findings: { type: Array, default: () => [] },
   savedAt: { type: String, default: null },
+  backupUnavailable: Boolean,
   saving: Boolean,
 })
 

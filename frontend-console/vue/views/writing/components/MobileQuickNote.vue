@@ -18,10 +18,13 @@
       <button class="btn btn-sm" type="button" @click="$emit('retry-load')">重新加载</button>
     </div>
     <template v-else>
-    <div v-if="state.saveError" class="writing-save-recovery error-card" role="alert">
+    <div v-if="state.saveError || (state.dirty && state.backupComplete === false)" class="writing-save-recovery error-card" role="alert">
       <div>
         <strong>工作稿还没有保存</strong>
-        <p>本地备份已保留，可以直接重试。</p>
+        <p v-if="state.saveError">{{ state.backupComplete
+            ? "本地备份已保留，可以直接重试。"
+            : "本地备份不可用，离开或刷新会丢失未保存修改。" }}</p>
+        <p v-else>本地备份不可用，当前修改只保留在这个页面；离开或刷新会丢失。请尽快保存工作稿。</p>
       </div>
       <button class="btn btn-sm" type="button" :disabled="state.saving" @click="$emit('save')">{{ state.saving ? '重试中…' : '重试保存' }}</button>
     </div>
@@ -74,7 +77,12 @@ defineEmits(["save", "publish", "desktop", "select-scene", "load-lens", "retry-l
 const chapterNumber = computed(() => Number(props.chapter || props.state.chapter) || null)
 const statusText = computed(() => {
   if (props.state.saving) return "正在保存"
-  if (props.state.saveError) return "保存失败，本地备份已保留"
+  if (props.state.saveError) {
+    return props.state.backupComplete
+      ? "保存失败，本地备份已保留"
+      : "保存失败，本地备份不可用"
+  }
+  if (props.state.dirty && props.state.backupComplete === false) return "本地备份不可用"
   return props.state.dirty ? "尚未保存" : "已保存到工作稿"
 })
 const editorEl = ref(null)

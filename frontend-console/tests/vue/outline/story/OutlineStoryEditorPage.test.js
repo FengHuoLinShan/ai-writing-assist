@@ -99,6 +99,65 @@ describe("故事总览编辑页", () => {
     expect(otherProject.get("#story-outline-manual-title-input").element.value).toBe("")
   })
 
+  it("本地暂存失败时不宣称草稿已保留，并对离开和冲突显示丢失风险", async () => {
+    const originalSetItem = localStorage.setItem.bind(localStorage)
+    const storage = vi.spyOn(localStorage, "setItem").mockImplementation((key, value) => {
+      if (String(key).startsWith("story-outline-editor-draft:")) {
+        throw new DOMException("quota", "QuotaExceededError")
+      }
+      return originalSetItem(key, value)
+    })
+    confirm.mockReturnValueOnce(false).mockReturnValueOnce(true)
+    api.outline.createStoryOutlineRevision.mockRejectedValueOnce(
+      Object.assign(new Error("conflict"), { status: 409 }),
+    )
+    const wrapper = mountEditor()
+    await wrapper.get("#story-outline-manual-title-input").setValue("只留在当前页面的总览")
+
+    const firstLeave = guard()
+    await wrapper.vm.$nextTick()
+    expect(firstLeave).toBe(false)
+    expect(confirm).toHaveBeenLastCalledWith(
+      "当前修改尚未保存，浏览器也无法写入本地备份。离开后这些修改会丢失，仍要离开吗？",
+    )
+    expect(wrapper.text()).toContain("本地暂存不可用，离开或刷新会丢失未保存修改")
+    expect(wrapper.text()).not.toContain("未发布修改已在本机暂存")
+    expect(guard()).toBe(true)
+
+    await wrapper.get('[data-action="save-story-outline-revision"]').trigger("submit")
+    await flushPromises()
+    expect(wrapper.text()).toContain("当前修改仍在此页面，但本地暂存不可用")
+    expect(wrapper.text()).not.toContain("本地草稿没有丢失")
+    expect(wrapper.get("#story-outline-manual-title-input").element.value).toBe("只留在当前页面的总览")
+
+    storage.mockRestore()
+    wrapper.unmount()
+  })
+
+  it("浏览器存储恢复且服务端保存成功后清除本地备份错误", async () => {
+    const originalSetItem = localStorage.setItem.bind(localStorage)
+    const storage = vi.spyOn(localStorage, "setItem").mockImplementation((key, value) => {
+      if (String(key).startsWith("story-outline-editor-draft:")) {
+        throw new DOMException("quota", "QuotaExceededError")
+      }
+      return originalSetItem(key, value)
+    })
+    api.outline.createStoryOutlineRevision.mockResolvedValue({ version_number: 2 })
+    const wrapper = mountEditor()
+    await wrapper.get("#story-outline-manual-title-input").setValue("恢复后保存的总览")
+    guard()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).toContain("本地暂存不可用")
+
+    storage.mockRestore()
+    await wrapper.get('[data-action="save-story-outline-revision"]').trigger("submit")
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain("本地暂存不可用")
+    expect(router.replace).toHaveBeenCalledWith("outline", "story-outline")
+    wrapper.unmount()
+  })
+
   it("保存为新版本后清理本地草稿并返回总览", async () => {
     api.outline.createStoryOutlineRevision.mockResolvedValue({ version_number: 2 })
     const wrapper = mountEditor()

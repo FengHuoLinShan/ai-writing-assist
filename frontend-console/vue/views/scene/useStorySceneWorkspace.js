@@ -253,11 +253,14 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
   const loadError = ref(null)
   const scriptSaving = ref(false)
   const scriptSavedAt = ref(null)
+  const scriptBackupComplete = ref(false)
   const requestGeneration = ref(0)
   const disposed = ref(false)
 
   const scene = computed(() => selectedItem?.value?.scene || null)
   const sceneId = computed(() => selectedSceneId?.value || scene.value?.id || null)
+  const scriptDirty = computed(() => scriptDraft.value !== String(activeScriptFile()?.content || ""))
+  const scriptBackupUnavailable = computed(() => scriptDirty.value && !scriptBackupComplete.value)
   const taskState = computed(() => sceneRuntimeManager.state)
   const runtimeStage = computed(() => taskState.value.meta?.stage || null)
   const simulationRunning = computed(() => Boolean(
@@ -311,7 +314,8 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
     selectedCharacterId.value = current.selectedCharacterId || null
     Object.keys(notes).forEach((key) => delete notes[key])
     if (current.notes && typeof current.notes === "object") Object.assign(notes, current.notes)
-    scriptSavedAt.value = current.updatedAt || null
+    scriptBackupComplete.value = current.backupComplete === true
+    scriptSavedAt.value = scriptBackupComplete.value ? current.updatedAt || null : null
   }
 
   function persistDraft() {
@@ -329,7 +333,8 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
       selectedCharacterId: selectedCharacterId.value,
       notes: { ...notes },
     })
-    scriptSavedAt.value = saved.updatedAt
+    scriptBackupComplete.value = saved.backupComplete === true
+    scriptSavedAt.value = scriptBackupComplete.value ? saved.updatedAt : null
     return saved
   }
 
@@ -749,9 +754,11 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
       validateScript()
       return false
     }
-    persistDraft()
+    const localBackup = persistDraft()
     if (!remote || typeof api.story?.saveSceneScript !== "function") {
-      loadError.value = "剧本保存服务暂不可用；草稿已保存在本机，请稍后重试"
+      loadError.value = localBackup?.backupComplete
+        ? "剧本保存服务暂不可用；本地备份已保留，请稍后重试"
+        : "剧本保存服务暂不可用；本地备份不可用，离开或刷新会丢失未保存修改"
       toast(loadError.value, "error")
       return false
     }
@@ -788,15 +795,17 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
       scripts.value = scripts.value.length
         ? scripts.value.map((item) => item.fileId === nextFile.fileId ? nextFile : item)
         : [nextFile]
-      scriptSavedAt.value = new Date().toISOString()
       persistDraft()
+      scriptSavedAt.value = new Date().toISOString()
       await loadScriptHistory(nextFile.fileId, token)
       toast(adopt ? "本稿已保存并采用" : "剧本草稿已保存为新版本", "success")
       return true
     } catch (err) {
       if (!owns(token)) return false
-      persistDraft()
-      loadError.value = `${err?.message || "剧本草稿保存失败"}；草稿已保存在本机`
+      const backup = persistDraft()
+      loadError.value = backup?.backupComplete
+        ? `${err?.message || "剧本草稿保存失败"}；本地备份已保留`
+        : `${err?.message || "剧本草稿保存失败"}；本地备份不可用，离开或刷新会丢失未保存修改`
       toast(loadError.value, "error")
       return false
     } finally {
@@ -1146,6 +1155,9 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
     notes,
     persistDraft,
     scriptDraft,
+    scriptBackupComplete,
+    scriptBackupUnavailable,
+    scriptDirty,
     scriptDraftSource,
     scriptGenerating,
     scriptHistory,

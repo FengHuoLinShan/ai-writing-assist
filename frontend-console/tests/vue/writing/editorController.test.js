@@ -98,6 +98,51 @@ describe("editorController", () => {
     controller.dispose()
   })
 
+  it("本地存储失败时保留内存草稿并返回真实备份状态，恢复后可再次持久化", async () => {
+    vi.useFakeTimers()
+    const originalSetItem = localStorage.setItem.bind(localStorage)
+    const storage = vi.spyOn(localStorage, "setItem").mockImplementation((key, value) => {
+      if (String(key).startsWith("draft_backup_")) {
+        throw new DOMException("quota", "QuotaExceededError")
+      }
+      return originalSetItem(key, value)
+    })
+    const { controller, api, toast } = makeController()
+    api.writing.autosave.mockRejectedValueOnce(new Error("网络暂时不可用"))
+    await controller.loadChapter(1)
+    document.body.innerHTML = '<textarea id="body"></textarea>'
+    const editor = document.getElementById("body")
+    controller.attach({ title: null, editor })
+    editor.value = "只留在当前页面的正文"
+    editor.dispatchEvent(new Event("input"))
+
+    await vi.advanceTimersByTimeAsync(250)
+    expect(controller.snapshot()).toMatchObject({
+      content: "只留在当前页面的正文",
+      dirty: true,
+      backupComplete: false,
+    })
+    expect(readChapterSnapshot("p1", 1)).toMatchObject({
+      content: "只留在当前页面的正文",
+      dirty: true,
+      backupComplete: false,
+    })
+    expect(controller.persist()).toBe(false)
+
+    await controller.autosave()
+    expect(controller.snapshot().saveError).toBe("网络暂时不可用")
+    expect(toast).toHaveBeenCalledWith(
+      "网络暂时不可用。本地备份不可用，离开或刷新会丢失未保存修改",
+      "error",
+    )
+
+    storage.mockRestore()
+    expect(controller.persist()).toBe(true)
+    expect(controller.snapshot().backupComplete).toBe(true)
+    expect(localStorage.getItem("draft_backup_p1_1_d1")).toContain("只留在当前页面的正文")
+    controller.dispose()
+  })
+
   it("光标移动只记录位置，不自动切换 Scene", async () => {
     const { controller } = makeController()
     await controller.loadChapter(1)

@@ -56,6 +56,7 @@ export function createEditorController({
     provenanceJson: null,
     saving: false,
     saveError: null,
+    backupComplete: true,
     loadError: null,
     candidateAction: null,
     candidateActionError: null,
@@ -118,7 +119,10 @@ export function createEditorController({
   function emit({ persist = true, durable = true, hot = false } = {}) {
     const value = snapshot()
     if (persist && state.chapter) {
-      rememberChapterSnapshot(getProjectId(), value, { persist: durable })
+      rememberChapterSnapshot(getProjectId(), value, {
+        persist: durable,
+        backupComplete: state.backupComplete,
+      })
     }
     onChange(value, hot ? { persist, hot: true } : { persist })
   }
@@ -144,7 +148,10 @@ export function createEditorController({
 
   function saveBackup() {
     const projectId = getProjectId()
-    if (!projectId || !state.chapter) return false
+    if (!projectId || !state.chapter) {
+      state.backupComplete = false
+      return false
+    }
     try {
       localStorage.setItem(backupKey(projectId, state.chapter, state.draftId), JSON.stringify({
         project_id: projectId,
@@ -154,24 +161,36 @@ export function createEditorController({
         content: state.content,
         timestamp: Date.now(),
       }))
+      state.backupComplete = true
       return true
     } catch {
       // Storage exhaustion must not block typing.
+      state.backupComplete = false
       return false
     }
   }
 
-  function flushLocalPersistence() {
+  function flushLocalPersistence({ notify = false } = {}) {
     if (localPersistTimer) clearTimeout(localPersistTimer)
     localPersistTimer = null
-    if (!state.chapter) return
+    if (!state.chapter) {
+      state.backupComplete = !dirty()
+      return state.backupComplete
+    }
+    const previous = state.backupComplete
     const backupComplete = dirty() ? saveBackup() : true
+    state.backupComplete = backupComplete
     rememberChapterSnapshot(getProjectId(), snapshot(), { backupComplete })
+    if (notify && previous !== backupComplete) emit({ persist: false })
+    return backupComplete
   }
 
   function scheduleLocalPersistence() {
     if (localPersistTimer) clearTimeout(localPersistTimer)
-    localPersistTimer = setTimeout(flushLocalPersistence, LOCAL_PERSIST_DELAY)
+    localPersistTimer = setTimeout(
+      () => flushLocalPersistence({ notify: true }),
+      LOCAL_PERSIST_DELAY,
+    )
   }
 
   function clearBackup(draftId = state.draftId) {
@@ -189,6 +208,7 @@ export function createEditorController({
     if (!saved.draftId && state.draftId) {
       if (saved.title) state.title = saved.title
       state.content = saved.content
+      state.backupComplete = saved.backupComplete === true
       return true
     }
     Object.assign(state, saved, { chapter })
@@ -241,6 +261,7 @@ export function createEditorController({
       if (!confirm(`检测到本地暂存的第 ${chapter} 章内容，是否恢复？`)) return false
       state.content = String(saved.content || "")
       state.title = String(saved.title || "")
+      state.backupComplete = true
       editRevision += 1
       return true
     } catch {
@@ -263,6 +284,7 @@ export function createEditorController({
     state.restoreExpectedUpdatedAt = options.restoreExpectedUpdatedAt || null
     state.provenanceJson = draft.provenance_json || null
     state.saveError = null
+    state.backupComplete = true
     state.candidateAction = null
     state.candidateActionError = null
   }
@@ -348,6 +370,7 @@ export function createEditorController({
     state.title = elements.title?.value ?? state.title
     state.content = elements.editor?.value ?? state.content
     editRevision += 1
+    state.backupComplete = null
     emit({ durable: false, hot: true })
     scheduleLocalPersistence()
     scheduleAutosave()
@@ -483,8 +506,15 @@ export function createEditorController({
         && chapter === state.chapter
         && sourceDraftId === state.draftId
       ) {
-        state.saveError = err?.message || "保存失败，已保留本地备份"
-        toast(state.saveError, "error")
+        const backupComplete = flushLocalPersistence()
+        state.saveError = err?.message || "保存失败"
+        const reason = state.saveError.replace(/[。.!！]+$/u, "")
+        toast(
+          backupComplete
+            ? `${reason}。本地备份已保留`
+            : `${reason}。本地备份不可用，离开或刷新会丢失未保存修改`,
+          "error",
+        )
       }
       return null
     }).finally(() => {
@@ -686,8 +716,9 @@ export function createEditorController({
   function persist() {
     if (elements.title) state.title = elements.title.value
     if (elements.editor) state.content = elements.editor.value
-    flushLocalPersistence()
+    const backupComplete = flushLocalPersistence()
     emit()
+    return backupComplete
   }
 
   function dispose() {
