@@ -1229,7 +1229,9 @@ def _ai_review_items(
 
 def _validate_confirmation_scope(confirmation: object, check: object) -> None:
     options = getattr(confirmation, "compile_options", None) or {}
-    confirmed_chapter = options.get("chapter_index")
+    confirmed_chapter = options.get("requested_chapter_index")
+    if confirmed_chapter is None:
+        confirmed_chapter = options.get("chapter_index")
     check_chapter = getattr(check, "chapter_index", None)
     if check_chapter is not None and confirmed_chapter != check_chapter:
         raise ValueError(

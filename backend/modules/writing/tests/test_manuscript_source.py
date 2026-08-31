@@ -57,7 +57,15 @@ async def test_canonical_and_working_sources_are_distinct(
 async def test_candidate_is_excluded_until_copy_on_adopt_makes_it_latest(
     db_session,
     test_project_id,
+    monkeypatch,
 ) -> None:
+    async def _accept_frozen_candidate(*_args, **_kwargs) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "modules.writing.semantic_review.validate_candidate_upstream",
+        _accept_frozen_candidate,
+    )
     repo = WritingDraftRepository()
     await create_published_draft_only(
         db_session,

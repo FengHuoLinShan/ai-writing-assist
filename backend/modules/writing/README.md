@@ -219,12 +219,21 @@ provenance 冻结 `scene_execution_bundle_hash` 和 exact `upstream_manifest`。
 Scene 或 context confirmation 漂移时显示待复核，采用返回 409。
 
 `writing_semantic_review` 是与 generator 分离的 managed task。它冻结目标正文
-hash、相邻章回归上下文和 Scene bundle，支持 selection/volume/book 分片近读，
-输出 coverage、finding_id、severity、location、contract refs、preserve 与
-not_checked；机械检查不能签署文学 PASS。`writing_targeted_revision` 只处理
-选定 finding，绑定 base/hash、合同 hash、允许范围、preserve/must_not_change 和
-supersedes；它创建新 candidate，不覆盖原稿。返修 candidate 必须再经
-独立审查通过才能采用。
+hash、相邻章回归上下文、Scene bundle，以及 AI candidate 服务端 provenance 绑定的
+`writing.generate` confirmation。审稿只通过 Evidence facade 重新物化原
+CompiledContext，冻结其 context/hidden-guard 指纹，并把 character-safe Context、脱敏后的
+POV view 和确定性 guard 结果送入审稿；原 hidden guard 词条只在服务端运行，
+确定性正文命中会直接合并为 finding。只有 character reveal 且有视角人物时才签署
+角色知识边界 coverage；人工正文没有 confirmation 时仍可做 prose-only 审稿，但
+`not_checked` 明确知识边界未覆盖。AI candidate 缺少或失去原 confirmation 时失败关闭，
+旧的非 context-aware 审查回执不能用于采用或返修。
+
+审稿支持 selection/volume/book 分片近读，分片预算同时计算正文、Context、Scene bundle
+和 POV 资料，输出 coverage、finding_id、severity、location、contract refs、preserve 与
+not_checked；机械检查不能签署文学 PASS。`writing_targeted_revision` 只处理选定 finding，
+绑定 base/hash、合同 hash、context 指纹、允许范围、preserve/must_not_change 和
+supersedes，并使用同一已确认 Context 生成新 candidate，不覆盖原稿。返修结果重新运行
+hidden guard、清除不再对应新正文的旧 POV view，且必须再经独立审查通过才能采用。
 
 版本历史是审计视图：按 `version_number` 倒序返回 active、review 和
 archived 全部记录，`total` 与返回集合一致。列表项的 `display_state`
@@ -267,6 +276,9 @@ deprecated 仅可在历史视图预览，不允许普通编辑或恢复；candid
 Phase 2 AI 能力始终由作者显式触发并追加独立语义问题，不影响、关闭或改写字面预警：
 
 - `POST /api/writing/conflict-checks/{id}/ai-review` 需要 `context_confirmation_id`，且确认记录 action 必须是 `writing.conflict_check.ai_review`。
+- 冲突复核和修复建议校验 confirmation scope 时优先使用作者请求的
+  `requested_chapter_index`；Scene 为检索派生的 `chapter_index` 不能改写本次检查目标，
+  旧 confirmation 缺少前者时才兼容回退。
 - `/ai-review-task` 在入队事务中保存 secret-free 项目 LLM execution snapshot 和内部 task owner；worker 只允许在带 lease commit fence 的 task session 中运行。prepare 阶段读取并锁定当前检查/问题、重建已确认上下文后提交，真实 LLM 等待期间不持有数据库事务；finalize 再检查项目、确认上下文、检查及问题的语义指纹。输入漂移或任务被更新任务取代时不会追加旧结果，内部 owner 不进入 API 或发布快照。同步 `/ai-review` 的既有单事务语义不变。
 - AI 软冲突判断保存为 `is_ai_judgment=true` 的问题项，保留 `source_confirmation_id`、`confidence`、`llm_rationale`；包含待确认对象或依赖待确认对象时标记 `needs_review=true`。
 - LLM 输出逐条校验；非法条目丢弃并记录到 `summary_json.ai_review.discarded_count`，LLM 失败只把 `ai_review_status` 置为 `failed`，不删除规则层结果。

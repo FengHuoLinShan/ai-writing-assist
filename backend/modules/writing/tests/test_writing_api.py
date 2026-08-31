@@ -105,7 +105,7 @@ async def test_generate_rejects_missing_context_confirmation(
 
 
 @pytest.mark.asyncio
-async def test_adopt_candidate_route_returns_new_working_draft(
+async def test_adopt_candidate_route_rejects_legacy_ai_candidate_without_context(
     async_client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
@@ -131,21 +131,8 @@ async def test_adopt_candidate_route_returns_new_working_draft(
         f"/api/writing/drafts/{candidate.id}/adopt?novel_id={novel_id}",
     )
 
-    assert response.status_code == 200, response.text
-    data = response.json()
-    assert data["id"] != str(candidate.id)
-    assert data["status"] == "draft"
-    assert data["display_state"] == "active"
-    assert data["source"] == "ai_generated"
-    assert data["provenance_json"]["adopted_from_candidate_id"] == str(candidate.id)
-    assert data["provenance_json"]["adopted_by"] == "author"
-    assert data["provenance_json"]["prompt_hash"] == "abc"
-
-    duplicate = await async_client.post(
-        f"/api/writing/drafts/{candidate.id}/adopt?novel_id={novel_id}",
-    )
-    assert duplicate.status_code == 400
-    assert "Only a candidate writing suggestion can be adopted" in duplicate.text
+    assert response.status_code == 409, response.text
+    assert "缺少已确认参考资料" in response.text
 
 
 @pytest.mark.asyncio

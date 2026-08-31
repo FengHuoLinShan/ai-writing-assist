@@ -153,7 +153,7 @@ provider；finalize 会按 project-first 顺序重验 profile、上下文与当�
 - `pov_view`：角色视角结构化结果（仅 `pov_character`）
 - `pov_validation`：角色视角 deterministic 泄漏诊断；`passed` 只表示“未发现明显越权”，不是绝对安全保证
 - `scene_execution_bundle_hash / upstream_manifest`：冻结 Scene、StoryOutline revision 与 execution profile
-- `independent_review`：独立 reviewer task、正文 hash、verdict、finding IDs 和阻断数
+- `independent_review`：独立 reviewer task、正文/context hash、coverage、verdict、finding IDs 和阻断数
 
 生成存在 Scene 的正文时，writing 通过
 `outline.facade.get_scene_execution_bundle` 消费 version-bound
@@ -161,12 +161,16 @@ provider；finalize 会按 project-first 顺序重验 profile、上下文与当�
 upstream stale，采用时重算并在任一 source hash 漂移时 409。
 
 `writing_semantic_review` 与 generator 使用不同 managed task/run，支持
-selection/volume/book，冻结目标正文、相邻章回归上下文、
-StoryOutline/Scene/profile 和 hash manifest。回执包含 coverage、finding_id、
-severity、location、contract refs、preserve 与 not_checked；机械门不能
-代替文学语义通过。`writing_targeted_revision` 绑定 review findings、
-base/hash、contract hash、allowed scope、preserve/must_not_change 和 supersedes，
-只创建新 candidate。返修结果再经独立审查方可采用。
+selection/volume/book。它从 AI candidate 的服务端 provenance 回取原
+`writing.generate` confirmation，重新物化 character-safe CompiledContext，并共同冻结
+正文、相邻章、Scene/profile、脱敏 POV view、context 与 hidden-guard 指纹。hidden guard
+原词条不发送给模型，服务端确定性正文命中直接进入 finding；只有角色有限视角任务才把
+角色知识边界列为已检查。缺少或失效 confirmation 的旧 AI candidate 必须重新生成，旧的
+非 context-aware 审查回执必须重新审查。回执包含 coverage、finding_id、severity、
+location、contract refs、preserve 与 not_checked；机械门不能代替文学语义通过。
+`writing_targeted_revision` 绑定 review findings、base/hash、contract/context hash、
+allowed scope、preserve/must_not_change 和 supersedes，复用同一 Context 且只创建新
+candidate。返修后重新执行 hidden guard、清除不再匹配新正文的旧 POV view，并再次独立审查。
 
 POV 角色视角建议即使诊断为 `failed` 仍保留原始建议；前端标红风险。作者调用
 `POST /drafts/{id}/adopt` 后，服务以 copy-on-adopt 创建最高版本号的普通 draft，记录

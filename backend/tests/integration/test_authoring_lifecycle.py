@@ -278,6 +278,13 @@ async def test_import_generate_publish_and_retrieve_serial_flow(
     )
     assert review_result["verdict"] == "pass"
     assert review_result["mechanical_checks_can_sign_literary_pass"] is False
+    assert review_result["coverage"]["context_checked_draft_ids"] == [candidate_id]
+    assert review_result["frozen_manifest"][0]["context_fingerprint"]
+    assert len(writing_client.requests) == 2
+    review_prompt = writing_client.requests[-1].messages[-1].content
+    assert "confirmed_context" in review_prompt
+    assert "柳青带着旧钥匙与林舟会合" in review_prompt
+    assert "异项目禁入标记" not in review_prompt
 
     adopted = await async_client.post(
         f"/api/writing/drafts/{candidate_id}/adopt",
