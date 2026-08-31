@@ -119,6 +119,16 @@ def _match_project_terms(
     return character_ids, entity_ids, thread_ids
 
 
+def _matches_project_term(query: str, compact_query: str, term: str) -> bool:
+    if term in query or term in compact_query:
+        return True
+    return (
+        3 <= len(compact_query) <= 4
+        and all("\u4e00" <= character <= "\u9fff" for character in compact_query)
+        and compact_query in term
+    )
+
+
 async def _expand_query_with_project_terms(
     db: AsyncSession,
     novel_id: uuid.UUID,
@@ -144,7 +154,7 @@ async def _expand_query_with_project_terms(
     compact_query = query.replace(" ", "")
     for item in terms:
         term = item["term"]
-        if term in query or term in compact_query:
+        if _matches_project_term(query, compact_query, term):
             requested.add((item["type"], item["id"]))
 
     expanded: list[str] = [query]
@@ -192,7 +202,7 @@ class QueryExpander:
         compact_query = query.replace(" ", "")
         for item in terms:
             term = item["term"]
-            if term in query or term in compact_query:
+            if _matches_project_term(query, compact_query, term):
                 requested.add((item["type"], item["id"]))
 
         expanded: list[str] = [query]

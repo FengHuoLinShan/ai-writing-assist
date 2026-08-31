@@ -64,12 +64,13 @@ class TestQueryExpander:
         assert result == "测试"
 
     @pytest.mark.asyncio
-    async def test_only_exact_project_term_matches_expand_aliases(self) -> None:
+    async def test_exact_terms_and_unambiguous_name_prefixes_expand_aliases(self) -> None:
         async def _fake_loader(db: Any, novel_id: uuid.UUID) -> list[dict[str, str]]:
             return [
                 {"term": "克莱恩", "id": "char-1", "type": "character"},
                 {"term": "周明瑞", "id": "char-1", "type": "character"},
                 {"term": "莱恩河", "id": "place-1", "type": "entity"},
+                {"term": "亚伯拉罕家族", "id": "group-1", "type": "entity"},
             ]
 
         expander = QueryExpander(term_loader=_fake_loader)
@@ -82,12 +83,43 @@ class TestQueryExpander:
         assert result.split() == ["克莱恩后来为什么改变了立场？", "克莱恩", "周明瑞"]
         assert "莱恩河" not in result
 
-        partial = await expander.expand(
+        short_partial = await expander.expand(
             None,  # type: ignore[arg-type]
             uuid.uuid4(),
             "克莱",
         )
-        assert partial == "克莱"
+        assert short_partial == "克莱"
+
+        async def _canonical_loader(
+            db: Any, novel_id: uuid.UUID
+        ) -> list[dict[str, str]]:
+            return [
+                {
+                    "term": "克莱恩·莫雷蒂",
+                    "id": "char-1",
+                    "type": "character",
+                },
+                {"term": "周明瑞", "id": "char-1", "type": "character"},
+            ]
+
+        canonical_expander = QueryExpander(term_loader=_canonical_loader)
+        canonical_name = await canonical_expander.expand(
+            None,  # type: ignore[arg-type]
+            uuid.uuid4(),
+            "克莱恩",
+        )
+        assert canonical_name.split() == [
+            "克莱恩",
+            "克莱恩·莫雷蒂",
+            "周明瑞",
+        ]
+
+        long_partial = await expander.expand(
+            None,  # type: ignore[arg-type]
+            uuid.uuid4(),
+            "亚伯拉罕家",
+        )
+        assert long_partial == "亚伯拉罕家"
 
 
 class TestLoadProjectTerms:
