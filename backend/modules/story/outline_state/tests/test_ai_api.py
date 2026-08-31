@@ -194,6 +194,92 @@ async def test_outline_ai_apis_enqueue_domain_tasks_after_confirmation(
 
 
 @pytest.mark.asyncio
+async def test_p20_does_not_reintroduce_excluded_character_or_world_sections(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    account_llm_connection: dict,
+) -> None:
+    project_resp = await async_client.post(
+        "/api/projects",
+        json={"title": "P20 排除回流"},
+    )
+    assert project_resp.status_code == 201
+    novel_id = project_resp.json()["id"]
+    outline_resp = await async_client.post(
+        "/api/outline/story-outline/revisions",
+        params={"novel_id": novel_id},
+        json=_story_outline_payload(),
+    )
+    assert outline_resp.status_code == 201, outline_resp.text
+    character_resp = await async_client.post(
+        f"/api/world/entities?novel_id={novel_id}",
+        json={
+            "entity_type": "character",
+            "name": "被排除的人物",
+            "status": "canonical",
+        },
+    )
+    assert character_resp.status_code == 201, character_resp.text
+    entity_resp = await async_client.post(
+        f"/api/world/entities?novel_id={novel_id}",
+        json={
+            "entity_type": "artifact",
+            "name": "被排除的对象",
+            "status": "canonical",
+        },
+    )
+    assert entity_resp.status_code == 201, entity_resp.text
+    confirmation_resp = await async_client.post(
+        "/api/evidence/compilation/confirm",
+        json={
+            "novel_id": novel_id,
+            "action": "outline.generate",
+            "task": "确认排除人物与世界对象",
+            "scope": "full",
+            "budget_tokens": 0,
+            "excluded_asset_ids": {
+                "context_sections": ["pov_knowledge", "world_entities"]
+            },
+        },
+    )
+    assert confirmation_resp.status_code == 201, confirmation_resp.text
+
+    response = await async_client.post(
+        "/api/outline/generate",
+        json={
+            "contract_version": "outline_layer_v2",
+            "novel_id": novel_id,
+            "context_confirmation_id": confirmation_resp.json()["id"],
+            "target": "plot_thread",
+            "mode": "create",
+            "instruction": "设计不依赖已排除资料的新剧情线。",
+            "selected_thread_ids": [],
+            "selected_arc_ids": [],
+            "selected_scene_ids": [],
+        },
+    )
+    assert response.status_code == 201, response.text
+    task = (
+        await db_session.execute(
+            select(AsyncTask).where(AsyncTask.id == uuid.UUID(response.json()["task_id"]))
+        )
+    ).scalar_one()
+    provenance = task.meta["context_provenance"]
+    assert provenance["included_asset_ids"]["characters"] == []
+    assert provenance["included_asset_ids"]["entities"] == []
+    assert provenance["top_k"]["characters"] == {
+        "limit": 6,
+        "candidate_count": 0,
+        "reason": "confirmed_context_section_excluded",
+    }
+    assert provenance["top_k"]["world_entities"] == {
+        "limit": 16,
+        "candidate_count": 0,
+        "reason": "confirmed_context_section_excluded",
+    }
+
+
+@pytest.mark.asyncio
 async def test_p20_requires_explicit_no_eviction_confirmation(
     async_client: AsyncClient,
 ) -> None:

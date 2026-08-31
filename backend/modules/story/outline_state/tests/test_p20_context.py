@@ -35,6 +35,117 @@ class _EntityContextItem:
         }
 
 
+@pytest.mark.parametrize(
+    ("excluded_sections", "include_characters", "include_entities"),
+    [
+        ({"pov_knowledge"}, False, True),
+        ({"world_entities"}, True, False),
+        ({"pov_knowledge", "world_entities"}, False, False),
+    ],
+)
+@pytest.mark.asyncio
+async def test_world_context_honors_confirmed_section_exclusions(
+    monkeypatch: pytest.MonkeyPatch,
+    excluded_sections: set[str],
+    include_characters: bool,
+    include_entities: bool,
+) -> None:
+    novel_id = str(uuid.uuid4())
+    character = SimpleNamespace(entity_id=uuid.uuid4(), name="被确认的人物")
+    entity = {
+        "id": str(uuid.uuid4()),
+        "entity_type": "artifact",
+        "name": "被确认的对象",
+    }
+    list_characters = AsyncMock(return_value=([character], 1))
+    list_entities = AsyncMock(return_value=[entity])
+    character_context = AsyncMock(
+        return_value=SimpleNamespace(
+            characters=[_CharacterContextItem(str(character.entity_id), character.name)]
+        )
+    )
+    entity_context = AsyncMock(
+        return_value=SimpleNamespace(
+            entities=[_EntityContextItem(entity["id"], entity["name"])]
+        )
+    )
+    monkeypatch.setattr(p20_context, "list_characters", list_characters)
+    monkeypatch.setattr(p20_context, "list_entities", list_entities)
+    monkeypatch.setattr(p20_context, "get_characters_context", character_context)
+    monkeypatch.setattr(p20_context, "get_world_context", entity_context)
+    request = OutlineLayerGenerateRequest.model_validate(
+        {
+            "novel_id": novel_id,
+            "context_confirmation_id": str(uuid.uuid4()),
+            "target": "plot_thread",
+            "mode": "create",
+            "instruction": "人物与对象都与本次创作直接相关。",
+        }
+    )
+
+    (
+        characters,
+        entities,
+        people_refs,
+        entity_refs,
+        selection,
+    ) = await P20ContextBuilder()._world_context(
+        None,
+        request,
+        {
+            "character_ids": [str(character.entity_id)],
+            "entity_ids": [entity["id"]],
+        },
+        excluded_section_keys=excluded_sections,
+        threads=[],
+        arcs=[],
+        scenes=[],
+    )
+
+    assert bool(characters) is include_characters
+    assert bool(people_refs) is include_characters
+    assert selection["included_asset_ids"]["characters"] == (
+        [str(character.entity_id)] if include_characters else []
+    )
+    assert selection["top_k"]["characters"]["candidate_count"] == int(include_characters)
+    assert selection["top_k"]["characters"]["reason"] == (
+        "explicit_then_instruction_outline_mention_then_scene_then_structure_affinity"
+        if include_characters
+        else "confirmed_context_section_excluded"
+    )
+    assert bool(entities) is include_entities
+    assert bool(entity_refs) is include_entities
+    assert selection["included_asset_ids"]["entities"] == (
+        [entity["id"]] if include_entities else []
+    )
+    assert selection["top_k"]["world_entities"]["candidate_count"] == int(
+        include_entities
+    )
+    assert selection["top_k"]["world_entities"]["reason"] == (
+        "explicit_then_instruction_outline_mention_then_scene_then_structure_affinity"
+        if include_entities
+        else "confirmed_context_section_excluded"
+    )
+    if include_characters:
+        list_characters.assert_awaited_once()
+        character_context.assert_awaited_once()
+    else:
+        list_characters.assert_not_awaited()
+        character_context.assert_not_awaited()
+    if include_entities:
+        list_entities.assert_awaited_once()
+        entity_context.assert_awaited_once_with(
+            None,
+            novel_id,
+            entity_ids=[entity["id"]],
+            reveal_mode="author_safe",
+            limit=1,
+        )
+    else:
+        list_entities.assert_not_awaited()
+        entity_context.assert_not_awaited()
+
+
 @pytest.mark.asyncio
 async def test_world_context_uses_stable_top_k_as_asset_scope(
     monkeypatch: pytest.MonkeyPatch,

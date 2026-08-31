@@ -182,16 +182,25 @@ class P20ContextBuilder:
                 "open_decisions": outline_payload["open_decisions"],
             }
         )
-        characters, entities, people_refs, entity_refs, selection_meta = (
-            await self._world_context(
-                db,
-                data,
-                confirmed.compile_options,
-                threads=threads,
-                arcs=arcs,
-                scenes=scenes,
-                relevance_text=relevance_text,
-            )
+        (
+            characters,
+            entities,
+            people_refs,
+            entity_refs,
+            selection_meta,
+        ) = await self._world_context(
+            db,
+            data,
+            confirmed.compile_options,
+            excluded_section_keys=set(
+                (confirmed.confirmation.excluded_asset_ids or {}).get(
+                    "context_sections", []
+                )
+            ),
+            threads=threads,
+            arcs=arcs,
+            scenes=scenes,
+            relevance_text=relevance_text,
         )
         refs["characters"] = people_refs
         refs["entities"] = entity_refs
@@ -324,6 +333,7 @@ class P20ContextBuilder:
         data: OutlineLayerGenerateRequest,
         compile_options: dict[str, Any],
         *,
+        excluded_section_keys: set[str] | None = None,
         threads: list[PlotThread],
         arcs: list[OutlineArc],
         scenes: list[Scene],
@@ -335,12 +345,23 @@ class P20ContextBuilder:
         dict[str, str],
         dict[str, Any],
     ]:
-        character_rows = await self._list_all_characters(db, data.novel_id)
-        entity_rows = await list_entities(
-            db,
-            data.novel_id,
-            statuses=("canonical",),
-            limit=1000,
+        excluded_sections = excluded_section_keys or set()
+        include_characters = "pov_knowledge" not in excluded_sections
+        include_entities = "world_entities" not in excluded_sections
+        character_rows = (
+            await self._list_all_characters(db, data.novel_id)
+            if include_characters
+            else []
+        )
+        entity_rows = (
+            await list_entities(
+                db,
+                data.novel_id,
+                statuses=("canonical",),
+                limit=1000,
+            )
+            if include_entities
+            else []
         )
 
         explicit_characters = {
@@ -427,38 +448,44 @@ class P20ContextBuilder:
             for item in selected_entity_rows
             if item.get("id") or item.get("entity_id")
         ]
-        character_bundle = await get_characters_context(
-            db,
-            data.novel_id,
-            character_ids,
-            reveal_mode="author_safe",
-        )
-        entity_bundle = await get_world_context(
-            db,
-            data.novel_id,
-            entity_ids=entity_ids,
-            reveal_mode="author_safe",
-            limit=max(len(entity_ids), 1),
-        )
+        character_items = []
+        if character_ids:
+            character_bundle = await get_characters_context(
+                db,
+                data.novel_id,
+                character_ids,
+                reveal_mode="author_safe",
+            )
+            character_items = list(character_bundle.characters)
+        entity_items = []
+        if entity_ids:
+            entity_bundle = await get_world_context(
+                db,
+                data.novel_id,
+                entity_ids=entity_ids,
+                reveal_mode="author_safe",
+                limit=len(entity_ids),
+            )
+            entity_items = list(entity_bundle.entities)
         people_refs = self._ref_map(
             "C",
-            [str(item.character_id) for item in character_bundle.characters],
+            [str(item.character_id) for item in character_items],
         )
         entity_refs = self._ref_map(
             "E",
-            [str(item.entity_id) for item in entity_bundle.entities],
+            [str(item.entity_id) for item in entity_items],
         )
         person_reverse = {value: key for key, value in people_refs.items()}
         entity_reverse = {value: key for key, value in entity_refs.items()}
         characters = []
-        for item in character_bundle.characters:
+        for item in character_items:
             payload = item.model_dump(mode="json")
             payload.pop("character_id", None)
             characters.append(
                 {"ref": person_reverse[str(item.character_id)], **payload}
             )
         entities = []
-        for item in entity_bundle.entities:
+        for item in entity_items:
             payload = item.model_dump(mode="json")
             payload.pop("entity_id", None)
             payload["related_entity_refs"] = [
@@ -502,6 +529,8 @@ class P20ContextBuilder:
                         "reason": (
                             "explicit_then_instruction_outline_mention_then_scene_"
                             "then_structure_affinity"
+                            if include_characters
+                            else "confirmed_context_section_excluded"
                         ),
                     },
                     "world_entities": {
@@ -510,6 +539,8 @@ class P20ContextBuilder:
                         "reason": (
                             "explicit_then_instruction_outline_mention_then_scene_"
                             "then_structure_affinity"
+                            if include_entities
+                            else "confirmed_context_section_excluded"
                         ),
                     },
                 },
