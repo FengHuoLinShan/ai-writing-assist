@@ -36,7 +36,8 @@
   </header>
   <div v-else class="view-header writing-toolbar">
     <div class="view-header__title">
-      写作
+      <button type="button" class="btn btn-sm btn-ghost writing-home-back" data-action="open-writing-home" @click="openWritingHome">← 写作首页</button>
+      <span>写作</span>
       <span class="view-header__count">共 {{ vm.chapterList.value.length }} 章</span>
     </div>
     <div class="view-header__actions">
@@ -380,6 +381,9 @@ function addChapterTask() {
     title: vm.editorState.title || `第 ${vm.selectedChapter.value} 章`,
   }))
 }
+function openWritingHome() {
+  router.navigate("writing", null, true, new URLSearchParams({ home: "1" }))
+}
 const conflictSummary = computed(() => (
   vm.conflictState.error
   || vm.conflictState.latest?.summary_json?.message
@@ -405,12 +409,15 @@ const goalPercent = computed(() => (
 const versionLabel = computed(() => (
   vm.editorState.versionNumber ? `v${vm.editorState.versionNumber}${vm.editorState.readonly ? "（只读）" : ""}` : "未选择版本"
 ))
+const backupUnavailable = computed(() => (
+  vm.editorState.dirty && vm.editorState.backupComplete === false
+))
 const saveBadgeClass = computed(() => ({
   "writing-save-badge--saving": Boolean(vm.editorState.saving),
-  "writing-save-badge--error": !vm.editorState.saving && Boolean(vm.editorState.saveError),
-  "writing-save-badge--readonly": !vm.editorState.saving && !vm.editorState.saveError && vm.editorState.readonly,
-  "writing-save-badge--unsaved": !vm.editorState.saving && !vm.editorState.saveError && !vm.editorState.readonly && vm.editorState.dirty,
-  "writing-save-badge--saved": !vm.editorState.saving && !vm.editorState.saveError && !vm.editorState.readonly && !vm.editorState.dirty,
+  "writing-save-badge--error": !vm.editorState.saving && (Boolean(vm.editorState.saveError) || backupUnavailable.value),
+  "writing-save-badge--readonly": !vm.editorState.saving && !vm.editorState.saveError && !backupUnavailable.value && vm.editorState.readonly,
+  "writing-save-badge--unsaved": !vm.editorState.saving && !vm.editorState.saveError && !backupUnavailable.value && !vm.editorState.readonly && vm.editorState.dirty,
+  "writing-save-badge--saved": !vm.editorState.saving && !vm.editorState.saveError && !backupUnavailable.value && !vm.editorState.readonly && !vm.editorState.dirty,
 }))
 const focusChapterLabel = computed(() => {
   const chapter = Number(vm.selectedChapter.value)

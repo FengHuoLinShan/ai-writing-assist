@@ -92,6 +92,10 @@ class CompileOptions:
     scene_state_fingerprint: str | None = None
     """Scene 时点预演确认时固定的四维 checkpoint 指纹"""
 
+    def __post_init__(self) -> None:
+        if self.reveal_mode == "author_safe" and self.scene_id:
+            self.visible_until_scene_id = self.scene_id
+
 
 @dataclass
 class ContextConfirmationContract:

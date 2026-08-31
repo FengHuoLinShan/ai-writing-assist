@@ -67,7 +67,7 @@ test.describe("作者任务工作台", () => {
     await page.getByRole("button", { name: /我是作家/ }).click()
     await expect(page).toHaveURL(new RegExp(`#workbench/${project.id}/writing\\?home=1$`))
     await expect(page.locator(SEL.viewTitle)).toHaveText("写作")
-    await expect(page.getByRole("heading", { name: "雾港来信" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "继续第 3 章正文" })).toBeVisible()
 
     await page.setViewportSize({ width: 390, height: 844 })
     for (const label of ["写作", "世界", "结构", "全部"]) {
@@ -75,9 +75,12 @@ test.describe("作者任务工作台", () => {
     }
     await expectNoPageOverflow(page)
 
-    await page.getByRole("button", { name: "继续写作" }).click()
+    await page.getByRole("button", { name: "进入正文编辑" }).click()
     await expect(page).toHaveURL(new RegExp(`#workbench/${project.id}/writing`))
     await expect(page.locator(SEL.viewTitle)).toHaveText("写作")
+    await page.getByRole("button", { name: "写作首页" }).click()
+    await expect(page).toHaveURL(new RegExp(`#workbench/${project.id}/writing[?]home=1$`))
+    await expectNoPageOverflow(page)
   })
 
   test("失效的上次作品会清除并回到作品档案", async ({ page }) => {

@@ -40,10 +40,28 @@ const authorTaskPreview = computed(() => Array.isArray(authorTasks.value.preview
   ? authorTasks.value.preview.filter((task) => !completedTaskIds.value.has(task.id)).slice(0, 3)
   : [])
 const taskBusyIds = ref(new Set())
-const primaryWorld = computed(() => props.creativeContinuation || (!continuation.value ? props.worldContinuations[0] || null : null))
-const unfinishedWorld = computed(() => props.worldContinuations.filter((item) => item.key !== primaryWorld.value?.key))
+const hasWritingContent = computed(() => Boolean(
+  continuation.value || Number(writing.value.chapter_count || 0) > 0,
+))
+const worldTracks = computed(() => {
+  const seen = new Set()
+  return [props.creativeContinuation, ...props.worldContinuations].filter((item) => {
+    if (!item?.key || seen.has(item.key)) return false
+    seen.add(item.key)
+    return true
+  })
+})
+const primaryWorld = computed(() => (
+  props.summary && !hasWritingContent.value ? worldTracks.value[0] || null : null
+))
+const secondaryWorld = computed(() => (
+  hasWritingContent.value ? worldTracks.value[0] || null : null
+))
+const unfinishedWorld = computed(() => worldTracks.value.filter((item) => (
+  item.key !== primaryWorld.value?.key && item.key !== secondaryWorld.value?.key
+)))
 const importWorkflow = computed(() => (
-  continuation.value || primaryWorld.value
+  !props.summary || hasWritingContent.value || primaryWorld.value
     ? null
     : visibleWorkflows.value.find((workflow) => workflow.workflowType === "deep_import") || null
 ))
@@ -55,20 +73,23 @@ const startWorldCore = computed(() => Boolean(
   && Number(writing.value.chapter_count || 0) === 0
 ))
 const resumeTitle = computed(() => {
+  if (continuation.value) return `继续第 ${continuation.value.chapter_index} 章正文`
+  if (hasWritingContent.value) return "继续正文写作"
   if (primaryWorld.value) return primaryWorld.value.title
-  if (continuation.value) return continuation.value.title
   if (importWorkflow.value) return "继续整理导入内容"
   if (!props.summary) return "继续写作"
   return startWorldCore.value ? "从几个灵感开始" : "开始第一章"
 })
 const primaryLabel = computed(() => {
+  if (hasWritingContent.value) return "进入正文编辑"
   if (primaryWorld.value) return primaryWorld.value.destination === "world_suggestion_review" ? "去审查" : "继续创作"
-  if (continuation.value) return "继续写作"
   if (importWorkflow.value) return "继续整理"
   if (!props.summary) return "进入写作"
   return startWorldCore.value ? "开始生长" : "开始第一章"
 })
-const resumeLabel = computed(() => primaryWorld.value ? "接着上次创作" : "接着上次写")
+const resumeLabel = computed(() => hasWritingContent.value
+  ? "正文写作"
+  : primaryWorld.value ? "接着上次创作" : "接着上次写")
 const attentionCategories = computed(() => [
   { key: "world_objects", label: "人物与设定", value: attention.value.world_objects || 0, view: "world", subView: "review", reviewKind: "objects" },
   { key: "world_aliases", label: "别名", value: attention.value.world_aliases || 0, view: "world", subView: "review", reviewKind: "aliases" },
@@ -163,6 +184,10 @@ async function completeTask(task, event) {
 }
 
 function runPrimaryAction() {
+  if (hasWritingContent.value) {
+    openWriting()
+    return
+  }
   if (primaryWorld.value) {
     openCreativeContinuation(primaryWorld.value)
     return
@@ -330,27 +355,41 @@ function retry() {
       <button class="btn btn-sm btn-ghost" type="button" data-action="switch-project" @click="router.navigate('project')">切换作品</button>
     </header>
 
-    <section class="today-resume" aria-labelledby="today-resume-title">
-      <div>
-        <span class="today-resume__label">{{ resumeLabel }}</span>
-        <h2 id="today-resume-title">{{ resumeTitle }}</h2>
-        <template v-if="primaryWorld">
-          <p>{{ primaryWorld.description }}</p>
-          <p v-if="!creativeContinuation">本机未发送的文字和对话不会出现在其他设备。</p>
-        </template>
-        <p v-else-if="continuation">
-          第 {{ continuation.chapter_index }} 章
-          · {{ continuation.has_unpublished_changes ? '有尚未设为正式正文的修改' : '正文已保存' }}
-        </p>
-        <p v-else-if="importWorkflow">导入内容还在整理中，可以继续查看进度，也可以稍后回来。</p>
-        <p v-else-if="startWorldCore">写下几个在意的灵感，再逐轮补齐成立规则、因果和真实生活后果。</p>
-        <p v-else>准备好第一章后，作品的资料与结构会在创作过程中逐步生长。</p>
-        <p v-if="summary" class="today-resume__stats">{{ writing.chapter_count }} 章 · {{ Number(writing.word_count || 0).toLocaleString() }} 字</p>
-      </div>
-      <button class="btn btn-primary today-resume__action" type="button" :data-action="primaryWorld ? 'continue-world' : startWorldCore ? 'start-world-core' : 'continue-writing'" @click="runPrimaryAction">
-        {{ primaryLabel }}
-      </button>
-    </section>
+    <div class="today-resume-grid" :class="{ 'today-resume-grid--single': !secondaryWorld }">
+      <section class="today-resume" aria-labelledby="today-resume-title">
+        <div>
+          <span class="today-resume__label">{{ resumeLabel }}</span>
+          <h2 id="today-resume-title">{{ resumeTitle }}</h2>
+          <template v-if="primaryWorld">
+            <p>{{ primaryWorld.description }}</p>
+            <p v-if="!creativeContinuation">本机未发送的文字和对话不会出现在其他设备。</p>
+          </template>
+          <p v-else-if="continuation">
+            {{ continuation.title }}
+            · {{ continuation.has_unpublished_changes ? '有尚未设为正式正文的修改' : '正文已保存' }}
+          </p>
+          <p v-else-if="importWorkflow">导入内容还在整理中，可以继续查看进度，也可以稍后回来。</p>
+          <p v-else-if="startWorldCore">写下几个在意的灵感，再逐轮补齐成立规则、因果和真实生活后果。</p>
+          <p v-else>准备好第一章后，作品的资料与结构会在创作过程中逐步生长。</p>
+          <p v-if="summary" class="today-resume__stats">{{ writing.chapter_count }} 章 · {{ Number(writing.word_count || 0).toLocaleString() }} 字</p>
+        </div>
+        <button class="btn btn-primary today-resume__action" type="button" :data-action="hasWritingContent ? 'continue-writing' : primaryWorld ? 'continue-world' : startWorldCore ? 'start-world-core' : 'continue-writing'" @click="runPrimaryAction">
+          {{ primaryLabel }}
+        </button>
+      </section>
+
+      <article v-if="secondaryWorld" class="today-resume-secondary" aria-labelledby="today-resume-secondary-title">
+        <div>
+          <span class="today-resume__label">未完成创作</span>
+          <h2 id="today-resume-secondary-title">{{ secondaryWorld.title }}</h2>
+          <p>{{ secondaryWorld.description }}</p>
+          <p v-if="secondaryWorld.key !== creativeContinuation?.key">本机未发送的文字和对话不会出现在其他设备。</p>
+        </div>
+        <button class="btn" type="button" data-action="continue-world-secondary" @click="openCreativeContinuation(secondaryWorld)">
+          {{ ['world_suggestion_review', 'world_adoption_review'].includes(secondaryWorld.destination) ? '去审查' : '打开工作稿' }}
+        </button>
+      </article>
+    </div>
 
     <div v-if="loadError" class="today-inline-warning error-card" role="alert">
       <div><strong>作品概览暂时没有更新</strong><p>{{ loadError }} 仍然可以直接进入写作。</p></div>

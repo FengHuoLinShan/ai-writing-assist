@@ -367,9 +367,15 @@ SceneSpan 补充父 Scene 序号、标题及由目标/冲突/情绪组成的短�
 
 `VisibilityContextContract` 有三种模式：
 
-- `author`：无剧透截止。
+- `author`：默认无剧透截止；显式提供 chapter/Scene/offset 截止时仍按当前正文版本执行。
 - `reader`：必须有 `cutoff_chapter`，可选同章 `cutoff_scene_id/cutoff_offset`。
 - `character`：除上述截止外必须有 `character_id`。
+
+Scene-centric 编译使用 `author_safe + scene_id` 时，`visible_until_scene_id` 固定为当前
+Scene，调用方不能把它扩宽到后续 Scene；`author_full` 不会自动增加该截止。RAG 的
+relation/task 子查询仍可宽召回前序证据，但原文回读会按版本绑定的 SceneSpan 解析字符截止，
+完整排除后续或跨越截止点的 chunk。截止 Scene 无法在当前正文版本精确绑定时，同章正文
+fail closed，并返回保守排除警告。
 
 writing、RAG、SceneSpan/checkpoint、ReaderRevealPolicy 和 CharacterKnowledge 各层先过滤，
 context 在返回前再校验来源位置。CharacterKnowledge 只在学习位置严格早于
@@ -460,7 +466,7 @@ POST /api/evidence/compilation/snapshots/maintenance
 | `include_pending_objects` | 是否显式纳入未采用/review 对象；默认 false |
 | `reveal_mode` | `author_safe / author_full / reader / character` |
 | `visible_until_chapter` | RAG 读者进度上界；为空时单章上下文默认使用 `chapter_index` |
-| `visible_until_scene_id/visible_until_offset` | 可选同章 Scene/字符截止点 |
+| `visible_until_scene_id/visible_until_offset` | 可选同章 Scene/字符截止点；`author_safe + scene_id` 自动固定为当前 Scene |
 | `budget_tokens` | 总预算，前端默认 4000 |
 | `excluded_asset_ids.context_sections` | 本次临时排除的可选 context section key |
 

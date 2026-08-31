@@ -28,7 +28,9 @@
       <aside v-if="conflict" class="story-outline-editor-notice story-outline-editor-notice--warning" role="alert">
         <div>
           <strong>保存前，当前版本被其他会话更新了</strong>
-          <p>本地草稿仍在。先同步最新版本基准，再核对并重新保存。</p>
+          <p>{{ storageError
+            ? "当前修改仍在此页面，但本地暂存不可用。请勿离开或刷新；先同步最新版本基准，再核对并重新保存。"
+            : "本地草稿仍在。先同步最新版本基准，再核对并重新保存。" }}</p>
         </div>
         <button type="button" class="btn btn-sm" :disabled="rebasing" @click="rebaseDraft">{{ rebasing ? '同步中…' : '同步最新版本' }}</button>
       </aside>
@@ -39,7 +41,9 @@
         <StoryOutlineEditorFields :model-value="content" prefix="story-outline-manual" />
         <p v-if="saveError" id="story-outline-manual-error" ref="errorSummary" class="form-error" role="alert" tabindex="-1">{{ saveError }}</p>
         <footer class="story-outline-editor-page__actions">
-          <span class="form-hint">{{ dirty ? '未发布修改已在本机暂存' : '修改后会自动暂存到本机' }}</span>
+          <span class="form-hint">{{ storageError
+            ? "本地暂存不可用，离开或刷新会丢失未保存修改"
+            : dirty ? "未发布修改已在本机暂存" : "修改后会自动暂存到本机" }}</span>
           <div>
             <button v-if="dirty" type="button" class="btn btn-sm btn-ghost" data-action="discard-story-outline-draft" :disabled="saving" @click="discardDraft">放弃本地草稿</button>
             <button type="submit" class="btn btn-sm btn-primary" data-action="save-story-outline-revision" :disabled="saving || conflict || !dirty">{{ saving ? '保存中…' : '保存为新版本' }}</button>
@@ -117,8 +121,12 @@ useLeaveGuard(() => {
     toast("正在保存故事总览，请稍候", "info")
     return false
   }
-  persistDraft()
-  return confirm("本地草稿已保留。确定离开故事总览编辑页吗？")
+  const backupComplete = persistDraft()
+  return confirm(
+    backupComplete
+      ? "本地草稿已保留。确定离开故事总览编辑页吗？"
+      : "当前修改尚未保存，浏览器也无法写入本地备份。离开后这些修改会丢失，仍要离开吗？",
+  )
 })
 
 function readDraft() {
@@ -136,7 +144,7 @@ function readDraft() {
 function persistDraft() {
   clearTimeout(draftTimer)
   draftTimer = null
-  if (!props.projectId || !dirty.value) return
+  if (!props.projectId || !dirty.value) return !dirty.value
   try {
     const savedAt = new Date().toISOString()
     localStorage.setItem(draftKey, JSON.stringify({
@@ -147,8 +155,10 @@ function persistDraft() {
     }))
     draftSavedAt.value = savedAt
     storageError.value = ""
+    return true
   } catch {
     storageError.value = "浏览器无法暂存这份草稿。请尽快保存为新版本，离开或刷新可能丢失修改。"
+    return false
   }
 }
 
@@ -157,6 +167,7 @@ function clearStoredDraft() {
   draftTimer = null
   try { localStorage.removeItem(draftKey) } catch { /* noop */ }
   draftSavedAt.value = null
+  storageError.value = ""
 }
 
 function scheduleDraft() {
@@ -226,13 +237,15 @@ async function save() {
     await router?.replace("outline", "story-outline")
     return true
   } catch (err) {
+    const backupComplete = persistDraft()
     if (err?.status === 409) {
       conflict.value = true
-      saveError.value = "当前版本刚刚发生变化，本地草稿没有丢失。请先同步最新版本。"
+      saveError.value = backupComplete
+        ? "当前版本刚刚发生变化，本地草稿已保留。请先同步最新版本。"
+        : "当前版本刚刚发生变化，当前修改仍在此页面，但本地暂存不可用。请勿离开或刷新。"
     } else {
       saveError.value = err.message || "保存失败，请稍后重试。"
     }
-    persistDraft()
     await focusSaveError()
     return false
   } finally {
@@ -253,8 +266,13 @@ async function rebaseDraft() {
     staleDraft.value = true
     operationKey = null
     lastAttemptFingerprint = null
-    persistDraft()
-    toast("已同步最新版本，本地草稿保持不变", "success")
+    const backupComplete = persistDraft()
+    toast(
+      backupComplete
+        ? "已同步最新版本，本地草稿保持不变"
+        : "已同步最新版本；当前修改仍在页面，但本地暂存不可用",
+      backupComplete ? "success" : "warning",
+    )
     return true
   } catch (err) {
     saveError.value = err.message || "同步最新版本失败，请稍后重试。"

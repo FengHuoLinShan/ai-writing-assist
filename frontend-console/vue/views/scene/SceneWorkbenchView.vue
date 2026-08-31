@@ -248,6 +248,7 @@
           :history-loading="storyWorkspace.scriptHistoryLoading"
           :findings="storyWorkspace.validation"
           :saved-at="storyWorkspace.scriptSavedAt"
+          :backup-unavailable="storyWorkspace.scriptBackupUnavailable"
           :saving="storyWorkspace.scriptSaving"
           @update:draft="storyWorkspace.updateScript"
           @validate="storyWorkspace.validateScript"
@@ -496,12 +497,23 @@ function runContextActionSafely(item, action = sceneContextAction(item)) {
   return runContextAction(item, action)
 }
 function openOverlapSafely(sceneId) { return confirmDiscardDetail(sceneId) ? openOverlap(sceneId) : false }
-useLeaveGuard(() => (
-  !detailDirty.value
-  || getConfirm()("当前场景有未保存修改，确定放弃并离开吗？")
-))
+function persistScriptBeforeLeave() {
+  if (!storyWorkspace.scriptDirty) return true
+  return storyWorkspace.persistDraft()?.backupComplete === true
+}
+function confirmWorkbenchLeave() {
+  const scriptBackupComplete = persistScriptBeforeLeave()
+  if (!detailDirty.value && scriptBackupComplete) return true
+  const message = detailDirty.value && !scriptBackupComplete
+    ? "当前场景详情尚未保存，剧本草稿也无法写入本地备份。离开后这些修改会丢失，仍要离开吗？"
+    : detailDirty.value
+      ? "当前场景有未保存修改，确定放弃并离开吗？"
+      : "当前剧本尚未保存，浏览器也无法写入本地备份。离开后这些修改会丢失，仍要离开吗？"
+  return getConfirm()(message)
+}
+useLeaveGuard(confirmWorkbenchLeave)
 function warnBeforeUnload(event) {
-  if (!detailDirty.value) return
+  if (!detailDirty.value && persistScriptBeforeLeave()) return
   event.preventDefault()
   event.returnValue = ""
 }

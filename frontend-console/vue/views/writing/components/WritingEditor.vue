@@ -80,10 +80,15 @@
       <button id="writing-retry-load" class="btn btn-sm" type="button" @click="$emit('retry-load')">重新加载</button>
     </div>
     <template v-else>
-      <div v-if="state.saveError" class="writing-save-recovery error-card" role="alert">
+      <div v-if="state.saveError || (state.dirty && state.backupComplete === false)" class="writing-save-recovery error-card" role="alert">
         <div>
           <strong>工作稿还没有保存</strong>
-          <p>{{ state.saveError }}。本地备份仍保留在这台设备上，保存成功前不会切换章节。</p>
+          <p v-if="state.saveError">
+            {{ state.saveError }}。{{ state.backupComplete
+              ? "本地备份仍保留在这台设备上。"
+              : "本地备份不可用，离开或刷新会丢失未保存修改。" }}保存成功前不会切换章节。
+          </p>
+          <p v-else>本地备份不可用，当前修改只保留在这个页面；离开或刷新会丢失。请尽快保存工作稿。</p>
         </div>
         <button id="writing-retry-save" class="btn btn-sm" type="button" :disabled="state.saving" @click="$emit('autosave')">{{ state.saving ? '重试中…' : '重试保存' }}</button>
       </div>

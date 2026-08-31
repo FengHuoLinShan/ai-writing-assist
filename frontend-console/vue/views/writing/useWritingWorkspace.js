@@ -175,6 +175,7 @@ export function useWritingWorkspace(props) {
     cursorOffset: 0,
     saving: false,
     saveError: null,
+    backupComplete: true,
     candidateAction: null,
     candidateActionError: null,
     loading: false,
@@ -233,9 +234,14 @@ export function useWritingWorkspace(props) {
     )))
   const saveStatus = computed(() => {
     if (editorState.saving) return "正在保存"
-    if (editorState.saveError) return "保存失败，已保留本地备份"
+    if (editorState.saveError) {
+      return editorState.backupComplete
+        ? "保存失败，本地备份已保留"
+        : "保存失败，本地备份不可用"
+    }
     if (editorState.readonly) return "只读"
     if (!editorState.dirty) return "已保存到工作稿"
+    if (editorState.backupComplete === false) return "本地备份不可用"
     return substantiveWritingText(editorState.content) === substantiveWritingText(editorState.lastSavedContent)
       ? "排版修改已保留在本地"
       : "尚未保存"
@@ -1398,8 +1404,12 @@ export function useWritingWorkspace(props) {
 
   useLeaveGuard(() => {
     if (!editor.hasUnsavedChanges()) return true
-    editor.persist()
-    return confirm("当前正文有未保存修改，已保留本地暂存。确定离开写作台吗？")
+    const backupComplete = editor.persist()
+    return confirm(
+      backupComplete
+        ? "当前正文有未保存修改，已保留本地暂存。确定离开写作台吗？"
+        : "当前修改尚未保存，浏览器也无法写入本地备份。离开后这些修改会丢失，仍要离开吗？",
+    )
   })
 
   function beforeUnload(event) {

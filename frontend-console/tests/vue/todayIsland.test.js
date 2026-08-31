@@ -385,7 +385,7 @@ describe("todayIsland", () => {
     expect(router.refresh).not.toHaveBeenCalled()
   })
 
-  it("keeps the author's explicit local world track ahead of writing and background refreshes", async () => {
+  it("keeps正文 primary while exposing the explicit local world track as secondary", async () => {
     const state = { currentProjectId: "p1", currentProject: { id: "p1", title: "雾港" } }
     const router = { navigate: vi.fn(), refresh: vi.fn() }
     const generate = { worldChat: vi.fn(), generateWorldSuggestion: vi.fn() }
@@ -412,15 +412,46 @@ describe("todayIsland", () => {
     const props = await loadTodayProps()
     const wrapper = mount(TodayView, { props })
 
-    expect(wrapper.get("#today-resume-title").text()).toBe("继续完善世界书页面")
-    expect(wrapper.get(".today-resume").text()).not.toContain("第 3 章")
-    await wrapper.get(".today-resume__action").trigger("click")
+    expect(wrapper.get("#today-resume-title").text()).toBe("继续第 3 章正文")
+    expect(wrapper.get(".today-resume__action").text()).toBe("进入正文编辑")
+    expect(wrapper.get("#today-resume-secondary-title").text()).toBe("继续完善世界书页面")
+    await wrapper.get('[data-action="continue-world-secondary"]').trigger("click")
     expect(router.navigate).toHaveBeenCalledWith("generate", null, true, expect.any(URLSearchParams))
     const query = router.navigate.mock.calls[0][3]
     expect(query.get("source_page_id")).toBe("page-a")
     expect(query.get("target")).toBe("world_bible_page")
     expect(generate.worldChat).not.toHaveBeenCalled()
     expect(generate.generateWorldSuggestion).not.toHaveBeenCalled()
+
+    await wrapper.get(".today-resume__action").trigger("click")
+    expect(router.navigate.mock.calls.at(-1).slice(0, 3)).toEqual(["writing", null, true])
+    expect(router.navigate.mock.calls.at(-1)[3].get("chapter_index")).toBe("3")
+  })
+
+  it("deduplicates a world continuation shown beside正文", () => {
+    const worldDraft = {
+      key: "world_bible_draft:draft-1",
+      destination: "world_bible_draft",
+      route: { draft_id: "draft-1" },
+      title: "继续《潮汐法则》工作稿",
+      description: "打开服务器保存的世界书工作稿；正式页面尚未变化。",
+    }
+    setBridgeOverrides({ router: { navigate: vi.fn(), refresh: vi.fn() } })
+
+    const wrapper = mount(TodayView, { props: {
+      project: { id: "p1", title: "雾港" },
+      summary: {
+        project_id: "p1",
+        continuation: { title: "第三章", chapter_index: 3 },
+        writing: { chapter_count: 3, word_count: 1200 },
+        attention: {},
+      },
+      creativeContinuation: worldDraft,
+      worldContinuations: [worldDraft],
+    } })
+
+    expect(wrapper.findAll(".today-resume-secondary")).toHaveLength(1)
+    expect(wrapper.find("[aria-labelledby='today-unfinished-world-title']").exists()).toBe(false)
   })
 
   it("clears an evicted local pointer and promotes a server draft without pretending chat is cross-device", async () => {

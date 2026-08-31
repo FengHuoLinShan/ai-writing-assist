@@ -47,6 +47,7 @@ describe("Story Scene workspace panels", () => {
   let state
   let router
   let tasks
+  let toast
 
   beforeEach(() => {
     localStorage.clear()
@@ -91,6 +92,7 @@ describe("Story Scene workspace panels", () => {
       unadoptSceneScriptFile: vi.fn(),
     }
     tasks = { get: vi.fn(), cancel: vi.fn() }
+    toast = vi.fn()
     const api = {
       outline: {
         getSceneWorkbench: vi.fn().mockResolvedValue(payload),
@@ -102,7 +104,7 @@ describe("Story Scene workspace panels", () => {
       tasks,
       imports: { startStage: vi.fn() },
     }
-    setBridgeOverrides({ api, state, router, toast: vi.fn(), showModalHtml: vi.fn(), closeModal: vi.fn(), esc: (value) => String(value ?? "") })
+    setBridgeOverrides({ api, state, router, toast, showModalHtml: vi.fn(), closeModal: vi.fn(), esc: (value) => String(value ?? "") })
   })
 
   afterEach(() => {
@@ -239,6 +241,58 @@ describe("Story Scene workspace panels", () => {
     expect(raw.length).toBeLessThanOrEqual(256 * 1024)
     resetSceneRuntimeSession("p1", "s1")
     expect(sceneRuntimeSession("p1", "s1").scriptDraft).toBe(activeDraft)
+  })
+
+  it("keeps the Scene script in memory and reports whether local persistence really succeeded", () => {
+    const originalSetItem = localStorage.setItem.bind(localStorage)
+    const storage = vi.spyOn(localStorage, "setItem").mockImplementation((key, value) => {
+      if (String(key).startsWith("scene_runtime_draft:")) {
+        throw new DOMException("quota", "QuotaExceededError")
+      }
+      return originalSetItem(key, value)
+    })
+
+    const failed = persistSceneRuntimeDraft("p1", "s1", { scriptDraft: "只留在内存的剧本" })
+    expect(failed.backupComplete).toBe(false)
+    expect(sceneRuntimeSession("p1", "s1")).toMatchObject({
+      scriptDraft: "只留在内存的剧本",
+      backupComplete: false,
+    })
+    expect(localStorage.getItem(sceneRuntimeDraftKey("p1", "s1"))).toBeNull()
+
+    storage.mockRestore()
+    const recovered = persistSceneRuntimeDraft("p1", "s1", { scriptDraft: "只留在内存的剧本" })
+    expect(recovered.backupComplete).toBe(true)
+    expect(localStorage.getItem(sceneRuntimeDraftKey("p1", "s1"))).toContain("只留在内存的剧本")
+  })
+
+  it("剧本服务和本地备份都失败时不显示已保存并保留当前输入", async () => {
+    const originalSetItem = localStorage.setItem.bind(localStorage)
+    const storage = vi.spyOn(localStorage, "setItem").mockImplementation((key, value) => {
+      if (String(key).startsWith("scene_runtime_draft:")) {
+        throw new DOMException("quota", "QuotaExceededError")
+      }
+      return originalSetItem(key, value)
+    })
+    story.saveSceneScript.mockRejectedValueOnce(new Error("剧本服务断开"))
+    createWrapper({ selectedSceneId: "s1" })
+    await wrapper.get('[data-action="scene-runtime-tab-script"]').trigger("click")
+    await flushPromises()
+    await wrapper.get('[data-action="scene-script-draft-input"]').setValue("无法备份的剧本正文")
+
+    expect(wrapper.get('[role="alert"]').text()).toContain("本地暂存不可用")
+    expect(wrapper.text()).not.toContain("草稿已保存")
+    await wrapper.get('[data-action="save-scene-script-draft"]').trigger("click")
+    await flushPromises()
+
+    expect(toast).toHaveBeenLastCalledWith(
+      "剧本服务断开；本地备份不可用，离开或刷新会丢失未保存修改",
+      "error",
+    )
+    expect(wrapper.get('[data-action="scene-script-draft-input"]').element.value).toBe("无法备份的剧本正文")
+    expect(wrapper.text()).not.toContain("草稿已保存")
+
+    storage.mockRestore()
   })
 
   it("restores preview provenance, sends it when saving, and clears it after manual edits", async () => {

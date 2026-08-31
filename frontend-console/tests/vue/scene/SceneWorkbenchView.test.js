@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { flushPromises, mount } from "@vue/test-utils"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
+import { ISLAND_LEAVE_GUARD } from "../../../vue/mountIsland.js"
 import { sceneAutoExtractManager } from "../../../vue/views/scene/sceneAutoExtractManager.js"
 import { resetSceneSession } from "../../../vue/views/scene/sceneModel.js"
+import { resetSceneRuntimeSession } from "../../../vue/views/scene/sceneRuntimeSession.js"
 import SceneWorkbenchView from "../../../vue/views/scene/SceneWorkbenchView.vue"
 
 const payload = {
@@ -46,6 +48,7 @@ describe("SceneWorkbenchView", () => {
   let latestModal
   let toast
   let closeModal
+  let leaveGuard
   const state = {
     currentProjectId: "p1",
     currentProject: { id: "p1", title: "测试项目" },
@@ -68,12 +71,20 @@ describe("SceneWorkbenchView", () => {
     tasks: { get: vi.fn(), cancel: vi.fn() },
     imports: { startStage: vi.fn() },
     world: { listEntities: vi.fn(), getEntity: vi.fn() },
+    story: {
+      getSceneContext: vi.fn(),
+      listCharacterCards: vi.fn(),
+      listSceneScripts: vi.fn(),
+      listSceneScriptRevisions: vi.fn(),
+    },
   }
 
   beforeEach(() => {
     localStorage.clear()
     sessionStorage.clear()
     resetSceneSession("p1")
+    resetSceneRuntimeSession("p1", "s1")
+    resetSceneRuntimeSession("p1", "s2")
     window.innerWidth = 1024
     window.history.replaceState({}, "", "#workbench/p1/outline/scenes")
     vi.clearAllMocks()
@@ -85,9 +96,14 @@ describe("SceneWorkbenchView", () => {
     api.outline.reviewSceneSourceMappings.mockResolvedValue({ status: "reviewed" })
     api.world.listEntities.mockResolvedValue({ items: [] })
     api.world.getEntity.mockResolvedValue({ id: "c1", name: "沈岚", entity_type: "character", status: "canonical", summary: "王城密探" })
+    api.story.getSceneContext.mockResolvedValue({ character_cards: [], script_files: [] })
+    api.story.listCharacterCards.mockResolvedValue({ items: [], total: 0 })
+    api.story.listSceneScripts.mockResolvedValue({ items: [], total: 0 })
+    api.story.listSceneScriptRevisions.mockResolvedValue([])
     latestModal = null
     toast = vi.fn()
     closeModal = vi.fn()
+    leaveGuard = null
     setBridgeOverrides({
       api,
       state,
@@ -119,6 +135,11 @@ describe("SceneWorkbenchView", () => {
         viewMode: "hot",
         sceneFilters: {},
         ...extra,
+      },
+      global: {
+        provide: {
+          [ISLAND_LEAVE_GUARD]: (fn) => { leaveGuard = fn },
+        },
       },
     })
     return wrapper
@@ -648,6 +669,36 @@ describe("SceneWorkbenchView", () => {
     await flushPromises()
     expect(wrapper.find(".scene-workbench-drawer").exists()).toBe(false)
     expect(document.activeElement).toBe(opener.element)
+  })
+
+  it("场景详情和剧本本地备份同时失败时只显示一次合并离开确认", async () => {
+    const confirm = vi.fn(() => false)
+    setBridgeOverrides({ confirm })
+    const originalSetItem = localStorage.setItem.bind(localStorage)
+    const storage = vi.spyOn(localStorage, "setItem").mockImplementation((key, value) => {
+      if (String(key).startsWith("scene_runtime_draft:")) {
+        throw new DOMException("quota", "QuotaExceededError")
+      }
+      return originalSetItem(key, value)
+    })
+    createWrapper({ selectedSceneId: "s1" })
+    await wrapper.get("#scene-detail-title").setValue("尚未保存的场景标题")
+    await wrapper.get('[data-action="scene-runtime-tab-script"]').trigger("click")
+    await flushPromises()
+    await wrapper.get('[data-action="scene-script-draft-input"]').setValue("尚未备份的剧本")
+
+    expect(leaveGuard()).toBe(false)
+    expect(confirm).toHaveBeenCalledTimes(1)
+    expect(confirm).toHaveBeenCalledWith(
+      "当前场景详情尚未保存，剧本草稿也无法写入本地备份。离开后这些修改会丢失，仍要离开吗？",
+    )
+    const beforeUnload = new Event("beforeunload", { cancelable: true })
+    window.dispatchEvent(beforeUnload)
+    expect(beforeUnload.defaultPrevented).toBe(true)
+
+    confirm.mockReturnValue(true)
+    expect(leaveGuard()).toBe(true)
+    storage.mockRestore()
   })
 
   it("does not discard a desktop detail draft when another scene is selected", async () => {

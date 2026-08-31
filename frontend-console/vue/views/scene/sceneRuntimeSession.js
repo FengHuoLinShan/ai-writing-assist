@@ -31,6 +31,7 @@ function blankSession() {
     simulation: null,
     scriptPreview: null,
     scriptDraftSource: null,
+    backupComplete: false,
     updatedAt: null,
   }
 }
@@ -78,6 +79,7 @@ function readStoredDraft(projectId, sceneId) {
       notes: parsed.notes && typeof parsed.notes === "object" ? Object.fromEntries(
         Object.entries(parsed.notes).slice(0, 24).map(([key, value]) => [String(key), String(value || "").slice(0, 4000)]),
       ) : {},
+      backupComplete: true,
       updatedAt: parsed.updatedAt || null,
     }
   } catch {
@@ -236,10 +238,13 @@ export function persistSceneRuntimeDraft(projectId, sceneId, patch = {}) {
   Object.assign(session, next)
   try {
     localStorage.setItem(storageKey(projectId, sceneId), serializedDraftWithinLimit(next))
+    session.backupComplete = true
+    return { ...next, backupComplete: true }
   } catch {
     // 草稿持久化失败不阻断当前编辑；内存 session 仍保留本轮内容。
+    session.backupComplete = false
+    return { ...next, backupComplete: false }
   }
-  return next
 }
 
 export function normalizeSceneRuntimeTab(value) {

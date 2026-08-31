@@ -119,8 +119,9 @@ grep/search/read/inspect/trace。它不自主选工具，受控 LLM 工作流只
 hash 形状校验与最多 5 个来源／24,000 字符的预算裁剪。返回 trace 只列纳入、排除、缩短和
 篇幅统计，不复制正文；该 helper 不调用 LLM、不判断权威，也不建立第二索引。
 
-`VisibilityContextContract` 支持 `author/reader/character`。reader 必须提供截止章，
-character 还必须提供人物 ID；两者可选同章 Scene/offset 截止。writing、RAG、
+`VisibilityContextContract` 支持 `author/reader/character`。author 默认无截止，但显式
+chapter/Scene/offset 仍会执行；reader 必须提供截止章，character 还必须提供人物 ID，
+后两者可选同章 Scene/offset 截止。writing、RAG、
 SceneSpan/checkpoint、ReaderRevealPolicy 和 CharacterKnowledge 各层先硬过滤，
 context 返回前再校验 source location。同章无可判定先后、或缺少学习章且非明确
 public baseline 的 CharacterKnowledge 默认排除。
@@ -272,7 +273,10 @@ Lifecycle v1 为快照提供显式维护入口：
 时间衰减评分，不承担防剧透硬过滤。
 
 `CompileOptions.content_mode` 独立选择 canonical/working 正文与索引；
-`visible_until_scene_id/visible_until_offset` 表达同章可选截止点。旧
+`visible_until_scene_id/visible_until_offset` 表达同章可选截止点。`author_safe + scene_id`
+会把 Scene 截止强制固定为当前 Scene，不能被调用方扩宽；`author_full` 不自动设置。
+最终原文回读整块拒绝后续或跨越截止点的 RAG chunk，无法按当前 draft/hash 解析 SceneSpan
+时同章正文 fail closed。旧
 `reveal_mode` 由适配层映射为统一 visibility 语义。
 
 分类预算仍由 `CONTEXT_BUDGET` 提供，包括：

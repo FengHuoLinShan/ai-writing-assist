@@ -104,6 +104,40 @@ def test_scene_scope_is_a_real_scene_anchored_compile() -> None:
     assert plan.visible_until_scene_id == options.visible_until_scene_id
 
 
+def test_author_safe_scene_cannot_widen_its_visibility_cursor() -> None:
+    scene_id = str(uuid.uuid4())
+    options = CompileOptions(
+        novel_id=str(uuid.uuid4()),
+        task="生成当前 Scene",
+        scope="chapter",
+        scene_id=scene_id,
+        reveal_mode="author_safe",
+        visible_until_scene_id=str(uuid.uuid4()),
+    )
+
+    assert options.visible_until_scene_id == scene_id
+    assert RetrievalQueryPlanner().plan(options).visible_until_scene_id == scene_id
+
+    legacy = CompileOptions(
+        novel_id=options.novel_id,
+        task=options.task,
+        scope=options.scope,
+        scene_id=scene_id,
+        reveal_mode="author_safe",
+        visible_until_scene_id=None,
+    )
+    author_full = CompileOptions(
+        novel_id=options.novel_id,
+        task=options.task,
+        scope=options.scope,
+        scene_id=scene_id,
+        reveal_mode="author_full",
+    )
+
+    assert legacy.visible_until_scene_id == scene_id
+    assert author_full.visible_until_scene_id is None
+
+
 def test_character_plan_never_adds_chapter_wide_task_fallback() -> None:
     scene_id = str(uuid.uuid4())
     options = CompileOptions(
