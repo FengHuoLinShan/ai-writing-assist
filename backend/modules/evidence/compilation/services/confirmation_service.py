@@ -18,6 +18,9 @@ from modules.evidence.compilation.contracts import (
 from modules.evidence.compilation.repositories import ContextConfirmationRepository
 from modules.evidence.compilation.services.compiled_context import CompiledContext
 from modules.evidence.compilation.services.context_compiler import ContextCompiler
+from modules.evidence.compilation.services.review_projection import (
+    context_review_metadata,
+)
 from modules.story.contracts import SCENE_MEMORY_DIMENSIONS
 from shared.utils import parse_uuid
 
@@ -72,13 +75,16 @@ class ContextConfirmationService:
         content_mode: str = "canonical",
         include_pending_objects: bool = False,
         excluded_asset_ids: dict[str, list[str]] | None = None,
+        pinned_refs: list[dict] | None = None,
+        excluded_refs: list[dict] | None = None,
         user_note: str | None = None,
         include_world_synopsis: bool = False,
         selected_world_bible_draft_ids: list[str] | None = None,
         activation_profile_id: str | None = None,
         activation_profile_version: int | None = None,
+        expected_context_fingerprint: str | None = None,
     ) -> ContextConfirmationContract:
-        retrieval_purpose = _resolve_retrieval_purpose(
+        retrieval_purpose = resolve_retrieval_purpose(
             action,
             retrieval_purpose,
             reveal_mode=reveal_mode,
@@ -108,6 +114,8 @@ class ContextConfirmationService:
             content_mode=content_mode,
             include_pending_objects=include_pending_objects,
             excluded_asset_ids=excluded_asset_ids or {},
+            pinned_refs=pinned_refs or [],
+            excluded_refs=excluded_refs or [],
             user_note=user_note,
             include_world_synopsis=include_world_synopsis,
             selected_world_bible_draft_ids=selected_world_bible_draft_ids or [],
@@ -128,7 +136,19 @@ class ContextConfirmationService:
             )
         if self._requires_scene_state_fingerprint(options):
             options.scene_state_fingerprint = self._scene_state_fingerprint(compiled)
-        selected_asset_ids = self._selected_asset_ids(compiled, options)
+        review = context_review_metadata(compiled, options)
+        if compiled.blockers:
+            raise ValueError("；".join(compiled.blockers))
+        if (
+            expected_context_fingerprint
+            and review["context_fingerprint"] != expected_context_fingerprint
+        ):
+            raise ConflictError(
+                "AI 参考资料已变化，请重新审查后再开始任务",
+                code="context_preview_changed",
+            )
+        options.compiled_context_fingerprint = review["context_fingerprint"]
+        selected_asset_ids = review["selected_asset_ids"]
         warnings = list(compiled.warnings)
         record = await self._repo.create(
             db,
@@ -233,6 +253,15 @@ class ContextConfirmationService:
                 raise ConflictError(
                     "Scene time state changed; review and confirm the latest context",
                     code="scene_state_changed",
+                )
+        if options.compiled_context_fingerprint:
+            current_fingerprint = context_review_metadata(compiled, options)[
+                "context_fingerprint"
+            ]
+            if current_fingerprint != options.compiled_context_fingerprint:
+                raise ConflictError(
+                    "AI 参考资料已变化，请重新审查后再开始任务",
+                    code="context_changed",
                 )
         return compiled
 
@@ -480,6 +509,8 @@ class ContextConfirmationService:
             "content_mode": options.content_mode,
             "include_pending_objects": options.include_pending_objects,
             "excluded_asset_ids": options.excluded_asset_ids,
+            "pinned_refs": options.pinned_refs,
+            "excluded_refs": options.excluded_refs,
             "user_note": options.user_note,
             "include_world_synopsis": options.include_world_synopsis,
             "selected_world_bible_draft_ids": options.selected_world_bible_draft_ids,
@@ -495,6 +526,7 @@ class ContextConfirmationService:
             ),
             "outline_analysis_fingerprint": options.outline_analysis_fingerprint,
             "scene_state_fingerprint": options.scene_state_fingerprint,
+            "compiled_context_fingerprint": options.compiled_context_fingerprint,
         }
 
     @staticmethod
@@ -640,10 +672,26 @@ class ContextConfirmationService:
                     "excluded": section.excluded,
                     "truncated_reason": section.truncated_reason,
                     "retrieval_metadata": section.retrieval_metadata,
+                    "items": [item.model_dump(mode="json") for item in section.items],
                 }
                 for section in compiled.sections
             ]
             budget_events = [event.model_dump() for event in compiled.budget_events]
+        review = (
+            context_review_metadata(
+                compiled,
+                CompileOptions(**(record.compile_options or {})),
+            )
+            if compiled is not None
+            else {
+                "context_fingerprint": str(
+                    (record.compile_options or {}).get("compiled_context_fingerprint")
+                    or ""
+                ),
+                "selection_state": {},
+                "blockers": [],
+            }
+        )
         return ContextConfirmationContract(
             id=str(record.id),
             novel_id=str(record.novel_id),
@@ -664,6 +712,9 @@ class ContextConfirmationService:
             stale_reasons=record.stale_reasons or [],
             compiled_at=compiled_at.isoformat(),
             created_at=created_at.isoformat(),
+            context_fingerprint=review["context_fingerprint"],
+            selection_state=review["selection_state"],
+            blockers=review["blockers"],
         )
 
     @staticmethod
@@ -673,7 +724,7 @@ class ContextConfirmationService:
         return parse_uuid(str(value), "context_confirmation_id")
 
 
-def _resolve_retrieval_purpose(
+def resolve_retrieval_purpose(
     action: str,
     requested: str,
     *,
@@ -691,4 +742,14 @@ def _resolve_retrieval_purpose(
         return "conflict_review"
     if action.startswith("outline."):
         return "outline_generation"
+    if action.startswith("story."):
+        return "story_generation"
+    if action.startswith("world.map_atlas"):
+        return "map_atlas"
+    if action.startswith("world.entity_fusion"):
+        return "world_fusion"
+    if action == "world.ask":
+        return "manual_search"
+    if action.startswith("world.generation"):
+        return "world_generation"
     return "generic_context"

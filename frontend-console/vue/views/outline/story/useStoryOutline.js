@@ -7,6 +7,7 @@
  */
 import { computed, nextTick, onScopeDispose, ref, watch } from "vue"
 import { confirmAsync } from "../../../../shared/confirmAsync.js"
+import { confirmAiReference } from "../../../../shared/aiReferenceModal.js"
 import { clearActiveWorkflow, createOperationId } from "../../../../shared/workflowProgress.js"
 import { useLeaveGuard } from "../../../composables/useLeaveGuard.js"
 import {
@@ -432,6 +433,18 @@ export function useStoryOutline(props) {
     if (submitButton) submitButton.textContent = "正在开始…"
     let operationId = null
     try {
+      const confirmation = await confirmAiReference({
+        novel_id: pid,
+        action: "outline.story_outline.generate",
+        task: "生成故事总览预览",
+        scope: "full",
+        character_ids: selectedCharacterIds,
+        entity_ids: selectedEntityIds,
+        include_world_synopsis: true,
+        include_pending_objects: false,
+        user_note: `${authorIntent}\n预计篇幅：${plannedScale}\n规划范围：${coverage}`,
+        budget_tokens: 12000,
+      })
       const applyKey = idempotencyKey()
       operationId = createOperationId()
       const meta = {
@@ -449,6 +462,7 @@ export function useStoryOutline(props) {
         coverage,
         selected_character_ids: selectedCharacterIds,
         selected_entity_ids: selectedEntityIds,
+        context_confirmation_id: confirmation.id,
         include_current_outline: includeCurrent,
         operation_id: operationId,
       })

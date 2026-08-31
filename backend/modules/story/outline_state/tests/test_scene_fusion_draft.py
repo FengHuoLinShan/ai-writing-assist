@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from types import SimpleNamespace
 from unittest import mock
 
 import pytest
@@ -136,6 +137,79 @@ async def test_generator_uses_structured_project_client_and_manuscript(
     assert "不得输出数组" in prompt
     assert "不可信资料" in prompt
     assert "pov_character_id" in prompt
+
+
+@pytest.mark.asyncio
+async def test_generator_uses_confirmed_context_instead_of_unconfirmed_overlay(
+    db_session,
+    test_project_id,
+) -> None:
+    first = await _create_scene(db_session, test_project_id, index=0, title="潜入")
+    second = await _create_scene(db_session, test_project_id, index=1, title="撤离")
+    client = _FakeLLMClient(
+        {
+            "title": "融合",
+            "goal": "完成任务",
+            "core_conflict": None,
+            "core_conflict_status": "not_applicable",
+            "confidence": 0.8,
+            "basis": "依据已确认资料。",
+        }
+    )
+    confirmed = SimpleNamespace(
+        confirmation=SimpleNamespace(context_fingerprint="f" * 64),
+        rendered_markdown="只使用作者确认后的 Context",
+    )
+
+    with mock.patch(
+        "modules.story.outline_state.scene_fusion_draft._load_related_context",
+        autospec=True,
+    ) as load_related:
+        await SceneFusionDraftGenerator(
+            llm_client=client,
+            evidence_loader=_FakeEvidenceLoader(),  # type: ignore[arg-type]
+        ).generate(
+            db_session,
+            novel_id=test_project_id,
+            sources=[first, second],
+            primary_scene_id=str(first.id),
+            deterministic_draft={"title": "规则标题"},
+            confirmed_context=confirmed,
+        )
+
+    load_related.assert_not_awaited()
+    prompt = client.request.messages[1].content
+    assert "只使用作者确认后的 Context" in prompt
+    assert "f" * 64 in prompt
+
+
+def test_scene_fusion_requires_exact_pinned_scene_selection() -> None:
+    first = str(uuid.uuid4())
+    second = str(uuid.uuid4())
+    confirmed = SimpleNamespace(
+        compile_options={
+            "pinned_refs": [
+                {
+                    "kind": "target",
+                    "target_ref": {
+                        "target_type": "outline_scene",
+                        "target_id": scene_id,
+                        "target_path": "",
+                    },
+                }
+                for scene_id in (first, second)
+            ]
+        }
+    )
+    request = SceneFusionPreviewRequest(
+        source_scene_ids=[first, second],
+        primary_scene_id=first,
+    )
+
+    SceneWorkbenchService._require_confirmed_fusion_sources(confirmed, request)
+    request.source_scene_ids = [first, str(uuid.uuid4())]
+    with pytest.raises(ValueError, match="source selection changed"):
+        SceneWorkbenchService._require_confirmed_fusion_sources(confirmed, request)
 
 
 @pytest.mark.asyncio

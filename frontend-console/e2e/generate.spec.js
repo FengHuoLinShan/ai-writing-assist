@@ -24,6 +24,13 @@ async function openPovWorkbench(page, project) {
   await expect(page.locator("#generate-mode-panel-pov_prose")).toBeVisible({ timeout: 10000 })
 }
 
+async function approveContext(page) {
+  await expect(page.locator(SEL.modalTitle)).toContainText("AI 参考资料")
+  const start = page.getByRole("button", { name: "按这份资料开始" })
+  await expect(start).toBeEnabled()
+  await start.click()
+}
+
 test.describe("生成中心模块", () => {
   let testProjectId = null
   let worldSuggestionRequests = []
@@ -257,13 +264,47 @@ test.describe("生成中心模块", () => {
           reveal_mode: body.reveal_mode,
           total_tokens: 1200,
           budget_tokens: body.budget_tokens || 4000,
+          context_fingerprint: "a".repeat(64),
+          selection_state: { status: "ready", counts: { required: 1, automatic: 1, author_pinned: 0, excluded: 0, omitted: 0 }, effective_range: {}, excluded_items: [], omitted_items: [] },
+          blockers: [],
           sections: [
-            { key: "project", tier: 0, token_count: 200, truncated: false, title: "项目概况", preview: "视觉基线参考资料 · fantasy", status: "canonical", activation_reason: "当前项目", sources: [{ type: "project", id: body.novel_id, label: "当前作品", status: "canonical" }] },
-            { key: "characters", tier: 1, token_count: 1000, truncated: true, title: "相关人物", preview: "与当前任务关系最紧密的人物资料。", status: "canonical", activation_reason: "与任务目标相关", sources: [{ type: "character", id: "character-1", label: "相关人物资料", status: "canonical" }], truncated_reason: "超过资料长度后保留相关部分" },
+            { key: "project", tier: 0, token_count: 200, truncated: false, title: "项目概况", preview: "视觉基线参考资料 · fantasy", status: "canonical", activation_reason: "当前项目", sources: [{ type: "project", id: body.novel_id, label: "当前作品", status: "canonical" }], items: [{ key: "project:item", title: "项目概况", preview: "视觉基线参考资料 · fantasy", status: "canonical", selection_state: "required", can_exclude: false }] },
+            { key: "characters", tier: 1, token_count: 1000, truncated: true, title: "相关人物", preview: "与当前任务关系最紧密的人物资料。", status: "canonical", activation_reason: "与任务目标相关", sources: [{ type: "character", id: "character-1", label: "相关人物资料", status: "canonical" }], items: [{ key: "character:item", title: "相关人物资料", preview: "与当前任务关系最紧密的人物资料。", status: "canonical", selection_state: "automatic", can_exclude: false }], truncated_reason: "超过资料长度后保留相关部分" },
           ],
           evicted: ["rag_chunks"],
           truncated: ["characters"],
           warnings: [],
+        }),
+      })
+    })
+
+    await page.route("**/api/evidence/compilation/confirm", async (route) => {
+      const body = route.request().postDataJSON()
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "confirmation-e2e",
+          novel_id: body.novel_id,
+          action: body.action,
+          task: body.task,
+          scope: body.scope,
+          context_mode: body.context_mode,
+          include_pending_objects: body.include_pending_objects,
+          excluded_asset_ids: body.excluded_asset_ids || {},
+          selected_asset_ids: { project: [body.novel_id] },
+          user_note: body.user_note || null,
+          warnings: [],
+          result_refs: [],
+          result_status: "confirmed",
+          stale_reasons: [],
+          compiled_at: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+          context_fingerprint: "a".repeat(64),
+          selection_state: { status: "ready", counts: {}, effective_range: {}, excluded_items: [], omitted_items: [] },
+          blockers: [],
+          sections: [],
+          budget_events: [],
         }),
       })
     })
@@ -349,7 +390,7 @@ test.describe("生成中心模块", () => {
     await expect(page.locator("#workspace-content")).not.toContainText("结构化 POV 面板")
 
     await generate.click()
-    await expect(page.locator(SEL.modalTitle)).toHaveText("AI 参考资料")
+    await expect(page.locator(SEL.modalTitle)).toContainText("AI 参考资料")
     await page.locator("#modal-footer").getByRole("button", { name: "取消" }).click()
     await expect(page.locator("#generate-pov-instruction")).toHaveValue("保持克制，让林舟先观察刻痕。")
 
@@ -412,12 +453,15 @@ test.describe("生成中心模块", () => {
     await expect(page.getByLabel("可参考的信息")).toBeVisible()
   })
 
-  test("世界共创聊天不会打开 AI 参考资料确认", async ({ page }) => {
+  test("世界共创聊天先确认本次参考资料", async ({ page }) => {
     await page.locator("#generate-chat-input").fill("帮我设计一个反派")
     await page.getByRole("button", { name: "发送" }).click()
 
+    await expect(page.locator(SEL.modalTitle)).toContainText("AI 参考资料")
+    const start = page.getByRole("button", { name: "按这份资料开始" })
+    await expect(start).toBeEnabled()
+    await start.click()
     await expect(page.locator("#generate-chat-messages")).toContainText("旧友型反派")
-    await expect(page.locator(SEL.modalTitle)).not.toHaveText("AI 参考资料")
   })
 
   test("世界共创输入区在桌面、手机和矮窗口不遮挡操作", async ({ page }) => {
@@ -495,10 +539,12 @@ test.describe("生成中心模块", () => {
 
     await page.locator("#generate-chat-input").fill("不要丢掉这个问题")
     await page.getByRole("button", { name: "发送", exact: true }).click()
+    await approveContext(page)
     const retry = page.getByRole("button", { name: "再试一次" })
     await expect(retry).toBeVisible()
     await expect(retry).toBeFocused()
     await retry.click()
+    await approveContext(page)
     await expect(page.locator("#generate-chat-messages")).toContainText("重试后已恢复")
     await expect(page.locator(".generate-chat-message.user")).toHaveCount(1)
     expect(attempts).toBe(2)
@@ -526,6 +572,7 @@ test.describe("生成中心模块", () => {
     try {
       await page.locator("#generate-chat-input").fill("刷新前的问题")
       await page.getByRole("button", { name: "发送" }).click()
+      await approveContext(page)
       await expect(page.locator("#generate-chat-messages")).toContainText("正在理解你的目标")
       await expect.poll(() => chatRequests).toBe(1)
 
@@ -565,6 +612,7 @@ test.describe("生成中心模块", () => {
     await page.locator("#generate-chat-input").fill("外部 Chatbox：反派不是纯恶人。")
     await page.locator("#generate-quality-pro").check()
     await page.getByRole("button", { name: "生成世界对象建议" }).click()
+    await approveContext(page)
 
     await expect(page.locator("#generate-result")).toContainText("沈无咎", { timeout: 15000 })
     await expect(page.locator("#generate-result")).toContainText("待处理")
@@ -701,6 +749,7 @@ test.describe("生成中心模块", () => {
       await expect(page.getByRole("button", { name: "生成整页提案" })).toBeVisible()
       await page.locator("#generate-chat-input").fill("增加交易机制并检查因果闭环")
       await page.getByRole("button", { name: "生成整页提案" }).click()
+      await approveContext(page)
       await expect(page.locator("#generate-result")).toContainText("重构后的北境规则", { timeout: 15000 })
       await page.locator("#generate-page-title").fill("作者恢复后的标题")
       await page.locator("#generate-page-free-text").fill("作者恢复后的概览与 Unicode：潮汐 🐉")
@@ -748,6 +797,7 @@ test.describe("生成中心模块", () => {
     await expect(page.locator(".generate-world-source-bar")).toContainText("北境交易旧规")
     await page.locator("#generate-chat-input").fill("增加一个新的交易机制，并检查因果闭环")
     await page.getByRole("button", { name: "生成整页提案" }).click()
+    await approveContext(page)
     await expect(page.locator("#generate-result")).toContainText("重构后的北境规则", { timeout: 15000 })
     await page.locator("#generate-page-title").fill("作者定稿·北境规则")
     await page.getByRole("button", { name: "应用到工作稿" }).click()
@@ -762,11 +812,13 @@ test.describe("生成中心模块", () => {
     await page.waitForFunction(() => !state.loading, { timeout: 10000 })
     await page.locator("#generate-chat-input").fill("只属于页面完善会话")
     await page.getByRole("button", { name: "发送" }).click()
+    await approveContext(page)
     await page.locator('[data-section="world-direction"] > summary').click()
     await page.getByRole("button", { name: "世界对象" }).click()
     await expect(page.locator("#generate-chat-messages")).not.toContainText("只属于页面完善会话")
     await page.locator("#generate-chat-input").fill("基于这页创建一个商会对象")
     await page.getByRole("button", { name: "生成世界对象建议" }).click()
+    await approveContext(page)
     expect(worldSuggestionRequests.at(-1).source_context).toEqual(expect.objectContaining({
       kind: "world_bible_page",
       page_id: sourcePage.id,

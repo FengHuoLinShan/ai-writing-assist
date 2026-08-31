@@ -6,8 +6,10 @@ and enforces token budgets through staged eviction.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from enum import IntEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -28,6 +30,30 @@ LINE_ITEM_SOURCE_KEYS = frozenset(
 )
 
 
+def selection_ref_from_source(source: dict[str, Any]) -> dict[str, Any] | None:
+    source_ref = source.get("source_ref")
+    if isinstance(source_ref, dict) and source_ref:
+        return {"kind": "source_range", "source_ref": dict(source_ref)}
+    source_type = str(source.get("type") or "").strip()
+    source_id = str(source.get("id") or "").strip()
+    if not source_type or not source_id or source_type in {"task", "compiler"}:
+        return None
+    return {
+        "kind": "target",
+        "target_ref": {
+            "target_type": source_type,
+            "target_id": source_id,
+            "target_path": "",
+        },
+    }
+
+
+def selection_ref_key(value: dict[str, Any] | None) -> str:
+    if not value:
+        return ""
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
 class Tier(IntEnum):
     """Context section priority tiers.
 
@@ -43,6 +69,29 @@ class Tier(IntEnum):
     P2 = 2
     P3 = 3
     P4 = 4
+
+
+class ContextItem(BaseModel):
+    """One reviewable unit inside a context section."""
+
+    key: str
+    content: str
+    token_count: int = 0
+    title: str = ""
+    preview: str = ""
+    status: str = "unknown"
+    activation_reason: str = ""
+    source: dict[str, Any] = Field(default_factory=dict)
+    selection_ref: dict[str, Any] | None = None
+    selection_state: Literal[
+        "required",
+        "automatic",
+        "author_pinned",
+        "excluded",
+        "omitted",
+    ] = "automatic"
+    can_exclude: bool = True
+    omission_reason: str | None = None
 
 
 class ContextSection(BaseModel):
@@ -63,6 +112,61 @@ class ContextSection(BaseModel):
     excluded: bool = False
     truncated_reason: str | None = None
     retrieval_metadata: dict[str, Any] = Field(default_factory=dict)
+    items: list[ContextItem] = Field(default_factory=list)
+
+    def materialize_items(self) -> ContextSection:
+        if self.items:
+            return self
+        required = self.tier == Tier.P0 or not self.can_exclude
+        lines = self.content.splitlines()
+        if (
+            (self.key in LINE_ITEM_SOURCE_KEYS or self.truncatable_per_item)
+            and (not self.sources or len(lines) == len(self.sources))
+        ):
+            items = [
+                ContextItem(
+                    key=(
+                        f"{self.key}:{index}:"
+                        f"{source.get('type', '')}:{source.get('id', '')}"
+                    ),
+                    content=line,
+                    token_count=estimate_token_count(line),
+                    title=str(source.get("label") or self.title),
+                    preview=str(
+                        source.get("summary") or source.get("label") or line
+                    )[:160],
+                    status=str(source.get("status") or self.status),
+                    activation_reason=self.activation_reason,
+                    source=dict(source),
+                    selection_ref=selection_ref_from_source(source),
+                    selection_state="required" if required else "automatic",
+                    can_exclude=not required,
+                )
+                for index, line in enumerate(lines)
+                for source in [
+                    dict(self.sources[index]) if index < len(self.sources) else {}
+                ]
+            ]
+        else:
+            source = dict(self.sources[0]) if len(self.sources) == 1 else {}
+            items = [
+                ContextItem(
+                    key=f"{self.key}:section",
+                    content=self.content,
+                    token_count=self.token_count,
+                    title=self.title,
+                    preview=self.preview or self.content[:160],
+                    status=self.status,
+                    activation_reason=self.activation_reason,
+                    source=source,
+                    selection_ref=(
+                        selection_ref_from_source(source) if source else None
+                    ),
+                    selection_state="required" if required else "automatic",
+                    can_exclude=not required,
+                )
+            ]
+        return self.model_copy(update={"items": items})
 
 
 class ContextBudgetEvent(BaseModel):
@@ -89,6 +193,31 @@ class CompiledContext(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     activation_trace: dict[str, Any] = Field(default_factory=dict)
     selection_trace: dict[str, Any] = Field(default_factory=dict)
+    excluded_items: list[ContextItem] = Field(default_factory=list)
+    omitted_items: list[ContextItem] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+
+    @staticmethod
+    def _section_with_items(
+        section: ContextSection,
+        items: list[ContextItem],
+        *,
+        truncated_reason: str | None = None,
+    ) -> ContextSection:
+        content = "\n".join(item.content for item in items)
+        return section.model_copy(
+            update={
+                "content": content,
+                "token_count": estimate_token_count(content),
+                "preview": next(
+                    (item.preview for item in items if item.preview),
+                    content[:160],
+                ),
+                "sources": [item.source for item in items if item.source],
+                "items": items,
+                "truncated_reason": truncated_reason,
+            }
+        )
 
     @staticmethod
     def _sources_for_kept_lines(
@@ -112,10 +241,12 @@ class CompiledContext(BaseModel):
         if self.budget_tokens <= 0 or self.total_tokens <= self.budget_tokens:
             return self
 
-        sections = list(self.sections)
+        sections = [section.materialize_items() for section in self.sections]
         evicted_keys = list(self.evicted_keys)
         truncated_keys = list(self.truncated_keys)
         budget_events = list(self.budget_events)
+        omitted_items = list(self.omitted_items)
+        blockers = list(self.blockers)
 
         # Phase 2: Evict entire sections by tier P4 → P3
         for tier in (Tier.P4, Tier.P3):
@@ -125,6 +256,15 @@ class CompiledContext(BaseModel):
             removed = [s for s in sections if s.tier == tier]
             sections = [s for s in sections if s.tier != tier]
             for s in removed:
+                omitted_items.extend(
+                    item.model_copy(
+                        update={
+                            "selection_state": "omitted",
+                            "omission_reason": "超过 token 预算后按低优先级移除",
+                        }
+                    )
+                    for item in s.items
+                )
                 if s.key not in evicted_keys:
                     evicted_keys.append(s.key)
                 budget_events.append(
@@ -151,10 +291,23 @@ class CompiledContext(BaseModel):
                     new_sections.append(s)
                     continue
 
-                items = s.content.split("\n")
-                kept: list[str] = []
-                for item in items:
-                    candidate = "\n".join([*kept, item])
+                source_items = s.items or [
+                    ContextItem(
+                        key=f"{s.key}:content",
+                        content=s.content,
+                        token_count=s.token_count,
+                        title=s.title,
+                        preview=s.preview,
+                        status=s.status,
+                        activation_reason=s.activation_reason,
+                        can_exclude=s.can_exclude,
+                    )
+                ]
+                kept: list[ContextItem] = []
+                for item in source_items:
+                    candidate = "\n".join(
+                        [*(kept_item.content for kept_item in kept), item.content]
+                    )
                     candidate_tokens = estimate_token_count(candidate)
                     if candidate_tokens <= remaining_p2_budget:
                         kept.append(item)
@@ -162,6 +315,15 @@ class CompiledContext(BaseModel):
                         break
 
                 if not kept:
+                    omitted_items.extend(
+                        item.model_copy(
+                            update={
+                                "selection_state": "omitted",
+                                "omission_reason": "超过预算后无可用条目预算",
+                            }
+                        )
+                        for item in source_items
+                    )
                     if s.key not in evicted_keys:
                         evicted_keys.append(s.key)
                     budget_events.append(
@@ -176,32 +338,29 @@ class CompiledContext(BaseModel):
                     )
                     continue
 
-                content = "\n".join(kept)
+                content = "\n".join(item.content for item in kept)
                 used = estimate_token_count(content)
                 remaining_p2_budget = max(0, remaining_p2_budget - used)
-                if len(kept) == len(items) and used == s.token_count:
+                if len(kept) == len(source_items) and used == s.token_count:
                     new_sections.append(s)
                     continue
 
                 truncated_reason = "超过预算后按条目裁剪"
                 new_sections.append(
-                    ContextSection(
-                        key=s.key,
-                        tier=s.tier,
-                        content=content,
-                        token_count=used,
-                        truncatable_per_item=True,
-                        max_items=s.max_items,
-                        title=s.title,
-                        preview=s.preview,
-                        status=s.status,
-                        activation_reason=s.activation_reason,
-                        sources=self._sources_for_kept_lines(s, len(kept)),
-                        can_exclude=s.can_exclude,
-                        excluded=s.excluded,
+                    self._section_with_items(
+                        s,
+                        kept,
                         truncated_reason=truncated_reason,
-                        retrieval_metadata=s.retrieval_metadata,
                     )
+                )
+                omitted_items.extend(
+                    item.model_copy(
+                        update={
+                            "selection_state": "omitted",
+                            "omission_reason": truncated_reason,
+                        }
+                    )
+                    for item in source_items[len(kept) :]
                 )
                 if s.key not in truncated_keys:
                     truncated_keys.append(s.key)
@@ -223,39 +382,54 @@ class CompiledContext(BaseModel):
             new_sections = []
             for s in sections:
                 if s.tier == Tier.P1 and current > self.budget_tokens:
+                    if any(
+                        item.selection_state == "author_pinned" for item in s.items
+                    ):
+                        new_sections.append(s)
+                        continue
                     available_for_section = max(
                         0,
                         self.budget_tokens - (current - s.token_count),
                     )
-                    items = s.content.split("\n")
-                    kept: list[str] = []
-                    for item in items:
-                        candidate = "\n".join([*kept, item])
-                        if estimate_token_count(candidate) <= available_for_section:
-                            kept.append(item)
-                        else:
-                            break
-                    content = "\n".join(kept)
-                    used = estimate_token_count(content)
-                    current = current - s.token_count + used
-                    new_sections.append(
-                        ContextSection(
-                            key=s.key,
-                            tier=s.tier,
-                            content=content,
-                            token_count=used,
-                            truncatable_per_item=s.truncatable_per_item,
-                            max_items=s.max_items,
+                    source_items = s.items or [
+                        ContextItem(
+                            key=f"{s.key}:content",
+                            content=s.content,
+                            token_count=s.token_count,
                             title=s.title,
                             preview=s.preview,
                             status=s.status,
                             activation_reason=s.activation_reason,
-                            sources=self._sources_for_kept_lines(s, len(kept)),
                             can_exclude=s.can_exclude,
-                            excluded=s.excluded,
-                            truncated_reason="超过预算后保留前段摘要",
-                            retrieval_metadata=s.retrieval_metadata,
                         )
+                    ]
+                    kept: list[ContextItem] = []
+                    for item in source_items:
+                        candidate = "\n".join(
+                            [*(kept_item.content for kept_item in kept), item.content]
+                        )
+                        if estimate_token_count(candidate) <= available_for_section:
+                            kept.append(item)
+                        else:
+                            break
+                    content = "\n".join(item.content for item in kept)
+                    used = estimate_token_count(content)
+                    current = current - s.token_count + used
+                    new_sections.append(
+                        self._section_with_items(
+                            s,
+                            kept,
+                            truncated_reason="超过预算后保留前段摘要",
+                        )
+                    )
+                    omitted_items.extend(
+                        item.model_copy(
+                            update={
+                                "selection_state": "omitted",
+                                "omission_reason": "超过预算后保留前段摘要",
+                            }
+                        )
+                        for item in source_items[len(kept) :]
                     )
                     if s.key not in truncated_keys:
                         truncated_keys.append(s.key)
@@ -274,6 +448,8 @@ class CompiledContext(BaseModel):
             sections = new_sections
 
         total = sum(s.token_count for s in sections)
+        if self.budget_tokens > 0 and total > self.budget_tokens:
+            blockers.append("必需资料和作者添加资料超过本次可用容量")
         return CompiledContext(
             sections=sections,
             total_tokens=total,
@@ -285,4 +461,40 @@ class CompiledContext(BaseModel):
             warnings=list(self.warnings),
             activation_trace=dict(self.activation_trace),
             selection_trace=dict(self.selection_trace),
+            excluded_items=list(self.excluded_items),
+            omitted_items=omitted_items,
+            blockers=list(dict.fromkeys(blockers)),
         )
+
+
+def compiled_context_fingerprint(
+    compiled: CompiledContext,
+    *,
+    option_fingerprint: dict[str, Any] | None = None,
+) -> str:
+    """Hash the exact provider-visible context and its source identities."""
+
+    payload = {
+        "options": option_fingerprint or {},
+        "sections": [
+            {
+                "key": section.key,
+                "tier": int(section.tier),
+                "content": section.content,
+                "sources": section.sources,
+                "items": [item.model_dump(mode="json") for item in section.items],
+                "truncated_reason": section.truncated_reason,
+            }
+            for section in compiled.sections
+        ],
+        "budget_tokens": compiled.budget_tokens,
+        "activation_trace": compiled.activation_trace,
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()

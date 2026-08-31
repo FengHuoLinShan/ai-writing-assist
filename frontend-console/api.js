@@ -1243,8 +1243,8 @@ const api = {
       return request(withQuery("/world/bible/synopsis", { novel_id: novelId }))
     },
 
-    async refreshBibleSynopsis(novelId) {
-      return post(withQuery("/world/bible/synopsis/refresh", { novel_id: novelId }))
+    async refreshBibleSynopsis(novelId, contextConfirmationId) {
+      return post(withQuery("/world/bible/synopsis/refresh", { novel_id: novelId, context_confirmation_id: contextConfirmationId }))
     },
 
     async setBibleSynopsisAutoRefresh(novelId, enabled) {
@@ -1671,6 +1671,10 @@ const api = {
 
     async confirm(payload) {
       return contractJson("context.confirm", {}, {}, payload)
+    },
+
+    async proposeSelection(payload, options = {}) {
+      return contractJson("context.proposeSelection", {}, {}, payload, options)
     },
 
     async listSnapshots(params = {}) {

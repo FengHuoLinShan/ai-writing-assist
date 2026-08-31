@@ -334,6 +334,46 @@ function currentWorldPayload() {
   if (checkpointContext) payload.pasted_context = checkpointContext
   return payload
 }
+function worldPinnedRefs(payload) {
+  const refs = []
+  const baseline = payload.source_context?.baseline || {}
+  if (payload.source_context?.kind === "world_bible_page" && payload.source_context.page_id && baseline.kind !== "draft") {
+    refs.push({ kind: "target", target_ref: { target_type: "world_bible_page", target_id: payload.source_context.page_id, target_path: "" } })
+  }
+  for (const ref of payload.selected_asset_refs || []) {
+    const targetType = String(ref.target_type || ref.type || ref.source_type || "")
+    const targetId = String(ref.target_id || ref.id || ref.page_id || "")
+    if (targetType && targetId) refs.push({ kind: "target", target_ref: { target_type: targetType === "page" ? "world_bible_page" : targetType, target_id: targetId, target_path: String(ref.target_path || "") } })
+  }
+  return refs
+}
+function worldFocus(payload) {
+  const latest = [...(payload.messages || [])].reverse().find((item) => item.role === "user" && item.content?.trim())
+  return String(latest?.content || payload.pasted_context || "").trim().slice(0, 4000)
+}
+async function confirmWorldPayload(payload, action, task) {
+  const chapterIndex = payload.selected_chapter_indices?.length ? Math.max(...payload.selected_chapter_indices) : undefined
+  const draftId = payload.source_context?.baseline?.kind === "draft" ? payload.source_context.baseline.draft_id : null
+  const confirmation = await confirmAiReference({
+    novel_id: props.projectId,
+    action,
+    task,
+    scope: chapterIndex ? "chapter" : "generation_center",
+    chapter_index: chapterIndex,
+    scene_id: payload.scene_id || undefined,
+    thread_ids: payload.thread_ids || [],
+    character_ids: payload.character_ids || [],
+    entity_ids: payload.entity_ids || [],
+    include_pending_objects: false,
+    include_world_synopsis: Boolean(payload.include_world_synopsis),
+    activation_profile_id: payload.activation_profile_id || undefined,
+    selected_world_bible_draft_ids: draftId ? [draftId] : [],
+    pinned_refs: worldPinnedRefs(payload),
+    user_note: worldFocus(payload),
+    budget_tokens: 4000,
+  })
+  return { ...payload, context_confirmation_id: confirmation.id }
+}
 function convergencePayload() {
   const payload = currentWorldPayload()
   const messages = (session.messages || [])
@@ -384,8 +424,8 @@ async function requestChatReply(pending) {
   armBeforeUnload()
   chatPending.value = true
   await worldWorkspaceRef.value?.scrollToLatest?.(true)
-  try { const response = await api.generate.worldChat(currentWorldPayload(), { signal: scope.controller.signal }); if (!owner.isActive(scope)) return; chatContextUsage.value = response?.context_usage || null; pending.content = response?.reply || "生成完成，但没有返回回复。"; pending.pending = false; if (isWorldCore.value) session.successfulRounds = Math.min(999, Number(session.successfulRounds || 0) + 1); persist() }
-  catch (err) { if (!owner.isActive(scope)) return; pending.content = `暂时没能回复：${err?.message || "未知错误"}`; pending.pending = false; pending.error = true; persist(); toast("回复失败，刚才的问题仍保留，可以直接重试", "error") }
+  try { const payload = await confirmWorldPayload(currentWorldPayload(), "world.generation.chat", "世界设定共创对话"); const response = await api.generate.worldChat(payload, { signal: scope.controller.signal }); if (!owner.isActive(scope)) return; chatContextUsage.value = response?.context_usage || null; pending.content = response?.reply || "生成完成，但没有返回回复。"; pending.pending = false; if (isWorldCore.value) session.successfulRounds = Math.min(999, Number(session.successfulRounds || 0) + 1); persist() }
+  catch (err) { if (!owner.isActive(scope)) return; if (err?.message === "已取消 AI 参考资料确认") { session.messages = session.messages.filter((item) => item !== pending); persist(); return } pending.content = `暂时没能回复：${err?.message || "未知错误"}`; pending.pending = false; pending.error = true; persist(); toast("回复失败，刚才的问题仍保留，可以直接重试", "error") }
   finally {
     const settledHere = owner.isActive(scope)
     clearChatStages()
@@ -444,7 +484,8 @@ async function convergeWorld(options = {}) {
   convergencePending.value = true
   const scope = owner.begin()
   try {
-    const response = await api.generate.convergeWorld(payload, { signal: scope.controller.signal })
+    const confirmedPayload = await confirmWorldPayload(payload, "world.generation.convergence", "收束当前世界设定讨论")
+    const response = await api.generate.convergeWorld(confirmedPayload, { signal: scope.controller.signal })
     if (!owner.isActive(scope)) return
     const nextDraft = convergenceDraftFromResponse(response)
     if (session.visualBrief && session.visualBrief.manifestHash !== nextDraft.manifestHash) markVisualBriefStale()
@@ -464,6 +505,7 @@ async function convergeWorld(options = {}) {
     toast(session.convergenceDraft.stale ? "输入在整理期间发生变化；结果仅供回看，请按当前内容重新整理" : session.convergenceDraft.coverage.complete ? "本轮已收束为可编辑的决定预览，尚未创建建议" : "部分来源未通过覆盖校验，请查看后重新收束", session.convergenceDraft.coverage.complete && !session.convergenceDraft.stale ? "success" : "warning")
   } catch (err) {
     if (!owner.isActive(scope)) return
+    if (err?.message === "已取消 AI 参考资料确认") return false
     if (err?.status === 409 && session.convergenceDraft) session.convergenceDraft.stale = true
     if (err?.status === 409 && options.externalPacketHash) rememberExternalPacket(options.externalPacketHash, options.position, options.characterCount, "incomplete")
     toast(err?.status === 409 ? "来源在收束期间已变化；旧预览仅供回看，请重新收束。" : `收束失败：${err?.message || "未知错误"}`, err?.status === 409 ? "warning" : "error")
@@ -481,7 +523,8 @@ async function exploreWorld() {
   explorationSelection.value = null
   const scope = owner.begin()
   try {
-    const response = await api.generate.exploreWorld(payload, { signal: scope.controller.signal })
+    const confirmedPayload = await confirmWorldPayload(payload, "world.generation.exploration", "探索当前世界书页的相邻缺口")
+    const response = await api.generate.exploreWorld(confirmedPayload, { signal: scope.controller.signal })
     if (!owner.isActive(scope)) return false
     explorationDraft.value = {
       ...response,
@@ -492,6 +535,7 @@ async function exploreWorld() {
     return true
   } catch (err) {
     if (!owner.isActive(scope)) return false
+    if (err?.message === "已取消 AI 参考资料确认") return false
     if (err?.status === 409 && explorationDraft.value) explorationDraft.value.stale = true
     toast(err?.status === 409 ? "来源在探索期间已变化，请刷新后重试" : `探索失败：${err?.message || "未知错误"}`, err?.status === 409 ? "warning" : "error")
     return false
@@ -790,9 +834,10 @@ async function generateWorldSuggestion(revisesSuggestionId = null) {
   persistActiveWorkflow({ taskId: operationId, workflowType: "world_generation_suggestion", label: "生成世界设定建议", projectId: props.projectId, view: "generate", meta }, receiptStorage)
   worldTaskProgress.value = normalizeTaskProgress({ task_id: operationId, task_type: "world_generation_suggestion", status: "pending" }, "world_generation_suggestion")
   try {
-    const payload = currentWorldPayload()
+    let payload = currentWorldPayload()
     if (revisesSuggestionId) payload.revises_suggestion_id = revisesSuggestionId
     if (explorationSelection.value) payload.exploration_selection = { ...explorationSelection.value, source_keys: [...explorationSelection.value.source_keys] }
+    payload = await confirmWorldPayload(payload, props.targetKind === "core_entity" ? "world.generation.core_entity" : "world.generation.world_bible_page", "生成世界设定建议")
     const response = await api.generate.enqueueWorldSuggestion({ ...payload, operation_id: operationId })
     if (owner.isDisposed()) return true
     const taskId = response?.task_id || operationId
@@ -923,7 +968,7 @@ async function generatePov() {
   if (povPending.value) return false
   const form = { ...povForm.value }; if (!form.chapterIndex) return toast("请先选择章节", "warning"); if (!form.sceneId) return toast("请先选择场景", "warning"); if (!form.viewpointCharacterId) return toast("请先选择视角角色", "warning")
   povPending.value = true; povProgress.value = null; povError.value = ""; const scope = owner.begin()
-  try { const confirmation = await confirmAiReference({ novel_id: props.projectId, action: "writing.generate", task: "基于所选场景和视角角色的有限认知，生成正文建议预览", scope: "chapter", chapter_index: form.chapterIndex, scene_id: form.sceneId, reveal_mode: "character", viewpoint_character_id: form.viewpointCharacterId, character_ids: [form.viewpointCharacterId], include_pending_objects: false, budget_tokens: 0 }); if (!owner.isActive(scope)) return; const operationId = createOperationId(); const meta = { kind: "pov_prose", sessionKey: props.sessionKey, chapterIndex: form.chapterIndex, sceneId: form.sceneId, viewpointCharacterId: form.viewpointCharacterId, sceneLabel: pov.scenes.find((item) => item.id === form.sceneId)?.title || "", roleLabel: pov.characters.find((item) => characterId(item) === form.viewpointCharacterId)?.name || "" }; persistActiveWorkflow({ taskId: operationId, workflowType: "writing_generate", label: "生成角色视角正文", projectId: props.projectId, view: "generate", meta }, receiptStorage); povTaskId.value = operationId; let result; try { result = await api.writing.generate({ novel_id: props.projectId, chapter_index: form.chapterIndex, title: pov.chapters.find((item) => Number(item.chapter_index) === Number(form.chapterIndex))?.title || `第 ${form.chapterIndex} 章`, instruction: buildPovInstruction(form.instruction, confirmation.user_note), context_confirmation_id: confirmation.id, operation_id: operationId }) } catch (err) { if (Number(err?.status) >= 400 && Number(err?.status) < 500) { clearActiveWorkflow(operationId, receiptStorage); throw err } result = { task_id: operationId } } if (!owner.isActive(scope)) return; const taskId = result?.task_id || operationId; if (taskId !== operationId) { clearActiveWorkflow(operationId, receiptStorage); persistActiveWorkflow({ taskId, workflowType: "writing_generate", label: "生成角色视角正文", projectId: props.projectId, view: "generate", meta }, receiptStorage) } povTaskId.value = taskId; const task = await waitForPovTask(taskId, scope); result = { ...result, ...(task.result || {}), task_status: task.status }; if (!owner.isActive(scope)) return; povSubmission.value = { result, ...meta }; toast("角色视角正文建议已生成", "success") }
+  try { const confirmation = await confirmAiReference({ novel_id: props.projectId, action: "writing.generate", task: "基于所选场景和视角角色的有限认知，生成正文建议预览", scope: "chapter", chapter_index: form.chapterIndex, scene_id: form.sceneId, reveal_mode: "character", viewpoint_character_id: form.viewpointCharacterId, character_ids: [form.viewpointCharacterId], include_pending_objects: false, budget_tokens: 0, user_note: form.instruction }); if (!owner.isActive(scope)) return; const operationId = createOperationId(); const meta = { kind: "pov_prose", sessionKey: props.sessionKey, chapterIndex: form.chapterIndex, sceneId: form.sceneId, viewpointCharacterId: form.viewpointCharacterId, sceneLabel: pov.scenes.find((item) => item.id === form.sceneId)?.title || "", roleLabel: pov.characters.find((item) => characterId(item) === form.viewpointCharacterId)?.name || "" }; persistActiveWorkflow({ taskId: operationId, workflowType: "writing_generate", label: "生成角色视角正文", projectId: props.projectId, view: "generate", meta }, receiptStorage); povTaskId.value = operationId; let result; try { result = await api.writing.generate({ novel_id: props.projectId, chapter_index: form.chapterIndex, title: pov.chapters.find((item) => Number(item.chapter_index) === Number(form.chapterIndex))?.title || `第 ${form.chapterIndex} 章`, instruction: buildPovInstruction(""), context_confirmation_id: confirmation.id, operation_id: operationId }) } catch (err) { if (Number(err?.status) >= 400 && Number(err?.status) < 500) { clearActiveWorkflow(operationId, receiptStorage); throw err } result = { task_id: operationId } } if (!owner.isActive(scope)) return; const taskId = result?.task_id || operationId; if (taskId !== operationId) { clearActiveWorkflow(operationId, receiptStorage); persistActiveWorkflow({ taskId, workflowType: "writing_generate", label: "生成角色视角正文", projectId: props.projectId, view: "generate", meta }, receiptStorage) } povTaskId.value = taskId; const task = await waitForPovTask(taskId, scope); result = { ...result, ...(task.result || {}), task_status: task.status }; if (!owner.isActive(scope)) return; povSubmission.value = { result, ...meta }; toast("角色视角正文建议已生成", "success") }
   catch (err) { if (!owner.isActive(scope) || err?.name === "AbortError") return; if (err?.message === "已取消 AI 参考资料确认") return; showPovFailure(err) }
   finally { owner.finish(scope); povPending.value = false; povTaskId.value = null }
 }

@@ -183,6 +183,12 @@ source hash 与提交 CAS 仍是领域新鲜度和旧结果不得覆盖新页面
 4000 词元，避免因旧 1200 词元限制截掉作者页面后半部分。provider 超限时任务显式失败，
 不静默改用更短资料。
 
+作者手动刷新简介时，worker 会重新物化 `world.world_bible.synopsis.refresh` confirmation，
+并仅把其中实际 selected assets 对应的 source manifest 交给 provider；缺少 World 来源时失败
+关闭。自动维护继续使用完整 manifest，人工任务也不会复用一个未绑定该 confirmation 的自动
+任务。World 语义校验保持完整 manifest 的确定性门禁，但 LLM review packets 只来自相同的
+confirmed allowlist。
+
 编辑器始终显示主操作“保存并发布”；即使当前只打开正式页、尚未显式创建工作稿，也会先
 保存服务器工作稿再发布。单独的“保存工作稿”只保存，不改变正式页。
 
@@ -249,6 +255,15 @@ PNG 后才进入地图册私有 S3。此例外不改变 imports 的文稿上传�
 - 复杂跨类型实体消歧
 - 所有 Mention 实时 embedding
 - 独立知识图谱数据库
+
+## 作者主动模型任务的 Context 门禁
+
+生成中心聊天/收束/探索/建议、问世界、世界书语义检修、简介人工刷新、语义验证、对象融合与
+地图册启动均要求 action 精确匹配的 `context_confirmation_id`。浏览器先通过 Evidence
+非持久化预览审查 items，最终确认写一条记录；同步调用或 worker 在 provider I/O 前重新物化
+并比较 `compiled_context_fingerprint`。生成中心与地图册直接消费确认后的编译 Context；问世界
+和对象融合的领域候选按确认后的实际资产 allowlist 过滤，不能重新纳入作者排除项。自动简介
+维护、导入去重等非手动内部阶段继续使用既有 snapshot，不重复弹窗。
 
 ## AI 抽取确认策略
 

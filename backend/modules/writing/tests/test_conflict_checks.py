@@ -1229,8 +1229,8 @@ async def test_ai_review_rejects_confirmation_for_wrong_chapter(
         },
     )
 
-    assert resp.status_code == 400
-    assert "chapter_index" in resp.text
+    assert resp.status_code == 409
+    assert "变化" in resp.text
 
 
 @pytest.mark.asyncio
@@ -1530,8 +1530,8 @@ async def test_ai_suggestion_rejects_confirmation_for_wrong_chapter(
         },
     )
 
-    assert resp.status_code == 400
-    assert "chapter_index" in resp.text
+    assert resp.status_code == 409
+    assert "变化" in resp.text
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils"
 
+const confirmAiReference = vi.hoisted(() => vi.fn())
+vi.mock("../../../shared/aiReferenceModal.js", () => ({ confirmAiReference }))
+
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 import MapWorkspaceView from "../../../vue/views/map/MapWorkspaceView.vue"
 
@@ -45,6 +48,8 @@ describe("AI 地图册工作台", () => {
   let router
 
   beforeEach(() => {
+    confirmAiReference.mockReset()
+    confirmAiReference.mockResolvedValue({ id: "confirm-default" })
     api = globalThis.api
     toast = vi.fn()
     confirm = vi.fn(() => true)

@@ -5,6 +5,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { mount } from "@vue/test-utils"
 import { nextTick } from "vue"
+
+const confirmAiReference = vi.hoisted(() => vi.fn())
+vi.mock("../../../shared/aiReferenceModal.js", () => ({ confirmAiReference }))
+
 import RagSearchView from "../../../vue/views/rag/RagSearchView.vue"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 import { ragSearchSession, resetRagSearchSession } from "../../../vue/views/rag/ragSearchSession.js"
@@ -67,6 +71,7 @@ function overrideRouterQuery(queryString, stateOverrides = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  confirmAiReference.mockResolvedValue({ id: "confirm-default" })
   resetRagSearchSession()
   globalThis.api.context.searchEvidence = vi.fn(async () => ({
     total: 3,
@@ -250,7 +255,7 @@ describe("问世界", () => {
 
     await vi.waitFor(() => expect(wrapper.find(".ask-world-answer").exists()).toBe(true))
     expect(globalThis.api.generate.askWorld).toHaveBeenCalledWith(
-      { novel_id: "p1", question: "旧塔铜铃来自哪里" },
+      { novel_id: "p1", question: "旧塔铜铃来自哪里", context_confirmation_id: "confirm-default" },
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     )
     expect(wrapper.text()).toContain("铜铃来自旧塔守卫室")

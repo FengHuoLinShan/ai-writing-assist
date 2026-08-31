@@ -102,6 +102,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { createOperationId, pollTaskProgress } from "../../../../shared/workflowProgress.js"
+import { confirmAiReference } from "../../../../shared/aiReferenceModal.js"
 import { getApi, getConfirm, getToast } from "../../../bridge/index.js"
 
 const props = defineProps({
@@ -210,11 +211,25 @@ async function startRun(scope) {
   error.value = ""
   stopPolling()
   try {
+    const confirmation = policy.value.semantic_enabled
+      ? await confirmAiReference({
+          novel_id: props.projectId,
+          action: "world.validation.semantic",
+          task: scope === "full" ? "全面校验当前世界书" : "校验当前世界书工作稿",
+          scope: "world",
+          include_pending_objects: false,
+          ...(scope === "targeted" && props.targetType === "world_bible_draft"
+            ? { selected_world_bible_draft_ids: [props.targetId] }
+            : {}),
+          budget_tokens: 12000,
+        })
+      : null
     const created = await api.world.createWorldValidationRun({
       novel_id: props.projectId,
       operation_id: createOperationId(),
       scope,
       trigger: "world_health",
+      context_confirmation_id: confirmation?.id || undefined,
       ...(scope === "targeted" ? { target_type: props.targetType, target_id: props.targetId } : {}),
     })
     if (token !== generation) return false
@@ -223,6 +238,7 @@ async function startRun(scope) {
     startPolling(created)
     return true
   } catch (err) {
+    if (err?.message === "已取消 AI 参考资料确认") return false
     if (token === generation) error.value = err?.message || "无法启动校验。"
     return false
   } finally {

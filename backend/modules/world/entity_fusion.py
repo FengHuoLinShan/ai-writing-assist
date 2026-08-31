@@ -282,6 +282,7 @@ class WorldEntityFusionService:
         snapshot_callback: Callable[[dict[str, Any]], None] | None = None,
         workflow_id: str | None = None,
         include_all_decisions: bool = False,
+        allowed_entity_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         """Generate suggestions without holding a transaction during LLM calls.
 
@@ -315,6 +316,7 @@ class WorldEntityFusionService:
             limit=limit,
             max_suggestions=max_suggestions,
             workflow_id=workflow_id,
+            allowed_entity_ids=allowed_entity_ids,
         )
         if self._llm_client is not None:
             return await self._decide_task_plan(
@@ -600,17 +602,37 @@ class WorldEntityFusionService:
         limit: int,
         max_suggestions: int,
         workflow_id: str | None = None,
+        allowed_entity_ids: list[str] | None = None,
     ) -> _FusionTaskPlan:
         """Copy every post-checkpoint input into detached, JSON-safe values."""
         nid = parse_uuid(novel_id, "novel_id")
         statuses = [status] if status else ["candidate", "draft", "canonical"]
-        entities = await self._entity_repo.get_by_type_and_status(
-            db,
-            nid,
-            entity_type=entity_type,
-            statuses=statuses,
-            limit=limit,
-        )
+        if allowed_entity_ids is None:
+            entities = await self._entity_repo.get_by_type_and_status(
+                db,
+                nid,
+                entity_type=entity_type,
+                statuses=statuses,
+                limit=limit,
+            )
+        else:
+            ordered_ids = [
+                parse_uuid(value, "allowed_entity_id")
+                for value in dict.fromkeys(allowed_entity_ids)
+            ][:limit]
+            entities = await self._entity_repo.get_by_ids(
+                db,
+                nid,
+                ordered_ids,
+                statuses=statuses,
+            )
+            rank = {value: index for index, value in enumerate(ordered_ids)}
+            entities = [
+                entity
+                for entity in entities
+                if entity_type is None or entity.entity_type == entity_type
+            ]
+            entities.sort(key=lambda entity: rank.get(entity.id, len(rank)))
         if workflow_id is not None:
             entities = [
                 entity

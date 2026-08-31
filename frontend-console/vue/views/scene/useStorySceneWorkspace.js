@@ -886,11 +886,12 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
         novel_id: projectId,
         action: stage === "character-card" ? "story.character_card.generate" : stage === "reaction" ? "story.reaction.generate" : "story.script.generate",
         task: taskLabel,
-        scope: "project",
+        scope: "scene",
         scene_id: targetScene.id,
         visible_until_scene_id: targetScene.id,
         character_ids: payload.character_ids || (payload.character_id ? [payload.character_id] : []),
         include_pending_objects: false,
+        user_note: additionalNotes(),
       })
       if (!owns(requestToken, targetScene.id)) return false
     } catch (err) {
@@ -982,6 +983,27 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
       return false
     }
     const requestToken = ++requestGeneration.value
+    let confirmation
+    try {
+      confirmation = await confirmAiReference({
+        novel_id: projectId,
+        action: "story.one_click.simulate",
+        task: "一键推演当前场景",
+        scope: "scene",
+        scene_id: targetScene.id,
+        visible_until_scene_id: targetScene.id,
+        character_ids: characterIds,
+        include_pending_objects: false,
+        budget_tokens: 8000,
+        user_note: additionalNotes(),
+      })
+      if (!owns(requestToken, targetScene.id)) return false
+    } catch (err) {
+      if (owns(requestToken, targetScene.id) && err?.message !== "已取消 AI 参考资料确认") {
+        loadError.value = err?.message || "一键推演资料确认失败"
+      }
+      return false
+    }
     const submission = sceneRuntimeManager.beginSubmission(projectId, targetScene.id, "simulation")
     if (!submission) return false
     const runner = api.story?.startOneClickTask || api.story?.startSceneSimulation
@@ -995,6 +1017,7 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
         novel_id: projectId,
         scene_id: targetScene.id,
         character_ids: characterIds,
+        context_confirmation_id: confirmation.id,
         operation_id: submission.operationId,
         submit_authorized: true,
         additional_notes: additionalNotes(),

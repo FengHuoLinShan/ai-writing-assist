@@ -228,7 +228,7 @@ flowchart TB
 | `world` | 人物、地点、关系、时间线、事件等长期世界事实，以及来源可追溯、采用前不进入正史的 AI 地图册。 |
 | `memory` | 带来源的记忆、状态快照与可追踪上下文资产。 |
 | `outline` | 总纲、剧情线、篇章纲、Scene 和结构覆盖关系。 |
-| `evidence` | 正文分块、embedding、混合召回、索引新鲜度，以及上下文可见性、预算、确认快照和证据链。 |
+| `evidence` | 正文分块、embedding、混合召回、索引新鲜度，以及可逐项审查的上下文、三阶段指纹、确认/快照和证据链。 |
 | `writing` | 当前正文、版本、发布状态、写作生成与候选内容。 |
 | `interaction` | 私人 RP 旅程、不可变选中历史、流式正文恢复、回顾和看海循环。 |
 
@@ -294,11 +294,12 @@ sequenceDiagram
     participant Queue as PostgreSQL 任务队列
     participant LLM as 受控 LLM Gateway
 
-    Author->>Context: 确认本次生成范围与可见上下文
+    Author->>Context: 预览并逐项调整本次生成范围与可见上下文
     Context->>RAG: 按当前 Scene 召回证据候选
     RAG-->>Context: 正文片段、来源与版本
     Context->>Writing: 回读当前正文并校验 source hash
-    Context-->>Author: 展示 token 预算、裁剪结果和证据链
+    Context-->>Author: 展示必需/自动/手选/排除资料、裁剪结果和证据链
+    Author->>Context: 按这份资料开始（保存通用指纹）
     Author->>Queue: 确认生成，冻结 confirmation fingerprint
     Queue->>Writing: claim lease，重读项目 / 正文 / Context 快照
     Writing->>LLM: 在数据库事务外调用模型

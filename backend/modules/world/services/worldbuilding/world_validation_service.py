@@ -6,7 +6,7 @@ import json
 import re
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -63,6 +63,9 @@ from modules.world.services.worldbuilding.world_validation_engine import (
     validate_semantic_output,
 )
 from shared.utils import parse_uuid
+
+if TYPE_CHECKING:
+    from modules.evidence.contracts import ConfirmedAIActionContext
 
 _POLICY_PAGE_KEY = "validation-policy"
 _ADOPTED_STATUSES = ("canonical", "confirmed")
@@ -300,7 +303,11 @@ class WorldValidationService:
             task_type="world_validation",
             novel_id=data.novel_id,
             request_payload=request_payload,
-            meta={"novel_id": data.novel_id, "run_id": str(run.id)},
+            meta={
+                "novel_id": data.novel_id,
+                "run_id": str(run.id),
+                "context_confirmation_id": data.context_confirmation_id,
+            },
         )
         run.task_id = uuid.UUID(receipt.task_id)
         await db.flush()
@@ -521,6 +528,7 @@ class WorldValidationService:
         attempt: int,
         task_id: str,
         lease_id: str,
+        confirmed_context: ConfirmedAIActionContext | None = None,
     ) -> dict[str, Any]:
         await require_running_task_attempt(
             db,
@@ -567,11 +575,23 @@ class WorldValidationService:
                 if item.get("input_hash") and item.get("result_hash")
             ]
             coverage = list(run.coverage_ledger_json or [])
+            if policy.semantic_enabled and confirmed_context is None:
+                raise ValidationError(
+                    "Semantic World validation requires confirmed Context"
+                )
+            semantic_manifest = (
+                self._confirmed_semantic_manifest(
+                    run.manifest_json,
+                    confirmed_context,
+                )
+                if policy.semantic_enabled and confirmed_context is not None
+                else run.manifest_json
+            )
             packets, budget = build_review_packets(
                 run_id=run_id,
                 scope=run.scope,
                 policy=policy,
-                manifest=run.manifest_json,
+                manifest=semantic_manifest,
             )
             insufficient = policy.semantic_enabled and not packets
             if insufficient:
@@ -684,6 +704,37 @@ class WorldValidationService:
             failed.finished_at = datetime.now(UTC)
             await db.commit()
             raise
+
+    @staticmethod
+    def _confirmed_semantic_manifest(
+        manifest: dict[str, Any],
+        confirmed_context: ConfirmedAIActionContext,
+    ) -> dict[str, Any]:
+        selected = confirmed_context.confirmation.selected_asset_ids
+        aliases = {
+            "entity": "world_entities",
+            "core_entity": "world_entities",
+            "character": "characters",
+        }
+        items = [
+            dict(item)
+            for item in manifest.get("items") or []
+            if str(item.get("target_id") or "")
+            in set(
+                selected.get(
+                    aliases.get(
+                        str(item.get("target_type") or ""),
+                        str(item.get("target_type") or ""),
+                    ),
+                    [],
+                )
+            )
+        ]
+        if not items:
+            raise ValidationError(
+                "Confirmed Context contains no World sources for semantic validation"
+            )
+        return {**manifest, "items": items, "world_state_checkpoint": None}
 
     async def _semantic_review(
         self,

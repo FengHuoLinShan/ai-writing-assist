@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { flushPromises, mount } from "@vue/test-utils"
+
+const confirmAiReference = vi.hoisted(() => vi.fn())
+vi.mock("../../../shared/aiReferenceModal.js", () => ({ confirmAiReference }))
+
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 import SceneWorkbenchView from "../../../vue/views/scene/SceneWorkbenchView.vue"
 import { sceneRuntimeManager } from "../../../vue/views/scene/sceneRuntimeManager.js"
@@ -50,6 +54,8 @@ describe("Story Scene workspace panels", () => {
   let toast
 
   beforeEach(() => {
+    confirmAiReference.mockReset()
+    confirmAiReference.mockResolvedValue({ id: "confirm-default" })
     localStorage.clear()
     sessionStorage.clear()
     resetSceneRuntimeSession("p1", "s1")

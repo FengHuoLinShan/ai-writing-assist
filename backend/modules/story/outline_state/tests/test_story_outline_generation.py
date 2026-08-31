@@ -154,7 +154,7 @@ def test_story_outline_task_retries_one_transient_provider_failure() -> None:
 
 
 async def test_task_handler_passes_submission_context_fence_to_generation() -> None:
-    data = _request()
+    data = _request(context_confirmation_id="confirmation-story-outline")
     context_hash = "a" * 64
     task = SimpleNamespace(
         meta={
@@ -818,7 +818,10 @@ async def test_generate_api_only_enqueues_task_and_writes_no_outline_assets(
     db_session: AsyncSession,
     sample_novel_id: str,
 ) -> None:
-    data = _request(novel_id=sample_novel_id)
+    data = _request(
+        novel_id=sample_novel_id,
+        context_confirmation_id="confirmation-story-outline",
+    )
     lower_models = [
         StoryOutlineRevision,
         PlotThread,
@@ -841,6 +844,10 @@ async def test_generate_api_only_enqueues_task_and_writes_no_outline_assets(
             "modules.project.facade.build_project_llm_execution_snapshot",
             autospec=True,
             return_value={"version": "test-snapshot"},
+        ),
+        mock.patch(
+            "modules.story.outline_state.api.attach_result_ref",
+            autospec=True,
         ),
     ):
         response = await async_client.post(

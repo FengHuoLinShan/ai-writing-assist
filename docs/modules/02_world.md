@@ -91,6 +91,15 @@ RAG 或 LLM 上下文。
 - `knowledge_tags` / `character_knowledge_tags` / `asset_knowledge_tags` / `knowledge_tag_exclusions` / `knowledge_visibility_policies` / `reader_reveal_policies` / `creation_suggestion_queue` / `conflict_check_queue` — 知识标签、可见性和待处理工作队列
 - `map_atlas_runs` / `map_atlas_nodes` / `map_atlas_pages` / `map_atlas_annotations` — AI 地图册计划、层级、图片与前端标注，详见 `docs/modules/15_map.md`
 - 地图册空间线索是 World Bible/RAG 的受限派生输入：服务端验证 source key、保留来源 hash，且不回写 World 事实或生成坐标。
+
+作者主动发起的 World 模型入口统一消费 Evidence confirmation：生成中心、问世界、地图册、
+世界书人工语义操作和对象融合的 wire 均携带 action 精确匹配的 `context_confirmation_id`。
+执行前重编译指纹不一致时 409 失败关闭；同步结果的 context snapshot 或 suggestion、异步 task
+都会回写 confirmation result ref。领域服务可追加执行所需资料，但问世界与对象融合按最终
+selected assets 过滤，避免把作者在审查窗排除的页面、正文或对象重新送入模型。
+世界健康的确定性校验仍检查冻结的完整 manifest，但语义分片只从 confirmation 实际选中的
+页面/工作稿生成；人工简介刷新同样按 selected assets 过滤 source manifest，自动维护路径继续
+使用完整 manifest。人工刷新不会复用一个没有该 confirmation 的既有自动任务。
 - ~~`entity_candidates`~~ — 已废弃，候选对象直接用 `core_entities.status="candidate"` 表达
 - ~~`relationships`~~ — 已废弃，使用 `entity_relations`
 - ~~`entity_aliases`~~ — 已移除，别名存 `core_entities.content_json.aliases` JSONB

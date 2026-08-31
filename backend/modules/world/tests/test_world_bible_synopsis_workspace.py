@@ -1,6 +1,7 @@
 import asyncio
 import json
 import uuid
+from types import SimpleNamespace
 from unittest import mock
 
 import pytest
@@ -119,6 +120,33 @@ class _PromptCaptureSynopsisClient(_FakeSynopsisClient):
     async def generate_structured(self, request, schema, **kwargs):
         self.request = request
         return await super().generate_structured(request, schema, **kwargs)
+
+
+def test_manual_synopsis_manifest_uses_only_confirmed_assets() -> None:
+    manifest = [
+        {"type": "world_bible_page", "id": "page-1"},
+        {"type": "world_bible_page", "id": "page-2"},
+        {"type": "entity", "id": "entity-1"},
+    ]
+    confirmed = SimpleNamespace(
+        confirmation=SimpleNamespace(
+            selected_asset_ids={
+                "world_bible_page": ["page-1"],
+                "world_entities": ["entity-1"],
+            }
+        )
+    )
+
+    included, omitted = WorldBibleSynopsisService._confirmed_source_manifest(
+        manifest,
+        confirmed,
+    )
+
+    assert [(item["type"], item["id"]) for item in included] == [
+        ("world_bible_page", "page-1"),
+        ("entity", "entity-1"),
+    ]
+    assert "context_excluded:world_bible_page:page-2" in omitted
 
 
 async def _prepare_synopsis_task(
@@ -1509,6 +1537,34 @@ async def test_synopsis_refresh_coalesces_to_one_active_task(
         )
     )
     assert str(head.active_task_id) == first[0]
+
+
+@pytest.mark.asyncio
+async def test_manual_synopsis_refresh_does_not_reuse_unconfirmed_task(
+    db_session,
+    project_novel_id: str,
+) -> None:
+    service = WorldBibleSynopsisService()
+    automatic = await service.request_refresh(
+        db_session,
+        project_novel_id,
+        llm_execution_snapshot={"version": 1, "test": True},
+    )
+    manual = await service.request_refresh(
+        db_session,
+        project_novel_id,
+        llm_execution_snapshot={"version": 1, "test": True},
+        context_confirmation_id="confirmation-1",
+    )
+
+    assert manual[0] != automatic[0]
+    assert manual[2] is False
+    head = await db_session.scalar(
+        select(WorldBibleSynopsisHead).where(
+            WorldBibleSynopsisHead.novel_id == uuid.UUID(project_novel_id)
+        )
+    )
+    assert str(head.active_task_id) == manual[0]
 
 
 @pytest.mark.asyncio

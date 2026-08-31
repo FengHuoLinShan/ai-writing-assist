@@ -11,6 +11,7 @@ import { useLeaveGuard } from "../../../composables/useLeaveGuard.js"
 import { worldSession } from "../../world/worldSession.js"
 import { pollTaskProgress } from "../../../../shared/workflowProgress.js"
 import { worldAssetDisplay } from "../../../../shared/assetDisplayState.js"
+import { confirmAiReference } from "../../../../shared/aiReferenceModal.js"
 import {
   clearCreativeContinuation,
   readCreativeContinuation,
@@ -1096,6 +1097,18 @@ export function useWorldBible(props) {
   }
 
   // ---- synopsis ----
+  async function confirmSynopsisRefresh(novelId) {
+    return confirmAiReference({
+      novel_id: novelId,
+      action: "world.world_bible.synopsis.refresh",
+      task: "刷新世界观简介",
+      scope: "world",
+      include_world_synopsis: false,
+      include_pending_objects: false,
+      budget_tokens: 12000,
+    })
+  }
+
   async function refreshSynopsis() {
     if (synopsis.value?.pinned) {
       toast('当前固定在历史版本；请先"取消固定并刷新"', "warning")
@@ -1103,7 +1116,8 @@ export function useWorldBible(props) {
     }
     const novelId = projectId.value
     try {
-      const task = await api.world.refreshBibleSynopsis(novelId)
+      const confirmation = await confirmSynopsisRefresh(novelId)
+      const task = await api.world.refreshBibleSynopsis(novelId, confirmation.id)
       if (!ownsProject(novelId)) return false
       synopsisTask.value = task
       synopsisTerminalTaskId.value = null
@@ -1220,10 +1234,11 @@ export function useWorldBible(props) {
   async function unpinSynopsis() {
     const novelId = projectId.value
     try {
+      const confirmation = await confirmSynopsisRefresh(novelId)
       const unpinned = await api.world.unpinBibleSynopsis(novelId)
       if (!ownsProject(novelId)) return false
       synopsis.value = unpinned
-      const task = await api.world.refreshBibleSynopsis(novelId)
+      const task = await api.world.refreshBibleSynopsis(novelId, confirmation.id)
       if (!ownsProject(novelId)) return false
       synopsisTask.value = task
       synopsisTerminalTaskId.value = null
@@ -1704,8 +1719,19 @@ export function useWorldBible(props) {
     semanticInspectionController = controller
     semanticInspectionPending.value = true
     try {
+      const confirmation = await confirmAiReference({
+        novel_id: requestProjectId,
+        action: "world.generation.semantic_inspection",
+        task: "检修当前世界书页面",
+        scope: "full",
+        pinned_refs: draft ? [] : [{ kind: "target", target_ref: { target_type: "world_bible_page", target_id: requestPageId, target_path: "" } }],
+        selected_world_bible_draft_ids: draft ? [draft.id] : [],
+        include_pending_objects: false,
+        budget_tokens: 4000,
+      })
       const result = await api.generate.inspectWorldPage({
         novel_id: requestProjectId,
+        context_confirmation_id: confirmation.id,
         source_context: {
           kind: "world_bible_page",
           page_id: requestPageId,
@@ -1733,6 +1759,7 @@ export function useWorldBible(props) {
       toast("已完成本次当前页检修", "success")
     } catch (err) {
       if (disposed || controller.signal.aborted || err?.name === "AbortError") return
+      if (err?.message === "已取消 AI 参考资料确认") return
       toast(err.message || "当前页检修失败", "error")
     } finally {
       if (!disposed && semanticInspectionController === controller) {

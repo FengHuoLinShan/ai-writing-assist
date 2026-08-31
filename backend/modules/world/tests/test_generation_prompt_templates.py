@@ -604,3 +604,15 @@ async def test_generate_with_template_id_writes_template_meta(
     rendered_prompt = fake.requests[0].messages[1].content
     assert "赎罪圣骑士" in rendered_prompt
     assert "{{trope}}" not in rendered_prompt
+
+@pytest.fixture(autouse=True)
+def _exercise_template_behavior_without_repeating_preflight(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def skip_preflight(*_args, **_kwargs) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "modules.world.api._require_generation_confirmation",
+        skip_preflight,
+    )

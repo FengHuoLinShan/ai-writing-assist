@@ -144,6 +144,62 @@ test.describe("AI 地图册", () => {
     project = null
   })
 
+  test("首次生成先审查 Context 并提交同一 confirmation", async ({ page }) => {
+    const requests = []
+    const run = {
+      id: "run-context",
+      novel_id: project.id,
+      task_id: "task-context",
+      run_kind: "initial",
+      status: "planning",
+      style_note: null,
+      include_working_drafts: false,
+      include_interiors: false,
+      review_image_prompts: false,
+      layout: "landscape",
+      quality: "standard",
+      page_limit: 12,
+      planned_page_count: 0,
+      completed_page_count: 0,
+      stop_requested: false,
+      created_at: new Date().toISOString(),
+    }
+    await page.route("**/api/world/map-atlas/**", async (route) => {
+      const request = route.request()
+      const path = new URL(request.url()).pathname
+      if (request.method() === "POST" && path.endsWith("/runs")) {
+        requests.push(request.postDataJSON())
+        return route.fulfill({ status: 202, json: run })
+      }
+      if (request.method() === "GET" && path.endsWith("/runs/latest")) {
+        return route.fulfill({ json: null })
+      }
+      if (request.method() === "GET" && path.endsWith("/atlas")) {
+        return route.fulfill({ json: atlasTree([], "atlas") })
+      }
+      if (request.method() === "GET" && path.endsWith("/pages/history")) {
+        return route.fulfill({ json: [] })
+      }
+      if (request.method() === "GET" && path.endsWith("/runs/run-context")) {
+        return route.fulfill({ json: run })
+      }
+      return route.fulfill({ status: 404, json: { detail: "unexpected atlas request" } })
+    })
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await openWorkbench(page, project, "map")
+    await page.getByRole("button", { name: "一键生成地图册" }).click()
+    await expect(page.locator("#modal-overlay")).toContainText("AI 参考资料")
+    const start = page.getByRole("button", { name: "按这份资料开始" })
+    await expect(start).toBeEnabled()
+    expect((await start.boundingBox()).height).toBeGreaterThanOrEqual(44)
+    await start.click()
+
+    await expect.poll(() => requests.length).toBe(1)
+    expect(requests[0].context_confirmation_id).toEqual(expect.any(String))
+    await expectNoPageOverflow(page)
+  })
+
   test("候选、旧图、历史和采用保持独立", async ({ page }) => {
     const candidate = atlasPage("candidate-page")
     const oldPage = atlasPage("old-page", { review_status: "adopted" })

@@ -237,6 +237,11 @@ class MapAtlasRunCreate(BaseModel):
     quality: Literal["standard", "fine"] = "standard"
     full_rebuild: bool = False
     review_image_prompts: bool = False
+    context_confirmation_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+    )
 
     @field_validator("style_note")
     @classmethod

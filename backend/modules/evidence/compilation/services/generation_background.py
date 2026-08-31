@@ -86,6 +86,7 @@ class GenerationBackgroundRequest:
     source_snapshot: Mapping[str, Any] = field(default_factory=dict)
     budget_tokens: int = _DEFAULT_BUDGET_TOKENS
     capture_snapshot: bool = True
+    context_confirmation_id: str | None = None
 
 
 class GenerationBackgroundService:
@@ -114,17 +115,32 @@ class GenerationBackgroundService:
         )
         normalized_focus = self._normalize_focus(request.focus_text)
         is_world_generation = request.operation in _WORLD_GENERATION_OPERATIONS
-        options = self._compile_options(
-            request,
-            normalized_focus=normalized_focus,
-            is_world_generation=is_world_generation,
-        )
-        compiled = await self._compiler.compile_with_tiers(
-            db,
-            options,
-            budget_tokens=options.budget_tokens,
-        )
-        rendered = self._renderer(compiled)
+        if request.context_confirmation_id:
+            from modules.evidence.compilation.services.confirmed_ai_action import (
+                ConfirmedAIActionService,
+            )
+
+            prepared = await ConfirmedAIActionService().prepare(
+                db,
+                novel_id=request.novel_id,
+                action=request.operation,
+                confirmation_id=request.context_confirmation_id,
+            )
+            options = CompileOptions(**prepared.compile_options)
+            compiled = prepared.compiled
+            rendered = prepared.rendered_markdown
+        else:
+            options = self._compile_options(
+                request,
+                normalized_focus=normalized_focus,
+                is_world_generation=is_world_generation,
+            )
+            compiled = await self._compiler.compile_with_tiers(
+                db,
+                options,
+                budget_tokens=options.budget_tokens,
+            )
+            rendered = self._renderer(compiled)
         usage = self._context_usage(
             request,
             options,

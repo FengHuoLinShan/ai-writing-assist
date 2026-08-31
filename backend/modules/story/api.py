@@ -524,6 +524,12 @@ async def _enqueue_one_click_task(
         )
         if existing is not None:
             return StoryTaskResponse(task_id=existing.task_id, status=existing.status)
+        await require_fresh_confirmation(
+            db,
+            novel_id=data.novel_id,
+            action=STORY_ONE_CLICK_ACTION,
+            confirmation_id=data.context_confirmation_id,
+        )
         meta = {
             "meta_version": 1,
             "request": request_payload,
@@ -547,6 +553,15 @@ async def _enqueue_one_click_task(
             request_payload=request_payload,
             meta=meta,
         )
+        if not receipt.reused:
+            await attach_result_ref(
+                db,
+                novel_id=data.novel_id,
+                confirmation_id=data.context_confirmation_id,
+                result_type="task",
+                result_id=receipt.task_id,
+                status="running",
+            )
         await db.flush()
         return StoryTaskResponse(task_id=receipt.task_id, status=receipt.status)
     except Exception as exc:

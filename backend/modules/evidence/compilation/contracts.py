@@ -65,6 +65,10 @@ class CompileOptions:
     """是否包含待处理对象"""
     excluded_asset_ids: dict[str, list[str]] = field(default_factory=dict)
     """本次编译显式排除的资产 ID"""
+    pinned_refs: list[dict] = field(default_factory=list)
+    """作者本次显式加入的 TargetRef 或 SourceRangeRef"""
+    excluded_refs: list[dict] = field(default_factory=list)
+    """作者本次显式排除的 TargetRef 或 SourceRangeRef"""
     user_note: str | None = None
     """用户本次 AI 操作的额外注意事项"""
     include_world_synopsis: bool = False
@@ -91,6 +95,8 @@ class CompileOptions:
     """手动大纲分析确认时固定的完整编译上下文指纹"""
     scene_state_fingerprint: str | None = None
     """Scene 时点预演确认时固定的四维 checkpoint 指纹"""
+    compiled_context_fingerprint: str | None = None
+    """预算执行后完整 Context 与来源身份的稳定指纹"""
 
     def __post_init__(self) -> None:
         if self.reveal_mode == "author_safe" and self.scene_id:
@@ -120,6 +126,9 @@ class ContextConfirmationContract:
     stale_reasons: list[str]
     compiled_at: str
     created_at: str
+    context_fingerprint: str = ""
+    selection_state: dict = field(default_factory=dict)
+    blockers: list[str] = field(default_factory=list)
 
 
 @dataclass

@@ -49,7 +49,7 @@ class RetrievalQueryPlanner:
             if options.retrieval_purpose in _KNOWN_PURPOSES
             else "generic_context"
         )
-        query = _normalize_task(options.task)
+        query = _normalize_task(options.user_note or options.task)
         visible_until_chapter = (
             options.visible_until_chapter
             if options.visible_until_chapter is not None

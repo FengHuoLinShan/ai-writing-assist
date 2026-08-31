@@ -55,6 +55,15 @@ async def handle_world_validation(db, task):
     ):
         raise ValueError("invalid world validation task identity")
     await require_active_project(db, novel_id)
+    context_confirmation_id = str(meta.get("context_confirmation_id") or "")
+    confirmed_context = None
+    if context_confirmation_id:
+        confirmed_context = await context_facade.prepare_confirmed_ai_action(
+            db,
+            novel_id=novel_id,
+            action="world.validation.semantic",
+            confirmation_id=context_confirmation_id,
+        )
     task.update_progress(0.05)
     result = await WorldValidationService().execute_run(
         db,
@@ -63,6 +72,7 @@ async def handle_world_validation(db, task):
         attempt=int(task.attempt),
         task_id=str(task.id),
         lease_id=str(task.lease_id),
+        confirmed_context=confirmed_context,
     )
     task.update_progress(1.0)
     return result
@@ -432,6 +442,17 @@ async def handle_world_entity_fusion_suggestions(db, task):
     novel_id = meta.get("novel_id", "")
     if not novel_id:
         raise ValueError("novel_id is required for world_entity_fusion_suggestions")
+    confirmation_id = str(meta.get("context_confirmation_id") or "")
+    if not confirmation_id:
+        raise ValueError(
+            "context_confirmation_id is required for world_entity_fusion_suggestions"
+        )
+    prepared = await context_facade.prepare_confirmed_ai_action(
+        db,
+        novel_id=novel_id,
+        action="world.entity_fusion.suggest",
+        confirmation_id=confirmation_id,
+    )
 
     task.update_progress(0.05)
 
@@ -452,6 +473,9 @@ async def handle_world_entity_fusion_suggestions(db, task):
         status=meta.get("status"),
         limit=int(meta.get("limit", 200)),
         max_suggestions=int(meta.get("max_suggestions", 50)),
+        allowed_entity_ids=list(
+            prepared.confirmation.selected_asset_ids.get("world_entities") or []
+        ),
         checkpoint_callback=_checkpoint,
         llm_execution_snapshot=meta.get("llm_execution_snapshot"),
         snapshot_callback=_snapshot,
@@ -552,6 +576,17 @@ async def handle_world_bible_synopsis_refresh(db, task):
     if not novel_id or not source_hash:
         raise ValueError("novel_id and source_hash are required")
     service = WorldBibleSynopsisService()
+    context_confirmation_id = str(meta.get("context_confirmation_id") or "")
+    confirmed_context = None
+    if context_confirmation_id:
+        from modules.evidence.facade import prepare_confirmed_ai_action
+
+        confirmed_context = await prepare_confirmed_ai_action(
+            db,
+            novel_id=novel_id,
+            action="world.world_bible.synopsis.refresh",
+            confirmation_id=context_confirmation_id,
+        )
 
     def _metadata(snapshot: dict, fence: dict) -> None:
         task.meta = {
@@ -574,6 +609,7 @@ async def handle_world_bible_synopsis_refresh(db, task):
             task_meta=meta,
             metadata_callback=_metadata,
             checkpoint_callback=_checkpoint,
+            confirmed_context=confirmed_context,
         )
         task.update_progress(1.0)
         return dict(task.result or {})

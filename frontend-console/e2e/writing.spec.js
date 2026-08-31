@@ -226,7 +226,9 @@ test.describe("写作台模块", () => {
 
     await page.locator('[data-action="owner-writing-continuation"]').click()
     await expect(page.locator("#modal-overlay")).toContainText("AI 参考资料")
-    await page.locator("#modal-footer").getByRole("button", { name: "确认使用" }).click()
+    const startWithContext = page.locator("#modal-footer").getByRole("button", { name: "按这份资料开始" })
+    await expect(startWithContext).toBeEnabled()
+    await startWithContext.click()
     await expect(page.locator(".owner-ai-writing__progress")).toContainText("可以收起 AI 工具继续写作")
     await page.locator('[data-action="owner-writing-show-progress"]').click()
     await expect(drawer).toHaveCount(0)
@@ -1263,7 +1265,7 @@ test.describe("写作台模块", () => {
 
     await page.getByRole("button", { name: "手动补充 AI 语义复核" }).click()
     await expect(page.locator("#modal-overlay")).toContainText("AI 参考资料", { timeout: 10000 })
-    await page.locator("#modal-footer").getByRole("button", { name: "确认使用" }).click()
+    await page.locator("#modal-footer").getByRole("button", { name: "按这份资料开始" }).click()
     await expect(conflictDialog).toContainText("AI 判断", { timeout: 10000 })
     await expect(conflictDialog).toContainText("主角突然接受守卫条件")
 
@@ -1276,7 +1278,7 @@ test.describe("写作台模块", () => {
       .getByRole("button", { name: "生成 AI 修复建议" })
       .click()
     await expect(page.locator("#modal-overlay")).toContainText("AI 参考资料", { timeout: 10000 })
-    await page.locator("#modal-footer").getByRole("button", { name: "确认使用" }).click()
+    await page.locator("#modal-footer").getByRole("button", { name: "按这份资料开始" }).click()
     await expect(conflictDialog).toContainText("补动机过渡", { timeout: 10000 })
 
     await page

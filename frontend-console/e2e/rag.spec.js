@@ -275,6 +275,10 @@ test.describe("RAG 检索模块", () => {
     await page.locator('.rag-repair-card [data-action="nav-search"]').click()
     await page.getByLabel("检索关键词").fill("旧塔铜铃何时响起")
     await page.locator('[data-action="ask-world"]').click()
+    await expect(page.locator("#modal-overlay")).toContainText("AI 参考资料")
+    const start = page.getByRole("button", { name: "按这份资料开始" })
+    await expect(start).toBeEnabled()
+    await start.click()
 
     const answer = page.locator(".ask-world-card")
     await expect(answer).toContainText("当前正式资料只确认换岗时会响起")

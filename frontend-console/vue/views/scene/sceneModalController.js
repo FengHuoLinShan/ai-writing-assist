@@ -8,6 +8,7 @@ import {
 } from "../../bridge/index.js"
 import { createReferencePicker } from "../../../shared/referencePicker.js"
 import { confirmAsync } from "../../../shared/confirmAsync.js"
+import { confirmAiReference } from "../../../shared/aiReferenceModal.js"
 import {
   clearActiveWorkflow,
   createOperationId,
@@ -462,15 +463,42 @@ export function createSceneModalController({
     fusionTask.meta = meta
     fusionTask.preview = null
     fusionTask.progress = normalizeTaskProgress({ id: taskId, task_type: "scene_fusion_preview", status: "pending" }, "scene_fusion_preview")
+    let confirmationComplete = false
     try {
+      const confirmation = await confirmAiReference({
+        novel_id: projectId,
+        action: "outline.scene_fusion.preview",
+        task: "生成场景融合预览",
+        scope: "full",
+        scene_id: primarySceneId || sourceSceneIds[0],
+        reveal_mode: "author_full",
+        pinned_refs: sourceSceneIds.map((sceneId) => ({ kind: "target", target_ref: { target_type: "outline_scene", target_id: sceneId, target_path: "" } })),
+        include_pending_objects: false,
+        budget_tokens: 12000,
+      })
+      confirmationComplete = true
       const receipt = await api.outline.previewSceneFusionTask(projectId, {
         source_scene_ids: sourceSceneIds,
         primary_scene_id: primarySceneId,
         operation_id: taskId,
+        context_confirmation_id: confirmation.id,
         ...(suggestionId ? { suggestion_id: suggestionId } : {}),
       })
       if (receipt?.task_id && receipt.task_id !== taskId) throw new Error("任务凭据不匹配")
     } catch (err) {
+      if (err?.message === "已取消 AI 参考资料确认") {
+        clearActiveWorkflow(taskId, receiptStorage)
+        fusionTask.taskId = null
+        fusionTask.progress = null
+        return false
+      }
+      if (!confirmationComplete) {
+        clearActiveWorkflow(taskId, receiptStorage)
+        fusionTask.taskId = null
+        fusionTask.progress = null
+        if (owns(ownerGeneration) && requestSequence === fusionPreviewSequence) toast(err.message || "场景融合资料确认失败", "error")
+        return false
+      }
       if (Number(err?.status) >= 400 && Number(err?.status) < 500) {
         clearActiveWorkflow(taskId, receiptStorage)
         fusionTask.taskId = null

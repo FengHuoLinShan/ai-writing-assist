@@ -13,7 +13,11 @@ from infrastructure.tasks.facade import (
     enqueue_task_with_optional_operation,
     get_operation_task,
 )
-from modules.evidence.facade import attach_result_ref, require_fresh_confirmation
+from modules.evidence.facade import (
+    attach_result_ref,
+    prepare_confirmed_ai_action,
+    require_fresh_confirmation,
+)
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
     require_active_project,
@@ -322,6 +326,24 @@ async def api_get_story_outline(
         raise _story_outline_error(exc) from exc
 
 
+async def _require_scene_fusion_confirmation(
+    db: DbSession,
+    novel_id: str,
+    data: SceneFusionPreviewRequest,
+):
+    if not data.context_confirmation_id:
+        raise HTTPException(status_code=400, detail="context_confirmation_id is required")
+    try:
+        return await prepare_confirmed_ai_action(
+            db,
+            novel_id=novel_id,
+            action="outline.scene_fusion.preview",
+            confirmation_id=data.context_confirmation_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post(
     "/story-outline/revisions",
     response_model=StoryOutlineRevisionResponse,
@@ -419,6 +441,8 @@ async def api_generate_story_outline(
 ) -> OutlineAiTaskResponse:
     """Validate the bounded source set and enqueue a preview-only task."""
     await require_active_project(db, data.novel_id)
+    if not data.context_confirmation_id:
+        raise HTTPException(status_code=400, detail="context_confirmation_id is required")
     from modules.project.facade import build_project_llm_execution_snapshot
     from modules.story.outline_state.story_outline_generation import (
         STORY_OUTLINE_GENERATE_ACTION,
@@ -476,6 +500,15 @@ async def api_generate_story_outline(
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=redact_diagnostic(exc)) from exc
+    if not receipt.reused:
+        await attach_result_ref(
+            db,
+            novel_id=data.novel_id,
+            confirmation_id=data.context_confirmation_id,
+            result_type="task",
+            result_id=receipt.task_id,
+            status="running",
+        )
     await db.flush()
     return OutlineAiTaskResponse(task_id=receipt.task_id, status=receipt.status)
 
@@ -900,8 +933,14 @@ async def api_preview_scene_fusion(
     novel_id: NovelIdQuery,
 ):
     await require_active_project(db, novel_id)
+    confirmed_context = await _require_scene_fusion_confirmation(db, novel_id, data)
     try:
-        return await _scene_workbench_service.preview_llm_fusion(db, novel_id, data)
+        return await _scene_workbench_service.preview_llm_fusion(
+            db,
+            novel_id,
+            data,
+            confirmed_context=confirmed_context,
+        )
     except Exception as exc:
         raise _workbench_error(exc) from exc
 
@@ -918,6 +957,7 @@ async def api_preview_scene_fusion_task(
     novel_id: NovelIdQuery,
 ) -> SceneFusionPreviewTaskResponse:
     await require_active_project(db, novel_id)
+    await _require_scene_fusion_confirmation(db, novel_id, data)
     payload = data.model_dump(mode="json", exclude={"operation_id"})
     try:
         existing = await get_operation_task(
@@ -947,6 +987,15 @@ async def api_preview_scene_fusion_task(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     await db.flush()
+    if not receipt.reused and data.context_confirmation_id:
+        await attach_result_ref(
+            db,
+            novel_id=novel_id,
+            confirmation_id=data.context_confirmation_id,
+            result_type="task",
+            result_id=receipt.task_id,
+            status="running",
+        )
     return SceneFusionPreviewTaskResponse(
         task_id=receipt.task_id,
         status=receipt.status,

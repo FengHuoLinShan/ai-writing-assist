@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const confirmAsync = vi.hoisted(() => vi.fn())
 vi.mock("../../../shared/confirmAsync.js", () => ({ confirmAsync }))
+const confirmAiReference = vi.hoisted(() => vi.fn())
+vi.mock("../../../shared/aiReferenceModal.js", () => ({ confirmAiReference }))
 const referencePicker = vi.hoisted(() => {
   const harness = { refs: [], configs: [], pickers: [] }
   harness.create = vi.fn((config) => {
@@ -37,6 +39,8 @@ describe("scene modal workflows", () => {
   let fusionPreviewResult
 
   beforeEach(() => {
+    confirmAiReference.mockReset()
+    confirmAiReference.mockResolvedValue({ id: "confirm-default" })
     localStorage.clear()
     sessionStorage.clear()
     document.body.innerHTML = '<div id="modal-body"></div><div id="modal-footer"></div>'

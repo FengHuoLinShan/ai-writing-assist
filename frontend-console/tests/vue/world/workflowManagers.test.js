@@ -20,6 +20,9 @@ vi.mock("../../../shared/importAuthorization.js", () => ({
   importAuthorizationNotice: vi.fn(() => "导入授权提示"),
 }))
 
+const confirmAiReference = vi.hoisted(() => vi.fn())
+vi.mock("../../../shared/aiReferenceModal.js", () => ({ confirmAiReference }))
+
 import {
   clearActiveWorkflow,
   persistActiveWorkflow,
@@ -48,6 +51,7 @@ function resetManagers() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  confirmAiReference.mockResolvedValue({ id: "confirm-default" })
   localStorage.clear()
   resetManagers()
 })
@@ -358,7 +362,7 @@ describe("startEntityFusionSuggestions", () => {
       toast: vi.fn(),
     })
     expect(await startEntityFusionSuggestions("location")).toBe(true)
-    expect(createEntityFusionSuggestions).toHaveBeenCalledWith({ novel_id: "p-fs", entity_type: "location", operation_id: expect.any(String) })
+    expect(createEntityFusionSuggestions).toHaveBeenCalledWith({ novel_id: "p-fs", entity_type: "location", operation_id: expect.any(String), context_confirmation_id: "confirm-default" })
     expect(fusionManager.state.taskId).toBe("task-f1")
   })
 
@@ -370,7 +374,7 @@ describe("startEntityFusionSuggestions", () => {
       toast: vi.fn(),
     })
     await startEntityFusionSuggestions("")
-    expect(createEntityFusionSuggestions).toHaveBeenCalledWith({ novel_id: "p-fs2", entity_type: undefined, operation_id: expect.any(String) })
+    expect(createEntityFusionSuggestions).toHaveBeenCalledWith({ novel_id: "p-fs2", entity_type: undefined, operation_id: expect.any(String), context_confirmation_id: "confirm-default" })
   })
 
   it("同步双击只提交一次", async () => {
@@ -401,6 +405,7 @@ describe("startEntityFusionSuggestions", () => {
     })
 
     const pending = startEntityFusionSuggestions("location")
+    await vi.waitFor(() => expect(resolveCreate).toEqual(expect.any(Function)))
     state.currentProjectId = "p-fusion-new"
     recoverActiveWorkflows.mockReturnValue([])
     fusionManager.recover("p-fusion-new")

@@ -507,6 +507,11 @@ class SceneFusionPreviewRequest(BaseModel):
     source_scene_ids: list[str] = Field(..., min_length=2, max_length=20)
     primary_scene_id: str | None = None
     operation_id: uuid.UUID | None = None
+    context_confirmation_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+    )
 
 
 class SceneFusionPreviewTaskRequest(SceneFusionPreviewRequest):

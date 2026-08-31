@@ -18,6 +18,9 @@ indexing 负责“找”，compilation 负责“选、裁、确认、追踪”�
 - 在任务完成后把结果引用回写到确认记录
 - 在资产变化后把历史确认记录标记为 stale
 - 为前端 AI 参考资料审查台返回 section 元数据、激活原因、来源摘要和预算裁剪事件
+- 把 section 物化为可逐项操作的 `ContextItem`，统一处理必需、自动、作者加入、排除与预算遗漏状态
+- 分离零持久化预览与最终确认，并用同一 `compiled_context_fingerprint` 约束预览、确认和执行
+- 提供一次性、只读的自然语言选择提议；模型只能引用服务端候选短键，作者应用后才重新编译
 - 为作者生成按需加载 `world_bible_synopsis`，并把实际 revision/source/block hash 写入
   编译结果、确认记录和生成响应 provenance
 - 管理版本化 Activation Profile，用受限匹配规则把固定世界书页面/CoreEntity 编译为
@@ -79,6 +82,7 @@ async def restore_activation_profile_revision(...) -> ContextActivationProfileRe
 async def resolve_activation_profile(...) -> dict | None
 async def preview_activation_profile(...) -> dict
 async def load_scene_lens(db, *, novel_id, scene_id, chapter_index) -> dict
+async def propose_context_selection(...) -> dict
 ```
 
 `POST /api/evidence/compilation/scene-lens` 是写作台的显式按需读取入口。请求只提供
@@ -101,7 +105,7 @@ checkpoint `ensure` 产生隐式写入。没有显式关联对象时不回退全
 
 | 表 | 说明 |
 |----|------|
-| `context_confirmations` | AI 参考资料确认记录，保存 `action`、`scope`、`context_mode`、`selected_asset_ids`、`result_refs`、`stale_reasons` |
+| `context_confirmations` | AI 参考资料确认记录，保存 `action`、`scope`、`context_mode`、预算执行后的全部 `selected_asset_ids`、`result_refs`、`stale_reasons`；通用 Context 指纹保存在既有 `compile_options`，不新增表 |
 | `context_confirmation_asset_refs` | confirmation 选中/结果资产的精确引用索引；与 JSON wire 同事务同步，资产失效只查询此表 |
 | `context_snapshots` | 自动 AI 调用上下文审计记录，保存 `task_id`、`workflow_id`、`phase`、`context_mode`、`included_asset_ids`、摘要、`prompt_hash`、token/section metadata、`result_refs`、错误信息和可选 `rendered_context` |
 | `evidence_links` | 使用 `TargetRef + claim_path` 将对象/人物知识/结构字段连到 `SourceRangeRef`；只记录 provenance，不判定事实真假 |
@@ -161,8 +165,10 @@ rule hash、来源 hash 和纳入目标 hash；页面发布会把消费该页的
 Loader 聚合业务资料
   -> ContextCompiler 生成 ContextSection IR
   -> enforce_budget 记录 evicted/truncated budget_events
-  -> API 返回 sections + selected_asset_ids + warnings
-  -> 前端渲染“参考资料清单”，而不是 raw Markdown
+  -> API 返回 sections/items + selection_state + context_fingerprint
+  -> 前端按“必须使用 / 系统找到 / 我添加的 / 本次不用”审查
+  -> 最终确认重编译并比较指纹，只成功写入一条 confirmation
+  -> worker 再次重编译并比较同一指纹，漂移时在模型调用前失败
 ```
 
 `ContextSection` 除了 `key/tier/content/token_count` 外，还包含面向审查台的只读字段：
@@ -174,6 +180,25 @@ Loader 聚合业务资料
 - `sources`：来源摘要，包含 `type/id/label/status`
 - `can_exclude` 与 `excluded`：本次操作是否允许排除、是否已排除
 - `truncated_reason`：预算裁剪原因
+
+每个 section 的 `items` 是实际提供给模型的可审查单位；兼容字段 `content/sources` 由 items
+重新物化。item 的选择状态固定为 `required / automatic / author_pinned / excluded / omitted`。
+P0 与其它必需项不可排除；作者加入项在预算阶段不被静默裁剪。必需项与作者加入项合计超过
+容量时返回 blocker，确认按钮保持禁用。`selected_asset_ids` 和精确引用表只从预算后的实际
+items 生成，不再用请求参数猜测来源。
+
+`POST /compile` 是零业务写入的预览入口；`POST /confirm` 必须携带
+`expected_context_fingerprint`。若重编译后内容、来源版本、可见范围或选择发生变化，返回
+`409 context_preview_changed` 且不创建 confirmation。最终指纹写入
+`compile_options.compiled_context_fingerprint`；`prepare_confirmed_ai_action()` 在执行前比较，
+不一致返回 `context_changed`。作者任务的范围通过 `selection_state.effective_range` 暴露，浏览器
+不再依赖内部回放用的 `compile_options`。
+
+`POST /selection-proposals` 接收当前指纹和一条资料调整指令。服务端从当前 items 与现有
+Evidence Search 结果构造最多 40 个 `candidate-NNN`，经项目当前模型运行单次 suggest/read-only
+structured step；无工具、无循环、无业务写入、120 秒总超时且不做 transport retry。最多 20
+条 include/exclude 只能指向候选短键；未知、越界、未来 Scene、跨项目和失效引用由代码拒绝。
+前端先展示提议，作者点击“应用调整”后才改变本地选择并重新预览。
 
 `reader` 编译使用独立的最小 section 路径：只保留用户任务、
 ReaderRevealPolicy/公开基线允许的世界信息、从 writing 回读且 hash
@@ -224,9 +249,9 @@ PostgreSQL 下 trace 使用独立旁路会话并设置 2 秒事务级锁等待�
 snapshot stale 优先与 owner task 对账：owner 心跳新鲜则长时运行不算 stale；
 owner terminal 或 lease stale 则分别以 `owner_task_terminal` / `owner_task_stale` 关闭孤儿快照。
 
-### Section 级排除
+### Section 兼容排除与逐项选择
 
-V1 复用 `excluded_asset_ids`，约定：
+旧调用仍可用 `excluded_asset_ids.context_sections` 排除整个可选 section：
 
 ```json
 {
@@ -240,8 +265,13 @@ V1 复用 `excluded_asset_ids`，约定：
 - `excluded_asset_ids.context_sections` 表示本次 AI 操作临时排除的 section key。
 - P0 section 不可排除，包括 `writing_objective`、`scene_blueprint` 和硬约束类 section。用户尝试排除时后端忽略，并返回 `核心参考资料不可排除：<key>` warning。
 - `selected_asset_ids.context_sections` 记录最终参与编译且未被排除的 section key。
-- `manual` 保留给既有资产 ID 排除输入，V1 不把它解释为 section key。
-- V1 只支持 section 级控制，不做 item/entity 级事实编辑；更细粒度排除继续使用现有实体、人物、地点 ID 参数。
+- `manual` 保留给既有资产 ID 排除输入，不解释为 section key。
+
+新审查台使用 `pinned_refs` / `excluded_refs` 逐项操作。引用只能是现有 Evidence Search 返回的
+`TargetRef` 或 `SourceRangeRef`；浏览器不能提交正文。编译器重新校验 owner、`novel_id`、正文
+版本/hash、可见性、角色知识和 Scene 截止。作者加入优先于同一引用的排除；领域 overlay 可
+追加本域执行资料，但必须继承排除清单或按确认后的实际资产 allowlist 过滤，不能重新纳入作者
+排除项。
 
 ## Loader 依赖注入
 

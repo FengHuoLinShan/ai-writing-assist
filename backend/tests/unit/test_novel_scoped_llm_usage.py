@@ -144,6 +144,9 @@ def test_novel_scoped_generation_modules_use_project_runtime_seam() -> None:
             "open_project_llm_client"
         ),
         "modules/world/entity_fusion.py": "open_project_llm_client",
+        "modules/evidence/compilation/services/selection_proposal.py": (
+            "open_project_llm_client"
+        ),
         "modules/world/services/worldbuilding/world_generation_center_service.py": (
             "create_project_snapshot_llm_client"
         ),
@@ -163,6 +166,7 @@ def test_every_db_backed_workflow_passes_its_novel_id_to_runtime_seam() -> None:
         "modules/story/outline_state/generator.py": 1,
         "modules/story/outline_state/structure_dedup.py": 1,
         "modules/world/entity_fusion.py": 1,
+        "modules/evidence/compilation/services/selection_proposal.py": 1,
         "modules/evidence/indexing/retrieval.py": 1,
     }
     actual_counts: dict[str, int] = {}
@@ -190,6 +194,7 @@ def test_every_db_backed_workflow_passes_its_novel_id_to_runtime_seam() -> None:
                 or args[1]
                 not in {
                     "novel_id",
+                    "options.novel_id",
                     "str(novel_id)",
                 }
             ):

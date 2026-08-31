@@ -8,7 +8,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from itertools import combinations
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -72,6 +72,9 @@ from modules.writing.facade import (
     list_effective_chapter_indices,
 )
 from shared.utils import parse_uuid
+
+if TYPE_CHECKING:
+    from modules.evidence.contracts import ConfirmedAIActionContext
 
 HEALTH_DEFS = {
     "unreviewed": "未复核",
@@ -1591,9 +1594,12 @@ class SceneWorkbenchService:
         *,
         llm_execution_snapshot: dict[str, Any] | None = None,
         task_mode: bool = False,
+        confirmed_context: ConfirmedAIActionContext | None = None,
     ) -> SceneFusionPreviewResponse:
         if not data.primary_scene_id:
             raise ValueError("primary_scene_id is required for AI Scene fusion preview")
+        if confirmed_context is not None:
+            self._require_confirmed_fusion_sources(confirmed_context, data)
         sources = await self._load_fusion_scenes(db, novel_id, data.source_scene_ids)
         source_fingerprint = self._suggestion_source_fingerprint(sources)
         review_sources = [
@@ -1634,6 +1640,7 @@ class SceneWorkbenchService:
             deterministic_draft=deterministic_draft,
             llm_execution_snapshot=llm_execution_snapshot,
             allow_degraded=not task_mode,
+            confirmed_context=confirmed_context,
         )
         if task_mode:
             from modules.project.facade import require_active_project
@@ -1713,6 +1720,23 @@ class SceneWorkbenchService:
             fused_scene=draft,
             preview_scene=draft,
         )
+
+    @staticmethod
+    def _require_confirmed_fusion_sources(
+        confirmed_context: ConfirmedAIActionContext,
+        data: SceneFusionPreviewRequest,
+    ) -> None:
+        pinned_scene_ids = {
+            str(target.get("target_id") or "")
+            for ref in confirmed_context.compile_options.get("pinned_refs") or []
+            if isinstance(ref, dict)
+            for target in [ref.get("target_ref") or {}]
+            if ref.get("kind") == "target"
+            and target.get("target_type") in {"scene", "outline_scene"}
+            and target.get("target_id")
+        }
+        if pinned_scene_ids != set(data.source_scene_ids):
+            raise ValueError("confirmed Scene fusion source selection changed")
 
     async def save_llm_fusion(
         self,

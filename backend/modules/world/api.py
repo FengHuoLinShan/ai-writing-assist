@@ -446,6 +446,45 @@ def _template_version_conflict(exc: TemplateVersionConflictError) -> HTTPExcepti
 # ============================================================
 
 
+async def _require_generation_confirmation(db: DbSession, data, action: str) -> None:
+    if not data.context_confirmation_id:
+        raise HTTPException(status_code=400, detail="context_confirmation_id is required")
+    try:
+        await require_fresh_confirmation(
+            db,
+            novel_id=data.novel_id,
+            action=action,
+            confirmation_id=data.context_confirmation_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+async def _attach_manual_context_result(db: DbSession, data, result) -> None:
+    confirmation_id = getattr(data, "context_confirmation_id", None)
+    if not confirmation_id:
+        return
+    usage = getattr(result, "context_usage", None)
+    result_type = "context_snapshot"
+    result_id = getattr(usage, "context_snapshot_id", None)
+    if not result_id:
+        result_id = getattr(result, "context_snapshot_id", None)
+    if not result_id:
+        suggestion = getattr(getattr(result, "result", None), "suggestion", None)
+        result_id = getattr(suggestion, "id", None)
+        result_type = "creation_suggestion"
+    if not result_id:
+        return
+    await attach_result_ref(
+        db,
+        novel_id=data.novel_id,
+        confirmation_id=confirmation_id,
+        result_type=result_type,
+        result_id=str(result_id),
+        status="completed",
+    )
+
+
 @router.post(
     "/generation-center/chat",
     response_model=WorldGenerationChatResponse,
@@ -456,8 +495,11 @@ async def chat_world_generation_center(
 ) -> WorldGenerationChatResponse:
     """World co-creation chat; never writes a business asset or suggestion."""
     await require_active_project(db, data.novel_id)
+    await _require_generation_confirmation(db, data, "world.generation.chat")
     try:
-        return await _world_generation_service.chat(db, data)
+        result = await _world_generation_service.chat(db, data)
+        await _attach_manual_context_result(db, data, result)
+        return result
     except TemplateVersionConflictError as exc:
         raise _template_version_conflict(exc) from exc
     except ConflictError as exc:
@@ -474,8 +516,11 @@ async def converge_world_generation_center(
 ) -> WorldGenerationConvergenceResponse:
     """Read-only convergence over the author-selected source window."""
     await require_active_project(db, data.novel_id)
+    await _require_generation_confirmation(db, data, "world.generation.convergence")
     try:
-        return await _world_generation_service.converge(db, data)
+        result = await _world_generation_service.converge(db, data)
+        await _attach_manual_context_result(db, data, result)
+        return result
     except TemplateVersionConflictError as exc:
         raise _template_version_conflict(exc) from exc
     except ConflictError as exc:
@@ -492,8 +537,11 @@ async def explore_world_generation_center(
 ) -> WorldGenerationExplorationResponse:
     """Return at most three read-only, one-hop world gaps."""
     await require_active_project(db, data.novel_id)
+    await _require_generation_confirmation(db, data, "world.generation.exploration")
     try:
-        return await _world_generation_service.explore(db, data)
+        result = await _world_generation_service.explore(db, data)
+        await _attach_manual_context_result(db, data, result)
+        return result
     except TemplateVersionConflictError as exc:
         raise _template_version_conflict(exc) from exc
     except ConflictError as exc:
@@ -510,8 +558,15 @@ async def inspect_world_generation_center_page(
 ) -> WorldGenerationSemanticInspectionResponse:
     """Inspect one exact current page; findings remain author-reviewable."""
     await require_active_project(db, data.novel_id)
+    await _require_generation_confirmation(
+        db,
+        data,
+        "world.generation.semantic_inspection",
+    )
     try:
-        return await _world_generation_service.inspect_current_page(db, data)
+        result = await _world_generation_service.inspect_current_page(db, data)
+        await _attach_manual_context_result(db, data, result)
+        return result
     except TemplateVersionConflictError as exc:
         raise _template_version_conflict(exc) from exc
     except ConflictError as exc:
@@ -525,8 +580,11 @@ async def ask_world(
 ) -> AskWorldResponse:
     """Answer from current author-visible evidence without writing assets."""
     await require_active_project(db, data.novel_id)
+    await _require_generation_confirmation(db, data, "world.ask")
     try:
-        return await _ask_world_service.ask(db, data)
+        result = await _ask_world_service.ask(db, data)
+        await _attach_manual_context_result(db, data, result)
+        return result
     except ConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -573,8 +631,16 @@ async def generate_world_suggestion(
 ) -> WorldGenerationSuggestionResponse:
     """Generate one typed, pending suggestion for the author-selected target."""
     await require_active_project(db, data.novel_id)
+    action = (
+        "world.generation.core_entity"
+        if getattr(data.target, "kind", "") == "core_entity"
+        else "world.generation.world_bible_page"
+    )
+    await _require_generation_confirmation(db, data, action)
     try:
-        return await _world_generation_service.generate_suggestion(db, data)
+        result = await _world_generation_service.generate_suggestion(db, data)
+        await _attach_manual_context_result(db, data, result)
+        return result
     except TemplateVersionConflictError as exc:
         raise _template_version_conflict(exc) from exc
     except ConflictError as exc:
@@ -591,6 +657,12 @@ async def enqueue_world_suggestion(
     data: WorldGenerationSuggestionTaskRequest,
 ) -> WorldGenerationTaskResponse:
     await require_active_project(db, data.novel_id)
+    action = (
+        "world.generation.core_entity"
+        if getattr(data.target, "kind", "") == "core_entity"
+        else "world.generation.world_bible_page"
+    )
+    await _require_generation_confirmation(db, data, action)
     payload = data.model_dump(mode="json", exclude={"operation_id"})
     try:
         existing = await get_operation_task(
@@ -623,6 +695,15 @@ async def enqueue_world_suggestion(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     await db.flush()
+    if not receipt.reused and data.context_confirmation_id:
+        await attach_result_ref(
+            db,
+            novel_id=data.novel_id,
+            confirmation_id=data.context_confirmation_id,
+            result_type="task",
+            result_id=receipt.task_id,
+            status="running",
+        )
     return WorldGenerationTaskResponse(
         task_id=receipt.task_id,
         status=receipt.status,
@@ -1093,10 +1174,36 @@ async def create_world_validation_run(
     data: WorldValidationRunCreate,
 ) -> WorldValidationRunResponse:
     await _require_active_project_exclusive(db, data.novel_id)
+    policy = await _world_validation_service.policy_status(db, data.novel_id)
+    if policy.semantic_enabled:
+        if not data.context_confirmation_id:
+            raise HTTPException(
+                status_code=400,
+                detail="context_confirmation_id is required",
+            )
+        try:
+            await require_fresh_confirmation(
+                db,
+                novel_id=data.novel_id,
+                action="world.validation.semantic",
+                confirmation_id=data.context_confirmation_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
-        return await _world_validation_service.create_run(db, data)
+        result = await _world_validation_service.create_run(db, data)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if data.context_confirmation_id and result.task_id:
+        await attach_result_ref(
+            db,
+            novel_id=data.novel_id,
+            confirmation_id=data.context_confirmation_id,
+            result_type="task",
+            result_id=result.task_id,
+            status="running",
+        )
+    return result
 
 
 @router.get(
@@ -1325,13 +1432,37 @@ async def refresh_bible_synopsis(
     db: DbSession,
     *,
     novel_id: ActiveNovelIdQuery,
+    context_confirmation_id: str | None = Query(default=None, max_length=128),
 ) -> WorldBibleSynopsisRefreshResponse:
+    if not context_confirmation_id:
+        raise HTTPException(status_code=400, detail="context_confirmation_id is required")
+    try:
+        await require_fresh_confirmation(
+            db,
+            novel_id=novel_id,
+            action="world.world_bible.synopsis.refresh",
+            confirmation_id=context_confirmation_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     (
         task_id,
         status,
         existing,
         source_hash,
-    ) = await _bible_synopsis_service.request_refresh(db, novel_id)
+    ) = await _bible_synopsis_service.request_refresh(
+        db,
+        novel_id,
+        context_confirmation_id=context_confirmation_id,
+    )
+    await attach_result_ref(
+        db,
+        novel_id=novel_id,
+        confirmation_id=context_confirmation_id,
+        result_type="task",
+        result_id=task_id,
+        status="running",
+    )
     return WorldBibleSynopsisRefreshResponse(
         task_id=task_id,
         status=status,
@@ -2240,6 +2371,17 @@ async def create_entity_fusion_suggestions(
     data: EntityFusionSuggestionRequest,
 ) -> EntityFusionSuggestionResponse:
     await require_active_project(db, data.novel_id)
+    if not data.context_confirmation_id:
+        raise HTTPException(status_code=400, detail="context_confirmation_id is required")
+    try:
+        await require_fresh_confirmation(
+            db,
+            novel_id=data.novel_id,
+            action="world.entity_fusion.suggest",
+            confirmation_id=data.context_confirmation_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     payload = data.model_dump(mode="json", exclude_none=True, exclude={"operation_id"})
     try:
         existing = await get_operation_task(
@@ -2267,6 +2409,15 @@ async def create_entity_fusion_suggestions(
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not receipt.reused:
+        await attach_result_ref(
+            db,
+            novel_id=data.novel_id,
+            confirmation_id=data.context_confirmation_id,
+            result_type="task",
+            result_id=receipt.task_id,
+            status="running",
+        )
     await db.flush()
     return EntityFusionSuggestionResponse(
         task_id=receipt.task_id,

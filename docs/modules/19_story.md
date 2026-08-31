@@ -48,8 +48,8 @@ Story baseline 只计算一次，再在内存派生排除当前脚本的 basis h
 
 ## AI、来源与用户控制
 
-普通任务只返回严格 Pydantic 预览。独立任务使用作者确认的 Context；one-click 自动编译
-Context 并创建 snapshot，只有显式 `submit_authorized` 时才可将缺失或 source hash 已变化的
+普通任务只返回严格 Pydantic 预览。人物卡、反应、剧本和 one-click 均使用作者确认的
+Scene Context；worker 执行前重编译并比较通用指纹，只有显式 `submit_authorized` 时才可将缺失或 source hash 已变化的
 人物卡写成带来源的 revision。反应、剧本、World、Memory、Writing 不会被这一步静默写入。
 手工 apply 如携带 `source_task_id`/`context_snapshot_id`，必须指向同一小说、同一 Story action
 的已完成任务，且 snapshot 与任务 result 一致；CAS 冲突返回 409 和当前 novel-scoped read
@@ -58,3 +58,10 @@ model，便于作者另存或重新应用。
 目标画像是长期创作的专业或业余作家（产品假设）：用户会喜欢它，因为回到 Scene 时不用
 重新拼接人物状态和剧本，且 AI 不会越权覆盖正史。前端验收应覆盖空态、长任务离开/恢复、
 冲突、采用/撤换采用、保存反馈和窄屏；真实采用率与撤销率仍需上线后验证。
+
+故事总览生成同样要求 action=`outline.story_outline.generate` 的 confirmation。作者意图、预计
+篇幅与规划范围在检索前作为不可排除目标进入 Context；显式人物/对象选择必须与 confirmation
+的 compile options 一致。StoryOutline 的领域背景可以补充执行资料，但自动页面、人物和对象
+只从确认后的实际 selected assets 中选取，并把确认 Markdown 与通用指纹写入任务 provenance。
+Scene 融合的请求 Scene 集合还必须与 confirmation 中的 pinned Scene 引用完全一致；provider
+只接收重新物化的 confirmed Markdown，不再旁路加载完整 World/Outline 资料。

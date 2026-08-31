@@ -336,6 +336,20 @@ async def compile_with_tiers(
     scene_id: str | None = None,
     **kwargs,
 ) -> CompiledContext:
+    kwargs.setdefault("requested_chapter_index", kwargs.get("chapter_index"))
+    consumer_action = kwargs.get("consumer_action")
+    if consumer_action and kwargs.get("retrieval_purpose", "generic_context") == (
+        "generic_context"
+    ):
+        from modules.evidence.compilation.services.confirmation_service import (
+            resolve_retrieval_purpose,
+        )
+
+        kwargs["retrieval_purpose"] = resolve_retrieval_purpose(
+            consumer_action,
+            "generic_context",
+            reveal_mode=kwargs.get("reveal_mode", "author_safe"),
+        )
     options = CompileOptions(
         novel_id=novel_id,
         task=task,
@@ -388,6 +402,7 @@ async def compile_generation_background(
     entity_ids: list[str] | None = None,
     source_snapshot: dict | None = None,
     capture_snapshot: bool = True,
+    context_confirmation_id: str | None = None,
 ) -> dict:
     """Compile the actual author-only background consumed by generation center."""
     return await _generation_background_service.compile(
@@ -410,6 +425,7 @@ async def compile_generation_background(
             entity_ids=tuple(entity_ids) if entity_ids is not None else None,
             source_snapshot=dict(source_snapshot or {}),
             capture_snapshot=capture_snapshot,
+            context_confirmation_id=context_confirmation_id,
         ),
     )
 
@@ -634,12 +650,15 @@ async def confirm_context(
     content_mode: str = "canonical",
     include_pending_objects: bool = False,
     excluded_asset_ids: dict[str, list[str]] | None = None,
+    pinned_refs: list[dict] | None = None,
+    excluded_refs: list[dict] | None = None,
     user_note: str | None = None,
     retrieval_purpose: str = "generic_context",
     include_world_synopsis: bool = False,
     selected_world_bible_draft_ids: list[str] | None = None,
     activation_profile_id: str | None = None,
     activation_profile_version: int | None = None,
+    expected_context_fingerprint: str | None = None,
 ) -> ContextConfirmationContract:
     return await _confirmation_service.confirm_context(
         db,
@@ -666,11 +685,57 @@ async def confirm_context(
         content_mode=content_mode,
         include_pending_objects=include_pending_objects,
         excluded_asset_ids=excluded_asset_ids,
+        pinned_refs=pinned_refs,
+        excluded_refs=excluded_refs,
         user_note=user_note,
         include_world_synopsis=include_world_synopsis,
         selected_world_bible_draft_ids=selected_world_bible_draft_ids,
         activation_profile_id=activation_profile_id,
         activation_profile_version=activation_profile_version,
+        expected_context_fingerprint=expected_context_fingerprint,
+    )
+
+
+async def propose_context_selection(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    action: str,
+    task: str,
+    scope: str,
+    instruction: str,
+    current_context_fingerprint: str,
+    budget_tokens: int = 4000,
+    scene_id: str | None = None,
+    **kwargs,
+) -> dict:
+    from modules.evidence.compilation.services.confirmation_service import (
+        resolve_retrieval_purpose,
+    )
+    from modules.evidence.compilation.services.selection_proposal import (
+        ContextSelectionProposalService,
+    )
+
+    kwargs["consumer_action"] = action
+    kwargs["retrieval_purpose"] = resolve_retrieval_purpose(
+        action,
+        "generic_context",
+        reveal_mode=kwargs.get("reveal_mode", "author_safe"),
+    )
+    kwargs.setdefault("requested_chapter_index", kwargs.get("chapter_index"))
+    options = CompileOptions(
+        novel_id=novel_id,
+        task=task,
+        scope=scope,
+        scene_id=scene_id,
+        budget_tokens=budget_tokens,
+        **kwargs,
+    )
+    return await ContextSelectionProposalService().propose(
+        db,
+        options=options,
+        instruction=instruction,
+        current_context_fingerprint=current_context_fingerprint,
     )
 
 

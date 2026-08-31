@@ -15,7 +15,7 @@ evidence 是小说证据的唯一领域实现：indexing 子域负责 chunk、�
 - `context_snapshots` facade：自动 AI 流水线的上下文快照审计记录
 - `load_scene_lens()`：写作台显式点击后读取单个 Scene 的 POV 可见资料与已有时点状态
 
-`compile_with_tiers()` 不只是生成最终 Markdown。它先生成可审查的 `CompiledContext` IR，再由 API 和前端把每个 section 的标题、状态、来源、激活原因、token 和裁剪结果展示给用户。
+`compile_with_tiers()` 不只是生成最终 Markdown。它先生成可审查的 `CompiledContext` IR，再由 API 和前端把每个 section 及其实际 `ContextItem` 的标题、状态、来源、激活原因和裁剪结果展示给用户。
 
 ## 数据与来源
 
@@ -60,6 +60,11 @@ snapshot、source manifest 与 hash，用于更新时识别来源变化。manife
 ### 2. 分层编译器
 
 `CompiledContext` 是当前主路径，按 tier 组织内容并做预算裁剪。前端的生成中心任务页、AI 参考资料确认、outline 生成等都优先使用这一层；旧 `context` hash 入口已由路由层重定向到 `generate?tab=task`。
+
+每个 section 物化为一个或多个 `ContextItem`，选择状态固定为
+`required / automatic / author_pinned / excluded / omitted`。兼容 `content/sources` 从最终 items
+重新生成；`selected_asset_ids` 与精确引用表同样只记录预算后实际保留的 items。required 与
+author_pinned 合计超预算时返回 blocker，不静默删除作者手选资料。
 
 reader 视角不沿用作者 section 组装：编译器只纳入公开/已揭示世界信息、
 回读 writing 且校验 hash 的正文证据与无剧情事实的风格资产。完整 Scene 卡、
@@ -172,7 +177,7 @@ regex、随机概率或任意表达式。draft 只用于编辑和 dry-run，发�
 保存命中/阻断、展开来源、source hash、预算前后 token 和排除原因；confirmation/snapshot
 固定实际 profile version、rule hash、来源 hash 与纳入目标 hash，确保回放和失效诊断。
 
-手动 AI 操作在 world / outline / writing / generate 等入口发起前，可先创建确认记录：
+手动 AI 操作在 world / outline / writing / Story 等入口发起前统一先预览再创建确认记录：
 
 - `confirm_context()`：编译并落一条 `context_confirmations`
 - `require_confirmation()`：校验 action / novel_id / confirmation_id 是否匹配
@@ -192,7 +197,10 @@ regex、随机概率或任意表达式。draft 只用于编辑和 dry-run，发�
 - `include_world_synopsis`：是否加入只供作者的 P1 世界观简介，默认关闭
 - `selected_world_bible_draft_ids`：显式选中的世界书工作稿，放入独立 `working` section
 
-确认弹窗展示的是结构化参考资料清单，不展示 raw Markdown textarea，也不允许用户直接编辑最终 prompt。用户确认的是“本次 AI 调用可参考哪些 section、哪些 section 被裁剪、哪些来源被激活”，不是直接确认一段 prompt 文本。
+确认弹窗展示结构化 items，不展示 raw Markdown textarea，也不允许用户直接编辑最终 prompt。
+`POST /compile`、搜索、AI 调整提议与取消均不落 confirmation；`POST /confirm` 携带预览指纹，
+服务端重编译一致后只写一条。worker 通过 `prepare_confirmed_ai_action()` 第三次物化，比较
+`compile_options.compiled_context_fingerprint` 后才可调用 provider。
 
 character 模式下，前端完整展示 `role_visible_knowledge`，并把它与 `director_only` 等
 “仅供作者约束”的 section 分组。作者可从确认弹窗打开既有的人物知识管理器修正检查点；
@@ -202,7 +210,7 @@ character 模式下，前端完整展示 `role_visible_knowledge`，并把它与
 已采用对象；开启时额外取 review 对象但始终排除历史，并在编译结果中加入“包含未采用的
 世界对象”警告。context confirmation 和 snapshot 是调用审计，不表示建议已被采用。
 
-`POST /api/evidence/compilation/confirm` 会落库一条 `context_confirmations`，并在响应中返回本次编译的 `sections` 和 `budget_events` 供前端展示。这些展示详情不持久化；持久化仍只保存 `selected_asset_ids`、`compile_options`、`warnings`、`result_refs`、`stale_reasons` 等摘要。
+`POST /api/evidence/compilation/confirm` 会落库一条 `context_confirmations`，并在响应中返回本次编译的 `sections/items`、`selection_state`、`context_fingerprint` 和 `budget_events`。展示详情不持久化；持久化仍只保存 `selected_asset_ids`、`compile_options`、`warnings`、`result_refs`、`stale_reasons` 等摘要。
 其中 `compile_options.chapter_index` 是实际检索锚点，而 `requested_chapter_index` 是作者确认的
 目标章节；两者在普通单章确认中相同。跨章 Scene 使用末章提高相关性时，必须保留后者，避免
 writing 将同一确认错误复用于锚点章节。
@@ -226,7 +234,9 @@ V1 复用 `excluded_asset_ids`，新增约定：
 - `manual` 保留给既有“排除资产 ID”输入。
 - P0 section 不可排除。尝试排除 `writing_objective`、`scene_blueprint` 或硬约束类 section 时，后端忽略并返回 `核心参考资料不可排除：<key>` warning。
 - `selected_asset_ids.context_sections` 记录最终参与编译且未被排除的 section key。
-- V1 只做 section 级控制，不做 item/entity 级事实编辑；实体、人物、地点级控制继续走既有 ID 参数。
+- section 排除保留为兼容 seam；新审查台使用 `pinned_refs/excluded_refs` 逐项操作 TargetRef 或
+  SourceRangeRef。服务端重新校验 owner、`novel_id`、版本/hash、可见性和 Scene 截止，浏览器
+  不提交正文。`POST /selection-proposals` 只返回候选短键 patch，作者应用后才重新编译。
 
 ## 自动上下文快照
 
