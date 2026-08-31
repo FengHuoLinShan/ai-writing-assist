@@ -244,6 +244,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import { getApi, getConfirm, getRouter, getToast } from "../../bridge/index.js"
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
+import { confirmAiReference } from "../../../shared/aiReferenceModal.js"
 
 const props = defineProps({ projectId: { type: String, default: null } })
 const api = getApi()
@@ -490,11 +491,21 @@ async function startRun(fullRebuild) {
   dataEpoch += 1
   busy.value = true; clearError(); tab.value = "review"
   try {
-    currentRun.value = await api.world.createMapAtlasRun(props.projectId, { ...options, style_note: options.style_note || null, full_rebuild: fullRebuild })
+    const confirmation = await confirmAiReference({
+      novel_id: props.projectId,
+      action: "world.map_atlas.generate",
+      task: "规划 AI 地图册",
+      scope: "full",
+      include_world_synopsis: true,
+      include_pending_objects: false,
+      user_note: options.style_note || "",
+      budget_tokens: 12000,
+    })
+    currentRun.value = await api.world.createMapAtlasRun(props.projectId, { ...options, style_note: options.style_note || null, full_rebuild: fullRebuild, context_confirmation_id: confirmation.id })
     latestRunId.value = currentRun.value.id
     review.value = { mode: "review", run: currentRun.value, nodes: [], total_pages: 0 }
     schedulePoll(); toast("地图册任务已开始", "success")
-  } catch (err) { setError(err) } finally { busy.value = false }
+  } catch (err) { if (err?.message !== "已取消 AI 参考资料确认") setError(err) } finally { busy.value = false }
 }
 
 async function loadPrompts() {

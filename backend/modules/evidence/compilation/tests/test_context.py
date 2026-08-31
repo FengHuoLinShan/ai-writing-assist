@@ -2373,6 +2373,85 @@ class TestContextConfirmation:
         assert confirmation is not None
         assert confirmation.compile_options["chapter_index"] == 1
         assert confirmation.compile_options["requested_chapter_index"] == 1
+        assert confirmation.compile_options["compiled_context_fingerprint"] == data[
+            "context_fingerprint"
+        ]
+
+    @pytest.mark.asyncio
+    async def test_preview_does_not_persist_and_final_confirm_binds_same_fingerprint(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        from modules.evidence.compilation.models import ContextConfirmation
+
+        novel_id = "00000000-0000-0000-0000-00000000a0b1"
+        await _add_active_project(db_session, novel_id)
+        payload = {
+            "novel_id": novel_id,
+            "action": "writing.generate",
+            "task": "续写雨夜追逐",
+            "scope": "chapter",
+            "chapter_index": 1,
+            "user_note": "保持沈岚的有限认知",
+        }
+
+        preview_response = await async_client.post(
+            "/api/evidence/compilation/compile",
+            json=payload,
+        )
+
+        assert preview_response.status_code == 200, preview_response.text
+        preview_data = preview_response.json()
+        assert len(preview_data["context_fingerprint"]) == 64
+        assert preview_data["selection_state"]["counts"]["required"] >= 2
+        assert (
+            await db_session.scalars(select(ContextConfirmation))
+        ).all() == []
+
+        confirm_response = await async_client.post(
+            "/api/evidence/compilation/confirm",
+            json={
+                **payload,
+                "expected_context_fingerprint": preview_data[
+                    "context_fingerprint"
+                ],
+            },
+        )
+
+        assert confirm_response.status_code == 201, confirm_response.text
+        assert (
+            confirm_response.json()["context_fingerprint"]
+            == preview_data["context_fingerprint"]
+        )
+        assert len((await db_session.scalars(select(ContextConfirmation))).all()) == 1
+
+    @pytest.mark.asyncio
+    async def test_stale_preview_fingerprint_returns_conflict_without_confirmation(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        from modules.evidence.compilation.models import ContextConfirmation
+
+        novel_id = "00000000-0000-0000-0000-00000000a0b2"
+        await _add_active_project(db_session, novel_id)
+        response = await async_client.post(
+            "/api/evidence/compilation/confirm",
+            json={
+                "novel_id": novel_id,
+                "action": "writing.generate",
+                "task": "生成正文",
+                "scope": "project",
+                "expected_context_fingerprint": "0" * 64,
+            },
+        )
+
+        assert response.status_code == 409, response.text
+        assert "context_preview_changed" in response.text
+        assert (
+            await db_session.scalars(select(ContextConfirmation))
+        ).all() == []
 
     @pytest.mark.asyncio
     async def test_excluding_context_section_removes_non_p0_section(

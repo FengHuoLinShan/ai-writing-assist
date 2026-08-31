@@ -173,6 +173,7 @@ beforeEach(() => {
   showModalHtml = vi.fn((title, body) => { document.getElementById("modal-body").innerHTML = body })
   setBridgeOverrides({ api, state, router, toast, confirm: vi.fn(() => true), showModalHtml, closeModal: vi.fn(), esc: globalThis.esc })
   confirmAiReference.mockReset()
+  confirmAiReference.mockResolvedValue({ id: "confirm-default", user_note: "" })
 })
 
 afterEach(() => resetBridgeOverrides())
@@ -528,6 +529,7 @@ describe("GenerateView Vue behavior matrix", () => {
     expect(payload.exploration_selection).toEqual(expect.objectContaining({ depth: 1, item_id: "E2", title: "地方税契", request_fingerprint: "f".repeat(64) }))
     expect(JSON.stringify(payload.exploration_selection)).not.toContain("边境道路")
     expect(JSON.stringify(payload.exploration_selection)).not.toContain("夜航邮驿")
+    await vi.waitFor(() => expect(wrapper.find('[data-state="source-revision-created"]').exists()).toBe(true))
     expect(wrapper.get('[data-state="source-revision-created"]').text()).toContain("1 条待处理修订")
     await wrapper.get('[data-state="source-revision-created"] button').trigger("click")
     expect(router.navigate).toHaveBeenCalledWith("world", "bible", true, expect.any(URLSearchParams))
@@ -985,7 +987,7 @@ describe("GenerateView Vue behavior matrix", () => {
     button.click()
     button.click()
 
-    expect(api.generate.generateWorldSuggestion).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(api.generate.generateWorldSuggestion).toHaveBeenCalledTimes(1))
     resolveSuggestion({
       result: {
         kind: "core_entity",
@@ -1260,6 +1262,7 @@ describe("GenerateView Vue behavior matrix", () => {
     await wrapper.get("#generate-chat-input").setValue("迟到请求")
     const button = wrapper.get('[data-action="send-chat-message"]')
     await button.trigger("click")
+    await vi.waitFor(() => expect(api.generate.worldChat).toHaveBeenCalledTimes(1))
     const signal = api.generate.worldChat.mock.calls[0][1].signal
     wrapper.unmount()
     expect(signal.aborted).toBe(true)
@@ -1275,6 +1278,7 @@ describe("GenerateView Vue behavior matrix", () => {
     const wrapper = mount(GenerateView, { props: baseProps({ sessionKey: key }), attachTo: document.body })
     await wrapper.get("#generate-chat-input").setValue("刷新前的问题")
     await wrapper.get('[data-action="send-chat-message"]').trigger("click")
+    await vi.waitFor(() => expect(api.generate.worldChat).toHaveBeenCalledTimes(1))
     const signal = api.generate.worldChat.mock.calls[0][1].signal
 
     window.dispatchEvent(new Event("beforeunload"))
@@ -1312,6 +1316,7 @@ describe("GenerateView Vue behavior matrix", () => {
     const first = mount(GenerateView, { props: baseProps({ sessionKey: key }), attachTo: document.body })
     await first.get("#generate-chat-input").setValue("离开前的问题")
     await first.get('[data-action="send-chat-message"]').trigger("click")
+    await vi.waitFor(() => expect(api.generate.worldChat).toHaveBeenCalledTimes(1))
 
     expect(first.get("#generate-chat-messages").text()).toContain("正在理解你的目标")
     const interruptedSnapshot = readGenerateSession(key).messages

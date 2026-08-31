@@ -16,11 +16,14 @@ from modules.evidence.compilation.contracts import (
     CONTEXT_BUDGET,
     CompileOptions,
     StructureContextBundle,
+    VisibilityContextContract,
 )
 from modules.evidence.compilation.services.compiled_context import (
     CompiledContext,
+    ContextItem,
     ContextSection,
     Tier,
+    selection_ref_key,
 )
 from modules.evidence.compilation.services.constraint_engine import ConstraintEngine
 from modules.evidence.compilation.services.loaders import (
@@ -322,12 +325,34 @@ class ContextCompiler:
             sections,
             options.excluded_asset_ids.get("context_sections", []),
         )
+        sections = [section.materialize_items() for section in sections]
+        sections, excluded_items, item_exclusion_warnings = (
+            self._apply_item_exclusions(
+                sections,
+                options.excluded_refs,
+                pinned_refs=options.pinned_refs,
+            )
+        )
+        sections, pin_warnings, pin_blockers = await self._apply_pinned_refs(
+            db,
+            sections,
+            options,
+        )
         warnings = [
             *bundle.warnings,
             *activation_warnings,
             *exclusion_warnings,
+            *item_exclusion_warnings,
+            *pin_warnings,
         ]
         total = sum(s.token_count for s in sections)
+        selection_trace = dict(bundle.selection_trace)
+        selection_trace["effective_range"] = {
+            "chapter_from": options.requested_chapter_index or options.chapter_index,
+            "chapter_to": options.visible_until_chapter,
+            "effective_chapter": options.chapter_index,
+            "scene_id": options.scene_id,
+        }
         ctx = CompiledContext(
             sections=sections,
             total_tokens=total,
@@ -335,12 +360,222 @@ class ContextCompiler:
             compiled_at=datetime.now(UTC).replace(tzinfo=None).isoformat(),
             warnings=warnings,
             activation_trace=activation_trace,
-            selection_trace=dict(bundle.selection_trace),
+            selection_trace=selection_trace,
+            excluded_items=excluded_items,
+            blockers=pin_blockers,
         )
         compiled = ctx.enforce_budget()
         if activation_trace:
             self._apply_global_activation_budget_trace(compiled)
         return compiled
+
+    @staticmethod
+    def _apply_item_exclusions(
+        sections: list[ContextSection],
+        excluded_refs: list[dict],
+        *,
+        pinned_refs: list[dict],
+    ) -> tuple[list[ContextSection], list[ContextItem], list[str]]:
+        pinned_keys = {selection_ref_key(item) for item in pinned_refs}
+        excluded_keys = {
+            selection_ref_key(item) for item in excluded_refs
+        } - pinned_keys
+        excluded_keys.discard("")
+        if not excluded_keys:
+            return sections, [], []
+
+        kept_sections: list[ContextSection] = []
+        excluded_items: list[ContextItem] = []
+        warnings: list[str] = []
+        for section in sections:
+            kept_items: list[ContextItem] = []
+            for item in section.items:
+                if selection_ref_key(item.selection_ref) not in excluded_keys:
+                    kept_items.append(item)
+                    continue
+                if not item.can_exclude or item.selection_state == "required":
+                    title = item.title or section.title
+                    warnings.append(f"核心参考资料不可排除：{title}")
+                    kept_items.append(item)
+                    continue
+                excluded_items.append(
+                    item.model_copy(
+                        update={
+                            "selection_state": "excluded",
+                            "omission_reason": "作者选择本次不使用",
+                        }
+                    )
+                )
+            if kept_items:
+                kept_sections.append(
+                    CompiledContext._section_with_items(section, kept_items)
+                )
+        return kept_sections, excluded_items, warnings
+
+    async def _apply_pinned_refs(
+        self,
+        db: AsyncSession,
+        sections: list[ContextSection],
+        options: CompileOptions,
+    ) -> tuple[list[ContextSection], list[str], list[str]]:
+        pinned_by_key = {
+            selection_ref_key(item): item
+            for item in options.pinned_refs
+            if selection_ref_key(item)
+        }
+        if not pinned_by_key:
+            return sections, [], []
+
+        pinned_items: list[ContextItem] = []
+        kept_sections: list[ContextSection] = []
+        for section in sections:
+            kept: list[ContextItem] = []
+            for item in section.items:
+                if selection_ref_key(item.selection_ref) in pinned_by_key:
+                    pinned_items.append(
+                        item.model_copy(
+                            update={
+                                "selection_state": "author_pinned",
+                                "can_exclude": True,
+                            }
+                        )
+                    )
+                    pinned_by_key.pop(selection_ref_key(item.selection_ref), None)
+                else:
+                    kept.append(item)
+            if kept:
+                kept_sections.append(CompiledContext._section_with_items(section, kept))
+
+        warnings: list[str] = []
+        blockers: list[str] = []
+        for selection_ref in pinned_by_key.values():
+            try:
+                item = await self._load_pinned_item(db, options, selection_ref)
+            except Exception:
+                item = None
+            if item is None:
+                blockers.append("有一项作者添加资料已不可用，请移除后重新整理")
+                continue
+            pinned_items.append(item)
+
+        if pinned_items:
+            pinned_content = "\n".join(item.content for item in pinned_items)
+            kept_sections.insert(
+                1 if kept_sections and kept_sections[0].tier == Tier.P0 else 0,
+                ContextSection(
+                    key="author_pinned_material",
+                    tier=Tier.P1,
+                    content=pinned_content,
+                    token_count=estimate_token_count(pinned_content),
+                    truncatable_per_item=True,
+                    title="我添加的资料",
+                    preview=pinned_items[0].preview,
+                    status="mixed",
+                    activation_reason="作者为本次任务显式加入",
+                    sources=[item.source for item in pinned_items if item.source],
+                    can_exclude=True,
+                    items=pinned_items,
+                ),
+            )
+        return kept_sections, warnings, blockers
+
+    @staticmethod
+    async def _load_pinned_item(
+        db: AsyncSession,
+        options: CompileOptions,
+        selection_ref: dict,
+    ) -> ContextItem | None:
+        from modules.evidence.compilation.novel_evidence import NovelEvidenceService
+        from modules.writing.contracts import SourceRangeRefContract
+
+        visibility = VisibilityContextContract(
+            mode=(
+                options.reveal_mode
+                if options.reveal_mode in {"reader", "character"}
+                else "author"
+            ),
+            cutoff_chapter=options.visible_until_chapter or options.chapter_index,
+            cutoff_scene_id=options.visible_until_scene_id,
+            cutoff_offset=options.visible_until_offset,
+            character_id=options.viewpoint_character_id,
+        )
+        evidence = NovelEvidenceService()
+        kind = selection_ref.get("kind")
+        if kind == "source_range":
+            source_ref = dict(selection_ref.get("source_ref") or {})
+            if source_ref.get("content_mode") != options.content_mode:
+                return None
+            read = await evidence.read(
+                db,
+                novel_id=options.novel_id,
+                source_ref=SourceRangeRefContract(**source_ref),
+                visibility=visibility,
+                before=0,
+                after=0,
+            )
+            text = str(read.get("text") or "").strip()
+            if not text:
+                return None
+            title = str(read.get("title") or f"第 {source_ref['chapter_index']} 章正文")
+            content = (
+                "<AUTHOR_PINNED_SOURCE_DATA>\n"
+                f"{text}\n"
+                "</AUTHOR_PINNED_SOURCE_DATA>"
+            )
+            source = {
+                "type": "writing_draft",
+                "id": str(source_ref["draft_id"]),
+                "label": title,
+                "status": options.content_mode,
+                "source_ref": source_ref,
+                "source_hash": source_ref.get("source_hash"),
+            }
+        elif kind == "target":
+            target_ref = dict(selection_ref.get("target_ref") or {})
+            inspected = await evidence.inspect(
+                db,
+                novel_id=options.novel_id,
+                target_ref=target_ref,
+                content_mode=options.content_mode,
+                visibility=visibility,
+            )
+            value = inspected.get("item") if inspected.get("visible") else None
+            if not isinstance(value, dict):
+                return None
+            title = str(
+                value.get("name")
+                or value.get("title")
+                or value.get("summary")
+                or "作者添加资料"
+            )[:80]
+            serialized = json.dumps(value, ensure_ascii=False, sort_keys=True)
+            content = (
+                "<AUTHOR_PINNED_TARGET_DATA>\n"
+                f"{serialized}\n"
+                "</AUTHOR_PINNED_TARGET_DATA>"
+            )
+            source = {
+                "type": str(target_ref.get("target_type") or "target"),
+                "id": str(target_ref.get("target_id") or ""),
+                "label": title,
+                "status": options.context_mode,
+                "target_ref": target_ref,
+            }
+        else:
+            return None
+        return ContextItem(
+            key=f"author_pinned:{selection_ref_key(selection_ref)}",
+            content=content,
+            token_count=estimate_token_count(content),
+            title=title,
+            preview=(text if kind == "source_range" else serialized)[:160],
+            status=options.context_mode,
+            activation_reason="作者为本次任务显式加入",
+            source=source,
+            selection_ref=selection_ref,
+            selection_state="author_pinned",
+            can_exclude=True,
+        )
 
     @staticmethod
     def _apply_scene_chapter_anchor(
@@ -578,6 +813,30 @@ class ContextCompiler:
                 )
             )
 
+        if options is not None and str(options.user_note or "").strip():
+            user_note = str(options.user_note).strip()
+            sections.append(
+                ContextSection(
+                    key="author_task_note",
+                    tier=Tier.P0,
+                    content=user_note,
+                    token_count=estimate_token_count(user_note),
+                    title="作者补充要求",
+                    preview=user_note[:160],
+                    status="system",
+                    activation_reason="作者为本次任务补充的明确要求",
+                    sources=[
+                        {
+                            "type": "task",
+                            "id": "author_task_note",
+                            "label": "作者补充要求",
+                            "status": "system",
+                        }
+                    ],
+                    can_exclude=False,
+                )
+            )
+
         if bundle.outline_analysis and (
             options is None or options.reveal_mode in {"author_safe", "author_full"}
         ):
@@ -729,9 +988,28 @@ class ContextCompiler:
                         160
                         if options
                         and options.consumer_action == "world.map_atlas.generate"
+                        else 240
+                        if options
+                        and options.consumer_action
+                        in {
+                            "world.validation.semantic",
+                            "world.world_bible.synopsis.refresh",
+                        }
+                        else 200
+                        if options
+                        and options.consumer_action == "world.entity_fusion.suggest"
                         else 16
                     ),
-                    title="相关世界对象",
+                    title=(
+                        "世界书与世界资料"
+                        if options
+                        and options.consumer_action
+                        in {
+                            "world.validation.semantic",
+                            "world.world_bible.synopsis.refresh",
+                        }
+                        else "相关世界对象"
+                    ),
                     preview=content[:160],
                     status=options.context_mode if options else "canonical",
                     activation_reason="作者显式选择及 Scene、剧情线、检索证据关联",

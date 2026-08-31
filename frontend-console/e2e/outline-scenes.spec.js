@@ -584,6 +584,10 @@ test.describe("Outline View — 场景工作台", () => {
     await form.locator("#story-outline-planned-scale").fill("30 万字长篇")
     await form.locator("#story-outline-coverage").fill("覆盖全书，先细化第一部")
     await page.getByRole("button", { name: "开始生成预览" }).click()
+    await expect(page.locator(SEL.modalTitle)).toContainText("AI 参考资料")
+    const start = page.getByRole("button", { name: "按这份资料开始" })
+    await expect(start).toBeEnabled()
+    await start.click()
 
     const preview = page.locator(".story-outline-preview")
     await expect(preview.getByRole("heading", { name: "检查 AI 建议" })).toBeVisible()
@@ -595,6 +599,7 @@ test.describe("Outline View — 场景工作台", () => {
       coverage: "覆盖全书，先细化第一部",
       selected_character_ids: [],
       selected_entity_ids: [],
+      context_confirmation_id: expect.any(String),
       include_current_outline: false,
       operation_id: expect.any(String),
     }))

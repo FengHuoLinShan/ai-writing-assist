@@ -288,11 +288,12 @@ class StoryCardTaskRequest(StorySchema):
 
 
 class StoryOneClickTaskRequest(StorySchema):
-    """One-click simulation owns its compiler/snapshot; no manual confirmation row."""
+    """One-click simulation consumes one author-reviewed context confirmation."""
 
     novel_id: str
     scene_id: str
     character_ids: list[str] = Field(default_factory=list, max_length=24)
+    context_confirmation_id: str = Field(min_length=1, max_length=128)
     operation_id: uuid.UUID | None = None
     additional_notes: Annotated[
         str | None, StringConstraints(strip_whitespace=True, max_length=4000)

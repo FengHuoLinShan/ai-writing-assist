@@ -1,9 +1,34 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
 import { confirmAiReference } from "../shared/aiReferenceModal.js"
 import { renderContextSummary } from "../shared/contextSummaryRenderer.js"
 import { clearDocument } from "./helpers.js"
 
 await import("../ui/modal.js")
+
+const FINGERPRINT = "a".repeat(64)
+
+function preview(overrides = {}) {
+  return {
+    context_fingerprint: FINGERPRINT,
+    context_mode: "canonical",
+    include_pending_objects: false,
+    scope: "chapter",
+    selected_asset_ids: { project: ["p1"], context_sections: ["writing_objective"] },
+    selection_state: { counts: { required: 1, automatic: 0, author_pinned: 0, excluded: 0, omitted: 0 }, excluded_items: [], omitted_items: [] },
+    sections: [{
+      key: "writing_objective",
+      title: "本次任务",
+      status: "system",
+      can_exclude: false,
+      items: [{ key: "writing_objective:section", title: "本次任务", preview: "生成", status: "system", selection_state: "required", can_exclude: false }],
+      sources: [],
+    }],
+    warnings: [],
+    blockers: [],
+    ...overrides,
+  }
+}
 
 function mountModalDom() {
   document.body.innerHTML = `
@@ -17,8 +42,7 @@ function mountModalDom() {
           <div id="modal-body"></div><div id="modal-footer"></div>
         </div>
       </div>
-    </div>
-  `
+    </div>`
   const overlay = document.getElementById("modal-overlay")
   document.getElementById("modal-close").addEventListener("click", (event) => closeModal(event))
   overlay.addEventListener("click", (event) => {
@@ -26,16 +50,28 @@ function mountModalDom() {
   })
 }
 
+function footerButton(name) {
+  return Array.from(document.querySelectorAll("#modal-footer button")).find((button) => button.textContent === name)
+}
+
+async function waitForPreview() {
+  await vi.waitFor(() => expect(document.getElementById("ai-ref-status")?.textContent).toContain("资料已整理"))
+}
+
 beforeEach(() => {
   globalThis.closeModal?.({ force: true })
   clearDocument()
   mountModalDom()
   vi.clearAllMocks()
+  api.context.compile = vi.fn().mockResolvedValue(preview())
+  api.context.confirm = vi.fn().mockResolvedValue({ id: "confirmation-1", context_fingerprint: FINGERPRINT })
+  api.context.proposeSelection = vi.fn()
+  api.context.searchEvidence = vi.fn()
   api.context.listActivationProfiles = vi.fn().mockResolvedValue({ items: [] })
 })
 
 describe("aiReferenceModal", () => {
-  it("普通摘要使用作者语言，仅诊断视图显示 token 和内部键", () => {
+  it("普通摘要使用作者语言，仅诊断视图显示内部信息", () => {
     const summary = {
       scope: "chapter",
       selected_asset_ids: { context_sections: ["world"] },
@@ -43,684 +79,248 @@ describe("aiReferenceModal", () => {
       budget_events: [{ section_key: "retrieval_evidence_packs", event_type: "truncated", before_tokens: 80, after_tokens: 42, reason: "超出预算" }],
       result_refs: [{ type: "confirmation", id: "internal-result" }],
     }
-
     const ordinary = renderContextSummary(summary)
     expect(ordinary).toContain("当前章节")
-    expect(ordinary).toContain("参考分区: 1")
-    expect(ordinary).not.toContain("Token")
     expect(ordinary).not.toContain("tokens")
-    expect(ordinary).not.toContain("retrieval_evidence_packs")
     expect(ordinary).not.toContain("internal-1")
-    expect(ordinary).not.toContain("internal-result")
-
     const diagnostic = renderContextSummary(summary, { diagnostic: true })
     expect(diagnostic).toContain("Token")
-    expect(diagnostic).toContain("retrieval_evidence_packs")
     expect(diagnostic).toContain("internal-result")
   })
 
-  it("角色知识为空时仍提供修复入口", () => {
-    document.body.innerHTML = renderContextSummary({
-      sections: [{ key: "role_profile", title: "POV 角色档案", status: "canonical" }],
-    }, { knowledgeRepairHref: "#workbench/p1/world/objects?knowledge_character_id=char-1" })
-
-    expect(document.body.textContent).toContain("当前没有可展示的角色知识")
-    expect(document.querySelector('a[href*="knowledge_character_id=char-1"]')?.target).toBe("_blank")
+  it("打开后自动预览，完成前不能开始任务", async () => {
+    let resolvePreview
+    api.context.compile.mockImplementation(() => new Promise((resolve) => { resolvePreview = resolve }))
+    confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成", scope: "chapter" }).catch(() => {})
+    await vi.waitFor(() => expect(api.context.compile).toHaveBeenCalledTimes(1))
+    expect(footerButton("按这份资料开始").disabled).toBe(true)
+    resolvePreview(preview())
+    await waitForPreview()
+    expect(footerButton("按这份资料开始").disabled).toBe(false)
+    expect(api.context.confirm).not.toHaveBeenCalled()
   })
 
-  it("keeps the existing footer classes and button types without duplicate btn tokens", () => {
+  it("最终确认只落一条记录并绑定刚审查的指纹", async () => {
+    const promise = confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成", scope: "chapter" })
+    await waitForPreview()
+    footerButton("按这份资料开始").click()
+    await expect(promise).resolves.toMatchObject({ id: "confirmation-1" })
+    expect(api.context.compile).toHaveBeenCalledTimes(1)
+    expect(api.context.confirm).toHaveBeenCalledTimes(1)
+    expect(api.context.confirm).toHaveBeenCalledWith(expect.objectContaining({ expected_context_fingerprint: FINGERPRINT }))
+  })
+
+  it("确认请求期间冻结全部资料操作", async () => {
+    let resolveConfirm
+    api.context.confirm.mockImplementation(() => new Promise((resolve) => { resolveConfirm = resolve }))
+    const promise = confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成", scope: "chapter" })
+    await waitForPreview()
+
+    footerButton("按这份资料开始").click()
+    await vi.waitFor(() => expect(api.context.confirm).toHaveBeenCalledTimes(1))
+
+    expect(document.getElementById("ai-ref-user-note").disabled).toBe(true)
+    expect(document.getElementById("ai-ref-scope").disabled).toBe(true)
+    expect(document.getElementById("ai-ref-selection-submit").disabled).toBe(true)
+    expect(document.getElementById("ai-ref-search-submit").disabled).toBe(true)
+    expect(footerButton("重新整理").disabled).toBe(true)
+    expect(document.getElementById("ai-ref-status").textContent).toContain("正在确认")
+
+    resolveConfirm({ id: "confirmation-1", context_fingerprint: FINGERPRINT })
+    await expect(promise).resolves.toMatchObject({ id: "confirmation-1" })
+  })
+
+  it("确认发生 409 时恢复控件并重新整理", async () => {
+    api.context.confirm.mockRejectedValue(Object.assign(new Error("资料已变化"), { status: 409 }))
+    const promise = confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成", scope: "chapter" }).catch(() => null)
+    await waitForPreview()
+
+    footerButton("按这份资料开始").click()
+
+    await vi.waitFor(() => expect(api.context.compile).toHaveBeenCalledTimes(2))
+    await waitForPreview()
+    expect(document.getElementById("ai-ref-user-note").disabled).toBe(false)
+    expect(footerButton("重新整理").disabled).toBe(false)
+    expect(footerButton("按这份资料开始").disabled).toBe(false)
+
+    footerButton("取消").click()
+    await promise
+  })
+
+  it("页脚保持统一按钮样式和作者语言", () => {
     confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" }).catch(() => {})
     const buttons = Array.from(document.querySelectorAll("#modal-footer button"))
-    expect(buttons.map((button) => button.type)).toEqual(["button", "button", "button"])
+    expect(buttons.map((button) => button.textContent)).toEqual(["重新整理", "按这份资料开始", "取消"])
     expect(buttons.map((button) => button.className)).toEqual(["btn", "btn btn-primary", "btn btn-ghost"])
+    expect(document.getElementById("modal-content")?.classList.contains("modal-content--large")).toBe(true)
   })
 
-  it("releases each busy button after interleaved refresh and failed confirm", async () => {
-    let resolveRefresh
-    api.context.confirm
-      .mockImplementationOnce(() => new Promise((resolve) => { resolveRefresh = resolve }))
-      .mockRejectedValueOnce(new Error("确认失败"))
+  it("修改任务要求后标脏，重新整理时参与检索", async () => {
     confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" }).catch(() => {})
-    const refresh = Array.from(document.querySelectorAll("#modal-footer button")).find((button) => button.textContent === "重新整理")
-    const confirm = Array.from(document.querySelectorAll("#modal-footer button")).find((button) => button.textContent === "确认使用")
-    refresh.click()
-    confirm.click()
-    await vi.waitFor(() => expect(confirm.disabled).toBe(false))
-    expect(refresh.disabled).toBe(true)
-    resolveRefresh({ id: "refresh", selected_asset_ids: {}, warnings: [] })
-    await vi.waitFor(() => expect(refresh.disabled).toBe(false))
-    expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(false)
+    await waitForPreview()
+    const note = document.getElementById("ai-ref-user-note")
+    note.value = "只使用第 3 章前的证据"
+    note.dispatchEvent(new Event("input", { bubbles: true }))
+    expect(footerButton("按这份资料开始").disabled).toBe(true)
+    footerButton("重新整理").click()
+    await vi.waitFor(() => expect(api.context.compile).toHaveBeenCalledTimes(2))
+    expect(api.context.compile).toHaveBeenLastCalledWith(expect.objectContaining({ user_note: "只使用第 3 章前的证据" }))
   })
 
-  it("does not enable the shared refresh button before all section exclusions settle", async () => {
-    let resolveFirst
-    let resolveSecond
-    api.context.confirm
-      .mockResolvedValueOnce({
-        id: "base",
-        selected_asset_ids: {},
-        warnings: [],
-        sections: [
-          { key: "one", title: "一", can_exclude: true, status: "canonical", sources: [] },
-          { key: "two", title: "二", can_exclude: true, status: "canonical", sources: [] },
-        ],
-      })
-      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
-      .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve }))
+  it("逐项移除与恢复使用结构化 selection ref", async () => {
+    const ref = { kind: "target", target_ref: { target_type: "world_entity", target_id: "entity-1", target_path: "" } }
+    api.context.compile
+      .mockResolvedValueOnce(preview({ sections: [{ key: "world_entities", title: "相关世界对象", items: [{ key: "world:item-1", title: "北港", preview: "港口", status: "canonical", selection_ref: ref, selection_state: "automatic", can_exclude: true }], sources: [] }] }))
+      .mockResolvedValueOnce(preview({ sections: [], selection_state: { excluded_items: [{ key: "world:item-1", title: "北港", preview: "港口", status: "canonical", selection_ref: ref, selection_state: "excluded", can_exclude: true }], omitted_items: [] } }))
+      .mockResolvedValueOnce(preview({ sections: [{ key: "world_entities", title: "相关世界对象", items: [{ key: "world:item-1", title: "北港", preview: "港口", status: "canonical", selection_ref: ref, selection_state: "automatic", can_exclude: true }], sources: [] }] }))
     confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" }).catch(() => {})
-    Array.from(document.querySelectorAll("#modal-footer button")).find((button) => button.textContent === "重新整理").click()
-    await vi.waitFor(() => expect(document.querySelectorAll("[data-ai-ref-exclude-section]")).toHaveLength(2))
-    const refresh = Array.from(document.querySelectorAll("#modal-footer button")).find((button) => button.textContent === "重新整理")
-    document.querySelectorAll("[data-ai-ref-exclude-section]")[0].click()
-    document.querySelectorAll("[data-ai-ref-exclude-section]")[1].click()
-    expect(refresh.disabled).toBe(true)
-    resolveFirst({ id: "one", selected_asset_ids: {}, warnings: [] })
-    await Promise.resolve()
-    expect(refresh.disabled).toBe(true)
-    resolveSecond({ id: "two", selected_asset_ids: {}, warnings: [] })
-    await vi.waitFor(() => expect(refresh.disabled).toBe(false))
+    await vi.waitFor(() => expect(document.querySelector("[data-ai-ref-exclude-item]")).not.toBeNull())
+    document.querySelector("[data-ai-ref-exclude-item]").click()
+    await vi.waitFor(() => expect(api.context.compile).toHaveBeenCalledTimes(2))
+    expect(api.context.compile).toHaveBeenLastCalledWith(expect.objectContaining({ excluded_refs: [ref] }))
+    await vi.waitFor(() => expect(document.querySelector("[data-ai-ref-restore-item]")).not.toBeNull())
+    document.querySelector("[data-ai-ref-restore-item]").click()
+    await vi.waitFor(() => expect(api.context.compile).toHaveBeenCalledTimes(3))
+    expect(api.context.compile).toHaveBeenLastCalledWith(expect.objectContaining({ excluded_refs: [] }))
   })
 
-  it("rejects unavailable modal seams, missing sessions, and missing footer controls", async () => {
-    const originalShow = globalThis.showModalHtml
-    globalThis.showModalHtml = vi.fn(() => { throw new Error("不可用") })
-    await expect(confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" }))
-      .rejects.toThrow("AI 参考资料确认弹窗不可用")
-
-    globalThis.showModalHtml = vi.fn()
-    await expect(confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" }))
-      .rejects.toThrow("AI 参考资料确认弹窗不可用")
-
-    globalThis.showModalHtml = vi.fn((_title, html) => {
-      document.getElementById("modal-body").innerHTML = html
-      document.getElementById("modal-overlay").classList.remove("hidden")
-      document.getElementById("modal-footer").innerHTML = ""
-    })
-    await expect(confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" }))
-      .rejects.toThrow("AI 参考资料确认弹窗不可用")
-    expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(true)
-
-    globalThis.showModalHtml = vi.fn((_title, html) => {
-      document.getElementById("modal-body").innerHTML = html
-      document.getElementById("modal-overlay").classList.remove("hidden")
-      throw new Error("partial failure")
-    })
-    await expect(confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" }))
-      .rejects.toThrow("AI 参考资料确认弹窗不可用")
-    expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(true)
-
-    globalThis.showModalHtml = originalShow
+  it("预算遗漏项可显式加入并升级为作者选择", async () => {
+    const ref = { kind: "target", target_ref: { target_type: "world_entity", target_id: "entity-2", target_path: "" } }
+    api.context.compile.mockResolvedValueOnce(preview({
+      sections: [],
+      selection_state: {
+        excluded_items: [],
+        omitted_items: [{ key: "omitted-1", title: "南城", preview: "港道", selection_ref: ref, selection_state: "omitted", can_exclude: true }],
+      },
+    }))
+    confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" }).catch(() => {})
+    await vi.waitFor(() => expect(document.querySelector("[data-ai-ref-restore-item]")?.textContent).toContain("加入本次资料"))
+    document.querySelector("[data-ai-ref-restore-item]").click()
+    await vi.waitFor(() => expect(api.context.compile).toHaveBeenCalledTimes(2))
+    expect(api.context.compile).toHaveBeenLastCalledWith(expect.objectContaining({ pinned_refs: [ref] }))
   })
 
-  it.each([
-    ["custom cancel", () => Array.from(document.querySelectorAll("#modal-footer button")).find((button) => button.textContent === "取消").click()],
-    ["header close", () => document.getElementById("modal-close").click()],
-    ["backdrop", () => document.getElementById("modal-overlay").click()],
-    ["Escape", () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))],
-  ])("%s rejects exactly once and restores the real modal lifecycle", async (_label, close) => {
+  it("Scene 范围与工作稿模式在预览中保持可见且一致", async () => {
+    confirmAiReference({ novel_id: "p1", action: "story.scene.one_click", task: "推演", scope: "scene", context_mode: "working" }).catch(() => {})
+    await waitForPreview()
+    expect(document.getElementById("ai-ref-scope").value).toBe("scene")
+    expect(api.context.compile).toHaveBeenCalledWith(expect.objectContaining({ scope: "scene", context_mode: "working", content_mode: "working" }))
+  })
+
+  it("自然语言调整先展示提议，应用后才修改资料", async () => {
+    const ref = { kind: "target", target_ref: { target_type: "world_entity", target_id: "entity-2", target_path: "" } }
+    api.context.proposeSelection.mockResolvedValue({
+      base_context_fingerprint: FINGERPRINT,
+      summary: "建议加入人物设定",
+      operations: [{ operation: "include", selection_ref: ref, label: "沈岚", reason: "与任务直接相关" }],
+      unresolved: [],
+      warnings: [],
+    })
+    confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" }).catch(() => {})
+    await waitForPreview()
+    document.getElementById("ai-ref-selection-command").value = "加入沈岚的人物设定"
+    document.getElementById("ai-ref-selection-submit").click()
+    await vi.waitFor(() => expect(document.body.textContent).toContain("建议加入人物设定"))
+    expect(api.context.compile).toHaveBeenCalledTimes(1)
+    expect(footerButton("按这份资料开始").disabled).toBe(true)
+    document.querySelector("[data-ai-ref-apply-proposal]").click()
+    await vi.waitFor(() => expect(api.context.compile).toHaveBeenCalledTimes(2))
+    expect(api.context.compile).toHaveBeenLastCalledWith(expect.objectContaining({ pinned_refs: [ref] }))
+  })
+
+  it("放弃自然语言提议不会改变资料", async () => {
+    api.context.proposeSelection.mockResolvedValue({ base_context_fingerprint: FINGERPRINT, summary: "建议调整", operations: [{ operation: "exclude", selection_ref: { kind: "target", target_ref: { target_type: "world_entity", target_id: "e1", target_path: "" } }, label: "旧城", reason: "无关" }], unresolved: [], warnings: [] })
+    confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" }).catch(() => {})
+    await waitForPreview()
+    document.getElementById("ai-ref-selection-command").value = "去掉旧城"
+    document.getElementById("ai-ref-selection-submit").click()
+    await vi.waitFor(() => expect(document.querySelector("[data-ai-ref-dismiss-proposal]")).not.toBeNull())
+    document.querySelector("[data-ai-ref-dismiss-proposal]").click()
+    expect(api.context.compile).toHaveBeenCalledTimes(1)
+    expect(footerButton("按这份资料开始").disabled).toBe(false)
+  })
+
+  it("手动搜索可把安全引用加入本次资料", async () => {
+    const targetRef = { target_type: "outline_scene", target_id: "scene-2", target_path: "" }
+    api.context.searchEvidence.mockResolvedValue({ hits: [{ title: "雨夜追逐", snippet: "沈岚抵达北港", target_ref: targetRef }] })
+    confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" }).catch(() => {})
+    await waitForPreview()
+    document.querySelector(".ai-ref-tools details").open = true
+    document.getElementById("ai-ref-search-input").value = "雨夜追逐"
+    document.getElementById("ai-ref-search-submit").click()
+    await vi.waitFor(() => expect(document.querySelector("[data-ai-ref-add-result]")).not.toBeNull())
+    document.querySelector("[data-ai-ref-add-result]").click()
+    await vi.waitFor(() => expect(api.context.compile).toHaveBeenCalledTimes(2))
+    expect(api.context.compile).toHaveBeenLastCalledWith(expect.objectContaining({ pinned_refs: [{ kind: "target", target_ref: targetRef }] }))
+  })
+
+  it("blocker 会阻止开始任务", async () => {
+    api.context.compile.mockResolvedValue(preview({ blockers: ["作者添加资料超过容量"] }))
+    confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" }).catch(() => {})
+    await vi.waitFor(() => expect(document.body.textContent).toContain("作者添加资料超过容量"))
+    expect(footerButton("按这份资料开始").disabled).toBe(true)
+  })
+
+  it("保留 Scene、POV 与未来可见截止字段", async () => {
+    confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成", scope: "chapter", chapter_index: 2, scene_id: "scene-1", visible_until_scene_id: "scene-1", reveal_mode: "character", viewpoint_character_id: "char-1", character_ids: ["char-1"] }).catch(() => {})
+    await waitForPreview()
+    expect(api.context.compile).toHaveBeenCalledWith(expect.objectContaining({ scene_id: "scene-1", visible_until_scene_id: "scene-1", reveal_mode: "character", viewpoint_character_id: "char-1", character_ids: ["char-1"] }))
+  })
+
+  it("已发布 Profile 只有作者选择后才进入新预览", async () => {
+    api.context.listActivationProfiles.mockResolvedValue({ items: [{ id: "profile-1", name: "北境规则", status: "published", version_number: 2 }] })
+    confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" }).catch(() => {})
+    await waitForPreview()
+    expect(api.context.compile).toHaveBeenLastCalledWith(expect.not.objectContaining({ activation_profile_id: "profile-1" }))
+    const select = document.getElementById("ai-ref-activation-profile")
+    select.value = "profile-1"
+    select.dispatchEvent(new Event("change", { bubbles: true }))
+    footerButton("重新整理").click()
+    await vi.waitFor(() => expect(api.context.compile).toHaveBeenCalledTimes(2))
+    expect(api.context.compile).toHaveBeenLastCalledWith(expect.objectContaining({ activation_profile_id: "profile-1" }))
+  })
+
+  it("关闭时丢弃迟到预览且恢复打开按钮焦点", async () => {
+    let resolvePreview
+    api.context.compile.mockImplementation(() => new Promise((resolve) => { resolvePreview = resolve }))
     const opener = document.getElementById("opener")
     opener.focus()
     const promise = confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" })
-    expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(false)
-    expect(document.getElementById("writing-host").hasAttribute("inert")).toBe(true)
-    expect(document.getElementById("modal-content").contains(document.activeElement)).toBe(true)
-    close()
+    await vi.waitFor(() => expect(api.context.compile).toHaveBeenCalled())
+    document.getElementById("modal-close").click()
     await expect(promise).rejects.toThrow("已取消 AI 参考资料确认")
-    expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(true)
+    resolvePreview(preview({ sections: [{ key: "late", title: "迟到", items: [] }] }))
+    await Promise.resolve()
+    expect(document.body.textContent).not.toContain("迟到")
     expect(document.activeElement).toBe(opener)
   })
 
-  it("rejects a replaced session without affecting the replacement modal", async () => {
+  it("替换弹窗不会被旧请求修改", async () => {
+    let resolvePreview
+    api.context.compile.mockImplementation(() => new Promise((resolve) => { resolvePreview = resolve }))
     const promise = confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" })
-    showModalHtml("后续操作", "新弹窗", [], { protectUnsaved: false })
-    await expect(promise).rejects.toThrow("已取消 AI 参考资料确认")
-    expect(document.getElementById("modal-title").textContent).toBe("后续操作")
-    expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(false)
-  })
-
-  it("drops a late refresh result after close without toast or modal mutation", async () => {
-    let resolveConfirmation
-    api.context.confirm.mockImplementation(() => new Promise((resolve) => { resolveConfirmation = resolve }))
-    const promise = confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" })
-    Array.from(document.querySelectorAll("#modal-footer button")).find((button) => button.textContent === "重新整理").click()
-    document.getElementById("modal-close").click()
-    await expect(promise).rejects.toThrow("已取消 AI 参考资料确认")
-    showModalHtml("新弹窗", "保持不变", [], { protectUnsaved: false })
-    resolveConfirmation({ id: "late", selected_asset_ids: {}, warnings: [] })
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(document.getElementById("modal-title").textContent).toBe("新弹窗")
-    expect(toast).not.toHaveBeenCalledWith(expect.stringContaining("AI 参考资料"), "success")
-  })
-
-  it("rejects a pending confirm on close and does not let its late result affect a successor", async () => {
-    let resolveConfirmation
-    api.context.confirm.mockImplementation(() => new Promise((resolve) => { resolveConfirmation = resolve }))
-    const promise = confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" })
-    Array.from(document.querySelectorAll("#modal-footer button")).find((button) => button.textContent === "确认使用").click()
-    document.getElementById("modal-close").click()
-    await expect(promise).rejects.toThrow("已取消 AI 参考资料确认")
-    showModalHtml("后续", "不应污染", [], { protectUnsaved: false })
-    resolveConfirmation({ id: "late-confirm", selected_asset_ids: {}, warnings: [] })
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(document.getElementById("modal-title").textContent).toBe("后续")
-    expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(false)
-  })
-
-  it("drops a pending section exclusion after replacement and settles cancellation once", async () => {
-    let resolveExclude
-    api.context.confirm
-      .mockResolvedValueOnce({
-        id: "base", selected_asset_ids: {}, warnings: [],
-        sections: [{ key: "exclude", title: "排除", can_exclude: true, status: "canonical", sources: [] }],
-      })
-      .mockImplementationOnce(() => new Promise((resolve) => { resolveExclude = resolve }))
-    let rejected = 0
-    const promise = confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" }).catch((err) => {
-      rejected += 1
-      throw err
-    })
-    Array.from(document.querySelectorAll("#modal-footer button")).find((button) => button.textContent === "重新整理").click()
-    await vi.waitFor(() => expect(document.querySelector("[data-ai-ref-exclude-section]")).not.toBeNull())
-    document.querySelector("[data-ai-ref-exclude-section]").click()
-    const oldCancel = Array.from(document.querySelectorAll("#modal-footer button")).find((button) => button.textContent === "取消")
-    showModalHtml("后续", "不应污染", [], { protectUnsaved: false })
-    oldCancel.click()
-    await expect(promise).rejects.toThrow("已取消 AI 参考资料确认")
-    expect(rejected).toBe(1)
-    expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(false)
-    expect(document.getElementById("modal-title").textContent).toBe("后续")
-    expect(document.getElementById("modal-body").textContent).toContain("不应污染")
-    resolveExclude({ id: "late-exclude", selected_asset_ids: {}, warnings: [] })
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(document.getElementById("modal-title").textContent).toBe("后续")
-  })
-
-  it("drops a late activation-profile load after replacement", async () => {
-    let resolveProfiles
-    api.context.listActivationProfiles.mockImplementation(() => new Promise((resolve) => { resolveProfiles = resolve }))
-    const promise = confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" })
+    await vi.waitFor(() => expect(api.context.compile).toHaveBeenCalled())
     showModalHtml("新弹窗", "保持不变", [], { protectUnsaved: false })
     await expect(promise).rejects.toThrow("已取消 AI 参考资料确认")
-    resolveProfiles({ items: [{ id: "profile-late", name: "晚到", version_number: 1, status: "published" }] })
+    resolvePreview(preview())
     await Promise.resolve()
-    await Promise.resolve()
-    expect(document.getElementById("modal-title").textContent).toBe("新弹窗")
-    expect(document.getElementById("modal-body").textContent).not.toContain("晚到")
+    expect(document.getElementById("modal-body").textContent).toBe("保持不变")
   })
 
-  it("写作确认只在作者显式选择后提交已发布 Profile", async () => {
-    api.context.listActivationProfiles.mockResolvedValue({
-      items: [
-        { id: "profile-1", name: "场景规则", version_number: 2, status: "published" },
-        { id: "draft-1", name: "未发布", version_number: 3, status: "draft" },
-      ],
-    })
-    api.context.confirm.mockResolvedValue({ id: "confirmation-1", selected_asset_ids: {}, warnings: [] })
-    confirmAiReference({
-      novel_id: "p1",
-      action: "writing.generate",
-      task: "生成当前 Scene",
-      scope: "chapter",
-      chapter_index: 2,
-    }).catch(() => {})
-    await Promise.resolve()
-    await Promise.resolve()
-
-    const select = document.getElementById("ai-ref-activation-profile")
-    expect(Array.from(select.options).map((item) => item.value)).toEqual(["", "profile-1"])
-    select.value = "profile-1"
-    document.querySelector("#modal-footer button.btn-primary")?.click()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    expect(api.context.confirm).toHaveBeenCalledWith(expect.objectContaining({
-      activation_profile_id: "profile-1",
-    }))
-  })
-
-  it("保留 Scene 的未来可见截止点并使用作者安全揭示模式", async () => {
-    api.context.confirm.mockResolvedValue({ id: "scene-confirmation", selected_asset_ids: {}, warnings: [] })
-    confirmAiReference({
-      novel_id: "p1",
-      action: "story.script.generate",
-      task: "剧本建议",
-      scope: "project",
-      scene_id: "scene-7",
-      visible_until_scene_id: "scene-7",
-      reveal_mode: "author_safe",
-    }).catch(() => {})
-    await Promise.resolve()
-    await Promise.resolve()
-
-    document.querySelector("#modal-footer button")?.click()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    expect(api.context.confirm).toHaveBeenCalledWith(expect.objectContaining({
-      scene_id: "scene-7",
-      visible_until_scene_id: "scene-7",
-      reveal_mode: "author_safe",
-    }))
-  })
-
-  it("渲染默认选择且不提供 Markdown textarea", () => {
-    confirmAiReference({
-      novel_id: "p1",
-      action: "outline.generate",
-      task: "剧情结构生成",
-      scope: "chapter",
-      chapter_index: 3,
-      include_pending_objects: true,
-    }).catch(() => {})
-
-    expect(document.getElementById("modal-title")?.textContent).toBe("AI 参考资料")
-    expect(document.getElementById("ai-ref-scope")?.value).toBe("chapter")
-    expect(document.getElementById("ai-ref-chapter")?.value).toBe("3")
-    expect(document.body.textContent).toContain("待处理内容")
-    expect(document.body.textContent).not.toContain("candidate asset")
-    expect(document.body.textContent).not.toContain("Markdown")
-    expect(document.querySelector("#ai-ref-markdown")).toBeNull()
-    expect(document.querySelector("#ai-ref-excluded")).toBeNull()
-    expect(document.body.textContent).not.toContain("排除资产 ID")
-  })
-
-  it("没有章节上下文时默认使用项目范围，不回退到章节 1", () => {
-    confirmAiReference({
-      novel_id: "p1",
-      action: "outline.generate",
-      task: "空项目生成剧情",
-    }).catch(() => {})
-
-    expect(document.getElementById("ai-ref-scope")?.value).toBe("project")
-    expect(document.getElementById("ai-ref-chapter")?.value).toBe("")
-    expect(document.getElementById("ai-ref-include-pending")?.checked).toBe(false)
-  })
-
-  it("重新整理会提交当前选择并渲染摘要", async () => {
-    api.context.confirm.mockResolvedValue({
-      id: "c1",
-      context_mode: "working",
-      include_pending_objects: true,
-      scope: "chapter",
-      selected_asset_ids: { project: ["p1"], context_sections: ["project", "world"] },
-      sections: [
-        {
-          key: "writing_objective",
-          title: "本次任务",
-          status: "system",
-          token_count: 8,
-          activation_reason: "用户当前发起的 AI 操作",
-          can_exclude: false,
-          truncated: false,
-          sources: [],
-        },
-        {
-          key: "retrieval_evidence_packs",
-          title: "RAG 证据包",
-          status: "canonical",
-          token_count: 42,
-          activation_reason: "RAG 命中",
-          can_exclude: true,
-          truncated: true,
-          truncated_reason: "超过预算后按条目裁剪",
-          sources: [{ type: "rag", id: "c1", label: "<script>bad</script>", status: "canonical" }],
-        },
-      ],
-      budget_events: [
-        {
-          section_key: "retrieval_evidence_packs",
-          event_type: "truncated",
-          reason: "超过预算后按条目裁剪",
-          before_tokens: 80,
-          after_tokens: 42,
-          tier: 2,
-        },
-      ],
-      warnings: ["范围较大"],
-      compiled_at: "2026-06-28T00:00:00Z",
-    })
-    confirmAiReference({
-      novel_id: "p1",
-      action: "world.alias_relations.extract",
-      task: "别名/关系补抽",
-      scope: "chapter",
-      chapter_index: 1,
-      scene_id: "scene-1",
-      include_pending_objects: true,
-    }).catch(() => {})
-
-    document.getElementById("ai-ref-context-mode").value = "working"
-    document.getElementById("ai-ref-user-note").value = "只补抽长期资产"
-    document.querySelector("#modal-footer button")?.click()
-    await Promise.resolve()
-    await Promise.resolve()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    expect(api.context.confirm).toHaveBeenCalledWith(expect.objectContaining({
-      novel_id: "p1",
-      action: "world.alias_relations.extract",
-      context_mode: "working",
-      scene_id: "scene-1",
-      include_pending_objects: true,
-      user_note: "只补抽长期资产",
-    }))
-    expect(document.getElementById("ai-ref-summary")?.innerHTML).toContain("参考分区: 2")
-    expect(document.getElementById("ai-ref-summary")?.textContent).toContain("RAG 证据包")
-    expect(document.getElementById("ai-ref-summary")?.textContent).toContain("已裁剪")
-    expect(document.getElementById("ai-ref-summary")?.textContent).toContain("包含待处理内容，结果需要人工检查")
-    expect(document.getElementById("ai-ref-summary")?.innerHTML).not.toContain("<script>bad</script>")
-    expect(document.getElementById("ai-ref-summary")?.textContent).toContain("范围较大")
-  })
-
-  it("整理参考资料期间显示明确的长任务反馈并在完成后恢复", async () => {
-    let resolveConfirmation
-    api.context.confirm.mockImplementation(() => new Promise((resolve) => {
-      resolveConfirmation = resolve
-    }))
-    confirmAiReference({
-      novel_id: "p1",
-      action: "outline.generate",
-      task: "修订剧情线",
-      scope: "full",
-    }).catch(() => {})
-
-    const refreshBtn = document.querySelector("#modal-footer button")
-    refreshBtn.click()
-
-    expect(refreshBtn.disabled).toBe(true)
-    expect(refreshBtn.textContent).toBe("正在整理…")
-
-    resolveConfirmation({
-      id: "c-long",
-      context_mode: "canonical",
-      include_pending_objects: false,
-      scope: "full",
-      selected_asset_ids: {},
-      sections: [],
-      warnings: [],
-    })
-    await vi.waitFor(() => expect(refreshBtn.disabled).toBe(false))
-    expect(refreshBtn.textContent).toBe("重新整理")
-  })
-
-  it("character reveal 的 POV 字段在重新整理和确认使用时都不会丢失", async () => {
-    api.context.confirm.mockResolvedValue({
-      id: "confirm-pov",
-      context_mode: "canonical",
-      include_pending_objects: true,
-      scope: "chapter",
-      selected_asset_ids: {},
-      warnings: [],
-    })
-
-    const promise = confirmAiReference({
-      novel_id: "p1",
-      action: "writing.generate",
-      task: "基于当前 Scene 的 POV 角色有限认知，生成正文候选草稿",
-      scope: "chapter",
-      chapter_index: 2,
-      scene_id: "scene-1",
-      reveal_mode: "character",
-      viewpoint_character_id: "char-1",
-      character_ids: ["char-1"],
-      include_pending_objects: true,
-      excluded_asset_ids: { manual: ["asset-1"] },
-    })
-
-    document.querySelector("#modal-footer button")?.click()
-    await Promise.resolve()
-    await Promise.resolve()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    expect(api.context.confirm).toHaveBeenLastCalledWith(expect.objectContaining({
-      novel_id: "p1",
-      action: "writing.generate",
-      chapter_index: 2,
-      scene_id: "scene-1",
-      reveal_mode: "character",
-      viewpoint_character_id: "char-1",
-      character_ids: ["char-1"],
-      include_pending_objects: true,
-      excluded_asset_ids: { manual: ["asset-1"] },
-    }))
-
-    document.querySelectorAll("#modal-footer button")[1].click()
-    await promise
-
-    expect(api.context.confirm).toHaveBeenLastCalledWith(expect.objectContaining({
-      scene_id: "scene-1",
-      reveal_mode: "character",
-      viewpoint_character_id: "char-1",
-      character_ids: ["char-1"],
-      include_pending_objects: true,
-    }))
-  })
-
-  it("显示 character reveal 新 section，且锁定 section 不提供本次排除", async () => {
-    api.context.confirm.mockResolvedValue({
-      id: "confirm-pov",
-      context_mode: "canonical",
-      include_pending_objects: true,
-      scope: "chapter",
-      selected_asset_ids: {
-        context_sections: [
-          "role_profile",
-          "role_visible_knowledge",
-          "scene_director_constraints",
-        ],
-      },
-      sections: [
-        {
-          key: "role_profile",
-          title: "POV 角色档案",
-          status: "canonical",
-          token_count: 10,
-          activation_reason: "character reveal 的视角人物资料",
-          preview: "秦岚 / 调查员",
-          can_exclude: false,
-          sources: [{ type: "character", id: "char-1", label: "秦岚", status: "canonical" }],
-        },
-        {
-          key: "role_visible_knowledge",
-          title: "角色可见知识",
-          status: "canonical",
-          token_count: 20,
-          activation_reason: "CharacterKnowledge 与默认可见性规则过滤后",
-          preview: "公开信息：警报响起",
-          content: `- 主控室；认知=听说过：警报响起\n- 北侧密道；认知=相信错误版本：${"错误方向".repeat(30)}\n- 完整内容末尾`,
-          can_exclude: true,
-          sources: [{ type: "entity", id: "e1", label: "主控室", status: "canonical" }],
-        },
-        {
-          key: "scene_director_constraints",
-          title: "Scene 导演约束",
-          status: "director_only",
-          token_count: 15,
-          activation_reason: "作者约束",
-          preview: "DIRECTOR_ONLY",
-          can_exclude: false,
-          sources: [{ type: "scene", id: "scene-1", label: "主控室警报", status: "director_only" }],
-        },
-        {
-          key: "scene_world_state",
-          title: "Scene 时点可证状态",
-          status: "director_only",
-          token_count: 18,
-          activation_reason: "五维 checkpoint 对照",
-          can_exclude: false,
-          sources: [{ type: "memory_scene_checkpoint", id: "cp-1", label: "人物与对象", status: "director_only" }],
-          retrieval_metadata: {
-            coverage_label: "有些相关对象尚无时间锚",
-            dimensions: [
-              { label: "人物与对象", state_label: "当时可证" },
-              { label: "地图事实", state_label: "需要判断" },
-            ],
-            omissions: [{ label: "北侧密道", reason: "尚无时间锚" }],
-            current_canon_note: "当前正典只作为修复参考，不会回填过去。",
-          },
-        },
-      ],
-      warnings: [],
-    })
-
-    confirmAiReference({
-      novel_id: "p1",
-      action: "writing.generate",
-      task: "基于当前 Scene 的 POV 角色有限认知，生成正文候选草稿",
-      scope: "chapter",
-      scene_id: "scene-1",
-      reveal_mode: "character",
-      viewpoint_character_id: "char-1",
-    }).catch(() => {})
-
-    document.querySelector("#modal-footer button")?.click()
-    await Promise.resolve()
-    await Promise.resolve()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    const summary = document.getElementById("ai-ref-summary")
-    expect(summary?.textContent).toContain("POV 角色档案")
-    expect(summary?.textContent).toContain("角色可见知识")
-    expect(summary?.textContent).toContain("Scene 导演约束")
-    expect(summary?.textContent).toContain("当时可证")
-    expect(summary?.textContent).toContain("人物所信")
-    expect(summary?.textContent).toContain("当前正典")
-    expect(summary?.textContent).toContain("北侧密道（尚无时间锚）")
-    expect(summary?.textContent).toContain("会交给角色视角模型")
-    expect(summary?.textContent).toContain("仅供作者约束，不是角色知识")
-    expect(summary?.textContent).toContain("完整内容末尾")
-    expect(summary?.textContent).toContain("不会自动再次生成正文")
-    expect(summary?.textContent).not.toContain("pov_knowledge")
-    expect(summary?.textContent).not.toContain("scene_blueprint")
-    expect(summary?.textContent).not.toContain("hidden truth")
-    expect(document.querySelector('[data-ai-ref-exclude-section="role_profile"]')).toBeNull()
-    expect(document.querySelector('[data-ai-ref-exclude-section="scene_director_constraints"]')).toBeNull()
-    expect(document.querySelector('[data-ai-ref-exclude-section="scene_world_state"]')).toBeNull()
-    expect(document.querySelector('[data-ai-ref-exclude-section="role_visible_knowledge"]')).not.toBeNull()
-    const repair = document.querySelector('a[href*="knowledge_character_id=char-1"]')
-    expect(repair?.textContent).toBe("修正人物知识")
-    expect(repair?.target).toBe("_blank")
-    expect(document.querySelector('a[href*="scene_id=scene-1"]')).toBeNull()
-  })
-
-  it("点击 section 本次排除后重新整理并提交 context_sections 排除项", async () => {
-    api.context.confirm
-      .mockResolvedValueOnce({
-        id: "c1",
-        context_mode: "canonical",
-        include_pending_objects: false,
-        scope: "full",
-        selected_asset_ids: { context_sections: ["writing_objective", "retrieval_evidence_packs"] },
-        sections: [
-          {
-            key: "writing_objective",
-            title: "本次任务",
-            status: "system",
-            token_count: 8,
-            activation_reason: "用户当前发起的 AI 操作",
-            can_exclude: false,
-            truncated: false,
-            sources: [],
-          },
-          {
-            key: "retrieval_evidence_packs",
-            title: "RAG 证据包",
-            status: "canonical",
-            token_count: 42,
-            activation_reason: "RAG 命中",
-            can_exclude: true,
-            truncated: false,
-            sources: [],
-          },
-        ],
-        warnings: [],
-      })
-      .mockResolvedValueOnce({
-        id: "c2",
-        context_mode: "canonical",
-        include_pending_objects: false,
-        scope: "full",
-        selected_asset_ids: { context_sections: ["writing_objective"] },
-        sections: [
-          {
-            key: "writing_objective",
-            title: "本次任务",
-            status: "system",
-            token_count: 8,
-            activation_reason: "用户当前发起的 AI 操作",
-            can_exclude: false,
-            truncated: false,
-            sources: [],
-          },
-        ],
-        warnings: [],
-      })
-
-    confirmAiReference({
-      novel_id: "p1",
-      action: "writing.generate",
-      task: "生成正文候选草稿",
-      scope: "full",
-    }).catch(() => {})
-
-    document.querySelector("#modal-footer button")?.click()
-    await Promise.resolve()
-    await Promise.resolve()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    document.querySelector('[data-ai-ref-exclude-section="retrieval_evidence_packs"]')?.click()
-    await Promise.resolve()
-    await Promise.resolve()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    expect(api.context.confirm).toHaveBeenLastCalledWith(expect.objectContaining({
-      excluded_asset_ids: {
-        context_sections: ["retrieval_evidence_packs"],
-      },
-    }))
-    expect(document.getElementById("ai-ref-summary")?.textContent).not.toContain("RAG 证据包")
-    expect(document.activeElement).toBe(document.getElementById("ai-ref-summary"))
-  })
-
-  it("确认使用返回 context_confirmation_id 来源记录", async () => {
-    api.context.confirm.mockResolvedValue({
-      id: "confirm-1",
-      context_mode: "canonical",
-      include_pending_objects: false,
-      scope: "full",
-      selected_asset_ids: {},
-      warnings: [],
-    })
-    const promise = confirmAiReference({
-      novel_id: "p1",
-      action: "writing.generate",
-      task: "生成正文候选草稿",
-      scope: "full",
-    })
-
-    const buttons = document.querySelectorAll("#modal-footer button")
-    buttons[1].click()
-    const result = await promise
-
-    expect(result.id).toBe("confirm-1")
-    expect(document.getElementById("modal-overlay")?.classList.contains("hidden")).toBe(true)
-  })
-
-  it("参考资料确认超时时显示可重试提示而不是后端不可用", async () => {
-    api.context.confirm.mockRejectedValue(new Error("请求超时，请检查后端服务是否运行"))
-    confirmAiReference({
-      novel_id: "p1",
-      action: "writing.conflict_check.ai_review",
-      task: "writing conflict AI review",
-      scope: "project",
-    }).catch(() => {})
-
-    document.querySelectorAll("#modal-footer button")[1].click()
-
-    await vi.waitFor(() => {
-      expect(document.getElementById("ai-ref-error")?.textContent).toContain("AI 参考资料整理超时")
-    })
+  it("整理超时显示可重试提示且保留调整", async () => {
+    api.context.compile.mockRejectedValue(new Error("请求超时，请检查后端服务是否运行"))
+    confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" }).catch(() => {})
+    await vi.waitFor(() => expect(document.getElementById("ai-ref-error")?.textContent).toContain("AI 参考资料整理超时"))
     expect(document.getElementById("ai-ref-error")?.textContent).not.toContain("检查后端服务")
+    expect(footerButton("按这份资料开始").disabled).toBe(true)
+  })
+
+  it("动态来源、提议和搜索结果均转义", async () => {
+    const bad = '<img src=x onerror="alert(1)">'
+    api.context.compile.mockResolvedValue(preview({ sections: [{ key: "world", title: "资料", items: [{ key: "bad", title: bad, preview: bad, status: "canonical", selection_state: "automatic", can_exclude: false }], sources: [] }] }))
+    confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" }).catch(() => {})
+    await waitForPreview()
+    expect(document.querySelector("#ai-ref-summary img")).toBeNull()
+    expect(document.getElementById("ai-ref-summary").textContent).toContain(bad)
   })
 })

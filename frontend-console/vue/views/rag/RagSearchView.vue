@@ -9,6 +9,7 @@ import { buildEvidencePayload, normalizeChapterRange } from "./logic/searchPaylo
 import { useRagSearch } from "./useRagSearch.js"
 import { useEvidenceDrawer } from "./useEvidenceDrawer.js"
 import { ragSearchSession, resetRagSearchSession, scopeRagSessionToProject } from "./ragSearchSession.js"
+import { confirmAiReference } from "../../../shared/aiReferenceModal.js"
 
 /**
  * 检索子视图编排 — 表单状态、提交、路由恢复（对应 vanilla 的
@@ -125,8 +126,17 @@ async function askWorld() {
   answerSaved.value = false
   openedCitation.value = null
   try {
+    const confirmation = await confirmAiReference({
+      novel_id: projectId,
+      action: "world.ask",
+      task: question,
+      scope: "full",
+      user_note: question,
+      include_pending_objects: false,
+      budget_tokens: 8000,
+    })
     const result = await getApi().generate.askWorld(
-      { novel_id: projectId, question },
+      { novel_id: projectId, question, context_confirmation_id: confirmation.id },
       { signal: controller.signal },
     )
     if (
@@ -138,6 +148,7 @@ async function askWorld() {
     askWorldResult.value = result
   } catch (error) {
     if (disposed || controller !== askController || projectId !== props.projectId) return
+    if (error?.message === "已取消 AI 参考资料确认") return
     if (controller.signal.aborted) {
       askWorldNotice.value = "已停止后续问答；远端请求可能仍在结束。"
     } else {

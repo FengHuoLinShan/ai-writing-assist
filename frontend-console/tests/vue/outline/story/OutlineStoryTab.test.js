@@ -4,6 +4,10 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { flushPromises, mount } from "@vue/test-utils"
+
+const confirmAiReference = vi.hoisted(() => vi.fn())
+vi.mock("../../../../shared/aiReferenceModal.js", () => ({ confirmAiReference }))
+
 import OutlineStoryTab from "../../../../vue/views/outline/story/OutlineStoryTab.vue"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../../vue/bridge/index.js"
 import { storyOutlineTaskManager } from "../../../../vue/views/outline/story/storyOutlineData.js"
@@ -87,6 +91,7 @@ function resetManager() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  confirmAiReference.mockResolvedValue({ id: "confirm-default" })
   localStorage.clear()
   resetManager()
 })
@@ -481,8 +486,14 @@ describe("行为 · AI 生成设置", () => {
       coverage: "覆盖全书，先细化第一部",
       selected_character_ids: ["c1"],
       selected_entity_ids: ["e1"],
+      context_confirmation_id: "confirm-default",
       include_current_outline: true,
       operation_id: expect.any(String),
+    }))
+    expect(confirmAiReference).toHaveBeenCalledWith(expect.objectContaining({
+      action: "outline.story_outline.generate",
+      character_ids: ["c1"],
+      entity_ids: ["e1"],
     }))
     const operationId = globalThis.api.outline.generateStoryOutline.mock.calls[0][0].operation_id
     expect(recoverActiveWorkflows("p1").map((item) => item.taskId)).toEqual(["story-task-1"])

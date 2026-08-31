@@ -62,6 +62,11 @@ stats = await llm.get_usage_stats()
 `run_managed_structured()`。业务模块的普通文本生成和结构化生成应通过这两个
 helper 进入，以统一 step name、journal、timeout 和错误分类。
 
+Context 自然语言调整使用同一 harness 的单次 `suggest + read_only` structured step：候选最多
+40 项、输出最多 20 个 include/exclude、120 秒超时、无工具、无自治循环且 transport retry
+关闭。候选正文被包在不可信数据边界内，模型只能返回服务端分配的 `candidate-NNN`；应用选择
+和最终任务启动仍由作者点击与 Evidence 指纹门禁决定。
+
 helper 不改变 `LLMClient` 的 provider/retry/structured repair 行为：结构化 JSON
 修复仍由 `LLMClient.generate_structured()` 执行，失败时重新抛出原始异常实例，
 由调用方保留现有 fallback 或状态更新逻辑。`context_budget` 默认不自动截断

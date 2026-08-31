@@ -3409,3 +3409,46 @@ async def test_ask_world_citation_open_does_not_mask_infrastructure_failure() ->
         malformed,
     )
     assert opened.status == "unavailable"
+
+@pytest.fixture(autouse=True)
+def _exercise_generation_behavior_without_repeating_preflight(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def skip_preflight(*_args, **_kwargs) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "modules.world.api._require_generation_confirmation",
+        skip_preflight,
+    )
+
+
+def test_ask_world_overlay_keeps_only_confirmed_sources() -> None:
+    from modules.world.schemas import AskWorldCitation
+    from modules.world.services.worldbuilding.ask_world_service import AskWorldService
+
+    page = {
+        "kind": "world_bible_page",
+        "citation": AskWorldCitation(
+            citation_key="page:1",
+            kind="world_bible_page",
+            title="保留页",
+            source_hash="1" * 64,
+            page_id="page-1",
+        ),
+    }
+    excluded_page = {
+        "kind": "world_bible_page",
+        "citation": AskWorldCitation(
+            citation_key="page:2",
+            kind="world_bible_page",
+            title="排除页",
+            source_hash="2" * 64,
+            page_id="page-2",
+        ),
+    }
+
+    assert AskWorldService._confirmed_candidates(
+        [page, excluded_page],
+        {"world_bible_page": ["page-1"]},
+    ) == [page]

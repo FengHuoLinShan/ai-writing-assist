@@ -17,6 +17,7 @@ import {
   createOperationId,
 } from "../../../shared/workflowProgress.js"
 import { importAuthorizationPayload } from "../../../shared/importAuthorization.js"
+import { confirmAiReference } from "../../../shared/aiReferenceModal.js"
 import { createWorkflowManager } from "../../shared/workflowManager.js"
 
 const AUTO_EXTRACT_REFRESH_SUBVIEWS = new Set([
@@ -151,17 +152,27 @@ export async function startEntityFusionSuggestions(entityType = "") {
     return false
   }
   try {
+    const confirmation = await confirmAiReference({
+      novel_id: projectId,
+      action: "world.entity_fusion.suggest",
+      task: entityType ? `为${entityType}对象生成合并建议` : "为世界对象生成合并建议",
+      scope: "world",
+      include_pending_objects: true,
+      budget_tokens: 12000,
+    })
     const operationId = createOperationId()
     fusionManager.prepare(operationId, null, projectId)
     const result = await getApi().world.createEntityFusionSuggestions({
       novel_id: projectId,
       entity_type: entityType || undefined,
       operation_id: operationId,
+      context_confirmation_id: confirmation.id,
     })
     const adopted = fusionManager.adopt(result, null, projectId)
     if (adopted) toast("世界对象 AI 合并建议任务已提交", "success")
     return true
   } catch (err) {
+    if (err?.message === "已取消 AI 参考资料确认") return false
     if (getAppState()?.currentProjectId === projectId) {
       toast(err.message || "提交失败", "error")
     }

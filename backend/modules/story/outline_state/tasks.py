@@ -105,6 +105,10 @@ async def handle_story_outline_generate(db, task):
         if field_name in meta
     }
     data = StoryOutlineGenerateRequest.model_validate(request_payload)
+    if not data.context_confirmation_id:
+        raise ValueError(
+            "context_confirmation_id is required for story_outline_generate"
+        )
     submission_context_hash = _require_str(
         meta,
         "submission_context_hash",
@@ -357,6 +361,19 @@ async def handle_scene_fusion_preview(db, task):
     meta = dict(task.meta or {})
     novel_id = _require_str(meta, "novel_id", "scene_fusion_preview")
     snapshot = await _require_llm_execution_snapshot(db, task, meta, novel_id)
+    context_confirmation_id = _require_str(
+        meta,
+        "context_confirmation_id",
+        "scene_fusion_preview",
+    )
+    from modules.evidence.facade import prepare_confirmed_ai_action
+
+    confirmed_context = await prepare_confirmed_ai_action(
+        db,
+        novel_id=novel_id,
+        action="outline.scene_fusion.preview",
+        confirmation_id=context_confirmation_id,
+    )
     data = SceneFusionPreviewRequest.model_validate(
         {
             field: meta[field]
@@ -371,6 +388,7 @@ async def handle_scene_fusion_preview(db, task):
         data,
         llm_execution_snapshot=snapshot,
         task_mode=True,
+        confirmed_context=confirmed_context,
     )
     task.update_progress(1.0)
     return result.model_dump(mode="json")

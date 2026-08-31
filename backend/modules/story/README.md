@@ -47,9 +47,9 @@ is the only revision exposed to the Writing execution bundle.
 
 ## AI and authorization
 
-Independent card, reaction, and script tasks require a fresh Context
-confirmation and return preview-only results. One-click compiles Context and
-creates its snapshot itself. It may persist only missing/stale card revisions
+Independent card, reaction, script, and one-click tasks require a fresh Context
+confirmation and return preview-only results. Workers rematerialize the reviewed
+Context and fail before provider I/O when its fingerprint changed. One-click may persist only missing/stale card revisions
 when `submit_authorized` is explicit; it never persists reactions, scripts,
 World, Memory, or Writing changes. One-click card freshness is based on a
 source hash of the outline projection, stable compiled-context sections/text,
@@ -63,6 +63,16 @@ Manual apply payloads carrying `source_task_id` or `context_snapshot_id` are
 accepted only when the completed task is same-novel and has the expected Story
 task type/action; snapshot IDs must match the completed result. Provider calls
 use the project snapshot LLM seam and happen outside a database transaction.
+
+StoryOutline generation uses the same preflight contract. Its public wire carries
+`context_confirmation_id`; submission and worker execution rematerialize the confirmation and
+include the confirmed Markdown in the bounded StoryOutline input. Automatic World/character
+overlays are filtered by the confirmation's actual selected assets, so they cannot reintroduce an
+item the author excluded. This adds no Story table or migration.
+
+Scene fusion additionally requires the submitted Scene set to equal the confirmation's pinned
+Scene refs. Its provider payload uses the rematerialized confirmed Markdown; the legacy related
+World/outline overlay is not loaded on a confirmed author task.
 
 ## Product boundary
 

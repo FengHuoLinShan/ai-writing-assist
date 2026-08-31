@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 
 from core.csrf import require_xhr_request
 from core.dependencies import DbSession
+from modules.evidence.facade import attach_result_ref, require_fresh_confirmation
 from modules.project.facade import require_active_project
 from modules.world.map_atlas_schemas import (
     MapAtlasAnnotationResponse,
@@ -70,7 +71,28 @@ async def create_run(
     novel_id: ActiveNovelId,
     data: MapAtlasRunCreate,
 ):
-    return await _service.create_run(db, novel_id, data)
+    if not data.context_confirmation_id:
+        raise HTTPException(status_code=400, detail="context_confirmation_id is required")
+    try:
+        await require_fresh_confirmation(
+            db,
+            novel_id=novel_id,
+            action="world.map_atlas.generate",
+            confirmation_id=data.context_confirmation_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    result = await _service.create_run(db, novel_id, data)
+    if result.get("task_id"):
+        await attach_result_ref(
+            db,
+            novel_id=novel_id,
+            confirmation_id=data.context_confirmation_id,
+            result_type="task",
+            result_id=str(result["task_id"]),
+            status="running",
+        )
+    return result
 
 
 @router.get(

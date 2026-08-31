@@ -3495,6 +3495,7 @@ class WorldGenerationCenterService:
             ),
             source_snapshot=source_snapshot.model_dump(mode="json"),
             capture_snapshot=capture_snapshot,
+            context_confirmation_id=data.context_confirmation_id,
         )
 
     @staticmethod

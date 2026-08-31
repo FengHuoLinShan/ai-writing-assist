@@ -17,6 +17,9 @@ vi.mock("../../../../shared/workflowProgress.js", () => ({
   pollTaskProgress: vi.fn(() => ({ stop: vi.fn() })),
 }))
 
+const confirmAiReference = vi.hoisted(() => vi.fn())
+vi.mock("../../../../shared/aiReferenceModal.js", () => ({ confirmAiReference }))
+
 vi.mock("../../../../shared/assetDisplayState.js", () => ({
   displayStateBadgeClass: vi.fn((state) => state === "active" ? "badge-canonical" : "badge-draft"),
   worldAssetDisplay: vi.fn((item) => {
@@ -194,6 +197,7 @@ enableAutoUnmount(afterEach)
 
 beforeEach(() => {
   vi.clearAllMocks()
+  confirmAiReference.mockResolvedValue({ id: "confirm-default" })
   localStorage.clear()
   resetWorldSession()
   navigateMock = vi.fn(() => true)
@@ -1804,7 +1808,7 @@ describe("模态操作", () => {
     const wrapper = mountTab()
     await wrapper.find("[data-action='bible-refresh-synopsis']").trigger("click")
     await nextTick()
-    expect(api.world.refreshBibleSynopsis).toHaveBeenCalledWith("p1")
+    expect(api.world.refreshBibleSynopsis).toHaveBeenCalledWith("p1", "confirm-default")
   })
 
   it("提交介绍刷新只启动本地任务卡，不重挂页面", async () => {
@@ -1826,7 +1830,7 @@ describe("模态操作", () => {
     const wrapper = mountTab()
 
     const refreshing = wrapper.vm.$.setupState.refreshSynopsis()
-    await vi.waitFor(() => expect(api.world.refreshBibleSynopsis).toHaveBeenCalledWith("p1"))
+    await vi.waitFor(() => expect(api.world.refreshBibleSynopsis).toHaveBeenCalledWith("p1", "confirm-default"))
     appState.currentProjectId = "p2"
     wrapper.unmount()
     pollTaskProgress.mockClear()

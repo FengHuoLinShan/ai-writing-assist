@@ -11,7 +11,7 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +21,9 @@ from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.story.outline_state.contracts import SceneFusionSynthesisOutputContract
 from modules.story.outline_state.models import Scene
 from modules.story.outline_state.repositories import SceneRepository
+
+if TYPE_CHECKING:
+    from modules.evidence.contracts import ConfirmedAIActionContext
 
 logger = logging.getLogger(__name__)
 
@@ -328,6 +331,7 @@ class SceneFusionDraftGenerator:
         deterministic_draft: dict[str, Any],
         llm_execution_snapshot: dict[str, Any] | None = None,
         allow_degraded: bool = True,
+        confirmed_context: ConfirmedAIActionContext | None = None,
     ) -> SceneFusionGenerationResult:
         evidence = await self._evidence_loader.load(
             db,
@@ -336,11 +340,20 @@ class SceneFusionDraftGenerator:
         )
         evidence_fingerprint = self._evidence_fingerprint(evidence)
         evidence_chapter_indices = self._evidence_chapter_indices(evidence)
-        related_context = await _load_related_context(
-            db,
-            novel_id=novel_id,
-            scenes=sources,
-            evidence=evidence.items,
+        related_context = (
+            {
+                "context_fingerprint": (
+                    confirmed_context.confirmation.context_fingerprint
+                ),
+                "confirmed_context": confirmed_context.rendered_markdown,
+            }
+            if confirmed_context is not None
+            else await _load_related_context(
+                db,
+                novel_id=novel_id,
+                scenes=sources,
+                evidence=evidence.items,
+            )
         )
         payload, _ = _prompt_payload(
             sources,

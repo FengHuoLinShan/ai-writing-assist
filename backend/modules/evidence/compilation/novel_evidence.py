@@ -1305,6 +1305,38 @@ class NovelEvidenceService:
 
     async def _visible_target(self, db, *, novel_id, target, content_mode, visibility):
         warnings: list[str] = []
+        if target.target_type in {"world_bible_page", "page"}:
+            if visibility.mode in {"reader", "character"}:
+                return None, ["世界书页面不直接进入读者或角色视角"]
+            from modules.world.facade import get_world_bible_projection_candidates
+
+            resolution = await get_world_bible_projection_candidates(
+                db,
+                novel_id,
+                [target.canonical_dict()],
+                projection_type="context_brief",
+                reveal_mode="author_safe",
+            )
+            item = next(
+                (
+                    value
+                    for value in resolution.items
+                    if value.target.get("target_id") == target.target_id
+                ),
+                None,
+            )
+            if item is None:
+                return None, list(getattr(resolution, "warnings", []) or [])
+            payload = asdict(item)
+            return {
+                "id": target.target_id,
+                "title": item.label,
+                "content": item.content,
+                "status": item.status,
+                "source_hash": item.source_hash,
+                "source_version": item.source_version,
+                "warnings": payload.get("warnings") or [],
+            }, list(payload.get("warnings") or [])
         if target.target_type in {"world_entity", "entity", "core_entity"}:
             from modules.world.facade import get_world_context
 

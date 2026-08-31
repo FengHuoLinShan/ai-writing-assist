@@ -132,6 +132,11 @@ class StoryOutlineEvidenceAudit(StoryOutlineSchema):
 
 class StoryOutlineGenerateRequest(StoryOutlineSchema):
     novel_id: str
+    context_confirmation_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+    )
     author_intent: Annotated[
         str,
         StringConstraints(strip_whitespace=True, min_length=1, max_length=20000),

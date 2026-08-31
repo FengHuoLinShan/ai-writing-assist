@@ -412,6 +412,11 @@ class WorldGenerationRequestBase(BaseModel):
     """Shared, author-selected inputs for world generation-center operations."""
 
     novel_id: str
+    context_confirmation_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+    )
     source_context: WorldGenerationSourceContext = Field(
         default_factory=WorldGenerationProjectSource
     )
@@ -704,6 +709,11 @@ class WorldGenerationSemanticInspectionResponse(BaseModel):
 class AskWorldQuestionRequest(BaseModel):
     novel_id: str
     question: str = Field(..., min_length=2, max_length=2000)
+    context_confirmation_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+    )
 
 
 class AskWorldCitation(BaseModel):
@@ -1695,6 +1705,11 @@ class EntityFusionSuggestionRequest(BaseModel):
     limit: int = Field(default=200, ge=2, le=1000)
     max_suggestions: int = Field(default=50, ge=1, le=200)
     operation_id: uuid.UUID | None = None
+    context_confirmation_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+    )
 
 
 class EntityFusionSuggestionResponse(BaseModel):
@@ -3159,6 +3174,11 @@ class WorldValidationRunCreate(BaseModel):
     trigger: str = Field(default="manual", min_length=1, max_length=64)
     target_type: Literal["world_bible_draft", "world_adoption_package"] | None = None
     target_id: str | None = None
+    context_confirmation_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+    )
 
     @model_validator(mode="after")
     def validate_target(self) -> WorldValidationRunCreate:

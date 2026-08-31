@@ -6,6 +6,9 @@ vi.mock("../../../../shared/workflowProgress.js", async (importOriginal) => {
   return { ...original, pollTaskProgress: vi.fn(() => ({ stop: vi.fn() })) }
 })
 
+const confirmAiReference = vi.hoisted(() => vi.fn())
+vi.mock("../../../../shared/aiReferenceModal.js", () => ({ confirmAiReference }))
+
 import { pollTaskProgress } from "../../../../shared/workflowProgress.js"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../../vue/bridge/index.js"
 import WorldHealthPanel from "../../../../vue/views/world/bible/WorldHealthPanel.vue"
@@ -50,6 +53,7 @@ function mountPanel(props = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  confirmAiReference.mockResolvedValue({ id: "confirm-default" })
   toast = vi.fn()
   confirm = vi.fn(() => true)
   api = {
@@ -92,6 +96,26 @@ describe("WorldHealthPanel", () => {
     expect(wrapper.text()).toContain("30 个分片")
     expect(wrapper.text()).toContain("900,000 字符")
     expect(wrapper.text()).toContain("证据不足")
+  })
+
+  it("定向语义校验把当前工作稿放入确认资料", async () => {
+    api.world.createWorldValidationRun.mockResolvedValue({
+      ...completedRun(), status: "queued", gate: null,
+    })
+    const wrapper = mountPanel({
+      policyStatus: { active: true, semantic_enabled: true },
+    })
+
+    await wrapper.get('[data-action="world-health-run-targeted"]').trigger("click")
+
+    expect(confirmAiReference).toHaveBeenCalledWith(expect.objectContaining({
+      action: "world.validation.semantic",
+      selected_world_bible_draft_ids: ["draft-1"],
+    }))
+    expect(api.world.createWorldValidationRun).toHaveBeenCalledWith(expect.objectContaining({
+      context_confirmation_id: "confirm-default",
+      target_id: "draft-1",
+    }))
   })
 
   it("二次确认后启用发布前校验", async () => {

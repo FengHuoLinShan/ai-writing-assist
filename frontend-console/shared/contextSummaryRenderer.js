@@ -6,6 +6,7 @@ export function renderContextSummary(summary = {}, options = {}) {
   const refs = summary.result_refs || []
   const sections = Array.isArray(summary.sections) ? summary.sections : []
   const budgetEvents = Array.isArray(summary.budget_events) ? summary.budget_events : []
+  const blockers = Array.isArray(summary.blockers) ? summary.blockers : []
   const characterPreview = sections.some((section) => section.key === "role_profile" || section.key === "role_visible_knowledge")
   const hasVisibleKnowledge = sections.some((section) => section.key === "role_visible_knowledge")
   const totalTokens = sections.reduce((sum, section) => sum + (Number(section.token_count) || 0), 0)
@@ -37,6 +38,7 @@ export function renderContextSummary(summary = {}, options = {}) {
         ${summary.include_pending_objects ? '<div class="ai-ref-warning-note">包含待处理内容，结果需要人工检查</div>' : ""}
       </div>
       ${renderSections(sections, { ...options, characterPreview })}
+      ${renderSelectionItems(summary, options)}
       ${budgetEvents.length ? `
         <div class="ai-ref-section">
           <div class="ai-ref-section-title">预算裁剪</div>
@@ -49,6 +51,12 @@ export function renderContextSummary(summary = {}, options = {}) {
         <div class="ai-ref-section">
           <div class="ai-ref-section-title">警告</div>
           <ul class="ai-ref-list">${warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>
+        </div>
+      ` : ""}
+      ${blockers.length ? `
+        <div class="ai-ref-section ai-ref-blockers" role="alert">
+          <div class="ai-ref-section-title">开始前需要处理</div>
+          <ul class="ai-ref-list">${blockers.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>
         </div>
       ` : ""}
       ${refs.length ? `
@@ -64,6 +72,7 @@ export function renderContextSummary(summary = {}, options = {}) {
 }
 
 function renderSections(sections, options) {
+  if (sections.some((section) => Array.isArray(section.items) && section.items.length)) return ""
   if (!sections.length) return ""
   if (!options.characterPreview) {
     return renderSectionGroup("参考资料清单", sections, options)
@@ -74,6 +83,51 @@ function renderSections(sections, options) {
     renderSectionGroup("会交给角色视角模型", modelSections, options),
     renderSectionGroup("仅供作者约束，不是角色知识", authorSections, options),
   ].join("")
+}
+
+function renderSelectionItems(summary, options = {}) {
+  const sections = Array.isArray(summary.sections) ? summary.sections : []
+  const included = sections.flatMap((section) => (section.items || []).map((item) => ({ ...item, section_title: section.title })))
+  const excluded = summary.selection_state?.excluded_items || []
+  const omitted = summary.selection_state?.omitted_items || []
+  if (!included.length && !excluded.length && !omitted.length) return ""
+  return [
+    renderItemGroup("必须使用", included.filter((item) => item.selection_state === "required"), options),
+    renderItemGroup("我添加的", included.filter((item) => item.selection_state === "author_pinned"), options),
+    renderItemGroup("系统找到", included.filter((item) => !["required", "author_pinned"].includes(item.selection_state)), options),
+    renderItemGroup("本次不用", excluded, { ...options, restore: true }),
+    renderItemGroup("本次未能加入", omitted, { ...options, restore: true, omitted: true }),
+  ].join("")
+}
+
+function renderItemGroup(title, items, options = {}) {
+  if (!items.length) return ""
+  return `
+    <div class="ai-ref-section">
+      <div class="ai-ref-section-title">${esc(title)} <span class="ai-ref-count">${items.length}</span></div>
+      <div class="ai-ref-section-list">${items.map((item) => renderContextItem(item, options)).join("")}</div>
+    </div>
+  `
+}
+
+function renderContextItem(item, options = {}) {
+  const source = item.source || {}
+  const title = item.title || item.section_title || "参考资料"
+  return `
+    <article class="ai-ref-source-card ${options.restore || options.omitted ? "is-excluded" : ""}">
+      <div class="ai-ref-source-head">
+        <div><strong>${esc(title)}</strong><span>${esc(item.activation_reason || "")}</span></div>
+        <div class="ai-ref-source-actions">
+          ${item.status ? `<span class="ai-ref-chip">${esc(renderStatus(item.status))}</span>` : ""}
+          ${options.restore && item.selection_ref ? `<button type="button" class="btn btn-ghost btn-xs" data-ai-ref-restore-item="${escAttr(item.key)}">${options.omitted ? "加入本次资料" : "恢复使用"}</button>` : ""}
+          ${!options.restore && !options.omitted && item.can_exclude && item.selection_ref ? `<button type="button" class="btn btn-ghost btn-xs" data-ai-ref-exclude-item="${escAttr(item.key)}">本次不用</button>` : ""}
+        </div>
+      </div>
+      ${item.preview ? `<div class="ai-ref-source-preview">${esc(item.preview)}</div>` : ""}
+      ${source.label ? `<div class="ai-ref-source-meta">来源：${esc(source.label)}</div>` : ""}
+      ${item.omission_reason ? `<div class="ai-ref-warning-note">${esc(item.omission_reason)}</div>` : ""}
+    </article>
+  `
 }
 
 function renderSectionGroup(title, sections, options) {

@@ -34,6 +34,7 @@
 | `scene_fusion_draft.py` | 内联 step `outline.scene_fusion.draft.structured`：基于选中 Scene 卡和精确正文生成融合语义草稿 | Scene 工作台 |
 | `world_generation_center_service.py` | 内联 steps `world.generation.chat.generate`、`world.generation.convergence.map/reduce`、`world.generation.exploration.preview`、`world.generation.semantic_inspection`、`world.generation.core_entity.structured`、`world.generation.world_bible_page.structured`、`world.generation.world_bible_new_page.structured`：世界设定共创、只读收束、一跳探索、当前页检修与结构化建议；加强复核在同一冻结账户模型上追加 `.quality_review` 第二遍 | world 生成中心 |
 | `ask_world_service.py` | 内联 step `world.ask`（snapshot prompt name `world.ask.v1`）：只根据当前项目作者可见证据生成带引用回答或明确拒答 | world 作者问答 |
+| `selection_proposal.py` | 内联 step `evidence.context.selection.suggest`：把作者资料调整要求映射到服务端 `candidate-NNN`，只返回待应用 include/exclude patch | Context 任务前审查 |
 | `world_bible_synopsis_service.py` | 内联 step `world.world_bible.synopsis.structured`：把已采用世界事实压缩为作者版 P1 世界观简介 | world 世界书简介刷新任务 |
 | `world_validation_service.py` | 内联 steps `world.validation.packet_N`：只读审查冻结 ReviewPacket 的闭合问题；每个 question 恰好一次，引文必须在本分片，无证据时保守返回 `mixed/KEEP-GATE` | world 世界书校验任务（仅策略开启 semantic 时） |
 | `generation_prompt_template_service.py` | 内置创作视角与项目级自定义模板；作为 author brief 进入生成中心 | world 对象共创 |
@@ -427,6 +428,12 @@ item/source mapping 覆盖；页面仍只在作者 apply 时通过既有 lifecyc
 只修复一次。作者单选后，后续结构化 Prompt 只收到该项及其证据；来源 snapshot 或请求内容
 变化会在调用前由 fingerprint 拒绝。`world_bible_new_page` 的同一结构化输出可选携带一份完整
 来源页修订，但只有具体内容改变时才各自写成两条 pending suggestion；不会自动应用或再探索。
+
+`evidence.context.selection.suggest` 只做任务前资料选择映射。服务端从当前 Context items 与
+Evidence Search 构造最多 40 个短键候选；system 规则禁止发明引用、修改作品、调用工具或直接
+开始任务。step 使用项目当前模型、temperature 0、suggest/read-only 权限、120 秒总超时、一次
+结构化修复且无 transport retry；最多 20 条操作必须引用已知短键。输出先进入前端待处理 patch，
+作者点击应用后由确定性编译器重验 owner、`novel_id`、版本/hash、可见性与 Scene 截止。
 
 `world.ask` 只处理作者查事实、比较关系和追来源的问题，不承担补设定或推荐下一项创作。
 确定性服务先固定当前项目、作者可见性、正式 source version 和最多 5 个回读来源，再把问题与

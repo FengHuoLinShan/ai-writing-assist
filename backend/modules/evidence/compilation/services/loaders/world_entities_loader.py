@@ -91,6 +91,10 @@ class WorldEntitiesLoader(Loader):
         core_limit = CONTEXT_BUDGET.get("core_entities", 8)
         normal_limit = CONTEXT_BUDGET.get("normal_entities", 8)
         all_limit = core_limit + normal_limit
+        if options.consumer_action == "world.entity_fusion.suggest":
+            core_limit = 100
+            normal_limit = 100
+            all_limit = 200
         generation_action = options.consumer_action in {
             "outline.analyze",
             "world.generation.chat",
@@ -99,7 +103,12 @@ class WorldEntitiesLoader(Loader):
             "world.generation.world_bible_page",
             "world.map_atlas.generate",
         }
-        if options.consumer_action == "world.map_atlas.generate":
+        background_limits = {
+            "world.map_atlas.generate": 160,
+            "world.validation.semantic": 240,
+            "world.world_bible.synopsis.refresh": 240,
+        }
+        if options.consumer_action in background_limits:
             from modules.world.facade import get_world_background
 
             background = await get_world_background(
@@ -107,7 +116,7 @@ class WorldEntitiesLoader(Loader):
                 options.novel_id,
                 context_mode=options.context_mode,
                 reveal_mode=options.reveal_mode,
-                limit=160,
+                limit=background_limits[options.consumer_action],
             )
             bundle.world_entities = [
                 {
@@ -121,7 +130,7 @@ class WorldEntitiesLoader(Loader):
                     "importance": item.importance,
                     "source_ids": item.source_ids,
                     "source_type": item.asset_type,
-                    "source_ref": {"source_hash": item.source_hash},
+                    "source_hash": item.source_hash,
                     "title": item.title,
                 }
                 for item in background.entries

@@ -372,6 +372,10 @@ describe("前后端 API 契约", () => {
       method: "POST",
       timeout: 600000,
     })
+    expect(getApiContract("context.proposeSelection")).toMatchObject({
+      method: "POST",
+      timeout: 150000,
+    })
     expect(getApiContract("context.render")).toMatchObject({
       method: "POST",
       timeout: 600000,
@@ -471,6 +475,7 @@ describe("前后端 API 契约", () => {
       {
         body: {
           novel_id: "novel-1",
+          context_confirmation_id: "confirmation-1",
           author_intent: "写一部长篇",
           planned_scale: "百万字",
           coverage: "全书",

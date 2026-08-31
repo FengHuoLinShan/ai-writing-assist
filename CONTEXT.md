@@ -75,6 +75,8 @@ README、ORM 模型与 Alembic migration。当前文档范围由
 | AI 参考资料确认 | `context_confirmations` | 手动 AI 操作前用户确认过的资料选择、结果引用与 `compile_options` 摘要。 |
 | 自动上下文快照 | `context_snapshots` | 真实 LLM 调用的审计记录，保存摘要、hash、预算、资产选择与结果引用；完整 rendered context 仅显式保留。 |
 | 编译上下文 | CompiledContext | evidence compilation 按 scope、视角、预算和候选模式选择、裁剪并解释资料的中间表示。 |
+| 可操作资料项 | ContextItem | CompiledContext 内实际交给模型的单项资料；状态为 required、automatic、author_pinned、excluded 或 omitted。 |
+| Context 指纹 | compiled_context_fingerprint | 对 provider 可见 sections/items、来源身份、选择与有效范围的通用 SHA-256；预览、确认、执行必须一致。 |
 | AI 地图册 | `map_atlas_runs` / `map_atlas_nodes` / `map_atlas_pages` / `map_atlas_annotations` | 基于已确认资料生成的候选图片及作者采用后的画廊；不作为时间化世界事实。 |
 
 地图册经既有 generation-background operation `world.map_atlas.generate` 取得 author-full 的
@@ -95,6 +97,13 @@ manifest 与 hash；manifest 按真实来源类型和 ID 记录 context/world lo
 Evidence indexing 通过 nullable `scene_span_id` 关联 Scene 物理片段，但不建跨模块硬 FK；
 compilation 负责“选、裁、确认、追踪”。imports、writing 等模块只能通过 evidence facade 或
 contract 消费它们。
+
+作者主动模型任务统一经过 `任务意图 → 非持久化预览 → 人工/AI 提议调整 → 指纹确认 →
+执行前重验 → 结果引用`。作者补充要求在检索前进入最多三条 query clause，不在确认后另拼
+一份不同指令。手动增减只接受服务端可回读的 TargetRef/SourceRangeRef；必需项不可排除，
+作者加入项超过预算时阻断而非静默裁剪。自然语言调整只产生待应用 patch，不直接修改
+Context。同一任务的内部复核/格式修复复用原 confirmation；自动流水线只在启动时确认一次并
+继续消费 snapshot，RP Interaction 仍使用自己的 attempt/context path。
 
 ## 5. 状态、采用与隔离
 

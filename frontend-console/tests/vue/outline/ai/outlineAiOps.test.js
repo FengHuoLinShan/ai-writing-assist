@@ -98,6 +98,7 @@ function resetManagers() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  confirmAiReference.mockResolvedValue({ id: "confirm-default" })
   localStorage.clear()
   resetManagers()
   clearAllBulkSelections()
@@ -429,7 +430,7 @@ describe("analyzeOutline", () => {
   it("成功提交并 adopt 到 manager", async () => {
     confirmAiReference.mockResolvedValue({
       id: "ca-1",
-      compile_options: { chapter_index: 3, visible_until_chapter: 8 },
+      selection_state: { effective_range: { chapter_from: 3, chapter_to: 8 } },
       sections: [{ key: "ref", title: "参考" }],
     })
     const analyze = vi.fn(async () => ({ task_id: "task-ana1", status: "running" }))
@@ -466,7 +467,7 @@ describe("analyzeOutline", () => {
 
     resolveConfirmation({
       id: "confirm-lock",
-      compile_options: { chapter_index: 1, visible_until_chapter: 2 },
+      selection_state: { effective_range: { chapter_from: 1, chapter_to: 2 } },
       sections: [],
     })
     await first
@@ -485,7 +486,7 @@ describe("analyzeOutline", () => {
     outlineAnalysisManager.recover("p-next")
     expect(outlineAnalysisManager.state.submitting).toBe(false)
     expect(outlineAnalysisManager.state.ownerProjectId).toBeNull()
-    resolveConfirmation({ id: "confirm-old", compile_options: {}, sections: [] })
+    resolveConfirmation({ id: "confirm-old", selection_state: {}, sections: [] })
     await expect(pending).rejects.toThrow("项目已切换")
   })
 })

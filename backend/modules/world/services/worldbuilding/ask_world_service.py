@@ -73,7 +73,27 @@ class AskWorldService:
         db: AsyncSession,
         data: AskWorldQuestionRequest,
     ) -> AskWorldResponse:
+        prepared = None
+        if data.context_confirmation_id:
+            from modules.evidence.facade import prepare_confirmed_ai_action
+
+            prepared = await prepare_confirmed_ai_action(
+                db,
+                novel_id=data.novel_id,
+                action="world.ask",
+                confirmation_id=data.context_confirmation_id,
+            )
         candidates, retrieval = await self._retrieve_candidates(db, data)
+        if prepared is not None:
+            before = len(candidates)
+            candidates = self._confirmed_candidates(
+                candidates,
+                prepared.confirmation.selected_asset_ids,
+            )
+            if len(candidates) < before:
+                retrieval.setdefault("warnings", []).append(
+                    "已排除未出现在本次确认资料中的问答来源"
+                )
         from modules.evidence.facade import compile_author_question_evidence
 
         packet = compile_author_question_evidence(candidates)
@@ -122,6 +142,33 @@ class AskWorldService:
             response.response_hash,
         )
         return response
+
+    @staticmethod
+    def _confirmed_candidates(
+        candidates: list[dict],
+        selected_asset_ids: dict[str, list[str]],
+    ) -> list[dict]:
+        allowed_pages = set(selected_asset_ids.get("world_bible_page") or [])
+        allowed_entities = set(selected_asset_ids.get("world_entities") or [])
+        allowed_drafts = set(selected_asset_ids.get("writing_drafts") or [])
+        result = []
+        for candidate in candidates:
+            citation = candidate.get("citation")
+            kind = candidate.get("kind")
+            if (
+                kind == "world_bible_page"
+                and str(citation.page_id or "") in allowed_pages
+            ):
+                result.append(candidate)
+            elif kind == "world_object":
+                target = dict(citation.target_ref or {})
+                if str(target.get("target_id") or "") in allowed_entities:
+                    result.append(candidate)
+            elif kind == "manuscript":
+                source = dict(citation.source_ref or {})
+                if str(source.get("draft_id") or "") in allowed_drafts:
+                    result.append(candidate)
+        return result
 
     async def open_citation(
         self,

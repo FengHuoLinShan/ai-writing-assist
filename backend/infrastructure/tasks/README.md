@@ -138,6 +138,12 @@ fence 旧 attempt；imports 以自己的 workflow run 保存 generation、owner 
 复用原任务（包括终态），同 ID 异请求冲突。receipt 不取代 keyed active coalescing 或
 业务 owner/source fence，不保存 secret。
 
+手动模型任务还必须在所属业务 API 校验 `context_confirmation_id`，把 ID 写入 secret-free
+request/meta，并在首次 provider I/O 前调用 Evidence 的 `prepare_confirmed_ai_action()` 重编译
+通用 Context 指纹。operation receipt 只能复用已绑定同一请求/confirmation 的任务，不能把
+无确认请求升级成已授权任务。内部格式修复、复核和返修复用原 confirmation；自动流水线只在
+启动时确认一次，内部阶段继续使用冻结 snapshot。
+
 声明 `retry_transient_llm_errors=True` 的 handler 在 task 内关闭 LLM client transport retry，
 由 worker 仅对明确临时 provider 错误自动重排，总 attempt 上限为 2。业务不得
 在首次临时失败时提前写终态失败。
@@ -258,7 +264,7 @@ infrastructure 仅依赖 DI 容器键，不 import project 模块。
 
 `story_outline_generate` 是 outline 模块专属的 `restart_origin` 任务：只能通过
 `POST /api/outline/story-outline/generate` 提交。它在 provider 前持久化无 secret 的 project
-LLM execution snapshot 和 StoryOutline context provenance；worker 首次 prepare 必须匹配
+LLM execution snapshot、Context confirmation 和 StoryOutline context provenance；worker 首次 prepare 必须匹配
 提交时 `submission_context_hash`，不允许排队期间静默换用新上下文，然后做 lease-fenced
 checkpoint；provider 等待期间不持有数据库事务，结束后重验 context hash。返回值是 strict
 preview，不自动写已采用资产。之后的窄 apply seam 只暴露 completed task 的

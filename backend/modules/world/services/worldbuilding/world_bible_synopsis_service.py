@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,6 +36,9 @@ from modules.world.schemas import (
 from modules.world.world_background import WorldBackgroundAggregation
 from shared.constants import TASK_MAX_HEARTBEAT_GAP
 from shared.utils import parse_uuid
+
+if TYPE_CHECKING:
+    from modules.evidence.contracts import ConfirmedAIActionContext
 
 _SYNOPSIS_TASK_TYPE = "world_bible_synopsis_refresh"
 _AUTHOR_PAGE_STATUSES = frozenset({"canonical", "confirmed"})
@@ -64,6 +67,8 @@ class _SynopsisTaskPlan:
     initial_pinned_revision_id: str | None
     initial_active_task_id: str | None
     llm_execution_snapshot_json: str
+    context_confirmation_id: str | None
+    context_fingerprint: str | None
 
     def public_fence(self) -> dict[str, Any]:
         return {
@@ -384,6 +389,7 @@ class WorldBibleSynopsisService:
         novel_id: str,
         *,
         llm_execution_snapshot: dict[str, Any] | None = None,
+        context_confirmation_id: str | None = None,
     ) -> tuple[str, str, bool, str]:
         nid = parse_uuid(novel_id, "novel_id")
         _manifest, source_hash, _omitted = await self.build_source_manifest(db, novel_id)
@@ -396,7 +402,11 @@ class WorldBibleSynopsisService:
                 novel_id,
                 str(head.active_task_id),
             )
-            if active is not None and active.status in {"pending", "running"}:
+            if (
+                context_confirmation_id is None
+                and active is not None
+                and active.status in {"pending", "running"}
+            ):
                 return active.task_id, str(active.status), True, source_hash
             head.active_task_id = None
         if llm_execution_snapshot is None:
@@ -414,6 +424,7 @@ class WorldBibleSynopsisService:
                 "source_hash": source_hash,
                 "llm_execution_snapshot": llm_execution_snapshot,
                 "workflow": "world_bible_synopsis_auto_maintenance",
+                "context_confirmation_id": context_confirmation_id,
             },
             novel_id=novel_id,
         )
@@ -585,6 +596,7 @@ class WorldBibleSynopsisService:
         task_meta: dict[str, Any],
         metadata_callback: Callable[[dict[str, Any], dict[str, Any]], None],
         checkpoint_callback: Callable[[dict[str, Any] | None, float], None],
+        confirmed_context: ConfirmedAIActionContext | None = None,
     ) -> _SynopsisTaskOutcome:
         """Refresh without holding a database transaction during provider I/O.
 
@@ -619,6 +631,7 @@ class WorldBibleSynopsisService:
             task_id=task_id,
             task_meta=task_meta,
             llm_execution_snapshot=snapshot,
+            confirmed_context=confirmed_context,
         )
         metadata_callback(snapshot, plan.public_fence())
         checkpoint_callback(None, 0.1)
@@ -667,6 +680,7 @@ class WorldBibleSynopsisService:
         task_id: str,
         task_meta: dict[str, Any],
         llm_execution_snapshot: dict[str, Any],
+        confirmed_context: ConfirmedAIActionContext | None = None,
     ) -> _SynopsisTaskPlan:
         nid = parse_uuid(novel_id, "novel_id")
         parse_uuid(task_id, "task_id")
@@ -680,6 +694,12 @@ class WorldBibleSynopsisService:
             db,
             novel_id,
         )
+        if confirmed_context is not None:
+            manifest, context_omitted = self._confirmed_source_manifest(
+                manifest,
+                confirmed_context,
+            )
+            source_omitted = [*source_omitted, *context_omitted]
         head = await self._get_or_create_head(
             db,
             nid,
@@ -705,7 +725,44 @@ class WorldBibleSynopsisService:
                 str(head.active_task_id) if head.active_task_id else None
             ),
             llm_execution_snapshot_json=self._canonical_json(llm_execution_snapshot),
+            context_confirmation_id=(
+                str(confirmed_context.confirmation.id)
+                if confirmed_context is not None
+                else None
+            ),
+            context_fingerprint=(
+                confirmed_context.confirmation.context_fingerprint
+                if confirmed_context is not None
+                else None
+            ),
         )
+
+    @staticmethod
+    def _confirmed_source_manifest(
+        manifest: list[dict[str, Any]],
+        confirmed_context: ConfirmedAIActionContext,
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        selected = confirmed_context.confirmation.selected_asset_ids
+        aliases = {
+            "entity": "world_entities",
+            "core_entity": "world_entities",
+            "character": "characters",
+        }
+        included: list[dict[str, Any]] = []
+        omitted: list[str] = []
+        for item in manifest:
+            asset_type = str(item.get("type") or "")
+            asset_id = str(item.get("id") or "")
+            bucket = aliases.get(asset_type, asset_type)
+            if asset_id and asset_id in set(selected.get(bucket) or []):
+                included.append(item)
+            else:
+                omitted.append(f"context_excluded:{asset_type}:{asset_id}")
+        if not included:
+            raise ValidationError(
+                "Confirmed Context contains no World sources for synopsis refresh"
+            )
+        return included, omitted
 
     async def _finalize_task_generation(
         self,
@@ -790,6 +847,8 @@ class WorldBibleSynopsisService:
                 "model": generation.model,
                 "prompt_name": "world.world_bible.synopsis.structured",
                 "llm_execution_snapshot": json.loads(plan.llm_execution_snapshot_json),
+                "context_confirmation_id": plan.context_confirmation_id,
+                "context_fingerprint": plan.context_fingerprint,
                 "editable": False,
                 "rollback": True,
             },

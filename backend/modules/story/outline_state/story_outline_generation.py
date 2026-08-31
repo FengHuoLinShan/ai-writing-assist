@@ -178,6 +178,26 @@ class StoryOutlineGenerationService:
         db: AsyncSession,
         data: StoryOutlineGenerateRequest,
     ) -> StoryOutlineGenerationPlan:
+        confirmed = None
+        if data.context_confirmation_id:
+            from modules.evidence.facade import prepare_confirmed_ai_action
+
+            confirmed = await prepare_confirmed_ai_action(
+                db,
+                novel_id=data.novel_id,
+                action=STORY_OUTLINE_GENERATE_ACTION,
+                confirmation_id=data.context_confirmation_id,
+            )
+            confirmed_characters = set(
+                confirmed.compile_options.get("character_ids") or []
+            )
+            confirmed_entities = set(
+                confirmed.compile_options.get("entity_ids") or []
+            )
+            if confirmed_characters != set(data.selected_character_ids):
+                raise ValueError("confirmed character selection changed")
+            if confirmed_entities != set(data.selected_entity_ids):
+                raise ValueError("confirmed entity selection changed")
         project = await get_project_context(db, data.novel_id)
         if project is None:
             raise LookupError("Project not found")
@@ -203,6 +223,12 @@ class StoryOutlineGenerationService:
         automatic_world_candidates = []
         automatic_character_candidates = []
         automatic_entity_candidates = []
+        selected_assets = (
+            confirmed.confirmation.selected_asset_ids if confirmed is not None else {}
+        )
+        allowed_pages = set(selected_assets.get("world_bible_page") or [])
+        allowed_entities = set(selected_assets.get("world_entities") or [])
+        allowed_characters = set(selected_assets.get("characters") or [])
         for entry in background.entries:
             is_page = entry.asset_type == "world_bible_page"
             entity_group = entry.group.split(":", 1)[0]
@@ -211,6 +237,17 @@ class StoryOutlineGenerationService:
                 "power_system",
             }
             is_character = entry.asset_type == "entity" and entity_group == "character"
+            if is_page and confirmed is not None and entry.asset_id not in allowed_pages:
+                continue
+            if (
+                entry.asset_type == "entity"
+                and confirmed is not None
+                and entry.asset_id
+                not in (allowed_characters if is_character else allowed_entities)
+                and entry.asset_id not in explicit_entity_ids
+                and entry.asset_id not in explicit_character_ids
+            ):
+                continue
             if is_page or (is_rule and entry.asset_id not in explicit_entity_ids):
                 automatic_world_candidates.append(entry)
             elif is_character and entry.asset_id not in explicit_character_ids:
@@ -315,6 +352,8 @@ class StoryOutlineGenerationService:
             "selected_world_entities": selected_entities,
             "current_story_outline": current_outline,
         }
+        if confirmed is not None:
+            context["confirmed_context"] = confirmed.rendered_markdown
         source_refs = self._source_refs(
             data=data,
             context=context,
@@ -328,6 +367,11 @@ class StoryOutlineGenerationService:
             entity_selection_reason=entity_selection_reason,
         )
         provenance = {
+            "compiled_context_fingerprint": (
+                confirmed.confirmation.context_fingerprint
+                if confirmed is not None
+                else None
+            ),
             "version": STORY_OUTLINE_CONTEXT_VERSION,
             "action": STORY_OUTLINE_GENERATE_ACTION,
             "included_asset_ids": {

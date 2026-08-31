@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -56,6 +57,30 @@ def _policy(*, semantic: bool = False) -> WorldValidationPolicy:
             else []
         ),
     )
+
+
+def test_semantic_manifest_uses_only_confirmed_world_sources() -> None:
+    manifest = {
+        "scope": "full",
+        "items": [
+            {"target_type": "world_bible_page", "target_id": "page-1"},
+            {"target_type": "world_bible_page", "target_id": "page-2"},
+        ],
+        "world_state_checkpoint": {"payload": {"secret": "not confirmed"}},
+    }
+    confirmed = SimpleNamespace(
+        confirmation=SimpleNamespace(
+            selected_asset_ids={"world_bible_page": ["page-1"]}
+        )
+    )
+
+    filtered = WorldValidationService._confirmed_semantic_manifest(
+        manifest,
+        confirmed,
+    )
+
+    assert [item["target_id"] for item in filtered["items"]] == ["page-1"]
+    assert filtered["world_state_checkpoint"] is None
 
 
 def test_policy_is_closed_and_uses_named_operators_only() -> None:

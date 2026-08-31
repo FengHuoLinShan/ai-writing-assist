@@ -72,6 +72,7 @@ CHARACTER_ID = str(uuid.uuid4())
                 "novel_id": NOVEL_ID,
                 "scene_id": SCENE_ID,
                 "character_ids": [CHARACTER_ID],
+                "context_confirmation_id": "confirmation-one-click",
                 "submit_authorized": True,
             },
         ),
@@ -295,8 +296,9 @@ async def test_all_story_handlers_start_from_v1_envelope(monkeypatch) -> None:
             {
                 "novel_id": NOVEL_ID,
                 "scene_id": SCENE_ID,
-                "character_ids": [CHARACTER_ID],
-                "submit_authorized": True,
+                    "character_ids": [CHARACTER_ID],
+                    "context_confirmation_id": "one-click-confirmation",
+                    "submit_authorized": True,
             },
         ),
     ]

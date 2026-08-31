@@ -55,6 +55,73 @@ test.describe("Scene 工作台", () => {
     }
   })
 
+  test("一键推演在任务提交前确认 Scene Context", async ({ page }) => {
+    const project = await createProject({ title: "Story Context E2E", genre: "fantasy", language: "zh" })
+    testProjectId = project.id
+    const character = await createEntity(project.id, {
+      name: "沈岚",
+      entity_type: "character",
+      status: "canonical",
+      summary: "谨慎的王城密探",
+    })
+    const scene = await createScene(project.id, {
+      scene_index: 0,
+      title: "夜探王城",
+      goal: "取得密信",
+      core_conflict: "巡逻守卫逼近",
+      pov_character_id: character.id,
+      chapter_ids: ["1"],
+    })
+    const submissions = []
+    await page.route(`**/api/story/scenes/${scene.id}/story-context?*`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          character_cards: [{ character_id: character.id, name: "沈岚", content: { personality: "谨慎" } }],
+          script_files: [],
+        }),
+      })
+    })
+    await page.route("**/api/story/character-cards?*", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [], total: 0 }) })
+    })
+    await page.route("**/api/story/tasks/one-click", async (route) => {
+      submissions.push(route.request().postDataJSON())
+      await route.fulfill({
+        status: 202,
+        contentType: "application/json",
+        body: JSON.stringify({ task_id: "story-context-task", status: "pending" }),
+      })
+    })
+    await page.route("**/api/tasks/story-context-task**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ task_id: "story-context-task", task_type: "story_one_click", status: "pending", progress: 0 }),
+      })
+    })
+
+    await openWorkbench(page, project, "scene", scene.id)
+    await page.getByRole("tab", { name: /推演/ }).click()
+    const run = page.getByRole("button", { name: "推演并补齐人物卡" })
+    await expect(run).toBeEnabled()
+    await run.click()
+    await expect(page.locator("#modal-overlay")).toContainText("AI 参考资料")
+    const start = page.getByRole("button", { name: "按这份资料开始" })
+    await expect(start).toBeEnabled()
+    await start.click()
+
+    await expect.poll(() => submissions.length).toBe(1)
+    expect(submissions[0]).toEqual(expect.objectContaining({
+      novel_id: project.id,
+      scene_id: scene.id,
+      character_ids: [character.id],
+      context_confirmation_id: expect.any(String),
+      submit_authorized: true,
+    }))
+  })
+
   test("从写作页整理按钮进入场景工作台并定位当前 Scene", async ({ page }) => {
     const project = await createProject({ title: "Scene 工作台跳转", genre: "fantasy", language: "zh" })
     testProjectId = project.id

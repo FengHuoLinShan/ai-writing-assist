@@ -114,6 +114,9 @@ class MapAtlasService:
             page_limit=20,
             llm_execution_snapshot=llm_snapshot,
             image_execution_snapshot=image_snapshot,
+            context_snapshot={
+                "context_confirmation_id": data.context_confirmation_id,
+            },
         )
         db.add(run)
         await db.flush()

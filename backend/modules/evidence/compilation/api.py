@@ -45,6 +45,9 @@ from modules.evidence.compilation.facade import (
 from modules.evidence.compilation.facade import load_scene_lens as _load_scene_lens
 from modules.evidence.compilation.facade import preview_activation as _preview_activation
 from modules.evidence.compilation.facade import (
+    propose_context_selection as _propose_context_selection,
+)
+from modules.evidence.compilation.facade import (
     publish_activation_profile as _publish_activation_profile,
 )
 from modules.evidence.compilation.facade import (
@@ -83,6 +86,8 @@ from modules.evidence.compilation.schemas import (
     ContextRenderResponse,
     ContextRetrievalTraceListResponse,
     ContextRetrievalTraceResponse,
+    ContextSelectionProposalRequest,
+    ContextSelectionProposalResponse,
     ContextSnapshotListItemResponse,
     ContextSnapshotListResponse,
     ContextSnapshotMaintenanceRequest,
@@ -109,7 +114,16 @@ from modules.project.facade import require_active_project
 from modules.writing.contracts import SourceRangeRefContract
 
 _VALID_SCOPES: frozenset[str] = frozenset(
-    {"project", "world", "world_character", "arc", "chapter", "full"}
+    {
+        "project",
+        "world",
+        "world_character",
+        "generation_center",
+        "arc",
+        "chapter",
+        "scene",
+        "full",
+    }
 )
 
 handler_router = APIRouter(tags=["context"])
@@ -194,7 +208,7 @@ async def compile_context(
         scope=request.scope,
         budget_tokens=request.budget_tokens,
         scene_id=request.scene_id,
-        retrieval_purpose=request.retrieval_purpose,
+        retrieval_purpose="generic_context",
         chapter_index=request.chapter_index,
         visible_until_chapter=request.visible_until_chapter,
         visible_until_scene_id=request.visible_until_scene_id,
@@ -211,11 +225,14 @@ async def compile_context(
         content_mode=request.content_mode,
         include_pending_objects=request.include_pending_objects,
         excluded_asset_ids=request.excluded_asset_ids,
+        pinned_refs=[item.model_dump(mode="json") for item in request.pinned_refs],
+        excluded_refs=[item.model_dump(mode="json") for item in request.excluded_refs],
         user_note=request.user_note,
         include_world_synopsis=request.include_world_synopsis,
         selected_world_bible_draft_ids=request.selected_world_bible_draft_ids,
         activation_profile_id=request.activation_profile_id,
         activation_profile_version=request.activation_profile_version,
+        consumer_action=request.action,
     )
 
     return _build_tier_compile_response(request, ctx)
@@ -259,6 +276,8 @@ async def render_context(
         content_mode=request.content_mode,
         include_pending_objects=request.include_pending_objects,
         excluded_asset_ids=request.excluded_asset_ids,
+        pinned_refs=[item.model_dump(mode="json") for item in request.pinned_refs],
+        excluded_refs=[item.model_dump(mode="json") for item in request.excluded_refs],
         user_note=request.user_note,
         include_world_synopsis=request.include_world_synopsis,
         selected_world_bible_draft_ids=request.selected_world_bible_draft_ids,
@@ -295,7 +314,7 @@ async def confirm_context(
         action=request.action,
         task=request.task,
         scope=request.scope,
-        retrieval_purpose=request.retrieval_purpose,
+        retrieval_purpose="generic_context",
         chapter_index=request.chapter_index,
         visible_until_chapter=request.visible_until_chapter,
         visible_until_scene_id=request.visible_until_scene_id,
@@ -314,13 +333,65 @@ async def confirm_context(
         content_mode=request.content_mode,
         include_pending_objects=request.include_pending_objects,
         excluded_asset_ids=request.excluded_asset_ids,
+        pinned_refs=[item.model_dump(mode="json") for item in request.pinned_refs],
+        excluded_refs=[item.model_dump(mode="json") for item in request.excluded_refs],
+        user_note=request.user_note,
+        include_world_synopsis=request.include_world_synopsis,
+        selected_world_bible_draft_ids=request.selected_world_bible_draft_ids,
+        activation_profile_id=request.activation_profile_id,
+        activation_profile_version=request.activation_profile_version,
+        expected_context_fingerprint=request.expected_context_fingerprint,
+    )
+    return ContextConfirmationResponse(**confirmation.__dict__)
+
+
+@router.post(
+    "/selection-proposals",
+    response_model=ContextSelectionProposalResponse,
+)
+async def propose_context_selection(
+    db: DbSession,
+    request: ContextSelectionProposalRequest,
+) -> ContextSelectionProposalResponse:
+    """Propose, but never apply, one bounded author context adjustment."""
+    await require_active_project(db, request.novel_id)
+    _validate_scope(request)
+    _validate_character_reveal_mode(request)
+    result = await _propose_context_selection(
+        db,
+        novel_id=request.novel_id,
+        action=request.action,
+        task=request.task,
+        scope=request.scope,
+        instruction=request.instruction,
+        current_context_fingerprint=request.current_context_fingerprint,
+        budget_tokens=request.budget_tokens,
+        scene_id=request.scene_id,
+        chapter_index=request.chapter_index,
+        visible_until_chapter=request.visible_until_chapter,
+        visible_until_scene_id=request.visible_until_scene_id,
+        visible_until_offset=request.visible_until_offset,
+        arc_id=request.arc_id,
+        entity_ids=request.entity_ids,
+        character_ids=request.character_ids,
+        thread_ids=request.thread_ids,
+        location_ids=request.location_ids,
+        reveal_mode=request.reveal_mode,
+        enable_geo_filter=request.enable_geo_filter,
+        viewpoint_character_id=request.viewpoint_character_id,
+        context_mode=request.context_mode,
+        content_mode=request.content_mode,
+        include_pending_objects=request.include_pending_objects,
+        excluded_asset_ids=request.excluded_asset_ids,
+        pinned_refs=[item.model_dump(mode="json") for item in request.pinned_refs],
+        excluded_refs=[item.model_dump(mode="json") for item in request.excluded_refs],
         user_note=request.user_note,
         include_world_synopsis=request.include_world_synopsis,
         selected_world_bible_draft_ids=request.selected_world_bible_draft_ids,
         activation_profile_id=request.activation_profile_id,
         activation_profile_version=request.activation_profile_version,
     )
-    return ContextConfirmationResponse(**confirmation.__dict__)
+    return ContextSelectionProposalResponse(**result)
 
 
 @router.get("/evidence-health", response_model=EvidenceHealthResponse)

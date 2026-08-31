@@ -169,6 +169,7 @@ export async function generateOutlineLayer({ target, mode, instruction, selected
       chapter_index: startChapter,
       budget_tokens: 0,
       include_pending_objects: false,
+      user_note: instruction,
       ...selectionContext,
     })
     if (state?.currentProjectId !== projectId) throw new Error("项目已切换，请在当前项目重新发起创作")
@@ -393,8 +394,9 @@ export async function analyzeOutline({ instruction, startChapter, endChapter }) 
     })
     if (state?.currentProjectId !== projectId) throw new Error("项目已切换，请在当前项目重新发起分析")
 
-    const confirmedStart = Number(confirmation?.compile_options?.chapter_index || startChapter)
-    const confirmedEnd = Number(confirmation?.compile_options?.visible_until_chapter || endChapter)
+    const effectiveRange = confirmation?.selection_state?.effective_range || {}
+    const confirmedStart = Number(effectiveRange.chapter_from || startChapter)
+    const confirmedEnd = Number(effectiveRange.chapter_to || endChapter)
     const operationId = createOperationId()
     const analysisMeta = {
       project_id: projectId,

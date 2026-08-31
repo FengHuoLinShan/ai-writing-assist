@@ -925,3 +925,48 @@ async def test_task_only_methods_are_not_cross_module_facade_exports() -> None:
         "generate_layer_for_task",
         "generate_legacy_preview_for_task",
     }.intersection(facade.__all__)
+
+
+async def test_scene_fusion_task_passes_materialized_confirmation_to_generator() -> None:
+    from modules.story.outline_state import tasks as outline_tasks
+
+    prepared = SimpleNamespace(rendered_markdown="confirmed")
+    result = SimpleNamespace(model_dump=mock.MagicMock(return_value={"ok": True}))
+    task = SimpleNamespace(
+        id="task-1",
+        meta={
+            "novel_id": "11111111-1111-1111-1111-111111111111",
+            "context_confirmation_id": "confirmation-1",
+            "source_scene_ids": [
+                "22222222-2222-2222-2222-222222222222",
+                "33333333-3333-3333-3333-333333333333",
+            ],
+            "primary_scene_id": "22222222-2222-2222-2222-222222222222",
+            "llm_execution_snapshot": {"profile_hash": "frozen"},
+        },
+        update_progress=mock.MagicMock(),
+    )
+    db = SimpleNamespace(task_checkpoint_enabled=True)
+
+    with (
+        mock.patch(
+            "modules.evidence.facade.prepare_confirmed_ai_action",
+            autospec=True,
+            return_value=prepared,
+        ) as prepare_context,
+        mock.patch(
+            "modules.story.outline_state.scene_workbench.SceneWorkbenchService",
+            autospec=True,
+        ) as service_cls,
+    ):
+        service_cls.return_value.preview_llm_fusion.return_value = result
+        actual = await outline_tasks.handle_scene_fusion_preview(db, task)
+
+    assert actual == {"ok": True}
+    prepare_context.assert_awaited_once()
+    assert (
+        service_cls.return_value.preview_llm_fusion.await_args.kwargs[
+            "confirmed_context"
+        ]
+        is prepared
+    )

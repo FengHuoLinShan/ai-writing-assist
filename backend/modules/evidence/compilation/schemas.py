@@ -13,6 +13,53 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from shared.target_ref import normalize_target_ref
 
 
+class ContextSelectionRefRequest(BaseModel):
+    """Opaque author selection backed by a server-validated source or target."""
+
+    kind: Literal["target", "source_range"]
+    target_ref: dict[str, Any] | None = None
+    source_ref: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def validate_reference(self):
+        if self.kind == "target":
+            if not self.target_ref or self.source_ref is not None:
+                raise ValueError("target selection requires only target_ref")
+            self.target_ref = normalize_target_ref(self.target_ref).canonical_dict()
+            return self
+        if not self.source_ref or self.target_ref is not None:
+            raise ValueError("source_range selection requires only source_ref")
+        required = {
+            "draft_id",
+            "chapter_index",
+            "version_number",
+            "content_mode",
+            "start_offset",
+            "end_offset",
+            "source_hash",
+            "range_hash",
+        }
+        if set(self.source_ref) != required:
+            raise ValueError("source_ref fields are invalid")
+        if self.source_ref.get("content_mode") not in {"canonical", "working"}:
+            raise ValueError("source_ref content_mode is invalid")
+        if int(self.source_ref.get("chapter_index") or 0) < 1:
+            raise ValueError("source_ref chapter_index is invalid")
+        if int(self.source_ref.get("version_number") or 0) < 1:
+            raise ValueError("source_ref version_number is invalid")
+        start = int(self.source_ref.get("start_offset") or -1)
+        end = int(self.source_ref.get("end_offset") or -1)
+        if start < 0 or end <= start:
+            raise ValueError("source_ref offsets are invalid")
+        for key in ("source_hash", "range_hash"):
+            value = str(self.source_ref.get(key) or "")
+            if len(value) != 64 or any(
+                character not in "0123456789abcdef" for character in value.lower()
+            ):
+                raise ValueError(f"source_ref {key} is invalid")
+        return self
+
+
 class ContextSelectionRequest(BaseModel):
     """上下文选择参数。"""
 
@@ -20,7 +67,10 @@ class ContextSelectionRequest(BaseModel):
     task: str = Field(..., description="创作任务描述，如「生成章节卡」、「生成剧情线」")
     scope: str = Field(
         ...,
-        description="编译范围: project / world / world_character / arc / chapter / full",
+        description=(
+            "编译范围: project / world / world_character / generation_center / "
+            "arc / chapter / scene / full"
+        ),
     )
     retrieval_purpose: Literal[
         "writing_generation",
@@ -132,6 +182,16 @@ class ContextSelectionRequest(BaseModel):
         default_factory=dict,
         description="本次排除的资产 ID",
     )
+    pinned_refs: list[ContextSelectionRefRequest] = Field(
+        default_factory=list,
+        max_length=50,
+        description="作者本次显式加入的资料引用",
+    )
+    excluded_refs: list[ContextSelectionRefRequest] = Field(
+        default_factory=list,
+        max_length=50,
+        description="作者本次显式排除的资料引用",
+    )
     user_note: str | None = Field(
         None,
         description="用户本次 AI 操作的额外注意事项",
@@ -148,7 +208,12 @@ class ContextSelectionRequest(BaseModel):
 class ContextCompileRequest(ContextSelectionRequest):
     """上下文编译请求"""
 
-    pass
+    action: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        description="手动 AI 操作标识；提供时由服务端确定检索用途",
+    )
 
 
 class SceneLensRequest(BaseModel):
@@ -249,6 +314,10 @@ class ContextSectionItem(BaseModel):
         default_factory=dict,
         description="检索计划与命中原因摘要；不包含原始 query",
     )
+    items: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="面向确认窗的结构化资料项",
+    )
 
 
 class ContextRetrievalTraceResponse(BaseModel):
@@ -318,12 +387,48 @@ class ContextTierCompileResponse(BaseModel):
     budget_events: list[ContextBudgetEventItem] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     activation_trace: dict[str, Any] = Field(default_factory=dict)
+    context_fingerprint: str = ""
+    selected_asset_ids: dict[str, list[str]] = Field(default_factory=dict)
+    selection_state: dict[str, Any] = Field(default_factory=dict)
+    blockers: list[str] = Field(default_factory=list)
 
 
 class ContextConfirmRequest(ContextSelectionRequest):
     """AI 参考资料确认请求。"""
 
     action: str = Field(..., min_length=1, description="手动 AI 操作标识")
+    expected_context_fingerprint: str | None = Field(
+        default=None,
+        min_length=64,
+        max_length=64,
+        description="作者刚审查过的 Context 指纹",
+    )
+
+
+class ContextSelectionProposalRequest(ContextSelectionRequest):
+    """Ask the project model to propose a bounded selection patch."""
+
+    action: str = Field(..., min_length=1, max_length=128)
+    instruction: str = Field(..., min_length=1, max_length=1000)
+    current_context_fingerprint: str = Field(min_length=64, max_length=64)
+
+
+class ContextSelectionProposalOperation(BaseModel):
+    operation: Literal["include", "exclude"]
+    selection_ref: ContextSelectionRefRequest
+    label: str
+    reason: str
+
+
+class ContextSelectionProposalResponse(BaseModel):
+    base_context_fingerprint: str
+    summary: str
+    operations: list[ContextSelectionProposalOperation] = Field(
+        default_factory=list,
+        max_length=20,
+    )
+    unresolved: list[str] = Field(default_factory=list, max_length=20)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ContextActivationPreviewRequest(BaseModel):
@@ -632,6 +737,9 @@ class ContextConfirmationResponse(BaseModel):
     stale_reasons: list[str] = Field(default_factory=list)
     compiled_at: str
     created_at: str
+    context_fingerprint: str = ""
+    selection_state: dict[str, Any] = Field(default_factory=dict)
+    blockers: list[str] = Field(default_factory=list)
 
 
 class ContextSnapshotResponse(BaseModel):

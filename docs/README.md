@@ -153,6 +153,7 @@
 13. [`audit/2026-07-25-真实用户场景持续发散排查.md`](audit/2026-07-25-真实用户场景持续发散排查.md) — 持续进行中的真实用户操作台账：前端直观性、状态恢复、后端异常、真实 LLM 与逐轮未覆盖组合
 14. [`references/2026-08-13-worldbook-system-enhancement-plan.md`](references/2026-08-13-worldbook-system-enhancement-plan.md) — 基于详细世界书样本与当前代码能力核对形成的增量需求、差距矩阵和分阶段计划
 15. [`audit/2026-08-13-defensive-code-audit.md`](audit/2026-08-13-defensive-code-audit.md) — 仅后端生产代码的去冗余、哈希与异常定向审计
+16. [`audit/2026-08-31-Context能力与任务前确认诊断.md`](audit/2026-08-31-Context能力与任务前确认诊断.md) — Context 可操作资料、手动模型任务覆盖、三阶段指纹、掌控感 UI 与质量证据分层
 16. [`references/world-object-worldbook-unification-research.md`](references/world-object-worldbook-unification-research.md) — 世界对象、世界书、统一 Card 与事实权威的研究和实施交接
 17. [`references/world-authority-canonical-fixtures-v1.json`](references/world-authority-canonical-fixtures-v1.json) — Phase 0 canonical JSON 与 SHA-256 可执行夹具
 

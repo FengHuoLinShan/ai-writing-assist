@@ -163,6 +163,7 @@ async def _compile_character_reveals(
     character_ids: list[str],
     action: str,
     additional_notes: str | None,
+    selection_options: dict[str, Any] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Compile an independently filtered context for each target character."""
     purpose = (
@@ -171,6 +172,7 @@ async def _compile_character_reveals(
         else "story_character_reaction"
     )
     reveals: dict[str, dict[str, Any]] = {}
+    selection_options = selection_options or {}
     for character_id in dict.fromkeys(character_ids):
         compiled = await compile_with_tiers(
             db,
@@ -185,8 +187,20 @@ async def _compile_character_reveals(
             visible_until_scene_id=scene_id,
             consumer_action=action,
             retrieval_purpose=purpose,
-            user_note=additional_notes,
+            user_note=selection_options.get("user_note", additional_notes),
+            context_mode=selection_options.get("context_mode", "canonical"),
+            content_mode=selection_options.get("content_mode", "canonical"),
+            include_pending_objects=bool(
+                selection_options.get("include_pending_objects", False)
+            ),
+            excluded_asset_ids=dict(
+                selection_options.get("excluded_asset_ids") or {}
+            ),
+            pinned_refs=list(selection_options.get("pinned_refs") or []),
+            excluded_refs=list(selection_options.get("excluded_refs") or []),
         )
+        if compiled.blockers:
+            raise ValueError("；".join(compiled.blockers))
         rendered = render_compiled_context(compiled)
         stable_sections = [
             {
@@ -280,43 +294,14 @@ async def _prepare_task_input(
         raise ValueError(f"invalid action for {task.task_type}")
     data = _parse_task_request(meta, request_model)
     snapshot = await _require_snapshot(db, task, meta, data.novel_id)
-    if action == STORY_ONE_CLICK_ACTION:
-        character_ids = _require_character_ids(data.character_ids)
-        compiled = await compile_with_tiers(
-            db,
-            data.novel_id,
-            task=action,
-            scope="scene",
-            scene_id=data.scene_id,
-            budget_tokens=8000,
-            character_ids=character_ids,
-            reveal_mode="author_safe",
-            visible_until_scene_id=data.scene_id,
-            consumer_action=action,
-            retrieval_purpose="story_scene_one_click",
-            user_note=data.additional_notes,
-        )
-        confirmed_compile_options = {
-            "novel_id": data.novel_id,
-            "task": action,
-            "scope": "scene",
-            "scene_id": data.scene_id,
-            "character_ids": character_ids,
-            "reveal_mode": "author_safe",
-            "visible_until_scene_id": data.scene_id,
-            "consumer_action": action,
-            "retrieval_purpose": "story_scene_one_click",
-            "user_note": data.additional_notes,
-        }
-    else:
-        confirmed = await prepare_confirmed_ai_action(
-            db,
-            novel_id=data.novel_id,
-            action=action,
-            confirmation_id=data.context_confirmation_id,
-        )
-        compiled = confirmed.compiled
-        confirmed_compile_options = dict(confirmed.compile_options or {})
+    confirmed = await prepare_confirmed_ai_action(
+        db,
+        novel_id=data.novel_id,
+        action=action,
+        confirmation_id=data.context_confirmation_id,
+    )
+    compiled = confirmed.compiled
+    confirmed_compile_options = dict(confirmed.compile_options or {})
     context_markdown = render_compiled_context(compiled)
     selected_ids = (
         list(data.character_ids)
@@ -345,6 +330,7 @@ async def _prepare_task_input(
             character_ids=selected_ids,
             action=action,
             additional_notes=getattr(data, "additional_notes", None),
+            selection_options=confirmed_compile_options,
         )
     section_metadata = {
         section.key: {
@@ -718,20 +704,13 @@ async def handle_story_one_click(db, task):
             "Scene, outline, or selected character cards changed while "
             "one-click was running"
         )
-    latest_compiled = await compile_with_tiers(
+    latest_confirmed = await prepare_confirmed_ai_action(
         db,
-        data.novel_id,
-        task=STORY_ONE_CLICK_ACTION,
-        scope="scene",
-        scene_id=data.scene_id,
-        budget_tokens=8000,
-        character_ids=character_ids,
-        reveal_mode="author_safe",
-        visible_until_scene_id=data.scene_id,
-        consumer_action=STORY_ONE_CLICK_ACTION,
-        retrieval_purpose="story_scene_one_click",
-        user_note=data.additional_notes,
+        novel_id=data.novel_id,
+        action=STORY_ONE_CLICK_ACTION,
+        confirmation_id=data.context_confirmation_id,
     )
+    latest_compiled = latest_confirmed.compiled
     latest_character_reveals = await _compile_character_reveals(
         db,
         novel_id=data.novel_id,
@@ -739,6 +718,7 @@ async def handle_story_one_click(db, task):
         character_ids=character_ids,
         action=STORY_ONE_CLICK_ACTION,
         additional_notes=data.additional_notes,
+        selection_options=dict(latest_confirmed.compile_options or {}),
     )
     latest_source_hashes = _character_card_source_hashes(
         latest_context.model_dump(mode="json"),

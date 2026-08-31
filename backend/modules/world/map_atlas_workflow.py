@@ -371,6 +371,9 @@ async def _compile_context(db, run: MapAtlasRun) -> dict[str, Any]:
         ),
         focus_text=run.style_note or "",
         source_snapshot={"run_id": str(run.id), "run_kind": run.run_kind},
+        context_confirmation_id=(run.context_snapshot or {}).get(
+            "context_confirmation_id"
+        ),
     )
 
 
@@ -1341,6 +1344,9 @@ async def _plan(db, task, run: MapAtlasRun) -> None:
     run.context_hash = hashlib.sha256(rendered.encode("utf-8")).hexdigest()
     base_snapshot = {
         "context_snapshot_id": usage.get("context_snapshot_id"),
+        "context_confirmation_id": (run.context_snapshot or {}).get(
+            "context_confirmation_id"
+        ),
         "rendered_context": rendered,
         "warnings": usage.get("warnings", []),
     }

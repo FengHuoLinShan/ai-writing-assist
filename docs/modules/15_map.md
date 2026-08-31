@@ -108,7 +108,7 @@ finalization 在短事务中取得项目 share lock 与 task lease，持锁上�
 
 | 方法 | 路径 | 行为 |
 |---|---|---|
-| POST | `/{novel_id}/runs` | 创建初次、更新或完整重做 run。 |
+| POST | `/{novel_id}/runs` | 创建初次、更新或完整重做 run；作者请求必须携带 action 匹配的 Context confirmation。 |
 | GET | `/{novel_id}/runs/latest`、`/{novel_id}/runs/{run_id}` | 查询 run 与进度。 |
 | POST | `/{novel_id}/runs/{run_id}/stop`、`/resume` | 停止或恢复；重复费用风险需显式确认。 |
 | GET | `/{novel_id}/runs/{run_id}/results` | 查询本次生成结果。 |
@@ -121,6 +121,11 @@ finalization 在短事务中取得项目 share lock 与 task lease，持锁上�
 
 所有入口先验证当前 account principal、项目 owner 与 `novel_id`，参考页、目标节点和来源引用均
 再次按项目过滤。API 不返回对象 key、凭证或长期预签名 URL。
+
+地图册只在 run 启动时打开一次统一 Context 审查窗；后续 plan、Prompt 复核、图片生成、重试和
+恢复复用 run 中的 confirmation/snapshot，不重复打断作者。worker 通过 generation-background
+重新物化同一 `compiled_context_fingerprint`，并保留作者加入/排除、author-full 可见性与来源
+hash；指纹变化时在图片模型调用前失败关闭。
 
 ## 验证
 

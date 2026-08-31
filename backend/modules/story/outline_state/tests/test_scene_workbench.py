@@ -3752,3 +3752,15 @@ class TestFusionDecisionLocking:
             suggestion,
             status="dismissed",
         )
+
+@pytest.fixture(autouse=True)
+def _exercise_scene_fusion_behavior_without_repeating_preflight(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def skip_preflight(*_args, **_kwargs) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "modules.story.outline_state.api._require_scene_fusion_confirmation",
+        skip_preflight,
+    )

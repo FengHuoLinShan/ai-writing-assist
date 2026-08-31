@@ -283,6 +283,10 @@
       hasBody: true,
       timeout: CONTEXT_COMPILE_TIMEOUT,
     }),
+    "context.proposeSelection": define("POST", () => "/evidence/compilation/selection-proposals", {
+      hasBody: true,
+      timeout: 150000,
+    }),
     "context.render": define("POST", () => "/evidence/compilation/render", {
       hasBody: true,
       timeout: CONTEXT_COMPILE_TIMEOUT,
@@ -542,7 +546,7 @@
     }),
     "outline.generateStoryOutline": define("POST", () => "/outline/story-outline/generate", {
       hasBody: true,
-      requiredBody: ["novel_id", "author_intent", "planned_scale", "coverage", "selected_character_ids", "selected_entity_ids", "include_current_outline"],
+      requiredBody: ["novel_id", "context_confirmation_id", "author_intent", "planned_scale", "coverage", "selected_character_ids", "selected_entity_ids", "include_current_outline"],
       timeout: AI_TASK_SUBMIT_TIMEOUT,
     }),
     "outline.applyStoryOutlinePreview": define("POST", () => "/outline/story-outline/generate/apply", {
