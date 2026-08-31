@@ -560,9 +560,119 @@ async def test_rag_candidate_rehydration_uses_current_source_and_visibility(
 
 
 @pytest.mark.asyncio
+async def test_author_scene_cursor_excludes_same_chapter_future_chunks(
+    db_session,
+    test_project_id,
+) -> None:
+    from modules.story.outline_state.facade import bind_scene_spans_to_source
+    from modules.story.outline_state.repositories import SceneRepository
+    from modules.story.outline_state.schemas import SceneCreate
+
+    prior_text = "前序 Scene 留下铜铃线索。"
+    current_text = "当前 Scene 打开密门。"
+    future_text = "后续 Scene 才揭露黑日密钥。"
+    content = "\n".join((prior_text, current_text, future_text))
+    current_start = len(prior_text) + 1
+    current_end = current_start + len(current_text)
+    future_start = current_end + 1
+    draft = await create_published_draft_only(
+        db_session,
+        test_project_id,
+        40,
+        "第四十章",
+        content,
+    )
+    repo = SceneRepository()
+
+    async def create_scene(index: int, title: str, start: int, end: int):
+        return await repo.create(
+            db_session,
+            uuid.UUID(test_project_id),
+            SceneCreate(
+                scene_index=index,
+                title=title,
+                chapter_ids=["40"],
+                scene_chunks=[
+                    {
+                        "chapter_index": 40,
+                        "start_offset": start,
+                        "end_offset": end,
+                    }
+                ],
+                status="canonical",
+            ),
+        )
+
+    await create_scene(40, "前序铜铃", 0, len(prior_text))
+    current = await create_scene(41, "当前密门", current_start, current_end)
+    await create_scene(42, "后续密钥", future_start, len(content))
+    await bind_scene_spans_to_source(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=40,
+        content_mode="canonical",
+        source_draft_id=draft.id or "",
+        source_content_hash=draft.content_hash,
+        content=content,
+    )
+
+    def chunk(start: int, end: int) -> RagChunkContract:
+        return RagChunkContract(
+            id=str(uuid.uuid4()),
+            novel_id=test_project_id,
+            source_type="chapter_text",
+            source_id=draft.id,
+            source_content_hash=draft.content_hash,
+            content_mode="canonical",
+            chapter_index=40,
+            start_offset=start,
+            end_offset=end,
+            text="不应直接信任的索引文本",
+        )
+
+    prior = chunk(0, len(prior_text))
+    active = chunk(current_start, current_end)
+    future = chunk(future_start, len(content))
+    crossing = chunk(current_start, len(content))
+    batch = await NovelEvidenceService().rehydrate_manuscript_candidates(
+        db_session,
+        novel_id=test_project_id,
+        content_mode="canonical",
+        visibility=VisibilityContextContract(
+            mode="author",
+            cutoff_chapter=40,
+            cutoff_scene_id=str(current.id),
+        ),
+        chunks=[prior, active, future, crossing],
+    )
+
+    assert set(batch.reads_by_chunk_id) == {prior.id, active.id}
+    assert batch.drop_reason_by_chunk_id == {
+        future.id: "visibility_denied",
+        crossing.id: "visibility_denied",
+    }
+    assert batch.visibility.cutoff_offset == current_end
+    assert "黑日密钥" not in str(batch.reads_by_chunk_id)
+    assert batch.reads_by_chunk_id[active.id]["scene_refs"][0]["scene_title"] == (
+        "当前密门"
+    )
+
+    unbounded = await NovelEvidenceService().rehydrate_manuscript_candidates(
+        db_session,
+        novel_id=test_project_id,
+        content_mode="canonical",
+        visibility=VisibilityContextContract(mode="author"),
+        chunks=[future],
+    )
+    assert unbounded.reads_by_chunk_id[future.id]["text"] == future_text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["reader", "author"])
 async def test_scene_cursor_rebinds_to_candidate_batch_source_version(
     db_session,
     test_project_id,
+    mode,
 ) -> None:
     from modules.story.outline_state.facade import bind_scene_spans_to_source
     from modules.story.outline_state.repositories import SceneRepository
@@ -616,7 +726,7 @@ async def test_scene_cursor_rebinds_to_candidate_batch_source_version(
         novel_id=test_project_id,
         content_mode="working",
         visibility=VisibilityContextContract(
-            mode="reader",
+            mode=mode,
             cutoff_chapter=40,
             cutoff_scene_id=str(scene.id),
         ),

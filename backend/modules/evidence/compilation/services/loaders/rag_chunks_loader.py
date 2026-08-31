@@ -382,7 +382,19 @@ def _safe_empty_reason(trace: dict, *, strict_scene_filter: bool) -> str | None:
         return "retrieval_degraded_empty"
     if int(trace.get("candidate_count") or 0) == 0:
         return "no_retrieval_match"
-    if drops and sum(drops.values()) == int(trace.get("candidate_count") or 0):
+    non_hydration_drops = sum(
+        int(drops.get(reason) or 0) for reason in ("duplicate_candidate", "rank_budget")
+    )
+    attempted_hydrations = max(
+        0,
+        int(trace.get("candidate_count") or 0) - non_hydration_drops,
+    )
+    hydration_drops = {
+        reason: count
+        for reason, count in drops.items()
+        if reason not in {"duplicate_candidate", "rank_budget"}
+    }
+    if hydration_drops and sum(hydration_drops.values()) == attempted_hydrations:
         source_invalid_reasons = {
             "source_missing",
             "source_id_mismatch",
@@ -392,9 +404,9 @@ def _safe_empty_reason(trace: dict, *, strict_scene_filter: bool) -> str | None:
             "content_mode_mismatch",
             "read_failed",
         }
-        if set(drops) <= source_invalid_reasons:
+        if set(hydration_drops) <= source_invalid_reasons:
             return "all_source_invalid"
-        if set(drops) == {"visibility_denied"}:
+        if set(hydration_drops) == {"visibility_denied"}:
             return "all_visibility_filtered"
     return "mixed_filtered_empty"
 
