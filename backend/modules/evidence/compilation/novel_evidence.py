@@ -373,7 +373,7 @@ class NovelEvidenceService:
             for chunk in chunks
             if chunk.chapter_index is not None
         }
-        if visibility.mode != "author" and visibility.cutoff_scene_id:
+        if visibility.cutoff_scene_id:
             chapter_set.add(int(visibility.cutoff_chapter or 0))
         chapters = sorted(chapter for chapter in chapter_set if chapter > 0)
         current_sources = await list_manuscript_sources(
@@ -384,7 +384,7 @@ class NovelEvidenceService:
         )
         current_by_chapter = {source.chapter_index: source for source in current_sources}
         resolver_kwargs = {}
-        if visibility.mode != "author" and visibility.cutoff_scene_id:
+        if visibility.cutoff_scene_id:
             resolver_kwargs["cutoff_source"] = current_by_chapter.get(
                 int(visibility.cutoff_chapter or 0)
             )
@@ -483,7 +483,7 @@ class NovelEvidenceService:
             after=after,
             max_end_offset=(
                 visibility.cutoff_offset
-                if visibility.mode != "author"
+                if visibility.cutoff_offset is not None
                 and source_ref.chapter_index == visibility.cutoff_chapter
                 else None
             ),
@@ -1468,7 +1468,7 @@ class NovelEvidenceService:
         visibility: VisibilityContextContract,
         cutoff_source=_PRELOADED_SOURCE_UNSET,
     ) -> tuple[VisibilityContextContract, list[str]]:
-        if visibility.mode == "author" or not visibility.cutoff_scene_id:
+        if not visibility.cutoff_scene_id:
             return visibility, []
         from modules.story.facade import get_scene_spans_for_scene
         from modules.writing.facade import list_manuscript_sources
@@ -1715,7 +1715,7 @@ def _effective_chapter_to(
     chapter_to: int | None,
     visibility: VisibilityContextContract,
 ) -> int | None:
-    if visibility.mode == "author" or visibility.cutoff_chapter is None:
+    if visibility.cutoff_chapter is None:
         return chapter_to
     if chapter_to is None:
         return visibility.cutoff_chapter
@@ -1757,7 +1757,14 @@ def _candidate_read_drop_reason(exc: Exception) -> str:
 
 
 def _source_visible(source_ref: dict, visibility: VisibilityContextContract) -> bool:
-    if visibility.mode == "author":
+    if visibility.mode == "author" and all(
+        value is None
+        for value in (
+            visibility.cutoff_chapter,
+            visibility.cutoff_scene_id,
+            visibility.cutoff_offset,
+        )
+    ):
         return True
     chapter = int(source_ref.get("chapter_index") or 0)
     cutoff = int(visibility.cutoff_chapter or 0)

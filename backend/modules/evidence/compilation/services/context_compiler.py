@@ -233,17 +233,7 @@ class ContextCompiler:
             try:
                 await loader.load(db, options, bundle)
                 if name == "scene" and bundle.scene:
-                    scene_chapter = self._scene_chapter_index(bundle.scene)
-                    if scene_chapter is not None:
-                        if (
-                            options.chapter_index is not None
-                            and options.chapter_index != scene_chapter
-                        ):
-                            bundle.warnings.append(
-                                "当前 Scene 章节锚点优先于请求中的参考章节"
-                            )
-                        options.chapter_index = scene_chapter
-                        bundle.chapter_index = scene_chapter
+                    self._apply_scene_chapter_anchor(options, bundle)
             except Exception as exc:
                 msg = f"加载 {name} 时出错: {redact_diagnostic(exc, limit=500)}"
                 logger.warning(msg)
@@ -259,6 +249,8 @@ class ContextCompiler:
                     continue
                 try:
                     await loader.load(db, options, bundle)
+                    if name == "scene" and bundle.scene:
+                        self._apply_scene_chapter_anchor(options, bundle)
                 except Exception as exc:
                     msg = f"加载 {name} 时出错: {redact_diagnostic(exc, limit=500)}"
                     logger.warning(msg)
@@ -349,6 +341,19 @@ class ContextCompiler:
         if activation_trace:
             self._apply_global_activation_budget_trace(compiled)
         return compiled
+
+    @staticmethod
+    def _apply_scene_chapter_anchor(
+        options: CompileOptions,
+        bundle: StructureContextBundle,
+    ) -> None:
+        scene_chapter = ContextCompiler._scene_chapter_index(bundle.scene)
+        if scene_chapter is None:
+            return
+        if options.chapter_index is not None and options.chapter_index != scene_chapter:
+            bundle.warnings.append("当前 Scene 章节锚点优先于请求中的参考章节")
+        options.chapter_index = scene_chapter
+        bundle.chapter_index = scene_chapter
 
     @staticmethod
     def _scene_chapter_index(scene: object) -> int | None:

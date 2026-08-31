@@ -126,6 +126,11 @@ advisory lock 内原地刷新 `scene_id/scene_span_id` 并重建受影响的 ent
 `chapter_index IS NULL` 的 chunk 默认保留；如果调用方同时指定 exact
 `chapter_index`，则仍按 exact chapter 过滤。
 
+索引层不负责同章 Scene/offset 截止：relation/task 查询可以宽召回前序与同章候选，
+compilation 必须再按当前 writing source ID/hash 回读，并用版本绑定的 SceneSpan 执行最终
+字符截止。`author_safe + scene_id` 的后续或跨界 chunk 会整块排除；无法精确绑定时同章
+正文 fail closed。`/api/evidence/indexing/retrieve` 的原始候选不能直接作为模型上下文。
+
 ## 混合评分公式
 
 ```

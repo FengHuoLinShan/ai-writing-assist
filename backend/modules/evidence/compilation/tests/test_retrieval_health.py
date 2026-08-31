@@ -4,6 +4,7 @@ import hashlib
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 
@@ -152,6 +153,54 @@ async def test_strict_scene_empty_trace_has_safe_reason(
     )
     assert traces[0].safe_empty_reason == "strict_scene_unmapped"
     assert traces[0].hydrated_count == 0
+
+
+@pytest.mark.asyncio
+async def test_author_safe_future_only_trace_is_visibility_filtered(
+    db_session,
+    test_project_id: str,
+    monkeypatch,
+) -> None:
+    chunk = SimpleNamespace(id=str(uuid.uuid4()))
+
+    async def retrieve(*_args, **_kwargs):
+        return _FakeRagResult(chunks=[chunk])
+
+    async def rehydrate(*_args, **_kwargs):
+        return [], {"visibility_denied": 1}
+
+    loader = RagChunksLoader(retrieve_fn=retrieve)
+    monkeypatch.setattr(loader, "_rehydrate_chunks", rehydrate)
+    scene_id = str(uuid.uuid4())
+    options = CompileOptions(
+        novel_id=test_project_id,
+        task="生成当前 Scene",
+        scope="chapter",
+        chapter_index=1,
+        scene_id=scene_id,
+        reveal_mode="author_safe",
+        retrieval_purpose="writing_generation",
+    )
+    bundle = StructureContextBundle(
+        novel_id=test_project_id,
+        task=options.task,
+        scope=options.scope,
+        chapter_index=1,
+    )
+
+    await loader.load(db_session, options, bundle)
+
+    traces = await list_retrieval_traces(
+        db_session,
+        novel_id=test_project_id,
+        content_mode="canonical",
+    )
+    assert options.visible_until_scene_id == scene_id
+    assert traces[0].drop_counts == {
+        "duplicate_candidate": 1,
+        "visibility_denied": 1,
+    }
+    assert traces[0].safe_empty_reason == "all_visibility_filtered"
 
 
 @pytest.mark.asyncio

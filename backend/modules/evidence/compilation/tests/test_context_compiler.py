@@ -73,6 +73,46 @@ async def test_compiler_serializes_loaders_sharing_one_async_session() -> None:
 
 
 @pytest.mark.asyncio
+async def test_scene_scope_derives_chapter_before_rag_for_all_consumers() -> None:
+    seen_chapters: list[int | None] = []
+
+    class SceneLoader(Loader):
+        @property
+        def name(self) -> str:
+            return "scene"
+
+        async def load(self, db, options, bundle) -> None:
+            bundle.scene = {
+                "id": options.scene_id,
+                "scene_chunks": [{"chapter_index": 4}],
+            }
+
+    class RagLoader(Loader):
+        @property
+        def name(self) -> str:
+            return "rag_chunks"
+
+        async def load(self, db, options, bundle) -> None:
+            seen_chapters.append(options.chapter_index)
+
+    options = CompileOptions(
+        novel_id="test-id",
+        task="one-click",
+        scope="scene",
+        scene_id="scene-4",
+        consumer_action="story.one_click.simulate",
+    )
+    bundle = await ContextCompiler([SceneLoader(), RagLoader()]).compile(
+        db=object(),
+        options=options,
+    )
+
+    assert seen_chapters == [4]
+    assert options.chapter_index == 4
+    assert bundle.chapter_index == 4
+
+
+@pytest.mark.asyncio
 async def test_compiler_redacts_loader_failure_warning() -> None:
     secret = "private-token-value"
 
