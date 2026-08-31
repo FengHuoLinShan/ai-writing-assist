@@ -139,10 +139,11 @@ OutlineArc 只能引用已有 PlotThread；Planned Scene 新建时没有正文 c
 提取继续进入 imports 深度导入。
 
 P20 confirmation 使用 `budget_tokens=0`，完整总纲、作者确认 context、相关结构、信息推进、
-人物 Top-6 和非人物对象 Top-16 进入 provider；人物候选经 world facade 全分页加载后再按作者
-指令、总纲、Scene 与结构相关性选择，不受单页 50 条限制。不做应用层输入裁剪。结果是 strict 可编辑
-preview，采用时在单一 savepoint 中原子写入，并记录总纲 revision、context fingerprint、task、
-采用时间和修订前值。
+人物 Top-6 和非人物对象 Top-16 进入 provider；作者在 confirmation 排除 `pov_knowledge` 或
+`world_entities` 后，P20 不会从 World 再次补回对应资料。人物候选经 world facade 全分页加载后
+再按作者指令、总纲、Scene 与结构相关性选择，不受单页 50 条限制。不做应用层输入裁剪。结果是
+strict 可编辑 preview，采用时在单一 savepoint 中原子写入，并记录总纲 revision、context
+fingerprint、task、采用时间和修订前值。
 
 ## 对外 facade
 
