@@ -150,6 +150,9 @@ exact-string protocol. The default command performs no database, network, key, o
 
 ```bash
 make eval-rp-long-memory
+python -m evals.rp_long_memory compile \
+  evals/datasets/baselines/rp-long-memory-v2-holdout.jsonl --split test \
+  --output evals/artifacts/rp-long-memory/holdout-compile.json
 ```
 
 It writes a hash-only report under the ignored `evals/artifacts/` directory.
@@ -181,6 +184,8 @@ python -m evals.rp_long_memory review \
   evals/artifacts/rp-long-memory/reviews.jsonl \
   --arm-map evals/artifacts/rp-long-memory/rp-long-memory-arm-map.json \
   --calibration-reviews evals/artifacts/rp-long-memory/calibration-reviews.jsonl \
+  --threshold-output evals/artifacts/rp-long-memory/frozen-thresholds.json \
+  --test-dataset evals/datasets/local/rp-long-memory-test-deepseek-v4-flash.jsonl \
   --output evals/artifacts/rp-long-memory/final-report.json
 ```
 
@@ -201,6 +206,17 @@ or sealed calibration reference while scoring. Every main reviewer must score ev
 candidate and calibration item with the same reviewer ID; calibration is accepted only
 when all pre-frozen obvious positive/negative anchor constraints pass. This calibrates
 rubric use but does not replace real-user validation or freeze the dev decision threshold.
+
+`rp-long-memory-v2-holdout.jsonl` contains eight disjoint `test` scenario groups. Offline
+compile is allowed before dev review; model/review output is not. `model --split test`
+fails before project/client access unless `--threshold-config` names a hash-valid config
+produced by calibrated dev review and bound to the exact local verified test dataset,
+compiler, story/probe prompts, semantic scorer, project profile, run count and reviewer set.
+Candidate IDs, arm order and model cache keys also include that threshold hash. Test review
+must consume the same config; only a complete model stage plus passing hard gates, frozen
+fact deltas, blind non-degradation and spoiler limits may set `quality_claim_allowed=true`
+for the explicitly synthetic scope. Once a test report exists for that threshold hash,
+another provider run is rejected; only a cache-only deterministic replay remains available.
 
 `eval-baseline-check` is also fully offline and only reads decisions already
 stored in each case. It does not rerun QC or start Codex. Pilot readiness requires

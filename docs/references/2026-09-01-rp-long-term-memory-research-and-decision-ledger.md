@@ -13,7 +13,7 @@
 > 影响面：候选涉及 `interaction`，并只读消费 `evidence`、作者 source revision 和可能的
 > World 对象投影；不允许 RP 写回作者 World、Story、Writing 或正史。
 >
-> 实施状态（2026-09-01）：P0 standalone runner、v1/v2 合成 JSONL、五臂离线编译、原子报告、
+> 实施状态（2026-09-02）：P0 standalone runner、v1/v2 合成 JSONL、五臂离线编译、原子报告、
 > opt-in model/review CLI、窄测试与 Make 入口已实现；committed case 会把模板确定性展开到
 > 24K～256K 的实际合成历史。第二次获批的官方 DeepSeek V4 Flash dev model run 已完成 35 个 v2 候选：
 > A/B/C/D/E 的 case pass 为 3/5/5/6/3（各 7），fact match 为 5/9/9/10/7（各 11），
@@ -23,6 +23,8 @@
 > protected raw suffix、净缩减门、4-pass urgent loop、snapshot-frozen capability profile 与“记住这一点”显式保存入口；segment/raw
 > 检索注入尚未因完整真实配对门过门，未启用。用户已授权继续完整计划与后续必要 ADR/migration，
 > 但授权不替代 B/C、gold/extracted D、人工盲评和安全硬门。
+> 8-case untouched holdout 已冻结并通过 103/103 离线断言；没有校准 dev review 生成的 hash-valid
+> threshold config 时，test model/review 会在 client 前失败，当前未运行任何 holdout 模型。
 
 ## 1. 结论先行
 
@@ -1981,6 +1983,25 @@ review calibration和 `quality_claim_allowed`。正文只在 ignored candidate/r
   C 需新 selector/compiler version 在未看 holdout 前提出并重新配对。P2 仍按 12.7 的 gold/extracted/
   recovery 全门执行，不能用本轮 D 的 aggregate 数字越过。
 
+### MEM-DEC-077：holdout 先冻结契约与阈值门，不在人工 review 前调用模型
+
+- **状态**：holdout contract、冻结配置生成器与 test fail-closed 门已实现；test model 尚未运行。
+- **holdout 契约**：committed `rp-long-memory-v2-holdout.jsonl` 含 8 个只属于 `test` 的独立
+  scenario group，与 dev group 无交集，离线 compile 为 103/103。committed synthetic profile 文件 hash
+  `0e5e5f034432e878a5ad375fd6ddb5209cf1bc6d950d642b30f991664b06ff5b`；ignored 的当前
+  DeepSeek V4 Flash verified-profile 副本 hash
+  `641abcc7d7d0eb86128503af520a69089629f7d8d2616c6e448ee90a762965ff`。
+- **冻结规则**：只有完整 ready 的 dev model stage、全部硬门和同 reviewer 的校准盲评通过后才可生成
+  hash-valid threshold config。B 相对 A、C 相对 B 逐级要求 case pass `+1`、fact match `+1`、blind
+  mean 不退化且 candidate severe spoiler 为 0；前一层不过门时不冻结后一层。当前 dev 数字只可能让 B
+  进入候选，C 因 case/fact 均为 `+0` 不能进入。
+- **重放与一次性边界**：config 固定 test dataset、compiler、story/probe Prompt、semantic scorer、
+  project profile、runs 和 reviewer set；candidate ID、arm 顺序与 model cache key 额外绑定 config hash。
+  test 侧缺 config、hash/profile/runs 不符或 model stage 不完整时均失败关闭，不打开 provider client；
+  同 config hash 一旦已有 test report，只允许 cache-only 确定性重放，不允许再次调用 provider。
+- **决定**：人工 review 未导入前不生成 threshold config，也不消费已冻结 holdout 的任何模型结果。
+  test 通过后最多形成 `synthetic_contract_and_directional_memory_eval` 的质量证据，仍不等于真实用户验证。
+
 ## 7. 物理存储候选：P2 未批准，segment JSONB 已淘汰
 
 ### 7.1 已淘汰 A：给 `interaction_summary_segments` 增加 `memory_delta_json`
@@ -2281,7 +2302,7 @@ Prompt 注入；6 已经用户授权并通过 shared infrastructure/project snap
   raw suffix、净缩减门、最多 4 pass、同 segment 幂等复用、“记住这一点”和 checkpoint marker 删除。
 - long-memory 本身没有新增 API、memory schema 或 browser wire；历史 checkpoint nullable 列保留兼容。
   用户已授权继续到必要 migration/ADR，但 P2 仍需 gold/extracted/recovery 与盲评过门，未进入实现。
-- 当前窄证据为 P0 runner `39 passed`、capability/project/interaction `97 passed`、P1/source/evidence/import
+- 当前窄证据为 P0 runner `43 passed`、capability/project/interaction `97 passed`、P1/source/evidence/import
   `98 passed`、InteractionView
   `45 passed`，并在 fresh PostgreSQL 17 + pgvector 空库验证 manual rebase segment 复用 `1 passed`。
   本轮 capability/calibration 变更后，默认后端为 `4820 passed, 12 skipped, 6 deselected`；此前完整前端为

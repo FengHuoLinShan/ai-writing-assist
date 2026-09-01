@@ -18,13 +18,17 @@ from evals.rp_long_memory import (
     SemanticFactExpectation,
     _arm_order,
     _candidate_id,
+    _hash_json,
     _model_cache_key,
     _run_model_stage,
     _semantic_fact_matches,
     atomic_write_json,
     compile_report,
+    evaluate_frozen_thresholds,
+    freeze_threshold_config,
     load_calibration_cases,
     load_cases,
+    load_threshold_config,
     main,
     materialize_case,
     review_report,
@@ -34,6 +38,12 @@ from infrastructure.llm.schemas import LLMStreamChunk, LLMUsage
 DATASET = Path(__file__).parents[1] / "datasets" / "baselines" / "rp-long-memory-v2.jsonl"
 LEGACY_DATASET = (
     Path(__file__).parents[1] / "datasets" / "baselines" / "rp-long-memory-v1.jsonl"
+)
+HOLDOUT_DATASET = (
+    Path(__file__).parents[1]
+    / "datasets"
+    / "baselines"
+    / "rp-long-memory-v2-holdout.jsonl"
 )
 
 
@@ -263,6 +273,321 @@ def test_legacy_v1_stays_compile_only(tmp_path: Path) -> None:
                 cache_only=False,
             )
         )
+
+
+def test_holdout_contract_is_disjoint_and_compile_ready() -> None:
+    dev_cases, _ = load_cases(DATASET)
+    holdout_cases, holdout_hash = load_cases(HOLDOUT_DATASET)
+
+    assert {case.split for case in holdout_cases} == {"test"}
+    assert {case.scenario_group_id for case in dev_cases}.isdisjoint(
+        case.scenario_group_id for case in holdout_cases
+    )
+    report, _ = compile_report(
+        holdout_cases,
+        dataset_hash=holdout_hash,
+        split="test",
+    )
+    assert report["status"] == "ready"
+    assert report["case_count"] == 8
+    assert not report["hard_failures"]
+
+
+def test_holdout_model_requires_frozen_thresholds_before_client(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="threshold-config"):
+        asyncio.run(
+            _run_model_stage(
+                dataset=HOLDOUT_DATASET,
+                split="test",
+                novel_id="not-opened",
+                allow_paid_model=True,
+                runs=1,
+                output_dir=tmp_path,
+                cache_only=False,
+            )
+        )
+
+
+def test_threshold_config_hash_is_strict(tmp_path: Path) -> None:
+    payload = {
+        "version": "rp-long-memory-thresholds-v1",
+        "dev_dataset_hash": "a" * 64,
+        "dev_model_report_hash": "b" * 64,
+        "dev_review_report_hash": "c" * 64,
+        "test_dataset_hash": "d" * 64,
+        "compiler_hash": "e" * 64,
+        "prompt_hash": "f" * 64,
+        "probe_prompt_hash": "1" * 64,
+        "profile_hash": "2" * 64,
+        "reviewer_ids_hash": "3" * 64,
+        "runs": 1,
+        "semantic_probe_version": "rp-long-memory-semantic-probe-v1",
+        "frozen_at": "2026-09-02T00:00:00+08:00",
+        "decisions": [
+            {
+                "baseline_arm": "overview_tail",
+                "candidate_arm": "overview_tail_segments",
+                "minimum_case_pass_delta": 1,
+                "minimum_fact_match_delta": 1,
+                "minimum_blind_mean_delta": 0.0,
+                "maximum_severe_spoiler_count": 0,
+            }
+        ],
+    }
+    payload["config_hash"] = _hash_json(payload)
+    path = tmp_path / "thresholds.json"
+    atomic_write_json(path, payload)
+    assert load_threshold_config(path).config_hash == payload["config_hash"]
+
+    payload["test_dataset_hash"] = "4" * 64
+    atomic_write_json(path, payload)
+    with pytest.raises(ValueError, match="hash mismatch"):
+        load_threshold_config(path)
+
+    payload["test_dataset_hash"] = hashlib.sha256(
+        HOLDOUT_DATASET.read_bytes()
+    ).hexdigest()
+    payload["config_hash"] = _hash_json(
+        {key: value for key, value in payload.items() if key != "config_hash"}
+    )
+    atomic_write_json(path, payload)
+    with pytest.raises(ValueError, match="runs do not match"):
+        asyncio.run(
+            _run_model_stage(
+                dataset=HOLDOUT_DATASET,
+                split="test",
+                novel_id="not-opened",
+                allow_paid_model=True,
+                runs=2,
+                output_dir=tmp_path,
+                cache_only=False,
+                threshold_config=path,
+            )
+        )
+
+    payload["decisions"] = [
+        {
+            "baseline_arm": "overview_tail_segments",
+            "candidate_arm": "overview_tail_rehydrated",
+            "minimum_case_pass_delta": 1,
+            "minimum_fact_match_delta": 1,
+            "minimum_blind_mean_delta": 0.0,
+            "maximum_severe_spoiler_count": 0,
+        }
+    ]
+    payload["config_hash"] = _hash_json(
+        {key: value for key, value in payload.items() if key != "config_hash"}
+    )
+    atomic_write_json(path, payload)
+    with pytest.raises(ValueError, match="ordered adjacent arm chain"):
+        load_threshold_config(path)
+
+    payload["decisions"] = [
+        {
+            "baseline_arm": "overview_tail",
+            "candidate_arm": "overview_tail_segments",
+            "minimum_case_pass_delta": 1,
+            "minimum_fact_match_delta": 1,
+            "minimum_blind_mean_delta": 0.0,
+            "maximum_severe_spoiler_count": 0,
+        }
+    ]
+    payload["config_hash"] = _hash_json(
+        {key: value for key, value in payload.items() if key != "config_hash"}
+    )
+    atomic_write_json(path, payload)
+    atomic_write_json(
+        tmp_path / "rp-long-memory-model-report.json",
+        {
+            "split": "test",
+            "threshold_config_hash": payload["config_hash"],
+        },
+    )
+    with pytest.raises(ValueError, match="already exists"):
+        asyncio.run(
+            _run_model_stage(
+                dataset=HOLDOUT_DATASET,
+                split="test",
+                novel_id="not-opened",
+                allow_paid_model=True,
+                runs=1,
+                output_dir=tmp_path,
+                cache_only=False,
+                threshold_config=path,
+            )
+        )
+
+    cache_dir = tmp_path / "cache"
+    atomic_write_json(
+        cache_dir / f"test-{payload['config_hash']}.sealed.json",
+        {"threshold_config_hash": payload["config_hash"]},
+    )
+    with pytest.raises(ValueError, match="already sealed"):
+        asyncio.run(
+            _run_model_stage(
+                dataset=HOLDOUT_DATASET,
+                split="test",
+                novel_id="not-opened",
+                allow_paid_model=True,
+                runs=1,
+                output_dir=tmp_path / "other-output",
+                cache_only=False,
+                cache_dir=cache_dir,
+                threshold_config=path,
+            )
+        )
+
+
+def test_threshold_freeze_selects_only_arms_with_fact_and_blind_gain(
+    tmp_path: Path,
+) -> None:
+    model_path = tmp_path / "model.json"
+    model = {
+        "report_version": "rp-long-memory-model-report-v2",
+        "status": "ready",
+        "split": "dev",
+        "runs": 1,
+        "dataset_hash": "a" * 64,
+        "hard_failures": [],
+        "profile": {"profile_hash": "2" * 64},
+        "semantic_probe_version": "rp-long-memory-semantic-probe-v1",
+        "metrics": [
+            {"name": "hard_fact_probe_retention", "passed": True},
+            {"name": "exact_safety_sentinel_failures", "passed": True},
+            {
+                "name": "fact_probe_accuracy",
+                "value": {
+                    "by_arm": {
+                        "overview_tail": {
+                            "candidate_passed_count": 3,
+                            "fact_matched_count": 5,
+                        },
+                        "overview_tail_segments": {
+                            "candidate_passed_count": 5,
+                            "fact_matched_count": 9,
+                        },
+                        "overview_tail_rehydrated": {
+                            "candidate_passed_count": 5,
+                            "fact_matched_count": 9,
+                        },
+                    }
+                },
+            },
+        ],
+    }
+    atomic_write_json(model_path, model)
+    review_path = tmp_path / "review.json"
+    review = {
+        "report_version": "rp-long-memory-review-report-v2",
+        "model_report_hash": hashlib.sha256(model_path.read_bytes()).hexdigest(),
+        "review_calibration": {"available": True, "passed": True},
+        "reviewer_ids_hash": "3" * 64,
+        "completed_at": "2026-09-02T00:00:00+00:00",
+        "paired_comparisons": {
+            "segments_vs_baseline": {
+                "mean_delta": 0.25,
+                "right_severe_spoiler_count": 0,
+            },
+            "rehydrated_vs_segments": {
+                "mean_delta": 0.5,
+                "right_severe_spoiler_count": 0,
+            },
+        },
+    }
+    atomic_write_json(review_path, review)
+    output = tmp_path / "thresholds.json"
+
+    frozen = freeze_threshold_config(
+        model_report_path=model_path,
+        review_report_path=review_path,
+        test_dataset_path=HOLDOUT_DATASET,
+        output_path=output,
+    )
+
+    assert [item["candidate_arm"] for item in frozen["decisions"]] == [
+        "overview_tail_segments"
+    ]
+    assert (
+        frozen["test_dataset_hash"]
+        == hashlib.sha256(HOLDOUT_DATASET.read_bytes()).hexdigest()
+    )
+    repeated = freeze_threshold_config(
+        model_report_path=model_path,
+        review_report_path=review_path,
+        test_dataset_path=HOLDOUT_DATASET,
+        output_path=output,
+    )
+    assert repeated["config_hash"] == frozen["config_hash"]
+    config = load_threshold_config(output)
+    assert config.config_hash == frozen["config_hash"]
+    holdout_model = {
+        "status": "ready",
+        "split": "test",
+        "runs": config.runs,
+        "hard_failures": [],
+        "dataset_hash": config.test_dataset_hash,
+        "compiler_hash": config.compiler_hash,
+        "prompt_hash": config.prompt_hash,
+        "probe_prompt_hash": config.probe_prompt_hash,
+        "semantic_probe_version": config.semantic_probe_version,
+        "threshold_config_hash": config.config_hash,
+        "profile": {"profile_hash": config.profile_hash},
+        "metrics": [
+            {"name": "hard_fact_probe_retention", "passed": True},
+            {"name": "exact_safety_sentinel_failures", "passed": True},
+            {
+                "name": "fact_probe_accuracy",
+                "value": {
+                    "by_arm": {
+                        "overview_tail": {
+                            "candidate_passed_count": 2,
+                            "fact_matched_count": 5,
+                        },
+                        "overview_tail_segments": {
+                            "candidate_passed_count": 4,
+                            "fact_matched_count": 8,
+                        },
+                    }
+                },
+            },
+        ],
+    }
+    paired = {
+        "segments_vs_baseline": {
+            "mean_delta": 0.25,
+            "right_severe_spoiler_count": 0,
+        }
+    }
+    assert (
+        evaluate_frozen_thresholds(
+            config=config,
+            model_report=holdout_model,
+            paired_comparisons=paired,
+            reviewer_ids_hash=config.reviewer_ids_hash,
+        )["passed"]
+        is True
+    )
+    assert (
+        evaluate_frozen_thresholds(
+            config=config,
+            model_report=holdout_model,
+            paired_comparisons=paired,
+            reviewer_ids_hash="4" * 64,
+        )["passed"]
+        is False
+    )
+    holdout_model["metrics"][2]["value"]["by_arm"]["overview_tail_segments"][
+        "fact_matched_count"
+    ] = 5
+    assert (
+        evaluate_frozen_thresholds(
+            config=config,
+            model_report=holdout_model,
+            paired_comparisons=paired,
+            reviewer_ids_hash=config.reviewer_ids_hash,
+        )["passed"]
+        is False
+    )
 
 
 def test_one_template_value_changes_only_its_case_root(tmp_path: Path) -> None:

@@ -57,6 +57,7 @@ REVIEW_REPORT_VERSION = "rp-long-memory-review-report-v2"
 SEMANTIC_PROBE_VERSION = "rp-long-memory-semantic-probe-v1"
 PROBE_PROMPT_VERSION = "rp-long-memory-probe-prompt-v2"
 CALIBRATION_VERSION = "rp-long-memory-review-calibration-v1"
+THRESHOLD_CONFIG_VERSION = "rp-long-memory-thresholds-v1"
 CALIBRATION_DATASET = (
     Path(__file__).parent
     / "datasets"
@@ -495,6 +496,47 @@ class CalibrationReview(StrictModel):
         return self
 
 
+class ArmThresholdDecision(StrictModel):
+    baseline_arm: Literal["overview_tail", "overview_tail_segments"]
+    candidate_arm: Literal[
+        "overview_tail_segments",
+        "overview_tail_rehydrated",
+    ]
+    minimum_case_pass_delta: int = Field(ge=1)
+    minimum_fact_match_delta: int = Field(ge=1)
+    minimum_blind_mean_delta: float = Field(ge=-4.0, le=4.0)
+    maximum_severe_spoiler_count: int = Field(default=0, ge=0)
+
+
+class FrozenThresholdConfig(StrictModel):
+    version: Literal["rp-long-memory-thresholds-v1"]
+    dev_dataset_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    dev_model_report_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    dev_review_report_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    test_dataset_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    compiler_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    prompt_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    probe_prompt_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    profile_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    reviewer_ids_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    runs: int = Field(ge=1)
+    semantic_probe_version: Literal["rp-long-memory-semantic-probe-v1"]
+    frozen_at: str = Field(min_length=1, max_length=64)
+    decisions: list[ArmThresholdDecision] = Field(min_length=1)
+    config_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def validate_arm_chain(self) -> FrozenThresholdConfig:
+        pairs = [(item.baseline_arm, item.candidate_arm) for item in self.decisions]
+        first = ("overview_tail", "overview_tail_segments")
+        second = ("overview_tail_segments", "overview_tail_rehydrated")
+        if pairs not in ([first], [first, second]):
+            raise ValueError(
+                "threshold decisions must form an ordered adjacent arm chain"
+            )
+        return self
+
+
 @dataclass(frozen=True)
 class MaterializedEvent:
     event: Event
@@ -737,6 +779,23 @@ def load_calibration_cases(
     if not cases:
         raise ValueError("RP long-memory calibration dataset is empty")
     return cases, _sha256(raw)
+
+
+def load_threshold_config(path: Path) -> FrozenThresholdConfig:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        _validate_fixture_payload(payload)
+        config = FrozenThresholdConfig.model_validate(payload)
+    except (json.JSONDecodeError, ValidationError, ValueError, OSError) as exc:
+        raise ValueError(f"invalid frozen threshold config {path.name}: {exc}") from exc
+    unsigned = {
+        key: value
+        for key, value in config.model_dump(mode="json").items()
+        if key != "config_hash"
+    }
+    if _hash_json(unsigned) != config.config_hash:
+        raise ValueError("frozen threshold config hash mismatch")
+    return config
 
 
 def _render(template_id: str, values: dict[str, str]) -> str:
@@ -2088,10 +2147,19 @@ def _candidate_id(
     case_id: str,
     arm: str,
     run_index: int,
+    threshold_config_hash: str | None = None,
 ) -> str:
-    return _hash_json([dataset_hash, profile_hash, case_id, arm, run_index, "blind-v1"])[
-        :24
+    identity: list[Any] = [
+        dataset_hash,
+        profile_hash,
+        case_id,
+        arm,
+        run_index,
+        "blind-v1",
     ]
+    if threshold_config_hash is not None:
+        identity.append(threshold_config_hash)
+    return _hash_json(identity)[:24]
 
 
 def _arm_order(
@@ -2100,12 +2168,13 @@ def _arm_order(
     profile_hash: str,
     case_id: str,
     run_index: int,
+    threshold_config_hash: str | None = None,
 ) -> list[str]:
     arms = list(ARM_NAMES)
-    seed = int(
-        _hash_json([dataset_hash, profile_hash, case_id, run_index, "order-v1"])[:16],
-        16,
-    )
+    identity: list[Any] = [dataset_hash, profile_hash, case_id, run_index, "order-v1"]
+    if threshold_config_hash is not None:
+        identity.append(threshold_config_hash)
+    seed = int(_hash_json(identity)[:16], 16)
     random.Random(seed).shuffle(arms)
     return arms
 
@@ -2121,20 +2190,22 @@ def _model_cache_key(
     case_id: str,
     arm: str,
     run_index: int,
+    threshold_config_hash: str | None = None,
 ) -> str:
-    return _hash_json(
-        {
-            "dataset": dataset_hash,
-            "template": template_hash,
-            "compiler": compiler_hash,
-            "prompt": prompt_hash,
-            "probe_prompt": probe_prompt_hash,
-            "profile": profile_hash,
-            "case": case_id,
-            "arm": arm,
-            "run": run_index,
-        }
-    )
+    identity = {
+        "dataset": dataset_hash,
+        "template": template_hash,
+        "compiler": compiler_hash,
+        "prompt": prompt_hash,
+        "probe_prompt": probe_prompt_hash,
+        "profile": profile_hash,
+        "case": case_id,
+        "arm": arm,
+        "run": run_index,
+    }
+    if threshold_config_hash is not None:
+        identity["threshold_config"] = threshold_config_hash
+    return _hash_json(identity)
 
 
 def _load_model_cache(
@@ -2210,6 +2281,7 @@ async def _run_model_stage(
     output_dir: Path,
     cache_only: bool,
     cache_dir: Path | None = None,
+    threshold_config: Path | None = None,
 ) -> tuple[dict[str, Any], int]:
     if not allow_paid_model:
         raise ValueError("model stage requires --allow-paid-model")
@@ -2230,6 +2302,45 @@ async def _run_model_stage(
         case.schema_version != SCHEMA_VERSION for case in cases if case.split == split
     ):
         raise ValueError("model stage requires v2 semantic fact expectations")
+    thresholds: FrozenThresholdConfig | None = None
+    if split == "test":
+        if threshold_config is None:
+            raise ValueError("test model stage requires --threshold-config")
+        thresholds = load_threshold_config(threshold_config)
+        if thresholds.test_dataset_hash != dataset_hash:
+            raise ValueError("threshold config test dataset hash mismatch")
+        if thresholds.runs != runs:
+            raise ValueError("test model stage runs do not match frozen thresholds")
+    elif threshold_config is not None:
+        raise ValueError("dev model stage cannot use a frozen threshold config")
+    cache_root = cache_dir or (Path(__file__).parent / ".cache" / "rp-long-memory")
+    test_seal_path = (
+        cache_root / f"test-{thresholds.config_hash}.sealed.json"
+        if thresholds is not None
+        else None
+    )
+    if test_seal_path is not None and test_seal_path.is_file() and not cache_only:
+        raise ValueError(
+            "test model stage is already sealed for this frozen threshold config; "
+            "only --cache-only replay is allowed"
+        )
+    previous_report_path = output_dir / "rp-long-memory-model-report.json"
+    if thresholds is not None and previous_report_path.is_file() and not cache_only:
+        try:
+            previous_test_report = json.loads(
+                previous_report_path.read_text(encoding="utf-8")
+            )
+        except (json.JSONDecodeError, OSError) as exc:
+            raise ValueError("previous test model report is invalid") from exc
+        if (
+            previous_test_report.get("split") == "test"
+            and previous_test_report.get("threshold_config_hash")
+            == thresholds.config_hash
+        ):
+            raise ValueError(
+                "test model report already exists for this frozen threshold config; "
+                "only --cache-only replay is allowed"
+            )
     executable_case_ids = {
         case_id
         for case_id, (_materialized, arms) in runtime.items()
@@ -2275,6 +2386,16 @@ async def _run_model_stage(
             )
             profile = _sanitized_profile(settings)
             profile_hash = _hash_json(profile)
+            if thresholds is not None and any(
+                (
+                    thresholds.compiler_hash != compile_result["compiler_hash"],
+                    thresholds.prompt_hash != compile_result["prompt_hash"],
+                    thresholds.probe_prompt_hash != compile_result["probe_prompt_hash"],
+                    thresholds.profile_hash != profile_hash,
+                    thresholds.semantic_probe_version != SEMANTIC_PROBE_VERSION,
+                )
+            ):
+                raise ValueError("frozen threshold config does not match test runtime")
             models = {
                 case.capability_profile.model
                 for case in cases
@@ -2293,12 +2414,8 @@ async def _run_model_stage(
                 raise ValueError(
                     "project provider must match every selected case capability profile"
                 )
-            cache_root = cache_dir or (
-                Path(__file__).parent / ".cache" / "rp-long-memory"
-            )
             compatible_reuse_count = 0
             prior_candidates: dict[str, dict[str, Any]] = {}
-            previous_report_path = output_dir / "rp-long-memory-model-report.json"
             if previous_report_path.is_file():
                 try:
                     previous_report = json.loads(
@@ -2344,6 +2461,9 @@ async def _run_model_stage(
                         profile_hash=profile_hash,
                         case_id=case.case_id,
                         run_index=run_index,
+                        threshold_config_hash=(
+                            thresholds.config_hash if thresholds is not None else None
+                        ),
                     ):
                         arm = arm_by_name[arm_name]
                         if arm.blocker:
@@ -2354,6 +2474,9 @@ async def _run_model_stage(
                             case_id=case.case_id,
                             arm=arm_name,
                             run_index=run_index,
+                            threshold_config_hash=(
+                                thresholds.config_hash if thresholds is not None else None
+                            ),
                         )
                         cache_key = _model_cache_key(
                             dataset_hash=dataset_hash,
@@ -2365,6 +2488,9 @@ async def _run_model_stage(
                             case_id=case.case_id,
                             arm=arm_name,
                             run_index=run_index,
+                            threshold_config_hash=(
+                                thresholds.config_hash if thresholds is not None else None
+                            ),
                         )
                         cache_path = cache_root / f"{cache_key}.json"
                         prior = prior_candidates.get(candidate_id)
@@ -2816,6 +2942,9 @@ async def _run_model_stage(
         "quality_claim_allowed": False,
         "quality_claim_reason": "calibrated human blind review not imported",
         "semantic_probe_version": SEMANTIC_PROBE_VERSION,
+        "threshold_config_hash": (
+            thresholds.config_hash if thresholds is not None else None
+        ),
         "dataset_hash": dataset_hash,
         "compile_stable_report_hash": compile_result["stable_report_hash"],
         "compiler_hash": compile_result["compiler_hash"],
@@ -3006,6 +3135,17 @@ async def _run_model_stage(
         ],
     }
     report["stable_report_hash"] = _hash_json(_stable_payload(report))
+    if test_seal_path is not None:
+        atomic_write_json(
+            test_seal_path,
+            {
+                "version": THRESHOLD_CONFIG_VERSION,
+                "threshold_config_hash": thresholds.config_hash,
+                "dataset_hash": dataset_hash,
+                "model_report_stable_hash": report["stable_report_hash"],
+                "status": report["status"],
+            },
+        )
     return report, 0 if not model_failures else 2
 
 
@@ -3038,6 +3178,7 @@ def review_report(
     reviews_path: Path,
     arm_map_path: Path,
     calibration_reviews_path: Path | None = None,
+    threshold_config_path: Path | None = None,
 ) -> tuple[dict[str, Any], int]:
     model_report = json.loads(model_report_path.read_text(encoding="utf-8"))
     if model_report.get("report_version") != MODEL_REPORT_VERSION:
@@ -3265,15 +3406,45 @@ def review_report(
             "review_count": len(calibration_reviews),
             "failures": calibration_failures,
         }
+    model_split = str(model_report.get("split") or "dev")
+    threshold_summary: dict[str, Any] = {
+        "available": False,
+        "passed": None,
+        "reason": "dev review does not consume frozen test thresholds",
+    }
+    if model_split == "test":
+        if threshold_config_path is None:
+            raise ValueError("test review requires --threshold-config")
+        threshold_summary = evaluate_frozen_thresholds(
+            config=load_threshold_config(threshold_config_path),
+            model_report=model_report,
+            paired_comparisons=paired_comparisons,
+            reviewer_ids_hash=_hash_json(sorted(reviewer_ids)),
+        )
+        threshold_summary["reason"] = (
+            None if threshold_summary["passed"] else "frozen test thresholds failed"
+        )
+    elif threshold_config_path is not None:
+        raise ValueError("dev review cannot consume a frozen threshold config")
+    quality_ready = (
+        model_split == "test"
+        and calibration_summary.get("passed") is True
+        and threshold_summary.get("passed") is True
+    )
     model_metrics = {item.get("name"): item for item in model_report.get("metrics") or []}
     model_probe = model_metrics.get("fact_probe_accuracy")
     model_hard_probe = model_metrics.get("hard_fact_probe_retention")
     report = {
         "report_version": REVIEW_REPORT_VERSION,
         "stage": "review",
-        "status": "non_ready",
-        "quality_claim_allowed": False,
-        "quality_claim_reason": "dev thresholds and reviewer calibration are not frozen",
+        "status": "ready" if quality_ready else "non_ready",
+        "quality_claim_allowed": quality_ready,
+        "quality_claim_reason": (
+            "frozen synthetic holdout and calibrated blind review passed"
+            if quality_ready
+            else "dev thresholds or calibrated frozen holdout evidence are incomplete"
+        ),
+        "quality_scope": "synthetic_contract_and_directional_memory_eval",
         "dataset_hash": model_report["dataset_hash"],
         "model_report_hash": _sha256(model_report_path.read_bytes()),
         "arm_map_hash": model_report["arm_map_hash"],
@@ -3281,6 +3452,7 @@ def review_report(
         "rubric_dimensions": list(RUBRIC_DIMENSIONS),
         "candidate_count": len(expected_candidates),
         "review_count": len(reviews),
+        "reviewer_ids_hash": _hash_json(sorted(reviewer_ids)),
         "arm_summary": arm_summary,
         "paired_comparisons": paired_comparisons,
         "model_evidence": {
@@ -3291,6 +3463,7 @@ def review_report(
             "note": "fact probe evidence is separate from story rubric evidence",
         },
         "review_calibration": calibration_summary,
+        "frozen_thresholds": threshold_summary,
         "metrics": [
             _metric(
                 "model_fact_probe",
@@ -3339,6 +3512,23 @@ def review_report(
                 passed=calibration_summary["passed"],
                 reason=calibration_summary["reason"],
             ),
+            _metric(
+                "frozen_test_thresholds",
+                available=bool(threshold_summary["available"]),
+                blocking=model_split == "test",
+                value=(
+                    threshold_summary.get("results")
+                    if threshold_summary["available"]
+                    else None
+                ),
+                threshold=(
+                    threshold_summary.get("config_hash")
+                    if threshold_summary["available"]
+                    else None
+                ),
+                passed=threshold_summary["passed"],
+                reason=threshold_summary.get("reason"),
+            ),
         ],
         "stages": [
             {
@@ -3357,7 +3547,212 @@ def review_report(
         "completed_at": _utc_now(),
     }
     report["stable_report_hash"] = _hash_json(_stable_payload(report))
-    return report, 2
+    return report, 0 if quality_ready else 2
+
+
+def freeze_threshold_config(
+    *,
+    model_report_path: Path,
+    review_report_path: Path,
+    test_dataset_path: Path,
+    output_path: Path,
+) -> dict[str, Any]:
+    model_report = json.loads(model_report_path.read_text(encoding="utf-8"))
+    review_report_payload = json.loads(review_report_path.read_text(encoding="utf-8"))
+    if model_report.get("report_version") != MODEL_REPORT_VERSION:
+        raise ValueError("unsupported model report for threshold freeze")
+    if review_report_payload.get("report_version") != REVIEW_REPORT_VERSION:
+        raise ValueError("unsupported review report for threshold freeze")
+    if model_report.get("split") != "dev":
+        raise ValueError("thresholds can only be frozen from dev evidence")
+    if model_report.get("status") != "ready" or model_report.get("hard_failures"):
+        raise ValueError("threshold freeze requires a complete ready dev model stage")
+    if review_report_payload.get("model_report_hash") != _sha256(
+        model_report_path.read_bytes()
+    ):
+        raise ValueError("review report does not bind the model report")
+    calibration = review_report_payload.get("review_calibration") or {}
+    if calibration.get("available") is not True or calibration.get("passed") is not True:
+        raise ValueError("threshold freeze requires passing reviewer calibration")
+
+    metrics = {item.get("name"): item for item in model_report.get("metrics") or []}
+    hard_probe = metrics.get("hard_fact_probe_retention") or {}
+    sentinels = metrics.get("exact_safety_sentinel_failures") or {}
+    if hard_probe.get("passed") is not True or sentinels.get("passed") is not True:
+        raise ValueError("threshold freeze requires all model hard gates")
+    fact_value = (metrics.get("fact_probe_accuracy") or {}).get("value") or {}
+    fact_by_arm = fact_value.get("by_arm") or {}
+    blind_by_pair = review_report_payload.get("paired_comparisons") or {}
+    specs = (
+        (
+            "segments_vs_baseline",
+            "overview_tail",
+            "overview_tail_segments",
+        ),
+        (
+            "rehydrated_vs_segments",
+            "overview_tail_segments",
+            "overview_tail_rehydrated",
+        ),
+    )
+    decisions: list[dict[str, Any]] = []
+    for comparison_name, baseline_arm, candidate_arm in specs:
+        baseline = fact_by_arm.get(baseline_arm) or {}
+        candidate = fact_by_arm.get(candidate_arm) or {}
+        comparison = blind_by_pair.get(comparison_name) or {}
+        case_delta = int(candidate.get("candidate_passed_count") or 0) - int(
+            baseline.get("candidate_passed_count") or 0
+        )
+        fact_delta = int(candidate.get("fact_matched_count") or 0) - int(
+            baseline.get("fact_matched_count") or 0
+        )
+        blind_delta = comparison.get("mean_delta")
+        eligible = (
+            case_delta >= 1
+            and fact_delta >= 1
+            and isinstance(blind_delta, int | float)
+            and float(blind_delta) >= 0.0
+            and int(comparison.get("right_severe_spoiler_count") or 0) == 0
+        )
+        if not eligible:
+            if candidate_arm == "overview_tail_segments":
+                break
+            continue
+        decisions.append(
+            {
+                "baseline_arm": baseline_arm,
+                "candidate_arm": candidate_arm,
+                "minimum_case_pass_delta": 1,
+                "minimum_fact_match_delta": 1,
+                "minimum_blind_mean_delta": 0.0,
+                "maximum_severe_spoiler_count": 0,
+            }
+        )
+    if not decisions:
+        raise ValueError("dev evidence did not qualify any candidate arm")
+
+    frozen_at = str(review_report_payload.get("completed_at") or "")
+    if not frozen_at:
+        raise ValueError("threshold freeze requires a completed dev review report")
+
+    test_cases, test_dataset_hash = load_cases(test_dataset_path)
+    test_compile, _ = compile_report(
+        test_cases,
+        dataset_hash=test_dataset_hash,
+        split="test",
+    )
+    if test_compile["status"] != "ready":
+        raise ValueError("test dataset is not compile-ready")
+    unsigned = {
+        "version": THRESHOLD_CONFIG_VERSION,
+        "dev_dataset_hash": model_report["dataset_hash"],
+        "dev_model_report_hash": _sha256(model_report_path.read_bytes()),
+        "dev_review_report_hash": _sha256(review_report_path.read_bytes()),
+        "test_dataset_hash": test_dataset_hash,
+        "compiler_hash": test_compile["compiler_hash"],
+        "prompt_hash": test_compile["prompt_hash"],
+        "probe_prompt_hash": test_compile["probe_prompt_hash"],
+        "profile_hash": str(
+            (model_report.get("profile") or {}).get("profile_hash") or ""
+        ),
+        "reviewer_ids_hash": str(review_report_payload.get("reviewer_ids_hash") or ""),
+        "runs": int(model_report.get("runs") or 0),
+        "semantic_probe_version": SEMANTIC_PROBE_VERSION,
+        "frozen_at": frozen_at,
+        "decisions": decisions,
+    }
+    payload = {**unsigned, "config_hash": _hash_json(unsigned)}
+    config = FrozenThresholdConfig.model_validate(payload)
+    atomic_write_json(output_path, config.model_dump(mode="json"))
+    return config.model_dump(mode="json")
+
+
+def evaluate_frozen_thresholds(
+    *,
+    config: FrozenThresholdConfig,
+    model_report: dict[str, Any],
+    paired_comparisons: dict[str, Any],
+    reviewer_ids_hash: str,
+) -> dict[str, Any]:
+    profile_hash = str((model_report.get("profile") or {}).get("profile_hash") or "")
+    metadata_matches = all(
+        (
+            model_report.get("split") == "test",
+            model_report.get("dataset_hash") == config.test_dataset_hash,
+            model_report.get("compiler_hash") == config.compiler_hash,
+            model_report.get("prompt_hash") == config.prompt_hash,
+            model_report.get("probe_prompt_hash") == config.probe_prompt_hash,
+            model_report.get("semantic_probe_version") == config.semantic_probe_version,
+            model_report.get("threshold_config_hash") == config.config_hash,
+            profile_hash == config.profile_hash,
+            model_report.get("runs") == config.runs,
+            reviewer_ids_hash == config.reviewer_ids_hash,
+        )
+    )
+    metrics = {item.get("name"): item for item in model_report.get("metrics") or []}
+    model_stage_ready = model_report.get("status") == "ready" and not model_report.get(
+        "hard_failures"
+    )
+    hard_gates_passed = model_stage_ready and all(
+        (metrics.get(name) or {}).get("passed") is True
+        for name in ("hard_fact_probe_retention", "exact_safety_sentinel_failures")
+    )
+    fact_by_arm = ((metrics.get("fact_probe_accuracy") or {}).get("value") or {}).get(
+        "by_arm"
+    ) or {}
+    comparison_names = {
+        ("overview_tail", "overview_tail_segments"): "segments_vs_baseline",
+        (
+            "overview_tail_segments",
+            "overview_tail_rehydrated",
+        ): "rehydrated_vs_segments",
+    }
+    results: list[dict[str, Any]] = []
+    for decision in config.decisions:
+        pair = (decision.baseline_arm, decision.candidate_arm)
+        comparison_name = comparison_names.get(pair)
+        baseline = fact_by_arm.get(decision.baseline_arm) or {}
+        candidate = fact_by_arm.get(decision.candidate_arm) or {}
+        blind = paired_comparisons.get(comparison_name or "") or {}
+        case_delta = int(candidate.get("candidate_passed_count") or 0) - int(
+            baseline.get("candidate_passed_count") or 0
+        )
+        fact_delta = int(candidate.get("fact_matched_count") or 0) - int(
+            baseline.get("fact_matched_count") or 0
+        )
+        blind_delta = blind.get("mean_delta")
+        severe_spoilers = int(blind.get("right_severe_spoiler_count") or 0)
+        passed = (
+            comparison_name is not None
+            and case_delta >= decision.minimum_case_pass_delta
+            and fact_delta >= decision.minimum_fact_match_delta
+            and isinstance(blind_delta, int | float)
+            and float(blind_delta) >= decision.minimum_blind_mean_delta
+            and severe_spoilers <= decision.maximum_severe_spoiler_count
+        )
+        results.append(
+            {
+                "baseline_arm": decision.baseline_arm,
+                "candidate_arm": decision.candidate_arm,
+                "case_pass_delta": case_delta,
+                "fact_match_delta": fact_delta,
+                "blind_mean_delta": blind_delta,
+                "severe_spoiler_count": severe_spoilers,
+                "passed": passed,
+            }
+        )
+    return {
+        "available": True,
+        "config_hash": config.config_hash,
+        "metadata_matches": metadata_matches,
+        "model_stage_ready": model_stage_ready,
+        "hard_gates_passed": hard_gates_passed,
+        "results": results,
+        "passed": metadata_matches
+        and hard_gates_passed
+        and bool(results)
+        and all(item["passed"] for item in results),
+    }
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -3376,12 +3771,16 @@ def _build_parser() -> argparse.ArgumentParser:
     model_parser.add_argument("--runs", type=int, default=1)
     model_parser.add_argument("--output-dir", type=Path, required=True)
     model_parser.add_argument("--cache-only", action="store_true")
+    model_parser.add_argument("--threshold-config", type=Path)
 
     review_parser = subparsers.add_parser("review")
     review_parser.add_argument("model_report", type=Path)
     review_parser.add_argument("reviews", type=Path)
     review_parser.add_argument("--arm-map", type=Path, required=True)
     review_parser.add_argument("--calibration-reviews", type=Path)
+    review_parser.add_argument("--threshold-config", type=Path)
+    review_parser.add_argument("--threshold-output", type=Path)
+    review_parser.add_argument("--test-dataset", type=Path)
     review_parser.add_argument("--output", type=Path, required=True)
     return parser
 
@@ -3408,6 +3807,7 @@ def main(argv: list[str] | None = None) -> int:
                     runs=args.runs,
                     output_dir=args.output_dir,
                     cache_only=args.cache_only,
+                    threshold_config=args.threshold_config,
                 )
             )
             atomic_write_json(
@@ -3415,13 +3815,25 @@ def main(argv: list[str] | None = None) -> int:
                 report,
             )
             return exit_code
+        if (args.threshold_output is None) != (args.test_dataset is None):
+            raise ValueError(
+                "--threshold-output and --test-dataset must be supplied together"
+            )
         report, exit_code = review_report(
             args.model_report,
             args.reviews,
             args.arm_map,
             calibration_reviews_path=args.calibration_reviews,
+            threshold_config_path=args.threshold_config,
         )
         atomic_write_json(args.output, report)
+        if args.threshold_output is not None:
+            freeze_threshold_config(
+                model_report_path=args.model_report,
+                review_report_path=args.output,
+                test_dataset_path=args.test_dataset,
+                output_path=args.threshold_output,
+            )
         return exit_code
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"rp_long_memory: {exc}", file=sys.stderr)
