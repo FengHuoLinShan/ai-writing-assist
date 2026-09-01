@@ -11,6 +11,12 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.capabilities import (
+    LLM_CAPABILITY_EXECUTION_KEY,
+    LLM_CAPABILITY_SNAPSHOT_KEY,
+    capability_from_execution_settings,
+    capability_from_execution_snapshot,
+)
 from infrastructure.llm.secret_store import encrypt_secret, fingerprint_secret
 from modules.account.settings_constants import (
     ACCOUNT_LLM_PROVIDER_TEMPLATES,
@@ -262,6 +268,8 @@ async def test_execution_snapshot_is_secret_free_and_uses_rotated_provider_key(
     assert "unit-test-before-rotation" not in str(context_before_rotation.settings)
     assert snapshot["profile"]["provider_id"] == "deepseek"
     assert snapshot["profile"]["model"] == "deepseek-v4-flash"
+    assert snapshot[LLM_CAPABILITY_SNAPSHOT_KEY]["capability_hash"]
+    assert capability_from_execution_snapshot(snapshot).hard_input_tokens == 400_000
     assert snapshot["sources"]["model"] == "account"
 
     await _seed_account_connection(
@@ -278,6 +286,7 @@ async def test_execution_snapshot_is_secret_free_and_uses_rotated_provider_key(
     assert restored["llm"]["model"] == "deepseek-v4-flash"
     assert restored["llm"]["api_key"] == "unit-test-after-rotation"
     assert restored["llm"]["api_key"] != "unit-test-before-rotation"
+    assert capability_from_execution_settings(restored).hard_input_tokens == 400_000
     assert context_after_rotation is not None
     assert "unit-test-after-rotation" not in str(context_after_rotation.settings)
     assert "unit-test-after-rotation" not in serialized
@@ -316,6 +325,30 @@ async def test_snapshot_provider_survives_active_template_hot_switch(
     assert restored["llm"]["provider_id"] == "deepseek"
     assert restored["llm"]["model"] == "deepseek-v4-flash"
     assert restored["llm"]["api_key"] == "unit-test-deepseek-key"
+
+
+@pytest.mark.asyncio
+async def test_legacy_snapshot_restores_with_short_unfrozen_fallback(
+    db_session: AsyncSession,
+    test_project_id: str,
+) -> None:
+    await _seed_account_connection(db_session)
+    snapshot = await build_project_llm_execution_snapshot(db_session, test_project_id)
+    snapshot.pop(LLM_CAPABILITY_SNAPSHOT_KEY)
+    snapshot["profile_hash"] = llm_runtime._stable_hash(
+        {key: value for key, value in snapshot.items() if key != "profile_hash"}
+    )
+
+    restored = await restore_project_llm_execution_settings(
+        db_session,
+        test_project_id,
+        snapshot,
+    )
+
+    capability = capability_from_execution_settings(restored)
+    assert capability.calibration_status == "legacy_fallback"
+    assert capability.hard_input_tokens == 24_000
+    assert restored[LLM_CAPABILITY_EXECUTION_KEY]["capability_hash"]
 
 
 @pytest.mark.asyncio

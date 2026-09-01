@@ -165,6 +165,9 @@ Base URL/extra 的 hash 和脱敏摘要，不保存 API Key、完整 URL/query
 当前轮换后的账户 Key；即使账户切换到另一模板，旧任务仍按 snapshot 的 provider 恢复。
 原 provider 凭据被清除时 fail-closed，并拒绝 endpoint 或 provider-specific extra 漂移，
 并继续使用任务提交时的 model/参数/字段来源。
+snapshot 同时由 infrastructure 的唯一 capability registry 冻结 model budget profile 与 hash；
+interaction 只消费该冻结结果，不维护自己的模型窗口表。旧 snapshot 没有 capability 字段时使用
+明确的短窗口 legacy fallback，不把当前服务器默认静默写回旧任务。
 deep-import 快照在提交时已将项目值、环境覆盖和代码默认
 物化成显式字段，因此恢复期间的 env/default 变化不会改写已提交任务。
 

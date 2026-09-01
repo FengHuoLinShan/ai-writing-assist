@@ -64,8 +64,10 @@ selection epoch 仍匹配的第一个结果可成为当前路径。Prompt、回�
 - `interaction-story-v3` 优先级是用户最新明确修正 → 当前选中旅程历史/手工回顾 →
   固定版本截止点前的作品资料 → 模型训练知识。来源归档、manifest 或必需引用失效时
   fail-closed，不退回纯模型知识。
-- 正常输入预算起点为 256K token 估算；超过 512K 时在同一 attempt 内先做紧急结构化回顾。
-  整理只读取兼容回顾后的最老连续 whole-node prefix，每次摘要输入不超过 256K，并保留近期
+- 输入预算来自 attempt 冻结的 model capability profile，并取字符估算与 shared tokenizer 的较大值。
+  当前已校准 DeepSeek V4 Flash 使用 256K normal、360K compact、400K hard input；unknown model
+  使用 16K/20K/24K short fallback。超过 compact trigger 时在同一 attempt 内先做紧急结构化回顾。
+  整理只读取兼容回顾后的最老连续 whole-node prefix；DeepSeek 单次摘要输入不超过 256K，并保留近期
   至少一个完整对话节拍和约 16K 原文后缀；最多 4 个短事务 pass，仍无法容纳才 fail-closed。
   不把整条 530K+ tail 先发给摘要模型，也不依赖 provider 静默截头。这些数字仍是待校准参数，
   不是产品承诺。
@@ -116,8 +118,8 @@ selection epoch 仍匹配的第一个结果可成为当前路径。Prompt、回�
   “紧急整理→恢复故事”。缺少精确 usage、费用授权、官方上下文上限或专用数据库都会显式
   失败。报告只含数字与 provider/model，写入已忽略的
   `.test-artifacts/kimi-context-calibration.json`。
-- 上述门禁通过前，256K/512K/750K 只代表内部防护阈值，不能对外表述为“Kimi 已启用”或
-  “支持 1M 长旅程”。
+- 上述 Kimi 门禁通过前，Kimi/其他未知模型只使用 16K/20K/24K short fallback，不能对外表述为
+  “Kimi 已启用”或“支持 1M 长旅程”。
 
 ## API 分组
 

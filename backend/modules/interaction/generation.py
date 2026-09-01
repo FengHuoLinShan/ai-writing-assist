@@ -9,6 +9,10 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.capabilities import (
+    capability_from_execution_settings,
+    capability_from_execution_snapshot,
+)
 from infrastructure.llm.errors import (
     LLMAuthError,
     LLMConnectionError,
@@ -32,13 +36,7 @@ from modules.interaction.models import (
     InteractionSummarySegment,
 )
 from modules.interaction.prompts import (
-    EMERGENCY_SUMMARY_TOKENS,
-    HARD_INPUT_TOKENS,
-    NORMAL_INPUT_TOKENS,
-    SEE_SEA_OUTPUT_TOKENS,
-    STORY_OUTPUT_TOKENS,
     STORY_PROMPT_VERSION,
-    SUMMARY_OUTPUT_TOKENS,
     SUMMARY_PROMPT_VERSION,
     SUMMARY_SCHEMA_VERSION,
     compile_story_messages,
@@ -184,6 +182,7 @@ class InteractionGenerationWorkflow:
         task_snapshot = dict((task.meta or {}).get("llm_execution_snapshot") or {})
         if task_snapshot != dict(attempt.llm_execution_snapshot or {}):
             raise RuntimeError("interaction LLM snapshot mismatch")
+        capability = capability_from_execution_snapshot(task_snapshot)
 
         response_to = await self._repo.get_node(
             db,
@@ -297,8 +296,11 @@ class InteractionGenerationWorkflow:
             ),
             source_context=source_context,
         )
-        estimated_input_tokens = estimate_input_tokens(messages)
-        if estimated_input_tokens > EMERGENCY_SUMMARY_TOKENS:
+        estimated_input_tokens = estimate_input_tokens(
+            messages,
+            model=capability.model,
+        )
+        if estimated_input_tokens > capability.compact_trigger_tokens:
             prepared_summary = await self._prepare_summary_generation(
                 db,
                 journey=journey,
@@ -313,7 +315,7 @@ class InteractionGenerationWorkflow:
                 raise InteractionContextBudgetError(
                     "interaction context could not produce a summary tail"
                 )
-            if prepared_summary.estimated_input_tokens > HARD_INPUT_TOKENS:
+            if prepared_summary.estimated_input_tokens > capability.hard_input_tokens:
                 raise InteractionContextBudgetError(
                     "interaction summary source exceeds hard input budget"
                 )
@@ -332,7 +334,7 @@ class InteractionGenerationWorkflow:
                 )
             db.expire_all()
             return prepared_summary
-        if estimated_input_tokens > HARD_INPUT_TOKENS:
+        if estimated_input_tokens > capability.hard_input_tokens:
             raise InteractionContextBudgetError(
                 "selected interaction path exceeds hard input budget"
             )
@@ -345,7 +347,9 @@ class InteractionGenerationWorkflow:
         attempt.usage = {
             **dict(attempt.usage or {}),
             "context_tier": (
-                "extended" if estimated_input_tokens > NORMAL_INPUT_TOKENS else "normal"
+                "extended"
+                if estimated_input_tokens > capability.normal_input_tokens
+                else "normal"
             ),
             "estimated_input_tokens": estimated_input_tokens,
             "prompt_version": STORY_PROMPT_VERSION,
@@ -848,6 +852,7 @@ class InteractionGenerationWorkflow:
         protected = uncovered[prefix_end:]
         if not compressible:
             return None
+        capability = capability_from_execution_snapshot(snapshot)
         overview_text = (
             render_overview_sections(valid_head.sections) if valid_head else ""
         )
@@ -892,13 +897,16 @@ class InteractionGenerationWorkflow:
                 LLMMessage(role="user", content=prompt),
             ]
             candidate_tokens = max(
-                estimate_input_tokens(candidate_messages),
+                estimate_input_tokens(
+                    candidate_messages,
+                    model=capability.model,
+                ),
                 len(system_message.content)
                 + len(overview_text)
                 + sum(max(1, item.token_estimate) for item in candidate)
                 + 64,
             )
-            if candidate_tokens > NORMAL_INPUT_TOKENS:
+            if candidate_tokens > capability.summary_input_ceiling_tokens:
                 if not chunk:
                     raise InteractionContextBudgetError(
                         "one interaction node or dialogue beat exceeds "
@@ -1373,11 +1381,12 @@ class InteractionGenerationWorkflow:
 
 def story_request(prepared: PreparedStoryGeneration) -> LLMCallRequest:
     profile = dict(prepared.executable_settings.get("llm") or {})
+    capability = capability_from_execution_settings(prepared.executable_settings)
     output_limit = (
-        SEE_SEA_OUTPUT_TOKENS
+        capability.see_sea_output_tokens
         if prepared.see_sea_step
         or prepared.request_kind in {"see_sea", "see_sea_continue"}
-        else STORY_OUTPUT_TOKENS
+        else capability.story_output_tokens
     )
     return LLMCallRequest(
         model=str(profile.get("model") or ""),
@@ -1392,13 +1401,14 @@ def story_request(prepared: PreparedStoryGeneration) -> LLMCallRequest:
 
 def summary_request(prepared: PreparedSummaryGeneration) -> LLMCallRequest:
     profile = dict(prepared.executable_settings.get("llm") or {})
+    capability = capability_from_execution_settings(prepared.executable_settings)
     return LLMCallRequest(
         model=str(profile.get("model") or ""),
         messages=prepared.messages,
         temperature=0.2,
         max_tokens=min(
-            int(profile.get("max_tokens") or SUMMARY_OUTPUT_TOKENS),
-            SUMMARY_OUTPUT_TOKENS,
+            int(profile.get("max_tokens") or capability.summary_output_tokens),
+            capability.summary_output_tokens,
         ),
         response_format={"type": "json_object"},
     )

@@ -161,7 +161,8 @@ Context。同一任务的内部复核/格式修复复用原 confirmation；自�
   不可达。
 - `projects.settings.llm` 只保留非 secret 的项目工作流兼容设置，不能覆盖账号连接的
   provider/model/Key。可恢复任务的 project snapshot 冻结提交时的 provider/model、
-  非 secret 参数和项目工作流设置，但不保存 Key；恢复时使用同 provider 当前轮换后的
+  非 secret 参数、infrastructure-owned capability profile ID/hash/预算和项目工作流设置，
+  但不保存 Key；恢复时使用同 provider 当前轮换后的
   账号 Key，provider 已清除时 fail-closed。
 - 旧 `global_llm_defaults` 继续提供非 secret 兼容默认/展示字段，不是运行时凭据真相源。
   业务 provider 字段不从 `LLM_*` 环境变量继承，显式测试 override 仅用于测试路径。

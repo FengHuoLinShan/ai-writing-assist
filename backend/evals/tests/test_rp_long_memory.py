@@ -7,6 +7,7 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
@@ -14,12 +15,15 @@ from evals.rp_long_memory import (
     ARM_SPECS,
     RUBRIC_DIMENSIONS,
     BlindReview,
+    SemanticFactExpectation,
     _arm_order,
     _candidate_id,
     _model_cache_key,
     _run_model_stage,
+    _semantic_fact_matches,
     atomic_write_json,
     compile_report,
+    load_calibration_cases,
     load_cases,
     main,
     materialize_case,
@@ -27,7 +31,10 @@ from evals.rp_long_memory import (
 )
 from infrastructure.llm.schemas import LLMStreamChunk, LLMUsage
 
-DATASET = Path(__file__).parents[1] / "datasets" / "baselines" / "rp-long-memory-v1.jsonl"
+DATASET = Path(__file__).parents[1] / "datasets" / "baselines" / "rp-long-memory-v2.jsonl"
+LEGACY_DATASET = (
+    Path(__file__).parents[1] / "datasets" / "baselines" / "rp-long-memory-v1.jsonl"
+)
 
 
 def _payloads() -> list[dict]:
@@ -45,6 +52,8 @@ def _verified_dataset(tmp_path: Path) -> Path:
     payload = _payloads()[0]
     payload["capability_profile"]["provider"] = "test-provider"
     payload["capability_profile"]["calibration_status"] = "verified"
+    payload["capability_profile"]["official_spec_url"] = "https://example.test/models"
+    payload["capability_profile"]["spec_verified_on"] = "2026-09-01"
     path = tmp_path / "verified.jsonl"
     _write_jsonl(path, [payload])
     return path
@@ -221,6 +230,41 @@ def test_offline_compile_is_deterministic_and_hash_only() -> None:
     assert str(DATASET.parent) not in serialized
 
 
+def test_semantic_probe_accepts_paraphrase_but_keeps_missing_qualifiers_failed() -> None:
+    expectation = SemanticFactExpectation(
+        accepted_values=["已包扎但不能负重"],
+        required_term_groups=[
+            ["包扎"],
+            ["不能负重", "无法负重", "不可承重"],
+        ],
+        forbidden_terms=["可以负重"],
+    )
+
+    assert _semantic_fact_matches("左臂已包扎，目前无法负重。", expectation)
+    assert not _semantic_fact_matches("左臂受伤，已经包扎。", expectation)
+    assert not _semantic_fact_matches("已经包扎，可以负重。", expectation)
+    assert not _semantic_fact_matches(None, expectation)
+
+
+def test_legacy_v1_stays_compile_only(tmp_path: Path) -> None:
+    cases, dataset_hash = load_cases(LEGACY_DATASET)
+    report, _runtime = compile_report(cases, dataset_hash=dataset_hash, split="dev")
+    assert report["status"] == "ready"
+
+    with pytest.raises(ValueError, match="v2 semantic fact expectations"):
+        asyncio.run(
+            _run_model_stage(
+                dataset=LEGACY_DATASET,
+                split="dev",
+                novel_id="not-opened",
+                allow_paid_model=True,
+                runs=1,
+                output_dir=tmp_path,
+                cache_only=False,
+            )
+        )
+
+
 def test_one_template_value_changes_only_its_case_root(tmp_path: Path) -> None:
     original_cases, _ = load_cases(DATASET)
     payloads = _payloads()
@@ -255,7 +299,7 @@ def test_one_template_value_changes_only_its_case_root(tmp_path: Path) -> None:
         (lambda payload: payload.update({"source_text": "作品正文"}), "forbidden"),
         (lambda payload: payload.update({"copyright_text": "作品正文"}), "forbidden"),
         (
-            lambda payload: payload.update({"schema_version": "rp-long-memory-v2"}),
+            lambda payload: payload.update({"schema_version": "rp-long-memory-v3"}),
             "unsupported schema_version",
         ),
         (
@@ -603,7 +647,11 @@ def test_model_stage_uses_project_client_and_exports_blind_artifacts(
     assert opened["count"] == 1
     assert manager.closed is True
     metric_by_name = {item["name"]: item for item in report["metrics"]}
-    assert metric_by_name["fact_probe_accuracy"]["passed"] is True
+    assert metric_by_name["fact_probe_accuracy"]["passed"] is None
+    assert metric_by_name["fact_probe_accuracy"]["value"][
+        "candidate_passed_count"
+    ] == len(ARM_SPECS)
+    assert metric_by_name["hard_fact_probe_retention"]["passed"] is True
     assert metric_by_name["probe_repair_attempts"]["value"] == 0
     assert metric_by_name["provider_input_output_usage"]["available"] is True
     assert metric_by_name["story_blind_review"]["available"] is False
@@ -616,7 +664,29 @@ def test_model_stage_uses_project_client_and_exports_blind_artifacts(
         .splitlines()
     ]
     assert len(candidates) == len(ARM_SPECS)
-    assert all("arm" not in item for item in candidates)
+    assert all(
+        "arm" not in item and "case_id" not in item and "run_index" not in item
+        for item in candidates
+    )
+    assert all(item["question"] and item["continuity_facts"] for item in candidates)
+    review_template = [
+        json.loads(line)
+        for line in (tmp_path / "artifacts" / report["review_template_file"])
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert {item["candidate_id"] for item in review_template} == {
+        item["candidate_id"] for item in candidates
+    }
+    assert all(set(item["scores"]) == set(RUBRIC_DIMENSIONS) for item in review_template)
+    calibration_candidates = [
+        json.loads(line)
+        for line in (tmp_path / "artifacts" / report["calibration_candidates_file"])
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert len(calibration_candidates) == 8
+    assert all("constraints" not in item for item in calibration_candidates)
     arm_map = json.loads(
         (tmp_path / "artifacts" / report["arm_map_file"]).read_text(encoding="utf-8")
     )
@@ -641,16 +711,52 @@ def test_model_stage_uses_project_client_and_exports_blind_artifacts(
             for item in candidates
         ],
     )
+    calibration_cases, _calibration_hash = load_calibration_cases()
+    calibration_reviews_path = tmp_path / "artifacts" / "calibration-reviews.jsonl"
+    calibration_rows = []
+    for case in calibration_cases:
+        scores = dict.fromkeys(RUBRIC_DIMENSIONS, 2)
+        for dimension, constraint in case.constraints.items():
+            scores[dimension] = (
+                constraint.min_score
+                if constraint.min_score is not None
+                else constraint.max_score
+            )
+        calibration_rows.append(
+            {
+                "calibration_id": case.calibration_id,
+                "reviewer_id": "reviewer-a",
+                "scores": scores,
+                "severe_spoiler": case.expected_severe_spoiler,
+            }
+        )
+    _write_jsonl(calibration_reviews_path, calibration_rows)
     reviewed, review_exit = review_report(
         model_report_path,
         reviews_path,
         tmp_path / "artifacts" / report["arm_map_file"],
+        calibration_reviews_path=calibration_reviews_path,
     )
     assert review_exit == 2
-    assert reviewed["model_evidence"]["fact_probe"]["passed"] is True
+    assert reviewed["model_evidence"]["fact_probe"]["value"][
+        "candidate_passed_count"
+    ] == len(ARM_SPECS)
+    assert reviewed["model_evidence"]["hard_fact_probe"]["passed"] is True
+    assert reviewed["review_calibration"]["passed"] is True
     assert sum(item["review_count"] for item in reviewed["arm_summary"].values()) == len(
         ARM_SPECS
     )
+    assert reviewed["paired_comparisons"]["segments_vs_baseline"]["pair_count"] == 1
+
+    calibration_rows[0]["scores"]["ability_boundaries"] = 0
+    _write_jsonl(calibration_reviews_path, calibration_rows)
+    uncalibrated, _ = review_report(
+        model_report_path,
+        reviews_path,
+        tmp_path / "artifacts" / report["arm_map_file"],
+        calibration_reviews_path=calibration_reviews_path,
+    )
+    assert uncalibrated["review_calibration"]["passed"] is False
 
     cached_report, cached_exit = asyncio.run(
         _run_model_stage(
@@ -666,6 +772,41 @@ def test_model_stage_uses_project_client_and_exports_blind_artifacts(
     )
     assert cached_exit == 0
     assert cached_report["cache"]["hit_count"] == len(ARM_SPECS)
+    assert opened["count"] == 1
+
+    compatible_output = tmp_path / "compatible-artifacts"
+    compatible_output.mkdir()
+    atomic_write_json(
+        compatible_output / "rp-long-memory-model-report.json",
+        report,
+    )
+    original_compile_report = compile_report
+
+    def changed_compiler(*args, **kwargs):
+        changed, runtime = original_compile_report(*args, **kwargs)
+        changed["compiler_hash"] = "f" * 64
+        return changed, runtime
+
+    with patch(
+        "evals.rp_long_memory.compile_report",
+        autospec=True,
+        side_effect=changed_compiler,
+    ):
+        compatible_report, compatible_exit = asyncio.run(
+            _run_model_stage(
+                dataset=dataset,
+                split="dev",
+                novel_id="00000000-0000-0000-0000-000000000001",
+                allow_paid_model=True,
+                runs=1,
+                output_dir=compatible_output,
+                cache_only=True,
+                cache_dir=tmp_path / "cache",
+            )
+        )
+
+    assert compatible_exit == 0
+    assert compatible_report["cache"]["compatible_reuse_count"] == len(ARM_SPECS)
     assert opened["count"] == 1
 
     for cache_path in (tmp_path / "cache").glob("*.json"):
@@ -698,6 +839,8 @@ def test_unexecutable_blocker_case_does_not_require_provider_calibration(
     payloads = [_payloads()[0], _payloads()[-1]]
     payloads[0]["capability_profile"]["provider"] = "test-provider"
     payloads[0]["capability_profile"]["calibration_status"] = "verified"
+    payloads[0]["capability_profile"]["official_spec_url"] = "https://example.test/models"
+    payloads[0]["capability_profile"]["spec_verified_on"] = "2026-09-01"
     dataset = tmp_path / "verified-with-blocker.jsonl"
     _write_jsonl(dataset, payloads)
     _manager, opened = _install_fake_model_runtime(monkeypatch)
@@ -764,6 +907,7 @@ def test_model_cache_key_covers_every_pairing_input() -> None:
         "template_hash": "b" * 64,
         "compiler_hash": "c" * 64,
         "prompt_hash": "d" * 64,
+        "probe_prompt_hash": "0" * 64,
         "profile_hash": "e" * 64,
         "case_id": "case-one",
         "arm": "overview_tail",
@@ -776,6 +920,7 @@ def test_model_cache_key_covers_every_pairing_input() -> None:
         "template_hash": "1" * 64,
         "compiler_hash": "2" * 64,
         "prompt_hash": "3" * 64,
+        "probe_prompt_hash": "5" * 64,
         "profile_hash": "4" * 64,
         "case_id": "case-two",
         "arm": "overview_tail_segments",
@@ -809,11 +954,11 @@ def test_story_text_cannot_rescue_a_failed_fact_probe(
         )
     )
 
-    assert exit_code == 2
-    assert report["status"] == "non_ready"
+    assert exit_code == 0
+    assert report["status"] == "ready"
     assert all(item["primary_failure"] == "model_nonuse" for item in report["candidates"])
     metrics = {item["name"]: item for item in report["metrics"]}
-    assert metrics["fact_probe_accuracy"]["passed"] is False
+    assert metrics["fact_probe_accuracy"]["value"]["candidate_passed_count"] == 0
     assert metrics["story_blind_review"]["available"] is False
 
 
@@ -843,6 +988,7 @@ def test_review_requires_complete_rubric_and_keeps_claim_blocked(tmp_path: Path)
             "profile_hash": "b" * 64,
             "compiler_hash": "c" * 64,
             "prompt_hash": "d" * 64,
+            "probe_prompt_hash": "e" * 64,
             "mapping": {
                 candidate_id: arm
                 for candidate_id, (arm, _source) in zip(candidate_ids, ARM_SPECS)
@@ -853,27 +999,45 @@ def test_review_requires_complete_rubric_and_keeps_claim_blocked(tmp_path: Path)
     atomic_write_json(
         model_report_path,
         {
-            "report_version": "rp-long-memory-model-report-v1",
+            "report_version": "rp-long-memory-model-report-v2",
             "status": "ready",
             "dataset_hash": "a" * 64,
             "compiler_hash": "c" * 64,
             "prompt_hash": "d" * 64,
+            "probe_prompt_hash": "e" * 64,
             "profile": {"profile_hash": "b" * 64},
             "arm_map_hash": hashlib.sha256(arm_map_path.read_bytes()).hexdigest(),
             "candidates": [
-                {"candidate_id": candidate_id} for candidate_id in candidate_ids
+                {
+                    "candidate_id": candidate_id,
+                    "case_id": "case-one",
+                    "run_index": 0,
+                }
+                for candidate_id in candidate_ids
             ],
             "hard_failures": [],
             "metrics": [
                 {
                     "name": "fact_probe_accuracy",
                     "available": True,
+                    "blocking": False,
+                    "value": {
+                        "candidate_passed_count": len(candidate_ids),
+                        "candidate_count": len(candidate_ids),
+                    },
+                    "threshold": None,
+                    "passed": None,
+                    "reason": None,
+                },
+                {
+                    "name": "hard_fact_probe_retention",
+                    "available": True,
                     "blocking": True,
                     "value": len(candidate_ids),
                     "threshold": len(candidate_ids),
                     "passed": True,
                     "reason": None,
-                }
+                },
             ],
         },
     )
@@ -901,7 +1065,10 @@ def test_review_requires_complete_rubric_and_keeps_claim_blocked(tmp_path: Path)
     assert report["status"] == "non_ready"
     assert report["quality_claim_allowed"] is False
     metrics = {item["name"]: item for item in report["metrics"]}
-    assert metrics["model_fact_probe"]["passed"] is True
+    assert metrics["model_fact_probe"]["value"]["candidate_passed_count"] == len(
+        candidate_ids
+    )
+    assert metrics["model_hard_fact_probe"]["passed"] is True
     assert metrics["reviewer_calibration"]["available"] is False
 
     missing_path = tmp_path / "missing-reviews.jsonl"

@@ -11,6 +11,10 @@ from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import func, select
 
 from core.errors import ConflictError, NotFoundError
+from infrastructure.llm.capabilities import (
+    LLM_CAPABILITY_SNAPSHOT_KEY,
+    resolve_llm_capability_profile,
+)
 from infrastructure.llm.errors import LLMContentFilterError
 from infrastructure.llm.schemas import LLMMessage
 from infrastructure.tasks.models import AsyncTask
@@ -46,7 +50,11 @@ pytestmark = pytest.mark.asyncio
 _SNAPSHOT = {
     "version": "1",
     "novel_id": "filled-by-test",
-    "profile": {"provider_id": "deepseek"},
+    "profile": {"provider_id": "deepseek", "model": "deepseek-v4-flash"},
+    LLM_CAPABILITY_SNAPSHOT_KEY: resolve_llm_capability_profile(
+        "deepseek",
+        "deepseek-v4-flash",
+    ).to_snapshot(),
 }
 
 
@@ -3555,6 +3563,7 @@ async def test_pending_adopted_beat_keeps_sea_prompt_after_loop_is_disabled(
         autospec=True,
         return_value={
             "llm": {
+                "provider_id": "deepseek",
                 "model": "deepseek-v4-flash",
                 "max_tokens": 8192,
             }
@@ -3914,6 +3923,7 @@ async def test_see_sea_story_request_uses_narrow_output_budget() -> None:
         "messages": [LLMMessage(role="user", content="继续")],
         "executable_settings": {
             "llm": {
+                "provider_id": "deepseek",
                 "model": "deepseek-v4-flash",
                 "max_tokens": 8192,
                 "temperature": 0.3,
@@ -3940,6 +3950,7 @@ async def test_summary_request_uses_json_contract_and_twelve_k_budget() -> None:
         messages=[LLMMessage(role="user", content="整理")],
         executable_settings={
             "llm": {
+                "provider_id": "deepseek",
                 "model": "deepseek-v4-flash",
                 "max_tokens": 20_000,
             }
@@ -3950,3 +3961,23 @@ async def test_summary_request_uses_json_contract_and_twelve_k_budget() -> None:
 
     assert request.response_format == {"type": "json_object"}
     assert request.max_tokens == 12_000
+
+
+async def test_unknown_model_request_uses_short_fallback_output_budget() -> None:
+    prepared = PreparedStoryGeneration(
+        novel_id=str(uuid.uuid4()),
+        journey_id=str(uuid.uuid4()),
+        attempt_id=str(uuid.uuid4()),
+        request_kind="message",
+        messages=[LLMMessage(role="user", content="继续")],
+        executable_settings={
+            "llm": {
+                "provider_id": "custom",
+                "model": "unknown-model",
+                "max_tokens": 20_000,
+            }
+        },
+        existing_visible_text="",
+    )
+
+    assert story_request(prepared).max_tokens == 4_096

@@ -13,14 +13,16 @@
 > 影响面：候选涉及 `interaction`，并只读消费 `evidence`、作者 source revision 和可能的
 > World 对象投影；不允许 RP 写回作者 World、Story、Writing 或正史。
 >
-> 实施状态（2026-09-01）：P0 standalone runner、合成 JSONL、五臂离线编译、原子报告、
+> 实施状态（2026-09-01）：P0 standalone runner、v1/v2 合成 JSONL、五臂离线编译、原子报告、
 > opt-in model/review CLI、窄测试与 Make 入口已实现；committed case 会把模板确定性展开到
-> 24K～256K 的实际合成历史。一次获批的官方 DeepSeek V4 Flash dev model run 已完成 35 个候选：
-> exact fact probe 18/35、sentinel 泄漏 0、`status=non_ready`；人工盲评未导入，usage 口径发现并修复
-> probe 漏计，不能形成质量声称。P1 已修复旅程态 source query、同 path/end segment
+> 24K～256K 的实际合成历史。第二次获批的官方 DeepSeek V4 Flash dev model run 已完成 35 个 v2 候选：
+> A/B/C/D/E 的 case pass 为 3/5/5/6/3（各 7），fact match 为 5/9/9/10/7（各 11），
+> manual hard retention 35/35、sentinel 泄漏 0。B 相对 A 有方向性提升，但 C 未超过 B；人工盲评
+> 未导入，`quality_claim_allowed=false`，所以 B/C 均未启用，P2 仍不启动。P1 已修复旅程态 source query、同 path/end segment
 > 幂等复用和 manual authority-aware overview 选择，并落地 oldest-prefix bounded reducer、
-> protected raw suffix、净缩减门、4-pass urgent loop 与“记住这一点”显式保存入口；segment/raw
-> 检索注入尚未因真实配对结果过门，未启用。P2 schema 仍未批准。
+> protected raw suffix、净缩减门、4-pass urgent loop、snapshot-frozen capability profile 与“记住这一点”显式保存入口；segment/raw
+> 检索注入尚未因完整真实配对门过门，未启用。用户已授权继续完整计划与后续必要 ADR/migration，
+> 但授权不替代 B/C、gold/extracted D、人工盲评和安全硬门。
 
 ## 1. 结论先行
 
@@ -77,9 +79,11 @@ RP 长期记忆采用**混合路线**，但分阶段落地：
 2. checkpoint 目前主要证明 revision 血缘，不形成第二层可检索内容。
 3. source-bound 资料检索主要使用最新用户消息。用户在长旅程中只说“继续”“看看情况”时，
    query 缺少当前局面、人物和未决线索。
-4. 256K/512K/750K 是跨模型共用的字符估算阈值，尚未落到 provider/model capability profile。
-5. `rp_context` 仍只提供 source context on/off 计分；`rp_long_memory` 已获得一次 DeepSeek V4 Flash
-   dev model 证据，但结果 non-ready，且尚无校准人工盲评，因此不能启用候选记忆层或形成质量结论。
+4. 原 256K/512K/750K 共用字符阈值已被 versioned capability profile 替代；DeepSeek 使用
+   256K/360K/400K，unknown 使用 16K/20K/24K，估算取字符法与 shared tokenizer 较大值。
+5. `rp_context` 仍只提供 source context on/off 计分；`rp_long_memory` v2 已获得一次 DeepSeek V4 Flash
+   dev model 证据，硬事实与 sentinel 门通过，但 B 尚无校准人工盲评、C 没有超过 B，因此仍不能
+   启用候选记忆层或形成质量结论。
 6. 本地没有 Kimi 长上下文校准报告；530K 真实门禁存在不等于已经通过。
 7. 手工回顾从冻结旧 base 保存并重放期间新 tail 时，finalizer 会复用同
    `path_hash + end_node_id` episode segment；SQLite 领域回归与 fresh PostgreSQL 17 + pgvector
@@ -830,7 +834,8 @@ node 内完整自然段 checkpoint。
 |---|---|
 | `backend/evals/rp_long_memory.py` | strict schema、模板渲染、A–E reference pack、offline/model/review CLI、报告 |
 | `backend/evals/tests/test_rp_long_memory.py` | schema、确定性、隔离、盲化、atomic report 的窄测试 |
-| `backend/evals/datasets/baselines/rp-long-memory-v1.jsonl` | committed 合成 smoke/dev case；无作品原文 |
+| `backend/evals/datasets/baselines/rp-long-memory-v1.jsonl` | 旧 exact-string contract，仅保留 compile 回归 |
+| `backend/evals/datasets/baselines/rp-long-memory-v2.jsonl` | 当前 oracle-only semantic contract；无作品原文 |
 | `backend/evals/datasets/README.md` | 数据边界、命令、非声称与本地 artifact 位置 |
 | `Makefile` | 一个离线 `eval-rp-long-memory` 入口；付费/盲评阶段用显式 module CLI |
 
@@ -841,7 +846,7 @@ node 内完整自然段 checkpoint。
 
 每行 `extra=forbid`，至少包含：
 
-- identity：`schema_version=rp-long-memory-v1`、`case_id`、`scenario_group_id`、`split=dev|test`、`seed`；
+- identity：`schema_version=rp-long-memory-v1|v2`、`case_id`、`scenario_group_id`、`split=dev|test`、`seed`；
 - length：`fact_distance_beats`、`target_history_tokens`；
 - `initial_facts` 与 `events`：稳定 fact/object keys、beat、parent event、branch、role、`template_id/values`、
   封闭 operations；消息正文由代码模板渲染；
@@ -850,7 +855,8 @@ node 内完整自然段 checkpoint。
 - `manual_revisions`、可选 synthetic `source_versions/identity_ambiguities/delta_batches`；
 - artifacts：fixture overview、segments、raw rehydration ranges、gold overlay operations；它们只供对应 arm；
 - `probe`：严格问答 protocol 的 probe ID/expected value/allowed unknown；
-- `oracle`：required/forbidden facts、expected/forbidden ref hashes、current winner、coverage 与 hard sentinels。
+- `oracle`：required/forbidden facts、expected/forbidden ref hashes、current winner、coverage 与 hard sentinels；
+  v2 另含不会渲染给模型的 accepted values、必含语义组、矛盾词和 hard 标记。
 
 同 `scenario_group_id` 只能属于一个 split；parent 必须先出现、DAG 无环、selected leaf 可达、operation 引用
 对象已创建或 source-visible。模板字典与 canonical JSON 序列化都带 version/hash；相同 dataset bytes + template
@@ -1000,7 +1006,7 @@ review calibration和 `quality_claim_allowed`。正文只在 ignored candidate/r
 
 ### MEM-DEC-010：预算按模型能力档案计算，普通用户不可调
 
-- **状态**：采用为后续实现要求。
+- **状态**：P1 首版已实现；DeepSeek 已校准，其他模型仍走 short fallback。
 - **初始决定**：`context_window`、正常目标、整理阈值、硬上限、输出预留和估算余量属于 provider/model
   capability profile。
 - **质疑**：供应商上下文规格和 tokenizer 会变化，硬编码仍会漂移。
@@ -1012,6 +1018,9 @@ review calibration和 `quality_claim_allowed`。正文只在 ignored candidate/r
   compaction trigger 与 normal target 也由同一 profile 给出。unknown model 只进入保守 short fallback，
   不继承上一个模型的档案；profile 是服务端受审计数据，不接受浏览器自报窗口。
 - **验证**：各 provider 至少覆盖正常、紧急整理、hard fail-closed 和热切换；无精确 usage 时明确标记未校准。
+- **实现证据**：`infrastructure.llm.capabilities` 是唯一 registry；DeepSeek 档案冻结官方 1M context、
+  400K verified input ceiling、256K normal、360K compact、256K summary ceiling 与输出/margin。
+  unknown/legacy 分别使用带状态的 short fallback，不接受项目或浏览器覆盖。
 
 ### MEM-DEC-011：先建立长程评测，再声称“记得更好”
 
@@ -1106,7 +1115,7 @@ review calibration和 `quality_claim_allowed`。正文只在 ignored candidate/r
 - **质疑**：该模块的当前窄契约是只允许 hash 和 `SourceRangeRef`，且只汇总
   `context_on/context_off` 盲评。塞入合成旅程节点、五臂编译轨迹和对象状态，会同时放宽
   版权安全边界与现有报告形状。
-- **升级**：保留 `rp-context-v1` 不变；长记忆使用独立 `rp-long-memory-v1`
+- **升级**：保留 `rp-context-v1` 不变；长记忆使用独立 `rp-long-memory` versioned
   合成协议。提交的 JSONL 只保存结构化事实、事件、模板 ID、seed、位置和 sentinel，
   运行时再用确定性模板生成合成消息。它只复用现有 JSONL 加载错误、指标、校准、
   `available=false` 和原子报告惯例；首版不为此改通用 `EvalSuite`/`DatasetCase`。
@@ -1161,7 +1170,7 @@ review calibration和 `quality_claim_allowed`。正文只在 ignored candidate/r
 
 ### MEM-DEC-024：episode segment 与结构化状态推导不共用存储身份
 
-- **状态**：采用为 P2 架构边界；P2 schema 仍未批准。
+- **状态**：采用为 P2 架构边界；用户已给出条件授权，但评测门尚未允许落 schema。
 - **初始决定**：在 `interaction_summary_segments` 上增加可空 `memory_delta_json`，让一次整理的
   概要和对象变化共用一行。
 - **现有证据**：segment 已按 `(journey_id, path_hash, end_node_id)` 唯一，这一行标识一段不变的
@@ -1634,7 +1643,7 @@ review calibration和 `quality_claim_allowed`。正文只在 ignored candidate/r
 
 ### MEM-DEC-054：capability profile 的版本/hash 随 LLM execution snapshot 冻结
 
-- **状态**：采用为 P1 可恢复任务边界；实现会影响 project snapshot 内部形状，需同步 README/tests。
+- **状态**：P1 已实现并同步 project/infrastructure/interaction README 与测试。
 - **初始决定**：worker prepare 时按 provider/model 读取当前 capability table；task 只冻结原有 LLM profile。
 - **质疑**：任务排队、崩溃重试或滚动部署期间 capability table 可能更新；同一 task 会在不同 attempt 得到
   不同 compaction/hard ceiling，破坏幂等和单变量评测。
@@ -1651,6 +1660,9 @@ review calibration和 `quality_claim_allowed`。正文只在 ignored candidate/r
   这不把 context limit 变成项目可编辑设置，也不把 provider Key 放进 snapshot。
 - **验证**：enqueue 后修改 server defaults、切 model、重排 task、崩溃恢复和 profile revoke；同 task 的 pack
   hash/预算稳定，新的 attempt 才采用新 profile。
+- **实现**：project 生成的既有 secret-free snapshot 加性保存 `llm_capability_profile` 与独立 hash，
+  外层 `profile_hash` 同时签名；restore 重验 provider/model 与 capability hash，并把冻结档案交给
+  interaction。旧 snapshot 缺字段时使用 `legacy-unfrozen-short-v1`，不静默套用当前 DeepSeek ceiling。
 
 ### MEM-DEC-055：overview restart point 必须验证 manual authority lineage，不能只取最远 anchor
 
@@ -1928,6 +1940,47 @@ review calibration和 `quality_claim_allowed`。正文只在 ignored candidate/r
 - **兼容性**：只增加内部诊断计数字段，不改变 provider request、业务 schema、API、task 或浏览器 wire。
 - **验证**：无 cache 明细、截断修复、schema 修复、cache hit 与 legacy cache-only 路径；任何缺失不得变成 0。
 
+### MEM-DEC-076：v2 使用 oracle-only 语义规则重跑；B 有方向性增益，C 仍不过门
+
+- **状态**：v2 runner 与一次获批 DeepSeek V4 Flash dev model stage 已完成；等待校准人工盲评。
+- **旧问题**：v1 要求模型逐字复制 canonical 短值，既把“米娅只能操纵水流，不能使用火焰”误判，
+  又把方向性事实 accuracy 错当成全部 arm 共用的硬门。旧报告继续保留，不能在原 hash 上改分。
+- **升级**：`rp-long-memory-v2` 把每个 fact 的 accepted value、必含语义组、矛盾词和 hard 标记保存在
+  oracle-only fixture；模型只看到事实 key，不看到 scorer 规则。报告将一般事实命中作为方向指标，
+  仅让明确手工修正、answer shape 与安全 sentinel 进入硬门。模型 cache 保存原始 probe/story；
+  cache-only replay 每次用当前确定性 scorer 重算，不信任旧 scorer 字段，也不打开 provider client。
+- **scorer 修复**：首次 v2 报告发现禁止词“知道门后的真相”是允许短语“不知道门后的真相”的子串。
+  matcher 改为先匹配正向语义片段并从剩余文本检查矛盾；同一 35 份原始输出 cache-only 重评分，
+  没有重复付费。稳定 replay 连跑两次 hash 相同。
+- **冻结输入**：官方规格于 2026-09-01 再核验为 1M context；eval 继续使用 400K verified input
+  ceiling。dataset hash `5f9477823ddef29ea5ff57b295473ead4404d71bfe35bfa44f03035cd83cbefc`，
+  compiler hash `167680d31dae3ac0cf528221e373c3ae61082e6e9d755e9a6bcdb323f41fe29a`，
+  story Prompt hash `dc7b9cc51cd15b7cedaceac7997938d6876061551aad515a7a9855a6821a86aa`，
+  probe Prompt hash `62c245f09a8fa2d9eae84c184451f40cd500b32965fc61c6f93e641733f7a2fd`。
+- **结果**：35/35 candidate 完成；A/B/C/D/E 的 case pass 分别为 `3/7`、`5/7`、`5/7`、
+  `6/7`、`3/7`，fact match 分别为 `5/11`、`9/11`、`9/11`、`10/11`、`7/11`；
+  manual hard retention `35/35`，全部 branch/future/owner/historical/stale sentinel 命中为 0。
+  probe + story usage 完整为 3,589,834 input、48,376 output、3,638,210 total token，
+  probe repair 9 次；provider 未提供可用 cache token 明细或可信请求价格。
+- **盲评 artifact**：35 行候选、7 个 blind group，候选不含 arm/case/run；candidate hash
+  `e077858024bc6dd9e2104c55324054bf4c40394b5447f49d35d60dd6a686a531`，arm-map hash
+  `171c1785201cf159cd49bab90f0b825de457aad5cd4a6bf1af5ab32c8eb685e5`，review-template hash
+  `3540fed833d698d83e429a67a3d05e8e35ff8e5af9fb9e3d0ee8539232bea3f9`，稳定报告 hash
+  `5ab7db82a2f08b76088fedc94b669e02f01de2a75a27782f0970c5599d5b3d83`。
+- **人工校准包**：8 个固定正/反例只含合成文本；候选包不含 constraint/答案。reference hash
+  `a575aec12b59a12bf88391a64261069856cfa7a392252778133fae260c28fbb4`，rubric hash
+  `ec81667f380883f22b869df906897f9ddb90a4ac3865025d175ae5422c558c6c`，blind calibration
+  candidate hash `b5f4bad3096f93699db79344245f1db89ef02b0f02bc4f64bfa93f49e0f8c1af`，
+  blank template hash `cc0ea5d42d2edc97f040ba84196b252376495b057de85ea465b83a2b1635a818`。
+  review 只在同一 reviewer 覆盖全部正式候选与校准项、并命中所有预冻结约束时标 calibrated。
+- **决定**：B 相对 A 有方向性事实提升且未破坏硬门，但在校准人工盲评证明叙事非退化前继续禁用。
+  C 与 B 的 case/fact 命中完全持平，且失败场景互换，不满足 `C > B`，保持淘汰候选。
+  D 只比 C 多 1 fact/1 case，且仍有 ability miss；没有 extracted D、manual recovery 和人工盲评，
+  不请求/不落 P2 memory schema。临时 interaction project 无旅程，完成后已软归档。
+- **重开条件**：先完成 blind packet 的校准人工评分。只有 B 叙事非退化，才实现 summary recall；
+  C 需新 selector/compiler version 在未看 holdout 前提出并重新配对。P2 仍按 12.7 的 gold/extracted/
+  recovery 全门执行，不能用本轮 D 的 aggregate 数字越过。
+
 ## 7. 物理存储候选：P2 未批准，segment JSONB 已淘汰
 
 ### 7.1 已淘汰 A：给 `interaction_summary_segments` 增加 `memory_delta_json`
@@ -1987,7 +2040,8 @@ deletion test；若一个 runner 模块能承担，不新增抽象层。
 
 1. 先在一个模块内实现 strict Pydantic case、versioned templates、DAG/materialization 与 canonical hashes；
    只加一份测试，不接 DB/LLM/通用 EvalSuite。
-2. 提交 `rp-long-memory-v1` synthetic contract JSONL；按“事实到 probe 的 beat 距离”与“目标 token”分层，
+2. 提交 versioned `rp-long-memory` synthetic contract JSONL；v1 保留历史 exact-string 协议，v2
+   使用 oracle-only semantic matcher；均按“事实到 probe 的 beat 距离”与“目标 token”分层，
    在早、中、晚位置注入：
    - 身份与能力边界；
    - 物品归属、人物位置和伤势；
@@ -2020,9 +2074,10 @@ deletion test；若一个 runner 模块能承担，不新增抽象层。
 受影响：`interaction/generation.py`、repositories/services、Prompt/tests；source retrieval 通过既有
 Evidence facade。
 
-当前落地 1、4、9、10，并完成八段 checkpoint consumer deletion audit。2、3、5、7、8 仍受
-真实 B/C 配对增益门约束，未向生产 Prompt 注入；6 会修改 shared infrastructure/project snapshot，
-仍等待单独架构确认。下列编号保留完整目标，不把未过门候选写成已支持能力。
+当前落地 1、4、6、9、10，并完成八段 checkpoint consumer deletion audit。v2 证明 B 相对 A 有方向性
+事实提升，但人工盲评尚未导入；C 与 B 持平。2、3、5、7、8 仍受真实配对增益门约束，未向生产
+Prompt 注入；6 已经用户授权并通过 shared infrastructure/project snapshot 唯一 seam 实现。
+下列编号保留完整目标，不把未过门候选写成已支持能力。
 
 1. source query 使用有界旅程态，不只使用最新输入。
 2. 从现有 summary segments 过滤当前路径有效项，先选择少量“相关往事”索引，再对高置信命中范围
@@ -2052,7 +2107,7 @@ Evidence facade。
 或使 branch/spoiler/stale sentinel 泄漏、cache/延迟成本失衡，就撤销该层。手工 rebase 下重放
 同一 tail 还必须证明 segment 幂等、新 automatic overview 从 manual revision 派生且旧派生记忆零注入。
 
-### Phase P2：结构化对象覆盖层实验（需用户确认；可能需要 ADR/migration）
+### Phase P2：结构化对象覆盖层实验（已获条件授权；过门后才落 ADR/migration）
 
 受影响：interaction 数据模型、Prompt/schema、任务 finalizer、数据库设计；只读消费 source projection。
 
@@ -2183,8 +2238,8 @@ Evidence facade。
     与 reconcile 成本证明浪费明显，才引入分区 CAS。
 16. manual-derived field 的 forward transition 分类能否稳定区分“后来改变”与“后来回述过去”。若
     extracted temporal gate 不过，首版 manual 值持续到下一次 manual save，不增加第二个 judge。
-17. interaction capability profile 首批只开放哪些 model，以及 unknown short fallback 的 context/output/margin
-    数值；必须由当前官方规格、现有真实 calibration 与 P0 fixtures 冻结，不能从 provider 名称猜。
+17. capability profile 首批只校准 `deepseek-v4-flash`；unknown/legacy short fallback 已冻结。
+    尚未解决的是 Kimi K3：只有真实长上下文 calibration 门通过后才新增档案，不能沿用 DeepSeek。
 18. `active_state / episode_evidence / source_optional / segment_index` 的 slot cap 与空槽回流比例。它们是
     12.11 dev 参数；在 holdout 前冻结，不写成前端设置。
 19. Evidence source facade 的可选 budget 参数应只表达总上限，还是还需返回 required/optional token 分解。
@@ -2220,29 +2275,31 @@ Evidence facade。
 - P0 standalone runner、contract JSONL、A–E materializer、compile/model/review CLI、原子报告、
   content-addressed cache、盲化 arm-map、自契约测试和 Make 入口均已落地；不修改通用 `EvalSuite`。
 - offline compile 当前为 `status=ready`、103/103 hard assertions、0 个 hard failure；真实 DeepSeek
-  model stage 为 `non_ready`、18/35 exact probes、0 sentinel leak，人工盲评仍 unavailable，
-  `quality_claim_allowed=false`。
+  v2 model stage 的硬门为 `ready`、35/35 manual retention、0 sentinel leak，A/B/C/D/E 的语义
+  case pass 为 3/5/5/6/3。人工盲评仍 unavailable，`quality_claim_allowed=false`。
 - P1 已落地 source 旅程态 query、manual-authority selector、bounded oldest-prefix reducer、protected
   raw suffix、净缩减门、最多 4 pass、同 segment 幂等复用、“记住这一点”和 checkpoint marker 删除。
 - long-memory 本身没有新增 API、memory schema 或 browser wire；历史 checkpoint nullable 列保留兼容。
-  P2 仍需 eval 过门、用户确认及 migration/ADR，未进入实现。
-- 当前窄证据为 P0 runner `37 passed`、P1/source/evidence/import `98 passed`、InteractionView
+  用户已授权继续到必要 migration/ADR，但 P2 仍需 gold/extracted/recovery 与盲评过门，未进入实现。
+- 当前窄证据为 P0 runner `39 passed`、capability/project/interaction `97 passed`、P1/source/evidence/import
+  `98 passed`、InteractionView
   `45 passed`，并在 fresh PostgreSQL 17 + pgvector 空库验证 manual rebase segment 复用 `1 passed`。
-  rebase 到最新 `origin/main` 后，默认后端为 `4814 passed, 12 skipped, 6 deselected`，完整前端为
+  本轮 capability/calibration 变更后，默认后端为 `4820 passed, 12 skipped, 6 deselected`；此前完整前端为
   `2130 passed`；fresh PostgreSQL source-version/manual-rebase `3 passed`，独立端口 RP Playwright
   `5 passed`。生产构建、Ruff、secret hygiene、Prompt contract、受改 Python format、
   `git diff --check` 与带显式无影响说明的 `docs-check BASE_REF=origin/main` 均通过。
-- B/C segment recall、raw rehydration、统一 Prompt Pack、capability profile 与 typed overlay 均未过
-  真实 paired model/review 门，因此没有注入生产 Prompt。shared infrastructure/project snapshot 变更仍需
-  单独架构确认。
-- 本地自动门禁与一次 non-ready 付费 model run 不构成真实用户长期不出戏验证；没有校准盲评前，
+- B/C segment recall、raw rehydration、统一 Prompt Pack 与 typed overlay 均未过真实 paired
+  model/review 门，因此没有注入生产 Prompt。capability profile 已经 shared infrastructure/project
+  snapshot 唯一 seam 冻结并通过相关测试，不增加浏览器 wire。
+- 本地自动门禁与付费 model run 不构成真实用户长期不出戏验证；没有校准盲评前，
   不形成质量结论。
 - ADR：本阶段不新增；P2 若通过 eval 并准备落 schema，再请求用户确认并创建/更新 ADR。
 
-## 12. P0 长记忆评测协议 v1
+## 12. P0 长记忆评测协议 v1/v2
 
-本节是已落地的 P0 runner 协议。offline compile 只回答“夹具、pack 与安全门是否正确”；一次
-DeepSeek V4 Flash dev model run 已给出 non-ready 方向性证据，但 calibrated human review 未导入，
+本节是已落地的 P0 runner 协议。v1 保留 exact-string 历史证据，v2 使用不进入模型 Prompt 的
+确定性语义 oracle。offline compile 只回答“夹具、pack 与安全门是否正确”；DeepSeek V4 Flash
+v2 dev model run 已给出方向性证据，但 calibrated human review 未导入，
 仍不能形成“哪一臂已可上线”的质量结论。
 
 ### 12.1 评测对象与不评测的东西

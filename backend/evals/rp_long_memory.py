@@ -17,6 +17,7 @@ import re
 import string
 import sys
 import time
+import unicodedata
 import uuid
 from collections import defaultdict
 from contextlib import asynccontextmanager
@@ -28,6 +29,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from infrastructure.llm.capabilities import (
+    LLM_CAPABILITY_EXECUTION_KEY,
+    resolve_llm_capability_profile,
+)
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.interaction.models import InteractionMessageNode
 from modules.interaction.prompts import (
@@ -37,13 +42,27 @@ from modules.interaction.prompts import (
     estimate_input_tokens,
 )
 
-SCHEMA_VERSION = "rp-long-memory-v1"
-GENERATOR_VERSION = "rp-long-memory-generator-v1"
+LEGACY_SCHEMA_VERSION = "rp-long-memory-v1"
+SCHEMA_VERSION = "rp-long-memory-v2"
+SCHEMA_GENERATORS = {
+    LEGACY_SCHEMA_VERSION: "rp-long-memory-generator-v1",
+    SCHEMA_VERSION: "rp-long-memory-generator-v2",
+}
+GENERATOR_VERSION = SCHEMA_GENERATORS[SCHEMA_VERSION]
 TEMPLATE_VERSION = "rp-long-memory-templates-v1"
-COMPILER_VERSION = "rp-long-memory-compiler-v1"
-REPORT_VERSION = "rp-long-memory-report-v1"
-MODEL_REPORT_VERSION = "rp-long-memory-model-report-v1"
-REVIEW_REPORT_VERSION = "rp-long-memory-review-report-v1"
+COMPILER_VERSION = "rp-long-memory-compiler-v2"
+REPORT_VERSION = "rp-long-memory-report-v2"
+MODEL_REPORT_VERSION = "rp-long-memory-model-report-v2"
+REVIEW_REPORT_VERSION = "rp-long-memory-review-report-v2"
+SEMANTIC_PROBE_VERSION = "rp-long-memory-semantic-probe-v1"
+PROBE_PROMPT_VERSION = "rp-long-memory-probe-prompt-v2"
+CALIBRATION_VERSION = "rp-long-memory-review-calibration-v1"
+CALIBRATION_DATASET = (
+    Path(__file__).parent
+    / "datasets"
+    / "baselines"
+    / "rp-long-memory-review-calibration-v1.jsonl"
+)
 
 ARM_SPECS: tuple[tuple[str, str], ...] = (
     ("overview_tail", "production_baseline"),
@@ -66,6 +85,19 @@ RUBRIC_DIMENSIONS = (
     "correction_obedience",
     "narrative_naturalness",
 )
+RUBRIC_GUIDANCE = {
+    "character_voice": "人物言行是否自然并保持既有声音。",
+    "ability_boundaries": "是否遵守已经给出的能力与限制。",
+    "relationship_consistency": "关系态度是否符合当前有效发展。",
+    "timeline_consistency": "事件顺序、时间和因果是否一致。",
+    "character_knowledge": "人物是否只使用其当前能够知道的信息。",
+    "spoiler_control": "是否避免截止点之后或尚未揭露的真相。",
+    "journey_branch_consistency": "是否只延续当前选中发展。",
+    "inventory_location_state": "物品、位置和身体状态是否正确。",
+    "open_thread_continuity": "承诺与未决事项是否被正确延续。",
+    "correction_obedience": "是否服从用户较新的明确修正。",
+    "narrative_naturalness": "正文是否连贯、可读且不像测试答案。",
+}
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _ID_RE = re.compile(r"^[a-z][a-z0-9_.:-]{0,95}$")
@@ -96,6 +128,12 @@ _PADDING_SENTENCES = (
     "风从空旷的街道掠过，没有带来新的事实。",
     "远处传来规律的脚步声，既有状态没有变化。",
     "灯影缓慢移动，这一段只用于拉开故事距离。",
+)
+_PROBE_SYSTEM_PROMPT = (
+    "这是独立事实探针。只按当前有效事实输出 JSON，未知就用 null，不续写故事。"
+    "answers 的每个非空值必须是明确的自然语言短句，"
+    "保留否定、未完成、戒心、能力限制等限定；"
+    "不得只返回 true/false，也不得补充上下文中没有的事实。"
 )
 
 _RENDER_ORDER = {
@@ -228,6 +266,32 @@ class Probe(StrictModel):
     allowed_unknown: bool = False
 
 
+class SemanticFactExpectation(StrictModel):
+    """Deterministic oracle-only semantic matcher; never rendered to the model."""
+
+    accepted_values: list[str] = Field(default_factory=list)
+    required_term_groups: list[list[str]] = Field(default_factory=list)
+    forbidden_terms: list[str] = Field(default_factory=list)
+    hard_invariant: bool = False
+
+    @model_validator(mode="after")
+    def validate_matcher(self) -> SemanticFactExpectation:
+        if not self.accepted_values and not self.required_term_groups:
+            raise ValueError("semantic expectation needs an accepted value or term group")
+        if any(
+            not group or any(not term.strip() for term in group)
+            for group in self.required_term_groups
+        ):
+            raise ValueError(
+                "semantic expectation term groups must contain non-empty terms"
+            )
+        if any(
+            not value.strip() for value in self.accepted_values + self.forbidden_terms
+        ):
+            raise ValueError("semantic expectation values must be non-empty")
+        return self
+
+
 class Oracle(StrictModel):
     required_fact_keys: list[str] = Field(default_factory=list)
     forbidden_fact_keys: list[str] = Field(default_factory=list)
@@ -235,6 +299,7 @@ class Oracle(StrictModel):
     expected_segment_ids: list[str] = Field(default_factory=list)
     expected_raw_event_ids: list[str] = Field(default_factory=list)
     sentinels: dict[str, str] = Field(default_factory=dict)
+    fact_expectations: dict[str, SemanticFactExpectation] = Field(default_factory=dict)
     expected_blocker: str | None = None
     expected_compaction_blocker: str | None = None
 
@@ -256,11 +321,17 @@ class CapabilityProfile(StrictModel):
     min_savings: int = Field(ge=1)
     max_passes: int = Field(ge=1, le=32)
     calibration_status: Literal["synthetic", "verified", "uncalibrated"]
+    official_spec_url: str | None = Field(default=None, pattern=r"^https://")
+    spec_verified_on: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
 
     @model_validator(mode="after")
     def validate_budget(self) -> CapabilityProfile:
         if self.context_limit <= self.output_reserve + self.safety_margin:
             raise ValueError("capability profile leaves no input budget")
+        if self.calibration_status == "verified" and (
+            not self.official_spec_url or not self.spec_verified_on
+        ):
+            raise ValueError("verified profiles require official spec provenance")
         return self
 
     @property
@@ -333,10 +404,18 @@ class RPCase(StrictModel):
 
     @model_validator(mode="after")
     def validate_versions_and_uniqueness(self) -> RPCase:
-        if self.schema_version != SCHEMA_VERSION:
+        if self.schema_version not in SCHEMA_GENERATORS:
             raise ValueError(f"unsupported schema_version {self.schema_version!r}")
-        if self.generator_version != GENERATOR_VERSION:
+        if self.generator_version != SCHEMA_GENERATORS[self.schema_version]:
             raise ValueError(f"unsupported generator_version {self.generator_version!r}")
+        expectation_keys = set(self.oracle.fact_expectations)
+        probe_keys = set(self.probe.expected_fact_keys)
+        if self.schema_version == SCHEMA_VERSION and expectation_keys != probe_keys:
+            raise ValueError(
+                "v2 fact_expectations must match probe expected_fact_keys exactly"
+            )
+        if self.schema_version == LEGACY_SCHEMA_VERSION and expectation_keys:
+            raise ValueError("v1 cases cannot define v2 fact_expectations")
         if len({fact.fact_key for fact in self.initial_facts}) != len(self.initial_facts):
             raise ValueError("initial fact_key values must be unique")
         if len({event.event_id for event in self.events}) != len(self.events):
@@ -365,6 +444,54 @@ class BlindReview(StrictModel):
             raise ValueError("blind review must score every rubric dimension")
         if any(score < 0 or score > 4 for score in self.scores.values()):
             raise ValueError("blind review scores must be between 0 and 4")
+        return self
+
+
+class CalibrationScoreConstraint(StrictModel):
+    min_score: int | None = Field(default=None, ge=0, le=4)
+    max_score: int | None = Field(default=None, ge=0, le=4)
+
+    @model_validator(mode="after")
+    def validate_range(self) -> CalibrationScoreConstraint:
+        if self.min_score is None and self.max_score is None:
+            raise ValueError("calibration constraint needs a minimum or maximum")
+        if (
+            self.min_score is not None
+            and self.max_score is not None
+            and self.min_score > self.max_score
+        ):
+            raise ValueError("calibration score range is invalid")
+        return self
+
+
+class CalibrationCase(StrictModel):
+    calibration_id: str = Field(pattern=r"^[a-z][a-z0-9_.:-]{0,95}$")
+    version: Literal["rp-long-memory-review-calibration-v1"]
+    question: str = Field(min_length=1, max_length=500)
+    continuity_facts: list[str] = Field(min_length=1)
+    story: str = Field(min_length=1, max_length=2_000)
+    constraints: dict[str, CalibrationScoreConstraint]
+    expected_severe_spoiler: bool = False
+
+    @model_validator(mode="after")
+    def validate_constraints(self) -> CalibrationCase:
+        if not self.constraints or not set(self.constraints) <= set(RUBRIC_DIMENSIONS):
+            raise ValueError("calibration constraints use unknown rubric dimensions")
+        return self
+
+
+class CalibrationReview(StrictModel):
+    calibration_id: str = Field(pattern=r"^[a-z][a-z0-9_.:-]{0,95}$")
+    reviewer_id: str = Field(min_length=1, max_length=80)
+    scores: dict[str, int]
+    severe_spoiler: bool = False
+
+    @model_validator(mode="after")
+    def validate_scores(self) -> CalibrationReview:
+        if set(self.scores) != set(RUBRIC_DIMENSIONS):
+            raise ValueError("calibration review must score every rubric dimension")
+        if any(score < 0 or score > 4 for score in self.scores.values()):
+            raise ValueError("calibration review scores must be between 0 and 4")
         return self
 
 
@@ -442,6 +569,82 @@ def _hash_json(value: Any) -> str:
     return _sha256(_canonical_bytes(value))
 
 
+def _normalize_semantic_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFKC", value).casefold()
+    return "".join(character for character in normalized if character.isalnum())
+
+
+def _semantic_fact_matches(
+    answer: str | None,
+    expectation: SemanticFactExpectation,
+) -> bool:
+    if answer is None:
+        return False
+    normalized = _normalize_semantic_text(answer)
+    if not normalized:
+        return False
+    if any(
+        normalized == _normalize_semantic_text(value)
+        for value in expectation.accepted_values
+    ):
+        return True
+    matched_terms: list[str] = []
+    for alternatives in expectation.required_term_groups:
+        matched = next(
+            (
+                _normalize_semantic_text(term)
+                for term in sorted(alternatives, key=len, reverse=True)
+                if _normalize_semantic_text(term) in normalized
+            ),
+            None,
+        )
+        if matched is None:
+            return False
+        matched_terms.append(matched)
+    if not matched_terms:
+        return False
+    contradiction_scope = normalized
+    for term in sorted(set(matched_terms), key=len, reverse=True):
+        contradiction_scope = contradiction_scope.replace(term, "")
+    return not any(
+        _normalize_semantic_text(term) in contradiction_scope
+        for term in expectation.forbidden_terms
+    )
+
+
+def _score_fact_probe(
+    case: RPCase,
+    probe: FactProbeOutput,
+) -> tuple[dict[str, bool], dict[str, dict[str, bool]], bool]:
+    expected_keys = set(case.probe.expected_fact_keys)
+    answer_keys_exact = set(probe.answers) == expected_keys
+    results = {
+        fact_key: {
+            "matched": _semantic_fact_matches(
+                probe.answers.get(fact_key),
+                case.oracle.fact_expectations[fact_key],
+            ),
+            "hard_invariant": case.oracle.fact_expectations[fact_key].hard_invariant,
+        }
+        for fact_key in case.probe.expected_fact_keys
+    }
+    hard_results = [
+        item["matched"] for item in results.values() if item["hard_invariant"]
+    ]
+    assertions = {
+        "probe_id_matches": probe.probe_id == case.probe.probe_id,
+        "answer_keys_exact": answer_keys_exact,
+        "semantic_values_match": all(item["matched"] for item in results.values()),
+        "hard_invariant_values_match": all(hard_results),
+    }
+    hard_passed = (
+        assertions["probe_id_matches"]
+        and assertions["answer_keys_exact"]
+        and assertions["hard_invariant_values_match"]
+    )
+    return assertions, results, hard_passed
+
+
 def _stable_payload(value: Any) -> Any:
     if isinstance(value, dict):
         return {
@@ -507,6 +710,32 @@ def load_cases(path: Path) -> tuple[list[RPCase], str]:
         cases.append(case)
     if not cases:
         raise ValueError("RP long-memory dataset is empty")
+    return cases, _sha256(raw)
+
+
+def load_calibration_cases(
+    path: Path = CALIBRATION_DATASET,
+) -> tuple[list[CalibrationCase], str]:
+    raw = path.read_bytes()
+    cases: list[CalibrationCase] = []
+    seen: set[str] = set()
+    for line_number, line in enumerate(raw.splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+            _validate_fixture_payload(payload)
+            case = CalibrationCase.model_validate(payload)
+        except (json.JSONDecodeError, ValidationError, ValueError) as exc:
+            raise ValueError(
+                f"{path.name}: calibration line {line_number}: {exc}"
+            ) from exc
+        if case.calibration_id in seen:
+            raise ValueError(f"duplicate calibration_id {case.calibration_id}")
+        seen.add(case.calibration_id)
+        cases.append(case)
+    if not cases:
+        raise ValueError("RP long-memory calibration dataset is empty")
     return cases, _sha256(raw)
 
 
@@ -1685,6 +1914,10 @@ def compile_report(
     selected_cases = [case for case in cases if case.split == split]
     if not selected_cases:
         raise ValueError(f"dataset has no cases for split {split!r}")
+    selected_schema_versions = {case.schema_version for case in selected_cases}
+    selected_generator_versions = {case.generator_version for case in selected_cases}
+    if len(selected_schema_versions) != 1 or len(selected_generator_versions) != 1:
+        raise ValueError("one split cannot mix schema or generator versions")
     case_reports: list[dict[str, Any]] = []
     runtime: dict[str, tuple[MaterializedCase, tuple[BuiltArm, ...]]] = {}
     for case in selected_cases:
@@ -1699,6 +1932,9 @@ def compile_report(
     template_hash = _hash_json(_EVENT_TEMPLATES)
     prompt_hash = _sha256(
         _production_messages(runtime[selected_cases[0].case_id][0])[0].content.encode()
+    )
+    probe_prompt_hash = _hash_json(
+        {"version": PROBE_PROMPT_VERSION, "system_prompt": _PROBE_SYSTEM_PROMPT}
     )
     repo_hashes = {}
     for name, path in {
@@ -1721,16 +1957,25 @@ def compile_report(
         "quality_claim_allowed": False,
         "quality_claim_reason": "model and calibrated blind-review evidence not run",
         "dataset_hash": dataset_hash,
-        "schema_version": SCHEMA_VERSION,
-        "generator_version": GENERATOR_VERSION,
+        "schema_version": selected_cases[0].schema_version,
+        "generator_version": selected_cases[0].generator_version,
         "template_version": TEMPLATE_VERSION,
         "template_hash": template_hash,
         "compiler_version": COMPILER_VERSION,
         "compiler_hash": _hash_json(
-            {"version": COMPILER_VERSION, "repo_hashes": repo_hashes}
+            {
+                "version": COMPILER_VERSION,
+                "semantic_probe_version": SEMANTIC_PROBE_VERSION,
+                "probe_prompt_hash": probe_prompt_hash,
+                "template_hash": template_hash,
+                "production_prompt_hash": prompt_hash,
+                "arm_specs": ARM_SPECS,
+            }
         ),
         "prompt_version": STORY_PROMPT_VERSION,
         "prompt_hash": prompt_hash,
+        "probe_prompt_version": PROBE_PROMPT_VERSION,
+        "probe_prompt_hash": probe_prompt_hash,
         "repo_source_hashes": repo_hashes,
         "split": split,
         "case_count": len(case_reports),
@@ -1871,6 +2116,7 @@ def _model_cache_key(
     template_hash: str,
     compiler_hash: str,
     prompt_hash: str,
+    probe_prompt_hash: str,
     profile_hash: str,
     case_id: str,
     arm: str,
@@ -1882,6 +2128,7 @@ def _model_cache_key(
             "template": template_hash,
             "compiler": compiler_hash,
             "prompt": prompt_hash,
+            "probe_prompt": probe_prompt_hash,
             "profile": profile_hash,
             "case": case_id,
             "arm": arm,
@@ -1919,6 +2166,8 @@ def _load_model_cache(
         raise ValueError(f"model cache story hash mismatch {path.name}")
     if not isinstance(cached.get("probe_assertions"), dict):
         raise ValueError(f"model cache probe evidence missing {path.name}")
+    if not isinstance(cached.get("probe"), dict):
+        raise ValueError(f"model cache probe output missing {path.name}")
     return cached
 
 
@@ -1976,6 +2225,11 @@ async def _run_model_stage(
     )
     if compile_result["status"] != "ready":
         raise ValueError("model stage requires a compile-ready dataset")
+    calibration_cases, calibration_reference_hash = load_calibration_cases()
+    if any(
+        case.schema_version != SCHEMA_VERSION for case in cases if case.split == split
+    ):
+        raise ValueError("model stage requires v2 semantic fact expectations")
     executable_case_ids = {
         case_id
         for case_id, (_materialized, arms) in runtime.items()
@@ -2042,6 +2296,44 @@ async def _run_model_stage(
             cache_root = cache_dir or (
                 Path(__file__).parent / ".cache" / "rp-long-memory"
             )
+            compatible_reuse_count = 0
+            prior_candidates: dict[str, dict[str, Any]] = {}
+            previous_report_path = output_dir / "rp-long-memory-model-report.json"
+            if previous_report_path.is_file():
+                try:
+                    previous_report = json.loads(
+                        previous_report_path.read_text(encoding="utf-8")
+                    )
+                except (json.JSONDecodeError, OSError) as exc:
+                    raise ValueError("previous model report is invalid") from exc
+                previous_profile = previous_report.get("profile") or {}
+                if all(
+                    (
+                        previous_report.get("report_version") == MODEL_REPORT_VERSION,
+                        previous_report.get("dataset_hash") == dataset_hash,
+                        previous_report.get("prompt_hash")
+                        == compile_result["prompt_hash"],
+                        previous_report.get("probe_prompt_hash")
+                        == compile_result["probe_prompt_hash"],
+                        previous_profile.get("profile_hash") == profile_hash,
+                    )
+                ):
+                    prior_candidates = {
+                        item["candidate_id"]: item
+                        for item in previous_report.get("candidates") or []
+                        if isinstance(item, dict) and item.get("candidate_id")
+                    }
+            legacy_cache_paths: dict[str, list[Path]] = defaultdict(list)
+            if prior_candidates:
+                for path in cache_root.glob("*.json"):
+                    try:
+                        candidate_id = json.loads(path.read_text(encoding="utf-8")).get(
+                            "candidate_id"
+                        )
+                    except (json.JSONDecodeError, OSError):
+                        continue
+                    if candidate_id in prior_candidates:
+                        legacy_cache_paths[str(candidate_id)].append(path)
             work: list[tuple[RPCase, MaterializedCase, BuiltArm, int, str, Path]] = []
             for case in (item for item in cases if item.split == split):
                 materialized, arms = runtime[case.case_id]
@@ -2068,12 +2360,44 @@ async def _run_model_stage(
                             template_hash=compile_result["template_hash"],
                             compiler_hash=compile_result["compiler_hash"],
                             prompt_hash=compile_result["prompt_hash"],
+                            probe_prompt_hash=compile_result["probe_prompt_hash"],
                             profile_hash=profile_hash,
                             case_id=case.case_id,
                             arm=arm_name,
                             run_index=run_index,
                         )
                         cache_path = cache_root / f"{cache_key}.json"
+                        prior = prior_candidates.get(candidate_id)
+                        if not cache_path.exists() and prior is not None:
+                            compatible_paths: list[Path] = []
+                            for legacy_path in legacy_cache_paths.get(candidate_id, []):
+                                try:
+                                    cached = _load_model_cache(
+                                        legacy_path,
+                                        candidate_id=candidate_id,
+                                        case_id=case.case_id,
+                                        arm=arm.name,
+                                        run_index=run_index,
+                                        profile_hash=profile_hash,
+                                        pack_fingerprint=arm.pack_fingerprint,
+                                    )
+                                except ValueError:
+                                    continue
+                                if (
+                                    prior.get("pack_fingerprint") == arm.pack_fingerprint
+                                    and prior.get("probe_hash")
+                                    == _hash_json(cached["probe"])
+                                    and prior.get("story_hash")
+                                    == cached.get("story_hash")
+                                ):
+                                    compatible_paths.append(legacy_path)
+                            if len(compatible_paths) > 1:
+                                raise ValueError(
+                                    f"ambiguous compatible cache for {candidate_id}"
+                                )
+                            if compatible_paths:
+                                cache_path = compatible_paths[0]
+                                compatible_reuse_count += 1
                         work.append(
                             (
                                 case,
@@ -2109,7 +2433,7 @@ async def _run_model_stage(
                             profile_hash=profile_hash,
                             pack_fingerprint=arm.pack_fingerprint,
                         )
-                        cached["cache_hit"] = True
+                        cached["cache_replay"] = True
                         result = cached
                     else:
                         if client is None:
@@ -2123,10 +2447,7 @@ async def _run_model_stage(
                                 *messages,
                                 LLMMessage(
                                     role="system",
-                                    content=(
-                                        "这是独立事实探针。只按当前有效事实输出 JSON，"
-                                        "未知就用 null，不续写故事。"
-                                    ),
+                                    content=(_PROBE_SYSTEM_PROMPT),
                                 ),
                                 LLMMessage(
                                     role="system",
@@ -2153,20 +2474,6 @@ async def _run_model_stage(
                             (time.monotonic() - probe_started) * 1000,
                             3,
                         )
-                        expected_answers = {
-                            fact_key: materialized.current_state[fact_key].value
-                            for fact_key in case.probe.expected_fact_keys
-                            if fact_key in materialized.current_state
-                        }
-                        probe_assertions = {
-                            "probe_id_matches": probe.probe_id == case.probe.probe_id,
-                            "expected_fact_keys_present": set(expected_answers)
-                            <= set(probe.answers),
-                            "expected_values_match": all(
-                                probe.answers.get(key) == value
-                                for key, value in expected_answers.items()
-                            ),
-                        }
                         probe_usage_entries = [
                             item
                             for item in probe_diagnostics
@@ -2210,7 +2517,18 @@ async def _run_model_stage(
                             attempt_id="eval-only",
                             request_kind="message",
                             messages=messages,
-                            executable_settings={"llm": profile},
+                            executable_settings={
+                                "llm": {
+                                    **profile,
+                                    "provider_id": str(profile.get("provider") or ""),
+                                },
+                                LLM_CAPABILITY_EXECUTION_KEY: (
+                                    resolve_llm_capability_profile(
+                                        str(profile.get("provider") or ""),
+                                        str(profile.get("model") or ""),
+                                    ).to_snapshot()
+                                ),
+                            },
                             existing_visible_text="",
                         )
                         framer = InteractionStreamFramer()
@@ -2236,23 +2554,6 @@ async def _run_model_stage(
                             (time.monotonic() - story_started) * 1000,
                             3,
                         )
-                        probe_text = json.dumps(
-                            probe.model_dump(mode="json"),
-                            ensure_ascii=False,
-                            sort_keys=True,
-                        )
-                        sentinel_hits = {
-                            name: token in story or token in probe_text
-                            for name, token in case.oracle.sentinels.items()
-                            if name
-                            in {
-                                "branch_only_sentinel",
-                                "future_source_sentinel",
-                                "other_owner_sentinel",
-                                "historical_instruction_sentinel",
-                                "stale_value_sentinel",
-                            }
-                        }
                         result = {
                             "candidate_id": candidate_id,
                             "case_id": case.case_id,
@@ -2261,8 +2562,6 @@ async def _run_model_stage(
                             "profile_hash": profile_hash,
                             "pack_fingerprint": arm.pack_fingerprint,
                             "probe": probe.model_dump(mode="json"),
-                            "probe_assertions": probe_assertions,
-                            "probe_passed": all(probe_assertions.values()),
                             "probe_usage": probe_usage,
                             "probe_latency_ms": probe_latency_ms,
                             "story": story,
@@ -2271,7 +2570,49 @@ async def _run_model_stage(
                             "story_latency_ms": story_latency_ms,
                             "finish_reason": finish_reason,
                             "usage": usage,
+                            "cache_hit": False,
+                            "cache_replay": False,
+                        }
+                    probe = FactProbeOutput.model_validate(result["probe"])
+                    (
+                        probe_assertions,
+                        probe_semantic_results,
+                        probe_hard_passed,
+                    ) = _score_fact_probe(case, probe)
+                    probe_text = json.dumps(
+                        probe.model_dump(mode="json"),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                    story = str(result["story"])
+                    sentinel_hits = {
+                        name: token in story or token in probe_text
+                        for name, token in case.oracle.sentinels.items()
+                        if name
+                        in {
+                            "branch_only_sentinel",
+                            "future_source_sentinel",
+                            "other_owner_sentinel",
+                            "historical_instruction_sentinel",
+                            "stale_value_sentinel",
+                        }
+                    }
+                    result.update(
+                        {
+                            "probe_assertions": probe_assertions,
+                            "probe_semantic_results": probe_semantic_results,
+                            "probe_passed": all(probe_assertions.values()),
+                            "probe_hard_passed": probe_hard_passed,
                             "sentinel_hits": sentinel_hits,
+                            "hard_failure": (
+                                "safety_or_lineage_leak"
+                                if any(sentinel_hits.values())
+                                else (
+                                    "hard_invariant_failure"
+                                    if not probe_hard_passed
+                                    else None
+                                )
+                            ),
                             "primary_failure": (
                                 "safety_or_lineage_leak"
                                 if any(sentinel_hits.values())
@@ -2281,8 +2622,9 @@ async def _run_model_stage(
                                     else None
                                 )
                             ),
-                            "cache_hit": False,
                         }
+                    )
+                    if not result["cache_replay"]:
                         atomic_write_json(cache_path, result)
                     arm_map[candidate_id] = arm.name
                     artifacts.append(result)
@@ -2292,17 +2634,101 @@ async def _run_model_stage(
         await manager.close()
 
     candidate_path = output_dir / "rp-long-memory-candidates.jsonl"
+    case_by_id = {case.case_id: case for case in cases}
+    candidate_rows = [
+        {
+            "candidate_id": item["candidate_id"],
+            "blind_group_id": _hash_json(
+                [
+                    dataset_hash,
+                    profile_hash,
+                    item["case_id"],
+                    item["run_index"],
+                    "review-group-v1",
+                ]
+            )[:24],
+            "question": _render(
+                case_by_id[item["case_id"]].probe.template_id,
+                case_by_id[item["case_id"]].probe.values,
+            ),
+            "continuity_facts": [
+                {
+                    "fact_key": fact_key,
+                    "expected_value": case_by_id[item["case_id"]].oracle.current_values[
+                        fact_key
+                    ],
+                }
+                for fact_key in case_by_id[item["case_id"]].probe.expected_fact_keys
+            ],
+            "story": item["story"],
+            "story_hash": item["story_hash"],
+            "rubric_dimensions": list(RUBRIC_DIMENSIONS),
+        }
+        for item in artifacts
+    ]
     _atomic_write_jsonl(
         candidate_path,
+        candidate_rows,
+    )
+    review_template_path = output_dir / "rp-long-memory-review-template.jsonl"
+    _atomic_write_jsonl(
+        review_template_path,
         [
             {
                 "candidate_id": item["candidate_id"],
-                "case_id": item["case_id"],
-                "run_index": item["run_index"],
-                "story": item["story"],
-                "story_hash": item["story_hash"],
+                "reviewer_id": "",
+                "scores": dict.fromkeys(RUBRIC_DIMENSIONS),
+                "severe_spoiler": None,
             }
-            for item in artifacts
+            for item in candidate_rows
+        ],
+    )
+    rubric_path = output_dir / "rp-long-memory-review-rubric.json"
+    atomic_write_json(
+        rubric_path,
+        {
+            "version": CALIBRATION_VERSION,
+            "instructions": [
+                "不要打开 arm-map、model report、cache 或 dataset。",
+                "同一位评审对全部正式候选和校准项使用同一个 reviewer_id。",
+                "逐项阅读问题、当前连续性事实与候选正文，再按 0 到 4 分填写全部维度。",
+                "若正文泄露截止点后的关键真相，severe_spoiler 必须为 true。",
+            ],
+            "scale": {
+                "0": "严重违背，无法作为连续故事使用",
+                "1": "存在明显违背或持续出戏",
+                "2": "部分成立，但有可感知问题",
+                "3": "基本可靠，只有轻微问题",
+                "4": "稳定可靠且叙事自然",
+            },
+            "dimensions": RUBRIC_GUIDANCE,
+        },
+    )
+    calibration_packet_path = output_dir / "rp-long-memory-calibration-candidates.jsonl"
+    _atomic_write_jsonl(
+        calibration_packet_path,
+        [
+            {
+                "calibration_id": item.calibration_id,
+                "question": item.question,
+                "continuity_facts": item.continuity_facts,
+                "story": item.story,
+                "rubric_dimensions": list(RUBRIC_DIMENSIONS),
+            }
+            for item in calibration_cases
+        ],
+    )
+    calibration_template_path = output_dir / "rp-long-memory-calibration-template.jsonl"
+    _atomic_write_jsonl(
+        calibration_template_path,
+        [
+            {
+                "calibration_id": item.calibration_id,
+                "reviewer_id": "",
+                "scores": dict.fromkeys(RUBRIC_DIMENSIONS),
+                "severe_spoiler": None,
+            }
+            for item in calibration_cases
         ],
     )
     arm_map_payload = {
@@ -2310,6 +2736,7 @@ async def _run_model_stage(
         "profile_hash": profile_hash,
         "compiler_hash": compile_result["compiler_hash"],
         "prompt_hash": compile_result["prompt_hash"],
+        "probe_prompt_hash": compile_result["probe_prompt_hash"],
         "mapping": dict(sorted(arm_map.items())),
     }
     arm_map_path = output_dir / "rp-long-memory-arm-map.json"
@@ -2318,10 +2745,10 @@ async def _run_model_stage(
     model_failures = [
         {
             "candidate_id": item["candidate_id"],
-            "primary_failure": item["primary_failure"],
+            "primary_failure": item["hard_failure"],
         }
         for item in artifacts
-        if item.get("primary_failure")
+        if item.get("hard_failure")
     ]
     probe_usage_complete = bool(artifacts) and all(
         (item.get("probe_usage") or {}).get("complete") for item in artifacts
@@ -2354,20 +2781,46 @@ async def _run_model_stage(
         and all(any("cache" in key for key in usage) for usage in usage_records)
     )
     probe_passed_count = sum(bool(item["probe_passed"]) for item in artifacts)
+    hard_probe_passed_count = sum(bool(item["probe_hard_passed"]) for item in artifacts)
+    probe_fact_count = sum(len(item["probe_semantic_results"]) for item in artifacts)
+    probe_fact_matched_count = sum(
+        bool(result["matched"])
+        for item in artifacts
+        for result in item["probe_semantic_results"].values()
+    )
+    probe_by_arm = {
+        arm: {
+            "candidate_count": len(selected),
+            "candidate_passed_count": sum(
+                bool(item["probe_passed"]) for item in selected
+            ),
+            "fact_count": sum(len(item["probe_semantic_results"]) for item in selected),
+            "fact_matched_count": sum(
+                bool(result["matched"])
+                for item in selected
+                for result in item["probe_semantic_results"].values()
+            ),
+        }
+        for arm in ARM_NAMES
+        if (selected := [item for item in artifacts if item["arm"] == arm])
+    }
     sentinel_failure_count = sum(
         any(item["sentinel_hits"].values()) for item in artifacts
     )
-    cache_hit_count = sum(bool(item["cache_hit"]) for item in artifacts)
+    cache_hit_count = sum(bool(item["cache_replay"]) for item in artifacts)
+    origin_generation_count = sum(not bool(item["cache_hit"]) for item in artifacts)
     report = {
         "report_version": MODEL_REPORT_VERSION,
         "stage": "model",
         "status": "ready" if not model_failures else "non_ready",
         "quality_claim_allowed": False,
         "quality_claim_reason": "calibrated human blind review not imported",
+        "semantic_probe_version": SEMANTIC_PROBE_VERSION,
         "dataset_hash": dataset_hash,
         "compile_stable_report_hash": compile_result["stable_report_hash"],
         "compiler_hash": compile_result["compiler_hash"],
         "prompt_hash": compile_result["prompt_hash"],
+        "probe_prompt_hash": compile_result["probe_prompt_hash"],
         "template_hash": compile_result["template_hash"],
         "profile": {
             "provider": profile.get("provider"),
@@ -2379,6 +2832,15 @@ async def _run_model_stage(
         "candidate_count": len(artifacts),
         "candidates_file": candidate_path.name,
         "candidates_hash": _sha256(candidate_path.read_bytes()),
+        "review_template_file": review_template_path.name,
+        "review_template_hash": _sha256(review_template_path.read_bytes()),
+        "review_rubric_file": rubric_path.name,
+        "review_rubric_hash": _sha256(rubric_path.read_bytes()),
+        "calibration_reference_hash": calibration_reference_hash,
+        "calibration_candidates_file": calibration_packet_path.name,
+        "calibration_candidates_hash": _sha256(calibration_packet_path.read_bytes()),
+        "calibration_template_file": calibration_template_path.name,
+        "calibration_template_hash": _sha256(calibration_template_path.read_bytes()),
         "arm_map_file": arm_map_path.name,
         "arm_map_hash": arm_map_hash,
         "hard_failures": model_failures,
@@ -2392,6 +2854,8 @@ async def _run_model_stage(
             "hit_count": cache_hit_count,
             "miss_count": len(artifacts) - cache_hit_count,
             "cache_only": cache_only,
+            "origin_provider_generation_count": origin_generation_count,
+            "compatible_reuse_count": compatible_reuse_count,
         },
         "stages": [
             {
@@ -2418,17 +2882,21 @@ async def _run_model_stage(
                 "pack_fingerprint": item["pack_fingerprint"],
                 "probe_hash": _hash_json(item["probe"]),
                 "probe_assertions": item["probe_assertions"],
+                "probe_semantic_results": item["probe_semantic_results"],
                 "probe_passed": item["probe_passed"],
+                "probe_hard_passed": item["probe_hard_passed"],
                 "probe_usage": item.get("probe_usage"),
                 "story_hash": item["story_hash"],
                 "story_length": item["story_length"],
                 "usage": item["usage"],
                 "cache_hit": item["cache_hit"],
+                "cache_replay": item["cache_replay"],
                 "latency_ms": {
                     "probe": item["probe_latency_ms"],
                     "story": item["story_latency_ms"],
                 },
                 "sentinel_hits": item["sentinel_hits"],
+                "hard_failure": item.get("hard_failure"),
                 "primary_failure": item.get("primary_failure"),
             }
             for item in artifacts
@@ -2437,10 +2905,22 @@ async def _run_model_stage(
             _metric(
                 "fact_probe_accuracy",
                 available=True,
+                blocking=False,
+                value={
+                    "candidate_passed_count": probe_passed_count,
+                    "candidate_count": len(artifacts),
+                    "fact_matched_count": probe_fact_matched_count,
+                    "fact_count": probe_fact_count,
+                    "by_arm": probe_by_arm,
+                },
+            ),
+            _metric(
+                "hard_fact_probe_retention",
+                available=True,
                 blocking=True,
-                value=probe_passed_count,
+                value=hard_probe_passed_count,
                 threshold=len(artifacts),
-                passed=probe_passed_count == len(artifacts),
+                passed=hard_probe_passed_count == len(artifacts),
             ),
             _metric(
                 "probe_repair_attempts",
@@ -2541,10 +3021,23 @@ def _load_reviews(path: Path) -> list[BlindReview]:
     return reviews
 
 
+def _load_calibration_reviews(path: Path) -> list[CalibrationReview]:
+    reviews: list[CalibrationReview] = []
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            reviews.append(CalibrationReview.model_validate_json(line))
+        except ValidationError as exc:
+            raise ValueError(f"{path.name}: line {line_number}: {exc}") from exc
+    return reviews
+
+
 def review_report(
     model_report_path: Path,
     reviews_path: Path,
     arm_map_path: Path,
+    calibration_reviews_path: Path | None = None,
 ) -> tuple[dict[str, Any], int]:
     model_report = json.loads(model_report_path.read_text(encoding="utf-8"))
     if model_report.get("report_version") != MODEL_REPORT_VERSION:
@@ -2557,6 +3050,7 @@ def review_report(
         "profile_hash",
         "compiler_hash",
         "prompt_hash",
+        "probe_prompt_hash",
         "mapping",
     }:
         raise ValueError("arm map has an invalid sealed shape")
@@ -2570,6 +3064,8 @@ def review_report(
         raise ValueError("arm map compiler hash does not match model report")
     if arm_map_payload["prompt_hash"] != model_report.get("prompt_hash"):
         raise ValueError("arm map prompt hash does not match model report")
+    if arm_map_payload["probe_prompt_hash"] != model_report.get("probe_prompt_hash"):
+        raise ValueError("arm map probe prompt hash does not match model report")
     mapping = dict(arm_map_payload.get("mapping") or {})
     reviews = _load_reviews(reviews_path)
     expected_candidates = {
@@ -2588,27 +3084,190 @@ def review_report(
     missing = sorted(expected_candidates - set(by_candidate))
     if missing:
         raise ValueError(f"missing reviews for {len(missing)} candidates")
+    reviewer_sets = {
+        frozenset(item.reviewer_id for item in values) for values in by_candidate.values()
+    }
+    if len(reviewer_sets) != 1:
+        raise ValueError("every blind candidate must have the same reviewers")
+    reviewer_ids = next(iter(reviewer_sets))
     if set(mapping) != expected_candidates:
         raise ValueError("arm map must contain every candidate exactly once")
     by_arm: dict[str, list[float]] = defaultdict(list)
+    dimensions_by_arm: dict[str, dict[str, list[float]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
     spoiler_by_arm: dict[str, bool] = defaultdict(bool)
+    candidate_scores: dict[str, dict[str, Any]] = {}
     for candidate_id, candidate_reviews in by_candidate.items():
         arm = mapping[candidate_id]
         if arm not in ARM_NAMES:
             raise ValueError("arm map contains an unknown arm")
+        dimension_means = {
+            dimension: mean(review.scores[dimension] for review in candidate_reviews)
+            for dimension in RUBRIC_DIMENSIONS
+        }
+        candidate_scores[candidate_id] = {
+            "overall": mean(dimension_means.values()),
+            "dimensions": dimension_means,
+            "severe_spoiler": any(review.severe_spoiler for review in candidate_reviews),
+        }
         for review in candidate_reviews:
             by_arm[arm].append(mean(review.scores.values()))
+            for dimension, score in review.scores.items():
+                dimensions_by_arm[arm][dimension].append(score)
             spoiler_by_arm[arm] |= review.severe_spoiler
     arm_summary = {
         arm: {
             "review_count": len(by_arm[arm]),
             "mean_score": mean(by_arm[arm]) if by_arm[arm] else None,
+            "dimension_means": {
+                dimension: (
+                    mean(dimensions_by_arm[arm][dimension])
+                    if dimensions_by_arm[arm][dimension]
+                    else None
+                )
+                for dimension in RUBRIC_DIMENSIONS
+            },
             "severe_spoiler": spoiler_by_arm[arm],
         }
         for arm in ARM_NAMES
     }
+    candidate_meta = {
+        item["candidate_id"]: item for item in model_report.get("candidates") or []
+    }
+    candidate_by_pair_arm = {
+        (item["case_id"], int(item["run_index"]), mapping[candidate_id]): candidate_id
+        for candidate_id, item in candidate_meta.items()
+    }
+    comparison_specs = {
+        "segments_vs_baseline": ("overview_tail", "overview_tail_segments"),
+        "rehydrated_vs_segments": (
+            "overview_tail_segments",
+            "overview_tail_rehydrated",
+        ),
+        "gold_overlay_vs_rehydrated": (
+            "overview_tail_rehydrated",
+            "hybrid_overlay_gold",
+        ),
+        "full_raw_vs_baseline": ("overview_tail", "full_raw_reference"),
+    }
+    paired_comparisons: dict[str, dict[str, Any]] = {}
+    case_runs = {
+        (item["case_id"], int(item["run_index"])) for item in candidate_meta.values()
+    }
+    for name, (left_arm, right_arm) in comparison_specs.items():
+        pairs = [
+            (
+                candidate_scores[candidate_by_pair_arm[(case_id, run_index, left_arm)]],
+                candidate_scores[candidate_by_pair_arm[(case_id, run_index, right_arm)]],
+            )
+            for case_id, run_index in sorted(case_runs)
+            if (case_id, run_index, left_arm) in candidate_by_pair_arm
+            and (case_id, run_index, right_arm) in candidate_by_pair_arm
+        ]
+        deltas = [right["overall"] - left["overall"] for left, right in pairs]
+        paired_comparisons[name] = {
+            "left_arm": left_arm,
+            "right_arm": right_arm,
+            "pair_count": len(pairs),
+            "mean_delta": mean(deltas) if deltas else None,
+            "wins": sum(delta > 0 for delta in deltas),
+            "ties": sum(delta == 0 for delta in deltas),
+            "losses": sum(delta < 0 for delta in deltas),
+            "dimension_mean_deltas": {
+                dimension: (
+                    mean(
+                        right["dimensions"][dimension] - left["dimensions"][dimension]
+                        for left, right in pairs
+                    )
+                    if pairs
+                    else None
+                )
+                for dimension in RUBRIC_DIMENSIONS
+            },
+            "right_severe_spoiler_count": sum(
+                bool(right["severe_spoiler"]) for _left, right in pairs
+            ),
+        }
+    calibration_summary: dict[str, Any] = {
+        "available": False,
+        "passed": None,
+        "reason": "no frozen calibration reviews supplied",
+    }
+    if calibration_reviews_path is not None:
+        calibration_cases, calibration_reference_hash = load_calibration_cases()
+        if calibration_reference_hash != model_report.get("calibration_reference_hash"):
+            raise ValueError("calibration reference hash does not match model report")
+        calibration_reviews = _load_calibration_reviews(calibration_reviews_path)
+        expected_calibration_ids = {item.calibration_id for item in calibration_cases}
+        calibration_pairs: set[tuple[str, str]] = set()
+        calibration_by_id: dict[str, list[CalibrationReview]] = defaultdict(list)
+        for review in calibration_reviews:
+            if review.calibration_id not in expected_calibration_ids:
+                raise ValueError(f"unknown calibration item {review.calibration_id}")
+            pair = (review.calibration_id, review.reviewer_id)
+            if pair in calibration_pairs:
+                raise ValueError("duplicate reviewer calibration submission")
+            calibration_pairs.add(pair)
+            calibration_by_id[review.calibration_id].append(review)
+        expected_pairs = {
+            (calibration_id, reviewer_id)
+            for calibration_id in expected_calibration_ids
+            for reviewer_id in reviewer_ids
+        }
+        if calibration_pairs != expected_pairs:
+            raise ValueError(
+                "calibration reviews must cover every main reviewer and item"
+            )
+        calibration_failures: list[dict[str, str]] = []
+        case_by_id = {item.calibration_id: item for item in calibration_cases}
+        for calibration_id, values in calibration_by_id.items():
+            case = case_by_id[calibration_id]
+            for review in values:
+                for dimension, constraint in case.constraints.items():
+                    score = review.scores[dimension]
+                    if constraint.min_score is not None and score < constraint.min_score:
+                        calibration_failures.append(
+                            {
+                                "calibration_id": calibration_id,
+                                "reviewer_id": review.reviewer_id,
+                                "dimension": dimension,
+                                "reason": "below_minimum",
+                            }
+                        )
+                    if constraint.max_score is not None and score > constraint.max_score:
+                        calibration_failures.append(
+                            {
+                                "calibration_id": calibration_id,
+                                "reviewer_id": review.reviewer_id,
+                                "dimension": dimension,
+                                "reason": "above_maximum",
+                            }
+                        )
+                if review.severe_spoiler != case.expected_severe_spoiler:
+                    calibration_failures.append(
+                        {
+                            "calibration_id": calibration_id,
+                            "reviewer_id": review.reviewer_id,
+                            "dimension": "severe_spoiler",
+                            "reason": "spoiler_flag_mismatch",
+                        }
+                    )
+        calibration_summary = {
+            "available": True,
+            "passed": not calibration_failures,
+            "reason": None
+            if not calibration_failures
+            else "calibration constraints failed",
+            "reference_hash": calibration_reference_hash,
+            "reviews_hash": _sha256(calibration_reviews_path.read_bytes()),
+            "case_count": len(calibration_cases),
+            "review_count": len(calibration_reviews),
+            "failures": calibration_failures,
+        }
     model_metrics = {item.get("name"): item for item in model_report.get("metrics") or []}
     model_probe = model_metrics.get("fact_probe_accuracy")
+    model_hard_probe = model_metrics.get("hard_fact_probe_retention")
     report = {
         "report_version": REVIEW_REPORT_VERSION,
         "stage": "review",
@@ -2623,26 +3282,37 @@ def review_report(
         "candidate_count": len(expected_candidates),
         "review_count": len(reviews),
         "arm_summary": arm_summary,
+        "paired_comparisons": paired_comparisons,
         "model_evidence": {
             "status": model_report.get("status"),
             "fact_probe": model_probe,
+            "hard_fact_probe": model_hard_probe,
             "hard_failure_count": len(model_report.get("hard_failures") or []),
             "note": "fact probe evidence is separate from story rubric evidence",
         },
-        "review_calibration": {
-            "available": False,
-            "reason": "no frozen calibration dataset supplied",
-        },
+        "review_calibration": calibration_summary,
         "metrics": [
             _metric(
                 "model_fact_probe",
                 available=bool(model_probe and model_probe.get("available")),
-                blocking=True,
+                blocking=False,
                 value=(model_probe or {}).get("value"),
-                threshold=(model_probe or {}).get("threshold"),
-                passed=(model_probe or {}).get("passed"),
                 reason=(model_probe or {}).get("reason")
                 or (None if model_probe else "model report has no fact probe metric"),
+            ),
+            _metric(
+                "model_hard_fact_probe",
+                available=bool(model_hard_probe and model_hard_probe.get("available")),
+                blocking=True,
+                value=(model_hard_probe or {}).get("value"),
+                threshold=(model_hard_probe or {}).get("threshold"),
+                passed=(model_hard_probe or {}).get("passed"),
+                reason=(model_hard_probe or {}).get("reason")
+                or (
+                    None
+                    if model_hard_probe
+                    else "model report has no hard fact probe metric"
+                ),
             ),
             _metric(
                 "blind_review_completeness",
@@ -2654,9 +3324,20 @@ def review_report(
             ),
             _metric(
                 "reviewer_calibration",
-                available=False,
+                available=bool(calibration_summary["available"]),
                 blocking=True,
-                reason="no frozen calibration dataset supplied",
+                value=(
+                    calibration_summary.get("review_count")
+                    if calibration_summary["available"]
+                    else None
+                ),
+                threshold=(
+                    len(calibration_cases) * len(reviewer_ids)
+                    if calibration_summary["available"]
+                    else None
+                ),
+                passed=calibration_summary["passed"],
+                reason=calibration_summary["reason"],
             ),
         ],
         "stages": [
@@ -2700,6 +3381,7 @@ def _build_parser() -> argparse.ArgumentParser:
     review_parser.add_argument("model_report", type=Path)
     review_parser.add_argument("reviews", type=Path)
     review_parser.add_argument("--arm-map", type=Path, required=True)
+    review_parser.add_argument("--calibration-reviews", type=Path)
     review_parser.add_argument("--output", type=Path, required=True)
     return parser
 
@@ -2737,6 +3419,7 @@ def main(argv: list[str] | None = None) -> int:
             args.model_report,
             args.reviews,
             args.arm_map,
+            calibration_reviews_path=args.calibration_reviews,
         )
         atomic_write_json(args.output, report)
         return exit_code

@@ -71,7 +71,8 @@ async def lock_project_ids_for_owner(db, owner_id) -> list[UUID]
 
 `ProjectContext` 只包含 project 拥有的非 secret 配置，并防御性清理遗留 Key；它不再
 物化账户运行时 provider/model/Key。LLM 调用通过 project 的 client 或 secret-free
-execution snapshot seam 解析当前 owner 凭据。
+execution snapshot seam 解析当前 owner 凭据；snapshot 还一次冻结 infrastructure-owned
+model capability profile 与 hash，业务模块不得再维护平行窗口表。
 
 `initialize_world_canon()` 是项目创建组合根唯一使用的窄 world facade；project
 不读写 Canon 表、manifest 或 receipt，后续准入仍完全归 world 拥有。

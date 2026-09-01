@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 from infrastructure.llm.schemas import LLMMessage
+from infrastructure.llm.token_estimation import estimate_token_count
 from modules.interaction.framing import META_END, META_START
 from modules.interaction.models import InteractionMessageNode
 from modules.interaction.schemas import InteractionOverviewSections
 
-NORMAL_INPUT_TOKENS = 256_000
-EMERGENCY_SUMMARY_TOKENS = 512_000
-HARD_INPUT_TOKENS = 750_000
 STORY_OUTPUT_TOKENS = 8192
 SEE_SEA_OUTPUT_TOKENS = 4096
 SUMMARY_OUTPUT_TOKENS = 12_000
@@ -44,13 +42,21 @@ def render_overview_sections(
     return "\n\n".join(blocks)
 
 
-def estimate_input_tokens(messages: list[LLMMessage]) -> int:
-    """Conservative deterministic budget until provider tokenizers are calibrated."""
+def estimate_input_tokens(
+    messages: list[LLMMessage],
+    *,
+    model: str | None = None,
+) -> int:
+    """Use the conservative upper bound of character and shared-token estimates."""
 
     # Chinese prose is commonly close to one token per character while Latin text
     # is cheaper. Counting every visible character plus a small message envelope
     # intentionally errs toward earlier summarization and never truncates history.
-    return sum(len(message.content) + 16 for message in messages)
+    character_estimate = sum(len(message.content) + 16 for message in messages)
+    shared_estimate = sum(
+        estimate_token_count(message.content, model=model) + 16 for message in messages
+    )
+    return max(character_estimate, shared_estimate)
 
 
 def story_system_prompt(

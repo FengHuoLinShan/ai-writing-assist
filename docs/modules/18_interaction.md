@@ -63,11 +63,13 @@ interaction 为 `我是 RP 用户` 路径保存私人互动故事。用户可直
 未覆盖原文尾部；多段 reducer 沿 lineage 保留 manual 防复活约束，不会因当前 head 已变为
 automatic descendant 就重新采用旧当前值。
 
-正常/紧急整理的输入估算起点为 256K/512K。超过紧急阈值时，同一 attempt 以最多 4 个短事务
-依次折叠兼容回顾之后的最老连续 whole-node prefix；单次摘要输入不超过 256K，近期至少一个完整
+输入预算由 attempt 的 project LLM snapshot 冻结 capability profile，并取字符估算与 shared tokenizer
+的较大值。当前 DeepSeek 档案为 256K normal / 360K compact / 400K hard，unknown model 为
+16K/20K/24K short fallback。超过 compact 阈值时，同一 attempt 以最多 4 个短事务依次折叠
+兼容回顾之后的最老连续 whole-node prefix；DeepSeek 单次摘要输入不超过 256K，近期至少一个完整
 对话节拍和约 16K 原文后缀保持原 role/bytes。每次只把 coverage 推进到 chunk end，输出未净缩减
 至少 128 token、单节点/完整节拍超限或 pass 用尽时均 fail-closed，不向 provider 发送整条 530K+
-tail，也不依赖静默截头。阈值和估算仍需真实 provider 校准。
+tail，也不依赖静默截头。只有通过真实 provider 校准的新模型才新增档案。
 
 source-bound attempt 额外经 Evidence 编译最多 16K 的版本化原作参考块。RAG 候选在排序前
 就按 source manifest 排除其他草稿版本，每个命中再从 Writing 历史 draft 回读并校验

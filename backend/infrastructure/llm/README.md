@@ -29,6 +29,8 @@ infrastructure/llm/
 - 支持重试
 - 支持结构化输出修复
 - 支持由上层 project facade 解析的账户级 OpenAI-compatible LLM Profile
+- 提供版本化 model capability budget；当前只校准官方 `deepseek-v4-flash`，未知模型使用
+  保守 short fallback，不继承上一模型的 context ceiling
 - 记录 token 和调用耗时
 - 结构化调用的每次首发/修复都向可选受控诊断写入 prompt/completion/total token；provider 提供时
   再附加 cache-hit/cache-miss token。诊断不含 Prompt、响应正文或 Key，缓存统计不参与质量门禁
@@ -120,10 +122,15 @@ async with open_project_llm_client(db, novel_id) as client:
 
 可恢复任务使用 project snapshot seam；业务代码不得调用
 `LLMClient.from_project_settings()` 或自行拼装 provider/profile。snapshot 只保存
-provider/model、非 secret 参数、endpoint/extra hash 和项目工作流设置，恢复时读取原 provider
+provider/model、非 secret 参数、endpoint/extra hash、capability profile ID/hash/预算和项目工作流设置，恢复时读取原 provider
 当前轮换后的账户 Key。没有已验证连接、原 provider Key 已清除或 endpoint 漂移时
 fail-closed。业务 LLM Profile 不从 `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` 等环境变量
 继承；代理、重试和 health gate 等运行参数仍由 `core.config.Settings` 管理。
+
+DeepSeek V4 Flash 当前 capability 使用官方 1M context，但只按本地 dev eval 已验证的 400K
+input ceiling 放行：256K normal、360K compact、400K hard，单次 summary 输入最多 256K。
+unknown model 使用 16K/20K/24K normal/compact/hard short fallback；这些值不从浏览器或项目
+设置读取。旧 task snapshot 缺 capability 字段时可恢复，但明确使用 unfrozen short fallback。
 
 账户连接的等值指纹复用 `LLM_SETTINGS_ENCRYPTION_KEY`，并使用用途分隔的
 HMAC-SHA256；数据库字段和公开 wire 不变。旧的无密钥 SHA-256 指纹不会被当作相同 Key，
