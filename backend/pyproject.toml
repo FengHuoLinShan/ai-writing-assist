@@ -87,7 +87,7 @@ dev = [
 eval = [
     "ragas==0.4.3",
     # Ragas 0.4.3 imports a module removed by langchain-community 0.4.2.
-    "langchain-community==0.4.1",
+    "langchain-community==0.4.2",
 ]
 
 [build-system]
