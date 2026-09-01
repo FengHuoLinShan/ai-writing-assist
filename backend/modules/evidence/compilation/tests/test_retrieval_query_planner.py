@@ -303,7 +303,8 @@ async def test_complex_query_adds_grounded_soft_clause_once(
     thread_ids = [str(uuid.uuid4())]
     options = CompileOptions(
         novel_id=str(uuid.uuid4()),
-        task="克莱恩在决裂之前为什么改变立场？",
+        task="续写当前章节",
+        user_note="克莱恩在决裂之前为什么改变立场？",
         scope="full",
         chapter_index=7,
         visible_until_chapter=6,
@@ -349,6 +350,8 @@ async def test_complex_query_adds_grounded_soft_clause_once(
     assert outcome.invoked is True
     assert outcome.expanded is True
     assert outcome.degraded is False
+    expected_query = "克莱恩在决裂之前为什么改变立场?"
+    assert plan.clauses[0].query_text == expected_query
     assert len(outcome.plan.clauses) == 3
     assert outcome.plan.clauses[0].query_text == plan.clauses[0].query_text
     assert {clause.reason_code for clause in outcome.plan.clauses[1:]} == {
@@ -366,6 +369,8 @@ async def test_complex_query_adds_grounded_soft_clause_once(
     assert outcome.plan.visible_until_chapter == plan.visible_until_chapter
     generate.assert_awaited_once()
     request = generate.await_args.args[1]
+    assert expected_query in request.messages[1].content
+    assert options.task not in request.messages[1].content
     assert request.max_tokens == 8_192
     assert request.extra == {
         "thinking": {"type": "enabled"},

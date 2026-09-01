@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -36,6 +37,7 @@ async def evaluate_rag_cases(
     no_answer_false_positives = 0
     no_answer_count = 0
     leakage_count = 0
+    cross_novel_leakage_count = 0
     stale_chunk_count = 0
     stale_marker_observations = 0
     source_hash_checks = 0
@@ -98,6 +100,10 @@ async def evaluate_rag_cases(
             cutoff is not None and chunk.chapter_index > cutoff for chunk in bundle.chunks
         )
         leakage_count += case_leakage
+        case_cross_novel_leakage = sum(
+            str(chunk.novel_id) != str(novel_id) for chunk in bundle.chunks
+        )
+        cross_novel_leakage_count += case_cross_novel_leakage
         raw_context_hashes = case.reference.get("context_hashes") or {}
         context_hashes = (
             raw_context_hashes if isinstance(raw_context_hashes, dict) else {}
@@ -114,9 +120,13 @@ async def evaluate_rag_cases(
                 or meta.get("source_hash")
                 or getattr(chunk, "source_content_hash", None)
             )
-            if expected_hash is not None and actual_hash is not None:
+            if expected_hash is not None:
                 source_hash_checks += 1
-                source_hash_failures += int(str(expected_hash) != str(actual_hash))
+                source_hash_failures += int(
+                    re.fullmatch(r"[0-9a-f]{64}", str(expected_hash)) is None
+                    or re.fullmatch(r"[0-9a-f]{64}", str(actual_hash or "")) is None
+                    or str(expected_hash) != str(actual_hash)
+                )
         case_results.append(
             {
                 "case_id": case.case_id,
@@ -132,6 +142,7 @@ async def evaluate_rag_cases(
                 "ndcg_at_10": ndcg,
                 "ranking_eligible": ranking_eligible,
                 "visibility_leakage": case_leakage,
+                "cross_novel_leakage": case_cross_novel_leakage,
                 "warnings": bundle.warnings,
             }
         )
@@ -186,6 +197,12 @@ async def evaluate_rag_cases(
             greater=False,
         ),
         _metric("visibility_leakage_count", float(leakage_count), 0.0, greater=False),
+        _metric(
+            "cross_novel_leakage_count",
+            float(cross_novel_leakage_count),
+            0.0,
+            greater=False,
+        ),
         _optional_metric(
             "source_hash_validity",
             (

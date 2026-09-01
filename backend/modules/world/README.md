@@ -859,7 +859,8 @@ section，且不会进入可投影正文。页面预览保持零写入并把页�
   保守字面门槛阻止仅凭语义相似回答，context 再按最多 5 个来源／24,000 字符编译证据和
   included／excluded／truncated trace。调用通过 `open_project_llm_client()` 使用项目 owner 当前
   已验证连接；模型不能改变来源集合，关键主张只能引用服务端 citation key。回答前后都会重开
-  来源并核对 hash，证据不足时在调用模型前拒答。回答本身零业务写入；只有独立的 suggestions
+  来源并核对 hash；问题要求的数量、日期、人物、地点或原因没有直接证据时必须
+  拒答，不能以相关旁支事实代替答案。回答本身零业务写入；只有独立的 suggestions
   端点在作者点击后创建一条 pending `CreationSuggestion`，且保存前再次重算回答 hash 与来源版本。
 - 外部模型交接 P1 不新增上传或导入接口：作者仍在普通消息中声明当前 world target，单份回包
   通过现有 `pasted_context` 进入 convergence。前端在请求前按 Unicode 字符拒绝超过 55,000

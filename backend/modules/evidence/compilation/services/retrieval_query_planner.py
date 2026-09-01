@@ -264,7 +264,7 @@ class QueryPlanExpansionOutcome:
 
 
 def query_complexity_score(options: CompileOptions) -> int:
-    query = _normalize_task(options.task)
+    query = _normalize_task(options.user_note or options.task)
     focus_ids = {
         *(options.entity_ids or []),
         *(options.character_ids or []),
@@ -310,9 +310,14 @@ async def expand_query_plan(
         return QueryPlanExpansionOutcome(plan=plan)
 
     started = monotonic()
+    original_query = _normalize_task(options.user_note or options.task)
     try:
         if llm_client is not None:
-            output = await _generate_query_expansion(llm_client, options, plan)
+            output = await _generate_query_expansion(
+                llm_client,
+                plan,
+                original_query=original_query,
+            )
         else:
             from modules.project.facade import open_project_llm_client
 
@@ -321,8 +326,12 @@ async def expand_query_plan(
                 options.novel_id,
                 timeout_override=LLM_QUERY_PLANNER_TIMEOUT_SECONDS,
             ) as client:
-                output = await _generate_query_expansion(client, options, plan)
-        _validate_query_grounding(output, options.task)
+                output = await _generate_query_expansion(
+                    client,
+                    plan,
+                    original_query=original_query,
+                )
+        _validate_query_grounding(output, original_query)
         expanded_plan = _merge_llm_queries(plan, output)
         return QueryPlanExpansionOutcome(
             plan=expanded_plan,
@@ -346,11 +355,12 @@ async def expand_query_plan(
 
 async def _generate_query_expansion(
     client: LLMClient,
-    options: CompileOptions,
     plan: RetrievalQueryPlan,
+    *,
+    original_query: str,
 ) -> LLMQueryPlannerOutput:
     payload = {
-        "original_query": _normalize_task(options.task),
+        "original_query": original_query,
         "retrieval_purpose": plan.purpose,
         "existing_clause_reasons": [clause.reason_code for clause in plan.clauses],
         "maximum_additional_queries": max(0, 3 - len(plan.clauses)),

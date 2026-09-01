@@ -689,6 +689,7 @@ async def test_fused_reranker_failure_is_open_only_for_manual_search(
     options = CompileOptions(
         novel_id=str(uuid.uuid4()),
         task="复杂问题",
+        user_note="实际检索问题",
         scope="full",
         retrieval_purpose=purpose,
     )
@@ -712,4 +713,5 @@ async def test_fused_reranker_failure_is_open_only_for_manual_search(
     assert outcome.safe_empty_reason == reason
     assert outcome.degraded is True
     rerank.assert_awaited_once()
+    assert rerank.await_args.args[0] == "实际检索问题"
     assert rerank.await_args.kwargs["force"] is True

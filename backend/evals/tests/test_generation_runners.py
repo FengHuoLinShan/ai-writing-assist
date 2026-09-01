@@ -912,6 +912,7 @@ async def test_ragas_adapter_routes_structured_calls_to_local_codex() -> None:
 
 @pytest.mark.asyncio
 async def test_rag_runner_uses_facade_shape_and_scores_ids() -> None:
+    novel_id = str(uuid.uuid4())
     case = _case(
         EvalSuite.rag,
         "rag-0001",
@@ -929,7 +930,7 @@ async def test_rag_runner_uses_facade_shape_and_scores_ids() -> None:
             chunks=[
                 RagChunkContract(
                     id=str(uuid.uuid4()),
-                    novel_id=str(uuid.uuid4()),
+                    novel_id=novel_id,
                     source_type="chapter_text",
                     chapter_index=1,
                 )
@@ -940,7 +941,7 @@ async def test_rag_runner_uses_facade_shape_and_scores_ids() -> None:
 
     result = await evaluate_rag_cases(
         None,  # type: ignore[arg-type]
-        str(uuid.uuid4()),
+        novel_id,
         [case],
         dataset_id="fixture",
         dataset_version="v1",
@@ -976,6 +977,50 @@ async def test_rag_runner_uses_facade_shape_and_scores_ids() -> None:
     }
     assert result.completed_at is not None
     assert result.started_at <= result.completed_at
+
+
+@pytest.mark.asyncio
+async def test_rag_runner_counts_missing_hash_and_cross_novel_as_failures() -> None:
+    expected_hash = "a" * 64
+    case = _case(
+        EvalSuite.rag,
+        "rag-safety-metrics",
+        {
+            "answer": "答案",
+            "context_ids": ["fixture:chapter:1"],
+            "context_hashes": {"fixture:chapter:1": expected_hash},
+            "no_answer": False,
+        },
+    )
+
+    async def retrieve(_db, _novel_id, query, **_kwargs):
+        return RagResultBundle(
+            chunks=[
+                RagChunkContract(
+                    id=str(uuid.uuid4()),
+                    novel_id="other-novel",
+                    source_type="chapter_text",
+                    chapter_index=1,
+                    source_content_hash=None,
+                )
+            ],
+            total=1,
+            query=query,
+        )
+
+    result = await evaluate_rag_cases(
+        None,  # type: ignore[arg-type]
+        "expected-novel",
+        [case],
+        dataset_id="fixture",
+        dataset_version="v1",
+        retrieve_fn=retrieve,
+    )
+
+    metrics = {metric.name: metric for metric in result.metrics}
+    assert metrics["source_hash_validity"].value == 0.0
+    assert metrics["cross_novel_leakage_count"].value == 1.0
+    assert result.case_results[0]["cross_novel_leakage"] == 1
 
 
 @pytest.mark.asyncio

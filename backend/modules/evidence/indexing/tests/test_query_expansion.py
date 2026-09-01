@@ -90,9 +90,7 @@ class TestQueryExpander:
         )
         assert short_partial == "克莱"
 
-        async def _canonical_loader(
-            db: Any, novel_id: uuid.UUID
-        ) -> list[dict[str, str]]:
+        async def _canonical_loader(db: Any, novel_id: uuid.UUID) -> list[dict[str, str]]:
             return [
                 {
                     "term": "克莱恩·莫雷蒂",
@@ -113,6 +111,23 @@ class TestQueryExpander:
             "克莱恩·莫雷蒂",
             "周明瑞",
         ]
+
+        async def _ambiguous_loader(db: Any, novel_id: uuid.UUID) -> list[dict[str, str]]:
+            return [
+                {
+                    "term": "克莱恩·莫雷蒂",
+                    "id": "char-1",
+                    "type": "character",
+                },
+                {"term": "克莱恩河谷", "id": "place-1", "type": "entity"},
+            ]
+
+        ambiguous = await QueryExpander(term_loader=_ambiguous_loader).expand(
+            None,  # type: ignore[arg-type]
+            uuid.uuid4(),
+            "克莱恩",
+        )
+        assert ambiguous == "克莱恩"
 
         long_partial = await expander.expand(
             None,  # type: ignore[arg-type]

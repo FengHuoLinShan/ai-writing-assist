@@ -135,7 +135,7 @@ async def _default_fused_reranker(
             timeout_override=RERANKER_TOTAL_TIMEOUT_SECONDS,
         ) as client:
             outcome = await rerank_results(
-                options.task,
+                plan.clauses[0].query_text if plan.clauses else options.task,
                 scored_chunks,
                 top_k=top_k,
                 retrieval_mode=(

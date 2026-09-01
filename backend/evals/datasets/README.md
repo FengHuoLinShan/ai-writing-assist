@@ -198,7 +198,9 @@ current output evidence are calculated; evidence-dependent metrics such as
 calibrated Ragas scores, source-hash validity, mapping attribution, endpoint
 resolution, rollback bounds, or rubric scores are emitted with
 `available=false` and an explicit reason when the workflow output cannot prove
-them. Missing evidence is never converted to zero or a passing result.
+them. Missing evidence is never converted to zero or a passing result. The RAG
+runner always blocks non-zero cross-novel leakage; when a case declares an
+expected source hash, a missing or malformed actual hash counts as invalid.
 
 `make eval-ask-world` is the separate author-question launch gate. It first runs
 the real API contract tests for project isolation, structured claims, citation

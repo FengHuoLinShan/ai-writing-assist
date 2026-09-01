@@ -119,14 +119,27 @@ def _match_project_terms(
     return character_ids, entity_ids, thread_ids
 
 
-def _matches_project_term(query: str, compact_query: str, term: str) -> bool:
-    if term in query or term in compact_query:
-        return True
-    return (
+def _matched_project_term_keys(
+    query: str,
+    terms: list[dict[str, str]],
+) -> set[tuple[str, str]]:
+    compact_query = query.replace(" ", "")
+    exact = {
+        (item["type"], item["id"])
+        for item in terms
+        if item["term"] in query or item["term"] in compact_query
+    }
+    if exact:
+        return exact
+    if not (
         3 <= len(compact_query) <= 4
         and all("\u4e00" <= character <= "\u9fff" for character in compact_query)
-        and compact_query in term
-    )
+    ):
+        return set()
+    partial = {
+        (item["type"], item["id"]) for item in terms if compact_query in item["term"]
+    }
+    return partial if len(partial) == 1 else set()
 
 
 async def _expand_query_with_project_terms(
@@ -151,11 +164,7 @@ async def _expand_query_with_project_terms(
     for tid in thread_ids or []:
         requested.add(("thread", tid))
 
-    compact_query = query.replace(" ", "")
-    for item in terms:
-        term = item["term"]
-        if _matches_project_term(query, compact_query, term):
-            requested.add((item["type"], item["id"]))
+    requested.update(_matched_project_term_keys(query, terms))
 
     expanded: list[str] = [query]
     for item in terms:
@@ -199,11 +208,7 @@ class QueryExpander:
         for tid in thread_ids or []:
             requested.add(("thread", tid))
 
-        compact_query = query.replace(" ", "")
-        for item in terms:
-            term = item["term"]
-            if _matches_project_term(query, compact_query, term):
-                requested.add((item["type"], item["id"]))
+        requested.update(_matched_project_term_keys(query, terms))
 
         expanded: list[str] = [query]
         for item in terms:
