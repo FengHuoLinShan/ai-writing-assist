@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import "../stateSlices.js"
 import App from "../app.js"
+import { storeEntryMode } from "../vue/auth/entryMode.js"
 
 globalThis.projectStorageSummary = globalThis.stateSlices.projectStorageSummary
 
@@ -11,6 +12,8 @@ describe("application bootstrap", () => {
   beforeEach(() => {
     App.dispose()
     localStorage.clear()
+    sessionStorage.clear()
+    history.replaceState(null, "", "/")
     document.body.innerHTML = '<div id="app"></div>'
     state.currentProjectId = null
     state.currentProject = null
@@ -66,7 +69,7 @@ describe("application bootstrap", () => {
     expect(App._initialized).toBe(false)
   })
 
-  it("keeps unauthenticated public bootstrap behind the auth gate before routing", async () => {
+  it("shows the public entry choice before login without mounting protected routes", async () => {
     api.auth = {
       config: vi.fn().mockResolvedValue({ auth_mode: "public", wechat_enabled: false }),
       me: vi.fn(),
@@ -78,8 +81,28 @@ describe("application bootstrap", () => {
     await App.init()
 
     expect(App._authGate).not.toBeNull()
+    expect(document.querySelectorAll(".entry-card")).toHaveLength(2)
+    expect(document.querySelector(".auth-card")).toBeNull()
     expect(App._mountShell).not.toHaveBeenCalled()
     expect(router.initRouter).not.toHaveBeenCalled()
+    delete api.auth
+  })
+
+  it.each([
+    ["author", "#today"],
+    ["rp", "#journeys"],
+  ])("returns the authenticated account to its selected %s path", async (mode, hash) => {
+    api.auth = {
+      config: vi.fn().mockResolvedValue({ auth_mode: "public", wechat_enabled: false }),
+      me: vi.fn().mockResolvedValue({ id: "account-1", status: "active" }),
+    }
+    localStorage.setItem("novel_accountId", "account-1")
+    storeEntryMode(mode)
+
+    await App.init()
+
+    expect(location.hash).toBe(hash)
+    expect(sessionStorage.getItem("nc-entry-mode-after-auth")).toBeNull()
     delete api.auth
   })
 

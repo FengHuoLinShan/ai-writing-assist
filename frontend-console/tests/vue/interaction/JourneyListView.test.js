@@ -84,6 +84,17 @@ beforeEach(() => {
 afterEach(() => resetBridgeOverrides())
 
 describe("首页入口请求所有权", () => {
+  it("公共认证页只回传选中的使用方式", async () => {
+    const wrapper = mount(HomeChoiceView, { props: { selectionOnly: true } })
+
+    await wrapper.get("[data-entry='author']").trigger("click")
+    await wrapper.get("[data-entry='rp']").trigger("click")
+
+    expect(wrapper.emitted("select")).toEqual([["author"], ["rp"]])
+    expect(router.navigate).not.toHaveBeenCalled()
+    expect(api.projects.get).not.toHaveBeenCalled()
+  })
+
   it("点击 RP 后迟到的作者项目不再改全局状态或抢回路由", async () => {
     const request = deferred()
     const previousProject = { id: "author-project", title: "本地作品" }
