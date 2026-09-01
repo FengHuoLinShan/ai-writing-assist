@@ -661,6 +661,7 @@ test.describe("生成中心模块", () => {
 
     await page.locator("#generate-chat-input").fill("创建一页关于龙息潮的世界规则")
     await page.getByRole("button", { name: "生成新页提案" }).click()
+    await approveContext(page)
     await expect(page.locator("#generate-result")).toContainText("龙息潮汐纪", { timeout: 15000 })
 
     await page.locator("#generate-page-title").fill("作者修订·龙息潮汐纪")
@@ -814,11 +815,16 @@ test.describe("生成中心模块", () => {
     await page.getByRole("button", { name: "发送" }).click()
     await approveContext(page)
     await page.locator('[data-section="world-direction"] > summary').click()
-    await page.getByRole("button", { name: "世界对象" }).click()
+    const worldObjectButton = page.getByRole("button", { name: "世界对象", exact: true })
+    await worldObjectButton.click()
+    await expect(page).toHaveURL(/target=core_entity/)
+    await expect(page.getByRole("button", { name: "生成世界对象建议", exact: true })).toBeVisible()
     await expect(page.locator("#generate-chat-messages")).not.toContainText("只属于页面完善会话")
     await page.locator("#generate-chat-input").fill("基于这页创建一个商会对象")
+    const requestCount = worldSuggestionRequests.length
     await page.getByRole("button", { name: "生成世界对象建议" }).click()
     await approveContext(page)
+    await expect.poll(() => worldSuggestionRequests.length).toBe(requestCount + 1)
     expect(worldSuggestionRequests.at(-1).source_context).toEqual(expect.objectContaining({
       kind: "world_bible_page",
       page_id: sourcePage.id,

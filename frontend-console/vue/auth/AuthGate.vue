@@ -1,5 +1,6 @@
 <template>
-  <main class="auth-page">
+  <HomeChoiceView v-if="!account && !entryMode" selection-only @select="selectEntry" />
+  <main v-else class="auth-page">
     <section class="auth-card" aria-labelledby="auth-title" :aria-busy="busy">
       <div class="auth-brand">◆ NovelCraft</div>
       <template v-if="account?.status === 'pending_deletion'">
@@ -20,8 +21,9 @@
       </template>
       <template v-else>
         <h1 id="auth-title">登录或注册</h1>
-        <p>使用邮箱验证码登录。首次验证会自动创建账号。</p>
-        <label>邮箱<input v-model.trim="email" type="email" autocomplete="email" placeholder="name@example.com"></label>
+        <p>登录后将进入{{ entryMode === 'rp' ? '互动故事' : '作家工作台' }}。首次验证会自动创建账号。</p>
+        <button type="button" class="secondary auth-back" :disabled="busy" @click="resetEntry">重新选择使用方式</button>
+        <label>邮箱<input ref="emailInput" v-model.trim="email" type="email" autocomplete="email" placeholder="name@example.com"></label>
         <div class="code-row">
           <input v-model.trim="code" inputmode="numeric" maxlength="6" aria-label="邮箱验证码" autocomplete="one-time-code" placeholder="6 位验证码">
           <button type="button" class="secondary" :disabled="busy || !email || !canResend" @click="requestCode('login')">{{ resendLabel }}</button>
@@ -39,9 +41,11 @@
 </template>
 
 <script setup>
-import { computed, ref } from "vue"
+import { computed, nextTick, ref } from "vue"
 import { getApi } from "../bridge/index.js"
 import { useResendCountdown } from "../composables/useResendCountdown.js"
+import HomeChoiceView from "../views/interaction/HomeChoiceView.vue"
+import { readEntryMode, storeEntryMode } from "./entryMode.js"
 
 const props = defineProps({
   config: { type: Object, required: true },
@@ -50,6 +54,8 @@ const props = defineProps({
 const emit = defineEmits(["authenticated", "logout"])
 const api = getApi()
 const account = ref(props.initialAccount)
+const entryMode = ref(readEntryMode() || "")
+const emailInput = ref(null)
 const email = ref("")
 const code = ref("")
 const accepted = ref(false)
@@ -66,6 +72,19 @@ const purgeDate = computed(() => account.value?.purge_after
 function show(text, isError = false) {
   message.value = text
   error.value = isError
+}
+async function selectEntry(mode) {
+  entryMode.value = mode
+  storeEntryMode(mode)
+  await nextTick()
+  emailInput.value?.focus()
+}
+async function resetEntry() {
+  const previous = entryMode.value
+  entryMode.value = ""
+  storeEntryMode(null)
+  await nextTick()
+  document.querySelector(`.entry-choice [data-entry="${previous}"]`)?.focus()
 }
 async function run(action) {
   busy.value = true

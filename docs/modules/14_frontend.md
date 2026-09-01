@@ -67,6 +67,8 @@ Prompt 或 token；预算遗漏另行解释。作者可逐项移除/恢复、用
 - Writing 纯 helper：`views/writing/sceneAlerts.js` 与 `views/writing/versionDiff.js`
 - Vue 基建：`vue/bridge/`、`vue/composables/`、`vue/mountIsland.js`
 - 通用交互：`shared/`、`ui/`
+- 公共入口认证：`vue/auth/AuthGate.vue` 复用 `HomeChoiceView`，`vue/auth/entryMode.js`
+  只在 `sessionStorage` 保存一次性作者 / RP 目的地，不改账号、项目或后端 wire
 
 当前 router 识别的 hash 名称为：
 
@@ -94,7 +96,7 @@ Prompt 或 token；预算遗漏另行解释。作者可逐项移除/恢复、用
 
 | 视图 | 当前职责 |
 |------|----------|
-| `vue/views/interaction/HomeChoiceView.vue` | `home` 路由；作者入口校验当前账户的已选作品并智能续接 Writing Home，默认进入 `writing?home=1`，无有效作品时回作品档案；RP 卡使用“进入互动故事”并解释一次角色扮演（RP） |
+| `vue/views/interaction/HomeChoiceView.vue` | `home` 路由与未登录公共首屏共用的双入口；公共模式只回传作者 / RP 选择，不请求受保护资料。已登录作者入口校验当前账户的已选作品并智能续接 Writing Home，无有效作品时回作品档案；RP 卡使用“进入互动故事”并解释一次角色扮演（RP） |
 | `vue/views/interaction/JourneyListView.vue` | `journeys` 路由；扁平旅程列表、新旅程、归档入口和按需搜索 |
 | `vue/views/interaction/InteractionView.vue` | `interaction/{journey_id}` 路由；故事阅读、composer、流式恢复、分支、回顾、看海与右侧定位 |
 | `vue/views/project/ProjectView.vue` | `project` 路由（Vue island）；紧凑作品档案，默认主操作为“继续创作”，搜索/筛选单行展示；批量、编辑、删除和回收站只在“管理作品”模式出现；无作品时优先显示新建与导入 |
@@ -131,6 +133,10 @@ Prompt 或 token；预算遗漏另行解释。作者可逐项移除/恢复、用
   保存为待处理世界笔记建议，来源变化时要求重新提问。
 - `home/journeys/interaction` 使用独立 RP 壳，不显示作者 sidebar；合法深链不要求先选择
   author 项目。RP 草稿按旅程保存在本地，服务端流式 buffer/分支/回顾负责跨刷新恢复。
+- 未登录公共流程固定为“双入口 → 登录 → 所选路径”；选择值只在当前
+  浏览器会话保留，登录成功时一次性消费。作者进入 `today` 兼容路由并继续复用
+  既有项目门禁，RP 进入 `journeys`；登录页可返回原选项且恢复焦点。邮箱、未来开启的
+  微信回跳与已登录刷新共用同一消费点，不新增后端登录协议。
 - `outline` 的规范默认子视图是 `story-outline`，作者导航层级为“故事总览 → 篇章 → 剧情线 → 场景”。`outline/story-outline?edit=1` 是可刷新、可前后退的手工编辑页；AI 预览留在故事总览页内，两者草稿均按项目隔离在本机并受离开/冲突保护。旧 `scene` 路由重定向到 `outline/scenes`，旧 `outline/foreshadowing` 与 `outline/reveals` 重定向到剧情线的信息推进区域。
 - router 不再保留 KeepAlive/DocumentFragment 缓存；所有视图离开时卸载。写作快照、Outline/Scene workflow 与滚动位置采用显式项目隔离 session 恢复，详见 [ADR-0009 附录 A](../adr/0009-appendix-a-keep-alive-policy.md)
 - Writing session 使用原生 `Map` 保留当前章和最近四章、最近五个项目；未完成本地备份的 dirty 快照不可淘汰。正文输入立即更新内存，本地备份和恢复指针合并为 250ms trailing 写入，并在保存、切换、卸载及页面离开前强制 flush；网络自动保存仍为 3 秒。

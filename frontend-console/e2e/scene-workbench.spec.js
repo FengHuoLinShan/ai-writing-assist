@@ -13,6 +13,13 @@ import {
   waitForBackend,
 } from "./helpers/api-client.js"
 
+async function approveContext(page) {
+  await expect(page.locator("#modal-overlay")).toContainText("AI 参考资料")
+  const start = page.getByRole("button", { name: "按这份资料开始" })
+  await expect(start).toBeEnabled()
+  await start.click()
+}
+
 test.describe("Scene 工作台", () => {
   let testProjectId = null
 
@@ -107,10 +114,7 @@ test.describe("Scene 工作台", () => {
     const run = page.getByRole("button", { name: "推演并补齐人物卡" })
     await expect(run).toBeEnabled()
     await run.click()
-    await expect(page.locator("#modal-overlay")).toContainText("AI 参考资料")
-    const start = page.getByRole("button", { name: "按这份资料开始" })
-    await expect(start).toBeEnabled()
-    await start.click()
+    await approveContext(page)
 
     await expect.poll(() => submissions.length).toBe(1)
     expect(submissions[0]).toEqual(expect.objectContaining({
@@ -864,6 +868,7 @@ test.describe("Scene 工作台", () => {
         .find((item) => item.textContent?.includes("生成 AI 融合建议"))
       button?.click()
     })
+    await approveContext(page)
     await page.locator('[data-role="scene-fusion-preview-progress"] summary').click()
     await page.getByRole("button", { name: "查看预览" }).click()
     await expect(page.locator("#modal-title")).toHaveText("场景 AI 建议预览")
@@ -945,6 +950,7 @@ test.describe("Scene 工作台", () => {
     await page.locator(`.scene-workbench-row[data-id="${second.id}"] input[data-action="toggle-fusion-selection"]`).check()
     await page.locator('[data-action="start-ai-fusion-draft"]').click()
     await page.getByRole("button", { name: "生成 AI 融合建议" }).click()
+    await approveContext(page)
     await page.locator('[data-role="scene-fusion-preview-progress"] summary').click()
     await page.getByRole("button", { name: "查看预览" }).click()
     await expect(page.locator("#modal-title")).toHaveText("场景 AI 建议预览")
@@ -1003,6 +1009,7 @@ test.describe("Scene 工作台", () => {
           .find((item) => item.textContent?.includes("生成 AI 融合建议"))
         button?.click()
       })
+      await approveContext(page)
       await page.locator('[data-role="scene-fusion-preview-progress"] summary').click()
       await page.getByRole("button", { name: "查看预览" }).click()
       await expect(page.locator("#modal-title")).toHaveText("场景 AI 建议预览")

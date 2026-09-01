@@ -2,6 +2,8 @@
 import { onBeforeUnmount, ref } from "vue"
 import { getApi, getAppState, getRouter, getToast } from "../../bridge/index.js"
 
+const props = defineProps({ selectionOnly: { type: Boolean, default: false } })
+const emit = defineEmits(["select"])
 const openingAuthor = ref(false)
 let lifecycleGeneration = 0
 let disposed = false
@@ -14,6 +16,10 @@ function ownsAuthorRequest(state, projectId, generation) {
 }
 
 async function enterAuthor() {
+  if (props.selectionOnly) {
+    emit("select", "author")
+    return
+  }
   if (openingAuthor.value) return
   const state = getAppState()
   const projectId = state?.currentProjectId || null
@@ -41,6 +47,10 @@ async function enterAuthor() {
 }
 
 function enterRp() {
+  if (props.selectionOnly) {
+    emit("select", "rp")
+    return
+  }
   lifecycleGeneration += 1
   openingAuthor.value = false
   getRouter().navigate("journeys")

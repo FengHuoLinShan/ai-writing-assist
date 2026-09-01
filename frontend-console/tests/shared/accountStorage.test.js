@@ -5,6 +5,7 @@ import {
   forceAccountSafeReload,
   scopeBrowserStorageToAccount,
 } from "../../shared/accountStorage.js"
+import { consumeEntryMode, readEntryMode, storeEntryMode } from "../../vue/auth/entryMode.js"
 
 beforeEach(() => {
   localStorage.clear()
@@ -12,6 +13,17 @@ beforeEach(() => {
 })
 
 describe("account-scoped browser storage", () => {
+  it("只消费一次公共入口选择并拒绝未知值", () => {
+    storeEntryMode("author")
+    expect(readEntryMode()).toBe("author")
+    expect(readEntryMode()).toBe("author")
+    expect(consumeEntryMode()).toBe("author")
+    expect(consumeEntryMode()).toBeNull()
+
+    storeEntryMode("unknown")
+    expect(consumeEntryMode()).toBeNull()
+  })
+
   it("clears account and project data while preserving theme and unrelated origin data", () => {
     const localKeys = [
       "novel_accountId",

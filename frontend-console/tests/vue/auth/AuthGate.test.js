@@ -16,7 +16,14 @@ function config(overrides = {}) {
   }
 }
 
+async function mountLogin(entry = "author") {
+  const wrapper = mount(AuthGate, { props: { config: config() } })
+  await wrapper.get(`[data-entry="${entry}"]`).trigger("click")
+  return wrapper
+}
+
 beforeEach(() => {
+  sessionStorage.clear()
   authApi = {
     requestEmailCode: vi.fn().mockResolvedValue({ challenge_id: "challenge-1", resend_after: 60 }),
     verifyEmail: vi.fn().mockResolvedValue({
@@ -37,8 +44,38 @@ afterEach(() => {
 })
 
 describe("AuthGate", () => {
-  it("exposes named one-time-code inputs and the initial idle state", () => {
-    const login = mount(AuthGate, { props: { config: config() } })
+  it("先选择使用方式，登录页可键盘返回原选项", async () => {
+    const wrapper = mount(AuthGate, {
+      attachTo: document.body,
+      props: { config: config() },
+    })
+
+    expect(wrapper.findAll(".entry-card")).toHaveLength(2)
+    expect(wrapper.find(".auth-card").exists()).toBe(false)
+
+    await wrapper.get('[data-entry="rp"]').trigger("click")
+    expect(wrapper.text()).toContain("登录后将进入互动故事")
+    expect(sessionStorage.getItem("nc-entry-mode-after-auth")).toBe("rp")
+    expect(wrapper.get('input[type="email"]').element).toBe(document.activeElement)
+
+    wrapper.unmount()
+    const restored = mount(AuthGate, { props: { config: config() } })
+    expect(restored.text()).toContain("登录后将进入互动故事")
+    restored.unmount()
+
+    const resumed = mount(AuthGate, {
+      attachTo: document.body,
+      props: { config: config() },
+    })
+
+    await resumed.get(".auth-back").trigger("click")
+    expect(resumed.findAll(".entry-card")).toHaveLength(2)
+    expect(sessionStorage.getItem("nc-entry-mode-after-auth")).toBeNull()
+    expect(resumed.get('[data-entry="rp"]').element).toBe(document.activeElement)
+  })
+
+  it("exposes named one-time-code inputs and the initial idle state", async () => {
+    const login = await mountLogin()
     const recovery = mount(AuthGate, {
       props: {
         config: config(),
@@ -52,7 +89,7 @@ describe("AuthGate", () => {
   })
 
   it("requires policy consent and completes email verification", async () => {
-    const wrapper = mount(AuthGate, { props: { config: config() } })
+    const wrapper = await mountLogin()
     const inputs = wrapper.findAll("input")
     await inputs[0].setValue("writer@example.com")
     await inputs[1].setValue("123456")
@@ -76,7 +113,7 @@ describe("AuthGate", () => {
     let resolveVerify
     authApi.requestEmailCode.mockImplementationOnce(() => new Promise((resolve) => { resolveRequest = resolve }))
     authApi.verifyEmail.mockImplementationOnce(() => new Promise((resolve) => { resolveVerify = resolve }))
-    const wrapper = mount(AuthGate, { props: { config: config() } })
+    const wrapper = await mountLogin()
     await wrapper.find('input[type="email"]').setValue("writer@example.com")
 
     const request = wrapper.findAll("button").find((button) => button.text() === "发送验证码")
@@ -101,7 +138,7 @@ describe("AuthGate", () => {
 
   it("announces rejected email code requests as alerts", async () => {
     authApi.requestEmailCode.mockRejectedValueOnce(new Error("验证码发送失败"))
-    const wrapper = mount(AuthGate, { props: { config: config() } })
+    const wrapper = await mountLogin()
     await wrapper.find('input[type="email"]').setValue("writer@example.com")
     await wrapper.findAll("button").find((button) => button.text() === "发送验证码").trigger("click")
     await flushPromises()
@@ -113,7 +150,7 @@ describe("AuthGate", () => {
 
   it("prevents another code request during the server-provided resend interval", async () => {
     vi.useFakeTimers()
-    const wrapper = mount(AuthGate, { props: { config: config() } })
+    const wrapper = await mountLogin()
     await wrapper.find('input[type="email"]').setValue("writer@example.com")
     const sendButton = wrapper.findAll("button")
       .find((button) => button.text() === "发送验证码")

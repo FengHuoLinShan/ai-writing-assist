@@ -134,7 +134,7 @@ test.describe("世界对象与大纲 chaos", () => {
     await page.locator(SEL.navItem("today")).click()
     await expect(page.locator(SEL.viewTitle)).toHaveText("写作")
     expect(await page.evaluate(() => window.__phase53NavigationMarker)).toBe(navigationMarker)
-    await page.getByRole("button", { name: "继续写作" }).click()
+    await page.getByRole("button", { name: "进入正文编辑" }).click()
     await expect(page.locator("#writing-panel-container")).not.toContainText(scene.title)
     await expect(page.locator(".scene-cockpit-switcher__item", { hasText: scene.title })).toHaveCount(0)
   })

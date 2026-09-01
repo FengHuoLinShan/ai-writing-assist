@@ -14,6 +14,7 @@ import {
 } from "./shared/accountStorage.js"
 import { mountShell } from "./vue/shell/mountShell.js"
 import { mountAuthGate } from "./vue/auth/mountAuthGate.js"
+import { consumeEntryMode } from "./vue/auth/entryMode.js"
 import { registerViewLoaders } from "./vue/viewLoaders.js"
 
 // 只注册按路由加载的 island import 函数；不会在应用启动或认证门禁期间加载业务模块。
@@ -64,6 +65,7 @@ const App = {
         globalThis.currentAccount = account
       }
       this._restoreProjectState()
+      this._applyAuthenticatedEntry(consumeEntryMode())
 
       this._smartDedup = createSmartDedupManager({
         api,
@@ -273,6 +275,12 @@ const App = {
       if (!state.currentProjectId && summary.id) state.currentProjectId = summary.id
       state.currentProject = { ...summary, summaryOnly: true }
     } catch {}
+  },
+
+  _applyAuthenticatedEntry(mode) {
+    if (!mode) return
+    const hash = mode === "rp" ? "#journeys" : "#today"
+    globalThis.history.replaceState(null, "", hash)
   },
 
   _showBootstrapError(error) {
