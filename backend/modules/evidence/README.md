@@ -26,7 +26,8 @@
   历史版本回读不会被新章节版本覆盖。作者 evidence/manuscript search 同样先构建当前
   draft/hash manifest；低层 indexing retrieve 仍可诊断孤立或失败 chunk，不作为作者证据直接展示。
 - `compile_interaction_story_context()` 是 Evidence 拥有的深层稳定入口；它固定
-  `consumer_action=interaction.story`、16K 参考预算、读者/人物知识与章节/offset 截止。
+  `consumer_action=interaction.story`、读者/人物知识与章节/offset 截止。调用方可传本轮
+  剩余预算，Evidence 将其限制在 0～16K；必需资料无法容纳时返回 blocker。
 - `author_safe + scene_id` 固定以当前 Scene 为同章截止点；后续或跨越截止点的正文候选在
   原文回读阶段 fail closed，`author_full` 不自动增加该截止。
 

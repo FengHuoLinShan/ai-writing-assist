@@ -34,12 +34,17 @@ from infrastructure.llm.capabilities import (
     resolve_llm_capability_profile,
 )
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+from modules.interaction.generation import (
+    _select_related_segment_summaries,
+    _source_retrieval_query,
+)
 from modules.interaction.models import InteractionMessageNode
 from modules.interaction.prompts import (
     STORY_OUTPUT_TOKENS,
     STORY_PROMPT_VERSION,
     compile_story_messages,
     estimate_input_tokens,
+    render_related_memory,
 )
 
 LEGACY_SCHEMA_VERSION = "rp-long-memory-v1"
@@ -57,7 +62,8 @@ REVIEW_REPORT_VERSION = "rp-long-memory-review-report-v2"
 SEMANTIC_PROBE_VERSION = "rp-long-memory-semantic-probe-v1"
 PROBE_PROMPT_VERSION = "rp-long-memory-probe-prompt-v2"
 CALIBRATION_VERSION = "rp-long-memory-review-calibration-v1"
-THRESHOLD_CONFIG_VERSION = "rp-long-memory-thresholds-v1"
+LEGACY_THRESHOLD_CONFIG_VERSION = "rp-long-memory-thresholds-v1"
+THRESHOLD_CONFIG_VERSION = "rp-long-memory-thresholds-v2"
 CALIBRATION_DATASET = (
     Path(__file__).parent
     / "datasets"
@@ -68,6 +74,7 @@ CALIBRATION_DATASET = (
 ARM_SPECS: tuple[tuple[str, str], ...] = (
     ("overview_tail", "production_baseline"),
     ("overview_tail_segments", "eval_reference"),
+    ("overview_tail_segments_production", "production_candidate"),
     ("overview_tail_rehydrated", "eval_reference"),
     ("hybrid_overlay_gold", "eval_reference"),
     ("full_raw_reference", "eval_reference"),
@@ -500,6 +507,7 @@ class ArmThresholdDecision(StrictModel):
     baseline_arm: Literal["overview_tail", "overview_tail_segments"]
     candidate_arm: Literal[
         "overview_tail_segments",
+        "overview_tail_segments_production",
         "overview_tail_rehydrated",
     ]
     minimum_case_pass_delta: int = Field(ge=1)
@@ -509,7 +517,10 @@ class ArmThresholdDecision(StrictModel):
 
 
 class FrozenThresholdConfig(StrictModel):
-    version: Literal["rp-long-memory-thresholds-v1"]
+    version: Literal[
+        "rp-long-memory-thresholds-v1",
+        "rp-long-memory-thresholds-v2",
+    ]
     dev_dataset_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     dev_model_stable_report_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     dev_review_stable_report_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -529,7 +540,13 @@ class FrozenThresholdConfig(StrictModel):
         pairs = [(item.baseline_arm, item.candidate_arm) for item in self.decisions]
         first = ("overview_tail", "overview_tail_segments")
         second = ("overview_tail_segments", "overview_tail_rehydrated")
-        if pairs not in ([first], [first, second]):
+        production = ("overview_tail", "overview_tail_segments_production")
+        allowed = (
+            ([first], [first, second])
+            if self.version == LEGACY_THRESHOLD_CONFIG_VERSION
+            else ([production],)
+        )
+        if pairs not in allowed:
             raise ValueError(
                 "threshold decisions must form an ordered adjacent arm chain"
             )
@@ -1325,6 +1342,48 @@ def _segment_candidates(materialized: MaterializedCase) -> list[PackCandidate]:
     return result
 
 
+def _production_segment_candidates(
+    materialized: MaterializedCase,
+) -> list[PackCandidate]:
+    reference = _segment_candidates(materialized)
+    overview, _anchor = _overview_content(materialized)
+    selected = _select_related_segment_summaries(
+        [
+            (
+                item.logical_key,
+                index + 1,
+                item.content.removeprefix("过去片段索引\n"),
+            )
+            for index, item in enumerate(reference)
+        ],
+        query=_source_retrieval_query(
+            latest_input=materialized.case.probe.values["question"],
+            overview_sections={"current_situation": overview or ""},
+            path=_interaction_nodes(materialized),
+        ),
+        model=materialized.case.capability_profile.model,
+        available_tokens=materialized.case.capability_profile.segment_cap,
+    )
+    by_id = {item.logical_key: item for item in reference}
+    result = []
+    for segment_id, _ordinal, content in selected:
+        item = by_id[segment_id]
+        rendered = render_related_memory(content)
+        result.append(
+            PackCandidate(
+                section="segment_index",
+                logical_key=segment_id,
+                content=rendered,
+                token_estimate=len(rendered) + 16,
+                required=False,
+                authority=item.authority,
+                activation_reason="production_journey_query",
+                provenance_refs=item.provenance_refs,
+            )
+        )
+    return result
+
+
 def _episode_candidates(materialized: MaterializedCase) -> list[PackCandidate]:
     selected_set = {item.event.event_id for item in materialized.selected}
     return [
@@ -1489,6 +1548,7 @@ def _allocate_arm(
 def build_arms(materialized: MaterializedCase) -> tuple[BuiltArm, ...]:
     base = _base_candidates(materialized)
     segments = _segment_candidates(materialized)
+    production_segments = _production_segment_candidates(materialized)
     episodes = _episode_candidates(materialized)
     overlay = _overlay_candidates(materialized)
     source_optional = _source_optional_candidates(materialized)
@@ -1518,6 +1578,12 @@ def build_arms(materialized: MaterializedCase) -> tuple[BuiltArm, ...]:
             name="overview_tail_segments",
             source_label="eval_reference",
             candidates=[*base, *segments, *source_optional],
+        ),
+        _allocate_arm(
+            materialized,
+            name="overview_tail_segments_production",
+            source_label="production_candidate",
+            candidates=[*base, *production_segments, *source_optional],
         ),
         _allocate_arm(
             materialized,
@@ -1729,6 +1795,15 @@ def _case_assertions(
         if item.section == "segment_index"
     }
     add("expected_segments_selected", expected_segments <= actual_segments)
+    production_segments = {
+        item.logical_key
+        for item in arm_by_name["overview_tail_segments_production"].included
+        if item.section == "segment_index"
+    }
+    add(
+        "production_expected_segments_selected",
+        expected_segments <= production_segments,
+    )
     expected_raw = set(case.oracle.expected_raw_event_ids)
     actual_raw = {
         item.logical_key
@@ -1788,7 +1863,11 @@ def _primary_failure(assertions: list[dict[str, Any]]) -> str | None:
         ("memory_install_conflict", {"manual_barrier_old_projection_hidden"}),
         (
             "required_fact_absent",
-            {"expected_segments_selected", "expected_raw_rehydrated"},
+            {
+                "expected_segments_selected",
+                "production_expected_segments_selected",
+                "expected_raw_rehydrated",
+            },
         ),
         (
             "required_over_budget",
@@ -3138,7 +3217,7 @@ async def _run_model_stage(
         atomic_write_json(
             test_seal_path,
             {
-                "version": THRESHOLD_CONFIG_VERSION,
+                "version": thresholds.version,
                 "threshold_config_hash": thresholds.config_hash,
                 "dataset_hash": dataset_hash,
                 "model_report_stable_hash": report["stable_report_hash"],
@@ -3281,6 +3360,10 @@ def review_report(
     }
     comparison_specs = {
         "segments_vs_baseline": ("overview_tail", "overview_tail_segments"),
+        "production_segments_vs_baseline": (
+            "overview_tail",
+            "overview_tail_segments_production",
+        ),
         "rehydrated_vs_segments": (
             "overview_tail_segments",
             "overview_tail_rehydrated",
@@ -3582,17 +3665,28 @@ def freeze_threshold_config(
     fact_value = (metrics.get("fact_probe_accuracy") or {}).get("value") or {}
     fact_by_arm = fact_value.get("by_arm") or {}
     blind_by_pair = review_report_payload.get("paired_comparisons") or {}
+    production_candidate = "overview_tail_segments_production" in fact_by_arm
     specs = (
         (
-            "segments_vs_baseline",
-            "overview_tail",
-            "overview_tail_segments",
-        ),
-        (
-            "rehydrated_vs_segments",
-            "overview_tail_segments",
-            "overview_tail_rehydrated",
-        ),
+            (
+                "production_segments_vs_baseline",
+                "overview_tail",
+                "overview_tail_segments_production",
+            ),
+        )
+        if production_candidate
+        else (
+            (
+                "segments_vs_baseline",
+                "overview_tail",
+                "overview_tail_segments",
+            ),
+            (
+                "rehydrated_vs_segments",
+                "overview_tail_segments",
+                "overview_tail_rehydrated",
+            ),
+        )
     )
     decisions: list[dict[str, Any]] = []
     for comparison_name, baseline_arm, candidate_arm in specs:
@@ -3646,7 +3740,11 @@ def freeze_threshold_config(
     if test_compile["status"] != "ready":
         raise ValueError("test dataset is not compile-ready")
     unsigned = {
-        "version": THRESHOLD_CONFIG_VERSION,
+        "version": (
+            THRESHOLD_CONFIG_VERSION
+            if production_candidate
+            else LEGACY_THRESHOLD_CONFIG_VERSION
+        ),
         "dev_dataset_hash": model_report["dataset_hash"],
         "dev_model_stable_report_hash": model_stable_hash,
         "dev_review_stable_report_hash": review_stable_hash,
@@ -3703,6 +3801,10 @@ def evaluate_frozen_thresholds(
     ) or {}
     comparison_names = {
         ("overview_tail", "overview_tail_segments"): "segments_vs_baseline",
+        (
+            "overview_tail",
+            "overview_tail_segments_production",
+        ): "production_segments_vs_baseline",
         (
             "overview_tail_segments",
             "overview_tail_rehydrated",

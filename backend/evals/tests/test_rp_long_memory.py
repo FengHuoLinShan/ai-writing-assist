@@ -45,6 +45,12 @@ HOLDOUT_DATASET = (
     / "baselines"
     / "rp-long-memory-v2-holdout.jsonl"
 )
+PRODUCTION_HOLDOUT_DATASET = (
+    Path(__file__).parents[1]
+    / "datasets"
+    / "baselines"
+    / "rp-long-memory-v3-production-holdout.jsonl"
+)
 
 
 def _payloads() -> list[dict]:
@@ -275,14 +281,25 @@ def test_legacy_v1_stays_compile_only(tmp_path: Path) -> None:
         )
 
 
-def test_holdout_contract_is_disjoint_and_compile_ready() -> None:
+@pytest.mark.parametrize(
+    "holdout_dataset",
+    [HOLDOUT_DATASET, PRODUCTION_HOLDOUT_DATASET],
+)
+def test_holdout_contract_is_disjoint_and_compile_ready(
+    holdout_dataset: Path,
+) -> None:
     dev_cases, _ = load_cases(DATASET)
-    holdout_cases, holdout_hash = load_cases(HOLDOUT_DATASET)
+    holdout_cases, holdout_hash = load_cases(holdout_dataset)
 
     assert {case.split for case in holdout_cases} == {"test"}
     assert {case.scenario_group_id for case in dev_cases}.isdisjoint(
         case.scenario_group_id for case in holdout_cases
     )
+    if holdout_dataset == PRODUCTION_HOLDOUT_DATASET:
+        old_holdout, _ = load_cases(HOLDOUT_DATASET)
+        assert {case.scenario_group_id for case in old_holdout}.isdisjoint(
+            case.scenario_group_id for case in holdout_cases
+        )
     report, _ = compile_report(
         holdout_cases,
         dataset_hash=holdout_hash,
@@ -291,6 +308,12 @@ def test_holdout_contract_is_disjoint_and_compile_ready() -> None:
     assert report["status"] == "ready"
     assert report["case_count"] == 8
     assert not report["hard_failures"]
+    offline = next(
+        metric
+        for metric in report["metrics"]
+        if metric["name"] == "offline_hard_assertions"
+    )
+    assert offline["value"] == 111
 
 
 def test_holdout_model_requires_frozen_thresholds_before_client(tmp_path: Path) -> None:
@@ -337,6 +360,24 @@ def test_threshold_config_hash_is_strict(tmp_path: Path) -> None:
     path = tmp_path / "thresholds.json"
     atomic_write_json(path, payload)
     assert load_threshold_config(path).config_hash == payload["config_hash"]
+
+    production_payload = {
+        **{key: value for key, value in payload.items() if key != "config_hash"},
+        "version": "rp-long-memory-thresholds-v2",
+        "decisions": [
+            {
+                "baseline_arm": "overview_tail",
+                "candidate_arm": "overview_tail_segments_production",
+                "minimum_case_pass_delta": 1,
+                "minimum_fact_match_delta": 1,
+                "minimum_blind_mean_delta": 0.0,
+                "maximum_severe_spoiler_count": 0,
+            }
+        ],
+    }
+    production_payload["config_hash"] = _hash_json(production_payload)
+    atomic_write_json(path, production_payload)
+    assert load_threshold_config(path).version == "rp-long-memory-thresholds-v2"
 
     payload["test_dataset_hash"] = "4" * 64
     atomic_write_json(path, payload)

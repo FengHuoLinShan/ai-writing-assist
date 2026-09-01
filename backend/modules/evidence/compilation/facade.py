@@ -10,6 +10,7 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.evidence.compilation.contracts import (
+    INTERACTION_SOURCE_CONTEXT_MAX_TOKENS,
     CompileOptions,
     ConfirmedAIActionContext,
     ContextConfirmationContract,
@@ -80,6 +81,7 @@ async def compile_interaction_story_context(
     query: str,
     task_id: str | None,
     model: str,
+    budget_tokens: int = INTERACTION_SOURCE_CONTEXT_MAX_TOKENS,
 ) -> InteractionStoryContextContract:
     """Compile one immutable source packet for an RP attempt."""
     return await _interaction_story_context_service.compile(
@@ -97,6 +99,7 @@ async def compile_interaction_story_context(
         query=query,
         task_id=task_id,
         model=model,
+        budget_tokens=budget_tokens,
     )
 
 

@@ -259,6 +259,50 @@ async def test_source_bound_empty_context_packet_fails_before_provider(
     assert caught.value.kind == "source_context_blocked"
 
 
+async def test_source_context_receives_only_the_remaining_prompt_budget(
+    db_session,
+    project_factory,
+) -> None:
+    (
+        _service,
+        _project,
+        _revision,
+        _first,
+        _later,
+        journey,
+        attempt,
+    ) = await _source_journey(db_session, project_factory)
+    db_session.task_checkpoint_enabled = True
+    task = await db_session.get(AsyncTask, attempt.task_id)
+    assert task is not None
+    compiled = SimpleNamespace(
+        blockers=[],
+        rendered_context="<SOURCE_REFERENCE_DATA>已校验资料</SOURCE_REFERENCE_DATA>",
+        snapshot_id=None,
+        fingerprint="f" * 64,
+        included_refs=[],
+    )
+
+    with (
+        patch(
+            "modules.interaction.generation.compile_interaction_story_context",
+            autospec=True,
+            return_value=compiled,
+        ) as compile_context,
+        patch(
+            "modules.interaction.generation.restore_project_llm_execution_settings",
+            autospec=True,
+            return_value={"llm": {"model": "deepseek-v4-flash"}},
+        ),
+    ):
+        await InteractionGenerationWorkflow().prepare_story_task(
+            db_session,
+            task=task,
+        )
+
+    assert compile_context.await_args.kwargs["budget_tokens"] == 16_000
+
+
 async def test_source_setup_rejects_character_before_first_appearance(
     db_session,
     project_factory,

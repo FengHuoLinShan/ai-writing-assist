@@ -51,7 +51,8 @@ selection epoch 仍匹配的第一个结果可成为当前路径。Prompt、回�
 
 - 无 source 旅程仍使用用户开场和模型训练知识。source-bound 旅程在每个 attempt
   通过 `evidence.compile_interaction_story_context()` 按固定 draft/hash manifest、章节、
-  Scene 派生 offset、玩家身份和固定/忽略策略编译独立最多 16K 参考资料。
+  Scene 派生 offset、玩家身份和固定/忽略策略编译参考资料。interaction 先计算本轮固定输入，
+  再把剩余额度传给 Evidence，且参考资料仍不得超过 16K；必需资料放不下时失败关闭。
 - 引用激活顺序是玩家身份/剧情锚点 → 固定对象 → 本轮名称/别名命中 → 原文检索
   关联 → 有预算的一跳对象/关系。固定项失效或超预算时阻断；自动项可裁剪，忽略项不得
   被关系扩展带回。
@@ -61,9 +62,10 @@ selection epoch 仍匹配的第一个结果可成为当前路径。Prompt、回�
   的 end offset；身份、搜索、固定项和生成激活都按剧情截止点过滤，未证明字段不进入 Prompt。
 - 原作角色使用截止点前的冻结 CharacterKnowledge 和精确原文；原创角色不创建 World
   对象，知识上限是截止点前的读者可见资料。
-- `interaction-story-v3` 优先级是用户最新明确修正 → 当前选中旅程历史/手工回顾 →
+- `interaction-story-v4` 优先级是用户最新明确修正 → 当前选中旅程历史/手工回顾 →
   固定版本截止点前的作品资料 → 模型训练知识。来源归档、manifest 或必需引用失效时
-  fail-closed，不退回纯模型知识。
+  fail-closed，不退回纯模型知识。服务器在统一渲染边界中转义资料里的围栏结束标记，
+  身份描述、人物知识和原文都只能作为引用数据，不能闭合资料块后注入指令。
 - 输入预算来自 attempt 冻结的 model capability profile，并取字符估算与 shared tokenizer 的较大值。
   当前已校准 DeepSeek V4 Flash 使用 256K normal、360K compact、400K hard input；unknown model
   使用 16K/20K/24K short fallback。超过 compact trigger 时在同一 attempt 内先做紧急结构化回顾。
@@ -72,6 +74,9 @@ selection epoch 仍匹配的第一个结果可成为当前路径。Prompt、回�
   不把整条 530K+ tail 先发给摘要模型，也不依赖 provider 静默截头。这些数字仍是待校准参数，
   不是产品承诺。
 - 分段概要和总回顾由一次结构化调用同时生成，只记录已选路径中用户已经看到的内容。
+- 相关分段概要的确定性 selector、800-token/4-item 上限和“过去事件证据”数据块仅保留为
+  eval candidate。冻结生产 holdout 未通过用户明确修正硬门，因此当前没有任何 model profile
+  会把 segment 注入故事 Prompt；生产仍使用总回顾与未覆盖原文尾部。
 - 总回顾固定为世界与起点、我的角色、当前局面、重要人物与势力、关键转折、正在发展的事情、
   必须继续记住七个自然语言分区。用户保存修正会生成 manual revision，不改写原始消息。
 - 任一 authority-compatible overview revision 都是可恢复的 prefix 起点；segment ordinal 不参与

@@ -14,6 +14,9 @@ if TYPE_CHECKING:
     from modules.evidence.compilation.services.compiled_context import CompiledContext
 
 
+INTERACTION_SOURCE_CONTEXT_MAX_TOKENS = 16_000
+
+
 @dataclass
 class CompileOptions:
     """编译选项 — facade 与 compiler 之间的契约"""

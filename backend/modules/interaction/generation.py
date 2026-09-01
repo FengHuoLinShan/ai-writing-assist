@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -22,12 +23,16 @@ from infrastructure.llm.errors import (
     LLMTimeoutError,
 )
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+from infrastructure.llm.token_estimation import estimate_token_count
 from infrastructure.tasks.facade import (
     enqueue_coalesced_task,
     enqueue_task,
     require_task_checkpoint_session,
 )
-from modules.evidence.facade import compile_interaction_story_context
+from modules.evidence.facade import (
+    INTERACTION_SOURCE_CONTEXT_MAX_TOKENS,
+    compile_interaction_story_context,
+)
 from modules.interaction.models import (
     InteractionGenerationAttempt,
     InteractionJourney,
@@ -42,6 +47,7 @@ from modules.interaction.prompts import (
     compile_story_messages,
     estimate_input_tokens,
     render_overview_sections,
+    render_related_memory,
     summary_system_prompt,
 )
 from modules.interaction.repositories import InteractionRepository
@@ -116,6 +122,27 @@ class InteractionContextBudgetError(RuntimeError):
 
 _SOURCE_QUERY_MAX_CHARS = 4_000
 _SUMMARY_MIN_SAVINGS_TOKENS = 128
+_SEGMENT_RECALL_BUDGET_TOKENS = 800
+_SEGMENT_RECALL_MAX_ITEMS = 4
+_ASCII_RECALL_TERM = re.compile(r"[a-z0-9_]{2,}")
+_CJK_RECALL_RUN = re.compile(r"[\u3400-\u9fff]+")
+_RECALL_STOP_TERMS = frozenset(
+    {
+        "当前",
+        "输入",
+        "相关",
+        "人物",
+        "势力",
+        "未决",
+        "事项",
+        "必须",
+        "记住",
+        "近期",
+        "发展",
+        "继续",
+        "故事",
+    }
+)
 
 
 def _clip_query_text(value: str, limit: int) -> str:
@@ -159,6 +186,62 @@ def _source_retrieval_query(
         seen.add(normalized)
         blocks.append(f"{label}：{normalized}")
     return _clip_query_text("\n".join(blocks), _SOURCE_QUERY_MAX_CHARS)
+
+
+def _recall_terms(value: str) -> set[str]:
+    text = str(value or "").casefold()
+    terms = set(_ASCII_RECALL_TERM.findall(text))
+    for run in _CJK_RECALL_RUN.findall(text):
+        if len(run) == 1:
+            continue
+        terms.update(run[index : index + 2] for index in range(len(run) - 1))
+        if len(run) <= 8:
+            terms.add(run)
+    return terms - _RECALL_STOP_TERMS
+
+
+def _segment_relevance(query_terms: set[str], content: str) -> int:
+    return sum(len(term) for term in query_terms & _recall_terms(content))
+
+
+def _select_related_segment_summaries(
+    candidates: list[tuple[str, int, str]],
+    *,
+    query: str,
+    model: str,
+    available_tokens: int,
+) -> list[tuple[str, int, str]]:
+    budget = min(_SEGMENT_RECALL_BUDGET_TOKENS, max(0, available_tokens))
+    query_terms = _recall_terms(query)
+    if budget <= 0 or not query_terms:
+        return []
+    ranked: list[tuple[int, int, str, str, int]] = []
+    seen_content: set[str] = set()
+    for segment_id, ordinal, content in candidates:
+        normalized = "".join(str(content or "").split())
+        if not normalized or normalized in seen_content:
+            continue
+        seen_content.add(normalized)
+        score = _segment_relevance(query_terms, content)
+        if score <= 0:
+            continue
+        rendered = render_related_memory(content)
+        tokens = max(
+            len(rendered) + 16,
+            estimate_token_count(rendered, model=model) + 16,
+        )
+        ranked.append((score, ordinal, segment_id, content, tokens))
+    ranked.sort(key=lambda item: (-item[0], -item[1], item[2]))
+    selected: list[tuple[str, int, str]] = []
+    used = 0
+    for _score, ordinal, segment_id, content, tokens in ranked:
+        if len(selected) >= _SEGMENT_RECALL_MAX_ITEMS:
+            break
+        if used + tokens > budget:
+            continue
+        selected.append((segment_id, ordinal, content))
+        used += tokens
+    return sorted(selected, key=lambda item: (item[1], item[0]))
 
 
 class InteractionGenerationWorkflow:
@@ -254,36 +337,73 @@ class InteractionGenerationWorkflow:
                 for index, node in enumerate(reference_nodes)
             ]
         is_see_sea_step = self._attempt_is_see_sea_step(attempt)
-        source_context = None
+        retrieval_query = _source_retrieval_query(
+            latest_input=response_to.content,
+            overview_sections=overview_sections,
+            path=nodes,
+        )
+        source_revision = None
         if attempt.source_revision_id is not None:
             if (
                 journey.source_revision_id != attempt.source_revision_id
                 or journey.source_context_epoch != attempt.started_source_context_epoch
             ):
                 raise RuntimeError("interaction source context epoch mismatch")
-            revision = await self._service._sources.require_ready_revision(
+            source_revision = await self._service._sources.require_ready_revision(
                 db,
                 attempt.source_revision_id,
             )
+
+        def build_messages(source_context: str | None) -> list[LLMMessage]:
+            return compile_story_messages(
+                path=nodes,
+                overview=overview_content,
+                overview_anchor_node_id=overview_anchor,
+                # The attempt freezes the agency contract for this beat.  The
+                # journey flag only authorizes creation of a successor, so turning
+                # it off while pending must not rewrite the current prompt.
+                see_sea_enabled=is_see_sea_step,
+                action_options_enabled=journey.action_options_enabled,
+                request_kind=attempt.request_kind,
+                rejected_variants=references,
+                continuation_text=(
+                    attempt.visible_text
+                    if attempt.request_kind in {"continue", "see_sea_continue"}
+                    else None
+                ),
+                source_context=source_context,
+            )
+
+        # A whitespace packet counts the fixed source wrapper without reading or
+        # truncating source data. If the selected raw path already needs compaction,
+        # the attempt summarizes first and compiles the real source packet on resume.
+        source_context = " " if source_revision is not None else None
+        messages = build_messages(source_context)
+        fixed_tokens = estimate_input_tokens(messages, model=capability.model)
+        if (
+            source_revision is not None
+            and fixed_tokens <= capability.compact_trigger_tokens
+        ):
+            source_budget = min(
+                INTERACTION_SOURCE_CONTEXT_MAX_TOKENS,
+                max(0, capability.hard_input_tokens - fixed_tokens),
+            )
             compiled_source = await compile_interaction_story_context(
                 db,
-                source_novel_id=str(revision.source_novel_id),
+                source_novel_id=str(source_revision.source_novel_id),
                 consumer_novel_id=str(journey.novel_id),
-                source_revision_id=str(revision.id),
-                source_manifest=list(revision.source_manifest or []),
+                source_revision_id=str(source_revision.id),
+                source_manifest=list(source_revision.source_manifest or []),
                 anchor=dict(journey.source_anchor or {}),
                 player_identity=dict(journey.player_identity or {}),
-                reference_manifest=list(revision.reference_manifest or []),
-                ambiguities=list(revision.ambiguities or []),
-                resolutions=dict(revision.resolutions or {}),
+                reference_manifest=list(source_revision.reference_manifest or []),
+                ambiguities=list(source_revision.ambiguities or []),
+                resolutions=dict(source_revision.resolutions or {}),
                 reference_policy=dict(journey.reference_policy or {}),
-                query=_source_retrieval_query(
-                    latest_input=response_to.content,
-                    overview_sections=overview_sections,
-                    path=nodes,
-                ),
+                query=retrieval_query,
                 task_id=str(task.id),
                 model=str((task_snapshot.get("profile") or {}).get("model") or ""),
+                budget_tokens=source_budget,
             )
             if compiled_source.blockers:
                 raise InteractionContextBudgetError(
@@ -307,28 +427,10 @@ class InteractionGenerationWorkflow:
             )
             attempt.source_context_fingerprint = compiled_source.fingerprint
             attempt.reference_trace = list(compiled_source.included_refs)
-        messages = compile_story_messages(
-            path=nodes,
-            overview=overview_content,
-            overview_anchor_node_id=overview_anchor,
-            # The attempt freezes the agency contract for this beat.  The
-            # journey flag only authorizes creation of a successor, so turning
-            # it off while pending must not rewrite the current prompt.
-            see_sea_enabled=is_see_sea_step,
-            action_options_enabled=journey.action_options_enabled,
-            request_kind=attempt.request_kind,
-            rejected_variants=references,
-            continuation_text=(
-                attempt.visible_text
-                if attempt.request_kind in {"continue", "see_sea_continue"}
-                else None
-            ),
-            source_context=source_context,
-        )
-        estimated_input_tokens = estimate_input_tokens(
-            messages,
-            model=capability.model,
-        )
+            messages = build_messages(source_context)
+            fixed_tokens = estimate_input_tokens(messages, model=capability.model)
+
+        estimated_input_tokens = fixed_tokens
         if estimated_input_tokens > capability.compact_trigger_tokens:
             prepared_summary = await self._prepare_summary_generation(
                 db,

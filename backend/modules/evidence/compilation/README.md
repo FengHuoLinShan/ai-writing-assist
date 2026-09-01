@@ -26,8 +26,9 @@ indexing 负责“找”，compilation 负责“选、裁、确认、追踪”�
 - 管理版本化 Activation Profile，用受限匹配规则把固定世界书页面/CoreEntity 编译为
   可解释、可预算裁剪的 P1 参考资料
 - 为 `world.map_atlas.generate` operation 编译 author-full canonical 背景；只在作者显式开启时加入工作稿
-- 为 `interaction.story` 编译冻结 author source revision：独立 16K 参考预算、
-  exact draft/hash、章节/offset、读者或角色知识边界、固定/忽略与代码级激活理由
+- 为 `interaction.story` 编译冻结 author source revision：调用方剩余预算且最多 16K、
+  exact draft/hash、章节/offset、读者或角色知识边界、固定/忽略与代码级激活理由；
+  所有动态字段在最终 source block 渲染边界统一转义围栏结束标记
 
 ## 不负责
 

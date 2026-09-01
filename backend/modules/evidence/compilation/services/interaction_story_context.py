@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.errors import NotFoundError
 from infrastructure.llm.token_estimation import estimate_token_count
 from modules.evidence.compilation.contracts import (
+    INTERACTION_SOURCE_CONTEXT_MAX_TOKENS,
     InteractionStoryContextContract,
     VisibilityContextContract,
 )
@@ -19,8 +20,6 @@ from modules.evidence.compilation.services.snapshot_service import (
     ContextSnapshotService,
 )
 from modules.evidence.indexing.facade import retrieve
-
-REFERENCE_BUDGET_TOKENS = 16_000
 
 
 class InteractionStoryContextService:
@@ -45,6 +44,7 @@ class InteractionStoryContextService:
         query: str,
         task_id: str | None,
         model: str,
+        budget_tokens: int = INTERACTION_SOURCE_CONTEXT_MAX_TOKENS,
     ) -> InteractionStoryContextContract:
         from modules.project.facade import (
             get_any_project_context,
@@ -54,6 +54,10 @@ class InteractionStoryContextService:
 
         await require_active_project(db, source_novel_id)
         await require_interaction_project(db, consumer_novel_id)
+        budget_tokens = min(
+            INTERACTION_SOURCE_CONTEXT_MAX_TOKENS,
+            max(0, int(budget_tokens)),
+        )
         source_project = await get_any_project_context(db, source_novel_id)
         consumer_project = await get_any_project_context(db, consumer_novel_id)
         if (
@@ -148,6 +152,7 @@ class InteractionStoryContextService:
                 included_refs=[],
                 warnings=[],
                 blockers=["固定或玩家资料超出当前剧情进度，请重新选择"],
+                budget_tokens=budget_tokens,
             )
         reasons: dict[str, str] = {}
         ordered_keys: list[str] = []
@@ -269,6 +274,7 @@ class InteractionStoryContextService:
                 included_refs=[],
                 warnings=list(dict.fromkeys([*retrieval.warnings, *hydrated.warnings])),
                 blockers=["固定或玩家资料缺少截止点前的可验证原文，请减少或重选"],
+                budget_tokens=budget_tokens,
             )
 
         active_targets = {
@@ -315,7 +321,7 @@ class InteractionStoryContextService:
             )
             if knowledge:
                 blocks.append(knowledge)
-        if estimate_token_count("\n\n".join(blocks)) > REFERENCE_BUDGET_TOKENS:
+        if estimate_token_count("\n\n".join(blocks)) > budget_tokens:
             blockers = ["已固定的作品资料超出可用篇幅，请减少固定项"]
             return await self._snapshot_result(
                 db,
@@ -329,35 +335,26 @@ class InteractionStoryContextService:
                 included_refs=[],
                 warnings=list(dict.fromkeys([*retrieval.warnings, *hydrated.warnings])),
                 blockers=blockers,
+                budget_tokens=budget_tokens,
             )
 
         for key in ordered_keys:
             if key in mandatory:
                 continue
             candidate = self._reference_block(references[key], reasons[key])
-            if (
-                estimate_token_count("\n\n".join([*blocks, candidate]))
-                > REFERENCE_BUDGET_TOKENS
-            ):
+            if estimate_token_count("\n\n".join([*blocks, candidate])) > budget_tokens:
                 continue
             blocks.append(candidate)
             included_keys.append(key)
         included_reads: list[dict] = []
         for read in excerpts:
             candidate = self._excerpt_block(read)
-            if (
-                estimate_token_count("\n\n".join([*blocks, candidate]))
-                > REFERENCE_BUDGET_TOKENS
-            ):
+            if estimate_token_count("\n\n".join([*blocks, candidate])) > budget_tokens:
                 break
             blocks.append(candidate)
             included_reads.append(read)
 
-        rendered = (
-            "<SOURCE_REFERENCE_DATA>\n"
-            + "\n\n".join(blocks)
-            + "\n</SOURCE_REFERENCE_DATA>"
-        )
+        rendered = _render_source_blocks(blocks)
         included_refs = [
             {
                 "reference_key": key,
@@ -387,6 +384,7 @@ class InteractionStoryContextService:
             source_refs=[dict(read["source_ref"]) for read in included_reads],
             warnings=list(dict.fromkeys([*retrieval.warnings, *hydrated.warnings])),
             blockers=[],
+            budget_tokens=budget_tokens,
         )
 
     async def _snapshot_result(
@@ -404,6 +402,7 @@ class InteractionStoryContextService:
         warnings: list[str],
         blockers: list[str],
         source_refs: list[dict] | None = None,
+        budget_tokens: int = INTERACTION_SOURCE_CONTEXT_MAX_TOKENS,
     ) -> InteractionStoryContextContract:
         source_refs = source_refs or []
         fingerprint = _hash(
@@ -426,13 +425,13 @@ class InteractionStoryContextService:
             chapter_index=int(anchor.get("chapter_index") or 0),
             context_mode="canonical",
             include_pending_objects=False,
-            prompt_name="interaction-story-v3",
+            prompt_name="interaction-story-v4",
             model=model,
             compile_options={
                 "consumer_action": "interaction.story",
                 "source_revision_id": source_revision_id,
                 "anchor_key": anchor.get("anchor_key"),
-                "budget_tokens": REFERENCE_BUDGET_TOKENS,
+                "budget_tokens": budget_tokens,
             },
             included_asset_ids={
                 "references": [item["reference_key"] for item in included_refs]
@@ -448,7 +447,7 @@ class InteractionStoryContextService:
             section_metadata={"activation_reasons": _reason_counts(included_refs)},
             token_metadata={
                 "estimated_tokens": tokens,
-                "budget_tokens": REFERENCE_BUDGET_TOKENS,
+                "budget_tokens": budget_tokens,
             },
             rendered_context=rendered,
             retain_rendered_context=False,
@@ -562,6 +561,14 @@ def _sanitize_source_text(value: str) -> str:
     """Neutralize imported text that could close the reference-data fence."""
 
     return value.replace(_FENCE_CLOSE, "</原文引用结束>")
+
+
+def _render_source_blocks(blocks: list[str]) -> str:
+    return (
+        "<SOURCE_REFERENCE_DATA>\n"
+        + _sanitize_source_text("\n\n".join(blocks))
+        + "\n</SOURCE_REFERENCE_DATA>"
+    )
 
 
 def _hash(value) -> str:

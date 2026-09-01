@@ -151,28 +151,33 @@ exact-string protocol. The default command performs no database, network, key, o
 ```bash
 make eval-rp-long-memory
 python -m evals.rp_long_memory compile \
-  evals/datasets/baselines/rp-long-memory-v2-holdout.jsonl --split test \
+  evals/datasets/baselines/rp-long-memory-v3-production-holdout.jsonl --split test \
   --output evals/artifacts/rp-long-memory/holdout-compile.json
 ```
 
 It writes a hash-only report under the ignored `evals/artifacts/` directory.
 `quality_claim_allowed` remains false because an offline compile is not model
-quality evidence or a user trial. The committed cases deliberately use
-`calibration_status=synthetic`; paid generation rejects them. A model pilot is
-opt-in and accepts only a local dataset with a currently verified capability
-profile plus a disposable active interaction project whose effective model
-matches that profile:
+quality evidence or a user trial. The v1/v2 contract cases use
+`calibration_status=synthetic`; paid generation rejects them. The sealed v3 production
+holdout freezes verified profiles, but still requires its ignored hash-valid threshold
+config and a disposable active interaction project whose effective model matches that
+profile. Any model run is opt-in:
 
 Only v2 cases with at least one executable arm require a verified provider profile and
 official-spec provenance;
 an intentionally over-budget contract case may remain `uncalibrated` because it
 must never issue provider I/O. The 2026-09-01 DeepSeek V4 Flash dev run completed
-35 v2 candidates. Deterministic semantic scoring produced A/B/C/D/E case passes of
-3/5/5/6/3 out of 7 and fact matches of 5/9/9/10/7 out of 11; hard manual-correction
-retention was 35/35 and sentinel leakage was zero. C did not improve over B, and B
-still lacks calibrated blind review, so no production recall arm was enabled. Frozen
-hashes and interpretation live in the long-memory decision ledger while generated
-prose/cache remain ignored.
+35 v2 candidates. Its eval-reference B later passed one sealed reference holdout with a
+calibrated, user-authorized Codex teacher blind reviewer, which justified building a
+production-candidate adapter but not claiming production capability. A second dev run
+froze only A → production-B. The new `rp-long-memory-v3-production-holdout.jsonl` has
+eight fresh test groups, no overlap with dev or the old holdout, and compiles 111/111
+assertions. Its one sealed provider run found production-B directional gains but only
+6/7 hard manual-correction retention, so the runtime activation path was removed.
+The same holdout also stopped P2 at gold D because D tied C on case/fact accuracy and
+regressed on an ability-boundary case. Frozen hashes and interpretation live in the
+long-memory decision ledger while generated prose/cache remain ignored. The Codex
+teacher result is L3-sim evidence, not a human or real-user trial.
 
 ```bash
 python -m evals.rp_long_memory model \
@@ -207,8 +212,9 @@ candidate and calibration item with the same reviewer ID; calibration is accepte
 when all pre-frozen obvious positive/negative anchor constraints pass. This calibrates
 rubric use but does not replace real-user validation or freeze the dev decision threshold.
 
-`rp-long-memory-v2-holdout.jsonl` contains eight disjoint `test` scenario groups. Offline
-compile is allowed before dev review; model/review output is not. `model --split test`
+`rp-long-memory-v2-holdout.jsonl` and the later production-specific v3 holdout each contain
+eight disjoint `test` scenario groups. Offline compile is allowed before dev review;
+model/review output is not. `model --split test`
 fails before project/client access unless `--threshold-config` names a hash-valid config
 produced by calibrated dev review and bound to the exact local verified test dataset,
 compiler, story/probe prompts, semantic scorer, project profile, run count and reviewer set.
