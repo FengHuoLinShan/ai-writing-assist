@@ -464,9 +464,40 @@ async def test_organizing_revision_fails_if_author_changes_frozen_manuscript(
     assert "正文发生变化" in revision.readiness_summary["message"]
 
 
-async def test_organizing_revision_waits_for_object_reannotation(
+async def test_organizing_revision_fails_when_primary_task_is_cancelled(
     db_session,
     project_factory,
+) -> None:
+    _project, revision, _first, _later, _character = await _ready_source(
+        db_session, project_factory
+    )
+    revision.status = "organizing"
+    revision.task_id = uuid.uuid4()
+    service = InteractionService()._sources  # noqa: SLF001
+    with patch(
+        "modules.interaction.source_service.list_task_lifecycle_contracts",
+        autospec=True,
+        return_value={
+            str(revision.task_id): SimpleNamespace(
+                status="cancelled",
+                recovery_required=False,
+            )
+        },
+    ):
+        await service._refresh(db_session, revision)  # noqa: SLF001
+
+    assert revision.status == "failed"
+    assert "完整整理中断" in revision.readiness_summary["message"]
+
+
+@pytest.mark.parametrize(
+    "reannotation_status",
+    ["pending", "failed", "cancelled", "done"],
+)
+async def test_organizing_revision_requires_successful_object_reannotation(
+    db_session,
+    project_factory,
+    reannotation_status,
 ) -> None:
     _project, revision, _first, _later, _character = await _ready_source(
         db_session, project_factory
@@ -500,15 +531,71 @@ async def test_organizing_revision_waits_for_object_reannotation(
         patch(
             "modules.interaction.source_service.get_latest_coalesced_task",
             autospec=True,
-            return_value=SimpleNamespace(status="pending"),
+            return_value=SimpleNamespace(status=reannotation_status),
         ),
         patch.object(service, "_finalize", autospec=True) as finalize,
     ):
         await service._refresh(db_session, revision)  # noqa: SLF001
 
-    assert revision.status == "organizing"
-    assert "核对对象" in revision.readiness_summary["message"]
+    if reannotation_status == "done":
+        finalize.assert_awaited_once()
+        return
+    assert revision.status == (
+        "organizing" if reannotation_status == "pending" else "failed"
+    )
+    assert (
+        "核对对象" if reannotation_status == "pending" else "关联核对中断"
+    ) in revision.readiness_summary["message"]
     finalize.assert_not_awaited()
+
+
+async def test_relation_evidence_chapter_requires_frozen_source(
+    db_session,
+) -> None:
+    draft_id = str(uuid.uuid4())
+    source_hash = "a" * 64
+    service = InteractionSourceService()
+    exact = {
+        "draft_id": draft_id,
+        "source_hash": source_hash,
+        "chapter_index": 2,
+    }
+    stale = {**exact, "source_hash": "c" * 64}
+    with patch(
+        "modules.interaction.source_service.trace_novel_evidence",
+        autospec=True,
+        return_value={
+            "links": [
+                {"status": "active", "source_ref": stale},
+                {"status": "needs_review", "source_ref": exact},
+                {"status": "active", "source_ref": exact},
+            ]
+        },
+    ) as trace:
+        chapter = await service._relation_evidence_chapter(  # noqa: SLF001
+            db_session,
+            source_id=str(uuid.uuid4()),
+            relation_id=str(uuid.uuid4()),
+            frozen_sources={draft_id: (source_hash, 2)},
+        )
+
+    assert chapter == 2
+    assert trace.await_args.kwargs["content_mode"] == "working"
+
+    with patch(
+        "modules.interaction.source_service.trace_novel_evidence",
+        autospec=True,
+        return_value={"links": [{"status": "active", "source_ref": stale}]},
+    ):
+        assert (
+            await service._relation_evidence_chapter(  # noqa: SLF001
+                db_session,
+                source_id=str(uuid.uuid4()),
+                relation_id=str(uuid.uuid4()),
+                frozen_sources={draft_id: (source_hash, 2)},
+            )
+            is None
+        )
 
 
 async def test_reference_control_uses_source_epoch_and_blocks_stale_writer(

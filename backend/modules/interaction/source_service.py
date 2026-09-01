@@ -18,8 +18,10 @@ from infrastructure.tasks.facade import (
 )
 from modules.account.facade import current_account_id
 from modules.evidence.facade import (
+    VisibilityContextContract,
     get_manifest_entity_appearances,
     get_manifest_index_coverage,
+    trace_novel_evidence,
 )
 from modules.imports.facade import resume_deep_import, start_deep_import
 from modules.interaction.models import InteractionSourceRevision
@@ -676,7 +678,7 @@ class InteractionSourceService:
             revision.readiness_summary = {"message": "完整整理任务已不可用"}
             await db.flush()
             return
-        if task.status == "failed":
+        if task.status in {"failed", "cancelled"}:
             revision.status = "failed"
             revision.readiness_summary = {
                 "message": "完整整理中断，可以从原任务继续恢复",
@@ -709,12 +711,20 @@ class InteractionSourceService:
             novel_id=str(revision.source_novel_id),
             scope=("entity_activity",),
         )
-        if reannotation and reannotation.status in {"pending", "running"}:
-            revision.readiness_summary = {
-                **(revision.readiness_summary or {}),
-                "message": "索引已完成，正在核对对象与原文关联",
-            }
-            return
+        if reannotation:
+            if reannotation.status in {"pending", "running"}:
+                revision.readiness_summary = {
+                    **(revision.readiness_summary or {}),
+                    "message": "索引已完成，正在核对对象与原文关联",
+                }
+                return
+            if reannotation.status != "done":
+                revision.status = "failed"
+                revision.readiness_summary = {
+                    "message": "对象与原文关联核对中断，请重新开始完整整理",
+                }
+                await db.flush()
+                return
         await self._finalize(db, revision)
 
     async def _source_manifest_is_current(
@@ -837,13 +847,17 @@ class InteractionSourceService:
         revision: InteractionSourceRevision,
     ) -> tuple[list[dict], list[dict]]:
         source_id = str(revision.source_novel_id)
+        frozen_sources = {
+            str(item["draft_id"]): (
+                str(item["source_hash"]),
+                int(item["chapter_index"]),
+            )
+            for item in revision.source_manifest or []
+        }
         appearances = await get_manifest_entity_appearances(
             db,
             source_id,
-            {
-                str(item["draft_id"]): str(item["source_hash"])
-                for item in revision.source_manifest or []
-            },
+            {draft_id: value[0] for draft_id, value in frozen_sources.items()},
         )
         entities = await list_entities(
             db,
@@ -962,11 +976,13 @@ class InteractionSourceService:
                 or str(relation.target_id) not in names
             ):
                 continue
-            meta = relation.review_meta or {}
-            source_chapter_index = meta.get("source_chapter_index") or meta.get(
-                "chapter_index"
+            source_chapter_index = await self._relation_evidence_chapter(
+                db,
+                source_id=source_id,
+                relation_id=str(relation.id),
+                frozen_sources=frozen_sources,
             )
-            if not isinstance(source_chapter_index, int):
+            if source_chapter_index is None:
                 continue
             references.append(
                 {
@@ -1012,6 +1028,46 @@ class InteractionSourceService:
                 }
             )
         return references, ambiguities
+
+    @staticmethod
+    async def _relation_evidence_chapter(
+        db: AsyncSession,
+        *,
+        source_id: str,
+        relation_id: str,
+        frozen_sources: dict[str, tuple[str, int]],
+    ) -> int | None:
+        try:
+            trace = await trace_novel_evidence(
+                db,
+                novel_id=source_id,
+                target_ref={
+                    "target_type": "entity_relation",
+                    "target_id": relation_id,
+                    "target_path": "description",
+                },
+                claim_path="description",
+                visibility=VisibilityContextContract(mode="author"),
+                content_mode="working",
+            )
+        except (NotFoundError, ValidationError, ValueError):
+            return None
+        chapters = []
+        for link in trace.get("links") or []:
+            if link.get("status") != "active":
+                continue
+            source_ref = link.get("source_ref") or {}
+            try:
+                frozen = frozen_sources.get(str(source_ref.get("draft_id") or ""))
+                current = (
+                    str(source_ref.get("source_hash") or ""),
+                    int(source_ref.get("chapter_index") or 0),
+                )
+            except (TypeError, ValueError):
+                continue
+            if frozen == current:
+                chapters.append(current[1])
+        return min(chapters, default=None)
 
     async def _anchor_manifest(
         self,

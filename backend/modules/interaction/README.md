@@ -60,6 +60,8 @@ selection epoch 仍匹配的第一个结果可成为当前路径。Prompt、回�
   截断；即使用户只说“继续”，也不会丢掉当前旅程态种子。
 - 对象目录只收录冻结 draft/hash chunk 能证明的版本内出场，并保存首次出场章和最早完整 chunk
   的 end offset；身份、搜索、固定项和生成激活都按剧情截止点过滤，未证明字段不进入 Prompt。
+- 关系只在其服务端 EvidenceLink 能回读并精确匹配当前冻结 `draft_id + source_hash + chapter` 时进入
+  资料版本；仅有旧 `review_meta` 章节号、未定位证据或旧稿证据的关系会被省略。
 - 原作角色使用截止点前的冻结 CharacterKnowledge 和精确原文；原创角色不创建 World
   对象，知识上限是截止点前的读者可见资料。
 - `interaction-story-v4` 优先级是用户最新明确修正 → 当前选中旅程历史/手工回顾 →
@@ -93,6 +95,8 @@ selection epoch 仍匹配的第一个结果可成为当前路径。Prompt、回�
 - 故事页“记住这一点”把当前选中的故事片段与输入预填到“必须继续记住”，保留输入框原文并聚焦回顾字段；
   只有用户再次点击保存才创建 manual revision，不自动发送或静默写入。
 - producer provenance 只保存 provider/model、Prompt/schema 版本和 token/call 统计等脱敏字段。
+- 资料版本只有在正文整理、精确索引和对象重标注任务均成功后才会 ready；对象重标注
+  `failed/cancelled` 会把版本置为可重试的 failed，不会静默 finalize。
 
 ## 流式、停止与恢复
 
