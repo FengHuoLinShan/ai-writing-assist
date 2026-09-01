@@ -3763,6 +3763,29 @@ async def test_content_filter_error_is_mapped_to_safe_user_message() -> None:
     assert "provider detail" not in message
 
 
+async def test_source_context_blocker_keeps_user_reason() -> None:
+    error = InteractionContextBudgetError(
+        "已固定的作品资料超出可用篇幅，请减少固定项",
+        kind="source_context_blocked",
+        user_message="已固定的作品资料超出可用篇幅，请减少固定项",
+    )
+
+    kind, message = InteractionGenerationWorkflow._safe_story_error(error)
+
+    assert kind == "source_context_blocked"
+    assert message == "已固定的作品资料超出可用篇幅，请减少固定项"
+
+
+async def test_context_budget_error_keeps_default_copy_and_kind() -> None:
+    kind, message = InteractionGenerationWorkflow._safe_story_error(
+        InteractionContextBudgetError("internal diagnostic must not escape")
+    )
+
+    assert kind == "context_budget"
+    assert "精简回顾" in message
+    assert "internal diagnostic" not in message
+
+
 async def test_second_see_sea_length_cutoff_formalizes_partial_and_stops_loop(
     db_session,
 ) -> None:

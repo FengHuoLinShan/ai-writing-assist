@@ -1996,7 +1996,8 @@ review calibration和 `quality_claim_allowed`。正文只在 ignored candidate/r
   mean 不退化且 candidate severe spoiler 为 0；前一层不过门时不冻结后一层。当前 dev 数字只可能让 B
   进入候选，C 因 case/fact 均为 `+0` 不能进入。
 - **重放与一次性边界**：config 固定 test dataset、compiler、story/probe Prompt、semantic scorer、
-  project profile、runs 和 reviewer set；candidate ID、arm 顺序与 model cache key 额外绑定 config hash。
+  project profile、runs、reviewer set 及 dev model/review stable report hash；时间戳不进入 config identity，
+  因此相同评分重新 export 不能生成第二个 holdout 身份。candidate ID、arm 顺序与 model cache key 额外绑定 config hash。
   test 侧缺 config、hash/profile/runs 不符或 model stage 不完整时均失败关闭，不打开 provider client；
   同 config hash 一旦已有 test report，只允许 cache-only 确定性重放，不允许再次调用 provider。
 - **决定**：人工 review 未导入前不生成 threshold config，也不消费已冻结 holdout 的任何模型结果。

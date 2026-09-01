@@ -15,6 +15,7 @@ from modules.interaction.models import (
     InteractionJourney,
     InteractionSourceRevision,
 )
+from modules.interaction.repositories import InteractionRepository
 from modules.interaction.schemas import (
     InteractionPlayerIdentity,
     InteractionReferenceUpdateRequest,
@@ -23,6 +24,7 @@ from modules.interaction.schemas import (
     JourneySourceSetup,
 )
 from modules.interaction.services import InteractionService
+from modules.interaction.source_service import InteractionSourceService
 from modules.project.services import ProjectService
 
 pytestmark = pytest.mark.asyncio
@@ -38,6 +40,74 @@ def _anchor(label: str, chapter: int, offset: int) -> dict:
         "end_offset": offset,
         "scene_id": None,
     }
+
+
+async def test_batched_journey_sources_preserve_order_and_probe_project_once() -> None:
+    source_novel_id = uuid.uuid4()
+    latest = SimpleNamespace(
+        id=uuid.uuid4(),
+        source_novel_id=source_novel_id,
+        owner_id=LOCAL_OWNER_ID,
+        version_number=2,
+        title="新版本",
+        status="ready",
+    )
+    older = SimpleNamespace(
+        id=uuid.uuid4(),
+        source_novel_id=source_novel_id,
+        owner_id=LOCAL_OWNER_ID,
+        version_number=1,
+        title="旧版本",
+        status="ready",
+    )
+    repo = InteractionRepository()
+    service = InteractionSourceService(repo)
+    anchor = {"label": "第一章", "chapter_index": 1, "end_offset": 120}
+    requests = [
+        {
+            "revision_id": older.id,
+            "anchor": anchor,
+            "player_identity": {"name": "甲"},
+            "source_context_epoch": 3,
+        },
+        {
+            "revision_id": latest.id,
+            "anchor": anchor,
+            "player_identity": {"name": "乙"},
+            "source_context_epoch": 4,
+        },
+    ]
+
+    with (
+        patch.object(
+            repo,
+            "list_source_revisions",
+            autospec=True,
+            return_value=[latest, older],
+        ) as list_revisions,
+        patch.object(service, "_refresh", autospec=True) as refresh,
+        patch.object(
+            service,
+            "require_author_project",
+            autospec=True,
+        ) as require_project,
+        patch(
+            "modules.interaction.source_service.current_account_id",
+            autospec=True,
+            return_value=LOCAL_OWNER_ID,
+        ),
+    ):
+        responses = await service.journey_source_responses(
+            SimpleNamespace(),
+            requests,
+        )
+
+    assert [item.revision_id for item in responses] == [str(older.id), str(latest.id)]
+    assert [item.update_available for item in responses] == [True, False]
+    assert [item.player_label for item in responses] == ["甲", "乙"]
+    list_revisions.assert_awaited_once()
+    assert refresh.await_count == 2
+    require_project.assert_awaited_once()
 
 
 async def _ready_source(db_session, project_factory):  # noqa: ANN001
@@ -443,6 +513,7 @@ async def test_late_result_revalidates_source_context_epoch(
 
     assert result["status"] == "failed"
     assert attempt.error_kind == "source_context_stale"
+    assert attempt.error_message == "作品资料已变化，请重新生成"
     assert attempt.result_node_id is None
 
 

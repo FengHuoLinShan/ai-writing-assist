@@ -94,7 +94,24 @@ class PreparedSummaryGeneration:
 
 
 class InteractionContextBudgetError(RuntimeError):
-    """Fail closed when the selected path cannot be compiled without loss."""
+    """Fail closed when the selected path cannot be compiled without loss.
+
+    ``kind`` selects the attempt ``error_kind``; ``user_message`` overrides the
+    kind's default copy when the raise site already holds a user-facing reason
+    (e.g. a compiled source-context blocker).  Internal English diagnostics must
+    stay on ``str(error)`` only.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: str = "context_budget",
+        user_message: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.user_message = user_message
 
 
 _SOURCE_QUERY_MAX_CHARS = 4_000
@@ -269,7 +286,19 @@ class InteractionGenerationWorkflow:
                 model=str((task_snapshot.get("profile") or {}).get("model") or ""),
             )
             if compiled_source.blockers:
-                raise InteractionContextBudgetError(compiled_source.blockers[0])
+                raise InteractionContextBudgetError(
+                    compiled_source.blockers[0],
+                    kind="source_context_blocked",
+                    user_message=compiled_source.blockers[0],
+                )
+            if not compiled_source.rendered_context:
+                # Blockers are the only legal way to compile an empty packet;
+                # never let a source-bound attempt fall back to model knowledge.
+                raise InteractionContextBudgetError(
+                    "source context compiled without rendered content",
+                    kind="source_context_blocked",
+                    user_message="作品资料暂时无法安全引用，请查看作品资料调整后重试。",
+                )
             source_context = compiled_source.rendered_context
             attempt.source_context_snapshot_id = (
                 uuid.UUID(compiled_source.snapshot_id)
@@ -1329,10 +1358,12 @@ class InteractionGenerationWorkflow:
     @staticmethod
     def _safe_story_error(error: Exception) -> tuple[str, str]:
         if isinstance(error, InteractionContextBudgetError):
-            return (
-                "context_budget",
-                "当前故事暂时无法在安全范围内继续，请查看并精简回顾后重试",
+            default_message = (
+                "作品资料暂时无法安全引用，请查看作品资料调整后重试"
+                if error.kind == "source_context_blocked"
+                else "当前故事暂时无法在安全范围内继续，请查看并精简回顾后重试"
             )
+            return error.kind, error.user_message or default_message
         if isinstance(error, (LLMAuthError, ProjectLLMConfigurationError)):
             return "configuration", "模型连接不可用，请到账户设置检查 Key"
         if isinstance(error, LLMQuotaError):
