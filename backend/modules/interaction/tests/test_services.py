@@ -3986,7 +3986,7 @@ async def test_summary_request_uses_json_contract_and_twelve_k_budget() -> None:
     assert request.max_tokens == 12_000
 
 
-async def test_unknown_model_request_uses_long_context_fallback_output_budget() -> None:
+async def test_unknown_model_request_uses_short_fallback_output_budget() -> None:
     prepared = PreparedStoryGeneration(
         novel_id=str(uuid.uuid4()),
         journey_id=str(uuid.uuid4()),
@@ -4003,5 +4003,4 @@ async def test_unknown_model_request_uses_long_context_fallback_output_budget() 
         existing_visible_text="",
     )
 
-    # 未校验模型假定不弱于已校准档(MEM-DEC-078),输出预算同 DeepSeek 档。
-    assert story_request(prepared).max_tokens == 8_192
+    assert story_request(prepared).max_tokens == 4_096

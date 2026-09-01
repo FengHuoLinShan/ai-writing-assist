@@ -328,7 +328,7 @@ async def test_snapshot_provider_survives_active_template_hot_switch(
 
 
 @pytest.mark.asyncio
-async def test_legacy_snapshot_restores_with_unfrozen_long_context_fallback(
+async def test_legacy_snapshot_restores_with_short_unfrozen_fallback(
     db_session: AsyncSession,
     test_project_id: str,
 ) -> None:
@@ -346,8 +346,8 @@ async def test_legacy_snapshot_restores_with_unfrozen_long_context_fallback(
     )
 
     capability = capability_from_execution_settings(restored)
-    assert capability.calibration_status == "legacy_long_context_fallback"
-    assert capability.hard_input_tokens == 400_000
+    assert capability.calibration_status == "legacy_fallback"
+    assert capability.hard_input_tokens == 24_000
     assert restored[LLM_CAPABILITY_EXECUTION_KEY]["capability_hash"]
 
 

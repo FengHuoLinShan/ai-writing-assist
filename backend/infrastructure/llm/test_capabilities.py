@@ -22,16 +22,12 @@ def test_deepseek_capability_is_deterministic_and_bounded() -> None:
     assert profile.to_snapshot() == profile.to_snapshot()
 
 
-def test_unknown_model_uses_long_context_fallback() -> None:
-    profile = resolve_llm_capability_profile("custom", "unknown-model")
-    verified = resolve_llm_capability_profile("deepseek", "deepseek-v4-flash")
+def test_unknown_model_uses_short_fallback() -> None:
+    profile = resolve_llm_capability_profile("kimi", "moonshot-v1-8k")
 
-    # 产品决策:未校验模型假定不弱于已校准档,避免 source-bound 旅程
-    # 每轮触发压缩;假定状态与 verified_dev 明确区分。
-    assert profile.calibration_status == "unknown_long_context_fallback"
-    assert profile.hard_input_tokens == verified.hard_input_tokens
-    assert profile.story_output_tokens == verified.story_output_tokens
-    assert profile.normal_input_tokens == verified.normal_input_tokens
+    assert profile.calibration_status == "unknown_fallback"
+    assert profile.hard_input_tokens == 24_000
+    assert profile.story_output_tokens == 4_096
 
 
 def test_capability_snapshot_rejects_tamper_and_provider_mismatch() -> None:

@@ -103,10 +103,8 @@ Embedding、streaming 和 `generate_simple()` 不是本 harness 的默认迁移�
 
 `infrastructure.llm.capabilities` 是唯一 model capability budget registry。当前只有官方
 `deepseek-v4-flash` 经 dev eval 校准：官方 context 为 1M，生产 hard input 仍限制为已验证的
-400K；normal/compact 为 256K/360K，summary input ceiling 为 256K。unknown model 使用与
-已校准档同数值的 long-context fallback（`calibration_status=unknown_long_context_fallback`，
-2026-09-02 产品决策：当前可接入 provider 均为长上下文模型），不继承上一模型档案，也不接受
-浏览器自报窗口。
+400K；normal/compact 为 256K/360K，summary input ceiling 为 256K。unknown model 使用
+16K/20K/24K short fallback，不继承上一模型档案，也不接受浏览器自报窗口。
 
 新增带 `novel_id` 的业务 LLM 服务必须使用 project facade 的 runtime seam，不能直接
 构造 `LLMClient`、调用 `from_project_settings()` 或自行解析 profile。静态门禁会扫描
@@ -134,7 +132,7 @@ provider/model/非 secret 参数/字段来源、capability profile ID/hash/预�
 项目值、环境覆盖与代码默认也在此时物化为显式值。恢复时读取 snapshot 原 provider
 当前轮换后的账户 Key；账户切到其他模板不要求重建任务，但原 provider Key 被清除、
 endpoint 或 provider-specific extra 的 hash 变化时 fail closed。
-旧 snapshot 没有 capability 字段时只恢复为 `legacy_long_context_fallback` 假定档。
+旧 snapshot 没有 capability 字段时只恢复为 unfrozen short fallback。
 
 业务供应商 profile 不从 `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL` 等环境变量
 继承。当前账户模板默认是官方 DeepSeek：
