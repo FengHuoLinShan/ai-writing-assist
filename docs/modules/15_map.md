@@ -20,6 +20,9 @@
 - ADR-0017 Phase 0 只把 World Bible PageRevision 选入 Canon；地图册尚未切换为
   CanonRevision 消费者，仍按下文的已确认 Context/RAG/World Bible 来源与 hash
   门禁运行，不从 `world_assertions` 或 Canon manifest 双读。
+- RP 的版本化作者作品引用只服务 `interaction.story` consumer；地图册不读取
+  `interaction_source_revisions`、RP 剧情截止点或 consumer snapshot，也不把私人旅程分支当作
+  地图资料。
 
 ## 用户状态
 

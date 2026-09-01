@@ -119,12 +119,49 @@
     }),
 
     "interactions.listJourneys": define("GET", () => "/interactions/journeys"),
+    "interactions.listSources": define("GET", () => "/interactions/sources"),
+    "interactions.getSource": define("GET", ({ revisionId }) => `/interactions/sources/${required(revisionId, "revisionId", "interactions.getSource")}`, {
+      requiredParams: ["revisionId"],
+    }),
+    "interactions.sourceFromProject": define("POST", () => "/interactions/sources/from-project", {
+      hasBody: true,
+      requiredBody: ["project_id", "authorization_confirmed"],
+    }),
+    "interactions.resolveSourceAmbiguity": define("POST", ({ revisionId, ambiguityKey }) => `/interactions/sources/${required(revisionId, "revisionId", "interactions.resolveSourceAmbiguity")}/ambiguities/${required(ambiguityKey, "ambiguityKey", "interactions.resolveSourceAmbiguity")}`, {
+      requiredParams: ["revisionId", "ambiguityKey"],
+      hasBody: true,
+      requiredBody: ["choice_key"],
+    }),
+    "interactions.listSourceAnchors": define("GET", ({ revisionId }) => `/interactions/sources/${required(revisionId, "revisionId", "interactions.listSourceAnchors")}/anchors`, {
+      requiredParams: ["revisionId"],
+    }),
+    "interactions.matchSourceAnchors": define("POST", ({ revisionId }) => `/interactions/sources/${required(revisionId, "revisionId", "interactions.matchSourceAnchors")}/anchors/match`, {
+      requiredParams: ["revisionId"],
+      hasBody: true,
+      requiredBody: ["chapter_index", "description"],
+    }),
+    "interactions.listSourceObjects": define("GET", ({ revisionId }) => `/interactions/sources/${required(revisionId, "revisionId", "interactions.listSourceObjects")}/objects`, {
+      requiredParams: ["revisionId"],
+    }),
     "interactions.createJourney": define("POST", () => "/interactions/journeys", {
       hasBody: true,
       requiredBody: ["opening_text", "idempotency_key"],
     }),
     "interactions.getJourney": define("GET", ({ journeyId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.getJourney")}`, {
       requiredParams: ["journeyId"],
+    }),
+    "interactions.updateJourneySource": define("PATCH", ({ journeyId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.updateJourneySource")}/source`, {
+      requiredParams: ["journeyId"],
+      hasBody: true,
+      requiredBody: ["source_revision_id", "progress_anchor_key", "expected_selection_epoch", "expected_source_context_epoch"],
+    }),
+    "interactions.getJourneyReferences": define("GET", ({ journeyId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.getJourneyReferences")}/references`, {
+      requiredParams: ["journeyId"],
+    }),
+    "interactions.updateJourneyReferences": define("PATCH", ({ journeyId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.updateJourneyReferences")}/references`, {
+      requiredParams: ["journeyId"],
+      hasBody: true,
+      requiredBody: ["action", "expected_source_context_epoch"],
     }),
     "interactions.getMessages": define("GET", ({ journeyId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.getMessages")}/messages`, {
       requiredParams: ["journeyId"],

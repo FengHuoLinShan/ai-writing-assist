@@ -17,6 +17,8 @@ from xml.etree import ElementTree
 
 import chardet
 
+from modules.imports.contracts import MAX_IMPORT_FILE_SIZE
+
 CHAPTER_PATTERNS = [
     re.compile(
         r"^(?:第[一二三四五六七八九十百千万零\d]+[章节回话]|序章|序言|前言|楔子|引子).*",
@@ -30,7 +32,7 @@ CHAPTER_PATTERNS = [
 
 CHUNK_SIZE = 500 * 1024
 ENCODING_DETECT_SAMPLE_SIZE = 64 * 1024
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+MAX_FILE_SIZE = MAX_IMPORT_FILE_SIZE
 _COMMON_CHINESE_ENCODINGS = {"big5", "gb18030", "gb2312", "gbk"}
 _DEFAULT_ENCODING_CONFIDENCE = 0.7
 _CHINESE_ENCODING_CONFIDENCE = 0.2

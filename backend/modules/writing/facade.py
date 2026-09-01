@@ -28,6 +28,7 @@ __all__ = [
     "create_draft_only",
     "create_published_draft_only",
     "create_published_drafts_only",
+    "deprecate_chapter_versions",
     "get_author_attention_items",
     "get_draft",
     "get_latest_draft_for_chapter",
@@ -97,6 +98,15 @@ async def create_published_drafts_only(
         for chapter in chapters
     ]
     return await _service.create_published_draft_contracts(db, data_items)
+
+
+async def deprecate_chapter_versions(
+    db: AsyncSession,
+    novel_id: str,
+    chapter_index: int,
+) -> int:
+    """Soft-delete every version of one chapter for a confirmed source update."""
+    return await _service.delete_chapter(db, novel_id, chapter_index)
 
 
 async def create_draft(

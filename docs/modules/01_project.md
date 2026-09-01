@@ -21,6 +21,8 @@ JSONB 配置字段，存储项目级可调参数，如 `temporary_entity_expiry_
 业务 LLM 的 provider/model/API Key 不再由项目拥有：Key 按 owner 加密保存在
 `account_llm_credentials`，当前 DeepSeek/Kimi 模板由 account 解析；project 只经 account facade
 读取 secret-free contract 并负责 effective composition。
+隐藏 consumer 可显式绑定同 owner author 项目的不可变 RP source revision，但这只是版本化
+只读 Evidence 例外；来源查询仍用 author `novel_id`，旅程写入仍用 interaction `novel_id`。
 `settings.llm` 只保留旧项目的非 secret 兼容字段，`settings.deep_import` 继续承载项目级
 深度导入参数；任何项目创建、通用更新或兼容 LLM 设置接口中的 Key 写入都会被拒绝。
 
@@ -49,6 +51,9 @@ provider/model/预算与配置哈希；执行时按项目 owner 重新读取该 
 恢复 → 清空 deleted_at
 永久删除 → 级联 DELETE 所有 novel_id 关联行
 ```
+
+如果 author 项目的 source revision 仍被任一 RP 旅程引用，永久删除在进入级联前返回
+409；软删除/恢复语义不变。此计数只经 interaction DI port 读取，project 不导入其 ORM。
 
 ## 服务
 

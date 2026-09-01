@@ -8,14 +8,18 @@ import { getApi, getRouter, getToast } from "../bridge/index.js"
 
 export const MAX_IMPORT_FILE_BYTES = 50 * 1024 * 1024
 export const IMPORT_FILE_ACCEPT = ".txt,.epub,.html,.htm,.mobi,.azw3"
-const IMPORT_FILE_EXTENSIONS = new Set(IMPORT_FILE_ACCEPT.split(","))
+export const RP_SOURCE_FILE_ACCEPT = ".txt,.epub,.html,.htm"
 
-export function validateImportFile(file) {
+export function validateImportFile(file, accept = IMPORT_FILE_ACCEPT) {
   if (!file) return "请先选择文件"
   const name = String(file.name || "").trim().toLowerCase()
   const suffix = name.includes(".") ? name.slice(name.lastIndexOf(".")) : ""
-  if (!IMPORT_FILE_EXTENSIONS.has(suffix)) {
-    return "不支持的文件格式，请选择 txt、epub、html、htm、mobi 或 azw3 文件"
+  if (!new Set(accept.split(",")).has(suffix)) {
+    const extensions = accept.split(",").map((value) => value.slice(1))
+    const labels = extensions.length > 1
+      ? `${extensions.slice(0, -1).join("、")} 或 ${extensions.at(-1)}`
+      : extensions[0]
+    return `不支持的文件格式，请选择 ${labels} 文件`
   }
   if (file.size > MAX_IMPORT_FILE_BYTES) return "文件大小超过限制（最大 50MB）"
   return null

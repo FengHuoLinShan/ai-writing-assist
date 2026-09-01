@@ -16,6 +16,7 @@ from modules.interaction.models import (
     InteractionJourney,
     InteractionMessageNode,
     InteractionOverviewRevision,
+    InteractionSourceRevision,
     InteractionSummarySegment,
 )
 
@@ -32,6 +33,101 @@ def parent_key(parent_node_id: uuid.UUID | None) -> str:
 
 
 class InteractionRepository:
+    async def get_source_revision(
+        self,
+        db: AsyncSession,
+        *,
+        revision_id: uuid.UUID,
+        owner_id: uuid.UUID,
+        for_update: bool = False,
+    ) -> InteractionSourceRevision | None:
+        stmt = select(InteractionSourceRevision).where(
+            InteractionSourceRevision.id == revision_id,
+            InteractionSourceRevision.owner_id == owner_id,
+        )
+        if for_update:
+            stmt = stmt.with_for_update()
+        return (await db.execute(stmt)).scalar_one_or_none()
+
+    async def list_source_revisions(
+        self,
+        db: AsyncSession,
+        *,
+        owner_id: uuid.UUID,
+    ) -> list[InteractionSourceRevision]:
+        return list(
+            (
+                await db.execute(
+                    select(InteractionSourceRevision)
+                    .where(InteractionSourceRevision.owner_id == owner_id)
+                    .order_by(
+                        InteractionSourceRevision.source_novel_id,
+                        InteractionSourceRevision.version_number.desc(),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    async def latest_source_revision(
+        self,
+        db: AsyncSession,
+        *,
+        source_novel_id: uuid.UUID,
+        owner_id: uuid.UUID,
+    ) -> InteractionSourceRevision | None:
+        return (
+            await db.execute(
+                select(InteractionSourceRevision)
+                .where(
+                    InteractionSourceRevision.source_novel_id == source_novel_id,
+                    InteractionSourceRevision.owner_id == owner_id,
+                )
+                .order_by(InteractionSourceRevision.version_number.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+    async def source_revision_by_manifest(
+        self,
+        db: AsyncSession,
+        *,
+        source_novel_id: uuid.UUID,
+        owner_id: uuid.UUID,
+        manifest_hash: str,
+    ) -> InteractionSourceRevision | None:
+        return (
+            await db.execute(
+                select(InteractionSourceRevision).where(
+                    InteractionSourceRevision.source_novel_id == source_novel_id,
+                    InteractionSourceRevision.owner_id == owner_id,
+                    InteractionSourceRevision.manifest_hash == manifest_hash,
+                )
+            )
+        ).scalar_one_or_none()
+
+    async def source_reference_count(
+        self,
+        db: AsyncSession,
+        *,
+        source_novel_id: uuid.UUID,
+    ) -> int:
+        return int(
+            (
+                await db.execute(
+                    select(func.count(InteractionJourney.id))
+                    .join(
+                        InteractionSourceRevision,
+                        InteractionSourceRevision.id
+                        == InteractionJourney.source_revision_id,
+                    )
+                    .where(InteractionSourceRevision.source_novel_id == source_novel_id)
+                )
+            ).scalar_one()
+            or 0
+        )
+
     async def get_journey(
         self,
         db: AsyncSession,
@@ -76,9 +172,7 @@ class InteractionRepository:
                 )
             )
         total = (
-            await db.execute(
-                select(func.count(InteractionJourney.id)).where(*conditions)
-            )
+            await db.execute(select(func.count(InteractionJourney.id)).where(*conditions))
         ).scalar_one()
         items = list(
             (
@@ -179,9 +273,7 @@ class InteractionRepository:
                         InteractionGenerationAttempt.journey_id.in_(
                             [journey.id for journey in journeys]
                         ),
-                        InteractionGenerationAttempt.response_to_node_id.in_(
-                            leaf_ids
-                        ),
+                        InteractionGenerationAttempt.response_to_node_id.in_(leaf_ids),
                     )
                     .order_by(
                         InteractionGenerationAttempt.created_at.desc(),
@@ -283,9 +375,7 @@ class InteractionRepository:
             .where(
                 parent.journey_id == journey.id,
                 parent.novel_id == journey.novel_id,
-                ~ancestry.c.visited.like(
-                    literal("%|") + parent_id_text + literal("|%")
-                ),
+                ~ancestry.c.visited.like(literal("%|") + parent_id_text + literal("|%")),
             )
         )
         path = list(
@@ -590,9 +680,7 @@ class InteractionRepository:
                 InteractionGenerationAttempt.owner_id == journey.owner_id,
                 InteractionGenerationAttempt.journey_id == journey.id,
                 InteractionGenerationAttempt.novel_id == journey.novel_id,
-                InteractionGenerationAttempt.status.in_(
-                    sorted(ACTIVE_ATTEMPT_STATUSES)
-                ),
+                InteractionGenerationAttempt.status.in_(sorted(ACTIVE_ATTEMPT_STATUSES)),
             )
             .order_by(
                 InteractionGenerationAttempt.created_at.desc(),
@@ -723,9 +811,7 @@ class InteractionRepository:
                         InteractionGenerationAttempt.novel_id == journey.novel_id,
                         InteractionGenerationAttempt.status == "failed",
                         InteractionGenerationAttempt.result_node_id.is_(None),
-                        func.length(
-                            func.trim(InteractionGenerationAttempt.visible_text)
-                        )
+                        func.length(func.trim(InteractionGenerationAttempt.visible_text))
                         > 0,
                     )
                     .order_by(
@@ -749,8 +835,7 @@ class InteractionRepository:
         return (
             await db.execute(
                 select(InteractionOverviewRevision).where(
-                    InteractionOverviewRevision.id
-                    == journey.overview_head_revision_id,
+                    InteractionOverviewRevision.id == journey.overview_head_revision_id,
                     InteractionOverviewRevision.journey_id == journey.id,
                     InteractionOverviewRevision.novel_id == journey.novel_id,
                     InteractionOverviewRevision.promoted.is_(True),
@@ -791,9 +876,7 @@ class InteractionRepository:
                     .where(
                         InteractionOverviewRevision.journey_id == journey.id,
                         InteractionOverviewRevision.novel_id == journey.novel_id,
-                        InteractionOverviewRevision.anchor_node_id.in_(
-                            anchor_node_ids
-                        ),
+                        InteractionOverviewRevision.anchor_node_id.in_(anchor_node_ids),
                     )
                     .order_by(
                         InteractionOverviewRevision.created_at.desc(),

@@ -22,12 +22,29 @@ class RagSceneMappingCoverageService:
         content_mode: str,
     ) -> RagSceneMappingCoverageContract:
         from modules.story.facade import get_scene_span_coverage
+        from modules.writing.facade import (
+            list_effective_chapter_indices,
+            list_manuscript_sources,
+        )
 
         nid = uuid.UUID(str(novel_id))
+        chapter_indices = await list_effective_chapter_indices(db, novel_id)
+        sources = await list_manuscript_sources(
+            db,
+            novel_id,
+            chapter_indices,
+            content_mode=content_mode,
+        )
+        source_manifest = {
+            uuid.UUID(source.id): source.content_hash
+            for source in sources
+            if source.id and source.content_hash
+        }
         chunks = await self._repo.list_scene_mapping_rows(
             db,
             nid,
             content_mode=content_mode,
+            source_manifest=source_manifest or None,
         )
         span_coverage = await get_scene_span_coverage(
             db,

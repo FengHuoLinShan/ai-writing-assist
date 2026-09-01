@@ -634,6 +634,10 @@ checkpoint、stale/resolved 冲突、已处理建议和 task-only 临时结果�
 保持项目过滤；别名成员的 Scene/章节来源通过稳定响应字段读取，三类审核 target 保留对象或组
 标识供领域页精确定位。root `facade.py` 仅 re-export，响应不包含正文、原始任务、owner 或密钥。
 
+`list_entity_terms(..., include_review=True)` 是 RP source revision 整理时的窄只读扩展；它返回正式与
+待处理名称/别名用于发现关键同名歧义，不会将 candidate 属性自动提升为正史。对象、
+关系与 CharacterKnowledge 只在 interaction source revision 创建时冻结读投影，RP 结果不回写 world。
+
 ```python
 # ---- CoreEntity ----
 async def list_entities(db, novel_id, *, entity_type=None, statuses=None, display_state=None, limit=100) -> list[dict]

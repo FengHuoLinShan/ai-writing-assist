@@ -13,6 +13,7 @@ evidence 是小说证据的唯一领域实现：indexing 子域负责 chunk、�
 - `compile_structure_context()`：兼容旧调用方的结构化 bundle
 - `compile_with_tiers()`：当前前端和 AI 参考资料确认流程使用的分层编译器
 - `context_snapshots` facade：自动 AI 流水线的上下文快照审计记录
+- `compile_interaction_story_context()`：冻结 author source revision 到私人 RP attempt 的版本化只读参考包
 - `load_scene_lens()`：写作台显式点击后读取单个 Scene 的 POV 可见资料与已有时点状态
 
 `compile_with_tiers()` 不只是生成最终 Markdown。它先生成可审查的 `CompiledContext` IR，再由 API 和前端把每个 section 及其实际 `ContextItem` 的标题、状态、来源、激活原因和裁剪结果展示给用户。
@@ -21,12 +22,14 @@ evidence 是小说证据的唯一领域实现：indexing 子域负责 chunk、�
 
 context 本身不拥有业务事实，但当前**有自己的确认与审计记录表**：
 
-- `rag_chunks`：可重建的正文检索块，绑定 writing source ID/hash
+- `rag_chunks`：可重建的正文检索块，绑定 writing source ID/hash；同章不同 draft 可并存，
+  检索可在排序前按 exact source manifest 过滤
 - `rag_entity_appearances`：从当前正文索引派生的对象出场投影
 - `rag_index_state`：索引请求源、已完成源、freshness 与 task owner/generation 状态
 - `context_confirmations`：AI 参考资料确认记录，保存 action、scope、selected_asset_ids、warnings、result_refs、stale_reasons 等摘要
 - `context_confirmation_asset_refs`：把确认记录精确索引到资产 kind/id、来源 hash 与失效检查
-- `context_snapshots`：自动 AI 调用上下文快照，保存 task_id、workflow_id、phase、context_mode、included_asset_ids、摘要、prompt_hash、token/section metadata、result_refs 和错误信息
+- `context_snapshots`：自动 AI 调用上下文快照，保存 source `novel_id`、可空 RP
+  `consumer_novel_id`、task/workflow、摘要/hash、token/section metadata、result refs 和错误；默认不保存完整 rendered context
 - `evidence_links`：使用 `TargetRef + claim_path` 将对象字段连到 `SourceRangeRef`；保存 precision/status/provenance，不创建独立 Claim 正史
 - `context_retrieval_traces`：只保存查询计划 hash、clause 摘要、计数和 safe-empty 原因，不保存 raw query/正文
 - PostgreSQL trace 旁路写入设置 2 秒事务级锁等待上限；FK 锁竞争只产生诊断 warning，
@@ -112,6 +115,14 @@ embedding 或 retrieval trace。`POST /api/evidence/compilation/scene-lens` 先�
 RAG 文本只用于候选召回。`RagChunksLoader` 按 chunk 的 source draft/hash 从 writing
 重读原文，不匹配则丢弃并告警；进入 `CompiledContext` 的 section metadata 保留
 source refs/hash，不把未校验的 chunk text 当作事实。
+
+普通作者编译器在运行 RAG loader 前自动读取当前 Writing manifest；RP 则显式传入
+source revision manifest。`NovelEvidenceService.rehydrate_manuscript_candidates()` 在 RP 路径可按历史
+draft ID 回读，仍重验 source/range hash 与 offset。`interaction.story` 关闭 LLM 查询规划/重排，
+只使用确定性名称别名扩展和代码原因。
+RP 的版本对象出场目录也直接按 exact manifest chunk 计算首次出场章和最早完整 chunk end
+offset，不复用当前稿热点 projection；未在该版本原文关联中出现、或首次出场晚于剧情截止点
+的对象不会成为身份、固定项或激活候选。
 
 复杂作者查询可在 `RAG_QUERY_PLANNER_ENABLED=true` 时调用一次受约束的项目 LLM，
 在保留原 Query 和所有确定性过滤的前提下补充最多两条 support/counter 软查询。

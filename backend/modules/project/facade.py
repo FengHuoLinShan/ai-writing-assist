@@ -18,7 +18,7 @@ from core.logging_context import bind_validated_novel_id
 from modules.project.contracts import InteractionProjectContract, ProjectSummary
 from modules.project.models import Project
 from modules.project.repositories import ProjectRepository
-from modules.project.schemas import ProjectContext
+from modules.project.schemas import ProjectContext, ProjectCreate
 from modules.project.services import ProjectService
 from modules.project.settings_schemas import (
     EffectiveAuthorPrefsResponse,
@@ -209,6 +209,16 @@ async def create_interaction_project(
     return await _service.create_interaction_project(db, title=title)
 
 
+async def create_author_project(
+    db: AsyncSession,
+    *,
+    title: str,
+) -> ProjectSummary:
+    """Create a normal author project for a cross-module user workflow."""
+    project = await _service.create_project(db, ProjectCreate(title=title))
+    return ProjectSummary(project_id=uuid.UUID(str(project.id)), title=project.title)
+
+
 async def archive_interaction_project(db: AsyncSession, novel_id: str) -> None:
     await _service.archive_interaction_project(db, novel_id)
 
@@ -303,9 +313,7 @@ async def lock_project_ids_for_owner(
             {"lock_key": lock_key},
         )
     result = await db.execute(
-        select(Project.id)
-        .where(Project.owner_id == owner_id)
-        .order_by(Project.id)
+        select(Project.id).where(Project.owner_id == owner_id).order_by(Project.id)
     )
     return list(result.scalars().all())
 
@@ -324,9 +332,7 @@ async def purge_projects_for_owner(
     project_ids = list(
         (
             await db.execute(
-                select(Project.id)
-                .where(Project.owner_id == owner_id)
-                .with_for_update()
+                select(Project.id).where(Project.owner_id == owner_id).with_for_update()
             )
         ).scalars()
     )

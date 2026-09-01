@@ -4,6 +4,8 @@
 
 project 模块负责统一项目隔离根。作者项目使用 `project_kind=author`；每个 RP 旅程另有一个
 不出现在作者项目列表/回收站的 `project_kind=interaction` 隐藏项目。
+作者项目仍是 RP 作品资料的唯一源隔离根；interaction 只能经 ADR-0018 定义的同 owner
+不可变 source revision 读取，不能把 hidden consumer 当作作者项目。
 其他模块通过 `novel_id` 引用项目，并通过 kind-aware facade 获取项目配置或门禁。
 
 ## 职责
@@ -68,6 +70,9 @@ class InteractionProjectContract:
 ```
 
 ## Facade（facade.py）
+
+`create_author_project()` 是 RP 两次导入在预览通过后创建普通作者项目的窄稳定入口；
+它复用正常账号状态、owner、World canon 初始化和默认设置，不新增第三种 project kind。
 
 ```python
 async def get_project_context(db, novel_id: str) -> ProjectContext: ...
@@ -148,6 +153,10 @@ client。
 项目永久删除持 exclusive project lock，取消普通任务并经 world 的窄 facade 创建
 `owner_scope=global`、`novel_id=NULL` 的地图册和对象图片 S3 前缀清理任务，再删除项目。该顺序
 和图片上传的 share lock 共同阻止晚到对象；普通业务模块不能自行创建全局任务。
+
+project 还通过组合根注册的 `interaction.count_source_references` DI port 在永久删除前
+检查 RP 旅程引用。任一旅程仍绑定该 author source revision 时返回冲突；无旅程引用时
+source revision 随作者项目级联删除。软删除仍允许，但 source-bound 新生成在来源恢复前失败关闭。
 
 `build_project_llm_execution_snapshot()` 用于可恢复任务的提交时冻结：
 只持久化账户 provider/model/非 secret 参数、字段来源、deep-import 设置、

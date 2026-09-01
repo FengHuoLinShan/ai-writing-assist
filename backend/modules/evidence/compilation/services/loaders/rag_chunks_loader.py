@@ -384,6 +384,7 @@ class RagChunksLoader(Loader):
                     visible_until_chapter=plan.visible_until_chapter,
                     retrieval_purpose=plan.purpose,
                     rerank=False,
+                    source_manifest=options.source_manifest,
                 )
             except Exception:
                 degraded = True
@@ -460,6 +461,7 @@ class RagChunksLoader(Loader):
             content_mode=options.content_mode,
             visibility=visibility,
             chunks=chunks,
+            source_manifest=options.source_manifest,
         )
         for warning in rehydrated.warnings:
             if warning not in bundle.warnings:

@@ -126,6 +126,11 @@ snapshot 失败，任务重新从发布源发起时会合并 fresh RAG，只补�
 聚合命中通过可选 `source_refs` 保留该章全部命中范围，供 context 在不改变分页语义的
 前提下对齐每个命中的父 Scene；未聚合结果保持空列表。
 
+RP source revision 的 manifest 保存具体 draft ID/version/content hash。新版本发布或章节被软废弃后，
+`get_draft()` / `build_manuscript_range_ref()` / `read_manuscript_range()` 仍可按历史 draft 精确
+回读；canonical 历史读取要求它曾是 published，并继续校验整章 hash、范围 hash、version
+和 offset。`deprecate_chapter_versions()` 只供已二次确认的 RP 完整稿移除调用，不硬删历史正文。
+
 `facade.list_latest_drafts_for_chapters(..., content_limit=N)` 供跨模块批量加载正文时做 DB-side 截断；默认 `None` 保持返回完整最新正文。`content_limit` 必须为正整数，启用时仅投影跨模块契约必要字段，不加载完整 `WritingDraft` ORM。
 
 `facade.list_effective_chapter_indices()` 只返回每章最新 working 版本中含有实质正文的章节；空值、空串和仅含 Unicode 空白的占位稿不会推进 Scene 工作台或热点统计的“当前章节”。原 `list_chapter_indices()` 继续表示存在 working 草稿记录的章节，保持既有 API 与管理流程语义。

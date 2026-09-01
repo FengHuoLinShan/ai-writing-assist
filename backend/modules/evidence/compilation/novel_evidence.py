@@ -341,6 +341,7 @@ class NovelEvidenceService:
         content_mode: str,
         visibility: VisibilityContextContract,
         chunks: Sequence[RagChunkContract],
+        source_manifest: dict[str, str] | None = None,
     ) -> ManuscriptCandidateReadBatch:
         """Read RAG candidates only after binding them to current manuscript text."""
 
@@ -351,6 +352,7 @@ class NovelEvidenceService:
             content_mode=content_mode,
             visibility=visibility,
             chunks=chunks,
+            source_manifest=source_manifest,
         )
 
     async def _rehydrate_manuscript_candidates(
@@ -362,9 +364,11 @@ class NovelEvidenceService:
         visibility: VisibilityContextContract,
         visibility_warnings: Sequence[str] = (),
         chunks: Sequence[RagChunkContract],
+        source_manifest: dict[str, str] | None = None,
     ) -> ManuscriptCandidateReadBatch:
         from modules.writing.facade import (
             build_manuscript_range_ref,
+            get_draft,
             list_manuscript_sources,
         )
 
@@ -376,12 +380,19 @@ class NovelEvidenceService:
         if visibility.cutoff_scene_id:
             chapter_set.add(int(visibility.cutoff_chapter or 0))
         chapters = sorted(chapter for chapter in chapter_set if chapter > 0)
-        current_sources = await list_manuscript_sources(
-            db,
-            novel_id,
-            chapters,
-            content_mode=content_mode,
-        )
+        if source_manifest is None:
+            current_sources = await list_manuscript_sources(
+                db,
+                novel_id,
+                chapters,
+                content_mode=content_mode,
+            )
+        else:
+            current_sources = []
+            for draft_id, source_hash in source_manifest.items():
+                draft = await get_draft(db, novel_id, draft_id)
+                if draft is not None and draft.content_hash == source_hash:
+                    current_sources.append(draft)
         current_by_chapter = {source.chapter_index: source for source in current_sources}
         resolver_kwargs = {}
         if visibility.cutoff_scene_id:

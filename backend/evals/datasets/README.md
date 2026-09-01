@@ -139,6 +139,52 @@ the local Codex CLI does not expose a trustworthy per-request price.
 deterministic QC, the two independent judge views, and the required stratified
 human review have completed.
 
+## RP long-memory gate
+
+`baselines/rp-long-memory-v1.jsonl` is a copyright-safe synthetic contract for
+selected-branch materialization, overview/segment/raw/overlay comparison arms,
+required-budget failure, source cutoff, manual correction, and bounded prefix
+compaction. The default command performs no database, network, key, or model I/O:
+
+```bash
+make eval-rp-long-memory
+```
+
+It writes a hash-only report under the ignored `evals/artifacts/` directory.
+`quality_claim_allowed` remains false because an offline compile is not model
+quality evidence or a user trial. The committed cases deliberately use
+`calibration_status=synthetic`; paid generation rejects them. A model pilot is
+opt-in and accepts only a local dataset with a currently verified capability
+profile plus a disposable active interaction project whose effective model
+matches that profile:
+
+Only cases with at least one executable arm require a verified provider profile;
+an intentionally over-budget contract case may remain `uncalibrated` because it
+must never issue provider I/O. The 2026-09-01 DeepSeek V4 Flash dev run completed
+35 candidates but returned `non_ready` (18/35 exact probes, zero sentinel leaks),
+so no production recall arm was enabled; frozen hashes and interpretation live in
+the long-memory decision ledger while generated prose/cache remain ignored.
+
+```bash
+python -m evals.rp_long_memory model \
+  evals/datasets/local/rp-long-memory-dev.jsonl --split dev \
+  --novel-id <disposable-interaction-project-id> --allow-paid-model --runs 1 \
+  --output-dir evals/artifacts/rp-long-memory
+python -m evals.rp_long_memory review \
+  evals/artifacts/rp-long-memory/rp-long-memory-model-report.json \
+  evals/artifacts/rp-long-memory/reviews.jsonl \
+  --arm-map evals/artifacts/rp-long-memory/rp-long-memory-arm-map.json \
+  --output evals/artifacts/rp-long-memory/final-report.json
+```
+
+Candidate prose, review packages, arm maps, caches, and detailed traces stay in
+the existing ignored artifact/cache directories. Compile-only metrics for model
+usage, cache behavior, latency, fact probes, and blind review are present but
+explicitly unavailable; missing evidence is never converted to zero or pass.
+Model-stage total usage is available only when both structured probe calls
+(including repair attempts) and story streaming usage are present for every
+candidate. Legacy cache records missing probe usage remain explicitly unavailable.
+
 `eval-baseline-check` is also fully offline and only reads decisions already
 stored in each case. It does not rerun QC or start Codex. Pilot readiness requires
 at least 200 accepted cases with RAG/Scene/World/Outline minimums 80/40/50/30,

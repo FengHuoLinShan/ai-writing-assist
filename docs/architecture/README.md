@@ -37,6 +37,8 @@ PR 若确实没有当前文档变化，必须按脚本列出的未更新文档�
 ADR-0013 记录作者长任务的 operation receipt、最多两个 attempt 和页内恢复边界；该决定
 复用现有 tasks/LLM/project seams，不新增队列、表、全局任务中心或跨设备锁。ADR-0014 规定
 世界对象图片的鉴权读取、私有双 bucket、最小权限应用凭据和单盘 32GiB MinIO 边界。
+ADR-0018 定义同 owner author source revision 到 hidden interaction consumer 的唯一跨项目只读
+例外：Writing 保留原文，Evidence 按 manifest/截止点编译，interaction 只保存私人旅程。
 
 ## 当前读图约定
 
@@ -46,7 +48,8 @@ ADR-0013 记录作者长任务的 operation receipt、最多两个 attempt 和�
   `story/continuity`）和辅助层（`imports/evidence/story/writing`）。RAG 索引和 Context 编译/确认归 `evidence`；
   账户连接与全局偏好归 `account`，项目偏好与有效配置
   归 `project`；`account` 是三层之外的公开身份与 owner
-  边界；`interaction` 是三层之外的私人 RP 故事领域；`infrastructure/tasks`、
+  边界；`interaction` 是三层之外的私人 RP 故事领域，只能经 ADR-0018 版本化只读例外
+  消费作者作品；`infrastructure/tasks`、
   `infrastructure/llm` 是共享基础设施。
 - Canonical HTTP 所有权与模块一致：`/api/evidence/{indexing,compilation}/*`、
   `/api/account/settings/*`、`/api/projects/{project_id}/author-preferences`；旧

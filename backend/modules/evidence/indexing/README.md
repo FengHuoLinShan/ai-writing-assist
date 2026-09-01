@@ -53,9 +53,15 @@ DI port 合并入队 `rag_reannotate_entities`：该任务只更新 chunk 术语
 迁移会为现有活跃项目各入队一次回填任务。
 
 章节正文索引要求 `chunk_index` 和 `index_version` 始终存在。幂等键包含
-`content_mode`，canonical 与 working 分别重建；`source_id/source_content_hash`
-必须指向实际执行时选中的 draft。working 来源只读取 writing 已采用版本；未采用 AI
+`content_mode + source_id`，canonical 与 working 分别重建，同章不同 Writing draft
+的 chunk 可并存；`source_id/source_content_hash` 必须指向实际执行时选中的 draft。working 来源
+只读取 writing 已采用版本；未采用 AI
 `candidate` 不进入 latest working 或 RAG 索引。
+
+检索可传入 `source_manifest={draft_id: source_hash}`。repository 在关键词/向量召回时就使用
+draft/hash tuple 条件，编排器在评分前再次核对；因而旧版本、新版本和未选中版本不会
+相互挤占候选排名。无 manifest 的诊断型 `find_by_chapter()` 默认仍返回最新 chunk 流；
+历史精确读取必须指定 source ID。首版不独立 GC 历史 chunk，项目永久删除时级联清理。
 
 TaskWorker 中的章节索引不在 PostgreSQL 事务内等待 embedding provider 或本地
 embedding 队列。它在每个短事务开始时先取 `Project FOR SHARE`：先读取并切分
@@ -174,7 +180,7 @@ from modules.evidence.facade import retrieve, split_text_into_chunks, get_ordere
 
 ### Facade 方法
 
-- `retrieve(db, novel_id, query, *, entity_ids, character_ids, thread_ids, chapter_index, visible_until_chapter, mode="search", top_k=12) -> RagResultBundle`
+- `retrieve(db, novel_id, query, *, entity_ids, character_ids, thread_ids, chapter_index, visible_until_chapter, source_manifest=None, mode="search", top_k=12) -> RagResultBundle`
   - 核心混合检索接口
 - `index_chapter_with_report(db, novel_id, chapter_index) -> RagIndexReport`
   - 索引章节并返回 chunk/embedding 诊断
@@ -184,6 +190,10 @@ from modules.evidence.facade import retrieve, split_text_into_chunks, get_ordere
   - 只标脏不额外入队，供已有 `publish_chapter` 工作流负责执行时使用
 - `get_index_freshness(db, novel_id, *, content_mode, chapter_from=None, chapter_to=None) -> dict`
   - 返回指定模式/范围的 fresh/stale 状态
+- `get_manifest_index_coverage(db, novel_id, source_manifest) -> set[int]`
+  - 返回 exact draft/hash 已建立 chunk 的章节，供 RP source revision 就绪门禁使用
+- `get_manifest_entity_appearances(db, novel_id, source_manifest) -> dict[str, list[dict]]`
+  - 从绑定 draft/hash chunks 计算版本内对象出场章及最早完整 chunk 的 end offset，不复用当前稿热点 projection
 - `get_index_status(db, novel_id) -> dict`
   - 返回索引统计、配置/实际向量维度、可重试 embedding 数、worker runtime 快照，以及该
     `novel_id` 的检索熔断状态
@@ -195,6 +205,9 @@ from modules.evidence.facade import retrieve, split_text_into_chunks, get_ordere
   - 返回对象原始出场章节、最新有效章节、覆盖章数及 `ready/partial/unavailable`；只读且不包含热点权重
 - `split_text_into_chunks(text, method, **kwargs) -> list[str]`
   - 文本分割工具
+
+RP 对象目录只收录 exact manifest chunks 能证明的版本内出场；没有原文关联的对象被排除，
+候选身份、固定项和名称激活再按旅程剧情截止章过滤。
 
 本地 BGE worker 的单次编码/队列等待仍使用独立短时限；冷启动需要加载、校验或首次下载
 模型，使用 `INFERENCE_WORKER_STARTUP_TIMEOUT`，默认 300 秒。冷启动时限不能复用单次编码

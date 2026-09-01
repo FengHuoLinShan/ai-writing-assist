@@ -37,6 +37,7 @@ class ContextSnapshotService:
         db: AsyncSession,
         *,
         novel_id: str,
+        consumer_novel_id: str | None = None,
         task_id: str | None = None,
         workflow_id: str | None = None,
         phase: str,
@@ -62,6 +63,7 @@ class ContextSnapshotService:
             db,
             ContextSnapshotRequest(
                 novel_id=novel_id,
+                consumer_novel_id=consumer_novel_id,
                 task_id=task_id,
                 workflow_id=workflow_id,
                 phase=phase,
@@ -101,6 +103,11 @@ class ContextSnapshotService:
         snapshot = await self._repo.create(
             db,
             novel_id=parse_uuid(request.novel_id, "novel_id"),
+            consumer_novel_id=(
+                parse_uuid(request.consumer_novel_id, "consumer_novel_id")
+                if request.consumer_novel_id
+                else None
+            ),
             task_id=request.task_id,
             workflow_id=request.workflow_id,
             phase=request.phase,
@@ -562,6 +569,11 @@ class ContextSnapshotService:
         return ContextSnapshotContract(
             id=str(record.id),
             novel_id=str(record.novel_id),
+            consumer_novel_id=(
+                str(record.consumer_novel_id)
+                if record.consumer_novel_id is not None
+                else None
+            ),
             task_id=record.task_id,
             workflow_id=record.workflow_id,
             phase=record.phase,

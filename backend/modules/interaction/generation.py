@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
@@ -23,6 +23,7 @@ from infrastructure.tasks.facade import (
     enqueue_task,
     require_task_checkpoint_session,
 )
+from modules.evidence.facade import compile_interaction_story_context
 from modules.interaction.models import (
     InteractionGenerationAttempt,
     InteractionJourney,
@@ -47,11 +48,13 @@ from modules.interaction.prompts import (
 )
 from modules.interaction.repositories import InteractionRepository
 from modules.interaction.schemas import (
+    InteractionOverviewSections,
     InteractionResponseMetadata,
     InteractionSummaryOutput,
 )
 from modules.interaction.services import (
     InteractionService,
+    _summary_compressible_prefix_end,
     estimate_story_tokens,
     path_hash,
 )
@@ -85,12 +88,62 @@ class PreparedSummaryGeneration:
     messages: list[LLMMessage]
     executable_settings: dict[str, Any]
     estimated_input_tokens: int = 0
+    segment_path_hash: str | None = None
+    protected_node_ids: list[str] = field(default_factory=list)
+    compaction_source_tokens: int = 0
     origin_attempt_id: str | None = None
     origin_task_id: str | None = None
 
 
 class InteractionContextBudgetError(RuntimeError):
     """Fail closed when the selected path cannot be compiled without loss."""
+
+
+_SOURCE_QUERY_MAX_CHARS = 4_000
+_SUMMARY_MIN_SAVINGS_TOKENS = 128
+
+
+def _clip_query_text(value: str, limit: int) -> str:
+    text = value.strip()
+    if len(text) <= limit:
+        return text
+    half = (limit - 1) // 2
+    return f"{text[:half]}…{text[-half:]}"
+
+
+def _source_retrieval_query(
+    *,
+    latest_input: str,
+    overview_sections: InteractionOverviewSections | dict | None,
+    path: list[InteractionMessageNode],
+) -> str:
+    sections = InteractionOverviewSections.model_validate(overview_sections or {})
+    seeds = [
+        ("当前输入", _clip_query_text(latest_input, 800)),
+        ("当前局面", _clip_query_text(sections.current_situation, 500)),
+        (
+            "相关人物与势力",
+            _clip_query_text(sections.important_people_and_factions, 500),
+        ),
+        ("未决事项", _clip_query_text(sections.open_threads, 500)),
+        ("必须记住", _clip_query_text(sections.must_remember, 400)),
+    ]
+    seeds.extend(
+        (
+            "近期发展",
+            _clip_query_text(node.content, 320),
+        )
+        for node in path[-3:]
+    )
+    seen: set[str] = set()
+    blocks: list[str] = []
+    for label, value in seeds:
+        normalized = value.strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        blocks.append(f"{label}：{normalized}")
+    return _clip_query_text("\n".join(blocks), _SOURCE_QUERY_MAX_CHARS)
 
 
 class InteractionGenerationWorkflow:
@@ -147,18 +200,22 @@ class InteractionGenerationWorkflow:
         if journey.selection_epoch != attempt.started_selection_epoch:
             raise RuntimeError("interaction context selection epoch mismatch")
         self._validate_context_chain(nodes, attempt)
-        overview = await self._repo.get_overview_head(db, journey=journey)
+        overview = await self._service._best_overview_for_path(
+            db,
+            journey=journey,
+            path=nodes,
+        )
         overview_content = None
         overview_anchor = None
+        overview_sections = None
         if (
             overview is not None
             and self._service._overview_matches_path(overview, nodes)
             and self._service._overview_coverage_matches_path(overview, nodes)
         ):
             overview_content = render_overview_sections(overview.sections)
-            overview_anchor = str(
-                self._service._overview_coverage_anchor(overview)
-            )
+            overview_sections = overview.sections
+            overview_anchor = str(self._service._overview_coverage_anchor(overview))
         references: list[str] = []
         reference_ids = self._parse_node_ids(
             attempt.reference_node_ids,
@@ -175,14 +232,53 @@ class InteractionGenerationWorkflow:
                     node.content
                     if index == 0
                     else (
-                        node.branch_hint
-                        or self._service._branch_hint(node.content)
-                        or ""
+                        node.branch_hint or self._service._branch_hint(node.content) or ""
                     )
                 )
                 for index, node in enumerate(reference_nodes)
             ]
         is_see_sea_step = self._attempt_is_see_sea_step(attempt)
+        source_context = None
+        if attempt.source_revision_id is not None:
+            if (
+                journey.source_revision_id != attempt.source_revision_id
+                or journey.source_context_epoch != attempt.started_source_context_epoch
+            ):
+                raise RuntimeError("interaction source context epoch mismatch")
+            revision = await self._service._sources.require_ready_revision(
+                db,
+                attempt.source_revision_id,
+            )
+            compiled_source = await compile_interaction_story_context(
+                db,
+                source_novel_id=str(revision.source_novel_id),
+                consumer_novel_id=str(journey.novel_id),
+                source_revision_id=str(revision.id),
+                source_manifest=list(revision.source_manifest or []),
+                anchor=dict(journey.source_anchor or {}),
+                player_identity=dict(journey.player_identity or {}),
+                reference_manifest=list(revision.reference_manifest or []),
+                ambiguities=list(revision.ambiguities or []),
+                resolutions=dict(revision.resolutions or {}),
+                reference_policy=dict(journey.reference_policy or {}),
+                query=_source_retrieval_query(
+                    latest_input=response_to.content,
+                    overview_sections=overview_sections,
+                    path=nodes,
+                ),
+                task_id=str(task.id),
+                model=str((task_snapshot.get("profile") or {}).get("model") or ""),
+            )
+            if compiled_source.blockers:
+                raise InteractionContextBudgetError(compiled_source.blockers[0])
+            source_context = compiled_source.rendered_context
+            attempt.source_context_snapshot_id = (
+                uuid.UUID(compiled_source.snapshot_id)
+                if compiled_source.snapshot_id
+                else None
+            )
+            attempt.source_context_fingerprint = compiled_source.fingerprint
+            attempt.reference_trace = list(compiled_source.included_refs)
         messages = compile_story_messages(
             path=nodes,
             overview=overview_content,
@@ -199,12 +295,9 @@ class InteractionGenerationWorkflow:
                 if attempt.request_kind in {"continue", "see_sea_continue"}
                 else None
             ),
+            source_context=source_context,
         )
         estimated_input_tokens = estimate_input_tokens(messages)
-        if estimated_input_tokens > HARD_INPUT_TOKENS:
-            raise InteractionContextBudgetError(
-                "selected interaction path exceeds hard input budget"
-            )
         if estimated_input_tokens > EMERGENCY_SUMMARY_TOKENS:
             prepared_summary = await self._prepare_summary_generation(
                 db,
@@ -239,6 +332,10 @@ class InteractionGenerationWorkflow:
                 )
             db.expire_all()
             return prepared_summary
+        if estimated_input_tokens > HARD_INPUT_TOKENS:
+            raise InteractionContextBudgetError(
+                "selected interaction path exceeds hard input budget"
+            )
         executable = await restore_project_llm_execution_settings(
             db,
             novel_id,
@@ -305,6 +402,11 @@ class InteractionGenerationWorkflow:
         )
         if attempt is None or attempt.status != "running":
             raise RuntimeError("interaction attempt no longer accepts stream chunks")
+        if (
+            journey.source_revision_id != attempt.source_revision_id
+            or journey.source_context_epoch != attempt.started_source_context_epoch
+        ):
+            raise RuntimeError("interaction source context changed during generation")
         if visible_delta:
             attempt.visible_text += visible_delta
             attempt.visible_offset = len(attempt.visible_text)
@@ -384,11 +486,20 @@ class InteractionGenerationWorkflow:
             }
         if attempt.status != "running":
             raise RuntimeError("interaction attempt cannot be finalized")
+        if (
+            journey.source_revision_id != attempt.source_revision_id
+            or journey.source_context_epoch != attempt.started_source_context_epoch
+        ):
+            attempt.status = "failed"
+            attempt.error_kind = "source_context_stale"
+            attempt.error_message = "作品资料已变化，请重新生成"
+            attempt.metadata_text = ""
+            task.update_progress(1.0)
+            await db.flush()
+            return {"attempt_id": str(attempt.id), "status": "failed"}
         attempt.finish_reason = finish_reason or "stop"
         is_see_sea_step = self._attempt_is_see_sea_step(attempt)
-        selection_is_current = (
-            journey.selection_epoch == attempt.started_selection_epoch
-        )
+        selection_is_current = journey.selection_epoch == attempt.started_selection_epoch
         completion_state = "complete"
         terminal_status = "completed"
         if finish_reason == "content_filter":
@@ -538,10 +649,7 @@ class InteractionGenerationWorkflow:
         if selected and node.story_ended:
             journey.see_sea_enabled = False
             journey.see_sea_last_heartbeat_at = None
-        if (
-            is_see_sea_step
-            and not self._service._see_sea_is_authorized(journey)
-        ):
+        if is_see_sea_step and not self._service._see_sea_is_authorized(journey):
             # Leaving the page or choosing "stop after this beat" revokes
             # authorization without cancelling the in-flight text.  Once that
             # beat is formalized, persist the loop as closed so returning to
@@ -639,9 +747,7 @@ class InteractionGenerationWorkflow:
         novel_id = str(meta.get("novel_id") or "")
         journey_id = uuid.UUID(str(meta.get("journey_id") or ""))
         expected_path_hash = str(meta.get("path_hash") or "")
-        legacy_node_ids = [
-            str(value) for value in (meta.get("node_ids") or [])
-        ]
+        legacy_node_ids = [str(value) for value in (meta.get("node_ids") or [])]
         selected_leaf_node_id = str(
             meta.get("selected_leaf_node_id")
             or (legacy_node_ids[-1] if legacy_node_ids else "")
@@ -712,6 +818,15 @@ class InteractionGenerationWorkflow:
         origin_task_id: str | None = None,
     ) -> PreparedSummaryGeneration | None:
         head = await self._repo.get_overview_head(db, journey=journey)
+        best_head = await self._service._best_overview_for_path(
+            db,
+            journey=journey,
+            path=current_path,
+        )
+        if (head is None) != (best_head is None) or (
+            head is not None and best_head is not None and head.id != best_head.id
+        ):
+            return None
         valid_head = None
         start_index = 0
         if (
@@ -727,41 +842,108 @@ class InteractionGenerationWorkflow:
             anchor_index = current_ids.index(coverage_anchor)
             start_index = anchor_index + 1
             valid_head = head
-        tail = current_path[start_index:]
-        if not tail:
+        uncovered = current_path[start_index:]
+        prefix_end = _summary_compressible_prefix_end(uncovered)
+        compressible = uncovered[:prefix_end]
+        protected = uncovered[prefix_end:]
+        if not compressible:
             return None
-        transcript = "\n\n".join(
-            (
-                f"{'开场设定' if node.role == 'user' else '开场说明'}：{node.content}"
-                if node.message_kind == "setup"
-                else f"{'用户' if node.role == 'user' else '故事'}：{node.content}"
-            )
-            for node in tail
+        overview_text = (
+            render_overview_sections(valid_head.sections) if valid_head else ""
         )
-        prompt = (
-            f"已有总回顾：\n{render_overview_sections(valid_head.sections)}\n\n"
-            if valid_head
+        overview_block = (
+            f"已有总回顾：\n{overview_text}\n\n"
+            if overview_text
             else "已有总回顾：\n（尚未形成）\n\n"
-        ) + f"需要合并的新故事：\n{transcript}"
+        )
+        manual_ancestor = (
+            await self._service._overview_manual_ancestor(
+                db,
+                journey=journey,
+                current=valid_head,
+            )
+            if valid_head is not None
+            else None
+        )
+        manual_guard = (
+            "当前回顾沿用户手工修正继续；合并原始故事时不得恢复该修正"
+            "删除或改写的旧当前值，后续明确发生的新变化仍可更新。\n\n"
+            if manual_ancestor is not None
+            else ""
+        )
+        system_message = LLMMessage(role="system", content=summary_system_prompt())
+        working_chunk: list[InteractionMessageNode] = []
+        chunk: list[InteractionMessageNode] = []
+        messages: list[LLMMessage] = []
+        estimated_input_tokens = 0
+        for index, node in enumerate(compressible):
+            candidate = [*working_chunk, node]
+            transcript = "\n\n".join(
+                (
+                    f"{'开场设定' if item.role == 'user' else '开场说明'}：{item.content}"
+                    if item.message_kind == "setup"
+                    else f"{'用户' if item.role == 'user' else '故事'}：{item.content}"
+                )
+                for item in candidate
+            )
+            prompt = overview_block + manual_guard + f"需要合并的新故事：\n{transcript}"
+            candidate_messages = [
+                system_message,
+                LLMMessage(role="user", content=prompt),
+            ]
+            candidate_tokens = max(
+                estimate_input_tokens(candidate_messages),
+                len(system_message.content)
+                + len(overview_text)
+                + sum(max(1, item.token_estimate) for item in candidate)
+                + 64,
+            )
+            if candidate_tokens > NORMAL_INPUT_TOKENS:
+                if not chunk:
+                    raise InteractionContextBudgetError(
+                        "one interaction node or dialogue beat exceeds "
+                        "the summary input budget"
+                    )
+                break
+            working_chunk = candidate
+            next_node = compressible[index + 1] if index + 1 < len(compressible) else None
+            if (
+                node.role == "user"
+                and next_node is not None
+                and next_node.role == "assistant"
+            ):
+                continue
+            chunk = list(working_chunk)
+            messages = candidate_messages
+            estimated_input_tokens = candidate_tokens
+        if not chunk:
+            return None
         executable = await restore_project_llm_execution_settings(
             db,
             str(journey.novel_id),
             snapshot,
         )
-        messages = [
-            LLMMessage(role="system", content=summary_system_prompt()),
-            LLMMessage(role="user", content=prompt),
-        ]
+        current_ids = [node.id for node in current_path]
+        chunk_end_index = current_ids.index(chunk[-1].id)
+        chunk_path_hash = path_hash(current_path[: chunk_end_index + 1])
+        compaction_source_tokens = (
+            estimate_story_tokens(overview_text)
+            + sum(max(1, node.token_estimate) for node in chunk)
+            + 16
+        )
         return PreparedSummaryGeneration(
             novel_id=str(journey.novel_id),
             journey_id=str(journey.id),
             path_hash=expected_path_hash,
             node_ids=[str(node.id) for node in current_path],
-            segment_node_ids=[str(node.id) for node in tail],
+            segment_node_ids=[str(node.id) for node in chunk],
             started_overview_epoch=started_epoch,
             messages=messages,
             executable_settings=executable,
-            estimated_input_tokens=estimate_input_tokens(messages),
+            estimated_input_tokens=estimated_input_tokens,
+            segment_path_hash=chunk_path_hash,
+            protected_node_ids=[str(node.id) for node in protected],
+            compaction_source_tokens=compaction_source_tokens,
             origin_attempt_id=origin_attempt_id,
             origin_task_id=origin_task_id,
         )
@@ -833,7 +1015,53 @@ class InteractionGenerationWorkflow:
             ) from exc
         if not segment_nodes:
             raise RuntimeError("interaction summary returned an empty segment")
+        current_ids = [node.id for node in current_path]
+        segment_positions = [current_ids.index(node.id) for node in segment_nodes]
+        if segment_positions != list(
+            range(segment_positions[0], segment_positions[-1] + 1)
+        ):
+            raise RuntimeError("interaction summary segment must be contiguous")
         previous = await self._repo.get_overview_head(db, journey=journey)
+        expected_start_index = 0
+        if previous is not None:
+            if not (
+                self._service._overview_matches_path(previous, current_path)
+                and self._service._overview_coverage_matches_path(
+                    previous,
+                    current_path,
+                )
+            ):
+                raise RuntimeError("interaction summary overview is not path-compatible")
+            expected_start_index = (
+                current_ids.index(self._service._overview_coverage_anchor(previous)) + 1
+            )
+        if segment_positions[0] != expected_start_index:
+            raise RuntimeError(
+                "interaction summary segment must start after current overview coverage"
+            )
+        segment_end_index = segment_positions[-1]
+        segment_path_hash = path_hash(current_path[: segment_end_index + 1])
+        if segment_path_hash != (prepared.segment_path_hash or prepared.path_hash):
+            raise RuntimeError("interaction summary prefix hash mismatch")
+        protected_ids = self._parse_node_ids(
+            prepared.protected_node_ids,
+            allow_empty=True,
+        )
+        if any(
+            node_id not in current_ids or current_ids.index(node_id) <= segment_end_index
+            for node_id in protected_ids
+        ):
+            raise RuntimeError("interaction summary protected suffix mismatch")
+        if prepared.compaction_source_tokens:
+            output_tokens = (
+                estimate_story_tokens(render_overview_sections(output.overview)) + 16
+            )
+            if output_tokens > (
+                prepared.compaction_source_tokens - _SUMMARY_MIN_SAVINGS_TOKENS
+            ):
+                raise InteractionContextBudgetError(
+                    "interaction summary did not reduce the selected prefix"
+                )
         if previous is not None:
             previous.promoted = False
         existing_segments = await self._repo.list_summary_segments(
@@ -849,48 +1077,54 @@ class InteractionGenerationWorkflow:
             for segment in existing_segments
             if prefix_hashes.get(segment.end_node_id) == segment.path_hash
         ]
-        ordinal = len(applicable_segments) + 1
-        producer = self._summary_producer(prepared, diagnostics)
-        checkpoint_base_id = self._service._overview_checkpoint_revision_id(
-            previous
+        segment = next(
+            (
+                item
+                for item in applicable_segments
+                if getattr(item, "id", None) is not None
+                and item.end_node_id == segment_nodes[-1].id
+                and item.path_hash == segment_path_hash
+            ),
+            None,
         )
-        if checkpoint_base_id is not None:
+        segment_reused = segment is not None
+        ordinal = segment.ordinal if segment is not None else len(applicable_segments) + 1
+        producer = self._summary_producer(prepared, diagnostics)
+        if segment is not None:
             producer = {
                 **producer,
-                "memory_checkpoint_base_revision_id": str(checkpoint_base_id),
-            }
-        is_checkpoint = ordinal % 8 == 0
-        revision_id = uuid.uuid4()
-        if is_checkpoint:
-            producer = {
-                **producer,
-                "memory_checkpoint": {
-                    "level": 1,
-                    "through_segment_ordinal": ordinal,
-                    "overview_revision_id": str(revision_id),
+                "summary_segment_reuse": {
+                    "segment_id": str(segment.id),
+                    "exact_range": segment.start_node_id == segment_nodes[0].id,
+                    "folded_range": {
+                        "start_node_id": str(segment_nodes[0].id),
+                        "end_node_id": str(segment_nodes[-1].id),
+                        "path_hash": segment_path_hash,
+                    },
                 },
             }
-        segment = InteractionSummarySegment(
-            novel_id=journey.novel_id,
-            journey_id=journey.id,
-            start_node_id=segment_nodes[0].id,
-            end_node_id=segment_nodes[-1].id,
-            path_hash=prepared.path_hash,
-            based_on_overview_revision_id=previous.id if previous else None,
-            based_on_checkpoint_revision_id=checkpoint_base_id,
-            token_count=sum(node.token_estimate for node in segment_nodes),
-            content=output.segment_summary,
-            ordinal=ordinal,
-            producer=producer,
-        )
+        revision_id = uuid.uuid4()
+        if segment is None:
+            segment = InteractionSummarySegment(
+                novel_id=journey.novel_id,
+                journey_id=journey.id,
+                start_node_id=segment_nodes[0].id,
+                end_node_id=segment_nodes[-1].id,
+                path_hash=segment_path_hash,
+                based_on_overview_revision_id=previous.id if previous else None,
+                token_count=sum(node.token_estimate for node in segment_nodes),
+                content=output.segment_summary,
+                ordinal=ordinal,
+                producer=producer,
+            )
         revision = InteractionOverviewRevision(
             id=revision_id,
             novel_id=journey.novel_id,
             journey_id=journey.id,
-            anchor_node_id=current_path[-1].id,
-            path_hash=prepared.path_hash,
-            coverage_anchor_node_id=current_path[-1].id,
-            coverage_path_hash=prepared.path_hash,
+            anchor_node_id=segment_nodes[-1].id,
+            path_hash=segment_path_hash,
+            coverage_anchor_node_id=segment_nodes[-1].id,
+            coverage_path_hash=segment_path_hash,
             sections=output.overview.model_dump(),
             source="automatic",
             based_on_revision_id=previous.id if previous else None,
@@ -898,7 +1132,7 @@ class InteractionGenerationWorkflow:
             promoted=True,
             producer=producer,
         )
-        db.add_all([segment, revision])
+        db.add_all([revision] if segment_reused else [segment, revision])
         await db.flush()
         journey.overview_head_revision_id = revision.id
         journey.overview_epoch += 1
@@ -916,7 +1150,6 @@ class InteractionGenerationWorkflow:
             "status": "completed",
             "overview_revision_id": str(revision.id),
             "segment_id": str(segment.id),
-            "checkpoint": is_checkpoint,
         }
         if origin_attempt is not None:
             await db.commit()
@@ -961,9 +1194,7 @@ class InteractionGenerationWorkflow:
         ):
             journey.overview_failure = {
                 "path_hash": prepared.path_hash,
-                "anchor_node_id": (
-                    prepared.node_ids[-1] if prepared.node_ids else None
-                ),
+                "anchor_node_id": (prepared.node_ids[-1] if prepared.node_ids else None),
             }
         task.update_progress(1.0)
         await db.commit()
@@ -982,9 +1213,7 @@ class InteractionGenerationWorkflow:
             novel_id = uuid.UUID(str(meta.get("novel_id") or ""))
             journey_id = uuid.UUID(str(meta.get("journey_id") or ""))
             expected_path_hash = str(meta.get("path_hash") or "")
-            legacy_node_ids = [
-                str(value) for value in (meta.get("node_ids") or [])
-            ]
+            legacy_node_ids = [str(value) for value in (meta.get("node_ids") or [])]
             selected_leaf_node_id = str(
                 meta.get("selected_leaf_node_id")
                 or (legacy_node_ids[-1] if legacy_node_ids else "")
@@ -992,11 +1221,7 @@ class InteractionGenerationWorkflow:
             started_epoch = int(meta.get("started_overview_epoch", -1))
         except (TypeError, ValueError):
             return
-        if (
-            not expected_path_hash
-            or not selected_leaf_node_id
-            or started_epoch < 0
-        ):
+        if not expected_path_hash or not selected_leaf_node_id or started_epoch < 0:
             return
         journey = await self._repo.get_journey_for_task(
             db,

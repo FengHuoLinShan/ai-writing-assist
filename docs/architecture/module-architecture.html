@@ -186,6 +186,14 @@
       <path d="M 230 130 L 250 130" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
       <text x="240" y="122" fill="#fbbf24" font-size="7" text-anchor="middle">owner</text>
 
+      <!-- A17: author project → interaction source revision -->
+      <path d="M 425 145 L 640 145" fill="none" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
+      <text x="532" y="138" fill="#a78bfa" font-size="7" text-anchor="middle">same-owner source revision</text>
+
+      <!-- A18: interaction → evidence versioned context -->
+      <path d="M 727 165 Q 727 205 820 245" fill="none" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
+      <text x="752" y="205" fill="#a78bfa" font-size="7">manifest context</text>
+
       <!-- ===== PLATFORM BOUNDARY ===== -->
       <rect x="40" y="60" width="1020" height="125" rx="10" fill="rgba(120, 53, 15, 0.08)" stroke="#fbbf24" stroke-width="1" stroke-dasharray="8,4"/>
       <text x="55" y="78" fill="#fbbf24" font-size="10" font-weight="600">平台与独立 RP 边界 — 身份 / 项目 / 配置 / 互动 / 调度</text>
@@ -206,7 +214,7 @@
       <rect x="640" y="95" width="175" height="70" rx="6" fill="#0f172a" stroke="none"/>
       <rect x="640" y="95" width="175" height="70" rx="6" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1.5"/>
       <text x="727" y="118" fill="white" font-size="11" font-weight="600" text-anchor="middle">interaction RP</text>
-      <text x="727" y="136" fill="#94a3b8" font-size="8" text-anchor="middle">分支 · 故事 · 回顾 · 看海</text>
+      <text x="727" y="136" fill="#94a3b8" font-size="8" text-anchor="middle">私人分支 · 回顾 · 固定作品版本</text>
 
       <!-- shared infrastructure box -->
       <rect x="835" y="95" width="175" height="70" rx="6" fill="#0f172a" stroke="none"/>
@@ -239,8 +247,8 @@
       <rect x="780" y="245" width="260" height="110" rx="6" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1.5"/>
       <text x="910" y="270" fill="white" font-size="12" font-weight="600" text-anchor="middle">evidence 小说证据</text>
       <text x="910" y="290" fill="#94a3b8" font-size="9" text-anchor="middle">indexing：分块 · 检索 · freshness</text>
-      <text x="910" y="306" fill="#94a3b8" font-size="9" text-anchor="middle">compilation：回读 · 可见性 · 确认</text>
-      <text x="910" y="326" fill="#a78bfa" font-size="8" text-anchor="middle">snapshot · trace · hidden guard</text>
+      <text x="910" y="306" fill="#94a3b8" font-size="9" text-anchor="middle">draft/hash manifest · 回读 · 可见性</text>
+      <text x="910" y="326" fill="#a78bfa" font-size="8" text-anchor="middle">snapshot · RP 16K 参考包 · guard</text>
 
       <!-- ===== STRUCTURE LAYER ===== -->
       <rect x="100" y="400" width="900" height="75" rx="8" fill="rgba(8, 51, 68, 0.08)" stroke="#22d3ee" stroke-width="1" stroke-dasharray="8,4"/>
@@ -259,8 +267,8 @@
       <rect x="60" y="535" width="260" height="105" rx="6" fill="#0f172a" stroke="none"/>
       <rect x="60" y="535" width="260" height="105" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
       <text x="190" y="558" fill="white" font-size="12" font-weight="600" text-anchor="middle">imports 内容导入</text>
-      <text x="190" y="578" fill="#94a3b8" font-size="9" text-anchor="middle">文件解析 · 深层导入工作流</text>
-      <text x="190" y="594" fill="#94a3b8" font-size="9" text-anchor="middle">→ writing / world / outline</text>
+      <text x="190" y="578" fill="#94a3b8" font-size="9" text-anchor="middle">两次校验 · full/append · 深度导入</text>
+      <text x="190" y="594" fill="#94a3b8" font-size="9" text-anchor="middle">→ writing / world / story</text>
       <text x="190" y="614" fill="#34d399" font-size="8" text-anchor="middle">入队 Evidence 索引任务</text>
 
       <!-- evidence box -->
@@ -324,8 +332,8 @@
         <h3>模块数量</h3>
       </div>
       <ul>
-        <li>• 10 个活动业务模块（RAG + Context 已物理归入 evidence，含 story Scene 派生层）</li>
-        <li>• evidence 内部分 indexing / compilation；account/project 分拆配置所有权；interaction 不读取作者资产</li>
+        <li>• 8 个活动业务模块（RAG + Context 物理归入 evidence，Scene/Memory 归入 story）</li>
+        <li>• interaction 只读同 owner author source revision；私人旅程不写回原作</li>
         <li>• Canonical API 使用 /api/evidence/* 与 account/project owner 路径；旧前缀仅薄别名</li>
         <li>• 已移除：geo / review / character / timeline（人物和事件能力并入 world）</li>
       </ul>
@@ -349,6 +357,7 @@
       </div>
       <ul>
         <li>• 公开请求同时受 account owner、project novel_id 与 author / interaction kind 门禁</li>
+        <li>• 跨项目唯一例外是同 owner、显式版本化的 author source → interaction 只读资料流</li>
         <li>• AI 地图册是 world 子系统；图片候选不会自动成为世界事实</li>
         <li>• 箭头表示主要调用或资料流，不是生产代码 import 图</li>
         <li>• 当前分层与可编辑图源以 module-architecture.drawio 为准</li>
@@ -356,7 +365,7 @@
     </div>
   </div>
 
-  <p class="footer">AI 小说创作系统 · 当前模块架构兼容预览 · FastAPI + SQLAlchemy + PostgreSQL · 2026-08-12</p>
+  <p class="footer">AI 小说创作系统 · 当前模块架构兼容预览 · FastAPI + SQLAlchemy + PostgreSQL · 2026-09-01</p>
 </div>
 
 <script>

@@ -62,6 +62,7 @@ make test ARGS="-k test_create"  # Filter by test name
 make test TESTS=tests/integration  # Select a backend path with native pytest syntax
 E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e  # Explicit test DB at Alembic head
 E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-postgresql-critical  # Serial PostgreSQL merge-gate subset; retries=0
+RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv --directory backend run pytest tests/e2e/test_rp_source_versions.py -m e2e  # RP source version/FK/concurrency lifecycle
 RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_project_task_gate_concurrency.py -m "not real_llm and not external_data"  # Project delete vs atlas upload/cleanup race
 make test-real-llm               # Explicit SQLite real-model acceptance
 RUN_INTERACTION_REAL_KIMI=1 KIMI_API_KEY='<temporary-key>' DEEPSEEK_API_KEY='<temporary-key>' make test-real-kimi  # Explicit paid Kimi K3 compatibility gate; enabled only in the test process
@@ -70,6 +71,8 @@ E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-manual REAL_SOURCE_PATH=
 make test-deploy                 # Deployment static/CLI contracts; no Compose or recovery drill
 make test-production-images      # Build pinned production Dockerfiles and run independent image smoke checks
 make test-frontend FRONTEND_ARGS="stateTopbarHelp.test.js"  # Frontend Vitest
+npm --prefix frontend-console run test:e2e:functional -- interaction.spec.js --workers=1 --retries=0  # Requires the same dedicated DATABASE_URL/PW_REUSE_EXISTING_SERVER=0 gate
+uv --directory backend run pytest -q evals/tests/test_rp_context.py  # Hash/ref-only RP context comparison rubric contract; no copyrighted prose
 make eval-ask-world             # Offline Ask World retrieval/citation launch gate
 make eval-context-planner NOVEL_ID='<fixture-project-id>' OUTPUT=/tmp/context-planner.json
 make eval-context-planner NOVEL_ID='<fixture-project-id>' LLM_PLANNER=1 OUTPUT=/tmp/context-planner-llm-dev.json  # explicit model calls; dev split only

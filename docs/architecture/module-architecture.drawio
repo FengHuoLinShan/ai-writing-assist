@@ -8,7 +8,7 @@
         <mxCell id="2" value="AI 长篇小说结构化创作引擎 — 模块架构" style="text;html=1;align=left;verticalAlign=middle;fontSize=24;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
           <mxGeometry x="40" y="20" width="740" height="40" as="geometry" />
         </mxCell>
-        <mxCell id="3" value="9 个业务模块 · 作者创作三层 + 独立 RP 领域 + 身份边界 + 共享基础设施" style="text;html=1;align=right;verticalAlign=middle;fontSize=13;fontColor=#475569;" vertex="1" parent="1">
+        <mxCell id="3" value="8 个业务模块 · 作者创作三层 + 独立 RP 领域 + 身份边界 + 共享基础设施" style="text;html=1;align=right;verticalAlign=middle;fontSize=13;fontColor=#475569;" vertex="1" parent="1">
           <mxGeometry x="800" y="25" width="760" height="30" as="geometry" />
         </mxCell>
 
@@ -18,7 +18,7 @@
         <mxCell id="5" value="account 账号&#xa;身份 · 会话 · owner 边界&#xa;账户连接 · 全局偏好" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ede9fe;strokeColor=#7c3aed;fontColor=#3b0764;fontSize=14;fontStyle=1;spacing=8;" vertex="1" parent="4">
           <mxGeometry x="30" y="55" width="300" height="75" as="geometry" />
         </mxCell>
-        <mxCell id="35" value="interaction RP 互动旅程&#xa;不可变选中历史 · 流式故事 · 回顾 / 看海&#xa;不读取或写回作者创作资产" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ede9fe;strokeColor=#7c3aed;fontColor=#3b0764;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="4">
+        <mxCell id="35" value="interaction RP 互动旅程&#xa;私人分支 · 回顾 / 看海 · source revision&#xa;只读固定作品版本；旅程不写回原作" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ede9fe;strokeColor=#7c3aed;fontColor=#3b0764;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="4">
           <mxGeometry x="410" y="55" width="300" height="75" as="geometry" />
         </mxCell>
         <mxCell id="6" value="infrastructure/tasks&#xa;PostgreSQL async_tasks · enqueuer → worker&#xa;项目任务 + 地图册全局清理" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#713f12;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="4">
@@ -51,10 +51,10 @@
         <mxCell id="14" value="辅助层 Supporting — 导入、证据索引/编译/确认与正文" style="swimlane;startSize=34;horizontal=1;rounded=1;html=1;container=1;pointerEvents=0;collapsible=0;fillColor=#dcfce7;swimlaneFillColor=#f0fdf4;strokeColor=#16a34a;fontColor=#14532d;fontSize=14;fontStyle=1;" vertex="1" parent="1">
           <mxGeometry x="40" y="690" width="1520" height="190" as="geometry" />
         </mxCell>
-        <mxCell id="15" value="imports&#xa;文件解析 · 深度导入&#xa;授权 / checkpoint / 恢复" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#14532d;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="14">
+        <mxCell id="15" value="imports&#xa;两次文件校验 · full/append&#xa;深度导入 / checkpoint / 恢复" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#14532d;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="14">
           <mxGeometry x="30" y="50" width="250" height="95" as="geometry" />
         </mxCell>
-        <mxCell id="16" value="evidence&#xa;indexing：分块 / 检索 / freshness&#xa;compilation：回读 / 可见性 / 确认 / snapshot / guard&#xa;HTTP：/api/evidence/*（旧前缀薄别名）&#xa;story Scene 人物卡 / adopted 剧本只读 seam" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#14532d;fontSize=12;fontStyle=1;spacing=8;" vertex="1" parent="14">
+        <mxCell id="16" value="evidence&#xa;indexing：draft/hash 并存与 manifest 过滤&#xa;compilation：回读 / 可见性 / snapshot / guard&#xa;interaction.story：16K 版本化参考包&#xa;HTTP：/api/evidence/*" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#14532d;fontSize=12;fontStyle=1;spacing=8;" vertex="1" parent="14">
           <mxGeometry x="325" y="50" width="545" height="95" as="geometry" />
         </mxCell>
         <mxCell id="18" value="writing&#xa;正文工作稿 / 已发布版本&#xa;发布后触发索引与记忆更新" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#14532d;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="14">
@@ -136,6 +136,14 @@
         </mxCell>
         <mxCell id="34" value="CompiledContext / 原文回读" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#16a34a;strokeWidth=2;startArrow=classic;startFill=1;endArrow=classic;endFill=1;labelBackgroundColor=#ffffff;fontSize=11;fontColor=#14532d;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="16" target="18">
           <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="36" value="same-owner immutable source" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#7c3aed;strokeWidth=2;endArrow=classic;endFill=1;labelBackgroundColor=#ffffff;fontSize=10;fontColor=#6b21a8;" edge="1" parent="1" source="9" target="35">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="37" value="source manifest / CompiledContext" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#7c3aed;strokeWidth=2;endArrow=classic;endFill=1;labelBackgroundColor=#ffffff;fontSize=10;fontColor=#6b21a8;" edge="1" parent="1" source="35" target="16">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="750" y="660" /></Array>
+          </mxGeometry>
         </mxCell>
       </root>
     </mxGraphModel>

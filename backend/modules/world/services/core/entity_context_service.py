@@ -140,6 +140,7 @@ class EntityContextService:
         novel_id: str,
         *,
         limit: int = 500,
+        include_review: bool = False,
     ) -> list[dict]:
         """获取已采用实体的检索词典项 (name + content_json.aliases)。
 
@@ -149,7 +150,9 @@ class EntityContextService:
         entities = await self._repo.list_by_novel(db, nid, limit=limit)
         terms: list[dict] = []
         for item in entities:
-            if item.status != "canonical":
+            if item.status != "canonical" and not (
+                include_review and item.status in {"draft", "candidate", "conflicted"}
+            ):
                 continue
             item_terms = [item.name]
             aliases = (item.content_json or {}).get("aliases", [])
@@ -159,6 +162,7 @@ class EntityContextService:
                     "id": str(item.id),
                     "name": item.name,
                     "entity_type": item.entity_type,
+                    "status": item.status,
                     "terms": [t for t in item_terms if t],
                 }
             )

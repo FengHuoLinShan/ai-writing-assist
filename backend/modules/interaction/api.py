@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import uuid
+from typing import Literal
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
 from core.csrf import require_xhr_request
 from core.dependencies import DbSession
+from core.errors import ConflictError, ValidationError
 from modules.account.facade import current_account_id
+from modules.imports.contracts import MAX_IMPORT_FILE_SIZE
+from modules.imports.facade import apply_source_update, preview_source_update
 from modules.interaction.schemas import (
     InteractionArchiveRequest,
     InteractionAttemptResponse,
@@ -26,9 +30,20 @@ from modules.interaction.schemas import (
     InteractionOverviewUpdateRequest,
     InteractionPathIndexResponse,
     InteractionPreferencesResponse,
+    InteractionReferenceSummaryResponse,
+    InteractionReferenceUpdateRequest,
     InteractionRegenerateRequest,
     InteractionSelectRequest,
     InteractionSendRequest,
+    InteractionSourceAnchorListResponse,
+    InteractionSourceAnchorMatchRequest,
+    InteractionSourceFromProjectRequest,
+    InteractionSourceImportPreviewResponse,
+    InteractionSourceListResponse,
+    InteractionSourceObjectListResponse,
+    InteractionSourceResolveRequest,
+    InteractionSourceRevisionResponse,
+    InteractionSourceUpdateRequest,
     InteractionStopRequest,
     InteractionStopResponse,
     InteractionTreeResponse,
@@ -39,11 +54,291 @@ from modules.interaction.schemas import (
     JourneyTitleUpdateRequest,
 )
 from modules.interaction.services import InteractionService
+from modules.interaction.source_service import InteractionSourceService
 from modules.interaction.streaming import stream_attempt_events
+from modules.project.facade import create_author_project, require_active_project
 
 router = APIRouter(prefix="/api/interactions", tags=["interactions"])
 _service = InteractionService()
+_source_service = InteractionSourceService()
 _xhr = [Depends(require_xhr_request)]
+
+
+async def _read_source_upload(file: UploadFile) -> tuple[str, bytes]:
+    name = file.filename or ""
+    chunks: list[bytes] = []
+    size = 0
+    while chunk := await file.read(1024 * 1024):
+        size += len(chunk)
+        if size > MAX_IMPORT_FILE_SIZE:
+            raise ValidationError("文件不能超过 50MB")
+        chunks.append(chunk)
+    return name, b"".join(chunks)
+
+
+def _source_preview_response(preview) -> InteractionSourceImportPreviewResponse:
+    return InteractionSourceImportPreviewResponse(
+        preview_hash=preview.preview_hash,
+        mode=preview.mode,
+        title=preview.title,
+        project_id=preview.project_id,
+        chapter_count=preview.chapter_count,
+        changes=[
+            {
+                "chapter_index": item.chapter_index,
+                "title": item.title,
+                "change": item.change,
+            }
+            for item in preview.changes
+        ],
+        requires_destructive_confirmation=preview.requires_destructive_confirmation,
+    )
+
+
+@router.get("/sources", response_model=InteractionSourceListResponse)
+async def list_sources(db: DbSession) -> InteractionSourceListResponse:
+    return await _source_service.list_sources(db)
+
+
+@router.post(
+    "/sources/import-preview",
+    response_model=InteractionSourceImportPreviewResponse,
+    dependencies=_xhr,
+)
+async def preview_source_import(
+    db: DbSession,
+    file: UploadFile = File(...),
+    title: str = Form(..., min_length=1, max_length=255),
+    mode: Literal["full", "append"] = Form("full"),
+    project_id: str | None = Form(default=None),
+) -> InteractionSourceImportPreviewResponse:
+    if project_id:
+        await require_active_project(db, project_id)
+        await _source_service.require_author_project(db, project_id)
+    file_name, content = await _read_source_upload(file)
+    preview, _chapters = await preview_source_update(
+        db,
+        project_id=project_id,
+        title=title,
+        file_name=file_name,
+        file_content=content,
+        mode=mode,
+    )
+    return _source_preview_response(preview)
+
+
+@router.post(
+    "/sources/import",
+    response_model=InteractionSourceRevisionResponse,
+    status_code=202,
+    dependencies=_xhr,
+)
+async def import_source(
+    db: DbSession,
+    file: UploadFile = File(...),
+    title: str = Form(..., min_length=1, max_length=255),
+    expected_preview_hash: str = Form(..., min_length=64, max_length=64),
+    mode: Literal["full", "append"] = Form("full"),
+    project_id: str | None = Form(default=None),
+    destructive_confirmed: bool = Form(False),
+    authorization_confirmed: bool = Form(False),
+) -> InteractionSourceRevisionResponse:
+    if project_id:
+        await require_active_project(db, project_id)
+        await _source_service.require_author_project(db, project_id)
+    if authorization_confirmed is not True:
+        raise ValidationError("请先确认完整整理会使用模型额度")
+    file_name, content = await _read_source_upload(file)
+    preview, _chapters = await preview_source_update(
+        db,
+        project_id=project_id,
+        title=title,
+        file_name=file_name,
+        file_content=content,
+        mode=mode,
+    )
+    if preview.preview_hash != expected_preview_hash:
+        raise ConflictError("文件或作品章节已变化，请重新预览")
+
+    target_project_id = project_id
+    apply_hash = expected_preview_hash
+    if target_project_id is None:
+        project = await create_author_project(db, title=preview.title)
+        target_project_id = str(project.project_id)
+        created_preview, _created_chapters = await preview_source_update(
+            db,
+            project_id=target_project_id,
+            title=title,
+            file_name=file_name,
+            file_content=content,
+            mode=mode,
+        )
+        apply_hash = created_preview.preview_hash
+    applied = await apply_source_update(
+        db,
+        project_id=target_project_id,
+        title=title,
+        file_name=file_name,
+        file_content=content,
+        mode=mode,
+        expected_preview_hash=apply_hash,
+        destructive_confirmed=destructive_confirmed,
+    )
+    return await _source_service.create_from_project(
+        db,
+        project_id=target_project_id,
+        import_record_id=applied.import_record_id,
+        authorization_confirmed=True,
+    )
+
+
+@router.post(
+    "/sources/from-project",
+    response_model=InteractionSourceRevisionResponse,
+    status_code=202,
+    dependencies=_xhr,
+)
+async def create_source_from_project(
+    db: DbSession,
+    data: InteractionSourceFromProjectRequest,
+) -> InteractionSourceRevisionResponse:
+    await require_active_project(db, data.project_id)
+    return await _source_service.create_from_project(
+        db,
+        project_id=data.project_id,
+        authorization_confirmed=data.authorization_confirmed,
+    )
+
+
+@router.get(
+    "/sources/{revision_id}",
+    response_model=InteractionSourceRevisionResponse,
+)
+async def get_source(
+    db: DbSession,
+    revision_id: str,
+) -> InteractionSourceRevisionResponse:
+    return await _source_service.get_source(db, revision_id)
+
+
+@router.post(
+    "/sources/{revision_id}/ambiguities/{ambiguity_key}",
+    response_model=InteractionSourceRevisionResponse,
+    dependencies=_xhr,
+)
+async def resolve_source_ambiguity(
+    db: DbSession,
+    revision_id: str,
+    ambiguity_key: str,
+    data: InteractionSourceResolveRequest,
+) -> InteractionSourceRevisionResponse:
+    return await _source_service.resolve_ambiguity(
+        db,
+        revision_id=revision_id,
+        ambiguity_key=ambiguity_key,
+        choice_key=data.choice_key,
+    )
+
+
+@router.get(
+    "/sources/{revision_id}/anchors",
+    response_model=InteractionSourceAnchorListResponse,
+)
+async def list_source_anchors(
+    db: DbSession,
+    revision_id: str,
+    chapter_index: int | None = Query(default=None, ge=1),
+) -> InteractionSourceAnchorListResponse:
+    return await _source_service.list_anchors(
+        db,
+        revision_id=revision_id,
+        chapter_index=chapter_index,
+    )
+
+
+@router.post(
+    "/sources/{revision_id}/anchors/match",
+    response_model=InteractionSourceAnchorListResponse,
+    dependencies=_xhr,
+)
+async def match_source_anchors(
+    db: DbSession,
+    revision_id: str,
+    data: InteractionSourceAnchorMatchRequest,
+) -> InteractionSourceAnchorListResponse:
+    return await _source_service.match_anchors(
+        db,
+        revision_id=revision_id,
+        chapter_index=data.chapter_index,
+        description=data.description,
+    )
+
+
+@router.get(
+    "/sources/{revision_id}/objects",
+    response_model=InteractionSourceObjectListResponse,
+)
+async def list_source_objects(
+    db: DbSession,
+    revision_id: str,
+    entity_type: str | None = Query(default=None, max_length=64),
+    query: str | None = Query(default=None, max_length=100),
+    chapter_index: int | None = Query(default=None, ge=1),
+    end_offset: int | None = Query(default=None, ge=1),
+) -> InteractionSourceObjectListResponse:
+    return await _source_service.list_objects(
+        db,
+        revision_id=revision_id,
+        entity_type=entity_type,
+        query=query,
+        chapter_index=chapter_index,
+        end_offset=end_offset,
+    )
+
+
+@router.patch(
+    "/journeys/{journey_id}/source",
+    response_model=JourneyDetailResponse,
+    dependencies=_xhr,
+)
+async def update_journey_source(
+    db: DbSession,
+    journey_id: str,
+    data: InteractionSourceUpdateRequest,
+) -> JourneyDetailResponse:
+    return await _service.update_journey_source(
+        db,
+        journey_id=journey_id,
+        data=data,
+    )
+
+
+@router.get(
+    "/journeys/{journey_id}/references",
+    response_model=InteractionReferenceSummaryResponse,
+)
+async def get_journey_references(
+    db: DbSession,
+    journey_id: str,
+) -> InteractionReferenceSummaryResponse:
+    return await _service.get_reference_summary(db, journey_id=journey_id)
+
+
+@router.patch(
+    "/journeys/{journey_id}/references",
+    response_model=InteractionReferenceSummaryResponse,
+    dependencies=_xhr,
+)
+async def update_journey_references(
+    db: DbSession,
+    journey_id: str,
+    data: InteractionReferenceUpdateRequest,
+) -> InteractionReferenceSummaryResponse:
+    return await _service.update_references(
+        db,
+        journey_id=journey_id,
+        data=data,
+    )
 
 
 @router.post(

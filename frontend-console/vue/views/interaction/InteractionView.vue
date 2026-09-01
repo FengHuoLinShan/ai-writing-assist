@@ -84,6 +84,9 @@ const overviewRetrying = ref(false)
 const overviewSaving = ref(false)
 const overviewLoading = ref(false)
 const overviewLoadError = ref("")
+const overviewDrawer = ref(null)
+const overviewReturnFocus = ref(null)
+const rememberButton = ref(null)
 const generationRecordsOpen = ref(false)
 const generationRecords = ref([])
 const generationRecordsLoading = ref(false)
@@ -96,6 +99,7 @@ const branchesByNode = ref({})
 const branchOpenNode = ref(null)
 const storyPane = ref(null)
 const composerInput = ref(null)
+const selectedStoryText = ref("")
 const newContent = ref(false)
 const newContentCount = ref(0)
 const stopAfterCurrentNotice = ref(false)
@@ -106,6 +110,16 @@ const seeSeaNoticeAcknowledged = ref(
   props.preferences?.see_sea_notice_acknowledged === true,
 )
 const dataInfoOpen = ref(false)
+const sourceInfoOpen = ref(false)
+const sourceInfo = ref(null)
+const sourceRevision = ref(null)
+const sourceUpgrade = ref(null)
+const sourceObjects = ref([])
+const sourceCurrentAnchorKey = ref("")
+const sourceUpgradeAnchorKey = ref("")
+const sourceLoading = ref(false)
+const sourceError = ref("")
+const sourceDrawer = ref(null)
 const hasNewerMessages = ref(false)
 const moreMenu = ref(null)
 const currentTheme = ref(normalizeTheme(
@@ -306,6 +320,7 @@ function applyJourney(nextJourney, { preserveMessages = false } = {}) {
   journeyRefreshVersion += 1
   journey.value = nextJourney
   if (!preserveMessages) {
+    selectedStoryText.value = ""
     setupMessages.value = [...(nextJourney.setup_messages || [])]
     messages.value = [...(nextJourney.messages || [])]
     for (const message of messages.value) {
@@ -886,6 +901,112 @@ function closeMoreMenu() {
   if (moreMenu.value) moreMenu.value.open = false
 }
 
+async function openSourceInfo() {
+  if (!journey.value?.source) return
+  closeMoreMenu()
+  sourceInfoOpen.value = true
+  sourceLoading.value = true
+  sourceError.value = ""
+  sourceCurrentAnchorKey.value = ""
+  sourceUpgradeAnchorKey.value = ""
+  try {
+    sourceRevision.value = await getApi().interactions.getSource(
+      journey.value.source.revision_id,
+    )
+    const [referencesResult, objectsResult, sourcesResult] = await Promise.allSettled([
+      getApi().interactions.getJourneyReferences(journeyId.value),
+      getApi().interactions.listSourceObjects(sourceRevision.value.id, {
+        chapter_index: journey.value.source.progress_chapter_index,
+        end_offset: journey.value.source.progress_end_offset,
+      }),
+      getApi().interactions.listSources(),
+    ])
+    if (referencesResult.status === "rejected") throw referencesResult.reason
+    sourceInfo.value = referencesResult.value
+    sourceObjects.value = objectsResult.status === "fulfilled"
+      ? (objectsResult.value.items || []).filter((item) => item.entity_type !== "relation")
+      : []
+    const project = sourcesResult.status === "fulfilled"
+      ? (sourcesResult.value.projects || []).find(
+        (item) => item.project_id === sourceRevision.value.project_id,
+      )
+      : null
+    sourceUpgrade.value = project?.latest_revision?.version_number
+      > sourceRevision.value.version_number
+      && project.latest_revision.status === "ready"
+      ? await getApi().interactions.getSource(project.latest_revision.id)
+      : null
+    await nextTick()
+    sourceDrawer.value?.focus?.()
+  } catch (requestError) {
+    sourceError.value = requestError?.message || "作品资料暂时无法载入。"
+  } finally {
+    sourceLoading.value = false
+  }
+}
+
+function closeSourceInfo() {
+  sourceInfoOpen.value = false
+  sourceError.value = ""
+  void nextTick(() => moreMenu.value?.querySelector?.("summary")?.focus?.())
+}
+
+async function updateSourceReference(action, referenceKey = null) {
+  if (!sourceInfo.value || isGenerating.value || awaitingContinue.value) return
+  sourceLoading.value = true
+  sourceError.value = ""
+  try {
+    sourceInfo.value = await getApi().interactions.updateJourneyReferences(
+      journeyId.value,
+      {
+        action,
+        reference_key: referenceKey,
+        expected_source_context_epoch: sourceInfo.value.source.source_context_epoch,
+      },
+    )
+    journey.value = { ...journey.value, source: sourceInfo.value.source }
+  } catch (requestError) {
+    sourceError.value = requestError?.message || "作品资料设置未能保存。"
+  } finally {
+    sourceLoading.value = false
+  }
+}
+
+async function updateJourneySource(targetRevision, anchorKey) {
+  if (!anchorKey || isGenerating.value || awaitingContinue.value) return
+  sourceLoading.value = true
+  sourceError.value = ""
+  try {
+    const next = await getApi().interactions.updateJourneySource(
+      journeyId.value,
+      {
+        source_revision_id: targetRevision.id,
+        progress_anchor_key: anchorKey,
+        expected_selection_epoch: journey.value.selection_epoch,
+        expected_source_context_epoch: journey.value.source.source_context_epoch,
+      },
+    )
+    applyJourney(next, { preserveMessages: true })
+    await openSourceInfo()
+  } catch (requestError) {
+    sourceError.value = requestError?.message || "剧情进度或资料版本未能更新。"
+  } finally {
+    sourceLoading.value = false
+  }
+}
+
+function isPinned(referenceKey) {
+  return (sourceInfo.value?.pinned || []).some(
+    (item) => item.reference_key === referenceKey,
+  )
+}
+
+function isExcluded(referenceKey) {
+  return (sourceInfo.value?.excluded || []).some(
+    (item) => item.reference_key === referenceKey,
+  )
+}
+
 function selectTheme(value, event) {
   const theme = normalizeTheme(value)
   currentTheme.value = theme
@@ -913,7 +1034,12 @@ async function openTree() {
   }
 }
 
-async function openOverview() {
+async function openOverview(trigger = null) {
+  const triggerElement = trigger?.currentTarget || trigger
+  if (
+    triggerElement?.focus
+    && !overviewDrawer.value?.contains(triggerElement)
+  ) overviewReturnFocus.value = triggerElement
   const generation = ++overviewGeneration
   const requestJourneyId = journeyId.value
   const requestSelectionEpoch = journey.value?.selection_epoch
@@ -976,8 +1102,7 @@ async function openOverview() {
   }
 }
 
-function editOverview() {
-  if (!overviewHasContent.value) return
+function beginOverviewEdit() {
   overviewDraft.value = cloneOverviewSections(overview.value?.sections)
   overviewBaseline.value = JSON.stringify(overviewDraft.value)
   overviewEditContext.value = {
@@ -991,6 +1116,51 @@ function editOverview() {
   overviewConflict.value = null
   overviewDraftNotice.value = false
   overviewEditing.value = true
+}
+
+function editOverview() {
+  if (!overviewHasContent.value) return
+  beginOverviewEdit()
+}
+
+function syncStorySelection() {
+  const selection = globalThis.getSelection?.()
+  if (!selection || selection.isCollapsed || !selection.rangeCount) return
+  const container = selection.getRangeAt(0).commonAncestorContainer
+  const element = container.nodeType === 3 ? container.parentElement : container
+  selectedStoryText.value = storyPane.value?.contains(element)
+    ? selection.toString().trim()
+    : ""
+}
+
+async function rememberComposerNote() {
+  const additions = [...new Set([
+    selectedStoryText.value,
+    composer.value.trim(),
+  ].filter(Boolean))]
+  if (!additions.length || overviewLoading.value || overviewSaving.value) return
+  overviewReturnFocus.value = rememberButton.value
+  if (!overviewOpen.value || !overview.value) {
+    await openOverview(rememberButton.value)
+  }
+  if (overviewLoadError.value || !overview.value) return
+  if (!overviewEditing.value) beginOverviewEdit()
+  const existing = overviewDraft.value.must_remember.trim()
+  const existingLines = new Set(existing.split("\n").map((line) => line.trim()))
+  const novelAdditions = additions.filter((item) => !existingLines.has(item))
+  const nextValue = [existing, ...novelAdditions].filter(Boolean).join("\n")
+  if (nextValue.length > 50_000) {
+    getToast()("要记住的内容过长，请先缩短选中内容或输入。", "warning")
+    return
+  }
+  overviewDraft.value.must_remember = nextValue
+  selectedStoryText.value = ""
+  globalThis.getSelection?.()?.removeAllRanges?.()
+  await nextTick()
+  overviewDrawer.value
+    ?.querySelector('textarea[data-overview-section="must_remember"]')
+    ?.focus()
+  getToast()("已填入“必须继续记住”；确认内容后再保存。", "info")
 }
 
 function cancelOverviewEdit() {
@@ -1029,6 +1199,9 @@ function closeOverview() {
   overviewGeneration += 1
   overviewLoading.value = false
   overviewOpen.value = false
+  const returnFocus = overviewReturnFocus.value
+  overviewReturnFocus.value = null
+  if (returnFocus?.focus) void nextTick(() => returnFocus.focus())
 }
 
 async function saveOverview() {
@@ -1061,7 +1234,12 @@ async function saveOverview() {
       draftBranchId,
       null,
     )
-    getToast()("回顾已保存", "success")
+    getToast()(
+      overview.value.status === "refreshing"
+        ? "回顾已保存；正在整理最近剧情"
+        : "回顾已保存",
+      "success",
+    )
     return true
   } catch (error) {
     if (error?.status === 409) {
@@ -1573,6 +1751,7 @@ function beforeUnload(event) {
 
 onMounted(() => {
   cancelSeeSeaGrace(journeyId.value)
+  document.addEventListener("selectionchange", syncStorySelection)
   document.addEventListener("visibilitychange", onVisibilityChange)
   window.addEventListener("beforeunload", beforeUnload)
   syncHeartbeat()
@@ -1598,6 +1777,7 @@ onBeforeUnmount(() => {
   persistScrollPosition()
   abortStream()
   stopHeartbeat()
+  document.removeEventListener("selectionchange", syncStorySelection)
   document.removeEventListener("visibilitychange", onVisibilityChange)
   window.removeEventListener("beforeunload", beforeUnload)
   if (scrollFrame != null) {
@@ -1636,6 +1816,7 @@ onBeforeUnmount(() => {
           <button type="button" @click="closeMoreMenu(); renameJourney()">重命名旅程</button>
           <button type="button" @click="closeMoreMenu(); openTree()">查看所有分支</button>
           <button type="button" @click="closeMoreMenu(); openGenerationRecords()">生成记录</button>
+          <button v-if="journey.source" type="button" @click="openSourceInfo">作品资料</button>
           <button type="button" @click="closeMoreMenu(); exportJourney('md', false)">导出完整记录</button>
           <button type="button" @click="closeMoreMenu(); exportJourney('txt', true, false)">导出故事正文</button>
           <button type="button" @click="closeMoreMenu(); goConnect()">
@@ -1928,6 +2109,15 @@ onBeforeUnmount(() => {
           @click="openOverview"
         >回顾</button>
         <button
+          v-if="storyStarted"
+          ref="rememberButton"
+          type="button"
+          class="rp-mode-toggle rp-remember-button"
+          :disabled="(!composer.trim() && !selectedStoryText) || overviewLoading || overviewSaving"
+          title="把选中的故事片段和输入框内容填入回顾，保存前仍可修改"
+          @click="rememberComposerNote"
+        >记住这一点</button>
+        <button
           ref="seeSeaButton"
           type="button"
           class="rp-mode-toggle"
@@ -1968,7 +2158,13 @@ onBeforeUnmount(() => {
       />
     </footer>
 
-    <aside v-if="overviewOpen" class="rp-drawer" aria-label="当前回顾" :aria-busy="overviewLoading || overviewRetrying">
+    <aside
+      v-if="overviewOpen"
+      ref="overviewDrawer"
+      class="rp-drawer"
+      aria-label="当前回顾"
+      :aria-busy="overviewLoading || overviewRetrying"
+    >
       <header>
         <div>
           <strong>回顾</strong>
@@ -2002,6 +2198,7 @@ onBeforeUnmount(() => {
           <strong>{{ section.label }}</strong>
           <textarea
             v-model="overviewDraft[section.key]"
+            :data-overview-section="section.key"
             rows="4"
             maxlength="50000"
           ></textarea>
@@ -2107,6 +2304,110 @@ onBeforeUnmount(() => {
         </button>
       </div>
       <p v-else class="rp-overview-empty">这段旅程还没有产生不同分支。</p>
+    </aside>
+
+    <aside
+      v-if="sourceInfoOpen"
+      ref="sourceDrawer"
+      class="rp-drawer"
+      aria-label="作品资料"
+      :aria-busy="sourceLoading"
+      tabindex="-1"
+      @keydown.esc="closeSourceInfo"
+    >
+      <header>
+        <div>
+          <strong>作品资料</strong>
+          <span v-if="journey.source">
+            {{ journey.source.source_title }} · 资料版本 {{ journey.source.version_number }}
+          </span>
+        </div>
+        <button type="button" aria-label="关闭作品资料" @click="closeSourceInfo">×</button>
+      </header>
+      <p v-if="sourceError" class="rp-overview-empty" role="alert">
+        {{ sourceError }} <button type="button" @click="openSourceInfo">重新载入</button>
+      </p>
+      <p v-else-if="sourceLoading && !sourceInfo" class="rp-overview-empty" role="status">
+        正在载入作品资料…
+      </p>
+      <div v-else-if="sourceInfo" class="rp-source-drawer-content">
+        <section class="rp-source-current">
+          <h3>当前进度</h3>
+          <p>{{ sourceInfo.source.progress_label }}</p>
+          <small v-if="sourceInfo.source.player_label">玩家身份：{{ sourceInfo.source.player_label }}</small>
+        </section>
+        <section v-if="sourceInfo.last_used.length">
+          <h3>本轮引用了什么</h3>
+          <ul>
+            <li v-for="(item, index) in sourceInfo.last_used" :key="`${item.label}-${index}`">
+              <strong>{{ item.label }}</strong><span>{{ item.reason }}</span>
+            </li>
+          </ul>
+        </section>
+        <section v-if="sourceRevision?.anchors?.length" class="rp-source-progress-update">
+          <h3>推进剧情进度</h3>
+          <p>已开始的旅程只能保持或向后推进；回到更早剧情需要新建旅程。</p>
+          <select v-model="sourceCurrentAnchorKey" aria-label="新的剧情进度">
+            <option value="" disabled>选择章节内的剧情点</option>
+            <option v-for="anchor in sourceRevision.anchors" :key="anchor.anchor_key" :value="anchor.anchor_key">
+              {{ anchor.chapter_title }} · {{ anchor.label }}
+            </option>
+          </select>
+          <button
+            type="button"
+            :disabled="sourceLoading || isGenerating || awaitingContinue || !sourceCurrentAnchorKey"
+            @click="updateJourneySource(sourceRevision, sourceCurrentAnchorKey)"
+          >保存剧情进度</button>
+        </section>
+        <section v-if="sourceUpgrade" class="rp-source-upgrade">
+          <h3>可用新资料版本 {{ sourceUpgrade.version_number }}</h3>
+          <p>旧版本和当前旅程不受影响。选择新版本中的剧情点后才会升级。</p>
+          <select v-model="sourceUpgradeAnchorKey" aria-label="新版本剧情进度">
+            <option value="" disabled>选择新版本剧情点</option>
+            <option v-for="anchor in sourceUpgrade.anchors" :key="anchor.anchor_key" :value="anchor.anchor_key">
+              {{ anchor.chapter_title }} · {{ anchor.label }}
+            </option>
+          </select>
+          <button
+            type="button"
+            :disabled="sourceLoading || isGenerating || awaitingContinue || !sourceUpgradeAnchorKey"
+            @click="updateJourneySource(sourceUpgrade, sourceUpgradeAnchorKey)"
+          >升级并确认进度</button>
+        </section>
+        <section>
+          <h3>固定或忽略对象</h3>
+          <p>固定项会优先进入每轮资料；忽略项不会被关系扩展重新带回。</p>
+          <div class="rp-source-object-list">
+            <article v-for="item in sourceObjects" :key="item.reference_key">
+              <div><strong>{{ item.label }}</strong><small>{{ item.entity_type }}</small></div>
+              <p v-if="item.summary">{{ item.summary }}</p>
+              <div>
+                <button
+                  type="button"
+                  :class="{ active: isPinned(item.reference_key) }"
+                  :disabled="sourceLoading || isGenerating || awaitingContinue"
+                  @click="updateSourceReference('pin', item.reference_key)"
+                >{{ isPinned(item.reference_key) ? "已固定" : "固定" }}</button>
+                <button
+                  type="button"
+                  :class="{ active: isExcluded(item.reference_key) }"
+                  :disabled="sourceLoading || isGenerating || awaitingContinue"
+                  @click="updateSourceReference('exclude', item.reference_key)"
+                >{{ isExcluded(item.reference_key) ? "已忽略" : "忽略" }}</button>
+              </div>
+            </article>
+          </div>
+          <button
+            v-if="sourceInfo.pinned.length || sourceInfo.excluded.length"
+            type="button"
+            :disabled="sourceLoading || isGenerating || awaitingContinue"
+            @click="updateSourceReference('reset')"
+          >恢复自动引用</button>
+        </section>
+        <p v-if="isGenerating || awaitingContinue" class="rp-source-lock-note">
+          请先等当前回应完成或处理未写完的内容，再修改作品资料。
+        </p>
+      </div>
     </aside>
 
     <aside v-if="dataInfoOpen" class="rp-drawer" aria-label="内容与数据">

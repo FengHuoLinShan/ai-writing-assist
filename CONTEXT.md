@@ -71,9 +71,9 @@ README、ORM 模型与 Alembic migration。当前文档范围由
 |---|---|---|
 | 记忆事件 / 快照 | `memory_events` / `memory_scene_checkpoints` / `memory_scene_snapshots` / `memory_snapshots` | Scene 是唯一基础阶段；历史状态只由带 Scene 锚点的 MemoryEvent 确定性重放，禁止用当前 World 补历史。 |
 | 字段差分 | `delta_log` | memory 拥有的结构化 before/after 记录；不替代 TextArchive。 |
-| RAG 分块 | `rag_chunks` | 文字、来源、offset、Scene/Span、可见性、索引版本和 embedding 状态。 |
+| RAG 分块 | `rag_chunks` | 文字、来源、offset、Scene/Span、可见性、索引版本和 embedding 状态；chapter-text 按具体 Writing draft/hash 并存。 |
 | AI 参考资料确认 | `context_confirmations` | 手动 AI 操作前用户确认过的资料选择、结果引用与 `compile_options` 摘要。 |
-| 自动上下文快照 | `context_snapshots` | 真实 LLM 调用的审计记录，保存摘要、hash、预算、资产选择与结果引用；完整 rendered context 仅显式保留。 |
+| 自动上下文快照 | `context_snapshots` | 真实 LLM 调用的审计记录；`novel_id` 是资料源，可空 `consumer_novel_id` 记录 RP consumer。默认只保存摘要、hash、预算、选择与结果引用。 |
 | 编译上下文 | CompiledContext | evidence compilation 按 scope、视角、预算和候选模式选择、裁剪并解释资料的中间表示。 |
 | 可操作资料项 | ContextItem | CompiledContext 内实际交给模型的单项资料；状态为 required、automatic、author_pinned、excluded 或 omitted。 |
 | Context 指纹 | compiled_context_fingerprint | 对 provider 可见 sections/items、来源身份、选择与有效范围的通用 SHA-256；预览、确认、执行必须一致。 |
@@ -116,20 +116,23 @@ Context。同一任务的内部复核/格式修复复用原 confirmation；自�
 - **作者任务**：`project_author_tasks` 是 project 拥有、按 `novel_id` 隔离的轻量个人待办；只含标题、备注、`open/completed/archived`、可选日期与一个封闭类型来源。它不同于领域“需要决定”和 `infrastructure/tasks` 后台流程，后两者不能被勾选完成。
 - **授权自动流水线**：深度导入等流水线必须在启动时持久化授权策略与范围；规则明确且可回滚的结果可自动采用，冲突、低置信和无法消歧结果进入待处理，完成结果按已采用/待处理/未采用汇总。
 - **历史状态**：`deprecated` / `ignored` / `merged` / `rolled_back` 等进入历史并默认从主工作区隐藏；除项目永久删除和地图等明确操作外不默认硬删除。
-- **novel_id**：项目隔离键。任何跨模块 facade、查询、合并、任务和恢复流程都不得跨项目
-  读取或写入资产。
+- **novel_id**：项目隔离键。唯一例外是 ADR-0018 的同 owner、显式版本化 author source →
+  interaction consumer 只读引用；来源查询和 RP 写入仍分别携带各自 `novel_id`。其他流程
+  都不得跨项目读写资产。
 - **Schema guard**：API、LLM 结构化输出和入库都必须经过 Pydantic/调用方校验；不得
   `eval`、`exec` 或直接持久化未校验的 LLM 文本。
 
 ## 6. RP 互动旅程
 
-`interaction` 是独立于作者创作资产三层的私人故事领域。它不读取或写入 World、Outline、
-RAG、writing 或 memory；每个旅程以一个隐藏的 `project_kind=interaction` 项目作为
-`novel_id + owner_id` 隔离根。
+`interaction` 是独立于作者创作资产三层的私人故事领域。每个旅程以一个隐藏的
+`project_kind=interaction` 项目作为 `novel_id + owner_id` 隔离根。旅程可不绑定来源，也可绑定
+同 owner author 项目的一个不可变 source revision。后者只通过 Evidence 按 draft/hash/章节/offset
+读取冻结资料；旅程内容不写回 World、Story 或 writing。
 
 | 概念 | 当前承载 | 含义 |
 |---|---|---|
 | 互动旅程 | `interaction_journeys` | RP 故事容器，保存标题、旅程级开关、当前选中叶、selection epoch、回顾 head 和活动状态。 |
+| 作品资料版本 | `interaction_source_revisions` | exact Writing manifest、剧情锚点、对象目录、关键歧义决议与整理状态；不复制全文。`ready` 表示当前全部现有章节可精确引用，不表示作品完结。 |
 | 消息节点 | `interaction_message_nodes` | 不可变的用户/模型内容节点；修改、重新生成和其他分支通过新 sibling 表达，不原地改写历史。 |
 | 分支选择 | `interaction_branch_selections` | 每个分岔父节点唯一的当前选中子节点；只有代码计算出的选中路径进入 Prompt、回顾和默认导出。 |
 | 生成 attempt | `interaction_generation_attempts` | 排队、上下文准备、流式缓冲、停止、失败和完成的领域状态；任务 transport 终态不能替代它。 |
@@ -138,8 +141,9 @@ RAG、writing 或 memory；每个旅程以一个隐藏的 `project_kind=interact
 | 看海模式 | interaction 确定性循环 | 用户留在故事页且开关开启时，逐段提交有界 story attempt；不是自治 Agent，也不让模型自行调用工具。 |
 
 旅程“正史”只表示当前代码级选中路径，不等于原作品正史。未选 sibling、失败残段和模型训练
-先验都不自动成为已经发生的历史；用户明确修正优先，并由后续回顾收敛。RP 第一版背景来自
-用户开场、模型训练知识、选中历史和有效总回顾，不支持原作导入或按章节分叉。
+先验都不自动成为已经发生的历史；用户明确修正优先，并由后续回顾收敛。source-bound 旅程的
+事实优先级为最新修正 → 选中历史/手工回顾 → 固定版本截止点前的作品资料 → 模型知识。
+来源归档、manifest/固定引用失效或 source epoch 漂移时失败关闭。
 
 ## 7. 受控 LLM 工作流
 

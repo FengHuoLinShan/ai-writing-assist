@@ -97,8 +97,8 @@ Prompt 或 token；预算遗漏另行解释。作者可逐项移除/恢复、用
 | 视图 | 当前职责 |
 |------|----------|
 | `vue/views/interaction/HomeChoiceView.vue` | `home` 路由与未登录公共首屏共用的双入口；公共模式只回传作者 / RP 选择，不请求受保护资料。已登录作者入口校验当前账户的已选作品并智能续接 Writing Home，无有效作品时回作品档案；RP 卡使用“进入互动故事”并解释一次角色扮演（RP） |
-| `vue/views/interaction/JourneyListView.vue` | `journeys` 路由；扁平旅程列表、新旅程、归档入口和按需搜索 |
-| `vue/views/interaction/InteractionView.vue` | `interaction/{journey_id}` 路由；故事阅读、composer、流式恢复、分支、回顾、看海与右侧定位 |
+| `vue/views/interaction/JourneyListView.vue` / `RpSourceSetup.vue` | `journeys` 路由；扁平旅程列表、新旅程、归档/搜索；新建页保留直接开场并可选复用/导入作者作品、恢复整理任务、确认关键歧义、点选自然语言匹配的章节内剧情候选和玩家身份 |
+| `vue/views/interaction/InteractionView.vue` | `interaction/{journey_id}` 路由；故事阅读、composer、流式恢复、分支、回顾、看海与右侧定位；source-bound 旅程从“更多 → 作品资料”抽屉查看版本/进度/本轮引用理由、固定/忽略对象并显式升级 |
 | `vue/views/project/ProjectView.vue` | `project` 路由（Vue island）；紧凑作品档案，默认主操作为“继续创作”，搜索/筛选单行展示；批量、编辑、删除和回收站只在“管理作品”模式出现；无作品时优先显示新建与导入 |
 | `vue/views/writing/home/WritingHomeView.vue` / `AuthorTasksView.vue` / `vue/views/today/TodayView.vue` | `writing?home=1` 的写作首页；已有章节时正文续写是唯一主行动，本机或服务器世界创作位置作为次级恢复入口；无正文时沿用世界创作、导入整理与世界核心起步优先级。主行动后显示最多 3 项“计划中的任务”，`panel=tasks` 提供今天/收件箱/之后/已完成与次级归档。作者任务可完成；领域待决只返回所属页，后台整理只显示进度/恢复，三者不混用勾选。章节、Scene 与世界 Page/Entity 可就地建任务并返回类型化来源 |
 | `vue/views/rag/RagView.vue` / `vue/views/outline/components/OutlineHeader.vue` / `vue/views/scene/SceneWorkbenchView.vue` / `vue/views/world/WorldView.vue` / `vue/views/world/components/WorldReviewTab.vue` | 可切换子导航使用原生 button，当前项公开 `aria-current="page"`；Scene 工作台当前项保持非交互，避免同路由刷新 |
@@ -137,6 +137,11 @@ Prompt 或 token；预算遗漏另行解释。作者可逐项移除/恢复、用
   浏览器会话保留，登录成功时一次性消费。作者进入 `today` 兼容路由并继续复用
   既有项目门禁，RP 进入 `journeys`；登录页可返回原选项且恢复焦点。邮箱、未来开启的
   微信回跳与已登录刷新共用同一消费点，不新增后端登录协议。
+- RP source 向导只使用作者语言，不展示 UUID/JSON/task/token/Prompt。长整理不进阻断 modal，
+  revision 进度可离开并经 session + server source 列表恢复。RP 文件选择器只声明
+  `.txt/.epub/.html/.htm`；与 Writing 复用 `useImportUpload` 的 50MB/扩展名校验，但使用 RP 窄白名单。
+  动态进度只有一个 polite `aria-live`；失败保留表单并聚焦可操作错误摘要。抽屉支持
+  Escape/焦点返回，390px 下全宽、44px 操作区且不增加 composer 常驻按钮。
 - `outline` 的规范默认子视图是 `story-outline`，作者导航层级为“故事总览 → 篇章 → 剧情线 → 场景”。`outline/story-outline?edit=1` 是可刷新、可前后退的手工编辑页；AI 预览留在故事总览页内，两者草稿均按项目隔离在本机并受离开/冲突保护。旧 `scene` 路由重定向到 `outline/scenes`，旧 `outline/foreshadowing` 与 `outline/reveals` 重定向到剧情线的信息推进区域。
 - router 不再保留 KeepAlive/DocumentFragment 缓存；所有视图离开时卸载。写作快照、Outline/Scene workflow 与滚动位置采用显式项目隔离 session 恢复，详见 [ADR-0009 附录 A](../adr/0009-appendix-a-keep-alive-policy.md)
 - Writing session 使用原生 `Map` 保留当前章和最近四章、最近五个项目；未完成本地备份的 dirty 快照不可淘汰。正文输入立即更新内存，本地备份和恢复指针合并为 250ms trailing 写入，并在保存、切换、卸载及页面离开前强制 flush；网络自动保存仍为 3 秒。

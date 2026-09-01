@@ -7,6 +7,7 @@ imports 模块负责将本地小说文件解析并导入系统，创建 WritingD
 ## 数据表
 
 - `import_records` — file_name / file_type / file_size / total_chapters / imported_chapters / status / error_message
+  以及 `import_kind=manuscript/source_revision`；source revision 更新不与普通上传的完成文件名唯一约束冲突
 - `imported_chapters` — 仍是活跃的章节正文表并被 world 事件/关系/版本来源 FK 引用；当前上传主路径把章节写为 `writing_drafts`，不把它当作第二个编辑入口
 - `import_workflow_runs` — 项目级活动 workflow、generation、task/attempt/lease owner、
   授权与 LLM snapshot、恢复 checkpoint；它是可恢复领域状态，不由 `async_tasks` 代替
@@ -23,6 +24,9 @@ imports 模块负责将本地小说文件解析并导入系统，创建 WritingD
 ## 服务
 
 - ImportService.upload_and_import()：文件校验 → 解析 → 创建 WritingDraft → 更新 ImportRecord
+- SourceUpdateService：RP `import-preview` 不写正文；`import` 重传同一文件、在 project
+  exclusive 锁内重新解析并比对 preview hash，再按 full/append 写入新的已发布 Writing
+  版本或软废弃被确认移除的章节
 - DeepImportWorkflow：带确定性规划、Scene 切分、Scene enrichment、实体/关系提取、结构分析和恢复语义的深度导入流水线，运行在 `async_tasks` 的 `deep_import` 任务中
 
 ## 深度导入流水线
@@ -162,6 +166,8 @@ Phase 1c 仅在 `high_quality=true` 时运行：先按窗口批量审阅完整�
 ## 安全约束
 
 - 文件类型白名单：`.txt .epub .html .htm .mobi .azw3`
+- 只有 `.txt/.epub/.html/.htm` 是 RP 当前对外验收格式；MOBI/AZW3 仍是兼容白名单，不在
+  RP 文件选择器中宣称可用。
 - 大小上限：50MB
 - 文件名必须 `os.path.basename` 处理，防止路径穿越
 - resume/abandon 会校验任务归属的 active project；任务不存在或归属项目不可访问

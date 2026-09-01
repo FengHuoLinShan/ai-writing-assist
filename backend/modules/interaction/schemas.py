@@ -102,11 +102,34 @@ class InteractionSummaryOutput(BaseModel):
         return self
 
 
+class InteractionPlayerIdentity(BaseModel):
+    kind: Literal["source_character", "original"]
+    reference_key: str | None = Field(default=None, max_length=64)
+    name: str | None = Field(default=None, max_length=120)
+    description: str | None = Field(default=None, max_length=4000)
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> InteractionPlayerIdentity:
+        if self.kind == "source_character" and not self.reference_key:
+            raise ValueError("请选择作品中的角色")
+        if self.kind == "original" and not str(self.name or "").strip():
+            raise ValueError("请填写原创角色名称")
+        return self
+
+
+class JourneySourceSetup(BaseModel):
+    source_revision_id: str = Field(min_length=36, max_length=36)
+    progress_anchor_key: str = Field(min_length=64, max_length=64)
+    player_identity: InteractionPlayerIdentity
+    pinned_reference_keys: list[str] = Field(default_factory=list, max_length=64)
+
+
 class JourneyCreateRequest(BaseModel):
     opening_text: str = Field(..., min_length=1, max_length=100_000)
     idempotency_key: str = Field(..., min_length=8, max_length=128)
     see_sea_enabled: bool = False
     action_options_enabled: bool = True
+    source_setup: JourneySourceSetup | None = None
 
     @field_validator("opening_text")
     @classmethod
@@ -239,7 +262,21 @@ class InteractionAttemptResponse(BaseModel):
     error_kind: str | None = None
     error_message: str | None = None
     result_node_id: str | None = None
+    references: list[dict[str, str]] = Field(default_factory=list)
     created_at: datetime
+
+
+class InteractionJourneySourceResponse(BaseModel):
+    revision_id: str
+    source_title: str
+    version_number: int = Field(ge=1)
+    status: Literal["organizing", "needs_confirmation", "ready", "failed"]
+    progress_label: str
+    progress_chapter_index: int = Field(ge=1)
+    progress_end_offset: int = Field(ge=1)
+    player_label: str | None = None
+    source_context_epoch: int = Field(default=0, ge=0)
+    update_available: bool = False
 
 
 class InteractionGenerationRecordListResponse(BaseModel):
@@ -259,6 +296,7 @@ class JourneySummaryResponse(BaseModel):
     current_excerpt: str | None = None
     attempt_status: str | None = None
     active_attempt_id: str | None = None
+    source: InteractionJourneySourceResponse | None = None
 
 
 class JourneyListResponse(BaseModel):
@@ -281,6 +319,136 @@ class JourneyDetailResponse(BaseModel):
     messages: list[InteractionMessageResponse] = Field(default_factory=list)
     has_older_messages: bool = False
     active_attempt: InteractionAttemptResponse | None = None
+    source: InteractionJourneySourceResponse | None = None
+
+
+class InteractionSourceChapterChange(BaseModel):
+    chapter_index: int = Field(ge=1)
+    title: str
+    change: Literal["added", "changed", "removed", "reordered", "unchanged"]
+
+
+class InteractionSourceImportPreviewResponse(BaseModel):
+    preview_hash: str = Field(min_length=64, max_length=64)
+    mode: Literal["full", "append"]
+    title: str
+    project_id: str | None = None
+    chapter_count: int = Field(ge=1)
+    changes: list[InteractionSourceChapterChange]
+    requires_destructive_confirmation: bool = False
+
+
+class InteractionSourceAmbiguityChoice(BaseModel):
+    choice_key: str
+    label: str
+    entity_type: str
+
+
+class InteractionSourceAmbiguity(BaseModel):
+    ambiguity_key: str
+    label: str
+    reason: str
+    choices: list[InteractionSourceAmbiguityChoice]
+    selected_choice_key: str | None = None
+
+
+class InteractionSourceAnchorResponse(BaseModel):
+    anchor_key: str
+    chapter_index: int = Field(ge=1)
+    chapter_title: str
+    label: str
+    excerpt: str = ""
+    end_offset: int = Field(ge=1)
+
+
+class InteractionSourceObjectResponse(BaseModel):
+    reference_key: str
+    label: str
+    entity_type: str
+    summary: str = ""
+    aliases: list[str] = Field(default_factory=list)
+    first_chapter_index: int | None = Field(default=None, ge=1)
+    first_end_offset: int | None = Field(default=None, ge=1)
+
+
+class InteractionSourceRevisionResponse(BaseModel):
+    id: str
+    project_id: str
+    title: str
+    version_number: int = Field(ge=1)
+    status: Literal["organizing", "needs_confirmation", "ready", "failed"]
+    chapter_count: int = Field(ge=0)
+    progress_message: str
+    recovery_required: bool = False
+    ambiguities: list[InteractionSourceAmbiguity] = Field(default_factory=list)
+    anchors: list[InteractionSourceAnchorResponse] = Field(default_factory=list)
+    objects: list[InteractionSourceObjectResponse] = Field(default_factory=list)
+    ready_at: datetime | None = None
+    update_available: bool = False
+
+
+class InteractionSourceProjectResponse(BaseModel):
+    project_id: str
+    title: str
+    latest_revision: InteractionSourceRevisionResponse | None = None
+
+
+class InteractionSourceListResponse(BaseModel):
+    items: list[InteractionSourceRevisionResponse] = Field(default_factory=list)
+    projects: list[InteractionSourceProjectResponse] = Field(default_factory=list)
+
+
+class InteractionSourceFromProjectRequest(BaseModel):
+    project_id: str = Field(min_length=36, max_length=36)
+    authorization_confirmed: bool = False
+
+
+class InteractionSourceResolveRequest(BaseModel):
+    choice_key: str = Field(min_length=1, max_length=128)
+
+
+class InteractionSourceAnchorMatchRequest(BaseModel):
+    chapter_index: int = Field(ge=1)
+    description: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("description")
+    @classmethod
+    def clean_description(cls, value: str) -> str:
+        return _clean_required_text(value)
+
+
+class InteractionSourceAnchorListResponse(BaseModel):
+    items: list[InteractionSourceAnchorResponse] = Field(default_factory=list)
+
+
+class InteractionSourceObjectListResponse(BaseModel):
+    items: list[InteractionSourceObjectResponse] = Field(default_factory=list)
+
+
+class InteractionSourceUpdateRequest(BaseModel):
+    source_revision_id: str = Field(min_length=36, max_length=36)
+    progress_anchor_key: str = Field(min_length=64, max_length=64)
+    expected_selection_epoch: int = Field(ge=0)
+    expected_source_context_epoch: int = Field(ge=0)
+
+
+class InteractionReferenceUpdateRequest(BaseModel):
+    action: Literal["pin", "exclude", "reset"]
+    reference_key: str | None = Field(default=None, max_length=64)
+    expected_source_context_epoch: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def require_reference(self) -> InteractionReferenceUpdateRequest:
+        if self.action != "reset" and not self.reference_key:
+            raise ValueError("请选择作品资料")
+        return self
+
+
+class InteractionReferenceSummaryResponse(BaseModel):
+    source: InteractionJourneySourceResponse
+    pinned: list[InteractionSourceObjectResponse] = Field(default_factory=list)
+    excluded: list[InteractionSourceObjectResponse] = Field(default_factory=list)
+    last_used: list[dict[str, str]] = Field(default_factory=list)
 
 
 class InteractionMutationResponse(BaseModel):

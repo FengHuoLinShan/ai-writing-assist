@@ -26,6 +26,8 @@ indexing 负责“找”，compilation 负责“选、裁、确认、追踪”�
 - 管理版本化 Activation Profile，用受限匹配规则把固定世界书页面/CoreEntity 编译为
   可解释、可预算裁剪的 P1 参考资料
 - 为 `world.map_atlas.generate` operation 编译 author-full canonical 背景；只在作者显式开启时加入工作稿
+- 为 `interaction.story` 编译冻结 author source revision：独立 16K 参考预算、
+  exact draft/hash、章节/offset、读者或角色知识边界、固定/忽略与代码级激活理由
 
 ## 不负责
 
@@ -45,6 +47,7 @@ indexing 负责“找”，compilation 负责“选、裁、确认、追踪”�
 ```python
 async def compile_structure_context(...) -> StructureContextBundle
 async def compile_with_tiers(...) -> CompiledContext
+async def compile_interaction_story_context(...) -> InteractionStoryContextContract
 async def render_compiled_context_markdown(...) -> str
 async def compile_generation_background(...) -> dict
 async def confirm_context(...) -> ContextConfirmationContract
@@ -117,6 +120,11 @@ checkpoint `ensure` 产生隐式写入。没有显式关联对象时不回退全
 
 - `context_confirmations` 面向手动 AI 操作，表示用户确认过的参考资料选择。
 - `context_snapshots` 面向自动流水线审计，表示一次真实 LLM 调用使用过的上下文视图。
+
+RP source snapshot 以 `novel_id` 表示作者资料来源项目，以可空
+`consumer_novel_id` 表示隐藏 interaction 项目。它只保存 fingerprint、SourceRangeRef/对象
+引用、自然语言原因码、数量和预算摘要；编译时的 rendered source block 只用于当次请求，
+不长期持久化。来源项目或必需固定项失效时返回 blocker，interaction 不得降级到模型知识。
 
 地图册不增加新的公开 scope。generation-background 识别 `world.map_atlas.generate`，固定
 `reveal_mode=author_full`，调用 atlas 专用 world loader 读取至多 160 个 canonical/已发布

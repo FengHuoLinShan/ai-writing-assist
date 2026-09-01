@@ -2,6 +2,12 @@ import { test, expect } from "./fixtures.js"
 import { waitForBackend } from "./helpers/api-client.js"
 
 const journeyId = "11111111-1111-4111-8111-111111111111"
+const sourceProjectId = "22222222-2222-4222-8222-222222222222"
+const sourceRevisionId = "33333333-3333-4333-8333-333333333333"
+const firstAnchorKey = "a".repeat(64)
+const secondAnchorKey = "b".repeat(64)
+const characterKey = "c".repeat(64)
+const locationKey = "d".repeat(64)
 
 function storyMessage(id, role, content, overrides = {}) {
   return {
@@ -138,6 +144,72 @@ async function mockRpApis(page, { seeSeaNoticeAcknowledged = true } = {}) {
   })
 }
 
+function sourceRevision(overrides = {}) {
+  return {
+    id: sourceRevisionId,
+    project_id: sourceProjectId,
+    title: "雾都之夜",
+    version_number: 1,
+    status: "ready",
+    chapter_count: 2,
+    progress_message: "作品资料已完整整理，可以开始旅程",
+    recovery_required: false,
+    ambiguities: [],
+    anchors: [
+      {
+        anchor_key: firstAnchorKey,
+        chapter_index: 1,
+        chapter_title: "第一章 抵达",
+        label: "火车进站",
+        excerpt: "雾中的火车停靠站台",
+        end_offset: 80,
+      },
+      {
+        anchor_key: secondAnchorKey,
+        chapter_index: 2,
+        chapter_title: "第二章 钟楼",
+        label: "进入钟楼之后",
+        excerpt: "铜门在身后合拢",
+        end_offset: 160,
+      },
+    ],
+    objects: [
+      {
+        reference_key: characterKey,
+        label: "林默",
+        entity_type: "character",
+        summary: "钟表匠",
+        aliases: ["小林"],
+        first_chapter_index: 1,
+        first_end_offset: 40,
+      },
+      {
+        reference_key: locationKey,
+        label: "雾港钟楼",
+        entity_type: "location",
+        summary: "海边钟楼",
+        aliases: [],
+        first_chapter_index: 2,
+        first_end_offset: 120,
+      },
+    ],
+    ready_at: "2026-09-01T00:00:00Z",
+    update_available: false,
+    ...overrides,
+  }
+}
+
+async function mockJourneyCreation(page, capture) {
+  await page.route("**/api/interactions/journeys", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback()
+    capture.payload = route.request().postDataJSON()
+    return route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ journey: { id: journeyId } }),
+    })
+  })
+}
+
 test.describe("RP 路由与窄屏故事页", () => {
   test.beforeAll(async () => {
     await waitForBackend(60000)
@@ -263,6 +335,179 @@ test.describe("RP 路由与窄屏故事页", () => {
     expect(box.y + box.height).toBeLessThanOrEqual(520)
     expect(await confirmation.evaluate((element) => element.parentElement === document.body))
       .toBe(true)
+    expect(browserErrors).toEqual([])
+  })
+
+  test("已有作品完成关键指代、自然语言剧情点和原创身份后才可开始", async ({
+    page,
+    browserErrors,
+  }) => {
+    await mockRpApis(page)
+    const capture = {}
+    await mockJourneyCreation(page, capture)
+    let revision = sourceRevision({
+      status: "needs_confirmation",
+      progress_message: "还需确认 1 项关键指代",
+      ambiguities: [{
+        ambiguity_key: "lin-mo",
+        label: "林默",
+        reason: "同名人物会影响引用正确性",
+        choices: [
+          { choice_key: characterKey, label: "林默", entity_type: "character" },
+          { choice_key: locationKey, label: "林默旧居", entity_type: "location" },
+        ],
+      }],
+    })
+    await page.route("**/api/interactions/sources", (route) => route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [revision],
+        projects: [{
+          project_id: sourceProjectId,
+          title: "雾都之夜",
+          latest_revision: revision,
+        }],
+      }),
+    }))
+    await page.route(`**/api/interactions/sources/${sourceRevisionId}`, (route) => (
+      route.fulfill({ contentType: "application/json", body: JSON.stringify(revision) })
+    ))
+    await page.route(
+      `**/api/interactions/sources/${sourceRevisionId}/ambiguities/*`,
+      (route) => {
+        revision = sourceRevision()
+        return route.fulfill({
+          contentType: "application/json",
+          body: JSON.stringify(revision),
+        })
+      },
+    )
+    await page.route(
+      `**/api/interactions/sources/${sourceRevisionId}/anchors/match`,
+      (route) => route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ items: [revision.anchors[1]] }),
+      }),
+    )
+
+    await page.goto("/#journeys/new")
+    await page.getByLabel("使用已有作品资料").check()
+    await page.getByRole("button", { name: /雾都之夜.*资料版本 1/ }).click()
+    await expect(page.getByRole("heading", { name: "确认关键指代" })).toBeVisible()
+    await page.getByRole("button", { name: "林默 · character" }).click()
+
+    await page.getByLabel("先选章节").selectOption("2")
+    await page.getByPlaceholder(/也可以描述/).fill("进入钟楼之后")
+    await page.getByRole("button", { name: "匹配剧情点" }).click()
+    await page.getByRole("button", { name: /进入钟楼之后 · 铜门在身后合拢/ }).click()
+    await expect(page.getByLabel("进入钟楼之后")).toBeChecked()
+    await page.getByLabel("原创角色").check()
+    await page.getByLabel("角色名称").fill("季遥")
+    await page.getByLabel("身份说明").fill("刚抵达雾港的外乡调查员")
+    await page.getByText("预先固定重要人物或地点").click()
+    await page.getByLabel(/雾港钟楼 · location/).check()
+    await page.getByLabel("旅程开场").fill("我推开钟楼最深处的门。")
+    await page.getByRole("button", { name: "开始旅程" }).click()
+
+    await expect.poll(() => capture.payload?.source_setup).toEqual({
+      source_revision_id: sourceRevisionId,
+      progress_anchor_key: secondAnchorKey,
+      player_identity: {
+        kind: "original",
+        name: "季遥",
+        description: "刚抵达雾港的外乡调查员",
+      },
+      pinned_reference_keys: [locationKey],
+    })
+    expect(browserErrors).toEqual([])
+  })
+
+  test("新作品导入可刷新恢复，390px 错误聚焦并支持原作角色", async ({
+    page,
+    browserErrors,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await mockRpApis(page)
+    const capture = {}
+    await mockJourneyCreation(page, capture)
+    let imported = false
+    let recovered = false
+    const organizing = sourceRevision({
+      status: "organizing",
+      progress_message: "正在完整整理当前导入版本，可以离开后再回来",
+      anchors: [],
+      objects: [],
+      ready_at: null,
+    })
+    await page.route("**/api/interactions/sources", (route) => route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: imported ? [organizing] : [],
+        projects: imported
+          ? [{ project_id: sourceProjectId, title: "雾都之夜", latest_revision: organizing }]
+          : [],
+      }),
+    }))
+    await page.route("**/api/interactions/sources/import-preview", (route) => route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        preview_hash: "e".repeat(64),
+        title: "雾都之夜",
+        mode: "full",
+        chapter_count: 2,
+        changes: [
+          { chapter_index: 1, title: "第一章", change: "added" },
+          { chapter_index: 2, title: "第二章", change: "added" },
+        ],
+        requires_destructive_confirmation: false,
+      }),
+    }))
+    await page.route("**/api/interactions/sources/import", (route) => {
+      imported = true
+      return route.fulfill({
+        status: 202,
+        contentType: "application/json",
+        body: JSON.stringify(organizing),
+      })
+    })
+    await page.route(`**/api/interactions/sources/${sourceRevisionId}`, (route) => {
+      recovered = true
+      return route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify(sourceRevision()),
+      })
+    })
+
+    await page.goto("/#journeys/new")
+    await page.getByLabel("使用已有作品资料").check()
+    await page.getByRole("button", { name: "导入新作品" }).click()
+    await page.getByLabel("作品名称").fill("雾都之夜")
+    const fileInput = page.getByLabel("作品文件")
+    await fileInput.setInputFiles({ name: "draft.mobi", mimeType: "application/octet-stream", buffer: Buffer.from("x") })
+    await page.getByRole("button", { name: "预览章节变化" }).click()
+    await expect(page.getByRole("alert")).toBeFocused()
+    await expect(page.getByRole("alert")).toContainText("不支持")
+
+    await fileInput.setInputFiles({ name: "draft.txt", mimeType: "text/plain", buffer: Buffer.from("第一章\n未完结正文") })
+    await page.getByRole("button", { name: "预览章节变化" }).click()
+    await page.getByLabel(/导入后完整整理/).check()
+    await page.getByRole("button", { name: "应用版本并开始整理" }).click()
+    await expect(page.getByText(/可以离开后再回来/)).toBeVisible()
+
+    await page.reload()
+    await expect.poll(() => recovered).toBe(true)
+    await expect(page.getByText("作品资料已完整整理，可以选择进入位置")).toBeVisible()
+    await page.getByLabel("火车进站").check()
+    await page.getByLabel("选择角色").selectOption(characterKey)
+    await page.getByLabel("旅程开场").fill("我沿着站台走进雾里。")
+    await page.getByRole("button", { name: "开始旅程" }).click()
+
+    await expect.poll(() => capture.payload?.source_setup?.player_identity).toEqual({
+      kind: "source_character",
+      reference_key: characterKey,
+    })
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)
+    expect(overflow).toBeLessThanOrEqual(0)
     expect(browserErrors).toEqual([])
   })
 })

@@ -210,6 +210,11 @@ class ContextSnapshot(Base, TimestampMixin):
         Index("ix_context_snapshots_novel_created", "novel_id", "created_at"),
         Index("ix_context_snapshots_status", "status"),
         Index(
+            "ix_context_snapshots_consumer_task",
+            "consumer_novel_id",
+            "task_id",
+        ),
+        Index(
             "ix_context_snapshots_rendered_expires",
             "rendered_context_expires_at",
         ),
@@ -226,6 +231,13 @@ class ContextSnapshot(Base, TimestampMixin):
         ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
+    )
+    consumer_novel_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+        comment="Optional same-owner consumer project for read-only context",
     )
     task_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     workflow_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)

@@ -212,19 +212,60 @@ async def get_index_freshness(
     )
 
 
+async def get_manifest_index_coverage(
+    db: AsyncSession,
+    novel_id: str,
+    source_manifest: dict[str, str],
+) -> set[int]:
+    """Return chapters with chunks matching exact draft/hash pairs."""
+    return await _repo.manifest_chapter_coverage(
+        db,
+        uuid.UUID(novel_id),
+        {uuid.UUID(key): value for key, value in source_manifest.items()},
+    )
+
+
+async def get_manifest_entity_appearances(
+    db: AsyncSession,
+    novel_id: str,
+    source_manifest: dict[str, str],
+) -> dict[str, list[dict[str, int]]]:
+    """Return version-pinned object appearances without loading chunk text."""
+    return await _repo.manifest_entity_appearances(
+        db,
+        uuid.UUID(novel_id),
+        {uuid.UUID(key): value for key, value in source_manifest.items()},
+    )
+
+
 async def get_ordered_chapter_chunks(
     db: AsyncSession,
     novel_id: str,
     start_chapter: int,
     end_chapter: int | None = None,
 ) -> list[RagChunkContract]:
-    """按章节范围读取有序 RAG chunks，供正文抽取链路使用。"""
+    """按章节范围读取当前正文版本的有序 RAG chunks。"""
+    from modules.writing.facade import list_manuscript_sources
+
     nid = uuid.UUID(hex=novel_id)
+    chapter_to = end_chapter or start_chapter
+    sources = await list_manuscript_sources(
+        db,
+        novel_id,
+        list(range(start_chapter, chapter_to + 1)),
+        content_mode="canonical",
+    )
+    manifest = {
+        uuid.UUID(source.id): source.content_hash
+        for source in sources
+        if source.id and source.content_hash
+    }
     chunks = await _repo.find_by_chapter_range(
         db,
         nid,
         start_chapter,
-        end_chapter or start_chapter,
+        chapter_to,
+        source_manifest=manifest,
     )
     return [_to_chunk_contract(chunk) for chunk in chunks]
 
@@ -248,6 +289,8 @@ async def retrieve(
     reference_chapter_index: int | None = None,
     retrieval_purpose: str | None = None,
     rerank: bool | None = None,
+    source_manifest: dict[str, str] | None = None,
+    expand_query: bool = True,
 ) -> RagResultBundle:
     """混合检索 RAG 片段 — 委托给 RetrievalOrchestrator
 
@@ -268,6 +311,11 @@ async def retrieve(
         RagResultBundle — 检索结果
     """
     nid = uuid.UUID(hex=novel_id)
+    parsed_manifest = (
+        {uuid.UUID(key): value for key, value in source_manifest.items()}
+        if source_manifest is not None
+        else None
+    )
     return await _retrieval.retrieve(
         db,
         nid,
@@ -286,6 +334,8 @@ async def retrieve(
         reference_chapter_index=reference_chapter_index,
         retrieval_purpose=retrieval_purpose,
         rerank=rerank,
+        source_manifest=parsed_manifest,
+        expand_query=expand_query,
     )
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -18,6 +19,7 @@ from modules.interaction.generation import (
     InteractionGenerationWorkflow,
     PreparedStoryGeneration,
     PreparedSummaryGeneration,
+    _source_retrieval_query,
     story_request,
     summary_request,
 )
@@ -28,6 +30,7 @@ from modules.interaction.models import (
     InteractionOverviewRevision,
     InteractionSummarySegment,
 )
+from modules.interaction.prompts import compile_story_messages, render_overview_sections
 from modules.interaction.schemas import (
     InteractionActionSuggestion,
     InteractionOverviewSections,
@@ -131,6 +134,28 @@ async def _append_selected_node(
     )
     journey.selected_leaf_node_id = node.id
     return node
+
+
+async def test_source_query_seeds_low_information_input_from_journey_state() -> None:
+    query = _source_retrieval_query(
+        latest_input="继续",
+        overview_sections=InteractionOverviewSections(
+            current_situation="洛恩正在北塔外寻找入口。",
+            important_people_and_factions="奈拉保管银钥匙。",
+            open_threads="尚未兑现向南门送药的承诺。",
+        ),
+        path=[
+            SimpleNamespace(content="洛恩把银钥匙交给奈拉。"),
+            SimpleNamespace(content="两人在北塔外墙发现刻痕。"),
+            SimpleNamespace(content="继续"),
+        ],
+    )
+
+    assert query.startswith("当前输入：继续")
+    assert "北塔" in query
+    assert "奈拉保管银钥匙" in query
+    assert "南门送药" in query
+    assert len(query) <= 4_000
 
 
 async def test_create_journey_hidden_project_does_not_enter_author_list(
@@ -503,10 +528,7 @@ async def test_overview_from_previous_branch_is_not_exposed_after_switch(
             started_epoch=journey.overview_epoch,
             snapshot=_snapshot_for(journey.novel_id),
         )
-    assert prepared is not None
-    summary_prompt = prepared.messages[-1].content
-    assert "第一条发展中的当前局面" not in summary_prompt
-    assert "第二条发展取代了第一条" in summary_prompt
+    assert prepared is None
 
     _filename, _media_type, exported = await service.export_journey(
         db_session,
@@ -653,10 +675,10 @@ async def test_unadopted_failed_fragment_does_not_trigger_overview(
 
     assert before == []
     assert kept.partial_node is not None
-    assert len(after) == 1
+    assert len(after) == 0
 
 
-async def test_manual_overview_save_keeps_frozen_coverage_and_absorbs_new_tail(
+async def test_manual_overview_save_keeps_frozen_coverage_and_recent_tail_raw(
     db_session,
 ) -> None:
     service, journey, attempt, _response = await _create_journey(
@@ -764,17 +786,7 @@ async def test_manual_overview_save_keeps_frozen_coverage_and_absorbs_new_tail(
             .order_by(AsyncTask.created_at.desc())
             .limit(1)
         )
-    ).scalar_one()
-    db_session.task_checkpoint_enabled = True
-    with patch(
-        "modules.interaction.generation.restore_project_llm_execution_settings",
-        autospec=True,
-        return_value={},
-    ):
-        prepared = await InteractionGenerationWorkflow().prepare_summary_task(
-            db_session,
-            task=task,
-        )
+    ).scalar_one_or_none()
     head = await db_session.get(InteractionOverviewRevision, head_id)
 
     assert head is not None
@@ -783,10 +795,9 @@ async def test_manual_overview_save_keeps_frozen_coverage_and_absorbs_new_tail(
     assert head.coverage_anchor_node_id == first_story_id
     assert head.based_on_revision_id == base_id
     assert saved.base_selected_leaf_node_id == str(new_story_id)
-    assert isinstance(prepared, PreparedSummaryGeneration)
-    assert prepared.segment_node_ids == [str(new_story_id)]
-    assert "用户纠正后的旧局面" in prepared.messages[-1].content
-    assert "编辑回顾期间，新的事实已经发生" in prepared.messages[-1].content
+    assert saved.is_refreshing is False
+    assert saved.status == "ready"
+    assert task is None
 
 
 async def test_manual_overview_is_scoped_to_branch_and_restored_on_return(
@@ -982,7 +993,7 @@ async def test_stop_attempt_formalizes_visible_text_once_as_partial(
         .scalars()
         .all()
     )
-    assert len(summary_tasks) == 1
+    assert len(summary_tasks) == 0
 
 
 async def test_late_stream_checkpoint_cannot_change_stopped_partial(
@@ -1387,8 +1398,7 @@ async def test_regenerate_uses_rejected_full_text_and_two_earlier_hints(
         message_kind="story",
         content=(
             "被拒绝正文的明确开头。"
-            + "这是一段需要完整保留的较长故事。"
-            * 400
+            + "这是一段需要完整保留的较长故事。" * 400
             + "被拒绝正文的明确结尾。"
         ),
         completion_state="complete",
@@ -1730,10 +1740,13 @@ async def test_late_sibling_length_becomes_unselected_partial_without_blocking(
     assert late_node is not None
     assert late_node.completion_state == "partial"
     assert journey.selected_leaf_node_id == uuid.UUID(first["node_id"])
-    assert await service._repo.get_unresolved_attempt(  # noqa: SLF001
-        db_session,
-        journey=journey,
-    ) is None
+    assert (
+        await service._repo.get_unresolved_attempt(  # noqa: SLF001
+            db_session,
+            journey=journey,
+        )
+        is None
+    )
 
     with patch(
         "modules.interaction.services.build_project_llm_execution_snapshot",
@@ -1996,6 +2009,234 @@ async def test_manual_overview_epoch_rejects_late_automatic_summary(
     }
 
 
+async def test_manual_rebase_reuses_wider_existing_episode_segment(
+    db_session,
+) -> None:
+    service, journey, attempt, _response = await _create_journey(
+        db_session,
+        key="manual-rebase-reuses-segment",
+    )
+    root = (await service._repo.get_selected_path(db_session, journey=journey))[-1]
+    story = await _append_selected_node(
+        db_session,
+        service,
+        journey,
+        parent=root,
+        role="assistant",
+        content="记者先收到了没有署名的邀请。",
+    )
+    await _append_selected_node(
+        db_session,
+        service,
+        journey,
+        parent=story,
+        role="user",
+        content="我检查邀请上的蜡印。",
+    )
+    path = await service._repo.get_selected_path(db_session, journey=journey)
+    selected_hash = path_hash(path)
+    existing = InteractionSummarySegment(
+        novel_id=journey.novel_id,
+        journey_id=journey.id,
+        start_node_id=path[0].id,
+        end_node_id=path[-1].id,
+        path_hash=selected_hash,
+        token_count=sum(node.token_estimate for node in path),
+        content="已有的同段往事概要。",
+        ordinal=1,
+        producer={"kind": "model"},
+    )
+    db_session.add(existing)
+    await db_session.flush()
+    existing_id = existing.id
+
+    await service.update_overview(
+        db_session,
+        journey_id=str(journey.id),
+        sections=InteractionOverviewSections(
+            current_situation="用户修正后的当前局面。",
+        ),
+        expected_overview_epoch=0,
+        expected_selection_epoch=0,
+    )
+    await db_session.flush()
+    await db_session.refresh(journey)
+    manual_id = journey.overview_head_revision_id
+    manual = await db_session.get(InteractionOverviewRevision, manual_id)
+    assert manual is not None
+    manual.coverage_anchor_node_id = path[0].id
+    manual.coverage_path_hash = path_hash(path[:1])
+    prepared = PreparedSummaryGeneration(
+        novel_id=str(journey.novel_id),
+        journey_id=str(journey.id),
+        path_hash=selected_hash,
+        node_ids=[str(node.id) for node in path],
+        segment_node_ids=[str(node.id) for node in path[1:]],
+        started_overview_epoch=journey.overview_epoch,
+        messages=[],
+        executable_settings={},
+    )
+    task = _task_for(journey, attempt)
+    db_session.task_checkpoint_enabled = True
+
+    invalid_prepared = replace(
+        prepared,
+        segment_node_ids=[str(path[-1].id)],
+    )
+    with pytest.raises(RuntimeError, match="start after current overview coverage"):
+        await InteractionGenerationWorkflow().finalize_summary_task(
+            db_session,
+            task=task,
+            prepared=invalid_prepared,
+            output=InteractionSummaryOutput(
+                segment_summary="不能跳过中间节点。",
+                overview=InteractionOverviewSections(
+                    current_situation="这个结果不能安装。",
+                ),
+            ),
+        )
+    result = await InteractionGenerationWorkflow().finalize_summary_task(
+        db_session,
+        task=task,
+        prepared=prepared,
+        output=InteractionSummaryOutput(
+            segment_summary="这次重放不应再插入 episode row。",
+            overview=InteractionOverviewSections(
+                current_situation="用户修正后的局面已吸收当前尾部。",
+            ),
+        ),
+    )
+
+    segment_count = (
+        await db_session.execute(
+            select(func.count(InteractionSummarySegment.id)).where(
+                InteractionSummarySegment.journey_id == journey.id
+            )
+        )
+    ).scalar_one()
+    head = await db_session.get(
+        InteractionOverviewRevision,
+        uuid.UUID(result["overview_revision_id"]),
+    )
+    assert segment_count == 1
+    assert result["segment_id"] == str(existing_id)
+    assert "checkpoint" not in result
+    assert head is not None
+    assert head.based_on_revision_id == manual_id
+    reuse = head.producer["summary_segment_reuse"]
+    assert reuse["exact_range"] is False
+    assert reuse["folded_range"] == {
+        "start_node_id": str(path[1].id),
+        "end_node_id": str(path[-1].id),
+        "path_hash": selected_hash,
+    }
+
+
+async def test_best_overview_rejects_farther_stale_automatic_lineage(
+    db_session,
+) -> None:
+    service, journey, attempt, _response = await _create_journey(
+        db_session,
+        key="overview-authority-lineage",
+    )
+    root = (await service._repo.get_selected_path(db_session, journey=journey))[-1]
+    story = await _append_selected_node(
+        db_session,
+        service,
+        journey,
+        parent=root,
+        role="assistant",
+        content="当前分支继续向前。",
+    )
+    user = await _append_selected_node(
+        db_session,
+        service,
+        journey,
+        parent=story,
+        role="user",
+        content="我继续追问当前线索。",
+    )
+    path = await service._repo.get_selected_path(db_session, journey=journey)
+    stale_farther = InteractionOverviewRevision(
+        novel_id=journey.novel_id,
+        journey_id=journey.id,
+        anchor_node_id=story.id,
+        path_hash=path_hash(path),
+        coverage_anchor_node_id=story.id,
+        coverage_path_hash=path_hash(path),
+        sections={"current_situation": "旧权威链的更远回顾。"},
+        source="automatic",
+        based_on_revision_id=None,
+        started_overview_epoch=0,
+        promoted=False,
+        producer={"kind": "model"},
+    )
+    manual = InteractionOverviewRevision(
+        novel_id=journey.novel_id,
+        journey_id=journey.id,
+        anchor_node_id=root.id,
+        path_hash=path_hash(path[:1]),
+        coverage_anchor_node_id=root.id,
+        coverage_path_hash=path_hash(path[:1]),
+        sections={"current_situation": "用户修正后的权威。"},
+        source="manual",
+        based_on_revision_id=None,
+        started_overview_epoch=1,
+        promoted=False,
+        producer={"kind": "user"},
+    )
+    db_session.add_all([stale_farther, manual])
+    await db_session.flush()
+    compatible = InteractionOverviewRevision(
+        novel_id=journey.novel_id,
+        journey_id=journey.id,
+        anchor_node_id=root.id,
+        path_hash=path_hash(path[:1]),
+        coverage_anchor_node_id=root.id,
+        coverage_path_hash=path_hash(path[:1]),
+        sections={"current_situation": "从用户修正继续形成的回顾。"},
+        source="automatic",
+        based_on_revision_id=manual.id,
+        started_overview_epoch=2,
+        promoted=False,
+        producer={"kind": "model"},
+    )
+    db_session.add(compatible)
+    await db_session.flush()
+
+    best = await service._best_overview_for_path(  # noqa: SLF001
+        db_session,
+        journey=journey,
+        path=path,
+    )
+
+    assert best is not None
+    assert best.id == compatible.id
+    assert best.id != stale_farther.id
+
+    stale_farther.promoted = True
+    journey.overview_head_revision_id = stale_farther.id
+    journey.overview_epoch = 3
+    attempt.response_to_node_id = user.id
+    attempt.context_path_hash = path_hash(path)
+    attempt.context_node_ids = [str(user.id)]
+    await db_session.flush()
+    db_session.task_checkpoint_enabled = True
+    with patch(
+        "modules.interaction.generation.restore_project_llm_execution_settings",
+        autospec=True,
+        return_value={"llm": {"model": "deepseek-v4-flash"}},
+    ):
+        prepared = await InteractionGenerationWorkflow().prepare_story_task(
+            db_session,
+            task=_task_for(journey, attempt),
+        )
+
+    prompt = "\n".join(message.content for message in prepared.messages)
+    assert "从用户修正继续形成的回顾" in prompt
+    assert "旧权威链的更远回顾" not in prompt
+
+
 async def test_empty_model_overview_is_rejected_without_replacing_head(
     db_session,
 ) -> None:
@@ -2134,13 +2375,8 @@ async def test_automatic_summary_keeps_segment_and_total_overview_distinct(
         "estimated_input_tokens": 321,
         "completion_tokens": 77,
         "call_attempts": 1,
-        "memory_checkpoint": {
-            "level": 1,
-            "through_segment_ordinal": 8,
-            "overview_revision_id": result["overview_revision_id"],
-        },
     }
-    assert result["checkpoint"] is True
+    assert "checkpoint" not in result
     assert segment.ordinal == 8
     assert segment.producer == expected_producer
     assert segment.based_on_overview_revision_id is None
@@ -2161,40 +2397,27 @@ async def test_automatic_summary_keeps_segment_and_total_overview_distinct(
         content="我先检查信封上的蜡印。",
     )
     tail_id = tail.id
-    covered_story_content = story.content
     current_path = await service._repo.get_selected_path(
         db_session,
         journey=journey,
     )
     next_task = SimpleNamespace(
         id=uuid.uuid4(),
-        meta={
-            "novel_id": str(journey.novel_id),
-            "journey_id": str(journey.id),
-            "path_hash": path_hash(current_path),
-            "node_ids": [str(node.id) for node in current_path],
-            "started_overview_epoch": journey.overview_epoch,
-            "llm_execution_snapshot": dict(attempt.llm_execution_snapshot),
-        },
+        meta={},
         progress=0.0,
     )
     next_task.update_progress = lambda value: setattr(next_task, "progress", value)
-    with patch(
-        "modules.interaction.generation.restore_project_llm_execution_settings",
-        autospec=True,
-        return_value={"llm": {"model": "deepseek-v4-flash"}},
-    ):
-        next_prepared = await workflow.prepare_summary_task(
-            db_session,
-            task=next_task,
-        )
-
-    assert isinstance(next_prepared, PreparedSummaryGeneration)
-    assert next_prepared.segment_node_ids == [str(tail_id)]
-    next_prompt = next_prepared.messages[-1].content
-    assert "一辆马车送来匿名邀请" in next_prompt
-    assert "我先检查信封上的蜡印" in next_prompt
-    assert covered_story_content not in next_prompt
+    next_prepared = PreparedSummaryGeneration(
+        novel_id=str(journey.novel_id),
+        journey_id=str(journey.id),
+        path_hash=path_hash(current_path),
+        node_ids=[str(node.id) for node in current_path],
+        segment_node_ids=[str(tail_id)],
+        segment_path_hash=path_hash(current_path),
+        started_overview_epoch=journey.overview_epoch,
+        messages=[],
+        executable_settings={},
+    )
 
     next_result = await workflow.finalize_summary_task(
         db_session,
@@ -2217,13 +2440,8 @@ async def test_automatic_summary_keeps_segment_and_total_overview_distinct(
     assert next_segment.based_on_overview_revision_id == uuid.UUID(
         result["overview_revision_id"]
     )
-    assert next_segment.based_on_checkpoint_revision_id == uuid.UUID(
-        result["overview_revision_id"]
-    )
-    assert (
-        next_segment.producer["memory_checkpoint_base_revision_id"]
-        == result["overview_revision_id"]
-    )
+    assert next_segment.based_on_checkpoint_revision_id is None
+    assert "memory_checkpoint_base_revision_id" not in next_segment.producer
 
 
 async def test_prepare_summary_reads_manual_baseline_and_only_new_tail(
@@ -2250,7 +2468,7 @@ async def test_prepare_summary_reads_manual_baseline_and_only_new_tail(
         parent_node_id=opening.id,
         role="assistant",
         content="A 提供了一条线索，但拒绝解释来源。",
-        token_estimate=18,
+        token_estimate=20_000,
     )
     db_session.add(story)
     await db_session.flush()
@@ -2261,9 +2479,31 @@ async def test_prepare_summary_reads_manual_baseline_and_only_new_tail(
         child_node_id=story.id,
     )
     journey.selected_leaf_node_id = story.id
+    recent_user = await _append_selected_node(
+        db_session,
+        service,
+        journey,
+        parent=story,
+        role="user",
+        content="我先观察 A 是否还在隐瞒。",
+    )
+    recent_user.token_estimate = 100
+    recent_story = await _append_selected_node(
+        db_session,
+        service,
+        journey,
+        parent=recent_user,
+        role="assistant",
+        content="A 沉默着看向门外，没有立刻回答。",
+    )
+    recent_story.token_estimate = 16_000
+    await db_session.flush()
     story_id = str(story.id)
+    recent_user_id = str(recent_user.id)
+    recent_story_id = str(recent_story.id)
     opening_content = opening.content
     path = await service._repo.get_selected_path(db_session, journey=journey)
+    story_prefix_hash = path_hash(path[: path.index(story) + 1])
     db_session.task_checkpoint_enabled = True
     task = SimpleNamespace(
         id=uuid.uuid4(),
@@ -2290,11 +2530,311 @@ async def test_prepare_summary_reads_manual_baseline_and_only_new_tail(
 
     assert prepared is not None
     assert prepared.segment_node_ids == [story_id]
+    assert prepared.segment_path_hash == story_prefix_hash
+    assert prepared.protected_node_ids == [
+        recent_user_id,
+        recent_story_id,
+    ]
     prompt = prepared.messages[-1].content
     assert "用户确认的起点。" in prompt
     assert "A 的立场仍然可疑。" in prompt
     assert "A 提供了一条线索" in prompt
+    assert "A 沉默着看向门外" not in prompt
+    assert "不得恢复该修正删除或改写的旧当前值" in prompt
     assert opening_content not in prompt
+
+    result = await InteractionGenerationWorkflow().finalize_summary_task(
+        db_session,
+        task=task,
+        prepared=prepared,
+        output=InteractionSummaryOutput(
+            segment_summary="A 提供线索但仍有所隐瞒。",
+            overview=InteractionOverviewSections(
+                world_and_start="用户确认的起点。",
+                current_situation="A 刚提供一条来源不明的线索。",
+                must_remember="A 的立场仍然可疑。",
+            ),
+        ),
+    )
+    segment = await db_session.get(
+        InteractionSummarySegment,
+        uuid.UUID(result["segment_id"]),
+    )
+    revision = await db_session.get(
+        InteractionOverviewRevision,
+        uuid.UUID(result["overview_revision_id"]),
+    )
+    assert segment is not None
+    assert segment.path_hash == story_prefix_hash
+    assert segment.end_node_id == uuid.UUID(story_id)
+    assert revision is not None
+    assert revision.coverage_anchor_node_id == uuid.UUID(story_id)
+    assert revision.coverage_path_hash == story_prefix_hash
+    refreshed_path = await service._repo.get_selected_path(
+        db_session,
+        journey=await db_session.get(InteractionJourney, uuid.UUID(prepared.journey_id)),
+    )
+    story_messages = compile_story_messages(
+        path=refreshed_path,
+        overview=render_overview_sections(revision.sections),
+        overview_anchor_node_id=str(revision.coverage_anchor_node_id),
+        see_sea_enabled=False,
+        action_options_enabled=False,
+        request_kind="message",
+    )
+    assert [(item.role, item.content) for item in story_messages[-2:]] == [
+        ("user", "我先观察 A 是否还在隐瞒。"),
+        ("assistant", "A 沉默着看向门外，没有立刻回答。"),
+    ]
+
+
+async def test_non_reducing_summary_does_not_advance_coverage(db_session) -> None:
+    service, journey, attempt, _response = await _create_journey(
+        db_session,
+        key="summary-must-reduce",
+    )
+    path = await service._repo.get_selected_path(db_session, journey=journey)
+    prepared = PreparedSummaryGeneration(
+        novel_id=str(journey.novel_id),
+        journey_id=str(journey.id),
+        path_hash=path_hash(path),
+        node_ids=[str(node.id) for node in path],
+        segment_node_ids=[str(node.id) for node in path],
+        segment_path_hash=path_hash(path),
+        started_overview_epoch=journey.overview_epoch,
+        messages=[],
+        executable_settings={},
+        compaction_source_tokens=200,
+    )
+    db_session.task_checkpoint_enabled = True
+
+    with pytest.raises(InteractionContextBudgetError, match="did not reduce"):
+        await InteractionGenerationWorkflow().finalize_summary_task(
+            db_session,
+            task=_task_for(journey, attempt),
+            prepared=prepared,
+            output=InteractionSummaryOutput(
+                segment_summary="没有缩短。",
+                overview=InteractionOverviewSections(
+                    current_situation="长" * 200,
+                ),
+            ),
+        )
+
+    assert (
+        await service._repo.count_summary_segments(
+            db_session,
+            journey=journey,
+        )
+        == 0
+    )
+    assert journey.overview_head_revision_id is None
+
+
+async def test_two_prefix_summary_passes_are_contiguous_and_keep_suffix_raw(
+    db_session,
+) -> None:
+    service, journey, _attempt, _response = await _create_journey(
+        db_session,
+        key="two-prefix-summary-passes",
+    )
+    await service.update_overview(
+        db_session,
+        journey_id=str(journey.id),
+        sections=InteractionOverviewSections(current_situation="安全起点。"),
+        expected_overview_epoch=0,
+        expected_selection_epoch=0,
+    )
+    opening = (await service._repo.get_selected_path(db_session, journey=journey))[-1]
+    old_one = await _append_selected_node(
+        db_session,
+        service,
+        journey,
+        parent=opening,
+        role="assistant",
+        content="第一段旧发展。",
+    )
+    old_one.token_estimate = 140_000
+    old_two = await _append_selected_node(
+        db_session,
+        service,
+        journey,
+        parent=old_one,
+        role="assistant",
+        content="第二段旧发展。",
+    )
+    old_two.token_estimate = 140_000
+    recent_user = await _append_selected_node(
+        db_session,
+        service,
+        journey,
+        parent=old_two,
+        role="user",
+        content="保留这条当前请求。",
+    )
+    recent_user.token_estimate = 100
+    recent_story = await _append_selected_node(
+        db_session,
+        service,
+        journey,
+        parent=recent_user,
+        role="assistant",
+        content="保留这段最近回应。",
+    )
+    recent_story.token_estimate = 16_000
+    await db_session.flush()
+    path = await service._repo.get_selected_path(db_session, journey=journey)
+    full_hash = path_hash(path)
+    task = SimpleNamespace(
+        id=uuid.uuid4(),
+        meta={},
+        progress=0.0,
+        update_progress=lambda value: setattr(task, "progress", value),
+    )
+    db_session.task_checkpoint_enabled = True
+    workflow = InteractionGenerationWorkflow()
+
+    with patch(
+        "modules.interaction.generation.restore_project_llm_execution_settings",
+        autospec=True,
+        return_value={"llm": {"model": "deepseek-v4-flash"}},
+    ):
+        first = await workflow._prepare_summary_generation(  # noqa: SLF001
+            db_session,
+            journey=journey,
+            current_path=path,
+            expected_path_hash=full_hash,
+            started_epoch=journey.overview_epoch,
+            snapshot=_snapshot_for(journey.novel_id),
+        )
+        assert first is not None
+        first_result = await workflow.finalize_summary_task(
+            db_session,
+            task=task,
+            prepared=first,
+            output=InteractionSummaryOutput(
+                segment_summary="第一段旧发展。",
+                overview=InteractionOverviewSections(
+                    current_situation="已整理第一段旧发展。"
+                ),
+            ),
+        )
+        second = await workflow._prepare_summary_generation(  # noqa: SLF001
+            db_session,
+            journey=journey,
+            current_path=path,
+            expected_path_hash=full_hash,
+            started_epoch=journey.overview_epoch,
+            snapshot=_snapshot_for(journey.novel_id),
+        )
+        assert second is not None
+        second_result = await workflow.finalize_summary_task(
+            db_session,
+            task=task,
+            prepared=second,
+            output=InteractionSummaryOutput(
+                segment_summary="第二段旧发展。",
+                overview=InteractionOverviewSections(
+                    current_situation="两段旧发展均已整理。"
+                ),
+            ),
+        )
+
+    assert first.segment_node_ids == [str(old_one.id)]
+    assert second.segment_node_ids == [str(old_two.id)]
+    assert "不得恢复该修正删除或改写的旧当前值" in second.messages[-1].content
+    assert (
+        first.protected_node_ids
+        == second.protected_node_ids
+        == [
+            str(recent_user.id),
+            str(recent_story.id),
+        ]
+    )
+    first_revision = await db_session.get(
+        InteractionOverviewRevision,
+        uuid.UUID(first_result["overview_revision_id"]),
+    )
+    second_revision = await db_session.get(
+        InteractionOverviewRevision,
+        uuid.UUID(second_result["overview_revision_id"]),
+    )
+    assert first_revision is not None
+    assert second_revision is not None
+    assert first_revision.coverage_anchor_node_id == old_one.id
+    assert second_revision.coverage_anchor_node_id == old_two.id
+    assert second_revision.based_on_revision_id == first_revision.id
+    assert (
+        await service._repo.count_summary_segments(
+            db_session,
+            journey=journey,
+        )
+        == 2
+    )
+
+
+async def test_single_old_node_over_summary_ceiling_fails_closed(db_session) -> None:
+    service, journey, attempt, _response = await _create_journey(
+        db_session,
+        key="single-node-summary-ceiling",
+    )
+    await service.update_overview(
+        db_session,
+        journey_id=str(journey.id),
+        sections=InteractionOverviewSections(current_situation="安全基线。"),
+        expected_overview_epoch=0,
+        expected_selection_epoch=0,
+    )
+    opening = (await service._repo.get_selected_path(db_session, journey=journey))[-1]
+    huge = await _append_selected_node(
+        db_session,
+        service,
+        journey,
+        parent=opening,
+        role="assistant",
+        content="一个不能拆开的超长旧节点。",
+    )
+    huge.token_estimate = 300_000
+    recent_user = await _append_selected_node(
+        db_session,
+        service,
+        journey,
+        parent=huge,
+        role="user",
+        content="继续。",
+    )
+    recent_user.token_estimate = 100
+    recent_story = await _append_selected_node(
+        db_session,
+        service,
+        journey,
+        parent=recent_user,
+        role="assistant",
+        content="最近发展保持原文。",
+    )
+    recent_story.token_estimate = 16_000
+    await db_session.flush()
+    path = await service._repo.get_selected_path(db_session, journey=journey)
+    task = SimpleNamespace(
+        id=uuid.uuid4(),
+        meta={
+            "novel_id": str(journey.novel_id),
+            "journey_id": str(journey.id),
+            "path_hash": path_hash(path),
+            "selected_leaf_node_id": str(path[-1].id),
+            "started_overview_epoch": journey.overview_epoch,
+            "llm_execution_snapshot": dict(attempt.llm_execution_snapshot),
+        },
+        progress=0.0,
+        update_progress=lambda value: setattr(task, "progress", value),
+    )
+    db_session.task_checkpoint_enabled = True
+
+    with pytest.raises(InteractionContextBudgetError, match="one interaction node"):
+        await InteractionGenerationWorkflow().prepare_summary_task(
+            db_session,
+            task=task,
+        )
 
 
 async def test_failed_overview_latches_branch_until_explicit_retry(
@@ -2357,11 +2897,14 @@ async def test_failed_overview_latches_branch_until_explicit_retry(
     )
 
     assert failed.status == "failed"
-    assert await workflow._summary_is_due(  # noqa: SLF001 - retry latch contract
-        db_session,
-        journey,
-        extended_path,
-    ) is False
+    assert (
+        await workflow._summary_is_due(  # noqa: SLF001 - retry latch contract
+            db_session,
+            journey,
+            extended_path,
+        )
+        is False
+    )
 
     with patch(
         "modules.interaction.services.build_project_llm_execution_snapshot",
@@ -2384,9 +2927,7 @@ async def test_failed_overview_latches_branch_until_explicit_retry(
             .limit(1)
         )
     ).scalar_one()
-    assert summary_task.meta["selected_leaf_node_id"] == str(
-        extended_path[-1].id
-    )
+    assert summary_task.meta["selected_leaf_node_id"] == str(extended_path[-1].id)
     assert "node_ids" not in summary_task.meta
 
 
@@ -2926,9 +3467,7 @@ async def test_empty_length_response_fails_without_continuation(
     attempt.visible_offset = 0
     original_task_id = attempt.task_id
     journey.see_sea_enabled = see_sea_enabled
-    journey.see_sea_last_heartbeat_at = (
-        datetime.now(UTC) if see_sea_enabled else None
-    )
+    journey.see_sea_last_heartbeat_at = datetime.now(UTC) if see_sea_enabled else None
     await db_session.flush()
     db_session.task_checkpoint_enabled = True
 
@@ -3077,7 +3616,7 @@ async def test_extended_context_uses_full_selected_path_without_forced_summary(
     assert refreshed_attempt.status == "running"
     assert refreshed_attempt.usage["context_tier"] == "extended"
     assert refreshed_attempt.usage["estimated_input_tokens"] == 300_000
-    assert refreshed_attempt.usage["prompt_version"] == "interaction-story-v2"
+    assert refreshed_attempt.usage["prompt_version"] == "interaction-story-v3"
 
 
 async def test_emergency_summary_resumes_same_story_attempt_without_losing_path(
@@ -3094,6 +3633,8 @@ async def test_emergency_summary_resumes_same_story_attempt_without_losing_path(
         db_session,
         journey=journey,
     )
+    initial_path[0].token_estimate = 1_000
+    await db_session.flush()
     initial_node_ids = [node.id for node in initial_path]
     initial_contents = [node.content for node in initial_path]
     db_session.task_checkpoint_enabled = True
@@ -3104,12 +3645,17 @@ async def test_emergency_summary_resumes_same_story_attempt_without_losing_path(
         patch(
             "modules.interaction.generation.estimate_input_tokens",
             autospec=True,
-            side_effect=[600_000, 300_000, 200_000],
+            side_effect=[600_000, 200_000, 200_000],
         ),
         patch(
             "modules.interaction.generation.restore_project_llm_execution_settings",
             autospec=True,
             return_value={"llm": {"model": "deepseek-v4-flash"}},
+        ),
+        patch(
+            "modules.interaction.generation._summary_compressible_prefix_end",
+            autospec=True,
+            side_effect=lambda nodes: len(nodes),
         ),
     ):
         summary = await workflow.prepare_story_task(db_session, task=task)

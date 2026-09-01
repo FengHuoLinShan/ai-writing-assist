@@ -30,7 +30,8 @@ infrastructure/llm/
 - 支持结构化输出修复
 - 支持由上层 project facade 解析的账户级 OpenAI-compatible LLM Profile
 - 记录 token 和调用耗时
-- 从 provider 原始 usage 中提取可用的 cache-hit/cache-miss token，仅写入受控诊断；缓存统计不参与质量门禁
+- 结构化调用的每次首发/修复都向可选受控诊断写入 prompt/completion/total token；provider 提供时
+  再附加 cache-hit/cache-miss token。诊断不含 Prompt、响应正文或 Key，缓存统计不参与质量门禁
 - 提供受控 LLM step harness，用于 text / structured generation 的统一
   envelope、journal、timeout 和错误分类
 - 提供地图册使用的 `OpenAIImageClient`，支持生成、整图编辑、蒙版、多参考图和连续派生

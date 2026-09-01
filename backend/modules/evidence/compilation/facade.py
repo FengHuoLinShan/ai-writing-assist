@@ -18,6 +18,7 @@ from modules.evidence.compilation.contracts import (
     ContextSnapshotRequest,
     EvidenceHealthContract,
     ImportContextActivationContract,
+    InteractionStoryContextContract,
     StructureContextBundle,
     VisibilityContextContract,
 )
@@ -45,6 +46,9 @@ from modules.evidence.compilation.services.hidden_guard import (
     HiddenGuardBuilder,
     HiddenGuardTerm,
 )
+from modules.evidence.compilation.services.interaction_story_context import (
+    InteractionStoryContextService,
+)
 
 _compiler = ContextCompiler()
 _confirmation_service = ContextConfirmationService()
@@ -57,6 +61,43 @@ _generation_background_service = GenerationBackgroundService(
     snapshot_writer=_durable_snapshot_service,
 )
 _hidden_guard_builder = HiddenGuardBuilder()
+_interaction_story_context_service = InteractionStoryContextService()
+
+
+async def compile_interaction_story_context(
+    db: AsyncSession,
+    *,
+    source_novel_id: str,
+    consumer_novel_id: str,
+    source_revision_id: str,
+    source_manifest: list[dict],
+    anchor: dict,
+    player_identity: dict,
+    reference_manifest: list[dict],
+    ambiguities: list[dict],
+    resolutions: dict[str, str],
+    reference_policy: dict,
+    query: str,
+    task_id: str | None,
+    model: str,
+) -> InteractionStoryContextContract:
+    """Compile one immutable source packet for an RP attempt."""
+    return await _interaction_story_context_service.compile(
+        db,
+        source_novel_id=source_novel_id,
+        consumer_novel_id=consumer_novel_id,
+        source_revision_id=source_revision_id,
+        source_manifest=source_manifest,
+        anchor=anchor,
+        player_identity=player_identity,
+        reference_manifest=reference_manifest,
+        ambiguities=ambiguities,
+        resolutions=resolutions,
+        reference_policy=reference_policy,
+        query=query,
+        task_id=task_id,
+        model=model,
+    )
 
 
 def _retrieval_trace_service():
@@ -1026,6 +1067,7 @@ async def create_context_snapshot(
     db: AsyncSession,
     *,
     novel_id: str,
+    consumer_novel_id: str | None = None,
     task_id: str | None = None,
     workflow_id: str | None = None,
     phase: str,
@@ -1051,6 +1093,7 @@ async def create_context_snapshot(
         db,
         ContextSnapshotRequest(
             novel_id=novel_id,
+            consumer_novel_id=consumer_novel_id,
             task_id=task_id,
             workflow_id=workflow_id,
             phase=phase,

@@ -54,6 +54,14 @@ class RagChunk(Base, UUIDMixin, TimestampMixin):
             "chunk_index",
             "id",
         ),
+        Index(
+            "ix_rag_chunks_novel_draft_chapter_order",
+            "novel_id",
+            "source_id",
+            "chapter_index",
+            "chunk_index",
+            "content_mode",
+        ),
     )
 
     novel_id: Mapped[uuid.UUID] = mapped_column(

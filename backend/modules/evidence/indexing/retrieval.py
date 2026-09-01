@@ -110,6 +110,8 @@ class RetrievalOrchestrator:
         top_k: int = 12,
         reference_chapter_index: int | None = None,
         weights: tuple[float, float, float, float] | None = None,
+        source_manifest: dict[uuid.UUID, str] | None = None,
+        expand_query: bool = True,
     ) -> list[tuple[RagChunk, float]]:
         """混合检索：关键词 + 关系 + 重要性 + 向量。
 
@@ -117,14 +119,16 @@ class RetrievalOrchestrator:
         """
         vw, kw, rw, iw = weights or self._scorer.dynamic_weights(query)
 
-        expanded_query = await self._query_expander.expand(
-            db,
-            novel_id,
-            query,
-            entity_ids=entity_ids,
-            character_ids=character_ids,
-            thread_ids=thread_ids,
-        )
+        expanded_query = query
+        if expand_query:
+            expanded_query = await self._query_expander.expand(
+                db,
+                novel_id,
+                query,
+                entity_ids=entity_ids,
+                character_ids=character_ids,
+                thread_ids=thread_ids,
+            )
 
         relation_only = mode == "extraction" and bool(
             entity_ids
@@ -134,6 +138,9 @@ class RetrievalOrchestrator:
             or scene_id is not None
         )
         repo_query = "" if relation_only else expanded_query
+        source_filter = (
+            {"source_manifest": source_manifest} if source_manifest is not None else {}
+        )
 
         keyword_chunks = await self._repo.keyword_search(
             db,
@@ -149,6 +156,7 @@ class RetrievalOrchestrator:
             visible_until_chapter=visible_until_chapter,
             content_mode=content_mode,
             limit=top_k * 2,
+            **source_filter,
         )
 
         candidate_chunks = list(keyword_chunks)
@@ -168,6 +176,7 @@ class RetrievalOrchestrator:
                 visible_until_chapter=visible_until_chapter,
                 content_mode=content_mode,
                 top_k=top_k * 2,
+                **source_filter,
             )
             candidate_chunks.extend(chunk for chunk, _score in vector_chunks)
 
@@ -193,6 +202,7 @@ class RetrievalOrchestrator:
                 visible_until_chapter=visible_until_chapter,
                 content_mode=content_mode,
                 limit=top_k * 2,
+                **source_filter,
             )
             candidate_chunks.extend(metadata_chunks)
 
@@ -200,6 +210,11 @@ class RetrievalOrchestrator:
         seen_ids: set[uuid.UUID] = set()
         unique_chunks: list[RagChunk] = []
         for chunk in candidate_chunks:
+            if source_manifest is not None and (
+                chunk.source_id not in source_manifest
+                or chunk.source_content_hash != source_manifest.get(chunk.source_id)
+            ):
+                continue
             if chunk.id not in seen_ids:
                 seen_ids.add(chunk.id)
                 unique_chunks.append(chunk)
@@ -401,6 +416,8 @@ class RetrievalOrchestrator:
         reference_chapter_index: int | None = None,
         retrieval_purpose: str | None = None,
         rerank: bool | None = None,
+        source_manifest: dict[uuid.UUID, str] | None = None,
+        expand_query: bool = True,
     ) -> RagResultBundle:
         """混合检索编排：embedding 生成 → 混合搜索 → 去重 → 重排序 → 指标记录。"""
         import time as _time
@@ -465,6 +482,8 @@ class RetrievalOrchestrator:
             mode=mode,
             top_k=candidate_top_k,
             reference_chapter_index=reference_chapter_index,
+            source_manifest=source_manifest,
+            expand_query=expand_query,
         )
         _search_ms = (_time.monotonic() - _search_t0) * 1000
 

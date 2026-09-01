@@ -71,6 +71,9 @@ helper 不改变 `LLMClient` 的 provider/retry/structured repair 行为：结�
 修复仍由 `LLMClient.generate_structured()` 执行，失败时重新抛出原始异常实例，
 由调用方保留现有 fallback 或状态更新逻辑。`context_budget` 默认不自动截断
 request messages；需要裁剪时显式使用 `ContextBudgetGuard`。
+调用方显式传入 diagnostics 时，每个结构化首发/修复 attempt 都记录脱敏的
+prompt/completion/total token、状态与错误分类；provider 返回 cache 明细时再附加 hit/miss。
+这些计数不包含 Prompt、响应正文或 Key，缺失值不能由上层补成 0 或冒充完整费用。
 
 project runtime 创建的 client 带有 secret-free `runtime_scope`。managed helper
 会自动把 `novel_id`、profile source 和脱敏 `profile_summary` 合并进 journal 的

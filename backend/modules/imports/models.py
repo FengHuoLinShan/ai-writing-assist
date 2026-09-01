@@ -9,7 +9,18 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, ForeignKey, Index, Integer, String, Text, text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    and_,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -60,6 +71,12 @@ class ImportRecord(Base, UUIDMixin, TimestampMixin, NovelMixin):
         nullable=True,
         comment="错误信息（status=failed 时填充）",
     )
+    import_kind: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="manuscript",
+        comment="manuscript / source_revision",
+    )
 
     __table_args__ = (
         Index(
@@ -67,8 +84,12 @@ class ImportRecord(Base, UUIDMixin, TimestampMixin, NovelMixin):
             "novel_id",
             "file_name",
             unique=True,
-            postgresql_where=(status == "done"),
-            sqlite_where=(status == "done"),
+            postgresql_where=and_(status == "done", import_kind == "manuscript"),
+            sqlite_where=and_(status == "done", import_kind == "manuscript"),
+        ),
+        CheckConstraint(
+            "import_kind IN ('manuscript', 'source_revision')",
+            name="ck_import_records_import_kind",
         ),
         {"comment": "小说文件导入记录"},
     )
