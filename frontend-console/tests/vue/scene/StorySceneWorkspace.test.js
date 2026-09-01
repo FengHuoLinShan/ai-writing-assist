@@ -393,10 +393,8 @@ describe("Story Scene workspace panels", () => {
   })
 
   it("uses the authorized one-click Story task and never fabricates a local preview", async () => {
-    story.getSceneContext.mockResolvedValue({
-      character_cards: [{ character_id: "c1", name: "阿遥", content: { personality: "谨慎" } }],
-      script_files: [],
-    })
+    let resolveContext
+    story.getSceneContext.mockImplementation(() => new Promise((resolve) => { resolveContext = resolve }))
     story.startOneClickTask.mockResolvedValue({
       task_id: "task-one-click",
       status: "pending",
@@ -404,6 +402,11 @@ describe("Story Scene workspace panels", () => {
     createWrapper()
     await wrapper.get('[data-action="select-workbench-scene"]').trigger("click")
     await wrapper.get('[data-action="scene-runtime-tab-simulation"]').trigger("click")
+    expect(wrapper.get('[data-action="run-scene-simulation"]').attributes("disabled")).toBeDefined()
+    resolveContext({
+      character_cards: [{ character_id: "c1", name: "阿遥", content: { personality: "谨慎" } }],
+      script_files: [],
+    })
     await flushPromises()
     expect(wrapper.get('[data-action="run-scene-simulation"]').text()).toContain("推演并补齐人物卡")
     expect(wrapper.get(".scene-simulation-panel").text()).toContain("人物反应与剧本仍只作为待确认预览，不会自动保存")
