@@ -1,7 +1,8 @@
 """
 导入解析器
 
-支持 txt / epub / html / mobi 四种格式的章节解析。
+已验收格式为 txt / epub / html / htm 的章节解析；mobi / azw3 仍在内部白名单内但
+依赖可选包、未做真实文件验收，不得对外表述为已支持格式（UI 只接受前四种）。
 所有解析器统一返回 list[dict{title, content}]。
 """
 

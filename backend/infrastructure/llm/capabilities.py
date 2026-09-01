@@ -102,23 +102,41 @@ _DEEPSEEK_V4_FLASH = LLMCapabilityProfile(
 ).validate()
 
 
-def _short_fallback(
-    provider_id: str, model: str, *, legacy: bool = False
+def _long_context_fallback(
+    provider_id: str,
+    model: str,
+    *,
+    legacy: bool = False,
 ) -> LLMCapabilityProfile:
+    """Assume uncalibrated models are at least as capable as the verified tier.
+
+    Product decision (2026-09-02): every provider a project can currently
+    connect is a long-context model, so the unknown-model fallback must not
+    collapse budgets to a short-context tier — that would force near-per-turn
+    compaction on source-bound journeys.  The budgets mirror the verified
+    deepseek-v4-flash profile while ``calibration_status`` keeps the
+    assumption explicit and separate from ``verified_dev``.
+    """
     return LLMCapabilityProfile(
-        profile_id=("legacy-unfrozen-short-v1" if legacy else "unknown-short-v1"),
+        profile_id=(
+            "legacy-long-context-fallback-v1"
+            if legacy
+            else "unknown-long-context-fallback-v1"
+        ),
         provider_id=provider_id,
         model=model,
-        context_limit_tokens=32_768,
-        verified_input_ceiling_tokens=24_000,
-        normal_input_tokens=16_000,
-        compact_trigger_tokens=20_000,
-        summary_input_ceiling_tokens=16_000,
-        story_output_tokens=4_096,
-        see_sea_output_tokens=4_096,
-        summary_output_tokens=4_096,
-        safety_margin_tokens=4_096,
-        calibration_status="legacy_fallback" if legacy else "unknown_fallback",
+        context_limit_tokens=_DEEPSEEK_V4_FLASH.context_limit_tokens,
+        verified_input_ceiling_tokens=_DEEPSEEK_V4_FLASH.verified_input_ceiling_tokens,
+        normal_input_tokens=_DEEPSEEK_V4_FLASH.normal_input_tokens,
+        compact_trigger_tokens=_DEEPSEEK_V4_FLASH.compact_trigger_tokens,
+        summary_input_ceiling_tokens=_DEEPSEEK_V4_FLASH.summary_input_ceiling_tokens,
+        story_output_tokens=_DEEPSEEK_V4_FLASH.story_output_tokens,
+        see_sea_output_tokens=_DEEPSEEK_V4_FLASH.see_sea_output_tokens,
+        summary_output_tokens=_DEEPSEEK_V4_FLASH.summary_output_tokens,
+        safety_margin_tokens=_DEEPSEEK_V4_FLASH.safety_margin_tokens,
+        calibration_status="legacy_long_context_fallback"
+        if legacy
+        else "unknown_long_context_fallback",
     ).validate()
 
 
@@ -133,7 +151,7 @@ def resolve_llm_capability_profile(
         _DEEPSEEK_V4_FLASH.model,
     ):
         return _DEEPSEEK_V4_FLASH
-    return _short_fallback(provider, model_name)
+    return _long_context_fallback(provider, model_name)
 
 
 def _profile_from_snapshot(
@@ -165,7 +183,7 @@ def capability_from_execution_snapshot(snapshot: dict[str, Any]) -> LLMCapabilit
     model = str(public_profile.get("model") or "")
     value = snapshot.get(LLM_CAPABILITY_SNAPSHOT_KEY)
     if not isinstance(value, dict):
-        return _short_fallback(provider_id, model, legacy=True)
+        return _long_context_fallback(provider_id, model, legacy=True)
     return _profile_from_snapshot(value, provider_id=provider_id, model=model)
 
 
@@ -183,4 +201,4 @@ def capability_from_execution_settings(settings: dict[str, Any]) -> LLMCapabilit
 def legacy_capability_snapshot(provider_id: str, model: str) -> dict[str, Any]:
     """Materialize a conservative execution-only profile for old task snapshots."""
 
-    return _short_fallback(provider_id, model, legacy=True).to_snapshot()
+    return _long_context_fallback(provider_id, model, legacy=True).to_snapshot()

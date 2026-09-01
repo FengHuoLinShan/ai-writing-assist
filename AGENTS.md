@@ -76,6 +76,8 @@ Skill、自动化和编码工具的内部能力不构成仓库契约，不能覆
 ### 数据与安全
 
 - 所有业务读写保持 `novel_id` 隔离；API、LLM 输出和入库必须经过 Pydantic/调用方 schema。
+  唯一例外是 ADR-0018：同 owner、显式版本化的 author source revision 到 interaction consumer
+  的只读引用（来源查询用 source `novel_id`，RP 写入用 consumer `novel_id`）。
 - 公开浏览器路径还必须同时遵守当前 account principal 与项目 `owner_id` 门禁；不得接受调用方
   指定的 owner，也不得用 worker/system 身份绕过用户请求的 owner 校验。owner 边界不替代
   `novel_id` 过滤。

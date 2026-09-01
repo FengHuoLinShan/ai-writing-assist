@@ -30,7 +30,9 @@ infrastructure/llm/
 - 支持结构化输出修复
 - 支持由上层 project facade 解析的账户级 OpenAI-compatible LLM Profile
 - 提供版本化 model capability budget；当前只校准官方 `deepseek-v4-flash`，未知模型使用
-  保守 short fallback，不继承上一模型的 context ceiling
+  long-context fallback：预算数值与已校验档一致（产品决策：当前可接入的均为长上下文
+  模型），以 `calibration_status=unknown_long_context_fallback` 显式标注"假定"，区别于
+  `verified_dev`
 - 记录 token 和调用耗时
 - 结构化调用的每次首发/修复都向可选受控诊断写入 prompt/completion/total token；provider 提供时
   再附加 cache-hit/cache-miss token。诊断不含 Prompt、响应正文或 Key，缓存统计不参与质量门禁
@@ -129,8 +131,11 @@ fail-closed。业务 LLM Profile 不从 `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MO
 
 DeepSeek V4 Flash 当前 capability 使用官方 1M context，但只按本地 dev eval 已验证的 400K
 input ceiling 放行：256K normal、360K compact、400K hard，单次 summary 输入最多 256K。
-unknown model 使用 16K/20K/24K normal/compact/hard short fallback；这些值不从浏览器或项目
-设置读取。旧 task snapshot 缺 capability 字段时可恢复，但明确使用 unfrozen short fallback。
+unknown model 使用与已校验档同数值的 long-context fallback（256K normal、360K compact、
+400K hard，`calibration_status=unknown_long_context_fallback`，2026-09-02 产品决策：当前
+可接入 provider 均为长上下文模型，不得把未校验模型压回短上下文档导致 source-bound 旅程
+每轮压缩）；这些值不从浏览器或项目设置读取。旧 task snapshot 缺 capability 字段时可恢复，
+但明确使用 `legacy_long_context_fallback` 假定档。
 
 账户连接的等值指纹复用 `LLM_SETTINGS_ENCRYPTION_KEY`，并使用用途分隔的
 HMAC-SHA256；数据库字段和公开 wire 不变。旧的无密钥 SHA-256 指纹不会被当作相同 Key，

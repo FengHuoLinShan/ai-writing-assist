@@ -34,7 +34,10 @@ async function expectFillsViewportWidth(locator) {
   expect(Math.abs(box.width - viewportWidth)).toBeLessThanOrEqual(1)
 }
 
-async function mockRpApis(page, { seeSeaNoticeAcknowledged = true } = {}) {
+async function mockRpApis(
+  page,
+  { seeSeaNoticeAcknowledged = true, activeAttempt = null } = {},
+) {
   const journey = {
     id: journeyId,
     title: "雾港钟楼",
@@ -68,7 +71,7 @@ async function mockRpApis(page, { seeSeaNoticeAcknowledged = true } = {}) {
       ),
     ],
     has_older_messages: false,
-    active_attempt: null,
+    active_attempt: activeAttempt,
   }
   await page.route("**/api/account/settings/llm-connections", (route) => route.fulfill({
     contentType: "application/json",
@@ -262,6 +265,31 @@ test.describe("RP 路由与窄屏故事页", () => {
     expect(browserErrors).toEqual([])
   })
 
+  test("作品资料变化导致的失败给出明确原因与重试入口", async ({
+    page,
+    browserErrors,
+  }) => {
+    await mockRpApis(page, {
+      activeAttempt: {
+        id: "attempt-source-stale",
+        journey_id: journeyId,
+        response_to_node_id: "a2",
+        status: "failed",
+        error_kind: "source_context_stale",
+        error_message: "作品资料已变化，请重新生成",
+        visible_text: "",
+        visible_offset: 0,
+      },
+    })
+    await page.goto(`/#interaction/${journeyId}`)
+
+    await expect(page.locator(".rp-story-title")).toContainText("雾港钟楼")
+    const banner = page.locator(".rp-attempt-actions--error")
+    await expect(banner).toContainText("作品资料已变化，请重新生成")
+    await expect(banner.getByRole("button", { name: "重新生成" })).toBeVisible()
+    expect(browserErrors).toEqual([])
+  })
+
   test("390px 下输入工具保持单行，更多操作使用底部面板且页面不横溢", async ({
     page,
     browserErrors,
@@ -394,7 +422,7 @@ test.describe("RP 路由与窄屏故事页", () => {
     await page.getByLabel("使用已有作品资料").check()
     await page.getByRole("button", { name: /雾都之夜.*资料版本 1/ }).click()
     await expect(page.getByRole("heading", { name: "确认关键指代" })).toBeVisible()
-    await page.getByRole("button", { name: "林默 · character" }).click()
+    await page.getByRole("button", { name: "林默 · 人物" }).click()
 
     await page.getByLabel("先选章节").selectOption("2")
     await page.getByPlaceholder(/也可以描述/).fill("进入钟楼之后")
@@ -405,7 +433,7 @@ test.describe("RP 路由与窄屏故事页", () => {
     await page.getByLabel("角色名称").fill("季遥")
     await page.getByLabel("身份说明").fill("刚抵达雾港的外乡调查员")
     await page.getByText("预先固定重要人物或地点").click()
-    await page.getByLabel(/雾港钟楼 · location/).check()
+    await page.getByLabel(/雾港钟楼 · 地点/).check()
     await page.getByLabel("旅程开场").fill("我推开钟楼最深处的门。")
     await page.getByRole("button", { name: "开始旅程" }).click()
 

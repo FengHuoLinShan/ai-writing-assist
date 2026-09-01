@@ -93,6 +93,7 @@ async def create_published_draft_only(db: AsyncSession, novel_id: str, chapter_i
 async def create_published_drafts_only(db: AsyncSession, novel_id: str, chapters: list[dict[str, object]]) -> list[WritingDraftContract]
 async def create_draft(db: AsyncSession, novel_id: str, chapter_index: int, title: str | None = None, content: str = "") -> tuple[WritingDraftContract, str]
 async def get_draft(db: AsyncSession, novel_id: str, draft_id: str) -> WritingDraftContract | None
+async def list_drafts_by_ids(db: AsyncSession, novel_id: str, draft_ids: list[str]) -> list[WritingDraftContract]
 async def adopt_candidate_to_working(db: AsyncSession, novel_id: str, draft_id: str, *, adopted_by: str = "author") -> WritingDraftContract
 async def get_latest_draft_for_chapter(db: AsyncSession, novel_id: str, chapter_index: int) -> WritingDraftContract | None
 async def get_author_attention_items(db: AsyncSession, novel_id: str) -> list[WritingAuthorAttentionItemContract]
@@ -129,7 +130,9 @@ snapshot 失败，任务重新从发布源发起时会合并 fresh RAG，只补�
 RP source revision 的 manifest 保存具体 draft ID/version/content hash。新版本发布或章节被软废弃后，
 `get_draft()` / `build_manuscript_range_ref()` / `read_manuscript_range()` 仍可按历史 draft 精确
 回读；canonical 历史读取要求它曾是 published，并继续校验整章 hash、范围 hash、version
-和 offset。`deprecate_chapter_versions()` 只供已二次确认的 RP 完整稿移除调用，不硬删历史正文。
+和 offset。Evidence 对冻结 manifest 做批量回读时使用 novel-scoped `list_drafts_by_ids()`，避免逐条
+查询且仍逐项重验 content hash。`deprecate_chapter_versions()` 只供已二次确认的 RP 完整稿移除调用，
+不硬删历史正文。
 
 `facade.list_latest_drafts_for_chapters(..., content_limit=N)` 供跨模块批量加载正文时做 DB-side 截断；默认 `None` 保持返回完整最新正文。`content_limit` 必须为正整数，启用时仅投影跨模块契约必要字段，不加载完整 `WritingDraft` ORM。
 

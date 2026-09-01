@@ -250,6 +250,28 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("ix_rag_chunks_novel_draft_chapter_order", table_name="rag_chunks")
     op.execute("DROP INDEX IF EXISTS uq_rag_chunks_chapter_text_key")
+    # 旧唯一键不含 source_id,而本版本之后同一章节会按 draft 并存多份 chunk;
+    # 迁移层无法安全判定哪一份是当前稿,存在并存数据时明确失败而不是盲删。
+    duplicate_drafts = (
+        op.get_bind()
+        .execute(
+            sa.text(
+                "SELECT 1 FROM rag_chunks "
+                "WHERE source_type = 'chapter_text' "
+                "  AND chapter_index IS NOT NULL "
+                "  AND chunk_index IS NOT NULL "
+                "GROUP BY novel_id, source_type, content_mode, "
+                "  chapter_index, chunk_index, index_version "
+                "HAVING COUNT(*) > 1 LIMIT 1"
+            )
+        )
+        .first()
+    )
+    if duplicate_drafts:
+        raise RuntimeError(
+            "multiple chapter_text draft versions coexist in rag_chunks; "
+            "rebuild the search index before downgrading this migration"
+        )
     op.execute(
         """
         CREATE UNIQUE INDEX uq_rag_chunks_chapter_text_key
@@ -326,6 +348,14 @@ def downgrade() -> None:
     )
     op.drop_table("interaction_source_revisions")
     op.drop_index("uq_import_records_done_file_name", table_name="import_records")
+    # source_revision 记录是本特性的内部记账,随 downgrade 一并移除,
+    # 否则旧谓词(不含 import_kind)的唯一索引会被同 file_name 的重复行卡住。
+    op.execute(
+        sa.text(
+            "DELETE FROM import_records "
+            "WHERE status = 'done' AND import_kind = 'source_revision'"
+        )
+    )
     op.create_index(
         "uq_import_records_done_file_name",
         "import_records",

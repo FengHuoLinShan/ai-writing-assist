@@ -238,6 +238,38 @@ async def get_manifest_entity_appearances(
     )
 
 
+async def current_source_manifest(
+    db: AsyncSession,
+    novel_id: str,
+    chapters: list[int] | None = None,
+    *,
+    content_mode: str = "canonical",
+) -> dict[str, str]:
+    """构建"当前正文版本"的 draft/hash manifest,用于把检索限定到最新稿。
+
+    旧稿 chunk 会按资料版本保留(ADR-0018);任何面向当前正文的检索都必须
+    先经此 manifest 过滤,否则会混入被取代稿的分块。``chapters=None`` 表示
+    覆盖全部当前章节。键为 draft id 的十六进制字符串,与 retrieve 约定一致。
+    """
+    from modules.writing.facade import list_manuscript_sources
+
+    sources = await list_manuscript_sources(
+        db,
+        novel_id,
+        (
+            sorted({chapter for chapter in chapters if chapter > 0})
+            if chapters is not None
+            else None
+        ),
+        content_mode=content_mode,
+    )
+    return {
+        str(source.id): source.content_hash
+        for source in sources
+        if source.id and source.content_hash
+    }
+
+
 async def get_ordered_chapter_chunks(
     db: AsyncSession,
     novel_id: str,
@@ -245,27 +277,19 @@ async def get_ordered_chapter_chunks(
     end_chapter: int | None = None,
 ) -> list[RagChunkContract]:
     """按章节范围读取当前正文版本的有序 RAG chunks。"""
-    from modules.writing.facade import list_manuscript_sources
-
     nid = uuid.UUID(hex=novel_id)
     chapter_to = end_chapter or start_chapter
-    sources = await list_manuscript_sources(
+    manifest = await current_source_manifest(
         db,
         novel_id,
         list(range(start_chapter, chapter_to + 1)),
-        content_mode="canonical",
     )
-    manifest = {
-        uuid.UUID(source.id): source.content_hash
-        for source in sources
-        if source.id and source.content_hash
-    }
     chunks = await _repo.find_by_chapter_range(
         db,
         nid,
         start_chapter,
         chapter_to,
-        source_manifest=manifest,
+        source_manifest={uuid.UUID(key): value for key, value in manifest.items()},
     )
     return [_to_chunk_contract(chunk) for chunk in chunks]
 

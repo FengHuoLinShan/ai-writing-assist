@@ -9,7 +9,10 @@ import pytest
 from core.errors import ConflictError, NotFoundError, ValidationError
 from infrastructure.tasks.models import AsyncTask
 from modules.account.settings_constants import LOCAL_OWNER_ID
-from modules.interaction.generation import InteractionGenerationWorkflow
+from modules.interaction.generation import (
+    InteractionContextBudgetError,
+    InteractionGenerationWorkflow,
+)
 from modules.interaction.models import (
     InteractionGenerationAttempt,
     InteractionJourney,
@@ -222,6 +225,40 @@ async def test_source_bound_journey_freezes_revision_anchor_and_epoch(
     assert attempt.started_source_context_epoch == 0
 
 
+async def test_source_bound_empty_context_packet_fails_before_provider(
+    db_session,
+    project_factory,
+) -> None:
+    (
+        _service,
+        _project,
+        _revision,
+        _first,
+        _later,
+        journey,
+        attempt,
+    ) = await _source_journey(db_session, project_factory)
+    db_session.task_checkpoint_enabled = True
+    task = await db_session.get(AsyncTask, attempt.task_id)
+    assert task is not None
+
+    with patch(
+        "modules.interaction.generation.compile_interaction_story_context",
+        autospec=True,
+        return_value=SimpleNamespace(blockers=[], rendered_context=""),
+    ):
+        with pytest.raises(
+            InteractionContextBudgetError,
+            match="without rendered content",
+        ) as caught:
+            await InteractionGenerationWorkflow().prepare_story_task(
+                db_session,
+                task=task,
+            )
+
+    assert caught.value.kind == "source_context_blocked"
+
+
 async def test_source_setup_rejects_character_before_first_appearance(
     db_session,
     project_factory,
@@ -286,6 +323,24 @@ async def test_ambiguity_resolution_freezes_ready_revision_fingerprint(
             db_session,
             revision_id=str(revision.id),
             ambiguity_key="ambiguity-1",
+            choice_key=character_key,
+        )
+
+
+async def test_ambiguity_resolution_rejects_unfinished_revision(
+    db_session,
+    project_factory,
+) -> None:
+    _project, revision, _first, _later, character_key = await _ready_source(
+        db_session, project_factory
+    )
+    revision.status = "organizing"
+
+    with pytest.raises(ConflictError, match="尚未进入关键指代确认"):
+        await InteractionService()._sources.resolve_ambiguity(  # noqa: SLF001
+            db_session,
+            revision_id=str(revision.id),
+            ambiguity_key="not-finalized",
             choice_key=character_key,
         )
 

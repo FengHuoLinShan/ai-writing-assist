@@ -23,7 +23,8 @@
 - 检索结果只是候选，编译阶段按 source ID/hash 回读 writing 原文并再次执行可见性门禁。
 - chapter-text chunk 按具体 Writing draft/hash 并存。普通作者 Context 自动物化当前
   Writing manifest；RP 传入冻结 source revision manifest。候选在排序前就过滤草稿/hash，
-  历史版本回读不会被新章节版本覆盖。
+  历史版本回读不会被新章节版本覆盖。手工检索与普通 manuscript search 同样先构建当前
+  draft/hash manifest，旧稿 chunk 只供明确版本化读取，不混入当前正文结果。
 - `compile_interaction_story_context()` 是 Evidence 拥有的深层稳定入口；它固定
   `consumer_action=interaction.story`、16K 参考预算、读者/人物知识与章节/offset 截止。
 - `author_safe + scene_id` 固定以当前 Scene 为同章截止点；后续或跨越截止点的正文候选在

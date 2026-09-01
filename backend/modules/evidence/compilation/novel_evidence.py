@@ -368,7 +368,7 @@ class NovelEvidenceService:
     ) -> ManuscriptCandidateReadBatch:
         from modules.writing.facade import (
             build_manuscript_range_ref,
-            get_draft,
+            list_drafts_by_ids,
             list_manuscript_sources,
         )
 
@@ -388,11 +388,16 @@ class NovelEvidenceService:
                 content_mode=content_mode,
             )
         else:
-            current_sources = []
-            for draft_id, source_hash in source_manifest.items():
-                draft = await get_draft(db, novel_id, draft_id)
-                if draft is not None and draft.content_hash == source_hash:
-                    current_sources.append(draft)
+            drafts = await list_drafts_by_ids(
+                db,
+                novel_id,
+                list(source_manifest.keys()),
+            )
+            current_sources = [
+                draft
+                for draft in drafts
+                if draft.content_hash == source_manifest.get(str(draft.id))
+            ]
         current_by_chapter = {source.chapter_index: source for source in current_sources}
         resolver_kwargs = {}
         if visibility.cutoff_scene_id:
@@ -948,7 +953,11 @@ class NovelEvidenceService:
         return None, "quote_ambiguous_in_visible_scene"
 
     async def _search_manuscript(self, db, **kwargs):
-        from modules.evidence.indexing.facade import get_index_freshness, retrieve
+        from modules.evidence.indexing.facade import (
+            current_source_manifest,
+            get_index_freshness,
+            retrieve,
+        )
 
         visibility = kwargs["visibility"]
         requested_top_k = kwargs["top_k"]
@@ -958,16 +967,29 @@ class NovelEvidenceService:
             visibility=visibility,
             context_scene_id=kwargs.get("context_scene_id"),
         )
+        visible_until = _effective_chapter_to(kwargs.get("chapter_to"), visibility)
+        # 搜索面向当前正文;先按当前稿 manifest 过滤,避免命中按资料版本
+        # 保留的旧稿 chunk(命中后也会因 hash 不符被丢弃)。
+        chapter_from = max(1, int(kwargs.get("chapter_from") or 1))
+        manifest = await current_source_manifest(
+            db,
+            kwargs["novel_id"],
+            (
+                list(range(chapter_from, visible_until + 1))
+                if visible_until is not None
+                else None
+            ),
+            content_mode=kwargs["content_mode"],
+        )
         result = await retrieve(
             db,
             kwargs["novel_id"],
             kwargs["query"],
             content_mode=kwargs["content_mode"],
-            visible_until_chapter=_effective_chapter_to(
-                kwargs.get("chapter_to"), visibility
-            ),
+            visible_until_chapter=visible_until,
             top_k=min(50, max(requested_top_k, 12)),
             mode="search",
+            source_manifest=manifest,
         )
         hits: list[EvidenceHitContract] = []
         warnings = list(result.warnings or [])

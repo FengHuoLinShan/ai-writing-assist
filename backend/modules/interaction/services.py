@@ -298,7 +298,22 @@ class InteractionService:
             owner_id=owner_id,
             journeys=items,
         )
+        source_requests = [
+            {
+                "revision_id": journey.source_revision_id,
+                "anchor": journey.source_anchor,
+                "player_identity": journey.player_identity,
+                "source_context_epoch": journey.source_context_epoch,
+            }
+            for journey in items
+            if journey.source_revision_id
+        ]
+        source_responses = await self._sources.journey_source_responses(
+            db,
+            source_requests,
+        )
         responses: list[JourneySummaryResponse] = []
+        source_index = 0
         for journey in items:
             selected_attempt = selected_attempts.get(journey.id)
             active_on_path = (
@@ -355,18 +370,16 @@ class InteractionService:
                         str(active_on_path.id) if active_on_path else None
                     ),
                     source=(
-                        await self._sources.journey_source_response(
-                            db,
-                            revision_id=journey.source_revision_id,
-                            anchor=journey.source_anchor,
-                            player_identity=journey.player_identity,
-                            source_context_epoch=journey.source_context_epoch,
-                        )
+                        # 两个列表必须同序:source_requests 按 source-bound 旅程
+                        # 出现顺序构造,这里逐个消费。
+                        source_responses[source_index]
                         if journey.source_revision_id
                         else None
                     ),
                 )
             )
+            if journey.source_revision_id:
+                source_index += 1
         return JourneyListResponse(items=responses, total=total)
 
     async def get_journey(

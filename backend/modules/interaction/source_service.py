@@ -147,6 +147,75 @@ class InteractionSourceService:
             source_novel_id=revision.source_novel_id,
             owner_id=revision.owner_id,
         )
+        return self._journey_source_response(
+            revision,
+            anchor=anchor,
+            player_identity=player_identity,
+            source_context_epoch=source_context_epoch,
+            active=active,
+            latest=latest,
+        )
+
+    async def journey_source_responses(
+        self,
+        db: AsyncSession,
+        requests: list[dict],
+    ) -> list[InteractionJourneySourceResponse]:
+        """Batched journey_source_response for list views.
+
+        ``requests`` carry revision_id/anchor/player_identity/
+        source_context_epoch exactly like the single-row helper; the returned
+        list is aligned with the input order.  One revision query serves all
+        journeys and archived sources are probed once per distinct project.
+        """
+        if not requests:
+            return []
+        revisions = await self._repo.list_source_revisions(
+            db,
+            owner_id=current_account_id(),
+        )
+        by_id = {revision.id: revision for revision in revisions}
+        latest_by_source: dict[uuid.UUID, InteractionSourceRevision] = {}
+        for revision in revisions:
+            latest_by_source.setdefault(revision.source_novel_id, revision)
+        active_by_source: dict[uuid.UUID, bool] = {}
+        responses = []
+        for request in requests:
+            revision = by_id.get(request["revision_id"])
+            if revision is None:
+                raise NotFoundError("作品资料不存在")
+            await self._refresh(db, revision)
+            if revision.source_novel_id not in active_by_source:
+                try:
+                    await self.require_author_project(
+                        db,
+                        str(revision.source_novel_id),
+                    )
+                    active_by_source[revision.source_novel_id] = True
+                except NotFoundError:
+                    active_by_source[revision.source_novel_id] = False
+            responses.append(
+                self._journey_source_response(
+                    revision,
+                    anchor=request["anchor"],
+                    player_identity=request["player_identity"],
+                    source_context_epoch=request["source_context_epoch"],
+                    active=active_by_source[revision.source_novel_id],
+                    latest=latest_by_source.get(revision.source_novel_id),
+                )
+            )
+        return responses
+
+    def _journey_source_response(
+        self,
+        revision: InteractionSourceRevision,
+        *,
+        anchor: dict,
+        player_identity: dict,
+        source_context_epoch: int,
+        active: bool,
+        latest: InteractionSourceRevision | None,
+    ) -> InteractionJourneySourceResponse:
         update_available = bool(
             latest
             and latest.id != revision.id
@@ -412,6 +481,8 @@ class InteractionSourceService:
         revision = await self._owned_revision(db, revision_id, for_update=True)
         if revision.status == "ready":
             raise ConflictError("已就绪的资料版本已冻结，请创建新版本后再调整")
+        if revision.status != "needs_confirmation":
+            raise ConflictError("作品资料尚未进入关键指代确认")
         ambiguity = next(
             (
                 item

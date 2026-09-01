@@ -864,6 +864,20 @@ class WritingDraftService:
             return None
         return self._to_contract(draft)
 
+    async def list_draft_contracts(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        draft_ids: list[str],
+    ) -> list[WritingDraftContract]:
+        """按 ID 批量获取草稿契约;隔离语义与 get_draft_contract 一致。"""
+        nid = _parse_uuid(novel_id, "novel")
+        parsed = [_parse_uuid(draft_id, "draft") for draft_id in draft_ids]
+        if not parsed:
+            return []
+        drafts = await self._repo.list_by_ids(db, parsed, novel_id=nid)
+        return [self._to_contract(draft) for draft in drafts]
+
     async def get_latest_draft_contract(
         self,
         db: AsyncSession,

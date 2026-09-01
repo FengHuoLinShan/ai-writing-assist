@@ -16,6 +16,7 @@ from core.dependencies import DbSession
 from infrastructure.tasks.enqueuer import enqueue_task
 from modules.evidence.indexing.facade import (
     create_chunk,
+    current_source_manifest,
     get_index_status,
     get_metrics_status,
     list_chunks,
@@ -91,9 +92,15 @@ async def retrieve_chunks(
 ) -> RagResult:
     """混合检索 RAG 片段
 
-    组合关键词匹配 + 关系匹配 + 重要性评分进行混合检索排序。
+    组合关键词匹配 + 关系匹配 + 重要性评分进行混合检索排序;
+    只返回当前正文版本的 chunk,按资料版本保留的旧稿不会命中。
     """
     await _require_active_project(db, novel_id)
+    manifest = await current_source_manifest(
+        db,
+        novel_id,
+        content_mode=query.content_mode,
+    )
     result = await retrieve(
         db,
         novel_id,
@@ -110,6 +117,7 @@ async def retrieve_chunks(
         mode=query.mode,
         top_k=query.top_k,
         retrieval_purpose="manual_search",
+        source_manifest=manifest,
     )
 
     # 转为 API 响应格式

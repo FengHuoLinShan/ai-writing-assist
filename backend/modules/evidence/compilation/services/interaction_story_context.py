@@ -342,6 +342,7 @@ class InteractionStoryContextService:
                 continue
             blocks.append(candidate)
             included_keys.append(key)
+        included_reads: list[dict] = []
         for read in excerpts:
             candidate = self._excerpt_block(read)
             if (
@@ -350,6 +351,7 @@ class InteractionStoryContextService:
             ):
                 break
             blocks.append(candidate)
+            included_reads.append(read)
 
         rendered = (
             "<SOURCE_REFERENCE_DATA>\n"
@@ -363,9 +365,6 @@ class InteractionStoryContextService:
                 "reason": reasons[key],
             }
             for key in included_keys
-        ]
-        included_reads = [
-            read for read in excerpts if str(read.get("text") or "") in rendered
         ]
         included_refs.extend(
             {
@@ -447,7 +446,10 @@ class InteractionStoryContextService:
                 "blocker_count": len(blockers),
             },
             section_metadata={"activation_reasons": _reason_counts(included_refs)},
-            token_metadata={"estimated_tokens": tokens, "budget_tokens": 16_000},
+            token_metadata={
+                "estimated_tokens": tokens,
+                "budget_tokens": REFERENCE_BUDGET_TOKENS,
+            },
             rendered_context=rendered,
             retain_rendered_context=False,
         )
@@ -515,7 +517,7 @@ class InteractionStoryContextService:
             [
                 f"## 原文证据：{read.get('title') or '未命名章节'}",
                 f"- 位置：第 {source.get('chapter_index')} 章",
-                str(read.get("text") or ""),
+                _sanitize_source_text(str(read.get("text") or "")),
             ]
         )
 
@@ -543,6 +545,15 @@ class InteractionStoryContextService:
 
 def _normalize(value: str) -> str:
     return "".join(str(value or "").lower().split())
+
+
+_FENCE_CLOSE = "</SOURCE_REFERENCE_DATA>"
+
+
+def _sanitize_source_text(value: str) -> str:
+    """Neutralize imported text that could close the reference-data fence."""
+
+    return value.replace(_FENCE_CLOSE, "</原文引用结束>")
 
 
 def _hash(value) -> str:

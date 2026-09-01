@@ -2003,6 +2003,19 @@ review calibration和 `quality_claim_allowed`。正文只在 ignored candidate/r
 - **决定**：人工 review 未导入前不生成 threshold config，也不消费已冻结 holdout 的任何模型结果。
   test 通过后最多形成 `synthetic_contract_and_directional_memory_eval` 的质量证据，仍不等于真实用户验证。
 
+### MEM-DEC-078：unknown-model capability fallback 由保守 short 档改为假定 long-context 档（2026-09-02）
+
+- **状态**：已实现（`infrastructure/llm/capabilities.py` 的 `_long_context_fallback`）。
+- **证据与质疑**：short fallback（16K normal/20K compact/24K hard）落地后，source-bound 旅程的 16K
+  参考预算叠加旅程历史会在未校验模型上几乎每轮触发紧急整理并贴近 hard 失败线；而当前账户模板可
+  接入的 provider 全部为长上下文模型，short 档的"安全"收益实际不存在。
+- **升级后的决定**：unknown/legacy 档预算数值改为与已校准 `deepseek-v4-flash` 档一致（256K normal/
+  360K compact/400K hard/8K story/12K summary），`calibration_status` 使用
+  `unknown_long_context_fallback` / `legacy_long_context_fallback` 显式标注"假定不弱于已校准档"，
+  与 `verified_dev` 区分；`estimate_input_tokens` 取字符与 tokenizer 较大值的收紧方向保留。
+- **重开条件**：出现实际接入的短上下文模型（官方上限低于 400K）时，必须先为该 (provider, model)
+  建立显式校验档案，而不是恢复全局 short fallback。
+
 ## 7. 物理存储候选：P2 未批准，segment JSONB 已淘汰
 
 ### 7.1 已淘汰 A：给 `interaction_summary_segments` 增加 `memory_delta_json`
@@ -2301,14 +2314,18 @@ Prompt 注入；6 已经用户授权并通过 shared infrastructure/project snap
   case pass 为 3/5/5/6/3。人工盲评仍 unavailable，`quality_claim_allowed=false`。
 - P1 已落地 source 旅程态 query、manual-authority selector、bounded oldest-prefix reducer、protected
   raw suffix、净缩减门、最多 4 pass、同 segment 幂等复用、“记住这一点”和 checkpoint marker 删除。
+- 评审收口已让当前正文检索按 draft/hash manifest 排除旧稿 chunk，冻结 manifest 批量回读避免 N+1；
+  source fence、空参考包、歧义状态和 migration downgrade 均失败关闭。RP 页在完整整理前明确确认模型
+  额度，轮询失败退避且恢复后清除旧错误，资料对象类型和失败原因使用读者可理解的文案。
 - long-memory 本身没有新增 API、memory schema 或 browser wire；历史 checkpoint nullable 列保留兼容。
   用户已授权继续到必要 migration/ADR，但 P2 仍需 gold/extracted/recovery 与盲评过门，未进入实现。
 - 当前窄证据为 P0 runner `43 passed`、capability/project/interaction `97 passed`、P1/source/evidence/import
   `98 passed`、InteractionView
   `45 passed`，并在 fresh PostgreSQL 17 + pgvector 空库验证 manual rebase segment 复用 `1 passed`。
-  本轮 capability/calibration 变更后，默认后端为 `4820 passed, 12 skipped, 6 deselected`；此前完整前端为
-  `2130 passed`；fresh PostgreSQL source-version/manual-rebase `3 passed`，独立端口 RP Playwright
-  `5 passed`。生产构建、Ruff、secret hygiene、Prompt contract、受改 Python format、
+  本轮最终 `test-fast-coverage` 为 `4828 passed, 12 skipped`、coverage `86.13%`；`eval-fast`
+  `137 passed`，完整前端 `2141 passed`；fresh PostgreSQL source-version/manual-rebase `3 passed`，
+  独立端口 RP Playwright `6 passed`，专用 PostgreSQL migration `head → previous → head` 通过。
+  生产构建、Ruff、ESLint、secret hygiene、Prompt contract、受改 Python format、
   `git diff --check` 与带显式无影响说明的 `docs-check BASE_REF=origin/main` 均通过。
 - B/C segment recall、raw rehydration、统一 Prompt Pack 与 typed overlay 均未过真实 paired
   model/review 门，因此没有注入生产 Prompt。capability profile 已经 shared infrastructure/project

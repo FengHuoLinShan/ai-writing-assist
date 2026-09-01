@@ -36,7 +36,7 @@ class ManuscriptSourceService:
         self,
         db: AsyncSession,
         novel_id: str,
-        chapter_indices: list[int],
+        chapter_indices: list[int] | None,
         *,
         content_mode: str = "canonical",
     ) -> list[WritingDraftContract]:

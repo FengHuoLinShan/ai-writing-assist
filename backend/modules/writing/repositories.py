@@ -150,6 +150,22 @@ class WritingDraftRepository:
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def list_by_ids(
+        self,
+        db: AsyncSession,
+        draft_ids: list[uuid.UUID],
+        *,
+        novel_id: uuid.UUID,
+    ) -> list[WritingDraft]:
+        """按 ID 批量读取同一项目的草稿;跨项目 ID 直接被过滤。"""
+        if not draft_ids:
+            return []
+        stmt = select(WritingDraft).where(
+            WritingDraft.novel_id == novel_id,
+            WritingDraft.id.in_(draft_ids),
+        )
+        return list((await db.execute(stmt)).scalars().all())
+
     async def get_for_update(
         self,
         db: AsyncSession,
@@ -414,9 +430,7 @@ class WritingDraftRepository:
         )
         rows = (await db.execute(stmt)).all()
         return [
-            chapter_index
-            for chapter_index, content in rows
-            if substantive_text(content)
+            chapter_index for chapter_index, content in rows if substantive_text(content)
         ]
 
     async def list_chapter_summaries(
@@ -530,24 +544,24 @@ class WritingDraftRepository:
         self,
         db: AsyncSession,
         novel_id: uuid.UUID,
-        chapter_indices: list[int],
+        chapter_indices: list[int] | None,
         *,
         content_mode: str,
     ) -> Sequence[WritingDraft]:
-        """Return one concrete source version per requested chapter."""
-        requested = sorted({idx for idx in chapter_indices if idx >= 1})
-        if not requested:
-            return []
-        conditions = [
-            WritingDraft.novel_id == novel_id,
-            WritingDraft.chapter_index.in_(requested),
-        ]
+        """Return one concrete source version per requested/current chapter."""
+        conditions = [WritingDraft.novel_id == novel_id]
+        if chapter_indices is not None:
+            requested = sorted({idx for idx in chapter_indices if idx >= 1})
+            if not requested:
+                return []
+            conditions.append(WritingDraft.chapter_index.in_(requested))
         if content_mode == "canonical":
-            conditions.append(WritingDraft.status == "published")
+            status_condition = WritingDraft.status == "published"
         elif content_mode == "working":
-            conditions.append(WritingDraft.status.in_(WORKING_DRAFT_STATUSES))
+            status_condition = WritingDraft.status.in_(WORKING_DRAFT_STATUSES)
         else:
             raise ValueError("content_mode must be canonical or working")
+        conditions.append(status_condition)
         latest_versions = (
             select(
                 WritingDraft.chapter_index.label("chapter_index"),
@@ -564,7 +578,7 @@ class WritingDraftRepository:
                 (WritingDraft.chapter_index == latest_versions.c.chapter_index)
                 & (WritingDraft.version_number == latest_versions.c.version_number),
             )
-            .where(WritingDraft.novel_id == novel_id, *conditions[2:])
+            .where(WritingDraft.novel_id == novel_id, status_condition)
             .order_by(WritingDraft.chapter_index)
         )
         return (await db.execute(stmt)).scalars().all()

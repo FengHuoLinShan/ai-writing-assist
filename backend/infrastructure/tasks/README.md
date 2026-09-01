@@ -54,6 +54,12 @@ infrastructure/tasks/
 `result.phase_artifacts`；这不是新任务类型或队列状态。包组装失败不得覆盖已完成的
 imports result，恢复、rollback 与 asset summary 仍由 imports 自己拥有。
 
+`interaction_story_generate` 对 source-bound 旅程在同一 attempt 内冻结 selection epoch 与
+source context epoch：prepare 时编译版本化 source packet，流式 checkpoint 与 finalize 都重验
+两个 epoch；来源归档、manifest draft/hash 失效或任一 epoch 漂移时以
+`source_context_stale` / `source_context_blocked` 失败关闭 attempt，不退回纯模型知识生成。
+资料参考包只存 hash、引用与预算摘要，不长期保存 rendered source context。
+
 两个存储清理处理器均为 `owner_scope=global`：`novel_id=NULL`。项目永久删除任务
 只保存 canonical 项目前缀；替换图片清理只保存对象 ID 与旧图片版本。两者
 均不保存 S3 凭证，不进入普通 task API。

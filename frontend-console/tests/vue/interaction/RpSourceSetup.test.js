@@ -169,4 +169,99 @@ describe("RP 作品资料设置", () => {
       RP_SOURCE_FILE_ACCEPT,
     )).toBeNull()
   })
+
+  it("直接整理前先确认会使用模型额度", async () => {
+    api.interactions.listSources.mockResolvedValue({
+      items: [],
+      projects: [{
+        project_id: revision.project_id,
+        title: revision.title,
+        latest_revision: null,
+      }],
+    })
+    const wrapper = mount(RpSourceSetup)
+    await wrapper.get("input[value='source']").setValue()
+    await flushPromises()
+    await wrapper.findAll(".rp-source-projects > button")[0].trigger("click")
+    await flushPromises()
+
+    await wrapper.get("button.primary").trigger("click")
+    await flushPromises()
+
+    const dialog = document.getElementById("rp-source-organize-confirm")
+    expect(dialog).toBeTruthy()
+    expect(dialog.textContent).toContain("使用我的模型额度")
+    expect(api.interactions.sourceFromProject).not.toHaveBeenCalled()
+
+    const confirmButton = [...dialog.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("开始完整整理"))
+    confirmButton.click()
+    await flushPromises()
+    expect(api.interactions.sourceFromProject).toHaveBeenCalledWith({
+      project_id: revision.project_id,
+      authorization_confirmed: true,
+    })
+  })
+
+  it("对象类型以中文标签展示，不暴露内部枚举", async () => {
+    const wrapper = mount(RpSourceSetup)
+    await wrapper.get("input[value='source']").setValue()
+    await flushPromises()
+    await wrapper.findAll(".rp-source-projects > button")[0].trigger("click")
+    await flushPromises()
+    await wrapper.get(`input[value='${"a".repeat(64)}']`).setValue()
+    await flushPromises()
+
+    const pins = wrapper.get(".rp-source-pins")
+    expect(pins.text()).toContain("林默 · 人物")
+    expect(pins.text()).not.toContain("character")
+  })
+
+  it("整理进度轮询失败时按阶梯退避并保持单次提示", async () => {
+    vi.useFakeTimers()
+    try {
+      const organizing = {
+        ...revision,
+        status: "organizing",
+        progress_message: "正在完整整理当前导入版本",
+        anchors: [],
+        objects: [],
+      }
+      let calls = 0
+      api.interactions.getSource.mockImplementation(async () => {
+        calls += 1
+        if (calls === 1 || calls === 5) return organizing
+        throw new Error("")
+      })
+      const wrapper = mount(RpSourceSetup)
+      await wrapper.get("input[value='source']").setValue()
+      await vi.advanceTimersByTimeAsync(0)
+      await wrapper.findAll(".rp-source-projects > button")[0].trigger("click")
+      await vi.advanceTimersByTimeAsync(0)
+      expect(calls).toBe(1)
+
+      await vi.advanceTimersByTimeAsync(2500)
+      expect(calls).toBe(2)
+      expect(wrapper.get(".rp-source-error").text()).toContain("整理进度暂时无法刷新")
+
+      await vi.advanceTimersByTimeAsync(2500)
+      expect(calls).toBe(2)
+
+      await vi.advanceTimersByTimeAsync(500)
+      expect(calls).toBe(3)
+
+      await vi.advanceTimersByTimeAsync(5999)
+      expect(calls).toBe(3)
+      expect(wrapper.findAll(".rp-source-error")).toHaveLength(1)
+
+      await vi.advanceTimersByTimeAsync(1)
+      expect(calls).toBe(4)
+
+      await vi.advanceTimersByTimeAsync(12000)
+      expect(calls).toBe(5)
+      expect(wrapper.findAll(".rp-source-error")).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

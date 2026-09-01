@@ -12,6 +12,8 @@ import {
   RP_SOURCE_FILE_ACCEPT,
   validateImportFile,
 } from "../../composables/useImportUpload.js"
+import RpAdaptiveConfirmPopover from "./RpAdaptiveConfirmPopover.vue"
+import { sourceEntityTypeLabel } from "./sourceLabels.js"
 
 const props = defineProps({ disabled: { type: Boolean, default: false } })
 const emit = defineEmits(["change"])
@@ -47,9 +49,15 @@ const originalName = ref(restored.originalName || "")
 const originalDescription = ref(restored.originalDescription || "")
 const pinnedKeys = ref(Array.isArray(restored.pinnedKeys) ? restored.pinnedKeys : [])
 const resolvingKey = ref("")
+const organizeConfirmOpen = ref(false)
+const organizeAnchor = ref(null)
 let pollTimer = null
 let uploadController = null
 let disposed = false
+let pollFailures = 0
+
+const POLL_INTERVAL_MS = 2500
+const POLL_RETRY_DELAYS_MS = [3000, 6000, 12000, 24000, 30000]
 
 const statusText = computed(() => {
   if (loading.value) return "正在载入作品…"
@@ -129,10 +137,10 @@ function clearPolling() {
   pollTimer = null
 }
 
-function schedulePoll() {
+function schedulePoll(delayMs = POLL_INTERVAL_MS) {
   clearPolling()
   if (disposed || revision.value?.status !== "organizing") return
-  pollTimer = setTimeout(() => void refreshRevision(), 2500)
+  pollTimer = setTimeout(() => void refreshRevision(), delayMs)
 }
 
 async function loadSources() {
@@ -198,12 +206,24 @@ async function organizeSelectedProject() {
       project_id: selectedProjectId.value,
       authorization_confirmed: true,
     })
+    pollFailures = 0
     syncRevisionDefaults()
   } catch (requestError) {
     reportError(requestError?.message || "完整整理未能开始。")
   } finally {
     loading.value = false
   }
+}
+
+function requestOrganize(event) {
+  if (loading.value) return
+  organizeAnchor.value = event?.currentTarget || null
+  organizeConfirmOpen.value = true
+}
+
+function confirmOrganize() {
+  organizeConfirmOpen.value = false
+  void organizeSelectedProject()
 }
 
 function chooseFile(event) {
@@ -291,10 +311,20 @@ async function refreshRevision() {
   if (!revision.value?.id) return
   try {
     revision.value = await getApi().interactions.getSource(revision.value.id)
+    if (pollFailures > 0 && error.value === "整理进度暂时无法刷新。") {
+      error.value = ""
+    }
+    pollFailures = 0
     syncRevisionDefaults()
-  } catch (requestError) {
-    reportError(requestError?.message || "整理进度暂时无法刷新。")
-    schedulePoll()
+  } catch {
+    pollFailures += 1
+    // 持续失败时按阶梯退避并只提示一次,不反复抢焦点。
+    if (pollFailures === 1) {
+      reportError("整理进度暂时无法刷新。")
+    }
+    schedulePoll(
+      POLL_RETRY_DELAYS_MS[Math.min(pollFailures - 1, POLL_RETRY_DELAYS_MS.length - 1)],
+    )
   }
 }
 
@@ -421,7 +451,8 @@ onBeforeUnmount(() => {
           class="primary"
           type="button"
           :disabled="loading"
-          @click="organizeSelectedProject"
+          :aria-expanded="organizeConfirmOpen"
+          @click="requestOrganize"
         >完整整理这部作品</button>
         <button
           v-if="selectedProjectId"
@@ -452,7 +483,7 @@ onBeforeUnmount(() => {
           <strong>共识别 {{ preview.chapter_count }} 章</strong>
           <ul>
             <li v-for="item in preview.changes" :key="`${item.chapter_index}-${item.change}`">
-              {{ item.title }} · {{ { added: "新增", changed: "修改", removed: "移除", reordered: "重排", unchanged: "不变" }[item.change] }}
+              {{ item.title }} · {{ { added: "新增", changed: "修改", removed: "移除", reordered: "重排", unchanged: "不变" }[item.change] || "变化" }}
             </li>
           </ul>
           <label v-if="preview.requires_destructive_confirmation">
@@ -484,7 +515,7 @@ onBeforeUnmount(() => {
             <button type="button" @click="revision = null; selectedProjectId = ''; importOpen = false; clearPolling()">换一部作品</button>
           </div>
         </header>
-        <button v-if="revision.status === 'failed'" type="button" @click="organizeSelectedProject">
+        <button v-if="revision.status === 'failed'" type="button" @click="requestOrganize">
           重新开始完整整理
         </button>
 
@@ -498,7 +529,7 @@ onBeforeUnmount(() => {
               type="button"
               :disabled="Boolean(resolvingKey)"
               @click="resolveAmbiguity(ambiguity, choice.choice_key)"
-            >{{ choice.label }} · {{ choice.entity_type }}</button>
+            >{{ choice.label }} · {{ sourceEntityTypeLabel(choice.entity_type) }}</button>
           </article>
         </section>
 
@@ -561,11 +592,22 @@ onBeforeUnmount(() => {
                 type="checkbox"
                 :checked="pinnedKeys.includes(item.reference_key)"
                 @change="togglePin(item.reference_key)"
-              /> {{ item.label }} · {{ item.entity_type }}
+              /> {{ item.label }} · {{ sourceEntityTypeLabel(item.entity_type) }}
             </label>
           </details>
         </div>
       </div>
     </div>
+
+    <RpAdaptiveConfirmPopover
+      :anchor="organizeAnchor"
+      :busy="loading"
+      confirm-text="开始完整整理"
+      id="rp-source-organize-confirm"
+      message="将完整整理当前版本的全部章节，并使用我的模型额度。"
+      :open="organizeConfirmOpen"
+      @close="organizeConfirmOpen = false"
+      @confirm="confirmOrganize"
+    />
   </section>
 </template>

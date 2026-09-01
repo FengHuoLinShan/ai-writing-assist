@@ -32,6 +32,7 @@ import {
 } from "../../shell/composables/useTheme.js"
 import RpAdaptiveConfirmPopover from "./RpAdaptiveConfirmPopover.vue"
 import { safeInteractionError } from "./interactionErrors.js"
+import { sourceEntityTypeLabel } from "./sourceLabels.js"
 import RpMarkdownContent from "./RpMarkdownContent.vue"
 
 const props = defineProps({
@@ -228,6 +229,12 @@ const visibleTreeBranchPoints = computed(() => (
 const failedError = computed(() => safeInteractionError(
   currentAttempt.value?.error_kind || "generation_failed",
 ))
+// attempt.error_message 由后端 _safe_story_error/blocker 写入,是面向用户的
+// 固定文案(如具体的资料阻断原因);优先于按 kind 推导的通用文案展示。
+const failedMessage = computed(() => {
+  const serverMessage = String(currentAttempt.value?.error_message || "").trim()
+  return serverMessage || failedError.value.message
+})
 const streamErrorRole = computed(() => (
   streamError.value.includes("正在从已保存位置恢复") ? "status" : "alert"
 ))
@@ -1977,7 +1984,7 @@ onBeforeUnmount(() => {
         <button type="button" @click="retryAttempt">重新生成</button>
       </div>
       <div v-else-if="failedAttempt" class="rp-attempt-actions rp-attempt-actions--error" role="alert">
-        <p>{{ failedError.message }}</p>
+        <p>{{ failedMessage }}</p>
         <button
           v-if="failedError.action === 'connection'"
           type="button"
@@ -1988,6 +1995,11 @@ onBeforeUnmount(() => {
           type="button"
           @click="openOverview"
         >查看回顾</button>
+        <button
+          v-else-if="failedError.action === 'source'"
+          type="button"
+          @click="openSourceInfo"
+        >查看作品资料</button>
         <button
           v-if="failedError.action !== 'connection'"
           type="button"
@@ -2379,7 +2391,7 @@ onBeforeUnmount(() => {
           <p>固定项会优先进入每轮资料；忽略项不会被关系扩展重新带回。</p>
           <div class="rp-source-object-list">
             <article v-for="item in sourceObjects" :key="item.reference_key">
-              <div><strong>{{ item.label }}</strong><small>{{ item.entity_type }}</small></div>
+              <div><strong>{{ item.label }}</strong><small>{{ sourceEntityTypeLabel(item.entity_type) }}</small></div>
               <p v-if="item.summary">{{ item.summary }}</p>
               <div>
                 <button

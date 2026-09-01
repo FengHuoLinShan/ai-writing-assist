@@ -64,8 +64,8 @@ interaction 为 `我是 RP 用户` 路径保存私人互动故事。用户可直
 automatic descendant 就重新采用旧当前值。
 
 输入预算由 attempt 的 project LLM snapshot 冻结 capability profile，并取字符估算与 shared tokenizer
-的较大值。当前 DeepSeek 档案为 256K normal / 360K compact / 400K hard，unknown model 为
-16K/20K/24K short fallback。超过 compact 阈值时，同一 attempt 以最多 4 个短事务依次折叠
+的较大值。当前 DeepSeek 档案为 256K normal / 360K compact / 400K hard，unknown model 为同数值的
+long-context fallback（`unknown_long_context_fallback`，2026-09-02 产品决策）。超过 compact 阈值时，同一 attempt 以最多 4 个短事务依次折叠
 兼容回顾之后的最老连续 whole-node prefix；DeepSeek 单次摘要输入不超过 256K，近期至少一个完整
 对话节拍和约 16K 原文后缀保持原 role/bytes。每次只把 coverage 推进到 chunk end，输出未净缩减
 至少 128 token、单节点/完整节拍超限或 pass 用尽时均 fail-closed，不向 provider 发送整条 530K+

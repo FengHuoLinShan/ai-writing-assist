@@ -1113,6 +1113,78 @@ describe("RP 故事页", () => {
     expect(wrapper.get("[aria-label='当前回顾']").text()).toContain("世界与起点")
   })
 
+  it("作品资料阻断时展示后端具体原因并可直接打开资料抽屉", async () => {
+    const source = {
+      revision_id: "22222222-2222-4222-8222-222222222222",
+      source_title: "雾都之夜",
+      version_number: 1,
+      status: "ready",
+      progress_label: "第一章 · 抵达雾都",
+      progress_chapter_index: 1,
+      progress_end_offset: 120,
+      player_label: "林默",
+      source_context_epoch: 2,
+      update_available: false,
+    }
+    const object = {
+      reference_key: "b".repeat(64),
+      label: "林默",
+      entity_type: "character",
+      summary: "",
+      aliases: [],
+      first_chapter_index: 1,
+      first_end_offset: 20,
+    }
+    api = makeApi({
+      getSource: vi.fn(async () => ({
+        id: source.revision_id,
+        project_id: "11111111-1111-4111-8111-111111111111",
+        title: source.source_title,
+        version_number: 1,
+        status: "ready",
+        anchors: [],
+        objects: [object],
+      })),
+      getJourneyReferences: vi.fn(async () => ({
+        source,
+        pinned: [],
+        excluded: [],
+        last_used: [],
+      })),
+      listSourceObjects: vi.fn(async () => ({ items: [object] })),
+      listSources: vi.fn(async () => ({ projects: [] })),
+    })
+    setBridgeOverrides({ api, router, toast, confirm, prompt: vi.fn() })
+    const wrapper = mount(InteractionView, {
+      props: {
+        initialJourney: journey({
+          source,
+          active_attempt: {
+            id: "attempt-source-blocked",
+            journey_id: journey().id,
+            response_to_node_id: "a2",
+            status: "failed",
+            error_kind: "source_context_blocked",
+            error_message: "已固定的作品资料超出可用篇幅，请减少固定项",
+            visible_text: "",
+            visible_offset: 0,
+          },
+        }),
+        llmConnections: connected(),
+      },
+    })
+
+    const banner = wrapper.get(".rp-attempt-actions--error")
+    expect(banner.text())
+      .toContain("已固定的作品资料超出可用篇幅，请减少固定项")
+    const sourceButton = wrapper.findAll(".rp-attempt-actions button")
+      .find((button) => button.text() === "查看作品资料")
+    expect(sourceButton).toBeTruthy()
+    void sourceButton.trigger("click")
+    await flushPromises()
+    expect(wrapper.get("aside[aria-label='作品资料']").text()).toContain("雾都之夜")
+  })
+
   it("回顾和分支历史载入失败时就地说明并提示重试", async () => {
     api.interactions.getOverview.mockRejectedValue(new Error("private overview error"))
     api.interactions.getTree.mockRejectedValue(new Error("private tree error"))

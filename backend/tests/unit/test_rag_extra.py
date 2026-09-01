@@ -517,9 +517,16 @@ class TestApiRoutes:
             degraded=False,
         )
 
-        with patch(
-            "modules.evidence.indexing.api.retrieve", autospec=True
-        ) as mock_retrieve:
+        with (
+            patch(
+                "modules.evidence.indexing.api.current_source_manifest",
+                autospec=True,
+            ) as mock_manifest,
+            patch(
+                "modules.evidence.indexing.api.retrieve", autospec=True
+            ) as mock_retrieve,
+        ):
+            mock_manifest.return_value = {}
             mock_retrieve.return_value = mock_bundle
 
             from modules.evidence.indexing.api import retrieve_chunks
@@ -546,9 +553,16 @@ class TestApiRoutes:
 
         mock_bundle = RagResultBundle(chunks=[], total=0, query="empty")
 
-        with patch(
-            "modules.evidence.indexing.api.retrieve", autospec=True
-        ) as mock_retrieve:
+        with (
+            patch(
+                "modules.evidence.indexing.api.current_source_manifest",
+                autospec=True,
+            ) as mock_manifest,
+            patch(
+                "modules.evidence.indexing.api.retrieve", autospec=True
+            ) as mock_retrieve,
+        ):
+            mock_manifest.return_value = {}
             mock_retrieve.return_value = mock_bundle
 
             from modules.evidence.indexing.api import retrieve_chunks
