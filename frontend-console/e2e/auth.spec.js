@@ -97,6 +97,8 @@ test("marker 缺失的公开邮箱登录会清除旧账号数据并写入账号 
   await page.addInitScript(seedPrivateBrowserState, { accountId: null })
 
   await page.goto("/")
+  await expect(page.getByRole("heading", { name: "今天想怎样进入故事？" })).toBeVisible()
+  await page.getByRole("button", { name: /我是作家/ }).click()
   await expect(page.getByRole("heading", { name: "登录或注册" })).toBeVisible()
   await page.getByLabel("邮箱", { exact: true }).fill("writer@example.com")
   await page.getByLabel("邮箱验证码", { exact: true }).fill("123456")
@@ -104,7 +106,7 @@ test("marker 缺失的公开邮箱登录会清除旧账号数据并写入账号 
   await page.getByRole("checkbox").check()
   await page.getByRole("button", { name: "邮箱登录" }).click()
 
-  await expect(page.getByRole("heading", { name: "今天想怎样进入故事？" })).toBeVisible()
+  await expect(page.locator("#project-catalog-title")).toBeVisible()
   expect(await storedPrivateState(page)).toEqual({
     accountId: "account-new",
     projectId: null,
@@ -155,7 +157,8 @@ test("真实退出入口会清除账号数据并保留主题", async ({ page }) 
   await expect(dialog.getByLabel("账号删除验证码", { exact: true })).toBeVisible()
   await dialog.getByRole("button", { name: "退出登录" }).click()
 
-  await expect(page.getByRole("heading", { name: "登录或注册" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "今天想怎样进入故事？" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "登录或注册" })).toHaveCount(0)
   expect(auth.logoutRequests()).toBe(1)
   expect(await storedPrivateState(page)).toEqual({
     accountId: null,
