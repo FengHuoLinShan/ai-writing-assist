@@ -312,8 +312,8 @@ def test_threshold_config_hash_is_strict(tmp_path: Path) -> None:
     payload = {
         "version": "rp-long-memory-thresholds-v1",
         "dev_dataset_hash": "a" * 64,
-        "dev_model_report_hash": "b" * 64,
-        "dev_review_report_hash": "c" * 64,
+        "dev_model_stable_report_hash": "b" * 64,
+        "dev_review_stable_report_hash": "c" * 64,
         "test_dataset_hash": "d" * 64,
         "compiler_hash": "e" * 64,
         "prompt_hash": "f" * 64,
@@ -322,7 +322,6 @@ def test_threshold_config_hash_is_strict(tmp_path: Path) -> None:
         "reviewer_ids_hash": "3" * 64,
         "runs": 1,
         "semantic_probe_version": "rp-long-memory-semantic-probe-v1",
-        "frozen_at": "2026-09-02T00:00:00+08:00",
         "decisions": [
             {
                 "baseline_arm": "overview_tail",
@@ -475,6 +474,7 @@ def test_threshold_freeze_selects_only_arms_with_fact_and_blind_gain(
             },
         ],
     }
+    model["stable_report_hash"] = _hash_json(model)
     atomic_write_json(model_path, model)
     review_path = tmp_path / "review.json"
     review = {
@@ -482,7 +482,6 @@ def test_threshold_freeze_selects_only_arms_with_fact_and_blind_gain(
         "model_report_hash": hashlib.sha256(model_path.read_bytes()).hexdigest(),
         "review_calibration": {"available": True, "passed": True},
         "reviewer_ids_hash": "3" * 64,
-        "completed_at": "2026-09-02T00:00:00+00:00",
         "paired_comparisons": {
             "segments_vs_baseline": {
                 "mean_delta": 0.25,
@@ -494,6 +493,7 @@ def test_threshold_freeze_selects_only_arms_with_fact_and_blind_gain(
             },
         },
     }
+    review["stable_report_hash"] = _hash_json(review)
     atomic_write_json(review_path, review)
     output = tmp_path / "thresholds.json"
 

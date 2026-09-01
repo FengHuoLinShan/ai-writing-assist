@@ -511,8 +511,8 @@ class ArmThresholdDecision(StrictModel):
 class FrozenThresholdConfig(StrictModel):
     version: Literal["rp-long-memory-thresholds-v1"]
     dev_dataset_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
-    dev_model_report_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
-    dev_review_report_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    dev_model_stable_report_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    dev_review_stable_report_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     test_dataset_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     compiler_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     prompt_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -521,7 +521,6 @@ class FrozenThresholdConfig(StrictModel):
     reviewer_ids_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     runs: int = Field(ge=1)
     semantic_probe_version: Literal["rp-long-memory-semantic-probe-v1"]
-    frozen_at: str = Field(min_length=1, max_length=64)
     decisions: list[ArmThresholdDecision] = Field(min_length=1)
     config_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
 
@@ -3631,9 +3630,12 @@ def freeze_threshold_config(
     if not decisions:
         raise ValueError("dev evidence did not qualify any candidate arm")
 
-    frozen_at = str(review_report_payload.get("completed_at") or "")
-    if not frozen_at:
-        raise ValueError("threshold freeze requires a completed dev review report")
+    model_stable_hash = str(model_report.get("stable_report_hash") or "")
+    review_stable_hash = str(review_report_payload.get("stable_report_hash") or "")
+    if model_stable_hash != _hash_json(_stable_payload(model_report)):
+        raise ValueError("dev model stable report hash mismatch")
+    if review_stable_hash != _hash_json(_stable_payload(review_report_payload)):
+        raise ValueError("dev review stable report hash mismatch")
 
     test_cases, test_dataset_hash = load_cases(test_dataset_path)
     test_compile, _ = compile_report(
@@ -3646,8 +3648,8 @@ def freeze_threshold_config(
     unsigned = {
         "version": THRESHOLD_CONFIG_VERSION,
         "dev_dataset_hash": model_report["dataset_hash"],
-        "dev_model_report_hash": _sha256(model_report_path.read_bytes()),
-        "dev_review_report_hash": _sha256(review_report_path.read_bytes()),
+        "dev_model_stable_report_hash": model_stable_hash,
+        "dev_review_stable_report_hash": review_stable_hash,
         "test_dataset_hash": test_dataset_hash,
         "compiler_hash": test_compile["compiler_hash"],
         "prompt_hash": test_compile["prompt_hash"],
@@ -3658,7 +3660,6 @@ def freeze_threshold_config(
         "reviewer_ids_hash": str(review_report_payload.get("reviewer_ids_hash") or ""),
         "runs": int(model_report.get("runs") or 0),
         "semantic_probe_version": SEMANTIC_PROBE_VERSION,
-        "frozen_at": frozen_at,
         "decisions": decisions,
     }
     payload = {**unsigned, "config_hash": _hash_json(unsigned)}

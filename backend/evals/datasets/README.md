@@ -212,6 +212,8 @@ compile is allowed before dev review; model/review output is not. `model --split
 fails before project/client access unless `--threshold-config` names a hash-valid config
 produced by calibrated dev review and bound to the exact local verified test dataset,
 compiler, story/probe prompts, semantic scorer, project profile, run count and reviewer set.
+The config identity uses the stable model/review report hashes, so re-exporting identical
+review evidence cannot create a second holdout identity through a new timestamp.
 Candidate IDs, arm order and model cache keys also include that threshold hash. Test review
 must consume the same config; only a complete model stage plus passing hard gates, frozen
 fact deltas, blind non-degradation and spoiler limits may set `quality_claim_allowed=true`
