@@ -79,23 +79,34 @@ def test_identity_candidates_keep_all_direct_mentions_then_apply_type_top_k() ->
         outline_related_ids=set(),
     )
 
-    direct = [item for item in selected if item["selection_reason"] == "direct_mention"]
+    reason_by_ref = {
+        item["prompt_ref"]: item["selection_reason"] for item in sources
+    }
+    direct = [
+        item
+        for item in selected
+        if reason_by_ref[item["prompt_ref"]] == "direct_mention"
+    ]
     remaining_characters = [
         item
         for item in selected
         if item["entity_type"] == "character"
-        and item["selection_reason"] != "direct_mention"
+        and reason_by_ref[item["prompt_ref"]] != "direct_mention"
     ]
     remaining_objects = [
         item
         for item in selected
         if item["entity_type"] != "character"
-        and item["selection_reason"] != "direct_mention"
+        and reason_by_ref[item["prompt_ref"]] != "direct_mention"
     ]
     assert [item["name"] for item in direct] == ["人物0", "人物1", "物品0"]
     assert len(remaining_characters) == 6
     assert len(remaining_objects) == 16
     assert all("entity_id" not in item for item in selected)
+    assert all(
+        set(item) == {"prompt_ref", "entity_type", "name", "aliases", "status"}
+        for item in selected
+    )
     assert [item["prompt_ref"] for item in selected] == [
         f"entity-{index:03d}" for index in range(1, len(selected) + 1)
     ]
@@ -252,7 +263,7 @@ async def test_import_activation_excludes_future_span_from_cross_chapter_scene(
     assert {source["chapter_index"] for source in activation.current_scene_sources} == {
         80
     }
-    assert activation.activation_version == "import-context-v2"
+    assert activation.activation_version == "import-context-v3"
     assert len(activation.context_fingerprint) == 64
     assert activation.budget_events == []
     assert activation.scene_card["title"] == "跨章 Scene"
@@ -261,7 +272,6 @@ async def test_import_activation_excludes_future_span_from_cross_chapter_scene(
         for item in activation.identity_candidates
         if item["name"] == "只在资料中出现的正式名"
     )
-    assert alias_candidate["selection_reason"] == "direct_mention"
     assert alias_candidate["aliases"] == ["可见线索"]
     assert "entity_id" not in alias_candidate
 
@@ -277,16 +287,16 @@ async def test_import_activation_pages_through_all_relevant_relations(
     from modules.writing.facade import create_draft_only
 
     text = "甲与乙重申古老盟约。"
-    await create_draft_only(db_session, test_project_id, 1, content=text)
+    await create_draft_only(db_session, test_project_id, 2, content=text)
     scene = await SceneRepository().create(
         db_session,
         uuid.UUID(test_project_id),
         SceneCreate(
-            scene_index=1,
+            scene_index=2,
             title="盟约",
-            chapter_ids=["1"],
+            chapter_ids=["2"],
             scene_chunks=[
-                {"chapter_index": 1, "start_offset": 0, "end_offset": len(text)}
+                {"chapter_index": 2, "start_offset": 0, "end_offset": len(text)}
             ],
             status="canonical",
         ),
@@ -309,6 +319,7 @@ async def test_import_activation_pages_through_all_relevant_relations(
             "target_id": str(target["id"]),
             "relation_type": "ancient-alliance",
             "relation_kind": "social",
+            "review_meta": {"scene_index": 0, "source_chapter_index": 1},
         },
     )
     for index in range(50):
@@ -320,8 +331,47 @@ async def test_import_activation_pages_through_all_relevant_relations(
                 "target_id": str(target["id"]),
                 "relation_type": f"noise-{index:02d}",
                 "relation_kind": "state",
+                "strength": index / 100,
+                "review_meta": (
+                    {"scene_index": 0, "source_chapter_index": 1}
+                    if index < 2
+                    else None
+                ),
             },
         )
+    await create_relation(
+        db_session,
+        test_project_id,
+        {
+            "source_id": str(source["id"]),
+            "target_id": str(target["id"]),
+            "relation_type": "future-old-workflow",
+            "relation_kind": "social",
+            "review_meta": {"scene_index": 0, "source_chapter_index": 3},
+        },
+    )
+    await create_relation(
+        db_session,
+        test_project_id,
+        {
+            "source_id": str(source["id"]),
+            "target_id": str(target["id"]),
+            "relation_type": "same-chapter-previous-scene",
+            "relation_kind": "social",
+            "review_meta": {"scene_index": 1, "source_chapter_index": 2},
+        },
+    )
+    await create_relation(
+        db_session,
+        test_project_id,
+        {
+            "source_id": str(source["id"]),
+            "target_id": str(target["id"]),
+            "relation_type": "future-scene-index",
+            "relation_kind": "social",
+            "review_meta": {"scene_index": 3, "source_chapter_index": 1},
+        },
+    )
 
     activation = await prepare_import_context_activation(
         db_session,
@@ -330,7 +380,20 @@ async def test_import_activation_pages_through_all_relevant_relations(
         context_mode="working",
     )
 
-    assert len(activation.relation_candidates) == 51
+    assert len(activation.relation_candidates) == 4
     assert "ancient-alliance" in {
         item["relation_type"] for item in activation.relation_candidates
     }
+    assert "future-old-workflow" not in {
+        item["relation_type"] for item in activation.relation_candidates
+    }
+    assert "same-chapter-previous-scene" in {
+        item["relation_type"] for item in activation.relation_candidates
+    }
+    assert "future-scene-index" not in {
+        item["relation_type"] for item in activation.relation_candidates
+    }
+    assert {
+        item["relation_type"]: item["strength"]
+        for item in activation.relation_candidates
+    }["noise-01"] == 0.01

@@ -20,8 +20,8 @@ Writing 模块是章节正文的事实源，同时负责在 fresh context confir
 - 写作页剧情设定冲突检查记录、问题状态与发布前检查快照归档
 - 从已确认 context 生成 AI 正文 candidate，并保存 confirmation/task provenance
 - 对规则冲突结果追加 AI 软复核和可编辑修复建议
-- 对冻结正文、总纲 profile 和 Scene 执行合同运行独立语义审查
-- 按审查 finding 生成不覆盖原稿的定向返修 candidate
+- 对冻结正文、总纲 profile 和 Scene 执行合同运行带结构化 coverage 的独立语义审查
+- 按审查 finding 的唯一正文范围应用 replacement patch，生成不覆盖原稿的定向返修 candidate
 
 ## 不负责
 
@@ -228,12 +228,11 @@ POV view 和确定性 guard 结果送入审稿；原 hidden guard 词条只在�
 `not_checked` 明确知识边界未覆盖。AI candidate 缺少或失去原 confirmation 时失败关闭，
 旧的非 context-aware 审查回执不能用于采用或返修。
 
-审稿支持 selection/volume/book 分片近读，分片预算同时计算正文、Context、Scene bundle
-和 POV 资料，输出 coverage、finding_id、severity、location、contract refs、preserve 与
-not_checked；机械检查不能签署文学 PASS。`writing_targeted_revision` 只处理选定 finding，
-绑定 base/hash、合同 hash、context 指纹、允许范围、preserve/must_not_change 和
-supersedes，并使用同一已确认 Context 生成新 candidate，不覆盖原稿。返修结果重新运行
-hidden guard、清除不再对应新正文的旧 POV view，且必须再经独立审查通过才能采用。
+审稿支持 selection/volume/book 分片近读，输出 Scene 合同、时间地点、身份关系、能力规则和
+角色知识边界五项结构化 coverage。finding excerpt 必须在冻结正文中唯一定位；缺失 coverage、
+`not_checked` 或歧义位置使回执为 `incomplete`，不能签署 PASS。`writing_targeted_revision`
+合并选中 finding 的重叠范围，模型只返回服务端 patch ID 对应的 replacement，代码应用 patch
+并保证范围外正文不变；返修结果重新运行 hidden guard，且必须再经独立审查通过才能采用。
 
 版本历史是审计视图：按 `version_number` 倒序返回 active、review 和
 archived 全部记录，`total` 与返回集合一致。列表项的 `display_state`

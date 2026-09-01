@@ -148,6 +148,7 @@ class FinalSceneCandidate(BaseModel):
     narrative_tag: str = "draft"
     narrative_function: str = ""
     phase1b_basis: str = ""
+    phase1b_field_evidence: dict[str, list[str]] = Field(default_factory=dict)
     phase1b_field_statuses: dict[
         str,
         Literal["present", "not_applicable", "uncertain"],
@@ -299,6 +300,25 @@ class FinalSceneCandidate(BaseModel):
             str(key): str(status)  # type: ignore[dict-item]
             for key, status in value.items()
             if str(status) in allowed
+        }
+
+    @field_validator("phase1b_field_evidence", mode="before")
+    @classmethod
+    def _normalize_phase1b_field_evidence(
+        cls,
+        value: Any,
+    ) -> dict[str, list[str]]:
+        if not isinstance(value, dict):
+            return {}
+        allowed = {"emotional_beat", "must_happen", "must_not_happen"}
+        return {
+            str(key): list(
+                dict.fromkeys(
+                    str(item).strip() for item in quotes if str(item).strip()
+                )
+            )
+            for key, quotes in value.items()
+            if str(key) in allowed and isinstance(quotes, list)
         }
 
     @model_validator(mode="after")
@@ -955,6 +975,7 @@ def _scene_summary(scene: dict[str, Any]) -> dict[str, Any]:
         "core_conflict_status": scene.get("core_conflict_status", "uncertain"),
         "phase1a_confidence": scene.get("phase1a_confidence", 0.0),
         "boundary_basis": scene.get("boundary_basis", ""),
+        "phase1b_field_evidence": scene.get("phase1b_field_evidence", {}),
         "phase1b_source_fingerprint": scene.get(
             "phase1b_source_fingerprint",
             "",
@@ -1014,6 +1035,10 @@ def _fallback_candidates_for(
                     ),
                     phase1a_confidence=scene_data.get("phase1a_confidence", 0.0),
                     boundary_basis=scene_data.get("boundary_basis", ""),
+                    phase1b_field_evidence=scene_data.get(
+                        "phase1b_field_evidence",
+                        {},
+                    ),
                     phase1b_source_fingerprint=scene_data.get(
                         "phase1b_source_fingerprint",
                         "",

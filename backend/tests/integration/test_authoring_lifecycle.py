@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 
 import pytest
@@ -30,7 +31,30 @@ class _DeterministicWritingClient:
 
     async def generate_structured(self, request, schema, **_kwargs):
         self.requests.append(request)
-        return schema.model_validate({"findings": [], "not_checked": []})
+        payload = json.loads(request.messages[-1].content)
+        return schema.model_validate(
+            {
+                "findings": [],
+                "not_checked": [],
+                "coverage": [
+                    {
+                        "draft_id": item["draft_id"],
+                        "scene_contract": "checked",
+                        "timeline_location": "checked",
+                        "identity_relation": "checked",
+                        "ability_world_rule": "checked",
+                        "knowledge_boundary": (
+                            "checked"
+                            if (item.get("review_context") or {}).get(
+                                "knowledge_boundary_checked"
+                            )
+                            else "not_applicable"
+                        ),
+                    }
+                    for item in payload["targets"]
+                ],
+            }
+        )
 
     async def close(self) -> None:
         return None

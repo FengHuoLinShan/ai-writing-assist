@@ -156,6 +156,7 @@ async def test_phase2a_prompt_keeps_full_scene_and_fences_untrusted_context(
         "matched_existing_ref",
         "uncertainties",
         "evidence_quotes",
+        "field_evidence",
     ):
         assert field in system_text
     assert "JSON 字符串数组" in system_text
@@ -213,6 +214,9 @@ async def test_phase2b_prompt_keeps_full_scene_and_only_exposes_prompt_refs(
     assert "正常输出的每个别名都必须同时包含非 null" in system_text
     assert "evidence_quotes` 必须是 JSON 字符串数组" in system_text
     assert "related_refs` 与 `evidence_quotes` 必须是 JSON 字符串数组" in system_text
+    assert "序列名不是人物别名" in system_text
+    assert "临时见证" in system_text
+    assert "都是 `episodic`" in system_text
 
 
 def test_phase2a_materializer_validates_identity_refs_and_verbatim_evidence() -> None:
@@ -301,6 +305,86 @@ def test_phase2a_materializer_links_only_known_same_type_candidate() -> None:
     assert entity.suggested_action == "link_to_existing"
     assert entity.suggested_existing_entity_name == "沈砚"
     assert entity.evidence_quotes == ["沈砚走进青石镇。"]
+
+
+def test_phase2a_field_evidence_and_new_name_are_fail_closed() -> None:
+    raw = Phase2aSceneExtractionOutput.model_validate(
+        {
+            "entities": [
+                {
+                    "name": "沈砚",
+                    "entity_type": "character",
+                    "summary": "他知道后文才揭示的秘密。",
+                    "identity_disposition": "existing",
+                    "matched_existing_ref": "entity-001",
+                    "evidence_quotes": ["沈砚走进青石镇。"],
+                    "field_evidence": {"summary": ["后文才出现的句子。"]},
+                    "confidence": 0.99,
+                },
+                {
+                    "name": "虚幻眼睛",
+                    "entity_type": "concept",
+                    "identity_disposition": "new",
+                    "evidence_quotes": ["他看见那双虚幻眼睛迅速消失。"],
+                    "confidence": 0.95,
+                },
+            ]
+        }
+    )
+
+    result = _materialize_phase2a_output(
+        raw,
+        current_scene_text="沈砚走进青石镇。他看见那双虚幻眼睛迅速消失。",
+        context_bundle={
+            "identity_candidates": [
+                {
+                    "prompt_ref": "entity-001",
+                    "name": "沈砚",
+                    "entity_type": "character",
+                }
+            ]
+        },
+    )
+
+    assert result.entities[0].summary == ""
+    assert "entity_type" not in result.entities[0].field_evidence
+    assert "summary_evidence_not_found" in result.entities[0].candidate_reason
+    assert {item.reason for item in result.uncertain_items} == {
+        "new_entity_type_evidence_not_found"
+    }
+
+
+def test_phase2a_creates_single_mention_new_entity_with_field_evidence() -> None:
+    quote = "灰钥匙静静躺在盒中。"
+    raw = Phase2aSceneExtractionOutput.model_validate(
+        {
+            "entities": [
+                {
+                    "name": "灰钥匙",
+                    "entity_type": "item",
+                    "summary": "盒中的灰色钥匙。",
+                    "identity_disposition": "new",
+                    "evidence_quotes": [quote],
+                    "field_evidence": {
+                        "name": [quote],
+                        "entity_type": [quote],
+                        "summary": [quote],
+                    },
+                    "confidence": 0.95,
+                }
+            ]
+        }
+    )
+
+    result = _materialize_phase2a_output(
+        raw,
+        current_scene_text=quote,
+        context_bundle={"identity_candidates": []},
+    )
+
+    assert result.entities[0].suggested_action == "create_new"
+    assert result.entities[0].field_evidence["entity_type"] == [quote]
+    assert result.uncertain_items == []
 
 
 def test_phase2a_schema_rejects_relations_and_entity_aliases() -> None:

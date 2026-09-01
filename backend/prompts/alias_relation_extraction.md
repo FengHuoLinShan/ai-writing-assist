@@ -18,9 +18,11 @@
 - `alias_kind` 只有三类：`name` 是本名、别名、昵称、译名或缩写；`title` 是能稳定指向对象的称号、尊称、职称或社会称谓；`identity` 是化名、伪装身份、旧身份或其他“同一对象的另一身份”。`alias_type` 用不超过 20 个字符的自定义短文本精确说明，例如“本名”、“昵称”、“尊称”、“化名”或“伪装身份”。
 - `relation_kind` 只有七类：`state` 表示持有、归属、构成、控制等持续状态；`social` 表示亲属、友敌、联盟、师生、组织成员等社会联系；`spatial` 表示位于、包含等空间联系；`causal` 表示创造、导致或稳定制约；`temporal` 表示先后、继任或持续的时序联系；`epistemic` 表示知道、相信、误解或隐瞒等认知联系；`intentional` 表示目标、承诺、效忠、保护或追求等持续意图。`relation_type` 继续表达作品内的精确关系。
 - 别名意味着同一对象的另一种身份称呼。普通代词、泛称、临时描述，以及只由说话情境决定且不能稳定定位对象的称呼，不应被强行认定为别名。
+- 共享同一“序列名”、职业类别、组织类别或力量体系名称不表示人物同一；序列名不是人物别名。
 - 关系表示对后续规划、续写或一致性检查有意义的对象联系。普通同场、一次性动作和偶然互动本身不构成长期关系，但它们可能成为某种关系发生变化的证据。
 - 先判断这项联系在当前 Scene 结束后是否仍然成立。`enduring` 是不经新事件也会持续成立的身份或结构联系；`stateful` 是当前仍在持续、未来可能改变或终止的关系状态；`episodic` 只是本 Scene 发生的动作、交易、会面、提及、检测、感谢、支付或准备；证据不足则是 `uncertain`。只有 `enduring` 和 `stateful` 可以进入 `relations`，其余放入 `uncertain_items` 或省略。
 - 不要把事件谓词直接当作关系类型。例如“见到、提及、检测、支付、感谢、命名、准备、接受邀请”只描述发生了什么；除非正文同时建立了 Scene 结束后仍成立的关系，否则不创建关系。反过来，一次签约可以建立 `member_of`，一次订婚可以建立 `lover_of` 或更准确的稳定自定义关系，因为动作产生了可持续的结果。
+- 已完成的一次性交易、临时见证、临时会面和本 Scene 内完成的委托都是 `episodic`，不得因为参与者未来可能再见就写成持续关系。
 - 对 `reaffirmed / changed / ended` 必须逐字复用对应 `relation_candidates` 的 `relation_type`。对 `established` 优先使用下列稳定具体类型：`parent_of / child_of / spouse_of / sibling_of / friend_of / rival_of / enemy_of / ally_of / mentor_of / student_of / lover_of / master_of / servant_of / member_of / leader_of / allied_with / at_war_with / trading_with / belongs_to / created_by / located_at / contains / controls / opposes / supports`。这不是封闭枚举；确有无法表达的持久联系时可以使用简洁自定义类型，但不要用中英文近义词重复已有语义，也不要用 `related_to` 掩盖能够明确表达的关系。
 - 共同属于同一组织时，优先分别表达“人物 `member_of` 组织”，不要为每一对成员制造“同组织成员”关系。师生、主仆等成对语义只选择一种最能稳定表达事实的方向，不同时创建正反两个近义关系。
 - 区分故事内部的关系强度 `strength` 与判断可靠度 `confidence`。正文不能可靠说明关系强度时，`strength` 使用 null。

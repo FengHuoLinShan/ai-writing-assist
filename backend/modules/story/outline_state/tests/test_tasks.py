@@ -166,7 +166,7 @@ class TestPlotStructureParserDeepImportMode:
         assert result.threads == []
         assert result.arcs == []
         assert result.diagnostics == {
-            "parameter_version": "phase3_structure_simple_v1",
+            "parameter_version": "phase3_structure_simple_v2",
             "input_mode": "no_scene_evidence",
             "prompt_level": "none",
             "provider_called": False,

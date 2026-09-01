@@ -19,7 +19,7 @@ from modules.imports.scene_slicing import SceneSliceCandidate
 PHASE1B_ENRICH_CONCURRENCY = 200
 PHASE1B_ENRICH_MAX_TOKENS = 32_768
 PHASE1B_ENRICH_MAX_RETRIES = 1
-PHASE1B_CONTEXT_CONTRACT_VERSION = "phase1b-context-v2"
+PHASE1B_CONTEXT_CONTRACT_VERSION = "phase1b-context-v3"
 PHASE1B_CHARACTER_TOP_K = 6
 PHASE1B_WORLD_OBJECT_TOP_K = 16
 
@@ -89,16 +89,12 @@ class Phase1bSceneEnricher:
         async def process(index: int, scene: SceneSliceCandidate) -> _EnrichOneResult:
             nonlocal completed
             previous_scene = ordered_scenes[index - 1] if index > 0 else None
-            next_scene = (
-                ordered_scenes[index + 1] if index + 1 < len(ordered_scenes) else None
-            )
             async with semaphore:
                 result = await self._process_scene(
                     index + 1,
                     scene,
                     chapter_by_index,
                     previous_scene=previous_scene,
-                    next_scene=next_scene,
                     phase1a_context=phase1a_context or {},
                 )
             async with progress_lock:
@@ -133,7 +129,6 @@ class Phase1bSceneEnricher:
         chapter_by_index: dict[int, dict[str, Any]],
         *,
         previous_scene: SceneSliceCandidate | None,
-        next_scene: SceneSliceCandidate | None,
         phase1a_context: dict[str, Any],
     ) -> _EnrichOneResult:
         scene_source, source_integrity = _materialize_scene_source(
@@ -143,7 +138,7 @@ class Phase1bSceneEnricher:
         related_context, context_fingerprint = _related_context_for_scene(
             scene,
             previous_scene=previous_scene,
-            next_scene=next_scene,
+            scene_source=scene_source,
             phase1a_context=phase1a_context,
         )
         payload = _scene_payload(
@@ -223,6 +218,7 @@ class Phase1bSceneEnricher:
         output = retry_result.value
         if not isinstance(output, SceneEnrichmentOutput):
             output = SceneEnrichmentOutput.model_validate(output)
+        output = _validate_enrichment_evidence(output, scene_source)
         candidate = _final_candidate(
             scene,
             output,
@@ -393,7 +389,7 @@ def _related_context_for_scene(
     scene: SceneSliceCandidate,
     *,
     previous_scene: SceneSliceCandidate | None,
-    next_scene: SceneSliceCandidate | None,
+    scene_source: Sequence[dict[str, Any]],
     phase1a_context: dict[str, Any],
 ) -> tuple[dict[str, Any], str]:
     selected_windows = _select_context_windows(scene, phase1a_context)
@@ -406,19 +402,34 @@ def _related_context_for_scene(
     for window in selected_windows:
         reference = window.get("reference_context") or {}
         outline = reference.get("outline") or {}
-        outline_scenes.extend(_dict_items(outline.get("scenes")))
-        outline_arcs.extend(_dict_items(outline.get("arcs")))
-        plot_threads.extend(_dict_items(outline.get("plot_threads")))
-        warnings.extend(outline.get("warnings") or [])
+        outline_scenes.extend(
+            item
+            for item in _dict_items(outline.get("scenes"))
+            if _item_visible_by_scene_end(item, scene.end_chapter, "chapter_indices")
+        )
+        outline_arcs.extend(
+            item
+            for item in _dict_items(outline.get("arcs"))
+            if _item_visible_by_scene_end(item, scene.end_chapter, "end_chapter")
+        )
+        plot_threads.extend(
+            item
+            for item in _dict_items(outline.get("plot_threads"))
+            if _item_visible_by_scene_end(
+                item,
+                scene.end_chapter,
+                "planned_payoff_chapter",
+            )
+        )
         source_windows.append(
             {
                 "window_id": str(window.get("window_id") or ""),
                 "range": reference.get("range") or {},
                 "content_hash": str(reference.get("content_hash") or ""),
-                "selection_trace": reference.get("selection_trace") or {},
             }
         )
 
+    visible_text = "\n".join(str(item.get("text") or "") for item in scene_source)
     related_context = {
         "contract_version": PHASE1B_CONTEXT_CONTRACT_VERSION,
         "phase1a_context_contract_version": str(
@@ -433,8 +444,8 @@ def _related_context_for_scene(
                 if previous_scene is not None
                 else None
             ),
-            "next": _compact_locked_scene(next_scene) if next_scene is not None else None,
         },
+        "context_role": "director_only",
         "outline": {
             "scenes": _dedupe_context_items(outline_scenes),
             "arcs": _dedupe_context_items(outline_arcs),
@@ -445,14 +456,30 @@ def _related_context_for_scene(
             selected_windows,
             key="characters",
             limit=PHASE1B_CHARACTER_TOP_K,
+            visible_text=visible_text,
         ),
         "world_objects": _ranked_context_items(
             selected_windows,
             key="world_objects",
             limit=PHASE1B_WORLD_OBJECT_TOP_K,
+            visible_text=visible_text,
         ),
     }
     return related_context, _stable_hash(related_context)
+
+
+def _item_visible_by_scene_end(item: dict[str, Any], cutoff: int, field: str) -> bool:
+    value = item.get(field)
+    if field == "chapter_indices":
+        values = value if isinstance(value, list) else []
+        try:
+            return bool(values) and max(int(item) for item in values) < cutoff
+        except (TypeError, ValueError):
+            return False
+    try:
+        return int(value) < cutoff
+    except (TypeError, ValueError):
+        return False
 
 
 def _select_context_windows(
@@ -516,6 +543,7 @@ def _ranked_context_items(
     *,
     key: Literal["characters", "world_objects"],
     limit: int,
+    visible_text: str,
 ) -> list[dict[str, Any]]:
     """Merge overlapping Phase 1a Top-K sets without losing their rank signal."""
     reason_rank = {
@@ -556,10 +584,32 @@ def _ranked_context_items(
             current = best_by_id.get(identity)
             if current is None or rank < current[0]:
                 best_by_id[identity] = (rank, item)
-    return [
-        item
-        for _rank, item in sorted(best_by_id.values(), key=lambda value: value[0])[:limit]
+    visible = [
+        compact
+        for _rank, item in sorted(best_by_id.values(), key=lambda value: value[0])
+        for compact in [_identity_only_context(item)]
+        if any(
+            term and term in visible_text
+            for term in [compact.get("name"), *(compact.get("aliases") or [])]
+        )
     ]
+    return visible[:limit]
+
+
+def _identity_only_context(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: item[key]
+        for key in (
+            "id",
+            "entity_id",
+            "character_id",
+            "entity_type",
+            "name",
+            "aliases",
+            "status",
+        )
+        if item.get(key) not in (None, "", [])
+    }
 
 
 def _dedupe_values(values: Sequence[Any]) -> list[Any]:
@@ -619,6 +669,7 @@ def _fallback_enrichment() -> SceneEnrichmentOutput:
         narrative_tag="draft",
         narrative_function="",
         basis="",
+        field_evidence={},
         uncertain_fields=[
             "emotional_beat",
             "must_happen",
@@ -627,6 +678,35 @@ def _fallback_enrichment() -> SceneEnrichmentOutput:
             "narrative_function",
         ],
         confidence=0.0,
+    )
+
+
+def _validate_enrichment_evidence(
+    enrichment: SceneEnrichmentOutput,
+    scene_source: Sequence[dict[str, Any]],
+) -> SceneEnrichmentOutput:
+    source_texts = [str(item.get("text") or "") for item in scene_source]
+    valid_evidence: dict[str, list[str]] = {}
+    uncertain = list(enrichment.uncertain_fields)
+    updates: dict[str, Any] = {}
+    for field in ("emotional_beat", "must_happen", "must_not_happen"):
+        quotes = [
+            quote.strip()
+            for quote in enrichment.field_evidence.get(field, [])
+            if quote.strip() and any(quote.strip() in text for text in source_texts)
+        ]
+        quotes = list(dict.fromkeys(quotes))
+        if quotes:
+            valid_evidence[field] = quotes
+        elif getattr(enrichment, field):
+            updates[field] = None
+            uncertain.append(field)
+    return enrichment.model_copy(
+        update={
+            **updates,
+            "field_evidence": valid_evidence,
+            "uncertain_fields": list(dict.fromkeys(uncertain)),
+        }
     )
 
 
@@ -714,6 +794,7 @@ def _final_candidate(
         narrative_tag=enrichment.narrative_tag or "draft",
         narrative_function=enrichment.narrative_function,
         phase1b_basis=enrichment.basis,
+        phase1b_field_evidence=enrichment.field_evidence,
         phase1b_field_statuses=_phase1b_field_statuses(enrichment),
         phase1b_uncertain_fields=uncertain_fields,
         phase1b_confidence=enrichment.confidence,

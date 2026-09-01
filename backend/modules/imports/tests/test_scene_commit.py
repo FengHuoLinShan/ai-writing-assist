@@ -349,6 +349,8 @@ async def test_scene_commit_writes_complete_structure_meta(
             "narrative_function": "present",
         },
         "phase1b_basis": "The exact source spans support this reading.",
+        "phase1b_field_evidence": {},
+        "phase1b_director_only_fields": ["narrative_tag", "narrative_function"],
         "narrative_function": "Preserve the imported causal progression.",
         "phase1b_uncertain_fields": [],
         "phase1b_confidence": 0.77,

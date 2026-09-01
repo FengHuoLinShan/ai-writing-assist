@@ -499,6 +499,10 @@ class SceneEnrichmentOutput(BaseModel):
     ] = "draft"
     narrative_function: str = Field(default="")
     basis: str = Field(default="")
+    field_evidence: dict[
+        Literal["emotional_beat", "must_happen", "must_not_happen"],
+        list[str],
+    ] = Field(default_factory=dict)
     uncertain_fields: list[
         Literal[
             "emotional_beat",
@@ -531,6 +535,18 @@ class SceneEnrichmentOutput(BaseModel):
     def _deduplicate_uncertain_fields(cls, value: list[str]) -> list[str]:
         return list(dict.fromkeys(value))
 
+    @field_validator("field_evidence", mode="before")
+    @classmethod
+    def _normalize_field_evidence(cls, value: Any) -> dict[str, list[str]]:
+        if not isinstance(value, dict):
+            return {}
+        allowed = {"emotional_beat", "must_happen", "must_not_happen"}
+        return {
+            str(key): _coerce_string_list(quotes)
+            for key, quotes in value.items()
+            if str(key) in allowed and _coerce_string_list(quotes)
+        }
+
     @field_validator("confidence", mode="before")
     @classmethod
     def _normalize_confidence(cls, value: Any) -> float:
@@ -553,6 +569,7 @@ class ExtractedEntity(BaseModel):
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     aliases: list[dict] | None = Field(default=None)
     evidence_quotes: list[str] = Field(default_factory=list)
+    field_evidence: dict[str, list[str]] = Field(default_factory=dict)
 
     @field_validator("importance", "confidence", mode="before")
     @classmethod
@@ -608,6 +625,20 @@ class ExtractedEntity(BaseModel):
     @classmethod
     def _normalize_evidence_quotes(cls, value: Any) -> list[str]:
         return _coerce_string_list(value)
+
+    @field_validator("field_evidence", mode="before")
+    @classmethod
+    def _normalize_extracted_field_evidence(
+        cls,
+        value: Any,
+    ) -> dict[str, list[str]]:
+        if not isinstance(value, dict):
+            return {}
+        return {
+            str(key): _coerce_string_list(quotes)
+            for key, quotes in value.items()
+            if _coerce_string_list(quotes)
+        }
 
 
 class ExtractedRelation(BaseModel):
@@ -800,6 +831,10 @@ class Phase2aEntityObservation(BaseModel):
     basis: str = ""
     uncertainties: list[str] = Field(default_factory=list)
     evidence_quotes: list[str] = Field(..., min_length=1)
+    field_evidence: dict[
+        Literal["name", "entity_type", "summary", "public_info", "hidden_truth"],
+        list[str],
+    ] = Field(default_factory=dict)
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
 
     @field_validator("entity_type", mode="before")
@@ -832,6 +867,18 @@ class Phase2aEntityObservation(BaseModel):
     @classmethod
     def _normalize_string_lists(cls, value: Any) -> list[str]:
         return _coerce_string_list(value)
+
+    @field_validator("field_evidence", mode="before")
+    @classmethod
+    def _normalize_field_evidence(cls, value: Any) -> dict[str, list[str]]:
+        if not isinstance(value, dict):
+            return {}
+        allowed = {"name", "entity_type", "summary", "public_info", "hidden_truth"}
+        return {
+            str(key): _coerce_string_list(quotes)
+            for key, quotes in value.items()
+            if str(key) in allowed and _coerce_string_list(quotes)
+        }
 
     @model_validator(mode="after")
     def _validate_identity_reference(self) -> Phase2aEntityObservation:

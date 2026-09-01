@@ -186,6 +186,18 @@ class DeepImportProgressTracker:
                 "foreshadowing": int(phase3.get("total_foreshadowing", 0) or 0),
                 "reveals": int(phase3.get("total_reveals", 0) or 0),
             },
+            "evidence_gate_passed_count": int(
+                phase3.get("evidence_gate_passed_count", 0) or 0
+            ),
+            "evidence_gate_review_count": int(
+                phase3.get("evidence_gate_review_count", 0) or 0
+            ),
+            "chapter_degraded_count": int(
+                (progress.quality_stats.get("phase1a") or {}).get(
+                    "fallback_count", 0
+                )
+                or 0
+            ),
             "snapshot_total": int(snapshot.get("total_snapshots", 0) or 0),
             "snapshot_succeeded": int(snapshot_status.get("succeeded", 0) or 0),
             "snapshot_failed": int(snapshot_status.get("failed", 0) or 0),

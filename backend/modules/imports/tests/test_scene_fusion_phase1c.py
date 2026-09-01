@@ -83,6 +83,10 @@ def _synthesis_result(**overrides) -> dict:
         "narrative_tag": "rising_action",
         "narrative_function": "把连续行动整合为一个因果单元",
         "basis": "完整正文显示这些片段属于同一连续因果单元。",
+        "field_evidence": {
+            "emotional_beat": ["x"],
+            "must_happen": ["x"],
+        },
         "uncertain_fields": [],
         "confidence": 0.96,
         **overrides,
@@ -150,6 +154,7 @@ async def test_phase1c_merge_preserves_nullable_phase1b_metadata() -> None:
             "narrative_tag": "rising_action",
             "narrative_function": "建立行动方向",
             "phase1b_basis": "左侧正文依据",
+            "phase1b_field_evidence": {"must_happen": ["x"]},
             "phase1b_field_statuses": {
                 "emotional_beat": "not_applicable",
                 "must_happen": "present",
@@ -169,6 +174,7 @@ async def test_phase1c_merge_preserves_nullable_phase1b_metadata() -> None:
             "narrative_tag": "draft",
             "narrative_function": "延续行动后果",
             "phase1b_basis": "右侧正文依据",
+            "phase1b_field_evidence": {"emotional_beat": ["x"]},
             "phase1b_field_statuses": {
                 "emotional_beat": "present",
                 "must_happen": "not_applicable",
@@ -290,7 +296,13 @@ async def test_phase1c_provider_failure_does_not_flood_author_suggestions() -> N
 async def test_phase1c_can_form_one_scene_across_more_than_two_chapters() -> None:
     async def decide(payload):
         if payload["task"] == "phase1c_scene_synthesis_v2":
-            return _synthesis_result()
+            quote = payload["members"][0]["scene_source"][0]["text"][:1]
+            return _synthesis_result(
+                field_evidence={
+                    "emotional_beat": [quote],
+                    "must_happen": [quote],
+                }
+            )
         return _boundary_result(
             payload,
             relation="same_scene",
@@ -321,7 +333,13 @@ async def test_phase1c_can_form_one_scene_across_more_than_two_chapters() -> Non
 async def test_phase1c_remaps_pending_boundary_after_later_candidate_merges() -> None:
     async def decide(payload):
         if payload["task"] == "phase1c_scene_synthesis_v2":
-            return _synthesis_result()
+            quote = payload["members"][0]["scene_source"][0]["text"][:1]
+            return _synthesis_result(
+                field_evidence={
+                    "emotional_beat": [quote],
+                    "must_happen": [quote],
+                }
+            )
         boundaries = []
         for index, boundary in enumerate(payload["owned_boundaries"]):
             boundaries.append(

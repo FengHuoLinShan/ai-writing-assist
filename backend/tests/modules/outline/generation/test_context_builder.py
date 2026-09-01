@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from types import SimpleNamespace
 from unittest import mock
@@ -24,6 +25,57 @@ from modules.writing.contracts import WritingDraftContract
 @pytest.fixture
 def builder() -> PlotStructureContextBuilder:
     return PlotStructureContextBuilder()
+
+
+def test_phase3_scene_evidence_requires_exact_draft_hash_and_offsets() -> None:
+    content = "门缝透出蓝光。"
+    content_hash = hashlib.sha256(content.encode()).hexdigest()
+    scene = SimpleNamespace(
+        scene_chunks=[
+            {
+                "chapter_index": 1,
+                "start_offset": 0,
+                "end_offset": len(content),
+                "source_draft_id": "draft-1",
+                "source_content_hash": content_hash,
+            }
+        ],
+        structure_meta={},
+    )
+    draft = SimpleNamespace(
+        id="draft-1",
+        content=content,
+        content_hash=content_hash,
+    )
+
+    evidence = PlotStructureContextBuilder._scene_evidence(
+        scene,
+        {1: draft},
+        start_chapter=1,
+        end_chapter=1,
+    )
+
+    assert evidence["status"] == "exact"
+    assert evidence["sources"][0]["text"] == content
+
+    scene.scene_chunks[0]["source_content_hash"] = "0" * 64
+    assert PlotStructureContextBuilder._scene_evidence(
+        scene,
+        {1: draft},
+        start_chapter=1,
+        end_chapter=1,
+    )["status"] == "invalid"
+
+    scene.scene_chunks[0]["source_content_hash"] = content_hash
+    scene.status = "candidate"
+    candidate_evidence = PlotStructureContextBuilder._scene_evidence(
+        scene,
+        {1: draft},
+        start_chapter=1,
+        end_chapter=1,
+    )
+    assert candidate_evidence["status"] == "invalid"
+    assert "scene_needs_review" in candidate_evidence["issues"]
 
 
 @pytest.fixture(autouse=True)
@@ -466,6 +518,14 @@ async def test_existing_scene_summaries_are_wrapped(
             "narrative_tag": "转折",
             "start_chapter": 2,
             "end_chapter": 2,
+            "_evidence": {
+                "status": "invalid",
+                "issues": ["scene_source_missing"],
+                "sources": [],
+                "source_hash": (
+                    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+                ),
+            },
         }
     ]
     assert list(summary) == [markdown, cards]

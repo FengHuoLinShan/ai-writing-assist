@@ -72,6 +72,48 @@ def _expanded_token_budget(max_tokens: int | None) -> int:
     return min(max_tokens * 2, _TRUNCATION_RETRY_MAX_TOKENS)
 
 
+def _cache_usage_diagnostic(response: LLMCallResponse | None) -> dict[str, int]:
+    if response is None:
+        return {}
+    raw_usage = response.raw.get("usage") if isinstance(response.raw, dict) else None
+    raw_usage = raw_usage if isinstance(raw_usage, dict) else {}
+    prompt_details = raw_usage.get("prompt_tokens_details")
+    prompt_details = prompt_details if isinstance(prompt_details, dict) else {}
+
+    def token_value(*keys: tuple[dict[str, Any], str]) -> int | None:
+        for source, key in keys:
+            value = source.get(key)
+            if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                return value
+        return None
+
+    hit = token_value(
+        (raw_usage, "prompt_cache_hit_tokens"),
+        (raw_usage, "cache_read_input_tokens"),
+        (prompt_details, "cached_tokens"),
+    )
+    miss = token_value(
+        (raw_usage, "prompt_cache_miss_tokens"),
+        (raw_usage, "cache_creation_input_tokens"),
+    )
+    prompt_tokens = int(getattr(response.usage, "prompt_tokens", 0) or 0)
+    if hit is not None and miss is None and prompt_tokens >= hit:
+        miss = prompt_tokens - hit
+    if miss is not None and hit is None and prompt_tokens >= miss:
+        hit = prompt_tokens - miss
+    if hit is None and miss is None:
+        return {}
+    return {
+        key: value
+        for key, value in {
+            "prompt_tokens": prompt_tokens,
+            "cache_hit_tokens": hit,
+            "cache_miss_tokens": miss,
+        }.items()
+        if value is not None
+    }
+
+
 def _structured_retry_delay(
     *,
     attempt: int,
@@ -671,6 +713,7 @@ class LLMClient:
                         "finish_reason": finish_reason,
                         "completion_tokens": completion_tokens,
                         "max_tokens": max_tokens,
+                        **_cache_usage_diagnostic(response),
                     },
                 )
                 return validated
@@ -726,6 +769,7 @@ class LLMClient:
                         "finish_reason": finish_reason,
                         "completion_tokens": completion_tokens,
                         "max_tokens": max_tokens,
+                        **_cache_usage_diagnostic(response),
                     },
                 )
             except ValidationError as e:
@@ -758,6 +802,7 @@ class LLMClient:
                             else 0
                         ),
                         "max_tokens": req.max_tokens,
+                        **_cache_usage_diagnostic(response),
                     },
                 )
 

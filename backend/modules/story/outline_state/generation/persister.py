@@ -95,12 +95,15 @@ def _item_provenance(
         for scene_id in (getattr(item, "supporting_scene_ids", []) or [])
         if scene_id
     ]
+    evidence_gate = getattr(item, "evidence_gate", None)
     if confidence is not None:
         meta["confidence"] = float(confidence)
     if supporting_scene_ids:
         meta["supporting_scene_ids"] = list(dict.fromkeys(supporting_scene_ids))
     if review_reason:
         meta["review_reason"] = review_reason
+    if isinstance(evidence_gate, dict) and evidence_gate:
+        meta["evidence_gate"] = evidence_gate
     if meta.get("adopted_at"):
         meta["needs_review"] = False
         if needs_review:

@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.llm.token_estimation import estimate_token_count
 from modules.evidence.compilation.contracts import ImportContextActivationContract
 
-_ACTIVATION_VERSION = "import-context-v2"
+_ACTIVATION_VERSION = "import-context-v3"
 _PREVIOUS_EVIDENCE_LIMIT = 700
 _RELATED_CHARACTER_LIMIT = 6
 _RELATED_WORLD_OBJECT_LIMIT = 16
@@ -157,6 +157,8 @@ class ImportContextActivationService:
             relations,
             selected_candidate_sources,
             novel_id=novel_id,
+            before_scene_index=window.scene.scene_index,
+            before_chapter_index=max(chapter_indices, default=0),
         )
         world_entries: list[dict] = []
         current_terms = {
@@ -435,7 +437,7 @@ class ImportContextActivationService:
                     )
                 except Exception:
                     continue
-                parts.append(f"## 第{chapter_index}章\n{read.text}")
+                parts.append(read.text)
                 source_refs.append(
                     {
                         "type": "source_range",
@@ -852,11 +854,7 @@ class ImportContextActivationService:
                     "entity_type": candidate["entity_type"],
                     "name": candidate["name"],
                     "aliases": candidate["aliases"],
-                    "summary": candidate["summary"],
-                    "public_info": candidate["public_info"],
-                    "importance": candidate["importance"],
                     "status": candidate["status"],
-                    "selection_reason": reason,
                 }
             )
             audit_sources.append(
@@ -873,8 +871,9 @@ class ImportContextActivationService:
     def _identity_context(candidates: list[dict]) -> str:
         return "## 既有身份候选\n" + (
             "\n".join(
-                f"- {item['prompt_ref']} {item['entity_type']} {item['name']}: "
-                f"{item.get('summary') or item.get('public_info') or '无'}"
+                f"- {item['prompt_ref']} {item['entity_type']} {item['name']} "
+                f"aliases={item.get('aliases') or []} "
+                f"status={item.get('status') or 'unknown'}"
                 for item in candidates
             )
             or "- 无"
@@ -886,6 +885,8 @@ class ImportContextActivationService:
         entity_sources: list[dict],
         *,
         novel_id: str,
+        before_scene_index: int,
+        before_chapter_index: int,
     ) -> tuple[list[dict], list[dict]]:
         ref_by_entity_id = {
             str(item["id"]): str(item["prompt_ref"])
@@ -922,6 +923,31 @@ class ImportContextActivationService:
                 or status not in {"canonical", "draft", "candidate"}
             ):
                 continue
+            value = (
+                relation
+                if isinstance(relation, dict)
+                else relation.model_dump(mode="python")
+                if callable(getattr(relation, "model_dump", None))
+                else {
+                    "review_meta": getattr(relation, "review_meta", None),
+                    "description": getattr(relation, "description", None),
+                    "strength": getattr(relation, "strength", None),
+                    "status": getattr(relation, "status", None),
+                }
+            )
+            review_meta = value.get("review_meta") or {}
+            source_scene_index = review_meta.get("scene_index")
+            source_chapter_index = review_meta.get("source_chapter_index")
+            if (
+                not isinstance(source_scene_index, int)
+                or isinstance(source_scene_index, bool)
+                or source_scene_index >= int(before_scene_index)
+                or not isinstance(source_chapter_index, int)
+                or isinstance(source_chapter_index, bool)
+                or source_chapter_index < 1
+                or source_chapter_index > int(before_chapter_index)
+            ):
+                continue
             relation_id = str(
                 relation.get("id")
                 if isinstance(relation, dict)
@@ -940,26 +966,16 @@ class ImportContextActivationService:
                     ref_by_entity_id[target_id],
                     relation_type,
                     relation_id,
-                    relation,
+                    value,
                 )
             )
         selected.sort(key=lambda item: item[:4])
         prompt_items: list[dict] = []
         audit_sources: list[dict] = []
-        for index, (source_ref, target_ref, relation_type, relation_id, relation) in (
+        for index, (source_ref, target_ref, relation_type, relation_id, value) in (
             enumerate(selected, start=1)
         ):
             prompt_ref = f"relation-{index:03d}"
-            if isinstance(relation, dict):
-                value = relation
-            elif callable(getattr(relation, "model_dump", None)):
-                value = relation.model_dump(mode="python")
-            else:
-                value = {
-                    "description": getattr(relation, "description", None),
-                    "strength": getattr(relation, "strength", None),
-                    "status": getattr(relation, "status", None),
-                }
             prompt_items.append(
                 {
                     "prompt_ref": prompt_ref,

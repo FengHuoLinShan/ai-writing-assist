@@ -6,6 +6,7 @@ Markdown 上下文，并输出名称→ID 映射表供后续解析使用。
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -128,6 +129,7 @@ class PlotStructureContextBuilder:
                 novel_id,
                 start_chapter,
                 end_chapter,
+                context_mode=context_mode,
                 guard=guard,
             )
             if scenes_md:
@@ -215,6 +217,7 @@ class PlotStructureContextBuilder:
         start_chapter: int,
         end_chapter: int,
         *,
+        context_mode: str = "canonical",
         guard: _PromptTextGuard | None = None,
     ) -> SceneSummaryText:
         """加载指定章节范围内已有 Scene 的紧凑摘要。"""
@@ -227,15 +230,106 @@ class PlotStructureContextBuilder:
             start_chapter,
             end_chapter,
         )
+        chapter_indices = sorted(
+            {
+                int(chunk["chapter_index"])
+                for scene in scenes
+                for chunk in (getattr(scene, "scene_chunks", None) or [])
+                if isinstance(chunk, dict)
+                and str(chunk.get("chapter_index", "")).isdigit()
+                and start_chapter <= int(chunk["chapter_index"]) <= end_chapter
+            }
+        )
+        drafts = (
+            await writing_facade.list_manuscript_sources(
+                db,
+                novel_id,
+                chapter_indices,
+                content_mode=context_mode,
+            )
+            if chapter_indices
+            else []
+        )
+        draft_by_chapter = {draft.chapter_index: draft for draft in drafts}
         lines: list[str] = []
         cards: list[dict] = []
         for scene in scenes:
             if scene.status == "deprecated":
                 continue
-            chapter_indices = self._scene_chapter_indices(scene)
-            lines.append(render_scene_summary_line(scene, chapter_indices, guard=guard))
-            cards.append(render_scene_summary_card(scene, chapter_indices))
+            scene_chapters = self._scene_chapter_indices(scene)
+            lines.append(render_scene_summary_line(scene, scene_chapters, guard=guard))
+            card = render_scene_summary_card(scene, scene_chapters)
+            card["_evidence"] = self._scene_evidence(
+                scene,
+                draft_by_chapter,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+            )
+            cards.append(card)
         return SceneSummaryText("\n".join(lines) + ("\n" if lines else ""), cards)
+
+    @staticmethod
+    def _scene_evidence(
+        scene: object,
+        draft_by_chapter: dict[int, object],
+        *,
+        start_chapter: int,
+        end_chapter: int,
+    ) -> dict:
+        sources: list[dict] = []
+        issues: list[str] = []
+        for chunk in getattr(scene, "scene_chunks", []) or []:
+            if not isinstance(chunk, dict):
+                issues.append("invalid_scene_chunk")
+                continue
+            try:
+                chapter_index = int(chunk.get("chapter_index"))
+                start = int(chunk.get("start_offset"))
+                end = int(chunk.get("end_offset"))
+            except (TypeError, ValueError):
+                issues.append("missing_exact_offsets")
+                continue
+            draft = draft_by_chapter.get(chapter_index)
+            content = str(getattr(draft, "content", "") or "")
+            content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+            if not (start_chapter <= chapter_index <= end_chapter):
+                issues.append("scene_chunk_outside_visible_range")
+            if draft is None or not getattr(draft, "id", None):
+                issues.append("source_draft_missing")
+            elif not chunk.get("source_draft_id"):
+                issues.append("missing_source_draft_id")
+            elif str(chunk["source_draft_id"]) != str(getattr(draft, "id")):
+                issues.append("source_draft_mismatch")
+            if not content or content_hash != str(getattr(draft, "content_hash", "")):
+                issues.append("source_hash_mismatch")
+            if not chunk.get("source_content_hash"):
+                issues.append("missing_scene_chunk_hash")
+            elif str(chunk["source_content_hash"]) != content_hash:
+                issues.append("scene_chunk_hash_mismatch")
+            if start < 0 or end <= start or end > len(content):
+                issues.append("invalid_scene_offsets")
+                continue
+            sources.append(
+                {
+                    "chapter_index": chapter_index,
+                    "start_offset": start,
+                    "end_offset": end,
+                    "source_draft_id": str(getattr(draft, "id", "")),
+                    "source_content_hash": content_hash,
+                    "text": content[start:end],
+                }
+            )
+        meta = dict(getattr(scene, "structure_meta", None) or {})
+        if getattr(scene, "status", None) == "candidate" or meta.get("needs_review"):
+            issues.append("scene_needs_review")
+        if not sources:
+            issues.append("scene_source_missing")
+        issues = list(dict.fromkeys(issues))
+        return {
+            "status": "exact" if not issues else "invalid",
+            "issues": issues,
+            "sources": sources,
+        }
 
     @staticmethod
     def _scene_chapter_indices(scene: object) -> list[int]:

@@ -603,6 +603,18 @@ def phase3_quality_stats(
         "invalid_scene_ref_count": int(
             diagnostics.get("invalid_scene_ref_count", 0) or 0
         ),
+        "evidence_gate_passed_count": int(
+            diagnostics.get("evidence_gate_passed_count", 0) or 0
+        ),
+        "evidence_gate_review_count": int(
+            diagnostics.get("evidence_gate_review_count", 0) or 0
+        ),
+        "evidence_review_unsupported_count": int(
+            diagnostics.get("evidence_review_unsupported_count", 0) or 0
+        ),
+        "evidence_review_conflict_count": int(
+            diagnostics.get("evidence_review_conflict_count", 0) or 0
+        ),
         "retry_count": int(diagnostics.get("retry_count", 0) or 0),
         "high_quality": bool(phase3_result.get("high_quality")),
         "structure_dedup": phase3_result.get("structure_dedup") or {},

@@ -9,6 +9,10 @@
   "narrative_tag": "rising_action",
   "narrative_function": "把取得线索的收益转化为追捕压力，并推动下一阶段行动。",
   "basis": "精确正文显示取得密信、暴露和撤离属于同一连续因果过程。",
+  "field_evidence": {
+    "emotional_beat": ["得手的侥幸在守卫追来时化作紧迫。"],
+    "must_happen": ["他将密信收入怀中，听见守卫已经发现入侵。"]
+  },
   "uncertain_fields": [],
   "confidence": 0.95
 }

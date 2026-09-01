@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, Field
 
 
 class GeneratedThread(BaseModel):
@@ -23,6 +25,7 @@ class GeneratedThread(BaseModel):
     needs_review: bool = False
     review_reason: str = ""
     supporting_scene_ids: list[str] = []
+    evidence_gate: dict = Field(default_factory=dict)
 
 
 class GeneratedArc(BaseModel):
@@ -45,6 +48,7 @@ class GeneratedArc(BaseModel):
     needs_review: bool = False
     review_reason: str = ""
     supporting_scene_ids: list[str] = []
+    evidence_gate: dict = Field(default_factory=dict)
 
 
 class ForeshadowingPlan(BaseModel):
@@ -57,6 +61,7 @@ class ForeshadowingPlan(BaseModel):
     needs_review: bool = False
     review_reason: str = ""
     supporting_scene_ids: list[str] = []
+    evidence_gate: dict = Field(default_factory=dict)
 
 
 class RevealPlan(BaseModel):
@@ -68,6 +73,7 @@ class RevealPlan(BaseModel):
     needs_review: bool = False
     review_reason: str = ""
     supporting_scene_ids: list[str] = []
+    evidence_gate: dict = Field(default_factory=dict)
 
 
 class OffscreenProgress(BaseModel):
@@ -119,6 +125,7 @@ class SimpleSupportedStructureItem(BaseModel):
     needs_review: bool = False
     review_reason: str = ""
     supporting_scene_ids: list[str] = []
+    evidence_gate: dict = Field(default_factory=dict)
 
 
 class SimplePlotThread(SimpleSupportedStructureItem):
@@ -137,3 +144,27 @@ class SimpleStructureOutput(BaseModel):
     reveals: list[SimpleSupportedStructureItem] = []
     turning_points: list[SimpleSupportedStructureItem] = []
     uncertain_items: list[dict] = []
+
+
+class StructureEvidenceQuote(BaseModel):
+    quote: str = Field(..., min_length=1, max_length=2000)
+
+
+class StructureEvidenceReviewItem(BaseModel):
+    candidate_id: str
+    verdict: Literal[
+        "supported",
+        "structural_inference",
+        "unsupported",
+        "conflict",
+        "uncertain",
+    ]
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    evidence: list[StructureEvidenceQuote] = Field(default_factory=list)
+
+
+class StructureEvidenceReviewOutput(BaseModel):
+    reviews: list[StructureEvidenceReviewItem] = Field(
+        default_factory=list,
+        max_length=500,
+    )

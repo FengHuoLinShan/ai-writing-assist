@@ -14,8 +14,8 @@ from shared.deep_import_settings import (
 )
 
 MAX_PHASE2_SCENE_RETRIES = 3
-PHASE2A_PROMPT_CONTRACT_VERSION = "scene-entity-extraction-v2"
-PHASE2B_PROMPT_CONTRACT_VERSION = "alias-relation-extraction-v4"
+PHASE2A_PROMPT_CONTRACT_VERSION = "scene-entity-extraction-v3"
+PHASE2B_PROMPT_CONTRACT_VERSION = "alias-relation-extraction-v5"
 MAX_PHASE2_CONSECUTIVE_TRANSPORT_FAILURES = 3
 PHASE2_SCENE_TIMEOUT_GRACE_SECONDS = 60
 PHASE2_BULK_MAX_SCENES = 12

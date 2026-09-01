@@ -5,6 +5,10 @@
   "narrative_tag": "hook",
   "narrative_function": "建立主角对异常处境的警觉，并形成继续追查的牵引。",
   "basis": "正文中的环境确认改变了主角对处境的理解，但没有建立具体禁止事件。",
+  "field_evidence": {
+    "emotional_beat": ["他先是疑惑，继而警觉地环顾四周。"],
+    "must_happen": ["他终于确认自己身处陌生房间。"]
+  },
   "uncertain_fields": [],
   "confidence": 0.8
 }

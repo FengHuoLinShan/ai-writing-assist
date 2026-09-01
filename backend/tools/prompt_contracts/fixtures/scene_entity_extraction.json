@@ -12,6 +12,12 @@
       "basis": "姓名、职责与既有候选一致。",
       "uncertainties": [],
       "evidence_quotes": ["沈砚走进青石镇。"],
+      "field_evidence": {
+        "name": ["沈砚走进青石镇。"],
+        "entity_type": ["巡查使沈砚走进青石镇。"],
+        "summary": ["巡查使沈砚奉命追查北境商道封锁的原因。"],
+        "public_info": ["沈砚走进青石镇。"]
+      },
       "confidence": 0.94
     }
   ],

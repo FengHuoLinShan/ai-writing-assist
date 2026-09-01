@@ -571,6 +571,8 @@ def _build_structure_meta(
         "boundary_basis": candidate.boundary_basis,
         "phase1b_field_statuses": dict(candidate.phase1b_field_statuses),
         "phase1b_basis": candidate.phase1b_basis,
+        "phase1b_field_evidence": dict(candidate.phase1b_field_evidence),
+        "phase1b_director_only_fields": ["narrative_tag", "narrative_function"],
         "narrative_function": candidate.narrative_function,
         "phase1b_uncertain_fields": list(candidate.phase1b_uncertain_fields),
         "phase1b_confidence": candidate.phase1b_confidence,

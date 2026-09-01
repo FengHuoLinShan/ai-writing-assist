@@ -232,10 +232,14 @@ class Phase1cSceneFusionService:
             try:
                 async with semaphore:
                     raw = await self.llm(payload)
-                synthesis_by_component[indices] = (
+                parsed = (
                     raw
                     if isinstance(raw, SceneFusionSynthesisOutputContract)
                     else SceneFusionSynthesisOutputContract.model_validate(raw)
+                )
+                synthesis_by_component[indices] = _validate_synthesis_evidence(
+                    parsed,
+                    payload,
                 )
             except Exception as exc:
                 synthesis_errors[indices] = type(exc).__name__
@@ -540,7 +544,7 @@ def _synthesis_payload(
         related_windows = list(phase1a_context.get("windows", []))
     return {
         "task": "phase1c_scene_synthesis_v2",
-        "contract_version": "scene-fusion-synthesis-v2",
+        "contract_version": "scene-fusion-synthesis-v3",
         "project": _project_payload(project_profile),
         "members": [
             _candidate_payload(candidate, chapter_by_index) for candidate in candidates
@@ -575,6 +579,7 @@ def _candidate_payload(
         "narrative_tag": candidate.narrative_tag,
         "narrative_function": candidate.narrative_function or None,
         "phase1b_basis": candidate.phase1b_basis,
+        "phase1b_field_evidence": candidate.phase1b_field_evidence,
         "phase1b_field_statuses": candidate.phase1b_field_statuses,
         "phase1b_uncertain_fields": candidate.phase1b_uncertain_fields,
         "phase1b_confidence": candidate.phase1b_confidence,
@@ -615,6 +620,42 @@ def _materialize_candidate_source(
     return source
 
 
+def _validate_synthesis_evidence(
+    synthesis: SceneFusionSynthesisOutputContract,
+    payload: dict[str, Any],
+) -> SceneFusionSynthesisOutputContract:
+    source_texts = [
+        str(source.get("text") or "")
+        for member in payload.get("members", [])
+        if isinstance(member, dict)
+        for source in member.get("scene_source", [])
+        if isinstance(source, dict)
+    ]
+    evidence: dict[str, list[str]] = {}
+    uncertain = list(synthesis.uncertain_fields)
+    updates: dict[str, Any] = {}
+    for field in ("emotional_beat", "must_happen", "must_not_happen"):
+        if not getattr(synthesis, field):
+            continue
+        quotes = [
+            quote
+            for quote in synthesis.field_evidence.get(field, [])
+            if any(quote in text for text in source_texts)
+        ]
+        if quotes:
+            evidence[field] = list(dict.fromkeys(quotes))
+        else:
+            updates[field] = None
+            uncertain.append(field)
+    return synthesis.model_copy(
+        update={
+            **updates,
+            "field_evidence": evidence,
+            "uncertain_fields": list(dict.fromkeys(uncertain)),
+        }
+    )
+
+
 def _materialize_synthesis(
     members: list[FinalSceneCandidate],
     synthesis: SceneFusionSynthesisOutputContract,
@@ -623,6 +664,8 @@ def _materialize_synthesis(
 ) -> FinalSceneCandidate:
     first = members[0]
     statuses = synthesis.semantic_field_statuses()
+    field_evidence = dict(synthesis.field_evidence)
+    uncertain_fields = list(synthesis.uncertain_fields)
     return first.model_copy(
         update={
             "candidate_id": "phase1c-" + "-".join(item.candidate_id for item in members),
@@ -637,8 +680,9 @@ def _materialize_synthesis(
             "narrative_tag": synthesis.narrative_tag,
             "narrative_function": synthesis.narrative_function or "",
             "phase1b_basis": synthesis.basis,
+            "phase1b_field_evidence": field_evidence,
             "phase1b_field_statuses": statuses,
-            "phase1b_uncertain_fields": synthesis.uncertain_fields,
+            "phase1b_uncertain_fields": uncertain_fields,
             "phase1b_confidence": synthesis.confidence,
             "phase1b_context_fingerprint": _merge_context_fingerprints(
                 *(item.phase1b_context_fingerprint for item in members)
@@ -678,8 +722,13 @@ def _materialize_synthesis(
             ),
             "boundary_status": "complete",
             "boundary_reason": synthesis.basis,
-            "needs_review": False,
-            "review_reason": "",
+            "needs_review": bool(uncertain_fields),
+            "review_reason": (
+                "Phase1c semantic fields need evidence review: "
+                + ", ".join(uncertain_fields)
+                if uncertain_fields
+                else ""
+            ),
         }
     )
 

@@ -9,15 +9,17 @@ from unittest import mock
 import pytest
 
 from core.errors import ConflictError
-from infrastructure.llm.schemas import LLMCallResponse
 from modules.writing.schemas import (
     WritingSemanticReviewRequest,
+    WritingTargetedRevisionOutput,
     WritingTargetedRevisionRequest,
     project_writing_draft_state,
 )
 from modules.writing.semantic_review import (
     WritingSemanticWorkflowService,
+    _apply_targeted_revision_patches,
     _review_set_fingerprint,
+    _targeted_revision_ranges,
     validate_candidate_upstream,
 )
 
@@ -298,6 +300,39 @@ def test_deterministic_guard_findings_and_context_drift_are_enforced() -> None:
     assert _review_set_fingerprint([target]) != _review_set_fingerprint([changed])
 
 
+def test_targeted_revision_changes_only_selected_exact_range() -> None:
+    content = "范围外前文。需要修复的句子。范围外后文。"
+    ranges = _targeted_revision_ranges(
+        [
+            {
+                "finding_id": "finding-1",
+                "location": {"excerpt": "需要修复的句子。"},
+            }
+        ],
+        content,
+    )
+
+    revised, applied = _apply_targeted_revision_patches(
+        content,
+        ranges,
+        WritingTargetedRevisionOutput.model_validate(
+            {
+                "patches": [
+                    {
+                        "patch_id": "patch-1",
+                        "replacement": "已经修复的句子。",
+                    }
+                ]
+            }
+        ),
+    )
+
+    assert revised == "范围外前文。已经修复的句子。范围外后文。"
+    assert content[: ranges[0]["start"]] == revised[: ranges[0]["start"]]
+    assert revised.endswith(content[ranges[0]["end"] :])
+    assert applied[0]["finding_ids"] == ["finding-1"]
+
+
 class _TaskDb:
     task_checkpoint_enabled = True
 
@@ -328,13 +363,48 @@ class _RevisionClient:
     def __init__(self) -> None:
         self.requests = []
 
-    async def generate(self, request):
-        self.requests.append(request)
-        return LLMCallResponse(content="修订后正文。", model=self.model_name)
-
     async def generate_structured(self, request, schema, **_kwargs):
         self.requests.append(request)
-        return schema.model_validate({"findings": [], "not_checked": []})
+        payload = json.loads(request.messages[-1].content)
+        if schema.__name__ == "WritingTargetedRevisionOutput":
+            return schema.model_validate(
+                {
+                    "patches": [
+                        {
+                            "patch_id": item["patch_id"],
+                            "replacement": "修订后正文。",
+                        }
+                        for item in payload["editable_ranges"]
+                    ]
+                }
+            )
+        return schema.model_validate(
+            {
+                "findings": [],
+                "not_checked": [],
+                "coverage": [
+                    {
+                        "draft_id": item["draft_id"],
+                        "scene_contract": (
+                            "checked"
+                            if item.get("scene_execution_bundle")
+                            else "not_applicable"
+                        ),
+                        "timeline_location": "checked",
+                        "identity_relation": "checked",
+                        "ability_world_rule": "checked",
+                        "knowledge_boundary": (
+                            "checked"
+                            if (item.get("review_context") or {}).get(
+                                "knowledge_boundary_checked"
+                            )
+                            else "not_applicable"
+                        ),
+                    }
+                    for item in payload["targets"]
+                ],
+            }
+        )
 
 
 @pytest.mark.anyio
@@ -461,6 +531,187 @@ async def test_manual_review_reports_knowledge_boundary_not_checked(
 
 
 @pytest.mark.anyio
+async def test_review_without_structured_coverage_is_incomplete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.project import facade as project_facade
+
+    monkeypatch.setattr(
+        project_facade,
+        "require_active_project",
+        mock.AsyncMock(),
+    )
+    draft_id = "00000000-0000-0000-0000-000000000002"
+    target = {
+        "draft_id": draft_id,
+        "chapter_index": 3,
+        "title": "第三章",
+        "content": "冻结正文",
+        "content_hash": "a" * 64,
+        "status": "candidate",
+        "role": "target",
+        "source_task_id": "generation-task",
+        "scene_id": None,
+        "scene_execution_bundle": None,
+        "scene_execution_bundle_hash": None,
+        "upstream_manifest": [],
+        "review_context": {
+            "status": "checked",
+            "review_mode": "narrative_only",
+            "context_fingerprint": "context-fingerprint",
+            "confirmed_context": "已确认资料",
+            "generation_profile": "default",
+            "viewpoint_character_id": None,
+            "pov_view": None,
+            "deterministic_pov_validation": {
+                "status": "passed",
+                "findings": [],
+                "warnings": [],
+            },
+            "knowledge_boundary_checked": False,
+        },
+    }
+    draft = SimpleNamespace(content_hash=target["content_hash"], provenance_json={})
+    repo = SimpleNamespace(get_for_update=mock.AsyncMock(return_value=draft))
+    client = _RevisionClient()
+
+    async def without_coverage(request, schema, **_kwargs):
+        client.requests.append(request)
+        return schema.model_validate({"findings": [], "not_checked": []})
+
+    client.generate_structured = without_coverage
+    service = WritingSemanticWorkflowService(repo=repo, llm_client=client)
+    monkeypatch.setattr(
+        service,
+        "_freeze_review_set",
+        mock.AsyncMock(side_effect=[([target], []), ([target], [])]),
+    )
+
+    result = await service.review_for_task(
+        _TaskDb(),  # type: ignore[arg-type]
+        task_id="review-task",
+        novel_id="00000000-0000-0000-0000-000000000001",
+        draft_ids=[draft_id],
+        scope="selection",
+        llm_execution_snapshot={"profile": {"model": "test-model"}},
+    )
+
+    assert result["verdict"] == "incomplete"
+    assert result["coverage"]["incomplete_draft_ids"] == [draft_id]
+    assert draft.provenance_json["independent_review"]["verdict"] == "incomplete"
+
+
+@pytest.mark.anyio
+async def test_review_rejects_coverage_from_another_chunk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.project import facade as project_facade
+
+    monkeypatch.setattr(project_facade, "require_active_project", mock.AsyncMock())
+    draft_ids = [
+        "00000000-0000-0000-0000-000000000002",
+        "00000000-0000-0000-0000-000000000003",
+    ]
+    targets = [
+        {
+            "draft_id": draft_id,
+            "chapter_index": index,
+            "title": f"第{index}章",
+            "content": f"第{index}章冻结正文",
+            "content_hash": str(index) * 64,
+            "status": "candidate",
+            "role": "target",
+            "source_task_id": "generation-task",
+            "scene_id": None,
+            "scene_execution_bundle": None,
+            "scene_execution_bundle_hash": None,
+            "upstream_manifest": [],
+            "review_context": {
+                "status": "checked",
+                "review_mode": "narrative_only",
+                "context_fingerprint": f"context-{index}",
+                "confirmed_context": "已确认资料",
+                "generation_profile": "default",
+                "viewpoint_character_id": None,
+                "pov_view": None,
+                "deterministic_pov_validation": {
+                    "status": "passed",
+                    "findings": [],
+                    "warnings": [],
+                },
+                "knowledge_boundary_checked": False,
+            },
+        }
+        for index, draft_id in enumerate(draft_ids, start=1)
+    ]
+    drafts = {
+        item["draft_id"]: SimpleNamespace(
+            content_hash=item["content_hash"],
+            provenance_json={},
+        )
+        for item in targets
+    }
+
+    class CrossChunkClient(_RevisionClient):
+        async def generate_structured(self, request, schema, **_kwargs):
+            self.requests.append(request)
+            current_id = json.loads(request.messages[-1].content)["targets"][0][
+                "draft_id"
+            ]
+            other_id = draft_ids[1] if current_id == draft_ids[0] else draft_ids[0]
+            return schema.model_validate(
+                {
+                    "findings": [],
+                    "not_checked": [],
+                    "coverage": [
+                        {
+                            "draft_id": other_id,
+                            "scene_contract": "not_applicable",
+                            "timeline_location": "checked",
+                            "identity_relation": "checked",
+                            "ability_world_rule": "checked",
+                            "knowledge_boundary": "not_applicable",
+                        }
+                    ],
+                }
+            )
+
+    async def get_for_update(_db, draft_uuid):
+        return drafts[str(draft_uuid)]
+
+    service = WritingSemanticWorkflowService(
+        repo=SimpleNamespace(get_for_update=get_for_update),
+        llm_client=CrossChunkClient(),
+    )
+    monkeypatch.setattr(
+        service,
+        "_freeze_review_set",
+        mock.AsyncMock(side_effect=[(targets, []), (targets, [])]),
+    )
+    monkeypatch.setattr(
+        service,
+        "_chunks",
+        lambda items, adjacent=None: [[items[0]], [items[1]]],
+    )
+
+    result = await service.review_for_task(
+        _TaskDb(),  # type: ignore[arg-type]
+        task_id="review-task",
+        novel_id="00000000-0000-0000-0000-000000000001",
+        draft_ids=draft_ids,
+        scope="selection",
+        llm_execution_snapshot={"profile": {"model": "test-model"}},
+    )
+
+    assert result["verdict"] == "incomplete"
+    assert result["coverage"]["incomplete_draft_ids"] == draft_ids
+    assert all(
+        draft.provenance_json["independent_review"]["verdict"] == "incomplete"
+        for draft in drafts.values()
+    )
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("frozen_context", "final_context", "expected"),
     [
@@ -504,7 +755,11 @@ async def test_targeted_revision_requires_and_reuses_review_context(
             {
                 "finding_id": "finding-1",
                 "severity": "major",
-                "location": {"draft_id": draft_id},
+                "location": {
+                    "draft_id": draft_id,
+                    "chapter_index": 3,
+                    "excerpt": "原始正文。",
+                },
                 "preserve": ["保留钟楼警报"],
             }
         ],

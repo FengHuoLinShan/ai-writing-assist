@@ -105,6 +105,10 @@ class SceneFusionSynthesisOutputContract(BaseModel):
     narrative_tag: SceneNarrativeTag = "draft"
     narrative_function: str | None = None
     basis: str = ""
+    field_evidence: dict[
+        Literal["emotional_beat", "must_happen", "must_not_happen"],
+        list[str],
+    ] = Field(default_factory=dict)
     uncertain_fields: list[
         Literal[
             "title",
@@ -156,6 +160,24 @@ class SceneFusionSynthesisOutputContract(BaseModel):
     @classmethod
     def dedupe_uncertain_fields(cls, value: list[str]) -> list[str]:
         return list(dict.fromkeys(value))
+
+    @field_validator("field_evidence", mode="before")
+    @classmethod
+    def normalize_field_evidence(cls, value: Any) -> dict[str, list[str]]:
+        if not isinstance(value, dict):
+            return {}
+        allowed = {"emotional_beat", "must_happen", "must_not_happen"}
+        return {
+            str(key): list(
+                dict.fromkeys(
+                    str(quote).strip()
+                    for quote in (quotes if isinstance(quotes, list) else [quotes])
+                    if str(quote).strip()
+                )
+            )
+            for key, quotes in value.items()
+            if str(key) in allowed
+        }
 
     @model_validator(mode="after")
     def validate_semantics(self) -> SceneFusionSynthesisOutputContract:

@@ -154,7 +154,7 @@ async def test_deep_import_simple_structure_parser_converts_probe_shape() -> Non
     assert [item.name for item in parsed.foreshadowing_plans] == ["灰雾空间"]
     assert [item.target_name for item in parsed.reveal_plans] == ["罗塞尔日记"]
     assert parsed.turning_points[0]["title"] == "决定加入值夜者"
-    assert parsed.diagnostics["parameter_version"] == "phase3_structure_simple_v1"
+    assert parsed.diagnostics["parameter_version"] == "phase3_structure_simple_v2"
     assert parsed.diagnostics["invalid_scene_ref_count"] == 1
     assert parsed.diagnostics["turning_point_count"] == 1
 
@@ -163,10 +163,10 @@ async def test_deep_import_simple_structure_parser_converts_probe_shape() -> Non
     assert request.extra["thinking"] == {"type": "enabled"}
     assert request.extra["reasoning_effort"] == "high"
     assert request.max_tokens == 32_768
-    assert request.messages[1].content.startswith("【Scene卡片 JSON】")
+    assert request.messages[1].content.endswith("## 世界对象\n- 克莱恩：主角\n")
     assert "## 世界对象" in request.messages[1].content
-    assert '"current_stage": "active|resolved|paused"' in request.messages[1].content
-    assert '"status": "active|resolved|paused"' not in request.messages[1].content
+    assert "current_stage=active|resolved|paused" in request.messages[0].content
+    assert "status=active|resolved|paused" not in request.messages[0].content
 
 
 @pytest.mark.asyncio

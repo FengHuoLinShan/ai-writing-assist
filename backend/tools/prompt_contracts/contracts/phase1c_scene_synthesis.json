@@ -1,6 +1,6 @@
 {
   "id": "phase1c_scene_synthesis",
-  "version": 2,
+  "version": 3,
   "owner": "imports",
   "schema_model": "modules.story.outline_state.contracts.SceneFusionSynthesisOutputContract",
   "declared_prompt_fields": [
@@ -14,6 +14,7 @@
     "narrative_tag",
     "narrative_function",
     "basis",
+    "field_evidence",
     "uncertain_fields",
     "confidence"
   ],
@@ -31,6 +32,7 @@
     {"source": "narrative_tag", "target": "scenes.narrative_tag"},
     {"source": "narrative_function", "target": "scenes.structure_meta.narrative_function"},
     {"source": "basis", "target": "scenes.structure_meta.semantic_basis"},
+    {"source": "field_evidence", "target": "scenes.structure_meta.phase1b_field_evidence"},
     {"source": "uncertain_fields", "target": "scenes.structure_meta.semantic_uncertain_fields"},
     {"source": "confidence", "target": "scenes.structure_meta.semantic_confidence"}
   ],

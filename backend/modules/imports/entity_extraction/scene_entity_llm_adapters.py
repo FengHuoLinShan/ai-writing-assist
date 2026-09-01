@@ -119,7 +119,8 @@ async def call_llm_extraction(
                 "delta_events、uncertain_items。"
                 "entities 项只能使用 name、entity_type、summary、public_info、"
                 "hidden_truth、importance、identity_disposition、matched_existing_ref、"
-                "basis、uncertainties、evidence_quotes、confidence；delta_events 项"
+                "basis、uncertainties、evidence_quotes、field_evidence、confidence；"
+                "delta_events 项"
                 "只能使用 subject_name、category、field、old、new、description、"
                 "basis、uncertainties、evidence_quotes、confidence；"
                 "uncertain_items 项只能使用 description、reason、"
@@ -183,6 +184,35 @@ def _materialize_phase2a_output(
             )
             continue
 
+        field_evidence = {
+            field: _exact_evidence_quotes(quotes, current_scene_text)
+            for field, quotes in observation.field_evidence.items()
+        }
+        field_evidence = {
+            field: quotes for field, quotes in field_evidence.items() if quotes
+        }
+        if observation.name in current_scene_text and not field_evidence.get("name"):
+            field_evidence["name"] = [
+                quote for quote in evidence_quotes if observation.name in quote
+            ] or [observation.name]
+        if observation.identity_disposition == "new" and not field_evidence.get(
+            "entity_type"
+        ):
+            uncertain_items.append(
+                Phase2aUncertainItem(
+                    description=f"世界对象类型待确认：{observation.name}",
+                    reason="new_entity_type_evidence_not_found",
+                    evidence_quotes=evidence_quotes,
+                )
+            )
+            continue
+        field_updates: dict[str, str | None] = {}
+        field_uncertainties: list[str] = []
+        for field in ("summary", "public_info", "hidden_truth"):
+            if getattr(observation, field) and not field_evidence.get(field):
+                field_updates[field] = None
+                field_uncertainties.append(f"{field}_evidence_not_found")
+
         action = "create_new"
         existing_name: str | None = None
         materialized_name = observation.name
@@ -215,22 +245,31 @@ def _materialize_phase2a_output(
                     evidence_quotes=evidence_quotes,
                 )
             )
-        reason_parts = [observation.basis, *observation.uncertainties]
+        reason_parts = [
+            observation.basis,
+            *observation.uncertainties,
+            *field_uncertainties,
+        ]
         if identity_issue:
             reason_parts.append(identity_issue)
         entities.append(
             ExtractedEntity(
                 name=materialized_name,
                 entity_type=materialized_type,
-                summary=observation.summary or "",
-                public_info=observation.public_info or "",
-                hidden_truth=observation.hidden_truth or "",
+                summary=field_updates.get("summary", observation.summary) or "",
+                public_info=(
+                    field_updates.get("public_info", observation.public_info) or ""
+                ),
+                hidden_truth=(
+                    field_updates.get("hidden_truth", observation.hidden_truth) or ""
+                ),
                 importance=observation.importance,
                 suggested_action=action,
                 suggested_existing_entity_name=existing_name,
                 candidate_reason="；".join(part for part in reason_parts if part),
                 quote=evidence_quotes[0],
                 evidence_quotes=evidence_quotes,
+                field_evidence=field_evidence,
                 confidence=observation.confidence,
                 aliases=None,
             )

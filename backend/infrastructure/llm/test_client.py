@@ -1625,6 +1625,41 @@ async def test_generate_structured_extracts_json_from_explanatory_text() -> None
 
 
 @pytest.mark.asyncio
+async def test_generate_structured_records_provider_cache_usage_diagnostics() -> None:
+    client = LLMClient()
+    diagnostics: list[dict] = []
+
+    async def fake_generate(self: LLMClient, request: LLMCallRequest) -> LLMCallResponse:
+        return LLMCallResponse(
+            content='{"value": "cached"}',
+            finish_reason="stop",
+            usage=LLMUsage(prompt_tokens=100, completion_tokens=5, total_tokens=105),
+            model="fake",
+            provider="fake",
+            raw={
+                "usage": {
+                    "prompt_cache_hit_tokens": 75,
+                    "prompt_cache_miss_tokens": 25,
+                }
+            },
+        )
+
+    client.generate = MethodType(fake_generate, client)  # type: ignore[method-assign]
+
+    await client.generate_structured(
+        LLMCallRequest(model="fake", messages=[]),
+        _StructuredPayload,
+        max_fix_attempts=0,
+        diagnostics=diagnostics,
+    )
+
+    usage = next(item for item in diagnostics if item["kind"] == "structured_usage")
+    assert usage["cache_hit_tokens"] == 75
+    assert usage["cache_miss_tokens"] == 25
+    assert usage["prompt_tokens"] == 100
+
+
+@pytest.mark.asyncio
 async def test_generate_structured_wraps_bare_list_for_single_list_schema() -> None:
     client = LLMClient()
 

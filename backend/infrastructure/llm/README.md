@@ -30,6 +30,7 @@ infrastructure/llm/
 - 支持结构化输出修复
 - 支持由上层 project facade 解析的账户级 OpenAI-compatible LLM Profile
 - 记录 token 和调用耗时
+- 从 provider 原始 usage 中提取可用的 cache-hit/cache-miss token，仅写入受控诊断；缓存统计不参与质量门禁
 - 提供受控 LLM step harness，用于 text / structured generation 的统一
   envelope、journal、timeout 和错误分类
 - 提供地图册使用的 `OpenAIImageClient`，支持生成、整图编辑、蒙版、多参考图和连续派生
@@ -93,6 +94,10 @@ owner 当前账户连接，不得被净化为 `unknown`。
 `context_budget` 默认只作为 step envelope 元数据传入，不会自动截断或重写
 request messages。需要主动裁剪上下文时，应显式使用 `ContextBudgetGuard`。
 本 harness 不实现自治 agent loop、工具自主选择或跨模块业务编排。
+
+业务 prompt 将稳定角色、规则和 JSON schema 放在消息前缀，把动态 Scene、正文和 Context
+放在最后的数据块，以利用 provider 自动前缀缓存。每次调用仍是独立、无状态的 Chat
+Completions 请求；缓存命中不等于复用同一会话，项目不保存 provider 会话状态。
 
 ### 账户连接与 novel-scoped client
 

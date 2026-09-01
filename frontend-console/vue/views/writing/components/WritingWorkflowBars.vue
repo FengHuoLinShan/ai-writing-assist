@@ -141,7 +141,16 @@ const currentPositions = computed(() => {
     ["整理状态", value.qualityStatus === "partial" ? "部分完成" : value.qualityStatus === "complete" ? "已完成" : null],
   ].filter((entry) => entry[1] != null && entry[1] !== "").map(([label, value]) => [label, formatAuthorFacingDiagnostic(value)])
 })
-const qualityEntries = computed(() => Object.entries(props.deepImport.progress?.qualityStats || {}).map(([key, value]) => [key, formatAuthorFacingDiagnostic(value)]))
+const qualityEntries = computed(() => {
+  const progress = props.deepImport.progress
+  if (!progress) return []
+  const stats = progress.qualityStats || {}
+  return [
+    ["证据门禁通过", Number(stats.phase3?.evidence_gate_passed_count || 0)],
+    ["待复核", Number(stats.phase3?.evidence_gate_review_count ?? progress.assetSummary?.review ?? 0)],
+    ["章级降级", Number(stats.phase1a?.fallback_count || 0)],
+  ]
+})
 const auditEntries = computed(() => {
   const progress = props.deepImport.progress || {}
   return [
@@ -238,6 +247,10 @@ const attentionRequired = computed(() => Boolean(
   || props.deepImport.progress?.qualityStatus === "partial"
   || props.deepImport.progress?.phase1aFallback
   || props.deepImport.progress?.phaseErrors?.length
+  || Number(props.deepImport.progress?.assetSummary?.review || 0) > 0
+  || Number(
+    props.deepImport.progress?.qualityStats?.phase3?.evidence_gate_review_count || 0,
+  ) > 0
 ))
 
 const deepImportClassName = computed(() => (

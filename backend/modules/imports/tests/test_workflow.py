@@ -1196,6 +1196,8 @@ async def test_phase1c_llm_inherits_effective_token_budget_and_uses_long_timeout
     assert "integrate_both" in boundary_prompt
     assert "candidate_concerns" in boundary_prompt
     assert "uncertainties 必须是 JSON 字符串数组" in boundary_prompt
+    assert "连续的触发—反应—回答—结果" in request.messages[0].content
+    assert "不因换章、新人物加入或子目标变化自动拆开" in request.messages[0].content
 
     captured.clear()
     await _Phase1cSceneFusionLLM(

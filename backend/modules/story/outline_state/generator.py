@@ -414,6 +414,28 @@ class PlotStructureGenerator:
             return data
 
         try:
+            if fast_structured and include_existing_scenes:
+                current_context = await self._context_builder.build(
+                    db,
+                    novel_id,
+                    start_chapter,
+                    end_chapter,
+                    context_mode=context_mode,
+                    include_pending_objects=include_pending_objects,
+                    include_chapter_texts=include_chapter_texts,
+                    include_existing_scenes=include_existing_scenes,
+                )
+                if self._task_preview_fingerprint(
+                    self._detach_context(current_context),
+                    purpose="phase3_evidence_gate",
+                ) != self._task_preview_fingerprint(
+                    self._detach_context(context),
+                    purpose="phase3_evidence_gate",
+                ):
+                    raise ValueError(
+                        "outline generation sources changed during evidence review; "
+                        "discarded stale result"
+                    )
             if snapshot_id is not None:
                 async with db.begin_nested():
                     result = await self._persister.persist(

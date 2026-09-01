@@ -408,6 +408,17 @@ class WritingSemanticReviewFindingDraft(BaseModel):
     preserve: list[str] = Field(default_factory=list, max_length=20)
 
 
+class WritingSemanticReviewCoverageItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    draft_id: str
+    scene_contract: Literal["checked", "not_applicable", "not_checked"]
+    timeline_location: Literal["checked", "not_applicable", "not_checked"]
+    identity_relation: Literal["checked", "not_applicable", "not_checked"]
+    ability_world_rule: Literal["checked", "not_applicable", "not_checked"]
+    knowledge_boundary: Literal["checked", "not_applicable", "not_checked"]
+
+
 class WritingSemanticReviewChunkOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -416,6 +427,26 @@ class WritingSemanticReviewChunkOutput(BaseModel):
         max_length=100,
     )
     not_checked: list[str] = Field(default_factory=list, max_length=50)
+    coverage: list[WritingSemanticReviewCoverageItem] = Field(
+        default_factory=list,
+        max_length=200,
+    )
+
+
+class WritingTargetedRevisionPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    patch_id: str = Field(..., min_length=1, max_length=100)
+    replacement: str = Field(max_length=100000)
+
+
+class WritingTargetedRevisionOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    patches: list[WritingTargetedRevisionPatch] = Field(
+        default_factory=list,
+        max_length=50,
+    )
 
 
 class WritingTargetedRevisionRequest(BaseModel):

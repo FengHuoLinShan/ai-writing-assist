@@ -1,6 +1,6 @@
 {
   "id": "phase3_structure_simple",
-  "version": 1,
+  "version": 2,
   "owner": "outline",
   "schema_model": "modules.story.outline_state.generation.models.SimpleStructureOutput",
   "declared_prompt_fields": [

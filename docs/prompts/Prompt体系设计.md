@@ -216,9 +216,9 @@ preview 伪装成 manual revision，也不能引用其他项目的 task。
 
 - 不是 NER，而是长期创作资产识别
 - `scene_entity_extraction.md`（P13）只读取一个锁定 Scene 的完整精确正文及相关结构上下文，输出长期世界对象、持久 Delta 和不确定项；关系、新别名、数据库 ID、持久化动作和审核状态不属于该契约
-- P13 的既有身份只允许引用服务端生成的 `entity-xxx`；每个可物化观察必须提供当前 Scene 中可逐字定位的证据。正文与项目资料都作为 fenced 不可信 JSON 注入，system prompt 保持静态
+- P13 v3 的既有身份只允许引用服务端生成的 `entity-xxx`，且 prompt 候选只含名称、已确认别名、类型和状态。实体名称、类型、summary/public/hidden 分别用 `field_evidence` 绑定当前 Scene 逐字证据；新对象名称必须原文出现，未命名幻象进入 `uncertain_items`。正文与项目资料都作为 fenced 不可信 JSON 注入，system prompt 保持静态
 - P13 不按固定类别或数量凑结果，也不对输入做应用层字符/token 裁剪。直接名称/别名命中全部保留；其余人物 Top-6、非人物对象 Top-16 是相关性边界
-- `alias_relation_extraction.md`（P14 v4）独占新别名和对象关系；它复用同一份冻结的完整 Scene 正文、相关结构、`entity-xxx` 身份候选和 `relation-xxx` 既有关系引用，不接受数据库 ID，也不做应用层输入裁剪。每个别名同时输出 `name / title / identity` 三类之一的 `alias_kind` 与最多 20 字符的自定义 `alias_type`；每个关系同时输出 `state / social / spatial / causal / temporal / epistemic / intentional` 七类之一的 `relation_kind` 与作品内精确 `relation_type`。新 kind 在 schema 中可空，只用于恢复 v3 历史 checkpoint；v4 正常输出必须包含两层且 kind 非空。关系输出是当前 Scene 带来的增量，不是本 Scene 中仍成立关系的摘要；模型用“删去本 Scene 是否会改变关系可信度、状态、强度或后续创作约束”做反事实判断。模型先判断联系是否在 Scene 结束后仍成立，区分 `enduring / stateful / episodic / uncertain`；只有持久结构和持续状态能进入关系候选，会面、提及、检测、支付、感谢等一次性动作只保留诊断。模型同时区分新建、有实质新证据的再次确认、改变和终止；日常称呼、例行共处和重复记载不算再次确认。具体关系类型优先复用已有类型，但不以数量上限裁剪真实关系。确定性 materializer 重新校验项目归属、冻结关系、逐字证据、持续性和快照来源，只写待复核候选或补充证据，不自动覆盖或废弃已采用关系。别名不创建重复对象，并作为带 `identity_scope`、判断依据和快照来源的待复核内联证据写入目标对象
+- `alias_relation_extraction.md`（P14 v5）独占新别名和对象关系，只读取来源明确且早于当前 Scene 的既有关系引用。共享序列名、职业或力量类别不是人物别名；完成交易、临时见证和会面固定按 `episodic` 处理。确定性 materializer 继续校验项目归属、冻结关系、逐字证据、持续性和快照来源，只写待复核候选或补充证据。
 - 临时对象优先忽略或标记为临时
 - 深度导入只有在任务保存授权快照后才可执行允许的候选写入，并保留 `auto_ingested`、workflow、证据和回滚元数据；P13 的身份引用、类型和证据由确定性 materializer 校验，异常结果进入 `uncertain_items` 或待处理
 
@@ -263,16 +263,18 @@ bundle 保存实际纳入/省略 ID、选择原因、内容 hash 和 contract ve
 在单次运行内复用该 bundle；Scene-only stage 使用 prepare v2 冻结 fingerprint，并在正式
 提交前重编译，未完成的 v1 prepare 必须重新提交。
 
-Phase 1b 不再把 Scene 覆盖章节的整章正文交给模型。确定性 materializer 按全部
+Phase 1b 不再把 Scene 覆盖章节的整章正文或下一 Scene 交给模型。确定性 materializer 按全部
 `scene_chunks` 重验 source draft/hash/offset 并物化完整 Scene 正文，且不设置应用层输入
 字符/token 裁剪、摘要或采样；跨窗口 Scene 会合并相关冻结 bundle，并按正文提及、Scene
-关联、篇章/剧情线关联重新选择人物 Top-6 和非人物对象 Top-16。调用还包含当前和相邻
-Phase 1a Scene 卡、相关 active working Scene/篇章纲/剧情线，以及 context/source
+关联、篇章/剧情线关联重新选择人物 Top-6 和非人物对象 Top-16。调用只包含当前和前一
+Phase 1a Scene 卡，以及截止当前 Scene 前可证明可见的结构身份资料和 context/source
 fingerprint。
 
-Phase 1b 输出契约 v2 使用可空 `emotional_beat / must_happen / must_not_happen`、现有
+Phase 1b 输出契约 v3 使用可空 `emotional_beat / must_happen / must_not_happen`、现有
 作者界面 taxonomy 内的 `narrative_tag`、自由 `narrative_function`、`basis`、
-`uncertain_fields` 和 `confidence`。空值且字段未列入 `uncertain_fields` 表示明确不适用，
+`field_evidence`、`uncertain_fields` 和 `confidence`。三个正文语义字段非空时必须各有当前
+Scene 逐字证据，本地无法定位就清空并标记 uncertain；`narrative_tag / narrative_function`
+仅是 director-only 结构资料。空值且字段未列入 `uncertain_fields` 表示明确不适用，
 列入则表示证据不足或存在冲突；模型不决定 `needs_review`，也不为满足必填制造情绪、事件
 或禁止项。来源/provider 失败时本地保留空语义和 `narrative_tag=draft` 并进入复核；
 `imported` 只属于历史兼容值，提交时归一为 `draft`，导入来源由 `source=deep_import` 表达。
@@ -280,10 +282,12 @@ Phase 1b 输出契约 v2 使用可空 `emotional_beat / must_happen / must_not_h
 
 Phase 1c v2 分为两个独立 Prompt。boundary review 按 Phase 1a 窗口成组读取完整候选
 序列与正文，一次覆盖窗口拥有的全部相邻边界，输出 `same_scene / duplicate / overlap /
-separate / uncertain`、融合意图、依据、置信度和候选内部 concern；它不移动边界或改写
+separate / uncertain`、融合意图、依据、置信度和候选内部 concern；连续的
+“触发—反应—回答—结果”不因换章、新人物加入或子目标变化自动拆开。它不移动边界或改写
 Scene 卡。只有来源精确、无 concern/uncertainty 且边界高置信的同一 Scene 连通组才进入
 synthesis。synthesis 基于组内全部正文和相关长篇结构上下文重新理解完整因果过程，输出
-统一 Scene 语义，不以第一个候选为骨架，也不拼接成员字段。真实无冲突或无禁止项可以
+统一 Scene 语义，并为三个正文语义字段重新提供组内逐字 `field_evidence`；本地证据校验失败
+时不自动融合。不以第一个候选为骨架，也不拼接成员字段。真实无冲突或无禁止项可以
 为空；低置信或含 uncertain 字段的综合结果只形成建议，不自动采用。
 
 正文、Scene 卡、项目资料和已有资产都作为转义后的不可信 user JSON 数据块注入，不能
@@ -293,6 +297,13 @@ synthesis。synthesis 基于组内全部正文和相关长篇结构上下文重�
 精确整章 fallback，不部分采用模型结果。
 原 outline `extract_chapter_scene.md` 及其独立 preview/apply 工作流已删除；手写正文和
 导入正文都通过 `POST /api/imports/stages/scenes` 复用同一 Scene 提取能力。
+
+Phase 3 simple structure v2 使用两遍无状态调用。第一遍只读 Scene 卡；置信度不低于 0.80
+的候选再分批读取其引用 Scene 的精确正文，输出 `supported / structural_inference /
+unsupported / conflict / uncertain` 和逐字证据。服务端重验 Scene 来源、hash、quote、可见
+范围与最小支持 Scene 数，复核置信度不低于 0.90 才允许自动采用；失败结果仍持久化为待复核。
+固定规则/schema 位于稳定消息前缀，动态正文和 Context 位于末尾数据块；provider 缓存命中
+只记录诊断，不改变无状态请求或采用门禁。
 
 ### Scene 工作台融合类
 

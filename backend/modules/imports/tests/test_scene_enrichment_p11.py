@@ -140,6 +140,9 @@ async def test_phase1b_materializes_cross_chapter_chunks_and_related_context() -
             "narrative_tag": "rising_action",
             "narrative_function": "延续因果推进",
             "basis": "精确正文与冻结结构共同支持。",
+            "field_evidence": {
+                "must_happen": [payload["scene_source"][0]["text"]],
+            },
             "uncertain_fields": [],
             "confidence": 0.88,
         }
@@ -183,19 +186,18 @@ async def test_phase1b_materializes_cross_chapter_chunks_and_related_context() -
         payload["related_context"]["adjacent_scenes"]["previous"]["candidate_id"]
         == "previous"
     )
-    assert payload["related_context"]["adjacent_scenes"]["next"]["candidate_id"] == "next"
-    assert len(payload["related_context"]["characters"]) == 6
-    assert len(payload["related_context"]["world_objects"]) == 16
-    assert (
-        payload["related_context"]["source_windows"][0]["selection_trace"]["priority"][0]
-        == "text_mention"
-    )
+    assert "next" not in payload["related_context"]["adjacent_scenes"]
+    assert payload["related_context"]["characters"] == []
+    assert payload["related_context"]["world_objects"] == []
     assert len(payload["context_fingerprint"]) == 64
     candidate = result.candidates[1]
     assert candidate.emotional_beat is None
     assert candidate.must_not_happen is None
     assert candidate.phase1b_field_statuses["emotional_beat"] == "not_applicable"
     assert candidate.phase1b_field_statuses["must_happen"] == "present"
+    assert candidate.phase1b_field_evidence["must_happen"] == [
+        chapters[1]["content"]
+    ]
     assert (
         candidate.phase1b_source_fingerprint
         == payload["source_integrity"]["source_fingerprint"]
@@ -220,7 +222,7 @@ async def test_phase1b_materializes_cross_chapter_chunks_and_related_context() -
 
 @pytest.mark.asyncio
 async def test_phase1b_cross_window_topk_preserves_higher_priority_mentions() -> None:
-    chapter = _chapter(2, "当前 Scene 完整正文")
+    chapter = _chapter(2, "当前 Scene 提到 direct-mention")
     scene = _scene(
         "ranked-context",
         source_window_id="window-2",
@@ -290,8 +292,66 @@ async def test_phase1b_cross_window_topk_preserves_higher_priority_mentions() ->
 
     selected_ids = [item["id"] for item in captured["related_context"]["characters"]]
     assert selected_ids[0] == "direct-mention"
-    assert len(selected_ids) == 6
+    assert len(selected_ids) == 1
     assert "outline-5" not in selected_ids
+
+
+@pytest.mark.asyncio
+async def test_phase1b_excludes_next_scene_and_later_outline_material() -> None:
+    chapter = _chapter(33, "第三十三章当前人物所在的 Scene 正文")
+    scene = _scene(
+        "chapter-33",
+        source_window_id="window-31-35",
+        chunks=[_chunk(chapter, 0, len(chapter["content"]))],
+    )
+    captured: dict[str, Any] = {}
+
+    async def llm(payload: dict[str, Any]) -> dict[str, Any]:
+        captured.update(payload)
+        return {}
+
+    await Phase1bSceneEnricher(llm).run(
+        scenes=[scene],
+        chapters=[chapter],
+        phase1a_context={
+            "windows": [
+                {
+                    "window_id": "window-31-35",
+                    "reference_context": {
+                        "range": {"covered": [31, 35]},
+                        "outline": {
+                            "scenes": [
+                                {"id": "s33", "chapter_indices": [33]},
+                                {
+                                    "id": "s34",
+                                    "chapter_indices": [34],
+                                    "title": "后序 Scene",
+                                },
+                            ],
+                            "arcs": [{"id": "a1", "end_chapter": 40}],
+                            "plot_threads": [
+                                {"id": "t1", "planned_payoff_chapter": 50}
+                            ],
+                        },
+                        "characters": [
+                            {
+                                "id": "c1",
+                                "name": "当前人物",
+                                "summary": "第34章以后信息",
+                            }
+                        ],
+                    },
+                }
+            ]
+        },
+    )
+
+    context = captured["related_context"]
+    assert context["outline"]["scenes"] == []
+    assert context["outline"]["arcs"] == []
+    assert context["outline"]["plot_threads"] == []
+    assert "summary" not in context["characters"][0]
+    assert "next" not in context["adjacent_scenes"]
 
 
 @pytest.mark.asyncio
@@ -424,3 +484,30 @@ async def test_phase1b_uncertain_fields_trigger_local_review() -> None:
     assert candidate.phase1b_field_statuses["must_happen"] == "uncertain"
     assert candidate.needs_review is True
     assert "must_happen" in candidate.review_reason
+
+
+@pytest.mark.asyncio
+async def test_phase1b_clears_nonempty_field_without_current_scene_evidence() -> None:
+    chapter = _chapter(1, "他关上门，留在屋内。")
+    scene = _scene(
+        "unsupported",
+        source_window_id="window-1",
+        chunks=[_chunk(chapter, 0, len(chapter["content"]))],
+    )
+
+    async def llm(_payload: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "must_happen": "他得到后文才出现的钥匙",
+            "field_evidence": {"must_happen": ["钥匙落进掌心。"]},
+            "confidence": 0.99,
+        }
+
+    result = await Phase1bSceneEnricher(llm).run(
+        scenes=[scene],
+        chapters=[chapter],
+    )
+
+    candidate = result.candidates[0]
+    assert candidate.must_happen is None
+    assert candidate.phase1b_field_statuses["must_happen"] == "uncertain"
+    assert candidate.needs_review is True

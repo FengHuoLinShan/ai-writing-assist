@@ -164,6 +164,10 @@ async def test_deep_import_persist_keeps_item_review_evidence(
                 needs_review=True,
                 review_reason="low_confidence",
                 supporting_scene_ids=["scene-1"],
+                evidence_gate={
+                    "status": "needs_review",
+                    "reasons": ["unsupported"],
+                },
             )
         ],
         arcs=[],
@@ -201,6 +205,10 @@ async def test_deep_import_persist_keeps_item_review_evidence(
     assert payload.provenance_meta["confidence"] == 0.45
     assert payload.provenance_meta["review_reason"] == "low_confidence"
     assert payload.provenance_meta["supporting_scene_ids"] == ["scene-1"]
+    assert payload.provenance_meta["evidence_gate"] == {
+        "status": "needs_review",
+        "reasons": ["unsupported"],
+    }
     assert result.threads[0]["needs_review"] is True
 
 

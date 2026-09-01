@@ -227,7 +227,15 @@ describe("WritingWorkflowBars", () => {
           currentWindow: { start: 1, end: 3 },
           currentOperation: "merge",
           qualityStatus: "partial",
-          qualityStats: { schema_422_rate: "2%", phase3: { error_kind: "schema_failure" } },
+          qualityStats: {
+            phase1a: { fallback_count: 2 },
+            phase3: {
+              evidence_gate_passed_count: 5,
+              evidence_gate_review_count: 4,
+              error_kind: "schema_failure",
+            },
+          },
+          assetSummary: { review: 3 },
           phaseArtifacts: { phase1: { count: 2, error_kind: "provider_error" } },
           acceptanceChecks: [{ name: "coverage" }],
           diagnosticCounts: { warnings: 1 },
@@ -236,11 +244,13 @@ describe("WritingWorkflowBars", () => {
       },
     })
     expect(wrapper.text()).toContain("世界对象与关系提取")
-    expect(wrapper.text()).toContain("schema_422_rate：2%")
+    expect(wrapper.text()).toContain("证据门禁通过：5")
+    expect(wrapper.text()).toContain("待复核：4")
+    expect(wrapper.text()).toContain("章级降级：2")
     expect(wrapper.text()).not.toContain("error_kind")
     expect(wrapper.text()).not.toContain("schema_failure")
     expect(wrapper.text()).not.toContain("provider_error")
-    expect(wrapper.text()).toContain("结果格式未通过校验")
+    expect(wrapper.text()).not.toContain("结果格式未通过校验")
     await wrapper.findAll("button").find((button) => button.text() === "查看快照状态").trigger("click")
     expect(wrapper.emitted("open-audit")).toHaveLength(1)
   })

@@ -301,6 +301,7 @@ class SceneEntityPersistenceMixin:
         output: AliasRelationExtractionOutput,
         *,
         scene_index: int,
+        source_chapter_index: int | None = None,
         workflow_id: str | None = None,
         scene_id: str | None = None,
         result_refs: list[dict[str, str]] | None = None,
@@ -317,6 +318,11 @@ class SceneEntityPersistenceMixin:
         )
 
         bundle = dict(context_bundle or {})
+        if source_chapter_index is None:
+            try:
+                source_chapter_index = int(bundle.get("chapter_index"))
+            except (TypeError, ValueError):
+                source_chapter_index = None
         scene_text = str(
             current_scene_text
             if current_scene_text is not None
@@ -444,6 +450,7 @@ class SceneEntityPersistenceMixin:
                         "prompt_entity_ref": alias.entity_ref,
                         "context_fingerprint": bundle.get("context_fingerprint"),
                         "context_snapshot_id": context_snapshot_id,
+                        "source_chapter_index": source_chapter_index,
                     },
                 )
                 if added:
@@ -458,6 +465,7 @@ class SceneEntityPersistenceMixin:
                         quote=evidence_quotes[0],
                         scene_id=scene_id,
                         workflow_id=workflow_id,
+                        visible_until_chapter=source_chapter_index,
                     )
             if added:
                 aliases_created += 1
@@ -572,7 +580,7 @@ class SceneEntityPersistenceMixin:
                 workflow_id=workflow_id,
                 scene_id=scene_id,
                 scene_index=scene_index,
-                source_chapter_index=None,
+                source_chapter_index=source_chapter_index,
                 quote=evidence_quotes[0],
                 context_snapshot_id=context_snapshot_id,
             )
@@ -655,6 +663,7 @@ class SceneEntityPersistenceMixin:
                             quote=evidence_quotes[0],
                             scene_id=scene_id,
                             workflow_id=workflow_id,
+                            visible_until_chapter=source_chapter_index,
                         )
             except Exception as exc:
                 logger.warning(
@@ -748,21 +757,24 @@ class SceneEntityPersistenceMixin:
                 entity_type=ent.entity_type,
             )
             if exact_working_entity_id:
-                evidence_quotes = list(dict.fromkeys(ent.evidence_quotes or [ent.quote]))
-                for quote in evidence_quotes:
-                    await self._record_quote_evidence(
-                        db,
-                        novel_id=str(nid),
-                        target_ref={
-                            "target_type": "core_entity",
-                            "target_id": exact_working_entity_id,
-                            "target_path": "summary",
-                        },
-                        quote=quote,
-                        scene_id=scene_id,
-                        workflow_id=workflow_id,
-                        visible_until_chapter=source_chapter_index,
-                    )
+                field_evidence = ent.field_evidence or {
+                    "summary": list(dict.fromkeys(ent.evidence_quotes or [ent.quote]))
+                }
+                for field, quotes in field_evidence.items():
+                    for quote in quotes:
+                        await self._record_quote_evidence(
+                            db,
+                            novel_id=str(nid),
+                            target_ref={
+                                "target_type": "core_entity",
+                                "target_id": exact_working_entity_id,
+                                "target_path": field,
+                            },
+                            quote=quote,
+                            scene_id=scene_id,
+                            workflow_id=workflow_id,
+                            visible_until_chapter=source_chapter_index,
+                        )
                 seen_entity_keys.add(entity_key)
                 if persistence_stats is not None:
                     persistence_stats["dedup_counts"]["skipped"] += 1
@@ -841,6 +853,7 @@ class SceneEntityPersistenceMixin:
                     "candidate_reason": ent.candidate_reason,
                     "confidence": ent.confidence,
                     "suggested_target_entity_id": high_confidence_target_id,
+                    "field_evidence": dict(ent.field_evidence),
                 },
                 "aliases": normalized_aliases,
             }
@@ -864,23 +877,26 @@ class SceneEntityPersistenceMixin:
                     created_entity = await create_entity(db, str(nid), entity_payload)
                     evidence_target_id = created_entity.get("id")
                     if evidence_target_id:
-                        evidence_quotes = list(
-                            dict.fromkeys(ent.evidence_quotes or [ent.quote])
-                        )
-                        for quote in evidence_quotes:
-                            await self._record_quote_evidence(
-                                db,
-                                novel_id=str(nid),
-                                target_ref={
-                                    "target_type": "core_entity",
-                                    "target_id": str(evidence_target_id),
-                                    "target_path": "summary",
-                                },
-                                quote=quote,
-                                scene_id=scene_id,
-                                workflow_id=workflow_id,
-                                visible_until_chapter=source_chapter_index,
+                        field_evidence = ent.field_evidence or {
+                            "summary": list(
+                                dict.fromkeys(ent.evidence_quotes or [ent.quote])
                             )
+                        }
+                        for field, quotes in field_evidence.items():
+                            for quote in quotes:
+                                await self._record_quote_evidence(
+                                    db,
+                                    novel_id=str(nid),
+                                    target_ref={
+                                        "target_type": "core_entity",
+                                        "target_id": str(evidence_target_id),
+                                        "target_path": field,
+                                    },
+                                    quote=quote,
+                                    scene_id=scene_id,
+                                    workflow_id=workflow_id,
+                                    visible_until_chapter=source_chapter_index,
+                                )
                 created += 1
                 seen_entity_keys.add(entity_key)
                 if persistence_stats is not None:
