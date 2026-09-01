@@ -484,8 +484,12 @@ class InteractionStoryContextService:
 
     @staticmethod
     def _identity_block(anchor: dict, player_identity: dict) -> str:
-        player = (
-            player_identity.get("label") or player_identity.get("name") or "未命名玩家"
+        player = _sanitize_source_text(
+            str(
+                player_identity.get("label")
+                or player_identity.get("name")
+                or "未命名玩家"
+            )
         )
         description = str(player_identity.get("description") or "").strip()
         return "\n".join(
@@ -493,7 +497,9 @@ class InteractionStoryContextService:
                 None,
                 [
                     "## 不可越过的剧情边界",
-                    f"- 剧情进度：{anchor.get('chapter_title')} · {anchor.get('label')}",
+                    "- 剧情进度："
+                    f"{_sanitize_source_text(str(anchor.get('chapter_title') or ''))}"
+                    f" · {_sanitize_source_text(str(anchor.get('label') or ''))}",
                     f"- 玩家身份：{player}",
                     f"- 原创身份说明：{description}" if description else "",
                     "- 只能使用该进度之前的事实和角色知识。",
@@ -505,7 +511,8 @@ class InteractionStoryContextService:
     def _reference_block(item: dict, reason: str) -> str:
         return "\n".join(
             [
-                f"## {item.get('label')} （{item.get('entity_type')}）",
+                f"## {_sanitize_source_text(str(item.get('label') or ''))}"
+                f" （{item.get('entity_type')}）",
                 f"- 激活原因：{reason}",
             ]
         )
@@ -515,7 +522,8 @@ class InteractionStoryContextService:
         source = read.get("source_ref") or {}
         return "\n".join(
             [
-                f"## 原文证据：{read.get('title') or '未命名章节'}",
+                "## 原文证据："
+                f"{_sanitize_source_text(str(read.get('title') or '未命名章节'))}",
                 f"- 位置：第 {source.get('chapter_index')} 章",
                 _sanitize_source_text(str(read.get("text") or "")),
             ]

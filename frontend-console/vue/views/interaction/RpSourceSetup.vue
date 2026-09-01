@@ -153,6 +153,9 @@ async function loadSources() {
     projects.value = result.projects || []
     if (restored.revisionId && !revision.value) {
       revision.value = await getApi().interactions.getSource(restored.revisionId)
+      // 恢复场景以 revision 实际归属为准,避免过期存储把"重新整理"
+      // 指向另一部作品。
+      selectedProjectId.value = revision.value?.project_id || selectedProjectId.value
       syncRevisionDefaults()
     }
   } catch (requestError) {
@@ -183,6 +186,7 @@ function syncRevisionDefaults() {
 async function chooseProject(project) {
   try {
     selectedProjectId.value = project.project_id
+    pollFailures = 0
     importTitle.value = project.title
     importOpen.value = false
     resetImportFile()
@@ -293,6 +297,7 @@ async function applyImport() {
       authorizationConfirmed: true,
     }, (value) => { uploadPercent.value = value }, { signal: controller.signal })
     selectedProjectId.value = revision.value.project_id
+    pollFailures = 0
     importOpen.value = false
     preview.value = null
     await loadSources()
@@ -602,6 +607,7 @@ onBeforeUnmount(() => {
     <RpAdaptiveConfirmPopover
       :anchor="organizeAnchor"
       :busy="loading"
+      busy-text="正在开始…"
       confirm-text="开始完整整理"
       id="rp-source-organize-confirm"
       message="将完整整理当前版本的全部章节，并使用我的模型额度。"

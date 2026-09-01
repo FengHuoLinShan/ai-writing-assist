@@ -15,6 +15,10 @@ const ERROR_STATES = {
     message: "模型服务或网络暂时不可用；已保存的故事和草稿不会丢失。",
     action: "retry",
   },
+  timeout: {
+    message: "这次生成超时，请重新生成。",
+    action: "retry",
+  },
   content_filter: {
     message: "这次内容未能生成，请换一种说法后重试。",
     action: "rewrite",
@@ -75,8 +79,9 @@ function normalizedErrorKind(error) {
   return "generation_failed"
 }
 
-// 后端 DomainError 的 4xx 拒绝消息(建旅程、固定资料等)由服务层面向用户撰写,
-// 与 provider 诊断文本不同,允许直接展示;其余错误仍只走本地固定文案。
+// 后端 DomainError 的 400/409 拒绝消息(建旅程、固定资料等)由服务层面向用户撰写,
+// 允许直接展示;422 等请求校验错误可能携带框架/解析器的英文诊断,不在透传范围。
+const DOMAIN_DETAIL_STATUSES = new Set([400, 409])
 const DOMAIN_DETAIL_KINDS = new Set(["validation_error", "conflict"])
 
 export function safeInteractionError(error, { opening = false } = {}) {
@@ -84,6 +89,7 @@ export function safeInteractionError(error, { opening = false } = {}) {
   const fallback = ERROR_STATES.generation_failed
   const state = ERROR_STATES[kind] || fallback
   const domainDetail = DOMAIN_DETAIL_KINDS.has(String(error?.body?.error || ""))
+    && DOMAIN_DETAIL_STATUSES.has(error?.status)
     && typeof error?.detail === "string"
     && error.detail.trim()
     ? error.detail.trim()
