@@ -364,7 +364,6 @@ async def propose_context_selection(
         task=request.task,
         scope=request.scope,
         instruction=request.instruction,
-        current_context_fingerprint=request.current_context_fingerprint,
         budget_tokens=request.budget_tokens,
         scene_id=request.scene_id,
         chapter_index=request.chapter_index,

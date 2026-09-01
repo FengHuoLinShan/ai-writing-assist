@@ -210,7 +210,6 @@ describe("aiReferenceModal", () => {
   it("自然语言调整先展示提议，应用后才修改资料", async () => {
     const ref = { kind: "target", target_ref: { target_type: "world_entity", target_id: "entity-2", target_path: "" } }
     api.context.proposeSelection.mockResolvedValue({
-      base_context_fingerprint: FINGERPRINT,
       summary: "建议加入人物设定",
       operations: [{ operation: "include", selection_ref: ref, label: "沈岚", reason: "与任务直接相关" }],
       unresolved: [],
@@ -229,7 +228,7 @@ describe("aiReferenceModal", () => {
   })
 
   it("放弃自然语言提议不会改变资料", async () => {
-    api.context.proposeSelection.mockResolvedValue({ base_context_fingerprint: FINGERPRINT, summary: "建议调整", operations: [{ operation: "exclude", selection_ref: { kind: "target", target_ref: { target_type: "world_entity", target_id: "e1", target_path: "" } }, label: "旧城", reason: "无关" }], unresolved: [], warnings: [] })
+    api.context.proposeSelection.mockResolvedValue({ summary: "建议调整", operations: [{ operation: "exclude", selection_ref: { kind: "target", target_ref: { target_type: "world_entity", target_id: "e1", target_path: "" } }, label: "旧城", reason: "无关" }], unresolved: [], warnings: [] })
     confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" }).catch(() => {})
     await waitForPreview()
     document.getElementById("ai-ref-selection-command").value = "去掉旧城"

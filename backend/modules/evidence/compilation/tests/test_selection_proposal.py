@@ -11,9 +11,6 @@ from modules.evidence.compilation.services.compiled_context import (
     ContextSection,
     Tier,
 )
-from modules.evidence.compilation.services.review_projection import (
-    context_review_metadata,
-)
 from modules.evidence.compilation.services.selection_proposal import (
     ContextSelectionProposalService,
 )
@@ -133,13 +130,10 @@ async def test_model_selection_is_bounded_to_server_candidates(
         chapter_index=1,
         consumer_action="writing.generate",
     )
-    fingerprint = context_review_metadata(compiled, options)["context_fingerprint"]
-
     result = await ContextSelectionProposalService(FakeCompiler()).propose(
         db_session,
         options=options,
         instruction="不要使用北港城门的正文",
-        current_context_fingerprint=fingerprint,
     )
 
     assert result["operations"] == [

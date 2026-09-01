@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import pytest
+
 from modules.evidence.compilation.contracts import CompileOptions
-from modules.evidence.compilation.schemas import ContextCompileRequest
 from modules.evidence.compilation.services.compiled_context import (
     CompiledContext,
     ContextItem,
@@ -10,7 +11,6 @@ from modules.evidence.compilation.services.compiled_context import (
 )
 from modules.evidence.compilation.services.context_compiler import ContextCompiler
 from modules.evidence.compilation.services.review_projection import (
-    context_option_fingerprint,
     context_review_metadata,
 )
 
@@ -137,25 +137,46 @@ def test_selected_manifest_comes_from_actual_kept_items() -> None:
     assert len(metadata["context_fingerprint"]) == 64
 
 
-def test_option_fingerprint_ignores_scene_derived_chapter_index() -> None:
-    payload = {
-        "novel_id": "00000000-0000-0000-0000-000000000001",
-        "action": "story.one_click.simulate",
-        "task": "一键推演当前场景",
-        "scope": "scene",
-        "scene_id": "00000000-0000-0000-0000-000000000002",
-    }
-    preview = ContextCompileRequest(**payload)
-    confirmed = CompileOptions(
-        novel_id=payload["novel_id"],
-        consumer_action=payload["action"],
-        task=payload["task"],
-        scope=payload["scope"],
-        scene_id=payload["scene_id"],
-        requested_chapter_index=None,
-        chapter_index=1,
+def test_context_fingerprint_tracks_provider_input_not_review_metadata() -> None:
+    section = ContextSection(
+        key="world_entities",
+        tier=Tier.P2,
+        content="旧塔仍在北港。",
+        token_count=10,
+        title="旧塔",
+        preview="展示摘要",
+        status="canonical",
+        sources=[{"type": "world_entity", "id": "entity-1", "label": "旧塔"}],
+    )
+    changed_display = section.model_copy(
+        update={"title": "旧塔资料", "preview": "另一段摘要", "status": "mixed"}
+    )
+    first = CompiledContext(sections=[section], activation_trace={"warning": "a"})
+    second = CompiledContext(
+        sections=[changed_display], activation_trace={"warning": "b"}
+    )
+    options = CompileOptions(novel_id="novel-1", task="生成", scope="world")
+
+    assert (
+        context_review_metadata(first, options)["context_fingerprint"]
+        == context_review_metadata(second, options)["context_fingerprint"]
     )
 
-    assert context_option_fingerprint(preview) == context_option_fingerprint(
-        confirmed
+
+@pytest.mark.asyncio
+async def test_pinned_loader_errors_propagate(monkeypatch: pytest.MonkeyPatch) -> None:
+    compiler = ContextCompiler()
+
+    async def fail(*_args, **_kwargs):
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(compiler, "_load_pinned_item", fail)
+    options = CompileOptions(
+        novel_id="novel-1",
+        task="生成",
+        scope="world",
+        pinned_refs=[_ref("entity-1")],
     )
+
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        await compiler._apply_pinned_refs(object(), [], options)

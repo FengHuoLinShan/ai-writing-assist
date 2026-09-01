@@ -704,7 +704,6 @@ async def propose_context_selection(
     task: str,
     scope: str,
     instruction: str,
-    current_context_fingerprint: str,
     budget_tokens: int = 4000,
     scene_id: str | None = None,
     **kwargs,
@@ -735,7 +734,6 @@ async def propose_context_selection(
         db,
         options=options,
         instruction=instruction,
-        current_context_fingerprint=current_context_fingerprint,
     )
 
 

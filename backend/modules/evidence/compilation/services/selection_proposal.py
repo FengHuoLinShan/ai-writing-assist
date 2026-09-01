@@ -8,7 +8,6 @@ from typing import Literal
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.errors import ConflictError
 from infrastructure.llm.agent_step_harness import (
     AgentPermissionLevel,
     run_managed_structured,
@@ -20,9 +19,6 @@ from modules.evidence.compilation.contracts import (
 )
 from modules.evidence.compilation.services.compiled_context import selection_ref_key
 from modules.evidence.compilation.services.context_compiler import ContextCompiler
-from modules.evidence.compilation.services.review_projection import (
-    context_review_metadata,
-)
 
 _MAX_CANDIDATES = 40
 
@@ -49,20 +45,12 @@ class ContextSelectionProposalService:
         *,
         options: CompileOptions,
         instruction: str,
-        current_context_fingerprint: str,
     ) -> dict:
         compiled = await self._compiler.compile_with_tiers(
             db,
             options,
             budget_tokens=options.budget_tokens,
         )
-        review = context_review_metadata(compiled, options)
-        if review["context_fingerprint"] != current_context_fingerprint:
-            raise ConflictError(
-                "AI 参考资料已变化，请重新整理后再调整",
-                code="context_preview_changed",
-            )
-
         candidates = self._current_candidates(compiled)
         search_warnings: list[str] = []
         try:
@@ -74,7 +62,6 @@ class ContextSelectionProposalService:
         candidates = self._deduplicate(candidates)[:_MAX_CANDIDATES]
         if not candidates:
             return {
-                "base_context_fingerprint": current_context_fingerprint,
                 "summary": "没有找到可安全调整的资料",
                 "operations": [],
                 "unresolved": [instruction],
@@ -176,7 +163,6 @@ class ContextSelectionProposalService:
         if invalid_count:
             warnings.append("模型返回了未知资料引用，已安全忽略")
         return {
-            "base_context_fingerprint": current_context_fingerprint,
             "summary": output.summary,
             "operations": operations,
             "unresolved": output.unresolved,

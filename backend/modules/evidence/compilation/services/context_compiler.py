@@ -333,7 +333,7 @@ class ContextCompiler:
                 pinned_refs=options.pinned_refs,
             )
         )
-        sections, pin_warnings, pin_blockers = await self._apply_pinned_refs(
+        sections, pin_blockers = await self._apply_pinned_refs(
             db,
             sections,
             options,
@@ -343,7 +343,6 @@ class ContextCompiler:
             *activation_warnings,
             *exclusion_warnings,
             *item_exclusion_warnings,
-            *pin_warnings,
         ]
         total = sum(s.token_count for s in sections)
         selection_trace = dict(bundle.selection_trace)
@@ -417,14 +416,14 @@ class ContextCompiler:
         db: AsyncSession,
         sections: list[ContextSection],
         options: CompileOptions,
-    ) -> tuple[list[ContextSection], list[str], list[str]]:
+    ) -> tuple[list[ContextSection], list[str]]:
         pinned_by_key = {
             selection_ref_key(item): item
             for item in options.pinned_refs
             if selection_ref_key(item)
         }
         if not pinned_by_key:
-            return sections, [], []
+            return sections, []
 
         pinned_items: list[ContextItem] = []
         kept_sections: list[ContextSection] = []
@@ -446,13 +445,9 @@ class ContextCompiler:
             if kept:
                 kept_sections.append(CompiledContext._section_with_items(section, kept))
 
-        warnings: list[str] = []
         blockers: list[str] = []
         for selection_ref in pinned_by_key.values():
-            try:
-                item = await self._load_pinned_item(db, options, selection_ref)
-            except Exception:
-                item = None
+            item = await self._load_pinned_item(db, options, selection_ref)
             if item is None:
                 blockers.append("有一项作者添加资料已不可用，请移除后重新整理")
                 continue
@@ -477,7 +472,7 @@ class ContextCompiler:
                     items=pinned_items,
                 ),
             )
-        return kept_sections, warnings, blockers
+        return kept_sections, blockers
 
     @staticmethod
     async def _load_pinned_item(

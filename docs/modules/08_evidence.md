@@ -154,9 +154,9 @@ CharacterKnowledge 决定；AI 地图册不属于 Scene memory。`retry_pending 
 不表示当时不存在。普通 author-safe 写作目前只获得 `memory_records`
 dict/list 形状修正，不宣称有完整历史门禁。
 
-新确认把四维 checkpoint ID/status 的排序 SHA-256 写入可选
-`compile_options.scene_state_fingerprint`。回放时任一 checkpoint 被重建或人工修复即
-拒绝旧确认；旧记录没有该字段仍可回放。这里借鉴
+新确认把四维 checkpoint ID/status 纳入统一
+`compile_options.compiled_context_fingerprint`。回放时任一 checkpoint 被重建或人工修复即
+拒绝旧确认；旧记录仍通过原 `scene_state_fingerprint` 兼容重验。这里借鉴
 [KurrentDB projection/checkpoint](https://docs.kurrent.io/server/v26.1/features/projections/intro)
 的派生投影纪律和
 [optimistic concurrency](https://docs.kurrent.io/getting-started/concepts)

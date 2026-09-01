@@ -2373,15 +2373,6 @@ async def create_entity_fusion_suggestions(
     await require_active_project(db, data.novel_id)
     if not data.context_confirmation_id:
         raise HTTPException(status_code=400, detail="context_confirmation_id is required")
-    try:
-        await require_fresh_confirmation(
-            db,
-            novel_id=data.novel_id,
-            action="world.entity_fusion.suggest",
-            confirmation_id=data.context_confirmation_id,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
     payload = data.model_dump(mode="json", exclude_none=True, exclude={"operation_id"})
     try:
         existing = await get_operation_task(
@@ -2398,6 +2389,15 @@ async def create_entity_fusion_suggestions(
             task_id=existing.task_id,
             status=existing.status,
         )
+    try:
+        await require_fresh_confirmation(
+            db,
+            novel_id=data.novel_id,
+            action="world.entity_fusion.suggest",
+            confirmation_id=data.context_confirmation_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
         receipt = await enqueue_task_with_optional_operation(
             db,

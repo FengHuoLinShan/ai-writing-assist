@@ -194,11 +194,11 @@ items 生成，不再用请求参数猜测来源。
 不一致返回 `context_changed`。作者任务的范围通过 `selection_state.effective_range` 暴露，浏览器
 不再依赖内部回放用的 `compile_options`。
 
-`POST /selection-proposals` 接收当前指纹和一条资料调整指令。服务端从当前 items 与现有
+`POST /selection-proposals` 接收一条资料调整指令。服务端重新编译当前 items，并与现有
 Evidence Search 结果构造最多 40 个 `candidate-NNN`，经项目当前模型运行单次 suggest/read-only
 structured step；无工具、无循环、无业务写入、120 秒总超时且不做 transport retry。最多 20
 条 include/exclude 只能指向候选短键；未知、越界、未来 Scene、跨项目和失效引用由代码拒绝。
-前端先展示提议，作者点击“应用调整”后才改变本地选择并重新预览。
+前端先展示提议，作者点击“应用调整”后才改变本地选择并重新预览；最终确认仍比较最新指纹。
 
 `reader` 编译使用独立的最小 section 路径：只保留用户任务、
 ReaderRevealPolicy/公开基线允许的世界信息、从 writing 回读且 hash

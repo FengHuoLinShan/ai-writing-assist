@@ -410,7 +410,6 @@ class ContextSelectionProposalRequest(ContextSelectionRequest):
 
     action: str = Field(..., min_length=1, max_length=128)
     instruction: str = Field(..., min_length=1, max_length=1000)
-    current_context_fingerprint: str = Field(min_length=64, max_length=64)
 
 
 class ContextSelectionProposalOperation(BaseModel):
@@ -421,7 +420,6 @@ class ContextSelectionProposalOperation(BaseModel):
 
 
 class ContextSelectionProposalResponse(BaseModel):
-    base_context_fingerprint: str
     summary: str
     operations: list[ContextSelectionProposalOperation] = Field(
         default_factory=list,

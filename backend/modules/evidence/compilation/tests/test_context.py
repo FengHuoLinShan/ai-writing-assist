@@ -525,7 +525,10 @@ async def test_outline_analysis_replay_rejects_changed_range_context(
 
     async def fake_require(*_args, **_kwargs):
         return SimpleNamespace(
-            compile_options=ContextConfirmationService._compile_options_json(options)
+            compile_options={
+                **ContextConfirmationService._compile_options_json(options),
+                "outline_analysis_fingerprint": options.outline_analysis_fingerprint,
+            }
         )
 
     monkeypatch.setattr(service, "require_confirmation", fake_require)
@@ -629,9 +632,10 @@ async def test_scene_state_confirmation_freezes_versions_but_old_records_replay(
         viewpoint_character_id=str(uuid.uuid4()),
     )
 
-    assert confirmation.compile_options["scene_state_fingerprint"]
+    assert "scene_state_fingerprint" not in confirmation.compile_options
+    assert confirmation.compile_options["compiled_context_fingerprint"]
     compiler.current = compiled("changed")
-    with pytest.raises(ConflictError, match="Scene time state changed") as conflict:
+    with pytest.raises(ConflictError, match="AI 参考资料已变化") as conflict:
         await service.compile_from_confirmation(
             db_session,
             novel_id=novel_id,
@@ -639,7 +643,7 @@ async def test_scene_state_confirmation_freezes_versions_but_old_records_replay(
             confirmation_id=confirmation.id,
         )
     assert conflict.value.status_code == 409
-    assert conflict.value.code == "scene_state_changed"
+    assert conflict.value.code == "context_changed"
 
     record = await service._repo.get(  # noqa: SLF001 - compatibility fixture
         db_session,
@@ -647,6 +651,24 @@ async def test_scene_state_confirmation_freezes_versions_but_old_records_replay(
         novel_id=uuid.UUID(novel_id),
     )
     assert record is not None
+    record.compile_options = {
+        **record.compile_options,
+        "compiled_context_fingerprint": None,
+        "scene_state_fingerprint": service._scene_state_fingerprint(  # noqa: SLF001
+            compiled("original")
+        ),
+    }
+    await db_session.flush()
+
+    with pytest.raises(ConflictError, match="Scene time state changed") as conflict:
+        await service.compile_from_confirmation(
+            db_session,
+            novel_id=novel_id,
+            action="writing.generate",
+            confirmation_id=confirmation.id,
+        )
+    assert conflict.value.code == "scene_state_changed"
+
     record.compile_options = {
         key: value
         for key, value in record.compile_options.items()

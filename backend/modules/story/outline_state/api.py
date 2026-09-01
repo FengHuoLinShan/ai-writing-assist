@@ -957,7 +957,6 @@ async def api_preview_scene_fusion_task(
     novel_id: NovelIdQuery,
 ) -> SceneFusionPreviewTaskResponse:
     await require_active_project(db, novel_id)
-    await _require_scene_fusion_confirmation(db, novel_id, data)
     payload = data.model_dump(mode="json", exclude={"operation_id"})
     try:
         existing = await get_operation_task(
@@ -974,6 +973,7 @@ async def api_preview_scene_fusion_task(
             task_id=existing.task_id,
             status=existing.status,
         )
+    await _require_scene_fusion_confirmation(db, novel_id, data)
     snapshot = await build_project_llm_execution_snapshot(db, novel_id)
     try:
         receipt = await enqueue_task_with_optional_operation(

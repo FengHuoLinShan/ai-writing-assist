@@ -467,28 +467,48 @@ class CompiledContext(BaseModel):
         )
 
 
-def compiled_context_fingerprint(
-    compiled: CompiledContext,
-    *,
-    option_fingerprint: dict[str, Any] | None = None,
-) -> str:
+def _context_source_identity(source: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: source[key]
+        for key in (
+            "type",
+            "id",
+            "source_hash",
+            "content_hash",
+            "hash",
+            "source_ref",
+            "target_ref",
+            "revision_id",
+            "version",
+        )
+        if key in source
+    }
+
+
+def _fingerprint_sort_key(value: object) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def compiled_context_fingerprint(compiled: CompiledContext) -> str:
     """Hash the exact provider-visible context and its source identities."""
 
     payload = {
-        "options": option_fingerprint or {},
         "sections": [
             {
                 "key": section.key,
                 "tier": int(section.tier),
                 "content": section.content,
-                "sources": section.sources,
-                "items": [item.model_dump(mode="json") for item in section.items],
-                "truncated_reason": section.truncated_reason,
+                "sources": sorted(
+                    (_context_source_identity(source) for source in section.sources),
+                    key=_fingerprint_sort_key,
+                ),
+                "checkpoint_versions": sorted(
+                    section.retrieval_metadata.get("checkpoint_versions", []),
+                    key=_fingerprint_sort_key,
+                ),
             }
             for section in compiled.sections
         ],
-        "budget_tokens": compiled.budget_tokens,
-        "activation_trace": compiled.activation_trace,
     }
     encoded = json.dumps(
         payload,

@@ -226,7 +226,6 @@ export function confirmAiReference(options) {
       try {
         const payload = buildPayload(options, excludedSectionKeys, pinnedRefs, excludedRefs, root)
         payload.instruction = instruction
-        payload.current_context_fingerprint = currentPreview.context_fingerprint
         const proposal = await api.context.proposeSelection(payload)
         if (!active() || token !== proposalGeneration) return false
         pendingProposal = proposal

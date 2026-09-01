@@ -131,11 +131,6 @@ class ContextConfirmationService:
             self._require_character_profile(compiled)
         if action == "outline.analyze":
             self._require_outline_analysis_range(compiled, options)
-            options.outline_analysis_fingerprint = self._outline_analysis_fingerprint(
-                compiled
-            )
-        if self._requires_scene_state_fingerprint(options):
-            options.scene_state_fingerprint = self._scene_state_fingerprint(compiled)
         review = context_review_metadata(compiled, options)
         if compiled.blockers:
             raise ValueError("；".join(compiled.blockers))
@@ -170,7 +165,7 @@ class ContextConfirmationService:
             asset_role="selected",
             refs=self._selected_refs(selected_asset_ids),
         )
-        return self._to_contract(record, compiled=compiled)
+        return self._to_contract(record, compiled=compiled, review=review)
 
     async def require_confirmation(
         self,
@@ -240,14 +235,17 @@ class ContextConfirmationService:
             self._require_character_profile(compiled)
         if action == "outline.analyze":
             self._require_outline_analysis_range(compiled, options)
-        if options.outline_analysis_fingerprint:
+        if (
+            not options.compiled_context_fingerprint
+            and options.outline_analysis_fingerprint
+        ):
             current_fingerprint = self._outline_analysis_fingerprint(compiled)
             if current_fingerprint != options.outline_analysis_fingerprint:
                 raise ValueError(
                     "outline analysis context changed; "
                     "review and confirm the latest context"
                 )
-        if options.scene_state_fingerprint:
+        if options.scene_state_fingerprint and not options.compiled_context_fingerprint:
             current_fingerprint = self._scene_state_fingerprint(compiled)
             if current_fingerprint != options.scene_state_fingerprint:
                 raise ConflictError(
@@ -524,8 +522,6 @@ class ContextConfirmationService:
             "activation_included_target_hashes": (
                 options.activation_included_target_hashes
             ),
-            "outline_analysis_fingerprint": options.outline_analysis_fingerprint,
-            "scene_state_fingerprint": options.scene_state_fingerprint,
             "compiled_context_fingerprint": options.compiled_context_fingerprint,
         }
 
@@ -548,14 +544,6 @@ class ContextConfirmationService:
             separators=(",", ":"),
         ).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
-
-    @staticmethod
-    def _requires_scene_state_fingerprint(options: CompileOptions) -> bool:
-        return bool(
-            options.consumer_action == "writing.generate"
-            and options.scene_id
-            and options.reveal_mode == "character"
-        )
 
     @staticmethod
     def _requires_character_profile(options: CompileOptions) -> bool:
@@ -650,6 +638,7 @@ class ContextConfirmationService:
     def _to_contract(
         record,
         compiled: CompiledContext | None = None,
+        review: dict | None = None,
     ) -> ContextConfirmationContract:
         compiled_at = record.compiled_at or datetime.now(UTC)
         created_at = record.created_at or compiled_at
@@ -677,7 +666,7 @@ class ContextConfirmationService:
                 for section in compiled.sections
             ]
             budget_events = [event.model_dump() for event in compiled.budget_events]
-        review = (
+        review = review or (
             context_review_metadata(
                 compiled,
                 CompileOptions(**(record.compile_options or {})),
