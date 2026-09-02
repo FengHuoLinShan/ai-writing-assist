@@ -139,6 +139,14 @@ test.describe("settings 视觉基线", () => {
         expect((await button.boundingBox())?.height || 0).toBeGreaterThanOrEqual(42)
       }
       await screenshotSettingsPage(page, "settings-project-mobile-sticky.png")
+
+      await page.getByRole("tab", { name: "高级导入" }).click()
+      const expert = page.getByRole("button", { name: "查看专家参数" })
+      await expect(expert).toBeVisible()
+      await expect(page.getByRole("button", { name: /怎样切分场景/ })).toBeHidden()
+      expect((await expert.boundingBox())?.height || 0).toBeGreaterThanOrEqual(42)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+      await screenshotSettingsPage(page, "settings-project-deep-mobile-sticky.png")
     })
   })
 })

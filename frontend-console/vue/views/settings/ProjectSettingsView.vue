@@ -2,7 +2,6 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import AuthorPreferencesForm from "./components/AuthorPreferencesForm.vue"
 import DeepImportFields from "./components/DeepImportFields.vue"
-import SourceLabel from "./components/SourceLabel.vue"
 import { getApi, getAppState, getConfirm, getRouter, getToast } from "../../bridge/index.js"
 import { useSaveButton } from "../../composables/useSaveButton.js"
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
@@ -12,7 +11,7 @@ import {
   buildAuthorPrefsPayload,
   validateAuthorPreferences,
 } from "./logic/authorPreferences.js"
-import { buildDeepImportPayload, deepImportFormFromSettings } from "./logic/deepImport.js"
+import { buildDeepImportPayload, DEEP_IMPORT_GROUPS, deepImportFormFromSettings } from "./logic/deepImport.js"
 
 const props = defineProps({
   projectId: { type: String, default: null },
@@ -73,6 +72,18 @@ const dataReady = computed(() => Boolean(effectiveLLM.value && effectivePrefs.va
 const deepImportSource = computed(() => (
   effectiveLLM.value?.deep_import || { source: "system", value: null }
 ))
+const deepImportSourceSummary = computed(() => {
+  if (deepImportSource.value.source === "project") {
+    const configured = deepImportSource.value.value || {}
+    const changed = DEEP_IMPORT_GROUPS.reduce((count, group) => count + group.fields.filter((field) => (
+      Object.hasOwn(configured[group.id] || {}, field.key)
+      && !Object.is(configured[group.id][field.key], field.value)
+    )).length, 0)
+    return changed ? `当前作品有 ${changed} 项与默认不同` : "当前作品使用已保存设置"
+  }
+  if (deepImportSource.value.source === "global") return "跟随账户默认设置"
+  return "使用系统默认设置"
+})
 const activeModelLabel = computed(() => {
   const label = effectiveLLM.value?.label?.value || "模型"
   const model = effectiveLLM.value?.model?.value || ""
@@ -427,11 +438,7 @@ onBeforeUnmount(() => {
             这些参数只影响当前作品的深度导入；模型与密钥仍由账户设置统一管理。
           </p>
           <p class="deep-import-source-hint">
-            当前使用已生效设置，通常无需调整。设置来源
-            <SourceLabel
-              :source="deepImportSource.source"
-              :value="deepImportSource.value"
-            />
+            {{ deepImportSourceSummary }}，通常无需调整。
           </p>
           <DeepImportFields v-model="deepImportForm" :validation-error="deepImportValidationError" />
           <div class="settings-actions">

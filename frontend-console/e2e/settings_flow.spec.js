@@ -117,6 +117,9 @@ test.describe("设置流程", () => {
       await deepTab.getAttribute("id"),
     )
     await expect(page.getByText(/模型与密钥仍由账户设置统一管理/)).toBeVisible()
+    await expect(page.getByRole("button", { name: "查看专家参数" })).toBeVisible()
+    await expect(page.getByRole("button", { name: /怎样切分场景/ })).toBeHidden()
+    await page.getByRole("button", { name: "查看专家参数" }).click()
     await expect(page.getByRole("button", { name: /怎样切分场景/ })).toBeVisible()
     await page.keyboard.press("Home")
     await expect(authorTab).toHaveAttribute("aria-selected", "true")

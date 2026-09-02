@@ -85,6 +85,26 @@ describe("结构与导航", () => {
     expect(globalThis.router.navigate).toHaveBeenCalledWith("settings")
   })
 
+  it("作品级导入覆盖只显示作者摘要，不显示 raw 设置对象", async () => {
+    const wrapper = mount(ProjectSettingsView, {
+      props: makeProps({
+        effectiveLLM: makeEffectiveLLM({
+          deep_import: {
+            source: "project",
+            value: { phase0: { target_input_chars: 80000 } },
+          },
+        }),
+      }),
+    })
+
+    await wrapper.findAll(".settings-tab-nav .tab-btn")[1].trigger("click")
+
+    expect(wrapper.text()).toContain("当前作品有 1 项与默认不同")
+    expect(wrapper.text()).not.toContain("target_input_chars")
+    expect(wrapper.text()).not.toContain("80000")
+    expect(wrapper.get("#deep-import-expert-fields").element.style.display).toBe("none")
+  })
+
   it("Tab 选择在页面往返间保留", async () => {
     const first = mount(ProjectSettingsView, { props: makeProps() })
     await first.findAll(".settings-tab-nav .tab-btn")[1].trigger("click")
