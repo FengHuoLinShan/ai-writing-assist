@@ -99,6 +99,29 @@ test.describe("作者任务工作台", () => {
     await expect.poll(() => page.evaluate(() => localStorage.getItem("novel_currentProjectId"))).toBeNull()
   })
 
+  test("320、375、390px 顶栏不重叠且保留可触控入口", async ({ page }) => {
+    project = await createProject({ title: "一部标题很长但仍要在窄屏安心继续写作的作品", genre: "fantasy", language: "zh" })
+    await openWorkbench(page, project, "world", "bible")
+
+    for (const width of [320, 375, 390]) {
+      await page.setViewportSize({ width, height: 844 })
+      await expect(page.locator(".topbar-center")).toBeHidden()
+      const left = await page.locator(".topbar-left").boundingBox()
+      const right = await page.locator(".topbar-right").boundingBox()
+      expect(left).not.toBeNull()
+      expect(right).not.toBeNull()
+      expect(left.x + left.width).toBeLessThanOrEqual(right.x)
+      expect(right.x + right.width).toBeLessThanOrEqual(width)
+      const targets = await page.locator(".theme-dot, .topbar-account-menu > summary").evaluateAll((elements) => (
+        elements.map((element) => ({ width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height }))
+      ))
+      expect(targets).toHaveLength(4)
+      expect(Math.min(...targets.map((target) => target.width))).toBeGreaterThanOrEqual(42)
+      expect(Math.min(...targets.map((target) => target.height))).toBeGreaterThanOrEqual(42)
+      await expectNoPageOverflow(page)
+    }
+  })
+
   for (const width of [1280, 390]) {
     test(`${width}px 资料库与作者任务闭环可恢复`, async ({ page }) => {
       test.setTimeout(60_000)

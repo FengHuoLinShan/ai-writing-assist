@@ -38,8 +38,10 @@ describe("ThemePicker", () => {
       expect(item.attributes("type")).toBe("button")
     })
     expect(items[1].attributes("aria-checked")).toBe("true")
+    expect(items[1].attributes("tabindex")).toBe("0")
     expect(items[1].classes()).toContain("is-active")
     expect(items[0].attributes("aria-checked")).toBe("false")
+    expect(items[0].attributes("tabindex")).toBe("-1")
     expect(items[0].classes()).not.toContain("is-active")
   })
 

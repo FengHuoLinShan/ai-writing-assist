@@ -119,7 +119,8 @@
   `dark/dark-soft→night`、`paper/warm→ink`。
 - 无任何存储时跟随系统 `prefers-color-scheme`（dark → night，其余 → sticky），此时不落存储。
 - 切换入口：顶栏三点切换器（`ThemePicker.vue`，`.topbar-theme` radiogroup +
-  `button.theme-dot[data-theme-value]`，白/黑/朱砂三个圆点，active 描边环，支持方向键切换）。
+  `button.theme-dot[data-theme-value]`，白/黑/朱砂三个 14px 圆点，active 描边环；按钮命中区桌面
+  28px、触控档 42px，Tab 只进入当前主题，方向键循环切换）。
 - 换肤过渡：`background-color` / `color` / `border-color` 250ms；`prefers-reduced-motion` 下全部关闭。
 
 ### 1.6 RP 路径专有 token
@@ -135,7 +136,7 @@
   （沉底/轨道）。层级靠表面明度差 + 1px hairline，不靠阴影。
 - **强调色使用约束**（原「朱红白名单」；各主题 accent 不同——sticky 蓝 / night 金 / ink 朱砂；
   以下用途之外新增使用需回改本表）：
-  1. 主操作按钮（每屏至多一个 primary，accent 实心 + 白字，见 §5.1 Button）
+  1. 主操作按钮（每屏至多一个 primary，accent 实心 + 通过 4.5:1 的主题前景色，见 §5.1 Button）
   2. 「待处理」计数角标（today attention、world review、sidebar badge）
   3. focus-visible 描边（2px accent 环，全站统一，editorial-theme.css 全局覆盖，不得移除）
   4. 危险/错误语义（`--nc-error` 系）
@@ -281,6 +282,8 @@
 - **断点终态**：`760px`（主，触控/单栏切换，与文档承诺一致）、`1100px`（桌面密排/宽松切换）。`720px` 全部合并到 `760px`；长尾断点（390/460/480/560/600/640/900/980/1180 等）逐个审查：可归入两档的归入，确属局部组件自适应的保留并在该行注释理由。
 - **四档行为**：Desktop（≥1440 内容区限宽居中，工作台不限宽）/ Laptop（1100-1440 默认形态）/ Tablet（760-1100 收窄 rail，可折叠）/ Mobile（<760 单栏、底栏导航、触控目标 ≥42/44px）。
 - 移动端不是桌面缩小：writing → MobileQuickNote；map → 只读浏览 + 编辑转交桌面；其余页至少保证单栏不溢出、主操作可达。
+- ≤760px 顶栏隐藏页面内已由 h1 重复表达的中间面包屑，优先保留品牌、主题和账户入口；≤360px
+  写作页隐藏页面内已重复呈现的顶栏字数胶囊，避免挤压品牌与操作区。
 - 页面级横向溢出零容忍（390px）。
 - 点缀系统 ≤760px 一律隐藏（§2 点缀系统）。
 

@@ -121,12 +121,16 @@ describe("editorial archive theme", () => {
   })
 
   it("ships the three-dot theme switcher skin behind the shell contract", () => {
-    expect(theme).toMatch(/\.topbar-theme\s*\{[^}]*display:\s*flex;[^}]*gap:\s*8px;/s)
-    expect(theme).toMatch(/button\.theme-dot\s*\{[^}]*width:\s*14px;[^}]*border:\s*1px solid var\(--nc-hairline-strong\);[^}]*border-radius:\s*50%;/s)
-    expect(theme).toMatch(/\.theme-dot\[data-theme-value="sticky"\]\s*\{[^}]*background:\s*#FFFFFF;/s)
-    expect(theme).toMatch(/\.theme-dot\[data-theme-value="night"\]\s*\{[^}]*background:\s*#111114;/s)
-    expect(theme).toMatch(/\.theme-dot\[data-theme-value="ink"\]\s*\{[^}]*background:\s*#C03F2B;/s)
-    expect(theme).toMatch(/\.theme-dot\.is-active\s*\{[^}]*box-shadow:\s*0 0 0 2px var\(--nc-bg\),\s*0 0 0 4px var\(--nc-accent\);/s)
+    expect(theme).toMatch(/button\.theme-dot\s*\{[^}]*width:\s*28px;[^}]*background:\s*transparent;/s)
+    expect(theme).toMatch(/button\.theme-dot::before\s*\{[^}]*width:\s*14px;[^}]*border:\s*1px solid var\(--nc-hairline-strong\);/s)
+    expect(theme).toMatch(/\.theme-dot\[data-theme-value="sticky"\]::before\s*\{[^}]*background:\s*#FFFFFF;/s)
+    expect(theme).toMatch(/\.theme-dot\[data-theme-value="night"\]::before\s*\{[^}]*background:\s*#111114;/s)
+    expect(theme).toMatch(/\.theme-dot\[data-theme-value="ink"\]::before\s*\{[^}]*background:\s*#C03F2B;/s)
+    expect(theme).toMatch(/\.theme-dot\.is-active::before\s*\{[^}]*box-shadow:\s*0 0 0 2px var\(--nc-bg\),\s*0 0 0 4px var\(--nc-accent\);/s)
+    expect(theme).toMatch(/@media \(max-width: 760px\)[\s\S]*?button\.theme-dot\s*\{[^}]*width:\s*42px;[^}]*height:\s*42px;/s)
+    expect(styles).toMatch(/@media \(max-width: 760px\)[\s\S]*?#topbar \.topbar-center,[\s\S]*?display:\s*none;[\s\S]*?\.avatar\s*\{[^}]*width:\s*42px;[^}]*height:\s*42px;/s)
+    const desk = readFileSync(resolve(__dirname, "../vue/views/writing/writing-desk.css"), "utf8")
+    expect(desk).toMatch(/\.scene-cockpit-module__reorder \.btn-icon\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;/s)
   })
 
   it("animates theme switching and honors reduced motion", () => {

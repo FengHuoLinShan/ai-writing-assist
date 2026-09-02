@@ -220,32 +220,43 @@ body {
 .topbar-theme {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
 }
 
 button.theme-dot {
-  width: 14px;
-  height: 14px;
+  position: relative;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
   padding: 0;
-  border: 1px solid var(--nc-hairline-strong);
-  border-radius: 50%;
-  background: var(--nc-bg);
+  border: 0;
+  background: transparent;
   cursor: pointer;
 }
 
-.theme-dot[data-theme-value="sticky"] {
+button.theme-dot::before {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--nc-hairline-strong);
+  border-radius: 50%;
+  background: var(--nc-bg);
+  content: "";
+}
+
+.theme-dot[data-theme-value="sticky"]::before {
   background: #FFFFFF;
 }
 
-.theme-dot[data-theme-value="night"] {
+.theme-dot[data-theme-value="night"]::before {
   background: #111114;
 }
 
-.theme-dot[data-theme-value="ink"] {
+.theme-dot[data-theme-value="ink"]::before {
   background: #C03F2B;
 }
 
-.theme-dot.is-active {
+.theme-dot.is-active::before {
   box-shadow: 0 0 0 2px var(--nc-bg), 0 0 0 4px var(--nc-accent);
 }
 
@@ -969,6 +980,11 @@ table tbody tr:hover td {
 
 /* ===== 响应式与可访问性 ===== */
 @media (max-width: 760px) {
+  button.theme-dot {
+    width: 42px;
+    height: 42px;
+  }
+
   .view-header {
     min-height: auto;
     padding: 10px !important;

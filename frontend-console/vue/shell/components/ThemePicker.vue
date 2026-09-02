@@ -12,6 +12,7 @@
       :aria-label="'切换到' + item.label"
       role="radio"
       :aria-checked="modelValue === item.value"
+      :tabindex="modelValue === item.value ? 0 : -1"
       @click="select(item.value)"
       @keydown="onKeydown($event, item.value)"
     ></button>

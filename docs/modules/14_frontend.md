@@ -205,7 +205,9 @@ Prompt 或 token；预算遗漏另行解释。作者可逐项移除/恢复、用
   浮层。主题持久化 key 为 `nc-theme`（首次从旧 key `novel_theme` 迁移并删除；legacy 值映射
   `light/minimal→sticky`、`dark/dark-soft→night`、`paper/warm→ink`）；无存储时跟随系统
   `prefers-color-scheme`（dark → night）。切换入口为顶栏三点切换器（`.topbar-theme` radiogroup +
-  `button.theme-dot[data-theme-value]`，支持方向键），切换过渡 250ms、reduced-motion 关闭。
+  `button.theme-dot[data-theme-value]`，Tab 只进入当前主题并支持方向键；14px 圆点使用桌面 28px /
+  触控档 42px 命中区），切换过渡 250ms、reduced-motion 关闭。≤760px 顶栏隐藏由页内标题重复
+  表达的中间面包屑；≤360px 写作页隐藏重复字数胶囊，避免挤压品牌、主题与账户入口。
   点缀只允许顶栏品牌区、写作页编辑区（上 1 组 + 下 1 组）与左栏导航底部三处，近底色、
   `pointer-events:none`，专注模式与 ≤760px 一律隐藏。设计细则唯一权威：
   `docs/frontend/uiux/design-standard.md`。
@@ -214,7 +216,7 @@ Prompt 或 token；预算遗漏另行解释。作者可逐项移除/恢复、用
 - 全局布局尺寸：`--topbar-height:57px`、`--sidebar-width:211px`、rail 折叠 `44px`；
   写作页固定三栏：章节树 238px / 正文弹性 / 写作副驾驶 257px。
 - 功能性按钮、输入框、选择器和编辑区要比只读内容更易辨识，但不脱离主题：主操作使用主题
-  accent 实体面（sticky 蓝 / night 金 / ink 朱砂），普通操作保留可见边框；可编辑字段使用
+  accent 实体面（sticky 蓝 / night 金 / ink 朱砂）和通过 4.5:1 的主题前景色，普通操作保留可见边框；可编辑字段使用
   surface 底与完整边框，focus-visible 显示 2px accent 焦点环。暗色主题保持相同层级；
   `760px` 以下常用按钮高度不低于 `42px`，输入控件不低于 `44px`。
 - 创作工作台以正文、主列表、编辑区、生成结果和地图册图片为主对象；桌面端主对象目标占分栏内容宽度的约 `64%–68%`。

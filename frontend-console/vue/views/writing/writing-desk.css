@@ -1166,9 +1166,9 @@
 }
 
 .scene-cockpit-module__reorder .btn-icon {
-  width: 22px;
-  height: 22px;
-  min-height: 22px;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
   padding: 0;
   border: 1px solid var(--archive-rule);
   border-radius: 2px;
@@ -2284,36 +2284,20 @@ body.focus-mode-active #workspace-content {
 }
 
 @media (max-width: 760px) {
-  #app:has(#workspace-content[data-workspace-view="writing"]) #topbar {
-    gap: 10px;
-    padding-inline: 14px;
-  }
-
-  #app:has(#workspace-content[data-workspace-view="writing"]) .topbar-left {
-    flex: 1 1 auto;
-    overflow: hidden;
-  }
-
   #app:has(#workspace-content[data-workspace-view="writing"]) .logo {
-    overflow: hidden;
     font-size: 13px;
     letter-spacing: 0.06em;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  #app:has(#workspace-content[data-workspace-view="writing"]) .topbar-center,
-  #app:has(#workspace-content[data-workspace-view="writing"]) #topbar-status-dot {
-    display: none;
-  }
-
-  #app:has(#workspace-content[data-workspace-view="writing"]) .topbar-right {
-    gap: 8px;
   }
 
   #app:has(#workspace-content[data-workspace-view="writing"]) .topbar-wordcount {
     flex: 0 1 84px;
     max-width: 84px;
+  }
+}
+
+@media (max-width: 360px) {
+  #app:has(#workspace-content[data-workspace-view="writing"]) .topbar-wordcount {
+    display: none;
   }
 }
 
