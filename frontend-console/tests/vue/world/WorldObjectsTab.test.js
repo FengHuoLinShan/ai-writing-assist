@@ -114,10 +114,12 @@ describe("表格渲染契约", () => {
     const empty = mountTab({ entities: [], entitiesTotal: 0 })
     expect(empty.text()).toContain("还没有世界对象")
     expect(empty.find('[data-action="new"]').exists()).toBe(true)
+    expect(empty.find(".empty-icon").exists()).toBe(false)
 
     const failed = mountTab({ entities: [], entitiesTotal: 0, entitiesLoadError: "网络错误" })
     expect(failed.find('.empty-state[role="alert"]').exists()).toBe(true)
     expect(failed.text()).toContain("网络错误")
+    expect(failed.find(".empty-icon").exists()).toBe(false)
   })
 
   it("卡片模式渲染 world-object-card", () => {

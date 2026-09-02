@@ -96,7 +96,6 @@
       </template>
       <template v-else-if="localCandidates.length === 0">
         <div class="empty-state">
-          <div class="empty-icon">&#128269;</div>
           <p>没有待处理对象。</p>
           <p>AI 或导入提出、尚未采用的对象会出现在这里，你可以决定如何处置。</p>
         </div>

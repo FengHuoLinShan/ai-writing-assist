@@ -57,12 +57,9 @@
 
 ### P2 — 一致性与可读性
 
-9. **空态/错误图标不一致**：objects 空态 🌎 emoji、错误 ⚠ emoji 且带硬编码
-   `style="color:var(--warning);"`（`world/components/WorldObjectsTab.vue:131,136`）；
-   review-objects 错误用裸字符「!」（`WorldReviewTab.vue:58`）、空态 🔍（`:65`）；
-   review-aliases/relations 与 bible 空态完全无图标（`:198, 299`、
-   `world/bible/WorldBibleTab.vue:40`）。editorial 主题只对 `.empty-icon` 统一处理
-   （`editorial-theme.css:995-998`），emoji 与纸面质感冲突。
+9. **已解决：世界资料空态统一为文字优先**。objects 与 review-objects 移除零散 emoji、
+   裸字符及行内颜色，和 aliases、relations、bible 使用相同的标题、说明与就地操作层级；
+   不为装饰目的新增第二套图标系统。
 10. **已解决：待决定工作台移除行内视觉样式**。二级导航、更多筛选间距和对象证据单元格
     均改为 token 驱动的语义 class，三种主题可统一接管（2026-08-23）。
 11. **已解决：对象表格按作者扫读任务收敛为四列**。状态、类型、名称与近期标签合并为

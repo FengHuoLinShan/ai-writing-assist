@@ -239,6 +239,12 @@ describe("review-objects", () => {
     expect(wrapper.find('[data-author-action="needs_decision"]').exists()).toBe(false)
   })
 
+  it("空队列与其它世界资料空态保持文字优先", () => {
+    const wrapper = mountTab({ candidates: [], candidateTotal: 0 })
+    expect(wrapper.get(".world-review-queue .empty-state").text()).toContain("没有待处理对象")
+    expect(wrapper.find(".empty-icon").exists()).toBe(false)
+  })
+
   it("选中项被筛选或翻页移出后清空决策区", async () => {
     const wrapper = mountTab()
     await wrapper.get('tr[data-id="c1"]').trigger("click")

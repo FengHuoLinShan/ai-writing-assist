@@ -131,12 +131,10 @@
     <!-- 空态 / 错误态（vanilla 1128-1148） -->
     <template v-if="entities.length === 0">
       <div v-if="entitiesLoadError" class="empty-state" role="alert">
-        <div class="empty-icon" style="color:var(--warning);">&#9888;</div>
         <p>世界对象加载失败</p>
         <p class="world-text-dim">可稍后重试。错误信息：{{ entitiesLoadError }}</p>
       </div>
       <div v-else class="empty-state">
-        <div class="empty-icon">&#127758;</div>
         <p>还没有世界对象。</p>
         <p>世界对象是小说世界中的核心创作资产，包括地点、组织、物品、事件等。</p>
         <div class="actions">
