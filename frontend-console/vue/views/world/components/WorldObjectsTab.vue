@@ -132,7 +132,8 @@
     <template v-if="entities.length === 0">
       <div v-if="entitiesLoadError" class="empty-state" role="alert">
         <p>世界对象加载失败</p>
-        <p class="world-text-dim">可稍后重试。错误信息：{{ entitiesLoadError }}</p>
+        <p class="world-text-dim">原有资料没有变化。错误信息：{{ entitiesLoadError }}</p>
+        <button class="btn btn-primary" type="button" data-action="retry-objects-load" @click="retryObjectsLoad">重新加载</button>
       </div>
       <div v-else class="empty-state">
         <p>还没有世界对象。</p>
@@ -404,6 +405,10 @@ onMounted(() => {
 
 function onBulkRun(action) {
   runObjectsBulkAction(action, props.entities)
+}
+
+function retryObjectsLoad() {
+  getRouter()?.refresh?.()
 }
 
 /** 对应 vanilla _changePage（3824-3830）。 */

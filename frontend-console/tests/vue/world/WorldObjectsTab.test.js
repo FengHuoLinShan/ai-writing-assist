@@ -22,6 +22,7 @@ const ENTITIES = [
 
 let navigateMock
 let toastMock
+let refreshMock
 
 function mountTab(propOverrides = {}, mountOptions = {}) {
   return mount(WorldObjectsTab, {
@@ -52,9 +53,10 @@ beforeEach(() => {
   autoExtractManager.state.progress = null
   navigateMock = vi.fn()
   toastMock = vi.fn()
+  refreshMock = vi.fn(async () => true)
   setBridgeOverrides({
     state: { currentProjectId: "p-obj", currentView: "world" },
-    router: { navigate: navigateMock, refresh: vi.fn(async () => true) },
+    router: { navigate: navigateMock, refresh: refreshMock },
     toast: toastMock,
   })
 })
@@ -110,7 +112,7 @@ describe("表格渲染契约", () => {
     expect(inputClick).toHaveBeenCalledTimes(1)
   })
 
-  it("空态渲染新建入口；错误态 role=alert", () => {
+  it("空态渲染新建入口；错误态可原位重新加载", async () => {
     const empty = mountTab({ entities: [], entitiesTotal: 0 })
     expect(empty.text()).toContain("还没有世界对象")
     expect(empty.find('[data-action="new"]').exists()).toBe(true)
@@ -120,6 +122,8 @@ describe("表格渲染契约", () => {
     expect(failed.find('.empty-state[role="alert"]').exists()).toBe(true)
     expect(failed.text()).toContain("网络错误")
     expect(failed.find(".empty-icon").exists()).toBe(false)
+    await failed.get('[data-action="retry-objects-load"]').trigger("click")
+    expect(refreshMock).toHaveBeenCalledOnce()
   })
 
   it("卡片模式渲染 world-object-card", () => {
