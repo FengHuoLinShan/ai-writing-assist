@@ -18,8 +18,8 @@ const isCharacter = computed(() => props.entity?.entity_type === "character")
 const profileOpen = ref(false)
 const profileLoading = ref(false)
 const profileSaving = ref(false)
+const profileLoaded = ref(false)
 const profileError = ref("")
-const profileBaseline = ref("")
 const profileFields = [
   ["role", "角色定位", "例如：主角、导师或对手"],
   ["appearance", "外貌", "最容易被认出的外在特征"],
@@ -31,7 +31,8 @@ const profileFields = [
   ["voice_style", "语言风格", "说话节奏、措辞和习惯"],
 ]
 const profileForm = reactive(Object.fromEntries(profileFields.map(([key]) => [key, ""])))
-const profileDirty = computed(() => profileOpen.value && Boolean(profileBaseline.value) && JSON.stringify(profileForm) !== profileBaseline.value)
+const profileBaseline = ref(JSON.stringify(profileForm))
+const profileDirty = computed(() => profileLoaded.value && JSON.stringify(profileForm) !== profileBaseline.value)
 let profileGeneration = 0
 
 function fillProfile(value = {}) {
@@ -41,13 +42,16 @@ function fillProfile(value = {}) {
 
 async function openProfile() {
   profileOpen.value = true
-  if (profileBaseline.value || profileLoading.value) return
+  if (profileLoaded.value || profileLoading.value) return
   const generation = ++profileGeneration
   profileLoading.value = true
   profileError.value = ""
   try {
     const value = await getApi().world.getCharacter(props.entity.id || props.entity.entity_id, props.projectId)
-    if (generation === profileGeneration) fillProfile(value)
+    if (generation === profileGeneration) {
+      fillProfile(value)
+      profileLoaded.value = true
+    }
   } catch (error) {
     if (generation === profileGeneration) profileError.value = error?.message || "人物档案暂时无法读取"
   } finally {
@@ -79,6 +83,7 @@ watch(() => props.entity?.id || props.entity?.entity_id, () => {
   profileOpen.value = false
   profileLoading.value = false
   profileSaving.value = false
+  profileLoaded.value = false
   profileError.value = ""
   fillProfile()
 })

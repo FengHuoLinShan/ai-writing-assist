@@ -35,7 +35,6 @@ vi.mock("../../../../shared/assetDisplayState.js", () => ({
 }))
 
 import WorldBibleTab from "../../../../vue/views/world/bible/WorldBibleTab.vue"
-import WorldEntityDetail from "../../../../vue/views/world/library/WorldEntityDetail.vue"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../../vue/bridge/index.js"
 import { resetWorldSession, worldSession } from "../../../../vue/views/world/worldSession.js"
 import { pollTaskProgress } from "../../../../shared/workflowProgress.js"
@@ -2465,8 +2464,10 @@ describe("beforeunload 守卫", () => {
     removeSpy.mockRestore()
   })
 
-  it("人物档案有未保存修改时同样拦截刷新，保存后解除", async () => {
+  it("人物档案修改后收起仍拦截刷新，保存后解除", async () => {
     const listenerSpy = vi.spyOn(window, "addEventListener")
+    globalThis.api.world.getCharacter = vi.fn(async () => ({ entity_id: "character-1", role: "主角" }))
+    globalThis.api.world.updateCharacter = vi.fn(async (_id, payload) => ({ entity_id: "character-1", ...payload }))
     const wrapper = mountTab({
       defaultDisplayMode: "gallery",
       bible: {
@@ -2477,16 +2478,19 @@ describe("beforeunload 守卫", () => {
       bibleDeepLink: { draftId: "", pageId: "", entityId: "character-1" },
     })
     const handler = listenerSpy.mock.calls.filter(([event]) => event === "beforeunload").at(-1)[1]
-    const detail = wrapper.getComponent(WorldEntityDetail)
+    const toggle = wrapper.get(".world-character-profile > header .btn")
 
-    detail.vm.$emit("profile-dirty", true)
-    await nextTick()
+    await toggle.trigger("click")
+    await vi.waitFor(() => expect(wrapper.findAll(".world-character-profile textarea").length).toBeGreaterThan(0))
+    await wrapper.findAll(".world-character-profile textarea")[0].setValue("守门人")
+    await toggle.trigger("click")
     let event = new Event("beforeunload", { cancelable: true })
     handler(event)
     expect(event.defaultPrevented).toBe(true)
 
-    detail.vm.$emit("profile-dirty", false)
-    await nextTick()
+    await toggle.trigger("click")
+    await wrapper.get(".world-character-profile__actions .btn").trigger("click")
+    await vi.waitFor(() => expect(globalThis.api.world.updateCharacter).toHaveBeenCalledTimes(1))
     event = new Event("beforeunload", { cancelable: true })
     handler(event)
     expect(event.defaultPrevented).toBe(false)

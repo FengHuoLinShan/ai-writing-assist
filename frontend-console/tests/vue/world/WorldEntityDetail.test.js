@@ -53,6 +53,22 @@ describe("WorldEntityDetail 人物档案", () => {
     expect(wrapper.findAll("textarea")[0].element.value).toBe("守门人")
   })
 
+  it("收起人物档案仍保留未保存状态，保存后解除", async () => {
+    const wrapper = mountDetail()
+    const toggle = wrapper.get(".world-character-profile > header .btn")
+    await toggle.trigger("click")
+    await vi.waitFor(() => expect(wrapper.findAll("textarea").length).toBeGreaterThan(0))
+    await wrapper.findAll("textarea")[0].setValue("守门人")
+    expect(wrapper.emitted("profile-dirty").at(-1)).toEqual([true])
+
+    await toggle.trigger("click")
+    expect(wrapper.emitted("profile-dirty").at(-1)).toEqual([true])
+
+    await toggle.trigger("click")
+    await wrapper.get(".world-character-profile__actions .btn").trigger("click")
+    await vi.waitFor(() => expect(wrapper.emitted("profile-dirty").at(-1)).toEqual([false]))
+  })
+
   it("切换对象后忽略旧人物档案的晚到响应", async () => {
     let resolve
     api.world.getCharacter.mockImplementationOnce(() => new Promise((done) => { resolve = done }))
