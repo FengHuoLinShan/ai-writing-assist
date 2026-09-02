@@ -68,5 +68,5 @@ make docs-check BASE_REF=origin/main  # 仓库根目录，文档同步核对
 
 ## 已知但不属于本规范范围的问题
 
-- `:save` / `:export` 是只 toast 不执行的假命令（`frontend-console/commands.js:188-196`）——产品决策项，UI 执行不得擅自实现或删除。
+- 命令面板只保留能直接落到作者任务的入口；资料检索使用 `:search <关键词>` 或 `/关键词`，不向作者暴露 RAG、Context、Generate 等内部架构名。
 - RP 路径与作者路径的主题切换入口重复（InteractionView 内置 vs Topbar ThemePicker）——裁定见 `pages/rp-experience.md`。

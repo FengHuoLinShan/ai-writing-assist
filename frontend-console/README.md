@@ -170,6 +170,8 @@ frontend-console/
 └── README.md
 ```
 
+命令面板使用作者可理解的入口；资料检索为 `:search <关键词>` 或 `/关键词`，不直接展示 RAG、Context、Generate 等内部架构名。
+
 ## 技术栈
 
 - Vue 3 SFC shell + 业务页面（ADR-0009）：Vue 拥有静态外壳和所有实际路由目标的

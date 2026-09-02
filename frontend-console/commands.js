@@ -108,7 +108,7 @@ function getHelpText() {
 
   lines.push("")
   lines.push("搜索：")
-  lines.push("  /关键词    搜索所有模块")
+  lines.push("  /关键词    查找作品资料")
   lines.push("")
   lines.push("快捷键：")
   lines.push("  按 ? 查看所有快捷键")
@@ -128,7 +128,7 @@ registerCommand("help", () => {
 
 registerCommand("projects", async () => {
   await router.navigate("project")
-}, "查看项目列表")
+}, "查看作品列表")
 
 registerCommand("open", async (args) => {
   if (args[0]) {
@@ -163,27 +163,18 @@ registerCommand("candidates", async () => {
   await router.navigate("world", "review-objects")
 }, "打开待处理内容")
 
-registerCommand("rag", async (args) => {
-  if (args[0] === "search" && args[1]) {
-    state.searchQuery = args.slice(1).join(" ")
+registerCommand("search", async (args) => {
+  if (args[0]) {
+    state.searchQuery = args.join(" ")
     await router.navigate("rag", "search", true, new URLSearchParams({ q: state.searchQuery }))
   } else {
-    await router.navigate("rag", "status")
+    await router.navigate("rag", "search")
   }
-}, "RAG 检索", "search <关键词>")
-
-registerCommand("context", async () => {
-  const query = new URLSearchParams({ tab: "task" })
-  await router.navigate("generate", null, true, query)
-}, "编译上下文")
+}, "查找作品资料", "<关键词>")
 
 registerCommand("writing", async () => {
   await router.navigate("writing")
 }, "打开写作工作台")
-
-registerCommand("generate", async () => {
-  await router.navigate("generate")
-}, "打开生成中心")
 
 // 公开 API
 window.commands = { execute: executeCommand, getSuggestions, getHelpText }

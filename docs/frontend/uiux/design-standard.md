@@ -317,7 +317,8 @@
 本轮三主题改造已完成：styles.css 三套旧主题色板死代码删除；兼容别名层收敛为
 `--archive-*` 转发别名；styles.css 头部失效文档引用改指本文件；旧 Editorial Archive
 装饰（folio 页码、章字水印、网格纸底、藏青侧栏、3px 顶条、first-letter 朱红、settings ⚙︎
-装饰）随 editorial-theme.css 瘦身移除。仍待处理（均与主题无关）：
+装饰）随 editorial-theme.css 瘦身移除。命令面板也已删除假命令和 RAG、Context、Generate
+等内部架构入口，资料检索统一为 `:search <关键词>`。仍待处理（均与主题无关）：
 
 1. 孤儿文件 `frontend-console/shared/assetDisplayState 2.js`——确认无引用后删除。
 2. 非 scoped SFC 内联样式（CommandPalette.vue、ShellApp.vue、GenerateView.vue、
@@ -325,5 +326,3 @@
 3. 尾部补丁层（styles.css 若干"一致性补充"区块）——随各页面执行逐步归并入组件主规则，
    不单独一次性大搬移。
 4. 存量 `!important`——每处评估，能靠层叠解决的全部消除。
-5. 假命令 `:save`/`:export`（commands.js，只 toast 不执行）——**记录上报产品决定，不在
-   UI 执行范围内擅自处理**。
