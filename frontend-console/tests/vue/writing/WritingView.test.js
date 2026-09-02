@@ -1174,8 +1174,9 @@ describe("WritingView", () => {
     wrapper.unmount()
   })
 
-  it("今日字数跨章累计并在刷新后保留", async () => {
-    const today = new Date().toISOString().slice(0, 10)
+  it("今日字数只累计各章首次基线后的正增量，跨章与刷新不重计", async () => {
+    const now = new Date()
+    const today = new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10)
     localStorage.setItem(`novel_daily_wc_${today}_p1`, "10")
     const events = []
     const listener = (event) => events.push(event.detail)
@@ -1192,11 +1193,13 @@ describe("WritingView", () => {
       attachTo: document.body,
     })
     await flushPromises()
+    await vi.waitFor(() => expect(events.at(-1)?.todayWords).toBe(10))
+    expect(wrapper.get(".wc-daily-goal").text()).toContain("日目标 10 / 1,000")
     await wrapper.get("#writing-editor").setValue("第一章四字")
     await vi.waitFor(() => expect(events.at(-1)).toMatchObject({
       chapterIndex: 1,
       chapterWords: 5,
-      todayWords: 15,
+      todayWords: 13,
     }))
 
     const vm = wrapper.vm.$.setupState.vm
@@ -1208,8 +1211,9 @@ describe("WritingView", () => {
       chapterWords: 4,
     }))
 
-    // 章 1 的 5 字已折叠进 base：今日 = 10 + 5 + 4
-    expect(events.at(-1).todayWords).toBe(19)
+    // 两章首次加载的 2 字都只是基线：今日 = 10 + (5 - 2) + (4 - 2)
+    expect(events.at(-1).todayWords).toBe(15)
+    expect(wrapper.get(".wc-daily-goal").text()).toContain("日目标 15 / 1,000")
     wrapper.unmount()
     window.removeEventListener("writing:dashboard-update", listener)
 
@@ -1231,9 +1235,28 @@ describe("WritingView", () => {
     })
     await flushPromises()
     await reloaded.get("#writing-editor").setValue("二章三字")
-    await vi.waitFor(() => expect(events2.at(-1).todayWords).toBe(19))
+    await vi.waitFor(() => expect(events2.at(-1).todayWords).toBe(15))
     reloaded.unmount()
     window.removeEventListener("writing:dashboard-update", listener2)
+  })
+
+  it("删字不会让今日字数倒退或在补回时重计", async () => {
+    const events = []
+    const listener = (event) => events.push(event.detail)
+    window.addEventListener("writing:dashboard-update", listener)
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.get("#writing-editor").setValue("正文增加")
+    await vi.waitFor(() => expect(events.at(-1).todayWords).toBe(2))
+    await wrapper.get("#writing-editor").setValue("正")
+    await vi.waitFor(() => expect(events.at(-1).chapterWords).toBe(1))
+    expect(events.at(-1).todayWords).toBe(2)
+    await wrapper.get("#writing-editor").setValue("正文增加一")
+    await vi.waitFor(() => expect(events.at(-1).todayWords).toBe(3))
+
+    wrapper.unmount()
+    window.removeEventListener("writing:dashboard-update", listener)
   })
 
   it("组件卸载后忽略冲突检查的晚到结果", async () => {
@@ -1485,7 +1508,8 @@ describe("WritingView", () => {
   it("通过 CustomEvent 同步 topbar 字数、保存状态和卸载清理", async () => {
     const events = []
     const listener = (event) => events.push(event.detail)
-    const today = new Date().toISOString().slice(0, 10)
+    const now = new Date()
+    const today = new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10)
     localStorage.setItem(`novel_daily_wc_${today}_p1`, "10")
     window.addEventListener("writing:dashboard-update", listener)
     const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
@@ -1494,7 +1518,7 @@ describe("WritingView", () => {
     await vi.waitFor(() => expect(events.at(-1)).toEqual({
       chapterIndex: 1,
       chapterWords: 4,
-      todayWords: 14,
+      todayWords: 12,
       saveState: "unsaved",
     }))
     expect(wrapper.find('[data-action="toggle-outline-float"]').exists()).toBe(true)

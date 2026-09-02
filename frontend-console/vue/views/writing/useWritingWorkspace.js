@@ -161,6 +161,7 @@ export function useWritingWorkspace(props) {
   const versionLoadError = ref(null)
   const selectedChapter = ref(null)
   const selectedSceneId = ref(null)
+  const todayWords = ref(0)
   const editorState = reactive({
     chapter: null,
     draftId: null,
@@ -382,7 +383,8 @@ export function useWritingWorkspace(props) {
   }
 
   function dailyWordcountKeys() {
-    const today = new Date().toISOString().slice(0, 10)
+    const now = new Date()
+    const today = new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10)
     const suffix = projectId || "global"
     return {
       base: `novel_daily_wc_${today}_${suffix}`,
@@ -397,40 +399,48 @@ export function useWritingWorkspace(props) {
     } catch { return 0 }
   }
 
-  function readDailyOpenChapter(keys) {
+  function readDailyChapters(keys) {
     try {
       const parsed = JSON.parse(localStorage.getItem(keys.open) || "null")
-      if (parsed && typeof parsed.chapter === "number" && typeof parsed.words === "number") {
-        return parsed
-      }
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {}
     } catch { /* 损坏的缓存按无记录处理 */ }
-    return null
+    return {}
   }
 
   function noteDailyChapter(chapterIndex, words) {
-    // base 只累计“非当前章”的字数；当前章字数存 open 条目，
-    // 章切换/刷新时按 open 折叠进 base，避免同章字数被重复累计
     try {
       const keys = dailyWordcountKeys()
-      const open = readDailyOpenChapter(keys)
-      if (open && open.chapter !== chapterIndex) {
-        const base = Number(localStorage.getItem(keys.base) || 0) || 0
-        localStorage.setItem(keys.base, String(base + Math.max(0, open.words)))
+      const chapters = readDailyChapters(keys)
+      const key = String(Number(chapterIndex))
+      const currentWords = Math.max(0, Number(words) || 0)
+      const previousHighWater = Number(chapters[key]?.highWater)
+      if (!Number.isFinite(previousHighWater)) {
+        chapters[key] = { baseline: currentWords, highWater: currentWords }
+        localStorage.setItem(keys.open, JSON.stringify(chapters))
+        return dailyWordcount()
       }
-      localStorage.setItem(keys.open, JSON.stringify({ chapter: Number(chapterIndex), words }))
-    } catch { /* 存储失败不得影响输入 */ }
+      // ponytail: 删字后不回退今日字数，只在超过本章当日高水位时继续累计。
+      const increment = Math.max(0, currentWords - previousHighWater)
+      const total = dailyWordcount() + increment
+      chapters[key].highWater = Math.max(previousHighWater, currentWords)
+      localStorage.setItem(keys.base, String(total))
+      localStorage.setItem(keys.open, JSON.stringify(chapters))
+      return total
+    } catch { return dailyWordcount() /* 存储失败不得影响输入 */ }
   }
 
   function dispatchDashboardUpdate(chapterIndex = selectedChapter.value) {
     if (typeof window === "undefined") return
     if (chapterIndex != null) {
-      noteDailyChapter(Number(chapterIndex), editorState.content.length)
+      todayWords.value = noteDailyChapter(Number(chapterIndex), editorState.content.length)
+    } else {
+      todayWords.value = 0
     }
     window.dispatchEvent(new CustomEvent("writing:dashboard-update", {
       detail: {
         chapterIndex: chapterIndex == null ? null : Number(chapterIndex),
         chapterWords: chapterIndex == null ? 0 : editorState.content.length,
-        todayWords: chapterIndex == null ? 0 : dailyWordcount() + editorState.content.length,
+        todayWords: todayWords.value,
         saveState: chapterIndex == null ? "saved" : editorState.saving ? "saving" : editorState.dirty ? "unsaved" : "saved",
       },
     }))
@@ -1514,6 +1524,7 @@ export function useWritingWorkspace(props) {
     versionLoadError,
     selectedChapter,
     selectedSceneId,
+    todayWords,
     currentScene,
     editorState,
     generationLoading,

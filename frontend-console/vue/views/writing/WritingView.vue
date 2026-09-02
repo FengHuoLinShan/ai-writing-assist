@@ -247,7 +247,7 @@
       <div id="writing-wordcount-bar" class="writing-wordcount-bar">
         <span><strong>{{ statusWordCount.toLocaleString() }}</strong> 字</span>
         <span v-if="dailyGoalNumber" class="wc-daily-goal">
-          日目标 {{ statusWordCount.toLocaleString() }} / {{ dailyGoalNumber.toLocaleString() }}
+          日目标 {{ vm.todayWords.value.toLocaleString() }} / {{ dailyGoalNumber.toLocaleString() }}
           <span class="wc-goal-progress" aria-hidden="true"><span class="wc-goal-fill" :style="{ width: `${goalPercent}%` }" /></span>
         </span>
         <span>{{ statusParagraphCount }} 段</span>
@@ -404,7 +404,7 @@ const dailyGoalNumber = computed(() => {
   return Number.isFinite(goal) && goal > 0 ? goal : null
 })
 const goalPercent = computed(() => (
-  dailyGoalNumber.value ? Math.min(100, Math.round((statusWordCount.value / dailyGoalNumber.value) * 100)) : 0
+  dailyGoalNumber.value ? Math.min(100, Math.round((vm.todayWords.value / dailyGoalNumber.value) * 100)) : 0
 ))
 const versionLabel = computed(() => (
   vm.editorState.versionNumber ? `v${vm.editorState.versionNumber}${vm.editorState.readonly ? "（只读）" : ""}` : "未选择版本"
