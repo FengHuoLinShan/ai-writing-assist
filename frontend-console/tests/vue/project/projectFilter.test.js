@@ -44,7 +44,7 @@ describe("filterProjects", () => {
 })
 
 describe("projectStats", () => {
-  it("多字段回退与待接入文案", () => {
+  it("多字段回退与暂无统计文案", () => {
     expect(projectStats(base("a", { total_words: 12000, chapter_count: 3 }))).toMatchObject({
       wordCountText: "12,000",
       chapterCountText: "3",
@@ -53,9 +53,9 @@ describe("projectStats", () => {
     expect(projectStats(base("a", { word_count: 500 })).wordCountText).toBe("500")
     expect(projectStats(base("a", { statistics: { total_words: 800 } })).wordCountText).toBe("800")
     expect(projectStats(base("a"))).toMatchObject({
-      wordCountText: "待接入",
-      chapterCountText: "待接入",
-      wordCountTitle: "统计接入后显示总字数",
+      wordCountText: "暂无",
+      chapterCountText: "暂无",
+      wordCountTitle: "暂无字数统计",
     })
   })
 })
@@ -94,13 +94,13 @@ describe("标签与名称", () => {
   })
 
   it("projectCountLabel", () => {
-    expect(projectCountLabel(2, 5)).toBe("显示 2 / 共 5 个项目")
+    expect(projectCountLabel(2, 5)).toBe("显示 2 / 共 5 部作品")
   })
 
   it("projectName 回退", () => {
     expect(projectName({ title: "x" })).toBe("x")
     expect(projectName({ name: "y" })).toBe("y")
-    expect(projectName({})).toBe("未命名项目")
+    expect(projectName({})).toBe("未命名作品")
   })
 
   it("projectMonogram 取前两个字", () => {

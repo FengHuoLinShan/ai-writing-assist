@@ -121,7 +121,7 @@ describe("回收站", () => {
     document.getElementById("recycle-bulk-delete").onclick()
 
     expect(globalThis.toast).toHaveBeenCalledTimes(2)
-    expect(globalThis.toast).toHaveBeenLastCalledWith("请先选择项目", "warning")
+    expect(globalThis.toast).toHaveBeenLastCalledWith("请先选择作品", "warning")
     expect(globalThis.api.projects.restore).not.toHaveBeenCalled()
     expect(globalThis.api.projects.permanentDeleteMany).not.toHaveBeenCalled()
     expect(confirmAction).not.toHaveBeenCalled()
@@ -139,7 +139,7 @@ describe("回收站", () => {
     await document.querySelector('.restore-project-btn[data-id="d1"]').onclick()
 
     expect(globalThis.api.projects.restore).toHaveBeenCalledWith("d1")
-    expect(globalThis.toast).toHaveBeenCalledWith("项目已恢复", "success")
+    expect(globalThis.toast).toHaveBeenCalledWith("作品已恢复", "success")
     expect(globalThis.api.projects.list).toHaveBeenCalledTimes(1)
     expect(globalThis.state.projects).toEqual([{ id: "d1", title: "已恢复项目" }])
     expect(globalThis.router.refresh).not.toHaveBeenCalled()
@@ -230,7 +230,7 @@ describe("回收站", () => {
     await vi.waitFor(() => {
       expect(globalThis.api.projects.permanentDeleteMany).toHaveBeenCalledWith(["d1", "d2"])
     })
-    expect(globalThis.toast).toHaveBeenCalledWith("已永久删除 2 个项目", "success")
+    expect(globalThis.toast).toHaveBeenCalledWith("已永久删除 2 部作品", "success")
   })
 
   it.each([
@@ -430,7 +430,7 @@ describe("项目 modal 流程", () => {
     setBridgeOverrides({ showModalHtml })
     showCreateForm()
     expect(showModalHtml).toHaveBeenCalledWith(
-      "新建项目",
+      "新建作品",
       expect.stringContaining("create-title"),
       expect.arrayContaining([expect.objectContaining({ text: "创建" })]),
     )
@@ -481,7 +481,7 @@ describe("项目 modal 流程", () => {
     expect(globalThis.api.projects.update).toHaveBeenCalledWith("p1", expect.objectContaining({ title: "新标题", genre: "fantasy" }))
     expect(state.projects[0].title).toBe("新标题")
     expect(state.currentProject.title).toBe("新标题")
-    expect(globalThis.toast).toHaveBeenCalledWith("项目已更新", "success")
+    expect(globalThis.toast).toHaveBeenCalledWith("作品已更新", "success")
     expect(closeModal).not.toHaveBeenCalled()
   })
 
@@ -523,7 +523,7 @@ describe("项目 modal 流程", () => {
     const titleInput = document.getElementById("edit-title")
     titleInput.value = title
     expect(await saveHandler()).toBe(false)
-    expect(globalThis.toast).toHaveBeenCalledWith("请输入项目标题", "warning")
+    expect(globalThis.toast).toHaveBeenCalledWith("请输入作品标题", "warning")
     expect(globalThis.api.projects.update).not.toHaveBeenCalled()
     expect(document.activeElement).toBe(titleInput)
   })
@@ -573,7 +573,7 @@ describe("项目 modal 流程", () => {
     const titleInput = document.getElementById("create-title")
     titleInput.value = title
     expect(await createHandler()).toBe(false)
-    expect(globalThis.toast).toHaveBeenCalledWith("请输入项目标题", "warning")
+    expect(globalThis.toast).toHaveBeenCalledWith("请输入作品标题", "warning")
     expect(globalThis.api.projects.create).not.toHaveBeenCalled()
     expect(document.activeElement).toBe(titleInput)
   })
@@ -597,7 +597,7 @@ describe("项目 modal 流程", () => {
     expect(await createHandler()).toBe(true)
 
     expect(globalThis.api.projects.create).toHaveBeenCalledWith(expect.objectContaining({ title: "修剪后的标题" }))
-    expect(globalThis.toast).toHaveBeenCalledWith('项目 "修剪后的标题" 已创建', "success")
+    expect(globalThis.toast).toHaveBeenCalledWith("作品「修剪后的标题」已创建", "success")
     expect(state).toMatchObject({ currentProjectId: "p-created", currentProject: { title: "修剪后的标题" } })
     expect(globalThis.router.navigate).toHaveBeenCalledWith("writing")
   })
@@ -642,7 +642,7 @@ describe("项目 modal 流程", () => {
     await vi.waitFor(() => {
       expect(globalThis.api.projects.remove).toHaveBeenCalledWith("p1")
     })
-    expect(globalThis.toast).toHaveBeenCalledWith("项目「星际旅人」已移至回收站", "success")
+    expect(globalThis.toast).toHaveBeenCalledWith("作品「星际旅人」已移至回收站", "success")
     expect(clearSelection).toHaveBeenCalled()
     expect(state.projects).toEqual([])
     expect(globalThis.router.refresh).not.toHaveBeenCalled()
@@ -684,7 +684,7 @@ describe("项目 modal 流程", () => {
       await fileInput.onchange()
 
       expect(confirmAction).toHaveBeenCalledWith(
-        "将创建新项目「迷雾之城」并导入文件「迷雾之城.txt」。是否继续？",
+        "将创建新作品「迷雾之城」并导入文件「迷雾之城.txt」。是否继续？",
         expect.any(Function),
         "创建并导入",
       )
@@ -824,7 +824,7 @@ describe("项目 modal 流程", () => {
       expect(state.currentProject.id).toBe("p-new")
       expect(state.projects.map((project) => project.id)).toEqual(["p-old", "p-new"])
       expect(globalThis.toast).toHaveBeenCalledWith(
-        "导入失败：解析失败。项目「失败导入」已保留并选中，可在项目页重新导入文件",
+        "导入失败：解析失败。作品「失败导入」已保留并选中，可在作品页重新导入文件",
         "error",
       )
       expect(globalThis.router.navigate).toHaveBeenCalledWith("project")

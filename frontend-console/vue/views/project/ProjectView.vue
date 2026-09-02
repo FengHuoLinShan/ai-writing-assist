@@ -102,7 +102,7 @@ function openProject(id) {
   if (!project) return
   state.currentProjectId = id
   state.currentProject = project
-  getToast()(`已切换到项目：${project.title || project.name}`, "success")
+  getToast()(`已切换到作品：${project.title || project.name}`, "success")
   getRouter().navigate("today")
 }
 
@@ -123,10 +123,10 @@ function clearSelection() {
 function runBulkDelete() {
   const items = selectedItemsFrom(projects.value || [], selection)
   if (!items.length) {
-    getToast()("请先选择项目", "warning")
+    getToast()("请先选择作品", "warning")
     return
   }
-  getConfirmAction()(`确定将选中的 ${items.length} 个项目移入回收站吗？`, async () => {
+  getConfirmAction()(`确定将选中的 ${items.length} 部作品移入回收站吗？`, async () => {
     const modalOwner = document.querySelector("#modal-body > *")
     const result = await runBulkAction(items, async (project) => {
       await getApi().projects.remove(project.id)
@@ -171,7 +171,7 @@ async function retryProjects() {
         <p>收拢每一个世界，标记每一次续写。让正在发生的故事始终位于视线中心。</p>
       </div>
       <div class="project-archive-hero__summary">
-        <strong data-role="project-total-count">{{ totalCount }} 个项目</strong>
+        <strong data-role="project-total-count">{{ totalCount }} 部作品</strong>
         <div class="project-archive-hero__current">
           <span>当前作品</span>
           <b :title="currentName">{{ currentName }}</b>
@@ -180,7 +180,7 @@ async function retryProjects() {
           <button class="btn btn-primary" data-action="new" @click="showCreateForm">新建空白作品</button>
           <button class="btn btn-ghost" data-action="toggle-import" @click="toggleImportSection">{{ session.importSectionOpen ? "收起导入" : "导入已有作品" }}</button>
           <button class="btn btn-ghost" data-action="manage-projects" @click="session.manageMode = !session.manageMode">{{ session.manageMode ? "完成管理" : "管理作品" }}</button>
-          <button v-if="session.manageMode" class="btn btn-ghost" data-action="recycle-bin" @click="showRecycleBin()">回收站</button>
+          <button class="btn btn-ghost" data-action="recycle-bin" @click="showRecycleBin()">回收站</button>
         </div>
       </div>
     </header>
@@ -193,7 +193,7 @@ async function retryProjects() {
       <div class="project-catalog-state__mark" aria-hidden="true">!</div>
       <div class="project-catalog-state__copy">
         <span class="project-catalog-state__index">CONNECTION / 00</span>
-        <h2>项目列表暂时无法加载</h2>
+        <h2>作品列表暂时无法加载</h2>
         <p>{{ loadError }}</p>
         <div class="actions">
           <button class="btn btn-primary" data-action="retry-projects" @click="retryProjects">重新连接</button>
@@ -215,11 +215,11 @@ async function retryProjects() {
 
     <template v-else>
       <div v-if="loadError" class="alert alert-warning" role="alert">
-        <span>项目列表刷新失败，当前显示上次已加载的内容。</span>
+        <span>作品列表刷新失败，当前显示上次已加载的内容。</span>
         <button class="btn btn-sm" data-action="retry-projects" @click="retryProjects">重试</button>
       </div>
       <div class="project-index-bar">
-        <div class="view-toolbar project-search-toolbar" role="search" aria-label="搜索项目">
+        <div class="view-toolbar project-search-toolbar" role="search" aria-label="搜索作品">
           <label for="project-search-input">
             <span aria-hidden="true">搜索作品</span>
             <span class="sr-only">按名称搜索</span>
@@ -230,7 +230,7 @@ async function retryProjects() {
             data-role="project-search"
             type="search"
             v-model="session.searchQuery"
-            placeholder="输入项目名称"
+            placeholder="输入作品名称"
             autocomplete="off"
             ref="searchInput"
           />
@@ -238,15 +238,15 @@ async function retryProjects() {
           <span class="view-toolbar__count" data-role="project-filter-count" aria-live="polite">
             {{ filterCountLabel }}
           </span>
-          <span class="bulk-toolbar__hint">当前项目优先 · 其余按最近更新排序</span>
+          <span class="bulk-toolbar__hint">当前作品优先 · 其余按最近更新排序</span>
         </div>
         <div v-if="session.manageMode" class="project-index-bar__bulk">
-          <button class="btn btn-sm" data-action="select-visible-projects" :disabled="visibleIds.length === 0" :aria-label="`全选当前可见的 ${visibleIds.length} 个项目`" @click="selectAllVisible">全选当前可见项目</button>
+          <button class="btn btn-sm" data-action="select-visible-projects" :disabled="visibleIds.length === 0" :aria-label="`全选当前可见的 ${visibleIds.length} 部作品`" @click="selectAllVisible">全选当前可见作品</button>
           <div class="bulk-toolbar" data-scope="project-cards">
             <div class="bulk-toolbar__status">
               <strong>{{ selection.size }}</strong>
-              <span>项目已选</span>
-              <span class="bulk-toolbar__hint">只处理当前可见项目</span>
+              <span>部作品已选</span>
+              <span class="bulk-toolbar__hint">只处理当前可见作品</span>
             </div>
             <div class="bulk-toolbar__actions">
               <button
@@ -260,14 +260,14 @@ async function retryProjects() {
               >批量移入回收站</button>
               <button class="btn btn-sm" data-action="bulk-clear" data-scope="project-cards" :disabled="selection.size === 0" @click="clearSelection">清空</button>
             </div>
-            <span class="sr-only">已选择 {{ selection.size }} 项目</span>
+            <span class="sr-only">已选择 {{ selection.size }} 部作品</span>
           </div>
         </div>
       </div>
       <div class="project-grid">
         <div v-if="visibleProjects.length === 0" class="empty-state" data-role="project-search-empty">
-          <h2>没有找到匹配项目</h2>
-          <p>没有名称包含「{{ session.searchQuery.trim() }}」的项目。</p>
+          <h2>没有找到匹配作品</h2>
+          <p>没有名称包含「{{ session.searchQuery.trim() }}」的作品。</p>
           <div class="actions">
             <button class="btn btn-primary" data-action="clear-project-search" @click="clearProjectSearch">清除搜索</button>
           </div>
@@ -293,7 +293,7 @@ async function retryProjects() {
           data-action="new"
           role="button"
           tabindex="0"
-          aria-label="创建新项目"
+          aria-label="创建新作品"
           @click="showCreateForm"
           @keydown.enter="showCreateForm"
           @keydown.space.prevent="showCreateForm"
@@ -304,7 +304,7 @@ async function retryProjects() {
           </div>
           <div class="project-card-placeholder__copy">
             <span>新作品 / {{ String(visibleProjects.length + 1).padStart(2, "0") }}</span>
-            <strong>创建新项目</strong>
+            <strong>创建新作品</strong>
             <p>为一个新世界建立独立档案。</p>
           </div>
         </div>

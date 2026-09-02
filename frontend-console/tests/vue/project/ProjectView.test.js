@@ -84,14 +84,15 @@ describe("渲染状态", () => {
   it("有项目时渲染 hero、搜索条、卡片，管理操作渐进展开", async () => {
     const { wrapper } = mountView({ projects: [makeProject("p1"), makeProject("p2")] })
     expect(wrapper.find("#project-catalog-title").exists()).toBe(true)
-    expect(wrapper.find('[data-role="project-total-count"]').text()).toBe("2 个项目")
+    expect(wrapper.find('[data-role="project-total-count"]').text()).toBe("2 部作品")
+    expect(wrapper.find('[data-action="recycle-bin"]').exists()).toBe(true)
     expect(wrapper.findAll(".project-card[data-id]")).toHaveLength(2)
     expect(wrapper.find(".project-card-placeholder").exists()).toBe(true)
     expect(wrapper.find("#project-search-input").exists()).toBe(true)
     expect(wrapper.find('[data-action="select-visible-projects"]').exists()).toBe(false)
     await enterManageMode(wrapper)
-    expect(wrapper.find('[data-action="select-visible-projects"]').text()).toBe("全选当前可见项目")
-    expect(wrapper.find('[data-action="select-visible-projects"]').attributes("aria-label")).toBe("全选当前可见的 2 个项目")
+    expect(wrapper.find('[data-action="select-visible-projects"]').text()).toBe("全选当前可见作品")
+    expect(wrapper.find('[data-action="select-visible-projects"]').attributes("aria-label")).toBe("全选当前可见的 2 部作品")
   })
 
   it("管理模式在同页重挂载后保留", () => {
@@ -113,14 +114,14 @@ describe("渲染状态", () => {
   it("加载失败且无项目显示连接错误态", () => {
     const { wrapper } = mountView({ loadError: "连接被拒绝" })
     expect(wrapper.find('[role="alert"]').exists()).toBe(true)
-    expect(wrapper.text()).toContain("项目列表暂时无法加载")
+    expect(wrapper.text()).toContain("作品列表暂时无法加载")
     expect(wrapper.text()).toContain("连接被拒绝")
   })
 
   it("加载失败但有项目显示警告条", () => {
     const { wrapper } = mountView({ projects: [makeProject("p1")], loadError: "超时" })
     expect(wrapper.find(".alert-warning").exists()).toBe(true)
-    expect(wrapper.text()).toContain("项目列表刷新失败")
+    expect(wrapper.text()).toContain("作品列表刷新失败")
   })
 
   it("当前项目置顶并带 current 徽标", () => {
@@ -149,7 +150,7 @@ describe("渲染状态", () => {
       await wrapper.vm.$nextTick()
 
       expect(confirmAction).toHaveBeenCalledWith(
-        "将创建新项目「抽屉转交」并导入文件「抽屉转交.txt」。是否继续？",
+        "将创建新作品「抽屉转交」并导入文件「抽屉转交.txt」。是否继续？",
         expect.any(Function),
         "创建并导入",
       )
@@ -186,7 +187,7 @@ describe("搜索过滤", () => {
     })
     await wrapper.find("#project-search-input").setValue("星际")
     expect(wrapper.findAll(".project-card[data-id]")).toHaveLength(1)
-    expect(wrapper.find('[data-role="project-filter-count"]').text()).toContain("显示 1 / 共 2 个项目")
+    expect(wrapper.find('[data-role="project-filter-count"]').text()).toContain("显示 1 / 共 2 部作品")
 
     await wrapper.find("#project-search-input").setValue("不存在")
     expect(wrapper.findAll(".project-card[data-id]")).toHaveLength(0)
@@ -242,8 +243,8 @@ describe("选择与批量操作", () => {
     await enterManageMode(wrapper)
     await wrapper.find("#project-search-input").setValue("星际")
     const selectVisible = wrapper.find('[data-action="select-visible-projects"]')
-    expect(selectVisible.text()).toBe("全选当前可见项目")
-    expect(selectVisible.attributes("aria-label")).toBe("全选当前可见的 1 个项目")
+    expect(selectVisible.text()).toBe("全选当前可见作品")
+    expect(selectVisible.attributes("aria-label")).toBe("全选当前可见的 1 部作品")
 
     await selectVisible.trigger("click")
     expect(getBulkSelection(projectSession, PROJECT_CARDS_SCOPE)).toEqual(new Set(["p1"]))
@@ -339,11 +340,11 @@ describe("卡片操作", () => {
     const placeholder = wrapper.find(".project-card-placeholder")
     expect(placeholder.attributes("role")).toBe("button")
     expect(placeholder.attributes("tabindex")).toBe("0")
-    expect(placeholder.attributes("aria-label")).toBe("创建新项目")
+    expect(placeholder.attributes("aria-label")).toBe("创建新作品")
 
     await placeholder.trigger("click")
     expect(showModalHtml).toHaveBeenCalledTimes(1)
-    expect(showModalHtml).toHaveBeenCalledWith("新建项目", expect.any(String), expect.any(Array))
+    expect(showModalHtml).toHaveBeenCalledWith("新建作品", expect.any(String), expect.any(Array))
 
     showModalHtml.mockClear()
     await placeholder.trigger("keydown", { key: "Enter" })
@@ -359,7 +360,20 @@ describe("卡片操作", () => {
     await wrapper.find('.project-card[data-id="p1"]').trigger("click")
     expect(harness.state.currentProjectId).toBe("p1")
     expect(harness.state.currentProject.title).toBe("星际旅人")
-    expect(globalThis.toast).toHaveBeenCalledWith("已切换到项目：星际旅人", "success")
+    expect(globalThis.toast).toHaveBeenCalledWith("已切换到作品：星际旅人", "success")
+    expect(globalThis.router.navigate).toHaveBeenCalledWith("today")
+  })
+
+  it.each(["Enter", " "])("作品卡支持 %s 键打开", async (key) => {
+    const { wrapper, harness } = mountView({ projects: [makeProject("p1", { title: "星际旅人" })] })
+    const card = wrapper.find('.project-card[data-id="p1"]')
+
+    expect(card.attributes("role")).toBe("link")
+    expect(card.attributes("tabindex")).toBe("0")
+    expect(card.attributes("aria-label")).toBe("打开作品：星际旅人")
+    await card.trigger("keydown", { key })
+
+    expect(harness.state.currentProjectId).toBe("p1")
     expect(globalThis.router.navigate).toHaveBeenCalledWith("today")
   })
 
@@ -369,7 +383,7 @@ describe("卡片操作", () => {
     const { wrapper, harness } = mountView({ projects: [makeProject("p1")] })
     await enterManageMode(wrapper)
     await wrapper.find('[data-action="edit-project"]').trigger("click")
-    expect(showModalHtml).toHaveBeenCalledWith("编辑项目", expect.stringContaining("edit-title"), expect.any(Array))
+    expect(showModalHtml).toHaveBeenCalledWith("编辑作品", expect.stringContaining("edit-title"), expect.any(Array))
     expect(harness.state.currentProjectId).toBeNull()
   })
 
@@ -429,7 +443,6 @@ describe("重试与回收站入口", () => {
   it("回收站按钮触发回收站加载", async () => {
     globalThis.api.projects.listDeleted = vi.fn(async () => ({ items: [], total: 0 }))
     const { wrapper } = mountView({ projects: [makeProject("p1")] })
-    await enterManageMode(wrapper)
     await wrapper.find('[data-action="recycle-bin"]').trigger("click")
     await vi.waitFor(() => {
       expect(globalThis.api.projects.listDeleted).toHaveBeenCalled()

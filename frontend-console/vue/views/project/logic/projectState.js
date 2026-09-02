@@ -40,6 +40,6 @@ export async function loadProjectsIntoState() {
     }
     return { error: null }
   } catch (error) {
-    return { error: error?.message || "请检查连接后重试；现有项目数据没有被修改。" }
+    return { error: error?.message || "请检查连接后重试；现有作品数据没有被修改。" }
   }
 }

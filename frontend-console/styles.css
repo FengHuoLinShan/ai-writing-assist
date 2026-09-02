@@ -5366,6 +5366,12 @@ kbd {
   transform: translate(-2px, -2px);
 }
 
+.project-card:focus-visible {
+  border-color: var(--project-red);
+  outline: 2px solid var(--project-red);
+  outline-offset: 3px;
+}
+
 .project-card.current {
   border-color: var(--project-red);
   box-shadow: inset 0 0 0 1px var(--project-red);

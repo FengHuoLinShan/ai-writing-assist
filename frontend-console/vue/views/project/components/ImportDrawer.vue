@@ -113,9 +113,9 @@ function importAsNewProject() {
 <template>
   <div class="project-import-panel">
     <div class="project-import-panel__hint">
-      将小说文件导入到当前选中的项目。
-      <template v-if="hasProject">当前项目：<strong>{{ currentProject?.title || "" }}</strong></template>
-      <span v-else class="project-import-panel__hint-warning">请先点击项目行选择项目</span>
+      将小说文件导入到当前选中的作品。
+      <template v-if="hasProject">当前作品：<strong>{{ currentProject?.title || "" }}</strong></template>
+      <span v-else class="project-import-panel__hint-warning">请先选择一部作品</span>
     </div>
     <div class="project-import-panel__form">
       <div class="project-import-panel__field">
@@ -135,7 +135,7 @@ function importAsNewProject() {
         :disabled="uploading || !hasProject"
         @click="uploadFile"
       >{{ uploading ? `上传中 ${percent}%` : "上传并导入" }}</button>
-      <button type="button" class="btn btn-ghost" data-action="import" @click="importAsNewProject">导入为新项目</button>
+      <button type="button" class="btn btn-ghost" data-action="import" @click="importAsNewProject">导入为新作品</button>
     </div>
     <div id="pv-upload-progress" class="project-import-panel__progress">
       <WorkflowProgressCard
@@ -148,7 +148,7 @@ function importAsNewProject() {
     <div class="project-import-panel__history">
       <div class="project-import-panel__history-header">导入记录</div>
       <div id="import-list-body" class="project-import-panel__history-list" role="region" aria-label="导入记录" :aria-busy="historyLoading">
-        <p v-if="!hasProject" class="project-import-list__status" role="status" aria-live="polite">选择项目后查看导入记录。</p>
+        <p v-if="!hasProject" class="project-import-list__status" role="status" aria-live="polite">选择作品后查看导入记录。</p>
         <template v-else>
           <p v-if="historyLoading && !historyLoaded && !historyLoadFailed" class="project-import-list__status" role="status" aria-live="polite">加载中...</p>
           <div v-if="historyLoadFailed" class="alert alert-warning project-import-list__failure" role="alert">

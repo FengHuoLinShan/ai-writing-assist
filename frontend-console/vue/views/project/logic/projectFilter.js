@@ -4,7 +4,7 @@
  */
 
 export function projectName(project) {
-  return String(project?.title || project?.name || "未命名项目")
+  return String(project?.title || project?.name || "未命名作品")
 }
 
 export function projectActivityMs(project) {
@@ -36,7 +36,7 @@ export function filterProjects(projects = [], query = "") {
 }
 
 export function projectCountLabel(filteredCount, totalCount) {
-  return `显示 ${filteredCount} / 共 ${totalCount} 个项目`
+  return `显示 ${filteredCount} / 共 ${totalCount} 部作品`
 }
 
 const STAGE_LABELS = {
@@ -82,10 +82,10 @@ export function projectStats(project) {
   return {
     wordCount: Number(wordCount) || 0,
     chapterCount: Number(chapterCount) || 0,
-    wordCountText: wordCount === null || wordCount === undefined ? "待接入" : formatNumber(wordCount),
-    chapterCountText: chapterCount === null || chapterCount === undefined ? "待接入" : formatNumber(chapterCount),
-    wordCountTitle: wordCount === null || wordCount === undefined ? "统计接入后显示总字数" : "总字数",
-    chapterCountTitle: chapterCount === null || chapterCount === undefined ? "统计接入后显示章节数" : "章节数",
+    wordCountText: wordCount === null || wordCount === undefined ? "暂无" : formatNumber(wordCount),
+    chapterCountText: chapterCount === null || chapterCount === undefined ? "暂无" : formatNumber(chapterCount),
+    wordCountTitle: wordCount === null || wordCount === undefined ? "暂无字数统计" : "总字数",
+    chapterCountTitle: chapterCount === null || chapterCount === undefined ? "暂无章节统计" : "章节数",
   }
 }
 

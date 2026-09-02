@@ -48,7 +48,7 @@ export function editProject(id) {
 
   const formHtml = `
     <div class="form-group">
-      <label for="edit-title">项目标题</label>
+      <label for="edit-title">作品标题</label>
       <input class="form-input" id="edit-title" value="${esc(project.title || project.name || "")}" required />
     </div>
     <div class="form-group">
@@ -81,7 +81,7 @@ export function editProject(id) {
     </div>
   `
 
-  getShowModalHtml()("编辑项目", formHtml, [
+  getShowModalHtml()("编辑作品", formHtml, [
     {
       text: "保存",
       class: "btn-primary",
@@ -95,7 +95,7 @@ export function editProject(id) {
         const stage = document.getElementById("edit-stage")?.value
 
         if (!title) {
-          getToast()("请输入项目标题", "warning")
+          getToast()("请输入作品标题", "warning")
           titleInput?.focus()
           return false
         }
@@ -118,7 +118,7 @@ export function editProject(id) {
           if (state.currentProjectId === id && state.currentProject) {
             state.currentProject = { ...state.currentProject, ...updated }
           }
-          getToast()("项目已更新", "success")
+          getToast()("作品已更新", "success")
           return true
         } catch (err) {
           if (!ownsProjectModal(owner)) return true
@@ -137,13 +137,13 @@ export function deleteProject(id, { clearCurrentProjectSelection } = {}) {
   if (!project) return
   const name = project.title || project.name || "未命名"
   getConfirmAction()(
-    `确定要删除项目「${getEsc()(name)}」吗？删除后可在回收站中恢复。`,
+    `确定要删除作品「${getEsc()(name)}」吗？删除后可在回收站中恢复。`,
     async () => {
       const owner = captureProjectModalOwner()
       try {
         await getApi().projects.remove(id)
         if (!ownsProjectModal(owner)) return true
-        getToast()(`项目「${name}」已移至回收站`, "success")
+        getToast()(`作品「${name}」已移至回收站`, "success")
         state.projects = (state.projects || []).filter((item) => item.id !== id)
         if (state.currentProjectId === id) {
           clearCurrentProjectSelection?.()
@@ -163,7 +163,7 @@ export function deleteProject(id, { clearCurrentProjectSelection } = {}) {
 export function showCreateForm() {
   const formHtml = `
     <div class="form-group">
-      <label for="create-title">项目名称 *</label>
+      <label for="create-title">作品名称 *</label>
       <input class="form-input" id="create-title" placeholder="输入小说名称" required />
     </div>
     <div class="form-row">
@@ -195,7 +195,7 @@ export function showCreateForm() {
     </div>
   `
 
-  getShowModalHtml()("新建项目", formHtml, [
+  getShowModalHtml()("新建作品", formHtml, [
     {
       text: "创建",
       class: "btn-primary",
@@ -204,7 +204,7 @@ export function showCreateForm() {
         const owner = captureProjectModalOwner(titleInput)
         const title = titleInput?.value.trim() || ""
         if (!title) {
-          getToast()("请输入项目标题", "warning")
+          getToast()("请输入作品标题", "warning")
           titleInput?.focus()
           return false
         }
@@ -217,7 +217,7 @@ export function showCreateForm() {
             language: "zh",
           })
           if (!ownsProjectModal(owner)) return true
-          getToast()(`项目 "${title}" 已创建`, "success")
+          getToast()(`作品「${title}」已创建`, "success")
           const state = getAppState()
           if (state) {
             state.currentProjectId = project.id
@@ -245,7 +245,7 @@ function startImportAsNewProject(file) {
   const projectName = file.name.replace(/\.[^.]+$/, "").trim() || "未命名小说"
 
   getConfirmAction()(
-    `将创建新项目「${projectName}」并导入文件「${file.name}」。是否继续？`,
+    `将创建新作品「${projectName}」并导入文件「${file.name}」。是否继续？`,
     async () => {
       const owner = captureProjectModalOwner()
       const state = getAppState()
@@ -284,7 +284,7 @@ function startImportAsNewProject(file) {
         const nextStep = result.imported_chapters > 0
           ? "，可在写作台按需启动场景自动提取"
           : ""
-        toast(`项目「${projectName}」已创建，共解析 ${result.total_chapters || 0} 章，已保存 ${result.imported_chapters || 0} 章为章节工作稿${nextStep}`, "success")
+        toast(`作品「${projectName}」已创建，共解析 ${result.total_chapters || 0} 章，已保存 ${result.imported_chapters || 0} 章为章节工作稿${nextStep}`, "success")
         if (selectionUnchanged) {
           await getRouter().navigate("writing")
         }
@@ -306,8 +306,8 @@ function startImportAsNewProject(file) {
             state.currentProject = createdProject
           }
         }
-        const location = selectionUnchanged ? "已保留并选中，可在项目页重新导入文件" : "已保留在项目列表，可稍后选择并重新导入文件"
-        toast(`导入失败：${detail}。项目「${projectName}」${location}`, "error")
+        const location = selectionUnchanged ? "已保留并选中，可在作品页重新导入文件" : "已保留在作品列表，可稍后选择并重新导入文件"
+        toast(`导入失败：${detail}。作品「${projectName}」${location}`, "error")
         if (selectionUnchanged) {
           await getRouter().navigate("project")
         }

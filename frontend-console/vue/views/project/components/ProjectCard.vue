@@ -47,8 +47,13 @@ const cardClasses = computed(() => [
     :class="cardClasses"
     :data-id="project.id"
     data-action="open-project"
+    role="link"
+    tabindex="0"
+    :aria-label="`打开作品：${name}`"
     :aria-current="isCurrent ? 'true' : undefined"
     @click="emit('open', project.id)"
+    @keydown.enter.self="emit('open', project.id)"
+    @keydown.space.self.prevent="emit('open', project.id)"
   >
     <div class="project-card__visual" aria-hidden="true">
       <span class="project-card__visual-code">作品 / {{ String(index + 1).padStart(2, "0") }}</span>
@@ -75,7 +80,7 @@ const cardClasses = computed(() => [
           <span class="status-dot" :class="isCanonical ? 'canonical' : 'draft'"></span>
           <span>{{ isCanonical ? "进行中" : "已归档" }}</span>
         </div>
-        <span v-if="isCurrent" class="project-current-badge">当前项目</span>
+        <span v-if="isCurrent" class="project-current-badge">当前作品</span>
       </div>
       <div class="project-card__eyebrow">
         <span>{{ genre }}</span>
@@ -84,7 +89,7 @@ const cardClasses = computed(() => [
       </div>
       <h2 class="project-title">{{ name }}</h2>
       <p class="project-desc">{{ description }}</p>
-      <dl class="project-stats" aria-label="项目统计">
+      <dl class="project-stats" aria-label="作品统计">
         <div :title="stats.wordCountTitle">
           <dt>字数</dt>
           <dd>{{ stats.wordCountText }}</dd>
@@ -101,7 +106,7 @@ const cardClasses = computed(() => [
       <div class="project-card__footer">
         <div class="project-meta">{{ created ? `创建于 ${created}` : "刚刚创建" }}</div>
         <div class="project-card__actions">
-          <button class="btn btn-sm btn-primary" data-action="continue-writing" :data-id="project.id" @click.stop="emit('open', project.id)">继续创作</button>
+          <button class="btn btn-sm btn-primary" data-action="continue-writing" :data-id="project.id" @click.stop="emit('open', project.id)">继续写作</button>
           <button v-if="manage" class="btn btn-sm btn-ghost" data-action="edit-project" :data-id="project.id" @click.stop="emit('edit', project.id)">编辑</button>
           <button v-if="manage" class="btn btn-sm btn-danger" data-action="delete-project" :data-id="project.id" @click.stop="emit('delete', project.id)">删除</button>
         </div>

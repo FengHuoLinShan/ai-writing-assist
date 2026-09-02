@@ -99,7 +99,7 @@ Prompt 或 token；预算遗漏另行解释。作者可逐项移除/恢复、用
 | `vue/views/interaction/HomeChoiceView.vue` | `home` 路由与未登录公共首屏共用的双入口；公共模式只回传作者 / RP 选择，不请求受保护资料。已登录作者入口校验当前账户的已选作品并智能续接 Writing Home，无有效作品时回作品档案；RP 卡使用“进入互动故事”并解释一次角色扮演（RP） |
 | `vue/views/interaction/JourneyListView.vue` / `RpSourceSetup.vue` | `journeys` 路由；扁平旅程列表、新旅程、归档/搜索；新建页保留直接开场并可选复用/导入作者作品、恢复整理任务、确认关键歧义、点选自然语言匹配的章节内剧情候选和玩家身份 |
 | `vue/views/interaction/InteractionView.vue` | `interaction/{journey_id}` 路由；故事阅读、composer、流式恢复、分支、回顾、看海与右侧定位；source-bound 旅程从“更多 → 作品资料”抽屉查看版本/进度/本轮引用理由、固定/忽略对象并显式升级 |
-| `vue/views/project/ProjectView.vue` | `project` 路由（Vue island）；紧凑作品档案，默认主操作为“继续创作”，搜索/筛选单行展示；批量、编辑、删除和回收站只在“管理作品”模式出现；无作品时优先显示新建与导入 |
+| `vue/views/project/ProjectView.vue` | `project` 路由（Vue island）；紧凑作品档案，默认主操作为“继续写作”，搜索/筛选单行展示；回收站始终可见，批量、编辑和删除在“管理作品”模式渐进展开；作品卡支持鼠标、Enter 与 Space 打开；无作品时优先显示新建与导入 |
 | `vue/views/writing/home/WritingHomeView.vue` / `AuthorTasksView.vue` / `vue/views/today/TodayView.vue` | `writing?home=1` 的写作首页；已有章节时正文续写是唯一主行动，本机或服务器世界创作位置作为次级恢复入口；空白作品也以「开始第一章」进入正文，World Core 仅作次操作，导入整理和明确的世界工作稿仍可原位恢复。主行动后显示最多 3 项“计划中的任务”，`panel=tasks` 提供今天/收件箱/之后/已完成与次级归档。作者任务可完成；领域待决只返回所属页，后台整理只显示进度/恢复，三者不混用勾选。章节、Scene 与世界 Page/Entity 可就地建任务并返回类型化来源 |
 | `vue/views/rag/RagView.vue` / `vue/views/outline/components/OutlineHeader.vue` / `vue/views/scene/SceneWorkbenchView.vue` / `vue/views/world/WorldView.vue` / `vue/views/world/components/WorldReviewTab.vue` | 可切换子导航使用原生 button，当前项公开 `aria-current="page"`；Scene 工作台当前项保持非交互，避免同路由刷新 |
 | `vue/views/writing/WritingView.vue` | 纯章节目录、工作稿编辑器、手选 Scene 副驾驶与 AI 建议采用；普通模式可返回 `writing?home=1`，导航仍经过未保存正文离开门禁；光标不切换 Scene，AI/检查/发布统一消费手选 Scene；桌面与移动端共用白名单“本场”摘要，POV 可见资料只在点击后加载并隔离晚到响应；移动速记在 390px 使用原生 details，并可逆进入按项目恢复的完整编辑模式；自动保存、导入和候选采用继续保持原安全语义 |

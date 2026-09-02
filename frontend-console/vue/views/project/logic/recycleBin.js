@@ -58,7 +58,7 @@ export async function showRecycleBin(
     let listHtml = `
       <div class="recycle-bin">
         <div class="bulk-toolbar recycle-bin__toolbar">
-          <div class="bulk-toolbar__status"><span>回收站项目 · 共 ${esc(total)} 个</span></div>
+          <div class="bulk-toolbar__status"><span>回收站作品 · 共 ${esc(total)} 部</span></div>
           <div class="bulk-toolbar__actions">
             <button class="btn btn-sm" id="recycle-select-all">全选当前页</button>
             <button class="btn btn-sm btn-primary" id="recycle-bulk-restore" disabled>批量恢复</button>
@@ -164,7 +164,7 @@ function bindRecycleBinEvents(items, skip) {
     bulkRestoreButton.onclick = async () => {
       const selected = selectedRecycleProjects()
       if (!selected.length) {
-        toast("请先选择项目", "warning")
+        toast("请先选择作品", "warning")
         return
       }
       try {
@@ -173,11 +173,11 @@ function bindRecycleBinEvents(items, skip) {
         if (result.failed.length && result.success.length === 0) {
           toast(`批量恢复失败：${result.failed[0]?.error?.message || "未知错误"}`, "error")
         } else {
-          toast(bulkResultMessage(result, "批量恢复项目", (item) => item.title || item.name || item.id), result.failed.length ? "warning" : "success")
+          toast(bulkResultMessage(result, "批量恢复作品", (item) => item.title || item.name || item.id), result.failed.length ? "warning" : "success")
         }
         const { error } = await loadProjectsIntoState()
         if (!ownsMutationResult()) return
-        if (error) toast(`项目已恢复，但作品列表未能更新：${error}`, "warning")
+        if (error) toast(`作品已恢复，但作品列表未能更新：${error}`, "warning")
         showRecycleBin(projectSession.recycleBinSkip)
       } catch (err) {
         if (ownsMutationResult()) toast(`批量恢复失败：${err.message || "未知错误"}`, "error")
@@ -188,17 +188,17 @@ function bindRecycleBinEvents(items, skip) {
     bulkDeleteButton.onclick = () => {
       const selected = selectedRecycleProjects()
       if (!selected.length) {
-        toast("请先选择项目", "warning")
+        toast("请先选择作品", "warning")
         return
       }
-      getConfirmAction()(`确定永久删除选中的 ${selected.length} 个项目？此操作不可恢复。`, async () => {
+      getConfirmAction()(`确定永久删除选中的 ${selected.length} 部作品？此操作不可恢复。`, async () => {
         const actionOwner = document.querySelector("#modal-body > *") || modalOwner
         try {
           const result = await api.projects.permanentDeleteMany(
             selected.map((project) => project.id),
           )
           if (!ownsMutationResult(actionOwner)) return true
-          toast(`已永久删除 ${result.deleted_count} 个项目`, "success")
+          toast(`已永久删除 ${result.deleted_count} 部作品`, "success")
           if (getCloseModal()() === false) return true
           await showRecycleBin(projectSession.recycleBinSkip)
           return true
@@ -215,10 +215,10 @@ function bindRecycleBinEvents(items, skip) {
       try {
         await api.projects.restore(btn.dataset.id)
         if (!ownsMutationResult()) return
-        toast("项目已恢复", "success")
+        toast("作品已恢复", "success")
         const { error } = await loadProjectsIntoState()
         if (!ownsMutationResult()) return
-        if (error) toast(`项目已恢复，但作品列表未能更新：${error}`, "warning")
+        if (error) toast(`作品已恢复，但作品列表未能更新：${error}`, "warning")
         showRecycleBin(projectSession.recycleBinSkip)
       } catch (err) {
         if (ownsMutationResult()) toast(`恢复失败：${err.message}`, "error")
@@ -229,13 +229,13 @@ function bindRecycleBinEvents(items, skip) {
     btn.onclick = () => {
       const pid = btn.dataset.id
       getConfirmAction()(
-        "确定永久删除此项目？此操作不可恢复，所有关联数据将被级联删除。",
+        "确定永久删除此作品？此操作不可恢复，所有关联数据将被级联删除。",
         async () => {
           const actionOwner = document.querySelector("#modal-body > *") || modalOwner
           try {
             await api.projects.permanentDelete(pid)
             if (!ownsMutationResult(actionOwner)) return true
-            toast("项目已永久删除", "success")
+            toast("作品已永久删除", "success")
             if (getCloseModal()() === false) return true
             await showRecycleBin(projectSession.recycleBinSkip)
             return true
