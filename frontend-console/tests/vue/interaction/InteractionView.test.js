@@ -996,14 +996,13 @@ describe("RP 故事页", () => {
   })
 
   it("历史段落在原位说明新建分支并确认后重新生成", async () => {
+    const regeneration = deferred()
     api = makeApi({
-      regenerate: vi.fn(async () => ({
-        journey: journey({ selection_epoch: 4 }),
-        attempt: null,
-      })),
+      regenerate: vi.fn(() => regeneration.promise),
     })
     setBridgeOverrides({ api, router, toast, confirm, prompt: vi.fn() })
     const wrapper = mount(InteractionView, {
+      attachTo: document.body,
       props: { initialJourney: journey(), llmConnections: connected() },
     })
     const historicalButton = wrapper.get("[data-rp-message-id='a1'] .rp-mutation-button--retry")
@@ -1017,14 +1016,68 @@ describe("RP 故事页", () => {
     const confirmButton = [...dialog.querySelectorAll("button")]
       .find((button) => button.textContent === "从这里重新生成")
     confirmButton.click()
-    await flushPromises()
+    await vi.waitFor(() => expect(api.interactions.regenerate).toHaveBeenCalledOnce())
 
     expect(api.interactions.regenerate).toHaveBeenCalledWith(
       journey().id,
       "a1",
       expect.objectContaining({ expected_selection_epoch: 3 }),
     )
+    expect(wrapper.get("[data-rp-message-id='a1'] .rp-mutation-button--retry").text())
+      .toContain("正在重新生成")
+    const latestButton = wrapper.get("[data-rp-message-id='a2'] .rp-mutation-button--retry")
+    expect(latestButton.text()).toBe("重新生成")
+    expect(latestButton.attributes("aria-busy")).toBe("false")
+    expect(latestButton.element.disabled).toBe(true)
+
+    regeneration.resolve({
+      journey: journey({
+        selection_epoch: 4,
+        selected_leaf_node_id: "u1",
+        messages: journey().messages.slice(0, 1),
+      }),
+      attempt: null,
+    })
+    await flushPromises()
     expect(document.querySelector("#rp-historical-regenerate-confirm")).toBeNull()
+    expect(document.activeElement).toBe(wrapper.get(".rp-story-scroll").element)
+    wrapper.unmount()
+  })
+
+  it("历史段落确认在分支变化后失效关闭", async () => {
+    api = makeApi({
+      listBranches: vi.fn(async () => ({
+        variants: [
+          { node_id: "a1-other", selected: false, ordinal: 1, total: 2, excerpt: "另一个发展。" },
+          { node_id: "a2", selected: true, ordinal: 2, total: 2, excerpt: "当前发展。" },
+        ],
+      })),
+      selectBranch: vi.fn(async () => journey({ selection_epoch: 4 })),
+    })
+    setBridgeOverrides({ api, router, toast, confirm, prompt: vi.fn() })
+    const wrapper = mount(InteractionView, {
+      props: { initialJourney: journey(), llmConnections: connected() },
+    })
+    await vi.waitFor(() => expect(wrapper.text()).toContain("其他分支 2/2"))
+    await wrapper.findAll(".rp-message__actions button")
+      .find((button) => button.text() === "其他分支 2/2")
+      .trigger("click")
+    await wrapper.get("[data-rp-message-id='a1'] .rp-mutation-button--retry")
+      .trigger("click")
+
+    await wrapper.findAll(".rp-branch-popover button")
+      .find((button) => button.text().includes("另一个发展"))
+      .trigger("click")
+    await flushPromises()
+    const dialog = document.querySelector("#rp-historical-regenerate-confirm")
+    ;[...dialog.querySelectorAll("button")]
+      .find((button) => button.textContent === "从这里重新生成")
+      .click()
+    await flushPromises()
+
+    expect(api.interactions.regenerate).not.toHaveBeenCalled()
+    expect(document.querySelector("#rp-historical-regenerate-confirm")).toBeNull()
+    expect(toast).toHaveBeenCalledWith("当前发展已变化，请在新位置重新选择", "info")
   })
 
   it("回顾使用固定自然分区，手工编辑受离开保护并显式保存", async () => {

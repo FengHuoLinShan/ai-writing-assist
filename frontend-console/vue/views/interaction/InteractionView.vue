@@ -56,9 +56,11 @@ const composing = ref(false)
 const editingNodeId = ref(null)
 const sending = ref(false)
 const mutationAction = ref("")
+const mutationTargetNodeId = ref("")
 const regenerateConfirmOpen = ref(false)
 const regenerateConfirmMessage = ref(null)
 const regenerateConfirmAnchor = ref(null)
+const regenerateConfirmOwner = ref(null)
 const stopping = ref(false)
 const conflict = ref(null)
 const connectionProblem = ref(false)
@@ -103,6 +105,7 @@ const treeLoadError = ref("")
 const branchesByNode = ref({})
 const branchOpenNode = ref(null)
 const storyPane = ref(null)
+const stopButton = ref(null)
 const composerInput = ref(null)
 const selectedStoryText = ref("")
 const newContent = ref(false)
@@ -589,7 +592,12 @@ async function followAttempt(attempt) {
 
 async function startMutation(
   run,
-  { action = "send", preserveComposer = false, usesComposer = false } = {},
+  {
+    action = "send",
+    preserveComposer = false,
+    targetNodeId = "",
+    usesComposer = false,
+  } = {},
 ) {
   if (sending.value) return null
   if (!requireModelConnection()) return null
@@ -607,6 +615,7 @@ async function startMutation(
   )
   sending.value = true
   mutationAction.value = action
+  mutationTargetNodeId.value = targetNodeId
   conflict.value = null
   try {
     const result = await run()
@@ -647,6 +656,7 @@ async function startMutation(
     if (!disposed && journeyId.value === requestJourneyId) {
       sending.value = false
       mutationAction.value = ""
+      mutationTargetNodeId.value = ""
     }
   }
 }
@@ -754,21 +764,31 @@ async function keepPartial() {
   }
 }
 
-function runRegenerate(message) {
+function runRegenerate(message, expectedSelectionEpoch = journey.value.selection_epoch) {
   return startMutation(() => getApi().interactions.regenerate(
     journeyId.value,
     message.id,
     {
-      expected_selection_epoch: journey.value.selection_epoch,
+      expected_selection_epoch: expectedSelectionEpoch,
       idempotency_key: interactionOperationKey("regenerate"),
     },
-  ), { action: "regenerate", preserveComposer: true })
+  ), { action: "regenerate", preserveComposer: true, targetNodeId: message.id })
+}
+
+function isRegeneratingMessage(nodeId) {
+  return sending.value
+    && mutationAction.value === "regenerate"
+    && mutationTargetNodeId.value === nodeId
 }
 
 async function regenerate(message, event) {
   if (message.id !== lastStoryMessageId.value) {
     regenerateConfirmMessage.value = message
     regenerateConfirmAnchor.value = event?.currentTarget || null
+    regenerateConfirmOwner.value = {
+      journeyId: journeyId.value,
+      selectionEpoch: journey.value.selection_epoch,
+    }
     regenerateConfirmOpen.value = true
     return
   }
@@ -779,12 +799,26 @@ function closeRegenerateConfirm() {
   regenerateConfirmOpen.value = false
   regenerateConfirmMessage.value = null
   regenerateConfirmAnchor.value = null
+  regenerateConfirmOwner.value = null
 }
 
 async function confirmHistoricalRegenerate() {
-  if (!regenerateConfirmMessage.value) return
-  const result = await runRegenerate(regenerateConfirmMessage.value)
-  if (result) closeRegenerateConfirm()
+  const message = regenerateConfirmMessage.value
+  const owner = regenerateConfirmOwner.value
+  if (!message || !owner) return
+  if (
+    journeyId.value !== owner.journeyId
+    || journey.value.selection_epoch !== owner.selectionEpoch
+  ) {
+    closeRegenerateConfirm()
+    getToast()("当前发展已变化，请在新位置重新选择", "info")
+    return
+  }
+  const result = await runRegenerate(message, owner.selectionEpoch)
+  if (!result) return
+  closeRegenerateConfirm()
+  await nextTick()
+  ;(stopButton.value || storyPane.value)?.focus?.()
 }
 
 function editUser(message) {
@@ -1923,7 +1957,7 @@ onBeforeUnmount(() => {
       </details>
     </header>
 
-    <section ref="storyPane" class="rp-story-scroll" @scroll="onStoryScroll">
+    <section ref="storyPane" class="rp-story-scroll" tabindex="-1" aria-label="故事正文" @scroll="onStoryScroll">
       <details
         v-if="setupMessages.length"
         class="rp-setup-history"
@@ -1986,12 +2020,12 @@ onBeforeUnmount(() => {
               class="rp-message-action-button rp-mutation-button rp-mutation-button--retry"
               type="button"
               :disabled="sending || isGenerating || awaitingContinue"
-              :aria-busy="sending && mutationAction === 'regenerate'"
+              :aria-busy="isRegeneratingMessage(message.id)"
               :aria-haspopup="message.id === lastStoryMessageId ? undefined : 'dialog'"
               :aria-controls="message.id === lastStoryMessageId ? undefined : 'rp-historical-regenerate-confirm'"
               :aria-expanded="message.id === lastStoryMessageId ? undefined : regenerateConfirmOpen && regenerateConfirmMessage?.id === message.id"
               @click="regenerate(message, $event)"
-            ><span v-if="sending && mutationAction === 'regenerate'" class="rp-button-spinner" aria-hidden="true"></span>{{ sending && mutationAction === 'regenerate' ? '正在重新生成…' : '重新生成' }}</button>
+            ><span v-if="isRegeneratingMessage(message.id)" class="rp-button-spinner" aria-hidden="true"></span>{{ isRegeneratingMessage(message.id) ? '正在重新生成…' : '重新生成' }}</button>
             <button
               v-if="message.id === lastStoryMessageId && branchPosition(message.id)"
               type="button"
@@ -2164,6 +2198,7 @@ onBeforeUnmount(() => {
         ></textarea>
         <button
           v-if="isGenerating"
+          ref="stopButton"
           class="rp-stop-button"
           :class="{ 'is-loading': stopping }"
           type="button"
@@ -2257,7 +2292,7 @@ onBeforeUnmount(() => {
       <RpAdaptiveConfirmPopover
         id="rp-historical-regenerate-confirm"
         :anchor="regenerateConfirmAnchor"
-        :busy="sending && mutationAction === 'regenerate'"
+        :busy="isRegeneratingMessage(regenerateConfirmMessage?.id)"
         busy-text="正在重新生成…"
         confirm-text="从这里重新生成"
         message="这会从选中段落前创建一条新分支；之后的内容不会删除，可在“查看所有分支”中找回。"

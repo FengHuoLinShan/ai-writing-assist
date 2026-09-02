@@ -423,6 +423,7 @@ test.describe("RP 路由与窄屏故事页", () => {
       expected_selection_epoch: 3,
     }))
     await expect(dialog).toHaveCount(0)
+    await expect(page.locator(".rp-story-scroll")).toBeFocused()
     expect(browserErrors).toEqual([])
   })
 
