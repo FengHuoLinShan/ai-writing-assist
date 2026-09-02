@@ -47,6 +47,7 @@
   --bg-base: var(--nc-bg);
   --bg-panel: var(--nc-surface);
   --bg-elevated: var(--nc-surface);
+  --bg-muted: var(--nc-surface-muted);
   --bg-hover: color-mix(in srgb, var(--nc-ink) 5%, transparent);
   --bg-active: color-mix(in srgb, var(--nc-ink) 9%, transparent);
   --text-primary: var(--nc-ink);

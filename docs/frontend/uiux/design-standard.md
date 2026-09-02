@@ -85,7 +85,7 @@
 
 | 语义 | Token | 转发来源 |
 |---|---|---|
-| 背景 | `--bg-base / --bg-panel / --bg-elevated / --bg-hover / --bg-active` | nc-bg / nc-surface / nc-surface / nc-ink 5% / nc-ink 9% |
+| 背景 | `--bg-base / --bg-panel / --bg-elevated / --bg-muted / --bg-hover / --bg-active` | nc-bg / nc-surface / nc-surface / nc-surface-muted / nc-ink 5% / nc-ink 9% |
 | 文字 | `--text-primary / --text-body / --text-secondary / --text-tertiary / --text-quaternary` | nc-ink / nc-body / nc-dim / nc-faint / nc-ghost |
 | 强调 | `--accent / --text-on-accent / --accent-hover / --accent-soft / --accent-glow` | nc-accent / nc-on-accent / accent 85%+ink / nc-accent-soft / nc-accent-soft |
 | 语义色 | `--success(-soft)`、`--warning(-soft)`、`--error(-soft)`、`--info(-soft)` | 对应 `--nc-*`；info = nc-accent |
@@ -133,8 +133,9 @@
 
 ## 2. 色彩策略
 
-- **表面三层**：`--nc-bg`（页底）→ `--nc-surface`（卡片/面板/稿纸）→ `--nc-surface-muted`
-  （沉底/轨道）。层级靠表面明度差 + 1px hairline，不靠阴影。
+- **表面三层**：`--bg-base`（页底）→ `--bg-panel`（卡片/面板/稿纸）→ `--bg-muted`
+  （静态弱表面/沉底/轨道）；`--bg-hover`、`--bg-active` 只表达交互状态。层级靠表面明度差 +
+  1px hairline，不靠阴影。
 - **强调色使用约束**（原「朱红白名单」；各主题 accent 不同——sticky 蓝 / night 金 / ink 朱砂；
   以下用途之外新增使用需回改本表）：
   1. 主操作按钮（每屏至多一个 primary，accent 实心 + 通过 4.5:1 的主题前景色，见 §5.1 Button）
