@@ -1762,6 +1762,7 @@ describe("RP 故事页", () => {
         initialJourney: journey(),
         llmConnections: connected(),
       },
+      attachTo: document.body,
     })
     const requestedThemes = []
     wrapper.element.addEventListener("shell-theme-request", (event) => {
@@ -1775,12 +1776,30 @@ describe("RP 故事页", () => {
     expect(menu.text()).toContain("晨光便签")
     expect(menu.text()).toContain("暗夜书房")
     expect(menu.text()).toContain("水墨写意")
+    expect(menu.get('.rp-more-menu__themes [role="menu"]').attributes("aria-label"))
+      .toBe("选择阅读主题")
+    const themeItems = menu.findAll('[role="menuitemradio"]')
+    expect(themeItems[0].attributes("aria-checked")).toBe("true")
+    expect(themeItems[1].attributes("aria-checked")).toBe("false")
+    themeItems[0].element.focus()
+    await themeItems[0].trigger("keydown", { key: "ArrowDown" })
+    expect(document.activeElement).toBe(themeItems[1].element)
+    await themeItems[1].trigger("keydown", { key: "Escape" })
+    await flushPromises()
+    expect(menu.element.open).toBe(false)
+    expect(document.activeElement).toBe(menu.get("summary").element)
+
+    menu.element.open = true
     await menu.findAll(".rp-more-menu__themes button")
       .find((button) => button.text().includes("暗夜书房"))
       .trigger("click")
+    await flushPromises()
 
     expect(requestedThemes).toEqual(["night"])
     expect(menu.element.open).toBe(false)
+    expect(menu.get('[data-theme-value="night"]').attributes("aria-checked")).toBe("true")
+    expect(document.activeElement).toBe(menu.get("summary").element)
+    wrapper.unmount()
   })
 
   it("短历史显示逐段刻度，点击仍使用完整路径定位接口", async () => {

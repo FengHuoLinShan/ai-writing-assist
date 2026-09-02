@@ -36,11 +36,9 @@
 5. **危险操作三种确认范式并存**：列表归档用原生 `confirm`（JourneyListView.vue:262）、
    永久删除用原生 `prompt` 输入完整标题（:283-286），而看海确认是定制
    RpAdaptiveConfirmPopover。原生对话框无 RP 视觉、无移动端适配。
-6. **主题选择器两套实现不对等**：RP 内置版（InteractionView.vue:1584-1596）是纯 button 列表
-   + `aria-pressed`，无 menu/menuitemradio 语义、无键盘导航、无 Escape 与焦点管理；
-   Topbar ThemePicker 有完整实现。**裁定（有意保留双入口）**：沉浸路径隐藏 Topbar
-   （ShellApp.vue:7-9），RP 侧**保留** InteractionView 内置入口，不属重复缺陷；
-   但必须把两者的菜单视觉与可访问语义统一（见 §4.8）。
+6. **已解决：沉浸主题入口语义完整**。RP 内置版继续复用 `SHELL_THEMES`，主题项使用
+   `menuitemradio` + `aria-checked`；方向键/Home/End 移动焦点，Escape、关闭按钮和遮罩关闭后
+   都把焦点还给「更多操作」。沉浸路径隐藏 Topbar，因此保留此独立入口不属于重复功能。
 7. **已解决：流式滚动与 reduced-motion**。故事容器不再设置 smooth，逐 chunk 使用直接滚动；
    离散定位仍按系统 reduced-motion 选择 smooth/auto，入口卡与操作行过渡在减弱动效时停用。
 8. **设置页是作者语言飞地**：RP 用户点「账户设置」进入的 GlobalSettingsView 用

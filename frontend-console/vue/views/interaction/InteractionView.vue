@@ -908,6 +908,33 @@ function closeMoreMenu() {
   if (moreMenu.value) moreMenu.value.open = false
 }
 
+function closeMoreMenuAndFocus() {
+  closeMoreMenu()
+  void nextTick(() => moreMenu.value?.querySelector?.("summary")?.focus?.())
+}
+
+function onThemeMenuKeydown(event) {
+  const items = [...event.currentTarget.querySelectorAll('[role="menuitemradio"]')]
+  if (event.key === "Escape") {
+    event.preventDefault()
+    closeMoreMenuAndFocus()
+    return
+  }
+  const current = items.indexOf(document.activeElement)
+  const next = event.key === "Home"
+    ? items[0]
+    : event.key === "End"
+      ? items.at(-1)
+      : ["ArrowRight", "ArrowDown"].includes(event.key)
+        ? items[(current + 1 + items.length) % items.length]
+        : ["ArrowLeft", "ArrowUp"].includes(event.key)
+          ? items[(current - 1 + items.length) % items.length]
+          : null
+  if (!next) return
+  event.preventDefault()
+  next.focus()
+}
+
 async function openSourceInfo() {
   if (!journey.value?.source) return
   closeMoreMenu()
@@ -1021,7 +1048,7 @@ function selectTheme(value, event) {
     "shell-theme-request",
     { bubbles: true, detail: theme },
   ))
-  closeMoreMenu()
+  closeMoreMenuAndFocus()
 }
 
 async function openTree() {
@@ -1813,18 +1840,18 @@ onBeforeUnmount(() => {
         <strong>{{ journey.title }}</strong>
         <span>互动故事</span>
       </div>
-      <details ref="moreMenu" class="rp-more-menu">
+      <details ref="moreMenu" class="rp-more-menu" @keydown.esc.stop.prevent="closeMoreMenuAndFocus">
         <summary aria-label="更多操作">•••</summary>
         <button
           class="rp-sheet-backdrop"
           type="button"
           aria-label="关闭更多操作"
-          @click="closeMoreMenu"
+          @click="closeMoreMenuAndFocus"
         ></button>
         <div>
           <header class="rp-more-menu__header">
             <strong>更多操作</strong>
-            <button type="button" aria-label="关闭更多操作" @click="closeMoreMenu">×</button>
+            <button type="button" aria-label="关闭更多操作" @click="closeMoreMenuAndFocus">×</button>
           </header>
           <button type="button" @click="closeMoreMenu(); renameJourney()">重命名旅程</button>
           <button type="button" @click="closeMoreMenu(); openTree()">查看所有分支</button>
@@ -1837,13 +1864,15 @@ onBeforeUnmount(() => {
           </button>
           <section class="rp-more-menu__themes" aria-label="主题">
             <span>主题</span>
-            <div>
+            <div role="menu" aria-label="选择阅读主题" @keydown="onThemeMenuKeydown">
               <button
                 v-for="theme in SHELL_THEMES"
                 :key="theme.value"
                 type="button"
+                role="menuitemradio"
+                :data-theme-value="theme.value"
                 :class="{ active: currentTheme === theme.value }"
-                :aria-pressed="currentTheme === theme.value"
+                :aria-checked="currentTheme === theme.value"
                 @click="selectTheme(theme.value, $event)"
               >{{ theme.icon }} {{ theme.label }}</button>
             </div>
