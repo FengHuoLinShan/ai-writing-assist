@@ -445,6 +445,22 @@ test.describe("RP 路由与窄屏故事页", () => {
     const locatorTickBox = await page.locator(".rp-locator-ticks button").first().boundingBox()
     expect(locatorTickBox.width).toBeGreaterThanOrEqual(44)
     expect(locatorTickBox.height).toBeGreaterThanOrEqual(24)
+    const locatorTickVisual = await page.locator(".rp-locator-ticks button:not(.active)").first()
+      .evaluate((element) => {
+        const style = getComputedStyle(element, "::after")
+        return { width: style.width, height: style.height }
+      })
+    expect(locatorTickVisual).toEqual({ width: "12px", height: "3px" })
+    const activeTickWidth = await page.locator(".rp-locator-ticks button.active").first()
+      .evaluate((element) => getComputedStyle(element, "::after").width)
+    expect(activeTickWidth).toBe("17px")
+    for (const width of [390, 760]) {
+      await page.setViewportSize({ width, height: 844 })
+      const messageBox = await page.locator('[data-rp-message-id="a3"]').boundingBox()
+      const railBox = await page.locator(".rp-locator-rail").boundingBox()
+      expect(messageBox.x + messageBox.width).toBeLessThanOrEqual(railBox.x)
+    }
+    await page.setViewportSize({ width: 390, height: 844 })
     await expect(page.locator(".rp-composer-dock")).toBeVisible()
     await expect(page.locator("#sidebar")).toHaveCount(0)
     await expectFillsViewportWidth(page.locator(".rp-story-page"))
