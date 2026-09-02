@@ -107,7 +107,7 @@ const cardClasses = computed(() => [
       <div class="project-card__footer">
         <div class="project-meta">{{ created ? `创建于 ${created}` : "刚刚创建" }}</div>
         <div class="project-card__actions">
-          <button class="btn btn-sm btn-primary" data-action="continue-writing" :data-id="project.id" @click.stop="emit('open', project.id)">继续写作</button>
+          <button class="btn btn-sm" data-action="continue-writing" :data-id="project.id" @click.stop="emit('open', project.id)">继续写作</button>
           <button v-if="manage" class="btn btn-sm btn-ghost" data-action="edit-project" :data-id="project.id" @click.stop="emit('edit', project.id)">编辑</button>
           <button v-if="manage" class="btn btn-sm btn-danger" data-action="delete-project" :data-id="project.id" @click.stop="emit('delete', project.id)">删除</button>
         </div>

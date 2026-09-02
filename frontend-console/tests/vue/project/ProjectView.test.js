@@ -89,6 +89,7 @@ describe("渲染状态", () => {
     expect(wrapper.findAll(".project-card[data-id]")).toHaveLength(2)
     expect(wrapper.find(".project-card-placeholder").exists()).toBe(true)
     expect(wrapper.find("#project-search-input").exists()).toBe(true)
+    expect(wrapper.findAll(".btn-primary")).toHaveLength(1)
     expect(wrapper.find('[data-action="select-visible-projects"]').exists()).toBe(false)
     await enterManageMode(wrapper)
     expect(wrapper.find('[data-action="select-visible-projects"]').text()).toBe("全选当前可见作品")
@@ -116,6 +117,7 @@ describe("渲染状态", () => {
     expect(wrapper.find('[role="alert"]').exists()).toBe(true)
     expect(wrapper.text()).toContain("作品列表暂时无法加载")
     expect(wrapper.text()).toContain("连接被拒绝")
+    expect(wrapper.findAll(".btn-primary")).toHaveLength(1)
   })
 
   it("加载失败但有项目显示警告条", () => {
@@ -192,6 +194,7 @@ describe("搜索过滤", () => {
     await wrapper.find("#project-search-input").setValue("不存在")
     expect(wrapper.findAll(".project-card[data-id]")).toHaveLength(0)
     expect(wrapper.find('[data-role="project-search-empty"]').exists()).toBe(true)
+    expect(wrapper.findAll(".btn-primary")).toHaveLength(1)
 
     await wrapper.find('[data-role="project-search-empty"] [data-action="clear-project-search"]').trigger("click")
     expect(wrapper.findAll(".project-card[data-id]")).toHaveLength(2)

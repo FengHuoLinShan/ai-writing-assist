@@ -204,7 +204,7 @@ async function retryProjects() {
         <h2>作品列表暂时无法加载</h2>
         <p>{{ loadError }}</p>
         <div class="actions">
-          <button class="btn btn-primary" data-action="retry-projects" @click="retryProjects">重新连接</button>
+          <button class="btn" data-action="retry-projects" @click="retryProjects">重新连接</button>
         </div>
       </div>
     </div>
@@ -217,7 +217,7 @@ async function retryProjects() {
       <div class="project-catalog-state__copy">
         <span class="project-catalog-state__index">FIRST STORY / 01</span>
         <h2>开始你的第一部小说</h2>
-        <p>使用上方的“新建空白作品”或“导入已有作品”开始，两种方式之后都可以继续写作。</p>
+        <p>使用上方的“新建空白作品”或“导入文件并新建作品”开始，两种方式之后都可以继续写作。</p>
       </div>
     </div>
 
@@ -277,7 +277,7 @@ async function retryProjects() {
           <h2>没有找到匹配作品</h2>
           <p>没有名称包含「{{ session.searchQuery.trim() }}」的作品。</p>
           <div class="actions">
-            <button class="btn btn-primary" data-action="clear-project-search" @click="clearProjectSearch">清除搜索</button>
+            <button class="btn" data-action="clear-project-search" @click="clearProjectSearch">清除搜索</button>
           </div>
         </div>
         <template v-else>
