@@ -47,13 +47,13 @@ test.describe("项目模块", () => {
     const fileChooser = await fileChooserPromise
     expect(await fileChooser.element().getAttribute("accept")).toBe(".txt,.epub,.html,.htm")
     await expect(page.locator('[data-action="manage-projects"]')).toBeVisible()
-    await expect(page.locator('[data-action="recycle-bin"]')).toHaveCount(0)
+    await expect(page.locator('[data-action="recycle-bin"]')).toBeVisible()
   })
 
   test("单键新建项目不会把触发字符写入项目名称", async ({ page }) => {
     await expect(page.getByRole("button", { name: "新建空白作品", exact: true })).toBeVisible()
     await page.keyboard.press("n")
-    await expect(page.locator(SEL.modalTitle)).toHaveText("新建项目")
+    await expect(page.locator(SEL.modalTitle)).toHaveText("新建作品")
     const title = page.locator(SEL.projectCreateTitle)
     await expect(title).toBeFocused()
     await expect(title).toHaveValue("")
@@ -64,7 +64,7 @@ test.describe("项目模块", () => {
   test("创建项目并自动切换到写作视图", async ({ page }) => {
     await page.locator('[data-action="new"]').first().click()
     await expect(page.locator(SEL.modalOverlay)).not.toHaveClass(/hidden/)
-    await expect(page.locator(SEL.modalTitle)).toHaveText("新建项目")
+    await expect(page.locator(SEL.modalTitle)).toHaveText("新建作品")
 
     await page.locator("#create-title").fill("E2E 测试小说")
     await page.locator("#create-genre").selectOption("fantasy")
@@ -88,18 +88,18 @@ test.describe("项目模块", () => {
 
   test("空白创建保留 modal、提示必填且可继续输入", async ({ page }) => {
     await page.locator('[data-action="new"]').first().click()
-    await expect(page.locator(SEL.modalTitle)).toHaveText("新建项目")
+    await expect(page.locator(SEL.modalTitle)).toHaveText("新建作品")
 
-    await expect(page.getByLabel(/项目名称/)).toBeVisible()
+    await expect(page.getByLabel(/作品名称/)).toBeVisible()
     await expect(page.getByLabel("题材")).toBeVisible()
     await expect(page.getByLabel("语言")).toBeVisible()
     await expect(page.getByLabel("基调")).toBeVisible()
     await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
 
     await expect(page.locator(SEL.modalOverlay)).not.toHaveClass(/hidden/)
-    await expect(page.locator(SEL.toastContainer)).toContainText("请输入项目标题")
-    await page.getByLabel(/项目名称/).fill("仍可继续输入")
-    await expect(page.getByLabel(/项目名称/)).toHaveValue("仍可继续输入")
+    await expect(page.locator(SEL.toastContainer)).toContainText("请输入作品标题")
+    await page.getByLabel(/作品名称/).fill("仍可继续输入")
+    await expect(page.getByLabel(/作品名称/)).toHaveValue("仍可继续输入")
 
     await page.setViewportSize({ width: 390, height: 844 })
     await expectNoPageOverflow(page)
@@ -120,6 +120,20 @@ test.describe("项目模块", () => {
     await expect(page.locator(SEL.projectCard(project.id))).toContainText("科幻")
   })
 
+  test("点击作品卡装饰区域也能打开作品", async ({ page }) => {
+    const project = await createProject({ title: "卡片命中测试", language: "zh" })
+    trackProject(project)
+    await page.reload()
+    const monogram = page.locator(SEL.projectCard(project.id)).locator(".project-card__visual strong")
+    const box = await monogram.boundingBox()
+
+    expect(box).not.toBeNull()
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+
+    await expect(page.locator(SEL.viewTitle)).toHaveText("写作")
+    await expect(page).toHaveURL(/#workbench\/[^/]+\/writing/)
+  })
+
   test("创建占位卡可用键盘打开新建项目并保持窄屏可见", async ({ page }) => {
     const project = await createProject({
       title: "键盘创建入口测试",
@@ -133,7 +147,7 @@ test.describe("项目模块", () => {
     const placeholder = page.locator(SEL.projectCreatePlaceholder)
     await expect(placeholder).toHaveAttribute("role", "button")
     await expect(placeholder).toHaveAttribute("tabindex", "0")
-    await expect(page.locator(SEL.projectSelectVisible)).toHaveText("全选当前可见项目")
+    await expect(page.locator(SEL.projectSelectVisible)).toHaveText("全选当前可见作品")
     await page.setViewportSize({ width: 390, height: 844 })
     await expectWithinViewport(page.locator("#project-search-input"))
     await placeholder.focus()
@@ -141,7 +155,7 @@ test.describe("项目模块", () => {
     await expectWithinViewport(placeholder)
     await expectNoPageOverflow(page)
     await placeholder.press("Enter")
-    await expect(page.locator(SEL.modalTitle)).toHaveText("新建项目")
+    await expect(page.locator(SEL.modalTitle)).toHaveText("新建作品")
   })
 
   test("编辑项目信息并同步面包屑", async ({ page }) => {
@@ -175,7 +189,7 @@ test.describe("项目模块", () => {
 
     // 等待模态框关闭并提示更新成功
     await expect(page.locator(SEL.modalOverlay)).toHaveClass(/hidden/)
-    await expect(page.locator(SEL.toastContainer)).toContainText("项目已更新", { timeout: 10000 })
+    await expect(page.locator(SEL.toastContainer)).toContainText("作品已更新", { timeout: 10000 })
 
     // 进入工作台验证面包屑同步刷新
     await card.click()
@@ -200,7 +214,7 @@ test.describe("项目模块", () => {
     await card.locator('[data-action="edit-project"]').click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("编辑项目")
 
-    await page.getByLabel("项目标题").fill("失败后保留标题")
+    await page.getByLabel("作品标题").fill("失败后保留标题")
     await page.getByLabel("题材").fill("武侠")
     await page.getByLabel("风格基调").fill("热血")
     await page.route(`**/api/projects/${project.id}`, async (route) => {
@@ -213,7 +227,7 @@ test.describe("项目模块", () => {
 
     await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
     await expect(page.locator(SEL.modalOverlay)).not.toHaveClass(/hidden/)
-    await expect(page.getByLabel("项目标题")).toHaveValue("失败后保留标题")
+    await expect(page.getByLabel("作品标题")).toHaveValue("失败后保留标题")
     await expect(page.getByLabel("题材")).toHaveValue("武侠")
     await expect(page.getByLabel("风格基调")).toHaveValue("热血")
 
