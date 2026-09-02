@@ -35,6 +35,7 @@ vi.mock("../../../../shared/assetDisplayState.js", () => ({
 }))
 
 import WorldBibleTab from "../../../../vue/views/world/bible/WorldBibleTab.vue"
+import WorldEntityDetail from "../../../../vue/views/world/library/WorldEntityDetail.vue"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../../vue/bridge/index.js"
 import { resetWorldSession, worldSession } from "../../../../vue/views/world/worldSession.js"
 import { pollTaskProgress } from "../../../../shared/workflowProgress.js"
@@ -2462,5 +2463,33 @@ describe("beforeunload 守卫", () => {
 
     listenerSpy.mockRestore()
     removeSpy.mockRestore()
+  })
+
+  it("人物档案有未保存修改时同样拦截刷新，保存后解除", async () => {
+    const listenerSpy = vi.spyOn(window, "addEventListener")
+    const wrapper = mountTab({
+      defaultDisplayMode: "gallery",
+      bible: {
+        ...defaultBible(),
+        entities: [{ id: "character-1", name: "林舟", entity_type: "character", display_state: "active", content_json: {} }],
+        entityTotal: 1,
+      },
+      bibleDeepLink: { draftId: "", pageId: "", entityId: "character-1" },
+    })
+    const handler = listenerSpy.mock.calls.filter(([event]) => event === "beforeunload").at(-1)[1]
+    const detail = wrapper.getComponent(WorldEntityDetail)
+
+    detail.vm.$emit("profile-dirty", true)
+    await nextTick()
+    let event = new Event("beforeunload", { cancelable: true })
+    handler(event)
+    expect(event.defaultPrevented).toBe(true)
+
+    detail.vm.$emit("profile-dirty", false)
+    await nextTick()
+    event = new Event("beforeunload", { cancelable: true })
+    handler(event)
+    expect(event.defaultPrevented).toBe(false)
+    listenerSpy.mockRestore()
   })
 })

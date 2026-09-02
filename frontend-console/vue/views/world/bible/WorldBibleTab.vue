@@ -717,7 +717,10 @@ const {
   esc,
 } = useWorldBible(props)
 
-setExternalLeaveGuard(() => !entityProfileDirty.value || confirm("人物档案有未保存修改，确定放弃并离开吗？"))
+setExternalLeaveGuard(
+  () => !entityProfileDirty.value || confirm("人物档案有未保存修改，确定放弃并离开吗？"),
+  () => entityProfileDirty.value,
+)
 
 const cardFilters = computed(() => ({ q: "", kind: "all", type: "", state: "", layout: "cards", ...(props.worldCardFilters || {}) }))
 const cardSearch = ref(cardFilters.value.q || "")

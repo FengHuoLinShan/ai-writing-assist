@@ -509,7 +509,11 @@ export function useWorldBible(props) {
   }
 
   let externalLeaveGuard = null
-  function setExternalLeaveGuard(fn) { externalLeaveGuard = typeof fn === "function" ? fn : null }
+  let externalHasUnsavedChanges = null
+  function setExternalLeaveGuard(fn, isDirty) {
+    externalLeaveGuard = typeof fn === "function" ? fn : null
+    externalHasUnsavedChanges = typeof isDirty === "function" ? isDirty : null
+  }
 
   // ---- leave guard ----
   useLeaveGuard(() => {
@@ -520,7 +524,7 @@ export function useWorldBible(props) {
   // 应用内导航有 useLeaveGuard；刷新/关闭标签页必须依赖 beforeunload，
   // 否则未保存的世界书编辑会静默丢失（与写作台的持久化守卫对齐）
   function handleBeforeUnload(event) {
-    if (!editorHasUnsavedChanges()) return
+    if (!editorHasUnsavedChanges() && !externalHasUnsavedChanges?.()) return
     event.preventDefault()
     event.returnValue = ""
   }
