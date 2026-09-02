@@ -727,7 +727,7 @@
    4. SceneCockpit：写作副驾驶
    ---------------------------------------------------------- */
 
-.scene-lens { margin: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
+.scene-lens { margin: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-panel); }
 .scene-lens > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px; cursor: pointer; }
 .scene-lens > summary > span:first-child { display: grid; gap: 2px; min-width: 0; }
 .scene-lens > summary small { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
