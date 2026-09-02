@@ -301,7 +301,7 @@ test.describe("RP 路由与窄屏故事页", () => {
       if (theme.value !== "sticky") {
         await page.locator(".rp-more-menu summary").click()
         await page.locator(".rp-more-menu__themes")
-          .getByRole("button", { name: theme.label })
+          .getByRole("menuitemradio", { name: theme.label })
           .click()
       }
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme.value)
@@ -384,7 +384,7 @@ test.describe("RP 路由与窄屏故事页", () => {
 
     await page.locator(".rp-more-menu summary").click()
     await page.locator(".rp-more-menu__themes").getByRole(
-      "button",
+      "menuitemradio",
       { name: /暗夜书房/ },
     ).click()
     await expect(page.locator("html")).toHaveAttribute("data-theme", "night")

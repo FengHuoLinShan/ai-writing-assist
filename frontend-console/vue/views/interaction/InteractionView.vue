@@ -127,6 +127,7 @@ const currentTheme = ref(normalizeTheme(
   globalThis.document?.documentElement?.getAttribute?.("data-theme")
   || globalThis.localStorage?.getItem?.("nc-theme"),
 ))
+const themeFocusValue = ref(currentTheme.value)
 const pathIndex = ref(props.initialPathIndex?.items || [])
 const pathIndexEpoch = ref(
   props.initialPathIndex?.selection_epoch ?? props.initialJourney?.selection_epoch ?? 0,
@@ -917,6 +918,7 @@ function onThemeMenuKeydown(event) {
   const items = [...event.currentTarget.querySelectorAll('[role="menuitemradio"]')]
   if (event.key === "Escape") {
     event.preventDefault()
+    event.stopPropagation()
     closeMoreMenuAndFocus()
     return
   }
@@ -932,6 +934,7 @@ function onThemeMenuKeydown(event) {
           : null
   if (!next) return
   event.preventDefault()
+  themeFocusValue.value = next.dataset.themeValue
   next.focus()
 }
 
@@ -1044,6 +1047,7 @@ function isExcluded(referenceKey) {
 function selectTheme(value, event) {
   const theme = normalizeTheme(value)
   currentTheme.value = theme
+  themeFocusValue.value = theme
   event.currentTarget.dispatchEvent(new CustomEvent(
     "shell-theme-request",
     { bubbles: true, detail: theme },
@@ -1871,6 +1875,7 @@ onBeforeUnmount(() => {
                 type="button"
                 role="menuitemradio"
                 :data-theme-value="theme.value"
+                :tabindex="themeFocusValue === theme.value ? 0 : -1"
                 :class="{ active: currentTheme === theme.value }"
                 :aria-checked="currentTheme === theme.value"
                 @click="selectTheme(theme.value, $event)"
