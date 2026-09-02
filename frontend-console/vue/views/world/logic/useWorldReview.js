@@ -1142,8 +1142,21 @@ export function applyAliasReviewBatch(items, action) {
       ? `确定忽略所选 ${items.length} 个别名吗？条目会进入历史并保留证据。`
       : `确定应用所选 ${items.length} 个别名决策吗？请确认归属对象与分类。`,
     async () => {
+      const state = getAppState()
+      const owner = {
+        projectId: state?.currentProjectId,
+        view: state?.currentView,
+        subView: state?.currentSubView,
+      }
+      const ownsRequest = () => {
+        const current = getAppState()
+        return current?.currentProjectId === owner.projectId
+          && current?.currentView === owner.view
+          && current?.currentSubView === owner.subView
+      }
       try {
-        const result = await getApi().world.reviewAliasesBatch({ confirmed: true, decisions }, getAppState()?.currentProjectId)
+        const result = await getApi().world.reviewAliasesBatch({ confirmed: true, decisions }, owner.projectId)
+        if (!ownsRequest()) return
         const selection = getBulkSelection("world-aliases")
         for (const item of result.results || []) {
           const key = decisionKeys.get(item.client_decision_id)
@@ -1166,12 +1179,18 @@ export function applyAliasReviewBatch(items, action) {
               : `“${item.alias}”已归属到${item.entity_name || "当前对象"}。`,
           }
         }
+        if (!ownsRequest()) return
         reviewBatchToast(result, "别名")
+        if (!ownsRequest()) return
         getRouter()?.refresh?.()
+        if (!ownsRequest()) return
         await advanceAliasReview()
       } catch (err) {
+        if (!ownsRequest()) return
         for (const item of items) worldSession.aliasReviewErrors[aliasKey(item)] = err.message || "网络异常，请重试"
+        if (!ownsRequest()) return
         getToast()(err.message || "别名批量复核失败，已保留当前编辑草稿", "error")
+        if (!ownsRequest()) return
         getRouter()?.refresh?.()
       }
     },

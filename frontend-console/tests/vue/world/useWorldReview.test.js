@@ -45,8 +45,12 @@ let appState
 
 function deferred() {
   let resolve
-  const promise = new Promise((done) => { resolve = done })
-  return { promise, resolve }
+  let reject
+  const promise = new Promise((done, fail) => {
+    resolve = done
+    reject = fail
+  })
+  return { promise, resolve, reject }
 }
 
 beforeEach(() => {
@@ -68,7 +72,7 @@ beforeEach(() => {
     },
   }
   routerMock = { navigate: navigateMock, refresh: vi.fn(async () => true), replace: vi.fn(async () => true) }
-  appState = { currentProjectId: "p-rev", currentView: "world" }
+  appState = { currentProjectId: "p-rev", currentView: "world", currentSubView: "review" }
   setBridgeOverrides({
     api: apiMock,
     state: appState,
@@ -393,6 +397,58 @@ describe("批量复核", () => {
     expect(worldSession.aliasReviewDrafts["e1::旧港"].alias).toBe("新项目草稿")
     expect(worldSession.processingReviewIds["e1::旧港"]).toBe("new-project-operation")
     expect(routerMock.refresh).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["成功", (request) => request.resolve({
+      results: [{ client_decision_id: "alias-0-e1", status: "success" }],
+      succeeded_count: 1,
+    })],
+    ["失败", (request) => request.reject(new Error("旧项目请求失败"))],
+  ])("别名批量采用%s晚到时不污染新项目状态或刷新新页面", async (_outcome, settle) => {
+    const item = {
+      entity_id: "e1",
+      entity_name: "沉钟港",
+      alias: "旧港",
+      alias_kind: "name",
+      alias_type: "name",
+      execution_fingerprint: "fp",
+    }
+    worldSession.aliasReviewDrafts["e1::旧港"] = {
+      target_entity_id: "e1",
+      alias: "旧港",
+      alias_kind: "name",
+      alias_type: "name",
+      expected_execution_fingerprint: "fp",
+    }
+    toggleBulkSelection("world-aliases", "e1::旧港", true)
+    const request = deferred()
+    apiMock.world.reviewAliasesBatch.mockImplementation(() => request.promise)
+
+    applyAliasReviewBatch([item], "accept")
+    const pending = confirmCalls[0].onConfirm()
+    expect(apiMock.world.reviewAliasesBatch).toHaveBeenCalledWith(
+      expect.objectContaining({ confirmed: true }),
+      "p-rev",
+    )
+
+    appState.currentProjectId = "p-new"
+    worldSession.aliasReviewDrafts = { "e1::旧港": { alias: "新项目草稿" } }
+    worldSession.aliasReviewErrors = { "e1::旧港": "新项目错误" }
+    worldSession.bulkSelections["world-aliases"] = new Set(["e1::旧港"])
+    worldSession.reviewReceipt = { targetKey: "b", title: "新项目回执" }
+    toastMock.mockClear()
+    routerMock.refresh.mockClear()
+    settle(request)
+
+    await pending
+    expect(worldSession.aliasReviewDrafts["e1::旧港"]).toEqual({ alias: "新项目草稿" })
+    expect(worldSession.aliasReviewErrors["e1::旧港"]).toBe("新项目错误")
+    expect(getBulkSelection("world-aliases").has("e1::旧港")).toBe(true)
+    expect(worldSession.reviewReceipt).toEqual({ targetKey: "b", title: "新项目回执" })
+    expect(toastMock).not.toHaveBeenCalled()
+    expect(routerMock.refresh).not.toHaveBeenCalled()
+    expect(navigateMock).not.toHaveBeenCalled()
   })
 
   it("缺少关系分类时阻断推荐采用", () => {
