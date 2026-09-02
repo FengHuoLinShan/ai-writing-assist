@@ -14627,6 +14627,12 @@ details[open] > .world-bible-support-summary::after {
   box-sizing: border-box;
 }
 
+.rp-mutation-button[aria-busy="true"] {
+  background: var(--rp-accent);
+  color: var(--text-on-accent);
+  cursor: default;
+}
+
 .rp-mutation-button--continue,
 .rp-mutation-button--keep {
   inline-size: 7.5rem;

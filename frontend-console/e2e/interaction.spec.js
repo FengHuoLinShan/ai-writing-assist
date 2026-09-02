@@ -382,6 +382,53 @@ test.describe("RP 路由与窄屏故事页", () => {
     expect(browserErrors).toEqual([])
   })
 
+  test("390px 暗夜主题下重试按钮忙碌前后同宽且配色可读", async ({
+    page,
+    browserErrors,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    let releaseRetry
+    const retryGate = new Promise((resolve) => { releaseRetry = resolve })
+    await page.route(
+      `**/api/interactions/journeys/${journeyId}/attempts/attempt-source-stale/retry`,
+      async (route) => {
+        await retryGate
+        await route.abort()
+      },
+    )
+    await mockRpApis(page, {
+      activeAttempt: {
+        id: "attempt-source-stale",
+        journey_id: journeyId,
+        response_to_node_id: "a2",
+        status: "failed",
+        error_kind: "source_context_stale",
+        error_message: "作品资料已变化，请重新生成",
+        visible_text: "已显示的残段。",
+        visible_offset: 8,
+      },
+    })
+    await page.goto(`/#interaction/${journeyId}`)
+    await page.locator(".rp-more-menu summary").click()
+    await page.locator(".rp-more-menu__themes")
+      .getByRole("button", { name: /暗夜书房/ })
+      .click()
+
+    const retry = page.locator(".rp-attempt-actions--error .rp-mutation-button--retry")
+    const idleWidth = (await retry.boundingBox()).width
+    await retry.click()
+    await expect(retry).toContainText("正在重新生成")
+    const busyWidth = (await retry.boundingBox()).width
+    const metrics = await textContrast(retry)
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+
+    expect(busyWidth).toBe(idleWidth)
+    expect(metrics.contrast).toBeGreaterThanOrEqual(4.5)
+    expect(overflow).toBeLessThanOrEqual(0)
+    expect(browserErrors).toEqual([])
+    releaseRetry()
+  })
+
   test("390px 下输入工具保持单行，更多操作使用底部面板且页面不横溢", async ({
     page,
     browserErrors,

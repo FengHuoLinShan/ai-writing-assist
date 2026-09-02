@@ -1561,16 +1561,8 @@ describe("RP 故事页", () => {
     expect(toast).not.toHaveBeenCalled()
   })
 
-  it("发送响应晚于分支切换时不覆盖新分支、草稿或生成跟随", async () => {
+  it("发送在途时锁定分支切换并正常收口本轮响应", async () => {
     const send = deferred()
-    const selectedBranch = journey({
-      selection_epoch: 4,
-      selected_leaf_node_id: "a1",
-      messages: [
-        message("u-branch", "user", "我选择另一条路。"),
-        message("a1", "assistant", "新分支正文。"),
-      ],
-    })
     const staleSendJourney = journey({
       selection_epoch: 4,
       selected_leaf_node_id: "a-old-send",
@@ -1587,7 +1579,7 @@ describe("RP 故事页", () => {
           { node_id: "a2", selected: true, ordinal: 2, total: 2, excerpt: "最新的一段故事。" },
         ],
       })),
-      selectBranch: vi.fn(async () => selectedBranch),
+      selectBranch: vi.fn(),
       sendMessage: vi.fn(() => send.promise),
     })
     setBridgeOverrides({ api, router, toast, confirm, prompt: vi.fn() })
@@ -1603,11 +1595,12 @@ describe("RP 故事页", () => {
     await composer.setValue("原分支待发送内容")
     await wrapper.get(".rp-send-button").trigger("click")
     await vi.waitFor(() => expect(api.interactions.sendMessage).toHaveBeenCalledOnce())
-    await wrapper.findAll(".rp-branch-popover button")
+    const otherBranch = wrapper.findAll(".rp-branch-popover button")
       .find((button) => button.text().includes("转向另一条路"))
-      .trigger("click")
-    await flushPromises()
-    await composer.setValue("新分支继续写的草稿")
+    expect(otherBranch.element.disabled).toBe(true)
+    otherBranch.element.disabled = false
+    await otherBranch.trigger("click")
+    expect(api.interactions.selectBranch).not.toHaveBeenCalled()
 
     send.resolve({
       journey: staleSendJourney,
@@ -1615,12 +1608,10 @@ describe("RP 故事页", () => {
     })
     await flushPromises()
 
-    expect(wrapper.text()).toContain("新分支正文。")
-    expect(wrapper.text()).not.toContain("旧发送响应正文。")
-    expect(composer.element.value).toBe("新分支继续写的草稿")
-    expect(localStorage.getItem(`novel_rp_draft:${journey().id}`))
-      .toBe("新分支继续写的草稿")
-    expect(api.interactions.streamAttempt).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain("旧发送响应正文。")
+    expect(composer.element.value).toBe("")
+    expect(localStorage.getItem(`novel_rp_draft:${journey().id}`)).toBeNull()
+    expect(api.interactions.streamAttempt).toHaveBeenCalled()
     expect(toast).not.toHaveBeenCalled()
     wrapper.unmount()
   })
@@ -2219,24 +2210,39 @@ describe("RP 故事页", () => {
     )
   })
 
-  it("保留截断内容时锁定其他变更并阻止重复提交", async () => {
+  it("失败后保留残段时锁定其他变更并阻止分支切换", async () => {
     const kept = deferred()
-    api.interactions.keepAttempt.mockImplementation(() => kept.promise)
+    api = makeApi({
+      keepAttempt: vi.fn(() => kept.promise),
+      listBranches: vi.fn(async () => ({
+        variants: [
+          { node_id: "a2-other", selected: false, ordinal: 1, total: 2, excerpt: "另一个发展。" },
+          { node_id: "a2", selected: true, ordinal: 2, total: 2, excerpt: "当前发展。" },
+        ],
+      })),
+    })
+    setBridgeOverrides({ api, router, toast, confirm, prompt: vi.fn() })
     const wrapper = mount(InteractionView, {
       props: {
         initialJourney: journey({
           active_attempt: {
             id: "awaiting-attempt",
-            status: "awaiting_continue",
+            status: "failed",
+            error_kind: "provider_error",
+            error_message: "生成中断",
             visible_text: "已经显示但尚未写完的正文。",
           },
         }),
         llmConnections: connected(),
       },
     })
+    await flushPromises()
+    await wrapper.findAll(".rp-message__actions button")
+      .find((button) => button.text() === "其他分支 2/2")
+      .trigger("click")
 
     const keepButton = wrapper.findAll(".rp-attempt-actions button")
-      .find((button) => button.text() === "保留这段")
+      .find((button) => button.text() === "保留残段")
     await keepButton.trigger("click")
     await vi.waitFor(() => expect(api.interactions.keepAttempt).toHaveBeenCalledOnce())
 
@@ -2246,6 +2252,12 @@ describe("RP 故事页", () => {
     expect(busyKeep.element.disabled).toBe(true)
     expect(wrapper.findAll(".rp-attempt-actions button")
       .find((button) => button.text() === "重新生成").element.disabled).toBe(true)
+    const otherBranch = wrapper.findAll(".rp-branch-popover button")
+      .find((button) => button.text().includes("另一个发展"))
+    expect(otherBranch.element.disabled).toBe(true)
+    otherBranch.element.disabled = false
+    await otherBranch.trigger("click")
+    expect(api.interactions.selectBranch).not.toHaveBeenCalled()
     await busyKeep.trigger("click")
     expect(api.interactions.keepAttempt).toHaveBeenCalledOnce()
 

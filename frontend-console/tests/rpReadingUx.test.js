@@ -23,6 +23,7 @@ describe("RP reading comfort", () => {
     expect(styles).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*\.rp-button-spinner\s*\{[^}]*animation:\s*none;/s)
     expect(styles).toMatch(/\.rp-send-button\.is-loading,[^{]*\.rp-stop-button\.is-loading\s*\{[^}]*color:\s*var\(--text-on-accent\)/s)
     expect(styles).toMatch(/\[data-theme="night"\] \.rp-send-button:disabled:not\(\.is-loading\)/)
+    expect(styles).toMatch(/\.rp-mutation-button\[aria-busy="true"\]\s*\{[^}]*background:\s*var\(--rp-accent\);[^}]*color:\s*var\(--text-on-accent\)/s)
     expect(styles).toMatch(/\.rp-mutation-button--retry\s*\{[^}]*inline-size:\s*9rem/s)
     expect(styles).toMatch(/\.rp-mutation-button--conflict\s*\{[^}]*inline-size:\s*13rem/s)
   })

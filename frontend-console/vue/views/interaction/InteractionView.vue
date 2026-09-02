@@ -886,7 +886,8 @@ function recentVariants(nodeId) {
 }
 
 async function selectBranch(nodeId) {
-  if (isGenerating.value || awaitingContinue.value) {
+  if (sending.value || isGenerating.value || awaitingContinue.value) {
+    if (sending.value) return
     getToast()(
       awaitingContinue.value
         ? "请先处理尚未写完的上一段故事"
@@ -1977,7 +1978,7 @@ onBeforeUnmount(() => {
             type="button"
             :class="{ active: variant.selected }"
             :aria-pressed="variant.selected"
-            :disabled="isGenerating || awaitingContinue"
+            :disabled="sending || isGenerating || awaitingContinue"
             @click="selectBranch(variant.node_id)"
           >
             <span>{{ variant.ordinal }}/{{ variant.total }}</span>
