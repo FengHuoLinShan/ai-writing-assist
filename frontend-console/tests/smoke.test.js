@@ -58,6 +58,21 @@ describe("application bootstrap", () => {
     expect(App._mountShell).toHaveBeenCalledTimes(1)
   })
 
+  it("restores the saved theme before authentication completes", async () => {
+    let releaseConfig
+    api.auth = {
+      config: vi.fn(() => new Promise((resolve) => { releaseConfig = resolve })),
+    }
+    localStorage.setItem("nc-theme", "night")
+
+    const boot = App.init()
+    expect(document.documentElement.getAttribute("data-theme")).toBe("night")
+
+    releaseConfig({ auth_mode: "local", wechat_enabled: false })
+    await boot
+    delete api.auth
+  })
+
   it("disposes shell and SmartDedup lifecycles", async () => {
     await App.init()
     const disposeDedup = vi.spyOn(App._smartDedup, "dispose")

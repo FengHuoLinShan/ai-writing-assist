@@ -34,6 +34,28 @@ async function expectFillsViewportWidth(locator) {
   expect(Math.abs(box.width - viewportWidth)).toBeLessThanOrEqual(1)
 }
 
+async function textContrast(locator) {
+  return locator.evaluate((element) => {
+    const channel = (value) => {
+      const normalized = value / 255
+      return normalized <= 0.04045
+        ? normalized / 12.92
+        : ((normalized + 0.055) / 1.055) ** 2.4
+    }
+    const luminance = (color) => {
+      const [red, green, blue] = color.match(/[\d.]+/g).slice(0, 3).map(Number)
+      return (0.2126 * channel(red)) + (0.7152 * channel(green)) + (0.0722 * channel(blue))
+    }
+    const style = getComputedStyle(element)
+    const values = [luminance(style.color), luminance(style.backgroundColor)]
+      .sort((left, right) => right - left)
+    return {
+      contrast: (values[0] + 0.05) / (values[1] + 0.05),
+      opacity: Number(style.opacity),
+    }
+  })
+}
+
 async function mockRpApis(
   page,
   { seeSeaNoticeAcknowledged = true, activeAttempt = null } = {},
@@ -219,6 +241,7 @@ test.describe("RP 路由与窄屏故事页", () => {
   })
 
   test("双入口进入 RP 列表并打开当前旅程", async ({ page, browserErrors }) => {
+    await page.addInitScript(() => localStorage.setItem("nc-theme", "sticky"))
     await mockRpApis(page)
     await page.goto("/")
     await page.getByRole("button", { name: /进入互动故事/ }).click()
@@ -256,6 +279,30 @@ test.describe("RP 路由与窄屏故事页", () => {
     await expect(messageActions.nth(1)).toHaveText("重新生成")
     await expect(messageActions.nth(0)).toHaveClass(/rp-message-action-button/)
     await expect(messageActions.nth(1)).toHaveClass(/rp-message-action-button/)
+
+    const readingWidth = await page.locator(".rp-story-scroll").evaluate((element) => {
+      const style = getComputedStyle(element)
+      return element.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+    })
+    expect(readingWidth).toBeGreaterThanOrEqual(638)
+    expect(readingWidth).toBeLessThanOrEqual(642)
+
+    for (const theme of [
+      { value: "sticky", label: /晨光便签/ },
+      { value: "night", label: /暗夜书房/ },
+      { value: "ink", label: /水墨写意/ },
+    ]) {
+      if (theme.value !== "sticky") {
+        await page.locator(".rp-more-menu summary").click()
+        await page.locator(".rp-more-menu__themes")
+          .getByRole("button", { name: theme.label })
+          .click()
+      }
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme.value)
+      const metrics = await textContrast(messageActions.nth(0))
+      expect(metrics.opacity).toBe(1)
+      expect(metrics.contrast).toBeGreaterThanOrEqual(4.5)
+    }
 
     await actionCard.click()
     await expect(page.getByRole("textbox", { name: "继续旅程" })).toHaveValue(
@@ -295,6 +342,7 @@ test.describe("RP 路由与窄屏故事页", () => {
     browserErrors,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 })
+    await page.emulateMedia({ reducedMotion: "reduce" })
     await mockRpApis(page)
     await page.goto(`/#interaction/${journeyId}`)
 
@@ -303,6 +351,12 @@ test.describe("RP 路由与窄屏故事页", () => {
     await expect(page.locator(".rp-composer-dock")).toBeVisible()
     await expect(page.locator("#sidebar")).toHaveCount(0)
     await expectFillsViewportWidth(page.locator(".rp-story-page"))
+    const actionBox = await page.locator(
+      '[data-rp-message-id="a3"] .rp-message__actions button',
+    ).first().boundingBox()
+    expect(actionBox.height).toBeGreaterThanOrEqual(42)
+    await expect(page.locator(".rp-message__actions").first())
+      .toHaveCSS("transition-duration", "0s")
 
     const toolStyle = await page.locator(".rp-composer-tools").evaluate((element) => ({
       flexWrap: getComputedStyle(element).flexWrap,
@@ -334,6 +388,27 @@ test.describe("RP 路由与窄屏故事页", () => {
       document.documentElement.scrollWidth - window.innerWidth
     ))
     expect(overflow).toBeLessThanOrEqual(0)
+    expect(browserErrors).toEqual([])
+  })
+
+  test("保留未完整片段时明确显示未完成状态", async ({ page, browserErrors }) => {
+    await mockRpApis(page, {
+      activeAttempt: {
+        id: "attempt-partial",
+        journey_id: journeyId,
+        response_to_node_id: "a3",
+        status: "awaiting_continue",
+        error_kind: null,
+        error_message: null,
+        visible_text: "潮声压住了尚未说完的话。",
+        visible_offset: 12,
+      },
+    })
+    await page.goto(`/#interaction/${journeyId}`)
+
+    await expect(page.locator(".rp-message--streaming .rp-message__label"))
+      .toContainText("故事 · 未完成")
+    await expect(page.locator(".rp-message--streaming")).toContainText("潮声压住了尚未说完的话。")
     expect(browserErrors).toEqual([])
   })
 

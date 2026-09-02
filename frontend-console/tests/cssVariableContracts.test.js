@@ -24,8 +24,8 @@ const ownedVariableContracts = [
   {
     file: "styles.css",
     names: new Set(["--rp-bg", "--rp-panel", "--rp-soft", "--rp-accent-soft", "--rp-text", "--rp-heading", "--rp-muted", "--rp-dim", "--rp-border", "--rp-accent", "--rp-danger-soft", "--rp-warning-soft"]),
-    owner: /\.rp-(?:list|story)-page/,
-    consumer: /\.rp-/,
+    owner: /\.(?:entry-choice|rp-(?:list|story)-page|rp-load-failure)/,
+    consumer: /\.(?:entry-|rp-)/,
   },
   {
     file: "styles.css",

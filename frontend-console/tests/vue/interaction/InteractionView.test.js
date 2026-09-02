@@ -244,6 +244,36 @@ describe("RP 故事页", () => {
     wrapper.unmount()
   })
 
+  it.each(["成功", "失败"])("离页后的导出%s响应不再下载或提示", async (outcome) => {
+    const request = deferred()
+    api = makeApi({ exportJourney: vi.fn(() => request.promise) })
+    setBridgeOverrides({ api, router, toast, confirm, prompt: vi.fn() })
+    const createUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:late")
+    const wrapper = mount(InteractionView, {
+      props: { initialJourney: journey(), llmConnections: connected() },
+    })
+
+    await wrapper.findAll("button")
+      .find((button) => button.text() === "导出完整记录")
+      .trigger("click")
+    await Promise.resolve()
+    wrapper.unmount()
+
+    if (outcome === "成功") {
+      request.resolve({
+        content: "# 迟到的导出",
+        media_type: "text/markdown",
+        filename: "迟到.md",
+      })
+    } else {
+      request.reject(new Error("late private failure"))
+    }
+    await flushPromises()
+
+    expect(createUrl).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalled()
+  })
+
   it("安全显示模型 Markdown，并让完整行动建议只填入输入框", async () => {
     const longAction = "我先放慢脚步，完整观察门缝里的影子，再决定是否推门进入。"
     const markdown = "## 门后的钟声\n\n**克莱恩**听见了第二次敲击。"
@@ -2010,6 +2040,22 @@ describe("RP 故事页", () => {
     expect(preparing.get(".rp-message--streaming .rp-message__label").text()).toContain("正在生成")
     expect(preparing.get(".rp-stream-status").attributes("role")).toBe("status")
     preparing.unmount()
+
+    const partial = mount(InteractionView, {
+      props: {
+        initialJourney: journey({
+          active_attempt: {
+            id: "attempt-partial",
+            journey_id: journey().id,
+            status: "awaiting_continue",
+            visible_text: "这一段还没有写完。",
+          },
+        }),
+        llmConnections: connected(),
+      },
+    })
+    expect(partial.get(".rp-message--streaming .rp-message__label").text()).toContain("未完成")
+    partial.unmount()
 
     const failed = mount(InteractionView, {
       props: {

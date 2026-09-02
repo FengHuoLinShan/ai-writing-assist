@@ -46,8 +46,8 @@
 8. **设置页是作者语言飞地**：RP 用户点「账户设置」进入的 GlobalSettingsView 用
    `.btn-primary`/`.form-input` 等 Editorial 类（GlobalSettingsView.vue:283-324），
    仅借用 `rp-icon-button` 返回箭头（:217-223）；`returningToRp` 只删减区块，无 RP 视觉适配。
-9. **已解决：消息操作常见可见**。桌面默认以 68% 不透明度显示，hover/focus 提升到 100%；
-   字号升至 13px、按钮最小高 32px，移动端继续使用 42px 触控高度。
+9. **已解决：消息操作常见可见**。桌面使用跨主题可读的正文色常显，hover/focus 再以边框和
+   底色强调；字号升至 13px、按钮最小高 32px，移动端继续使用 42px 触控高度。
 
 **P2 — 反馈闭环与工程欠债**
 

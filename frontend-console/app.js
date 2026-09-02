@@ -16,6 +16,7 @@ import { mountShell } from "./vue/shell/mountShell.js"
 import { mountAuthGate } from "./vue/auth/mountAuthGate.js"
 import { consumeEntryMode } from "./vue/auth/entryMode.js"
 import { registerViewLoaders } from "./vue/viewLoaders.js"
+import { createThemeController } from "./vue/shell/composables/useTheme.js"
 
 // 只注册按路由加载的 island import 函数；不会在应用启动或认证门禁期间加载业务模块。
 registerViewLoaders()
@@ -39,6 +40,7 @@ const App = {
   async init() {
     this._bindAccountSecurityEvents()
     if (this._initialized) return this._shell
+    createThemeController().initialize()
     this._accountBoundaryInvalidated = false
     this._initialized = true
 

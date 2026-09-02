@@ -3,6 +3,33 @@ import { SEL } from "./helpers/selectors.js"
 import { waitForBackend } from "./helpers/api-client.js"
 import { expectNoPageOverflow, expectWithinViewport } from "./helpers/responsive.js"
 
+async function entryContrastMetrics(card) {
+  return card.evaluate((element) => {
+    const channel = (value) => {
+      const normalized = value / 255
+      return normalized <= 0.04045
+        ? normalized / 12.92
+        : ((normalized + 0.055) / 1.055) ** 2.4
+    }
+    const luminance = (color) => {
+      const [red, green, blue] = color.match(/[\d.]+/g).slice(0, 3).map(Number)
+      return (0.2126 * channel(red)) + (0.7152 * channel(green)) + (0.0722 * channel(blue))
+    }
+    const contrast = (left, right) => {
+      const values = [luminance(left), luminance(right)].sort((a, b) => b - a)
+      return (values[0] + 0.05) / (values[1] + 0.05)
+    }
+    const style = getComputedStyle(element)
+    const background = style.backgroundColor
+    return {
+      border: contrast(style.borderTopColor, background),
+      eyebrow: contrast(getComputedStyle(element.querySelector(".entry-card__eyebrow")).color, background),
+      description: contrast(getComputedStyle(element.querySelector("span:not(.entry-card__eyebrow)")).color, background),
+      action: contrast(getComputedStyle(element.querySelector("i")).color, background),
+    }
+  })
+}
+
 test.describe("首页与导航", () => {
   test.beforeAll(async () => {
     await waitForBackend(60000)
@@ -22,6 +49,18 @@ test.describe("首页与导航", () => {
     await expect(page.getByRole("button", { name: /进入互动故事/ })).toBeVisible()
     await expect(page.locator(SEL.sidebar)).toHaveCount(0)
     await expect(page.locator(SEL.workspace)).toBeVisible()
+
+    const card = page.locator(".entry-card").first()
+    for (const theme of ["sticky", "night", "ink"]) {
+      await page.locator("html").evaluate((element, value) => {
+        element.setAttribute("data-theme", value)
+      }, theme)
+      const contrast = await entryContrastMetrics(card)
+      expect(contrast.border, `${theme} card border`).toBeGreaterThanOrEqual(3)
+      expect(contrast.eyebrow, `${theme} eyebrow`).toBeGreaterThanOrEqual(4.5)
+      expect(contrast.description, `${theme} description`).toBeGreaterThanOrEqual(4.5)
+      expect(contrast.action, `${theme} action`).toBeGreaterThanOrEqual(4.5)
+    }
   })
 
   test("侧边栏导航项可见", async ({ page }) => {

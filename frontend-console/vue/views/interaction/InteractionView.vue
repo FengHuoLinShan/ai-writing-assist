@@ -1491,12 +1491,14 @@ async function archiveJourney() {
 }
 
 async function exportJourney(format, storyOnly, includeOverview = true) {
+  const requestJourneyId = journeyId.value
   try {
-    const data = await getApi().interactions.exportJourney(journeyId.value, {
+    const data = await getApi().interactions.exportJourney(requestJourneyId, {
       format,
       story_only: storyOnly,
       include_overview: includeOverview,
     })
+    if (disposed || journeyId.value !== requestJourneyId) return
     const blob = new Blob([data.content], { type: data.media_type })
     const url = URL.createObjectURL(blob)
     const link = document.createElement("a")
@@ -1506,7 +1508,9 @@ async function exportJourney(format, storyOnly, includeOverview = true) {
     URL.revokeObjectURL(url)
     getToast()(storyOnly ? "故事正文已导出" : "完整记录已导出", "success")
   } catch {
-    getToast()("导出暂时失败；旅程内容没有受到影响，请重试。", "error")
+    if (!disposed && journeyId.value === requestJourneyId) {
+      getToast()("导出暂时失败；旅程内容没有受到影响，请重试。", "error")
+    }
   }
 }
 

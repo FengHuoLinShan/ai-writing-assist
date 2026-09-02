@@ -2241,7 +2241,7 @@ label.llm-clear-key {
   padding: var(--space-3);
   color: var(--text-secondary);
   background: var(--bg-panel);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
 
@@ -14278,7 +14278,7 @@ details[open] > .world-bible-support-summary::after {
 .entry-card > i {
   margin-top: auto;
   padding-top: 28px;
-  color: #215cc6;
+  color: var(--rp-accent);
   font-size: 14px;
   font-style: normal;
   font-weight: 700;
@@ -14313,7 +14313,8 @@ details[open] > .world-bible-support-summary::after {
 
 .entry-choice,
 .rp-list-page,
-.rp-story-page {
+.rp-story-page,
+.rp-load-failure {
   --rp-bg: #fff;
   --rp-panel: #fff;
   --rp-soft: #f4f6f9;
@@ -14332,7 +14333,8 @@ details[open] > .world-bible-support-summary::after {
 
 [data-theme="night"] .entry-choice,
 [data-theme="night"] .rp-list-page,
-[data-theme="night"] .rp-story-page {
+[data-theme="night"] .rp-story-page,
+[data-theme="night"] .rp-load-failure {
   --rp-bg: var(--bg-base);
   --rp-panel: var(--bg-panel);
   --rp-soft: var(--bg-hover);
@@ -14349,7 +14351,8 @@ details[open] > .world-bible-support-summary::after {
 
 [data-theme="ink"] .entry-choice,
 [data-theme="ink"] .rp-list-page,
-[data-theme="ink"] .rp-story-page {
+[data-theme="ink"] .rp-story-page,
+[data-theme="ink"] .rp-load-failure {
   --rp-bg: var(--bg-base);
   --rp-panel: var(--bg-panel);
   --rp-soft: var(--bg-hover);
@@ -14746,6 +14749,14 @@ details[open] > .world-bible-support-summary::after {
   outline: 0;
   background: var(--rp-panel);
   color: var(--rp-text);
+}
+
+.entry-choice,
+[data-theme="night"] .entry-choice,
+[data-theme="ink"] .entry-choice {
+  --rp-muted: var(--text-secondary);
+  --rp-dim: var(--rp-muted);
+  --rp-border: var(--text-secondary);
 }
 
 .rp-search-toggle {
@@ -15193,20 +15204,14 @@ button.rp-journey-card__main:hover {
   flex-wrap: wrap;
   gap: 2px;
   margin-top: 9px;
-  opacity: 0.68;
   transition: opacity 120ms ease;
-}
-
-.rp-message:hover .rp-message__actions,
-.rp-message:focus-within .rp-message__actions {
-  opacity: 1;
 }
 
 .rp-message__actions button {
   min-height: 32px;
   padding: 6px 9px;
   border-radius: 7px;
-  color: var(--rp-dim);
+  color: var(--rp-text);
   font-size: 13px;
 }
 
@@ -15977,10 +15982,6 @@ button.rp-journey-card__main:hover {
 
   .rp-message--user {
     margin-left: 24px;
-  }
-
-  .rp-message__actions {
-    opacity: 1;
   }
 
   .rp-message__actions button {
