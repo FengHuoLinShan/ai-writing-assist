@@ -143,6 +143,22 @@ describe("WritingView", () => {
     wrapper.unmount()
   })
 
+  it("没有章节时仍从唯一 AI 菜单进入完整工具", async () => {
+    const wrapper = mount(WritingView, {
+      props: props({ chapterList: [], chapters: {}, scenes: [], requestedLocation: {} }),
+      attachTo: document.body,
+    })
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-action="open-owner-ai-drawer"]')).toHaveLength(0)
+    await wrapper.get('[data-action="writing-ai-menu"]').trigger("click")
+    await wrapper.get('[data-action="writing-open-owner-ai"]').trigger("click")
+    await flushPromises()
+
+    expect(wrapper.find("[data-owner-ai-drawer]").exists()).toBe(true)
+    wrapper.unmount()
+  })
+
   it("专注状态按项目恢复，进入后聚焦正文并可用 Escape 退出", async () => {
     const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
     await flushPromises()

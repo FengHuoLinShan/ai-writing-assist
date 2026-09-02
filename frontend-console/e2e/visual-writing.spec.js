@@ -10,7 +10,7 @@
 import { test, expect } from "./fixtures.js"
 import { createDraft, createScene, waitForBackend } from "./helpers/api-client.js"
 import { SEL } from "./helpers/selectors.js"
-import { openWorkbench, waitWritingReady } from "./helpers/workbench.js"
+import { openWorkbench, openWritingAiDrawer, waitWritingReady } from "./helpers/workbench.js"
 
 const THEMES = ["sticky", "night", "ink"]
 
@@ -109,7 +109,7 @@ test.describe("writing 视觉基线", () => {
     await openPopulatedDesk(page, project)
     await applyTheme(page, "sticky")
 
-    await page.locator('[data-action="open-owner-ai-drawer"]').click()
+    await openWritingAiDrawer(page)
     const drawer = page.locator("[data-owner-ai-drawer]")
     await expect(drawer).toBeVisible()
     await expect(drawer.locator('[data-action="owner-writing-generation"]')).toHaveAttribute("aria-selected", "true")

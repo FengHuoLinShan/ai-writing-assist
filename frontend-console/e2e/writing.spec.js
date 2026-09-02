@@ -1,7 +1,7 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
 import { expectNoPageOverflow, expectWithinViewport } from "./helpers/responsive.js"
-import { reloadWorkbench, waitWritingReady } from "./helpers/workbench.js"
+import { openWritingAiDrawer, reloadWorkbench, waitWritingReady } from "./helpers/workbench.js"
 import {
   API_BASE,
   waitForBackend,
@@ -177,8 +177,7 @@ test.describe("写作台模块", () => {
       })
     })
 
-    const openAi = page.locator('[data-action="open-owner-ai-drawer"]')
-    await openAi.click()
+    await openWritingAiDrawer(page)
     const drawer = page.locator("[data-owner-ai-drawer]")
     await expect(drawer.locator(".owner-ai-writing__context")).toContainText("第 1 章 · 第一章 雾港来信")
     await expect(drawer.locator('[data-action="owner-writing-continuation"]')).toHaveClass(/btn-primary/)
@@ -200,7 +199,7 @@ test.describe("写作台模块", () => {
     const otherProject = await projectFactory({ title: "写作建议隔离对照作品", genre: "mystery", language: "zh" })
     await openProjectWorkbench(otherProject, "writing")
     await waitWritingReady(page)
-    await page.locator('[data-action="open-owner-ai-drawer"]').click()
+    await openWritingAiDrawer(page)
     await expect(page.locator(".owner-ai-writing__context")).toContainText("还没有选择章节")
     await expect(page.locator('[data-action="owner-writing-draft"]')).toBeDisabled()
     await page.locator('[data-action="close-owner-ai-drawer"]').click()
@@ -208,7 +207,7 @@ test.describe("写作台模块", () => {
     await openProjectWorkbench(originalProject, "writing")
     await waitWritingReady(page, { chapter: 1 })
     await selectWritingChapter(page, 1)
-    await page.locator('[data-action="open-owner-ai-drawer"]').click()
+    await openWritingAiDrawer(page)
     await page.setViewportSize({ width: 375, height: 812 })
     await expectWithinViewport(page.locator('[data-action="owner-writing-continuation"]'))
     await expectNoPageOverflow(page)

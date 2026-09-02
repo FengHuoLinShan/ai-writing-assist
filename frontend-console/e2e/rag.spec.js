@@ -1,6 +1,6 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
-import { openWorkbench } from "./helpers/workbench.js"
+import { openWorkbench, openWritingAiDrawer } from "./helpers/workbench.js"
 import { API_BASE, createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
 import { expectNoPageOverflow, expectWithinViewport } from "./helpers/responsive.js"
 
@@ -141,8 +141,7 @@ test.describe("RAG 检索模块", () => {
     await openWorkbench(page, testProject, "writing")
     await page.setViewportSize({ width: 375, height: 812 })
 
-    const trigger = page.locator('[data-action="open-owner-ai-drawer"]')
-    await trigger.click()
+    await openWritingAiDrawer(page)
     const drawer = page.locator("[data-owner-ai-drawer]")
     const closeButton = page.locator('[data-action="close-owner-ai-drawer"]')
     await expect(closeButton).toBeFocused()
@@ -161,10 +160,10 @@ test.describe("RAG 检索模块", () => {
 
     await page.keyboard.press("Escape")
     await expect(drawer).toHaveCount(0)
-    await expect(trigger).toBeFocused()
+    await expect(page.locator('[data-action="writing-ai-menu"]')).toBeFocused()
     await expect(page).not.toHaveURL(/(?:\?|&)owner_ai=1/)
 
-    await trigger.click()
+    await openWritingAiDrawer(page)
     await expect(page.getByRole("tabpanel", { name: "查找资料" })).toBeVisible()
     const input = page.locator("#owner-ai-panel-evidence #rag-search-input")
     await input.fill("旧塔")
@@ -197,7 +196,7 @@ test.describe("RAG 检索模块", () => {
     try {
       await openWorkbench(page, switchedProject, "writing")
       await expect(page.locator("[data-owner-ai-drawer]")).toHaveCount(0)
-      await page.locator('[data-action="open-owner-ai-drawer"]').click()
+      await openWritingAiDrawer(page)
       await page.getByRole("tab", { name: "查找资料", exact: true }).click()
       await expect(page.locator("#owner-ai-panel-evidence #rag-search-input")).toHaveValue("")
       await expect(page.locator("#owner-ai-panel-evidence .rag-result-card")).toHaveCount(0)

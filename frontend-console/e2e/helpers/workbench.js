@@ -90,6 +90,17 @@ export async function openProjectView(page, project) {
   await expect(page.locator(SEL.viewTitle)).toHaveText("作品档案", { timeout: 10000 })
 }
 
+/** 打开写作页唯一 AI 入口；移动速记使用页头，完整编辑器使用页内菜单。 */
+export async function openWritingAiDrawer(page) {
+  const quickNoteEntry = page.locator('[data-action="open-owner-ai-drawer"]')
+  if (await quickNoteEntry.isVisible()) {
+    await quickNoteEntry.click()
+    return
+  }
+  await page.locator('[data-action="writing-ai-menu"]').click()
+  await page.locator('[data-action="writing-open-owner-ai"]').click()
+}
+
 /**
  * 刷新页面后重新导航到指定视图
  */

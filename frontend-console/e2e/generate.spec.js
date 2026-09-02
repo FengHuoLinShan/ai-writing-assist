@@ -1,7 +1,7 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
 import { expectNoPageOverflow } from "./helpers/responsive.js"
-import { openWorkbench } from "./helpers/workbench.js"
+import { openWorkbench, openWritingAiDrawer } from "./helpers/workbench.js"
 import {
   createProject,
   cleanupProject,
@@ -17,7 +17,7 @@ import {
 
 async function openPovWorkbench(page, project) {
   await openWorkbench(page, project, "writing")
-  await page.locator('[data-action="open-owner-ai-drawer"]').click()
+  await openWritingAiDrawer(page)
   const povWorkbench = page.locator('[data-action="owner-writing-pov-workbench"]')
   if (!await povWorkbench.isVisible()) await page.locator(".owner-ai-writing__more > summary").click()
   await povWorkbench.click()

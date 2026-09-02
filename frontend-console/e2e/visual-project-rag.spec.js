@@ -9,7 +9,7 @@
  */
 import { test, expect } from "./fixtures.js"
 import { waitForBackend } from "./helpers/api-client.js"
-import { openWorkbench } from "./helpers/workbench.js"
+import { openWorkbench, openWritingAiDrawer } from "./helpers/workbench.js"
 
 const THEMES = ["sticky", "night", "ink"]
 
@@ -202,7 +202,7 @@ test.describe("project / rag 视觉基线", () => {
   test("AI 工具查找资料首屏 × 桌面与手机", async ({ page, projectFactory, browserErrors }) => {
     const proj = await projectFactory({ title: "视觉基线抽屉查找", genre: "scifi", language: "zh" })
     await openWorkbench(page, proj, "writing")
-    await page.locator('[data-action="open-owner-ai-drawer"]').click()
+    await openWritingAiDrawer(page)
     await page.getByRole("tab", { name: "查找资料", exact: true }).click()
     await expect(page.locator("#owner-ai-panel-evidence #rag-search-input")).toBeVisible({ timeout: 10000 })
 

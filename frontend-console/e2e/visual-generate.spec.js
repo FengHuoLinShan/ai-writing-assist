@@ -1,6 +1,6 @@
 import { test, expect } from "./fixtures.js"
 import { createDraft, createEntity, createScene, waitForBackend } from "./helpers/api-client.js"
-import { openWorkbench } from "./helpers/workbench.js"
+import { openWorkbench, openWritingAiDrawer } from "./helpers/workbench.js"
 
 const THEMES = ["sticky", "night", "ink"]
 
@@ -23,7 +23,7 @@ async function screenshotPage(page, name) {
 
 async function openPovWorkbench(page, project) {
   await openWorkbench(page, project, "writing")
-  await page.locator('[data-action="open-owner-ai-drawer"]').click()
+  await openWritingAiDrawer(page)
   await page.locator('[data-action="owner-writing-pov-workbench"]').click()
   await expect(page.locator("#generate-mode-panel-pov_prose")).toBeVisible({ timeout: 10000 })
 }

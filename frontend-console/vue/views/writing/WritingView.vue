@@ -160,6 +160,7 @@
         @generate-pov="vm.generatePovDraft"
         @auto-extract="vm.openAutoExtraction"
         @open-deep-import-settings="vm.openDeepImportSettings"
+        @open-ai-tools="openOwnerAi({ owner: 'writing' })"
         @adopt="adoptCandidate"
         @reject="rejectCandidate"
         @semantic-review="vm.reviewCandidate"
