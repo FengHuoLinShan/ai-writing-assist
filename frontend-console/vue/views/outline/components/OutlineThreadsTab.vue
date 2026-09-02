@@ -255,6 +255,7 @@ const activeFilterCount = computed(() => (
   ["status", "source", "needs_review", "workflow_id"].filter((key) => Boolean(props.filters?.[key])).length
 ))
 const routeSignature = structureQueryFromState("threads", props.filters).toString()
+const restoreFilterFocusOnMount = Boolean(outlineFilterDrafts[threadScope]?.restoreFocus)
 const restoredDraft = outlineFilterDrafts[threadScope]?.routeSignature === routeSignature
   ? outlineFilterDrafts[threadScope].value
   : null
@@ -276,11 +277,9 @@ watch(filterForm, (value) => {
 async function navigateFilters(filters, restoreFilterFocus = false) {
   const query = structureQueryFromState("threads", filters)
   outlineFilterDrafts[threadScope].routeSignature = query.toString()
+  if (restoreFilterFocus) outlineFilterDrafts[threadScope].restoreFocus = true
   const navigated = await getRouter()?.navigate("outline", "threads", true, query)
-  if (restoreFilterFocus && navigated !== false) {
-    await new Promise(requestAnimationFrame)
-    document.querySelector(".outline-structure-filters > summary")?.focus()
-  }
+  if (restoreFilterFocus && navigated !== true) delete outlineFilterDrafts[threadScope].restoreFocus
 }
 
 const threadsTotal = computed(() => props.threadsTotal || 0)
@@ -376,8 +375,12 @@ function informationPlanName(item) {
 }
 
 onMounted(async () => {
-  if (!informationFocusKind.value) return
   await nextTick()
+  if (restoreFilterFocusOnMount) {
+    filterPanel.value?.querySelector(":scope > summary")?.focus()
+    return
+  }
+  if (!informationFocusKind.value) return
   const target = informationSection.value?.querySelector('[data-information-focus-match="true"] > summary')
     || informationSection.value
   target?.scrollIntoView?.({ block: "center" })

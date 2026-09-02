@@ -472,8 +472,8 @@ def test_production_toolchain_contract_is_pinned_everywhere() -> None:
         "244cc2b53f46f9e876304391d17682b0ddae9ac33491f4857e25e35a36ba7995"
     )
     nginx_image = (
-        "nginx:1.31.3-alpine@sha256:"
-        "4a73073bd557c65b759505da037898b61f1be6cbcc3c2c3aeac22d2a470c1752"
+        "nginx:1.31.4-alpine@sha256:"
+        "db35bfc6b2951e7f8a72db5db120288c127ffaeeb4a6d4b95a26fead017d5913"
     )
     postgres_image = (
         "pgvector/pgvector:0.8.6-pg17-bookworm@sha256:"
@@ -489,6 +489,7 @@ def test_production_toolchain_contract_is_pinned_everywhere() -> None:
     assert "COPY --from=build --chown=app:app /app /app" in backend_dockerfile
     assert f"FROM {node_image} AS build" in frontend_dockerfile
     assert f"FROM {nginx_image}" in frontend_dockerfile
+    assert "libexpat=2.8.4-r0" in frontend_dockerfile
     assert "asset-manifest.json asset-inventory.txt index.html" in frontend_dockerfile
     assert "nginx -t" in frontend_dockerfile
     assert "chown nginx:nginx /run /var/cache/nginx" in frontend_dockerfile
