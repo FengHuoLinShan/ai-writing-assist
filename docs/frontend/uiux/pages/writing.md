@@ -53,12 +53,12 @@
    残留消除）、稿纸顶 3px 墨线与朱红页边线随旧设计语言移除、专注模式稿纸居中双写收敛为
    `.focus-mode-active .writing-sheet`（max-width 860px）一处。残留冲突执行时按源码重新清点，
    权威层分工见主规范 §1.1。
-7. **死样式/死 class**：旧清单（`.writing-empty-hint`、`.writing-editor-buttons__group`、
-   `.wc-bar-left/.wc-bar-right` 等）基于重写前源码，行号与存活状态全部失效；执行时按源码
-   重新清点。`.writing-empty-hint` 的 4 处使用点收口与 `.error-card` 归并仍是有效目标。
-8. **重复 id 隐患**：`#writing-conflict-strip` 有两个渲染源（`WritingView.vue` 与
-   `WritingWorkflowBars.vue`），当前靠 `:show-conflict="false"` 硬编码回避；打开开关即产生重复 id。
-   （本轮未涉及。）
+7. **已解决（2026-09-02）—死样式/死 class**：删除无任何生产消费者的
+   `.writing-editor-buttons__group` 和 `.wc-bar-left/.wc-bar-right`；`.writing-empty-hint` 仍有多个
+   失败、空态和说明文本消费者，不为统一外观强制改成错误卡。
+8. **已解决（2026-09-02）—重复 id 隐患**：写作页只保留 `WritingView.vue` 的
+   `#writing-conflict-strip`；删除 `WritingWorkflowBars` 中从未启用的第二渲染源和
+   `showConflict` 开关，冲突摘要的位置不变。
 9. **候选采纳 UI 与正文抢层级**：**已解决**。审核条紧贴编辑器头部、位于只读正文之前，
    明示“还没有改动工作稿”；候选态隐藏正常发布与 AI 生成入口，各审查状态只保留一个主操作。
    存在当前工作稿时可一步打开既有版本差异；采用/拒绝已统一走 `confirmAsync`，处理中禁用全部决策，

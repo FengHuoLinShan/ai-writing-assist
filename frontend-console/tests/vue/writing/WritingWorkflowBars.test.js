@@ -331,15 +331,4 @@ describe("WritingWorkflowBars", () => {
     expect(wrapper.text()).toContain("阶段 3 · 补充场景资料")
   })
 
-  it("允许宿主把最近冲突检查移到顶部操作行", () => {
-    const wrapper = mount(WritingWorkflowBars, {
-      props: {
-        publish: { active: false, phase: null },
-        conflict: { latest: { id: "check-1", status: "completed" }, error: null },
-        deepImport: { taskId: null, progress: null },
-        showConflict: false,
-      },
-    })
-    expect(wrapper.find("#writing-conflict-strip").exists()).toBe(false)
-  })
 })

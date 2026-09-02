@@ -2581,8 +2581,6 @@ label.llm-clear-key {
 .chapter-tree-header,
 .chapter-tree-actions,
 .writing-wordcount-bar,
-.wc-bar-left,
-.wc-bar-right,
 .wc-daily-goal {
   display: flex;
   align-items: center;

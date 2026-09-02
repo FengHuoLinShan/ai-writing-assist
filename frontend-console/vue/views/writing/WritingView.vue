@@ -92,7 +92,6 @@
     :deep-import-has-scenes="vm.deepImportHasScenes.value"
     :generation="vm.generationTask"
     :conflict-task="vm.conflictTask"
-    :show-conflict="false"
     @cancel="vm.cancelDeepImport"
     @resume="vm.resumeDeepImport"
     @abandon="vm.abandonDeepImport"

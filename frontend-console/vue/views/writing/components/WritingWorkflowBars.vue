@@ -68,19 +68,6 @@
       </div>
     </WorkflowProgressCard>
   </section>
-  <div
-    v-if="showConflict && (conflict.latest || conflict.error)"
-    id="writing-conflict-strip"
-    key="recent-conflict"
-    class="writing-conflict-strip"
-    :role="conflict.latest ? 'button' : 'status'"
-    :tabindex="conflict.latest ? 0 : null"
-    @click="conflict.latest && $emit('open-conflict')"
-    @keydown.enter="conflict.latest && $emit('open-conflict')"
-  >
-    <strong>{{ conflict.error ? '最近检查加载失败' : '最近冲突检查' }}</strong>
-    <span>{{ conflict.error || conflict.latest?.summary_json?.message || conflict.latest?.status || '已完成' }}</span>
-  </div>
   </TransitionGroup>
 </template>
 
@@ -102,7 +89,6 @@ const props = defineProps({
   deepImportHasScenes: { type: Boolean, default: false },
   generation: { type: Object, default: null },
   conflictTask: { type: Object, default: null },
-  showConflict: { type: Boolean, default: true },
 })
 const emit = defineEmits(["cancel", "resume", "abandon", "dismiss", "open-audit", "open-scenes", "open-conflict", "retry-publish", "dismiss-publish", "open-generation", "cancel-generation", "dismiss-generation", "retry-stale-story-script", "cancel-conflict-task", "dismiss-conflict-task"])
 
@@ -269,8 +255,7 @@ const hasNotices = computed(() => Boolean(
   || props.generation?.progress
   || props.generation?.staleStoryScript
   || props.conflictTask?.progress
-  || normalizedDeepImportProgress.value
-  || (props.showConflict && (props.conflict.latest || props.conflict.error)),
+  || normalizedDeepImportProgress.value,
 ))
 
 const dismissTimers = new Map()

@@ -150,27 +150,6 @@
   animation: writing-desk-pulse 1s var(--ease-default) infinite;
 }
 
-.writing-editor-buttons__group {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  min-width: 0;
-  padding: 0 10px;
-}
-
-.writing-editor-buttons__group:first-child {
-  padding-left: 0;
-}
-
-.writing-editor-buttons__group:last-child {
-  padding-right: 0;
-}
-
-.writing-editor-buttons__group + .writing-editor-buttons__group {
-  border-left: 1px solid var(--archive-rule);
-}
-
 .writing-editor-buttons__context {
   display: flex;
   align-items: center;
@@ -2166,10 +2145,6 @@ body.focus-mode-active #workspace-content {
     align-items: stretch;
     flex-direction: column;
     margin: 0 10px;
-  }
-
-  .writing-editor-buttons__group {
-    padding: 0 7px;
   }
 
   .writing-editor-buttons__context {
