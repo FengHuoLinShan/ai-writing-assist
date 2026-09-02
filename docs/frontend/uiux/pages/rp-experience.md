@@ -193,8 +193,8 @@
   `journeys`、`journeys:new`、`interaction:<uuid>`）不得放宽；发出方
   （JourneyListView.vue:243-246、InteractionView.vue:219-224）与接收方
   （GlobalSettingsView.vue:34-37、95-107、217-234、327）行为保留。
-- 设置页 RP 往返态做最低限度视觉适配（返回箭头、隐藏区块现状保留），
-  不引入作者侧完整视觉；完整 RP 化属 P2。
+- 设置页 RP 往返态保留返回旅程和文本模型连接，隐藏与当前任务无关的图片连接、
+  作者偏好和作品范围。账户级密钥继续使用共享三主题 settings shell，不再计划另造 RP 皮肤。
 
 ## 5. 状态覆盖清单（逐项现状缺口与目标形态）
 
@@ -241,8 +241,8 @@
 - `data-rp-message-id`（InteractionView.vue:1616、1645；定位/恢复滚动/e2e 依赖）
 - `data-placement`（RpAdaptiveConfirmPopover.vue:139）
 - `data-provider-id`（GlobalSettingsView.vue:255）
-- 现状**无** `data-action` / `data-testid`；新增语义钩子前先沉淀
-  `e2e/helpers/selectors.js` RP 条目，e2e 禁止继续硬编码 class。
+- 现状**无** `data-action` / `data-testid`；行为用例优先使用 role、可访问名和用户可见状态，
+  视觉几何用例可以直接锁定所验证的 RP class；不新增单路由 selector 转发层。
 
 **role / 可访问名称（按视图）**
 
@@ -280,9 +280,9 @@
   有对应实现与测试。
 - 390px 无横向溢出；760px 断点合并后移动档行为不回归；reduced-motion 下流式指示、
   骨架、脉冲全部降级。
-- RP token 块（含 `--rp-accent` 系与 RP 专有圆角）收编完成，作者工作台页面零引用
-  （grep 验证）。
-- `selectors.js` 新增 RP 条目，interaction/home e2e 改为引用选择器而非硬编码 class。
+- RP token 块（含 `--rp-accent` 系与 RP 专有圆角）保持在沉浸页内，暗夜/水墨只转发
+  全局语义 token，作者工作台页面零引用（grep 验证）。
+- interaction/home 行为 e2e 使用 role/可访问名；仅几何与 computed style 验收锁定真实 class。
 - `make docs-check BASE_REF=origin/main` 无漂移，或逐项说明无文档影响。
 
 **验证命令**
