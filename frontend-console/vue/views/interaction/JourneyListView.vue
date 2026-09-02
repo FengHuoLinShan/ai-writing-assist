@@ -3,8 +3,6 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import {
   getApi,
   getAppState,
-  getConfirm,
-  getPrompt,
   getRouter,
   getToast,
 } from "../../bridge/index.js"
@@ -51,6 +49,8 @@ const loadingMore = ref(false)
 const seeSeaNoticeOpen = ref(false)
 const seeSeaButton = ref(null)
 const seeSeaConfirming = ref(false)
+const journeyConfirmation = ref(null)
+const journeyConfirmationBusy = ref(false)
 const seeSeaNoticeAcknowledged = ref(
   props.preferences?.see_sea_notice_acknowledged === true,
 )
@@ -290,13 +290,51 @@ function openNewJourney() {
   getRouter().navigate("journeys", "new")
 }
 
-async function archiveJourney(journey) {
+function requestArchiveJourney(journey, event) {
   const suffix = ["pending", "preparing_context", "running", "awaiting_continue"].includes(
     journey.attempt_status,
   )
     ? " 当前生成会停止，已经显示的正文会作为未完整片段保留。"
     : ""
-  if (!getConfirm()(`归档「${journey.title}」？${suffix}`)) return
+  journeyConfirmation.value = {
+    anchor: event.currentTarget,
+    confirmText: "归档旅程",
+    message: `归档「${journey.title}」？${suffix}`,
+    type: "archive",
+    journey,
+  }
+}
+
+function requestDeleteJourney(journey, event) {
+  journeyConfirmation.value = {
+    anchor: event.currentTarget,
+    confirmText: "永久删除",
+    expectedText: journey.title,
+    inputLabel: `输入完整旅程标题“${journey.title}”`,
+    message: "永久删除后无法恢复，旅程正文、分支与回顾都会删除。",
+    type: "delete",
+    journey,
+  }
+}
+
+function closeJourneyConfirmation() {
+  if (!journeyConfirmationBusy.value) journeyConfirmation.value = null
+}
+
+async function confirmJourneyAction(answer) {
+  const confirmation = journeyConfirmation.value
+  if (!confirmation || journeyConfirmationBusy.value) return
+  journeyConfirmationBusy.value = true
+  try {
+    if (confirmation.type === "archive") await archiveJourney(confirmation.journey)
+    else await deleteJourney(confirmation.journey, answer)
+  } finally {
+    journeyConfirmationBusy.value = false
+    if (journeyConfirmation.value === confirmation) journeyConfirmation.value = null
+  }
+}
+
+async function archiveJourney(journey) {
   const owner = routeOwner()
   try {
     await getApi().interactions.archiveJourney(journey.id)
@@ -326,12 +364,7 @@ async function restoreJourney(journey) {
   }
 }
 
-async function deleteJourney(journey) {
-  const answer = getPrompt()(
-    `永久删除后无法恢复。请输入完整旅程标题：${journey.title}`,
-    "",
-  )
-  if (answer === null) return
+async function deleteJourney(journey, answer) {
   const owner = routeOwner()
   try {
     await getApi().interactions.deleteJourney(journey.id, answer)
@@ -565,10 +598,10 @@ onBeforeUnmount(() => {
           </small>
         </div>
         <div class="rp-journey-card__actions">
-          <button v-if="journey.status === 'active'" type="button" :aria-label="`归档旅程：${journey.title}`" @click="archiveJourney(journey)">归档</button>
+          <button v-if="journey.status === 'active'" type="button" :aria-label="`归档旅程：${journey.title}`" @click="requestArchiveJourney(journey, $event)">归档</button>
           <template v-else>
             <button type="button" :aria-label="`恢复旅程：${journey.title}`" @click="restoreJourney(journey)">恢复</button>
-            <button class="danger" type="button" :aria-label="`永久删除旅程：${journey.title}`" @click="deleteJourney(journey)">永久删除</button>
+            <button class="danger" type="button" :aria-label="`永久删除旅程：${journey.title}`" @click="requestDeleteJourney(journey, $event)">永久删除</button>
           </template>
         </div>
       </article>
@@ -581,5 +614,18 @@ onBeforeUnmount(() => {
         @click="loadMore"
       >{{ searching ? "正在查找…" : (loadingMore ? "加载中…" : "加载更多") }}</button>
     </section>
+    <RpAdaptiveConfirmPopover
+      id="rp-journey-destructive-confirm"
+      :anchor="journeyConfirmation?.anchor || null"
+      :busy="journeyConfirmationBusy"
+      :busy-text="journeyConfirmation?.type === 'delete' ? '正在永久删除…' : '正在归档…'"
+      :confirm-text="journeyConfirmation?.confirmText || '确认'"
+      :expected-text="journeyConfirmation?.expectedText || ''"
+      :input-label="journeyConfirmation?.inputLabel || ''"
+      :message="journeyConfirmation?.message || ''"
+      :open="Boolean(journeyConfirmation)"
+      @close="closeJourneyConfirmation"
+      @confirm="confirmJourneyAction"
+    />
   </main>
 </template>

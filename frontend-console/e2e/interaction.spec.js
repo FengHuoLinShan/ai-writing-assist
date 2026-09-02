@@ -63,7 +63,12 @@ async function textContrast(locator, backgroundSelector = null) {
 
 async function mockRpApis(
   page,
-  { seeSeaNoticeAcknowledged = true, activeAttempt = null, partialMessage = false } = {},
+  {
+    seeSeaNoticeAcknowledged = true,
+    activeAttempt = null,
+    partialMessage = false,
+    archivedJourney = false,
+  } = {},
 ) {
   const journey = {
     id: journeyId,
@@ -169,7 +174,20 @@ async function mockRpApis(
               }],
               total: 1,
             }
-          : { items: [], total: 0 },
+          : archivedJourney
+            ? {
+                items: [{
+                  id: journeyId,
+                  title: "雾港钟楼",
+                  opening_excerpt: "我是一名刚到雾港的修表师。",
+                  status: "archived",
+                  latest_activity_at: "2026-07-29T00:00:00Z",
+                  current_excerpt: "信纸上的墨迹正在重新浮现。",
+                  attempt_status: "completed",
+                }],
+                total: 1,
+              }
+            : { items: [], total: 0 },
       ),
     })
   })
@@ -395,6 +413,32 @@ test.describe("RP 路由与窄屏故事页", () => {
     ))
     expect(overflow).toBeLessThanOrEqual(0)
     expect(browserErrors).toEqual([])
+  })
+
+  test("390px 下永久删除使用标题门禁并可安全取消", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 520 })
+    await mockRpApis(page, { archivedJourney: true })
+    await page.goto("/#journeys")
+    await page.getByRole("tab", { name: /已归档/ }).click()
+    const trigger = page.getByRole("button", { name: "永久删除旅程：雾港钟楼" })
+    await trigger.click()
+
+    const dialog = page.locator("#rp-journey-destructive-confirm")
+    await expect(dialog).toBeVisible()
+    await expect(dialog.locator("input")).toBeFocused()
+    const confirm = dialog.getByRole("button", { name: "永久删除" })
+    await expect(confirm).toBeDisabled()
+    await dialog.locator("input").fill("雾港")
+    await expect(confirm).toBeDisabled()
+    await dialog.locator("input").fill("雾港钟楼")
+    await expect(confirm).toBeEnabled()
+    const box = await dialog.boundingBox()
+    expect(box.y).toBeGreaterThanOrEqual(0)
+    expect(box.y + box.height).toBeLessThanOrEqual(520)
+
+    await page.keyboard.press("Escape")
+    await expect(dialog).toBeHidden()
+    await expect(trigger).toBeFocused()
   })
 
   test("保留未完整片段时明确显示未完成状态", async ({ page, browserErrors }) => {

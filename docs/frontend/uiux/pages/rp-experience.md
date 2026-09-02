@@ -24,8 +24,9 @@
 
 1. **已解决：流式段落可辨认**。流式卡显示「正在生成／未完成」、accent 左线与轻底色；
    `aria-busy` 保留，reduced-motion 下三点脉冲静止。
-2. **两个视图无首屏加载骨架**：`loadJourneyList` / `loadInteraction` 完成前视图不挂载
-   （interactionIsland.js:11-47、49-86），慢网络下路由切换后白屏，违反主规范 §5.9 Loading 归一。
+2. **已核对：首屏加载使用共享路由骨架**。`loadJourneyList` / `loadInteraction` 等待期间由
+   router 统一渲染带 `role=status`、`aria-busy=true` 的 `.loading-skeleton`；reduced-motion
+   停用 shimmer，RP 页面不再重复维护第二套骨架。
 3. **已解决：双入口跟随主题**。`.entry-choice` 与 journeys/story 共用 RP token，沉浸壳使用
    当前 `--bg-base`；卡片、标题、说明与边框均消费 RP 语义变量，不再在夜间主题闪白。
 
@@ -33,9 +34,9 @@
 
 4. **已解决：默认阅读行宽**。阅读列收敛到 640px，约 32-40 个中文字符；移动端仍使用视口减
    安全 padding。字号/行宽个性化继续作为需用户验证的产品假设，不先造设置。
-5. **危险操作三种确认范式并存**：列表归档用原生 `confirm`（JourneyListView.vue:262）、
-   永久删除用原生 `prompt` 输入完整标题（:283-286），而看海确认是定制
-   RpAdaptiveConfirmPopover。原生对话框无 RP 视觉、无移动端适配。
+5. **已解决：危险操作统一为 RP 确认层**。归档与永久删除复用
+    `RpAdaptiveConfirmPopover`；永久删除保留输入完整标题的门禁，输入匹配前不可提交。
+    确认层随 visualViewport 定位，处理中锁定关闭与重复提交，关闭后焦点返回原操作。
 6. **已解决：沉浸主题入口语义完整**。RP 内置版继续复用 `SHELL_THEMES`，主题项使用
    `menuitemradio` + `aria-checked`；方向键/Home/End 移动焦点，Escape、关闭按钮和遮罩关闭后
    都把焦点还给「更多操作」。沉浸路径隐藏 Topbar，因此保留此独立入口不属于重复功能。
@@ -143,10 +144,8 @@
 
 - 卡片 grid `1fr auto`（`styles.css` 的 journey 卡片规则）与右侧 action 列（归档/恢复/永久删除）
   保留；移动端 action 列折行现状保留。
-- **确认范式统一**：归档与永久删除废弃原生 `confirm`/`prompt`
-  （JourneyListView.vue:262、283-286），统一走定制确认（复用 RpAdaptiveConfirmPopover
-  或壳层 modal 服务）；永久删除的「输入完整标题」二次确认语义保留，仅换实现。
-  确认按钮文案写动作本身（「永久删除」而非「确定」，主规范 §5.6）。
+- **确认范式已统一**：归档与永久删除均复用 `RpAdaptiveConfirmPopover`；永久删除输入完整标题
+  后才可提交。确认按钮写动作本身（「归档旅程／永久删除」），忙碌状态锁定重复提交。
 - see-sea 进行中旅程的 7px 脉冲点（JourneyListView.vue:455）补文字状态
   （如「正在生成 · 点入观看」），`aria-label="正在生成"` 保留并扩展为完整可访问名称。
 - 空态三分支（搜索无结果/进行中为空/已归档为空，:445-447）保持用户语言。
@@ -200,7 +199,7 @@
 
 | 状态 | 现状 | 缺口 | 目标形态 |
 |---|---|---|---|
-| 首屏加载（两视图） | island load 前置，白屏（interactionIsland.js:11-86） | 无骨架 | `.loading-skeleton` 骨架屏（主规范 §5.9），reduced-motion 禁动画 |
+| 首屏加载（两视图） | 共享 router 在 island load 前置期间显示 `.loading-skeleton` | 无 | 保持 `role=status` / `aria-busy`，reduced-motion 禁动画 |
 | journeys 空态 | 三分支空态（JourneyListView.vue:445-447） | 无 | 保持，文案维持用户语言 |
 | 列表加载失败 | `role=alert` 卡片 + 重试（:320-324） | 散装样式 | 收敛 `.error-card` 基准（主规范 §5.9） |
 | 开场创建中 | 发送钮文本变「…」（:358） | 无 spinner | spinner + disabled，宽度不抖动 |

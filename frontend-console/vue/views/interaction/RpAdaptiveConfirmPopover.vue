@@ -16,7 +16,9 @@ const props = defineProps({
   busy: { type: Boolean, default: false },
   busyText: { type: String, default: "正在开启…" },
   confirmText: { type: String, default: "确认" },
+  expectedText: { type: String, default: "" },
   id: { type: String, required: true },
+  inputLabel: { type: String, default: "" },
   message: { type: String, required: true },
   open: { type: Boolean, default: false },
 })
@@ -24,6 +26,8 @@ const props = defineProps({
 const emit = defineEmits(["close", "confirm"])
 const popover = ref(null)
 const primaryButton = ref(null)
+const textInput = ref(null)
+const inputValue = ref("")
 const position = ref(null)
 let animationFrame = null
 let listenersAttached = false
@@ -47,6 +51,7 @@ const popoverStyle = computed(() => {
     width: `${position.value.width}px`,
   }
 })
+const canConfirm = computed(() => !props.expectedText || inputValue.value === props.expectedText)
 
 function updatePosition() {
   animationFrame = null
@@ -58,7 +63,7 @@ function updatePosition() {
   })
   const firstPosition = position.value === null
   position.value = next
-  if (firstPosition) void nextTick(() => primaryButton.value?.focus())
+  if (firstPosition) void nextTick(() => (props.expectedText ? textInput.value : primaryButton.value)?.focus())
 }
 
 function schedulePositionUpdate() {
@@ -104,6 +109,10 @@ function requestClose() {
   if (!props.busy) emit("close")
 }
 
+function confirm() {
+  if (!props.busy && canConfirm.value) emit("confirm", inputValue.value)
+}
+
 watch(
   () => [props.open, props.anchor],
   async ([open]) => {
@@ -117,6 +126,7 @@ watch(
       target?.focus?.()
       return
     }
+    inputValue.value = ""
     returnFocusTarget = props.anchor
     await nextTick()
     attachPositionListeners()
@@ -144,6 +154,7 @@ onBeforeUnmount(() => {
       <section
         :id="id"
         class="rp-sea-notice rp-adaptive-confirm__surface"
+        :class="{ 'is-busy': busy }"
         role="alertdialog"
         :aria-describedby="`${id}-message`"
         :aria-labelledby="`${id}-title`"
@@ -152,14 +163,26 @@ onBeforeUnmount(() => {
       >
         <strong :id="`${id}-title`">请确认</strong>
         <p :id="`${id}-message`">{{ message }}</p>
+        <label v-if="expectedText" class="rp-adaptive-confirm__field">
+          <span>{{ inputLabel || `请输入“${expectedText}”` }}</span>
+          <input
+            ref="textInput"
+            v-model="inputValue"
+            type="text"
+            autocomplete="off"
+            :disabled="busy"
+            :aria-describedby="`${id}-message`"
+            @keydown.enter.prevent="confirm"
+          />
+        </label>
         <footer class="rp-adaptive-confirm__actions">
           <button type="button" :disabled="busy" @click="requestClose">取消</button>
           <button
             ref="primaryButton"
             class="primary"
             type="button"
-            :disabled="busy"
-            @click="emit('confirm')"
+            :disabled="busy || !canConfirm"
+            @click="confirm"
           >{{ busy ? busyText : confirmText }}</button>
         </footer>
       </section>

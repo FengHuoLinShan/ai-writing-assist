@@ -37,6 +37,23 @@ function deferred() {
   return { promise, resolve }
 }
 
+async function confirmJourneyDialog(expectedText = "") {
+  await flushPromises()
+  const dialog = document.querySelector("#rp-journey-destructive-confirm")
+  expect(dialog).not.toBeNull()
+  const input = dialog.querySelector("input")
+  const confirmButton = dialog.querySelector("button.primary")
+  if (expectedText) {
+    expect(confirmButton.disabled).toBe(true)
+    input.value = expectedText
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+    await flushPromises()
+  }
+  expect(confirmButton.disabled).toBe(false)
+  confirmButton.click()
+  await flushPromises()
+}
+
 let api
 let router
 let state
@@ -288,6 +305,7 @@ describe("RP 旅程列表与开场", () => {
     void wrapper.findAll(".rp-journey-card__actions button")
       .find((button) => button.text() === label)
       .trigger("click")
+    if (label !== "恢复") await confirmJourneyDialog(label === "永久删除" ? journey.title : "")
     await Promise.resolve()
     state.currentView = "home"
 
@@ -612,7 +630,8 @@ describe("RP 旅程列表与开场", () => {
     await wrapper.findAll(".rp-journey-card__actions button")
       .find((button) => button.text() === "归档")
       .trigger("click")
-    await flushPromises()
+    expect(api.interactions.archiveJourney).not.toHaveBeenCalled()
+    await confirmJourneyDialog()
 
     expect(wrapper.text()).toContain("廷根雨夜")
     expect(api.interactions.listJourneys).not.toHaveBeenCalled()
@@ -620,5 +639,35 @@ describe("RP 旅程列表与开场", () => {
       "归档失败；旅程和正在生成的内容仍保留，请重试。",
       "error",
     )
+  })
+
+  it("永久删除在 RP 确认层输入完整标题后才执行", async () => {
+    const journey = { ...existingJourney(), status: "archived" }
+    api.interactions.deleteJourney.mockResolvedValue({})
+    const wrapper = mount(JourneyListView, {
+      props: {
+        activeJourneys: [],
+        activeTotal: 0,
+        archivedJourneys: [journey],
+        archivedTotal: 1,
+        llmConnections: connections(),
+      },
+    })
+    await wrapper.findAll("[role='tab']")
+      .find((button) => button.text() === "已归档")
+      .trigger("click")
+    const trigger = wrapper.findAll(".rp-journey-card__actions button")
+      .find((button) => button.text() === "永久删除")
+    await trigger.trigger("click")
+    await flushPromises()
+
+    const dialog = document.querySelector("#rp-journey-destructive-confirm")
+    expect(dialog.getAttribute("role")).toBe("alertdialog")
+    expect(dialog.textContent).toContain("永久删除后无法恢复")
+    expect(dialog.querySelector("label").textContent).toContain("廷根雨夜")
+    expect(api.interactions.deleteJourney).not.toHaveBeenCalled()
+
+    await confirmJourneyDialog(journey.title)
+    expect(api.interactions.deleteJourney).toHaveBeenCalledWith(journey.id, journey.title)
   })
 })

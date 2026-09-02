@@ -16148,6 +16148,29 @@ button.rp-journey-card__main:hover {
   line-height: 1.55;
 }
 
+.rp-adaptive-confirm__field {
+  display: grid;
+  gap: 6px;
+  color: var(--rp-confirm-muted);
+  font-size: 13px;
+}
+
+.rp-adaptive-confirm__field input {
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid var(--rp-confirm-border);
+  border-radius: 8px;
+  background: var(--rp-confirm-panel);
+  color: var(--rp-confirm-muted);
+  font: inherit;
+}
+
+.rp-adaptive-confirm__field input:focus-visible {
+  outline: 2px solid var(--rp-confirm-accent);
+  outline-offset: 2px;
+}
+
 .rp-adaptive-confirm__actions {
   display: flex;
   justify-content: flex-end;
@@ -16162,13 +16185,15 @@ button.rp-journey-card__main:hover {
 
 .rp-adaptive-confirm__surface.rp-sea-notice .primary {
   background: var(--rp-confirm-accent);
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .rp-adaptive-confirm__surface button:disabled {
-  cursor: wait;
+  cursor: not-allowed;
   opacity: 0.68;
 }
+
+.rp-adaptive-confirm__surface.is-busy button:disabled { cursor: wait; }
 
 .rp-adaptive-confirm__arrow {
   position: absolute;
