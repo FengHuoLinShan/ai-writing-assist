@@ -40,7 +40,7 @@ test.describe("项目模块", () => {
   test("空项目状态显示新建按钮", async ({ page }) => {
     await expect(page.getByRole("heading", { name: "开始你的第一部小说" })).toBeVisible()
     await expect(page.getByRole("button", { name: "新建空白作品", exact: true })).toBeVisible()
-    const importButton = page.getByRole("button", { name: "导入已有作品", exact: true })
+    const importButton = page.getByRole("button", { name: "导入文件并新建作品", exact: true })
     await expect(importButton).toBeVisible()
     const fileChooserPromise = page.waitForEvent("filechooser")
     await importButton.click()
@@ -172,8 +172,7 @@ test.describe("项目模块", () => {
     const card = page.locator(SEL.projectCard(project.id))
     await expect(card).toBeVisible()
 
-    // hover 显示操作按钮
-    await card.hover()
+    // 管理模式显示操作按钮
     const editBtn = card.locator('[data-action="edit-project"]')
     await editBtn.click()
 
@@ -210,7 +209,6 @@ test.describe("项目模块", () => {
     await page.locator('[data-action="manage-projects"]').click()
     const card = page.locator(SEL.projectCard(project.id))
     await expect(card).toBeVisible({ timeout: 10000 })
-    await card.hover()
     await card.locator('[data-action="edit-project"]').click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("编辑作品")
 

@@ -7,7 +7,6 @@ import {
   importFailureMessage,
   importStatusDot,
   importStatusLabel,
-  importStatusPill,
   importTimeText,
 } from "../logic/importHistory.js"
 
@@ -130,7 +129,7 @@ function importAsNewProject() {
         />
       </div>
       <button
-        class="btn btn-primary"
+        class="btn"
         data-action="upload-file"
         :disabled="uploading || !hasProject"
         @click="uploadFile"
@@ -162,7 +161,7 @@ function importAsNewProject() {
           <div class="project-import-list__item-summary">
             <span class="status-dot" :class="importStatusDot(record.status)"></span>
             <span class="project-import-list__item-name">{{ record.file_name }}</span>
-            <span class="pill" :class="importStatusPill(record.status)">{{ importStatusLabel(record.status) }}</span>
+            <span class="project-import-list__item-status">{{ importStatusLabel(record.status) }}</span>
             <span class="project-import-list__item-chapters">成功 {{ record.imported_chapters || 0 }} / 共 {{ record.total_chapters || 0 }} 章</span>
             <span class="project-import-list__item-time">{{ importTimeText(record) }}</span>
           </div>

@@ -108,7 +108,7 @@ describe("渲染状态", () => {
     expect(wrapper.find(".project-catalog-state--first").exists()).toBe(true)
     expect(wrapper.text()).toContain("开始你的第一部小说")
     expect(wrapper.find('[data-action="new"]').text()).toBe("新建空白作品")
-    expect(wrapper.find('[data-action="toggle-import"]').text()).toBe("导入已有作品")
+    expect(wrapper.find('[data-action="toggle-import"]').text()).toBe("导入文件并新建作品")
   })
 
   it("加载失败且无项目显示连接错误态", () => {
@@ -216,6 +216,7 @@ describe("选择与批量操作", () => {
 
     await wrapper.find('.project-card[data-id="p1"] input[data-action="bulk-toggle-one"]').setValue(true)
     expect(bulkBar().text()).toBe("1")
+    expect(wrapper.find('[data-action="manage-projects"]').text()).toBe("完成管理 · 1 已选")
 
     await wrapper.find('[data-action="select-visible-projects"]').trigger("click")
     expect(bulkBar().text()).toBe("2")

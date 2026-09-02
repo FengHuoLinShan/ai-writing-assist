@@ -78,6 +78,7 @@ describe("回收站", () => {
     expect(document.querySelector('.restore-project-btn[data-id="d1"]')).not.toBeNull()
     expect(document.querySelector('.perm-delete-project-btn[data-id="d2"]')).not.toBeNull()
     expect(document.getElementById("recycle-bulk-restore").disabled).toBe(true)
+    expect(document.getElementById("recycle-bulk-restore").classList.contains("btn-primary")).toBe(false)
     expect(document.getElementById("recycle-bulk-delete").disabled).toBe(true)
     expect(document.getElementById("recycle-prev-page").disabled).toBe(true)
     expect(document.getElementById("recycle-next-page").disabled).toBe(true)

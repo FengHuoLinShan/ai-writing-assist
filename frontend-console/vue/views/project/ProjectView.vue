@@ -80,6 +80,14 @@ const currentName = computed(() => {
 })
 
 const filterCountLabel = computed(() => projectCountLabel(visibleProjects.value.length, allProjects.value.length))
+const importActionLabel = computed(() => {
+  if (!allProjects.value.length) return "导入文件并新建作品"
+  return session.importSectionOpen ? "收起导入" : "导入已有作品"
+})
+const manageLabel = computed(() => {
+  if (!session.manageMode) return "管理作品"
+  return selection.size ? `完成管理 · ${selection.size} 已选` : "完成管理"
+})
 
 const searchInput = ref(null)
 
@@ -178,8 +186,8 @@ async function retryProjects() {
         </div>
         <div class="project-archive-hero__actions">
           <button class="btn btn-primary" data-action="new" @click="showCreateForm">新建空白作品</button>
-          <button class="btn btn-ghost" data-action="toggle-import" @click="toggleImportSection">{{ session.importSectionOpen ? "收起导入" : "导入已有作品" }}</button>
-          <button class="btn btn-ghost" data-action="manage-projects" @click="session.manageMode = !session.manageMode">{{ session.manageMode ? "完成管理" : "管理作品" }}</button>
+          <button class="btn btn-ghost" data-action="toggle-import" @click="toggleImportSection">{{ importActionLabel }}</button>
+          <button class="btn btn-ghost" data-action="manage-projects" @click="session.manageMode = !session.manageMode">{{ manageLabel }}</button>
           <button class="btn btn-ghost" data-action="recycle-bin" @click="showRecycleBin()">回收站</button>
         </div>
       </div>

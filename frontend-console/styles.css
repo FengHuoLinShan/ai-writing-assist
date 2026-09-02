@@ -16270,7 +16270,8 @@ button.rp-journey-card__main:hover {
   padding-block: 0;
 }
 .project-catalog .project-archive-hero__copy { padding: 22px 28px; }
-.project-catalog .project-archive-hero h1 { font-size: 46px; }
+.project-catalog .project-archive-hero h1 { font-size: var(--text-xl); line-height: var(--leading-tight); }
+.project-catalog .project-archive-hero h1 em { font-size: 0.75em; }
 .project-catalog .project-archive-hero__copy > p { max-width: 560px; margin-top: 10px; line-height: 1.5; }
 .project-catalog .project-archive-hero__summary { padding: 18px 22px; }
 .project-catalog .project-archive-hero__summary > strong { margin: 0 0 8px; font-size: 26px; }
@@ -16301,7 +16302,7 @@ button.rp-journey-card__main:hover {
     margin-bottom: var(--space-4);
   }
   .project-catalog .project-archive-hero__copy { padding: var(--space-4); }
-  .project-catalog .project-archive-hero h1 { font-size: 34px; }
+  .project-catalog .project-archive-hero h1 { font-size: var(--text-xl); }
   .project-catalog .project-archive-hero__copy > p { margin-top: var(--space-2); }
   .project-catalog .project-archive-hero__summary {
     display: grid;

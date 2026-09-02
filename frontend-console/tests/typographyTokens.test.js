@@ -29,6 +29,7 @@ describe("global typography tokens", () => {
   it("does not use negative offsets for prominent Chinese titles", () => {
     expect(styles).toMatch(/\.editor-title\s*\{[^}]*margin-left:\s*0;/s)
     expect(styles).toMatch(/\.project-archive-hero h1\s*\{[^}]*margin:\s*0;/s)
+    expect(styles).toMatch(/\.project-catalog \.project-archive-hero h1\s*\{[^}]*font-size:\s*var\(--text-xl\)/s)
   })
 
   it("lets modal action buttons wrap instead of clipping long footer rows", () => {

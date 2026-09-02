@@ -61,7 +61,7 @@ export async function showRecycleBin(
           <div class="bulk-toolbar__status"><span>回收站作品 · 共 ${esc(total)} 部</span></div>
           <div class="bulk-toolbar__actions">
             <button class="btn btn-sm" id="recycle-select-all">全选当前页</button>
-            <button class="btn btn-sm btn-primary" id="recycle-bulk-restore" disabled>批量恢复</button>
+            <button class="btn btn-sm" id="recycle-bulk-restore" disabled>批量恢复</button>
             <button class="btn btn-sm btn-danger" id="recycle-bulk-delete" disabled>批量永久删除</button>
           </div>
         </div>

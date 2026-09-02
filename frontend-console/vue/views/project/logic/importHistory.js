@@ -13,19 +13,8 @@ export const IMPORT_STATUS_LABELS = {
   pending: "等待",
 }
 
-export const IMPORT_STATUS_PILLS = {
-  done: "pill-success",
-  processing: "pill-warning",
-  failed: "pill-error",
-  pending: "",
-}
-
 export function importStatusLabel(status) {
   return IMPORT_STATUS_LABELS[status] || status || ""
-}
-
-export function importStatusPill(status) {
-  return IMPORT_STATUS_PILLS[status] || ""
 }
 
 export function importStatusDot(status) {
