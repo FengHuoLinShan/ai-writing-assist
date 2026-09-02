@@ -18,7 +18,7 @@
       </div>
     </header>
 
-    <details class="atlas-generation-settings card" :open="!atlas.total_pages && !currentRun">
+    <details class="atlas-generation-settings card" :open="!loading && !atlas.total_pages && !currentRun">
       <summary>生成设置 <span>{{ generationSettingsSummary }}</span></summary>
       <section class="atlas-options" aria-label="地图册生成选项">
         <label>版式
@@ -332,6 +332,8 @@ const generationSettingsSummary = computed(() => [
   options.quality === "fine" ? "精细" : "标准",
   options.include_working_drafts ? "含工作稿" : "仅正式资料",
   options.include_interiors ? "含室内图" : "不含室内图",
+  options.style_note.trim() ? "自定义画面偏好" : "默认画面偏好",
+  options.review_image_prompts ? "先检查画面说明" : "直接生成",
 ].join(" · "))
 const adoptedNodes = computed(() => flattenNodes(atlas.value.nodes || []).map(({ node }) => node))
 const levelChoices = [{ value: "cover", label: "封面" }, { value: "world", label: "世界" }, { value: "region", label: "区域" }, { value: "city", label: "城市" }, { value: "district", label: "城区" }, { value: "street", label: "街道" }, { value: "interior", label: "室内" }]

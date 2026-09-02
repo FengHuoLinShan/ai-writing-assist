@@ -93,6 +93,23 @@ describe("AI 地图册工作台", () => {
     expect(wrapper.find(".atlas-tabs").exists()).toBe(false)
   })
 
+  it.each([
+    ["空地图册", tree([], "atlas"), null, true],
+    ["已有地图册", tree([page({ review_status: "adopted" })], "atlas"), null, false],
+    ["已有任务", tree([], "atlas"), { id: "run-1", status: "failed", planned_page_count: 0, completed_page_count: 0 }, false],
+  ])("加载%s时不先误展开，完成后按真实状态决定", async (_label, atlasResult, runResult, expectedOpen) => {
+    let releaseAtlas
+    api.world.getMapAtlas.mockReturnValue(new Promise((resolve) => { releaseAtlas = resolve }))
+    api.world.getLatestMapAtlasRun.mockResolvedValue(runResult)
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
+
+    expect(wrapper.get(".atlas-generation-settings").attributes("open")).toBeUndefined()
+    releaseAtlas(atlasResult)
+    await flushPromises()
+
+    expect(wrapper.get(".atlas-generation-settings").attributes("open") !== undefined).toBe(expectedOpen)
+  })
+
   it("已有地图册默认收起生成设置但保留可读摘要", async () => {
     api.world.getMapAtlas.mockResolvedValue(tree([
       page({ review_status: "adopted" }),
@@ -103,8 +120,21 @@ describe("AI 地图册工作台", () => {
 
     const settings = wrapper.get(".atlas-generation-settings")
     expect(settings.attributes("open")).toBeUndefined()
-    expect(settings.get("summary").text()).toContain("横版 · 标准 · 仅正式资料 · 不含室内图")
+    expect(settings.get("summary").text()).toContain("横版 · 标准 · 仅正式资料 · 不含室内图 · 默认画面偏好 · 直接生成")
     expect(wrapper.get(".atlas-tabs").exists()).toBe(true)
+
+    await settings.get(".atlas-style input").setValue("旧羊皮纸")
+    await settings.findAll('input[type="checkbox"]')[2].setValue(true)
+    expect(settings.get("summary").text()).toContain("自定义画面偏好 · 先检查画面说明")
+
+    api.world.createMapAtlasRun.mockResolvedValue({ id: "run-next", status: "planning", planned_page_count: 0, completed_page_count: 0 })
+    await wrapper.get(".atlas-primary-actions .btn-primary").trigger("click")
+    await flushPromises()
+    expect(api.world.createMapAtlasRun).toHaveBeenCalledWith("novel-1", expect.objectContaining({
+      style_note: "旧羊皮纸",
+      review_image_prompts: true,
+      context_confirmation_id: "confirm-default",
+    }))
   })
 
   it("可选在生图前编辑、复制并确认全部画面说明", async () => {
