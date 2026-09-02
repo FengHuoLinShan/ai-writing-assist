@@ -159,7 +159,8 @@ rail 折叠后对应列变为 `--workspace-rail-collapsed` 44px。底部状态�
 - **每屏至多一个 primary**：`#btn-publish` 是中栏唯一 `.btn-primary`；章节框底部的新建入口使用
   secondary 样式，AI 建议和正文整理菜单项也使用普通按钮。
 - **入口去重**：完整编辑器以页内「AI 写作助手」菜单为唯一 AI 入口，不再在页头重复显示
-  「AI 工具」；移动速记未挂载编辑器菜单时，页头保留该入口。Writing Home 的 owner AI 入口不变。
+  「AI 工具」；候选审阅和零章节状态只保留菜单内「更多 AI 工具」，继续打开既有整理资料、
+  查找资料与指定写法抽屉。移动速记未挂载编辑器菜单时，页头保留该入口。Writing Home 的 owner AI 入口不变。
 
 **正文排版（稿纸 `.writing-sheet`）—— 当前值**：
 

@@ -851,6 +851,41 @@ describe("WritingView", () => {
     wrapper.unmount()
   })
 
+  it("候选审阅仍可从唯一 AI 菜单打开完整工具并恢复焦点", async () => {
+    globalThis.api.writing.getVersionHistory.mockResolvedValue({ versions: [
+      { id: "candidate", version_number: 2, status: "candidate", display_state: "candidate" },
+    ] })
+    globalThis.api.writing.get.mockResolvedValue({
+      id: "candidate",
+      novel_id: "p1",
+      chapter_index: 1,
+      title: "第一章",
+      content: "候选正文",
+      version_number: 2,
+      status: "candidate",
+      provenance_json: { source: "writing_generate", review_required: false },
+    })
+    const wrapper = mount(WritingView, {
+      props: props({ requestedLocation: { chapter: 1, draftId: "candidate" } }),
+      attachTo: document.body,
+    })
+    await vi.waitFor(() => expect(wrapper.get("#writing-editor").attributes("readonly")).toBeDefined())
+    const summary = wrapper.get('[data-action="writing-ai-menu"]')
+
+    await summary.trigger("click")
+    expect(wrapper.findAll("button").some((button) => button.text() === "续写建议")).toBe(false)
+    await wrapper.get('[data-action="writing-open-owner-ai"]').trigger("click")
+    await flushPromises()
+    const drawer = wrapper.get("[data-owner-ai-drawer]")
+    await vi.waitFor(() => expect(wrapper.get('[data-action="close-owner-ai-drawer"]').element).toBe(document.activeElement))
+    await drawer.trigger("keydown", { key: "Escape" })
+    await flushPromises()
+
+    expect(wrapper.find("[data-owner-ai-drawer]").exists()).toBe(false)
+    expect(document.activeElement).toBe(summary.element)
+    wrapper.unmount()
+  })
+
   it("未选章节时保留项目级提取入口，章节级操作保持禁用", async () => {
     const wrapper = mount(WritingView, { props: props({ requestedLocation: null }), attachTo: document.body })
     await flushPromises()

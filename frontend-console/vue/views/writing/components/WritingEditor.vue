@@ -28,16 +28,16 @@
               </div>
             </div>
           </details>
-          <details v-if="state.status !== 'candidate'" class="writing-tools-menu" @toggle="onToolMenuToggle('ai', $event)">
+          <details class="writing-tools-menu" @toggle="onToolMenuToggle('ai', $event)">
             <summary class="btn btn-sm" data-action="writing-ai-menu" aria-controls="writing-ai-tools" :aria-expanded="String(openToolMenu === 'ai')">AI 写作助手</summary>
             <div id="writing-ai-tools" class="writing-tools-menu__body">
-              <div v-if="hasChapters" class="writing-tools-menu__group">
+              <div v-if="hasChapters && state.status !== 'candidate'" class="writing-tools-menu__group">
                 <strong>可编辑建议</strong>
                 <button class="btn btn-sm" :disabled="!chapterReady || state.readonly || !state.content.trim() || generationLoading" @click="$emit('generate-continuation')">{{ generationLoading ? '生成中…' : '续写建议' }}</button>
                 <button class="btn btn-sm" :disabled="!chapterReady || state.readonly || generationLoading" @click="$emit('generate-draft')">AI 正文建议</button>
                 <button class="btn btn-sm" :disabled="!chapterReady || state.readonly || generationLoading" @click="$emit('generate-pov')">AI 角色视角建议</button>
               </div>
-              <div v-if="hasChapters" class="writing-tools-menu__group">
+              <div v-if="hasChapters && state.status !== 'candidate'" class="writing-tools-menu__group">
                 <strong>从正文整理资料</strong>
                 <button class="btn btn-sm" @click="$emit('auto-extract', 'scenes')">先整理场景骨架（推荐）</button>
                 <button class="btn btn-sm" @click="$emit('auto-extract', 'deep')">完整整理世界与结构</button>
