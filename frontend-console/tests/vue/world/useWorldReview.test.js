@@ -330,6 +330,16 @@ describe("批量复核", () => {
     expect(toastMock).toHaveBeenCalledWith("所选别名中有待分类项，请先选择别名分类", "warning")
   })
 
+  it("别名批量采用只执行逐条准备过的决策", () => {
+    const item = { entity_id: "e1", alias: "旧港", alias_kind: "name", alias_type: "name", execution_fingerprint: "fp" }
+
+    applyAliasReviewBatch([item], "accept")
+
+    expect(confirmCalls).toHaveLength(0)
+    expect(apiMock.world.reviewAliasesBatch).not.toHaveBeenCalled()
+    expect(toastMock).toHaveBeenCalledWith("所选别名中仍有未准备决策的项目", "warning")
+  })
+
   it("缺少关系分类时阻断推荐采用", () => {
     const group = {
       group_id: "g-missing-kind", source_id: "e1", target_id: "e2", execution_fingerprint: "fp",
@@ -431,6 +441,7 @@ describe("批量复核", () => {
     ]
     syncReviewRegistry({ aliases: members })
     worldSession.aliasReviewDrafts["e1::旧港"] = { target_entity_id: "e1", alias: "旧港", alias_kind: "name", alias_type: "name", expected_execution_fingerprint: "fp1", _kind_explicit: true }
+    worldSession.aliasReviewDrafts["e1::老港"] = { target_entity_id: "e1", alias: "老港", alias_kind: "name", alias_type: "nickname", expected_execution_fingerprint: "fp2", _kind_explicit: true }
     toggleBulkSelection("world-aliases", "e1::旧港", true)
     apiMock.world.reviewAliasesBatch = vi.fn(async () => ({
       results: [
@@ -496,9 +507,10 @@ describe("runReviewBulkAction 分派", () => {
   it("world-aliases 选中后走 applyAliasReviewBatch", () => {
     const members = [{ entity_id: "e1", alias: "旧港", alias_kind: "name", alias_type: "name", execution_fingerprint: "fp" }]
     syncReviewRegistry({ aliases: members })
+    worldSession.aliasReviewDrafts["e1::旧港"] = { target_entity_id: "e1", alias: "旧港", alias_kind: "name", alias_type: "name", expected_execution_fingerprint: "fp" }
     toggleBulkSelection("world-aliases", "e1::旧港", true)
     runReviewBulkAction("world-aliases", "review-aliases-batch", members)
     expect(confirmCalls).toHaveLength(1)
-    expect(confirmCalls[0].message).toContain("确定采用所选 1 个别名")
+    expect(confirmCalls[0].message).toContain("确定应用所选 1 个别名决策")
   })
 })

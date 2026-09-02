@@ -215,11 +215,11 @@
         v-if="!aliasReviewLoadError"
         scope="world-aliases"
         :actions="[
-          { action: 'review-aliases-batch', label: '批量采用', className: 'btn-primary' },
+          { action: 'review-aliases-batch', label: '应用已准备决策', className: 'btn-primary' },
           { action: 'ignore-aliases-batch', label: '批量忽略', className: 'btn-danger' },
         ]"
         noun="别名"
-        hint="未编辑条目会原样采用"
+        hint="采用前先逐条确认归属与分类；忽略可直接批量处理"
         :select-all-ids="aliasSelectableIds"
         select-all-label="全选当前页"
         @run="(action) => runReviewBulkAction('world-aliases', action, flatAliases)"
@@ -456,7 +456,7 @@
                 <p v-if="aliasDecisionStale" class="review-warning">旧草稿对应的内容已变化，已按当前内容重新载入，请重新确认。</p>
                 <p v-if="session.aliasReviewErrors[aliasKeyOf(activeAlias)]" class="review-item-error" role="alert">{{ session.aliasReviewErrors[aliasKeyOf(activeAlias)] }}</p>
                 <div class="world-alias-decision__actions">
-                  <button type="button" class="btn btn-primary world-review-touch-target" data-action="confirm-alias-merge" :disabled="aliasDecisionProcessing" @click="confirmActiveAliasDecision">采用别名</button>
+                  <button type="button" class="btn btn-primary world-review-touch-target" data-action="confirm-alias-merge" :disabled="aliasDecisionProcessing" @click="confirmActiveAliasDecision">{{ nextAliasKey ? '采用并查看下一条' : '采用别名' }}</button>
                   <button type="button" class="btn btn-danger world-review-touch-target" data-action="ignore-current-alias" :disabled="aliasDecisionProcessing" @click="applyAliasReviewBatch([activeAlias], 'ignore')">忽略此别名</button>
                   <button type="button" class="btn world-review-touch-target" data-action="cancel-alias-decision" :disabled="aliasDecisionProcessing" @click="cancelAliasDecision">稍后再决定</button>
                 </div>
@@ -724,6 +724,12 @@ const activeItem = computed(() => {
   return props.relationGroups.find((item) => item.group_id === activeKey.value) || null
 })
 const activeAlias = computed(() => activeItem.value?.members?.find((item) => aliasKey(item) === activeKey.value) || null)
+const nextAliasKey = computed(() => {
+  const aliases = props.aliasGroups.flatMap((group) => group.members || []).filter((item) => !item.managed_by_suggestion)
+  const index = aliases.findIndex((item) => aliasKey(item) === activeKey.value)
+  const next = index >= 0 ? aliases[index + 1] || aliases[index - 1] : null
+  return next ? aliasKey(next) : ""
+})
 const activeRelationGroup = computed(() => tab.value === "relations" ? activeItem.value : null)
 const activeCandidateEvidence = computed(() => tab.value === "objects" && activeItem.value ? candidateEvidence(activeItem.value) : [])
 const decisionTitle = computed(() => {
@@ -952,11 +958,13 @@ function useAliasTypeSuggestion() {
 async function confirmActiveAliasDecision() {
   const item = activeAlias.value
   if (!item) return
+  const nextKey = nextAliasKey.value
   const accepted = await acceptAliasReviewDecision(item, aliasDecisionForm)
   if (accepted) {
-    activeKey.value = ""
-    mobileDetailOpen.value = false
-    syncReviewSelection("")
+    activeKey.value = nextKey
+    mobileDetailOpen.value = Boolean(nextKey)
+    syncReviewSelection(nextKey)
+    void nextTick(() => (nextKey ? decisionEl.value : lastSelectionEl)?.focus?.())
   }
 }
 

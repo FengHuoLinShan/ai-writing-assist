@@ -363,6 +363,8 @@ describe("review-aliases", () => {
     expect(wrapper.find(".world-review-batch").exists()).toBe(false)
     const toolbar = wrapper.get('.bulk-toolbar[data-scope="world-aliases"]')
     expect(toolbar.text()).toContain("0别名已选")
+    expect(toolbar.text()).toContain("应用已准备决策")
+    expect(toolbar.text()).toContain("采用前先逐条确认归属与分类")
     expect(toolbar.get('[data-bulk-action="review-aliases-batch"]').attributes("disabled")).toBeDefined()
   })
 
@@ -394,6 +396,26 @@ describe("review-aliases", () => {
         alias_type: "name",
       })],
     }), "p-rev")
+  })
+
+  it("采用别名后直接进入下一条已可决定项", async () => {
+    const groups = [{
+      ...ALIAS_GROUPS[0],
+      members: ALIAS_GROUPS[0].members.map((item) => ({
+        ...item,
+        managed_by_suggestion: false,
+        execution_fingerprint: item.execution_fingerprint || "fp-next",
+      })),
+    }]
+    const wrapper = mountTab({ reviewSubView: "review-aliases", aliasGroups: groups })
+    await wrapper.get('[data-action="prepare-alias-review"]').trigger("click")
+
+    expect(wrapper.get('[data-action="confirm-alias-merge"]').text()).toBe("采用并查看下一条")
+    await wrapper.get('[data-action="confirm-alias-merge"]').trigger("click")
+    await flushPromises()
+
+    expect(wrapper.get("#world-review-decision-title").text()).toContain("老港")
+    expect(currentQuery.get("review_item")).toBe("e1::老港")
   })
 
   it("取消返回队列但保留别名草稿", async () => {

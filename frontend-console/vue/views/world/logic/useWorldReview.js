@@ -1078,6 +1078,10 @@ export function applyAliasReviewBatch(items, action) {
     return
   }
   const drafts = new Map(items.map((item) => [aliasKey(item), worldSession.aliasReviewDrafts[aliasKey(item)] || null]))
+  if (action === "accept" && items.some((item) => !drafts.get(aliasKey(item)))) {
+    toast("所选别名中仍有未准备决策的项目", "warning")
+    return
+  }
   if (action === "accept" && items.some((item) => {
     const draft = drafts.get(aliasKey(item))
     return draft && draft.expected_execution_fingerprint !== item.execution_fingerprint
@@ -1117,7 +1121,7 @@ export function applyAliasReviewBatch(items, action) {
   getConfirmAction()(
     action === "ignore"
       ? `确定忽略所选 ${items.length} 个别名吗？条目会进入历史并保留证据。`
-      : `确定采用所选 ${items.length} 个别名吗？未编辑条目会原样采用。`,
+      : `确定应用所选 ${items.length} 个别名决策吗？请确认归属对象与分类。`,
     async () => {
       try {
         const result = await getApi().world.reviewAliasesBatch({ confirmed: true, decisions }, getAppState()?.currentProjectId)
