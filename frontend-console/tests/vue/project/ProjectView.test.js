@@ -357,21 +357,24 @@ describe("卡片操作", () => {
 
   it("打开项目写入 state 并导航今日工作", async () => {
     const { wrapper, harness } = mountView({ projects: [makeProject("p1", { title: "星际旅人" })] })
-    await wrapper.find('.project-card[data-id="p1"]').trigger("click")
+    await wrapper.find('.project-card[data-id="p1"] .project-card__open').trigger("click")
     expect(harness.state.currentProjectId).toBe("p1")
     expect(harness.state.currentProject.title).toBe("星际旅人")
     expect(globalThis.toast).toHaveBeenCalledWith("已切换到作品：星际旅人", "success")
     expect(globalThis.router.navigate).toHaveBeenCalledWith("today")
   })
 
-  it.each(["Enter", " "])("作品卡支持 %s 键打开", async (key) => {
+  it("作品卡用独立原生按钮打开，不包裹管理控件", async () => {
     const { wrapper, harness } = mountView({ projects: [makeProject("p1", { title: "星际旅人" })] })
     const card = wrapper.find('.project-card[data-id="p1"]')
+    const openButton = card.find(".project-card__open")
 
-    expect(card.attributes("role")).toBe("link")
-    expect(card.attributes("tabindex")).toBe("0")
-    expect(card.attributes("aria-label")).toBe("打开作品：星际旅人")
-    await card.trigger("keydown", { key })
+    expect(card.element.tagName).toBe("ARTICLE")
+    expect(openButton.element.tagName).toBe("BUTTON")
+    expect(openButton.attributes("type")).toBe("button")
+    expect(openButton.attributes("aria-label")).toBe("打开作品：星际旅人")
+    expect(openButton.find("button, input, a").exists()).toBe(false)
+    await openButton.trigger("click")
 
     expect(harness.state.currentProjectId).toBe("p1")
     expect(globalThis.router.navigate).toHaveBeenCalledWith("today")

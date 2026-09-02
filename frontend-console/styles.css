@@ -5366,10 +5366,19 @@ kbd {
   transform: translate(-2px, -2px);
 }
 
-.project-card:focus-visible {
-  border-color: var(--project-red);
+.project-card__open {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  padding: 0;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
+.project-card__open:focus-visible {
   outline: 2px solid var(--project-red);
-  outline-offset: 3px;
+  outline-offset: -3px;
 }
 
 .project-card.current {
@@ -5500,6 +5509,8 @@ kbd {
 }
 
 .project-card-selection {
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
 }
@@ -5628,6 +5639,8 @@ kbd {
 }
 
 .project-card__actions {
+  position: relative;
+  z-index: 2;
   display: flex;
   justify-content: flex-end;
   gap: 6px;

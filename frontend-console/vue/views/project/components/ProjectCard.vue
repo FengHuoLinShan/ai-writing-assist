@@ -46,15 +46,16 @@ const cardClasses = computed(() => [
   <article
     :class="cardClasses"
     :data-id="project.id"
-    data-action="open-project"
-    role="link"
-    tabindex="0"
-    :aria-label="`打开作品：${name}`"
     :aria-current="isCurrent ? 'true' : undefined"
-    @click="emit('open', project.id)"
-    @keydown.enter.self="emit('open', project.id)"
-    @keydown.space.self.prevent="emit('open', project.id)"
   >
+    <button
+      type="button"
+      class="project-card__open"
+      data-action="open-project"
+      :data-id="project.id"
+      :aria-label="`打开作品：${name}`"
+      @click="emit('open', project.id)"
+    ></button>
     <div class="project-card__visual" aria-hidden="true">
       <span class="project-card__visual-code">作品 / {{ String(index + 1).padStart(2, "0") }}</span>
       <strong>{{ monogram }}</strong>

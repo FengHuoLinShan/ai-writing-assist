@@ -23,7 +23,7 @@ export function createShellTestServices(overrides = {}) {
     rag: { title: "查找", subViews: ["search", "status"], defaultSubView: "search" },
     generate: { title: "高级生成工具", subViews: [] },
     settings: { title: "账户与模型连接", subViews: [] },
-    "project-settings": { title: "项目偏好", subViews: [] },
+    "project-settings": { title: "作品偏好", subViews: [] },
   }
   const services = {
     state,

@@ -20,21 +20,17 @@
      结构的首次价值时间」）；
   3. 低频管理：编辑元信息、批量整理、回收站恢复/永久删除（对应「改得安心」——误操作可
      撤销/回滚）。
-- **设计取向**：本页是「档案柜索引」，主对象是项目卡片网格；管理动作（批量、回收站）是渐进
-  展开的第二层能力，不得干扰高频的「找到并继续」路径（主规范 §0 决策优先级 1-2、5）。
+- **设计取向**：本页是「档案柜索引」，主对象是作品卡片网格；批量编辑和删除渐进展开，回收站
+  作为恢复入口常驻次级操作，不得干扰高频的「找到并继续」路径（主规范 §0 决策优先级 1-2、5）。
 
 ## 2. 现状问题清单（按严重度排序）
 
-1. **【高】项目卡整卡可点但键盘不可达**：`.project-card` 是 `<article @click>`，无
-   tabindex/role/keydown（ProjectCard.vue:47-53）；同页占位卡却有 `role="button" tabindex="0"`
-   + Enter/Space（ProjectView.vue:284-289），可访问性不对等，违反主规范 §8 键盘契约
-   （调研报告 §7.7）。
-2. **【高】回收站可发现性差且加载失败无重试**：「回收站」按钮仅 manageMode 下渲染
-   （ProjectView.vue:170），首次空态测试也断言其不可见（project.spec.js:50）；回收站加载失败
-   只有 toast、无重试 UI（recycleBin.js:86-88），而导入记录失败有重试（ImportDrawer.vue:153-156），
-   同页两种错误标准（调研报告 §7.6、§3）。
-3. **【中】命名不一致**：topbar/页内 H1「作品档案」（router.js:15、ProjectView.vue:156）vs
-   侧边栏更多菜单「导入与整理」（vue/shell/navigation.js:18）。裁定见 §4.1（调研报告 §6）。
+1. **【已修复】作品卡键盘入口**：卡片保持 `<article>`，另设不包裹复选框或操作按钮的原生
+   `.project-card__open` 按钮；浏览器原生提供 Tab、Enter 与 Space 语义。
+2. **【已修复】回收站恢复路径**：入口常驻 hero 次级操作；首次加载失败在 modal 内显示原因与
+   可禁用的原位重试按钮，同时保留 toast 提醒。
+3. **【已修复】命名一致性**：topbar、页内 H1 与侧边栏统一使用「作品档案」语言；侧边栏入口为
+   「作品档案与导入」，设置入口为「作品偏好」。
 4. **【中】hero folio 写死 `NC` 与 `2026`**（ProjectView.vue:146、:148）：年份会过期。注意
    visual baseline 的 mask（visual-project-rag.spec.js:61-67）遮盖的是 folio `strong`（项目
    总数）等动态元素，**不含 2026**——调研报告 §7.5「2026 被 mask 侧面证实」的推断不准确；
@@ -42,15 +38,10 @@
 5. **【中】hero H1 字号越阶**：`.project-catalog .project-archive-hero h1` 为
    clamp(36px,4.2vw,58px)（`.project-archive-hero h1`，执行时核实），违反主规范 §3.2「页面标题 =
    --text-xl 24」；本页不是 §0 第一焦点豁免页（豁免的是 today 的 resume 卡）。
-6. **【中】「继续创作」与 today 页「继续写作」措辞不一**：ProjectCard.vue:106 vs
-   TodayView.vue:29，同一动作（同为 `data-action="continue-writing"`）两种措辞（调研报告 §7.8）。
-   裁定：统一为「继续写作」。
-7. **【中】统计缺省时显示「待接入」**：projectFilter.js:73-76（wordCountText/chapterCountText
-   及 title 文案），泄漏内部接入状态，违反 AGENTS.md 用户语言约束；新建项目永远显示，弱化卡片
-   可信度（调研报告 §7.10）。
-8. **【低】导入抽屉 hint 与现状不符**：ImportDrawer.vue:117「请先点击项目行选择项目」是 table
-   时代的说法；现为卡片网格，且 hasProject 只看 currentProjectId（ImportDrawer.vue:22）而非页内
-   选择（调研报告 §7.11）。
+6. **【已修复】继续动作统一**：作品卡与写作首页均使用「继续写作」。
+7. **【已修复】统计缺省真实表达**：缺少统计时显示「暂无」，title 明确为「暂无字数/章节统计」，
+   不再暴露内部接入状态。
+8. **【已修复】导入提示**：当前对象统一称「作品」，空选择提示不再引用旧表格行交互。
 9. **【低】导入记录状态用彩色 pill**：ImportDrawer.vue:164 `importStatusPill(record.status)`，
    违反主规范 §5.8「状态 = 文字 + 色点，不用彩色 pill」；同行已有 status-dot（:162），pill 冗余。
 10. **【低】断点漂移**：project 使用 1100/900/760/460 四档（`.project-*` 响应式规则）；
@@ -123,8 +114,8 @@
 
 其他卡片规则：
 
-- 整卡可点保留，但补键盘对等：`tabindex="0"` + Enter/Space 触发 open（对齐占位卡契约，
-  问题 1）；`aria-current`（:51）保留。
+- 整卡鼠标区域由空内容原生 `.project-card__open` 按钮覆盖，按钮与复选框、继续/编辑/删除操作互为
+  兄弟节点，禁止嵌套交互元素；`aria-current` 保留在 `<article>`。
 - visual 区（:54-60）：`aria-hidden` 保留；168px 高度与 `index % 4` 四色变体（:41、
   `.project-card` 规则）保留为本页系列感表达，但颜色必须走主题 token，不新增字面色值。
 - 静态视觉：paper-raised + `--line-subtle`，无阴影；hover 仅边加深或 `--bg-hover` 淡入（§5.3）。
@@ -177,7 +168,7 @@
 | 加载 | 无视图内骨架（projectIsland.js:10-13 onEnter await） | 违反 §5.9 | 网格位 `.loading-skeleton` 卡片骨架；reduced-motion 禁动画 |
 | 失败-全失败 | ✅ role="alert" 空态 + 重新连接（:182-192） | 无 | 保持，视觉对齐 `.error-card` |
 | 失败-部分失败 | ✅ alert + 重试（:207-210），保留旧数据 | 无 | 保持 |
-| 失败-回收站加载 | 仅 toast（recycleBin.js:86-88） | 无重试 UI | modal 内 `.error-card` + 重试（§4.5） |
+| 失败-回收站加载 | modal 内原因 + 禁用中的重试按钮，并补充 toast | 无 | 保持 |
 | 冲突-批量部分失败 | toast 报告失败项（ProjectView.vue:119-121） | 无 | 保持 |
 | 保存/操作反馈 | 切换项目 toast（:90）；删除确认后刷新（:123-124） | 无 | 保持 |
 | 离开恢复 | 搜索词存 session（projectSession）✅；manageMode 是本地 ref（:69）离开即丢，但选择集残留 session | 重新进入时选择集不可见地生效 | 进入页面时 reconcile 并提示或自动清空（执行时核实，与 §4.2 toggle 计数提示配套） |
@@ -206,7 +197,7 @@
 | `data-action="new"` | :167 | 新建入口（快捷键 n 触发，vue/shell/composables/useShellShortcuts.js:77-80） |
 | `data-action="toggle-import"` / `manage-projects` / `recycle-bin` | :168-170 | hero 操作 |
 | `data-action="retry-projects"` | :189、:209 | 全失败/部分失败重试 |
-| `role="search"` + `aria-label="搜索项目"` | :212 | 搜索区语义 |
+| `role="search"` + `aria-label="搜索作品"` | :212 | 搜索区语义 |
 | `#project-search-input` + `data-role="project-search"` | :217-226 | 搜索输入 |
 | `data-action="clear-project-search"` | :227、:262 | 清空（工具条 + 搜索空态） |
 | `data-role="project-filter-count"` + `aria-live="polite"` | :228 | 结果计数播报 |
@@ -215,15 +206,15 @@
 | `data-action="bulk-run"` + `data-scope` + `data-bulk-action="delete-projects"` + `data-bulk-static-disabled` | :242-250 | 批量删除 |
 | `data-action="bulk-clear"` | :251 | 清空选择 |
 | `data-role="project-search-empty"` | :258 | 搜索空态 |
-| 占位卡 `.project-card-placeholder` + `data-action="new"` + `role="button"` + `tabindex="0"` + `aria-label="创建新项目"` | :280-300 | 新建占位 |
+| 占位卡 `.project-card-placeholder` + `data-action="new"` + `role="button"` + `tabindex="0"` + `aria-label="创建新作品"` | :280-300 | 新建占位 |
 
 **ProjectCard.vue**
 
 | 契约 | 位置 | 用途 |
 |---|---|---|
-| `.project-card[data-id]` + `data-action="open-project"` + `aria-current` | :47-53 | 整卡打开/当前标记 |
+| `.project-card[data-id][aria-current]` + 原生 `button.project-card__open[data-action="open-project"][data-id]` | :47-60 | 卡片容器与独立打开动作 |
 | `data-action="bulk-toggle-one"` + `data-scope="project-cards"` + data-id（sr-only label） | :67-73 | 单项选择 |
-| `dl.project-stats` + `aria-label="项目统计"` | :89 | 统计区 |
+| `dl.project-stats` + `aria-label="作品统计"` | :89 | 统计区 |
 | `data-action="continue-writing"` / `edit-project` / `delete-project`（各带 data-id） | :106-108 | 卡内操作 |
 
 **ImportDrawer.vue**：`#pv-import-file`（accept 白名单，:122-129）、`data-action="upload-file"`
@@ -231,7 +222,7 @@
 （role=region + aria-busy，:149）、`data-action="retry-import-history"`（:155）。
 
 **回收站（recycleBin.js）**：`#recycle-select-all` / `#recycle-bulk-restore` /
-`#recycle-bulk-delete`（:45-47）、`.recycle-project-checkbox[data-id]`（:60）、
+`#recycle-bulk-delete`（:45-47）、`#recycle-retry`（失败态）、`.recycle-project-checkbox[data-id]`（:60）、
 `.restore-project-btn[data-id]` / `.perm-delete-project-btn[data-id]`（:68-69）、
 `#recycle-prev-page` / `#recycle-next-page` + 分页 `aria-label="回收站分页"`（:77-79）。
 
@@ -245,9 +236,9 @@
 ## 8. 验收标准 + 验证命令
 
 - [ ] 命名统一：侧边栏项为「作品档案与导入」，topbar/页内/e2e 断言同步通过（§9 grep 闭环）。
-- [ ] 项目卡键盘可达：Tab 可聚焦整卡，Enter/Space 打开；占位卡行为不变。
-- [ ] 「回收站」按钮非 manage 模式也可见；回收站加载失败出现重试 UI。
-- [ ] 卡片呈标题/元数据/操作三区；统计缺省不再出现「待接入」；按钮文案为「继续写作」。
+- [x] 作品卡使用独立原生打开按钮，Tab、Enter 与 Space 由浏览器原生处理；占位卡行为不变。
+- [x] 「回收站」按钮非 manage 模式也可见；回收站加载失败出现重试 UI。
+- [x] 统计缺省不再出现「待接入」；按钮文案为「继续写作」。
 - [ ] hero folio 无硬编码年份；H1 = `--text-xl` 24px；全屏唯一 primary 为「新建空白作品」
   （抽屉打开时上传按钮非 primary）。
 - [ ] 导入抽屉 hint 与卡片网格现状一致；导入记录无彩色 pill（色点 + 文字）。

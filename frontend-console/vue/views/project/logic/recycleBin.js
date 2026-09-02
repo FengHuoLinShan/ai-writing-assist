@@ -110,7 +110,23 @@ export async function showRecycleBin(
       paginationButton.focus({ preventScroll: true })
     }
   } catch (err) {
-    if (ownsLoad()) toast(`加载回收站失败：${err.message}`, "error")
+    if (!ownsLoad()) return
+    const message = `加载回收站失败：${err.message || "请稍后重试"}`
+    getShowModalHtml()(
+      "回收站",
+      `<div class="recycle-bin recycle-bin__error" role="alert"><p>${esc(message)}</p><button type="button" class="btn btn-primary" id="recycle-retry">重试</button></div>`,
+      [],
+      { size: "large" },
+    )
+    const retryButton = document.getElementById("recycle-retry")
+    if (retryButton) {
+      retryButton.onclick = () => {
+        retryButton.disabled = true
+        retryButton.textContent = "正在重试…"
+        return showRecycleBin(skip)
+      }
+    }
+    toast(message, "error")
   }
 }
 

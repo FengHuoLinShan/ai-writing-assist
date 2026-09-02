@@ -27,7 +27,7 @@ const routes = {
   generate: { title: "高级生成工具", subViews: [], requiresProject: true },
   llm: { title: "模型连接", subViews: [], requiresProject: false },
   settings: { title: "账户与模型连接", subViews: [], requiresProject: false },
-  "project-settings": { title: "项目偏好", subViews: [], requiresProject: true },
+  "project-settings": { title: "作品偏好", subViews: [], requiresProject: true },
 }
 
 /**
@@ -195,7 +195,7 @@ function _showProjectLoadFailure(content, failure) {
   message.className = "project-route-failure__message"
   message.textContent = inaccessible
     ? "作品不存在，或你没有访问权限。"
-    : "当前页面没有加载完成，可以重试或返回项目列表。"
+    : "当前页面没有加载完成，可以重试或返回作品列表。"
 
   const actions = document.createElement("div")
   actions.className = "actions project-route-failure__actions"
@@ -746,7 +746,7 @@ async function _applyRoute(routeState, { forceProject = false, showNeutral = fal
       host: null,
     }
     if (outcome.status === "temporary") {
-      toast("项目信息加载失败，可稍后重试", "warning")
+      toast("作品信息加载失败，可稍后重试", "warning")
     }
   } else {
     _failureRoute = null
@@ -878,7 +878,7 @@ function _renderGenericFailure(content) {
 
   const message = document.createElement("p")
   message.style.cssText = "color:var(--text-dim);font-size:12px;"
-  message.textContent = "你的项目内容没有受到影响。请先重试；若仍无法打开，可刷新应用。未保存的输入可能会丢失。"
+  message.textContent = "你的作品内容没有受到影响。请先重试；若仍无法打开，可刷新应用。未保存的输入可能会丢失。"
 
   const retry = document.createElement("button")
   retry.type = "button"
@@ -1180,7 +1180,7 @@ async function refresh() {
   if (outcome.status === "stale" || outcome.status === "account") return false
 
   if (outcome.status === "temporary") {
-    toast("项目信息加载失败，当前页面已保留，可稍后重试", "warning")
+    toast("作品信息加载失败，当前页面已保留，可稍后重试", "warning")
     return false
   }
 

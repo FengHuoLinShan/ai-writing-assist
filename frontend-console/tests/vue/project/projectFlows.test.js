@@ -53,6 +53,23 @@ afterEach(() => {
 })
 
 describe("回收站", () => {
+  it("加载失败显示原位重试并可恢复为空态", async () => {
+    const showModalHtml = stubModal()
+    globalThis.api.projects.listDeleted = vi.fn()
+      .mockRejectedValueOnce(new Error("连接超时"))
+      .mockResolvedValueOnce({ items: [], total: 0 })
+
+    await showRecycleBin(0)
+    const retryButton = document.getElementById("recycle-retry")
+    expect(document.querySelector('[role="alert"]').textContent).toContain("连接超时")
+    expect(retryButton).not.toBeNull()
+
+    await retryButton.onclick()
+
+    expect(globalThis.api.projects.listDeleted).toHaveBeenCalledTimes(2)
+    expect(showModalHtml).toHaveBeenLastCalledWith("回收站", expect.stringContaining("回收站为空"), [], { size: "large" })
+  })
+
   it("渲染列表、分页与操作按钮", async () => {
     const showModalHtml = stubModal()
     await showRecycleBin(0)

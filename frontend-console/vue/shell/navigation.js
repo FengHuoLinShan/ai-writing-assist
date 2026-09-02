@@ -15,8 +15,8 @@ export const SHELL_MOBILE_NAV_ITEMS = Object.freeze([
 ])
 
 export const SHELL_MORE_ITEMS = Object.freeze([
-  { view: "project", label: "导入与整理", title: "导入正文并整理作品", icon: "project" },
-  { view: "project-settings", label: "项目偏好", title: "项目偏好", icon: "project-settings" },
+  { view: "project", label: "作品档案与导入", title: "管理作品与导入正文", icon: "project" },
+  { view: "project-settings", label: "作品偏好", title: "作品偏好", icon: "project-settings" },
 ])
 
 const INTERACTION_RETURN_TARGET = (

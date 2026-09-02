@@ -379,7 +379,7 @@ describe("renderCurrentView error handling", () => {
 
     expect(content.querySelector("img")).toBeNull()
     expect(content.textContent).not.toContain(maliciousMessage)
-    expect(content.textContent).toContain("你的项目内容没有受到影响")
+    expect(content.textContent).toContain("你的作品内容没有受到影响")
   })
 
   it("shows a visible warning when project metadata cannot be loaded", async () => {
@@ -395,7 +395,7 @@ describe("renderCurrentView error handling", () => {
     await window.router.initRouter()
     warnSpy.mockRestore()
 
-    expect(toast).toHaveBeenCalledWith("项目信息加载失败，可稍后重试", "warning")
+    expect(toast).toHaveBeenCalledWith("作品信息加载失败，可稍后重试", "warning")
     expect(state.currentProject).toBeNull()
   })
 
@@ -505,7 +505,7 @@ describe("renderCurrentView error handling", () => {
     expect(state.currentProjectId).toBeNull()
     expect(state.currentProject).toBeNull()
     expect(toast).not.toHaveBeenCalledWith(
-      "项目信息加载失败，可稍后重试",
+      "作品信息加载失败，可稍后重试",
       "warning",
     )
     },
@@ -1375,7 +1375,7 @@ describe("refresh forces project sync", () => {
     expect(content.querySelector("#retained-writing")?.textContent).toBe("未保存正文仍在")
     expect(content.textContent).not.toContain("项目暂时加载失败")
     expect(toast).toHaveBeenCalledWith(
-      "项目信息加载失败，当前页面已保留，可稍后重试",
+      "作品信息加载失败，当前页面已保留，可稍后重试",
       "warning",
     )
   })
@@ -1505,7 +1505,7 @@ describe("refresh forces project sync", () => {
     expect(state.currentProjectId).toBe("project-a")
     expect(state.currentProject).toEqual({ id: "project-a", title: "最新 A" })
     expect(toast).not.toHaveBeenCalledWith(
-      "项目信息加载失败，可稍后重试",
+      "作品信息加载失败，可稍后重试",
       "warning",
     )
   })
@@ -1563,7 +1563,7 @@ describe("refresh forces project sync", () => {
     await expect(latestNavigation).resolves.toBe(true)
     expect(warnSpy).not.toHaveBeenCalled()
     expect(toast).not.toHaveBeenCalledWith(
-      "项目信息加载失败，可稍后重试",
+      "作品信息加载失败，可稍后重试",
       "warning",
     )
     warnSpy.mockRestore()

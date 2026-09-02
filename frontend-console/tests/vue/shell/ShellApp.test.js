@@ -60,7 +60,7 @@ describe("ShellApp", () => {
     const wrapper = mount(ShellApp, { props: { services, healthIntervalMs: 60_000 } })
 
     await wrapper.get(".sidebar-more > summary").trigger("click")
-    const importEntry = wrapper.findAll(".sidebar-more__panel button").find((item) => item.text().includes("导入与整理"))
+    const importEntry = wrapper.findAll(".sidebar-more__panel button").find((item) => item.text().includes("作品档案与导入"))
     expect(importEntry).toBeTruthy()
     await importEntry.trigger("click")
 
