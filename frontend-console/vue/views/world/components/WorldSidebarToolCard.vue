@@ -51,7 +51,7 @@ const emit = defineEmits(["select"])
 .world-sidebar-tools__action { display: flex; min-height: 40px; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 7px 10px; background: var(--bg-panel); color: var(--text-primary); text-align: left; cursor: pointer; }
 .world-sidebar-tools__action:hover { border-color: var(--accent); background: var(--bg-hover); }
 .world-sidebar-tools__action:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.world-sidebar-tools__action.is-primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+.world-sidebar-tools__action.is-primary { border-color: var(--accent); background: var(--accent); color: var(--text-on-accent); }
 .world-sidebar-tools :deep([data-role="smart-dedup-action"] .btn) { width: 100%; min-height: 40px; }
 .world-sidebar-tools-mobile { display: none; margin-bottom: 14px; }
 .world-sidebar-tools-mobile > summary { min-height: 44px; list-style: none; }

@@ -985,13 +985,13 @@ html, body {
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .btn-primary:hover {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .btn-ghost {
@@ -1067,7 +1067,7 @@ html, body {
   height: 48px;
   border-radius: var(--radius-full);
   background: var(--accent);
-  color: #fff;
+  color: var(--text-on-accent);
   border: none;
   box-shadow: var(--shadow-md);
   font-size: 24px;
@@ -3073,7 +3073,7 @@ label.llm-clear-key {
 
 .outline-float-chapter.current {
   background: var(--accent);
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .writing-tools-menu {
@@ -3606,7 +3606,7 @@ label.llm-clear-key {
 .badge-temporary::before { content: "~ "; }
 .badge-conflicted { color: var(--error); background: var(--error-soft); }
 .badge-conflicted::before { content: "! "; }
-.badge-new { background: var(--accent); color: #fff; }
+.badge-new { background: var(--accent); color: var(--text-on-accent); }
 .badge-done { color: var(--success); background: var(--success-soft); }
 .badge-failed { color: var(--error); background: var(--error-soft); }
 .badge-pending { color: var(--text-secondary); background: var(--bg-active); }
@@ -9460,7 +9460,7 @@ kbd {
 }
 
 .btn.btn-primary.settings-btn-loading::after {
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 @keyframes settings-spin {
@@ -10441,7 +10441,7 @@ kbd {
 }
 
 .btn.btn-primary.settings-btn-loading::after {
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 @keyframes settings-spin {

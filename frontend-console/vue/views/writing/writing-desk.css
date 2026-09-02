@@ -1543,7 +1543,7 @@
 .outline-float-chapter.current {
   border-color: var(--archive-red);
   background: var(--archive-red);
-  color: var(--archive-paper-raised);
+  color: var(--text-on-accent);
 }
 
 /* ----------------------------------------------------------

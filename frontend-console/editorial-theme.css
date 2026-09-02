@@ -17,6 +17,7 @@
   --nc-faint: #B9B7B2;
   --nc-ghost: #D8D7D2;
   --nc-accent: #1B6FB8;
+  --nc-on-accent: #FFFFFF;
   --nc-accent-soft: rgba(27, 111, 184, 0.10);
   --nc-hairline: #E9E9E7;
   --nc-hairline-strong: #D9D9D6;
@@ -54,6 +55,7 @@
   --text-tertiary: var(--nc-faint);
   --text-quaternary: var(--nc-ghost);
   --accent: var(--nc-accent);
+  --text-on-accent: var(--nc-on-accent);
   --accent-hover: color-mix(in srgb, var(--nc-accent) 85%, var(--nc-ink));
   --accent-soft: var(--nc-accent-soft);
   --accent-glow: var(--nc-accent-soft);
@@ -113,6 +115,7 @@
   --nc-faint: #5A5852;
   --nc-ghost: #3E3C38;
   --nc-accent: #D9A441;
+  --nc-on-accent: #111114;
   --nc-accent-soft: rgba(217, 164, 65, 0.12);
   --nc-hairline: #26262A;
   --nc-hairline-strong: #3A3A41;
@@ -144,6 +147,7 @@
   --nc-faint: #B4AEA0;
   --nc-ghost: #CFC8B8;
   --nc-accent: #C03F2B;
+  --nc-on-accent: #FFFFFF;
   --nc-accent-soft: rgba(192, 63, 43, 0.10);
   --nc-hairline: #D8D2CC;
   --nc-hairline-strong: #C4BCB0;
@@ -451,18 +455,13 @@ button.theme-dot::before {
 .btn-primary {
   border-color: var(--nc-accent);
   background: var(--nc-accent);
-  color: #FFFFFF;
+  color: var(--text-on-accent);
 }
 
 .btn-primary:hover {
   border-color: var(--accent-hover);
   background: var(--accent-hover);
-  color: #FFFFFF;
-}
-
-[data-theme="night"] .btn-primary,
-[data-theme="night"] .btn-primary:hover {
-  color: var(--nc-bg);
+  color: var(--text-on-accent);
 }
 
 .btn-ghost {
@@ -516,6 +515,7 @@ button.theme-dot::before {
   border: 1px solid var(--nc-accent);
   border-radius: 2px;
   background: var(--nc-accent);
+  color: var(--text-on-accent);
   box-shadow: var(--shadow-md);
 }
 

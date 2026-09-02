@@ -70,6 +70,7 @@
 | `--nc-faint` | `#B9B7B2` | `#5A5852` | `#B4AEA0` | 非必要元数据 |
 | `--nc-ghost` | `#D8D7D2` | `#3E3C38` | `#CFC8B8` | 占位/禁用 |
 | `--nc-accent` | `#1B6FB8` | `#D9A441` | `#C03F2B` | 主题强调色（蓝/金/朱砂；night 主按钮使用深色字） |
+| `--nc-on-accent` | `#FFFFFF` | `#111114` | `#FFFFFF` | accent 实心面的文字与图标 |
 | `--nc-accent-soft` | accent 10% | accent 12% | accent 10% | 强调色底 |
 | `--nc-hairline` | `#E9E9E7` | `#26262A` | `#D8D2CC` | 结构线（1px） |
 | `--nc-hairline-strong` | `#D9D9D6` | `#3A3A41` | `#C4BCB0` | 强结构线（1px） |
@@ -86,7 +87,7 @@
 |---|---|---|
 | 背景 | `--bg-base / --bg-panel / --bg-elevated / --bg-hover / --bg-active` | nc-bg / nc-surface / nc-surface / nc-ink 5% / nc-ink 9% |
 | 文字 | `--text-primary / --text-body / --text-secondary / --text-tertiary / --text-quaternary` | nc-ink / nc-body / nc-dim / nc-faint / nc-ghost |
-| 强调 | `--accent / --accent-hover / --accent-soft / --accent-glow` | nc-accent / accent 85%+ink / nc-accent-soft / nc-accent-soft |
+| 强调 | `--accent / --text-on-accent / --accent-hover / --accent-soft / --accent-glow` | nc-accent / nc-on-accent / accent 85%+ink / nc-accent-soft / nc-accent-soft |
 | 语义色 | `--success(-soft)`、`--warning(-soft)`、`--error(-soft)`、`--info(-soft)` | 对应 `--nc-*`；info = nc-accent |
 | 边框 | `--border / --border-light / --border-dim` | 均 = nc-hairline |
 | 线条 | `--line-subtle / --line-default / --line-accent / --line-active` | 1px hairline / 1px hairline-strong / 1px accent / 1px accent |
@@ -210,7 +211,7 @@
 
 | 变体 | 语义 | 视觉 |
 |---|---|---|
-| `.btn-primary` | 每屏至多一个的主操作 | 主题 accent 实心 + 白字，hover 加深（`--accent-hover`） |
+| `.btn-primary` | 每屏至多一个的主操作 | 主题 accent 实心 + `--text-on-accent`，hover 加深（`--accent-hover`） |
 | `.btn-ghost` | 次操作 | 透明底 + `--line-default` 边 |
 | `.btn-text` | 三级/行内操作 | 无边无底色，hover 出 `--bg-hover` |
 | `.btn-danger` / `.btn-warning` | 破坏性/警示 | 文字/边框用 `--error`/`--warning`，非实心填充（确认模态中的最终破坏按钮除外） |

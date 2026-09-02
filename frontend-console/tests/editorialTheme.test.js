@@ -8,6 +8,8 @@ const indexHtml = readFileSync(resolve(__dirname, "../index.html"), "utf8")
 const styles = readFileSync(resolve(__dirname, "../styles.css"), "utf8")
 const theme = readFileSync(resolve(__dirname, "../editorial-theme.css"), "utf8")
 const mapWorkspace = readFileSync(resolve(__dirname, "../vue/views/map/MapWorkspaceView.vue"), "utf8")
+const writingDesk = readFileSync(resolve(__dirname, "../vue/views/writing/writing-desk.css"), "utf8")
+const worldSidebar = readFileSync(resolve(__dirname, "../vue/views/world/components/WorldSidebarToolCard.vue"), "utf8")
 
 function themeBlock(selector) {
   return theme.match(new RegExp(`${selector.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\s*\\{([\\s\\S]*?)\\n\\}`))?.[1] || ""
@@ -26,6 +28,11 @@ function luminance(hex) {
 function contrast(foreground, background) {
   const values = [luminance(foreground), luminance(background)].sort((a, b) => b - a)
   return (values[0] + 0.05) / (values[1] + 0.05)
+}
+
+function mixHex(first, second, firstWeight) {
+  const values = [first, second].map((hex) => hex.slice(1).match(/../g).map((value) => Number.parseInt(value, 16)))
+  return `#${values[0].map((value, index) => Math.round(value * firstWeight + values[1][index] * (1 - firstWeight)).toString(16).padStart(2, "0")).join("")}`
 }
 
 describe("editorial archive theme", () => {
@@ -54,9 +61,27 @@ describe("editorial archive theme", () => {
         expect(contrast(token(block, "--nc-dim"), background)).toBeGreaterThanOrEqual(4.5)
       }
     }
-    expect(contrast("#FFFFFF", token(themes[0], "--nc-accent"))).toBeGreaterThanOrEqual(4.5)
-    expect(contrast(token(themes[1], "--nc-bg"), token(themes[1], "--nc-accent"))).toBeGreaterThanOrEqual(4.5)
-    expect(theme).toMatch(/\[data-theme="night"\] \.btn-primary,[\s\S]*?color:\s*var\(--nc-bg\);/)
+    for (const block of themes) {
+      const foreground = token(block, "--nc-on-accent")
+      const accent = token(block, "--nc-accent")
+      expect(contrast(foreground, accent)).toBeGreaterThanOrEqual(4.5)
+      expect(contrast(foreground, mixHex(accent, token(block, "--nc-ink"), 0.85))).toBeGreaterThanOrEqual(4.5)
+    }
+    expect(theme).toMatch(/--text-on-accent:\s*var\(--nc-on-accent\);/)
+  })
+
+  it("uses the on-accent token on every text-bearing accent surface", () => {
+    expect(styles).toMatch(/\.btn-primary\s*\{[^}]*color:\s*var\(--text-on-accent\);/s)
+    expect(styles).toMatch(/\.btn-primary:hover\s*\{[^}]*color:\s*var\(--text-on-accent\);/s)
+    expect(styles).toMatch(/\.btn-fab\s*\{[^}]*color:\s*var\(--text-on-accent\);/s)
+    expect(styles).toMatch(/\.outline-float-chapter\.current\s*\{[^}]*color:\s*var\(--text-on-accent\);/s)
+    expect(styles).toMatch(/\.badge-new\s*\{[^}]*color:\s*var\(--text-on-accent\);/s)
+    expect(styles.match(/\.btn\.btn-primary\.settings-btn-loading::after\s*\{[^}]*color:\s*var\(--text-on-accent\);/gs)).toHaveLength(2)
+    expect(theme).toMatch(/\.btn-primary\s*\{[^}]*color:\s*var\(--text-on-accent\);/s)
+    expect(theme).toMatch(/\.btn-primary:hover\s*\{[^}]*color:\s*var\(--text-on-accent\);/s)
+    expect(theme).toMatch(/\.btn-fab\s*\{[^}]*color:\s*var\(--text-on-accent\);/s)
+    expect(writingDesk).toMatch(/\.outline-float-chapter\.current\s*\{[^}]*color:\s*var\(--text-on-accent\);/s)
+    expect(worldSidebar).toMatch(/\.world-sidebar-tools__action\.is-primary\s*\{[^}]*color:\s*var\(--text-on-accent\);/s)
   })
 
   it("keeps the --archive-* compatibility aliases as pure forwards", () => {
@@ -77,7 +102,7 @@ describe("editorial archive theme", () => {
   })
 
   it("gives functional buttons and form fields visible interaction hierarchy", () => {
-    expect(theme).toMatch(/\.btn-primary\s*\{[^}]*background:\s*var\(--nc-accent\);[^}]*color:\s*#FFFFFF;/s)
+    expect(theme).toMatch(/\.btn-primary\s*\{[^}]*background:\s*var\(--nc-accent\);[^}]*color:\s*var\(--text-on-accent\);/s)
     expect(theme).toMatch(/\.form-input,[\s\S]*\.form-select,[\s\S]*\.form-textarea,[\s\S]*border:\s*1px solid var\(--nc-hairline-strong\);/)
     expect(theme).toMatch(/\.form-input:focus,[\s\S]*\.form-select:focus,[\s\S]*border:\s*1px solid var\(--nc-accent\);/)
   })
@@ -139,15 +164,13 @@ describe("editorial archive theme", () => {
   })
 
   it("keeps the writing sheet editor focus-visible ring intact (pages/writing.md §8.7)", () => {
-    const desk = readFileSync(resolve(__dirname, "../vue/views/writing/writing-desk.css"), "utf8")
-    expect(desk).toMatch(/\.writing-sheet \.novel-editor:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--archive-red\);/s)
+    expect(writingDesk).toMatch(/\.writing-sheet \.novel-editor:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--archive-red\);/s)
     expect(theme).toMatch(/:where\([^)]*summary[^)]*\):focus-visible\s*\{[^}]*outline:\s*2px solid var\(--nc-accent\);/s)
   })
 
   it("keeps Scene Lens touch targets at 44px on 390px screens", () => {
-    const desk = readFileSync(resolve(__dirname, "../vue/views/writing/writing-desk.css"), "utf8")
-    expect(desk).toMatch(/@media \(max-width: 390px\)[\s\S]*\.scene-lens--mobile > summary\s*\{[^}]*min-height:\s*44px;/s)
-    expect(desk).toMatch(/@media \(max-width: 390px\)[\s\S]*\.scene-lens--mobile \.scene-lens__load \.btn\s*\{[^}]*min-height:\s*44px;/s)
+    expect(writingDesk).toMatch(/@media \(max-width: 390px\)[\s\S]*\.scene-lens--mobile > summary\s*\{[^}]*min-height:\s*44px;/s)
+    expect(writingDesk).toMatch(/@media \(max-width: 390px\)[\s\S]*\.scene-lens--mobile \.scene-lens__load \.btn\s*\{[^}]*min-height:\s*44px;/s)
   })
 
   it("stacks Today decisions without horizontal overflow at 390px", () => {
