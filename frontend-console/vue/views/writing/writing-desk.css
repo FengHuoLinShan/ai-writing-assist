@@ -1143,7 +1143,7 @@
   color: var(--archive-ink-soft);
   cursor: pointer;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-align: left;

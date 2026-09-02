@@ -133,9 +133,8 @@ rail 折叠后对应列变为 `--workspace-rail-collapsed` 44px。底部状态�
 - 视觉：rail 面板 = `--nc-surface` + `--line-subtle`，无阴影（主规范 §5.3）；当前章 =
   `--nc-surface` 底 + `--nc-ink` 加粗（700），其余行 `--nc-dim`，hover `--bg-hover`——选中态靠
   表面差与字重表达，不再使用左侧 3px 索引线。
-- 字阶：章节标题 12px（`--font-body`）、章号 11px mono `--nc-dim`、meta 10px；10px 低于主规范
-  字阶下限 11px，执行时向 `--text-xs` 归并（§2-13）。rail 收窄时允许标题截断省略号，但必须保留
-  完整 title 提示。
+- 字阶：章节标题 12px（`--font-body`）、章号与非必要 meta 使用 `--text-xs` 11px；rail 收窄时
+  允许标题截断省略号，但必须保留完整 title 提示。
 - 状态点：章状态 = 文字 + 小色点/描边点（draft = `--warning` 描边、published = `--success` 实心），
   语义不变；造型以源码为准（主规范 §5.8）。
 - 空态只显示「尚无章节」说明，仍使用框底的唯一「＋ 新建章节」完成首次创建；列表加载失败
@@ -219,13 +218,12 @@ rail 折叠后对应列变为 `--workspace-rail-collapsed` 44px。底部状态�
 - 「关联 Scene」打开可连续操作的模态：已有项点击 `＋` 后原位变为不可解除的 `✓`，不关闭
   模态；底部并列「新建 Scene」和「打开 Scene 工作台」。新建只填写名称并自动关联当前章；
   解除、排序、合并、拆分和移入历史仍由 Scene 工作台负责。
-- 警报卡：`--nc-alert-bg` 底 + `--nc-alert-ink` 标题 + 右上「查看 →」按钮（`.scene-alert-card`），
-  语义色分工见主规范 §2。
+- 警报卡：`--nc-alert-bg` 底保留警报语义，标题与右上「查看 →」使用可读正文色；查看按钮为
+  `--text-sm` 13px，并满足桌面 28px、触控 42px 命中（`.scene-alert-card`）。
 - 页签：激活 tab = `--text-primary` + 底部 2px `--nc-accent` 下划线（inset），accent 蓝残留已消解
   （§2-6）。仅「警报」tab 允许 accent 色点计数（待处理语义）。
 - 实体行：头像块 4px 圆角（ink 主题圆形 50%）；在场状态纯文字，不用色块/pill。
-- 模块头 mono 11px/700 保留（元数据档）；模块正文密度向 `--text-sm` 13 / `--leading-relaxed` 1.6
-  归并（执行时核对密度损失）。
+- 模块头作为可点击区块标题使用 mono `--text-sm` 13px/700；模块正文保持约 13px 与宽松行高。
 - tab 内容加载中行内等待用 `.loading` dots（主规范 §5.9）；同章切换 Scene 时先清空旧派生内容，
   不保留容易误认的旧警报或人物。
 - 无关联 Scene 的空态复用 `.empty-state` 简式，并提供「关联 Scene」主路径。

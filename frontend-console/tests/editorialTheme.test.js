@@ -159,12 +159,13 @@ describe("editorial archive theme", () => {
 
   it("keeps writing text roles readable and actionable", () => {
     expect(writingDesk).not.toMatch(/font-size:\s*10(?:\.5)?px/)
-    expect(writingDesk).not.toContain(".scene-cockpit-meta")
+    expect(`${styles}\n${writingDesk}`).not.toContain(".scene-cockpit-meta")
     expect(writingDesk).toMatch(/\.writing-candidate-kicker\s*\{[^}]*color:\s*var\(--text-body\);[^}]*font-size:\s*var\(--text-sm\)/s)
     expect(writingDesk).toMatch(/\.scene-alert-card__action\s*\{[^}]*min-height:\s*28px;[^}]*color:\s*var\(--text-body\);[^}]*font-size:\s*var\(--text-sm\)/s)
     expect(writingDesk).toMatch(/\.writing-conflict-status\s*\{[^}]*color:\s*var\(--text-secondary\);[^}]*font-size:\s*var\(--text-sm\)/s)
     expect(writingDesk).toMatch(/\.writing-conflict-evidence-drawer > summary\s*\{[^}]*min-height:\s*28px;[^}]*font-size:\s*var\(--text-sm\)/s)
     expect(writingDesk).toMatch(/\.writing-audit-section > h4\s*\{[^}]*font-size:\s*var\(--text-sm\)/s)
+    expect(writingDesk).toMatch(/\.scene-cockpit-module__head > button\s*\{[^}]*font-size:\s*var\(--text-sm\)/s)
     expect(writingDesk).toMatch(/@media \(max-width: 760px\)[\s\S]*\.scene-alert-card__action,[\s\S]*\.writing-conflict-evidence-drawer > summary\s*\{[^}]*min-height:\s*42px;/s)
 
     for (const block of [themeBlock(":root"), themeBlock('[data-theme="night"]'), themeBlock('[data-theme="ink"]')]) {

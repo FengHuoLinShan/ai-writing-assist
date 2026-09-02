@@ -3378,13 +3378,6 @@ label.llm-clear-key {
   font-weight: 600;
 }
 
-.scene-cockpit-meta {
-  display: flex;
-  gap: 8px;
-  color: var(--text-dim);
-  margin-top: 4px;
-}
-
 .scene-cockpit-outline {
   width: 100%;
   margin-top: 8px;
