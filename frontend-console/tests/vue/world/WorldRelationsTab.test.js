@@ -129,6 +129,13 @@ describe("错误态", () => {
 })
 
 describe("分页", () => {
+  it("单页仍显示总数且不显示翻页按钮", () => {
+    const wrapper = mountTab()
+    const pager = wrapper.get(".world-pagination")
+    expect(pager.text()).toBe("共 2 条")
+    expect(pager.findAll("button")).toHaveLength(0)
+  })
+
   it("总条数 > limit 时渲染 WorldPager", () => {
     const wrapper = mountTab({ relations: RELATIONS, relationsTotal: 25 })
     expect(wrapper.findComponent({ name: "WorldPager" }).exists()).toBe(true)
