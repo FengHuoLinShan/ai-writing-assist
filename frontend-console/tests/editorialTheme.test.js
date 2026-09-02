@@ -8,6 +8,7 @@ const indexHtml = readFileSync(resolve(__dirname, "../index.html"), "utf8")
 const styles = readFileSync(resolve(__dirname, "../styles.css"), "utf8")
 const theme = readFileSync(resolve(__dirname, "../editorial-theme.css"), "utf8")
 const mapWorkspace = readFileSync(resolve(__dirname, "../vue/views/map/MapWorkspaceView.vue"), "utf8")
+const mapStyles = mapWorkspace.match(/<style scoped>([\s\S]*?)<\/style>/)?.[1] || ""
 const writingDesk = readFileSync(resolve(__dirname, "../vue/views/writing/writing-desk.css"), "utf8")
 const worldSidebar = readFileSync(resolve(__dirname, "../vue/views/world/components/WorldSidebarToolCard.vue"), "utf8")
 
@@ -116,6 +117,42 @@ describe("editorial archive theme", () => {
     expect(mapWorkspace).toContain(".atlas-tabs button.active")
     expect(theme).toContain(".world-object-view-toggle .btn")
     expect(theme).toMatch(/\.subnav-item\.active,[\s\S]*box-shadow:\s*inset 0 -2px 0 var\(--nc-accent\);/)
+  })
+
+  it("keeps Map UI on defined semantic tokens with readable three-theme combinations", () => {
+    const declaredTokens = new Set([...`${styles}\n${theme}`.matchAll(/(?:^|[;{])\s*(--[\w-]+)\s*:/gm)].map((match) => match[1]))
+    const usedTokens = new Set([...mapStyles.matchAll(/var\(\s*(--[\w-]+)/g)].map((match) => match[1]))
+    expect([...usedTokens].filter((name) => !declaredTokens.has(name))).toEqual([])
+    expect(mapStyles).not.toMatch(/var\(\s*--[\w-]+\s*,/)
+
+    const imageViewport = mapStyles.match(/\.atlas-image-viewport\{[^}]*\}/)?.[0] || ""
+    expect(imageViewport).toMatch(/background:#20242C;color:#FFFFFF/)
+    expect(mapStyles.replace(imageViewport, "")).not.toMatch(/#[0-9A-F]{3,8}\b/i)
+
+    for (const block of [themeBlock(":root"), themeBlock('[data-theme="night"]'), themeBlock('[data-theme="ink"]')]) {
+      for (const background of [token(block, "--nc-bg"), token(block, "--nc-surface"), token(block, "--nc-surface-muted")]) {
+        expect(contrast(token(block, "--nc-body"), background)).toBeGreaterThanOrEqual(4.5)
+      }
+      for (const background of [token(block, "--nc-bg"), token(block, "--nc-surface")]) {
+        expect(contrast(token(block, "--nc-dim"), background)).toBeGreaterThanOrEqual(4.5)
+      }
+      expect(contrast(token(block, "--nc-bg"), token(block, "--nc-ink"))).toBeGreaterThanOrEqual(4.5)
+    }
+    expect(contrast("#FFFFFF", "#20242C")).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it("keeps Map typography, tabs and 390px hit targets within the page contract", () => {
+    expect(mapStyles).toMatch(/\.atlas-eyebrow\{[^}]*font-size:var\(--text-xs\)/)
+    expect(mapStyles).toMatch(/\.atlas-options label\{[^}]*font-size:var\(--text-sm\)/)
+    expect(mapStyles).toMatch(/\.atlas-edit p\{[^}]*font-size:var\(--text-sm\)/)
+    expect(mapStyles).toMatch(/\.atlas-evidence-grid \.atlas-candidate-note\{color:var\(--text-body\)/)
+    expect(mapStyles).toMatch(/\.atlas-tabs button\{[^}]*border-bottom:2px solid transparent[^}]*font-size:var\(--text-base\)/)
+    expect(mapStyles).toMatch(/\.atlas-tabs button\.active\{[^}]*border-color:var\(--accent\);color:var\(--text-primary\)/)
+    expect(mapStyles).toMatch(/@media\(max-width:760px\)\{[^}]*\.atlas-primary-actions,[^}]*\.atlas-source\{flex-wrap:wrap\}/s)
+    expect(mapStyles).toMatch(/@media\(max-width:760px\)[\s\S]*\.atlas-tabs button\{[^}]*flex:1 1 0;min-width:0;min-height:42px/)
+    expect(mapStyles).toMatch(/@media\(max-width:760px\)[\s\S]*\.atlas-tree button,\.atlas-annotation\{min-height:42px\}/)
+    expect(mapStyles).toMatch(/@media\(max-width:760px\)[\s\S]*\.atlas-header>div,\.atlas-source>div,\.atlas-page-header>div\{[^}]*min-width:0;overflow-wrap:anywhere/)
+    expect(mapStyles).toMatch(/@media\(max-width:760px\)[\s\S]*\.atlas-upload-modal input\[type="file"\]\{max-width:100%\}/)
   })
 
   it("covers every workspace family and preserves compact mobile controls", () => {
