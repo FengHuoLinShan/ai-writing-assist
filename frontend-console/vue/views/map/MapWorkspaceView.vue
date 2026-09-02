@@ -225,16 +225,18 @@
       </article>
     </section>
 
-    <div v-if="uploadOpen" class="atlas-modal-backdrop" @click.self="closeUpload">
-      <section ref="uploadDialog" class="card atlas-upload-modal" role="dialog" aria-modal="true" aria-labelledby="atlas-upload-title" tabindex="-1" @keydown.esc="closeUpload">
-        <header><h2 id="atlas-upload-title">上传地图图片</h2><button class="btn btn-sm" :disabled="uploading" aria-label="关闭" @click="closeUpload">关闭</button></header>
-        <img v-if="uploadPreview" :src="uploadPreview" alt="待上传地图预览" />
-        <label>图片（PNG 或 JPEG，最大 50MB）<input type="file" accept="image/png,image/jpeg" :disabled="uploading" @change="chooseUploadFile" /></label>
-        <label>放到哪张地图下<select v-model="uploadForm.node_id" class="form-select" :disabled="uploading"><option value="">新建地图位置</option><option v-for="item in adoptedNodes" :key="item.id" :value="item.id">{{ item.title }}</option></select></label>
-        <template v-if="!uploadForm.node_id"><label>地图名称<input v-model="uploadForm.title" class="form-input" maxlength="200" :disabled="uploading" /></label><label>上级地图<select v-model="uploadForm.parent_id" class="form-select" :disabled="uploading"><option value="">无（顶层）</option><option v-for="item in adoptedNodes" :key="item.id" :value="item.id">{{ item.title }}</option></select></label><label>层级<select v-model="uploadForm.level" class="form-select" :disabled="uploading"><option v-for="item in levelChoices" :key="item.value" :value="item.value">{{ item.label }}</option></select></label></template>
-        <progress v-if="uploading" :value="uploadProgress" max="100" aria-label="地图上传进度" />
-        <p v-if="uploadError" class="atlas-error" role="alert">{{ uploadError }}</p>
-        <footer><button v-if="uploading" class="btn" @click="cancelUpload">取消上传</button><button v-else class="btn btn-primary" :disabled="!canUpload" @click="submitUpload">{{ uploadError ? '重试上传' : '上传为候选' }}</button></footer>
+    <div v-if="uploadOpen" ref="uploadOverlay" class="modal-overlay" @click.self="closeUpload" @keydown="onUploadKeydown" @focusin="onUploadFocusin">
+      <section ref="uploadDialog" class="modal-content atlas-upload-modal" role="dialog" aria-modal="true" aria-labelledby="atlas-upload-title" :aria-busy="uploading" tabindex="-1">
+        <header class="modal-header"><h2 id="atlas-upload-title">上传地图图片</h2><button type="button" class="btn-icon" :disabled="uploading" aria-label="关闭" @click="closeUpload">×</button></header>
+        <div class="modal-body">
+          <img v-if="uploadPreview" :src="uploadPreview" alt="待上传地图预览" />
+          <label>图片（PNG 或 JPEG，最大 50MB）<input type="file" accept="image/png,image/jpeg" :disabled="uploading" @change="chooseUploadFile" /></label>
+          <label>放到哪张地图下<select v-model="uploadForm.node_id" class="form-select" :disabled="uploading"><option value="">新建地图位置</option><option v-for="item in adoptedNodes" :key="item.id" :value="item.id">{{ item.title }}</option></select></label>
+          <template v-if="!uploadForm.node_id"><label>地图名称<input v-model="uploadForm.title" class="form-input" maxlength="200" :disabled="uploading" /></label><label>上级地图<select v-model="uploadForm.parent_id" class="form-select" :disabled="uploading"><option value="">无（顶层）</option><option v-for="item in adoptedNodes" :key="item.id" :value="item.id">{{ item.title }}</option></select></label><label>层级<select v-model="uploadForm.level" class="form-select" :disabled="uploading"><option v-for="item in levelChoices" :key="item.value" :value="item.value">{{ item.label }}</option></select></label></template>
+          <progress v-if="uploading" :value="uploadProgress" max="100" aria-label="地图上传进度" />
+          <p v-if="uploadError" class="atlas-error" role="alert">{{ uploadError }}</p>
+        </div>
+        <footer class="modal-footer"><button v-if="uploading" class="btn" @click="cancelUpload">取消上传</button><button v-else class="btn btn-primary" :disabled="!canUpload" @click="submitUpload">{{ uploadError ? '重试上传' : '上传为候选' }}</button></footer>
       </section>
     </div>
   </main>
@@ -244,6 +246,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import { getApi, getConfirm, getRouter, getToast } from "../../bridge/index.js"
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
+import { useModalDialog } from "../../composables/useModalDialog.js"
 import { confirmAiReference } from "../../../shared/aiReferenceModal.js"
 
 const props = defineProps({ projectId: { type: String, default: null } })
@@ -278,7 +281,6 @@ const promptDirty = ref(false)
 const dirtyPromptPageId = ref(null)
 const promptConflict = ref(false)
 const uploadOpen = ref(false)
-const uploadDialog = ref(null)
 const uploadFile = ref(null)
 const uploadPreview = ref("")
 const uploadProgress = ref(0)
@@ -333,6 +335,11 @@ const nodeParentChoices = computed(() => adoptedNodes.value.filter(node => node.
 const siblingChoices = computed(() => adoptedNodes.value.filter(node => node.id !== activeNode.value?.id && (node.parent_id || null) === (nodeEdit.parent_id || null)))
 const canUpload = computed(() => uploadFile.value && (uploadForm.node_id || uploadForm.title.trim()))
 const uploadDraftDirty = computed(() => Boolean(uploadFile.value || uploadForm.node_id || uploadForm.title || uploadForm.parent_id || uploadForm.level !== "world"))
+const { overlayRef: uploadOverlay, dialogRef: uploadDialog, onKeydown: onUploadKeydown, onFocusin: onUploadFocusin } = useModalDialog({
+  isOpen: () => uploadOpen.value,
+  requestClose: closeUpload,
+  canClose: () => !uploading.value,
+})
 const canEditNodeTitle = computed(() => currentRun.value?.run_kind === "upload" && activeNode.value?.status === "provisional")
 const evidenceSummaryText = computed(() => {
   const item = currentRun.value?.evidence_summary || {}
@@ -563,7 +570,7 @@ function openUpload(fromPromptOnly = false) {
     const adoptedIds = new Set(adoptedNodes.value.map(node => node.id))
     Object.assign(uploadForm, { node_id: "", title: activePage.value?.title || "", parent_id: adoptedIds.has(activeNode.value?.parent_id) ? activeNode.value.parent_id : "", level: activeNode.value?.level || "world" })
   }
-  uploadOpen.value = true; uploadError.value = ""; nextTick(() => uploadDialog.value?.focus())
+  uploadOpen.value = true; uploadError.value = ""
 }
 function resetUpload() { if (uploadPreview.value) URL.revokeObjectURL(uploadPreview.value); uploadFile.value = null; uploadPreview.value = ""; uploadProgress.value = 0; uploadError.value = ""; Object.assign(uploadForm, { node_id: "", title: "", parent_id: "", level: "world" }) }
 function closeUpload() { if (uploading.value) return; if (uploadDraftDirty.value && !confirm("放弃未上传的地图？")) return; uploadOpen.value = false; resetUpload() }
@@ -775,7 +782,7 @@ onBeforeUnmount(() => { mounted = false; clearTimeout(pollTimer); clearTimeout(p
 <style scoped>
 .atlas-workspace{display:grid;gap:16px;padding:20px;min-width:0}.atlas-header,.atlas-options,.atlas-run,.atlas-page-header,.atlas-primary-actions,.atlas-run-actions,.atlas-review-actions,.atlas-source{display:flex;align-items:center;gap:12px}.atlas-header{justify-content:space-between}.atlas-header h1,.atlas-page h2{margin:0}.atlas-header p{margin:4px 0;color:var(--text-secondary,#68707d)}.atlas-eyebrow{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}.atlas-primary-actions{align-self:flex-end}.atlas-more{position:relative}.atlas-more[open] button{position:absolute;right:0;top:42px;z-index:4;white-space:nowrap}.atlas-options{align-items:end;flex-wrap:wrap}.atlas-options label{display:grid;gap:6px;font-size:13px}.atlas-options .atlas-style{flex:1 1 280px}.atlas-options details label{display:block;margin-top:8px}.atlas-alert,.atlas-run{justify-content:space-between}.atlas-run{display:grid;grid-template-columns:minmax(220px,1fr) minmax(160px,2fr) auto}.atlas-run div:first-child{display:flex;gap:10px;flex-wrap:wrap}.atlas-run progress{width:100%}.atlas-run p{grid-column:1/-1;margin:0;color:#9a4d32}.atlas-tabs{display:flex;border-bottom:1px solid var(--border-color,#dfe3e8)}.atlas-tabs button{padding:12px 18px;border:0;border-bottom:3px solid transparent;background:none;font-weight:700}.atlas-tabs button.active{border-color:var(--primary,#496fe3);color:var(--primary,#496fe3)}.atlas-tabs span{margin-left:6px;font-size:12px}.atlas-empty{text-align:center;padding:48px}.atlas-all-rejected{padding:20px}.atlas-browser{display:grid;grid-template-columns:230px minmax(0,1fr);gap:16px;min-width:0}.atlas-tree{display:flex;flex-direction:column;align-self:start;padding:8px;max-height:72vh;overflow:auto}.atlas-tree button{display:flex;gap:7px;align-items:center;border:0;background:none;border-radius:7px;padding:9px;text-align:left}.atlas-tree button:hover,.atlas-tree button.active{background:var(--surface-muted,#eef2fa)}.atlas-tree button span{font-size:11px;color:var(--text-secondary,#68707d)}.atlas-tree button small{margin-left:auto}.atlas-page{min-width:0}.atlas-page-header{justify-content:space-between}.atlas-page-header p{margin:0;color:var(--text-secondary,#68707d)}.atlas-zoom{display:flex;align-items:center;gap:8px}.atlas-images{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}.atlas-images.compare{grid-template-columns:repeat(2,minmax(0,1fr))}.atlas-images figure{min-width:0;margin:0}.atlas-images figcaption{margin:8px 0;font-weight:700}.atlas-image-viewport{display:flex;align-items:center;min-height:220px;overflow:auto;border-radius:10px;background:#20242c;color:#fff}.atlas-image-canvas{position:relative;flex:0 0 auto;margin-inline:auto;transition:width .15s ease}.atlas-image-canvas img{display:block;width:100%;height:100%;object-fit:contain}.atlas-image-state{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:220px}.atlas-annotation{position:absolute;transform:translate(-50%,-50%);border:1px solid rgba(255,255,255,.8);border-radius:999px;padding:4px 8px;background:rgba(20,24,32,.78);color:white;white-space:nowrap;cursor:pointer;touch-action:manipulation}.atlas-review-actions{margin-top:14px;flex-wrap:wrap}.atlas-charge-warning{flex:1 0 100%;margin:0;padding:10px;border:1px solid #d68c72;border-radius:8px;background:#fff2ed;color:#7b351f}.atlas-edit{flex:1 1 320px}.atlas-edit textarea{display:block;width:100%;margin:10px 0}.atlas-edit p{font-size:12px;color:var(--text-secondary,#68707d)}.atlas-mask{display:block}.atlas-references{display:grid;gap:7px;margin:10px 0;border:1px solid var(--border-color,#dfe3e8);border-radius:8px}.atlas-references label{display:flex;align-items:center;gap:7px}.atlas-evidence{margin-top:20px;border-top:1px solid var(--border-color,#dfe3e8);padding-top:16px}.atlas-evidence-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.atlas-evidence-grid>div{padding:12px;border-radius:8px;background:var(--surface-muted,#f4f6f9)}.atlas-evidence-grid ul{padding-left:20px}.atlas-candidate-note{display:inline-block;margin:6px 0;padding:2px 7px;border-radius:999px;background:#fff2cc;color:#795d00;font-size:12px}.atlas-conflicts{border:1px solid #d68c72;background:#fff2ed!important}.atlas-source{justify-content:space-between;border-top:1px solid var(--border-color,#dfe3e8);padding:10px 0}.atlas-source p{margin:3px 0}.atlas-history-status{font-weight:700}.atlas-error{color:#a8412d}.atlas-more summary,.atlas-edit summary{list-style:none}.atlas-more summary::-webkit-details-marker,.atlas-edit summary::-webkit-details-marker{display:none}
 .atlas-evidence-summary{grid-column:1/-1;min-width:0;color:var(--text-secondary,#68707d)}.atlas-evidence-summary p{color:inherit}
-.atlas-prompt-review{display:grid;gap:14px}.atlas-prompt-review header,.atlas-prompt-review nav,.atlas-prompt-editor>div,.atlas-upload-modal header,.atlas-upload-modal footer{display:flex;align-items:center;justify-content:space-between;gap:10px}.atlas-prompt-review nav{justify-content:flex-start;flex-wrap:wrap}.atlas-prompt-review nav .active{outline:2px solid var(--primary,#496fe3)}.atlas-prompt-editor{display:grid;gap:12px}.atlas-prompt-editor label,.atlas-upload-modal label,.atlas-node-form label{display:grid;gap:6px}.atlas-prompt-editor textarea{width:100%;resize:vertical}.atlas-prompt-editor fieldset{display:flex;gap:18px}.atlas-modal-backdrop{position:fixed;inset:0;z-index:40;display:grid;place-items:center;padding:16px;background:rgba(20,24,32,.62)}.atlas-upload-modal{display:grid;gap:14px;width:min(560px,100%);max-height:90vh;overflow:auto}.atlas-upload-modal img{display:block;max-width:100%;max-height:240px;margin:auto}.atlas-upload-modal progress{width:100%}.atlas-node-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:10px}.atlas-node-form button{align-self:end}
+.atlas-prompt-review{display:grid;gap:14px}.atlas-prompt-review header,.atlas-prompt-review nav,.atlas-prompt-editor>div{display:flex;align-items:center;justify-content:space-between;gap:10px}.atlas-prompt-review nav{justify-content:flex-start;flex-wrap:wrap}.atlas-prompt-review nav .active{outline:2px solid var(--primary,#496fe3)}.atlas-prompt-editor{display:grid;gap:12px}.atlas-prompt-editor label,.atlas-upload-modal label,.atlas-node-form label{display:grid;gap:6px}.atlas-prompt-editor textarea{width:100%;resize:vertical}.atlas-prompt-editor fieldset{display:flex;gap:18px}.atlas-upload-modal .modal-header h2{margin:0;font-size:var(--text-lg)}.atlas-upload-modal .modal-body{display:grid;gap:14px}.atlas-upload-modal img{display:block;max-width:100%;max-height:240px;margin:auto}.atlas-upload-modal progress{width:100%}.atlas-node-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:10px}.atlas-node-form button{align-self:end}
 @media(max-width:900px){.atlas-workspace{padding:12px}.atlas-header,.atlas-options,.atlas-run{align-items:stretch}.atlas-header{flex-direction:column}.atlas-primary-actions{align-self:stretch}.atlas-browser{grid-template-columns:1fr}.atlas-tree{max-height:180px}.atlas-images.compare,.atlas-evidence-grid{grid-template-columns:1fr}.atlas-run{grid-template-columns:1fr}.atlas-mask{display:none}.atlas-edit p::after{content:" 蒙版与精确标注请在桌面完成。"}}
 @media(max-width:900px){.atlas-node-form{grid-template-columns:1fr}.atlas-prompt-review header{align-items:stretch;flex-direction:column}.atlas-prompt-review header button{width:100%}}
 </style>

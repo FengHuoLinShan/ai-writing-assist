@@ -140,7 +140,7 @@ describe("AI 地图册工作台", () => {
 
   it("上传失败保留图片和表单以便重试", async () => {
     api.world.uploadMapAtlasPage.mockRejectedValue(new Error("网络中断"))
-    const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" }, attachTo: document.body })
     await flushPromises(); await wrapper.get(".atlas-primary-actions > .btn-sm").trigger("click")
     const file = new File(["png"], "map.png", { type: "image/png" })
     const input = wrapper.get(".atlas-upload-modal input[type='file']")
@@ -150,7 +150,109 @@ describe("AI 地图册工作台", () => {
     await wrapper.get(".atlas-upload-modal footer .btn-primary").trigger("click"); await flushPromises()
     expect(wrapper.get(".atlas-upload-modal").text()).toContain("网络中断")
     expect(wrapper.get(".atlas-upload-modal input.form-input").element.value).toBe("北境")
+    expect(wrapper.get(".atlas-upload-modal img").attributes("src")).toBe("blob:atlas")
+    expect(input.element.files[0]).toBe(file)
     expect(wrapper.get(".atlas-upload-modal footer .btn-primary").text()).toBe("重试上传")
+  })
+
+  it("上传对话框困住焦点，关闭路径确认脏表单并恢复触发按钮", async () => {
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" }, attachTo: document.body })
+    await flushPromises()
+    const trigger = wrapper.get(".atlas-primary-actions > .btn-sm")
+    trigger.element.focus()
+    await trigger.trigger("click")
+    await flushPromises()
+
+    const overlay = wrapper.get(".modal-overlay")
+    const close = wrapper.get(".atlas-upload-modal [aria-label='关闭']").element
+    const lastSelect = wrapper.findAll(".atlas-upload-modal select").at(-1).element
+    expect(document.activeElement).toBe(wrapper.get(".atlas-upload-modal input[type='file']").element)
+    close.focus()
+    overlay.element.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true }))
+    expect(document.activeElement).toBe(lastSelect)
+    lastSelect.focus()
+    overlay.element.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }))
+    expect(document.activeElement).toBe(close)
+
+    await wrapper.get(".atlas-upload-modal input.form-input").setValue("北境")
+    confirm.mockReturnValueOnce(false).mockReturnValueOnce(true)
+    overlay.element.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))
+    expect(confirm).toHaveBeenLastCalledWith("放弃未上传的地图？")
+    expect(wrapper.find(".atlas-upload-modal").exists()).toBe(true)
+    overlay.element.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))
+    await flushPromises()
+    expect(wrapper.find(".atlas-upload-modal").exists()).toBe(false)
+    expect(document.activeElement).toBe(trigger.element)
+
+    await trigger.trigger("click")
+    await flushPromises()
+    await wrapper.get(".atlas-upload-modal input.form-input").setValue("南境")
+    await wrapper.get(".modal-overlay").trigger("click")
+    await flushPromises()
+    expect(confirm).toHaveBeenLastCalledWith("放弃未上传的地图？")
+    expect(wrapper.find(".atlas-upload-modal").exists()).toBe(false)
+    expect(document.activeElement).toBe(trigger.element)
+  })
+
+  it("上传期间 Escape、遮罩和关闭按钮都不能误关，取消仍中止原请求", async () => {
+    let uploadSignal = null
+    api.world.uploadMapAtlasPage.mockImplementation((_projectId, _payload, _progress, { signal }) => {
+      uploadSignal = signal
+      return new Promise((_resolve, reject) => signal.addEventListener("abort", () => {
+        const error = new Error("aborted")
+        error.name = "AbortError"
+        reject(error)
+      }))
+    })
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" }, attachTo: document.body })
+    await flushPromises(); await wrapper.get(".atlas-primary-actions > .btn-sm").trigger("click")
+    const input = wrapper.get(".atlas-upload-modal input[type='file']")
+    Object.defineProperty(input.element, "files", { value: [new File(["png"], "map.png", { type: "image/png" })], configurable: true })
+    await input.trigger("change")
+    await wrapper.get(".atlas-upload-modal input.form-input").setValue("北境")
+    await wrapper.get(".atlas-upload-modal footer .btn-primary").trigger("click")
+    await vi.waitFor(() => expect(uploadSignal).not.toBeNull())
+
+    const overlay = wrapper.get(".modal-overlay")
+    expect(wrapper.get(".atlas-upload-modal").attributes("aria-busy")).toBe("true")
+    expect(wrapper.get(".atlas-upload-modal [aria-label='关闭']").attributes("disabled")).toBeDefined()
+    overlay.element.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))
+    await overlay.trigger("click")
+    expect(wrapper.find(".atlas-upload-modal").exists()).toBe(true)
+    expect(confirm).not.toHaveBeenCalled()
+
+    await wrapper.get(".atlas-upload-modal footer button").trigger("click")
+    await flushPromises()
+    expect(uploadSignal.aborted).toBe(true)
+    expect(wrapper.find(".atlas-upload-modal").exists()).toBe(true)
+  })
+
+  it("上传对话框卸载时释放背景、预览 URL 和进行中的请求", async () => {
+    let uploadSignal = null
+    api.world.uploadMapAtlasPage.mockImplementation((_projectId, _payload, _progress, { signal }) => {
+      uploadSignal = signal
+      return new Promise((_resolve, reject) => signal.addEventListener("abort", () => {
+        const error = new Error("aborted")
+        error.name = "AbortError"
+        reject(error)
+      }))
+    })
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" }, attachTo: document.body })
+    await flushPromises(); await wrapper.get(".atlas-primary-actions > .btn-sm").trigger("click")
+    const input = wrapper.get(".atlas-upload-modal input[type='file']")
+    Object.defineProperty(input.element, "files", { value: [new File(["png"], "map.png", { type: "image/png" })], configurable: true })
+    await input.trigger("change")
+    await wrapper.get(".atlas-upload-modal input.form-input").setValue("北境")
+    await wrapper.get(".atlas-upload-modal footer .btn-primary").trigger("click")
+    await vi.waitFor(() => expect(uploadSignal).not.toBeNull())
+    const pageHeader = wrapper.get(".atlas-header").element
+    expect(pageHeader.hasAttribute("inert")).toBe(true)
+
+    wrapper.unmount()
+    await flushPromises()
+    expect(pageHeader.hasAttribute("inert")).toBe(false)
+    expect(uploadSignal.aborted).toBe(true)
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:atlas")
   })
 
   it("上传候选可在采用前修改名称和位置", async () => {
