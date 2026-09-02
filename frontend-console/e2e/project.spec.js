@@ -248,9 +248,8 @@ test.describe("项目模块", () => {
     const card = page.locator(SEL.projectCard(project.id))
     await expect(card).toBeVisible()
 
-    // hover 显示操作按钮
-    await card.hover()
     const deleteBtn = card.locator('[data-action="delete-project"]')
+    await expect(deleteBtn).toBeVisible()
     await deleteBtn.click()
 
     // 确认删除弹窗
