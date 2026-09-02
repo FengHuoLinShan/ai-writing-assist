@@ -106,9 +106,11 @@ describe("application bootstrap", () => {
     delete api.auth
   })
 
-  it("renders a text-only visible boundary when shell bootstrap fails", async () => {
+  it("renders a safe retry boundary and recovers when shell bootstrap succeeds", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
-    App._mountShell.mockRejectedValue(new Error('<img src=x onerror="boom">'))
+    App._mountShell
+      .mockRejectedValueOnce(new Error('<img src=x onerror="boom">'))
+      .mockResolvedValueOnce({ unmount })
 
     await expect(App.init()).rejects.toThrow("<img")
 
@@ -116,6 +118,13 @@ describe("application bootstrap", () => {
     expect(boundary?.textContent).toContain("<img")
     expect(boundary?.querySelector("img")).toBeNull()
     expect(App._initialized).toBe(false)
+    const retry = boundary.querySelector('[data-action="retry-app-bootstrap"]')
+    expect(document.activeElement).toBe(retry)
+    retry.click()
+    expect(retry.disabled).toBe(true)
+    expect(retry.textContent).toBe("正在重试…")
+    await vi.waitFor(() => expect(App._mountShell).toHaveBeenCalledTimes(2))
+    expect(App._initialized).toBe(true)
     errorSpy.mockRestore()
   })
 })

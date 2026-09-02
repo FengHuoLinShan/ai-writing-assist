@@ -302,8 +302,22 @@ const App = {
     title.textContent = "应用启动失败"
     const detail = document.createElement("p")
     detail.textContent = error?.message || "未知错误"
-    boundary.append(icon, title, detail)
+    const actions = document.createElement("div")
+    actions.className = "actions"
+    const retry = document.createElement("button")
+    retry.type = "button"
+    retry.className = "btn btn-primary"
+    retry.dataset.action = "retry-app-bootstrap"
+    retry.textContent = "重试"
+    retry.addEventListener("click", () => {
+      retry.disabled = true
+      retry.textContent = "正在重试…"
+      void this.init().catch(() => {})
+    })
+    actions.append(retry)
+    boundary.append(icon, title, detail, actions)
     host.replaceChildren(boundary)
+    retry.focus()
   },
 }
 
