@@ -18,4 +18,11 @@ describe("RP reading comfort", () => {
     expect(styles).toMatch(/\.rp-message__actions button\s*\{[^}]*font-size:\s*13px/s)
     expect(styles).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*\.entry-card,[\s\S]*\.rp-message__actions\s*\{\s*transition:\s*none;/s)
   })
+
+  it("keeps the entry choice on the selected theme", () => {
+    expect(styles).toMatch(/\.entry-choice,[\s\S]*\.rp-list-page,[\s\S]*--rp-bg:\s*#fff;/s)
+    expect(styles).toMatch(/\[data-theme="night"\] \.entry-choice,[\s\S]*--rp-bg:\s*var\(--bg-base\)/s)
+    expect(styles).toMatch(/\[data-theme="ink"\] \.entry-choice,[\s\S]*--rp-bg:\s*var\(--bg-base\)/s)
+    expect(styles).toMatch(/\.entry-card\s*\{[^}]*background:\s*var\(--rp-panel\);[^}]*color:\s*var\(--rp-heading\);/s)
+  })
 })

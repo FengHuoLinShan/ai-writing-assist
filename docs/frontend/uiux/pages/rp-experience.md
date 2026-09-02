@@ -26,9 +26,8 @@
    `aria-busy` 保留，reduced-motion 下三点脉冲静止。
 2. **两个视图无首屏加载骨架**：`loadJourneyList` / `loadInteraction` 完成前视图不挂载
    （interactionIsland.js:11-47、49-86），慢网络下路由切换后白屏，违反主规范 §5.9 Loading 归一。
-3. **HomeChoiceView 不响应主题**：主题覆写只覆盖 `.rp-list-page/.rp-story-page`
-   （`styles.css` 的 RP token 规则），`.entry-choice` 与沉浸壳硬编码白底（对应 `.entry-choice` / 沉浸壳规则）。
-   dark 主题下从工作台切回「切换使用方式」先白屏、进 journeys 又变 dark，同会话内闪烁。
+3. **已解决：双入口跟随主题**。`.entry-choice` 与 journeys/story 共用 RP token，沉浸壳使用
+   当前 `--bg-base`；卡片、标题、说明与边框均消费 RP 语义变量，不再在夜间主题闪白。
 
 **P1 — 一致性与可用性缺陷**
 

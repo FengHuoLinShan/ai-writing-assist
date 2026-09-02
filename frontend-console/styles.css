@@ -14160,7 +14160,7 @@ details[open] > .world-bible-support-summary::after {
 /* ===== 入口与跑团模式：独立、纯白、低干扰界面 ===== */
 .main-layout--immersive #workspace {
   margin: 0;
-  background: #fff;
+  background: var(--bg-base);
 }
 
 .main-layout--immersive #workspace-content {
@@ -14186,8 +14186,8 @@ details[open] > .world-bible-support-summary::after {
 .rp-list-page,
 .rp-story-page,
 .rp-load-failure {
-  color: #1f2329;
-  background: #fff;
+  color: var(--rp-text);
+  background: var(--rp-bg);
   font-family: var(--font-ui);
 }
 
@@ -14205,7 +14205,7 @@ details[open] > .world-bible-support-summary::after {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #215cc6;
+  color: var(--rp-accent);
   font-size: 14px;
   font-weight: 700;
 }
@@ -14216,14 +14216,14 @@ details[open] > .world-bible-support-summary::after {
 
 .entry-choice__heading h1 {
   margin: 20px 0 8px;
-  color: #172033;
+  color: var(--rp-heading);
   font-size: clamp(30px, 5vw, 52px);
   letter-spacing: -0.04em;
 }
 
 .entry-choice__heading p {
   margin: 0;
-  color: #7b8495;
+  color: var(--rp-muted);
   font-size: 16px;
 }
 
@@ -14241,10 +14241,10 @@ details[open] > .world-bible-support-summary::after {
   flex-direction: column;
   align-items: flex-start;
   padding: clamp(28px, 4vw, 44px);
-  border: 1px solid #e7eaf0;
+  border: 1px solid var(--rp-border);
   border-radius: 24px;
-  background: #fff;
-  color: #172033;
+  background: var(--rp-panel);
+  color: var(--rp-heading);
   cursor: pointer;
   text-align: left;
   transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
@@ -14252,12 +14252,12 @@ details[open] > .world-bible-support-summary::after {
 
 .entry-card:hover {
   transform: translateY(-2px);
-  border-color: #b9c9e9;
+  border-color: color-mix(in srgb, var(--rp-accent) 36%, var(--rp-border));
   box-shadow: 0 14px 40px rgba(37, 70, 125, 0.09);
 }
 
 .entry-card__eyebrow {
-  color: #758197;
+  color: var(--rp-dim);
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.16em;
@@ -14270,7 +14270,7 @@ details[open] > .world-bible-support-summary::after {
 
 .entry-card > span:not(.entry-card__eyebrow) {
   max-width: 380px;
-  color: #6f7888;
+  color: var(--rp-muted);
   font-size: 15px;
   line-height: 1.75;
 }
@@ -14311,6 +14311,7 @@ details[open] > .world-bible-support-summary::after {
   cursor: pointer;
 }
 
+.entry-choice,
 .rp-list-page,
 .rp-story-page {
   --rp-bg: #fff;
@@ -14329,6 +14330,7 @@ details[open] > .world-bible-support-summary::after {
   color: var(--rp-text);
 }
 
+[data-theme="night"] .entry-choice,
 [data-theme="night"] .rp-list-page,
 [data-theme="night"] .rp-story-page {
   --rp-bg: var(--bg-base);
@@ -14345,6 +14347,7 @@ details[open] > .world-bible-support-summary::after {
   --rp-warning-soft: rgba(252, 211, 77, 0.1);
 }
 
+[data-theme="ink"] .entry-choice,
 [data-theme="ink"] .rp-list-page,
 [data-theme="ink"] .rp-story-page {
   --rp-bg: var(--bg-base);

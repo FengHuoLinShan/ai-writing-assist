@@ -96,7 +96,7 @@ Prompt 或 token；预算遗漏另行解释。作者可逐项移除/恢复、用
 
 | 视图 | 当前职责 |
 |------|----------|
-| `vue/views/interaction/HomeChoiceView.vue` | `home` 路由与未登录公共首屏共用的双入口；公共模式只回传作者 / RP 选择，不请求受保护资料。已登录作者入口校验当前账户的已选作品并智能续接 Writing Home，无有效作品时回作品档案；RP 卡使用“进入互动故事”并解释一次角色扮演（RP） |
+| `vue/views/interaction/HomeChoiceView.vue` | `home` 路由与未登录公共首屏共用的双入口；公共模式只回传作者 / RP 选择，不请求受保护资料。双入口与沉浸壳跟随当前三主题而不闪白；已登录作者入口校验当前账户的已选作品并智能续接 Writing Home，无有效作品时回作品档案；RP 卡使用“进入互动故事”并解释一次角色扮演（RP） |
 | `vue/views/interaction/JourneyListView.vue` / `RpSourceSetup.vue` | `journeys` 路由；扁平旅程列表、新旅程、归档/搜索；新建页保留直接开场并可选复用/导入作者作品、恢复整理任务、确认关键歧义、点选自然语言匹配的章节内剧情候选和玩家身份 |
 | `vue/views/interaction/InteractionView.vue` | `interaction/{journey_id}` 路由；640px 舒适阅读列、可辨认且 reduced-motion 安全的流式段落、composer、分支、回顾、看海与右侧定位；消息操作常驻弱显示，导出成功/失败都有反馈；source-bound 旅程从“更多 → 作品资料”抽屉查看版本/进度/本轮引用理由、固定/忽略对象并显式升级 |
 | `vue/views/project/ProjectView.vue` | `project` 路由（Vue island）；紧凑作品档案，默认主操作为“继续写作”，搜索/筛选单行展示；回收站始终可见，批量、编辑和删除在“管理作品”模式渐进展开；作品卡支持鼠标、Enter 与 Space 打开；无作品时优先显示新建与导入 |
