@@ -1587,11 +1587,13 @@ export function useWorldBible(props) {
     const body = `
       ${renderSuggestionDecision(item)}
       <div class="form-group"><label>标题</label><input class="form-input" id="bible-suggestion-title" value="${esc(page.title || "")}" /></div>
-      <div class="form-group"><label>类别</label><select class="form-select" id="bible-suggestion-type">${categoryOptions(page.page_type || "custom").map((c) => `<option value="${esc(c.category_key)}">${esc(c.name)}</option>`).join("")}</select></div>
+      <div class="form-group"><label>类别</label><select class="form-select" id="bible-suggestion-type">${categoryOptions(page.page_type || "custom").map((c) => `<option value="${esc(c.category_key)}"${c.category_key === page.page_type ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</select></div>
       <div class="form-group"><label>页面概览</label><textarea class="form-textarea" id="bible-suggestion-text" rows="8">${esc(page.free_text || "")}</textarea></div>
       <p class="world-bible-empty-hint">分区与关联资料会原样带入。应用只写入工作稿，之后仍可在页面编辑器中调整或丢弃。</p>
     `
     showModalHtml("编辑创设建议", body, [{ text: "应用到工作稿", class: "btn-primary", handler: () => applyEditedSuggestion(item, novelId) }], { size: "large" })
+    const category = document.getElementById("bible-suggestion-type")
+    if (category && page.page_type) category.value = page.page_type
   }
 
   async function applyEditedSuggestion(item, novelId = projectId.value) {
