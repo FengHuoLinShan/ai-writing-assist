@@ -1,6 +1,7 @@
 <script setup>
-import { computed, nextTick, ref } from "vue"
-import { getRouter } from "../../../bridge/index.js"
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue"
+import { getConfirm, getRouter, getToast } from "../../../bridge/index.js"
+import { useLeaveGuard } from "../../../composables/useLeaveGuard.js"
 import AuthorTaskForm from "./AuthorTaskForm.vue"
 import { openAuthorTaskSource } from "./authorTaskSource.js"
 import { useAuthorTasks } from "./useAuthorTasks.js"
@@ -11,12 +12,44 @@ const props = defineProps({
   source: { type: Object, default: null },
 })
 const router = getRouter()
+const confirm = getConfirm()
+const toast = getToast()
+
+function draftKey(projectId) {
+  return `author_task_form:v1:${projectId}`
+}
+
+function readDraft(projectId) {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(draftKey(projectId)) || "null")
+    if (saved?.projectId !== projectId || !saved.form || typeof saved.form !== "object") return null
+    return saved
+  } catch { return null }
+}
+
+function taskSnapshot(task) {
+  return task?.id ? {
+    id: task.id,
+    title: task.title || "",
+    note: task.note || null,
+    due_date: task.due_date || null,
+    status: task.status || "open",
+    source: task.source || null,
+    updated_at: task.updated_at || null,
+  } : null
+}
+
+const restoredDraft = readDraft(props.projectId)
 const activeScope = ["today", "inbox", "later", "completed", "archived"].includes(props.scope)
   ? props.scope
   : "today"
 const tasks = useAuthorTasks(props.projectId, activeScope)
-const formOpen = ref(Boolean(props.source))
-const editingTask = ref(null)
+const formOpen = ref(Boolean(props.source || restoredDraft))
+const editingTask = ref(restoredDraft?.task || null)
+const restoredSource = ref(restoredDraft?.source || null)
+const initialDraft = ref(restoredDraft?.form || null)
+const formDirty = ref(Boolean(restoredDraft))
+const draftBackupFailed = ref(false)
 const navigationBusy = computed(() => tasks.loading.value || tasks.busyIds.value.size > 0)
 const heading = computed(() => activeScope === "archived" ? "已归档" : "计划中的任务")
 const tabs = computed(() => [
@@ -45,6 +78,7 @@ async function save(payload) {
     ? Boolean(await tasks.patch(editingTask.value, payload))
     : await tasks.create(payload)
   if (!ok) return
+  clearDraft()
   formOpen.value = false
   editingTask.value = null
   tasks.clearConflict()
@@ -52,17 +86,65 @@ async function save(payload) {
 }
 
 function edit(task) {
+  if (formDirty.value && !confirm("当前任务还有未保存修改，确定放弃并编辑其他任务吗？")) return
+  clearDraft()
   tasks.clearConflict()
   editingTask.value = task
+  restoredSource.value = null
+  initialDraft.value = null
   formOpen.value = true
   nextTick(() => document.getElementById("author-task-title")?.focus())
 }
 
 function closeForm() {
+  if (formDirty.value && !confirm("当前任务还有未保存修改，确定放弃吗？")) return
+  clearDraft()
   tasks.clearConflict()
   formOpen.value = false
   editingTask.value = null
 }
+
+const formSource = computed(() => editingTask.value?.source || restoredSource.value || props.source)
+
+function clearDraft() {
+  try { sessionStorage.removeItem(draftKey(props.projectId)) } catch { /* noop */ }
+  formDirty.value = false
+  draftBackupFailed.value = false
+  initialDraft.value = null
+  restoredSource.value = null
+}
+
+function rememberDraft(form) {
+  formDirty.value = true
+  try {
+    sessionStorage.setItem(draftKey(props.projectId), JSON.stringify({
+      projectId: props.projectId,
+      form,
+      task: taskSnapshot(editingTask.value),
+      source: formSource.value || null,
+    }))
+    draftBackupFailed.value = false
+  } catch {
+    if (!draftBackupFailed.value) toast("任务草稿无法暂存，离开或刷新前请先保存", "warning")
+    draftBackupFailed.value = true
+  }
+}
+
+useLeaveGuard(() => (
+  !formDirty.value
+  || confirm(draftBackupFailed.value
+    ? "任务修改尚未保存，本机暂存也不可用。离开后修改会丢失，仍要离开吗？"
+    : "任务修改尚未保存，已在本浏览器会话暂存。确定离开吗？")
+))
+
+function beforeUnload(event) {
+  if (!formDirty.value) return
+  event.preventDefault()
+  event.returnValue = ""
+}
+
+onMounted(() => window.addEventListener("beforeunload", beforeUnload))
+onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload))
 </script>
 
 <template>
@@ -81,7 +163,7 @@ function closeForm() {
       <button type="button" class="btn btn-sm btn-ghost author-task-tabs__archive" :disabled="navigationBusy" :aria-current="activeScope === 'archived' ? 'page' : undefined" @click="navigateScope('archived')">已归档</button>
     </nav>
 
-    <AuthorTaskForm v-if="formOpen" :task="editingTask" :source="editingTask?.source || source" :busy="tasks.loading.value" @submit="save" @cancel="closeForm" />
+    <AuthorTaskForm v-if="formOpen" :task="editingTask" :source="formSource" :draft="initialDraft" :busy="tasks.loading.value" @submit="save" @cancel="closeForm" @change="rememberDraft" />
     <p v-if="tasks.conflict.value" class="author-task-conflict field-error" role="alert">{{ tasks.conflict.value.message }}</p>
 
     <div v-if="tasks.loadError.value" class="error-card" role="alert">

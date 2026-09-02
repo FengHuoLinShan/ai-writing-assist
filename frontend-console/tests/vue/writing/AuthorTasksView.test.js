@@ -2,11 +2,13 @@ import { flushPromises, mount } from "@vue/test-utils"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
+import { ISLAND_LEAVE_GUARD } from "../../../vue/mountIsland.js"
 import AuthorTasksView from "../../../vue/views/writing/home/AuthorTasksView.vue"
 
 let api
 let router
 let toast
+let confirm
 
 function task(overrides = {}) {
   return {
@@ -23,6 +25,7 @@ function task(overrides = {}) {
 }
 
 beforeEach(() => {
+  sessionStorage.clear()
   api = {
     projects: {
       listAuthorTasks: vi.fn(async () => ({
@@ -35,7 +38,8 @@ beforeEach(() => {
   }
   router = { navigate: vi.fn(), refresh: vi.fn(), commitCurrentQuery: vi.fn(() => true) }
   toast = vi.fn()
-  setBridgeOverrides({ api, router, toast })
+  confirm = vi.fn(() => true)
+  setBridgeOverrides({ api, router, toast, confirm })
 })
 
 afterEach(() => resetBridgeOverrides())
@@ -77,6 +81,88 @@ describe("作者任务工作台", () => {
     expect(router.commitCurrentQuery).toHaveBeenCalledWith(expect.any(URLSearchParams), "replace")
     expect(router.commitCurrentQuery.mock.calls.at(-1)[0].has("task_source_id")).toBe(false)
     expect(router.navigate).not.toHaveBeenCalled()
+    expect(sessionStorage.getItem("author_task_form:v1:p1")).toBeNull()
+  })
+
+  it("按作品隔离暂存表单，切换范围或刷新后可恢复", async () => {
+    api.projects.listAuthorTasks.mockResolvedValue({ items: [], total: 0, counts: {} })
+    let guard
+    const first = mount(AuthorTasksView, {
+      props: { projectId: "p1", scope: "inbox" },
+      global: { provide: { [ISLAND_LEAVE_GUARD]: (fn) => { guard = fn } } },
+    })
+    await flushPromises()
+    await first.findAll("button").find((button) => button.text() === "添加第一项").trigger("click")
+    await first.get("#author-task-title").setValue("核对潮汐")
+    await first.get("#author-task-note").setValue("保留作者备注")
+    await first.get("#author-task-date").setValue("2026-09-03")
+
+    expect(guard()).toBe(true)
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("本浏览器会话暂存"))
+    await first.findAll(".author-tasks__header button").find((button) => button.text().includes("写作首页")).trigger("click")
+    expect(router.navigate.mock.calls.at(-1)[3].toString()).toBe("home=1")
+    await first.findAll(".author-task-tabs button").find((button) => button.text().includes("之后")).trigger("click")
+    expect(router.navigate.mock.calls.at(-1)[3].get("scope")).toBe("later")
+    first.unmount()
+
+    const otherProject = mount(AuthorTasksView, { props: { projectId: "p2", scope: "later" } })
+    await flushPromises()
+    expect(otherProject.find(".author-task-form").exists()).toBe(false)
+    otherProject.unmount()
+
+    const restored = mount(AuthorTasksView, { props: { projectId: "p1", scope: "later" } })
+    await flushPromises()
+    expect(restored.get("#author-task-title").element.value).toBe("核对潮汐")
+    expect(restored.get("#author-task-note").element.value).toBe("保留作者备注")
+    expect(restored.get("#author-task-date").element.value).toBe("2026-09-03")
+    restored.unmount()
+  })
+
+  it("脏表单取消前二次确认，保存成功后清理草稿", async () => {
+    api.projects.listAuthorTasks.mockResolvedValue({ items: [], total: 0, counts: {} })
+    confirm.mockReturnValueOnce(false).mockReturnValueOnce(true)
+    const wrapper = mount(AuthorTasksView, { props: { projectId: "p1", scope: "inbox" } })
+    await flushPromises()
+    await wrapper.findAll("button").find((button) => button.text() === "添加第一项").trigger("click")
+    await wrapper.get("#author-task-title").setValue("不能丢的任务")
+
+    await wrapper.findAll(".author-task-form button").find((button) => button.text() === "取消").trigger("click")
+    expect(wrapper.find(".author-task-form").exists()).toBe(true)
+    await wrapper.findAll(".author-task-form button").find((button) => button.text() === "取消").trigger("click")
+    expect(wrapper.find(".author-task-form").exists()).toBe(false)
+    expect(sessionStorage.getItem("author_task_form:v1:p1")).toBeNull()
+
+    await wrapper.findAll("button").find((button) => button.text() === "添加第一项").trigger("click")
+    await wrapper.get("#author-task-title").setValue("可保存的任务")
+    expect(sessionStorage.getItem("author_task_form:v1:p1")).not.toBeNull()
+    await wrapper.get(".author-task-form").trigger("submit")
+    await flushPromises()
+    expect(api.projects.createAuthorTask).toHaveBeenCalledWith("p1", expect.objectContaining({ title: "可保存的任务" }))
+    expect(sessionStorage.getItem("author_task_form:v1:p1")).toBeNull()
+    wrapper.unmount()
+  })
+
+  it("刷新后保留正在编辑的任务身份与作者输入", async () => {
+    const first = mount(AuthorTasksView, { props: { projectId: "p1", scope: "inbox" } })
+    await flushPromises()
+    await first.findAll("button").find((button) => button.text() === "编辑").trigger("click")
+    await first.get("#author-task-note").setValue("刷新后继续")
+    first.unmount()
+
+    api.projects.listAuthorTasks.mockResolvedValue({ items: [], total: 0, counts: {} })
+    const restored = mount(AuthorTasksView, { props: { projectId: "p1", scope: "later" } })
+    await flushPromises()
+    expect(restored.get("#author-task-form-title").text()).toBe("编辑任务")
+    expect(restored.get("#author-task-title").element.value).toBe("核对港口规则")
+    expect(restored.get("#author-task-note").element.value).toBe("刷新后继续")
+    await restored.get(".author-task-form").trigger("submit")
+    await flushPromises()
+    expect(api.projects.patchAuthorTask).toHaveBeenCalledWith("p1", "task-1", expect.objectContaining({
+      note: "刷新后继续",
+      expected_updated_at: "2026-08-27T10:00:00Z",
+    }))
+    expect(sessionStorage.getItem("author_task_form:v1:p1")).toBeNull()
+    restored.unmount()
   })
 
   it("冲突后保留输入，并仅在作者再次保存时使用最新版本", async () => {

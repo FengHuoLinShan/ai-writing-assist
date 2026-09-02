@@ -4,20 +4,25 @@ import { reactive, ref, watch } from "vue"
 const props = defineProps({
   task: { type: Object, default: null },
   source: { type: Object, default: null },
+  draft: { type: Object, default: null },
   busy: { type: Boolean, default: false },
 })
-const emit = defineEmits(["submit", "cancel"])
+const emit = defineEmits(["submit", "cancel", "change"])
 
 const form = reactive({ title: "", note: "", dueDate: "" })
 const error = ref("")
 
 function reset() {
-  form.title = props.task?.title || props.source?.taskTitle || ""
-  form.note = props.task?.note || ""
-  form.dueDate = props.task?.due_date || ""
+  form.title = props.draft?.title ?? props.task?.title ?? props.source?.taskTitle ?? ""
+  form.note = props.draft?.note ?? props.task?.note ?? ""
+  form.dueDate = props.draft?.dueDate ?? props.task?.due_date ?? ""
   error.value = ""
 }
-watch(() => [props.task, props.source], reset, { immediate: true })
+watch(() => [props.task, props.source, props.draft], reset, { immediate: true })
+
+function changed() {
+  emit("change", { title: form.title, note: form.note, dueDate: form.dueDate })
+}
 
 function submit() {
   const title = form.title.trim()
@@ -45,12 +50,12 @@ function submit() {
       <button type="button" class="btn btn-sm btn-ghost" :disabled="busy" @click="emit('cancel')">取消</button>
     </div>
     <label for="author-task-title">标题</label>
-    <input id="author-task-title" v-model="form.title" type="text" maxlength="255" required autofocus>
+    <input id="author-task-title" v-model="form.title" type="text" maxlength="255" required autofocus @input="changed">
     <p v-if="error" class="field-error" role="alert">{{ error }}</p>
     <label for="author-task-note">备注（可选）</label>
-    <textarea id="author-task-note" v-model="form.note" rows="3" maxlength="4000" />
+    <textarea id="author-task-note" v-model="form.note" rows="3" maxlength="4000" @input="changed" />
     <label for="author-task-date">日期（可选）</label>
-    <input id="author-task-date" v-model="form.dueDate" type="date">
+    <input id="author-task-date" v-model="form.dueDate" type="date" @input="changed">
     <div class="author-task-form__actions">
       <button class="btn btn-primary" type="submit" :disabled="busy">{{ busy ? '保存中…' : '保存任务' }}</button>
     </div>
