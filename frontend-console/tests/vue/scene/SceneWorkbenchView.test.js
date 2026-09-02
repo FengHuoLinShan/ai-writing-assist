@@ -314,6 +314,8 @@ describe("SceneWorkbenchView", () => {
     window.innerWidth = 390
     createWrapper({ sceneFilters: { segment: "upcoming", health: "missing_setup" } })
 
+    expect(wrapper.get(".scene-runtime-shell").classes()).not.toContain("is-narrow")
+    expect(wrapper.get(".scene-workbench").classes()).not.toContain("is-narrow")
     const overview = wrapper.get(".scene-workbench-overview")
     expect(overview.attributes("open")).toBeUndefined()
     expect(overview.get(":scope > summary").text()).toContain("后续 1 · 缺设定 1")

@@ -100,8 +100,8 @@
 23. **已修复（2026-08-23）—窄屏场景概况挤占列表首屏**：剧情进度与健康待办收入同一个
     原生 `<details>`；桌面端保持展开，窄屏默认只显示当前剧情段、数量最多的待办与其他类别数。
     作者已选筛选时摘要优先跟随当前条件。摘要可键盘展开，完整八个筛选仍保留 44px 触控高度。
-24. **`is-narrow` class 是死钩子**：`SceneWorkbenchView.vue:47` 设置但全仓库 CSS/测试无
-    `.is-narrow` 规则。
+24. **已修复（2026-09-02）—窄屏死钩子**：删除无 CSS 消费者的 `.is-narrow`
+    class；实际窄屏行为仍由现有 `narrow` 状态控制场景概况和详情抽屉。
 25. **组件归属错位（架构性说明，非视觉 bug）**：场景工作台组件在 `vue/views/scene/`
     （`SceneWorkbenchView.vue`、`useSceneWorkbench.js`、`sceneModalController.js`、
     `sceneAutoExtractManager.js` 等），但路由属 `outline/scenes`（`router.js:337-343` 将
@@ -256,7 +256,7 @@ AI 预览作为页内连续编辑区，以项目 + source task 隔离本机草�
 | 伏笔揭示归并 | 见 §3.4：默认展开反转 + 深链滚动/高亮 + 归属操作行内 toast |
 | 融合建议队列 | 横幅 `role="status"` 保留；逐条处理按类型分流（replacement→替换检查含「编辑后采用」/keep_separate→确认/merge→融合草稿）保留；废弃原场景二段确认保留 |
 | 场景详情保存 | 无修改时显示并禁用「已保存」，有修改时改为「保存修改」，操作栏在详情滚动区内始终可达；未保存或保存中时禁用当前待办与「更多」结构操作，保存中同时禁用字段与离开；成功刷新当前场景，失败保留草稿并在详情内显示人话错误；切换场景、筛选、分页、模式、作品或路由以及窄屏关闭均不得静默丢弃未保存修改 |
-| 窄屏 is-narrow | JS/CSS 断点统一为 760px；`is-narrow` class 死钩子删除或实际接线（修 §2-17）；抽屉保持 `role="dialog"` + Esc + 焦点管理 + 可点遮罩 |
+| 窄屏 | JS 断点为 760px；无消费者的 `is-narrow` class 已删除；抽屉保持 `role="dialog"` + Esc + 焦点管理 + 可点遮罩 |
 
 ## 6. 响应式行为（四档）
 

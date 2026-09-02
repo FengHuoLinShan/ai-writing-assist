@@ -63,10 +63,10 @@
         <p>{{ loadError }}</p>
         <button class="btn btn-sm" data-action="retry-scene-workbench" @click="refresh()">重新加载</button>
       </div>
-      <div v-else-if="workbench" class="scene-runtime-shell" :class="{ 'is-narrow': narrow }">
+      <div v-else-if="workbench" class="scene-runtime-shell">
         <SceneRuntimeTabs :active-tab="storyWorkspace.activeTab" @select="storyWorkspace.selectTab" />
         <div v-if="storyWorkspace.activeTab === 'management'" id="scene-runtime-panel-management" class="scene-runtime-management" role="tabpanel" aria-labelledby="scene-runtime-tab-management">
-        <div class="scene-workbench" :class="{ 'is-narrow': narrow }">
+        <div class="scene-workbench">
         <section class="scene-workbench__organize" :aria-busy="loading ? 'true' : 'false'">
           <div v-if="loading" class="scene-workbench-refresh" role="status" aria-live="polite">
             <strong>正在更新场景列表…</strong>
