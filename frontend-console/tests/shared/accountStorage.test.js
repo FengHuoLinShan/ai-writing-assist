@@ -39,6 +39,7 @@ describe("account-scoped browser storage", () => {
     ]
     const sessionKeys = [
       "novel_app_access_token",
+      "novel_author_task_form:v1:project-1",
       "workspace-rail:project-1:writing:assistant",
       "workflow-progress-card:task-1",
       "workflow-progress-details:task-1",

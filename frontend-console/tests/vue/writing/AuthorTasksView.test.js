@@ -81,7 +81,7 @@ describe("作者任务工作台", () => {
     expect(router.commitCurrentQuery).toHaveBeenCalledWith(expect.any(URLSearchParams), "replace")
     expect(router.commitCurrentQuery.mock.calls.at(-1)[0].has("task_source_id")).toBe(false)
     expect(router.navigate).not.toHaveBeenCalled()
-    expect(sessionStorage.getItem("author_task_form:v1:p1")).toBeNull()
+    expect(sessionStorage.getItem("novel_author_task_form:v1:p1")).toBeNull()
   })
 
   it("按作品隔离暂存表单，切换范围或刷新后可恢复", async () => {
@@ -130,15 +130,15 @@ describe("作者任务工作台", () => {
     expect(wrapper.find(".author-task-form").exists()).toBe(true)
     await wrapper.findAll(".author-task-form button").find((button) => button.text() === "取消").trigger("click")
     expect(wrapper.find(".author-task-form").exists()).toBe(false)
-    expect(sessionStorage.getItem("author_task_form:v1:p1")).toBeNull()
+    expect(sessionStorage.getItem("novel_author_task_form:v1:p1")).toBeNull()
 
     await wrapper.findAll("button").find((button) => button.text() === "添加第一项").trigger("click")
     await wrapper.get("#author-task-title").setValue("可保存的任务")
-    expect(sessionStorage.getItem("author_task_form:v1:p1")).not.toBeNull()
+    expect(sessionStorage.getItem("novel_author_task_form:v1:p1")).not.toBeNull()
     await wrapper.get(".author-task-form").trigger("submit")
     await flushPromises()
     expect(api.projects.createAuthorTask).toHaveBeenCalledWith("p1", expect.objectContaining({ title: "可保存的任务" }))
-    expect(sessionStorage.getItem("author_task_form:v1:p1")).toBeNull()
+    expect(sessionStorage.getItem("novel_author_task_form:v1:p1")).toBeNull()
     wrapper.unmount()
   })
 
@@ -161,7 +161,7 @@ describe("作者任务工作台", () => {
       note: "刷新后继续",
       expected_updated_at: "2026-08-27T10:00:00Z",
     }))
-    expect(sessionStorage.getItem("author_task_form:v1:p1")).toBeNull()
+    expect(sessionStorage.getItem("novel_author_task_form:v1:p1")).toBeNull()
     restored.unmount()
   })
 

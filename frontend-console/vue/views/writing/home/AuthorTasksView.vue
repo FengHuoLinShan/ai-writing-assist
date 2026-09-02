@@ -16,7 +16,7 @@ const confirm = getConfirm()
 const toast = getToast()
 
 function draftKey(projectId) {
-  return `author_task_form:v1:${projectId}`
+  return `novel_author_task_form:v1:${projectId}`
 }
 
 function readDraft(projectId) {
