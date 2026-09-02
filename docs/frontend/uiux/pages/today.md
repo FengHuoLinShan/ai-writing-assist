@@ -99,19 +99,11 @@
 - 值为 0 的卡：disabled 或 aria-disabled + `--text-quaternary` 数字（§5.1 disabled 档），不可点击；
   hint 不再显示「暂无待处理」斜位文案（:153 的 `<i>` 元素改为 `<span>`，样式已由 `.today-attention-card` 设为 normal）。
 
-### 4.5 「正在进行的整理」workflow 区——映射 WorkflowProgressCard 标准
+### 4.5 「正在进行的整理」workflow 区——导航投影的最小状态契约
 
-- 现状卡片 `.today-workflow-card`（grid：copy | progress | actions）在语义上与共享组件
-  `vue/components/WorkflowProgressCard.vue`（variant="card"）重复。目标：**本区任务卡统一映射
-  WorkflowProgressCard 的卡片形态标准**：
-  - 标题 = progress.label（即 WORKFLOW_COPY 用户语言文案，:41-54，保持）；
-  - 状态句 = progress.message（workflowStatus 三态，:82-87，保持）；
-  - 进度 = 组件内 `<progress>`，`aria-label` 保留（:163）；
-  - 失败/状态未知 → 组件 `attentionRequired` 语义（自动展开 + 警示边），替代手写 `.is-warning`
-    （`.today-workflow-card.is-warning`）；
-  - 操作区经组件默认 slot 注入：「查看 / 打开并处理」（`.btn-sm`）+「从首页隐藏」（`.btn-ghost`）。
-  - 若直接复用组件成本过高，允许保留现有 DOM，但类名、折叠行为、警示样式必须与
-    WorkflowProgressCard variant="card" 逐项对齐，并在代码注释标明对齐关系（执行时核实取舍）。
+- `.today-workflow-card` 保留为扫读型导航投影，不复制 `WorkflowProgressCard` 的折叠、取消和
+  恢复编排。卡片只显示作者语言标题、一句状态、原生 `<progress>` 和「查看 / 打开并处理」；
+  失败或未知状态使用现有 `.is-warning` 显示需要注意，不伪装成可在首页恢复的完整任务卡。
 - 「从首页隐藏」加确认（问题 3）：点击后经 `getConfirmAction()` 二次确认（文案说明「可在对应
   页面找回该任务」），或提供 undo toast；二选一，禁止静默清除。
 
@@ -169,7 +161,7 @@
 - [x] 值为 0 的 attention 卡不可点击（disabled/aria-disabled）。
 - [x] 「从首页隐藏」需二次确认，确认后 toast 反馈，文案说明找回路径。
 - [x] 完成作者任务的成功、409 与普通失败晚到时不污染切换后的作品状态、toast 或刷新。
-- [ ] workflow 卡与 WorkflowProgressCard variant="card" 标准对齐（复用或逐项对齐，注释标明）。
+- [x] workflow 卡保持导航投影的最小状态契约；不强套具有编排行为的 `WorkflowProgressCard`。
 - [x] 命名统一：router/页内为「写作首页」，主导航使用任务名「写作」。
 - [x] 390px 宽度无页面级横向溢出；<760 档主按钮全宽且高 48px。
 - [x] 桌面 sticky/night/ink 与 390px sticky 写作首页均有 Playwright 像素基线。
