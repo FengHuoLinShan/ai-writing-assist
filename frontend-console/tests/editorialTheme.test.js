@@ -237,6 +237,6 @@ describe("editorial archive theme", () => {
   it("keeps night-theme disabled buttons on neutral paper instead of a light slab", () => {
     expect(theme).toMatch(/\[data-theme="night"\] \.btn:disabled,\s*\[data-theme="night"\] \.btn\.disabled\s*\{[^}]*background:\s*var\(--archive-paper-raised\);[^}]*color:\s*var\(--archive-ink-soft\);/s)
     expect(theme).toMatch(/\[data-theme="night"\] \.btn-text:disabled,\s*\[data-theme="night"\] \.btn-text\.disabled\s*\{[^}]*background:\s*transparent;/s)
-    expect(styles).toMatch(/\[data-theme="night"\] \.rp-send-button:disabled\s*\{[^}]*background:\s*var\(--rp-accent-soft\);/s)
+    expect(styles).toMatch(/\[data-theme="night"\] \.rp-send-button:disabled:not\(\.is-loading\)\s*\{[^}]*background:\s*var\(--rp-accent-soft\);/s)
   })
 })
