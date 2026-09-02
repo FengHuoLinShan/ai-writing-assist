@@ -224,6 +224,9 @@ describe("RP 旅程列表与开场", () => {
     void opening.get(".rp-send-button").trigger("click")
     await Promise.resolve()
     expect(opening.get(".rp-opening-page").attributes("aria-busy")).toBe("true")
+    expect(opening.get(".rp-send-button").attributes("aria-label")).toBe("正在开始旅程")
+    expect(opening.get(".rp-send-button").attributes("aria-busy")).toBe("true")
+    expect(opening.get(".rp-button-spinner").exists()).toBe(true)
 
     creating.resolve({ journey: existingJourney() })
     await flushPromises()

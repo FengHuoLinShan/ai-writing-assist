@@ -19,6 +19,9 @@ describe("RP reading comfort", () => {
     expect(styles).not.toMatch(/\.rp-message__actions\s*\{[^}]*opacity:/s)
     expect(styles).toMatch(/\.rp-message__actions button\s*\{[^}]*color:\s*var\(--rp-text\);[^}]*font-size:\s*13px/s)
     expect(styles).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*\.entry-card,[\s\S]*\.rp-message__actions\s*\{\s*transition:\s*none;/s)
+    expect(styles).toMatch(/\.rp-button-spinner\s*\{[^}]*animation:\s*rp-spin 700ms linear infinite/s)
+    expect(styles).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*\.rp-button-spinner\s*\{[^}]*animation:\s*none;/s)
+    expect(styles).toMatch(/\.rp-send-button\.is-loading,[^{]*\.rp-stop-button\.is-loading\s*\{[^}]*color:\s*var\(--text-on-accent\)/s)
   })
 
   it("keeps the entry choice on the selected theme", () => {

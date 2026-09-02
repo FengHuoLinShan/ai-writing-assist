@@ -14571,7 +14571,7 @@ details[open] > .world-bible-support-summary::after {
   border: 0;
   border-radius: 50%;
   background: var(--rp-accent);
-  color: #fff;
+  color: var(--text-on-accent);
   cursor: pointer;
   font-size: 21px;
 }
@@ -14587,17 +14587,43 @@ details[open] > .world-bible-support-summary::after {
   cursor: default;
 }
 
+.rp-send-button.is-loading,
+.rp-stop-button.is-loading {
+  background: var(--rp-accent);
+  color: var(--text-on-accent);
+}
+
 [data-theme="night"] .rp-send-button:disabled {
   background: var(--rp-accent-soft);
   color: var(--rp-dim);
 }
 
-.rp-stop-button span {
+.rp-stop-button > span:not(.rp-button-spinner) {
   width: 11px;
   height: 11px;
   border-radius: 2px;
-  background: #fff;
+  background: currentColor;
 }
+
+.rp-button-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: rp-spin 700ms linear infinite;
+  vertical-align: -2px;
+}
+
+.rp-attempt-actions button .rp-button-spinner,
+.rp-message__actions button .rp-button-spinner,
+.rp-conflict-banner button .rp-button-spinner {
+  margin-right: 6px;
+}
+
+@keyframes rp-spin { to { transform: rotate(360deg); } }
 
 .rp-mode-row,
 .rp-composer-tools {
@@ -15855,9 +15881,12 @@ button.rp-journey-card__main:hover {
 
 @media (prefers-reduced-motion: reduce) {
   .rp-generating-dot,
-  .rp-stream-wait i {
+  .rp-stream-wait i,
+  .rp-button-spinner {
     animation: none;
   }
+
+  .rp-button-spinner { border-right-color: currentColor; }
 
   .entry-card,
   .rp-message__actions {

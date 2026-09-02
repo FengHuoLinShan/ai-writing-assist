@@ -55,6 +55,7 @@ const branchDraftNotice = ref(false)
 const composing = ref(false)
 const editingNodeId = ref(null)
 const sending = ref(false)
+const mutationAction = ref("")
 const stopping = ref(false)
 const conflict = ref(null)
 const connectionProblem = ref(false)
@@ -585,7 +586,7 @@ async function followAttempt(attempt) {
 
 async function startMutation(
   run,
-  { preserveComposer = false, usesComposer = false } = {},
+  { action = "send", preserveComposer = false, usesComposer = false } = {},
 ) {
   if (sending.value) return null
   if (!requireModelConnection()) return null
@@ -602,6 +603,7 @@ async function startMutation(
     && journey.value?.selection_epoch === requestSelectionEpoch
   )
   sending.value = true
+  mutationAction.value = action
   conflict.value = null
   try {
     const result = await run()
@@ -641,6 +643,7 @@ async function startMutation(
   } finally {
     if (!disposed && journeyId.value === requestJourneyId) {
       sending.value = false
+      mutationAction.value = ""
     }
   }
 }
@@ -662,7 +665,7 @@ async function send() {
         expected_selection_epoch: epoch,
         idempotency_key: interactionOperationKey("edit"),
       },
-    ), { usesComposer: true })
+    ), { action: "send", usesComposer: true })
     return
   }
   await startMutation(() => getApi().interactions.sendMessage(
@@ -672,7 +675,7 @@ async function send() {
       expected_selection_epoch: epoch,
       idempotency_key: interactionOperationKey("message"),
     },
-  ), { usesComposer: true })
+  ), { action: "send", usesComposer: true })
 }
 
 function onComposerKeydown(event) {
@@ -713,7 +716,7 @@ async function retryAttempt() {
       expected_selection_epoch: journey.value.selection_epoch,
       idempotency_key: interactionOperationKey("retry"),
     },
-  ))
+  ), { action: "retry" })
 }
 
 async function continueAttempt() {
@@ -725,7 +728,7 @@ async function continueAttempt() {
       expected_selection_epoch: journey.value.selection_epoch,
       idempotency_key: interactionOperationKey("continue"),
     },
-  ), { preserveComposer: true })
+  ), { action: "continue", preserveComposer: true })
 }
 
 async function keepPartial() {
@@ -751,7 +754,7 @@ async function regenerate(message) {
       expected_selection_epoch: journey.value.selection_epoch,
       idempotency_key: interactionOperationKey("regenerate"),
     },
-  ), { preserveComposer: true })
+  ), { action: "regenerate", preserveComposer: true })
 }
 
 function editUser(message) {
@@ -1600,7 +1603,7 @@ async function continueFromVisible() {
       expected_selection_epoch: value.currentEpoch,
       idempotency_key: interactionOperationKey("from-here"),
     },
-  ), { usesComposer: true })
+  ), { action: "continue-from-visible", usesComposer: true })
   if (result) conflict.value = null
 }
 
@@ -1951,8 +1954,10 @@ onBeforeUnmount(() => {
               v-if="message.id === lastStoryMessageId"
               class="rp-message-action-button"
               type="button"
+              :disabled="sending"
+              :aria-busy="sending && mutationAction === 'regenerate'"
               @click="regenerate(message)"
-            >重新生成</button>
+            ><span v-if="sending && mutationAction === 'regenerate'" class="rp-button-spinner" aria-hidden="true"></span>{{ sending && mutationAction === 'regenerate' ? '正在重新生成…' : '重新生成' }}</button>
             <button
               v-if="message.id === lastStoryMessageId && branchPosition(message.id)"
               type="button"
@@ -2019,9 +2024,9 @@ onBeforeUnmount(() => {
 
       <div v-if="awaitingContinue" class="rp-attempt-actions">
         <p>这一段到达了模型的单次输出上限。</p>
-        <button type="button" @click="continueAttempt">继续写完</button>
-        <button type="button" @click="keepPartial">保留这段</button>
-        <button type="button" @click="retryAttempt">重新生成</button>
+        <button type="button" :disabled="sending" :aria-busy="sending && mutationAction === 'continue'" @click="continueAttempt"><span v-if="sending && mutationAction === 'continue'" class="rp-button-spinner" aria-hidden="true"></span>{{ sending && mutationAction === 'continue' ? '正在继续…' : '继续写完' }}</button>
+        <button type="button" :disabled="sending" @click="keepPartial">保留这段</button>
+        <button type="button" :disabled="sending" :aria-busy="sending && mutationAction === 'retry'" @click="retryAttempt"><span v-if="sending && mutationAction === 'retry'" class="rp-button-spinner" aria-hidden="true"></span>{{ sending && mutationAction === 'retry' ? '正在重新生成…' : '重新生成' }}</button>
       </div>
       <div v-else-if="failedAttempt" class="rp-attempt-actions rp-attempt-actions--error" role="alert">
         <p>{{ failedMessage }}</p>
@@ -2043,8 +2048,10 @@ onBeforeUnmount(() => {
         <button
           v-if="failedError.action !== 'connection'"
           type="button"
+          :disabled="sending"
+          :aria-busy="sending && mutationAction === 'retry'"
           @click="retryAttempt"
-        >重新生成</button>
+        ><span v-if="sending && mutationAction === 'retry'" class="rp-button-spinner" aria-hidden="true"></span>{{ sending && mutationAction === 'retry' ? '正在重新生成…' : '重新生成' }}</button>
         <button v-if="streamText" type="button" @click="keepPartial">保留残段</button>
       </div>
       <p v-if="storyEnded" class="rp-story-ended">故事在这里告一段落。你仍可以重新生成，或输入新的延续方式。</p>
@@ -2098,7 +2105,7 @@ onBeforeUnmount(() => {
     <div v-if="conflict" class="rp-conflict-banner" role="alert">
       <span>旅程已在另一处更新，你的输入仍保留在这里。</span>
       <button type="button" @click="loadLatestAfterConflict">载入最新发展</button>
-      <button type="button" @click="continueFromVisible">仍从我看到的位置继续</button>
+      <button type="button" :disabled="sending" :aria-busy="sending && mutationAction === 'continue-from-visible'" @click="continueFromVisible"><span v-if="sending && mutationAction === 'continue-from-visible'" class="rp-button-spinner" aria-hidden="true"></span>{{ sending && mutationAction === 'continue-from-visible' ? '正在继续…' : '仍从我看到的位置继续' }}</button>
     </div>
 
     <footer class="rp-composer-dock">
@@ -2123,14 +2130,17 @@ onBeforeUnmount(() => {
         <button
           v-if="isGenerating"
           class="rp-stop-button"
+          :class="{ 'is-loading': stopping }"
           type="button"
-          aria-label="停止生成"
+          :aria-label="stopping ? '正在停止生成' : '停止生成'"
+          :aria-busy="stopping"
           :disabled="stopping"
           @click="stop"
-        ><span></span></button>
+        ><span v-if="stopping" class="rp-button-spinner" aria-hidden="true"></span><span v-else></span></button>
         <button
           v-else
           class="rp-send-button"
+          :class="{ 'is-loading': sending }"
           type="button"
           :disabled="
             sending
@@ -2139,10 +2149,11 @@ onBeforeUnmount(() => {
             || composerTooLong
             || !hasActiveConnection
           "
-          aria-label="发送消息"
+          :aria-label="sending ? '正在发送消息' : '发送消息'"
+          :aria-busy="sending"
           title="发送消息"
           @click="send"
-        >↑</button>
+        ><span v-if="sending" class="rp-button-spinner" aria-hidden="true"></span><template v-else>↑</template></button>
       </div>
       <p v-if="stopping" class="rp-stream-status" role="status">正在停止…</p>
       <p v-if="showComposerCount" class="rp-input-count" :class="{ error: composerTooLong }">

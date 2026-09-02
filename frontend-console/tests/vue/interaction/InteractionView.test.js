@@ -920,6 +920,10 @@ describe("RP 故事页", () => {
     await wrapper.findAll(".rp-attempt-actions button")
       .find((button) => button.text() === "重新生成")
       .trigger("click")
+    const retryButton = wrapper.findAll(".rp-attempt-actions button")
+      .find((button) => button.text().includes("正在重新生成"))
+    expect(retryButton.attributes("aria-busy")).toBe("true")
+    expect(retryButton.find(".rp-button-spinner").exists()).toBe(true)
     retried.resolve({ journey: journey(), attempt: null })
     await flushPromises()
 
@@ -1357,6 +1361,8 @@ describe("RP 故事页", () => {
     await wrapper.get(".rp-stop-button").trigger("click")
     await wrapper.get("textarea[aria-label='继续旅程']").setValue("停止时先写草稿")
     expect(wrapper.text()).toContain("正在停止")
+    expect(wrapper.get(".rp-stop-button").attributes("aria-label")).toBe("正在停止生成")
+    expect(wrapper.get(".rp-stop-button .rp-button-spinner").exists()).toBe(true)
     expect(wrapper.get("textarea[aria-label='继续旅程']").element.disabled).toBe(false)
     await wrapper.get(".rp-stop-button").trigger("click")
     expect(api.interactions.stopAttempt).toHaveBeenCalledTimes(1)
@@ -1531,6 +1537,9 @@ describe("RP 故事页", () => {
     await composer.setValue("离页前仍要保留的草稿")
     await wrapper.get(".rp-send-button").trigger("click")
     await vi.waitFor(() => expect(api.interactions.sendMessage).toHaveBeenCalledOnce())
+    expect(wrapper.get(".rp-send-button").attributes("aria-label")).toBe("正在发送消息")
+    expect(wrapper.get(".rp-send-button").attributes("aria-busy")).toBe("true")
+    expect(wrapper.get(".rp-send-button .rp-button-spinner").exists()).toBe(true)
 
     wrapper.unmount()
     if (outcome === "成功") {

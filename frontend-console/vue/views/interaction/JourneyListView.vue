@@ -466,6 +466,7 @@ onBeforeUnmount(() => {
           ></textarea>
           <button
             class="rp-send-button"
+            :class="{ 'is-loading': creating }"
             type="button"
             :disabled="
               creating
@@ -474,9 +475,10 @@ onBeforeUnmount(() => {
               || !hasActiveConnection
               || (sourceSelection.enabled && !sourceSelection.setup)
             "
-            aria-label="开始旅程"
+            :aria-label="creating ? '正在开始旅程' : '开始旅程'"
+            :aria-busy="creating"
             @click="createJourney"
-          >{{ creating ? "…" : "↑" }}</button>
+          ><span v-if="creating" class="rp-button-spinner" aria-hidden="true"></span><template v-else>↑</template></button>
         </div>
         <p v-if="showOpeningCount" class="rp-input-count" :class="{ error: openingTooLong }">
           {{ opening.length.toLocaleString() }} / 100,000
