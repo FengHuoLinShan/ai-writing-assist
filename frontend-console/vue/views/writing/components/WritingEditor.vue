@@ -47,7 +47,7 @@
               </div>
               <div class="writing-tools-menu__group">
                 <strong>更多 AI 工具</strong>
-                <button class="btn btn-sm" data-action="writing-open-owner-ai" @click="$emit('open-ai-tools')">整理资料、查找资料与指定写法</button>
+                <button class="btn btn-sm" data-action="writing-open-owner-ai" @click.stop="openAiTools">整理资料、查找资料与指定写法</button>
               </div>
             </div>
           </details>
@@ -165,7 +165,7 @@ const props = defineProps({
   attach: { type: Function, required: true },
   detach: { type: Function, required: true },
 })
-defineEmits([
+const emit = defineEmits([
   "autosave", "checkpoint", "conflict-check", "publish", "discard",
   "generate-draft", "generate-continuation", "generate-pov",
   "auto-extract", "open-deep-import-settings", "open-ai-tools", "adopt", "reject",
@@ -227,6 +227,10 @@ function onToolMenuToggle(name, event) {
 function closeToolMenuAfterAction(event) {
   const button = event.target.closest?.("button")
   if (button && !button.disabled) closeToolMenu(button.closest("details"), true)
+}
+function openAiTools(event) {
+  closeToolMenu(event.currentTarget.closest("details"), true)
+  emit("open-ai-tools")
 }
 function onToolMenuKeydown(event) {
   if (event.key !== "Escape") return

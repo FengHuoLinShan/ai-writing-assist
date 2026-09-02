@@ -120,5 +120,11 @@ describe("WritingEditor semantic review gate", () => {
     document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }))
     await wrapper.vm.$nextTick()
     expect(menus[0].attributes("open")).toBeUndefined()
+
+    await aiSummary.trigger("click")
+    await wrapper.get('[data-action="writing-open-owner-ai"]').trigger("click")
+    expect(wrapper.emitted("open-ai-tools")).toHaveLength(1)
+    expect(menus[1].attributes("open")).toBeUndefined()
+    expect(document.activeElement).toBe(aiSummary.element)
   })
 })
