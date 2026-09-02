@@ -157,6 +157,10 @@ describe("editorial archive theme", () => {
     expect(mapStyles).toMatch(/@media\(max-width:760px\)[\s\S]*\.atlas-upload-modal input\[type="file"\]\{max-width:100%\}/)
   })
 
+  it("keeps writing metadata on the minimum supported type step", () => {
+    expect(writingDesk).not.toMatch(/font-size:\s*10(?:\.5)?px/)
+  })
+
   it("covers every workspace family and preserves compact mobile controls", () => {
     for (const view of ["writing", "world", "outline", "rag", "generate", "map", "settings", "project-settings"]) {
       expect(theme).toContain(`[data-workspace-view="${view}"]`)
