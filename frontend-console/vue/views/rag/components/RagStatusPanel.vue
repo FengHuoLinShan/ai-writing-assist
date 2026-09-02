@@ -291,14 +291,14 @@ const statusItems = computed(() => fields.statusItems || [])
           <div class="rag-diagnostics-grid">
             <div class="rag-status-metric"><strong class="rag-diagnostics-value">{{ String(actualDim) }}</strong><br><span class="rag-diagnostics-label">实际维度</span></div>
             <div class="rag-status-metric"><strong class="rag-diagnostics-value">{{ String(configuredDim) }}</strong><br><span class="rag-diagnostics-label">配置维度</span></div>
-            <div class="rag-status-metric"><strong class="rag-diagnostics-value">{{ workerLabel }}</strong><br><span class="rag-diagnostics-label">worker</span></div>
+            <div class="rag-status-metric"><strong class="rag-diagnostics-value">{{ workerLabel }}</strong><br><span class="rag-diagnostics-label">后台连接</span></div>
             <div class="rag-status-metric"><strong class="rag-diagnostics-value">{{ avgLatency }}</strong><br><span class="rag-diagnostics-label">平均检索</span></div>
-            <div class="rag-status-metric"><strong class="rag-diagnostics-value">{{ embeddingAvg }}</strong><br><span class="rag-diagnostics-label">embedding</span></div>
+            <div class="rag-status-metric"><strong class="rag-diagnostics-value">{{ embeddingAvg }}</strong><br><span class="rag-diagnostics-label">语义匹配耗时</span></div>
             <div class="rag-status-metric"><strong class="rag-diagnostics-value">{{ degradedRate }}</strong><br><span class="rag-diagnostics-label">降级率</span></div>
             <div class="rag-status-metric"><strong class="rag-diagnostics-value">{{ String(fields.retryableEmbeddingCount || 0) }}</strong><br><span class="rag-diagnostics-label">可重试</span></div>
             <div class="rag-status-metric"><strong class="rag-diagnostics-value">{{ cacheStatsText }}</strong><br><span class="rag-diagnostics-label">缓存命中/未命中</span></div>
           </div>
-          <p v-if="fields.embeddingDimensionMismatch" class="rag-diagnostics-warning">向量维度配置漂移，请同步配置后重启后端。</p>
+          <p v-if="fields.embeddingDimensionMismatch" class="rag-diagnostics-warning">查找服务配置不一致，受影响的资料已暂停使用。请联系管理员检查服务配置。</p>
           <p v-if="session.prewarmWarning" class="rag-diagnostics-warning">{{ authorStatusText(session.prewarmWarning) }}</p>
           <div class="rag-retrieval-traces">
             <button type="button" class="btn btn-sm" data-action="load-retrieval-traces" :disabled="tracesState === 'loading'" @click="loadRetrievalTraces">{{ tracesButtonText }}</button>

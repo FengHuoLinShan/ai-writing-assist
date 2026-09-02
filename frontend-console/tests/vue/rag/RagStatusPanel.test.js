@@ -94,12 +94,15 @@ describe("状态页渲染", () => {
     })
     expect(wrapper.text()).toContain("部分资料暂时找不到")
     expect(wrapper.find(".rag-diagnostic-details").attributes("open")).toBeDefined()
-    expect(wrapper.text()).toContain("向量维度配置漂移")
+    expect(wrapper.text()).toContain("请联系管理员检查服务配置")
+    expect(wrapper.text()).not.toMatch(/重启|后端|worker|embedding/i)
   })
 
   it("诊断网格渲染运行时指标", () => {
     const wrapper = mountPanel()
-    expect(wrapper.text()).toContain("ready")
+    expect(wrapper.text()).toContain("已就绪")
+    expect(wrapper.text()).toContain("后台连接")
+    expect(wrapper.text()).toContain("语义匹配耗时")
     expect(wrapper.text()).toContain("120ms")
     expect(wrapper.text()).toContain("8/2")
   })

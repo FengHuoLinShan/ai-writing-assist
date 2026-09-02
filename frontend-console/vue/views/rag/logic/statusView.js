@@ -13,11 +13,11 @@ export function percentText(value) {
 }
 
 export function runtimeLabel(prewarmState, runtime) {
-  if (prewarmState === "running") return "预热中"
-  if (prewarmState === "failed") return "失败"
-  if (runtime?.healthy) return "ready"
-  if (runtime?.started) return "未就绪"
-  return "未启动"
+  if (prewarmState === "running") return "正在连接"
+  if (prewarmState === "failed") return "连接失败"
+  if (runtime?.healthy) return "已就绪"
+  if (runtime?.started) return "准备中"
+  return "未连接"
 }
 
 export function cacheText(cacheStats = {}) {
