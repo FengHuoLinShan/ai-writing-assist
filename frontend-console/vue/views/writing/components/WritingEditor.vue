@@ -33,13 +33,13 @@
             <div id="writing-ai-tools" class="writing-tools-menu__body">
               <div class="writing-tools-menu__group">
                 <strong>可编辑建议</strong>
-                <button class="btn btn-sm btn-primary" :disabled="!chapterReady || state.readonly || !state.content.trim() || generationLoading" @click="$emit('generate-continuation')">{{ generationLoading ? '生成中…' : '续写建议' }}</button>
+                <button class="btn btn-sm" :disabled="!chapterReady || state.readonly || !state.content.trim() || generationLoading" @click="$emit('generate-continuation')">{{ generationLoading ? '生成中…' : '续写建议' }}</button>
                 <button class="btn btn-sm" :disabled="!chapterReady || state.readonly || generationLoading" @click="$emit('generate-draft')">AI 正文建议</button>
                 <button class="btn btn-sm" :disabled="!chapterReady || state.readonly || generationLoading" @click="$emit('generate-pov')">AI 角色视角建议</button>
               </div>
               <div class="writing-tools-menu__group">
                 <strong>从正文整理资料</strong>
-                <button class="btn btn-sm btn-primary" @click="$emit('auto-extract', 'scenes')">先整理场景骨架（推荐）</button>
+                <button class="btn btn-sm" @click="$emit('auto-extract', 'scenes')">先整理场景骨架（推荐）</button>
                 <button class="btn btn-sm" @click="$emit('auto-extract', 'deep')">完整整理世界与结构</button>
                 <button class="btn btn-sm" @click="$emit('auto-extract', 'world_objects')">整理人物、设定与关系</button>
                 <button class="btn btn-sm" @click="$emit('auto-extract', 'plot_structure')">整理剧情线</button>

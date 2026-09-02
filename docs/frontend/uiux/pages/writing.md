@@ -113,7 +113,8 @@ rail 折叠后对应列变为 `--workspace-rail-collapsed` 44px。底部状态�
 - **专注模式**：进入后全局顶栏/导航、两栏 rail 与编辑器工具区 `display:none`，稿纸单列居中
   （≤860px，≥761px 时编辑器 min-height 82vh）；顶部 `.writing-focus-header` 只显示章节、保存反馈与
   「退出专注 Esc」，底部保留字数/版本/保存状态。**点缀一律隐藏**（主规范 §2）。入口 = 底部状态栏
-  或既有「写作视图 / 更多」菜单；状态复用 `writing_resume_pointer:v1:{projectId}` 的 `focusMode` 字段。
+  桌面/完整编辑入口只保留底部状态栏「专注模式」；移动速记没有状态栏时，入口保留在「写作视图」
+  菜单。任何显示状态下都只有一个入口。状态复用 `writing_resume_pointer:v1:{projectId}` 的 `focusMode` 字段。
   默认专注只在章节成功打开后生效，避免隐藏尚未选择章节时的入口。
 - **信息层级**：Primary = 稿纸正文 + 主按钮「设为正式正文」（每屏唯一 primary）；Secondary = 章节树
   当前章、副驾驶手选 Scene 与当前 tab、保存状态；Tertiary = 版本条、状态栏读数、菜单项。层级靠字阶与留白，
@@ -156,7 +157,9 @@ rail 折叠后对应列变为 `--workspace-rail-collapsed` 44px。底部状态�
 - 保存/版本状态徽标（`#writing-save-status`、`#writing-version-info`）与字数条已平移至底部状态栏
   （见下），id 不变，e2e 契约不破。
 - **每屏至多一个 primary**：`#btn-publish` 是中栏唯一 `.btn-primary`；章节框底部的新建入口使用
-  secondary 样式，执行时全局核对 primary 计数。
+  secondary 样式，AI 建议和正文整理菜单项也使用普通按钮。
+- **入口去重**：完整编辑器以页内「AI 写作助手」菜单为唯一 AI 入口，不再在页头重复显示
+  「AI 工具」；移动速记未挂载编辑器菜单时，页头保留该入口。Writing Home 的 owner AI 入口不变。
 
 **正文排版（稿纸 `.writing-sheet`）—— 当前值**：
 

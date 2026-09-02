@@ -56,12 +56,12 @@
           :aria-expanded="String(viewMenuOpen)"
         >写作视图 <span class="writing-page-menu__chevron" aria-hidden="true">⌄</span></summary>
         <div id="writing-page-menu-body" class="writing-page-menu__body" @click="closeViewMenuAfterAction">
-          <button type="button" class="btn btn-sm" :disabled="!hasEditableChapter" @click="toggleFocusMode">进入专注</button>
+          <button v-if="vm.mobileMode.value" type="button" class="btn btn-sm" :disabled="!hasEditableChapter" @click="toggleFocusMode">进入专注</button>
           <button type="button" class="btn btn-sm" data-action="toggle-outline-float" @click="vm.toggleOutlineFloat">故事结构浮窗</button>
           <button type="button" class="btn btn-sm" @click="vm.navigateOutline">打开故事结构</button>
         </div>
       </details>
-      <button type="button" class="btn btn-sm" data-action="open-owner-ai-drawer" @click="openOwnerAi({ owner: 'writing' })">AI 工具</button>
+      <button v-if="vm.mobileMode.value" type="button" class="btn btn-sm" data-action="open-owner-ai-drawer" @click="openOwnerAi({ owner: 'writing' })">AI 工具</button>
       <button type="button" class="btn btn-sm" :disabled="!vm.selectedChapter.value" @click="addChapterTask">添加到计划中的任务</button>
     </div>
   </div>

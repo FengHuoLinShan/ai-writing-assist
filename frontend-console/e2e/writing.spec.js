@@ -895,13 +895,12 @@ test.describe("写作台模块", () => {
     await focusEntry.focus()
     await page.keyboard.press("Enter")
     await page.keyboard.press("Tab")
-    await expect(viewMenu.getByRole("button", { name: "进入专注" })).toBeFocused()
+    await expect(viewMenu.getByRole("button", { name: "故事结构浮窗" })).toBeFocused()
     await page.keyboard.press("Escape")
     await expect(focusEntry).toHaveAttribute("aria-expanded", "false")
     await expect(focusEntry).toBeFocused()
 
-    await focusEntry.click()
-    await viewMenu.getByRole("button", { name: "进入专注" }).click()
+    await page.locator(".writing-statusbar__focus").click()
 
     await expect(page.locator("body")).toHaveClass(/focus-mode-active/)
     await expect(page.locator("#writing-tree-container")).toBeHidden()
@@ -1567,7 +1566,10 @@ test.describe("写作台模块", () => {
     await reloadWorkbench(page, "writing")
     await waitWritingReady(page, { chapter: 1 })
 
+    await expect(page.locator('[data-action="open-owner-ai-drawer"]')).toHaveCount(0)
+    await expect(page.locator('[data-action="writing-ai-menu"]')).toHaveCount(1)
     await page.locator('[data-action="writing-ai-menu"]').click()
+    await expect(page.locator(".writing-editor-shell .btn-primary")).toHaveCount(1)
     const sceneExtraction = page.getByRole("button", { name: "先整理场景骨架（推荐）" })
     await expect(sceneExtraction).toBeVisible()
     await expect(sceneExtraction).toHaveCount(1)

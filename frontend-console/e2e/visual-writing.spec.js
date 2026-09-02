@@ -165,9 +165,7 @@ test.describe("writing 视觉基线", () => {
     await openPopulatedDesk(page, project)
     await applyTheme(page, "sticky")
 
-    await page.locator("details.writing-page-menu > summary").click()
-    await expect(page.locator(SEL.writingToolbar)).toHaveCSS("overflow", "visible")
-    await page.locator(SEL.writingToolbar).getByRole("button", { name: "进入专注" }).click()
+    await page.locator(".writing-statusbar__focus").click()
     await expect(page.locator("body")).toHaveClass(/focus-mode-active/)
     await expect(page.locator(SEL.writingToolbar)).toHaveCount(0)
     await expect(page.locator(".writing-focus-header")).toBeVisible()
