@@ -1589,9 +1589,7 @@ export function useWorldBible(props) {
       <div class="form-group"><label>标题</label><input class="form-input" id="bible-suggestion-title" value="${esc(page.title || "")}" /></div>
       <div class="form-group"><label>类别</label><select class="form-select" id="bible-suggestion-type">${categoryOptions(page.page_type || "custom").map((c) => `<option value="${esc(c.category_key)}">${esc(c.name)}</option>`).join("")}</select></div>
       <div class="form-group"><label>页面概览</label><textarea class="form-textarea" id="bible-suggestion-text" rows="8">${esc(page.free_text || "")}</textarea></div>
-      <div class="form-group"><label>完整 sections JSON</label><textarea class="form-textarea" id="bible-suggestion-sections" rows="12">${esc(JSON.stringify(page.sections_json || [], null, 2))}</textarea></div>
-      <div class="form-group"><label>资产关联 JSON</label><textarea class="form-textarea" id="bible-suggestion-assets" rows="6">${esc(JSON.stringify(page.linked_asset_refs_json || [], null, 2))}</textarea></div>
-      <p class="world-bible-empty-hint">应用只写入工作稿；发布前仍可继续编辑或丢弃。</p>
+      <p class="world-bible-empty-hint">分区与关联资料会原样带入。应用只写入工作稿，之后仍可在页面编辑器中调整或丢弃。</p>
     `
     showModalHtml("编辑创设建议", body, [{ text: "应用到工作稿", class: "btn-primary", handler: () => applyEditedSuggestion(item, novelId) }], { size: "large" })
   }
@@ -1600,14 +1598,6 @@ export function useWorldBible(props) {
     if (!ownsProject(novelId)) return true
     const modalOwner = captureModalOwner(document.getElementById("bible-suggestion-title"))
     const text = document.getElementById("bible-suggestion-text")?.value || ""
-    let sections, assets
-    try {
-      sections = JSON.parse(document.getElementById("bible-suggestion-sections")?.value || "[]")
-      assets = JSON.parse(document.getElementById("bible-suggestion-assets")?.value || "[]")
-    } catch {
-      toast("sections 或资产关联不是有效 JSON", "warning")
-      return false
-    }
     try {
       const originalPage = item.payload_json?.page || {}
       const result = await api.generate.applyWorldPageDraft(item.id, {
@@ -1616,8 +1606,6 @@ export function useWorldBible(props) {
           title: document.getElementById("bible-suggestion-title")?.value?.trim() || "",
           page_type: document.getElementById("bible-suggestion-type")?.value || "custom",
           free_text: text,
-          sections_json: sections,
-          linked_asset_refs_json: assets,
         },
       }, novelId)
       if (!ownsProject(novelId) || !ownsModalOwner(modalOwner)) return true

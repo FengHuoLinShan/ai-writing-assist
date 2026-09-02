@@ -1881,8 +1881,8 @@ describe("模态操作", () => {
           title: "建议新页",
           page_type: "background",
           free_text: "建议正文",
-          sections_json: [],
-          linked_asset_refs_json: [],
+          sections_json: [{ title: "潮汐规则", body_markdown: "旧港每日退潮" }],
+          linked_asset_refs_json: [{ asset_type: "entity", asset_id: "entity-1" }],
         },
       },
     }
@@ -1903,13 +1903,22 @@ describe("模态操作", () => {
 
     await wrapper.find("[data-action='bible-open-suggestions']").trigger("click")
     document.querySelector("[data-bible-edit-suggestion='suggestion-1']").click()
+    const modalHtml = showModalHtmlMock.mock.calls.at(-1)[1]
+    expect(modalHtml).not.toMatch(/JSON|sections|asset_id|entity-1/)
+    expect(modalHtml).toContain("分区与关联资料会原样带入")
     const apply = showModalHtmlMock.mock.calls.at(-1)[2][0].handler
     await expect(apply()).resolves.toBeUndefined()
     await nextTick()
 
     expect(api.generate.applyWorldPageDraft).toHaveBeenCalledWith(
       "suggestion-1",
-      expect.objectContaining({ page: expect.objectContaining({ title: "建议新页" }) }),
+      expect.objectContaining({
+        page: expect.objectContaining({
+          title: "建议新页",
+          sections_json: [{ title: "潮汐规则", body_markdown: "旧港每日退潮" }],
+          linked_asset_refs_json: [{ asset_type: "entity", asset_id: "entity-1" }],
+        }),
+      }),
       "p1",
     )
     expect(worldSession.bible.activeDraftId).toBe("draft-from-suggestion")
