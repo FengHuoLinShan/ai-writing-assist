@@ -61,6 +61,23 @@ async function textContrast(locator, backgroundSelector = null) {
   }, backgroundSelector)
 }
 
+async function borderContrast(locator) {
+  return locator.evaluate((element) => {
+    const channel = (value) => {
+      const normalized = value / 255
+      return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4
+    }
+    const luminance = (color) => {
+      const [red, green, blue] = color.match(/[\d.]+/g).slice(0, 3).map(Number)
+      return (0.2126 * channel(red)) + (0.7152 * channel(green)) + (0.0722 * channel(blue))
+    }
+    const style = getComputedStyle(element)
+    const values = [luminance(style.borderTopColor), luminance(style.backgroundColor)]
+      .sort((left, right) => right - left)
+    return (values[0] + 0.05) / (values[1] + 0.05)
+  })
+}
+
 async function mockRpApis(
   page,
   {
@@ -145,12 +162,16 @@ async function mockRpApis(
       body: JSON.stringify({ parent_node_id: null, variants: [] }),
     }),
   )
-  await page.route(`**/api/interactions/journeys/${journeyId}`, (route) => (
-    route.fulfill({
+  await page.route(`**/api/interactions/journeys/${journeyId}`, (route) => {
+    if (route.request().method() === "DELETE") {
+      archivedJourney = false
+      return route.fulfill({ status: 204, body: "" })
+    }
+    return route.fulfill({
       contentType: "application/json",
       body: JSON.stringify(journey),
     })
-  ))
+  })
   await page.route("**/api/interactions/journeys?*", (route) => {
     const status = new URL(route.request().url()).searchParams.get("status")
     return route.fulfill({
@@ -432,6 +453,15 @@ test.describe("RP 路由与窄屏故事页", () => {
     await expect(confirm).toBeDisabled()
     await dialog.locator("input").fill("雾港钟楼")
     await expect(confirm).toBeEnabled()
+    for (const theme of ["sticky", "night", "ink"]) {
+      await page.locator("html").evaluate((element, value) => {
+        element.setAttribute("data-theme", value)
+      }, theme)
+      expect((await textContrast(dialog.locator("label span"), "#rp-journey-destructive-confirm")).contrast, `${theme} label`).toBeGreaterThanOrEqual(4.5)
+      expect((await textContrast(dialog.locator("input"))).contrast, `${theme} input`).toBeGreaterThanOrEqual(4.5)
+      expect(await borderContrast(dialog.locator("input")), `${theme} input border`).toBeGreaterThanOrEqual(3)
+      expect((await textContrast(confirm)).contrast, `${theme} primary`).toBeGreaterThanOrEqual(4.5)
+    }
     const box = await dialog.boundingBox()
     expect(box.y).toBeGreaterThanOrEqual(0)
     expect(box.y + box.height).toBeLessThanOrEqual(520)
@@ -439,6 +469,12 @@ test.describe("RP 路由与窄屏故事页", () => {
     await page.keyboard.press("Escape")
     await expect(dialog).toBeHidden()
     await expect(trigger).toBeFocused()
+
+    await trigger.click()
+    await dialog.locator("input").fill("雾港钟楼")
+    await dialog.getByRole("button", { name: "永久删除" }).click()
+    await expect(trigger).toBeHidden()
+    await expect(page.getByRole("tab", { name: /已归档/ })).toBeFocused()
   })
 
   test("保留未完整片段时明确显示未完成状态", async ({ page, browserErrors }) => {

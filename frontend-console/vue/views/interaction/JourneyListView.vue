@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import {
   getApi,
   getAppState,
@@ -48,6 +48,9 @@ const searching = ref(false)
 const loadingMore = ref(false)
 const seeSeaNoticeOpen = ref(false)
 const seeSeaButton = ref(null)
+const openingTitle = ref(null)
+const activeTabButton = ref(null)
+const archivedTabButton = ref(null)
 const seeSeaConfirming = ref(false)
 const journeyConfirmation = ref(null)
 const journeyConfirmationBusy = ref(false)
@@ -325,12 +328,20 @@ async function confirmJourneyAction(answer) {
   const confirmation = journeyConfirmation.value
   if (!confirmation || journeyConfirmationBusy.value) return
   journeyConfirmationBusy.value = true
+  let succeeded = false
   try {
-    if (confirmation.type === "archive") await archiveJourney(confirmation.journey)
-    else await deleteJourney(confirmation.journey, answer)
+    succeeded = confirmation.type === "archive"
+      ? await archiveJourney(confirmation.journey)
+      : await deleteJourney(confirmation.journey, answer)
   } finally {
     journeyConfirmationBusy.value = false
     if (journeyConfirmation.value === confirmation) journeyConfirmation.value = null
+    if (succeeded) {
+      void nextTick(() => {
+        if (showOpening.value) openingTitle.value?.focus?.()
+        else (tab.value === "active" ? activeTabButton.value : archivedTabButton.value)?.focus?.()
+      })
+    }
   }
 }
 
@@ -340,12 +351,14 @@ async function archiveJourney(journey) {
     await getApi().interactions.archiveJourney(journey.id)
     if (!ownsRoute(owner)) return
     await reload()
-    if (!ownsRoute(owner)) return
+    if (!ownsRoute(owner)) return false
     getToast()("旅程已归档", "success")
+    return true
   } catch {
     if (ownsRoute(owner)) {
       getToast()("归档失败；旅程和正在生成的内容仍保留，请重试。", "error")
     }
+    return false
   }
 }
 
@@ -370,12 +383,14 @@ async function deleteJourney(journey, answer) {
     await getApi().interactions.deleteJourney(journey.id, answer)
     if (!ownsRoute(owner)) return
     await reload()
-    if (!ownsRoute(owner)) return
+    if (!ownsRoute(owner)) return false
     getToast()("旅程已永久删除", "success")
+    return true
   } catch {
     if (ownsRoute(owner)) {
       getToast()("永久删除失败；旅程仍在归档中，请确认标题后重试。", "error")
     }
+    return false
   }
 }
 
@@ -421,7 +436,7 @@ onBeforeUnmount(() => {
       :aria-busy="creating"
     >
       <div class="rp-opening-intro">
-        <h2 id="rp-opening-title">你想从哪里开始？</h2>
+        <h2 id="rp-opening-title" ref="openingTitle" tabindex="-1">你想从哪里开始？</h2>
         <p>{{ showOpeningComposer
           ? (sourceSelection.enabled
             ? "作品与进入位置已经确认；选好身份，再写下本次开场。"
@@ -520,8 +535,8 @@ onBeforeUnmount(() => {
       </div>
       <div class="rp-catalog-toolbar">
         <div class="rp-tabs" role="tablist" aria-label="旅程状态">
-          <button type="button" role="tab" :aria-selected="tab === 'active'" :class="{ active: tab === 'active' }" @click="tab = 'active'">进行中</button>
-          <button type="button" role="tab" :aria-selected="tab === 'archived'" :class="{ active: tab === 'archived' }" @click="tab = 'archived'">已归档</button>
+          <button ref="activeTabButton" type="button" role="tab" :aria-selected="tab === 'active'" :class="{ active: tab === 'active' }" @click="tab = 'active'">进行中</button>
+          <button ref="archivedTabButton" type="button" role="tab" :aria-selected="tab === 'archived'" :class="{ active: tab === 'archived' }" @click="tab = 'archived'">已归档</button>
         </div>
         <div class="rp-catalog-actions">
           <button class="rp-new-journey-button" type="button" @click="openNewJourney">开始新旅程</button>

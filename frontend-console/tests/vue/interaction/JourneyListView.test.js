@@ -670,4 +670,44 @@ describe("RP 旅程列表与开场", () => {
     await confirmJourneyDialog(journey.title)
     expect(api.interactions.deleteJourney).toHaveBeenCalledWith(journey.id, journey.title)
   })
+
+  it.each([
+    ["归档", "active", "archiveJourney", ""],
+    ["永久删除", "archived", "deleteJourney", "廷根雨夜"],
+  ])("%s成功移除原按钮后聚焦当前列表页签", async (label, status, method, expectedText) => {
+    const journey = { ...existingJourney(), status }
+    api.interactions[method].mockResolvedValue({})
+    api.interactions.listJourneys.mockImplementation(async ({ status: requestedStatus }) => {
+      const items = status === "active"
+        ? (requestedStatus === "archived" ? [{ ...journey, status: "archived" }] : [])
+        : (requestedStatus === "active" ? [existingJourney()] : [])
+      return { items, total: items.length }
+    })
+    const wrapper = mount(JourneyListView, {
+      props: {
+        activeJourneys: status === "active" ? [journey] : [],
+        activeTotal: status === "active" ? 1 : 0,
+        archivedJourneys: status === "archived" ? [journey] : [],
+        archivedTotal: status === "archived" ? 1 : 0,
+        llmConnections: connections(),
+      },
+      attachTo: document.body,
+    })
+    if (status === "archived") {
+      await wrapper.findAll("[role='tab']")
+        .find((button) => button.text() === "已归档")
+        .trigger("click")
+    }
+    const trigger = wrapper.findAll(".rp-journey-card__actions button")
+      .find((button) => button.text() === label)
+    const oldElement = trigger.element
+    await trigger.trigger("click")
+    await confirmJourneyDialog(expectedText)
+
+    expect(oldElement.isConnected).toBe(false)
+    expect(document.activeElement).toBe(
+      wrapper.findAll("[role='tab']").find((button) => button.attributes("aria-selected") === "true").element,
+    )
+    wrapper.unmount()
+  })
 })

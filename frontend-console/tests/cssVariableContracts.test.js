@@ -29,7 +29,7 @@ const ownedVariableContracts = [
   },
   {
     file: "styles.css",
-    names: new Set(["--rp-confirm-accent", "--rp-confirm-accent-soft", "--rp-confirm-border", "--rp-confirm-muted", "--rp-confirm-panel"]),
+    names: new Set(["--rp-confirm-accent", "--rp-confirm-panel"]),
     owner: /(?:^|, )\.rp-adaptive-confirm(?:$|[ .:[#])/,
     consumer: /\.rp-adaptive-confirm/,
   },

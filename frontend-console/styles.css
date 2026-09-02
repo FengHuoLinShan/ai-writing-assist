@@ -16096,9 +16096,6 @@ button.rp-journey-card__main:hover {
 /* RP 低频确认：脱离滚动/输入容器，并按 visual viewport 智能选择上下方向。 */
 .rp-adaptive-confirm {
   --rp-confirm-accent: #2466d1;
-  --rp-confirm-accent-soft: #eef4ff;
-  --rp-confirm-border: #d8e4f8;
-  --rp-confirm-muted: #717987;
   --rp-confirm-panel: #fff;
   position: fixed;
   z-index: 110;
@@ -16115,31 +16112,25 @@ button.rp-journey-card__main:hover {
   margin: 0;
   overflow: auto;
   padding: 12px;
-  border-color: var(--rp-confirm-border);
-  background: var(--rp-confirm-accent-soft);
+  border-color: var(--text-secondary);
+  background: var(--rp-confirm-panel);
   box-shadow: 0 14px 34px rgba(24, 42, 70, 0.18);
-  color: var(--rp-confirm-muted);
+  color: var(--text-body);
   overscroll-behavior: contain;
 }
 
 [data-theme="night"] .rp-adaptive-confirm {
   --rp-confirm-accent: var(--accent);
-  --rp-confirm-accent-soft: var(--bg-active);
-  --rp-confirm-border: var(--text-quaternary);
-  --rp-confirm-muted: var(--text-secondary);
   --rp-confirm-panel: var(--bg-panel);
 }
 
 [data-theme="ink"] .rp-adaptive-confirm {
   --rp-confirm-accent: var(--accent);
-  --rp-confirm-accent-soft: var(--accent-soft);
-  --rp-confirm-border: var(--text-quaternary);
-  --rp-confirm-muted: var(--text-secondary);
   --rp-confirm-panel: var(--bg-panel);
 }
 
 .rp-adaptive-confirm__surface strong {
-  color: var(--rp-confirm-muted);
+  color: var(--text-body);
   font-size: 12px;
 }
 
@@ -16151,7 +16142,7 @@ button.rp-journey-card__main:hover {
 .rp-adaptive-confirm__field {
   display: grid;
   gap: 6px;
-  color: var(--rp-confirm-muted);
+  color: var(--text-body);
   font-size: 13px;
 }
 
@@ -16159,10 +16150,10 @@ button.rp-journey-card__main:hover {
   width: 100%;
   min-height: 42px;
   padding: 8px 10px;
-  border: 1px solid var(--rp-confirm-border);
+  border: 1px solid var(--text-secondary);
   border-radius: 8px;
   background: var(--rp-confirm-panel);
-  color: var(--rp-confirm-muted);
+  color: var(--text-body);
   font: inherit;
 }
 
@@ -16180,7 +16171,7 @@ button.rp-journey-card__main:hover {
 .rp-adaptive-confirm__surface.rp-sea-notice button {
   min-height: 36px;
   background: var(--rp-confirm-panel);
-  color: var(--rp-confirm-muted);
+  color: var(--text-body);
 }
 
 .rp-adaptive-confirm__surface.rp-sea-notice .primary {
@@ -16201,8 +16192,8 @@ button.rp-journey-card__main:hover {
   left: var(--rp-popover-arrow-x);
   width: 11px;
   height: 11px;
-  border: 1px solid var(--rp-confirm-border, #d8e4f8);
-  background: var(--rp-confirm-accent-soft, #eef4ff);
+  border: 1px solid var(--text-secondary);
+  background: var(--rp-confirm-panel);
   transform: translateX(-50%) rotate(45deg);
 }
 
