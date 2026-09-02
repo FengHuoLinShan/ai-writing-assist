@@ -15,13 +15,14 @@ beforeEach(() => {
 
 describe("commands navigation lifecycle", () => {
   it("does not expose removed placeholder commands or registration", () => {
-    expect(window.commands.getHelpText()).not.toMatch(/:(?:export|save|rag|context|generate)\b/)
+    expect(window.commands.getHelpText()).not.toMatch(/:(?:export|save|open|rag|context|generate)\b/)
     expect([
       ...window.commands.getSuggestions("export"),
       ...window.commands.getSuggestions("save"),
       ...window.commands.getSuggestions("rag"),
       ...window.commands.getSuggestions("context"),
       ...window.commands.getSuggestions("generate"),
+      ...window.commands.getSuggestions("open"),
     ]).toEqual([])
     expect(window.commands.getHelpText()).toContain(":search")
     expect(window.commands.getHelpText()).toContain("查找作品资料")
@@ -66,5 +67,12 @@ describe("commands navigation lifecycle", () => {
       expect.any(URLSearchParams),
     )
     expect(globalThis.router.navigate.mock.calls[0][3].get("q")).toBe("旧王都 王印")
+  })
+
+  it.each([":open rag status", ":open generate"])("does not expose internal routes through %s", async (input) => {
+    await window.commands.execute(input)
+
+    expect(globalThis.router.navigate).not.toHaveBeenCalled()
+    expect(globalThis.toast).toHaveBeenCalledWith(expect.stringContaining("未知命令"), "error")
   })
 })

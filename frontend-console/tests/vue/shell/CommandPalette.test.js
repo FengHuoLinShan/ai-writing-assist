@@ -122,6 +122,8 @@ describe("CommandPalette", () => {
     await openPalette(wrapper, "/")
     const input = wrapper.get("#command-input")
     await input.setValue("/旧王都")
+    expect(wrapper.get("#command-hint").text()).toBe("按 Enter 查找作品资料")
+    expect(wrapper.text()).not.toMatch(/RAG|Context|Generate/i)
     await input.trigger("keydown", { key: "Enter" })
 
     expect(services.commands.execute).toHaveBeenCalledWith("/旧王都")

@@ -27,7 +27,7 @@ const prompt = computed(() => mode.value === "SEARCH" ? "/" : ":")
 const modeLabel = computed(() => mode.value === "SEARCH" ? "搜索模式" : "命令模式")
 const modeClass = computed(() => mode.value === "SEARCH" ? "search" : "command")
 const placeholder = computed(() => mode.value === "SEARCH" ? "搜索..." : "输入命令...")
-const hint = computed(() => !value.value.trim() ? "" : mode.value === "SEARCH" ? "按 Enter 跳转 RAG 搜索" : "Tab 补全")
+const hint = computed(() => !value.value.trim() ? "" : mode.value === "SEARCH" ? "按 Enter 查找作品资料" : "Tab 补全")
 const suggestions = computed(() => {
   const text = value.value.trim()
   return text.startsWith(":") ? props.services.commands.getSuggestions(text.slice(1)) : []

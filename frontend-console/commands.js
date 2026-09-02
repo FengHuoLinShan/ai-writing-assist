@@ -130,31 +130,6 @@ registerCommand("projects", async () => {
   await router.navigate("project")
 }, "查看作品列表")
 
-registerCommand("open", async (args) => {
-  if (args[0]) {
-    const targetView = args[0]
-    const route = routes[targetView]
-    if (route) {
-      // 验证子视图是否合法
-      let subView = args[1] || null
-      if (subView && route.subViews && route.subViews.length > 0) {
-        if (!route.subViews.includes(subView)) {
-          toast(`子视图 "${subView}" 不在 ${targetView} 的合法子视图中 (${route.subViews.join(", ")})`, "warning")
-          subView = null
-        }
-      } else if (subView && (!route.subViews || route.subViews.length === 0)) {
-        // 没有子视图的模块忽略第二个参数
-        subView = null
-      }
-      await router.navigate(targetView, subView)
-    } else {
-      toast(`未知模块 "${targetView}"`, "error")
-    }
-  } else {
-    toast("请指定要打开的模块，如 :open world", "warning")
-  }
-}, "打开模块", "<模块名> [子视图]")
-
 registerCommand("world", async () => {
   await router.navigate("world", "objects")
 }, "打开世界对象页")
