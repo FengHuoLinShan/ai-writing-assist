@@ -178,7 +178,7 @@ test.describe("项目模块", () => {
     await editBtn.click()
 
     await expect(page.locator(SEL.modalOverlay)).not.toHaveClass(/hidden/)
-    await expect(page.locator(SEL.modalTitle)).toHaveText("编辑项目")
+    await expect(page.locator(SEL.modalTitle)).toHaveText("编辑作品")
 
     await page.locator("#edit-title").fill("编辑后标题")
     await page.locator("#edit-genre").fill("武侠")
@@ -212,7 +212,7 @@ test.describe("项目模块", () => {
     await expect(card).toBeVisible({ timeout: 10000 })
     await card.hover()
     await card.locator('[data-action="edit-project"]').click()
-    await expect(page.locator(SEL.modalTitle)).toHaveText("编辑项目")
+    await expect(page.locator(SEL.modalTitle)).toHaveText("编辑作品")
 
     await page.getByLabel("作品标题").fill("失败后保留标题")
     await page.getByLabel("题材").fill("武侠")

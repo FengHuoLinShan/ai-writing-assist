@@ -183,7 +183,7 @@ test.describe("项目回收站", () => {
     await expect(page.locator(SEL.modalBody)).toContainText("不可恢复")
     await page.locator(SEL.modalFooter).locator(SEL.btnDanger).click()
 
-    await expect(page.locator(SEL.toastContainer)).toContainText("已永久删除 2 个项目")
+    await expect(page.locator(SEL.toastContainer)).toContainText("已永久删除 2 部作品")
     for (const project of projects) {
       await expect(page.locator(SEL.modalBody)).not.toContainText(project.title)
       const response = await fetch(`${API_BASE}/projects/${project.id}`)
