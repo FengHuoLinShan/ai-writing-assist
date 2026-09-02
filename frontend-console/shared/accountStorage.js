@@ -20,6 +20,7 @@ const SESSION_STORAGE_PREFIXES = Object.freeze([
   "workflow-progress-card:",
   "workflow-progress-details:",
 ])
+const SESSION_STORAGE_KEYS = new Set(["rpSourceSetupDraft:v1"])
 
 function storageKeys(storage) {
   if (!storage) return []
@@ -65,7 +66,9 @@ export function clearAccountScopedBrowserStorage({
       exactKeys: LOCAL_STORAGE_KEYS,
       preservedKeys: preservedLocalKeys,
     }),
-    session: clearMatchingStorage(session, SESSION_STORAGE_PREFIXES),
+    session: clearMatchingStorage(session, SESSION_STORAGE_PREFIXES, {
+      exactKeys: SESSION_STORAGE_KEYS,
+    }),
   }
 }
 

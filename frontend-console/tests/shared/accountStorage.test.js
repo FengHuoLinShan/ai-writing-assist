@@ -40,6 +40,7 @@ describe("account-scoped browser storage", () => {
     const sessionKeys = [
       "novel_app_access_token",
       "novel_author_task_form:v1:project-1",
+      "rpSourceSetupDraft:v1",
       "workspace-rail:project-1:writing:assistant",
       "workflow-progress-card:task-1",
       "workflow-progress-details:task-1",
@@ -111,5 +112,19 @@ describe("account-scoped browser storage", () => {
     } finally {
       window.removeEventListener(ACCOUNT_INVALIDATED_EVENT, handler)
     }
+  })
+
+  it("clears the restored RP source identity when the account changes", () => {
+    localStorage.setItem("novel_accountId", "account-old")
+    sessionStorage.setItem("rpSourceSetupDraft:v1", JSON.stringify({
+      selectedProjectId: "project-old",
+      revisionId: "revision-old",
+      anchorKey: "anchor-old",
+      originalName: "old private role",
+      originalDescription: "old private description",
+    }))
+
+    expect(scopeBrowserStorageToAccount("account-new")).toBe(true)
+    expect(sessionStorage.getItem("rpSourceSetupDraft:v1")).toBeNull()
   })
 })

@@ -63,6 +63,8 @@ let pollTimer = null
 let uploadController = null
 let disposed = false
 let pollFailures = 0
+let sourceGeneration = 0
+let restoredRevisionId = restored.revisionId || null
 
 const POLL_INTERVAL_MS = 2500
 const POLL_RETRY_DELAYS_MS = [3000, 6000, 12000, 24000, 30000]
@@ -170,8 +172,30 @@ const setup = computed(() => {
   }
 })
 
-function setStep(value) {
+function invalidateSourceRequests() {
+  sourceGeneration += 1
+  restoredRevisionId = null
+  uploadController?.abort()
+  uploadController = null
+  loading.value = false
+  uploading.value = false
+  matching.value = false
+  resolvingKey.value = ""
+  return sourceGeneration
+}
+
+function sourceRequestIsCurrent(generation, { projectId, revisionId } = {}) {
+  return !disposed
+    && generation === sourceGeneration
+    && (projectId === undefined || selectedProjectId.value === projectId)
+    && (revisionId === undefined || revision.value?.id === revisionId)
+}
+
+function setStep(value, invalidateRequests = true) {
+  if (invalidateRequests) invalidateSourceRequests()
   step.value = value
+  if (value === 3) schedulePoll()
+  else clearPolling()
   void nextTick(() => stepHeading.value?.focus?.())
 }
 
@@ -184,21 +208,24 @@ function stepSummary(number) {
 
 async function continueFromMode() {
   if (modeChoice.value === "model") return setStep(4)
-  setStep(2)
+  setStep(2, false)
   if (!projects.value.length) await loadSources()
 }
 
 function clearSelectedProject() {
+  invalidateSourceRequests()
   revision.value = null
   selectedProjectId.value = ""
   importOpen.value = false
   clearPolling()
-  setStep(2)
+  setStep(2, false)
 }
 
 function editSelectedSource() {
+  invalidateSourceRequests()
   importOpen.value = true
-  setStep(2)
+  clearPolling()
+  setStep(2, false)
 }
 
 function reportError(message) {
@@ -217,25 +244,39 @@ function schedulePoll(delayMs = POLL_INTERVAL_MS) {
   pollTimer = setTimeout(() => void refreshRevision(), delayMs)
 }
 
-async function loadSources() {
+async function loadSources(options = {}) {
   if (loading.value) return
+  const generation = options.generation ?? ++sourceGeneration
+  const revisionIdToRestore = options.restoreRevision === false
+    ? null
+    : restoredRevisionId
   loading.value = true
   error.value = ""
   try {
     const result = await getApi().interactions.listSources()
-    if (disposed) return
+    if (!sourceRequestIsCurrent(generation)) return false
     projects.value = result.projects || []
-    if (restored.revisionId && !revision.value) {
-      revision.value = await getApi().interactions.getSource(restored.revisionId)
+    if (revisionIdToRestore && !revision.value) {
+      const restoredRevision = await getApi().interactions.getSource(revisionIdToRestore)
+      if (
+        !sourceRequestIsCurrent(generation)
+        || restoredRevision?.id !== revisionIdToRestore
+      ) return false
+      revision.value = restoredRevision
       // 恢复场景以 revision 实际归属为准,避免过期存储把"重新整理"
       // 指向另一部作品。
       selectedProjectId.value = revision.value?.project_id || selectedProjectId.value
+      restoredRevisionId = null
       syncRevisionDefaults()
     }
+    return true
   } catch (requestError) {
-    if (!disposed) reportError(requestError?.message || "作品列表暂时无法载入。")
+    if (sourceRequestIsCurrent(generation)) {
+      reportError(requestError?.message || "作品列表暂时无法载入。")
+    }
+    return false
   } finally {
-    if (!disposed) loading.value = false
+    if (sourceRequestIsCurrent(generation)) loading.value = false
   }
 }
 
@@ -258,40 +299,61 @@ function syncRevisionDefaults() {
 }
 
 async function chooseProject(project) {
+  const projectId = project.project_id
+  const requestedRevisionId = project.latest_revision?.id
+  const generation = invalidateSourceRequests()
+  clearPolling()
   try {
-    selectedProjectId.value = project.project_id
+    selectedProjectId.value = projectId
+    revision.value = null
     pollFailures = 0
     importTitle.value = project.title
     importOpen.value = false
     resetImportFile()
-    if (project.latest_revision) {
-      revision.value = await getApi().interactions.getSource(project.latest_revision.id)
+    if (requestedRevisionId) {
+      const loadedRevision = await getApi().interactions.getSource(requestedRevisionId)
+      if (
+        !sourceRequestIsCurrent(generation, { projectId })
+        || loadedRevision?.id !== requestedRevisionId
+        || loadedRevision?.project_id !== projectId
+      ) return
+      revision.value = loadedRevision
       syncRevisionDefaults()
-      setStep(3)
-    } else {
-      revision.value = null
+      setStep(3, false)
     }
   } catch (requestError) {
-    reportError(requestError?.message || "作品资料暂时无法载入。")
+    if (sourceRequestIsCurrent(generation, { projectId })) {
+      reportError(requestError?.message || "作品资料暂时无法载入。")
+    }
   }
 }
 
 async function organizeSelectedProject() {
   if (!selectedProjectId.value || loading.value) return
+  const projectId = selectedProjectId.value
+  const generation = invalidateSourceRequests()
+  clearPolling()
   loading.value = true
   error.value = ""
   try {
-    revision.value = await getApi().interactions.sourceFromProject({
-      project_id: selectedProjectId.value,
+    const organizedRevision = await getApi().interactions.sourceFromProject({
+      project_id: projectId,
       authorization_confirmed: true,
     })
+    if (
+      !sourceRequestIsCurrent(generation, { projectId })
+      || organizedRevision?.project_id !== projectId
+    ) return
+    revision.value = organizedRevision
     pollFailures = 0
     syncRevisionDefaults()
-    setStep(3)
+    setStep(3, false)
   } catch (requestError) {
-    reportError(requestError?.message || "完整整理未能开始。")
+    if (sourceRequestIsCurrent(generation, { projectId })) {
+      reportError(requestError?.message || "完整整理未能开始。")
+    }
   } finally {
-    loading.value = false
+    if (sourceRequestIsCurrent(generation, { projectId })) loading.value = false
   }
 }
 
@@ -307,6 +369,7 @@ function confirmOrganize() {
 }
 
 function chooseFile(event) {
+  invalidateSourceRequests()
   importFile.value = event.target.files?.[0] || null
   preview.value = null
   destructiveConfirmed.value = false
@@ -321,85 +384,129 @@ function resetImportFile() {
 }
 
 function startNewImport() {
+  invalidateSourceRequests()
   selectedProjectId.value = ""
   revision.value = null
   importTitle.value = ""
   resetImportFile()
   importOpen.value = true
   clearPolling()
-  setStep(2)
+  setStep(2, false)
 }
 
 async function previewImport() {
   const validation = validateImportFile(importFile.value, RP_SOURCE_FILE_ACCEPT)
   if (validation) return reportError(validation)
   if (!importTitle.value.trim()) return reportError("请填写作品名称。")
+  const file = importFile.value
+  const title = importTitle.value.trim()
+  const mode = importMode.value
+  const projectId = selectedProjectId.value
+  const generation = invalidateSourceRequests()
   uploading.value = true
   const controller = new AbortController()
   uploadController = controller
   uploadPercent.value = 0
   error.value = ""
   try {
-    preview.value = await getApi().interactions.previewSourceImport({
-      file: importFile.value,
-      title: importTitle.value.trim(),
-      mode: importMode.value,
-      projectId: selectedProjectId.value || null,
+    const nextPreview = await getApi().interactions.previewSourceImport({
+      file,
+      title,
+      mode,
+      projectId: projectId || null,
     }, (value) => { uploadPercent.value = value }, { signal: controller.signal })
+    if (
+      !sourceRequestIsCurrent(generation, { projectId })
+      || importFile.value !== file
+      || importTitle.value.trim() !== title
+      || importMode.value !== mode
+    ) return
+    preview.value = nextPreview
   } catch (requestError) {
-    if (!disposed && requestError?.name !== "AbortError") {
+    if (
+      requestError?.name !== "AbortError"
+      && sourceRequestIsCurrent(generation, { projectId })
+    ) {
       reportError(requestError?.message || "文件预览失败。")
     }
   } finally {
     if (uploadController === controller) uploadController = null
-    if (!disposed) uploading.value = false
+    if (sourceRequestIsCurrent(generation, { projectId })) uploading.value = false
   }
 }
 
 async function applyImport() {
   if (!preview.value || !authorizationConfirmed.value || uploading.value) return
+  const file = importFile.value
+  const title = importTitle.value.trim()
+  const mode = importMode.value
+  const projectId = selectedProjectId.value
+  const expectedPreviewHash = preview.value.preview_hash
+  const generation = invalidateSourceRequests()
   uploading.value = true
   const controller = new AbortController()
   uploadController = controller
   uploadPercent.value = 0
   error.value = ""
   try {
-    revision.value = await getApi().interactions.importSource({
-      file: importFile.value,
-      title: importTitle.value.trim(),
-      mode: importMode.value,
-      projectId: selectedProjectId.value || null,
-      expectedPreviewHash: preview.value.preview_hash,
+    const importedRevision = await getApi().interactions.importSource({
+      file,
+      title,
+      mode,
+      projectId: projectId || null,
+      expectedPreviewHash,
       destructiveConfirmed: destructiveConfirmed.value,
       authorizationConfirmed: true,
     }, (value) => { uploadPercent.value = value }, { signal: controller.signal })
-    selectedProjectId.value = revision.value.project_id
+    if (
+      !sourceRequestIsCurrent(generation, { projectId })
+      || importFile.value !== file
+      || importTitle.value.trim() !== title
+      || importMode.value !== mode
+      || (projectId && importedRevision?.project_id !== projectId)
+    ) return
+    revision.value = importedRevision
+    selectedProjectId.value = importedRevision.project_id
     pollFailures = 0
     importOpen.value = false
     preview.value = null
-    await loadSources()
+    if (!await loadSources({ generation, restoreRevision: false })) return
+    if (!sourceRequestIsCurrent(generation, {
+      projectId: importedRevision.project_id,
+      revisionId: importedRevision.id,
+    })) return
     syncRevisionDefaults()
-    setStep(3)
+    setStep(3, false)
   } catch (requestError) {
-    if (!disposed && requestError?.name !== "AbortError") {
+    if (requestError?.name !== "AbortError" && generation === sourceGeneration && !disposed) {
       reportError(requestError?.message || "导入未完成，原有作品版本没有改变。")
     }
   } finally {
     if (uploadController === controller) uploadController = null
-    if (!disposed) uploading.value = false
+    if (generation === sourceGeneration && !disposed) uploading.value = false
   }
 }
 
 async function refreshRevision() {
   if (!revision.value?.id) return
+  const revisionId = revision.value.id
+  const projectId = revision.value.project_id
+  const generation = ++sourceGeneration
   try {
-    revision.value = await getApi().interactions.getSource(revision.value.id)
+    const refreshedRevision = await getApi().interactions.getSource(revisionId)
+    if (
+      !sourceRequestIsCurrent(generation, { projectId, revisionId })
+      || refreshedRevision?.id !== revisionId
+      || refreshedRevision?.project_id !== projectId
+    ) return
+    revision.value = refreshedRevision
     if (pollFailures > 0 && error.value === "整理进度暂时无法刷新。") {
       error.value = ""
     }
     pollFailures = 0
     syncRevisionDefaults()
   } catch {
+    if (!sourceRequestIsCurrent(generation, { projectId, revisionId })) return
     pollFailures += 1
     // 持续失败时按阶梯退避并只提示一次,不反复抢焦点。
     if (pollFailures === 1) {
@@ -413,38 +520,65 @@ async function refreshRevision() {
 
 async function resolveAmbiguity(ambiguity, choiceKey) {
   if (resolvingKey.value) return
+  const revisionId = revision.value.id
+  const projectId = revision.value.project_id
+  const generation = ++sourceGeneration
   resolvingKey.value = ambiguity.ambiguity_key
   try {
-    revision.value = await getApi().interactions.resolveSourceAmbiguity(
-      revision.value.id,
+    const resolvedRevision = await getApi().interactions.resolveSourceAmbiguity(
+      revisionId,
       ambiguity.ambiguity_key,
       choiceKey,
     )
+    if (
+      !sourceRequestIsCurrent(generation, { projectId, revisionId })
+      || resolvedRevision?.id !== revisionId
+      || resolvedRevision?.project_id !== projectId
+    ) return
+    revision.value = resolvedRevision
     syncRevisionDefaults()
   } catch (requestError) {
-    reportError(requestError?.message || "这项确认未能保存。")
+    if (sourceRequestIsCurrent(generation, { projectId, revisionId })) {
+      reportError(requestError?.message || "这项确认未能保存。")
+    }
   } finally {
-    resolvingKey.value = ""
+    if (sourceRequestIsCurrent(generation, { projectId, revisionId })) {
+      resolvingKey.value = ""
+    }
   }
 }
 
 async function matchAnchors() {
   if (!anchorDescription.value.trim() || !selectedChapter.value || matching.value) return
+  const revisionId = revision.value.id
+  const projectId = revision.value.project_id
+  const chapter = selectedChapter.value
+  const description = anchorDescription.value.trim()
+  const generation = ++sourceGeneration
   matching.value = true
   try {
     const result = await getApi().interactions.matchSourceAnchors(
-      revision.value.id,
+      revisionId,
       {
-        chapter_index: selectedChapter.value,
-        description: anchorDescription.value.trim(),
+        chapter_index: chapter,
+        description,
       },
     )
+    if (
+      !sourceRequestIsCurrent(generation, { projectId, revisionId })
+      || selectedChapter.value !== chapter
+      || anchorDescription.value.trim() !== description
+    ) return
     anchorMatches.value = result.items || []
     if (!anchorMatches.value.length) reportError("没有找到可靠的剧情点，请换一种描述。")
   } catch (requestError) {
-    reportError(requestError?.message || "暂时无法匹配剧情位置。")
+    if (sourceRequestIsCurrent(generation, { projectId, revisionId })) {
+      reportError(requestError?.message || "暂时无法匹配剧情位置。")
+    }
   } finally {
-    matching.value = false
+    if (sourceRequestIsCurrent(generation, { projectId, revisionId })) {
+      matching.value = false
+    }
   }
 }
 
@@ -455,7 +589,8 @@ function togglePin(key) {
 }
 
 watch(modeChoice, async (value) => {
-  if (value === "source" && !projects.value.length) await loadSources()
+  const generation = invalidateSourceRequests()
+  if (value === "source" && !projects.value.length) await loadSources({ generation })
 })
 watch(selectedChapter, () => {
   anchorMatches.value = []
@@ -499,6 +634,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   disposed = true
+  sourceGeneration += 1
   uploadController?.abort()
   uploadController = null
   clearPolling()
@@ -522,7 +658,7 @@ onBeforeUnmount(() => {
     </ol>
 
     <div v-if="modeChoice === 'source' && error" ref="errorSummary" class="rp-source-error" tabindex="-1" role="alert">
-      {{ error }} <button type="button" @click="loadSources">重新载入</button>
+      {{ error }} <button type="button" @click="loadSources()">重新载入</button>
     </div>
 
     <div v-if="step === 1" class="rp-source-step-panel">

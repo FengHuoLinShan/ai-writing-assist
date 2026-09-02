@@ -142,6 +142,8 @@ Prompt 或 token；预算遗漏另行解释。作者可逐项移除/恢复、用
   微信回跳与已登录刷新共用同一消费点，不新增后端登录协议。
 - RP source 向导只使用读者语言，不展示 UUID/JSON/task/token/Prompt。四步只挂载当前决定，已完成
   步骤保留摘要与返回编辑；步骤、revision、剧情点和身份随既有 session + 服务端 source 恢复。
+  session 作为账户私有浏览器状态纳入统一账户切换清理；所有会回写 revision、步骤或剧情候选的异步
+  请求都必须复验当前作品、revision 与请求 generation，不得用晚到响应覆盖新选择。
   长整理不进阻断 modal，
   revision 进度可离开并经 session + server source 列表恢复。RP 文件选择器只声明
   `.txt/.epub/.html/.htm`；与 Writing 复用 `useImportUpload` 的 50MB/扩展名校验，但使用 RP 窄白名单。

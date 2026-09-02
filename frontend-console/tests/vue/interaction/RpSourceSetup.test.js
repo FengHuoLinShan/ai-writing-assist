@@ -54,6 +54,27 @@ const revision = {
 
 let api
 
+function deferred() {
+  let resolve
+  const promise = new Promise((done) => { resolve = done })
+  return { promise, resolve }
+}
+
+function revisionFor({ id, projectId, title, status = "ready" }) {
+  return {
+    ...revision,
+    id,
+    project_id: projectId,
+    title,
+    status,
+    progress_message: status === "organizing"
+      ? "正在完整整理当前导入版本"
+      : revision.progress_message,
+    anchors: status === "organizing" ? [] : revision.anchors,
+    objects: status === "organizing" ? [] : revision.objects,
+  }
+}
+
 beforeEach(() => {
   sessionStorage.clear()
   api = {
@@ -323,5 +344,140 @@ describe("RP 作品资料设置", () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it("快速切换作品时丢弃上一部作品的晚到版本", async () => {
+    const projectA = revisionFor({
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      projectId: "11111111-1111-4111-8111-111111111111",
+      title: "作品 A",
+    })
+    const projectB = revisionFor({
+      id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      projectId: "22222222-2222-4222-8222-222222222222",
+      title: "作品 B",
+    })
+    const requestA = deferred()
+    const requestB = deferred()
+    api.interactions.listSources.mockResolvedValue({
+      items: [projectA, projectB],
+      projects: [projectA, projectB].map((item) => ({
+        project_id: item.project_id,
+        title: item.title,
+        latest_revision: item,
+      })),
+    })
+    api.interactions.getSource.mockImplementation((id) => (
+      id === projectA.id ? requestA.promise : requestB.promise
+    ))
+    const wrapper = mount(RpSourceSetup)
+    await openSourceSelection(wrapper)
+    const projectButtons = wrapper.findAll(".rp-source-projects > button")
+      .filter((button) => button.text().startsWith("作品"))
+
+    await projectButtons[0].trigger("click")
+    await projectButtons[1].trigger("click")
+    requestB.resolve(projectB)
+    await flushPromises()
+    expect(wrapper.get(".rp-source-revision").text()).toContain("作品 B")
+
+    requestA.resolve(projectA)
+    await flushPromises()
+    expect(wrapper.get(".rp-source-revision").text()).toContain("作品 B")
+    expect(JSON.parse(sessionStorage.getItem("rpSourceSetupDraft:v1")).revisionId)
+      .toBe(projectB.id)
+  })
+
+  it("换作品后丢弃旧轮询的晚到版本", async () => {
+    vi.useFakeTimers()
+    try {
+      const organizing = revisionFor({
+        id: revision.id,
+        projectId: revision.project_id,
+        title: revision.title,
+        status: "organizing",
+      })
+      const latePoll = deferred()
+      api.interactions.getSource
+        .mockResolvedValueOnce(organizing)
+        .mockImplementationOnce(() => latePoll.promise)
+      const wrapper = mount(RpSourceSetup)
+      await wrapper.get("input[value='source']").setValue()
+      await wrapper.get(".rp-source-next").trigger("click")
+      await vi.advanceTimersByTimeAsync(0)
+      await wrapper.findAll(".rp-source-projects > button")[0].trigger("click")
+      await vi.advanceTimersByTimeAsync(0)
+      await vi.advanceTimersByTimeAsync(2500)
+
+      const switchButton = wrapper.findAll("button")
+        .find((button) => button.text() === "换一部作品")
+      await switchButton.trigger("click")
+      latePoll.resolve(revision)
+      await flushPromises()
+
+      expect(wrapper.get("[aria-current='step']").text()).toContain("选择作品或文件")
+      expect(wrapper.findAll("button").some((button) => button.text().startsWith("继续使用")))
+        .toBe(false)
+      expect(JSON.parse(sessionStorage.getItem("rpSourceSetupDraft:v1")).revisionId)
+        .toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("切换作品后不接收旧歧义确认与剧情匹配结果", async () => {
+    const projectB = revisionFor({
+      id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      projectId: "22222222-2222-4222-8222-222222222222",
+      title: "作品 B",
+    })
+    const ambiguityRequest = deferred()
+    const matchRequest = deferred()
+    const ambiguous = {
+      ...revision,
+      status: "needs_confirmation",
+      progress_message: "还需确认 1 项关键指代",
+      ambiguities: [{
+        ambiguity_key: "lin-mo",
+        label: "林默",
+        reason: "同名人物",
+        choices: [{ choice_key: "b".repeat(64), label: "林默", entity_type: "character" }],
+      }],
+    }
+    api.interactions.listSources.mockResolvedValue({
+      items: [ambiguous, projectB],
+      projects: [ambiguous, projectB].map((item) => ({
+        project_id: item.project_id,
+        title: item.title,
+        latest_revision: item,
+      })),
+    })
+    api.interactions.getSource.mockImplementation(async (id) => (
+      id === projectB.id ? projectB : ambiguous
+    ))
+    api.interactions.resolveSourceAmbiguity.mockImplementation(() => ambiguityRequest.promise)
+    api.interactions.matchSourceAnchors.mockImplementation(() => matchRequest.promise)
+    const wrapper = mount(RpSourceSetup)
+    await openSourceSelection(wrapper)
+    await wrapper.findAll(".rp-source-projects > button")[0].trigger("click")
+    await flushPromises()
+
+    await wrapper.get(".rp-source-ambiguities button").trigger("click")
+    await wrapper.findAll("button").find((button) => button.text() === "换一部作品").trigger("click")
+    await wrapper.findAll(".rp-source-projects > button")
+      .find((button) => button.text().startsWith("作品 B"))
+      .trigger("click")
+    await flushPromises()
+    ambiguityRequest.resolve(revision)
+    await flushPromises()
+    expect(wrapper.get(".rp-source-revision").text()).toContain("作品 B")
+
+    await wrapper.get(".rp-source-anchor-match input").setValue("抵达雾都")
+    await wrapper.get(".rp-source-anchor-match button").trigger("click")
+    await wrapper.findAll("button").find((button) => button.text() === "换一部作品").trigger("click")
+    matchRequest.resolve({ items: revision.anchors })
+    await flushPromises()
+    expect(wrapper.find(".rp-source-anchor-candidates").exists()).toBe(false)
+    expect(wrapper.get("[aria-current='step']").text()).toContain("选择作品或文件")
   })
 })
