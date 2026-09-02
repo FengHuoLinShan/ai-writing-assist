@@ -111,6 +111,15 @@ function reviewDecisionPayload(draft) {
     : payload
 }
 
+function aliasDecisionFields(draft) {
+  return {
+    targetId: String(draft?.target_entity_id || "").trim(),
+    text: String(draft?.alias || "").trim(),
+    aliasKind: String(draft?.alias_kind || "").trim(),
+    aliasType: String(draft?.alias_type || "").trim(),
+  }
+}
+
 function storeReviewDraft(kind, key, draft) {
   try { sessionStorage.setItem(reviewDraftStorageKey(kind, key), JSON.stringify(draft)) } catch {}
 }
@@ -850,12 +859,13 @@ function reviewBatchItemError(item) {
   return `${prefix}：${item?.message || item?.error_code || "请刷新后重试"}`
 }
 
-export async function acceptAliasReviewDecision(item, draft) {
+export async function acceptAliasReviewDecision(item, draft, { refresh = true } = {}) {
   const key = aliasKey(item)
-  const targetId = String(draft?.target_entity_id || "").trim()
-  const text = String(draft?.alias || "").trim()
-  const aliasKind = String(draft?.alias_kind || "").trim()
-  const aliasType = String(draft?.alias_type || "").trim()
+  const owner = {
+    projectId: getAppState()?.currentProjectId,
+    view: getAppState()?.currentView,
+  }
+  const { targetId, text, aliasKind, aliasType } = aliasDecisionFields(draft)
   if (!targetId || !text || !aliasKind || !aliasType) {
     getToast()("请选择目标对象、别名分类并填写别名和详细类型", "warning")
     return false
@@ -874,7 +884,11 @@ export async function acceptAliasReviewDecision(item, draft) {
   persistAliasReviewDecision(item, { ...draft, ...decision })
   worldSession.processingReviewIds[key] = true
   try {
-    const result = await getApi().world.reviewAliasesBatch({ confirmed: true, decisions: [decision] }, getAppState()?.currentProjectId)
+    const result = await getApi().world.reviewAliasesBatch({ confirmed: true, decisions: [decision] }, owner.projectId)
+    if (
+      getAppState()?.currentProjectId !== owner.projectId
+      || getAppState()?.currentView !== owner.view
+    ) return false
     const response = result?.results?.[0]
     if (response && response.status !== "success") {
       worldSession.aliasReviewErrors[key] = reviewBatchItemError(response)
@@ -886,14 +900,21 @@ export async function acceptAliasReviewDecision(item, draft) {
     clearStoredReviewDraft("alias", key)
     worldSession.reviewReceipt = { targetKey: key, title: "别名已完成", detail: `“${text}”已归属到${draft?.target_entity_name || item.entity_name || "选定对象"}。` }
     getToast()("别名已采用", "success")
-    await getRouter()?.refresh?.()
+    if (refresh) await getRouter()?.refresh?.()
     return true
   } catch (err) {
+    if (
+      getAppState()?.currentProjectId !== owner.projectId
+      || getAppState()?.currentView !== owner.view
+    ) return false
     worldSession.aliasReviewErrors[key] = err.message || "处理失败，请重试"
     getToast()(worldSession.aliasReviewErrors[key], "error")
     return false
   } finally {
-    delete worldSession.processingReviewIds[key]
+    if (
+      getAppState()?.currentProjectId === owner.projectId
+      && getAppState()?.currentView === owner.view
+    ) delete worldSession.processingReviewIds[key]
   }
 }
 
@@ -1090,17 +1111,16 @@ export function applyAliasReviewBatch(items, action) {
     return
   }
   if (action === "accept" && items.some((item) => {
-    const draft = drafts.get(aliasKey(item))
-    const effectiveKind = draft && Object.hasOwn(draft, "alias_kind") ? draft.alias_kind : item.alias_kind
-    return !effectiveKind
+    const fields = aliasDecisionFields(drafts.get(aliasKey(item)))
+    return !fields.targetId || !fields.text || !fields.aliasKind || !fields.aliasType
   })) {
-    toast("所选别名中有待分类项，请先选择别名分类", "warning")
+    toast("请逐条补全归属对象、别名、名称用途和具体称呼", "warning")
     return
   }
   const decisionKeys = new Map()
   const decisions = items.map((item, index) => {
     const key = aliasKey(item)
-    const draft = reviewDecisionPayload(drafts.get(key) || {})
+    const fields = aliasDecisionFields(drafts.get(key))
     const clientDecisionId = `alias-${index}-${String(item.entity_id || "").slice(0, 16)}`
     decisionKeys.set(clientDecisionId, key)
     return {
@@ -1110,11 +1130,10 @@ export function applyAliasReviewBatch(items, action) {
       original_alias: item.alias,
       expected_execution_fingerprint: item.execution_fingerprint,
       ...(action === "accept" ? {
-        target_entity_id: item.entity_id,
-        alias: item.alias,
-        alias_kind: item.alias_kind,
-        alias_type: item.alias_type,
-        ...draft,
+        target_entity_id: fields.targetId,
+        alias: fields.text,
+        alias_kind: fields.aliasKind,
+        alias_type: fields.aliasType,
       } : {}),
     }
   })

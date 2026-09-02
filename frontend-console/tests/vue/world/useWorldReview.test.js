@@ -41,6 +41,13 @@ let confirmCalls
 let modalCalls
 let apiMock
 let routerMock
+let appState
+
+function deferred() {
+  let resolve
+  const promise = new Promise((done) => { resolve = done })
+  return { promise, resolve }
+}
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -61,9 +68,10 @@ beforeEach(() => {
     },
   }
   routerMock = { navigate: navigateMock, refresh: vi.fn(async () => true), replace: vi.fn(async () => true) }
+  appState = { currentProjectId: "p-rev", currentView: "world" }
   setBridgeOverrides({
     api: apiMock,
-    state: { currentProjectId: "p-rev", currentView: "world" },
+    state: appState,
     router: routerMock,
     toast: toastMock,
     showModalHtml: (title, html, buttons, options) => modalCalls.push({ title, html, buttons, options }),
@@ -327,7 +335,7 @@ describe("批量复核", () => {
 
     expect(confirmCalls).toHaveLength(0)
     expect(apiMock.world.reviewAliasesBatch).not.toHaveBeenCalled()
-    expect(toastMock).toHaveBeenCalledWith("所选别名中有待分类项，请先选择别名分类", "warning")
+    expect(toastMock).toHaveBeenCalledWith("请逐条补全归属对象、别名、名称用途和具体称呼", "warning")
   })
 
   it("别名批量采用只执行逐条准备过的决策", () => {
@@ -338,6 +346,53 @@ describe("批量复核", () => {
     expect(confirmCalls).toHaveLength(0)
     expect(apiMock.world.reviewAliasesBatch).not.toHaveBeenCalled()
     expect(toastMock).toHaveBeenCalledWith("所选别名中仍有未准备决策的项目", "warning")
+  })
+
+  it.each([
+    ["target_entity_id", ""],
+    ["alias", "   "],
+    ["alias_kind", ""],
+    ["alias_type", "   "],
+  ])("别名批量采用在 %s 未完成时请求前关闭", (field, value) => {
+    const item = { entity_id: "e1", alias: "旧港", alias_kind: "name", alias_type: "name", execution_fingerprint: "fp" }
+    worldSession.aliasReviewDrafts["e1::旧港"] = {
+      target_entity_id: "e1",
+      alias: " 旧港 ",
+      alias_kind: "name",
+      alias_type: "name",
+      expected_execution_fingerprint: "fp",
+      [field]: value,
+    }
+
+    applyAliasReviewBatch([item], "accept")
+
+    expect(confirmCalls).toHaveLength(0)
+    expect(apiMock.world.reviewAliasesBatch).not.toHaveBeenCalled()
+    expect(toastMock).toHaveBeenCalledWith(
+      "请逐条补全归属对象、别名、名称用途和具体称呼",
+      "warning",
+    )
+  })
+
+  it("单条采用晚到时不改写新项目会话或刷新新页面", async () => {
+    const item = { entity_id: "e1", alias: "旧港", alias_kind: "name", alias_type: "name", execution_fingerprint: "fp" }
+    const request = deferred()
+    apiMock.world.reviewAliasesBatch.mockImplementation(() => request.promise)
+    const pending = acceptAliasReviewDecision(item, {
+      target_entity_id: "e1",
+      alias: "旧港",
+      alias_kind: "name",
+      alias_type: "name",
+    })
+    appState.currentProjectId = "p-new"
+    worldSession.aliasReviewDrafts["e1::旧港"] = { alias: "新项目草稿" }
+    worldSession.processingReviewIds["e1::旧港"] = "new-project-operation"
+    request.resolve({ results: [{ status: "success" }] })
+
+    await expect(pending).resolves.toBe(false)
+    expect(worldSession.aliasReviewDrafts["e1::旧港"].alias).toBe("新项目草稿")
+    expect(worldSession.processingReviewIds["e1::旧港"]).toBe("new-project-operation")
+    expect(routerMock.refresh).not.toHaveBeenCalled()
   })
 
   it("缺少关系分类时阻断推荐采用", () => {
@@ -440,7 +495,7 @@ describe("批量复核", () => {
       { entity_id: "e1", alias: "老港", alias_kind: "name", alias_type: "nickname", execution_fingerprint: "fp2" },
     ]
     syncReviewRegistry({ aliases: members })
-    worldSession.aliasReviewDrafts["e1::旧港"] = { target_entity_id: "e1", alias: "旧港", alias_kind: "name", alias_type: "name", expected_execution_fingerprint: "fp1", _kind_explicit: true }
+    worldSession.aliasReviewDrafts["e1::旧港"] = { target_entity_id: "e1", alias: "  旧港  ", alias_kind: "name", alias_type: "name", expected_execution_fingerprint: "fp1", _kind_explicit: true }
     worldSession.aliasReviewDrafts["e1::老港"] = { target_entity_id: "e1", alias: "老港", alias_kind: "name", alias_type: "nickname", expected_execution_fingerprint: "fp2", _kind_explicit: true }
     toggleBulkSelection("world-aliases", "e1::旧港", true)
     apiMock.world.reviewAliasesBatch = vi.fn(async () => ({
@@ -464,6 +519,7 @@ describe("批量复核", () => {
       original_alias: "旧港",
       expected_execution_fingerprint: "fp1",
       target_entity_id: "e1",
+      alias: "旧港",
     })
     expect(payload.decisions[0]).not.toHaveProperty("_kind_explicit")
     expect(worldSession.aliasReviewDrafts["e1::旧港"]).toBeUndefined()

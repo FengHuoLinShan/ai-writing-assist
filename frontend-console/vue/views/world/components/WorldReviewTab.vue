@@ -563,7 +563,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch, onBeforeUnmount, nextTick } from "vue"
+import { computed, reactive, ref, watch, onBeforeUnmount, onMounted, nextTick } from "vue"
 import { getApi, getAppState, getRouteQuery, getRouter } from "../../../bridge/index.js"
 import { worldSession as session } from "../worldSession.js"
 import { WORLD_CANDIDATE_QUERY_KEYS } from "../logic/worldQuery.js"
@@ -717,6 +717,7 @@ const mobileDetailOpen = ref(Boolean(initialReviewItem))
 const mobileBackEl = ref(null)
 const decisionEl = ref(null)
 let lastSelectionEl = null
+let disposed = false
 const activeItem = computed(() => {
   if (!activeKey.value) return null
   if (tab.value === "objects") return localCandidates.value.find((item) => entityId(item) === activeKey.value) || null
@@ -959,13 +960,17 @@ async function confirmActiveAliasDecision() {
   const item = activeAlias.value
   if (!item) return
   const nextKey = nextAliasKey.value
-  const accepted = await acceptAliasReviewDecision(item, aliasDecisionForm)
-  if (accepted) {
-    activeKey.value = nextKey
-    mobileDetailOpen.value = Boolean(nextKey)
-    syncReviewSelection(nextKey)
-    void nextTick(() => (nextKey ? decisionEl.value : lastSelectionEl)?.focus?.())
-  }
+  const accepted = await acceptAliasReviewDecision(item, aliasDecisionForm, { refresh: false })
+  if (!accepted || disposed) return
+  activeKey.value = nextKey
+  mobileDetailOpen.value = Boolean(nextKey)
+  syncReviewSelection(nextKey)
+  await nextTick()
+  const focusTarget = nextKey
+    ? (isNarrowReviewViewport() ? mobileBackEl.value : decisionEl.value)
+    : document.getElementById("review-alias-q")
+  focusTarget?.focus?.()
+  await getRouter()?.refresh?.()
 }
 
 function cancelAliasDecision() {
@@ -1001,6 +1006,11 @@ watch(activeAlias, async (item) => {
     },
   })
 }, { immediate: true })
+
+onMounted(() => {
+  if (tab.value !== "aliases" || !activeKey.value) return
+  void nextTick(() => (isNarrowReviewViewport() ? mobileBackEl.value : decisionEl.value)?.focus?.())
+})
 
 function setRelationTypeControl(value) {
   const known = relationDecisionTypeOptions.value.some((item) => item.value === value)
@@ -1131,6 +1141,7 @@ async function restoreSnapshot(snapshot) {
 
 registerCandidateListHooks({ removeOptimistically, restoreSnapshot })
 onBeforeUnmount(() => {
+  disposed = true
   registerCandidateListHooks({})
   destroyWorldEntityPickers()
 })

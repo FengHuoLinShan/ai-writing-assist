@@ -48,8 +48,9 @@ const RELATION_GROUPS = [
   },
 ]
 
-function mountTab(propOverrides = {}) {
+function mountTab(propOverrides = {}, mountOptions = {}) {
   return mount(WorldReviewTab, {
+    ...mountOptions,
     props: {
       projectId: "p-rev",
       reviewSubView: "review-objects",
@@ -414,8 +415,73 @@ describe("review-aliases", () => {
     await wrapper.get('[data-action="confirm-alias-merge"]').trigger("click")
     await flushPromises()
 
-    expect(wrapper.get("#world-review-decision-title").text()).toContain("老港")
     expect(currentQuery.get("review_item")).toBe("e1::老港")
+    expect(refreshMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("采用成功会在真实刷新重挂载前提交下一条并恢复窄屏焦点", async () => {
+    const previousMatchMedia = globalThis.matchMedia
+    globalThis.matchMedia = vi.fn(() => ({ matches: true }))
+    const groups = [{
+      ...ALIAS_GROUPS[0],
+      members: ALIAS_GROUPS[0].members.map((item) => ({
+        ...item,
+        managed_by_suggestion: false,
+        execution_fingerprint: item.execution_fingerprint || "fp-next",
+      })),
+    }]
+    let wrapper
+    try {
+      wrapper = mountTab(
+        { reviewSubView: "review-aliases", aliasGroups: groups },
+        { attachTo: document.body },
+      )
+      await wrapper.get('[data-action="prepare-alias-review"]').trigger("click")
+      apiMock.world.reviewAliasesBatch.mockResolvedValue({
+        results: [{ client_decision_id: "done", status: "success" }],
+      })
+      refreshMock.mockImplementationOnce(async () => {
+        expect(currentQuery.get("review_item")).toBe("e1::老港")
+        wrapper.unmount()
+        wrapper = mountTab(
+          { reviewSubView: "review-aliases", aliasGroups: groups },
+          { attachTo: document.body },
+        )
+        await flushPromises()
+        return true
+      })
+
+      await wrapper.get('[data-action="confirm-alias-merge"]').trigger("click")
+      await flushPromises()
+
+      expect(wrapper.get("#world-review-decision-title").text()).toContain("老港")
+      expect(document.activeElement).toBe(wrapper.get(".world-review-mobile-back").element)
+    } finally {
+      wrapper?.unmount()
+      globalThis.matchMedia = previousMatchMedia
+    }
+  })
+
+  it("采用最后一条后在刷新前清除定位", async () => {
+    let wrapper = mountTab({ reviewSubView: "review-aliases" })
+    await wrapper.get('[data-action="prepare-alias-review"]').trigger("click")
+    apiMock.world.reviewAliasesBatch.mockResolvedValue({
+      results: [{ client_decision_id: "done", status: "success" }],
+    })
+    refreshMock.mockImplementationOnce(async () => {
+      expect(currentQuery.get("review_item")).toBeNull()
+      wrapper.unmount()
+      wrapper = mountTab({ reviewSubView: "review-aliases", aliasGroups: [] })
+      await flushPromises()
+      return true
+    })
+
+    await wrapper.get('[data-action="confirm-alias-merge"]').trigger("click")
+    await flushPromises()
+
+    expect(currentQuery.get("review_item")).toBeNull()
+    expect(wrapper.get("#world-review-decision-title").text()).toBe("选择一项开始")
+    expect(wrapper.get(".world-review-workbench").classes()).not.toContain("is-detail-open")
   })
 
   it("取消返回队列但保留别名草稿", async () => {
