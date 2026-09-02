@@ -9,6 +9,25 @@ const styles = readFileSync(resolve(__dirname, "../styles.css"), "utf8")
 const theme = readFileSync(resolve(__dirname, "../editorial-theme.css"), "utf8")
 const mapWorkspace = readFileSync(resolve(__dirname, "../vue/views/map/MapWorkspaceView.vue"), "utf8")
 
+function themeBlock(selector) {
+  return theme.match(new RegExp(`${selector.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\s*\\{([\\s\\S]*?)\\n\\}`))?.[1] || ""
+}
+
+function token(block, name) {
+  return block.match(new RegExp(`${name}:\\s*(#[0-9A-F]{6});`, "i"))?.[1]
+}
+
+function luminance(hex) {
+  const channels = hex.slice(1).match(/../g).map((value) => Number.parseInt(value, 16) / 255)
+    .map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4)
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+}
+
+function contrast(foreground, background) {
+  const values = [luminance(foreground), luminance(background)].sort((a, b) => b - a)
+  return (values[0] + 0.05) / (values[1] + 0.05)
+}
+
 describe("editorial archive theme", () => {
   it("loads after the legacy stylesheet so the rollout stays incremental", () => {
     expect(indexHtml.indexOf('href="styles.css"')).toBeGreaterThan(-1)
@@ -23,9 +42,21 @@ describe("editorial archive theme", () => {
   })
 
   it("defines the --nc-* token layer for sticky, night and ink themes", () => {
-    expect(theme).toMatch(/:root\s*\{[\s\S]*--nc-bg:\s*#FFFFFF;[\s\S]*--nc-ink:\s*#37352F;[\s\S]*--nc-accent:\s*#2383E2;[\s\S]*--nc-hairline:\s*#E9E9E7;/)
+    expect(theme).toMatch(/:root\s*\{[\s\S]*--nc-bg:\s*#FFFFFF;[\s\S]*--nc-ink:\s*#37352F;[\s\S]*--nc-accent:\s*#1B6FB8;[\s\S]*--nc-hairline:\s*#E9E9E7;/)
     expect(theme).toMatch(/\[data-theme="night"\]\s*\{[\s\S]*--nc-bg:\s*#111114;[\s\S]*--nc-ink:\s*#E5E2DC;[\s\S]*--nc-accent:\s*#D9A441;[\s\S]*--nc-hairline:\s*#26262A;/)
     expect(theme).toMatch(/\[data-theme="ink"\]\s*\{[\s\S]*--nc-bg:\s*#F7F3EA;[\s\S]*--nc-ink:\s*#1F2321;[\s\S]*--nc-accent:\s*#C03F2B;[\s\S]*--nc-hairline:\s*#D8D2CC;/)
+  })
+
+  it("keeps necessary text and primary actions at normal-text contrast", () => {
+    const themes = [themeBlock(":root"), themeBlock('[data-theme="night"]'), themeBlock('[data-theme="ink"]')]
+    for (const block of themes) {
+      for (const background of [token(block, "--nc-bg"), token(block, "--nc-surface")]) {
+        expect(contrast(token(block, "--nc-dim"), background)).toBeGreaterThanOrEqual(4.5)
+      }
+    }
+    expect(contrast("#FFFFFF", token(themes[0], "--nc-accent"))).toBeGreaterThanOrEqual(4.5)
+    expect(contrast(token(themes[1], "--nc-bg"), token(themes[1], "--nc-accent"))).toBeGreaterThanOrEqual(4.5)
+    expect(theme).toMatch(/\[data-theme="night"\] \.btn-primary,[\s\S]*?color:\s*var\(--nc-bg\);/)
   })
 
   it("keeps the --archive-* compatibility aliases as pure forwards", () => {

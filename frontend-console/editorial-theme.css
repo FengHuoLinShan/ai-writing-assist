@@ -13,11 +13,11 @@
   --nc-surface-muted: #F2F2F0;
   --nc-ink: #37352F;
   --nc-body: #55534F;
-  --nc-dim: #9B9A97;
+  --nc-dim: #6B6964;
   --nc-faint: #B9B7B2;
   --nc-ghost: #D8D7D2;
-  --nc-accent: #2383E2;
-  --nc-accent-soft: rgba(35, 131, 226, 0.10);
+  --nc-accent: #1B6FB8;
+  --nc-accent-soft: rgba(27, 111, 184, 0.10);
   --nc-hairline: #E9E9E7;
   --nc-hairline-strong: #D9D9D6;
   --nc-alert-bg: #FBE4E4;
@@ -140,7 +140,7 @@
   --nc-surface-muted: #EAE5D6;
   --nc-ink: #1F2321;
   --nc-body: #3C413E;
-  --nc-dim: #93A09A;
+  --nc-dim: #626966;
   --nc-faint: #B4AEA0;
   --nc-ghost: #CFC8B8;
   --nc-accent: #C03F2B;
@@ -447,6 +447,11 @@ button.theme-dot {
   border-color: var(--accent-hover);
   background: var(--accent-hover);
   color: #FFFFFF;
+}
+
+[data-theme="night"] .btn-primary,
+[data-theme="night"] .btn-primary:hover {
+  color: var(--nc-bg);
 }
 
 .btn-ghost {
