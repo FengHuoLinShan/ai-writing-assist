@@ -100,7 +100,7 @@ Prompt 或 token；预算遗漏另行解释。作者可逐项移除/恢复、用
 | `vue/views/interaction/JourneyListView.vue` / `RpSourceSetup.vue` | `journeys` 路由；扁平旅程列表、新旅程、归档/搜索；新建页保留直接开场并可选复用/导入作者作品、恢复整理任务、确认关键歧义、点选自然语言匹配的章节内剧情候选和玩家身份 |
 | `vue/views/interaction/InteractionView.vue` | `interaction/{journey_id}` 路由；故事阅读、composer、流式恢复、分支、回顾、看海与右侧定位；source-bound 旅程从“更多 → 作品资料”抽屉查看版本/进度/本轮引用理由、固定/忽略对象并显式升级 |
 | `vue/views/project/ProjectView.vue` | `project` 路由（Vue island）；紧凑作品档案，默认主操作为“继续创作”，搜索/筛选单行展示；批量、编辑、删除和回收站只在“管理作品”模式出现；无作品时优先显示新建与导入 |
-| `vue/views/writing/home/WritingHomeView.vue` / `AuthorTasksView.vue` / `vue/views/today/TodayView.vue` | `writing?home=1` 的写作首页；已有章节时正文续写是唯一主行动，本机或服务器世界创作位置作为次级恢复入口；无正文时沿用世界创作、导入整理与世界核心起步优先级。主行动后显示最多 3 项“计划中的任务”，`panel=tasks` 提供今天/收件箱/之后/已完成与次级归档。作者任务可完成；领域待决只返回所属页，后台整理只显示进度/恢复，三者不混用勾选。章节、Scene 与世界 Page/Entity 可就地建任务并返回类型化来源 |
+| `vue/views/writing/home/WritingHomeView.vue` / `AuthorTasksView.vue` / `vue/views/today/TodayView.vue` | `writing?home=1` 的写作首页；已有章节时正文续写是唯一主行动，本机或服务器世界创作位置作为次级恢复入口；空白作品也以「开始第一章」进入正文，World Core 仅作次操作，导入整理和明确的世界工作稿仍可原位恢复。主行动后显示最多 3 项“计划中的任务”，`panel=tasks` 提供今天/收件箱/之后/已完成与次级归档。作者任务可完成；领域待决只返回所属页，后台整理只显示进度/恢复，三者不混用勾选。章节、Scene 与世界 Page/Entity 可就地建任务并返回类型化来源 |
 | `vue/views/rag/RagView.vue` / `vue/views/outline/components/OutlineHeader.vue` / `vue/views/scene/SceneWorkbenchView.vue` / `vue/views/world/WorldView.vue` / `vue/views/world/components/WorldReviewTab.vue` | 可切换子导航使用原生 button，当前项公开 `aria-current="page"`；Scene 工作台当前项保持非交互，避免同路由刷新 |
 | `vue/views/writing/WritingView.vue` | 纯章节目录、工作稿编辑器、手选 Scene 副驾驶与 AI 建议采用；普通模式可返回 `writing?home=1`，导航仍经过未保存正文离开门禁；光标不切换 Scene，AI/检查/发布统一消费手选 Scene；桌面与移动端共用白名单“本场”摘要，POV 可见资料只在点击后加载并隔离晚到响应；移动速记在 390px 使用原生 details，并可逆进入按项目恢复的完整编辑模式；自动保存、导入和候选采用继续保持原安全语义 |
 | `vue/views/writing/components/WritingWorkflowBars.vue` | 写作台长任务完成卡；深度导入额外显示自动归并数与遗留复核组数，有遗留项时用作者语言引导到现有“人物与世界 → 智能去重”，不自动发起第二次全项目扫描 |
@@ -120,7 +120,7 @@ Prompt 或 token；预算遗漏另行解释。作者可逐项移除/恢复、用
 - 作者 shell 的桌面主导航固定为“写作、人物与世界、故事结构、地图、查找”；移动端固定为
   “写作、世界、结构、全部”。项目切换器位于导航顶部，导入与项目偏好从“更多”进入，AI 工具在 owner 页就地打开；旧入口仅保留兼容路由，或由上下文错误进入。`writing?home=1` 是作者有效项目的默认续接页；`today` 仅为薄兼容别名。
 - `writing?home=1` 不装载章节、全部 Scene、编辑偏好或编辑器恢复监听；普通写作入口保持完整初始化。RAG 状态子页同样不装载未使用的人物和 Scene 列表。
-- `writing?home=1&panel=tasks&scope=today|inbox|later|completed|archived` 是作者任务的可恢复 URL 状态；列表与 workspace-summary 都传浏览器本地 `on_date`，PATCH 带 `expected_updated_at` 且同状态重试不改写时间。409 保留标题/备注/日期，冲突恢复读取使用 `cache: no-store` 取得最新版本，作者再次保存才重试；章节、Scene、Page 与 Entity 入口的 `task_title` 使用真实来源名称。进行中的写入会暂时阻止任务页导航，成功后用无重载 query replace 清除来源参数。不新增一级任务导航或前端状态库。未保存正文/世界页仍使用原项目隔离 session 和离开门禁。
+- `writing?home=1&panel=tasks&scope=today|inbox|later|completed|archived` 是作者任务的可恢复 URL 状态；列表与 workspace-summary 都传浏览器本地 `on_date`，PATCH 带 `expected_updated_at` 且同状态重试不改写时间。409 保留标题/备注/日期，冲突恢复读取使用 `cache: no-store` 取得最新版本，作者再次保存才重试；章节、Scene、Page 与 Entity 入口的 `task_title` 使用真实来源名称。任务表单的标题、备注和日期按项目隔离暂存在 `sessionStorage`，切换范围、返回首页或刷新后可恢复；路由离开与脏表单取消均经二次确认，只在保存成功或确认放弃后清理。进行中的写入会暂时阻止任务页导航，成功后用无重载 query replace 清除来源参数。不新增一级任务导航或前端状态库。
 - `WritingHomeView` 通过 `writingIsland` 复用 `todayIsland` 的 loader，把本机 Writing 指针作为可选排序焦点传给项目摘要，并行组合世界书工作稿和 generation-center pending 页面建议；已有章节或服务器续写章时正文固定为主入口，恢复匹配章节的手选 Scene，世界创作位置按 key 去重后只展示一个次级入口，其余进入未完成创作列表；无正文和摘要失败的既有降级语义不变。项目摘要中的 Writing / World / Outline 待决事项按后端顺序展示，已进入投影的建议不再重复显示为未完成创作；超过 6 条时使用 `more_targets` 打开去掉单条 item 绑定的领域处理范围，不用旧计数猜测来源；
   导航不调用 LLM。项目级本地创作指针只允许 `generate / world_bible_draft /
   world_suggestion_review` 三种结构化 route，只有作者编辑/发送、打开/保存工作稿、进入/应用建议
@@ -328,7 +328,7 @@ Prompt 或 token；预算遗漏另行解释。作者可逐项移除/恢复、用
 
 - 纯章节目录与手选 Scene 副驾驶
 - 自动保存与未保存提醒
-- 底部状态栏 `.writing-statusbar`（38px 通栏）：左侧为字数进度（当前 / 日目标 + 3px accent
+- 底部状态栏 `.writing-statusbar`（38px 通栏）：左侧为当前章字数与日目标（每章当日首次基线后的正增量，与顶栏共用 `todayWords`）+ 3px accent
   进度条）、段落数与预计阅读时长（字数 / 400 向上取整）；右侧为字体循环切换（会话内临时
   override，不写偏好存储）、专注模式按钮和保存/版本状态徽标——这些 DOM 自编辑器头平移，
   id 不变；版本选择条保留在编辑器上方工具区。状态栏始终吸底；发布、生成、冲突检查和自动提取的工作流反馈固定在全局顶栏下方、写作区居中的紧凑浮层，不挤动编辑器或状态栏。无后续操作的成功态 3 秒后自动关闭；失败、取消、降级、恢复待处理及带业务操作的终态持续显示。同一工作流生命周期不重复发送全局 toast

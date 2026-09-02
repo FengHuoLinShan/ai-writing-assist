@@ -177,7 +177,7 @@ rail 折叠后对应列变为 `--workspace-rail-collapsed` 44px。底部状态�
 - 发布、生成、冲突检查和深度导入反馈使用脱离网格的顶部浮层，状态栏始终保持吸底，不因任务状态变更而跳动。
 - 左：`#writing-wordcount-bar`——字数进度「1,240 / 3,000 字」+ 3px accent 进度条
   （`.wc-goal-progress`）、段落数、预计阅读时长（字数 / 400 向上取整，`WritingView.vue`
-  `statusReadMinutes`）。日目标进度属行内轻量进度，不引入 `.workflow-progress`（主规范 §5.9）。
+  `statusReadMinutes`）。日目标只累计每章当日首次基线后超过历史高水位的正增量，切章、刷新和删后补回不重计；底部状态栏与顶栏字数仪表盘共用同一 `todayWords`。日目标进度属行内轻量进度，不引入 `.workflow-progress`（主规范 §5.9）。
 - 右：字体循环切换（会话内临时 override，不写偏好存储）→ 专注模式按钮 → 保存/版本状态徽标
   （`#writing-save-status` / `#writing-version-info`）；专注中隐藏字体与进入按钮，退出入口移至顶部专注栏。
 - 上述 DOM 自 WritingEditor 头部平移，id 全部不变（§7 契约）；保存徽标已实现五态语义：
