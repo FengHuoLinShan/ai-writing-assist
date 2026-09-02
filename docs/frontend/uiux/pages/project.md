@@ -46,14 +46,14 @@
 
 ## 3. 目标布局与信息层级
 
-- **Primary**：项目卡片网格——当前项目 lead 卡（8 列横排，`.project-card--lead`）是自然
-  第一视觉焦点；其余卡 4 列跟排，末尾恒有占位卡（ProjectView.vue:280-300）。
-- **Secondary**：hero 操作区——「新建空白作品」（唯一 primary）与按空态切换文案的导入入口；hero 的
-  装饰性（folio/几何图形）服务于档案氛围，不得压过网格。
+- **Primary**：作品卡片网格——当前作品按排序置顶并显示文字徽标；所有真实作品卡使用同一
+  4 列跨度，末尾恒有占位卡（ProjectView.vue）。
+- **Secondary**：hero 由作品档案 copy 与当前作品/操作 summary 两栏组成；「新建空白作品」是
+  唯一 primary，导入、管理与回收站为次级入口。
 - **Tertiary**：搜索/筛选条、批量管理条、导入抽屉、回收站——按需展开的管理层，默认不占
   首屏注意力（主规范 §5.10「筛选不常驻首屏」同理念）。
-- **阅读路径**：hero（我在「作品档案」、当前项目是谁、能做什么）→ index-bar（搜索/管理）→
-  网格（lead 卡 → 其余卡 → 占位卡）。
+- **阅读路径**：hero（我在「作品档案」、当前作品是谁、能做什么）→ index-bar（搜索/管理）→
+  网格（当前作品 → 其余作品 → 占位卡）。
 - **对齐主规范 §4 内容优先契约**：项目卡是「可独立移动的条目」，用卡合法（§5.3）；页面分区
   （hero / index-bar / 网格）靠留白 + 区块间隔，不套分区容器卡。grid gap clamp(12-22px)
   （`.project-catalog`）归入 `--space-3 ~ --space-5` token 档。排序逻辑（当前置顶 → 最近更新倒序
@@ -66,17 +66,13 @@
 - **命名裁定落地**：页内 H1「作品档案」保持（:156）；侧边栏项改「作品档案与导入」
   （navigation.js:18），改可访问名称后全局 grep 同步 e2e 的 `getByRole({name})`/`getByText`
   （主规范 §9 末行）；project.spec.js:8 的 topbar「作品档案」断言不变。
-- folio（:145-149）：`NC` 与 `2026` 两处硬编码删除或动态化——中间格已是项目总数（:147），
-  裁定第三格改为当前年份动态值或直接移除（执行时核实视觉基线后二选一）；folio 保持
-  `aria-hidden`。
-- H1 字号收敛到 `--text-xl` 24px（问题 5）；kicker「STORY ARCHIVE · 全部项目」为元数据档
-  `--text-xs` + `--tracking-caps`；副文案一句、helper 档（:157）。
-- summary 区（:159-165）：「N 个项目」与「CURRENT / 当前」为 mono 元数据档；
+- 页面没有 folio、英文 kicker、年份或几何装饰；不得为旧稿补回装饰 DOM。
+- H1 使用 `--text-xl` 24px；副文案一句、helper 档。
+- summary 区显示「N 部作品」和「当前作品」，总数使用 `--text-lg`，不得大于 H1；
   `data-role="project-total-count"`（:161）契约保留。
 - 操作组（:166-171）：「新建空白作品」= 全屏唯一 `.btn-primary`（:167）；「导入已有作品」
   「管理作品」= `.btn-ghost`；「回收站」**移出 manageMode 条件**、常驻末位 ghost（问题 2），
   与「管理作品」解耦——manage 模式只管选择/批量，回收站是独立入口。
-- 几何装饰（:173-175）保持 `aria-hidden`；窄档逐步隐藏（现状 900px 档隐藏 2 个，保留行为）。
 
 ### 4.2 index-bar（:211-255）——映射主规范 §5.10
 
@@ -93,13 +89,13 @@
 
 整卡信息收敛为三区，区内层级不变、区间用留白 + hairline 分隔（§5.3）：
 
-1. **标题区**（:62-88）：masthead（manage 选择框 :63-75 + 状态点「进行中/已归档」:76-79 +
-   CURRENT 徽章 :80）→ eyebrow（genre · stage，:82-86）→ H2 标题（:87，条目标题档
-   `--text-base` 14/600；现状更大，执行时按字阶矩阵核实收敛）→ 简介（:88，helper 档，
+1. **标题区**（:62-88）：masthead（manage 选择框 + 状态点「进行中/已归档」+
+   「当前作品」徽章）→ eyebrow（genre · stage）→ H2 标题（条目标题档 `--text-lg`，低于
+   页面 H1 的 `--text-xl`）→ 简介（helper 档，
    ≤2 行截断）。
 2. **元数据区**（:89-102）：`dl.project-stats` 三项 WORDS/CHAPTERS/UPDATED——元数据档
    `--text-xs`、mono 等宽、数字右对齐（§3.2、§4 对齐规则）；「待接入」改为「暂无统计」或
-   三项全缺时整行隐藏（问题 7，二选一，推荐改文案）。`aria-label="项目统计"`（:89）保留。
+   三项全缺时整行隐藏（问题 7，二选一，推荐改文案）。`aria-label="作品统计"` 保留。
 3. **操作区**（:103-110）：footer = 创建日期（meta，:104）+ 按钮组；主操作文案为
    「继续写作」，使用默认 `.btn-sm`，避免多张卡产生多个 primary；「编辑」「删除」仍仅
    manage 模式（:107-108）。
@@ -108,7 +104,7 @@
 
 - 整卡鼠标区域由空内容原生 `.project-card__open` 按钮覆盖，按钮与复选框、继续/编辑/删除操作互为
   兄弟节点，禁止嵌套交互元素；`aria-current` 保留在 `<article>`。
-- visual 区（:54-60）：`aria-hidden` 保留；168px 高度与 `index % 4` 四色变体（:41、
+- visual 区：`aria-hidden` 保留；112px 高度与 `index % 4` 四色变体（:41、
   `.project-card` 规则）保留为本页系列感表达，但颜色必须走主题 token，不新增字面色值。
 - 静态视觉：paper-raised + `--line-subtle`，无阴影；hover 仅边加深或 `--bg-hover` 淡入（§5.3）。
 - 占位卡（ProjectView.vue:280-300）：与项目卡同构（visual + copy），`role="button"`
@@ -167,13 +163,11 @@
 
 ## 6. 响应式行为（对齐主规范 §6 四档）
 
-- **≥1440（Desktop）**：12 列 grid；lead 卡 8 列横排 + 普通卡 4 列；hero 三段
-  （folio/copy/summary，hero 覆层规则）全展示。
+- **≥1440（Desktop）**：12 列 grid；每张作品卡 4 列，hero 使用 copy/summary 两栏。
 - **1100-1440（Laptop）**：默认形态，同上；grid gap 取 clamp 下档。
-- **760-1100（Tablet）**：现 1180 档并入——普通卡 span 6（两列）、lead 全宽
-  （`.project-catalog` 的 1100px 规则）；900px 组件级微调中 hero 改 2 列、几何装饰隐藏 2 个。
-- **<760（Mobile）**：现有移动档中卡全部 span 12、hero 单列、folio 转横排、批量按钮
-  全宽；搜索工具条再压缩、CURRENT 徽章截断；按钮高 ≥42px
+- **760-1100（Tablet）**：作品卡 span 6（两列）；900px 组件级微调把 hero 改为单列。
+- **<760（Mobile）**：作品卡全部 span 12、hero 单列、批量按钮全宽；搜索工具条再压缩、
+  当前作品徽章截断；按钮高 ≥42px
   （§5.1 触控档）；390px 无页面级横向溢出（§6 零容忍）。断点归并后在样式行注释保留理由（§6）。
 
 ## 7. 必须保留的契约

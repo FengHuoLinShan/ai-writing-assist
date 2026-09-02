@@ -5563,7 +5563,7 @@ kbd {
   overflow-wrap: anywhere;
   color: var(--project-ink);
   font-family: var(--font-body);
-  font-size: clamp(21px, 2vw, 26px);
+  font-size: var(--text-lg);
   font-weight: 600;
   letter-spacing: 0.02em;
   line-height: 1.22;
@@ -5742,7 +5742,7 @@ kbd {
   margin: 12px 0 8px;
   color: var(--project-ink);
   font-family: var(--font-body);
-  font-size: 24px;
+  font-size: var(--text-lg);
 }
 
 .project-card-placeholder__copy p {
