@@ -342,7 +342,7 @@ describe("todayIsland", () => {
     expect(router.navigate).toHaveBeenCalledWith("writing", null)
   })
 
-  it("uses one primary action to start World Core in an empty project", async () => {
+  it("空白作品不需要模型也能先写第一章，世界观保留为次操作", async () => {
     const router = { navigate: vi.fn(), refresh: vi.fn() }
     setBridgeOverrides({ router })
     const wrapper = mount(TodayView, {
@@ -353,11 +353,15 @@ describe("todayIsland", () => {
       },
     })
 
-    expect(wrapper.get("#today-resume-title").text()).toBe("从几个灵感开始")
+    expect(wrapper.get("#today-resume-title").text()).toBe("开始第一章")
     expect(wrapper.findAll(".today-resume .btn-primary")).toHaveLength(1)
+    expect(wrapper.get('[data-action="continue-writing"]').text()).toBe("开始第一章")
+    await wrapper.get('[data-action="continue-writing"]').trigger("click")
+    expect(router.navigate).toHaveBeenNthCalledWith(1, "writing", null, true, expect.any(URLSearchParams))
+
     await wrapper.get('[data-action="start-world-core"]').trigger("click")
-    const query = router.navigate.mock.calls[0][3]
-    expect(router.navigate).toHaveBeenCalledWith("generate", null, true, expect.any(URLSearchParams))
+    const query = router.navigate.mock.calls[1][3]
+    expect(router.navigate).toHaveBeenNthCalledWith(2, "generate", null, true, expect.any(URLSearchParams))
     expect(query.get("preset")).toBe("world_core")
     expect(query.get("target")).toBe("core_entity")
   })

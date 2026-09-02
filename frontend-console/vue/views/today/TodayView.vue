@@ -78,14 +78,14 @@ const resumeTitle = computed(() => {
   if (primaryWorld.value) return primaryWorld.value.title
   if (importWorkflow.value) return "继续整理导入内容"
   if (!props.summary) return "继续写作"
-  return startWorldCore.value ? "从几个灵感开始" : "开始第一章"
+  return "开始第一章"
 })
 const primaryLabel = computed(() => {
   if (hasWritingContent.value) return "进入正文编辑"
   if (primaryWorld.value) return primaryWorld.value.destination === "world_suggestion_review" ? "去审查" : "继续创作"
   if (importWorkflow.value) return "继续整理"
   if (!props.summary) return "进入写作"
-  return startWorldCore.value ? "开始生长" : "开始第一章"
+  return "开始第一章"
 })
 const resumeLabel = computed(() => hasWritingContent.value
   ? "正文写作"
@@ -196,12 +196,12 @@ function runPrimaryAction() {
     openWorkflow(importWorkflow.value)
     return
   }
-  if (startWorldCore.value) {
-    if (props.onOpenAi?.({ owner: "world", preset: "world_core", targetKind: "core_entity" })) return
-    router.navigate("generate", null, true, new URLSearchParams({ tab: "world", target: "core_entity", preset: "world_core" }))
-    return
-  }
   openWriting()
+}
+
+function openWorldCore() {
+  if (props.onOpenAi?.({ owner: "world", preset: "world_core", targetKind: "core_entity" })) return
+  router.navigate("generate", null, true, new URLSearchParams({ tab: "world", target: "core_entity", preset: "world_core" }))
 }
 
 function openCreativeContinuation(item) {
@@ -369,13 +369,16 @@ function retry() {
             · {{ continuation.has_unpublished_changes ? '有尚未设为正式正文的修改' : '正文已保存' }}
           </p>
           <p v-else-if="importWorkflow">导入内容还在整理中，可以继续查看进度，也可以稍后回来。</p>
-          <p v-else-if="startWorldCore">写下几个在意的灵感，再逐轮补齐成立规则、因果和真实生活后果。</p>
+          <p v-else-if="startWorldCore">先写下第一章；如果你已有灵感，也可以先整理世界观。</p>
           <p v-else>准备好第一章后，作品的资料与结构会在创作过程中逐步生长。</p>
           <p v-if="summary" class="today-resume__stats">{{ writing.chapter_count }} 章 · {{ Number(writing.word_count || 0).toLocaleString() }} 字</p>
         </div>
-        <button class="btn btn-primary today-resume__action" type="button" :data-action="hasWritingContent ? 'continue-writing' : primaryWorld ? 'continue-world' : startWorldCore ? 'start-world-core' : 'continue-writing'" @click="runPrimaryAction">
-          {{ primaryLabel }}
-        </button>
+        <div class="today-resume__actions">
+          <button class="btn btn-primary today-resume__action" type="button" :data-action="primaryWorld ? 'continue-world' : 'continue-writing'" @click="runPrimaryAction">
+            {{ primaryLabel }}
+          </button>
+          <button v-if="startWorldCore" class="btn btn-ghost" type="button" data-action="start-world-core" @click="openWorldCore">先整理世界观</button>
+        </div>
       </section>
 
       <article v-if="secondaryWorld" class="today-resume-secondary" aria-labelledby="today-resume-secondary-title">
