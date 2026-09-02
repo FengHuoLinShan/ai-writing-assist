@@ -287,6 +287,7 @@ const uploadProgress = ref(0)
 const uploading = ref(false)
 const uploadError = ref("")
 const uploadForm = reactive({ node_id: "", title: "", parent_id: "", level: "world" })
+const uploadFormBaseline = ref(uploadFormSnapshot())
 const nodeEdit = reactive({ title: "", parent_id: null, level: "world", before_node_id: "__keep__" })
 let promptTimer = null
 let promptSavePromise = null
@@ -334,7 +335,7 @@ const activeDescendantIds = computed(() => {
 const nodeParentChoices = computed(() => adoptedNodes.value.filter(node => node.id !== activeNode.value?.id && !activeDescendantIds.value.has(node.id)))
 const siblingChoices = computed(() => adoptedNodes.value.filter(node => node.id !== activeNode.value?.id && (node.parent_id || null) === (nodeEdit.parent_id || null)))
 const canUpload = computed(() => uploadFile.value && (uploadForm.node_id || uploadForm.title.trim()))
-const uploadDraftDirty = computed(() => Boolean(uploadFile.value || uploadForm.node_id || uploadForm.title || uploadForm.parent_id || uploadForm.level !== "world"))
+const uploadDraftDirty = computed(() => Boolean(uploadFile.value || uploadFormSnapshot() !== uploadFormBaseline.value))
 const { overlayRef: uploadOverlay, dialogRef: uploadDialog, onKeydown: onUploadKeydown, onFocusin: onUploadFocusin } = useModalDialog({
   isOpen: () => uploadOpen.value,
   requestClose: closeUpload,
@@ -570,9 +571,10 @@ function openUpload(fromPromptOnly = false) {
     const adoptedIds = new Set(adoptedNodes.value.map(node => node.id))
     Object.assign(uploadForm, { node_id: "", title: activePage.value?.title || "", parent_id: adoptedIds.has(activeNode.value?.parent_id) ? activeNode.value.parent_id : "", level: activeNode.value?.level || "world" })
   }
-  uploadOpen.value = true; uploadError.value = ""
+  uploadFormBaseline.value = uploadFormSnapshot(); uploadOpen.value = true; uploadError.value = ""
 }
-function resetUpload() { if (uploadPreview.value) URL.revokeObjectURL(uploadPreview.value); uploadFile.value = null; uploadPreview.value = ""; uploadProgress.value = 0; uploadError.value = ""; Object.assign(uploadForm, { node_id: "", title: "", parent_id: "", level: "world" }) }
+function uploadFormSnapshot() { return JSON.stringify(uploadForm) }
+function resetUpload() { if (uploadPreview.value) URL.revokeObjectURL(uploadPreview.value); uploadFile.value = null; uploadPreview.value = ""; uploadProgress.value = 0; uploadError.value = ""; Object.assign(uploadForm, { node_id: "", title: "", parent_id: "", level: "world" }); uploadFormBaseline.value = uploadFormSnapshot() }
 function closeUpload() { if (uploading.value) return; if (uploadDraftDirty.value && !confirm("放弃未上传的地图？")) return; uploadOpen.value = false; resetUpload() }
 function chooseUploadFile(event) {
   const file = event.target.files?.[0] || null

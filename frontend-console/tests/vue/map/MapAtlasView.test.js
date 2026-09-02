@@ -194,6 +194,41 @@ describe("AI 地图册工作台", () => {
     expect(document.activeElement).toBe(trigger.element)
   })
 
+  it("外部生成预填以打开时内容为基线，只有后续修改才确认放弃", async () => {
+    const external = page({ generation_status: "prompt_only", image_url: null, has_generation_prompt: true })
+    api.world.getLatestMapAtlasRun.mockResolvedValue({ id: "run-1", status: "review_ready", planned_page_count: 1, completed_page_count: 1 })
+    api.world.getMapAtlasRunResults.mockResolvedValue(tree([external], "review"))
+    api.world.getMapAtlasPagePrompt.mockResolvedValue({ page_id: external.id, prompt: "北面是山，东面是海", generation_choice: "external", editable: false, updated_at: external.updated_at })
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" }, attachTo: document.body })
+    await flushPromises()
+
+    const open = async () => {
+      await wrapper.get(".atlas-prompt-only .btn-primary").trigger("click")
+      await flushPromises()
+      expect(wrapper.get(".atlas-upload-modal input.form-input").element.value).toBe("沉钟港")
+    }
+
+    await open()
+    await wrapper.get(".atlas-upload-modal [aria-label='关闭']").trigger("click")
+    expect(confirm).not.toHaveBeenCalled()
+
+    await open()
+    wrapper.get(".modal-overlay").element.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))
+    await flushPromises()
+    expect(confirm).not.toHaveBeenCalled()
+
+    await open()
+    await wrapper.get(".modal-overlay").trigger("click")
+    expect(confirm).not.toHaveBeenCalled()
+
+    await open()
+    await wrapper.get(".atlas-upload-modal input.form-input").setValue("沉钟港东区")
+    confirm.mockReturnValueOnce(false)
+    await wrapper.get(".modal-overlay").trigger("click")
+    expect(confirm).toHaveBeenCalledWith("放弃未上传的地图？")
+    expect(wrapper.find(".atlas-upload-modal").exists()).toBe(true)
+  })
+
   it("上传期间 Escape、遮罩和关闭按钮都不能误关，取消仍中止原请求", async () => {
     let uploadSignal = null
     api.world.uploadMapAtlasPage.mockImplementation((_projectId, _payload, _progress, { signal }) => {
