@@ -98,6 +98,25 @@ describe("状态页渲染", () => {
     expect(wrapper.text()).not.toMatch(/重启|后端|worker|embedding/i)
   })
 
+  it("真实后端警告只投影作者可执行信息", () => {
+    ragSearchSession.prewarmWarning = "BGE worker connection refused"
+    const wrapper = mountPanel({
+      statusFields: makeStatusFields({
+        statusDegraded: true,
+        embeddingDimensionMismatch: true,
+        statusWarnings: [
+          "已索引向量维度为 768，但配置 EMBEDDING_DIM=1024，请同步配置后重启后端",
+          "有 2 个片段 embedding 失败，检索和抽取可能不准确",
+        ],
+      }),
+    })
+
+    expect(wrapper.text()).toContain("请联系管理员检查服务配置")
+    expect(wrapper.text()).toContain("后台查找服务暂时未就绪")
+    expect(wrapper.text()).toContain("有 2 个片段整理失败")
+    expect(wrapper.text()).not.toMatch(/EMBEDDING_DIM|向量维度|重启后端|BGE|worker|embedding/i)
+  })
+
   it("诊断网格渲染运行时指标", () => {
     const wrapper = mountPanel()
     expect(wrapper.text()).toContain("已就绪")
@@ -107,6 +126,22 @@ describe("状态页渲染", () => {
     expect(wrapper.text()).toContain("8/2")
   })
 
+  it("最近片段状态不暴露内部枚举", () => {
+    const wrapper = mountPanel({
+      statusFields: makeStatusFields({
+        statusItems: [
+          { chunk_index: 1, embedding_status: "pending_vectorization" },
+          { chunk_index: 2, embedding_status: "unexpected_internal_state" },
+        ],
+      }),
+    })
+
+    expect(wrapper.text()).toContain("等待整理")
+    expect(wrapper.text()).toContain("未知状态")
+    expect(wrapper.text()).not.toContain("pending_vectorization")
+    expect(wrapper.text()).not.toContain("unexpected_internal_state")
+  })
+
   it("预热警告产生后诊断自动展开，清除后保留作者当前选择", async () => {
     const wrapper = mountPanel()
     expect(wrapper.find(".rag-diagnostic-details").attributes("open")).toBeUndefined()
@@ -114,7 +149,7 @@ describe("状态页渲染", () => {
     ragSearchSession.prewarmWarning = "Embedding 模型不可用"
     await wrapper.vm.$nextTick()
     expect(wrapper.find(".rag-diagnostic-details").attributes("open")).toBeDefined()
-    expect(wrapper.text()).toContain("语义匹配 模型不可用")
+    expect(wrapper.text()).toContain("后台查找服务暂时未就绪")
 
     ragSearchSession.prewarmWarning = ""
     await wrapper.vm.$nextTick()

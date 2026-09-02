@@ -8,6 +8,20 @@ export const EVIDENCE_HEALTH_LABELS = {
   insufficient_data: "数据不足",
 }
 
+const CHUNK_STATUS_LABELS = {
+  succeeded: "已完成",
+  done: "已完成",
+  failed: "失败",
+  pending: "等待整理",
+  pending_vectorization: "等待整理",
+  processing: "整理中",
+  running: "整理中",
+}
+
+export function chunkStatusLabel(status) {
+  return CHUNK_STATUS_LABELS[String(status || "").toLowerCase()] || "未知状态"
+}
+
 export function percentText(value) {
   return value == null ? "-" : `${Math.round(value * 100)}%`
 }

@@ -6,6 +6,7 @@ import {
   EVIDENCE_HEALTH_LABELS,
   cacheText,
   chunkPreview,
+  chunkStatusLabel,
   percentText,
   runtimeLabel,
   traceDroppedCount,
@@ -40,10 +41,20 @@ const session = ragSearchSession
 const fields = props.statusFields
 
 function authorStatusText(value) {
-  return String(value || "")
+  const text = String(value || "")
+  const failedCount = text.match(/有\s*(\d+)\s*个片段\s*embedding\s*失败/i)
+  if (failedCount) return `有 ${failedCount[1]} 个片段整理失败，查找和内容提取可能不完整。`
+  const pendingCount = text.match(/有\s*(\d+)\s*个片段待重新向量化/i)
+  if (pendingCount) return `有 ${pendingCount[1]} 个片段等待重新整理，查找结果可能暂时不完整。`
+  if (/EMBEDDING_DIM|向量维度|重启后端/i.test(text)) {
+    return "查找服务配置不一致，部分资料已暂停使用。请联系管理员检查服务配置。"
+  }
+  if (/\b(?:worker|BGE|embedding|provider|model)\b|API[_ -]?KEY/i.test(text)) {
+    return "后台查找服务暂时未就绪。可以先重试；若持续失败，请联系管理员。"
+  }
+  return text
     .replaceAll("Scene", "场景")
     .replaceAll("context", "上下文")
-    .replace(/embedding/gi, "语义匹配")
 }
 
 // ── 检索记录（vanilla _retrievalTraces*，重挂载即重置）──
@@ -105,7 +116,7 @@ const healthMapping = computed(() => health.value?.rag_mapping_coverage || {})
 const healthRetrieval = computed(() => health.value?.retrieval_summary || {})
 const healthReasons = computed(() => (
   Array.isArray(health.value?.health_reasons)
-    ? authorStatusText(health.value.health_reasons.join("；"))
+    ? health.value.health_reasons.map(authorStatusText).join("；")
     : ""
 ))
 
@@ -117,7 +128,7 @@ const rebuildButtonText = computed(() => (
     : "修复查找功能"
 ))
 const statusWarningText = computed(() => (
-  authorStatusText((fields.statusWarnings || []).join("；")) || "部分资料暂时无法完整查找。"
+  (fields.statusWarnings || []).map(authorStatusText).filter(Boolean).join("；") || "部分资料暂时无法完整查找。"
 ))
 const canRetryTask = computed(() => (
   Array.isArray(rebuildProgress.value?.availableActions)
@@ -351,7 +362,7 @@ const statusItems = computed(() => fields.statusItems || [])
                 <td>{{ String(item.chunk_index ?? "-") }}</td>
                 <td>{{ String(item.chapter_index ?? "-") }}</td>
                 <td>{{ String(item.char_count ?? "-") }}</td>
-                <td>{{ item.embedding_status || "-" }}</td>
+                <td>{{ chunkStatusLabel(item.embedding_status) }}</td>
                 <td>{{ (item.entity_ids || []).length }}</td>
                 <td>{{ (item.character_ids || []).length }}</td>
                 <td>{{ (item.thread_ids || []).length }}</td>
