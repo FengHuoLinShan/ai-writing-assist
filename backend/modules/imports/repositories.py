@@ -24,6 +24,7 @@ class ImportRecordRepository:
         file_name: str,
         file_type: str,
         file_size: int,
+        import_kind: str = "manuscript",
     ) -> ImportRecord:
         """创建导入记录"""
         record = ImportRecord(
@@ -31,6 +32,7 @@ class ImportRecordRepository:
             file_name=file_name,
             file_type=file_type,
             file_size=file_size,
+            import_kind=import_kind,
             status="processing",
         )
         db.add(record)
@@ -61,6 +63,7 @@ class ImportRecordRepository:
                 ImportRecord.novel_id == novel_id,
                 ImportRecord.file_name == file_name,
                 ImportRecord.status == "done",
+                ImportRecord.import_kind == "manuscript",
             )
             .with_for_update()
             .limit(1)

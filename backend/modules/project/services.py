@@ -124,6 +124,7 @@ class ProjectService:
         task_deleter: Callable[..., Awaitable[int]] = delete_tasks_for_novel,
         tasks_deleter: Callable[..., Awaitable[int]] = delete_tasks_for_novels,
         map_atlas_cleanup_enqueuer: Callable[..., Awaitable[None]] | None = None,
+        source_reference_counter: Callable[..., Awaitable[int]] | None = None,
     ) -> None:
         self._uses_default_repo = repo is None
         self._repo = repo or ProjectRepository()
@@ -139,6 +140,11 @@ class ProjectService:
         self._task_deleter = task_deleter
         self._tasks_deleter = tasks_deleter
         self._map_atlas_cleanup_enqueuer = map_atlas_cleanup_enqueuer
+        self._source_reference_counter = (
+            source_reference_counter
+            if source_reference_counter is not None
+            else (_empty_source_reference_count if repo is not None else None)
+        )
 
     def list_llm_provider_templates(self) -> LLMProviderTemplateListResponse:
         return LLMProviderTemplateListResponse(items=list_account_provider_templates())
@@ -422,6 +428,7 @@ class ProjectService:
         locked = await self._repo.lock_deleted_ids_for_update(db, [pid], owner_id)
         if pid not in locked:
             raise NotFoundError(f"Project {project_id} not found in recycle bin")
+        await self._require_no_source_references(db, [pid])
         await self._task_canceller(
             db,
             novel_id=str(pid),
@@ -462,6 +469,7 @@ class ProjectService:
         if missing_ids:
             missing = ", ".join(str(project_id) for project_id in missing_ids)
             raise NotFoundError(f"Projects not found in recycle bin: {missing}")
+        await self._require_no_source_references(db, unique_ids)
 
         for project_id in unique_ids:
             await self._task_canceller(
@@ -505,6 +513,23 @@ class ProjectService:
 
         cleanup = get("world.enqueue_map_atlas_cleanup")
         await cleanup(db, novel_ids)
+
+    async def _require_no_source_references(
+        self,
+        db: AsyncSession,
+        project_ids: list[uuid.UUID],
+    ) -> None:
+        counter = self._source_reference_counter
+        if counter is None:
+            from core.container import get
+
+            try:
+                counter = get("interaction.count_source_references")
+            except KeyError:
+                return
+        for project_id in project_ids:
+            if await counter(db, str(project_id)):
+                raise ConflictError("该作品仍被 RP 旅程使用，无法永久删除")
 
     async def list_deleted_projects(
         self,
@@ -749,6 +774,13 @@ class ProjectService:
                 },
             },
         )
+
+
+async def _empty_source_reference_count(
+    _db: AsyncSession,
+    _novel_id: str,
+) -> int:
+    return 0
 
 
 async def _empty_project_writing_stats(

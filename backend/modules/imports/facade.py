@@ -12,13 +12,19 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.imports.adoption_policy import DEFAULT_ADOPTION_POLICY
+from modules.imports.contracts import (
+    SourceUpdateApplyContract,
+    SourceUpdatePreviewContract,
+)
 from modules.imports.orchestrator import DeepImportOrchestrator
 from modules.imports.schemas import ImportResponse
 from modules.imports.services import ImportService
+from modules.imports.source_update import SourceUpdateService
 from shared.utils import parse_uuid as _parse_uuid
 
 _service = ImportService()
 _orchestrator = DeepImportOrchestrator()
+_source_updates = SourceUpdateService()
 
 
 async def import_file(
@@ -119,3 +125,47 @@ async def reconcile_workflow_task_owners(db: AsyncSession) -> int:
     from modules.imports.workflow_runs import ImportWorkflowRunService
 
     return await ImportWorkflowRunService().reconcile_task_owners(db)
+
+
+async def preview_source_update(
+    db: AsyncSession,
+    *,
+    project_id: str | None,
+    title: str,
+    file_name: str,
+    file_content: bytes,
+    mode: str,
+) -> tuple[SourceUpdatePreviewContract, list[dict]]:
+    """Parse and diff one RP source upload without persisting manuscript text."""
+    return await _source_updates.preview(
+        db,
+        project_id=project_id,
+        title=title,
+        file_name=file_name,
+        file_content=file_content,
+        mode=mode,
+    )
+
+
+async def apply_source_update(
+    db: AsyncSession,
+    *,
+    project_id: str,
+    title: str,
+    file_name: str,
+    file_content: bytes,
+    mode: str,
+    expected_preview_hash: str,
+    destructive_confirmed: bool,
+) -> SourceUpdateApplyContract:
+    """Re-parse, revalidate the preview hash, and write one source version."""
+    return await _source_updates.apply(
+        db,
+        project_id=project_id,
+        title=title,
+        file_name=file_name,
+        file_content=file_content,
+        mode=mode,
+        expected_preview_hash=expected_preview_hash,
+        destructive_confirmed=destructive_confirmed,
+    )

@@ -14,6 +14,7 @@ import {
 const props = defineProps({
   anchor: { type: Object, default: null },
   busy: { type: Boolean, default: false },
+  busyText: { type: String, default: "正在开启…" },
   confirmText: { type: String, default: "确认" },
   id: { type: String, required: true },
   message: { type: String, required: true },
@@ -159,7 +160,7 @@ onBeforeUnmount(() => {
             type="button"
             :disabled="busy"
             @click="emit('confirm')"
-          >{{ busy ? "正在开启…" : confirmText }}</button>
+          >{{ busy ? busyText : confirmText }}</button>
         </footer>
       </section>
     </div>

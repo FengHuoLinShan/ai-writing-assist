@@ -13,6 +13,7 @@ from infrastructure.llm.errors import (
 from infrastructure.llm.schemas import LLMMessage, LLMStreamChunk
 from modules.interaction import tasks
 from modules.interaction.generation import (
+    InteractionContextBudgetError,
     PreparedStoryGeneration,
     PreparedSummaryGeneration,
 )
@@ -141,6 +142,40 @@ async def test_summary_handler_does_not_task_retry_invalid_schema() -> None:
     mark_failed.assert_awaited_once()
 
 
+async def test_summary_finalize_failure_is_latched() -> None:
+    prepared = _summary_prepared()
+    client = _StructuredClient([_summary_output()])
+    with (
+        patch.object(
+            tasks._workflow,
+            "prepare_summary_task",
+            autospec=True,
+            return_value=prepared,
+        ),
+        patch.object(
+            tasks._workflow,
+            "finalize_summary_task",
+            autospec=True,
+            side_effect=InteractionContextBudgetError("did not reduce"),
+        ),
+        patch.object(
+            tasks._workflow,
+            "mark_summary_failed",
+            autospec=True,
+        ) as mark_failed,
+        patch(
+            "modules.interaction.tasks.create_project_snapshot_llm_client",
+            autospec=True,
+            return_value=client,
+        ),
+    ):
+        with pytest.raises(InteractionContextBudgetError, match="did not reduce"):
+            await tasks.handle_interaction_summary_refresh(object(), _task())
+
+    mark_failed.assert_awaited_once()
+    assert client.closed is True
+
+
 async def test_summary_prepare_failure_is_latched_for_user_retry() -> None:
     with (
         patch.object(
@@ -230,3 +265,95 @@ async def test_story_handler_checkpoints_by_size_and_flushes_tail() -> None:
     finalize.assert_awaited_once()
     assert client.closed is True
     assert client.transport_retries == [False]
+
+
+async def test_story_handler_runs_bounded_summary_passes_before_story() -> None:
+    first_summary = _summary_prepared()
+    second_summary = _summary_prepared()
+    story = PreparedStoryGeneration(
+        novel_id=first_summary.novel_id,
+        journey_id=first_summary.journey_id,
+        attempt_id=str(uuid.uuid4()),
+        request_kind="message",
+        messages=[LLMMessage(role="user", content="继续")],
+        executable_settings={"llm": {"model": "deepseek-v4-flash"}},
+        existing_visible_text="",
+    )
+    first_client = _StructuredClient([_summary_output()])
+    second_client = _StructuredClient([_summary_output()])
+    story_client = _StreamingClient()
+    with (
+        patch.object(
+            tasks._workflow,
+            "prepare_story_task",
+            autospec=True,
+            side_effect=[first_summary, second_summary, story],
+        ),
+        patch.object(
+            tasks._workflow,
+            "finalize_summary_task",
+            autospec=True,
+            return_value={"status": "completed"},
+        ) as finalize_summary,
+        patch.object(
+            tasks._workflow,
+            "checkpoint_story_task",
+            autospec=True,
+            return_value=0,
+        ),
+        patch.object(
+            tasks._workflow,
+            "finalize_story_task",
+            autospec=True,
+            return_value={"status": "completed"},
+        ),
+        patch(
+            "modules.interaction.tasks.create_project_snapshot_llm_client",
+            autospec=True,
+            side_effect=[first_client, second_client, story_client],
+        ),
+    ):
+        result = await tasks.handle_interaction_story_generate(object(), _task())
+
+    assert result == {"status": "completed"}
+    assert finalize_summary.await_count == 2
+    assert first_client.calls == 1
+    assert second_client.calls == 1
+    assert first_client.closed is True
+    assert second_client.closed is True
+    assert story_client.closed is True
+
+
+async def test_story_handler_stops_at_summary_pass_budget() -> None:
+    summaries = [_summary_prepared() for _ in range(5)]
+    clients = [_StructuredClient([_summary_output()]) for _ in range(4)]
+    with (
+        patch.object(
+            tasks._workflow,
+            "prepare_story_task",
+            autospec=True,
+            side_effect=summaries,
+        ),
+        patch.object(
+            tasks._workflow,
+            "finalize_summary_task",
+            autospec=True,
+            return_value={"status": "completed"},
+        ) as finalize_summary,
+        patch.object(
+            tasks._workflow,
+            "fail_story_task",
+            autospec=True,
+        ) as fail_story,
+        patch(
+            "modules.interaction.tasks.create_project_snapshot_llm_client",
+            autospec=True,
+            side_effect=clients,
+        ),
+    ):
+        with pytest.raises(InteractionContextBudgetError, match="pass budget"):
+            await tasks.handle_interaction_story_generate(object(), _task())
+
+    assert finalize_summary.await_count == 4
+    assert fail_story.await_count == 1
+    assert all(client.closed for client in clients)

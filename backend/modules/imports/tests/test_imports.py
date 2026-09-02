@@ -481,6 +481,26 @@ class TestImportRecordRepository:
         assert updated.imported_chapters == 10
 
     @pytest.mark.asyncio
+    async def test_source_revision_record_does_not_block_manuscript_upload(
+        self,
+        repo: ImportRecordRepository,
+        db_session: AsyncSession,
+        imports_test_project_id: str,
+    ) -> None:
+        novel_id = uuid.UUID(hex=imports_test_project_id)
+        record = await repo.create(
+            db_session,
+            novel_id,
+            "same.txt",
+            "txt",
+            100,
+            import_kind="source_revision",
+        )
+        await repo.update_status(db_session, record.id, status="done")
+
+        assert await repo.get_done_by_file_name(db_session, novel_id, "same.txt") is None
+
+    @pytest.mark.asyncio
     async def test_get_by_novel(
         self,
         repo: ImportRecordRepository,

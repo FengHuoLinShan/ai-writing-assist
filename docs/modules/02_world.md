@@ -189,6 +189,10 @@ Root `modules.world.facade` 是纯 re-export hub，用来保持旧跨模块 impo
 `mark_worldbuilding_context_stale()` 保持函数内 lazy import `modules.evidence.facade`，
 避免扩大 evidence ↔ world 循环 import 风险。
 
+RP source 整理可经同一 facade 传 `include_review=True`，仅为识别名称/别名是否对应多个对象；
+普通低置信属性不进入 RP 必需资料，歧义决议也只写 interaction source revision，不改动 World
+正史。人物知识条目会连同 source revision 冻结，运行时再按旅程截止章保守过滤。
+
 ```python
 # ---- CoreEntity ----
 async def list_entities(db, novel_id, *, entity_type=None, statuses=None, display_state=None, limit=100) -> list[dict]

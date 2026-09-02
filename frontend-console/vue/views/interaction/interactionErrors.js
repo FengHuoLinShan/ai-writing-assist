@@ -15,6 +15,10 @@ const ERROR_STATES = {
     message: "模型服务或网络暂时不可用；已保存的故事和草稿不会丢失。",
     action: "retry",
   },
+  timeout: {
+    message: "这次生成超时，请重新生成。",
+    action: "retry",
+  },
   content_filter: {
     message: "这次内容未能生成，请换一种说法后重试。",
     action: "rewrite",
@@ -22,6 +26,18 @@ const ERROR_STATES = {
   context_budget: {
     message: "当前故事暂时无法在安全范围内继续，请先查看并精简回顾。",
     action: "overview",
+  },
+  source_context_blocked: {
+    message: "作品资料暂时无法安全引用，请查看作品资料调整后重试。",
+    action: "source",
+  },
+  source_context_stale: {
+    message: "作品资料已变化，请重新生成。",
+    action: "retry",
+  },
+  empty_response: {
+    message: "这次没有生成内容，请重新生成。",
+    action: "retry",
   },
   concurrency: {
     message: "已有 8 段故事正在生成，请先等待或停止一段。",
@@ -63,15 +79,27 @@ function normalizedErrorKind(error) {
   return "generation_failed"
 }
 
+// 后端 DomainError 的 400/409 拒绝消息(建旅程、固定资料等)由服务层面向用户撰写,
+// 允许直接展示;422 等请求校验错误可能携带框架/解析器的英文诊断,不在透传范围。
+const DOMAIN_DETAIL_STATUSES = new Set([400, 409])
+const DOMAIN_DETAIL_KINDS = new Set(["validation_error", "conflict"])
+
 export function safeInteractionError(error, { opening = false } = {}) {
   const kind = normalizedErrorKind(error)
   const fallback = ERROR_STATES.generation_failed
   const state = ERROR_STATES[kind] || fallback
+  const domainDetail = DOMAIN_DETAIL_KINDS.has(String(error?.body?.error || ""))
+    && DOMAIN_DETAIL_STATUSES.has(error?.status)
+    && typeof error?.detail === "string"
+    && error.detail.trim()
+    ? error.detail.trim()
+    : ""
   return {
     kind,
     action: state.action,
-    message: opening && kind === "generation_failed"
-      ? "旅程暂时无法开始，开场内容已保留，请稍后重试。"
-      : state.message,
+    message: domainDetail
+      || (opening && kind === "generation_failed"
+        ? "旅程暂时无法开始，开场内容已保留，请稍后重试。"
+        : state.message),
   }
 }

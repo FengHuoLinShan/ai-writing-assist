@@ -158,10 +158,8 @@ class ContextConfirmationRepository:
             .join(
                 ContextConfirmationAssetRef,
                 and_(
-                    ContextConfirmationAssetRef.confirmation_id
-                    == ContextConfirmation.id,
-                    ContextConfirmationAssetRef.novel_id
-                    == ContextConfirmation.novel_id,
+                    ContextConfirmationAssetRef.confirmation_id == ContextConfirmation.id,
+                    ContextConfirmationAssetRef.novel_id == ContextConfirmation.novel_id,
                 ),
             )
             .where(
@@ -205,9 +203,11 @@ class ContextSnapshotRepository:
         token_metadata: dict,
         rendered_context: str | None,
         rendered_context_expires_at: datetime | None,
+        consumer_novel_id: uuid.UUID | None = None,
     ) -> ContextSnapshot:
         snapshot = ContextSnapshot(
             novel_id=novel_id,
+            consumer_novel_id=consumer_novel_id,
             task_id=task_id,
             workflow_id=workflow_id,
             phase=phase,

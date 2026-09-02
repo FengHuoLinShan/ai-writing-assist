@@ -18,6 +18,11 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - 自动检测文本编码
 - 按章节模式（第X章、Chapter X、卷X 等）自动分章
 - 将解析结果写入 writing_drafts（每章一个已发布正文版本），上传响应返回已保存章节摘要
+- 为 RP source 导入提供确定性两次校验：`preview_source_update()` 只解析/差异并签发
+  preview hash；`apply_source_update()` 在 project exclusive 锁内重新解析、重验版本 CAS 后才
+  写入 Writing。新导入的作者项目由 interaction API 在预览通过后才创建。
+- RP 完整稿按章序、标题和正文 hash 区分新增/修改/移除/不变；修改或移除要求二次
+  确认，历史版本只软废弃。追加稿只能从当前末章之后续接。
 - 记录导入历史
 - 提交并编排深度导入任务（`async_tasks` 负责调度/lease，
   `import_workflow_runs` 负责领域恢复事实）
@@ -280,6 +285,12 @@ async def start_deep_import_stage(db, novel_id, start_chapter, end_chapter, *, s
 async def run_submitted_deep_import_stage(db, task_id, *, stage) -> dict:
     """在隔离评测/手动 harness 内执行已提交且已授权的 stage task"""
 
+async def preview_source_update(db, **kwargs) -> tuple[SourceUpdatePreviewContract, list[dict]]:
+    """RP 作品版本只读预览，不持久化正文"""
+
+async def apply_source_update(db, **kwargs) -> SourceUpdateApplyContract:
+    """重验 preview hash 并写入已确认的完整/追加版本"""
+
 ```
 
 `run_submitted_deep_import_stage()` 只是评测/手动 harness seam，不新增
@@ -314,6 +325,8 @@ POST /api/imports/deep/abandon — 放弃恢复并清理同 workflow 自动派�
   最小投影读取，404 不回显 owner ID、task meta 或 result。
 
 - 文件类型白名单：txt, epub, html, htm, mobi, azw3
+- RP 用户界面在 MOBI/AZW3 真实解析依赖和文件验收补齐前，只展示
+  txt/epub/html/htm；内部白名单不等于已验收格式。
 - 文件大小上限：50MB
 - 文件名 sanitize：防止路径穿越
 - 客户端声明的 MIME 不作为信任依据；统一解析入口在调用具体解析器前校验实际

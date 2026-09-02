@@ -15,6 +15,7 @@ import {
   writeOpeningDraft,
 } from "./interactionSession.js"
 import RpAdaptiveConfirmPopover from "./RpAdaptiveConfirmPopover.vue"
+import RpSourceSetup from "./RpSourceSetup.vue"
 import { safeInteractionError } from "./interactionErrors.js"
 
 const props = defineProps({
@@ -44,6 +45,7 @@ const actionOptions = ref(true)
 const creating = ref(false)
 const createError = ref("")
 const createErrorAction = ref("")
+const sourceSelection = ref({ enabled: false, setup: null })
 const searching = ref(false)
 const loadingMore = ref(false)
 const seeSeaNoticeOpen = ref(false)
@@ -185,7 +187,12 @@ async function createJourney() {
     goConnect("journeys:new")
     return
   }
-  if (!opening.value.trim() || openingTooLong.value || creating.value) return
+  if (
+    !opening.value.trim()
+    || openingTooLong.value
+    || creating.value
+    || (sourceSelection.value.enabled && !sourceSelection.value.setup)
+  ) return
   creating.value = true
   createError.value = ""
   createErrorAction.value = ""
@@ -197,6 +204,9 @@ async function createJourney() {
       idempotency_key: interactionOperationKey("journey"),
       see_sea_enabled: seeSea.value,
       action_options_enabled: actionOptions.value,
+      source_setup: sourceSelection.value.enabled
+        ? sourceSelection.value.setup
+        : null,
     })
     if (!ownsRoute(owner)) {
       if (readOpeningDraft() === submittedOpening) writeOpeningDraft("")
@@ -378,13 +388,19 @@ onBeforeUnmount(() => {
     >
       <div class="rp-opening-intro">
         <h2 id="rp-opening-title">你想从哪里开始？</h2>
-        <p>不需要先整理资料。写下世界、你的身份和故事起点即可。</p>
+        <p>{{ sourceSelection.enabled
+          ? "先确认作品版本、剧情进度和玩家身份，再写下本次开场。"
+          : "不需要先整理资料。写下世界、你的身份和故事起点即可。" }}</p>
       </div>
       <div v-if="connectionStateKnown && !hasActiveConnection" class="rp-connection-callout">
         <strong>开始故事前需要先连接模型</strong>
         <span>已有内容不受影响，连接只用于之后的新生成。</span>
         <button type="button" @click="goConnect('journeys:new')">去连接模型</button>
       </div>
+      <RpSourceSetup
+        :disabled="creating"
+        @change="sourceSelection = $event"
+      />
       <div class="rp-opening-composer">
         <textarea
           v-model="opening"
@@ -399,7 +415,13 @@ onBeforeUnmount(() => {
         <button
           class="rp-send-button"
           type="button"
-          :disabled="creating || !opening.trim() || openingTooLong || !hasActiveConnection"
+          :disabled="
+            creating
+            || !opening.trim()
+            || openingTooLong
+            || !hasActiveConnection
+            || (sourceSelection.enabled && !sourceSelection.setup)
+          "
           aria-label="开始旅程"
           @click="createJourney"
         >{{ creating ? "…" : "↑" }}</button>
@@ -449,7 +471,7 @@ onBeforeUnmount(() => {
       </p>
       <p class="rp-shortcut-hint">⌘/Ctrl + Enter 开始，Enter 换行</p>
       <p class="rp-data-notice">
-        你的输入和当前旅程上下文会发送给所选模型服务，并保存在私人旅程中。请仅使用你有权处理的内容。
+        你的输入、当前旅程上下文和本轮需要的作品资料会发送给所选模型服务。旅程是私人分支，不会写回原作正文或世界资料。请仅使用你有权处理的内容。
       </p>
     </section>
 
@@ -501,6 +523,9 @@ onBeforeUnmount(() => {
         <button v-if="journey.status === 'active'" class="rp-journey-card__main" type="button" @click="openJourney(journey.id)">
           <span v-if="['pending', 'preparing_context', 'running'].includes(journey.attempt_status)" class="rp-generating-dot" aria-label="正在生成"></span>
           <strong>{{ journey.title }}</strong>
+          <small v-if="journey.source" class="rp-journey-source-label">
+            {{ journey.source.source_title }} · 资料版本 {{ journey.source.version_number }} · {{ journey.source.progress_label }}
+          </small>
           <span>{{ journey.current_excerpt || journey.opening_excerpt }}</span>
           <small class="rp-journey-card__meta">
             <span>{{
@@ -523,6 +548,9 @@ onBeforeUnmount(() => {
         </button>
         <div v-else class="rp-journey-card__main">
           <strong>{{ journey.title }}</strong>
+          <small v-if="journey.source" class="rp-journey-source-label">
+            {{ journey.source.source_title }} · 资料版本 {{ journey.source.version_number }} · {{ journey.source.progress_label }}
+          </small>
           <span>{{ journey.current_excerpt || journey.opening_excerpt }}</span>
           <small class="rp-journey-card__meta">
             <span>已归档</span>

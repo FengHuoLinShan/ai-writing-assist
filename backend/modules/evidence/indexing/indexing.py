@@ -161,9 +161,7 @@ class IndexingService:
         if task_id is not None and (
             not task_type or task_attempt is None or not task_lease_id
         ):
-            raise ValueError(
-                "task type, attempt, and lease are required with task_id"
-            )
+            raise ValueError("task type, attempt, and lease are required with task_id")
         if scene_annotation_only:
             return await self._refresh_scene_annotations_for_task(
                 db,
@@ -255,8 +253,7 @@ class IndexingService:
                         chapter_index=chapter_index,
                         content_mode=content_mode,
                         task_id=task_id,
-                        allow_pending_owner_takeover=task_type
-                        == "publish_chapter",
+                        allow_pending_owner_takeover=task_type == "publish_chapter",
                     )
                     if owner_token is None:
                         await db.rollback()
@@ -291,11 +288,7 @@ class IndexingService:
                     source_draft_id=plan.source_draft_id,
                     source_content_hash=plan.source_content_hash,
                     force=force,
-                    **(
-                        {"owner_token": owner_token}
-                        if owner_token is not None
-                        else {}
-                    ),
+                    **({"owner_token": owner_token} if owner_token is not None else {}),
                 )
                 if claim == "source_changed":
                     await db.rollback()
@@ -331,11 +324,7 @@ class IndexingService:
                     db,
                     novel_id=str(normalized_novel_id),
                     report=report,
-                    **(
-                        {"owner_token": owner_token}
-                        if owner_token is not None
-                        else {}
-                    ),
+                    **({"owner_token": owner_token} if owner_token is not None else {}),
                 )
                 # Release state/chunk locks before publish starts memory or a
                 # rebuild advances to the next chapter.
@@ -398,6 +387,11 @@ class IndexingService:
                 chapter_index,
                 source_type="chapter_text",
                 content_mode=content_mode,
+                source_id=(
+                    uuid.UUID(plan.items[0].source_id)
+                    if plan.items and plan.items[0].source_id
+                    else None
+                ),
             ),
             key=lambda chunk: (int(chunk.chunk_index or 0), str(chunk.id)),
         )

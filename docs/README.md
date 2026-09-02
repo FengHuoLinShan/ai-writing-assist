@@ -84,6 +84,7 @@
 ## 参考与历史资料
 
 - `references/` — 当前实现可查阅但不构成契约的分析和历史设计依据；包括
+  [`2026-09-01-rp-long-term-memory-research-and-decision-ledger.md`](references/2026-09-01-rp-long-term-memory-research-and-decision-ledger.md)（RP 长期记忆的跨平台调研、压缩与分支对象覆盖层持续决策台账）、
   [`world-object-worldbook-unification-research.md`](references/world-object-worldbook-unification-research.md)（世界对象、世界书与 Card 统一研究）、
   [`2026-08-27-frontend-world-task-workspace-research.md`](references/2026-08-27-frontend-world-task-workspace-research.md)（统一卡片后的世界资料库、作者任务与前端目录研究）、
   [`world-authority-canonical-fixtures-v1.json`](references/world-authority-canonical-fixtures-v1.json)（World Authority v1 规范字节夹具）、

@@ -22,6 +22,94 @@ from sqlalchemy.orm import Mapped, mapped_column
 from core.base import Base, TimestampMixin, UUIDMixin, UUIDType
 
 
+class InteractionSourceRevision(Base, UUIDMixin, TimestampMixin):
+    """Immutable same-owner author-project snapshot used by RP journeys."""
+
+    __tablename__ = "interaction_source_revisions"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('organizing', 'needs_confirmation', 'ready', 'failed')",
+            name="ck_interaction_source_revision_status",
+        ),
+        CheckConstraint(
+            "status != 'ready' OR fingerprint IS NOT NULL",
+            name="ck_interaction_source_ready_fingerprint",
+        ),
+        UniqueConstraint(
+            "source_novel_id",
+            "version_number",
+            name="uq_interaction_source_revision_version",
+        ),
+        UniqueConstraint(
+            "source_novel_id",
+            "manifest_hash",
+            name="uq_interaction_source_revision_manifest",
+        ),
+        Index(
+            "ix_interaction_source_revision_owner_status",
+            "owner_id",
+            "status",
+            "created_at",
+        ),
+    )
+
+    source_novel_id: Mapped[uuid.UUID] = mapped_column(
+        UUIDType,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUIDType,
+        ForeignKey("accounts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    parent_revision_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUIDType,
+        ForeignKey("interaction_source_revisions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    import_record_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUIDType,
+        ForeignKey("import_records.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    workflow_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUIDType,
+        ForeignKey("import_workflow_runs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    task_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUIDType,
+        ForeignKey("async_tasks.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="organizing", index=True
+    )
+    source_manifest: Mapped[list[dict]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
+    anchor_manifest: Mapped[list[dict]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
+    reference_manifest: Mapped[list[dict]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
+    ambiguities: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)
+    resolutions: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    readiness_summary: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    manifest_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    ready_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
 class InteractionJourney(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "interaction_journeys"
     __table_args__ = (
@@ -108,6 +196,17 @@ class InteractionJourney(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         default=dict,
     )
+    source_revision_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUIDType,
+        ForeignKey("interaction_source_revisions.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    source_anchor_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_anchor: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    player_identity: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    reference_policy: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    source_context_epoch: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     latest_activity_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -325,6 +424,26 @@ class InteractionGenerationAttempt(Base, UUIDMixin, TimestampMixin):
         JSON,
         nullable=False,
         default=list,
+    )
+    source_revision_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUIDType,
+        ForeignKey("interaction_source_revisions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    started_source_context_epoch: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    source_context_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUIDType,
+        ForeignKey("context_snapshots.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    source_context_fingerprint: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    reference_trace: Mapped[list[dict]] = mapped_column(
+        JSON, nullable=False, default=list
     )
     continuation_count: Mapped[int] = mapped_column(
         Integer,

@@ -11,7 +11,7 @@ import uuid
 from collections import defaultdict
 from collections.abc import Sequence
 
-from sqlalchemy import Float, and_, case, delete, exists, func, or_, select, text
+from sqlalchemy import Float, and_, case, delete, exists, func, or_, select, text, tuple_
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
@@ -62,6 +62,19 @@ class RagChunkRepository:
             )
         )
 
+    @staticmethod
+    def _append_source_manifest_filter(
+        conditions: list[ColumnElement[bool]],
+        source_manifest: dict[uuid.UUID, str] | None,
+    ) -> None:
+        if source_manifest is None:
+            return
+        conditions.append(
+            tuple_(RagChunk.source_id, RagChunk.source_content_hash).in_(
+                list(source_manifest.items())
+            )
+        )
+
     # ============================================================
     # 基础 CRUD
     # ============================================================
@@ -104,13 +117,14 @@ class RagChunkRepository:
     ) -> list[RagChunk]:
         """Replace one chapter/source chunk stream with idempotent keyed upserts."""
         if not items:
-            await self.delete_by_chapter(
-                db,
-                novel_id,
-                source_type,
-                chapter_index,
-                content_mode=content_mode,
-            )
+            if source_type != "chapter_text":
+                await self.delete_by_chapter(
+                    db,
+                    novel_id,
+                    source_type,
+                    chapter_index,
+                    content_mode=content_mode,
+                )
             return []
 
         for item in items:
@@ -127,18 +141,18 @@ class RagChunkRepository:
             if not item.index_version.strip():
                 raise ValueError("RAG chunk index_version is required")
             if item.content_mode != items[0].content_mode:
-                raise ValueError(
-                    "RAG chapter replacement requires one content_mode"
-                )
+                raise ValueError("RAG chapter replacement requires one content_mode")
 
         source_hashes = {
             item.source_content_hash for item in items if item.source_content_hash
         }
         if len(source_hashes) > 1:
-            raise ValueError(
-                "RAG chapter replacement requires one source_content_hash"
-            )
+            raise ValueError("RAG chapter replacement requires one source_content_hash")
         current_source_hash = next(iter(source_hashes), None)
+        source_ids = {item.source_id for item in items if item.source_id}
+        if len(source_ids) > 1:
+            raise ValueError("RAG chapter replacement requires one source draft")
+        current_source_id = uuid.UUID(next(iter(source_ids))) if source_ids else None
 
         await self._lock_chapter_chunks(db, novel_id, source_type, chapter_index)
 
@@ -172,7 +186,19 @@ class RagChunkRepository:
                 RagChunk.chunk_index.notin_(current_chunk_indices),
             ),
         )
+        if current_source_id is not None:
+            stale_stmt = stale_stmt.where(RagChunk.source_id == current_source_id)
         await db.execute(stale_stmt)
+        if source_type == "chapter_text" and current_source_id is not None:
+            await db.execute(
+                delete(RagChunk).where(
+                    RagChunk.novel_id == novel_id,
+                    RagChunk.source_type == source_type,
+                    RagChunk.chapter_index == chapter_index,
+                    RagChunk.content_mode == items[0].content_mode,
+                    RagChunk.source_id.is_(None),
+                )
+            )
         if source_type == "chapter_text":
             await self.replace_entity_appearances(
                 db,
@@ -190,6 +216,7 @@ class RagChunkRepository:
             chapter_index,
             source_type=source_type,
             content_mode=items[0].content_mode,
+            source_id=current_source_id,
         )
 
     def _build_chunk(
@@ -341,11 +368,10 @@ class RagChunkRepository:
 
     @staticmethod
     def _manual_upsert_key_from_row(row: dict) -> tuple:
-        source_id = row["source_id"] if row["source_type"] != "chapter_text" else None
         return (
             row["novel_id"],
             row["source_type"],
-            source_id,
+            row["source_id"],
             row["chapter_index"],
             row["chunk_index"],
             row["index_version"],
@@ -504,9 +530,7 @@ class RagChunkRepository:
                 appearance_conditions.append(
                     RagEntityAppearance.content_mode == content_mode
                 )
-            await db.execute(
-                delete(RagEntityAppearance).where(*appearance_conditions)
-            )
+            await db.execute(delete(RagEntityAppearance).where(*appearance_conditions))
         await db.flush()
         return result.rowcount
 
@@ -553,8 +577,7 @@ class RagChunkRepository:
         selected_chunks: list[RagChunkCreate | RagChunk] = [
             chunk
             for chunk in chunks
-            if str(getattr(chunk, "source_content_hash", "") or "")
-            == current_source_hash
+            if str(getattr(chunk, "source_content_hash", "") or "") == current_source_hash
         ]
         if scene_ids:
             await db.execute(
@@ -596,9 +619,7 @@ class RagChunkRepository:
     ) -> None:
         """Atomically replace a project's global Scene/chapter occurrence index."""
         await db.execute(
-            delete(RagEntityAppearance).where(
-                RagEntityAppearance.novel_id == novel_id
-            )
+            delete(RagEntityAppearance).where(RagEntityAppearance.novel_id == novel_id)
         )
         self._add_entity_appearance_rows(db, novel_id, chunks)
         await db.flush()
@@ -867,6 +888,7 @@ class RagChunkRepository:
         source_type: str = "chapter_text",
         visibility: str | None = None,
         content_mode: str = "canonical",
+        source_manifest: dict[uuid.UUID, str] | None = None,
     ) -> list[RagChunk]:
         """按章节范围读取有序 chunk。"""
         conditions = [
@@ -878,6 +900,7 @@ class RagChunkRepository:
         ]
         if visibility is not None:
             conditions.append(RagChunk.visibility == visibility)
+        self._append_source_manifest_filter(conditions, source_manifest)
 
         stmt = (
             select(RagChunk)
@@ -954,6 +977,7 @@ class RagChunkRepository:
         source_type: str | None = None,
         visibility: str | None = None,
         content_mode: str | None = None,
+        source_id: uuid.UUID | None = None,
     ) -> list[RagChunk]:
         """按章节索引检索"""
         conditions = [
@@ -966,6 +990,32 @@ class RagChunkRepository:
             conditions.append(RagChunk.visibility == visibility)
         if content_mode is not None:
             conditions.append(RagChunk.content_mode == content_mode)
+        if source_id is not None:
+            conditions.append(RagChunk.source_id == source_id)
+        elif source_type in {None, "chapter_text"}:
+            latest_conditions = [
+                RagChunk.novel_id == novel_id,
+                RagChunk.source_type == "chapter_text",
+                RagChunk.chapter_index == chapter_index,
+                RagChunk.source_id.is_not(None),
+            ]
+            if content_mode is not None:
+                latest_conditions.append(RagChunk.content_mode == content_mode)
+            latest_source_id = (
+                await db.execute(
+                    select(RagChunk.source_id)
+                    .where(*latest_conditions)
+                    .order_by(RagChunk.created_at.desc(), RagChunk.id.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if latest_source_id is not None:
+                current_chapter = RagChunk.source_id == latest_source_id
+                conditions.append(
+                    current_chapter
+                    if source_type == "chapter_text"
+                    else or_(RagChunk.source_type != "chapter_text", current_chapter)
+                )
 
         stmt = (
             select(RagChunk)
@@ -999,6 +1049,7 @@ class RagChunkRepository:
         visibility: str | None = None,
         visible_until_chapter: int | None = None,
         content_mode: str = "canonical",
+        source_manifest: dict[uuid.UUID, str] | None = None,
         limit: int = 20,
     ) -> list[RagChunk]:
         """关键词检索 — 使用简单的 SQL LIKE 文本匹配
@@ -1010,6 +1061,7 @@ class RagChunkRepository:
             RagChunk.novel_id == novel_id,
             RagChunk.content_mode == content_mode,
         ]
+        self._append_source_manifest_filter(conditions, source_manifest)
 
         # 构建关键词条件（OR 逻辑，匹配任意关键词即返回）
         query_terms = keyword_query_terms(query)
@@ -1087,6 +1139,7 @@ class RagChunkRepository:
         visibility: str | None = None,
         visible_until_chapter: int | None = None,
         content_mode: str = "canonical",
+        source_manifest: dict[uuid.UUID, str] | None = None,
         top_k: int = 12,
         ef_search: int = 40,
     ) -> list[tuple[RagChunk, float]]:
@@ -1113,6 +1166,7 @@ class RagChunkRepository:
                 visibility=visibility,
                 visible_until_chapter=visible_until_chapter,
                 content_mode=content_mode,
+                source_manifest=source_manifest,
                 top_k=top_k,
             )
 
@@ -1124,6 +1178,7 @@ class RagChunkRepository:
             RagChunk.embedding.is_not(None),
             RagChunk.content_mode == content_mode,
         ]
+        self._append_source_manifest_filter(conditions, source_manifest)
         if entity_ids:
             conditions.append(
                 self._json_array_contains_all(db, RagChunk.entity_ids, entity_ids)
@@ -1175,6 +1230,7 @@ class RagChunkRepository:
         visibility: str | None = None,
         visible_until_chapter: int | None = None,
         content_mode: str = "canonical",
+        source_manifest: dict[uuid.UUID, str] | None = None,
         top_k: int = 12,
     ) -> list[tuple[RagChunk, float]]:
         """SQLite 回退：Python 层计算余弦相似度"""
@@ -1185,6 +1241,7 @@ class RagChunkRepository:
             RagChunk.embedding.is_not(None),
             RagChunk.content_mode == content_mode,
         ]
+        self._append_source_manifest_filter(conditions, source_manifest)
         if entity_ids:
             conditions.append(
                 self._json_array_contains_all(db, RagChunk.entity_ids, entity_ids)
@@ -1258,14 +1315,89 @@ class RagChunkRepository:
         result = await db.execute(stmt)
         return result.scalar_one()
 
+    async def manifest_chapter_coverage(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        source_manifest: dict[uuid.UUID, str],
+    ) -> set[int]:
+        if not source_manifest:
+            return set()
+        result = await db.execute(
+            select(RagChunk.chapter_index)
+            .where(
+                RagChunk.novel_id == novel_id,
+                RagChunk.source_type == "chapter_text",
+                RagChunk.content_mode == "canonical",
+                tuple_(RagChunk.source_id, RagChunk.source_content_hash).in_(
+                    list(source_manifest.items())
+                ),
+            )
+            .distinct()
+        )
+        return {int(value) for value in result.scalars() if value is not None}
+
+    async def manifest_entity_appearances(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        source_manifest: dict[uuid.UUID, str],
+    ) -> dict[str, list[dict[str, int]]]:
+        """Return object chapter appearances from one exact draft manifest."""
+        if not source_manifest:
+            return {}
+        rows = (
+            await db.execute(
+                select(
+                    RagChunk.chapter_index,
+                    RagChunk.end_offset,
+                    RagChunk.entity_ids,
+                    RagChunk.character_ids,
+                ).where(
+                    RagChunk.novel_id == novel_id,
+                    RagChunk.source_type == "chapter_text",
+                    RagChunk.content_mode == "canonical",
+                    RagChunk.chapter_index.is_not(None),
+                    tuple_(RagChunk.source_id, RagChunk.source_content_hash).in_(
+                        list(source_manifest.items())
+                    ),
+                )
+            )
+        ).all()
+        positions: dict[str, dict[int, int]] = defaultdict(dict)
+        for chapter_index, end_offset, entity_ids, character_ids in rows:
+            if end_offset is None:
+                continue
+            for entity_id in {*list(entity_ids or []), *list(character_ids or [])}:
+                chapters = positions[str(entity_id)]
+                chapter = int(chapter_index)
+                chapters[chapter] = min(
+                    chapters.get(chapter, int(end_offset)),
+                    int(end_offset),
+                )
+        return {
+            entity_id: [
+                {"chapter_index": chapter, "first_end_offset": end_offset}
+                for chapter, end_offset in sorted(values.items())
+            ]
+            for entity_id, values in positions.items()
+        }
+
     async def list_scene_mapping_rows(
         self,
         db: AsyncSession,
         novel_id: uuid.UUID,
         *,
         content_mode: str,
+        source_manifest: dict[uuid.UUID, str] | None = None,
     ) -> list:
         """Load only fields required by Scene mapping coverage."""
+        conditions = [
+            RagChunk.novel_id == novel_id,
+            RagChunk.content_mode == content_mode,
+            RagChunk.source_type == "chapter_text",
+        ]
+        self._append_source_manifest_filter(conditions, source_manifest)
         stmt = (
             select(
                 RagChunk.id,
@@ -1277,11 +1409,7 @@ class RagChunkRepository:
                 RagChunk.scene_id,
                 RagChunk.scene_span_id,
             )
-            .where(
-                RagChunk.novel_id == novel_id,
-                RagChunk.content_mode == content_mode,
-                RagChunk.source_type == "chapter_text",
-            )
+            .where(and_(*conditions))
             .order_by(RagChunk.chapter_index, RagChunk.chunk_index, RagChunk.id)
         )
         result = await db.execute(stmt)

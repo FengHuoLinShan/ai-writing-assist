@@ -182,6 +182,28 @@ class ContextCompiler:
         )
 
         loader_names = list(SCOPE_LOADERS.get(options.scope, ["project"]))
+        if (
+            "rag_chunks" in loader_names
+            and isinstance(self._loaders.get("rag_chunks"), RagChunksLoader)
+            and options.source_manifest is None
+        ):
+            from modules.writing.facade import (
+                list_effective_chapter_indices,
+                list_manuscript_sources,
+            )
+
+            chapter_indices = await list_effective_chapter_indices(db, options.novel_id)
+            sources = await list_manuscript_sources(
+                db,
+                options.novel_id,
+                chapter_indices,
+                content_mode=options.content_mode,
+            )
+            options.source_manifest = {
+                str(item.id): item.content_hash
+                for item in sources
+                if item.id and item.content_hash
+            }
         if self._uses_scene_world_state(options):
             loader_names = list(dict.fromkeys(["scene", *loader_names, "memory_records"]))
         warnings: list[str] = []
@@ -326,12 +348,10 @@ class ContextCompiler:
             options.excluded_asset_ids.get("context_sections", []),
         )
         sections = [section.materialize_items() for section in sections]
-        sections, excluded_items, item_exclusion_warnings = (
-            self._apply_item_exclusions(
-                sections,
-                options.excluded_refs,
-                pinned_refs=options.pinned_refs,
-            )
+        sections, excluded_items, item_exclusion_warnings = self._apply_item_exclusions(
+            sections,
+            options.excluded_refs,
+            pinned_refs=options.pinned_refs,
         )
         sections, pin_blockers = await self._apply_pinned_refs(
             db,
@@ -376,9 +396,7 @@ class ContextCompiler:
         pinned_refs: list[dict],
     ) -> tuple[list[ContextSection], list[ContextItem], list[str]]:
         pinned_keys = {selection_ref_key(item) for item in pinned_refs}
-        excluded_keys = {
-            selection_ref_key(item) for item in excluded_refs
-        } - pinned_keys
+        excluded_keys = {selection_ref_key(item) for item in excluded_refs} - pinned_keys
         excluded_keys.discard("")
         if not excluded_keys:
             return sections, [], []
@@ -512,11 +530,7 @@ class ContextCompiler:
             if not text:
                 return None
             title = str(read.get("title") or f"第 {source_ref['chapter_index']} 章正文")
-            content = (
-                "<AUTHOR_PINNED_SOURCE_DATA>\n"
-                f"{text}\n"
-                "</AUTHOR_PINNED_SOURCE_DATA>"
-            )
+            content = f"<AUTHOR_PINNED_SOURCE_DATA>\n{text}\n</AUTHOR_PINNED_SOURCE_DATA>"
             source = {
                 "type": "writing_draft",
                 "id": str(source_ref["draft_id"]),
@@ -545,9 +559,7 @@ class ContextCompiler:
             )[:80]
             serialized = json.dumps(value, ensure_ascii=False, sort_keys=True)
             content = (
-                "<AUTHOR_PINNED_TARGET_DATA>\n"
-                f"{serialized}\n"
-                "</AUTHOR_PINNED_TARGET_DATA>"
+                f"<AUTHOR_PINNED_TARGET_DATA>\n{serialized}\n</AUTHOR_PINNED_TARGET_DATA>"
             )
             source = {
                 "type": str(target_ref.get("target_type") or "target"),

@@ -14,6 +14,9 @@ if TYPE_CHECKING:
     from modules.evidence.compilation.services.compiled_context import CompiledContext
 
 
+INTERACTION_SOURCE_CONTEXT_MAX_TOKENS = 16_000
+
+
 @dataclass
 class CompileOptions:
     """编译选项 — facade 与 compiler 之间的契约"""
@@ -61,6 +64,8 @@ class CompileOptions:
     """上下文模式：canonical / working"""
     content_mode: str = "canonical"
     """正文来源视图：canonical / working"""
+    source_manifest: dict[str, str] | None = None
+    """精确允许的 Writing draft/hash；默认由 compiler 读取当前版本"""
     include_pending_objects: bool = False
     """是否包含待处理对象"""
     excluded_asset_ids: dict[str, list[str]] = field(default_factory=dict)
@@ -175,6 +180,7 @@ class ContextSnapshotContract:
     rendered_context_expires_at: str | None
     created_at: str
     updated_at: str | None
+    consumer_novel_id: str | None = None
 
 
 @dataclass
@@ -202,6 +208,21 @@ class ContextSnapshotRequest:
     excluded_asset_ids: dict | list | None = None
     rendered_context: str | None = None
     retain_rendered_context: bool = False
+    consumer_novel_id: str | None = None
+
+
+@dataclass(frozen=True)
+class InteractionStoryContextContract:
+    """Version-pinned reference packet for one RP generation attempt."""
+
+    rendered_context: str
+    fingerprint: str
+    included_refs: list[dict[str, str]] = field(default_factory=list)
+    source_refs: list[dict] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    blockers: list[str] = field(default_factory=list)
+    snapshot_id: str | None = None
+    token_count: int = 0
 
 
 @dataclass(frozen=True)

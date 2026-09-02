@@ -20,6 +20,7 @@ from modules.project.facade import create_project_snapshot_llm_client
 _workflow = InteractionGenerationWorkflow()
 _CHECKPOINT_CHARS = 512
 _CHECKPOINT_SECONDS = 2.0
+_MAX_URGENT_SUMMARY_PASSES = 4
 
 
 @task_handler("interaction_story_generate", recovery_policy="restart_origin")
@@ -32,7 +33,13 @@ async def handle_interaction_story_generate(db, task):
     last_checkpoint = time.monotonic()
     try:
         prepared = await _workflow.prepare_story_task(db, task=task)
-        if isinstance(prepared, PreparedSummaryGeneration):
+        summary_passes = 0
+        while isinstance(prepared, PreparedSummaryGeneration):
+            summary_passes += 1
+            if summary_passes > _MAX_URGENT_SUMMARY_PASSES:
+                raise InteractionContextBudgetError(
+                    "urgent summary pass budget was exhausted"
+                )
             summary_diagnostics: list[dict] = []
             summary_client = create_project_snapshot_llm_client(
                 prepared.executable_settings,
@@ -61,10 +68,6 @@ async def handle_interaction_story_generate(db, task):
             if summary_result.get("status") != "completed":
                 return summary_result
             prepared = await _workflow.prepare_story_task(db, task=task)
-            if isinstance(prepared, PreparedSummaryGeneration):
-                raise InteractionContextBudgetError(
-                    "urgent summary did not reduce the story context"
-                )
         client = create_project_snapshot_llm_client(
             prepared.executable_settings,
             novel_id=prepared.novel_id,
@@ -165,10 +168,18 @@ async def handle_interaction_summary_refresh(db, task):
         if client is not None:
             await client.close()
     assert prepared is not None
-    return await _workflow.finalize_summary_task(
-        db,
-        task=task,
-        prepared=prepared,
-        output=output,
-        diagnostics=diagnostics,
-    )
+    try:
+        return await _workflow.finalize_summary_task(
+            db,
+            task=task,
+            prepared=prepared,
+            output=output,
+            diagnostics=diagnostics,
+        )
+    except Exception:
+        await _workflow.mark_summary_failed(
+            db,
+            task=task,
+            prepared=prepared,
+        )
+        raise

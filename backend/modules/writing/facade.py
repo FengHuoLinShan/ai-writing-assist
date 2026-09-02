@@ -28,6 +28,7 @@ __all__ = [
     "create_draft_only",
     "create_published_draft_only",
     "create_published_drafts_only",
+    "deprecate_chapter_versions",
     "get_author_attention_items",
     "get_draft",
     "get_latest_draft_for_chapter",
@@ -99,6 +100,15 @@ async def create_published_drafts_only(
     return await _service.create_published_draft_contracts(db, data_items)
 
 
+async def deprecate_chapter_versions(
+    db: AsyncSession,
+    novel_id: str,
+    chapter_index: int,
+) -> int:
+    """Soft-delete every version of one chapter for a confirmed source update."""
+    return await _service.delete_chapter(db, novel_id, chapter_index)
+
+
 async def create_draft(
     db: AsyncSession,
     novel_id: str,
@@ -130,6 +140,15 @@ async def get_draft(
 ) -> WritingDraftContract | None:
     """获取单个草稿的契约信息"""
     return await _service.get_draft_contract(db, novel_id, draft_id)
+
+
+async def list_drafts_by_ids(
+    db: AsyncSession,
+    novel_id: str,
+    draft_ids: list[str],
+) -> list[WritingDraftContract]:
+    """按 ID 批量获取草稿契约;隔离语义与 get_draft 一致。"""
+    return await _service.list_draft_contracts(db, novel_id, draft_ids)
 
 
 async def adopt_candidate_to_working(
@@ -229,7 +248,7 @@ async def get_author_attention_items(
 async def list_manuscript_sources(
     db: AsyncSession,
     novel_id: str,
-    chapter_indices: list[int],
+    chapter_indices: list[int] | None = None,
     *,
     content_mode: str = "canonical",
 ) -> list[WritingDraftContract]:

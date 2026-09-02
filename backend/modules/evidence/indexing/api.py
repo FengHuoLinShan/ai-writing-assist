@@ -92,6 +92,7 @@ async def retrieve_chunks(
     """混合检索 RAG 片段
 
     组合关键词匹配 + 关系匹配 + 重要性评分进行混合检索排序。
+    这是索引诊断入口；作者证据搜索会另行按当前 draft/hash manifest 过滤。
     """
     await _require_active_project(db, novel_id)
     result = await retrieve(

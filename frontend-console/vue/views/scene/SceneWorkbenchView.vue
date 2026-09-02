@@ -227,6 +227,7 @@
           :scene="storyWorkspace.scene"
           :simulation="storyWorkspace.simulation"
           :progress="storyWorkspace.simulationProgress"
+          :loading="storyWorkspace.loading"
           :running="storyWorkspace.simulationRunning"
           :reaction-running="storyWorkspace.reactionRunning"
           :error="storyWorkspace.loadError"

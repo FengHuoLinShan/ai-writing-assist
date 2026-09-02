@@ -1290,6 +1290,8 @@ async def test_generate_structured_retries_truncated_json_with_larger_budget() -
             "finish_reason": "length",
             "completion_tokens": 20000,
             "max_tokens": 20000,
+            "prompt_tokens": 0,
+            "total_tokens": 20000,
         },
         {
             "kind": "structured_usage",
@@ -1298,6 +1300,8 @@ async def test_generate_structured_retries_truncated_json_with_larger_budget() -
             "finish_reason": "stop",
             "completion_tokens": 8,
             "max_tokens": 40000,
+            "prompt_tokens": 0,
+            "total_tokens": 8,
         },
     ]
 
@@ -1596,6 +1600,8 @@ async def test_generate_structured_accepts_markdown_json() -> None:
             "finish_reason": "stop",
             "completion_tokens": 9,
             "max_tokens": 12_000,
+            "prompt_tokens": 0,
+            "total_tokens": 9,
         },
     ]
 
@@ -1657,6 +1663,35 @@ async def test_generate_structured_records_provider_cache_usage_diagnostics() ->
     assert usage["cache_hit_tokens"] == 75
     assert usage["cache_miss_tokens"] == 25
     assert usage["prompt_tokens"] == 100
+
+
+@pytest.mark.asyncio
+async def test_generate_structured_records_usage_without_cache_details() -> None:
+    client = LLMClient()
+    diagnostics: list[dict] = []
+
+    async def fake_generate(self: LLMClient, request: LLMCallRequest) -> LLMCallResponse:
+        return LLMCallResponse(
+            content='{"value": "plain"}',
+            finish_reason="stop",
+            usage=LLMUsage(prompt_tokens=40, completion_tokens=5, total_tokens=45),
+            model="fake",
+            provider="fake",
+        )
+
+    client.generate = MethodType(fake_generate, client)  # type: ignore[method-assign]
+
+    await client.generate_structured(
+        LLMCallRequest(model="fake", messages=[]),
+        _StructuredPayload,
+        max_fix_attempts=0,
+        diagnostics=diagnostics,
+    )
+
+    usage = next(item for item in diagnostics if item["kind"] == "structured_usage")
+    assert usage["prompt_tokens"] == 40
+    assert usage["completion_tokens"] == 5
+    assert usage["total_tokens"] == 45
 
 
 @pytest.mark.asyncio

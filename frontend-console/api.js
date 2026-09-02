@@ -592,6 +592,24 @@ function uploadImportFile(file, novelId, onProgress = null, options = {}) {
   return uploadMultipart("/imports/upload", formData, onProgress, options)
 }
 
+function uploadInteractionSource(path, payload, onProgress = null, options = {}) {
+  const formData = new FormData()
+  formData.append("file", payload.file)
+  formData.append("title", payload.title)
+  formData.append("mode", payload.mode || "full")
+  if (payload.projectId) formData.append("project_id", payload.projectId)
+  if (payload.expectedPreviewHash) {
+    formData.append("expected_preview_hash", payload.expectedPreviewHash)
+  }
+  if (payload.destructiveConfirmed != null) {
+    formData.append("destructive_confirmed", String(payload.destructiveConfirmed))
+  }
+  if (payload.authorizationConfirmed != null) {
+    formData.append("authorization_confirmed", String(payload.authorizationConfirmed))
+  }
+  return uploadMultipart(path, formData, onProgress, options)
+}
+
 function reportFrontendError(payload) {
   if (typeof fetch !== "function") return Promise.resolve()
   return fetch(`${API_BASE_URL}/debug/frontend-errors`, {
@@ -807,6 +825,78 @@ const api = {
   },
 
   interactions: {
+    listSources() {
+      return contractFetch(
+        "interactions.listSources",
+        {},
+        {},
+        { cache: "no-store" },
+      )
+    },
+    previewSourceImport(payload, onProgress = null, options = {}) {
+      return uploadInteractionSource(
+        "/interactions/sources/import-preview",
+        payload,
+        onProgress,
+        options,
+      )
+    },
+    importSource(payload, onProgress = null, options = {}) {
+      return uploadInteractionSource(
+        "/interactions/sources/import",
+        payload,
+        onProgress,
+        options,
+      )
+    },
+    sourceFromProject(payload) {
+      return contractJson(
+        "interactions.sourceFromProject",
+        {},
+        {},
+        payload,
+      )
+    },
+    getSource(revisionId) {
+      return contractFetch(
+        "interactions.getSource",
+        { revisionId },
+        {},
+        { cache: "no-store" },
+      )
+    },
+    resolveSourceAmbiguity(revisionId, ambiguityKey, choiceKey) {
+      return contractJson(
+        "interactions.resolveSourceAmbiguity",
+        { revisionId, ambiguityKey },
+        {},
+        { choice_key: choiceKey },
+      )
+    },
+    listSourceAnchors(revisionId, params = {}) {
+      return contractFetch(
+        "interactions.listSourceAnchors",
+        { revisionId },
+        params,
+        { cache: "no-store" },
+      )
+    },
+    matchSourceAnchors(revisionId, payload) {
+      return contractJson(
+        "interactions.matchSourceAnchors",
+        { revisionId },
+        {},
+        payload,
+      )
+    },
+    listSourceObjects(revisionId, params = {}) {
+      return contractFetch(
+        "interactions.listSourceObjects",
+        { revisionId },
+        params,
+        { cache: "no-store" },
+      )
+    },
     listJourneys(params = {}) {
       return contractFetch("interactions.listJourneys", {}, params, {
         cache: "no-store",
@@ -821,6 +911,30 @@ const api = {
         { journeyId },
         {},
         { cache: "no-store", ...options },
+      )
+    },
+    updateJourneySource(journeyId, payload) {
+      return contractJson(
+        "interactions.updateJourneySource",
+        { journeyId },
+        {},
+        payload,
+      )
+    },
+    getJourneyReferences(journeyId) {
+      return contractFetch(
+        "interactions.getJourneyReferences",
+        { journeyId },
+        {},
+        { cache: "no-store" },
+      )
+    },
+    updateJourneyReferences(journeyId, payload) {
+      return contractJson(
+        "interactions.updateJourneyReferences",
+        { journeyId },
+        {},
+        payload,
       )
     },
     getMessages(journeyId, params = {}) {

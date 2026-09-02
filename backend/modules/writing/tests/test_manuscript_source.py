@@ -9,6 +9,7 @@ from modules.writing.facade import (
     create_draft_only,
     create_published_draft_only,
     grep_manuscript,
+    list_manuscript_sources,
     read_manuscript_range,
 )
 from modules.writing.repositories import WritingDraftRepository
@@ -35,6 +36,14 @@ async def test_canonical_and_working_sources_are_distinct(
         "第一章",
         "新工作稿\n第二段",
     )
+    retained = await create_published_draft_only(
+        db_session,
+        test_project_id,
+        2,
+        "第二章",
+        "仍然有效的已发布正文",
+    )
+    await create_draft_only(db_session, test_project_id, 2, "第二章", "")
 
     canonical, _, _ = await grep_manuscript(
         db_session,
@@ -51,6 +60,13 @@ async def test_canonical_and_working_sources_are_distinct(
 
     assert canonical[0].source_ref.draft_id == published.id
     assert working[0].source_ref.draft_id != published.id
+    all_canonical = await list_manuscript_sources(
+        db_session,
+        test_project_id,
+        None,
+        content_mode="canonical",
+    )
+    assert {item.id for item in all_canonical} == {published.id, retained.id}
 
 
 @pytest.mark.asyncio

@@ -3,16 +3,18 @@
 ## 定位
 
 `interaction` 服务“进入幻想世界”的 RP 用户。它保存不可变消息树、当前分支选择、流式生成
-attempt 与分支有效回顾；不复用作者 World、Outline、RAG 或 memory，也不会把模型输出写回
-作者正史资产。
+attempt 与分支有效回顾。用户可继续直接使用模型知识，也可显式绑定同账号作者项目的
+不可变资料版本。后者只通过 Evidence 读取截止点前的原作证据；RP 输出、回顾和原创身份仍只写
+隐藏 interaction 项目，不写回作者正文、World 或 Story。
 
 每个旅程独占一个 `project_kind=interaction` 的隐藏项目，以 `novel_id + owner_id` 作为硬隔离
 根。作者项目 API 和工作台默认只接受 `project_kind=author`，interaction API 只接受隐藏项目。
 
 ## 稳定边界
 
-- 跨模块只调用 `modules.project.facade`（其内部解析 account 拥有的连接与全局偏好）和
-  `infrastructure.tasks.facade`。
+- 跨模块只调用 project/imports/writing/evidence/world/story 的 facade/contracts 和
+  `infrastructure.tasks.facade`。唯一跨项目例外见 ADR-0018：同 owner 的 author source
+  revision 可被 interaction consumer 只读引用。
 - 浏览器 API 只接受旅程 ID；服务端由当前 account principal 解析 `owner_id` 与 `novel_id`。
 - 消息节点不可变。用户修改、重新生成和切换发展只创建 sibling 或更新 branch selection。
 - 普通 Prompt、回顾与导出只编译代码层选中的路径。
@@ -32,10 +34,11 @@ attempt 与分支有效回顾；不复用作者 World、Outline、RAG 或 memory
 | 表 | 责任 |
 |---|---|
 | `interaction_journeys` | 旅程、标题、模式、当前选中叶、selection/overview epoch |
+| `interaction_source_revisions` | 作者项目的不可变 draft/hash manifest、剧情锚点、对象目录、歧义决议、整体 fingerprint 与就绪状态；不复制全文 |
 | `interaction_message_nodes` | 不可变 setup/story 节点和 complete/partial 正文 |
 | `interaction_branch_selections` | 每个分岔父节点当前选中的 child |
-| `interaction_generation_attempts` | 幂等请求、流式 buffer、snapshot、usage、错误与终态；上下文只持久化叶节点和完整路径 hash |
-| `interaction_summary_segments` | 按 token 覆盖范围保存的分段概要及其直接总回顾/checkpoint 来源 |
+| `interaction_generation_attempts` | 幂等请求、流式 buffer、selection/source epoch、Evidence snapshot/fingerprint、安全引用摘要、usage、错误与终态 |
+| `interaction_summary_segments` | 按 token 覆盖范围保存的分段概要及其直接上游总回顾 |
 | `interaction_overview_revisions` | 自动或手工总回顾的不可变 revision |
 | `interaction_account_preferences` | owner 级低频体验确认 |
 
@@ -46,16 +49,54 @@ selection epoch 仍匹配的第一个结果可成为当前路径。Prompt、回�
 
 ## 上下文与回顾
 
-- 首次故事只使用用户开场和模型训练知识；用户在旅程中的明确事实/纠正优先。
-- 正常输入预算起点为 256K token 估算；超过 512K 时在同一 attempt 内先做紧急结构化回顾；
-  超过 750K 时 fail-closed，不静默截断历史。这些数字是可校准实现参数，不是产品承诺。
+- 无 source 旅程仍使用用户开场和模型训练知识。source-bound 旅程在每个 attempt
+  通过 `evidence.compile_interaction_story_context()` 按固定 draft/hash manifest、章节、
+  Scene 派生 offset、玩家身份和固定/忽略策略编译参考资料。interaction 先计算本轮固定输入，
+  再把剩余额度传给 Evidence，且参考资料仍不得超过 16K；必需资料放不下时失败关闭。
+- 引用激活顺序是玩家身份/剧情锚点 → 固定对象 → 本轮名称/别名命中 → 原文检索
+  关联 → 有预算的一跳对象/关系。固定项失效或超预算时阻断；自动项可裁剪，忽略项不得
+  被关系扩展带回。
+- source 检索 query 由本轮输入、当前局面、重要人物、未决事项和最近发展确定性组成并有界
+  截断；即使用户只说“继续”，也不会丢掉当前旅程态种子。
+- 对象目录只收录冻结 draft/hash chunk 能证明的版本内出场，并保存首次出场章和最早完整 chunk
+  的 end offset；身份、搜索、固定项和生成激活都按剧情截止点过滤，未证明字段不进入 Prompt。
+- 关系只在其服务端 EvidenceLink 能回读并精确匹配当前冻结 `draft_id + source_hash + chapter` 时进入
+  资料版本；仅有旧 `review_meta` 章节号、未定位证据或旧稿证据的关系会被省略。
+- 原作角色使用截止点前的冻结 CharacterKnowledge 和精确原文；原创角色不创建 World
+  对象，知识上限是截止点前的读者可见资料。
+- `interaction-story-v4` 优先级是用户最新明确修正 → 当前选中旅程历史/手工回顾 →
+  固定版本截止点前的作品资料 → 模型训练知识。来源归档、manifest 或必需引用失效时
+  fail-closed，不退回纯模型知识。服务器在统一渲染边界中转义资料里的围栏结束标记，
+  身份描述、人物知识和原文都只能作为引用数据，不能闭合资料块后注入指令。
+- 输入预算来自 attempt 冻结的 model capability profile，并取字符估算与 shared tokenizer 的较大值。
+  当前已校准 DeepSeek V4 Flash 使用 256K normal、360K compact、400K hard input；unknown model
+  使用 16K/20K/24K short fallback。超过 compact trigger 时在同一 attempt 内先做紧急结构化回顾。
+  整理只读取兼容回顾后的最老连续 whole-node prefix；DeepSeek 单次摘要输入不超过 256K，并保留近期
+  至少一个完整对话节拍和约 16K 原文后缀；最多 4 个短事务 pass，仍无法容纳才 fail-closed。
+  不把整条 530K+ tail 先发给摘要模型，也不依赖 provider 静默截头。这些数字仍是待校准参数，
+  不是产品承诺。
 - 分段概要和总回顾由一次结构化调用同时生成，只记录已选路径中用户已经看到的内容。
+- 相关分段概要的确定性 selector、800-token/4-item 上限和“过去事件证据”数据块仅保留为
+  eval candidate。冻结生产 holdout 未通过用户明确修正硬门，因此当前没有任何 model profile
+  会把 segment 注入故事 Prompt；生产仍使用总回顾与未覆盖原文尾部。
 - 总回顾固定为世界与起点、我的角色、当前局面、重要人物与势力、关键转折、正在发展的事情、
   必须继续记住七个自然语言分区。用户保存修正会生成 manual revision，不改写原始消息。
-- 每 8 个仍属于当前选中分支的有效分段，把当次不可变累计总回顾 revision 标为 memory
-  checkpoint；后续分段记录直接上游总回顾和最近 checkpoint revision。这里不复制第二份
-  checkpoint 正文或另建聚合表，故事编译仍消费当前有效总回顾加尚未覆盖的原始尾部。
+- 任一 authority-compatible overview revision 都是可恢复的 prefix 起点；segment ordinal 不参与
+  选择、恢复或可用性判断。经 consumer audit 确认无运行时读取后，不再新增“每 8 段”标记；
+  历史 nullable 字段只作数据库兼容，不形成第二套 checkpoint。
+- 手工回顾 rebase 若再次整理同一 `path_hash + end_node_id`，复用已有 episode segment，只追加
+  基于当前 manual revision 的新总回顾，避免唯一约束冲突和重复往事。
+- 分支切换后重新选择回顾时，automatic revision 必须能沿 `based_on_revision_id` 追到当前路径上
+  最新适用的 manual revision；锚点更远但属于旧权威链的回顾不会重新晋升。后续多段 reducer
+  也沿 lineage 保留 manual 防复活约束，不只检查当前 head 的 `source`。
+- 每个 summary pass 仍用完整 selected-path hash/节点清单做 stale fence，但 segment 与新 overview
+  只覆盖本次 chunk-end prefix；输出至少净缩减 128 token 才原子推进 coverage。崩溃或重试从最近
+  已提交 prefix 继续，近期 raw suffix 的 role 与原文不变。
+- 故事页“记住这一点”把当前选中的故事片段与输入预填到“必须继续记住”，保留输入框原文并聚焦回顾字段；
+  只有用户再次点击保存才创建 manual revision，不自动发送或静默写入。
 - producer provenance 只保存 provider/model、Prompt/schema 版本和 token/call 统计等脱敏字段。
+- 资料版本只有在正文整理、精确索引和对象重标注任务均成功后才会 ready；对象重标注
+  `failed/cancelled` 会把版本置为可重试的 failed，不会静默 finalize。
 
 ## 流式、停止与恢复
 
@@ -86,14 +127,16 @@ selection epoch 仍匹配的第一个结果可成为当前路径。Prompt、回�
   “紧急整理→恢复故事”。缺少精确 usage、费用授权、官方上下文上限或专用数据库都会显式
   失败。报告只含数字与 provider/model，写入已忽略的
   `.test-artifacts/kimi-context-calibration.json`。
-- 上述门禁通过前，256K/512K/750K 只代表内部防护阈值，不能对外表述为“Kimi 已启用”或
-  “支持 1M 长旅程”。
+- 上述 Kimi 门禁通过前，Kimi/其他未知模型只使用 16K/20K/24K short fallback，不能对外表述为
+  “Kimi 已启用”或“支持 1M 长旅程”。
 
 ## API 分组
 
 路由前缀 `/api/interactions`：
 
 - 旅程：创建/列表/详情、标题、归档/恢复/永久删除、导出；
+- 作品资料：作者项目列表、两次文件校验导入、完整整理进度/恢复、关键歧义、章节内
+  剧情锚点、自然语言匹配、对象查找、旅程升级和固定/忽略；
 - 故事：发送、从节点继续、重新生成、编辑旧用户消息、选择分支；
 - 阅读：选中路径分页、完整轻量路径索引、最近分支、压缩树；
 - attempt：状态、SSE、停止、保留失败残段、length 续写、重试；
@@ -103,9 +146,9 @@ selection epoch 仍匹配的第一个结果可成为当前路径。Prompt、回�
 所有浏览器 API 从当前 account principal 解析 owner；跨 owner、错误 kind、已归档不可写和
 不属于该旅程的 node/attempt 统一拒绝。永久删除必须先归档并提交完整标题确认。
 
-## 第一版边界
+## 当前边界
 
-- 不读取作者 World、Outline、RAG、writing 或 memory；
-- 不导入小说文件，不支持按第 N 章分叉或手工剧透范围；
+- 一条旅程只绑定一部作品的一个资料版本，不做 crossover；
+- RP 导入对外只宣称 `.txt/.epub/.html/.htm`；MOBI/AZW3 未经真实文件门禁前不展示；
 - 不提供项目共享、公开发布、多人协作或复杂跑团数值；
 - 不把模型固定称为 DM，也不构建自治、多 Agent 或工具选择运行时。

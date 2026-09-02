@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import inspect
 import uuid
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +25,7 @@ from modules.evidence.indexing.contracts import (
 )
 from modules.evidence.indexing.facade import (
     create_chunk,
+    current_source_manifest,
     get_index_status,
     list_chunks,
     retrieve,
@@ -54,6 +57,25 @@ def test_rag_task_handlers_are_registered() -> None:
     handler = registry.get_handler("rag_reindex_novel")
     assert handler is not None
     assert callable(handler)
+
+
+@pytest.mark.asyncio
+async def test_current_source_manifest_keeps_unspecified_chapter_scope() -> None:
+    draft_id = uuid.uuid4()
+    db = SimpleNamespace()
+    with patch(
+        "modules.writing.facade.list_manuscript_sources",
+        autospec=True,
+        return_value=[SimpleNamespace(id=draft_id, content_hash="a" * 64)],
+    ) as list_sources:
+        manifest = await current_source_manifest(
+            db,
+            uuid.uuid4().hex,
+            content_mode="canonical",
+        )
+
+    assert manifest == {str(draft_id): "a" * 64}
+    assert list_sources.await_args.args[2] is None
 
 
 # ============================================================
@@ -230,6 +252,104 @@ class TestRagChunkRepository:
         )
         assert total == 2
         assert len(items) == 2
+
+    @pytest.mark.asyncio
+    async def test_chapter_range_filters_exact_source_manifest(
+        self,
+        repo: RagChunkRepository,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        old_source, current_source = uuid.uuid4(), uuid.uuid4()
+        old_entity, current_entity = uuid.uuid4(), uuid.uuid4()
+        for source_id, source_hash, entity_id, text in (
+            (old_source, "a" * 64, old_entity, "旧版本"),
+            (current_source, "b" * 64, current_entity, "当前版本"),
+        ):
+            await repo.create(
+                db_with_project,
+                sample_novel_id,
+                RagChunkCreate(
+                    source_type="chapter_text",
+                    source_id=str(source_id),
+                    source_content_hash=source_hash,
+                    chapter_index=1,
+                    chunk_index=0,
+                    start_offset=0,
+                    end_offset=len(text),
+                    text=text,
+                    entity_ids=[str(entity_id)],
+                ),
+            )
+
+        chunks = await repo.find_by_chapter_range(
+            db_with_project,
+            sample_novel_id,
+            1,
+            1,
+            source_manifest={current_source: "b" * 64},
+        )
+        appearances = await repo.manifest_entity_appearances(
+            db_with_project,
+            sample_novel_id,
+            {current_source: "b" * 64},
+        )
+
+        assert [chunk.text for chunk in chunks] == ["当前版本"]
+        assert appearances == {
+            str(current_entity): [
+                {"chapter_index": 1, "first_end_offset": len("当前版本")}
+            ]
+        }
+
+    @pytest.mark.asyncio
+    async def test_keyword_search_filters_by_source_manifest(
+        self,
+        repo: RagChunkRepository,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        """面向当前正文的搜索必须能按 manifest 排除被取代稿的 chunk。"""
+        old_source, current_source = uuid.uuid4(), uuid.uuid4()
+        for source_id, source_hash, text in (
+            (old_source, "a" * 64, "旧稿的怀表描述"),
+            (current_source, "b" * 64, "新稿的怀表描述"),
+        ):
+            await repo.create(
+                db_with_project,
+                sample_novel_id,
+                RagChunkCreate(
+                    source_type="chapter_text",
+                    source_id=str(source_id),
+                    source_content_hash=source_hash,
+                    chapter_index=1,
+                    chunk_index=0,
+                    start_offset=0,
+                    end_offset=len(text),
+                    text=text,
+                ),
+            )
+        await db_with_project.flush()
+
+        unfiltered = await repo.keyword_search(
+            db_with_project,
+            sample_novel_id,
+            "怀表",
+            content_mode="canonical",
+        )
+        assert {chunk.text for chunk in unfiltered} == {
+            "旧稿的怀表描述",
+            "新稿的怀表描述",
+        }
+
+        filtered = await repo.keyword_search(
+            db_with_project,
+            sample_novel_id,
+            "怀表",
+            content_mode="canonical",
+            source_manifest={current_source: "b" * 64},
+        )
+        assert [chunk.text for chunk in filtered] == ["新稿的怀表描述"]
 
     @pytest.mark.asyncio
     async def test_delete(

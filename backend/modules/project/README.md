@@ -4,6 +4,8 @@
 
 project 模块负责统一项目隔离根。作者项目使用 `project_kind=author`；每个 RP 旅程另有一个
 不出现在作者项目列表/回收站的 `project_kind=interaction` 隐藏项目。
+作者项目仍是 RP 作品资料的唯一源隔离根；interaction 只能经 ADR-0018 定义的同 owner
+不可变 source revision 读取，不能把 hidden consumer 当作作者项目。
 其他模块通过 `novel_id` 引用项目，并通过 kind-aware facade 获取项目配置或门禁。
 
 ## 职责
@@ -68,6 +70,9 @@ class InteractionProjectContract:
 ```
 
 ## Facade（facade.py）
+
+`create_author_project()` 是 RP 两次导入在预览通过后创建普通作者项目的窄稳定入口；
+它复用正常账号状态、owner、World canon 初始化和默认设置，不新增第三种 project kind。
 
 ```python
 async def get_project_context(db, novel_id: str) -> ProjectContext: ...
@@ -149,6 +154,10 @@ client。
 `owner_scope=global`、`novel_id=NULL` 的地图册和对象图片 S3 前缀清理任务，再删除项目。该顺序
 和图片上传的 share lock 共同阻止晚到对象；普通业务模块不能自行创建全局任务。
 
+project 还通过组合根注册的 `interaction.count_source_references` DI port 在永久删除前
+检查 RP 旅程引用。任一旅程仍绑定该 author source revision 时返回冲突；无旅程引用时
+source revision 随作者项目级联删除。软删除仍允许，但 source-bound 新生成在来源恢复前失败关闭。
+
 `build_project_llm_execution_snapshot()` 用于可恢复任务的提交时冻结：
 只持久化账户 provider/model/非 secret 参数、字段来源、deep-import 设置、
 Base URL/extra 的 hash 和脱敏摘要，不保存 API Key、完整 URL/query
@@ -156,6 +165,9 @@ Base URL/extra 的 hash 和脱敏摘要，不保存 API Key、完整 URL/query
 当前轮换后的账户 Key；即使账户切换到另一模板，旧任务仍按 snapshot 的 provider 恢复。
 原 provider 凭据被清除时 fail-closed，并拒绝 endpoint 或 provider-specific extra 漂移，
 并继续使用任务提交时的 model/参数/字段来源。
+snapshot 同时由 infrastructure 的唯一 capability registry 冻结 model budget profile 与 hash；
+interaction 只消费该冻结结果，不维护自己的模型窗口表。旧 snapshot 没有 capability 字段时使用
+明确的短窗口 legacy fallback，不把当前服务器默认静默写回旧任务。
 deep-import 快照在提交时已将项目值、环境覆盖和代码默认
 物化成显式字段，因此恢复期间的 env/default 变化不会改写已提交任务。
 

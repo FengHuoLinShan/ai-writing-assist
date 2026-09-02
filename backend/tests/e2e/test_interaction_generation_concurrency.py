@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -16,15 +17,25 @@ from modules.account.contracts import AccountPrincipal
 from modules.account.models import Account
 from modules.account.settings_models import AccountLLMCredential, GlobalLLMDefaults
 from modules.account.settings_service import SettingsService
+from modules.interaction.generation import (
+    InteractionGenerationWorkflow,
+    PreparedSummaryGeneration,
+)
 from modules.interaction.models import (
     InteractionAccountPreference,
     InteractionBranchSelection,
     InteractionGenerationAttempt,
     InteractionJourney,
     InteractionMessageNode,
+    InteractionOverviewRevision,
+    InteractionSummarySegment,
 )
 from modules.interaction.repositories import InteractionRepository
-from modules.interaction.services import InteractionService
+from modules.interaction.schemas import (
+    InteractionOverviewSections,
+    InteractionSummaryOutput,
+)
+from modules.interaction.services import InteractionService, path_hash
 from modules.project.facade import require_interaction_project
 from modules.project.models import Project
 from tests.e2e.config import DATABASE_URL
@@ -185,6 +196,192 @@ async def test_account_generation_lock_admits_only_the_eighth_attempt() -> None:
             )
             assert count == 8
     finally:
+        async with sessions.begin() as cleanup_db:
+            await cleanup_db.execute(delete(Account).where(Account.id == owner_id))
+        await engine.dispose()
+
+
+async def test_manual_rebase_reuses_episode_segment_on_postgresql() -> None:
+    engine = create_async_engine(DATABASE_URL, pool_size=2, max_overflow=0)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    owner_id = uuid.uuid4()
+    novel_id = uuid.uuid4()
+    journey_id = uuid.uuid4()
+    root_id = uuid.uuid4()
+    tail_id = uuid.uuid4()
+    manual_id = uuid.uuid4()
+    segment_id = uuid.uuid4()
+    selected_hash = path_hash([SimpleNamespace(id=root_id), SimpleNamespace(id=tail_id)])
+    root_hash = path_hash([SimpleNamespace(id=root_id)])
+    token = None
+    try:
+        async with sessions.begin() as setup_db:
+            setup_db.add(
+                Account(
+                    id=owner_id,
+                    status="active",
+                    support_code=f"rp-rebase-{owner_id.hex[:16]}",
+                )
+            )
+            setup_db.add(
+                Project(
+                    id=novel_id,
+                    owner_id=owner_id,
+                    project_kind="interaction",
+                    title="RP summary rebase",
+                )
+            )
+            await setup_db.flush()
+            journey = InteractionJourney(
+                id=journey_id,
+                novel_id=novel_id,
+                owner_id=owner_id,
+                title="幂等回顾",
+                title_source="fallback",
+                opening_text="合成开场",
+                status="active",
+                selection_epoch=0,
+                overview_epoch=1,
+                latest_activity_at=datetime.now(UTC),
+            )
+            setup_db.add(journey)
+            await setup_db.flush()
+            setup_db.add_all(
+                [
+                    InteractionMessageNode(
+                        id=root_id,
+                        novel_id=novel_id,
+                        journey_id=journey_id,
+                        role="user",
+                        message_kind="setup",
+                        content="合成开场",
+                        completion_state="complete",
+                        token_estimate=8,
+                    ),
+                    InteractionMessageNode(
+                        id=tail_id,
+                        novel_id=novel_id,
+                        journey_id=journey_id,
+                        parent_node_id=root_id,
+                        role="assistant",
+                        message_kind="story",
+                        content="已经发生的合成发展",
+                        completion_state="complete",
+                        token_estimate=12,
+                    ),
+                ]
+            )
+            await setup_db.flush()
+            setup_db.add_all(
+                [
+                    InteractionBranchSelection(
+                        novel_id=novel_id,
+                        journey_id=journey_id,
+                        parent_node_id=None,
+                        parent_key="__root__",
+                        selected_child_node_id=root_id,
+                    ),
+                    InteractionBranchSelection(
+                        novel_id=novel_id,
+                        journey_id=journey_id,
+                        parent_node_id=root_id,
+                        parent_key=str(root_id),
+                        selected_child_node_id=tail_id,
+                    ),
+                    InteractionOverviewRevision(
+                        id=manual_id,
+                        novel_id=novel_id,
+                        journey_id=journey_id,
+                        anchor_node_id=tail_id,
+                        path_hash=selected_hash,
+                        coverage_anchor_node_id=root_id,
+                        coverage_path_hash=root_hash,
+                        sections={"current_situation": "用户修正后的局面。"},
+                        source="manual",
+                        started_overview_epoch=0,
+                        promoted=True,
+                        producer={"kind": "user"},
+                    ),
+                    InteractionSummarySegment(
+                        id=segment_id,
+                        novel_id=novel_id,
+                        journey_id=journey_id,
+                        start_node_id=tail_id,
+                        end_node_id=tail_id,
+                        path_hash=selected_hash,
+                        token_count=12,
+                        content="既有 episode 概要",
+                        ordinal=1,
+                        producer={"kind": "model"},
+                    ),
+                ]
+            )
+            await setup_db.flush()
+            journey.selected_leaf_node_id = tail_id
+            journey.overview_head_revision_id = manual_id
+        token = bind_principal(_principal(owner_id))
+        task = SimpleNamespace(id=uuid.uuid4(), meta={}, progress=0.0)
+        task.update_progress = lambda value: setattr(task, "progress", value)
+        prepared = PreparedSummaryGeneration(
+            novel_id=str(novel_id),
+            journey_id=str(journey_id),
+            path_hash=selected_hash,
+            node_ids=[str(root_id), str(tail_id)],
+            segment_node_ids=[str(tail_id)],
+            segment_path_hash=selected_hash,
+            started_overview_epoch=1,
+            messages=[],
+            executable_settings={},
+        )
+
+        async def finalize_once() -> dict:
+            async with sessions.begin() as db:
+                db.task_checkpoint_enabled = True
+                return await InteractionGenerationWorkflow().finalize_summary_task(
+                    db,
+                    task=SimpleNamespace(
+                        id=task.id,
+                        meta={},
+                        progress=0.0,
+                        update_progress=lambda _value: None,
+                    ),
+                    prepared=prepared,
+                    output=InteractionSummaryOutput(
+                        segment_summary="这次重放不应重复插入。",
+                        overview=InteractionOverviewSections(
+                            current_situation="手工修正后继续形成的局面。"
+                        ),
+                    ),
+                )
+
+        results = await asyncio.gather(finalize_once(), finalize_once())
+        assert sorted(item["status"] for item in results) == ["completed", "stale"]
+        result = next(item for item in results if item["status"] == "completed")
+
+        async with sessions() as verify_db:
+            segment_count = await verify_db.scalar(
+                select(func.count(InteractionSummarySegment.id)).where(
+                    InteractionSummarySegment.journey_id == journey_id
+                )
+            )
+            revision = await verify_db.get(
+                InteractionOverviewRevision,
+                uuid.UUID(result["overview_revision_id"]),
+            )
+        assert segment_count == 1
+        assert result["segment_id"] == str(segment_id)
+        assert revision is not None
+        assert revision.based_on_revision_id == manual_id
+        reuse = revision.producer["summary_segment_reuse"]
+        assert reuse["exact_range"] is True
+        assert reuse["folded_range"] == {
+            "start_node_id": str(tail_id),
+            "end_node_id": str(tail_id),
+            "path_hash": selected_hash,
+        }
+    finally:
+        if token is not None:
+            reset_principal(token)
         async with sessions.begin() as cleanup_db:
             await cleanup_db.execute(delete(Account).where(Account.id == owner_id))
         await engine.dispose()

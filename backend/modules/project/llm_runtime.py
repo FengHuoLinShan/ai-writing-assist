@@ -14,6 +14,14 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import NotFoundError
+from infrastructure.llm.capabilities import (
+    LLM_CAPABILITY_EXECUTION_KEY,
+    LLM_CAPABILITY_SNAPSHOT_KEY,
+    LLMCapabilityError,
+    capability_from_execution_snapshot,
+    legacy_capability_snapshot,
+    resolve_llm_capability_profile,
+)
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.profiles import LLM_API_KEY_FIELD, resolve_llm_profile
 from modules.account.facade import resolve_account_llm_runtime_profile
@@ -124,6 +132,10 @@ async def build_project_llm_execution_snapshot(
         "novel_id": str(novel_id),
         "profile": public_profile,
         "sources": dict(sources),
+        LLM_CAPABILITY_SNAPSHOT_KEY: resolve_llm_capability_profile(
+            profile.provider_id,
+            profile.model,
+        ).to_snapshot(),
         "deep_import": materialize_effective_deep_import_settings(
             materialized,
             inherited_llm_max_tokens=profile.max_tokens,
@@ -164,12 +176,14 @@ async def restore_project_llm_execution_settings(
     if not public_profile.get("model") or not public_profile.get("base_url_hash"):
         raise ProjectLLMConfigurationError("Project LLM base_url and model are required")
 
-    materialized, current_profile, _current_sources = (
-        await _resolve_project_runtime_profile(
-            db,
-            novel_id,
-            provider_id=str(public_profile.get("provider_id") or ""),
-        )
+    (
+        materialized,
+        current_profile,
+        _current_sources,
+    ) = await _resolve_project_runtime_profile(
+        db,
+        novel_id,
+        provider_id=str(public_profile.get("provider_id") or ""),
     )
     if not current_profile.api_key:
         raise ProjectLLMConfigurationError("Project LLM API key is not configured")
@@ -201,12 +215,24 @@ async def restore_project_llm_execution_settings(
     restored_llm = {
         key: value for key, value in restored_llm.items() if value is not None
     }
+    try:
+        capability = (
+            capability_from_execution_snapshot(snapshot).to_snapshot()
+            if isinstance(snapshot.get(LLM_CAPABILITY_SNAPSHOT_KEY), dict)
+            else legacy_capability_snapshot(
+                str(public_profile.get("provider_id") or ""),
+                str(public_profile.get("model") or ""),
+            )
+        )
+    except LLMCapabilityError as exc:
+        raise ProjectLLMConfigurationError(str(exc)) from exc
     return {
         "llm": restored_llm,
         "deep_import": deepcopy(snapshot.get("deep_import") or {}),
         DEEP_IMPORT_FROZEN_SETTINGS_KEY: True,
         _RUNTIME_SOURCES_KEY: dict(sources),
         "_llm_execution_profile_hash": expected_hash,
+        LLM_CAPABILITY_EXECUTION_KEY: capability,
     }
 
 

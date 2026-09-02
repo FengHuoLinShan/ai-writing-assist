@@ -42,6 +42,10 @@ from modules.interaction.schemas import (
     InteractionPathIndexItemResponse,
     InteractionPathIndexResponse,
     InteractionPreferencesResponse,
+    InteractionReferenceSummaryResponse,
+    InteractionReferenceUpdateRequest,
+    InteractionSourceObjectResponse,
+    InteractionSourceUpdateRequest,
     InteractionStopResponse,
     InteractionTreeBranchPointResponse,
     InteractionTreeResponse,
@@ -51,6 +55,7 @@ from modules.interaction.schemas import (
     JourneyListResponse,
     JourneySummaryResponse,
 )
+from modules.interaction.source_service import InteractionSourceService
 from modules.project.contracts import ProjectLLMConfigurationError
 from modules.project.facade import (
     archive_interaction_project,
@@ -79,6 +84,24 @@ def path_hash(nodes: list[InteractionMessageNode]) -> str:
     return hashlib.sha256(payload.encode("ascii")).hexdigest()
 
 
+def _summary_compressible_prefix_end(
+    nodes: list[InteractionMessageNode],
+) -> int:
+    """Return the exclusive end of the oldest prefix safe to summarize."""
+    if len(nodes) <= 2:
+        return 0
+    protected_tokens = 0
+    index = len(nodes)
+    while index > 0 and (
+        protected_tokens < SUMMARY_TRIGGER_TOKENS or len(nodes) - index < 2
+    ):
+        index -= 1
+        protected_tokens += max(1, nodes[index].token_estimate)
+    if index > 0 and nodes[index].role == "assistant" and nodes[index - 1].role == "user":
+        index -= 1
+    return index
+
+
 def _parse_uuid(value: str, field: str) -> uuid.UUID:
     try:
         return uuid.UUID(str(value))
@@ -102,8 +125,13 @@ def _fallback_title(opening_text: str) -> str:
 
 
 class InteractionService:
-    def __init__(self, repo: InteractionRepository | None = None) -> None:
+    def __init__(
+        self,
+        repo: InteractionRepository | None = None,
+        source_service: InteractionSourceService | None = None,
+    ) -> None:
         self._repo = repo or InteractionRepository()
+        self._sources = source_service or InteractionSourceService(self._repo)
 
     async def create_journey(
         self,
@@ -150,7 +178,16 @@ class InteractionService:
                 attempt=self._attempt_response(existing),
             )
         await self._require_generation_slot(db, owner_id)
-        title = _fallback_title(data.opening_text)
+        source_binding = (
+            await self._sources.prepare_setup(db, data.source_setup)
+            if data.source_setup
+            else None
+        )
+        title = (
+            f"{source_binding[0].title} · 新旅程"[:255]
+            if source_binding
+            else _fallback_title(data.opening_text)
+        )
         project = await create_interaction_project(db, title=title)
         now = datetime.now(UTC)
         journey = InteractionJourney(
@@ -165,6 +202,14 @@ class InteractionService:
             action_options_enabled=data.action_options_enabled,
             selection_epoch=0,
             overview_epoch=0,
+            source_revision_id=source_binding[0].id if source_binding else None,
+            source_anchor_key=(
+                source_binding[1]["anchor_key"] if source_binding else None
+            ),
+            source_anchor=source_binding[1] if source_binding else {},
+            player_identity=source_binding[2] if source_binding else {},
+            reference_policy=source_binding[3] if source_binding else {},
+            source_context_epoch=0,
             latest_activity_at=now,
         )
         db.add(journey)
@@ -253,14 +298,28 @@ class InteractionService:
             owner_id=owner_id,
             journeys=items,
         )
+        source_requests = [
+            {
+                "revision_id": journey.source_revision_id,
+                "anchor": journey.source_anchor,
+                "player_identity": journey.player_identity,
+                "source_context_epoch": journey.source_context_epoch,
+            }
+            for journey in items
+            if journey.source_revision_id
+        ]
+        source_responses = await self._sources.journey_source_responses(
+            db,
+            source_requests,
+        )
         responses: list[JourneySummaryResponse] = []
+        source_index = 0
         for journey in items:
             selected_attempt = selected_attempts.get(journey.id)
             active_on_path = (
                 selected_attempt
                 if selected_attempt is not None
-                and selected_attempt.status
-                in {"pending", "preparing_context", "running"}
+                and selected_attempt.status in {"pending", "preparing_context", "running"}
                 else None
             )
             current = None
@@ -310,8 +369,17 @@ class InteractionService:
                     active_attempt_id=(
                         str(active_on_path.id) if active_on_path else None
                     ),
+                    source=(
+                        # 两个列表必须同序:source_requests 按 source-bound 旅程
+                        # 出现顺序构造,这里逐个消费。
+                        source_responses[source_index]
+                        if journey.source_revision_id
+                        else None
+                    ),
                 )
             )
+            if journey.source_revision_id:
+                source_index += 1
         return JourneyListResponse(items=responses, total=total)
 
     async def get_journey(
@@ -329,6 +397,183 @@ class InteractionService:
             require_project=status == "active",
         )
         return await self._detail(db, journey)
+
+    async def update_journey_source(
+        self,
+        db: AsyncSession,
+        *,
+        journey_id: str,
+        data: InteractionSourceUpdateRequest,
+    ) -> JourneyDetailResponse:
+        journey = await self._active_journey_for_update(db, journey_id)
+        self._check_epoch(journey, data.expected_selection_epoch)
+        self._check_source_epoch(journey, data.expected_source_context_epoch)
+        await self._require_source_mutable(db, journey)
+        if journey.source_revision_id is None:
+            raise ConflictError("已开始的无资料旅程不能中途切换作品，请新建旅程")
+        current = await self._sources.require_ready_revision(
+            db, journey.source_revision_id
+        )
+        target = await self._sources.require_ready_revision(
+            db, _parse_uuid(data.source_revision_id, "source_revision_id")
+        )
+        if target.source_novel_id != current.source_novel_id:
+            raise ConflictError("已开始的旅程不能切换作品，请新建旅程")
+        target_anchor = self._sources._find_anchor(target, data.progress_anchor_key)
+        old_position = (
+            int((journey.source_anchor or {}).get("chapter_index") or 0),
+            int((journey.source_anchor or {}).get("end_offset") or 0),
+        )
+        new_position = (
+            int(target_anchor.get("chapter_index") or 0),
+            int(target_anchor.get("end_offset") or 0),
+        )
+        if new_position < old_position:
+            raise ConflictError("已开始的旅程不能回退剧情进度，请新建旅程")
+
+        old_refs = {
+            item["reference_key"]: item for item in current.reference_manifest or []
+        }
+        new_refs = {item["target_id"]: item for item in target.reference_manifest or []}
+
+        def available(item: dict | None) -> bool:
+            return bool(
+                item and self._sources._reference_visible(target, item, target_anchor)
+            )
+
+        def remap(keys: list[str], *, required: bool) -> list[str]:
+            mapped = []
+            for key in keys:
+                old = old_refs.get(key)
+                new = new_refs.get(old.get("target_id")) if old else None
+                if not available(new):
+                    if required:
+                        raise ConflictError("新版本无法对应已固定对象，请新建旅程")
+                    continue
+                mapped.append(new["reference_key"])
+            return mapped
+
+        policy = dict(journey.reference_policy or {})
+        player = dict(journey.player_identity or {})
+        if player.get("kind") == "source_character":
+            replacement = new_refs.get(player.get("target_id"))
+            if (
+                not available(replacement)
+                or replacement.get("entity_type") != "character"
+            ):
+                raise ConflictError("新版本无法对应玩家角色，请新建旅程")
+            player.update(
+                reference_key=replacement["reference_key"],
+                label=replacement["label"],
+            )
+        journey.source_revision_id = target.id
+        journey.source_anchor_key = target_anchor["anchor_key"]
+        journey.source_anchor = target_anchor
+        journey.player_identity = player
+        journey.reference_policy = {
+            "pinned": remap(list(policy.get("pinned") or []), required=True),
+            "excluded": remap(list(policy.get("excluded") or []), required=False),
+        }
+        journey.source_context_epoch += 1
+        self._repo.touch(journey)
+        await db.flush()
+        return await self._detail(db, journey)
+
+    async def update_references(
+        self,
+        db: AsyncSession,
+        *,
+        journey_id: str,
+        data: InteractionReferenceUpdateRequest,
+    ) -> InteractionReferenceSummaryResponse:
+        journey = await self._active_journey_for_update(db, journey_id)
+        self._check_source_epoch(journey, data.expected_source_context_epoch)
+        await self._require_source_mutable(db, journey)
+        if journey.source_revision_id is None:
+            raise ConflictError("该旅程未使用作品资料")
+        revision = await self._sources.require_ready_revision(
+            db, journey.source_revision_id
+        )
+        references = {
+            item["reference_key"]: item for item in revision.reference_manifest or []
+        }
+        policy = dict(journey.reference_policy or {})
+        pinned = list(policy.get("pinned") or [])
+        excluded = list(policy.get("excluded") or [])
+        key = data.reference_key
+        if data.action == "reset":
+            pinned, excluded = [], []
+        elif key not in references:
+            raise ValidationError("所选作品资料已不可用")
+        elif data.action == "pin":
+            if not self._sources._reference_visible(
+                revision,
+                references[key],
+                journey.source_anchor or {},
+            ):
+                raise ValidationError("所选作品资料超出当前剧情进度")
+            pinned = list(dict.fromkeys([*pinned, key]))
+            excluded = [item for item in excluded if item != key]
+        else:
+            if key == (journey.player_identity or {}).get("reference_key"):
+                raise ValidationError("玩家角色不能被忽略")
+            excluded = list(dict.fromkeys([*excluded, key]))
+            pinned = [item for item in pinned if item != key]
+        journey.reference_policy = {"pinned": pinned, "excluded": excluded}
+        journey.source_context_epoch += 1
+        self._repo.touch(journey)
+        await db.flush()
+        return await self.get_reference_summary(db, journey_id=journey_id)
+
+    async def get_reference_summary(
+        self,
+        db: AsyncSession,
+        *,
+        journey_id: str,
+    ) -> InteractionReferenceSummaryResponse:
+        journey = await self._owned_journey(db, journey_id)
+        if journey.source_revision_id is None:
+            raise ConflictError("该旅程未使用作品资料")
+        revision = await self._sources.require_ready_revision(
+            db, journey.source_revision_id
+        )
+        references = {
+            item["reference_key"]: item for item in revision.reference_manifest or []
+        }
+        policy = journey.reference_policy or {}
+
+        def objects(keys: list[str]) -> list[InteractionSourceObjectResponse]:
+            return [
+                self._sources._object_response(references[key])
+                for key in keys
+                if key in references
+            ]
+
+        latest = None
+        if journey.selected_leaf_node_id:
+            latest = await self._repo.get_latest_attempt_for_selected_leaf(
+                db,
+                journey=journey,
+                response_to_node_id=journey.selected_leaf_node_id,
+            )
+        return InteractionReferenceSummaryResponse(
+            source=await self._sources.journey_source_response(
+                db,
+                revision_id=journey.source_revision_id,
+                anchor=journey.source_anchor,
+                player_identity=journey.player_identity,
+                source_context_epoch=journey.source_context_epoch,
+            ),
+            pinned=objects(list(policy.get("pinned") or [])),
+            excluded=objects(list(policy.get("excluded") or [])),
+            last_used=[
+                {
+                    "label": str(item.get("label") or "作品资料"),
+                    "reason": str(item.get("reason") or "原文片段关联"),
+                }
+                for item in (latest.reference_trace if latest else [])
+            ],
+        )
 
     async def get_message_page(
         self,
@@ -1297,15 +1542,7 @@ class InteractionService:
         status = (
             "refreshing"
             if refreshing
-            else (
-                "failed"
-                if failed
-                else (
-                    "ready"
-                    if head is not None
-                    else "forming"
-                )
-            )
+            else ("failed" if failed else ("ready" if head is not None else "forming"))
         )
         return InteractionOverviewResponse(
             sections=InteractionOverviewSections.model_validate(
@@ -1313,9 +1550,7 @@ class InteractionService:
             ),
             source=head.source if head else "automatic",
             overview_epoch=journey.overview_epoch,
-            anchor_node_id=(
-                str(self._overview_coverage_anchor(head)) if head else None
-            ),
+            anchor_node_id=(str(self._overview_coverage_anchor(head)) if head else None),
             updated_at=head.created_at if head else None,
             is_refreshing=refreshing,
             status=status,
@@ -1430,9 +1665,8 @@ class InteractionService:
             journey=journey,
             revision_id=_parse_uuid(base_revision_id, "base_revision_id"),
         )
-        if (
-            base_revision is None
-            or not self._overview_matches_path(base_revision, original_path)
+        if base_revision is None or not self._overview_matches_path(
+            base_revision, original_path
         ):
             raise ConflictError(
                 "旅程在别处发生了变化",
@@ -1450,35 +1684,19 @@ class InteractionService:
                 code="interaction_overview_conflict",
             )
         previous.promoted = False
-        checkpoint_revision_id = self._overview_checkpoint_revision_id(
-            base_revision
-        )
         revision = InteractionOverviewRevision(
             novel_id=journey.novel_id,
             journey_id=journey.id,
             anchor_node_id=base_leaf_id,
             path_hash=base_selected_path_hash,
-            coverage_anchor_node_id=self._overview_coverage_anchor(
-                base_revision
-            ),
+            coverage_anchor_node_id=self._overview_coverage_anchor(base_revision),
             coverage_path_hash=self._overview_coverage_hash(base_revision),
             sections=sections.model_dump(),
             source="manual",
             based_on_revision_id=base_revision.id,
             started_overview_epoch=journey.overview_epoch,
             promoted=True,
-            producer={
-                "kind": "user",
-                **(
-                    {
-                        "memory_checkpoint_base_revision_id": str(
-                            checkpoint_revision_id
-                        )
-                    }
-                    if checkpoint_revision_id is not None
-                    else {}
-                ),
-            },
+            producer={"kind": "user"},
         )
         db.add(revision)
         await db.flush()
@@ -1486,23 +1704,24 @@ class InteractionService:
         journey.overview_epoch += 1
         self._repo.touch(journey)
         enqueued = False
-        try:
-            snapshot = await build_project_llm_execution_snapshot(
-                db,
-                str(journey.novel_id),
-            )
-            await self._enqueue_overview_refresh(
-                db,
-                journey=journey,
-                path=path,
-                snapshot=snapshot,
-            )
-            enqueued = True
-        except ProjectLLMConfigurationError:
-            # The user's correction is valid without a connected model. The
-            # uncovered raw tail remains in story compilation until a later
-            # automatic refresh can absorb it.
-            pass
+        if await self._overview_refresh_is_due(db, journey=journey, path=path):
+            try:
+                snapshot = await build_project_llm_execution_snapshot(
+                    db,
+                    str(journey.novel_id),
+                )
+                await self._enqueue_overview_refresh(
+                    db,
+                    journey=journey,
+                    path=path,
+                    snapshot=snapshot,
+                )
+                enqueued = True
+            except ProjectLLMConfigurationError:
+                # The user's correction is valid without a connected model. The
+                # uncovered raw tail remains in story compilation until a later
+                # automatic refresh can absorb it.
+                pass
         return InteractionOverviewResponse(
             sections=InteractionOverviewSections.model_validate(revision.sections),
             source=revision.source,
@@ -1784,6 +2003,31 @@ class InteractionService:
                 context={"current_selection_epoch": journey.selection_epoch},
             )
 
+    @staticmethod
+    def _check_source_epoch(journey: InteractionJourney, expected: int) -> None:
+        if journey.source_context_epoch != expected:
+            raise ConflictError(
+                "作品资料已在其他页面更新，请刷新后重试",
+                context={"current_source_context_epoch": journey.source_context_epoch},
+            )
+
+    async def _require_source_mutable(
+        self,
+        db: AsyncSession,
+        journey: InteractionJourney,
+    ) -> None:
+        if await self._repo.get_active_attempt(db, journey=journey):
+            raise ConflictError("生成进行中，暂不能修改作品资料")
+        if journey.selected_leaf_node_id is None:
+            return
+        latest = await self._repo.get_latest_attempt_for_selected_leaf(
+            db,
+            journey=journey,
+            response_to_node_id=journey.selected_leaf_node_id,
+        )
+        if latest is not None and latest.status == "awaiting_continue":
+            raise ConflictError("请先处理当前未完整的回应")
+
     async def _ensure_no_active_attempt(
         self,
         db: AsyncSession,
@@ -1908,6 +2152,8 @@ class InteractionService:
             request_kind=request_kind,
             status="pending",
             started_selection_epoch=journey.selection_epoch,
+            source_revision_id=journey.source_revision_id,
+            started_source_context_epoch=journey.source_context_epoch,
             visible_text="",
             visible_offset=0,
             metadata_text="",
@@ -1918,11 +2164,7 @@ class InteractionService:
             # across a long journey.
             context_node_ids=[str(response_to.id)],
             reference_node_ids=[str(node_id) for node_id in (reference_node_ids or [])],
-            usage=(
-                {"see_sea_adopted": True}
-                if journey.see_sea_enabled
-                else {}
-            ),
+            usage=({"see_sea_adopted": True} if journey.see_sea_enabled else {}),
         )
         db.add(attempt)
         await db.flush()
@@ -2285,6 +2527,17 @@ class InteractionService:
             messages=[self._message_response(node) for node in recent],
             has_older_messages=len(story) > len(recent),
             active_attempt=self._attempt_response(active) if active else None,
+            source=(
+                await self._sources.journey_source_response(
+                    db,
+                    revision_id=journey.source_revision_id,
+                    anchor=journey.source_anchor,
+                    player_identity=journey.player_identity,
+                    source_context_epoch=journey.source_context_epoch,
+                )
+                if journey.source_revision_id
+                else None
+            ),
         )
 
     @staticmethod
@@ -2329,6 +2582,13 @@ class InteractionService:
             result_node_id=(
                 str(attempt.result_node_id) if attempt.result_node_id else None
             ),
+            references=[
+                {
+                    "label": str(item.get("label") or "作品资料"),
+                    "reason": str(item.get("reason") or "原文片段关联"),
+                }
+                for item in attempt.reference_trace or []
+            ],
             created_at=attempt.created_at,
         )
 
@@ -2371,25 +2631,6 @@ class InteractionService:
     ) -> str:
         return overview.coverage_path_hash or overview.path_hash
 
-    @staticmethod
-    def _overview_checkpoint_revision_id(
-        overview: InteractionOverviewRevision | None,
-    ) -> uuid.UUID | None:
-        if overview is None:
-            return None
-        producer = dict(overview.producer or {})
-        checkpoint = dict(producer.get("memory_checkpoint") or {})
-        checkpoint_id = (
-            checkpoint.get("overview_revision_id")
-            or producer.get("memory_checkpoint_base_revision_id")
-        )
-        if not checkpoint_id:
-            return None
-        try:
-            return uuid.UUID(str(checkpoint_id))
-        except (TypeError, ValueError):
-            return None
-
     @classmethod
     def _overview_coverage_matches_path(
         cls,
@@ -2401,9 +2642,8 @@ class InteractionService:
         if anchor not in ids:
             return False
         anchor_index = ids.index(anchor)
-        return (
-            path_hash(path[: anchor_index + 1])
-            == cls._overview_coverage_hash(overview)
+        return path_hash(path[: anchor_index + 1]) == cls._overview_coverage_hash(
+            overview
         )
 
     @staticmethod
@@ -2428,10 +2668,9 @@ class InteractionService:
         if not node_ids or not failed_hash or len(path) < len(node_ids):
             return False
         prefix = path[: len(node_ids)]
-        return (
-            [str(node.id) for node in prefix] == node_ids
-            and path_hash(prefix) == failed_hash
-        )
+        return [str(node.id) for node in prefix] == node_ids and path_hash(
+            prefix
+        ) == failed_hash
 
     async def _best_overview_for_path(
         self,
@@ -2446,19 +2685,41 @@ class InteractionService:
             journey=journey,
             anchor_node_ids=list(positions),
         )
+        valid = [
+            candidate
+            for candidate in candidates
+            if path_hash(path[: positions[candidate.anchor_node_id] + 1])
+            == candidate.path_hash
+        ]
+        manuals = [candidate for candidate in valid if candidate.source == "manual"]
+        latest_manual = max(
+            manuals,
+            key=lambda candidate: candidate.started_overview_epoch,
+            default=None,
+        )
+        if latest_manual is not None:
+            compatible = []
+            for candidate in valid:
+                if candidate.id == latest_manual.id or (
+                    candidate.source == "automatic"
+                    and await self._automatic_overview_descends_from(
+                        db,
+                        journey=journey,
+                        current=candidate,
+                        base=latest_manual,
+                    )
+                ):
+                    compatible.append(candidate)
+            valid = compatible
         best = None
-        best_position = -1
-        for candidate in candidates:
+        best_key = (-1, -1)
+        for candidate in valid:
             position = positions[candidate.anchor_node_id]
-            if position < best_position:
+            key = (position, candidate.started_overview_epoch)
+            if key <= best_key:
                 continue
-            if path_hash(path[: position + 1]) != candidate.path_hash:
-                continue
-            if position == best_position and best is not None:
-                continue
-            if position > best_position:
-                best = candidate
-                best_position = position
+            best = candidate
+            best_key = key
         return best
 
     async def _activate_best_overview_head(
@@ -2516,6 +2777,35 @@ class InteractionService:
             candidate = parent
         return False
 
+    async def _overview_manual_ancestor(
+        self,
+        db: AsyncSession,
+        *,
+        journey: InteractionJourney,
+        current: InteractionOverviewRevision,
+    ) -> InteractionOverviewRevision | None:
+        candidate = current
+        seen: set[uuid.UUID] = set()
+        for _ in range(1000):
+            if candidate.source == "manual":
+                return candidate
+            if (
+                candidate.id in seen
+                or candidate.source != "automatic"
+                or candidate.based_on_revision_id is None
+            ):
+                return None
+            seen.add(candidate.id)
+            parent = await self._repo.get_overview_revision(
+                db,
+                journey=journey,
+                revision_id=candidate.based_on_revision_id,
+            )
+            if parent is None:
+                return None
+            candidate = parent
+        return None
+
     async def _enqueue_overview_refresh(
         self,
         db: AsyncSession,
@@ -2554,19 +2844,19 @@ class InteractionService:
         ):
             return False
         head = await self._repo.get_overview_head(db, journey=journey)
-        if head is None:
-            return True
+        start_index = 0
         if (
-            not self._overview_matches_path(head, path)
-            or not self._overview_coverage_matches_path(head, path)
+            head is not None
+            and self._overview_matches_path(head, path)
+            and self._overview_coverage_matches_path(head, path)
         ):
-            return True
-        current_ids = [node.id for node in path]
-        coverage_index = current_ids.index(
-            self._overview_coverage_anchor(head)
-        )
+            current_ids = [node.id for node in path]
+            coverage_index = current_ids.index(self._overview_coverage_anchor(head))
+            start_index = coverage_index + 1
+        uncovered = path[start_index:]
+        prefix_end = _summary_compressible_prefix_end(uncovered)
         return (
-            sum(node.token_estimate for node in path[coverage_index + 1 :])
+            sum(node.token_estimate for node in uncovered[:prefix_end])
             >= SUMMARY_TRIGGER_TOKENS
         )
 

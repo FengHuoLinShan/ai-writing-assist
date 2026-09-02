@@ -41,7 +41,7 @@
 | `writing/services.py` | 内联 step `writing.generation.candidate.generate`：根据已确认上下文生成正文候选 | writing 正文生成 |
 | `writing/semantic_review.py` | 内联 steps `writing.semantic_review.chunk_N`、`writing.targeted_revision.generate`：冻结正文、原 confirmation CompiledContext、POV/hidden-guard 指纹和合同的独立近读，并让 finding-bound 返修复用同一资料 | writing 审查返修 |
 | `outline/ai_workflow_service.py` | 内联 step `outline.ai_workflow.analyze.generate`：回答作者指定的大纲结构问题 | outline 手动大纲分析 |
-| `interaction/prompts.py` | 内联 `interaction-story-v2`：模型知识 RP 故事正文与可选隐藏尾部元数据 | interaction 故事任务 |
+| `interaction/prompts.py` / `evidence/compilation/services/interaction_story_context.py` | 内联 `interaction-story-v4`：兼容模型知识 RP，source-bound 旅程额外注入版本/截止点经 Evidence 校验且统一转义围栏的作品参考块；相关往事数据块能力保留但当前生产门禁关闭；可选隐藏尾部元数据 | interaction 故事任务 |
 | `interaction/prompts.py` | 内联 `interaction-summary-v1` / `interaction-summary-output-v1`：一次生成新分段概要与更新后总回顾 | interaction 回顾任务 |
 
 ## 3. Prompt Contract System
@@ -523,10 +523,11 @@ sections / linked_asset_keys`。Prompt 不设置固定篇幅、必填创作维�
 ### RP 互动故事与回顾
 
 interaction Prompt 由 `modules/interaction/prompts.py` 代码组装，不进入作者可编辑模板，
-也不把模型固定称为 DM。它只消费用户开场、代码级选中路径和当前有效总回顾；未选 sibling、
-失败残段、隐藏项目 ID 和作者资产不会进入普通故事上下文。
+也不把模型固定称为 DM。无 source 旅程消费用户开场、代码级选中路径、当前有效回顾和模型知识；
+source-bound 旅程额外消费 Evidence 编译的 `<SOURCE_REFERENCE_DATA>`。未选 sibling、失败残段、
+隐藏项目 ID、未选资料版本、未来章节和被忽略对象都不得进入。
 
-`interaction-story-v2` 直接输出可见故事。正文之后可以有一个带固定边界标记的可选 JSON
+`interaction-story-v4` 直接输出可见故事。正文之后可以有一个带固定边界标记的可选 JSON
 尾块，承载 `response_kind / suggested_title / branch_hint / story_ended /
 action_suggestions`。framing parser 在流式过程中隔离尾块；尾块缺失、截断或 schema 无效时
 只丢弃附加信息，不判废已经生成的正文。行动选项开启且当前情境适合时，模型尽量提供
@@ -534,6 +535,17 @@ action_suggestions`。framing parser 在流式过程中隔离尾块；尾块缺�
 修复或重试。模型只建议标题、发展提示和行动选项；
 selection epoch、节点创建、分支选择、看海循环、停止、任务终态和 owner/novel 隔离全部由
 代码决定。
+
+v4 的事实优先级固定为：用户最新明确修正 → 当前选中旅程历史与手工回顾 →
+当前绑定 source revision 且截止点前的作品资料 → 模型训练知识。source-bound 路径禁止用
+训练知识填补原作设定或未来剧情。Evidence 关闭 LLM 查询规划/重排，只用确定性别名匹配、
+exact manifest 检索和 Writing 回读；interaction 先计算固定输入，再把剩余且最多 16K 的预算交给
+Evidence。必需资料放不下时失败关闭；全部动态资料在最终渲染边界转义
+`</SOURCE_REFERENCE_DATA>`，不能逃逸为指令。快照只保存 hash、引用、原因码和预算摘要，
+不保存原始对话或长期 rendered source block。
+
+v4 具备把分段概要包装为无指令权限的“过去事件证据”数据块的能力，但冻结生产 holdout
+未通过用户明确修正硬门，所以生产调用路径已移除，不会注入相关往事。
 
 普通模式保护用户角色的关键行动控制权；看海模式允许模型在保持人物性格、能力、关系和因果
 一致的前提下自主推进。两者只切换少量静态 Prompt 规则。看海每一步仍由确定性工作流提交，

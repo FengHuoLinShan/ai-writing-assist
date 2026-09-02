@@ -97,6 +97,9 @@ POST   /api/writing/targeted-revisions                  # 按审查 finding 生�
 `SourceRangeRefContract` 保存 draft/chapter/version/content mode、章内 offset、
 `source_hash` 与 `range_hash`。范围不跨章；读取时必须校验 novel 归属、
 版本与 hash。原文 grep 为有长度/结果上限和分页的字面搜索，V1 不开放正则。
+历史 RP source manifest 可继续按具体 draft ID 读取曾发布、后来软废弃的版本；读取仍要求
+`deprecated_from_status=published` 并重验 source/range hash。普通 canonical 列表仍只选每章当前最新
+published，不因 RP 历史引用改变作者编辑心智。
 
 ## 版本历史
 

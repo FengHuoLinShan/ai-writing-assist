@@ -174,6 +174,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  window.getSelection()?.removeAllRanges()
   resetBridgeOverrides()
   vi.restoreAllMocks()
 })
@@ -964,6 +965,92 @@ describe("RP 故事页", () => {
     )
   })
 
+  it("记住这一点只预填回顾，保留输入并在保存后恢复焦点", async () => {
+    const wrapper = mount(InteractionView, {
+      attachTo: document.body,
+      props: {
+        initialJourney: journey(),
+        llmConnections: connected(),
+      },
+    })
+    try {
+      const composer = wrapper.get("textarea[aria-label='继续旅程']")
+      const remember = wrapper.findAll(".rp-composer-tools button")
+        .find((button) => button.text() === "记住这一点")
+      expect(remember.element.disabled).toBe(true)
+
+      await composer.setValue("洛恩绝不使用火焰。")
+      expect(remember.element.disabled).toBe(false)
+      await remember.trigger("click")
+      await flushPromises()
+
+      const drawer = wrapper.get("[aria-label='当前回顾']")
+      const mustRemember = drawer.get(
+        "textarea[data-overview-section='must_remember']",
+      )
+      expect(mustRemember.element.value).toBe("洛恩绝不使用火焰。")
+      expect(composer.element.value).toBe("洛恩绝不使用火焰。")
+      expect(document.activeElement).toBe(mustRemember.element)
+      expect(api.interactions.updateOverview).not.toHaveBeenCalled()
+      expect(toast).toHaveBeenCalledWith(
+        "已填入“必须继续记住”；确认内容后再保存。",
+        "info",
+      )
+
+      await drawer.findAll("footer button")
+        .find((button) => button.text() === "保存修改")
+        .trigger("click")
+      await flushPromises()
+      expect(api.interactions.updateOverview).toHaveBeenCalledWith(
+        journey().id,
+        expect.objectContaining({
+          sections: expect.objectContaining({
+            must_remember: "洛恩绝不使用火焰。",
+          }),
+        }),
+      )
+
+      await drawer.get("header button").trigger("click")
+      await flushPromises()
+      expect(document.activeElement).toBe(remember.element)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it("记住这一点可预填当前选中的故事片段", async () => {
+    const wrapper = mount(InteractionView, {
+      attachTo: document.body,
+      props: {
+        initialJourney: journey(),
+        llmConnections: connected(),
+      },
+    })
+    try {
+      const remember = wrapper.findAll(".rp-composer-tools button")
+        .find((button) => button.text() === "记住这一点")
+      const storyText = wrapper.get(
+        "[data-rp-message-id='a2'] .rp-message__text",
+      ).element
+      const range = document.createRange()
+      range.selectNodeContents(storyText)
+      window.getSelection().addRange(range)
+      document.dispatchEvent(new Event("selectionchange"))
+      await wrapper.vm.$nextTick()
+
+      expect(remember.element.disabled).toBe(false)
+      await remember.trigger("click")
+      await flushPromises()
+
+      expect(wrapper.get(
+        "textarea[data-overview-section='must_remember']",
+      ).element.value).toBe("最新的一段故事。")
+      expect(api.interactions.updateOverview).not.toHaveBeenCalled()
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
   it("回顾保存连点只发送一次并显示真实忙碌状态", async () => {
     const saving = deferred()
     api.interactions.updateOverview.mockReturnValue(saving.promise)
@@ -1024,6 +1111,78 @@ describe("RP 故事页", () => {
     overviewRequest.resolve(overviewResult)
     await flushPromises()
     expect(wrapper.get("[aria-label='当前回顾']").text()).toContain("世界与起点")
+  })
+
+  it("作品资料阻断时展示后端具体原因并可直接打开资料抽屉", async () => {
+    const source = {
+      revision_id: "22222222-2222-4222-8222-222222222222",
+      source_title: "雾都之夜",
+      version_number: 1,
+      status: "ready",
+      progress_label: "第一章 · 抵达雾都",
+      progress_chapter_index: 1,
+      progress_end_offset: 120,
+      player_label: "林默",
+      source_context_epoch: 2,
+      update_available: false,
+    }
+    const object = {
+      reference_key: "b".repeat(64),
+      label: "林默",
+      entity_type: "character",
+      summary: "",
+      aliases: [],
+      first_chapter_index: 1,
+      first_end_offset: 20,
+    }
+    api = makeApi({
+      getSource: vi.fn(async () => ({
+        id: source.revision_id,
+        project_id: "11111111-1111-4111-8111-111111111111",
+        title: source.source_title,
+        version_number: 1,
+        status: "ready",
+        anchors: [],
+        objects: [object],
+      })),
+      getJourneyReferences: vi.fn(async () => ({
+        source,
+        pinned: [],
+        excluded: [],
+        last_used: [],
+      })),
+      listSourceObjects: vi.fn(async () => ({ items: [object] })),
+      listSources: vi.fn(async () => ({ projects: [] })),
+    })
+    setBridgeOverrides({ api, router, toast, confirm, prompt: vi.fn() })
+    const wrapper = mount(InteractionView, {
+      props: {
+        initialJourney: journey({
+          source,
+          active_attempt: {
+            id: "attempt-source-blocked",
+            journey_id: journey().id,
+            response_to_node_id: "a2",
+            status: "failed",
+            error_kind: "source_context_blocked",
+            error_message: "已固定的作品资料超出可用篇幅，请减少固定项",
+            visible_text: "",
+            visible_offset: 0,
+          },
+        }),
+        llmConnections: connected(),
+      },
+    })
+
+    const banner = wrapper.get(".rp-attempt-actions--error")
+    expect(banner.text())
+      .toContain("已固定的作品资料超出可用篇幅，请减少固定项")
+    const sourceButton = wrapper.findAll(".rp-attempt-actions button")
+      .find((button) => button.text() === "查看作品资料")
+    expect(sourceButton).toBeTruthy()
+    void sourceButton.trigger("click")
+    await flushPromises()
+    expect(wrapper.get("aside[aria-label='作品资料']").text()).toContain("雾都之夜")
   })
 
   it("回顾和分支历史载入失败时就地说明并提示重试", async () => {
@@ -2049,5 +2208,84 @@ describe("RP 故事页", () => {
       expect.objectContaining({ content: "冲突后重新整理的新内容", expected_selection_epoch: 4 }),
     )
     expect(composer.element.value).toBe("")
+  })
+
+  it("从更多操作打开作品资料，显示本轮理由并带 epoch 固定对象", async () => {
+    const source = {
+      revision_id: "22222222-2222-4222-8222-222222222222",
+      source_title: "雾都之夜",
+      version_number: 1,
+      status: "ready",
+      progress_label: "第一章 · 抵达雾都",
+      progress_chapter_index: 1,
+      progress_end_offset: 120,
+      player_label: "林默",
+      source_context_epoch: 2,
+      update_available: false,
+    }
+    const object = {
+      reference_key: "b".repeat(64),
+      label: "林默",
+      entity_type: "character",
+      summary: "",
+      aliases: [],
+      first_chapter_index: 1,
+      first_end_offset: 20,
+    }
+    api = makeApi({
+      getSource: vi.fn(async () => ({
+        id: source.revision_id,
+        project_id: "11111111-1111-4111-8111-111111111111",
+        title: source.source_title,
+        version_number: 1,
+        status: "ready",
+        anchors: [],
+        objects: [object],
+      })),
+      getJourneyReferences: vi.fn(async () => ({
+        source,
+        pinned: [],
+        excluded: [],
+        last_used: [{ label: "林默", reason: "本轮提到" }],
+      })),
+      listSourceObjects: vi.fn(async () => ({ items: [object] })),
+      listSources: vi.fn(async () => ({ projects: [] })),
+      updateJourneyReferences: vi.fn(async () => ({
+        source: { ...source, source_context_epoch: 3 },
+        pinned: [object],
+        excluded: [],
+        last_used: [],
+      })),
+    })
+    setBridgeOverrides({ api, router, toast, confirm, prompt: vi.fn() })
+    const wrapper = mount(InteractionView, {
+      props: {
+        initialJourney: journey({ source }),
+        llmConnections: connected(),
+      },
+    })
+
+    await wrapper.findAll(".rp-more-menu button")
+      .find((button) => button.text() === "作品资料")
+      .trigger("click")
+    await flushPromises()
+
+    expect(wrapper.get("aside[aria-label='作品资料']").text()).toContain("本轮提到")
+    expect(api.interactions.listSourceObjects).toHaveBeenCalledWith(
+      source.revision_id,
+      { chapter_index: 1, end_offset: 120 },
+    )
+    await wrapper.findAll(".rp-source-object-list button")
+      .find((button) => button.text() === "固定")
+      .trigger("click")
+    await flushPromises()
+    expect(api.interactions.updateJourneyReferences).toHaveBeenCalledWith(
+      journey().id,
+      {
+        action: "pin",
+        reference_key: object.reference_key,
+        expected_source_context_epoch: 2,
+      },
+    )
   })
 })

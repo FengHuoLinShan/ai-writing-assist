@@ -8,8 +8,8 @@
       </div>
       <div class="scene-runtime-panel__actions">
         <button v-if="running" type="button" class="btn btn-sm" data-action="cancel-scene-simulation" @click="$emit('cancel')">停止推演</button>
-        <button v-else type="button" class="btn btn-sm" :disabled="!scene || reactionRunning" data-action="run-scene-reactions" @click="$emit('run-reactions')">{{ reactionRunning ? "生成人物反应中..." : "只生成人物反应" }}</button>
-        <button v-if="!running" type="button" class="btn btn-sm btn-primary" :disabled="!scene || reactionRunning" data-action="run-scene-simulation" @click="$emit('run')">{{ simulation ? "重新推演并检查人物卡" : "推演并补齐人物卡" }}</button>
+        <button v-else type="button" class="btn btn-sm" :disabled="!scene || loading || reactionRunning" data-action="run-scene-reactions" @click="$emit('run-reactions')">{{ reactionRunning ? "生成人物反应中..." : "只生成人物反应" }}</button>
+        <button v-if="!running" type="button" class="btn btn-sm btn-primary" :disabled="!scene || loading || reactionRunning" data-action="run-scene-simulation" @click="$emit('run')">{{ simulation ? "重新推演并检查人物卡" : "推演并补齐人物卡" }}</button>
       </div>
     </header>
 
@@ -75,6 +75,7 @@ const props = defineProps({
   scene: { type: Object, default: null },
   simulation: { type: Object, default: null },
   progress: { type: Object, default: null },
+  loading: Boolean,
   running: Boolean,
   reactionRunning: Boolean,
   error: { type: String, default: null },

@@ -97,20 +97,21 @@ def _cache_usage_diagnostic(response: LLMCallResponse | None) -> dict[str, int]:
         (raw_usage, "cache_creation_input_tokens"),
     )
     prompt_tokens = int(getattr(response.usage, "prompt_tokens", 0) or 0)
+    total_tokens = int(getattr(response.usage, "total_tokens", 0) or 0)
+    usage = {
+        "prompt_tokens": prompt_tokens,
+        "total_tokens": total_tokens,
+    }
     if hit is not None and miss is None and prompt_tokens >= hit:
         miss = prompt_tokens - hit
     if miss is not None and hit is None and prompt_tokens >= miss:
         hit = prompt_tokens - miss
     if hit is None and miss is None:
-        return {}
+        return usage
     return {
-        key: value
-        for key, value in {
-            "prompt_tokens": prompt_tokens,
-            "cache_hit_tokens": hit,
-            "cache_miss_tokens": miss,
-        }.items()
-        if value is not None
+        **usage,
+        **({"cache_hit_tokens": hit} if hit is not None else {}),
+        **({"cache_miss_tokens": miss} if miss is not None else {}),
     }
 
 
@@ -566,6 +567,7 @@ class LLMClient:
         from infrastructure.llm.retry import transport_retries_enabled
 
         if transport_retries and transport_retries_enabled():
+
             async def call():
                 return await retry_with_backoff(
                     self._provider.generate,
@@ -575,8 +577,10 @@ class LLMClient:
                     request=resolved_request,
                 )
         else:
+
             async def call():
                 return await self._provider.generate(resolved_request)
+
         return await limiter.run(call, limiter_scope=self._limiter_scope("chat"))
 
     async def generate_stream(

@@ -57,9 +57,15 @@ async def list_entity_terms(
     novel_id: str,
     *,
     limit: int = 500,
+    include_review: bool = False,
 ) -> list[dict[str, Any]]:
     """获取世界对象检索词典项（名称 + 已确认别名）。"""
-    return await _context_service.list_entity_terms(db, novel_id, limit=limit)
+    return await _context_service.list_entity_terms(
+        db,
+        novel_id,
+        limit=limit,
+        include_review=include_review,
+    )
 
 
 async def get_entity_importance_map(
