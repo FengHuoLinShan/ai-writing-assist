@@ -57,8 +57,9 @@
     spinner 降为静态圆环。归档与永久删除的忙碌反馈由确认层承载。
 12. **「重新生成」仅挂在最后一条 story 消息上**（InteractionView.vue:1662-1667），
     历史段落只能经分支树切换，路径深。
-13. **定位轨可发现性低、触摸目标小**：34px 宽、ticks 12×3px（`styles.css` 的定位轨规则、
-    定位轨 tick 规则），preview 仅 hover/focus 显示（定位轨 preview 规则）。
+13. **已解决（2026-09-02）—定位轨难发现且触摸目标小**：桌面与窄屏的原生
+    range 均增至 44px 宽；12×3px 可见 ticks 保留，但每个直接点击区扩为 44×24px，
+    键盘和辅助技术仍只使用带完整标签的 range。桌面 hover/focus 和移动端按下后仍显示段落预览。
 14. **RP token 与测试钩子欠债**：`--rp-*` 变量硬编码 hex（`styles.css` 的 RP token 块）未收编；
     `e2e/helpers/selectors.js` 无任何 RP 条目（已核实 grep），e2e 靠 class/aria 硬编码，
     本路径也无 `data-action` 约定，改样式类名即打碎 e2e。

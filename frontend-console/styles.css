@@ -7459,7 +7459,7 @@ kbd {
 
 .scene-character-card__avatar {
   display: flex;
-  width: 34px;
+  width: 44px;
   height: 34px;
   flex: 0 0 34px;
   align-items: center;
@@ -15548,7 +15548,7 @@ button.rp-journey-card__main:hover {
 }
 
 .rp-locator-rail input[type="range"] {
-  width: 18px;
+  width: 44px;
   height: min(52vh, 420px);
   margin: 0;
   accent-color: var(--rp-accent);
@@ -15568,17 +15568,26 @@ button.rp-journey-card__main:hover {
 }
 
 .rp-locator-ticks button {
-  width: 12px;
-  height: 3px;
+  display: grid;
+  width: 44px;
+  height: 24px;
   min-height: 0;
   padding: 0;
   border: 0;
-  border-radius: 2px;
-  background: var(--rp-border);
+  place-items: center;
+  background: transparent;
   pointer-events: auto;
 }
 
-.rp-locator-ticks button.active {
+.rp-locator-ticks button::after {
+  width: 12px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--rp-border);
+  content: "";
+}
+
+.rp-locator-ticks button.active::after {
   width: 17px;
   background: var(--rp-accent);
 }
@@ -16107,18 +16116,17 @@ button.rp-journey-card__main:hover {
   }
 
   .rp-locator-rail {
-    right: 3px;
-    width: 20px;
-    opacity: 0.62;
+    right: 0;
+    width: 44px;
+    opacity: 0.72;
   }
 
   .rp-locator-rail.is-expanded {
-    width: 32px;
     opacity: 1;
   }
 
   .rp-locator-rail input[type="range"] {
-    width: 14px;
+    width: 44px;
     height: min(42vh, 300px);
   }
 

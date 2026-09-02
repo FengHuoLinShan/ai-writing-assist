@@ -440,6 +440,11 @@ test.describe("RP 路由与窄屏故事页", () => {
 
     await expect(page.locator(".rp-story-title")).toHaveJSProperty("tagName", "DIV")
     await expect(page.locator(".rp-locator-rail")).toBeVisible()
+    expect((await page.locator(".rp-locator-rail input[type='range']").boundingBox()).width)
+      .toBeGreaterThanOrEqual(44)
+    const locatorTickBox = await page.locator(".rp-locator-ticks button").first().boundingBox()
+    expect(locatorTickBox.width).toBeGreaterThanOrEqual(44)
+    expect(locatorTickBox.height).toBeGreaterThanOrEqual(24)
     await expect(page.locator(".rp-composer-dock")).toBeVisible()
     await expect(page.locator("#sidebar")).toHaveCount(0)
     await expectFillsViewportWidth(page.locator(".rp-story-page"))
