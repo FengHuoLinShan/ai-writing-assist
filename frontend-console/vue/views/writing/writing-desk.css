@@ -996,7 +996,7 @@
   padding: 10px 12px 12px;
 }
 
-/* 警报卡：--nc-alert-bg 底 + --nc-alert-ink 标题 + 右上「查看 →」 */
+/* 警报卡：--nc-alert-bg 保留语义，标题与右上操作使用可读正文色。 */
 .scene-alert-group__title {
   font-family: var(--font-mono);
   letter-spacing: 0.08em;
