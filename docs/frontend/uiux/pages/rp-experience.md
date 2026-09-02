@@ -42,9 +42,9 @@
    都把焦点还给「更多操作」。沉浸路径隐藏 Topbar，因此保留此独立入口不属于重复功能。
 7. **已解决：流式滚动与 reduced-motion**。故事容器不再设置 smooth，逐 chunk 使用直接滚动；
    离散定位仍按系统 reduced-motion 选择 smooth/auto，入口卡与操作行过渡在减弱动效时停用。
-8. **设置页是作者语言飞地**：RP 用户点「账户设置」进入的 GlobalSettingsView 用
-   `.btn-primary`/`.form-input` 等 Editorial 类（GlobalSettingsView.vue:283-324），
-   仅借用 `rp-icon-button` 返回箭头（:217-223）；`returningToRp` 只删减区块，无 RP 视觉适配。
+8. **已核对：RP 返回路径与共享账户设置边界**。`GlobalSettingsView` 已经收入
+   `.settings-shell` 并全部消费三主题语义 token；RP 返回时只保留「返回旅程」与 AI 文本服务，
+   隐藏图片服务和作者偏好。此页管理账户级密钥，保持共享设置视觉，不伪装成故事内容页。
 9. **已解决：消息操作常见可见**。桌面使用跨主题可读的正文色常显，hover/focus 再以边框和
    底色强调；字号升至 13px、按钮最小高 32px，移动端继续使用 42px 触控高度。
 
@@ -61,9 +61,9 @@
 13. **已解决（2026-09-02）—定位轨难发现且触摸目标小**：桌面与窄屏的原生
     range 均增至 44px 宽；12×3px 可见 ticks 保留，但每个直接点击区扩为 44×24px，
     键盘和辅助技术仍只使用带完整标签的 range。桌面 hover/focus 和移动端按下后仍显示段落预览。
-14. **RP token 与测试钩子欠债**：`--rp-*` 变量硬编码 hex（`styles.css` 的 RP token 块）未收编；
-    `e2e/helpers/selectors.js` 无任何 RP 条目（已核实 grep），e2e 靠 class/aria 硬编码，
-    本路径也无 `data-action` 约定，改样式类名即打碎 e2e。
+14. **已裁定：RP token 保持局部语义层**。晨光便签的 `--rp-*` 是沉浸页基准色，
+    暗夜/水墨已转发全局 `--bg-*` / `--text-*` / `--accent`，不再存在跨主题漂移。
+    RP E2E 优先使用 role、可访问名和用户可见状态；不为单一路由复制一套 selector 注册表。
 
 ## 3. 目标布局与信息层级
 

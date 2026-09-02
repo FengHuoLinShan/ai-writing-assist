@@ -80,8 +80,9 @@
 14. **details 菜单无障碍缺陷**：**已解决**。`.writing-tools-menu` 与页头 `.writing-page-menu`
     均保留原生 `<details>`，已实现外部点击/动作/Escape 关闭、焦点归还和 `aria-expanded` 同步；
     页头入口补充方向提示与展开视觉态，≤760px 入口和菜单项保持 44px 触控高度。
-15. **空态无插图/icon 体系**：三处空态齐全（ChapterTree / WritingEditor / SceneCockpit）但均未
-    使用 `.empty-state .empty-icon`。（本轮未涉及。）
+15. **已裁定：写作空态保持文本优先**。ChapterTree / WritingEditor / SceneCockpit 已给出
+    对应下一步，不引入新插图或强行复用其他页的 `.empty-icon`；在高密度长篇写作台中，
+    装饰图形不提供额外信息，反而会抬高首次写作入口。
 
 ## 3. 目标布局与信息层级
 
