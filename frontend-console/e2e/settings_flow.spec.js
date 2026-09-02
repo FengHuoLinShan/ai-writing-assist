@@ -268,6 +268,7 @@ test.describe("设置流程", () => {
     await page.reload()
     await expect(page.getByRole("tab", { name: "高级导入" })).toBeVisible({ timeout: 10000 })
     await page.getByRole("tab", { name: "高级导入" }).click()
+    await page.getByRole("button", { name: "查看专家参数" }).click()
     await page.getByRole("button", { name: /怎样切分场景/ }).click()
     await page.fill("#deep-import-phase0-target-input-chars", "10")
     await page.getByRole("button", { name: "保存深度导入参数" }).click()

@@ -427,7 +427,7 @@ onBeforeUnmount(() => {
             这些参数只影响当前作品的深度导入；模型与密钥仍由账户设置统一管理。
           </p>
           <p class="deep-import-source-hint">
-            当前来源
+            当前使用已生效设置，通常无需调整。设置来源
             <SourceLabel
               :source="deepImportSource.source"
               :value="deepImportSource.value"

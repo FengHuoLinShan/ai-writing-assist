@@ -278,8 +278,10 @@ describe("深度导入", () => {
   it("越界参数不提交", async () => {
     const wrapper = mount(ProjectSettingsView, { attachTo: document.body, props: makeProps() })
     await wrapper.findAll(".settings-tab-nav .tab-btn")[1].trigger("click")
+    await wrapper.get('[data-action="toggle-deep-import-expert"]').trigger("click")
     await wrapper.get('[aria-controls="deep-import-group-phase0"]').trigger("click")
     await wrapper.find("#deep-import-phase0-target-input-chars").setValue("10")
+    await wrapper.get('[data-action="toggle-deep-import-expert"]').trigger("click")
     await wrapper.find("#deep-import-tab-save").trigger("click")
     expect(globalThis.api.projects.updateLlmSettings).not.toHaveBeenCalled()
     expect(globalThis.toast).toHaveBeenCalledWith(
@@ -289,11 +291,17 @@ describe("深度导入", () => {
     await vi.waitFor(() => expect(document.activeElement?.id).toBe("deep-import-phase0-target-input-chars"))
     expect(wrapper.get("#deep-import-phase0-target-input-chars").attributes("aria-invalid")).toBe("true")
     expect(wrapper.get('[aria-controls="deep-import-group-phase0"]').attributes("aria-expanded")).toBe("true")
+    expect(wrapper.get('[data-action="toggle-deep-import-expert"]').attributes("aria-expanded")).toBe("true")
   })
 
   it("深度导入问题组默认折叠，展开后提供字段说明", async () => {
     const wrapper = mount(ProjectSettingsView, { props: makeProps() })
     await wrapper.findAll(".settings-tab-nav .tab-btn")[1].trigger("click")
+    const expert = wrapper.get('[data-action="toggle-deep-import-expert"]')
+    expect(expert.attributes("aria-expanded")).toBe("false")
+    expect(expert.text()).toBe("查看专家参数")
+    expect(wrapper.get("#deep-import-expert-fields").element.style.display).toBe("none")
+    await expert.trigger("click")
     const group = wrapper.get('[aria-controls="deep-import-group-phase0"]')
     expect(group.attributes("aria-expanded")).toBe("false")
     expect(wrapper.get("#deep-import-phase0-target-input-chars").element.closest(".form-row").style.display).toBe("none")

@@ -158,6 +158,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
   text-align: left;
 }
@@ -2230,6 +2231,21 @@ label.llm-clear-key {
   display: grid;
   gap: var(--space-4);
 }
+
+.deep-import-expert-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+  color: var(--text-secondary);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.deep-import-expert-toggle p { margin: 0; }
 
 .deep-import-group {
   display: grid;

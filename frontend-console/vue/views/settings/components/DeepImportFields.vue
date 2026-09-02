@@ -9,6 +9,7 @@ import { DEEP_IMPORT_GROUPS, deepImportFieldId } from "../logic/deepImport.js"
 const form = defineModel({ type: Object, required: true })
 const props = defineProps({ validationError: { type: Object, default: null } })
 const openGroups = ref(new Set())
+const expertOpen = ref(false)
 
 function toggleGroup(groupId) {
   const next = new Set(openGroups.value)
@@ -37,6 +38,7 @@ function isInvalid(group, field) { return props.validationError?.groupId === gro
 
 watch(() => props.validationError, (error) => {
   if (!error?.groupId || !error?.fieldKey) return
+  expertOpen.value = true
   const next = new Set(openGroups.value)
   next.add(error.groupId)
   openGroups.value = next
@@ -49,7 +51,18 @@ function fieldStep(field) {
 </script>
 
 <template>
-  <div class="llm-deep-import-grid">
+  <div class="deep-import-expert-toggle">
+    <p>建议保持当前值。只有导入持续失败、遗漏明显或模型经常超时时再调整。</p>
+    <button
+      type="button"
+      class="btn btn-sm"
+      data-action="toggle-deep-import-expert"
+      :aria-expanded="expertOpen"
+      aria-controls="deep-import-expert-fields"
+      @click="expertOpen = !expertOpen"
+    >{{ expertOpen ? "收起专家参数" : "查看专家参数" }}</button>
+  </div>
+  <div id="deep-import-expert-fields" v-show="expertOpen" class="llm-deep-import-grid">
     <section v-for="group in DEEP_IMPORT_GROUPS" :key="group.id" class="deep-import-group">
       <button
         type="button"
