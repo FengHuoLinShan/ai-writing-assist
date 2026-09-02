@@ -138,7 +138,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from "vue"
+import { computed, nextTick, onMounted, reactive, ref, watch } from "vue"
 import { getRouter } from "../../../bridge/index.js"
 import { structureAssetDisplay, displayStateBadgeClass, assetAttentionReasons } from "../../../../shared/assetDisplayState.js"
 import {
@@ -187,6 +187,7 @@ const activeFilterCount = computed(() => (
   ["status", "source", "needs_review", "workflow_id"].filter((key) => Boolean(props.filters?.[key])).length
 ))
 const routeSignature = structureQueryFromState("arcs", props.filters).toString()
+const restoreFilterFocusOnMount = Boolean(outlineFilterDrafts[scope]?.restoreFocus)
 const restoredDraft = outlineFilterDrafts[scope]?.routeSignature === routeSignature
   ? outlineFilterDrafts[scope].value
   : null
@@ -208,12 +209,16 @@ watch(filterForm, (value) => {
 async function navigateFilters(filters, restoreFilterFocus = false) {
   const query = structureQueryFromState("arcs", filters)
   outlineFilterDrafts[scope].routeSignature = query.toString()
+  if (restoreFilterFocus) outlineFilterDrafts[scope].restoreFocus = true
   const navigated = await getRouter()?.navigate("outline", "arcs", true, query)
-  if (restoreFilterFocus && navigated !== false) {
-    await new Promise(requestAnimationFrame)
-    document.querySelector(".outline-structure-filters > summary")?.focus()
-  }
+  if (restoreFilterFocus && navigated !== true) delete outlineFilterDrafts[scope].restoreFocus
 }
+
+onMounted(async () => {
+  if (!restoreFilterFocusOnMount) return
+  await nextTick()
+  filterPanel.value?.querySelector(":scope > summary")?.focus()
+})
 
 const isSelected = (id) => getBulkSelection(scope).has(String(id))
 watch(
