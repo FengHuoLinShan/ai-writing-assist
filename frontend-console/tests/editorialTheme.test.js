@@ -146,6 +146,8 @@ describe("editorial archive theme", () => {
     expect(mapStyles).toMatch(/\.atlas-options label\{[^}]*font-size:var\(--text-sm\)/)
     expect(mapStyles).toMatch(/\.atlas-edit p\{[^}]*font-size:var\(--text-sm\)/)
     expect(mapStyles).toMatch(/\.atlas-evidence-grid \.atlas-candidate-note\{color:var\(--text-body\)/)
+    expect(mapStyles).toMatch(/\.atlas-tabs span\{[^}]*color:var\(--text-secondary\)/)
+    expect(mapStyles).toMatch(/\.atlas-tree button small\{[^}]*color:var\(--text-secondary\)/)
     expect(mapStyles).toMatch(/\.atlas-tabs button\{[^}]*border-bottom:2px solid transparent[^}]*font-size:var\(--text-base\)/)
     expect(mapStyles).toMatch(/\.atlas-tabs button\.active\{[^}]*border-color:var\(--accent\);color:var\(--text-primary\)/)
     expect(mapStyles).toMatch(/@media\(max-width:760px\)\{[^}]*\.atlas-primary-actions,[^}]*\.atlas-source\{flex-wrap:wrap\}/s)
