@@ -365,7 +365,9 @@ test.describe("世界对象模块", () => {
     await expect(candidateItem(candidates[1].id)).toBeVisible()
     await expect(page.locator(".view-header__count")).toHaveText("共 20 个")
     await expect(visibleCandidateItems).toHaveCount(20)
-    await expect(page.locator(".world-pagination")).toHaveCount(0)
+    const pager = page.locator(".world-pagination")
+    await expect(pager).toHaveText("共 20 条")
+    await expect(pager.getByRole("button")).toHaveCount(0)
   })
 
   test("回滚实体到指定场景索引", async ({ page }) => {
