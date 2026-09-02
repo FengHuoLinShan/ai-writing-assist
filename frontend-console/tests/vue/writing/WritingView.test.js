@@ -1240,6 +1240,54 @@ describe("WritingView", () => {
     window.removeEventListener("writing:dashboard-update", listener2)
   })
 
+  it("切换到更长的其他版本只更新基线，不计为今日输入", async () => {
+    const history = { versions: [
+      { id: "d2", version_number: 2, status: "draft" },
+      { id: "d1", version_number: 1, status: "published" },
+    ] }
+    globalThis.api.writing.getVersionHistory.mockResolvedValue(history)
+    globalThis.api.writing.get.mockImplementation(async (id) => ({
+      id,
+      novel_id: "p1",
+      chapter_index: 1,
+      title: "第一章",
+      content: id === "d2" ? "短稿" : "一篇更长的旧稿",
+      version_number: id === "d2" ? 2 : 1,
+      status: id === "d2" ? "draft" : "published",
+    }))
+    const events = []
+    const listener = (event) => events.push(event.detail)
+    window.addEventListener("writing:dashboard-update", listener)
+    const wrapper = mount(WritingView, {
+      props: props({ requestedLocation: { chapter: 1, draftId: "d2" } }),
+      attachTo: document.body,
+    })
+    await vi.waitFor(() => expect(wrapper.get("#writing-editor").element.value).toBe("短稿"))
+    await wrapper.get("#version-selector").setValue("d1")
+    await vi.waitFor(() => expect(wrapper.get("#writing-editor").element.value).toBe("一篇更长的旧稿"))
+    expect(events.at(-1).todayWords).toBe(0)
+
+    wrapper.unmount()
+    window.removeEventListener("writing:dashboard-update", listener)
+  })
+
+  it("跨本地午夜后的首次输入以输入前正文为新日基线", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date(2026, 8, 2, 23, 59, 59))
+    const events = []
+    const listener = (event) => events.push(event.detail)
+    window.addEventListener("writing:dashboard-update", listener)
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+
+    vi.setSystemTime(new Date(2026, 8, 3, 0, 0, 1))
+    await wrapper.get("#writing-editor").setValue("正文新增")
+    await vi.waitFor(() => expect(events.at(-1).todayWords).toBe(2))
+
+    wrapper.unmount()
+    window.removeEventListener("writing:dashboard-update", listener)
+  })
+
   it("删字不会让今日字数倒退或在补回时重计", async () => {
     const events = []
     const listener = (event) => events.push(event.detail)
@@ -1256,6 +1304,44 @@ describe("WritingView", () => {
     await vi.waitFor(() => expect(events.at(-1).todayWords).toBe(3))
 
     wrapper.unmount()
+    window.removeEventListener("writing:dashboard-update", listener)
+  })
+
+  it("损坏或不可用的字数缓存不会串项目或阻断输入", async () => {
+    const now = new Date()
+    const today = new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10)
+    localStorage.setItem(`novel_daily_wc_${today}_p1`, "-20")
+    localStorage.setItem(`novel_daily_wc_open_${today}_p1`, JSON.stringify({ 1: { highWater: -10 } }))
+    localStorage.setItem(`novel_daily_wc_${today}_p2`, "999")
+    const events = []
+    const listener = (event) => events.push(event.detail)
+    window.addEventListener("writing:dashboard-update", listener)
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+    expect(events.at(-1).todayWords).toBe(0)
+    await wrapper.get("#writing-editor").setValue("正文增加")
+    await vi.waitFor(() => expect(events.at(-1).todayWords).toBe(2))
+    wrapper.unmount()
+    clearWritingSession()
+    localStorage.clear()
+
+    const originalGetItem = localStorage.getItem.bind(localStorage)
+    const originalSetItem = localStorage.setItem.bind(localStorage)
+    const getSpy = vi.spyOn(localStorage, "getItem").mockImplementation((key) => {
+      if (String(key).startsWith("novel_daily_wc_")) throw new Error("storage unavailable")
+      return originalGetItem(key)
+    })
+    const setSpy = vi.spyOn(localStorage, "setItem").mockImplementation((key, value) => {
+      if (String(key).startsWith("novel_daily_wc_")) throw new Error("storage unavailable")
+      return originalSetItem(key, value)
+    })
+    const unavailable = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+    await unavailable.get("#writing-editor").setValue("仍可输入")
+    await vi.waitFor(() => expect(events.at(-1)).toMatchObject({ chapterWords: 4, todayWords: 0 }))
+    unavailable.unmount()
+    getSpy.mockRestore()
+    setSpy.mockRestore()
     window.removeEventListener("writing:dashboard-update", listener)
   })
 

@@ -255,8 +255,16 @@ export function useWritingWorkspace(props) {
     confirmDialog,
     getProjectId: () => projectId,
     onChange: (value, { persist = true, hot = false } = {}) => {
+      const previousChapter = editorState.chapter
+      const previousWords = editorState.content.length
       Object.assign(editorState, value)
       if (!persist) return
+      if (value.chapter) {
+        todayWords.value = noteDailyChapter(value.chapter, value.content.length, {
+          count: hot && Number(previousChapter) === Number(value.chapter),
+          priorWords: previousWords,
+        })
+      }
       if (value.chapter && chapters[value.chapter] && !["candidate", "deprecated"].includes(value.status)) {
         chapters[value.chapter] = {
           ...chapters[value.chapter],
@@ -395,7 +403,8 @@ export function useWritingWorkspace(props) {
   function dailyWordcount() {
     try {
       const { base } = dailyWordcountKeys()
-      return Number(localStorage.getItem(base) || 0) || 0
+      const value = Number(localStorage.getItem(base) || 0)
+      return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0
     } catch { return 0 }
   }
 
@@ -407,23 +416,28 @@ export function useWritingWorkspace(props) {
     return {}
   }
 
-  function noteDailyChapter(chapterIndex, words) {
+  function noteDailyChapter(chapterIndex, words, { count = false, priorWords = words } = {}) {
     try {
       const keys = dailyWordcountKeys()
       const chapters = readDailyChapters(keys)
       const key = String(Number(chapterIndex))
-      const currentWords = Math.max(0, Number(words) || 0)
-      const previousHighWater = Number(chapters[key]?.highWater)
-      if (!Number.isFinite(previousHighWater)) {
-        chapters[key] = { baseline: currentWords, highWater: currentWords }
-        localStorage.setItem(keys.open, JSON.stringify(chapters))
-        return dailyWordcount()
+      const normalizedWords = (value) => {
+        const numeric = Number(value)
+        return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : 0
+      }
+      const currentWords = normalizedWords(words)
+      const storedHighWater = Number(chapters[key]?.highWater)
+      const previousHighWater = Number.isFinite(storedHighWater) && storedHighWater >= 0
+        ? Math.floor(storedHighWater)
+        : count ? normalizedWords(priorWords) : currentWords
+      if (!chapters[key] || !Number.isFinite(storedHighWater) || storedHighWater < 0) {
+        chapters[key] = { baseline: previousHighWater, highWater: previousHighWater }
       }
       // ponytail: 删字后不回退今日字数，只在超过本章当日高水位时继续累计。
-      const increment = Math.max(0, currentWords - previousHighWater)
+      const increment = count ? Math.max(0, currentWords - previousHighWater) : 0
       const total = dailyWordcount() + increment
       chapters[key].highWater = Math.max(previousHighWater, currentWords)
-      localStorage.setItem(keys.base, String(total))
+      if (increment) localStorage.setItem(keys.base, String(total))
       localStorage.setItem(keys.open, JSON.stringify(chapters))
       return total
     } catch { return dailyWordcount() /* 存储失败不得影响输入 */ }
@@ -431,11 +445,7 @@ export function useWritingWorkspace(props) {
 
   function dispatchDashboardUpdate(chapterIndex = selectedChapter.value) {
     if (typeof window === "undefined") return
-    if (chapterIndex != null) {
-      todayWords.value = noteDailyChapter(Number(chapterIndex), editorState.content.length)
-    } else {
-      todayWords.value = 0
-    }
+    todayWords.value = chapterIndex == null ? 0 : dailyWordcount()
     window.dispatchEvent(new CustomEvent("writing:dashboard-update", {
       detail: {
         chapterIndex: chapterIndex == null ? null : Number(chapterIndex),
