@@ -206,8 +206,9 @@ Prompt 或 token；预算遗漏另行解释。作者可逐项移除/恢复、用
   `light/minimal→sticky`、`dark/dark-soft→night`、`paper/warm→ink`）；无存储时跟随系统
   `prefers-color-scheme`（dark → night）。切换入口为顶栏三点切换器（`.topbar-theme` radiogroup +
   `button.theme-dot[data-theme-value]`，Tab 只进入当前主题并支持方向键；14px 圆点使用桌面 28px /
-  触控档 42px 命中区），切换过渡 250ms、reduced-motion 关闭。≤760px 顶栏隐藏由页内标题重复
-  表达的中间面包屑；≤360px 写作页隐藏重复字数胶囊，避免挤压品牌、主题与账户入口。
+  触控档 42px 命中区），切换过渡 250ms、reduced-motion 关闭。≤760px 顶栏保留品牌标记、截断
+  作品名、服务连接状态、主题和账户入口；≤360px 仅在移动速记头部同步本章与今日累计后隐藏
+  顶栏字数胶囊。
   点缀只允许顶栏品牌区、写作页编辑区（上 1 组 + 下 1 组）与左栏导航底部三处，近底色、
   `pointer-events:none`，专注模式与 ≤760px 一律隐藏。设计细则唯一权威：
   `docs/frontend/uiux/design-standard.md`。

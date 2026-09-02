@@ -122,8 +122,9 @@ test.describe("settings 视觉基线", () => {
       await page.goto(`/#workbench/${proj.id}/project-settings`)
       await expect(page.getByRole("heading", { name: "当前作品设置" })).toBeVisible({ timeout: 10000 })
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-      await expect(page.locator("#topbar-project")).toBeHidden()
-      await expect(page.locator("#topbar-module")).toBeVisible()
+      await expect(page.locator("#topbar-project")).toHaveText(proj.title)
+      await expect(page.locator("#topbar-project")).toBeVisible()
+      await expect(page.locator("#topbar-module")).toBeHidden()
       const topbarBoxes = await page.locator("#topbar").evaluate((topbar) => {
         const box = (selector) => {
           const rect = topbar.querySelector(selector)?.getBoundingClientRect()

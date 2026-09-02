@@ -6885,18 +6885,28 @@ kbd {
     gap: var(--space-2);
     padding: 0 14px;
   }
-  #topbar .topbar-center,
-  #topbar-status-dot {
+  #topbar .topbar-center > :not(#topbar-project) {
     display: none;
   }
   .topbar-left {
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     overflow: hidden;
+  }
+  .logo-name {
+    display: none;
   }
   .logo {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  #topbar .topbar-center {
+    justify-content: flex-start;
+    padding: 0;
+  }
+  #topbar-project {
+    flex: 1 1 auto;
+    max-width: none;
   }
   .topbar-right {
     gap: var(--space-1);
@@ -17323,11 +17333,6 @@ button.rp-journey-card__main:hover {
 }
 
 @media (max-width: 760px) {
-  #app:has(.settings-shell) #topbar-project,
-  #app:has(.settings-shell) .topbar-center > .separator {
-    display: none;
-  }
-
   .settings-shell {
     padding: var(--space-4) var(--space-3) calc(var(--space-8) + env(safe-area-inset-bottom));
   }

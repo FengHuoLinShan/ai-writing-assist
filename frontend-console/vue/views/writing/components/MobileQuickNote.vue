@@ -3,7 +3,10 @@
     <div class="mobile-note-header">
       <span class="mobile-note-chapter">第 {{ chapterNumber }} 章</span>
       <span class="mobile-note-status" role="status">{{ statusText }}</span>
-      <span id="mobile-note-wc" class="mobile-note-wc">{{ state.content.length.toLocaleString() }} 字</span>
+      <span class="mobile-note-counts">
+        <span id="mobile-note-wc" class="mobile-note-wc">本章 {{ state.content.length.toLocaleString() }} 字</span>
+        <span id="mobile-note-today-wc" class="mobile-note-wc">今日累计 {{ todayWords.toLocaleString() }} 字</span>
+      </span>
     </div>
     <div v-if="state.loading" class="writing-editor-state loading-skeleton" role="status" aria-live="polite" aria-busy="true">
       <p>正在打开第 {{ chapterNumber }} 章…</p>
@@ -70,6 +73,7 @@ const props = defineProps({
   selectedSceneId: { type: String, default: null },
   scene: { type: Object, default: null },
   lens: { type: Object, default: () => ({ loading: false, data: null, error: null }) },
+  todayWords: { type: Number, default: 0 },
   attach: { type: Function, required: true },
   detach: { type: Function, required: true },
 })

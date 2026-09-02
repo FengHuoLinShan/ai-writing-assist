@@ -1153,30 +1153,6 @@
   color: var(--archive-ink);
 }
 
-.scene-cockpit-module__reorder {
-  display: inline-flex;
-  gap: 2px;
-  opacity: 0;
-  transition: opacity 0.15s var(--ease-default);
-}
-
-.scene-cockpit-module:hover .scene-cockpit-module__reorder,
-.scene-cockpit-module__reorder:focus-within {
-  opacity: 1;
-}
-
-.scene-cockpit-module__reorder .btn-icon {
-  width: 28px;
-  height: 28px;
-  min-height: 28px;
-  padding: 0;
-  border: 1px solid var(--archive-rule);
-  border-radius: 2px;
-  background: var(--archive-paper-raised);
-  color: var(--text-tertiary);
-  font-size: 10px;
-}
-
 .scene-cockpit-module__body {
   margin-top: 0;
   padding: 2px 12px 12px;
@@ -1978,6 +1954,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   padding: 12px 14px;
   border-bottom: 1px solid var(--archive-rule-strong);
   background: color-mix(in srgb, var(--archive-paper-muted) 55%, transparent);
@@ -2012,6 +1989,13 @@
   letter-spacing: 0.05em;
 }
 
+.mobile-note-counts {
+  display: grid;
+  flex: 0 0 auto;
+  justify-items: end;
+  gap: 2px;
+}
+
 .mobile-note-editor {
   background: transparent;
   font-size: 16px;
@@ -2029,6 +2013,7 @@
 
 .mobile-note-status {
   flex: 1;
+  min-width: 0;
   color: var(--text-secondary);
   font-size: 11px;
   text-align: center;

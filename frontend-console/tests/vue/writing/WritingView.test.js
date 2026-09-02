@@ -324,12 +324,16 @@ describe("WritingView", () => {
 
   it("移动速记通过工作区保存为工作稿", async () => {
     const originalWidth = window.innerWidth
-    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 })
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 320 })
     try {
+      const today = new Date().toISOString().slice(0, 10)
+      localStorage.setItem(`novel_daily_wc_${today}_p1`, "10")
       const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
       await flushPromises()
+      expect(wrapper.get("#mobile-note-today-wc").text()).toBe("今日累计 12 字")
       const editor = wrapper.get('#mobile-note-editor')
       await editor.setValue("移动速记")
+      await vi.waitFor(() => expect(wrapper.get("#mobile-note-today-wc").text()).toBe("今日累计 14 字"))
       await wrapper.findAll("button").find((button) => button.text() === "保存工作稿").trigger("click")
       await flushPromises()
 

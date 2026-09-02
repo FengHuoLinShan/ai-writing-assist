@@ -99,18 +99,29 @@ test.describe("作者任务工作台", () => {
     await expect.poll(() => page.evaluate(() => localStorage.getItem("novel_currentProjectId"))).toBeNull()
   })
 
-  test("320、375、390px 顶栏不重叠且保留可触控入口", async ({ page }) => {
+  test("320、375、390px 顶栏保留作品与连接状态，写作速记保留今日累计", async ({ page }) => {
     project = await createProject({ title: "一部标题很长但仍要在窄屏安心继续写作的作品", genre: "fantasy", language: "zh" })
+    await createDraft(project.id, 1, "窄屏章节", "今日累计正文")
     await openWorkbench(page, project, "world", "bible")
 
     for (const width of [320, 375, 390]) {
       await page.setViewportSize({ width, height: 844 })
-      await expect(page.locator(".topbar-center")).toBeHidden()
+      await expect(page.locator("#topbar-project")).toHaveText(project.title)
+      await expect(page.locator("#topbar-project")).toHaveAttribute("title", project.title)
+      await expect(page.locator("#topbar-project")).toBeVisible()
+      await expect(page.locator("#topbar-module")).toBeHidden()
+      await expect(page.locator("#topbar-status-dot")).toBeVisible()
+      await expect(page.locator("#topbar-status-dot")).toHaveAttribute("aria-label", /^服务(已|未)连接$/)
+      await expect(page.locator(".topbar-account-menu > summary")).toHaveAttribute("aria-describedby", "topbar-status")
+      await expect(page.locator(".topbar-account-menu > summary")).toHaveAttribute("title", /^账户菜单，服务(已|未)连接$/)
       const left = await page.locator(".topbar-left").boundingBox()
+      const center = await page.locator(".topbar-center").boundingBox()
       const right = await page.locator(".topbar-right").boundingBox()
       expect(left).not.toBeNull()
+      expect(center).not.toBeNull()
       expect(right).not.toBeNull()
-      expect(left.x + left.width).toBeLessThanOrEqual(right.x)
+      expect(left.x + left.width).toBeLessThanOrEqual(center.x)
+      expect(center.x + center.width).toBeLessThanOrEqual(right.x)
       expect(right.x + right.width).toBeLessThanOrEqual(width)
       const targets = await page.locator(".theme-dot, .topbar-account-menu > summary").evaluateAll((elements) => (
         elements.map((element) => ({ width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height }))
@@ -118,6 +129,18 @@ test.describe("作者任务工作台", () => {
       expect(targets).toHaveLength(4)
       expect(Math.min(...targets.map((target) => target.width))).toBeGreaterThanOrEqual(42)
       expect(Math.min(...targets.map((target) => target.height))).toBeGreaterThanOrEqual(42)
+      await expectNoPageOverflow(page)
+    }
+
+    await openWorkbench(page, project, "writing")
+    await page.getByRole("button", { name: /^打开第 1 章/ }).click()
+    for (const width of [320, 375, 390]) {
+      await page.setViewportSize({ width, height: 844 })
+      await expect(page.locator(".mobile-quick-note")).toBeVisible()
+      await expect(page.locator("#mobile-note-wc")).toHaveText("本章 6 字")
+      await expect(page.locator("#mobile-note-today-wc")).toHaveText("今日累计 6 字")
+      if (width <= 360) await expect(page.locator("#topbar-wordcount")).toBeHidden()
+      else await expect(page.locator("#topbar-wordcount")).toBeVisible()
       await expectNoPageOverflow(page)
     }
   })

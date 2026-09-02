@@ -27,6 +27,8 @@ describe("ShellApp", () => {
     expect(wrapper.find("#topbar-project img").exists()).toBe(false)
     expect(wrapper.get("#topbar-module").text()).toBe("人物与世界")
     expect(wrapper.get("#topbar-submodule").text()).toContain("人物与设定")
+    expect(wrapper.get("#topbar-status-dot").attributes("role")).toBe("status")
+    expect(wrapper.get("#topbar-status-dot").attributes("aria-label")).toMatch(/^服务(已|未)连接$/)
     expect(wrapper.get('.nav-item[data-view="world"]').classes()).toContain("active")
     expect(wrapper.get("#sidebar").element.tagName).toBe("ASIDE")
     expect(wrapper.get("#sidebar-context-slot").exists()).toBe(true)
@@ -108,6 +110,9 @@ describe("ShellApp", () => {
     expect(wrapper.get("#topbar-chapter-wc").text()).toBe("3,456")
     expect(wrapper.get("#topbar-save-state").classes()).toContain("unsaved")
     expect(wrapper.get("#topbar-status-dot").classes()).toContain("connected")
+    expect(wrapper.get("#topbar-status-dot").attributes("aria-label")).toBe("服务已连接")
+    expect(wrapper.get(".topbar-account-menu > summary").attributes("aria-describedby")).toBe("topbar-status")
+    expect(wrapper.get(".topbar-account-menu > summary").attributes("title")).toBe("账户菜单，服务已连接")
   })
 
   it("handles theme, help, command and workspace shortcuts with component lifecycle cleanup", async () => {

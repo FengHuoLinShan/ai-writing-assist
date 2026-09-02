@@ -153,9 +153,7 @@ describe("editorial archive theme", () => {
     expect(theme).toMatch(/\.theme-dot\[data-theme-value="ink"\]::before\s*\{[^}]*background:\s*#C03F2B;/s)
     expect(theme).toMatch(/\.theme-dot\.is-active::before\s*\{[^}]*box-shadow:\s*0 0 0 2px var\(--nc-bg\),\s*0 0 0 4px var\(--nc-accent\);/s)
     expect(theme).toMatch(/@media \(max-width: 760px\)[\s\S]*?button\.theme-dot\s*\{[^}]*width:\s*42px;[^}]*height:\s*42px;/s)
-    expect(styles).toMatch(/@media \(max-width: 760px\)[\s\S]*?#topbar \.topbar-center,[\s\S]*?display:\s*none;[\s\S]*?\.avatar\s*\{[^}]*width:\s*42px;[^}]*height:\s*42px;/s)
-    const desk = readFileSync(resolve(__dirname, "../vue/views/writing/writing-desk.css"), "utf8")
-    expect(desk).toMatch(/\.scene-cockpit-module__reorder \.btn-icon\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;/s)
+    expect(styles).toMatch(/@media \(max-width: 760px\)[\s\S]*?#topbar \.topbar-center > :not\(#topbar-project\)\s*\{[^}]*display:\s*none;[\s\S]*?#topbar-project\s*\{[^}]*max-width:\s*none;[\s\S]*?\.avatar\s*\{[^}]*width:\s*42px;[^}]*height:\s*42px;/s)
   })
 
   it("animates theme switching and honors reduced motion", () => {
