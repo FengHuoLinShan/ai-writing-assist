@@ -732,7 +732,9 @@ async function continueAttempt() {
 }
 
 async function keepPartial() {
-  if (!currentAttempt.value?.id) return
+  if (!currentAttempt.value?.id || sending.value) return
+  sending.value = true
+  mutationAction.value = "keep-partial"
   try {
     await getApi().interactions.keepAttempt(
       journeyId.value,
@@ -743,6 +745,9 @@ async function keepPartial() {
     streamText.value = ""
   } catch {
     getToast()("暂时无法保留这段；已生成的内容仍在，请重试。", "error")
+  } finally {
+    sending.value = false
+    mutationAction.value = ""
   }
 }
 
@@ -1952,7 +1957,7 @@ onBeforeUnmount(() => {
             <button class="rp-message-action-button" type="button" @click="copyMessage(message)">复制</button>
             <button
               v-if="message.id === lastStoryMessageId"
-              class="rp-message-action-button"
+              class="rp-message-action-button rp-mutation-button rp-mutation-button--retry"
               type="button"
               :disabled="sending"
               :aria-busy="sending && mutationAction === 'regenerate'"
@@ -2024,9 +2029,9 @@ onBeforeUnmount(() => {
 
       <div v-if="awaitingContinue" class="rp-attempt-actions">
         <p>这一段到达了模型的单次输出上限。</p>
-        <button type="button" :disabled="sending" :aria-busy="sending && mutationAction === 'continue'" @click="continueAttempt"><span v-if="sending && mutationAction === 'continue'" class="rp-button-spinner" aria-hidden="true"></span>{{ sending && mutationAction === 'continue' ? '正在继续…' : '继续写完' }}</button>
-        <button type="button" :disabled="sending" @click="keepPartial">保留这段</button>
-        <button type="button" :disabled="sending" :aria-busy="sending && mutationAction === 'retry'" @click="retryAttempt"><span v-if="sending && mutationAction === 'retry'" class="rp-button-spinner" aria-hidden="true"></span>{{ sending && mutationAction === 'retry' ? '正在重新生成…' : '重新生成' }}</button>
+        <button type="button" class="rp-mutation-button rp-mutation-button--continue" :disabled="sending" :aria-busy="sending && mutationAction === 'continue'" @click="continueAttempt"><span v-if="sending && mutationAction === 'continue'" class="rp-button-spinner" aria-hidden="true"></span>{{ sending && mutationAction === 'continue' ? '正在继续…' : '继续写完' }}</button>
+        <button type="button" class="rp-mutation-button rp-mutation-button--keep" :disabled="sending" :aria-busy="sending && mutationAction === 'keep-partial'" @click="keepPartial"><span v-if="sending && mutationAction === 'keep-partial'" class="rp-button-spinner" aria-hidden="true"></span>{{ sending && mutationAction === 'keep-partial' ? '正在保留…' : '保留这段' }}</button>
+        <button type="button" class="rp-mutation-button rp-mutation-button--retry" :disabled="sending" :aria-busy="sending && mutationAction === 'retry'" @click="retryAttempt"><span v-if="sending && mutationAction === 'retry'" class="rp-button-spinner" aria-hidden="true"></span>{{ sending && mutationAction === 'retry' ? '正在重新生成…' : '重新生成' }}</button>
       </div>
       <div v-else-if="failedAttempt" class="rp-attempt-actions rp-attempt-actions--error" role="alert">
         <p>{{ failedMessage }}</p>
@@ -2048,11 +2053,12 @@ onBeforeUnmount(() => {
         <button
           v-if="failedError.action !== 'connection'"
           type="button"
+          class="rp-mutation-button rp-mutation-button--retry"
           :disabled="sending"
           :aria-busy="sending && mutationAction === 'retry'"
           @click="retryAttempt"
         ><span v-if="sending && mutationAction === 'retry'" class="rp-button-spinner" aria-hidden="true"></span>{{ sending && mutationAction === 'retry' ? '正在重新生成…' : '重新生成' }}</button>
-        <button v-if="streamText" type="button" @click="keepPartial">保留残段</button>
+        <button v-if="streamText" type="button" class="rp-mutation-button rp-mutation-button--keep" :disabled="sending" :aria-busy="sending && mutationAction === 'keep-partial'" @click="keepPartial"><span v-if="sending && mutationAction === 'keep-partial'" class="rp-button-spinner" aria-hidden="true"></span>{{ sending && mutationAction === 'keep-partial' ? '正在保留…' : '保留残段' }}</button>
       </div>
       <p v-if="storyEnded" class="rp-story-ended">故事在这里告一段落。你仍可以重新生成，或输入新的延续方式。</p>
     </section>
@@ -2105,7 +2111,7 @@ onBeforeUnmount(() => {
     <div v-if="conflict" class="rp-conflict-banner" role="alert">
       <span>旅程已在另一处更新，你的输入仍保留在这里。</span>
       <button type="button" @click="loadLatestAfterConflict">载入最新发展</button>
-      <button type="button" :disabled="sending" :aria-busy="sending && mutationAction === 'continue-from-visible'" @click="continueFromVisible"><span v-if="sending && mutationAction === 'continue-from-visible'" class="rp-button-spinner" aria-hidden="true"></span>{{ sending && mutationAction === 'continue-from-visible' ? '正在继续…' : '仍从我看到的位置继续' }}</button>
+      <button type="button" class="rp-mutation-button rp-mutation-button--conflict" :disabled="sending" :aria-busy="sending && mutationAction === 'continue-from-visible'" @click="continueFromVisible"><span v-if="sending && mutationAction === 'continue-from-visible'" class="rp-button-spinner" aria-hidden="true"></span>{{ sending && mutationAction === 'continue-from-visible' ? '正在继续…' : '仍从我看到的位置继续' }}</button>
     </div>
 
     <footer class="rp-composer-dock">
@@ -2140,7 +2146,7 @@ onBeforeUnmount(() => {
         <button
           v-else
           class="rp-send-button"
-          :class="{ 'is-loading': sending }"
+          :class="{ 'is-loading': sending && mutationAction === 'send' }"
           type="button"
           :disabled="
             sending
@@ -2149,11 +2155,11 @@ onBeforeUnmount(() => {
             || composerTooLong
             || !hasActiveConnection
           "
-          :aria-label="sending ? '正在发送消息' : '发送消息'"
-          :aria-busy="sending"
+          :aria-label="sending && mutationAction === 'send' ? '正在发送消息' : '发送消息'"
+          :aria-busy="sending && mutationAction === 'send'"
           title="发送消息"
           @click="send"
-        ><span v-if="sending" class="rp-button-spinner" aria-hidden="true"></span><template v-else>↑</template></button>
+        ><span v-if="sending && mutationAction === 'send'" class="rp-button-spinner" aria-hidden="true"></span><template v-else>↑</template></button>
       </div>
       <p v-if="stopping" class="rp-stream-status" role="status">正在停止…</p>
       <p v-if="showComposerCount" class="rp-input-count" :class="{ error: composerTooLong }">

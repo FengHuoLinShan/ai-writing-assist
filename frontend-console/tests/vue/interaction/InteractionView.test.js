@@ -924,6 +924,9 @@ describe("RP 故事页", () => {
       .find((button) => button.text().includes("正在重新生成"))
     expect(retryButton.attributes("aria-busy")).toBe("true")
     expect(retryButton.find(".rp-button-spinner").exists()).toBe(true)
+    expect(wrapper.get(".rp-send-button").attributes("aria-label")).toBe("发送消息")
+    expect(wrapper.get(".rp-send-button").attributes("aria-busy")).toBe("false")
+    expect(wrapper.find(".rp-send-button .rp-button-spinner").exists()).toBe(false)
     retried.resolve({ journey: journey(), attempt: null })
     await flushPromises()
 
@@ -2214,6 +2217,40 @@ describe("RP 故事页", () => {
       "暂时无法保留这段；已生成的内容仍在，请重试。",
       "error",
     )
+  })
+
+  it("保留截断内容时锁定其他变更并阻止重复提交", async () => {
+    const kept = deferred()
+    api.interactions.keepAttempt.mockImplementation(() => kept.promise)
+    const wrapper = mount(InteractionView, {
+      props: {
+        initialJourney: journey({
+          active_attempt: {
+            id: "awaiting-attempt",
+            status: "awaiting_continue",
+            visible_text: "已经显示但尚未写完的正文。",
+          },
+        }),
+        llmConnections: connected(),
+      },
+    })
+
+    const keepButton = wrapper.findAll(".rp-attempt-actions button")
+      .find((button) => button.text() === "保留这段")
+    await keepButton.trigger("click")
+    await vi.waitFor(() => expect(api.interactions.keepAttempt).toHaveBeenCalledOnce())
+
+    const busyKeep = wrapper.findAll(".rp-attempt-actions button")
+      .find((button) => button.text().includes("正在保留"))
+    expect(busyKeep.attributes("aria-busy")).toBe("true")
+    expect(busyKeep.element.disabled).toBe(true)
+    expect(wrapper.findAll(".rp-attempt-actions button")
+      .find((button) => button.text() === "重新生成").element.disabled).toBe(true)
+    await busyKeep.trigger("click")
+    expect(api.interactions.keepAttempt).toHaveBeenCalledOnce()
+
+    kept.resolve({})
+    await flushPromises()
   })
 
   it("流结束后刷新失败时保留已显示正文并提供明确恢复路径", async () => {

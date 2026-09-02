@@ -14593,7 +14593,7 @@ details[open] > .world-bible-support-summary::after {
   color: var(--text-on-accent);
 }
 
-[data-theme="night"] .rp-send-button:disabled {
+[data-theme="night"] .rp-send-button:disabled:not(.is-loading) {
   background: var(--rp-accent-soft);
   color: var(--rp-dim);
 }
@@ -14621,6 +14621,23 @@ details[open] > .world-bible-support-summary::after {
 .rp-message__actions button .rp-button-spinner,
 .rp-conflict-banner button .rp-button-spinner {
   margin-right: 6px;
+}
+
+.rp-mutation-button {
+  box-sizing: border-box;
+}
+
+.rp-mutation-button--continue,
+.rp-mutation-button--keep {
+  inline-size: 7.5rem;
+}
+
+.rp-mutation-button--retry {
+  inline-size: 9rem;
+}
+
+.rp-mutation-button--conflict {
+  inline-size: 13rem;
 }
 
 @keyframes rp-spin { to { transform: rotate(360deg); } }
