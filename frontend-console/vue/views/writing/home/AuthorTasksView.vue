@@ -50,7 +50,12 @@ const restoredSource = ref(restoredDraft?.source || null)
 const initialDraft = ref(restoredDraft?.form || null)
 const formDirty = ref(Boolean(restoredDraft))
 const draftBackupFailed = ref(false)
-const navigationBusy = computed(() => tasks.loading.value || tasks.busyIds.value.size > 0)
+const submitting = ref(false)
+const formRevision = ref(0)
+let formGeneration = 0
+let componentGeneration = 0
+let disposed = false
+const navigationBusy = computed(() => submitting.value || tasks.loading.value || tasks.busyIds.value.size > 0)
 const heading = computed(() => activeScope === "archived" ? "已归档" : "计划中的任务")
 const tabs = computed(() => [
   ["today", "今天", tasks.counts.value.today],
@@ -73,16 +78,33 @@ function openWritingHome() {
 }
 
 async function save(payload) {
-  const editing = Boolean(editingTask.value)
-  const ok = editing
-    ? Boolean(await tasks.patch(editingTask.value, payload))
-    : await tasks.create(payload)
-  if (!ok) return
-  clearDraft()
-  formOpen.value = false
-  editingTask.value = null
-  tasks.clearConflict()
-  if (!editing && props.source) clearTaskSource()
+  if (submitting.value) return
+  const task = editingTask.value
+  const owner = {
+    taskId: task?.id || null,
+    revision: formRevision.value,
+    generation: formGeneration,
+    componentGeneration,
+  }
+  submitting.value = true
+  try {
+    const ok = task ? Boolean(await tasks.patch(task, payload)) : await tasks.create(payload)
+    if (
+      !ok
+      || disposed
+      || owner.taskId !== (editingTask.value?.id || null)
+      || owner.revision !== formRevision.value
+      || owner.generation !== formGeneration
+      || owner.componentGeneration !== componentGeneration
+    ) return
+    clearDraft()
+    formOpen.value = false
+    editingTask.value = null
+    tasks.clearConflict()
+    if (!task && props.source) clearTaskSource()
+  } finally {
+    if (!disposed) submitting.value = false
+  }
 }
 
 function edit(task) {
@@ -107,6 +129,8 @@ function closeForm() {
 const formSource = computed(() => editingTask.value?.source || restoredSource.value || props.source)
 
 function clearDraft() {
+  formGeneration += 1
+  formRevision.value = 0
   try { sessionStorage.removeItem(draftKey(props.projectId)) } catch { /* noop */ }
   formDirty.value = false
   draftBackupFailed.value = false
@@ -115,6 +139,7 @@ function clearDraft() {
 }
 
 function rememberDraft(form) {
+  formRevision.value += 1
   formDirty.value = true
   try {
     sessionStorage.setItem(draftKey(props.projectId), JSON.stringify({
@@ -144,7 +169,11 @@ function beforeUnload(event) {
 }
 
 onMounted(() => window.addEventListener("beforeunload", beforeUnload))
-onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload))
+onBeforeUnmount(() => {
+  disposed = true
+  componentGeneration += 1
+  window.removeEventListener("beforeunload", beforeUnload)
+})
 </script>
 
 <template>
@@ -163,7 +192,7 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload))
       <button type="button" class="btn btn-sm btn-ghost author-task-tabs__archive" :disabled="navigationBusy" :aria-current="activeScope === 'archived' ? 'page' : undefined" @click="navigateScope('archived')">已归档</button>
     </nav>
 
-    <AuthorTaskForm v-if="formOpen" :task="editingTask" :source="formSource" :draft="initialDraft" :busy="tasks.loading.value" @submit="save" @cancel="closeForm" @change="rememberDraft" />
+    <AuthorTaskForm v-if="formOpen" :task="editingTask" :source="formSource" :draft="initialDraft" :busy="navigationBusy" @submit="save" @cancel="closeForm" @change="rememberDraft" />
     <p v-if="tasks.conflict.value" class="author-task-conflict field-error" role="alert">{{ tasks.conflict.value.message }}</p>
 
     <div v-if="tasks.loadError.value" class="error-card" role="alert">

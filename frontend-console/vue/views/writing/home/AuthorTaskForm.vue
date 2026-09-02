@@ -50,12 +50,12 @@ function submit() {
       <button type="button" class="btn btn-sm btn-ghost" :disabled="busy" @click="emit('cancel')">取消</button>
     </div>
     <label for="author-task-title">标题</label>
-    <input id="author-task-title" v-model="form.title" type="text" maxlength="255" required autofocus @input="changed">
+    <input id="author-task-title" v-model="form.title" type="text" maxlength="255" required autofocus :disabled="busy" @input="changed">
     <p v-if="error" class="field-error" role="alert">{{ error }}</p>
     <label for="author-task-note">备注（可选）</label>
-    <textarea id="author-task-note" v-model="form.note" rows="3" maxlength="4000" @input="changed" />
+    <textarea id="author-task-note" v-model="form.note" rows="3" maxlength="4000" :disabled="busy" @input="changed" />
     <label for="author-task-date">日期（可选）</label>
-    <input id="author-task-date" v-model="form.dueDate" type="date" @input="changed">
+    <input id="author-task-date" v-model="form.dueDate" type="date" :disabled="busy" @input="changed">
     <div class="author-task-form__actions">
       <button class="btn btn-primary" type="submit" :disabled="busy">{{ busy ? '保存中…' : '保存任务' }}</button>
     </div>

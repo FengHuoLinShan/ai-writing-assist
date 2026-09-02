@@ -10,6 +10,12 @@ let router
 let toast
 let confirm
 
+function deferred() {
+  let resolve
+  const promise = new Promise((next) => { resolve = next })
+  return { promise, resolve }
+}
+
 function task(overrides = {}) {
   return {
     id: "task-1",
@@ -162,6 +168,75 @@ describe("作者任务工作台", () => {
       expected_updated_at: "2026-08-27T10:00:00Z",
     }))
     expect(sessionStorage.getItem("novel_author_task_form:v1:p1")).toBeNull()
+    restored.unmount()
+  })
+
+  it("PATCH 晚到成功不会清掉提交后的新输入", async () => {
+    const late = deferred()
+    api.projects.patchAuthorTask.mockReturnValue(late.promise)
+    const wrapper = mount(AuthorTasksView, { props: { projectId: "p1", scope: "inbox" } })
+    await flushPromises()
+    await wrapper.findAll("button").find((button) => button.text() === "编辑").trigger("click")
+    await wrapper.get("#author-task-title").setValue("提交时标题")
+    await wrapper.get(".author-task-form").trigger("submit")
+    await vi.waitFor(() => expect(api.projects.patchAuthorTask).toHaveBeenCalledTimes(1))
+    expect(wrapper.get("#author-task-title").attributes("disabled")).toBeDefined()
+
+    wrapper.get("#author-task-title").element.disabled = false
+    await wrapper.get("#author-task-title").setValue("提交后的新输入")
+    late.resolve(task({ title: "提交时标题" }))
+    await flushPromises()
+
+    expect(wrapper.get("#author-task-title").element.value).toBe("提交后的新输入")
+    expect(sessionStorage.getItem("novel_author_task_form:v1:p1")).toContain("提交后的新输入")
+    wrapper.unmount()
+  })
+
+  it("PATCH 晚到成功不会关闭后来打开的其他任务", async () => {
+    const late = deferred()
+    api.projects.listAuthorTasks.mockResolvedValue({
+      items: [task(), task({ id: "task-2", title: "第二个任务", updated_at: "2026-08-27T12:00:00Z" })],
+      total: 2,
+      counts: { inbox: 2 },
+    })
+    api.projects.patchAuthorTask.mockReturnValue(late.promise)
+    const wrapper = mount(AuthorTasksView, { props: { projectId: "p1", scope: "inbox" } })
+    await flushPromises()
+    const editButtons = () => wrapper.findAll(".author-task-row__actions button").filter((button) => button.text() === "编辑")
+    await editButtons()[0].trigger("click")
+    await wrapper.get("#author-task-note").setValue("第一个修改")
+    await wrapper.get(".author-task-form").trigger("submit")
+    await vi.waitFor(() => expect(api.projects.patchAuthorTask).toHaveBeenCalledTimes(1))
+    await editButtons()[1].trigger("click")
+    expect(wrapper.get("#author-task-title").element.value).toBe("第二个任务")
+
+    late.resolve(task({ note: "第一个修改" }))
+    await flushPromises()
+    expect(wrapper.get("#author-task-title").element.value).toBe("第二个任务")
+    expect(wrapper.find(".author-task-form").exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it("create 晚到成功不会清掉卸载后重新打开的草稿", async () => {
+    const late = deferred()
+    api.projects.listAuthorTasks.mockResolvedValue({ items: [], total: 0, counts: {} })
+    api.projects.createAuthorTask.mockReturnValue(late.promise)
+    const first = mount(AuthorTasksView, { props: { projectId: "p1", scope: "inbox" } })
+    await flushPromises()
+    await first.findAll("button").find((button) => button.text() === "添加第一项").trigger("click")
+    await first.get("#author-task-title").setValue("提交中的任务")
+    await first.get(".author-task-form").trigger("submit")
+    await vi.waitFor(() => expect(api.projects.createAuthorTask).toHaveBeenCalledTimes(1))
+    first.unmount()
+
+    const restored = mount(AuthorTasksView, { props: { projectId: "p1", scope: "later" } })
+    await flushPromises()
+    await restored.get("#author-task-note").setValue("重新打开后的输入")
+    late.resolve(task({ title: "提交中的任务" }))
+    await flushPromises()
+
+    expect(restored.get("#author-task-note").element.value).toBe("重新打开后的输入")
+    expect(sessionStorage.getItem("novel_author_task_form:v1:p1")).toContain("重新打开后的输入")
     restored.unmount()
   })
 
