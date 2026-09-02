@@ -1762,6 +1762,7 @@ function beforeUnload(event) {
 }
 
 onMounted(() => {
+  if (!journey.value) return
   cancelSeeSeaGrace(journeyId.value)
   document.addEventListener("selectionchange", syncStorySelection)
   document.addEventListener("visibilitychange", onVisibilityChange)

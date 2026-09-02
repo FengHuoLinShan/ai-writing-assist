@@ -11,6 +11,8 @@ describe("RP reading comfort", () => {
     expect(styles).toMatch(/\.rp-story-scroll\s*\{[^}]*calc\(\(100vw - 640px\) \/ 2\)/s)
     expect(styles).not.toMatch(/\.rp-story-scroll\s*\{[^}]*scroll-behavior:\s*smooth/s)
     expect(styles).toMatch(/\.rp-message--streaming\s*\{[^}]*border-left:\s*2px solid var\(--rp-accent\)/s)
+    expect(styles).toMatch(/\.rp-partial-note,[^{]*\.rp-stream-status\s*\{[^}]*color:\s*var\(--rp-text\)/s)
+    expect(styles).toMatch(/\.rp-load-failure button\s*\{[^}]*background:\s*var\(--rp-heading\);[^}]*color:\s*var\(--rp-bg\)/s)
   })
 
   it("keeps message actions discoverable and removes optional motion", () => {

@@ -15238,7 +15238,7 @@ button.rp-journey-card__main:hover {
 .rp-partial-note,
 .rp-stream-status {
   margin: 8px 0 0;
-  color: #a1742f;
+  color: var(--rp-text);
   font-size: 12px;
 }
 
@@ -15779,8 +15779,8 @@ button.rp-journey-card__main:hover {
   padding: 9px 14px;
   border: 0;
   border-radius: 9px;
-  background: var(--rp-accent);
-  color: #fff;
+  background: var(--rp-heading);
+  color: var(--rp-bg);
   cursor: pointer;
 }
 

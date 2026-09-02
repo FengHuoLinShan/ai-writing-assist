@@ -180,6 +180,16 @@ afterEach(() => {
 })
 
 describe("RP 故事页", () => {
+  it("旅程加载失败时只显示恢复入口，不启动旅程副作用", () => {
+    const wrapper = mount(InteractionView, {
+      props: { initialJourney: null, loadError: "当前旅程无法访问" },
+    })
+
+    expect(wrapper.get(".rp-load-failure").text()).toContain("当前旅程无法访问")
+    expect(api.interactions.getPathIndex).not.toHaveBeenCalled()
+    expect(api.interactions.heartbeat).not.toHaveBeenCalled()
+  })
+
   it("分开折叠开场设定，只给最新故事保留选项和重抽入口", async () => {
     const wrapper = mount(InteractionView, {
       props: {

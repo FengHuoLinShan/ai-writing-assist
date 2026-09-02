@@ -34,8 +34,8 @@ async function expectFillsViewportWidth(locator) {
   expect(Math.abs(box.width - viewportWidth)).toBeLessThanOrEqual(1)
 }
 
-async function textContrast(locator) {
-  return locator.evaluate((element) => {
+async function textContrast(locator, backgroundSelector = null) {
+  return locator.evaluate((element, selector) => {
     const channel = (value) => {
       const normalized = value / 255
       return normalized <= 0.04045
@@ -47,18 +47,23 @@ async function textContrast(locator) {
       return (0.2126 * channel(red)) + (0.7152 * channel(green)) + (0.0722 * channel(blue))
     }
     const style = getComputedStyle(element)
-    const values = [luminance(style.color), luminance(style.backgroundColor)]
+    const background = selector
+      ? getComputedStyle(document.querySelector(selector)).backgroundColor
+      : style.backgroundColor
+    const values = [luminance(style.color), luminance(background)]
       .sort((left, right) => right - left)
     return {
       contrast: (values[0] + 0.05) / (values[1] + 0.05),
       opacity: Number(style.opacity),
+      color: style.color,
+      background,
     }
-  })
+  }, backgroundSelector)
 }
 
 async function mockRpApis(
   page,
-  { seeSeaNoticeAcknowledged = true, activeAttempt = null } = {},
+  { seeSeaNoticeAcknowledged = true, activeAttempt = null, partialMessage = false } = {},
 ) {
   const journey = {
     id: journeyId,
@@ -85,6 +90,7 @@ async function mockRpApis(
         "assistant",
         "## 墨迹重现\n\n信纸上的**墨迹**正在重新浮现。",
         {
+          completion_state: partialMessage ? "partial" : "complete",
           action_suggestions: [{
             label: "谨慎观察",
             text: "我先完整观察信纸边缘的痕迹，再决定是否触碰正在浮现的文字。",
@@ -410,6 +416,52 @@ test.describe("RP 路由与窄屏故事页", () => {
       .toContainText("故事 · 未完成")
     await expect(page.locator(".rp-message--streaming")).toContainText("潮声压住了尚未说完的话。")
     expect(browserErrors).toEqual([])
+  })
+
+  test("三主题下失败恢复和片段状态保持可读", async ({ page }) => {
+    await mockRpApis(page, {
+      partialMessage: true,
+      activeAttempt: {
+        id: "attempt-preparing",
+        journey_id: journeyId,
+        response_to_node_id: "a3",
+        status: "preparing_context",
+        error_kind: null,
+        error_message: null,
+        visible_text: "",
+        visible_offset: 0,
+      },
+    })
+    await page.goto(`/#interaction/${journeyId}`)
+
+    for (const theme of ["sticky", "night", "ink"]) {
+      await page.locator("html").evaluate((element, value) => {
+        element.setAttribute("data-theme", value)
+      }, theme)
+      expect((await textContrast(page.locator(".rp-partial-note"), ".rp-story-page")).contrast)
+        .toBeGreaterThanOrEqual(4.5)
+      expect((await textContrast(page.locator(".rp-stream-status").first(), ".rp-story-page")).contrast)
+        .toBeGreaterThanOrEqual(4.5)
+    }
+
+    await page.unroute(`**/api/interactions/journeys/${journeyId}`)
+    await page.route(`**/api/interactions/journeys/${journeyId}`, (route) => route.fulfill({
+      status: 404,
+      contentType: "application/json",
+      body: JSON.stringify({ detail: "not found" }),
+    }))
+    await page.reload()
+    await expect(page.locator(".rp-load-failure")).toBeVisible()
+    const retry = page.locator(".rp-load-failure button")
+    await expect(retry).toBeVisible()
+    for (const theme of ["sticky", "night", "ink"]) {
+      await page.locator("html").evaluate((element, value) => {
+        element.setAttribute("data-theme", value)
+      }, theme)
+      const metrics = await textContrast(retry)
+      expect(metrics.contrast, `${theme} failure action ${metrics.color} on ${metrics.background}`)
+        .toBeGreaterThanOrEqual(4.5)
+    }
   })
 
   test("底部看海确认按可视视口自动向上弹出且不被裁剪", async ({
