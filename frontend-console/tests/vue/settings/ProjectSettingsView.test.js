@@ -4,6 +4,7 @@ import ProjectSettingsView from "../../../vue/views/settings/ProjectSettingsView
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 import { ISLAND_LEAVE_GUARD } from "../../../vue/mountIsland.js"
 import { projectSettingsSession } from "../../../vue/views/settings/projectSettingsSession.js"
+import { DEEP_IMPORT_GROUPS } from "../../../vue/views/settings/logic/deepImport.js"
 
 function makeEffectiveLLM(overrides = {}) {
   return {
@@ -86,13 +87,28 @@ describe("结构与导航", () => {
   })
 
   it("作品级导入覆盖只显示作者摘要，不显示 raw 设置对象", async () => {
+    const fullDefaults = Object.fromEntries(DEEP_IMPORT_GROUPS.map((group) => [
+      group.id,
+      Object.fromEntries(group.fields.map((field) => [field.key, field.type === "nullableBool" ? null : field.value])),
+    ]))
+    const defaultsWrapper = mount(ProjectSettingsView, {
+      props: makeProps({
+        effectiveLLM: makeEffectiveLLM({
+          deep_import: { source: "project", value: fullDefaults },
+        }),
+      }),
+    })
+    await defaultsWrapper.findAll(".settings-tab-nav .tab-btn")[1].trigger("click")
+    expect(defaultsWrapper.text()).toContain("当前作品使用已保存设置")
+    expect(defaultsWrapper.text()).not.toContain("项与默认不同")
+    defaultsWrapper.unmount()
+
+    const configured = structuredClone(fullDefaults)
+    configured.phase0.target_input_chars = 80000
     const wrapper = mount(ProjectSettingsView, {
       props: makeProps({
         effectiveLLM: makeEffectiveLLM({
-          deep_import: {
-            source: "project",
-            value: { phase0: { target_input_chars: 80000 } },
-          },
+          deep_import: { source: "project", value: configured },
         }),
       }),
     })

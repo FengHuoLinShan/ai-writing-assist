@@ -74,10 +74,10 @@ const deepImportSource = computed(() => (
 ))
 const deepImportSourceSummary = computed(() => {
   if (deepImportSource.value.source === "project") {
-    const configured = deepImportSource.value.value || {}
+    const configured = deepImportFormFromSettings(deepImportSource.value.value || {})
+    const defaults = deepImportFormFromSettings({})
     const changed = DEEP_IMPORT_GROUPS.reduce((count, group) => count + group.fields.filter((field) => (
-      Object.hasOwn(configured[group.id] || {}, field.key)
-      && !Object.is(configured[group.id][field.key], field.value)
+      configured[group.id][field.key] !== defaults[group.id][field.key]
     )).length, 0)
     return changed ? `当前作品有 ${changed} 项与默认不同` : "当前作品使用已保存设置"
   }
