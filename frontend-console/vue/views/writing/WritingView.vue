@@ -74,7 +74,7 @@
     :selected-scene-id="vm.selectedSceneId.value"
     :scene="vm.currentScene.value"
     :lens="vm.sceneLens"
-    :today-words="vm.todayWordCount.value"
+    :today-words="vm.todayWords.value"
     :attach="vm.attachEditor"
     :detach="vm.detachEditor"
     @select-scene="vm.selectScene"

@@ -221,9 +221,6 @@ export function useWritingWorkspace(props) {
     chapterScenes.value.find((scene) => scene.id === selectedSceneId.value) || null
   ))
   const mobileMode = computed(() => isNarrow.value && !forceDesktop.value && selectedChapter.value && !editorState.readonly)
-  const todayWordCount = computed(() => (
-    selectedChapter.value == null ? 0 : dailyWordcount() + editorState.content.length
-  ))
   const canEdit = computed(() => selectedChapter.value != null && !editorState.readonly && !editorState.loading && !editorState.loadError)
   const activeVersions = computed(() => versions.value.filter((version) => (
     version.display_state
@@ -1559,7 +1556,6 @@ export function useWritingWorkspace(props) {
     forceDesktop,
     mobileMode,
     isNarrow,
-    todayWordCount,
     canEdit,
     activeVersions,
     candidateComparisonAvailable,

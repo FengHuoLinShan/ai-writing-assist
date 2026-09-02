@@ -134,13 +134,20 @@ test.describe("作者任务工作台", () => {
 
     await openWorkbench(page, project, "writing")
     await page.getByRole("button", { name: /^打开第 1 章/ }).click()
+    await expect(page.locator("#mobile-note-today-wc")).toHaveText("今日累计 0 字")
     for (const width of [320, 375, 390]) {
       await page.setViewportSize({ width, height: 844 })
       await expect(page.locator(".mobile-quick-note")).toBeVisible()
-      await expect(page.locator("#mobile-note-wc")).toHaveText("本章 6 字")
-      await expect(page.locator("#mobile-note-today-wc")).toHaveText("今日累计 6 字")
-      if (width <= 360) await expect(page.locator("#topbar-wordcount")).toBeHidden()
-      else await expect(page.locator("#topbar-wordcount")).toBeVisible()
+      if (width <= 360) {
+        await expect(page.locator("#topbar-wordcount")).toBeHidden()
+        await page.locator("#mobile-note-editor").fill("今日累计正文新")
+        await expect(page.locator("#mobile-note-wc")).toHaveText("本章 7 字")
+        await expect(page.locator("#mobile-note-today-wc")).toHaveText("今日累计 1 字")
+      } else {
+        await expect(page.locator("#topbar-wordcount")).toBeVisible()
+        await expect(page.locator("#topbar-today-wc")).toHaveText("1")
+        await expect(page.locator("#mobile-note-today-wc")).toHaveText("今日累计 1 字")
+      }
       await expectNoPageOverflow(page)
     }
   })
