@@ -4,9 +4,8 @@ import { openProjectList, reloadProjectList } from "./helpers/workbench.js"
 import { cleanupProject, createProject, waitForBackend } from "./helpers/api-client.js"
 
 async function enterManageMode(page) {
-  if (!await page.locator('[data-action="recycle-bin"]').isVisible()) {
-    await page.locator('[data-action="manage-projects"]').click()
-  }
+  const button = page.getByRole("button", { name: "管理作品", exact: true })
+  if (await button.isVisible()) await button.click()
 }
 
 test.describe("项目路径 chaos recovery", () => {
@@ -38,8 +37,9 @@ test.describe("项目路径 chaos recovery", () => {
     await reloadProjectList(page)
     await enterManageMode(page)
     const card = page.locator(SEL.projectCard(project.id))
-    await card.hover()
-    await card.locator('[data-action="delete-project"]').click()
+    const deleteButton = card.locator('[data-action="delete-project"]')
+    await expect(deleteButton).toBeVisible()
+    await deleteButton.click()
     await page.locator(SEL.modalFooter).locator(SEL.btnDanger).click()
     await expect(page.locator(SEL.toastContainer)).toContainText("已移至回收站", { timeout: 15000 })
 

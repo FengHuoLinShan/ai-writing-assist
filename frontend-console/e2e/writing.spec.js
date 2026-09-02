@@ -947,7 +947,7 @@ test.describe("写作台模块", () => {
     await page.keyboard.press("Escape")
     await expect(page.locator("body")).not.toHaveClass(/focus-mode-active/)
     await expect(page.locator("#writing-editor")).toHaveValue("用于验证专注模式宽度的正文。")
-    await expect(focusEntry).toBeFocused()
+    await expect(page.locator(".writing-statusbar__focus")).toBeFocused()
 
     await page.locator(".writing-statusbar__focus").click()
     await page.reload()

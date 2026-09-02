@@ -121,7 +121,8 @@ test.describe("设置流程", () => {
     await expect(page.getByRole("button", { name: /怎样切分场景/ })).toBeHidden()
     await page.getByRole("button", { name: "查看专家参数" }).click()
     await expect(page.getByRole("button", { name: /怎样切分场景/ })).toBeVisible()
-    await page.keyboard.press("Home")
+    await deepTab.press("Home")
+    await expect(authorTab).toBeFocused()
     await expect(authorTab).toHaveAttribute("aria-selected", "true")
     await expect(page.getByText(/日更目标/)).toBeVisible()
 

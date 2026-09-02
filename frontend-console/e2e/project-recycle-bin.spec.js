@@ -11,9 +11,8 @@ import {
 } from "./helpers/api-client.js"
 
 async function enterManageMode(page) {
-  if (!await page.locator(SEL.projectRecycleBin).isVisible()) {
-    await page.locator('[data-action="manage-projects"]').click()
-  }
+  const button = page.getByRole("button", { name: "管理作品", exact: true })
+  if (await button.isVisible()) await button.click()
 }
 
 test.describe("项目回收站", () => {
@@ -52,9 +51,9 @@ test.describe("项目回收站", () => {
     const card = page.locator(SEL.projectCard(project.id))
     await expect(card).toBeVisible()
 
-    // hover 显示操作按钮并删除
-    await card.hover()
-    await card.locator('[data-action="delete-project"]').click()
+    const deleteButton = card.locator('[data-action="delete-project"]')
+    await expect(deleteButton).toBeVisible()
+    await deleteButton.click()
 
     // 确认删除
     await expect(page.locator(SEL.modalOverlay)).not.toHaveClass(/hidden/)
@@ -131,9 +130,9 @@ test.describe("项目回收站", () => {
     const card = page.locator(SEL.projectCard(project.id))
     await expect(card).toBeVisible()
 
-    // hover 显示操作按钮并删除
-    await card.hover()
-    await card.locator('[data-action="delete-project"]').click()
+    const deleteButton = card.locator('[data-action="delete-project"]')
+    await expect(deleteButton).toBeVisible()
+    await deleteButton.click()
 
     // 确认删除
     await expect(page.locator(SEL.modalOverlay)).not.toHaveClass(/hidden/)

@@ -455,8 +455,8 @@ test.describe("RP 路由与窄屏故事页", () => {
     })
     await page.goto(`/#interaction/${journeyId}`)
     await page.locator(".rp-more-menu summary").click()
-    await page.locator(".rp-more-menu__themes")
-      .getByRole("button", { name: /暗夜书房/ })
+    await page.getByRole("menu", { name: "选择阅读主题" })
+      .getByRole("menuitemradio", { name: /暗夜书房/ })
       .click()
 
     const retry = page.locator(".rp-attempt-actions--error .rp-mutation-button--retry")
