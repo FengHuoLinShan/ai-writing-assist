@@ -260,7 +260,7 @@ export function useWritingWorkspace(props) {
       Object.assign(editorState, value)
       if (!persist) return
       if (value.chapter) {
-        todayWords.value = noteDailyChapter(value.chapter, value.content.length, {
+        todayWords.value = noteDailyChapter(value.chapter, value.draftId, value.content.length, {
           count: hot && Number(previousChapter) === Number(value.chapter),
           priorWords: previousWords,
         })
@@ -416,11 +416,11 @@ export function useWritingWorkspace(props) {
     return {}
   }
 
-  function noteDailyChapter(chapterIndex, words, { count = false, priorWords = words } = {}) {
+  function noteDailyChapter(chapterIndex, draftId, words, { count = false, priorWords = words } = {}) {
     try {
       const keys = dailyWordcountKeys()
       const chapters = readDailyChapters(keys)
-      const key = String(Number(chapterIndex))
+      const key = `${Number(chapterIndex)}:${draftId || "new"}`
       const normalizedWords = (value) => {
         const numeric = Number(value)
         return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : 0
@@ -433,7 +433,7 @@ export function useWritingWorkspace(props) {
       if (!chapters[key] || !Number.isFinite(storedHighWater) || storedHighWater < 0) {
         chapters[key] = { baseline: previousHighWater, highWater: previousHighWater }
       }
-      // ponytail: 删字后不回退今日字数，只在超过本章当日高水位时继续累计。
+      // ponytail: 版本内高水位让删字不倒退、补回不重计；需精确净编辑量时再记录编辑操作。
       const increment = count ? Math.max(0, currentWords - previousHighWater) : 0
       const total = dailyWordcount() + increment
       chapters[key].highWater = Math.max(previousHighWater, currentWords)

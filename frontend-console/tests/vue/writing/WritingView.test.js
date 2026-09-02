@@ -1266,6 +1266,46 @@ describe("WritingView", () => {
     await wrapper.get("#version-selector").setValue("d1")
     await vi.waitFor(() => expect(wrapper.get("#writing-editor").element.value).toBe("一篇更长的旧稿"))
     expect(events.at(-1).todayWords).toBe(0)
+    await wrapper.vm.$.setupState.vm.switchVersion("d2")
+    await vi.waitFor(() => expect(wrapper.get("#writing-editor").element.value).toBe("短稿"))
+    await wrapper.get("#writing-editor").setValue("短稿新")
+    await vi.waitFor(() => expect(events.at(-1).todayWords).toBe(1))
+
+    wrapper.unmount()
+    window.removeEventListener("writing:dashboard-update", listener)
+  })
+
+  it("更长候选只建立独立基线，返回工作稿后继续正常计数", async () => {
+    const history = { versions: [
+      { id: "candidate", version_number: 2, status: "candidate", display_state: "candidate" },
+      { id: "base", version_number: 1, status: "draft", display_state: "active" },
+    ] }
+    globalThis.api.writing.getVersionHistory.mockResolvedValue(history)
+    globalThis.api.writing.get.mockImplementation(async (id) => ({
+      id,
+      novel_id: "p1",
+      chapter_index: 1,
+      title: "第一章",
+      content: id === "candidate" ? "一篇更长的候选正文" : "短稿",
+      version_number: id === "candidate" ? 2 : 1,
+      status: id === "candidate" ? "candidate" : "draft",
+    }))
+    const events = []
+    const listener = (event) => events.push(event.detail)
+    window.addEventListener("writing:dashboard-update", listener)
+    const wrapper = mount(WritingView, {
+      props: props({ requestedLocation: { chapter: 1, draftId: "base" } }),
+      attachTo: document.body,
+    })
+    await vi.waitFor(() => expect(wrapper.get("#writing-editor").element.value).toBe("短稿"))
+    const vm = wrapper.vm.$.setupState.vm
+    await vm.switchVersion("candidate")
+    await vi.waitFor(() => expect(wrapper.get("#writing-editor").element.value).toBe("一篇更长的候选正文"))
+    expect(events.at(-1).todayWords).toBe(0)
+    await vm.switchVersion("base")
+    await vi.waitFor(() => expect(wrapper.get("#writing-editor").element.value).toBe("短稿"))
+    await wrapper.get("#writing-editor").setValue("短稿新")
+    await vi.waitFor(() => expect(events.at(-1).todayWords).toBe(1))
 
     wrapper.unmount()
     window.removeEventListener("writing:dashboard-update", listener)
@@ -1311,7 +1351,7 @@ describe("WritingView", () => {
     const now = new Date()
     const today = new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10)
     localStorage.setItem(`novel_daily_wc_${today}_p1`, "-20")
-    localStorage.setItem(`novel_daily_wc_open_${today}_p1`, JSON.stringify({ 1: { highWater: -10 } }))
+    localStorage.setItem(`novel_daily_wc_open_${today}_p1`, JSON.stringify({ "1:d1": { highWater: -10 } }))
     localStorage.setItem(`novel_daily_wc_${today}_p2`, "999")
     const events = []
     const listener = (event) => events.push(event.detail)
