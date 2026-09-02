@@ -13,6 +13,30 @@ import {
 import { rememberWritingLocation } from "../../vue/views/writing/writingSession.js"
 import { localAuthorDate } from "../../vue/views/writing/home/useAuthorTasks.js"
 
+function deferred() {
+  let resolve
+  let reject
+  const promise = new Promise((done, fail) => {
+    resolve = done
+    reject = fail
+  })
+  return { promise, resolve, reject }
+}
+
+function summaryWithTask(projectId, title) {
+  return {
+    project_id: projectId,
+    writing: {},
+    attention: {},
+    author_tasks: {
+      today_count: 1,
+      inbox_count: 0,
+      later_count: 0,
+      preview: [{ id: "shared-task", title, updated_at: `${projectId}-revision` }],
+    },
+  }
+}
+
 beforeEach(() => {
   localStorage.clear()
   vi.clearAllMocks()
@@ -92,6 +116,71 @@ describe("todayIsland", () => {
 
     expect(checkbox.element.checked).toBe(false)
     expect(router.refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it("首页任务完成成功晚到时不改写新作品状态或提示刷新", async () => {
+    const request = deferred()
+    const patchAuthorTask = vi.fn(() => request.promise)
+    const router = { navigate: vi.fn(), refresh: vi.fn() }
+    const toast = vi.fn()
+    setBridgeOverrides({ api: { projects: { patchAuthorTask } }, router, toast })
+    const wrapper = mount(TodayView, { props: {
+      project: { id: "project-a", title: "作品 A" },
+      summary: summaryWithTask("project-a", "A 的任务"),
+      workflows: [],
+    } })
+
+    const pending = wrapper.get('.today-author-task-row input[type="checkbox"]').trigger("change")
+    await vi.waitFor(() => expect(patchAuthorTask).toHaveBeenCalled())
+    expect(patchAuthorTask).toHaveBeenCalledWith("project-a", "shared-task", {
+      status: "completed",
+      expected_updated_at: "project-a-revision",
+    })
+
+    await wrapper.setProps({
+      project: { id: "project-b", title: "作品 B" },
+      summary: summaryWithTask("project-b", "B 的任务"),
+    })
+    request.resolve({})
+    await pending
+    await flushPromises()
+
+    expect(wrapper.get(".today-author-task-row strong").text()).toBe("B 的任务")
+    expect(wrapper.get('.today-author-task-row input[type="checkbox"]').attributes("disabled")).toBeUndefined()
+    expect(toast).not.toHaveBeenCalled()
+    expect(router.refresh).not.toHaveBeenCalled()
+  })
+
+  it.each([409, 500])("首页任务完成错误 %s 晚到时不改写新作品状态或提示刷新", async (status) => {
+    const request = deferred()
+    const patchAuthorTask = vi.fn(() => request.promise)
+    const router = { navigate: vi.fn(), refresh: vi.fn() }
+    const toast = vi.fn()
+    setBridgeOverrides({ api: { projects: { patchAuthorTask } }, router, toast })
+    const wrapper = mount(TodayView, { props: {
+      project: { id: "project-a", title: "作品 A" },
+      summary: summaryWithTask("project-a", "A 的任务"),
+      workflows: [],
+    } })
+
+    const pending = wrapper.get('.today-author-task-row input[type="checkbox"]').trigger("change")
+    await vi.waitFor(() => expect(patchAuthorTask).toHaveBeenCalled())
+    await wrapper.setProps({
+      project: { id: "project-b", title: "作品 B" },
+      summary: summaryWithTask("project-b", "B 的任务"),
+    })
+    const currentCheckbox = wrapper.get('.today-author-task-row input[type="checkbox"]')
+    currentCheckbox.element.checked = true
+    request.reject(Object.assign(new Error("A 的任务更新失败"), { status }))
+    await pending
+    await flushPromises()
+
+    expect(patchAuthorTask.mock.calls[0][0]).toBe("project-a")
+    expect(wrapper.get(".today-author-task-row strong").text()).toBe("B 的任务")
+    expect(currentCheckbox.element.checked).toBe(true)
+    expect(currentCheckbox.attributes("disabled")).toBeUndefined()
+    expect(toast).not.toHaveBeenCalled()
+    expect(router.refresh).not.toHaveBeenCalled()
   })
 
   it("只在服务器续写章与本机指针一致时带入 Scene", async () => {

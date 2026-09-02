@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from "vue"
+import { computed, onBeforeUnmount, ref, watch } from "vue"
 import { clearActiveWorkflow } from "../../../shared/workflowProgress.js"
 import { getApi, getConfirmAction, getRouter, getToast } from "../../bridge/index.js"
 import { writeCreativeContinuation } from "../generate/generateSession.js"
@@ -40,6 +40,26 @@ const authorTaskPreview = computed(() => Array.isArray(authorTasks.value.preview
   ? authorTasks.value.preview.filter((task) => !completedTaskIds.value.has(task.id)).slice(0, 3)
   : [])
 const taskBusyIds = ref(new Set())
+let componentGeneration = 0
+let disposed = false
+
+function ownsTaskRequest(owner) {
+  return !disposed
+    && owner.projectId === projectId.value
+    && owner.generation === componentGeneration
+}
+
+watch(projectId, (next, previous) => {
+  if (next === previous) return
+  componentGeneration += 1
+  completedTaskIds.value = new Set()
+  taskBusyIds.value = new Set()
+}, { flush: "sync" })
+
+onBeforeUnmount(() => {
+  disposed = true
+  componentGeneration += 1
+})
 const hasWritingContent = computed(() => Boolean(
   continuation.value || Number(writing.value.chapter_count || 0) > 0,
 ))
@@ -163,23 +183,28 @@ function openTasks(scope = "today") {
 async function completeTask(task, event) {
   if (!task?.id || taskBusyIds.value.has(task.id)) return
   const checkbox = event?.currentTarget
+  const owner = { projectId: projectId.value, generation: componentGeneration }
   taskBusyIds.value = new Set([...taskBusyIds.value, task.id])
   try {
-    await api.projects.patchAuthorTask(projectId.value, task.id, {
+    await api.projects.patchAuthorTask(owner.projectId, task.id, {
       status: "completed",
       expected_updated_at: task.updated_at || undefined,
     })
+    if (!ownsTaskRequest(owner)) return
     completedTaskIds.value = new Set([...completedTaskIds.value, task.id])
     toast("任务已完成", "success")
     router.refresh()
   } catch (error) {
+    if (!ownsTaskRequest(owner)) return
     if (checkbox) checkbox.checked = false
     toast(error?.message || "任务更新失败", "error")
     if (error?.status === 409) router.refresh()
   } finally {
-    const next = new Set(taskBusyIds.value)
-    next.delete(task.id)
-    taskBusyIds.value = next
+    if (ownsTaskRequest(owner)) {
+      const next = new Set(taskBusyIds.value)
+      next.delete(task.id)
+      taskBusyIds.value = next
+    }
   }
 }
 
