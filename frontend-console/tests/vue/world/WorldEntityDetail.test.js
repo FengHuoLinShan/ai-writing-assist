@@ -53,6 +53,22 @@ describe("WorldEntityDetail 人物档案", () => {
     expect(wrapper.findAll("textarea")[0].element.value).toBe("守门人")
   })
 
+  it("读取失败时不允许覆盖未知档案，重试成功后才可编辑", async () => {
+    api.world.getCharacter
+      .mockRejectedValueOnce(new Error("暂时无法读取"))
+      .mockResolvedValueOnce(profile)
+    const wrapper = mountDetail()
+
+    await wrapper.get(".world-character-profile > header .btn").trigger("click")
+    await vi.waitFor(() => expect(wrapper.get(".error-card").text()).toContain("暂时无法读取"))
+    expect(wrapper.find(".world-character-profile textarea").exists()).toBe(false)
+    expect(api.world.updateCharacter).not.toHaveBeenCalled()
+
+    await wrapper.get(".error-card .btn").trigger("click")
+    await vi.waitFor(() => expect(wrapper.findAll(".world-character-profile textarea").length).toBeGreaterThan(0))
+    expect(api.world.getCharacter).toHaveBeenCalledTimes(2)
+  })
+
   it("收起人物档案仍保留未保存状态，保存后解除", async () => {
     const wrapper = mountDetail()
     const toggle = wrapper.get(".world-character-profile > header .btn")

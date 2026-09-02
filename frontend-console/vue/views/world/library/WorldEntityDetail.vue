@@ -111,7 +111,11 @@ onBeforeUnmount(() => { profileGeneration += 1; emit("profile-dirty", false) })
       <header><div><h3>人物档案</h3><p>按需补充人物动机、状态和声音；名称与别名仍在基本资料中管理。</p></div><button type="button" class="btn btn-sm" @click="profileOpen ? (profileOpen = false) : openProfile()">{{ profileOpen ? '收起' : '完善人物档案' }}</button></header>
       <div v-if="profileOpen" class="world-character-profile__form" :aria-busy="profileLoading || profileSaving">
         <p v-if="profileLoading" role="status">正在读取人物档案…</p>
-        <template v-else>
+        <div v-else-if="profileError && !profileLoaded" class="error-card" role="alert">
+          <p>{{ profileError }}</p>
+          <button type="button" class="btn btn-sm" @click="openProfile">重新读取</button>
+        </div>
+        <template v-else-if="profileLoaded">
           <p v-if="profileError" class="field-error" role="alert">{{ profileError }}</p>
           <label v-for="field in profileFields" :key="field[0]"><span>{{ field[1] }}</span><textarea v-model="profileForm[field[0]]" rows="2" :placeholder="field[2]" /></label>
           <div class="world-character-profile__actions"><button type="button" class="btn btn-primary" :disabled="profileSaving || !profileDirty" @click="saveProfile">{{ profileSaving ? '保存中…' : '保存人物档案' }}</button></div>
