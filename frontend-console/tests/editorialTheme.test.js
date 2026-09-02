@@ -159,6 +159,7 @@ describe("editorial archive theme", () => {
 
   it("keeps writing text roles readable and actionable", () => {
     expect(writingDesk).not.toMatch(/font-size:\s*10(?:\.5)?px/)
+    expect(writingDesk).not.toContain(".writing-editor-empty::before")
     expect(`${styles}\n${writingDesk}`).not.toContain(".scene-cockpit-meta")
     expect(writingDesk).toMatch(/\.writing-candidate-kicker\s*\{[^}]*color:\s*var\(--text-body\);[^}]*font-size:\s*var\(--text-sm\)/s)
     expect(writingDesk).toMatch(/\.scene-alert-card__action\s*\{[^}]*min-height:\s*28px;[^}]*color:\s*var\(--text-body\);[^}]*font-size:\s*var\(--text-sm\)/s)

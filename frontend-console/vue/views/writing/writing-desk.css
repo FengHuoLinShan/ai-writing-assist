@@ -429,7 +429,7 @@
   cursor: default;
 }
 
-/* 空状态：虚线档案框 + 文 字水印 */
+/* 空状态：虚线档案框 */
 .writing-editor-empty {
   position: relative;
   display: grid;
@@ -442,20 +442,6 @@
     var(--archive-paper-raised);
   color: var(--text-tertiary);
   overflow: hidden;
-}
-
-.writing-editor-empty::before {
-  content: "文";
-  position: absolute;
-  right: 4%;
-  bottom: -18%;
-  color: var(--archive-ink);
-  opacity: 0.05;
-  font-family: var(--font-body);
-  font-size: 220px;
-  font-weight: 700;
-  line-height: 1;
-  pointer-events: none;
 }
 
 /* AI 工具菜单：索引卡组 */
