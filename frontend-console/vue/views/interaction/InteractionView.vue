@@ -1504,6 +1504,7 @@ async function exportJourney(format, storyOnly, includeOverview = true) {
     link.download = data.filename
     link.click()
     URL.revokeObjectURL(url)
+    getToast()(storyOnly ? "故事正文已导出" : "完整记录已导出", "success")
   } catch {
     getToast()("导出暂时失败；旅程内容没有受到影响，请重试。", "error")
   }
@@ -1964,7 +1965,7 @@ onBeforeUnmount(() => {
       </article>
 
       <article v-if="isGenerating || streamText" class="rp-message rp-message--assistant rp-message--streaming" :aria-busy="isGenerating">
-        <div class="rp-message__label">故事</div>
+        <div class="rp-message__label">故事 · {{ isGenerating ? "正在生成" : "未完成" }}</div>
         <p v-if="currentAttempt?.status === 'preparing_context'" class="rp-stream-status" role="status">
           正在整理最近剧情…
         </p>

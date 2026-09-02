@@ -14993,8 +14993,7 @@ button.rp-journey-card__main:hover {
 
 .rp-story-scroll {
   overflow: auto;
-  padding: 34px max(52px, calc((100vw - 760px) / 2)) 28px;
-  scroll-behavior: smooth;
+  padding: 34px max(52px, calc((100vw - 640px) / 2)) 28px;
 }
 
 .rp-load-older {
@@ -15191,7 +15190,7 @@ button.rp-journey-card__main:hover {
   flex-wrap: wrap;
   gap: 2px;
   margin-top: 9px;
-  opacity: 0;
+  opacity: 0.68;
   transition: opacity 120ms ease;
 }
 
@@ -15201,10 +15200,21 @@ button.rp-journey-card__main:hover {
 }
 
 .rp-message__actions button {
-  padding: 5px 7px;
+  min-height: 32px;
+  padding: 6px 9px;
   border-radius: 7px;
   color: var(--rp-dim);
-  font-size: 11px;
+  font-size: 13px;
+}
+
+.rp-message--streaming {
+  padding-left: 14px;
+  border-left: 2px solid var(--rp-accent);
+  background: linear-gradient(90deg, var(--rp-accent-soft), transparent 46%);
+}
+
+.rp-message--streaming .rp-message__label {
+  color: var(--rp-accent);
 }
 
 .rp-message__actions .rp-message-action-button {
@@ -15775,6 +15785,15 @@ button.rp-journey-card__main:hover {
   .rp-generating-dot,
   .rp-stream-wait i {
     animation: none;
+  }
+
+  .entry-card,
+  .rp-message__actions {
+    transition: none;
+  }
+
+  .entry-card:hover {
+    transform: none;
   }
 }
 

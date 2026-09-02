@@ -22,9 +22,8 @@
 
 **P0 — 直接伤害阅读/恢复体验**
 
-1. **流式中消息与已提交消息零视觉差异**：`.rp-message--streaming` 无任何专属 CSS 规则
-   （styles.css 全文 grep 无匹配，已核实），仅 `:aria-busy`（InteractionView.vue:1718）与
-   无文本时的三点脉冲（:1728）。用户无法分辨「正在生成的段落」与历史正文。
+1. **已解决：流式段落可辨认**。流式卡显示「正在生成／未完成」、accent 左线与轻底色；
+   `aria-busy` 保留，reduced-motion 下三点脉冲静止。
 2. **两个视图无首屏加载骨架**：`loadJourneyList` / `loadInteraction` 完成前视图不挂载
    （interactionIsland.js:11-47、49-86），慢网络下路由切换后白屏，违反主规范 §5.9 Loading 归一。
 3. **HomeChoiceView 不响应主题**：主题覆写只覆盖 `.rp-list-page/.rp-story-page`
@@ -33,8 +32,8 @@
 
 **P1 — 一致性与可用性缺陷**
 
-4. **阅读行宽超标**：阅读列 760px ≈ 47 个中文字符/行（`styles.css` 的 `.rp-story-scroll` / 消息规则），
-   超出主规范 §3.2 长正文 32-40 字标准；且无字号/行宽调节，画像 B 的阅读个性化诉求全部缺失。
+4. **已解决：默认阅读行宽**。阅读列收敛到 640px，约 32-40 个中文字符；移动端仍使用视口减
+   安全 padding。字号/行宽个性化继续作为需用户验证的产品假设，不先造设置。
 5. **危险操作三种确认范式并存**：列表归档用原生 `confirm`（JourneyListView.vue:262）、
    永久删除用原生 `prompt` 输入完整标题（:283-286），而看海确认是定制
    RpAdaptiveConfirmPopover。原生对话框无 RP 视觉、无移动端适配。
@@ -43,20 +42,18 @@
    Topbar ThemePicker 有完整实现。**裁定（有意保留双入口）**：沉浸路径隐藏 Topbar
    （ShellApp.vue:7-9），RP 侧**保留** InteractionView 内置入口，不属重复缺陷；
    但必须把两者的菜单视觉与可访问语义统一（见 §4.8）。
-7. **流式逐 chunk 平滑滚动**：`scroll-behavior:smooth`（`styles.css` 的故事滚动容器规则）作用于每个 chunk 的
-   `scrollToBottom()`（InteractionView.vue:517-521），高频动画队列可能卡顿；
-   `prefers-reduced-motion` 豁免只停脉冲动画（`styles.css` 的 RP reduced-motion 规则），未豁免 smooth 滚动。
+7. **已解决：流式滚动与 reduced-motion**。故事容器不再设置 smooth，逐 chunk 使用直接滚动；
+   离散定位仍按系统 reduced-motion 选择 smooth/auto，入口卡与操作行过渡在减弱动效时停用。
 8. **设置页是作者语言飞地**：RP 用户点「账户设置」进入的 GlobalSettingsView 用
    `.btn-primary`/`.form-input` 等 Editorial 类（GlobalSettingsView.vue:283-324），
    仅借用 `rp-icon-button` 返回箭头（:217-223）；`returningToRp` 只删减区块，无 RP 视觉适配。
-9. **消息操作可发现性差**：操作行 hover/focus-within 才显示（`styles.css` 的消息操作行规则），
-   桌面键盘用户难以发现「重新生成/其他分支」；移动端虽常显（移动响应式规则），
-   但按钮为 11px 灰字（消息操作行规则），低于舒适阅读阈值。
+9. **已解决：消息操作常见可见**。桌面默认以 68% 不透明度显示，hover/focus 提升到 100%；
+   字号升至 13px、按钮最小高 32px，移动端继续使用 42px 触控高度。
 
 **P2 — 反馈闭环与工程欠债**
 
-10. **导出成功无反馈**：`exportJourney` 直接触发下载（InteractionView.vue:1250-1267），
-    仅失败有 toast，违反主规范 §7 操作反馈闭环。
+10. **已解决：导出反馈闭环**。完整记录和故事正文下载触发后分别显示明确成功 toast；失败仍说明
+    旅程内容未受影响。
 11. **操作无按钮级 loading**：开场创建发送钮文本仅变「…」（JourneyListView.vue:358）；
     重新生成/停止/归档等仅布尔禁用 + 一行「正在停止…」（InteractionView.vue:1854），
     不满足主规范 §5.1 按钮 loading 状态矩阵。

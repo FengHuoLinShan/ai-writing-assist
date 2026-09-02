@@ -217,6 +217,33 @@ describe("RP 故事页", () => {
     expect(api.interactions.sendMessage).not.toHaveBeenCalled()
   })
 
+  it("导出成功给出明确反馈", async () => {
+    api.interactions.exportJourney.mockResolvedValue({
+      content: "# 廷根雨夜",
+      media_type: "text/markdown",
+      filename: "廷根雨夜.md",
+    })
+    const createUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:journey")
+    const revokeUrl = vi.spyOn(URL, "revokeObjectURL")
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {})
+    const wrapper = mount(InteractionView, {
+      props: { initialJourney: journey(), llmConnections: connected() },
+    })
+
+    await wrapper.findAll("button").find((button) => button.text() === "导出完整记录").trigger("click")
+    await flushPromises()
+
+    expect(api.interactions.exportJourney).toHaveBeenCalledWith(journey().id, {
+      format: "md",
+      story_only: false,
+      include_overview: true,
+    })
+    expect(createUrl).toHaveBeenCalledWith(expect.any(Blob))
+    expect(revokeUrl).toHaveBeenCalledWith("blob:journey")
+    expect(toast).toHaveBeenCalledWith("完整记录已导出", "success")
+    wrapper.unmount()
+  })
+
   it("安全显示模型 Markdown，并让完整行动建议只填入输入框", async () => {
     const longAction = "我先放慢脚步，完整观察门缝里的影子，再决定是否推门进入。"
     const markdown = "## 门后的钟声\n\n**克莱恩**听见了第二次敲击。"
@@ -1980,6 +2007,7 @@ describe("RP 故事页", () => {
       },
     })
     expect(preparing.get(".rp-message--streaming").attributes("aria-busy")).toBe("true")
+    expect(preparing.get(".rp-message--streaming .rp-message__label").text()).toContain("正在生成")
     expect(preparing.get(".rp-stream-status").attributes("role")).toBe("status")
     preparing.unmount()
 
