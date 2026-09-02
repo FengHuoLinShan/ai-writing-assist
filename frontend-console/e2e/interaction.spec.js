@@ -212,6 +212,7 @@ async function mockRpApis(
       ),
     })
   })
+  return journey
 }
 
 function sourceRevision(overrides = {}) {
@@ -379,6 +380,49 @@ test.describe("RP 路由与窄屏故事页", () => {
     const banner = page.locator(".rp-attempt-actions--error")
     await expect(banner).toContainText("作品资料已变化，请重新生成")
     await expect(banner.getByRole("button", { name: "重新生成" })).toBeVisible()
+    expect(browserErrors).toEqual([])
+  })
+
+  test("历史段落原位确认后从正确节点建立新分支", async ({
+    page,
+    browserErrors,
+  }) => {
+    const initialJourney = await mockRpApis(page)
+    await page.route(
+      `**/api/interactions/journeys/${journeyId}/nodes/a1/regenerate`,
+      (route) => route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          journey: {
+            ...initialJourney,
+            selection_epoch: 4,
+            selected_leaf_node_id: "u1",
+            messages: initialJourney.messages.slice(0, 1),
+          },
+          attempt: null,
+        }),
+      }),
+    )
+    await page.goto(`/#interaction/${journeyId}`)
+
+    const historicalRegenerate = page.locator('[data-rp-message-id="a1"]')
+      .getByRole("button", { name: "重新生成", exact: true })
+    await historicalRegenerate.click()
+    const dialog = page.locator("#rp-historical-regenerate-confirm")
+    await expect(dialog).toContainText("之后的内容不会删除")
+    await dialog.getByRole("button", { name: "取消" }).click()
+    await expect(historicalRegenerate).toBeFocused()
+
+    await historicalRegenerate.click()
+    const requestPromise = page.waitForRequest(
+      (request) => request.url().endsWith(`/nodes/a1/regenerate`),
+    )
+    await dialog.getByRole("button", { name: "从这里重新生成" }).click()
+    const request = await requestPromise
+    expect(request.postDataJSON()).toEqual(expect.objectContaining({
+      expected_selection_epoch: 3,
+    }))
+    await expect(dialog).toHaveCount(0)
     expect(browserErrors).toEqual([])
   })
 

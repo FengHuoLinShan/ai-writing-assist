@@ -56,6 +56,9 @@ const composing = ref(false)
 const editingNodeId = ref(null)
 const sending = ref(false)
 const mutationAction = ref("")
+const regenerateConfirmOpen = ref(false)
+const regenerateConfirmMessage = ref(null)
+const regenerateConfirmAnchor = ref(null)
 const stopping = ref(false)
 const conflict = ref(null)
 const connectionProblem = ref(false)
@@ -751,8 +754,8 @@ async function keepPartial() {
   }
 }
 
-async function regenerate(message) {
-  await startMutation(() => getApi().interactions.regenerate(
+function runRegenerate(message) {
+  return startMutation(() => getApi().interactions.regenerate(
     journeyId.value,
     message.id,
     {
@@ -760,6 +763,28 @@ async function regenerate(message) {
       idempotency_key: interactionOperationKey("regenerate"),
     },
   ), { action: "regenerate", preserveComposer: true })
+}
+
+async function regenerate(message, event) {
+  if (message.id !== lastStoryMessageId.value) {
+    regenerateConfirmMessage.value = message
+    regenerateConfirmAnchor.value = event?.currentTarget || null
+    regenerateConfirmOpen.value = true
+    return
+  }
+  await runRegenerate(message)
+}
+
+function closeRegenerateConfirm() {
+  regenerateConfirmOpen.value = false
+  regenerateConfirmMessage.value = null
+  regenerateConfirmAnchor.value = null
+}
+
+async function confirmHistoricalRegenerate() {
+  if (!regenerateConfirmMessage.value) return
+  const result = await runRegenerate(regenerateConfirmMessage.value)
+  if (result) closeRegenerateConfirm()
 }
 
 function editUser(message) {
@@ -1957,12 +1982,15 @@ onBeforeUnmount(() => {
           <template v-else>
             <button class="rp-message-action-button" type="button" @click="copyMessage(message)">复制</button>
             <button
-              v-if="message.id === lastStoryMessageId"
+              v-if="message.message_kind === 'story'"
               class="rp-message-action-button rp-mutation-button rp-mutation-button--retry"
               type="button"
-              :disabled="sending"
+              :disabled="sending || isGenerating || awaitingContinue"
               :aria-busy="sending && mutationAction === 'regenerate'"
-              @click="regenerate(message)"
+              :aria-haspopup="message.id === lastStoryMessageId ? undefined : 'dialog'"
+              :aria-controls="message.id === lastStoryMessageId ? undefined : 'rp-historical-regenerate-confirm'"
+              :aria-expanded="message.id === lastStoryMessageId ? undefined : regenerateConfirmOpen && regenerateConfirmMessage?.id === message.id"
+              @click="regenerate(message, $event)"
             ><span v-if="sending && mutationAction === 'regenerate'" class="rp-button-spinner" aria-hidden="true"></span>{{ sending && mutationAction === 'regenerate' ? '正在重新生成…' : '重新生成' }}</button>
             <button
               v-if="message.id === lastStoryMessageId && branchPosition(message.id)"
@@ -2225,6 +2253,17 @@ onBeforeUnmount(() => {
         :open="seeSeaNoticeOpen"
         @close="seeSeaNoticeOpen = false"
         @confirm="confirmSeeSea"
+      />
+      <RpAdaptiveConfirmPopover
+        id="rp-historical-regenerate-confirm"
+        :anchor="regenerateConfirmAnchor"
+        :busy="sending && mutationAction === 'regenerate'"
+        busy-text="正在重新生成…"
+        confirm-text="从这里重新生成"
+        message="这会从选中段落前创建一条新分支；之后的内容不会删除，可在“查看所有分支”中找回。"
+        :open="regenerateConfirmOpen"
+        @close="closeRegenerateConfirm"
+        @confirm="confirmHistoricalRegenerate"
       />
     </footer>
 

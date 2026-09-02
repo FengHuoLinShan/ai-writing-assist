@@ -190,7 +190,7 @@ describe("RP 故事页", () => {
     expect(api.interactions.heartbeat).not.toHaveBeenCalled()
   })
 
-  it("分开折叠开场设定，只给最新故事保留选项和重抽入口", async () => {
+  it("分开折叠开场设定，只给最新故事保留行动选项", async () => {
     const wrapper = mount(InteractionView, {
       props: {
         initialJourney: journey(),
@@ -209,7 +209,11 @@ describe("RP 故事页", () => {
     expect(wrapper.text()).not.toContain("旧选项")
     expect(wrapper.text()).toContain("追上去")
     expect(wrapper.findAll(".rp-message__actions button")
-      .filter((button) => button.text() === "重新生成")).toHaveLength(1)
+      .filter((button) => button.text() === "重新生成")).toHaveLength(2)
+    expect(wrapper.get("[data-rp-message-id='a1'] .rp-message__actions button[aria-haspopup='dialog']")
+      .attributes("aria-controls")).toBe("rp-historical-regenerate-confirm")
+    expect(wrapper.get("[data-rp-message-id='a2'] .rp-message__actions button:nth-child(2)")
+      .attributes("aria-haspopup")).toBeUndefined()
 
     await wrapper.get(".rp-action-options button").trigger("click")
     expect(wrapper.get("textarea[aria-label='继续旅程']").element.value)
@@ -582,8 +586,9 @@ describe("RP 故事页", () => {
     expect(wrapper.text()).toContain("很久以前的故事")
     expect(wrapper.text()).not.toContain("选择旧选项")
     expect(wrapper.text()).not.toContain("故事在这里告一段落")
-    expect(wrapper.findAll(".rp-message__actions button")
-      .filter((button) => button.text() === "重新生成")).toHaveLength(0)
+    const historicalRegenerate = wrapper.findAll(".rp-message__actions button")
+      .find((button) => button.text() === "重新生成")
+    expect(historicalRegenerate.element.disabled).toBe(true)
 
     streamDone.resolve()
     await flushPromises()
@@ -982,13 +987,44 @@ describe("RP 故事页", () => {
     await flushPromises()
     expect(wrapper.text()).not.toContain("其他分支 1/2")
 
-    await wrapper.findAll(".rp-message__actions button")
-      .find((button) => button.text() === "重新生成")
+    await wrapper.get("[data-rp-message-id='a2'] .rp-mutation-button--retry")
       .trigger("click")
     await flushPromises()
 
     expect(api.interactions.listBranches).toHaveBeenCalledTimes(2)
     expect(wrapper.text()).toContain("其他分支 1/2")
+  })
+
+  it("历史段落在原位说明新建分支并确认后重新生成", async () => {
+    api = makeApi({
+      regenerate: vi.fn(async () => ({
+        journey: journey({ selection_epoch: 4 }),
+        attempt: null,
+      })),
+    })
+    setBridgeOverrides({ api, router, toast, confirm, prompt: vi.fn() })
+    const wrapper = mount(InteractionView, {
+      props: { initialJourney: journey(), llmConnections: connected() },
+    })
+    const historicalButton = wrapper.get("[data-rp-message-id='a1'] .rp-mutation-button--retry")
+    historicalButton.element.focus()
+    await historicalButton.trigger("click")
+    await flushPromises()
+
+    const dialog = document.querySelector("#rp-historical-regenerate-confirm")
+    expect(dialog?.textContent).toContain("之后的内容不会删除")
+    expect(api.interactions.regenerate).not.toHaveBeenCalled()
+    const confirmButton = [...dialog.querySelectorAll("button")]
+      .find((button) => button.textContent === "从这里重新生成")
+    confirmButton.click()
+    await flushPromises()
+
+    expect(api.interactions.regenerate).toHaveBeenCalledWith(
+      journey().id,
+      "a1",
+      expect.objectContaining({ expected_selection_epoch: 3 }),
+    )
+    expect(document.querySelector("#rp-historical-regenerate-confirm")).toBeNull()
   })
 
   it("回顾使用固定自然分区，手工编辑受离开保护并显式保存", async () => {
