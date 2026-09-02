@@ -79,22 +79,82 @@ beforeEach(() => {
 
 afterEach(() => resetBridgeOverrides())
 
+async function openSourceSelection(wrapper) {
+  await wrapper.get("input[value='source']").setValue()
+  await wrapper.get(".rp-source-next").trigger("click")
+  await flushPromises()
+}
+
+async function chooseAvailableProject(wrapper) {
+  await wrapper.findAll(".rp-source-projects > button")[0].trigger("click")
+  await flushPromises()
+}
+
+async function continueToIdentity(wrapper) {
+  await wrapper.get(".rp-source-next").trigger("click")
+  await flushPromises()
+}
+
 describe("RP 作品资料设置", () => {
+  it("从资料方式开始，只展开当前一步并支持键盘返回摘要", async () => {
+    const wrapper = mount(RpSourceSetup, { attachTo: document.body })
+
+    expect(wrapper.get("[aria-current='step']").text()).toContain("选择资料来源")
+    expect(wrapper.find(".rp-source-projects").exists()).toBe(false)
+    expect(wrapper.text()).toContain("使用你在账户中连接的 AI 服务")
+    expect(wrapper.text()).toContain("请求经本站后端代发")
+    expect(wrapper.text()).toContain("Key 不会进入浏览器或作品")
+
+    await openSourceSelection(wrapper)
+    expect(wrapper.get("[aria-current='step']").text()).toContain("选择作品或文件")
+    expect(document.activeElement).toBe(wrapper.get(".rp-source-step-panel > h3").element)
+    const previous = wrapper.get(".rp-source-steps li.complete button")
+    expect(previous.text()).toContain("使用已有作品资料")
+    previous.element.focus()
+    await previous.trigger("click")
+    expect(document.activeElement).toBe(wrapper.get(".rp-source-step-panel > h3").element)
+    expect(wrapper.find(".rp-source-projects").exists()).toBe(false)
+  })
+
+  it("直接描述时跳到角色与开场，并在刷新后恢复当前步骤", async () => {
+    const wrapper = mount(RpSourceSetup)
+    await wrapper.get(".rp-source-next").trigger("click")
+    await flushPromises()
+
+    expect(wrapper.get("[aria-current='step']").text()).toContain("角色与开场")
+    expect(wrapper.findAll(".rp-source-steps > li")).toHaveLength(2)
+    expect(wrapper.text()).not.toContain("选择作品或文件")
+    expect(wrapper.text()).not.toContain("准备作品资料")
+    expect(wrapper.emitted("change").at(-1)[0]).toEqual(expect.objectContaining({
+      enabled: false,
+      openingReady: true,
+      setup: null,
+      step: 4,
+    }))
+    wrapper.unmount()
+
+    const restored = mount(RpSourceSetup)
+    expect(restored.get("[aria-current='step']").text()).toContain("角色与开场")
+    expect(restored.emitted("change").at(-1)[0].openingReady).toBe(true)
+  })
+
   it("只有版本、剧情点和玩家身份都确认后才产出 source setup", async () => {
     const wrapper = mount(RpSourceSetup)
 
-    await wrapper.get("input[value='source']").setValue()
-    await flushPromises()
-    await wrapper.findAll(".rp-source-projects > button")[0].trigger("click")
-    await flushPromises()
+    await openSourceSelection(wrapper)
+    await chooseAvailableProject(wrapper)
 
     expect(wrapper.text()).toContain("作品资料已完整整理")
     await wrapper.get(`input[value='${"a".repeat(64)}']`).setValue()
-    await wrapper.findAll("select")[1].setValue("b".repeat(64))
+    expect(wrapper.text()).not.toContain("玩家身份")
+    expect(wrapper.emitted("change").at(-1)[0].openingReady).toBe(false)
+    await continueToIdentity(wrapper)
+    await wrapper.get("select").setValue("b".repeat(64))
     await flushPromises()
 
     const latest = wrapper.emitted("change").at(-1)[0]
     expect(latest.enabled).toBe(true)
+    expect(latest.openingReady).toBe(true)
     expect(latest.setup).toEqual({
       source_revision_id: revision.id,
       progress_anchor_key: "a".repeat(64),
@@ -104,6 +164,7 @@ describe("RP 作品资料设置", () => {
       },
       pinned_reference_keys: [],
     })
+    expect(sessionStorage.getItem("rpSourceSetupDraft:v1")).toContain('"step":4')
   })
 
   it("整理中会说明可以离开，且不显示开始所需选项", async () => {
@@ -115,10 +176,8 @@ describe("RP 作品资料设置", () => {
       objects: [],
     })
     const wrapper = mount(RpSourceSetup)
-    await wrapper.get("input[value='source']").setValue()
-    await flushPromises()
-    await wrapper.findAll(".rp-source-projects > button")[0].trigger("click")
-    await flushPromises()
+    await openSourceSelection(wrapper)
+    await chooseAvailableProject(wrapper)
 
     expect(wrapper.get(".rp-source-status").text()).toContain("正在完整整理")
     expect(wrapper.find(".rp-source-ready").exists()).toBe(false)
@@ -127,32 +186,35 @@ describe("RP 作品资料设置", () => {
 
   it("早期剧情点不会列出尚未登场的玩家角色", async () => {
     const wrapper = mount(RpSourceSetup)
-    await wrapper.get("input[value='source']").setValue()
-    await flushPromises()
-    await wrapper.findAll(".rp-source-projects > button")[0].trigger("click")
-    await flushPromises()
+    await openSourceSelection(wrapper)
+    await chooseAvailableProject(wrapper)
 
-    const characterSelect = wrapper.findAll("select")[1]
+    await wrapper.get(`input[value='${"a".repeat(64)}']`).setValue()
+    await continueToIdentity(wrapper)
+    let characterSelect = wrapper.get("select")
     expect(characterSelect.text()).not.toContain("尚未登场的人")
+    await wrapper.get(".rp-source-steps li.complete:nth-child(3) button").trigger("click")
     await wrapper.get("select").setValue("2")
     await wrapper.get(`input[value='${"d".repeat(64)}']`).setValue()
+    await continueToIdentity(wrapper)
     await flushPromises()
-    expect(wrapper.findAll("select")[1].text()).toContain("尚未登场的人")
+    characterSelect = wrapper.get("select")
+    expect(characterSelect.text()).toContain("尚未登场的人")
   })
 
   it("自然语言匹配只展示候选，仍需用户点选确认", async () => {
     const wrapper = mount(RpSourceSetup)
-    await wrapper.get("input[value='source']").setValue()
-    await flushPromises()
-    await wrapper.findAll(".rp-source-projects > button")[0].trigger("click")
-    await flushPromises()
+    await openSourceSelection(wrapper)
+    await chooseAvailableProject(wrapper)
     await wrapper.get(".rp-source-anchor-match input").setValue("刚抵达雾都")
     await wrapper.get(".rp-source-anchor-match button").trigger("click")
     await flushPromises()
 
     expect(wrapper.emitted("change").at(-1)[0].setup).toBeNull()
     await wrapper.get(".rp-source-anchor-candidates button").trigger("click")
-    await wrapper.findAll("select")[1].setValue("b".repeat(64))
+    expect(wrapper.emitted("change").at(-1)[0].setup).toBeNull()
+    await continueToIdentity(wrapper)
+    await wrapper.get("select").setValue("b".repeat(64))
     await flushPromises()
     expect(wrapper.emitted("change").at(-1)[0].setup.progress_anchor_key)
       .toBe("a".repeat(64))
@@ -170,7 +232,7 @@ describe("RP 作品资料设置", () => {
     )).toBeNull()
   })
 
-  it("直接整理前先确认会使用模型额度", async () => {
+  it("直接整理前确认会使用账户连接的 AI 服务", async () => {
     api.interactions.listSources.mockResolvedValue({
       items: [],
       projects: [{
@@ -180,17 +242,16 @@ describe("RP 作品资料设置", () => {
       }],
     })
     const wrapper = mount(RpSourceSetup)
-    await wrapper.get("input[value='source']").setValue()
-    await flushPromises()
-    await wrapper.findAll(".rp-source-projects > button")[0].trigger("click")
-    await flushPromises()
+    await openSourceSelection(wrapper)
+    await chooseAvailableProject(wrapper)
 
     await wrapper.get("button.primary").trigger("click")
     await flushPromises()
 
     const dialog = document.getElementById("rp-source-organize-confirm")
     expect(dialog).toBeTruthy()
-    expect(dialog.textContent).toContain("使用我的模型额度")
+    expect(dialog.textContent).toContain("使用你在账户中连接的 AI 服务")
+    expect(dialog.textContent).toContain("Key 不会进入浏览器或作品")
     expect(api.interactions.sourceFromProject).not.toHaveBeenCalled()
 
     const confirmButton = [...dialog.querySelectorAll("button")]
@@ -205,10 +266,8 @@ describe("RP 作品资料设置", () => {
 
   it("对象类型以中文标签展示，不暴露内部枚举", async () => {
     const wrapper = mount(RpSourceSetup)
-    await wrapper.get("input[value='source']").setValue()
-    await flushPromises()
-    await wrapper.findAll(".rp-source-projects > button")[0].trigger("click")
-    await flushPromises()
+    await openSourceSelection(wrapper)
+    await chooseAvailableProject(wrapper)
     await wrapper.get(`input[value='${"a".repeat(64)}']`).setValue()
     await flushPromises()
 
@@ -235,6 +294,7 @@ describe("RP 作品资料设置", () => {
       })
       const wrapper = mount(RpSourceSetup)
       await wrapper.get("input[value='source']").setValue()
+      await wrapper.get(".rp-source-next").trigger("click")
       await vi.advanceTimersByTimeAsync(0)
       await wrapper.findAll(".rp-source-projects > button")[0].trigger("click")
       await vi.advanceTimersByTimeAsync(0)

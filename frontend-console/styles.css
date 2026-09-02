@@ -70,6 +70,71 @@
   margin-top: 22px;
 }
 
+.rp-source-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rp-source-steps.compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.rp-source-steps li {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--rp-border);
+  border-radius: 10px;
+  color: var(--rp-dim);
+  font-size: 12px;
+}
+
+.rp-source-steps li.current {
+  border-color: var(--rp-accent);
+  background: var(--rp-accent-soft);
+  color: var(--rp-heading);
+  font-weight: 700;
+}
+
+.rp-source-steps li.complete {
+  color: var(--rp-text);
+}
+
+.rp-source-steps button {
+  display: grid;
+  width: 100%;
+  gap: 3px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.rp-source-steps small {
+  overflow-wrap: anywhere;
+  color: var(--rp-muted);
+  font-weight: 400;
+}
+
+.rp-source-step-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.rp-source-step-panel > h3 {
+  margin: 0;
+}
+
+.rp-source-next {
+  justify-self: end;
+  min-height: 44px;
+}
+
 .rp-source-mode,
 .rp-source-ready fieldset {
   display: flex;
@@ -305,6 +370,10 @@
 }
 
 @media (max-width: 600px) {
+  .rp-source-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .rp-source-mode {
     align-items: flex-start;
     flex-direction: column;
@@ -325,8 +394,10 @@
   }
 
   .rp-source-projects button,
+  .rp-source-steps button,
   .rp-source-import button,
   .rp-source-ready button,
+  .rp-source-step-panel > button,
   .rp-source-drawer-content button,
   .rp-source-drawer-content select {
     min-height: 44px;

@@ -547,7 +547,12 @@ test.describe("RP 路由与窄屏故事页", () => {
 
     await page.goto("/#journeys/new")
     await page.getByLabel("使用已有作品资料").check()
+    const sourceNext = page.getByRole("button", { name: "下一步：选择作品" })
+    await sourceNext.focus()
+    await page.keyboard.press("Enter")
+    await expect(page.locator("[aria-current='step']")).toContainText("选择作品或文件")
     await page.getByRole("button", { name: /雾都之夜.*资料版本 1/ }).click()
+    await expect(page.locator("[aria-current='step']")).toContainText("准备作品资料")
     await expect(page.getByRole("heading", { name: "确认关键指代" })).toBeVisible()
     await page.getByRole("button", { name: "林默 · 人物" }).click()
 
@@ -556,11 +561,12 @@ test.describe("RP 路由与窄屏故事页", () => {
     await page.getByRole("button", { name: "匹配剧情点" }).click()
     await page.getByRole("button", { name: /进入钟楼之后 · 铜门在身后合拢/ }).click()
     await expect(page.getByLabel("进入钟楼之后")).toBeChecked()
+    await page.getByText("预先固定重要人物或地点").click()
+    await page.getByLabel(/雾港钟楼 · 地点/).check()
+    await page.getByRole("button", { name: "下一步：选择身份与开场" }).click()
     await page.getByLabel("原创角色").check()
     await page.getByLabel("角色名称").fill("季遥")
     await page.getByLabel("身份说明").fill("刚抵达雾港的外乡调查员")
-    await page.getByText("预先固定重要人物或地点").click()
-    await page.getByLabel(/雾港钟楼 · 地点/).check()
     await page.getByLabel("旅程开场").fill("我推开钟楼最深处的门。")
     await page.getByRole("button", { name: "开始旅程" }).click()
 
@@ -635,6 +641,7 @@ test.describe("RP 路由与窄屏故事页", () => {
 
     await page.goto("/#journeys/new")
     await page.getByLabel("使用已有作品资料").check()
+    await page.getByRole("button", { name: "下一步：选择作品" }).click()
     await page.getByRole("button", { name: "导入新作品" }).click()
     await page.getByLabel("作品名称").fill("雾都之夜")
     const fileInput = page.getByLabel("作品文件")
@@ -651,8 +658,10 @@ test.describe("RP 路由与窄屏故事页", () => {
 
     await page.reload()
     await expect.poll(() => recovered).toBe(true)
+    await expect(page.locator("[aria-current='step']")).toContainText("准备作品资料")
     await expect(page.getByText("作品资料已完整整理，可以选择进入位置")).toBeVisible()
     await page.getByLabel("火车进站").check()
+    await page.getByRole("button", { name: "下一步：选择身份与开场" }).click()
     await page.getByLabel("选择角色").selectOption(characterKey)
     await page.getByLabel("旅程开场").fill("我沿着站台走进雾里。")
     await page.getByRole("button", { name: "开始旅程" }).click()

@@ -45,7 +45,7 @@ const actionOptions = ref(true)
 const creating = ref(false)
 const createError = ref("")
 const createErrorAction = ref("")
-const sourceSelection = ref({ enabled: false, setup: null })
+const sourceSelection = ref({ enabled: false, openingReady: false, setup: null, step: 1 })
 const searching = ref(false)
 const loadingMore = ref(false)
 const seeSeaNoticeOpen = ref(false)
@@ -74,6 +74,7 @@ const showOpening = computed(() => (
 ))
 const openingTooLong = computed(() => opening.value.length > 100_000)
 const showOpeningCount = computed(() => opening.value.length >= 90_000)
+const showOpeningComposer = computed(() => sourceSelection.value.openingReady === true)
 
 const visibleJourneys = computed(() => {
   return tab.value === "active" ? active.value : archived.value
@@ -388,91 +389,95 @@ onBeforeUnmount(() => {
     >
       <div class="rp-opening-intro">
         <h2 id="rp-opening-title">你想从哪里开始？</h2>
-        <p>{{ sourceSelection.enabled
-          ? "先确认作品版本、剧情进度和玩家身份，再写下本次开场。"
-          : "不需要先整理资料。写下世界、你的身份和故事起点即可。" }}</p>
+        <p>{{ showOpeningComposer
+          ? (sourceSelection.enabled
+            ? "作品与进入位置已经确认；选好身份，再写下本次开场。"
+            : "写下世界、你的身份和故事起点即可。")
+          : "一次只做一个决定；随时可以返回修改前面的选择。" }}</p>
       </div>
       <div v-if="connectionStateKnown && !hasActiveConnection" class="rp-connection-callout">
-        <strong>开始故事前需要先连接模型</strong>
-        <span>已有内容不受影响，连接只用于之后的新生成。</span>
+        <strong>开始故事前需要连接你自己的 AI 服务</strong>
+        <span>故事生成和作品整理使用你在账户中连接的 AI 服务；请求经本站后端代发，Key 不会进入浏览器或作品。</span>
         <button type="button" @click="goConnect('journeys:new')">去连接模型</button>
       </div>
       <RpSourceSetup
         :disabled="creating"
         @change="sourceSelection = $event"
       />
-      <div class="rp-opening-composer">
-        <textarea
-          v-model="opening"
-          rows="5"
-          :disabled="creating"
-          placeholder="例如：我想进入哪个世界；我是谁；从什么时间、什么地点开始；我正和谁在一起、想做什么……"
-          aria-label="旅程开场"
-          @keydown="onOpeningKeydown"
-          @compositionstart="composing = true"
-          @compositionend="composing = false"
-        ></textarea>
-        <button
-          class="rp-send-button"
-          type="button"
-          :disabled="
-            creating
-            || !opening.trim()
-            || openingTooLong
-            || !hasActiveConnection
-            || (sourceSelection.enabled && !sourceSelection.setup)
-          "
-          aria-label="开始旅程"
-          @click="createJourney"
-        >{{ creating ? "…" : "↑" }}</button>
-      </div>
-      <p v-if="showOpeningCount" class="rp-input-count" :class="{ error: openingTooLong }">
-        {{ opening.length.toLocaleString() }} / 100,000
-        <span v-if="openingTooLong">· 这次输入过长，请分几次发送</span>
-      </p>
-      <div class="rp-mode-row">
-        <button
-          ref="seeSeaButton"
-          type="button"
-          class="rp-mode-toggle"
-          :class="{ active: seeSea }"
-          :aria-pressed="seeSea"
-          aria-haspopup="dialog"
-          :aria-expanded="seeSeaNoticeOpen"
-          aria-controls="rp-new-journey-see-sea-confirm"
-          @click="requestSeeSea"
-        >故事自主发展</button>
-        <button
-          type="button"
-          class="rp-mode-toggle"
-          :class="{ active: actionOptions }"
-          :aria-pressed="actionOptions"
-          @click="actionOptions = !actionOptions"
-        >行动选项</button>
-        <span>{{ seeSea ? "故事会持续自主发展，直到你关闭" : "关键行动由你决定" }}</span>
-      </div>
-      <RpAdaptiveConfirmPopover
-        id="rp-new-journey-see-sea-confirm"
-        :anchor="seeSeaButton"
-        :busy="seeSeaConfirming"
-        confirm-text="开始自主发展"
-        message="故事会持续自主发展并使用你的模型额度；离开页面或关闭开关后会停止。"
-        :open="seeSeaNoticeOpen"
-        @close="seeSeaNoticeOpen = false"
-        @confirm="confirmSeeSea"
-      />
-      <p v-if="createError" class="rp-inline-error" role="alert">
-        {{ createError }}
-        <button
-          v-if="createErrorAction === 'connection'"
-          type="button"
-          @click="goConnect('journeys:new')"
-        >检查模型连接</button>
-      </p>
-      <p class="rp-shortcut-hint">⌘/Ctrl + Enter 开始，Enter 换行</p>
-      <p class="rp-data-notice">
-        你的输入、当前旅程上下文和本轮需要的作品资料会发送给所选模型服务。旅程是私人分支，不会写回原作正文或世界资料。请仅使用你有权处理的内容。
-      </p>
+      <template v-if="showOpeningComposer">
+        <div class="rp-opening-composer">
+          <textarea
+            v-model="opening"
+            rows="5"
+            :disabled="creating"
+            placeholder="例如：我想进入哪个世界；我是谁；从什么时间、什么地点开始；我正和谁在一起、想做什么……"
+            aria-label="旅程开场"
+            @keydown="onOpeningKeydown"
+            @compositionstart="composing = true"
+            @compositionend="composing = false"
+          ></textarea>
+          <button
+            class="rp-send-button"
+            type="button"
+            :disabled="
+              creating
+              || !opening.trim()
+              || openingTooLong
+              || !hasActiveConnection
+              || (sourceSelection.enabled && !sourceSelection.setup)
+            "
+            aria-label="开始旅程"
+            @click="createJourney"
+          >{{ creating ? "…" : "↑" }}</button>
+        </div>
+        <p v-if="showOpeningCount" class="rp-input-count" :class="{ error: openingTooLong }">
+          {{ opening.length.toLocaleString() }} / 100,000
+          <span v-if="openingTooLong">· 这次输入过长，请分几次发送</span>
+        </p>
+        <div class="rp-mode-row">
+          <button
+            ref="seeSeaButton"
+            type="button"
+            class="rp-mode-toggle"
+            :class="{ active: seeSea }"
+            :aria-pressed="seeSea"
+            aria-haspopup="dialog"
+            :aria-expanded="seeSeaNoticeOpen"
+            aria-controls="rp-new-journey-see-sea-confirm"
+            @click="requestSeeSea"
+          >故事自主发展</button>
+          <button
+            type="button"
+            class="rp-mode-toggle"
+            :class="{ active: actionOptions }"
+            :aria-pressed="actionOptions"
+            @click="actionOptions = !actionOptions"
+          >行动选项</button>
+          <span>{{ seeSea ? "故事会持续自主发展，直到你关闭" : "关键行动由你决定" }}</span>
+        </div>
+        <RpAdaptiveConfirmPopover
+          id="rp-new-journey-see-sea-confirm"
+          :anchor="seeSeaButton"
+          :busy="seeSeaConfirming"
+          confirm-text="开始自主发展"
+          message="故事会持续自主发展，并使用你在账户中连接的 AI 服务；离开页面或关闭开关后会停止。"
+          :open="seeSeaNoticeOpen"
+          @close="seeSeaNoticeOpen = false"
+          @confirm="confirmSeeSea"
+        />
+        <p v-if="createError" class="rp-inline-error" role="alert">
+          {{ createError }}
+          <button
+            v-if="createErrorAction === 'connection'"
+            type="button"
+            @click="goConnect('journeys:new')"
+          >检查模型连接</button>
+        </p>
+        <p class="rp-shortcut-hint">⌘/Ctrl + Enter 开始，Enter 换行</p>
+        <p class="rp-data-notice">
+          你的输入、当前旅程上下文和本轮需要的作品资料会经本站后端发送给你在账户中选择的 AI 服务；Key 不会进入浏览器或作品。旅程是私人分支，不会写回原作正文或世界资料。请仅使用你有权处理的内容。
+        </p>
+      </template>
     </section>
 
     <section v-else class="rp-journey-catalog" :aria-busy="searching || loadingMore">

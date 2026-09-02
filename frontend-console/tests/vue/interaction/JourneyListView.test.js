@@ -83,6 +83,11 @@ beforeEach(() => {
 
 afterEach(() => resetBridgeOverrides())
 
+async function advanceToDirectOpening(wrapper) {
+  await wrapper.get(".rp-source-next").trigger("click")
+  await flushPromises()
+}
+
 describe("首页入口请求所有权", () => {
   it("公共认证页只回传选中的使用方式", async () => {
     const wrapper = mount(HomeChoiceView, { props: { selectionOnly: true } })
@@ -165,7 +170,7 @@ describe("RP 旅程列表与开场", () => {
     expect(wrapper.text()).toContain("正在生成故事")
   })
 
-  it("空账户直接使用纯白开场，并保留超长输入而不提交", async () => {
+  it("空账户先选来源方式，再保留超长开场而不提交", async () => {
     const wrapper = mount(JourneyListView, {
       props: {
         activeJourneys: [],
@@ -173,6 +178,8 @@ describe("RP 旅程列表与开场", () => {
         llmConnections: connections(),
       },
     })
+    expect(wrapper.find("textarea[aria-label='旅程开场']").exists()).toBe(false)
+    await advanceToDirectOpening(wrapper)
     const input = wrapper.get("textarea[aria-label='旅程开场']")
     const tooLong = "界".repeat(100_001)
     await input.setValue(tooLong)
@@ -195,6 +202,7 @@ describe("RP 旅程列表与开场", () => {
       },
     })
 
+    await advanceToDirectOpening(opening)
     await opening.get("textarea[aria-label='旅程开场']").setValue("我从旧城醒来。")
     void opening.get(".rp-send-button").trigger("click")
     await Promise.resolve()
@@ -240,6 +248,7 @@ describe("RP 旅程列表与开场", () => {
         startNew: true,
       },
     })
+    await advanceToDirectOpening(wrapper)
     await wrapper.get("textarea[aria-label='旅程开场']").setValue("我从雨夜醒来。")
     void wrapper.get(".rp-send-button").trigger("click")
     await Promise.resolve()
@@ -306,6 +315,10 @@ describe("RP 旅程列表与开场", () => {
       true,
       expect.any(URLSearchParams),
     )
+    expect(router.navigate.mock.calls[0][3].get("return_to")).toBe("journeys:new")
+    expect(empty.text()).toContain("使用你在账户中连接的 AI 服务")
+    expect(empty.text()).toContain("请求经本站后端代发")
+    expect(empty.text()).toContain("Key 不会进入浏览器或作品")
     empty.unmount()
     router.navigate.mockClear()
 
@@ -330,6 +343,7 @@ describe("RP 旅程列表与开场", () => {
         preferences: { see_sea_notice_acknowledged: false },
       },
     })
+    await advanceToDirectOpening(wrapper)
     const sea = wrapper.findAll(".rp-mode-toggle")
       .find((button) => button.text() === "故事自主发展")
     await sea.trigger("click")

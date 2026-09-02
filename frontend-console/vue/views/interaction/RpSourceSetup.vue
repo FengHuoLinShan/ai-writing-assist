@@ -21,6 +21,14 @@ const storageKey = "rpSourceSetupDraft:v1"
 let restored = {}
 try { restored = JSON.parse(sessionStorage.getItem(storageKey) || "{}") } catch { /* empty */ }
 
+const restoredStep = Number(restored.step)
+const step = ref([1, 2, 3, 4].includes(restoredStep) ? restoredStep : (
+  restored.modeChoice === "source" && restored.revisionId
+    ? (restored.anchorKey ? 4 : 3)
+    : 1
+))
+const stepHeading = ref(null)
+
 const modeChoice = ref(restored.modeChoice === "source" ? "source" : "model")
 const loading = ref(false)
 const error = ref("")
@@ -58,6 +66,12 @@ let pollFailures = 0
 
 const POLL_INTERVAL_MS = 2500
 const POLL_RETRY_DELAYS_MS = [3000, 6000, 12000, 24000, 30000]
+const STEP_ITEMS = [
+  { value: 1, label: "选择资料来源" },
+  { value: 2, label: "选择作品或文件" },
+  { value: 3, label: "准备作品资料" },
+  { value: 4, label: "角色与开场" },
+]
 
 const statusText = computed(() => {
   if (loading.value) return "正在载入作品…"
@@ -102,6 +116,35 @@ const pinnableObjects = computed(() => (
     (item) => item.entity_type !== "relation",
   ).slice(0, 30)
 ))
+const sourceModeSummary = computed(() => (
+  modeChoice.value === "source" ? "使用已有作品资料" : "直接描述世界与开场"
+))
+const projectSummary = computed(() => {
+  if (revision.value) return `${revision.value.title} · 资料版本 ${revision.value.version_number}`
+  return projects.value.find((item) => item.project_id === selectedProjectId.value)?.title
+    || importTitle.value.trim()
+    || "尚未选择作品"
+})
+const progressSummary = computed(() => {
+  if (!revision.value) return "尚未开始整理"
+  if (revision.value.status !== "ready") return statusText.value || "正在准备作品资料"
+  return selectedAnchor.value ? `${selectedAnchor.value.chapter_title} · ${selectedAnchor.value.label}` : "尚未选择进入位置"
+})
+const identitySummary = computed(() => {
+  if (modeChoice.value !== "source") return "在开场中描述身份"
+  if (identityKind.value === "original") return originalName.value.trim() || "原创角色"
+  return characters.value.find((item) => item.reference_key === characterKey.value)?.label || "尚未选择角色"
+})
+const openingReady = computed(() => (
+  step.value === 4
+  && (
+    modeChoice.value !== "source"
+    || (revision.value?.status === "ready" && Boolean(anchorKey.value))
+  )
+))
+const visibleSteps = computed(() => (
+  modeChoice.value === "source" ? STEP_ITEMS : [STEP_ITEMS[0], STEP_ITEMS[3]]
+))
 const setup = computed(() => {
   if (modeChoice.value !== "source" || revision.value?.status !== "ready") return null
   if (!anchorKey.value) return null
@@ -126,6 +169,37 @@ const setup = computed(() => {
     pinned_reference_keys: pinnedKeys.value,
   }
 })
+
+function setStep(value) {
+  step.value = value
+  void nextTick(() => stepHeading.value?.focus?.())
+}
+
+function stepSummary(number) {
+  if (number === 1) return sourceModeSummary.value
+  if (number === 2) return projectSummary.value
+  if (number === 3) return progressSummary.value
+  return identitySummary.value
+}
+
+async function continueFromMode() {
+  if (modeChoice.value === "model") return setStep(4)
+  setStep(2)
+  if (!projects.value.length) await loadSources()
+}
+
+function clearSelectedProject() {
+  revision.value = null
+  selectedProjectId.value = ""
+  importOpen.value = false
+  clearPolling()
+  setStep(2)
+}
+
+function editSelectedSource() {
+  importOpen.value = true
+  setStep(2)
+}
 
 function reportError(message) {
   error.value = message || "操作未完成，请重试。"
@@ -193,6 +267,7 @@ async function chooseProject(project) {
     if (project.latest_revision) {
       revision.value = await getApi().interactions.getSource(project.latest_revision.id)
       syncRevisionDefaults()
+      setStep(3)
     } else {
       revision.value = null
     }
@@ -212,6 +287,7 @@ async function organizeSelectedProject() {
     })
     pollFailures = 0
     syncRevisionDefaults()
+    setStep(3)
   } catch (requestError) {
     reportError(requestError?.message || "完整整理未能开始。")
   } finally {
@@ -251,6 +327,7 @@ function startNewImport() {
   resetImportFile()
   importOpen.value = true
   clearPolling()
+  setStep(2)
 }
 
 async function previewImport() {
@@ -302,6 +379,7 @@ async function applyImport() {
     preview.value = null
     await loadSources()
     syncRevisionDefaults()
+    setStep(3)
   } catch (requestError) {
     if (!disposed && requestError?.name !== "AbortError") {
       reportError(requestError?.message || "导入未完成，原有作品版本没有改变。")
@@ -389,11 +467,17 @@ watch(selectedChapter, () => {
 })
 watch(
   [modeChoice, revision, selectedProjectId, selectedChapter, anchorKey,
-    identityKind, characterKey, originalName, originalDescription, pinnedKeys],
+    identityKind, characterKey, originalName, originalDescription, pinnedKeys, step],
   () => {
-    emit("change", { enabled: modeChoice.value === "source", setup: setup.value })
+    emit("change", {
+      enabled: modeChoice.value === "source",
+      openingReady: openingReady.value,
+      setup: setup.value,
+      step: step.value,
+    })
     try {
       sessionStorage.setItem(storageKey, JSON.stringify({
+        step: step.value,
         modeChoice: modeChoice.value,
         selectedProjectId: selectedProjectId.value,
         revisionId: revision.value?.id || null,
@@ -423,28 +507,52 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="rp-source-setup" :aria-busy="loading || uploading">
-    <fieldset class="rp-source-mode" :disabled="props.disabled">
-      <legend>使用哪种世界资料？</legend>
-      <label><input v-model="modeChoice" type="radio" value="model" /> 直接描述开场</label>
-      <label><input v-model="modeChoice" type="radio" value="source" /> 使用已有作品资料</label>
-    </fieldset>
+    <ol class="rp-source-steps" :class="{ compact: modeChoice !== 'source' }" aria-label="新旅程设置进度">
+      <li
+        v-for="(item, index) in visibleSteps"
+        :key="item.value"
+        :class="{ current: step === item.value, complete: step > item.value }"
+        :aria-current="step === item.value ? 'step' : undefined"
+      >
+        <button v-if="step > item.value" type="button" :disabled="props.disabled" @click="setStep(item.value)">
+          <span>{{ index + 1 }} · {{ item.label }}</span><small>{{ stepSummary(item.value) }}</small>
+        </button>
+        <span v-else>{{ index + 1 }} · {{ item.label }}</span>
+      </li>
+    </ol>
 
-    <div v-if="modeChoice === 'source'" class="rp-source-workspace">
+    <div v-if="modeChoice === 'source' && error" ref="errorSummary" class="rp-source-error" tabindex="-1" role="alert">
+      {{ error }} <button type="button" @click="loadSources">重新载入</button>
+    </div>
+
+    <div v-if="step === 1" class="rp-source-step-panel">
+      <h3 ref="stepHeading" tabindex="-1">先选择资料来源</h3>
+      <fieldset class="rp-source-mode" :disabled="props.disabled">
+        <legend>这次怎样进入世界？</legend>
+        <label><input v-model="modeChoice" type="radio" value="model" /> 直接描述世界、身份和开场</label>
+        <label><input v-model="modeChoice" type="radio" value="source" /> 使用已有作品资料</label>
+      </fieldset>
       <p class="rp-source-explainer">
-        作品不必已经完结；当前导入版本的全部章节完成整理、索引和关键歧义确认后即可开始。
+        故事生成与作品整理会使用你在账户中连接的 AI 服务；请求经本站后端代发，Key 不会进入浏览器或作品。
       </p>
-      <div v-if="error" ref="errorSummary" class="rp-source-error" tabindex="-1" role="alert">
-        {{ error }} <button type="button" @click="loadSources">重新载入</button>
-      </div>
-      <p class="rp-source-status" aria-live="polite">{{ statusText }}</p>
+      <button class="primary rp-source-next" type="button" :disabled="props.disabled" @click="continueFromMode">
+        {{ modeChoice === 'source' ? '下一步：选择作品' : '下一步：填写角色与开场' }}
+      </button>
+    </div>
 
-      <div v-if="!revision" class="rp-source-projects">
-        <h3>选择作者作品</h3>
+    <div v-else-if="step === 2 && modeChoice === 'source'" class="rp-source-workspace rp-source-step-panel">
+      <h3 ref="stepHeading" tabindex="-1">选择作品或导入文件</h3>
+      <p class="rp-source-explainer">
+        作品不必完结；当前版本全部章节完成整理并确认必要歧义后即可开始。
+      </p>
+      <p v-if="loading" class="rp-source-status" role="status">正在载入作品…</p>
+      <div class="rp-source-projects">
         <button
           v-for="project in projects"
           :key="project.project_id"
           type="button"
           :class="{ active: selectedProjectId === project.project_id }"
+          :disabled="loading"
           @click="chooseProject(project)"
         >
           <strong>{{ project.title }}</strong>
@@ -452,19 +560,18 @@ onBeforeUnmount(() => {
         </button>
         <p v-if="!loading && !projects.length">还没有作者作品，可以直接导入一部作品。</p>
         <button
-          v-if="selectedProjectId"
+          v-if="selectedProjectId && !revision"
           class="primary"
           type="button"
           :disabled="loading"
           :aria-expanded="organizeConfirmOpen"
           @click="requestOrganize"
         >完整整理这部作品</button>
-        <button
-          v-if="selectedProjectId"
-          type="button"
-          @click="importOpen = !importOpen"
-        >{{ importOpen ? "收起更新" : "更新所选作品" }}</button>
+        <button v-if="selectedProjectId" type="button" @click="importOpen = !importOpen">
+          {{ importOpen ? "收起更新" : "更新所选作品" }}
+        </button>
         <button type="button" @click="startNewImport">导入新作品</button>
+        <button v-if="revision" type="button" @click="setStep(3)">继续使用 {{ revision.title }}</button>
       </div>
 
       <div v-if="importOpen" class="rp-source-import">
@@ -497,7 +604,7 @@ onBeforeUnmount(() => {
           </label>
           <label>
             <input v-model="authorizationConfirmed" type="checkbox" />
-            导入后完整整理当前版本的全部章节，并使用我的模型额度
+            导入后完整整理当前版本的全部章节，并使用我在账户中连接的 AI 服务
           </label>
           <button
             class="primary"
@@ -511,13 +618,17 @@ onBeforeUnmount(() => {
           >应用版本并开始整理</button>
         </div>
       </div>
+    </div>
 
+    <div v-else-if="step === 3 && modeChoice === 'source'" class="rp-source-workspace rp-source-step-panel">
+      <h3 ref="stepHeading" tabindex="-1">准备作品资料与进入位置</h3>
+      <p class="rp-source-status" aria-live="polite">{{ statusText || "正在恢复作品资料…" }}</p>
       <div v-if="revision" class="rp-source-revision">
         <header>
           <div><strong>{{ revision.title }}</strong><span>资料版本 {{ revision.version_number }}</span></div>
           <div>
-            <button type="button" @click="importOpen = !importOpen">上传更新</button>
-            <button type="button" @click="revision = null; selectedProjectId = ''; importOpen = false; clearPolling()">换一部作品</button>
+            <button type="button" @click="editSelectedSource">上传更新</button>
+            <button type="button" @click="clearSelectedProject">换一部作品</button>
           </div>
         </header>
         <button v-if="revision.status === 'failed'" type="button" @click="requestOrganize">
@@ -556,7 +667,7 @@ onBeforeUnmount(() => {
             </label>
           </fieldset>
           <div class="rp-source-anchor-match">
-            <input v-model="anchorDescription" placeholder="也可以描述：刚见到某人、某场战斗之后……" />
+            <input v-model="anchorDescription" aria-label="描述剧情位置" placeholder="也可以描述：刚见到某人、某场战斗之后……" />
             <button type="button" :disabled="matching || !selectedChapter" @click="matchAnchors">
               {{ matching ? "匹配中…" : "匹配剧情点" }}
             </button>
@@ -571,26 +682,7 @@ onBeforeUnmount(() => {
             >{{ anchor.label }} · {{ anchor.excerpt }}</button>
           </div>
 
-          <fieldset>
-            <legend>玩家身份</legend>
-            <label><input v-model="identityKind" type="radio" value="source_character" /> 原作角色</label>
-            <label><input v-model="identityKind" type="radio" value="original" /> 原创角色</label>
-          </fieldset>
-          <label v-if="identityKind === 'source_character'">
-            选择角色
-            <select v-model="characterKey">
-              <option value="" disabled>请选择角色</option>
-              <option v-for="item in characters" :key="item.reference_key" :value="item.reference_key">
-                {{ item.label }}
-              </option>
-            </select>
-          </label>
-          <template v-else>
-            <label>角色名称<input v-model="originalName" maxlength="120" /></label>
-            <label>身份说明<textarea v-model="originalDescription" rows="3" maxlength="2000"></textarea></label>
-          </template>
-
-          <details v-if="pinnableObjects.length" class="rp-source-pins">
+          <details v-if="anchorKey && pinnableObjects.length" class="rp-source-pins">
             <summary>预先固定重要人物或地点（可选）</summary>
             <label v-for="item in pinnableObjects" :key="item.reference_key">
               <input
@@ -600,7 +692,46 @@ onBeforeUnmount(() => {
               /> {{ item.label }} · {{ sourceEntityTypeLabel(item.entity_type) }}
             </label>
           </details>
+          <button class="primary rp-source-next" type="button" :disabled="!anchorKey" @click="setStep(4)">
+            下一步：选择身份与开场
+          </button>
         </div>
+      </div>
+      <div v-else class="rp-source-current" role="status">
+        <p>正在恢复所选作品；如果没有恢复，请返回重新选择。</p>
+        <button type="button" @click="setStep(2)">返回选择作品</button>
+      </div>
+    </div>
+
+    <div v-else-if="step === 4" class="rp-source-step-panel">
+      <h3 ref="stepHeading" tabindex="-1">角色与开场</h3>
+      <p v-if="modeChoice !== 'source'" class="rp-source-explainer">
+        在下方直接写下世界、你的身份和故事起点；不需要先整理作品资料。
+      </p>
+      <div v-else-if="revision?.status === 'ready' && anchorKey" class="rp-source-ready">
+        <p class="rp-source-current">{{ projectSummary }} · {{ progressSummary }}</p>
+        <fieldset>
+          <legend>玩家身份</legend>
+          <label><input v-model="identityKind" type="radio" value="source_character" /> 原作角色</label>
+          <label><input v-model="identityKind" type="radio" value="original" /> 原创角色</label>
+        </fieldset>
+        <label v-if="identityKind === 'source_character'">
+          选择角色
+          <select v-model="characterKey">
+            <option value="" disabled>请选择角色</option>
+            <option v-for="item in characters" :key="item.reference_key" :value="item.reference_key">
+              {{ item.label }}
+            </option>
+          </select>
+        </label>
+        <template v-else>
+          <label>角色名称<input v-model="originalName" maxlength="120" /></label>
+          <label>身份说明<textarea v-model="originalDescription" rows="3" maxlength="2000"></textarea></label>
+        </template>
+      </div>
+      <div v-else class="rp-source-current" role="status">
+        <p>作品资料尚未恢复到可开始状态。</p>
+        <button type="button" @click="setStep(3)">返回检查作品资料</button>
       </div>
     </div>
 
@@ -610,7 +741,7 @@ onBeforeUnmount(() => {
       busy-text="正在开始…"
       confirm-text="开始完整整理"
       id="rp-source-organize-confirm"
-      message="将完整整理当前版本的全部章节，并使用我的模型额度。"
+      message="将完整整理当前版本的全部章节，并使用你在账户中连接的 AI 服务。请求经本站后端代发，Key 不会进入浏览器或作品。"
       :open="organizeConfirmOpen"
       @close="organizeConfirmOpen = false"
       @confirm="confirmOrganize"
