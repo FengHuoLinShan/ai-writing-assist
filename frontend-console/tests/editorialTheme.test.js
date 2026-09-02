@@ -157,8 +157,21 @@ describe("editorial archive theme", () => {
     expect(mapStyles).toMatch(/@media\(max-width:760px\)[\s\S]*\.atlas-upload-modal input\[type="file"\]\{max-width:100%\}/)
   })
 
-  it("keeps writing metadata on the minimum supported type step", () => {
+  it("keeps writing text roles readable and actionable", () => {
     expect(writingDesk).not.toMatch(/font-size:\s*10(?:\.5)?px/)
+    expect(writingDesk).not.toContain(".scene-cockpit-meta")
+    expect(writingDesk).toMatch(/\.writing-candidate-kicker\s*\{[^}]*color:\s*var\(--text-body\);[^}]*font-size:\s*var\(--text-sm\)/s)
+    expect(writingDesk).toMatch(/\.scene-alert-card__action\s*\{[^}]*min-height:\s*28px;[^}]*color:\s*var\(--text-body\);[^}]*font-size:\s*var\(--text-sm\)/s)
+    expect(writingDesk).toMatch(/\.writing-conflict-status\s*\{[^}]*color:\s*var\(--text-secondary\);[^}]*font-size:\s*var\(--text-sm\)/s)
+    expect(writingDesk).toMatch(/\.writing-conflict-evidence-drawer > summary\s*\{[^}]*min-height:\s*28px;[^}]*font-size:\s*var\(--text-sm\)/s)
+    expect(writingDesk).toMatch(/\.writing-audit-section > h4\s*\{[^}]*font-size:\s*var\(--text-sm\)/s)
+    expect(writingDesk).toMatch(/@media \(max-width: 760px\)[\s\S]*\.scene-alert-card__action,[\s\S]*\.writing-conflict-evidence-drawer > summary\s*\{[^}]*min-height:\s*42px;/s)
+
+    for (const block of [themeBlock(":root"), themeBlock('[data-theme="night"]'), themeBlock('[data-theme="ink"]')]) {
+      expect(contrast(token(block, "--nc-body"), mixHex(token(block, "--nc-warning"), token(block, "--nc-surface"), 0.07))).toBeGreaterThanOrEqual(4.5)
+      expect(contrast(token(block, "--nc-body"), token(block, "--nc-alert-bg"))).toBeGreaterThanOrEqual(4.5)
+      expect(contrast(token(block, "--nc-dim"), token(block, "--nc-surface"))).toBeGreaterThanOrEqual(4.5)
+    }
   })
 
   it("covers every workspace family and preserves compact mobile controls", () => {
