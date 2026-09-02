@@ -31,9 +31,9 @@
    0 值卡片为原生 disabled。字阶、tracking、颜色与圆角均复用现有 token，hover 不再浮起或加阴影。
 6. **已处理：钩子与窄屏**。「切换作品」提供 `data-action="switch-project"`；≤460px 提供
    独立密度与 44px 触控档，唯一主操作保持 48px。
-7. **已裁定：不为 Today 复制任务卡抽象与截图基线**。Today 的卡片是导航投影，
-   不承担 `WorkflowProgressCard` 的取消/恢复编排；当卡片出现同等操作或视觉回归实际发生时再提取。
-   当前三主题颜色均来自全局 token，继续由全局主题门禁覆盖。
+7. **已处理：增加最小视觉回归基线，不复制任务卡抽象**。Today 的卡片仍是导航投影，
+   不承担 `WorkflowProgressCard` 的取消/恢复编排；视觉测试复用现有 Playwright fixture，以固定作者可见
+   摘要覆盖桌面 sticky/night/ink 与 390px sticky，共四张快照，守住主题、信息层级与窄屏排布。
 8. **已处理：作者任务完成响应按作品隔离**。请求始终提交到点击时的作品；切换作品或组件卸载后，
    晚到的成功、409 与普通失败均不改写新页面任务状态，也不显示旧提示或刷新新作品。
 
@@ -172,6 +172,7 @@
 - [ ] workflow 卡与 WorkflowProgressCard variant="card" 标准对齐（复用或逐项对齐，注释标明）。
 - [x] 命名统一：router/页内为「写作首页」，主导航使用任务名「写作」。
 - [x] 390px 宽度无页面级横向溢出；<760 档主按钮全宽且高 48px。
+- [x] 桌面 sticky/night/ink 与 390px sticky 写作首页均有 Playwright 像素基线。
 - [x] 全部 §7 契约存在且可被 `getByRole`/`data-action` 选中。
 
 验证命令（在 `frontend-console/` 下）：
@@ -180,5 +181,5 @@
 npm test -- tests/vue/todayIsland.test.js        # island 加载/错误/空态单测
 npm test -- tests/editorialTheme.test.js tests/typographyTokens.test.js   # token 契约
 npm run test:e2e:functional -- e2e/author-workspace.spec.js e2e/home.spec.js  # 进入 today 的功能流
-# 本轮使用受控 Playwright 会话对比桌面/移动与三主题截图；独立提交基线尚未引入。
+npm run test:e2e:visual -- e2e/visual-today.spec.js --workers=1 --retries=0  # 四张 Today 像素基线
 ```
