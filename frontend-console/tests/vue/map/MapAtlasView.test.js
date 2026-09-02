@@ -89,6 +89,22 @@ describe("AI 地图册工作台", () => {
 
     expect(wrapper.get(".atlas-primary-actions .btn-primary").text()).toBe("一键生成地图册")
     expect(wrapper.text()).toContain("还没有本次生成结果")
+    expect(wrapper.get(".atlas-generation-settings").attributes("open")).toBeDefined()
+    expect(wrapper.find(".atlas-tabs").exists()).toBe(false)
+  })
+
+  it("已有地图册默认收起生成设置但保留可读摘要", async () => {
+    api.world.getMapAtlas.mockResolvedValue(tree([
+      page({ review_status: "adopted" }),
+    ], "atlas"))
+
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
+    await flushPromises()
+
+    const settings = wrapper.get(".atlas-generation-settings")
+    expect(settings.attributes("open")).toBeUndefined()
+    expect(settings.get("summary").text()).toContain("横版 · 标准 · 仅正式资料 · 不含室内图")
+    expect(wrapper.get(".atlas-tabs").exists()).toBe(true)
   })
 
   it("可选在生图前编辑、复制并确认全部画面说明", async () => {

@@ -18,27 +18,30 @@
       </div>
     </header>
 
-    <section class="atlas-options card" aria-label="地图册生成选项">
-      <label>版式
-        <select v-model="options.layout" class="form-select" :disabled="writeLocked || runUnfinished">
-          <option value="landscape">横版</option><option value="square">方形</option>
-        </select>
-      </label>
-      <label>清晰度
-        <select v-model="options.quality" class="form-select" :disabled="writeLocked || runUnfinished">
-          <option value="standard">标准</option><option value="fine">精细</option>
-        </select>
-      </label>
-      <label class="atlas-style">画面偏好
-        <input v-model="options.style_note" class="form-input" maxlength="2000" placeholder="例如：旧羊皮纸、克制的山脉与河流细节" :disabled="writeLocked || runUnfinished" />
-      </label>
-      <details>
-        <summary>高级选项</summary>
-        <label><input v-model="options.include_working_drafts" type="checkbox" :disabled="writeLocked || runUnfinished" /> 加入工作稿资料</label>
-        <label><input v-model="options.include_interiors" type="checkbox" :disabled="writeLocked || runUnfinished" /> 允许规划室内图</label>
-        <label><input v-model="options.review_image_prompts" type="checkbox" :disabled="writeLocked || runUnfinished" /> 生图前检查画面说明</label>
-      </details>
-    </section>
+    <details class="atlas-generation-settings card" :open="!atlas.total_pages && !currentRun">
+      <summary>生成设置 <span>{{ generationSettingsSummary }}</span></summary>
+      <section class="atlas-options" aria-label="地图册生成选项">
+        <label>版式
+          <select v-model="options.layout" class="form-select" :disabled="writeLocked || runUnfinished">
+            <option value="landscape">横版</option><option value="square">方形</option>
+          </select>
+        </label>
+        <label>清晰度
+          <select v-model="options.quality" class="form-select" :disabled="writeLocked || runUnfinished">
+            <option value="standard">标准</option><option value="fine">精细</option>
+          </select>
+        </label>
+        <label class="atlas-style">画面偏好
+          <input v-model="options.style_note" class="form-input" maxlength="2000" placeholder="例如：旧羊皮纸、克制的山脉与河流细节" :disabled="writeLocked || runUnfinished" />
+        </label>
+        <details>
+          <summary>高级选项</summary>
+          <label><input v-model="options.include_working_drafts" type="checkbox" :disabled="writeLocked || runUnfinished" /> 加入工作稿资料</label>
+          <label><input v-model="options.include_interiors" type="checkbox" :disabled="writeLocked || runUnfinished" /> 允许规划室内图</label>
+          <label><input v-model="options.review_image_prompts" type="checkbox" :disabled="writeLocked || runUnfinished" /> 生图前检查画面说明</label>
+        </details>
+      </section>
+    </details>
 
     <section v-if="currentRun?.status === 'prompt_review'" class="card atlas-prompt-review">
       <header><div><h2>生图前检查</h2><p>可复制到其他生图工具，或修改后交给站内生成。</p></div><button class="btn btn-primary" :disabled="busy || promptSaving || !Object.keys(promptRecords).length" @click="confirmPrompts">确认全部选择</button></header>
@@ -76,7 +79,7 @@
       </div>
     </section>
 
-    <nav class="atlas-tabs" aria-label="地图册视图" role="tablist">
+    <nav v-if="currentRun || atlas.total_pages" class="atlas-tabs" aria-label="地图册视图" role="tablist">
       <button role="tab" :class="{ active: tab === 'review' }" :aria-selected="tab === 'review'" :aria-pressed="tab === 'review'" @click="selectTab('review')">本次生成结果 <span>{{ review.total_pages }}</span></button>
       <button role="tab" :class="{ active: tab === 'atlas' }" :aria-selected="tab === 'atlas'" :aria-pressed="tab === 'atlas'" @click="selectTab('atlas')">我的地图册 <span>{{ atlas.total_pages }}</span></button>
     </nav>
@@ -324,6 +327,12 @@ const allPromptOnly = computed(() => visiblePages.value.length > 0 && visiblePag
 const runStatusLabel = computed(() => allPromptOnly.value ? "画面说明已确认，等待外部图片" : ({ planning: "正在规划地图册", prompt_review: "等待检查画面说明", generating: currentRun.value?.stop_requested ? "将在当前页完成后停止" : "正在逐页生成", review_ready: "本次地图册已经生成", partial: "部分页面需要处理", paused: pausedPromptReview.value ? "画面说明检查已暂停" : "生成已停止", failed: "地图册生成失败", completed: "地图册已完成" }[currentRun.value?.status] || "地图册任务"))
 const activePrompt = computed(() => activePage.value ? promptRecords[activePage.value.id] : null)
 const promptSaveLabel = computed(() => promptConflict.value ? "这页已在别处更新，请刷新后再编辑" : promptSaving.value ? "正在保存…" : promptDirty.value ? "有未保存修改" : "已保存")
+const generationSettingsSummary = computed(() => [
+  options.layout === "square" ? "方形" : "横版",
+  options.quality === "fine" ? "精细" : "标准",
+  options.include_working_drafts ? "含工作稿" : "仅正式资料",
+  options.include_interiors ? "含室内图" : "不含室内图",
+].join(" · "))
 const adoptedNodes = computed(() => flattenNodes(atlas.value.nodes || []).map(({ node }) => node))
 const levelChoices = [{ value: "cover", label: "封面" }, { value: "world", label: "世界" }, { value: "region", label: "区域" }, { value: "city", label: "城市" }, { value: "district", label: "城区" }, { value: "street", label: "街道" }, { value: "interior", label: "室内" }]
 const activeDescendantIds = computed(() => {
@@ -782,11 +791,26 @@ onBeforeUnmount(() => { mounted = false; clearTimeout(pollTimer); clearTimeout(p
 </script>
 
 <style scoped>
+.atlas-generation-settings > summary {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  cursor: pointer;
+  font-weight: 700;
+}
+.atlas-generation-settings > summary span {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: 400;
+}
+.atlas-generation-settings[open] > summary { margin-bottom: var(--space-3); }
 .atlas-workspace{display:grid;gap:16px;padding:20px;min-width:0}.atlas-header,.atlas-options,.atlas-run,.atlas-page-header,.atlas-primary-actions,.atlas-run-actions,.atlas-review-actions,.atlas-source{display:flex;align-items:center;gap:12px}.atlas-header{justify-content:space-between}.atlas-header h1,.atlas-page h2{margin:0}.atlas-header p{margin:4px 0;color:var(--text-secondary)}.atlas-eyebrow{font-size:var(--text-xs);font-weight:700;letter-spacing:var(--tracking-caps);text-transform:uppercase}.atlas-primary-actions{align-self:flex-end}.atlas-more{position:relative}.atlas-more[open] button{position:absolute;right:0;top:42px;z-index:4;white-space:nowrap}.atlas-options{align-items:end;flex-wrap:wrap}.atlas-options label{display:grid;gap:6px;font-size:var(--text-sm)}.atlas-options .atlas-style{flex:1 1 280px;min-width:0}.atlas-options details label{display:block;margin-top:8px}.atlas-options summary,.atlas-history>summary,.atlas-evidence>details>summary{display:flex;align-items:center;min-height:28px}.atlas-alert,.atlas-run{justify-content:space-between}.atlas-run{display:grid;grid-template-columns:minmax(220px,1fr) minmax(160px,2fr) auto}.atlas-run div:first-child{display:flex;gap:10px;flex-wrap:wrap}.atlas-run progress{width:100%}.atlas-run p{grid-column:1/-1;margin:0;padding-left:var(--space-2);border-left:1px solid var(--error);color:var(--text-primary)}.atlas-tabs{display:flex;border-bottom:1px solid var(--border)}.atlas-tabs button{min-height:28px;padding:12px 18px;border:0;border-bottom:2px solid transparent;background:none;color:var(--text-secondary);font-size:var(--text-base);font-weight:600}.atlas-tabs button:hover{color:var(--text-body)}.atlas-tabs button.active{border-color:var(--accent);color:var(--text-primary)}.atlas-tabs span{margin-left:6px;color:var(--text-secondary);font-family:var(--font-mono);font-size:var(--text-xs)}.atlas-empty{text-align:center;padding:48px}.atlas-all-rejected{padding:20px}.atlas-browser{display:grid;grid-template-columns:230px minmax(0,1fr);gap:16px;min-width:0}.atlas-tree{display:flex;flex-direction:column;align-self:start;padding:8px;max-height:72vh;overflow:auto}.atlas-tree button{display:flex;align-items:center;gap:7px;width:100%;min-height:28px;padding:9px;border:0;border-radius:var(--radius-md);background:none;color:var(--text-body);text-align:left}.atlas-tree button:hover{background:var(--bg-hover);color:var(--text-primary)}.atlas-tree button.active{background:var(--bg-active);color:var(--text-primary)}.atlas-tree button span{color:var(--text-secondary);font-size:var(--text-xs)}.atlas-tree button small{margin-left:auto;color:var(--text-secondary);font-family:var(--font-mono);font-size:var(--text-xs)}.atlas-page{min-width:0}.atlas-page-header{justify-content:space-between}.atlas-page-header p{margin:0;color:var(--text-secondary);font-size:var(--text-sm)}.atlas-zoom{display:flex;align-items:center;gap:8px}.atlas-images{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}.atlas-images.compare{grid-template-columns:repeat(2,minmax(0,1fr))}.atlas-images figure{min-width:0;margin:0}.atlas-images figcaption{margin:8px 0;color:var(--text-primary);font-size:var(--text-base);font-weight:600}.atlas-image-viewport{display:flex;align-items:center;min-height:220px;overflow:auto;border-radius:var(--radius-lg);background:#20242C;color:#FFFFFF}.atlas-image-canvas{position:relative;flex:0 0 auto;margin-inline:auto;transition:width .15s ease}.atlas-image-canvas img{display:block;width:100%;height:100%;object-fit:contain}.atlas-image-state{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:220px}.atlas-annotation{position:absolute;min-width:28px;min-height:28px;padding:4px 8px;transform:translate(-50%,-50%);border:1px solid var(--bg-base);border-radius:var(--radius-full);background:var(--text-primary);color:var(--bg-base);white-space:nowrap;cursor:pointer;touch-action:manipulation}.atlas-review-actions{margin-top:14px;flex-wrap:wrap}.atlas-charge-warning{flex:1 0 100%;margin:0;padding:10px;border:1px solid var(--warning);border-radius:var(--radius-md);background:var(--warning-soft);color:var(--text-primary)}.atlas-edit{flex:1 1 320px}.atlas-edit textarea{display:block;width:100%;margin:10px 0}.atlas-edit p{color:var(--text-secondary);font-size:var(--text-sm)}.atlas-mask{display:block}.atlas-references{display:grid;gap:7px;margin:10px 0;border:1px solid var(--border);border-radius:var(--radius-md)}.atlas-references label{display:flex;align-items:center;gap:7px}.atlas-evidence{margin-top:20px;padding-top:16px;border-top:1px solid var(--border)}.atlas-evidence-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.atlas-evidence-grid>div{padding:12px;border-radius:var(--radius-md);background:var(--bg-muted)}.atlas-evidence-grid ul{padding-left:20px}.atlas-candidate-note{display:inline-block;margin:6px 0;color:var(--text-secondary);font-size:var(--text-sm)}.atlas-evidence-grid>.atlas-conflicts{border:1px solid var(--warning);background:var(--warning-soft)}.atlas-source{justify-content:space-between;padding:10px 0;border-top:1px solid var(--border)}.atlas-source p{margin:3px 0}.atlas-history-status{font-weight:700}.atlas-error{padding-left:var(--space-2);border-left:1px solid var(--error);color:var(--text-primary);font-weight:600}.atlas-more summary,.atlas-edit summary{list-style:none}.atlas-more summary::-webkit-details-marker,.atlas-edit summary::-webkit-details-marker{display:none}
 .atlas-evidence-grid .atlas-candidate-note{color:var(--text-body)}
 .atlas-evidence-summary{grid-column:1/-1;min-width:0;color:var(--text-secondary)}.atlas-evidence-summary p{color:inherit}
 .atlas-prompt-review{display:grid;gap:14px}.atlas-prompt-review header,.atlas-prompt-review nav,.atlas-prompt-editor>div{display:flex;align-items:center;justify-content:space-between;gap:10px}.atlas-prompt-review nav{justify-content:flex-start;flex-wrap:wrap}.atlas-prompt-review nav .active{color:var(--text-primary);box-shadow:inset 0 -2px 0 var(--accent)}.atlas-prompt-editor{display:grid;gap:12px}.atlas-prompt-editor label,.atlas-upload-modal label,.atlas-node-form label{display:grid;gap:6px;color:var(--text-secondary);font-size:var(--text-sm)}.atlas-prompt-editor textarea{width:100%;resize:vertical}.atlas-prompt-editor fieldset{display:flex;gap:18px}.atlas-upload-modal .modal-header h2{margin:0;font-size:var(--text-lg)}.atlas-upload-modal .modal-body{display:grid;gap:14px}.atlas-upload-modal img{display:block;max-width:100%;max-height:240px;margin:auto}.atlas-upload-modal progress{width:100%}.atlas-node-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:10px}.atlas-node-form button{align-self:end}
 /* 900px is local to the image comparison workspace: two canvases need more room than the global touch breakpoint. */
 @media(max-width:900px){.atlas-workspace{padding:12px}.atlas-header,.atlas-options,.atlas-run{align-items:stretch}.atlas-header{flex-direction:column}.atlas-primary-actions{align-self:stretch}.atlas-browser{grid-template-columns:1fr}.atlas-tree{max-height:180px}.atlas-images.compare,.atlas-evidence-grid{grid-template-columns:1fr}.atlas-run{grid-template-columns:1fr}.atlas-mask{display:none}.atlas-edit p::after{content:" 蒙版与精确标注请在桌面完成。"}.atlas-node-form{grid-template-columns:1fr}.atlas-prompt-review header{align-items:stretch;flex-direction:column}.atlas-prompt-review header button{width:100%}}
-@media(max-width:760px){.atlas-primary-actions,.atlas-run-actions,.atlas-review-actions,.atlas-source{flex-wrap:wrap}.atlas-alert{align-items:stretch;flex-direction:column}.atlas-tabs button{flex:1 1 0;min-width:0;min-height:42px;padding-inline:var(--space-2)}.atlas-tree button,.atlas-annotation{min-height:42px}.atlas-annotation{min-width:42px}.atlas-options summary,.atlas-history>summary,.atlas-evidence>details>summary{min-height:42px}.atlas-page-header{align-items:flex-start;flex-wrap:wrap}.atlas-zoom{max-width:100%}.atlas-zoom input{min-width:0;max-width:100%}.atlas-header>div,.atlas-source>div,.atlas-page-header>div{min-width:0;overflow-wrap:anywhere}.atlas-upload-modal input[type="file"]{max-width:100%}}
+@media(max-width:760px){.atlas-primary-actions,.atlas-run-actions,.atlas-review-actions,.atlas-source{flex-wrap:wrap}.atlas-alert{align-items:stretch;flex-direction:column}.atlas-tabs button{flex:1 1 0;min-width:0;min-height:42px;padding-inline:var(--space-2)}.atlas-tree button,.atlas-annotation{min-height:42px}.atlas-annotation{min-width:42px}.atlas-generation-settings>summary,.atlas-options summary,.atlas-history>summary,.atlas-evidence>details>summary{min-height:42px}.atlas-page-header{align-items:flex-start;flex-wrap:wrap}.atlas-zoom{max-width:100%}.atlas-zoom input{min-width:0;max-width:100%}.atlas-header>div,.atlas-source>div,.atlas-page-header>div{min-width:0;overflow-wrap:anywhere}.atlas-upload-modal input[type="file"]{max-width:100%}}
 </style>
