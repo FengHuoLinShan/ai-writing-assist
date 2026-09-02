@@ -45,7 +45,7 @@ test.describe("项目模块", () => {
     const fileChooserPromise = page.waitForEvent("filechooser")
     await importButton.click()
     const fileChooser = await fileChooserPromise
-    expect(await fileChooser.element().getAttribute("accept")).toBe(".txt,.epub,.html,.htm,.mobi,.azw3")
+    expect(await fileChooser.element().getAttribute("accept")).toBe(".txt,.epub,.html,.htm")
     await expect(page.locator('[data-action="manage-projects"]')).toBeVisible()
     await expect(page.locator('[data-action="recycle-bin"]')).toHaveCount(0)
   })

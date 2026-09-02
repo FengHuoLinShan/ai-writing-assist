@@ -59,9 +59,9 @@ test.describe("导入模块", () => {
     await page.locator(SEL.projectImportToggle).click()
     const filePath = path.join(__dirname, "helpers", "fixtures", "sample-novel.txt")
     await page.locator(SEL.projectImportFile).setInputFiles(filePath)
-    await expect(page.getByLabel(/支持 txt、epub、html、htm、mobi、azw3，最大 50MB/)).toHaveAttribute(
+    await expect(page.getByLabel(/支持 txt、epub、html、htm，最大 50MB/)).toHaveAttribute(
       "accept",
-      ".txt,.epub,.html,.htm,.mobi,.azw3",
+      ".txt,.epub,.html,.htm",
     )
 
     let chooserCount = 0

@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from "vue"
 import WorkflowProgressCard from "../../../components/WorkflowProgressCard.vue"
-import { useImportUpload } from "../../../composables/useImportUpload.js"
+import { IMPORT_FILE_ACCEPT, useImportUpload } from "../../../composables/useImportUpload.js"
 import { getApi, getToast, useStateKey } from "../../../bridge/index.js"
 import {
   importFailureMessage,
@@ -119,12 +119,12 @@ function importAsNewProject() {
     </div>
     <div class="project-import-panel__form">
       <div class="project-import-panel__field">
-        <label class="project-import-panel__label" for="pv-import-file">选择文件（支持 txt、epub、html、htm、mobi、azw3，最大 50MB）</label>
+        <label class="project-import-panel__label" for="pv-import-file">选择文件（支持 txt、epub、html、htm，最大 50MB）</label>
         <input
           type="file"
           id="pv-import-file"
           class="project-import-panel__input"
-          accept=".txt,.epub,.html,.htm,.mobi,.azw3"
+          :accept="IMPORT_FILE_ACCEPT"
           :disabled="!hasProject"
           ref="fileInput"
         />

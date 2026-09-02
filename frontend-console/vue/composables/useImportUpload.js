@@ -7,8 +7,8 @@ import { getCurrentScope, onScopeDispose, ref } from "vue"
 import { getApi, getRouter, getToast } from "../bridge/index.js"
 
 export const MAX_IMPORT_FILE_BYTES = 50 * 1024 * 1024
-export const IMPORT_FILE_ACCEPT = ".txt,.epub,.html,.htm,.mobi,.azw3"
-export const RP_SOURCE_FILE_ACCEPT = ".txt,.epub,.html,.htm"
+export const IMPORT_FILE_ACCEPT = ".txt,.epub,.html,.htm"
+export const RP_SOURCE_FILE_ACCEPT = IMPORT_FILE_ACCEPT
 
 export function validateImportFile(file, accept = IMPORT_FILE_ACCEPT) {
   if (!file) return "请先选择文件"

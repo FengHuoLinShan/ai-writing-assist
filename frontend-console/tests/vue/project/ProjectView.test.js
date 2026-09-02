@@ -172,7 +172,7 @@ describe("渲染状态", () => {
       await wrapper.find('[data-action="toggle-import"]').trigger("click")
 
       expect(chooser?.type).toBe("file")
-      expect(chooser?.accept).toBe(".txt,.epub,.html,.htm,.mobi,.azw3")
+      expect(chooser?.accept).toBe(".txt,.epub,.html,.htm")
     } finally {
       createSpy.mockRestore()
     }

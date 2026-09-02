@@ -69,8 +69,8 @@ describe("ImportDrawer", () => {
     expect(wrapper.text()).not.toContain("暂无导入记录。")
     expect(globalThis.api.imports.list).not.toHaveBeenCalled()
     expect(wrapper.find('label[for="pv-import-file"]').exists()).toBe(true)
-    expect(wrapper.find('label[for="pv-import-file"]').text()).toBe("选择文件（支持 txt、epub、html、htm、mobi、azw3，最大 50MB）")
-    expect(wrapper.find("#pv-import-file").attributes("accept")).toBe(".txt,.epub,.html,.htm,.mobi,.azw3")
+    expect(wrapper.find('label[for="pv-import-file"]').text()).toBe("选择文件（支持 txt、epub、html、htm，最大 50MB）")
+    expect(wrapper.find("#pv-import-file").attributes("accept")).toBe(".txt,.epub,.html,.htm")
   })
 
   it("选择文件后导入为新项目 emit 同一 File", async () => {

@@ -31,9 +31,12 @@ describe("前置校验", () => {
 
     expect(await u.upload(makeFile(1024, "novel.pdf"), "p1")).toBe(false)
     expect(globalThis.toast).toHaveBeenCalledWith(
-      "不支持的文件格式，请选择 txt、epub、html、htm、mobi 或 azw3 文件",
+      "不支持的文件格式，请选择 txt、epub、html 或 htm 文件",
       "error",
     )
+
+    expect(await u.upload(makeFile(1024, "novel.mobi"), "p1")).toBe(false)
+    expect(globalThis.api.imports.uploadFile).not.toHaveBeenCalled()
 
     const big = makeFile()
     Object.defineProperty(big, "size", { value: MAX_IMPORT_FILE_BYTES + 1 })

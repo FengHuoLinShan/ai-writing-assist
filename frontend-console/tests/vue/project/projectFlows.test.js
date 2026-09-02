@@ -739,7 +739,7 @@ describe("项目 modal 流程", () => {
       importAsNewProject()
 
       expect(chooser).not.toBeNull()
-      expect(chooser.accept).toBe(".txt,.epub,.html,.htm,.mobi,.azw3")
+      expect(chooser.accept).toBe(".txt,.epub,.html,.htm")
       expect(chooserClick).toHaveBeenCalledTimes(1)
     } finally {
       createSpy.mockRestore()
@@ -756,7 +756,7 @@ describe("项目 modal 流程", () => {
 
       expect(createSpy).not.toHaveBeenCalled()
       expect(globalThis.toast).toHaveBeenCalledWith(
-        "不支持的文件格式，请选择 txt、epub、html、htm、mobi 或 azw3 文件",
+        "不支持的文件格式，请选择 txt、epub、html 或 htm 文件",
         "error",
       )
       expect(confirmAction).not.toHaveBeenCalled()
@@ -782,7 +782,7 @@ describe("项目 modal 流程", () => {
       Object.defineProperty(fileInput, "files", { configurable: true, value: [new File(["正文"], "错误格式.pdf")] })
       await fileInput.onchange()
       expect(globalThis.toast).toHaveBeenCalledWith(
-        "不支持的文件格式，请选择 txt、epub、html、htm、mobi 或 azw3 文件",
+        "不支持的文件格式，请选择 txt、epub、html 或 htm 文件",
         "error",
       )
       expect(confirmAction).not.toHaveBeenCalled()
