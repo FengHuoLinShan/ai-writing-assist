@@ -13,6 +13,19 @@ from core.errors import ValidationError as DomainValidationError
 from modules.world.services.core.entity_alias_service import EntityAliasService
 
 
+def _alias_sources(entities):
+    return [
+        {
+            "id": entity.id,
+            "name": entity.name,
+            "status": entity.status,
+            "aliases": (entity.content_json or {}).get("aliases"),
+            "owner_meta": (entity.content_json or {}).get("_meta"),
+        }
+        for entity in entities
+    ]
+
+
 @pytest.fixture
 def novel_id() -> str:
     return str(uuid.uuid4())
@@ -189,7 +202,9 @@ async def test_list_aliases_returns_alias_for_entity(
     entity = _make_entity(
         content_json={"aliases": [{"alias": "Art", "type": "nickname"}]},
     )
-    alias_service.repo.list_by_novel = AsyncMock(return_value=[entity])
+    alias_service.repo.list_alias_sources = AsyncMock(
+        return_value=_alias_sources([entity])
+    )
     alias_service.repo.get_by_novel = AsyncMock()
     db = MagicMock()
 
@@ -200,7 +215,7 @@ async def test_list_aliases_returns_alias_for_entity(
     assert aliases[0]["entity_name"] == "Arthur"
     assert aliases[0]["alias"] == "Art"
     assert aliases[0]["alias_type"] == "nickname"
-    alias_service.repo.list_by_novel.assert_awaited_once()
+    alias_service.repo.list_alias_sources.assert_awaited_once()
     alias_service.repo.get_by_novel.assert_not_awaited()
 
 
@@ -222,7 +237,9 @@ async def test_alias_under_archived_entity_is_projected_as_history(
             ]
         },
     )
-    alias_service.repo.list_by_novel = AsyncMock(return_value=[entity])
+    alias_service.repo.list_alias_sources = AsyncMock(
+        return_value=_alias_sources([entity])
+    )
 
     aliases = await alias_service.list_aliases(MagicMock(), novel_id)
 
@@ -242,7 +259,9 @@ async def test_list_aliases_pagination(
         name="Bella",
         content_json={"aliases": ["Bell", "Bells"]},
     )
-    alias_service.repo.list_by_novel = AsyncMock(return_value=[arthur, bella])
+    alias_service.repo.list_alias_sources = AsyncMock(
+        return_value=_alias_sources([arthur, bella])
+    )
     alias_service.repo.get_by_novel = AsyncMock()
     db = MagicMock()
 
@@ -254,7 +273,7 @@ async def test_list_aliases_pagination(
     assert paginated[1]["alias"] == "Bell"
     assert page["total"] == 4
     assert [item["alias"] for item in page["items"]] == ["Athy", "Bell"]
-    assert alias_service.repo.list_by_novel.await_count == 2
+    assert alias_service.repo.list_alias_sources.await_count == 2
     alias_service.repo.get_by_novel.assert_not_awaited()
 
 
@@ -291,7 +310,9 @@ async def test_list_aliases_page_filters_before_pagination(
             ],
         },
     )
-    alias_service.repo.list_by_novel = AsyncMock(return_value=[entity])
+    alias_service.repo.list_alias_sources = AsyncMock(
+        return_value=_alias_sources([entity])
+    )
     db = MagicMock()
 
     page = await alias_service.list_aliases_page(
@@ -328,7 +349,9 @@ async def test_list_aliases_page_filters_legacy_shadow_alias_by_display_state(
             "aliases": [{"alias": "影子称号", "type": "title"}],
         },
     )
-    alias_service.repo.list_by_novel = AsyncMock(return_value=[shadow])
+    alias_service.repo.list_alias_sources = AsyncMock(
+        return_value=_alias_sources([shadow])
+    )
 
     page = await alias_service.list_aliases_page(
         MagicMock(),
@@ -373,13 +396,15 @@ async def test_alias_page_hides_archived_alias_or_owner_before_pagination(
         status="candidate",
         content_json={"aliases": [{"alias": "ignored-on-review", "status": "ignored"}]},
     )
-    alias_service.repo.list_by_novel = AsyncMock(
-        return_value=[
-            active,
-            archived_alias,
-            archived_owner,
-            archived_alias_on_review_owner,
-        ]
+    alias_service.repo.list_alias_sources = AsyncMock(
+        return_value=_alias_sources(
+            [
+                active,
+                archived_alias,
+                archived_owner,
+                archived_alias_on_review_owner,
+            ]
+        )
     )
 
     default_page = await alias_service.list_aliases_page(
@@ -417,8 +442,8 @@ async def test_alias_page_hides_archived_alias_or_owner_before_pagination(
         "old-alias",
     }
     assert ignored_status_page["total"] == 2
-    for call in alias_service.repo.list_by_novel.await_args_list:
-        assert call.kwargs["include_archived"] is True
+    for call in alias_service.repo.list_alias_sources.await_args_list:
+        assert call.args[1] == uuid.UUID(novel_id)
 
 
 @pytest.mark.asyncio
@@ -783,7 +808,9 @@ async def test_list_aliases_handles_string_aliases(
     alias_service: EntityAliasService,
 ) -> None:
     entity = _make_entity(content_json={"aliases": ["Art"]})
-    alias_service.repo.list_by_novel = AsyncMock(return_value=[entity])
+    alias_service.repo.list_alias_sources = AsyncMock(
+        return_value=_alias_sources([entity])
+    )
     alias_service.repo.get_by_novel = AsyncMock()
     db = MagicMock()
 

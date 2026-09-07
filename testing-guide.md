@@ -370,6 +370,20 @@ This does not relax module boundaries: cross-module behavior tests still go thro
    for auth/quota/content/schema/source failures. Frontend tests cover persisted pre-submit receipt, 404
    no-replay recovery and page-local completion without island refresh.
 
+## Optional local performance diagnostics
+
+The [isolated performance runbook](docs/diagnostics/performance.md) covers synthetic
+production-bundle browser measurements, public-auth API/SQL timings, task state,
+and fixed-data memory observation. It is opt-in, uses a dedicated loopback PostgreSQL
+database, and never substitutes mocked providers or small samples for real-model
+latency or reliable p95/p99 claims. Keep performance runs separate from test load.
+The [2026-09-07 baseline report](docs/diagnostics/2026-09-07-performance-baseline.md)
+records results and their limits; this diagnostic does not add a latency CI gate.
+The [alias optimization and input follow-up](docs/diagnostics/2026-09-07-alias-optimization-and-editor-input.md)
+separates real clipboard gestures from automated `fill`, and records native IME as
+unverified. `tests/e2e/test_world_alias_projection.py` checks the shared read path
+with more than 1,000 objects using the explicit PostgreSQL E2E environment and `-m e2e`.
+
 ## Security Tests
 
 - SQL injection search strings

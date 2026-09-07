@@ -394,6 +394,26 @@ class CoreEntityRepository:
             )
         return conditions
 
+    async def list_alias_sources(
+        self, db: AsyncSession, novel_id: uuid.UUID
+    ) -> list[dict[str, Any]]:
+        """Read inline alias evidence, including historical owners, in stable order."""
+        stmt = (
+            select(
+                CoreEntity.id,
+                CoreEntity.name,
+                CoreEntity.status,
+                CoreEntity.content_json["aliases"].label("aliases"),
+                CoreEntity.content_json["_meta"].label("owner_meta"),
+            )
+            .where(CoreEntity.novel_id == novel_id)
+            .order_by(CoreEntity.importance.desc(), CoreEntity.name, CoreEntity.id)
+        )
+        # ponytail: exact totals still enumerate aliases; push filtering/counting
+        # into SQL only if alias-rich projects make this projection insufficient.
+        result = await db.execute(stmt)
+        return [dict(row) for row in result.mappings()]
+
     async def list_by_novel(
         self,
         db: AsyncSession,

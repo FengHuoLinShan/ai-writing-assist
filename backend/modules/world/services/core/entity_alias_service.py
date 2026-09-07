@@ -504,16 +504,16 @@ class EntityAliasService:
 
     async def _collect_aliases(self, db: AsyncSession, novel_id: str) -> list[dict]:
         nid = parse_uuid(novel_id, "novel_id")
-        entities = await self._list_all_entities(db, nid, include_archived=True)
+        entities = await self.repo.list_alias_sources(db, nid)
         result: list[dict] = []
         for entity in entities:
-            aliases = (entity.content_json or {}).get("aliases", [])
-            owner_meta = dict((entity.content_json or {}).get("_meta") or {})
+            aliases = entity["aliases"] or []
+            owner_meta = dict(entity["owner_meta"] or {})
             for alias_item in aliases:
                 alias_text, alias_type = self._normalize_alias_item(alias_item)
                 response = {
-                    "entity_id": str(entity.id),
-                    "entity_name": entity.name,
+                    "entity_id": str(entity["id"]),
+                    "entity_name": entity["name"],
                     "alias": alias_text,
                     "alias_type": alias_type,
                     "alias_kind": self._stored_alias_kind(alias_item),
@@ -557,7 +557,7 @@ class EntityAliasService:
                     if isinstance(alias_item, dict)
                     else [],
                     "execution_fingerprint": self._alias_execution_fingerprint(
-                        entity.id, alias_item
+                        entity["id"], alias_item
                     ),
                     "managed_by_suggestion": bool(
                         owner_meta.get("compatibility_shadow")
@@ -582,7 +582,7 @@ class EntityAliasService:
                             source=response["source"],
                             needs_review=response["needs_review"],
                             confidence=response["confidence"],
-                            owner_status=entity.status,
+                            owner_status=entity["status"],
                         ),
                     }
                 )

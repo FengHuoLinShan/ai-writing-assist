@@ -78,6 +78,10 @@ owner 与 `novel_id` 双门禁内只接受真实 PNG/JPEG（严格小于 6MiB、
 再做默认历史排除和分页，因此 `items` / `total` 使用同一条件；
 显式 `display_state=archived` 或原始 `status` 筛选仍可审计历史。
 
+三个别名只读入口（列表、分页、审核分组）共用一次按项目过滤的轻量投影，仅读取对象身份、
+名称、状态和内联 aliases / `_meta`，沿用 importance / name / id 顺序；筛选、指纹和完整计数仍由
+同一别名服务处理。工作流回滚继续使用完整对象扫描和加锁，不能复用只读投影替代写入快照。
+
 手动 `DELETE /api/world/entities/{entity_id}` 是专用软废弃流程：主状态
 转为 `deprecated` 前写入 `manual_delete` 修订快照，之后以
 `entity_deprecated` 标记 context 失效。修订和 context 标记均是带独立

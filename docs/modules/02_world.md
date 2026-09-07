@@ -50,6 +50,7 @@ imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用�
 - `link_to_existing` / `alias_of_existing` 待处理项可设为已有对象别名，源兼容对象标记 `status="merged"` 并记录 `resolved_as="alias"`，不硬删除、不采用为独立对象
 - 世界对象 UI 的“需要决定”按对象 / 别名 / 关系三个队列聚合；已采用 Page/工作稿/CoreEntity 在 `world/bible` 资料库共用 tagged Card 投影，只暴露“资料库、关系、需要决定”子导航。Entity 详情与别名在资料库内打开，旧 `objects/aliases` 保留深链解析和批量兼容工具；历史默认隐藏。正式关系和别名仍可修改两层类型并移动端点/所属对象
 - 正式关系和别名列表提供就地 `q` 搜索并把搜索词、分页写入前端 URL；关系按端点名称、精确类型、描述或引用匹配，别名按别名、所属对象或引用匹配，刷新、前进/后退与项目切换继续以当前项目 `novel_id` 为边界
+- 别名列表、分页和审核分组共用按 `novel_id` 过滤的一次轻量读取，仅投影对象 id/name/status 与内联 aliases / `_meta`，沿用 `importance DESC → name → id` 顺序。状态、筛选、执行指纹和完整 total 仍由同一别名服务计算，不按对象批次截断；工作流回滚继续使用完整对象扫描及锁定快照。
 - 待处理关系可在采用前编辑源对象、目标对象、关系分类、精确类型、描述和强度；`relation_kind` 只取 `state/social/spatial/causal/temporal/epistemic/intentional`，`relation_type` 原样保留，来源章节、引用等证据只读，人工审计写入 `entity_relations.review_meta`
 - 待处理关系按有向对象对分组，别名按 owner 对象分组；Scene 不是关系归并边界，反向关系不自动归并
 - 复核类型目录 v2 同时返回最小分类定义，以及每个推荐详细类型的 `default_kind`；显式合法 kind 优先，只在 kind 缺失时按已知详细类型推导。自定义候选可暂缺 kind，忽略不要求补值，但采用为 canonical/active 前必须由作者选择

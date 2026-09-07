@@ -56,6 +56,9 @@ ORM 位于 `backend/modules/world/map_atlas_models.py`。
 `purpose=map_atlas` 补充已确认/已发布资料。工作稿只在作者打开开关时通过既有 seam 加入；
 候选对象始终排除。
 
+作者别名列表/审核使用的轻量读取不是地图素材接口；地图继续通过上述 World/Evidence seam
+获取已确认来源，不以列表计数或别名投影替代完整 Context、来源 hash 和 manifest。
+
 空间补充至多核对 20 个已采用地点、每批 5 个；正式页面只使用 `free_text` 与
 `projection_policy=eligible` 的 section，工作稿仅在明确开启后以 working 来源进入。每地点
 Wiki 与 RAG 合计最多 8000 字，每批最多 40000 字；抽取前释放事务，来源与 hash 进入 run/page manifest。
