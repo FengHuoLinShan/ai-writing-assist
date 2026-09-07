@@ -144,4 +144,4 @@ npm run test:e2e:functional -- e2e/generate.spec.js     # 功能契约（tab 导
 npm run test                                 # vitest 单测（含 editorialTheme/typographyTokens 契约，样式迁移后必跑）
 ```
 
-task 页已有 sticky／night／ink 三主题桌面快照及 night 手机快照；world composer 另有 sticky 桌面、night 手机与 sticky 矮窗口快照；pov 有 sticky 桌面与 night 390px 手机快照；AI 参考资料审阅另有 sticky 桌面与 night 390px 手机快照。均位于 `e2e/visual-generate.spec.js-snapshots/`。使用 `npm run test:e2e:visual -- e2e/visual-generate.spec.js` 校验，需要确认视觉变化时才加 `--update-snapshots`。
+task 页已有 light／dark 浅／深色桌面快照及 深色手机快照；world composer 另有 浅色桌面、深色手机与 浅色矮窗口快照；pov 有 浅色桌面与 深色 390px 手机快照；AI 参考资料审阅另有 浅色桌面与 深色 390px 手机快照。均位于 `e2e/visual-generate.spec.js-snapshots/`。使用 `npm run test:e2e:visual -- e2e/visual-generate.spec.js` 校验，需要确认视觉变化时才加 `--update-snapshots`。

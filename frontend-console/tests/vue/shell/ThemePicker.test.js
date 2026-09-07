@@ -9,7 +9,7 @@ afterEach(() => {
   document.body.innerHTML = ""
 })
 
-function mountPicker(modelValue = "sticky") {
+function mountPicker(modelValue = "light") {
   return mount(ThemePicker, {
     attachTo: document.body,
     props: { modelValue },
@@ -22,7 +22,7 @@ function dots(wrapper) {
 
 describe("ThemePicker", () => {
   it("renders one labelled radio dot per theme inside a radiogroup", () => {
-    const wrapper = mountPicker("night")
+    const wrapper = mountPicker("dark")
     const group = wrapper.get(".topbar-theme")
     expect(group.attributes("role")).toBe("radiogroup")
     expect(group.attributes("aria-label")).toBe("主题")
@@ -46,38 +46,38 @@ describe("ThemePicker", () => {
   })
 
   it("emits update:modelValue when a dot is clicked", async () => {
-    const wrapper = mountPicker("sticky")
+    const wrapper = mountPicker("light")
     await dots(wrapper)[2].trigger("click")
-    expect(wrapper.emitted("update:modelValue")).toEqual([["ink"]])
+    expect(wrapper.emitted("update:modelValue")).toEqual([["system"]])
   })
 
   it("moves selection and focus with arrow keys, wrapping at both ends", async () => {
-    const wrapper = mountPicker("sticky")
+    const wrapper = mountPicker("light")
     const items = dots(wrapper)
 
     await items[0].trigger("keydown", { key: "ArrowRight" })
-    expect(wrapper.emitted("update:modelValue")).toEqual([["night"]])
+    expect(wrapper.emitted("update:modelValue")).toEqual([["dark"]])
     await Promise.resolve()
     expect(document.activeElement).toBe(items[1].element)
 
     await items[1].trigger("keydown", { key: "ArrowLeft" })
-    expect(wrapper.emitted("update:modelValue")).toEqual([["night"], ["sticky"]])
+    expect(wrapper.emitted("update:modelValue")).toEqual([["dark"], ["light"]])
     await Promise.resolve()
     expect(document.activeElement).toBe(items[0].element)
 
     await items[0].trigger("keydown", { key: "ArrowUp" })
-    expect(wrapper.emitted("update:modelValue")).toEqual([["night"], ["sticky"], ["ink"]])
+    expect(wrapper.emitted("update:modelValue")).toEqual([["dark"], ["light"], ["system"]])
     await Promise.resolve()
     expect(document.activeElement).toBe(items[2].element)
 
     await items[2].trigger("keydown", { key: "ArrowDown" })
-    expect(wrapper.emitted("update:modelValue")).toEqual([["night"], ["sticky"], ["ink"], ["sticky"]])
+    expect(wrapper.emitted("update:modelValue")).toEqual([["dark"], ["light"], ["system"], ["light"]])
     await Promise.resolve()
     expect(document.activeElement).toBe(items[0].element)
   })
 
   it("keeps dot keydowns out of document shortcuts without preventing native activation", () => {
-    const wrapper = mountPicker("sticky")
+    const wrapper = mountPicker("light")
     const documentKeydown = vi.fn()
     document.addEventListener("keydown", documentKeydown)
     try {

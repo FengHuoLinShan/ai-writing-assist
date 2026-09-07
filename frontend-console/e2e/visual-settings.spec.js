@@ -15,7 +15,7 @@
 import { test, expect, request } from "./fixtures.js"
 import { API_BASE, waitForBackend } from "./helpers/api-client.js"
 
-const THEMES = ["sticky", "night", "ink"]
+const THEMES = ["light", "dark"]
 
 const xhrHeaders = { "X-Requested-With": "XMLHttpRequest" }
 
@@ -23,6 +23,8 @@ async function applyTheme(page, theme) {
   await page.locator(`.theme-dot[data-theme-value="${theme}"]`).click()
   await expect(page.locator("html")).toHaveAttribute("data-theme", theme)
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  // Allow the compositor to finish the 250ms theme change before a full-page capture.
+  await page.waitForTimeout(300)
 }
 
 async function screenshotSettingsPage(page, name) {
@@ -75,7 +77,7 @@ test.describe("settings 视觉基线", () => {
     await page.goto("/")
   })
 
-  test("账户设置页 × 三主题", async ({ page }) => {
+  test("账户设置页 × 浅／深色", async ({ page }) => {
     await page.goto("/#settings")
     // hash-only goto 在 SPA 中偶发不触发重新渲染，reload 强制 initRouter 按 URL hash 渲染（确定性）
     await page.reload()
@@ -87,7 +89,7 @@ test.describe("settings 视觉基线", () => {
     }
   })
 
-  test("项目设置页 × 三主题 + 两个 Tab", async ({ page, projectFactory }) => {
+  test("项目设置页 × 浅／深色 + 两个 Tab", async ({ page, projectFactory }) => {
     const proj = await projectFactory({ title: "视觉基线项目", language: "zh" })
     await page.goto(`/#workbench/${proj.id}/project-settings`)
     await expect(page.locator("#workspace-content").getByRole("heading", { name: "当前作品设置" })).toBeVisible({ timeout: 10000 })
@@ -97,7 +99,7 @@ test.describe("settings 视觉基线", () => {
       await screenshotSettingsPage(page, `settings-project-${theme}.png`)
     }
 
-    await applyTheme(page, "sticky")
+    await applyTheme(page, "light")
     await page.getByRole("tab", { name: "高级导入" }).click()
     await page.getByRole("button", { name: "查看专家参数" }).click()
     await expect(page.locator("#deep-import-phase0-target-input-chars")).toHaveValue("72000")
@@ -117,7 +119,7 @@ test.describe("settings 视觉基线", () => {
       await page.reload()
       await expect(page.getByRole("heading", { name: "账户设置" })).toBeVisible({ timeout: 10000 })
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-      await screenshotSettingsPage(page, "settings-global-mobile-sticky.png")
+      await screenshotSettingsPage(page, "settings-global-mobile-light.png")
 
       const proj = await projectFactory({ title: "窄屏设置项目", language: "zh" })
       await page.goto(`/#workbench/${proj.id}/project-settings`)
@@ -138,7 +140,7 @@ test.describe("settings 视觉基线", () => {
       for (const button of await page.locator(".settings-shell button:visible").all()) {
         expect((await button.boundingBox())?.height || 0).toBeGreaterThanOrEqual(42)
       }
-      await screenshotSettingsPage(page, "settings-project-mobile-sticky.png")
+      await screenshotSettingsPage(page, "settings-project-mobile-light.png")
 
       await page.getByRole("tab", { name: "高级导入" }).click()
       const expert = page.getByRole("button", { name: "查看专家参数" })
@@ -146,7 +148,7 @@ test.describe("settings 视觉基线", () => {
       await expect(page.getByRole("button", { name: /怎样切分场景/ })).toBeHidden()
       expect((await expert.boundingBox())?.height || 0).toBeGreaterThanOrEqual(42)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-      await screenshotSettingsPage(page, "settings-project-deep-mobile-sticky.png")
+      await screenshotSettingsPage(page, "settings-project-deep-mobile-light.png")
     })
   })
 })

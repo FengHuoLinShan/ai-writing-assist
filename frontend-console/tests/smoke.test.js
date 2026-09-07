@@ -63,10 +63,10 @@ describe("application bootstrap", () => {
     api.auth = {
       config: vi.fn(() => new Promise((resolve) => { releaseConfig = resolve })),
     }
-    localStorage.setItem("nc-theme", "night")
+    localStorage.setItem("nc-theme", "dark")
 
     const boot = App.init()
-    expect(document.documentElement.getAttribute("data-theme")).toBe("night")
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark")
 
     releaseConfig({ auth_mode: "local", wechat_enabled: false })
     await boot

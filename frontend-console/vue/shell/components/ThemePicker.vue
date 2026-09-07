@@ -15,7 +15,7 @@
       :tabindex="modelValue === item.value ? 0 : -1"
       @click="select(item.value)"
       @keydown="onKeydown($event, item.value)"
-    ></button>
+    ><span>{{ item.label }}</span></button>
   </div>
 </template>
 
@@ -48,6 +48,10 @@ function onKeydown(event, value) {
     nextIndex = (currentIndex + 1) % SHELL_THEMES.length
   } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
     nextIndex = (currentIndex - 1 + SHELL_THEMES.length) % SHELL_THEMES.length
+  } else if (event.key === "Home") {
+    nextIndex = 0
+  } else if (event.key === "End") {
+    nextIndex = SHELL_THEMES.length - 1
   } else {
     return
   }

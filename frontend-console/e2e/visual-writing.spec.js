@@ -4,7 +4,7 @@
  * 确定性保障：
  * - 每个场景使用独立项目和固定章节 / Scene 数据；
  * - 页面不展示 API id，截图前等待主题切换 toast 自然退出；
- * - 桌面覆盖三主题，专注模式覆盖桌面与 390px 退出路径，移动端固定 390×844；
+ * - 桌面覆盖浅／深色，专注模式覆盖桌面与 390px 退出路径，移动端固定 390×844；
  * - 基线仅提交 darwin 平台，其他平台可显式生成本地快照。
  */
 import { test, expect } from "./fixtures.js"
@@ -12,7 +12,7 @@ import { createDraft, createScene, waitForBackend } from "./helpers/api-client.j
 import { SEL } from "./helpers/selectors.js"
 import { openWorkbench, openWritingAiDrawer, waitWritingReady } from "./helpers/workbench.js"
 
-const THEMES = ["sticky", "night", "ink"]
+const THEMES = ["light", "dark"]
 
 async function applyTheme(page, theme) {
   await page.locator(SEL.themeOption(theme)).click()
@@ -87,7 +87,7 @@ test.describe("writing 视觉基线", () => {
     await page.addInitScript(() => localStorage.clear())
   })
 
-  test("should preserve the populated writing desk across three themes", async ({ page, projectFactory }) => {
+  test("should preserve the populated writing desk across light and dark modes", async ({ page, projectFactory }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     const project = await projectFactory({ title: "视觉基线写作台", genre: "fantasy", language: "zh" })
     await seedWritingDesk(project.id)
@@ -107,18 +107,18 @@ test.describe("writing 视觉基线", () => {
     const project = await projectFactory({ title: "视觉基线写作建议", genre: "fantasy", language: "zh" })
     await seedWritingDesk(project.id)
     await openPopulatedDesk(page, project)
-    await applyTheme(page, "sticky")
+    await applyTheme(page, "light")
 
     await openWritingAiDrawer(page)
     const drawer = page.locator("[data-owner-ai-drawer]")
     await expect(drawer).toBeVisible()
     await expect(drawer.locator('[data-action="owner-writing-generation"]')).toHaveAttribute("aria-selected", "true")
-    await screenshotPage(page, "owner-ai-writing-advice-desktop-sticky.png")
+    await screenshotPage(page, "owner-ai-writing-advice-desktop-light.png")
 
     await page.setViewportSize({ width: 375, height: 812 })
-    await applyTheme(page, "night")
+    await applyTheme(page, "dark")
     await expect(drawer.locator('[data-action="owner-writing-continuation"]')).toBeInViewport()
-    await screenshotPage(page, "owner-ai-writing-advice-mobile-night.png")
+    await screenshotPage(page, "owner-ai-writing-advice-mobile-dark.png")
     expect(browserErrors, `浏览器错误: ${JSON.stringify(browserErrors)}`).toHaveLength(0)
   })
 
@@ -127,24 +127,24 @@ test.describe("writing 视觉基线", () => {
     const project = await projectFactory({ title: "视觉基线写作视图菜单", genre: "fantasy", language: "zh" })
     await seedWritingDesk(project.id)
     await openPopulatedDesk(page, project)
-    await applyTheme(page, "sticky")
+    await applyTheme(page, "light")
 
     const menu = page.locator("details.writing-page-menu")
     await menu.locator(":scope > summary").click()
     await expect(menu.locator(".writing-page-menu__body")).toBeVisible()
-    await screenshotPage(page, "writing-view-menu-desktop-sticky.png")
+    await screenshotPage(page, "writing-view-menu-desktop-light.png")
 
-    await applyTheme(page, "night")
+    await applyTheme(page, "dark")
     await menu.locator(":scope > summary").click()
     await expect(menu.locator(".writing-page-menu__body")).toBeVisible()
-    await screenshotPage(page, "writing-view-menu-desktop-night.png")
+    await screenshotPage(page, "writing-view-menu-desktop-dark.png")
 
-    await applyTheme(page, "sticky")
+    await applyTheme(page, "light")
     await menu.locator(":scope > summary").click()
     await page.setViewportSize({ width: 390, height: 844 })
     await expect(menu.locator(".writing-page-menu__body")).toBeInViewport()
     expect(await page.evaluate(() => Math.ceil(document.documentElement.scrollWidth - window.innerWidth))).toBeLessThanOrEqual(2)
-    await screenshotPage(page, "writing-view-menu-mobile-sticky.png")
+    await screenshotPage(page, "writing-view-menu-mobile-light.png")
 
     for (const viewport of [{ width: 375, height: 667 }, { width: 760, height: 430 }]) {
       await page.setViewportSize(viewport)
@@ -163,7 +163,7 @@ test.describe("writing 视觉基线", () => {
     const project = await projectFactory({ title: "视觉基线专注写作", genre: "fantasy", language: "zh" })
     await seedWritingDesk(project.id)
     await openPopulatedDesk(page, project)
-    await applyTheme(page, "sticky")
+    await applyTheme(page, "light")
 
     await page.locator(".writing-statusbar__focus").click()
     await expect(page.locator("body")).toHaveClass(/focus-mode-active/)
@@ -174,13 +174,13 @@ test.describe("writing 视觉基线", () => {
     await expect(page.locator(SEL.writingTreeRail)).toBeHidden()
     await expect(page.locator(SEL.writingPanelRail)).toBeHidden()
     await expect(page.locator(SEL.writingEditor)).toBeVisible()
-    await screenshotPage(page, "writing-focus-sticky.png")
+    await screenshotPage(page, "writing-focus-light.png")
 
     await page.setViewportSize({ width: 390, height: 844 })
     await expect(page.locator(SEL.mobileQuickNote)).toBeVisible()
     await expect(page.locator("#writing-focus-exit")).toBeInViewport()
     await expect(page.locator(SEL.mobileNoteEditor)).toBeFocused()
-    await screenshotPage(page, "writing-focus-mobile-sticky.png")
+    await screenshotPage(page, "writing-focus-mobile-light.png")
   })
 
   test("should preserve version history on desktop and mobile", async ({ page, projectFactory, browserErrors }) => {
@@ -194,28 +194,28 @@ test.describe("writing 视觉基线", () => {
       "潮声退到石阶之外，露出一道从未被记载的门。\n\n林舟把旧航海图压在灯下，决定在退潮前再校对一次刻痕。",
     )
     await openPopulatedDesk(page, project)
-    await applyTheme(page, "sticky")
+    await applyTheme(page, "light")
 
     await page.getByRole("button", { name: "版本历史", exact: true }).click()
     const dialog = page.getByRole("dialog", { name: "版本历史" })
     await expect(dialog).toBeVisible()
     await expect(dialog.locator(".writing-version-history-item")).toHaveCount(2)
-    await screenshotPage(page, "writing-version-history-desktop-sticky.png")
+    await screenshotPage(page, "writing-version-history-desktop-light.png")
 
     await dialog.getByRole("button", { name: "关闭" }).click()
-    await applyTheme(page, "night")
+    await applyTheme(page, "dark")
     await page.getByRole("button", { name: "版本历史", exact: true }).click()
-    await screenshotPage(page, "writing-version-history-desktop-night.png")
+    await screenshotPage(page, "writing-version-history-desktop-dark.png")
 
     await dialog.getByRole("button", { name: "关闭" }).click()
-    await applyTheme(page, "sticky")
+    await applyTheme(page, "light")
     await page.getByRole("button", { name: "版本历史", exact: true }).click()
 
     await page.setViewportSize({ width: 390, height: 844 })
     await expect(dialog).toBeInViewport()
     await expect(dialog.getByRole("button", { name: "关闭" })).toBeInViewport()
     expect(await page.evaluate(() => Math.ceil(document.documentElement.scrollWidth - window.innerWidth))).toBeLessThanOrEqual(2)
-    await screenshotPage(page, "writing-version-history-mobile-sticky.png")
+    await screenshotPage(page, "writing-version-history-mobile-light.png")
 
     for (const viewport of [{ width: 375, height: 667 }, { width: 760, height: 430 }]) {
       await page.setViewportSize(viewport)
@@ -228,7 +228,7 @@ test.describe("writing 视觉基线", () => {
     const moreButton = oldVersion.getByRole("button", { name: /版本 v\d+ 的更多操作/ })
     await moreButton.click()
     await expect(oldVersion.getByRole("menuitem", { name: "移入历史" })).toBeInViewport()
-    await screenshotPage(page, "writing-version-history-menu-mobile-sticky.png")
+    await screenshotPage(page, "writing-version-history-menu-mobile-light.png")
     await page.keyboard.press("Escape")
     await expect(moreButton).toBeFocused()
 
@@ -237,17 +237,19 @@ test.describe("writing 视觉基线", () => {
     await expect(diff).toBeFocused()
     await expect(diff.locator("[data-side='版本 A']").first()).toBeVisible()
     await expect(diff.locator("[data-side='版本 B']").first()).toBeVisible()
-    await screenshotPage(page, "writing-version-diff-mobile-sticky.png")
+    await screenshotPage(page, "writing-version-diff-mobile-light.png")
     expect(browserErrors).toEqual([])
   })
 
-  test("should preserve the 390px mobile quick note", async ({ page, projectFactory }) => {
+  test("should preserve the 390px mobile editor", async ({ page, projectFactory }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     const project = await projectFactory({ title: "视觉基线移动速记", genre: "fantasy", language: "zh" })
     await seedWritingDesk(project.id)
     await openWorkbench(page, project, "writing")
     await waitWritingReady(page)
 
+    const chapterOpener = page.getByRole("button", { name: "章节", exact: true })
+    if (await chapterOpener.isVisible() && await chapterOpener.getAttribute("aria-expanded") === "false") await chapterOpener.click()
     const chapterRail = page.locator(SEL.writingTreeRail)
     if (await chapterRail.evaluate((element) => element.classList.contains("is-collapsed"))) {
       await page.getByLabel("展开章节").click()
@@ -255,9 +257,9 @@ test.describe("writing 视觉基线", () => {
     await page.getByRole("button", { name: /^打开第 1 章/ }).click()
     await expect(page.locator(SEL.mobileQuickNote)).toBeVisible()
     await expect(page.locator(SEL.mobileNoteEditor)).toHaveValue(/潮声退到石阶之外/)
-    await expect(page.locator(".mobile-note-actions")).toBeInViewport()
-    await applyTheme(page, "sticky")
-    await screenshotPage(page, "writing-mobile-390-sticky.png")
+    await expect(page.locator("#writing-editor")).toBeInViewport()
+    await applyTheme(page, "light")
+    await screenshotPage(page, "writing-mobile-390-light.png")
   })
 
   test("should preserve the 390px complete editor", async ({ page, projectFactory }) => {
@@ -265,19 +267,20 @@ test.describe("writing 视觉基线", () => {
     const project = await projectFactory({ title: "视觉基线移动完整编辑", genre: "fantasy", language: "zh" })
     await seedWritingDesk(project.id)
     await openWorkbench(page, project, "writing")
-    await waitWritingReady(page)
+    await waitWritingReady(page, { chapter: 1 })
 
     await page.getByRole("button", { name: /^打开第 1 章/ }).click()
-    await page.getByRole("button", { name: "打开完整编辑器，可编辑标题、版本与检查" }).click()
+    await page.getByRole("button", { name: "本章资料", exact: true }).click()
+    await page.keyboard.press("Escape")
     await expect(page.locator(SEL.writingEditor)).toBeVisible()
-    await expect(page.locator(SEL.writingTreeRail)).toHaveClass(/is-collapsed/)
-    await expect(page.getByRole("button", { name: "返回速记" })).toBeInViewport()
-    const returnBox = await page.getByRole("button", { name: "返回速记" }).boundingBox()
+    await expect(page.locator(SEL.writingTreeRail)).toBeHidden()
+    await expect(page.getByRole("button", { name: "本章资料", exact: true })).toBeInViewport()
+    const returnBox = await page.getByRole("button", { name: "本章资料", exact: true }).boundingBox()
     expect(returnBox).not.toBeNull()
     expect(returnBox.height).toBeGreaterThanOrEqual(44)
     expect(await page.evaluate(() => Math.ceil(document.documentElement.scrollWidth - window.innerWidth))).toBeLessThanOrEqual(2)
-    await applyTheme(page, "sticky")
-    await screenshotPage(page, "writing-mobile-complete-editor-sticky.png")
+    await applyTheme(page, "light")
+    await screenshotPage(page, "writing-mobile-complete-editor-light.png")
   })
 
   test("should keep candidate decisions ahead of read-only prose", async ({ page, projectFactory }) => {
@@ -333,20 +336,20 @@ test.describe("writing 视觉基线", () => {
     await expect(panel).toBeFocused()
     await expect(panel).toBeInViewport()
     await expect(panel.getByRole("button", { name: "与当前工作稿比较" })).toBeVisible()
-    await applyTheme(page, "sticky")
-    await screenshotPage(page, "writing-candidate-review-desktop-sticky.png")
+    await applyTheme(page, "light")
+    await screenshotPage(page, "writing-candidate-review-desktop-light.png")
 
     await page.setViewportSize({ width: 390, height: 844 })
-    await expect(page.locator(".writing-tree-rail")).toHaveClass(/is-collapsed/)
+    await expect(page.locator(".writing-tree-rail")).toBeHidden()
     await expect(page.locator(".writing-statusbar")).toBeHidden()
     await expect(panel).toBeInViewport()
     await expect(page.locator(".writing-candidate-review-actions .btn").last()).toBeInViewport()
-    await screenshotPage(page, "writing-candidate-review-mobile-sticky.png")
+    await screenshotPage(page, "writing-candidate-review-mobile-light.png")
 
     await panel.getByRole("button", { name: "与当前工作稿比较" }).click()
     const comparison = page.getByRole("dialog", { name: "版本历史" })
     await expect(comparison.locator(".writing-version-diff")).toBeFocused()
-    await screenshotPage(page, "writing-candidate-compare-mobile-sticky.png")
+    await screenshotPage(page, "writing-candidate-compare-mobile-light.png")
   })
 
   test("should keep save recovery visible on desktop and mobile", async ({ page, projectFactory }) => {
@@ -354,7 +357,7 @@ test.describe("writing 视觉基线", () => {
     const project = await projectFactory({ title: "视觉基线保存恢复", genre: "fantasy", language: "zh" })
     await seedWritingDesk(project.id)
     await openPopulatedDesk(page, project)
-    await applyTheme(page, "sticky")
+    await applyTheme(page, "light")
     await page.route("**/api/writing/drafts/**", async (route) => {
       if (route.request().method() !== "PUT") return route.continue()
       await route.fulfill({
@@ -368,12 +371,12 @@ test.describe("writing 视觉基线", () => {
     await page.getByRole("button", { name: /^打开第 2 章/ }).click()
     await expect(page.locator("#writing-retry-save")).toBeVisible()
     await page.addStyleTag({ content: "#toast-container { display: none !important; }" })
-    await screenshotPage(page, "writing-save-recovery-desktop-sticky.png", { waitForToasts: false })
+    await screenshotPage(page, "writing-save-recovery-desktop-light.png", { waitForToasts: false })
 
     await page.setViewportSize({ width: 390, height: 844 })
-    const mobileRecovery = page.locator(".mobile-quick-note .writing-save-recovery")
+    const mobileRecovery = page.locator(".writing-editor-shell .writing-save-recovery")
     await expect(mobileRecovery).toBeVisible()
     await expect(mobileRecovery.getByRole("button", { name: "重试保存" })).toBeInViewport()
-    await screenshotPage(page, "writing-save-recovery-mobile-sticky.png", { waitForToasts: false })
+    await screenshotPage(page, "writing-save-recovery-mobile-light.png", { waitForToasts: false })
   })
 })

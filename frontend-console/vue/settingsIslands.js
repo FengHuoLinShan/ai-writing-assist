@@ -10,6 +10,7 @@ import { mountIsland } from "./mountIsland.js"
 import SettingsShellView from "./views/settings/SettingsShellView.vue"
 import {
   getApi,
+  getRouteQuery,
   getAppState,
   getRouter,
   getToast,
@@ -18,6 +19,7 @@ import {
 
 async function loadGlobalSettings() {
   const state = getAppState()
+  if (getRouteQuery().get("section") === "appearance") return { scope: "account", currentProjectId: state?.currentProjectId || null, currentProjectTitle: state?.currentProject?.title || "" }
   const api = getApi()
   const [connections, balances, prefs] = await Promise.allSettled([
     api.settings.listLLMConnections(),

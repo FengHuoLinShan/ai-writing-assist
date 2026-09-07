@@ -287,7 +287,7 @@ test.describe("RP 路由与窄屏故事页", () => {
   })
 
   test("双入口进入 RP 列表并打开当前旅程", async ({ page, browserErrors }) => {
-    await page.addInitScript(() => localStorage.setItem("nc-theme", "sticky"))
+    await page.addInitScript(() => localStorage.setItem("nc-theme", "light"))
     await mockRpApis(page)
     await page.goto("/")
     await page.getByRole("button", { name: /进入互动故事/ }).click()
@@ -333,17 +333,16 @@ test.describe("RP 路由与窄屏故事页", () => {
     expect(readingWidth).toBeGreaterThanOrEqual(638)
     expect(readingWidth).toBeLessThanOrEqual(642)
 
+    await page.emulateMedia({ colorScheme: "light" })
     for (const theme of [
-      { value: "sticky", label: /晨光便签/ },
-      { value: "night", label: /暗夜书房/ },
-      { value: "ink", label: /水墨写意/ },
+      { value: "light", label: /浅色/ },
+      { value: "dark", label: /深色/ },
+      { value: "light", label: /跟随系统/ },
     ]) {
-      if (theme.value !== "sticky") {
-        await page.locator(".rp-more-menu summary").click()
-        await page.locator(".rp-more-menu__themes")
-          .getByRole("menuitemradio", { name: theme.label })
-          .click()
-      }
+      await page.locator(".rp-more-menu summary").click()
+      await page.locator(".rp-more-menu__themes")
+        .getByRole("menuitemradio", { name: theme.label })
+        .click()
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme.value)
       const metrics = await textContrast(messageActions.nth(0))
       expect(metrics.opacity).toBe(1)
@@ -456,7 +455,7 @@ test.describe("RP 路由与窄屏故事页", () => {
     await page.goto(`/#interaction/${journeyId}`)
     await page.locator(".rp-more-menu summary").click()
     await page.getByRole("menu", { name: "选择阅读主题" })
-      .getByRole("menuitemradio", { name: /暗夜书房/ })
+      .getByRole("menuitemradio", { name: /深色/ })
       .click()
 
     const retry = page.locator(".rp-attempt-actions--error .rp-mutation-button--retry")
@@ -528,7 +527,7 @@ test.describe("RP 路由与窄屏故事页", () => {
     expect(menuBox).not.toBeNull()
     expect(Math.abs((menuBox.y + menuBox.height) - 844)).toBeLessThanOrEqual(2)
     await expect(page.locator(".rp-sheet-backdrop")).toBeVisible()
-    await expect(page.locator(".rp-more-menu__themes")).toContainText("暗夜书房")
+    await expect(page.locator(".rp-more-menu__themes")).toContainText("深色")
     await page.locator(".rp-more-menu__header")
       .getByRole("button", { name: "关闭更多操作", exact: true })
       .click()
@@ -537,9 +536,9 @@ test.describe("RP 路由与窄屏故事页", () => {
     await page.locator(".rp-more-menu summary").click()
     await page.locator(".rp-more-menu__themes").getByRole(
       "menuitemradio",
-      { name: /暗夜书房/ },
+      { name: /深色/ },
     ).click()
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "night")
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
     await expect(page.locator(".rp-more-menu")).not.toHaveAttribute("open", "")
 
     const overflow = await page.evaluate(() => (
@@ -566,7 +565,7 @@ test.describe("RP 路由与窄屏故事页", () => {
     await expect(confirm).toBeDisabled()
     await dialog.locator("input").fill("雾港钟楼")
     await expect(confirm).toBeEnabled()
-    for (const theme of ["sticky", "night", "ink"]) {
+    for (const theme of ["light", "dark"]) {
       await page.locator("html").evaluate((element, value) => {
         element.setAttribute("data-theme", value)
       }, theme)
@@ -627,7 +626,7 @@ test.describe("RP 路由与窄屏故事页", () => {
     })
     await page.goto(`/#interaction/${journeyId}`)
 
-    for (const theme of ["sticky", "night", "ink"]) {
+    for (const theme of ["light", "dark"]) {
       await page.locator("html").evaluate((element, value) => {
         element.setAttribute("data-theme", value)
       }, theme)
@@ -647,7 +646,7 @@ test.describe("RP 路由与窄屏故事页", () => {
     await expect(page.locator(".rp-load-failure")).toBeVisible()
     const retry = page.locator(".rp-load-failure button")
     await expect(retry).toBeVisible()
-    for (const theme of ["sticky", "night", "ink"]) {
+    for (const theme of ["light", "dark"]) {
       await page.locator("html").evaluate((element, value) => {
         element.setAttribute("data-theme", value)
       }, theme)

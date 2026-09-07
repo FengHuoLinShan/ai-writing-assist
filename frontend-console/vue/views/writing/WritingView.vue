@@ -41,14 +41,8 @@
       <span class="view-header__count">共 {{ vm.chapterList.value.length }} 章</span>
     </div>
     <div class="view-header__actions">
-      <button
-        v-if="vm.isNarrow.value && vm.forceDesktop.value && vm.editorState.status !== 'candidate'"
-        id="mobile-editor-mode-toggle"
-        ref="quickModeButton"
-        type="button"
-        class="btn btn-sm btn-ghost"
-        @click="returnToQuickNote"
-      >返回速记</button>
+      <button v-if="vm.isNarrow.value" type="button" class="btn" :aria-expanded="leftRailOpen" @click="toggleRail('chapters')">章节</button>
+      <button v-if="vm.isNarrow.value" type="button" class="btn" :aria-expanded="rightRailOpen" @click="toggleRail('reference')">本章资料</button>
       <details ref="viewMenuEl" class="writing-page-menu" @toggle="onViewMenuToggle" @keydown="onViewMenuKeydown">
         <summary
           class="btn btn-sm"
@@ -56,34 +50,14 @@
           :aria-expanded="String(viewMenuOpen)"
         >写作视图 <span class="writing-page-menu__chevron" aria-hidden="true">⌄</span></summary>
         <div id="writing-page-menu-body" class="writing-page-menu__body" @click="closeViewMenuAfterAction">
-          <button v-if="vm.mobileMode.value" type="button" class="btn btn-sm" :disabled="!hasEditableChapter" @click="toggleFocusMode">进入专注</button>
+          <button v-if="vm.isNarrow.value" type="button" class="btn btn-sm" :disabled="!hasEditableChapter" @click="toggleFocusMode">进入专注</button>
           <button type="button" class="btn btn-sm" data-action="toggle-outline-float" @click="vm.toggleOutlineFloat">故事结构浮窗</button>
           <button type="button" class="btn btn-sm" @click="vm.navigateOutline">打开故事结构</button>
         </div>
       </details>
-      <button v-if="vm.mobileMode.value" type="button" class="btn btn-sm" data-action="open-owner-ai-drawer" @click="openOwnerAi({ owner: 'writing' })">AI 工具</button>
       <button type="button" class="btn btn-sm" :disabled="!vm.selectedChapter.value" @click="addChapterTask">添加到计划中的任务</button>
     </div>
   </div>
-
-  <MobileQuickNote
-    v-if="vm.mobileMode.value"
-    :state="vm.editorState"
-    :chapter="vm.selectedChapter.value"
-    :scenes="vm.chapterScenes.value"
-    :selected-scene-id="vm.selectedSceneId.value"
-    :scene="vm.currentScene.value"
-    :lens="vm.sceneLens"
-    :today-words="vm.todayWords.value"
-    :attach="vm.attachEditor"
-    :detach="vm.detachEditor"
-    @select-scene="vm.selectScene"
-    @load-lens="vm.loadSceneLens"
-    @save="vm.saveMobileNote"
-    @publish="vm.publish"
-    @desktop="openCompleteEditor"
-    @retry-load="vm.retryChapterLoad"
-  />
 
   <WritingWorkflowBars
     :publish="vm.publishProgress"
@@ -110,10 +84,10 @@
   />
 
   <div
-    v-if="!vm.mobileMode.value"
     class="writing-workspace-layout"
     :class="{ 'writing-workspace-layout--candidate': vm.editorState.status === 'candidate' }"
   >
+    <WorkspaceDrawer :mobile="vm.isNarrow.value" :open="leftRailOpen" title="章节" @close="leftRailOpen = false">
     <aside
       class="workspace-rail writing-tree-rail workspace-rail--left"
       :class="{ 'is-collapsed': !leftRailOpen }"
@@ -126,16 +100,18 @@
           :selected-chapter="vm.selectedChapter.value"
           :load-error="vm.chapterLoadError.value"
           :collapsed="!leftRailOpen"
-          @select="vm.selectChapter"
+          @select="selectChapterFromTree"
           @create="vm.createChapter"
           @delete-selected="vm.deleteChapters"
           @toggle-collapse="toggleRail('chapters')"
         />
       </div>
     </aside>
+    </WorkspaceDrawer>
 
-    <main id="writing-editor-container" :data-watermark="watermarkChar">
+    <main id="writing-editor-container">
       <WritingEditor
+        :narrow="vm.isNarrow.value"
         :state="vm.editorState"
         :target-chapter="vm.selectedChapter.value"
         :has-chapters="vm.chapterList.value.length > 0"
@@ -149,6 +125,8 @@
         :candidate-comparison-available="vm.candidateComparisonAvailable.value"
         :attach="vm.attachEditor"
         :detach="vm.detachEditor"
+        @open-chapters="leftRailOpen = true"
+        @create-chapter="vm.createChapter"
         @autosave="vm.autosave"
         @checkpoint="vm.checkpoint"
         @conflict-check="vm.requestConflictCheck"
@@ -211,10 +189,11 @@
       <p v-if="vm.versionLoadError.value" class="writing-empty-hint" role="alert">{{ vm.versionLoadError.value }}</p>
     </main>
 
+    <WorkspaceDrawer :mobile="vm.isNarrow.value" :open="rightRailOpen" title="本章资料" @close="rightRailOpen = false">
     <aside
       class="workspace-rail writing-panel-rail workspace-rail--right"
       :class="{ 'is-collapsed': !rightRailOpen }"
-      aria-label="写作副驾驶"
+      aria-label="本章资料"
     >
       <div id="writing-panel-container">
         <SceneCockpit
@@ -243,6 +222,7 @@
         />
       </div>
     </aside>
+    </WorkspaceDrawer>
 
     <footer class="writing-statusbar">
       <div id="writing-wordcount-bar" class="writing-wordcount-bar">
@@ -251,6 +231,7 @@
           日目标 {{ vm.todayWords.value.toLocaleString() }} / {{ dailyGoalNumber.toLocaleString() }}
           <span class="wc-goal-progress" aria-hidden="true"><span class="wc-goal-fill" :style="{ width: `${goalPercent}%` }" /></span>
         </span>
+        <span v-if="vm.isNarrow.value" id="writing-today-words" class="writing-today-count">今日 {{ vm.todayWords.value.toLocaleString() }} 字</span>
         <span>{{ statusParagraphCount }} 段</span>
         <span>约 {{ statusReadMinutes }} 分钟阅读</span>
       </div>
@@ -273,7 +254,7 @@
     :model="vm.outlineFloat"
     :current-chapter="vm.selectedChapter.value"
     @close="vm.toggleOutlineFloat"
-    @select="vm.selectChapter"
+    @select="selectChapterFromTree"
   />
   <AutoExtractionDialog :model="vm.autoExtraction" @submit="vm.submitAutoExtraction" />
   <ConflictOptionsDialog :model="vm.conflictOptions" @submit="vm.runConflictCheck" />
@@ -324,7 +305,7 @@ import AutoExtractionDialog from "./components/AutoExtractionDialog.vue"
 import ConflictDetailDialog from "./components/ConflictDetailDialog.vue"
 import ConflictOptionsDialog from "./components/ConflictOptionsDialog.vue"
 import DeepImportAuditDialog from "./components/DeepImportAuditDialog.vue"
-import MobileQuickNote from "./components/MobileQuickNote.vue"
+import WorkspaceDrawer from "../../components/WorkspaceDrawer.vue"
 import OutlineFloat from "./components/OutlineFloat.vue"
 import SceneCockpit from "./components/SceneCockpit.vue"
 import VersionHistoryDialog from "./components/VersionHistoryDialog.vue"
@@ -336,7 +317,6 @@ import OwnerAiDrawer from "../../components/OwnerAiDrawer.vue"
 import { getRouter } from "../../bridge/index.js"
 import { useWritingWorkspace } from "./useWritingWorkspace.js"
 import "./writing-desk.css"
-import "./writing-decorations.css"
 
 const props = defineProps({
   projectId: { type: String, default: null },
@@ -354,7 +334,6 @@ const props = defineProps({
 
 const vm = useWritingWorkspace(props)
 const router = getRouter()
-const quickModeButton = ref(null)
 const viewMenuEl = ref(null)
 const viewMenuOpen = ref(false)
 let focusOrigin = null
@@ -453,12 +432,6 @@ function cycleEditorFont() {
 }
 
 /* ink 主题水印字：取当前章标题首字，无标题则为空（CSS 不渲染） */
-const watermarkChar = computed(() => {
-  const chapter = vm.selectedChapter.value
-  const meta = chapter != null ? vm.chapters?.[chapter] : null
-  const title = String(vm.editorState.title || meta?.title || "").trim()
-  return title ? title.slice(0, 1) : ""
-})
 const stored = (rail, fallback) => {
   try {
     const value = sessionStorage.getItem(`workspace-rail:${props.projectId}:writing:${rail}`)
@@ -466,28 +439,15 @@ const stored = (rail, fallback) => {
   } catch { return fallback }
 }
 const leftRailOpen = ref(
-  vm.selectedChapter.value == null
-  || stored(
+  !vm.isNarrow.value && stored(
     "chapters",
     vm.chapterList.value.length === 0 || typeof window === "undefined" || window.innerWidth > 760,
   ),
 )
-const rightRailOpen = ref(stored("reference", typeof window === "undefined" || window.innerWidth > 1099))
-
-function openCompleteEditor() {
-  leftRailOpen.value = false
-  rightRailOpen.value = false
-  vm.switchDesktopMode()
-  nextTick(() => quickModeButton.value?.focus())
-}
-
-function returnToQuickNote() {
-  vm.switchMobileMode()
-  nextTick(() => document.querySelector("#mobile-note-editor")?.focus())
-}
+const rightRailOpen = ref(!vm.isNarrow.value && stored("reference", props.scenes.some(scene => ["draft", "canonical"].includes(scene.status))))
 
 function focusWritingEditor() {
-  document.querySelector(vm.mobileMode.value ? "#mobile-note-editor" : "#writing-editor")?.focus()
+  document.querySelector("#writing-editor")?.focus()
 }
 
 function setFocusMode(active) {
@@ -529,7 +489,7 @@ onBeforeUnmount(() => {
   document.removeEventListener("pointerdown", onDocumentPointerdown)
 })
 
-watch([vm.focusMode, vm.mobileMode], ([active]) => {
+watch(vm.focusMode, (active) => {
   if (active) nextTick(focusWritingEditor)
 })
 watch([() => vm.editorState.status, vm.isNarrow], ([status, narrow]) => {
@@ -562,6 +522,11 @@ function onViewMenuKeydown(event) {
 function onDocumentPointerdown(event) {
   if (viewMenuEl.value && !viewMenuEl.value.contains(event.target)) closeViewMenu()
 }
+
+async function selectChapterFromTree(chapter) {
+  if (await vm.selectChapter(chapter) !== false && vm.isNarrow.value) leftRailOpen.value = false
+}
+watch(vm.isNarrow, (narrow) => { if (narrow) { leftRailOpen.value = false; rightRailOpen.value = false } })
 
 function toggleRail(rail) {
   const current = rail === "chapters" ? leftRailOpen : rightRailOpen

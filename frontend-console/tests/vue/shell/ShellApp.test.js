@@ -155,10 +155,10 @@ describe("ShellApp", () => {
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "o", metaKey: true, shiftKey: true, bubbles: true }))
     expect(services.workspace.toggleOutlineFloat).toHaveBeenCalledWith(wrapper.get("#workspace-content").element)
 
-    await wrapper.get('[data-theme-value="night"]').trigger("click")
-    expect(document.documentElement.getAttribute("data-theme")).toBe("night")
-    expect(localStorage.getItem("nc-theme")).toBe("night")
-    expect(services.toast).toHaveBeenCalledWith("已切换至「暗夜书房」主题", "success")
+    await wrapper.get('[data-theme-value="dark"]').trigger("click")
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark")
+    expect(localStorage.getItem("nc-theme")).toBe("dark")
+    expect(services.toast).toHaveBeenCalledWith("已切换至「深色」", "success")
 
     wrapper.unmount()
     window.dispatchEvent(new CustomEvent("writing:dashboard-update", { detail: { chapterIndex: 99, chapterWords: 999 } }))
@@ -192,7 +192,7 @@ describe("ShellApp", () => {
   it("keeps shell shortcuts out of the theme dots", async () => {
     const services = createShellTestServices()
     const wrapper = mount(ShellApp, { props: { services, healthIntervalMs: 60_000 }, attachTo: document.body })
-    const dot = wrapper.get('[data-theme-value="sticky"]')
+    const dot = wrapper.get('[data-theme-value="light"]')
     const dotEnter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })
     dot.element.dispatchEvent(dotEnter)
     expect(dotEnter.defaultPrevented).toBe(false)

@@ -201,7 +201,6 @@ export function useWritingWorkspace(props) {
   const writingSession = getWritingSession(projectId)
   const focusMode = ref(false)
   let pendingInitialFocus = writingSession?.focusMode ?? Boolean(props.authorPreferences?.defaultFocusMode)
-  const forceDesktop = ref(Boolean(writingSession?.completeEditor))
   const isNarrow = ref(typeof window !== "undefined" && window.innerWidth <= 760)
   const disposed = ref(false)
   let selectionGeneration = 0
@@ -220,7 +219,6 @@ export function useWritingWorkspace(props) {
   const currentScene = computed(() => (
     chapterScenes.value.find((scene) => scene.id === selectedSceneId.value) || null
   ))
-  const mobileMode = computed(() => isNarrow.value && !forceDesktop.value && selectedChapter.value && !editorState.readonly)
   const canEdit = computed(() => selectedChapter.value != null && !editorState.readonly && !editorState.loading && !editorState.loadError)
   const activeVersions = computed(() => versions.value.filter((version) => (
     version.display_state
@@ -368,7 +366,6 @@ export function useWritingWorkspace(props) {
     appState._isReadonly = editorState.readonly
     appState._cursorOffset = editorState.cursorOffset
     appState._focusMode = focusMode.value
-    appState._forceDesktopMode = forceDesktop.value
     appState.viewStates = appState.viewStates || {}
     appState.viewStates.writing = {
       ...(appState.viewStates.writing || {}),
@@ -1411,14 +1408,7 @@ export function useWritingWorkspace(props) {
     return true
   }
   function toggleFocusMode() { return setFocusMode(!focusMode.value) }
-  function switchDesktopMode() {
-    forceDesktop.value = true
-    rememberWritingLocation(projectId, { completeEditor: true })
-  }
-  function switchMobileMode() {
-    forceDesktop.value = false
-    rememberWritingLocation(projectId, { completeEditor: false })
-  }
+
   function attachEditor(elements) { editor.attach(elements) }
   function detachEditor() { editor.detach() }
 
@@ -1451,7 +1441,6 @@ export function useWritingWorkspace(props) {
     document.body.classList.toggle("focus-mode-active", active)
     if (!homeMode.value) syncLegacyState()
   }, { immediate: true })
-  watch(forceDesktop, (active) => document.body.classList.toggle("force-desktop", active), { immediate: true })
 
   onMounted(async () => {
     if (homeMode.value) return
@@ -1505,7 +1494,7 @@ export function useWritingWorkspace(props) {
       window.removeEventListener("pagehide", pageHide)
       window.removeEventListener("resize", resize)
     }
-    document.body.classList.remove("focus-mode-active", "force-desktop")
+    document.body.classList.remove("focus-mode-active")
     if (!homeMode.value) dispatchDashboardUpdate(null)
     if (appState) {
       const currentChapter = editorState.loadError ? editorState.chapter : selectedChapter.value
@@ -1553,8 +1542,6 @@ export function useWritingWorkspace(props) {
     outlineFloat,
     versionDialog,
     focusMode,
-    forceDesktop,
-    mobileMode,
     isNarrow,
     canEdit,
     activeVersions,
@@ -1619,8 +1606,6 @@ export function useWritingWorkspace(props) {
     setFocusMode,
     toggleFocusMode,
     toggleOutlineFloat,
-    switchDesktopMode,
-    switchMobileMode,
     navigateOutline: () => router?.navigate?.("outline", null),
     navigateSceneWorkbench,
   }

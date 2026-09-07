@@ -102,15 +102,15 @@ describe("SceneCockpit", () => {
     expect(wrapper.find("[data-cockpit-module]").exists()).toBe(false)
   })
 
-  it("由写作副驾驶内层标题发出 rail 折叠请求", async () => {
+  it("由本章资料内层标题发出 rail 折叠请求", async () => {
     const wrapper = mountCockpit()
-    await wrapper.get('[aria-label="收起写作副驾驶"]').trigger("click")
+    await wrapper.get('[aria-label="收起本章资料"]').trigger("click")
     expect(wrapper.emitted("toggle-collapse")).toHaveLength(1)
 
     await wrapper.setProps({ railCollapsed: true })
     expect(wrapper.classes()).toContain("is-collapsed")
     expect(wrapper.find(".cockpit-tabs").exists()).toBe(false)
-    expect(wrapper.get('[aria-label="展开写作副驾驶"]').attributes("aria-expanded")).toBe("false")
+    expect(wrapper.get('[aria-label="展开本章资料"]').attributes("aria-expanded")).toBe("false")
   })
 
   it("在顶部手选本章 Scene，跨章只作标记", async () => {

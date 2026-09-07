@@ -1,6 +1,6 @@
 import { defineConfig } from "vite"
 import vue from "@vitejs/plugin-vue"
-import { chmod, copyFile, mkdir } from "node:fs/promises"
+import { chmod, copyFile, mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -11,6 +11,7 @@ const isProductionBuild = process.argv.includes("build")
 const apiProxyTarget = process.env.API_PROXY_TARGET
   || `http://127.0.0.1:${Number.isNaN(backendPort) ? 8000 : backendPort}`
 const legacyRuntimeAssets = [
+  "theme-preload.js",
   "shared/esc.js",
   "ui/toast.js",
   "ui/modal.js",
@@ -20,7 +21,7 @@ const legacyRuntimeAssets = [
   "router.js",
   "commands.js",
 ]
-const thirdPartyLicenseAssets = []
+const thirdPartyLicenseAssets = [{ source: resolve(frontendRoot, 'node_modules/fflate/LICENSE'), destination: 'licenses/fflate.txt' }]
 const contentSecurityPolicy = [
   "default-src 'self'",
   "script-src 'self'",
@@ -74,7 +75,19 @@ export default defineConfig({
   // Production is served through the same OpenResty origin as /api. Development
   // keeps the existing localhost fallback in api.js.
   define: isProductionBuild ? { API_HOST: JSON.stringify("") } : {},
-  plugins: [vue(), copyLegacyRuntimeAssets(), copyThirdPartyLicenses()],
+  plugins: [vue(), copyLegacyRuntimeAssets(), copyThirdPartyLicenses(), {
+    name: 'register-theme-worker-asset',
+    apply: 'build',
+    async writeBundle(options, bundle) {
+      const worker = Object.keys(bundle).find(path => /^assets\/themeArchive\.worker-[\w-]+\.js$/.test(path))
+      if (!worker) throw new Error('Theme archive worker is missing from the build')
+      const path = resolve(frontendRoot, options.dir || 'dist', 'asset-manifest.json')
+      const manifest = JSON.parse(await readFile(path, 'utf8'))
+      manifest['licenses/fflate.txt'] = { file: 'licenses/fflate.txt' }
+      manifest['vue/theme/themeArchive.worker.js'] = { file: worker, src: 'vue/theme/themeArchive.worker.js', isEntry: true }
+      await writeFile(path, JSON.stringify(manifest, null, 2))
+    },
+  }],
   build: isProductionBuild ? { manifest: "asset-manifest.json" } : undefined,
   server: {
     host: "0.0.0.0",

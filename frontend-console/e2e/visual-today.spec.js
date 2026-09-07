@@ -4,13 +4,13 @@
  * 确定性保障：
  * - 复用 projectFactory 创建并清理唯一测试项目；
  * - workspace-summary 使用固定作者可见数据，不把动态日期、id 或任务状态写入截图；
- * - 桌面覆盖三主题，移动端固定 390x844；共四张最小快照。
+ * - 桌面覆盖浅／深色，移动端固定 390x844；共四张最小快照。
  */
 import { test, expect } from "./fixtures.js"
 import { waitForBackend } from "./helpers/api-client.js"
 import { openWorkbench } from "./helpers/workbench.js"
 
-const THEMES = ["sticky", "night", "ink"]
+const THEMES = ["light", "dark"]
 
 async function applyTheme(page, theme) {
   await page.locator(`.theme-dot[data-theme-value="${theme}"]`).click()
@@ -110,11 +110,11 @@ test.describe("写作首页视觉基线", () => {
       await screenshotPage(page, `today-home-${theme}.png`)
     }
 
-    await applyTheme(page, "sticky")
+    await applyTheme(page, "light")
     await page.setViewportSize({ width: 390, height: 844 })
     await expect(page.locator(".today-resume__action")).toBeInViewport()
     expect(await page.evaluate(() => Math.ceil(document.documentElement.scrollWidth - window.innerWidth))).toBeLessThanOrEqual(2)
-    await screenshotPage(page, "today-home-mobile-390-sticky.png")
+    await screenshotPage(page, "today-home-mobile-390-light.png")
 
     expect(browserErrors, `浏览器错误: ${JSON.stringify(browserErrors)}`).toHaveLength(0)
   })

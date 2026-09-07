@@ -4,11 +4,11 @@
       <button
         type="button"
         class="writing-rail-heading-toggle"
-        :aria-label="`${railCollapsed ? '展开' : '收起'}写作副驾驶`"
+        :aria-label="`${railCollapsed ? '展开' : '收起'}本章资料`"
         :aria-expanded="!railCollapsed"
         @click="$emit('toggle-collapse')"
       >
-        <span class="writing-rail-heading-label writing-rail-heading-label--copilot">写作副驾驶</span>
+        <span class="writing-rail-heading-label writing-rail-heading-label--copilot">本章资料</span>
         <span aria-hidden="true">{{ railCollapsed ? "‹" : "›" }}</span>
       </button>
       <button v-if="!railCollapsed && chapter" class="btn btn-sm scene-cockpit-organize" @click="$emit('organize')">整理</button>

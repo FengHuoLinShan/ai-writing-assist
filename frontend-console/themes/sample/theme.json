@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "quiet-library",
+  "name": "静阅 · 资源包示例",
+  "version": "1.0.0",
+  "author": "NovelCraft · Noto 字体遵循 OFL 1.1",
+  "variants": {
+    "light": {
+      "bodyFont": "reading-font",
+      "texture": "paper-texture",
+      "background": "paper-texture",
+      "emptyState": "book",
+      "radius": 12
+    },
+    "dark": {
+      "bodyFont": "reading-font",
+      "texture": "paper-texture",
+      "background": "paper-texture",
+      "emptyState": "book",
+      "radius": 12
+    }
+  },
+  "assets": {
+    "reading-font": {
+      "kind": "font",
+      "path": "assets/noto-sans-sc.woff2",
+      "weight": 400
+    },
+    "paper-texture": {
+      "kind": "image",
+      "path": "assets/texture.png"
+    },
+    "book": {
+      "kind": "image",
+      "path": "assets/book.png"
+    }
+  }
+}

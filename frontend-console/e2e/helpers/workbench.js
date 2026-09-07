@@ -130,6 +130,8 @@ export async function reloadWorkbench(page, view, subview = null) {
 export async function waitWritingReady(page, { chapter = null, editor = false } = {}) {
   await expect(page.locator(".writing-toolbar")).toBeVisible({ timeout: 10000 })
   if (chapter != null) {
+    const opener = page.getByRole('button', { name: '章节', exact: true })
+    if (await opener.isVisible() && await opener.getAttribute('aria-expanded') === 'false') await opener.click()
     await expect(
       page.getByRole("button", { name: new RegExp(`^打开第 ${Number(chapter)} 章`) }),
     ).toBeVisible({ timeout: 10000 })

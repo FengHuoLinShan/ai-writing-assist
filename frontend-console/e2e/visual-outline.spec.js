@@ -2,7 +2,7 @@
  * outline 页视觉基线 — Phase 3c Vue 迁移的像素对比锚点。
  *
  * 机制与 visual-world.spec.js 一致：darwin 基线按平台提交、动态内容固定化或 mask、
- * 三主题对比。确定性保障：
+ * 浅／深色对比。确定性保障：
  * - 每个测试用独立新项目 + API 种子数据（总纲 revision/篇章纲/剧情线），内容完全确定；
  * - 总纲时间固定为测试文本；计数由种子数据推导；
  * - scenes 子视图归 sceneWorkbenchView（Phase 4），不在本基线范围；
@@ -17,7 +17,7 @@ import {
 } from "./helpers/api-client.js"
 import { openWorkbench } from "./helpers/workbench.js"
 
-const THEMES = ["sticky", "night", "ink"]
+const THEMES = ["light", "dark"]
 
 async function applyTheme(page, theme) {
   await page.locator(`.theme-dot[data-theme-value="${theme}"]`).click()
@@ -53,7 +53,7 @@ test.describe("outline 视觉基线", () => {
     await page.reload()
   })
 
-  test("outline 小说总纲 × 三主题", async ({ page, projectFactory }) => {
+  test("outline 小说总纲 × 浅／深色", async ({ page, projectFactory }) => {
     const proj = await projectFactory({ title: "视觉基线总纲", genre: "fantasy", language: "zh" })
     await createStoryOutlineRevision(proj.id, {
       base_revision_id: null,
@@ -85,7 +85,7 @@ test.describe("outline 视觉基线", () => {
     }
   })
 
-  test("outline 篇章纲 × 三主题", async ({ page, projectFactory }) => {
+  test("outline 篇章纲 × 浅／深色", async ({ page, projectFactory }) => {
     const proj = await projectFactory({ title: "视觉基线篇章纲", genre: "fantasy", language: "zh" })
     await createArc(proj.id, { title: "第一卷 潮起", arc_index: 1, start_chapter: 1, end_chapter: 10, arc_goal: "主角初入江湖，建立航盟。" })
     await createArc(proj.id, { title: "第二卷 暗涌", arc_index: 2, start_chapter: 11, end_chapter: 22, arc_goal: "旧势力反扑，航盟分裂危机。" })
@@ -99,7 +99,7 @@ test.describe("outline 视觉基线", () => {
     }
   })
 
-  test("outline 剧情线 × 三主题", async ({ page, projectFactory }) => {
+  test("outline 剧情线 × 浅／深色", async ({ page, projectFactory }) => {
     const proj = await projectFactory({ title: "视觉基线剧情线", genre: "fantasy", language: "zh" })
     await createThread(proj.id, { name: "潮门调查", thread_type: "main", summary: "主角追查潮门背后的筛选机制。" })
     await createThread(proj.id, { name: "旧港暗线", thread_type: "sub", summary: "旧港渔夫守护的世代秘密。" })
