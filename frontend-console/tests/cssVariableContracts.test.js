@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest"
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const sourceExtensions = new Set([".css", ".js", ".vue"])
-const skippedDirectories = new Set(["dist", "e2e", "node_modules", "prototypes", "tests"])
+const skippedDirectories = new Set(["dist", "e2e", "node_modules", "prototypes", "tests", "test-results", "playwright-report"])
 const rootDefinitionFiles = new Set(["editorial-theme.css", "styles.css"])
 
 const ownedVariableContracts = [
@@ -117,7 +117,7 @@ function scanCssVariableContracts(sources) {
   const declarationsByFile = new Map(entries.map(({ path, source }) => [path, declarationRecords(source)]))
   const globalDefinitions = new Set(entries.flatMap(({ path }) => (
     rootDefinitionFiles.has(path)
-      ? (declarationsByFile.get(path) || []).filter(({ selector }) => selector === ":root").map(({ name }) => name)
+      ? (declarationsByFile.get(path) || []).filter(({ selector }) => /(?:^|,\s*):root\s*(?:,|$)/.test(selector)).map(({ name }) => name)
       : []
   )))
 
@@ -152,6 +152,11 @@ function scanCssVariableContracts(sources) {
 }
 
 describe("CSS variable contracts", () => {
+  it("accepts root tokens shared with an isolated preview", () => {
+    expect(scanCssVariableContracts([
+      ["styles.css", ":root, .theme-preview { --font-ui: sans-serif; }\n.consumer { font-family: var(--font-ui); }"],
+    ])).toEqual([])
+  })
   it("uses the production scanner for root, declaration, owner and theme boundaries", () => {
     expect(scanCssVariableContracts([
       ["styles.css", ":root { --shared: red; } .consumer { color: var(--shared); }"],
@@ -163,7 +168,7 @@ describe("CSS variable contracts", () => {
       ["component.css", ".owner { --local: red; }\n.consumer { color: var(--local); }"],
     ])).toEqual(["component.css:2 --local"])
     expect(scanCssVariableContracts([
-      ["component.css", '[data-theme="night"] { --theme-only: red; }\n.consumer { color: var(--theme-only); }'],
+      ["component.css", '[data-theme="dark"] { --theme-only: red; }\n.consumer { color: var(--theme-only); }'],
     ])).toEqual(["component.css:2 --theme-only"])
     expect(scanCssVariableContracts([
       ["component.css", ".button--active:hover { color: var(--active); }"],

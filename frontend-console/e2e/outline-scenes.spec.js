@@ -88,7 +88,7 @@ test.describe("Outline View — 场景工作台", () => {
     await expect(summary).not.toContainText("未应用修改")
     await expect(page.locator(".scene-workbench-row", { hasText: "潮门初启" })).toBeVisible()
 
-    await page.locator('.theme-dot[data-theme-value="night"]').click()
+    await page.locator('.theme-dot[data-theme-value="dark"]').click()
     await page.setViewportSize({ width: 375, height: 812 })
     await page.emulateMedia({ reducedMotion: "reduce" })
     await page.locator("html").evaluate((element) => { element.style.fontSize = "125%" })
@@ -171,7 +171,7 @@ test.describe("Outline View — 场景工作台", () => {
     await openProjectWorkbench({ id: testProjectId, title: "场景入口 E2E 测试" }, "outline", "scenes")
     await expect(toolbar).toHaveCount(0)
 
-    await page.locator('.theme-dot[data-theme-value="night"]').click()
+    await page.locator('.theme-dot[data-theme-value="dark"]').click()
     await page.setViewportSize({ width: 375, height: 812 })
     await page.emulateMedia({ reducedMotion: "reduce" })
     await page.locator("html").evaluate((element) => { element.style.fontSize = "125%" })
@@ -357,7 +357,7 @@ test.describe("Outline View — 场景工作台", () => {
     await page.evaluate(() => window.router.navigate("outline", "scenes", true, new URLSearchParams("review=ai")))
     await expect(title).toHaveValue("作者修订后的潮门开场")
 
-    await page.locator('.theme-dot[data-theme-value="night"]').click()
+    await page.locator('.theme-dot[data-theme-value="dark"]').click()
     await page.setViewportSize({ width: 375, height: 812 })
     await page.emulateMedia({ reducedMotion: "reduce" })
     await page.locator("html").evaluate((element) => { element.style.fontSize = "125%" })
@@ -477,8 +477,8 @@ test.describe("Outline View — 场景工作台", () => {
 
     await page.setViewportSize({ width: 390, height: 844 })
     await page.emulateMedia({ reducedMotion: "reduce" })
-    await page.locator('.theme-dot[data-theme-value="night"]').click()
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "night")
+    await page.locator('.theme-dot[data-theme-value="dark"]').click()
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
     await expectNoPageOverflow(page)
     await expectWithinViewport(onboarding)
     for (const control of [generate, manual, moreSummary]) {
@@ -798,7 +798,7 @@ test.describe("Outline View — 场景工作台", () => {
 
     await page.setViewportSize({ width: 390, height: 844 })
     await page.emulateMedia({ reducedMotion: "reduce" })
-    await page.locator('.theme-dot[data-theme-value="night"]').click()
+    await page.locator('.theme-dot[data-theme-value="dark"]').click()
     await expectNoPageOverflow(page)
     await historySummary.click()
     await expect(history).toHaveAttribute("open", "")
@@ -995,8 +995,8 @@ test.describe("Outline View — 场景工作台", () => {
     const sceneCancel = sceneTask.locator('[data-action="cancel-scene-auto-extract"]')
     await expect(sceneCancel).toBeVisible()
 
-    await page.locator('.theme-dot[data-theme-value="night"]').click()
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "night")
+    await page.locator('.theme-dot[data-theme-value="dark"]').click()
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
     await page.setViewportSize({ width: 375, height: 812 })
     await page.emulateMedia({ reducedMotion: "reduce" })
     await page.locator("html").evaluate((element) => { element.style.fontSize = "125%" })
@@ -1058,8 +1058,8 @@ test.describe("Outline View — 场景工作台", () => {
     await expect(page.locator(SEL.modalOverlay)).toBeHidden()
     await expect(detailMore).toBeFocused()
 
-    await page.locator('.theme-dot[data-theme-value="night"]').click()
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "night")
+    await page.locator('.theme-dot[data-theme-value="dark"]').click()
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
     await page.setViewportSize({ width: 390, height: 844 })
     await detailMore.click()
     await mergeButton.click()

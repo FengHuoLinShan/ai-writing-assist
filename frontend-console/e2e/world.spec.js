@@ -130,7 +130,7 @@ test.describe("世界对象模块", () => {
     await expectNoPageOverflow(page)
     await page.locator(SEL.modalClose).click()
 
-    for (const theme of ["sticky", "night", "ink"]) {
+    for (const theme of ["light", "dark"]) {
       await page.locator(`.theme-dot[data-theme-value="${theme}"]`).click()
       await expectNoPageOverflow(page)
     }

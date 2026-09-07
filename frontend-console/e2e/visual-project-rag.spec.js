@@ -2,7 +2,7 @@
  * project / rag 页视觉基线 — Phase 2 Vue 迁移的像素对比锚点。
  *
  * 机制与 visual-settings.spec.js 一致：darwin 基线按平台提交、动态内容 mask、
- * 三主题对比。确定性保障：
+ * 浅／深色对比。确定性保障：
  * - 项目页：两个项目创建间隔 >1s（稳定排序），统计数字与创建日期 mask；
  * - rag 检索页：page.route 拦截证据接口返回固定 58 条（复用 rag.spec.js 手法）；
  * - rag 状态页：新项目全零计数，天然确定。
@@ -11,7 +11,7 @@ import { test, expect } from "./fixtures.js"
 import { waitForBackend } from "./helpers/api-client.js"
 import { openWorkbench, openWritingAiDrawer } from "./helpers/workbench.js"
 
-const THEMES = ["sticky", "night", "ink"]
+const THEMES = ["light", "dark"]
 
 async function applyTheme(page, theme) {
   await page.locator(`.theme-dot[data-theme-value="${theme}"]`).click()
@@ -53,7 +53,7 @@ test.describe("project / rag 视觉基线", () => {
     await page.goto("/")
   })
 
-  test("项目页 × 三主题", async ({ page, projectFactory }) => {
+  test("项目页 × 浅／深色", async ({ page, projectFactory }) => {
     await projectFactory({ title: "视觉基线项目·甲", genre: "scifi", language: "zh" })
     await page.waitForTimeout(1100) // 稳定 created_at 排序
     await projectFactory({ title: "视觉基线项目·乙", genre: "fantasy", language: "zh" })
@@ -76,7 +76,7 @@ test.describe("project / rag 视觉基线", () => {
     }
   })
 
-  test("rag 状态页 × 三主题", async ({ page, projectFactory, browserErrors }) => {
+  test("rag 状态页 × 浅／深色", async ({ page, projectFactory, browserErrors }) => {
     const proj = await projectFactory({ title: "视觉基线检索", genre: "scifi", language: "zh" })
     await openWorkbench(page, proj, "rag", "status")
     await expect(page.getByRole("heading", { name: "查找资料尚未准备好" })).toBeVisible({ timeout: 10000 })
@@ -86,19 +86,19 @@ test.describe("project / rag 视觉基线", () => {
       await screenshotPage(page, `rag-status-${theme}.png`)
     }
     await page.setViewportSize({ width: 390, height: 844 })
-    await page.evaluate(() => localStorage.setItem("nc-theme", "night"))
+    await page.evaluate(() => localStorage.setItem("nc-theme", "dark"))
     await page.reload()
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "night")
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
     await expect(page.getByRole("heading", { name: "查找资料尚未准备好" })).toBeVisible({ timeout: 10000 })
     await page.evaluate(() => window.scrollTo(0, 0))
-    await expect(page).toHaveScreenshot("rag-status-mobile-night.png", {
+    await expect(page).toHaveScreenshot("rag-status-mobile-dark.png", {
       animations: "disabled",
       caret: "hide",
     })
     expect(browserErrors, `浏览器错误: ${JSON.stringify(browserErrors)}`).toHaveLength(0)
   })
 
-  test("rag 检索结果页 × 三主题", async ({ page, projectFactory, browserErrors }) => {
+  test("rag 检索结果页 × 浅／深色", async ({ page, projectFactory, browserErrors }) => {
     const proj = await projectFactory({ title: "视觉基线检索", genre: "scifi", language: "zh" })
     await page.route("**/api/evidence/compilation/evidence/search", async (route) => {
       await route.fulfill({
@@ -164,7 +164,7 @@ test.describe("project / rag 视觉基线", () => {
       await screenshotPage(page, `rag-search-${theme}.png`)
     }
 
-    await applyTheme(page, "sticky")
+    await applyTheme(page, "light")
     await page.locator('[data-action="open-hit"]').first().click()
     await expect(page.locator("#rag-evidence-drawer")).toContainText("旧塔的铜铃")
     await expect(page.locator("#toast-container > *")).toHaveCount(0, { timeout: 3000 })
@@ -175,15 +175,15 @@ test.describe("project / rag 视觉基线", () => {
     await page.locator('[data-action="close-drawer"]').click()
 
     await page.setViewportSize({ width: 390, height: 844 })
-    await applyTheme(page, "night")
-    await expect(page).toHaveScreenshot("rag-search-mobile-night.png", {
+    await applyTheme(page, "dark")
+    await expect(page).toHaveScreenshot("rag-search-mobile-dark.png", {
       animations: "disabled",
       caret: "hide",
     })
     await page.locator('[data-role="rag-advanced-filters"] summary').click()
     await expect(page.getByText("从哪里查", { exact: true })).toBeVisible()
     await page.setViewportSize({ width: 390, height: 1400 })
-    await expect(page).toHaveScreenshot("rag-search-filters-mobile-night.png", {
+    await expect(page).toHaveScreenshot("rag-search-filters-mobile-dark.png", {
       animations: "disabled",
       caret: "hide",
     })
@@ -206,15 +206,15 @@ test.describe("project / rag 视觉基线", () => {
     await page.getByRole("tab", { name: "查找资料", exact: true }).click()
     await expect(page.locator("#owner-ai-panel-evidence #rag-search-input")).toBeVisible({ timeout: 10000 })
 
-    await applyTheme(page, "sticky")
-    await expect(page).toHaveScreenshot("owner-ai-search-desktop-sticky.png", {
+    await applyTheme(page, "light")
+    await expect(page).toHaveScreenshot("owner-ai-search-desktop-light.png", {
       animations: "disabled",
       caret: "hide",
     })
 
     await page.setViewportSize({ width: 390, height: 844 })
-    await applyTheme(page, "night")
-    await expect(page).toHaveScreenshot("owner-ai-search-mobile-night.png", {
+    await applyTheme(page, "dark")
+    await expect(page).toHaveScreenshot("owner-ai-search-mobile-dark.png", {
       animations: "disabled",
       caret: "hide",
     })

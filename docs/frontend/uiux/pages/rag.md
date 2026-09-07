@@ -151,7 +151,7 @@ status 子页信息层级：
 
 ```bash
 npm run test:e2e:functional -- e2e/rag.spec.js      # 功能契约（钩子、分页、375px/横屏响应式）
-npm run test:e2e:visual -- e2e/visual-project-rag.spec.js   # 三主题页面快照 + 证据抽屉桌面/手机快照（darwin 限定）
+npm run test:e2e:visual -- e2e/visual-project-rag.spec.js   # 浅／深色页面快照 + 证据抽屉桌面/手机快照（darwin 限定）
 npm run test:e2e:visual:update -- e2e/visual-project-rag.spec.js   # 改版后重建基线，须人工核对 diff
 ```
 

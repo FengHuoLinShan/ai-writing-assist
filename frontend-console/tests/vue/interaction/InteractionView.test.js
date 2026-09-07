@@ -1,3 +1,4 @@
+import { getThemeController } from "../../../vue/shell/composables/useTheme.js"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { flushPromises, mount } from "@vue/test-utils"
 import InteractionView from "../../../vue/views/interaction/InteractionView.vue"
@@ -154,6 +155,7 @@ let toast
 let confirm
 
 beforeEach(() => {
+  getThemeController().apply("light", { persist: false, announce: false })
   localStorage.clear()
   sessionStorage.clear()
   api = makeApi()
@@ -1865,9 +1867,9 @@ describe("RP 故事页", () => {
 
     expect(menu.get(".rp-more-menu__header button").attributes("aria-label"))
       .toBe("关闭更多操作")
-    expect(menu.text()).toContain("晨光便签")
-    expect(menu.text()).toContain("暗夜书房")
-    expect(menu.text()).toContain("水墨写意")
+    expect(menu.text()).toContain("浅色")
+    expect(menu.text()).toContain("深色")
+    expect(menu.text()).toContain("跟随系统")
     expect(menu.get('.rp-more-menu__themes [role="menu"]').attributes("aria-label"))
       .toBe("选择阅读主题")
     const themeItems = menu.findAll('[role="menuitemradio"]')
@@ -1885,13 +1887,13 @@ describe("RP 故事页", () => {
 
     menu.element.open = true
     await menu.findAll(".rp-more-menu__themes button")
-      .find((button) => button.text().includes("暗夜书房"))
+      .find((button) => button.text().includes("深色"))
       .trigger("click")
     await flushPromises()
 
-    expect(requestedThemes).toEqual(["night"])
+    expect(requestedThemes).toEqual(["dark"])
     expect(menu.element.open).toBe(false)
-    expect(menu.get('[data-theme-value="night"]').attributes("aria-checked")).toBe("true")
+    expect(menu.get('[data-theme-value="dark"]').attributes("aria-checked")).toBe("true")
     expect(document.activeElement).toBe(menu.get("summary").element)
     wrapper.unmount()
   })

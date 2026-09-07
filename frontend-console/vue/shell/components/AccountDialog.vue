@@ -169,11 +169,11 @@ async function requestDeletion() {
 </script>
 
 <style scoped>
-.account-overlay{position:fixed;inset:0;z-index:1200;display:grid;place-items:center;padding:20px;background:#1d1a1699}
-.account-dialog{position:relative;width:min(100%,440px);display:grid;gap:16px;padding:28px;border-radius:14px;background:#fff;color:#292722}
+.account-overlay{position:fixed;inset:0;z-index:1200;display:grid;place-items:center;padding:20px;background:rgb(0 0 0 / .4)}
+.account-dialog{position:relative;width:min(100%,440px);display:grid;gap:16px;padding:28px;border-radius:14px;background:var(--bg-panel);color:var(--text-body)}
 .account-dialog h2,.account-dialog p{margin:0}.account-close{position:absolute;right:12px;top:10px;border:0;background:transparent;font-size:25px}
-.account-dialog details{display:grid;gap:12px;border-top:1px solid #ddd;padding-top:14px}.account-dialog details[open]{display:grid}
-.account-dialog label{display:grid;gap:6px}.account-dialog input{padding:10px;border:1px solid #bbb;border-radius:8px}
-.account-dialog button,.button-link{padding:10px 14px;border:0;border-radius:8px;text-align:center;text-decoration:none}.secondary{background:#ece7df;color:#332b24}.danger{background:#9b3434;color:#fff}.button-link{background:#6f4628;color:#fff}
-.account-code-row{display:grid;grid-template-columns:1fr auto;gap:8px}.account-message{color:#315c39}.account-message.error{color:#9b3434}
+.account-dialog details{display:grid;gap:12px;border-top:1px solid var(--border);padding-top:14px}.account-dialog details[open]{display:grid}
+.account-dialog label{display:grid;gap:6px}.account-dialog input{padding:10px;border:1px solid var(--nc-hairline-strong);border-radius:8px}
+.account-dialog button,.button-link{padding:10px 14px;border:0;border-radius:8px;text-align:center;text-decoration:none}.secondary{background:var(--bg-muted);color:var(--text-body)}.danger{background:var(--nc-error-soft);color:var(--error);border:1px solid var(--error)}.button-link{background:var(--nc-primary);color:var(--nc-on-primary)}
+.account-code-row{display:grid;grid-template-columns:1fr auto;gap:8px}.account-message{color:var(--success)}.account-message.error{color:var(--error)}
 </style>

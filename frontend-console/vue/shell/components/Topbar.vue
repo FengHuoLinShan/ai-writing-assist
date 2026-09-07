@@ -21,6 +21,7 @@
         <summary class="avatar" role="button" :title="accountMenuLabel" aria-label="账户菜单" aria-describedby="topbar-status">U</summary>
         <div class="topbar-account-menu__panel">
           <button type="button" @click="runMenuAction('open-settings')"><strong>账户与模型连接</strong><span>管理 AI 服务和创作偏好</span></button>
+          <button type="button" @click="openAppearance"><strong>外观</strong><span>主题、明暗模式与资源包</span></button>
           <button type="button" @click="runMenuAction('manage-account')"><strong>账户信息</strong><span>查看身份与安全设置</span></button>
           <button type="button" @click="runMenuAction('show-help')"><strong>帮助</strong><span>快捷键与常用操作</span></button>
         </div>
@@ -31,6 +32,7 @@
 
 <script setup>
 import { computed, ref } from "vue"
+import { getRouter } from "../../bridge/index.js"
 import ThemePicker from "./ThemePicker.vue"
 
 const props = defineProps({
@@ -44,6 +46,10 @@ const accountMenuLabel = computed(() => `账户菜单，${connectionLabel.value}
 const saveStateTitle = computed(() => ({ saving: "保存中", unsaved: "未保存", saved: "已保存" })[props.wordcount.saveState] || "保存状态")
 // 子视图与模块同名时隐藏子段，避免「查找 · 查找」式重复面包屑
 const submoduleVisible = computed(() => Boolean(props.submoduleTitle) && props.submoduleTitle !== props.moduleTitle)
+function openAppearance() {
+  if (accountMenu.value) accountMenu.value.open = false
+  return getRouter().navigate("settings", null, true, new URLSearchParams({ section: "appearance" }))
+}
 function formatNumber(value) { return Number(value || 0).toLocaleString() }
 function runMenuAction(action) {
   const summary = accountMenu.value?.querySelector("summary")

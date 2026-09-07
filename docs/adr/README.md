@@ -34,6 +34,8 @@ make docs-check BASE_REF=origin/main
 | [ADR-0017](0017-world-fact-authority-and-canon-revisions.md) | Accepted / Phase 0 implemented | 以 `novel_id` 级完整 CanonRevision、内联准入回执和单向 family cutover 收敛世界事实权威；Phase 0 已交付 C0、Page 选择与封闭回放。 |
 | [ADR-0018](0018-versioned-author-source-context-for-rp.md) | Accepted / Implemented | RP 只能以同 owner、显式版本化的 author 资料只读绑定进入 Evidence；source 读与 interaction 写严格分离。 |
 
+| [ADR-0019](0019-local-theme-resource-packages.md) | Accepted | 现代简约双模式、浏览器本地受限主题资源包、无服务端上传及手机统一编辑器。 |
+
 `ADR-0009 附录 A` 延续 ADR-0009 的编号，不是第二个独立决策编号。
 
 ## 主题 ADR 与细化索引

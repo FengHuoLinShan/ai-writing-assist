@@ -15,9 +15,9 @@
         >
       </div>
       <div id="writing-editor-buttons" class="writing-editor-buttons">
-        <button v-if="state.status !== 'candidate'" id="btn-publish" class="btn btn-primary btn-sm writing-primary-action" :disabled="!chapterReady || state.readonly || Boolean(state.saveError) || !state.content.trim()" @click="$emit('publish')">设为正式正文</button>
+        <button v-if="hasChapter && state.status !== 'candidate'" id="btn-publish" class="btn btn-primary btn-sm writing-primary-action" :disabled="!chapterReady || state.readonly || Boolean(state.saveError) || !state.content.trim()" @click="$emit('publish')">设为正式正文</button>
         <span v-if="hasChapter && state.status !== 'candidate'" class="writing-primary-action__hint">只在本作品内生效，不会对外发布</span>
-        <div ref="toolMenusEl" class="writing-editor-buttons__menus" @click="closeToolMenuAfterAction" @keydown="onToolMenuKeydown">
+        <div ref="toolMenusEl" class="writing-editor-buttons__menus" @click.capture="closeToolMenuAfterAction" @keydown="onToolMenuKeydown">
           <details v-if="state.status !== 'candidate'" class="writing-tools-menu" @toggle="onToolMenuToggle('save', $event)">
             <summary class="btn btn-sm" aria-controls="writing-save-tools" :aria-expanded="String(openToolMenu === 'save')">保存</summary>
             <div id="writing-save-tools" class="writing-tools-menu__body">
@@ -68,7 +68,9 @@
     </div>
 
     <div v-if="!hasChapter" class="writing-editor-empty">
-      <p>请从左侧选择章节开始写作</p>
+      <p>选择一章，继续你的故事。</p>
+      <button v-if="hasChapters" type="button" class="btn btn-primary" @click="$emit('open-chapters')">选择章节</button>
+      <button v-else-if="narrow" type="button" class="btn btn-primary" @click="$emit('create-chapter')">新建章节</button>
     </div>
     <div v-else-if="state.loading" class="writing-editor-state loading-skeleton" role="status" aria-live="polite" aria-busy="true">
       <p>正在打开第 {{ chapterNumber }} 章…</p>
@@ -151,6 +153,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 
 const props = defineProps({
+  narrow: Boolean,
   state: { type: Object, required: true },
   targetChapter: { type: Number, default: null },
   saveStatus: { type: String, default: "已保存" },
@@ -165,7 +168,7 @@ const props = defineProps({
   attach: { type: Function, required: true },
   detach: { type: Function, required: true },
 })
-const emit = defineEmits([
+const emit = defineEmits(["open-chapters", "create-chapter",
   "autosave", "checkpoint", "conflict-check", "publish", "discard",
   "generate-draft", "generate-continuation", "generate-pov",
   "auto-extract", "open-deep-import-settings", "open-ai-tools", "adopt", "reject",

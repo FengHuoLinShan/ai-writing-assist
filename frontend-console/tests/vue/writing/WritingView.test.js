@@ -30,7 +30,7 @@ function props(overrides = {}) {
 }
 
 async function expandWritingCopilot(wrapper) {
-  const toggle = wrapper.find('[aria-label="展开写作副驾驶"]')
+  const toggle = wrapper.find('[aria-label="展开本章资料"]')
   if (toggle.exists()) {
     await toggle.trigger("click")
     await flushPromises()
@@ -319,7 +319,7 @@ describe("WritingView", () => {
     expect(rail.element.tagName).toBe("ASIDE")
     expect(wrapper.findAll(".workspace-rail__summary")).toHaveLength(0)
     expect(wrapper.get(".chapter-tree-title").text()).toBe("共 1 章")
-    expect(wrapper.get(".writing-rail-heading-label--copilot").text()).toBe("写作副驾驶")
+    expect(wrapper.get(".writing-rail-heading-label--copilot").text()).toBe("本章资料")
     expect(wrapper.text()).not.toContain("写作参考")
 
     await wrapper.get('[aria-label="收起章节目录"]').trigger("click")
@@ -332,16 +332,16 @@ describe("WritingView", () => {
     wrapper.unmount()
   })
 
-  it("移动速记通过工作区保存为工作稿", async () => {
+  it("手机完整编辑器通过工作区保存为工作稿", async () => {
     const originalWidth = window.innerWidth
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 320 })
     try {
       const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
       await flushPromises()
-      expect(wrapper.get("#mobile-note-today-wc").text()).toBe("今日累计 0 字")
-      const editor = wrapper.get('#mobile-note-editor')
+      expect(wrapper.get("#writing-wordcount-bar").text()).toContain("日目标 0 / 1,000")
+      const editor = wrapper.get('#writing-editor')
       await editor.setValue("正文新")
-      await vi.waitFor(() => expect(wrapper.get("#mobile-note-today-wc").text()).toBe("今日累计 1 字"))
+      await vi.waitFor(() => expect(wrapper.get("#writing-wordcount-bar").text()).toContain("日目标 1 / 1,000"))
       await wrapper.findAll("button").find((button) => button.text() === "保存工作稿").trigger("click")
       await flushPromises()
 
@@ -350,14 +350,14 @@ describe("WritingView", () => {
         expect.objectContaining({ content: "正文新" }),
         "p1",
       )
-      expect(toastMock).toHaveBeenCalledWith("已保存到工作稿", "success")
+      expect(wrapper.get("#writing-save-status").text()).toBe("已保存到工作稿")
       wrapper.unmount()
     } finally {
       Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth })
     }
   })
 
-  it("移动速记只提供本章 Scene 切换，不暴露管理入口", async () => {
+  it("手机资料抽屉提供本章场景切换并保持正文节点", async () => {
     const originalWidth = window.innerWidth
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 })
     try {
@@ -370,11 +370,13 @@ describe("WritingView", () => {
       })
       await flushPromises()
 
-      const selector = wrapper.get("#mobile-note-scene-selector")
-      expect(selector.findAll("option").map((option) => option.text())).toEqual(["入口", "密道"])
-      expect(wrapper.get("details.scene-lens--mobile").attributes("open")).toBeUndefined()
-      expect(wrapper.text()).not.toContain("关联 Scene")
-      await selector.setValue("s2")
+      const editor = wrapper.get("#writing-editor").element
+      await wrapper.findAll('button').find(item => item.text() === '本章资料').trigger('click')
+      await flushPromises()
+      const sceneButton = wrapper.findAll('.scene-cockpit-switcher__item').find(item => item.text().includes('密道'))
+      expect(wrapper.get("[role=dialog]").attributes("aria-modal")).toBe("true")
+      expect(wrapper.get("#writing-editor").element).toBe(editor)
+      await sceneButton.trigger("click")
       expect(getAppState().viewStates.writing.currentSceneId).toBe("s2")
       wrapper.unmount()
     } finally {
@@ -496,7 +498,7 @@ describe("WritingView", () => {
     wrapper.unmount()
   })
 
-  it("移动速记本地备份失败时显示丢失风险并由离开守卫二次确认", async () => {
+  it("手机编辑器本地备份失败时显示丢失风险并由离开守卫二次确认", async () => {
     const previousWidth = window.innerWidth
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 })
     let guard = null
@@ -519,14 +521,14 @@ describe("WritingView", () => {
       },
     })
     await flushPromises()
-    await wrapper.get(".mobile-note-editor").setValue("只留在当前页面的移动正文")
+    await wrapper.get("#writing-editor").setValue("只留在当前页面的移动正文")
 
     await wrapper.vm.$.setupState.vm.autosave()
     await flushPromises()
 
     expect(wrapper.text()).toContain("保存失败，本地备份不可用")
     expect(wrapper.text()).toContain("离开或刷新会丢失未保存修改")
-    expect(wrapper.get(".mobile-note-editor").element.value).toBe("只留在当前页面的移动正文")
+    expect(wrapper.get("#writing-editor").element.value).toBe("只留在当前页面的移动正文")
     expect(guard()).toBe(false)
     expect(confirmMock).toHaveBeenLastCalledWith(
       "当前修改尚未保存，浏览器也无法写入本地备份。离开后这些修改会丢失，仍要离开吗？",
@@ -906,7 +908,7 @@ describe("WritingView", () => {
     })
     await flushPromises()
 
-    expect(wrapper.text()).toContain("请从左侧选择章节开始写作")
+    expect(wrapper.text()).toContain("选择一章，继续你的故事。")
     expect(wrapper.findAll("button").some((button) => button.text() === "先整理场景骨架（推荐）")).toBe(false)
     wrapper.unmount()
   })

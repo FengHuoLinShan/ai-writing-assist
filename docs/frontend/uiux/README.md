@@ -1,72 +1,63 @@
-# UI/UX 设计规范与执行指南
+# 前端 UI/UX 规范入口
 
-本目录是前端「Editorial Archive 提纯」二次设计的权威规范集，供执行 agent 按页面认领实施。
-**本目录只含设计标准与执行规范，不含业务需求**；业务契约以 `docs/modules/14_frontend.md`、
-各模块 README 与 `AGENTS.md` 为准。
+全站默认使用现代简约，支持浅色、深色、跟随系统和本浏览器主题资源包。
 
-## 文件索引
+## 当前权威
 
-| 文件 | 内容 |
-|---|---|
-| `design-standard.md` | 主规范：设计原则、token 终态、色彩/ Typography/ Spacing/ 组件/ 响应式/ 动效/ 无障碍标准、死代码清理清单 |
-| `pages/today.md` | 今日工作台（首页） |
-| `pages/writing.md` | 写作编辑器（核心页，三栏） |
-| `pages/world.md` | 人物与世界（9 子视图 + 3 审核队列） |
-| `pages/outline-scene.md` | 故事结构 4 子视图 + 场景工作台 |
-| `pages/map.md` | 地图总览 + 沉浸画布（仅表层，不动 mapView.js 引擎） |
-| `pages/rag.md` | 查找/检索 + 索引状态 |
-| `pages/generate.md` | 高级生成 4 tab |
-| `pages/project.md` | 作品档案/导入/回收站 |
-| `pages/settings.md` | 账户设置 + 项目偏好（表单页） |
-| `pages/rp-experience.md` | RP 沉浸路径：home / journeys / interaction |
+- [用户画像与体验准则](../../product/user-personas.md)
+- [设计标准](design-standard.md)：全站视觉、组件、响应式与保护要求
+- [主题包规范](theme-packages.md)：外部配置与资源接口
+- [ADR-0019](../../adr/0019-local-theme-resource-packages.md)：新设计与本地资源存储边界
+- [前端模块](../../modules/14_frontend.md)：生产入口、稳定接口和状态恢复
 
-## 执行顺序（全局 → 页面 → 细节）
+## 页面验收
 
-1. **全局层先行**（由单个 agent 顺序完成，相互耦合不可并行）：
-   - G1 token 层归一（`design-standard.md` §1）：删死色板、迁移别名、tracking 修正、同步
-     `editorialTheme.test.js` / `typographyTokens.test.js`。
-   - G2 组件层去重（§5）：合并"定义→覆写"两步、消除可消除的 `!important`、收编非 scoped SFC 内联样式。
-   - G3 断点归一（§6）：720→760 合并、长尾断点处置。
-2. **页面层并行**（每个页面文件可由不同 agent 认领，一次一个）：
-   优先级顺序：writing → world → today → outline-scene → rag → generate → settings → project → rp-experience → map。
-3. **细节收口**：交互状态与无障碍抽查（§7/§8）、五视角 Review（设计师/产品/普通用户/高频用户/前端工程师）。
+[写作](pages/writing.md) · [人物与世界](pages/world.md) · [写作首页](pages/today.md) ·
+[故事结构](pages/outline-scene.md) · [查找](pages/rag.md) · [AI 工具](pages/generate.md) ·
+[设置](pages/settings.md) · [作品](pages/project.md) · [互动故事](pages/rp-experience.md) · [地图](pages/map.md)
 
-## 认领规则
+页面规范保留领域操作与恢复约束；旧三主题和纯视觉修复批次的像素示意由新设计标准取代。所有共享视觉从语义变量消费，不允许为单页建立第二套色板。复用既有菜单、模态、保存与会话实现。
 
-- 一次只认领一个页面文件；开始前在 PR 描述注明对应 `pages/*.md`。
-- 跨页面共享组件（btn/card/modal/subnav/empty-state…）的样式只能按 `design-standard.md` §5 改全局规则，**禁止在页面规范外自创组件变体**；发现标准未覆盖的场景，回本目录补标准再实施。
-- 页面规范中「必须保留的契约」一节列出的 `#id` / `data-action` / role 名称 / 可访问名称是测试契约，改动必须同步对应 e2e/vitest。
+## 覆盖要求
 
-## 硬约束（违反即返工）
+验证生产可达页面、子页、入口、弹窗、抽屉、批量操作、认证与恢复，不能仅看路由截图。
+首次、正常、空态、加载、失败／冲突、保存、离开恢复和误操作保护都在覆盖范围。
+作者与互动故事保持不同任务层级；一处决定一个主操作，诊断入口次级呈现。
 
-- 不改业务规则、API shape、路由结构；LLM/数据流相关一律不碰。
-- 不动 `frontend-console/views/mapView.js` 内部架构（仅表层 class 对齐）。
-- 不引入新依赖；不做 Vue 组件库化重构（ADR-0009 语义 class 路线）。
-- 动态内容不得进 `innerHTML`/`v-html` 未转义；不提交 `.env`。
-- 危险操作（合并/删除/废弃）保留二次确认 UI。
-- 分支：从最新 `origin/main` 建 `codex/<slug>`，不直提 main。
+开发服务器的 `/prototypes/design-system.html` 是组件展示页；从设置 → 外观可导入真实资源示例。
 
-## 验证命令速查
+## 重设计覆盖记录（2026-09-07）
+
+| 用户区域 | 覆盖内容 | 主要验证 |
+|---|---|---|
+| 公共入口、认证与账号 | 双入口、登录／恢复、账户弹窗、主题恢复提示 | home、auth、Shell/Auth 单测；入口与认证视觉基线 |
+| 作品与导入 | 作品卡、搜索、管理、导入抽屉、失败恢复、回收站 | project、import、project-recycle-bin 与项目视觉基线 |
+| 写作与计划 | 首页、计划、正文、统一手机编辑器、章节／资料抽屉、版本、候选与保存保护 | author-workspace、writing、themes 与写作视觉基线 |
+| 人物与世界 | 资料库、资料页、对象、别名、关系、待处理决策、来源与历史 | world、world-bible、world-objects、world-review 与视觉基线 |
+| 故事结构 | 总览、篇章、剧情线、场景、编辑与批量操作 | outline-scenes、outline-threads-arcs、scene-workbench 与视觉基线 |
+| AI 工具 | 就地工具抽屉、参考资料确认、建议、失败与返修 | generate、writing、AI 参考资料与建议视觉基线 |
+| 查找与维护 | 查询、更多条件、来源抽屉、范围修复与恢复 | rag 功能与视觉基线 |
+| 地图 | 首次进入、画廊、候选审核、上传、来源与手机限制 | map-atlas 功能；桌面／手机浅深色首次进入基线 |
+| 互动故事 | 旅程列表、开场、阅读、输入、分支、回顾、来源与设置返回 | interaction 功能；旅程与阅读浅深色视觉基线 |
+| 设置与外观 | 账户连接、作品偏好、主题预览／导入／导出／删除、持久化失败 | settings、themes、主题校验单测及外观视觉基线 |
+| 共享组件 | 导航、菜单、表单、模态、空态、通知、进度与可访问性 | 组件与 CSS 契约单测、全站功能回归、组件展示页 |
+
+作者收益假设：正文空间更集中，手机无需切换两套编辑器，查资料不打断编辑会话。
+读者收益假设：保留纯故事路径并共享舒适外观，进入设置后能回到原故事。
+主要风险是旧习惯迁移、主题资源与动态重排；通过旧偏好迁移、声明式资源边界、焦点／草稿保护和窄屏验收控制。
+尚未进行真实作者／读者的长期试用，自动化结果不代表已验证喜好或留存。
+
+## 交付门禁
 
 ```bash
-cd frontend-console
-npm run test                          # vitest（含 CSS 契约测试）
-npm run test:e2e:smoke                # 功能冒烟（home/project/import/writing）
-npm run test:e2e:core                 # 核心集（含 world/outline-scenes/map）
-npm run test:e2e:visual               # 视觉回归（40 张快照）
-npm run test:e2e:visual:update        # 重建视觉基线（改动确认后执行，逐张过目）
-make docs-check BASE_REF=origin/main  # 仓库根目录，文档同步核对
+npm --prefix frontend-console run lint
+npm --prefix frontend-console run test
+npm --prefix frontend-console run build
+# 浏览器命令须显式传入专用 PostgreSQL、PW_REUSE_EXISTING_SERVER=0 和受限 MinIO 配置
+npm --prefix frontend-console run test:e2e:functional
+npm --prefix frontend-console run test:e2e:visual
+make docs-check BASE_REF=origin/main
+git diff --check
 ```
 
-## 完成定义（每个页面/阶段）
-
-1. 对应 `pages/*.md` 的「验收标准」全部满足；
-2. `npm run test` 全绿；受影响的 e2e 子集全绿；
-3. 视觉快照差异逐张人工确认后 `test:e2e:visual:update` 重建；
-4. `docs/modules/14_frontend.md` 与 `frontend-console/README.md` 同步（如布局契约/文件结构变化）；
-5. `make docs-check BASE_REF=origin/main` 通过或逐项说明无影响。
-
-## 已知但不属于本规范范围的问题
-
-- 命令面板只保留能直接落到作者任务的入口；资料检索使用 `:search <关键词>` 或 `/关键词`，不向作者暴露 RAG、Context、Generate 等内部架构名。
-- RP 路径与作者路径的主题切换入口重复（InteractionView 内置 vs Topbar ThemePicker）——裁定见 `pages/rp-experience.md`。
+视觉基线更新必须逐张检查实际图像；不得降低阈值掩盖差异。功能回归必须等到最终结果。

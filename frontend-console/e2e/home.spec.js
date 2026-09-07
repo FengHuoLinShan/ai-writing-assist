@@ -51,7 +51,7 @@ test.describe("首页与导航", () => {
     await expect(page.locator(SEL.workspace)).toBeVisible()
 
     const card = page.locator(".entry-card").first()
-    for (const theme of ["sticky", "night", "ink"]) {
+    for (const theme of ["light", "dark"]) {
       await page.locator("html").evaluate((element, value) => {
         element.setAttribute("data-theme", value)
       }, theme)
@@ -221,27 +221,27 @@ test.describe("首页与导航", () => {
   })
 
   test("作者可用键盘在三点主题切换器间移动选择", async ({ page }) => {
-    await page.addInitScript(() => localStorage.setItem("nc-theme", "sticky"))
+    await page.addInitScript(() => localStorage.setItem("nc-theme", "light"))
     await page.goto("/")
     await enterAuthor(page)
 
-    const sticky = page.locator(SEL.themeOption("sticky"))
-    const night = page.locator(SEL.themeOption("night"))
-    const ink = page.locator(SEL.themeOption("ink"))
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "sticky")
+    const sticky = page.locator(SEL.themeOption("light"))
+    const night = page.locator(SEL.themeOption("dark"))
+    const ink = page.locator(SEL.themeOption("system"))
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light")
 
     await sticky.focus()
     await page.keyboard.press("ArrowRight")
     await expect(night).toBeFocused()
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "night")
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
 
     await page.keyboard.press("ArrowRight")
     await expect(ink).toBeFocused()
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "ink")
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light")
 
     await page.keyboard.press("ArrowLeft")
     await expect(night).toBeFocused()
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "night")
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
     await page.evaluate(() => localStorage.removeItem("nc-theme"))
   })
 

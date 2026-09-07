@@ -29,6 +29,8 @@ function writingChapter(page, chapter) {
 }
 
 async function selectWritingChapter(page, chapter) {
+  const opener = page.getByRole("button", { name: "章节", exact: true })
+  if (await opener.isVisible() && await opener.getAttribute("aria-expanded") === "false") await opener.click()
   const rail = page.locator(".writing-tree-rail")
   if (await rail.count() && await rail.evaluate((element) => element.classList.contains("is-collapsed"))) {
     await page.getByLabel("展开章节").click()
@@ -208,8 +210,7 @@ test.describe("写作台模块", () => {
     await waitWritingReady(page, { chapter: 1 })
     await selectWritingChapter(page, 1)
     await page.setViewportSize({ width: 375, height: 812 })
-    await expect(page.locator('[data-action="open-owner-ai-drawer"]')).toBeVisible()
-    await expect(page.locator('[data-action="writing-ai-menu"]')).toHaveCount(0)
+    await expect(page.locator('[data-action="writing-ai-menu"]')).toBeVisible()
     await openWritingAiDrawer(page)
     await expectWithinViewport(page.locator('[data-action="owner-writing-continuation"]'))
     await expectNoPageOverflow(page)
@@ -296,7 +297,7 @@ test.describe("写作台模块", () => {
       expect(geometry.position).toBe("fixed")
       expect(geometry.publishTop).toBeGreaterThanOrEqual(geometry.topbarBottom)
       expect(Math.abs(geometry.publishCenter - geometry.workspaceCenter)).toBeLessThan(2)
-      expect(geometry.statusPosition).toBe("sticky")
+      expect(geometry.statusPosition).toBe(width <= 760 ? "static" : "sticky")
       expect(geometry.overflows).toBe(false)
     }
     await page.clock.runFor(2999)
@@ -388,15 +389,16 @@ test.describe("写作台模块", () => {
     await expect(page.locator("#writing-editor")).toHaveValue("第二章原文")
 
     await page.setViewportSize({ width: 390, height: 844 })
-    await expect(page.locator("#mobile-note-editor")).toHaveValue("第二章原文")
+    await expect(page.locator("#writing-editor")).toHaveValue("第二章原文")
     let failMobileSave = true
     await page.route(`**/api/writing/drafts/${d2.draft.id}*`, async (route) => {
       if (route.request().method() !== "PUT" || !failMobileSave) return route.continue()
       await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ detail: "移动网络不可用" }) })
     })
-    await page.locator("#mobile-note-editor").fill("手机端未保存正文")
+    await page.locator("#writing-editor").fill("手机端未保存正文")
+    await openWritingToolMenu(page, "#btn-autosave")
     await page.getByRole("button", { name: "保存工作稿", exact: true }).click()
-    const mobileRecovery = page.locator(".mobile-quick-note .writing-save-recovery")
+    const mobileRecovery = page.locator(".writing-editor-shell .writing-save-recovery")
     await expect(mobileRecovery).toBeVisible()
     await expect(mobileRecovery.getByRole("button", { name: "重试保存" })).toBeInViewport()
     expectExpectedFailure()
@@ -404,7 +406,7 @@ test.describe("写作台模块", () => {
     failMobileSave = false
     await mobileRecovery.getByRole("button", { name: "重试保存" }).click()
     await expect(mobileRecovery).toBeHidden()
-    await expect(page.locator(".mobile-note-status")).toHaveText("已保存到工作稿")
+    await expect(page.locator("#writing-save-status")).toHaveText("已保存到工作稿")
     expect(browserErrors).toEqual([])
   })
 
@@ -835,7 +837,7 @@ test.describe("写作台模块", () => {
     await expect(page.locator("#writing-panel-container")).toContainText("Scene B")
   })
 
-  test("写作副驾驶默认展示 Scene 执行信息且不被工作区裁切", async ({ page }) => {
+  test("本章资料默认展示 Scene 执行信息且不被工作区裁切", async ({ page }) => {
     await createDraft(testProjectId, 1, "第一章 东门交锋", "东门交锋正文")
     await createScene(testProjectId, {
       scene_index: 0,
@@ -1025,16 +1027,17 @@ test.describe("写作台模块", () => {
     })
 
     expect(before).not.toBeNull()
-    // 三主题规范骨架：章节树固定 238px、写作副驾驶固定 257px，正文吃掉剩余弹性宽
+    // 三主题规范骨架：章节树固定 238px、本章资料固定 257px，正文吃掉剩余弹性宽
     expect(before.leftWidth).toBe(238)
-    expect(before.rightWidth).toBe(257)
+    expect(before.rightWidth).toBe(44)
     // 1280 视口下固定双 rail 后正文仍占最大份额（1440 基准下约 0.57）
     expect(before.editorWidth / before.contentWidth).toBeGreaterThanOrEqual(0.45)
 
-    await page.getByLabel("收起写作副驾驶").click()
+    await page.getByLabel("展开本章资料").click()
+    const expandedWidth = await page.locator("#writing-editor-container").evaluate(node => node.getBoundingClientRect().width)
+    expect(expandedWidth).toBeLessThan(before.editorWidth)
+    await page.getByLabel("收起本章资料").click()
     await expect(page.locator(".writing-panel-rail")).toHaveClass(/is-collapsed/)
-    const collapsedWidth = await page.locator("#writing-editor-container").evaluate((node) => node.getBoundingClientRect().width)
-    expect(collapsedWidth).toBeGreaterThan(before.editorWidth)
   })
 
   test("剧情设定冲突检查流程、状态更新和发布快照归档", async ({ page }) => {
@@ -1410,22 +1413,21 @@ test.describe("写作台模块", () => {
       await reloadWorkbench(page, "writing")
       await waitWritingReady(page)
       if (width <= 760) {
-        await expect(page.locator("#mobile-note-editor")).toBeVisible({ timeout: 5000 })
-        await expect(page.locator(".mobile-quick-note")).toContainText("更多编辑")
+        await expect(page.locator("#writing-editor")).toBeVisible({ timeout: 5000 })
+        await page.getByRole("button", { name: "本章资料", exact: true }).click()
       } else {
         await selectWritingChapter(page, 1)
         await expect(page.locator("#writing-editor")).toBeVisible({ timeout: 5000 })
         await openWritingToolMenu(page, "#btn-conflict-check")
         await expect(page.locator("#btn-conflict-check")).toBeVisible()
-        const expandReference = page.getByLabel("展开写作副驾驶")
+        const expandReference = page.getByLabel("展开本章资料")
         if (await expandReference.isVisible()) await expandReference.click()
       }
 
       await expect(page.locator(".scene-lens")).toHaveCount(1)
       if (width === 390) {
-        const lens = page.locator("details.scene-lens--mobile")
-        await lens.locator(":scope > summary").click()
-        for (const target of [lens.locator(":scope > summary"), lens.locator(".scene-lens__load .btn")]) {
+        const lens = page.locator(".scene-lens")
+        for (const target of [page.getByRole("button", { name: "关闭本章资料", exact: true }), lens.locator(".scene-lens__load .btn")]) {
           const box = await target.boundingBox()
           expect(box).not.toBeNull()
           expect(box.height).toBeGreaterThanOrEqual(44)
@@ -1453,37 +1455,36 @@ test.describe("写作台模块", () => {
     await waitWritingReady(page)
     await selectWritingChapter(page, 1)
 
-    const editor = page.getByLabel("移动端速记正文")
+    const editor = page.getByLabel("章节正文")
     await expect(editor).toBeVisible()
     await expect(editor).toHaveValue("原始移动正文")
     await editor.fill("390px 下保存的短文本。")
+    await openWritingToolMenu(page, "#btn-autosave")
     const saveButton = page.getByRole("button", { name: "保存工作稿", exact: true })
     const saveBox = await saveButton.boundingBox()
     expect(saveBox).not.toBeNull()
     expect(saveBox.height).toBeGreaterThanOrEqual(44)
-    const actionsBox = await page.locator(".mobile-note-actions").boundingBox()
+    const actionsBox = await page.locator(".writing-editor-buttons").boundingBox()
     const navigationBox = await page.locator("#sidebar").boundingBox()
     expect(actionsBox).not.toBeNull()
     expect(navigationBox).not.toBeNull()
     expect(actionsBox.y + actionsBox.height).toBeLessThanOrEqual(navigationBox.y)
     await saveButton.click()
-    await expect(page.locator(SEL.toastContainer)).toContainText("已保存到工作稿", {
-      timeout: 10000,
-    })
+    await expect(page.locator("#writing-save-status")).toHaveText("已保存到工作稿", { timeout: 10000 })
     await expect.poll(async () => (
       (await getLatestDraft(testProjectId, 1)).content
     )).toBe("390px 下保存的短文本。")
 
     await reloadWorkbench(page, "writing")
     await waitWritingReady(page)
-    await expect(page.getByLabel("移动端速记正文")).toHaveValue("390px 下保存的短文本。")
+    await expect(page.getByLabel("章节正文")).toHaveValue("390px 下保存的短文本。")
     const overflow = await page.evaluate(() => (
       Math.ceil(document.documentElement.scrollWidth - window.innerWidth)
     ))
     expect(overflow).toBeLessThanOrEqual(2)
   })
 
-  test("390px 可逆切换完整编辑器并在刷新后恢复模式", async ({ page, projectFactory }) => {
+  test("390px 抽屉开关与跨作品导航保留正文和编辑会话", async ({ page, projectFactory }) => {
     const browserErrors = []
     const failedApiRequests = []
     page.on("pageerror", (error) => browserErrors.push(error.message))
@@ -1500,20 +1501,23 @@ test.describe("写作台模块", () => {
     await reloadWorkbench(page, "writing")
     await waitWritingReady(page)
     await selectWritingChapter(page, 1)
-    const editor = page.getByLabel("移动端速记正文")
+    const editor = page.getByLabel("章节正文")
     await expect(editor).toHaveValue("切换前正文")
     await editor.fill("尚未保存但必须保留的正文")
 
-    await page.getByRole("button", { name: "打开完整编辑器，可编辑标题、版本与检查" }).click()
+    await page.getByRole("button", { name: "本章资料", exact: true }).click()
+    await page.keyboard.press("Escape")
 
     await expect(page.locator("#writing-editor")).toBeVisible()
     await expect(page.locator("#writing-editor")).toHaveValue("尚未保存但必须保留的正文")
-    await expect(page.getByRole("button", { name: "返回速记" })).toBeFocused()
-    await page.getByRole("button", { name: "返回速记" }).click()
+    await expect(page.getByRole("button", { name: "本章资料", exact: true })).toBeFocused()
+    await page.getByRole("button", { name: "本章资料", exact: true }).click()
+    await page.keyboard.press("Escape")
     await expect(editor).toHaveValue("尚未保存但必须保留的正文")
-    await expect(editor).toBeFocused()
+    await expect(page.getByRole("button", { name: "本章资料", exact: true })).toBeFocused()
 
-    await page.getByRole("button", { name: "打开完整编辑器，可编辑标题、版本与检查" }).click()
+    await page.getByRole("button", { name: "本章资料", exact: true }).click()
+    await page.keyboard.press("Escape")
     const saveSummary = page.locator("#writing-editor-buttons").getByText("保存", { exact: true })
     await saveSummary.click()
     await page.keyboard.press("Escape")
@@ -1522,11 +1526,11 @@ test.describe("写作台模块", () => {
     await saveSummary.click()
     await page.getByRole("button", { name: "保存工作稿", exact: true }).click()
     await expect(page.locator("#writing-save-tools")).toBeHidden()
-    await expect(page.locator(SEL.toastContainer)).toContainText("已保存到工作稿", { timeout: 10000 })
+    await expect(page.locator("#writing-save-status")).toHaveText("已保存到工作稿", { timeout: 10000 })
     await page.reload()
     await waitWritingReady(page)
     await expect(page.locator("#writing-editor")).toBeVisible()
-    await expect(page.getByRole("button", { name: "返回速记" })).toBeVisible()
+    await expect(page.getByRole("button", { name: "本章资料", exact: true })).toBeVisible()
 
     await page.evaluate(() => window.router.navigate("project-settings"))
     await expect(page).toHaveURL(/project-settings/)
@@ -1535,7 +1539,7 @@ test.describe("写作台模块", () => {
     await page.goForward()
     await expect(page).toHaveURL(/project-settings/)
     await page.goBack()
-    await expect(page.getByRole("button", { name: "返回速记" })).toBeVisible({ timeout: 10000 })
+    await expect(page.getByRole("button", { name: "本章资料", exact: true })).toBeVisible({ timeout: 10000 })
 
     await page.setViewportSize({ width: 900, height: 844 })
     await page.locator(".sidebar-project-switcher").click()
@@ -1545,7 +1549,7 @@ test.describe("写作台模块", () => {
     await page.evaluate(() => window.router.navigate("writing"))
     await waitWritingReady(page, { chapter: 1 })
     await selectWritingChapter(page, 1)
-    await expect(page.getByLabel("移动端速记正文")).toHaveValue("独立的移动正文")
+    await expect(page.getByLabel("章节正文")).toHaveValue("独立的移动正文")
 
     await page.setViewportSize({ width: 900, height: 844 })
     await page.locator(".sidebar-project-switcher").click()
@@ -1553,7 +1557,7 @@ test.describe("写作台模块", () => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.evaluate(() => window.router.navigate("writing"))
     await waitWritingReady(page)
-    await expect(page.getByRole("button", { name: "返回速记" })).toBeVisible({ timeout: 10000 })
+    await expect(page.getByRole("button", { name: "本章资料", exact: true })).toBeVisible({ timeout: 10000 })
     expect(browserErrors).toEqual([])
     expect(failedApiRequests).toEqual([])
   })

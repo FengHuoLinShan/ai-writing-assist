@@ -48,7 +48,7 @@
           <button class="btn btn-sm btn-danger" :disabled="!selectedBulk.size" @click="removeSelected">批量删除章节 ({{ selectedBulk.size }})</button>
           <span class="writing-empty-hint">只删除当前可见章节</span>
         </div>
-        <button type="button" class="btn chapter-tree-create" aria-label="新建章节" @click="$emit('create')">＋ 新建章节</button>
+        <button type="button" class="btn chapter-tree-create" :class="{ 'btn-primary': !chapterList.length }" aria-label="新建章节" @click="$emit('create')">＋ 新建章节</button>
       </div>
     </div>
   </div>
