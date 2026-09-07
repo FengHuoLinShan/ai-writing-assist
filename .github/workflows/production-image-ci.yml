@@ -22,14 +22,24 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Classify CI changes
+        id: changes
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/classify_ci_changes.py
 
       - name: Build and smoke-test production images
+        if: steps.changes.outputs.images == 'true'
         run: make test-production-images
 
       - name: Create container SBOM artifact directory
+        if: steps.changes.outputs.images == 'true'
         run: mkdir -p .test-artifacts/container-sbom
 
       - name: Generate backend image CycloneDX SBOM
+        if: steps.changes.outputs.images == 'true'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           version: v0.73.0
@@ -43,6 +53,7 @@ jobs:
           timeout: 10m
 
       - name: Generate frontend image CycloneDX SBOM
+        if: steps.changes.outputs.images == 'true'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           skip-setup-trivy: true
@@ -56,6 +67,7 @@ jobs:
           timeout: 10m
 
       - name: Validate generated CycloneDX SBOMs
+        if: steps.changes.outputs.images == 'true'
         run: |
           python3 - <<'PY'
           import json
@@ -77,6 +89,7 @@ jobs:
           PY
 
       - name: Upload production image SBOMs
+        if: steps.changes.outputs.images == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: production-image-sboms
@@ -88,6 +101,7 @@ jobs:
           retention-days: 14
 
       - name: Gate backend image fixable high and critical vulnerabilities
+        if: steps.changes.outputs.images == 'true'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           skip-setup-trivy: true
@@ -102,6 +116,7 @@ jobs:
           timeout: 10m
 
       - name: Gate frontend image fixable high and critical vulnerabilities
+        if: steps.changes.outputs.images == 'true'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           skip-setup-trivy: true

@@ -22,11 +22,19 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Classify CI changes
+        id: changes
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/classify_ci_changes.py
 
       - name: Check repository secret hygiene
         run: python3 backend/tools/secret_hygiene.py
 
       - name: Install uv and Python
+        if: steps.changes.outputs.backend == 'true'
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           version: "0.12.3"
@@ -36,28 +44,34 @@ jobs:
           cache-dependency-glob: backend/uv.lock
 
       - name: Audit locked backend dependencies
+        if: steps.changes.outputs.backend == 'true'
         run: make audit-backend-deps
 
       - name: Install locked backend dependencies
+        if: steps.changes.outputs.backend == 'true'
         run: uv sync --project backend --locked --extra ci
 
       - name: Lint backend
+        if: steps.changes.outputs.backend == 'true'
         run: make lint
 
       - name: Run deployment contract tests
+        if: steps.changes.outputs.backend == 'true'
         run: make test-deploy
 
       - name: Run fast backend tests with coverage
+        if: steps.changes.outputs.backend == 'true'
         run: >-
           make test-fast-coverage TEST_WORKERS=2
           ARGS="-W error::RuntimeWarning"
 
       - name: Ask World offline launch gate (non-blocking diagnostic)
+        if: steps.changes.outputs.backend == 'true' && github.event_name == 'push'
         continue-on-error: true
         run: make eval-ask-world OUTPUT=evals/artifacts/ask-world-gate.json
 
       - name: Upload Ask World gate report
-        if: always()
+        if: always() && steps.changes.outputs.backend == 'true' && github.event_name == 'push'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ask-world-gate-report
@@ -95,8 +109,16 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Classify CI changes
+        id: changes
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/classify_ci_changes.py
 
       - name: Install uv and Python
+        if: steps.changes.outputs.postgresql == 'true'
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           version: "0.12.3"
@@ -106,27 +128,31 @@ jobs:
           cache-dependency-glob: backend/uv.lock
 
       - name: Install locked backend dependencies
+        if: steps.changes.outputs.postgresql == 'true'
         run: uv sync --locked --extra ci
 
       - name: Upgrade the dedicated database to Alembic head
+        if: steps.changes.outputs.postgresql == 'true'
         run: uv run --locked --extra ci -- alembic upgrade head
 
       - name: Capture pre-test PostgreSQL diagnostics
+        if: steps.changes.outputs.postgresql == 'true'
         env:
           POSTGRESQL_DIAGNOSTICS_PHASE: pre-test
         run: uv run --locked --extra ci -- python tools/postgresql_ci_diagnostics.py
 
       - name: Run serial PostgreSQL critical contracts
+        if: steps.changes.outputs.postgresql == 'true'
         run: make -C .. test-postgresql-critical
 
       - name: Capture post-test PostgreSQL diagnostics
-        if: always()
+        if: always() && steps.changes.outputs.postgresql == 'true'
         env:
           POSTGRESQL_DIAGNOSTICS_PHASE: post-test
         run: uv run --locked --extra ci -- python tools/postgresql_ci_diagnostics.py
 
       - name: Upload PostgreSQL diagnostics
-        if: always()
+        if: always() && steps.changes.outputs.postgresql == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: postgresql-critical-diagnostics

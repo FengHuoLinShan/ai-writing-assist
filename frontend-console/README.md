@@ -74,11 +74,13 @@ DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 \
 ```
 
 启动命令会在后端启动前执行 `APP_ENV=test alembic upgrade head`；
-`test:e2e:functional` 只收集功能测试，排除真实 LLM 和 worker 套件。完整套件在
-pull request 上由 `Frontend functional browser` job 运行一次：使用全新的专用 PostgreSQL、
-Compose 初始化的私有 MinIO bucket 和 Chromium，固定 workers=1、retries=0；失败时
-保留 `test-results/` 诊断产物 14 天。`test:e2e:smoke` 和 `test:e2e:map` 保留为本地定向入口，
-其用例已包含在完整套件中，不再单独占用 CI job。视觉、真实 LLM 和 worker suite
+`test:e2e:functional` 只收集功能测试，排除真实 LLM 和 worker 套件。相关 pull request 由 `Frontend functional browser` job 运行
+`test:e2e:smoke`（home/project/import/writing 四个文件）；每次 main push 运行完整
+`test:e2e:functional`。两者都使用全新的专用 PostgreSQL、Compose 初始化的私有 MinIO
+bucket 和 Chromium，固定 workers=1、retries=0；失败保留 `test-results/` 14 天。
+无关 PR 按 `scripts/classify_ci_changes.py` 跳过测试步骤；main 全量成功后才可发布，
+不能以 PR 冒烟通过代替完整回归。`test:e2e:map` 保留为本地定向入口。
+视觉、真实 LLM 和 worker suite
 仍是显式验收入口。
 
 ```bash
