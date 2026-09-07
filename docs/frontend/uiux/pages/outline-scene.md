@@ -218,7 +218,7 @@ AI 预览作为页内连续编辑区，以项目 + source task 隔离本机草�
 - 剧情进度 chip 补四段配色：当前 `--accent`、后续 secondary、已写过 success、未定位
   quaternary，均用文字 + 色点形态（修 §2-9）。
 - 健康四维条（未复核/未关联章节/缺设定/待整理）：计数用 mono；「待整理」属「需人工处理」
-  语义，允许朱红计数角标（§2 朱红白名单第 2 条），其余三维用中性色。
+  语义，允许朱红计数角标（§2 强调色使用规范第 2 条），其余三维用中性色。
 - 剧情进度与健康四维共用「场景概况」`<details>`：桌面端展开完整内容，窄屏默认
   收起为一行摘要；摘要优先当前已应用条件，否则显示数量最多的待办，不改变任何筛选语义。
 - 详情面板：label/控件/helper 统一缩进链（§5.2）；视角人物使用名称搜索器，显示
@@ -339,7 +339,7 @@ outline/scenes 可判定条件（如 `.outline-scene-layout` 存在性或 view+s
 - 四子视图状态三件套（空/加载/失败）齐备，融合队列、AI 细纲、正文整理、伏笔归并的
   状态反馈符合 §5；
 - 390px 无页面级横向溢出；subnav 键盘可达；窄屏抽屉满足对话框语义；
-- 不暴露 raw JSON / 裸 ID；「待处理」计数语义与朱红白名单一致；
+- 不暴露 raw JSON / 裸 ID；「待处理」计数语义与强调色使用规范一致；
 - §7 全部契约钩子保留（重命名视为破坏性变更，需同步全部 e2e/vitest）。
 
 **验证命令**（均在 `frontend-console/` 下执行）：
@@ -354,7 +354,7 @@ npx playwright test --config=playwright.functional.config.js \
   e2e/outline-scenes.spec.js e2e/scene-workbench.spec.js \
   e2e/outline-foreshadowing-reveal.spec.js e2e/outline-threads-arcs.spec.js
 
-# 视觉基线：三主题 × story/arcs/threads 共 9 张快照（scenes 子视图当前不在基线范围，
+# 视觉基线：浅／深色 × story/arcs/threads 共 6 张快照（scenes 子视图当前不在基线范围，
 # visual-outline.spec.js:8 明示；本轮修复后应评估把 scenes 纳入基线）
 npx playwright test --config=playwright.visual.config.js e2e/visual-outline.spec.js
 # 基线更新（仅在确认视觉变更为预期后）

@@ -87,7 +87,7 @@
 
 - 区块标题 = 区块标题档 `--text-md` 16px/600（§3.2），现状 `--text-xl`（`.today-section h2`）需下调；
   说明句「这些内容不会自动成为正式设定」= helper 档，保留。
-- **总数计数映射朱红白名单第 2 条**（问题 6）：`.today-count` 改为朱红计数角标——
+- **总数计数映射强调色使用规范第 2 条**（问题 6）：`.today-count` 改为朱红计数角标——
   `--archive-red` 数字（mono）+ 朱红小圆点或 `--archive-red-soft` 底，仅当 total > 0 时呈现朱红；
   total = 0 时角标隐藏，配合正向收束文案（见 §5 空态）。
 - attention 卡：保持 button 元素 + 4 列 grid（`.today-attention-grid`）。卡内三层：大数字（条目标题以上一级，

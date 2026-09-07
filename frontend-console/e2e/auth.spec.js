@@ -73,7 +73,7 @@ function seedPrivateBrowserState({ accountId = null } = {}) {
   }]))
   sessionStorage.setItem("workspace-rail:private-project-old:writing:assistant", "closed")
   sessionStorage.setItem("workflow-progress-card:private-task-old", "open")
-  localStorage.setItem("nc-theme", "night")
+  localStorage.setItem("nc-theme", "dark")
 }
 
 async function storedPrivateState(page) {
@@ -116,7 +116,7 @@ test("marker 缺失的公开邮箱登录会清除旧账号数据并写入账号 
     workflows: null,
     rail: null,
     workflowCard: null,
-    theme: "night",
+    theme: "dark",
   })
 })
 
@@ -136,7 +136,7 @@ test("公开模式启动时账号变化会清除旧账号数据", async ({ page 
     workflows: null,
     rail: null,
     workflowCard: null,
-    theme: "night",
+    theme: "dark",
   })
 })
 
@@ -169,6 +169,6 @@ test("真实退出入口会清除账号数据并保留主题", async ({ page }) 
     workflows: null,
     rail: null,
     workflowCard: null,
-    theme: "night",
+    theme: "dark",
   })
 })

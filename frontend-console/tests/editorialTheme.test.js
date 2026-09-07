@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
+import { DEFAULT_COLORS, COLOR_VARIABLES } from "../vue/theme/themeTokens.js"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const indexHtml = readFileSync(resolve(__dirname, "../index.html"), "utf8")
@@ -13,11 +14,16 @@ const writingDesk = readFileSync(resolve(__dirname, "../vue/views/writing/writin
 const worldSidebar = readFileSync(resolve(__dirname, "../vue/views/world/components/WorldSidebarToolCard.vue"), "utf8")
 
 function themeBlock(selector) {
-  return theme.match(new RegExp(`${selector.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\s*\\{([\\s\\S]*?)\\n\\}`))?.[1] || ""
+  if (selector === '[data-theme="light"]') selector = ':root'
+  const start = theme.indexOf(selector + ' {')
+  return start < 0 ? '' : theme.slice(start, theme.indexOf('}', start))
 }
 
 function token(block, name) {
-  return block.match(new RegExp(`${name}:\\s*(#[0-9A-F]{6});`, "i"))?.[1]
+  const direct = block.match(new RegExp(`${name}:\\s*(#[0-9A-F]{6});`, "i"))?.[1]
+  if (direct) return direct
+  const alias = block.match(new RegExp(`${name}:\\s*var\\((--[a-z-]+)\\)`))?.[1]
+  return alias ? token(block, alias) : undefined
 }
 
 function luminance(hex) {
@@ -49,14 +55,15 @@ describe("editorial archive theme", () => {
     expect(indexHtml).not.toContain('id="view-actions"')
   })
 
-  it("defines the --nc-* token layer for sticky, night and ink themes", () => {
-    expect(theme).toMatch(/:root\s*\{[\s\S]*--nc-bg:\s*#FFFFFF;[\s\S]*--nc-ink:\s*#37352F;[\s\S]*--nc-accent:\s*#1B6FB8;[\s\S]*--nc-hairline:\s*#E9E9E7;/)
-    expect(theme).toMatch(/\[data-theme="night"\]\s*\{[\s\S]*--nc-bg:\s*#111114;[\s\S]*--nc-ink:\s*#E5E2DC;[\s\S]*--nc-accent:\s*#D9A441;[\s\S]*--nc-hairline:\s*#26262A;/)
-    expect(theme).toMatch(/\[data-theme="ink"\]\s*\{[\s\S]*--nc-bg:\s*#F7F3EA;[\s\S]*--nc-ink:\s*#1F2321;[\s\S]*--nc-accent:\s*#C03F2B;[\s\S]*--nc-hairline:\s*#D8D2CC;/)
+  it("keeps built-in CSS palettes aligned with the import vocabulary", () => {
+    for (const mode of ['light', 'dark']) {
+      const block = themeBlock(mode === 'light' ? ':root' : '[data-theme="dark"]')
+      for (const [key, variable] of Object.entries(COLOR_VARIABLES)) expect(token(block, variable)).toBe(DEFAULT_COLORS[mode][key])
+    }
   })
 
   it("keeps necessary text and primary actions at normal-text contrast", () => {
-    const themes = [themeBlock(":root"), themeBlock('[data-theme="night"]'), themeBlock('[data-theme="ink"]')]
+    const themes = [themeBlock(":root"), themeBlock('[data-theme="dark"]'), themeBlock('[data-theme="light"]')]
     for (const block of themes) {
       for (const background of [token(block, "--nc-bg"), token(block, "--nc-surface")]) {
         expect(contrast(token(block, "--nc-dim"), background)).toBeGreaterThanOrEqual(4.5)
@@ -129,7 +136,7 @@ describe("editorial archive theme", () => {
     expect(imageViewport).toMatch(/background:#20242C;color:#FFFFFF/)
     expect(mapStyles.replace(imageViewport, "")).not.toMatch(/#[0-9A-F]{3,8}\b/i)
 
-    for (const block of [themeBlock(":root"), themeBlock('[data-theme="night"]'), themeBlock('[data-theme="ink"]')]) {
+    for (const block of [themeBlock(":root"), themeBlock('[data-theme="dark"]'), themeBlock('[data-theme="light"]')]) {
       for (const background of [token(block, "--nc-bg"), token(block, "--nc-surface"), token(block, "--nc-surface-muted")]) {
         expect(contrast(token(block, "--nc-body"), background)).toBeGreaterThanOrEqual(4.5)
       }
@@ -169,9 +176,9 @@ describe("editorial archive theme", () => {
     expect(writingDesk).toMatch(/\.scene-cockpit-module__head > button\s*\{[^}]*font-size:\s*var\(--text-sm\)/s)
     expect(writingDesk).toMatch(/@media \(max-width: 760px\)[\s\S]*\.scene-alert-card__action,[\s\S]*\.writing-conflict-evidence-drawer > summary\s*\{[^}]*min-height:\s*42px;/s)
 
-    for (const block of [themeBlock(":root"), themeBlock('[data-theme="night"]'), themeBlock('[data-theme="ink"]')]) {
+    for (const block of [themeBlock(":root"), themeBlock('[data-theme="dark"]'), themeBlock('[data-theme="light"]')]) {
       expect(contrast(token(block, "--nc-body"), mixHex(token(block, "--nc-warning"), token(block, "--nc-surface"), 0.07))).toBeGreaterThanOrEqual(4.5)
-      expect(contrast(token(block, "--nc-body"), token(block, "--nc-alert-bg"))).toBeGreaterThanOrEqual(4.5)
+      expect(contrast(token(block, "--nc-body"), mixHex(token(block, "--nc-error"), token(block, "--nc-surface"), 0.1))).toBeGreaterThanOrEqual(4.5)
       expect(contrast(token(block, "--nc-dim"), token(block, "--nc-surface"))).toBeGreaterThanOrEqual(4.5)
     }
   })
@@ -192,7 +199,7 @@ describe("editorial archive theme", () => {
     expect(theme).not.toContain("⚙")
     expect(theme).not.toContain('content: var(--archive-mark);')
     expect(theme).not.toContain('[data-theme="warm"]')
-    expect(theme).not.toContain('[data-theme="dark"]')
+    expect(theme).not.toContain('[data-theme="ink"]')
     expect(styles).not.toMatch(/main-layout--immersive\s+#workspace-content::before/)
   })
 
@@ -203,15 +210,10 @@ describe("editorial archive theme", () => {
     expect(theme).toMatch(/outline:\s*2px solid var\(--nc-accent\);/)
   })
 
-  it("ships the three-dot theme switcher skin behind the shell contract", () => {
-    expect(theme).toMatch(/button\.theme-dot\s*\{[^}]*width:\s*28px;[^}]*background:\s*transparent;/s)
-    expect(theme).toMatch(/button\.theme-dot::before\s*\{[^}]*width:\s*14px;[^}]*border:\s*1px solid var\(--nc-hairline-strong\);/s)
-    expect(theme).toMatch(/\.theme-dot\[data-theme-value="sticky"\]::before\s*\{[^}]*background:\s*#FFFFFF;/s)
-    expect(theme).toMatch(/\.theme-dot\[data-theme-value="night"\]::before\s*\{[^}]*background:\s*#111114;/s)
-    expect(theme).toMatch(/\.theme-dot\[data-theme-value="ink"\]::before\s*\{[^}]*background:\s*#C03F2B;/s)
-    expect(theme).toMatch(/\.theme-dot\.is-active::before\s*\{[^}]*box-shadow:\s*0 0 0 2px var\(--nc-bg\),\s*0 0 0 4px var\(--nc-accent\);/s)
-    expect(theme).toMatch(/@media \(max-width: 760px\)[\s\S]*?button\.theme-dot\s*\{[^}]*width:\s*42px;[^}]*height:\s*42px;/s)
-    expect(styles).toMatch(/@media \(max-width: 760px\)[\s\S]*?#topbar \.topbar-center > :not\(#topbar-project\)\s*\{[^}]*display:\s*none;[\s\S]*?#topbar-project\s*\{[^}]*max-width:\s*none;[\s\S]*?\.avatar\s*\{[^}]*width:\s*42px;[^}]*height:\s*42px;/s)
+  it("uses labelled mode buttons with touch-sized hit areas", () => {
+    expect(theme).toContain('button.theme-dot.is-active')
+    expect(theme).toMatch(/button\.theme-dot\s*\{[^}]*min-width:\s*44px;[^}]*height:\s*44px;/s)
+    expect(theme).toContain('button.theme-dot::before, button.theme-dot::after { content: none; }')
   })
 
   it("animates theme switching and honors reduced motion", () => {
@@ -236,8 +238,8 @@ describe("editorial archive theme", () => {
   })
 
   it("keeps night-theme disabled buttons on neutral paper instead of a light slab", () => {
-    expect(theme).toMatch(/\[data-theme="night"\] \.btn:disabled,\s*\[data-theme="night"\] \.btn\.disabled\s*\{[^}]*background:\s*var\(--archive-paper-raised\);[^}]*color:\s*var\(--archive-ink-soft\);/s)
-    expect(theme).toMatch(/\[data-theme="night"\] \.btn-text:disabled,\s*\[data-theme="night"\] \.btn-text\.disabled\s*\{[^}]*background:\s*transparent;/s)
-    expect(styles).toMatch(/\[data-theme="night"\] \.rp-send-button:disabled:not\(\.is-loading\)\s*\{[^}]*background:\s*var\(--rp-accent-soft\);/s)
+    expect(theme).toMatch(/\[data-theme="dark"\] \.btn:disabled,\s*\[data-theme="dark"\] \.btn\.disabled\s*\{[^}]*background:\s*var\(--archive-paper-raised\);[^}]*color:\s*var\(--archive-ink-soft\);/s)
+    expect(theme).toMatch(/\[data-theme="dark"\] \.btn-text:disabled,\s*\[data-theme="dark"\] \.btn-text\.disabled\s*\{[^}]*background:\s*transparent;/s)
+    expect(styles).toMatch(/\[data-theme="dark"\] \.rp-send-button:disabled:not\(\.is-loading\)\s*\{[^}]*background:\s*var\(--rp-accent-soft\);/s)
   })
 })

@@ -43,7 +43,7 @@
 7. **已解决：流式滚动与 reduced-motion**。故事容器不再设置 smooth，逐 chunk 使用直接滚动；
    离散定位仍按系统 reduced-motion 选择 smooth/auto，入口卡与操作行过渡在减弱动效时停用。
 8. **已核对：RP 返回路径与共享账户设置边界**。`GlobalSettingsView` 已经收入
-   `.settings-shell` 并全部消费三主题语义 token；RP 返回时只保留「返回旅程」与 AI 文本服务，
+   `.settings-shell` 并全部消费浅／深色语义 token；RP 返回时只保留「返回旅程」与 AI 文本服务，
    隐藏图片服务和作者偏好。此页管理账户级密钥，保持共享设置视觉，不伪装成故事内容页。
 9. **已解决：消息操作常见可见**。桌面使用跨主题可读的正文色常显，hover/focus 再以边框和
    底色强调；字号升至 13px、按钮最小高 32px，移动端继续使用 42px 触控高度。
@@ -194,7 +194,7 @@
   （JourneyListView.vue:243-246、InteractionView.vue:219-224）与接收方
   （GlobalSettingsView.vue:34-37、95-107、217-234、327）行为保留。
 - 设置页 RP 往返态保留返回旅程和文本模型连接，隐藏与当前任务无关的图片连接、
-  作者偏好和作品范围。账户级密钥继续使用共享三主题 settings shell，不再计划另造 RP 皮肤。
+  作者偏好和作品范围。账户级密钥继续使用共享浅／深色 settings shell，不再计划另造 RP 皮肤。
 
 ## 5. 状态覆盖清单（逐项现状缺口与目标形态）
 

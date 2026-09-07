@@ -2,7 +2,7 @@ import { test, expect } from "./fixtures.js"
 import { createDraft, createEntity, createScene, waitForBackend } from "./helpers/api-client.js"
 import { openWorkbench, openWritingAiDrawer } from "./helpers/workbench.js"
 
-const THEMES = ["sticky", "night", "ink"]
+const THEMES = ["light", "dark"]
 
 async function applyTheme(page, theme) {
   await page.locator(`.theme-dot[data-theme-value="${theme}"]`).evaluate((element) => element.click())
@@ -24,7 +24,9 @@ async function screenshotPage(page, name) {
 async function openPovWorkbench(page, project) {
   await openWorkbench(page, project, "writing")
   await openWritingAiDrawer(page)
-  await page.locator('[data-action="owner-writing-pov-workbench"]').click()
+  const povWorkbench = page.locator('[data-action="owner-writing-pov-workbench"]')
+  if (!await povWorkbench.isVisible()) await page.locator(".owner-ai-writing__more > summary").click()
+  await povWorkbench.click()
   await expect(page.locator("#generate-mode-panel-pov_prose")).toBeVisible({ timeout: 10000 })
 }
 
@@ -48,7 +50,7 @@ test.describe("生成工具视觉基线", () => {
     await page.goto("/")
   })
 
-  test("任务上下文 × 三主题与手机", async ({ page, projectFactory, browserErrors }) => {
+  test("任务上下文 × 浅／深色与手机", async ({ page, projectFactory, browserErrors }) => {
     const project = await projectFactory({ title: "视觉基线生成任务", genre: "fantasy", language: "zh" })
     await openWorkbench(page, project, "generate")
     await page.locator('[data-action="owner-task-context"]').click()
@@ -61,8 +63,8 @@ test.describe("生成工具视觉基线", () => {
     }
 
     await page.setViewportSize({ width: 375, height: 812 })
-    await applyTheme(page, "night")
-    await screenshotPage(page, "generate-task-mobile-night.png")
+    await applyTheme(page, "dark")
+    await screenshotPage(page, "generate-task-mobile-dark.png")
     expect(browserErrors, `浏览器错误: ${JSON.stringify(browserErrors)}`).toHaveLength(0)
   })
 
@@ -103,12 +105,12 @@ test.describe("生成工具视觉基线", () => {
     await page.getByRole("button", { name: "整理参考资料" }).click()
     await expect(page.locator("#gen-task-output")).toContainText("已准备 4 类参考资料", { timeout: 10000 })
     await page.locator(".generate-task-result").scrollIntoViewIfNeeded()
-    await screenshotPage(page, "generate-context-review-desktop-sticky.png")
+    await screenshotPage(page, "generate-context-review-desktop-light.png")
 
     await page.setViewportSize({ width: 390, height: 844 })
-    await applyTheme(page, "night")
+    await applyTheme(page, "dark")
     await page.locator(".generate-task-result").scrollIntoViewIfNeeded()
-    await screenshotPage(page, "generate-context-review-mobile-night.png")
+    await screenshotPage(page, "generate-context-review-mobile-dark.png")
     expect(browserErrors, `浏览器错误: ${JSON.stringify(browserErrors)}`).toHaveLength(0)
   })
 
@@ -119,7 +121,7 @@ test.describe("生成工具视觉基线", () => {
     await expect(rail).toHaveAttribute("open", "")
     await expect(rail).toContainText("本轮参考资料")
     await expect(page.locator("#generate-result")).toHaveCount(0)
-    await screenshotPage(page, "generate-world-reference-desktop-sticky.png")
+    await screenshotPage(page, "generate-world-reference-desktop-light.png")
 
     await page.setViewportSize({ width: 375, height: 812 })
     await page.goto("/")
@@ -127,8 +129,8 @@ test.describe("生成工具视觉基线", () => {
     await openWorkbench(page, project, "generate")
     await expect(rail).not.toHaveAttribute("open", "")
     await expect(rail.locator(":scope > summary")).toContainText("世界观简介 · 常规复核")
-    await applyTheme(page, "night")
-    await screenshotPage(page, "generate-world-reference-mobile-night.png")
+    await applyTheme(page, "dark")
+    await screenshotPage(page, "generate-world-reference-mobile-dark.png")
     expect(browserErrors, `浏览器错误: ${JSON.stringify(browserErrors)}`).toHaveLength(0)
   })
 
@@ -167,6 +169,8 @@ test.describe("生成工具视觉基线", () => {
     await openWorkbench(page, project, "generate")
     await page.locator("#generate-chat-input").fill("把夜间交通规则收束成一条待审建议")
     await page.getByRole("button", { name: "生成世界对象建议" }).click()
+    await expect(page.getByRole("button", { name: "按这份资料开始" })).toBeEnabled()
+    await page.getByRole("button", { name: "按这份资料开始" }).click()
     const result = page.locator("#generate-result")
     await expect(result).toContainText("夜潮通行制", { timeout: 10000 })
     await expect(result.locator(".generate-result-meta")).toHaveText("规则设定 · 待处理")
@@ -174,7 +178,7 @@ test.describe("生成工具视觉基线", () => {
     const resultBox = await result.boundingBox()
     const railBox = await page.locator(".generate-side-rail").boundingBox()
     expect(resultBox.width).toBeGreaterThan(railBox.width * 2)
-    await screenshotPage(page, "generate-world-result-desktop-sticky.png")
+    await screenshotPage(page, "generate-world-result-desktop-light.png")
     expect(browserErrors, `浏览器错误: ${JSON.stringify(browserErrors)}`).toHaveLength(0)
   })
 
@@ -187,17 +191,17 @@ test.describe("生成工具视觉基线", () => {
     await composer.evaluate((element) => { element.style.height = "144px" })
     const send = page.locator('[data-action="send-chat-message"]')
     await send.evaluate((element) => element.scrollIntoView({ block: "center" }))
-    await screenshotPage(page, "generate-world-composer-desktop-sticky.png")
+    await screenshotPage(page, "generate-world-composer-desktop-light.png")
 
     await page.setViewportSize({ width: 390, height: 844 })
-    await applyTheme(page, "night")
+    await applyTheme(page, "dark")
     await send.evaluate((element) => element.scrollIntoView({ block: "center" }))
-    await screenshotPage(page, "generate-world-composer-mobile-night.png")
+    await screenshotPage(page, "generate-world-composer-mobile-dark.png")
 
     await page.setViewportSize({ width: 812, height: 375 })
-    await applyTheme(page, "sticky")
+    await applyTheme(page, "light")
     await send.evaluate((element) => element.scrollIntoView({ block: "center" }))
-    await screenshotPage(page, "generate-world-composer-landscape-sticky.png")
+    await screenshotPage(page, "generate-world-composer-landscape-light.png")
     expect(browserErrors, `浏览器错误: ${JSON.stringify(browserErrors)}`).toHaveLength(0)
   })
 
@@ -221,12 +225,12 @@ test.describe("生成工具视觉基线", () => {
     await page.locator("#generate-pov-scene").selectOption({ label: "退潮后的石门" })
     await page.locator("#generate-pov-character").selectOption(character.id)
     await page.locator("#generate-pov-instruction").fill("保持克制，让林舟先观察刻痕，再决定是否告诉同行者。")
-    await screenshotPage(page, "generate-pov-form-desktop-sticky.png")
+    await screenshotPage(page, "generate-pov-form-desktop-light.png")
 
     await page.setViewportSize({ width: 390, height: 844 })
-    await applyTheme(page, "night")
+    await applyTheme(page, "dark")
     await page.locator("#generate-pov-instruction").scrollIntoViewIfNeeded()
-    await screenshotPage(page, "generate-pov-form-mobile-night.png")
+    await screenshotPage(page, "generate-pov-form-mobile-dark.png")
     expect(browserErrors, `浏览器错误: ${JSON.stringify(browserErrors)}`).toHaveLength(0)
   })
 })

@@ -1,4 +1,5 @@
 <template>
+  <p v-if="theme.error.value" class="auth-theme-notice" role="status">{{ theme.error.value }}</p>
   <HomeChoiceView v-if="!account && !entryMode" selection-only @select="selectEntry" />
   <main v-else class="auth-page">
     <section class="auth-card" aria-labelledby="auth-title" :aria-busy="busy">
@@ -41,12 +42,14 @@
 </template>
 
 <script setup>
+import { getThemeController } from "../shell/composables/useTheme.js"
 import { computed, nextTick, ref } from "vue"
 import { getApi } from "../bridge/index.js"
 import { useResendCountdown } from "../composables/useResendCountdown.js"
 import HomeChoiceView from "../views/interaction/HomeChoiceView.vue"
 import { readEntryMode, storeEntryMode } from "./entryMode.js"
 
+const theme = getThemeController()
 const props = defineProps({
   config: { type: Object, required: true },
   initialAccount: { type: Object, default: null },
@@ -127,12 +130,13 @@ async function restore() {
 </script>
 
 <style scoped>
-.auth-page{min-height:100vh;display:grid;place-items:center;padding:24px;background:#f4f0e8;color:#292722}
-.auth-card{width:min(100%,440px);display:grid;gap:18px;padding:36px;border:1px solid #d7d0c3;border-radius:18px;background:#fff;box-shadow:0 18px 50px #514a3b1a}
-.auth-brand{font-weight:700;letter-spacing:.04em;color:#8c5a32}.auth-card h1{margin:0;font-size:28px}.auth-card p{margin:0;line-height:1.6}
-.auth-card label{display:grid;gap:8px;font-size:14px}.auth-card input{min-width:0;padding:12px;border:1px solid #cfc7b9;border-radius:9px;font:inherit}
-.code-row{display:grid;grid-template-columns:1fr auto;gap:10px}.auth-card button,.button-link{padding:12px 16px;border:0;border-radius:9px;background:#6f4628;color:#fff;font:inherit;text-align:center;text-decoration:none;cursor:pointer}
-.auth-card button:disabled{opacity:.5;cursor:not-allowed}.auth-card .secondary{background:#e9dfd2;color:#4b3525}.consent{grid-template-columns:auto 1fr!important;align-items:start}.consent input{margin-top:3px}.message{color:#315c39}.message.error{color:#a23232}.support{font-size:13px;color:#6d675f}
+.auth-theme-notice{margin:0;padding:12px 20px;background:var(--nc-warning-soft);color:var(--text-body);font-size:14px;line-height:1.5}
+.auth-page{min-height:100vh;display:grid;place-items:center;padding:24px;background:var(--bg-base);color:var(--text-body)}
+.auth-card{width:min(100%,440px);display:grid;gap:18px;padding:36px;border:1px solid var(--border);border-radius:18px;background:var(--bg-panel);box-shadow:0 18px 50px transparent}
+.auth-brand{font-weight:700;letter-spacing:.04em;color:var(--text-primary)}.auth-card h1{margin:0;font-size:28px}.auth-card p{margin:0;line-height:1.6}
+.auth-card label{display:grid;gap:8px;font-size:14px}.auth-card input{min-width:0;padding:12px;border:1px solid var(--nc-hairline-strong);border-radius:9px;font:inherit}
+.code-row{display:grid;grid-template-columns:1fr auto;gap:10px}.auth-card button,.button-link{padding:12px 16px;border:0;border-radius:9px;background:var(--nc-primary);color:var(--nc-on-primary);font:inherit;text-align:center;text-decoration:none;cursor:pointer}
+.auth-card button:disabled{opacity:.5;cursor:not-allowed}.auth-card .secondary{background:var(--bg-muted);color:var(--text-body)}.consent{grid-template-columns:auto 1fr!important;align-items:start}.consent input{margin-top:3px}.message{color:var(--success)}.message.error{color:var(--error)}.support{font-size:13px;color:var(--text-secondary)}
 /* 局部组件自适应断点保留（design-standard.md §6：全局仅 760/1100 两档，此处为组件级微调） */
 @media(max-width:520px){.auth-card{padding:24px}.code-row{grid-template-columns:1fr}.auth-card .secondary{width:100%}}
 </style>

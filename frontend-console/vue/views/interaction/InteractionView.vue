@@ -28,6 +28,7 @@ import {
 } from "./interactionSession.js"
 import {
   normalizeTheme,
+  getThemeController,
   SHELL_THEMES,
 } from "../../shell/composables/useTheme.js"
 import RpAdaptiveConfirmPopover from "./RpAdaptiveConfirmPopover.vue"
@@ -130,10 +131,7 @@ const sourceError = ref("")
 const sourceDrawer = ref(null)
 const hasNewerMessages = ref(false)
 const moreMenu = ref(null)
-const currentTheme = ref(normalizeTheme(
-  globalThis.document?.documentElement?.getAttribute?.("data-theme")
-  || globalThis.localStorage?.getItem?.("nc-theme"),
-))
+const currentTheme = getThemeController().current
 const themeFocusValue = ref(currentTheme.value)
 const pathIndex = ref(props.initialPathIndex?.items || [])
 const pathIndexEpoch = ref(
@@ -1112,6 +1110,11 @@ function isExcluded(referenceKey) {
   )
 }
 
+function openAppearance() {
+  const query = new URLSearchParams({ section: "appearance", return_to: `interaction:${journeyId.value}` })
+  closeMoreMenuAndFocus()
+  getRouter().navigate("settings", null, true, query)
+}
 function selectTheme(value, event) {
   const theme = normalizeTheme(value)
   currentTheme.value = theme
@@ -1934,6 +1937,7 @@ onBeforeUnmount(() => {
           <button type="button" @click="closeMoreMenu(); goConnect()">
             更改模型<template v-if="activeProvider">（{{ activeProvider.label }}）</template>
           </button>
+          <button type="button" @click="openAppearance">外观与主题包</button>
           <section class="rp-more-menu__themes" aria-label="主题">
             <span>主题</span>
             <div role="menu" aria-label="选择阅读主题" @keydown="onThemeMenuKeydown">

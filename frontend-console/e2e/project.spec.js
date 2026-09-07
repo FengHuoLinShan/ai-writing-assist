@@ -2,6 +2,7 @@ import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
 import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
 import { expectNoPageOverflow, expectWithinViewport } from "./helpers/responsive.js"
+import { contrastRatio } from "../vue/theme/themeTokens.js"
 
 async function enterAuthorProjects(page) {
   await page.getByRole("button", { name: /我是作家/ }).click()
@@ -250,6 +251,17 @@ test.describe("项目模块", () => {
 
     const deleteBtn = card.locator('[data-action="delete-project"]')
     await expect(deleteBtn).toBeVisible()
+    for (const mode of ["light", "dark"]) {
+      await page.locator(SEL.themeOption(mode)).click()
+      await deleteBtn.hover()
+      await expect.poll(async () => {
+        const [foreground, background] = await deleteBtn.evaluate(element => {
+          const style = getComputedStyle(element)
+          return [style.color, style.backgroundColor].map(color => `#${color.match(/\d+/g).slice(0, 3).map(n => Number(n).toString(16).padStart(2, "0")).join("")}`)
+        })
+        return contrastRatio(foreground, background)
+      }).toBeGreaterThanOrEqual(4.5)
+    }
     await deleteBtn.click()
 
     // 确认删除弹窗

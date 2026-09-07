@@ -48,14 +48,21 @@ Prompt 或 token；预算遗漏另行解释。作者可逐项移除/恢复、用
 - 首次进入、空态、加载、失败/冲突、保存成功、撤销/回滚和窄屏不是装饰状态，而是适用功能
   的验收面。
 
+## 现代简约与本地外观资源
+
+2026-09-07 的全站重设计见 ADR-0019 与 `docs/frontend/uiux/design-standard.md`。`light / dark / system` 是明暗偏好，解析后的 `data-theme` 只为 light/dark；`nc-theme-package` 指向浏览器 IndexedDB 中的资源包，默认 modern。
+
+外观入口使用现有 settings 路由的 `section=appearance` query，不增加 HTTP API 或业务 schema。作者与 RP 共用主题控制器；RP 返回目标沿用受限 `return_to`。主题导入为 ZIP 校验 → 隔离预览 → 本地保存并应用，资源缺失／损坏有可见回退，保存失败不声称成功。不能把主题包当作通用上传或可执行插件。
+
+共享样式重设计覆盖认证、账户、作者页面、RP、浮层和状态反馈。手机使用同一 WritingEditor，章节与资料进入 WorkspaceDrawer，保留 useModalDialog 焦点边界；主题与抽屉变化不重建正文节点。
+
 ## 架构
 
 - 入口：`index.html`
-- 基础样式：`styles.css`（结构/排版/布局尺寸；ink 主题字体族覆写）
+- 基础样式：`styles.css`（结构/排版/布局尺寸）
 - 全站主题覆层：`editorial-theme.css`（视觉表达唯一权威；`--nc-*` 原语层 + 语义转发层 +
-  `--archive-*` 兼容别名；末尾含 shell 级点缀分节）
-- 写作页样式：`vue/views/writing/writing-desk.css`（页面级）与
-  `vue/views/writing/writing-decorations.css`（编辑区点缀与水印字）
+  `--archive-*` 兼容别名；不再保留旧主题点缀）
+- 写作页样式：`vue/views/writing/writing-desk.css`（页面级）
 - 全局状态：`state.js`
 - 状态切片 helper：`stateSlices.js`
 - 路由：`router.js`
@@ -96,13 +103,13 @@ Prompt 或 token；预算遗漏另行解释。作者可逐项移除/恢复、用
 
 | 视图 | 当前职责 |
 |------|----------|
-| `vue/views/interaction/HomeChoiceView.vue` | `home` 路由与未登录公共首屏共用的双入口；公共模式只回传作者 / RP 选择，不请求受保护资料。双入口与沉浸壳跟随当前三主题而不闪白；已登录作者入口校验当前账户的已选作品并智能续接 Writing Home，无有效作品时回作品档案；RP 卡使用“进入互动故事”并解释一次角色扮演（RP） |
+| `vue/views/interaction/HomeChoiceView.vue` | `home` 路由与未登录公共首屏共用的双入口；公共模式只回传作者 / RP 选择，不请求受保护资料。双入口与沉浸壳跟随当前现代简约双模式而不闪白；已登录作者入口校验当前账户的已选作品并智能续接 Writing Home，无有效作品时回作品档案；RP 卡使用“进入互动故事”并解释一次角色扮演（RP） |
 | `vue/views/interaction/JourneyListView.vue` / `RpSourceSetup.vue` | `journeys` 路由；扁平旅程列表、新旅程、归档/搜索；归档与永久删除共用 RP 确认层，永久删除保留完整标题门禁，开场创建在原按钮公开忙碌状态；新建页按资料来源、作品/文件、整理与歧义、角色与开场四步渐进展开，已完成步骤保留摘要和返回编辑；复用现有 session、精确 source revision、整理任务、关键歧义与自然语言剧情候选的显式确认，不改创建 wire |
 | `vue/views/interaction/InteractionView.vue` | `interaction/{journey_id}` 路由；640px 舒适阅读列、可辨认且 reduced-motion 安全的流式段落、composer、分支、回顾、看海与右侧定位；内置主题菜单提供 menuitemradio、roving tabindex、方向键/Escape 与焦点归还；发送、停止、继续与重新生成提供按钮级忙碌反馈，历史段落经 RP 确认层说明后可原位建立新分支；消息操作以正文色和较小字阶常显，导出成功/失败都有反馈；source-bound 旅程从“更多 → 作品资料”抽屉查看版本/进度/本轮引用理由、固定/忽略对象并显式升级 |
 | `vue/views/project/ProjectView.vue` | `project` 路由（Vue island）；紧凑作品档案，默认主操作为“继续写作”，搜索/筛选单行展示；回收站始终可见，批量、编辑和删除在“管理作品”模式渐进展开；作品卡支持鼠标、Enter 与 Space 打开；无作品时优先显示新建与导入 |
 | `vue/views/writing/home/WritingHomeView.vue` / `AuthorTasksView.vue` / `vue/views/today/TodayView.vue` | `writing?home=1` 的写作首页；已有章节时正文续写是唯一主行动，本机或服务器世界创作位置作为次级恢复入口；空白作品也以「开始第一章」进入正文，World Core 仅作次操作，导入整理和明确的世界工作稿仍可原位恢复。主行动后显示最多 3 项“计划中的任务”，`panel=tasks` 提供今天/收件箱/之后/已完成与次级归档。作者任务可完成；首页完成请求绑定点击时的作品和组件代次，切换或卸载后的晚到响应不改写新页面、提示或刷新。领域待决只返回所属页，后台整理只显示进度/恢复，三者不混用勾选。章节、Scene 与世界 Page/Entity 可就地建任务并返回类型化来源 |
 | `vue/views/rag/RagView.vue` / `vue/views/outline/components/OutlineHeader.vue` / `vue/views/scene/SceneWorkbenchView.vue` / `vue/views/world/WorldView.vue` / `vue/views/world/components/WorldReviewTab.vue` | 可切换子导航使用原生 button，当前项公开 `aria-current="page"`；Scene 工作台当前项保持非交互，避免同路由刷新 |
-| `vue/views/writing/WritingView.vue` | 纯章节目录、工作稿编辑器、手选 Scene 副驾驶与 AI 建议采用；普通模式可返回 `writing?home=1`，导航仍经过未保存正文离开门禁；光标不切换 Scene，AI/检查/发布统一消费手选 Scene；桌面与移动端共用白名单“本场”摘要，POV 可见资料只在点击后加载并隔离晚到响应；移动速记在 390px 使用原生 details，并可逆进入按项目恢复的完整编辑模式；自动保存、导入和候选采用继续保持原安全语义 |
+| `vue/views/writing/WritingView.vue` | 纯章节目录、工作稿编辑器、手选 Scene 副驾驶与 AI 建议采用；普通模式可返回 `writing?home=1`，导航仍经过未保存正文离开门禁；光标不切换 Scene，AI/检查/发布统一消费手选 Scene；桌面与移动端共用白名单“本场”摘要，POV 可见资料只在点击后加载并隔离晚到响应；手机编辑器在 390px 使用原生 details，并可逆进入按项目恢复的完整编辑模式；自动保存、导入和候选采用继续保持原安全语义 |
 | `vue/views/writing/components/WritingWorkflowBars.vue` | 写作台长任务完成卡；深度导入额外显示自动归并数与遗留复核组数，有遗留项时用作者语言引导到现有“人物与世界 → 智能去重”，不自动发起第二次全项目扫描 |
 | `vue/views/world/WorldView.vue` / `vue/views/world/{library,pages}/` | `world` 路由（Vue island）；可见子导航只有资料库/关系/需要决定。`world/bible` 用同一 `page/entity` tagged Card read model 组合资料页、工作稿和已采用对象；首页以常用六类、工作稿和更多类型进入结果页，准确对象计数复用 hot facets，cards/list、搜索、形态、类型和状态继续写 URL。World 子页经通用 shell slot 把动态工具卡 Teleport 到一级侧栏；健康、页面未决项和更多类型使用 Vue 模态焦点边界，移动端改为页面内工具入口。统一创建先分具体对象与资料页；对象类型必选，人物详情按需编辑现有 Character 简单字段，名称/别名仍由 CoreEntity 管理。Entity 深链、关联资产、滚动恢复和人物/页面未保存离开门禁保持不变。旧 `objects/aliases` 查询规范化，原对象库图片/批量/回滚/人物认知从次级工具继续可达，review 旧深链仍定位统一工作台。对象搜索保留服务端别名/隐藏资料命中，局部失败可原位重试；760px 以下单栏且主要操作至少 44px。高风险保存、发布、采用和忽略不只放在侧栏；关联图独立在 `world/pages/WorldBibleKnowledgeGraph.vue` |
 | `vue/views/map/MapWorkspaceView.vue` | AI 地图册一级工作台：一键生成/更新、本次候选、已采用画廊、来源分类、冲突确认、停止恢复、图片编辑与标注。 |
@@ -204,29 +211,20 @@ Prompt 或 token；预算遗漏另行解释。作者可逐项移除/恢复、用
   最近更新时间排序；桌面首屏展示三个完整项目摘要，`1100px` 以下两列、`760px` 以下单列。
   视觉层只消费既有标题、题材、阶段、简介和统计字段，常见题材枚举显示为中文，不新增封面数据
   或 API；`390px` 隐藏纯装饰封面且不产生页面级横向溢出。
-- 全部一级页面、子标签、弹窗、表格和辅助栏共用三主题换肤体系：`sticky`（晨光便签，浅色默认）、
-  `night`（暗夜书房，深色）、`ink`（水墨写意，纸色），经 `<html data-theme="…">` 切换。
-  `editorial-theme.css` 作为后加载覆层拥有视觉表达：`--nc-*` 原语层是唯一写色值的一层
-  （`:root` = sticky，`[data-theme="night"|"ink"]` 只覆写 `--nc-*`），语义层全从 `--nc-*` 转发，
-  `--archive-*` 保留为转发别名；`styles.css` 保持结构布局。全站线条为 1px hairline，阴影只用于
-  浮层。主题持久化 key 为 `nc-theme`（首次从旧 key `novel_theme` 迁移并删除；legacy 值映射
-  `light/minimal→sticky`、`dark/dark-soft→night`、`paper/warm→ink`）；无存储时跟随系统
-  `prefers-color-scheme`（dark → night）。切换入口为顶栏三点切换器（`.topbar-theme` radiogroup +
-  `button.theme-dot[data-theme-value]`，Tab 只进入当前主题并支持方向键；14px 圆点使用桌面 28px /
-  触控档 42px 命中区），切换过渡 250ms、reduced-motion 关闭。≤760px 顶栏保留品牌标记、截断
-  作品名、服务连接状态、主题和账户入口；≤360px 仅在移动速记头部同步本章与今日累计后隐藏
-  顶栏字数胶囊。
-  点缀只允许顶栏品牌区、写作页编辑区（上 1 组 + 下 1 组）与左栏导航底部三处，近底色、
-  `pointer-events:none`，专注模式与 ≤760px 一律隐藏。设计细则唯一权威：
-  `docs/frontend/uiux/design-standard.md`。
+- 全部一级页面、子标签、弹窗、表格和辅助栏共用现代简约。明暗偏好为 light/dark/system，
+  解析后的 `<html data-theme>` 为 light/dark；资源主题单独选择。颜色集中于 `--nc-*`，
+  语义层和 `--archive-*` 为转发别名。旧主题偏好按 ADR-0019 迁移，普通切换无需重建页面。
+  顶栏使用带文字的明暗选项，支持 Tab、方向键、Home/End；手机命中区至少 44px。
+  手机顶栏保留作品名、连接状态、主题和账户；正文底部保留本章与今日字数。
+  不再使用旧主题点缀，导入资源仅进入固定装饰区域。详见 `docs/frontend/uiux/design-standard.md`。
 - 路由在 `#workspace-content` 写入 `data-workspace-view/subview` 只供样式
   定位，不得被业务逻辑、数据请求或测试 fixture 当作状态来源。
-- 全局布局尺寸：`--topbar-height:57px`、`--sidebar-width:211px`、rail 折叠 `44px`；
-  写作页固定三栏：章节树 238px / 正文弹性 / 写作副驾驶 257px。
+- 全局布局尺寸：`--topbar-height:64px`、`--sidebar-width:224px`（桌面正文编辑时 72px 图标栏）、rail 折叠 `44px`；
+  写作页固定三栏：章节树 238px / 正文弹性 / 本章资料 257px。
 - 功能性按钮、输入框、选择器和编辑区要比只读内容更易辨识，但不脱离主题：主操作使用主题
-  accent 实体面（sticky 蓝 / night 金 / ink 朱砂）和通过 4.5:1 的主题前景色，普通操作保留可见边框；可编辑字段使用
+  黑白明暗实体面和通过 4.5:1 的主题前景色，普通操作保留可见边框；可编辑字段使用
   surface 底与完整边框，focus-visible 显示 2px accent 焦点环。暗色主题保持相同层级；
-  `760px` 以下常用按钮高度不低于 `42px`，输入控件不低于 `44px`。
+  `760px` 以下常用按钮高度不低于 `44px`，输入控件不低于 `44px`。
 - 创作工作台以正文、主列表、编辑区、生成结果和地图册图片为主对象；桌面端主对象目标占分栏内容宽度的约 `64%–68%`。
 - Vue 页内的主题化辅助栏由 SFC 模板渲染，并以 `项目 + 页面 + 栏位` 为 key
   在 `sessionStorage` 保存折叠状态。辅助栏折叠不得重置选择、筛选、滚动位置或未保存编辑内容。
@@ -241,7 +239,7 @@ Prompt 或 token；预算遗漏另行解释。作者可逐项移除/恢复、用
 - 设置页从 RP 进入且携带合法 `return_to` 时隐藏作者壳（顶栏与侧栏），shell 的
   router 包装层经 `getCurrentQuery` 透传当前 query。
 - 写作专注模式高于普通辅助栏状态；中等宽度重排第三栏，`760px` 及以下使用单栏、抽屉或手风琴，不允许产生页面级横向溢出。
-- 完整编辑器只保留页内「AI 写作助手」和状态栏「专注模式」入口；候选审阅与零章节状态仍可从该菜单打开完整 Owner AI 抽屉。移动速记因不挂载这两处，才在页头/「写作视图」菜单显示对应入口。任一显示状态都不重复，`#btn-publish` 仍是编辑区唯一 primary。
+- 完整编辑器只保留页内「AI 写作助手」和状态栏「专注模式」入口；候选审阅与零章节状态仍可从该菜单打开完整 Owner AI 抽屉。手机编辑器因不挂载这两处，才在页头/「写作视图」菜单显示对应入口。任一显示状态都不重复，`#btn-publish` 仍是编辑区唯一 primary。
 - Vue 业务页使用 `vue/components/WorkflowProgressCard.vue` 渲染任务卡：普通运行/完成态
   显示紧凑摘要，失败或调用方标记 `attentionRequired` 的恢复、重试和确认状态
   默认展开；用户保存状态优先于自动规则。取消终态统一说明为停止后续处理并保留已保存阶段，
@@ -440,7 +438,7 @@ Prompt 或 token；预算遗漏另行解释。作者可逐项移除/恢复、用
 - PNG/JPEG 上传使用共享 modal dialog：本地预览、进度、取消和保留表单重试不变；焦点困在
   对话框内，关闭/遮罩/Escape 共用 dirty 确认并恢复原触发按钮，上传中只能明确取消。成功后
   仍进入候选审核；地图树与图片选择独立维护，可调整上级、层级和同级位置。
-- 地图工作台的正文、辅助文字、状态面和选中态只消费现有三主题语义 token；图片视口保留中性
+- 地图工作台的正文、辅助文字、状态面和选中态只消费现有现代简约双模式语义 token；图片视口保留中性
   深色校对画布，图上热点使用主题正反文字 token。页签为 2px accent 下划线，触控档的页签、
   层级项、图片热点与展开入口至少 42px；390px 下操作组可换行且页面不横向溢出。
 

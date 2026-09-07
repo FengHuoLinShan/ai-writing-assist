@@ -205,7 +205,7 @@ test.describe("Scene 工作台", () => {
     await expectNoPageOverflow(page)
     for (const tab of await page.locator(".outline-scene-layout .subnav-item").all()) await expectWithinViewport(tab)
 
-    for (const theme of ["night", "ink", "sticky"]) {
+    for (const theme of ["dark", "light", "light"]) {
       await page.locator(`.theme-dot[data-theme-value="${theme}"]`).click()
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme)
       await expectNoPageOverflow(page)
@@ -268,7 +268,7 @@ test.describe("Scene 工作台", () => {
     await expect(refreshError).toHaveCount(0)
     await expect(filteredEmpty.getByRole("heading", { name: "没有找到符合条件的场景" })).toBeVisible()
 
-    await page.locator('.theme-dot[data-theme-value="night"]').click()
+    await page.locator('.theme-dot[data-theme-value="dark"]').click()
     await page.emulateMedia({ reducedMotion: "reduce" })
     await page.locator("html").evaluate((element) => { element.style.fontSize = "125%" })
     await page.setViewportSize({ width: 390, height: 844 })
@@ -385,7 +385,7 @@ test.describe("Scene 工作台", () => {
       await page.goBack()
       await expect(currentFilter).toHaveAttribute("aria-pressed", "true")
 
-      await page.locator('.theme-dot[data-theme-value="night"]').click()
+      await page.locator('.theme-dot[data-theme-value="dark"]').click()
       await page.emulateMedia({ reducedMotion: "reduce" })
       await page.locator("html").evaluate((element) => { element.style.fontSize = "125%" })
       await page.setViewportSize({ width: 390, height: 844 })
@@ -489,13 +489,13 @@ test.describe("Scene 工作台", () => {
     await expect(splitScene).toBeFocused()
     await splitScene.press("Escape")
     await expect(detailMore).toBeFocused()
-    await page.locator('.theme-dot[data-theme-value="night"]').click()
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "night")
+    await page.locator('.theme-dot[data-theme-value="dark"]').click()
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
     await expect(page.locator("#toast-container > *")).toHaveCount(0, { timeout: 3000 })
     await detailMore.press("ArrowDown")
     await expect(mergeScene).toBeFocused()
     await mergeScene.press("Escape")
-    await page.locator('.theme-dot[data-theme-value="ink"]').click()
+    await page.locator('.theme-dot[data-theme-value="light"]').click()
 
     const title = detailRail.locator("#scene-detail-title")
     await title.fill("尚未保存的标题")
@@ -755,8 +755,8 @@ test.describe("Scene 工作台", () => {
       await page.goForward()
       await expect(picker.locator("[data-reference-selected]")).toContainText("顾澈")
 
-      await page.locator('.theme-dot[data-theme-value="night"]').click()
-      await expect(page.locator("html")).toHaveAttribute("data-theme", "night")
+      await page.locator('.theme-dot[data-theme-value="dark"]').click()
+      await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
       await page.emulateMedia({ reducedMotion: "reduce" })
       await page.locator("html").evaluate((element) => { element.style.fontSize = "125%" })
       await page.setViewportSize({ width: 390, height: 844 })
