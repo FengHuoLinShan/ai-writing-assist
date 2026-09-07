@@ -115,7 +115,9 @@ export function createThemeController({ storage, root = globalThis.document?.doc
         if (ticket !== generation || packageId.value !== 'modern') return
         bootstrapManifest = null
         render()
+        const saved = write(PACK_KEY, 'modern')
         error.value = `${cause.message}，已恢复现代简约。可在外观设置重新导入。`
+        if (!saved) error.value += '浏览器未能记住恢复选择，本次会话有效。'
         notify(error.value, 'warning')
       })
     }

@@ -161,10 +161,27 @@ test('导入字体用于默认正文，作者显式字体选择优先', async ({
   await expect(page.locator('#writing-editor')).toHaveCSS('font-family', /Georgia/)
 })
 
-test('启动时主题资源缺失会明确提示回退', async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem('nc-theme-package', 'missing-theme'))
+test('主题资源缺失后记住回退选择，存储失败时说明仅本次会话有效', async ({ page }) => {
   await page.goto('/')
+  await expect(page.locator('.entry-choice')).toBeVisible()
+  await page.evaluate(() => localStorage.setItem('nc-theme-package', 'missing-theme'))
+  await page.reload()
   await expect(page.locator('.entry-choice')).toBeVisible()
   await expect(page.locator('html')).toHaveAttribute('data-theme-package', 'modern')
   await expect(page.locator('#toast-container')).toContainText('已恢复现代简约')
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('nc-theme-package'))).toBe('modern')
+  await page.reload()
+  await expect(page.locator('.entry-choice')).toBeVisible()
+  await expect(page.locator('#toast-container')).not.toContainText('已恢复现代简约')
+  await page.addInitScript(() => {
+    localStorage.setItem('nc-theme-package', 'missing-theme')
+    const original = Storage.prototype.setItem
+    Storage.prototype.setItem = function (key, value) {
+      if (key === 'nc-theme-package') throw new DOMException('quota', 'QuotaExceededError')
+      return original.call(this, key, value)
+    }
+  })
+  await page.reload()
+  await expect(page.locator('html')).toHaveAttribute('data-theme-package', 'modern')
+  await expect(page.locator('#toast-container')).toContainText('本次会话有效')
 })
