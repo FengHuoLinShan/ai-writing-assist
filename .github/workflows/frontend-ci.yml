@@ -26,8 +26,16 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Classify CI changes
+        id: changes
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/classify_ci_changes.py
 
       - name: Install Node.js
+        if: steps.changes.outputs.frontend == 'true'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: frontend-console/.node-version
@@ -35,15 +43,19 @@ jobs:
           cache-dependency-path: frontend-console/package-lock.json
 
       - name: Install locked frontend dependencies
+        if: steps.changes.outputs.frontend == 'true'
         run: npm ci
 
       - name: Audit frontend dependency lockfile
+        if: steps.changes.outputs.frontend == 'true'
         run: npm audit --package-lock-only --audit-level=high
 
       - name: Lint frontend sources
+        if: steps.changes.outputs.frontend == 'true'
         run: npm run lint
 
       - name: Run frontend unit tests
+        if: steps.changes.outputs.frontend == 'true'
         run: npm test
 
   frontend-functional-browser:
@@ -83,8 +95,16 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Classify CI changes
+        id: changes
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/classify_ci_changes.py
 
       - name: Install uv and Python
+        if: steps.changes.outputs.browser == 'true'
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           version: "0.12.3"
@@ -94,6 +114,7 @@ jobs:
           cache-dependency-glob: backend/uv.lock
 
       - name: Install Node.js
+        if: steps.changes.outputs.browser == 'true'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: frontend-console/.node-version
@@ -101,27 +122,35 @@ jobs:
           cache-dependency-path: frontend-console/package-lock.json
 
       - name: Install locked backend dependencies
+        if: steps.changes.outputs.browser == 'true'
         run: uv sync --project backend --locked --extra ci
 
       - name: Install locked frontend dependencies
+        if: steps.changes.outputs.browser == 'true'
         run: npm --prefix frontend-console ci
 
       - name: Install Chromium for Playwright
+        if: steps.changes.outputs.browser == 'true'
         run: npm --prefix frontend-console exec playwright -- install --with-deps chromium
 
       - name: Start local object storage
+        if: steps.changes.outputs.browser == 'true'
         run: docker compose up --detach --wait minio
 
       - name: Initialize private object buckets
+        if: steps.changes.outputs.browser == 'true'
         run: docker compose run --rm --no-deps minio-init
 
       - name: Run frontend functional browser
+        if: steps.changes.outputs.browser == 'true'
+        env:
+          BROWSER_SUITE: ${{ github.event_name == 'pull_request' && 'test:e2e:smoke' || 'test:e2e:functional' }}
         run: >-
           uv run --project backend --locked --extra ci --
-          npm --prefix frontend-console run test:e2e:functional -- --workers=1 --retries=0
+          npm --prefix frontend-console run "$BROWSER_SUITE" -- --workers=1 --retries=0
 
       - name: Upload frontend functional browser diagnostics
-        if: failure()
+        if: failure() && steps.changes.outputs.browser == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: frontend-functional-browser-diagnostics

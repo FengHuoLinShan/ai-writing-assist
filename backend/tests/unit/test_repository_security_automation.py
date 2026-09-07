@@ -162,9 +162,7 @@ def test_frontend_browser_gate_keeps_its_independent_risk_contract() -> None:
     job = workflow["jobs"]["frontend-functional-browser"]
 
     postgres = job["services"]["postgres"]
-    assert postgres["env"]["POSTGRES_DB"] == (
-        "ai_writing_functional_browser_e2e_test"
-    )
+    assert postgres["env"]["POSTGRES_DB"] == ("ai_writing_functional_browser_e2e_test")
     assert job["env"]["PW_REUSE_EXISTING_SERVER"] == "0"
     assert job["env"]["WORLD_OBJECT_S3_BUCKET"] == "ai-writing-assist-world-objects"
 
@@ -176,10 +174,15 @@ def test_frontend_browser_gate_keeps_its_independent_risk_contract() -> None:
         "docker compose run --rm --no-deps minio-init"
     )
     assert steps["Run frontend functional browser"]["run"].endswith(
-        "npm --prefix frontend-console run test:e2e:functional -- "
-        "--workers=1 --retries=0"
+        'npm --prefix frontend-console run "$BROWSER_SUITE" -- --workers=1 --retries=0'
     )
-    assert steps["Upload frontend functional browser diagnostics"]["if"] == "failure()"
+    assert steps["Run frontend functional browser"]["env"]["BROWSER_SUITE"] == (
+        "${{ github.event_name == 'pull_request' && 'test:e2e:smoke' "
+        "|| 'test:e2e:functional' }}"
+    )
+    assert steps["Upload frontend functional browser diagnostics"]["if"] == (
+        "failure() && steps.changes.outputs.browser == 'true'"
+    )
 
 
 def test_frontend_unit_gate_lints_before_tests_without_duplicate_build() -> None:
@@ -353,6 +356,7 @@ def test_production_image_contract_emits_sboms_before_vulnerability_gates() -> N
     ordered_names = [step["name"] for step in steps if isinstance(step, dict)]
     assert ordered_names == [
         "Check out repository",
+        "Classify CI changes",
         "Build and smoke-test production images",
         "Create container SBOM artifact directory",
         "Generate backend image CycloneDX SBOM",
@@ -463,3 +467,35 @@ def test_production_image_contract_emits_sboms_before_vulnerability_gates() -> N
     ]
     assert action_names.count("aquasecurity/trivy-action") == 4
     assert action_names.count("actions/upload-artifact") == 1
+
+
+def test_ci_selection_keeps_required_jobs_and_fails_closed() -> None:
+    gates = {
+        "backend-quality": "backend",
+        "postgresql-critical": "postgresql",
+        "frontend-unit-quality": "frontend",
+        "frontend-functional-browser": "browser",
+        "production-image-contract": "images",
+    }
+    for path in SPLIT_WORKFLOW_CONTRACTS:
+        for job_id, job in _load_yaml(path)["jobs"].items():
+            assert "if" not in job
+            steps = job["steps"]
+            assert steps[0]["with"]["fetch-depth"] == "0"
+            classify = steps[1]
+            assert classify == {
+                "name": "Classify CI changes",
+                "id": "changes",
+                "working-directory": "${{ github.workspace }}",
+                "run": "python3 scripts/classify_ci_changes.py",
+            }
+            for step in steps[2:]:
+                if step["name"] == "Check repository secret hygiene":
+                    assert "if" not in step
+                else:
+                    assert (
+                        f"steps.changes.outputs.{gates[job_id]} == 'true'" in step["if"]
+                    )
+                    assert "continue-on-error" not in step or "Ask World" in step["name"]
+                if "Ask World" in step["name"]:
+                    assert "github.event_name == 'push'" in step["if"]

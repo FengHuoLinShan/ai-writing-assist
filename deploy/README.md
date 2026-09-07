@@ -132,6 +132,12 @@ bash deploy/scripts/restore.sh <backup.dump> <target-sha>
 bash deploy/scripts/release.sh <full-40-character-commit-sha>
 ```
 
+执行发布命令前，操作者必须核对目标完整 SHA 的 main 工作流全部成功，尤其是完整
+`Frontend functional browser` 回归；PR 仅执行冒烟，通过不能代替 main 证据。
+该检查属于发布前操作门禁，`release.sh` 不会自行查询 GitHub Actions。
+生产继续从固定 SHA 在服务器构建，不发布或拉取 CI 第一方镜像；备份、恢复演练、迁移
+和健康/公网门禁保持不变。
+
 Cloudflare Tunnel 的 `novel.zhh.se` 公共主机名应使用 HTTP 源站
 `http://127.0.0.1:3259`。公网 TLS 由 Cloudflare 终止，OpenResty 只监听 loopback，
 不占用宿主机的 80/443。发布完成后渲染与 1Panel host 网络兼容的站点配置：

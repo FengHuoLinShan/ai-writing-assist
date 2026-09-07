@@ -76,7 +76,7 @@ Evidence indexing/compilation 回归集中在 `backend/modules/evidence/`；
 | `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv --directory backend run pytest tests/e2e/test_rp_source_versions.py -m e2e` | RP source revision 并发唯一性、历史 chunk 共存、来源删除门禁与 consumer snapshot 生命周期 | Dedicated PostgreSQL at Alembic head |
 | `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_project_task_gate_concurrency.py -m "not real_llm and not external_data"` | Project delete vs atlas upload/cleanup race | Dedicated PostgreSQL at Alembic head |
 | `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_task_coalescing_concurrency.py -m e2e` | Keyed coalescing and concurrent operation-receipt uniqueness | Dedicated PostgreSQL at Alembic head |
-| `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:functional -- --workers=1 --retries=0` | Complete functional browser regression | Fresh dedicated PostgreSQL, local private MinIO buckets, and Chromium; automated once on pull requests |
+| `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:functional -- --workers=1 --retries=0` | Complete functional browser regression | Fresh dedicated PostgreSQL, local private MinIO buckets, and Chromium; automated on every main push; related PRs use test:e2e:smoke |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:functional -- interaction.spec.js --workers=1 --retries=0` | RP 作品复用、导入恢复、关键歧义、剧情锚点、两种身份、资料抽屉与 390px 键盘流 | Same fresh dedicated stack; network responses use synthetic fixtures |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:map` | Focused local map regression, including touch/390px; already contained in the functional suite | Explicit dedicated PostgreSQL and fresh backend/frontend |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:visual` | Deterministic Chromium visual baseline for editorial themes, focus and mobile layouts | Dedicated test PostgreSQL; committed platform baseline; workers=1, retries=0 |
@@ -111,8 +111,9 @@ green. Do not run overlapping aggregate targets back-to-back.
    file for this smoke.
 
 Every non-trivial branch still finishes with `make docs-check BASE_REF=origin/main` and
-`git diff --check`. GitHub runs the same merge gates on pull requests and the resulting `main`
-push, so the exact fixed SHA accepted by the release script has its own integration evidence.
+`git diff --check`. GitHub selects relevant checks on pull requests and runs every gate on the resulting `main`
+push. Related PRs run browser smoke tests; main runs the complete functional suite. Before release,
+verify all main checks succeeded for the exact fixed SHA, including the full browser regression.
 
 `pytest` uses the same fast test paths by default. Every marker is strict: use
 `real_llm` for a remote provider call and `external_data` for a user-supplied
@@ -157,13 +158,32 @@ GitHub Actions 在 pull request 与 `main` push 上并行运行三个职责清�
 `Backend CI` 包含 `Backend quality` 与 `PostgreSQL critical`，`Frontend CI` 包含
 `Frontend unit quality` 与 `Frontend functional browser`，`Production Image CI` 包含
 `Production image contract`。
+每个质量 job checkout 完整历史后运行 `scripts/classify_ci_changes.py`。PR 比较事件中的
+base/head 完整 SHA，删除和重命名前后路径都参与分类；读取失败直接阻断。main 始终全量。
+PR 多类变更取并集：
+
+| 路径 | 需要执行的质量检查 |
+| --- | --- |
+| 后端目录 | 后端、PostgreSQL critical、浏览器冒烟、生产镜像 |
+| 前端目录（除 Dockerfile） | 前端、浏览器冒烟、生产镜像 |
+| 两个 Dockerfile 或 deploy 目录 | 后端及部署合同、生产镜像及恢复演练 |
+| Markdown 文档 | 仅始终执行的检查；根 README.md 额外运行镜像 |
+| CI、脚本、Makefile、其他未知路径 | 全部，浏览器使用冒烟 |
+
+Markdown 规则优先于目录规则。文档门禁、secret hygiene 和 CodeQL 始终执行。
+所有必需 job 名称保持不变，无关安装、测试及产物步骤跳过；runner 和 service container
+仍会初始化。禁止用 workflow paths 过滤让必需检查保持 Pending。
+浏览器 PR 使用既有四个文件的 `test:e2e:smoke`，main 使用 `test:e2e:functional`；
+均保持专用数据库、私有 MinIO、workers=1、retries=0。冒烟以外的回归可能在合并后发现，
+此时暂停发布，修复并等待目标 SHA 的完整 main 门禁成功。
+
 它们与独立的 `Architecture docs` 分开运行，因此前端或镜像失败不会再以
 `Backend CI` 工作流失败呈现。后端快速 job checkout 后先用系统 Python 执行零依赖的 repository
 secret hygiene gate，再安装 uv `0.12.3` 与 Python `3.14.7`，
 先运行 `make audit-backend-deps`，随后通过 `backend/uv.lock` 安装窄 `ci` 依赖
 （不安装本地 embedding 运行时），然后依次执行 `make lint`、`make test-deploy` 与
 `make test-fast-coverage TEST_WORKERS=2 ARGS="-W error::RuntimeWarning"`。
-覆盖率门禁通过后还会以 `continue-on-error` 运行 `make eval-ask-world` 并始终上传 JSON
+仅 main push 在覆盖率门禁通过后还会以 `continue-on-error` 运行 `make eval-ask-world` 并始终上传 JSON
 报告；它只提供离线证据排序与引用完整性诊断，不阻断 PR，也不代表模型语义回答质量。
 这些 CI step 直接调用同一 Make target，由 target 自行解析锁定工具链，避免 CI 与本地走不同
 的 pytest/Ruff 可执行文件。
@@ -189,13 +209,13 @@ and the extra remains trusted/offline-only even though this project's adapter us
 text collection metrics with an isolated local Codex evaluator. Frontend job first uses
 the SHA-pinned Node setup action with `frontend-console/.node-version` (`24.19.0` LTS) and
 the committed lockfile cache, then uses `frontend-console/package-lock.json` to run `npm ci`, then
-`npm audit --package-lock-only --audit-level=high`, ESLint, complete Vitest and a production
-build. `Frontend functional browser` starts a fresh dedicated PostgreSQL, the Compose-managed private
+`npm audit --package-lock-only --audit-level=high`, ESLint and complete Vitest. The production
+image job owns the production build. `Frontend functional browser` starts a fresh dedicated PostgreSQL, the Compose-managed private
 MinIO buckets, and Chromium, then runs the
-complete functional suite with workers=1 and retries=0, and retains
-`frontend-console/test-results` failure diagnostics for 14 days. `test:e2e:smoke` and
-`test:e2e:map` remain focused local subsets already contained in that suite; they do not run as
-separate CI jobs. Visual, real-LLM and worker Playwright suites remain
+smoke subset on related PRs and the complete functional suite on main, with workers=1 and
+retries=0, and retains
+`frontend-console/test-results` failure diagnostics for 14 days. The existing smoke command is
+reused inside the same browser job; `test:e2e:map` remains a focused local subset. Visual, real-LLM and worker Playwright suites remain
 explicit/manual acceptance runs.
 The backend
 audit depends on OSV network data and the frontend audit on npm registry/advisory
