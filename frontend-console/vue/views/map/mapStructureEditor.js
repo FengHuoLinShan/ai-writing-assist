@@ -4,6 +4,16 @@ export const pointsAttribute = points => points.map(point => `${point.x},${point
 export const mapRelationLabels = { inside: "位于区域内", north: "在北侧", south: "在南侧", east: "在东侧", west: "在西侧", northeast: "在东北", northwest: "在西北", southeast: "在东南", southwest: "在西南", adjacent: "相邻", connects: "有已知道路连接", passes_through: "路线经过", along_street: "位于这条街上", entrance_to: "是此处的入口", faces: "朝向此处" }
 export const structureLevels = ['region', 'city', 'district', 'street']
 
+export function mapSourceRangeKey(ref) {
+  const fields = ['draft_id', 'chapter_index', 'version_number', 'content_mode', 'start_offset', 'end_offset', 'source_hash', 'range_hash']
+  if (!ref || Object.keys(ref).length !== fields.length || fields.some(key => !Object.hasOwn(ref, key))
+    || ref.content_mode !== 'canonical' || typeof ref.draft_id !== 'string' || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(ref.draft_id)
+    || !['chapter_index', 'version_number', 'start_offset', 'end_offset'].every(key => Number.isInteger(ref[key]))
+    || ref.chapter_index < 1 || ref.version_number < 1 || ref.start_offset < 0 || ref.end_offset <= ref.start_offset
+    || !['source_hash', 'range_hash'].every(key => /^[a-f0-9]{64}$/.test(ref[key]))) return ''
+  return JSON.stringify(fields.map(key => ref[key]))
+}
+
 export function mapSourceSelections(features, constraints = []) {
   const refs = new Map()
   for (const item of [...features, ...constraints]) for (const source of item.sources || []) {

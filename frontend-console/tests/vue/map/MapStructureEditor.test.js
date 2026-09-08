@@ -205,6 +205,45 @@ describe("统一地图编辑器", () => {
     expect(api.world.generateMapStructure).toHaveBeenCalledWith(projectId, nodeId, expect.objectContaining({ location_ids: [], feature_ids: ['a'] }))
   })
 
+  it('普通作者可手工加标记、查找正文、关联保存，再确认资料生成空间关系', async () => {
+    const sourceRef = { draft_id: nextId, chapter_index: 30, version_number: 1, content_mode: 'canonical', start_offset: 0, end_offset: 45, source_hash: 'a'.repeat(64), range_hash: 'b'.repeat(64) }
+    api.context = {
+      searchEvidence: vi.fn(async () => ({ hits: [{ kind: 'manuscript', title: '城中', snippet: '旅馆……桥旁', source_ref: sourceRef }], total: 1 })),
+      readEvidence: vi.fn(async () => ({ source_ref: sourceRef, text: '旅馆在桥旁，入口面向广场。', title: '城中', highlight_start: 0, highlight_end: '旅馆在桥旁，入口面向广场。'.length })),
+    }
+    api.world.saveMapRevision.mockImplementation(async (_project, _node, payload) => {
+      const saved = record(copyMap(payload.document), nextId)
+      api.world.getNodeMap.mockResolvedValue(state(saved))
+      return saved
+    })
+    setBridgeOverrides({ state: { currentProjectId: projectId } })
+    const wrapper = render(); await flushPromises()
+    const form = wrapper.findAll('form').find(item => item.text().includes('标记名称'))
+    await form.get('input').setValue('旅馆')
+    await form.trigger('submit')
+    await button(wrapper, '结束绘制').trigger('click')
+    expect(wrapper.get('.map-feature-sources').text()).toContain('尚未关联依据')
+    await button(wrapper, '添加正文依据').trigger('click')
+    await wrapper.get('.map-source-search').trigger('submit'); await flushPromises()
+    await button(wrapper, '查看原文').trigger('click'); await flushPromises()
+    await button(wrapper, '关联到“旅馆”').trigger('click')
+    expect(api.world.saveMapRevision).not.toHaveBeenCalled()
+    await button(wrapper, '返回地图').trigger('click')
+    expect(wrapper.get('.map-feature-sources').text()).toContain('旅馆在桥旁，入口面向广场。')
+    await button(wrapper, '撤销').trigger('click')
+    expect(wrapper.get('.map-feature-sources').text()).toContain('尚未关联依据')
+    await button(wrapper, '重做').trigger('click')
+    await button(wrapper, '保存地图').trigger('click'); await flushPromises()
+    const saved = api.world.saveMapRevision.mock.calls[0][2].document.features.find(item => item.label === '旅馆')
+    expect(saved.entity_id).toBeNull()
+    expect(saved.sources).toEqual([{ kind: 'source_range', id: nextId, source_hash: sourceRef.source_hash, source_ref: sourceRef, quote: '旅馆在桥旁，入口面向广场。' }])
+    const choices = wrapper.findAll('details').find(item => item.find('summary').text() === '整理地图中已有内容')
+    await choices.get(`input[value="${saved.id}"]`).setValue(true)
+    await button(wrapper, '整理所选内容的空间关系').trigger('click'); await flushPromises()
+    expect(confirmAiReference).toHaveBeenCalledWith(expect.objectContaining({ entity_ids: [], pinned_refs: [{ kind: 'source_range', source_ref: sourceRef }] }))
+    expect(api.world.generateMapStructure).toHaveBeenCalledWith(projectId, nodeId, expect.objectContaining({ base_revision_id: nextId, feature_ids: [saved.id] }))
+  })
+
   it('逐项采用只发送选择键，成功后保留剩余候选和明确反馈', async () => {
     const candidate = document(); candidate.features[0].note = '第一项'; candidate.features[1].note = '第二项'
     const proposed = { ...record(candidate, nextId), status: 'candidate', base_revision_id: revisionId }

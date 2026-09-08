@@ -130,6 +130,17 @@
       <aside v-if="selectedFeature" class="map-inspector" aria-label="地图内容详情">
         <label>显示名称<input :value="selectedFeature.label" class="form-input" maxlength="200" @input="changeFeature('label', $event.target.value)" /></label>
         <label v-if="['location', 'landmark', 'area'].includes(selectedFeature.kind)">关联世界地点<select :value="selectedFeature.entity_id || ''" class="form-select" @change="bindEntity($event.target.value)"><option value="">独立地图标记</option><option v-if="selectedFeature.entity_id && !locations.some(item => item.id === selectedFeature.entity_id)" :value="selectedFeature.entity_id">当前已关联的世界地点</option><option v-for="location in locations" :key="location.id" :value="location.id">{{ location.name }}</option></select></label>
+        <section class="map-feature-sources" aria-label="地点资料依据">
+          <strong>资料依据（{{ selectedFeature.sources.length }}/8）</strong>
+          <p v-if="!selectedFeature.sources.length" class="map-caption">尚未关联依据。可以查找正文里的位置描述，关联并保存后再整理空间关系。</p>
+          <button type="button" class="btn btn-sm" :disabled="busy || selectedFeature.sources.length >= 8" @click="openSourcePicker()">添加正文依据</button>
+          <p v-if="selectedFeature.sources.length >= 8" class="map-caption">最多关联 8 条依据，可先移出不需要的内容。</p>
+          <article v-for="(source, index) in selectedFeature.sources" :key="index">
+            <strong>{{ source.kind === 'source_range' ? '第 ' + (source.source_ref?.chapter_index || '—') + ' 章正文' : '已关联世界资料' }}</strong>
+            <p>{{ source.quote || '保留了已确认资料的引用' }}</p>
+            <div class="map-actions"><button v-if="source.kind === 'source_range'" type="button" class="btn btn-sm" @click="openSourcePicker(source)">查看正文</button><button v-if="source.kind === 'source_range' && source.source_ref?.chapter_index" class="btn btn-sm" @click="openSourceChapter(source)">打开章节</button><button type="button" class="btn btn-sm" :disabled="busy" :aria-label="'移出第 ' + (index + 1) + ' 条依据'" @click="removeSource(index)">移出依据</button></div>
+          </article>
+        </section>
         <label><input :checked="selectedFeature.locked" type="checkbox" @change="changeFeature('locked', $event.target.checked)" />锁定位置</label>
         <div class="map-actions"><button class="btn btn-sm" :disabled="selectedFeature.locked" @click="placing = true">点击画布定位／添点</button><button class="btn btn-sm" :disabled="selectedFeature.locked || !canRemovePoint" @click="removePoint">移出选中控制点</button></div>
         <p class="map-caption">可拖动控制点，或用下面的方向按钮微调；键盘方向键也可移动。</p>
@@ -141,7 +152,6 @@
         <label>打开子图<select :value="selectedFeature.target_node_id || ''" class="form-select" @change="changeFeature('target_node_id', $event.target.value || null)"><option value="">不跳转</option><option v-for="target in childChoices" :key="target.id" :value="target.id">{{ target.title }}</option></select></label>
         <div class="map-actions"><button v-if="selectedFeature.target_node_id" class="btn btn-sm" @click="emit('open-node', selectedFeature.target_node_id)">进入子图</button><button v-if="childLevel && ['location', 'landmark', 'area'].includes(selectedFeature.kind) && !selectedFeature.target_node_id" class="btn btn-sm" :disabled="busy" @click="createChild">为此地点创建{{ childLevel.label }}图</button><button v-if="selectedFeature.entity_id" class="btn btn-sm" @click="openEntity">查看世界资料</button><button class="btn btn-sm" @click="removeFeature">移出地图</button></div>
         <ul v-if="selectedRelations.length"><li v-for="item in selectedRelations" :key="item.id">{{ featureLabel(item.subject) }} · {{ relationLabels[item.relation] }} · {{ featureLabel(item.target) }}<button class="btn btn-sm" @click="locateFeature(item.subject === selectedId ? item.target : item.subject)">查看关联位置</button></li></ul>
-        <p v-for="(source, index) in selectedFeature.sources" :key="index">{{ source.quote || '保留了已确认资料的引用' }}<button v-if="source.kind === 'source_range'" class="btn btn-sm" @click="openSourceChapter(source)">打开第 {{ source.source_ref.chapter_index }} 章</button></p>
         <img v-for="layer in selectedIllustrations" :key="layer.page_id" :src="imageUrls[imageKey(layer.page_id)]" alt="地点配图" class="map-detail-image" />
       </aside>
     </div>
@@ -178,6 +188,7 @@
     </details>
     <details v-if="problems.length && !reader" open class="map-warning"><summary>需要核对 {{ problems.length }} 项</summary><ul><li v-for="(problem, index) in problems" :key="index">{{ problem.message }}<button v-if="problem.feature_ids.length" class="btn btn-sm" @click="selectFeature(problem.feature_ids[0])">定位</button></li></ul></details>
     <details v-if="!reader && !focused"><summary @click="loadHistory">地图历史</summary><div v-for="item in history" :key="item.id" class="map-history"><span>{{ formatDate(item.created_at) }} · {{ item.status === 'saved' ? '已保存' : item.status === 'candidate' ? '候选' : '已处理候选' }}</span><button class="btn btn-sm" :disabled="busy" @click="viewCandidate(item)">查看并比较</button><button v-if="item.status === 'saved'" class="btn btn-sm" :disabled="busy || dirty || item.id === revision?.id" @click="review(item, 'restore')">恢复为新版本</button></div></details>
+    <MapSourcePicker v-if="selectedFeature" :key="node.id + ':' + selectedId" :open="sourcePickerOpen" :project-id="projectId" :feature="selectedFeature" :initial-source="sourcePickerInitial" @close="sourcePickerOpen = false" @add="addSource" />
   </section>
 </template>
 
@@ -186,9 +197,10 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { getApi, getConfirm, getRouter } from "../../bridge/index.js"
 import { confirmAiReference } from "../../../shared/aiReferenceModal.js"
 import { ACCOUNT_MARKER_KEY } from "../../../shared/accountStorage.js"
-import { copyMap, emptyMap, geometrySignature, mapBounds, mapChangeDetails, mapFeatureCenter, mapImageChanges, mapRelationLabels, mapSourceSelections, pointsAttribute, rehearseMapRoute, removeMapFeature } from "./mapStructureEditor.js"
+import { copyMap, emptyMap, geometrySignature, mapBounds, mapChangeDetails, mapFeatureCenter, mapImageChanges, mapRelationLabels, mapSourceRangeKey, mapSourceSelections, pointsAttribute, rehearseMapRoute, removeMapFeature } from "./mapStructureEditor.js"
 import MapChangeReview from './MapChangeReview.vue'
 import MapRehearsalPanel from './MapRehearsalPanel.vue'
+import MapSourcePicker from './MapSourcePicker.vue'
 
 const props = defineProps({ projectId: { type: String, required: true }, node: { type: Object, required: true }, images: { type: Array, default: () => [] }, knownNodes: { type: Array, default: () => [] }, hasReference: Boolean, reviewImageId: { type: String, default: "" }, initialFeatureId: { type: String, default: '' } })
 const emit = defineEmits(["saved", "open-node", "reference-visible", "state", "select-feature"])
@@ -208,6 +220,7 @@ const imageUrls = reactive({}), anchorIndex = ref(0), annotationId = ref(""), an
 const imageForm = reactive({ page_id: "", role: "illustration", feature_id: "", opacity: 0.65, anchors: [{ feature_id: "", image_x: 0.1, image_y: 0.1 }, { feature_id: "", image_x: 0.8, image_y: 0.1 }, { feature_id: "", image_x: 0.1, image_y: 0.8 }], reader_from_chapter: "" })
 const relation = reactive({ subject: "", relation: "north", target: "" })
 const relationLabels = mapRelationLabels
+const sourcePickerOpen = ref(false), sourcePickerInitial = ref(null)
 const imageRequests = new Map()
 let resizeObserver = null
 let epoch = 0, alive = true, installing = false, backupTimer = null, pollTimer = null, drag = null, downloaded = false, reviewEpoch = 0, imageBaselineEpoch = 0, pan = null
@@ -359,6 +372,13 @@ async function locateFeature(id) {
   element?.focus?.({ preventScroll: true })
 }
 function changeFeature(key, value) { if (selectedFeature.value) mutate(() => { selectedFeature.value[key] = value }) }
+function openSourcePicker(source = null) { sourcePickerInitial.value = source; sourcePickerOpen.value = true }
+function addSource(source) {
+  const feature = selectedFeature.value, key = mapSourceRangeKey(source.source_ref)
+  if (!feature || !key || feature.sources.length >= 8 || feature.sources.some(item => item.kind === 'source_range' && mapSourceRangeKey(item.source_ref) === key)) return
+  mutate(() => { feature.sources.push(copyMap(source)) })
+}
+function removeSource(index) { if (selectedFeature.value) mutate(() => { selectedFeature.value.sources.splice(index, 1) }) }
 function toggleReference() { referenceOnly.value = !referenceOnly.value; emit("reference-visible", referenceOnly.value) }
 function startPan(event) {
   if (event.button !== 0 || event.pointerType === 'touch' || placing.value || drag || !scrollArea.value || !(event.target === canvas.value || event.target.classList?.contains('map-paper') || event.target.localName === 'polygon')) return
@@ -695,6 +715,7 @@ watch(canvas, (element, previous) => { if (previous) resizeObserver?.unobserve(p
 watch(() => props.reviewImageId, id => { if (!dirty.value) { referenceOnly.value = Boolean(id); emit("reference-visible", referenceOnly.value) } }, { immediate: true })
 watch([dirty, revision, reader, focused], () => emit("state", { dirty: dirty.value, revision: revision.value, reader: Boolean(reader.value), focused: focused.value }), { immediate: true })
 watch([selectedId, zoom, focused, rehearsalStops], rememberView, { deep: true })
+watch([selectedId, busy, focused, readOnly], () => { sourcePickerOpen.value = false }, { flush: 'sync' })
 watch([candidateView, () => revision.value?.id, () => serverRevision.value?.id, selectedChangeKeys], () => { ++reviewEpoch; adoptionPreview.value = null; previewing.value = false }, { deep: true, flush: 'sync' })
 watch([() => imageForm.page_id, selectedImageRevision], loadImageBaseline)
 watch(() => relation.relation, () => { if (!relationSubjects.value.some(item => item.id === relation.subject)) relation.subject = ''; if (!relationTargets.value.some(item => item.id === relation.target)) relation.target = '' })
@@ -710,6 +731,7 @@ defineExpose({ canLeave, save, dirty, revision })
 </script>
 
 <style scoped>
+.map-feature-sources{display:grid;gap:var(--space-2);padding-block:var(--space-3);border-block:1px solid var(--border)}.map-feature-sources article>p{max-height:8rem;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}.map-feature-sources button{min-height:44px}
 .map-editor{display:grid;gap:var(--space-3);min-width:0}.map-toolbar,.map-actions,.map-reader,.map-canvas-controls,.map-history,.map-candidates>div{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-2)}.map-toolbar{justify-content:space-between}.map-caption,.map-save-status{color:var(--text-secondary);font-size:var(--text-sm)}.map-caption{display:block;margin-top:var(--space-1)}.map-toolbar .map-caption{display:inline;margin-left:var(--space-2)}.map-editor>p{margin:0}.map-editor .map-save-status{font-size:var(--text-xs)}.map-actions .btn,.map-editor summary{min-height:44px}.map-editor label{display:grid;gap:var(--space-1);min-width:0}.map-editor details{padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius-md);min-width:0}.map-editor summary{cursor:pointer;font-weight:600}.map-inline-form{display:flex;align-items:end;flex-wrap:wrap;gap:var(--space-2);margin-block:var(--space-2)}.map-inline-form>label{flex:1 1 140px}.map-editor input,.map-editor select,.map-editor textarea{max-width:100%;min-width:0}.map-editor input[type=number]{width:100px;min-height:36px}.map-reader>label{display:flex;align-items:center;flex-wrap:wrap}.map-edit-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,320px);gap:var(--space-3)}.map-inspector{display:grid;align-content:start;gap:var(--space-2);padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius-md)}.map-scroll{overflow:auto;max-height:70vh;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--bg-base)}.map-canvas{display:block;min-width:320px;min-height:300px;max-width:none;touch-action:pan-x pan-y pinch-zoom}.map-paper{fill:var(--bg-base)}.map-feature{cursor:pointer;outline:none}.map-feature circle{fill:var(--accent);stroke:var(--bg-base);stroke-width:3}.map-feature polygon{fill:var(--bg-muted);stroke:var(--border);stroke-width:2}.map-feature polyline{fill:none;stroke:var(--text-secondary);stroke-width:3;stroke-dasharray:7 4}.map-kind-river polyline{stroke:var(--accent);stroke-width:5;stroke-dasharray:none}.map-feature text{fill:var(--text-primary);font-size:15px;paint-order:stroke;stroke:var(--bg-base);stroke-width:4;stroke-linejoin:round}.map-feature:focus circle,.map-feature.selected circle{stroke:var(--text-primary);stroke-width:4}.map-feature:focus polyline,.map-feature.selected polyline,.map-feature:focus polygon,.map-feature.selected polygon{stroke:var(--accent);stroke-width:4}.map-feature .map-hit{fill:transparent;stroke:none;cursor:move}.map-handle{fill:var(--bg-base);stroke:var(--accent);stroke-width:3;cursor:move;touch-action:none}.map-location-list{display:grid;gap:var(--space-1);max-height:220px;overflow:auto}.map-location-list label{display:flex;align-items:center;gap:var(--space-2);min-height:38px}.map-warning{padding:var(--space-3);background:var(--warning-soft);border:1px solid var(--warning);border-radius:var(--radius-md)}.map-error{color:var(--error)}.map-calibration{position:relative;max-width:500px;cursor:crosshair}.map-calibration img{display:block;width:100%;height:auto}.map-calibration span{position:absolute;transform:translate(-50%,-50%);background:var(--text-primary);color:var(--bg-base);border-radius:50%;width:24px;height:24px;text-align:center;pointer-events:none}.map-detail-image{max-width:100%;height:auto;border-radius:var(--radius-md)}.map-history{padding:var(--space-2);justify-content:space-between}
 @media(max-width:900px){.map-edit-grid{grid-template-columns:minmax(0,1fr)}.map-toolbar{align-items:stretch;flex-direction:column}.map-reader{align-items:start}.map-editor .form-input,.map-editor .form-select{width:100%}.map-canvas-controls{justify-content:space-between}.map-candidates>div{align-items:start}.map-editor details{padding:var(--space-2)}}
 .map-illustration-preview{display:block;max-width:100%;width:280px;max-height:210px;object-fit:contain;border-radius:var(--radius-md)}
