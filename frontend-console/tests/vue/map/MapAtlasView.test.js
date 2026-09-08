@@ -367,7 +367,8 @@ describe("AI 地图册工作台", () => {
 
   it("没有图片或生图任务的手工地图可改标题并保留并发基准", async () => {
     const manual = { id: "manual-map", title: "城市示意", level: "city", status: "adopted", location_entity_id: null, parent_id: null, current_revision_id: "spatial-version", updated_at: "v1", pages: [], children: [] }
-    api.world.getMapAtlas.mockResolvedValue({ mode: "atlas", total_pages: 0, nodes: [manual] })
+    const legacy = { ...manual, id: 'legacy-map', title: '旧街区图', level: 'district', current_revision_id: null }
+    api.world.getMapAtlas.mockResolvedValue({ mode: "atlas", total_pages: 0, nodes: [manual, legacy] })
     api.world.updateMapAtlasNode.mockResolvedValue({ ...manual, title: "廷根地图" })
     const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" }, global: { stubs: { MapStructureEditor: true } } })
     await flushPromises()
@@ -382,6 +383,11 @@ describe("AI 地图册工作台", () => {
     expect(wrapper.find('.atlas-node-form').exists()).toBe(false)
     expect(wrapper.find('.atlas-generation-settings').exists()).toBe(false)
     editor.vm.$emit('state', { dirty: false, focused: false }); await flushPromises()
+    expect(wrapper.find('.atlas-header').exists()).toBe(true)
+    expect(wrapper.find('.atlas-node-form').exists()).toBe(true)
+    editor.vm.$emit('state', { dirty: false, focused: true, reader: true }); await flushPromises()
+    await wrapper.findAll('.atlas-tree button')[1].trigger('click'); await flushPromises()
+    expect(wrapper.findComponent({ name: 'MapStructureEditor' }).exists()).toBe(false)
     expect(wrapper.find('.atlas-header').exists()).toBe(true)
     expect(wrapper.find('.atlas-node-form').exists()).toBe(true)
   })

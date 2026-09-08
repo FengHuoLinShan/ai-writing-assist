@@ -833,7 +833,8 @@ watch([activeNodeId, tab], persistMapFocus)
 watch(tab, () => { syncSelection(); nextTick(loadImages) })
 watch(activePageId, () => { activeNodeId.value = activePage.value?.node_id || activeNodeId.value; oldPageId.value = oldPages.value[0]?.id || null; nextTick(loadImages) })
 watch(oldPageId, loadImages)
-watch(activeNode, node => {
+watch(activeNode, (node, previous) => {
+  if (node?.id !== previous?.id) structureState.value = { dirty: false, revision: null, reader: false, focused: false }
   if (!node) return
   nodeEdit.title = node.title; nodeEdit.parent_id = node.parent_id || null; nodeEdit.level = node.level; nodeEdit.before_node_id = "__keep__"
 })
