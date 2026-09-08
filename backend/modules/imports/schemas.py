@@ -76,7 +76,7 @@ class TargetedCompletionOptions(BaseModel):
 class TargetedCompletionTarget(BaseModel):
     model_config = {"extra": "forbid", "str_strip_whitespace": True}
     entity_id: str | None = None
-    name: str | None = Field(default=None, min_length=1, max_length=255)
+    name: str | None = Field(default=None, min_length=1, max_length=200)
     entity_type: str | None = Field(default=None, max_length=50)
 
     @model_validator(mode="after")

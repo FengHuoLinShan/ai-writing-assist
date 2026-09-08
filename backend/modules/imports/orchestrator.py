@@ -362,7 +362,9 @@ class DeepImportOrchestrator:
     ) -> dict[str, Any]:
         from modules.imports.schemas import TargetedCompletionTarget
         from modules.imports.targeted_completion import freeze_completion_permission
+        from shared.utils import parse_uuid
 
+        novel_id = str(parse_uuid(novel_id, "novel_id"))
         if not targets:
             raise ValueError("专项补全至少需要一个对象")
         targets = [
@@ -1440,14 +1442,23 @@ class DeepImportOrchestrator:
         workflow_id = str(run.id)
 
         completion = (run.checkpoints or {}).get("targeted_completion") or {}
+        focused_rollback = {}
         if completion.get("packages"):
-            from modules.world.facade import rollback_focused_world_package
+            from modules.imports.targeted_completion import rollback_targeted_completion
 
-            for suggestion_id in reversed(completion["packages"]):
-                await rollback_focused_world_package(
-                    db, novel_id=novel_id, suggestion_id=suggestion_id
-                )
+            focused_rollback = await rollback_targeted_completion(
+                db,
+                novel_id=novel_id,
+                task_id=task_id,
+            )
         cleanup_summary = await self.cleanup_workflow_assets(db, novel_id, workflow_id)
+        conflicts = int(focused_rollback.get("conflicts", 0))
+        if focused_rollback:
+            cleanup_summary.update(
+                cleanup_status="partial" if conflicts else "complete",
+                unreverted_targeted_items=conflicts,
+                targeted_completion_rollback=focused_rollback,
+            )
         await cancel_recoverable_task(
             db,
             task_id=task_id,
@@ -1461,7 +1472,12 @@ class DeepImportOrchestrator:
             "task_id": str(run.task_id),
             "status": "cancelled",
             "cleanup_summary": cleanup_summary,
-            "message": "深度导入恢复已放弃",
+            "message": (
+                f"已放弃恢复；{conflicts} 项补全因后续修改或引用受到保护，"
+                "未撤销，可单独重试撤销"
+                if conflicts
+                else "深度导入恢复已放弃"
+            ),
         }
 
     async def cleanup_workflow_assets(
@@ -1564,6 +1580,8 @@ class DeepImportOrchestrator:
             raise ValueError(
                 "task_id must reference a deep_import or deep import stage task"
             )
+        if ((run.progress or {}).get("targeted_completion") or {}).get("rollback_status"):
+            raise ValueError("本次专项补全已开始撤销，请新建补全任务")
         if run.status != "failed":
             raise ValueError("only failed interrupted deep import tasks can recover")
         if not run.recovery_required:

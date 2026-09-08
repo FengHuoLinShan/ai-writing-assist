@@ -148,6 +148,9 @@ Phase 2a/2b 每 Scene checkpoint 保存 `completion_hints`，包括来源 Scene�
 返回 `targeted_completion` task；与完整导入共享同项目单飞、ImportWorkflowRun 与原 task_id
 恢复，不需要新队列或 run 表。手动入口支持尚未入库的名字，不要求预先创建占位对象。
 
+作者全局补全使用 author_full 查询当前数据库身份与直接边，并显式使用 identity 续页策略：
+允许本轮授权填空改变说明字段，身份/类型/已有词项仍冻结；不会将其回流给 Scene-local 角色知识。
+正文与所有新增事实始终受原授权章范围和 source_manifest 限制。
 Context/Evidence 的公共 focused retrieval 独占原文/数据库检索与一跳提名；imports 不复制
 BFS，不允许模型自主选工具。根和邻居总量不按单批预算截断：每批处理五个根与五个补全目标，
 Evidence cursor 保留全部未读范围和邻居。每次字段补全仅消费本批相关资料，输入上限十万字符、
@@ -161,15 +164,20 @@ Evidence cursor 保留全部未读范围和邻居。每次字段补全仅消费�
 改变已冻结的遍历队列。每个 provider step 都写 Evidence ContextSnapshot，provider 等待前
 通过原 task/generation/attempt/lease checkpoint 关闭事务。最终逐包在 project exclusive 锁下
 重验来源，再由 World 执行新增和填空；非空字段变化、身份歧义、证据冲突保留待复核。
-实体包先于关系包提交，跨批关系只使用同 workflow 已接受回执解析出的实体 ID。
+实体字段可逐页提交；别名/关系等当前根批完整查读后提交，避免自己的新关系改变尚未读完的图分页。
+跨批关系只使用同 workflow 已接受回执解析出的实体 ID。ContextSnapshot 收齐相关采用回执后
+只提交一次终态；中断页面的未完成调用明确记录 failed。
 
 任务仍通过 `/api/tasks/{task_id}` 查询/停止，通过 `/api/imports/deep/resume` 继续。
 `result.targeted_completion` 提供查读 coverage、根进度、新增、填空和复核数量；
 `available_actions` 指示可继续/可撤销。停止或完成后可显式二次确认调用
 `POST /api/imports/targeted-completions/{task_id}/rollback?novel_id=...`，body 为
 `{"confirmed": true}`。该入口只撤销专项补全已接受包；仍运行的任务拒绝撤销。
+开始撤销后，无论全部成功还是出现冲突，原 run 均不可再继续补全，须新建任务；仍可重试撤销。
 World 按应用后值 CAS 撤销，人工后续修改保留并返回 `status=partial` 与 conflicts；
-不会把部分撤销描述为全部成功。放弃原导入恢复时也会先安全撤销本 run 的补全包。
+不会把部分撤销描述为全部成功。放弃原导入恢复时也会先安全撤销本 run 的补全包，
+并在 cleanup_summary 的 cleanup_status、unreverted_targeted_items、targeted_completion_rollback
+记录部分撤销和作者可读提示；受保护下游保留，可单独重试撤销。
 
 ## 上下文快照边界
 

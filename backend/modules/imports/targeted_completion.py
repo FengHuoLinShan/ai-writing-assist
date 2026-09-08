@@ -36,7 +36,12 @@ def normalize_roots(targets: list[dict]) -> list[dict]:
         name = str(target.get("name") or "").strip()
         if bool(entity_id) == bool(name):
             raise ValueError("a completion root requires entity_id or name")
-        key = "entity:" + entity_id if entity_id else "name:" + name.casefold()
+        name_key = name.casefold()
+        key = (
+            "entity:" + entity_id
+            if entity_id
+            else "name:" + (name_key if len(name_key) <= 120 else stable_hash(name_key))
+        )
         roots.setdefault(
             key,
             {"key": key, **({"entity_id": entity_id} if entity_id else {"name": name})},
@@ -58,7 +63,7 @@ async def freeze_completion_permission(
     if not options or options.get("enabled") is not True:
         return None
     drafts = await list_latest_drafts_for_chapters(
-        db, novel_id, list(range(start_chapter, end_chapter + 1)), content_limit=0
+        db, novel_id, list(range(start_chapter, end_chapter + 1)), content_limit=1
     )
     manifest = {str(draft.id): draft.content_hash for draft in drafts}
     if not manifest or any(not value for value in manifest.values()):
@@ -158,6 +163,17 @@ def _batch_payload(result, *, targets: list, batch_keys: list[str]) -> dict:
     identity_keys = set(batch_keys).union(
         *(set(item.target_keys) for item in selected_evidence)
     )
+    identity_keys.update(
+        root_key
+        for target in targets
+        if target.key in batch_keys
+        for root_key in target.root_keys
+    )
+    identity_keys.update(
+        target.key
+        for target in targets
+        if any(target.name in item.text for item in selected_evidence)
+    )
     payload = {
         "targets": [
             {
@@ -180,7 +196,10 @@ def _batch_payload(result, *, targets: list, batch_keys: list[str]) -> dict:
 async def _complete_batch(
     client, *, result, targets: list, batch_keys: list[str]
 ) -> CompletionOutput:
-    from infrastructure.llm.agent_step_harness import run_managed_structured
+    from infrastructure.llm.agent_step_harness import (
+        ContextBudget,
+        run_managed_structured,
+    )
     from infrastructure.llm.prompt_loader import load_prompt
     from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 
@@ -206,6 +225,10 @@ async def _complete_batch(
             step_name="imports.targeted_completion.structured",
             max_fix_attempts=1,
             transport_retries=False,
+            timeout=270,
+            context_budget=ContextBudget(
+                max_input_chars=100_000, max_output_chars=40_000
+            ),
         ),
         timeout=270,
     )
@@ -358,6 +381,8 @@ def materialize_completion(
             entity_refs[key] = "local:" + item_key
     for alias in output.aliases:
         target = targets.get(alias.target_key)
+        if target is not None and target.resolution == "unresolved":
+            entity_refs.setdefault(alias.target_key, "target:" + alias.target_key)
         references = refs(alias.evidence)
         if (
             alias.target_key not in batch_keys
@@ -383,6 +408,9 @@ def materialize_completion(
     for relation in output.relations:
         references = refs(relation.evidence)
         left, right = targets.get(relation.source_key), targets.get(relation.target_key)
+        for endpoint in (left, right):
+            if endpoint is not None and endpoint.resolution == "unresolved":
+                entity_refs.setdefault(endpoint.key, "target:" + endpoint.key)
         if (
             left is None
             or right is None
@@ -500,6 +528,35 @@ async def select_automatic_roots(
 async def run_targeted_completion(
     db, *, task, progress, checkpoint, project_settings: dict
 ) -> None:
+    """Keep any recoverable search/apply failure visibly partial under the run fence."""
+    try:
+        await _run_targeted_completion(
+            db,
+            task=task,
+            progress=progress,
+            checkpoint=checkpoint,
+            project_settings=project_settings,
+        )
+    except Exception as exc:
+        from infrastructure.llm.redaction import redact_diagnostic
+
+        state = progress.checkpoints.get("targeted_completion")
+        if state and state.get("rollback_receipts") is None:
+            state["status"] = "partial"
+            progress.targeted_completion = {
+                **progress.targeted_completion,
+                "status": "partial",
+                "available_actions": ["resume"]
+                + (["rollback"] if state.get("packages") else []),
+            }
+            progress.message = "专项补全已暂停：" + redact_diagnostic(exc, limit=240)
+            await checkpoint(progress, 0.8)
+        raise
+
+
+async def _run_targeted_completion(
+    db, *, task, progress, checkpoint, project_settings: dict
+) -> None:
     permission = progress.authorization_snapshot.get("targeted_completion")
     if not permission:
         return
@@ -550,6 +607,8 @@ async def run_targeted_completion(
     fingerprint = stable_hash(permission)
     if state and state.get("permission_fingerprint") != fingerprint:
         raise ValueError("专项补全授权已改变")
+    if state.get("rollback_receipts") is not None:
+        raise ValueError("本次专项补全已开始撤销，请新建补全任务")
     if state.get("status") == "done":
         return
     if not state:
@@ -614,6 +673,7 @@ async def run_targeted_completion(
             chapter_from=permission["chapter_from"],
             chapter_to=permission["chapter_to"],
             max_depth=1,
+            continuation_target_policy="identity",
             compile_options=CompileOptions(
                 novel_id=novel_id,
                 task="专项补全",
@@ -622,7 +682,7 @@ async def run_targeted_completion(
                 context_mode="working",
                 content_mode="working",
                 include_pending_objects=True,
-                reveal_mode="author_safe",
+                reveal_mode="author_full",
                 source_manifest=permission["source_manifest"],
             ),
             continuation=state.get("continuation"),
@@ -632,12 +692,18 @@ async def run_targeted_completion(
             client = create_project_snapshot_llm_client(
                 project_settings, novel_id=novel_id, timeout_override=240
             )
-            active_snapshot_id = None
+            snapshots = []
             try:
                 result = await retrieve_focused_evidence(
                     db, request, llm_client=client, before_llm=save
                 )
-                items, diagnostics, outputs, snapshots = [], [], [], []
+                items, diagnostics, outputs, snapshots, context_fingerprints = (
+                    [],
+                    [],
+                    [],
+                    [],
+                    [],
+                )
                 keys = [
                     target.key
                     for target in result.targets
@@ -672,9 +738,14 @@ async def run_targeted_completion(
                             },
                             section_metadata={
                                 "target_keys": selected,
+                                "identity_targets": payload["targets"],
                                 "sources": [
-                                    item.model_dump(mode="json", exclude={"text"})
-                                    for item in result.evidence
+                                    {
+                                        key: value
+                                        for key, value in item.items()
+                                        if key != "text"
+                                    }
+                                    for item in payload["evidence"]
                                 ],
                             },
                             token_metadata={
@@ -688,21 +759,17 @@ async def run_targeted_completion(
                             retain_rendered_context=False,
                         ),
                     )
-                    active_snapshot_id = snapshot.id
                     snapshots.append(snapshot.id)
+                    context_fingerprints.append(stable_hash(payload))
                     state.setdefault("snapshot_ids", []).append(snapshot.id)
                     await save()
                     output = await _complete_batch(
                         client, result=result, targets=result.targets, batch_keys=selected
                     )
-                    await succeed_context_snapshot(
-                        db, novel_id=novel_id, snapshot_id=snapshot.id, result_refs=[]
-                    )
-                    active_snapshot_id = None
                     outputs.append((selected, output))
                 # Entity packages precede all links, so links across target batches
                 # resolve earlier package receipts without broadening discovery.
-                entity_refs = {}
+                entity_refs = dict(state.get("target_entities", {}))
                 for selected, output in outputs:
                     materialized, uncertain = materialize_completion(
                         output.model_copy(update={"aliases": [], "relations": []}),
@@ -726,14 +793,15 @@ async def run_targeted_completion(
             except Exception as exc:
                 from infrastructure.llm.redaction import redact_diagnostic
 
-                if active_snapshot_id:
+                for failed_snapshot_id in snapshots:
                     await fail_context_snapshot(
                         db,
                         novel_id=novel_id,
-                        snapshot_id=active_snapshot_id,
+                        snapshot_id=failed_snapshot_id,
                         error_kind=type(exc).__name__,
                         error_message=redact_diagnostic(exc, limit=300),
                     )
+                    state.setdefault("failed_snapshot_ids", []).append(failed_snapshot_id)
                 state["status"] = "partial"
                 await save()
                 raise
@@ -748,7 +816,9 @@ async def run_targeted_completion(
             page = {
                 "result": page_result,
                 "item_batches": items,
+                "target_refs": entity_refs,
                 "batch_snapshots": snapshots + snapshots,
+                "batch_context_fingerprints": context_fingerprints + context_fingerprints,
                 "snapshot_result_refs": {},
                 "next_batch": 0,
                 "diagnostics": diagnostics,
@@ -758,10 +828,37 @@ async def run_targeted_completion(
         result = FocusedEvidenceResult.model_validate(page["result"])
         while page["next_batch"] < len(page["item_batches"]):
             items = json.loads(json.dumps(page["item_batches"][page["next_batch"]]))
+            if (
+                items
+                and all(item["kind"] != "core_entity" for item in items)
+                and not state.get("flush_links")
+            ):
+                state.setdefault("pending_links", []).append(
+                    {
+                        "items": items,
+                        "result": page["result"],
+                        "snapshot_id": page["batch_snapshots"][page["next_batch"]],
+                        "context_fingerprint": page["batch_context_fingerprints"][
+                            page["next_batch"]
+                        ],
+                    }
+                )
+                page["next_batch"] += 1
+                await save()
+                continue
             local_keys = {item["item_key"] for item in items}
             for item in items:
                 for field in ("source_ref", "target_ref", "entity_ref"):
                     ref = str(item["payload"].get(field) or "")
+                    if ref.startswith("target:"):
+                        resolved = state.get("target_entities", {}).get(ref[7:])
+                        if resolved:
+                            item["payload"][field] = resolved
+                        else:
+                            item["disposition"] = "open"
+                            item.setdefault("review_reasons", []).append(
+                                "target_identity_not_materialized"
+                            )
                     if ref.startswith("local:") and ref[6:] not in local_keys:
                         resolved = state["entity_results"].get(ref[6:])
                         if resolved:
@@ -770,7 +867,14 @@ async def run_targeted_completion(
                             item["disposition"] = "open"
 
             await require_active_project_exclusive(db, novel_id)
-            await revalidate_focused_evidence(db, request, result)
+            source_result = (
+                FocusedEvidenceResult.model_validate(
+                    page["batch_results"][page["next_batch"]]
+                )
+                if page.get("batch_results")
+                else result
+            )
+            await revalidate_focused_evidence(db, request, source_result)
             if items:
                 package = await submit_focused_world_package(
                     db,
@@ -783,7 +887,9 @@ async def run_targeted_completion(
                         lease_id=str(task.lease_id),
                         items=items,
                         source_manifest_hash=permission["source_manifest_hash"],
-                        context_fingerprint=result.source_fingerprint,
+                        context_fingerprint=page["batch_context_fingerprints"][
+                            page["next_batch"]
+                        ],
                         roots=(
                             batch
                             if permission["root_selection"] == "import_completion_hints"
@@ -819,13 +925,17 @@ async def run_targeted_completion(
                 for ref in receipt.get("result_refs", []):
                     if ref.get("item_key") and ref.get("id"):
                         state["entity_results"][ref["item_key"]] = str(ref["id"])
+                        for target_key, entity_ref in page.get("target_refs", {}).items():
+                            if entity_ref == "local:" + ref["item_key"]:
+                                state.setdefault("target_entities", {})[target_key] = str(
+                                    ref["id"]
+                                )
                 state["counts"]["review"] += int(package.get("review_count", 0))
                 snapshot_id = page["batch_snapshots"][page["next_batch"]]
-                refs = page["snapshot_result_refs"].setdefault(snapshot_id, [])
-                refs.extend(receipt.get("result_refs", []))
-                await succeed_context_snapshot(
-                    db, novel_id=novel_id, snapshot_id=snapshot_id, result_refs=refs
+                refs = state.setdefault("snapshot_result_refs", {}).setdefault(
+                    snapshot_id, []
                 )
+                refs.extend(receipt.get("result_refs", []))
                 for change in receipt.get("applied_changes", []):
                     key = (
                         "filled" if change.get("operation") == "fill_empty" else "created"
@@ -833,6 +943,9 @@ async def run_targeted_completion(
                     state["counts"][key] += 1
             page["next_batch"] += 1
             await save()
+        for target_key, entity_ref in page.get("target_refs", {}).items():
+            if not entity_ref.startswith(("local:", "target:")):
+                state.setdefault("target_entities", {})[target_key] = entity_ref
         state["counts"]["review"] += len(page["diagnostics"])
         state.setdefault("diagnostics", []).extend(page["diagnostics"])
         state["coverage"] = result.coverage.model_dump()
@@ -841,12 +954,46 @@ async def run_targeted_completion(
             result.continuation.model_dump(mode="json") if result.continuation else None
         )
         state["page"] = None
+        if result.coverage.nomination_failed:
+            state["status"] = "partial"
+            await save()
+            raise RuntimeError("直接关联对象查读未完成，已保留进度供恢复")
         if result.coverage.complete and result.continuation is None:
+            if state.get("pending_links"):
+                pending = state.pop("pending_links")
+                state["flush_links"] = True
+                state["page"] = {
+                    "result": page["result"],
+                    "item_batches": [item["items"] for item in pending],
+                    "batch_results": [item["result"] for item in pending],
+                    "batch_snapshots": [item["snapshot_id"] for item in pending],
+                    "batch_context_fingerprints": [
+                        item["context_fingerprint"] for item in pending
+                    ],
+                    "next_batch": 0,
+                    "diagnostics": [],
+                }
+                await save()
+                continue
+            state["flush_links"] = False
             state["root_position"] += len(batch)
         elif result.continuation is None:
             state["status"] = "partial"
             await save()
             raise RuntimeError("专项补全尚有未完成的查读，请恢复任务后继续")
+        await save()
+    for snapshot_id in state.get("snapshot_ids", []):
+        if snapshot_id in state.get(
+            "failed_snapshot_ids", []
+        ) or snapshot_id in state.get("succeeded_snapshot_ids", []):
+            continue
+        await succeed_context_snapshot(
+            db,
+            novel_id=novel_id,
+            snapshot_id=snapshot_id,
+            result_refs=state.get("snapshot_result_refs", {}).get(snapshot_id, []),
+        )
+        state.setdefault("succeeded_snapshot_ids", []).append(snapshot_id)
         await save()
     state["status"] = "done"
     progress.completed_steps = list(
@@ -861,6 +1008,9 @@ async def rollback_targeted_completion(db, *, novel_id: str, task_id: str) -> di
     from modules.imports.workflow_runs import ImportWorkflowRunService
     from modules.project.facade import require_active_project_exclusive
     from modules.world.facade import rollback_focused_world_package
+    from shared.utils import parse_uuid
+
+    novel_id = str(parse_uuid(novel_id, "novel_id"))
 
     await require_active_project_exclusive(db, novel_id)
     runs = ImportWorkflowRunService()

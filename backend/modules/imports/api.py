@@ -107,6 +107,9 @@ class DeepImportCleanupSummaryResponse(BaseModel):
     deprecated_structure_assets: int = 0
     hard_deleted_assets: int = 0
     cleanup_mode: Literal["soft_deprecate"] = "soft_deprecate"
+    cleanup_status: Literal["complete", "partial"] = "complete"
+    unreverted_targeted_items: int = 0
+    targeted_completion_rollback: dict = Field(default_factory=dict)
     rolled_back_delta_logs: int = 0
     rolled_back_aliases: int = 0
     rolled_back_relations: int = 0
