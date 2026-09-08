@@ -78,7 +78,7 @@ make eval-context-planner NOVEL_ID='<fixture-project-id>' OUTPUT=/tmp/context-pl
 make eval-context-planner NOVEL_ID='<fixture-project-id>' LLM_PLANNER=1 OUTPUT=/tmp/context-planner-llm-dev.json  # explicit model calls; dev split only
 make audit-backend-deps          # Locked backend audit; all extras, temporary no-fix exceptions re-open on fix
 make audit-frontend-deps         # Frontend lockfile audit; high/critical findings fail
-make docs-check                  # Current architecture inventory and link/diagram checks
+make docs-check                  # Current architecture inventory, AST task discovery, links and diagrams
 make docs-check BASE_REF=origin/main  # Plus current-branch architecture impact review
 make test-ci TEST_WORKERS=2     # One cross-stack quality gate; no PostgreSQL/browser/image suites
 make secret-hygiene              # Scan tracked/indexed files for credential regressions
@@ -233,7 +233,7 @@ modules/<name>/
 ├── repositories.py  — Data access layer, when persistent state exists
 ├── services.py      — Business logic
 ├── api.py           — FastAPI router (thin: validate → delegate)
-├── tasks.py         — Async task handler (optional, @task_handler)
+├── *tasks.py        — Async task handlers (optional, @task_handler; task type may use a string constant)
 └── tests/
     ├── conftest.py  — Module-specific fixtures (SQLite in-memory)
     └── test_*.py    — Per-layer tests

@@ -58,7 +58,7 @@ imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用�
 - 版本回滚基于 `TextArchive` 归档与 `EntityRevision` 兜底（活跃回滚路由优先查询 `TextArchive`，无归档时回退到最近 `EntityRevision` 快照）
 - 关系原始状态仍兼容 `candidate` / `canonical` / `deprecated`；作者界面统一投影为待处理 / 已采用 / 历史。canonical 的 `relation_kind` 必须非空，但不参与唯一性；关系边仍使用 `(novel_id, source_id, target_id, relation_type)` 作为数据库幂等键，关系写入由仓储层 upsert 兜底。
 - 待处理对象合并响应可带 `affected_ids` / `merged_ids`，前端只按精确 ID 更新；缺少 affected ids 时刷新当前待处理 tab。
-- CoreEntity、关系、别名、创设建议和 Map Observation/Fact 响应按需提供 `display_state / source / attention_reasons / suggested_action`；原始状态字段保持兼容
+- CoreEntity、关系、别名和创设建议响应按需提供 `display_state / source / attention_reasons / suggested_action`；原始状态字段保持兼容。旧 Map Observation/Fact 领域已删除，地图内容由 AI 地图册候选/采用边界承载
 - 作者可在新建、编辑后采用和已采用对象编辑中使用安全自定义 `entity_type`；AI 抽取和建议创建仍限系统目录。已有对象类型变化统一由 `EntityTypeTransitionService` 执行可逆 Profile snapshot 迁移，并在人物、事件等硬依赖存在时以结构化 409 阻止，详见 ADR-0005
 - `entity_type="character"` 的 CoreEntity 进入 canonical 时必须同步具备最小 `characters` 档案，保证人物、POV 与生成中心上下文可立即使用。作者显式创建人物档案会原位升级自动 scaffold；未被作者扩展的 scaffold 不视为类型纠正的硬依赖
 
@@ -107,7 +107,7 @@ selected assets 过滤，避免把作者在审查窗排除的页面、正文或�
 ## 数据表（关联模块）
 
 - `text_archive`（由 `modules.world.models` 兼容入口导出，具体定义在 world 模型 package 的 core 子域）— 文本归档：存储回滚时使用的长文本字段快照，在执行回滚时写入并读取以恢复先前值；不会在日常每次编辑时自动填充。字段：entity_id / field_name / text_content / scene_index / source / meta
-- `delta_log`（定义在 memory/models.py）— 实体变更日志：属于 memory 模块，记录结构化字段的 before/after 变更（category / field_path / old_value / new_value）；不会在每个实体编辑时自动写入
+- `delta_log`（定义在 `modules.story.continuity.models`）— 实体变更日志：属于 Story continuity 子域，记录结构化字段的 before/after 变更（category / field_path / old_value / new_value）；不会在每个实体编辑时自动写入
 
 ### models 子包布局
 

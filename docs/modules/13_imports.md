@@ -19,7 +19,7 @@ imports 模块负责将本地小说文件解析并导入系统，创建 WritingD
 | .txt | 内置 + chardet | 编码检测 + 章节正则分割 |
 | .epub | ebooklib | 逐章提取 |
 | .html/.htm | beautifulsoup4 | 提取文本 |
-| .mobi/.azw3 | 内置 | 原始解析 |
+| .mobi/.azw3 | 可选 `mobi` 依赖 | 仅保留内部白名单；未完成真实文件验收，当前不对用户宣称已支持 |
 
 ## 服务
 
@@ -119,7 +119,7 @@ Phase 1c 仅在 `high_quality=true` 时运行：先按窗口批量审阅完整�
 - 第二遍输出 `supported / structural_inference / unsupported / conflict / uncertain` 和逐字 quote。服务端重验 novel、Scene、hash、范围和 quote。
 - 自动采用要求复核置信度不低于 `0.90`，剧情线/人物弧至少两 Scene，其他结构至少一 Scene；任何条件失败仍保存为待复核。
 - 深度导入模式显式使用 `context_mode="working"` 并包含待处理对象；context 会给结果加“包含未采用内容”警告。
-- 完成后会通过 outline facade 生成结构去重建议；仅自动应用同一 deep import workflow 内的高置信重复，跨已有资产的建议只写入任务结果。
+- 完成后会通过 story facade 生成结构去重建议；仅自动应用同一 deep import workflow 内的高置信重复，跨已有资产的建议只写入任务结果。
 
 ### 进度状态
 
@@ -211,11 +211,11 @@ coverage、checkpoint 和脱敏 provider summary。
 ## 跨模块依赖
 
 - 写入导入章节正文通过 `writing.facade.create_published_drafts_only` 批量持久化；逐章 `publish_chapter` 任务及整批事务回滚保持不变
-- Scene 阶段通过 outline facade / DI handler 提交已授权且带来源/回滚元数据的 `scenes`
+- Scene 阶段通过 story facade / DI handler 提交已授权且带来源/回滚元数据的 `scenes`
 - Phase 2a / 2b 通过 world facade / DI handler 写入 `core_entities` / 关系数据和 Delta
-- Phase 2 后通过 `memory.facade.capture_snapshot` 记录记忆快照
-- Phase 2 / Phase 3 通过 `context.facade` 创建、标记并汇总 `context_snapshots`
-- Phase 3 通过 outline facade / DI handler 写入 `plot_threads` / `outline_arcs` / `foreshadowing_plans` / `reveal_plans`
+- Phase 2 后通过 `modules.story.facade.capture_snapshot` 记录记忆快照
+- Phase 2 / Phase 3 通过 `modules.evidence.facade` 创建、标记并汇总 `context_snapshots`
+- Phase 3 通过 story facade / DI handler 写入 `plot_threads` / `outline_arcs` / `foreshadowing_plans` / `reveal_plans`
 - 新增跨模块依赖应优先走 facade 或 DI container 注册服务；不得直接 import 其他模块 repositories/services
 - 放弃可恢复 workflow 通过各领域 facade 整批软回滚：outline/world 资产废弃、Memory DeltaLog 标记 `rolled_back`；所有操作按 novel/workflow 隔离并保留来源审计
 

@@ -329,11 +329,11 @@ ok
 网络小说作者准备让 AI 辅助续写或调试剧情时，不能把全库内容塞给模型。Context Compiler 必须按 Scene、POV、知识边界、伏笔义务、RAG 证据和预算裁剪生成可控上下文。
 
 目标：
-让作者在 contextView 中选择任务、章节/Scene、揭示模式、视角人物和预算后，编译结构化上下文并渲染为 Markdown Prompt。
+让作者在 Writing owner 页的“整理资料”抽屉中选择任务、章节/Scene、揭示模式、视角人物和预算后，编译可审查的结构化上下文；完整 Markdown 只作为作者显式展开的次级结果。
 
 范围：
-- 后端主模块：backend/modules/evidence/compilation，聚合 project/world/memory/outline 与 evidence/indexing
-- 前端主视图：contextView
+- 后端主模块：backend/modules/evidence/compilation，聚合 project/world/story 与 evidence/indexing
+- 前端主视图：Writing owner 页内的 Owner AI“整理资料”抽屉；旧 context hash 仅作兼容重定向
 - 相关测试：context 单测、context E2E、hidden_truth/知识边界集成测试
 
 必须满足：
@@ -346,10 +346,10 @@ ok
 - Scene.must_not_happen 必须进入 Hard Constraints。
 - RAG 证据包受 top_k 和预算控制，不无限拉取数据库。
 - MarkdownRenderer 只渲染编译后的 IR，不在渲染层重新做业务决策。
-- contextView 展示编译结果、警告、预算裁剪信息；未选择项目或缺少视角人物时给出清晰提示。
+- 抽屉先展示作者可读的资料标题、状态、加入理由与来源；预算裁剪等技术信息渐进展开。未选择项目或缺少视角人物时给出清晰提示。
 
 实现约束：
-- context 聚合跨模块数据必须走 facade/contracts/DI port；不能直接 import 其他模块内部 models/repositories/services。
+- evidence/compilation 聚合跨模块数据必须走 facade/contracts/DI port；不能直接 import 其他模块内部 models/repositories/services。
 - 不泄露 author_only / hidden_truth 到角色视角上下文。
 - 不为了补资料绕过预算控制。
 

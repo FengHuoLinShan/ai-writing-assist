@@ -33,6 +33,8 @@
 1. **完整性门禁**：无须 Git base。验证清单文件存在、模块目录与模块文档一一对应、所有 ORM
    表在数据库设计和所属组件文档中可见、API 前缀/任务/路由/Prompt 已登记、ADR 全部进入
    `docs/adr/README.md`、本地链接可达、Draw.io XML/ID/edge endpoint 正常。
+   任务发现通过 AST 扫描生产 `*tasks.py`，同时识别装饰器中的字符串字面量与唯一字符串常量，
+   不要求所有 handler 都集中在名为 `tasks.py` 的文件中。
 2. **差异影响门禁**：提供 `BASE_REF` 后，根据 API、facade、contracts、ORM、migration、
    task、业务模块/基础设施/前端生产代码、前端 route/wire 和 Prompt 的实际改动，列出本轮
    必查文档；未修改的必查文档必须在 PR 模板中逐项核对并说明无影响原因，否则 CI 失败。

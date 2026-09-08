@@ -5,7 +5,7 @@
 
 ## 1. 页面定位与目标画像
 
-- **定位**：画像 A（长期创作作家）的高级生成工作台——用自然语言与世界书共建设定草稿、按角色视角试写正文、审计 AI 实际使用的上下文。topbar 自我定位为「面向高级用法的生成与上下文工具」（`vue/shell/ShellApp.vue:83`）。
+- **定位**：画像 A（长期创作作家）在 World/Writing owner 页内的 AI 抽屉——用自然语言共建设定草稿、按角色视角试写正文、审计 AI 实际使用的资料。旧 Generate 路由只把请求带到所属 owner 页，不作为独立用户入口。
 - **目标画像**：画像 A 中的进阶用户。**豁免边界**：本页允许暴露 token 预算、Tier/section、revision/hash 等技术概念（task/preview tab 的审计语义需要），但仅限明确的诊断区域；world 聊天和 pov 正文是创作面，文案必须用作者语言（不得出现 raw ID、内部枚举、prompt 术语）。
 - **用户任务**：聊天共建世界设定草稿 → 审阅/采纳提案；选章节+视角试写正文 → 落入写作页；编译并审计上下文 → 导出或注入聊天。
 - **喜欢它的理由**：生成结果始终是「建议/草稿」不静默写入正史；上下文可审计、可导出；复杂配置渐进展开。
@@ -36,7 +36,7 @@
 
 ## 3. 目标布局与信息层级
 
-- **tab 栏**：owner 页只显示一层「设定共创／写作建议／整理资料／查找资料」类别导航，嵌入的 Generate 不再重复渲染模式栏；独立兼容页面仍保留 `.subnav.generate-subtabs`，旧深链跨「人物与世界／写作」归属时替换到正确 owner 页，刷新不读错会话。
+- **tab 栏**：owner 页只显示一层「设定共创／写作建议／整理资料／查找资料」类别导航，嵌入的 Generate 不再重复渲染模式栏；旧 `generate` 深链经 router 归一化后直接进入正确 owner 页及抽屉，不显示独立“生成模式” tablist。
 - **header 操作区**：每 tab 至多 1 个 primary；task 页头不放操作，表单内只保留「整理参考资料」，输出动作在结果区就地完成。
 - **world**：聊天为主对象；来源下方只用一行「本轮方向」摘要定位当前目标，3 个互斥目标、对象类型和页面模板收进原生 `details`。生成建议与发送都留在输入区，生成后的建议优先于方向设置、在聊天工作区上方使用完整主栏宽度审阅。右侧 rail 只管理「本轮参考资料」；窄屏把主创作区放在资料栏之前，避免展开资料后找不到输入位置。
 - **pov**：左表单右结果，表单为主；结果卡 pending/成功/空态分层清晰。
@@ -101,21 +101,21 @@
 - **Desktop ≥1440**：各 tab 双栏栅格默认形态；chatbox 视口高度固定但加矮窗口保护。
 - **Laptop 1100-1440**：同 Desktop 默认形态。
 - **Tablet 760-1100**：rail 收窄可折叠（world 的 `:has()` 折叠保留）；pov/task 双栏比例收紧但不并栏。
-- **Mobile <760**：全部降单列、解除固定高度；owner 的单层类别导航为 3 个等宽入口且触控高度 ≥44px，独立兼容页的 subtabs 才使用两列 wrap；世界目标保留 3 个按钮，对象模板使用原生选择器。composer、pov 与 preview 操作栏纵向排列，主操作整行且可滚动到固定底栏上方；资料来源标签换行，诊断表格在抽屉内折行，零页面级横向溢出。
+- **Mobile <760**：全部降单列、解除固定高度；owner 的单层类别导航为 3 个等宽入口且触控高度 ≥44px；内部兼容 renderer 的 subtabs 规则不构成用户入口。世界目标保留 3 个按钮，对象模板使用原生选择器。composer、pov 与 preview 操作栏纵向排列，主操作整行且可滚动到固定底栏上方；资料来源标签换行，诊断表格在抽屉内折行，零页面级横向溢出。
 
 ## 7. 必须保留的契约
 
 ### #id
 
-`owner-ai-tab-<key>` / `owner-ai-panel-<key>`（key ∈ world/writing/task/evidence）；`generate-mode-tab-<key>` / `generate-mode-panel-<key>`（key ∈ world/pov_prose/task/preview，独立兼容页面与旧深链保留）；`generate-object-template` / `generate-object-template-hint`；`generate-template-editor-select/name/prompt`、`generate-template-history-load`、`generate-template-history`；`generate-chapter-<index>`；`generate-template-row`、`generate-new-page-type`、`generate-new-page-template`；`generate-chat-messages`、`generate-chat-input`；`generate-quality-pro`、`generate-include-world-synopsis`、`generate-activation-profile`；`generate-chat-context-usage`、`generate-selected-chapters`；`generate-world-scene/threads/characters/entities`；`generate-result`；`generate-pov-chapter/scene/character/instruction`、`generate-pov-result`；`gen-task-preset(-hint)`、`gen-task`、`gen-scope`、`gen-entities(-picker)`、`gen-characters(-picker)`、`gen-chapter`、`gen-scene(-picker)`、`gen-budget(-hint)`、`gen-reveal`、`gen-include-world-synopsis`、`gen-world-synopsis-visibility-hint`、`gen-viewpoint-character(-group,-picker)`、`gen-task-output`、`gen-preview-output`；`generate-page-title/type/free-text/sections/assets`。
+`owner-ai-tab-<key>` / `owner-ai-panel-<key>`（key ∈ world/writing/task/evidence）；内部 Generate renderer 仍保留 `generate-mode-tab-<key>` / `generate-mode-panel-<key>`（key ∈ world/pov_prose/task/preview）作为兼容 seam，正常路由不渲染该 tablist；`generate-object-template` / `generate-object-template-hint`；`generate-template-editor-select/name/prompt`、`generate-template-history-load`、`generate-template-history`；`generate-chapter-<index>`；`generate-template-row`、`generate-new-page-type`、`generate-new-page-template`；`generate-chat-messages`、`generate-chat-input`；`generate-quality-pro`、`generate-include-world-synopsis`、`generate-activation-profile`；`generate-chat-context-usage`、`generate-selected-chapters`；`generate-world-scene/threads/characters/entities`；`generate-result`；`generate-pov-chapter/scene/character/instruction`、`generate-pov-result`；`gen-task-preset(-hint)`、`gen-task`、`gen-scope`、`gen-entities(-picker)`、`gen-characters(-picker)`、`gen-chapter`、`gen-scene(-picker)`、`gen-budget(-hint)`、`gen-reveal`、`gen-include-world-synopsis`、`gen-world-synopsis-visibility-hint`、`gen-viewpoint-character(-group,-picker)`、`gen-task-output`、`gen-preview-output`；`generate-page-title/type/free-text/sections/assets`。
 
 ### data-action / data 钩子
 
-`owner-world-generation`、`owner-writing-generation`、`owner-writing-pov-workbench`、`owner-task-context`、`owner-evidence`；`switch-generate-subtab`（带 `data-subtab`，独立兼容页）、`generate-world-suggestion`、`generate-pov-prose`、`retry-pov-prose`、`retry-pov-options`、`retry-pov-scenes`、`run-task`、`retry-task-context`、`render-task-md`、`retry-context-preview`、`start-context-preview`、`apply-to-chat`、`select-world-target`、`select-object-template`、`edit-object-templates`、`return-world-bible`、`send-chat-message`、`retry-chat-message`、`retry-world-suggestion`、`view-generation-context`、`select-source-chapters`、`open-generated-destination`、`continue-chat`、`generate-another`、`apply-world-page-draft`、`open-writing-from-pov-empty`、`return-world-from-pov-empty`、`select-task-preset`（带 `data-preset`）、`copy-task-md`、`export-task-md`；`data-workspace-rail-key`、`data-state="recovered-page-proposal"`、`data-section="advanced-page-data"`。
+`owner-world-generation`、`owner-writing-generation`、`owner-writing-pov-workbench`、`owner-task-context`、`owner-evidence`；`switch-generate-subtab`（带 `data-subtab`，仅内部兼容 renderer）、`generate-world-suggestion`、`generate-pov-prose`、`retry-pov-prose`、`retry-pov-options`、`retry-pov-scenes`、`run-task`、`retry-task-context`、`render-task-md`、`retry-context-preview`、`start-context-preview`、`apply-to-chat`、`select-world-target`、`select-object-template`、`edit-object-templates`、`return-world-bible`、`send-chat-message`、`retry-chat-message`、`retry-world-suggestion`、`view-generation-context`、`select-source-chapters`、`open-generated-destination`、`continue-chat`、`generate-another`、`apply-world-page-draft`、`open-writing-from-pov-empty`、`return-world-from-pov-empty`、`select-task-preset`（带 `data-preset`）、`copy-task-md`、`export-task-md`；`data-workspace-rail-key`、`data-state="recovered-page-proposal"`、`data-section="advanced-page-data"`。
 
 ### role / 可访问名称
 
-owner 页使用 `role="tablist"`（aria-label「AI 工具类别」）、相连的 `role="tab"` / `role="tabpanel"`、roving tabindex 与方向键/Home/End 导航；嵌入的 Generate 面板不再嵌套第二组 tabpanel。独立兼容页继续保留 aria-label「生成模式」的四组 tab/tabpanel。`role="group"` 使用 aria-label「生成目标」；世界目标保留 `aria-pressed`，对象模板和常用任务使用有可见 label 与 `aria-describedby` 的原生 `<select>`；rail summary 保留 `aria-label="收起/展开本轮参考资料"`。world composer 保留可见 label、提示的 `aria-describedby`、等待 `role="status"` 和错误 `role="alert"`；pov 失败使用 `role="alert"` 并聚焦重试卡。e2e 走 `getByRole`/`getByLabel`，改任何可访问名称必须全局 grep 同步 `generate.spec.js`（主规范 §9）。
+owner 页使用 `role="tablist"`（aria-label「AI 工具类别」）、相连的 `role="tab"` / `role="tabpanel"`、roving tabindex 与方向键/Home/End 导航；嵌入的 Generate 面板不再嵌套第二组 tabpanel，正常路由也不显示 aria-label「生成模式」的 tablist。`role="group"` 使用 aria-label「生成目标」；世界目标保留 `aria-pressed`，对象模板和常用任务使用有可见 label 与 `aria-describedby` 的原生 `<select>`；rail summary 保留 `aria-label="收起/展开本轮参考资料"`。world composer 保留可见 label、提示的 `aria-describedby`、等待 `role="status"` 和错误 `role="alert"`；pov 失败使用 `role="alert"` 并聚焦重试卡。e2e 走 `getByRole`/`getByLabel`，改任何可访问名称必须全局 grep 同步 `generate.spec.js`（主规范 §9）。
 
 ## 8. 验收标准 + 验证命令
 

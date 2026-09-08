@@ -33,7 +33,7 @@
    独立密度与 44px 触控档，唯一主操作保持 48px。
 7. **已处理：增加最小视觉回归基线，不复制任务卡抽象**。Today 的卡片仍是导航投影，
    不承担 `WorkflowProgressCard` 的取消/恢复编排；视觉测试复用现有 Playwright fixture，以固定作者可见
-   摘要覆盖桌面 sticky/night/ink 与 390px sticky，共四张快照，守住主题、信息层级与窄屏排布。
+   摘要覆盖桌面 light/dark 与 390px light，共三张快照，守住主题、信息层级与窄屏排布。
 8. **已处理：作者任务完成响应按作品隔离**。请求始终提交到点击时的作品；切换作品或组件卸载后，
    晚到的成功、409 与普通失败均不改写新页面任务状态，也不显示旧提示或刷新新作品。
 
@@ -71,7 +71,7 @@
   hairline 边表达；渐变保留（第一焦点豁免），但收编为主题内可覆写的表达，禁止新增字面色值。
 - 字号角色：H2 允许突破 §3.2 矩阵（独特构图豁免），上限 clamp(26px,4vw,40px) 保留；
   label = eyebrow 档；状态行/统计行 = helper 档（`--text-sm` secondary），统计数字可用 mono（§3.1）。
-- 主按钮：`.btn-primary`，高度 ≥48px 保留（`.today-resume__action`），三态文案「继续写作 / 继续整理 / 开始第一章」。空白作品的主操作始终进入正文工作台，不依赖模型连接；「先整理世界观」作为同组次操作复用现有 World Core。
+- 主按钮：`.btn-primary`，高度 ≥48px 保留（`.today-resume__action`）。文案由当前可恢复目标决定，可显示「继续写作 / 进入正文编辑 / 继续创作 / 去审查 / 开始第一章」等作者语言。空白作品的主操作始终进入正文工作台，不依赖模型连接；「先整理世界观」作为同组次操作复用现有 World Core。
 - 状态行三态语义保持：有 continuation → 章节 + 保存状态；有 deep_import → 整理中提示；
   否则 → 首次引导句（:128-133）。
 
@@ -97,7 +97,7 @@
   基本合规）；hover 只保留「边加深或 `--bg-hover` 淡入」（§5.3），**删除 translateY 与阴影**
   （`.today-attention-card:hover`）。
 - 值为 0 的卡：disabled 或 aria-disabled + `--text-quaternary` 数字（§5.1 disabled 档），不可点击；
-  hint 不再显示「暂无待处理」斜位文案（:153 的 `<i>` 元素改为 `<span>`，样式已由 `.today-attention-card` 设为 normal）。
+  当前实现使用 `<i>` 显示「暂无待处理」，作为明确的零状态说明。
 
 ### 4.5 「正在进行的整理」workflow 区——导航投影的最小状态契约
 
@@ -164,7 +164,7 @@
 - [x] workflow 卡保持导航投影的最小状态契约；不强套具有编排行为的 `WorkflowProgressCard`。
 - [x] 命名统一：router/页内为「写作首页」，主导航使用任务名「写作」。
 - [x] 390px 宽度无页面级横向溢出；<760 档主按钮全宽且高 48px。
-- [x] 桌面 sticky/night/ink 与 390px sticky 写作首页均有 Playwright 像素基线。
+- [x] 桌面 light/dark 与 390px light 写作首页均有 Playwright 像素基线。
 - [x] 全部 §7 契约存在且可被 `getByRole`/`data-action` 选中。
 
 验证命令（在 `frontend-console/` 下）：

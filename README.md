@@ -144,9 +144,10 @@ flowchart LR
     I --> C
 ```
 
-RP 路径不复用作者项目的 World、Outline、RAG、writing 或 memory。它把“故事版本控制”收敛为
-不可变节点和显式选中分支：重新生成不会覆盖旧内容，未选中的兄弟节点不会进入未来 Prompt、
-导出或回顾。
+无 source 的 RP 旅程不复用作者项目资产；source-bound 旅程只通过 Evidence 读取同 owner、
+不可变 source revision 在剧情截止点前的冻结资料，不读当前作者资产也不写回原作。两种路径都把
+“故事版本控制”收敛为不可变节点和显式选中分支：重新生成不覆盖旧内容，未选中的兄弟节点不进入
+后续 Prompt、导出或回顾。
 
 ## 系统架构
 
@@ -165,11 +166,11 @@ flowchart TB
         subgraph Facts["事实层"]
             Project["project<br/>项目根、owner 门禁、novel_id"]
             World["world<br/>人物、地点、关系、时间线、AI 地图册"]
-            Memory["memory<br/>可追踪记忆与状态快照"]
+            Memory["story/continuity<br/>可追踪记忆与状态快照"]
         end
 
         subgraph Structure["结构层"]
-            Outline["outline<br/>总纲、剧情线、篇章纲、Scene"]
+            Outline["story/outline_state<br/>总纲、剧情线、篇章纲、Scene"]
         end
 
         subgraph Support["辅助层"]
@@ -228,8 +229,7 @@ flowchart TB
 | `project` | 作者 / interaction 项目聚合根、非 secret 工作流设置和 `owner_id + novel_id` 双重边界。 |
 | `imports` | 文件解析、确定性 Phase 0 和可恢复的深度导入工作流。 |
 | `world` | 人物、地点、关系、时间线、事件等长期世界事实，以及来源可追溯、采用前不进入正史的 AI 地图册。 |
-| `memory` | 带来源的记忆、状态快照与可追踪上下文资产。 |
-| `outline` | 总纲、剧情线、篇章纲、Scene 和结构覆盖关系。 |
+| `story` | `continuity` 子域拥有记忆与状态快照；`outline_state` 子域拥有总纲、剧情线、篇章纲、Scene 和结构覆盖关系。 |
 | `evidence` | 正文分块、embedding、混合召回、索引新鲜度，以及可逐项审查的上下文、三阶段指纹、确认/快照和证据链。 |
 | `writing` | 当前正文、版本、发布状态、写作生成与候选内容。 |
 | `interaction` | 私人 RP 旅程、不可变选中历史、流式正文恢复、回顾和看海循环。 |
@@ -479,11 +479,12 @@ OpenResty 与应用服务位于受控网络边界内；数据库不直接暴露�
 - 不宣称实体抽取准确率、生成采纳率或 P95 延迟达到某个未经持续评测的数字。
 - 当前架构以单作者项目和可控并发为主，多人实时协作与大规模容量验证不在现阶段完成范围内。
 - 视觉基线与自动化测试能证明主要路径可回归，但不能替代真实作者的长期创作反馈。
-- RP 第一版不导入原作、不按章节分叉、不依赖作者结构化资产，也不提供项目共享；模型对作品
-  知识和人物质感的稳定性仍需真实旅程样本验证。
-- RP 与账户模型连接已随 [PR #26](https://github.com/FengHuoLinShan/ai-writing-assist/pull/26)
-  合入 `origin/main`，并以固定 release `4a0797c7…` 通过健康检查上线。现有账号仍需在账户设置
-  连接自己的 DeepSeek Key；旧项目 Key 不迁移且不再生效。Kimi 与长上下文能力仍以显式真实
+- RP 默认可不依赖作者结构化资产，也可导入或选择同 owner 作者作品，冻结为不可变
+  source revision 后按剧情截止点只读取 Evidence 编译的原作资料。当前不提供按章节分叉或
+  项目共享；模型对作品知识和人物质感的稳定性仍需真实旅程样本验证。
+- RP 与账户模型连接已进入 `origin/main`；生产是否包含后续能力仍以服务器的固定
+  release 记录和健康检查为准，本文不固定会过期的部署 SHA。现有账号仍需在账户设置连接
+  自己的 DeepSeek Key；旧项目 Key 不迁移且不再生效。Kimi 与长上下文能力仍以显式真实
   门禁结果为准，不承诺 1M 上下文。
 
 下一阶段优先级：

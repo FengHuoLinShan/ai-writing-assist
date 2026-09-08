@@ -155,4 +155,4 @@ npm run test:e2e:visual -- e2e/visual-project-rag.spec.js   # 浅／深色页面
 npm run test:e2e:visual:update -- e2e/visual-project-rag.spec.js   # 改版后重建基线，须人工核对 diff
 ```
 
-改版时以 `e2e/visual-project-rag.spec.js-snapshots/` 下 sticky/night/ink 页面基线、`rag-search-mobile-night` 手机结果基线、`rag-search-filters-mobile-night` 更多条件基线与证据抽屉桌面/手机基线做前后对比锚点；任何快照更新必须在 PR 中附说明。
+改版时以 `e2e/visual-project-rag.spec.js-snapshots/` 下当前 light/dark 页面、手机结果/更多条件与证据抽屉桌面/手机基线做前后对比锚点；任何快照更新必须在 PR 中附说明。

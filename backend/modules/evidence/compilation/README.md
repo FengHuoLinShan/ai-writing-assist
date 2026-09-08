@@ -242,7 +242,7 @@ revision/source/block hash、section/token metadata 和后续产物引用。
 
 ## 检索计划与运行健康
 
-`RetrievalQueryPlanner` 仍是 context 拥有的纯确定性边界，把 purpose、Scene、
+`RetrievalQueryPlanner` 是 evidence/compilation 拥有的纯确定性边界，把 purpose、Scene、
 entity/character/thread 和 visibility 组装为最多 3 条 clause。单 clause 只使用最终
 `top_k`，多 clause 才分配扩大的总候选预算，避免同章重复 chunk 挤掉正确章节。
 
@@ -299,7 +299,7 @@ owner terminal 或 lease stale 则分别以 `owner_task_terminal` / `owner_task_
 
 ## Loader 依赖注入
 
-`ContextCompiler` 的外部行为由 `SCOPE_LOADERS`、loader `name` 和 facade 入口保持稳定；loader 内部依赖统一通过构造函数注入 callable。生产默认 callable 仍委托既有 `project / world / memory / outline / rag` 稳定入口，测试可直接传入 fake callable，不需要在 `load()` 内 monkeypatch facade 或直接访问 DI container。多个 loader 共用调用方的同一 `AsyncSession`，因此前置与依赖阶段内均顺序执行，不在同一 session 上并发发起 SQL。
+`ContextCompiler` 的外部行为由 `SCOPE_LOADERS`、loader `name` 和 facade 入口保持稳定；loader 内部依赖统一通过构造函数注入 callable。生产默认 callable 委托 `project / world / story / evidence.indexing` 的稳定入口，测试可直接传入 fake callable，不需要在 `load()` 内 monkeypatch facade 或直接访问 DI container。多个 loader 共用调用方的同一 `AsyncSession`，因此前置与依赖阶段内均顺序执行，不在同一 session 上并发发起 SQL。
 
 `load()` 只使用 `self._...` 依赖：
 
@@ -403,7 +403,7 @@ reader/character 可见性校验，随后才从 writing 读取当前原文。RAG
 
 ## 小说证据服务与可见性
 
-`NovelEvidenceService` 在 context 内集中编排 writing、RAG、outline 和 world，
+`NovelEvidenceService` 在 evidence/compilation 内集中编排 writing、evidence/indexing、story 和 world，
 对外只暴露确定性 grep/search/read/inspect/trace，不是自主选择工具的 Agent。
 
 面向作者的小说检索按章节聚合正文结果：字面搜索汇总同章全部出现位置；智能搜索
@@ -458,13 +458,13 @@ GET/POST /api/evidence/compilation/activation-preview
 ## Deep Import Activation
 
 `prepare_import_context_activation()` 是 Phase 2a 的唯一跨模块预检入口。它通过
-outline facade 获取锁定 Scene 卡、当前章节范围内的 active working Scene / 篇章纲 / 剧情线
+`modules.story.facade` 获取锁定 Scene 卡、当前章节范围内的 active working Scene / 篇章纲 / 剧情线
 以及前序 brief，通过 world facade 装配身份候选，并读取当前 Scene 在可见截止章/offset
 以前的完整精确正文范围。直接被正文名称或别名命中的候选全部保留，其余候选按 Scene / 大纲
 关联和重要度选择人物 Top-6、非人物 Top-16；Top-K 是资产相关性边界，不是输入 token
 预算。模型只看到服务端生成的 `entity-xxx` 引用，不看到可自由回传的数据库 ID。
 
-`import-context-v2` 不裁剪当前 Scene，也不对 Phase 2a 输入实施应用层字符/token 预算；
+`import-context-v3` 不裁剪当前 Scene，也不对 Phase 2a 输入实施应用层字符/token 预算；
 provider 上下文超限时该 Scene 显式失败并进入复核。后续 Scene 和跨章 Scene 中越过截止的
 span 永不进入 activation；可见范围内只要存在 `chapter_only / unresolved`、非法 offset 或
 缺失 span，就不发送部分 Scene。context fingerprint 覆盖正文来源、Scene 卡、相关大纲、
@@ -474,14 +474,14 @@ Phase 2b 复用完整正文与同一相关性边界，以 `entity-xxx / relation
 
 ## 快照生命周期维护
 
-`context_snapshots` 的生命周期治理由 context 模块拥有，入口是 facade 和只读/维护 API：
+`context_snapshots` 的生命周期治理由 evidence/compilation 拥有，入口是 facade 和只读/维护 API：
 
 生产代码通过 `open_context_snapshot()` 打开 running 快照，通过
 `succeed_context_snapshot()` / `fail_context_snapshot()` 完成生命周期标记。宽参数
 `create_context_snapshot()` 仅用于兼容旧调用。
 
 生成中心调用使用独立的 `open/succeed/fail_generation_context_snapshot()` 生命周期；这些
-入口由 context 创建并提交独立 session，确保业务 suggestion/chat 事务回滚时审计快照仍可
+入口由 evidence/compilation 创建并提交独立 session，确保业务 suggestion/chat 事务回滚时审计快照仍可
 记录失败。普通 snapshot 入口继续参与调用方事务，不改变既有自动流水线的原子性。
 
 ```http
