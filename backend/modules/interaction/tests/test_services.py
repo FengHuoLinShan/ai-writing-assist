@@ -148,6 +148,189 @@ async def _append_selected_node(
     return node
 
 
+async def test_first_agreement_save_keeps_all_raw_and_supports_legacy_omission(
+    db_session,
+):
+    service, journey, attempt, _ = await _create_journey(
+        db_session, key="first-agreements"
+    )
+    journey_id = str(journey.id)
+    first = await service.get_overview(db_session, journey_id=journey_id)
+    assert first.base_revision_id is None
+    assert first.base_selected_leaf_node_id == str(attempt.response_to_node_id)
+    kwargs = dict(
+        journey_id=journey_id,
+        expected_overview_epoch=first.overview_epoch,
+        expected_selection_epoch=journey.selection_epoch,
+        base_revision_id=None,
+        base_selected_leaf_node_id=first.base_selected_leaf_node_id,
+        base_selected_path_hash=first.base_selected_path_hash,
+    )
+    saved = await service.update_overview(
+        db_session,
+        **kwargs,
+        sections=InteractionOverviewSections(long_term_agreements="不能使用火焰。"),
+    )
+    assert saved.anchor_node_id is None
+    head = await service._repo.get_overview_head(db_session, journey=journey)
+    assert head.coverage_path_hash == path_hash([])
+    assert service._overview_coverage_matches_path(
+        head, await service._repo.get_selected_path(db_session, journey=journey)
+    )
+    with pytest.raises(ConflictError):
+        await service.update_overview(
+            db_session,
+            **kwargs,
+            sections=InteractionOverviewSections(long_term_agreements="过期提交"),
+        )
+    kwargs.update(
+        base_revision_id=saved.base_revision_id,
+        expected_overview_epoch=saved.overview_epoch,
+    )
+    legacy = await service.update_overview(
+        db_session,
+        **kwargs,
+        sections=InteractionOverviewSections(must_remember="仍在海港。"),
+    )
+    assert legacy.sections.long_term_agreements == "不能使用火焰。"
+    task = _task_for(journey, attempt)
+    opening_text = journey.opening_text
+    db_session.task_checkpoint_enabled = True
+    with patch(
+        "modules.interaction.generation.restore_project_llm_execution_settings",
+        autospec=True,
+        return_value={"llm": {"model": "deepseek-v4-flash"}},
+    ):
+        prepared = await InteractionGenerationWorkflow().prepare_story_task(
+            db_session, task=task
+        )
+    assert isinstance(prepared, PreparedStoryGeneration)
+    assert prepared.messages[-1].content == opening_text
+    assert "不能使用火焰。" in prepared.messages[1].content
+
+
+async def test_agreements_survive_three_real_reducer_passes_and_clear(db_session):
+    service, journey, attempt, _ = await _create_journey(
+        db_session, key="three-agreement-folds"
+    )
+    agreements = "我不能使用火焰；传闻不能写成我已知的真相。"
+    first = await service.get_overview(db_session, journey_id=str(journey.id))
+    await service.update_overview(
+        db_session,
+        journey_id=str(journey.id),
+        sections=InteractionOverviewSections(long_term_agreements=agreements),
+        expected_overview_epoch=0,
+        expected_selection_epoch=0,
+        base_revision_id=None,
+        base_selected_leaf_node_id=first.base_selected_leaf_node_id,
+        base_selected_path_hash=first.base_selected_path_hash,
+    )
+    workflow = InteractionGenerationWorkflow()
+    for index in range(3):
+        parent = (await service._repo.get_selected_path(db_session, journey=journey))[-1]
+        for role, content, tokens in [
+            ("assistant", f"旧事{index}：左臂正在恢复。", 20_000),
+            ("user", "继续观察。", 100),
+            ("assistant", "新的完整节拍。", 16_000),
+        ]:
+            parent = await _append_selected_node(
+                db_session, service, journey, parent=parent, role=role, content=content
+            )
+            parent.token_estimate = tokens
+        path = await service._repo.get_selected_path(db_session, journey=journey)
+        with patch(
+            "modules.interaction.generation.restore_project_llm_execution_settings",
+            autospec=True,
+            return_value={"llm": {"model": "deepseek-v4-flash"}},
+        ):
+            prepared = await workflow._prepare_summary_generation(
+                db_session,
+                journey=journey,
+                current_path=path,
+                expected_path_hash=path_hash(path),
+                started_epoch=journey.overview_epoch,
+                snapshot=dict(attempt.llm_execution_snapshot),
+            )
+        assert prepared is not None
+        assert agreements in prepared.messages[-1].content
+        assert "当前回顾继承过用户保存的回顾" not in prepared.messages[-1].content
+        assert "用户当前确认的活动基线" not in prepared.messages[0].content
+        task = SimpleNamespace(id=uuid.uuid4(), update_progress=lambda _: None)
+        db_session.task_checkpoint_enabled = True
+        result = await workflow.finalize_summary_task(
+            db_session,
+            task=task,
+            prepared=prepared,
+            output=InteractionSummaryOutput.model_validate(
+                {
+                    "segment_summary": "左臂逐步恢复。",
+                    "overview": {
+                        "current_situation": f"恢复阶段{index}",
+                        "long_term_agreements": "模型越权修改",
+                    },
+                }
+            ),
+        )
+        head = await db_session.get(
+            InteractionOverviewRevision, uuid.UUID(result["overview_revision_id"])
+        )
+        assert head.sections["long_term_agreements"] == agreements
+        assert head.sections["current_situation"] == f"恢复阶段{index}"
+    editable = await service.get_overview(db_session, journey_id=str(journey.id))
+    updated = editable.sections.model_copy(update={"long_term_agreements": ""})
+    cleared = await service.update_overview(
+        db_session,
+        journey_id=str(journey.id),
+        sections=updated,
+        expected_overview_epoch=editable.overview_epoch,
+        expected_selection_epoch=journey.selection_epoch,
+        base_revision_id=editable.base_revision_id,
+        base_selected_leaf_node_id=editable.base_selected_leaf_node_id,
+        base_selected_path_hash=editable.base_selected_path_hash,
+    )
+    assert cleared.sections.long_term_agreements == ""
+    assert cleared.sections.current_situation == "恢复阶段2"
+
+
+async def test_only_agreement_can_be_cleared_and_exported(db_session):
+    service, journey, _, _ = await _create_journey(db_session, key="clear-only-agreement")
+    saved = await service.update_overview(
+        db_session,
+        journey_id=str(journey.id),
+        sections=InteractionOverviewSections(long_term_agreements="保留克制的对白。"),
+        expected_overview_epoch=0,
+        expected_selection_epoch=0,
+    )
+    _, _, exported = await service.export_journey(
+        db_session,
+        journey_id=str(journey.id),
+        format_name="txt",
+        story_only=False,
+        include_overview=True,
+    )
+    assert "长期约定\n保留克制的对白。" in exported
+    _, _, story_only = await service.export_journey(
+        db_session,
+        journey_id=str(journey.id),
+        format_name="txt",
+        story_only=True,
+        include_overview=True,
+    )
+    assert "保留克制的对白。" not in story_only
+    cleared = await service.update_overview(
+        db_session,
+        journey_id=str(journey.id),
+        sections=InteractionOverviewSections(long_term_agreements=""),
+        expected_overview_epoch=saved.overview_epoch,
+        expected_selection_epoch=0,
+        base_revision_id=saved.base_revision_id,
+        base_selected_leaf_node_id=saved.base_selected_leaf_node_id,
+        base_selected_path_hash=saved.base_selected_path_hash,
+    )
+    assert not cleared.sections.has_content()
+    assert cleared.anchor_node_id is None
+
+
 async def test_source_query_seeds_low_information_input_from_journey_state() -> None:
     query = _source_retrieval_query(
         latest_input="继续",
@@ -497,7 +680,8 @@ async def test_overview_from_previous_branch_is_not_exposed_after_switch(
         db_session,
         journey_id=str(journey.id),
         sections=InteractionOverviewSections(
-            current_situation="第一条发展中的当前局面。"
+            current_situation="第一条发展中的当前局面。",
+            long_term_agreements="只在第一条发展中保护这个约定。",
         ),
         expected_overview_epoch=0,
         expected_selection_epoch=0,
@@ -526,9 +710,11 @@ async def test_overview_from_previous_branch_is_not_exposed_after_switch(
         journey_id=str(journey.id),
     )
 
-    assert saved.anchor_node_id == str(first_branch.id)
+    assert saved.anchor_node_id is None
+    assert saved.base_selected_leaf_node_id == str(first_branch.id)
     assert switched.selected_leaf_node_id == str(second_branch.id)
     assert overview.sections.current_situation == ""
+    assert overview.sections.long_term_agreements == ""
     assert overview.anchor_node_id is None
     assert overview.status == "forming"
 
@@ -560,6 +746,15 @@ async def test_overview_from_previous_branch_is_not_exposed_after_switch(
     )
     assert "第一条发展中的当前局面" not in exported
     assert "第二条发展取代了第一条" in exported
+
+    await service.select_branch(
+        db_session,
+        journey_id=str(journey.id),
+        node_id=str(first_branch.id),
+        expected_selection_epoch=switched.selection_epoch,
+    )
+    restored = await service.get_overview(db_session, journey_id=str(journey.id))
+    assert restored.sections.long_term_agreements == "只在第一条发展中保护这个约定。"
 
 
 async def test_failed_visible_record_stays_off_current_branch_until_adopted(
@@ -2027,6 +2222,7 @@ async def test_manual_overview_epoch_rejects_late_automatic_summary(
         "key_turning_points": "",
         "open_threads": "",
         "must_remember": "",
+        "long_term_agreements": "",
     }
 
 
@@ -2391,8 +2587,8 @@ async def test_automatic_summary_keeps_segment_and_total_overview_distinct(
         "kind": "model",
         "provider_id": "deepseek",
         "model": "deepseek-v4-flash",
-        "prompt_version": "interaction-summary-v1",
-        "schema_version": "interaction-summary-output-v1",
+        "prompt_version": "interaction-summary-v3",
+        "schema_version": "interaction-summary-output-v2",
         "estimated_input_tokens": 321,
         "completion_tokens": 77,
         "call_attempts": 1,
@@ -2465,7 +2661,7 @@ async def test_automatic_summary_keeps_segment_and_total_overview_distinct(
     assert "memory_checkpoint_base_revision_id" not in next_segment.producer
 
 
-async def test_prepare_summary_reads_manual_baseline_and_only_new_tail(
+async def test_prepare_summary_reads_manual_baseline_and_uncovered_tail(
     db_session,
 ) -> None:
     service, journey, attempt, _response = await _create_journey(
@@ -2550,7 +2746,7 @@ async def test_prepare_summary_reads_manual_baseline_and_only_new_tail(
         )
 
     assert prepared is not None
-    assert prepared.segment_node_ids == [story_id]
+    assert prepared.segment_node_ids == [prepared.node_ids[0], story_id]
     assert prepared.segment_path_hash == story_prefix_hash
     assert prepared.protected_node_ids == [
         recent_user_id,
@@ -2561,8 +2757,8 @@ async def test_prepare_summary_reads_manual_baseline_and_only_new_tail(
     assert "A 的立场仍然可疑。" in prompt
     assert "A 提供了一条线索" in prompt
     assert "A 沉默着看向门外" not in prompt
-    assert "不得恢复该修正删除或改写的旧当前值" in prompt
-    assert opening_content not in prompt
+    assert "不得恢复用户明确删除或改写的旧当前值" in prompt
+    assert opening_content in prompt
 
     result = await InteractionGenerationWorkflow().finalize_summary_task(
         db_session,
@@ -2761,9 +2957,9 @@ async def test_two_prefix_summary_passes_are_contiguous_and_keep_suffix_raw(
             ),
         )
 
-    assert first.segment_node_ids == [str(old_one.id)]
+    assert first.segment_node_ids == [str(opening.id), str(old_one.id)]
     assert second.segment_node_ids == [str(old_two.id)]
-    assert "不得恢复该修正删除或改写的旧当前值" in second.messages[-1].content
+    assert "不得恢复用户明确删除或改写的旧当前值" in second.messages[-1].content
     assert (
         first.protected_node_ids
         == second.protected_node_ids
@@ -3592,7 +3788,7 @@ async def test_pending_adopted_beat_keeps_sea_prompt_after_loop_is_disabled(
     system_prompt = prepared.messages[0].content
     assert "看海模式已开启" in system_prompt
     assert "不要给出行动建议" in system_prompt
-    assert story_request(prepared).max_tokens == 4096
+    assert story_request(prepared).max_tokens == 65_536
 
 
 async def test_extended_context_uses_full_selected_path_without_forced_summary(
@@ -3638,7 +3834,7 @@ async def test_extended_context_uses_full_selected_path_without_forced_summary(
     assert refreshed_attempt.status == "running"
     assert refreshed_attempt.usage["context_tier"] == "extended"
     assert refreshed_attempt.usage["estimated_input_tokens"] == 300_000
-    assert refreshed_attempt.usage["prompt_version"] == "interaction-story-v4"
+    assert refreshed_attempt.usage["prompt_version"] == "interaction-story-v7"
 
 
 async def test_emergency_summary_resumes_same_story_attempt_without_losing_path(
@@ -3951,7 +4147,7 @@ async def test_leaving_story_page_revokes_sea_without_cancelling_current_step(
     assert heartbeat.attempt is None
 
 
-async def test_see_sea_story_request_uses_narrow_output_budget() -> None:
+async def test_new_deepseek_story_and_see_sea_use_frozen_max_budget() -> None:
     common = {
         "novel_id": str(uuid.uuid4()),
         "journey_id": str(uuid.uuid4()),
@@ -3971,11 +4167,15 @@ async def test_see_sea_story_request_uses_narrow_output_budget() -> None:
     see_sea = story_request(PreparedStoryGeneration(request_kind="see_sea", **common))
     manual = story_request(PreparedStoryGeneration(request_kind="message", **common))
 
-    assert see_sea.max_tokens == 4096
-    assert manual.max_tokens == 8192
+    assert see_sea.max_tokens == manual.max_tokens == 65_536
+    assert (
+        see_sea.extra
+        == manual.extra
+        == {"thinking": {"type": "enabled"}, "reasoning_effort": "max"}
+    )
 
 
-async def test_summary_request_uses_json_contract_and_twelve_k_budget() -> None:
+async def test_new_deepseek_summary_uses_json_contract_and_max_budget() -> None:
     prepared = PreparedSummaryGeneration(
         novel_id=str(uuid.uuid4()),
         journey_id=str(uuid.uuid4()),
@@ -3996,7 +4196,8 @@ async def test_summary_request_uses_json_contract_and_twelve_k_budget() -> None:
     request = summary_request(prepared)
 
     assert request.response_format == {"type": "json_object"}
-    assert request.max_tokens == 12_000
+    assert request.max_tokens == 65_536
+    assert request.extra == {"thinking": {"type": "enabled"}, "reasoning_effort": "max"}
 
 
 async def test_unknown_model_request_uses_short_fallback_output_budget() -> None:

@@ -77,6 +77,8 @@ class LLMStreamChunk(BaseModel):
 
     content: str = ""
     """当前片段文本"""
+    reasoning_chars: int = Field(default=0, ge=0, exclude=True)
+    """Internal count only; never forward reasoning text or add it to browser wire."""
     finish_reason: str | None = None
     """如果该片段是最后一个，提供结束原因"""
     usage: LLMUsage | None = None

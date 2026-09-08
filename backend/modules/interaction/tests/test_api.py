@@ -187,3 +187,36 @@ async def test_see_sea_notice_acknowledgement_is_account_scoped(
     assert acknowledged.json() == {"see_sea_notice_acknowledged": True}
     assert after.json() == {"see_sea_notice_acknowledged": True}
     assert other.json() == {"see_sea_notice_acknowledged": False}
+
+
+async def test_http_first_agreement_save_and_legacy_omission(async_client, db_session):
+    from modules.interaction.tests.test_services import _create_journey
+
+    _, journey, _, _ = await _create_journey(db_session, key="http-first-agreements")
+    url = f"/api/interactions/journeys/{journey.id}/overview"
+    initial = (await async_client.get(url)).json()
+    assert initial["base_revision_id"] is None
+    payload = {
+        key: initial[key]
+        for key in (
+            "base_revision_id", "base_selected_leaf_node_id", "base_selected_path_hash"
+        )
+    }
+    payload.update(expected_overview_epoch=0, expected_selection_epoch=0)
+    saved = await async_client.put(url, json={
+        **payload, "sections": {"long_term_agreements": "不能使用火焰。"},
+    })
+    assert saved.status_code == 200
+    body = saved.json()
+    assert body["anchor_node_id"] is None
+    payload.update(base_revision_id=body["base_revision_id"],
+                   expected_overview_epoch=body["overview_epoch"])
+    legacy = await async_client.put(url, json={
+        **payload, "sections": {"current_situation": "仍在调查。"},
+    })
+    assert legacy.status_code == 200
+    assert legacy.json()["sections"]["long_term_agreements"] == "不能使用火焰。"
+    invalid = await async_client.put(url, json={
+        **payload, "sections": {"long_term_agreements": "字" * 4001},
+    })
+    assert invalid.status_code == 422

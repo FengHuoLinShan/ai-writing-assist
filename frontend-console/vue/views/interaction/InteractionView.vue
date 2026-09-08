@@ -68,6 +68,12 @@ const connectionProblem = ref(false)
 const overviewOpen = ref(false)
 const overview = ref(null)
 const overviewSections = [
+  {
+    key: "long_term_agreements",
+    label: "长期约定",
+    maxLength: 4000,
+    description: "保存希望持续遵守的规则和偏好；AI 不会改写此栏。伤势、物品等当前状态请留在回顾中。",
+  },
   { key: "world_and_start", label: "世界与起点" },
   { key: "player_character", label: "我的角色" },
   { key: "current_situation", label: "当前局面" },
@@ -178,6 +184,23 @@ const isGenerating = computed(() => (
     currentAttempt.value?.status,
   )
 ))
+const firstTextWaitLong = ref(false)
+watch(
+  () => [currentAttempt.value?.id, isGenerating.value, Boolean(streamText.value)],
+  ([, generating, hasText], _, onCleanup) => {
+    firstTextWaitLong.value = false
+    if (!generating || hasText) return
+    const created = Date.parse(currentAttempt.value?.created_at || "")
+    const elapsed = Number.isFinite(created) ? Math.max(0, Date.now() - created) : 0
+    if (elapsed >= 30000) {
+      firstTextWaitLong.value = true
+      return
+    }
+    const timer = setTimeout(() => { firstTextWaitLong.value = true }, 30000 - elapsed)
+    onCleanup(() => clearTimeout(timer))
+  },
+  { immediate: true },
+)
 const awaitingContinue = computed(() => (
   currentAttempt.value?.status === "awaiting_continue"
 ))
@@ -213,6 +236,12 @@ const overviewHasContent = computed(() => (
 ))
 const overviewDraftHasContent = computed(() => (
   overviewSections.some(({ key }) => overviewDraft.value[key]?.trim())
+  || (
+    overview.value?.sections?.long_term_agreements
+    && !overviewSections.some(({ key }) => (
+      key !== "long_term_agreements" && overview.value?.sections?.[key]?.trim()
+    ))
+  )
 ))
 const overviewDirty = computed(() => (
   overviewEditing.value
@@ -1186,7 +1215,9 @@ async function openOverview(trigger = null) {
         overviewEpoch:
           saved.overviewEpoch ?? overview.value?.overview_epoch,
         baseRevisionId:
-          saved.baseRevisionId ?? overview.value?.base_revision_id,
+          Object.hasOwn(saved, "baseRevisionId")
+            ? saved.baseRevisionId
+            : overview.value?.base_revision_id,
         baseSelectedLeafNodeId:
           saved.baseSelectedLeafNodeId
           ?? overview.value?.base_selected_leaf_node_id,
@@ -1228,7 +1259,7 @@ function beginOverviewEdit() {
 }
 
 function editOverview() {
-  if (!overviewHasContent.value) return
+  if (!overview.value?.base_selected_leaf_node_id) return
   beginOverviewEdit()
 }
 
@@ -2085,6 +2116,9 @@ onBeforeUnmount(() => {
         <p v-if="currentAttempt?.status === 'preparing_context'" class="rp-stream-status" role="status">
           正在整理最近剧情…
         </p>
+        <p v-if="isGenerating && !streamText" class="rp-stream-status" role="status">
+          {{ firstTextWaitLong ? "仍在生成，可随时停止" : "正在准备这一段故事，首段可能需要稍等…" }}
+        </p>
         <RpMarkdownContent
           v-if="streamText"
           class="rp-message__text"
@@ -2319,8 +2353,8 @@ onBeforeUnmount(() => {
           <span v-if="overviewLoading">正在载入…</span>
           <span v-else-if="overview?.status === 'refreshing'" role="status">正在整理最近剧情…</span>
           <span v-else-if="overview?.status === 'failed'" role="alert">最近剧情尚未整理</span>
-          <span v-else-if="overview?.status === 'forming'" role="status">正在形成旅程回顾</span>
-          <span v-else>自动整理，可随时手动纠正</span>
+          <span v-else-if="overview?.status === 'forming'" role="status">尚未形成剧情回顾</span>
+          <span v-else>剧情自动整理，长期约定由你保存</span>
         </div>
         <button type="button" aria-label="关闭当前回顾" @click="closeOverview">×</button>
       </header>
@@ -2344,11 +2378,13 @@ onBeforeUnmount(() => {
         </div>
         <label v-for="section in overviewSections" :key="section.key">
           <strong>{{ section.label }}</strong>
+          <span v-if="section.description" :id="`overview-help-${section.key}`">{{ section.description }}</span>
           <textarea
             v-model="overviewDraft[section.key]"
             :data-overview-section="section.key"
             rows="4"
-            maxlength="50000"
+            :maxlength="section.maxLength || 50000"
+            :aria-describedby="section.description ? `overview-help-${section.key}` : undefined"
           ></textarea>
         </label>
       </div>
@@ -2360,7 +2396,7 @@ onBeforeUnmount(() => {
           </section>
         </template>
         <p v-if="!overviewHasContent" class="rp-overview-empty">
-          {{ overview?.is_refreshing ? "正在形成旅程回顾…" : "第一段故事完成后会自动整理回顾。" }}
+          {{ overview?.is_refreshing ? "正在形成旅程回顾…" : "故事积累后会自动整理回顾；你现在就可以保存长期约定。" }}
         </p>
       </div>
       <footer v-if="!overviewLoading && !overviewLoadError">
@@ -2374,7 +2410,7 @@ onBeforeUnmount(() => {
             @click="saveOverview"
           >{{ overviewSaving ? "正在保存…" : "保存修改" }}</button>
         </template>
-        <button v-else-if="overviewHasContent" type="button" @click="editOverview">手动纠正</button>
+        <button v-else-if="overview?.base_selected_leaf_node_id" type="button" @click="editOverview">{{ overviewHasContent ? "手动纠正" : "添加长期约定" }}</button>
         <button
           v-if="overview?.status === 'failed'"
           type="button"

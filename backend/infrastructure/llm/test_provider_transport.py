@@ -462,3 +462,51 @@ def test_provider_sends_thinking_through_extra_body() -> None:
     assert "thinking" not in kwargs
     assert kwargs["extra_body"] == {"thinking": {"type": "enabled"}}
     assert kwargs["reasoning_effort"] == "max"
+
+
+async def test_reasoning_deltas_are_counted_without_exposing_their_text():
+    private_reasoning = "private reasoning fixture"
+
+    class Stream:
+        async def __aiter__(self):
+            for content, reasoning in [(None, private_reasoning), ("可见故事", None)]:
+                yield SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            delta=SimpleNamespace(
+                                content=content, reasoning_content=reasoning
+                            ),
+                            finish_reason=None,
+                        )
+                    ],
+                    usage=None,
+                )
+
+    class Completions:
+        async def create(self, **kwargs):
+            return Stream()
+
+    provider = OpenAIProvider.__new__(OpenAIProvider)
+    provider._client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+    provider._default_model = "test-model"
+    stream = await provider.generate_stream(LLMCallRequest(model="test-model"))
+    chunks = [chunk async for chunk in stream]
+    assert sum(chunk.reasoning_chars for chunk in chunks) == len(private_reasoning)
+    assert "".join(chunk.content for chunk in chunks) == "可见故事"
+    assert all("reasoning_chars" not in chunk.model_dump() for chunk in chunks)
+    assert private_reasoning not in str([chunk.model_dump() for chunk in chunks])
+
+
+def test_structured_diagnostics_record_channel_lengths_without_reasoning_text():
+    from infrastructure.llm.client import _cache_usage_diagnostic
+    from infrastructure.llm.schemas import LLMCallResponse
+
+    response = LLMCallResponse(
+        content="",
+        raw={"choices": [{"message": {"reasoning_content": "private-sentinel"}}]},
+    )
+    diagnostics = _cache_usage_diagnostic(response)
+    assert diagnostics["content_chars"] == 0
+    assert diagnostics["reasoning_chars"] == len("private-sentinel")
+    assert "private-sentinel" not in str(diagnostics)
+    assert "reasoning_chars" not in _cache_usage_diagnostic(LLMCallResponse(content="{}"))

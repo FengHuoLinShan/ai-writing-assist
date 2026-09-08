@@ -33,6 +33,8 @@ class LLMCapabilityProfile:
     calibration_status: str
     official_spec_url: str | None = None
     spec_verified_on: str | None = None
+    interaction_reasoning_effort: str | None = None
+    interaction_timeout_seconds: int | None = None
 
     @property
     def hard_input_tokens(self) -> int:
@@ -44,6 +46,17 @@ class LLMCapabilityProfile:
         )
 
     def validate(self) -> LLMCapabilityProfile:
+        if self.interaction_reasoning_effort is not None and (
+            (self.provider_id, self.model) != ("deepseek", "deepseek-v4-flash")
+            or self.interaction_reasoning_effort != "max"
+            or self.interaction_timeout_seconds != 900
+        ):
+            raise LLMCapabilityError("Unsupported RP execution policy")
+        if (
+            self.interaction_reasoning_effort is None
+            and self.interaction_timeout_seconds is not None
+        ):
+            raise LLMCapabilityError("RP timeout requires a frozen thinking policy")
         positive = (
             self.context_limit_tokens,
             self.verified_input_ceiling_tokens,
@@ -84,7 +97,7 @@ def _stable_hash(value: Any) -> str:
 
 
 _DEEPSEEK_V4_FLASH = LLMCapabilityProfile(
-    profile_id="deepseek-v4-flash-20260901-v1",
+    profile_id="deepseek-v4-flash-rp-max-20260908-v2",
     provider_id="deepseek",
     model="deepseek-v4-flash",
     context_limit_tokens=1_048_576,
@@ -92,13 +105,15 @@ _DEEPSEEK_V4_FLASH = LLMCapabilityProfile(
     normal_input_tokens=256_000,
     compact_trigger_tokens=360_000,
     summary_input_ceiling_tokens=256_000,
-    story_output_tokens=8_192,
-    see_sea_output_tokens=4_096,
-    summary_output_tokens=12_000,
+    story_output_tokens=65_536,
+    see_sea_output_tokens=65_536,
+    summary_output_tokens=65_536,
     safety_margin_tokens=8_192,
     calibration_status="verified_dev",
     official_spec_url="https://api-docs.deepseek.com/quick_start/pricing/",
     spec_verified_on="2026-09-01",
+    interaction_reasoning_effort="max",
+    interaction_timeout_seconds=900,
 ).validate()
 
 

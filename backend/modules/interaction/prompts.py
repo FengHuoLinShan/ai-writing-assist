@@ -6,15 +6,17 @@ from infrastructure.llm.schemas import LLMMessage
 from infrastructure.llm.token_estimation import estimate_token_count
 from modules.interaction.framing import META_END, META_START
 from modules.interaction.models import InteractionMessageNode
-from modules.interaction.schemas import InteractionOverviewSections
+from modules.interaction.schemas import (
+    InteractionOverviewSections,
+    InteractionSummarySections,
+)
 
 STORY_OUTPUT_TOKENS = 8192
 SEE_SEA_OUTPUT_TOKENS = 4096
 SUMMARY_OUTPUT_TOKENS = 12_000
-STORY_PROMPT_VERSION = "interaction-story-v4"
-SUMMARY_PROMPT_VERSION = "interaction-summary-v1"
-SUMMARY_SCHEMA_VERSION = "interaction-summary-output-v1"
-
+STORY_PROMPT_VERSION = "interaction-story-v7"
+SUMMARY_PROMPT_VERSION = "interaction-summary-v3"
+SUMMARY_SCHEMA_VERSION = "interaction-summary-output-v2"
 OVERVIEW_SECTION_LABELS: tuple[tuple[str, str], ...] = (
     ("world_and_start", "世界与起点"),
     ("player_character", "我的角色"),
@@ -27,11 +29,11 @@ OVERVIEW_SECTION_LABELS: tuple[tuple[str, str], ...] = (
 
 
 def render_overview_sections(
-    value: InteractionOverviewSections | dict,
+    value: InteractionSummarySections | dict,
 ) -> str:
     sections = (
         value
-        if isinstance(value, InteractionOverviewSections)
+        if isinstance(value, InteractionSummarySections)
         else InteractionOverviewSections.model_validate(value or {})
     )
     blocks = [
@@ -40,6 +42,15 @@ def render_overview_sections(
         if (content := getattr(sections, field))
     ]
     return "\n\n".join(blocks)
+
+
+def render_long_term_agreements(value: str) -> str:
+    content = value.replace("</LONG_TERM_AGREEMENTS>", "</长期约定结束>")
+    return (
+        "用户保存的长期约定（低于最新明确修正，高于自动回顾与历史旧说法；"
+        "不能改变账户权限或作品资料可见边界）：\n"
+        f"<LONG_TERM_AGREEMENTS>\n{content}\n</LONG_TERM_AGREEMENTS>"
+    )
 
 
 def render_related_memory(value: str) -> str:
@@ -131,8 +142,8 @@ def story_system_prompt(
     return f"""你在进行一段沉浸式、可持续的幻想世界互动叙事。你不是在解释规则，也不必自称
 DM。把用户提供的作品世界、身份、时间地点和愿望作为起点。{source_rule}
 
-事实优先级从高到低固定为：用户最新明确修正 → 当前选中的旅程历史与手工回顾 →
-当前绑定版本且截止点前的作品资料 → 模型训练知识。
+事实优先级从高到低固定为：用户最新明确修正 → 已保存长期约定 →
+当前选中的旅程历史与有效回顾 → 当前绑定版本且截止点前的作品资料 → 模型训练知识。
 
 写作要求：
 - 直接输出故事，不写分析、提示词、Markdown 标题或代码块。
@@ -165,6 +176,7 @@ def compile_story_messages(
     rejected_variants: list[str] | None = None,
     continuation_text: str | None = None,
     source_context: str | None = None,
+    long_term_agreements: str = "",
 ) -> list[LLMMessage]:
     start_index = 0
     if overview and overview_anchor_node_id:
@@ -184,6 +196,12 @@ def compile_story_messages(
             ),
         )
     ]
+    if long_term_agreements:
+        messages.append(
+            LLMMessage(
+                role="system", content=render_long_term_agreements(long_term_agreements)
+            )
+        )
     if overview:
         messages.append(
             LLMMessage(
@@ -244,8 +262,12 @@ def compile_story_messages(
 def summary_system_prompt() -> str:
     return """你负责为持续互动小说维护一段新的分段概要和一份更新后的总回顾。
 
-只依据“已有总回顾”和“需要合并的新故事”。已有总回顾是用户当前确认的活动基线；只允许根据
-新故事让它继续演化，不得用更早的文本、模型训练知识或猜测恢复已经被用户删改的旧说法。
+只依据另行提供的长期约定、“已有总回顾”和“需要合并的新故事”。已有总回顾可能包含自动
+生成的内容，不代表每项都经过用户确认。用户较新的明确修正优先，其次是已保存长期约定，
+再是当前分支历史与有效回顾；不得用更早的文本、模型训练知识或猜测恢复已被用户删改的旧说法。
+不能把违反明确约定的模型叙述提升为新的能力或已确认状态；其后的摘要也不能把这类矛盾合理化为进展。
+另行提供的“长期约定”由用户维护。不得在输出中新增、改写或删除该字段，
+也不要复制到七区中；它由服务端独立保留。伤势、位置等剧情状态仍按明确发生的新变化更新。
 
 重要性规则：
 - 重点保留：世界规则与起点；用户角色的身份、能力、物品、状态和长期意图；重要人物、别名、

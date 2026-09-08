@@ -1239,7 +1239,10 @@ async def test_client_accepts_real_provider_stream_coroutine_shape(monkeypatch) 
 
 
 @pytest.mark.asyncio
-async def test_generate_structured_retries_truncated_json_with_larger_budget() -> None:
+@pytest.mark.parametrize("initial_budget,retry_budget", [(20000, 40000), (65536, 65536)])
+async def test_generate_structured_retries_truncated_json_with_larger_budget(
+    initial_budget, retry_budget
+) -> None:
     client = LLMClient()
     requests: list[LLMCallRequest] = []
     diagnostics: list[dict] = []
@@ -1250,7 +1253,9 @@ async def test_generate_structured_retries_truncated_json_with_larger_budget() -
             return LLMCallResponse(
                 content='{"value": "unfinished',
                 finish_reason="length",
-                usage=LLMUsage(completion_tokens=20000, total_tokens=20000),
+                usage=LLMUsage(
+                    completion_tokens=initial_budget, total_tokens=initial_budget
+                ),
                 model="fake",
                 provider="fake",
             )
@@ -1268,7 +1273,7 @@ async def test_generate_structured_retries_truncated_json_with_larger_budget() -
         LLMCallRequest(
             model="fake",
             messages=[LLMMessage(role="user", content="return json")],
-            max_tokens=20000,
+            max_tokens=initial_budget,
         ),
         _StructuredPayload,
         diagnostics=diagnostics,
@@ -1276,7 +1281,7 @@ async def test_generate_structured_retries_truncated_json_with_larger_budget() -
 
     assert result.value == "complete"
     assert len(requests) == 2
-    assert requests[1].max_tokens == 40000
+    assert requests[1].max_tokens == retry_budget
     assert requests[1].messages[-1].role == "user"
     assert "上一轮输出被截断" in requests[1].messages[-1].content
     assert "从头重新输出完整 JSON" in requests[1].messages[-1].content
@@ -1288,10 +1293,11 @@ async def test_generate_structured_retries_truncated_json_with_larger_budget() -
             "error_kind": "truncated_json",
             "attempt": 1,
             "finish_reason": "length",
-            "completion_tokens": 20000,
-            "max_tokens": 20000,
+            "completion_tokens": initial_budget,
+            "max_tokens": initial_budget,
             "prompt_tokens": 0,
-            "total_tokens": 20000,
+            "total_tokens": initial_budget,
+            "content_chars": len('{"value": "unfinished'),
         },
         {
             "kind": "structured_usage",
@@ -1299,9 +1305,10 @@ async def test_generate_structured_retries_truncated_json_with_larger_budget() -
             "attempt": 2,
             "finish_reason": "stop",
             "completion_tokens": 8,
-            "max_tokens": 40000,
+            "max_tokens": retry_budget,
             "prompt_tokens": 0,
             "total_tokens": 8,
+            "content_chars": len('{"value": "complete"}'),
         },
     ]
 
@@ -1602,6 +1609,7 @@ async def test_generate_structured_accepts_markdown_json() -> None:
             "max_tokens": 12_000,
             "prompt_tokens": 0,
             "total_tokens": 9,
+            "content_chars": len('```json\n{"value": "from fence"}\n```'),
         },
     ]
 
@@ -1964,3 +1972,30 @@ async def test_generate_structured_truncated_json_does_not_format_repair() -> No
         )
 
     assert len(requests) == 1
+
+
+def test_complete_json_recovers_literal_invalid_escapes_without_changing_valid_ones():
+    from infrastructure.llm.client import _parse_structured_json
+
+    text = r'{"value":"path\q and \u96ea and \\literal and \nline"}'
+    data, strategy = _parse_structured_json(
+        text, _StructuredPayload, allow_truncated_recovery=True
+    )
+    assert strategy == "escaped_invalid_backslashes"
+    assert data["value"] == "path\\q and 雪 and \\literal and \nline"
+    assert _StructuredPayload.model_validate(data).value == data["value"]
+
+
+@pytest.mark.parametrize(
+    "text,recover",
+    [
+        (r'{"value":"path\q"}', False),
+        (r'{"value":"broken\u12"}', True),
+        ('{"value":"' + r"\q" * 9 + '"}', True),
+    ],
+)
+def test_escape_recovery_rejects_truncation_unicode_damage_and_excess(text, recover):
+    from infrastructure.llm.client import _parse_structured_json, _StructuredParseError
+
+    with pytest.raises(_StructuredParseError):
+        _parse_structured_json(text, _StructuredPayload, allow_truncated_recovery=recover)

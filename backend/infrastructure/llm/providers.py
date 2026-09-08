@@ -276,6 +276,7 @@ class OpenAIProvider:
                 async for chunk in stream:
                     delta = chunk.choices[0].delta if chunk.choices else None
                     content = delta.content or "" if delta else ""
+                    reasoning = getattr(delta, "reasoning_content", None)
                     finish = chunk.choices[0].finish_reason if chunk.choices else None
 
                     usage = None
@@ -288,6 +289,9 @@ class OpenAIProvider:
 
                     yield LLMStreamChunk(
                         content=content,
+                        reasoning_chars=len(reasoning)
+                        if isinstance(reasoning, str)
+                        else 0,
                         finish_reason=finish,
                         usage=usage,
                     )

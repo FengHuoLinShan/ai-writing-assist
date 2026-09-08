@@ -182,6 +182,37 @@ afterEach(() => {
 })
 
 describe("RP 故事页", () => {
+  it("首段等待满30秒提示可停止，收到正文后移除等待提示", async () => {
+    vi.useFakeTimers()
+    const nextChunk = deferred()
+    const streamEnd = deferred()
+    const active = journey({ active_attempt: {
+      id: "long-thinking", status: "running", visible_text: "", visible_offset: 0,
+      created_at: new Date().toISOString(),
+    } })
+    api.interactions.streamAttempt.mockImplementation(async function* () {
+      await nextChunk.promise
+      yield { event: "chunk", data: { text: "雨停了。", offset: 4 } }
+      await streamEnd.promise
+    })
+    api.interactions.getJourney.mockResolvedValue(active)
+    const wrapper = mount(InteractionView, { props: { initialJourney: active } })
+    try {
+      expect(wrapper.text()).toContain("首段可能需要稍等")
+      await vi.advanceTimersByTimeAsync(29999)
+      expect(wrapper.text()).not.toContain("仍在生成，可随时停止")
+      await vi.advanceTimersByTimeAsync(1)
+      expect(wrapper.text()).toContain("仍在生成，可随时停止")
+      nextChunk.resolve()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(wrapper.text()).not.toContain("仍在生成，可随时停止")
+    } finally {
+      wrapper.unmount()
+      streamEnd.resolve()
+      vi.useRealTimers()
+    }
+  })
+
   it("旅程加载失败时只显示恢复入口，不启动旅程副作用", () => {
     const wrapper = mount(InteractionView, {
       props: { initialJourney: null, loadError: "当前旅程无法访问" },
@@ -1107,8 +1138,7 @@ describe("RP 故事页", () => {
     expect(wrapper.html()).not.toContain("world_and_start")
 
     await wrapper.get("[aria-label='当前回顾'] footer button").trigger("click")
-    const textareas = wrapper.findAll(".rp-overview-sections textarea")
-    await textareas[2].setValue("我已经追上马车。")
+    await wrapper.get("textarea[data-overview-section='current_situation']").setValue("我已经追上马车。")
     expect(guard()).toBe(true)
     await wrapper.findAll("[aria-label='当前回顾'] footer button")
       .find((button) => button.text() === "保存修改")
@@ -1128,6 +1158,43 @@ describe("RP 故事页", () => {
         base_selected_path_hash: "a".repeat(64),
       }),
     )
+  })
+
+  it("首次回顾未形成也可保存长期约定，失败保留草稿并允许清空最后约定", async () => {
+    api.interactions.getOverview.mockResolvedValue({
+      sections: {}, source: "automatic", overview_epoch: 0, status: "forming",
+      base_revision_id: null, base_selected_leaf_node_id: "a2",
+      base_selected_path_hash: "a".repeat(64),
+    })
+    const wrapper = mount(InteractionView, {
+      props: { initialJourney: journey(), llmConnections: connected() },
+    })
+    await wrapper.findAll(".rp-composer-tools button").find((b) => b.text() === "回顾").trigger("click")
+    await flushPromises()
+    const drawer = wrapper.get("[aria-label='当前回顾']")
+    await drawer.findAll("button").find((b) => b.text() === "添加长期约定").trigger("click")
+    const input = drawer.get("textarea[data-overview-section='long_term_agreements']")
+    expect(input.attributes("maxlength")).toBe("4000")
+    expect(input.attributes("aria-describedby")).toBe("overview-help-long_term_agreements")
+    await input.setValue("不能使用火焰。")
+    api.interactions.updateOverview.mockRejectedValueOnce({ status: 409 })
+    const save = () => drawer.findAll("footer button").find((b) => b.text() === "保存修改")
+    await save().trigger("click")
+    await flushPromises()
+    expect(input.element.value).toBe("不能使用火焰。")
+    expect(drawer.text()).toContain("你的草稿仍保留")
+    expect(api.interactions.updateOverview).toHaveBeenLastCalledWith(journey().id, expect.objectContaining({
+      base_revision_id: null, sections: expect.objectContaining({ long_term_agreements: "不能使用火焰。" }),
+    }))
+    await save().trigger("click")
+    await flushPromises()
+    expect(drawer.text()).toContain("不能使用火焰。")
+    await drawer.findAll("footer button").find((b) => b.text() === "手动纠正").trigger("click")
+    await drawer.get("textarea[data-overview-section='long_term_agreements']").setValue("")
+    expect(save().element.disabled).toBe(false)
+    await save().trigger("click")
+    await flushPromises()
+    expect(api.interactions.updateOverview.mock.lastCall[1].sections.long_term_agreements).toBe("")
   })
 
   it("记住这一点只预填回顾，保留输入并在保存后恢复焦点", async () => {

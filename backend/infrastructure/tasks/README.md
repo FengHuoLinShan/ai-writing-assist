@@ -293,3 +293,6 @@ keyed coalescing。新增任务仍需独立证明 scope、合并模式和领域�
 `world_map_schematic_generate` 属于 project scope，使用 operation receipt 和 `manual_resume`；
 按节点冻结地图基准及项目文本连接，最多四个 attempt，成功批次 checkpoint 可复用。模型结果
 只落空间候选，任务完成不推进地图当前版本；不使用图片连接或新增队列基础设施。
+
+RP max 沿用既有任务、lease、心跳与恢复策略；Interaction handler 通过 Project facade
+传入冻结的900秒客户端超时，不延长失效lease，也不增加重试层数。

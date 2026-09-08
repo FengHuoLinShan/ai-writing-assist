@@ -57,8 +57,8 @@ _OVERVIEW_SECTION_FIELDS = (
 MAX_OVERVIEW_ESTIMATED_TOKENS = 24_000
 
 
-class InteractionOverviewSections(BaseModel):
-    """Stable internal sections rendered as ordinary Chinese headings."""
+class InteractionSummarySections(BaseModel):
+    """Only these seven narrative sections may be written by the summary model."""
 
     world_and_start: str = Field(default="", max_length=50_000)
     player_character: str = Field(default="", max_length=50_000)
@@ -74,7 +74,7 @@ class InteractionOverviewSections(BaseModel):
         return value.replace("\x00", "").strip()
 
     @model_validator(mode="after")
-    def enforce_total_budget(self) -> InteractionOverviewSections:
+    def enforce_total_budget(self) -> InteractionSummarySections:
         total_chars = sum(len(getattr(self, field)) for field in _OVERVIEW_SECTION_FIELDS)
         if max(1, (total_chars + 1) // 2) > MAX_OVERVIEW_ESTIMATED_TOKENS:
             raise ValueError("回顾内容过长，请适当精简后保存")
@@ -84,11 +84,25 @@ class InteractionOverviewSections(BaseModel):
         return any(getattr(self, field) for field in _OVERVIEW_SECTION_FIELDS)
 
 
+class InteractionOverviewSections(InteractionSummarySections):
+    """User-editable overview; agreements are copied by code, never summarized."""
+
+    long_term_agreements: str = Field(default="", max_length=4000)
+
+    @field_validator("long_term_agreements")
+    @classmethod
+    def clean_agreements(cls, value: str) -> str:
+        return value.replace("\x00", "").strip()
+
+    def has_content(self) -> bool:
+        return bool(self.long_term_agreements) or super().has_content()
+
+
 class InteractionSummaryOutput(BaseModel):
     """One model call returns the immutable segment and updated total overview."""
 
     segment_summary: str = Field(..., min_length=1, max_length=32_000)
-    overview: InteractionOverviewSections
+    overview: InteractionSummarySections
 
     @field_validator("segment_summary")
     @classmethod
@@ -97,7 +111,7 @@ class InteractionSummaryOutput(BaseModel):
 
     @model_validator(mode="after")
     def require_visible_overview(self) -> InteractionSummaryOutput:
-        if not self.overview.has_content():
+        if not InteractionSummarySections.has_content(self.overview):
             raise ValueError("模型回顾不能全部为空")
         return self
 
@@ -204,13 +218,16 @@ class InteractionOverviewUpdateRequest(BaseModel):
     sections: InteractionOverviewSections
     expected_overview_epoch: int = Field(..., ge=0)
     expected_selection_epoch: int = Field(..., ge=0)
-    base_revision_id: str
+    base_revision_id: str | None
     base_selected_leaf_node_id: str
     base_selected_path_hash: str = Field(..., min_length=64, max_length=64)
 
     @model_validator(mode="after")
     def require_content(self) -> InteractionOverviewUpdateRequest:
-        if not self.sections.has_content():
+        if (
+            not self.sections.has_content()
+            and "long_term_agreements" not in self.sections.model_fields_set
+        ):
             raise ValueError("回顾内容不能为空")
         return self
 

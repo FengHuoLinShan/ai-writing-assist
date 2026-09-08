@@ -298,3 +298,7 @@ npx vitest run tests/editorialTheme.test.js tests/typographyTokens.test.js tests
 # RP 路径 e2e（双入口、390px 不横溢、底部 sheet、主题切换、看海 popover）
 npm run test:e2e:functional -- e2e/home.spec.js e2e/interaction.spec.js
 ```
+
+RP 回顾抽屉顶部提供最多4,000字符的“长期约定”，无自动回顾时也可保存；可清空，沿用
+草稿、冲突、保存与焦点反馈。“记住这一点”仍预填普通回顾。等待首段超过30秒提示
+“仍在生成，可随时停止”，按已有attempt时间恢复，正文出现或任务结束时移除。

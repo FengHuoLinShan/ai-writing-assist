@@ -425,7 +425,7 @@ class InteractionStoryContextService:
             chapter_index=int(anchor.get("chapter_index") or 0),
             context_mode="canonical",
             include_pending_objects=False,
-            prompt_name="interaction-story-v4",
+            prompt_name="interaction-story-v7",
             model=model,
             compile_options={
                 "consumer_action": "interaction.story",

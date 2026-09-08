@@ -1550,17 +1550,17 @@ class InteractionService:
             ),
             source=head.source if head else "automatic",
             overview_epoch=journey.overview_epoch,
-            anchor_node_id=(str(self._overview_coverage_anchor(head)) if head else None),
+            anchor_node_id=(
+                str(anchor)
+                if head and (anchor := self._overview_coverage_anchor(head))
+                else None
+            ),
             updated_at=head.created_at if head else None,
             is_refreshing=refreshing,
             status=status,
             base_revision_id=str(head.id) if head else None,
-            base_selected_leaf_node_id=(
-                str(path[-1].id) if head is not None and path else None
-            ),
-            base_selected_path_hash=(
-                path_hash(path) if head is not None and path else None
-            ),
+            base_selected_leaf_node_id=(str(path[-1].id) if path else None),
+            base_selected_path_hash=(path_hash(path) if path else None),
         )
 
     async def update_overview(
@@ -1587,113 +1587,97 @@ class InteractionService:
         path = await self._repo.get_selected_path(db, journey=journey)
         if not path:
             raise ConflictError("当前发展不存在")
-        if (
-            base_revision_id is None
-            or base_selected_leaf_node_id is None
-            or base_selected_path_hash is None
-        ):
-            # Internal callers written before browser edit-context fencing use
-            # the current head. The public request schema always supplies all
-            # three frozen values.
-            current_head = await self._repo.get_overview_head(
-                db,
-                journey=journey,
-            )
-            if current_head is None:
-                if (
-                    journey.selection_epoch != expected_selection_epoch
-                    or journey.overview_epoch != expected_overview_epoch
-                ):
-                    raise ConflictError(
-                        "旅程在别处发生了变化",
-                        code="interaction_overview_conflict",
-                    )
-                revision = InteractionOverviewRevision(
-                    novel_id=journey.novel_id,
-                    journey_id=journey.id,
-                    anchor_node_id=path[-1].id,
-                    path_hash=path_hash(path),
-                    coverage_anchor_node_id=path[-1].id,
-                    coverage_path_hash=path_hash(path),
-                    sections=sections.model_dump(),
-                    source="manual",
-                    based_on_revision_id=None,
-                    started_overview_epoch=journey.overview_epoch,
-                    promoted=True,
-                    producer={"kind": "user"},
+        previous = await self._repo.get_overview_head(db, journey=journey)
+        if base_selected_leaf_node_id is None or base_selected_path_hash is None:
+            # Legacy internal callers still use the current edit baseline.
+            if (
+                expected_selection_epoch != journey.selection_epoch
+                or expected_overview_epoch != journey.overview_epoch
+            ):
+                raise ConflictError(
+                    "旅程在别处发生了变化", code="interaction_overview_conflict"
                 )
-                db.add(revision)
-                await db.flush()
-                journey.overview_head_revision_id = revision.id
-                journey.overview_epoch += 1
-                self._repo.touch(journey)
-                return InteractionOverviewResponse(
-                    sections=InteractionOverviewSections.model_validate(
-                        revision.sections
-                    ),
-                    source=revision.source,
-                    overview_epoch=journey.overview_epoch,
-                    anchor_node_id=str(revision.anchor_node_id),
-                    updated_at=revision.created_at,
-                    status="ready",
-                    base_revision_id=str(revision.id),
-                    base_selected_leaf_node_id=str(path[-1].id),
-                    base_selected_path_hash=path_hash(path),
-                )
-            base_revision_id = str(current_head.id)
+            base_revision_id = str(previous.id) if previous else None
             base_selected_leaf_node_id = str(path[-1].id)
             base_selected_path_hash = path_hash(path)
         base_leaf_id = _parse_uuid(
-            base_selected_leaf_node_id,
-            "base_selected_leaf_node_id",
+            base_selected_leaf_node_id, "base_selected_leaf_node_id"
         )
         current_ids = [node.id for node in path]
-        if base_leaf_id not in current_ids:
+        if (
+            base_leaf_id not in current_ids
+            or path_hash(path[: current_ids.index(base_leaf_id) + 1])
+            != base_selected_path_hash
+        ):
             raise ConflictError(
-                "旅程在别处发生了变化",
-                code="interaction_overview_conflict",
+                "旅程在别处发生了变化", code="interaction_overview_conflict"
             )
-        base_leaf_index = current_ids.index(base_leaf_id)
-        original_path = path[: base_leaf_index + 1]
-        if path_hash(original_path) != base_selected_path_hash:
-            raise ConflictError(
-                "旅程在别处发生了变化",
-                code="interaction_overview_conflict",
+        base_revision = None
+        if base_revision_id is None:
+            if (
+                previous is not None
+                or expected_selection_epoch != journey.selection_epoch
+                or expected_overview_epoch != journey.overview_epoch
+                or base_leaf_id != path[-1].id
+            ):
+                raise ConflictError(
+                    "旅程在别处发生了变化", code="interaction_overview_conflict"
+                )
+        else:
+            base_revision = await self._repo.get_overview_revision(
+                db,
+                journey=journey,
+                revision_id=_parse_uuid(base_revision_id, "base_revision_id"),
             )
-        base_revision = await self._repo.get_overview_revision(
-            db,
-            journey=journey,
-            revision_id=_parse_uuid(base_revision_id, "base_revision_id"),
+            original_path = path[: current_ids.index(base_leaf_id) + 1]
+            if base_revision is None or not self._overview_matches_path(
+                base_revision, original_path
+            ):
+                raise ConflictError(
+                    "旅程在别处发生了变化", code="interaction_overview_conflict"
+                )
+            if previous is None or not await self._automatic_overview_descends_from(
+                db,
+                journey=journey,
+                current=previous,
+                base=base_revision,
+            ):
+                raise ConflictError(
+                    "回顾已在别处手动修改", code="interaction_overview_conflict"
+                )
+        old_sections = InteractionOverviewSections.model_validate(
+            previous.sections if previous else {}
         )
-        if base_revision is None or not self._overview_matches_path(
-            base_revision, original_path
-        ):
-            raise ConflictError(
-                "旅程在别处发生了变化",
-                code="interaction_overview_conflict",
+        if "long_term_agreements" not in sections.model_fields_set:
+            sections = sections.model_copy(
+                update={"long_term_agreements": old_sections.long_term_agreements}
             )
-        previous = await self._repo.get_overview_head(db, journey=journey)
-        if previous is None or not await self._automatic_overview_descends_from(
-            db,
-            journey=journey,
-            current=previous,
-            base=base_revision,
+        if not sections.has_content() and not (
+            previous is not None
+            and old_sections.long_term_agreements
+            and not render_overview_sections(old_sections)
         ):
-            raise ConflictError(
-                "回顾已在别处手动修改",
-                code="interaction_overview_conflict",
-            )
-        previous.promoted = False
+            raise ValidationError("回顾内容不能为空")
+        if previous is not None:
+            previous.promoted = False
         revision = InteractionOverviewRevision(
             novel_id=journey.novel_id,
             journey_id=journey.id,
             anchor_node_id=base_leaf_id,
             path_hash=base_selected_path_hash,
-            coverage_anchor_node_id=self._overview_coverage_anchor(base_revision),
-            coverage_path_hash=self._overview_coverage_hash(base_revision),
+            # No overview has compressed any original node on a first manual save.
+            # An explicit empty prefix differs from legacy NULL/NULL coverage.
+            coverage_anchor_node_id=(
+                self._overview_coverage_anchor(base_revision) if base_revision else None
+            ),
+            coverage_path_hash=(
+                self._overview_coverage_hash(base_revision)
+                if base_revision
+                else path_hash([])
+            ),
             sections=sections.model_dump(),
             source="manual",
-            based_on_revision_id=base_revision.id,
+            based_on_revision_id=base_revision.id if base_revision else None,
             started_overview_epoch=journey.overview_epoch,
             promoted=True,
             producer={"kind": "user"},
@@ -1726,7 +1710,11 @@ class InteractionService:
             sections=InteractionOverviewSections.model_validate(revision.sections),
             source=revision.source,
             overview_epoch=journey.overview_epoch,
-            anchor_node_id=str(self._overview_coverage_anchor(revision)),
+            anchor_node_id=(
+                str(anchor)
+                if (anchor := self._overview_coverage_anchor(revision))
+                else None
+            ),
             updated_at=revision.created_at,
             is_refreshing=enqueued,
             status="refreshing" if enqueued else "ready",
@@ -1898,7 +1886,17 @@ class InteractionService:
                     [
                         "## 当前回顾",
                         "",
-                        render_overview_sections(head.sections),
+                        "\n\n".join(
+                            filter(
+                                None,
+                                [
+                                    ("长期约定\n" + head.sections["long_term_agreements"])
+                                    if head.sections.get("long_term_agreements")
+                                    else "",
+                                    render_overview_sections(head.sections),
+                                ],
+                            )
+                        ),
                         "",
                     ]
                 )
@@ -2622,7 +2620,12 @@ class InteractionService:
     @staticmethod
     def _overview_coverage_anchor(
         overview: InteractionOverviewRevision,
-    ) -> uuid.UUID:
+    ) -> uuid.UUID | None:
+        if (
+            overview.coverage_anchor_node_id is None
+            and overview.coverage_path_hash == path_hash([])
+        ):
+            return None
         return overview.coverage_anchor_node_id or overview.anchor_node_id
 
     @staticmethod
@@ -2638,6 +2641,8 @@ class InteractionService:
         path: list[InteractionMessageNode],
     ) -> bool:
         anchor = cls._overview_coverage_anchor(overview)
+        if anchor is None:
+            return cls._overview_coverage_hash(overview) == path_hash([])
         ids = [node.id for node in path]
         if anchor not in ids:
             return False
@@ -2851,8 +2856,8 @@ class InteractionService:
             and self._overview_coverage_matches_path(head, path)
         ):
             current_ids = [node.id for node in path]
-            coverage_index = current_ids.index(self._overview_coverage_anchor(head))
-            start_index = coverage_index + 1
+            anchor = self._overview_coverage_anchor(head)
+            start_index = current_ids.index(anchor) + 1 if anchor else 0
         uncovered = path[start_index:]
         prefix_end = _summary_compressible_prefix_end(uncovered)
         return (

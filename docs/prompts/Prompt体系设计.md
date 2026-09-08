@@ -42,8 +42,8 @@
 | `writing/services.py` | 内联 step `writing.generation.candidate.generate`：根据已确认上下文生成正文候选 | writing 正文生成 |
 | `writing/semantic_review.py` | 内联 steps `writing.semantic_review.chunk_N`、`writing.targeted_revision.generate`：冻结正文、原 confirmation CompiledContext、POV/hidden-guard 指纹和合同的独立近读，并让 finding-bound 返修复用同一资料 | writing 审查返修 |
 | `story/outline_state/ai_workflow_service.py` | 内联 step `outline.ai_workflow.analyze.generate`：回答作者指定的大纲结构问题 | Story outline_state 手动大纲分析 |
-| `interaction/prompts.py` / `evidence/compilation/services/interaction_story_context.py` | 内联 `interaction-story-v4`：兼容模型知识 RP，source-bound 旅程额外注入版本/截止点经 Evidence 校验且统一转义围栏的作品参考块；相关往事数据块能力保留但当前生产门禁关闭；可选隐藏尾部元数据 | interaction 故事任务 |
-| `interaction/prompts.py` | 内联 `interaction-summary-v1` / `interaction-summary-output-v1`：一次生成新分段概要与更新后总回顾 | interaction 回顾任务 |
+| `interaction/prompts.py` / `evidence/compilation/services/interaction_story_context.py` | 内联 `interaction-story-v7`：兼容模型知识 RP，source-bound 旅程额外注入版本/截止点经 Evidence 校验且统一转义围栏的作品参考块；相关往事数据块能力保留但当前生产门禁关闭；可选隐藏尾部元数据 | interaction 故事任务 |
+| `interaction/prompts.py` | 内联 `interaction-summary-v3` / `interaction-summary-output-v2`：一次生成新分段概要与更新后总回顾 | interaction 回顾任务 |
 
 ## 3. Prompt Contract System
 
@@ -528,7 +528,7 @@ interaction Prompt 由 `modules/interaction/prompts.py` 代码组装，不进入
 source-bound 旅程额外消费 Evidence 编译的 `<SOURCE_REFERENCE_DATA>`。未选 sibling、失败残段、
 隐藏项目 ID、未选资料版本、未来章节和被忽略对象都不得进入。
 
-`interaction-story-v4` 直接输出可见故事。正文之后可以有一个带固定边界标记的可选 JSON
+`interaction-story-v7` 直接输出可见故事。正文之后可以有一个带固定边界标记的可选 JSON
 尾块，承载 `response_kind / suggested_title / branch_hint / story_ended /
 action_suggestions`。framing parser 在流式过程中隔离尾块；尾块缺失、截断或 schema 无效时
 只丢弃附加信息，不判废已经生成的正文。行动选项开启且当前情境适合时，模型尽量提供
@@ -537,7 +537,7 @@ action_suggestions`。framing parser 在流式过程中隔离尾块；尾块缺�
 selection epoch、节点创建、分支选择、看海循环、停止、任务终态和 owner/novel 隔离全部由
 代码决定。
 
-v4 的事实优先级固定为：用户最新明确修正 → 当前选中旅程历史与手工回顾 →
+v7 的事实优先级固定为：用户最新明确修正 → 已保存长期约定 → 当前选中旅程历史与有效回顾 →
 当前绑定 source revision 且截止点前的作品资料 → 模型训练知识。source-bound 路径禁止用
 训练知识填补原作设定或未来剧情。Evidence 关闭 LLM 查询规划/重排，只用确定性别名匹配、
 exact manifest 检索和 Writing 回读；interaction 先计算固定输入，再把剩余且最多 16K 的预算交给
@@ -545,7 +545,7 @@ Evidence。必需资料放不下时失败关闭；全部动态资料在最终渲
 `</SOURCE_REFERENCE_DATA>`，不能逃逸为指令。快照只保存 hash、引用、原因码和预算摘要，
 不保存原始对话或长期 rendered source block。
 
-v4 具备把分段概要包装为无指令权限的“过去事件证据”数据块的能力，但冻结生产 holdout
+v7 具备把分段概要包装为无指令权限的“过去事件证据”数据块的能力，但冻结生产 holdout
 未通过用户明确修正硬门，所以生产调用路径已移除，不会注入相关往事。
 
 普通模式保护用户角色的关键行动控制权；看海模式允许模型在保持人物性格、能力、关系和因果
@@ -553,7 +553,7 @@ v4 具备把分段概要包装为无指令权限的“过去事件证据”数�
 模型不能自行请求下一步、调用工具或跨模块写入。重新生成会加入有界的已拒绝发展作为
 “不得当作历史、只避免机械重复”的参考。
 
-`interaction-summary-v1` 一次返回：
+`interaction-summary-v3` 一次返回：
 
 - `segment_summary`：只概括本次新增的已选故事；
 - `overview`：更新后的世界与起点、我的角色、当前局面、重要人物与势力、关键转折、
@@ -562,8 +562,7 @@ v4 具备把分段概要包装为无指令权限的“过去事件证据”数�
 重要性规则来自现有小说资产实践，但不读取或绑定 World 数据库实体：重点保留身份、能力、
 物品、状态、关系、阵营、地点、关键选择、因果、承诺、代价、未决线索、明确纠正与长期偏好；
 压缩重复描写和无后果细节。传闻、误解和局部认知必须保留不确定性，不得利用模型训练知识
-提前补出用户尚未体验的幕后答案。已有手工总回顾是活动基线，旧原文不能越过它复活被删改
-说法。
+提前补出用户尚未体验的幕后答案。自动回顾不等于用户逐项确认；真正手工删改的旧值仍不能被旧原文复活。
 
 interaction 的故事与回顾 Prompt 都有显式版本；producer provenance 只记录脱敏
 provider/model、Prompt/schema 版本、估算/完成 token 与调用次数，不记录 Key、完整
@@ -590,3 +589,9 @@ Prompt 设计文档的职责是解释“为什么这样分工”，不是逐字�
 端点及来源必须属于原确认包。已有地图的图片生成固定节点与 `source_map_revision_id`，程序
 生成不含文字的结构参考 PNG，随后继续由 `world.map_atlas.generate` 的图片运行时处理。
 结构图占参考图名额，图片结果不反向更新几何；原图片计费 checkpoint 与人工重试规则继续有效。
+
+
+RP v7保留长期约定的单独输入和优先级，撤下未通过评审的v6写作要求，正文风格沿用v5。
+摘要v3只生成原七区，长期约定由服务端复制；只保存约定不为自动七区添加“用户手工确认”权威。
+DeepSeek新RP执行快照启用max、65,536总输出及900秒超时，旧任务不升级。本次保留工程能力，
+不声称已证明长期演绎质量提升，不纳入实验状态、焦点提取或自动返修调用。

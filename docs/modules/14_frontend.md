@@ -470,3 +470,7 @@ map / rag / outline / settings / project-settings`，其主 DOM 全部由 Vue SF
 阅读预览只渲染专用服务端响应，并经独立图片预览接口读取获准图片；不将作者响应隐藏几个
 标签后冒充读者投影。新 wire 增加节点 map/revisions/layout/generate-structure/review/reader-preview
 能力，图片生成请求可绑定明确节点与空间版本；注册项见 `apiContracts.js`。
+
+RP 回顾抽屉顶部提供最多4,000字符的“长期约定”，无自动回顾时也可保存；可清空，沿用
+草稿、冲突、保存与焦点反馈。“记住这一点”仍预填普通回顾。等待首段超过30秒提示
+“仍在生成，可随时停止”，按已有attempt时间恢复，正文出现或任务结束时移除。

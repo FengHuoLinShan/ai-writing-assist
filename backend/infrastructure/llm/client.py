@@ -69,7 +69,7 @@ def _looks_truncated_response(
 def _expanded_token_budget(max_tokens: int | None) -> int:
     if max_tokens is None or max_tokens <= 0:
         return _TRUNCATION_RETRY_MAX_TOKENS
-    return min(max_tokens * 2, _TRUNCATION_RETRY_MAX_TOKENS)
+    return max(max_tokens, min(max_tokens * 2, _TRUNCATION_RETRY_MAX_TOKENS))
 
 
 def _cache_usage_diagnostic(response: LLMCallResponse | None) -> dict[str, int]:
@@ -101,7 +101,16 @@ def _cache_usage_diagnostic(response: LLMCallResponse | None) -> dict[str, int]:
     usage = {
         "prompt_tokens": prompt_tokens,
         "total_tokens": total_tokens,
+        "content_chars": len(response.content),
     }
+    choices = response.raw.get("choices") if isinstance(response.raw, dict) else None
+    if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+        message = choices[0].get("message")
+        reasoning = (
+            message.get("reasoning_content") if isinstance(message, dict) else None
+        )
+        if isinstance(reasoning, str):
+            usage["reasoning_chars"] = len(reasoning)
     if hit is not None and miss is None and prompt_tokens >= hit:
         miss = prompt_tokens - hit
     if miss is not None and hit is None and prompt_tokens >= miss:
@@ -157,6 +166,20 @@ def _wrap_bare_list_for_schema(data: Any, schema: type[BaseModel]) -> Any:
 
 def _load_json_candidate(candidate: str) -> Any:
     return json.loads(candidate.strip("\ufeff \t\r\n"))
+
+
+def _load_json_with_literal_backslashes(candidate: str) -> Any:
+    """Preserve a literal slash exactly where the JSON decoder rejects an escape."""
+    candidate = candidate.strip("\ufeff \t\r\n")
+    # ponytail: eight repairs maximum; larger malformed outputs use the failure path.
+    for _ in range(8):
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError as exc:
+            if exc.msg != "Invalid \\escape" or candidate[exc.pos] != "\\":
+                raise
+            candidate = candidate[: exc.pos] + "\\" + candidate[exc.pos :]
+    return json.loads(candidate)
 
 
 def _balanced_json_candidate(candidate: str) -> str | None:
@@ -231,6 +254,13 @@ def _parse_structured_json(
             ), strategy
         except json.JSONDecodeError as exc:
             last_error = exc
+            if allow_truncated_recovery and exc.msg == "Invalid \\escape":
+                try:
+                    return _wrap_bare_list_for_schema(
+                        _load_json_with_literal_backslashes(candidate), schema
+                    ), "escaped_invalid_backslashes"
+                except json.JSONDecodeError as repair_error:
+                    last_error = repair_error
 
     if allow_truncated_recovery:
         for start in (first_brace, first_bracket):

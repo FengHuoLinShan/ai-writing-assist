@@ -286,6 +286,71 @@ test.describe("RP 路由与窄屏故事页", () => {
     await waitForBackend(60000)
   })
 
+  test("390px 长思考等待可用键盘停止并保留草稿", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    const attempt = { id: "max-wait", status: "running", visible_text: "", visible_offset: 0,
+      created_at: new Date(Date.now() - 31000).toISOString() }
+    const current = await mockRpApis(page, { activeAttempt: attempt })
+    let releaseStream
+    await page.route("**/attempts/max-wait/events*", async (route) => {
+      await new Promise(resolve => { releaseStream = resolve })
+      await route.abort().catch(() => {})
+    })
+    await page.route("**/attempts/max-wait/stop", (route) => {
+      current.active_attempt = null
+      return route.fulfill({ contentType: "application/json",
+        body: JSON.stringify({ journey: current, attempt: { ...attempt, status: "cancelled" } }) })
+    })
+    try {
+      await page.goto(`/#interaction/${journeyId}`)
+      await expect(page.getByText("仍在生成，可随时停止", { exact: true })).toBeVisible()
+      await page.getByRole("textbox", { name: "继续旅程" }).fill("保留这条未发送想法")
+      const stop = page.getByRole("button", { name: "停止生成", exact: true })
+      await stop.focus()
+      await expect(stop).toBeFocused()
+      await page.screenshot({ path: testInfo.outputPath("max-wait-390.png"), fullPage: true })
+      await page.keyboard.press("Enter")
+      await expect(page.getByText("仍在生成，可随时停止", { exact: true })).toHaveCount(0)
+      await expect(page.getByRole("textbox", { name: "继续旅程" })).toHaveValue("保留这条未发送想法")
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    } finally { releaseStream?.() }
+  })
+
+  test("390px 首次回顾可保存长期约定并在刷新后读取和清空", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await mockRpApis(page)
+    let overview = {
+      sections: {}, source: "automatic", overview_epoch: 0, status: "forming",
+      base_revision_id: null, base_selected_leaf_node_id: "a3",
+      base_selected_path_hash: "a".repeat(64),
+    }
+    await page.route(`**/api/interactions/journeys/${journeyId}/overview`, async (route) => {
+      if (route.request().method() === "PUT") {
+        const data = route.request().postDataJSON()
+        expect(data.base_selected_leaf_node_id).toBe("a3")
+        overview = { ...overview, sections: data.sections, source: "manual", status: "ready", overview_epoch: overview.overview_epoch + 1, base_revision_id: "saved" }
+      }
+      return route.fulfill({ json: overview })
+    })
+    await page.goto(`/#interaction/${journeyId}`)
+    await page.getByRole("button", { name: "回顾", exact: true }).click()
+    await page.getByRole("button", { name: "添加长期约定" }).click()
+    const field = page.locator('textarea[data-overview-section="long_term_agreements"]')
+    await field.fill("我不能使用火焰，也不将传闻视为真相。")
+    await expect(field).toHaveAttribute("maxlength", "4000")
+    await page.screenshot({ path: testInfo.outputPath("agreements-390.png"), fullPage: true })
+    await page.getByRole("button", { name: "保存修改" }).click()
+    await expect(page.getByLabel("当前回顾", { exact: true })).toContainText("我不能使用火焰")
+    await page.reload()
+    await page.getByRole("button", { name: "回顾", exact: true }).click()
+    await expect(page.getByLabel("当前回顾", { exact: true })).toContainText("我不能使用火焰")
+    await page.getByRole("button", { name: "手动纠正" }).click()
+    await field.fill("")
+    await page.getByRole("button", { name: "保存修改" }).click()
+    await expect(page.getByLabel("当前回顾", { exact: true })).not.toContainText("我不能使用火焰")
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  })
+
   test("双入口进入 RP 列表并打开当前旅程", async ({ page, browserErrors }) => {
     await page.addInitScript(() => localStorage.setItem("nc-theme", "light"))
     await mockRpApis(page)

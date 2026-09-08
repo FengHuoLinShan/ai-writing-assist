@@ -46,6 +46,7 @@ from modules.interaction.prompts import (
     SUMMARY_SCHEMA_VERSION,
     compile_story_messages,
     estimate_input_tokens,
+    render_long_term_agreements,
     render_overview_sections,
     render_related_memory,
     summary_system_prompt,
@@ -314,7 +315,8 @@ class InteractionGenerationWorkflow:
         ):
             overview_content = render_overview_sections(overview.sections)
             overview_sections = overview.sections
-            overview_anchor = str(self._service._overview_coverage_anchor(overview))
+            coverage_anchor = self._service._overview_coverage_anchor(overview)
+            overview_anchor = str(coverage_anchor) if coverage_anchor else None
         references: list[str] = []
         reference_ids = self._parse_node_ids(
             attempt.reference_node_ids,
@@ -372,6 +374,9 @@ class InteractionGenerationWorkflow:
                     else None
                 ),
                 source_context=source_context,
+                long_term_agreements=str(
+                    (overview_sections or {}).get("long_term_agreements") or ""
+                ),
             )
 
         # A whitespace packet counts the fixed source wrapper without reading or
@@ -974,8 +979,7 @@ class InteractionGenerationWorkflow:
         ):
             current_ids = [node.id for node in current_path]
             coverage_anchor = self._service._overview_coverage_anchor(head)
-            anchor_index = current_ids.index(coverage_anchor)
-            start_index = anchor_index + 1
+            start_index = current_ids.index(coverage_anchor) + 1 if coverage_anchor else 0
             valid_head = head
         uncovered = current_path[start_index:]
         prefix_end = _summary_compressible_prefix_end(uncovered)
@@ -1002,10 +1006,18 @@ class InteractionGenerationWorkflow:
             else None
         )
         manual_guard = (
-            "当前回顾沿用户手工修正继续；合并原始故事时不得恢复该修正"
-            "删除或改写的旧当前值，后续明确发生的新变化仍可更新。\n\n"
+            "当前回顾继承过用户保存的回顾；这不代表其中的自动生成内容都由用户确认。"
+            "合并原始故事时不得恢复用户明确删除或改写的旧当前值，"
+            "后续符合约定的明确新变化仍可更新。\n\n"
             if manual_ancestor is not None
+            and render_overview_sections(manual_ancestor.sections).strip()
             else ""
+        )
+        agreements = str(
+            (valid_head.sections if valid_head else {}).get("long_term_agreements") or ""
+        )
+        agreements_block = (
+            render_long_term_agreements(agreements) + "\n\n" if agreements else ""
         )
         system_message = LLMMessage(role="system", content=summary_system_prompt())
         working_chunk: list[InteractionMessageNode] = []
@@ -1022,7 +1034,12 @@ class InteractionGenerationWorkflow:
                 )
                 for item in candidate
             )
-            prompt = overview_block + manual_guard + f"需要合并的新故事：\n{transcript}"
+            prompt = (
+                agreements_block
+                + overview_block
+                + manual_guard
+                + f"需要合并的新故事：\n{transcript}"
+            )
             candidate_messages = [
                 system_message,
                 LLMMessage(role="user", content=prompt),
@@ -1171,8 +1188,9 @@ class InteractionGenerationWorkflow:
                 )
             ):
                 raise RuntimeError("interaction summary overview is not path-compatible")
+            coverage_anchor = self._service._overview_coverage_anchor(previous)
             expected_start_index = (
-                current_ids.index(self._service._overview_coverage_anchor(previous)) + 1
+                current_ids.index(coverage_anchor) + 1 if coverage_anchor else 0
             )
         if segment_positions[0] != expected_start_index:
             raise RuntimeError(
@@ -1264,7 +1282,13 @@ class InteractionGenerationWorkflow:
             path_hash=segment_path_hash,
             coverage_anchor_node_id=segment_nodes[-1].id,
             coverage_path_hash=segment_path_hash,
-            sections=output.overview.model_dump(),
+            sections={
+                **output.overview.model_dump(exclude={"long_term_agreements"}),
+                "long_term_agreements": str(
+                    (previous.sections if previous else {}).get("long_term_agreements")
+                    or ""
+                ),
+            },
             source="automatic",
             based_on_revision_id=previous.id if previous else None,
             started_overview_epoch=prepared.started_overview_epoch,
@@ -1521,13 +1545,18 @@ def story_request(prepared: PreparedStoryGeneration) -> LLMCallRequest:
         or prepared.request_kind in {"see_sea", "see_sea_continue"}
         else capability.story_output_tokens
     )
-    return LLMCallRequest(
-        model=str(profile.get("model") or ""),
-        messages=prepared.messages,
-        temperature=float(profile.get("temperature", 0.8) or 0.8),
-        max_tokens=min(
-            int(profile.get("max_tokens") or output_limit),
-            output_limit,
+    return _bounded_rp_request(
+        prepared,
+        LLMCallRequest(
+            model=str(profile.get("model") or ""),
+            messages=prepared.messages,
+            temperature=float(profile.get("temperature", 0.8) or 0.8),
+            max_tokens=output_limit
+            if capability.interaction_reasoning_effort
+            else min(
+                int(profile.get("max_tokens") or output_limit),
+                output_limit,
+            ),
         ),
     )
 
@@ -1535,13 +1564,49 @@ def story_request(prepared: PreparedStoryGeneration) -> LLMCallRequest:
 def summary_request(prepared: PreparedSummaryGeneration) -> LLMCallRequest:
     profile = dict(prepared.executable_settings.get("llm") or {})
     capability = capability_from_execution_settings(prepared.executable_settings)
-    return LLMCallRequest(
-        model=str(profile.get("model") or ""),
-        messages=prepared.messages,
-        temperature=0.2,
-        max_tokens=min(
-            int(profile.get("max_tokens") or capability.summary_output_tokens),
-            capability.summary_output_tokens,
+    return _bounded_rp_request(
+        prepared,
+        LLMCallRequest(
+            model=str(profile.get("model") or ""),
+            messages=prepared.messages,
+            temperature=0.2,
+            max_tokens=capability.summary_output_tokens
+            if capability.interaction_reasoning_effort
+            else min(
+                int(profile.get("max_tokens") or capability.summary_output_tokens),
+                capability.summary_output_tokens,
+            ),
+            response_format={"type": "json_object"},
         ),
-        response_format={"type": "json_object"},
     )
+
+
+def rp_timeout_seconds(
+    prepared: PreparedStoryGeneration | PreparedSummaryGeneration,
+) -> int | None:
+    return capability_from_execution_settings(
+        prepared.executable_settings
+    ).interaction_timeout_seconds
+
+
+def _bounded_rp_request(prepared, request: LLMCallRequest) -> LLMCallRequest:
+    capability = capability_from_execution_settings(prepared.executable_settings)
+    if capability.interaction_reasoning_effort:
+        request = request.model_copy(
+            update={
+                "extra": {
+                    **request.extra,
+                    "thinking": {"type": "enabled"},
+                    "reasoning_effort": capability.interaction_reasoning_effort,
+                }
+            }
+        )
+    estimated = estimate_input_tokens(request.messages, model=request.model)
+    if estimated > capability.hard_input_tokens or (
+        estimated + int(request.max_tokens or 0) + capability.safety_margin_tokens
+        > capability.context_limit_tokens
+    ):
+        raise InteractionContextBudgetError(
+            "RP input and output exceed the frozen context budget"
+        )
+    return request

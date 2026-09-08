@@ -11,6 +11,7 @@ from modules.interaction.generation import (
     InteractionContextBudgetError,
     InteractionGenerationWorkflow,
     PreparedSummaryGeneration,
+    rp_timeout_seconds,
     story_request,
     summary_request,
 )
@@ -44,6 +45,7 @@ async def handle_interaction_story_generate(db, task):
             summary_client = create_project_snapshot_llm_client(
                 prepared.executable_settings,
                 novel_id=prepared.novel_id,
+                timeout_override=rp_timeout_seconds(prepared),
             )
             try:
                 output = await summary_client.generate_structured(
@@ -71,6 +73,7 @@ async def handle_interaction_story_generate(db, task):
         client = create_project_snapshot_llm_client(
             prepared.executable_settings,
             novel_id=prepared.novel_id,
+            timeout_override=rp_timeout_seconds(prepared),
         )
         async for chunk in client.generate_stream(
             story_request(prepared),
@@ -135,6 +138,7 @@ async def handle_interaction_summary_refresh(db, task):
         client = create_project_snapshot_llm_client(
             prepared.executable_settings,
             novel_id=prepared.novel_id,
+            timeout_override=rp_timeout_seconds(prepared),
         )
         diagnostics: list[dict] = []
         output = await retry_with_backoff(

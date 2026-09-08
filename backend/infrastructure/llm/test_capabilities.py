@@ -62,3 +62,55 @@ def test_capability_snapshot_rejects_tamper_and_provider_mismatch() -> None:
     snapshot["profile"] = {"provider_id": "other", "model": "deepseek-v4-flash"}
     with pytest.raises(LLMCapabilityError, match="provider/model mismatch"):
         capability_from_execution_snapshot(snapshot)
+
+
+def test_legacy_capability_retains_output_and_no_thinking_override():
+    from dataclasses import replace
+
+    from infrastructure.llm.capabilities import _stable_hash
+    from infrastructure.llm.schemas import LLMMessage
+    from modules.interaction.generation import (
+        PreparedStoryGeneration,
+        rp_timeout_seconds,
+        story_request,
+    )
+
+    current = resolve_llm_capability_profile("deepseek", "deepseek-v4-flash")
+    old = replace(
+        current,
+        profile_id="deepseek-v4-flash-20260901-v1",
+        story_output_tokens=8192,
+        see_sea_output_tokens=4096,
+        summary_output_tokens=12000,
+        interaction_reasoning_effort=None,
+        interaction_timeout_seconds=None,
+    ).to_snapshot()
+    for key in (
+        "interaction_reasoning_effort",
+        "interaction_timeout_seconds",
+        "capability_hash",
+    ):
+        old.pop(key)
+    old["capability_hash"] = _stable_hash(old)
+    settings = {
+        "llm": {
+            "provider_id": "deepseek",
+            "model": "deepseek-v4-flash",
+            "max_tokens": 8192,
+        },
+        LLM_CAPABILITY_EXECUTION_KEY: old,
+    }
+    prepared = PreparedStoryGeneration(
+        "novel",
+        "journey",
+        "attempt",
+        "see_sea_continue",
+        [LLMMessage(role="user", content="继续")],
+        settings,
+        "已有正文",
+    )
+    assert story_request(prepared).max_tokens == 4096
+    assert story_request(prepared).extra == {}
+    assert rp_timeout_seconds(prepared) is None
+    assert current.story_output_tokens == current.summary_output_tokens == 65536
+    assert current.interaction_reasoning_effort == "max"

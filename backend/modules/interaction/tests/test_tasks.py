@@ -41,7 +41,9 @@ def _summary_prepared() -> PreparedSummaryGeneration:
         segment_node_ids=[str(uuid.uuid4())],
         started_overview_epoch=0,
         messages=[LLMMessage(role="user", content="整理")],
-        executable_settings={"llm": {"model": "deepseek-v4-flash"}},
+        executable_settings={
+            "llm": {"provider_id": "deepseek", "model": "deepseek-v4-flash"}
+        },
     )
 
 
@@ -59,6 +61,11 @@ class _StructuredClient:
         self.closed = False
 
     async def generate_structured(self, *_args, **_kwargs):
+        assert _args[0].max_tokens == 65_536
+        assert _args[0].extra == {
+            "thinking": {"type": "enabled"},
+            "reasoning_effort": "max",
+        }
         self.calls += 1
         outcome = self._outcomes.pop(0)
         if isinstance(outcome, Exception):
@@ -207,6 +214,8 @@ class _StreamingClient:
         self.transport_retries: list[bool] = []
 
     async def generate_stream(self, _request, *, transport_retries: bool = True):
+        assert _request.max_tokens == 65_536
+        assert _request.extra["reasoning_effort"] == "max"
         self.transport_retries.append(transport_retries)
         yield LLMStreamChunk(content="文" * 600)
         yield LLMStreamChunk(content="结尾", finish_reason="stop")
@@ -222,7 +231,9 @@ async def test_story_handler_checkpoints_by_size_and_flushes_tail() -> None:
         attempt_id=str(uuid.uuid4()),
         request_kind="message",
         messages=[LLMMessage(role="user", content="继续")],
-        executable_settings={"llm": {"model": "deepseek-v4-flash"}},
+        executable_settings={
+            "llm": {"provider_id": "deepseek", "model": "deepseek-v4-flash"}
+        },
         existing_visible_text="",
     )
     client = _StreamingClient()
@@ -276,7 +287,9 @@ async def test_story_handler_runs_bounded_summary_passes_before_story() -> None:
         attempt_id=str(uuid.uuid4()),
         request_kind="message",
         messages=[LLMMessage(role="user", content="继续")],
-        executable_settings={"llm": {"model": "deepseek-v4-flash"}},
+        executable_settings={
+            "llm": {"provider_id": "deepseek", "model": "deepseek-v4-flash"}
+        },
         existing_visible_text="",
     )
     first_client = _StructuredClient([_summary_output()])
@@ -311,11 +324,16 @@ async def test_story_handler_runs_bounded_summary_passes_before_story() -> None:
             "modules.interaction.tasks.create_project_snapshot_llm_client",
             autospec=True,
             side_effect=[first_client, second_client, story_client],
-        ),
+        ) as factory,
     ):
         result = await tasks.handle_interaction_story_generate(object(), _task())
 
     assert result == {"status": "completed"}
+    assert [call.kwargs["timeout_override"] for call in factory.call_args_list] == [
+        900,
+        900,
+        900,
+    ]
     assert finalize_summary.await_count == 2
     assert first_client.calls == 1
     assert second_client.calls == 1
