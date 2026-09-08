@@ -159,6 +159,12 @@ def test_affine_calibration_and_structure_fingerprint():
     with_image = original.model_copy(deep=True)
     with_image.images = [image_placement()]
     with_image.features[0].reader_from_chapter = 3
+    from modules.world.map_structure_schemas import MapSource
+
+    with_image.features[0].sources = [
+        MapSource(kind="entity", id=uuid.uuid4(), source_hash="a" * 64)
+    ]
+    with_image.images[0].opacity = 0.2
     assert geometry_hash(original) == geometry_hash(with_image)
     with_image.features[0].points[0].x += 1
     assert geometry_hash(original) != geometry_hash(with_image)
@@ -608,6 +614,9 @@ async def test_images_share_node_and_stale_background_is_disabled(
     )
     state = await service.get_map(db_session, test_project_id, node["id"])
     assert state.image_layers[0]["transform"] == [200, 0, 0, 200, 100, 100]
+    assert page.source_map_revision_id is None  # This image came from an upload.
+    assert state.image_layers[0]["calibration_revision_id"] == saved.id
+    assert state.image_layers[0]["calibration_lookup_status"] == "found"
     changed = saved.document.model_copy(deep=True)
     changed.features[0].points[0].x += 10
     await service.save(
@@ -618,10 +627,18 @@ async def test_images_share_node_and_stale_background_is_disabled(
     )
     state = await service.get_map(db_session, test_project_id, node["id"])
     assert state.image_layers[0]["state"] == "stale"
+    assert state.image_layers[0]["transform"] is None
+    assert state.image_layers[0]["calibration_revision_id"] == saved.id
+    historic = await service.preview_revision(
+        db_session, test_project_id, node["id"], saved.id
+    )
+    assert historic.image_layers[0]["state"] == "ready"
+    assert historic.image_layers[0]["calibration_revision_id"] == saved.id
     page.review_status = "deprecated"
     await db_session.flush()
     state = await service.get_map(db_session, test_project_id, node["id"])
     assert state.image_layers[0]["state"] == "unavailable"
+    assert state.image_layers[0]["calibration_revision_id"] == saved.id
     assert (await MapAtlasService().get_tree(db_session, test_project_id))["nodes"]
 
 
@@ -871,3 +888,154 @@ def test_structure_task_is_registered_with_project_scope():
     assert definition.owner_scope == "project"
     assert definition.recovery_policy == "manual_resume"
     assert definition.max_attempts == 4
+
+
+async def test_calibration_history_requires_matching_owner_node_page_and_anchors(
+    db_session,
+    test_project_id,
+    project_factory,
+):
+    from sqlalchemy import select
+
+    service, node = await create_map(db_session, test_project_id)
+    run = MapAtlasRun(
+        novel_id=uuid.UUID(test_project_id), run_kind="upload", status="review_ready"
+    )
+    db_session.add(run)
+    await db_session.flush()
+    page = MapAtlasPage(
+        novel_id=run.novel_id,
+        node_id=uuid.UUID(node["id"]),
+        run_id=run.id,
+        title="上传底图",
+        visual_brief="",
+        prompt="",
+        generation_status="review_ready",
+        review_status="adopted",
+    )
+    db_session.add(page)
+    await db_session.flush()
+    doc = document()
+    placement = image_placement(page.id)
+    placement.geometry_hash = geometry_hash(doc)
+    doc.images = [placement]
+    _, other_node = await create_map(db_session, test_project_id)
+    foreign_id = str(await project_factory.create_project())
+    _, foreign_node = await create_map(db_session, foreign_id)
+    variants = [
+        (test_project_id, other_node["id"], "saved", {}),
+        (foreign_id, foreign_node["id"], "saved", {}),
+        (test_project_id, node["id"], "candidate", {}),
+        (test_project_id, node["id"], "rejected", {}),
+        (test_project_id, node["id"], "saved", {"page_id": str(uuid.uuid4())}),
+        (test_project_id, node["id"], "saved", {"geometry_hash": "b" * 64}),
+        (
+            test_project_id,
+            node["id"],
+            "saved",
+            {"anchors": [anchor.model_dump() for anchor in reversed(placement.anchors)]},
+        ),
+    ]
+    for owner, target, status, change in variants:
+        payload = doc.model_dump(mode="json")
+        payload["images"][0].update(change)
+        db_session.add(
+            MapAtlasRevision(
+                novel_id=uuid.UUID(owner),
+                node_id=uuid.UUID(target),
+                status=status,
+                document=payload,
+                geometry_hash=placement.geometry_hash,
+                problems=[],
+            )
+        )
+    await db_session.flush()
+    before = list((await db_session.scalars(select(MapAtlasRevision.id))).all())
+    layers = await service.image_layers(db_session, test_project_id, node["id"], doc)
+    assert layers[0]["calibration_revision_id"] is None
+    assert layers[0]["calibration_lookup_status"] == "not_found"
+    assert list((await db_session.scalars(select(MapAtlasRevision.id))).all()) == before
+    exact = MapAtlasRevision(
+        novel_id=run.novel_id,
+        node_id=page.node_id,
+        status="saved",
+        document=doc.model_dump(mode="json"),
+        geometry_hash=placement.geometry_hash,
+        problems=[],
+    )
+    db_session.add(exact)
+    await db_session.flush()
+    layers = await service.image_layers(db_session, test_project_id, node["id"], doc)
+    assert layers[0]["calibration_revision_id"] == str(exact.id)
+    assert layers[0]["calibration_lookup_status"] == "found"
+
+
+async def test_calibration_history_reports_scan_truncation_without_loading_geometry(
+    db_session,
+    test_project_id,
+    monkeypatch,
+):
+    from datetime import UTC, datetime, timedelta
+
+    service, node = await create_map(db_session, test_project_id)
+    run = MapAtlasRun(
+        novel_id=uuid.UUID(test_project_id), run_kind="upload", status="review_ready"
+    )
+    db_session.add(run)
+    await db_session.flush()
+    page = MapAtlasPage(
+        novel_id=run.novel_id,
+        node_id=uuid.UUID(node["id"]),
+        run_id=run.id,
+        title="上传底图",
+        visual_brief="",
+        prompt="",
+        generation_status="review_ready",
+        review_status="adopted",
+    )
+    db_session.add(page)
+    await db_session.flush()
+    doc = document()
+    placement = image_placement(page.id)
+    placement.geometry_hash = geometry_hash(doc)
+    doc.images = [placement]
+    saved = []
+    for index in range(3):
+        payload = doc.model_dump(mode="json")
+        if index:
+            payload["images"][0]["anchors"][0]["image_x"] = index * 0.1
+        row = MapAtlasRevision(
+            novel_id=run.novel_id,
+            node_id=page.node_id,
+            status="saved",
+            document=payload,
+            geometry_hash=placement.geometry_hash,
+            problems=[],
+            created_at=datetime.now(UTC) + timedelta(seconds=index),
+        )
+        db_session.add(row)
+        saved.append(row)
+    await db_session.flush()
+    monkeypatch.setattr(
+        "modules.world.map_structure_service._CALIBRATION_HISTORY_LIMIT", 2
+    )
+    execute = db_session.execute
+    selected_columns = []
+
+    async def capture(statement, *args, **kwargs):
+        selected_columns.append(list(statement.selected_columns))
+        return await execute(statement, *args, **kwargs)
+
+    monkeypatch.setattr(db_session, "execute", capture)
+    layers = await service.image_layers(db_session, test_project_id, node["id"], doc)
+    assert layers[0]["calibration_revision_id"] is None
+    assert layers[0]["calibration_lookup_status"] == "truncated"
+    assert len(selected_columns[-1]) == 2
+    assert selected_columns[-1][0].name == "id"
+    assert selected_columns[-1][1].name == "images"
+    monkeypatch.setattr(
+        "modules.world.map_structure_service._CALIBRATION_HISTORY_LIMIT", 3
+    )
+    layers = await service.image_layers(db_session, test_project_id, node["id"], doc)
+    assert layers[0]["calibration_revision_id"] == str(saved[0].id)
+    assert layers[0]["calibration_lookup_status"] == "found"

@@ -61,6 +61,7 @@ from shared.utils import parse_uuid
 
 MAP_ACTION = "world.map_atlas.structure"
 MAP_TASK = "world_map_schematic_generate"
+_CALIBRATION_HISTORY_LIMIT = 100
 
 
 def source_payload(item) -> dict:
@@ -676,6 +677,52 @@ class MapStructureService:
                     transform = affine_transform(placement, document)
                 except ValueError:
                     state = "stale"
+            calibration_revision_id = None
+            calibration_status = None
+            if placement.role == "background":
+                calibration_status = "not_found"
+                if page is not None and placement.geometry_hash:
+                    # ponytail: inspect 100 matching versions; add an indexed image
+                    # lookup if long histories regularly exhaust this visible cap.
+                    history = (
+                        await db.execute(
+                            select(
+                                MapAtlasRevision.id,
+                                MapAtlasRevision.document["images"].label("images"),
+                            )
+                            .where(
+                                MapAtlasRevision.novel_id
+                                == parse_uuid(novel_id, "novel_id"),
+                                MapAtlasRevision.node_id
+                                == parse_uuid(node_id, "node_id"),
+                                MapAtlasRevision.status == "saved",
+                                MapAtlasRevision.geometry_hash == placement.geometry_hash,
+                            )
+                            .order_by(
+                                MapAtlasRevision.created_at.desc(),
+                                MapAtlasRevision.id.desc(),
+                            )
+                            .limit(_CALIBRATION_HISTORY_LIMIT + 1)
+                        )
+                    ).all()
+                    anchors = [
+                        anchor.model_dump(mode="json") for anchor in placement.anchors
+                    ]
+                    for version in history[:_CALIBRATION_HISTORY_LIMIT]:
+                        if any(
+                            isinstance(item, dict)
+                            and item.get("page_id") == str(placement.page_id)
+                            and item.get("role") == "background"
+                            and item.get("geometry_hash") == placement.geometry_hash
+                            and item.get("anchors") == anchors
+                            for item in (version.images or [])
+                        ):
+                            calibration_revision_id = str(version.id)
+                            calibration_status = "found"
+                            break
+                    else:
+                        if len(history) > _CALIBRATION_HISTORY_LIMIT:
+                            calibration_status = "truncated"
             layers.append(
                 {
                     "page_id": str(placement.page_id),
@@ -685,6 +732,8 @@ class MapStructureService:
                     "transform": transform,
                     "opacity": placement.opacity,
                     "image_hash": page.sha256 if page else None,
+                    "calibration_revision_id": calibration_revision_id,
+                    "calibration_lookup_status": calibration_status,
                 }
             )
         return layers
