@@ -616,3 +616,91 @@ async def test_preflight_core_dml_is_rolled_back_before_handler(test_engine) -> 
             await cleanup_db.execute(
                 delete(AsyncTask).where(AsyncTask.id.in_((task_id, staged_task_id)))
             )
+
+
+async def test_run_once_exact_project_task_preserves_other_pending_and_execution_fences(
+    test_engine,
+) -> None:
+    sessions = async_sessionmaker(test_engine, expire_on_commit=False, autoflush=False)
+    task_id, novel_id, foreign_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    task_type = f"run-once-exact-{uuid.uuid4()}"
+    registry = TaskRegistry()
+    seen = []
+    untouched = [uuid.uuid4(), uuid.uuid4()]
+
+    class TestManager:
+        engine = test_engine
+        session_factory = sessions
+
+    async def preflight(db, task):
+        seen.append(("preflight", task.id, task.novel_id))
+        assert await db.get(AsyncTask, task.id) is not None
+
+    async def guard(db, task):
+        seen.append(("guard", task.id, task.novel_id))
+        return True
+
+    async def handler(*, db, task):
+        seen.append(("handler", task.id, task.novel_id))
+        assert task.attempt == 1 and task.lease_id
+        await db.commit()
+        return {"ok": True}
+
+    registry.register(task_type, handler, owner_scope="project")
+    try:
+        async with sessions.begin() as setup_db:
+            for other_id, owner in zip(untouched, (novel_id, foreign_id), strict=True):
+                setup_db.add(
+                    AsyncTask(
+                        id=other_id,
+                        novel_id=owner,
+                        task_type="unrelated-publish",
+                        status="pending",
+                        meta={},
+                        created_at=datetime.now(UTC) - timedelta(days=1),
+                    )
+                )
+            setup_db.add(
+                AsyncTask(
+                    id=task_id,
+                    novel_id=novel_id,
+                    task_type=task_type,
+                    status="pending",
+                    meta={},
+                )
+            )
+        worker = TaskWorker(
+            db_manager=TestManager(),
+            heartbeat_interval=60,
+            task_preflight=preflight,
+            task_commit_guard=guard,
+        )
+        for scope in (
+            {"task_id": str(task_id)},
+            {"novel_id": str(novel_id)},
+            {"task_id": "bad", "novel_id": str(novel_id)},
+            {"task_id": str(task_id), "novel_id": "bad"},
+        ):
+            with pytest.raises(ValueError):
+                await worker.run_once(**scope)
+        assert await worker.run_once(task_id=task_id, novel_id=foreign_id) is None
+        assert seen == [] and worker.stats["processed"] == 0
+        returned = await worker.run_once(task_id=str(task_id), novel_id=str(novel_id))
+        assert returned.id == task_id and returned.status == "done"
+        assert returned.attempt == 1 and returned.lease_id is None
+        assert returned.result == {"ok": True}
+        assert [event[0] for event in seen] == ["preflight", "handler", "guard", "guard"]
+        assert all(event[1:] == (task_id, novel_id) for event in seen)
+        assert await worker.run_once(task_id=task_id, novel_id=novel_id) is None
+        async with sessions() as verify_db:
+            for other_id in untouched:
+                other = await verify_db.get(AsyncTask, other_id)
+                assert other.status == "pending" and other.attempt == 0
+                assert other.lease_id is None and other.started_at is None
+        assert worker.stats["processed"] == 1
+    finally:
+        registry.unregister(task_type)
+        async with sessions.begin() as cleanup_db:
+            await cleanup_db.execute(
+                delete(AsyncTask).where(AsyncTask.id.in_([task_id, *untouched]))
+            )
