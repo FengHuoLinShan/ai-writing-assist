@@ -45,6 +45,7 @@ async def start_deep_import(
     high_quality: bool = False,
     adoption_policy: str = DEFAULT_ADOPTION_POLICY,
     authorization_confirmed: bool = False,
+    targeted_completion: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """提交深度导入任务（异步）
 
@@ -59,6 +60,7 @@ async def start_deep_import(
         high_quality=high_quality,
         adoption_policy=adoption_policy,
         authorization_confirmed=authorization_confirmed,
+        targeted_completion=targeted_completion,
     )
 
 
@@ -73,6 +75,7 @@ async def start_deep_import_stage(
     high_quality: bool = False,
     adoption_policy: str = DEFAULT_ADOPTION_POLICY,
     authorization_confirmed: bool = False,
+    targeted_completion: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """提交分阶段自动提取任务。"""
     return await _orchestrator.start_stage(
@@ -85,6 +88,7 @@ async def start_deep_import_stage(
         high_quality=high_quality,
         adoption_policy=adoption_policy,
         authorization_confirmed=authorization_confirmed,
+        targeted_completion=targeted_completion,
     )
 
 
@@ -169,3 +173,32 @@ async def apply_source_update(
         expected_preview_hash=expected_preview_hash,
         destructive_confirmed=destructive_confirmed,
     )
+
+
+async def start_targeted_completion(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    targets: list[dict],
+    start_chapter: int,
+    end_chapter: int,
+    authorization_confirmed: bool,
+) -> dict[str, Any]:
+    return await _orchestrator.start_targeted_completion(
+        db,
+        novel_id=novel_id,
+        targets=targets,
+        start_chapter=start_chapter,
+        end_chapter=end_chapter,
+        authorization_confirmed=authorization_confirmed,
+    )
+
+
+async def rollback_targeted_completion(
+    db: AsyncSession, *, novel_id: str, task_id: str
+) -> dict:
+    from modules.imports.targeted_completion import (
+        rollback_targeted_completion as rollback,
+    )
+
+    return await rollback(db, novel_id=novel_id, task_id=task_id)

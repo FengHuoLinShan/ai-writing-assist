@@ -47,6 +47,7 @@ STAGE_TASK_TYPES = {
     "scenes": "scene_auto_extraction",
     "world_objects": "world_object_auto_extraction",
     "plot_structure": "plot_structure_auto_extraction",
+    "targeted_completion": "targeted_completion",
 }
 IMPORT_TASK_TYPES = {"deep_import", *STAGE_TASK_TYPES.values()}
 
@@ -167,6 +168,7 @@ class DeepImportOrchestrator:
         high_quality: bool = False,
         adoption_policy: str = DEFAULT_ADOPTION_POLICY,
         authorization_confirmed: bool = False,
+        targeted_completion: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         authorization_snapshot = build_authorization_snapshot(
             novel_id=novel_id,
@@ -195,6 +197,17 @@ class DeepImportOrchestrator:
                 "message": warning,
             }
 
+        from modules.imports.targeted_completion import freeze_completion_permission
+
+        permission = await freeze_completion_permission(
+            db,
+            novel_id=novel_id,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+            options=targeted_completion,
+        )
+        if permission:
+            authorization_snapshot["targeted_completion"] = permission
         task_id = self._enqueue_deep_import(
             db,
             novel_id,
@@ -245,6 +258,7 @@ class DeepImportOrchestrator:
         high_quality: bool = False,
         adoption_policy: str = DEFAULT_ADOPTION_POLICY,
         authorization_confirmed: bool = False,
+        targeted_completion: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if stage not in STAGE_TASK_TYPES:
             raise ValueError(f"unsupported deep import stage: {stage}")
@@ -277,6 +291,23 @@ class DeepImportOrchestrator:
                     "warning": warning,
                     "message": warning,
                 }
+        from modules.imports.targeted_completion import freeze_completion_permission
+
+        if (
+            targeted_completion
+            and targeted_completion.get("enabled")
+            and stage != "world_objects"
+        ):
+            raise ValueError("自动专项补全仅用于完整导入或世界对象提取")
+        permission = await freeze_completion_permission(
+            db,
+            novel_id=novel_id,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+            options=targeted_completion,
+        )
+        if permission:
+            authorization_snapshot["targeted_completion"] = permission
         task_id = self._enqueue_stage_task(
             db,
             task_type=STAGE_TASK_TYPES[stage],
@@ -319,6 +350,69 @@ class DeepImportOrchestrator:
             "message": self._stage_pending_message(stage, start_chapter, end_chapter),
         }
 
+    async def start_targeted_completion(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        targets: list[dict],
+        start_chapter: int,
+        end_chapter: int,
+        authorization_confirmed: bool,
+    ) -> dict[str, Any]:
+        from modules.imports.schemas import TargetedCompletionTarget
+        from modules.imports.targeted_completion import freeze_completion_permission
+
+        if not targets:
+            raise ValueError("专项补全至少需要一个对象")
+        targets = [
+            TargetedCompletionTarget.model_validate(item).model_dump(exclude_none=True)
+            for item in targets
+        ]
+        authorization = build_authorization_snapshot(
+            novel_id=novel_id,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+            adoption_policy=DEFAULT_ADOPTION_POLICY,
+            authorization_confirmed=authorization_confirmed,
+            stage="targeted_completion",
+        )
+        active = await self._find_active_import_task(db, novel_id)
+        if active is not None:
+            return self._existing_task_response(active, authorization)
+        authorization["targeted_completion"] = await freeze_completion_permission(
+            db,
+            novel_id=novel_id,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+            options={"enabled": True},
+            targets=targets,
+        )
+        profile = await self._build_llm_execution_snapshot(db, novel_id)
+        queued = await self._enqueue_workflow(
+            db,
+            task_type="targeted_completion",
+            novel_id=novel_id,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+            stage="targeted_completion",
+            context_mode="working",
+            include_pending_objects=True,
+            high_quality=False,
+            replace_existing=False,
+            authorization_snapshot=authorization,
+            llm_execution_snapshot=profile,
+        )
+        return {
+            "workflow_id": queued.task_id,
+            "task_id": queued.task_id,
+            "workflow_type": "targeted_completion",
+            "stage": "targeted_completion",
+            "status": "pending",
+            "reused_task": queued.reused,
+            "message": "专项补全任务已提交",
+        }
+
     async def run_task(self, db: AsyncSession, task: Any) -> dict[str, Any]:
         meta = task.meta or {}
         novel_id = meta.get("novel_id", "")
@@ -352,6 +446,17 @@ class DeepImportOrchestrator:
             if self.progress_observer is not None:
                 await self.progress_observer(updated, persisted_value, task)
 
+        async def _completion(updated):
+            from modules.imports.targeted_completion import run_targeted_completion
+
+            await run_targeted_completion(
+                db,
+                task=task,
+                progress=updated,
+                checkpoint=_record_progress,
+                project_settings=project_settings,
+            )
+
         progress = await self.workflow.run_step(
             db,
             novel_id=novel_id,
@@ -365,6 +470,7 @@ class DeepImportOrchestrator:
             replace_existing=replace_existing,
             project_settings=project_settings,
             on_progress=_record_progress,
+            on_targeted_completion=_completion,
         )
         self._hydrate_authorization(progress, meta)
         if progress.phase == "failed":
@@ -485,6 +591,15 @@ class DeepImportOrchestrator:
         ) -> None:
             updated.workflow_type = str(task.task_type)
             updated.stage = stage
+            if (
+                stage == "world_objects"
+                and updated.authorization_snapshot.get("targeted_completion")
+                and (updated.checkpoints.get("targeted_completion") or {}).get("status")
+                != "done"
+            ):
+                if updated.phase == "done":
+                    updated.phase = "running"
+                progress_value = min(progress_value, 0.8)
             updated.asset_summary = build_asset_summary(updated.quality_stats)
             task.result = updated.model_dump(mode="json")
             stage_progress = (
@@ -498,7 +613,27 @@ class DeepImportOrchestrator:
             if self.progress_observer is not None:
                 await self.progress_observer(updated, persisted_value, task)
 
-        if stage == "scenes":
+        async def _completion(updated):
+            from modules.imports.targeted_completion import run_targeted_completion
+
+            await run_targeted_completion(
+                db,
+                task=task,
+                progress=updated,
+                checkpoint=_record_progress,
+                project_settings=project_settings,
+            )
+
+        if stage == "targeted_completion":
+            await _completion(progress)
+            progress.phase = "done"
+            progress.current_step = None
+            progress.quality_status = (
+                "partial" if progress.targeted_completion.get("review") else "complete"
+            )
+            progress.message = "专项补全完成；新增和填空已保存，需复核项已保留"
+            await _record_progress(progress, 1.0)
+        elif stage == "scenes":
             progress = await self.workflow.run_step(
                 db,
                 novel_id=novel_id,
@@ -525,6 +660,7 @@ class DeepImportOrchestrator:
                 high_quality=high_quality,
                 project_settings=project_settings,
                 on_progress=_record_progress,
+                on_targeted_completion=_completion,
             )
         elif stage == "plot_structure":
             progress = await self.workflow.run_structure_analysis_only(
@@ -1110,7 +1246,9 @@ class DeepImportOrchestrator:
         progress.interrupted = False
         progress.recoverable = False
         progress.recovery_required = False
-        if progress.phase == "running":
+        if progress.phase == "running" or (
+            progress.checkpoints.get("targeted_completion") and progress.phase == "failed"
+        ):
             progress.phase = "pending"
         return progress
 
@@ -1301,6 +1439,14 @@ class DeepImportOrchestrator:
         novel_id = str(run.novel_id)
         workflow_id = str(run.id)
 
+        completion = (run.checkpoints or {}).get("targeted_completion") or {}
+        if completion.get("packages"):
+            from modules.world.facade import rollback_focused_world_package
+
+            for suggestion_id in reversed(completion["packages"]):
+                await rollback_focused_world_package(
+                    db, novel_id=novel_id, suggestion_id=suggestion_id
+                )
         cleanup_summary = await self.cleanup_workflow_assets(db, novel_id, workflow_id)
         await cancel_recoverable_task(
             db,
@@ -1611,6 +1757,23 @@ class DeepImportOrchestrator:
             mode="reuse_active",
         )
         existing = await self._runs.get_by_task(db, task_id=queued.task_id)
+        permission = authorization_snapshot.get("targeted_completion")
+        if existing is None and permission:
+            from modules.imports.targeted_completion import authorize_completion
+
+            authorization_snapshot["targeted_completion"] = await authorize_completion(
+                db,
+                novel_id=novel_id,
+                task_id=queued.task_id,
+                permission=permission,
+            )
+            await update_task_projection(
+                db,
+                task_id=queued.task_id,
+                task_type=task_type,
+                novel_id=novel_id,
+                meta_patch={"authorization_snapshot": authorization_snapshot},
+            )
         initial_result = {
             "workflow_type": task_type,
             "stage": stage,
@@ -1724,6 +1887,11 @@ class DeepImportOrchestrator:
             "authorization_snapshot": progress.authorization_snapshot,
             "llm_execution_snapshot": progress.llm_execution_snapshot,
             "asset_summary": progress.asset_summary,
+            **(
+                {"targeted_completion": progress.targeted_completion}
+                if progress.targeted_completion
+                else {}
+            ),
             "phase2_dedup": (
                 (progress.quality_stats.get("phase2") or {}).get("phase2_dedup") or {}
             ),

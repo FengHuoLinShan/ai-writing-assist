@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.redaction import redact_diagnostic
+from modules.imports.completion_hints import completion_hints
 from modules.imports.entity_extraction.scene_entity_checkpoint import (
     phase2a_input_fingerprint,
 )
@@ -190,6 +191,7 @@ class ParallelSceneEntityExtractionMixin:
                         created_relation_ids=previous.get("created_relation_ids", []),
                         created_delta_ids=previous.get("created_delta_ids", []),
                         input_fingerprint=input_fingerprint,
+                        completion_hints=previous.get("completion_hints", []),
                     )
                 )
                 continue
@@ -550,6 +552,9 @@ class ParallelSceneEntityExtractionMixin:
                     activation_version=item["activation"]["activation_version"],
                     activation_source_count=len(item["activation"]["sources"]),
                     input_fingerprint=item["input_fingerprint"],
+                    completion_hints=completion_hints(
+                        extraction, scene_id=scene_id, source_text=item["chapters_text"]
+                    ),
                 )
             )
             try:

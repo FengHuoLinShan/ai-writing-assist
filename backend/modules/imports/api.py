@@ -20,7 +20,12 @@ from core.errors import DomainError, NotFoundError
 from core.errors import ValidationError as DomainValidationError
 from infrastructure.llm.redaction import redact_diagnostic
 from modules.imports.parsers import MAX_FILE_SIZE
-from modules.imports.schemas import ImportListResponse, ImportResponse
+from modules.imports.schemas import (
+    ImportListResponse,
+    ImportResponse,
+    TargetedCompletionOptions,
+    TargetedCompletionRequest,
+)
 from modules.imports.services import ImportService
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
@@ -67,6 +72,9 @@ class DeepImportRequest(BaseModel):
     end_chapter: int = Field(default=0, ge=0)
     force: bool = False
     high_quality: bool = False
+    targeted_completion: TargetedCompletionOptions = Field(
+        default_factory=TargetedCompletionOptions
+    )
     adoption_policy: Literal["user_authorized_pipeline"] = "user_authorized_pipeline"
     authorization_confirmed: bool = Field(
         ...,
@@ -261,6 +269,11 @@ async def submit_deep_import(
         high_quality=body.high_quality,
         adoption_policy=body.adoption_policy,
         authorization_confirmed=body.authorization_confirmed,
+        **(
+            {"targeted_completion": body.targeted_completion.model_dump()}
+            if body.targeted_completion.enabled
+            else {}
+        ),
     )
     return result
 
@@ -273,6 +286,8 @@ async def _submit_stage(
 ) -> dict:
     from modules.imports.facade import start_deep_import_stage as _start_stage
 
+    if body.targeted_completion.enabled and stage != "world_objects":
+        raise HTTPException(422, detail="专项补全仅用于完整导入或世界对象提取")
     await _require_active_project_exclusive(db, body.novel_id)
     end_chapter = await _resolve_end_chapter(db, body)
     _validate_chapter_count_limit(body.start_chapter, end_chapter)
@@ -287,6 +302,11 @@ async def _submit_stage(
         high_quality=body.high_quality,
         adoption_policy=body.adoption_policy,
         authorization_confirmed=body.authorization_confirmed,
+        **(
+            {"targeted_completion": body.targeted_completion.model_dump()}
+            if body.targeted_completion.enabled
+            else {}
+        ),
     )
 
 
@@ -371,3 +391,50 @@ async def abandon_deep_import(
     except ValueError as exc:
         raise HTTPException(400, detail=redact_diagnostic(exc)) from exc
     return DeepImportAbandonResponse.model_validate(result)
+
+
+@router.post("/targeted-completions", status_code=201)
+async def submit_targeted_completion(
+    db: DbSession, body: TargetedCompletionRequest
+) -> dict:
+    """查读指定对象及直接关联对象；只自动新增与填空，冲突保留待复核。"""
+    from modules.imports.facade import start_targeted_completion
+
+    await _require_active_project_exclusive(db, body.novel_id)
+    end_chapter = await _resolve_end_chapter(db, body)
+    _validate_chapter_count_limit(body.start_chapter, end_chapter)
+    try:
+        return await start_targeted_completion(
+            db,
+            novel_id=body.novel_id,
+            targets=[target.model_dump(exclude_none=True) for target in body.targets],
+            start_chapter=body.start_chapter,
+            end_chapter=end_chapter,
+            authorization_confirmed=body.authorization_confirmed,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, detail=redact_diagnostic(exc)) from exc
+
+
+class TargetedCompletionRollbackRequest(BaseModel):
+    confirmed: Literal[True]
+
+
+@router.post("/targeted-completions/{task_id}/rollback")
+async def rollback_targeted_completion(
+    db: DbSession,
+    task_id: str,
+    body: TargetedCompletionRollbackRequest,
+    *,
+    novel_id: NovelIdQuery,
+) -> dict:
+    from modules.imports.contracts import TaskNotFoundError
+    from modules.imports.facade import rollback_targeted_completion as rollback
+
+    await _require_active_project_exclusive(db, novel_id)
+    try:
+        return await rollback(db, novel_id=novel_id, task_id=task_id)
+    except TaskNotFoundError as exc:
+        raise HTTPException(404, detail="Not found") from exc
+    except ValueError as exc:
+        raise HTTPException(409, detail=redact_diagnostic(exc)) from exc

@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.errors import LLMInvalidResponseError
 from infrastructure.llm.redaction import redact_diagnostic
+from modules.imports.completion_hints import alias_completion_hints
 from modules.imports.entity_extraction.scene_entity_config import (
     phase2_alias_relation_concurrency,
     phase2_alias_relation_entity_index_char_limit,
@@ -126,9 +127,7 @@ class AliasRelationExtractionMixin:
                             retry_count=retry_count,
                             aliases=existing_checkpoint.get("aliases", 0),
                             relations=existing_checkpoint.get("relations", 0),
-                            uncertain_items=existing_checkpoint.get(
-                                "uncertain_items", 0
-                            ),
+                            uncertain_items=existing_checkpoint.get("uncertain_items", 0),
                             input_fingerprint=input_fingerprint,
                         )
                     )
@@ -369,10 +368,14 @@ class AliasRelationExtractionMixin:
                         retry_count=int(item.get("retry_count", 0) or 0),
                         aliases=persisted["aliases"],
                         relations=persisted["relations"],
-                        uncertain_items=int(
-                            persisted.get("uncertain_count", 0) or 0
-                        ),
+                        uncertain_items=int(persisted.get("uncertain_count", 0) or 0),
                         input_fingerprint=item["input_fingerprint"],
+                        completion_hints=alias_completion_hints(
+                            persisted.get("diagnostics", []),
+                            scene_id=item["scene_id"],
+                            source_text=item["chapters_text"],
+                            context_bundle=item.get("context_bundle") or {},
+                        ),
                     )
                 )
                 if snapshot_id is not None:
@@ -715,6 +718,7 @@ def _build_phase2b_checkpoint(
     error: str | None = None,
     error_kind: str | None = None,
     input_fingerprint: str | None = None,
+    completion_hints: list[dict] | None = None,
 ) -> dict[str, Any]:
     checkpoint = {
         "scene_id": scene_id,
@@ -729,6 +733,8 @@ def _build_phase2b_checkpoint(
         "source": "deep_import",
         "auto_ingested": True,
     }
+    if completion_hints:
+        checkpoint["completion_hints"] = completion_hints
     if error is not None:
         checkpoint["error"] = error
     if error_kind is not None:

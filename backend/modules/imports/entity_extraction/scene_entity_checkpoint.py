@@ -65,6 +65,9 @@ def merge_alias_relation_result(
         "alias_relation_format_diagnostics",
         [],
     )
+    merged["alias_relation_uncertain_diagnostics"] = alias_result.get(
+        "alias_relation_uncertain_diagnostics", []
+    )
     alias_checkpoints = alias_result.get("alias_relation_checkpoints")
     if not isinstance(alias_checkpoints, dict):
         # Compatibility for older adapters/tests that returned the common key.
@@ -221,6 +224,7 @@ def build_scene_checkpoint(
     activation_version: str | None = None,
     activation_source_count: int | None = None,
     input_fingerprint: str | None = None,
+    completion_hints: list[dict] | None = None,
 ) -> dict[str, Any]:
     checkpoint = {
         "scene_id": service._scene_id(scene),
@@ -235,6 +239,8 @@ def build_scene_checkpoint(
         "source": "deep_import",
         "auto_ingested": True,
     }
+    if completion_hints:
+        checkpoint["completion_hints"] = completion_hints
     if error is not None:
         checkpoint["error"] = error
     if error_kind is not None:

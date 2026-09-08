@@ -18,6 +18,7 @@ class DeepImportStep(StrEnum):
     """Phase 1: Scene 切分（并行）"""
     entity_extraction = "entity_extraction"
     """Phase 2: 实体增量提取（串行，按 Scene）"""
+    targeted_completion = "targeted_completion"
     structure_analysis = "structure_analysis"
     """Phase 3: 剧情结构分析（单次）"""
 
@@ -33,7 +34,8 @@ class DeepImportProgress(BaseModel):
         default="deep_import",
         description=(
             "工作流类型: deep_import / scene_auto_extraction / "
-            "world_object_auto_extraction / plot_structure_auto_extraction"
+            "world_object_auto_extraction / plot_structure_auto_extraction / "
+            "targeted_completion"
         ),
     )
     stage: str | None = Field(
@@ -60,6 +62,7 @@ class DeepImportProgress(BaseModel):
         default="pending",
         description="阶段: pending / running / done / failed",
     )
+    targeted_completion: dict[str, Any] = Field(default_factory=dict)
     quality_status: str = Field(
         default="pending",
         description="质量状态: pending / complete / partial / failed",

@@ -881,6 +881,7 @@ class SceneEntityExtractionService(
         activation_version: str | None = None,
         activation_source_count: int | None = None,
         input_fingerprint: str | None = None,
+        completion_hints: list[dict] | None = None,
     ) -> dict[str, Any]:
         return build_scene_checkpoint(
             self,
@@ -897,6 +898,7 @@ class SceneEntityExtractionService(
             activation_version=activation_version,
             activation_source_count=activation_source_count,
             input_fingerprint=input_fingerprint,
+            completion_hints=completion_hints,
         )
 
     @staticmethod

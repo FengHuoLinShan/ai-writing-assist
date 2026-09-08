@@ -130,6 +130,45 @@ world entities。任务在 commit 前失败时旧资产保持不变。
 
 放弃可恢复 workflow 时会按 `novel_id + workflow_id` 整批回滚：Scene、世界对象、候选关系、候选别名和结构资产软废弃，Memory DeltaLog 在 `meta` 中标记 `rolled_back`。回滚幂等、保留审计字段，且不处理其他 workflow/小说或已标记 `user_edited` 的资产。
 
+## 专项补全
+
+完整导入与世界对象分阶段请求可显式附 `targeted_completion={"enabled": true}`。
+默认关闭；旧任务缺少 `imports.targeted_completion.v1` 专属持久授权时不自动开启。
+提交时冻结原文 draft/hash 清单、章节范围、最多一跳和“新增对象/关系/别名、填空”操作，
+并由当前 owner 在同一入队事务取得 World 授权；worker 不能自行扩大授权。
+
+自动补全在 Phase 2b 后、Phase 3 前运行。自动根来自本 workflow 的字段缺证提示、
+具名身份/关系端点未解析提示，以及该 workflow 的 unresolved Evidence links。
+字段已有人工内容时不再因旧缺证提示选入；candidate 状态或普通空字段不单独构成遗漏信号。
+Phase 2a/2b 每 Scene checkpoint 保存 `completion_hints`，包括来源 Scene、逐字引文和具体原因；
+不确定观察的可选 `target_name` 必须能在当前原文定位。没有任何具名线索的遗漏不保证被发现。
+
+手动 `POST /api/imports/targeted-completions` 接受 `novel_id`、`targets`（每项只能给
+`entity_id` 或 `name`）、`start_chapter/end_chapter` 和 `authorization_confirmed=true`。
+返回 `targeted_completion` task；与完整导入共享同项目单飞、ImportWorkflowRun 与原 task_id
+恢复，不需要新队列或 run 表。手动入口支持尚未入库的名字，不要求预先创建占位对象。
+
+Context/Evidence 的公共 focused retrieval 独占原文/数据库检索与一跳提名；imports 不复制
+BFS，不允许模型自主选工具。根和邻居总量不按单批预算截断：每批处理五个根与五个补全目标，
+Evidence cursor 保留全部未读范围和邻居。每次字段补全仅消费本批相关资料，输入上限十万字符、
+输出上限 8192 token、270 秒总等待；超限/失败保留 partial checkpoint，不能声称已完整查读。
+新事实逐字段绑定精确原文引文，目标身份/类型和关系端点均重验；关系使用既有 RelationKind。
+
+补全 checkpoint 冻结根、许可指纹、Evidence continuation、无正文的来源回执、已经验证的字段输出、
+逐包采用回执与当前批次。进入补全后的恢复直接续补全，不重放 Phase 2a/2b；本轮新增对象不会
+改变已冻结的遍历队列。每个 provider step 都写 Evidence ContextSnapshot，provider 等待前
+通过原 task/generation/attempt/lease checkpoint 关闭事务。最终逐包在 project exclusive 锁下
+重验来源，再由 World 执行新增和填空；非空字段变化、身份歧义、证据冲突保留待复核。
+实体包先于关系包提交，跨批关系只使用同 workflow 已接受回执解析出的实体 ID。
+
+任务仍通过 `/api/tasks/{task_id}` 查询/停止，通过 `/api/imports/deep/resume` 继续。
+`result.targeted_completion` 提供查读 coverage、根进度、新增、填空和复核数量；
+`available_actions` 指示可继续/可撤销。停止或完成后可显式二次确认调用
+`POST /api/imports/targeted-completions/{task_id}/rollback?novel_id=...`，body 为
+`{"confirmed": true}`。该入口只撤销专项补全已接受包；仍运行的任务拒绝撤销。
+World 按应用后值 CAS 撤销，人工后续修改保留并返回 `status=partial` 与 conflicts；
+不会把部分撤销描述为全部成功。放弃原导入恢复时也会先安全撤销本 run 的补全包。
+
 ## 上下文快照边界
 
 - Phase 2 保持由确定性工作流装配专用上下文；Phase 2a 快照记录 `import-context-v3` 的完整紧凑上下文、来源与 fingerprint，Phase 2b 快照保留实际发送给 provider 的 fenced payload、来源和 fingerprint。Prompt 与 context contract 升版使旧 checkpoint 只重跑受影响单元。

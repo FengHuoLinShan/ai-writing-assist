@@ -153,6 +153,8 @@ class DeepImportWorkflow:
         scene_project_profile: dict[str, Any] | None = None,
         before_scene_commit: Callable[[], Awaitable[None]] | None = None,
         require_scene_provider_no_transaction: bool = False,
+        on_targeted_completion: Callable[[DeepImportProgress], Awaitable[None]]
+        | None = None,
     ) -> DeepImportProgress:
         if progress.phase == "pending":
             self._agent_project_settings = (
@@ -190,41 +192,48 @@ class DeepImportWorkflow:
             progress.phase = "running"
             phase_runners = self._phase_runners()
 
-            scene_outcome = await phase_runners.scene_full.run_full_pipeline(
-                SceneFullPipelineRequest(
-                    db=db,
-                    novel_id=novel_id,
-                    start_chapter=start_chapter,
-                    end_chapter=end_chapter,
-                    progress=progress,
-                    workflow_id=workflow_id,
-                    on_progress=on_progress,
-                    stop_after=stop_after,
-                    replace_existing=replace_existing,
-                    prepared_phase0_result=prepared_scene_phase0_result,
-                    project_profile=scene_project_profile,
-                    before_scene_commit=before_scene_commit,
-                    require_provider_no_transaction=(
-                        require_scene_provider_no_transaction
-                    ),
+            if progress.checkpoints.get("targeted_completion"):
+                phase2_result = dict(progress.quality_stats.get("phase2") or {})
+                total_scenes = int(phase2_result.get("total_scenes", 0))
+            else:
+                scene_outcome = await phase_runners.scene_full.run_full_pipeline(
+                    SceneFullPipelineRequest(
+                        db=db,
+                        novel_id=novel_id,
+                        start_chapter=start_chapter,
+                        end_chapter=end_chapter,
+                        progress=progress,
+                        workflow_id=workflow_id,
+                        on_progress=on_progress,
+                        stop_after=stop_after,
+                        replace_existing=replace_existing,
+                        prepared_phase0_result=prepared_scene_phase0_result,
+                        project_profile=scene_project_profile,
+                        before_scene_commit=before_scene_commit,
+                        require_provider_no_transaction=(
+                            require_scene_provider_no_transaction
+                        ),
+                    )
                 )
-            )
-            if scene_outcome.stopped:
-                return progress
-            total_scenes = scene_outcome.total_scenes
+                if scene_outcome.stopped:
+                    return progress
+                total_scenes = scene_outcome.total_scenes
 
-            phase2_result = await phase_runners.entity_full.run_full_pipeline(
-                EntityFullPipelineRequest(
-                    db=db,
-                    novel_id=novel_id,
-                    start_chapter=start_chapter,
-                    end_chapter=end_chapter,
-                    progress=progress,
-                    workflow_id=workflow_id,
-                    on_progress=on_progress,
-                    total_scenes=total_scenes,
+                phase2_result = await phase_runners.entity_full.run_full_pipeline(
+                    EntityFullPipelineRequest(
+                        db=db,
+                        novel_id=novel_id,
+                        start_chapter=start_chapter,
+                        end_chapter=end_chapter,
+                        progress=progress,
+                        workflow_id=workflow_id,
+                        on_progress=on_progress,
+                        total_scenes=total_scenes,
+                    )
                 )
-            )
+
+            if on_targeted_completion is not None:
+                await on_targeted_completion(progress)
 
             phase3_result = await phase_runners.structure_full.run_full_pipeline(
                 StructureFullPipelineRequest(
@@ -673,6 +682,8 @@ class DeepImportWorkflow:
         high_quality: bool = False,
         project_settings: dict[str, Any] | None = None,
         on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None = None,
+        on_targeted_completion: Callable[[DeepImportProgress], Awaitable[None]]
+        | None = None,
     ) -> DeepImportProgress:
         self._agent_project_settings = (
             project_settings
@@ -680,17 +691,23 @@ class DeepImportWorkflow:
             else await _project_settings_for_novel(db, novel_id)
         )
         self._deep_import_high_quality = bool(high_quality)
-        return await self._phase_runners().entity_stage.run_stage(
-            EntityStageRequest(
-                db=db,
-                novel_id=novel_id,
-                start_chapter=start_chapter,
-                end_chapter=end_chapter,
-                progress=progress,
-                workflow_id=workflow_id,
-                on_progress=on_progress,
+        if not progress.checkpoints.get("targeted_completion"):
+            progress = await self._phase_runners().entity_stage.run_stage(
+                EntityStageRequest(
+                    db=db,
+                    novel_id=novel_id,
+                    start_chapter=start_chapter,
+                    end_chapter=end_chapter,
+                    progress=progress,
+                    workflow_id=workflow_id,
+                    on_progress=on_progress,
+                )
             )
-        )
+        if on_targeted_completion is not None and progress.phase != "failed":
+            await on_targeted_completion(progress)
+            progress.phase = "done"
+            progress.current_step = None
+        return progress
 
     async def run_structure_analysis_only(
         self,

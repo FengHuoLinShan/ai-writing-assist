@@ -147,3 +147,15 @@ async def handle_plot_structure_auto_extraction(db, task) -> dict[str, Any]:
         result["completed_steps"],
     )
     return result
+
+
+@task_handler("targeted_completion", recovery_policy="manual_resume")
+async def handle_targeted_completion(db, task) -> dict[str, Any]:
+    """The targeted operation shares imports' single-flight and owner fencing."""
+    orchestrator = DeepImportOrchestrator()
+    attempt = await _claim_workflow_attempt(db, task)
+    return await orchestrator.run_attempt(
+        db,
+        attempt,
+        project=lambda payload, value: _project_task(task, payload, value),
+    )

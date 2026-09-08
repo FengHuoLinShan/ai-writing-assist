@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ImportChapterItem(BaseModel):
@@ -64,3 +64,44 @@ class ImportedChapterListResponse(BaseModel):
 
     items: list[ImportedChapterResponse]
     total: int
+
+
+class TargetedCompletionOptions(BaseModel):
+    """Explicit opt-in; batch limits never limit total discovery coverage."""
+
+    model_config = {"extra": "forbid"}
+    enabled: bool = False
+
+
+class TargetedCompletionTarget(BaseModel):
+    model_config = {"extra": "forbid", "str_strip_whitespace": True}
+    entity_id: str | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    entity_type: str | None = Field(default=None, max_length=50)
+
+    @model_validator(mode="after")
+    def validate_target(self):
+        from shared.utils import parse_uuid
+
+        if bool(self.entity_id) == bool(self.name):
+            raise ValueError("provide exactly one entity_id or name")
+        if self.entity_id:
+            self.entity_id = str(parse_uuid(self.entity_id, "entity_id"))
+        return self
+
+
+class TargetedCompletionRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    novel_id: str
+    targets: list[TargetedCompletionTarget] = Field(min_length=1, max_length=100)
+    start_chapter: int = Field(default=1, ge=1)
+    end_chapter: int = Field(default=0, ge=0)
+    authorization_confirmed: bool
+
+    @model_validator(mode="after")
+    def validate_scope(self):
+        if not self.authorization_confirmed:
+            raise ValueError("authorization_confirmed must be true")
+        if self.end_chapter and self.end_chapter < self.start_chapter:
+            raise ValueError("end_chapter must be >= start_chapter")
+        return self
