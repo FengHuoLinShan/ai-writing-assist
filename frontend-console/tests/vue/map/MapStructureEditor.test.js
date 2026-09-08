@@ -19,7 +19,7 @@ const state = revision => ({ node_id: nodeId, revision, candidates: [], image_la
 const button = (wrapper, label) => wrapper.findAll("button").find(item => item.text() === label)
 
 describe("统一地图编辑器", () => {
-  let api, confirm
+  let api, confirm, router
   beforeEach(() => {
     api = { world: {
       getNodeMap: vi.fn(async () => state(record())),
@@ -35,7 +35,8 @@ describe("统一地图编辑器", () => {
       createMapNode: vi.fn(),
     } }
     confirm = vi.fn(() => true)
-    setBridgeOverrides({ api, confirm, router: { navigate: vi.fn() } })
+    router = { navigate: vi.fn() }
+    setBridgeOverrides({ api, confirm, router })
     confirmAiReference.mockReset()
     confirmAiReference.mockResolvedValue({ id: "confirmation" })
     localStorage.clear()
@@ -135,6 +136,13 @@ describe("统一地图编辑器", () => {
     expect(wrapper.text()).not.toContain("后续章节秘密")
     expect(wrapper.find(".map-edit-grid").exists()).toBe(false)
     expect(api.world.fetchMapAtlasImage).not.toHaveBeenCalled()
+    await wrapper.get('.map-locator input').setValue('黑石')
+    expect(wrapper.get('.map-locator').text()).toContain('当前地图没有匹配内容')
+    expect(wrapper.find('[data-feature-id="b"]').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="读者地点详情"]').exists()).toBe(true)
+    await wrapper.get('.map-locator input').setValue('临江')
+    await button(wrapper, '临江城').trigger('click')
+    expect(wrapper.get('[aria-label="读者地点详情"]').text()).toBe('临江城')
   })
 
   it("图片校准预览按服务端变换叠加，移动地点后立即退出底图", async () => {
@@ -148,6 +156,21 @@ describe("统一地图编辑器", () => {
     await wrapper.get('button[aria-label="向右移动"]').trigger("click")
     expect(wrapper.find(".map-canvas image").exists()).toBe(false)
     expect(wrapper.text()).toContain("待复核，已退出叠加")
+  })
+
+  it("选择同名图片即显示缩略预览，已关联图片用地点说明用途", async () => {
+    const data = document()
+    data.images = [{ page_id: 'image-a', role: 'illustration', feature_id: 'a', anchors: [] }]
+    api.world.getNodeMap.mockResolvedValue(state(record(data)))
+    const wrapper = render({ images: [{ id: 'image-a', title: '城市示意' }, { id: 'image-b', title: '城市示意' }] })
+    await flushPromises()
+    const select = wrapper.get('.map-image-controls select')
+    expect(select.text()).toContain('临江城配图')
+    await select.setValue('image-b'); await flushPromises()
+    expect(api.world.fetchMapAtlasImage).toHaveBeenCalledWith(projectId, 'image-b')
+    expect(wrapper.get('img[alt="待关联配图预览"]').attributes('src')).toBe('blob:map')
+    expect(wrapper.vm.dirty).toBe(false)
+    expect(api.world.saveMapRevision).not.toHaveBeenCalled()
   })
 
   it("空间生成固定地点范围并通过一次 Context 确认", async () => {
@@ -191,6 +214,10 @@ describe("统一地图编辑器", () => {
     const wrapper = render(); await flushPromises()
     await button(wrapper, "专注看图").trigger("click")
     expect(wrapper.find(".map-edit-grid").exists()).toBe(false)
+    expect(wrapper.find('.map-reader').exists()).toBe(false)
+    expect(wrapper.find('.map-save-status').exists()).toBe(false)
+    expect(button(wrapper, '撤销')).toBeUndefined()
+    expect(wrapper.emitted('state').at(-1)[0]).toMatchObject({ focused: true })
     await wrapper.get('.map-locator input').setValue("黑石")
     await button(wrapper, "黑石关").trigger("click"); await flushPromises()
     expect(wrapper.get('[aria-label="地图地点详情"]').text()).toContain("黑石关")
@@ -200,6 +227,28 @@ describe("统一地图编辑器", () => {
     expect(wrapper.vm.dirty).toBe(false)
     await button(wrapper, "展开编辑工具").trigger("click")
     expect(wrapper.find(".map-edit-grid").exists()).toBe(true)
+    expect(wrapper.emitted('state').at(-1)[0]).toMatchObject({ focused: false })
+  })
+
+  it("专注浏览保留未保存提示和保存操作，来源能打开同项目对应章节", async () => {
+    const data = document()
+    data.features[0].sources = [{ kind: 'source_range', quote: '前往临江城', source_ref: { chapter_index: 12 } }]
+    api.world.getNodeMap.mockResolvedValue(state(record(data)))
+    const wrapper = render(); await flushPromises()
+    await wrapper.get('button[aria-label="向右移动"]').trigger('click')
+    await button(wrapper, '专注看图').trigger('click')
+    expect(wrapper.get('.map-save-status').text()).toContain('未保存')
+    expect(button(wrapper, '保存地图').attributes('disabled')).toBeUndefined()
+    await button(wrapper, '打开第 12 章').trigger('click')
+    const args = router.navigate.mock.calls[0]
+    expect(args.slice(0, 3)).toEqual(['writing', null, true])
+    expect(Object.fromEntries(args[3])).toEqual({ novel_id: projectId, chapter_index: '12' })
+    api.world.previewReaderMap.mockResolvedValue({ features: [{ id: 'a', kind: 'location', label: '临江城', points: [{ x: 100, y: 100 }] }], images: [], chapter: 1 })
+    await button(wrapper, '保存地图').trigger('click'); await flushPromises()
+    await button(wrapper, '展开编辑工具').trigger('click')
+    await button(wrapper, '预览读者所见').trigger('click'); await flushPromises()
+    expect(wrapper.text()).not.toContain('前往临江城')
+    expect(button(wrapper, '打开第 12 章')).toBeUndefined()
   })
 })
 

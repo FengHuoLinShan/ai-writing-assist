@@ -1,6 +1,6 @@
 <template>
-  <main class="atlas-workspace">
-    <header class="atlas-header">
+  <main class="atlas-workspace" :class="{ 'atlas-focused': structureState.focused }">
+    <header v-if="!structureState.focused" class="atlas-header">
       <div>
         <h1>地图</h1>
         <p v-if="!atlas.nodes.length && !currentRun">从已知地点建立空间示意，在同一张地图上添加底图与地点配图。</p>
@@ -56,12 +56,12 @@
       </div>
     </section>
 
-    <nav v-if="currentRun || atlas.total_pages" class="atlas-tabs" aria-label="地图册视图" role="tablist">
+    <nav v-if="!structureState.focused && (currentRun || atlas.total_pages)" class="atlas-tabs" aria-label="地图册视图" role="tablist">
       <button role="tab" :class="{ active: tab === 'review' }" :aria-selected="tab === 'review'" :aria-pressed="tab === 'review'" @click="selectTab('review')">本次生成结果 <span>{{ review.total_pages }}</span></button>
       <button role="tab" :class="{ active: tab === 'atlas' }" :aria-selected="tab === 'atlas'" :aria-pressed="tab === 'atlas'" @click="selectTab('atlas')">我的地图册 <span>{{ adoptedNodes.length }}</span></button>
     </nav>
 
-    <details v-if="historyPages.length" class="card atlas-history">
+    <details v-if="!structureState.focused && historyPages.length" class="card atlas-history">
       <summary>历史记录 {{ historyPages.length }}</summary>
       <div v-for="page in historyPages" :key="page.id" class="atlas-source">
         <div>
@@ -100,7 +100,7 @@
       </aside>
 
       <article v-if="activeNode" class="card atlas-page">
-        <header class="atlas-page-header">
+        <header v-if="!structureState.focused" class="atlas-page-header">
           <div><p>{{ levelLabel(activeNode?.level) }}</p><h2>{{ structureEnabled ? activeNode.title : (activePage?.title || activeNode.title) }}</h2></div>
           <label v-if="!structureEnabled || referenceVisible" class="atlas-zoom">缩放 <input v-model="zoom" type="range" min="60" max="150" step="10" /></label>
         </header>
@@ -164,7 +164,7 @@
           </figure>
         </div>
 
-        <div v-if="tab === 'review'" class="atlas-review-actions">
+        <div v-if="!structureState.focused && tab === 'review'" class="atlas-review-actions">
           <p v-if="activePage.generation_status === 'retry_requires_confirmation'" class="atlas-charge-warning" role="alert">上次图片请求可能已产生费用，再次生成前需要确认。</p>
           <button v-if="activePage.generation_status === 'review_ready' && activePage.review_status === 'candidate'" class="btn btn-primary" :disabled="writeLocked" @click="adoptPage">加入地图册</button>
           <button v-if="activePage.generation_status === 'review_ready' && activePage.review_status === 'candidate'" class="btn" :disabled="writeLocked" @click="rejectPage">不加入</button>
@@ -185,11 +185,11 @@
             <div><button class="btn btn-sm" :disabled="writeLocked || !editInstruction.trim()" @click="derivePage('edit')">按说明修改</button><button class="btn btn-sm" :disabled="writeLocked" @click="derivePage('regenerate')">重新生成候选</button></div>
           </details>
         </div>
-        <div v-else class="atlas-review-actions">
+        <div v-else-if="!structureState.focused" class="atlas-review-actions">
           <button class="btn btn-sm btn-ghost" :disabled="writeLocked" @click="archivePage(activePage)">移出地图册</button>
         </div>
 
-        <section class="atlas-evidence">
+        <section v-if="!structureState.focused" class="atlas-evidence">
           <h3>为何这样画</h3>
           <div class="atlas-evidence-grid">
             <div><strong>资料直接支持</strong><p v-if="!evidence.supported.length">没有直接资料</p><ul><li v-for="item in evidence.supported" :key="item">{{ item }}</li></ul></div>
@@ -205,11 +205,11 @@
           </details>
         </section>
         </template>
-        <details v-if="!structureState.reader && (tab === 'atlas' || currentRun?.run_kind === 'upload')" class="atlas-edit"><summary class="btn btn-sm">调整地图层级与位置</summary><div class="atlas-node-form"><label v-if="canEditNodeTitle">地图名称<input v-model="nodeEdit.title" class="form-input" maxlength="200" /></label><label>上级地图<select v-model="nodeEdit.parent_id" class="form-select"><option :value="null">无（顶层）</option><option v-for="item in nodeParentChoices" :key="item.id" :value="item.id">{{ item.title }}</option></select></label><label>层级<select v-model="nodeEdit.level" class="form-select"><option v-for="item in levelChoices" :key="item.value" :value="item.value">{{ item.label }}</option></select></label><label>同级位置<select v-model="nodeEdit.before_node_id" class="form-select"><option value="__keep__">保持当前位置</option><option value="__append__">放在最后</option><option v-for="item in siblingChoices" :key="item.id" :value="item.id">放在“{{ item.title }}”之前</option></select></label><button class="btn btn-sm" :disabled="writeLocked" @click="saveNodePosition">保存调整</button></div></details>
+        <details v-if="!structureState.reader && !structureState.focused && (tab === 'atlas' || currentRun?.run_kind === 'upload')" class="atlas-edit"><summary class="btn btn-sm">调整地图层级与位置</summary><div class="atlas-node-form"><label v-if="canEditNodeTitle">地图名称<input v-model="nodeEdit.title" class="form-input" maxlength="200" /></label><label>上级地图<select v-model="nodeEdit.parent_id" class="form-select"><option :value="null">无（顶层）</option><option v-for="item in nodeParentChoices" :key="item.id" :value="item.id">{{ item.title }}</option></select></label><label>层级<select v-model="nodeEdit.level" class="form-select"><option v-for="item in nodeLevelChoices" :key="item.value" :value="item.value">{{ item.label }}</option></select></label><label>同级位置<select v-model="nodeEdit.before_node_id" class="form-select"><option value="__keep__">保持当前位置</option><option value="__append__">放在最后</option><option v-for="item in siblingChoices" :key="item.id" :value="item.id">放在“{{ item.title }}”之前</option></select></label><button class="btn btn-sm" :disabled="writeLocked" @click="saveNodePosition">保存调整</button></div></details>
       </article>
     </section>
 
-    <details v-if="activeNode" class="atlas-generation-settings card">
+    <details v-if="activeNode && !structureState.focused" class="atlas-generation-settings card">
       <summary>生成设置 <span>{{ generationSettingsSummary }}</span></summary>
       <section class="atlas-options" aria-label="地图册生成选项">
         <label>版式
@@ -361,6 +361,7 @@ const activeDescendantIds = computed(() => {
 })
 const nodeParentChoices = computed(() => adoptedNodes.value.filter(node => node.id !== activeNode.value?.id && !activeDescendantIds.value.has(node.id)))
 const siblingChoices = computed(() => adoptedNodes.value.filter(node => node.id !== activeNode.value?.id && (node.parent_id || null) === (nodeEdit.parent_id || null)))
+const nodeLevelChoices = computed(() => activeNode.value?.current_revision_id ? levelChoices.filter(item => ["region", "city"].includes(item.value)) : levelChoices)
 const canUpload = computed(() => uploadFile.value && (uploadForm.node_id || uploadForm.title.trim()))
 const uploadDraftDirty = computed(() => Boolean(uploadFile.value || uploadFormSnapshot() !== uploadFormBaseline.value))
 const { overlayRef: uploadOverlay, dialogRef: uploadDialog, onKeydown: onUploadKeydown, onFocusin: onUploadFocusin } = useModalDialog({
@@ -871,4 +872,6 @@ onBeforeUnmount(() => { mounted = false; clearTimeout(pollTimer); clearTimeout(p
 /* 900px is local to the image comparison workspace: two canvases need more room than the global touch breakpoint. */
 @media(max-width:900px){.atlas-workspace{padding:12px}.atlas-header,.atlas-options,.atlas-run{align-items:stretch}.atlas-header{flex-direction:column}.atlas-primary-actions{align-self:stretch}.atlas-browser{grid-template-columns:1fr}.atlas-tree{max-height:180px}.atlas-images.compare,.atlas-evidence-grid{grid-template-columns:1fr}.atlas-run{grid-template-columns:1fr}.atlas-mask{display:none}.atlas-edit p::after{content:" 蒙版与精确标注请在桌面完成。"}.atlas-node-form{grid-template-columns:1fr}.atlas-prompt-review header{align-items:stretch;flex-direction:column}.atlas-prompt-review header button{width:100%}}
 @media(max-width:760px){.atlas-primary-actions,.atlas-run-actions,.atlas-review-actions,.atlas-source{flex-wrap:wrap}.atlas-alert{align-items:stretch;flex-direction:column}.atlas-tabs button{flex:1 1 0;min-width:0;min-height:42px;padding-inline:var(--space-2)}.atlas-tree button,.atlas-annotation{min-height:42px}.atlas-annotation{min-width:42px}.atlas-generation-settings>summary,.atlas-options summary,.atlas-history>summary,.atlas-evidence>details>summary{min-height:42px}.atlas-page-header{align-items:flex-start;flex-wrap:wrap}.atlas-zoom{max-width:100%}.atlas-zoom input{min-width:0;max-width:100%}.atlas-header>div,.atlas-source>div,.atlas-page-header>div{min-width:0;overflow-wrap:anywhere}.atlas-upload-modal input[type="file"]{max-width:100%}}
+.atlas-focused{padding:12px;gap:8px}.atlas-focused .atlas-page{padding:12px}
+@media(max-width:900px){.atlas-focused .atlas-tree{max-height:100px}}
 </style>
