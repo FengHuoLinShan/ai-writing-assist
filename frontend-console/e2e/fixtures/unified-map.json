@@ -1,0 +1,330 @@
+{
+  "schema_version": 1,
+  "layout_version": 1,
+  "features": [
+    {
+      "id": "place0",
+      "kind": "location",
+      "label": "临江城",
+      "entity_id": null,
+      "target_node_id": null,
+      "points": [
+        {
+          "x": 140.0,
+          "y": 420.0
+        }
+      ],
+      "locked": false,
+      "sources": [],
+      "depends_on": [],
+      "note": "",
+      "reader_from_chapter": 1
+    },
+    {
+      "id": "place1",
+      "kind": "location",
+      "label": "黑石关",
+      "entity_id": null,
+      "target_node_id": null,
+      "points": [
+        {
+          "x": 350.0,
+          "y": 120.0
+        }
+      ],
+      "locked": false,
+      "sources": [],
+      "depends_on": [],
+      "note": "",
+      "reader_from_chapter": 1
+    },
+    {
+      "id": "place2",
+      "kind": "location",
+      "label": "北堡",
+      "entity_id": null,
+      "target_node_id": null,
+      "points": [
+        {
+          "x": 730.0,
+          "y": 160.0
+        }
+      ],
+      "locked": false,
+      "sources": [],
+      "depends_on": [],
+      "note": "",
+      "reader_from_chapter": 1
+    },
+    {
+      "id": "place3",
+      "kind": "location",
+      "label": "河湾渡口",
+      "entity_id": null,
+      "target_node_id": null,
+      "points": [
+        {
+          "x": 420.0,
+          "y": 490.0
+        }
+      ],
+      "locked": false,
+      "sources": [],
+      "depends_on": [],
+      "note": "",
+      "reader_from_chapter": 1
+    },
+    {
+      "id": "place4",
+      "kind": "location",
+      "label": "旧哨所",
+      "entity_id": null,
+      "target_node_id": null,
+      "points": [
+        {
+          "x": 150.0,
+          "y": 200.0
+        }
+      ],
+      "locked": false,
+      "sources": [],
+      "depends_on": [],
+      "note": "",
+      "reader_from_chapter": 1
+    },
+    {
+      "id": "place5",
+      "kind": "location",
+      "label": "南驿",
+      "entity_id": null,
+      "target_node_id": null,
+      "points": [
+        {
+          "x": 270.0,
+          "y": 660.0
+        }
+      ],
+      "locked": false,
+      "sources": [],
+      "depends_on": [],
+      "note": "",
+      "reader_from_chapter": 1
+    },
+    {
+      "id": "place6",
+      "kind": "location",
+      "label": "西林村",
+      "entity_id": null,
+      "target_node_id": null,
+      "points": [
+        {
+          "x": 80.0,
+          "y": 570.0
+        }
+      ],
+      "locked": false,
+      "sources": [],
+      "depends_on": [],
+      "note": "",
+      "reader_from_chapter": 1
+    },
+    {
+      "id": "place7",
+      "kind": "location",
+      "label": "石桥",
+      "entity_id": null,
+      "target_node_id": null,
+      "points": [
+        {
+          "x": 520.0,
+          "y": 420.0
+        }
+      ],
+      "locked": false,
+      "sources": [],
+      "depends_on": [],
+      "note": "",
+      "reader_from_chapter": 1
+    },
+    {
+      "id": "place8",
+      "kind": "location",
+      "label": "东市",
+      "entity_id": null,
+      "target_node_id": null,
+      "points": [
+        {
+          "x": 720.0,
+          "y": 510.0
+        }
+      ],
+      "locked": false,
+      "sources": [],
+      "depends_on": [],
+      "note": "",
+      "reader_from_chapter": 1
+    },
+    {
+      "id": "place9",
+      "kind": "location",
+      "label": "山前村",
+      "entity_id": null,
+      "target_node_id": null,
+      "points": [
+        {
+          "x": 560.0,
+          "y": 220.0
+        }
+      ],
+      "locked": false,
+      "sources": [],
+      "depends_on": [],
+      "note": "",
+      "reader_from_chapter": 1
+    },
+    {
+      "id": "place10",
+      "kind": "location",
+      "label": "藏风谷",
+      "entity_id": null,
+      "target_node_id": null,
+      "points": [
+        {
+          "x": 840.0,
+          "y": 690.0
+        }
+      ],
+      "locked": false,
+      "sources": [],
+      "depends_on": [],
+      "note": "",
+      "reader_from_chapter": 8
+    },
+    {
+      "id": "place11",
+      "kind": "location",
+      "label": "北岭遗址",
+      "entity_id": null,
+      "target_node_id": null,
+      "points": [
+        {
+          "x": 880.0,
+          "y": 80.0
+        }
+      ],
+      "locked": false,
+      "sources": [],
+      "depends_on": [],
+      "note": "",
+      "reader_from_chapter": 8
+    },
+    {
+      "id": "river",
+      "kind": "river",
+      "label": "青河",
+      "entity_id": null,
+      "target_node_id": null,
+      "points": [
+        {
+          "x": 460.0,
+          "y": 30.0
+        },
+        {
+          "x": 430.0,
+          "y": 250.0
+        },
+        {
+          "x": 520.0,
+          "y": 420.0
+        },
+        {
+          "x": 420.0,
+          "y": 600.0
+        },
+        {
+          "x": 460.0,
+          "y": 760.0
+        }
+      ],
+      "locked": false,
+      "sources": [],
+      "depends_on": [],
+      "note": "",
+      "reader_from_chapter": 1
+    },
+    {
+      "id": "road",
+      "kind": "road",
+      "label": "山口古道",
+      "entity_id": null,
+      "target_node_id": null,
+      "points": [
+        {
+          "x": 140.0,
+          "y": 420.0
+        },
+        {
+          "x": 250.0,
+          "y": 300.0
+        },
+        {
+          "x": 350.0,
+          "y": 120.0
+        }
+      ],
+      "locked": false,
+      "sources": [],
+      "depends_on": [
+        "place0",
+        "place1"
+      ],
+      "note": "",
+      "reader_from_chapter": 1
+    },
+    {
+      "id": "region",
+      "kind": "area",
+      "label": "河谷区域",
+      "entity_id": null,
+      "target_node_id": null,
+      "points": [
+        {
+          "x": 40.0,
+          "y": 30.0
+        },
+        {
+          "x": 950.0,
+          "y": 30.0
+        },
+        {
+          "x": 950.0,
+          "y": 790.0
+        },
+        {
+          "x": 40.0,
+          "y": 790.0
+        }
+      ],
+      "locked": false,
+      "sources": [],
+      "depends_on": [
+        "place0",
+        "place10"
+      ],
+      "note": "",
+      "reader_from_chapter": 1
+    }
+  ],
+  "constraints": [
+    {
+      "id": "conflict",
+      "subject": "place0",
+      "relation": "north",
+      "target": "place1",
+      "via": [],
+      "sources": []
+    }
+  ],
+  "images": [],
+  "annotation_bindings": []
+}

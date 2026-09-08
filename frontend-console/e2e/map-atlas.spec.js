@@ -144,8 +144,11 @@ test.describe("AI 地图册", () => {
     project = null
   })
 
-  test("首次生成先审查 Context 并提交同一 confirmation", async ({ page }) => {
+  test("结构引导生图先审查 Context 并提交同一 confirmation", async ({ page }) => {
     const requests = []
+    const nodeId = "20000000-0000-0000-0000-000000000001"
+    const revisionId = "30000000-0000-0000-0000-000000000001"
+    const document = { schema_version: 1, layout_version: 1, features: [], constraints: [], images: [], annotation_bindings: [] }
     const run = {
       id: "run-context",
       novel_id: project.id,
@@ -175,7 +178,10 @@ test.describe("AI 地图册", () => {
         return route.fulfill({ json: null })
       }
       if (request.method() === "GET" && path.endsWith("/atlas")) {
-        return route.fulfill({ json: atlasTree([], "atlas") })
+        return route.fulfill({ json: { mode: "atlas", total_pages: 0, nodes: [{ id: nodeId, title: "区域", level: "region", current_revision_id: revisionId, pages: [], children: [] }] } })
+      }
+      if (request.method() === "GET" && path.endsWith("/map")) {
+        return route.fulfill({ json: { node_id: nodeId, revision: { id: revisionId, document, problems: [], status: "saved" }, candidates: [], image_layers: [] } })
       }
       if (request.method() === "GET" && path.endsWith("/pages/history")) {
         return route.fulfill({ json: [] })
@@ -188,7 +194,7 @@ test.describe("AI 地图册", () => {
 
     await page.setViewportSize({ width: 390, height: 844 })
     await openWorkbench(page, project, "map")
-    await page.getByRole("button", { name: "一键生成地图册" }).click()
+    await page.getByRole("button", { name: "添加地图画面" }).click()
     await expect(page.locator("#modal-overlay")).toContainText("AI 参考资料")
     const start = page.getByRole("button", { name: "按这份资料开始" })
     await expect(start).toBeEnabled()
@@ -197,6 +203,8 @@ test.describe("AI 地图册", () => {
 
     await expect.poll(() => requests.length).toBe(1)
     expect(requests[0].context_confirmation_id).toEqual(expect.any(String))
+    expect(requests[0].target_node_id).toBe(nodeId)
+    expect(requests[0].source_map_revision_id).toBe(revisionId)
     await expectNoPageOverflow(page)
   })
 
@@ -208,7 +216,7 @@ test.describe("AI 地图册", () => {
     const state = await mockAtlas(page, { candidate, adopted: [oldPage], history: [rejected, removed] })
 
     await openWorkbench(page, project, "map")
-    await expect(page.getByRole("heading", { name: "AI 地图册" })).toBeVisible()
+    await expect(page.locator(".atlas-header h1")).toHaveText("地图")
     await expect(page.getByText("地图册已有图片", { exact: true })).toBeVisible()
     await expect(page.getByText("新候选", { exact: true })).toBeVisible()
 

@@ -458,3 +458,14 @@ Prompt 或 token；预算遗漏另行解释。作者可逐项移除/恢复、用
   本源、本地 `localhost` 和 `127.0.0.1` 开发后端，并禁止 `object-src`。地图册图片由同源鉴权接口读取。
 - 当前 `style-src` 仍保留 `'unsafe-inline'`，用于兼容入口与少量 inline style；收紧
   `style-src` 需作为独立 CSP 变更评审，不是前端页面 Vue 所有权迁移的未完成阶段
+
+## 统一地图编辑器
+
+`map` 路由继续由同一 Vue island 承载。`MapStructureEditor` 在当前节点中提供空间 SVG、
+底图和地点配图，原图片参考与审核仍在相同画布区域切换。新建地图不要求图片或文本连接；
+结构生成只要求项目文本连接。编辑支持控制点、键盘替代、撤销、服务器 CAS、本机备份和版本比较。
+图片设置与历史渐进展开，已完成图片任务在正式地图视图不占主要空间。
+
+阅读预览只渲染专用服务端响应，并经独立图片预览接口读取获准图片；不将作者响应隐藏几个
+标签后冒充读者投影。新 wire 增加节点 map/revisions/layout/generate-structure/review/reader-preview
+能力，图片生成请求可绑定明确节点与空间版本；注册项见 `apiContracts.js`。

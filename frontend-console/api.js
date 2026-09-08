@@ -1635,6 +1635,33 @@ const api = {
 
     // ============================================================
     // AI 地图册
+    async createMapNode(novelId, payload) {
+      return contractJson("world.createMapNode", { novelId }, {}, payload)
+    },
+    async getNodeMap(novelId, nodeId) {
+      return contractFetch("world.getNodeMap", { novelId, nodeId }, {}, { cache: "no-store" })
+    },
+    async saveMapRevision(novelId, nodeId, payload) {
+      return contractJson("world.saveMapRevision", { novelId, nodeId }, {}, payload)
+    },
+    async listMapRevisions(novelId, nodeId) {
+      return contractFetch("world.listMapRevisions", { novelId, nodeId }, {}, { cache: "no-store" })
+    },
+    async layoutMap(novelId, nodeId, payload) {
+      return contractJson("world.layoutMap", { novelId, nodeId }, {}, payload)
+    },
+    async generateMapStructure(novelId, nodeId, payload) {
+      return contractJson("world.generateMapStructure", { novelId, nodeId }, {}, payload)
+    },
+    async reviewMapRevision(novelId, nodeId, revisionId, payload) {
+      return contractJson("world.reviewMapRevision", { novelId, nodeId, revisionId }, {}, payload)
+    },
+    async previewReaderMap(novelId, nodeId, chapter, revisionId) {
+      return contractFetch("world.previewReaderMap", { novelId, nodeId }, { chapter, revision_id: revisionId }, { cache: "no-store" })
+    },
+    async fetchReaderMapImage(novelId, nodeId, pageId, chapter, revisionId) {
+      return request(withQuery(`/world/map-atlas/${novelId}/nodes/${nodeId}/reader-preview/images/${pageId}`, { chapter, revision_id: revisionId }), { cache: "no-store", _responseType: "blob" })
+    },
     async getMapAtlas(novelId) {
       return contractFetch("world.getMapAtlas", { novelId }, {}, { cache: "no-store" })
     },
@@ -1692,11 +1719,13 @@ const api = {
     async regenerateMapAtlasPage(novelId, pageId, payload = {}) {
       return post(`/world/map-atlas/${novelId}/pages/${pageId}/regenerate`, payload)
     },
-    async editMapAtlasPage(novelId, pageId, { instruction, referencePageIds = [], mask = null }) {
+    async editMapAtlasPage(novelId, pageId, { instruction, referencePageIds = [], mask = null, sourceMapRevisionId = null, contextConfirmationId = null }) {
       const body = new FormData()
       body.append("instruction", instruction)
       if (referencePageIds.length) body.append("reference_page_ids", JSON.stringify(referencePageIds))
       if (mask) body.append("mask", mask)
+      if (sourceMapRevisionId) body.append("source_map_revision_id", sourceMapRevisionId)
+      if (contextConfirmationId) body.append("context_confirmation_id", contextConfirmationId)
       return request(`/world/map-atlas/${novelId}/pages/${pageId}/edit`, { method: "POST", body })
     },
     async updateMapAtlasAnnotation(novelId, annotationId, payload) {

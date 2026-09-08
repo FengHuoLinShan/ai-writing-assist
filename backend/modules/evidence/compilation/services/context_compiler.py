@@ -216,6 +216,7 @@ class ContextCompiler:
             "world.generation.core_entity",
             "world.generation.world_bible_page",
             "world.map_atlas.generate",
+            "world.map_atlas.structure",
         }
         if relevance_generation:
             # Generation relevance is assembled before entity Top-K: Scene,
@@ -994,7 +995,8 @@ class ContextCompiler:
                     max_items=(
                         160
                         if options
-                        and options.consumer_action == "world.map_atlas.generate"
+                        and options.consumer_action
+                        in {"world.map_atlas.generate", "world.map_atlas.structure"}
                         else 240
                         if options
                         and options.consumer_action
@@ -1082,7 +1084,10 @@ class ContextCompiler:
                 default_type="rag",
                 status=options.context_mode if options else "canonical",
             )
-            if options and options.consumer_action == "world.map_atlas.generate":
+            if options and options.consumer_action in {
+                "world.map_atlas.generate",
+                "world.map_atlas.structure",
+            }:
                 for source in rag_sources:
                     source["type"] = "rag"
             sections.append(
@@ -1152,6 +1157,7 @@ class ContextCompiler:
             "world.generation.core_entity",
             "world.generation.world_bible_page",
             "world.map_atlas.generate",
+            "world.map_atlas.structure",
         }:
             generation_order = {
                 "writing_objective": 0,

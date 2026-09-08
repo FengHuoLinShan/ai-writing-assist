@@ -1,14 +1,14 @@
-# Module: map / AI 地图册子系统
+# Module: map / 统一地图底座
 
 ## 定位
 
-地图是 world 拥有的作者工作台子系统。它把已确认的 Context、RAG 与 World Bible 资料编译为
-最多 20 页的层级计划，再固定调用 OpenAI `gpt-image-2` 生成候选图片。候选图不会自动成为
-正式设定；作者逐页加入后才进入“我的地图册”。
+地图是 world 拥有的作者工作台子系统。一套地图节点同时承载空间示意、图片底图与地点配图。
+区域和城市可在没有图片连接时创建、编辑、保存；文本模型只提取已知空间关系，程序负责布局。
+图片仍使用既有候选、派生历史和私有存储。地图保存或图片采用都不回写世界正史。
 
 - API 前缀：`/api/world/map-atlas`
-- 目标用户：管理长篇设定的项目 owner；公开读者地图不在 v1 范围。
-- 模型：文本规划沿用项目 LLM；图片固定为 `gpt-image-2`。
+- 目标用户：管理长篇设定的项目 owner；提供按章首进度的作者端阅读预览，尚无公开读者或 RP 地图入口。
+- 模型：空间关系提取沿用项目文本 LLM；可选图片固定为 `gpt-image-2`。手动制图不需要模型连接。
 - 存储：map-atlas 自有 S3 adapter；浏览器只经 owner 与 `novel_id` 校验的图片接口读取。
 - 取代：旧 `/api/world/maps*`、六边形/路径/领地/时间轴和 Map Observation/Fact 已删除，无兼容端点或数据迁移。
 - `world_adoption_package.v1` 不纳入地图册操作；地图候选和页面仍走本模块既有作者采用流，不作为
@@ -38,15 +38,61 @@ ORM 位于 `backend/modules/world/map_atlas_models.py`。
 | 表 | 归属与约束 |
 |---|---|
 | `map_atlas_runs` | 一次计划/生成 run；保存授权选项、secret-free LLM/图片快照、context hash、source manifest、计划、进度与停止状态。 |
-| `map_atlas_nodes` | 跨 run 复用的层级节点；新节点为 `provisional`，首张页面采用时原子采用其祖先链。 |
+| `map_atlas_nodes` | 唯一层级目录、地点身份、当前空间版本与结构任务；可独立于图片任务创建。 |
+| `map_atlas_revisions` | 不可变空间图元、约束、来源和图片展示配置；当前 head 使用同项目、同节点复合外键。 |
 | `map_atlas_pages` | 必填 `novel_id/run_id/node_id`；每次生成或编辑都是独立页面，并用 `derived_from_page_id` 形成历史链。 |
 | `map_atlas_annotations` | 前端文字标注的归一化坐标、来源打开目标、可选目标节点和乐观并发版本。 |
 
 节点按 `cover → world → region → city → district → street → interior` 分层，默认最深到街道，
 室内层必须由作者显式开启。`(novel_id, semantic_key)` 复用 canonical location 或父路径语义键。
-正式树展示拥有已采用页面或已采用后代的节点；没有自身图片的祖先只作为目录。标注仅在目标
-节点已有 adopted 页面时允许跳转。最后一张 adopted 页面被移出后，无 adopted 后代的节点从
-正式树隐藏，但页面仍可恢复。
+正式树展示拥有已保存空间版本、已采用图片或有效后代的节点。子图跳转接受纯空间图；
+移出最后一张图片不会隐藏仍有空间版本的节点。旧图片和原有世界／街区／室内层级继续保留，
+首版新增的结构编辑能力限定区域与城市。
+
+## 空间版本、编辑与图片统一
+
+`map_atlas_revisions` 的内容、来源和生成身份追加写入，PostgreSQL trigger 禁止原地修改；
+只有审查状态可变。手动保存、采用候选和恢复历史都创建新版本。写入比较 `base_revision_id`，
+冲突返回 409，前端保留当前编辑并提供服务器版比较。`created_by_run_id` 可空且使用 SET NULL，
+删除来源任务不能级联删除地图节点。
+
+图元限定地点／地标点、道路／河流折线和区域多边形；文档最多 200 图元、400 关系、2000 控制点，
+拒绝非有限坐标、未知字段、跨项目对象／图片／标注和悬空引用。局部地图单位与图片像素分离，
+界面标明“不按比例”，不从行程推算距离。布局使用固定顺序的方向分层与有界网格避让，包含关系
+生成示意包络，明确路线按经过顺序绘制；交叉不自动建立路口。已有位置与手工控制点保持固定，
+矛盾或无法布置的内容保留待核对状态。
+
+空间生成任务为 `world_map_schematic_generate`，确认动作为 `world.map_atlas.structure`。
+一次最多 20 个已采用地点，每批 5 个，单批输出上限 4000 tokens；只消费原 confirmation 中实际
+保留的 Context items，跳过工作稿、排除项及预算省略项，不独立补读全库。模型只输出受限关系、
+明确路线／河流类别、已有名称和逐字引文，不输出坐标或代码。批次 checkpoint 只恢复未完成部分，
+同一 operation receipt 不重复创建任务。结果进入节点的空间候选，任务完成不推进当前地图 head；
+采用时重验原 confirmation 和地图基准。旧来源 hash 变化时，已有原样引用可以随人工编辑保留为
+待核对项，但不能借此新增失效引用，相关内容不进入阅读预览或新的结构引导生图。
+
+图片通过 `MapImagePlacement` 进入同一个地图版本：底图位于空间图元下方，地点配图关联节点或
+图元。底图使用三个不共线锚点计算仿射变换，校准只改变图片展示，不改变空间位置；对齐锚点不
+证明全图精度。校准绑定空间指纹，空间变化后底图默认退出叠加并提示复核，不自动收费重画。
+透明度、阅读展示条件等纯展示修改不改变空间指纹。
+
+结构引导生图固定目标节点与已保存版本，用 Pillow 生成结构参考 PNG 后进入原图片工作流；
+不再由文本模型决定已有地图层级，也不要求第二次文本规划连接。结构图占用八张参考图总限额中的
+一张，隐式父图仅使用剩余名额。生成与编辑前重新物化原确认，图元／来源不得超出该确认；
+新图片记录 `source_map_revision_id` 和 `source_geometry_hash`，晚到图片只能成为候选。
+
+旧图片不自动转换为几何事实，旧标注不按名称自动绑定。绑定之后由空间图元提供地点身份与名称，
+旧标注接口拒绝独立位置写入；未校准图片继续作为参考图。像素和图片派生链仍由 page 持有，
+空间版本只引用图片，不复制字节或建立通用媒体系统。
+
+## 阅读进度预览
+
+预览仍要求当前 account owner 与项目门禁。`chapter=N` 表示进入第 N 章时，使用既有 Evidence
+reader visibility 和 Story 揭示策略；世界书作者页没有读者投影时保守排除。地点展示条件不能
+覆盖世界资料权限，路线／轮廓及布局关系通过依赖闭包排除未揭示端点与依据。
+
+服务端返回专用图元与图片白名单，不返回作者摘要、候选、冲突原文或隐藏统计。图片默认仅作者
+可见；整图展示确认绑定图片 hash 与最早章首，且仍需满足引用内容的可见性。图片预览读取接口
+再次检查同一投影，不能仅在前端隐藏标签。无法确认时仅展示矢量示意，保持已展示地点的位置。
 
 ## Context、规划与来源
 
@@ -114,6 +160,14 @@ finalization 在短事务中取得项目 share lock 与 task lease，持锁上�
 
 | 方法 | 路径 | 行为 |
 |---|---|---|
+| POST | `/{novel_id}/nodes` | 无需图片任务创建区域或城市地图。 |
+| GET | `/{novel_id}/nodes/{node_id}/map` | 当前结构、候选、图片层状态和空间任务状态。 |
+| GET/POST | `/{novel_id}/nodes/{node_id}/revisions` | 查询历史或按基准版本保存地图。 |
+| POST | `/{novel_id}/nodes/{node_id}/layout` | 有界布局、来源校验和图片校准预览，不持久化。 |
+| POST | `/{novel_id}/nodes/{node_id}/generate-structure` | 携带 operation ID、confirmation、基准版本与地点范围入队。 |
+| POST | `/{novel_id}/nodes/{node_id}/revisions/{revision_id}/review` | 采用／拒绝候选或将历史恢复为新版本。 |
+| GET | `/{novel_id}/nodes/{node_id}/reader-preview` | 按章首生成只读白名单。 |
+| GET | `/{novel_id}/nodes/{node_id}/reader-preview/images/{page_id}` | 重验预览白名单后读取图片。 |
 | POST | `/{novel_id}/runs` | 创建初次、更新或完整重做 run；作者请求必须携带 action 匹配的 Context confirmation。 |
 | GET | `/{novel_id}/runs/latest`、`/{novel_id}/runs/{run_id}` | 查询 run 与进度。 |
 | POST | `/{novel_id}/runs/{run_id}/stop`、`/resume` | 停止或恢复；重复费用风险需显式确认。 |
@@ -135,6 +189,8 @@ hash；指纹变化时在图片模型调用前失败关闭。
 
 ## 验证
 
+- 空间与集成：`backend/modules/world/tests/test_map_structure.py`、`test_map_structure_workflow.py`。
+- PostgreSQL：`backend/tests/e2e/test_unified_map_concurrency.py`；浏览器：`frontend-console/e2e/map-structure.spec.js`。
 - 后端：`backend/modules/world/tests/test_map_atlas.py`、`backend/tests/account_project_preferences/test_image_connection.py`
 - 删除竞态：`backend/tests/e2e/test_project_task_gate_concurrency.py`
 - 前端：`frontend-console/tests/vue/map/MapAtlasView.test.js`
@@ -143,5 +199,5 @@ hash；指纹变化时在图片模型调用前失败关闭。
 
 ## 非目标
 
-v1 不提供 edition/revision 表、通用媒体模块、多图片 provider、Responses API、PDF/ZIP 导出、
-公开读者地图或自动回写世界事实。每次派生新页面已经提供所需历史，不再复制第二套版本系统。
+v1 不提供图片 edition 或第二套图片 revision、通用媒体模块、多图片 provider、Responses API、PDF/ZIP 导出、
+公开读者地图或自动回写世界事实。图片历史由派生 page 表达；空间与展示配置由地图版本表达。

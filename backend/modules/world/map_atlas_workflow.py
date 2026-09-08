@@ -1325,6 +1325,11 @@ async def _persist_plan(db, task, run: MapAtlasRun, plan: AtlasPlan) -> None:
 
 
 async def _plan(db, task, run: MapAtlasRun) -> None:
+    if (run.context_snapshot or {}).get("source_map_revision_id"):
+        from modules.world.map_structure_images import prepare_structure_image
+
+        await prepare_structure_image(db, task, run)
+        return
     previous_manifest = await _previous_source_manifest(db, run)
     previous_run = await db.scalar(
         select(MapAtlasRun)
@@ -1540,11 +1545,31 @@ async def _plan(db, task, run: MapAtlasRun) -> None:
 
 
 async def _reference_images(db, storage: MapAtlasStorage, page: MapAtlasPage):
+    guide = []
+    if page.source_map_revision_id:
+        from modules.world.map_structure_geometry import render_structure_png
+        from modules.world.map_structure_schemas import MapDocument
+        from modules.world.map_structure_service import MapStructureService
+
+        revision = await MapStructureService().revision(
+            db, str(page.novel_id), str(page.node_id), page.source_map_revision_id
+        )
+        document = MapDocument.model_validate(revision.document)
+        guide = [
+            (
+                "structure.png",
+                await asyncio.to_thread(render_structure_png, document),
+                "image/png",
+            )
+        ]
+    reference_limit = 8 - len(guide)
     reference_ids = [
         parse_uuid(item, "reference_page_id") for item in page.reference_page_ids
     ]
     parent_id = await db.scalar(
-        select(MapAtlasNode.parent_id).where(MapAtlasNode.id == page.node_id)
+        select(MapAtlasNode.parent_id).where(
+            MapAtlasNode.id == page.node_id, MapAtlasNode.novel_id == page.novel_id
+        )
     )
     if parent_id:
         parent_page = await db.scalar(
@@ -1568,13 +1593,17 @@ async def _reference_images(db, storage: MapAtlasStorage, page: MapAtlasPage):
                 )
                 .order_by(MapAtlasPage.created_at.desc())
             )
-        if parent_page and parent_page.id not in reference_ids and len(reference_ids) < 8:
+        if (
+            parent_page
+            and parent_page.id not in reference_ids
+            and len(reference_ids) < reference_limit
+        ):
             reference_ids.append(parent_page.id)
     reference_ids = list(dict.fromkeys(reference_ids))
-    if len(reference_ids) > 8:
+    if len(reference_ids) > reference_limit:
         raise ValueError("map atlas image generation accepts at most 8 references")
     if not reference_ids:
-        return []
+        return guide
     refs = list(
         (
             await db.execute(
@@ -1591,7 +1620,7 @@ async def _reference_images(db, storage: MapAtlasStorage, page: MapAtlasPage):
     by_id = {item.id: item for item in refs}
     ordered = [by_id[item] for item in reference_ids if item in by_id]
     await db.commit()
-    images = []
+    images = list(guide)
     for index, item in enumerate(ordered):
         key = require_owned_page_object_key(
             str(item.object_key or ""),
@@ -1732,6 +1761,10 @@ async def _generate_page(db, task, run: MapAtlasRun, page: MapAtlasPage) -> bool
     try:
         if await _recover_uploaded_page(db, task, run, page, storage):
             return True
+        if page.source_map_revision_id:
+            from modules.world.map_structure_images import validate_image_structure
+
+            await validate_image_structure(db, run, page)
         references = await _reference_images(db, storage, page)
         mask = None
         if page.mask_object_key:

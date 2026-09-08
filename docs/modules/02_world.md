@@ -90,8 +90,8 @@ RAG 或 LLM 上下文。
 - `world_bible_page_templates` / `world_bible_page_template_revisions` — 项目页面布局模板及不可变历史；内置模板仍由代码注册
 - `world_bible_synopsis_heads` / `world_bible_synopsis_revisions` — 作者版世界观简介的刷新状态、授权与不可变版本
 - `knowledge_tags` / `character_knowledge_tags` / `asset_knowledge_tags` / `knowledge_tag_exclusions` / `knowledge_visibility_policies` / `reader_reveal_policies` / `creation_suggestion_queue` / `conflict_check_queue` — 知识标签、可见性和待处理工作队列
-- `map_atlas_runs` / `map_atlas_nodes` / `map_atlas_pages` / `map_atlas_annotations` — AI 地图册计划、层级、图片与前端标注，详见 `docs/modules/15_map.md`
-- 地图册空间线索是 World Bible/RAG 的受限派生输入：服务端验证 source key、保留来源 hash，且不回写 World 事实或生成坐标。
+- `map_atlas_nodes` / `map_atlas_revisions` / `map_atlas_runs` / `map_atlas_pages` / `map_atlas_annotations` — 统一地图目录、空间版本、图片与标注，详见 `docs/modules/15_map.md`
+- 地图册空间线索是 World Bible/RAG 的受限派生输入：服务端验证 source key、保留来源 hash，且不回写 World 事实。文本模型不生成坐标，程序从受限关系生成示意布局。
 
 作者主动发起的 World 模型入口统一消费 Evidence confirmation：生成中心、问世界、地图册、
 世界书人工语义操作和对象融合的 wire 均携带 action 精确匹配的 `context_confirmation_id`。
@@ -483,3 +483,6 @@ Profile/事件强字段、关系、已发布世界书页和人物知识边界派
 状态、敏感级别、分组、优先级与 token 估算的条目；该聚合不新增正史表，也不把
 projection 写回事实层。作者版简介只消费其中已采用世界事实，明确排除
 `CharacterKnowledge`、草稿、待处理建议和已归档资产。
+
+地图的节点级结构、保存/历史/采用、布局与章首阅读预览继续使用 `/api/world/map-atlas`；
+owner + novel_id、Context confirmation、私有图片与计费恢复边界不变，详见地图模块契约。

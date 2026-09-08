@@ -237,6 +237,8 @@ class MapAtlasRunCreate(BaseModel):
     quality: Literal["standard", "fine"] = "standard"
     full_rebuild: bool = False
     review_image_prompts: bool = False
+    target_node_id: UUID | None = None
+    source_map_revision_id: UUID | None = None
     context_confirmation_id: str | None = Field(
         default=None,
         min_length=1,
@@ -250,6 +252,12 @@ class MapAtlasRunCreate(BaseModel):
             return None
         normalized = value.strip()
         return normalized or None
+
+    @model_validator(mode="after")
+    def validate_structure_target(self):
+        if bool(self.target_node_id) != bool(self.source_map_revision_id):
+            raise ValueError("a structure-guided image requires a node and map revision")
+        return self
 
 
 class MapAtlasRunResponse(BaseModel):
@@ -283,6 +291,7 @@ class MapAtlasAnnotationResponse(BaseModel):
     id: str
     page_id: str
     target_node_id: str | None = None
+    bound_feature_id: str | None = None
     label: str
     position_x: float
     position_y: float
@@ -307,6 +316,9 @@ class MapAtlasPageResponse(BaseModel):
     has_generation_prompt: bool
     evidence: dict[str, Any]
     source_manifest: list[dict[str, Any]]
+    source_map_revision_id: str | None = None
+    source_geometry_hash: str | None = None
+    image_hash: str | None = None
     reference_page_ids: list[str]
     image_url: str | None = None
     width: int | None = None
@@ -328,6 +340,7 @@ class MapAtlasNodeResponse(BaseModel):
     novel_id: str
     parent_id: str | None = None
     location_entity_id: str | None = None
+    current_revision_id: str | None = None
     title: str
     level: AtlasLevel
     status: Literal["provisional", "adopted"]
@@ -376,6 +389,8 @@ class MapAtlasDerivedRequest(BaseModel):
 
     instruction: str | None = Field(default=None, max_length=4000)
     reference_page_ids: list[str] = Field(default_factory=list, max_length=7)
+    source_map_revision_id: UUID | None = None
+    context_confirmation_id: UUID | None = None
 
     @field_validator("instruction")
     @classmethod

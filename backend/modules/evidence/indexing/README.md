@@ -356,3 +356,6 @@ cd ../.. && make test-real-llm
 - 实时全量 Mention embedding
 - 自动合并已采用世界对象
 - 复杂 reranker
+
+统一地图空间关系提取继续使用 `purpose=map_atlas` 的确认资料。此次增量不新增 RAG task、
+embedding 配置或索引存储；实际消费范围由 compilation confirmation 的入选/排除与来源 hash 决定。

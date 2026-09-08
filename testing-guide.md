@@ -410,3 +410,9 @@ with more than 1,000 objects using the explicit PostgreSQL E2E environment and `
 - facade 是否导出所有新增函数到 `__init__.py`
 - 新模块是否在 `app/main.py` 注册路由
 - 新模块的模型是否在 root `backend/conftest.py` 导入
+
+统一地图新增 `backend/modules/world/tests/test_map_structure*.py` 与
+`frontend-console/tests/vue/map/MapStructureEditor.test.js`。PostgreSQL 定向门禁为
+`tests/e2e/test_unified_map_concurrency.py`，验证 CAS、不可变内容、同节点 head 和节点生命周期；
+真实浏览器 `map-structure.spec.js` 使用合成地图/PNG、专用 PostgreSQL 和私有 MinIO，
+不调用付费模型。模型质量和付费图片效果必须通过各自显式实测报告，不能由上述结果代替。
