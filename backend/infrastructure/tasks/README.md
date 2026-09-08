@@ -293,3 +293,11 @@ keyed coalescing。新增任务仍需独立证明 scope、合并模式和领域�
 `world_map_schematic_generate` 属于 project scope，使用 operation receipt 和 `manual_resume`；
 按节点冻结地图基准及项目文本连接，最多四个 attempt，成功批次 checkpoint 可复用。模型结果
 只落空间候选，任务完成不推进地图当前版本；不使用图片连接或新增队列基础设施。
+
+
+### 指定项目的单次任务执行
+
+应用组合根创建的 Worker 可使用 `run_once(task_id=..., novel_id=...)`，两项必须同时提供且为
+UUID。过滤在领取 SQL 中完成，只处理匹配的 pending 任务；不会领取、取消或修改其他排队任务。
+不传参数仍是原队列领取方式。退避、coalescing、SKIP LOCKED、lease、preflight 和提交 fence
+全部复用；该入口用于明确任务的手动验收，不是浏览器权限或项目边界的替代。

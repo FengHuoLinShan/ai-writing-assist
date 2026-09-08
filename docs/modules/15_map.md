@@ -219,7 +219,7 @@ v1 不提供图片 edition 或第二套图片 revision、通用媒体模块、�
   不能把旧失效引用复制到新项。响应返回实际/扩展键及可继续处理的 remaining_candidate_id。
 - `GET /{novel_id}/nodes/{node_id}/revisions/{revision_id}/preview` 只读该版本结构、来源提示与图片层，
   不重新布局或改变 head。历史预览与地图编辑、故事历史状态是不同语义。
-- `GET /{novel_id}/map-links` 按章首来源章节、精确实体或名称查询已保存地图图元；过滤按 AND，
+- `GET /{novel_id}/map-links` 按来源章节、精确实体或名称查询已保存地图图元；过滤按 AND，
   最多扫描 200 个当前节点，截断通过 truncated 明示，不返回正文和私有来源摘要。
 - 新关系 `along_street / entrance_to / faces` 有严格端点类型校验。未定位点可据关系布置，原坐标
   和控制点保留；交叉不自动成为路口。朝向线与临时排演只是图面解释，不创建世界事实。
