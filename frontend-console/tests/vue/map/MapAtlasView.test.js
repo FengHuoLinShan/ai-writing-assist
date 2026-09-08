@@ -351,11 +351,11 @@ describe("AI 地图册工作台", () => {
     expect(api.world.updateMapAtlasNode).toHaveBeenCalledWith("novel-1", "manual-1", expect.objectContaining({ title: "北境地图", expected_updated_at: "v1" }))
   })
 
-  it("上传到已采用节点时不允许改名，仍可调整位置", async () => {
+  it("上传到已绑定世界地点的节点时不允许改名，仍可调整位置", async () => {
     const candidate = page({ node_id: "node-1" })
     const run = { id: "upload-1", run_kind: "upload", status: "review_ready", planned_page_count: 1, completed_page_count: 1 }
     api.world.getLatestMapAtlasRun.mockResolvedValue(run)
-    api.world.getMapAtlasRunResults.mockResolvedValue({ mode: "review", total_pages: 1, nodes: [{ id: "node-1", title: "已采用地图", level: "region", status: "adopted", parent_id: null, updated_at: "v1", pages: [candidate], children: [] }] })
+    api.world.getMapAtlasRunResults.mockResolvedValue({ mode: "review", total_pages: 1, nodes: [{ id: "node-1", title: "已采用地图", level: "region", status: "adopted", location_entity_id: "world-location-1", parent_id: null, updated_at: "v1", pages: [candidate], children: [] }] })
     api.world.updateMapAtlasNode.mockResolvedValue({})
 
     const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
@@ -363,6 +363,17 @@ describe("AI 地图册工作台", () => {
     expect(wrapper.find(".atlas-node-form input.form-input").exists()).toBe(false)
     await wrapper.get(".atlas-node-form button").trigger("click"); await flushPromises()
     expect(api.world.updateMapAtlasNode.mock.calls[0][2]).not.toHaveProperty("title")
+  })
+
+  it("没有图片或生图任务的手工地图可改标题并保留并发基准", async () => {
+    const manual = { id: "manual-map", title: "城市示意", level: "city", status: "adopted", location_entity_id: null, parent_id: null, current_revision_id: "spatial-version", updated_at: "v1", pages: [], children: [] }
+    api.world.getMapAtlas.mockResolvedValue({ mode: "atlas", total_pages: 0, nodes: [manual] })
+    api.world.updateMapAtlasNode.mockResolvedValue({ ...manual, title: "廷根地图" })
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" }, global: { stubs: { MapStructureEditor: true } } })
+    await flushPromises()
+    await wrapper.get(".atlas-node-form input.form-input").setValue("廷根地图")
+    await wrapper.get(".atlas-node-form button").trigger("click"); await flushPromises()
+    expect(api.world.updateMapAtlasNode).toHaveBeenCalledWith("novel-1", "manual-map", expect.objectContaining({ title: "廷根地图", expected_updated_at: "v1" }))
   })
 
   it("外部生成页刷新后仍可复制说明且不显示图片加载", async () => {

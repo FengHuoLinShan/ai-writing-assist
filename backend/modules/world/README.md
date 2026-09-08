@@ -513,6 +513,8 @@ upsert；调用方不应再实现“先查再插”的并发控制。关系复�
 `map_atlas_nodes` 是统一目录，`map_atlas_revisions` 保存空间与展示版本；
 `map_atlas_runs`、`map_atlas_pages` 与 `map_atlas_annotations` 保留图片生命周期。候选页分别保存直接资料、AI 视觉补全和冲突；加入地图册只新增
 已采用页面，不修改 World 事实。图片字节存私有 S3，完整契约见 `docs/modules/15_map.md`。
+纯空间节点的目录调整不依赖生图任务；未绑定世界地点的地图可修改标题，绑定地点名称仍由世界对象拥有。
+读取当前地图与候选时重新核对来源，过期提示只更新响应，不改不可变版本或历史；保存与采用仍严格校验。
 规划前可从正式 World Bible 和已回读正文提取空间线索；它们只补充持久化 page prompt，
 不生成坐标、比例、方向或 annotation 几何字段。
 

@@ -6,6 +6,7 @@
         <button class="btn btn-primary" :disabled="busy || readOnly || incompleteGeometry || (!dirty && revision)" @click="save">保存地图</button>
         <button class="btn btn-sm" :disabled="busy || readOnly || !undoStack.length" @click="undo">撤销</button>
         <button class="btn btn-sm" :disabled="busy || readOnly || !redoStack.length" @click="redo">重做</button>
+        <button v-if="!readOnly" class="btn btn-sm" :aria-pressed="focused" @click="focused = !focused">{{ focused ? '展开编辑工具' : '专注看图' }}</button>
         <button v-if="hasReference" class="btn btn-sm" :aria-pressed="referenceOnly" @click="toggleReference">{{ referenceOnly ? '返回空间地图' : '查看图片参考' }}</button>
       </div>
     </header>
@@ -35,7 +36,13 @@
         <button class="btn btn-sm" :disabled="busy" @click="review(candidate, 'reject')">不使用</button>
       </div>
     </section>
-    <div v-if="candidateView" class="map-warning">正在查看候选；采用后可以继续调整。<button class="btn btn-sm" @click="candidateView = null">返回当前地图</button></div>
+    <section v-if="candidateView" class="map-warning" aria-label="候选地图差异">
+      <strong>{{ compareCandidateCurrent ? '正在对照已保存地图' : '正在查看空间候选' }}</strong>
+      <p>以下变化以当前已保存地图为基准；采用前会再次核对来源与版本。</p>
+      <ul v-if="candidateChanges.length"><li v-for="(line, index) in candidateChanges" :key="index">{{ line }}</li></ul><p v-else>与当前地图没有内容变化。</p>
+      <button class="btn btn-sm" @click="compareCandidateCurrent = !compareCandidateCurrent">{{ compareCandidateCurrent ? '查看候选地图' : '对照已保存地图' }}</button>
+      <button class="btn btn-sm" @click="exitCandidate">返回当前地图</button>
+    </section>
     <div class="map-reader">
       <label>阅读预览：进入第 <input v-model.number="readerChapter" aria-label="阅读预览章节" type="number" min="1" max="100000" /> 章时</label>
       <button class="btn btn-sm" :disabled="busy || !revision || dirty" @click="previewReader">{{ reader ? '更新阅读预览' : '预览读者所见' }}</button>
@@ -45,20 +52,26 @@
     <template v-if="!referenceOnly">
       <div class="map-canvas-controls">
         <label>缩放 <input v-model.number="zoom" aria-label="空间地图缩放" type="range" min="60" max="200" step="10" /></label>
+        <button class="btn btn-sm" @click="zoom = 100">适合画布</button>
         <span>● 地点  ━ 河流  ┄ 道路  ▱ 区域</span>
+      </div>
+      <div class="map-locator">
+        <label>查找地图内容<input v-model="mapQuery" class="form-input" type="search" placeholder="地点、道路或区域名称" /></label>
+        <div v-if="mapQuery.trim()" class="map-actions"><button v-for="feature in matchingFeatures" :key="feature.id" class="btn btn-sm" @click="locateFeature(feature.id)">{{ feature.label }}{{ feature.points.length ? '' : '（待定位）' }}</button><span v-if="!matchingFeatures.length" role="status">当前地图没有匹配内容。</span></div>
+        <p v-if="locatorMessage" role="status" class="map-caption">{{ locatorMessage }}</p>
       </div>
       <div class="map-scroll">
         <svg ref="canvas" class="map-canvas" :style="{ width: zoom + '%' }" :viewBox="[bounds.x, bounds.y, bounds.width, bounds.height].join(' ')" role="group" aria-label="空间地图画布" @click.self="placePoint" @pointermove="moveDrag" @pointerup="endDrag" @pointercancel="endDrag">
           <rect :x="bounds.x" :y="bounds.y" :width="bounds.width" :height="bounds.height" class="map-paper" @click="placePoint" />
           <image v-for="layer in backgrounds" :key="layer.page_id" :href="imageUrls[imageKey(layer.page_id)]" width="1" height="1" preserveAspectRatio="none" :transform="'matrix(' + layer.transform.join(' ') + ')'" :opacity="layer.opacity" pointer-events="none" />
-          <g v-for="feature in paintedFeatures" :key="feature.id" :class="['map-feature', 'map-kind-' + feature.kind, { selected: selectedId === feature.id }]" role="button" tabindex="0" :aria-label="feature.label" @click.stop="selectFeature(feature.id)" @keydown.enter.prevent="selectFeature(feature.id)" @keydown.space.prevent="selectFeature(feature.id)" @keydown="moveByKey($event, feature)">
+          <g v-for="feature in paintedFeatures" :key="feature.id" :data-feature-id="feature.id" :class="['map-feature', 'map-kind-' + feature.kind, { selected: selectedId === feature.id }]" role="button" tabindex="0" :aria-label="feature.label" @click.stop="selectFeature(feature.id)" @keydown.enter.prevent="selectFeature(feature.id)" @keydown.space.prevent="selectFeature(feature.id)" @keydown="moveByKey($event, feature)">
             <polygon v-if="feature.kind === 'area'" :points="pointsAttribute(feature.points)" :fill-opacity="backgrounds.length ? 0.12 : 0.6" />
             <polyline v-else-if="['road', 'river'].includes(feature.kind)" :points="pointsAttribute(feature.points)" />
             <circle v-else :cx="feature.points[0].x" :cy="feature.points[0].y" :r="7 * mapUnit" @pointerdown.stop="startDrag($event, feature, 0)" />
             <circle v-if="['location', 'landmark'].includes(feature.kind)" :cx="feature.points[0].x" :cy="feature.points[0].y" :r="22 * mapUnit" class="map-hit" @pointerdown.stop="startDrag($event, feature, 0)" />
             <text v-if="labelPositions[feature.id]" :x="labelPositions[feature.id].x" :y="labelPositions[feature.id].y" :style="{ fontSize: 14 * mapUnit + 'px' }">{{ feature.label }}</text>
           </g>
-          <g v-if="selectedFeature && !readOnly && !selectedFeature.locked">
+          <g v-if="selectedFeature && !readOnly && !focused && !selectedFeature.locked">
             <circle v-for="(point, index) in selectedFeature.points" :key="index" :cx="point.x" :cy="point.y" r="7" class="map-handle" @pointerdown.stop="startDrag($event, selectedFeature, index)" @click.stop="selectedVertex = index" />
           </g>
         </svg>
@@ -66,7 +79,7 @@
       <p v-if="!displayDocument.features.length" class="map-caption">{{ reader ? '这个阅读进度暂无可展示的地图内容。' : '先加入已有地点，或添加标记。已知道路和区域可以用折线与轮廓表示。' }}</p>
       <p v-if="placing && !readOnly" role="status">请点击画布{{ selectedFeature?.kind === 'location' || selectedFeature?.kind === 'landmark' ? '放置地点' : '依次添加控制点' }}。<button class="btn btn-sm" @click="finishDrawing">结束绘制</button></p>
     </template>
-    <div v-if="!readOnly && !referenceOnly" class="map-edit-grid">
+    <div v-if="!readOnly && !referenceOnly && !focused" class="map-edit-grid">
       <div>
         <details open>
           <summary>地点与绘制</summary>
@@ -107,12 +120,16 @@
         <label>补充说明<textarea :value="selectedFeature.note" class="form-textarea" maxlength="1000" @input="changeFeature('note', $event.target.value)" /></label>
         <label>打开子图<select :value="selectedFeature.target_node_id || ''" class="form-select" @change="changeFeature('target_node_id', $event.target.value || null)"><option value="">不跳转</option><option v-for="target in childChoices" :key="target.id" :value="target.id">{{ target.title }}</option></select></label>
         <div class="map-actions"><button v-if="selectedFeature.target_node_id" class="btn btn-sm" @click="emit('open-node', selectedFeature.target_node_id)">进入子图</button><button v-if="node.level === 'region' && selectedFeature.kind === 'location' && !selectedFeature.target_node_id" class="btn btn-sm" :disabled="busy" @click="createChild">为此地点创建城市图</button><button v-if="selectedFeature.entity_id" class="btn btn-sm" @click="openEntity">查看世界资料</button><button class="btn btn-sm" @click="removeFeature">移出地图</button></div>
-        <p v-for="(source, index) in selectedFeature.sources" :key="index">{{ source.quote || '保留了已确认资料的引用' }}</p>
+        <p v-for="(source, index) in selectedFeature.sources" :key="index">{{ source.quote || '保留了已确认资料的引用' }}<button v-if="source.kind === 'source_range'" class="btn btn-sm" @click="openSourceChapter(source)">打开第 {{ source.source_ref.chapter_index }} 章</button></p>
         <img v-for="layer in selectedIllustrations" :key="layer.page_id" :src="imageUrls[imageKey(layer.page_id)]" alt="地点配图" class="map-detail-image" />
       </aside>
     </div>
-    <aside v-if="reader && selectedId" class="map-inspector" aria-label="读者地点详情"><strong>{{ displayDocument.features.find(feature => feature.id === selectedId)?.label || '请选择地图上的地点' }}</strong><img v-for="layer in selectedIllustrations" :key="layer.page_id" :src="imageUrls[imageKey(layer.page_id)]" class="map-detail-image" alt="可公开的地点配图" /></aside>
-    <details v-if="!readOnly && images.length" class="map-image-controls">
+    <aside v-if="(reader || focused || candidateView) && displayedFeature && !referenceOnly" class="map-inspector" :aria-label="reader ? '读者地点详情' : '地图地点详情'">
+      <strong>{{ displayedFeature.label }}</strong>
+      <template v-if="!reader"><p v-if="displayedFeature.note">{{ displayedFeature.note }}</p><p v-for="(source, index) in displayedFeature.sources" :key="index">{{ source.quote }}<button v-if="source.kind === 'source_range'" class="btn btn-sm" @click="openSourceChapter(source)">打开第 {{ source.source_ref.chapter_index }} 章</button></p><button v-if="!candidateView && displayedFeature.target_node_id" class="btn btn-sm" @click="emit('open-node', displayedFeature.target_node_id)">进入子图</button></template>
+      <img v-for="layer in candidateView ? [] : selectedIllustrations" :key="layer.page_id" :src="imageUrls[imageKey(layer.page_id)]" class="map-detail-image" :alt="reader ? '可公开的地点配图' : '地点配图'" />
+    </aside>
+    <details v-if="!readOnly && !focused && images.length" class="map-image-controls">
       <summary>底图与地点配图</summary>
       <div class="map-inline-form">
         <label>已采用图片<select v-model="imageForm.page_id" class="form-select" @change="loadSelectedImage"><option value="">请选择</option><option v-for="page in images" :key="page.id" :value="page.id">{{ page.title }} · {{ formatDate(page.created_at) }}</option></select></label>
@@ -140,7 +157,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import { getApi, getConfirm, getRouter } from "../../bridge/index.js"
 import { confirmAiReference } from "../../../shared/aiReferenceModal.js"
 import { ACCOUNT_MARKER_KEY } from "../../../shared/accountStorage.js"
@@ -155,6 +172,7 @@ const loading = ref(false), saving = ref(false), error = ref(""), problems = ref
 const recovery = ref(null), backupError = ref(false), backedUp = ref(false), conflict = ref(false), compareServer = ref(false)
 const undoStack = ref([]), redoStack = ref([]), selectedId = ref(""), selectedVertex = ref(0), placing = ref(false)
 const canvas = ref(null), canvasWidth = ref(700), zoom = ref(100), referenceOnly = ref(false), dragBounds = ref(null)
+const focused = ref(false), mapQuery = ref(""), locatorMessage = ref(""), compareCandidateCurrent = ref(false)
 const searchQuery = ref(""), locations = ref([]), selectedLocationIds = ref([]), newLabel = ref(""), newKind = ref("location")
 const taskId = ref(null), taskStatus = ref(null), reader = ref(null), readerChapter = ref(1)
 const imageUrls = reactive({}), anchorIndex = ref(0), annotationId = ref(""), annotationFeatureId = ref("")
@@ -169,7 +187,10 @@ const busy = computed(() => loading.value || saving.value)
 const taskRunning = computed(() => ["pending", "running"].includes(taskStatus.value))
 const incompleteGeometry = computed(() => doc.value.features.some(feature => feature.points.length > 0 && feature.points.length < (feature.kind === 'area' ? 3 : ['road', 'river'].includes(feature.kind) ? 2 : 1)))
 const readOnly = computed(() => Boolean(reader.value || candidateView.value || compareServer.value))
-const displayDocument = computed(() => reader.value ? { features: reader.value.features } : candidateView.value?.document || (compareServer.value && serverRevision.value ? serverRevision.value.document : doc.value))
+const displayDocument = computed(() => reader.value ? { features: reader.value.features } : candidateView.value ? (compareCandidateCurrent.value ? revision.value?.document || emptyMap() : candidateView.value.document) : (compareServer.value && serverRevision.value ? serverRevision.value.document : doc.value))
+const displayedFeature = computed(() => displayDocument.value.features.find(feature => feature.id === selectedId.value))
+const matchingFeatures = computed(() => displayDocument.value.features.filter(feature => feature.label.toLocaleLowerCase().includes(mapQuery.value.trim().toLocaleLowerCase())))
+const candidateChanges = computed(() => candidateView.value ? mapChanges(revision.value?.document || emptyMap(), candidateView.value.document) : [])
 const bounds = computed(() => dragBounds.value || mapBounds(displayDocument.value.features))
 const paintRank = feature => feature.kind === 'area' ? 0 : ['road', 'river'].includes(feature.kind) ? 1 : 2
 const paintedFeatures = computed(() => [...displayDocument.value.features].filter(f => f.points.length).sort((a, b) => paintRank(a) - paintRank(b)))
@@ -236,7 +257,7 @@ function install(value) {
   installing = false
 }
 function mutate(change) {
-  if (busy.value || readOnly.value) return
+  if (busy.value || readOnly.value || focused.value) return
   const previous = JSON.stringify(doc.value)
   change(doc.value)
   if (JSON.stringify(doc.value) === previous) return
@@ -245,6 +266,14 @@ function mutate(change) {
 function undo() { if (!undoStack.value.length) return; redoStack.value.push(JSON.stringify(doc.value)); doc.value = JSON.parse(undoStack.value.pop()) }
 function redo() { if (!redoStack.value.length) return; undoStack.value.push(JSON.stringify(doc.value)); doc.value = JSON.parse(redoStack.value.pop()) }
 function selectFeature(id) { selectedId.value = id; selectedVertex.value = 0 }
+async function locateFeature(id) {
+  selectFeature(id)
+  locatorMessage.value = displayedFeature.value?.points.length ? '' : '这个地点尚未定位，可在编辑工具中放置。'
+  await nextTick()
+  const element = [...(canvas.value?.querySelectorAll('.map-feature') || [])].find(item => item.dataset.featureId === id)
+  element?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+  element?.focus?.({ preventScroll: true })
+}
 function changeFeature(key, value) { if (selectedFeature.value) mutate(() => { selectedFeature.value[key] = value }) }
 function toggleReference() { referenceOnly.value = !referenceOnly.value; emit("reference-visible", referenceOnly.value) }
 function pointFromEvent(event) {
@@ -266,7 +295,7 @@ function finishDrawing() {
   placing.value = false
 }
 function startDrag(event, feature, index) {
-  if (busy.value || readOnly.value || feature.locked || event.button !== 0) return
+  if (busy.value || readOnly.value || focused.value || feature.locked || event.button !== 0) return
   selectedId.value = feature.id; selectedVertex.value = index
   drag = { id: feature.id, index, before: JSON.stringify(doc.value) }; dragBounds.value = bounds.value
   event.target.setPointerCapture?.(event.pointerId)
@@ -288,7 +317,7 @@ function nudge(x, y) {
 }
 function moveByKey(event, feature) {
   const delta = { ArrowLeft: [-10, 0], ArrowRight: [10, 0], ArrowUp: [0, -10], ArrowDown: [0, 10] }[event.key]
-  if (!delta || readOnly.value) return
+  if (!delta || readOnly.value || focused.value) return
   event.preventDefault(); selectedId.value = feature.id; nudge(...delta)
 }
 function removePoint() {
@@ -382,7 +411,8 @@ async function generate() {
   } catch (err) { if (err.message !== "已取消 AI 参考资料确认") error.value = err.message || "空间整理暂时不可用" }
   finally { if (alive) saving.value = false }
 }
-function viewCandidate(value) { compareServer.value = false; if (dirty.value && !confirm("查看候选时会保留当前编辑，是否继续？")) return; candidateView.value = value; reader.value = null; referenceOnly.value = false; emit("reference-visible", false); problems.value = value.problems }
+function viewCandidate(value) { compareServer.value = false; if (dirty.value && !confirm("查看候选时会保留当前编辑，是否继续？")) return; candidateView.value = value; compareCandidateCurrent.value = false; reader.value = null; referenceOnly.value = false; emit("reference-visible", false); problems.value = value.problems }
+function exitCandidate() { candidateView.value = null; compareCandidateCurrent.value = false; problems.value = revision.value?.problems || [] }
 async function review(value, action) {
   if (busy.value || dirty.value) return
   if (action === "restore" && !confirm("将历史地图恢复为新版本？当前版本仍保留在历史中。")) return
@@ -471,6 +501,9 @@ async function createChild() {
 }
 function openEntity() {
   if (selectedFeature.value?.entity_id) getRouter()?.navigate("world", "objects", true, new URLSearchParams({ novel_id: props.projectId, entity_id: selectedFeature.value.entity_id }))
+}
+function openSourceChapter(source) {
+  if (source.source_ref?.chapter_index) getRouter()?.navigate("writing", null, true, new URLSearchParams({ novel_id: props.projectId, chapter_index: String(source.source_ref.chapter_index) }))
 }
 function downloadBackup() {
   const blob = new Blob([JSON.stringify({ base_revision_id: revision.value?.id || null, document: doc.value })], { type: "application/json" })

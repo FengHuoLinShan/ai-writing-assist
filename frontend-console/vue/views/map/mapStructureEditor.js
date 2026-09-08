@@ -37,5 +37,21 @@ export function mapChanges(before, after) {
     ...after.features.filter(feature => !previous.has(feature.id)).map(feature => `新增：${feature.label}`),
     ...before.features.filter(feature => !next.has(feature.id)).map(feature => `移出：${feature.label}`),
     ...after.features.filter(feature => previous.has(feature.id) && JSON.stringify(feature) !== JSON.stringify(previous.get(feature.id))).map(feature => `调整：${feature.label}`),
+    ...collectionChanges(before.constraints || [], after.constraints || [], 'id', item => {
+      const names = new Map([...before.features, ...after.features].map(feature => [feature.id, feature.label]))
+      return `空间关系：${names.get(item.subject) || '地点'} → ${names.get(item.target) || '地点'}`
+    }),
+    ...collectionChanges(before.images || [], after.images || [], 'page_id', item => item.role === 'background' ? '图片底图设置' : '地点配图设置'),
+    ...collectionChanges(before.annotation_bindings || [], after.annotation_bindings || [], 'annotation_id', () => '图片标注绑定'),
+  ]
+}
+
+function collectionChanges(before, after, key, label) {
+  const previous = new Map(before.map(item => [item[key], item]))
+  const next = new Map(after.map(item => [item[key], item]))
+  return [
+    ...after.filter(item => !previous.has(item[key])).map(item => `新增：${label(item)}`),
+    ...before.filter(item => !next.has(item[key])).map(item => `移出：${label(item)}`),
+    ...after.filter(item => previous.has(item[key]) && JSON.stringify(item) !== JSON.stringify(previous.get(item[key]))).map(item => `调整：${label(item)}`),
   ]
 }

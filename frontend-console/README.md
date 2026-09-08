@@ -131,6 +131,9 @@ spec 可为特定页面追加 mask，但不得放宽全局阈值来接受未解�
 
 AI 地图册自动测试使用固定 PNG、mock OpenAI 与 mock S3，不产生费用；付费 live smoke 默认跳过。
 地图册组件回归见 `tests/vue/map/MapAtlasView.test.js`，浏览器主流程见 `e2e/map-atlas.spec.js`。
+统一空间地图还提供无图片节点管理、地点查找、专注浏览与候选差异对照；相关行为回归见
+`tests/vue/map/MapStructureEditor.test.js` 和 `e2e/map-structure.spec.js`。专注浏览禁止拖动/方向键改图，
+阅读预览搜索仅匹配服务端白名单。诡秘演示数据是保留资产，不能用自动测试的清理 fixture 管理。
 
 后端地址可用 `API_HOST` 覆盖，支持 `http://localhost:8000` 或 `http://localhost:8000/api`。
 如果 `webServer` 超时，先运行：

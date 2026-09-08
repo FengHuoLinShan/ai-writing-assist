@@ -205,7 +205,7 @@
           </details>
         </section>
         </template>
-        <details v-if="tab === 'atlas' || currentRun?.run_kind === 'upload'" class="atlas-edit"><summary class="btn btn-sm">调整地图层级与位置</summary><div class="atlas-node-form"><label v-if="canEditNodeTitle">地图名称<input v-model="nodeEdit.title" class="form-input" maxlength="200" /></label><label>上级地图<select v-model="nodeEdit.parent_id" class="form-select"><option :value="null">无（顶层）</option><option v-for="item in nodeParentChoices" :key="item.id" :value="item.id">{{ item.title }}</option></select></label><label>层级<select v-model="nodeEdit.level" class="form-select"><option v-for="item in levelChoices" :key="item.value" :value="item.value">{{ item.label }}</option></select></label><label>同级位置<select v-model="nodeEdit.before_node_id" class="form-select"><option value="__keep__">保持当前位置</option><option value="__append__">放在最后</option><option v-for="item in siblingChoices" :key="item.id" :value="item.id">放在“{{ item.title }}”之前</option></select></label><button class="btn btn-sm" :disabled="writeLocked" @click="saveNodePosition">保存调整</button></div></details>
+        <details v-if="!structureState.reader && (tab === 'atlas' || currentRun?.run_kind === 'upload')" class="atlas-edit"><summary class="btn btn-sm">调整地图层级与位置</summary><div class="atlas-node-form"><label v-if="canEditNodeTitle">地图名称<input v-model="nodeEdit.title" class="form-input" maxlength="200" /></label><label>上级地图<select v-model="nodeEdit.parent_id" class="form-select"><option :value="null">无（顶层）</option><option v-for="item in nodeParentChoices" :key="item.id" :value="item.id">{{ item.title }}</option></select></label><label>层级<select v-model="nodeEdit.level" class="form-select"><option v-for="item in levelChoices" :key="item.value" :value="item.value">{{ item.label }}</option></select></label><label>同级位置<select v-model="nodeEdit.before_node_id" class="form-select"><option value="__keep__">保持当前位置</option><option value="__append__">放在最后</option><option v-for="item in siblingChoices" :key="item.id" :value="item.id">放在“{{ item.title }}”之前</option></select></label><button class="btn btn-sm" :disabled="writeLocked" @click="saveNodePosition">保存调整</button></div></details>
       </article>
     </section>
 
@@ -368,7 +368,7 @@ const { overlayRef: uploadOverlay, dialogRef: uploadDialog, onKeydown: onUploadK
   requestClose: closeUpload,
   canClose: () => !uploading.value,
 })
-const canEditNodeTitle = computed(() => currentRun.value?.run_kind === "upload" && activeNode.value?.status === "provisional")
+const canEditNodeTitle = computed(() => (activeNode.value?.status === "adopted" && !activeNode.value.location_entity_id) || (currentRun.value?.run_kind === "upload" && activeNode.value?.status === "provisional"))
 const evidenceSummaryText = computed(() => {
   const item = currentRun.value?.evidence_summary || {}
   if (!item.locations_checked && !item.message) return "本轮没有可显示的补充资料摘要。"

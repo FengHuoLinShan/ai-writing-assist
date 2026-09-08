@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 import MapStructureEditor from "../../../vue/views/map/MapStructureEditor.vue"
-import { copyMap, emptyMap, geometrySignature, removeMapFeature } from "../../../vue/views/map/mapStructureEditor.js"
+import { copyMap, emptyMap, geometrySignature, mapChanges, removeMapFeature } from "../../../vue/views/map/mapStructureEditor.js"
 
 const confirmAiReference = vi.hoisted(() => vi.fn())
 vi.mock("../../../shared/aiReferenceModal.js", () => ({ confirmAiReference }))
@@ -167,6 +167,50 @@ describe("统一地图编辑器", () => {
     expect(confirmAiReference).toHaveBeenCalledWith(expect.objectContaining({ action: "world.map_atlas.structure", entity_ids: ["location-1"] }))
     expect(api.world.generateMapStructure).toHaveBeenCalledWith(projectId, nodeId, expect.objectContaining({ base_revision_id: revisionId, context_confirmation_id: "confirmation", location_ids: ["location-1"] }))
   })
+
+  it("候选可查看关系和图片变化，并与保存版对照而不改写当前编辑", async () => {
+    const candidate = document()
+    candidate.features[0].label = "临江新城"
+    candidate.constraints = [{ id: "c1", subject: "a", target: "b", relation: "east", via: [], sources: [] }]
+    candidate.images = [{ page_id: "private-page-id", role: "illustration", anchors: [] }]
+    api.world.getNodeMap.mockResolvedValue({ ...state(record()), candidates: [record(candidate, nextId)] })
+    const wrapper = render(); await flushPromises()
+    await button(wrapper, "查看").trigger("click")
+    expect(wrapper.get('[aria-label="候选地图差异"]').text()).toContain("空间关系：临江新城 → 黑石关")
+    expect(wrapper.get('[aria-label="候选地图差异"]').text()).toContain("地点配图设置")
+    expect(wrapper.text()).not.toContain("private-page-id")
+    expect(wrapper.get(".map-feature text").text()).toBe("临江新城")
+    await button(wrapper, "对照已保存地图").trigger("click")
+    expect(wrapper.get(".map-feature text").text()).toBe("临江城")
+    await button(wrapper, "返回当前地图").trigger("click")
+    expect(wrapper.vm.dirty).toBe(false)
+    expect(api.world.saveMapRevision).not.toHaveBeenCalled()
+  })
+
+  it("专注浏览能查找选择地点，方向键和拖动不会改图", async () => {
+    const wrapper = render(); await flushPromises()
+    await button(wrapper, "专注看图").trigger("click")
+    expect(wrapper.find(".map-edit-grid").exists()).toBe(false)
+    await wrapper.get('.map-locator input').setValue("黑石")
+    await button(wrapper, "黑石关").trigger("click"); await flushPromises()
+    expect(wrapper.get('[aria-label="地图地点详情"]').text()).toContain("黑石关")
+    const target = wrapper.get('[data-feature-id="b"]')
+    await target.trigger("keydown", { key: "ArrowRight" })
+    await target.get("circle").trigger("pointerdown", { button: 0 })
+    expect(wrapper.vm.dirty).toBe(false)
+    await button(wrapper, "展开编辑工具").trigger("click")
+    expect(wrapper.find(".map-edit-grid").exists()).toBe(true)
+  })
+})
+
+it("仅关系、图片或标注变化也能被版本比较发现", () => {
+  const before = document(), after = document()
+  before.constraints = [{ id: 'r', subject: 'a', target: 'b', relation: 'east' }]
+  after.constraints = [{ id: 'r', subject: 'a', target: 'b', relation: 'west' }]
+  before.images = [{ page_id: 'image', role: 'background', opacity: 0.5 }]
+  after.images = [{ page_id: 'image', role: 'background', opacity: 0.8 }]
+  after.annotation_bindings = [{ annotation_id: 'private-annotation', feature_id: 'b' }]
+  expect(mapChanges(before, after)).toEqual(['调整：空间关系：临江城 → 黑石关', '调整：图片底图设置', '新增：图片标注绑定'])
 })
 
 it("移出依赖地点会使相关轮廓待定位，展示配置不改变空间签名", () => {
