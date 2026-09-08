@@ -44,6 +44,7 @@ from modules.world.map_atlas_workflow import (
     _compensate_uploaded_object,
     _generate_page,
     _new_source_identities,
+    _persist_plan,
     _plan,
     _plan_prompt,
     _previous_source_manifest,
@@ -194,6 +195,86 @@ def test_map_plan_prompt_keeps_geometry_out_of_frontend_annotations() -> None:
     assert "不得生成层级、方向、距离、比例或图例标注" in prompt
 
 
+def _confirmed_spatial_fixture(novel_id, locations):
+    from modules.evidence.compilation.services.compiled_context import (
+        ContextItem,
+        ContextSection,
+    )
+    from modules.evidence.contracts import FocusedEvidenceItem, FocusedEvidenceResult
+    from modules.writing.contracts import SourceRangeRefContract
+
+    retained, evidence = [], []
+    for index, location in enumerate(locations):
+        text = f"{location.name}的北方有城门。"
+        target = {
+            "kind": "target",
+            "target_ref": {
+                "target_type": "entity",
+                "target_id": str(location.id),
+                "target_path": "",
+            },
+        }
+        source = SourceRangeRefContract(
+            draft_id=str(uuid.uuid4()),
+            chapter_index=index + 1,
+            version_number=1,
+            content_mode="canonical",
+            start_offset=0,
+            end_offset=len(text),
+            source_hash=hashlib.sha256(text.encode()).hexdigest(),
+            range_hash=hashlib.sha256(text.encode()).hexdigest(),
+        )
+        from dataclasses import asdict
+
+        selection = {"kind": "source_range", "source_ref": asdict(source)}
+        retained.extend(
+            [
+                ContextItem(
+                    key=f"entity:{index}",
+                    content=location.name,
+                    source={"source_hash": "a" * 64},
+                    selection_ref=target,
+                    status="canonical",
+                ),
+                ContextItem(
+                    key=f"range:{index}",
+                    content=text,
+                    source={"source_hash": source.source_hash},
+                    selection_ref=selection,
+                    status="published",
+                ),
+            ]
+        )
+        evidence.append(
+            FocusedEvidenceItem(
+                key=f"range:{index}",
+                text=text,
+                title=location.name,
+                source_ref=source,
+                selection_ref=selection,
+                source_hash=source.source_hash,
+            )
+        )
+    section = ContextSection(
+        key="world_entities",
+        tier=1,
+        content="已确认空间资料",
+        token_count=100,
+        items=retained,
+    )
+    prepared = SimpleNamespace(
+        compiled=SimpleNamespace(sections=[section]),
+        compile_options={
+            "novel_id": novel_id,
+            "task": "生成地图",
+            "scope": "full",
+            "reveal_mode": "author_full",
+            "budget_tokens": 4000,
+        },
+    )
+    return prepared, FocusedEvidenceResult(evidence=evidence)
+
+
 @pytest.mark.asyncio
 async def test_spatial_evidence_batches_twenty_locations_and_marks_bad_sources_degraded(
     db_session, project_novel_id
@@ -201,46 +282,61 @@ async def test_spatial_evidence_batches_twenty_locations_and_marks_bad_sources_d
     from modules.world.models import CoreEntity
 
     run = MapAtlasRun(
-        novel_id=uuid.UUID(project_novel_id), run_kind="initial", status="planning"
+        novel_id=uuid.UUID(project_novel_id),
+        run_kind="initial",
+        status="planning",
+        context_snapshot={"context_confirmation_id": "confirmation"},
     )
-    db_session.add(run)
-    db_session.add_all(
-        [
-            CoreEntity(
-                novel_id=uuid.UUID(project_novel_id),
-                entity_type="location",
-                name=f"地点{index}",
-                status="canonical",
-            )
-            for index in range(20)
-        ]
-    )
+    locations = [
+        CoreEntity(
+            novel_id=uuid.UUID(project_novel_id),
+            entity_type="location",
+            name=f"地点{index}号",
+            status="canonical",
+        )
+        for index in range(20)
+    ]
+    db_session.add_all([run, *locations])
     await db_session.flush()
-
+    prepared, result = _confirmed_spatial_fixture(project_novel_id, locations)
     client = MagicMock()
     client.generate_structured = AsyncMock(return_value=SimpleNamespace(facts=[]))
-    bundle = SimpleNamespace(
-        rag_chunks=[{"id": "chunk", "text": "证据", "chapter_index": 1}]
-    )
-    with (
-        patch(
-            "modules.evidence.facade.retrieve_planned_context_evidence",
-            autospec=True,
-            return_value=bundle,
-        ),
-        patch(
-            "modules.world.map_atlas_workflow._require_attempt",
-            autospec=True,
-            return_value=run,
-        ),
-        patch("modules.world.map_atlas_workflow.require_active_project", autospec=True),
-    ):
-        spatial, _manifest = await _spatial_evidence(
-            db_session, SimpleNamespace(), run, client
-        )
+
+    async def collect(current):
+        with (
+            patch(
+                "modules.evidence.facade.prepare_confirmed_ai_action",
+                autospec=True,
+                return_value=prepared,
+            ),
+            patch(
+                "modules.evidence.facade.retrieve_focused_evidence",
+                autospec=True,
+                return_value=result,
+            ) as focused,
+            patch(
+                "modules.world.map_atlas_workflow._require_attempt",
+                autospec=True,
+                return_value=current,
+            ),
+            patch(
+                "modules.world.map_atlas_workflow.require_active_project", autospec=True
+            ),
+        ):
+            spatial, manifest = await _spatial_evidence(
+                db_session, SimpleNamespace(), current, client
+            )
+            request = focused.await_args.args[1]
+            assert request.max_depth == 0 and request.limits.semantic_top_k == 0
+            assert len(request.allowed_refs) == 40
+            assert request.compile_options.budget_tokens == 4000
+            return spatial, manifest
+
+    spatial, manifest = await collect(run)
     assert client.generate_structured.await_count == 4
     assert spatial["locations_checked"] == 20
     assert spatial["rag_chunks_used"] == 20
+    assert "rag" not in manifest and len(manifest["source_range"]) == 20
     prior = MapAtlasRun(
         novel_id=uuid.UUID(project_novel_id),
         run_kind="initial",
@@ -248,75 +344,225 @@ async def test_spatial_evidence_batches_twenty_locations_and_marks_bad_sources_d
         context_snapshot={"spatial_evidence": spatial},
     )
     next_run = MapAtlasRun(
-        novel_id=uuid.UUID(project_novel_id), run_kind="update", status="planning"
+        novel_id=uuid.UUID(project_novel_id),
+        run_kind="update",
+        status="planning",
+        context_snapshot={"context_confirmation_id": "confirmation"},
     )
     db_session.add_all([prior, next_run])
     await db_session.flush()
-    with (
-        patch(
-            "modules.evidence.facade.retrieve_planned_context_evidence",
-            autospec=True,
-            return_value=bundle,
-        ),
-        patch(
-            "modules.world.map_atlas_workflow._require_attempt",
-            autospec=True,
-            return_value=next_run,
-        ),
-        patch("modules.world.map_atlas_workflow.require_active_project", autospec=True),
-    ):
-        reused, _manifest = await _spatial_evidence(
-            db_session, SimpleNamespace(), next_run, client
-        )
+    reused, _ = await collect(next_run)
     assert client.generate_structured.await_count == 4
     assert reused["message"] == "已复用相同资料的空间线索。"
     prior.context_snapshot = {"spatial_evidence": {**spatial, "degraded": True}}
-    fresh_run = MapAtlasRun(
-        novel_id=uuid.UUID(project_novel_id), run_kind="update", status="planning"
+    fresh = MapAtlasRun(
+        novel_id=uuid.UUID(project_novel_id),
+        run_kind="update",
+        status="planning",
+        context_snapshot={"context_confirmation_id": "confirmation"},
     )
-    db_session.add(fresh_run)
+    db_session.add(fresh)
     await db_session.flush()
-    with (
-        patch(
-            "modules.evidence.facade.retrieve_planned_context_evidence",
-            autospec=True,
-            return_value=bundle,
-        ),
-        patch(
-            "modules.world.map_atlas_workflow._require_attempt",
-            autospec=True,
-            return_value=fresh_run,
-        ),
-        patch("modules.world.map_atlas_workflow.require_active_project", autospec=True),
-    ):
-        await _spatial_evidence(db_session, SimpleNamespace(), fresh_run, client)
+    await collect(fresh)
     assert client.generate_structured.await_count == 8
-
     client.generate_structured.side_effect = RuntimeError("temporary")
     failed_run = MapAtlasRun(
-        novel_id=uuid.UUID(project_novel_id), run_kind="update", status="planning"
+        novel_id=uuid.UUID(project_novel_id),
+        run_kind="update",
+        status="planning",
+        context_snapshot={"context_confirmation_id": "confirmation"},
     )
     db_session.add(failed_run)
     await db_session.flush()
+    failed, _ = await collect(failed_run)
+    assert failed["all_batches_failed"] is True and failed["degraded"] is True
+    assert failed["message"] == "空间资料提取暂时不可用。"
+
+
+@pytest.mark.asyncio
+async def test_spatial_evidence_rereads_only_confirmed_ranges_and_world_text(
+    db_session, project_novel_id
+):
+    from dataclasses import asdict
+
+    from modules.evidence.compilation.services.compiled_context import (
+        ContextItem,
+        ContextSection,
+    )
+    from modules.world.facade import get_focused_world_terms
+    from modules.world.models import CoreEntity
+    from modules.writing.facade import build_manuscript_range_ref
+    from modules.writing.models import WritingDraft
+
+    location = CoreEntity(
+        novel_id=uuid.UUID(project_novel_id),
+        entity_type="location",
+        name="青港",
+        status="canonical",
+        hidden_truth="未进入确认的隐秘地道",
+    )
+    excluded = CoreEntity(
+        novel_id=uuid.UUID(project_novel_id),
+        entity_type="location",
+        name="排除地点",
+        status="canonical",
+    )
+    body = "青港的北方有城门。\n排除正文包含秘密。"
+    draft = WritingDraft(
+        novel_id=uuid.UUID(project_novel_id),
+        chapter_index=1,
+        content=body,
+        content_hash=hashlib.sha256(body.encode()).hexdigest(),
+        status="published",
+    )
+    run = MapAtlasRun(
+        novel_id=uuid.UUID(project_novel_id),
+        run_kind="initial",
+        status="planning",
+        context_snapshot={"context_confirmation_id": "confirmed"},
+    )
+    db_session.add_all([location, excluded, draft, run])
+    await db_session.flush()
+    ref = await build_manuscript_range_ref(
+        db_session,
+        project_novel_id,
+        draft_id=str(draft.id),
+        start_offset=0,
+        end_offset=body.index("\n"),
+        content_mode="canonical",
+    )
+    root_ref = {
+        "kind": "target",
+        "target_ref": {
+            "target_type": "entity",
+            "target_id": str(location.id),
+            "target_path": "",
+        },
+    }
+    source_ref = {"kind": "source_range", "source_ref": asdict(ref)}
+    world_hash = (
+        await get_focused_world_terms(
+            db_session, novel_id=project_novel_id, entity_ids=[str(location.id)]
+        )
+    )["entities"][0]["source_hash"]
+    items = [
+        ContextItem(
+            key="root",
+            content="青港是港口。",
+            status="canonical",
+            source={"source_hash": world_hash},
+            selection_ref=root_ref,
+        ),
+        ContextItem(
+            key="range",
+            content=body[: body.index("\n")],
+            status="published",
+            source={"source_hash": ref.source_hash},
+            selection_ref=source_ref,
+        ),
+        ContextItem(
+            key="excluded",
+            content="排除地点",
+            status="canonical",
+            selection_state="excluded",
+            selection_ref={
+                "kind": "target",
+                "target_ref": {
+                    "target_type": "entity",
+                    "target_id": str(excluded.id),
+                    "target_path": "",
+                },
+            },
+        ),
+    ]
+    prepared = SimpleNamespace(
+        compiled=SimpleNamespace(
+            sections=[
+                ContextSection(
+                    key="world_entities",
+                    tier=1,
+                    content="资料",
+                    token_count=30,
+                    items=items,
+                )
+            ]
+        ),
+        compile_options={
+            "novel_id": project_novel_id,
+            "scope": "full",
+            "task": "地图",
+            "reveal_mode": "author_full",
+            "budget_tokens": 4000,
+        },
+    )
+    client = MagicMock()
+    client.generate_structured = AsyncMock(return_value=SimpleNamespace(facts=[]))
     with (
         patch(
-            "modules.evidence.facade.retrieve_planned_context_evidence",
+            "modules.evidence.facade.prepare_confirmed_ai_action",
             autospec=True,
-            return_value=bundle,
+            return_value=prepared,
         ),
         patch(
             "modules.world.map_atlas_workflow._require_attempt",
             autospec=True,
-            return_value=failed_run,
+            return_value=run,
         ),
-        patch("modules.world.map_atlas_workflow.require_active_project", autospec=True),
     ):
-        failed, _manifest = await _spatial_evidence(
-            db_session, SimpleNamespace(), failed_run, client
+        spatial, manifest = await _spatial_evidence(
+            db_session, SimpleNamespace(), run, client
         )
-    assert failed["all_batches_failed"] is True
-    assert failed["degraded"] is True
-    assert failed["message"] == "空间资料提取暂时不可用。"
+    assert spatial["locations_checked"] == 1
+    prompt = client.generate_structured.await_args.args[0].messages[0].content
+    assert "青港的北方有城门" in prompt
+    assert (
+        "未进入确认" not in prompt and "隐秘地道" not in prompt and "排除" not in prompt
+    )
+    catalog = _atlas_source_manifest(manifest)
+    assert "rag" not in catalog
+    source = catalog["source_range"][0]
+    assert source["source_hash"] == draft.content_hash
+    assert source["open_target"]["source_ref"] == asdict(ref)
+    assert "chunk_id" not in source["open_target"]
+
+
+@pytest.mark.asyncio
+async def test_spatial_missing_confirmation_and_unconfirmed_location_fail_closed(
+    db_session, project_novel_id
+):
+    run = MapAtlasRun(
+        novel_id=uuid.UUID(project_novel_id), run_kind="initial", status="planning"
+    )
+    db_session.add(run)
+    await db_session.flush()
+    client = MagicMock()
+    client.generate_structured = AsyncMock()
+    with pytest.raises(ValueError, match="confirmation"):
+        await _spatial_evidence(db_session, SimpleNamespace(), run, client)
+    client.generate_structured.assert_not_awaited()
+    plan = AtlasPlan(
+        style_brief="地图",
+        nodes=[
+            {
+                "plan_key": "invented",
+                "title": "未入库地点",
+                "location_entity_id": str(uuid.uuid4()),
+                "level": "city",
+                "summary": "资料尚未采用",
+                "visual_brief": "未入库地点的城市",
+            }
+        ],
+    )
+    with pytest.raises(ValueError, match="canonical project context"):
+        await _persist_plan(db_session, SimpleNamespace(), run, plan)
+    assert (
+        await db_session.scalar(
+            select(func.count(MapAtlasNode.id)).where(
+                MapAtlasNode.novel_id == run.novel_id
+            )
+        )
+        == 0
+    )
 
 
 ALPHA_PNG = base64.b64decode(

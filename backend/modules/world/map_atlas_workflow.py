@@ -11,7 +11,6 @@ import uuid
 from typing import Any
 
 from sqlalchemy import func, select, update
-from sqlalchemy.exc import SQLAlchemyError
 
 from infrastructure.llm.image_client import ImageGenerationError
 from infrastructure.llm.redaction import redact_diagnostic
@@ -47,7 +46,7 @@ from modules.world.map_atlas_storage import (
     require_owned_page_object_key,
     validate_png,
 )
-from modules.world.models import CoreEntity, WorldBiblePage, WorldBiblePageDraft
+from modules.world.models import CoreEntity
 from shared.constants import TASK_MAX_HEARTBEAT_GAP
 from shared.utils import parse_uuid
 
@@ -56,13 +55,6 @@ _NO_TEXT = (
     "地点名称只用于理解地理语义，应用会在图片上方另加可编辑标注。"
 )
 logger = logging.getLogger(__name__)
-
-_SPATIAL_TERMS = "方位、距离或行程、邻接、道路、河流、山脉、入口、地标、内部布局"
-
-
-def _spatial_query(name: str, aliases: list[str]) -> str:
-    """Deterministic query; never lets a model invent an entity identity."""
-    return " ".join([name, *aliases, _SPATIAL_TERMS])
 
 
 def _plan_prompt(
@@ -141,6 +133,7 @@ _SOURCE_KIND_ALIASES: dict[str, set[str]] = {
     "scenes": {"scene", "scenes", "outline_scene"},
     "outline_scene": {"scene", "outline_scene"},
     "rag": {"writing"},
+    "source_range": {"writing"},
 }
 _FORMAL_SOURCE_STATUSES = frozenset({"canonical", "confirmed", "published"})
 _RETAINED_SOURCE_STATUSES = _FORMAL_SOURCE_STATUSES | {"working"}
@@ -155,11 +148,38 @@ _TARGET_ID_KEYS = (
 )
 
 
+def _range_source_id(source: dict) -> str:
+    required = {
+        "draft_id",
+        "chapter_index",
+        "start_offset",
+        "end_offset",
+        "source_hash",
+        "range_hash",
+    }
+    if not required.issubset(source):
+        return ""
+    return (
+        f"{source['draft_id']}:{source['start_offset']}:"
+        f"{source['end_offset']}:{source['range_hash']}"
+    )
+
+
 def _open_target(
     source_type: str,
     source_id: str,
     entry: dict[str, Any],
-) -> dict[str, str] | None:
+) -> dict[str, Any] | None:
+    if source_type == "source_range":
+        source = entry.get("source_ref") or {}
+        if _range_source_id(source) != source_id:
+            return None
+        return {
+            "kind": "writing",
+            "draft_id": source["draft_id"],
+            "chapter_index": str(source["chapter_index"]),
+            "source_ref": source,
+        }
     if source_type == "rag":
         try:
             chapter_index = int(entry.get("chapter_index") or 0)
@@ -270,6 +290,16 @@ def _source_identity_values(
 ) -> tuple[str, str]:
     source_type = str(source_type_value).strip()
     target = target_value if isinstance(target_value, dict) else {}
+    if source_type == "source_range":
+        source = target.get("source_ref") or {}
+        identity = _range_source_id(source)
+        if (
+            target.get("kind") != "writing"
+            or target.get("draft_id") != source.get("draft_id")
+            or not identity
+        ):
+            raise ValueError("atlas manuscript range has no exact source identity")
+        return source_type, identity
     source_ids = {
         str(target[key]).strip()
         for key in _TARGET_ID_KEYS
@@ -381,296 +411,254 @@ def _location_aliases(entity: CoreEntity) -> list[str]:
     return [
         str(item.get("alias") if isinstance(item, dict) else item).strip()
         for item in (entity.content_json or {}).get("aliases", [])
+        if not isinstance(item, dict)
+        or item.get("status") in {None, "active", "canonical", "confirmed", "published"}
+        and not item.get("rolled_back")
         if str(item.get("alias") if isinstance(item, dict) else item).strip()
     ][:12]
 
 
-def _working_page_hash(page: WorldBiblePageDraft) -> str:
-    eligible = [
-        item
-        for item in (page.sections_json or [])
-        if isinstance(item, dict)
-        and item.get("projection_policy", "eligible") == "eligible"
-    ]
-    payload = {
-        "title": page.title,
-        "page_type": page.page_type,
-        "free_text": page.free_text,
-        "sections": eligible,
-        "linked_refs": page.linked_asset_refs_json or [],
-        "template_key": page.template_key,
-        "template_version": page.template_version,
-        "base_version": page.base_version_number,
-        "updated_at": str(page.updated_at),
-    }
-    encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()
-    return hashlib.sha256(encoded).hexdigest()
+def _spatial_selection_key(ref):
+    ref = dict(ref or {})
+    if ref.get("target_ref"):
+        target = dict(ref["target_ref"])
+        if target.get("target_type") in {"core_entity", "world_entity", "location"}:
+            target["target_type"] = "entity"
+        ref["target_ref"] = target
+    return json.dumps(ref, sort_keys=True, ensure_ascii=False)
+
+
+def _retained_spatial_refs(prepared, *, include_working):
+    """Keep the materialized selection, never the original unfiltered source list."""
+    retained = {}
+    for section in prepared.compiled.sections:
+        if section.excluded:
+            continue
+        for item in section.materialize_items().items:
+            if item.selection_state in {"excluded", "omitted"}:
+                continue
+            status = str(item.status or section.status).lower()
+            if status not in _FORMAL_SOURCE_STATUSES and not (
+                include_working and status == "working"
+            ):
+                continue
+            ref = item.selection_ref
+            if not ref:
+                continue
+            retained[_spatial_selection_key(ref)] = {
+                "ref": ref,
+                "status": status,
+                "content": item.content,
+                "source_hash": item.source.get("source_hash"),
+            }
+    return retained
 
 
 async def _spatial_evidence(
     db, task, run: MapAtlasRun, client
 ) -> tuple[dict[str, Any], dict[str, list[dict[str, Any]]]]:
-    """Collect bounded, adopted-identity evidence before the atlas planner runs."""
-    existing = select(MapAtlasNode.location_entity_id).where(
-        MapAtlasNode.novel_id == run.novel_id,
-        MapAtlasNode.location_entity_id.is_not(None),
+    """Read only the atlas confirmation through the shared Focused Evidence seam."""
+    from dataclasses import asdict, fields
+
+    from modules.evidence.contracts import (
+        CompileOptions,
+        FocusedEvidenceLimits,
+        FocusedEvidenceRequest,
+        FocusedEvidenceRoot,
     )
-    locations = (
+    from modules.evidence.facade import (
+        prepare_confirmed_ai_action,
+        retrieve_focused_evidence,
+    )
+
+    confirmation_id = (run.context_snapshot or {}).get("context_confirmation_id")
+    if not confirmation_id:
+        raise ValueError("map spatial evidence requires a fresh context confirmation")
+    prepared = await prepare_confirmed_ai_action(
+        db,
+        novel_id=str(run.novel_id),
+        action="world.map_atlas.generate",
+        confirmation_id=str(confirmation_id),
+    )
+    retained = _retained_spatial_refs(
+        prepared, include_working=run.include_working_drafts
+    )
+    allowed_refs = [entry["ref"] for entry in retained.values()]
+    entity_ids = {
+        str(ref["target_ref"]["target_id"])
+        for ref in allowed_refs
+        if ref.get("target_ref", {}).get("target_type")
+        in {"entity", "core_entity", "world_entity", "location"}
+    }
+    locations = list(
         (
-            await db.execute(
-                select(CoreEntity).where(
+            await db.scalars(
+                select(CoreEntity)
+                .where(
                     CoreEntity.novel_id == run.novel_id,
+                    CoreEntity.id.in_([parse_uuid(value) for value in entity_ids]),
                     CoreEntity.entity_type == "location",
                     CoreEntity.status == "canonical",
                 )
+                .order_by(CoreEntity.id)
             )
-        )
-        .scalars()
-        .all()
+        ).all()
     )
     if not locations:
         return (
-            {"locations_checked": 0, "message": "没有可核对的已采用地点。", "facts": []},
+            {
+                "locations_checked": 0,
+                "message": "已确认资料中没有可核对的已采用地点。",
+                "facts": [],
+            },
             {},
         )
-
-    pages = (
-        (
-            await db.execute(
-                select(WorldBiblePage).where(
-                    WorldBiblePage.novel_id == run.novel_id,
-                    WorldBiblePage.status.in_({"canonical", "confirmed"}),
-                )
+    options = CompileOptions(
+        **{
+            key: value
+            for key, value in prepared.compile_options.items()
+            if key in {item.name for item in fields(CompileOptions)}
+        }
+    )
+    if parse_uuid(options.novel_id) != run.novel_id:
+        raise ValueError("map confirmation belongs to another project")
+    options.novel_id = str(run.novel_id)
+    # This is an exact reread. No discovery, query expansion or unconfirmed pins.
+    options.pinned_refs = []
+    options.include_pending_objects = bool(run.include_working_drafts)
+    request = FocusedEvidenceRequest(
+        novel_id=str(run.novel_id),
+        roots=[
+            FocusedEvidenceRoot(
+                key=f"location:{index}",
+                target_ref={"target_type": "entity", "target_id": str(location.id)},
             )
-        )
-        .scalars()
-        .all()
+            for index, location in enumerate(locations)
+        ],
+        question="核对已确认资料中的空间关系",
+        compile_options=options,
+        allowed_refs=allowed_refs,
+        max_depth=0,
+        sources=["manuscript", "world"],
+        limits=FocusedEvidenceLimits(
+            semantic_top_k=0, characters_per_batch=200000, evidence_per_batch=500
+        ),
     )
-    drafts = []
-    if run.include_working_drafts:
-        drafts = (
-            (
-                await db.execute(
-                    select(WorldBiblePageDraft)
-                    .where(WorldBiblePageDraft.novel_id == run.novel_id)
-                    .order_by(WorldBiblePageDraft.sort_order, WorldBiblePageDraft.id)
-                )
-            )
-            .scalars()
-            .all()
-        )
-    linked_location_ids = {
-        str(ref.get("id"))
-        for page in [*pages, *drafts]
-        for ref in (page.linked_asset_refs_json or [])
-        if isinstance(ref, dict)
-        and str(ref.get("type") or "") in {"entity", "core_entity", "world_entity"}
-        and str(ref.get("id") or "")
-    }
-    existing_ids = {str(item) for item in (await db.execute(existing)).scalars()}
-    locations.sort(
-        key=lambda item: (
-            str(item.id) not in existing_ids,
-            str(item.id) not in linked_location_ids,
-            -(item.importance or 0),
-            item.name,
-            str(item.id),
-        )
-    )
-    locations = locations[:20]
-    from modules.evidence.facade import retrieve_planned_context_evidence
-    from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
-        WorldBibleLifecycleService,
-    )
-
-    packets: list[dict[str, Any]] = []
-    manifest: dict[str, list[dict[str, Any]]] = {"world_bible_page": [], "rag": []}
-    used_sources: set[tuple[str, str]] = set()
-    wiki_used = rag_used = rag_failures = 0
-    location_source_hashes: dict[str, list[dict[str, str]]] = {}
-
-    def page_text(page: Any) -> str:
-        sections = sorted(
-            (
-                item
-                for item in (page.sections_json or [])
-                if isinstance(item, dict)
-                and item.get("projection_policy", "eligible") == "eligible"
-            ),
-            key=lambda item: (
-                int(item.get("sort_order") or 0),
-                str(item.get("section_id") or ""),
-            ),
-        )
-        return "\n".join(
-            [
-                str(page.free_text or ""),
-                *(str(item.get("body_markdown") or "") for item in sections),
-            ]
-        ).strip()
-
-    def linked_to(page: Any, location: CoreEntity) -> bool:
-        return any(
-            isinstance(ref, dict)
-            and str(ref.get("type") or "") in {"entity", "core_entity", "world_entity"}
-            and str(ref.get("id") or "") == str(location.id)
-            for ref in (page.linked_asset_refs_json or [])
-        )
-
-    def trim_sources(
-        wiki: list[dict[str, str]], rag: list[dict[str, str]]
-    ) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
-        # Reserve capacity for both families before filling the fixed 8k budget.
-        selected = [*wiki[:1], *rag[:1]] if wiki and rag else [*(wiki[:1] or rag[:1])]
+    evidence_items = {}
+    while True:
+        result = await retrieve_focused_evidence(db, request)
+        for item in result.evidence:
+            evidence_items.setdefault(_spatial_selection_key(item.selection_ref), item)
+        if result.continuation is None:
+            break
+        request = request.model_copy(update={"continuation": result.continuation})
+    manifest: dict[str, list[dict[str, Any]]] = {}
+    packets = []
+    location_source_hashes = {}
+    wiki_used = rag_used = unavailable_sources = 0
+    for index, location in enumerate(locations):
+        location_key = f"location:{index}"
+        aliases = _location_aliases(location)
+        terms = [location.name.casefold(), *(term.casefold() for term in aliases)]
+        selected = []
         remaining = 8000
-        result: list[dict[str, str]] = []
-        first_budget = 4000 if wiki and rag else 8000
-        for item in selected:
-            text = item["text"][:first_budget]
-            if text:
-                result.append({**item, "text": text})
-                remaining -= len(text)
-        for item in [*wiki[1:], *rag[1:]]:
+        hashes = []
+        for item in evidence_items.values():
+            if location_key not in item.target_keys and not any(
+                term in (item.title + item.text).casefold() for term in terms
+            ):
+                continue
             if not remaining:
                 break
-            text = item["text"][:remaining]
-            if text:
-                result.append({**item, "text": text})
-                remaining -= len(text)
-        return (
-            [item for item in result if item["key"].startswith("wiki:")],
-            [item for item in result if item["key"].startswith("rag:")],
-        )
-
-    for index, location in enumerate(locations):
-        aliases = _location_aliases(location)
-        names = {location.name.casefold(), *(item.casefold() for item in aliases)}
-        wiki: list[dict[str, str]] = []
-        candidates = [(page, "world_bible_page", page.status) for page in pages]
-        candidates += [(draft, "world_bible_draft", "working") for draft in drafts]
-        candidates.sort(
-            key=lambda item: (
-                not linked_to(item[0], location),
-                item[0].sort_order,
-                str(item[0].id),
-            )
-        )
-        for page, source_type, status in candidates:
-            title_match = page.title.casefold() in names or any(
-                name in page.title.casefold() for name in names
-            )
-            if linked_to(page, location) or title_match:
-                text = page_text(page)
-                if text:
-                    key = f"wiki:{source_type}:{page.id}"
-                    wiki.append({"key": key, "text": text})
-                    manifest.setdefault(source_type, []).append(
-                        {
-                            "source_id": str(page.id),
-                            "status": status,
-                            "label": page.title,
-                            "summary": text[:1000],
-                            "source_hash": (
-                                WorldBibleLifecycleService.projection_source_hash(page)
-                            )
-                            if source_type == "world_bible_page"
-                            else _working_page_hash(page),
-                        }
-                    )
-                    if len(wiki) == 3:
-                        break
-        try:
-            bundle = await retrieve_planned_context_evidence(
-                db,
-                novel_id=str(run.novel_id),
-                task=f"地图空间资料补充：{_spatial_query(location.name, aliases)}",
-                retrieval_purpose="map_atlas",
-                consumer_action="world.map_atlas.generate",
-                entity_ids=[str(location.id)],
-                top_k=5,
-            )
-        except SQLAlchemyError:
-            raise
-        except Exception as exc:
-            logger.warning(
-                "map spatial RAG unavailable: %s", redact_diagnostic(exc, limit=120)
-            )
-            rag = []
-            bundle = None
-            rag_failures += 1
-        rag: list[dict[str, str]] = []
-        for chunk in bundle.rag_chunks[:5] if bundle is not None else []:
-            chunk_id = str(chunk.get("id") or "")
-            text = str(chunk.get("text") or "").strip()
-            if not chunk_id or not text:
-                continue
-            key = f"rag:{chunk_id}"
-            rag.append({"key": key, "text": text})
-            manifest["rag"].append(
-                {
-                    "source_id": chunk_id,
-                    "status": "canonical",
-                    "label": str(chunk.get("title") or "正文"),
-                    "summary": text[:1000],
-                    "chapter_index": chunk.get("chapter_index"),
-                    "source_hash": str(
-                        (chunk.get("source_ref") or {}).get("source_hash") or ""
-                    ),
-                }
-            )
-        wiki, rag = trim_sources(wiki, rag)
-        for item in wiki:
-            _, source_type, source_id = item["key"].split(":", 2)
-            used_sources.add((source_type, source_id))
-        for item in rag:
-            used_sources.add(("rag", item["key"].removeprefix("rag:")))
-        wiki_used += len(wiki)
-        rag_used += len(rag)
-        if wiki or rag:
-            selected_hashes: list[dict[str, str]] = []
-            for item in [*wiki, *rag]:
-                parts = item["key"].split(":", 2)
-                source_type, source_id = (
-                    (parts[1], parts[2]) if parts[0] == "wiki" else ("rag", parts[1])
-                )
-                source = next(
+            selection_key = _spatial_selection_key(item.selection_ref)
+            original = retained.get(selection_key)
+            if original is None:
+                # A derived subrange must stay inside one exact retained source range.
+                source = asdict(item.source_ref) if item.source_ref else None
+                original = next(
                     (
                         entry
-                        for entry in manifest.get(source_type, [])
-                        if str(entry["source_id"]) == source_id
+                        for entry in retained.values()
+                        if source
+                        and (raw := entry["ref"].get("source_ref"))
+                        and raw.get("draft_id") == source["draft_id"]
+                        and raw.get("source_hash") == source["source_hash"]
+                        and raw["start_offset"]
+                        <= source["start_offset"]
+                        <= source["end_offset"]
+                        <= raw["end_offset"]
                     ),
-                    {},
+                    None,
                 )
-                selected_hashes.append(
-                    {
-                        "type": source_type,
-                        "id": source_id,
-                        "status": str(source.get("status") or ""),
-                        "hash": str(source.get("source_hash") or ""),
-                    }
-                )
-            packets.append(
+            if original is None:
+                continue
+            # World selection may exclude individual page sections. Its retained
+            # text, not a fresh whole-object rendering, remains the model input.
+            text = (item.text if item.source_ref else original["content"])[:remaining]
+            if not text:
+                continue
+            if item.source_ref:
+                source = asdict(item.source_ref)
+                source_type = "source_range"
+                source_id = _range_source_id(source)
+                extra = {"source_ref": source, "chapter_index": source["chapter_index"]}
+            elif item.target_ref:
+                source_type = {
+                    "world_entity": "entity",
+                    "core_entity": "entity",
+                    "location": "entity",
+                }.get(item.target_ref["target_type"], item.target_ref["target_type"])
+                source_id = item.target_ref["target_id"]
+                extra = {}
+            else:
+                continue
+            source_hash = (
+                item.source_ref.source_hash
+                if item.source_ref
+                else str(original["source_hash"] or "")
+            )
+            if source_type not in _SOURCE_KIND_ALIASES or len(source_hash) != 64:
+                unavailable_sources += 1
+                continue
+            key = f"wiki:{source_type}:{source_id}"
+            selected.append({"key": key, "text": text})
+            remaining -= len(text)
+            entry = {
+                "source_id": source_id,
+                "status": original["status"],
+                "label": item.title,
+                "summary": text[:1000],
+                "source_hash": source_hash,
+                **extra,
+            }
+            if not any(
+                existing["source_id"] == source_id
+                for existing in manifest.get(source_type, [])
+            ):
+                manifest.setdefault(source_type, []).append(entry)
+            hashes.append(
                 {
-                    "location_key": f"location:{index}",
-                    "name": location.name,
-                    "aliases": aliases,
-                    "wiki": wiki,
-                    "rag": rag,
+                    "type": source_type,
+                    "id": source_id,
+                    "status": original["status"],
+                    "hash": source_hash,
                 }
             )
-            location_source_hashes[f"location:{index}"] = selected_hashes
-
-    manifest = {
-        key: list(
-            {
-                item["source_id"]: item
-                for item in value
-                if (key, str(item["source_id"])) in used_sources
-            }.values()
-        )
-        for key, value in manifest.items()
-        if value
-    }
+            if source_type == "source_range":
+                rag_used += 1
+            else:
+                wiki_used += 1
+        if selected:
+            packets.append(
+                {
+                    "location_key": location_key,
+                    "name": location.name,
+                    "aliases": aliases,
+                    "wiki": selected,
+                    "rag": [],
+                }
+            )
+            location_source_hashes[location_key] = hashes
     packet_snapshot = {
         "schema_version": 1,
         "location_ids": {
@@ -789,8 +777,8 @@ async def _spatial_evidence(
             )
     if discarded_facts:
         message = "存在无法核验来源的空间线索，已忽略。"
-    elif rag_failures:
-        message = "部分正文检索暂时不可用，已用其余资料继续。"
+    elif unavailable_sources:
+        message = "部分已确认资料缺少可核对的来源，已用其余资料继续。"
     elif failed_batches:
         message = (
             "部分空间资料提取失败，已用成功资料继续。"
@@ -809,7 +797,7 @@ async def _spatial_evidence(
             "rag_chunks_used": rag_used,
             "spatial_facts_used": len(facts),
             "conflicts": sum(item["basis"] == "conflicting" for item in facts),
-            "degraded": bool(failed_batches or discarded_facts or rag_failures),
+            "degraded": bool(failed_batches or discarded_facts or unavailable_sources),
             "message": message,
             "facts": facts,
             **packet_snapshot,
@@ -877,7 +865,8 @@ def _spatial_fingerprint(spatial: dict[str, Any]) -> str:
             "name": str((spatial.get("location_names") or {}).get(key) or ""),
             "aliases": list((spatial.get("location_aliases") or {}).get(key) or []),
             "sources": sorted(
-                (spatial.get("location_source_hashes") or {}).get(key) or []
+                (spatial.get("location_source_hashes") or {}).get(key) or [],
+                key=lambda source: json.dumps(source, sort_keys=True),
             ),
         }
         for key, location_id in sorted((spatial.get("location_ids") or {}).items())
@@ -897,11 +886,17 @@ def _changed_spatial_location_keys(
     prior_hashes = dict(prior.get("location_source_hashes") or {})
     current_hashes = dict(current.get("location_source_hashes") or {})
     by_id = {
-        str(location_id): sorted(prior_hashes.get(key) or [])
+        str(location_id): sorted(
+            prior_hashes.get(key) or [],
+            key=lambda source: json.dumps(source, sort_keys=True),
+        )
         for key, location_id in prior_ids.items()
     }
     now_by_id = {
-        str(location_id): sorted(current_hashes.get(key) or [])
+        str(location_id): sorted(
+            current_hashes.get(key) or [],
+            key=lambda source: json.dumps(source, sort_keys=True),
+        )
         for key, location_id in current_ids.items()
     }
     return {
