@@ -400,3 +400,108 @@ async def test_full_import_resume_enters_completion_without_replaying_scene_or_p
     entity.run_full_pipeline.assert_not_awaited()
     continuation.assert_awaited_once_with(progress)
     assert result.phase == "done"
+
+
+@pytest.mark.parametrize(
+    ("confidence", "certainty", "expected"),
+    [
+        (None, "explicit", "open"),
+        (0, "explicit", "open"),
+        (0.89, "explicit", "open"),
+        (0.99, "inference", "open"),
+        (0.99, "uncertain", "open"),
+        (0.99, "explicit", "include"),
+    ],
+)
+def test_each_claim_quality_is_independent_of_other_high_confidence_claims(
+    confidence, certainty, expected
+):
+    quote = {"evidence_key": "e1", "quote": "小文是一名守卫。"}
+    result = _result(targets=[_target(), _target(key="b", name="苍桥")])
+    output = CompletionOutput.model_validate(
+        {
+            "entities": [
+                {
+                    "target_key": "a",
+                    "summary": "守卫",
+                    "confidence": confidence,
+                    "certainty": certainty,
+                    "field_evidence": {"summary": [quote]},
+                },
+                {
+                    "target_key": "b",
+                    "summary": "桥梁",
+                    "confidence": 0.99,
+                    "certainty": "explicit",
+                    "field_evidence": {
+                        "summary": [{"evidence_key": "e1", "quote": "小文守护苍桥。"}]
+                    },
+                },
+            ]
+        }
+    )
+    items, _ = materialize_completion(
+        output, result, batch_keys=["a", "b"], workflow_id="wf"
+    )
+    assert [item["disposition"] for item in items] == [expected, "include"]
+    assert bool(items[0]["review_reasons"]) is (expected == "open")
+
+
+def test_missing_quality_defaults_to_review_even_with_exact_quotes():
+    output = CompletionOutput.model_validate(
+        {
+            "entities": [
+                {
+                    "target_key": "a",
+                    "summary": "守卫",
+                    "field_evidence": {
+                        "summary": [{"evidence_key": "e1", "quote": "小文是一名守卫。"}]
+                    },
+                }
+            ]
+        }
+    )
+    items, _ = materialize_completion(
+        output, _result(), batch_keys=["a"], workflow_id="wf"
+    )
+    assert items[0]["disposition"] == "open"
+    assert "missing_or_low_confidence" in items[0]["review_reasons"]
+
+
+def test_low_confidence_alias_and_inferred_relation_stay_review_only():
+    left, right = _target(), _target(key="b", name="苍桥", depth=1)
+    right.target_ref = {"target_id": DRAFT_ID}
+    result = _result(targets=[left, right])
+    output = CompletionOutput.model_validate(
+        {
+            "aliases": [
+                {
+                    "target_key": "a",
+                    "alias": "守卫",
+                    "alias_kind": "title",
+                    "confidence": 0,
+                    "certainty": "explicit",
+                    "evidence": [{"evidence_key": "e1", "quote": "小文是一名守卫。"}],
+                }
+            ],
+            "relations": [
+                {
+                    "source_key": "a",
+                    "target_key": "b",
+                    "relation_type": "守护",
+                    "relation_kind": "spatial",
+                    "description": "小文守护苍桥",
+                    "confidence": 0.99,
+                    "certainty": "inference",
+                    "evidence": [{"evidence_key": "e1", "quote": "小文守护苍桥。"}],
+                }
+            ],
+        }
+    )
+    items, _ = materialize_completion(
+        output, result, batch_keys=["a", "b"], workflow_id="wf"
+    )
+    assert len(items) == 2
+    assert all(item["disposition"] == "open" for item in items)
+    assert items[0]["review_reasons"] == ["missing_or_low_confidence"]
+    assert items[1]["review_reasons"] == ["inferred_or_uncertain_claim"]

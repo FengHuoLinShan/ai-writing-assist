@@ -105,8 +105,14 @@ class _Quote(BaseModel):
     quote: str = Field(min_length=1, max_length=5000)
 
 
-class _Entity(BaseModel):
+class _Judgment(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    certainty: Literal["explicit", "inference", "uncertain"] = "uncertain"
+    uncertainties: list[str] = Field(default_factory=list, max_length=10)
+
+
+class _Entity(_Judgment):
     target_key: str
     entity_type: str = "other"
     summary: str | None = Field(default=None, max_length=5000)
@@ -120,8 +126,7 @@ class _Entity(BaseModel):
         return _normalize_ai_world_entity_type(value)
 
 
-class _Alias(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+class _Alias(_Judgment):
     target_key: str
     alias: str = Field(min_length=1, max_length=200)
     alias_kind: Literal["name", "title", "identity"] = "name"
@@ -129,8 +134,7 @@ class _Alias(BaseModel):
     evidence: list[_Quote] = Field(min_length=1, max_length=8)
 
 
-class _Relation(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+class _Relation(_Judgment):
     source_key: str
     target_key: str
     relation_type: str = Field(min_length=1, max_length=64)
@@ -262,7 +266,7 @@ def materialize_completion(
             found.append(_source_ref(source, quote.quote, workflow_id=workflow_id))
         return found
 
-    def append(kind, key, payload, source_refs):
+    def append(kind, key, payload, source_refs, judgment):
         target = targets[key]
         for direct in target.direct_evidence_refs:
             source_range = direct.get("source_ref") or direct.get("source_range")
@@ -271,12 +275,20 @@ def materialize_completion(
                 source_refs.append(
                     _source_ref(source_range, quote, workflow_id=workflow_id)
                 )
+        review_reasons = []
+        if judgment.confidence is None or judgment.confidence < 0.90:
+            review_reasons.append("missing_or_low_confidence")
+        if judgment.certainty != "explicit":
+            review_reasons.append("inferred_or_uncertain_claim")
+        if judgment.uncertainties:
+            review_reasons.extend(judgment.uncertainties)
         item = {
             "kind": kind,
             "root_key": target.root_keys[0] if target.root_keys else key,
             "depth": target.depth,
             "authority_kind": "manuscript_observation",
-            "disposition": "include",
+            "disposition": "open" if review_reasons else "include",
+            "review_reasons": review_reasons,
             "payload": payload,
             "source_refs": source_refs,
         }
@@ -317,6 +329,7 @@ def materialize_completion(
                         "fields": fields,
                     },
                     field_refs,
+                    observation,
                 )
         else:
             identity_refs = refs(observation.field_evidence.get("name", []))
@@ -340,6 +353,7 @@ def materialize_completion(
                     },
                 },
                 identity_refs + type_refs + field_refs,
+                observation,
             )
             entity_refs[key] = "local:" + item_key
     for alias in output.aliases:
@@ -364,6 +378,7 @@ def materialize_completion(
                 "alias_type": alias.alias_type,
             },
             references,
+            alias,
         )
     for relation in output.relations:
         references = refs(relation.evidence)
@@ -393,6 +408,7 @@ def materialize_completion(
                 "description": relation.description,
             },
             references,
+            relation,
         )
     return items, diagnostics
 
