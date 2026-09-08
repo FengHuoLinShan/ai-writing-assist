@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict
+from dataclasses import asdict, replace
 
 from pydantic import Field
 from sqlalchemy.exc import SQLAlchemyError
@@ -22,6 +22,7 @@ from modules.evidence.compilation.focused_contracts import (
     FocusedEvidenceResult,
     FocusedEvidenceTarget,
     FocusedModel,
+    normalize_focused_target_ref,
 )
 from modules.evidence.compilation.novel_evidence import NovelEvidenceService
 from modules.evidence.compilation.services.compiled_context import (
@@ -37,7 +38,6 @@ from modules.writing.facade import (
     get_manuscript_source_manifest,
     scan_manuscript_terms,
 )
-from shared.target_ref import normalize_target_ref
 
 _ENTITY_TYPES = {"entity", "core_entity", "world_entity", "location", "character"}
 
@@ -49,10 +49,7 @@ def _digest(value) -> str:
 
 
 def _ref(value: dict) -> dict:
-    result = normalize_target_ref(value).canonical_dict()
-    if result["target_type"] in _ENTITY_TYPES:
-        result["target_type"] = "entity"
-    return result
+    return normalize_focused_target_ref(value)
 
 
 def _textless(item: FocusedEvidenceItem) -> FocusedEvidenceItem:
@@ -66,6 +63,12 @@ def _request_hash(request: FocusedEvidenceRequest) -> str:
 def _visibility(request) -> VisibilityContextContract:
     options = request.compile_options
     chapter = options.visible_until_chapter
+    if request.chapter_to is not None and options.reveal_mode != "author_full":
+        chapter = (
+            min(chapter, request.chapter_to)
+            if chapter is not None
+            else request.chapter_to
+        )
     if chapter is None and (
         options.reveal_mode in {"reader", "character"} or options.scene_id
     ):
@@ -181,6 +184,9 @@ class FocusedEvidenceService:
         self.evidence = evidence_service or NovelEvidenceService()
         self.terms_loader = terms_loader
         self.neighbors_loader = neighbors_loader
+        self._active_manifest = None
+        self._visible_terms = {}
+        self._nomination_available = True
 
     async def _terms(self, db, request, **kwargs):
         if self.terms_loader is None:
@@ -196,22 +202,116 @@ class FocusedEvidenceService:
             **kwargs,
         )
 
+    @staticmethod
+    def _bounded(visibility):
+        return visibility.mode != "author" or any(
+            value is not None
+            for value in (
+                visibility.cutoff_chapter,
+                visibility.cutoff_scene_id,
+                visibility.cutoff_offset,
+            )
+        )
+
+    async def _term_visible(self, db, request, visibility, term):
+        """Prove an identity label from the same visible, version-bound manuscript."""
+        if term in self._visible_terms:
+            return self._visible_terms[term]
+        if self._active_manifest is None:
+            rows = await self._manifest(
+                db, request, visibility, request.compile_options.source_manifest
+            )
+            self._active_manifest = {row["draft_id"]: row["source_hash"] for row in rows}
+        cursor = None
+        while True:
+            page = await scan_manuscript_terms(
+                db,
+                request.novel_id,
+                [term],
+                source_manifest=self._active_manifest,
+                content_mode=request.compile_options.content_mode,
+                chapter_from=request.chapter_from,
+                chapter_to=request.chapter_to,
+                cursor=cursor,
+                visible_end_offsets={visibility.cutoff_chapter: visibility.cutoff_offset}
+                if visibility.cutoff_chapter and visibility.cutoff_offset is not None
+                else {},
+                allowed_ranges=[
+                    ref["source_ref"]
+                    for ref in request.allowed_refs
+                    if ref.get("source_ref")
+                ]
+                if request.allowed_refs is not None
+                else None,
+                chapters_per_batch=100,
+                limit=10,
+                max_chars=20000,
+            )
+            if any(
+                not _excluded(request, source_ref=hit.source_ref) for hit in page.hits
+            ):
+                self._visible_terms[term] = True
+                return True
+            cursor = page.cursor
+            if cursor is None:
+                self._visible_terms[term] = False
+                return False
+
+    @staticmethod
+    def _field_view(item, target_ref):
+        path = target_ref.get("target_path") or ""
+        if not path:
+            return item
+        value = item
+        try:
+            for segment in path.split("."):
+                name, *index = segment.rstrip("]").split("[")
+                value = value[name]
+                if index:
+                    value = value[int(index[0])]
+        except (KeyError, IndexError, TypeError, ValueError):
+            return None
+        if value is None:
+            return None
+        return {
+            "content": value
+            if isinstance(value, str)
+            else json.dumps(value, ensure_ascii=False),
+            "status": item.get("status") or "canonical",
+            "source_hash": _digest({"target": target_ref, "value": value}),
+        }
+
     async def _inspect(self, db, request, visibility, target_ref):
         if _excluded(request, target_ref=target_ref):
             return None
+        target_ref = _ref(target_ref)
+        bounded = self._bounded(visibility)
+        effective_visibility = visibility
+        if bounded and target_ref["target_type"] == "world_bible_page":
+            return None
+        if (
+            bounded
+            and target_ref["target_type"] == "outline_scene"
+            and visibility.mode == "author"
+        ):
+            effective_visibility = replace(visibility, mode="reader")
         result = await self.evidence.inspect(
             db,
             novel_id=request.novel_id,
-            target_ref=_ref(target_ref),
+            target_ref=target_ref,
             content_mode=request.compile_options.content_mode,
-            visibility=visibility,
+            visibility=effective_visibility,
         )
         if not result.get("visible"):
             return None
         item = dict(result.get("item") or {})
-        is_scene = _ref(target_ref)["target_type"] == "outline_scene"
+        is_scene = target_ref["target_type"] == "outline_scene"
+        knowledge = visibility.mode == "character" and item.get(
+            "knowledge_level"
+        ) not in {None, "public_default", "unknown"}
         if (
             not is_scene
+            and not knowledge
             and item.get("status") not in {"canonical", "confirmed"}
             and not (
                 request.compile_options.include_pending_objects
@@ -219,9 +319,137 @@ class FocusedEvidenceService:
             )
         ):
             return None
+        if bounded and target_ref["target_type"] == "entity":
+            if knowledge:
+                # Existing CharacterKnowledge returns only its time-bound known content.
+                item["status"] = "canonical"
+                return self._field_view(item, target_ref)
+            name = str(item.get("name") or "")
+            if not name or not await self._term_visible(db, request, visibility, name):
+                return None
+            # Current profiles have no historical field versions.
+            # Only the identity proven in visible manuscript text can cross this boundary.
+            identity = {
+                key: item[key]
+                for key in ("entity_id", "entity_type", "name", "status")
+                if key in item
+            }
+            return self._field_view(identity, target_ref)
         if request.compile_options.reveal_mode != "author_full":
             item.pop("hidden_truth", None)
-        return item
+        return self._field_view(item, target_ref)
+
+    async def _owners(self, db, request, terms):
+        owners = {term.strip().casefold(): [] for term in terms}
+        skip = 0
+        while True:
+            page = await self._terms(db, request, names=terms, skip=skip, limit=256)
+            for entity in page.get("entities", []):
+                for term in entity.get("terms", []):
+                    key = term.strip().casefold()
+                    if key in owners:
+                        owners[key].append(str(entity["id"]))
+            if page.get("next_skip") is None:
+                if page.get("truncated"):
+                    raise ValidationError("identity terms are incomplete")
+                break
+            skip = page["next_skip"]
+        return {term: sorted(set(ids)) for term, ids in owners.items()}
+
+    async def _capture_target(self, db, request, state, target):
+        if not target.target_ref or target.key in state.identity_snapshots:
+            return
+        if _ref(target.target_ref)["target_type"] != "entity":
+            state.identity_snapshots[target.key] = {"source_hash": target.source_hash}
+            return
+        page = await self._terms(db, request, entity_ids=[target.target_ref["target_id"]])
+        entity = next(
+            (
+                item
+                for item in page["entities"]
+                if str(item["id"]) == target.target_ref["target_id"]
+            ),
+            None,
+        )
+        if entity is None:
+            raise ConflictError("focused identity disappeared")
+        terms = list(entity.get("terms") or [entity["name"]])
+        state.identity_snapshots[target.key] = {
+            "id": entity["id"],
+            "name": entity["name"],
+            "entity_type": entity.get("entity_type"),
+            "terms": terms,
+            "owners": await self._owners(db, request, terms),
+            "source_hash": entity.get("source_hash") or _digest(entity),
+        }
+
+    async def _validate_targets(self, db, request, state, visibility):
+        for target in state.targets:
+            if not target.target_ref:
+                continue
+            item = await self._inspect(db, request, visibility, target.target_ref)
+            if item is None:
+                raise ConflictError("focused target identity is no longer available")
+            frozen = state.identity_snapshots.get(target.key)
+            if not frozen:
+                raise ConflictError("focused target identity checkpoint is incomplete")
+            if _ref(target.target_ref)["target_type"] != "entity":
+                if str(item.get("source_hash") or _digest(item)) != frozen["source_hash"]:
+                    raise ConflictError("focused target source changed")
+                continue
+            rows = await self._terms(
+                db, request, entity_ids=[target.target_ref["target_id"]]
+            )
+            current = next(
+                (
+                    row
+                    for row in rows["entities"]
+                    if str(row["id"]) == target.target_ref["target_id"]
+                ),
+                None,
+            )
+            if current is None:
+                raise ConflictError("focused target identity disappeared")
+            if request.continuation_target_policy == "strict":
+                if (current.get("source_hash") or _digest(current)) != frozen[
+                    "source_hash"
+                ]:
+                    raise ConflictError("focused target source changed")
+            else:
+                if any(
+                    current.get(field) != frozen.get(field)
+                    for field in ("id", "name", "entity_type")
+                ):
+                    raise ConflictError("focused target identity changed")
+                terms = {term.strip().casefold() for term in current.get("terms", [])}
+                if not {term.strip().casefold() for term in frozen["terms"]}.issubset(
+                    terms
+                ):
+                    raise ConflictError("focused target search terms changed")
+            if await self._owners(db, request, frozen["terms"]) != frozen["owners"]:
+                raise ConflictError("focused target term ownership changed")
+
+    async def _graph_snapshot(self, db, request, roots, loader):
+        rows = []
+        skip = 0
+        while True:
+            page = await loader(
+                db,
+                novel_id=request.novel_id,
+                entity_ids=roots,
+                include_review=request.compile_options.include_pending_objects,
+                skip=skip,
+                limit=256,
+            )
+            rows.extend(
+                (str(edge["id"]), edge["source_hash"])
+                for edge in page.get("relations", [])
+            )
+            if page.get("next_skip") is None:
+                if page.get("truncated"):
+                    raise ValidationError("neighbor identity checkpoint is incomplete")
+                return _digest(rows)
+            skip = page["next_skip"]
 
     async def _target(
         self,
@@ -262,23 +490,45 @@ class FocusedEvidenceService:
             ref = {
                 "target_type": "entity",
                 "target_id": str(entity["id"]),
-                "target_path": "",
+                "target_path": _ref(target_ref).get("target_path", "")
+                if target_ref
+                else "",
             }
             item = await self._inspect(db, request, visibility, ref)
             if item is not None:
+                if (
+                    self._bounded(visibility)
+                    and name
+                    and name.casefold() != str(entity["name"]).casefold()
+                ):
+                    known = str(item.get("content") or "")
+                    if name not in known or entity["name"] not in known:
+                        continue
                 candidates.append((entity, ref, item))
         if target_ref and not candidates:
             return None
         if len(candidates) == 1 and not truncated:
             entity, ref, item = candidates[0]
+            proven_name = name or str(item.get("name") or "")
+            if not proven_name and entity["name"] in str(item.get("content") or ""):
+                proven_name = entity["name"]
             safe_terms = (
                 list(entity.get("terms") or [entity["name"]])
-                if visibility.mode == "author"
-                else [str(item.get("name") or "")]
+                if not self._bounded(visibility)
+                else [proven_name]
             )
+            owners = await self._owners(db, request, safe_terms)
+            proof_terms = [
+                term
+                for term in safe_terms
+                if owners.get(term.strip().casefold()) == [str(entity["id"])]
+            ]
             return FocusedEvidenceTarget(
                 key=key,
-                name=str(item.get("name") or name or entity["name"]),
+                name=str(
+                    proven_name
+                    or ("已选对象" if self._bounded(visibility) else entity["name"])
+                ),
                 target_ref=ref,
                 depth=depth,
                 root_keys=root_keys or [key],
@@ -286,6 +536,7 @@ class FocusedEvidenceService:
                 terms=list(dict.fromkeys([name] if name else []))
                 + [term for term in safe_terms if term and term != name],
                 source_hash=str(entity.get("source_hash") or ""),
+                proof_terms=proof_terms,
             )
         return FocusedEvidenceTarget(
             key=key,
@@ -295,6 +546,7 @@ class FocusedEvidenceService:
             resolution="ambiguous" if candidates or truncated else "unresolved",
             identity_candidates=[ref for _, ref, _ in candidates],
             terms=[name] if name else [],
+            proof_terms=[name] if name and not (candidates or truncated) else [],
         )
 
     async def _manifest(self, db, request, visibility, manifest=None):
@@ -340,6 +592,13 @@ class FocusedEvidenceService:
                 }
             )
         if item.target_ref:
+            target_ref = _ref(item.target_ref)
+            item = item.model_copy(
+                update={
+                    "target_ref": target_ref,
+                    "selection_ref": {"kind": "target", "target_ref": target_ref},
+                }
+            )
             inspected = await self._inspect(db, request, visibility, item.target_ref)
             if inspected is None:
                 raise ValidationError("target evidence is no longer visible")
@@ -394,6 +653,19 @@ class FocusedEvidenceService:
 
     async def _nominate(self, db, request, state, visibility, client, before_llm):
         if request.max_depth == 0 or not state.pending_nomination:
+            return
+        if not self._nomination_available:
+            state.coverage.nomination_failed = True
+            state.coverage.stop_reason = "model_unavailable"
+            state.warnings = list(
+                dict.fromkeys(
+                    [
+                        *state.warnings,
+                        "模型暂不可用，已保留字面与数据库查阅结果；"
+                        "连接模型后可继续核对直接关联。",
+                    ]
+                )
+            )
             return
         packet, consumed, chars = [], 0, 0
         for receipt in state.pending_nomination:
@@ -454,6 +726,7 @@ class FocusedEvidenceService:
         except SQLAlchemyError:
             raise
         except Exception:
+            self._nomination_available = False
             state.coverage.nomination_failed = True
             state.coverage.stop_reason = "nomination_failed"
             state.warnings = list(
@@ -466,6 +739,16 @@ class FocusedEvidenceService:
             )
             return
         state.coverage.nomination_failed = False
+        state.warnings = [
+            warning
+            for warning in state.warnings
+            if not warning.startswith(
+                (
+                    "模型暂不可用",
+                    "直接关联对象的查阅未完成",
+                )
+            )
+        ]
         lookup = {item.key: item for item in packet}
         existing = {
             target.target_ref["target_id"]
@@ -489,7 +772,8 @@ class FocusedEvidenceService:
                 or name not in proposed.quote
                 or item.text.count(proposed.quote) != 1
                 or not any(
-                    term in proposed.quote for term in roots[proposed.root_key].terms
+                    term in proposed.quote
+                    for term in roots[proposed.root_key].proof_terms
                 )
             ):
                 continue
@@ -545,13 +829,23 @@ class FocusedEvidenceService:
                     }
                 ]
             state.targets.append(target)
+            await self._capture_target(db, request, state, target)
             existing[identity] = target
         state.pending_nomination = state.pending_nomination[consumed:]
 
     async def retrieve(
-        self, db, request: FocusedEvidenceRequest, *, llm_client=None, before_llm=None
+        self,
+        db,
+        request: FocusedEvidenceRequest,
+        *,
+        llm_client=None,
+        before_llm=None,
+        nomination_enabled=True,
     ):
         request = FocusedEvidenceRequest.model_validate(request)
+        self._active_manifest = None
+        self._visible_terms = {}
+        self._nomination_available = nomination_enabled
         await require_active_project(db, request.novel_id)
         visibility, cursor_warnings = await self.evidence.resolve_visibility_cursor(
             db,
@@ -567,6 +861,7 @@ class FocusedEvidenceService:
         )
         descriptors = await self._manifest(db, request, visibility, frozen)
         manifest = {row["draft_id"]: row["source_hash"] for row in descriptors}
+        self._active_manifest = manifest
         if request.continuation:
             state = request.continuation.model_copy(deep=True)
             if (
@@ -576,13 +871,33 @@ class FocusedEvidenceService:
                 raise ConflictError(
                     "focused search continuation no longer matches its scope"
                 )
-            for target in state.targets:
+            await self._validate_targets(db, request, state, visibility)
+            expected_world = _digest(
+                {"identities": state.identity_snapshots, "graph": state.graph_fingerprint}
+            )
+            if state.world_fingerprint != expected_world:
+                raise ConflictError("focused world checkpoint fingerprint changed")
+            if state.graph_fingerprint is not None:
+                if self.neighbors_loader is None:
+                    from modules.world.facade import get_focused_world_neighbors
+
+                    loader = get_focused_world_neighbors
+                else:
+                    loader = self.neighbors_loader
+                root_ids = [
+                    t.target_ref["target_id"]
+                    for t in state.targets
+                    if t.depth == 0
+                    and t.target_ref
+                    and t.target_ref["target_type"] == "entity"
+                ]
                 if (
-                    target.target_ref
-                    and await self._inspect(db, request, visibility, target.target_ref)
-                    is None
+                    await self._graph_snapshot(db, request, root_ids, loader)
+                    != state.graph_fingerprint
                 ):
-                    raise ConflictError("focused target identity is no longer available")
+                    raise ConflictError(
+                        "focused root adjacency changed; restart this search"
+                    )
         else:
             targets = []
             for index, root in enumerate(request.roots):
@@ -603,8 +918,10 @@ class FocusedEvidenceService:
                 targets=targets,
                 warnings=list(cursor_warnings),
             )
-        state.coverage.total_chapters = len(descriptors) * (
-            2 if state.phase == "neighbors" else 1
+        for target in state.targets:
+            await self._capture_target(db, request, state, target)
+        state.coverage.total_chapters = max(
+            state.coverage.total_chapters, len(descriptors)
         )
         output = []
         remaining = request.limits.characters_per_batch
@@ -612,7 +929,7 @@ class FocusedEvidenceService:
         # A failed/budget-split nomination resumes before reading further chapters.
         if state.pending_nomination:
             await self._nominate(db, request, state, visibility, llm_client, before_llm)
-            if state.pending_nomination:
+            if state.pending_nomination and self._nomination_available:
                 return self._result(
                     request,
                     state,
@@ -621,6 +938,14 @@ class FocusedEvidenceService:
                     if state.coverage.nomination_failed
                     else "nomination_budget",
                 )
+
+        if state.phase == "done" and any(
+            target.depth == 1 and target.key not in state.completed_target_keys
+            for target in state.targets
+        ):
+            state.phase = "neighbors"
+            state.scan_target_keys = None
+            state.chapter_position = state.start_offset = state.metadata_position = 0
 
         # Pins use the same source, visibility and exclusion gates as recalled material.
         while state.pinned_position < len(request.compile_options.pinned_refs):
@@ -673,11 +998,24 @@ class FocusedEvidenceService:
             remaining -= len(item.text)
             state.allowed_position += 1
 
-        selected = [
-            target
-            for target in state.targets
-            if target.depth == (1 if state.phase == "neighbors" else 0)
-        ]
+        if state.phase == "neighbors" and state.scan_target_keys is None:
+            state.scan_target_keys = [
+                target.key
+                for target in state.targets
+                if target.depth == 1 and target.key not in state.completed_target_keys
+            ]
+            if state.scan_target_keys:
+                state.coverage.total_chapters = max(
+                    state.coverage.total_chapters,
+                    state.coverage.scanned_chapters + len(descriptors),
+                )
+        selected = [target for target in state.targets if target.depth == 0]
+        if state.phase == "neighbors":
+            selected = [
+                target
+                for target in state.targets
+                if target.key in (state.scan_target_keys or [])
+            ]
         while state.metadata_position < len(selected) and state.phase != "graph":
             target = selected[state.metadata_position]
             item = (
@@ -843,6 +1181,11 @@ class FocusedEvidenceService:
                 )
             state.outline_done = True
         if "manuscript" not in request.sources and state.phase in {"roots", "neighbors"}:
+            state.completed_target_keys = list(
+                dict.fromkeys(
+                    [*state.completed_target_keys, *(target.key for target in selected)]
+                )
+            )
             state.phase = (
                 "graph" if state.phase == "roots" and request.max_depth else "done"
             )
@@ -850,7 +1193,7 @@ class FocusedEvidenceService:
                 await self._nominate(
                     db, request, state, visibility, llm_client, before_llm
                 )
-                if state.pending_nomination:
+                if state.pending_nomination and self._nomination_available:
                     return self._result(request, state, output, "nomination_budget")
 
         if state.phase in {"roots", "neighbors"}:
@@ -922,17 +1265,28 @@ class FocusedEvidenceService:
                         scan.cursor.start_offset,
                     )
                 else:
+                    state.completed_target_keys = list(
+                        dict.fromkeys(
+                            [
+                                *state.completed_target_keys,
+                                *(target.key for target in selected),
+                            ]
+                        )
+                    )
                     state.phase = (
                         "graph"
                         if state.phase == "roots" and request.max_depth
                         else "done"
                     )
                     state.chapter_position = state.start_offset = 0
+                    state.scan_target_keys = None
                 if state.pending_nomination:
                     await self._nominate(
                         db, request, state, visibility, llm_client, before_llm
                     )
-                if scan.cursor or state.pending_nomination:
+                if scan.cursor or (
+                    state.pending_nomination and self._nomination_available
+                ):
                     return self._result(
                         request,
                         state,
@@ -945,7 +1299,17 @@ class FocusedEvidenceService:
                 return self._result(request, state, output, "read_budget")
 
         if state.phase == "graph":
-            if visibility.mode == "author" and "world" in request.sources:
+            if self._bounded(visibility) and "world" in request.sources:
+                state.warnings = list(
+                    dict.fromkeys(
+                        [
+                            *state.warnings,
+                            "库内关系缺少当前时点的原文证明，未沿关系扩展；"
+                            "仍查阅可见原文中的直接关联。",
+                        ]
+                    )
+                )
+            if not self._bounded(visibility) and "world" in request.sources:
                 if self.neighbors_loader is None:
                     from modules.world.facade import get_focused_world_neighbors
 
@@ -959,6 +1323,15 @@ class FocusedEvidenceService:
                     and target.target_ref
                     and target.target_ref["target_type"] == "entity"
                 ]
+                fingerprint = await self._graph_snapshot(db, request, root_ids, loader)
+                if (
+                    state.graph_fingerprint is not None
+                    and state.graph_fingerprint != fingerprint
+                ):
+                    raise ConflictError(
+                        "focused root adjacency changed; restart this search"
+                    )
+                state.graph_fingerprint = fingerprint
                 batch = await loader(
                     db,
                     novel_id=request.novel_id,
@@ -1000,6 +1373,7 @@ class FocusedEvidenceService:
                                 }
                             ]
                             state.targets.append(target)
+                            await self._capture_target(db, request, state, target)
                             known.add(entity_id)
                 if batch.get("next_skip") is not None:
                     state.graph_skip = batch["next_skip"]
@@ -1017,7 +1391,23 @@ class FocusedEvidenceService:
             )
             if state.phase == "neighbors":
                 return self._result(request, state, output, "next_layer")
-        return self._result(request, state, output, None)
+        if state.phase == "done" and any(
+            target.depth == 1 and target.key not in state.completed_target_keys
+            for target in state.targets
+        ):
+            state.phase = "neighbors"
+            state.scan_target_keys = None
+            state.metadata_position = state.chapter_position = state.start_offset = 0
+        return self._result(
+            request,
+            state,
+            output,
+            "model_unavailable"
+            if state.pending_nomination
+            else "next_frontier_batch"
+            if state.phase != "done"
+            else None,
+        )
 
     @staticmethod
     def _result(request, state, items, reason):
@@ -1034,6 +1424,9 @@ class FocusedEvidenceService:
                     continue
             unique[key] = item
         items = list(unique.values())
+        state.world_fingerprint = _digest(
+            {"identities": state.identity_snapshots, "graph": state.graph_fingerprint}
+        )
         coverage = state.coverage
         coverage.returned_evidence += len(items)
         coverage.read_characters += sum(len(item.text) for item in items)
@@ -1045,6 +1438,7 @@ class FocusedEvidenceService:
             evidence=items,
             source_manifest=state.source_manifest,
             source_fingerprint=state.source_fingerprint,
+            world_fingerprint=state.world_fingerprint,
             request_fingerprint=state.request_fingerprint,
             coverage=coverage.model_copy(deep=True),
             warnings=state.warnings,
@@ -1054,6 +1448,8 @@ class FocusedEvidenceService:
         )
 
     async def revalidate(self, db, request, result):
+        self._visible_terms = {}
+        self._active_manifest = result.source_manifest
         await require_active_project(db, request.novel_id)
         visibility, _ = await self.evidence.resolve_visibility_cursor(
             db,

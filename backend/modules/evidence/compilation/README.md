@@ -579,3 +579,20 @@ manifest、allowed refs 或 continuation。writing consumer 的 Scene/POV 与截
 调用方 checkpoint 结束事务。任务恢复链只保存带 hash 的来源回执和短证明，不保存原文或
 CompiledContext 正文。HTTP 重新校验并回读累计证据，pending/running 返回空结果，完整结果
 为 completed，尚有游标为 recoverable。后台内部回执放在下划线字段，不能经通用任务 API 暴露。
+
+专项补查的历史边界也覆盖结构化资料：`author_safe` 的 Scene/章节截止只返回原文能证明的
+对象身份，当前档案中无历史版本的摘要、公开资料和别名不进入过去时点；角色视图仅可使用
+已有 CharacterKnowledge 的可见知识版本。库内关系没有时点证明时不扩展，并明确记录
+覆盖警告，不将未检查说成不存在。字段级 TargetRef 只物化该可见字段。
+
+续页同时保留正文 `source_fingerprint` 与世界资料 `world_fingerprint`；默认严格校验对象
+档案、身份词项归属及完整根邻接摘要，分页间新增、移除或变更关系会失效，避免 OFFSET
+漂移漏边。内部 `continuation_target_policy=identity` 仅允许
+`imports.targeted_completion`：ID、类型、规范名及原冻结词项的归属保持不变，可追加别名
+和填写非身份字段，但新增词不加入本轮查询，覆盖只针对冻结词项。无 ID 的根保持原名称
+查询，不因本轮创建对象再次扩展身份。该策略不在 HTTP 开放，也不授予资产写入权限。
+
+模型连接缺失或冻结 snapshot 无法恢复时，专项任务仍可入队并完成字面及已存关系查阅；
+直接关联提名保持未完成，根证据以无正文回执保留，可在连接恢复后继续。已有 snapshot
+恢复失败不会切换到其他 provider 或环境 Key。恢复提名后新增的一跳对象单独补扫整个范围，
+不会漏掉在模型不可用期间已读过的前序章节，也不把它们再当成根递归展开。

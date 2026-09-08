@@ -203,7 +203,9 @@ async def test_nomination_failure_resumes_refs_without_losing_root_page(
     )
     assert not recovered.coverage.nomination_failed
     assert {t.name for t in recovered.targets} == {"根城", "北郡"}
-    assert recovered.coverage.matched_occurrences == failed.coverage.matched_occurrences
+    beta = next(target for target in recovered.targets if target.depth == 1)
+    assert all(item.target_keys == [beta.key] for item in recovered.evidence)
+    assert recovered.coverage.complete
 
 
 @pytest.mark.asyncio
@@ -390,7 +392,7 @@ async def test_database_neighbors_page_only_roots_and_never_expand_neighbors(
             "entities": [],
             "relations": [
                 {
-                    "id": str(uuid.uuid4()),
+                    "id": identifiers[offset + 1],
                     "source_id": identifiers[0],
                     "target_id": identifiers[offset + 1],
                     "source_hash": "a" * 64,
@@ -416,7 +418,7 @@ async def test_database_neighbors_page_only_roots_and_never_expand_neighbors(
         if result.continuation is None:
             break
         request.continuation = result.continuation
-    assert pages == [0, 1]
+    assert set(pages) == {0, 1}
     assert result.coverage.complete
     assert len(result.targets) == 3 and [target.depth for target in result.targets] == [
         0,

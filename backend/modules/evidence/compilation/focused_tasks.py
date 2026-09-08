@@ -30,6 +30,7 @@ from modules.evidence.compilation.services.focused_evidence import (
     _digest,
     _visibility,
 )
+from modules.project.contracts import ProjectLLMConfigurationError
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
     create_project_snapshot_llm_client,
@@ -68,21 +69,26 @@ async def submit_focused_search(db, data: FocusedSearchSubmit):
     await require_active_project(db, data.novel_id)
     character_id = None
     if data.scene_id:
-        from modules.story.facade import get_scene_contract
+        from modules.story.facade import get_scene_contract, get_scene_spans_for_scene
 
         scene = await get_scene_contract(db, data.novel_id, data.scene_id)
         if scene is None:
             raise NotFoundError("Scene not found")
         scene = asdict(scene) if is_dataclass(scene) else scene
-        chapters = [
+        chapters = {
+            int(value) for value in scene.get("chapter_ids", []) if str(value).isdigit()
+        }
+        chapters.update(
             int(span["chapter_index"])
             for span in scene.get("scene_chunks", [])
-            if span.get("chapter_index")
-        ]
-        if data.chapter_index is None or (
-            chapters and data.chapter_index not in chapters
-        ):
-            raise ValidationError("当前章节与场景不一致")
+            if isinstance(span, dict) and str(span.get("chapter_index", "")).isdigit()
+        )
+        spans = await get_scene_spans_for_scene(
+            db, data.novel_id, data.scene_id, content_mode=data.content_mode
+        )
+        chapters.update(span.chapter_index for span in spans)
+        if data.chapter_index is None or data.chapter_index not in chapters:
+            raise ValidationError("当前章节与场景不一致或尚无可验证映射")
         if data.consumer == "writing":
             character_id = scene.get("pov_character_id")
     action = {
@@ -128,11 +134,13 @@ async def submit_focused_search(db, data: FocusedSearchSubmit):
     request.compile_options.source_manifest = {
         item["draft_id"]: item["source_hash"] for item in descriptors
     }
-    snapshot = (
-        await build_project_llm_execution_snapshot(db, data.novel_id)
-        if data.max_depth
-        else None
-    )
+    snapshot = None
+    if data.max_depth:
+        try:
+            snapshot = await build_project_llm_execution_snapshot(db, data.novel_id)
+        except ProjectLLMConfigurationError:
+            # Literal and database retrieval remain useful without a model connection.
+            pass
     return await _enqueue(db, request, snapshot)
 
 
@@ -236,11 +244,22 @@ async def handle_focused_search(db, task):
         raise ValidationError("focused search task scope mismatch")
     snapshot = (task.meta or {}).get("_llm_execution_snapshot")
     client = None
-    if snapshot:
-        settings = await restore_project_llm_execution_settings(
-            db, request.novel_id, snapshot
-        )
-        client = create_project_snapshot_llm_client(settings, novel_id=request.novel_id)
+    if request.max_depth:
+        try:
+            if snapshot is None:
+                snapshot = await build_project_llm_execution_snapshot(
+                    db, request.novel_id
+                )
+            settings = await restore_project_llm_execution_settings(
+                db, request.novel_id, snapshot
+            )
+            client = create_project_snapshot_llm_client(
+                settings, novel_id=request.novel_id
+            )
+        except ProjectLLMConfigurationError:
+            # Restore failure never changes the frozen provider.
+            # Deterministic retrieval can proceed without a model client.
+            client = None
 
     async def checkpoint():
         await require_active_project(db, request.novel_id)
@@ -252,11 +271,16 @@ async def handle_focused_search(db, task):
             lease_id=str(task.lease_id),
             attempt=int(task.attempt),
         )
+        task.meta = {**dict(task.meta or {}), "_llm_execution_snapshot": snapshot}
         await db.commit()
 
     try:
         result = await FocusedEvidenceService().retrieve(
-            db, request, llm_client=client, before_llm=checkpoint
+            db,
+            request,
+            llm_client=client,
+            before_llm=checkpoint,
+            nomination_enabled=client is not None,
         )
         await require_active_project_exclusive(db, request.novel_id)
         await require_running_task_attempt(

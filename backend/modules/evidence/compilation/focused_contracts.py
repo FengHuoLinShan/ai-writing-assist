@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -9,6 +10,30 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from modules.evidence.compilation.contracts import CompileOptions
 from modules.writing.contracts import SourceRangeRefContract
 from shared.target_ref import normalize_target_ref
+
+
+def normalize_focused_target_ref(value: dict) -> dict:
+    result = normalize_target_ref(value).canonical_dict()
+    if result["target_type"] in {
+        "entity",
+        "core_entity",
+        "world_entity",
+        "location",
+        "character",
+    }:
+        result["target_type"] = "entity"
+    elif result["target_type"] == "page":
+        result["target_type"] = "world_bible_page"
+    elif result["target_type"] == "scene":
+        result["target_type"] = "outline_scene"
+    if result["target_type"] in {
+        "entity",
+        "world_bible_page",
+        "outline_scene",
+        "character_knowledge",
+    }:
+        result["target_id"] = str(uuid.UUID(result["target_id"]))
+    return result
 
 
 class FocusedModel(BaseModel):
@@ -30,7 +55,7 @@ class FocusedEvidenceRoot(FocusedModel):
             raw = self.target_ref
             if "target_type" not in raw and "type" in raw:
                 raw = {"target_type": raw["type"], "target_id": raw.get("id")}
-            self.target_ref = normalize_target_ref(raw).canonical_dict()
+            self.target_ref = normalize_focused_target_ref(raw)
         return self
 
 
@@ -53,6 +78,7 @@ class FocusedEvidenceTarget(FocusedModel):
     identity_candidates: list[dict] = Field(default_factory=list)
     terms: list[str] = Field(default_factory=list)
     source_hash: str = ""
+    proof_terms: list[str] = Field(default_factory=list)
     direct_evidence_refs: list[dict] = Field(default_factory=list)
 
 
@@ -91,6 +117,9 @@ class FocusedEvidenceContinuation(FocusedModel):
     request_fingerprint: str
     source_manifest: dict[str, str]
     source_fingerprint: str
+    identity_snapshots: dict[str, dict] = Field(default_factory=dict)
+    graph_fingerprint: str | None = None
+    world_fingerprint: str = ""
     targets: list[FocusedEvidenceTarget]
     phase: Literal["roots", "graph", "neighbors", "done"] = "roots"
     chapter_position: int = Field(default=0, ge=0)
@@ -102,6 +131,8 @@ class FocusedEvidenceContinuation(FocusedModel):
     outline_hit_position: int = Field(default=0, ge=0)
     allowed_position: int = Field(default=0, ge=0)
     metadata_position: int = Field(default=0, ge=0)
+    scan_target_keys: list[str] | None = None
+    completed_target_keys: list[str] = Field(default_factory=list)
     pinned_position: int = Field(default=0, ge=0)
     pending_nomination: list[FocusedEvidenceItem] = Field(default_factory=list)
     coverage: FocusedEvidenceCoverage = Field(default_factory=FocusedEvidenceCoverage)
@@ -124,6 +155,7 @@ class FocusedEvidenceRequest(FocusedModel):
     chapter_from: int | None = Field(default=None, ge=1)
     chapter_to: int | None = Field(default=None, ge=1)
     max_depth: Literal[0, 1] = 1
+    continuation_target_policy: Literal["strict", "identity"] = "strict"
     limits: FocusedEvidenceLimits = Field(default_factory=FocusedEvidenceLimits)
     continuation: FocusedEvidenceContinuation | None = None
     allowed_refs: list[dict] | None = None
@@ -145,6 +177,12 @@ class FocusedEvidenceRequest(FocusedModel):
             )
         if str(self.compile_options.novel_id) != self.novel_id:
             raise ValueError("focused search scope must belong to the same novel")
+        if self.continuation_target_policy == "identity" and (
+            self.compile_options.consumer_action != "imports.targeted_completion"
+        ):
+            raise ValueError(
+                "identity-only continuation is restricted to import completion"
+            )
         if not 1 <= self.compile_options.budget_tokens <= 200_000:
             raise ValueError("focused Context budget must be between 1 and 200000")
         keys = [root.key or f"root:{i}" for i, root in enumerate(self.roots)]
@@ -158,6 +196,7 @@ class FocusedEvidenceResult(FocusedModel):
     evidence: list[FocusedEvidenceItem] = Field(default_factory=list)
     source_manifest: dict[str, str] = Field(default_factory=dict)
     source_fingerprint: str = ""
+    world_fingerprint: str = ""
     request_fingerprint: str = ""
     coverage: FocusedEvidenceCoverage = Field(default_factory=FocusedEvidenceCoverage)
     warnings: list[str] = Field(default_factory=list)
