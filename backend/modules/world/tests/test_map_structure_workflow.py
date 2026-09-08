@@ -168,6 +168,24 @@ async def test_text_only_task_creates_candidate_without_moving_current_head(
     assert request.max_tokens == 4000
     assert all(isinstance(message.content, str) for message in request.messages)
     client.close.assert_awaited_once()
+    summary = result["summary"]
+    assert summary["received_relations"] == summary["accepted_relations"] == 1
+    assert summary["discarded_relations"] == 0
+    assert summary["structured_attempts"] is None  # This mock has no response telemetry.
+    from infrastructure.tasks.lifecycle import TaskLifecycleService
+
+    assert await TaskLifecycleService().finalize(
+        db_session,
+        task_id=task.id,
+        lease_id=task.lease_id,
+        status="done",
+        result_data=result,
+    )
+    await db_session.refresh(task)
+    response = await MapStructureService().get_map(
+        db_session, test_project_id, node["id"]
+    )
+    assert response.generation_summary.accepted_relations == 1
 
 
 @pytest.mark.asyncio
@@ -327,3 +345,51 @@ async def test_structure_reference_counts_toward_eight_image_limit(
     assert len(guide) == 1
     assert guide[0][0] == "structure.png"
     assert guide[0][1].startswith(b"\x89PNG")
+
+
+async def test_failed_batch_retains_schema_discard_counts(db_session, test_project_id):
+    _, entities, task = await setup_task(db_session, test_project_id)
+
+    async def fail_schema(_request, _schema, **kwargs):
+        kwargs["diagnostics"].extend(
+            [
+                {
+                    "kind": "partial_list_validation",
+                    "attempt": 2,
+                    "skipped": 3,
+                    "errors": [{"input": "must not persist"}],
+                },
+                {"kind": "structured_usage", "attempt": 1, "status": "failed"},
+                {"kind": "structured_usage", "attempt": 2, "status": "failed"},
+            ]
+        )
+        raise ValueError("schema failed")
+
+    client = SimpleNamespace(
+        generate_structured=AsyncMock(side_effect=fail_schema), close=AsyncMock()
+    )
+    with (
+        patch(
+            "modules.world.map_structure_workflow.prepare_confirmed_ai_action",
+            autospec=True,
+            return_value=prepared_context(entities),
+        ),
+        patch(
+            "modules.world.map_structure_workflow.restore_project_llm_execution_settings",
+            autospec=True,
+            return_value={"llm": {"model": "test"}},
+        ),
+        patch(
+            "modules.world.map_structure_workflow.create_project_snapshot_llm_client",
+            autospec=True,
+            return_value=client,
+        ),
+    ):
+        with pytest.raises(ValidationError, match="未完成提取"):
+            await run_structure(db_session, task)
+    summary = task.result["summary"]
+    assert summary["outcome"] == "failed"
+    assert summary["received_relations"] == summary["discarded_relations"] == 3
+    assert summary["discard_reasons"] == {"invalid_schema": 3}
+    assert summary["structured_attempts"] == 2
+    assert "must not persist" not in json.dumps(task.result)

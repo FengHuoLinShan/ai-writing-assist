@@ -9,7 +9,10 @@ import uuid
 from sqlalchemy import select
 
 from core.errors import ConflictError, NotFoundError, ValidationError
-from infrastructure.tasks.facade import list_task_lifecycle_contracts
+from infrastructure.tasks.facade import (
+    get_completed_task_payload,
+    list_task_lifecycle_contracts,
+)
 from modules.evidence.contracts import VisibilityContextContract
 from modules.evidence.facade import (
     inspect_novel_target,
@@ -38,6 +41,7 @@ from modules.world.map_structure_geometry import (
 from modules.world.map_structure_schemas import (
     STRUCTURE_LEVELS,
     MapDocument,
+    MapExtractionSummary,
     MapLayoutResponse,
     MapLink,
     MapLinkQuery,
@@ -742,11 +746,22 @@ class MapStructureService:
             else {}
         )
         task = tasks.get(str(node.structure_task_id))
+        summary = None
+        if task and task.status == "done":
+            completed = await get_completed_task_payload(
+                db,
+                task_id=str(node.structure_task_id),
+                task_type=MAP_TASK,
+                novel_id=novel_id,
+            )
+            if completed and isinstance(completed.result.get("summary"), dict):
+                summary = MapExtractionSummary.model_validate(completed.result["summary"])
         return MapNodeMapResponse(
             node_id=node_id,
             revision=revision,
             task_id=str(node.structure_task_id) if node.structure_task_id else None,
             task_status=task.status if task else None,
+            generation_summary=summary,
             candidates=candidate_responses,
             image_layers=await self.image_layers(
                 db, novel_id, node_id, MapDocument.model_validate(current.document)

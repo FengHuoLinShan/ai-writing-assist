@@ -327,6 +327,12 @@ class MapNodeMapResponse(SpatialModel):
     image_layers: list[dict] = Field(default_factory=list)
     task_id: str | None = None
     task_status: str | None = None
+    generation_summary: MapExtractionSummary | None = None
+
+
+class MapRelationEvidence(SpatialModel):
+    source_key: str = Field(min_length=1, max_length=200)
+    quote: str = Field(min_length=1, max_length=1000)
 
 
 class MapGeneratedRelation(SpatialModel):
@@ -336,12 +342,53 @@ class MapGeneratedRelation(SpatialModel):
     via: list[FeatureKey] = Field(default_factory=list, max_length=20)
     path_kind: Literal["road", "river"] = "road"
     path_label: str | None = Field(default=None, min_length=1, max_length=200)
-    source_keys: list[str] = Field(min_length=1, max_length=5)
-    quote: str = Field(min_length=1, max_length=1000)
+    evidence: list[MapRelationEvidence] = Field(default_factory=list, max_length=5)
+    source_keys: list[str] = Field(default_factory=list, max_length=5)
+    quote: str = Field(default="", max_length=1000)
+
+    @model_validator(mode="after")
+    def cited_evidence(self):
+        if self.evidence:
+            if self.source_keys or self.quote:
+                raise ValueError(
+                    "use per-source evidence or legacy shared quote, not both"
+                )
+        elif not self.source_keys or not self.quote:
+            raise ValueError("each spatial relation requires quoted evidence")
+        return self
 
 
 class MapRelationBatch(SpatialModel):
-    relations: list[MapGeneratedRelation] = Field(default_factory=list, max_length=60)
+    relations: list[MapGeneratedRelation] = Field(max_length=60)
+
+
+DiscardReason = Literal[
+    "unknown_feature",
+    "outside_selection",
+    "unknown_source",
+    "quote_mismatch",
+    "path_label_mismatch",
+    "source_changed",
+    "invalid_geometry",
+    "invalid_schema",
+]
+
+
+class MapExtractionSummary(SpatialModel):
+    outcome: Literal["complete", "partial", "no_supported_relations", "failed"]
+    message: str
+    targets: int = Field(ge=0)
+    sources: int = Field(ge=0)
+    input_characters: int = Field(ge=0)
+    batches: int = Field(ge=0)
+    failed_batches: int = Field(ge=0)
+    truncated_batches: int = Field(ge=0)
+    received_relations: int = Field(ge=0)
+    accepted_relations: int = Field(ge=0)
+    discarded_relations: int = Field(ge=0)
+    discard_reasons: dict[DiscardReason, int]
+    structured_attempts: int | None = Field(default=None, ge=0)
+    format_retries: int | None = Field(default=None, ge=0)
 
 
 class MapTaskResponse(SpatialModel):
