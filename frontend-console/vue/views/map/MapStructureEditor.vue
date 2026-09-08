@@ -327,6 +327,7 @@ function imageState(placement) {
 function featureLabel(id) { return doc.value.features.find(f => f.id === id)?.label || "待核对地点" }
 function formatDate(value) { return value ? new Date(value).toLocaleString() : "已有图片" }
 let backupAccount = null
+let knownBackup
 try { backupAccount = localStorage.getItem(ACCOUNT_MARKER_KEY) } catch { /* Saving remains available. */ }
 function backupKey() {
   if (localStorage.getItem(ACCOUNT_MARKER_KEY) !== backupAccount) throw new Error('account changed')
@@ -334,15 +335,25 @@ function backupKey() {
 }
 function persistDraft() {
   clearTimeout(backupTimer)
-  if (!dirty.value) return
+  if (!dirty.value) {
+    if (initialized.value && knownBackup !== undefined && !recovery.value) clearBackup(knownBackup)
+    return
+  }
   try {
     const value = JSON.stringify({ base_revision_id: revision.value?.id || null, document: doc.value })
     localStorage.setItem(backupKey(), value)
     if (localStorage.getItem(backupKey()) !== value) throw new Error("backup verification failed")
+    knownBackup = value
     backedUp.value = true; backupError.value = false
   } catch { backedUp.value = false; backupError.value = true }
 }
-function clearBackup() { try { localStorage.removeItem(backupKey()) } catch { /* Server save remains authoritative. */ } }
+function clearBackup(expectedValue) {
+  try {
+    const key = backupKey()
+    if (expectedValue !== undefined && localStorage.getItem(key) !== expectedValue) return
+    localStorage.removeItem(key); knownBackup = null
+  } catch { /* Server save remains authoritative. */ }
+}
 function install(value) {
   installing = true
   revision.value = value; doc.value = copyMap(value?.document || emptyMap())
@@ -525,7 +536,7 @@ async function load(initial = false) {
     taskId.value = result.task_id; taskStatus.value = result.task_status; generationSummary.value = result.generation_summary || null
     if (!initialized.value) {
       install(result.revision); initialized.value = true; await restoreView()
-      try { recovery.value = JSON.parse(localStorage.getItem(backupKey()) || "null") } catch { backupError.value = true }
+      try { const raw = localStorage.getItem(backupKey()); recovery.value = JSON.parse(raw || "null"); knownBackup = raw } catch { backupError.value = true }
       if (recovery.value && JSON.stringify(recovery.value.document) === baseline.value) recovery.value = null
     } else if (!dirty.value && !candidateView.value && revision.value?.id !== result.revision?.id) install(result.revision)
     else if (!dirty.value && !candidateView.value) problems.value = result.revision?.problems || []
@@ -754,7 +765,7 @@ function canLeave() {
   if (!backedUp.value && !downloaded) { error.value = "当前编辑还未保存或备份，请先保存或下载备份。"; return false }
   return confirm(backedUp.value ? "地图有未保存修改，本机备份已保留。确定离开？" : "请确认已保留下载的地图备份，再离开当前编辑。")
 }
-function beforeUnload(event) { if (dirty.value || saving.value) { persistDraft(); event.preventDefault(); event.returnValue = "" } }
+function beforeUnload(event) { persistDraft(); if (dirty.value || saving.value) { event.preventDefault(); event.returnValue = "" } }
 watch(doc, () => {
   if (installing || !initialized.value) return
   backedUp.value = false; clearTimeout(backupTimer); backupTimer = setTimeout(persistDraft, 200)

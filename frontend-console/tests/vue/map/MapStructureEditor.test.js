@@ -81,6 +81,89 @@ describe("统一地图编辑器", () => {
     expect(wrapper.get(".map-feature circle").attributes("cx")).toBe("110")
   })
 
+  it.each(['卸载', '立即刷新'])('编辑已备份后撤销回服务端版，%s再重开不会复活已撤销内容', async exit => {
+    vi.useFakeTimers()
+    const key = `novel_map_draft:test-account:${projectId}:${nodeId}`
+    const wrapper = render(); await flushPromises()
+    await wrapper.get('.map-inspector input').setValue('不再保留的编辑')
+    await vi.advanceTimersByTimeAsync(250)
+    expect(JSON.parse(localStorage.getItem(key)).document.features[0].label).toBe('不再保留的编辑')
+    await button(wrapper, '撤销').trigger('click')
+    expect(wrapper.vm.dirty).toBe(false)
+    expect(button(wrapper, '保存地图').attributes('disabled')).toBeDefined()
+    if (exit === '立即刷新') {
+      const event = new Event('beforeunload', { cancelable: true })
+      globalThis.dispatchEvent(event)
+      expect(event.defaultPrevented).toBe(false)
+      expect(localStorage.getItem(key)).toBeNull()
+    }
+    wrapper.unmount()
+    expect(localStorage.getItem(key)).toBeNull()
+    const reopened = render(); await flushPromises()
+    expect(reopened.text()).not.toContain('发现未保存的本机编辑')
+    expect(reopened.get('.map-inspector input').element.value).toBe('临江城')
+  })
+
+  it('首次加载尚未读取、恢复提示待决定和无法解析的旧备份均不会因干净状态被清理', async () => {
+    vi.useFakeTimers()
+    const key = `novel_map_draft:test-account:${projectId}:${nodeId}`
+    const backup = document(); backup.features[0].label = '需要作者决定的备份'
+    const raw = JSON.stringify({ base_revision_id: revisionId, document: backup })
+    localStorage.setItem(key, raw)
+    let finish
+    api.world.getNodeMap.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    const pending = render()
+    pending.unmount()
+    expect(localStorage.getItem(key)).toBe(raw)
+    finish(state(record())); await flushPromises()
+    const deciding = render(); await flushPromises()
+    expect(deciding.text()).toContain('发现未保存的本机编辑')
+    await vi.advanceTimersByTimeAsync(250)
+    deciding.unmount()
+    expect(localStorage.getItem(key)).toBe(raw)
+    localStorage.setItem(key, '{unfinished')
+    const unreadable = render(); await flushPromises()
+    unreadable.unmount()
+    expect(localStorage.getItem(key)).toBe('{unfinished')
+  })
+
+  it('账户已经切换时，撤销清理不删除任何账户的备份', async () => {
+    vi.useFakeTimers()
+    const oldKey = `novel_map_draft:test-account:${projectId}:${nodeId}`
+    const otherKey = `novel_map_draft:other-account:${projectId}:${nodeId}`
+    const wrapper = render(); await flushPromises()
+    await wrapper.get('.map-inspector input').setValue('旧账户的本机编辑')
+    await vi.advanceTimersByTimeAsync(250)
+    const oldBackup = localStorage.getItem(oldKey)
+    localStorage.setItem(otherKey, 'other-account-backup')
+    localStorage.setItem('novel_accountId', 'other-account')
+    await button(wrapper, '撤销').trigger('click')
+    await vi.advanceTimersByTimeAsync(250)
+    wrapper.unmount()
+    expect(localStorage.getItem(oldKey)).toBe(oldBackup)
+    expect(localStorage.getItem(otherKey)).toBe('other-account-backup')
+  })
+
+  it.each([false, true])('干净标签页不删除同账户另一标签页后来写入的备份（本页曾编辑：%s）', async edited => {
+    vi.useFakeTimers()
+    const key = `novel_map_draft:test-account:${projectId}:${nodeId}`
+    const wrapper = render(); await flushPromises()
+    if (edited) {
+      await wrapper.get('.map-inspector input').setValue('本标签页已备份的编辑')
+      await vi.advanceTimersByTimeAsync(250)
+    }
+    const other = document(); other.features[0].label = '另一标签页的新编辑'
+    const raw = JSON.stringify({ base_revision_id: revisionId, document: other })
+    localStorage.setItem(key, raw)
+    if (edited) await button(wrapper, '撤销').trigger('click')
+    await vi.advanceTimersByTimeAsync(250)
+    globalThis.dispatchEvent(new Event('beforeunload', { cancelable: true }))
+    wrapper.unmount()
+    expect(localStorage.getItem(key)).toBe(raw)
+    const reopened = render(); await flushPromises()
+    expect(reopened.text()).toContain('发现未保存的本机编辑')
+  })
+
   it("服务端与本地备份同时失败时不放行导航，也不声称已备份", async () => {
     const wrapper = render()
     await flushPromises()
