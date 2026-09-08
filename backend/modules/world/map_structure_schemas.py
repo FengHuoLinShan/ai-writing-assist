@@ -292,6 +292,13 @@ class MapGenerateRequest(SpatialModel):
         return self
 
 
+class MapReviewPreview(SpatialModel):
+    candidate_revision_id: str
+    base_revision_id: str | None
+    applied_change_keys: list[str]
+    expanded_change_keys: list[str]
+
+
 class MapRevisionResponse(SpatialModel):
     id: str
     node_id: str

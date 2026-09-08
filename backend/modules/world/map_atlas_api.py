@@ -39,6 +39,7 @@ from modules.world.map_structure_schemas import (
     MapNodeCreate,
     MapNodeMapResponse,
     MapReaderPreview,
+    MapReviewPreview,
     MapRevisionResponse,
     MapRevisionReview,
     MapSaveRequest,
@@ -134,6 +135,21 @@ async def preview_map_layout(
     db: DbSession, novel_id: ActiveNovelId, node_id: str, data: MapSaveRequest
 ):
     return await _structure.preview_layout(db, novel_id, node_id, data)
+
+
+@router.post(
+    "/{novel_id}/nodes/{node_id}/revisions/{revision_id}/review-preview",
+    response_model=MapReviewPreview,
+    dependencies=_xhr,
+)
+async def preview_map_review(
+    db: DbSession,
+    novel_id: ActiveNovelId,
+    node_id: str,
+    revision_id: str,
+    data: MapRevisionReview,
+):
+    return await _structure.review_preview(db, novel_id, node_id, revision_id, data)
 
 
 @router.post(

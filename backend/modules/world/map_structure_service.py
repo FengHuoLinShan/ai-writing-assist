@@ -521,12 +521,71 @@ class MapStructureService:
             image_layers=await self.image_layers(db, novel_id, node_id, document),
         )
 
-    async def review(self, db, novel_id, node_id, revision_id, data: MapRevisionReview):
+    async def _adoption_document(self, db, novel_id, node_id, node, row, data):
         from modules.world.map_structure_review import (
             apply_revision_changes,
-            changed_items,
             document_items,
         )
+
+        if node.current_revision_id != data.base_revision_id:
+            raise ConflictError("地图已更新，请重新比较后再操作")
+        if row.status != "candidate" or row.base_revision_id != node.current_revision_id:
+            raise ConflictError("候选基于旧地图，请重新生成或手动比较")
+        if not row.confirmation_id:
+            raise ConflictError("候选缺少原参考资料确认，请重新生成")
+        try:
+            prepared = await prepare_confirmed_ai_action(
+                db,
+                novel_id=novel_id,
+                action=MAP_ACTION,
+                confirmation_id=str(row.confirmation_id),
+            )
+        except ValueError as exc:
+            raise ConflictError("候选参考资料已经失效，请重新生成") from exc
+        if prepared.confirmation.context_fingerprint != row.context_fingerprint:
+            raise ConflictError("候选来源已变化，请重新生成")
+        candidate = MapDocument.model_validate(row.document)
+        baseline = (
+            MapDocument.model_validate(
+                (
+                    await self.revision(db, novel_id, node_id, row.base_revision_id)
+                ).document
+            )
+            if row.base_revision_id
+            else MapDocument()
+        )
+        document, applied, expanded = apply_revision_changes(
+            baseline, candidate, data.change_keys
+        )
+        items = document_items(document)
+        for key in applied:
+            item = items.get(key)
+            if item is not None and key.startswith(("feature:", "constraint:")):
+                for source in item.sources:
+                    await self.source(db, novel_id, source)
+        return document, applied, expanded
+
+    async def review_preview(
+        self, db, novel_id, node_id, revision_id, data: MapRevisionReview
+    ):
+        from modules.world.map_structure_schemas import MapReviewPreview
+
+        if data.action != "adopt":
+            raise ValidationError("采用范围预览只接受采用操作")
+        node = await self.node(db, novel_id, node_id)
+        row = await self.revision(db, novel_id, node_id, revision_id)
+        _, applied, expanded = await self._adoption_document(
+            db, novel_id, node_id, node, row, data
+        )
+        return MapReviewPreview(
+            candidate_revision_id=str(row.id),
+            base_revision_id=str(row.base_revision_id) if row.base_revision_id else None,
+            applied_change_keys=applied,
+            expanded_change_keys=expanded,
+        )
+
+    async def review(self, db, novel_id, node_id, revision_id, data: MapRevisionReview):
+        from modules.world.map_structure_review import changed_items
 
         await require_active_project_exclusive(db, novel_id)
         node = await self.node(db, novel_id, node_id, lock=True)
@@ -539,50 +598,14 @@ class MapStructureService:
             return self.response(row)
         if node.current_revision_id != data.base_revision_id:
             raise ConflictError("地图已更新，请重新比较后再操作")
+        candidate = MapDocument.model_validate(row.document)
+        document, applied, expanded = candidate, [], []
         if data.action == "adopt":
-            if (
-                row.status != "candidate"
-                or row.base_revision_id != node.current_revision_id
-            ):
-                raise ConflictError("候选基于旧地图，请重新生成或手动比较")
-            if row.confirmation_id:
-                prepared = await prepare_confirmed_ai_action(
-                    db,
-                    novel_id=novel_id,
-                    action=MAP_ACTION,
-                    confirmation_id=str(row.confirmation_id),
-                )
-                if prepared.confirmation.context_fingerprint != row.context_fingerprint:
-                    raise ConflictError("候选来源已变化，请重新生成")
-            elif row.task_id or any(
-                item.get("generated_by_task_id")
-                for item in (row.document or {}).get("constraints", [])
-            ):
-                raise ConflictError("候选缺少原参考资料确认，请重新生成")
+            document, applied, expanded = await self._adoption_document(
+                db, novel_id, node_id, node, row, data
+            )
         elif row.status != "saved":
             raise ConflictError("只能恢复已保存的历史版本")
-        candidate = MapDocument.model_validate(row.document)
-        applied, expanded = [], []
-        document = candidate
-        if data.action == "adopt":
-            baseline = (
-                MapDocument.model_validate(
-                    (
-                        await self.revision(db, novel_id, node_id, row.base_revision_id)
-                    ).document
-                )
-                if row.base_revision_id
-                else MapDocument()
-            )
-            document, applied, expanded = apply_revision_changes(
-                baseline, candidate, data.change_keys
-            )
-            items = document_items(document)
-            for key in applied:
-                item = items.get(key)
-                if item is not None and key.startswith(("feature:", "constraint:")):
-                    for source in item.sources:
-                        await self.source(db, novel_id, source)
         result = await self.save(
             db,
             novel_id,

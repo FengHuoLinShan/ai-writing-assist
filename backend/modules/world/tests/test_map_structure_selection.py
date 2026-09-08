@@ -923,3 +923,147 @@ async def test_derived_image_new_revision_rebuilds_guide_and_drops_old_prompt(
     assert derived.source_manifest == []
     assert derived.source_map_revision_id == uuid.UUID(new.id)
     assert page.prompt == "不应再引用的旧资料"
+
+
+async def test_bound_marker_uses_only_retained_entity_source(db_session, test_project_id):
+    entity = CoreEntity(
+        novel_id=uuid.UUID(test_project_id),
+        entity_type="location",
+        name="已采用地点",
+        status="canonical",
+    )
+    db_session.add(entity)
+    await db_session.flush()
+    document = points()
+    document.features[0].entity_id = entity.id
+    _, node, saved = await saved_map(db_session, test_project_id, document)
+    item = ContextItem(
+        key="entity",
+        content=entity.name,
+        status="canonical",
+        token_count=8,
+        source={"type": "entity", "id": str(entity.id), "status": "canonical"},
+        selection_state="automatic",
+    )
+    prepared = SimpleNamespace(
+        compiled=CompiledContext(
+            sections=[
+                ContextSection(
+                    key="world_entities",
+                    tier=Tier.P2,
+                    content=entity.name,
+                    status="canonical",
+                    items=[item],
+                )
+            ]
+        )
+    )
+    payload = {"base_revision_id": saved.id, "feature_ids": ["a"]}
+    _, selected, _, symbols, _ = await structure_inputs(
+        db_session, test_project_id, node["id"], payload, prepared
+    )
+    assert [ref.id for ref in selected.features[0].sources] == [entity.id]
+    assert symbols[0]["key"] == "a"
+    assert saved.document.features[0].sources == []
+    again_payload = payload | {"location_ids": [str(entity.id)]}
+    _, repeated, _, symbols, _ = await structure_inputs(
+        db_session, test_project_id, node["id"], again_payload, prepared
+    )
+    assert len(repeated.features[0].sources) == 1 and len(symbols) == 1
+    prepared.compiled.sections[0].items[0].selection_state = "excluded"
+    with pytest.raises(ValidationError, match="未进入本次确认"):
+        await structure_inputs(db_session, test_project_id, node["id"], payload, prepared)
+
+
+async def test_adoption_preview_is_readonly_matches_apply_and_rechecks_confirmation(
+    db_session, test_project_id, project_factory
+):
+    from core.errors import NotFoundError
+    from modules.world.map_atlas_models import MapAtlasNode
+
+    service, node, saved = await saved_map(db_session, test_project_id)
+    document = saved.document.model_copy(deep=True)
+    document.features[1].points[0].x += 80
+    document.constraints = [
+        SpatialConstraint(id="route", subject="a", target="b", relation="connects")
+    ]
+    document = layout(document).document
+    candidate = MapAtlasRevision(
+        novel_id=uuid.UUID(test_project_id),
+        node_id=uuid.UUID(node["id"]),
+        base_revision_id=uuid.UUID(saved.id),
+        status="candidate",
+        document=document.model_dump(mode="json"),
+        geometry_hash=geometry_hash(document),
+        problems=[],
+        confirmation_id=uuid.uuid4(),
+        context_fingerprint="f" * 64,
+    )
+    db_session.add(candidate)
+    await db_session.flush()
+    request = MapRevisionReview(
+        action="adopt", base_revision_id=saved.id, change_keys=["constraint:route"]
+    )
+    count = await db_session.scalar(select(func.count(MapAtlasRevision.id)))
+    original = candidate.document
+    with patch(
+        "modules.world.map_structure_service.prepare_confirmed_ai_action",
+        autospec=True,
+        return_value=SimpleNamespace(
+            confirmation=SimpleNamespace(context_fingerprint="f" * 64)
+        ),
+    ):
+        preview = await service.review_preview(
+            db_session, test_project_id, node["id"], str(candidate.id), request
+        )
+        assert preview.candidate_revision_id == str(candidate.id)
+        assert preview.base_revision_id == saved.id
+        assert set(preview.expanded_change_keys) == {
+            "feature:b",
+            f"feature:{route_key('route')}",
+        }
+        assert await db_session.scalar(select(func.count(MapAtlasRevision.id))) == count
+        assert candidate.status == "candidate" and candidate.document == original
+        head = await db_session.get(MapAtlasNode, uuid.UUID(node["id"]))
+        assert str(head.current_revision_id) == saved.id
+        assert not db_session.new and not db_session.dirty
+    with patch(
+        "modules.world.map_structure_service.prepare_confirmed_ai_action",
+        autospec=True,
+        side_effect=ValueError("context_changed"),
+    ):
+        for method in [service.review_preview, service.review]:
+            with pytest.raises(ConflictError, match="参考资料已经失效"):
+                await method(
+                    db_session, test_project_id, node["id"], str(candidate.id), request
+                )
+        assert candidate.status == "candidate"
+    with patch(
+        "modules.world.map_structure_service.prepare_confirmed_ai_action",
+        autospec=True,
+        return_value=SimpleNamespace(
+            confirmation=SimpleNamespace(context_fingerprint="f" * 64)
+        ),
+    ):
+        actual = await service.review(
+            db_session, test_project_id, node["id"], str(candidate.id), request
+        )
+    assert actual.applied_change_keys == preview.applied_change_keys
+    assert actual.expanded_change_keys == preview.expanded_change_keys
+    with pytest.raises(ConflictError):
+        await service.review_preview(
+            db_session, test_project_id, node["id"], str(candidate.id), request
+        )
+    foreign = str(await project_factory.create_project())
+    with pytest.raises(NotFoundError):
+        await service.review_preview(
+            db_session, foreign, node["id"], str(candidate.id), request
+        )
+    with pytest.raises(ValidationError, match="只接受采用"):
+        await service.review_preview(
+            db_session,
+            test_project_id,
+            node["id"],
+            str(candidate.id),
+            MapRevisionReview(action="reject", base_revision_id=actual.id),
+        )

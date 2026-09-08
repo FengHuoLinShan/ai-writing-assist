@@ -285,13 +285,17 @@ async def structure_inputs(db, novel_id, node_id, meta, prepared):
         selected[feature.id] = feature
     symbols, source_keys = [], {}
     for feature in sorted(selected.values(), key=lambda item: item.id):
+        if feature.entity_id:
+            entity_source = sources.get(f"entity:{feature.entity_id}")
+            if entity_source is None:
+                raise ValidationError(
+                    f"“{feature.label}”的世界资料未进入本次确认，请调整资料选择"
+                )
+            if not feature.sources:
+                feature.sources = [entity_source["ref"]]
         if not feature.sources:
             raise ValidationError(
                 f"“{feature.label}”还没有正文或世界资料来源，请先关联资料再整理"
-            )
-        if feature.entity_id and f"entity:{feature.entity_id}" not in sources:
-            raise ValidationError(
-                f"“{feature.label}”的世界资料未进入本次确认，请调整资料选择"
             )
         keys = set()
         for ref in feature.sources:
