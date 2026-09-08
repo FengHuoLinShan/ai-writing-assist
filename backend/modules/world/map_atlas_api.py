@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 
 from core.csrf import require_xhr_request
@@ -30,9 +30,22 @@ from modules.world.map_atlas_schemas import (
 )
 from modules.world.map_atlas_service import MapAtlasService, parse_reference_page_ids
 from modules.world.map_atlas_storage import MAX_IMAGE_BYTES
+from modules.world.map_structure_schemas import (
+    MapGenerateRequest,
+    MapLayoutResponse,
+    MapNodeCreate,
+    MapNodeMapResponse,
+    MapReaderPreview,
+    MapRevisionResponse,
+    MapRevisionReview,
+    MapSaveRequest,
+    MapTaskResponse,
+)
+from modules.world.map_structure_service import MapStructureService
 
 router = APIRouter(prefix="/api/world/map-atlas", tags=["world-map-atlas"])
 _service = MapAtlasService()
+_structure = MapStructureService()
 _xhr = [Depends(require_xhr_request)]
 
 
@@ -42,6 +55,113 @@ async def _require_active_novel_id(db: DbSession, novel_id: str) -> str:
 
 
 ActiveNovelId = Annotated[str, Depends(_require_active_novel_id)]
+
+
+@router.post(
+    "/{novel_id}/nodes",
+    response_model=MapAtlasNodeResponse,
+    status_code=201,
+    dependencies=_xhr,
+)
+async def create_map_node(db: DbSession, novel_id: ActiveNovelId, data: MapNodeCreate):
+    return await _structure.create_node(db, novel_id, data)
+
+
+@router.get("/{novel_id}/nodes/{node_id}/map", response_model=MapNodeMapResponse)
+async def get_node_map(db: DbSession, novel_id: ActiveNovelId, node_id: str):
+    return await _structure.get_map(db, novel_id, node_id)
+
+
+@router.get(
+    "/{novel_id}/nodes/{node_id}/revisions", response_model=list[MapRevisionResponse]
+)
+async def get_map_revisions(db: DbSession, novel_id: ActiveNovelId, node_id: str):
+    return await _structure.history(db, novel_id, node_id)
+
+
+@router.post(
+    "/{novel_id}/nodes/{node_id}/revisions",
+    response_model=MapRevisionResponse,
+    status_code=201,
+    dependencies=_xhr,
+)
+async def save_map_revision(
+    db: DbSession, novel_id: ActiveNovelId, node_id: str, data: MapSaveRequest
+):
+    return await _structure.save(db, novel_id, node_id, data)
+
+
+@router.post(
+    "/{novel_id}/nodes/{node_id}/layout",
+    response_model=MapLayoutResponse,
+    dependencies=_xhr,
+)
+async def preview_map_layout(
+    db: DbSession, novel_id: ActiveNovelId, node_id: str, data: MapSaveRequest
+):
+    return await _structure.preview_layout(db, novel_id, node_id, data)
+
+
+@router.post(
+    "/{novel_id}/nodes/{node_id}/revisions/{revision_id}/review",
+    response_model=MapRevisionResponse,
+    dependencies=_xhr,
+)
+async def review_map_revision(
+    db: DbSession,
+    novel_id: ActiveNovelId,
+    node_id: str,
+    revision_id: str,
+    data: MapRevisionReview,
+):
+    return await _structure.review(db, novel_id, node_id, revision_id, data)
+
+
+@router.post(
+    "/{novel_id}/nodes/{node_id}/generate-structure",
+    response_model=MapTaskResponse,
+    status_code=202,
+    dependencies=_xhr,
+)
+async def generate_map_structure(
+    db: DbSession, novel_id: ActiveNovelId, node_id: str, data: MapGenerateRequest
+):
+    from modules.world.map_structure_workflow import enqueue_structure
+
+    return await enqueue_structure(db, novel_id, node_id, data)
+
+
+@router.get("/{novel_id}/nodes/{node_id}/reader-preview", response_model=MapReaderPreview)
+async def preview_reader_map(
+    db: DbSession,
+    novel_id: ActiveNovelId,
+    node_id: str,
+    chapter: int = Query(ge=1, le=100000),
+    revision_id: str | None = None,
+):
+    return await _structure.reader_preview(
+        db, novel_id, node_id, chapter=chapter, revision_id=revision_id
+    )
+
+
+@router.get("/{novel_id}/nodes/{node_id}/reader-preview/images/{page_id}")
+async def preview_reader_image(
+    db: DbSession,
+    novel_id: ActiveNovelId,
+    node_id: str,
+    page_id: str,
+    chapter: int = Query(ge=1, le=100000),
+    revision_id: str | None = None,
+):
+    projection = await _structure.reader_preview(
+        db, novel_id, node_id, chapter=chapter, revision_id=revision_id
+    )
+    if not any(image["page_id"] == page_id for image in projection["images"]):
+        raise HTTPException(status_code=404, detail="当前阅读进度没有这张图片")
+    stream = await _service.read_page_image(db, novel_id, page_id)
+    return StreamingResponse(
+        stream, media_type="image/png", headers={"Cache-Control": "no-store"}
+    )
 
 
 async def _read_bounded_png(upload: UploadFile | None) -> bytes | None:
@@ -362,10 +482,14 @@ async def edit_page(
     instruction: Annotated[str, Form(min_length=1, max_length=4000)],
     reference_page_ids: Annotated[str | None, Form()] = None,
     mask: Annotated[UploadFile | None, File()] = None,
+    source_map_revision_id: Annotated[str | None, Form()] = None,
+    context_confirmation_id: Annotated[str | None, Form()] = None,
 ):
     data = MapAtlasDerivedRequest(
         instruction=instruction,
         reference_page_ids=parse_reference_page_ids(reference_page_ids),
+        source_map_revision_id=source_map_revision_id,
+        context_confirmation_id=context_confirmation_id,
     )
     mask_bytes = await _read_bounded_png(mask)
     return await _service.create_derived_page(

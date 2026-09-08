@@ -26,6 +26,7 @@ from modules.world.map_atlas_models import (
     MapAtlasAnnotation,
     MapAtlasNode,
     MapAtlasPage,
+    MapAtlasRevision,
     MapAtlasRun,
 )
 from modules.world.map_atlas_schemas import (
@@ -85,8 +86,34 @@ class MapAtlasService:
         await require_active_project_exclusive(db, novel_id)
         active = await self._active_run(db, novel_id, for_update=True)
         if active is not None:
+            if data.target_node_id and str(data.target_node_id) != (
+                active.context_snapshot or {}
+            ).get("target_node_id"):
+                raise ConflictError("当前项目已有图片任务，请先完成当前画面")
             return self._run_dict(active)
-        llm_snapshot = await build_project_llm_execution_snapshot(db, novel_id)
+        bound_snapshot = {}
+        if data.target_node_id:
+            from modules.world.map_structure_service import MapStructureService
+
+            structure = MapStructureService()
+            target = await structure.node(db, novel_id, str(data.target_node_id))
+            source_revision = await structure.revision(
+                db, novel_id, str(target.id), data.source_map_revision_id
+            )
+            if (
+                source_revision.status != "saved"
+                or target.current_revision_id != source_revision.id
+            ):
+                raise ConflictError("请先保存并选择当前地图版本")
+            bound_snapshot = {
+                "target_node_id": str(target.id),
+                "source_map_revision_id": str(source_revision.id),
+            }
+        llm_snapshot = (
+            {}
+            if bound_snapshot
+            else await build_project_llm_execution_snapshot(db, novel_id)
+        )
         image_snapshot = (
             {}
             if data.review_image_prompts
@@ -116,6 +143,7 @@ class MapAtlasService:
             image_execution_snapshot=image_snapshot,
             context_snapshot={
                 "context_confirmation_id": data.context_confirmation_id,
+                **bound_snapshot,
             },
         )
         db.add(run)
@@ -272,6 +300,17 @@ class MapAtlasService:
             .all()
         )
         node_ids = {page.node_id for page in pages}
+        if run is None:
+            node_ids.update(
+                (
+                    await db.scalars(
+                        select(MapAtlasNode.id).where(
+                            MapAtlasNode.novel_id == nid,
+                            MapAtlasNode.current_revision_id.is_not(None),
+                        )
+                    )
+                ).all()
+            )
         nodes_by_id: dict[uuid.UUID, MapAtlasNode] = {}
         frontier = set(node_ids)
         while frontier:
@@ -322,9 +361,95 @@ class MapAtlasService:
             ).scalars()
         )
         annotation_map: dict[uuid.UUID, list[dict[str, Any]]] = {}
+        adopted_targets.update(
+            (
+                await db.scalars(
+                    select(MapAtlasNode.id).where(
+                        MapAtlasNode.novel_id == nid,
+                        MapAtlasNode.current_revision_id.is_not(None),
+                    )
+                )
+            ).all()
+        )
+        current_documents = {
+            row.node_id: row.document
+            for row in (
+                await db.scalars(
+                    select(MapAtlasRevision)
+                    .join(
+                        MapAtlasNode,
+                        MapAtlasNode.current_revision_id == MapAtlasRevision.id,
+                    )
+                    .where(MapAtlasRevision.novel_id == nid, MapAtlasNode.novel_id == nid)
+                )
+            ).all()
+        }
+        page_nodes = {page.id: page.node_id for page in pages}
         for item in annotations:
             projected = self._annotation_dict(item)
-            if item.target_node_id not in adopted_targets:
+            document = current_documents.get(page_nodes.get(item.page_id), {})
+            binding = next(
+                (
+                    b
+                    for b in document.get("annotation_bindings", [])
+                    if b["annotation_id"] == str(item.id)
+                ),
+                None,
+            )
+            if binding:
+                feature = next(
+                    (
+                        f
+                        for f in document.get("features", [])
+                        if f["id"] == binding["feature_id"]
+                    ),
+                    None,
+                )
+                if feature:
+                    projected["label"] = feature["label"]
+                    projected["bound_feature_id"] = feature["id"]
+                    projected["target_node_id"] = feature.get("target_node_id")
+                    projected["source_ref"] = {}
+                    from modules.world.map_structure_geometry import (
+                        affine_transform,
+                        geometry_hash,
+                    )
+                    from modules.world.map_structure_schemas import MapDocument
+
+                    spatial = MapDocument.model_validate(document)
+                    placement = next(
+                        (
+                            image
+                            for image in spatial.images
+                            if str(image.page_id) == str(item.page_id)
+                            and image.role == "background"
+                        ),
+                        None,
+                    )
+                    if (
+                        not placement
+                        or placement.geometry_hash != geometry_hash(spatial)
+                        or not feature.get("points")
+                    ):
+                        continue
+                    try:
+                        a, b, c, d, e, f = affine_transform(placement, spatial)
+                    except ValueError:
+                        continue
+                    x, y = feature["points"][0]["x"] - e, feature["points"][0]["y"] - f
+                    determinant = a * d - b * c
+                    image_x, image_y = (
+                        (d * x - c * y) / determinant,
+                        (a * y - b * x) / determinant,
+                    )
+                    if not (0 <= image_x <= 1 and 0 <= image_y <= 1):
+                        continue
+                    projected["position_x"], projected["position_y"] = image_x, image_y
+            if (
+                projected["target_node_id"]
+                and parse_uuid(str(projected["target_node_id"]), "target_node_id")
+                not in adopted_targets
+            ):
                 projected["target_node_id"] = None
             annotation_map.setdefault(item.page_id, []).append(projected)
         page_map: dict[uuid.UUID, list[dict[str, Any]]] = {}
@@ -494,6 +619,22 @@ class MapAtlasService:
             raise NotFoundError("地图标注不存在")
         if item.updated_at != data.expected_updated_at:
             raise ConflictError("标注已在别处更新，请刷新后重试")
+        current = await db.scalar(
+            select(MapAtlasRevision)
+            .join(MapAtlasNode, MapAtlasNode.current_revision_id == MapAtlasRevision.id)
+            .join(MapAtlasPage, MapAtlasPage.node_id == MapAtlasNode.id)
+            .where(
+                MapAtlasPage.id == item.page_id,
+                MapAtlasPage.novel_id == nid,
+                MapAtlasNode.novel_id == nid,
+                MapAtlasRevision.novel_id == nid,
+            )
+        )
+        if current and any(
+            b["annotation_id"] == str(item.id)
+            for b in current.document.get("annotation_bindings", [])
+        ):
+            raise ConflictError("此标注已绑定空间地点，请在地图编辑器中修改")
         patch = data.model_dump(exclude={"expected_updated_at"}, exclude_unset=True)
         if patch.get("target_node_id"):
             target_id = parse_uuid(patch["target_node_id"], "target_node_id")
@@ -504,7 +645,14 @@ class MapAtlasService:
                     MapAtlasPage.review_status == "adopted",
                 )
             )
-            if not adopted:
+            spatial_target = await db.scalar(
+                select(MapAtlasNode.id).where(
+                    MapAtlasNode.id == target_id,
+                    MapAtlasNode.novel_id == nid,
+                    MapAtlasNode.current_revision_id.is_not(None),
+                )
+            )
+            if not adopted and not spatial_target:
                 raise ValidationError("目标地点加入地图册后才能建立跳转")
             patch["target_node_id"] = target_id
         for key, value in patch.items():
@@ -689,7 +837,14 @@ class MapAtlasService:
                 provider="user",
                 model="external",
             )
-            db.add_all([run, node, page] if node_id is None else [run, page])
+            # The spatial head introduces a node/revision FK cycle. Persist the
+            # image run before its children instead of relying on mapper ordering.
+            db.add(run)
+            await db.flush()
+            if node_id is None:
+                db.add(node)
+                await db.flush()
+            db.add(page)
             await db.flush()
             return self._page_dict(page, [])
         except BaseException:
@@ -935,6 +1090,42 @@ class MapAtlasService:
             novel_id,
             [page_id, *data.reference_page_ids],
         )
+        source_revision_id = data.source_map_revision_id or source.source_map_revision_id
+        source_geometry_hash = source.source_geometry_hash
+        bound_context = {}
+        if source_revision_id:
+            from modules.world.map_structure_service import MapStructureService
+
+            structure = MapStructureService()
+            revision = await structure.revision(
+                db, novel_id, str(source.node_id), source_revision_id
+            )
+            if revision.status != "saved":
+                raise ValidationError("图片只能引用已保存的地图版本")
+            if len(references) > 7:
+                raise ValidationError(
+                    "结构参考图占用一个位置；来源图片与所选图片合计最多七张"
+                )
+            original_run = await self._require_run(db, novel_id, str(source.run_id))
+            confirmation_id = (
+                str(data.context_confirmation_id)
+                if data.context_confirmation_id
+                else (original_run.context_snapshot or {}).get("context_confirmation_id")
+            )
+            if (
+                data.source_map_revision_id
+                and data.source_map_revision_id != source.source_map_revision_id
+                and not data.context_confirmation_id
+            ):
+                raise ValidationError("更换地图版本需要重新确认参考资料")
+            if not confirmation_id:
+                raise ValidationError("请先确认本次图片生成的参考资料")
+            source_geometry_hash = revision.geometry_hash
+            bound_context = {
+                "target_node_id": str(source.node_id),
+                "source_map_revision_id": str(revision.id),
+                "context_confirmation_id": confirmation_id,
+            }
         image_snapshot = await build_project_image_execution_snapshot(db, novel_id)
         run = MapAtlasRun(
             id=uuid.uuid4(),
@@ -947,6 +1138,7 @@ class MapAtlasService:
             page_limit=1,
             planned_page_count=1,
             image_execution_snapshot=image_snapshot,
+            context_snapshot=bound_context,
         )
         derived = MapAtlasPage(
             id=uuid.uuid4(),
@@ -962,6 +1154,8 @@ class MapAtlasService:
             evidence=dict(source.evidence or {}),
             source_manifest=list(source.source_manifest or []),
             reference_page_ids=[str(page.id) for page in references],
+            source_map_revision_id=source_revision_id,
+            source_geometry_hash=source_geometry_hash,
             sort_order=0,
         )
         storage = self._get_storage()
@@ -985,6 +1179,7 @@ class MapAtlasService:
             if await self._active_run(db, novel_id, for_update=True) is not None:
                 raise ConflictError("当前项目已有地图册生成任务")
             db.add(run)
+            await db.flush()
             db.add(derived)
             await db.flush()
             task_id = await self._enqueue_run_task(db, novel_id, run, mode="reuse_active")
@@ -1049,8 +1244,12 @@ class MapAtlasService:
             )
         return ordered
 
-    async def _adopt_ancestors(self, db: AsyncSession, page: MapAtlasPage) -> None:
-        node_id: uuid.UUID | None = page.node_id
+    async def _adopt_ancestors(
+        self, db: AsyncSession, page: MapAtlasPage | MapAtlasNode
+    ) -> None:
+        node_id: uuid.UUID | None = (
+            page.id if isinstance(page, MapAtlasNode) else page.node_id
+        )
         seen: set[uuid.UUID] = set()
         while node_id is not None:
             if node_id in seen:
@@ -1425,6 +1624,9 @@ class MapAtlasService:
             "evidence": dict(page.evidence or {}),
             "source_manifest": list(page.source_manifest or []),
             "reference_page_ids": list(page.reference_page_ids or []),
+            "source_map_revision_id": _uuid(page.source_map_revision_id),
+            "source_geometry_hash": page.source_geometry_hash,
+            "image_hash": page.sha256,
             "image_url": (
                 f"/api/world/map-atlas/{page.novel_id}/pages/{page.id}/image"
                 if page.object_key
@@ -1454,6 +1656,7 @@ class MapAtlasService:
             "novel_id": str(node.novel_id),
             "parent_id": _uuid(node.parent_id),
             "location_entity_id": _uuid(node.location_entity_id),
+            "current_revision_id": _uuid(node.current_revision_id),
             "title": node.title,
             "level": node.level,
             "status": node.status,

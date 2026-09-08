@@ -36,7 +36,7 @@ infrastructure/tasks/
 - project：`smart_dedup_scan`
 - world：`world_alias_relation_extraction`、
   `world_entity_fusion_suggestions`、`world_bible_projection_refresh`、
-  `world_bible_synopsis_refresh`、`world_generation_suggestion`、`world_validation`、`map_atlas_generate`、
+  `world_bible_synopsis_refresh`、`world_generation_suggestion`、`world_validation`、`map_atlas_generate`、`world_map_schematic_generate`、
   `map_atlas_storage_cleanup`、`world_object_image_cleanup`
 - outline：`plot_structure_generate`、`chapter_card_extraction`、
   `chapter_scene_generate`、`outline_analyze`、
@@ -287,3 +287,7 @@ provider 前 checkpoint，等待期间不持有数据库事务，finalize/apply 
 imports-owned workflow run；World Bible projection 和 RAG 的重复入队已迁到数据库唯一的
 keyed coalescing。新增任务仍需独立证明 scope、合并模式和领域新鲜度 fence，不能把现有 key
 复制为通用默认。
+
+`world_map_schematic_generate` 属于 project scope，使用 operation receipt 和 `manual_resume`；
+按节点冻结地图基准及项目文本连接，最多四个 attempt，成功批次 checkpoint 可复用。模型结果
+只落空间候选，任务完成不推进地图当前版本；不使用图片连接或新增队列基础设施。

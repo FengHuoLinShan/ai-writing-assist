@@ -28,6 +28,7 @@
 | `rag_query_planner.md` | 复杂作者查询的受约束 support/counter 软查询规划 | `modules.evidence.compilation.services.retrieval_query_planner` |
 | `rag_reranker.md` | 模式感知的 RAG 证据价值排序与 abstention | `modules.evidence.indexing.reranker` |
 | `scene_entity_extraction.md` | 深度导入 Phase 2a，Scene 世界对象、Delta 与不确定项抽取 | imports |
+| `map_structure_workflow.py` | 内联 `relation_prompt`：一次最多 20 地点、每批 5 个，提取有限关系、已有路线/河流名称与逐字证据；输出 `MapRelationBatch`，不生成坐标 | world 统一地图 |
 | `map_atlas_workflow.py` | 内联 step `world.map_atlas.plan.structured`：把已确认资料规划为最多 20 页的地图册层级；图片 Prompt 交给固定 Image API | world 地图册 |
 | `alias_relation_extraction.md` | 深度导入 Phase 2b，基于完整锁定 Scene 与冻结对象/关系引用提取别名和关系连续性 | imports |
 | `entity_fusion.py` | 内联 step `world.entity_fusion.decision.structured`：项目级智能去重与深度导入 `phase2_dedup` 共用的结构化实体融合判定；导入路径只发送同 workflow candidate 的类型、名称、已确认别名、截断摘要和 Scene/章节来源，不加载整书 RAG | world |
@@ -580,3 +581,12 @@ Prompt、schema 或 materializer 中，不提升为所有创作任务的共同�
 Markdown 链接不视为运行时装配；需要复用的静态 scaffold 必须由调用代码显式组合并测试。
 
 Prompt 设计文档的职责是解释“为什么这样分工”，不是逐字复刻每个 Prompt 当前文件里的全部 JSON 字段。
+
+### 结构引导的地图图片
+
+空间提取动作是 `world.map_atlas.structure`；每批最多 5 地点，显式 4000-token JSON 输出预算
+登记于非深导输出预算白名单，并由工作流测试核对；其他普通步骤继续继承项目配置。模型不能
+创造新地理事实、坐标或绘图代码，所有
+端点及来源必须属于原确认包。已有地图的图片生成固定节点与 `source_map_revision_id`，程序
+生成不含文字的结构参考 PNG，随后继续由 `world.map_atlas.generate` 的图片运行时处理。
+结构图占参考图名额，图片结果不反向更新几何；原图片计费 checkpoint 与人工重试规则继续有效。

@@ -41,6 +41,7 @@ _WORLD_GENERATION_OPERATIONS = frozenset(
         "world.generation.semantic_inspection",
         "world.generation.world_bible_page",
         "world.map_atlas.generate",
+        "world.map_atlas.structure",
     }
 )
 _MAX_FOCUS_CHARS = 4000
@@ -196,12 +197,14 @@ class GenerationBackgroundService:
             scope="generation_center" if is_world_generation else "world",
             reveal_mode=(
                 "author_full"
-                if request.operation == "world.map_atlas.generate"
+                if request.operation
+                in {"world.map_atlas.generate", "world.map_atlas.structure"}
                 else "author_safe"
             ),
             retrieval_purpose=(
                 "map_atlas"
-                if request.operation == "world.map_atlas.generate"
+                if request.operation
+                in {"world.map_atlas.generate", "world.map_atlas.structure"}
                 else "world_generation"
                 if is_world_generation
                 else "world_fusion"
@@ -349,16 +352,15 @@ class GenerationBackgroundService:
         manifest: dict[str, list[dict[str, Any]]] = {}
         seen: set[tuple[str, str]] = set()
         for section in compiled.sections:
-            if (
-                operation == "world.map_atlas.generate"
-                and section.key
-                not in {
-                    "scene_blueprint",
-                    "world_entities",
-                    "retrieval_evidence_packs",
-                    "world_bible_working_pages",
-                }
-            ):
+            if operation in {
+                "world.map_atlas.generate",
+                "world.map_atlas.structure",
+            } and section.key not in {
+                "scene_blueprint",
+                "world_entities",
+                "retrieval_evidence_packs",
+                "world_bible_working_pages",
+            }:
                 continue
             if not section.content.strip():
                 continue

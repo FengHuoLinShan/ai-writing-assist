@@ -1161,6 +1161,7 @@ async def test_parent_reference_does_not_overflow_eight_explicit_references() ->
         novel_id=uuid.uuid4(),
         run_id=uuid.uuid4(),
         reference_page_ids=[str(uuid.uuid4()) for _ in range(8)],
+        source_map_revision_id=None,
     )
 
     assert await _reference_images(db, MagicMock(spec=MapAtlasStorage), page) == []
@@ -1176,6 +1177,7 @@ async def test_workflow_rejects_more_than_eight_stored_references() -> None:
         novel_id=uuid.uuid4(),
         run_id=uuid.uuid4(),
         reference_page_ids=[str(uuid.uuid4()) for _ in range(9)],
+        source_map_revision_id=None,
     )
 
     with pytest.raises(ValueError, match="at most 8 references"):

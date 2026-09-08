@@ -17,6 +17,15 @@ from modules.world.world_object_images import (
 
 
 @task_handler(
+    "world_map_schematic_generate", recovery_policy="manual_resume", max_attempts=4
+)
+async def handle_map_structure_generate(db, task):
+    from modules.world.map_structure_workflow import run_structure
+
+    return await run_structure(db, task)
+
+
+@task_handler(
     "map_atlas_generate",
     recovery_policy="manual_resume",
     max_attempts=20,

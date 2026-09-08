@@ -12,6 +12,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -89,6 +90,19 @@ class MapAtlasNode(Base, UUIDMixin, TimestampMixin, NovelMixin):
         UniqueConstraint(
             "novel_id", "semantic_key", name="uq_map_atlas_nodes_novel_semantic"
         ),
+        UniqueConstraint("novel_id", "id", name="uq_map_atlas_nodes_novel_id"),
+        ForeignKeyConstraint(
+            ["novel_id", "id", "current_revision_id"],
+            [
+                "map_atlas_revisions.novel_id",
+                "map_atlas_revisions.node_id",
+                "map_atlas_revisions.id",
+            ],
+            name="fk_map_node_current_revision",
+            use_alter=True,
+            deferrable=True,
+            initially="DEFERRED",
+        ),
         CheckConstraint(
             "level IN ('cover', 'world', 'region', 'city', 'district', "
             "'street', 'interior')",
@@ -106,11 +120,15 @@ class MapAtlasNode(Base, UUIDMixin, TimestampMixin, NovelMixin):
         ),
     )
 
-    created_by_run_id: Mapped[uuid.UUID] = mapped_column(
+    created_by_run_id: Mapped[uuid.UUID | None] = mapped_column(
         UUIDType,
-        ForeignKey("map_atlas_runs.id", ondelete="CASCADE"),
-        nullable=False,
+        ForeignKey("map_atlas_runs.id", ondelete="SET NULL"),
+        nullable=True,
         index=True,
+    )
+    current_revision_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
+    structure_task_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUIDType, ForeignKey("async_tasks.id", ondelete="SET NULL"), nullable=True
     )
     parent_id: Mapped[uuid.UUID | None] = mapped_column(
         UUIDType,
@@ -196,6 +214,12 @@ class MapAtlasPage(Base, UUIDMixin, TimestampMixin, NovelMixin):
     evidence: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     source_manifest: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     reference_page_ids: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    source_map_revision_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUIDType,
+        ForeignKey("map_atlas_revisions.id", ondelete="SET NULL", use_alter=True),
+        nullable=True,
+    )
+    source_geometry_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     object_key: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     mask_object_key: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -250,3 +274,33 @@ class MapAtlasAnnotation(Base, UUIDMixin, TimestampMixin, NovelMixin):
     position_y: Mapped[float] = mapped_column(Float, nullable=False)
     source_ref: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class MapAtlasRevision(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """Append-only spatial and presentation payload; review state is mutable."""
+
+    __tablename__ = "map_atlas_revisions"
+    __table_args__ = (
+        UniqueConstraint("novel_id", "node_id", "id", name="uq_map_revision_owner"),
+        ForeignKeyConstraint(
+            ["novel_id", "node_id"],
+            ["map_atlas_nodes.novel_id", "map_atlas_nodes.id"],
+            ondelete="CASCADE",
+            name="fk_map_revision_node",
+        ),
+        CheckConstraint(
+            "status IN ('candidate', 'saved', 'rejected')", name="ck_map_revision_status"
+        ),
+        Index("ix_map_revision_node_created", "novel_id", "node_id", "created_at"),
+        UniqueConstraint("task_id", "node_id", name="uq_map_revision_task_node"),
+    )
+
+    node_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False)
+    base_revision_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="candidate")
+    document: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    geometry_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    problems: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    confirmation_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
+    context_fingerprint: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    task_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)

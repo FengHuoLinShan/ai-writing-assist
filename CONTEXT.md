@@ -77,7 +77,7 @@ README、ORM 模型与 Alembic migration。当前文档范围由
 | 编译上下文 | CompiledContext | evidence compilation 按 scope、视角、预算和候选模式选择、裁剪并解释资料的中间表示。 |
 | 可操作资料项 | ContextItem | CompiledContext 内实际交给模型的单项资料；状态为 required、automatic、author_pinned、excluded 或 omitted。 |
 | Context 指纹 | compiled_context_fingerprint | 对 provider 可见 sections/items、来源身份、选择与有效范围的通用 SHA-256；预览、确认、执行必须一致。 |
-| AI 地图册 | `map_atlas_runs` / `map_atlas_nodes` / `map_atlas_pages` / `map_atlas_annotations` | 基于已确认资料生成的候选图片及作者采用后的画廊；不作为时间化世界事实。 |
+| 统一地图 | `map_atlas_nodes` / `map_atlas_revisions`，以及既有图片 run/page/annotation | 同一地点目录的空间示意、底图和配图；版本可恢复，不作为时间化世界事实。 |
 
 地图册经既有 generation-background operation `world.map_atlas.generate` 取得 author-full 的
 canonical world background，并以 RAG `map_atlas` purpose 补充已确认正文和 Scene。工作稿仅在
@@ -185,3 +185,7 @@ models/repositories/services。
 migration 与测试，再更新此词汇表。跨模块语义或资产所有权发生变化时，同一开发轮必须按
 `docs/architecture/documentation-maintenance.md` 更新受影响文档，并运行
 `make docs-check BASE_REF=origin/main`；无语义变化也要在 PR 中显式记录核对结论。
+
+统一地图的 `world.map_atlas.structure` 消费同一已确认 Context 中实际保留的来源，仅让文本模型
+提取关系；程序布局和图片校准不回写世界对象。作者端阅读预览按章首执行可见性及几何依赖过滤，
+整图阅读确认绑定图片 hash；它不提供公开分享或 RP 地图能力。

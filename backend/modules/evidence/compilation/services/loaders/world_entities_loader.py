@@ -102,9 +102,11 @@ class WorldEntitiesLoader(Loader):
             "world.generation.core_entity",
             "world.generation.world_bible_page",
             "world.map_atlas.generate",
+            "world.map_atlas.structure",
         }
         background_limits = {
             "world.map_atlas.generate": 160,
+            "world.map_atlas.structure": 160,
             "world.validation.semantic": 240,
             "world.world_bible.synopsis.refresh": 240,
         }

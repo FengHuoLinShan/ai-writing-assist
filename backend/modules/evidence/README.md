@@ -43,3 +43,7 @@ canonical HTTP 路径为 `/api/evidence/indexing/*` 与
 cd backend
 pytest modules/evidence/indexing/tests modules/evidence/compilation/tests -q
 ```
+
+统一地图沿用本模块确认与来源回读：`world.map_atlas.structure` 只消费原确认中保留的空间资料；
+图元阅读预览通过已有 `inspect_novel_target` / `read_novel_evidence` 获取受限可见性，
+不新增检索 scope、索引表或第二套证据服务。

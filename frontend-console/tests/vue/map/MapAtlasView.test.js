@@ -32,13 +32,13 @@ const page = (overrides = {}) => ({
 const tree = (pages, mode) => ({
   mode,
   total_pages: pages.length,
-  nodes: [{
+  nodes: pages.length ? [{
     id: "node-1",
     title: "沉钟港",
     level: "city",
     pages,
     children: [],
-  }],
+  }] : [],
 })
 
 describe("AI 地图册工作台", () => {
@@ -80,21 +80,21 @@ describe("AI 地图册工作台", () => {
     vi.restoreAllMocks()
   })
 
-  it("空地图册以一键生成为主操作", async () => {
+  it("空地图册以无需图片连接的新建地图为主操作", async () => {
     api.world.getMapAtlas.mockResolvedValue(tree([], "atlas"))
     api.world.getLatestMapAtlasRun.mockResolvedValue(null)
 
     const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
     await flushPromises()
 
-    expect(wrapper.get(".atlas-primary-actions .btn-primary").text()).toBe("一键生成地图册")
-    expect(wrapper.text()).toContain("还没有本次生成结果")
-    expect(wrapper.get(".atlas-generation-settings").attributes("open")).toBeDefined()
+    expect(wrapper.get(".atlas-primary-actions .btn-primary").text()).toBe("新建地图")
+    expect(wrapper.text()).toContain("你的地图册还是空的")
+    expect(wrapper.find(".atlas-generation-settings").exists()).toBe(false)
     expect(wrapper.find(".atlas-tabs").exists()).toBe(false)
   })
 
   it.each([
-    ["空地图册", tree([], "atlas"), null, true],
+    ["空地图册", tree([], "atlas"), null, false],
     ["已有地图册", tree([page({ review_status: "adopted" })], "atlas"), null, false],
     ["已有任务", tree([], "atlas"), { id: "run-1", status: "failed", planned_page_count: 0, completed_page_count: 0 }, false],
   ])("加载%s时不先误展开，完成后按真实状态决定", async (_label, atlasResult, runResult, expectedOpen) => {
@@ -103,17 +103,18 @@ describe("AI 地图册工作台", () => {
     api.world.getLatestMapAtlasRun.mockResolvedValue(runResult)
     const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
 
-    expect(wrapper.get(".atlas-generation-settings").attributes("open")).toBeUndefined()
+    expect(wrapper.find(".atlas-generation-settings").exists()).toBe(false)
     releaseAtlas(atlasResult)
     await flushPromises()
 
-    expect(wrapper.get(".atlas-generation-settings").attributes("open") !== undefined).toBe(expectedOpen)
+    expect(wrapper.find(".atlas-generation-settings[open]").exists()).toBe(expectedOpen)
   })
 
   it("已有地图册默认收起生成设置但保留可读摘要", async () => {
-    api.world.getMapAtlas.mockResolvedValue(tree([
-      page({ review_status: "adopted" }),
-    ], "atlas"))
+    const atlas = tree([page({ review_status: "adopted" })], "atlas")
+    atlas.nodes[0].current_revision_id = "revision-1"
+    api.world.getNodeMap.mockResolvedValue({ revision: { id: "revision-1", document: { schema_version: 1, layout_version: 1, features: [], constraints: [], images: [], annotation_bindings: [] }, problems: [] }, candidates: [], image_layers: [] })
+    api.world.getMapAtlas.mockResolvedValue(atlas)
 
     const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
     await flushPromises()
@@ -128,7 +129,7 @@ describe("AI 地图册工作台", () => {
     expect(settings.get("summary").text()).toContain("自定义画面偏好 · 先检查画面说明")
 
     api.world.createMapAtlasRun.mockResolvedValue({ id: "run-next", status: "planning", planned_page_count: 0, completed_page_count: 0 })
-    await wrapper.get(".atlas-primary-actions .btn-primary").trigger("click")
+    await wrapper.findAll(".atlas-primary-actions button").find(button => button.text() === "添加地图画面").trigger("click")
     await flushPromises()
     expect(api.world.createMapAtlasRun).toHaveBeenCalledWith("novel-1", expect.objectContaining({
       style_note: "旧羊皮纸",
@@ -430,7 +431,7 @@ describe("AI 地图册工作台", () => {
   it("资料不足时说明补充方式并识别同名 API 错误", async () => {
     const run = { id: "run-1", status: "failed", error_code: "insufficient_sources", planned_page_count: 0, completed_page_count: 0 }
     api.world.getLatestMapAtlasRun.mockResolvedValue(run)
-    api.world.createMapAtlasRun.mockRejectedValue({ detail: { code: "insufficient_sources" } })
+    api.world.createMapNode.mockRejectedValue({ detail: { code: "insufficient_sources" } })
 
     const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
     await flushPromises()
@@ -440,6 +441,8 @@ describe("AI 地图册工作台", () => {
     expect(wrapper.text()).toContain("加入工作稿资料")
 
     await wrapper.get(".atlas-primary-actions .btn-primary").trigger("click")
+    await wrapper.get('form[aria-label="新建空间地图"] input').setValue("区域")
+    await wrapper.get('form[aria-label="新建空间地图"]').trigger("submit")
     await flushPromises()
     expect(wrapper.get(".atlas-alert").text()).toContain("已确认资料不足")
   })
@@ -491,11 +494,12 @@ describe("AI 地图册工作台", () => {
   })
 
   it("图片连接失效时只显示友好说明和设置入口", async () => {
-    api.world.createMapAtlasRun.mockRejectedValue({ detail: { code: "image_auth_failed" } })
+    api.world.getMapAtlas.mockResolvedValue(tree([page({ review_status: "adopted" })], "atlas"))
+    api.world.regenerateMapAtlasPage.mockRejectedValue({ detail: { code: "image_auth_failed" } })
 
     const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
     await flushPromises()
-    await wrapper.get(".atlas-primary-actions .btn-primary").trigger("click")
+    await wrapper.findAll(".atlas-primary-actions button").find(button => button.text() === "生成图片新候选").trigger("click")
     await flushPromises()
 
     expect(wrapper.get(".atlas-alert").text()).toContain("OpenAI 图片连接已失效")
@@ -548,7 +552,7 @@ describe("AI 地图册工作台", () => {
     expect(toast).not.toHaveBeenCalledWith("已增加，原有图片未改变", "success")
   })
 
-  it("等待停止期间禁止新生成和所有写操作", async () => {
+  it("等待停止期间锁定图片写入，保留空间地图新建入口", async () => {
     const candidate = page({ evidence: { supported: [], visual_fill: [], conflicts: [] } })
     const removed = page({ id: "removed-1", run_id: "run-0", review_status: "deprecated" })
     const run = { id: "run-1", status: "generating", stop_requested: true, planned_page_count: 2, completed_page_count: 1 }
@@ -559,7 +563,7 @@ describe("AI 地图册工作台", () => {
     const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
     await flushPromises()
 
-    expect(wrapper.get(".atlas-primary-actions .btn-primary").attributes("disabled")).toBeDefined()
+    expect(wrapper.get(".atlas-primary-actions .btn-primary").attributes("disabled")).toBeUndefined()
     expect(wrapper.get(".atlas-review-actions .btn-primary").attributes("disabled")).toBeDefined()
     expect(wrapper.get(".atlas-history button").attributes("disabled")).toBeDefined()
     wrapper.unmount()
@@ -582,24 +586,18 @@ describe("AI 地图册工作台", () => {
     expect(api.world.resumeMapAtlasRun).toHaveBeenCalledWith("novel-1", "run-1", false)
   })
 
-  it("普通失败的 partial 不空跑继续且不阻塞补全更新", async () => {
+  it("普通图片失败不空跑继续，也不阻塞新建空间地图", async () => {
     const failed = page({ generation_status: "failed", image_url: null })
     const run = { id: "run-1", status: "partial", error_code: "moderation_blocked", planned_page_count: 1, completed_page_count: 0 }
     api.world.getLatestMapAtlasRun.mockResolvedValue(run)
     api.world.getMapAtlasRunResults.mockResolvedValue(tree([failed], "review"))
-    api.world.createMapAtlasRun.mockResolvedValue({ ...run, id: "run-2", status: "planning", error_code: null })
-
     const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
     await flushPromises()
-
     expect(wrapper.find(".atlas-run-actions .btn-primary").exists()).toBe(false)
-    const update = wrapper.get(".atlas-primary-actions .btn-primary")
-    expect(update.attributes("disabled")).toBeUndefined()
-    await update.trigger("click")
-    await flushPromises()
-
-    expect(api.world.createMapAtlasRun).toHaveBeenCalledTimes(1)
+    await wrapper.get(".atlas-primary-actions .btn-primary").trigger("click")
+    expect(wrapper.find('form[aria-label="新建空间地图"]').exists()).toBe(true)
     expect(api.world.resumeMapAtlasRun).not.toHaveBeenCalled()
+    expect(api.world.createMapAtlasRun).not.toHaveBeenCalled()
   })
 
   it("忽略写操作之前发出的晚到轮询", async () => {

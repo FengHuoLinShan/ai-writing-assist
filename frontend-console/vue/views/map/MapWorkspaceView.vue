@@ -2,46 +2,23 @@
   <main class="atlas-workspace">
     <header class="atlas-header">
       <div>
-        <p class="atlas-eyebrow">作者地图工作台</p>
-        <h1>AI 地图册</h1>
-        <p>从已确认的世界资料规划层级，再逐页生成可审核的地图图片。</p>
+        <h1>地图</h1>
+        <p v-if="!atlas.nodes.length && !currentRun">从已知地点建立空间示意，在同一张地图上添加底图与地点配图。</p>
       </div>
       <div class="atlas-primary-actions">
-        <button class="btn btn-primary" :disabled="writeLocked || runUnfinished" @click="startRun(false)">
-          {{ atlas.total_pages ? '补全 / 更新地图册' : '一键生成地图册' }}
-        </button>
-        <details v-if="atlas.total_pages" class="atlas-more">
-          <summary class="btn btn-sm">更多</summary>
-          <button class="btn btn-sm" :disabled="writeLocked || runUnfinished" @click="startRun(true)">完整重做</button>
-        </details>
+        <button :class="['btn', atlas.nodes.length ? 'btn-sm' : 'btn-primary']" :disabled="loading || busy" @click="startCreateMap">新建地图</button>
+        <button v-if="activeNode && (activeNode.current_revision_id || activePage)" class="btn btn-sm" :disabled="writeLocked || runUnfinished" @click="startRun(false)">{{ activeNode.current_revision_id ? '添加地图画面' : '生成图片新候选' }}</button>
         <button class="btn btn-sm" :disabled="writeLocked || runUnfinished" @click="openUpload">上传地图</button>
       </div>
     </header>
 
-    <details class="atlas-generation-settings card" :open="!loading && !atlas.total_pages && !currentRun">
-      <summary>生成设置 <span>{{ generationSettingsSummary }}</span></summary>
-      <section class="atlas-options" aria-label="地图册生成选项">
-        <label>版式
-          <select v-model="options.layout" class="form-select" :disabled="writeLocked || runUnfinished">
-            <option value="landscape">横版</option><option value="square">方形</option>
-          </select>
-        </label>
-        <label>清晰度
-          <select v-model="options.quality" class="form-select" :disabled="writeLocked || runUnfinished">
-            <option value="standard">标准</option><option value="fine">精细</option>
-          </select>
-        </label>
-        <label class="atlas-style">画面偏好
-          <input v-model="options.style_note" class="form-input" maxlength="2000" placeholder="例如：旧羊皮纸、克制的山脉与河流细节" :disabled="writeLocked || runUnfinished" />
-        </label>
-        <details>
-          <summary>高级选项</summary>
-          <label><input v-model="options.include_working_drafts" type="checkbox" :disabled="writeLocked || runUnfinished" /> 加入工作稿资料</label>
-          <label><input v-model="options.include_interiors" type="checkbox" :disabled="writeLocked || runUnfinished" /> 允许规划室内图</label>
-          <label><input v-model="options.review_image_prompts" type="checkbox" :disabled="writeLocked || runUnfinished" /> 生图前检查画面说明</label>
-        </details>
-      </section>
-    </details>
+    <form v-if="creatingMap" class="card atlas-options" aria-label="新建空间地图" @submit.prevent="createMap">
+      <label>地图名称<input v-model="newMap.title" class="form-input" maxlength="200" required /></label>
+      <label>范围<select v-model="newMap.level" class="form-select"><option value="region">区域</option><option value="city">城市</option></select></label>
+      <label>上级地图<select v-model="newMap.parent_id" class="form-select"><option value="">无（顶层）</option><option v-for="item in adoptedNodes.filter(item => levelChoices.findIndex(level => level.value === item.level) < levelChoices.findIndex(level => level.value === newMap.level))" :key="item.id" :value="item.id">{{ item.title }}</option></select></label>
+      <button class="btn btn-primary" :disabled="busy || !newMap.title.trim()">建立地图</button><button type="button" class="btn btn-sm" @click="creatingMap = false">取消</button>
+    </form>
+
 
     <section v-if="currentRun?.status === 'prompt_review'" class="card atlas-prompt-review">
       <header><div><h2>生图前检查</h2><p>可复制到其他生图工具，或修改后交给站内生成。</p></div><button class="btn btn-primary" :disabled="busy || promptSaving || !Object.keys(promptRecords).length" @click="confirmPrompts">确认全部选择</button></header>
@@ -59,7 +36,7 @@
       <button v-else class="btn btn-sm" :disabled="busy" @click="loadAll">重试</button>
     </div>
 
-    <section v-if="currentRun" class="atlas-run card" aria-live="polite">
+    <section v-if="currentRun && (tab === 'review' || runActive || canResume || ['failed', 'partial', 'prompt_review'].includes(currentRun.status))" class="atlas-run card" aria-live="polite">
       <div>
         <strong>{{ runStatusLabel }}</strong>
         <span v-if="currentRun.planned_page_count">{{ currentRun.completed_page_count }} / {{ currentRun.planned_page_count }} 页</span>
@@ -81,7 +58,7 @@
 
     <nav v-if="currentRun || atlas.total_pages" class="atlas-tabs" aria-label="地图册视图" role="tablist">
       <button role="tab" :class="{ active: tab === 'review' }" :aria-selected="tab === 'review'" :aria-pressed="tab === 'review'" @click="selectTab('review')">本次生成结果 <span>{{ review.total_pages }}</span></button>
-      <button role="tab" :class="{ active: tab === 'atlas' }" :aria-selected="tab === 'atlas'" :aria-pressed="tab === 'atlas'" @click="selectTab('atlas')">我的地图册 <span>{{ atlas.total_pages }}</span></button>
+      <button role="tab" :class="{ active: tab === 'atlas' }" :aria-selected="tab === 'atlas'" :aria-pressed="tab === 'atlas'" @click="selectTab('atlas')">我的地图册 <span>{{ adoptedNodes.length }}</span></button>
     </nav>
 
     <details v-if="historyPages.length" class="card atlas-history">
@@ -102,7 +79,7 @@
     </section>
 
     <section v-if="loading" class="card atlas-empty" aria-live="polite">正在读取地图册…</section>
-    <section v-else-if="!visiblePages.length" class="card atlas-empty">
+    <section v-else-if="!visibleNodes.length" class="card atlas-empty">
       <h2>{{ emptyTitle }}</h2>
       <p>{{ emptyText }}</p>
     </section>
@@ -122,13 +99,16 @@
         </button>
       </aside>
 
-      <article v-if="activePage" class="card atlas-page">
+      <article v-if="activeNode" class="card atlas-page">
         <header class="atlas-page-header">
-          <div><p>{{ levelLabel(activeNode?.level) }}</p><h2>{{ activePage.title }}</h2></div>
-          <label class="atlas-zoom">缩放 <input v-model="zoom" type="range" min="60" max="150" step="10" /></label>
+          <div><p>{{ levelLabel(activeNode?.level) }}</p><h2>{{ structureEnabled ? activeNode.title : (activePage?.title || activeNode.title) }}</h2></div>
+          <label v-if="!structureEnabled || referenceVisible" class="atlas-zoom">缩放 <input v-model="zoom" type="range" min="60" max="150" step="10" /></label>
         </header>
 
-        <div :class="['atlas-images', { compare: oldPages.length && tab === 'review' }]">
+        <button v-if="!structureEnabled && ['region', 'city'].includes(activeNode.level)" class="btn btn-sm" @click="editStructureNodeId = activeNode.id">补建空间示意</button>
+        <MapStructureEditor v-if="structureEnabled" :key="projectId + ':' + activeNode.id" ref="structureEditor" :project-id="projectId" :node="activeNode" :known-nodes="adoptedNodes" :images="nodeImages" :has-reference="Boolean(activePage)" :review-image-id="tab === 'review' && activePage?.review_status === 'candidate' ? activePage.id : ''" @saved="refreshAtlasOnly" @open-node="openMapNode" @reference-visible="referenceVisible = $event" @state="structureState = $event" />
+        <template v-if="activePage && !structureState.reader">
+        <div v-if="!structureEnabled || referenceVisible" :class="['atlas-images', { compare: oldPages.length && tab === 'review' }]">
           <figure v-if="oldPages.length && tab === 'review'">
             <figcaption>地图册已有图片</figcaption>
             <div class="atlas-image-viewport">
@@ -208,7 +188,6 @@
         <div v-else class="atlas-review-actions">
           <button class="btn btn-sm btn-ghost" :disabled="writeLocked" @click="archivePage(activePage)">移出地图册</button>
         </div>
-        <details v-if="tab === 'atlas' || currentRun?.run_kind === 'upload'" class="atlas-edit"><summary class="btn btn-sm">调整地图层级与位置</summary><div class="atlas-node-form"><label v-if="canEditNodeTitle">地图名称<input v-model="nodeEdit.title" class="form-input" maxlength="200" /></label><label>上级地图<select v-model="nodeEdit.parent_id" class="form-select"><option :value="null">无（顶层）</option><option v-for="item in nodeParentChoices" :key="item.id" :value="item.id">{{ item.title }}</option></select></label><label>层级<select v-model="nodeEdit.level" class="form-select"><option v-for="item in levelChoices" :key="item.value" :value="item.value">{{ item.label }}</option></select></label><label>同级位置<select v-model="nodeEdit.before_node_id" class="form-select"><option value="__keep__">保持当前位置</option><option value="__append__">放在最后</option><option v-for="item in siblingChoices" :key="item.id" :value="item.id">放在“{{ item.title }}”之前</option></select></label><button class="btn btn-sm" :disabled="writeLocked" @click="saveNodePosition">保存调整</button></div></details>
 
         <section class="atlas-evidence">
           <h3>为何这样画</h3>
@@ -225,8 +204,36 @@
             </article>
           </details>
         </section>
+        </template>
+        <details v-if="tab === 'atlas' || currentRun?.run_kind === 'upload'" class="atlas-edit"><summary class="btn btn-sm">调整地图层级与位置</summary><div class="atlas-node-form"><label v-if="canEditNodeTitle">地图名称<input v-model="nodeEdit.title" class="form-input" maxlength="200" /></label><label>上级地图<select v-model="nodeEdit.parent_id" class="form-select"><option :value="null">无（顶层）</option><option v-for="item in nodeParentChoices" :key="item.id" :value="item.id">{{ item.title }}</option></select></label><label>层级<select v-model="nodeEdit.level" class="form-select"><option v-for="item in levelChoices" :key="item.value" :value="item.value">{{ item.label }}</option></select></label><label>同级位置<select v-model="nodeEdit.before_node_id" class="form-select"><option value="__keep__">保持当前位置</option><option value="__append__">放在最后</option><option v-for="item in siblingChoices" :key="item.id" :value="item.id">放在“{{ item.title }}”之前</option></select></label><button class="btn btn-sm" :disabled="writeLocked" @click="saveNodePosition">保存调整</button></div></details>
       </article>
     </section>
+
+    <details v-if="activeNode" class="atlas-generation-settings card">
+      <summary>生成设置 <span>{{ generationSettingsSummary }}</span></summary>
+      <section class="atlas-options" aria-label="地图册生成选项">
+        <label>版式
+          <select v-model="options.layout" class="form-select" :disabled="writeLocked || runUnfinished">
+            <option value="landscape">横版</option><option value="square">方形</option>
+          </select>
+        </label>
+        <label>清晰度
+          <select v-model="options.quality" class="form-select" :disabled="writeLocked || runUnfinished">
+            <option value="standard">标准</option><option value="fine">精细</option>
+          </select>
+        </label>
+        <label class="atlas-style">画面偏好
+          <input v-model="options.style_note" class="form-input" maxlength="2000" placeholder="例如：旧羊皮纸、克制的山脉与河流细节" :disabled="writeLocked || runUnfinished" />
+        </label>
+        <details>
+          <summary>高级选项</summary>
+          <label><input v-model="options.include_working_drafts" type="checkbox" :disabled="writeLocked || runUnfinished" /> 加入工作稿资料</label>
+          <label><input v-model="options.include_interiors" type="checkbox" :disabled="writeLocked || runUnfinished" /> 允许规划室内图</label>
+          <label><input v-model="options.review_image_prompts" type="checkbox" :disabled="writeLocked || runUnfinished" /> 生图前检查画面说明</label>
+        </details>
+      </section>
+    </details>
+
 
     <div v-if="uploadOpen" ref="uploadOverlay" class="modal-overlay" @click.self="closeUpload" @keydown="onUploadKeydown" @focusin="onUploadFocusin">
       <section ref="uploadDialog" class="modal-content atlas-upload-modal" role="dialog" aria-modal="true" aria-labelledby="atlas-upload-title" :aria-busy="uploading" tabindex="-1">
@@ -247,8 +254,9 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
-import { getApi, getConfirm, getRouter, getToast } from "../../bridge/index.js"
+import { getApi, getConfirm, getRouteQuery, getRouter, getToast } from "../../bridge/index.js"
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
+import MapStructureEditor from "./MapStructureEditor.vue"
 import { useModalDialog } from "../../composables/useModalDialog.js"
 import { confirmAiReference } from "../../../shared/aiReferenceModal.js"
 
@@ -256,7 +264,13 @@ const props = defineProps({ projectId: { type: String, default: null } })
 const api = getApi()
 const toast = getToast()
 const confirm = getConfirm()
-const tab = ref("review")
+const tab = ref(getRouteQuery().get("atlas_view") === "review" ? "review" : "atlas")
+const creatingMap = ref(false)
+const newMap = reactive({ title: "", level: "region", parent_id: "" })
+const structureEditor = ref(null)
+const structureState = ref({ dirty: false, revision: null })
+const editStructureNodeId = ref(null)
+const referenceVisible = ref(false)
 const loading = ref(true)
 const busy = ref(false)
 const refreshing = ref(false)
@@ -268,7 +282,7 @@ const review = ref({ mode: "review", nodes: [], total_pages: 0 })
 const atlas = ref({ mode: "atlas", nodes: [], total_pages: 0 })
 const pageHistory = ref([])
 const activePageId = ref(null)
-const activeNodeId = ref(null)
+const activeNodeId = ref(getRouteQuery().get("node_id"))
 const oldPageId = ref(null)
 const zoom = ref(100)
 const editInstruction = ref("")
@@ -306,8 +320,10 @@ const insufficientSourcesHelp = "请先补充并发布世界书、确认地点�
 const activeTree = computed(() => tab.value === "review" ? review.value : atlas.value)
 const visibleNodes = computed(() => flattenNodes(activeTree.value.nodes || []))
 const visiblePages = computed(() => visibleNodes.value.flatMap(({ node }) => node.pages || []))
-const activePage = computed(() => visiblePages.value.find(page => page.id === activePageId.value) || visiblePages.value[0] || null)
+const activePage = computed(() => { const pages = activeNode.value?.pages || []; return pages.find(page => page.id === activePageId.value) || pages[0] || null })
 const activeNode = computed(() => visibleNodes.value.find(({ node }) => node.id === activeNodeId.value)?.node || null)
+const structureEnabled = computed(() => Boolean(activeNode.value && ['region', 'city'].includes(activeNode.value.level) && (activeNode.value.current_revision_id || editStructureNodeId.value === activeNode.value.id)))
+const nodeImages = computed(() => (adoptedNodes.value.find(node => node.id === activeNode.value?.id)?.pages || []).filter(page => page.review_status === 'adopted'))
 const adoptedNode = computed(() => flattenNodes(atlas.value.nodes || []).find(({ node }) => node.id === activePage.value?.node_id)?.node || null)
 const oldPages = computed(() => adoptedNode.value?.pages || [])
 const oldPage = computed(() => oldPages.value.find(page => page.id === oldPageId.value) || oldPages.value[0] || {})
@@ -321,7 +337,7 @@ const canResume = computed(() => currentRun.value?.status === "paused"
   || (currentRun.value?.status === "partial" && ["retry_requires_confirmation", "worker_interrupted"].includes(currentRun.value?.error_code)))
 const runUnfinished = computed(() => runActive.value || canResume.value || currentRun.value?.status === "prompt_review")
 const pausedPromptReview = computed(() => currentRun.value?.status === "paused" && currentRun.value?.review_image_prompts)
-const writeLocked = computed(() => loading.value || busy.value || (runActive.value && Boolean(currentRun.value?.stop_requested)))
+const writeLocked = computed(() => (structureEnabled.value && structureState.value.dirty) || loading.value || busy.value || (runActive.value && Boolean(currentRun.value?.stop_requested)))
 const connectionError = computed(() => ["image_connection_required", "image_auth_failed"].includes(errorCode.value))
 const allPromptOnly = computed(() => visiblePages.value.length > 0 && visiblePages.value.every(page => page.generation_status === "prompt_only"))
 const runStatusLabel = computed(() => allPromptOnly.value ? "画面说明已确认，等待外部图片" : ({ planning: "正在规划地图册", prompt_review: "等待检查画面说明", generating: currentRun.value?.stop_requested ? "将在当前页完成后停止" : "正在逐页生成", review_ready: "本次地图册已经生成", partial: "部分页面需要处理", paused: pausedPromptReview.value ? "画面说明检查已暂停" : "生成已停止", failed: "地图册生成失败", completed: "地图册已完成" }[currentRun.value?.status] || "地图册任务"))
@@ -376,6 +392,28 @@ const referenceChoices = computed(() => flattenNodes(atlas.value.nodes || []).fl
     .map(page => ({ id: page.id, label: `${node.title} · ${formatDate(page.created_at)}` }))
 )))
 
+function canLeaveStructure() { return structureEditor.value?.canLeave?.() !== false }
+function startCreateMap() { creatingMap.value = true }
+async function createMap() {
+  if (!canLeaveStructure()) return
+  busy.value = true
+  try {
+    const node = await api.world.createMapNode(props.projectId, { title: newMap.title.trim(), level: newMap.level, parent_id: newMap.parent_id || null })
+    creatingMap.value = false; newMap.title = ''; structureState.value = { dirty: false, revision: null }
+    await refreshAtlasOnly(); tab.value = 'atlas'; activeNodeId.value = node.id; activePageId.value = null
+  } catch (err) { setError(err) } finally { busy.value = false }
+}
+async function refreshAtlasOnly() {
+  const projectId = props.projectId
+  const result = await api.world.getMapAtlas(projectId)
+  if (mounted && projectId === props.projectId) atlas.value = result
+}
+async function openMapNode(nodeId) {
+  if (!canLeaveStructure()) return
+  tab.value = 'atlas'
+  const node = adoptedNodes.value.find(node => node.id === nodeId)
+  if (node) { activeNodeId.value = node.id; activePageId.value = node.pages?.[0]?.id || null }
+}
 function flattenNodes(nodes, depth = 0, result = []) {
   for (const node of nodes) {
     result.push({ node, depth })
@@ -392,7 +430,7 @@ function historyStatusLabel(page) {
   if (page.generation_status === "retry_requires_confirmation") return "需确认费用后重试"
   return "等待决定"
 }
-async function selectNode(node) { if (currentRun.value?.status === "prompt_review" && !await savePrompt()) return; activeNodeId.value = node.id; const page = node.pages?.find(item => item.review_status === "candidate") || node.pages?.[0]; if (page) activePageId.value = page.id }
+async function selectNode(node) { if (node.id !== activeNodeId.value && !canLeaveStructure()) return; referenceVisible.value = false; if (currentRun.value?.status === "prompt_review" && !await savePrompt()) return; activeNodeId.value = node.id; const page = node.pages?.find(item => item.review_status === "candidate") || node.pages?.[0]; activePageId.value = page?.id || null }
 function annotationStyle(item) { return { left: `${item.position_x * 100}%`, top: `${item.position_y * 100}%` } }
 function imageCanvasStyle(page) {
   const width = Number(page?.width)
@@ -471,6 +509,7 @@ async function loadAll(preferredRunId = null) {
     latestRunId.value = latest?.id || null
     currentRun.value = selectedRun
     review.value = selectedReview
+    if (preferredRunId || (!activeNodeId.value && selectedRun && (selectedRun.status === "failed" || selectedReview.nodes.some(node => node.pages?.some(page => page.review_status !== "adopted"))))) tab.value = "review"
     syncSelection()
     await loadPrompts()
     schedulePoll()
@@ -478,8 +517,9 @@ async function loadAll(preferredRunId = null) {
   } catch (err) { if (epoch === dataEpoch) setError(err) } finally { if (epoch === dataEpoch) loading.value = false }
 }
 function syncSelection() {
-  if (!visiblePages.value.some(page => page.id === activePageId.value)) activePageId.value = visiblePages.value[0]?.id || null
-  if (!visibleNodes.value.some(({ node }) => node.id === activeNodeId.value)) activeNodeId.value = activePage.value?.node_id || null
+  if (!visibleNodes.value.some(({ node }) => node.id === activeNodeId.value)) activeNodeId.value = visibleNodes.value[0]?.node.id || null
+  const pages = activeNode.value?.pages || []
+  if (!pages.some(page => page.id === activePageId.value)) activePageId.value = pages[0]?.id || null
   if (!oldPages.value.some(page => page.id === oldPageId.value)) oldPageId.value = oldPages.value[0]?.id || null
   const validReferences = new Set(referenceChoices.value.map(item => item.id))
   selectedReferencePageIds.value = selectedReferencePageIds.value.filter(id => validReferences.has(id))
@@ -507,20 +547,24 @@ async function refreshRun() {
   }
 async function startRun(fullRebuild) {
   if (writeLocked.value || runUnfinished.value) return
+  const mapRevision = structureState.value.revision?.id || activeNode.value?.current_revision_id
+  const targetNodeId = activeNode.value?.id
+  if (!mapRevision) { if (activePage.value) await derivePage('regenerate'); return }
   dataEpoch += 1
   busy.value = true; clearError(); tab.value = "review"
   try {
     const confirmation = await confirmAiReference({
       novel_id: props.projectId,
       action: "world.map_atlas.generate",
-      task: "规划 AI 地图册",
+      task: "依据已保存地图添加画面",
+      entity_ids: structureState.value.revision?.document?.features?.map(feature => feature.entity_id).filter(Boolean) || [],
       scope: "full",
       include_world_synopsis: true,
       include_pending_objects: false,
       user_note: options.style_note || "",
       budget_tokens: 12000,
     })
-    currentRun.value = await api.world.createMapAtlasRun(props.projectId, { ...options, style_note: options.style_note || null, full_rebuild: fullRebuild, context_confirmation_id: confirmation.id })
+    currentRun.value = await api.world.createMapAtlasRun(props.projectId, { ...options, style_note: options.style_note || null, full_rebuild: fullRebuild, target_node_id: targetNodeId, source_map_revision_id: mapRevision, context_confirmation_id: confirmation.id })
     latestRunId.value = currentRun.value.id
     review.value = { mode: "review", run: currentRun.value, nodes: [], total_pages: 0 }
     schedulePoll(); toast("地图册任务已开始", "success")
@@ -566,7 +610,7 @@ async function savePrompt() {
   return succeeded
 }
 function markPromptDirty() { if (!activePrompt.value) return; activePrompt.value._editRevision = (activePrompt.value._editRevision || 0) + 1; promptDirty.value = true; dirtyPromptPageId.value = activePrompt.value.page_id; promptConflict.value = false; clearTimeout(promptTimer); promptTimer = setTimeout(savePrompt, 800) }
-async function selectPromptPage(page) { if (!await savePrompt()) return; activePageId.value = page.id }
+async function selectPromptPage(page) { if (!await savePrompt()) return; activeNodeId.value = page.node_id; activePageId.value = page.id }
 async function copyPrompt() { try { await navigator.clipboard.writeText(activePrompt.value?.prompt || ""); toast("画面说明已复制", "success") } catch { toast("复制失败，请手动选中文字", "error") } }
 async function confirmPrompts() {
   if (!await savePrompt()) return
@@ -718,6 +762,7 @@ function openAnnotation(annotation) {
   if (target) { if (!visibleNodes.value.some(({ node }) => node.id === target.id)) tab.value = "atlas"; nextTick(() => selectNode(target)) }
 }
 function startAnnotationDrag(event, annotation) {
+  if (annotation.bound_feature_id) return
   if (writeLocked.value || tab.value !== "atlas" || globalThis.matchMedia?.("(max-width: 900px)").matches || !globalThis.matchMedia?.("(pointer: fine)").matches || !imageCanvas.value) return
   event.preventDefault(); drag = { annotation, rect: imageCanvas.value.getBoundingClientRect(), moved: false }
   globalThis.addEventListener("pointermove", dragAnnotation); globalThis.addEventListener("pointerup", endAnnotationDrag, { once: true })
@@ -765,15 +810,25 @@ function setError(err) {
 function clearError() { error.value = ""; errorCode.value = "" }
 function openImageSettings() { getRouter()?.navigate("settings") }
 async function viewRun(runId) {
+  if (!canLeaveStructure()) return
   if (writeLocked.value || !runId || runId === currentRun.value?.id) return
   tab.value = "review"
   await loadAll(runId === latestRunId.value ? null : runId)
 }
 async function selectTab(value) {
+  if (value !== tab.value && !canLeaveStructure()) return
   if (currentRun.value?.status === "prompt_review" && !await savePrompt()) return
   tab.value = value
 }
 
+function persistMapFocus() {
+  if (loading.value) return
+  const query = getRouteQuery()
+  if (activeNodeId.value) query.set('node_id', activeNodeId.value); else query.delete('node_id')
+  if (tab.value === 'review') query.set('atlas_view', 'review'); else query.delete('atlas_view')
+  getRouter()?.commitCurrentQuery?.(query, 'replace')
+}
+watch([activeNodeId, tab], persistMapFocus)
 watch(tab, () => { syncSelection(); nextTick(loadImages) })
 watch(activePageId, () => { activeNodeId.value = activePage.value?.node_id || activeNodeId.value; oldPageId.value = oldPages.value[0]?.id || null; nextTick(loadImages) })
 watch(oldPageId, loadImages)
@@ -782,6 +837,7 @@ watch(activeNode, node => {
   nodeEdit.title = node.title; nodeEdit.parent_id = node.parent_id || null; nodeEdit.level = node.level; nodeEdit.before_node_id = "__keep__"
 })
 useLeaveGuard(() => {
+  if (!canLeaveStructure()) return false
   if (uploading.value) return false
   if (promptDirty.value && !confirm("画面说明还没有保存，确定离开吗？")) return false
   return !uploadDraftDirty.value || confirm("放弃未上传的地图？")
@@ -808,7 +864,7 @@ onBeforeUnmount(() => { mounted = false; clearTimeout(pollTimer); clearTimeout(p
   font-weight: 400;
 }
 .atlas-generation-settings[open] > summary { margin-bottom: var(--space-3); }
-.atlas-workspace{display:grid;gap:16px;padding:20px;min-width:0}.atlas-header,.atlas-options,.atlas-run,.atlas-page-header,.atlas-primary-actions,.atlas-run-actions,.atlas-review-actions,.atlas-source{display:flex;align-items:center;gap:12px}.atlas-header{justify-content:space-between}.atlas-header h1,.atlas-page h2{margin:0}.atlas-header p{margin:4px 0;color:var(--text-secondary)}.atlas-eyebrow{font-size:var(--text-xs);font-weight:700;letter-spacing:var(--tracking-caps);text-transform:uppercase}.atlas-primary-actions{align-self:flex-end}.atlas-more{position:relative}.atlas-more[open] button{position:absolute;right:0;top:42px;z-index:4;white-space:nowrap}.atlas-options{align-items:end;flex-wrap:wrap}.atlas-options label{display:grid;gap:6px;font-size:var(--text-sm)}.atlas-options .atlas-style{flex:1 1 280px;min-width:0}.atlas-options details label{display:block;margin-top:8px}.atlas-options summary,.atlas-history>summary,.atlas-evidence>details>summary{display:flex;align-items:center;min-height:28px}.atlas-alert,.atlas-run{justify-content:space-between}.atlas-run{display:grid;grid-template-columns:minmax(220px,1fr) minmax(160px,2fr) auto}.atlas-run div:first-child{display:flex;gap:10px;flex-wrap:wrap}.atlas-run progress{width:100%}.atlas-run p{grid-column:1/-1;margin:0;padding-left:var(--space-2);border-left:1px solid var(--error);color:var(--text-primary)}.atlas-tabs{display:flex;border-bottom:1px solid var(--border)}.atlas-tabs button{min-height:28px;padding:12px 18px;border:0;border-bottom:2px solid transparent;background:none;color:var(--text-secondary);font-size:var(--text-base);font-weight:600}.atlas-tabs button:hover{color:var(--text-body)}.atlas-tabs button.active{border-color:var(--accent);color:var(--text-primary)}.atlas-tabs span{margin-left:6px;color:var(--text-secondary);font-family:var(--font-mono);font-size:var(--text-xs)}.atlas-empty{text-align:center;padding:48px}.atlas-all-rejected{padding:20px}.atlas-browser{display:grid;grid-template-columns:230px minmax(0,1fr);gap:16px;min-width:0}.atlas-tree{display:flex;flex-direction:column;align-self:start;padding:8px;max-height:72vh;overflow:auto}.atlas-tree button{display:flex;align-items:center;gap:7px;width:100%;min-height:28px;padding:9px;border:0;border-radius:var(--radius-md);background:none;color:var(--text-body);text-align:left}.atlas-tree button:hover{background:var(--bg-hover);color:var(--text-primary)}.atlas-tree button.active{background:var(--bg-active);color:var(--text-primary)}.atlas-tree button span{color:var(--text-secondary);font-size:var(--text-xs)}.atlas-tree button small{margin-left:auto;color:var(--text-secondary);font-family:var(--font-mono);font-size:var(--text-xs)}.atlas-page{min-width:0}.atlas-page-header{justify-content:space-between}.atlas-page-header p{margin:0;color:var(--text-secondary);font-size:var(--text-sm)}.atlas-zoom{display:flex;align-items:center;gap:8px}.atlas-images{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}.atlas-images.compare{grid-template-columns:repeat(2,minmax(0,1fr))}.atlas-images figure{min-width:0;margin:0}.atlas-images figcaption{margin:8px 0;color:var(--text-primary);font-size:var(--text-base);font-weight:600}.atlas-image-viewport{display:flex;align-items:center;min-height:220px;overflow:auto;border-radius:var(--radius-lg);background:#20242C;color:#FFFFFF}.atlas-image-canvas{position:relative;flex:0 0 auto;margin-inline:auto;transition:width .15s ease}.atlas-image-canvas img{display:block;width:100%;height:100%;object-fit:contain}.atlas-image-state{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:220px}.atlas-annotation{position:absolute;min-width:28px;min-height:28px;padding:4px 8px;transform:translate(-50%,-50%);border:1px solid var(--bg-base);border-radius:var(--radius-full);background:var(--text-primary);color:var(--bg-base);white-space:nowrap;cursor:pointer;touch-action:manipulation}.atlas-review-actions{margin-top:14px;flex-wrap:wrap}.atlas-charge-warning{flex:1 0 100%;margin:0;padding:10px;border:1px solid var(--warning);border-radius:var(--radius-md);background:var(--warning-soft);color:var(--text-primary)}.atlas-edit{flex:1 1 320px}.atlas-edit textarea{display:block;width:100%;margin:10px 0}.atlas-edit p{color:var(--text-secondary);font-size:var(--text-sm)}.atlas-mask{display:block}.atlas-references{display:grid;gap:7px;margin:10px 0;border:1px solid var(--border);border-radius:var(--radius-md)}.atlas-references label{display:flex;align-items:center;gap:7px}.atlas-evidence{margin-top:20px;padding-top:16px;border-top:1px solid var(--border)}.atlas-evidence-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.atlas-evidence-grid>div{padding:12px;border-radius:var(--radius-md);background:var(--bg-muted)}.atlas-evidence-grid ul{padding-left:20px}.atlas-candidate-note{display:inline-block;margin:6px 0;color:var(--text-secondary);font-size:var(--text-sm)}.atlas-evidence-grid>.atlas-conflicts{border:1px solid var(--warning);background:var(--warning-soft)}.atlas-source{justify-content:space-between;padding:10px 0;border-top:1px solid var(--border)}.atlas-source p{margin:3px 0}.atlas-history-status{font-weight:700}.atlas-error{padding-left:var(--space-2);border-left:1px solid var(--error);color:var(--text-primary);font-weight:600}.atlas-more summary,.atlas-edit summary{list-style:none}.atlas-more summary::-webkit-details-marker,.atlas-edit summary::-webkit-details-marker{display:none}
+.atlas-workspace{display:grid;gap:16px;padding:20px;min-width:0}.atlas-header,.atlas-options,.atlas-run,.atlas-page-header,.atlas-primary-actions,.atlas-run-actions,.atlas-review-actions,.atlas-source{display:flex;align-items:center;gap:12px}.atlas-header{justify-content:space-between}.atlas-header h1,.atlas-page h2{margin:0}.atlas-header p{margin:4px 0;color:var(--text-secondary)}.atlas-eyebrow{font-size:var(--text-xs);font-weight:700;letter-spacing:var(--tracking-caps);text-transform:uppercase}.atlas-primary-actions{align-self:flex-end}.atlas-more{position:relative}.atlas-more[open] button{position:absolute;right:0;top:42px;z-index:4;white-space:nowrap}.atlas-options{align-items:end;flex-wrap:wrap}.atlas-options label{display:grid;gap:6px;font-size:var(--text-sm)}.atlas-options .atlas-style{flex:1 1 280px;min-width:0}.atlas-options details label{display:block;margin-top:8px}.atlas-options summary,.atlas-history>summary,.atlas-evidence>details>summary{display:flex;align-items:center;min-height:28px}.atlas-alert,.atlas-run{justify-content:space-between}.atlas-run{display:grid;grid-template-columns:minmax(220px,1fr) minmax(160px,2fr) auto}.atlas-run div:first-child{display:flex;gap:10px;flex-wrap:wrap}.atlas-run progress{width:100%}.atlas-run p{grid-column:1/-1;margin:0;padding-left:var(--space-2);border-left:1px solid var(--error);color:var(--text-primary)}.atlas-tabs{display:flex;border-bottom:1px solid var(--border)}.atlas-tabs button{min-height:28px;padding:12px 18px;border:0;border-bottom:2px solid transparent;background:none;color:var(--text-secondary);font-size:var(--text-base);font-weight:600}.atlas-tabs button:hover{color:var(--text-body)}.atlas-tabs button.active{border-color:var(--accent);color:var(--text-primary)}.atlas-tabs span{margin-left:6px;color:var(--text-secondary);font-family:var(--font-mono);font-size:var(--text-xs)}.atlas-empty{text-align:center;padding:48px}.atlas-all-rejected{padding:20px}.atlas-browser{display:grid;grid-template-columns:170px minmax(0,1fr);gap:16px;min-width:0}.atlas-tree{display:flex;flex-direction:column;align-self:start;padding:8px;max-height:72vh;overflow:auto}.atlas-tree button{display:flex;align-items:center;gap:7px;width:100%;min-height:28px;padding:9px;border:0;border-radius:var(--radius-md);background:none;color:var(--text-body);text-align:left}.atlas-tree button:hover{background:var(--bg-hover);color:var(--text-primary)}.atlas-tree button.active{background:var(--bg-active);color:var(--text-primary)}.atlas-tree button span{color:var(--text-secondary);font-size:var(--text-xs)}.atlas-tree button small{margin-left:auto;color:var(--text-secondary);font-family:var(--font-mono);font-size:var(--text-xs)}.atlas-page{min-width:0}.atlas-page-header{justify-content:space-between}.atlas-page-header p{margin:0;color:var(--text-secondary);font-size:var(--text-sm)}.atlas-zoom{display:flex;align-items:center;gap:8px}.atlas-images{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}.atlas-images.compare{grid-template-columns:repeat(2,minmax(0,1fr))}.atlas-images figure{min-width:0;margin:0}.atlas-images figcaption{margin:8px 0;color:var(--text-primary);font-size:var(--text-base);font-weight:600}.atlas-image-viewport{display:flex;align-items:center;min-height:220px;overflow:auto;border-radius:var(--radius-lg);background:#20242C;color:#FFFFFF}.atlas-image-canvas{position:relative;flex:0 0 auto;margin-inline:auto;transition:width .15s ease}.atlas-image-canvas img{display:block;width:100%;height:100%;object-fit:contain}.atlas-image-state{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:220px}.atlas-annotation{position:absolute;min-width:28px;min-height:28px;padding:4px 8px;transform:translate(-50%,-50%);border:1px solid var(--bg-base);border-radius:var(--radius-full);background:var(--text-primary);color:var(--bg-base);white-space:nowrap;cursor:pointer;touch-action:manipulation}.atlas-review-actions{margin-top:14px;flex-wrap:wrap}.atlas-charge-warning{flex:1 0 100%;margin:0;padding:10px;border:1px solid var(--warning);border-radius:var(--radius-md);background:var(--warning-soft);color:var(--text-primary)}.atlas-edit{flex:1 1 320px}.atlas-edit textarea{display:block;width:100%;margin:10px 0}.atlas-edit p{color:var(--text-secondary);font-size:var(--text-sm)}.atlas-mask{display:block}.atlas-references{display:grid;gap:7px;margin:10px 0;border:1px solid var(--border);border-radius:var(--radius-md)}.atlas-references label{display:flex;align-items:center;gap:7px}.atlas-evidence{margin-top:20px;padding-top:16px;border-top:1px solid var(--border)}.atlas-evidence-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.atlas-evidence-grid>div{padding:12px;border-radius:var(--radius-md);background:var(--bg-muted)}.atlas-evidence-grid ul{padding-left:20px}.atlas-candidate-note{display:inline-block;margin:6px 0;color:var(--text-secondary);font-size:var(--text-sm)}.atlas-evidence-grid>.atlas-conflicts{border:1px solid var(--warning);background:var(--warning-soft)}.atlas-source{justify-content:space-between;padding:10px 0;border-top:1px solid var(--border)}.atlas-source p{margin:3px 0}.atlas-history-status{font-weight:700}.atlas-error{padding-left:var(--space-2);border-left:1px solid var(--error);color:var(--text-primary);font-weight:600}.atlas-more summary,.atlas-edit summary{list-style:none}.atlas-more summary::-webkit-details-marker,.atlas-edit summary::-webkit-details-marker{display:none}
 .atlas-evidence-grid .atlas-candidate-note{color:var(--text-body)}
 .atlas-evidence-summary{grid-column:1/-1;min-width:0;color:var(--text-secondary)}.atlas-evidence-summary p{color:inherit}
 .atlas-prompt-review{display:grid;gap:14px}.atlas-prompt-review header,.atlas-prompt-review nav,.atlas-prompt-editor>div{display:flex;align-items:center;justify-content:space-between;gap:10px}.atlas-prompt-review nav{justify-content:flex-start;flex-wrap:wrap}.atlas-prompt-review nav .active{color:var(--text-primary);box-shadow:inset 0 -2px 0 var(--accent)}.atlas-prompt-editor{display:grid;gap:12px}.atlas-prompt-editor label,.atlas-upload-modal label,.atlas-node-form label{display:grid;gap:6px;color:var(--text-secondary);font-size:var(--text-sm)}.atlas-prompt-editor textarea{width:100%;resize:vertical}.atlas-prompt-editor fieldset{display:flex;gap:18px}.atlas-upload-modal .modal-header h2{margin:0;font-size:var(--text-lg)}.atlas-upload-modal .modal-body{display:grid;gap:14px}.atlas-upload-modal img{display:block;max-width:100%;max-height:240px;margin:auto}.atlas-upload-modal progress{width:100%}.atlas-node-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:10px}.atlas-node-form button{align-self:end}

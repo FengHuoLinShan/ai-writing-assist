@@ -380,7 +380,8 @@ PNG 后才进入地图册私有 S3。此例外不改变 imports 的文稿上传�
 | `map_atlas_runs` | AI 地图册计划、上下文快照、任务进度与停止状态 |
 | `map_atlas_nodes` | 封面到街道/室内的层级节点与采用状态 |
 | `map_atlas_pages` | 独立候选/已采用/拒绝/移出图片与派生链 |
-| `map_atlas_annotations` | 前端文字标注、归一化坐标与下钻目标 |
+| `map_atlas_annotations` | 未绑定图片标注及其空间图元绑定入口 |
+| `map_atlas_revisions` | 节点拥有的不可变空间结构、来源、约束与图片展示配置 |
 | ~~`entity_aliases`~~ | 已移除，别名存 `core_entities.content_json.aliases` JSONB |
 | ~~`entity_candidates`~~ | 已废弃；候选对象存于 `core_entities.status="candidate"` |
 | ~~`relationships`~~ | 已废弃，使用 `entity_relations` |
@@ -417,7 +418,7 @@ ORM 表到同一个 `core.base.Base.metadata`。具体模型按子域拆分：
 - `models/worldbuilding.py`：生成模板、World Bible、知识标签、创设建议和冲突队列。
 - `models/authority.py`：不可变 Assert、CanonRevision/head 与 Profile Template revision。
 - `models/common.py`：共享 SQLAlchemy imports 与 pgvector/SQLite embedding column helper。
-- `map_atlas_models.py`：地图册 run、node、page 与 annotation；图片字节存私有 S3。
+- `map_atlas_models.py`：统一地图 node/revision 与图片 run/page/annotation；图片字节仍存私有 S3。
 
 旧路径 `from modules.world.models import CoreEntity` 与 `import modules.world.models`
 保持可用；兼容别名 `WorldEntity` 等仍从 package 顶层导出。
@@ -505,8 +506,8 @@ upsert；调用方不应再实现“先查再插”的并发控制。关系复�
 
 ### AI 地图册表
 
-`map_atlas_runs`、`map_atlas_nodes`、`map_atlas_pages` 与 `map_atlas_annotations` 只承载
-图片生成与作者采用生命周期。候选页分别保存直接资料、AI 视觉补全和冲突；加入地图册只新增
+`map_atlas_nodes` 是统一目录，`map_atlas_revisions` 保存空间与展示版本；
+`map_atlas_runs`、`map_atlas_pages` 与 `map_atlas_annotations` 保留图片生命周期。候选页分别保存直接资料、AI 视觉补全和冲突；加入地图册只新增
 已采用页面，不修改 World 事实。图片字节存私有 S3，完整契约见 `docs/modules/15_map.md`。
 规划前可从正式 World Bible 和已回读正文提取空间线索；它们只补充持久化 page prompt，
 不生成坐标、比例、方向或 annotation 几何字段。
@@ -585,13 +586,16 @@ class ResolveResult:
     suggestions: list = field(default_factory=list)
 ```
 
-## AI 地图册内部结构
+## 统一地图内部结构
 
 - `map_atlas_service.py`：owner 门禁、run/树查询、页面审查、派生候选、标注和图片读取。
 - `map_atlas_workflow.py`：Context 编译、计划校验、父子串行生图、checkpoint 与 finalization。
 - `map_atlas_storage.py`：PNG 校验与 map-atlas 自有 boto3 adapter，所有同步 I/O 在线程池执行。
 - `map_atlas_tasks.py`：`manual_resume` 生成任务和不依赖项目 FK 的全局前缀清理。
 - `map_atlas_facade.py`：项目永久删除唯一需要的全局 cleanup enqueue seam。
+- `map_structure_schemas.py` / `map_structure_geometry.py`：受限图元与关系、确定性布局、三点仿射校准及结构 PNG。
+- `map_structure_service.py`：节点独立创建、版本 CAS、候选与历史、图片层有效性、章首阅读投影。
+- `map_structure_workflow.py` / `map_structure_images.py`：同一 confirmation 内的关系提取和结构引导生图；不重新发现已有节点身份。
 
 生成上传持 project share lock 并复核 task lease；永久删除持 exclusive lock，先取消生成并排入
 全局清理再删除项目，阻止晚到 worker 留下对象。`provider_in_flight` 失联必须由作者确认潜在重复
@@ -984,3 +988,6 @@ world 当前拥有世界对象、关系、别名、人物与知识边界、建�
 World Bible、生成模板，以及 AI 地图册的计划、候选、画廊和标注。
 它是事实模块，不拥有正文、Scene、context confirmation 或 RAG 候选；AI 输出默认进入
 待处理建议，只有用户明确授权的流水线才可按领域门禁写入可回滚资产。
+
+空间地图仍属于 World 的可编辑派生资产，不进入 Canon 或 Scene memory。纯空间节点可显示和跳转；
+图片移出不影响空间版本。完整 API、数据上限、校准和阅读条件见 `docs/modules/15_map.md`。
