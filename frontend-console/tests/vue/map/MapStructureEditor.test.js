@@ -16,6 +16,7 @@ const feature = (id, label, x, y) => ({ id, kind: "location", label, points: [{ 
 const document = () => ({ ...emptyMap(), features: [feature("a", "临江城", 100, 100), feature("b", "黑石关", 300, 100), feature("c", "北堡", 100, 300)] })
 const record = (data = document(), id = revisionId) => ({ id, node_id: nodeId, base_revision_id: null, status: "saved", document: data, problems: [], geometry_hash: "a".repeat(64), created_at: "2026-09-08T00:00:00Z" })
 const state = revision => ({ node_id: nodeId, revision, candidates: [], image_layers: [], task_id: null, task_status: null })
+const generationSummary = changes => ({ outcome: 'partial', message: '部分资料尚未完成核对，原地图仍保留。', targets: 3, sources: 4, input_characters: 800, batches: 2, failed_batches: 1, truncated_batches: 0, received_relations: 3, accepted_relations: 1, discarded_relations: 2, discard_reasons: { quote_mismatch: 2 }, structured_attempts: null, format_retries: null, ...changes })
 const button = (wrapper, label) => wrapper.findAll("button").find(item => item.text() === label)
 
 describe("统一地图编辑器", () => {
@@ -36,6 +37,7 @@ describe("统一地图编辑器", () => {
       listEntities: vi.fn(async () => ({ items: [] })),
       createMapNode: vi.fn(),
     } }
+    api.tasks = { cancel: vi.fn(async id => ({ task_id: id, status: 'cancelled', cancelled: true })), retry: vi.fn() }
     confirm = vi.fn(() => true)
     router = { navigate: vi.fn() }
     setBridgeOverrides({ api, confirm, router })
@@ -191,6 +193,62 @@ describe("统一地图编辑器", () => {
     await flushPromises()
     expect(confirmAiReference).toHaveBeenCalledWith(expect.objectContaining({ action: "world.map_atlas.structure", entity_ids: ["location-1"] }))
     expect(api.world.generateMapStructure).toHaveBeenCalledWith(projectId, nodeId, expect.objectContaining({ base_revision_id: revisionId, context_confirmation_id: "confirmation", location_ids: ["location-1"] }))
+  })
+
+  it.each([null, 0, 2])('整理结果显示安全摘要，尝试计数%s如实展示且不进入读者预览', async attempts => {
+    api.world.getNodeMap.mockResolvedValue({ ...state(record()), task_status: 'done', generation_summary: generationSummary({ message: '<img src=x>引文未通过来源检查，已排除。', structured_attempts: attempts }) })
+    const wrapper = render(); await flushPromises()
+    const feedback = wrapper.get('[aria-label="空间整理结果"]')
+    expect(feedback.get('p[role=status]').text()).toBe('<img src=x>引文未通过来源检查，已排除。')
+    expect(feedback.find('img').exists()).toBe(false)
+    expect(feedback.text()).toContain('引文与来源不符：2 条')
+    expect(feedback.text()).not.toContain('quote_mismatch')
+    const count = feedback.findAll('dt').find(item => item.text() === '生成尝试次数')
+    expect(count.element.nextElementSibling.textContent).toBe(attempts == null ? '未记录' : String(attempts))
+    api.world.previewReaderMap.mockResolvedValue({ features: [], images: [], chapter: 1 })
+    await button(wrapper, '预览读者所见').trigger('click'); await flushPromises()
+    expect(wrapper.find('[aria-label="空间整理结果"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('引文未通过来源检查')
+  })
+
+  it('停止整理复用当前项目任务接口，只有服务器成功后才说明已停止', async () => {
+    api.world.getNodeMap.mockResolvedValue({ ...state(record()), task_id: 'task-1', task_status: 'running' })
+    const wrapper = render({ hasReference: true }); await flushPromises()
+    api.tasks.cancel.mockRejectedValueOnce(new Error('暂时无法停止'))
+    await button(wrapper, '停止本次整理').trigger('click'); await flushPromises()
+    expect(wrapper.text()).not.toContain('本次整理已停止')
+    expect(button(wrapper, '停止本次整理').attributes('disabled')).toBeUndefined()
+    api.world.getNodeMap.mockResolvedValue({ ...state(record()), task_id: 'task-1', task_status: 'cancelled' })
+    await button(wrapper, '停止本次整理').trigger('click'); await flushPromises()
+    expect(api.tasks.cancel).toHaveBeenLastCalledWith('task-1', projectId)
+    expect(wrapper.text()).toContain('本次整理已停止')
+    await button(wrapper, '专注看图').trigger('click')
+    await button(wrapper, '查看图片参考').trigger('click')
+    await button(wrapper, '选择内容重新整理').trigger('click'); await flushPromises()
+    expect(wrapper.find('.map-edit-grid').exists()).toBe(true)
+    expect(wrapper.emitted('reference-visible').at(-1)).toEqual([false])
+    expect(api.tasks.retry).not.toHaveBeenCalled()
+    expect(api.world.generateMapStructure).not.toHaveBeenCalled()
+    expect(api.world.saveMapRevision).not.toHaveBeenCalled()
+  })
+
+  it('新任务不沿用旧整理计数，首次读取失败后继续轮询并恢复反馈', async () => {
+    vi.useFakeTimers()
+    api.world.getNodeMap.mockResolvedValue({ ...state(record()), task_id: 'old-task', task_status: 'done', generation_summary: generationSummary({ message: '旧任务摘要' }) })
+    api.world.listEntities.mockResolvedValue({ items: [{ id: 'world-location', name: '临江城', status: 'canonical' }] })
+    const wrapper = render(); await flushPromises()
+    await wrapper.get('.map-inline-form').trigger('submit'); await flushPromises()
+    await wrapper.get('.map-world-locations input').setValue(true)
+    api.world.getNodeMap.mockRejectedValueOnce(new Error('本次地图读取失败'))
+    await button(wrapper, '用这些地点生成空间关系').trigger('click'); await flushPromises()
+    expect(wrapper.text()).not.toContain('旧任务摘要')
+    expect(wrapper.get('[aria-label="空间整理结果"] p').text()).toContain('正在核对空间资料')
+    expect(wrapper.find('[aria-label="空间整理结果"] details').exists()).toBe(false)
+    api.world.getNodeMap.mockResolvedValue({ ...state(record()), task_id: 'task-1', task_status: 'done', generation_summary: generationSummary({ message: '新任务已核对完成', structured_attempts: 1 }) })
+    await vi.advanceTimersByTimeAsync(2500); await flushPromises()
+    expect(wrapper.text()).toContain('新任务已核对完成')
+    expect(wrapper.text()).not.toContain('本次地图读取失败')
+    expect(wrapper.find('[aria-label="空间整理结果"] details').exists()).toBe(true)
   })
 
   it('已有手工图元带精确原文选择进入生成，无需先创建世界对象', async () => {
@@ -389,6 +447,63 @@ describe("统一地图编辑器", () => {
     expect(wrapper.text()).toContain('无法自动判断空间变化')
     expect(button(wrapper, '对照图片生成时的地图')).toBeUndefined()
     expect(wrapper.vm.dirty).toBe(false)
+  })
+
+  it('上传底图用服务端证明的校准版本对照，并明确区别图片生成来源', async () => {
+    const original = document(), current = document()
+    current.features[0].points[0].x = 140
+    current.images = [{ page_id: 'uploaded', role: 'background', anchors: [{ feature_id: 'a' }] }]
+    const layer = { page_id: 'uploaded', role: 'background', state: 'stale', calibration_revision_id: 'calibrated-old', calibration_lookup_status: 'found' }
+    api.world.getNodeMap.mockResolvedValue({ ...state(record(current)), image_layers: [layer] })
+    api.world.previewMapRevision.mockResolvedValue({ document: original, image_layers: [], problems: [] })
+    const wrapper = render({ images: [{ id: 'uploaded', title: '上传底图', source_map_revision_id: null }] }); await flushPromises()
+    await wrapper.get('.map-image-controls select').setValue('uploaded'); await flushPromises()
+    expect(api.world.previewMapRevision).toHaveBeenCalledWith(projectId, nodeId, 'calibrated-old')
+    expect(wrapper.text()).toContain('校准点发生变化：临江城')
+    expect(wrapper.get('.map-image-baseline-status').text()).toContain('不表示图片由该版本生成')
+    expect(button(wrapper, '对照图片生成时的地图')).toBeUndefined()
+    await button(wrapper, '对照上次校准时的地图').trigger('click'); await flushPromises()
+    expect(wrapper.text()).toContain('正在查看历史地图')
+    expect(api.world.listMapRevisions).not.toHaveBeenCalled()
+    expect(api.world.saveMapRevision).not.toHaveBeenCalled()
+  })
+
+  it.each(['not_found', 'truncated', null])('没有可信校准版本时(%s)不使用臆测的历史基准', async lookup => {
+    api.world.getNodeMap.mockResolvedValue({ ...state(record()), image_layers: [{ page_id: 'uploaded', role: lookup ? 'background' : 'illustration', state: 'unavailable', calibration_revision_id: null, calibration_lookup_status: lookup }] })
+    const wrapper = render({ images: [{ id: 'uploaded', title: '上传图片' }] }); await flushPromises()
+    await wrapper.get('.map-image-controls select').setValue('uploaded'); await flushPromises()
+    expect(wrapper.get('.map-image-baseline-status').text()).toContain(lookup === 'truncated' ? '校准历史较多' : lookup === 'not_found' ? '未找到与此底图校准配置匹配' : '没有绑定生成时的地图版本')
+    expect(wrapper.get('.map-image-baseline-status').text()).toContain('无法自动判断空间变化')
+    expect(button(wrapper, '对照上次校准时的地图')).toBeUndefined()
+    expect(api.world.previewMapRevision).not.toHaveBeenCalled()
+  })
+
+  it('同一图片同时保留生成与校准来源，分别打开对应的冻结地图', async () => {
+    api.world.getNodeMap.mockResolvedValue({ ...state(record()), image_layers: [{ page_id: 'picture', role: 'background', state: 'stale', calibration_revision_id: 'calibration', calibration_lookup_status: 'found' }] })
+    api.world.previewMapRevision.mockResolvedValue({ document: document(), image_layers: [], problems: [] })
+    const wrapper = render({ images: [{ id: 'picture', title: '地图图片', source_map_revision_id: 'generated' }] }); await flushPromises()
+    await wrapper.get('.map-image-controls select').setValue('picture'); await flushPromises()
+    expect(wrapper.get('.map-image-baseline-status').text()).toContain('图片生成时绑定的地图版本')
+    expect(button(wrapper, '对照图片生成时的地图')).toBeDefined()
+    expect(button(wrapper, '对照上次校准时的地图')).toBeDefined()
+    await button(wrapper, '对照上次校准时的地图').trigger('click'); await flushPromises()
+    expect(api.world.previewMapRevision).toHaveBeenLastCalledWith(projectId, nodeId, 'calibration')
+  })
+
+  it('两类来源对照只接受最后一次点击，晚到的生成版不能覆盖校准版', async () => {
+    api.world.getNodeMap.mockResolvedValue({ ...state(record()), image_layers: [{ page_id: 'picture', role: 'background', state: 'stale', calibration_revision_id: 'calibration', calibration_lookup_status: 'found' }] })
+    api.world.previewMapRevision.mockResolvedValue({ document: document(), image_layers: [], problems: [] })
+    const wrapper = render({ images: [{ id: 'picture', title: '地图图片', source_map_revision_id: 'generated' }] }); await flushPromises()
+    await wrapper.get('.map-image-controls select').setValue('picture'); await flushPromises()
+    let finish
+    const calibrated = document(); calibrated.features[0].label = '校准版地点'
+    api.world.previewMapRevision.mockImplementation(async (_project, _node, id) => id === 'generated' ? new Promise(resolve => { finish = resolve }) : { document: calibrated, image_layers: [], problems: [] })
+    await button(wrapper, '对照图片生成时的地图').trigger('click')
+    await button(wrapper, '对照上次校准时的地图').trigger('click'); await flushPromises()
+    expect(wrapper.get('.map-feature text').text()).toBe('校准版地点')
+    const generated = document(); generated.features[0].label = '生成版地点'
+    finish({ document: generated, image_layers: [], problems: [] }); await flushPromises()
+    expect(wrapper.get('.map-feature text').text()).toBe('校准版地点')
   })
 
   it('空白画布拖动和视口方向键只平移，触摸由原生滚动与缩放处理', async () => {

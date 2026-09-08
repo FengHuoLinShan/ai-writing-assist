@@ -95,10 +95,16 @@
       <p v-if="!displayDocument.features.length" class="map-caption">{{ reader ? '这个阅读进度暂无可展示的地图内容。' : '先加入已有地点，或添加标记。已知道路和区域可以用折线与轮廓表示。' }}</p>
       <p v-if="placing && !readOnly && !focused" role="status">请点击画布{{ selectedFeature?.kind === 'location' || selectedFeature?.kind === 'landmark' ? '放置地点' : '依次添加控制点' }}。<button class="btn btn-sm" @click="finishDrawing">结束绘制</button></p>
     </template>
+    <section v-if="!readOnly && (taskRunning || generationSummary || ['failed', 'cancelled'].includes(taskStatus))" class="map-generation-feedback" aria-label="空间整理结果">
+      <p role="status">{{ taskRunning ? '正在核对空间资料，结果会保留为候选，已保存地图不会被替换。' : generationSummary?.message || (taskStatus === 'cancelled' ? '本次整理已停止，已保存地图仍可使用。选择内容后可以重新整理。' : '空间整理未完成，已保存地图仍可使用。请检查来源，选择内容后重新整理。') }}</p>
+      <button v-if="taskRunning" class="btn btn-sm" :disabled="busy || cancelling" @click="cancelGeneration">{{ cancelling ? '正在停止…' : '停止本次整理' }}</button>
+      <button v-else-if="taskStatus !== 'done' || generationSummary?.outcome !== 'complete'" class="btn btn-sm" @click="showGenerationChoices">选择内容重新整理</button>
+      <details v-if="generationSummary"><summary>查看整理详情</summary><dl><template v-for="item in generationCounters" :key="item.label"><dt>{{ item.label }}</dt><dd>{{ item.value }}</dd></template></dl><ul v-if="discardCounts.length"><li v-for="item in discardCounts" :key="item.label">{{ item.label }}：{{ item.value }} 条</li></ul></details>
+    </section>
     <MapRehearsalPanel v-if="!readOnly && !referenceOnly" v-model:stops="rehearsalStops" :document="doc" :result="rehearsal" @open-source="openSourceChapter" />
     <div v-if="!readOnly && !referenceOnly && !focused" class="map-edit-grid">
       <div>
-        <details open>
+        <details ref="generationTools" open>
           <summary>地点与绘制</summary>
           <form class="map-inline-form" @submit.prevent="searchLocations"><label>查找已采用地点<input v-model="searchQuery" class="form-input" placeholder="输入地点名称" /></label><button class="btn btn-sm" :disabled="busy">查找</button></form>
           <div class="map-location-list map-world-locations">
@@ -106,7 +112,6 @@
           </div>
           <div class="map-actions"><button class="btn btn-sm" :disabled="busy || !selectedLocationIds.length" @click="addLocations">加入地图</button><button class="btn btn-sm" :disabled="busy || taskRunning || !selectedLocationIds.length || dirty" @click="generate">{{ taskRunning ? '正在整理空间资料…' : '用这些地点生成空间关系' }}</button></div>
           <details v-if="doc.features.length"><summary>整理地图中已有内容</summary><p>只整理选中的内容及其明确关系；手工位置保留，资料会在生成前供你检查。</p><div class="map-location-list"><label v-for="feature in doc.features" :key="feature.id"><input v-model="selectedFeatureIds" type="checkbox" :value="feature.id" :disabled="busy || (!selectedFeatureIds.includes(feature.id) && selectedFeatureIds.length >= 20)" />{{ feature.label }}</label></div><button class="btn btn-sm" :disabled="busy || taskRunning || dirty || !selectedFeatureIds.length" @click="generateExisting">整理所选内容的空间关系</button></details>
-          <p v-if="taskStatus === 'failed'" role="alert">空间整理未完成。已保存的地图仍可使用，可以重新整理或手动编辑。</p>
           <p v-if="dirty" class="map-caption">生成前请先保存当前编辑。</p>
           <form class="map-inline-form" @submit.prevent="addFeature">
             <label>标记名称<input v-model="newLabel" class="form-input" maxlength="200" /></label>
@@ -179,9 +184,10 @@
         <label>底图透明度<input v-model.number="imageForm.opacity" type="range" min="0.1" max="1" step="0.05" /></label>
       </template>
       <label>已人工核对整张图片，最早在第几章开始时展示<input v-model.number="imageForm.reader_from_chapter" type="number" min="1" max="100000" placeholder="未核对请留空" /></label>
-      <p v-if="imageForm.page_id && imageBaselineStatus !== 'ready'" role="status">{{ imageBaselineStatus === 'loading' ? '正在读取图片生成时的地图…' : imageBaselineStatus === 'error' ? '图片的原始地图暂时无法读取，当前不能判断变化。请重新选择图片重试。' : '此图片没有绑定生成时的地图版本，无法自动判断空间变化。请人工检查图片与校准点。' }}</p>
+      <p v-if="imageForm.page_id" role="status" class="map-image-baseline-status">{{ imageBaselineMessage }}</p>
       <div v-if="imageForm.page_id && imageImpact.content.length" class="map-warning"><strong>图片需要复核</strong><p>{{ imageImpact.anchors.length ? '校准点发生变化：' + imageImpact.anchors.join('、') : '三个校准点没有位置变化，但空间内容发生变化。' }}</p><ul><li v-for="(line, index) in imageImpact.content" :key="index">{{ line }}</li></ul><p>请检查图片是否仍符合地图；系统不会自动付费重画。</p></div>
-      <button v-if="selectedImageRevision" class="btn btn-sm" :disabled="busy" @click="compareImageRevision">对照图片生成时的地图</button>
+      <button v-if="selectedImageRevision" class="btn btn-sm" :disabled="busy" @click="compareImageRevision(selectedImageRevision)">对照图片生成时的地图</button>
+      <button v-if="selectedCalibrationRevision" class="btn btn-sm" :disabled="busy" @click="compareImageRevision(selectedCalibrationRevision)">对照上次校准时的地图</button>
       <button class="btn btn-sm" :disabled="busy || !imageForm.page_id" @click="applyImage">预览图片设置</button>
       <ul><li v-for="placement in doc.images" :key="placement.page_id">{{ imageTitle(placement.page_id) }} · {{ placement.role === 'background' ? '底图' : '配图' }} <strong v-if="imageState(placement) !== 'ready'">{{ imageState(placement) === 'stale' ? '待复核，已退出叠加' : '图片已移出，展示已关闭' }}</strong><button class="btn btn-sm" @click="editImage(placement)">调整／重新校准</button><button class="btn btn-sm" @click="removeImage(placement.page_id)">关闭此展示层</button></li></ul>
       <details v-if="annotations.length || doc.annotation_bindings.length"><summary>绑定原图片标注</summary><ul><li v-for="binding in doc.annotation_bindings" :key="binding.annotation_id">已绑定到 {{ featureLabel(binding.feature_id) }} <button class="btn btn-sm" @click="unbindAnnotation(binding.annotation_id)">解除绑定</button></li></ul><form class="map-inline-form" @submit.prevent="bindAnnotation"><label>原标注<select v-model="annotationId" class="form-select"><option value="">请选择</option><option v-for="annotation in annotations" :key="annotation.id" :value="annotation.id">{{ annotation.label }}</option></select></label><label>地图地点<select v-model="annotationFeatureId" class="form-select"><option value="">请选择</option><option v-for="feature in doc.features" :key="feature.id" :value="feature.id">{{ feature.label }}</option></select></label><button class="btn btn-sm" :disabled="!annotationId || !annotationFeatureId">绑定</button></form></details>
@@ -214,6 +220,7 @@ const canvas = ref(null), canvasWidth = ref(700), canvasHeight = ref(0), zoom = 
 const focused = ref(false), mapQuery = ref(""), locatorMessage = ref(""), compareCandidateCurrent = ref(false)
 const selectedChangeKeys = ref([]), selectedFeatureIds = ref([]), comparisonLayers = ref([]), reviewNotice = ref(''), rehearsalStops = ref([]), scrollArea = ref(null)
 const adoptionPreview = ref(null), previewing = ref(false), imageBaseline = ref(null), imageBaselineStatus = ref('unknown'), panning = ref(false)
+const generationSummary = ref(null), cancelling = ref(false), generationTools = ref(null)
 const searchQuery = ref(""), locations = ref([]), selectedLocationIds = ref([]), newLabel = ref(""), newKind = ref("location")
 const taskId = ref(null), taskStatus = ref(null), reader = ref(null), readerChapter = ref(1)
 const imageUrls = reactive({}), anchorIndex = ref(0), annotationId = ref(""), annotationFeatureId = ref("")
@@ -223,10 +230,19 @@ const relationLabels = mapRelationLabels
 const sourcePickerOpen = ref(false), sourcePickerInitial = ref(null)
 const imageRequests = new Map()
 let resizeObserver = null
-let epoch = 0, alive = true, installing = false, backupTimer = null, pollTimer = null, drag = null, downloaded = false, reviewEpoch = 0, imageBaselineEpoch = 0, pan = null
+let epoch = 0, alive = true, installing = false, backupTimer = null, pollTimer = null, drag = null, downloaded = false, reviewEpoch = 0, imageBaselineEpoch = 0, comparisonEpoch = 0, lastLoadError = '', pan = null
 const dirty = computed(() => JSON.stringify(doc.value) !== baseline.value)
 const busy = computed(() => loading.value || saving.value)
 const taskRunning = computed(() => ["pending", "running"].includes(taskStatus.value))
+const generationCounters = computed(() => {
+  const summary = generationSummary.value
+  if (!summary) return []
+  return [['地点或图元', 'targets'], ['资料片段', 'sources'], ['处理字符数', 'input_characters'], ['资料批次', 'batches'], ['未完成批次', 'failed_batches'], ['超出容量的批次', 'truncated_batches'], ['收到的关系', 'received_relations'], ['保留的关系', 'accepted_relations'], ['未通过检查的关系', 'discarded_relations'], ['生成尝试次数', 'structured_attempts'], ['格式修正次数', 'format_retries']].map(([label, key]) => ({ label, value: summary[key] ?? '未记录' }))
+})
+const discardCounts = computed(() => {
+  const labels = { unknown_feature: '无法对应地图内容', outside_selection: '超出所选内容范围', unknown_source: '来源未进入确认', quote_mismatch: '引文与来源不符', path_label_mismatch: '路线名称缺少依据', source_changed: '来源已经变化', invalid_geometry: '空间关系不符合地图约束', invalid_schema: '内容格式不符合要求' }
+  return Object.entries(generationSummary.value?.discard_reasons || {}).filter(([key, count]) => labels[key] && count > 0).map(([key, value]) => ({ label: labels[key], value }))
+})
 const incompleteGeometry = computed(() => doc.value.features.some(feature => feature.points.length > 0 && feature.points.length < (feature.kind === 'area' ? 3 : ['road', 'river'].includes(feature.kind) ? 2 : 1)))
 const readOnly = computed(() => Boolean(reader.value || candidateView.value || compareServer.value))
 const displayDocument = computed(() => reader.value ? { features: reader.value.features } : candidateView.value ? (compareCandidateCurrent.value ? revision.value?.document || emptyMap() : candidateView.value.document) : (compareServer.value && serverRevision.value ? serverRevision.value.document : doc.value))
@@ -242,6 +258,19 @@ const relationSubjects = computed(() => doc.value.features.filter(item => !['alo
 const relationTargets = computed(() => doc.value.features.filter(item => item.id !== relation.subject && (relation.relation === 'along_street' ? item.kind === 'road' : ['entrance_to', 'faces'].includes(relation.relation) ? ['location', 'landmark', 'area'].includes(item.kind) : true)))
 const imageImpact = computed(() => imageBaseline.value ? mapImageChanges(doc.value.images.find(item => item.page_id === imageForm.page_id) || { anchors: [] }, imageBaseline.value.document, doc.value) : { anchors: [], content: [] })
 const selectedImageRevision = computed(() => props.images.find(item => item.id === imageForm.page_id)?.source_map_revision_id)
+const selectedImageLayer = computed(() => imageLayers.value.find(item => item.page_id === imageForm.page_id))
+const selectedCalibrationRevision = computed(() => selectedImageLayer.value?.role === 'background' && selectedImageLayer.value.calibration_lookup_status === 'found' ? selectedImageLayer.value.calibration_revision_id : null)
+const imageBaselineRevision = computed(() => selectedImageRevision.value || selectedCalibrationRevision.value)
+const imageBaselineKind = computed(() => selectedImageRevision.value ? 'generation' : 'calibration')
+const imageBaselineMessage = computed(() => {
+  const purpose = imageBaselineKind.value === 'generation' ? '图片生成时' : '上次校准时'
+  if (imageBaselineStatus.value === 'loading') return `正在读取${purpose}的地图…`
+  if (imageBaselineStatus.value === 'error') return `${purpose}的地图暂时无法读取，当前不能判断变化。请重新选择图片重试。`
+  if (imageBaselineStatus.value === 'ready') return imageBaselineKind.value === 'generation' ? '变化依据：图片生成时绑定的地图版本。' : '变化依据：已保存的底图校准版本，只用于对照空间与锚点，不表示图片由该版本生成。'
+  if (selectedImageLayer.value?.calibration_lookup_status === 'truncated') return '校准历史较多，本次未查到可确认的基准，无法自动判断空间变化。请人工核对，或重新校准后保存。'
+  if (selectedImageLayer.value?.role === 'background') return '未找到与此底图校准配置匹配的已保存版本，无法自动判断空间变化。请人工核对，或重新校准后保存。'
+  return '此图片没有绑定生成时的地图版本，无法自动判断空间变化。请人工检查图片与校准点。'
+})
 const bounds = computed(() => dragBounds.value || mapBounds(displayDocument.value.features))
 const paintRank = feature => feature.kind === 'area' ? 0 : ['road', 'river'].includes(feature.kind) ? 1 : 2
 const paintedFeatures = computed(() => [...displayDocument.value.features].filter(f => f.points.length).sort((a, b) => paintRank(a) - paintRank(b)))
@@ -490,18 +519,19 @@ async function load(initial = false) {
   try {
     const result = await api.world.getNodeMap(props.projectId, props.node.id)
     if (!alive || token !== epoch) return
+    if (error.value === lastLoadError) error.value = ''
+    lastLoadError = ''
     serverRevision.value = result.revision; candidates.value = result.candidates; imageLayers.value = result.image_layers || []
-    taskId.value = result.task_id; taskStatus.value = result.task_status
+    taskId.value = result.task_id; taskStatus.value = result.task_status; generationSummary.value = result.generation_summary || null
     if (!initialized.value) {
       install(result.revision); initialized.value = true; await restoreView()
       try { recovery.value = JSON.parse(localStorage.getItem(backupKey()) || "null") } catch { backupError.value = true }
       if (recovery.value && JSON.stringify(recovery.value.document) === baseline.value) recovery.value = null
     } else if (!dirty.value && !candidateView.value && revision.value?.id !== result.revision?.id) install(result.revision)
     else if (!dirty.value && !candidateView.value) problems.value = result.revision?.problems || []
-    if (taskRunning.value) { clearTimeout(pollTimer); pollTimer = setTimeout(() => load(), 2500) }
     await loadLayerImages()
-  } catch (err) { if (alive && token === epoch) error.value = err.message || "地图读取失败" }
-  finally { if (alive && token === epoch) loading.value = false }
+  } catch (err) { if (alive && token === epoch) error.value = lastLoadError = err.message || "地图读取失败" }
+  finally { if (alive && token === epoch) { loading.value = false; if (taskRunning.value) { clearTimeout(pollTimer); pollTimer = setTimeout(() => load(), 2500) } } }
 }
 async function save() {
   if (busy.value || readOnly.value) return
@@ -533,6 +563,23 @@ async function autoLayout() {
 }
 async function generate() { return generateSelection([...selectedLocationIds.value], []) }
 async function generateExisting() { return generateSelection([], [...selectedFeatureIds.value]) }
+async function cancelGeneration() {
+  const id = taskId.value
+  if (!id || !taskRunning.value || busy.value || cancelling.value) return
+  cancelling.value = true; error.value = ''
+  try {
+    const result = await api.tasks.cancel(id, props.projectId)
+    if (!alive || taskId.value !== id) return
+    taskStatus.value = result.status; generationSummary.value = null
+    await load()
+  } catch (err) { if (alive && taskId.value === id) error.value = err.message || '停止整理失败，请重试。已保存地图仍保留。' }
+  finally { if (alive) cancelling.value = false }
+}
+async function showGenerationChoices() {
+  focused.value = false; referenceOnly.value = false; emit('reference-visible', false); await nextTick()
+  if (!generationTools.value) return
+  generationTools.value.open = true; generationTools.value.scrollIntoView?.({ block: 'start' }); generationTools.value.querySelector('input')?.focus()
+}
 async function generateSelection(locationIds, featureIds) {
   if (dirty.value || busy.value || taskRunning.value) return
   saving.value = true; error.value = ""
@@ -542,22 +589,23 @@ async function generateSelection(locationIds, featureIds) {
     if (!alive) return
     const result = await api.world.generateMapStructure(props.projectId, props.node.id, { operation_id: crypto.randomUUID(), base_revision_id: revision.value?.id || null, context_confirmation_id: confirmation.id, location_ids: locationIds, feature_ids: featureIds })
     if (!alive) return
-    taskId.value = result.task_id; taskStatus.value = result.status; await load()
+    taskId.value = result.task_id; taskStatus.value = result.status; generationSummary.value = null; await load()
   } catch (err) { if (err.message !== "已取消 AI 参考资料确认") error.value = err.message || "空间整理暂时不可用" }
   finally { if (alive) saving.value = false }
 }
 async function viewCandidate(value, existingPreview = null) {
+  const token = ++comparisonEpoch
   if (dirty.value && !confirm('比较地图版本时会保留当前编辑，是否继续？')) return
   compareServer.value = false; candidateView.value = value; compareCandidateCurrent.value = false; reader.value = null; referenceOnly.value = false; focused.value = false; emit('reference-visible', false); problems.value = value.problems || []
   selectedChangeKeys.value = candidateChanges.value.map(change => change.key); comparisonLayers.value = []
   try {
     const preview = existingPreview || await api.world.previewMapRevision(props.projectId, props.node.id, value.id)
-    if (!alive || candidateView.value?.id !== value.id) return
+    if (!alive || token !== comparisonEpoch || candidateView.value?.id !== value.id) return
     comparisonLayers.value = preview.image_layers || []; problems.value = preview.problems || []
     await Promise.all(comparisonLayers.value.filter(layer => layer.state === 'ready').map(layer => loadImage(layer.page_id)))
-  } catch (err) { if (alive && candidateView.value?.id === value.id) error.value = err.message || '版本图片读取失败，结构仍可比较' }
+  } catch (err) { if (alive && token === comparisonEpoch && candidateView.value?.id === value.id) error.value = err.message || '版本图片读取失败，结构仍可比较' }
 }
-function exitCandidate() { candidateView.value = null; compareCandidateCurrent.value = false; problems.value = serverRevision.value?.problems || revision.value?.problems || [] }
+function exitCandidate() { ++comparisonEpoch; candidateView.value = null; compareCandidateCurrent.value = false; problems.value = serverRevision.value?.problems || revision.value?.problems || [] }
 async function previewAdoption() {
   const value = candidateView.value, baseId = revision.value?.id || null, keys = [...selectedChangeKeys.value]
   if (!value || value.status !== 'candidate' || value.base_revision_id !== baseId || busy.value || dirty.value || !keys.length) return
@@ -597,17 +645,17 @@ async function review(value, action, changeKeys = null) {
   finally { if (alive) saving.value = false }
 }
 async function loadHistory() { try { history.value = await api.world.listMapRevisions(props.projectId, props.node.id) } catch (err) { error.value = err.message || "历史读取失败" } }
-async function compareImageRevision() {
-  const id = selectedImageRevision.value
+async function compareImageRevision(id) {
   if (!id) return
+  const token = ++comparisonEpoch
   try {
     const preview = await api.world.previewMapRevision(props.projectId, props.node.id, id)
-    if (!alive || selectedImageRevision.value !== id) return
+    if (!alive || token !== comparisonEpoch || ![selectedImageRevision.value, selectedCalibrationRevision.value].includes(id)) return
     await viewCandidate({ id, status: 'saved', document: preview.document, problems: preview.problems }, preview)
-  } catch (err) { if (alive) error.value = err.message || '图片来源地图暂时无法读取，请重试。' }
+  } catch (err) { if (alive && token === comparisonEpoch) error.value = err.message || '图片来源地图暂时无法读取，请重试。' }
 }
 async function loadImageBaseline() {
-  const id = selectedImageRevision.value, token = ++imageBaselineEpoch
+  const id = imageBaselineRevision.value, token = ++imageBaselineEpoch
   imageBaseline.value = null; imageBaselineStatus.value = id ? 'loading' : 'unknown'
   if (!id) return
   try {
@@ -717,7 +765,9 @@ watch([dirty, revision, reader, focused], () => emit("state", { dirty: dirty.val
 watch([selectedId, zoom, focused, rehearsalStops], rememberView, { deep: true })
 watch([selectedId, busy, focused, readOnly], () => { sourcePickerOpen.value = false }, { flush: 'sync' })
 watch([candidateView, () => revision.value?.id, () => serverRevision.value?.id, selectedChangeKeys], () => { ++reviewEpoch; adoptionPreview.value = null; previewing.value = false }, { deep: true, flush: 'sync' })
-watch([() => imageForm.page_id, selectedImageRevision], loadImageBaseline)
+watch([() => imageForm.page_id, imageBaselineRevision, imageBaselineKind], loadImageBaseline)
+watch([() => imageForm.page_id, selectedImageRevision, selectedCalibrationRevision], () => { ++comparisonEpoch }, { flush: 'sync' })
+watch(reader, value => { if (value) ++comparisonEpoch }, { flush: 'sync' })
 watch(() => relation.relation, () => { if (!relationSubjects.value.some(item => item.id === relation.subject)) relation.subject = ''; if (!relationTargets.value.some(item => item.id === relation.target)) relation.target = '' })
 onMounted(() => {
   load(true); globalThis.addEventListener("beforeunload", beforeUnload)
@@ -739,4 +789,5 @@ defineExpose({ canLeave, save, dirty, revision })
 .map-navigation{display:grid;gap:var(--space-2)}.map-locator{min-width:0}.map-locator .map-actions{max-height:132px;overflow:auto}.map-focused{gap:var(--space-2)}.map-focused .map-toolbar{flex-direction:row;align-items:center}.map-focused .map-toolbar>div:first-child{min-width:0;overflow-wrap:anywhere}.map-focused .map-navigation{display:flex;align-items:start;flex-wrap:wrap}.map-focused .map-canvas-controls{flex:0 1 auto;min-height:44px}.map-focused .map-canvas-controls label{display:flex;align-items:center;gap:var(--space-2)}.map-focused .map-locator{flex:1 1 200px}.map-focused .map-locator>label{display:flex;align-items:center;gap:var(--space-2);font-size:var(--text-sm);white-space:nowrap}.map-focused .map-locator input{flex:1;min-width:0;width:100px}.map-focused .map-scroll{max-height:max(300px,calc(100dvh - 240px))}.map-focused .map-canvas{min-width:0;height:calc(var(--map-zoom, 1) * max(300px,100dvh - 240px))}.map-focused .map-hit{cursor:pointer}
 @media(max-width:900px){.map-focused .map-canvas{height:auto}}
 .map-scroll{touch-action:pan-x pan-y pinch-zoom}.map-scroll.panning{cursor:grabbing;user-select:none}.map-paper{cursor:grab}.map-scroll:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.map-segment{stroke:transparent;cursor:pointer}.map-segment.selected{stroke:var(--accent);stroke-opacity:.2}.map-handle.selected{fill:var(--accent)}.map-feature.selected text{font-weight:700}.map-adoption-preview{padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius-md)}
+.map-generation-feedback{display:grid;gap:var(--space-2);padding:var(--space-2);border:1px solid var(--border);border-radius:var(--radius-md)}.map-generation-feedback>p{margin:0}.map-generation-feedback>.btn{justify-self:start}.map-generation-feedback dl{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--space-1) var(--space-3)}.map-generation-feedback dd{margin:0}.map-generation-feedback summary{font-size:var(--text-sm)}
 </style>
