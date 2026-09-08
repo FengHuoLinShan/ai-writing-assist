@@ -492,6 +492,33 @@ class MapStructureService:
                 .limit(10)
             )
         ).all()
+        revision = self.response(current) if current else None
+        candidate_responses = [self.response(row) for row in candidates]
+        checked = {}
+        for response in [revision, *candidate_responses]:
+            if response is None:
+                continue
+            response.problems = [p for p in response.problems if p.code != "source_stale"]
+            for item in [*response.document.features, *response.document.constraints]:
+                for ref in item.sources:
+                    key = ref.model_dump_json()
+                    if key not in checked:
+                        try:
+                            await self.source(db, novel_id, ref)
+                            checked[key] = True
+                        except (ConflictError, NotFoundError, ValidationError):
+                            checked[key] = False
+                    if not checked[key]:
+                        response.problems.append(
+                            MapProblem(
+                                code="source_stale",
+                                message="已有空间资料发生变化，请核对来源；阅读预览暂不展示相关内容",
+                                feature_ids=[item.id]
+                                if hasattr(item, "points")
+                                else [item.subject, item.target],
+                            )
+                        )
+                        break
         tasks = (
             await list_task_lifecycle_contracts(
                 db,
@@ -505,10 +532,10 @@ class MapStructureService:
         task = tasks.get(str(node.structure_task_id))
         return MapNodeMapResponse(
             node_id=node_id,
-            revision=self.response(current) if current else None,
+            revision=revision,
             task_id=str(node.structure_task_id) if node.structure_task_id else None,
             task_status=task.status if task else None,
-            candidates=[self.response(row) for row in candidates],
+            candidates=candidate_responses,
             image_layers=await self.image_layers(
                 db, novel_id, node_id, MapDocument.model_validate(current.document)
             )

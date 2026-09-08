@@ -878,11 +878,14 @@ class MapAtlasService:
             raise NotFoundError("地图节点不存在")
         if node.updated_at != data.expected_updated_at:
             raise ConflictError("地图层级已在别处更新，请刷新后重试")
-        run = await self._require_run(db, novel_id, str(node.created_by_run_id))
-        if node.status == "provisional" and run.run_kind != "upload":
-            raise ConflictError("该候选节点不能手动调整")
-        if node.status == "adopted" and "title" in data.model_fields_set:
-            raise ValidationError("已加入地图册的地点不能在此改名")
+        if node.status == "provisional":
+            if node.created_by_run_id is None:
+                raise ConflictError("该候选节点不能手动调整")
+            run = await self._require_run(db, novel_id, str(node.created_by_run_id))
+            if run.run_kind != "upload":
+                raise ConflictError("该候选节点不能手动调整")
+        if node.location_entity_id is not None and "title" in data.model_fields_set:
+            raise ValidationError("已绑定世界地点的地图不能在此改名")
         new_parent_id = (
             data.parent_id if "parent_id" in data.model_fields_set else node.parent_id
         )
@@ -909,6 +912,8 @@ class MapAtlasService:
             raise ValidationError("地图上下级层级无效")
         before_supplied = "before_node_id" in data.model_fields_set
         before = by_id.get(data.before_node_id) if data.before_node_id else None
+        if data.before_node_id and before is None:
+            raise ValidationError("插入位置必须是同一上级下的已加入地点")
         if before and (
             before.id == node.id
             or before.parent_id != new_parent_id
