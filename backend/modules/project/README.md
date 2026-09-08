@@ -28,8 +28,8 @@ project 模块负责统一项目隔离根。作者项目使用 `project_kind=aut
 明确不做：
 
 - 世界观管理 / 人物管理 → world 模块
-- 大纲管理 → outline 模块
-- RAG 检索 → rag 模块
+- 大纲管理 → story/outline_state 子域
+- RAG 检索 → evidence/indexing 子域
 - 正文生成 → writing 模块
 - RP 旅程、消息树与回顾 → interaction 模块
 

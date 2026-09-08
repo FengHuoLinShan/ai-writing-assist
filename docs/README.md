@@ -62,7 +62,7 @@
 7. `modules/13_imports.md` — 小说导入模块
 8. `modules/12_infrastructure.md` — 基础设施模块（LLM + PostgreSQL 任务队列）
 9. `modules/14_frontend.md` — 前端控制台
-10. `modules/15_map.md` — 动态地图子系统（world 模块子系统）
+10. `modules/15_map.md` — AI 地图册候选生成、作者采用、标注与私有图片存储（world 子系统）
 11. `modules/17_account.md` — 公开浏览器账号、身份、账户模型连接、全局偏好、会话与延期删除
 12. `modules/18_interaction.md` — RP 互动旅程、不可变分支、流式恢复、回顾与看海
 13. `modules/19_story.md` — Scene 人物卡、可编辑剧本 revision、采用与 one-click 预览
@@ -142,7 +142,7 @@
 1. [`audit/2026-07-07-全量代码库审计报告.md`](audit/2026-07-07-全量代码库审计报告.md) — 全量三维度审计（性能、安全、架构），88 条优化项
 2. [`audit/2026-07-07-文档审计报告.md`](audit/2026-07-07-文档审计报告.md) — 77 个文档分类审计，含归档/更新/新建计划
 3. [`audit/2026-07-07-可优化清单.md`](audit/2026-07-07-可优化清单.md) — 可追踪的逐项优化 checklist
-4. [`audit/2026-07-11-模块能力与跨模块需求分析.md`](audit/2026-07-11-模块能力与跨模块需求分析.md) — 9 个活跃模块的当前能力、跨模块需求、RAG 精度结论与系统级优先级
+4. [`audit/2026-07-11-模块能力与跨模块需求分析.md`](audit/2026-07-11-模块能力与跨模块需求分析.md) — 当时 9 个活跃模块的能力、跨模块需求、RAG 精度结论与系统级优先级
 5. [`superpowers/plans/2026-07-11-p0-capability-closure-plan.md`](superpowers/plans/2026-07-11-p0-capability-closure-plan.md) — P0.1/P0.2/P0.3 详细实现计划、评测数据生产线、验收标准与首轮实测结果
 6. [`audit/2026-07-12-P0能力闭环完成审计.md`](audit/2026-07-12-P0能力闭环完成审计.md) — P0 工程/评测基础设施闭环证据、Pilot v1.1 四 suite 结果、历史 timing 限制与未达质量项
 7. [`superpowers/plans/2026-07-12-p1-observability-query-planning-stale-closure.md`](superpowers/plans/2026-07-12-p1-observability-query-planning-stale-closure.md) — P1.1 Scene/证据覆盖遥测、P1.2 context 确定性查询计划、P1.3 任务 stale 闭环的详细实现计划与验收标准
@@ -155,8 +155,8 @@
 14. [`references/2026-08-13-worldbook-system-enhancement-plan.md`](references/2026-08-13-worldbook-system-enhancement-plan.md) — 基于详细世界书样本与当前代码能力核对形成的增量需求、差距矩阵和分阶段计划
 15. [`audit/2026-08-13-defensive-code-audit.md`](audit/2026-08-13-defensive-code-audit.md) — 仅后端生产代码的去冗余、哈希与异常定向审计
 16. [`audit/2026-08-31-Context能力与任务前确认诊断.md`](audit/2026-08-31-Context能力与任务前确认诊断.md) — Context 可操作资料、手动模型任务覆盖、三阶段指纹、掌控感 UI 与质量证据分层
-16. [`references/world-object-worldbook-unification-research.md`](references/world-object-worldbook-unification-research.md) — 世界对象、世界书、统一 Card 与事实权威的研究和实施交接
-17. [`references/world-authority-canonical-fixtures-v1.json`](references/world-authority-canonical-fixtures-v1.json) — Phase 0 canonical JSON 与 SHA-256 可执行夹具
+17. [`references/world-object-worldbook-unification-research.md`](references/world-object-worldbook-unification-research.md) — 世界对象、世界书、统一 Card 与事实权威的研究和实施交接
+18. [`references/world-authority-canonical-fixtures-v1.json`](references/world-authority-canonical-fixtures-v1.json) — Phase 0 canonical JSON 与 SHA-256 可执行夹具
 
 ## 当前状态
 
@@ -168,7 +168,7 @@
 
 - `infrastructure/tasks` 提供 PostgreSQL 异步任务队列
 - AI 地图册是 `world` 的子系统，API 前缀为 `/api/world/map-atlas`
-- 前端注册视图包括 `home / project / journeys / interaction` 以及
+- 前端注册视图包括 `home / project / today / journeys / interaction` 以及
   `world / rag / outline / scene / writing / map / generate / llm / settings / project-settings`；
   主导航不显示兼容 `llm` 路由
 - `world/map` 旧入口只做兼容跳转

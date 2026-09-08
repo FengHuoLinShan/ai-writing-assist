@@ -73,7 +73,7 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 
 - 直接实现世界对象、记忆或大纲的业务规则
 - 绕过各模块 facade 直接写跨模块内部模型
-- 直接 import context 模块内部的 models / repositories / services
+- 直接 import evidence 模块内部的 models / repositories / services
 - 文本改写或格式转换导出
 
 ## 数据表
@@ -83,15 +83,16 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
   `task_id + generation + owner attempt/lease` 所有权
 - async_tasks：队列调度、lease 与任务 API 兼容投影；progress/result 继续供前端轮询
 
-`context_snapshots` 由 context 模块拥有。imports 只通过 facade 创建、标记成功/失败和回写 result refs，不直接访问 context 内部表或 repository。
+`context_snapshots` 由 evidence/compilation 子域拥有。imports 只通过 `modules.evidence.facade`
+创建、标记成功/失败和回写 result refs，不直接访问 evidence 内部表或 repository。
 
 ## 跨模块依赖
 
 - writing.facade.create_draft — 写入解析后的章节正文
-- outline facade / DI handler — 深度导入 Phase 1/3
+- story facade / DI handler — 深度导入 Phase 1/3 的结构与连续性写入
 - world facade / DI handler — 深度导入 Phase 2a 对象抽取、Phase 2b 别名/关系提取
-- context.facade — Phase 2/3 LLM 调用上下文快照审计
-- memory.facade.capture_snapshot — Phase 2 后记录记忆快照
+- `modules.evidence.facade` — Phase 2/3 LLM 调用上下文快照审计
+- `modules.story.facade.capture_snapshot` — Phase 2 后记录记忆快照
 
 Phase 2 的存量对象去重通过 `world.facade.get_world_context(..., include_review=True)` 显式读取 active + review 对象，避免同 workflow 的待处理对象被重复创建。imports 不直接 import world/outline/context 的 model、repository 或 service。
 
@@ -135,7 +136,8 @@ world entities。任务在 commit 前失败时旧资产保持不变。
 - Phase 3 结构分析由深度导入调用时传入 `workflow_id` / `task_id` 并开启 `audit_context_snapshot=True`；手动 AI 操作默认不创建 snapshot。
 - Phase 3 第一遍继续复用 outline 的 Scene 摘要链路；第二遍只为第一遍高置信候选加载其引用 Scene 的精确正文，不把全书正文塞入单次请求。结构来源在复核后、持久化前再物化一次，hash 漂移则丢弃结果。
 - Phase 3 快照使用 `context_mode="working"` 和 `include_pending_objects=true`，记录结构上下文的 section/token metadata。若当前编译结果未暴露完整 asset ids，只记录可见资产并在 metadata 中说明。
-- 默认不保存完整 rendered context；调用方显式开启保留时才落库，并由 context 模块按保留策略清理。
+- 默认不保存完整 rendered context；调用方显式开启保留时才落库，并由 evidence/compilation
+  按保留策略清理。
 
 ## 快照健康摘要兼容
 

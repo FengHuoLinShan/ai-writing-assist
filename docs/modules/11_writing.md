@@ -59,8 +59,8 @@ facade 的 create 系列只暴露跨模块 `WritingDraftContract`，不返回 AP
 
 ## 跨模块依赖
 
-outline 可以只读消费 writing facade/contracts 中的草稿和章节索引。writing 需要调用
-outline 时不在服务模块顶层 import outline facade，而是通过可注入 Scene contract loader
+Story outline_state 可以只读消费 writing facade/contracts 中的草稿和章节索引。writing 需要调用
+Story 时不在服务模块顶层 import story facade，而是通过可注入 Scene contract loader
 完成。默认 loader 在调用时 lazy import `modules.story.facade`；Story 继续通过
 writing facade/contracts 只读消费草稿与章节索引。
 

@@ -351,7 +351,7 @@ bucket。这不是分布式或全局 DDoS 防护，也不表示当前外部 Clou
 |------|------|
 | project | `smart_dedup_scan` |
 | world | `world_alias_relation_extraction`、`world_entity_fusion_suggestions`、`world_bible_projection_refresh`、`world_bible_synopsis_refresh`、`world_generation_suggestion`、`world_validation`、`map_atlas_generate`、`world_map_schematic_generate`、`map_atlas_storage_cleanup`、`world_object_image_cleanup` |
-| outline | `story_outline_generate`、`plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate`、`outline_analyze`、`outline_generate`、`scene_fusion_preview` |
+| story | `story_outline_generate`、`outline_analyze`、`outline_generate`、`scene_fusion_preview`、`story_character_card_generate`、`story_reaction_propose`、`story_scene_script_generate`、`story_one_click`；`plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate` 仅为存量任务的 unsupported 兼容注册 |
 | evidence | `rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings`、`rag_reannotate_entities`（持久化 task type 不改名） |
 | writing | `publish_chapter`、`writing_generate`、`writing_semantic_review`、`writing_targeted_revision`、`writing_conflict_ai_review`、`writing_conflict_item_ai_suggestion` |
 | imports | `deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、`plot_structure_auto_extraction` |
@@ -363,9 +363,10 @@ bucket。这不是分布式或全局 DDoS 防护，也不表示当前外部 Clou
 
 `AsyncTask.novel_id` 是项目任务的一等、可索引且不可变 owner；外键 `ON DELETE CASCADE`
 指向 `projects.id`。`meta.novel_id` 仅为兼容投影，入队、ORM 事件和数据库 trigger 都要求它与
-列规范 UUID 一致。`TaskDefinition.owner_scope` 默认 `project`，当前表中处理器均为 project
-scope，普通 `enqueue_task(..., novel_id=...)` 必须显式传入 owner；只有显式 `global` handler
-才允许 NULL owner，且不能携带非空 `meta.novel_id`。
+列规范 UUID 一致。`TaskDefinition.owner_scope` 默认 `project`；除
+`map_atlas_storage_cleanup` 和 `world_object_image_cleanup` 两个 `global` 存储清理处理器外，
+当前处理器均为 project scope。普通 `enqueue_task(..., novel_id=...)` 必须显式传入 owner；
+global handler 才允许 NULL owner，且不能携带非空 `meta.novel_id`。
 
 每个 worker attempt 使用独立日志作用域。claim 时即使一等 `task.novel_id` 存在也只记录
 `<unverified>`；组合根 project preflight 经 facade 确认项目存在后才绑定规范化 UUID，之后的
@@ -380,6 +381,7 @@ scope，普通 `enqueue_task(..., novel_id=...)` 必须显式传入 owner；只�
 POST /api/tasks            # 提交任务
 GET  /api/tasks/{id}       # 查询任务状态
 POST /api/tasks/{id}/cancel # 取消任务
+POST /api/tasks/{id}/retry  # 重试可恢复的失败/取消任务
 ```
 
 任务状态响应中的 `result` 只投影公开顶层字段。以下划线开头的顶层键属于 worker 的

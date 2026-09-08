@@ -323,10 +323,10 @@ e2e 的 `getByRole({name})`。
 **间距 token 契约（`tests/sceneWorkbenchSpacing.test.js:9-42` 正则断言）**：
 `.outline-scene-layout > .outline-toolbar` 的 `gap: var(--space-2)` + `padding: var(--space-2)
 var(--space-3)`；`.scene-management-filters/.scene-fusion-toolbar/.scene-health-filter/
-.scene-workbench-row` 四处 `padding: var(--space-3) var(--space-4)`；`@media (max-width:720px)`
+.scene-workbench-row` 四处 `padding: var(--space-3) var(--space-4)`；`@media (max-width:760px)`
 内 `.scene-health-filter` grid `minmax(0,1fr) auto` 且 `small` 换行 `grid-column:1/-1;
 margin-left:0`；`.scene-health-count-note` 的 `margin:0` + `padding-inline: var(--space-4)`。
-执行字号/密度修正（§2-8）时不得破坏这些断言；断点合并 760px 时同步更新测试。
+执行字号/密度修正（§2-8）时不得破坏这些断言。
 
 **Editorial 主题作用域**：修 §2-1 时把三段 `[data-workspace-view="scene"]` 规则改锚
 outline/scenes 可判定条件（如 `.outline-scene-layout` 存在性或 view+subView 复合属性），

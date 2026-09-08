@@ -14,7 +14,7 @@ make docs-check BASE_REF=origin/main
 
 | ADR | 状态 | 当前约束 |
 |---|---|---|
-| [ADR-0001](0001-state-assembler-ownership.md) | Accepted | `state_assembler` 归属 memory；world 只经稳定 seam 消费。 |
+| [ADR-0001](0001-state-assembler-ownership.md) | Accepted / Amended | `state_assembler` 现归属 world；Story continuity 经 world 稳定 seam 消费对象状态。 |
 | [ADR-0002](0002-base-crud-service-shape.md) | Accepted | world 通用 CRUD 使用受限 BaseCRUDService 形状，不额外建立空 port。 |
 | [ADR-0003](0003-leaflet-for-map-viewport.md) | Superseded | 旧 Leaflet 地图视口已由 ADR-0012 的 AI 地图册取代。 |
 | [ADR-0004](0004-novel-evidence-retrieval-seams.md) | Accepted / Amended | writing 保持原文事实源；RAG 索引与 Context 编译/确认物理归并为 evidence，不新增平行检索领域。 |
@@ -29,7 +29,7 @@ make docs-check BASE_REF=origin/main
 | [ADR-0012](0012-ai-map-atlas-image-storage.md) | Accepted / Implemented | 统一空间版本与图片表现，保留固定图片模型、私有 S3、独立凭证与删除竞态边界。 |
 | [ADR-0013](0013-operation-receipts-and-page-local-recovery.md) | Accepted | 作者发起的 AI 长任务以 operation receipt 去重，最多两个 attempt，只在原页恢复。 |
 | [ADR-0014](0014-world-object-images-and-single-node-minio.md) | Accepted | 对象图片只经鉴权 API 读取；单机 MinIO 用私有双桶、受限应用凭据和 32GiB 硬配额。 |
-| [ADR-0015](0015-story-evidence-and-settings-physical-fusion.md) | Accepted / Phased implementation | 先交付 Story Scene 垂直切片，再在不改持久化身份的前提下物理融合 Settings、Evidence 和 Story。 |
+| [ADR-0015](0015-story-evidence-and-settings-physical-fusion.md) | Accepted / Implemented | Story 已吸收 outline/memory，Evidence 已吸收 RAG/Context，账户与项目设置已分别归 account/project；持久化身份与稳定路由保持兼容。 |
 | [ADR-0016](0016-worldbook-import-and-validation-governance.md) | Accepted | world 拥有受限文本目录导入与校验领域状态；外部脚本不执行，政策须作者激活，Ruby/WorldCheck 只作本地验收 oracle。 |
 | [ADR-0017](0017-world-fact-authority-and-canon-revisions.md) | Accepted / Phase 0 implemented | 以 `novel_id` 级完整 CanonRevision、内联准入回执和单向 family cutover 收敛世界事实权威；Phase 0 已交付 C0、Page 选择与封闭回放。 |
 | [ADR-0018](0018-versioned-author-source-context-for-rp.md) | Accepted / Implemented | RP 只能以同 owner、显式版本化的 author 资料只读绑定进入 Evidence；source 读与 interaction 写严格分离。 |

@@ -41,7 +41,7 @@
 | `generation_prompt_template_service.py` | 内置创作视角与项目级自定义模板；作为 author brief 进入生成中心 | world 对象共创 |
 | `writing/services.py` | 内联 step `writing.generation.candidate.generate`：根据已确认上下文生成正文候选 | writing 正文生成 |
 | `writing/semantic_review.py` | 内联 steps `writing.semantic_review.chunk_N`、`writing.targeted_revision.generate`：冻结正文、原 confirmation CompiledContext、POV/hidden-guard 指纹和合同的独立近读，并让 finding-bound 返修复用同一资料 | writing 审查返修 |
-| `outline/ai_workflow_service.py` | 内联 step `outline.ai_workflow.analyze.generate`：回答作者指定的大纲结构问题 | outline 手动大纲分析 |
+| `story/outline_state/ai_workflow_service.py` | 内联 step `outline.ai_workflow.analyze.generate`：回答作者指定的大纲结构问题 | Story outline_state 手动大纲分析 |
 | `interaction/prompts.py` / `evidence/compilation/services/interaction_story_context.py` | 内联 `interaction-story-v4`：兼容模型知识 RP，source-bound 旅程额外注入版本/截止点经 Evidence 校验且统一转义围栏的作品参考块；相关往事数据块能力保留但当前生产门禁关闭；可选隐藏尾部元数据 | interaction 故事任务 |
 | `interaction/prompts.py` | 内联 `interaction-summary-v1` / `interaction-summary-output-v1`：一次生成新分段概要与更新后总回顾 | interaction 回顾任务 |
 

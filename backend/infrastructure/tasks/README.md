@@ -10,8 +10,9 @@
 携带非空 metadata identity。
 项目任务的投影必须精确等于列的 canonical 小写连字符 UUID 文本，不能以大写、无连字符或
 空字符串等等价拼写绕过数据库校验。
-所有当前业务处理器在注册表声明为 `owner_scope="project"`，普通
-`facade.enqueue_task(..., novel_id=...)` 必须显式传入 owner，只有显式注册的
+除 `map_atlas_storage_cleanup` 和 `world_object_image_cleanup` 两个存储清理处理器外，
+当前业务处理器在注册表声明为 `owner_scope="project"`。普通
+`facade.enqueue_task(..., novel_id=...)` 必须显式传入 owner；只有显式注册的
 `owner_scope="global"` 处理器可以传 `novel_id=None`。
 
 ## 目录
@@ -24,7 +25,7 @@ infrastructure/tasks/
 ├── worker.py       # TaskWorker 进程内 worker
 ├── liveness.py     # control-loop marker 与零输出健康检查 CLI
 ├── registry.py     # TaskRegistry 任务注册中心
-└── api.py          # FastAPI 路由（提交/查询/取消）
+└── api.py          # FastAPI 路由（提交/查询/取消/重试）
 ```
 
 ## 当前任务处理器
@@ -38,9 +39,10 @@ infrastructure/tasks/
   `world_entity_fusion_suggestions`、`world_bible_projection_refresh`、
   `world_bible_synopsis_refresh`、`world_generation_suggestion`、`world_validation`、`map_atlas_generate`、`world_map_schematic_generate`、
   `map_atlas_storage_cleanup`、`world_object_image_cleanup`
-- outline：`plot_structure_generate`、`chapter_card_extraction`、
-  `chapter_scene_generate`、`outline_analyze`、
-  `outline_generate`、`scene_fusion_preview`
+- story：`story_outline_generate`、`outline_analyze`、`outline_generate`、`scene_fusion_preview`、
+  `story_character_card_generate`、`story_reaction_propose`、`story_scene_script_generate`、`story_one_click`。
+  `plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate` 仅为存量任务返回
+  `unsupported` 的兼容注册，不是当前生产生成入口
 - evidence（持久化 type 保留 `rag_*`）：`rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings`、
   `rag_reannotate_entities`
 - writing：`publish_chapter`、`writing_generate`、`writing_semantic_review`、

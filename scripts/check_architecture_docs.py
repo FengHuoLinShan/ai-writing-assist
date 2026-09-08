@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import fnmatch
 import json
 import os
@@ -21,10 +22,6 @@ ROOT = Path(__file__).resolve().parents[1]
 REGISTRY_PATH = ROOT / "docs/architecture/architecture-documents.toml"
 
 TABLE_NAME_RE = re.compile(r"""__tablename__\s*=\s*["']([^"']+)["']""")
-TASK_HANDLER_RE = re.compile(
-    r"""@task_handler\(\s*["']([^"']+)["']""",
-    re.MULTILINE,
-)
 API_PREFIX_RE = re.compile(
     r"""APIRouter\([^)]*?\bprefix\s*=\s*["']([^"']+)["']""",
     re.DOTALL,
@@ -151,9 +148,49 @@ def _extract_router_names(router_text: str) -> set[str]:
 
 
 def _extract_task_handlers(root: Path) -> set[str]:
+    constants: dict[str, set[str]] = {}
+    for path in sorted((root / "backend/modules").glob("**/*.py")):
+        if "/tests/" in path.as_posix():
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue
+        for node in tree.body:
+            if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                continue
+            value = node.value
+            if not isinstance(value, ast.Constant) or not isinstance(value.value, str):
+                continue
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    constants.setdefault(target.id, set()).add(value.value)
+
     handlers: set[str] = set()
-    for path in sorted((root / "backend/modules").glob("**/tasks.py")):
-        handlers.update(TASK_HANDLER_RE.findall(path.read_text(encoding="utf-8")))
+    for path in sorted((root / "backend/modules").glob("**/*tasks.py")):
+        if "/tests/" in path.as_posix() or path.name.startswith("test_"):
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for decorator in node.decorator_list:
+                if not isinstance(decorator, ast.Call) or not decorator.args:
+                    continue
+                name = decorator.func
+                if not isinstance(name, ast.Name) or name.id != "task_handler":
+                    continue
+                task_type = decorator.args[0]
+                if isinstance(task_type, ast.Constant) and isinstance(
+                    task_type.value,
+                    str,
+                ):
+                    handlers.add(task_type.value)
+                elif isinstance(task_type, ast.Name):
+                    values = constants.get(task_type.id, set())
+                    if len(values) == 1:
+                        handlers.update(values)
     return handlers
 
 

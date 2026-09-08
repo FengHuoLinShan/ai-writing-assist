@@ -254,7 +254,7 @@ PNG 后才进入地图册私有 S3。此例外不改变 imports 的文稿上传�
 明确不做：
 
 - 人物档案管理 → character 已迁入 world，不再独立模块
-- 对象 embedding 全量实时更新 → rag 模块
+- 对象 embedding 全量实时更新 → evidence/indexing 子域
 - 自动合并正史对象
 - 复杂跨类型实体消歧
 - 所有 Mention 实时 embedding
@@ -883,7 +883,8 @@ section，且不会进入可投影正文。页面预览保持零写入并把页�
 - 视觉简报 P1 也是前端有界会话能力：只从完整、未 stale 的 convergence manifest 与作者选择
   生成可编辑文本，确认／复制／下载均不调用后端或写业务表。来源或作者决定变化后旧简报只读；
   结构化地图预览复用既有 quick-create context／preview，最终写入仍必须由作者在原 confirm 动作
-  中确认。当前没有图像 provider、图片上传／存储、visual asset 状态或从像素生成 MapFact 的路径。
+  中确认。AI 地图册与世界对象图片都经项目图片 runtime seam 使用固定 `gpt-image-2`
+  adapter 和私有 S3；候选图片不会反向生成世界事实。
 - 自由聊天把模型定位为世界设定共创搭档；模型可根据对话自主选择
   发散、比较、质疑、关键追问或阶段性收束，不使用固定问卷。最终结构化
   step 对存在往返修订的多轮对话先编译 author decision state，区分已确认要求、受支持发展、

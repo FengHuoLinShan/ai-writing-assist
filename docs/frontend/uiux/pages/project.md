@@ -1,8 +1,8 @@
 # 作品档案（project）UI/UX 执行规范
 
 > 上游标准：`docs/frontend/uiux/design-standard.md`（下称「主规范」），本节号引用均指主规范。
-> 实现锚点：`frontend-console/vue/views/project/ProjectView.vue`（304 行）、
-> `components/ProjectCard.vue`（113 行）、`components/ImportDrawer.vue`（175 行）、
+> 实现锚点：`frontend-console/vue/views/project/ProjectView.vue`、
+> `components/ProjectCard.vue`、`components/ImportDrawer.vue`、
 > `logic/recycleBin.js`、`logic/projectModals.js`、`logic/projectFilter.js`、
 > `frontend-console/styles.css` 的 `.project-*` 规则与 hero 覆层。
 > 命名：按主规范 §9 裁定，本页统一称「作品档案」；侧边栏「更多」菜单项由「导入与整理」
@@ -80,9 +80,9 @@
   （`data-role="project-filter-count"` + `aria-live="polite"`，:228-230）；`role="search"` +
   aria-label（:212）保留。
 - 排序提示「当前项目优先 · 其余按最近更新排序」（:231）保留，helper 档 `--text-sm` tertiary。
-- 批量工具条（:233-255）：保持「manage 模式内、附着列表顶部」形态（§5.10）；「管理作品」
-  toggle 在有已选项时追加计数提示（如「管理作品 · 2 已选」），消除「退出 manage 后选择集仍
-  留在 session」的不可见状态（projectSession.js:15-19，执行时核实）；「批量移入回收站」保持
+- 批量工具条：保持「manage 模式内、附着列表顶部」形态（§5.10）；「管理作品」
+  toggle 在有已选项时追加计数提示（如「管理作品 · 2 已选」）。manageMode 与选择集由
+  `projectSession.js` 按会话恢复，并在列表变化时清理无效选择；「批量移入回收站」保持
   `.btn-danger` 非实心（§5.1）+ 二次确认（ProjectView.vue:114-125）。
 
 ### 4.3 项目卡（ProjectCard.vue）——标题 / 元数据 / 操作三区
@@ -157,7 +157,7 @@
 | 失败-回收站加载 | modal 内原因 + 禁用中的重试按钮，并补充 toast | 无 | 保持 |
 | 冲突-批量部分失败 | toast 报告失败项（ProjectView.vue:119-121） | 无 | 保持 |
 | 保存/操作反馈 | 切换项目 toast（:90）；删除确认后刷新（:123-124） | 无 | 保持 |
-| 离开恢复 | 搜索词存 session（projectSession）✅；manageMode 是本地 ref（:69）离开即丢，但选择集残留 session | 重新进入时选择集不可见地生效 | 进入页面时 reconcile 并提示或自动清空（执行时核实，与 §4.2 toggle 计数提示配套） |
+| 离开恢复 | 搜索词、manageMode 与选择集统一存入 project session，并在重新进入时恢复 | 项目切换时不得串用管理状态 | 按项目键隔离并在列表变化后 reconcile 无效选择 |
 | 误操作保护 | 单项/批量移入回收站、永久删除均二次确认 ✅ | 无 | 保持 |
 | 窄屏 | 760/460 两档有适配（`.project-*` 响应式规则） | 460px 为组件级微调 | 见 §6 |
 

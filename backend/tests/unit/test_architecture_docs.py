@@ -36,6 +36,35 @@ const routes = {
     }
 
 
+def test_extract_task_handlers_handles_constants_and_nonstandard_task_files(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "backend/modules/story"
+    module.mkdir(parents=True)
+    (module / "generation.py").write_text(
+        'STORY_TASK = "story_generate"\n',
+        encoding="utf-8",
+    )
+    (module / "preview_tasks.py").write_text(
+        "from .generation import STORY_TASK\n"
+        "@task_handler(\n"
+        "    STORY_TASK,\n"
+        ")\n"
+        "async def handle_story(db, task):\n"
+        "    pass\n"
+        "\n"
+        "@task_handler(\"literal_task\")\n"
+        "async def handle_literal(db, task):\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+
+    assert architecture_docs._extract_task_handlers(tmp_path) == {
+        "literal_task",
+        "story_generate",
+    }
+
+
 def test_no_impact_acknowledgement_requires_checkbox_and_reason(
     tmp_path: Path,
 ) -> None:

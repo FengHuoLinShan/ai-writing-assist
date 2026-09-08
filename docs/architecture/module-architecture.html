@@ -93,7 +93,7 @@
         <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export options" aria-label="Export options">⋯</button>
       </div>
     </div>
-    <p class="subtitle">浏览器兼容预览 · 9 个业务模块 · 当前可编辑图源：module-architecture.drawio</p>
+    <p class="subtitle">浏览器兼容预览 · 8 个业务模块 · 当前可编辑图源：module-architecture.drawio</p>
   </div>
 
   <div class="diagram-container">
@@ -126,23 +126,20 @@
 
       <!-- ===== ARROWS (drawn first so they render behind boxes) ===== -->
 
-      <!-- A1: world → context (data flow for context compilation) -->
+      <!-- A1: world → evidence/compilation -->
       <path d="M 180 355 L 180 530" fill="none" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
-      <text x="193" y="445" fill="#a78bfa" font-size="7">world_context</text>
 
-      <!-- A2: memory → context -->
+      <!-- A2: story/continuity → evidence/compilation -->
       <path d="M 550 355 L 550 530" fill="none" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
-      <text x="563" y="445" fill="#a78bfa" font-size="7">panorama</text>
 
-      <!-- A3: rag → context -->
+      <!-- A3: evidence/indexing → evidence/compilation -->
       <path d="M 920 355 L 920 530" fill="none" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
-      <text x="933" y="445" fill="#a78bfa" font-size="7">retrieve</text>
 
-      <!-- A4: writing → rag (publish → index) -->
+      <!-- A4: writing → evidence/indexing (publish → index) -->
       <path d="M 900 530 L 900 355" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
       <text x="880" y="420" fill="#34d399" font-size="7" text-anchor="end">publish→index</text>
 
-      <!-- A5: writing → memory (publish → snapshot) -->
+      <!-- A5: writing → story/continuity (publish → snapshot) -->
       <path d="M 870 530 Q 870 480 710 420 L 710 355" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
       <text x="830" y="470" fill="#34d399" font-size="7" text-anchor="end">publish→snapshot</text>
 
@@ -152,31 +149,26 @@
 
       <!-- A7: imports → world (deep import workflow) -->
       <path d="M 200 530 L 200 355" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
-      <text x="213" y="445" fill="#22d3ee" font-size="7">entity_extraction</text>
 
-      <!-- A8: imports → outline (deep import → generate_plot) -->
+      <!-- A8: imports → story/outline_state -->
       <path d="M 240 530 Q 240 490 435 470" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
-      <text x="300" y="503" fill="#22d3ee" font-size="7">generate_plot</text>
 
-      <!-- A9: world → rag (entity terms) -->
+      <!-- A9: world → evidence/indexing (entity terms) -->
       <path d="M 330 280 Q 550 240 770 280" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
       <text x="550" y="253" fill="#fbbf24" font-size="7" text-anchor="middle">entity_terms</text>
 
-      <!-- A11: rag → world (activity projection) -->
+      <!-- A11: evidence/indexing → world (activity projection) -->
       <path d="M 770 310 L 330 310" fill="none" stroke="#fb923c" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
       <text x="550" y="303" fill="#fb923c" font-size="7" text-anchor="middle">activity_stats</text>
 
-      <!-- A12: rag → writing (index source read) -->
+      <!-- A12: evidence/indexing → writing (source read) -->
       <path d="M 940 355 L 940 530" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
-      <text x="960" y="445" fill="#34d399" font-size="7" text-anchor="start">source read</text>
 
-      <!-- A13: outline → context (bidirectional) -->
+      <!-- A13: story/outline_state → evidence/compilation -->
       <path d="M 550 470 L 550 530" fill="none" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
-      <text x="493" y="503" fill="#a78bfa" font-size="7" text-anchor="end">compile_context</text>
 
-      <!-- A14: context → outline (bidirectional) -->
+      <!-- A14: evidence/compilation → story/outline_state -->
       <path d="M 560 530 L 560 470" fill="none" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
-      <text x="570" y="503" fill="#a78bfa" font-size="7" text-anchor="start">confirmation</text>
 
       <!-- A15: imports → writing (list_chapter_indices) -->
       <path d="M 350 600 L 770 600" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
@@ -234,10 +226,10 @@
       <text x="190" y="306" fill="#94a3b8" font-size="9" text-anchor="middle">世界书 · AI 地图册 · 私有 S3</text>
       <text x="190" y="326" fill="#a78bfa" font-size="8" text-anchor="middle">事实持久化 · 受控采用</text>
 
-      <!-- memory box -->
+      <!-- story/continuity box -->
       <rect x="420" y="245" width="260" height="110" rx="6" fill="#0f172a" stroke="none"/>
       <rect x="420" y="245" width="260" height="110" rx="6" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1.5"/>
-      <text x="550" y="270" fill="white" font-size="12" font-weight="600" text-anchor="middle">memory 记忆系统</text>
+      <text x="550" y="270" fill="white" font-size="12" font-weight="600" text-anchor="middle">story/continuity 历史状态</text>
       <text x="550" y="290" fill="#94a3b8" font-size="9" text-anchor="middle">MemoryEvent · DeltaLog</text>
       <text x="550" y="306" fill="#94a3b8" font-size="9" text-anchor="middle">Scene checkpoint / snapshot</text>
       <text x="550" y="326" fill="#a78bfa" font-size="8" text-anchor="middle">确定性历史重放</text>
@@ -245,10 +237,10 @@
       <!-- evidence box -->
       <rect x="780" y="245" width="260" height="110" rx="6" fill="#0f172a" stroke="none"/>
       <rect x="780" y="245" width="260" height="110" rx="6" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1.5"/>
-      <text x="910" y="270" fill="white" font-size="12" font-weight="600" text-anchor="middle">evidence 小说证据</text>
-      <text x="910" y="290" fill="#94a3b8" font-size="9" text-anchor="middle">indexing：分块 · 检索 · freshness</text>
-      <text x="910" y="306" fill="#94a3b8" font-size="9" text-anchor="middle">draft/hash manifest · 回读 · 可见性</text>
-      <text x="910" y="326" fill="#a78bfa" font-size="8" text-anchor="middle">snapshot · RP 16K 参考包 · guard</text>
+      <text x="910" y="270" fill="white" font-size="12" font-weight="600" text-anchor="middle">evidence/indexing 证据索引</text>
+      <text x="910" y="290" fill="#94a3b8" font-size="9" text-anchor="middle">分块 · 检索 · freshness</text>
+      <text x="910" y="306" fill="#94a3b8" font-size="9" text-anchor="middle">chapter / Scene · source hash · visibility</text>
+      <text x="910" y="326" fill="#a78bfa" font-size="8" text-anchor="middle">rebuild · retry · metrics</text>
 
       <!-- ===== STRUCTURE LAYER ===== -->
       <rect x="100" y="400" width="900" height="75" rx="8" fill="rgba(8, 51, 68, 0.08)" stroke="#22d3ee" stroke-width="1" stroke-dasharray="8,4"/>
@@ -274,8 +266,8 @@
       <!-- evidence box -->
       <rect x="420" y="535" width="260" height="105" rx="6" fill="#0f172a" stroke="none"/>
       <rect x="420" y="535" width="260" height="105" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-      <text x="550" y="558" fill="white" font-size="12" font-weight="600" text-anchor="middle">evidence 索引与上下文</text>
-      <text x="550" y="578" fill="#94a3b8" font-size="9" text-anchor="middle">indexing · compilation · guard</text>
+      <text x="550" y="558" fill="white" font-size="12" font-weight="600" text-anchor="middle">evidence/compilation 上下文</text>
+      <text x="550" y="578" fill="#94a3b8" font-size="9" text-anchor="middle">编译 · 确认 · guard</text>
       <text x="550" y="594" fill="#94a3b8" font-size="9" text-anchor="middle">聚合 project/world/story</text>
       <text x="550" y="614" fill="#34d399" font-size="8" text-anchor="middle">确认 · snapshot · provenance</text>
 
@@ -284,7 +276,7 @@
       <rect x="780" y="535" width="260" height="105" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
       <text x="910" y="558" fill="white" font-size="12" font-weight="600" text-anchor="middle">writing 写作核心</text>
       <text x="910" y="578" fill="#94a3b8" font-size="9" text-anchor="middle">草稿 CRUD</text>
-      <text x="910" y="594" fill="#94a3b8" font-size="9" text-anchor="middle">publish → evidence（索引）+ memory（快照）</text>
+      <text x="910" y="594" fill="#94a3b8" font-size="9" text-anchor="middle">publish → evidence/indexing + story/continuity</text>
       <text x="910" y="614" fill="#34d399" font-size="8" text-anchor="middle">正文事实源</text>
 
       <!-- ===== LEGEND ===== -->
@@ -332,7 +324,7 @@
         <h3>模块数量</h3>
       </div>
       <ul>
-        <li>• 8 个活动业务模块（RAG + Context 物理归入 evidence，Scene/Memory 归入 story）</li>
+        <li>• 8 个活动业务模块（indexing/compilation 归 evidence，outline_state/continuity 归 story）</li>
         <li>• interaction 只读同 owner author source revision；私人旅程不写回原作</li>
         <li>• Canonical API 使用 /api/evidence/* 与 account/project owner 路径；旧前缀仅薄别名</li>
         <li>• 已移除：geo / review / character / timeline（人物和事件能力并入 world）</li>
@@ -365,7 +357,7 @@
     </div>
   </div>
 
-  <p class="footer">AI 小说创作系统 · 当前模块架构兼容预览 · FastAPI + SQLAlchemy + PostgreSQL · 2026-09-01</p>
+  <p class="footer">AI 小说创作系统 · 当前模块架构兼容预览 · FastAPI + SQLAlchemy + PostgreSQL · 2026-09-08</p>
 </div>
 
 <script>

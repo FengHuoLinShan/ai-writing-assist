@@ -56,9 +56,9 @@ ADR-0018 定义同 owner author source revision 到 hidden interaction consumer 
   `/api/rag/*`、`/api/context/*`、`/api/settings/*` 前缀已退场。
 - `map` 是 `world` 拥有的 AI 地图册子系统；地图册与世界对象图片共用受限 MinIO 连接、但使用
   私有分 bucket，边界见 ADR-0012 / ADR-0014。`geo/review/character/timeline` 已移除或并入现有模块。
-- 世界观恢复、收束、检修、交接、影响预演和“问世界”仍是既有 `world/evidence/frontend`
-  seam 上的固定工作流；本轮新增 CoreEntity 图片版本 metadata migration，但没有新增顶级模块、
-  Agent 运行时或持久工作流表。
+- 世界观恢复、收束、检修、交接、影响预演和“问世界”是既有 `world/evidence/frontend`
+  seam 上的固定工作流。CoreEntity 图片只在表内保存版本 metadata，图片字节位于私有对象存储；
+  这些能力没有引入新的顶级模块、Agent 运行时或持久工作流表。
 - 箭头表达主要调用或资料流，标签说明具体语义；完整生产依赖仍以
   `contracts.py`、`facade.py`、组合根 DI 注册和当前代码为准。
 

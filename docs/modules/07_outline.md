@@ -7,7 +7,7 @@
 
 ## 定位
 
-outline 模块负责把事实层资产组织成“可执行的剧情计划”。
+Story outline_state 子域负责把事实层资产组织成“可执行的剧情计划”。
 
 作者界面把人工 Scene/结构编辑视为普通工作内容；AI 合并、拆分和补全
 先返回可编辑预览，只有显式应用后才写入普通 Scene。正文 Scene 提取统一由 imports 的
@@ -68,6 +68,14 @@ Scene stage 负责。旧 `candidate` 仅兼容读取，不再允许
 ## API
 
 ```http
+GET    /api/outline/story-outline
+POST   /api/outline/story-outline/revisions
+GET    /api/outline/story-outline/revisions
+GET    /api/outline/story-outline/revisions/{revision_id}
+POST   /api/outline/story-outline/revisions/{revision_id}/apply
+POST   /api/outline/story-outline/generate
+POST   /api/outline/story-outline/generate/apply
+
 POST   /api/outline/threads
 GET    /api/outline/threads
 GET    /api/outline/threads/{thread_id}
@@ -101,9 +109,11 @@ POST   /api/outline/scene-workbench/merge
 POST   /api/outline/scene-workbench/split/preview
 POST   /api/outline/scene-workbench/split
 POST   /api/outline/scene-workbench/fusion/preview
+POST   /api/outline/scene-workbench/fusion/preview-task
 POST   /api/outline/scene-workbench/fusion/save
 GET    /api/outline/scene-workbench/fusion-suggestions
 POST   /api/outline/scene-workbench/fusion-suggestions/dismiss
+POST   /api/outline/scene-workbench/replacement-suggestions/apply
 
 POST   /api/outline/foreshadowing
 GET    /api/outline/foreshadowing
@@ -117,6 +127,7 @@ GET    /api/outline/reveals/{plan_id}
 PATCH  /api/outline/reveals/{plan_id}
 DELETE /api/outline/reveals/{plan_id}
 
+POST   /api/outline/analyze
 POST   /api/outline/generate
 POST   /api/outline/generate/apply
 ```
@@ -172,11 +183,11 @@ StoryOutline revision 的 provenance 持有 version-bound execution profile：�
 
 ## 与 writing 的依赖方向
 
-outline 可以只读依赖 `modules.writing.facade` / `modules.writing.contracts` 加载最新
-草稿和章节索引，供结构生成上下文、Scene 工作台和跨章 Scene 检测使用；outline 不直接
+Story outline_state 可以只读依赖 `modules.writing.facade` / `modules.writing.contracts` 加载最新
+草稿和章节索引，供结构生成上下文、Scene 工作台和跨章 Scene 检测使用；Story 不直接
 访问 writing 的 model / repository / service。
 
-writing 侧不在服务模块顶层依赖 outline facade。冲突检查读取 Scene contract 通过可注入
+writing 侧不在服务模块顶层依赖 story facade。冲突检查读取 Scene contract 通过可注入
 loader 完成，默认 loader 在调用时 lazy import `modules.story.facade`。
 
 ## Scene 设计要点
@@ -191,7 +202,7 @@ loader 完成，默认 loader 在调用时 lazy import `modules.story.facade`。
 - 深度导入提交 Scene 时复用 Story 批量创建 seam；新 Scene 的章节链接和跨度统一构造并一次 flush，更新路径仍保留 delete/rebuild。排序、CAS、事务原子性和派生索引不变。
 - `scene_chapter_links` 与 `scene_spans` 表达章节映射；旧章卡 JSON 语境不属于当前 ORM schema
 - 写作页与 Evidence indexing 的 `scene_id` 关联依赖 `scenes` 表；精确正文归因通过
-  outline facade 只读获取 `SceneSpanContract`
+  `modules.story.facade` 只读获取 `SceneSpanContract`
 
 `scene_spans` 不替代 `scene_chunks`，也不是前端编辑入口。`SceneRepository` 按字段责任同步：
 `chapter_ids` 只更新 `scene_chapter_links`，只有 `scene_chunks` 变化才重建

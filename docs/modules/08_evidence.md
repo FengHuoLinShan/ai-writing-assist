@@ -4,8 +4,8 @@
 
 evidence 是小说证据的唯一领域实现：indexing 子域负责 chunk、混合检索、embedding 与索引
 新鲜度，compilation 子域决定“这次 AI 操作到底能看到哪些资料”，并负责原文回读、可见性、
-预算、confirmation、snapshot、trace 与 hidden guard。原 RAG/Context 表名和 HTTP 路径不变，
-但不再存在两套服务或写入路径。
+预算、confirmation、snapshot、trace 与 hidden guard。原 RAG/Context 表名和持久化 task type
+保留兼容；canonical HTTP 已收敛到 `/api/evidence/{indexing,compilation}/*`，不再存在两套服务或写入路径。
 
 当前有两条能力线：
 
@@ -157,7 +157,7 @@ CharacterKnowledge 还会按目标确定性选择唯一 canonical 有效检查�
 失败关闭，不以作者知道的真实内容兜底。
 
 只在 `writing.generate + scene_id + reveal_mode=character` 中，context 才经
-`memory.facade.ensure_scene_checkpoints()` 编译 P0 `scene_world_state`。system
+`modules.story.facade.ensure_scene_checkpoints()` 编译 P0 `scene_world_state`。system
 `ready` 或明确人工确认的 `entities / relations / locations` 会以
 `director_only` 进入模型；`knowledge` 维度只显示 coverage，角色所信仍只由
 CharacterKnowledge 决定；AI 地图册不属于 Scene memory。`retry_pending / manual_required / gap` 以及当前相关
@@ -337,12 +337,18 @@ Evidence 是唯一实现。canonical 路径分别使用 `/api/evidence/indexing/
 POST /api/evidence/indexing/chunks
 GET  /api/evidence/indexing/chunks
 POST /api/evidence/indexing/retrieve
+GET  /api/evidence/indexing/metrics
+POST /api/evidence/indexing/prewarm
 POST /api/evidence/indexing/rebuild
 POST /api/evidence/indexing/retry-embeddings
+POST /api/evidence/indexing/chunks/split
+POST /api/evidence/compilation/scene-lens
 POST /api/evidence/compilation/compile
 POST /api/evidence/compilation/render
 POST /api/evidence/compilation/confirm
-POST /api/evidence/compilation/recompile
+POST /api/evidence/compilation/selection-proposals
+GET  /api/evidence/compilation/evidence-health
+GET  /api/evidence/compilation/retrieval-traces
 GET  /api/evidence/compilation/snapshots
 GET  /api/evidence/compilation/snapshots/{snapshot_id}
 POST /api/evidence/compilation/snapshots/maintenance

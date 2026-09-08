@@ -89,9 +89,11 @@ PATCH  /api/projects/{id}/author-tasks/{task_id} # 编辑/完成/重开/归档/�
 PUT    /api/projects/{id}                      # 更新项目
 DELETE /api/projects/{id}                      # 软删除（移至回收站）
 GET    /api/projects/recycle-bin               # 回收站列表
+POST   /api/projects/recycle-bin/permanent-delete # 原子批量永久删除回收站项目
 GET    /api/projects/llm/provider-templates     # 兼容的供应商模板清单
 GET    /api/projects/{id}/llm-settings          # 读取项目非 secret 兼容设置
 PUT    /api/projects/{id}/llm-settings          # 更新非 secret 兼容设置；拒绝 Key
+DELETE /api/projects/{id}/llm-settings/field/{field_name} # 重置单个白名单字段为继承全局
 GET    /api/projects/{id}/effective-llm-settings # canonical 有效 LLM 配置投影
 GET    /api/projects/{id}/effective-author-preferences # canonical 有效作者偏好投影
 GET/PUT/DELETE /api/projects/{id}/author-preferences # canonical 项目偏好覆盖
