@@ -247,7 +247,7 @@ async def test_spatial_node_level_changes_preserve_editing(
     path = f"/api/world/map-atlas/{test_project_id}/nodes/{node['id']}"
     row = await db_session.get(MapAtlasNode, uuid.UUID(node["id"]))
     baseline = row.updated_at.isoformat()
-    for level in ("cover", "world", "district", "street", "interior"):
+    for level in ("cover", "world", "interior"):
         response = await async_client.patch(
             path,
             json={

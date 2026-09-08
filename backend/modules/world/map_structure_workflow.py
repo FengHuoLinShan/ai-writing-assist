@@ -32,6 +32,7 @@ from modules.project.facade import (
 from modules.world.map_atlas_models import MapAtlasRevision
 from modules.world.map_structure_geometry import layout
 from modules.world.map_structure_schemas import (
+    STRUCTURE_LEVELS,
     MapDocument,
     MapFeature,
     MapGenerateRequest,
@@ -68,8 +69,8 @@ async def enqueue_structure(db, novel_id, node_id, data: MapGenerateRequest):
     )
     if prior:
         return {"task_id": prior.task_id, "status": prior.status}
-    if node.level not in {"region", "city"}:
-        raise ValidationError("当前仅支持区域和城市空间生成")
+    if node.level not in STRUCTURE_LEVELS:
+        raise ValidationError("空间生成支持区域、城市、街区和街道")
     if node.current_revision_id != data.base_revision_id:
         raise ConflictError("地图已更新，请先比较版本")
     if node.structure_task_id:

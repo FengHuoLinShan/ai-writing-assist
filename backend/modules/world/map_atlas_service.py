@@ -49,6 +49,7 @@ from modules.world.map_atlas_storage import (
     require_matching_mask,
     require_owned_page_object_key,
 )
+from modules.world.map_structure_schemas import STRUCTURE_LEVELS
 from shared.utils import parse_uuid
 
 MAP_ATLAS_TASK_TYPE = "map_atlas_generate"
@@ -890,8 +891,8 @@ class MapAtlasService:
             data.parent_id if "parent_id" in data.model_fields_set else node.parent_id
         )
         new_level = data.level or node.level
-        if node.current_revision_id is not None and new_level not in {"region", "city"}:
-            raise ValidationError("已有位置示意的地图只能使用区域或城市层级")
+        if node.current_revision_id is not None and new_level not in STRUCTURE_LEVELS:
+            raise ValidationError("已有位置示意的地图只能使用区域、城市、街区或街道层级")
         if new_parent_id == node.id:
             raise ValidationError("地图节点不能成为自己的上级")
         parent = by_id.get(new_parent_id) if new_parent_id else None

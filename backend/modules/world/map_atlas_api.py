@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
@@ -33,6 +34,8 @@ from modules.world.map_atlas_storage import MAX_IMAGE_BYTES
 from modules.world.map_structure_schemas import (
     MapGenerateRequest,
     MapLayoutResponse,
+    MapLinkQuery,
+    MapLinksResponse,
     MapNodeCreate,
     MapNodeMapResponse,
     MapReaderPreview,
@@ -65,6 +68,27 @@ ActiveNovelId = Annotated[str, Depends(_require_active_novel_id)]
 )
 async def create_map_node(db: DbSession, novel_id: ActiveNovelId, data: MapNodeCreate):
     return await _structure.create_node(db, novel_id, data)
+
+
+@router.get("/{novel_id}/map-links", response_model=MapLinksResponse)
+async def get_map_links(
+    db: DbSession,
+    novel_id: ActiveNovelId,
+    chapter_index: int | None = Query(default=None, ge=1, le=100000),
+    entity_id: UUID | None = None,
+    q: str = Query(default="", max_length=100),
+    limit: int = Query(default=50, ge=1, le=100),
+):
+    return await _structure.map_links(
+        db,
+        novel_id,
+        MapLinkQuery(
+            chapter_index=chapter_index,
+            entity_id=entity_id,
+            q=q,
+            limit=limit,
+        ),
+    )
 
 
 @router.get("/{novel_id}/nodes/{node_id}/map", response_model=MapNodeMapResponse)

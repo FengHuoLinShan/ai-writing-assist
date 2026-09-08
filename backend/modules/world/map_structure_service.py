@@ -36,7 +36,11 @@ from modules.world.map_structure_geometry import (
     layout,
 )
 from modules.world.map_structure_schemas import (
+    STRUCTURE_LEVELS,
     MapDocument,
+    MapLink,
+    MapLinkQuery,
+    MapLinksResponse,
     MapNodeCreate,
     MapNodeMapResponse,
     MapProblem,
@@ -130,6 +134,75 @@ class MapStructureService:
             problems=row.problems,
             created_at=row.created_at,
         )
+
+    async def map_links(self, db, novel_id: str, query: MapLinkQuery) -> MapLinksResponse:
+        await require_active_project(db, novel_id)
+        query = MapLinkQuery.model_validate(query.model_dump())
+        text = query.q.strip().casefold()
+        if query.chapter_index is None and query.entity_id is None and not text:
+            return MapLinksResponse()
+        nid = parse_uuid(novel_id, "novel_id")
+        # ponytail: scan at most 200 saved maps; add a search index if maps outgrow this.
+        rows = (
+            await db.execute(
+                select(MapAtlasNode, MapAtlasRevision.document)
+                .join(
+                    MapAtlasRevision,
+                    (
+                        (MapAtlasRevision.id == MapAtlasNode.current_revision_id)
+                        & (MapAtlasRevision.node_id == MapAtlasNode.id)
+                        & (MapAtlasRevision.novel_id == MapAtlasNode.novel_id)
+                    ),
+                )
+                .where(
+                    MapAtlasNode.novel_id == nid,
+                    MapAtlasNode.status == "adopted",
+                    MapAtlasRevision.novel_id == nid,
+                    MapAtlasRevision.status == "saved",
+                )
+                .order_by(MapAtlasNode.updated_at.desc(), MapAtlasNode.id)
+                .limit(201)
+            )
+        ).all()
+        response = MapLinksResponse(truncated=len(rows) > 200)
+        for node, payload in rows[:200]:
+            document = MapDocument.model_validate(payload)
+            for feature in document.features:
+                chapters = sorted(
+                    {
+                        source.source_ref["chapter_index"]
+                        for source in feature.sources
+                        if source.kind == "source_range"
+                    }
+                )
+                if (
+                    query.chapter_index is not None
+                    and query.chapter_index not in chapters
+                ):
+                    continue
+                if query.entity_id is not None and query.entity_id != feature.entity_id:
+                    continue
+                if (
+                    text
+                    and text not in feature.label.casefold()
+                    and text not in node.title.casefold()
+                ):
+                    continue
+                if len(response.items) == query.limit:
+                    response.truncated = True
+                    return response
+                response.items.append(
+                    MapLink(
+                        node_id=node.id,
+                        node_title=node.title,
+                        level=node.level,
+                        feature_id=feature.id,
+                        feature_label=feature.label,
+                        entity_id=feature.entity_id,
+                        chapter_indices=chapters,
+                    )
+                )
+        return response
 
     async def create_node(self, db, novel_id: str, data: MapNodeCreate):
         await require_active_project_exclusive(db, novel_id)
@@ -352,8 +425,8 @@ class MapStructureService:
     async def save(self, db, novel_id: str, node_id: str, data: MapSaveRequest):
         await require_active_project_exclusive(db, novel_id)
         node = await self.node(db, novel_id, node_id, lock=True)
-        if node.level not in {"region", "city"}:
-            raise ValidationError("当前仅支持区域和城市空间图，原图片仍可浏览")
+        if node.level not in STRUCTURE_LEVELS:
+            raise ValidationError("空间图支持区域、城市、街区和街道，原图片仍可浏览")
         if node.current_revision_id != data.base_revision_id:
             raise ConflictError("地图已在别处更新；当前编辑仍保留，请先比较版本")
         document = data.document.model_copy(deep=True)

@@ -22,6 +22,8 @@ from modules.writing.contracts import SourceRangeRefContract
 
 FeatureKey = Annotated[str, Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9:_.-]{0,95}$")]
 Coordinate = Annotated[float, Field(ge=-100000, le=100000, allow_inf_nan=False)]
+StructureLevel = Literal["region", "city", "district", "street"]
+STRUCTURE_LEVELS = {"region", "city", "district", "street"}
 
 
 SpatialRelation = Literal[
@@ -37,6 +39,9 @@ SpatialRelation = Literal[
     "adjacent",
     "connects",
     "passes_through",
+    "along_street",
+    "entrance_to",
+    "faces",
 ]
 
 
@@ -180,9 +185,28 @@ class MapDocument(SpatialModel):
         for item in self.features:
             if not set(item.depends_on).issubset(ids) or item.id in item.depends_on:
                 raise ValueError("invalid geometry dependency")
+        features = {item.id: item for item in self.features}
         for item in self.constraints:
             if not {item.subject, item.target, *item.via}.issubset(ids):
                 raise ValueError("constraint refers to a missing feature")
+            if item.relation in {"along_street", "entrance_to", "faces"}:
+                if item.subject == item.target or item.via:
+                    raise ValueError(
+                        "a point relation needs distinct endpoints and no via"
+                    )
+                allowed_targets = (
+                    {"road"}
+                    if item.relation == "along_street"
+                    else {"location", "landmark", "area"}
+                )
+                if features[item.subject].kind not in {"location", "landmark"}:
+                    raise ValueError(
+                        "a point relation must start at a location or landmark"
+                    )
+                if features[item.target].kind not in allowed_targets:
+                    raise ValueError(
+                        "point relation target has an incompatible feature kind"
+                    )
         for item in self.images:
             if item.feature_id is not None and item.feature_id not in ids:
                 raise ValueError("image refers to a missing feature")
@@ -213,7 +237,7 @@ class MapProblem(SpatialModel):
 
 class MapNodeCreate(SpatialModel):
     title: str = Field(min_length=1, max_length=200)
-    level: Literal["region", "city"] = "region"
+    level: StructureLevel = "region"
     parent_id: UUID | None = None
     location_entity_id: UUID | None = None
 
@@ -314,3 +338,25 @@ class MapReaderPreview(SpatialModel):
     chapter: int = Field(ge=1, le=100000)
     features: list[MapReaderFeature] = Field(max_length=200)
     images: list[MapReaderImage] = Field(max_length=40)
+
+
+class MapLinkQuery(SpatialModel):
+    chapter_index: int | None = Field(default=None, ge=1, le=100000)
+    entity_id: UUID | None = None
+    q: str = Field(default="", max_length=100)
+    limit: int = Field(default=50, ge=1, le=100)
+
+
+class MapLink(SpatialModel):
+    node_id: UUID
+    node_title: str
+    level: str
+    feature_id: FeatureKey
+    feature_label: str
+    entity_id: UUID | None
+    chapter_indices: list[int]
+
+
+class MapLinksResponse(SpatialModel):
+    items: list[MapLink] = Field(default_factory=list, max_length=100)
+    truncated: bool = False
