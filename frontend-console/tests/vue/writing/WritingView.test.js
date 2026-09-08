@@ -109,6 +109,64 @@ describe("WritingView", () => {
     wrapper.unmount()
   })
 
+  it("通过本章地图离开并返回同章时保留未保存正文和光标", async () => {
+    let guard
+    const findMapLinks = vi.fn().mockResolvedValue({ items: [{ node_id: "map-1", node_title: "廷根", feature_id: "f1", feature_label: "旅馆" }], truncated: false })
+    globalThis.api.world.findMapLinks = findMapLinks
+    globalThis.api.writing.get.mockResolvedValue({ id: "d1", novel_id: "p1", title: "第一章", content: "原文", version_number: 1, status: "draft", updated_at: "2026-09-09T00:00:00Z" })
+    const options = { props: props(), attachTo: document.body, global: { provide: { [ISLAND_LEAVE_GUARD]: (fn) => { guard = fn } } } }
+    const wrapper = mount(WritingView, options)
+    await flushPromises()
+    expect(findMapLinks).not.toHaveBeenCalled()
+    const editor = wrapper.get("#writing-editor")
+    await editor.setValue("从旅馆前往码头的未保存正文")
+    editor.element.focus()
+    editor.element.setSelectionRange(5, 5)
+    const trigger = wrapper.get('[data-action="open-chapter-map"]')
+    trigger.element.focus()
+    await trigger.trigger("click")
+    await flushPromises()
+    expect(findMapLinks).toHaveBeenCalledWith("p1", { chapter_index: 1 })
+    await wrapper.get(".chapter-map-result").trigger("click")
+    expect(globalThis.router.navigate.mock.calls.at(-1)[0]).toBe("map")
+    expect(guard()).toBe(true)
+    expect(localStorage.getItem("draft_backup_p1_1_d1")).toContain("从旅馆前往码头的未保存正文")
+    expect(JSON.parse(localStorage.getItem("writing_resume_pointer:v1:p1"))).toMatchObject({ cursorOffset: 5, draftId: "d1" })
+    wrapper.unmount()
+    expect(JSON.parse(localStorage.getItem("writing_resume_pointer:v1:p1"))).toMatchObject({ cursorOffset: 5, draftId: "d1" })
+
+    const restored = mount(WritingView, { ...options, props: props({ requestedLocation: { chapter: 1, source: "url" } }) })
+    await flushPromises()
+    expect(restored.get("#writing-editor").element.value).toBe("从旅馆前往码头的未保存正文")
+    expect(restored.vm.$.setupState.vm.editorState.cursorOffset).toBe(5)
+    expect(restored.get("#writing-editor").element.selectionStart).toBe(5)
+    restored.unmount()
+  })
+
+  it("未保存且备份失败时，地图导航仍受现有离开守卫保护", async () => {
+    let guard
+    const findMapLinks = vi.fn().mockResolvedValue({ items: [], truncated: false })
+    globalThis.api.world.findMapLinks = findMapLinks
+    confirmMock.mockReturnValue(false)
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body, global: { provide: { [ISLAND_LEAVE_GUARD]: (fn) => { guard = fn } } } })
+    await flushPromises()
+    await wrapper.get("#writing-editor").setValue("必须保留的正文")
+    const original = localStorage.setItem.bind(localStorage)
+    const storage = vi.spyOn(localStorage, "setItem").mockImplementation((key, value) => {
+      if (String(key).startsWith("draft_backup_")) throw new DOMException("quota", "QuotaExceededError")
+      original(key, value)
+    })
+    await wrapper.get('[data-action="open-chapter-map"]').trigger("click")
+    await flushPromises()
+    await wrapper.findAll(".chapter-map-dialog button").find((button) => button.text() === "打开地图").trigger("click")
+    expect(guard()).toBe(false)
+    expect(confirmMock).toHaveBeenLastCalledWith(expect.stringContaining("无法写入本地备份"))
+    expect(wrapper.get("#writing-editor").element.value).toBe("必须保留的正文")
+    expect(wrapper.find(".chapter-map-dialog").exists()).toBe(false)
+    storage.mockRestore()
+    wrapper.unmount()
+  })
+
   it("页头写作视图菜单同步状态，并可由动作、Escape 和外部点击收起", async () => {
     const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
     await flushPromises()

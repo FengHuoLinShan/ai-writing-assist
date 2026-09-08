@@ -1665,6 +1665,9 @@ const api = {
     async getMapAtlas(novelId) {
       return contractFetch("world.getMapAtlas", { novelId }, {}, { cache: "no-store" })
     },
+    async findMapLinks(novelId, filters = {}) {
+      return request(withQuery(`/world/map-atlas/${novelId}/map-links`, filters), { cache: "no-store" })
+    },
     async getMapAtlasPageHistory(novelId) {
       return request(`/world/map-atlas/${novelId}/pages/history`, { cache: "no-store" })
     },

@@ -189,6 +189,22 @@ describe("editorController", () => {
     controller.dispose()
   })
 
+  it("快速离开编辑器也即时记录光标，不依赖 keyup 防抖定时器", async () => {
+    vi.useFakeTimers()
+    const { controller } = makeController()
+    await controller.loadChapter(1)
+    document.body.innerHTML = '<textarea id="body"></textarea><button id="map">本章地图</button>'
+    const editor = document.getElementById("body")
+    controller.attach({ editor })
+    editor.focus()
+    editor.setSelectionRange(1, 1)
+    editor.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowLeft" }))
+    document.getElementById("map").focus()
+    controller.persist()
+    expect(readWritingPointer("p1").cursorOffset).toBe(1)
+    controller.dispose()
+  })
+
   it("工作稿版本或更新时间不一致时不恢复光标", async () => {
     rememberChapterSnapshot("p1", {
       chapter: 1,

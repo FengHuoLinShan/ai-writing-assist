@@ -67,6 +67,16 @@ describe("SceneCockpit", () => {
     expect(wrapper.emitted("load-lens")).toHaveLength(1)
   })
 
+  it("地图定位只发送明确地点引用，不按名称猜测绑定", async () => {
+    const wrapper = mountCockpit()
+    await wrapper.findAll('[role="tab"]').find((tab) => tab.text() === "地点").trigger("click")
+    await wrapper.findAll("button").find((button) => button.text() === "在地图中查看").trigger("click")
+    expect(wrapper.emitted("open-map")).toEqual([["l1"]])
+    await wrapper.setProps({ location: "黑塔" })
+    expect(wrapper.findAll("button").some((button) => button.text() === "在地图中查看")).toBe(false)
+    wrapper.unmount()
+  })
+
   it("扩展资料失败时保留静态摘要并可重试", async () => {
     const wrapper = mountCockpit({
       lens: { loading: false, data: null, error: "网络暂时不可用" },
