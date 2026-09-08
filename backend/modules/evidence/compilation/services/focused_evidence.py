@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import uuid
 from dataclasses import asdict, replace
 
 from pydantic import Field
@@ -15,6 +16,7 @@ from infrastructure.llm.prompt_loader import load_prompt
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from infrastructure.llm.token_estimation import estimate_token_count
 from modules.evidence.compilation.contracts import VisibilityContextContract
+from modules.evidence.compilation.evidence_repository import EvidenceLinkRepository
 from modules.evidence.compilation.focused_contracts import (
     FocusedEvidenceContinuation,
     FocusedEvidenceItem,
@@ -38,6 +40,7 @@ from modules.writing.facade import (
     get_manuscript_source_manifest,
     scan_manuscript_terms,
 )
+from shared.target_ref import normalize_target_ref
 
 _ENTITY_TYPES = {"entity", "core_entity", "world_entity", "location", "character"}
 
@@ -175,6 +178,16 @@ class NeighborNomination(FocusedModel):
 
 class NeighborNominations(FocusedModel):
     neighbors: list[NeighborNomination] = Field(default_factory=list, max_length=128)
+
+
+_CHARACTER_RANGE_WARNING = (
+    "部分原文无法证明已被当前角色获知，已省略；仅保留可验证的已知资料，"
+    "本次查阅不构成完整角色知识审查。"
+)
+
+
+class _CharacterRangeUnprovenError(ValidationError):
+    pass
 
 
 class FocusedEvidenceService:
@@ -564,6 +577,81 @@ class FocusedEvidenceService:
             source_manifest=manifest,
         )
 
+    async def _character_range_proven(self, db, request, visibility, ref, text):
+        from modules.world.facade import get_character_knowledge_entries
+
+        rows = await get_character_knowledge_entries(db, request.novel_id)
+        repository = EvidenceLinkRepository()
+        for row in rows:
+            if (
+                str(row.get("character_id")) != str(visibility.character_id)
+                or row.get("status") not in {"canonical", "confirmed"}
+                or row.get("knowledge_level") != "full"
+                or row.get("known_content") != text
+            ):
+                continue
+            # This existing projection checks owner, role, and conservative learned time.
+            inspected = await self.evidence.inspect(
+                db,
+                novel_id=request.novel_id,
+                target_ref={
+                    "target_type": "character_knowledge",
+                    "target_id": str(row["id"]),
+                },
+                content_mode=request.compile_options.content_mode,
+                visibility=visibility,
+            )
+            if (
+                not inspected.get("visible")
+                or (inspected.get("item") or {}).get("known_content") != text
+            ):
+                continue
+            for path in ("known_content", ""):
+                target = normalize_target_ref(
+                    {
+                        "target_type": "character_knowledge",
+                        "target_id": str(row["id"]),
+                        "target_path": path,
+                    }
+                )
+                links = await repository.list_for_target(
+                    db,
+                    novel_id=uuid.UUID(request.novel_id),
+                    target_hash=target.target_hash(),
+                    claim_path="known_content",
+                    statuses=("active",),
+                )
+                if any(
+                    link.precision == "range" and link.source_ref == asdict(ref)
+                    for link in links
+                ):
+                    return True
+        return False
+
+    async def _candidate(
+        self, db, request, visibility, item, manifest, state, *, required=False
+    ):
+        try:
+            value = await self._read(db, request, visibility, item, manifest)
+        except _CharacterRangeUnprovenError:
+            state.coverage.character_ranges_omitted += 1
+            state.warnings = list(
+                dict.fromkeys([*state.warnings, _CHARACTER_RANGE_WARNING])
+            )
+            if required:
+                state.blockers = list(
+                    dict.fromkeys(
+                        [
+                            *state.blockers,
+                            "所选原文无法证明对当前角色可见，未加入本次资料。 ",
+                        ]
+                    )
+                )
+            return None
+        if visibility.mode == "character" and item.source_ref:
+            state.coverage.character_ranges_verified += 1
+        return value
+
     async def _read(self, db, request, visibility, item, manifest):
         if item.source_ref:
             ref = item.source_ref
@@ -584,6 +672,10 @@ class FocusedEvidenceService:
                 text = text[result["highlight_start"] : result["highlight_end"]]
             if hashlib.sha256(text.encode()).hexdigest() != ref.range_hash:
                 raise ValidationError("original-text read does not match its exact range")
+            if visibility.mode == "character" and not await self._character_range_proven(
+                db, request, visibility, ref, text
+            ):
+                raise _CharacterRangeUnprovenError("当前角色的精确原文知识范围无法证明")
             return item.model_copy(
                 update={
                     "text": text,
@@ -669,14 +761,20 @@ class FocusedEvidenceService:
             return
         packet, consumed, chars = [], 0, 0
         for receipt in state.pending_nomination:
-            item = await self._read(
-                db, request, visibility, receipt, state.source_manifest
+            item = await self._candidate(
+                db, request, visibility, receipt, state.source_manifest, state
             )
+            if item is None:
+                consumed += 1
+                continue
             if packet and chars + len(item.text) > request.limits.nomination_characters:
                 break
             packet.append(item)
             chars += len(item.text)
             consumed += 1
+        if not packet:
+            state.pending_nomination = state.pending_nomination[consumed:]
+            return
         roots = {target.key: target for target in state.targets if target.depth == 0}
         payload = {
             "question": request.question,
@@ -961,7 +1059,12 @@ class FocusedEvidenceService:
             )
             if _excluded(request, target_ref=item.target_ref, source_ref=item.source_ref):
                 raise ValidationError("a required pin was explicitly excluded")
-            item = await self._read(db, request, visibility, item, manifest)
+            item = await self._candidate(
+                db, request, visibility, item, manifest, state, required=True
+            )
+            if item is None:
+                state.pinned_position += 1
+                continue
             if len(item.text) > remaining:
                 raise ValidationError("required pinned evidence exceeds this read budget")
             output.append(item)
@@ -982,7 +1085,10 @@ class FocusedEvidenceService:
             if _excluded(request, target_ref=item.target_ref, source_ref=item.source_ref):
                 state.allowed_position += 1
                 continue
-            item = await self._read(db, request, visibility, item, manifest)
+            item = await self._candidate(db, request, visibility, item, manifest, state)
+            if item is None:
+                state.allowed_position += 1
+                continue
             if len(item.text) > remaining:
                 if not output:
                     raise ValidationError(
@@ -1081,7 +1187,7 @@ class FocusedEvidenceService:
                     )
                     if _excluded(request, source_ref=source):
                         continue
-                    item = await self._read(
+                    item = await self._candidate(
                         db,
                         request,
                         visibility,
@@ -1096,7 +1202,10 @@ class FocusedEvidenceService:
                             },
                         ),
                         manifest,
+                        state,
                     )
+                    if item is None:
+                        continue
                     if len(item.text) > remaining:
                         continue
                     item.target_keys = [
@@ -1240,7 +1349,7 @@ class FocusedEvidenceService:
                         )
                     )
                     ref = asdict(hit.source_ref)
-                    item = await self._read(
+                    item = await self._candidate(
                         db,
                         request,
                         visibility,
@@ -1253,7 +1362,10 @@ class FocusedEvidenceService:
                             match_count=hit.match_count,
                         ),
                         manifest,
+                        state,
                     )
+                    if item is None:
+                        continue
                     output.append(item)
                     state.coverage.matched_occurrences += hit.match_count
                     if state.phase == "roots" and request.max_depth:
@@ -1433,6 +1545,10 @@ class FocusedEvidenceService:
         coverage.phase = state.phase
         coverage.complete = state.phase == "done" and not state.pending_nomination
         coverage.stop_reason = None if coverage.complete else reason
+        compiled = _compile_packet(request, items)
+        compiled["blockers"] = list(
+            dict.fromkeys([*compiled["blockers"], *state.blockers])
+        )
         return FocusedEvidenceResult(
             targets=state.targets,
             evidence=items,
@@ -1444,7 +1560,8 @@ class FocusedEvidenceService:
             warnings=state.warnings,
             selection_refs=[item.selection_ref for item in items if item.selection_ref],
             continuation=None if coverage.complete else state,
-            compiled_context=_compile_packet(request, items),
+            compiled_context=compiled,
+            blockers=state.blockers,
         )
 
     async def revalidate(self, db, request, result):
@@ -1480,6 +1597,9 @@ class FocusedEvidenceService:
             for item in result.evidence
         ]
         result.compiled_context = _compile_packet(request, result.evidence)
+        result.compiled_context["blockers"] = list(
+            dict.fromkeys([*result.compiled_context["blockers"], *result.blockers])
+        )
         return result
 
 

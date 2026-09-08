@@ -108,6 +108,9 @@ class FocusedEvidenceCoverage(FocusedModel):
     semantic_exhaustive: Literal[False] = False
     structured_exhaustive: Literal[False] = False
     nomination_failed: bool = False
+    character_ranges_verified: int = 0
+    character_ranges_omitted: int = 0
+    knowledge_boundary_audit: Literal["not_performed"] = "not_performed"
 
 
 class FocusedEvidenceContinuation(FocusedModel):
@@ -137,6 +140,7 @@ class FocusedEvidenceContinuation(FocusedModel):
     pending_nomination: list[FocusedEvidenceItem] = Field(default_factory=list)
     coverage: FocusedEvidenceCoverage = Field(default_factory=FocusedEvidenceCoverage)
     warnings: list[str] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def no_prose(self):
@@ -203,5 +207,6 @@ class FocusedEvidenceResult(FocusedModel):
     selection_refs: list[dict] = Field(default_factory=list)
     continuation: FocusedEvidenceContinuation | None = None
     asset_write_authorized: Literal[False] = False
+    blockers: list[str] = Field(default_factory=list)
     # Derived at read time; never duplicate prose in task/import checkpoints.
     compiled_context: dict = Field(default_factory=dict, exclude=True)

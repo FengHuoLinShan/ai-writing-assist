@@ -637,3 +637,142 @@ async def test_snapshot_failure_preserves_task_evidence_without_provider_fallbac
     assert payload["_llm_execution_snapshot"] == (
         {"test": "frozen provider"} if restore_failure else None
     )
+
+
+async def known_character(db, novel, target, known):
+    pov = CoreEntity(
+        novel_id=uuid.UUID(novel),
+        entity_type="character",
+        name="旅人",
+        status="canonical",
+    )
+    db.add(pov)
+    await db.flush()
+    db.add(
+        Character(
+            novel_id=pov.novel_id, entity_id=pov.id, name=pov.name, status="canonical"
+        )
+    )
+    await db.flush()
+    row = CharacterKnowledge(
+        novel_id=pov.novel_id,
+        character_id=pov.id,
+        target_type="location",
+        target_id=target.id,
+        knowledge_level="full",
+        known_content=known,
+        source_chapter_index=1,
+        status="canonical",
+    )
+    db.add(row)
+    await db.flush()
+    return pov, row
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("secret_chapter", [1, 2])
+async def test_character_never_reads_unlearned_narrator_secret_even_for_known_object(
+    db_session, test_project_id, secret_chapter
+):
+    from dataclasses import replace
+
+    root = await entity(db_session, test_project_id, "根城")
+    known = "根城有北门。"
+    secret = "密室囚禁邪神，旅人对此一无所知。"
+    for chapter in range(1, secret_chapter + 1):
+        await create_published_draft_only(
+            db_session,
+            test_project_id,
+            chapter,
+            content=known + (secret if chapter == secret_chapter else ""),
+        )
+    pov, _ = await known_character(db_session, test_project_id, root, known)
+    options = CompileOptions(
+        novel_id=test_project_id,
+        task="查阅",
+        scope="chapter",
+        reveal_mode="character",
+        viewpoint_character_id=str(pov.id),
+        visible_until_chapter=2,
+        visible_until_offset=10000,
+    )
+    query = request(test_project_id, root, compile_options=options)
+    query.limits.chapters_per_batch = 10
+    result = await FocusedEvidenceService().retrieve(db_session, query)
+    assert any(known in item.text for item in result.evidence)
+    assert not any(item.source_ref for item in result.evidence)
+    assert secret not in json.dumps(result.compiled_context, ensure_ascii=False)
+    assert result.coverage.character_ranges_omitted > 0
+    assert result.coverage.knowledge_boundary_audit == "not_performed"
+    assert any("角色获知" in warning for warning in result.warnings)
+    for reveal in ("reader", "author_full"):
+        full = request(
+            test_project_id,
+            root,
+            compile_options=replace(
+                options, reveal_mode=reveal, viewpoint_character_id=None
+            ),
+        )
+        full.limits.chapters_per_batch = 10
+        readable = await FocusedEvidenceService().retrieve(db_session, full)
+        assert any(secret in item.text for item in readable.evidence if item.source_ref)
+
+
+@pytest.mark.asyncio
+async def test_only_exact_linked_full_knowledge_range_is_character_readable(
+    db_session, test_project_id
+):
+    from dataclasses import asdict
+
+    from modules.evidence.facade import record_evidence_link
+    from modules.writing.facade import build_manuscript_range_ref
+
+    root = await entity(db_session, test_project_id, "根城")
+    known = "根城有北门。"
+    hidden = "密室囚禁邪神。"
+    draft = await create_published_draft_only(
+        db_session, test_project_id, 1, content=known + hidden
+    )
+    pov, knowledge = await known_character(db_session, test_project_id, root, known)
+    ref = await build_manuscript_range_ref(
+        db_session,
+        test_project_id,
+        draft_id=draft.id,
+        start_offset=0,
+        end_offset=len(known),
+        content_mode="canonical",
+    )
+    await record_evidence_link(
+        db_session,
+        novel_id=test_project_id,
+        target_ref={
+            "target_type": "character_knowledge",
+            "target_id": str(knowledge.id),
+            "target_path": "known_content",
+        },
+        source_ref=ref,
+        claim_path="known_content",
+    )
+    options = CompileOptions(
+        novel_id=test_project_id,
+        task="查阅",
+        scope="chapter",
+        reveal_mode="character",
+        viewpoint_character_id=str(pov.id),
+        visible_until_chapter=3,
+        pinned_refs=[{"kind": "source_range", "source_ref": asdict(ref)}],
+    )
+    query = request(test_project_id, root, compile_options=options)
+    result = await FocusedEvidenceService().retrieve(db_session, query)
+    originals = [item for item in result.evidence if item.source_ref]
+    assert len(originals) == 1 and originals[0].text == known
+    assert result.coverage.character_ranges_verified == 1
+    assert result.coverage.character_ranges_omitted == 1
+    assert not result.blockers and hidden not in json.dumps(
+        result.compiled_context, ensure_ascii=False
+    )
+    knowledge.known_content = "只知道根城存在"
+    await db_session.flush()
+    stale = await FocusedEvidenceService().retrieve(db_session, query)
+    assert not any(item.source_ref for item in stale.evidence)
+    assert stale.blockers and stale.compiled_context["blockers"]

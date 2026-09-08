@@ -596,3 +596,11 @@ CompiledContext 正文。HTTP 重新校验并回读累计证据，pending/runnin
 直接关联提名保持未完成，根证据以无正文回执保留，可在连接恢复后继续。已有 snapshot
 恢复失败不会切换到其他 provider 或环境 Key。恢复提名后新增的一跳对象单独补扫整个范围，
 不会漏掉在模型不可用期间已读过的前序章节，也不把它们再当成根递归展开。
+
+角色视角的原文另经专项 fail-closed 门禁；“章节已读”“对象已知”和共现均不能授权一段
+全知叙述。首版只接受：当前角色在截止点前已采用的 full CharacterKnowledge，其
+known_content 与精确原文逐字相等，且该 known_content 字段有 active、range 精度、
+同版本/同范围的 EvidenceLink。其余原文省略并记录 character_ranges_omitted，继续返回
+可见的已知内容 metadata；无法证明的固定原文产生 Context blocker。仅该窄范围计入
+character_ranges_verified，knowledge_boundary_audit 始终为 not_performed，不能把检索
+可见性门禁声称为完整角色知识审查。reader/author 原文行为与全局 NovelEvidence.read 不变。
