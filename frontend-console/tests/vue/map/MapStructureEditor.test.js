@@ -164,6 +164,136 @@ describe("统一地图编辑器", () => {
     expect(reopened.text()).toContain('发现未保存的本机编辑')
   })
 
+  it('待恢复编辑尚未决定时仅能浏览，键盘、保存和版本采用不能覆盖备份', async () => {
+    vi.useFakeTimers()
+    const key = `novel_map_draft:test-account:${projectId}:${nodeId}`
+    const backup = document(); backup.features[0].label = '尚未决定的编辑'
+    const raw = JSON.stringify({ base_revision_id: revisionId, document: backup })
+    localStorage.setItem(key, raw)
+    const candidate = { ...record(backup, nextId), status: 'candidate', base_revision_id: revisionId }
+    api.world.getNodeMap.mockResolvedValue({ ...state(record()), candidates: [candidate] })
+    api.world.listMapRevisions.mockResolvedValue([record(backup, 'historical')])
+    const wrapper = render({ images: [{ id: 'image' }] }); await flushPromises()
+    expect(wrapper.text()).toContain('可以继续浏览')
+    expect(wrapper.find('.map-edit-grid').exists()).toBe(false)
+    expect(wrapper.find('.map-image-controls').exists()).toBe(false)
+    expect(wrapper.get('.map-inspector').text()).toContain('临江城')
+    const point = wrapper.get('[data-feature-id="a"] circle').attributes('cx')
+    await wrapper.get('[data-feature-id="a"]').trigger('keydown', { key: 'ArrowRight' })
+    expect(wrapper.get('[data-feature-id="a"] circle').attributes('cx')).toBe(point)
+    await wrapper.vm.save()
+    expect(api.world.saveMapRevision).not.toHaveBeenCalled()
+    await button(wrapper, '查看').trigger('click'); await flushPromises()
+    expect(button(wrapper, '核对所选 1 项修改').attributes('disabled')).toBeDefined()
+    await button(wrapper, '返回当前地图').trigger('click')
+    await wrapper.findAll('summary').find(item => item.text() === '地图历史').trigger('click'); await flushPromises()
+    expect(button(wrapper, '恢复为新版本').attributes('disabled')).toBeDefined()
+    await vi.advanceTimersByTimeAsync(250)
+    wrapper.unmount()
+    expect(localStorage.getItem(key)).toBe(raw)
+    expect(api.world.reviewMapRevision).not.toHaveBeenCalled()
+    const reopened = render(); await flushPromises()
+    await button(reopened, '恢复到编辑区').trigger('click'); await flushPromises()
+    expect(reopened.get('.map-inspector input').element.value).toBe('尚未决定的编辑')
+    expect(reopened.vm.dirty).toBe(true)
+  })
+
+  it('放弃备份使用页内二次确认，取消保留备份，确认后恢复编辑和焦点', async () => {
+    const key = `novel_map_draft:test-account:${projectId}:${nodeId}`
+    const backup = document(); backup.features[0].label = '可选择恢复的编辑'
+    const raw = JSON.stringify({ base_revision_id: revisionId, document: backup })
+    localStorage.setItem(key, raw)
+    const wrapper = mount(MapStructureEditor, { props: { projectId, node: { id: nodeId, title: '区域', level: 'region' } }, attachTo: globalThis.document.body })
+    await flushPromises()
+    await button(wrapper, '放弃本机编辑').trigger('click'); await flushPromises()
+    expect(wrapper.find('[aria-label="确认放弃本机编辑"]').exists()).toBe(true)
+    expect(localStorage.getItem(key)).toBe(raw)
+    expect(globalThis.document.activeElement).toBe(button(wrapper, '确认放弃这份备份').element)
+    await button(wrapper, '保留备份').trigger('click'); await flushPromises()
+    expect(localStorage.getItem(key)).toBe(raw)
+    expect(globalThis.document.activeElement).toBe(button(wrapper, '放弃本机编辑').element)
+    await button(wrapper, '放弃本机编辑').trigger('click')
+    await button(wrapper, '确认放弃这份备份').trigger('click'); await flushPromises()
+    expect(localStorage.getItem(key)).toBeNull()
+    expect(wrapper.find('[aria-label="待处理的本机地图编辑"]').exists()).toBe(false)
+    expect(wrapper.get('.map-inspector input').element.value).toBe('临江城')
+    expect(globalThis.document.activeElement).toBe(wrapper.get('.map-scroll').element)
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it.each(['恢复到编辑区', '确认放弃这份备份'])('另一处备份变化后%s只刷新提示，必须重新作出选择', async action => {
+    const key = `novel_map_draft:test-account:${projectId}:${nodeId}`
+    const backup = document(); backup.features[0].label = '第一份备份'
+    localStorage.setItem(key, JSON.stringify({ base_revision_id: revisionId, document: backup }))
+    const wrapper = render(); await flushPromises()
+    if (action.startsWith('确认')) await button(wrapper, '放弃本机编辑').trigger('click')
+    const changed = document(); changed.features[0].label = '另一处的新备份'
+    const raw = JSON.stringify({ base_revision_id: revisionId, document: changed })
+    localStorage.setItem(key, raw)
+    await button(wrapper, action).trigger('click'); await flushPromises()
+    expect(localStorage.getItem(key)).toBe(raw)
+    expect(wrapper.text()).toContain('本机备份已在另一处变化')
+    expect(wrapper.find('.map-edit-grid').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="确认放弃本机编辑"]').exists()).toBe(false)
+    await button(wrapper, '恢复到编辑区').trigger('click'); await flushPromises()
+    expect(wrapper.get('.map-inspector input').element.value).toBe('另一处的新备份')
+  })
+
+  it('保存请求等待时另一处写入的新备份不被完成清理删除', async () => {
+    const key = `novel_map_draft:test-account:${projectId}:${nodeId}`
+    const wrapper = render(); await flushPromises()
+    await wrapper.get('.map-inspector input').setValue('本页保存内容')
+    let finish
+    api.world.saveMapRevision.mockReturnValue(new Promise(resolve => { finish = resolve }))
+    await button(wrapper, '保存地图').trigger('click')
+    const other = document(); other.features[0].label = '另一处仍未保存'
+    const raw = JSON.stringify({ base_revision_id: revisionId, document: other })
+    localStorage.setItem(key, raw)
+    const saved = record(api.world.saveMapRevision.mock.calls[0][2].document, nextId)
+    api.world.getNodeMap.mockResolvedValue(state(saved))
+    finish(saved); await flushPromises()
+    expect(localStorage.getItem(key)).toBe(raw)
+    expect(wrapper.get('.map-save-status').text()).toBe('已保存到服务端')
+    wrapper.unmount()
+    expect(localStorage.getItem(key)).toBe(raw)
+  })
+
+  it('另一处写入损坏备份后明确标记不可恢复，重新二次确认可仅放弃这份损坏内容', async () => {
+    const key = `novel_map_draft:test-account:${projectId}:${nodeId}`
+    const backup = document(); backup.features[0].label = '原本待决定的编辑'
+    localStorage.setItem(key, JSON.stringify({ base_revision_id: revisionId, document: backup }))
+    const wrapper = render(); await flushPromises()
+    await button(wrapper, '放弃本机编辑').trigger('click')
+    localStorage.setItem(key, '{damaged-in-another-tab')
+    await button(wrapper, '确认放弃这份备份').trigger('click'); await flushPromises()
+    expect(localStorage.getItem(key)).toBe('{damaged-in-another-tab')
+    expect(wrapper.text()).toContain('本机备份内容已损坏')
+    expect(button(wrapper, '恢复到编辑区').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[aria-label="确认放弃本机编辑"]').exists()).toBe(false)
+    expect(wrapper.find('.map-edit-grid').exists()).toBe(false)
+    await button(wrapper, '放弃本机编辑').trigger('click')
+    await button(wrapper, '确认放弃这份备份').trigger('click'); await flushPromises()
+    expect(localStorage.getItem(key)).toBeNull()
+    expect(wrapper.find('.map-edit-grid').exists()).toBe(true)
+  })
+
+  it('核对备份时读取异常仍保留原内容，不解除待决定保护', async () => {
+    const key = `novel_map_draft:test-account:${projectId}:${nodeId}`
+    const backup = document(); backup.features[0].label = '不能丢的原备份'
+    const raw = JSON.stringify({ base_revision_id: revisionId, document: backup })
+    localStorage.setItem(key, raw)
+    const wrapper = render(); await flushPromises()
+    const original = localStorage.getItem.bind(localStorage)
+    const storage = vi.spyOn(localStorage, 'getItem').mockImplementation(value => { if (value === key) throw new Error('storage unavailable'); return original(value) })
+    await button(wrapper, '恢复到编辑区').trigger('click'); await flushPromises()
+    expect(wrapper.text()).toContain('本机备份暂时无法核对')
+    expect(wrapper.find('.map-edit-grid').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('本机备份内容已损坏')
+    storage.mockRestore()
+    wrapper.unmount()
+    expect(localStorage.getItem(key)).toBe(raw)
+  })
+
   it("服务端与本地备份同时失败时不放行导航，也不声称已备份", async () => {
     const wrapper = render()
     await flushPromises()

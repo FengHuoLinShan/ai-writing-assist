@@ -17,39 +17,42 @@
       本机备份不可用。请保存到服务端，或下载备份并确认文件已保留后再离开。
       <button class="btn btn-sm" @click="downloadBackup">下载地图备份</button>
     </div>
-    <div v-if="recovery" class="map-warning">
-      发现未保存的本机编辑。
-      <button class="btn btn-sm" @click="restoreBackup">恢复到编辑区</button>
-      <button class="btn btn-sm" @click="discardBackup">放弃本机编辑</button>
+    <div v-if="recovery" class="map-warning map-recovery" aria-label="待处理的本机地图编辑">
+      <p>{{ recoveryCorrupt ? '本机备份内容已损坏，无法直接恢复。可以先保留并离开，或明确放弃这份损坏备份后继续编辑。' : '发现未保存的本机编辑。可以继续浏览；恢复或放弃这份备份后，才能修改地图或采用其他版本。' }}</p>
+      <div v-if="!discardBackupOpen" class="map-actions"><button class="btn btn-sm" :disabled="busy || recoveryCorrupt" @click="restoreBackup">恢复到编辑区</button><button ref="discardBackupTrigger" class="btn btn-sm" :disabled="busy" @click="discardBackup">放弃本机编辑</button></div>
+      <div v-else class="map-recovery-confirm" role="group" aria-label="确认放弃本机编辑" @keydown.esc.prevent.stop="cancelDiscardBackup">
+        <p id="map-discard-backup-question">确认放弃这份未保存的本机编辑？已保存的地图和历史版本会保留。</p>
+        <div class="map-actions"><button ref="discardBackupConfirm" class="btn btn-sm" aria-describedby="map-discard-backup-question" @click="confirmDiscardBackup">确认放弃这份备份</button><button class="btn btn-sm" @click="cancelDiscardBackup">保留备份</button></div>
+      </div>
     </div>
     <div v-if="conflict" class="map-warning">
       服务器已有更新，当前编辑已保留。请先查看差异，再决定使用哪一版。
       <MapChangeReview :changes="conflictChanges" @locate="locateChange" />
       <button class="btn btn-sm" @click="compareServer = !compareServer">{{ compareServer ? '回到我的编辑' : '查看服务器版' }}</button>
-      <button class="btn btn-sm" @click="useServer">使用服务器版</button>
-      <button class="btn btn-sm" @click="rebaseManually">用我的编辑创建新版</button>
+      <button class="btn btn-sm" :disabled="Boolean(recovery)" @click="useServer">使用服务器版</button>
+      <button class="btn btn-sm" :disabled="Boolean(recovery)" @click="rebaseManually">用我的编辑创建新版</button>
     </div>
     <section v-if="candidates.length && !reader && !focused" class="map-candidates" aria-label="空间候选">
       <div v-for="candidate in candidates" :key="candidate.id">
         <span>{{ formatDate(candidate.created_at) }} · 空间候选</span>
         <button class="btn btn-sm" :disabled="busy" @click="viewCandidate(candidate)">查看</button>
-        <button class="btn btn-sm" :disabled="busy || dirty" @click="viewCandidate(candidate)">比较后采用</button>
-        <button class="btn btn-sm" :disabled="busy" @click="review(candidate, 'reject')">不使用</button>
+        <button class="btn btn-sm" :disabled="busy || dirty || Boolean(recovery)" @click="viewCandidate(candidate)">比较后采用</button>
+        <button class="btn btn-sm" :disabled="busy || Boolean(recovery)" @click="review(candidate, 'reject')">不使用</button>
       </div>
     </section>
     <section v-if="candidateView" class="map-warning" aria-label="候选地图差异">
       <strong>{{ compareCandidateCurrent ? '正在对照已保存地图' : candidateView.status === 'saved' ? '正在查看历史地图' : '正在查看空间候选' }}</strong>
       <p>与当前已保存地图比较；这些变化尚未应用。采用或恢复时会再次核对来源与版本。</p>
-      <MapChangeReview v-model="selectedChangeKeys" :changes="candidateChanges" :selectable="candidateView.status === 'candidate'" @locate="locateChange" />
+      <MapChangeReview v-model="selectedChangeKeys" :changes="candidateChanges" :selectable="candidateView.status === 'candidate' && !recovery" @locate="locateChange" />
       <p v-if="candidateView.status === 'candidate' && candidateView.base_revision_id !== revision?.id" role="alert">此候选基于较早地图，仅供比较；请重新整理需要更新的部分。</p>
-      <button v-if="candidateView.status === 'candidate' && !adoptionPreview" class="btn btn-primary" :disabled="busy || previewing || dirty || !selectedChangeKeys.length || candidateView.base_revision_id !== revision?.id" @click="previewAdoption">{{ previewing ? '正在核对采用范围…' : '核对所选 ' + selectedChangeKeys.length + ' 项修改' }}</button>
+      <button v-if="candidateView.status === 'candidate' && !adoptionPreview" class="btn btn-primary" :disabled="busy || previewing || dirty || Boolean(recovery) || !selectedChangeKeys.length || candidateView.base_revision_id !== revision?.id" @click="previewAdoption">{{ previewing ? '正在核对采用范围…' : '核对所选 ' + selectedChangeKeys.length + ' 项修改' }}</button>
       <div v-if="adoptionPreview" class="map-adoption-preview" aria-label="即将采用的修改">
         <strong>将采用 {{ adoptionPreview.applied_change_keys.length }} 项修改</strong>
         <p>请核对实际生效范围；标有“关联修改”的内容会一并采用，未列出的修改继续保留为候选。</p>
         <ul><li v-for="change in adoptionChanges" :key="change.key">{{ change.action }}：{{ change.label }}<strong v-if="adoptionPreview.expanded_change_keys.includes(change.key)">（关联修改）</strong></li></ul>
-        <button class="btn btn-primary" :disabled="busy || dirty" @click="review(candidateView, 'adopt', selectedChangeKeys)">确认采用共 {{ adoptionPreview.applied_change_keys.length }} 项修改</button>
+        <button class="btn btn-primary" :disabled="busy || dirty || Boolean(recovery)" @click="review(candidateView, 'adopt', selectedChangeKeys)">确认采用共 {{ adoptionPreview.applied_change_keys.length }} 项修改</button>
       </div>
-      <button v-if="candidateView.status === 'saved'" class="btn btn-primary" :disabled="busy || dirty || candidateView.id === revision?.id" @click="review(candidateView, 'restore')">恢复为新版本</button>
+      <button v-if="candidateView.status === 'saved'" class="btn btn-primary" :disabled="busy || dirty || Boolean(recovery) || candidateView.id === revision?.id" @click="review(candidateView, 'restore')">恢复为新版本</button>
       <button class="btn btn-sm" @click="compareCandidateCurrent = !compareCandidateCurrent">{{ compareCandidateCurrent ? '查看候选地图' : '对照已保存地图' }}</button>
       <button class="btn btn-sm" @click="exitCandidate">返回当前地图</button>
     </section>
@@ -160,7 +163,7 @@
         <img v-for="layer in selectedIllustrations" :key="layer.page_id" :src="imageUrls[imageKey(layer.page_id)]" alt="地点配图" class="map-detail-image" />
       </aside>
     </div>
-    <aside v-if="(reader || focused || candidateView) && displayedFeature && !referenceOnly" class="map-inspector" :aria-label="reader ? '读者地点详情' : '地图地点详情'">
+    <aside v-if="(recovery || reader || focused || candidateView) && displayedFeature && !referenceOnly" class="map-inspector" :aria-label="reader ? '读者地点详情' : '地图地点详情'">
       <strong>{{ displayedFeature.label }}</strong>
       <template v-if="!reader"><p v-if="displayedFeature.note">{{ displayedFeature.note }}</p><p v-for="(source, index) in displayedFeature.sources" :key="index">{{ source.quote }}<button v-if="source.kind === 'source_range'" class="btn btn-sm" @click="openSourceChapter(source)">打开第 {{ source.source_ref.chapter_index }} 章</button></p><button v-if="!candidateView && displayedFeature.target_node_id" class="btn btn-sm" @click="emit('open-node', displayedFeature.target_node_id)">进入子图</button></template>
       <img v-for="layer in selectedIllustrations" :key="layer.page_id" :src="imageUrls[imageKey(layer.page_id)]" class="map-detail-image" :alt="reader ? '可公开的地点配图' : '地点配图'" />
@@ -193,7 +196,7 @@
       <details v-if="annotations.length || doc.annotation_bindings.length"><summary>绑定原图片标注</summary><ul><li v-for="binding in doc.annotation_bindings" :key="binding.annotation_id">已绑定到 {{ featureLabel(binding.feature_id) }} <button class="btn btn-sm" @click="unbindAnnotation(binding.annotation_id)">解除绑定</button></li></ul><form class="map-inline-form" @submit.prevent="bindAnnotation"><label>原标注<select v-model="annotationId" class="form-select"><option value="">请选择</option><option v-for="annotation in annotations" :key="annotation.id" :value="annotation.id">{{ annotation.label }}</option></select></label><label>地图地点<select v-model="annotationFeatureId" class="form-select"><option value="">请选择</option><option v-for="feature in doc.features" :key="feature.id" :value="feature.id">{{ feature.label }}</option></select></label><button class="btn btn-sm" :disabled="!annotationId || !annotationFeatureId">绑定</button></form></details>
     </details>
     <details v-if="problems.length && !reader" open class="map-warning"><summary>需要核对 {{ problems.length }} 项</summary><ul><li v-for="(problem, index) in problems" :key="index">{{ problem.message }}<button v-if="problem.feature_ids.length" class="btn btn-sm" @click="selectFeature(problem.feature_ids[0])">定位</button></li></ul></details>
-    <details v-if="!reader && !focused"><summary @click="loadHistory">地图历史</summary><div v-for="item in history" :key="item.id" class="map-history"><span>{{ formatDate(item.created_at) }} · {{ item.status === 'saved' ? '已保存' : item.status === 'candidate' ? '候选' : '已处理候选' }}</span><button class="btn btn-sm" :disabled="busy" @click="viewCandidate(item)">查看并比较</button><button v-if="item.status === 'saved'" class="btn btn-sm" :disabled="busy || dirty || item.id === revision?.id" @click="review(item, 'restore')">恢复为新版本</button></div></details>
+    <details v-if="!reader && !focused"><summary @click="loadHistory">地图历史</summary><div v-for="item in history" :key="item.id" class="map-history"><span>{{ formatDate(item.created_at) }} · {{ item.status === 'saved' ? '已保存' : item.status === 'candidate' ? '候选' : '已处理候选' }}</span><button class="btn btn-sm" :disabled="busy" @click="viewCandidate(item)">查看并比较</button><button v-if="item.status === 'saved'" class="btn btn-sm" :disabled="busy || dirty || Boolean(recovery) || item.id === revision?.id" @click="review(item, 'restore')">恢复为新版本</button></div></details>
     <MapSourcePicker v-if="selectedFeature" :key="node.id + ':' + selectedId" :open="sourcePickerOpen" :project-id="projectId" :feature="selectedFeature" :initial-source="sourcePickerInitial" @close="sourcePickerOpen = false" @add="addSource" />
   </section>
 </template>
@@ -215,6 +218,7 @@ const doc = ref(emptyMap()), revision = ref(null), serverRevision = ref(null), b
 const candidates = ref([]), candidateView = ref(null), history = ref([]), imageLayers = ref([]), checkedGeometry = ref("")
 const loading = ref(false), saving = ref(false), error = ref(""), problems = ref([]), initialized = ref(false)
 const recovery = ref(null), backupError = ref(false), backedUp = ref(false), conflict = ref(false), compareServer = ref(false)
+const discardBackupOpen = ref(false), discardBackupTrigger = ref(null), discardBackupConfirm = ref(null), recoveryCorrupt = ref(false)
 const undoStack = ref([]), redoStack = ref([]), selectedId = ref(""), selectedVertex = ref(0), selectedSegment = ref(0), placing = ref(false)
 const canvas = ref(null), canvasWidth = ref(700), canvasHeight = ref(0), zoom = ref(100), referenceOnly = ref(false), dragBounds = ref(null)
 const focused = ref(false), mapQuery = ref(""), locatorMessage = ref(""), compareCandidateCurrent = ref(false)
@@ -244,7 +248,7 @@ const discardCounts = computed(() => {
   return Object.entries(generationSummary.value?.discard_reasons || {}).filter(([key, count]) => labels[key] && count > 0).map(([key, value]) => ({ label: labels[key], value }))
 })
 const incompleteGeometry = computed(() => doc.value.features.some(feature => feature.points.length > 0 && feature.points.length < (feature.kind === 'area' ? 3 : ['road', 'river'].includes(feature.kind) ? 2 : 1)))
-const readOnly = computed(() => Boolean(reader.value || candidateView.value || compareServer.value))
+const readOnly = computed(() => Boolean(recovery.value || reader.value || candidateView.value || compareServer.value))
 const displayDocument = computed(() => reader.value ? { features: reader.value.features } : candidateView.value ? (compareCandidateCurrent.value ? revision.value?.document || emptyMap() : candidateView.value.document) : (compareServer.value && serverRevision.value ? serverRevision.value.document : doc.value))
 const displayedFeature = computed(() => displayDocument.value.features.find(feature => feature.id === selectedId.value))
 const matchingFeatures = computed(() => displayDocument.value.features.filter(feature => feature.label.toLocaleLowerCase().includes(mapQuery.value.trim().toLocaleLowerCase())))
@@ -302,7 +306,7 @@ const anchorFeatures = computed(() => doc.value.features.filter(f => ["location"
 const childChoices = computed(() => props.knownNodes.filter(node => node.id !== props.node.id && node.parent_id === props.node.id))
 const annotations = computed(() => props.images.flatMap(page => page.annotations || []))
 const conflictChanges = computed(() => serverRevision.value ? mapChangeDetails(serverRevision.value.document, doc.value) : [])
-const saveLabel = computed(() => saving.value ? "正在处理地图操作…" : dirty.value ? (backedUp.value ? "未保存到服务端 · 当前编辑已在本机备份" : "有未保存修改") : revision.value ? "已保存到服务端" : "空间结构尚未保存")
+const saveLabel = computed(() => saving.value ? "正在处理地图操作…" : recovery.value ? "当前浏览已保存地图，本机编辑尚待处理" : dirty.value ? (backedUp.value ? "未保存到服务端 · 当前编辑已在本机备份" : "有未保存修改") : revision.value ? "已保存到服务端" : "空间结构尚未保存")
 const backgrounds = computed(() => {
   if (candidateView.value && !compareCandidateCurrent.value) return comparisonLayers.value.filter(layer => layer.role === 'background' && layer.state === 'ready' && layer.transform)
   if (candidateView.value) return imageLayers.value.filter(layer => layer.role === 'background' && layer.state === 'ready' && layer.transform)
@@ -335,6 +339,7 @@ function backupKey() {
 }
 function persistDraft() {
   clearTimeout(backupTimer)
+  if (recovery.value) return
   if (!dirty.value) {
     if (initialized.value && knownBackup !== undefined && !recovery.value) clearBackup(knownBackup)
     return
@@ -347,12 +352,21 @@ function persistDraft() {
     backedUp.value = true; backupError.value = false
   } catch { backedUp.value = false; backupError.value = true }
 }
-function clearBackup(expectedValue) {
+function clearBackup(expectedValue = knownBackup) {
   try {
     const key = backupKey()
-    if (expectedValue !== undefined && localStorage.getItem(key) !== expectedValue) return
+    if (expectedValue === undefined || localStorage.getItem(key) !== expectedValue) return false
     localStorage.removeItem(key); knownBackup = null
-  } catch { /* Server save remains authoritative. */ }
+    return true
+  } catch { return false }
+}
+function readRecoveryValue(raw) {
+  try {
+    const value = raw === null ? null : JSON.parse(raw)
+    if (raw !== null && !['features', 'constraints', 'images'].every(key => Array.isArray(value?.document?.[key]))) throw new Error('invalid backup')
+    recovery.value = value; recoveryCorrupt.value = false
+  } catch { recovery.value = {}; recoveryCorrupt.value = true }
+  knownBackup = raw
 }
 function install(value) {
   installing = true
@@ -369,8 +383,8 @@ function mutate(change) {
   if (JSON.stringify(doc.value) === previous) return
   undoStack.value = [...undoStack.value.slice(-19), previous]; redoStack.value = []
 }
-function undo() { if (!undoStack.value.length) return; redoStack.value.push(JSON.stringify(doc.value)); doc.value = JSON.parse(undoStack.value.pop()) }
-function redo() { if (!redoStack.value.length) return; undoStack.value.push(JSON.stringify(doc.value)); doc.value = JSON.parse(redoStack.value.pop()) }
+function undo() { if (readOnly.value || !undoStack.value.length) return; redoStack.value.push(JSON.stringify(doc.value)); doc.value = JSON.parse(undoStack.value.pop()) }
+function redo() { if (readOnly.value || !redoStack.value.length) return; undoStack.value.push(JSON.stringify(doc.value)); doc.value = JSON.parse(redoStack.value.pop()) }
 function selectFeature(id) { selectedId.value = id; selectedVertex.value = 0; selectedSegment.value = 0; if (!readOnly.value) emit('select-feature', id) }
 function locateChange(ids) {
   const id = ids.find(value => displayDocument.value.features.some(feature => feature.id === value))
@@ -536,7 +550,7 @@ async function load(initial = false) {
     taskId.value = result.task_id; taskStatus.value = result.task_status; generationSummary.value = result.generation_summary || null
     if (!initialized.value) {
       install(result.revision); initialized.value = true; await restoreView()
-      try { const raw = localStorage.getItem(backupKey()); recovery.value = JSON.parse(raw || "null"); knownBackup = raw } catch { backupError.value = true }
+      try { readRecoveryValue(localStorage.getItem(backupKey())) } catch { backupError.value = true }
       if (recovery.value && JSON.stringify(recovery.value.document) === baseline.value) recovery.value = null
     } else if (!dirty.value && !candidateView.value && revision.value?.id !== result.revision?.id) install(result.revision)
     else if (!dirty.value && !candidateView.value) problems.value = result.revision?.problems || []
@@ -561,7 +575,7 @@ async function save() {
   } finally { if (alive) saving.value = false }
 }
 async function autoLayout() {
-  if (busy.value) return
+  if (busy.value || readOnly.value) return
   error.value = ""
   const original = JSON.stringify(doc.value)
   try {
@@ -592,7 +606,7 @@ async function showGenerationChoices() {
   generationTools.value.open = true; generationTools.value.scrollIntoView?.({ block: 'start' }); generationTools.value.querySelector('input')?.focus()
 }
 async function generateSelection(locationIds, featureIds) {
-  if (dirty.value || busy.value || taskRunning.value) return
+  if (dirty.value || busy.value || taskRunning.value || recovery.value) return
   saving.value = true; error.value = ""
   try {
     const selected = (revision.value?.document.features || []).filter(feature => featureIds.includes(feature.id))
@@ -619,7 +633,7 @@ async function viewCandidate(value, existingPreview = null) {
 function exitCandidate() { ++comparisonEpoch; candidateView.value = null; compareCandidateCurrent.value = false; problems.value = serverRevision.value?.problems || revision.value?.problems || [] }
 async function previewAdoption() {
   const value = candidateView.value, baseId = revision.value?.id || null, keys = [...selectedChangeKeys.value]
-  if (!value || value.status !== 'candidate' || value.base_revision_id !== baseId || busy.value || dirty.value || !keys.length) return
+  if (!value || value.status !== 'candidate' || value.base_revision_id !== baseId || busy.value || dirty.value || recovery.value || !keys.length) return
   const token = ++reviewEpoch
   adoptionPreview.value = null; previewing.value = true; error.value = ''; reviewNotice.value = ''
   try {
@@ -638,7 +652,7 @@ function explainRequiredChanges(err) {
   if (required.length) reviewNotice.value = '请明确勾选关联修改后再采用：' + candidateChanges.value.filter(change => required.includes(change.key)).map(change => change.label).join('、')
 }
 async function review(value, action, changeKeys = null) {
-  if (busy.value || dirty.value) return
+  if (busy.value || dirty.value || recovery.value) return
   if (action === 'adopt' && (!adoptionPreview.value || adoptionPreview.value.candidate_revision_id !== value.id || adoptionPreview.value.base_revision_id !== (revision.value?.id || null))) return
   if (action === "restore" && !confirm("将历史地图恢复为新版本？当前版本仍保留在历史中。")) return
   if (action === "reject" && !confirm("不使用这个空间候选？已保存地图不会受到影响。")) return
@@ -676,17 +690,33 @@ async function loadImageBaseline() {
   } catch { if (alive && token === imageBaselineEpoch) imageBaselineStatus.value = 'error' }
 }
 function restoreBackup() {
-  if (!recovery.value) return
+  if (!recovery.value || recoveryCorrupt.value || busy.value || !recoveryIsCurrent()) return
   if (!Array.isArray(recovery.value.document?.features) || !Array.isArray(recovery.value.document?.constraints) || !Array.isArray(recovery.value.document?.images)) { error.value = "本机备份格式已损坏，服务器版本仍然保留。"; return }
   doc.value = copyMap(recovery.value.document)
   if (recovery.value.base_revision_id !== (revision.value?.id || null)) {
     revision.value = { ...(revision.value || {}), id: recovery.value.base_revision_id }; conflict.value = true
   }
-  recovery.value = null; persistDraft()
+  recovery.value = null; discardBackupOpen.value = false; reader.value = null; exitCandidate(); compareServer.value = false; persistDraft(); nextTick(() => scrollArea.value?.focus())
 }
-function discardBackup() { if (confirm("放弃这份未保存的本机编辑？")) { clearBackup(); recovery.value = null } }
-function useServer() { if (confirm("使用服务器版？当前编辑将从工作区移出。")) { install(serverRevision.value); clearBackup(); conflict.value = false; compareServer.value = false } }
+function recoveryIsCurrent() {
+  try {
+    const raw = localStorage.getItem(backupKey())
+    if (raw === knownBackup) return true
+    readRecoveryValue(raw); discardBackupOpen.value = false
+    reviewNotice.value = '本机备份已在另一处变化，未替换或放弃任何编辑。请核对后重新选择。'
+  } catch { reviewNotice.value = '本机备份暂时无法核对，仍保留原内容。请稍后再试。' }
+  return false
+}
+function discardBackup() { discardBackupOpen.value = true; nextTick(() => discardBackupConfirm.value?.focus()) }
+function cancelDiscardBackup() { discardBackupOpen.value = false; nextTick(() => discardBackupTrigger.value?.focus()) }
+function confirmDiscardBackup() {
+  if (!recovery.value || busy.value || !recoveryIsCurrent()) return
+  if (!clearBackup()) { reviewNotice.value = '本机备份暂时无法清理，未放弃任何编辑。请重新核对后再试。'; return }
+  recovery.value = null; recoveryCorrupt.value = false; discardBackupOpen.value = false; reviewNotice.value = '已放弃这份本机编辑，已保存地图和历史仍保留。'; nextTick(() => scrollArea.value?.focus())
+}
+function useServer() { if (!recovery.value && confirm("使用服务器版？当前编辑将从工作区移出。")) { install(serverRevision.value); clearBackup(); conflict.value = false; compareServer.value = false } }
 function rebaseManually() {
+  if (recovery.value) return
   if (!confirm("确认已比较服务器版，并用当前编辑创建一个新版？")) return
   revision.value = serverRevision.value; conflict.value = false; compareServer.value = false; persistDraft()
 }
@@ -792,6 +822,7 @@ defineExpose({ canLeave, save, dirty, revision })
 </script>
 
 <style scoped>
+.map-recovery button{min-height:44px}.map-recovery-confirm{padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius-md)}
 .map-feature-sources{display:grid;gap:var(--space-2);padding-block:var(--space-3);border-block:1px solid var(--border)}.map-feature-sources article>p{max-height:8rem;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}.map-feature-sources button{min-height:44px}
 .map-editor{display:grid;gap:var(--space-3);min-width:0}.map-toolbar,.map-actions,.map-reader,.map-canvas-controls,.map-history,.map-candidates>div{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-2)}.map-toolbar{justify-content:space-between}.map-caption,.map-save-status{color:var(--text-secondary);font-size:var(--text-sm)}.map-caption{display:block;margin-top:var(--space-1)}.map-toolbar .map-caption{display:inline;margin-left:var(--space-2)}.map-editor>p{margin:0}.map-editor .map-save-status{font-size:var(--text-xs)}.map-actions .btn,.map-editor summary{min-height:44px}.map-editor label{display:grid;gap:var(--space-1);min-width:0}.map-editor details{padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius-md);min-width:0}.map-editor summary{cursor:pointer;font-weight:600}.map-inline-form{display:flex;align-items:end;flex-wrap:wrap;gap:var(--space-2);margin-block:var(--space-2)}.map-inline-form>label{flex:1 1 140px}.map-editor input,.map-editor select,.map-editor textarea{max-width:100%;min-width:0}.map-editor input[type=number]{width:100px;min-height:36px}.map-reader>label{display:flex;align-items:center;flex-wrap:wrap}.map-edit-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,320px);gap:var(--space-3)}.map-inspector{display:grid;align-content:start;gap:var(--space-2);padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius-md)}.map-scroll{overflow:auto;max-height:70vh;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--bg-base)}.map-canvas{display:block;min-width:320px;min-height:300px;max-width:none;touch-action:pan-x pan-y pinch-zoom}.map-paper{fill:var(--bg-base)}.map-feature{cursor:pointer;outline:none}.map-feature circle{fill:var(--accent);stroke:var(--bg-base);stroke-width:3}.map-feature polygon{fill:var(--bg-muted);stroke:var(--border);stroke-width:2}.map-feature polyline{fill:none;stroke:var(--text-secondary);stroke-width:3;stroke-dasharray:7 4}.map-kind-river polyline{stroke:var(--accent);stroke-width:5;stroke-dasharray:none}.map-feature text{fill:var(--text-primary);font-size:15px;paint-order:stroke;stroke:var(--bg-base);stroke-width:4;stroke-linejoin:round}.map-feature:focus circle,.map-feature.selected circle{stroke:var(--text-primary);stroke-width:4}.map-feature:focus polyline,.map-feature.selected polyline,.map-feature:focus polygon,.map-feature.selected polygon{stroke:var(--accent);stroke-width:4}.map-feature .map-hit{fill:transparent;stroke:none;cursor:move}.map-handle{fill:var(--bg-base);stroke:var(--accent);stroke-width:3;cursor:move;touch-action:none}.map-location-list{display:grid;gap:var(--space-1);max-height:220px;overflow:auto}.map-location-list label{display:flex;align-items:center;gap:var(--space-2);min-height:38px}.map-warning{padding:var(--space-3);background:var(--warning-soft);border:1px solid var(--warning);border-radius:var(--radius-md)}.map-error{color:var(--error)}.map-calibration{position:relative;max-width:500px;cursor:crosshair}.map-calibration img{display:block;width:100%;height:auto}.map-calibration span{position:absolute;transform:translate(-50%,-50%);background:var(--text-primary);color:var(--bg-base);border-radius:50%;width:24px;height:24px;text-align:center;pointer-events:none}.map-detail-image{max-width:100%;height:auto;border-radius:var(--radius-md)}.map-history{padding:var(--space-2);justify-content:space-between}
 @media(max-width:900px){.map-edit-grid{grid-template-columns:minmax(0,1fr)}.map-toolbar{align-items:stretch;flex-direction:column}.map-reader{align-items:start}.map-editor .form-input,.map-editor .form-select{width:100%}.map-canvas-controls{justify-content:space-between}.map-candidates>div{align-items:start}.map-editor details{padding:var(--space-2)}}
