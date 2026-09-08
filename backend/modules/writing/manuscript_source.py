@@ -6,12 +6,16 @@ import re
 import uuid
 from dataclasses import replace
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import NotFoundError, ValidationError
 from modules.writing.contracts import (
     ManuscriptReadContract,
+    ManuscriptScanCursor,
     ManuscriptSearchHitContract,
+    ManuscriptTermHit,
+    ManuscriptTermScan,
     SourceRangeRefContract,
     WritingDraftContract,
 )
@@ -140,6 +144,219 @@ class ManuscriptSourceService:
             ]
             total = len(hits)
         return hits[skip : skip + limit], total, missing
+
+    async def source_manifest(
+        self,
+        db,
+        novel_id: str,
+        *,
+        content_mode="canonical",
+        chapter_from=None,
+        chapter_to=None,
+        source_manifest=None,
+    ) -> list[dict]:
+        """Project current source identity without loading every chapter's prose."""
+        nid = _uuid(novel_id, "novel_id")
+        if content_mode not in {"canonical", "working"}:
+            raise ValidationError("invalid content mode")
+        statuses = (
+            ("published",) if content_mode == "canonical" else WORKING_DRAFT_STATUSES
+        )
+        conditions = [WritingDraft.novel_id == nid, WritingDraft.status.in_(statuses)]
+        if chapter_from is not None:
+            conditions.append(WritingDraft.chapter_index >= chapter_from)
+        if chapter_to is not None:
+            conditions.append(WritingDraft.chapter_index <= chapter_to)
+        latest = (
+            select(
+                WritingDraft.chapter_index.label("chapter"),
+                func.max(WritingDraft.version_number).label("version"),
+            )
+            .where(*conditions)
+            .group_by(WritingDraft.chapter_index)
+            .subquery()
+        )
+        rows = (
+            await db.execute(
+                select(
+                    WritingDraft.id,
+                    WritingDraft.chapter_index,
+                    WritingDraft.version_number,
+                    WritingDraft.content_hash,
+                )
+                .join(
+                    latest,
+                    (WritingDraft.chapter_index == latest.c.chapter)
+                    & (WritingDraft.version_number == latest.c.version),
+                )
+                .where(*conditions)
+                .order_by(WritingDraft.chapter_index)
+            )
+        ).all()
+        result = []
+        for draft_id, chapter, version, content_hash in rows:
+            if source_manifest is not None and str(draft_id) not in source_manifest:
+                continue
+            if not content_hash:
+                draft = await self._repo.get(db, draft_id)
+                content_hash = hash_text(draft.content)
+            result.append(
+                {
+                    "draft_id": str(draft_id),
+                    "chapter_index": chapter,
+                    "version_number": version,
+                    "source_hash": content_hash,
+                }
+            )
+        if (
+            source_manifest is not None
+            and {row["draft_id"]: row["source_hash"] for row in result} != source_manifest
+        ):
+            raise ValidationError(
+                "frozen manuscript scope is stale or outside this novel/range"
+            )
+        return result
+
+    async def scan_terms(
+        self,
+        db,
+        novel_id: str,
+        terms: list[str],
+        *,
+        source_manifest: dict[str, str],
+        content_mode="canonical",
+        cursor: ManuscriptScanCursor | None = None,
+        chapter_from=None,
+        chapter_to=None,
+        visible_end_offsets=None,
+        allowed_ranges=None,
+        chapters_per_batch=10,
+        limit=80,
+        max_chars=40000,
+    ) -> ManuscriptTermScan:
+        """Scan literal occurrences in frozen sources with a resumable chapter cursor.
+
+        Overlapping match windows coalesce; chunk indexes and entity labels are optional.
+        Limits bound one call, never silently truncate the logical search.
+        """
+        if (
+            not 1 <= chapters_per_batch <= 100
+            or not 1 <= limit <= 500
+            or max_chars < 2000
+        ):
+            raise ValidationError("invalid manuscript scan budget")
+        normalized = sorted(
+            {term.strip() for term in terms if term.strip()}, key=lambda x: (-len(x), x)
+        )
+        if (
+            any(len(term) > MAX_PATTERN_LENGTH for term in normalized)
+            or len(normalized) > 10000
+        ):
+            raise ValidationError("invalid manuscript search terms")
+        sources = await self.source_manifest(
+            db,
+            novel_id,
+            content_mode=content_mode,
+            chapter_from=chapter_from,
+            chapter_to=chapter_to,
+            source_manifest=source_manifest,
+        )
+        cursor = cursor or ManuscriptScanCursor()
+        if (
+            cursor.chapter_position < 0
+            or cursor.start_offset < 0
+            or cursor.chapter_position > len(sources)
+        ):
+            raise ValidationError("invalid manuscript scan cursor")
+        if not normalized:
+            return ManuscriptTermScan([], None, [], len(sources))
+        pattern = re.compile(
+            "|".join(re.escape(term) for term in normalized), re.IGNORECASE
+        )
+        hits, scanned, used = [], [], 0
+        for position in range(cursor.chapter_position, len(sources)):
+            descriptor = sources[position]
+            start_at = cursor.start_offset if position == cursor.chapter_position else 0
+            if len(scanned) >= chapters_per_batch:
+                return ManuscriptTermScan(
+                    hits, ManuscriptScanCursor(position, start_at), scanned, len(sources)
+                )
+            draft = await self._repo.get(db, _uuid(descriptor["draft_id"], "draft_id"))
+            if (
+                draft is None
+                or str(draft.novel_id) != novel_id
+                or hash_text(draft.content) != descriptor["source_hash"]
+            ):
+                raise ValidationError("frozen manuscript source changed while scanning")
+            _validate_content_mode(draft, content_mode)
+            source = _draft_contract(draft)
+            content = source.content or ""
+            visible_end = (visible_end_offsets or {}).get(
+                source.chapter_index, len(content)
+            )
+            content = content[: max(0, min(len(content), visible_end))]
+            groups = []
+            for match in pattern.finditer(content, pos=start_at):
+                start, end = (
+                    max(0, match.start() - 600),
+                    min(len(content), match.end() + 600),
+                )
+                if allowed_ranges is not None:
+                    allowed = next(
+                        (
+                            ref
+                            for ref in allowed_ranges
+                            if ref.get("draft_id") == source.id
+                            and ref.get("source_hash") == source.content_hash
+                            and ref.get("content_mode") == content_mode
+                            and int(ref.get("start_offset", -1)) <= match.start()
+                            and match.end() <= int(ref.get("end_offset", -1))
+                        ),
+                        None,
+                    )
+                    if allowed is None:
+                        continue
+                    start = max(start, int(allowed["start_offset"]))
+                    end = min(end, int(allowed["end_offset"]))
+                if (
+                    allowed_ranges is None
+                    and groups
+                    and start <= groups[-1][1]
+                    and end - groups[-1][0] <= 2000
+                ):
+                    group = groups[-1]
+                    group[1] = end
+                    group[2].add(match.group())
+                    group[3] += 1
+                    group[4] = match.end()
+                else:
+                    groups.append(
+                        [start, end, {match.group()}, 1, match.end(), match.start()]
+                    )
+            for start, end, matched, count, next_offset, match_start in groups:
+                if len(hits) >= limit or used + end - start > max_chars:
+                    return ManuscriptTermScan(
+                        hits,
+                        ManuscriptScanCursor(position, match_start),
+                        scanned,
+                        len(sources),
+                    )
+                hits.append(
+                    ManuscriptTermHit(
+                        source_ref=_source_ref(
+                            source,
+                            content_mode=content_mode,
+                            start_offset=start,
+                            end_offset=end,
+                        ),
+                        title=source.title,
+                        terms=sorted(matched),
+                        match_count=count,
+                    )
+                )
+                used += end - start
+            scanned.append(source.chapter_index)
+        return ManuscriptTermScan(hits, None, scanned, len(sources))
 
     async def read(
         self,

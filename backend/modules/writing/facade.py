@@ -34,6 +34,8 @@ __all__ = [
     "get_latest_draft_for_chapter",
     "get_project_writing_stats",
     "grep_manuscript",
+    "get_manuscript_source_manifest",
+    "scan_manuscript_terms",
     "list_chapter_indices",
     "list_effective_chapter_indices",
     "list_latest_drafts_for_chapters",
@@ -305,3 +307,17 @@ async def build_manuscript_range_ref(
         end_offset=end_offset,
         content_mode=content_mode,
     )
+
+
+async def get_manuscript_source_manifest(
+    db: AsyncSession, novel_id: str, **kwargs
+) -> list[dict]:
+    """Read/validate a frozen current source scope without loading all manuscript text."""
+    return await _manuscript_source.source_manifest(db, novel_id, **kwargs)
+
+
+async def scan_manuscript_terms(
+    db: AsyncSession, novel_id: str, terms: list[str], **kwargs
+):
+    """Read the next literal-search slice from a frozen source manifest."""
+    return await _manuscript_source.scan_terms(db, novel_id, terms, **kwargs)

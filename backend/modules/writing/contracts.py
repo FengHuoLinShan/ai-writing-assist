@@ -99,3 +99,25 @@ class ManuscriptReadContract:
     highlight_end: int
     paragraph_before: int
     paragraph_after: int
+
+
+@dataclass(frozen=True)
+class ManuscriptScanCursor:
+    chapter_position: int = 0
+    start_offset: int = 0
+
+
+@dataclass(frozen=True)
+class ManuscriptTermHit:
+    source_ref: SourceRangeRefContract
+    title: str | None
+    terms: list[str]
+    match_count: int
+
+
+@dataclass(frozen=True)
+class ManuscriptTermScan:
+    hits: list[ManuscriptTermHit]
+    cursor: ManuscriptScanCursor | None
+    scanned_chapters: list[int]
+    total_chapters: int

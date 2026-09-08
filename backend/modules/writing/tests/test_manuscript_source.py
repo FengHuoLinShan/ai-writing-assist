@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from dataclasses import replace
 
 import pytest
@@ -296,3 +297,114 @@ async def test_literal_grep_can_group_occurrences_by_chapter(
     assert [hit.match_count for hit in hits] == [2, 1]
     assert [len(hit.source_refs) for hit in hits] == [2, 1]
     assert [ref.start_offset for ref in hits[0].source_refs] == [0, 6]
+
+
+@pytest.mark.asyncio
+async def test_frozen_multi_term_scan_resumes_every_chapter_and_unindexed_occurrence(
+    db_session, test_project_id
+):
+    from modules.writing.facade import (
+        get_manuscript_source_manifest,
+        scan_manuscript_terms,
+    )
+
+    for chapter in range(1, 5):
+        await create_published_draft_only(
+            db_session,
+            test_project_id,
+            chapter,
+            content="甲" * 1400 + "未入库地点" + "乙" * 2400 + "旧称" + "丙" * 1400,
+        )
+    descriptors = await get_manuscript_source_manifest(db_session, test_project_id)
+    manifest = {row["draft_id"]: row["source_hash"] for row in descriptors}
+    cursor, hits, chapters = None, [], []
+    for _ in range(20):
+        batch = await scan_manuscript_terms(
+            db_session,
+            test_project_id,
+            ["未入库地点", "旧称"],
+            source_manifest=manifest,
+            cursor=cursor,
+            chapters_per_batch=1,
+            limit=1,
+            max_chars=2000,
+        )
+        hits.extend(batch.hits)
+        chapters.extend(batch.scanned_chapters)
+        cursor = batch.cursor
+        if cursor is None:
+            break
+    assert cursor is None
+    assert len(hits) == 8
+    assert chapters == [1, 2, 3, 4]
+    assert sum(hit.match_count for hit in hits) == 8
+    assert (
+        len({(hit.source_ref.draft_id, hit.source_ref.start_offset) for hit in hits}) == 8
+    )
+
+
+@pytest.mark.asyncio
+async def test_frozen_scan_rejects_other_novel_and_changed_source(
+    db_session, test_project_id
+):
+    from modules.writing.facade import (
+        get_manuscript_source_manifest,
+        scan_manuscript_terms,
+    )
+    from modules.writing.models import WritingDraft
+
+    draft = await create_published_draft_only(
+        db_session, test_project_id, 1, content="目标原文"
+    )
+    descriptors = await get_manuscript_source_manifest(db_session, test_project_id)
+    manifest = {row["draft_id"]: row["source_hash"] for row in descriptors}
+    with pytest.raises(ValidationError, match="stale or outside"):
+        await scan_manuscript_terms(
+            db_session, str(uuid.uuid4()), ["目标"], source_manifest=manifest
+        )
+    row = await db_session.get(WritingDraft, uuid.UUID(draft.id))
+    row.content = "目标已改"
+    await db_session.flush()
+    with pytest.raises(ValidationError, match="changed while scanning|stale or outside"):
+        await scan_manuscript_terms(
+            db_session, test_project_id, ["目标"], source_manifest=manifest
+        )
+
+
+@pytest.mark.asyncio
+async def test_scan_ranges_and_cutoff_do_not_expand_author_selected_text(
+    db_session, test_project_id
+):
+    from dataclasses import asdict
+
+    from modules.writing.facade import (
+        build_manuscript_range_ref,
+        get_manuscript_source_manifest,
+        scan_manuscript_terms,
+    )
+
+    draft = await create_published_draft_only(
+        db_session, test_project_id, 1, content="隐藏前史。目标在城北。目标的未来秘密。"
+    )
+    selected = await build_manuscript_range_ref(
+        db_session,
+        test_project_id,
+        draft_id=draft.id,
+        start_offset=5,
+        end_offset=11,
+        content_mode="canonical",
+    )
+    descriptors = await get_manuscript_source_manifest(db_session, test_project_id)
+    manifest = {row["draft_id"]: row["source_hash"] for row in descriptors}
+    batch = await scan_manuscript_terms(
+        db_session,
+        test_project_id,
+        ["目标"],
+        source_manifest=manifest,
+        allowed_ranges=[asdict(selected)],
+        visible_end_offsets={1: 11},
+    )
+    assert len(batch.hits) == 1
+    ref = batch.hits[0].source_ref
+    assert ref.start_offset >= 5 and ref.end_offset <= 11
+    assert batch.hits[0].match_count == 1

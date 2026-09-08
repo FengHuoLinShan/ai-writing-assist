@@ -546,3 +546,36 @@ pytest modules/evidence/compilation/tests/ -v
 统一地图的 `world.map_atlas.structure` 与图片生成共享 author-full canonical 背景、map_atlas
 检索 purpose 及确认语义。空间提取只消费实际保留的 Context items，不复活排除或预算省略资产，
 不增加公开 scope；阅读预览另走已有 reader inspect/read 与 Story 揭示策略，不重用 author-full 结果。
+
+## 专项补查
+
+`modules.evidence.facade.retrieve_focused_evidence(db, request)` 是导入、地图与写作共用的
+只读入口，输入 `FocusedEvidenceRequest`（名称或 TargetRef 根对象、关注问题、CompileOptions、
+章节范围、`sources=manuscript/world/outline`、深度 0/1 和单轮预算）。未知名称直接查原文；
+同名/别名冲突保留身份候选。World 提供按 ID/名称精确查询和稳定分页的正式关系邻居，
+Evidence 统一执行 owner/novel、可见性、excluded/pinned 和当前来源版本检查。
+
+原文通过 Writing 冻结 draft/hash 清单，多词一次逐章扫描；字面范围跨索引 chunk 也能命中。
+章节、证据和字符预算只限制本轮，`FocusedEvidenceContinuation` 保存下一章/范围和固定的
+目标集合，可继续查阅；不会因 Top-K 宣称全书完整。语义/结构化资料是有界的补充召回，
+coverage 明确不签署它们的穷尽性。depth=1 仅从根证据提名直接相连的长期对象，再读取该层，
+不从邻居继续提名。提名使用同一 `focused_evidence_neighbors` 受管 read-only LLM step；
+名称与唯一短引文必须在根证据中逐字出现，且引文包含根的已验证词项。失败保留原文证据与
+可续游标，不写入对象、关系、正文、正史或旧 Context confirmation。
+
+`allowed_refs` 是仅供内部调用的精确确认回放边界：目标必须精确允许，原文必须同 hash 且
+完全位于允许范围。它与 source manifest 的版本边界不同。已确认地图任务用深度 0 消费原有
+retained refs；新增补查结果只能作为新 Context 选择资料，不能自动混入旧确认。
+
+返回的 `evidence` 是本轮原始可查证据；`compiled_context` 另用既有 CompiledContext /
+ContextItem 和 `budget_tokens` 执行裁剪，保留 omitted、预算事件与 pinned 超预算 blocker。
+Context 裁剪不改变原文扫描 coverage。消费前可再次调用 `revalidate_focused_evidence`。
+自动导入的资产写入授权由 Imports/World 拥有，检索结果固定 `asset_write_authorized=false`。
+
+作者 HTTP 使用 `POST /api/evidence/compilation/focused-search` 入队，随后通过同路径的
+`/{task_id}?novel_id=...` 读取，`/{task_id}/resume` 继续。客户端不能提交 owner、内部消费动作、
+manifest、allowed refs 或 continuation。writing consumer 的 Scene/POV 与截止由服务端取得。
+任务 `evidence_focused_search` 使用既有队列与 secret-free LLM snapshot；provider 等待前通过
+调用方 checkpoint 结束事务。任务恢复链只保存带 hash 的来源回执和短证明，不保存原文或
+CompiledContext 正文。HTTP 重新校验并回读累计证据，pending/running 返回空结果，完整结果
+为 completed，尚有游标为 recoverable。后台内部回执放在下划线字段，不能经通用任务 API 暴露。

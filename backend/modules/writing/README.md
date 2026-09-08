@@ -328,3 +328,16 @@ effective 项目 profile；确认校验仍在 LLM 调用前，candidate/adopt/pu
 candidate provenance 额外保留 secret-free `managed_llm_steps`，记录
 `novel_id`、step name、实际 request model 和 profile summary/hash，不保存
 API Key、完整 Base URL/query、prompt 或正文。
+
+### 冻结来源的专项多词扫描
+
+`get_manuscript_source_manifest()` 只读取当前章节的 draft/version/hash 投影；传入 manifest
+时严格验证同 novel、模式与范围。`scan_manuscript_terms()` 在该冻结集合内按章节与字符游标
+扫描多个字面词，合并附近命中并返回精确 SourceRangeRef、匹配词、出现次数、扫描章及下一
+游标；单次章节/结果/字符预算不截断整个逻辑搜索。输入词均经过转义，不执行正则表达式。
+原文不要求有 RAG 标签或已入库对象，且字面命中可跨 derived chunk 边界。
+
+可选 `allowed_ranges` 将匹配与回读窗口限制在精确已选来源范围，visible_end_offsets 继续
+限制同章可见截止；返回方必须按 SourceRangeRef 严格回读，不能将 read 的整段展示文本误当
+精确范围。新版本替换、跨小说 manifest 或 hash 漂移均失败关闭。普通 grep 的分页与章分组
+行为不变。

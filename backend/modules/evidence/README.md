@@ -47,3 +47,11 @@ pytest modules/evidence/indexing/tests modules/evidence/compilation/tests -q
 统一地图沿用本模块确认与来源回读：`world.map_atlas.structure` 只消费原确认中保留的空间资料；
 图元阅读预览通过已有 `inspect_novel_target` / `read_novel_evidence` 获取受限可见性，
 不新增检索 scope、索引表或第二套证据服务。
+
+## 指定对象的补查
+
+`retrieve_focused_evidence` / `revalidate_focused_evidence` 是 compilation 拥有的共享只读
+专项能力，供导入、地图和写作消费。它复用 World 身份/一跳邻接和 Writing 冻结原文扫描，
+输出可回读证据、完整性回执与独立预算后的 CompiledContext；只读结果不携带资产写入授权。
+深度固定为 0 或 1，内部 continuation 和异步恢复沿用现有任务表，不新增检索设施或业务表。
+HTTP 与内部边界、来源范围及恢复详见 compilation/README.md。

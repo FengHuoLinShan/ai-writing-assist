@@ -771,3 +771,27 @@ async def get_context_snapshot(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return ContextSnapshotResponse(**snapshot.__dict__)
+
+
+# This endpoint accepts a read request, never a client-owned continuation or authority.
+from modules.evidence.compilation.focused_tasks import (  # noqa: E402
+    FocusedSearchSubmit,
+    get_focused_search,
+    resume_focused_search,
+    submit_focused_search,
+)
+
+
+@router.post("/focused-search", status_code=202)
+async def focused_search_submit(db: DbSession, request: FocusedSearchSubmit):
+    return await submit_focused_search(db, request)
+
+
+@router.get("/focused-search/{task_id}")
+async def focused_search_result(db: DbSession, task_id: str, novel_id: NovelIdQuery):
+    return await get_focused_search(db, novel_id, task_id)
+
+
+@router.post("/focused-search/{task_id}/resume", status_code=202)
+async def focused_search_resume(db: DbSession, task_id: str, novel_id: NovelIdQuery):
+    return await resume_focused_search(db, novel_id, task_id)

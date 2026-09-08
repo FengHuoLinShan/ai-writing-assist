@@ -359,3 +359,10 @@ cd ../.. && make test-real-llm
 
 统一地图空间关系提取继续使用 `purpose=map_atlas` 的确认资料。此次增量不新增 RAG task、
 embedding 配置或索引存储；实际消费范围由 compilation confirmation 的入选/排除与来源 hash 决定。
+
+### 专项检索消费边界
+
+Compilation 的 `retrieve_focused_evidence` 将本层混合检索用于有界语义补充；
+完整字面覆盖由 Writing 冻结版本的多词逐章扫描给出，不以 Top-K 或对象出场标签代替。
+专项请求传入 exact source manifest；不得把所有根和邻居 ID 一起用作 metadata 过滤，
+该过滤仍维持 contains-all 语义。本轮未修改 indexing API、评分、索引、表或任务行为。
