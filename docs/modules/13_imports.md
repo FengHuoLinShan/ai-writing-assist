@@ -276,6 +276,7 @@ Phase 3 的单次结构化请求使用项目可配置的
 自动入口的 `targeted_completion.enabled` 默认 false；手动入口为
 `POST /api/imports/targeted-completions`，指定已有对象或未入库名称、章节范围并显式授权。
 独立任务类型为 `targeted_completion`，复用 ImportWorkflowRun 与现有任务查询、恢复；
+提交仅复用同类型、同目标和同章节范围的活动任务，否则返回 409，保留原任务。
 完整导入与 world_objects stage 在 Phase 2b 后运行，Phase 3 首次读取补全结果。进入此阶段
 后的恢复直接续 checkpoint，不因 World 变化重跑 Phase 2a。
 

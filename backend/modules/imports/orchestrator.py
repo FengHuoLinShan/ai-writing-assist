@@ -16,6 +16,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import ConflictError
 from infrastructure.llm.redaction import redact_diagnostic
 from modules.imports.adoption_policy import (
     DEFAULT_ADOPTION_POLICY,
@@ -361,7 +362,10 @@ class DeepImportOrchestrator:
         authorization_confirmed: bool,
     ) -> dict[str, Any]:
         from modules.imports.schemas import TargetedCompletionTarget
-        from modules.imports.targeted_completion import freeze_completion_permission
+        from modules.imports.targeted_completion import (
+            freeze_completion_permission,
+            normalize_roots,
+        )
         from shared.utils import parse_uuid
 
         novel_id = str(parse_uuid(novel_id, "novel_id"))
@@ -381,6 +385,18 @@ class DeepImportOrchestrator:
         )
         active = await self._find_active_import_task(db, novel_id)
         if active is not None:
+            permission = (active.authorization_snapshot or {}).get(
+                "targeted_completion"
+            ) or {}
+            if (
+                active.workflow_type != "targeted_completion"
+                or permission.get("roots") != normalize_roots(targets)
+                or permission.get("chapter_from") != start_chapter
+                or permission.get("chapter_to") != end_chapter
+            ):
+                raise ConflictError(
+                    "已有其他范围的提取任务，请先处理原任务，再开始本次补全"
+                )
             return self._existing_task_response(active, authorization)
         authorization["targeted_completion"] = await freeze_completion_permission(
             db,

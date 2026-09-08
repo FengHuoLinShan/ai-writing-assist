@@ -9,9 +9,11 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from pydantic import ValidationError
 
+from core.errors import ConflictError
 from modules.imports.api import DeepImportRequest
 from modules.imports.completion_hints import alias_completion_hints, completion_hints
 from modules.imports.llm_schemas import ExtractedEntity, SceneEntityExtractionOutput
+from modules.imports.orchestrator import DeepImportOrchestrator
 from modules.imports.schemas import TargetedCompletionRequest
 from modules.imports.targeted_completion import (
     CompletionOutput,
@@ -28,6 +30,40 @@ from modules.writing.contracts import SourceRangeRefContract, WritingDraftContra
 
 ENTITY_ID = "00000000-0000-0000-0000-000000000001"
 DRAFT_ID = "00000000-0000-0000-0000-000000000002"
+
+
+@pytest.mark.parametrize("change", [None, "target", "range", "workflow"])
+async def test_active_completion_reuse_requires_same_requested_scope(change):
+    permission = {
+        "roots": normalize_roots([{"name": "青港"}]),
+        "chapter_from": 1,
+        "chapter_to": 2,
+    }
+    active = SimpleNamespace(
+        id="run",
+        task_id="task",
+        status="running",
+        stage="targeted_completion",
+        workflow_type="deep_import" if change == "workflow" else "targeted_completion",
+        authorization_snapshot={"targeted_completion": permission},
+    )
+    orchestrator = DeepImportOrchestrator()
+    with patch.object(
+        orchestrator, "_find_active_import_task", autospec=True, return_value=active
+    ):
+        request = dict(
+            novel_id=ENTITY_ID,
+            targets=[{"name": "长桥" if change == "target" else "青港"}],
+            start_chapter=1,
+            end_chapter=3 if change == "range" else 2,
+            authorization_confirmed=True,
+        )
+        if change:
+            with pytest.raises(ConflictError):
+                await orchestrator.start_targeted_completion(None, **request)
+        else:
+            response = await orchestrator.start_targeted_completion(None, **request)
+            assert response["task_id"] == "task" and response["reused_task"]
 
 
 def _target(key="a", name="小文", *, resolved=True, depth=0, proof=None):

@@ -48,7 +48,7 @@ function observe(id, token = epoch, scope = key.value) {
   polling.start({ taskId: id, novelId: props.projectId, workflowType: "targeted_completion",
     onUpdate: (_progress, value) => { if (owns(token, scope) && value) task.value = value },
     onDone: () => { if (owns(token, scope)) refreshAssets() },
-    onFailed: (progress, value) => { if (owns(token, scope)) { if (value) task.value = value; error.value = progress.errorMessage || "补全未完成，可以稍后继续。"; refreshAssets() } },
+    onFailed: (progress, value) => { if (owns(token, scope)) { task.value = value || { status: "failed" }; error.value = progress.errorMessage || "补全未完成，可以稍后继续。"; refreshAssets() } },
   })
 }
 async function start() {
@@ -73,7 +73,7 @@ async function start() {
 async function act(action) {
   if (!taskId.value || submitting.value) return
   if (action === "rollback" && !confirm("撤销这次补全？仅恢复仍与本次结果一致的内容，后续人工修改或引用冲突会留待处理。")) return
-  const token = ++epoch, scope = key.value, id = taskId.value
+  const token = epoch, scope = key.value, id = taskId.value
   const receiptScopeSnapshot = receiptScope()
   submitting.value = true; error.value = ""
   try {

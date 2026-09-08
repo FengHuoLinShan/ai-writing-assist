@@ -147,6 +147,8 @@ Phase 2a/2b 每 Scene checkpoint 保存 `completion_hints`，包括来源 Scene�
 `entity_id` 或 `name`）、`start_chapter/end_chapter` 和 `authorization_confirmed=true`。
 返回 `targeted_completion` task；与完整导入共享同项目单飞、ImportWorkflowRun 与原 task_id
 恢复，不需要新队列或 run 表。手动入口支持尚未入库的名字，不要求预先创建占位对象。
+仅复用同类型、同目标和同章节范围的活动专项任务；已有其他范围的提取任务时返回 409，
+不把当前补全请求悄然连接到无关任务。
 
 作者全局补全使用 author_full 查询当前数据库身份与直接边，并显式使用 identity 续页策略：
 允许本轮授权填空改变说明字段，身份/类型/已有词项仍冻结；不会将其回流给 Scene-local 角色知识。

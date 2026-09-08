@@ -26,9 +26,36 @@ beforeEach(() => {
   }
   setBridgeOverrides({ api, state: { currentProjectId: "p1" }, confirm: vi.fn(() => true) })
 })
-afterEach(() => resetBridgeOverrides())
+afterEach(() => { resetBridgeOverrides(); vi.useRealTimers() })
 
 describe("专项查证实际交互", () => {
+  it("停止请求失败后仍接收原任务的完成状态", async () => {
+    vi.useFakeTimers()
+    api.tasks.get.mockResolvedValueOnce({ status: "running" })
+    api.tasks.cancel.mockRejectedValueOnce(new Error("网络暂时不可用"))
+    const wrapper = mount(TargetedCompletionPanel, { props: { projectId: "p1", initialName: "沈岚" } })
+    await wrapper.get("form").trigger("submit"); await flushPromises()
+    await wrapper.findAll("button").find(button => button.text() === "停止补全").trigger("click")
+    await flushPromises()
+    expect(wrapper.text()).toContain("网络暂时不可用")
+    await vi.advanceTimersByTimeAsync(1500); await flushPromises()
+    expect(wrapper.text()).toContain("新增 1 · 填空 2")
+    expect(wrapper.get("input").element.disabled).toBe(false)
+  })
+
+  it("运行中的任务返回404后解除忙碌状态并允许重新开始", async () => {
+    vi.useFakeTimers()
+    api.tasks.get.mockResolvedValueOnce({ status: "running" })
+      .mockRejectedValueOnce(Object.assign(new Error("Not found"), { status: 404 }))
+    const wrapper = mount(TargetedCompletionPanel, { props: { projectId: "p1", initialName: "沈岚" } })
+    await wrapper.get("form").trigger("submit"); await flushPromises()
+    await vi.advanceTimersByTimeAsync(1500); await flushPromises()
+    expect(wrapper.text()).toContain("未找到原任务，请重新开始")
+    expect(wrapper.get("input").element.disabled).toBe(false)
+    expect(wrapper.findAll("button").some(button => button.text() === "停止补全")).toBe(false)
+    expect(recoverActiveWorkflows("p1")).toHaveLength(0)
+  })
+
   it("按需发起并携带当前场景边界，出处自动转义且加入资料只发引用", async () => {
     const wrapper = mount(FocusedEvidencePanel, { props: { projectId: "p1", consumer: "writing", sceneId: "s1", chapterIndex: 1, contentMode: "working" } })
     expect(api.context.startFocusedSearch).not.toHaveBeenCalled()

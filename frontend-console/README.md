@@ -477,4 +477,5 @@ RP 回顾抽屉顶部提供最多4,000字符的“长期约定”，无自动回
 对象详情和导入结果中的 `TargetedCompletionPanel` 明确授权新增与填空，非空变更待审；
 撤销先确认，后续人工修改冲突显示部分处理。自动查漏开关默认关闭。面板经 Vue bridge
 访问统一 API，复用现有轮询和账号作用域恢复记录；不新增顶层页面或通用任务中心。
+停止请求失败时继续接收原任务进度；查询确认任务不存在时退出忙碌状态，提示重新开始。
 验收为 `tests/vue/FocusedEvidencePanel.test.js` 与 `e2e/focused-evidence.spec.js`。
