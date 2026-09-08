@@ -372,7 +372,7 @@ describe("AI 地图册工作台", () => {
     api.world.updateMapAtlasNode.mockResolvedValue({ ...manual, title: "廷根地图" })
     const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" }, global: { stubs: { MapStructureEditor: true } } })
     await flushPromises()
-    expect(wrapper.findAll('.atlas-node-form select')[1].findAll('option').map(option => option.attributes('value'))).toEqual(['region', 'city'])
+    expect(wrapper.findAll('.atlas-node-form select')[1].findAll('option').map(option => option.attributes('value'))).toEqual(['region', 'city', 'district', 'street'])
     await wrapper.get(".atlas-node-form input.form-input").setValue("廷根地图")
     await wrapper.get(".atlas-node-form button").trigger("click"); await flushPromises()
     expect(api.world.updateMapAtlasNode).toHaveBeenCalledWith("novel-1", "manual-map", expect.objectContaining({ title: "廷根地图", expected_updated_at: "v1" }))

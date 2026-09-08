@@ -328,3 +328,6 @@ effective 项目 profile；确认校验仍在 LLM 调用前，candidate/adopt/pu
 candidate provenance 额外保留 secret-free `managed_llm_steps`，记录
 `novel_id`、step name、实际 request model 和 profile summary/hash，不保存
 API Key、完整 Base URL/query、prompt 或正文。
+
+写作前端新增按需地图入口，消费 World 的 `map-links` 作者只读 API，不引入后端 World 实现依赖。
+编辑器失焦记录光标，未 attach 的空状态不覆盖已有恢复指针。原文、SourceRange 与发布契约不变。

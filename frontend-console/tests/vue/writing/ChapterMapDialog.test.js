@@ -71,6 +71,14 @@ describe("ChapterMapDialog", () => {
     expect(wrapper.text()).toContain("这个地点暂未关联地图")
   })
 
+  it('整部作品未输入名称时提示输入，而不声称没有地图', async () => {
+    const wrapper = render(); await flushPromises()
+    findMapLinks.mockClear()
+    await wrapper.get('input[type=checkbox]').setValue(true); await flushPromises()
+    expect(findMapLinks).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('请输入地点或地图名称')
+  })
+
   it("失败保持浮层和搜索输入，可重试；截断零匹配不声称作品没有地图", async () => {
     findMapLinks.mockRejectedValueOnce(new Error("private request detail"))
     const wrapper = render()

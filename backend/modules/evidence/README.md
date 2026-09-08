@@ -47,3 +47,6 @@ pytest modules/evidence/indexing/tests modules/evidence/compilation/tests -q
 统一地图沿用本模块确认与来源回读：`world.map_atlas.structure` 只消费原确认中保留的空间资料；
 图元阅读预览通过已有 `inspect_novel_target` / `read_novel_evidence` 获取受限可见性，
 不新增检索 scope、索引表或第二套证据服务。
+
+原文选择支持 `start_offset=0`，以半开区间定位章首；缺失或负数起点仍拒绝。地图的已保存图元
+来源通过既有 pinned_refs 预填，仍受作者排除、预算、正文版本/hash与可见性重验约束。

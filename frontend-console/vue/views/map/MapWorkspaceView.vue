@@ -1,5 +1,6 @@
 <template>
   <main class="atlas-workspace" :class="{ 'atlas-focused': structureState.focused }">
+    <button v-if="fromChapter" class="btn btn-sm atlas-writing-return" @click="returnToWriting">回到第 {{ fromChapter }} 章写作</button>
     <header v-if="!structureState.focused" class="atlas-header">
       <div>
         <h1>地图</h1>
@@ -14,7 +15,7 @@
 
     <form v-if="creatingMap" class="card atlas-options" aria-label="新建空间地图" @submit.prevent="createMap">
       <label>地图名称<input v-model="newMap.title" class="form-input" maxlength="200" required /></label>
-      <label>范围<select v-model="newMap.level" class="form-select"><option value="region">区域</option><option value="city">城市</option></select></label>
+      <label>范围<select v-model="newMap.level" class="form-select"><option value="region">区域</option><option value="city">城市</option><option value="district">街区</option><option value="street">街道</option></select></label>
       <label>上级地图<select v-model="newMap.parent_id" class="form-select"><option value="">无（顶层）</option><option v-for="item in adoptedNodes.filter(item => levelChoices.findIndex(level => level.value === item.level) < levelChoices.findIndex(level => level.value === newMap.level))" :key="item.id" :value="item.id">{{ item.title }}</option></select></label>
       <button class="btn btn-primary" :disabled="busy || !newMap.title.trim()">建立地图</button><button type="button" class="btn btn-sm" @click="creatingMap = false">取消</button>
     </form>
@@ -105,8 +106,8 @@
           <label v-if="!structureEnabled || referenceVisible" class="atlas-zoom">缩放 <input v-model="zoom" type="range" min="60" max="150" step="10" /></label>
         </header>
 
-        <button v-if="!structureEnabled && ['region', 'city'].includes(activeNode.level)" class="btn btn-sm" @click="editStructureNodeId = activeNode.id">补建空间示意</button>
-        <MapStructureEditor v-if="structureEnabled" :key="projectId + ':' + activeNode.id" ref="structureEditor" :project-id="projectId" :node="activeNode" :known-nodes="adoptedNodes" :images="nodeImages" :has-reference="Boolean(activePage)" :review-image-id="tab === 'review' && activePage?.review_status === 'candidate' ? activePage.id : ''" @saved="refreshAtlasOnly" @open-node="openMapNode" @reference-visible="referenceVisible = $event" @state="structureState = $event" />
+        <button v-if="!structureEnabled && structureLevels.includes(activeNode.level)" class="btn btn-sm" @click="editStructureNodeId = activeNode.id">补建空间示意</button>
+        <MapStructureEditor v-if="structureEnabled" :key="projectId + ':' + activeNode.id" ref="structureEditor" :project-id="projectId" :node="activeNode" :known-nodes="adoptedNodes" :images="nodeImages" :has-reference="Boolean(activePage)" :initial-feature-id="initialFeatureId" :review-image-id="tab === 'review' && activePage?.review_status === 'candidate' ? activePage.id : ''" @saved="refreshAtlasOnly" @open-node="openMapNode" @select-feature="persistFeatureFocus" @reference-visible="referenceVisible = $event" @state="structureState = $event" />
         <template v-if="activePage && !structureState.reader">
         <div v-if="!structureEnabled || referenceVisible" :class="['atlas-images', { compare: oldPages.length && tab === 'review' }]">
           <figure v-if="oldPages.length && tab === 'review'">
@@ -259,6 +260,7 @@ import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
 import MapStructureEditor from "./MapStructureEditor.vue"
 import { useModalDialog } from "../../composables/useModalDialog.js"
 import { confirmAiReference } from "../../../shared/aiReferenceModal.js"
+import { mapSourceSelections, structureLevels } from './mapStructureEditor.js'
 
 const props = defineProps({ projectId: { type: String, default: null } })
 const api = getApi()
@@ -283,6 +285,9 @@ const atlas = ref({ mode: "atlas", nodes: [], total_pages: 0 })
 const pageHistory = ref([])
 const activePageId = ref(null)
 const activeNodeId = ref(getRouteQuery().get("node_id"))
+const initialFeatureId = ref(getRouteQuery().get('feature_id') || '')
+const fromChapterValue = Number(getRouteQuery().get('from_chapter'))
+const fromChapter = Number.isInteger(fromChapterValue) && fromChapterValue > 0 ? fromChapterValue : null
 const oldPageId = ref(null)
 const zoom = ref(100)
 const editInstruction = ref("")
@@ -322,7 +327,7 @@ const visibleNodes = computed(() => flattenNodes(activeTree.value.nodes || []))
 const visiblePages = computed(() => visibleNodes.value.flatMap(({ node }) => node.pages || []))
 const activePage = computed(() => { const pages = activeNode.value?.pages || []; return pages.find(page => page.id === activePageId.value) || pages[0] || null })
 const activeNode = computed(() => visibleNodes.value.find(({ node }) => node.id === activeNodeId.value)?.node || null)
-const structureEnabled = computed(() => Boolean(activeNode.value && ['region', 'city'].includes(activeNode.value.level) && (activeNode.value.current_revision_id || editStructureNodeId.value === activeNode.value.id)))
+const structureEnabled = computed(() => Boolean(activeNode.value && structureLevels.includes(activeNode.value.level) && (activeNode.value.current_revision_id || editStructureNodeId.value === activeNode.value.id)))
 const nodeImages = computed(() => (adoptedNodes.value.find(node => node.id === activeNode.value?.id)?.pages || []).filter(page => page.review_status === 'adopted'))
 const adoptedNode = computed(() => flattenNodes(atlas.value.nodes || []).find(({ node }) => node.id === activePage.value?.node_id)?.node || null)
 const oldPages = computed(() => adoptedNode.value?.pages || [])
@@ -352,7 +357,7 @@ const generationSettingsSummary = computed(() => [
   options.review_image_prompts ? "先检查画面说明" : "直接生成",
 ].join(" · "))
 const adoptedNodes = computed(() => flattenNodes(atlas.value.nodes || []).map(({ node }) => node))
-const levelChoices = [{ value: "cover", label: "封面" }, { value: "world", label: "世界" }, { value: "region", label: "区域" }, { value: "city", label: "城市" }, { value: "district", label: "城区" }, { value: "street", label: "街道" }, { value: "interior", label: "室内" }]
+const levelChoices = [{ value: "cover", label: "封面" }, { value: "world", label: "世界" }, { value: "region", label: "区域" }, { value: "city", label: "城市" }, { value: "district", label: "街区" }, { value: "street", label: "街道" }, { value: "interior", label: "室内" }]
 const activeDescendantIds = computed(() => {
   const ids = new Set()
   const visit = node => { for (const child of node?.children || []) { ids.add(child.id); visit(child) } }
@@ -361,7 +366,7 @@ const activeDescendantIds = computed(() => {
 })
 const nodeParentChoices = computed(() => adoptedNodes.value.filter(node => node.id !== activeNode.value?.id && !activeDescendantIds.value.has(node.id)))
 const siblingChoices = computed(() => adoptedNodes.value.filter(node => node.id !== activeNode.value?.id && (node.parent_id || null) === (nodeEdit.parent_id || null)))
-const nodeLevelChoices = computed(() => activeNode.value?.current_revision_id ? levelChoices.filter(item => ["region", "city"].includes(item.value)) : levelChoices)
+const nodeLevelChoices = computed(() => activeNode.value?.current_revision_id ? levelChoices.filter(item => structureLevels.includes(item.value)) : levelChoices)
 const canUpload = computed(() => uploadFile.value && (uploadForm.node_id || uploadForm.title.trim()))
 const uploadDraftDirty = computed(() => Boolean(uploadFile.value || uploadFormSnapshot() !== uploadFormBaseline.value))
 const { overlayRef: uploadOverlay, dialogRef: uploadDialog, onKeydown: onUploadKeydown, onFocusin: onUploadFocusin } = useModalDialog({
@@ -559,6 +564,7 @@ async function startRun(fullRebuild) {
       action: "world.map_atlas.generate",
       task: "依据已保存地图添加画面",
       entity_ids: structureState.value.revision?.document?.features?.map(feature => feature.entity_id).filter(Boolean) || [],
+      pinned_refs: mapSourceSelections(structureState.value.revision?.document?.features || [], structureState.value.revision?.document?.constraints || []),
       scope: "full",
       include_world_synopsis: true,
       include_pending_objects: false,
@@ -825,9 +831,19 @@ async function selectTab(value) {
 function persistMapFocus() {
   if (loading.value) return
   const query = getRouteQuery()
+  if (query.get('node_id') !== activeNodeId.value) { query.delete('feature_id'); initialFeatureId.value = '' }
   if (activeNodeId.value) query.set('node_id', activeNodeId.value); else query.delete('node_id')
   if (tab.value === 'review') query.set('atlas_view', 'review'); else query.delete('atlas_view')
   getRouter()?.commitCurrentQuery?.(query, 'replace')
+}
+function persistFeatureFocus(id) {
+  const query = getRouteQuery()
+  query.set('node_id', activeNodeId.value)
+  query.set('feature_id', id)
+  getRouter()?.commitCurrentQuery?.(query, 'replace')
+}
+function returnToWriting() {
+  if (fromChapter) getRouter()?.navigate('writing', null, true, new URLSearchParams({ novel_id: props.projectId, chapter_index: String(fromChapter) }))
 }
 watch([activeNodeId, tab], persistMapFocus)
 watch(tab, () => { syncSelection(); nextTick(loadImages) })

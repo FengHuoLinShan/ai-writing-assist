@@ -382,3 +382,6 @@ future Scene 永不进入该输出；别名/关系全局对账仍属于 Phase 2b
 统一地图的 `world.map_atlas.structure` 与图片生成共享 author-full canonical 背景、map_atlas
 检索 purpose 及确认语义。空间提取只消费实际保留的 Context items，不复活排除或预算省略资产，
 不增加公开 scope；阅读预览另走已有 reader inspect/read 与 Story 揭示策略，不重用 author-full 结果。
+
+地图已有标记可把精确 source_range/target 引用预填到资料确认。章首 start_offset=0 合法，
+缺失或负数起点无效；执行仍只使用 retained items，不独立补读作者排除或预算遗漏的来源。

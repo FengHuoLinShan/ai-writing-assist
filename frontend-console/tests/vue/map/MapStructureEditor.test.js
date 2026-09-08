@@ -26,6 +26,7 @@ describe("统一地图编辑器", () => {
       saveMapRevision: vi.fn(async (_project, _node, payload) => record(copyMap(payload.document), nextId)),
       listMapRevisions: vi.fn(async () => []),
       layoutMap: vi.fn(),
+      previewMapRevision: vi.fn(async () => ({ image_layers: [], problems: [] })),
       generateMapStructure: vi.fn(async () => ({ task_id: "task-1", status: "pending" })),
       reviewMapRevision: vi.fn(),
       previewReaderMap: vi.fn(),
@@ -183,12 +184,67 @@ describe("统一地图编辑器", () => {
     await button(wrapper, "查找").trigger("submit")
     await wrapper.get(".map-inline-form").trigger("submit")
     await flushPromises()
-    expect(wrapper.findAll(".map-location-list input")).toHaveLength(1)
-    await wrapper.get(".map-location-list input").setValue(true)
+    expect(wrapper.findAll(".map-world-locations input")).toHaveLength(1)
+    await wrapper.get(".map-world-locations input").setValue(true)
     await button(wrapper, "用这些地点生成空间关系").trigger("click")
     await flushPromises()
     expect(confirmAiReference).toHaveBeenCalledWith(expect.objectContaining({ action: "world.map_atlas.structure", entity_ids: ["location-1"] }))
     expect(api.world.generateMapStructure).toHaveBeenCalledWith(projectId, nodeId, expect.objectContaining({ base_revision_id: revisionId, context_confirmation_id: "confirmation", location_ids: ["location-1"] }))
+  })
+
+  it('已有手工图元带精确原文选择进入生成，无需先创建世界对象', async () => {
+    const sourceRef = { draft_id: nextId, chapter_index: 30, version_number: 1, content_mode: 'canonical', start_offset: 0, end_offset: 45, source_hash: 'a'.repeat(64), range_hash: 'b'.repeat(64) }
+    const data = document(); data.features[0].sources = [{ kind: 'source_range', id: nextId, source_hash: sourceRef.source_hash, source_ref: sourceRef, quote: '临江城位于河岸' }]
+    api.world.getNodeMap.mockResolvedValue(state(record(data)))
+    const wrapper = render(); await flushPromises()
+    const choices = wrapper.findAll('details').find(item => item.find('summary').text() === '整理地图中已有内容')
+    await choices.get('input[type=checkbox]').setValue(true)
+    await button(wrapper, '整理所选内容的空间关系').trigger('click'); await flushPromises()
+    expect(confirmAiReference).toHaveBeenCalledWith(expect.objectContaining({ pinned_refs: [{ kind: 'source_range', source_ref: sourceRef }] }))
+    expect(api.world.generateMapStructure).toHaveBeenCalledWith(projectId, nodeId, expect.objectContaining({ location_ids: [], feature_ids: ['a'] }))
+  })
+
+  it('逐项采用只发送选择键，成功后保留剩余候选和明确反馈', async () => {
+    const candidate = document(); candidate.features[0].note = '第一项'; candidate.features[1].note = '第二项'
+    const proposed = { ...record(candidate, nextId), status: 'candidate', base_revision_id: revisionId }
+    api.world.getNodeMap.mockResolvedValue({ ...state(record()), candidates: [proposed] })
+    const wrapper = render(); await flushPromises(); await button(wrapper, '查看').trigger('click'); await flushPromises()
+    const selection = wrapper.findAll('.map-change-review input[type=checkbox]')
+    await selection[1].setValue(false)
+    const applied = document(); applied.features[0].note = '第一项'
+    const saved = { ...record(applied, 'saved-part'), applied_change_keys: ['feature:a'], expanded_change_keys: [], remaining_candidate_id: 'remaining' }
+    api.world.reviewMapRevision.mockResolvedValue(saved)
+    api.world.getNodeMap.mockResolvedValue({ ...state(saved), candidates: [{ ...proposed, id: 'remaining', base_revision_id: saved.id }] })
+    await button(wrapper, '采用所选 1 项修改').trigger('click'); await flushPromises()
+    expect(api.world.reviewMapRevision).toHaveBeenCalledWith(projectId, nodeId, nextId, { base_revision_id: revisionId, action: 'adopt', change_keys: ['feature:a'] })
+    expect(wrapper.text()).toContain('其余修改仍待确认')
+    expect(wrapper.findAll('.map-candidates>div')).toHaveLength(1)
+    expect(api.world.saveMapRevision).not.toHaveBeenCalled()
+  })
+
+  it('返回或刷新恢复选中地点、缩放与专注状态，地图文档不改变', async () => {
+    const wrapper = render({ initialFeatureId: 'b' }); await flushPromises()
+    expect(wrapper.get('.map-feature.selected').attributes('data-feature-id')).toBe('b')
+    await wrapper.get('[aria-label="空间地图缩放"]').setValue(150)
+    wrapper.unmount()
+    const restored = render(); await flushPromises()
+    expect(restored.get('.map-feature.selected').attributes('data-feature-id')).toBe('b')
+    expect(restored.get('[aria-label="空间地图缩放"]').element.value).toBe('150')
+    expect(button(restored, '展开编辑工具')).toBeTruthy()
+    expect(restored.vm.dirty).toBe(false)
+  })
+
+  it('历史地图预览使用该版本的图片层，不改变当前编辑', async () => {
+    const old = record(document(), 'historical')
+    api.world.listMapRevisions.mockResolvedValue([old])
+    api.world.previewMapRevision.mockResolvedValue({ image_layers: [{ page_id: 'old-image', state: 'ready', role: 'background', opacity: 0.8, transform: [200, 0, 0, 200, 10, 20] }], problems: [] })
+    const wrapper = render(); await flushPromises()
+    await wrapper.findAll('summary').find(item => item.text() === '地图历史').trigger('click'); await flushPromises()
+    await button(wrapper, '查看并比较').trigger('click'); await flushPromises()
+    expect(wrapper.text()).toContain('正在查看历史地图')
+    expect(wrapper.get('.map-canvas image').attributes('transform')).toBe('matrix(200 0 0 200 10 20)')
+    expect(api.world.fetchMapAtlasImage).toHaveBeenCalledWith(projectId, 'old-image')
+    expect(api.world.saveMapRevision).not.toHaveBeenCalled()
   })
 
   it("候选可查看关系和图片变化，并与保存版对照而不改写当前编辑", async () => {
@@ -196,11 +252,11 @@ describe("统一地图编辑器", () => {
     candidate.features[0].label = "临江新城"
     candidate.constraints = [{ id: "c1", subject: "a", target: "b", relation: "east", via: [], sources: [] }]
     candidate.images = [{ page_id: "private-page-id", role: "illustration", anchors: [] }]
-    api.world.getNodeMap.mockResolvedValue({ ...state(record()), candidates: [record(candidate, nextId)] })
+    api.world.getNodeMap.mockResolvedValue({ ...state(record()), candidates: [{ ...record(candidate, nextId), status: "candidate", base_revision_id: revisionId }] })
     const wrapper = render(); await flushPromises()
     await button(wrapper, "查看").trigger("click")
-    expect(wrapper.get('[aria-label="候选地图差异"]').text()).toContain("空间关系：临江新城 → 黑石关")
-    expect(wrapper.get('[aria-label="候选地图差异"]').text()).toContain("地点配图设置")
+    expect(wrapper.get('[aria-label="候选地图差异"]').text()).toContain("临江新城 · 在东侧 · 黑石关")
+    expect(wrapper.get('[aria-label="候选地图差异"]').text()).toContain("地点配图")
     expect(wrapper.text()).not.toContain("private-page-id")
     expect(wrapper.get(".map-feature text").text()).toBe("临江新城")
     await button(wrapper, "对照已保存地图").trigger("click")

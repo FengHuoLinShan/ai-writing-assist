@@ -546,3 +546,6 @@ pytest modules/evidence/compilation/tests/ -v
 统一地图的 `world.map_atlas.structure` 与图片生成共享 author-full canonical 背景、map_atlas
 检索 purpose 及确认语义。空间提取只消费实际保留的 Context items，不复活排除或预算省略资产，
 不增加公开 scope；阅读预览另走已有 reader inspect/read 与 Story 揭示策略，不重用 author-full 结果。
+
+`ContextSelectionRefRequest` 接受原文半开区间的合法起点 0（不能用 truthiness 判为空）；缺失、
+负数或布尔起点拒绝。地图复用 source_range/target pinned_refs，不新增 scope 或绕过确认重物化。

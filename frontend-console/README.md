@@ -466,3 +466,7 @@ frontend-console/
 
 定向验证：`npm run test -- tests/vue/map` 与专用数据库、MinIO 上的
 `npm run test:e2e:functional -- map-structure.spec.js`。
+
+地图与写作可通过“本章地图”双向定位，地图读取 `node_id/feature_id/from_chapter`，返回正文只带
+chapter_index，不强制加载 draft_id 而丢失本机草稿。字段差异、历史预览、图元生成选择与临时排演
+回归见 `tests/vue/map/`；写作查找和往返保护回归见 `tests/vue/writing/`。

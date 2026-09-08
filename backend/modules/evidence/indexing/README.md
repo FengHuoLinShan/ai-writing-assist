@@ -359,3 +359,6 @@ cd ../.. && make test-real-llm
 
 统一地图空间关系提取继续使用 `purpose=map_atlas` 的确认资料。此次增量不新增 RAG task、
 embedding 配置或索引存储；实际消费范围由 compilation confirmation 的入选/排除与来源 hash 决定。
+
+地图已有图元的精确原文来源可以通过 compilation pinned_refs 选入，不要求重建或复制索引。
+章首 offset=0 的选择校验修复不改变本子域的分块、offset/hash、检索排序或持久化表。

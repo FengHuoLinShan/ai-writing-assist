@@ -1647,6 +1647,9 @@ const api = {
     async listMapRevisions(novelId, nodeId) {
       return contractFetch("world.listMapRevisions", { novelId, nodeId }, {}, { cache: "no-store" })
     },
+    async previewMapRevision(novelId, nodeId, revisionId) {
+      return request(`/world/map-atlas/${novelId}/nodes/${nodeId}/revisions/${revisionId}/preview`, { cache: 'no-store' })
+    },
     async layoutMap(novelId, nodeId, payload) {
       return contractJson("world.layoutMap", { novelId, nodeId }, {}, payload)
     },

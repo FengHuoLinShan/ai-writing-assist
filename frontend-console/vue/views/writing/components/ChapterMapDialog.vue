@@ -34,7 +34,7 @@
             </li>
           </ul>
           <div v-else class="chapter-map-feedback">
-            <p>{{ truncated ? '本次查找暂未匹配到地点。' : query.trim() ? '没有找到匹配的地点或地图。' : entityId ? '这个地点暂未关联地图。' : wholeProject ? '暂未找到已保存的地图地点。' : '本章暂未关联地图地点。' }}</p>
+            <p>{{ truncated ? '本次查找暂未匹配到地点。' : query.trim() ? '没有找到匹配的地点或地图。' : entityId ? '这个地点暂未关联地图。' : wholeProject ? '请输入地点或地图名称，查找整部作品的地图。' : '本章暂未关联地图地点。' }}</p>
             <p class="muted">可以打开地图，在地点详情中补充来源或关联已有地点，再回来继续写作。</p>
           </div>
         </template>
@@ -77,6 +77,7 @@ async function loadLinks() {
   items.value = []
   truncated.value = false
   error.value = ""
+  if (wholeProject.value && !query.value.trim() && !entityId) { loading.value = false; return }
   if (!props.open || !projectId || !chapter) return
   loading.value = true
   const ownsRequest = () => requestGeneration === generation && props.open

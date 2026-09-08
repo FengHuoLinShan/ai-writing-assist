@@ -474,3 +474,10 @@ map / rag / outline / settings / project-settings`，其主 DOM 全部由 Vue SF
 阅读预览只渲染专用服务端响应，并经独立图片预览接口读取获准图片；不将作者响应隐藏几个
 标签后冒充读者投影。新 wire 增加节点 map/revisions/layout/generate-structure/review/reader-preview
 能力，图片生成请求可绑定明确节点与空间版本；注册项见 `apiContracts.js`。
+
+### 地图与写作持续工作流
+
+写作台按需打开“本章地图”，可按章节或显式作品名称查找、跳至具体图元并返回正文；沿用
+Writing session 和离开保护保留草稿与光标。地图支持字段级差异、历史预览、已有标记资料确认、
+四层子图、世界地点绑定和临时路线排演；图面选择/缩放/专注状态按账户、项目和节点恢复。
+排演只用明确道路，缺失、待核对、相邻或河流关系不冒充可通行路线。
