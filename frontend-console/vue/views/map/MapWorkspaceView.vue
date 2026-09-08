@@ -109,9 +109,10 @@
         <button v-if="!structureEnabled && structureLevels.includes(activeNode.level)" class="btn btn-sm" @click="editStructureNodeId = activeNode.id">补建空间示意</button>
         <MapStructureEditor v-if="structureEnabled" :key="projectId + ':' + activeNode.id" ref="structureEditor" :project-id="projectId" :node="activeNode" :known-nodes="adoptedNodes" :images="nodeImages" :has-reference="Boolean(activePage)" :initial-feature-id="initialFeatureId" :review-image-id="tab === 'review' && activePage?.review_status === 'candidate' ? activePage.id : ''" @saved="refreshAtlasOnly" @open-node="openMapNode" @select-feature="persistFeatureFocus" @reference-visible="referenceVisible = $event" @state="structureState = $event" />
         <template v-if="activePage && !structureState.reader">
-        <div v-if="!structureEnabled || referenceVisible" :class="['atlas-images', { compare: oldPages.length && tab === 'review' }]">
-          <figure v-if="oldPages.length && tab === 'review'">
-            <figcaption>地图册已有图片</figcaption>
+        <label v-if="tab === 'atlas' && oldPages.length && (!structureEnabled || referenceVisible)" class="atlas-compare-toggle"><input v-model="compareAdopted" type="checkbox" />对比已有图片</label>
+        <div v-if="!structureEnabled || referenceVisible" :class="['atlas-images', { compare: comparingImages }]">
+          <figure v-if="comparingImages">
+            <figcaption>{{ tab === 'atlas' ? '左侧：已采用图片' : '地图册已有图片' }}</figcaption>
             <div class="atlas-image-viewport">
               <div v-if="imageUrls[oldPage.id]" class="atlas-image-canvas" :style="imageCanvasStyle(oldPage)">
                 <img :src="imageUrls[oldPage.id]" :alt="`${oldPage.title} 已采用地图`" />
@@ -128,14 +129,14 @@
               </div>
               <span v-else class="atlas-image-state" role="status">正在加载图片…</span>
             </div>
-            <select v-if="oldPages.length > 1" v-model="oldPageId" class="form-select" aria-label="切换地图册已有图片">
-              <option v-for="page in oldPages" :key="page.id" :value="page.id">{{ formatDate(page.created_at) }}</option>
+            <select v-if="oldPages.length > 1 || compareAdopted" v-model="oldPageId" class="form-select" :aria-label="tab === 'atlas' ? '选择左侧图片' : '切换地图册已有图片'">
+              <option v-for="page in oldPages" :key="page.id" :value="page.id">{{ pageChoiceLabel(page) }}</option>
             </select>
             <button class="btn btn-sm btn-ghost" :disabled="writeLocked" @click="archivePage(oldPage)">移出地图册</button>
           </figure>
 
           <figure>
-            <figcaption>{{ tab === 'review' ? '新候选' : '地图册图片' }}</figcaption>
+            <figcaption>{{ tab === 'review' ? '新候选' : compareAdopted ? '右侧：已采用图片' : '地图册图片' }}</figcaption>
             <div class="atlas-image-viewport">
               <div v-if="activePage.generation_status === 'prompt_only'" class="atlas-prompt-only" role="status">
                 <strong>已选择外部生成</strong><p>{{ activePrompt?.prompt || '正在读取画面说明…' }}</p><div><button class="btn btn-sm" :disabled="!activePrompt" @click="copyPrompt">复制画面说明</button><button class="btn btn-sm btn-primary" @click="openUpload(true)">上传生成结果</button></div>
@@ -159,8 +160,8 @@
               <span v-else class="atlas-image-state" role="status">正在加载图片…</span>
             </div>
             <p v-if="activePage.error_message" class="atlas-error">{{ activePage.error_message }}</p>
-            <select v-if="tab === 'atlas' && activeNode?.pages?.length > 1" v-model="activePageId" class="form-select" aria-label="切换同地点图片">
-              <option v-for="page in activeNode.pages" :key="page.id" :value="page.id">{{ formatDate(page.created_at) }}</option>
+            <select v-if="tab === 'atlas' && activeNode?.pages?.length > 1" v-model="activePageId" class="form-select" :aria-label="compareAdopted ? '选择右侧图片' : '切换同地点图片'">
+              <option v-for="page in activeNode.pages" :key="page.id" :value="page.id">{{ pageChoiceLabel(page) }}</option>
             </select>
           </figure>
         </div>
@@ -193,8 +194,8 @@
         <section v-if="!structureState.focused" class="atlas-evidence">
           <h3>为何这样画</h3>
           <div class="atlas-evidence-grid">
-            <div><strong>资料直接支持</strong><p v-if="!evidence.supported.length">没有直接资料</p><ul><li v-for="item in evidence.supported" :key="item">{{ item }}</li></ul></div>
-            <div><strong>AI 为画面补全</strong><p class="atlas-candidate-note">不属于正式设定</p><p v-if="!evidence.visual_fill.length">没有额外补全</p><ul><li v-for="item in evidence.visual_fill" :key="item">{{ item }}</li></ul></div>
+            <div><strong>资料直接支持</strong><p v-if="!evidence.supported.length">未记录直接依据</p><ul><li v-for="item in evidence.supported" :key="item">{{ item }}</li></ul></div>
+            <div><strong>AI 为画面补全</strong><p class="atlas-candidate-note">不属于正式设定</p><p v-if="!evidence.visual_fill.length">未记录画面补全说明</p><ul><li v-for="item in evidence.visual_fill" :key="item">{{ item }}</li></ul></div>
             <div v-if="evidence.conflicts.length" class="atlas-conflicts"><strong>存在冲突</strong><ul><li v-for="item in evidence.conflicts" :key="item">{{ item }}</li></ul></div>
           </div>
           <details v-if="activePage.source_manifest.length">
@@ -289,6 +290,7 @@ const initialFeatureId = ref(getRouteQuery().get('feature_id') || '')
 const fromChapterValue = Number(getRouteQuery().get('from_chapter'))
 const fromChapter = Number.isInteger(fromChapterValue) && fromChapterValue > 0 ? fromChapterValue : null
 const oldPageId = ref(null)
+const compareAdopted = ref(false)
 const zoom = ref(100)
 const editInstruction = ref("")
 const maskFile = ref(null)
@@ -330,8 +332,9 @@ const activeNode = computed(() => visibleNodes.value.find(({ node }) => node.id 
 const structureEnabled = computed(() => Boolean(activeNode.value && structureLevels.includes(activeNode.value.level) && (activeNode.value.current_revision_id || editStructureNodeId.value === activeNode.value.id)))
 const nodeImages = computed(() => (adoptedNodes.value.find(node => node.id === activeNode.value?.id)?.pages || []).filter(page => page.review_status === 'adopted'))
 const adoptedNode = computed(() => flattenNodes(atlas.value.nodes || []).find(({ node }) => node.id === activePage.value?.node_id)?.node || null)
-const oldPages = computed(() => adoptedNode.value?.pages || [])
+const oldPages = computed(() => (adoptedNode.value?.pages || []).filter(page => page.id !== activePage.value?.id))
 const oldPage = computed(() => oldPages.value.find(page => page.id === oldPageId.value) || oldPages.value[0] || {})
+const comparingImages = computed(() => oldPages.value.length > 0 && (tab.value === 'review' || compareAdopted.value))
 const evidence = computed(() => ({ supported: [], visual_fill: [], conflicts: [], ...(activePage.value?.evidence || {}) }))
 const historyPages = computed(() => {
   const pages = Array.isArray(pageHistory.value) ? pageHistory.value : (pageHistory.value?.items || [])
@@ -429,6 +432,13 @@ function flattenNodes(nodes, depth = 0, result = []) {
 }
 function levelLabel(level) { return levelChoices.find(item => item.value === level)?.label || "地图" }
 function formatDate(value) { return value ? new Date(value).toLocaleString() : "已有图片" }
+function pageChoiceLabel(page) {
+  const document = structureState.value.revision?.document
+  const placement = document?.images?.find(item => item.page_id === page.id)
+  const feature = document?.features?.find(item => item.id === placement?.feature_id)
+  const usage = placement?.role === 'background' ? '底图' : placement?.role === 'illustration' ? (feature ? feature.label + '配图' : '整图配图') : '普通图片'
+  return [page.title, usage, formatDate(page.created_at)].filter(Boolean).join(' · ')
+}
 function historyStatusLabel(page) {
   if (page.review_status === "rejected") return "已决定不加入"
   if (page.review_status === "deprecated") return "已从地图册移出"
@@ -436,7 +446,7 @@ function historyStatusLabel(page) {
   if (page.generation_status === "retry_requires_confirmation") return "需确认费用后重试"
   return "等待决定"
 }
-async function selectNode(node) { if (node.id !== activeNodeId.value && !canLeaveStructure()) return; referenceVisible.value = false; if (currentRun.value?.status === "prompt_review" && !await savePrompt()) return; activeNodeId.value = node.id; const page = node.pages?.find(item => item.review_status === "candidate") || node.pages?.[0]; activePageId.value = page?.id || null }
+async function selectNode(node) { if (node.id !== activeNodeId.value && !canLeaveStructure()) return; if (node.id !== activeNodeId.value) referenceVisible.value = false; if (currentRun.value?.status === "prompt_review" && !await savePrompt()) return; activeNodeId.value = node.id; const page = node.pages?.find(item => item.review_status === "candidate") || node.pages?.[0]; activePageId.value = page?.id || null }
 function annotationStyle(item) { return { left: `${item.position_x * 100}%`, top: `${item.position_y * 100}%` } }
 function imageCanvasStyle(page) {
   const width = Number(page?.width)
@@ -449,7 +459,7 @@ function imageCanvasStyle(page) {
 
 function desiredImagePages() {
   const pages = [activePage.value]
-  if (tab.value === "review" && oldPage.value?.id) pages.push(oldPage.value)
+  if (comparingImages.value && oldPage.value?.id) pages.push(oldPage.value)
   return pages.filter(page => page?.id && page.image_url)
 }
 function releaseImage(pageId) {
@@ -770,7 +780,7 @@ function openAnnotation(annotation) {
 }
 function startAnnotationDrag(event, annotation) {
   if (annotation.bound_feature_id) return
-  if (writeLocked.value || tab.value !== "atlas" || globalThis.matchMedia?.("(max-width: 900px)").matches || !globalThis.matchMedia?.("(pointer: fine)").matches || !imageCanvas.value) return
+  if (writeLocked.value || compareAdopted.value || tab.value !== "atlas" || globalThis.matchMedia?.("(max-width: 900px)").matches || !globalThis.matchMedia?.("(pointer: fine)").matches || !imageCanvas.value) return
   event.preventDefault(); drag = { annotation, rect: imageCanvas.value.getBoundingClientRect(), moved: false }
   globalThis.addEventListener("pointermove", dragAnnotation); globalThis.addEventListener("pointerup", endAnnotationDrag, { once: true })
 }
@@ -846,11 +856,16 @@ function returnToWriting() {
   if (fromChapter) getRouter()?.navigate('writing', null, true, new URLSearchParams({ novel_id: props.projectId, chapter_index: String(fromChapter) }))
 }
 watch([activeNodeId, tab], persistMapFocus)
-watch(tab, () => { syncSelection(); nextTick(loadImages) })
-watch(activePageId, () => { activeNodeId.value = activePage.value?.node_id || activeNodeId.value; oldPageId.value = oldPages.value[0]?.id || null; nextTick(loadImages) })
+watch(tab, () => { compareAdopted.value = false; syncSelection(); nextTick(loadImages) })
+watch(activePageId, () => { activeNodeId.value = activePage.value?.node_id || activeNodeId.value; nextTick(loadImages) })
+watch([oldPages, compareAdopted], () => {
+  if (!oldPages.value.some(page => page.id === oldPageId.value)) oldPageId.value = oldPages.value[0]?.id || null
+  if (!oldPages.value.length) compareAdopted.value = false
+  nextTick(loadImages)
+})
 watch(oldPageId, loadImages)
 watch(activeNode, (node, previous) => {
-  if (node?.id !== previous?.id) structureState.value = { dirty: false, revision: null, reader: false, focused: false }
+  if (node?.id !== previous?.id) { structureState.value = { dirty: false, revision: null, reader: false, focused: false }; compareAdopted.value = false }
   if (!node) return
   nodeEdit.title = node.title; nodeEdit.parent_id = node.parent_id || null; nodeEdit.level = node.level; nodeEdit.before_node_id = "__keep__"
 })
@@ -891,4 +906,5 @@ onBeforeUnmount(() => { mounted = false; clearTimeout(pollTimer); clearTimeout(p
 @media(max-width:760px){.atlas-primary-actions,.atlas-run-actions,.atlas-review-actions,.atlas-source{flex-wrap:wrap}.atlas-alert{align-items:stretch;flex-direction:column}.atlas-tabs button{flex:1 1 0;min-width:0;min-height:42px;padding-inline:var(--space-2)}.atlas-tree button,.atlas-annotation{min-height:42px}.atlas-annotation{min-width:42px}.atlas-generation-settings>summary,.atlas-options summary,.atlas-history>summary,.atlas-evidence>details>summary{min-height:42px}.atlas-page-header{align-items:flex-start;flex-wrap:wrap}.atlas-zoom{max-width:100%}.atlas-zoom input{min-width:0;max-width:100%}.atlas-header>div,.atlas-source>div,.atlas-page-header>div{min-width:0;overflow-wrap:anywhere}.atlas-upload-modal input[type="file"]{max-width:100%}}
 .atlas-focused{padding:12px;gap:8px}.atlas-focused .atlas-page{padding:12px}
 @media(max-width:900px){.atlas-focused .atlas-tree{max-height:100px}}
+.atlas-compare-toggle{display:flex;align-items:center;gap:var(--space-2);min-height:44px;margin-top:var(--space-2);font-size:var(--text-sm)}
 </style>
