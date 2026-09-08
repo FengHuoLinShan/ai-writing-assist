@@ -85,9 +85,7 @@ class WorldEntityService(
                     "content_json": EntityAliasService.normalize_content_aliases(
                         data.content_json,
                         default_status=(
-                            "candidate"
-                            if data.status in {"candidate", "draft"}
-                            else None
+                            "candidate" if data.status in {"candidate", "draft"} else None
                         ),
                     )
                 }
@@ -444,6 +442,7 @@ class WorldEntityService(
         novel_id: str,
         _from_suggestion_queue: bool = False,
         _validation_prechecked: bool = False,
+        _automated: bool = False,
     ) -> CoreEntityResponse:
         """更新实体前打快照；类型转换时 snapshot 属于原子迁移契约。"""
         from modules.world.services.core.entity_revision_service import (
@@ -496,7 +495,7 @@ class WorldEntityService(
                 "Use /entities/{entity_id}/promote to promote entities to canonical"
             )
 
-        if self._should_mark_user_edited(existing, changed):
+        if not _automated and self._should_mark_user_edited(existing, changed):
             submitted_content = changed.get("content_json")
             content_json = dict(
                 submitted_content
@@ -517,12 +516,12 @@ class WorldEntityService(
             data = data.model_copy(update={"content_json": content_json})
 
         revision_service = EntityRevisionService()
-        if type_changed:
+        if type_changed or _automated:
             await revision_service.create_snapshot(
                 db,
                 entity_id=id,
                 novel_id=novel_id,
-                revision_reason="manual_update",
+                revision_reason="focused_completion" if _automated else "manual_update",
             )
         else:
             try:

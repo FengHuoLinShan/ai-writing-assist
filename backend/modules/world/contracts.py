@@ -130,6 +130,33 @@ class PostImportWorldAdoptionResultContract:
 
 
 @dataclass(frozen=True)
+class FocusedWorldPackageRequest:
+    novel_id: str
+    authorization_id: str
+    task_id: str
+    task_type: str
+    attempt: int
+    lease_id: str
+    items: list[dict]
+    source_manifest_hash: str
+    context_fingerprint: str
+    roots: list[dict] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class FocusedWorldPackageApplyRequest:
+    novel_id: str
+    authorization_id: str
+    task_id: str
+    task_type: str
+    attempt: int
+    lease_id: str
+    suggestion_id: str
+    expected_preview_hash: str
+    validation_run_id: str | None = None
+
+
+@dataclass(frozen=True)
 class EntityRevisionContract:
     """版本快照契约
 
@@ -327,6 +354,8 @@ class WorldAliasRelationTaskPort(Protocol):
 
 
 __all__ = [
+    "FocusedWorldPackageRequest",
+    "FocusedWorldPackageApplyRequest",
     "CharacterContract",
     "CharacterKnowledgeContract",
     "CoreEntityContract",

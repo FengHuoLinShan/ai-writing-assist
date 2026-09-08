@@ -869,9 +869,10 @@ class EntityAliasService:
         confidence: float | None = None,
         evidence_refs: list[dict] | None = None,
         reviewed_by: str = "manual",
+        _validation_prechecked: bool = False,
     ) -> dict:
         """为实体添加别名；重复时抛 409。"""
-        if status in {"canonical", "confirmed"}:
+        if status in {"canonical", "confirmed"} and not _validation_prechecked:
             await self._require_legacy_canon_write_allowed(db, novel_id)
         nid = parse_uuid(novel_id, "novel_id")
         eid = parse_uuid(entity_id, "entity_id")

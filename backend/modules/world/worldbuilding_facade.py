@@ -3,6 +3,41 @@
 from __future__ import annotations
 
 
+async def authorize_focused_world_completion(db, **kwargs):
+    from modules.world.services.worldbuilding.focused_adoption import authorize
+
+    return await authorize(db, **kwargs)
+
+
+async def submit_focused_world_package(db, request):
+    from modules.world.services.worldbuilding.adoption_package_service import (
+        WorldAdoptionPackageService,
+    )
+    from modules.world.services.worldbuilding.focused_adoption import submit
+
+    return await submit(WorldAdoptionPackageService(), db, request)
+
+
+async def apply_focused_world_package(db, request):
+    from modules.world.services.worldbuilding.adoption_package_service import (
+        WorldAdoptionPackageService,
+    )
+    from modules.world.services.worldbuilding.focused_adoption import apply
+
+    return await apply(WorldAdoptionPackageService(), db, request)
+
+
+async def rollback_focused_world_package(db, *, novel_id, suggestion_id):
+    from modules.world.services.worldbuilding.adoption_package_service import (
+        WorldAdoptionPackageService,
+    )
+    from modules.world.services.worldbuilding.focused_adoption import rollback
+
+    return await rollback(
+        WorldAdoptionPackageService(), db, novel_id=novel_id, suggestion_id=suggestion_id
+    )
+
+
 async def initialize_world_canon(db, novel_id: str) -> None:
     """Create the idempotent empty canon root for one author project."""
     from modules.world.services.worldbuilding.world_authority_service import (

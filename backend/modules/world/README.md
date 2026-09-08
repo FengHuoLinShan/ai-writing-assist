@@ -761,8 +761,44 @@ importance level；RAG 章节索引通过该稳定 facade 生成可重建 chunk 
 promote 和外部关系端点以服务端指纹参与 preview hash，apply 在锁后复验；既有同一
 canonical relation 是 `existing_ref` no-op，不合并或改写。每个新建对象/关系均保存
 package、item、来源、authority 与 manifest provenance；同一对象再次被采纳时追加
-`world_adoptions` 回执历史，不覆盖旧来源。RuleProfile 与 alias 仍不属于该
-package contract。
+`world_adoptions` 回执历史，不覆盖旧来源。v1 不支持 RuleProfile 或别名；v2 增加下述
+专项填空和内联别名动作，RuleProfile 仍不属于该契约。
+
+### 专项查漏的世界领域边界
+
+`get_focused_world_terms()` 按显式 ID 或规范名/有效别名查同项目全部身份候选，不使用首个
+模糊结果作为身份。`get_focused_world_neighbors()` 只返回初始根的一跳 canonical 关系及
+两端 canonical 对象；include_review 仅允许读取待审根本身。两者以稳定 ID 分页并返回
+`truncated/next_skip`，消费方须保存续查进度。这是内部作者资料 seam，Evidence 仍在返回
+用户或送入模型前执行各资产可见性、截止点和显式排除门禁；不直接展示原始 hidden 字段。
+
+专项补全继续使用 `WorldAdoptionPackageService`，不建立第二套采用引擎或事实表。
+`authorize_focused_world_completion()` 只能在当前 owner 的入队请求中，用现有
+CreationSuggestion 的封闭 accepted carrier 保存 `focused_world_completion.v1`：固定
+root、source manifest、章节范围、最大一跳、动作白名单及 executor task。自动导入根可按
+显式授权的 `import_completion_hints` 策略在同一源范围内逐批确定。普通 suggestion 的
+save/confirm/edit 不接受该 carrier。owner 发起恢复时可为同一不变授权追加 executor grant，
+不改原授权 fingerprint；worker 无权创造或扩大授权。
+
+`submit_focused_world_package()` / `apply_focused_world_package()` 消费
+`FocusedWorldPackageRequest` / `FocusedWorldPackageApplyRequest`。v2 包只允许新增对象、
+关系、内联别名，以及 `summary/public_info/hidden_truth` 的 fill_empty；不接受任意 JSON
+字段、非空覆盖、类型转换、页面发布或 candidate promotion。`None` 和纯空白字符串视为空，
+零值和 false 不视为空。名称/身份歧义、无可靠原文、缺失关系 kind 和已填字段进入 open；
+混合包采用后仍另存 pending 复核包，不因自动采用其他项而隐藏这些问题。
+
+提交和最终采用都在短项目 exclusive 事务内复验当前 owner、授权、task attempt/lease、
+当前 Writing draft/hash、精确范围与唯一 quote。直接库侧邻居允许携带
+`direct_relation_ref={relation_id,source_hash}`；world 重新核对其仍为本项目根与目标的
+canonical 一跳关系，不能仅凭调用方声明 depth=1 扩大范围。字段 baseline 和实际采用
+preview hash 在锁后刷新重验。启用 World Validation Policy 的项目继续要求 full-scope
+validation receipt；warning 仍需作者签收，worker 不代签。
+
+`rollback_focused_world_package()` 是 owner 显式撤销入口。采用回执逐项保存 before/after，
+填空只对仍等于本次 after 的字段执行逆变更；后续人工修改保留并报告 conflict。新对象/关系
+只软废弃；新增别名按完整内联内容 CAS 恢复。世界领域后续关系、人物档案与页面引用阻止
+自动软废弃新对象。实体逆变更先原子保存 EntityRevision，再标记 Context/简介失效和
+出场词表重建。此能力不改变 Canon head，也不写 assertion 或 World Bible 正式页。
 
 package 也可携带一个完整的 `world_bible_page` create/replace 提案：它只在同一 package
 中有页面项时预锁 Canon head，再经 draft → Preview/Admit 创建正式 revision 并选入新

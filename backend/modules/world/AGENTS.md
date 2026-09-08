@@ -2,6 +2,8 @@
 
 - 别名只存于 `core_entities.content_json.aliases`；不得创建重复别名对象或恢复独立 alias 表。
 - 手动 AI 补抽必须绑定 fresh Context confirmation；新实体只以 candidate 进入审核，不自动成为正史。
+  作者显式授权的专项查漏是受限例外：经持久化 owner/来源/根范围授权、任务 lease、原文回读、
+  采用包 validation 与字段 CAS 后可新增和填空；不能借此采用既有候选未验证的其他字段。
 - 公开对象、关系、别名、Canon 和图片请求同时校验 account owner 与 `novel_id`；后台任务只消费
   冻结的 owner-aligned 授权并继续按 `novel_id` 过滤，不得借 worker/system 身份绕过边界。
 - `importance`、`importance_score`、`confidence` 等字段的 `0.0` 合法，判断缺失必须使用

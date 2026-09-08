@@ -32,6 +32,37 @@ _relation_service = EntityRelationService()
 _dedup_service = EntityDedupService()
 
 
+async def get_focused_world_terms(
+    db, *, novel_id, entity_ids=None, names=None, include_review=False, skip=0, limit=128
+):
+    from modules.world.services.core.focused_world_read import get_terms
+
+    return await get_terms(
+        db,
+        novel_id=novel_id,
+        entity_ids=entity_ids,
+        names=names,
+        include_review=include_review,
+        skip=skip,
+        limit=limit,
+    )
+
+
+async def get_focused_world_neighbors(
+    db, *, novel_id, entity_ids, include_review=False, skip=0, limit=64
+):
+    from modules.world.services.core.focused_world_read import get_neighbors
+
+    return await get_neighbors(
+        db,
+        novel_id=novel_id,
+        entity_ids=entity_ids,
+        include_review=include_review,
+        skip=skip,
+        limit=limit,
+    )
+
+
 async def list_entities(
     db: AsyncSession,
     novel_id: str,

@@ -46,6 +46,8 @@ from modules.world.entity_facade import (  # noqa: F401
     get_deep_import_alias_metadata_summary,
     get_entity_importance_map,
     get_entity_relations,
+    get_focused_world_neighbors,
+    get_focused_world_terms,
     get_world_context,
     list_auto_ingested_entities,
     list_entities,
@@ -66,7 +68,9 @@ from modules.world.event_facade import (  # noqa: F401
     rollback_to_revision,
 )
 from modules.world.worldbuilding_facade import (  # noqa: F401
+    apply_focused_world_package,
     assemble_post_import_adoption_package,
+    authorize_focused_world_completion,
     get_world_background,
     get_world_bible_page_source_manifest,
     get_world_bible_projection_candidates,
@@ -77,11 +81,17 @@ from modules.world.worldbuilding_facade import (  # noqa: F401
     mark_world_bible_synopsis_stale,
     mark_worldbuilding_context_stale,
     preview_worldbuilding_activation,
+    rollback_focused_world_package,
+    submit_focused_world_package,
 )
 
 # Frozen cross-module API. New names require a deletion test, contract/README
 # update, and an explicit change to the public-surface regression test.
 __all__ = [
+    "authorize_focused_world_completion",
+    "submit_focused_world_package",
+    "apply_focused_world_package",
+    "rollback_focused_world_package",
     "assemble_post_import_adoption_package",
     "append_candidate_alias",
     "apply_entity_fusion",
@@ -111,6 +121,8 @@ __all__ = [
     "get_characters_context",
     "get_deep_import_alias_metadata_summary",
     "get_entity_importance_map",
+    "get_focused_world_terms",
+    "get_focused_world_neighbors",
     "get_entity_relations",
     "get_entity_revisions",
     "get_events_context",

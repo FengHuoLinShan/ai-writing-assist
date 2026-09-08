@@ -6,6 +6,7 @@ import hashlib
 import json
 import uuid
 from collections.abc import Awaitable, Callable
+from datetime import UTC
 from typing import Any
 
 from sqlalchemy import select
@@ -17,10 +18,12 @@ from modules.world.contracts import PostImportWorldAdoptionResultContract
 from modules.world.models import CoreEntity, CreationSuggestion, EntityRelation
 from modules.world.schemas import (
     CoreEntityCreate,
+    CoreEntityUpdate,
     CreationSuggestionCreate,
     CreationSuggestionResponse,
     EntityPromoteRequest,
     EntityRelationCreate,
+    WorldAdoptionAliasPayload,
     WorldAdoptionCoreEntityPayload,
     WorldAdoptionPackageApplyRequest,
     WorldAdoptionPackagePayload,
@@ -122,7 +125,7 @@ class WorldAdoptionPackageService:
                 source_module=source_module,
                 review_group="world_adoption",
                 target_type="world_adoption_package",
-                action_schema="world_adoption_package.v1",
+                action_schema=request.package.schema_version,
                 payload_json=request.package.model_dump(mode="json"),
                 evidence_refs_json=[],
                 risk_level="high",
@@ -487,6 +490,8 @@ class WorldAdoptionPackageService:
         novel_id: str,
         suggestion_id: str,
         request: WorldAdoptionPackageApplyRequest,
+        *,
+        _focused_request=None,
     ) -> CreationSuggestionResponse:
         pending = await self._suggestions._get_suggestion(db, novel_id, suggestion_id)
         if pending.status == "accepted":
@@ -501,6 +506,30 @@ class WorldAdoptionPackageService:
         package = self._package(pending)
         await self._validate_checkpoint_lineage(db, novel_id, package)
         authorization_actor = await self._active_owner_actor(db, novel_id)
+        if package.focused_authorization_id:
+            from modules.world.services.worldbuilding.focused_adoption import (
+                authorization,
+                fence,
+            )
+
+            if _focused_request is not None:
+                snapshot = await fence(db, _focused_request)
+            else:
+                from modules.account.facade import current_account_id
+
+                if str(current_account_id()) != authorization_actor:
+                    raise ValidationError("Focused package adoption requires its owner")
+                snapshot = await authorization(
+                    db, novel_id, package.focused_authorization_id
+                )
+            from modules.world.services.worldbuilding.focused_adoption import (
+                validate_items,
+            )
+
+            before_validation = package.model_dump(mode="json")
+            await validate_items(self, db, novel_id, package, snapshot)
+            if package.model_dump(mode="json") != before_validation:
+                raise ConflictError("Focused evidence or identity changed; review again")
         authority = WorldAuthorityService()
         expected_canon_head = None
         if any(
@@ -542,12 +571,67 @@ class WorldAdoptionPackageService:
         frozen_canon_diff = await self._canon_diff(db, novel_id, package)
         local_refs: dict[str, str] = {}
         results: list[dict[str, str]] = []
+        applied_changes = []
+        from modules.world.services.worldbuilding.focused_adoption import (
+            entity_state,
+            is_empty,
+            relation_state,
+        )
+
         for item in package.items:
             if item.disposition != "include":
                 continue
             if item.kind != "core_entity":
                 continue
             payload = WorldAdoptionCoreEntityPayload.model_validate(item.payload)
+            if payload.operation == "fill_empty":
+                entity = await self._canonical_or_candidate_entity(
+                    db, novel_id, payload.entity_id or "", True, allow_canonical=True
+                )
+                fields = payload.fields or {}
+                if any(
+                    not is_empty(getattr(entity, key)) and getattr(entity, key) != value
+                    for key, value in fields.items()
+                ):
+                    raise ConflictError(
+                        "Existing content changed; author review is required"
+                    )
+                changed = {
+                    key: value
+                    for key, value in fields.items()
+                    if is_empty(getattr(entity, key))
+                }
+                if changed:
+                    before = {key: getattr(entity, key) for key in changed}
+                    await self._suggestions._entities.update(
+                        db,
+                        str(entity.id),
+                        CoreEntityUpdate(**changed),
+                        novel_id=novel_id,
+                        _validation_prechecked=True,
+                        _automated=True,
+                    )
+                    applied_changes.append(
+                        {
+                            "item_key": item.item_key,
+                            "kind": "core_entity",
+                            "id": str(entity.id),
+                            "operation": "fill_empty",
+                            "before": before,
+                            "after": changed,
+                        }
+                    )
+                    await self._mark_context_changed(db, novel_id, {str(entity.id)})
+                local_refs[item.item_key] = str(entity.id)
+                results.append(
+                    {
+                        "item_key": item.item_key,
+                        "type": "core_entity",
+                        "id": str(entity.id),
+                        "action": "fill_empty" if changed else "existing_ref",
+                    }
+                )
+                continue
             if payload.operation == "existing_ref":
                 entity = await self._canonical_endpoint(
                     db, novel_id, payload.entity_id or "", for_update=True
@@ -618,6 +702,19 @@ class WorldAdoptionPackageService:
                     _validation_prechecked=True,
                 )
                 entity_id = entity.id
+                stored_entity = await self._canonical_endpoint(
+                    db, novel_id, entity_id, True
+                )
+                applied_changes.append(
+                    {
+                        "item_key": item.item_key,
+                        "kind": "core_entity",
+                        "id": entity_id,
+                        "operation": "create",
+                        "before": {},
+                        "after": entity_state(stored_entity),
+                    }
+                )
             await self._mark_context_changed(db, novel_id, {entity_id})
             local_refs[item.item_key] = entity_id
             results.append(
@@ -699,6 +796,9 @@ class WorldAdoptionPackageService:
                     relation_type=payload.relation_type,
                     relation_kind=payload.relation_kind,
                     description=payload.description,
+                    quote=next(
+                        (ref.quote for ref in item.source_refs if ref.quote), None
+                    ),
                     status="canonical",
                     review_meta=self._provenance(
                         suggestion.id, item, package.source_manifest_hash
@@ -708,6 +808,25 @@ class WorldAdoptionPackageService:
             )
             await self._mark_context_changed(db, novel_id, {source_id, target_id})
             local_refs[item.item_key] = relation.id
+            stored_relation = await self._canonical_relation(
+                db,
+                novel_id,
+                relation.id,
+                source_id,
+                target_id,
+                payload.relation_type,
+                for_update=True,
+            )
+            applied_changes.append(
+                {
+                    "item_key": item.item_key,
+                    "kind": "entity_relation",
+                    "id": relation.id,
+                    "operation": "create",
+                    "before": {},
+                    "after": relation_state(stored_relation),
+                }
+            )
             results.append(
                 {
                     "item_key": item.item_key,
@@ -715,6 +834,73 @@ class WorldAdoptionPackageService:
                     "id": relation.id,
                 }
             )
+        for item in package.items:
+            if item.disposition != "include" or item.kind != "entity_alias":
+                continue
+            payload = WorldAdoptionAliasPayload.model_validate(item.payload)
+            entity_id = self._resolve_ref(payload.entity_ref, local_refs)
+            entity = await self._canonical_endpoint(db, novel_id, entity_id, True)
+            from modules.world.services.core.focused_world_read import get_terms
+
+            matches = await get_terms(
+                db, novel_id=novel_id, names=[payload.alias], include_review=True
+            )
+            if matches["truncated"] or any(
+                row["id"] != entity_id for row in matches["entities"]
+            ):
+                raise ConflictError("Alias identity requires author review")
+            if matches["entities"]:
+                results.append(
+                    {
+                        "item_key": item.item_key,
+                        "type": "entity_alias",
+                        "id": entity_id,
+                        "action": "existing_ref",
+                    }
+                )
+                continue
+            import copy
+
+            before = {"content_json": copy.deepcopy(entity.content_json)}
+            from modules.world.services.core.entity_revision_service import (
+                EntityRevisionService,
+            )
+
+            await EntityRevisionService().create_snapshot(
+                db, entity_id, novel_id, revision_reason="focused_completion"
+            )
+            await self._suggestions._aliases.create_alias(
+                db,
+                novel_id,
+                entity_id,
+                payload.alias,
+                payload.alias_type,
+                alias_kind=payload.alias_kind,
+                status="confirmed",
+                source="focused_completion",
+                evidence_refs=[ref.model_dump(mode="json") for ref in item.source_refs],
+                reviewed_by=authorization_actor,
+                _validation_prechecked=True,
+            )
+            applied_changes.append(
+                {
+                    "item_key": item.item_key,
+                    "kind": "entity_alias",
+                    "id": entity_id,
+                    "operation": "append_alias",
+                    "before": before,
+                    "after": {"content_json": copy.deepcopy(entity.content_json)},
+                }
+            )
+            results.append(
+                {
+                    "item_key": item.item_key,
+                    "type": "entity_alias",
+                    "id": entity_id,
+                    "action": "append_alias",
+                }
+            )
+            await self._mark_context_changed(db, novel_id, {entity_id})
         page_canon_diff = locked_baseline.get("pages", [])
         for item in package.items:
             if item.disposition != "include" or item.kind != "world_bible_page":
@@ -756,6 +942,32 @@ class WorldAdoptionPackageService:
                 if diff["item_key"] == item.item_key:
                     diff["published_page_id"] = page.id
                     diff["published_revision"] = page.version_number
+        review_suggestion_id = None
+        if package.focused_authorization_id:
+            import copy
+
+            open_items = [
+                copy.deepcopy(item)
+                for item in package.items
+                if item.disposition == "open"
+            ]
+            if open_items:
+                for item in open_items:
+                    for key in ("entity_ref", "source_ref", "target_ref"):
+                        ref = item.payload.get(key, "")
+                        if ref.startswith("local:") and ref[6:] in local_refs:
+                            item.payload[key] = local_refs[ref[6:]]
+                review = await self.save(
+                    db,
+                    WorldAdoptionPackageSaveRequest(
+                        novel_id=novel_id,
+                        package=package.model_copy(
+                            update={"items": open_items, "focused_request_hash": None}
+                        ),
+                    ),
+                    source_module="imports",
+                )
+                review_suggestion_id = review.id
         return await self._suggestions._mark_accepted(
             db,
             novel_id=novel_id,
@@ -773,6 +985,8 @@ class WorldAdoptionPackageService:
                 "source_manifest_hash": package.source_manifest_hash,
                 "preview_hash": request.expected_preview_hash,
                 "authorization_actor": authorization_actor,
+                "applied_changes": applied_changes,
+                "review_suggestion_id": review_suggestion_id,
                 "item_provenance": [
                     item.model_dump(mode="json") for item in package.items
                 ],
@@ -844,8 +1058,8 @@ class WorldAdoptionPackageService:
             action = "create"
             if item.kind == "core_entity":
                 payload = WorldAdoptionCoreEntityPayload.model_validate(item.payload)
-                if payload.operation == "existing_ref":
-                    action = "existing_ref"
+                if payload.operation in {"existing_ref", "fill_empty"}:
+                    action = payload.operation
             if item.kind == "entity_relation":
                 payload = WorldAdoptionRelationPayload.model_validate(item.payload)
                 if payload.operation in {"promote", "existing_ref"}:
@@ -1049,6 +1263,16 @@ class WorldAdoptionPackageService:
                     for_update,
                 )
                 continue
+            if payload.operation == "fill_empty":
+                entity = await self._canonical_or_candidate_entity(
+                    db,
+                    novel_id,
+                    payload.entity_id or "",
+                    for_update,
+                    allow_canonical=True,
+                )
+                result[item.item_key] = self._entity_fingerprint(entity)
+                continue
             if payload.operation == "existing_ref":
                 result[item.item_key] = self._entity_fingerprint(
                     await self._canonical_endpoint(
@@ -1098,6 +1322,15 @@ class WorldAdoptionPackageService:
                 if relation
                 else None,
             }
+        for item in package.items:
+            if item.disposition == "include" and item.kind == "entity_alias":
+                payload = WorldAdoptionAliasPayload.model_validate(item.payload)
+                if not payload.entity_ref.startswith("local:"):
+                    result[item.item_key] = self._entity_fingerprint(
+                        await self._canonical_endpoint(
+                            db, novel_id, payload.entity_ref, for_update
+                        )
+                    )
         return result
 
     async def _promote_baseline(
@@ -1117,15 +1350,21 @@ class WorldAdoptionPackageService:
             raise ConflictError("Core entity changed; preview again")
         return fingerprint
 
-    async def _canonical_or_candidate_entity(self, db, novel_id, entity_id, for_update):
+    async def _canonical_or_candidate_entity(
+        self, db, novel_id, entity_id, for_update, *, allow_canonical=False
+    ):
         stmt = select(CoreEntity).where(
             CoreEntity.id == uuid.UUID(entity_id),
             CoreEntity.novel_id == uuid.UUID(novel_id),
         )
         if for_update:
-            stmt = stmt.with_for_update()
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         entity = (await db.execute(stmt)).scalar_one_or_none()
-        if entity is None or entity.status not in {"draft", "candidate"}:
+        if entity is None or entity.status not in (
+            {"draft", "candidate", "canonical"}
+            if allow_canonical
+            else {"draft", "candidate"}
+        ):
             raise ConflictError("Core entity changed; preview again")
         return entity
 
@@ -1136,7 +1375,7 @@ class WorldAdoptionPackageService:
             CoreEntity.status == "canonical",
         )
         if for_update:
-            stmt = stmt.with_for_update()
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         entity = (await db.execute(stmt)).scalar_one_or_none()
         if entity is None:
             raise ConflictError("Relation endpoint changed; preview again")
@@ -1163,7 +1402,9 @@ class WorldAdoptionPackageService:
         }
         payload["id"] = str(payload["id"])
         payload["updated_at"] = (
-            payload["updated_at"].isoformat() if payload["updated_at"] else None
+            payload["updated_at"].replace(tzinfo=UTC).isoformat()
+            if payload["updated_at"]
+            else None
         )
         return payload
 
@@ -1175,7 +1416,7 @@ class WorldAdoptionPackageService:
             "relation_kind": relation.relation_kind,
             "description": relation.description,
             "review_meta": relation.review_meta,
-            "updated_at": relation.updated_at.isoformat()
+            "updated_at": relation.updated_at.replace(tzinfo=UTC).isoformat()
             if relation.updated_at
             else None,
         }
@@ -1241,6 +1482,7 @@ class WorldAdoptionPackageService:
                 CoreEntity.novel_id == uuid.UUID(novel_id),
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
         entity = (await db.execute(stmt)).scalar_one_or_none()
         if entity is None:
@@ -1274,7 +1516,7 @@ class WorldAdoptionPackageService:
             EntityRelation.status == "canonical",
         )
         if for_update:
-            stmt = stmt.with_for_update()
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         return (await db.execute(stmt)).scalar_one_or_none()
 
     async def _canonical_relation(
@@ -1297,7 +1539,7 @@ class WorldAdoptionPackageService:
             EntityRelation.status == "canonical",
         )
         if for_update:
-            stmt = stmt.with_for_update()
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         relation = (await db.execute(stmt)).scalar_one_or_none()
         if relation is None:
             raise ConflictError("Canonical relation changed; preview again")
@@ -1330,6 +1572,7 @@ class WorldAdoptionPackageService:
                 EntityRelation.relation_type == payload.relation_type,
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
         relation = (await db.execute(stmt)).scalar_one_or_none()
         if relation is None:

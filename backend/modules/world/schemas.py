@@ -4207,6 +4207,8 @@ class WorldAdoptionSourceRef(BaseModel):
     scene_id: str | None = None
     workflow_id: str | None = Field(default=None, max_length=128)
     authorization_ref: str | None = Field(default=None, max_length=128)
+    source_range: dict[str, Any] | None = None
+    quote: str | None = Field(default=None, max_length=10000)
 
     @field_validator("source_hash")
     @classmethod
@@ -4262,12 +4264,22 @@ class WorldAdoptionRelationPayload(BaseModel):
 class WorldAdoptionCoreEntityPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    operation: Literal["create", "promote", "existing_ref"] = "create"
+    operation: Literal["create", "promote", "existing_ref", "fill_empty"] = "create"
     entity_id: str | None = None
     entity: CoreEntityCreate | None = None
+    fields: dict[Literal["summary", "public_info", "hidden_truth"], str] | None = None
 
     @model_validator(mode="after")
     def validate_operation(self) -> WorldAdoptionCoreEntityPayload:
+        if self.operation == "fill_empty":
+            if not self.entity_id or self.entity is not None or not self.fields:
+                raise ValueError("fill_empty requires entity_id and nonempty fields")
+            if any(
+                not value.strip() or len(value) > 10000 for value in self.fields.values()
+            ):
+                raise ValueError("fill_empty values must be bounded nonempty text")
+        elif self.fields is not None:
+            raise ValueError("Only fill_empty accepts fields")
         if self.operation == "create" and (self.entity is None or self.entity_id):
             raise ValueError(
                 "create core entity item requires entity and forbids entity_id"
@@ -4285,6 +4297,15 @@ class WorldAdoptionCoreEntityPayload(BaseModel):
                 "existing_ref core entity item requires entity_id and forbids entity"
             )
         return self
+
+
+class WorldAdoptionAliasPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    entity_ref: str = Field(min_length=1, max_length=128)
+    alias: str = Field(min_length=1, max_length=255)
+    alias_kind: AliasKind
+    alias_type: str = Field(default="alias", min_length=1, max_length=64)
 
 
 class WorldAdoptionPageClaimMapping(BaseModel):
@@ -4351,7 +4372,7 @@ class WorldAdoptionPackageItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     item_key: str = Field(..., pattern=r"^[a-z][a-z0-9_-]{0,63}$")
-    kind: Literal["core_entity", "entity_relation", "world_bible_page"]
+    kind: Literal["core_entity", "entity_relation", "world_bible_page", "entity_alias"]
     disposition: Literal["include", "open", "rejected"] = "open"
     authority_kind: Literal[
         "author_seed", "canonical_baseline", "manuscript_observation", "generated_bridge"
@@ -4361,6 +4382,10 @@ class WorldAdoptionPackageItem(BaseModel):
     )
     baseline: WorldAdoptionBaseline | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
+    root_key: str | None = Field(default=None, max_length=128)
+    depth: Literal[0, 1] = 0
+    review_reasons: list[str] = Field(default_factory=list, max_length=16)
+    direct_relation_ref: dict[str, str] | None = None
 
     @model_validator(mode="after")
     def validate_typed_payload(self) -> WorldAdoptionPackageItem:
@@ -4374,6 +4399,10 @@ class WorldAdoptionPackageItem(BaseModel):
             WorldAdoptionRelationPayload.model_validate(self.payload)
             if self.baseline is not None:
                 raise ValueError("entity relation item forbids baseline")
+        elif self.kind == "entity_alias":
+            WorldAdoptionAliasPayload.model_validate(self.payload)
+            if self.baseline is not None:
+                raise ValueError("alias item forbids promotion baseline")
         else:
             WorldAdoptionPagePayload.model_validate(self.payload)
             if self.baseline is not None:
@@ -4384,7 +4413,11 @@ class WorldAdoptionPackageItem(BaseModel):
 class WorldAdoptionPackagePayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["world_adoption_package.v1"]
+    schema_version: Literal["world_adoption_package.v1", "world_adoption_package.v2"]
+    focused_authorization_id: str | None = None
+    focused_roots: list[dict[str, Any]] = Field(default_factory=list, max_length=1000)
+    context_fingerprint: str | None = None
+    focused_request_hash: str | None = None
     checkpoint_suggestion_id: str | None = None
     checkpoint_manifest_hash: str | None = Field(
         default=None, min_length=64, max_length=64
@@ -4401,6 +4434,17 @@ class WorldAdoptionPackagePayload(BaseModel):
 
     @model_validator(mode="after")
     def validate_item_keys(self) -> WorldAdoptionPackagePayload:
+        specialized = any(
+            item.kind == "entity_alias" or item.payload.get("operation") == "fill_empty"
+            for item in self.items
+        )
+        if specialized and self.schema_version != "world_adoption_package.v2":
+            raise ValueError("Focused additions require adoption package v2")
+        if self.focused_authorization_id and (
+            self.schema_version != "world_adoption_package.v2"
+            or not self.context_fingerprint
+        ):
+            raise ValueError("Focused packages require v2 and context fingerprint")
         if len({item.item_key for item in self.items}) != len(self.items):
             raise ValueError("world adoption package item_key values must be unique")
         if bool(self.checkpoint_suggestion_id) != bool(self.checkpoint_manifest_hash):
