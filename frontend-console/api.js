@@ -1671,6 +1671,9 @@ const api = {
     async findMapLinks(novelId, filters = {}) {
       return request(withQuery(`/world/map-atlas/${novelId}/map-links`, filters), { cache: "no-store" })
     },
+    async previewMapReview(novelId, nodeId, revisionId, payload) {
+      return post(`/world/map-atlas/${novelId}/nodes/${nodeId}/revisions/${revisionId}/review-preview`, payload)
+    },
     async getMapAtlasPageHistory(novelId) {
       return request(`/world/map-atlas/${novelId}/pages/history`, { cache: "no-store" })
     },

@@ -33,7 +33,7 @@
       <div v-for="candidate in candidates" :key="candidate.id">
         <span>{{ formatDate(candidate.created_at) }} · 空间候选</span>
         <button class="btn btn-sm" :disabled="busy" @click="viewCandidate(candidate)">查看</button>
-        <button class="btn btn-sm" :disabled="busy || dirty" @click="review(candidate, 'adopt')">采用这版</button>
+        <button class="btn btn-sm" :disabled="busy || dirty" @click="viewCandidate(candidate)">比较后采用</button>
         <button class="btn btn-sm" :disabled="busy" @click="review(candidate, 'reject')">不使用</button>
       </div>
     </section>
@@ -42,7 +42,13 @@
       <p>与当前已保存地图比较；这些变化尚未应用。采用或恢复时会再次核对来源与版本。</p>
       <MapChangeReview v-model="selectedChangeKeys" :changes="candidateChanges" :selectable="candidateView.status === 'candidate'" @locate="locateChange" />
       <p v-if="candidateView.status === 'candidate' && candidateView.base_revision_id !== revision?.id" role="alert">此候选基于较早地图，仅供比较；请重新整理需要更新的部分。</p>
-      <button v-if="candidateView.status === 'candidate'" class="btn btn-primary" :disabled="busy || dirty || !selectedChangeKeys.length || candidateView.base_revision_id !== revision?.id" @click="review(candidateView, 'adopt', selectedChangeKeys)">采用所选 {{ selectedChangeKeys.length }} 项修改</button>
+      <button v-if="candidateView.status === 'candidate' && !adoptionPreview" class="btn btn-primary" :disabled="busy || previewing || dirty || !selectedChangeKeys.length || candidateView.base_revision_id !== revision?.id" @click="previewAdoption">{{ previewing ? '正在核对采用范围…' : '核对所选 ' + selectedChangeKeys.length + ' 项修改' }}</button>
+      <div v-if="adoptionPreview" class="map-adoption-preview" aria-label="即将采用的修改">
+        <strong>将采用 {{ adoptionPreview.applied_change_keys.length }} 项修改</strong>
+        <p>请核对实际生效范围；标有“关联修改”的内容会一并采用，未列出的修改继续保留为候选。</p>
+        <ul><li v-for="change in adoptionChanges" :key="change.key">{{ change.action }}：{{ change.label }}<strong v-if="adoptionPreview.expanded_change_keys.includes(change.key)">（关联修改）</strong></li></ul>
+        <button class="btn btn-primary" :disabled="busy || dirty" @click="review(candidateView, 'adopt', selectedChangeKeys)">确认采用共 {{ adoptionPreview.applied_change_keys.length }} 项修改</button>
+      </div>
       <button v-if="candidateView.status === 'saved'" class="btn btn-primary" :disabled="busy || dirty || candidateView.id === revision?.id" @click="review(candidateView, 'restore')">恢复为新版本</button>
       <button class="btn btn-sm" @click="compareCandidateCurrent = !compareCandidateCurrent">{{ compareCandidateCurrent ? '查看候选地图' : '对照已保存地图' }}</button>
       <button class="btn btn-sm" @click="exitCandidate">返回当前地图</button>
@@ -66,7 +72,7 @@
           <p v-if="locatorMessage" role="status" class="map-caption">{{ locatorMessage }}</p>
         </div>
       </div>
-      <div ref="scrollArea" class="map-scroll" @scroll="rememberView">
+      <div ref="scrollArea" class="map-scroll" :class="{ panning }" tabindex="0" role="region" aria-label="地图视口，方向键平移" @scroll="rememberView" @pointerdown="startPan" @pointermove="movePan" @pointerup="endPan" @pointercancel="endPan" @keydown.self="panByKey">
         <svg ref="canvas" class="map-canvas" :style="{ width: zoom + '%', '--map-zoom': zoom / 100 }" :viewBox="[bounds.x, bounds.y, bounds.width, bounds.height].join(' ')" role="group" aria-label="空间地图画布" @click.self="placePoint" @pointermove="moveDrag" @pointerup="endDrag" @pointercancel="endDrag">
           <rect :x="bounds.x" :y="bounds.y" :width="bounds.width" :height="bounds.height" class="map-paper" @click="placePoint" />
           <defs><marker :id="'map-face-' + node.id" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" class="map-facing-head" /></marker></defs>
@@ -81,7 +87,8 @@
             <text v-if="labelPositions[feature.id]" :x="labelPositions[feature.id].x" :y="labelPositions[feature.id].y" :style="{ fontSize: 14 * mapUnit + 'px' }">{{ feature.label }}</text>
           </g>
           <g v-if="selectedFeature && !readOnly && !focused && !selectedFeature.locked">
-            <circle v-for="(point, index) in selectedFeature.points" :key="index" :cx="point.x" :cy="point.y" r="7" class="map-handle" @pointerdown.stop="startDrag($event, selectedFeature, index)" @click.stop="selectedVertex = index" />
+            <line v-for="(segment, index) in selectedSegments" :key="'segment:' + index" :x1="segment[0].x" :y1="segment[0].y" :x2="segment[1].x" :y2="segment[1].y" class="map-segment" :class="{ selected: selectedSegment === index }" :style="{ strokeWidth: 12 * mapUnit }" @click.stop="selectedSegment = index" />
+            <circle v-for="(point, index) in selectedFeature.points" :key="index" :cx="point.x" :cy="point.y" :r="7 * mapUnit" class="map-handle" :class="{ selected: selectedVertex === index }" @pointerdown.stop="startDrag($event, selectedFeature, index)" @click.stop="selectedVertex = index" />
           </g>
         </svg>
       </div>
@@ -124,9 +131,10 @@
         <label>显示名称<input :value="selectedFeature.label" class="form-input" maxlength="200" @input="changeFeature('label', $event.target.value)" /></label>
         <label v-if="['location', 'landmark', 'area'].includes(selectedFeature.kind)">关联世界地点<select :value="selectedFeature.entity_id || ''" class="form-select" @change="bindEntity($event.target.value)"><option value="">独立地图标记</option><option v-if="selectedFeature.entity_id && !locations.some(item => item.id === selectedFeature.entity_id)" :value="selectedFeature.entity_id">当前已关联的世界地点</option><option v-for="location in locations" :key="location.id" :value="location.id">{{ location.name }}</option></select></label>
         <label><input :checked="selectedFeature.locked" type="checkbox" @change="changeFeature('locked', $event.target.checked)" />锁定位置</label>
-        <div class="map-actions"><button class="btn btn-sm" :disabled="selectedFeature.locked" @click="placing = true">点击画布定位／添点</button><button class="btn btn-sm" :disabled="selectedFeature.locked || !selectedFeature.points.length" @click="removePoint">移出最后一个点</button></div>
+        <div class="map-actions"><button class="btn btn-sm" :disabled="selectedFeature.locked" @click="placing = true">点击画布定位／添点</button><button class="btn btn-sm" :disabled="selectedFeature.locked || !canRemovePoint" @click="removePoint">移出选中控制点</button></div>
         <p class="map-caption">可拖动控制点，或用下面的方向按钮微调；键盘方向键也可移动。</p>
         <label v-if="selectedFeature.points.length > 1">控制点<select v-model.number="selectedVertex" class="form-select"><option v-for="(_, index) in selectedFeature.points" :key="index" :value="index">{{ index + 1 }}</option></select></label>
+        <div v-if="selectedSegments.length" class="map-inline-form"><label>插入位置<select v-model.number="selectedSegment" class="form-select"><option v-for="(_, index) in selectedSegments" :key="index" :value="index">第 {{ index + 1 }} 点到第 {{ (index + 1) % selectedFeature.points.length + 1 }} 点</option></select></label><button class="btn btn-sm" :disabled="selectedFeature.locked || selectedFeature.points.length >= 128" @click="insertPoint">在线段中点插入</button></div>
         <div class="map-actions"><button class="btn btn-sm" aria-label="向左移动" @click="nudge(-10, 0)">←</button><button class="btn btn-sm" aria-label="向上移动" @click="nudge(0, -10)">↑</button><button class="btn btn-sm" aria-label="向下移动" @click="nudge(0, 10)">↓</button><button class="btn btn-sm" aria-label="向右移动" @click="nudge(10, 0)">→</button></div>
         <label>最早在第几章开始时展示<input :value="selectedFeature.reader_from_chapter || ''" type="number" min="1" max="100000" class="form-input" placeholder="留空：仅作者可见" @change="changeFeature('reader_from_chapter', $event.target.value ? Number($event.target.value) : null)" /></label>
         <label>补充说明<textarea :value="selectedFeature.note" class="form-textarea" maxlength="1000" @input="changeFeature('note', $event.target.value)" /></label>
@@ -140,7 +148,7 @@
     <aside v-if="(reader || focused || candidateView) && displayedFeature && !referenceOnly" class="map-inspector" :aria-label="reader ? '读者地点详情' : '地图地点详情'">
       <strong>{{ displayedFeature.label }}</strong>
       <template v-if="!reader"><p v-if="displayedFeature.note">{{ displayedFeature.note }}</p><p v-for="(source, index) in displayedFeature.sources" :key="index">{{ source.quote }}<button v-if="source.kind === 'source_range'" class="btn btn-sm" @click="openSourceChapter(source)">打开第 {{ source.source_ref.chapter_index }} 章</button></p><button v-if="!candidateView && displayedFeature.target_node_id" class="btn btn-sm" @click="emit('open-node', displayedFeature.target_node_id)">进入子图</button></template>
-      <img v-for="layer in candidateView ? [] : selectedIllustrations" :key="layer.page_id" :src="imageUrls[imageKey(layer.page_id)]" class="map-detail-image" :alt="reader ? '可公开的地点配图' : '地点配图'" />
+      <img v-for="layer in selectedIllustrations" :key="layer.page_id" :src="imageUrls[imageKey(layer.page_id)]" class="map-detail-image" :alt="reader ? '可公开的地点配图' : '地点配图'" />
     </aside>
     <details v-if="!readOnly && !focused && images.length" class="map-image-controls">
       <summary>底图与地点配图</summary>
@@ -161,6 +169,7 @@
         <label>底图透明度<input v-model.number="imageForm.opacity" type="range" min="0.1" max="1" step="0.05" /></label>
       </template>
       <label>已人工核对整张图片，最早在第几章开始时展示<input v-model.number="imageForm.reader_from_chapter" type="number" min="1" max="100000" placeholder="未核对请留空" /></label>
+      <p v-if="imageForm.page_id && imageBaselineStatus !== 'ready'" role="status">{{ imageBaselineStatus === 'loading' ? '正在读取图片生成时的地图…' : imageBaselineStatus === 'error' ? '图片的原始地图暂时无法读取，当前不能判断变化。请重新选择图片重试。' : '此图片没有绑定生成时的地图版本，无法自动判断空间变化。请人工检查图片与校准点。' }}</p>
       <div v-if="imageForm.page_id && imageImpact.content.length" class="map-warning"><strong>图片需要复核</strong><p>{{ imageImpact.anchors.length ? '校准点发生变化：' + imageImpact.anchors.join('、') : '三个校准点没有位置变化，但空间内容发生变化。' }}</p><ul><li v-for="(line, index) in imageImpact.content" :key="index">{{ line }}</li></ul><p>请检查图片是否仍符合地图；系统不会自动付费重画。</p></div>
       <button v-if="selectedImageRevision" class="btn btn-sm" :disabled="busy" @click="compareImageRevision">对照图片生成时的地图</button>
       <button class="btn btn-sm" :disabled="busy || !imageForm.page_id" @click="applyImage">预览图片设置</button>
@@ -188,10 +197,11 @@ const doc = ref(emptyMap()), revision = ref(null), serverRevision = ref(null), b
 const candidates = ref([]), candidateView = ref(null), history = ref([]), imageLayers = ref([]), checkedGeometry = ref("")
 const loading = ref(false), saving = ref(false), error = ref(""), problems = ref([]), initialized = ref(false)
 const recovery = ref(null), backupError = ref(false), backedUp = ref(false), conflict = ref(false), compareServer = ref(false)
-const undoStack = ref([]), redoStack = ref([]), selectedId = ref(""), selectedVertex = ref(0), placing = ref(false)
+const undoStack = ref([]), redoStack = ref([]), selectedId = ref(""), selectedVertex = ref(0), selectedSegment = ref(0), placing = ref(false)
 const canvas = ref(null), canvasWidth = ref(700), canvasHeight = ref(0), zoom = ref(100), referenceOnly = ref(false), dragBounds = ref(null)
 const focused = ref(false), mapQuery = ref(""), locatorMessage = ref(""), compareCandidateCurrent = ref(false)
 const selectedChangeKeys = ref([]), selectedFeatureIds = ref([]), comparisonLayers = ref([]), reviewNotice = ref(''), rehearsalStops = ref([]), scrollArea = ref(null)
+const adoptionPreview = ref(null), previewing = ref(false), imageBaseline = ref(null), imageBaselineStatus = ref('unknown'), panning = ref(false)
 const searchQuery = ref(""), locations = ref([]), selectedLocationIds = ref([]), newLabel = ref(""), newKind = ref("location")
 const taskId = ref(null), taskStatus = ref(null), reader = ref(null), readerChapter = ref(1)
 const imageUrls = reactive({}), anchorIndex = ref(0), annotationId = ref(""), annotationFeatureId = ref("")
@@ -200,7 +210,7 @@ const relation = reactive({ subject: "", relation: "north", target: "" })
 const relationLabels = mapRelationLabels
 const imageRequests = new Map()
 let resizeObserver = null
-let epoch = 0, alive = true, installing = false, backupTimer = null, pollTimer = null, drag = null, downloaded = false
+let epoch = 0, alive = true, installing = false, backupTimer = null, pollTimer = null, drag = null, downloaded = false, reviewEpoch = 0, imageBaselineEpoch = 0, pan = null
 const dirty = computed(() => JSON.stringify(doc.value) !== baseline.value)
 const busy = computed(() => loading.value || saving.value)
 const taskRunning = computed(() => ["pending", "running"].includes(taskStatus.value))
@@ -210,13 +220,14 @@ const displayDocument = computed(() => reader.value ? { features: reader.value.f
 const displayedFeature = computed(() => displayDocument.value.features.find(feature => feature.id === selectedId.value))
 const matchingFeatures = computed(() => displayDocument.value.features.filter(feature => feature.label.toLocaleLowerCase().includes(mapQuery.value.trim().toLocaleLowerCase())))
 const candidateChanges = computed(() => candidateView.value ? mapChangeDetails(revision.value?.document || emptyMap(), candidateView.value.document) : [])
+const adoptionChanges = computed(() => candidateChanges.value.filter(change => adoptionPreview.value?.applied_change_keys.includes(change.key)))
 const rehearsal = computed(() => readOnly.value ? { message: '', legs: [], featureIds: [] } : rehearseMapRoute(doc.value, rehearsalStops.value, problems.value.flatMap(problem => problem.feature_ids)))
 const selectedRelations = computed(() => doc.value.constraints.filter(item => [item.subject, item.target].includes(selectedId.value)))
 const selectedFaces = computed(() => (displayDocument.value.constraints || []).filter(item => item.relation === 'faces' && item.subject === selectedId.value).map(item => ({ id: item.id, points: [item.subject, item.target].map(id => mapFeatureCenter(displayDocument.value.features.find(feature => feature.id === id))) })).filter(item => item.points.every(Boolean)))
 const childLevel = computed(() => ({ region: { value: 'city', label: '城市' }, city: { value: 'district', label: '街区' }, district: { value: 'street', label: '街道' } })[props.node.level])
 const relationSubjects = computed(() => doc.value.features.filter(item => !['along_street', 'entrance_to', 'faces'].includes(relation.relation) || ['location', 'landmark'].includes(item.kind)))
 const relationTargets = computed(() => doc.value.features.filter(item => item.id !== relation.subject && (relation.relation === 'along_street' ? item.kind === 'road' : ['entrance_to', 'faces'].includes(relation.relation) ? ['location', 'landmark', 'area'].includes(item.kind) : true)))
-const imageImpact = computed(() => mapImageChanges(doc.value.images.find(item => item.page_id === imageForm.page_id) || { anchors: [] }, revision.value?.document || emptyMap(), doc.value))
+const imageImpact = computed(() => imageBaseline.value ? mapImageChanges(doc.value.images.find(item => item.page_id === imageForm.page_id) || { anchors: [] }, imageBaseline.value.document, doc.value) : { anchors: [], content: [] })
 const selectedImageRevision = computed(() => props.images.find(item => item.id === imageForm.page_id)?.source_map_revision_id)
 const bounds = computed(() => dragBounds.value || mapBounds(displayDocument.value.features))
 const paintRank = feature => feature.kind === 'area' ? 0 : ['road', 'river'].includes(feature.kind) ? 1 : 2
@@ -224,7 +235,7 @@ const paintedFeatures = computed(() => [...displayDocument.value.features].filte
 const mapUnit = computed(() => Math.max(bounds.value.width / Math.max(1, canvasWidth.value), canvasHeight.value ? bounds.value.height / canvasHeight.value : 0))
 const labelPositions = computed(() => {
   const placed = [], result = {}, unit = mapUnit.value
-  for (const feature of [...paintedFeatures.value].sort((a, b) => paintRank(b) - paintRank(a))) {
+  for (const feature of [...paintedFeatures.value].sort((a, b) => Number(b.id === selectedId.value) - Number(a.id === selectedId.value) || paintRank(b) - paintRank(a))) {
     const point = ['road', 'river'].includes(feature.kind) ? feature.points[Math.floor(feature.points.length / 2)] : feature.points[0]
     const width = [...feature.label].length * 14 * unit, height = 20 * unit
     for (const [dx, dy] of [[14, -13], [14, 23], [-14, -13], [-14, 23]]) {
@@ -234,10 +245,17 @@ const labelPositions = computed(() => {
       if (placed.some(other => box.x < other.x+other.width && box.x+width > other.x && box.y < other.y+other.height && box.y+height > other.y)) continue
       result[feature.id] = { x, y }; placed.push(box); break
     }
+    if (feature.id === selectedId.value && !result[feature.id]) result[feature.id] = { x: Math.max(bounds.value.x, Math.min(point.x + 14 * unit, bounds.value.x + bounds.value.width - width)), y: point.y - 13 * unit }
   }
   return result
 })
 const selectedFeature = computed(() => doc.value.features.find(f => f.id === selectedId.value))
+const selectedSegments = computed(() => {
+  const feature = selectedFeature.value
+  if (!feature || feature.points.length < 2 || !['road', 'river', 'area'].includes(feature.kind)) return []
+  return feature.points.slice(0, feature.kind === 'area' ? undefined : -1).map((point, index) => [point, feature.points[(index + 1) % feature.points.length]])
+})
+const canRemovePoint = computed(() => selectedFeature.value?.points.length > (selectedFeature.value.kind === 'area' ? 3 : ['road', 'river'].includes(selectedFeature.value.kind) ? 2 : 0))
 const anchorFeatures = computed(() => doc.value.features.filter(f => ["location", "landmark"].includes(f.kind) && f.points.length === 1))
 const childChoices = computed(() => props.knownNodes.filter(node => node.id !== props.node.id && node.parent_id === props.node.id))
 const annotations = computed(() => props.images.flatMap(page => page.annotations || []))
@@ -245,11 +263,12 @@ const conflictChanges = computed(() => serverRevision.value ? mapChangeDetails(s
 const saveLabel = computed(() => saving.value ? "正在处理地图操作…" : dirty.value ? (backedUp.value ? "未保存到服务端 · 当前编辑已在本机备份" : "有未保存修改") : revision.value ? "已保存到服务端" : "空间结构尚未保存")
 const backgrounds = computed(() => {
   if (candidateView.value && !compareCandidateCurrent.value) return comparisonLayers.value.filter(layer => layer.role === 'background' && layer.state === 'ready' && layer.transform)
+  if (candidateView.value) return imageLayers.value.filter(layer => layer.role === 'background' && layer.state === 'ready' && layer.transform)
   if (compareServer.value) return []
   const layers = reader.value ? reader.value.images : imageLayers.value
   return layers.filter(layer => layer.role === "background" && layer.transform && (reader.value || imageState(doc.value.images.find(i => i.page_id === layer.page_id)) === "ready")).map(layer => ({ ...layer, opacity: reader.value ? layer.opacity : doc.value.images.find(i => i.page_id === layer.page_id)?.opacity ?? layer.opacity }))
 })
-const selectedIllustrations = computed(() => (reader.value ? reader.value.images : imageLayers.value).filter(layer => layer.role === "illustration" && (!layer.feature_id || layer.feature_id === selectedId.value) && (reader.value || layer.state === "ready")))
+const selectedIllustrations = computed(() => (reader.value ? reader.value.images : candidateView.value && !compareCandidateCurrent.value ? comparisonLayers.value : imageLayers.value).filter(layer => layer.role === "illustration" && (!layer.feature_id || layer.feature_id === selectedId.value) && (reader.value || layer.state === "ready")))
 
 function imageKey(pageId) { return (reader.value ? "reader:" + readerChapter.value + ":" : "author:") + pageId }
 function imageTitle(pageId) { return props.images.find(page => page.id === pageId)?.title || "已有图片" }
@@ -299,7 +318,7 @@ function mutate(change) {
 }
 function undo() { if (!undoStack.value.length) return; redoStack.value.push(JSON.stringify(doc.value)); doc.value = JSON.parse(undoStack.value.pop()) }
 function redo() { if (!redoStack.value.length) return; undoStack.value.push(JSON.stringify(doc.value)); doc.value = JSON.parse(redoStack.value.pop()) }
-function selectFeature(id) { selectedId.value = id; selectedVertex.value = 0; if (!readOnly.value) emit('select-feature', id) }
+function selectFeature(id) { selectedId.value = id; selectedVertex.value = 0; selectedSegment.value = 0; if (!readOnly.value) emit('select-feature', id) }
 function locateChange(ids) {
   const id = ids.find(value => displayDocument.value.features.some(feature => feature.id === value))
   if (id) return locateFeature(id)
@@ -341,6 +360,23 @@ async function locateFeature(id) {
 }
 function changeFeature(key, value) { if (selectedFeature.value) mutate(() => { selectedFeature.value[key] = value }) }
 function toggleReference() { referenceOnly.value = !referenceOnly.value; emit("reference-visible", referenceOnly.value) }
+function startPan(event) {
+  if (event.button !== 0 || event.pointerType === 'touch' || placing.value || drag || !scrollArea.value || !(event.target === canvas.value || event.target.classList?.contains('map-paper') || event.target.localName === 'polygon')) return
+  pan = { x: event.clientX, y: event.clientY, left: scrollArea.value.scrollLeft, top: scrollArea.value.scrollTop, pointerId: event.pointerId, featureId: event.target.closest('.map-feature')?.dataset.featureId, moved: false }
+  panning.value = true; event.preventDefault(); scrollArea.value.setPointerCapture?.(event.pointerId)
+}
+function movePan(event) {
+  if (!pan || pan.pointerId !== event.pointerId) return
+  if (Math.hypot(pan.x - event.clientX, pan.y - event.clientY) > 4) pan.moved = true
+  scrollArea.value.scrollLeft = pan.left + pan.x - event.clientX
+  scrollArea.value.scrollTop = pan.top + pan.y - event.clientY
+}
+function endPan(event) { if (pan?.featureId && !pan.moved && event?.type !== 'pointercancel') selectFeature(pan.featureId); pan = null; panning.value = false; rememberView() }
+function panByKey(event) {
+  const delta = { ArrowLeft: [-80, 0], ArrowRight: [80, 0], ArrowUp: [0, -80], ArrowDown: [0, 80] }[event.key]
+  if (!delta) return
+  event.preventDefault(); scrollArea.value.scrollLeft += delta[0]; scrollArea.value.scrollTop += delta[1]; rememberView()
+}
 function pointFromEvent(event) {
   const svg = canvas.value, matrix = svg?.getScreenCTM()
   if (!matrix) return null
@@ -361,6 +397,7 @@ function finishDrawing() {
 }
 function startDrag(event, feature, index) {
   if (busy.value || readOnly.value || focused.value || feature.locked || event.button !== 0) return
+  if (event.pointerType === 'touch' && !event.target.classList?.contains('map-handle')) return
   selectedId.value = feature.id; selectedVertex.value = index
   drag = { id: feature.id, index, before: JSON.stringify(doc.value) }; dragBounds.value = bounds.value
   event.target.setPointerCapture?.(event.pointerId)
@@ -386,8 +423,17 @@ function moveByKey(event, feature) {
   event.preventDefault(); selectedId.value = feature.id; nudge(...delta)
 }
 function removePoint() {
-  if (!selectedFeature.value || selectedFeature.value.locked) return
-  mutate(() => { selectedFeature.value.points.pop(); placing.value = true })
+  if (!selectedFeature.value || selectedFeature.value.locked || !canRemovePoint.value) return
+  mutate(() => { selectedFeature.value.points.splice(selectedVertex.value, 1) })
+  selectedVertex.value = Math.max(0, Math.min(selectedVertex.value, selectedFeature.value.points.length - 1))
+  selectedSegment.value = Math.max(0, Math.min(selectedSegment.value, selectedSegments.value.length - 1))
+}
+function insertPoint() {
+  const feature = selectedFeature.value, segment = selectedSegments.value[selectedSegment.value]
+  if (!segment || feature.locked || feature.points.length >= 128) return
+  const index = selectedSegment.value + 1
+  mutate(() => feature.points.splice(index, 0, { x: (segment[0].x + segment[1].x) / 2, y: (segment[0].y + segment[1].y) / 2 }))
+  selectedVertex.value = index
 }
 function addFeature() {
   const id = "mark:" + crypto.randomUUID()
@@ -480,20 +526,41 @@ async function generateSelection(locationIds, featureIds) {
   } catch (err) { if (err.message !== "已取消 AI 参考资料确认") error.value = err.message || "空间整理暂时不可用" }
   finally { if (alive) saving.value = false }
 }
-async function viewCandidate(value) {
+async function viewCandidate(value, existingPreview = null) {
   if (dirty.value && !confirm('比较地图版本时会保留当前编辑，是否继续？')) return
   compareServer.value = false; candidateView.value = value; compareCandidateCurrent.value = false; reader.value = null; referenceOnly.value = false; focused.value = false; emit('reference-visible', false); problems.value = value.problems || []
   selectedChangeKeys.value = candidateChanges.value.map(change => change.key); comparisonLayers.value = []
   try {
-    const preview = await api.world.previewMapRevision(props.projectId, props.node.id, value.id)
+    const preview = existingPreview || await api.world.previewMapRevision(props.projectId, props.node.id, value.id)
     if (!alive || candidateView.value?.id !== value.id) return
-    comparisonLayers.value = preview.image_layers || []
+    comparisonLayers.value = preview.image_layers || []; problems.value = preview.problems || []
     await Promise.all(comparisonLayers.value.filter(layer => layer.state === 'ready').map(layer => loadImage(layer.page_id)))
   } catch (err) { if (alive && candidateView.value?.id === value.id) error.value = err.message || '版本图片读取失败，结构仍可比较' }
 }
-function exitCandidate() { candidateView.value = null; compareCandidateCurrent.value = false; problems.value = revision.value?.problems || [] }
+function exitCandidate() { candidateView.value = null; compareCandidateCurrent.value = false; problems.value = serverRevision.value?.problems || revision.value?.problems || [] }
+async function previewAdoption() {
+  const value = candidateView.value, baseId = revision.value?.id || null, keys = [...selectedChangeKeys.value]
+  if (!value || value.status !== 'candidate' || value.base_revision_id !== baseId || busy.value || dirty.value || !keys.length) return
+  const token = ++reviewEpoch
+  adoptionPreview.value = null; previewing.value = true; error.value = ''; reviewNotice.value = ''
+  try {
+    const result = await api.world.previewMapReview(props.projectId, props.node.id, value.id, { base_revision_id: baseId, action: 'adopt', change_keys: keys })
+    if (!alive || token !== reviewEpoch) return
+    if (result.candidate_revision_id !== value.id || result.base_revision_id !== baseId || !Array.isArray(result.applied_change_keys) || !Array.isArray(result.expanded_change_keys) || !result.applied_change_keys.length || result.applied_change_keys.some(key => !candidateChanges.value.some(change => change.key === key))) throw new Error('采用范围与当前候选不一致，请重新核对。')
+    adoptionPreview.value = result
+  } catch (err) {
+    if (!alive || token !== reviewEpoch) return
+    error.value = err.message || '采用范围暂时无法核对，请重试。'
+    explainRequiredChanges(err)
+  } finally { if (alive && token === reviewEpoch) previewing.value = false }
+}
+function explainRequiredChanges(err) {
+  const required = err.body?.context?.required_change_keys || err.body?.detail?.context?.required_change_keys || []
+  if (required.length) reviewNotice.value = '请明确勾选关联修改后再采用：' + candidateChanges.value.filter(change => required.includes(change.key)).map(change => change.label).join('、')
+}
 async function review(value, action, changeKeys = null) {
   if (busy.value || dirty.value) return
+  if (action === 'adopt' && (!adoptionPreview.value || adoptionPreview.value.candidate_revision_id !== value.id || adoptionPreview.value.base_revision_id !== (revision.value?.id || null))) return
   if (action === "restore" && !confirm("将历史地图恢复为新版本？当前版本仍保留在历史中。")) return
   if (action === "reject" && !confirm("不使用这个空间候选？已保存地图不会受到影响。")) return
   saving.value = true
@@ -505,17 +572,29 @@ async function review(value, action, changeKeys = null) {
     candidateView.value = null; await load()
   } catch (err) {
     error.value = err.message || "版本操作失败，当前地图仍保留"
-    const required = err.body?.context?.required_change_keys || err.body?.detail?.context?.required_change_keys || []
-    if (required.length) reviewNotice.value = '请明确勾选关联修改后再采用：' + candidateChanges.value.filter(change => required.includes(change.key)).map(change => change.label).join('、')
+    adoptionPreview.value = null; explainRequiredChanges(err)
   }
   finally { if (alive) saving.value = false }
 }
 async function loadHistory() { try { history.value = await api.world.listMapRevisions(props.projectId, props.node.id) } catch (err) { error.value = err.message || "历史读取失败" } }
 async function compareImageRevision() {
-  await loadHistory()
-  const version = history.value.find(item => item.id === selectedImageRevision.value)
-  if (version) await viewCandidate(version)
-  else reviewNotice.value = '图片引用了较早的地图版本，当前历史列表未包含该版；请保留图片并核对资料。'
+  const id = selectedImageRevision.value
+  if (!id) return
+  try {
+    const preview = await api.world.previewMapRevision(props.projectId, props.node.id, id)
+    if (!alive || selectedImageRevision.value !== id) return
+    await viewCandidate({ id, status: 'saved', document: preview.document, problems: preview.problems }, preview)
+  } catch (err) { if (alive) error.value = err.message || '图片来源地图暂时无法读取，请重试。' }
+}
+async function loadImageBaseline() {
+  const id = selectedImageRevision.value, token = ++imageBaselineEpoch
+  imageBaseline.value = null; imageBaselineStatus.value = id ? 'loading' : 'unknown'
+  if (!id) return
+  try {
+    const preview = await api.world.previewMapRevision(props.projectId, props.node.id, id)
+    if (!alive || token !== imageBaselineEpoch) return
+    imageBaseline.value = preview; imageBaselineStatus.value = 'ready'
+  } catch { if (alive && token === imageBaselineEpoch) imageBaselineStatus.value = 'error' }
 }
 function restoreBackup() {
   if (!recovery.value) return
@@ -554,7 +633,7 @@ async function loadImage(pageId) {
   finally { if (imageRequests.get(key) === token) imageRequests.delete(key) }
 }
 async function loadLayerImages() { await Promise.all((reader.value ? reader.value.images : imageLayers.value.filter(layer => layer.state === "ready")).map(layer => loadImage(layer.page_id))) }
-async function loadSelectedImage() { if (imageForm.page_id) await loadImage(imageForm.page_id) }
+async function loadSelectedImage() { if (imageForm.page_id) await loadImage(imageForm.page_id); if (imageBaselineStatus.value === 'error') await loadImageBaseline() }
 function markImageAnchor(event) {
   const rect = event.currentTarget.getBoundingClientRect()
   imageForm.anchors[anchorIndex.value].image_x = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
@@ -616,6 +695,8 @@ watch(canvas, (element, previous) => { if (previous) resizeObserver?.unobserve(p
 watch(() => props.reviewImageId, id => { if (!dirty.value) { referenceOnly.value = Boolean(id); emit("reference-visible", referenceOnly.value) } }, { immediate: true })
 watch([dirty, revision, reader, focused], () => emit("state", { dirty: dirty.value, revision: revision.value, reader: Boolean(reader.value), focused: focused.value }), { immediate: true })
 watch([selectedId, zoom, focused, rehearsalStops], rememberView, { deep: true })
+watch([candidateView, () => revision.value?.id, () => serverRevision.value?.id, selectedChangeKeys], () => { ++reviewEpoch; adoptionPreview.value = null; previewing.value = false }, { deep: true, flush: 'sync' })
+watch([() => imageForm.page_id, selectedImageRevision], loadImageBaseline)
 watch(() => relation.relation, () => { if (!relationSubjects.value.some(item => item.id === relation.subject)) relation.subject = ''; if (!relationTargets.value.some(item => item.id === relation.target)) relation.target = '' })
 onMounted(() => {
   load(true); globalThis.addEventListener("beforeunload", beforeUnload)
@@ -629,10 +710,11 @@ defineExpose({ canLeave, save, dirty, revision })
 </script>
 
 <style scoped>
-.map-editor{display:grid;gap:var(--space-3);min-width:0}.map-toolbar,.map-actions,.map-reader,.map-canvas-controls,.map-history,.map-candidates>div{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-2)}.map-toolbar{justify-content:space-between}.map-caption,.map-save-status{color:var(--text-secondary);font-size:var(--text-sm)}.map-caption{display:block;margin-top:var(--space-1)}.map-toolbar .map-caption{display:inline;margin-left:var(--space-2)}.map-editor>p{margin:0}.map-editor .map-save-status{font-size:var(--text-xs)}.map-actions .btn,.map-editor summary{min-height:44px}.map-editor label{display:grid;gap:var(--space-1);min-width:0}.map-editor details{padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius-md);min-width:0}.map-editor summary{cursor:pointer;font-weight:600}.map-inline-form{display:flex;align-items:end;flex-wrap:wrap;gap:var(--space-2);margin-block:var(--space-2)}.map-inline-form>label{flex:1 1 140px}.map-editor input,.map-editor select,.map-editor textarea{max-width:100%;min-width:0}.map-editor input[type=number]{width:100px;min-height:36px}.map-reader>label{display:flex;align-items:center;flex-wrap:wrap}.map-edit-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,320px);gap:var(--space-3)}.map-inspector{display:grid;align-content:start;gap:var(--space-2);padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius-md)}.map-scroll{overflow:auto;max-height:70vh;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--bg-base)}.map-canvas{display:block;min-width:320px;min-height:300px;max-width:none;touch-action:pan-x pan-y}.map-paper{fill:var(--bg-base)}.map-feature{cursor:pointer;outline:none}.map-feature circle{fill:var(--accent);stroke:var(--bg-base);stroke-width:3}.map-feature polygon{fill:var(--bg-muted);stroke:var(--border);stroke-width:2}.map-feature polyline{fill:none;stroke:var(--text-secondary);stroke-width:3;stroke-dasharray:7 4}.map-kind-river polyline{stroke:var(--accent);stroke-width:5;stroke-dasharray:none}.map-feature text{fill:var(--text-primary);font-size:15px;paint-order:stroke;stroke:var(--bg-base);stroke-width:4;stroke-linejoin:round}.map-feature:focus circle,.map-feature.selected circle{stroke:var(--text-primary);stroke-width:4}.map-feature:focus polyline,.map-feature.selected polyline,.map-feature:focus polygon,.map-feature.selected polygon{stroke:var(--accent);stroke-width:4}.map-feature .map-hit{fill:transparent;stroke:none;cursor:move}.map-handle{fill:var(--bg-base);stroke:var(--accent);stroke-width:3;cursor:move;touch-action:none}.map-location-list{display:grid;gap:var(--space-1);max-height:220px;overflow:auto}.map-location-list label{display:flex;align-items:center;gap:var(--space-2);min-height:38px}.map-warning{padding:var(--space-3);background:var(--warning-soft);border:1px solid var(--warning);border-radius:var(--radius-md)}.map-error{color:var(--error)}.map-calibration{position:relative;max-width:500px;cursor:crosshair}.map-calibration img{display:block;width:100%;height:auto}.map-calibration span{position:absolute;transform:translate(-50%,-50%);background:var(--text-primary);color:var(--bg-base);border-radius:50%;width:24px;height:24px;text-align:center;pointer-events:none}.map-detail-image{max-width:100%;height:auto;border-radius:var(--radius-md)}.map-history{padding:var(--space-2);justify-content:space-between}
+.map-editor{display:grid;gap:var(--space-3);min-width:0}.map-toolbar,.map-actions,.map-reader,.map-canvas-controls,.map-history,.map-candidates>div{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-2)}.map-toolbar{justify-content:space-between}.map-caption,.map-save-status{color:var(--text-secondary);font-size:var(--text-sm)}.map-caption{display:block;margin-top:var(--space-1)}.map-toolbar .map-caption{display:inline;margin-left:var(--space-2)}.map-editor>p{margin:0}.map-editor .map-save-status{font-size:var(--text-xs)}.map-actions .btn,.map-editor summary{min-height:44px}.map-editor label{display:grid;gap:var(--space-1);min-width:0}.map-editor details{padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius-md);min-width:0}.map-editor summary{cursor:pointer;font-weight:600}.map-inline-form{display:flex;align-items:end;flex-wrap:wrap;gap:var(--space-2);margin-block:var(--space-2)}.map-inline-form>label{flex:1 1 140px}.map-editor input,.map-editor select,.map-editor textarea{max-width:100%;min-width:0}.map-editor input[type=number]{width:100px;min-height:36px}.map-reader>label{display:flex;align-items:center;flex-wrap:wrap}.map-edit-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,320px);gap:var(--space-3)}.map-inspector{display:grid;align-content:start;gap:var(--space-2);padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius-md)}.map-scroll{overflow:auto;max-height:70vh;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--bg-base)}.map-canvas{display:block;min-width:320px;min-height:300px;max-width:none;touch-action:pan-x pan-y pinch-zoom}.map-paper{fill:var(--bg-base)}.map-feature{cursor:pointer;outline:none}.map-feature circle{fill:var(--accent);stroke:var(--bg-base);stroke-width:3}.map-feature polygon{fill:var(--bg-muted);stroke:var(--border);stroke-width:2}.map-feature polyline{fill:none;stroke:var(--text-secondary);stroke-width:3;stroke-dasharray:7 4}.map-kind-river polyline{stroke:var(--accent);stroke-width:5;stroke-dasharray:none}.map-feature text{fill:var(--text-primary);font-size:15px;paint-order:stroke;stroke:var(--bg-base);stroke-width:4;stroke-linejoin:round}.map-feature:focus circle,.map-feature.selected circle{stroke:var(--text-primary);stroke-width:4}.map-feature:focus polyline,.map-feature.selected polyline,.map-feature:focus polygon,.map-feature.selected polygon{stroke:var(--accent);stroke-width:4}.map-feature .map-hit{fill:transparent;stroke:none;cursor:move}.map-handle{fill:var(--bg-base);stroke:var(--accent);stroke-width:3;cursor:move;touch-action:none}.map-location-list{display:grid;gap:var(--space-1);max-height:220px;overflow:auto}.map-location-list label{display:flex;align-items:center;gap:var(--space-2);min-height:38px}.map-warning{padding:var(--space-3);background:var(--warning-soft);border:1px solid var(--warning);border-radius:var(--radius-md)}.map-error{color:var(--error)}.map-calibration{position:relative;max-width:500px;cursor:crosshair}.map-calibration img{display:block;width:100%;height:auto}.map-calibration span{position:absolute;transform:translate(-50%,-50%);background:var(--text-primary);color:var(--bg-base);border-radius:50%;width:24px;height:24px;text-align:center;pointer-events:none}.map-detail-image{max-width:100%;height:auto;border-radius:var(--radius-md)}.map-history{padding:var(--space-2);justify-content:space-between}
 @media(max-width:900px){.map-edit-grid{grid-template-columns:minmax(0,1fr)}.map-toolbar{align-items:stretch;flex-direction:column}.map-reader{align-items:start}.map-editor .form-input,.map-editor .form-select{width:100%}.map-canvas-controls{justify-content:space-between}.map-candidates>div{align-items:start}.map-editor details{padding:var(--space-2)}}
 .map-illustration-preview{display:block;max-width:100%;width:280px;max-height:210px;object-fit:contain;border-radius:var(--radius-md)}
 .map-rehearsal-line{fill:none;stroke:var(--accent);stroke-width:7;stroke-opacity:.45;stroke-dasharray:12 6}.map-feature.rehearsed circle:not(.map-hit){stroke:var(--accent);stroke-width:5}.map-facing-line{fill:none;stroke:var(--accent);stroke-width:3;stroke-dasharray:4 5}.map-facing-head{fill:var(--accent)}
 .map-navigation{display:grid;gap:var(--space-2)}.map-locator{min-width:0}.map-locator .map-actions{max-height:132px;overflow:auto}.map-focused{gap:var(--space-2)}.map-focused .map-toolbar{flex-direction:row;align-items:center}.map-focused .map-toolbar>div:first-child{min-width:0;overflow-wrap:anywhere}.map-focused .map-navigation{display:flex;align-items:start;flex-wrap:wrap}.map-focused .map-canvas-controls{flex:0 1 auto;min-height:44px}.map-focused .map-canvas-controls label{display:flex;align-items:center;gap:var(--space-2)}.map-focused .map-locator{flex:1 1 200px}.map-focused .map-locator>label{display:flex;align-items:center;gap:var(--space-2);font-size:var(--text-sm);white-space:nowrap}.map-focused .map-locator input{flex:1;min-width:0;width:100px}.map-focused .map-scroll{max-height:max(300px,calc(100dvh - 240px))}.map-focused .map-canvas{min-width:0;height:calc(var(--map-zoom, 1) * max(300px,100dvh - 240px))}.map-focused .map-hit{cursor:pointer}
 @media(max-width:900px){.map-focused .map-canvas{height:auto}}
+.map-scroll{touch-action:pan-x pan-y pinch-zoom}.map-scroll.panning{cursor:grabbing;user-select:none}.map-paper{cursor:grab}.map-scroll:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.map-segment{stroke:transparent;cursor:pointer}.map-segment.selected{stroke:var(--accent);stroke-opacity:.2}.map-handle.selected{fill:var(--accent)}.map-feature.selected text{font-weight:700}.map-adoption-preview{padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius-md)}
 </style>

@@ -86,6 +86,15 @@ describe("api.js cache behavior", () => {
     globalThis.fetch = originalFetch
   })
 
+  it("地图采用范围预览发送原始选择和版本基准", async () => {
+    const result = { candidate_revision_id: 'candidate', base_revision_id: 'base', applied_change_keys: ['feature:a'], expanded_change_keys: [] }
+    globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => result }))
+    const payload = { action: 'adopt', base_revision_id: 'base', change_keys: ['feature:a'] }
+    expect(await window.api.world.previewMapReview('project', 'node', 'candidate', payload)).toEqual(result)
+    expect(globalThis.fetch.mock.calls[0][0]).toContain('/world/map-atlas/project/nodes/node/revisions/candidate/review-preview')
+    expect(globalThis.fetch.mock.calls[0][1]).toMatchObject({ method: 'POST', body: JSON.stringify(payload) })
+  })
+
   it("409 response uses a localized conflict prefix and preserves detail", async () => {
     globalThis.fetch = vi.fn(() => Promise.resolve({
       ok: false,

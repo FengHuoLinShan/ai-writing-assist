@@ -75,6 +75,9 @@ ORM 位于 `backend/modules/world/map_atlas_models.py`。
 待核对项，但不能借此新增失效引用，相关内容不进入阅读预览或新的结构引导生图。
 加载当前地图与最多十个候选时重新核对来源，失效或恢复只改变响应中的提示，不更新原版本与历史。
 候选差异审阅覆盖图元、空间关系、图片展示及标注绑定，并可切换对照已保存地图；采用支持整版或选择变更键；服务端计算依赖闭包，剩余修改生成基于新版本的候选继续待确认。
+采用前通过只读 `review-preview` 核对实际变更集合，界面列出自动关联项和总数后再确认。
+改变选择、候选或版本基准会使旧预览失效，正式采用仍提交原选择键，保留额外删除的明确选择门禁。
+历史预览展示当次核对的来源问题与该版本图片，退出后恢复当前版提示。
 
 图片通过 `MapImagePlacement` 进入同一个地图版本：底图位于空间图元下方，地点配图关联节点或
 图元。底图使用三个不共线锚点计算仿射变换，校准只改变图片展示，不改变空间位置；对齐锚点不
@@ -172,6 +175,7 @@ finalization 在短事务中取得项目 share lock 与 task lease，持锁上�
 | POST | `/{novel_id}/nodes/{node_id}/layout` | 有界布局、来源校验和图片校准预览，不持久化。 |
 | POST | `/{novel_id}/nodes/{node_id}/generate-structure` | 携带 operation ID、confirmation、基准版本与地点范围入队。 |
 | POST | `/{novel_id}/nodes/{node_id}/revisions/{revision_id}/review` | 采用／拒绝候选或将历史恢复为新版本。 |
+| POST | `/{novel_id}/nodes/{node_id}/revisions/{revision_id}/review-preview` | 只读核对所选采用项及关联修改，返回实际应用范围。 |
 | GET | `/{novel_id}/nodes/{node_id}/reader-preview` | 按章首生成只读白名单。 |
 | GET | `/{novel_id}/nodes/{node_id}/reader-preview/images/{page_id}` | 重验预览白名单后读取图片。 |
 | POST | `/{novel_id}/runs` | 创建初次、更新或完整重做 run；作者请求必须携带 action 匹配的 Context confirmation。 |
