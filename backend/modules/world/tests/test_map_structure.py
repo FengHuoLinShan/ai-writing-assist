@@ -13,7 +13,7 @@ from modules.world.map_atlas_models import (
     MapAtlasRun,
 )
 from modules.world.map_atlas_schemas import MapAtlasNodeUpdate
-from modules.world.map_atlas_service import MapAtlasService
+from modules.world.map_atlas_service import MapAtlasService, _path_part
 from modules.world.map_structure_geometry import (
     affine_transform,
     geometry_hash,
@@ -237,6 +237,120 @@ async def test_manual_map_can_rename_move_and_reorder_with_cas(
     assert [node["id"] for node in tree["nodes"]] == [other["id"], parent["id"]]
     assert updated["sort_order"] == 0
     assert tree["nodes"][0]["children"][0]["title"] == "城市位置示意"
+
+
+@pytest.mark.asyncio
+async def test_spatial_node_level_changes_preserve_editing(
+    db_session, test_project_id, async_client
+):
+    service, node = await create_map(db_session, test_project_id)
+    path = f"/api/world/map-atlas/{test_project_id}/nodes/{node['id']}"
+    row = await db_session.get(MapAtlasNode, uuid.UUID(node["id"]))
+    baseline = row.updated_at.isoformat()
+    for level in ("cover", "world", "district", "street", "interior"):
+        response = await async_client.patch(
+            path,
+            json={
+                "title": "不能覆盖的名称",
+                "level": level,
+                "expected_updated_at": baseline,
+            },
+        )
+        assert response.status_code == 400, response.text
+        assert row.level == "region"
+        assert row.title == node["title"]
+        assert str(row.current_revision_id) == node["current_revision_id"]
+    response = await async_client.patch(
+        path,
+        json={"level": "city", "expected_updated_at": baseline},
+    )
+    assert response.status_code == 200, response.text
+    saved = await service.save(
+        db_session,
+        test_project_id,
+        node["id"],
+        MapSaveRequest(base_revision_id=node["current_revision_id"], document=document()),
+    )
+    assert saved.document.features
+    image_only = MapAtlasNode(
+        novel_id=uuid.UUID(test_project_id),
+        semantic_key=f"manual:{uuid.uuid4()}",
+        title="旧街区图片",
+        level="district",
+        status="adopted",
+    )
+    db_session.add(image_only)
+    await db_session.flush()
+    updated = await MapAtlasService().update_node(
+        db_session,
+        test_project_id,
+        str(image_only.id),
+        MapAtlasNodeUpdate(level="street", expected_updated_at=image_only.updated_at),
+    )
+    assert updated["level"] == "street"
+
+
+@pytest.mark.asyncio
+async def test_path_node_rename_and_move_rewrite_only_actual_path_descendants(
+    db_session, test_project_id
+):
+    nodes = []
+    for title, level in (("旧世界", "world"), ("地区", "region"), ("城", "city")):
+        parent = nodes[-1] if nodes else None
+        parent_key = parent.semantic_key if parent else "root"
+        node = MapAtlasNode(
+            novel_id=uuid.UUID(test_project_id),
+            semantic_key=f"path:{parent_key}:{_path_part(title)}",
+            title=title,
+            level=level,
+            parent_id=parent.id if parent else None,
+            status="adopted",
+        )
+        db_session.add(node)
+        await db_session.flush()
+        nodes.append(node)
+    root, region, city = nodes
+    _, destination = await create_map(db_session, test_project_id)
+    # A legacy key can share the text prefix without belonging to this subtree.
+    unrelated = MapAtlasNode(
+        novel_id=uuid.UUID(test_project_id),
+        semantic_key=f"{root.semantic_key}:unrelated",
+        title="独立区域",
+        level="region",
+        status="adopted",
+    )
+    fixed_identity = MapAtlasNode(
+        novel_id=uuid.UUID(test_project_id),
+        semantic_key=f"manual:{uuid.uuid4()}",
+        title="手工图",
+        level="region",
+        parent_id=root.id,
+        status="adopted",
+    )
+    db_session.add_all([unrelated, fixed_identity])
+    await db_session.flush()
+    preserved = (unrelated.semantic_key, fixed_identity.semantic_key)
+    service = MapAtlasService()
+    await service.update_node(
+        db_session,
+        test_project_id,
+        str(root.id),
+        MapAtlasNodeUpdate(title="新世界", expected_updated_at=root.updated_at),
+    )
+    assert root.semantic_key == f"path:root:{_path_part('新世界')}"
+    assert region.semantic_key == f"path:{root.semantic_key}:{_path_part('地区')}"
+    assert city.semantic_key == f"path:{region.semantic_key}:{_path_part('城')}"
+    await service.update_node(
+        db_session,
+        test_project_id,
+        str(city.id),
+        MapAtlasNodeUpdate(
+            parent_id=destination["id"], expected_updated_at=city.updated_at
+        ),
+    )
+    destination_row = await db_session.get(MapAtlasNode, uuid.UUID(destination["id"]))
+    assert city.semantic_key == f"path:{destination_row.semantic_key}:{_path_part('城')}"
+    assert (unrelated.semantic_key, fixed_identity.semantic_key) == preserved
 
 
 @pytest.mark.asyncio

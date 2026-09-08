@@ -890,6 +890,8 @@ class MapAtlasService:
             data.parent_id if "parent_id" in data.model_fields_set else node.parent_id
         )
         new_level = data.level or node.level
+        if node.current_revision_id is not None and new_level not in {"region", "city"}:
+            raise ValidationError("已有位置示意的地图只能使用区域或城市层级")
         if new_parent_id == node.id:
             raise ValidationError("地图节点不能成为自己的上级")
         parent = by_id.get(new_parent_id) if new_parent_id else None
@@ -931,12 +933,12 @@ class MapAtlasService:
         ):
             parent_semantic = parent.semantic_key if parent else "root"
             replacement = f"path:{parent_semantic}:{_path_part(node.title)}"
-            rewrites = {
-                item.id: replacement + item.semantic_key[len(old_semantic) :]
-                for item in nodes
-                if item.semantic_key == old_semantic
-                or item.semantic_key.startswith(f"{old_semantic}:")
-            }
+            rewrites = {node.id: replacement}
+            for item in sorted(nodes, key=lambda item: ATLAS_LEVEL_RANK[item.level]):
+                if item.parent_id in rewrites and item.semantic_key.startswith("path:"):
+                    rewrites[item.id] = (
+                        f"path:{rewrites[item.parent_id]}:{_path_part(item.title)}"
+                    )
             untouched = {item.semantic_key for item in nodes if item.id not in rewrites}
             if (
                 len(set(rewrites.values())) != len(rewrites)
