@@ -38,6 +38,7 @@ from modules.world.map_structure_geometry import (
 from modules.world.map_structure_schemas import (
     STRUCTURE_LEVELS,
     MapDocument,
+    MapLayoutResponse,
     MapLink,
     MapLinkQuery,
     MapLinksResponse,
@@ -422,7 +423,15 @@ class MapStructureService:
 
         return problems
 
-    async def save(self, db, novel_id: str, node_id: str, data: MapSaveRequest):
+    async def save(
+        self,
+        db,
+        novel_id: str,
+        node_id: str,
+        data: MapSaveRequest,
+        *,
+        _trusted_generation: bool = False,
+    ):
         await require_active_project_exclusive(db, novel_id)
         node = await self.node(db, novel_id, node_id, lock=True)
         if node.level not in STRUCTURE_LEVELS:
@@ -430,6 +439,29 @@ class MapStructureService:
         if node.current_revision_id != data.base_revision_id:
             raise ConflictError("地图已在别处更新；当前编辑仍保留，请先比较版本")
         document = data.document.model_copy(deep=True)
+        if not _trusted_generation:
+            previous = (
+                await self.revision(db, novel_id, node_id, node.current_revision_id)
+                if node.current_revision_id
+                else None
+            )
+            prior = (
+                {
+                    item.id: item
+                    for item in MapDocument.model_validate(previous.document).constraints
+                }
+                if previous
+                else {}
+            )
+            for item in document.constraints:
+                if item.generated_by_task_id is None:
+                    continue
+                old = prior.get(item.id)
+                if old is None or old.generated_by_task_id != item.generated_by_task_id:
+                    raise ValidationError("手工保存不能指定空间提取任务来源")
+                if old != item:
+                    # An author edit owns the relation from now on.
+                    item.generated_by_task_id = None
         source_problems = await self.validate_document(db, novel_id, node, document)
         row = MapAtlasRevision(
             novel_id=node.novel_id,
@@ -462,7 +494,40 @@ class MapStructureService:
         ).all()
         return [self.response(row) for row in rows]
 
+    async def preview_revision(self, db, novel_id, node_id, revision_id):
+        await self.node(db, novel_id, node_id)
+        row = await self.revision(db, novel_id, node_id, revision_id)
+        document = MapDocument.model_validate(row.document)
+        problems = list(row.problems)
+        for item in [*document.features, *document.constraints]:
+            for source in item.sources:
+                try:
+                    await self.source(db, novel_id, source)
+                except (ConflictError, ValidationError):
+                    problems.append(
+                        {
+                            "code": "source_stale",
+                            "message": "此版本的部分来源已变化或不可用，请核对后再使用",
+                            "feature_ids": [item.id]
+                            if hasattr(item, "points")
+                            else [item.subject, item.target],
+                        }
+                    )
+                    break
+        return MapLayoutResponse(
+            document=document,
+            geometry_hash=row.geometry_hash,
+            problems=problems,
+            image_layers=await self.image_layers(db, novel_id, node_id, document),
+        )
+
     async def review(self, db, novel_id, node_id, revision_id, data: MapRevisionReview):
+        from modules.world.map_structure_review import (
+            apply_revision_changes,
+            changed_items,
+            document_items,
+        )
+
         await require_active_project_exclusive(db, novel_id)
         node = await self.node(db, novel_id, node_id, lock=True)
         row = await self.revision(db, novel_id, node_id, revision_id)
@@ -489,19 +554,70 @@ class MapStructureService:
                 )
                 if prepared.confirmation.context_fingerprint != row.context_fingerprint:
                     raise ConflictError("候选来源已变化，请重新生成")
+            elif row.task_id or any(
+                item.get("generated_by_task_id")
+                for item in (row.document or {}).get("constraints", [])
+            ):
+                raise ConflictError("候选缺少原参考资料确认，请重新生成")
         elif row.status != "saved":
             raise ConflictError("只能恢复已保存的历史版本")
+        candidate = MapDocument.model_validate(row.document)
+        applied, expanded = [], []
+        document = candidate
+        if data.action == "adopt":
+            baseline = (
+                MapDocument.model_validate(
+                    (
+                        await self.revision(db, novel_id, node_id, row.base_revision_id)
+                    ).document
+                )
+                if row.base_revision_id
+                else MapDocument()
+            )
+            document, applied, expanded = apply_revision_changes(
+                baseline, candidate, data.change_keys
+            )
+            items = document_items(document)
+            for key in applied:
+                item = items.get(key)
+                if item is not None and key.startswith(("feature:", "constraint:")):
+                    for source in item.sources:
+                        await self.source(db, novel_id, source)
         result = await self.save(
             db,
             novel_id,
             node_id,
             MapSaveRequest(
                 base_revision_id=data.base_revision_id,
-                document=MapDocument.model_validate(row.document),
+                document=document,
             ),
+            _trusted_generation=True,
         )
         if data.action == "adopt":
-            row.status = "saved"
+            result.applied_change_keys = applied
+            result.expanded_change_keys = expanded
+            if changed_items(document, candidate):
+                # The original complete candidate was never fully adopted. Retire it
+                # without making its unchecked remainder restorable as saved history.
+                row.status = "rejected"
+                remaining = MapAtlasRevision(
+                    novel_id=row.novel_id,
+                    node_id=row.node_id,
+                    base_revision_id=uuid.UUID(result.id),
+                    status="candidate",
+                    document=candidate.model_dump(mode="json"),
+                    geometry_hash=geometry_hash(candidate),
+                    problems=list(row.problems),
+                    confirmation_id=row.confirmation_id,
+                    context_fingerprint=row.context_fingerprint,
+                )
+                # The remaining full candidate retains the same dependency-valid
+                # document and exact confirmation; only its comparison base changes.
+                db.add(remaining)
+                await db.flush()
+                result.remaining_candidate_id = str(remaining.id)
+            else:
+                row.status = "saved"
         await db.flush()
         return result
 

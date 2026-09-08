@@ -103,6 +103,16 @@ async def get_map_revisions(db: DbSession, novel_id: ActiveNovelId, node_id: str
     return await _structure.history(db, novel_id, node_id)
 
 
+@router.get(
+    "/{novel_id}/nodes/{node_id}/revisions/{revision_id}/preview",
+    response_model=MapLayoutResponse,
+)
+async def preview_map_revision(
+    db: DbSession, novel_id: ActiveNovelId, node_id: str, revision_id: str
+):
+    return await _structure.preview_revision(db, novel_id, node_id, revision_id)
+
+
 @router.post(
     "/{novel_id}/nodes/{node_id}/revisions",
     response_model=MapRevisionResponse,

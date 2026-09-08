@@ -131,6 +131,7 @@ class SpatialConstraint(SpatialModel):
     path_kind: Literal["road", "river"] = "road"
     path_label: str | None = Field(default=None, min_length=1, max_length=200)
     sources: list[MapSource] = Field(default_factory=list, max_length=8)
+    generated_by_task_id: UUID | None = None
 
 
 class CalibrationAnchor(SpatialModel):
@@ -257,18 +258,37 @@ class MapSaveRequest(SpatialModel):
 class MapRevisionReview(SpatialModel):
     base_revision_id: UUID | None
     action: Literal["adopt", "reject", "restore"]
+    change_keys: list[str] | None = Field(default=None, min_length=1, max_length=1480)
+
+    @model_validator(mode="after")
+    def selection(self):
+        if self.change_keys is not None:
+            if self.action != "adopt" or len(set(self.change_keys)) != len(
+                self.change_keys
+            ):
+                raise ValueError("only adoption accepts unique change keys")
+            if any(len(key) > 120 for key in self.change_keys):
+                raise ValueError("change key is too long")
+        return self
 
 
 class MapGenerateRequest(SpatialModel):
     operation_id: UUID
     base_revision_id: UUID | None
     context_confirmation_id: UUID
-    location_ids: list[UUID] = Field(min_length=1, max_length=20)
+    location_ids: list[UUID] = Field(default_factory=list, max_length=20)
+    feature_ids: list[FeatureKey] = Field(default_factory=list, max_length=20)
 
     @model_validator(mode="after")
     def unique_locations(self):
         if len(set(self.location_ids)) != len(self.location_ids):
             raise ValueError("locations must be unique")
+        if len(set(self.feature_ids)) != len(self.feature_ids):
+            raise ValueError("features must be unique")
+        if not 1 <= len(self.location_ids) + len(self.feature_ids) <= 20:
+            raise ValueError("select between one and twenty map targets")
+        if self.feature_ids and self.base_revision_id is None:
+            raise ValueError("existing features require a saved baseline")
         return self
 
 
@@ -281,6 +301,9 @@ class MapRevisionResponse(SpatialModel):
     geometry_hash: str
     problems: list[MapProblem]
     created_at: datetime
+    applied_change_keys: list[str] = Field(default_factory=list)
+    expanded_change_keys: list[str] = Field(default_factory=list)
+    remaining_candidate_id: str | None = None
 
 
 class MapLayoutResponse(SpatialModel):

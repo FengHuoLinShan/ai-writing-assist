@@ -1166,6 +1166,19 @@ class MapAtlasService:
             source_geometry_hash=source_geometry_hash,
             sort_order=0,
         )
+        if source_revision_id and source_revision_id != source.source_map_revision_id:
+            from modules.world.map_structure_images import (
+                set_structure_page_content,
+                validate_image_structure,
+            )
+            from modules.world.map_structure_schemas import MapDocument
+
+            # A new geometry version has its own confirmed evidence. Copying the
+            # old prompt would reintroduce old sources and mismatched guide labels.
+            await validate_image_structure(db, run, derived)
+            set_structure_page_content(
+                derived, MapDocument.model_validate(revision.document)
+            )
         storage = self._get_storage()
         uploaded_mask_key: str | None = None
         try:
