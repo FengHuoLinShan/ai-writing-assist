@@ -784,14 +784,17 @@ from modules.evidence.compilation.focused_tasks import (  # noqa: E402
 
 @router.post("/focused-search", status_code=202)
 async def focused_search_submit(db: DbSession, request: FocusedSearchSubmit):
+    await require_active_project(db, request.novel_id)
     return await submit_focused_search(db, request)
 
 
 @router.get("/focused-search/{task_id}")
 async def focused_search_result(db: DbSession, task_id: str, novel_id: NovelIdQuery):
+    await require_active_project(db, novel_id)
     return await get_focused_search(db, novel_id, task_id)
 
 
 @router.post("/focused-search/{task_id}/resume", status_code=202)
 async def focused_search_resume(db: DbSession, task_id: str, novel_id: NovelIdQuery):
+    await require_active_project(db, novel_id)
     return await resume_focused_search(db, novel_id, task_id)

@@ -766,7 +766,7 @@ class Phase2bUncertainItem(BaseModel):
     ]
     related_refs: list[str] = Field(default_factory=list)
     mention_or_claim: str = Field(..., min_length=1)
-    target_name: str | None = Field(default=None, max_length=200)
+    mention_name: str | None = Field(default=None, max_length=200)
     reason: str = Field(..., min_length=1)
     evidence_quotes: list[str] = Field(default_factory=list)
 
@@ -935,7 +935,7 @@ class Phase2aUncertainItem(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     description: str = Field(..., min_length=1)
-    target_name: str | None = Field(default=None, max_length=200)
+    mention_name: str | None = Field(default=None, max_length=200)
     reason: str = Field(..., min_length=1)
     evidence_quotes: list[str] = Field(default_factory=list)
 

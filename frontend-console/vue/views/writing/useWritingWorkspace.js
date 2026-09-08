@@ -24,6 +24,7 @@ import { sanitizeTaskErrorMessage } from "../../../shared/workflowProgress.js"
 import { confirmAsync } from "../../../shared/confirmAsync.js"
 import { createEditorController, substantiveWritingText } from "./controllers/editorController.js"
 import { createWritingCommandController } from "./controllers/writingCommandController.js"
+import { useEvidenceSelection } from "../../composables/useEvidenceSelection.js"
 import { createDeepImportController } from "./controllers/deepImportController.js"
 import { createConflictController } from "./controllers/conflictController.js"
 import {
@@ -193,7 +194,7 @@ export function useWritingWorkspace(props) {
   const deepImportState = reactive({ taskId: null, projectId: null, progress: null })
   const deepImportHasScenes = computed(() => scenes.value.length > 0)
   const deepAuditOpen = ref(false)
-  const autoExtraction = reactive({ open: false, stage: "scenes", start: 1, end: 1, highQuality: false, busy: false })
+  const autoExtraction = reactive({ open: false, stage: "scenes", start: 1, end: 1, highQuality: false, targetedCompletion: false, busy: false })
   const outlineFloat = reactive({ open: false, loading: false, threads: [], error: null })
   const versionDialog = reactive({ open: false, diffOpen: false, leftId: null, rightId: null, diff: null, loading: false, error: null })
   const generationLoading = ref(false)
@@ -336,12 +337,14 @@ export function useWritingWorkspace(props) {
     return null
   }
 
+  const focusedSelection = useEvidenceSelection(() => `${projectId}:writing:${selectedChapter.value}:${currentScene.value?.id || ''}`)
   const commands = createWritingCommandController({
     api,
     toast,
     getProjectId: () => projectId,
     getChapter: () => selectedChapter.value,
     getScene: () => currentScene.value,
+    getPinnedRefs: () => focusedSelection.refs.value,
     editor,
     onResult: applyCommandResult,
     onLoadingChange: (value) => { generationLoading.value = Boolean(value) },
@@ -655,6 +658,7 @@ export function useWritingWorkspace(props) {
     autoExtraction.start = chapterList.value.length ? Math.min(...chapterList.value) : 1
     autoExtraction.end = chapterList.value.length ? Math.max(...chapterList.value) : 10
     autoExtraction.highQuality = false
+    autoExtraction.targetedCompletion = false
     autoExtraction.open = true
   }
 
@@ -678,6 +682,9 @@ export function useWritingWorkspace(props) {
     }[autoExtraction.stage] || ["scene_auto_extraction", "从正文整理场景"]
     try {
       const authorization = importAuthorizationPayload()
+      if (autoExtraction.targetedCompletion && ["deep", "world_objects"].includes(autoExtraction.stage)) {
+        authorization.targeted_completion = { enabled: true }
+      }
       const result = autoExtraction.stage === "deep"
         ? await api.imports.deepImport(
           projectId,
@@ -1535,6 +1542,7 @@ export function useWritingWorkspace(props) {
     conflictTask,
     sceneState,
     sceneLens,
+    focusedSelection,
     deepImportState,
     deepImportHasScenes,
     deepAuditOpen,

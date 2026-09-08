@@ -17,7 +17,7 @@ make docs-check BASE_REF=origin/main
 | [ADR-0001](0001-state-assembler-ownership.md) | Accepted / Amended | `state_assembler` 现归属 world；Story continuity 经 world 稳定 seam 消费对象状态。 |
 | [ADR-0002](0002-base-crud-service-shape.md) | Accepted | world 通用 CRUD 使用受限 BaseCRUDService 形状，不额外建立空 port。 |
 | [ADR-0003](0003-leaflet-for-map-viewport.md) | Superseded | 旧 Leaflet 地图视口已由 ADR-0012 的 AI 地图册取代。 |
-| [ADR-0004](0004-novel-evidence-retrieval-seams.md) | Accepted / Amended | writing 保持原文事实源；RAG 索引与 Context 编译/确认物理归并为 evidence，不新增平行检索领域。 |
+| [ADR-0004](0004-novel-evidence-retrieval-seams.md) | Accepted / Amended | writing 保持原文事实源；RAG 与 Context 归 evidence，允许受限的一跳只读提名，检索范围不等同已选资料或采用权限。 |
 | [ADR-0005](0005-core-entity-type-transition.md) | Accepted | CoreEntity 支持受控自定义类型和可逆 Profile 迁移。 |
 | [ADR-0006](0006-world-bible-context-activation-ownership.md) | Accepted / Amended | world 拥有世界书资料，evidence/compilation 拥有激活规则和编译审计。 |
 | [ADR-0007](0007-world-generation-center-consolidation.md) | Accepted | 世界设定 AI 统一进入生成中心；其接口收口部分取代 ADR-0006 的旧共存范围。 |

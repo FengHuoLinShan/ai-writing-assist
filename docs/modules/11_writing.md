@@ -209,3 +209,14 @@ RUN_REAL_LLM_TESTS=1 pytest modules/writing/tests/test_conflict_checks_real_llm.
 cd frontend-console
 ENABLE_REAL_LLM=1 npx playwright test e2e/writing-conflict-real-llm.spec.js --reporter=list --timeout=300000
 ```
+
+## 副驾驶专项查证
+
+“本章资料”保留轻量 Scene Lens，并提供显式的“查证资料”。输入名称或对象引用后，
+通过 Evidence 共用专项接口查原文及最多一层直接关联。服务端从 Scene 推导 POV 和截止点，
+不允许 author 全书资料直接进入人物视角。结果只展示证据与覆盖；“加入本次写作资料”
+只保存引用，`writing.generate` 前仍由 AI 参考资料弹窗重新编译与确认。
+
+查证任务及待确认引用按项目、章节和 Scene 恢复；切换后的晚到响应不能覆盖新视图。
+Writing 提供冻结版本的批量词项扫描及游标，缺失或已被替代的源版本失败关闭，不依赖
+RAG 对象标注。查证不会修改正文或世界对象。

@@ -1,6 +1,6 @@
 {
   "id": "phase2_alias_relation",
-  "version": 4,
+  "version": 5,
   "owner": "imports",
   "schema_model": "modules.imports.llm_schemas.AliasRelationExtractionOutput",
   "declared_prompt_fields": ["aliases", "relations", "uncertain_items"],
@@ -31,6 +31,7 @@
     {"source": "relations.confidence", "target": "entity_relations.review_meta.confidence"}
   ],
   "observed_fields": [
+    "uncertain_items.mention_name",
     "uncertain_items.kind",
     "uncertain_items.related_refs",
     "uncertain_items.mention_or_claim",

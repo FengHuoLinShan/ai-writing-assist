@@ -1206,8 +1206,8 @@ const api = {
       return request(withQuery("/world/characters", params))
     },
 
-    async getEntity(id, novelId) {
-      return contractFetch("world.getEntity", { id }, { novel_id: novelId })
+    async getEntity(id, novelId, options = {}) {
+      return contractFetch("world.getEntity", { id }, { novel_id: novelId }, options)
     },
 
     async getCharacter(id, novelId) {
@@ -1780,6 +1780,18 @@ const api = {
   // 上下文
   // ============================================================
   context: {
+    async startFocusedSearch(payload) {
+      return post("/evidence/compilation/focused-search", payload)
+    },
+
+    async getFocusedSearch(taskId, novelId) {
+      return request(withQuery(`/evidence/compilation/focused-search/${taskId}`, { novel_id: novelId }), { cache: "no-store" })
+    },
+
+    async resumeFocusedSearch(taskId, novelId) {
+      return post(withQuery(`/evidence/compilation/focused-search/${taskId}/resume`, { novel_id: novelId }), {})
+    },
+
     async grepEvidence(payload, options = {}) {
       return contractJson("context.grepEvidence", {}, {}, payload, options)
     },
@@ -2089,6 +2101,14 @@ const api = {
   // 导入
   // ============================================================
   imports: {
+    async targetedCompletion(payload) {
+      return post("/imports/targeted-completions", payload)
+    },
+
+    async rollbackTargetedCompletion(taskId, novelId) {
+      return post(withQuery(`/imports/targeted-completions/${taskId}/rollback`, { novel_id: novelId }), { confirmed: true })
+    },
+
     async uploadFile(file, novelId, onProgress = null, options = {}) {
       return uploadImportFile(file, novelId, onProgress, options)
     },
@@ -2113,6 +2133,7 @@ const api = {
         high_quality: highQuality,
         adoption_policy: authorization.adoption_policy || "user_authorized_pipeline",
         authorization_confirmed: true,
+        ...(authorization.targeted_completion?.enabled ? { targeted_completion: { enabled: true } } : {}),
       })
     },
 
@@ -2128,6 +2149,7 @@ const api = {
         high_quality: highQuality,
         adoption_policy: authorization.adoption_policy || "user_authorized_pipeline",
         authorization_confirmed: true,
+        ...(authorization.targeted_completion?.enabled ? { targeted_completion: { enabled: true } } : {}),
       })
     },
 

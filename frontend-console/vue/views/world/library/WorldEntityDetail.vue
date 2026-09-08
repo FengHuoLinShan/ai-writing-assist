@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, reactive, ref, watch } from "vue"
 import { displayStateBadgeClass, worldAssetDisplay } from "../../../../shared/assetDisplayState.js"
 import { getApi, getToast } from "../../../bridge/index.js"
+import TargetedCompletionPanel from "../../../components/TargetedCompletionPanel.vue"
 
 const props = defineProps({
   entity: { type: Object, required: true },
@@ -9,7 +10,7 @@ const props = defineProps({
   typeLabel: { type: String, default: "人物或设定" },
   aliasesOpen: { type: Boolean, default: false },
 })
-const emit = defineEmits(["back", "edit", "create-alias", "edit-alias", "create-task", "profile-dirty"])
+const emit = defineEmits(["back", "edit", "create-alias", "edit-alias", "create-task", "profile-dirty", "refresh"])
 const aliases = computed(() => (props.entity?.content_json?.aliases || []).map((item) => (
   typeof item === "string" ? { alias: item } : item
 )).filter((item) => String(item?.alias || "").trim()))
@@ -107,6 +108,7 @@ onBeforeUnmount(() => { profileGeneration += 1; emit("profile-dirty", false) })
       <h3>概要</h3>
       <p>{{ entity.summary || entity.public_info || '还没有概要，可以编辑后补充。' }}</p>
     </section>
+    <TargetedCompletionPanel :project-id="projectId" :entity-id="entity.id || entity.entity_id" :initial-name="entity.name || ''" @applied="emit('refresh', entity.id || entity.entity_id)" />
     <section v-if="isCharacter" class="world-character-profile">
       <header><div><h3>人物档案</h3><p>按需补充人物动机、状态和声音；名称与别名仍在基本资料中管理。</p></div><button type="button" class="btn btn-sm" @click="profileOpen ? (profileOpen = false) : openProfile()">{{ profileOpen ? '收起' : '完善人物档案' }}</button></header>
       <div v-if="profileOpen" class="world-character-profile__form" :aria-busy="profileLoading || profileSaving">

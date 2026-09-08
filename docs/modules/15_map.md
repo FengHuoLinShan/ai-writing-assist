@@ -201,3 +201,15 @@ hash；指纹变化时在图片模型调用前失败关闭。
 
 v1 不提供图片 edition 或第二套图片 revision、通用媒体模块、多图片 provider、Responses API、PDF/ZIP 导出、
 公开读者地图或自动回写世界事实。图片历史由派生 page 表达；空间与展示配置由地图版本表达。
+
+## 共用专项查证适配
+
+作者可从地图节点或所选地点“查证资料”，复用 Evidence 专项接口；新增证据先作为
+pinned_refs 进入地图 Context 预览，最终确认后才用于空间关系或画面生成。未采用的新地点
+只显示为资料缺口，不自动建立正式地点、图元或坐标。
+
+旧地图册空间资料搜集复用同一 Focused Evidence 服务，但 worker 固定 max_depth=0、
+关闭额外语义召回，并以原 confirmation 实际保留的 allowed_refs 回读；不再全库扫描页面
+或逐地点追加未确认 RAG。结构化资料保持确认中的文本投影，原文保留完整 draft/hash/offset
+引用，不能以整页 inspect 或整章 manifest 重新纳入排除部分。
+地图继续拥有空间 schema、确定性布局、revision CAS 和读者投影；检索包不传递采用权限。

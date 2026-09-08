@@ -420,3 +420,9 @@ with more than 1,000 objects using the explicit PostgreSQL E2E environment and `
 RP 长期约定与max兼容性用例位于 interaction 的 services/prompts/tasks 测试、LLM能力/客户端测试、
 `tests/e2e/test_rp_agreements.py` 和前端 InteractionView/interaction E2E。验收包括旧快照、零覆盖、
 省略/清空、多次reducer、分支、并发、格式失败与30秒等待状态。工程测试不调用付费模型。
+
+专项查证验收包含 `frontend-console/e2e/focused-evidence.spec.js` 的地图、副驾驶和对象
+补全入口，及 `tests/e2e/test_focused_completion_concurrency.py` 的 PostgreSQL 两连接
+字段漂移/撤销门禁。继续使用显式专用数据库与 fresh server；模型网络响应可用合成证据
+替身，验证不等于付费真实模型效果或作者满意度。新增与填空的自动采用必须另覆盖
+旧授权拒绝、混合置信度、来源过期和后续人工编辑保护。

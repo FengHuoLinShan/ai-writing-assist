@@ -8,6 +8,12 @@ from modules.world import contracts as world_contracts
 from modules.world import facade as world_facade
 
 WORLD_FACADE_API = {
+    "get_focused_world_terms",
+    "get_focused_world_neighbors",
+    "authorize_focused_world_completion",
+    "submit_focused_world_package",
+    "apply_focused_world_package",
+    "rollback_focused_world_package",
     "assemble_post_import_adoption_package",
     "append_candidate_alias",
     "apply_entity_fusion",
@@ -109,6 +115,8 @@ OUTLINE_FACADE_API = {
 }
 
 WORLD_CONTRACT_API = {
+    "FocusedWorldPackageRequest",
+    "FocusedWorldPackageApplyRequest",
     "CharacterContract",
     "CharacterKnowledgeContract",
     "CoreEntityContract",

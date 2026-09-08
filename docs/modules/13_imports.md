@@ -270,3 +270,25 @@ Phase 3 的单次结构化请求使用项目可配置的
 `phase3.structure_max_tokens`（默认 32768），该值会进入任务冻结
 快照，不再根据 prompt 长度做 token 阶梯扩容；replacement rerun 是业务
 输出门禁，不是用更大 `max_tokens` 重放同一请求。
+
+## 专项查漏补全
+
+自动入口的 `targeted_completion.enabled` 默认 false；手动入口为
+`POST /api/imports/targeted-completions`，指定已有对象或未入库名称、章节范围并显式授权。
+独立任务类型为 `targeted_completion`，复用 ImportWorkflowRun 与现有任务查询、恢复；
+完整导入与 world_objects stage 在 Phase 2b 后运行，Phase 3 首次读取补全结果。进入此阶段
+后的恢复直接续 checkpoint，不因 World 变化重跑 Phase 2a。
+
+completion_hints 保留 Phase 2a/2b 的具名不确定项、缺端点、明确字段缺证及本 workflow
+未定位证据；可选 mention_name 必须逐字出现在对应原文。普通空字段或所有 candidate 不是
+自动种子，不额外执行全文对象清点。根名单冻结，每批处理并保存剩余游标，没有永久邻居截断。
+
+Evidence 拥有检索和一层提名，imports 的 `targeted_completion` Prompt 只生成固定目标的
+字段/别名/关系候选。每个真实调用记录 ContextSnapshot。专项授权独立于旧导入权限，
+有可靠证据才经 World 采用包新增和填空；已填字段、歧义、推断和低置信项待审。
+POST `/api/imports/targeted-completions/{task_id}/rollback?novel_id=...` 携带
+`confirmed=true` 请求按本轮回执撤销；后续人工修改或引用冲突保留并返回 partial。
+
+公开 targeted_completion 摘要包含 package_refs，可查看每组修改和原文出处，并打开
+已有采用包审阅。自动补全的结果/撤销入口直接绑定原导入任务；发生完整或部分撤销后
+禁止继续原任务，仍可重试安全撤销。abandon 遇受保护下游时保留冲突并报告 partial。

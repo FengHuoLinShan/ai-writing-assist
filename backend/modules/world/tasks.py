@@ -24,6 +24,7 @@ _ALIAS_RELATION_SOURCE_WRITER_TASK_TYPES = {
     "deep_import",
     "scene_auto_extraction",
     "world_object_auto_extraction",
+    "targeted_completion",
 }
 
 

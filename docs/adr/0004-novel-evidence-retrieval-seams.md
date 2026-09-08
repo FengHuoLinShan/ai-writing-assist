@@ -78,6 +78,10 @@ claim path、evidence type、source ref、precision、status 和 provenance。�
 grep/search/read/inspect/trace 都是确定性 HTTP/facade 接口。受控 LLM 工作流只能消费
 context 已编译、已校验的证据包，不自主选择工具或跨模块改写事实。
 
+专项查证允许固定、受限、只读的直接邻居提名步骤，与既有检索规划/资料选择同类；
+只消费已核验根证据，Evidence 验证并控制最多一层展开。不得执行创作生成、事实采用
+或自主扩大范围；新增资料仍服从原确认或显式持久化的自动流水线授权。
+
 ## 影响
 
 - 新增 `scene_summary_checkpoints`、`rag_index_state` 和 `evidence_links`，它们都是派生/追踪数据，

@@ -123,7 +123,7 @@ async def call_llm_extraction(
                 "delta_events 项"
                 "只能使用 subject_name、category、field、old、new、description、"
                 "basis、uncertainties、evidence_quotes、confidence；"
-                "uncertain_items 项只能使用 target_name、description、reason、"
+                "uncertain_items 项只能使用 mention_name、description、reason、"
                 "evidence_quotes。所有 uncertainties 和 evidence_quotes 都必须是"
                 " JSON 字符串数组。除顶层三个集合及上述字符串数组外，其余字段"
                 "必须是 schema 指定的单值字符串、数值或 null，不能写成数组或对象。"

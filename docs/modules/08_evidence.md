@@ -382,3 +382,34 @@ future Scene 永不进入该输出；别名/关系全局对账仍属于 Phase 2b
 统一地图的 `world.map_atlas.structure` 与图片生成共享 author-full canonical 背景、map_atlas
 检索 purpose 及确认语义。空间提取只消费实际保留的 Context items，不复活排除或预算省略资产，
 不增加公开 scope；阅读预览另走已有 reader inspect/read 与 Story 揭示策略，不重用 author-full 结果。
+
+## 指定对象的专项查证
+
+`retrieve_focused_evidence()` 是导入、地图和写作副驾驶共用的只读稳定入口，返回
+`FocusedEvidenceResult`；请求支持对象引用或未入库名称、关注问题、资料类型、现有
+`CompileOptions`、冻结来源、每批预算及最大深度 0/1。Evidence 不依赖 imports，不携带
+采用权限。代码依次查根对象、验证并冻结直接关联名单、查读一层；受限
+`focused_evidence_neighbors` 模型步骤仅对已核验根证据提名，不选工具、扩大范围或写事实。
+
+Writing 的 `get_manuscript_source_manifest()` / `scan_manuscript_terms()` 按冻结 draft/hash
+分章、按字面词项完整扫描，语义检索仅补充。回读必须以 highlight 边界裁成精确引用并核对
+range hash，不能把整段回读当作原引用。数据库词项与邻居从 World facade 获取；身份歧义、
+可见性、Scene/offset 截止、排除和来源漂移均在 Evidence 中检查。内部 `allowed_refs` 表示
+确认实际保留的精确引用；source manifest 只限定版本，不能替代已选资料范围。
+
+原始 evidence/coverage 与预算后的 `compiled_context` 分开：前者报告查读覆盖，后者复用
+ContextItem/CompiledContext 预算及 pinned blocker。完整仅指声明词项和范围，不证明没有遗漏。
+浏览器 POST `/api/evidence/compilation/focused-search` 提交 `evidence_focused_search`；
+GET 同路径 `/{task_id}?novel_id=...` 回读累计引用，POST `/{task_id}/resume` 续查。
+checkpoint 由服务端保存，HTTP 不接受 continuation；任务内部字段不经通用状态接口公开。
+手动新增资料须重新预览确认；自动调用只使用持久授权范围内的执行 snapshot。
+
+带章节/Scene截止的对象查证不把当前 World 档案作为历史：只使用可证身份与角色已知内容，
+无时点数据库关系不自动展开。默认 continuation 同时检查原文、档案/词项与邻接指纹；
+imports 的内部 identity 策略仅允许非身份字段填空及新增别名，原词项必须仍有效，
+新增词项不进入本轮检索。
+
+character 原文许可比作者查阅更窄：需要截止点前 canonical/full CharacterKnowledge 的
+known_content 与精确原文一致，并由 active 精确 EvidenceLink 绑定该字段。缺少证明时
+保留已知 metadata、省略原文；固定来源无法证明则 blocker。此许可不等于完整知识边界
+审查，coverage 明示 not_performed；reader/author 的原文读取不采用此角色特有门禁。

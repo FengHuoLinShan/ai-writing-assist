@@ -322,3 +322,11 @@ Modules choose files by responsibility. Do not create empty contracts or pass-th
 - Search/sort/filter fields whitelisted
 - Pagination on all list endpoints
 - File upload: type/size limits, no path traversal, not saved to executable directories
+
+### 专项查证开发回归
+
+指定对象查证的服务端回归位于 Evidence compilation 的 focused tests、Writing 原文测试、
+World focused completion 和 Imports targeted completion tests。前端共用面板测试为
+`frontend-console/tests/vue/FocusedEvidencePanel.test.js`，三入口浏览器验收为
+`frontend-console/e2e/focused-evidence.spec.js`。涉及自动采用时，还须在专用 PostgreSQL
+运行 `tests/e2e/test_focused_completion_concurrency.py`，不能以 SQLite 替代并发门禁。

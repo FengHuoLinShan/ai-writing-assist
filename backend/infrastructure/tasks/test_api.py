@@ -59,7 +59,12 @@ async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "task_type",
-    ["world_alias_relation_extraction", "world_bible_synopsis_refresh"],
+    [
+        "world_alias_relation_extraction",
+        "world_bible_synopsis_refresh",
+        "targeted_completion",
+        "evidence_focused_search",
+    ],
 )
 async def test_submit_task_rejects_dangerous_domain_task(
     async_client: AsyncClient,
@@ -168,6 +173,8 @@ async def test_task_status_hides_operation_fingerprint(
         meta={
             "novel_id": novel_id,
             "operation_fingerprint": "a" * 64,
+            "_focused_request": {"continuation": {"internal": True}},
+            "_llm_execution_snapshot": {"provider": "server-only"},
             "chapter_index": 1,
         },
     )

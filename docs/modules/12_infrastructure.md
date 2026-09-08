@@ -462,3 +462,8 @@ API/worker 不取得 root 凭据，应用 policy 仅允许两桶的定位、列�
 RP DeepSeek能力快照可固定max/900秒及65,536输出预算，旧快照按空策略恢复。流式只计数
 思考字符且不进入wire；结构化诊断保存通道字符数。完整JSON可修复最多8处解码器明确定位的
 字面反斜杠，截断/损坏Unicode仍失败。截断重试不减少已有更大预算。
+
+专项任务仍使用同一队列：`evidence_focused_search` 属于 Evidence compilation，
+`targeted_completion` 属于 imports，均通过领域入口提交并使用 manual_resume。
+通用 `/api/tasks` 不允许提交它们；状态响应隐藏 meta/result 顶层下划线内部字段。
+查证 checkpoint 不给客户端回传为可修改状态，续查只接受任务标识并重验项目/来源/lease。

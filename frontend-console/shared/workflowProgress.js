@@ -21,6 +21,8 @@ export function createOperationId() {
 }
 
 const WORKFLOW_LABELS = {
+  evidence_focused_search: "专项查证",
+  targeted_completion: "查漏补全",
   deep_import: "深度导入",
   scene_auto_extraction: "从正文整理场景",
   smart_dedup_scan: "智能去重扫描",
@@ -59,6 +61,7 @@ const STATUS_LABELS = {
 }
 
 const PHASE_MESSAGE_LABELS = {
+  targeted_completion: "正在查证遗漏线索并补全资料",
   entity_extraction: "正在按场景提取人物、设定与关系",
   structure_analysis: "正在提取剧情结构",
 }

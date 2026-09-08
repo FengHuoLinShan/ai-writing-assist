@@ -53,7 +53,7 @@ def _public_task_result(value: Any) -> dict[str, Any]:
 
 def _public_task_meta(value: Any) -> dict[str, Any]:
     """Hide operation-receipt internals from the author-facing status API."""
-    projected = dict(value) if isinstance(value, Mapping) else {}
+    projected = _public_task_result(value)
     projected.pop("operation_fingerprint", None)
     return projected
 
@@ -72,6 +72,8 @@ _MODULE_API_ONLY_TASK_TYPES = {
     "scene_auto_extraction",
     "world_object_auto_extraction",
     "plot_structure_auto_extraction",
+    "targeted_completion",
+    "evidence_focused_search",
     "world_alias_relation_extraction",
     "world_entity_fusion_suggestions",
     "world_generation_suggestion",

@@ -641,6 +641,14 @@ async def _run_targeted_completion(
             **state["counts"],
             "coverage": state.get("coverage", {}),
             "warnings": state.get("warnings", []),
+            "package_refs": [
+                {"id": package_id, "status": status}
+                for status, package_ids in (
+                    ("applied", state["packages"]),
+                    ("review", state.get("review_packages", [])),
+                )
+                for package_id in dict.fromkeys(package_ids)
+            ],
             "available_actions": (["resume"] if state["status"] == "partial" else [])
             + (["rollback"] if state["packages"] else []),
         }

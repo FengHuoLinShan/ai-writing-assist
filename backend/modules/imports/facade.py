@@ -60,7 +60,11 @@ async def start_deep_import(
         high_quality=high_quality,
         adoption_policy=adoption_policy,
         authorization_confirmed=authorization_confirmed,
-        targeted_completion=targeted_completion,
+        **(
+            {"targeted_completion": targeted_completion}
+            if targeted_completion is not None
+            else {}
+        ),
     )
 
 
@@ -88,7 +92,11 @@ async def start_deep_import_stage(
         high_quality=high_quality,
         adoption_policy=adoption_policy,
         authorization_confirmed=authorization_confirmed,
-        targeted_completion=targeted_completion,
+        **(
+            {"targeted_completion": targeted_completion}
+            if targeted_completion is not None
+            else {}
+        ),
     )
 
 

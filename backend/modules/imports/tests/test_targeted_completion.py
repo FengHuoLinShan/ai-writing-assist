@@ -160,7 +160,7 @@ def test_missing_endpoint_name_survives_only_with_matching_quote():
     diagnostics = [
         {
             "kind": "relation_endpoint",
-            "target_name": "苍桥",
+            "mention_name": "苍桥",
             "related_refs": [],
             "reason": "unknown_relation_endpoint_ref",
             "evidence_quotes": ["小文守护苍桥。"],

@@ -70,6 +70,13 @@ describe("writingCommandController", () => {
     }))
   })
 
+  it("副驾驶加入工作稿证据时使用同一正文模式确认", async () => {
+    const pinned = [{ kind: "source_range", source_ref: { content_mode: "working", draft_id: "source-1" } }]
+    const { controller } = setup({ getPinnedRefs: () => pinned })
+    await controller.generateDraft()
+    expect(confirmAiReference).toHaveBeenCalledWith(expect.objectContaining({ content_mode: "working", context_mode: "working", pinned_refs: pinned }))
+  })
+
   it("采用剧本过期时停在确认条，重试只对本次任务确认旧资产", async () => {
     const onProgress = vi.fn()
     const { api, onResult, controller } = setup({ onProgress })

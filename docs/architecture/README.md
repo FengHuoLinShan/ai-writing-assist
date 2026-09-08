@@ -64,3 +64,7 @@ ADR-0018 定义同 owner author source revision 到 hidden interaction consumer 
 
 当前图源已通过 XML、唯一 ID、edge endpoint、悬空/交叉/重叠结构检查。无运行时拓扑变化的
 文档流程调整不向模块图添加流程节点，避免把开发治理和产品运行架构混在一张图中。
+
+专项查证继续沿既有 imports/writing/world → Evidence → Writing/World 资料流，
+一跳只读提名不是自治 Agent。模块图的节点、分层与基础设施保持不变；新增的
+evidence_focused_search / targeted_completion 任务由原 task registry 登记。

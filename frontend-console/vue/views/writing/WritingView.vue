@@ -210,6 +210,7 @@
           :people="vm.sceneState.people"
           :location="vm.sceneState.location"
           :lens="vm.sceneLens"
+          :evidence-refs="vm.focusedSelection.refs.value"
           :conflict="vm.conflictState"
           :rail-collapsed="!rightRailOpen"
           @run-conflict="vm.requestConflictCheck"
@@ -217,6 +218,8 @@
           @insert-text="vm.insertText"
           @select-scene="vm.selectScene"
           @load-lens="vm.loadSceneLens"
+          @pin-evidence="vm.focusedSelection.add"
+          @clear-evidence="vm.focusedSelection.clear"
           @organize="vm.navigateSceneWorkbench"
           @toggle-collapse="toggleRail('reference')"
         />

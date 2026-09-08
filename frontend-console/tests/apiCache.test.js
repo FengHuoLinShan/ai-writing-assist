@@ -86,6 +86,16 @@ describe("api.js cache behavior", () => {
     globalThis.fetch = originalFetch
   })
 
+  it("focused task reads bypass cached pending state and refreshed entities can bypass old rows", async () => {
+    let reads = 0
+    globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ version: ++reads }) }))
+    expect((await window.api.context.getFocusedSearch("focus-1", "p1")).version).toBe(1)
+    expect((await window.api.context.getFocusedSearch("focus-1", "p1")).version).toBe(2)
+    expect((await window.api.world.getEntity("e1", "p1")).version).toBe(3)
+    expect((await window.api.world.getEntity("e1", "p1", { cache: "no-store" })).version).toBe(4)
+    expect(globalThis.fetch).toHaveBeenCalledTimes(4)
+  })
+
   it("409 response uses a localized conflict prefix and preserves detail", async () => {
     globalThis.fetch = vi.fn(() => Promise.resolve({
       ok: false,

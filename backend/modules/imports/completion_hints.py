@@ -48,7 +48,7 @@ def completion_hints(extraction: Any, *, scene_id: str, source_text: str) -> lis
         description = str(getattr(item, "description", "") or "")
         # Only these local materializer prefixes carry an unambiguous name.
         prefixes = ("世界对象类型待确认：", "世界对象身份待确认：")
-        name = str(getattr(item, "target_name", "") or "").strip() or next(
+        name = str(getattr(item, "mention_name", "") or "").strip() or next(
             (
                 description[len(prefix) :].strip()
                 for prefix in prefixes
@@ -98,7 +98,7 @@ def alias_completion_hints(
         ]
         if not quotes:
             continue
-        name = str(item.get("target_name") or "").strip()
+        name = str(item.get("mention_name") or "").strip()
         if name and name in source_text and any(name in quote for quote in quotes):
             hints.append(
                 {

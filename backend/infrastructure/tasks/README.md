@@ -296,3 +296,8 @@ keyed coalescing。新增任务仍需独立证明 scope、合并模式和领域�
 
 RP max 沿用既有任务、lease、心跳与恢复策略；Interaction handler 通过 Project facade
 传入冻结的900秒客户端超时，不延长失效lease，也不增加重试层数。
+
+专项任务仍使用同一队列：`evidence_focused_search` 属于 Evidence compilation，
+`targeted_completion` 属于 imports，均通过领域入口提交并使用 manual_resume。
+通用 `/api/tasks` 不允许提交它们；状态响应隐藏 meta/result 顶层下划线内部字段。
+查证 checkpoint 不给客户端回传为可修改状态，续查只接受任务标识并重验项目/来源/lease。

@@ -67,6 +67,8 @@
         <button v-if="terminal" class="btn btn-sm" @click="$emit('dismiss')">关闭</button>
       </div>
     </WorkflowProgressCard>
+    <TargetedCompletionPanel v-if="deepImport.progress?.targetedCompletion && deepImport.projectId && deepImport.taskId" :project-id="deepImport.projectId" :source-task-id="deepImport.taskId" />
+    <TargetedCompletionPanel v-if="normalizedDeepImportProgress?.terminal && deepImport.projectId" :project-id="deepImport.projectId" />
   </section>
   </TransitionGroup>
 </template>
@@ -75,6 +77,7 @@
 import { computed, onBeforeUnmount, watch } from "vue"
 import { normalizeTaskProgress } from "../../../../shared/workflowProgress.js"
 import WorkflowProgressCard from "../../../components/WorkflowProgressCard.vue"
+import TargetedCompletionPanel from "../../../components/TargetedCompletionPanel.vue"
 import {
   authorFacingDiagnosticText,
   authorFacingDiagnosticValue,

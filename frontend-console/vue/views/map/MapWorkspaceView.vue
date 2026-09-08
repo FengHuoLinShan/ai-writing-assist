@@ -106,7 +106,7 @@
         </header>
 
         <button v-if="!structureEnabled && ['region', 'city'].includes(activeNode.level)" class="btn btn-sm" @click="editStructureNodeId = activeNode.id">补建空间示意</button>
-        <MapStructureEditor v-if="structureEnabled" :key="projectId + ':' + activeNode.id" ref="structureEditor" :project-id="projectId" :node="activeNode" :known-nodes="adoptedNodes" :images="nodeImages" :has-reference="Boolean(activePage)" :review-image-id="tab === 'review' && activePage?.review_status === 'candidate' ? activePage.id : ''" @saved="refreshAtlasOnly" @open-node="openMapNode" @reference-visible="referenceVisible = $event" @state="structureState = $event" />
+        <MapStructureEditor v-if="structureEnabled" :key="projectId + ':' + activeNode.id" ref="structureEditor" :project-id="projectId" :node="activeNode" :known-nodes="adoptedNodes" :images="nodeImages" :has-reference="Boolean(activePage)" :review-image-id="tab === 'review' && activePage?.review_status === 'candidate' ? activePage.id : ''" :evidence-refs="focusedSelection.refs.value" @pin-evidence="focusedSelection.add" @clear-evidence="focusedSelection.clear" @saved="refreshAtlasOnly" @open-node="openMapNode" @reference-visible="referenceVisible = $event" @state="structureState = $event" />
         <template v-if="activePage && !structureState.reader">
         <div v-if="!structureEnabled || referenceVisible" :class="['atlas-images', { compare: oldPages.length && tab === 'review' }]">
           <figure v-if="oldPages.length && tab === 'review'">
@@ -257,6 +257,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { getApi, getConfirm, getRouteQuery, getRouter, getToast } from "../../bridge/index.js"
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
 import MapStructureEditor from "./MapStructureEditor.vue"
+import { useEvidenceSelection } from "../../composables/useEvidenceSelection.js"
 import { useModalDialog } from "../../composables/useModalDialog.js"
 import { confirmAiReference } from "../../../shared/aiReferenceModal.js"
 
@@ -283,6 +284,7 @@ const atlas = ref({ mode: "atlas", nodes: [], total_pages: 0 })
 const pageHistory = ref([])
 const activePageId = ref(null)
 const activeNodeId = ref(getRouteQuery().get("node_id"))
+const focusedSelection = useEvidenceSelection(() => `${props.projectId}:map:${activeNodeId.value || ''}`)
 const oldPageId = ref(null)
 const zoom = ref(100)
 const editInstruction = ref("")
@@ -563,6 +565,7 @@ async function startRun(fullRebuild) {
       include_pending_objects: false,
       user_note: options.style_note || "",
       budget_tokens: 12000,
+      pinned_refs: focusedSelection.refs.value,
     })
     currentRun.value = await api.world.createMapAtlasRun(props.projectId, { ...options, style_note: options.style_note || null, full_rebuild: fullRebuild, target_node_id: targetNodeId, source_map_revision_id: mapRevision, context_confirmation_id: confirmation.id })
     latestRunId.value = currentRun.value.id
@@ -751,7 +754,12 @@ function openSource(target, source = {}) {
   if (["core_entity", "world_entity", "entity", "world_event", "event", "profile"].includes(kind)) { if (target.entity_id || target.id) query.set("entity_id", target.entity_id || target.id); query.set("q", target.name || target.title || source.title || ""); return router?.navigate("world", "objects", true, query) }
   if (["world_bible_draft"].includes(kind)) { if (target.draft_id || target.id) query.set("draft_id", target.draft_id || target.id); return router?.navigate("world", "bible", true, query) }
   if (["outline_scene", "scene", "scenes"].includes(kind)) { if (target.scene_id || target.id) query.set("scene_id", target.scene_id || target.id); return router?.navigate("outline", "scenes", true, query) }
-  if (["writing", "chapter", "draft"].includes(kind)) { if (target.chapter_index) query.set("chapter_index", String(target.chapter_index)); return router?.navigate("writing", null, true, query) }
+  if (["writing", "chapter", "draft"].includes(kind)) {
+    const ref = target.source_ref || {}
+    if (target.chapter_index || ref.chapter_index) query.set("chapter_index", String(target.chapter_index || ref.chapter_index))
+    if (target.draft_id || ref.draft_id) query.set("draft_id", target.draft_id || ref.draft_id)
+    return router?.navigate("writing", null, true, query)
+  }
   toast("这个来源暂时没有可打开的页面", "info")
 }
 function openAnnotation(annotation) {

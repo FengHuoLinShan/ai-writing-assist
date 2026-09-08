@@ -20,7 +20,12 @@
           <span>更高质量</span>
           <span class="writing-checkbox-hint">最大推理 + 融合补强，约需更长时间</span>
         </label>
-        <p class="writing-form-hint" role="note">只有确认后才会开始整理；AI 结果会先进入待处理，不会自动变成正式设定。</p>
+        <label v-if="['deep', 'world_objects'].includes(model.stage)" class="writing-checkbox-label writing-form-option">
+          <input v-model="model.targetedCompletion" type="checkbox">
+          <span>提取后查漏补全</span>
+        </label>
+        <p v-if="model.targetedCompletion && ['deep', 'world_objects'].includes(model.stage)" class="writing-form-hint" role="note">授权在所选章节中追查遗漏线索及直接关联对象；有可靠原文依据时新增资料、填补空白，已有内容与冲突留待审阅。可离开后继续，也可撤销本轮补全。</p>
+        <p v-else class="writing-form-hint" role="note">只有确认后才会开始整理；AI 结果会先进入待处理，不会自动变成正式设定。</p>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-ghost" @click="requestClose">取消</button>

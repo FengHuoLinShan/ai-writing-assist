@@ -81,6 +81,7 @@
               <div class="person-avatar">{{ personName(person).slice(0, 1) || '?' }}</div>
               <div class="person-info"><div class="person-name">{{ personName(person) }}</div><div class="person-status">{{ person.role || person.summary || person.status || '暂无摘要' }}</div></div>
               <button class="btn btn-sm btn-insert" @click="$emit('insert-text', personName(person))">插入</button>
+              <button class="btn btn-sm" :aria-label="`查证${personName(person)}的资料`" @click="focusObject(person)">查证</button>
             </article>
           </div>
         </section>
@@ -90,6 +91,7 @@
           <div v-else class="cockpit-place-card">
             <div class="place-name">{{ typeof location === 'string' ? location : (location.name || location.title || '未知地点') }}</div>
             <div v-if="typeof location === 'object'" class="place-desc">{{ location.description || location.summary || '' }}</div>
+            <button class="btn btn-sm" @click="focusObject(location)">查证地点资料</button>
           </div>
         </section>
 
@@ -98,6 +100,21 @@
         </section>
 
       </div>
+      <FocusedEvidencePanel
+        ref="focusedPanel"
+        :key="projectId + ':' + chapter + ':' + scene.id"
+        :project-id="projectId"
+        consumer="writing"
+        :scene-id="scene.id"
+        :chapter-index="Number(chapter)"
+        content-mode="working"
+        :roots="focus.roots"
+        :initial-name="focus.name"
+        :selected-refs="evidenceRefs"
+        select-label="加入本次写作资料"
+        @select-source="$emit('pin-evidence', $event)"
+        @clear-selection="$emit('clear-evidence')"
+      />
     </template>
 
     <div v-if="associateOpen" ref="overlayRef" class="modal-overlay" @keydown="onKeydown" @focusin="onFocusin">
@@ -149,9 +166,10 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from "vue"
+import { computed, nextTick, reactive, ref } from "vue"
 import { useModalDialog } from "../../../composables/useModalDialog.js"
 import SceneLensSummary from "./SceneLensSummary.vue"
+import FocusedEvidencePanel from "../../../components/FocusedEvidencePanel.vue"
 
 const props = defineProps({
   projectId: { type: String, default: null },
@@ -169,8 +187,9 @@ const props = defineProps({
   conflict: { type: Object, default: () => ({ latest: null }) },
   railCollapsed: { type: Boolean, default: false },
   lens: { type: Object, default: () => ({ loading: false, data: null, error: null }) },
+  evidenceRefs: { type: Array, default: () => [] },
 })
-const emit = defineEmits(["run-conflict", "open-conflict", "insert-text", "organize", "toggle-collapse", "select-scene", "load-lens"])
+const emit = defineEmits(["run-conflict", "open-conflict", "insert-text", "organize", "toggle-collapse", "select-scene", "load-lens", "pin-evidence", "clear-evidence"])
 
 const tabs = [
   { key: "alerts", label: "警报" }, { key: "people", label: "人物" }, { key: "place", label: "地点" },
@@ -178,6 +197,15 @@ const tabs = [
 ]
 const severities = ["high", "medium", "low", "info"]
 const activeTab = ref("lore")
+const focus = reactive({ name: "", roots: [] })
+const focusedPanel = ref(null)
+async function focusObject(value) {
+  const entityId = value?.entity_id || (value?.entity_type ? value.id : null)
+  focus.name = typeof value === "string" ? value : value?.name || value?.title || ""
+  focus.roots = entityId ? [{ target_ref: { target_type: "core_entity", target_id: entityId, target_path: "" } }] : []
+  await nextTick()
+  await focusedPanel.value?.open()
+}
 const associateOpen = ref(false)
 const creating = ref(false)
 const search = ref("")

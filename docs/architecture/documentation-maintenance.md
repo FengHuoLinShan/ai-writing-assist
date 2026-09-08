@@ -183,3 +183,8 @@ GitHub Actions 的 `Architecture docs` workflow 在每个 PR 运行完整性与�
 本流程是 `AGENTS.md` 中“公共契约/数据模型/跨模块调用变化必须同步文档”规则的操作化说明；
 Claude Code 通过 `CLAUDE.md` 导入同一规则。安全、隔离、用户确认和模块边界仍以该共享约束
 及当前代码为准。
+
+专项查证的维护落点：Evidence/Write 原文引用与预算变化同步 08_evidence、11_writing；
+自动采用或撤销同步 02_world、13_imports 与数据库 JSON 契约；地图消费及前端入口同步
+15_map、14_frontend；新增模型步骤和任务同时登记 Prompt 清单与基础设施任务清单。
+不能以检索只读为由遗漏调用方的确认、权限或恢复文档。

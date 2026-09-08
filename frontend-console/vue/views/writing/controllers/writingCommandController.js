@@ -20,6 +20,7 @@ export function createWritingCommandController({
   getProjectId,
   getChapter,
   getScene = () => null,
+  getPinnedRefs = () => [],
   editor,
   onResult,
   onLoadingChange = () => {},
@@ -257,6 +258,7 @@ export function createWritingCommandController({
     const token = ++generation
     try {
       const pov = mode === "pov"
+      const pinnedRefs = getPinnedRefs()
       const confirmation = await confirmAiReference({
         novel_id: projectId,
         action: "writing.generate",
@@ -268,6 +270,8 @@ export function createWritingCommandController({
         viewpoint_character_id: pov ? scene.pov_character_id : undefined,
         character_ids: pov ? [scene.pov_character_id] : undefined,
         include_pending_objects: false,
+        pinned_refs: pinnedRefs,
+        ...(pinnedRefs.some(ref => ref.source_ref?.content_mode === "working") ? { content_mode: "working", context_mode: "working" } : {}),
       })
       if (disposed || token !== generation) return null
       const instruction = pov

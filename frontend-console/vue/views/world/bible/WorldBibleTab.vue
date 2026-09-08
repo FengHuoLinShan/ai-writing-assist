@@ -134,6 +134,7 @@
           @edit-alias="editAliasForSelectedEntity"
           @create-task="createTaskForWorldEntity(selectedEntity)"
           @profile-dirty="entityProfileDirty = $event"
+          @refresh="refreshCompletedEntity"
         />
         <template v-else-if="showTypeHome">
           <div class="world-bible-gallery__hero">
@@ -726,10 +727,25 @@ const cardFilters = computed(() => ({ q: "", kind: "all", type: "", state: "", l
 const cardSearch = ref(cardFilters.value.q || "")
 watch(() => cardFilters.value.q, (value) => { cardSearch.value = value || "" })
 const bibleEntityTotal = computed(() => Number(props.bible?.entityTotal || 0))
+const completedEntityRows = ref({})
+let completedEntityGeneration = 0
+const visibleEntities = computed(() => (props.bible?.entities || []).map(item => completedEntityRows.value[item.id || item.entity_id] || item))
+async function refreshCompletedEntity(entityId) {
+  const projectId = props.projectId
+  const generation = ++completedEntityGeneration
+  try {
+    const entity = await getApi().world.getEntity(entityId, projectId, { cache: "no-store" })
+    if (!ownsProject(projectId) || generation !== completedEntityGeneration) return
+    completedEntityRows.value = { ...completedEntityRows.value, [entityId]: entity }
+  } catch (error) {
+    if (ownsProject(projectId) && generation === completedEntityGeneration) getToast()(error.message || "补全结果已保留，当前资料刷新失败，可稍后重新打开。", "warning")
+  }
+}
+watch(() => props.bible?.entities, () => { completedEntityRows.value = {} })
 const unifiedCards = computed(() => buildWorldCards({
   pages: pages.value,
   drafts: drafts.value,
-  entities: props.bible?.entities || [],
+  entities: visibleEntities.value,
   filters: cardFilters.value,
 }))
 const hasCardFilters = computed(() => Boolean(
@@ -742,7 +758,7 @@ const workingCardCount = computed(() => drafts.value.length)
 const selectedEntity = computed(() => {
   const id = props.bibleDeepLink?.entityId
   if (!id) return null
-  return (props.bible?.entities || []).find((item) => (item.id || item.entity_id) === id) || null
+  return visibleEntities.value.find((item) => (item.id || item.entity_id) === id) || null
 })
 watch(() => selectedEntity.value?.id || selectedEntity.value?.entity_id || "", (id) => {
   if (!id) return
@@ -751,7 +767,7 @@ watch(() => selectedEntity.value?.id || selectedEntity.value?.entity_id || "", (
     if (content) content.scrollTop = 0
   })
 }, { immediate: true })
-watch(() => [props.bible?.entities, props.entityTypes, props.reviewTypeCatalog], ([entities, entityTypes, reviewTypeCatalog]) => {
+watch(() => [visibleEntities.value, props.entityTypes, props.reviewTypeCatalog], ([entities, entityTypes, reviewTypeCatalog]) => {
   const items = Array.isArray(entities) ? entities : []
   syncWorldListRegistry({ entities: items, entityTypes })
   syncRelationsAliasesRegistry({

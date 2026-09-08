@@ -10,6 +10,7 @@ function escapeHtml(value) {
 }
 
 const PHASE_DISPLAY_LABELS = {
+  targeted_completion: "查漏补全",
   phase0_plan: "阶段 1 · 规划场景范围",
   phase1a_scene_slicing: "阶段 2 · 划分场景边界",
   phase1b_enrichment: "阶段 3 · 补充场景资料",

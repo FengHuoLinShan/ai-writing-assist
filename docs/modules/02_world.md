@@ -486,3 +486,19 @@ projection 写回事实层。作者版简介只消费其中已采用世界事实
 
 地图的节点级结构、保存/历史/采用、布局与章首阅读预览继续使用 `/api/world/map-atlas`；
 owner + novel_id、Context confirmation、私有图片与计费恢复边界不变，详见地图模块契约。
+
+## 专项补全的采用与撤销
+
+World facade 提供 `get_focused_world_terms()` 和分页 `get_focused_world_neighbors()`，
+负责本项目身份词项、有效别名及直接关系读取；Evidence 另行执行可见性和精确来源限制。
+
+`world_adoption_package.v2` 沿用原采用包，增加 summary/public_info/hidden_truth 的
+fill_empty 与 entity_alias。`authorize_focused_world_completion()` 在既有
+creation_suggestion_queue 中保存封闭的 owner 授权 carrier；普通建议接口不能编辑或采用
+此 carrier。`submit_focused_world_package()` / `apply_focused_world_package()` 重验
+根/一跳范围、当前正文 manifest、逐字引文、身份、字段基线和 task lease；旧导入授权不适用。
+自动补全不提升未验证的既有候选，不修改 formal-disabled assertion 或 Canon head。
+
+自动路径仍服从 World Validation Policy 的 full-scope/人工 warning 签收门禁。采用回执
+原子保存逐项 before/after；`rollback_focused_world_package()` 锁后比较，安全恢复填空或
+软废弃未被后续修改/引用的新资产，有冲突的项留待处理。

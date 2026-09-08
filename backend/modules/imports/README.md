@@ -141,7 +141,7 @@ world entities。任务在 commit 前失败时旧资产保持不变。
 具名身份/关系端点未解析提示，以及该 workflow 的 unresolved Evidence links。
 字段已有人工内容时不再因旧缺证提示选入；candidate 状态或普通空字段不单独构成遗漏信号。
 Phase 2a/2b 每 Scene checkpoint 保存 `completion_hints`，包括来源 Scene、逐字引文和具体原因；
-不确定观察的可选 `target_name` 必须能在当前原文定位。没有任何具名线索的遗漏不保证被发现。
+不确定观察的可选 `mention_name` 必须能在当前原文定位。没有任何具名线索的遗漏不保证被发现。
 
 手动 `POST /api/imports/targeted-completions` 接受 `novel_id`、`targets`（每项只能给
 `entity_id` 或 `name`）、`start_chapter/end_chapter` 和 `authorization_confirmed=true`。

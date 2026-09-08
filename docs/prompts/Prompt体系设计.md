@@ -595,3 +595,17 @@ RP v7保留长期约定的单独输入和优先级，撤下未通过评审的v6�
 摘要v3只生成原七区，长期约定由服务端复制；只保存约定不为自动七区添加“用户手工确认”权威。
 DeepSeek新RP执行快照启用max、65,536总输出及900秒超时，旧任务不升级。本次保留工程能力，
 不声称已证明长期演绎质量提升，不纳入实验状态、焦点提取或自动返修调用。
+
+## 专项查证与补全步骤
+
+- `focused_evidence_neighbors.md`：step `evidence.focused_neighbors`，对已核验的根对象
+  证据提名直接关联名称；输出根短键、证据短键、名称、关系及逐字短引文。服务端验证引用
+  和身份，统一展开最多一层。模型不选工具、不决定读取范围和写入权限。
+- `targeted_completion.md`：step `imports.targeted_completion.structured`，只整理本批
+  固定对象的 name/type/summary/public_info/hidden_truth 与别名、直接关系；每项提供
+  精确引用及诚实的 certainty/confidence/uncertainties。低置信、推断、缺证或冲突待审，
+  可靠性自评不能替代服务端 source/identity/CAS 和 World 验证门禁。
+
+两步沿用项目模型配置、托管 structured step、预算和超时。专项补全真实调用记录
+ContextSnapshot；手动资料新增重新确认，自动流水线只使用既有授权范围内的 snapshot。
+Phase 2a/2b 的可选 mention_name 仅在对应原文逐字出现时进入 completion_hints。

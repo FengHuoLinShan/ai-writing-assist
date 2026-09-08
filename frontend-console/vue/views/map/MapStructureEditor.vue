@@ -42,6 +42,14 @@
       <button v-if="reader" class="btn btn-sm" @click="exitReader">回到作者视图</button>
       <span v-if="reader">仅显示该章开始前可公开的内容，位置保持不变。</span>
     </div>
+    <FocusedEvidencePanel v-if="!readOnly"
+      :project-id="projectId" consumer="map" :scope-key="node.id"
+      :roots="evidenceRoots" :initial-name="selectedFeature?.label || node.title || ''"
+      question="核对地点的方位、相邻区域、道路、河流和直接关联地点；只查原文明确依据"
+      :selected-refs="evidenceRefs" select-label="加入本次地图资料"
+      @select-source="emit('pin-evidence', $event)"
+      @clear-selection="emit('clear-evidence')"
+    />
     <template v-if="!referenceOnly">
       <div class="map-canvas-controls">
         <label>缩放 <input v-model.number="zoom" aria-label="空间地图缩放" type="range" min="60" max="200" step="10" /></label>
@@ -145,9 +153,10 @@ import { getApi, getConfirm, getRouter } from "../../bridge/index.js"
 import { confirmAiReference } from "../../../shared/aiReferenceModal.js"
 import { ACCOUNT_MARKER_KEY } from "../../../shared/accountStorage.js"
 import { copyMap, emptyMap, geometrySignature, mapBounds, mapChanges, pointsAttribute, removeMapFeature } from "./mapStructureEditor.js"
+import FocusedEvidencePanel from "../../components/FocusedEvidencePanel.vue"
 
-const props = defineProps({ projectId: { type: String, required: true }, node: { type: Object, required: true }, images: { type: Array, default: () => [] }, knownNodes: { type: Array, default: () => [] }, hasReference: Boolean, reviewImageId: { type: String, default: "" } })
-const emit = defineEmits(["saved", "open-node", "reference-visible", "state"])
+const props = defineProps({ projectId: { type: String, required: true }, node: { type: Object, required: true }, images: { type: Array, default: () => [] }, knownNodes: { type: Array, default: () => [] }, hasReference: Boolean, reviewImageId: { type: String, default: "" }, evidenceRefs: { type: Array, default: () => [] } })
+const emit = defineEmits(["saved", "open-node", "reference-visible", "state", "pin-evidence", "clear-evidence"])
 const api = getApi(), confirm = getConfirm()
 const doc = ref(emptyMap()), revision = ref(null), serverRevision = ref(null), baseline = ref(JSON.stringify(emptyMap()))
 const candidates = ref([]), candidateView = ref(null), history = ref([]), imageLayers = ref([]), checkedGeometry = ref("")
@@ -189,6 +198,10 @@ const labelPositions = computed(() => {
   return result
 })
 const selectedFeature = computed(() => doc.value.features.find(f => f.id === selectedId.value))
+const evidenceRoots = computed(() => {
+  const ids = selectedFeature.value?.entity_id ? [selectedFeature.value.entity_id] : selectedLocationIds.value.length ? selectedLocationIds.value : props.node.location_entity_id ? [props.node.location_entity_id] : []
+  return ids.map(id => ({ target_ref: { target_type: "core_entity", target_id: id, target_path: "" } }))
+})
 const anchorFeatures = computed(() => doc.value.features.filter(f => ["location", "landmark"].includes(f.kind) && f.points.length === 1))
 const childChoices = computed(() => props.knownNodes.filter(node => node.id !== props.node.id && node.parent_id === props.node.id))
 const annotations = computed(() => props.images.flatMap(page => page.annotations || []))
@@ -374,7 +387,7 @@ async function generate() {
   if (dirty.value || busy.value || taskRunning.value) return
   saving.value = true; error.value = ""
   try {
-    const confirmation = await confirmAiReference({ novel_id: props.projectId, action: "world.map_atlas.structure", scope: "full", task: "整理地图空间关系", entity_ids: selectedLocationIds.value, include_pending_objects: false, budget_tokens: 12000 })
+    const confirmation = await confirmAiReference({ novel_id: props.projectId, action: "world.map_atlas.structure", scope: "full", task: "整理地图空间关系", entity_ids: selectedLocationIds.value, include_pending_objects: false, budget_tokens: 12000, pinned_refs: props.evidenceRefs })
     if (!alive) return
     const result = await api.world.generateMapStructure(props.projectId, props.node.id, { operation_id: crypto.randomUUID(), base_revision_id: revision.value?.id || null, context_confirmation_id: confirmation.id, location_ids: [...selectedLocationIds.value] })
     if (!alive) return
