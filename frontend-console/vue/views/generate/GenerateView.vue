@@ -26,7 +26,7 @@
       :warning="world.warning" :templates="templates" :activation-profiles="activationProfiles" :categories="world.categories" :page-templates="world.pageTemplates" :pages="world.pages"
       :scenes="world.scenes" :threads="world.threads" :characters="world.characters" :entities="world.entities" :result="worldResult" :previous-result="previousWorldResult" :proposal-draft="session.pageProposalDraft" :proposal-reset-token="pageProposalEditorResetToken" :recovered-page-proposal="recoveredPageProposal"
       :chat-context-usage="chatContextUsage" :entity-context-usage="entityContextUsage" :convergence-draft="session.convergenceDraft" :convergence-pending="convergencePending" :visual-brief="session.visualBrief" :external-packets="session.externalPackets" :exploration-draft="explorationDraft" :exploration-pending="explorationPending" :exploration-selection="explorationSelection" :source-revision-result="sourceRevisionResult" :busy="worldBusy" :chat-pending="chatPending" :loading-result="suggestionPending" :result-error="worldError"
-      :world-core="isWorldCore" :successful-rounds="session.successfulRounds" :checkpoint-round="session.checkpointRound" :checkpoint-pending="checkpointPending" :checkpoint-saved="Boolean(session.checkpointId)"
+      :world-core="isWorldCore" :successful-rounds="session.successfulRounds" :checkpoint-round="session.checkpointRound" :checkpoint-pending="checkpointPending" :checkpoint-saved="Boolean(session.checkpointId)" :session-title="session.serverSessionTitle" :session-server-bound="Boolean(session.serverSessionId)"
       v-model:selected-template-id="session.selectedTemplateId" v-model:messages="session.messages" v-model:composer="composer"
       v-model:external-packet-draft="session.externalPacketDraft"
       v-model:quality-mode="session.qualityMode" v-model:include-world-synopsis="session.includeWorldSynopsis" v-model:activation-profile-id="session.activationProfileId"
@@ -36,7 +36,7 @@
       v-model:new-page-type="session.newPageType" v-model:new-page-template-key="session.newPageTemplateKey"
       @select-target="selectTarget" @edit-templates="openTemplateEditor" @return-world-bible="returnToWorldBible" @select-chapters="openChapterPicker"
       @send-chat="sendChat" @retry-chat="retryChat" @generate-result="requestWorldSuggestion" @retry-result="requestWorldSuggestion" @converge="convergeWorld" @set-convergence-disposition="setConvergenceDisposition" @edit-convergence-message="editConvergenceMessage" @apply-convergence-message="applyConvergenceMessage" @dismiss-convergence="dismissConvergence" @open-convergence-source="openConvergenceSource"
-      @prefill-world-core="prefillWorldCore" @save-world-core-checkpoint="saveWorldCoreCheckpoint"
+      @prefill-world-core="prefillWorldCore" @save-world-core-checkpoint="saveWorldCoreCheckpoint" @open-session-history="openSessionHistory"
       @explore="exploreWorld" @select-exploration="selectExploration" @dismiss-exploration="dismissExploration" @open-source-revision="openSourceRevision"
       @copy-handoff="copyWorldHandoff" @download-handoff="downloadWorldHandoff" @open-story-outline="openStoryOutline" @preview-external-packet="previewExternalPacket" @clear-external-packet="session.externalPacketDraft = ''"
       @create-visual-brief="createVisualBrief" @edit-visual-brief="editVisualBrief" @confirm-visual-brief="confirmVisualBrief" @copy-visual-brief="copyVisualBrief" @download-visual-brief="downloadVisualBrief" @preview-visual-map="previewVisualMap"
@@ -77,6 +77,7 @@ import {
   readGenerateSession,
   readCreativeContinuation,
   readGenerateContextPreview,
+  serverMessagesToLocal,
   writeCreativeContinuation,
   writeGenerateContextPreview,
   writeGenerateSession,
@@ -142,6 +143,7 @@ let copiedBuiltinTemplate = null
 let templateMutationPending = false
 let worldTaskPoller = null
 let chatStageTimers = []
+let pendingChatAction = null
 
 const tabs = [{ key: "world", label: "世界设定" }, { key: "pov_prose", label: "角色视角正文" }, { key: "task", label: "任务" }, { key: "preview", label: "完整参考资料" }]
 const projectTitle = computed(() => appState?.currentProject?.title || appState?.currentProject?.name || "")
@@ -199,6 +201,44 @@ function clearGenerateContinuation() {
     && continuation.route.target === props.targetKind
     && (continuation.route.preset || "custom") === (isWorldCore.value ? "world_core" : "custom")
   ) clearCreativeContinuation(props.projectId)
+}
+function sessionSourceRef() {
+  return props.sourcePageId ? { kind: "world_bible_page", id: props.sourcePageId } : { kind: "project" }
+}
+function defaultSessionTitle() {
+  if (isWorldCore.value) return "世界核心共创"
+  const source = world.sourceDraft || world.sourcePage
+  return `${source?.title || "世界设定"}共创`
+}
+async function ensureServerSession() {
+  if (session.serverSessionId) return session.serverSessionId
+  const created = await api.world.createCocreationSession({
+    novel_id: props.projectId,
+    title: defaultSessionTitle(),
+    source: sessionSourceRef(),
+    workflow_preset: isWorldCore.value ? "world_core" : "default",
+    target_kind: props.targetKind,
+    source_page_id: props.sourcePageId || null,
+  })
+  session.serverSessionId = created.id
+  session.serverSessionTitle = created.title || defaultSessionTitle()
+  session.serverCheckpointId = created.current_checkpoint_id || null
+  persist()
+  return created.id
+}
+async function refreshServerSessionMessages() {
+  if (!session.serverSessionId || !api.world?.listCocreationMessages) return false
+  try {
+    const data = await api.world.listCocreationMessages(session.serverSessionId, props.projectId, { limit: 40 })
+    if (!owner.isDisposed()) {
+      const localTransient = session.messages.filter((item) => item.pending || item.error || item.interrupted)
+      session.messages = [...serverMessagesToLocal(data?.items || []), ...localTransient]
+      persist()
+    }
+    return true
+  } catch {
+    return false
+  }
 }
 watch(session, persist, { deep: true })
 watch(composer, () => { if (persist()) rememberGenerateContinuation() })
@@ -424,7 +464,26 @@ async function requestChatReply(pending) {
   armBeforeUnload()
   chatPending.value = true
   await worldWorkspaceRef.value?.scrollToLatest?.(true)
-  try { const payload = await confirmWorldPayload(currentWorldPayload(), "world.generation.chat", "世界设定共创对话"); const response = await api.generate.worldChat(payload, { signal: scope.controller.signal }); if (!owner.isActive(scope)) return; chatContextUsage.value = response?.context_usage || null; pending.content = response?.reply || "生成完成，但没有返回回复。"; pending.pending = false; if (isWorldCore.value) session.successfulRounds = Math.min(999, Number(session.successfulRounds || 0) + 1); persist() }
+  try {
+    const payload = await confirmWorldPayload(currentWorldPayload(), "world.generation.chat", "世界设定共创对话")
+    const action = pendingChatAction
+    let sessionId = null
+    try { sessionId = await ensureServerSession() } catch { /* 服务端会话暂不可用：本地回复继续，不阻塞作者 */ }
+    const response = sessionId
+      ? await api.world.cocreationChat(sessionId, { ...payload, ...(action ? { session_action: action } : {}) }, { signal: scope.controller.signal })
+      : await api.generate.worldChat(payload, { signal: scope.controller.signal })
+    if (!owner.isActive(scope)) return
+    chatContextUsage.value = response?.context_usage || null
+    if (action) {
+      const authorMessage = session.messages[session.messages.indexOf(pending) - 1]
+      if (authorMessage?.role === "user") authorMessage.action = action
+    }
+    pendingChatAction = null
+    pending.content = response?.reply || "生成完成，但没有返回回复。"
+    pending.pending = false
+    if (isWorldCore.value) session.successfulRounds = Math.min(999, Number(session.successfulRounds || 0) + 1)
+    persist()
+  }
   catch (err) { if (!owner.isActive(scope)) return; if (err?.message === "已取消 AI 参考资料确认") { session.messages = session.messages.filter((item) => item !== pending); persist(); return } pending.content = `暂时没能回复：${err?.message || "未知错误"}`; pending.pending = false; pending.error = true; persist(); toast("回复失败，刚才的问题仍保留，可以直接重试", "error") }
   finally {
     const settledHere = owner.isActive(scope)
@@ -614,6 +673,7 @@ const WORLD_CORE_ACTIONS = {
 function prefillWorldCore(action) {
   if (!isWorldCore.value || !WORLD_CORE_ACTIONS[action]) return false
   session.worldCoreAction = action
+  pendingChatAction = action
   composer.value = WORLD_CORE_ACTIONS[action]
   return true
 }
@@ -636,8 +696,33 @@ async function saveWorldCoreCheckpoint() {
     session.checkpointId = saved.id
     session.checkpointRound = Number(session.successfulRounds || 0)
     session.checkpointDepth = "seed"
+    let pointerWarning = null
+    if (session.serverSessionId) {
+      try {
+        const updated = await api.world.advanceCocreationCheckpoint(session.serverSessionId, {
+          novel_id: props.projectId,
+          checkpoint_suggestion_id: saved.id,
+          expected_checkpoint_id: session.serverCheckpointId || null,
+          round_no: Number(session.successfulRounds || 0),
+          depth: "seed",
+        })
+        session.serverCheckpointId = updated.current_checkpoint_id || saved.id
+      } catch (err) {
+        if (Number(err?.status) === 409 || String(err?.message || "").includes("checkpoint_pointer_drift")) {
+          // 漂移：提案已保留，不覆盖其他设备的推进；重新拉取当前基线，要求作者核对。
+          try {
+            const detail = await api.world.getCocreationSession(session.serverSessionId, props.projectId)
+            session.serverCheckpointId = detail?.session?.current_checkpoint_id || null
+          } catch {}
+          pointerWarning = "会话基线已在其他设备推进；本轮提案已保留，请核对差异后再次保存以推进指针。"
+        } else {
+          pointerWarning = "阶段成果已保存，但会话指针暂时未能推进；可稍后重试保存。"
+        }
+      }
+    }
     if (persist()) rememberGenerateContinuation()
-    toast("阶段成果已保存；可以从决定摘要继续，它仍不是正式设定", "success")
+    if (pointerWarning) toast(pointerWarning, "warning")
+    else toast("阶段成果已保存；可以从决定摘要继续，它仍不是正式设定", "success")
     return true
   } catch (err) {
     if (!owner.isActive(scope)) return false
@@ -657,7 +742,14 @@ async function applyConvergenceMessage() {
   const draft = session.convergenceDraft
   const message = draft?.authorMessage?.trim()
   if (!draft?.coverage?.complete || draft.stale || !message) return false
-  session.messages.push({ role: "user", content: message })
+  session.messages.push({ role: "user", content: message, kind: "decision" })
+  if (session.serverSessionId) {
+    try {
+      await api.world.appendCocreationMessage(session.serverSessionId, { novel_id: props.projectId, content: message, kind: "decision" })
+    } catch {
+      toast("作者决定已加入对话，但写入会话历史失败；可在历史会话中重试", "warning")
+    }
+  }
   if (draft.externalPacketHash) {
     for (let index = session.externalPackets.length - 1; index >= 0; index -= 1) {
       const record = session.externalPackets[index]
@@ -838,6 +930,13 @@ async function generateWorldSuggestion(revisesSuggestionId = null) {
     if (revisesSuggestionId) payload.revises_suggestion_id = revisesSuggestionId
     if (explorationSelection.value) payload.exploration_selection = { ...explorationSelection.value, source_keys: [...explorationSelection.value.source_keys] }
     payload = await confirmWorldPayload(payload, props.targetKind === "core_entity" ? "world.generation.core_entity" : "world.generation.world_bible_page", "生成世界设定建议")
+    const taskAction = pendingChatAction || (isWorldCore.value ? session.worldCoreAction : null)
+    pendingChatAction = null
+    try {
+      payload.session_id = await ensureServerSession()
+      if (taskAction) payload.session_action = taskAction
+      if (payload.session_id) meta.session_id = payload.session_id
+    } catch { /* 会话绑定失败不阻塞生成；成果仍进入待处理建议 */ }
     const response = await api.generate.enqueueWorldSuggestion({ ...payload, operation_id: operationId })
     if (owner.isDisposed()) return true
     const taskId = response?.task_id || operationId
@@ -890,6 +989,7 @@ function startWorldTaskPolling(taskId, meta) {
       entityContextUsage.value = response.context_usage || null
       discardPageProposalDraft()
       dismissExploration()
+      if (session.serverSessionId) void refreshServerSessionMessages()
       toast(meta.revises_suggestion_id ? "修订版已进入待处理，旧版已封存" : sourceRevisionResult.value ? "相邻新页与一条来源页修订已进入待处理" : meta.explored ? "所选相邻新页已进入待处理；来源页无需另建修订" : worldResult.value?.kind === "core_entity" ? "世界对象建议已进入待处理" : "世界书整页提案已进入待处理", "success")
     },
     onFailed: (progress) => {
@@ -934,6 +1034,109 @@ function openReview() {
     if (["objects", "relations", "bible"].includes(subView)) query.set("return_subview", subView)
   }
   router.navigate("world", "review", true, query)
+}
+
+function cocreationBindingFilter(item) {
+  return (item.workflow_preset || "world_core") === (isWorldCore.value ? "world_core" : "default")
+    && (item.target_kind || null) === (props.targetKind || null)
+}
+function sessionBindingQuery(extra = {}) {
+  const query = new URLSearchParams({ tab: "world", ...extra })
+  if (props.sourcePageId) query.set("source_page_id", props.sourcePageId)
+  query.set("target", props.targetKind)
+  if (isWorldCore.value) query.set("preset", "world_core")
+  return query
+}
+function switchToCocreationSession(item) {
+  if (!confirmDiscard("整页提案仍有未应用的编辑，确定放弃修改并切换会话吗？")) return false
+  session.serverSessionId = item.id
+  session.serverSessionTitle = item.title || ""
+  session.serverCheckpointId = item.current_checkpoint_id || null
+  session.messages = []
+  session.suggestionId = null
+  session.convergenceDraft = null
+  worldResult.value = null
+  previousWorldResult.value = null
+  discardPageProposalDraft()
+  persist()
+  closeModal()
+  router.navigate("generate", null, true, sessionBindingQuery({ session_id: item.id }))
+  return true
+}
+async function archiveCocreationSession(item) {
+  if (!confirm(`归档会话“${item.title || "未命名会话"}”？归档后不再出现在默认列表，消息不会删除。`)) return false
+  try {
+    await api.world.updateCocreationSession(item.id, { novel_id: props.projectId, archived: true })
+    toast("会话已归档", "success")
+    await openSessionHistory()
+    return true
+  } catch (err) {
+    toast(`归档失败：${err?.message || "未知错误"}`, "error")
+    return false
+  }
+}
+async function startNewCocreationSession() {
+  try {
+    const created = await api.world.createCocreationSession({
+      novel_id: props.projectId,
+      title: `${defaultSessionTitle()} · 新会话`,
+      source: sessionSourceRef(),
+      workflow_preset: isWorldCore.value ? "world_core" : "default",
+      target_kind: props.targetKind,
+      source_page_id: props.sourcePageId || null,
+    })
+    return switchToCocreationSession(created)
+  } catch (err) {
+    toast(`新建会话失败：${err?.message || "未知错误"}`, "error")
+    return false
+  }
+}
+async function openSessionHistory() {
+  const modalOwner = captureModalOwner()
+  const scope = owner.begin()
+  let items = []
+  try {
+    const data = await api.world.listCocreationSessions(props.projectId, {
+      source_kind: props.sourcePageId ? "world_bible_page" : "project",
+      ...(props.sourcePageId ? { source_id: props.sourcePageId } : {}),
+      include_archived: true,
+      limit: 50,
+    })
+    items = (data?.items || []).filter(cocreationBindingFilter)
+  } catch (err) {
+    if (owner.isActive(scope) && modalStateUnchanged(modalOwner)) toast(`历史会话加载失败：${err?.message || "未知错误"}`, "error")
+    owner.finish(scope)
+    return false
+  }
+  if (!owner.isActive(scope) || !modalStateUnchanged(modalOwner)) {
+    owner.finish(scope)
+    return false
+  }
+  owner.finish(scope)
+  const rows = items.map((item, index) => {
+    const current = session.serverSessionId === item.id
+    const activity = String(item.last_message_at || item.created_at || "").slice(0, 16).replace("T", " ")
+    return `<tr><td>${esc(item.title || "未命名会话")}${item.status === "archived" ? '<span class="badge">已归档</span>' : ""}</td><td>第 ${Number(item.checkpoint_round || 0)} 轮</td><td>${esc(activity)}</td><td>${current ? '<span class="badge">当前</span>' : ""}</td><td><button class="btn btn-sm" type="button" data-action="open-cocreation-session" data-session-index="${index}" ${current || item.status === "archived" ? "disabled" : ""}>打开</button> <button class="btn btn-sm btn-ghost" type="button" data-action="archive-cocreation-session" data-session-index="${index}" ${item.status === "archived" ? "disabled" : ""}>归档</button></td></tr>`
+  }).join("")
+  openOwnedModal(
+    "共创会话历史",
+    rows
+      ? `<div class="generate-session-history"><table class="data-table"><thead><tr><th>会话</th><th>阶段成果</th><th>最近活动</th><th></th><th>操作</th></tr></thead><tbody>${rows}</tbody></table><p class="generate-empty-copy">会话保存在服务器，换设备也能继续；归档只是收起，消息不会删除。</p></div>`
+      : `<div class="generate-session-history"><p class="generate-empty-copy">当前来源还没有共创会话；发送第一条消息时会自动建立并保存到服务器。</p></div>`,
+    [
+      { text: "新建会话", class: "btn", handler: startNewCocreationSession },
+      { text: "关闭", class: "btn-ghost", handler: closeModal },
+    ],
+  )
+  document.getElementById("modal-body")?.addEventListener("click", (event) => {
+    const button = event.target.closest?.("[data-action='open-cocreation-session'],[data-action='archive-cocreation-session']")
+    if (!button) return
+    const item = items[Number(button.dataset.sessionIndex)]
+    if (!item) return
+    if (button.dataset.action === "open-cocreation-session") switchToCocreationSession(item)
+    else void archiveCocreationSession(item)
+  })
+  return true
 }
 
 async function changePovChapter(value, { preserveSelection = false } = {}) {

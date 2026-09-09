@@ -374,6 +374,8 @@ PNG 后才进入地图册私有 S3。此例外不改变 imports 的文稿上传�
 | `world_library_topics` | 资料库主题目录：作者组织用嵌套主题树，`parent_id` 复合外键保证同项目嵌套，service 拒绝成环移动；归档主题不归档其资料 |
 | `world_library_topic_members` | 主题成员：对 Page / Draft / Entity 的多主题引用（`target_kind + target_id`，无跨表外键）；独立工作稿发布时转换为 page 引用并去重 |
 | `world_library_favorites` | 作者工作区收藏（`novel_id + target` 唯一） |
+| `world_cocreation_sessions` | 持久化共创会话（ADR-0021）：以 `source_kind + source_id` 绑定项目/资料页/世界对象/主题，保存工作区形状与 `current_checkpoint_id` 指针；推进指针要求 `expected_checkpoint_id`，漂移 409 保留提案 |
+| `world_cocreation_messages` | 会话终态消息（作者消息/完成的模型回复/作者决定）：`(novel_id, session_id)` 复合外键级联删除；生成回合绑定 confirmation 与 task，候选成果以 `outcome_suggestion_id` 引用建议队列，读取时推导待审阅/已存工作稿/已采用/已否定 |
 
 作者编辑接口基线：draft PATCH、entity PUT 与 character PUT 均要求 `expected_updated_at`
 （行锁内校验；缺失/过期分别返回 `edit_baseline_required` / `edit_baseline_stale` 409），

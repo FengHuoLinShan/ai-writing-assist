@@ -351,6 +351,8 @@ bucket。这不是分布式或全局 DDoS 防护，也不表示当前外部 Clou
 |------|------|
 | project | `smart_dedup_scan` |
 | world | `world_alias_relation_extraction`、`world_entity_fusion_suggestions`、`world_bible_projection_refresh`、`world_bible_synopsis_refresh`、`world_generation_suggestion`、`world_validation`、`map_atlas_generate`、`world_map_schematic_generate`、`map_atlas_storage_cleanup`、`world_object_image_cleanup` |
+
+`world_generation_suggestion` 的 task meta 可携带 `session_id` 与 `session_action`（ADR-0021）：任务成功后由 world 域把作者回合与成果引用追加进持久化共创会话，失败或重试不落半截记录；transport 幂等仍由 operation receipt 承担，会话写入不改变任务指纹语义。
 | story | `story_outline_generate`、`outline_analyze`、`outline_generate`、`scene_fusion_preview`、`story_character_card_generate`、`story_reaction_propose`、`story_scene_script_generate`、`story_one_click`；`plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate` 仅为存量任务的 unsupported 兼容注册 |
 | evidence | `rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings`、`rag_reannotate_entities`（持久化 task type 不改名） |
 | writing | `publish_chapter`、`writing_generate`、`writing_semantic_review`、`writing_targeted_revision`、`writing_conflict_ai_review`、`writing_conflict_item_ai_suggestion` |

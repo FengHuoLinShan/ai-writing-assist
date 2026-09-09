@@ -9,6 +9,7 @@ import {
   generateSessionKey,
   readCreativeContinuation,
   readGenerateSession,
+  serverMessagesToLocal,
 } from "./views/generate/generateSession.js"
 import { OBJECT_TEMPLATES, PAGE_SIZE, convergenceDraftFromCheckpoint, listItems, normalizeTemplate } from "./views/generate/logic/generateLogic.js"
 
@@ -100,7 +101,6 @@ export async function loadGenerate(options = {}) {
   const targetKind = preset === "world_core"
     ? "core_entity"
     : VALID_TARGETS.has(options.targetKind) ? options.targetKind : VALID_TARGETS.has(query.get("target")) ? query.get("target") : "core_entity"
-  const checkpointId = preset === "world_core" ? (options.checkpointId ?? (query.get("checkpoint_id") || null)) : null
   const sessionKey = generateSessionKey(projectId, sourcePageId, targetKind, preset)
   const notices = new Set()
   const readSession = (key) => readGenerateSession(key, {
@@ -141,8 +141,61 @@ export async function loadGenerate(options = {}) {
   }
   if (!projectId || !api) return props
 
+  // 服务端共创会话（ADR-0021）：同绑定的最新会话或 session_id 深链优先于本地缓存，
+  // 换设备也能继续；服务端不可用时回退本地 v2 会话。与模板/资料加载并行。
+  let serverSessionDetail = null
+  let serverSessionWarning = null
+  const querySessionId = query.get("session_id") || null
+  const serverSessionPromise = (async () => {
+    if (!api.world?.listCocreationSessions || !api.world?.getCocreationSession) return
+    try {
+      let detail = null
+      if (querySessionId) {
+        detail = await api.world.getCocreationSession(querySessionId, projectId)
+      } else {
+        const listData = await api.world.listCocreationSessions(projectId, {
+          source_kind: sourcePageId ? "world_bible_page" : "project",
+          ...(sourcePageId ? { source_id: sourcePageId } : {}),
+          limit: 20,
+        })
+        const candidates = (listData?.items || []).filter((item) => (
+          (item.workflow_preset || "world_core") === (preset === "world_core" ? "world_core" : "default")
+          && (item.target_kind || null) === (targetKind || null)
+          && item.status === "active"
+        ))
+        if (candidates.length) detail = await api.world.getCocreationSession(candidates[0].id, projectId)
+      }
+      if (detail?.session) {
+        serverSessionDetail = detail
+        const info = detail.session
+        session.serverSessionId = info.id
+        session.serverSessionTitle = info.title || ""
+        session.serverCheckpointId = info.current_checkpoint_id || null
+        if (Number.isFinite(Number(info.checkpoint_round))) {
+          session.checkpointRound = Math.max(Number(session.checkpointRound || 0), Number(info.checkpoint_round || 0))
+        }
+        if (info.checkpoint_depth) session.checkpointDepth = info.checkpoint_depth
+        const serverMessages = serverMessagesToLocal(detail.messages || [])
+        if (serverMessages.length) {
+          // 保留本地未完成/失败的气泡（重试入口），其余以服务端终态记录为准。
+          const localTransient = (session.messages || []).filter((item) => item.pending || item.error || item.interrupted)
+          session.messages = [...serverMessages, ...localTransient]
+        }
+      } else if (querySessionId) {
+        serverSessionWarning = "指定的共创会话不存在或已被归档；已回退到本地会话。"
+      }
+    } catch {
+      if (querySessionId) serverSessionWarning = "共创会话暂时无法恢复；已回退到本地会话，可稍后重试。"
+    }
+  })()
+
   let checkpointWarning = null
   const checkpointPromise = (async () => {
+    await serverSessionPromise
+    const serverPointerCheckpointId = serverSessionDetail?.session?.current_checkpoint_id || null
+    const checkpointId = querySessionId && serverPointerCheckpointId
+      ? serverPointerCheckpointId
+      : (preset === "world_core" ? (options.checkpointId ?? (query.get("checkpoint_id") || serverPointerCheckpointId)) : null)
     if (!checkpointId || !api.world?.getAdoptionArtifact) return
     try {
       const artifact = await api.world.getAdoptionArtifact(checkpointId, projectId)
@@ -245,7 +298,7 @@ export async function loadGenerate(options = {}) {
     })()
   }
   await Promise.all([checkpointPromise, templatesPromise, profilesPromise, tabPromise])
-  props.worldWorkspaceWarning ||= templateWarning || checkpointWarning
+  props.worldWorkspaceWarning ||= templateWarning || checkpointWarning || serverSessionWarning
   return props
 }
 

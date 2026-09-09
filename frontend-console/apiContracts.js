@@ -386,6 +386,41 @@
       requiredBody: ["operation_id"],
       timeout: AI_TASK_SUBMIT_TIMEOUT,
     }),
+    "world.cocreationChat": define("POST", ({ sessionId }) => `/world/cocreation-sessions/${required(sessionId, "sessionId", "world.cocreationChat")}/chat`, {
+      requiredParams: ["sessionId"],
+      hasBody: true,
+      timeout: LLM_GENERATE_TIMEOUT,
+    }),
+    "world.createCocreationSession": define("POST", () => "/world/cocreation-sessions", {
+      hasBody: true,
+      requiredBody: ["novel_id", "source"],
+    }),
+    "world.listCocreationSessions": define("GET", () => "/world/cocreation-sessions", {
+      requiredQuery: ["novel_id"],
+    }),
+    "world.getCocreationSession": define("GET", ({ sessionId }) => `/world/cocreation-sessions/${required(sessionId, "sessionId", "world.getCocreationSession")}`, {
+      requiredParams: ["sessionId"],
+      requiredQuery: ["novel_id"],
+    }),
+    "world.updateCocreationSession": define("PATCH", ({ sessionId }) => `/world/cocreation-sessions/${required(sessionId, "sessionId", "world.updateCocreationSession")}`, {
+      requiredParams: ["sessionId"],
+      hasBody: true,
+      requiredBody: ["novel_id"],
+    }),
+    "world.listCocreationMessages": define("GET", ({ sessionId }) => `/world/cocreation-sessions/${required(sessionId, "sessionId", "world.listCocreationMessages")}/messages`, {
+      requiredParams: ["sessionId"],
+      requiredQuery: ["novel_id"],
+    }),
+    "world.appendCocreationMessage": define("POST", ({ sessionId }) => `/world/cocreation-sessions/${required(sessionId, "sessionId", "world.appendCocreationMessage")}/messages`, {
+      requiredParams: ["sessionId"],
+      hasBody: true,
+      requiredBody: ["novel_id", "content"],
+    }),
+    "world.advanceCocreationCheckpoint": define("POST", ({ sessionId }) => `/world/cocreation-sessions/${required(sessionId, "sessionId", "world.advanceCocreationCheckpoint")}/checkpoint`, {
+      requiredParams: ["sessionId"],
+      hasBody: true,
+      requiredBody: ["novel_id", "checkpoint_suggestion_id"],
+    }),
     "generate.applyWorldPageDraft": define("POST", ({ suggestionId }) => `/world/generation-center/suggestions/${required(suggestionId, "suggestionId", "generate.applyWorldPageDraft")}/apply-page-draft`, {
       requiredParams: ["suggestionId"],
       requiredQuery: ["novel_id"],

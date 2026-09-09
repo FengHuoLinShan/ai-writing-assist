@@ -1541,6 +1541,38 @@ const api = {
       return post("/world/design-checkpoints", payload)
     },
 
+    async listCocreationSessions(novelId, params = {}) {
+      return request(withQuery("/world/cocreation-sessions", { novel_id: novelId, ...params }))
+    },
+
+    async createCocreationSession(payload) {
+      return post("/world/cocreation-sessions", payload)
+    },
+
+    async getCocreationSession(sessionId, novelId) {
+      return request(withQuery(`/world/cocreation-sessions/${sessionId}`, { novel_id: novelId }))
+    },
+
+    async updateCocreationSession(sessionId, payload) {
+      return patch(`/world/cocreation-sessions/${sessionId}`, payload)
+    },
+
+    async listCocreationMessages(sessionId, novelId, params = {}) {
+      return request(withQuery(`/world/cocreation-sessions/${sessionId}/messages`, { novel_id: novelId, ...params }))
+    },
+
+    async appendCocreationMessage(sessionId, payload) {
+      return post(`/world/cocreation-sessions/${sessionId}/messages`, payload)
+    },
+
+    async advanceCocreationCheckpoint(sessionId, payload) {
+      return post(`/world/cocreation-sessions/${sessionId}/checkpoint`, payload)
+    },
+
+    async cocreationChat(sessionId, payload, options = {}) {
+      return contractJson("world.cocreationChat", { sessionId }, {}, payload, options)
+    },
+
     async previewWorldbookImport(novelId, files) {
       return post(withQuery("/world/bible/imports/preview", { novel_id: novelId }), {
         schema_version: "world_worldbook_import.v1",

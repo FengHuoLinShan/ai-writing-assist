@@ -157,6 +157,9 @@ beforeEach(() => {
     world: {
       listBiblePages: vi.fn(), listBibleDrafts: vi.fn(), listBibleCategories: vi.fn(), listBiblePageTemplates: vi.fn(), listCharacters: vi.fn(), listEntities: vi.fn(), getEntity: vi.fn(),
       saveCoreCheckpoint: vi.fn(), saveDesignCheckpoint: vi.fn(),
+      createCocreationSession: vi.fn(), listCocreationSessions: vi.fn(), getCocreationSession: vi.fn(),
+      updateCocreationSession: vi.fn(), listCocreationMessages: vi.fn(), appendCocreationMessage: vi.fn(),
+      advanceCocreationCheckpoint: vi.fn(), cocreationChat: vi.fn(),
     },
     outline: { listScenesOrdered: vi.fn(), listThreads: vi.fn(), listScenesByChapter: vi.fn(), getSceneWorkbench: vi.fn(), getScene: vi.fn() },
     writing: { listChapters: vi.fn(), get: vi.fn(), getDraft: vi.fn(), generate: vi.fn() },
@@ -314,7 +317,7 @@ describe("GenerateView Vue behavior matrix", () => {
       target: { kind: "core_entity", template: "none" },
     })
     expect(wrapper.get("[data-action='save-world-core-checkpoint']").element.disabled).toBe(true)
-    expect(wrapper.text()).toContain("未保存前只保证在当前浏览器恢复")
+    expect(wrapper.text()).toContain("未保存的草稿仍只保证在当前浏览器恢复")
     expect(api.world.saveCoreCheckpoint).not.toHaveBeenCalled()
     expect(readGenerateSession(key).successfulRounds).toBe(3)
     expect(wrapper.find('[data-action="generate-world-suggestion"]').exists()).toBe(false)
@@ -431,7 +434,7 @@ describe("GenerateView Vue behavior matrix", () => {
 
     expect(wrapper.find('[data-section="convergence-preview"]').exists()).toBe(false)
     expect(wrapper.get("#generate-chat-messages").text()).toContain("作者改写后的决定消息")
-    expect(readGenerateSession(key).messages.at(-1)).toEqual({ role: "user", content: "作者改写后的决定消息" })
+    expect(readGenerateSession(key).messages.at(-1)).toMatchObject({ role: "user", content: "作者改写后的决定消息", kind: "decision" })
     expect(api.generate.worldChat).not.toHaveBeenCalled()
     expect(api.generate.generateWorldSuggestion).not.toHaveBeenCalled()
   })
@@ -2239,6 +2242,111 @@ describe("GenerateView Vue behavior matrix", () => {
     await wrapper.get('[data-subtab="task"]').trigger("click")
     expect(confirmDiscard).toHaveBeenCalledTimes(2)
     expect(wrapper.get("#generate-page-title").exists()).toBe(true)
+  })
+
+  it("creates a server co-creation session on first send and tags the action turn", async () => {
+    api.world.createCocreationSession.mockResolvedValue({ id: "cs-1", title: "世界核心共创", current_checkpoint_id: null })
+    api.world.cocreationChat.mockResolvedValue({ reply: "潮门规则需要一条维护代价。" })
+    const key = generateSessionKey("p1", null, "core_entity", "world_core")
+    const wrapper = mount(GenerateView, { props: baseProps({ preset: "world_core", sessionKey: key }), attachTo: document.body })
+
+    await wrapper.get('[data-action="world-core-pressure"]').trigger("click")
+    await wrapper.get('[data-action="send-chat-message"]').trigger("click")
+    await vi.waitFor(() => expect(wrapper.get("#generate-chat-messages").text()).toContain("维护代价"))
+
+    expect(api.world.createCocreationSession).toHaveBeenCalledWith(expect.objectContaining({
+      novel_id: "p1",
+      source: { kind: "project" },
+      workflow_preset: "world_core",
+      target_kind: "core_entity",
+    }))
+    expect(api.world.cocreationChat).toHaveBeenCalledWith("cs-1", expect.objectContaining({ session_action: "pressure" }), expect.objectContaining({ signal: expect.any(AbortSignal) }))
+    expect(api.generate.worldChat).not.toHaveBeenCalled()
+    expect(readGenerateSession(key).serverSessionId).toBe("cs-1")
+    expect(wrapper.get("#generate-chat-messages").text()).toContain("检验日常与故障")
+    expect(wrapper.text()).toContain("已存服务器")
+  })
+
+  it("falls back to the local chat path when the session service is unavailable", async () => {
+    api.world.createCocreationSession.mockRejectedValue(new Error("offline"))
+    api.generate.worldChat.mockResolvedValue({ reply: "本地回复仍可用" })
+    const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
+    await wrapper.get("#generate-chat-input").setValue("继续推敲北境银币")
+    await wrapper.get('[data-action="send-chat-message"]').trigger("click")
+    await vi.waitFor(() => expect(wrapper.get("#generate-chat-messages").text()).toContain("本地回复仍可用"))
+    expect(api.generate.worldChat).toHaveBeenCalledTimes(1)
+  })
+
+  it("advances the checkpoint pointer and keeps the proposal on drift", async () => {
+    const key = generateSessionKey("p1", null, "core_entity", "world_core")
+    api.world.createCocreationSession.mockResolvedValue({ id: "cs-1", title: "世界核心共创", current_checkpoint_id: null })
+    api.world.cocreationChat.mockResolvedValue({ reply: "只生长当前一层。" })
+    api.generate.convergeWorld.mockResolvedValue(worldCoreResponse())
+    api.world.saveDesignCheckpoint.mockResolvedValue({ id: "ck-2" })
+    api.world.advanceCocreationCheckpoint.mockRejectedValueOnce(Object.assign(new Error("checkpoint_pointer_drift: 会话基线已变化"), { status: 409 }))
+    api.world.getCocreationSession.mockResolvedValue({ session: { id: "cs-1", title: "世界核心共创", current_checkpoint_id: "ck-9", checkpoint_round: 7, checkpoint_depth: "seed", status: "active" }, messages: [], message_total: 0 })
+    const wrapper = mount(GenerateView, { props: baseProps({ preset: "world_core", sessionKey: key }), attachTo: document.body })
+
+    for (let round = 0; round < 3; round += 1) {
+      if (round) await wrapper.get("#generate-chat-input").setValue(`第 ${round + 1} 轮`)
+      else await wrapper.get('[data-action="world-core-expand"]').trigger("click")
+      await wrapper.get('[data-action="send-chat-message"]').trigger("click")
+      await vi.waitFor(() => expect(api.world.cocreationChat).toHaveBeenCalledTimes(round + 1))
+    }
+    await wrapper.get('[data-action="converge-world"]').trigger("click")
+    await vi.waitFor(() => expect(wrapper.find('[data-section="convergence-preview"]').exists()).toBe(true))
+    await wrapper.get('[data-action="save-world-core-checkpoint"]').trigger("click")
+    await vi.waitFor(() => expect(api.world.advanceCocreationCheckpoint).toHaveBeenCalledTimes(1))
+
+    expect(api.world.advanceCocreationCheckpoint).toHaveBeenCalledWith("cs-1", expect.objectContaining({
+      novel_id: "p1",
+      checkpoint_suggestion_id: "ck-2",
+      expected_checkpoint_id: null,
+    }))
+    expect(api.world.getCocreationSession).toHaveBeenCalledWith("cs-1", "p1")
+    expect(readGenerateSession(key).checkpointId).toBe("ck-2")
+    expect(readGenerateSession(key).serverCheckpointId).toBe("ck-9")
+    expect(toast).toHaveBeenCalledWith(expect.stringContaining("请核对差异后再次保存"), "warning")
+  })
+
+  it("records the author decision into the server session history", async () => {
+    const key = generateSessionKey("p1", null, "core_entity", "world_core")
+    api.generate.convergeWorld.mockResolvedValue(worldCoreResponse())
+    api.world.appendCocreationMessage.mockResolvedValue({ id: "m-decision" })
+    const initialSession = { ...emptyGenerateSession(), serverSessionId: "cs-1", serverSessionTitle: "世界核心共创" }
+    const wrapper = mount(GenerateView, { props: baseProps({ preset: "world_core", sessionKey: key, initialSession }), attachTo: document.body })
+    await wrapper.get("#generate-chat-input").setValue("先收束这一轮")
+    await wrapper.get('[data-action="converge-world"]').trigger("click")
+    await vi.waitFor(() => expect(wrapper.find('[data-section="convergence-preview"]').exists()).toBe(true))
+    await wrapper.get('[data-action="apply-convergence-message"]').trigger("click")
+    await flushPromises()
+
+    expect(api.world.appendCocreationMessage).toHaveBeenCalledWith("cs-1", expect.objectContaining({ novel_id: "p1", kind: "decision" }))
+  })
+
+  it("lists and switches co-creation sessions from the history modal", async () => {
+    const key = generateSessionKey("p1", null, "core_entity", "world_core")
+    api.world.listCocreationSessions.mockResolvedValue({
+      total: 2,
+      items: [
+        { id: "cs-2", title: "北境第二轮", workflow_preset: "world_core", target_kind: "core_entity", status: "active", checkpoint_round: 4, current_checkpoint_id: "ck-4", last_message_at: "2026-09-09T10:00:00" },
+        { id: "cs-1", title: "首轮会话", workflow_preset: "world_core", target_kind: "core_entity", status: "active", checkpoint_round: 1, current_checkpoint_id: "ck-1", last_message_at: "2026-09-08T10:00:00" },
+      ],
+    })
+    const initialSession = { ...emptyGenerateSession(), serverSessionId: "cs-1", serverSessionTitle: "首轮会话" }
+    const wrapper = mount(GenerateView, { props: baseProps({ preset: "world_core", sessionKey: key, initialSession }), attachTo: document.body })
+
+    await wrapper.get('[data-action="open-session-history"]').trigger("click")
+    await vi.waitFor(() => expect(api.world.listCocreationSessions).toHaveBeenCalledWith("p1", expect.objectContaining({ source_kind: "project" })))
+    expect(document.getElementById("modal-body").textContent).toContain("北境第二轮")
+
+    document.querySelector("[data-action='open-cocreation-session']").click()
+    await flushPromises()
+    expect(readGenerateSession(key).serverSessionId).toBe("cs-2")
+    expect(readGenerateSession(key).serverCheckpointId).toBe("ck-4")
+    const navigateCall = router.navigate.mock.calls.find((call) => call[0] === "generate")
+    expect(navigateCall?.[3]?.get?.("session_id")).toBe("cs-2")
+    expect(navigateCall?.[3]?.get?.("preset")).toBe("world_core")
   })
 
   it("does not send an apply request for recovered invalid JSON", async () => {

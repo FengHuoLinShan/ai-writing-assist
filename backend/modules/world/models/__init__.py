@@ -13,6 +13,7 @@ from .authority import (
     WorldCanonRevision,
 )
 from .character import Character, CharacterKnowledge
+from .cocreation import WorldCocreationMessage, WorldCocreationSession
 from .core import CoreEntity, EntityRelation, EntityRevision, Event, TextArchive
 from .library import (
     WorldLibraryFavorite,
@@ -100,6 +101,8 @@ __all__ = [
     "WorldBiblePageTemplateRevision",
     "WorldBibleSynopsisHead",
     "WorldBibleSynopsisRevision",
+    "WorldCocreationMessage",
+    "WorldCocreationSession",
     "WorldValidationRun",
     "WorldAssertion",
     "WorldCanonHead",

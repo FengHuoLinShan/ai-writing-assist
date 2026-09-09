@@ -514,6 +514,37 @@ async def handle_world_generation_suggestion(db, task):
         llm_execution_snapshot=snapshot,
         task_id=str(task.id),
     )
+    session_id = str(meta.get("session_id") or "")
+    if session_id:
+        from modules.world.services.worldbuilding.cocreation_session_service import (
+            WorldCocreationSessionService,
+        )
+
+        suggestion = response.result.suggestion
+        payload_json = suggestion.payload_json or {}
+        if suggestion.target_type == "core_entity_draft":
+            label = payload_json.get("name") or "世界对象候选"
+        else:
+            label = (payload_json.get("page") or {}).get("title") or "资料页候选"
+        last_user = next(
+            (
+                message
+                for message in reversed(data.messages)
+                if message.role == "user"
+            ),
+            None,
+        )
+        await WorldCocreationSessionService().record_generation_outcome(
+            db,
+            novel_id=data.novel_id,
+            session_id=session_id,
+            action=meta.get("session_action"),
+            author_content=last_user.content if last_user else None,
+            task_id=str(task.id),
+            context_confirmation_id=meta.get("context_confirmation_id"),
+            outcome_suggestion_id=str(suggestion.id),
+            outcome_label=str(label),
+        )
     task.update_progress(1.0)
     return response.model_dump(mode="json")
 

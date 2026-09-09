@@ -2,6 +2,7 @@
 import { computed, ref } from "vue"
 import RpMarkdownContent from "../../interaction/RpMarkdownContent.vue"
 import { displayStateBadgeClass, worldAssetDisplay } from "../../../../shared/assetDisplayState.js"
+import { getApi, getAppState, getCloseModal, getEsc, getRouter, getShowModalHtml, getToast } from "../../../bridge/index.js"
 
 const props = defineProps({
   source: { type: Object, default: null },
@@ -15,6 +16,8 @@ const props = defineProps({
 const emit = defineEmits(["edit", "back"])
 
 const collapsed = ref(new Set())
+const wikiLookupGeneration = ref(0)
+const wikiLookingUp = ref(false)
 
 const display = computed(() => worldAssetDisplay(props.source || {}))
 
@@ -57,6 +60,65 @@ function sectionKindLabel(section) {
   if (section?.section_type === "asset_collection") return "资产清单"
   return "正文"
 }
+
+const WIKI_KIND_LABELS = { entity: "世界对象", page: "资料页", draft: "工作稿" }
+
+function openWikiItem(item) {
+  const query = new URLSearchParams()
+  if (item.kind === "entity") query.set("entity_id", item.id)
+  else query.set("page_id", item.id)
+  getRouter()?.navigate?.("world", "bible", true, query)
+}
+
+function showWikiChoice(name, items) {
+  const esc = getEsc() || ((value) => String(value ?? ""))
+  const rows = items.map((item, index) => `<button class="btn world-wiki-choice" type="button" data-action="choose-wiki-ref" data-wiki-choice="${index}"><span class="world-wiki-choice__title">${esc(item.title || item.name || "未命名")}</span><span class="world-wiki-choice__meta">${esc(WIKI_KIND_LABELS[item.kind] || "资料")}${item.summary ? ` · ${esc(String(item.summary).slice(0, 80))}` : ""}</span></button>`).join("")
+  getShowModalHtml()?.(
+    `“${esc(name)}”有多条同名资料`,
+    `<div class="world-wiki-choices"><p class="world-wiki-choice__hint">同名资料需要你选择要打开的那一条；引用本身不会改写任何对象。</p>${rows}</div>`,
+    [{ text: "取消", class: "btn-ghost", handler: () => { getCloseModal()?.() } }],
+  )
+  document.getElementById("modal-body")?.addEventListener("click", (event) => {
+    const button = event.target.closest?.("[data-action='choose-wiki-ref']")
+    if (!button) return
+    const item = items[Number(button.dataset.wikiChoice)]
+    if (!item) return
+    getCloseModal()?.()
+    openWikiItem(item)
+  })
+}
+
+async function openWikiReference(name) {
+  const api = getApi()
+  const toast = getToast()
+  const projectId = getAppState()?.currentProjectId
+  if (!projectId || !api?.world?.listWorldLibrary) {
+    toast?.("当前没有可用的项目资料解析", "warning")
+    return
+  }
+  const generation = ++wikiLookupGeneration.value
+  wikiLookingUp.value = true
+  let items = []
+  try {
+    const data = await api.world.listWorldLibrary({ novel_id: projectId, search: name, limit: 20 })
+    items = (data?.items || []).filter((item) => String(item.title || item.name || "").trim() === String(name).trim())
+  } catch {
+    if (generation === wikiLookupGeneration.value) toast?.("资料检索暂时不可用，请稍后重试", "error")
+    wikiLookingUp.value = false
+    return
+  }
+  wikiLookingUp.value = false
+  if (generation !== wikiLookupGeneration.value) return
+  if (!items.length) {
+    toast?.(`项目内没有找到名为“${name}”的资料`, "info")
+    return
+  }
+  if (items.length === 1) {
+    openWikiItem(items[0])
+    return
+  }
+  showWikiChoice(name, items)
+}
 </script>
 
 <template>
@@ -94,7 +156,7 @@ function sectionKindLabel(section) {
       <div class="world-page-reader__content">
         <section v-if="String(source?.free_text || '').trim()" id="reader-overview" class="world-page-reader__block">
           <h3>页面概览</h3>
-          <RpMarkdownContent :source="source.free_text" class="world-page-reader__markdown" />
+          <RpMarkdownContent :source="source.free_text" class="world-page-reader__markdown" wiki :on-wiki-ref="openWikiReference" />
         </section>
 
         <p v-if="!String(source?.free_text || '').trim() && !visibleSections.length" class="world-page-reader__empty">
@@ -119,7 +181,7 @@ function sectionKindLabel(section) {
             <small>{{ sectionKindLabel(section) }}</small>
           </button>
           <div v-if="!isCollapsed(section.section_id)" class="world-page-reader__section-body">
-            <RpMarkdownContent :source="section.body_markdown || ''" class="world-page-reader__markdown" />
+            <RpMarkdownContent :source="section.body_markdown || ''" class="world-page-reader__markdown" wiki :on-wiki-ref="openWikiReference" />
           </div>
         </section>
 

@@ -62,6 +62,26 @@ test.describe("生成中心模块", () => {
       { id: "builtin:rule", name: "规则设定", object_template: "rule", prompt_text: "聚焦规则设定", is_builtin: true, version_number: 1 },
     ]
 
+    // 本 spec 聚焦既有本地聊天/建议路径：让持久化会话服务不可用，工作台回退到
+    // generation-center 端点（会话路径由 world-cocreation.spec.js 单独覆盖）。
+    await page.route("**/api/world/cocreation-sessions**", async (route) => {
+      if (route.request().method() === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ items: [], total: 0 }),
+        })
+        return
+      }
+      // 空对象使 ensureServerSession 拿不到 id，工作台静默回退到本地聊天路径；
+      // 会话路径的行为由 world-cocreation.spec.js 单独覆盖。
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify({}),
+      })
+    })
+
     await page.route("**/api/world/generation-prompt-templates", async (route) => {
       const method = route.request().method()
       const url = route.request().url()

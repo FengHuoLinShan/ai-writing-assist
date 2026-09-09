@@ -9,12 +9,20 @@
   </div>
   <div v-if="warning" class="generate-template-warning">{{ warning }}</div>
 
+  <div class="generate-session-bar" data-section="cocreation-session">
+    <div class="generate-session-bar__info">
+      <strong data-session-title>{{ sessionTitle || defaultSessionTitle }}</strong>
+      <span class="generate-session-bar__meta" data-session-binding>{{ sessionServerBound ? `已存服务器 · 第 ${checkpointRound} 轮阶段成果 · 换设备可继续` : "本地会话 · 发送首条消息后自动保存到服务器" }}</span>
+    </div>
+    <button class="btn btn-sm" type="button" data-action="open-session-history" @click="$emit('open-session-history')">历史会话</button>
+  </div>
+
   <div v-if="worldCore" class="card generate-world-core-intro" data-section="world-core-actions">
     <div><strong>先让几个灵感长成世界核心</strong><p>每轮只做一个动作；不会自动生成人物、故事总纲或正式设定。</p></div>
-    <div class="generate-world-core-actions" role="group" aria-label="World Core 单轮动作">
-      <button v-for="item in worldCoreActions" :key="item.key" class="btn btn-sm" type="button" :data-action="`world-core-${item.key}`" :disabled="busy" @click="$emit('prefill-world-core', item.key)">{{ item.label }}</button>
+    <div class="generate-world-core-actions" role="group" aria-label="共创单轮动作">
+      <button v-for="item in worldCoreActions" :key="item.key" class="btn btn-sm" type="button" :data-action="`world-core-${item.key}`" :title="item.hint" :disabled="busy" @click="$emit('prefill-world-core', item.key)">{{ item.label }}</button>
     </div>
-    <p class="generate-empty-copy">快捷动作只会填入下方输入框，你可以修改后再发送。未保存前只保证在当前浏览器恢复。</p>
+    <p class="generate-empty-copy">快捷动作只会填入下方输入框，你可以修改后再发送。会话已持久化，未保存的草稿仍只保证在当前浏览器恢复。</p>
   </div>
 
   <section v-if="hasResultState" id="generate-result" class="generate-review-panel" aria-labelledby="generate-result-title">
@@ -90,7 +98,12 @@
           <div v-for="(message, index) in messages" v-else :key="index" class="generate-chat-message" :class="[message.role, { pending: message.pending, error: message.error }]">
             <div class="generate-chat-role">{{ message.role === 'assistant' ? 'AI' : '你' }}</div>
             <div class="generate-chat-bubble" :role="message.pending ? 'status' : message.error ? 'alert' : undefined" :aria-live="message.pending ? 'polite' : undefined" :aria-busy="message.pending ? 'true' : undefined">
+              <span v-if="message.role === 'user' && message.action" class="badge generate-chat-action-badge">{{ worldCoreActionLabel(message.action) }}</span>
               <span>{{ message.content }}</span>
+              <div v-if="message.role === 'assistant' && !message.pending && !message.error" class="generate-chat-outcome" :data-outcome-state="message.outcomeState || 'discussing'">
+                <span class="badge" :class="{ 'badge-warning': message.outcomeState === 'pending_review' }">{{ outcomeLabel(message.outcomeState) }}</span>
+                <button v-if="message.outcomeState === 'pending_review'" class="btn btn-sm" type="button" data-action="open-outcome-review" @click="$emit('open-review')">去审阅</button>
+              </div>
               <button v-if="message.error && index === messages.length - 1" class="btn btn-sm" type="button" data-action="retry-chat-message" @click="$emit('retry-chat', message)">再试一次</button>
             </div>
           </div>
@@ -346,8 +359,9 @@ const props = defineProps({
   convergenceDraft: Object, convergencePending: Boolean, visualBrief: Object, externalPackets: { type: Array, default: () => [] },
   explorationDraft: Object, explorationPending: Boolean, explorationSelection: Object, sourceRevisionResult: Object,
   worldCore: Boolean, successfulRounds: { type: Number, default: 0 }, checkpointRound: { type: Number, default: 0 }, checkpointPending: Boolean, checkpointSaved: Boolean,
+  sessionTitle: { type: String, default: "" }, sessionServerBound: { type: Boolean, default: false },
 })
-const emit = defineEmits(["send-chat", "retry-chat", "generate-result", "retry-result", "select-target", "edit-templates", "return-world-bible", "select-chapters", "apply-page", "proposal-dirty", "proposal-edit", "clear-result", "open-review", "view-context", "converge", "set-convergence-disposition", "edit-convergence-message", "apply-convergence-message", "dismiss-convergence", "open-convergence-source", "copy-handoff", "download-handoff", "open-story-outline", "create-visual-brief", "edit-visual-brief", "confirm-visual-brief", "copy-visual-brief", "download-visual-brief", "preview-visual-map", "preview-external-packet", "clear-external-packet", "explore", "select-exploration", "dismiss-exploration", "open-source-revision", "prefill-world-core", "save-world-core-checkpoint"])
+const emit = defineEmits(["send-chat", "retry-chat", "generate-result", "retry-result", "select-target", "edit-templates", "return-world-bible", "select-chapters", "apply-page", "proposal-dirty", "proposal-edit", "clear-result", "open-review", "view-context", "converge", "set-convergence-disposition", "edit-convergence-message", "apply-convergence-message", "dismiss-convergence", "open-convergence-source", "copy-handoff", "download-handoff", "open-story-outline", "create-visual-brief", "edit-visual-brief", "confirm-visual-brief", "copy-visual-brief", "download-visual-brief", "preview-visual-map", "preview-external-packet", "clear-external-packet", "explore", "select-exploration", "dismiss-exploration", "open-source-revision", "prefill-world-core", "save-world-core-checkpoint", "open-session-history"])
 const selectedTemplateId = defineModel("selectedTemplateId", { type: String, required: true })
 const messages = defineModel("messages", { type: Array, required: true })
 const composer = defineModel("composer", { type: String, required: true })
@@ -395,11 +409,16 @@ const worldCoreReady = computed(() => {
   return included.size >= 3 && included.size <= 7 && Boolean(verticalRule && included.has(verticalRule))
 })
 const worldCoreActions = [
-  { key: "expand", label: "补一条成立规则" },
-  { key: "connect", label: "把因果连起来" },
-  { key: "pressure", label: "找会出错的地方" },
-  { key: "consolidate", label: "收拢世界核心" },
+  { key: "expand", label: "完善体系", hint: "扩展一层：只补足当前灵感成立必需的一条规则，不开新世界线。" },
+  { key: "connect", label: "落地地区", hint: "连起因果：选两条已有规则，说清它们如何共同改变一个真实的日常选择。" },
+  { key: "pressure", label: "检验日常与故障", hint: "压力测试：固定一处日常运转，检查维护中断时的故障、代价和边界。" },
+  { key: "consolidate", label: "收束成果", hint: "收拢核心：只整理已有灵感的去向、3–7 条成立规则与一条日常＋故障纵切。" },
 ]
+const OUTCOME_LABELS = { pending_review: "待审阅", saved_draft: "已存工作稿", adopted: "已采用", rejected: "作者已否定" }
+const ACTION_LABELS = { expand: "完善体系", connect: "落地地区", pressure: "检验日常与故障", consolidate: "收束成果" }
+function outcomeLabel(state) { return OUTCOME_LABELS[state] || "讨论中" }
+function worldCoreActionLabel(action) { return ACTION_LABELS[action] || "" }
+const defaultSessionTitle = computed(() => (props.worldCore ? "世界核心共创" : "世界设定共创"))
 const visualPurposeOptions = VISUAL_BRIEF_PURPOSE_OPTIONS
 const visualBriefCurrent = computed(() => Boolean(props.visualBrief && convergenceUsable.value && !props.visualBrief.stale && props.visualBrief.manifestHash === props.convergenceDraft?.manifestHash))
 const visualBriefConfirmed = computed(() => Boolean(visualBriefCurrent.value && props.visualBrief?.confirmedAt))

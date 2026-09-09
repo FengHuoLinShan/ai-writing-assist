@@ -39,6 +39,8 @@ infrastructure/tasks/
   `world_entity_fusion_suggestions`、`world_bible_projection_refresh`、
   `world_bible_synopsis_refresh`、`world_generation_suggestion`、`world_validation`、`map_atlas_generate`、`world_map_schematic_generate`、
   `map_atlas_storage_cleanup`、`world_object_image_cleanup`
+  （`world_generation_suggestion` 的 meta 可携带 `session_id`/`session_action`：任务成功后由
+  world 域把回合与成果追加进持久化共创会话，见 ADR-0021；transport 合并与任务指纹不受影响）
 - story：`story_outline_generate`、`outline_analyze`、`outline_generate`、`scene_fusion_preview`、
   `story_character_card_generate`、`story_reaction_propose`、`story_scene_script_generate`、`story_one_click`。
   `plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate` 仅为存量任务返回
