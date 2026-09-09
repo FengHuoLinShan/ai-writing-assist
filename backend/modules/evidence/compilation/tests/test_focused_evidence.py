@@ -86,6 +86,14 @@ def request_for(novel_id, *, depth=1, chapters=1, **kwargs):
 def install_nomination(monkeypatch, calls, *, fail_once=False, invalid=False):
     async def generate(client, request, schema, **kwargs):
         assert kwargs["read_only"] is True
+        if client.model_name.startswith("deepseek"):
+            assert request.extra == {
+                "thinking": {"type": "enabled"},
+                "reasoning_effort": "low",
+            }
+        assert request.max_tokens == 32_768
+        assert kwargs["timeout"] == 600
+        assert "输出 JSON Schema：" in request.messages[0].content
         payload = json.loads(request.messages[1].content)
         calls.append(payload)
         if fail_once and len(calls) == 1:
@@ -193,13 +201,13 @@ async def test_nomination_failure_resumes_refs_without_losing_root_page(
     install_nomination(monkeypatch, calls, fail_once=True)
     request = request_for(test_project_id)
     failed = await service.retrieve(
-        db_session, request, llm_client=SimpleNamespace(model_name="fake")
+        db_session, request, llm_client=SimpleNamespace(model_name="deepseek-v4-flash")
     )
     assert failed.evidence and failed.coverage.nomination_failed
     assert failed.continuation and failed.continuation.pending_nomination
     request.continuation = failed.continuation
     recovered = await service.retrieve(
-        db_session, request, llm_client=SimpleNamespace(model_name="fake")
+        db_session, request, llm_client=SimpleNamespace(model_name="deepseek-v4-flash")
     )
     assert not recovered.coverage.nomination_failed
     assert {t.name for t in recovered.targets} == {"根城", "北郡"}

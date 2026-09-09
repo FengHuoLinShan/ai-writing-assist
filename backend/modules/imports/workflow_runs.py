@@ -106,18 +106,12 @@ class ImportWorkflowAttempt:
                 "include_pending_objects": self.include_pending_objects,
                 "high_quality": self.high_quality,
                 "replace_existing": self.replace_existing,
-                "adoption_policy": self.authorization_snapshot.get(
-                    "adoption_policy"
-                ),
+                "adoption_policy": self.authorization_snapshot.get("adoption_policy"),
                 "authorization_confirmed": self.authorization_snapshot.get(
                     "authorization_confirmed"
                 ),
-                "authorization_snapshot": _thaw_json(
-                    self.authorization_snapshot
-                ),
-                "llm_execution_snapshot": _thaw_json(
-                    self.llm_execution_snapshot
-                ),
+                "authorization_snapshot": _thaw_json(self.authorization_snapshot),
+                "llm_execution_snapshot": _thaw_json(self.llm_execution_snapshot),
             }
         )
         return projection
@@ -177,10 +171,9 @@ class ImportWorkflowRunService:
         """Lock and converge only the requested owner scope when provided."""
         from infrastructure.tasks.facade import list_task_lifecycle_contracts
 
-        active_predicate = (
-            ImportWorkflowRun.status.in_(sorted(ACTIVE_RUN_STATUSES))
-            | ImportWorkflowRun.recovery_required.is_(True)
-        )
+        active_predicate = ImportWorkflowRun.status.in_(
+            sorted(ACTIVE_RUN_STATUSES)
+        ) | ImportWorkflowRun.recovery_required.is_(True)
         if task_id is not None:
             selection_predicate = ImportWorkflowRun.task_id == _parse_uuid(task_id)
         elif include_restartable_history or novel_id is not None:
@@ -427,6 +420,22 @@ class ImportWorkflowRunService:
         checkpoints: dict[str, Any] | None = None,
     ) -> None:
         run = await self.require_owner(db, owner)
+        # Author controls survive a worker's earlier in-memory checkpoint.
+        from modules.imports.completion_control import read_completion_control
+
+        control = await read_completion_control(
+            db, task_id=owner.task_id, novel_id=str(run.novel_id)
+        )
+        if control:
+            progress = {
+                **progress,
+                "checkpoints": {
+                    **dict(progress.get("checkpoints") or {}),
+                    "completion_control": control,
+                },
+            }
+            if checkpoints is not None:
+                checkpoints = {**checkpoints, "completion_control": control}
         run.progress = deepcopy(progress)
         if prepare_checkpoint is not None:
             run.prepare_checkpoint = deepcopy(prepare_checkpoint)

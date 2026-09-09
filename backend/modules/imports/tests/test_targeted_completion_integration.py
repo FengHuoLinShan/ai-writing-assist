@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import json
 import uuid
 
@@ -53,6 +52,8 @@ def provider(monkeypatch, db_session):
                         )
             return schema.model_validate({"neighbors": neighbors})
         assert kwargs["step_name"] == "imports.targeted_completion.structured"
+        assert request.max_tokens == 32_768
+        assert kwargs["timeout"] == 600
         state["completion_calls"] += 1
         if (
             state["fail_completion_once"] or state["fail_at"] == state["completion_calls"]
@@ -182,11 +183,13 @@ async def prepare(db, novel_id, targets, chapters):
 
 
 async def execute(db, orchestrator, task, attempt):
-    async def project(result, progress):
-        task.result = copy.deepcopy(result)
-        task.update_progress(progress)
+    from modules.imports.tasks import _project_task
 
-    return await orchestrator.run_attempt(db, attempt, project=project)
+    return await orchestrator.run_attempt(
+        db,
+        attempt,
+        project=lambda result, progress: _project_task(task, result, progress),
+    )
 
 
 async def test_real_domains_fill_existing_and_replay_does_not_apply_again(
@@ -289,7 +292,7 @@ async def test_real_domains_new_one_hop_neighbor_uses_its_own_later_paragraph(
 
 
 async def test_real_domains_partial_provider_failure_preserves_roots_for_resume(
-    db_session, test_project_id, account_llm_connection, provider
+    db_session, test_project_id, account_llm_connection, provider, async_client
 ):
     city = await _create_entity(db_session, test_project_id, "location", "青港")
     orchestrator, task, attempt = await prepare(
@@ -301,8 +304,35 @@ async def test_real_domains_partial_provider_failure_preserves_roots_for_resume(
     stored = task.result["checkpoints"]["targeted_completion"]
     assert stored["status"] == "partial" and stored["roots"]
     assert stored["root_position"] == 0 and city.summary is None
-    # Same task/owner is still live in this deterministic interruption fixture.
-    # Reload the real run, rather than passing the original empty progress.
+    from infrastructure.tasks.lifecycle import TaskLifecycleService
+    from infrastructure.tasks.worker import _handler_failure_result
+
+    assert task.meta["recovery_required"] is True
+    assert task.result["recovery_required"] is True
+    await TaskLifecycleService().finalize(
+        db_session,
+        task_id=task.id,
+        lease_id=task.lease_id,
+        status="failed",
+        result_data=_handler_failure_result(task, requeued=False),
+        error_message="provider failed",
+    )
+    await db_session.refresh(task)
+    status = await async_client.get(
+        f"/api/tasks/{task.id}", params={"novel_id": test_project_id}
+    )
+    assert status.status_code == 200
+    assert status.json()["available_actions"] == ["resume", "abandon"]
+    resumed = await async_client.post(
+        "/api/imports/deep/resume",
+        json={"task_id": str(task.id)},
+        headers={"X-Requested-With": "XMLHttpRequest"},
+    )
+    assert resumed.status_code == 201, resumed.text
+    await db_session.refresh(task)
+    assert task.status == "pending"
+    task.mark_running()
+    await db_session.flush()
     restored = await ImportWorkflowRunService().claim_attempt(
         db_session,
         task_id=str(task.id),

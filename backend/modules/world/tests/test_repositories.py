@@ -611,3 +611,24 @@ async def test_get_recent_auto_ingested_filters_json_bool_and_keeps_order_limit(
     result = await repo.get_recent_auto_ingested(db_session, novel_id, limit=2)
 
     assert [entity.name for entity in result] == ["最新真值", "较新真值"]
+
+
+async def test_name_and_exact_alias_precede_prefix_and_description(
+    db_session, test_project_id
+):
+    from tests.utils import _create_entity
+
+    exact = await _create_entity(db_session, test_project_id, "character", "Klein")
+    alias = await _create_entity(db_session, test_project_id, "character", "Moretti")
+    alias.content_json = {"aliases": [{"alias": "Klein"}]}
+    prefix = await _create_entity(
+        db_session, test_project_id, "character", "Klein Senior"
+    )
+    mention = await _create_entity(
+        db_session, test_project_id, "location", "Harbor", summary="Klein visited"
+    )
+    await db_session.flush()
+    result = await CoreEntityRepository().list_by_novel(
+        db_session, uuid.UUID(test_project_id), q="Klein"
+    )
+    assert [row.id for row in result] == [exact.id, alias.id, prefix.id, mention.id]

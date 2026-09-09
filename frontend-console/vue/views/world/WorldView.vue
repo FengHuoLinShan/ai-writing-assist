@@ -20,7 +20,7 @@
           <button v-if="objectToolsOpen" type="button" class="btn btn-sm btn-ghost" @click="returnToLibrary">← 返回资料库</button>
           <template v-if="subView === 'objects' || objectToolsOpen">
             <button id="btn-new-entity" class="btn btn-sm btn-primary" data-action="new" @click="showEntityCreateForm()">新建人物或设定</button>
-            <button class="btn btn-sm" data-action="toggle-extract" @click="toggleExtract">{{ session.autoExtractOpen ? "收起正文整理" : "从正文整理资料" }}</button>
+            <button class="btn btn-sm" data-action="toggle-extract" @click="toggleExtract">整理进度与成果</button>
             <details ref="viewOptionsEl" class="world-view-options" @keydown.esc="closeViewOptions">
               <summary class="btn btn-sm">浏览方式</summary>
               <div class="world-view-options__panel">
@@ -281,7 +281,7 @@ function setDiscoveryMode(mode) {
 
 /** 对应 vanilla _toggleAutoExtract（worldView.js:842-845）；响应式重绘取代 router.refresh。 */
 function toggleExtract() {
-  session.autoExtractOpen = !session.autoExtractOpen
+  getRouter()?.navigate("writing", null, true, new URLSearchParams({ organize: "world_objects" }))
 }
 
 function closeViewOptions() {

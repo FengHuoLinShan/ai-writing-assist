@@ -1,7 +1,7 @@
 <script setup>
 const sidebarTarget = typeof document !== "undefined" && document.getElementById("sidebar-context-slot") ? "#sidebar-context-slot" : ""
 defineProps({
-  title: { type: String, default: "动态工具区" },
+  title: { type: String, default: "资料工具" },
   actions: { type: Array, default: () => [] },
   showSmartDedup: { type: Boolean, default: false },
 })

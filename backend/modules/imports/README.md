@@ -36,7 +36,7 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
   `replace_existing` 意图，不在任务执行前修改 Scene 或实体
 - 深度导入 Scene 阶段执行 `Phase0 deterministic plan → Phase1a scene slicing → Phase1b scene enrichment → Phase1c scene fusion → Scene commit`；Phase 1c 仅在 `high_quality=true` 时运行
 - Phase 0 不调用 LLM；它按章节字符数计算窗口计划、owned range、固定右侧 2 章 overlap 和每窗 `max_tokens` 上限。默认目标输入约 `72000` 字符，窗口最多 20 章。DeepSeek v4 Flash 实测 `0.36`、`0.4`、`0.6` 都出现过截断；`0.75` 一次四窗首轮通过，但同一 1–60 章末窗的复跑仍在 `19898/19898` 处 `finish_reason=length`，因此不将偶然通过视为稳定。`max_tokens` 只是上限而不会强制模型用完，默认系数提升为 `1.0`，即 `max_tokens=clamp(round(input_chars * 1.0), 13000, 32768)`。这套阶段预算不继承项目通用 `max_tokens`；Phase 1b/2/3 从首次请求就使用各自冻结的 32768 上限，不实验更小预算。
-- Phase 1a 切分并锁定 Scene 语义字段，同时要求从正文逐字复制起止 anchor；本地 materializer 负责唯一命中、offset、draft/hash 绑定和邻接/整章覆盖推断。Scene 按独立主要叙事目标、冲突或关键状态转变切分，不使用字数或每章数量阈值。每个窗口还会冻结前一章最多 2000 字尾部，以及通过 outline/world facade 取得的活跃剧情结构与 `author_safe` canonical 世界对象；相关人物最多 6 个、非人物对象最多 16 个，按正文提及、已有 Scene 关联、篇章/剧情线关联排序。锚点修复与连续覆盖缺口恢复同样使用统一 reasoning 策略。精确 span 重叠会先携带本地诊断要求模型纠正；若纠正后仍重叠，则隔离整个受影响章节范围并进入恢复或章节级 fallback，不允许重叠候选进入后续阶段。
+- Phase 1a 切分并锁定 Scene 语义字段，同时要求从正文逐字复制起止 anchor；本地 materializer 负责唯一命中、offset、draft/hash 绑定和邻接/整章覆盖推断。Scene 按独立主要叙事目标、冲突或关键状态转变切分，不使用字数或每章数量阈值。每个窗口还会冻结前一章最多 2000 字尾部，以及通过 outline/world facade 取得的活跃剧情结构与 `author_safe` canonical 世界对象；相关人物最多 6 个、非人物对象最多 16 个，按正文提及、已有 Scene 关联、篇章/剧情线关联排序。锚点修复与连续覆盖缺口恢复同样使用统一 reasoning 策略和 32768 输出上限；避免高推理模式在 8192/16384 预算内耗尽额度而无法输出修复 JSON。精确 span 重叠会先携带本地诊断要求模型纠正；若纠正后仍重叠，则隔离整个受影响章节范围并进入恢复或章节级 fallback，不允许重叠候选进入后续阶段。
 - Phase 1b 每个 Scene 一个并发 enrichment 请求，不得改写 Phase 1a 已确定的语义和 `scene_chunks`。调用前按全部 chunks 校验 draft/hash/offset 并物化完整 Scene 正文，不发送下一 Scene、混有相邻 Scene 的整章正文，也不做应用层输入截断、摘要或采样；只保留前一 Scene 和截止到当前 Scene 之前可证明可见的结构身份资料。`emotional_beat / must_happen / must_not_happen` 的每个非空字段必须附当前 Scene 逐字 `field_evidence`，本地找不到证据时清空并标记 uncertain；`narrative_tag / narrative_function` 只作为 director-only 结构资料，不进入角色知识。输出 `max_tokens` 默认 32768，并从冻结的 effective `deep_import.phase1b.enrich_max_tokens` 传入 payload。
 - Phase 1c 先按 Phase 1a 窗口成组审阅完整相邻候选序列，区分 `same_scene / duplicate / overlap / separate / uncertain`，再只对高置信、无不确定性且来源精确的连通组调用独立 synthesis。连续的“触发—反应—回答—结果”不因换章、新人物加入或子目标变化自动拆开；无法确认时保留两个 Scene。synthesis 必须为三个正文语义字段重新提供组内逐字证据，任一非空字段证据无效就不自动融合。其余结果写入 outline 融合建议队列。
 - Phase 1c 未显式配置 `decision_max_tokens / synthesis_max_tokens` 时继承有效项目/全局/系统 LLM `max_tokens`，并在任务提交时冻结；结构化调用默认超时为 360 秒。
@@ -137,7 +137,7 @@ world entities。任务在 commit 前失败时旧资产保持不变。
 提交时冻结原文 draft/hash 清单、章节范围、最多一跳和“新增对象/关系/别名、填空”操作，
 并由当前 owner 在同一入队事务取得 World 授权；worker 不能自行扩大授权。
 
-自动补全在 Phase 2b 后、Phase 3 前运行。自动根来自本 workflow 的字段缺证提示、
+旧任务的自动补全在 Phase 2b 后、Phase 3 前运行；新 REST 整理默认先暂缓查漏并继续 Phase 3。自动根来自本 workflow 的字段缺证提示、
 具名身份/关系端点未解析提示，以及该 workflow 的 unresolved Evidence links。
 字段已有人工内容时不再因旧缺证提示选入；candidate 状态或普通空字段不单独构成遗漏信号。
 Phase 2a/2b 每 Scene checkpoint 保存 `completion_hints`，包括来源 Scene、逐字引文和具体原因；
@@ -156,7 +156,7 @@ Phase 2a/2b 每 Scene checkpoint 保存 `completion_hints`，包括来源 Scene�
 Context/Evidence 的公共 focused retrieval 独占原文/数据库检索与一跳提名；imports 不复制
 BFS，不允许模型自主选工具。根和邻居总量不按单批预算截断：每批处理五个根与五个补全目标，
 Evidence cursor 保留全部未读范围和邻居。每次字段补全仅消费本批相关资料，输入上限十万字符、
-输出上限 8192 token、270 秒总等待；超限/失败保留 partial checkpoint，不能声称已完整查读。
+输出上限 32768 token、600 秒总等待；超限/失败保留 partial checkpoint，不能声称已完整查读。
 新事实逐字段绑定精确原文引文，目标身份/类型和关系端点均重验；关系使用既有 RelationKind。
 对象、别名、关系逐项给出 confidence、certainty 与 uncertainties；缺失/低于 0.90、
 推断或任何不确定项均保留待复核。同批高置信项不能放宽其他项，达到门槛仍须通过来源与 World 基线门禁。
@@ -401,3 +401,17 @@ cd ../.. && make test-real-llm
 # 真实小说语料不进入默认测试；路径由调用者显式提供
 cd ../.. && make test-manual REAL_SOURCE_PATH=/abs/path/novel.txt
 ```
+
+P13 v4 同步首轮、格式返修与 JSON Schema 的对象类型集合和字段证据形状；三个顶层数组及字段证据对象不再互相矛盾。提示版本进入 checkpoint 指纹，旧版本输出不会被新契约静默复用。
+
+专项补全首轮附完整 CompletionOutput JSON Schema，并显式使用低强度 low 推理；请求与审计共用输出/等待预算常量。进入补全后的失败恢复仍从原 checkpoint 继续，不重新调用已完成的 Phase 1/2。
+
+专项补全的部分失败在 checkpoint 中同步 result/meta 双恢复标记；队列失败后仍可经原 imports resume API 继续，避免可恢复结果落成只能关闭的失败任务。
+
+## 作者整理与可选查漏
+
+新 REST 请求的 `targeted_completion` 默认 `{enabled: false, defer: true}`：先冻结待确认的原文章范围，Phase 2 后固定查漏根队列并将该阶段记为 `deferred`，随后完成剧情结构。未启用的范围没有 World 写权限，继续前必须显式确认。旧任务没有 `defer` 时保留原顺序。
+
+`POST /api/imports/targeted-completions/{task_id}/defer` 在当前安全检查点请求暂缓；控制保存在现有 ImportWorkflowRun.checkpoints 中，worker 写入不能覆盖作者的新请求。`POST /api/imports/deep/resume` 可传 `stage=targeted_completion`、`authorization_confirmed=true`，仅对已结束执行、查漏为 deferred 且未开始撤销的原任务重新入队；重验 owner、单飞、正文清单与授权，增加 generation，保留根、游标和采用回执。基础结构通过检查点避免重跑。普通失败恢复契约不变。
+
+`GET /api/imports/workflows/recent` 按项目分页返回阶段、范围、成果计数与可继续状态，不返回授权或模型快照。`GET /api/imports/workflows/impact` 经 Evidence facade 检查运行快照是否引用指定资产，只返回受影响处理单元摘要；这不替代提交时的指纹校验。

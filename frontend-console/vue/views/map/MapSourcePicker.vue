@@ -1,5 +1,6 @@
 <template>
-  <div v-if="open" ref="overlayRef" class="modal-overlay" @keydown="onKeydown" @focusin="onFocusin">
+  <Teleport to="body">
+  <div v-if="open" ref="overlayRef" class="modal-overlay map-source-overlay" @keydown="onKeydown" @focusin="onFocusin">
     <section ref="dialogRef" class="modal-content map-source-picker" role="dialog" aria-modal="true" aria-labelledby="map-source-title" tabindex="-1">
       <header class="modal-header">
         <h3 id="map-source-title">正文依据 · {{ feature.label }}</h3>
@@ -46,6 +47,7 @@
       <footer class="modal-footer"><button type="button" class="btn" @click="requestClose">返回地图</button></footer>
     </section>
   </div>
+  </Teleport>
 </template>
 
 <script setup>
@@ -126,6 +128,8 @@ onBeforeUnmount(() => { ++generation })
 </script>
 
 <style scoped>
+.map-source-overlay{justify-content:flex-end;align-items:stretch}.map-source-overlay>.map-source-picker{margin:0;max-height:100dvh;height:100dvh;width:min(680px,100vw);max-width:100vw;overflow:hidden;border-radius:var(--radius-md) 0 0 var(--radius-md)}
+.map-source-picker>.modal-header,.map-source-picker>.modal-footer{flex-shrink:0}.map-source-picker>.modal-body{min-height:0}
 .map-source-picker { width: min(44rem, calc(100vw - 2rem)); }
 .map-source-picker h3, .map-source-picker p { overflow-wrap: anywhere; }
 .map-source-search { display: grid; gap: var(--space-2); margin-block: var(--space-4); }

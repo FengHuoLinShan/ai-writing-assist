@@ -11,7 +11,7 @@ const read = (text, extra = {}) => ({ source_ref: ref(), text, highlight_start: 
 const button = (wrapper, name) => wrapper.findAll('button').find(item => item.text() === name)
 describe('MapSourcePicker', () => {
   let api, state
-  const render = (props = {}) => mount(MapSourcePicker, { props: { open: true, projectId: 'p1', feature: { id: 'mark', label: '旅馆', sources: [] }, ...props }, attachTo: document.body })
+  const render = (props = {}) => mount(MapSourcePicker, { global: { stubs: { teleport: true } }, props: { open: true, projectId: 'p1', feature: { id: 'mark', label: '旅馆', sources: [] }, ...props }, attachTo: document.body })
   beforeEach(() => {
     api = { context: { searchEvidence: vi.fn(async () => ({ hits: [hit()], total: 1 })), readEvidence: vi.fn(async () => read('旅馆位于桥边，正门朝向广场。', { title: '城中', index_fresh: true })) } }
     state = { currentProjectId: 'p1' }

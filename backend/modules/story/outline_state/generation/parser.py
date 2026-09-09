@@ -105,7 +105,7 @@ class PlotStructureParser:
                     }
                 ],
                 diagnostics={
-                    "parameter_version": "phase3_structure_simple_v2",
+                    "parameter_version": "phase3_structure_simple_v3",
                     "input_mode": "no_scene_evidence",
                     "prompt_level": "none",
                     "provider_called": False,
@@ -139,7 +139,7 @@ class PlotStructureParser:
             scene_cards,
         )
         diagnostics: dict[str, object] = {
-            "parameter_version": "phase3_structure_simple_v2",
+            "parameter_version": "phase3_structure_simple_v3",
             "input_mode": (
                 "scenes_plus_world" if self._context.markdown else "scenes_only"
             ),
@@ -251,7 +251,7 @@ class PlotStructureParser:
             "只输出 JSON object，顶层仅含 plot_threads、arcs、foreshadowing、reveals、"
             "turning_points、uncertain_items。结构条目通用字段为 title、summary、"
             "confidence、needs_review、review_reason、supporting_scene_ids；plot_threads "
-            "另含 thread_type=main|subplot|mystery|relationship|world 和 "
+            "另含 thread_type=main|sub|background 和 "
             "current_stage=active|resolved|paused；arcs 另含 character_name。"
             "uncertain_items 使用 description、reason、supporting_scene_ids。"
             "不要输出 evidence_gate、Markdown 或解释。"

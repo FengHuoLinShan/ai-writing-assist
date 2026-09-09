@@ -36,7 +36,6 @@ vi.mock("../../../../shared/importAuthorization.js", () => ({
 import { confirmAiReference } from "../../../../shared/aiReferenceModal.js"
 import {
   persistActiveWorkflow,
-  recoverActiveWorkflows,
   clearActiveWorkflow,
 } from "../../../../shared/workflowProgress.js"
 import {
@@ -523,119 +522,12 @@ describe("cancelOutlineAnalysisTask", () => {
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("showPlotStructureAutoExtractForm", () => {
-  it("显示提取表单并提交任务", async () => {
-    const startStage = vi.fn(async () => ({ task_id: "task-plot1", status: "running" }))
-    const showModalHtml = vi.fn()
-    const closeModal = vi.fn()
-    const toast = vi.fn()
-    setupBridge({
-      api: { imports: { startStage } },
-      showModalHtml,
-      closeModal,
-      toast,
-    })
-
-    showPlotStructureAutoExtractForm()
-    expect(showModalHtml).toHaveBeenCalled()
-    const args = showModalHtml.mock.calls[0]
-    expect(args[0]).toBe("从正文提取剧情线")
-    expect(args[1]).toContain("plot-auto-extract-start")
-
-    // 模拟表单值并执行 handler
-    document.body.innerHTML = `
-      <input id="plot-auto-extract-start" value="1" />
-      <input id="plot-auto-extract-end" value="5" />
-    `
-    const handler = args[2][0].handler
-    await handler()
-
-    expect(startStage).toHaveBeenCalledWith(
-      "plot_structure",
-      "p-test",
-      1,
-      5,
-      false,
-      false,
-      { authorization: "confirmed" },
-    )
-    expect(closeModal).toHaveBeenCalled()
-    expect(plotAutoExtractManager.state.taskId).toBe("task-plot1")
-  })
-
-  it("严格拒绝非正整数和倒序章节范围", async () => {
-    const startStage = vi.fn()
-    const showModalHtml = vi.fn()
-    const toast = vi.fn()
-    setupBridge({ api: { imports: { startStage } }, showModalHtml, toast })
-    showPlotStructureAutoExtractForm()
-    const handler = showModalHtml.mock.calls[0][2][0].handler
-    document.body.innerHTML = `
-      <input id="plot-auto-extract-start" value="1.5" />
-      <input id="plot-auto-extract-end" value="5" />
-    `
-
-    await expect(handler()).resolves.toBe(false)
-    expect(toast).toHaveBeenLastCalledWith("章节范围必须是正整数", "warning")
-
-    document.getElementById("plot-auto-extract-start").value = "0"
-    await expect(handler()).resolves.toBe(false)
-    expect(toast).toHaveBeenLastCalledWith("章节范围必须是正整数", "warning")
-
-    document.getElementById("plot-auto-extract-start").value = "6"
-    await expect(handler()).resolves.toBe(false)
-    expect(toast).toHaveBeenLastCalledWith("结束章节必须 ≥ 起始章节", "warning")
-    expect(startStage).not.toHaveBeenCalled()
-  })
-
-  it("同步双击只提交一次，并在完成后释放锁", async () => {
-    let resolveStart
-    const startStage = vi.fn(() => new Promise((resolve) => { resolveStart = resolve }))
-    const showModalHtml = vi.fn()
-    setupBridge({
-      api: { imports: { startStage } },
-      showModalHtml,
-      closeModal: vi.fn(),
-      toast: vi.fn(),
-    })
-    showPlotStructureAutoExtractForm()
-    document.body.innerHTML = `
-      <input id="plot-auto-extract-start" value="1" />
-      <input id="plot-auto-extract-end" value="5" />
-    `
-    const handler = showModalHtml.mock.calls[0][2][0].handler
-
-    const first = handler()
-    const second = handler()
-    await expect(second).resolves.toBe(false)
-    expect(startStage).toHaveBeenCalledTimes(1)
-    expect(plotAutoExtractManager.state.submitting).toBe(true)
-    resolveStart({ task_id: "task-plot-double", status: "running" })
-    await expect(first).resolves.toBe(true)
-    expect(plotAutoExtractManager.state.submitting).toBe(false)
-  })
-
-  it("响应前切换项目时任务持久化到原项目且不接管新项目 UI", async () => {
-    let resolveStart
-    const startStage = vi.fn(() => new Promise((resolve) => { resolveStart = resolve }))
-    const showModalHtml = vi.fn()
-    const bridge = setupBridge({ api: { imports: { startStage } }, showModalHtml, closeModal: vi.fn(), toast: vi.fn() })
-    showPlotStructureAutoExtractForm()
-    document.body.innerHTML = `
-      <input id="plot-auto-extract-start" value="2" />
-      <input id="plot-auto-extract-end" value="6" />
-    `
-    const pending = showModalHtml.mock.calls[0][2][0].handler()
-    bridge.state.currentProjectId = "p-next"
-    recoverActiveWorkflows.mockReturnValue([])
-    plotAutoExtractManager.recover("p-next")
-    resolveStart({ task_id: "task-plot-old", status: "running" })
-    await expect(pending).resolves.toBe(true)
-
-    expect(persistActiveWorkflow).toHaveBeenCalledWith(expect.objectContaining({
-      taskId: "task-plot-old",
-      projectId: "p-test",
-    }))
-    expect(plotAutoExtractManager.state.taskId).toBeNull()
-    expect(plotAutoExtractManager.state.submitting).toBe(false)
+  it("打开统一整理入口，不在旧入口重复提交", async () => {
+    const bridge = setupBridge()
+    await showPlotStructureAutoExtractForm()
+    expect(bridge.router.navigate).toHaveBeenCalledWith("writing", null, true, expect.any(URLSearchParams))
+    expect(bridge.router.navigate.mock.calls[0][3].get("organize")).toBe("plot_structure")
+    expect(bridge.api.imports.startStage).not.toHaveBeenCalled()
+    expect(bridge.showModalHtml).not.toHaveBeenCalled()
   })
 })

@@ -121,6 +121,20 @@ afterEach(() => {
 })
 
 describe("二级导航", () => {
+  it("相似名称组使用中文类型，内部编号只在诊断信息中保留", () => {
+    const wrapper = mountTab({ candidates: [
+      { ...CANDIDATES[0], name: "潮声会", content_json: { _meta: { source: "deep_import", workflow_id: "private-workflow", source_scene_index: 7, field_evidence: { name: ["原文中的潮声会"] } } } },
+      { ...CANDIDATES[0], id: "similar", name: "潮声会总部" },
+    ] })
+    const group = wrapper.get(".world-candidate-alias-item")
+    expect(group.text()).toContain("组织")
+    expect(group.text()).not.toContain("organization")
+    const diagnostic = group.findAll("details").find(item => item.get("summary").text() === "诊断信息")
+    expect(diagnostic.attributes("open")).toBeUndefined()
+    expect(diagnostic.text()).toContain("private-workflow")
+    expect(group.text()).toContain("原文中的潮声会")
+  })
+
   it("全部概览按对象优先给出推荐下一项", async () => {
     const wrapper = mountTab({ reviewSubView: "review", reviewKind: "all" })
     expect(wrapper.findAll(".world-review-overview-card")).toHaveLength(3)
@@ -627,9 +641,9 @@ describe("review-relations", () => {
     await flushPromises()
     expect(showModalMock).not.toHaveBeenCalled()
     expect(wrapper.get("#world-review-decision-title").text()).toBe("确定“林澈 → 沉钟港”的关系")
-    expect(wrapper.findAll('[data-action="relation-person-card"]')).toHaveLength(2)
-    expect(wrapper.get('[data-relation-slot="source"]').text()).toContain("拖入人物")
-    expect(wrapper.get('[data-relation-slot="target"]').text()).toContain("拖入人物")
+    expect(wrapper.findAll('[data-action="relation-person-card"]')).toHaveLength(0)
+    expect(wrapper.get('[data-relation-slot="source"]').text()).toContain("林澈")
+    expect(wrapper.get('[data-relation-slot="target"]').text()).toContain("沉钟港")
     expect(wrapper.get('[data-action="confirm-relation-decision"]').text()).toBe("采用关系")
   })
 
@@ -639,6 +653,7 @@ describe("review-relations", () => {
     await card.trigger("click")
     await flushPromises()
 
+    await wrapper.get('[data-action="reset-relation-pair"]').trigger("click")
     let dragged = ""
     const dataTransfer = {
       effectAllowed: "",
@@ -669,6 +684,7 @@ describe("review-relations", () => {
     const wrapper = mountTab({ reviewSubView: "review-relations" })
     await wrapper.get('.review-group-card[data-group-id="g1"]').trigger("click")
     await flushPromises()
+    await wrapper.get('[data-action="reset-relation-pair"]').trigger("click")
     await wrapper.get('[data-person-id="e-source"]').trigger("click")
     await wrapper.get('[data-relation-slot="target"]').trigger("click")
     await wrapper.get("#relation-inline-description").setValue("反向关系草稿")

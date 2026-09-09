@@ -114,7 +114,7 @@ describe("App smart dedup integration", () => {
   })
 
   it("delegates start-smart-dedup action to the manager", () => {
-    const startScan = vi.spyOn(App._smartDedup, "startScan").mockImplementation(() => {})
+    const startScan = vi.spyOn(App._smartDedup, "showProgress").mockImplementation(() => {})
 
     App._renderGlobalActions()
     document.querySelector('[data-action="start-smart-dedup"]').click()
@@ -123,7 +123,7 @@ describe("App smart dedup integration", () => {
   })
 
   it("renders and delegates the teleported sidebar action", () => {
-    const startScan = vi.spyOn(App._smartDedup, "startScan").mockImplementation(() => {})
+    const startScan = vi.spyOn(App._smartDedup, "showProgress").mockImplementation(() => {})
     const mount = document.createElement("span")
     mount.dataset.role = "smart-dedup-action"
     document.getElementById("sidebar-context-slot").appendChild(mount)

@@ -18,16 +18,13 @@
 import { getApi, getAppState, getRouteQuery, getRouter, getToast, getShowModalHtml, getCloseModal, getConfirmAction, getEsc } from "../../../bridge/index.js"
 import { clearActiveWorkflow, createOperationId, normalizeTaskProgress, persistActiveWorkflow } from "../../../../shared/workflowProgress.js"
 import { confirmAiReference } from "../../../../shared/aiReferenceModal.js"
-import { importAuthorizationNotice, importAuthorizationPayload } from "../../../../shared/importAuthorization.js"
 import { getBulkSelection } from "../logic/outlineBulkSelection.js"
 import {
   outlineGenerateManager,
   outlineAnalysisManager,
-  plotAutoExtractManager,
   resetOutlineAnalysisState,
   clearOutlineGenerateWorkflowsForTarget,
   outlineAnalysisContextSummary,
-  plotAutoExtractLabel,
 } from "./outlineWorkflowManagers.js"
 
 // ─── P20 结构层级标签 ─────────────────────────────────
@@ -505,80 +502,5 @@ export async function cancelOutlineAnalysisTask() {
  * 对应 vanilla _showPlotStructureAutoExtractForm (L2444-2502)。
  */
 export function showPlotStructureAutoExtractForm() {
-  const { toast, showModalHtml, closeModal, esc } = getBridge()
-  if (
-    plotAutoExtractManager.state.submitting
-    || (plotAutoExtractManager.state.progress && !plotAutoExtractManager.state.progress.terminal)
-  ) {
-    toast("正文结构提取任务正在处理", "info")
-    return
-  }
-  const actionLabel = plotAutoExtractLabel()
-  const formHtml = `
-    <div class="form-group">
-      <label>起始章节</label>
-      <input class="form-input" id="plot-auto-extract-start" type="number" min="1" value="1" />
-    </div>
-    <div class="form-group">
-      <label>结束章节</label>
-      <input class="form-input" id="plot-auto-extract-end" type="number" min="1" value="10" />
-    </div>
-    <p class="writing-form-hint" role="note">${esc(importAuthorizationNotice())}</p>
-  `
-  showModalHtml(actionLabel, formHtml, [{
-    text: "确认并开始提取",
-    class: "btn-primary",
-    handler: async () => {
-      const start = Number(document.getElementById("plot-auto-extract-start")?.value)
-      const end = Number(document.getElementById("plot-auto-extract-end")?.value)
-      if (!Number.isInteger(start) || start < 1 || !Number.isInteger(end) || end < 1) {
-        toast("章节范围必须是正整数", "warning")
-        return false
-      }
-      if (end < start) { toast("结束章节必须 ≥ 起始章节", "warning"); return false }
-      const appState = getAppState()
-      const projectId = appState?.currentProjectId
-      if (!projectId) {
-        toast("请先选择项目", "warning")
-        return false
-      }
-      const submission = plotAutoExtractManager.beginSubmission(projectId)
-      if (!submission) {
-        toast("正文结构提取任务正在处理", "info")
-        return false
-      }
-      try {
-        const api = getApi()
-        const result = await api.imports.startStage(
-          "plot_structure",
-          projectId,
-          start,
-          end,
-          false,
-          false,
-          importAuthorizationPayload(),
-        )
-        const actionLabelFinal = plotAutoExtractLabel()
-        const meta = {
-          project_id: projectId,
-          start_chapter: start,
-          end_chapter: end,
-          label: actionLabelFinal,
-        }
-        const adopted = plotAutoExtractManager.adopt(result, meta, projectId)
-        if (adopted) {
-          closeModal()
-          toast(`${actionLabelFinal}任务已提交`, "success")
-        }
-        return true
-      } catch (err) {
-        if (getAppState()?.currentProjectId === projectId) {
-          toast(err.message || "提交失败", "error")
-        }
-        return false
-      } finally {
-        plotAutoExtractManager.endSubmission(submission)
-      }
-    },
-  }])
+  return getRouter()?.navigate("writing", null, true, new URLSearchParams({ organize: "plot_structure" }))
 }

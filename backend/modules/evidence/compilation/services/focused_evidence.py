@@ -43,6 +43,8 @@ from modules.writing.facade import (
 from shared.target_ref import normalize_target_ref
 
 _ENTITY_TYPES = {"entity", "core_entity", "world_entity", "location", "character"}
+NOMINATION_MAX_TOKENS = 32_768
+NOMINATION_TIMEOUT_SECONDS = 600
 
 
 def _digest(value) -> str:
@@ -789,6 +791,13 @@ class FocusedEvidenceService:
         from modules.project.facade import open_project_llm_client
 
         async def generate(active):
+            from modules.evidence.compilation.services.retrieval_query_planner import (
+                _query_planner_request_extra,
+            )
+
+            request_extra = _query_planner_request_extra(active)
+            if request_extra:
+                request_extra["reasoning_effort"] = "low"
             return await run_managed_structured(
                 active,
                 LLMCallRequest(
@@ -796,20 +805,27 @@ class FocusedEvidenceService:
                     messages=[
                         LLMMessage(
                             role="system",
-                            content=load_prompt("focused_evidence_neighbors"),
+                            content=load_prompt("focused_evidence_neighbors")
+                            + "\n\n输出 JSON Schema：\n"
+                            + json.dumps(
+                                NeighborNominations.model_json_schema(),
+                                ensure_ascii=False,
+                            ),
                         ),
                         LLMMessage(
                             role="user", content=json.dumps(payload, ensure_ascii=False)
                         ),
                     ],
                     temperature=0,
+                    max_tokens=NOMINATION_MAX_TOKENS,
+                    extra=request_extra,
                 ),
                 NeighborNominations,
                 step_name="evidence.focused_neighbors",
                 max_fix_attempts=1,
                 transport_retries=False,
                 read_only=True,
-                timeout=120,
+                timeout=NOMINATION_TIMEOUT_SECONDS,
                 context_budget=ContextBudget(
                     max_input_chars=100000, max_output_chars=40000
                 ),
@@ -817,7 +833,9 @@ class FocusedEvidenceService:
 
         try:
             if client is None:
-                async with open_project_llm_client(db, request.novel_id) as active:
+                async with open_project_llm_client(
+                    db, request.novel_id, timeout_override=NOMINATION_TIMEOUT_SECONDS - 60
+                ) as active:
                     output = await generate(active)
             else:
                 output = await generate(client)

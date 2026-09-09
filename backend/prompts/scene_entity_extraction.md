@@ -30,16 +30,17 @@
 
 下面只规定字段名称和数据形状，不限制你的叙事判断。不得改名、增加数据库字段或把数组写成字符串、对象或 `null`。
 
-只有顶层四个集合，以及条目中的 `uncertainties`、`evidence_quotes` 是数组。其余字段均为单值字符串、数值或契约允许的 `null`，不得为了补充说明而改写成数组或对象；需要补充的判断写入 `basis`，无法安全归入现有字段的内容写入 `uncertain_items`。
+顶层三个集合，以及条目中的 `uncertainties`、`evidence_quotes` 是数组。`field_evidence` 是对象，其中每个字段的值是证据字符串数组。除此之外，其余字段均为单值字符串、数值或契约允许的 `null`，不得为了补充说明而改写成数组或对象；需要补充的判断写入 `basis`，无法安全归入现有字段的内容写入 `uncertain_items`。
 
 - `entities[]` 每项只包含：`name`、`entity_type`、`summary`、`public_info`、`hidden_truth`、`importance`、`identity_disposition`、`matched_existing_ref`、`basis`、`uncertainties`、`evidence_quotes`、`field_evidence`、`confidence`。
+  - `entity_type` 只能使用当前请求附带的合法类型清单；细分类别写入有证据的说明，不创建新类型。
   - `identity_disposition` 只能是 `new | existing | uncertain`。
   - 仅 `existing` 必须填写输入中的 `matched_existing_ref`；`new` 时必须为 `null`；`uncertain` 时可为 `null`。
   - `importance` 与 `confidence` 是 0–1 数值。
   - `uncertainties` 与 `evidence_quotes` 必须是 JSON 字符串数组；每个可物化实体至少有一条 `evidence_quotes`。
   - `field_evidence` 是 JSON object，只能使用 `name`、`entity_type`、`summary`、`public_info`、`hidden_truth` 作为键，每个值都是当前 Scene 逐字证据字符串数组。
 - `delta_events[]` 每项只包含：`subject_name`、`category`、`field`、`old`、`new`、`description`、`basis`、`uncertainties`、`evidence_quotes`、`confidence`。`uncertainties` 与 `evidence_quotes` 必须是 JSON 字符串数组；每项至少有一条当前 Scene 的逐字证据。
-- `uncertain_items[]` 每项只包含：`description`、`reason`、`evidence_quotes`；`evidence_quotes` 必须是 JSON 字符串数组，可以为空。
+- `uncertain_items[]` 每项只包含：`mention_name`、`description`、`reason`、`evidence_quotes`；`mention_name` 是可选的原文具名线索，无法确定时为 `null`；`evidence_quotes` 必须是 JSON 字符串数组，可以为空。
 
 完整顶层形状为：
 

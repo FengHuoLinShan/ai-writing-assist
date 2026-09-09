@@ -179,12 +179,14 @@ async def resume_manual_task(
     task_id: str,
     task_types: set[str],
     novel_id: str,
+    allow_completed: bool = False,
 ) -> TaskLifecycleContract:
     return await TaskLifecycleService().resume_manual(
         db,
         task_id=task_id,
         task_types=task_types,
         novel_id=novel_id,
+        **({"allow_completed": True} if allow_completed else {}),
     )
 
 
@@ -378,4 +380,13 @@ async def delete_tasks_for_novels(
     return await TaskLifecycleService().delete_for_novels(
         db,
         novel_ids=novel_ids,
+    )
+
+
+async def list_recent_task_summaries(
+    db: AsyncSession, *, novel_id: str, task_type: str, limit: int = 20
+) -> list[dict]:
+    """Read scoped task identities without exposing task metadata or output."""
+    return await TaskLifecycleService().list_recent_summaries(
+        db, novel_id=novel_id, task_type=task_type, limit=limit
     )

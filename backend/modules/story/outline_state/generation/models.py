@@ -7,12 +7,27 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class GeneratedThread(BaseModel):
     name: str
-    thread_type: str
+    thread_type: Literal["main", "sub", "background"]
+
+    @field_validator("thread_type", mode="before")
+    @classmethod
+    def normalize_thread_type(cls, value):
+        if not isinstance(value, str):
+            return value
+        return {
+            "subplot": "sub",
+            "secondary": "sub",
+            "hidden": "background",
+            "mystery": "background",
+            "relationship": "sub",
+            "world": "background",
+        }.get(value, value)
+
     summary: str | None = None
     visible_goal: str | None = None
     hidden_truth: str | None = None
@@ -129,7 +144,12 @@ class SimpleSupportedStructureItem(BaseModel):
 
 
 class SimplePlotThread(SimpleSupportedStructureItem):
-    thread_type: str = "main"
+    thread_type: Literal["main", "sub", "background"] = "main"
+
+    _normalize_thread_type = field_validator("thread_type", mode="before")(
+        GeneratedThread.normalize_thread_type.__func__
+    )
+
     current_stage: str = "active"
 
 

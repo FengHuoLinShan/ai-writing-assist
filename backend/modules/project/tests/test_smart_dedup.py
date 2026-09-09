@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient
@@ -448,6 +449,26 @@ async def test_group_apply_rolls_back_failed_group_and_continues(
         "该裁决组执行失败，请重试或重新扫描。"
     )
     assert "forced group failure" not in result["group_results"][0]["message"]
+
+    async def must_not_reapply(*args, **kwargs):
+        raise AssertionError("a recorded successful decision must not run again")
+
+    monkeypatch.setattr(
+        "modules.world.facade.apply_entity_fusion_group", must_not_reapply
+    )
+    replay = await SmartDedupService().apply_groups(
+        db_session,
+        novel_id=str(project.id),
+        scan_task_id=str(task.id),
+        groups=[requests[1]],
+        confirmed=True,
+    )
+    assert replay["group_results"][0]["status"] == "success"
+    history = await SmartDedupService().scan_review_state(
+        db_session, novel_id=str(project.id), task_id=str(task.id)
+    )
+    assert history["decisions"]["g2"] == requests[1]
+    assert [item["group_id"] for item in history["group_results"]] == ["g2"]
 
 
 async def test_group_apply_preflights_all_fingerprints_before_any_group_mutates(
@@ -918,3 +939,40 @@ def _request_group(group_id: str, source: str, primary: str) -> dict:
             }
         ],
     }
+
+
+async def test_scan_history_recovers_legacy_pair_decision(db_session):
+    project = Project(title="history")
+    db_session.add(project)
+    await db_session.flush()
+    task = AsyncTask(
+        task_type="smart_dedup_scan",
+        status="done",
+        meta={"novel_id": str(project.id)},
+        result={"schema_version": 2, "groups": [_server_group("g1", "a", "p1")]},
+    )
+    db_session.add(task)
+    await db_session.flush()
+    db_session.add(
+        SmartDedupWorkbenchDecision(
+            novel_id=project.id,
+            asset_type="world_entity",
+            left_asset_id="a",
+            right_asset_id="p1",
+            left_semantic_fingerprint="a" * 64,
+            right_semantic_fingerprint="b" * 64,
+            decision="keep_separate",
+            source_scan_task_id=str(task.id),
+        )
+    )
+    await db_session.flush()
+    state = await SmartDedupService().scan_review_state(
+        db_session, novel_id=str(project.id), task_id=str(task.id)
+    )
+    assert state["group_results"][0]["status"] == "success"
+    assert state["decisions"]["g1"]["operations"][0]["action"] == "keep_separate"
+    assert (
+        await SmartDedupService().scan_review_state(
+            db_session, novel_id=str(uuid4()), task_id=str(task.id)
+        )
+    )["group_results"] == []

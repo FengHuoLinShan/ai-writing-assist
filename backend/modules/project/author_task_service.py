@@ -456,7 +456,7 @@ class AuthorTaskService:
                         db,
                         novel_id,
                         chapter_indices,
-                        content_limit=0,
+                        content_limit=1,
                     )
                     if chapter_indices
                     else []

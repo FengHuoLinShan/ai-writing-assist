@@ -52,10 +52,25 @@ async function runScanToDone(result, overrides = {}) {
   const manager = createManager(overrides)
   await manager.startScan()
   await flushPromises()
+  manager.showProgress()
   return manager
 }
 
 describe("Smart Dedup Manager", () => {
+  it("keeps completed scans available without interrupting another task", async () => {
+    api.projects.startSmartDedupScan.mockResolvedValue({ task_id: "scan-quiet" })
+    api.tasks.get.mockResolvedValue({ task_id: "scan-quiet", task_type: "smart_dedup_scan", status: "done", result: groupResult() })
+    document.body.innerHTML = '<div id="modal-title">编辑人物</div>'
+    const manager = createManager()
+    await manager.startScan()
+    await flushPromises()
+    expect(showModal).not.toHaveBeenCalled()
+    expect(manager.renderActionButton()).toContain("查看去重建议")
+    manager.showProgress()
+    expect(latestModal().title).toBe("核对重复资料")
+    manager.dispose()
+  })
+
   it("normalizes suggestions from entity-shaped payload and renders them", async () => {
     await runScanToDone({
       total_assets_scanned: 2,
@@ -528,7 +543,7 @@ describe("Smart Dedup Manager", () => {
 
     const modal = latestModal()
     const call = showModal.mock.calls.at(-1)
-    expect(modal.title).toBe("智能去重裁决工作台")
+    expect(modal.title).toBe("核对重复资料")
     expect(modal.body.html).toContain("重复组队列")
     expect(modal.body.html).toContain("只看差异")
     const rendered = document.createElement("div")
@@ -537,7 +552,25 @@ describe("Smart Dedup Manager", () => {
     expect(modal.body.html).toContain("融合内容并迁移引用")
     expect(modal.body.html).not.toContain("手动主体 ID")
     expect(call[3]).toEqual({ size: "large", protectUnsaved: true })
-    expect(showModal.mock.calls.filter(([title]) => title === "智能去重裁决工作台")).toHaveLength(1)
+    expect(showModal.mock.calls.filter(([title]) => title === "核对重复资料")).toHaveLength(1)
+  })
+
+  it("submits approved overlapping groups separately and pauses stale groups", async () => {
+    const result = groupResult()
+    result.groups.push({ ...structuredClone(result.groups[0]), group_id: "overlapping-group" })
+    const manager = await runScanToDone(result)
+    const groups = manager._groups(result)
+    api.projects.applySmartDedup.mockImplementationOnce(async () => {
+      manager._groupDraftFor(groups[1]).operations.a.action = "later"
+      return { group_results: [{ group_id: groups[0].group_id, status: "success" }] }
+    }).mockResolvedValueOnce({ group_results: [{ group_id: 'overlapping-group', status: 'failed', error_code: 'stale_suggestion' }] })
+    await manager._applyReadyGroups(groups)
+    expect(api.projects.applySmartDedup).toHaveBeenCalledTimes(2)
+    expect(api.projects.applySmartDedup.mock.calls.every(([, payload]) => payload.groups.length === 1)).toBe(true)
+    expect(api.projects.applySmartDedup.mock.calls[1][1].groups[0].operations.find(item => item.source_asset_id === 'a').action).toBe('merge')
+    expect(manager._groupReadiness(groups[1]).ready).toBe(false)
+    expect(manager._groupResults[groups[0].group_id].status).toBe('success')
+    manager.dispose()
   })
 
   it("keeps an eligible primary selected when the author switches it", async () => {
@@ -610,7 +643,7 @@ describe("Smart Dedup Manager", () => {
     })
     await runScanToDone(groupResult())
 
-    await latestModal().buttons.find((button) => button.text === "执行已就绪组 (1)").handler()
+    await latestModal().buttons.find((button) => button.text === "确认本次处理 (1)").handler()
 
     expect(api.projects.applySmartDedup).toHaveBeenCalledWith("p1", {
       confirmed: true,
@@ -657,7 +690,7 @@ describe("Smart Dedup Manager", () => {
     const manager = await runScanToDone(groupResult(), {
       getCurrentProjectId: () => currentProjectId,
     })
-    const handler = latestModal().buttons.find((button) => button.text === "执行已就绪组 (1)").handler
+    const handler = latestModal().buttons.find((button) => button.text === "确认本次处理 (1)").handler
     vi.clearAllMocks()
 
     const pending = handler()
@@ -688,7 +721,7 @@ describe("Smart Dedup Manager", () => {
     const manager = await runScanToDone(groupResult(), { getCurrentRouteKey: () => "world:objects" })
     const modal = latestModal()
     document.body.innerHTML = `<div id="modal-overlay"><div id="modal-body">${modal.body.html}</div></div>`
-    const handler = modal.buttons.find((button) => button.text === "执行已就绪组 (1)").handler
+    const handler = modal.buttons.find((button) => button.text === "确认本次处理 (1)").handler
     const stateBefore = manager.getState()
     vi.clearAllMocks()
 
@@ -721,7 +754,7 @@ describe("Smart Dedup Manager", () => {
     const group = manager._groups(result)[0]
     manager._groupDraftFor(group).operations.a.action = "keep_separate"
 
-    await latestModal().buttons.find((button) => button.text === "执行已就绪组 (1)").handler()
+    await latestModal().buttons.find((button) => button.text === "确认本次处理 (1)").handler()
 
     expect(manager._groupDraftFor(group).operations.a.action).toBe("keep_separate")
     const submittedSelectHtml = latestModal().body.html.match(/<select[^>]*data-smart-dedup-operation="a"[\s\S]*?<\/select>/)?.[0]
@@ -745,7 +778,8 @@ describe("Smart Dedup Manager", () => {
     const manager = createManager({ getCurrentProjectId: () => currentProjectId })
     await manager.startScan()
     await flushPromises()
-    const button = latestModal().buttons.find((item) => item.text === "执行已就绪组 (1)")
+    manager.showProgress()
+    const button = latestModal().buttons.find((item) => item.text === "确认本次处理 (1)")
 
     currentProjectId = "p2"
     await button.handler()
@@ -765,7 +799,7 @@ describe("Smart Dedup Manager", () => {
     const manager = await runScanToDone(result)
     let modal = latestModal()
     expect(modal.body.html).toContain("生成场景影响预览")
-    expect(modal.buttons[0].text).toBe("执行已就绪组 (0)")
+    expect(modal.buttons[0].text).toBe("确认本次处理 (0)")
 
     document.body.innerHTML = modal.body.html
     const groups = manager._groups(result)
@@ -837,7 +871,7 @@ describe("Smart Dedup Manager", () => {
     const modal = latestModal()
     expect(modal.body.html).toContain("建议已过期")
     expect(modal.buttons.map((button) => button.text)).toContain("重新扫描")
-    expect(modal.buttons[0].text).toBe("执行已就绪组 (0)")
+    expect(modal.buttons[0].text).toBe("确认本次处理 (0)")
   })
 })
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -16,7 +17,10 @@ from modules.imports.llm_schemas import ExtractedEntity, SceneEntityExtractionOu
 from modules.imports.orchestrator import DeepImportOrchestrator
 from modules.imports.schemas import TargetedCompletionRequest
 from modules.imports.targeted_completion import (
+    COMPLETION_MAX_TOKENS,
+    COMPLETION_TIMEOUT_SECONDS,
     CompletionOutput,
+    _complete_batch,
     freeze_completion_permission,
     materialize_completion,
     normalize_roots,
@@ -121,6 +125,33 @@ def test_wire_requires_explicit_authorization_and_exclusive_identity():
             end_chapter=2,
             authorization_confirmed=True,
         )
+
+
+async def test_completion_first_request_declares_schema_and_reasoning_budget():
+    client = SimpleNamespace(
+        model_name="deepseek-v4-flash", profile_summary={"provider_id": "deepseek"}
+    )
+    target = SimpleNamespace(
+        key="root", name="青港", depth=0, resolution="resolved", root_keys=["root"]
+    )
+    with patch(
+        "infrastructure.llm.agent_step_harness.run_managed_structured",
+        autospec=True,
+        return_value=CompletionOutput(),
+    ) as call:
+        await _complete_batch(
+            client,
+            result=SimpleNamespace(evidence=[]),
+            targets=[target],
+            batch_keys=["root"],
+        )
+    request = call.call_args.args[1]
+    schema = json.loads(request.messages[0].content.split("输出 JSON Schema：\n", 1)[1])
+    assert schema == CompletionOutput.model_json_schema()
+    assert "location" in schema["$defs"]["_Entity"]["properties"]["entity_type"]["enum"]
+    assert request.max_tokens == COMPLETION_MAX_TOKENS == 32_768
+    assert request.extra == {"thinking": {"type": "enabled"}, "reasoning_effort": "low"}
+    assert call.call_args.kwargs["timeout"] == COMPLETION_TIMEOUT_SECONDS == 600
 
 
 def test_roots_are_stable_and_not_silently_limited_to_a_batch():

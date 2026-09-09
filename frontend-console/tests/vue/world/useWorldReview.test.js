@@ -157,6 +157,13 @@ describe("splitCandidateGroups / 动作标签与可见性", () => {
 })
 
 describe("证据模型", () => {
+  it("导入对象使用来源场景序号，并展示去重后的字段原文依据", () => {
+    const pairs = inlineEvidencePairs({ source_scene_index: 7, scene_id: "internal-scene", field_evidence: { name: ["原文中的姓名"], summary: ["原文中的姓名", "第二条依据"] } })
+    expect(pairs).toContainEqual(["场景", 7])
+    expect(pairs).toContainEqual(["引用", "原文中的姓名\n第二条依据"])
+    expect(JSON.stringify(pairs)).not.toContain("internal-scene")
+  })
+
   it("inlineEvidencePairs 过滤空值", () => {
     const pairs = inlineEvidencePairs({ source: "deep_import", scene_index: 3, quote: "旧塔倒塌" })
     expect(pairs).toContainEqual(["来源", "深度导入"])
@@ -286,7 +293,7 @@ describe("审阅决策", () => {
     expect(sessionStorage.getItem("novel_world_review_draft:p-rev:alias:e1::旧港")).toBeNull()
   })
 
-  it("关系首次进入保留字段建议但把两端留给作者一次配对", () => {
+  it("关系首次进入带入方向建议供作者核对", () => {
     const group = {
       group_id: "g-pair", source_id: "e1", target_id: "e2", execution_fingerprint: "fp-pair",
       members: [{ id: "r1", relation_kind: "social", relation_type: "friend_of", description: "相识", strength: 0.7 }],
@@ -296,7 +303,7 @@ describe("审阅决策", () => {
 
     expect(prepared).toMatchObject({
       stale: false,
-      draft: { source_id: "", target_id: "", relation_kind: "social", relation_type: "friend_of", description: "相识", strength: 0.7 },
+      draft: { source_id: "e1", target_id: "e2", relation_kind: "social", relation_type: "friend_of", description: "相识", strength: 0.7 },
     })
   })
 
@@ -313,7 +320,7 @@ describe("审阅决策", () => {
     const changed = { ...group, execution_fingerprint: "fp-new" }
     const prepared = prepareRelationReviewDecision(changed)
     expect(prepared.stale).toBe(true)
-    expect(prepared.draft).toMatchObject({ source_id: "", target_id: "" })
+    expect(prepared.draft).toMatchObject({ source_id: "e1", target_id: "e2" })
     expect(worldSession.relationReviewDrafts[changed.group_id]).toBeUndefined()
   })
 
@@ -451,12 +458,12 @@ describe("批量复核", () => {
     expect(navigateMock).not.toHaveBeenCalled()
   })
 
-  it("缺少关系分类时阻断推荐采用", () => {
+  it("缺少关系分类时阻断推荐采用", async () => {
     const group = {
       group_id: "g-missing-kind", source_id: "e1", target_id: "e2", execution_fingerprint: "fp",
       members: [{ id: "r1", relation_type: "friend_of", strength: 0.5 }],
     }
-    expect(acceptRecommendedRelation(group)).toBe(false)
+    expect(await acceptRecommendedRelation(group)).toBe(false)
     expect(apiMock.world.reviewRelationsBatch).not.toHaveBeenCalled()
     expect(toastMock).toHaveBeenCalledWith("请完成两个人物的配对，并选择关系分类和详细类型", "warning")
   })

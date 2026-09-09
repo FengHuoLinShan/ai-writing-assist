@@ -114,7 +114,6 @@ export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
       statusFields.totalChunks = result.chunks_created
     } else if (result.total_chapters != null) {
       statusFields.totalChunks = null
-      await refreshStatus?.()
     }
     if (result.embedding_failed_count != null) {
       statusFields.embeddingFailedCount = result.embedding_failed_count
@@ -136,10 +135,11 @@ export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
         await refreshStatus?.()
       } else {
         await applyRagRebuildResult(result, projectId)
+        if (ownsProject(projectId)) await refreshStatus?.()
       }
     } catch (err) {
       if (ownsProject(projectId)) {
-        getToast()(`索引任务已完成，但状态刷新失败：${err.message || "未知错误"}`, "warning")
+        getToast()(`查找整理已完成，但状态刷新失败：${err.message || "未知错误"}`, "warning")
       }
     } finally {
       clearActiveWorkflow(taskId)
@@ -184,11 +184,10 @@ export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
     }
     const submission = beginMaintenanceSubmission()
     if (!submission) {
-      toast("索引维护任务正在处理", "info")
+      toast("查找修复正在进行", "info")
       return false
     }
     try {
-      toast("正在重建索引...", "info")
       const payload = { novel_id: projectId }
       if (form?.contentMode) payload.content_mode = form.contentMode
       if (chapterRange) {
@@ -212,17 +211,17 @@ export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
           task_type: "rag_reindex_novel",
         }, "rag_reindex_novel")
         startRebuildPolling(result.task_id, "rag_reindex_novel", projectId)
-        toast("索引重建任务已提交", "success")
+        toast("查找修复已开始，可离开后继续查看", "success")
       } else if (!ownsProject(projectId)) {
         return true
       } else if (result.total > 0 || (result.task_ids || []).length > 0) {
-        ragSearchSession.rebuildInfo = "索引重建请求已处理。"
+        ragSearchSession.rebuildInfo = "查找修复请求已处理。"
         ragSearchSession.rebuildProgress = null
-        toast("索引重建任务已提交", "success")
+        toast("查找修复已开始，可离开后继续查看", "success")
       } else {
         ragSearchSession.rebuildProgress = null
-        ragSearchSession.rebuildInfo = "暂无可索引工作稿"
-        toast("暂无可索引工作稿", "info")
+        ragSearchSession.rebuildInfo = "暂无可整理的正文"
+        toast("暂无可整理的正文", "info")
       }
       for (const warning of (result.warnings || [])) {
         toast(warning, "warning")
@@ -248,13 +247,13 @@ export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
       return
     }
     if (!statusFields.retryableEmbeddingCount) {
-      toast("暂无可重试的失败向量", "info")
+      toast("暂无需要补齐的查找片段", "info")
       return
     }
     const projectId = state.currentProjectId
     const submission = beginMaintenanceSubmission()
     if (!submission) {
-      toast("索引维护任务正在处理", "info")
+      toast("查找修复正在进行", "info")
       return false
     }
     try {
@@ -277,7 +276,7 @@ export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
           task_type: "rag_retry_embeddings",
         }, "rag_retry_embeddings")
         startRebuildPolling(result.task_id, "rag_retry_embeddings", projectId)
-        toast("失败向量重试任务已提交", "success")
+        toast("正在补齐未完成的查找片段", "success")
       }
       return true
     } catch (err) {

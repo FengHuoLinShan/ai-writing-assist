@@ -476,3 +476,9 @@ RP DeepSeek能力快照可固定max/900秒及65,536输出预算，旧快照按�
 UUID。过滤在领取 SQL 中完成，只处理匹配的 pending 任务；不会领取、取消或修改其他排队任务。
 不传参数仍是原队列领取方式。退避、coalescing、SKIP LOCKED、lease、preflight 和提交 fence
 全部复用；该入口用于明确任务的手动验收，不是浏览器权限或项目边界的替代。
+
+### 领域检查点的恢复投影
+
+handler 普通失败时保留领域经 fenced checkpoint 写入的双恢复标记；只有既有 manual_resume 策略且 meta/result 都明确为 true 才提示可恢复。未标记、单边标记、其他恢复策略仍按既有规则处理。标记不替代项目、lease 或各模块恢复 API 的校验。
+
+任务生命周期保留原恢复默认；Imports 对已核验 deferred 阶段可显式请求 completed task 再入队，仍受类型、项目和领域锁约束。详见 tasks README。

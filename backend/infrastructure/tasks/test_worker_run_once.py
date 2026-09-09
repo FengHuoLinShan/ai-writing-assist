@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -16,7 +17,33 @@ from infrastructure.llm.errors import LLMAuthError, LLMTimeoutError
 from infrastructure.llm.retry import transport_retries_enabled
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
-from infrastructure.tasks.worker import TaskWorker
+from infrastructure.tasks.worker import TaskWorker, _handler_failure_result
+
+
+@pytest.mark.parametrize(
+    ("policy", "meta_flag", "result_flag", "expected"),
+    [
+        ("manual_resume", True, True, True),
+        ("manual_resume", False, True, False),
+        ("manual_resume", True, False, False),
+        ("never_retry", True, True, False),
+    ],
+)
+def test_handler_failure_preserves_only_matching_manual_recovery_flags(
+    policy,
+    meta_flag,
+    result_flag,
+    expected,
+):
+    task = SimpleNamespace(
+        recovery_policy=policy,
+        attempt=1,
+        meta={"recovery_required": meta_flag},
+        result={"recovery_required": result_flag, "checkpoint": {"kept": True}},
+    )
+    result = _handler_failure_result(task, requeued=False)
+    assert result["lifecycle"]["recovery_required"] is expected
+    assert result["checkpoint"] == {"kept": True}
 
 
 @pytest.mark.asyncio

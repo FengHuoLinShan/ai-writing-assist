@@ -1065,7 +1065,7 @@ async def test_phase1a_missing_chapter_adapter_uses_high_reasoning(
     assert result.segments[0].start_chapter == 2
     request, kwargs = captured[0]
     assert request.model == "deepseek-v4-flash"
-    assert request.max_tokens == 8192
+    assert request.max_tokens == 32_768
     assert request.extra["thinking"] == {"type": "enabled"}
     assert request.extra["reasoning_effort"] == "high"
     assert "连续正文缺口" in request.messages[0].content

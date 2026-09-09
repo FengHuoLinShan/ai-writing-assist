@@ -217,7 +217,8 @@ preview 伪装成 manual revision，也不能引用其他项目的 task。
 
 - 不是 NER，而是长期创作资产识别
 - `scene_entity_extraction.md`（P13）只读取一个锁定 Scene 的完整精确正文及相关结构上下文，输出长期世界对象、持久 Delta 和不确定项；关系、新别名、数据库 ID、持久化动作和审核状态不属于该契约
-- P13 v3 的既有身份只允许引用服务端生成的 `entity-xxx`，且 prompt 候选只含名称、已确认别名、类型和状态。实体名称、类型、summary/public/hidden 分别用 `field_evidence` 绑定当前 Scene 逐字证据；新对象名称必须原文出现，未命名幻象进入 `uncertain_items`。正文与项目资料都作为 fenced 不可信 JSON 注入，system prompt 保持静态
+- P13 v4 的既有身份只允许引用服务端生成的 `entity-xxx`，且 prompt 候选只含名称、已确认别名、类型和状态。实体名称、类型、summary/public/hidden 分别用 `field_evidence` 绑定当前 Scene 逐字证据；新对象名称必须原文出现，未命名幻象进入 `uncertain_items`。正文与项目资料都作为 fenced 不可信 JSON 注入，system prompt 保持静态
+- P13 v4 的合法类型清单与 JSON Schema enum 从同一校验集合生成，首轮与返修均明确三个顶层数组、字段证据对象及其字符串数组值；不放宽类型、身份或证据门禁。
 - P13 不按固定类别或数量凑结果，也不对输入做应用层字符/token 裁剪。直接名称/别名命中全部保留；其余人物 Top-6、非人物对象 Top-16 是相关性边界
 - `alias_relation_extraction.md`（P14 v5）独占新别名和对象关系，只读取来源明确且早于当前 Scene 的既有关系引用。共享序列名、职业或力量类别不是人物别名；完成交易、临时见证和会面固定按 `episodic` 处理。确定性 materializer 继续校验项目归属、冻结关系、逐字证据、持续性和快照来源，只写待复核候选或补充证据。
 - 临时对象优先忽略或标记为临时
@@ -613,3 +614,7 @@ DeepSeek新RP执行快照启用max、65,536总输出及900秒超时，旧任务�
 两步沿用项目模型配置、托管 structured step、预算和超时。专项补全真实调用记录
 ContextSnapshot；手动资料新增重新确认，自动流水线只使用既有授权范围内的 snapshot。
 Phase 2a/2b 的可选 mention_name 仅在对应原文逐字出现时进入 completion_hints。
+
+专项补全调用将 CompletionOutput 的完整 JSON Schema 附入首轮系统指令；名称保留为目标身份依据，输出使用 target_key/source_key 引用，不另造 name 或数据库 ID 字段。
+
+简单剧情结构的参数版本为 phase3_structure_simple_v3，输出线程分类 main/sub/background，兼容旧生成词项的显式映射见 Story README。

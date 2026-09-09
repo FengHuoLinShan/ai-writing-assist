@@ -390,7 +390,7 @@ describe("页内视图控件", () => {
     expect(options.get('[role="group"][aria-label="人物与设定显示方式"]').exists()).toBe(true)
     expect(options.get('[role="group"][aria-label="资料范围"]').exists()).toBe(true)
     expect(options.find('[data-action="toggle-extract"]').exists()).toBe(false)
-    expect(wrapper.get('[data-action="toggle-extract"]').text()).toBe("从正文整理资料")
+    expect(wrapper.get('[data-action="toggle-extract"]').text()).toBe("整理进度与成果")
 
     options.element.open = true
     await options.get('[data-action="close-view-options"]').trigger("click")
@@ -518,7 +518,9 @@ describe("自动提取抽屉", () => {
     expect(panel.exists()).toBe(true)
     expect(wrapper.find("#w-extract-status").text()).toContain("就绪")
     await wrapper.find('[data-action="submit-extract"]').trigger("click")
-    await vi.waitFor(() => expect(startStage).toHaveBeenCalledWith("world_objects", "p-obj", 1, 10, false, false, expect.anything()))
+    expect(startStage).not.toHaveBeenCalled()
+    expect(navigateMock).toHaveBeenCalledWith("writing", null, true, expect.any(URLSearchParams))
+    expect(navigateMock.mock.calls.at(-1)[3].get("organize")).toBe("world_objects")
   })
 
   it("有 progress 时渲染进度卡而非状态行", () => {

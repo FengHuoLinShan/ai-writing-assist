@@ -3,6 +3,8 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from "vue"
 import { displayStateBadgeClass, worldAssetDisplay } from "../../../../shared/assetDisplayState.js"
 import { getApi, getConfirm, getToast } from "../../../bridge/index.js"
 import { updateEntityWithBaseline } from "../logic/worldEntityOps.js"
+import { showRelationReviewEditForm, syncRelationsAliasesRegistry } from "../logic/worldRelationsAliasesOps.js"
+import WorldEntityImage from "../components/WorldEntityImage.vue"
 import TargetedCompletionPanel from "../../../components/TargetedCompletionPanel.vue"
 
 const props = defineProps({
@@ -17,6 +19,22 @@ const aliases = computed(() => (props.entity?.content_json?.aliases || []).map((
 )).filter((item) => String(item?.alias || "").trim()))
 const display = computed(() => worldAssetDisplay(props.entity))
 const isCharacter = computed(() => props.entity?.entity_type === "character")
+const related = ref([]), revisions = ref([]), relatedError = ref(''), revisionTotal = ref(0), revisionSkip = ref(0), infoLoading = ref(false)
+let infoEpoch = 0
+async function loadInfo(kind, skip = 0) {
+  const token = ++infoEpoch
+  infoLoading.value = true; relatedError.value = ''
+  try {
+    const id = props.entity.id || props.entity.entity_id
+    const result = await (kind === 'relations' ? getApi().world.getEntityRelations(id, props.projectId) : getApi().world.getEntityRevisions(id, props.projectId, skip))
+    if (token !== infoEpoch) return
+    if (kind === 'relations') { related.value = result.items || []; syncRelationsAliasesRegistry({ relations: related.value }) }
+    else { revisions.value = result.items || []; revisionTotal.value = result.total; revisionSkip.value = skip }
+  } catch (err) { if (token === infoEpoch) relatedError.value = err.message || '资料读取失败，请重新展开重试' }
+  finally { if (token === infoEpoch) infoLoading.value = false }
+}
+watch(() => [props.projectId, props.entity.id || props.entity.entity_id], () => { infoEpoch += 1; related.value = []; revisions.value = []; relatedError.value = ''; infoLoading.value = false })
+onBeforeUnmount(() => { infoEpoch += 1 })
 const profileOpen = ref(false)
 const profileLoading = ref(false)
 const profileSaving = ref(false)
@@ -198,6 +216,8 @@ onBeforeUnmount(() => { profileGeneration += 1; emit("profile-dirty", false) })
         <button type="button" class="btn btn-sm btn-primary" @click="emit('edit')">编辑资料</button>
       </div>
     </header>
+    <div class="world-entity-overview">
+    <WorldEntityImage :entity="entity" :project-id="projectId" />
     <section class="world-entity-basic" aria-label="基本资料">
       <header class="world-entity-basic__header">
         <h3>基本资料</h3>
@@ -254,6 +274,10 @@ onBeforeUnmount(() => { profileGeneration += 1; emit("profile-dirty", false) })
         <p class="world-entity-basic__hint">保存需要明确点击“保存”；失焦不会修改已采用事实。</p>
       </div>
     </section>
+    </div>
+    <p v-if="relatedError" role="alert">{{ relatedError }}</p>
+    <details @toggle="$event.target.open && loadInfo('relations')"><summary>关系</summary><p v-if="infoLoading">正在读取…</p><p v-else-if="!related.length">尚无关联关系</p><article v-for="relation in related" :key="relation.id"><strong>{{ relation.source_name }} → {{ relation.target_name }}</strong><p>{{ relation.description || '已记录关联' }}</p><button class="btn btn-sm" @click="showRelationReviewEditForm(relation.id)">编辑关系</button></article></details>
+    <details @toggle="$event.target.open && loadInfo('history')"><summary>版本历史</summary><p v-if="infoLoading">正在读取…</p><p v-else-if="!revisions.length">还没有历史版本</p><p v-for="revision in revisions" :key="revision.revision_id">{{ revision.created_at }} · 已保存资料快照</p><button v-if="revisionSkip" class="btn" :disabled="infoLoading" @click="loadInfo('history', revisionSkip - 20)">上一页</button><button v-if="revisionSkip + 20 < revisionTotal" class="btn" :disabled="infoLoading" @click="loadInfo('history', revisionSkip + 20)">下一页</button></details>
     <TargetedCompletionPanel :project-id="projectId" :entity-id="entity.id || entity.entity_id" :initial-name="entity.name || ''" @applied="emit('refresh', entity.id || entity.entity_id)" />
     <section v-if="isCharacter" class="world-character-profile">
       <header><div><h3>人物档案</h3><p>按需补充人物动机、状态和声音；名称与别名仍在基本资料中管理。</p></div><button type="button" class="btn btn-sm" @click="profileOpen ? (profileOpen = false) : openProfile()">{{ profileOpen ? '收起' : '完善人物档案' }}</button></header>
@@ -285,6 +309,7 @@ onBeforeUnmount(() => { profileGeneration += 1; emit("profile-dirty", false) })
 </template>
 
 <style scoped>
+.world-entity-overview{display:grid;grid-template-columns:minmax(180px,260px) minmax(0,1fr);gap:24px;align-items:start}.world-entity-overview p{line-height:1.7}@media(max-width:700px){.world-entity-overview{grid-template-columns:minmax(0,1fr)}}
 .world-entity-detail { display: grid; gap: 20px; }
 .world-entity-basic { display: grid; gap: 10px; }
 .world-entity-basic__header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }

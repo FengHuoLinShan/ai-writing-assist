@@ -822,7 +822,9 @@ class Phase2aEntityObservation(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     name: str = Field(..., min_length=1)
-    entity_type: str = Field(default="other")
+    entity_type: str = Field(
+        default="other", json_schema_extra={"enum": sorted(_AI_WORLD_ENTITY_TYPES)}
+    )
     summary: str | None = None
     public_info: str | None = None
     hidden_truth: str | None = None

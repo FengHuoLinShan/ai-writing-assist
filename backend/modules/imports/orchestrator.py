@@ -613,7 +613,7 @@ class DeepImportOrchestrator:
                 stage == "world_objects"
                 and updated.authorization_snapshot.get("targeted_completion")
                 and (updated.checkpoints.get("targeted_completion") or {}).get("status")
-                != "done"
+                not in {"done", "deferred"}
             ):
                 if updated.phase == "done":
                     updated.phase = "running"
@@ -649,7 +649,11 @@ class DeepImportOrchestrator:
             progress.quality_status = (
                 "partial" if progress.targeted_completion.get("review") else "complete"
             )
-            progress.message = "专项补全完成；新增和填空已保存，需复核项已保留"
+            progress.message = (
+                "专项查漏已暂缓，已完成成果保留，可稍后继续"
+                if progress.targeted_completion.get("status") == "deferred"
+                else "专项补全完成；新增和填空已保存，需复核项已保留"
+            )
             await _record_progress(progress, 1.0)
         elif stage == "scenes":
             progress = await self.workflow.run_step(
@@ -1401,7 +1405,14 @@ class DeepImportOrchestrator:
         self,
         db: AsyncSession,
         task_id: str,
+        stage: str | None = None,
     ) -> dict[str, Any]:
+        if stage == "targeted_completion":
+            from modules.imports.completion_control import resume_deferred_completion
+
+            return await resume_deferred_completion(
+                db, task_id=task_id, orchestrator=self
+            )
         from infrastructure.tasks.facade import (
             resume_manual_task,
             update_task_projection,
@@ -1409,6 +1420,16 @@ class DeepImportOrchestrator:
 
         run = await self._get_recoverable_deep_import_run(db, task_id)
         result_data = dict(run.progress or {})
+        if (run.checkpoints or {}).get("completion_control"):
+            run.checkpoints = {
+                **run.checkpoints,
+                "completion_control": {
+                    "version": 1,
+                    "defer_requested": False,
+                    "resume_requested": True,
+                },
+            }
+            result_data["checkpoints"] = run.checkpoints
         for payload in (result_data,):
             payload["interrupted"] = False
             payload["recovery_required"] = False
@@ -1792,7 +1813,7 @@ class DeepImportOrchestrator:
         )
         existing = await self._runs.get_by_task(db, task_id=queued.task_id)
         permission = authorization_snapshot.get("targeted_completion")
-        if existing is None and permission:
+        if existing is None and permission and permission.get("enabled"):
             from modules.imports.targeted_completion import authorize_completion
 
             authorization_snapshot["targeted_completion"] = await authorize_completion(

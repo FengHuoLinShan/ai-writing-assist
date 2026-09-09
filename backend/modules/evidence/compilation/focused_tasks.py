@@ -26,6 +26,7 @@ from modules.evidence.compilation.focused_contracts import (
 )
 from modules.evidence.compilation.schemas import ContextSelectionRefRequest
 from modules.evidence.compilation.services.focused_evidence import (
+    NOMINATION_TIMEOUT_SECONDS,
     FocusedEvidenceService,
     _digest,
     _visibility,
@@ -254,7 +255,9 @@ async def handle_focused_search(db, task):
                 db, request.novel_id, snapshot
             )
             client = create_project_snapshot_llm_client(
-                settings, novel_id=request.novel_id
+                settings,
+                novel_id=request.novel_id,
+                timeout_override=NOMINATION_TIMEOUT_SECONDS - 60,
             )
         except ProjectLLMConfigurationError:
             # Restore failure never changes the frozen provider.
