@@ -43,16 +43,6 @@ test.describe("作者任务工作台", () => {
     }
   }
 
-  async function switchLibraryLayout(page, label) {
-    if ((page.viewportSize()?.width || 1280) > 760) {
-      await page.locator("#sidebar-context-slot button", { hasText: label }).click()
-      return
-    }
-    const tools = page.locator(".world-sidebar-tools-mobile")
-    if (await tools.getAttribute("open") === null) await tools.locator("summary").click()
-    await tools.locator("button", { hasText: label }).click()
-  }
-
   test("返回作者两步内继续最近正文，并在 390px 保留带文字导航", async ({ page }) => {
     project = await createProject({ title: "今日工作续写", genre: "fantasy", language: "zh" })
     await createDraft(project.id, 3, "雾港来信", "潮声越过窗沿。")
