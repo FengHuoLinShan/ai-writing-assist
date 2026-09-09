@@ -89,3 +89,5 @@ Context 审查升级不改变 continuity 表或 checkpoint 语义。Scene/角色
 cd backend
 pytest modules/story/continuity/tests/ -v
 ```
+
+第四期复核所有权（ADR-0022）未改变 memory 子域：影响预演不读取记忆事件，故事线反查仅覆盖 `related_entity_ids`。

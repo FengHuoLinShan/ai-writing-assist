@@ -300,3 +300,5 @@ OpenAPI 标记 deprecated；来源 Scene 在 worker 写回前按项目和来源�
 cd backend
 pytest modules/story/outline_state/tests/ -v
 ```
+
+第四期复核所有权（ADR-0022）下 outline 子域仅新增经 `modules.story.facade` 暴露的故事线只读反查（`list_plot_threads_referencing_entities`）；Scene/大纲状态与生成上下文不变。

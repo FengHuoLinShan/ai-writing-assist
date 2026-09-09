@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import NotFoundError
@@ -143,6 +143,8 @@ class ConflictQueueService:
         *,
         status: str | None = None,
         conflict_type: str | None = None,
+        skip: int = 0,
+        limit: int | None = None,
     ) -> tuple[list[ConflictQueueResponse], int]:
         nid = parse_uuid(novel_id, "novel_id")
         stmt = select(ConflictCheckQueueItem).where(
@@ -152,11 +154,17 @@ class ConflictQueueService:
             stmt = stmt.where(ConflictCheckQueueItem.status == status)
         if conflict_type:
             stmt = stmt.where(ConflictCheckQueueItem.conflict_type == conflict_type)
-        result = await db.execute(stmt.order_by(ConflictCheckQueueItem.created_at.desc()))
+        total = int(
+            await db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+        )
+        stmt = stmt.order_by(ConflictCheckQueueItem.created_at.desc())
+        if limit is not None:
+            stmt = stmt.offset(skip).limit(limit)
+        result = await db.execute(stmt)
         items = [
             ConflictQueueResponse.model_validate(item) for item in result.scalars().all()
         ]
-        return items, len(items)
+        return items, total
 
     async def resolve(
         self,

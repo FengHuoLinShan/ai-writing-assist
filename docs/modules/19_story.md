@@ -65,3 +65,10 @@ model，便于作者另存或重新应用。
 只从确认后的实际 selected assets 中选取，并把确认 Markdown 与通用指纹写入任务 provenance。
 Scene 融合的请求 Scene 集合还必须与 confirmation 中的 pinned Scene 引用完全一致；provider
 只接收重新物化的 confirmed Markdown，不再旁路加载完整 World/Outline 资料。
+
+## 复核来源接口（ADR-0022）
+
+`modules.story.facade` 新增只读反查 `list_plot_threads_referencing_entities(db, novel_id, entity_ids)`，
+按故事线 `related_entity_ids` 返回声明依赖这些对象的 PlotThreadContract，供 World 模块的影响
+预演枚举"故事结构"层来源。该接口不写任何 Story 状态，也不扩大生成上下文；Story 域内行为
+不变。

@@ -3291,6 +3291,29 @@ class WorldValidationPolicyStatus(BaseModel):
     max_input_characters: int = 0
     max_packets: int = 0
     will_exceed_budget: bool = False
+    policy: WorldValidationPolicy | None = None
+    draft: WorldValidationPolicyDraftInfo | None = None
+
+
+class WorldValidationPolicyDraftInfo(BaseModel):
+    draft_id: str
+    page_id: str | None = None
+    updated_at: datetime | None = None
+    policy: WorldValidationPolicy
+
+    @field_validator("draft_id", "page_id", mode="before")
+    @classmethod
+    def coerce_policy_draft_uuids(cls, value: object) -> str | None:
+        return None if value is None else _uuid_validator(value)
+
+
+class WorldValidationPolicyDraftUpsert(BaseModel):
+    """Author-readable policy editor payload persisted to the rule page draft."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    policy: WorldValidationPolicy
+    summary: str = Field(default="", max_length=2000)
 
 
 class WorldValidationFinding(BaseModel):
@@ -3336,8 +3359,16 @@ class WorldValidationRunCreate(BaseModel):
     operation_id: uuid.UUID
     scope: Literal["targeted", "full"]
     trigger: str = Field(default="manual", min_length=1, max_length=64)
-    target_type: Literal["world_bible_draft", "world_adoption_package"] | None = None
+    target_type: (
+        Literal[
+            "world_bible_draft", "world_adoption_package", "semantic_gap"
+        ]
+        | None
+    ) = None
     target_id: str | None = None
+    root_type: (
+        Literal["world_bible_page", "world_bible_page_draft", "core_entity"] | None
+    ) = None
     context_confirmation_id: str | None = Field(
         default=None,
         min_length=1,
@@ -3348,8 +3379,14 @@ class WorldValidationRunCreate(BaseModel):
     def validate_target(self) -> WorldValidationRunCreate:
         if self.scope == "targeted" and not (self.target_type and self.target_id):
             raise ValueError("targeted validation requires target_type and target_id")
-        if self.scope == "full" and (self.target_type or self.target_id):
+        if self.scope == "full" and (
+            self.target_type or self.target_id or self.root_type
+        ):
             raise ValueError("full validation forbids target_type and target_id")
+        if self.target_type == "semantic_gap" and not self.root_type:
+            raise ValueError("semantic_gap validation requires root_type")
+        if self.target_type != "semantic_gap" and self.root_type:
+            raise ValueError("root_type is only valid for semantic_gap validation")
         return self
 
 
@@ -3379,6 +3416,12 @@ class WorldValidationRunResponse(BaseModel):
     budget_ledger: dict[str, Any] = Field(default_factory=dict)
     warning_receipt: dict[str, Any] = Field(default_factory=dict)
     attempt_count: int = 0
+    impact: dict[str, Any] = Field(default_factory=dict)
+    plan: dict[str, Any] = Field(default_factory=dict)
+    stale_reason: str | None = None
+    continued_count: int = 0
+    review: dict[str, Any] = Field(default_factory=dict)
+    progress: dict[str, Any] = Field(default_factory=dict)
     error_code: str | None = None
     error_summary: str | None = None
     started_at: datetime | None = None
@@ -3390,6 +3433,53 @@ class WorldValidationRunResponse(BaseModel):
     @classmethod
     def coerce_ids(cls, value: object) -> str | None:
         return None if value is None else _uuid_validator(value)
+
+
+class WorldValidationReviewItemRecord(BaseModel):
+    finding_id: str
+    disposition: Literal["resolved", "acknowledged", "deferred"]
+    note: str = ""
+    finding_snapshot: dict[str, Any] = Field(default_factory=dict)
+    reviewed_at: datetime | None = None
+
+
+class WorldValidationReviewItemInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    finding_id: str = Field(..., min_length=1, max_length=128)
+    disposition: Literal["resolved", "acknowledged", "deferred"]
+    note: str = Field(default="", max_length=1000)
+
+
+class WorldValidationReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[WorldValidationReviewItemInput] = Field(
+        ..., min_length=1, max_length=256
+    )
+
+
+class WorldValidationReviewListResponse(BaseModel):
+    items: list[WorldValidationReviewItemRecord] = Field(default_factory=list)
+    total: int = 0
+
+
+class WorldValidationFindingsPage(BaseModel):
+    items: list[WorldValidationFinding] = Field(default_factory=list)
+    total: int = 0
+    page: int = 1
+    page_size: int = 20
+    dispositions: dict[str, str] = Field(default_factory=dict)
+
+
+class WorldValidationRunContinueRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    context_confirmation_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+    )
 
 
 class WorldValidationRunListResponse(BaseModel):
@@ -3484,6 +3574,77 @@ class WorldBiblePublishImpactResponse(BaseModel):
     not_checked: list[str] = Field(default_factory=list)
     complete: bool = True
     impact_scope_hash: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+
+
+class WorldImpactPreviewItem(BaseModel):
+    """One proven dependent source enumerated by the impact preview."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal[
+        "world_bible_page",
+        "core_entity",
+        "entity_relation",
+        "character",
+        "story_thread",
+        "prose_chapter",
+        "map_node",
+    ]
+    id: str
+    label: str = Field(..., min_length=1, max_length=500)
+    version: str | None = Field(default=None, max_length=128)
+    source_hash: str | None = Field(default=None, max_length=128)
+    distance: int | None = Field(default=None, ge=1, le=64)
+    detail: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def coerce_impact_item_id(cls, value: object) -> str:
+        return str(value)
+
+
+class WorldImpactPreviewSection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    section: Literal[
+        "world_pages",
+        "world_entities",
+        "characters",
+        "story_threads",
+        "prose",
+        "map",
+    ]
+    items: list[WorldImpactPreviewItem] = Field(
+        default_factory=list, max_length=200
+    )
+    uncovered: list[str] = Field(default_factory=list)
+    truncated: bool = False
+
+
+class WorldImpactPreviewTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target_type: Literal["world_bible_page", "core_entity", "entity_relation"]
+    target_id: str
+    label: str | None = Field(default=None, max_length=500)
+
+    @field_validator("target_id", mode="before")
+    @classmethod
+    def coerce_impact_target_id(cls, value: object) -> str:
+        return str(value)
+
+
+class WorldImpactPreviewResponse(BaseModel):
+    """Read-only cross-module impact enumeration with explicit uncovered notes."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    target: WorldImpactPreviewTarget
+    sections: list[WorldImpactPreviewSection] = Field(
+        default_factory=list, max_length=8
+    )
+    uncovered: list[str] = Field(default_factory=list)
+    complete: bool = True
 
 
 class WorldBiblePageRevisionResponse(BaseModel):
@@ -4841,6 +5002,8 @@ class ConflictQueueResponse(BaseModel):
 class ConflictQueueListResponse(BaseModel):
     items: list[ConflictQueueResponse]
     total: int
+    skip: int = 0
+    limit: int | None = None
 
 
 class ConflictResolveRequest(BaseModel):

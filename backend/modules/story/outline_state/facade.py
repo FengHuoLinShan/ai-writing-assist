@@ -64,6 +64,7 @@ from modules.story.outline_state.structure_dedup_facade import (  # noqa: F401
 )
 from modules.story.outline_state.thread_facade import (
     get_plot_threads_for_context,  # noqa: F401
+    list_plot_threads_referencing_entities,  # noqa: F401
 )
 
 # Frozen cross-module API. New names require a deletion test, contract/README
@@ -88,6 +89,7 @@ __all__ = [
     "get_next_scene_index",
     "get_outline_analysis_context",
     "get_plot_threads_for_context",
+    "list_plot_threads_referencing_entities",
     "get_reader_reveal_decision",
     "get_scene",
     "get_scene_context_window",

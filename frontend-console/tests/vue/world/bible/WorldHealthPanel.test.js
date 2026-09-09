@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { enableAutoUnmount, mount } from "@vue/test-utils"
+import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils"
 
 vi.mock("../../../../shared/workflowProgress.js", async (importOriginal) => {
   const original = await importOriginal()
@@ -63,6 +63,13 @@ beforeEach(() => {
       getWorldValidationRun: vi.fn(),
       listWorldValidationRuns: vi.fn(),
       acceptWorldValidationWarnings: vi.fn(),
+      listWorldValidationFindings: vi.fn(async () => ({
+        items: [], total: 0, page: 1, page_size: 20, dispositions: {},
+      })),
+      createWorldValidationReviewItems: vi.fn(),
+      continueWorldValidationRun: vi.fn(),
+      saveWorldValidationPolicyDraft: vi.fn(),
+      getWorldValidationPolicyStatus: vi.fn(),
     },
     tasks: { get: vi.fn() },
   }
@@ -95,7 +102,7 @@ describe("WorldHealthPanel", () => {
     })
     expect(wrapper.text()).toContain("30 个分片")
     expect(wrapper.text()).toContain("900,000 字符")
-    expect(wrapper.text()).toContain("证据不足")
+    expect(wrapper.text()).toContain("分批执行")
   })
 
   it("定向语义校验把当前工作稿放入确认资料", async () => {
@@ -188,9 +195,13 @@ describe("WorldHealthPanel", () => {
       ...run,
       warning_receipt: { receipt_hash: run.receipt_hash },
     })
+    api.world.listWorldValidationFindings.mockResolvedValue({
+      items: run.findings, total: 1, page: 1, page_size: 20, dispositions: {},
+    })
     const wrapper = mountPanel({ initialRun: run })
+    await flushPromises()
 
-    await wrapper.get(".world-health-findings button").trigger("click")
+    await wrapper.get('[data-action="world-health-open-source"]').trigger("click")
     expect(wrapper.emitted("open-source")[0]).toEqual([{ kind: "draft", id: "draft-1" }])
 
     await wrapper.get("textarea").setValue("这是作者有意保留的未决风险")
@@ -204,22 +215,136 @@ describe("WorldHealthPanel", () => {
     expect(wrapper.text()).toContain("已记录作者")
   })
 
-  it("汇总世界循环、耦合链和下游失效", () => {
-    const wrapper = mountPanel({
-      initialRun: completedRun({
-        findings: [
-          { finding_id: "f1", severity: "error", action: "CANDIDATE", category: "reproduction-loop-gap", message: "循环缺口", location: "reproduction_loops:L1" },
-          { finding_id: "f2", severity: "error", action: "CANDIDATE", category: "coupling-chain-gap", message: "耦合缺口", location: "coupling_chains:C1" },
-          { finding_id: "f3", severity: "error", action: "CLOSE", category: "downstream-invalidation-missing", message: "下游未失效" },
-        ],
-        omissions: [{ source_key: "page:missing" }],
-      }),
+  it("汇总世界循环、耦合链和下游失效", async () => {
+    const run = completedRun({
+      findings: [
+        { finding_id: "f1", severity: "error", action: "CANDIDATE", category: "reproduction-loop-gap", message: "循环缺口", location: "reproduction_loops:L1" },
+        { finding_id: "f2", severity: "error", action: "CANDIDATE", category: "coupling-chain-gap", message: "耦合缺口", location: "coupling_chains:C1" },
+        { finding_id: "f3", severity: "error", action: "CLOSE", category: "downstream-invalidation-missing", message: "下游未失效" },
+      ],
+      omissions: [{ source_key: "page:missing" }],
     })
+    api.world.listWorldValidationFindings.mockResolvedValue({
+      items: run.findings, total: 3, page: 1, page_size: 20, dispositions: {},
+    })
+    const wrapper = mountPanel({ initialRun: run })
+    await flushPromises()
 
     expect(wrapper.text()).toContain("2项待补证据")
     expect(wrapper.text()).toContain("2项失效或不完整")
     expect(wrapper.text()).toContain("世界循环")
     expect(wrapper.text()).toContain("耦合链")
+  })
+
+  it("逐项复核：作者裁定 AUTHOR-REQUIRED 后进度更新", async () => {
+    const run = completedRun({
+      verdict: "author-required",
+      gate: "block",
+      review: { required: 1, reviewed: 0, pending_finding_ids: ["finding-a"] },
+      findings: [
+        { finding_id: "finding-a", severity: "error", action: "AUTHOR-REQUIRED", category: "decision", message: "待作者裁定", source_key: "draft:draft-1" },
+      ],
+    })
+    api.world.listWorldValidationFindings.mockResolvedValue({
+      items: run.findings, total: 1, page: 1, page_size: 20, dispositions: {},
+    })
+    api.world.createWorldValidationReviewItems.mockResolvedValue({
+      ...run,
+      review: { required: 1, reviewed: 1, pending_finding_ids: [] },
+    })
+    const wrapper = mountPanel({ initialRun: run })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("0/1项已复核")
+    await wrapper.get('[data-action="review-resolved-finding-a"]').trigger("click")
+    expect(api.world.createWorldValidationReviewItems).toHaveBeenCalledWith("run-1", "p1", {
+      items: [{ finding_id: "finding-a", disposition: "resolved", note: "" }],
+    })
+    await flushPromises()
+    expect(api.world.listWorldValidationFindings).toHaveBeenCalled()
+  })
+
+  it("分页与筛选走服务端 findings 接口", async () => {
+    const run = completedRun({
+      findings: Array.from({ length: 25 }, (_, index) => ({
+        finding_id: `f${index}`, severity: index % 5 === 0 ? "error" : "warning",
+        action: "KEEP-GATE", category: "gap", message: `问题 ${index}`, source_key: null,
+      })),
+    })
+    api.world.listWorldValidationFindings.mockResolvedValue({
+      items: run.findings.slice(20), total: 25, page: 2, page_size: 20, dispositions: {},
+    })
+    const wrapper = mountPanel({ initialRun: run })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("共 25 项")
+    await wrapper.get('[data-field="world-health-filter-severity"]').setValue("error")
+    expect(api.world.listWorldValidationFindings).toHaveBeenLastCalledWith("run-1", "p1", expect.objectContaining({ severity: "error", page: 1 }))
+  })
+
+  it("预算中断后可续接同一回执", async () => {
+    const run = completedRun({
+      status: "completed",
+      verdict: "insufficient-evidence",
+      gate: "block",
+      omissions: ["semantic_budget_exceeded"],
+      progress: { packets_planned: 8, packets_completed: 3 },
+    })
+    api.world.continueWorldValidationRun.mockResolvedValue({ ...run, status: "queued" })
+    const wrapper = mountPanel({ initialRun: run })
+
+    expect(wrapper.text()).toContain("已检查分片 3/8")
+    await wrapper.get('[data-action="world-health-continue-run"]').trigger("click")
+    expect(api.world.continueWorldValidationRun).toHaveBeenCalledWith("run-1", "p1", {})
+  })
+
+  it("定向语义查漏使用根对象一跳并发起校验", async () => {
+    api.world.createWorldValidationRun.mockResolvedValue({
+      ...completedRun(), status: "queued", gate: null, target_type: "semantic_gap",
+    })
+    const wrapper = mountPanel({
+      gapRoot: { type: "world_bible_page_draft", id: "draft-1", label: "潮汐地理", selected_world_bible_draft_ids: ["draft-1"] },
+      policyStatus: { active: true, semantic_enabled: true },
+    })
+
+    await wrapper.get('[data-action="world-health-semantic-gap"]').trigger("click")
+
+    expect(confirmAiReference).toHaveBeenCalledWith(expect.objectContaining({
+      task: expect.stringContaining("潮汐地理"),
+    }))
+    expect(api.world.createWorldValidationRun).toHaveBeenCalledWith(expect.objectContaining({
+      scope: "targeted",
+      target_type: "semantic_gap",
+      target_id: "draft-1",
+      root_type: "world_bible_page_draft",
+    }))
+  })
+
+  it("政策编辑器保存工作稿并刷新状态", async () => {
+    api.world.saveWorldValidationPolicyDraft.mockResolvedValue({ id: "draft-policy" })
+    api.world.getWorldValidationPolicyStatus.mockResolvedValue({
+      active: false,
+      draft: { draft_id: "draft-policy", policy: { policy_version: "v2" } },
+    })
+    const wrapper = mountPanel()
+
+    await wrapper.get('[data-action="world-health-edit-policy"]').trigger("click")
+    await wrapper.get('[data-field="world-policy-version"]').setValue("v2")
+    await wrapper.get('[data-action="world-policy-rule-add"]').trigger("click")
+    await wrapper.get('[data-field="world-policy-rule-op-0"]').setValue("forbid_regex")
+    await wrapper.get('[data-field="world-policy-rule-value-0"]').setValue("禁止词")
+    await wrapper.get('[data-field="world-policy-rule-message-0"]').setValue("不要出现禁止词")
+    await wrapper.get('[data-action="world-policy-save"]').trigger("click")
+    await flushPromises()
+
+    expect(api.world.saveWorldValidationPolicyDraft).toHaveBeenCalledWith("p1", expect.objectContaining({
+      policy: expect.objectContaining({
+        policy_version: "v2",
+        rules: [expect.objectContaining({ operator: "forbid_regex", value: "禁止词", message: "不要出现禁止词" })],
+      }),
+    }))
+    expect(wrapper.emitted("policy-updated")[0][0]).toEqual(expect.objectContaining({ active: false }))
+    expect(wrapper.text()).toContain("政策已有工作稿")
   })
 
   it("恢复进行中回执，且失效回执明确阻断", () => {

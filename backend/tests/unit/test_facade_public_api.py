@@ -92,6 +92,7 @@ OUTLINE_FACADE_API = {
     "get_next_scene_index",
     "get_outline_analysis_context",
     "get_plot_threads_for_context",
+    "list_plot_threads_referencing_entities",
     "get_reader_reveal_decision",
     "get_scene",
     "get_scene_context_window",

@@ -11,7 +11,7 @@ const props = defineProps({
   typeLabel: { type: String, default: "人物或设定" },
   aliasesOpen: { type: Boolean, default: false },
 })
-const emit = defineEmits(["back", "edit", "create-alias", "edit-alias", "create-task", "profile-dirty", "refresh"])
+const emit = defineEmits(["back", "edit", "create-alias", "edit-alias", "create-task", "profile-dirty", "refresh", "impact-preview"])
 const aliases = computed(() => (props.entity?.content_json?.aliases || []).map((item) => (
   typeof item === "string" ? { alias: item } : item
 )).filter((item) => String(item?.alias || "").trim()))
@@ -194,6 +194,7 @@ onBeforeUnmount(() => { profileGeneration += 1; emit("profile-dirty", false) })
         <p><span>{{ typeLabel }}</span> · <span class="badge" :class="displayStateBadgeClass(display.displayState)">{{ display.label }}</span></p>
       </div>
       <div class="world-entity-detail__actions">
+        <button type="button" class="btn btn-sm btn-ghost" data-action="world-entity-impact-preview" @click="emit('impact-preview')">影响预演</button>
         <button type="button" class="btn btn-sm" @click="emit('create-task')">添加到计划中的任务</button>
         <button type="button" class="btn btn-sm btn-primary" @click="emit('edit')">编辑资料</button>
       </div>

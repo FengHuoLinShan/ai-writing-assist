@@ -715,6 +715,9 @@ class WorldValidationRun(Base, UUIDMixin, TimestampMixin):
         ),
         Index("ix_world_validation_runs_novel_created", "novel_id", "created_at"),
         Index("ix_world_validation_runs_novel_status", "novel_id", "status"),
+        UniqueConstraint(
+            "novel_id", "id", name="uq_world_validation_runs_novel_id"
+        ),
         {"comment": "World Bible deterministic and semantic validation receipts"},
     )
 
@@ -749,7 +752,44 @@ class WorldValidationRun(Base, UUIDMixin, TimestampMixin):
     model_snapshot_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     warning_receipt_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    impact_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    plan_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    stale_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    continued_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class WorldValidationReviewItem(Base, UUIDMixin, TimestampMixin):
+    """Author dispositions for individual validation findings (ADR-0022)."""
+
+    __tablename__ = "world_validation_review_items"
+    __table_args__ = (
+        CheckConstraint(
+            "disposition IN ('resolved', 'acknowledged', 'deferred')",
+            name="ck_world_validation_review_items_disposition",
+        ),
+        UniqueConstraint("run_id", "finding_id", name="uq_world_validation_review_items"),
+        ForeignKeyConstraint(
+            ["novel_id", "run_id"],
+            ["world_validation_runs.novel_id", "world_validation_runs.id"],
+            name="fk_world_validation_review_items_run",
+            ondelete="CASCADE",
+        ),
+        Index("ix_world_validation_review_items_novel_run", "novel_id", "run_id"),
+        {"comment": "Per-finding author review records bound to a validation run"},
+    )
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    run_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    finding_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    disposition: Mapped[str] = mapped_column(String(32), nullable=False)
+    note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    finding_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    reviewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

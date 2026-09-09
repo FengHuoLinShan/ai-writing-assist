@@ -176,6 +176,7 @@ from modules.world.schemas import (
     WorldGenerationSuggestionResponse,
     WorldGenerationSuggestionTaskRequest,
     WorldGenerationTaskResponse,
+    WorldImpactPreviewResponse,
     WorldKnowledgeGraphResponse,
     WorldLibraryFavoriteRequest,
     WorldLibraryFavoriteResponse,
@@ -198,7 +199,12 @@ from modules.world.schemas import (
     WorldProfileMigrateResponse,
     WorldProfileResponse,
     WorldProfileUpsertRequest,
+    WorldValidationFindingsPage,
+    WorldValidationPolicyDraftUpsert,
     WorldValidationPolicyStatus,
+    WorldValidationReviewListResponse,
+    WorldValidationReviewRequest,
+    WorldValidationRunContinueRequest,
     WorldValidationRunCreate,
     WorldValidationRunListResponse,
     WorldValidationRunResponse,
@@ -235,6 +241,9 @@ from modules.world.services.worldbuilding.world_authority_service import (
 )
 from modules.world.services.worldbuilding.world_generation_center_service import (
     WorldGenerationCenterService,
+)
+from modules.world.services.worldbuilding.world_impact_service import (
+    WorldImpactService,
 )
 from modules.world.services.worldbuilding.world_library_service import (
     WorldLibraryService,
@@ -345,6 +354,7 @@ _knowledge_graph_service = WorldKnowledgeGraphService()
 _generation_template_service = GenerationPromptTemplateService()
 _worldbook_import_service = WorldbookImportService()
 _world_validation_service = WorldValidationService()
+_world_impact_service = WorldImpactService()
 _world_authority_service = WorldAuthorityService()
 _world_library_service = WorldLibraryService()
 _cocreation_session_service = WorldCocreationSessionService()
@@ -1706,9 +1716,9 @@ async def get_latest_world_validation_run(
     *,
     novel_id: ActiveNovelIdQuery,
     scope: Literal["targeted", "full"] | None = Query(default=None),
-    target_type: Literal["world_bible_draft", "world_adoption_package"] | None = Query(
-        default=None
-    ),
+    target_type: (
+        Literal["world_bible_draft", "world_adoption_package", "semantic_gap"] | None
+    ) = Query(default=None),
     target_id: str | None = Query(default=None),
 ) -> WorldValidationRunResponse | None:
     return await _world_validation_service.latest(
@@ -1749,6 +1759,138 @@ async def accept_world_validation_warnings(
         novel_id,
         run_id,
         data,
+    )
+
+
+@router.get(
+    "/bible/validation-runs/{run_id}/findings",
+    response_model=WorldValidationFindingsPage,
+)
+async def list_world_validation_findings(
+    db: DbSession,
+    run_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    severity: Literal["error", "warning"] | None = Query(default=None),
+    action: str | None = Query(default=None, max_length=64),
+    category: str | None = Query(default=None, max_length=64),
+    page: int = Query(default=1, ge=1, le=10_000),
+    page_size: int = Query(default=20, ge=1, le=100),
+) -> WorldValidationFindingsPage:
+    return await _world_validation_service.findings_page(
+        db,
+        novel_id,
+        run_id,
+        severity=severity,
+        action=action,
+        category=category,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get(
+    "/bible/validation-runs/{run_id}/review-items",
+    response_model=WorldValidationReviewListResponse,
+)
+async def list_world_validation_review_items(
+    db: DbSession,
+    run_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldValidationReviewListResponse:
+    return await _world_validation_service.list_review_items(db, novel_id, run_id)
+
+
+@router.post(
+    "/bible/validation-runs/{run_id}/review-items",
+    response_model=WorldValidationRunResponse,
+)
+async def create_world_validation_review_items(
+    db: DbSession,
+    run_id: str,
+    data: WorldValidationReviewRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldValidationRunResponse:
+    await _require_active_project_exclusive(db, novel_id)
+    return await _world_validation_service.review_items(db, novel_id, run_id, data)
+
+
+@router.post(
+    "/bible/validation-runs/{run_id}/continue",
+    response_model=WorldValidationRunResponse,
+    status_code=202,
+)
+async def continue_world_validation_run(
+    db: DbSession,
+    run_id: str,
+    data: WorldValidationRunContinueRequest,
+    *,
+    novel_id: NovelIdQuery,
+) -> WorldValidationRunResponse:
+    await _require_active_project_exclusive(db, novel_id)
+    policy = await _world_validation_service.policy_status(db, novel_id)
+    if policy.semantic_enabled:
+        if not data.context_confirmation_id:
+            raise HTTPException(
+                status_code=400,
+                detail="context_confirmation_id is required",
+            )
+        try:
+            await require_fresh_confirmation(
+                db,
+                novel_id=novel_id,
+                action="world.validation.semantic",
+                confirmation_id=data.context_confirmation_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    result = await _world_validation_service.continue_run(
+        db,
+        novel_id,
+        run_id,
+        context_confirmation_id=data.context_confirmation_id,
+    )
+    if data.context_confirmation_id and result.task_id:
+        await attach_result_ref(
+            db,
+            novel_id=novel_id,
+            confirmation_id=data.context_confirmation_id,
+            result_type="task",
+            result_id=result.task_id,
+            status="running",
+        )
+    return result
+
+
+@router.post(
+    "/bible/validation-policy/draft",
+    response_model=WorldBiblePageDraftResponse,
+)
+async def save_world_validation_policy_draft(
+    db: DbSession,
+    data: WorldValidationPolicyDraftUpsert,
+    *,
+    novel_id: NovelIdQuery,
+) -> WorldBiblePageDraftResponse:
+    await _require_active_project_exclusive(db, novel_id)
+    return await _world_validation_service.save_policy_draft(db, novel_id, data)
+
+
+@router.get("/impact-preview", response_model=WorldImpactPreviewResponse)
+async def preview_world_impact(
+    db: DbSession,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    target_type: Literal["world_bible_page", "core_entity", "entity_relation"] = Query(),
+    target_id: str = Query(),
+) -> WorldImpactPreviewResponse:
+    return await _world_impact_service.preview(
+        db,
+        novel_id,
+        target_type=target_type,
+        target_id=target_id,
     )
 
 
@@ -2475,14 +2617,18 @@ async def list_world_conflicts(
     novel_id: ActiveNovelIdQuery,
     status: str | None = Query(None),
     conflict_type: str | None = Query(None),
+    skip: int = Query(default=0, ge=0, le=100_000),
+    limit: int = Query(default=20, ge=1, le=100),
 ) -> ConflictQueueListResponse:
     items, total = await _conflict_queue_service.list(
         db,
         novel_id,
         status=status,
         conflict_type=conflict_type,
+        skip=skip,
+        limit=limit,
     )
-    return ConflictQueueListResponse(items=items, total=total)
+    return ConflictQueueListResponse(items=items, total=total, skip=skip, limit=limit)
 
 
 @router.post("/conflicts/{conflict_id}/resolve")
