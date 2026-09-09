@@ -411,7 +411,10 @@
             <div class="world-bible-panel__header">
               <div>
                 <h2>{{ editSource.title }}</h2>
-                <div class="world-bible-page-meta">{{ typeMeta(editSource.page_type).label }} · {{ isWorkingDraft ? '工作稿' : statusLabel(activePage?.status) }}</div>
+                <div class="world-bible-page-meta">
+                  {{ typeMeta(editSource.page_type).label }} · {{ isWorkingDraft ? '工作稿' : statusLabel(activePage?.status) }}
+                  <span id="bible-autosave-status" class="world-bible-autosave-status" data-autosave-status="idle" role="status"></span>
+                </div>
               </div>
               <div class="world-bible-panel__actions">
                 <button v-if="activePage?.id" class="btn btn-sm btn-ghost" data-action="bible-create-author-task" @click="createTaskForWorldPage">添加到计划中的任务</button>
@@ -738,6 +741,7 @@ const {
   projectionRetryPending,
   editorMutationPending,
   semanticInspectionPending,
+  autosaveStatus,
   pages,
   drafts,
   pageTemplates,
@@ -1294,6 +1298,20 @@ function openValidationSource(target) {
 }
 
 // ---- computed locals ----
+const AUTOSAVE_STATUS_LABELS = {
+  scheduled: "修改将在停笔后自动保存到工作稿",
+  saving: "正在自动保存工作稿…",
+  conflict: "工作稿已在别处更新，已暂停自动保存；请对照最新内容后手动保存",
+  error: "自动保存暂时失败，输入已在本机备份；恢复后自动重试",
+}
+// 编辑器输入是 DOM 驱动的非受控表单：状态必须命令式写入，
+// 任何输入期间的响应式重渲染都会把输入框重置回绑定值。
+watch(autosaveStatus, (status) => {
+  const el = document.getElementById("bible-autosave-status")
+  if (!el) return
+  el.textContent = AUTOSAVE_STATUS_LABELS[status] || ""
+  el.dataset.autosaveStatus = status || "idle"
+})
 const freeDrafts = computed(() => drafts.value.filter((d) => !d.page_id))
 const canPublish = computed(() => activePage.value?.status !== "archived")
 const validationRequiresFullScope = computed(() => Boolean(props.bibleDeepLink?.adoptionPackageId)
@@ -1706,6 +1724,8 @@ function assetRefId(ref) {
 .world-library-browse { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 22px; align-items: start; }
 .world-library-browse__directory { position: sticky; top: 12px; }
 .world-library-browse__main { display: grid; gap: 12px; min-width: 0; }
+.world-bible-autosave-status { margin-left: 8px; color: var(--text-muted); font-size: 12px; }
+.world-bible-autosave-status[data-autosave-status="conflict"] { color: var(--danger, #b42318); }
 @media (max-width: 960px) {
   .world-library-browse { grid-template-columns: minmax(0, 1fr); }
   .world-library-browse__directory { position: static; }

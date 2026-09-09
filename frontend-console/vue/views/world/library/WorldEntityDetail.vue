@@ -33,12 +33,14 @@ const profileFields = [
 ]
 const profileForm = reactive(Object.fromEntries(profileFields.map(([key]) => [key, ""])))
 const profileBaseline = ref(JSON.stringify(profileForm))
+const profileBaselineUpdatedAt = ref(null)
 const profileDirty = computed(() => profileLoaded.value && JSON.stringify(profileForm) !== profileBaseline.value)
 let profileGeneration = 0
 
 function fillProfile(value = {}) {
   for (const [key] of profileFields) profileForm[key] = value[key] || ""
   profileBaseline.value = JSON.stringify(profileForm)
+  profileBaselineUpdatedAt.value = value?.updated_at || null
 }
 
 async function openProfile() {
@@ -67,6 +69,7 @@ async function saveProfile() {
   profileError.value = ""
   try {
     const payload = Object.fromEntries(profileFields.map(([key]) => [key, profileForm[key]]))
+    payload.expected_updated_at = profileBaselineUpdatedAt.value
     const value = await getApi().world.updateCharacter(props.entity.id || props.entity.entity_id, payload, props.projectId)
     if (generation !== profileGeneration) return
     fillProfile(value)

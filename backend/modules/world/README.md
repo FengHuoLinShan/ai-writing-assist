@@ -374,6 +374,10 @@ PNG 后才进入地图册私有 S3。此例外不改变 imports 的文稿上传�
 | `world_library_topics` | 资料库主题目录：作者组织用嵌套主题树，`parent_id` 复合外键保证同项目嵌套，service 拒绝成环移动；归档主题不归档其资料 |
 | `world_library_topic_members` | 主题成员：对 Page / Draft / Entity 的多主题引用（`target_kind + target_id`，无跨表外键）；独立工作稿发布时转换为 page 引用并去重 |
 | `world_library_favorites` | 作者工作区收藏（`novel_id + target` 唯一） |
+
+作者编辑接口基线：draft PATCH、entity PUT 与 character PUT 均要求 `expected_updated_at`
+（行锁内校验；缺失/过期分别返回 `edit_baseline_required` / `edit_baseline_stale` 409），
+内部服务调用不受影响。
 | `world_library_recents` | 作者工作区最近访问（服务端保留最近 50 条） |
 | `world_library_workspace_profiles` | 每项目一条的资料库视图偏好 JSON |
 | `world_bible_page_drafts` | 新页或已有页的服务器工作稿与发布基线版本 |

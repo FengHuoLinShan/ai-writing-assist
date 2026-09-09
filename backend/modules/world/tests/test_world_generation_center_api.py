@@ -1012,7 +1012,10 @@ async def test_current_page_semantic_inspection_replaces_stale_queue_results(
     updated = await async_client.patch(
         f"/api/world/bible/drafts/{draft.json()['id']}",
         params={"novel_id": novel_id},
-        json={"free_text": "星海帝国建立于长夜之后；港税仍待作者决定。"},
+        json={
+            "free_text": "星海帝国建立于长夜之后；港税仍待作者决定。",
+            "expected_updated_at": draft.json()["updated_at"],
+        },
     )
     assert updated.status_code == 200, updated.text
     fake.semantic_findings = [

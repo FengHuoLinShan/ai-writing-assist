@@ -6,6 +6,7 @@ import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
 import {
   cleanupProject,
   createProject,
+  createWorldBiblePage,
   listWorldBibleDrafts,
   waitForBackend,
 } from "./helpers/api-client.js"
@@ -434,6 +435,39 @@ test.describe("世界书工作台", () => {
       expect.objectContaining({
         page_id: sourcePageId,
         free_text: "移动端保存后转交的页面概览",
+      }),
+    ]))
+  })
+
+  test("Cmd/Ctrl+K 快速打开资料，Cmd/Ctrl+S 在输入中保存工作稿", async ({ page }) => {
+    const sourcePage = await createWorldBiblePage(testProject.id, {
+      title: "北境年鉴",
+      page_type: "background",
+      free_text: "原文内容。",
+    })
+
+    await openWorkbench(page, testProject, "world", "bible")
+
+    // Cmd/Ctrl+K 打开快速搜索
+    await page.keyboard.press("ControlOrMeta+k")
+    const quickOpen = page.locator(".world-quick-open")
+    await expect(quickOpen).toBeVisible()
+    await quickOpen.getByLabel("搜索资料").fill("北境")
+    await expect(quickOpen.locator(".world-quick-open__list")).toContainText("北境年鉴")
+    await page.keyboard.press("Enter")
+    await expect(page).toHaveURL(new RegExp(`page_id=${sourcePage.id}`))
+    await expect(page.locator("#bible-free-text")).toBeVisible()
+
+    // Cmd/Ctrl+S 在正文输入中直接保存工作稿（携带编辑基线）
+    await page.locator("#bible-free-text").fill("快捷键保存后的内容。")
+    await page.locator("#bible-free-text").press("ControlOrMeta+s")
+    await expect(page.locator(SEL.toastContainer)).toContainText("工作稿已保存", { timeout: 10000 })
+    await expect(page.locator("#bible-autosave-status")).toHaveAttribute("data-autosave-status", "idle")
+    const drafts = await listWorldBibleDrafts(testProject.id)
+    expect(drafts.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        page_id: sourcePage.id,
+        free_text: "快捷键保存后的内容。",
       }),
     ]))
   })

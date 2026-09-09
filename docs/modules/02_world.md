@@ -88,6 +88,11 @@ RAG 或 LLM 上下文。
 - `world_bible_categories` / `world_bible_page_drafts` / `world_bible_pages` / `world_bible_page_revisions` / `world_bible_page_projections` — 世界书类别、服务器工作稿、含稳定 sections 的已发布页、带 digest 的不可变修订和派生投影
 - `world_library_topics` / `world_library_topic_members` — 资料库主题目录与成员：作者组织用嵌套主题树（`parent_id` 复合外键保证同项目嵌套、service 拒绝成环），成员是对 Page / Draft / Entity 的多主题引用；独立工作稿发布时自动转换为 page 引用并去重。目录只是组织方式，不构成地理或事实依赖，也不进入生成上下文
 - `world_library_favorites` / `world_library_recents` / `world_library_workspace_profiles` — 作者工作区收藏、最近访问（服务端保留最近 50 条）与每项目视图偏好
+
+作者编辑基线：`PATCH /bible/drafts/{id}`、`PUT /entities/{id}` 与 `PUT /characters/{id}` 必须携带
+`expected_updated_at`，服务端在行锁内校验；缺失返回 `edit_baseline_required`、过期返回
+`edit_baseline_stale`（均为可识别 409），不接受无条件覆盖。服务端内部流程（建议应用、导入、
+发布 seal、类型迁移等）不走该基线，仍由各自的事务与锁保证一致性。
 - `world_validation_runs` — 持久化 targeted/full 校验输入、分片 hash、结果、预算、新鲜度与作者签收
 - `world_bible_page_templates` / `world_bible_page_template_revisions` — 项目页面布局模板及不可变历史；内置模板仍由代码注册
 - `world_bible_synopsis_heads` / `world_bible_synopsis_revisions` — 作者版世界观简介的刷新状态、授权与不可变版本

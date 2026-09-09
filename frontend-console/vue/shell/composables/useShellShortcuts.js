@@ -32,6 +32,17 @@ export function useShellShortcuts({
     const mod = event.ctrlKey || event.metaKey
 
     if (isFormControl(event.target)) {
+      // 保存与快速打开是作者高频动作，输入过程中也要可用（Second-phase editing contract）。
+      if (mod && key.toLowerCase() === "s") {
+        event.preventDefault()
+        if (!services.workspace.autosave(getRouteHost())) trigger("save")
+        return
+      }
+      if (mod && key.toLowerCase() === "k") {
+        event.preventDefault()
+        if (!services.workspace.quickopen(getRouteHost())) command.open(":")
+        return
+      }
       if (key === "Escape") {
         event.target.blur?.()
         services.state.mode = "NORMAL"
@@ -52,6 +63,11 @@ export function useShellShortcuts({
     if (mod && key.toLowerCase() === "s") {
       event.preventDefault()
       if (!services.workspace.autosave(getRouteHost())) trigger("save")
+      return
+    }
+    if (mod && key.toLowerCase() === "k") {
+      event.preventDefault()
+      if (!services.workspace.quickopen(getRouteHost())) command.open(":")
       return
     }
     if (mod && event.shiftKey && key.toLowerCase() === "o") {

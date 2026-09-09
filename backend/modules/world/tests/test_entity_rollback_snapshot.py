@@ -55,7 +55,10 @@ async def test_manual_entity_update_creates_revision_snapshot(
     # 编辑实体
     update_resp = await async_client.put(
         f"/api/world/entities/{entity_id}?novel_id={novel_id}",
-        json={"summary": "编辑后的摘要"},
+        json={
+            "summary": "编辑后的摘要",
+            "expected_updated_at": test_entity["updated_at"],
+        },
     )
     assert update_resp.status_code == 200
     assert update_resp.json()["summary"] == "编辑后的摘要"

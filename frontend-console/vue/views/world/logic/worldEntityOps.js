@@ -367,13 +367,30 @@ export async function adoptEntity(entity) {
   return api.world.promoteEntity(entityId(entity), projectId)
 }
 
+/** 作者编辑对象的统一入口：携带 expected_updated_at 基线，409 时保留输入并提示刷新。 */
+export async function updateEntityWithBaseline(entity, payload, projectId) {
+  const api = getApi()
+  try {
+    return await api.world.updateEntity(
+      entityId(entity),
+      { ...payload, expected_updated_at: entity?.updated_at || null },
+      projectId,
+    )
+  } catch (err) {
+    if (err?.status === 409 && ["edit_baseline_required", "edit_baseline_stale"].includes(err?.body?.error)) {
+      err.message = "这份人物或设定已在别处更新，当前输入已保留；请刷新后对照最新内容再保存。"
+    }
+    throw err
+  }
+}
+
 /** 对应 vanilla _ignoreEntity。 */
 export async function ignoreEntity(entity) {
   const api = getApi()
   const projectId = getAppState()?.currentProjectId
   const sid = suggestionId(entity)
   if (sid) return api.world.rejectSuggestion(sid, projectId)
-  return api.world.updateEntity(entityId(entity), { status: "ignored" }, projectId)
+  return updateEntityWithBaseline(entity, { status: "ignored" }, projectId)
 }
 
 /** 对应 vanilla _ignoreOrDeleteEntity。 */
@@ -578,7 +595,7 @@ export function editEntity(id) {
           } else if (isPending) {
             await getApi().world.promoteEntity(id, projectId, payload)
           } else {
-            await getApi().world.updateEntity(id, payload, projectId)
+            await updateEntityWithBaseline(entity, payload, projectId)
           }
         } catch (err) {
           submissionPending = false
@@ -658,7 +675,7 @@ export async function markEntityReviewed(id) {
     return false
   }
   try {
-    await api.world.updateEntity(id, {
+    await updateEntityWithBaseline(entity, {
       content_json: entityReviewContent(entity, true, "world_objects"),
     }, projectId)
     if (ownsWorldOperationScope(scope)) {
@@ -692,7 +709,7 @@ export async function markEntityUnreviewed(id) {
     return false
   }
   try {
-    await api.world.updateEntity(id, {
+    await updateEntityWithBaseline(entity, {
       content_json: entityReviewContent(entity, false, "world_objects"),
     }, projectId)
     if (ownsWorldOperationScope(scope)) {
@@ -1470,13 +1487,12 @@ async function executeObjectsBulkAction(action, items) {
     return
   }
 
-  const api = getApi()
   const projectId = getAppState()?.currentProjectId
   const result = await runBulkAction(actionable, async (item) => {
     if (action === "promote-entities") {
       await adoptEntity(item)
     } else if (action === "review-entities") {
-      await api.world.updateEntity(entityId(item), {
+      await updateEntityWithBaseline(item, {
         content_json: entityReviewContent(item, true, "world_objects_bulk"),
       }, projectId)
     } else if (action === "delete-entities") {

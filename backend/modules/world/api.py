@@ -1607,6 +1607,8 @@ async def update_bible_draft(
         novel_id,
         draft_id,
         data,
+        expected_updated_at=data.expected_updated_at,
+        require_edit_baseline=True,
     )
 
 
@@ -2603,7 +2605,14 @@ async def update_entity(
     *,
     novel_id: ActiveNovelIdQuery,
 ) -> CoreEntityResponse:
-    return await _entity_service.update(db, entity_id, data, novel_id=novel_id)
+    return await _entity_service.update(
+        db,
+        entity_id,
+        data,
+        novel_id=novel_id,
+        expected_updated_at=data.expected_updated_at,
+        require_edit_baseline=True,
+    )
 
 
 @router.delete("/entities/{entity_id}", status_code=204)
@@ -3141,6 +3150,8 @@ async def update_character(
         character_id,
         data,
         novel_id=novel_id,
+        expected_updated_at=data.expected_updated_at,
+        require_edit_baseline=True,
     )
 
 
