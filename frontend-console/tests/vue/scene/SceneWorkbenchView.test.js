@@ -372,14 +372,14 @@ describe("SceneWorkbenchView", () => {
 
   it("keeps one primary scene action and moves low-frequency tools into a disclosure", () => {
     createWrapper()
-    const actions = wrapper.get('[aria-label="场景操作"]')
-    expect(actions.findAll(".btn-primary")).toHaveLength(1)
+    const actions = wrapper.get('[aria-label="故事工具"]')
+    expect(actions.findAll(".workspace-tools__action.btn-primary")).toHaveLength(1)
     expect(actions.get('[data-action="ai-create-planned-scene"]').text()).toBe("AI 创作细纲")
-    expect(actions.get(".scene-workbench-tools summary").text()).toBe("整理工具")
+    expect(actions.get(".action-menu-btn").text()).toBe("更多工具")
     expect(actions.get('[data-action="scene-auto-extract"]').text()).toBe("从正文整理场景")
     expect(actions.find('[data-role="smart-dedup-action"]').exists()).toBe(true)
-    expect(actions.get('[data-mode="hot"]').attributes("aria-pressed")).toBe("true")
-    expect(actions.get('[data-mode="normal"]').attributes("aria-pressed")).toBe("false")
+    expect(wrapper.get('[data-mode="hot"]').attributes("aria-pressed")).toBe("true")
+    expect(wrapper.get('[data-mode="normal"]').attributes("aria-pressed")).toBe("false")
   })
 
   it("把场景 AI 进度与操作统一放在标题下方任务区", () => {

@@ -1,7 +1,7 @@
 import { test, expect } from "./fixtures.js"
 import { cleanupProject, createProject, waitForBackend } from "./helpers/api-client.js"
 import { expectNoPageOverflow } from "./helpers/responsive.js"
-import { openWorkbench } from "./helpers/workbench.js"
+import { openWorkbench, openWorkspaceTools } from "./helpers/workbench.js"
 
 const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nWQAAAAASUVORK5CYII=",
@@ -194,6 +194,8 @@ test.describe("AI 地图册", () => {
 
     await page.setViewportSize({ width: 390, height: 844 })
     await openWorkbench(page, project, "map")
+    await openWorkspaceTools(page)
+    await page.locator('[data-action="map-tool-images"]').click()
     await page.getByRole("button", { name: "添加地图画面" }).click()
     await expect(page.locator("#modal-overlay")).toContainText("AI 参考资料")
     const start = page.getByRole("button", { name: "按这份资料开始" })
@@ -284,7 +286,7 @@ test.describe("AI 地图册", () => {
 
     const stopResponse = page.waitForResponse(response => response.url().endsWith("/runs/run-1/stop"))
     await page.getByRole("button", { name: "生成完当前页后停止" }).click()
-    await expect(page.locator(".atlas-primary-actions .btn-primary")).toBeDisabled()
+    await expect(page.locator('[data-action="map-tool-new-map"]')).toHaveAttribute("aria-disabled", "true")
     await expect(page.getByRole("button", { name: "加入地图册", exact: true })).toBeDisabled()
 
     state.releaseStop()

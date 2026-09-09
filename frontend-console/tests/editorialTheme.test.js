@@ -11,7 +11,7 @@ const theme = readFileSync(resolve(__dirname, "../editorial-theme.css"), "utf8")
 const mapWorkspace = readFileSync(resolve(__dirname, "../vue/views/map/MapWorkspaceView.vue"), "utf8")
 const mapStyles = mapWorkspace.match(/<style scoped>([\s\S]*?)<\/style>/)?.[1] || ""
 const writingDesk = readFileSync(resolve(__dirname, "../vue/views/writing/writing-desk.css"), "utf8")
-const worldSidebar = readFileSync(resolve(__dirname, "../vue/views/world/components/WorldSidebarToolCard.vue"), "utf8")
+const workspaceTools = readFileSync(resolve(__dirname, "../vue/components/WorkspaceToolCard.vue"), "utf8")
 
 function themeBlock(selector) {
   if (selector === '[data-theme="light"]') selector = ':root'
@@ -89,7 +89,7 @@ describe("editorial archive theme", () => {
     expect(theme).toMatch(/\.btn-primary:hover\s*\{[^}]*color:\s*var\(--text-on-accent\);/s)
     expect(theme).toMatch(/\.btn-fab\s*\{[^}]*color:\s*var\(--text-on-accent\);/s)
     expect(writingDesk).toMatch(/\.outline-float-chapter\.current\s*\{[^}]*color:\s*var\(--text-on-accent\);/s)
-    expect(worldSidebar).toMatch(/\.world-sidebar-tools__action\.is-primary\s*\{[^}]*color:\s*var\(--text-on-accent\);/s)
+    expect(workspaceTools).toMatch(/\.workspace-tools__action\.is-primary\s*\{[^}]*color:\s*var\(--text-on-accent\);/s)
   })
 
   it("keeps the --archive-* compatibility aliases as pure forwards", () => {

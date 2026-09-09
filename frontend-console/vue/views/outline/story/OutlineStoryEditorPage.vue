@@ -1,5 +1,6 @@
 <template>
-  <main class="story-outline-editor-page" :aria-busy="saving ? 'true' : undefined">
+  <main ref="rootEl" class="story-outline-editor-page" :aria-busy="saving ? 'true' : undefined">
+    <WorkspaceToolCard v-if="projectId" title="故事工具" context="编辑故事总览" :status="saveState" :actions="toolActions" action-prefix="story-editor-tool" @select="runTool" />
     <div v-if="!projectId" class="empty-state"><p>请先选择项目。</p></div>
     <div v-else-if="loadError" class="empty-state" role="alert">
       <div class="empty-icon">!</div>
@@ -67,6 +68,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { getApi, getAppState, getConfirm, getRouter, getToast } from "../../../bridge/index.js"
 import { useLeaveGuard } from "../../../composables/useLeaveGuard.js"
 import { threadDescription, arcDescription } from "../logic/outlineStructureOps.js"
+import WorkspaceToolCard from "../../../components/WorkspaceToolCard.vue"
+import { focusWorkspaceTool } from "../../../components/workspaceTools.js"
 import StoryOutlineEditorFields from "./StoryOutlineEditorFields.vue"
 import {
   editableStoryOutlineContent,
@@ -80,6 +83,7 @@ const props = defineProps({
   loadError: { type: String, default: null },
 })
 
+const rootEl = ref(null)
 const api = getApi()
 const router = getRouter()
 const toast = getToast()
@@ -352,4 +356,13 @@ onBeforeUnmount(() => {
   clearTimeout(draftTimer)
   window.removeEventListener("beforeunload", beforeUnload)
 })
+
+const toolActions = computed(() => [
+  { key: "continue", label: conflict.value || staleDraft.value ? "处理版本变化" : dirty.value ? "继续编辑并保存" : "编辑故事总览", primary: true },
+  { key: "return", label: "返回故事总览" },
+])
+function runTool(key) {
+  if (key === "return") return returnToOverview()
+  return focusWorkspaceTool(rootEl.value, conflict.value || staleDraft.value ? ".story-outline-editor-notice--warning" : ".story-outline-editor-page__form")
+}
 </script>

@@ -4,7 +4,8 @@
   短任务（生成表单、历史查看）仍走 showModalHtml；手工长表单进入可恢复的路由页面。
 -->
 <template>
-  <div class="story-outline-workspace">
+  <div ref="rootEl" class="story-outline-workspace">
+    <WorkspaceToolCard v-if="projectId" title="故事工具" context="故事总览" :actions="toolActions" :more-actions="moreTools" action-prefix="story-tool" @select="runTool" />
     <!-- ========== 无项目 ========== -->
     <div v-if="!projectId" class="empty-state"><p>请先选择项目。</p></div>
 
@@ -18,9 +19,9 @@
 
     <!-- ========== 主内容区 ========== -->
     <template v-else>
-    <section v-if="taskProgress && (!preview || !taskProgress.terminal)" class="outline-task-status" aria-labelledby="story-outline-active-task-title">
+    <section v-if="(taskProgress && (!preview || !taskProgress.terminal)) || outlineAnalysisManager.state.progress" class="outline-task-status" aria-labelledby="story-outline-active-task-title">
       <h3 id="story-outline-active-task-title" class="outline-task-status__title">AI 任务</h3>
-      <WorkflowProgressCard
+      <WorkflowProgressCard v-if="taskProgress && (!preview || !taskProgress.terminal)"
         :progress="taskProgress"
         variant="card"
         title="AI 故事总览"
@@ -33,7 +34,9 @@
           <button v-if="showDismissTask" class="btn btn-sm btn-ghost" data-action="dismiss-story-outline-task" @click="dismissTask">关闭任务</button>
         </div>
       </WorkflowProgressCard>
+      <OutlineAnalysisProgressCard />
     </section>
+    <OutlineAnalysisResultCard />
 
     <section
       class="story-outline-primary"
@@ -48,22 +51,7 @@
             ? '编辑或采用 AI 建议都会创建新版本，当前内容保留在历史中，不会自动改写篇章或场景。'
             : '用核心前提、读者期待和主要推进先锁定全书方向；这里只整理总览，不会自动创建篇章或场景。' }}</p>
         </div>
-        <div class="story-outline-primary__actions" aria-label="故事总览操作">
-          <template v-if="hasCurrentRevision">
-            <button type="button" class="btn btn-sm btn-primary" data-action="edit-story-outline" @click="openManualEditor">编辑为新版本</button>
-            <button type="button" class="btn btn-sm" data-action="generate-story-outline" :disabled="hasRunningTask" @click="showGenerateForm">AI 生成新方案</button>
-          </template>
-          <template v-else>
-            <button type="button" class="btn btn-sm btn-primary" data-action="generate-story-outline" :disabled="hasRunningTask" @click="showGenerateForm">AI 生成可编辑预览</button>
-            <button type="button" class="btn btn-sm" data-action="edit-story-outline" @click="openManualEditor">手工创建</button>
-          </template>
-          <details class="scene-workbench-tools story-outline-more">
-            <summary class="btn btn-sm btn-ghost">更多</summary>
-            <div class="scene-workbench-tools__menu">
-              <button type="button" class="btn btn-sm" data-action="reload-story-outline" :disabled="reloading" @click="handleReloadFromMenu">{{ reloading ? '重新加载中…' : '重新加载内容' }}</button>
-            </div>
-          </details>
-        </div>
+
       </div>
       <p v-if="!hasCurrentRevision" class="story-outline-primary__note">AI 只生成可编辑预览，由你确认采用后才会成为新版本。</p>
       <p v-if="assetLoadError" class="form-error" role="status">{{ assetLoadError }}</p>
@@ -193,6 +181,12 @@
 
 <script setup>
 import { computed, ref } from "vue"
+import WorkspaceToolCard from "../../../components/WorkspaceToolCard.vue"
+import { focusWorkspaceTool } from "../../../components/workspaceTools.js"
+import { showOutlineAnalysisForm } from "../ai/outlineAiOps.js"
+import OutlineAnalysisProgressCard from "../ai/OutlineAnalysisProgressCard.vue"
+import OutlineAnalysisResultCard from "../ai/OutlineAnalysisResultCard.vue"
+import { outlineAnalysisManager } from "../ai/outlineWorkflowManagers.js"
 import WorkflowProgressCard from "../../../components/WorkflowProgressCard.vue"
 import StoryOutlineEditorFields from "./StoryOutlineEditorFields.vue"
 import { useStoryOutline } from "./useStoryOutline.js"
@@ -212,6 +206,7 @@ const props = defineProps({
 const ctx = useStoryOutline(props)
 
 const reloading = ref(false)
+const rootEl = ref(null)
 
 // ---- 从 composable 解构（避免模板中写 ctx.xxx） ----
 
@@ -291,10 +286,42 @@ async function handleReload() {
   }
 }
 
-async function handleReloadFromMenu(event) {
-  const details = event.currentTarget.closest("details")
-  details.open = false
-  details.querySelector(":scope > summary")?.focus()
-  await handleReload()
+
+const manualDraftExists = computed(() => {
+  try {
+    const draft = JSON.parse(localStorage.getItem(`story-outline-editor-draft:${encodeURIComponent(projectId.value || "none")}`) || "null")
+    return draft?.project_id === projectId.value && Boolean(draft?.content)
+  } catch { return false }
+})
+const analysisBusy = computed(() => outlineAnalysisManager.state.submitting || (outlineAnalysisManager.state.progress && !outlineAnalysisManager.state.progress.terminal))
+const moreTools = computed(() => [
+  ...(pastRevisionTotal.value ? [{ key: "history", label: "版本历史" }] : []),
+  { key: "reload", dataAction: "reload-story-outline", label: "重新加载", disabled: reloading.value },
+])
+const toolActions = computed(() => {
+  if (loadError.value) return [{ key: "reload", label: "重新加载故事总览", primary: true, disabled: reloading.value }]
+  const edit = { key: "edit", label: hasCurrentRevision.value ? "编辑总览" : "手工创建", dataAction: "edit-story-outline" }
+  const generate = { key: "generate", label: hasCurrentRevision.value ? "AI 新方案" : "AI 生成总览", dataAction: "generate-story-outline", disabled: hasRunningTask.value }
+  let primary = hasCurrentRevision.value ? edit : generate
+  if (previewConflict.value || previewStorageError.value) primary = { key: "preview", label: "继续核对并处理保存问题" }
+  else if (manualDraftExists.value) primary = { ...edit, label: "继续上次编辑" }
+  else if (hasRunningTask.value || analysisBusy.value) primary = { key: "progress", label: "查看运行进度" }
+  else if (preview.value) primary = { key: "preview", label: "检查建议" }
+  else if (taskProgress.value?.failed || taskProgress.value?.stateUnknown || outlineAnalysisManager.state.progress?.failed) primary = { key: "progress", label: "查看失败与恢复" }
+  return [
+    { ...primary, primary: true },
+    ...[edit, generate].filter(action => action.key !== primary.key),
+    { key: "arcs", label: "进入篇章规划" },
+    { key: "analyze", label: "检查故事结构", disabled: Boolean(analysisBusy.value) },
+  ]
+})
+function runTool(key) {
+  if (key === "edit") return openManualEditor()
+  if (key === "generate") return showGenerateForm()
+  if (key === "reload") return handleReload()
+  if (key === "arcs") return getRouter()?.navigate("outline", "arcs")
+  if (key === "analyze") return showOutlineAnalysisForm()
+  const selectors = { history: ".story-outline-history", preview: ".story-outline-preview", progress: ".outline-task-status" }
+  if (selectors[key]) return focusWorkspaceTool(rootEl.value?.parentElement, selectors[key])
 }
 </script>

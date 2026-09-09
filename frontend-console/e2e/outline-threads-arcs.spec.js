@@ -1,6 +1,6 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
-import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
+import { openWorkbench, openWorkspaceTools, reloadWorkbench } from "./helpers/workbench.js"
 import { createProject, createThread, cleanupProject, waitForBackend } from "./helpers/api-client.js"
 import { expectNoPageOverflow, expectWithinViewportWidth } from "./helpers/responsive.js"
 
@@ -54,56 +54,35 @@ test.describe("Outline View — 剧情线与篇章", () => {
     await expect(page.locator(SEL.dataTable)).toContainText("主线")
   })
 
-  test("剧情线与篇章只突出创作入口并渐进展开分析整理工具", async ({ page }) => {
-    const threadActions = page.getByLabel("剧情线操作")
-    await expect(threadActions.locator(":scope > .btn")).toHaveCount(2)
-    await expect(threadActions.locator(":scope > .btn-primary")).toHaveText("新建剧情线")
-    await expect(threadActions.locator('[data-action="ai-create-plot-thread"]')).toBeVisible()
-
-    const threadTools = threadActions.locator(".outline-structure-tools")
-    const threadSummary = threadTools.locator("summary")
-    await expect(threadSummary).toHaveText("分析与整理")
-    await expect(threadTools.locator('[data-action="analyze-outline"]')).toBeHidden()
-
-    await threadSummary.focus()
+  test("剧情线与篇章侧栏保留常用工具，更多菜单支持键盘和手机抽屉", async ({ page }) => {
+    const card = page.locator(".workspace-tools")
+    await expect(card.locator(".workspace-tools__action.btn-primary")).toHaveText("新建剧情线")
+    await expect(card.locator('[data-action="ai-create-plot-thread"]')).toBeVisible()
+    await expect(card.locator('[data-action="plot-structure-auto-extract"]')).toHaveText("从正文整理剧情线")
+    const more = card.locator(".action-menu-btn")
+    await more.focus()
     await page.keyboard.press("Enter")
-    await expect(threadTools).toHaveAttribute("open", "")
-    await expect(threadTools.locator('[data-action="plot-structure-auto-extract"]')).toHaveText("从正文提取剧情线")
-    await expect(threadTools.locator('[data-action="start-smart-dedup"]')).toBeVisible()
-
-    const analyze = threadTools.locator('[data-action="analyze-outline"]')
-    await analyze.focus()
-    await page.keyboard.press("Enter")
+    await expect(page.getByRole("menu")).toBeVisible()
+    await expect(page.locator('[data-action="start-smart-dedup"]')).toBeVisible()
+    await page.locator('[data-action="analyze-outline"]').click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("AI 分析大纲")
     await page.keyboard.press("Escape")
     await expect(page.locator(SEL.modalOverlay)).toHaveClass(/hidden/)
-    await expect(threadSummary).toBeFocused()
-
+    await expect(more).toBeFocused()
     await page.locator('[data-action="nav-arcs"]').click()
-    const arcActions = page.getByLabel("篇章操作")
-    await expect(arcActions.locator(":scope > .btn")).toHaveCount(2)
-    await expect(arcActions.locator(":scope > .btn-primary")).toHaveText("新建篇章")
-    await expect(arcActions.locator('[data-action="ai-create-outline-arc"]')).toBeVisible()
-    await arcActions.locator(".outline-structure-tools > summary").click()
-    await expect(arcActions.locator('[data-action="plot-structure-auto-extract"]')).toHaveText("从正文整理篇章")
-
+    await expect(card.locator(".workspace-tools__action.btn-primary")).toHaveText("新建篇章")
+    await expect(card.locator('[data-action="ai-create-outline-arc"]')).toBeVisible()
+    await expect(card.locator('[data-action="plot-structure-auto-extract"]')).toHaveText("从正文整理篇章")
     await page.goBack()
-    await expect(page.locator('[data-action="nav-threads"]')).toHaveAttribute("aria-current", "page")
     await page.setViewportSize({ width: 390, height: 844 })
     await page.reload()
-    await page.waitForFunction(() => !state.loading)
-    await expect(page.getByLabel("剧情线操作")).toBeVisible()
-
-    const compactActions = page.getByLabel("剧情线操作")
-    const compactControls = compactActions.locator(":scope > .btn, :scope > details > summary")
-    await expect(compactControls).toHaveCount(3)
-    const boxes = await compactControls.evaluateAll((elements) => elements.map((element) => {
-      const box = element.getBoundingClientRect()
-      return { top: Math.round(box.top), height: Math.round(box.height) }
-    }))
-    expect(new Set(boxes.map(({ top }) => top)).size).toBe(1)
-    expect(boxes.every(({ height }) => height >= 44)).toBe(true)
-    await expectWithinViewportWidth(compactActions.locator(".outline-structure-tools > summary"))
+    await openWorkspaceTools(page)
+    const controls = card.locator(".workspace-tools__action")
+    expect(await controls.count()).toBeGreaterThanOrEqual(4)
+    for (const control of await controls.all()) {
+      expect(await control.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
+    }
+    await expectWithinViewportWidth(card)
     await expectNoPageOverflow(page)
   })
 

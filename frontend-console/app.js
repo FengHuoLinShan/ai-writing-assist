@@ -222,7 +222,8 @@ const App = {
     this._unbindGlobalActions()
     const workspace = document.getElementById("workspace")
     if (!workspace) return
-    const clickRoot = document.getElementById("main-layout") || workspace
+    // Module tools also live in body-level mobile drawers.
+    const clickRoot = document
 
     this._workspaceClickHandler = (event) => {
       const button = event.target?.closest?.("[data-action]")
@@ -262,7 +263,15 @@ const App = {
 
     // SmartDedup 只返回内部生成的静态按钮/进度标记，不含用户或 AI 文本。
     const html = this._smartDedup.renderActionButton(this._smartDedup.getState().progress)
-    mounts.forEach((mount) => { mount.innerHTML = html })
+    mounts.forEach((mount) => {
+      mount.innerHTML = html
+      if (mount.closest('[role="menu"]')) {
+        mount.querySelectorAll("button").forEach((button) => {
+          button.setAttribute("role", "menuitem")
+          button.setAttribute("tabindex", "-1")
+        })
+      }
+    })
   },
 
   _restoreProjectState() {

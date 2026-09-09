@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { mount } from "@vue/test-utils"
+import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils"
 import OutlineHeader from "../../../vue/views/outline/components/OutlineHeader.vue"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
+
+enableAutoUnmount(afterEach)
 
 describe("OutlineHeader", () => {
   beforeEach(() => {
@@ -14,32 +16,33 @@ describe("OutlineHeader", () => {
   afterEach(() => resetBridgeOverrides())
 
   it.each([
-    ["threads", "剧情线操作", "create-thread", "ai-create-plot-thread", "从正文提取剧情线"],
+    ["threads", "剧情线操作", "create-thread", "ai-create-plot-thread", "从正文整理剧情线"],
     ["arcs", "篇章操作", "create-arc", "ai-create-outline-arc", "从正文整理篇章"],
   ])("keeps %s creation visible and puts maintenance tools in one disclosure", (subView, label, createAction, aiAction, extractLabel) => {
     const wrapper = mount(OutlineHeader, { props: { subView } })
-    const actions = wrapper.get(`[aria-label="${label}"]`)
-    const directButtons = Array.from(actions.element.children).filter((element) => element.matches("button"))
-
-    expect(directButtons).toHaveLength(2)
+    const actions = wrapper.get('[aria-label="故事工具"]')
+    expect(wrapper.get(`[aria-label="${label}"]`).findAll("button")).toHaveLength(0)
+    expect(actions.findAll(".workspace-tools__action.btn-primary")).toHaveLength(1)
     expect(actions.get(`[data-action="${createAction}"]`).classes()).toContain("btn-primary")
     expect(actions.get(`[data-action="${aiAction}"]`).classes()).not.toContain("btn-primary")
-    expect(actions.get(".outline-structure-tools > summary").text()).toBe("分析与整理")
-    expect(actions.get('[data-action="analyze-outline"]').text()).toBe("AI 分析大纲")
+    expect(actions.get(".action-menu-btn").text()).toBe("更多工具")
+    expect(actions.get('[data-action="analyze-outline"]').text()).toBe("检查故事结构")
     expect(actions.get('[data-action="plot-structure-auto-extract"]').text()).toBe(extractLabel)
     expect(actions.find('[data-role="smart-dedup-action"]').exists()).toBe(true)
   })
 
-  it("closes the maintenance disclosure after an injected action runs", () => {
+  it("closes the maintenance menu after an injected action runs", async () => {
     const wrapper = mount(OutlineHeader, { props: { subView: "threads" } })
-    const details = wrapper.get(".outline-structure-tools")
+    const details = wrapper.get(".action-menu")
     const injectedButton = document.createElement("button")
     details.get('[data-role="smart-dedup-action"]').element.append(injectedButton)
-    details.element.open = true
+    await details.get(".action-menu-btn").trigger("click")
+    await flushPromises()
 
     injectedButton.click()
 
-    expect(details.element.open).toBe(false)
+    await flushPromises()
+    expect(details.get(".action-menu-btn").attributes("aria-expanded")).toBe("false")
   })
 
   it("篇章审阅页只保留返回篇章入口", async () => {

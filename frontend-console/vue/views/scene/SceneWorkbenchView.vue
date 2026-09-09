@@ -1,19 +1,15 @@
 <template>
-  <div class="outline-scene-layout">
+  <div ref="toolsRoot" class="outline-scene-layout">
+    <WorkspaceToolCard title="故事工具" :context="toolContext" :actions="toolActions" :more-actions="moreTools" action-prefix="scene-tool" @select="runTool">
+      <template #more><span data-role="smart-dedup-action"></span></template>
+    </WorkspaceToolCard>
     <OutlineHeader sub-view="scenes" :item-count="total">
       <template #actions>
         <span class="scene-view-mode-toggle" role="group" aria-label="场景浏览模式">
           <button type="button" class="btn btn-sm" :aria-pressed="viewMode === 'normal'" data-action="set-scene-view-mode" data-mode="normal" @click="runAfterDiscard(() => setViewMode('normal'))">普通</button>
           <button type="button" class="btn btn-sm" :aria-pressed="viewMode === 'hot'" data-action="set-scene-view-mode" data-mode="hot" @click="runAfterDiscard(() => setViewMode('hot'))">热点</button>
         </span>
-        <button type="button" class="btn btn-sm btn-primary" data-action="ai-create-planned-scene" @click="createPlannedScene">AI 创作细纲</button>
-        <details class="scene-workbench-tools">
-          <summary class="btn btn-sm">整理工具</summary>
-          <div class="scene-workbench-tools__menu">
-            <button type="button" class="btn btn-sm" data-action="scene-auto-extract" :disabled="autoExtractionBusy" @click="showAutoExtractForm">{{ autoExtractionBusy ? "整理中..." : "从正文整理场景" }}</button>
-            <span data-role="smart-dedup-action"></span>
-          </div>
-        </details>
+
       </template>
     </OutlineHeader>
 
@@ -274,12 +270,14 @@ import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, rea
 import { structureAssetDisplay, worldAssetDisplay } from "../../../shared/assetDisplayState.js"
 import { confirmAsync } from "../../../shared/confirmAsync.js"
 import { getApi, getConfirm, getRouter } from "../../bridge/index.js"
+import WorkspaceToolCard from "../../components/WorkspaceToolCard.vue"
+import { focusWorkspaceTool } from "../../components/workspaceTools.js"
 import ActionMenu from "../../components/ActionMenu.vue"
 import WorkflowProgressCard from "../../components/WorkflowProgressCard.vue"
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
 import { useModalDialog } from "../../composables/useModalDialog.js"
 import OutlineGenerateProgressCard from "../outline/ai/OutlineGenerateProgressCard.vue"
-import { showOutlineLayerAiForm } from "../outline/ai/outlineAiOps.js"
+import { showOutlineLayerAiForm, showOutlineGeneratePreview } from "../outline/ai/outlineAiOps.js"
 import { outlineGenerateManager } from "../outline/ai/outlineWorkflowManagers.js"
 import OutlineHeader from "../outline/components/OutlineHeader.vue"
 import { authorTaskPanelQuery } from "../writing/home/authorTaskSource.js"
@@ -362,6 +360,7 @@ const characterSource = {
   })),
 }
 
+const toolsRoot = ref(null)
 const vm = useSceneWorkbench(props)
 const filterPanel = ref(null)
 const storyWorkspace = reactive(useStorySceneWorkspace({
@@ -678,4 +677,69 @@ const SceneDetailPanel = defineComponent({
     }
   },
 })
+
+const toolContext = computed(() => [({ management: "场景管理", characters: "人物卡", simulation: "推演", script: "剧本区" })[storyWorkspace.activeTab], selectedItem.value?.scene?.title].filter(Boolean).join(" · "))
+const moreTools = computed(() => [
+  ...(storyWorkspace.activeTab === "simulation" ? [{ key: "reactions", label: "只生成人物反应", disabled: !storyWorkspace.hasScene || storyWorkspace.loading || storyWorkspace.simulationRunning || storyWorkspace.reactionRunning }] : []),
+  ...(storyWorkspace.activeTab === "characters" && storyWorkspace.cardDraft?.cardId ? [{ key: "card-history", label: "人物卡版本历史" }] : []),
+  ...(storyWorkspace.activeTab === "script" && storyWorkspace.activeScriptFileId ? [{ key: "script-history", label: "剧本版本历史" }] : []),
+])
+const toolActions = computed(() => {
+  if (loadError.value && !workbench.value) return [{ key: "reload", label: "重新加载场景", primary: true }]
+  const running = autoExtractionBusy.value || (outlineGenerateManager.state.progress && !outlineGenerateManager.state.progress.terminal)
+    || (fusionTask.progress && !fusionTask.progress.terminal) || storyWorkspace.simulationRunning || storyWorkspace.scriptGenerating || storyWorkspace.characterCardRunning || storyWorkspace.reactionRunning
+  let primary = { key: "create", label: "AI 创作细纲", dataAction: "ai-create-planned-scene" }
+  let base
+  if (storyWorkspace.activeTab === "management") {
+    base = [
+      primary,
+      { key: "extract", label: "从正文整理场景", dataAction: "scene-auto-extract", disabled: autoExtractionBusy.value },
+      { key: "organize", label: "查看待整理场景", badge: workbench.value?.health?.needs_organize?.count },
+      { key: "suggestions", label: "处理场景建议", badge: pendingSuggestionCount.value, disabled: !pendingSuggestionCount.value },
+    ]
+    if (selectedItem.value) primary = { key: "selected", label: sceneContextAction(selectedItem.value).label }
+    if (selectedIds.value.size) primary = { key: "batch", label: "处理所选场景", badge: selectedIds.value.size }
+    if (pendingSuggestionCount.value) primary = base[3]
+  } else {
+    const tab = storyWorkspace.activeTab
+    primary = tab === "characters" ? { key: "card", label: storyWorkspace.cardDraft ? "继续编辑人物卡" : "选择人物并编辑" }
+      : tab === "simulation" ? { key: "simulate", label: "推演并补齐人物卡", dataAction: "run-scene-simulation" }
+      : { key: "script", label: "生成剧本建议", dataAction: "generate-scene-script" }
+    primary.disabled = !storyWorkspace.hasScene || storyWorkspace.loading || Boolean(running)
+    base = [primary,
+      { key: "management", label: "查看当前场景" },
+      { key: tab === "characters" ? "simulation" : tab === "simulation" ? "script-tab" : "validate", label: tab === "characters" ? "进入推演" : tab === "simulation" ? "进入剧本区" : "检查这一稿", disabled: !storyWorkspace.hasScene },
+      { key: "writing", label: "回到写作", dataAction: "open-scene-writing", disabled: !storyWorkspace.hasScene },
+    ]
+  }
+  if (outlineGenerateManager.state.preview) primary = { key: "preview", label: "检查细纲建议" }
+  if (running) primary = { key: "progress", label: "查看运行进度" }
+  if (storyWorkspace.scriptDirty) primary = { key: "continue-script", label: "继续编辑并保存剧本" }
+  if (detailDirty.value) primary = { key: "continue-detail", label: "继续编辑并保存场景" }
+  return [{ ...primary, primary: true }, ...base.filter(action => action.key !== primary.key)]
+})
+async function runTool(key) {
+  if (![...toolActions.value, ...moreTools.value].some(action => action.key === key && !action.disabled)) return
+  if (key === "reload") return refresh()
+  if (key === "create") return createPlannedScene()
+  if (key === "extract") return runAfterDiscard(showAutoExtractForm)
+  if (key === "organize") return runAfterDiscard(() => toggleHealth("needs_organize"))
+  if (key === "suggestions") return modalController.showSuggestions()
+  if (key === "selected" && selectedItem.value) return runContextActionSafely(selectedItem.value)
+  if (key === "preview") return showOutlineGeneratePreview()
+  if (key === "simulate") return storyWorkspace.startSimulation()
+  if (key === "reactions") return storyWorkspace.startReactionGeneration()
+  if (key === "script") return storyWorkspace.startScriptGeneration()
+  if (key === "validate") return storyWorkspace.validateScript()
+  if (key === "card-history") return storyWorkspace.loadCardHistory()
+  if (key === "script-history") return storyWorkspace.loadScriptHistory()
+  if (key === "writing") return runAfterDiscard(() => openWriting(storyWorkspace.scene))
+  if (["management", "simulation", "script-tab", "continue-script", "continue-detail"].includes(key)) {
+    if (key !== "continue-detail" && !confirmDiscardDetail()) return
+    storyWorkspace.selectTab(key === "continue-script" || key === "script-tab" ? "script" : key === "continue-detail" ? "management" : key)
+  }
+  if (key === "continue-detail") { railOpen.value = true; if (narrow.value) mobileDetailOpen.value = true }
+  const selector = { "continue-detail": ".scene-detail-panel, .workspace-rail", "continue-script": ".scene-scripts-panel", batch: ".scene-fusion-toolbar", card: ".scene-character-cards-panel", progress: ".outline-task-status, .scene-simulation-panel, .scene-scripts-panel, .scene-character-cards-panel" }[key]
+  if (selector) await focusWorkspaceTool(toolsRoot.value, selector)
+}
 </script>
