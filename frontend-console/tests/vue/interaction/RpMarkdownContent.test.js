@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { mount } from "@vue/test-utils"
 import RpMarkdownContent from "../../../vue/views/interaction/RpMarkdownContent.vue"
 
@@ -39,6 +39,31 @@ describe("RP Markdown 正文", () => {
       rel: "noopener noreferrer",
       target: "_blank",
     })
+  })
+
+  it("wiki 开启时把 [[名称]] 渲染为可点击引用，关闭时保持纯文本", async () => {
+    const onWikiRef = vi.fn()
+    const wrapper = mount(RpMarkdownContent, {
+      props: {
+        source: String.raw`北境见 [[潮门港]]，南方见 \[\[假引用\]\] 与 <img src=x onerror=alert(1)>。`,
+        wiki: true,
+        onWikiRef,
+      },
+    })
+
+    const chip = wrapper.get("[data-action='open-wiki-ref']")
+    expect(chip.text()).toBe("潮门港")
+    expect(chip.attributes("data-wiki-ref")).toBe("潮门港")
+    await chip.trigger("click")
+    expect(onWikiRef).toHaveBeenCalledWith("潮门港", expect.anything())
+    expect(wrapper.text()).toContain("[[假引用]]")
+    expect(wrapper.find("img").exists()).toBe(false)
+
+    const plain = mount(RpMarkdownContent, {
+      props: { source: "北境见 [[潮门港]]。", wiki: false },
+    })
+    expect(plain.find("[data-action='open-wiki-ref']").exists()).toBe(false)
+    expect(plain.text()).toContain("[[潮门港]]")
   })
 
   it("不执行模型返回的 HTML、脚本链接或远程图片", () => {

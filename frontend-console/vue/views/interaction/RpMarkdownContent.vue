@@ -21,7 +21,7 @@ function safeHref(value) {
   return href
 }
 
-function parseInline(source) {
+function parseInline(source, options = {}) {
   const tokens = []
   let remaining = String(source || "")
 
@@ -31,6 +31,17 @@ function parseInline(source) {
       appendText(tokens, match[1])
       remaining = remaining.slice(match[0].length)
       continue
+    }
+
+    if (options.wiki) {
+      // 项目内 Wiki 引用：`[[名称]]` 只按名称解析，由调用方决定打开或要求选择；
+      // 名称始终作为纯文本渲染，不执行 HTML 或资料中的任何指令。
+      match = remaining.match(/^\[\[([^[\]\n]+)\]\]/)
+      if (match) {
+        tokens.push({ type: "wiki", value: match[1].trim() })
+        remaining = remaining.slice(match[0].length)
+        continue
+      }
     }
 
     match = remaining.match(/^(`+)([\s\S]*?)\1/)
@@ -58,7 +69,7 @@ function parseInline(source) {
       tokens.push({
         type: "link",
         href: safeHref(match[2]),
-        children: parseInline(match[1]),
+        children: parseInline(match[1], options),
       })
       remaining = remaining.slice(match[0].length)
       continue
@@ -77,21 +88,21 @@ function parseInline(source) {
 
     match = remaining.match(/^(\*\*|__)(?=\S)([\s\S]*?\S)\1/)
     if (match) {
-      tokens.push({ type: "strong", children: parseInline(match[2]) })
+      tokens.push({ type: "strong", children: parseInline(match[2], options) })
       remaining = remaining.slice(match[0].length)
       continue
     }
 
     match = remaining.match(/^~~(?=\S)([\s\S]*?\S)~~/)
     if (match) {
-      tokens.push({ type: "delete", children: parseInline(match[1]) })
+      tokens.push({ type: "delete", children: parseInline(match[1], options) })
       remaining = remaining.slice(match[0].length)
       continue
     }
 
     match = remaining.match(/^(\*|_)(?=\S)([\s\S]*?\S)\1/)
     if (match) {
-      tokens.push({ type: "emphasis", children: parseInline(match[2]) })
+      tokens.push({ type: "emphasis", children: parseInline(match[2], options) })
       remaining = remaining.slice(match[0].length)
       continue
     }
@@ -129,7 +140,7 @@ function startsBlock(line) {
   )
 }
 
-function parseBlocks(source) {
+function parseBlocks(source, options = {}) {
   const lines = String(source || "").replace(/\r\n?/g, "\n").split("\n")
   const blocks = []
   let index = 0
@@ -164,7 +175,7 @@ function parseBlocks(source) {
       blocks.push({
         type: "heading",
         level: heading[1].length,
-        children: parseInline(heading[2].replace(/\s+#+\s*$/, "")),
+        children: parseInline(heading[2].replace(/\s+#+\s*$/, ""), options),
       })
       index += 1
       continue
@@ -182,7 +193,7 @@ function parseBlocks(source) {
         quoteLines.push(lines[index].replace(/^ {0,3}>\s?/, ""))
         index += 1
       }
-      blocks.push({ type: "quote", children: parseBlocks(quoteLines.join("\n")) })
+      blocks.push({ type: "quote", children: parseBlocks(quoteLines.join("\n"), options) })
       continue
     }
 
@@ -204,7 +215,7 @@ function parseBlocks(source) {
           itemLines.push(lines[index].trim())
           index += 1
         }
-        items.push(parseInline(itemLines.join("\n")))
+        items.push(parseInline(itemLines.join("\n"), options))
       }
       blocks.push({ type: "list", ordered, items })
       continue
@@ -222,27 +233,38 @@ function parseBlocks(source) {
     }
     blocks.push({
       type: "paragraph",
-      children: parseInline(paragraph.join("\n")),
+      children: parseInline(paragraph.join("\n"), options),
     })
   }
 
   return blocks
 }
 
-function renderInline(tokens, prefix) {
+function renderInline(tokens, prefix, options = {}) {
   return tokens.map((token, index) => {
     const key = `${prefix}-${index}`
     if (token.type === "text") return token.value
     if (token.type === "break") return h("br", { key })
     if (token.type === "code") return h("code", { key }, token.value)
     if (token.type === "strong") {
-      return h("strong", { key }, renderInline(token.children, key))
+      return h("strong", { key }, renderInline(token.children, key, options))
     }
     if (token.type === "emphasis") {
-      return h("em", { key }, renderInline(token.children, key))
+      return h("em", { key }, renderInline(token.children, key, options))
     }
     if (token.type === "delete") {
-      return h("del", { key }, renderInline(token.children, key))
+      return h("del", { key }, renderInline(token.children, key, options))
+    }
+    if (token.type === "wiki") {
+      return h("button", {
+        key,
+        type: "button",
+        class: "rp-markdown-wiki-ref",
+        "data-action": "open-wiki-ref",
+        "data-wiki-ref": token.value,
+        title: `在项目资料中打开“${token.value}”`,
+        onClick: (event) => options.onWikiRef?.(token.value, event),
+      }, token.value)
     }
     if (token.type === "image-alt") {
       return h(
@@ -265,39 +287,39 @@ function renderInline(tokens, prefix) {
           target: "_blank",
           rel: "noopener noreferrer",
         },
-        renderInline(token.children, key),
+        renderInline(token.children, key, options),
       )
     }
     if (token.type === "link") {
       return h(
         "span",
         { key, class: "rp-markdown-link--blocked" },
-        renderInline(token.children, key),
+        renderInline(token.children, key, options),
       )
     }
     return ""
   })
 }
 
-function renderBlocks(blocks, prefix = "block") {
+function renderBlocks(blocks, prefix = "block", options = {}) {
   return blocks.map((block, index) => {
     const key = `${prefix}-${index}`
     if (block.type === "paragraph") {
-      return h("p", { key }, renderInline(block.children, key))
+      return h("p", { key }, renderInline(block.children, key, options))
     }
     if (block.type === "heading") {
-      return h(`h${block.level}`, { key }, renderInline(block.children, key))
+      return h(`h${block.level}`, { key }, renderInline(block.children, key, options))
     }
     if (block.type === "rule") return h("hr", { key })
     if (block.type === "quote") {
-      return h("blockquote", { key }, renderBlocks(block.children, key))
+      return h("blockquote", { key }, renderBlocks(block.children, key, options))
     }
     if (block.type === "list") {
       return h(
         block.ordered ? "ol" : "ul",
         { key },
         block.items.map((item, itemIndex) => (
-          h("li", { key: `${key}-${itemIndex}` }, renderInline(item, `${key}-${itemIndex}`))
+          h("li", { key: `${key}-${itemIndex}` }, renderInline(item, `${key}-${itemIndex}`, options))
         )),
       )
     }
@@ -314,12 +336,17 @@ export default {
   inheritAttrs: false,
   props: {
     source: { type: String, default: "" },
+    wiki: { type: Boolean, default: false },
+    onWikiRef: { type: Function, default: null },
   },
   setup(props, { attrs }) {
     return () => h(
       "div",
       mergeProps(attrs, { class: "rp-markdown-content" }),
-      renderBlocks(parseBlocks(props.source)),
+      renderBlocks(parseBlocks(props.source, { wiki: props.wiki }), "block", {
+        wiki: props.wiki,
+        onWikiRef: props.onWikiRef,
+      }),
     )
   },
 }

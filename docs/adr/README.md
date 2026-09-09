@@ -36,6 +36,7 @@ make docs-check BASE_REF=origin/main
 
 | [ADR-0019](0019-local-theme-resource-packages.md) | Accepted | 现代简约双模式、浏览器本地受限主题资源包、无服务端上传及手机统一编辑器。 |
 | [ADR-0020](0020-world-library-topics-and-workspace.md) | Accepted | 资料库主题目录（嵌套/多主题引用/发布转换）与作者工作区（收藏/最近访问/视图偏好）归 World 模块自有；统一 `/api/world/library` 只读合并分页，目录不构成事实依赖。 |
+| [ADR-0021](0021-world-cocreation-session-persistence.md) | Accepted / Implemented | 共创会话与消息持久化归 World 模块自有（终态记录、绑定 confirmation/任务/成果引用、历史分页与跨设备继续）；checkpoint 续写沿用 suggestion 载体 + 会话指针，漂移 409 保留提案，不自动采用。 |
 
 `ADR-0009 附录 A` 延续 ADR-0009 的编号，不是第二个独立决策编号。
 

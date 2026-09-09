@@ -16972,6 +16972,22 @@ button.rp-journey-card__main:hover {
 .generate-world-core-rules article span { color:var(--text-muted);font-size:12px }
 .generate-world-core-handoff.is-warning { border-color:var(--warning) }
 .generate-world-core-checkpoint { grid-template-columns:minmax(0,1fr) auto;align-items:center }
+.rp-markdown-wiki-ref { display:inline-block;margin:0 2px;padding:1px 8px;border:1px solid var(--accent);border-radius:999px;background:transparent;color:var(--accent);font-size:12px;line-height:1.6;cursor:pointer }
+.rp-markdown-wiki-ref:hover { background:var(--bg-hover) }
+.rp-markdown-wiki-ref:focus-visible { outline:2px solid var(--accent);outline-offset:1px }
+.world-wiki-choices { display:grid;gap:8px }
+.world-wiki-choice { display:grid;gap:4px;justify-items:start;text-align:left;min-height:56px }
+.world-wiki-choice__title { font-weight:600 }
+.world-wiki-choice__meta { color:var(--text-muted);font-size:12px;font-weight:400 }
+.world-wiki-choice__hint { color:var(--text-muted);margin:0 0 4px }
+.generate-session-bar { display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;padding:10px var(--space-3);border:1px solid var(--border);border-radius:var(--radius-md);background:var(--panel) }
+.generate-session-bar__info { display:grid;gap:2px;min-width:0 }
+.generate-session-bar__info strong { font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap }
+.generate-session-bar__meta { color:var(--text-muted);font-size:12px }
+.generate-chat-outcome { display:flex;align-items:center;gap:8px;margin-top:6px }
+.generate-chat-action-badge { margin-bottom:6px;justify-self:start }
+.generate-session-history { display:grid;gap:10px }
+.generate-session-history .data-table td { vertical-align:middle }
 .world-adoption-preview { display:grid;gap:12px }
 .world-adoption-preview section { padding:12px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--bg-muted) }
 .world-adoption-preview h3 { margin:0 0 4px;font-size:1rem }

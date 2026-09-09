@@ -88,6 +88,7 @@ RAG 或 LLM 上下文。
 - `world_bible_categories` / `world_bible_page_drafts` / `world_bible_pages` / `world_bible_page_revisions` / `world_bible_page_projections` — 世界书类别、服务器工作稿、含稳定 sections 的已发布页、带 digest 的不可变修订和派生投影
 - `world_library_topics` / `world_library_topic_members` — 资料库主题目录与成员：作者组织用嵌套主题树（`parent_id` 复合外键保证同项目嵌套、service 拒绝成环），成员是对 Page / Draft / Entity 的多主题引用；独立工作稿发布时自动转换为 page 引用并去重。目录只是组织方式，不构成地理或事实依赖，也不进入生成上下文
 - `world_library_favorites` / `world_library_recents` / `world_library_workspace_profiles` — 作者工作区收藏、最近访问（服务端保留最近 50 条）与每项目视图偏好
+- `world_cocreation_sessions` / `world_cocreation_messages` — 持久化共创会话与终态消息（ADR-0021）：会话以 `source_kind + source_id` 绑定项目/资料页（正式页或工作稿）/世界对象/主题，保存工作区形状（preset/target/source_page）与 `current_checkpoint_id` 指针；消息只落作者消息、完成的模型回复与作者决定，生成回合绑定 `context_confirmation_id` 与 `task_id`，候选成果以 `outcome_suggestion_id` 引用 `creation_suggestion_queue`（无跨表外键，读取时 join 建议状态推导待审阅/已存工作稿/已采用/已否定）。指针推进要求 `expected_checkpoint_id`，漂移返回 `checkpoint_pointer_drift` 409 并保留提案；归档为软删除，历史消息不回写
 
 作者编辑基线：`PATCH /bible/drafts/{id}`、`PUT /entities/{id}` 与 `PUT /characters/{id}` 必须携带
 `expected_updated_at`，服务端在行锁内校验；缺失返回 `edit_baseline_required`、过期返回
@@ -125,6 +126,7 @@ selected assets 过滤，避免把作者在审查窗排除的页面、正文或�
 
 - `models/core.py`：核心实体、事件、关系、版本快照和 TextArchive。
 - `models/character.py`：人物档案和人物知识边界。
+- `models/cocreation.py`：持久化共创会话与终态消息（ADR-0021）。
 - `models/profiles.py`：世界资产 profile、模板和通用档案。
 - `models/worldbuilding.py`：生成模板、World Bible、知识标签、创设建议和冲突队列。
 - `models/authority.py`：不可变 Assert、CanonRevision/head 和 Profile Template revision。
@@ -143,6 +145,9 @@ selected assets 过滤，避免把作者在审查窗排除的页面、正文或�
 - **SuggestionQueueService** — 校验创设建议、可选兼容影子、并发安全裁决，以及对象/关系/别名的领域采用
 - **WorldGenerationCenterService** — 按作者选择的对象/现有页/新页面 target 确定性分派
   Prompt，重载服务器来源，编译 context，创建 suggestion 并追踪 snapshot；聊天只返回回复
+- **WorldCocreationSessionService** — 持久化共创会话（ADR-0021）：会话/消息 CRUD 与分页检索、
+  来源存在性校验、会话聊天在 LLM 成功后原子落库作者消息与回复、异步候选任务成功后由 worker
+  追加成果消息，以及 checkpoint 指针推进（漂移 409 保留提案）；成果状态由建议现状实时推导
 - **WorldBibleLifecycleService** — 自定义类别、工作稿、发布 CAS、页面 revision 恢复和资产引用校验
 - **WorldBibleSynopsisService** — 作者版 P1 世界观简介的 source manifest、受控 LLM 刷新、
   section 来源 key 校验、CAS 晋升与 pin/恢复；已发布页面优先作为综合主干，对象和关系用于补充校验，宽松输入安全栏不做常规短上下文裁剪
@@ -167,6 +172,7 @@ helper 和历史兼容入口：
   `worldbuilding_service.py` 仅作为旧 import path 兼容 hub；实现按概念拆到
   `profile_service.py`、`world_bible_service.py`、`world_bible_lifecycle_service.py`、
   `world_bible_synopsis_service.py`、`world_generation_center_service.py`、`suggestion_queue_service.py`、
+  `cocreation_session_service.py`、
   `knowledge_tag_service.py`、`reader_safety_service.py`、`conflict_queue_service.py`、
   `activation_preview_service.py`、`activation_target_service.py` 和
   `page_template_service.py`。

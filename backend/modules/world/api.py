@@ -150,6 +150,16 @@ from modules.world.schemas import (
     WorldbookImportApplyResponse,
     WorldbookImportManifest,
     WorldbookImportPreviewResponse,
+    WorldCocreationChatRequest,
+    WorldCocreationCheckpointAdvanceRequest,
+    WorldCocreationMessageCreateRequest,
+    WorldCocreationMessageListResponse,
+    WorldCocreationMessageResponse,
+    WorldCocreationSessionCreateRequest,
+    WorldCocreationSessionDetailResponse,
+    WorldCocreationSessionListResponse,
+    WorldCocreationSessionResponse,
+    WorldCocreationSessionUpdateRequest,
     WorldCoreCheckpointSaveRequest,
     WorldDesignCheckpointSaveRequest,
     WorldGenerationApplyPageDraftRequest,
@@ -210,6 +220,9 @@ from modules.world.services.worldbuilding.adoption_package_service import (
     WorldAdoptionPackageService,
 )
 from modules.world.services.worldbuilding.ask_world_service import AskWorldService
+from modules.world.services.worldbuilding.cocreation_session_service import (
+    WorldCocreationSessionService,
+)
 from modules.world.services.worldbuilding.generation_prompt_template_service import (
     GenerationPromptTemplateService,
     TemplateVersionConflictError,
@@ -334,6 +347,7 @@ _worldbook_import_service = WorldbookImportService()
 _world_validation_service = WorldValidationService()
 _world_authority_service = WorldAuthorityService()
 _world_library_service = WorldLibraryService()
+_cocreation_session_service = WorldCocreationSessionService()
 
 
 async def _require_active_novel_id(
@@ -728,6 +742,173 @@ async def enqueue_world_suggestion(
     return WorldGenerationTaskResponse(
         task_id=receipt.task_id,
         status=receipt.status,
+    )
+
+
+# ============================================================
+# 共创会话持久化（ADR-0021）
+# ============================================================
+
+
+@router.post(
+    "/cocreation-sessions",
+    response_model=WorldCocreationSessionResponse,
+    status_code=201,
+)
+async def create_world_cocreation_session(
+    db: DbSession,
+    data: WorldCocreationSessionCreateRequest,
+) -> WorldCocreationSessionResponse:
+    """Create one project-scoped co-creation session bound to its source."""
+    await require_active_project(db, data.novel_id)
+    return await _cocreation_session_service.create(db, data)
+
+
+@router.get(
+    "/cocreation-sessions",
+    response_model=WorldCocreationSessionListResponse,
+)
+async def list_world_cocreation_sessions(
+    db: DbSession,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    include_archived: bool = Query(default=False),
+    source_kind: str | None = Query(None),
+    source_id: str | None = Query(None),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=100),
+) -> WorldCocreationSessionListResponse:
+    items, total = await _cocreation_session_service.list_sessions(
+        db,
+        novel_id=novel_id,
+        include_archived=include_archived,
+        source_kind=source_kind,
+        source_id=source_id,
+        limit=limit,
+        skip=skip,
+    )
+    return WorldCocreationSessionListResponse(items=items, total=total)
+
+
+@router.get(
+    "/cocreation-sessions/{session_id}",
+    response_model=WorldCocreationSessionDetailResponse,
+)
+async def get_world_cocreation_session(
+    db: DbSession,
+    session_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldCocreationSessionDetailResponse:
+    return await _cocreation_session_service.get_detail(
+        db,
+        novel_id,
+        session_id,
+    )
+
+
+@router.patch(
+    "/cocreation-sessions/{session_id}",
+    response_model=WorldCocreationSessionResponse,
+)
+async def update_world_cocreation_session(
+    db: DbSession,
+    session_id: str,
+    *,
+    data: WorldCocreationSessionUpdateRequest,
+) -> WorldCocreationSessionResponse:
+    await require_active_project(db, data.novel_id)
+    return await _cocreation_session_service.update_session(
+        db,
+        data.novel_id,
+        session_id,
+        data,
+    )
+
+
+@router.get(
+    "/cocreation-sessions/{session_id}/messages",
+    response_model=WorldCocreationMessageListResponse,
+)
+async def list_world_cocreation_messages(
+    db: DbSession,
+    session_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    search: str | None = Query(None),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> WorldCocreationMessageListResponse:
+    items, total = await _cocreation_session_service.list_messages(
+        db,
+        novel_id=novel_id,
+        session_id=session_id,
+        limit=limit,
+        skip=skip,
+        search=search,
+    )
+    return WorldCocreationMessageListResponse(items=items, total=total)
+
+
+@router.post(
+    "/cocreation-sessions/{session_id}/messages",
+    response_model=WorldCocreationMessageResponse,
+    status_code=201,
+)
+async def append_world_cocreation_message(
+    db: DbSession,
+    session_id: str,
+    *,
+    data: WorldCocreationMessageCreateRequest,
+) -> WorldCocreationMessageResponse:
+    """Append one author message or decision; replies only come from generation."""
+    await require_active_project(db, data.novel_id)
+    return await _cocreation_session_service.create_message(
+        db,
+        data.novel_id,
+        session_id,
+        data,
+    )
+
+
+@router.post(
+    "/cocreation-sessions/{session_id}/chat",
+    response_model=WorldGenerationChatResponse,
+)
+async def chat_world_cocreation_session(
+    db: DbSession,
+    session_id: str,
+    *,
+    data: WorldCocreationChatRequest,
+) -> WorldGenerationChatResponse:
+    """Session-scoped chat; the completed turn is persisted atomically."""
+    await require_active_project(db, data.novel_id)
+    await _require_generation_confirmation(db, data, "world.generation.chat")
+    try:
+        return await _cocreation_session_service.chat(db, session_id, data)
+    except TemplateVersionConflictError as exc:
+        raise _template_version_conflict(exc) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post(
+    "/cocreation-sessions/{session_id}/checkpoint",
+    response_model=WorldCocreationSessionResponse,
+)
+async def advance_world_cocreation_checkpoint(
+    db: DbSession,
+    session_id: str,
+    *,
+    data: WorldCocreationCheckpointAdvanceRequest,
+) -> WorldCocreationSessionResponse:
+    """Advance the session workspace pointer; drift keeps the proposal."""
+    await require_active_project(db, data.novel_id)
+    return await _cocreation_session_service.advance_checkpoint(
+        db,
+        data.novel_id,
+        session_id,
+        data,
     )
 
 

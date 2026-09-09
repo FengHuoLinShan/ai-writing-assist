@@ -166,10 +166,41 @@ export function emptyGenerateSession() {
     checkpointId: null,
     checkpointRound: 0,
     checkpointDepth: null,
+    serverSessionId: null,
+    serverSessionTitle: "",
+    serverCheckpointId: null,
     taskPreset: "custom",
     taskForm: createDefaultTaskForm(),
     povForm: normalizePovForm(),
   }
+}
+
+export const SERVER_SESSION_OUTCOME_LABELS = {
+  pending_review: "待审阅",
+  saved_draft: "已存工作稿",
+  adopted: "已采用",
+  rejected: "作者已否定",
+}
+
+export function serverMessageToLocal(message) {
+  if (!message || typeof message !== "object") return null
+  const role = message.role === "assistant" ? "assistant" : "user"
+  const content = typeof message.content === "string" ? message.content : ""
+  if (!content) return null
+  return {
+    role,
+    content,
+    kind: message.kind === "decision" ? "decision" : "message",
+    action: ["expand", "connect", "pressure", "consolidate"].includes(message.action) ? message.action : null,
+    outcomeState: SERVER_SESSION_OUTCOME_LABELS[message.outcome_state] ? message.outcome_state : null,
+    outcomeSuggestionId: typeof message.outcome_suggestion_id === "string" && message.outcome_suggestion_id ? message.outcome_suggestion_id : null,
+    serverId: typeof message.id === "string" && message.id ? message.id : null,
+  }
+}
+
+export function serverMessagesToLocal(messages) {
+  if (!Array.isArray(messages)) return []
+  return messages.map(serverMessageToLocal).filter(Boolean)
 }
 
 export function normalizeConvergenceDraft(value) {
@@ -279,6 +310,9 @@ function persistedShape(value) {
     checkpointId: typeof value.checkpointId === "string" && value.checkpointId ? value.checkpointId : null,
     checkpointRound: Math.max(0, Math.min(999, Number(value.checkpointRound) || 0)),
     checkpointDepth: ["seed", "candidate", "instance"].includes(value.checkpointDepth) ? value.checkpointDepth : null,
+    serverSessionId: typeof value.serverSessionId === "string" && value.serverSessionId ? value.serverSessionId : null,
+    serverSessionTitle: boundedText(value.serverSessionTitle, 200),
+    serverCheckpointId: typeof value.serverCheckpointId === "string" && value.serverCheckpointId ? value.serverCheckpointId : null,
     taskPreset: TASK_PRESETS[value.taskPreset] ? value.taskPreset : "custom",
     taskForm: normalizeTaskForm(value.taskForm),
     povForm: normalizePovForm(value.povForm),
@@ -354,6 +388,9 @@ export function readGenerateSession(key, { storage = globalThis.localStorage, no
       checkpointId: typeof parsed.checkpointId === "string" && parsed.checkpointId ? parsed.checkpointId : null,
       checkpointRound: Math.max(0, Math.min(999, Number(parsed.checkpointRound) || 0)),
       checkpointDepth: ["seed", "candidate", "instance"].includes(parsed.checkpointDepth) ? parsed.checkpointDepth : null,
+      serverSessionId: typeof parsed.serverSessionId === "string" && parsed.serverSessionId ? parsed.serverSessionId : null,
+      serverSessionTitle: boundedText(parsed.serverSessionTitle, 200),
+      serverCheckpointId: typeof parsed.serverCheckpointId === "string" && parsed.serverCheckpointId ? parsed.serverCheckpointId : null,
       taskPreset: TASK_PRESETS[parsed.taskPreset] ? parsed.taskPreset : "custom",
       taskForm: normalizeTaskForm(parsed.taskForm),
       povForm: normalizePovForm(parsed.povForm),
