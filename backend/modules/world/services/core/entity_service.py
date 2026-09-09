@@ -440,6 +440,8 @@ class WorldEntityService(
         data: CoreEntityUpdate,
         *,
         novel_id: str,
+        expected_updated_at=None,
+        require_edit_baseline: bool = False,
         _from_suggestion_queue: bool = False,
         _validation_prechecked: bool = False,
         _automated: bool = False,
@@ -454,6 +456,15 @@ class WorldEntityService(
         existing = await self.repo.get_for_update(db, rid)
         self._assert_found_in_novel(existing, id, nid)
         assert existing is not None
+
+        if require_edit_baseline:
+            from modules.world.services.common import assert_edit_baseline
+
+            assert_edit_baseline(
+                expected_updated_at,
+                existing.updated_at,
+                label="人物或设定",
+            )
 
         if existing.status == "canonical" and not _validation_prechecked:
             from modules.world.services.worldbuilding.world_validation_service import (

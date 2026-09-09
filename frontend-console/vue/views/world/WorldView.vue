@@ -57,6 +57,7 @@
       :object-view-mode="localObjectViewMode"
       :default-display-mode="subView === 'bible' ? 'gallery' : undefined"
     />
+    <WorldQuickOpen :project-id="props.projectId || ''" />
     <OwnerAiDrawer
       v-if="aiDrawerMounted"
       :open="aiDrawerOpen"
@@ -84,6 +85,7 @@ import WorldObjectsTab from "./components/WorldObjectsTab.vue"
 import WorldRelationsTab from "./components/WorldRelationsTab.vue"
 import WorldAliasesTab from "./components/WorldAliasesTab.vue"
 import WorldSidebarToolCard from "./components/WorldSidebarToolCard.vue"
+import WorldQuickOpen from "./library/WorldQuickOpen.vue"
 
 const lazyView = (loader) => defineAsyncComponent({
   loader,

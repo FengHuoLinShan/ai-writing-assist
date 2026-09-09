@@ -5,7 +5,7 @@
  * DOM 事件用 Vue 绑定替代手动委托；模态框操作仍走 showModalHtml。
  * 投影轮询 / 简介轮询等后台任务使用 useWorkflowPolling。
  */
-import { computed, reactive, ref, watch } from "vue"
+import { computed, nextTick, reactive, ref, watch } from "vue"
 import { getApi, getAppState, getRouteQuery, getRouter, getToast, getConfirm, getConfirmAction, getShowModalHtml, getCloseModal, getEsc, getErrorLog } from "../../../bridge/index.js"
 import { useLeaveGuard } from "../../../composables/useLeaveGuard.js"
 import { worldSession } from "../../world/worldSession.js"
@@ -536,6 +536,14 @@ export function useWorldBible(props) {
   // ---- CRUD: Save / Publish / Discard ----
   async function savePage(refreshView = false, modalOwner = null) {
     if (editorMutationPending.value) return false
+    // 手动保存先等在途自动保存完成，避免两份 PATCH 共用旧基线造成 409 竞态。
+    if (autosavePromise) {
+      try {
+        await autosavePromise
+      } catch {
+        // 自动保存失败不阻断手动保存；后者会携带自己的基线重试。
+      }
+    }
     const page = activePage.value
     let draft = activeDraft.value || draftForActivePage.value
     if (!page && !draft) return false
@@ -561,21 +569,249 @@ export function useWorldBible(props) {
           page_id: page.id,
         })
       }
-      draft = await api.world.updateBibleDraft(draft.id, payload, novelId)
+      draft = await api.world.updateBibleDraft(
+        draft.id,
+        { ...payload, expected_updated_at: draft.updated_at || null },
+        novelId,
+      )
       if (!ownsEditor(owner) || (modalOwner && !ownsModalOwner(modalOwner))) return false
       savedDrafts.set(draft.id, draft)
       activeDraftId.value = draft.id
       setEditorBaseline(draft)
       rememberDraft(draft)
+      autosaveStatus.value = "idle"
+      clearDraftBackup()
       toast("工作稿已保存；正式页面尚未变化", "success")
       if (refreshView) router.refresh()
       return true
     } catch (err) {
-      if (ownsEditor(owner) && (!modalOwner || ownsModalOwner(modalOwner))) toast(err.message || "保存失败", "error")
+      if (ownsEditor(owner) && (!modalOwner || ownsModalOwner(modalOwner))) {
+        toast(editBaselineErrorMessage(err, "工作稿"), "error")
+      }
       return false
     } finally {
       editorMutationPending.value = false
     }
+  }
+
+  // ---- 自动保存：停输入 1 秒后保存服务器工作稿 ----
+  // 单请求排队：同时最多一个保存请求，新输入在前次完成后继续保存；
+  // 晚到响应只更新基线，不覆盖更新的本地输入；自动保存不发布页面。
+  const AUTOSAVE_IDLE_MS = 1000
+  const BACKUP_DELAY_MS = 250
+  const autosaveStatus = ref("idle") // idle | scheduled | saving | conflict | error
+  let autosaveTimer = null
+  let backupTimer = null
+  let autosavePromise = null
+  let autosaveRevision = 0
+  let shellSaveBound = false
+
+  function editBaselineErrorMessage(err, label) {
+    if (err?.status === 409 && ["edit_baseline_required", "edit_baseline_stale"].includes(err?.body?.error)) {
+      return `这份${label}已在别处更新（可能是另一个标签页），当前输入已保留；请刷新后对照最新内容再保存。`
+    }
+    return err?.message || "保存失败"
+  }
+
+  function draftBackupKey() {
+    const source = editSource.value
+    if (!source) return null
+    const scope = source.id
+      ? (source.page_id ? `page_${source.page_id}` : `draft_${source.id}`)
+      : "new"
+    return `world_draft_backup_${projectId.value}_${scope}`
+  }
+
+  function writeDraftBackup() {
+    const key = draftBackupKey()
+    if (!key) return
+    try {
+      const payload = readEditorPayloadFromDom({ lenient: true })
+      if (!payload) return
+      window.localStorage.setItem(key, JSON.stringify({ payload, savedAt: new Date().toISOString() }))
+    } catch {
+      // 本机备份失败不阻断输入；服务器保存与离开保护仍然有效。
+    }
+  }
+
+  function clearDraftBackup() {
+    const key = draftBackupKey()
+    if (key) window.localStorage.removeItem(key)
+  }
+
+  function readDraftBackup() {
+    const key = draftBackupKey()
+    if (!key) return null
+    try {
+      const raw = window.localStorage.getItem(key)
+      if (!raw) return null
+      const parsed = JSON.parse(raw)
+      if (!parsed?.payload?.title) return null
+      return parsed
+    } catch {
+      return null
+    }
+  }
+
+  function applyDraftBackupToDom(payload) {
+    const title = document.getElementById("bible-title")
+    if (!title) return false
+    title.value = payload.title || ""
+    const pageType = document.getElementById("bible-page-type")
+    if (pageType && payload.page_type) pageType.value = payload.page_type
+    const freeText = document.getElementById("bible-free-text")
+    if (freeText) freeText.value = payload.free_text || ""
+    const sortOrder = document.getElementById("bible-sort-order")
+    if (sortOrder) sortOrder.value = String(payload.sort_order ?? 0)
+    const assetRefs = document.getElementById("bible-asset-refs")
+    if (assetRefs) assetRefs.value = formatAssetRefs(payload.linked_asset_refs_json || [])
+    const sections = payload.sections_json || []
+    if (sections.length && editSource.value) {
+      editSource.value.sections_json = sections
+      rerenderSectionEditor()
+    }
+    return true
+  }
+
+  function maybeOfferDraftBackupRestore() {
+    if (displayMode.value !== "editor") return
+    const backup = readDraftBackup()
+    if (!backup) return
+    const current = (() => {
+      try {
+        return readEditorPayloadFromDom({ lenient: true })
+      } catch {
+        return null
+      }
+    })()
+    if (current && JSON.stringify(current) === JSON.stringify(backup.payload)) return
+    const time = new Date(backup.savedAt).toLocaleString("zh-CN")
+    if (getConfirm()(`发现 ${time} 的未完成本机备份，是否恢复到编辑器？\n\n选择“取消”将丢弃这份备份。`)) {
+      if (applyDraftBackupToDom(backup.payload)) {
+        scheduleWorldDraftAutosave()
+        toast("已恢复本机备份；确认无误后会自动保存到服务器工作稿", "success")
+      }
+    } else {
+      clearDraftBackup()
+    }
+  }
+
+  function readEditorPayloadFromDom({ lenient = false } = {}) {
+    const payload = {
+      title: document.getElementById("bible-title")?.value?.trim() || "",
+      page_type: document.getElementById("bible-page-type")?.value || "custom",
+      free_text: document.getElementById("bible-free-text")?.value || "",
+      sort_order: Number(document.getElementById("bible-sort-order")?.value || 0),
+      linked_asset_refs_json: parseAssetRefs(document.getElementById("bible-asset-refs")?.value || ""),
+      sections_json: readSectionsFromDom(),
+    }
+    if (!payload.title && !lenient) throw new Error("标题不能为空")
+    return payload
+  }
+
+  function scheduleWorldDraftAutosave() {
+    autosaveRevision += 1
+    if (autosaveStatus.value !== "conflict") autosaveStatus.value = "scheduled"
+    if (backupTimer) clearTimeout(backupTimer)
+    backupTimer = setTimeout(() => {
+      backupTimer = null
+      writeDraftBackup()
+    }, BACKUP_DELAY_MS)
+    if (autosaveTimer) clearTimeout(autosaveTimer)
+    autosaveTimer = setTimeout(() => {
+      autosaveTimer = null
+      void runWorldDraftAutosave()
+    }, AUTOSAVE_IDLE_MS)
+  }
+
+  async function runWorldDraftAutosave() {
+    if (displayMode.value !== "editor" || disposed) return
+    if (autosaveStatus.value === "conflict") return
+    if (!editorHasUnsavedChanges()) return
+    // 单请求排队：手动保存或上一次自动保存仍在进行时，延后重试。
+    if (editorMutationPending.value || autosavePromise) {
+      scheduleWorldDraftAutosave()
+      return
+    }
+    const owner = captureEditorOwner()
+    const revisionAtRequest = autosaveRevision
+    autosaveStatus.value = "saving"
+    autosavePromise = (async () => {
+      const page = activePage.value
+      let draft = activeDraft.value || draftForActivePage.value
+      if (!page && !draft) return
+      let payload
+      try {
+        payload = readEditorPayloadFromDom()
+      } catch {
+        return // 标题为空的中间状态不自动保存；本机备份已兜底。
+      }
+      if (!draft) {
+        draft = await api.world.createBibleDraft({
+          novel_id: owner.novelId,
+          page_id: page.id,
+        })
+      }
+      const saved = await api.world.updateBibleDraft(
+        draft.id,
+        { ...payload, expected_updated_at: draft.updated_at || null },
+        owner.novelId,
+      )
+      if (!ownsEditor(owner)) return
+      // 晚到响应不得覆盖新输入：请求期间又有输入时不推进基线，下一次保存继续。
+      if (autosaveRevision !== revisionAtRequest) return
+      savedDrafts.set(saved.id, saved)
+      activeDraftId.value = saved.id
+      setEditorBaseline(saved)
+      rememberDraft(saved)
+      clearDraftBackup()
+      autosaveStatus.value = "idle"
+    })()
+    try {
+      await autosavePromise
+    } catch (err) {
+      if (ownsEditor(owner)) {
+        if (err?.status === 409 && ["edit_baseline_required", "edit_baseline_stale"].includes(err?.body?.error)) {
+          autosaveStatus.value = "conflict"
+          toast(editBaselineErrorMessage(err, "工作稿"), "error")
+        } else {
+          autosaveStatus.value = "error"
+        }
+      }
+    } finally {
+      autosavePromise = null
+    }
+    if (
+      autosaveStatus.value !== "conflict"
+      && !disposed
+      && displayMode.value === "editor"
+      && editorHasUnsavedChanges()
+      && !editorMutationPending.value
+      && !autosavePromise
+    ) {
+      scheduleWorldDraftAutosave()
+    }
+  }
+
+  function handleShellSaveRequest(event) {
+    if (displayMode.value !== "editor" || disposed) return
+    event.preventDefault()
+    void savePage()
+  }
+
+  function bindShellSave() {
+    if (shellSaveBound || typeof document === "undefined") return
+    const host = document.getElementById("workspace-content")
+    if (!host) return
+    host.addEventListener("shell:save-request", handleShellSaveRequest)
+    shellSaveBound = true
+  }
+
+  function unbindShellSave() {
+    if (!shellSaveBound || typeof document === "undefined") return
+    const host = document.getElementById("workspace-content")
+    host?.removeEventListener("shell:save-request", handleShellSaveRequest)
+    shellSaveBound = false
   }
 
   function readSectionsFromDom() {
@@ -671,6 +907,7 @@ export function useWorldBible(props) {
   function rerenderSectionEditor() {
     // We use a reactive sections signal to trigger re-render in the component
     sectionsSignal.value = Date.now()
+    scheduleWorldDraftAutosave()
   }
 
   // Force reactive update signal for sections
@@ -2337,6 +2574,38 @@ export function useWorldBible(props) {
     })
   }
 
+  // ---- 自动保存监听：编辑面板内的输入停 1 秒后保存服务器工作稿 ----
+  function handleEditorInputForAutosave(event) {
+    const target = event.target
+    if (!(target instanceof Element)) return
+    if (!["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return
+    if (!target.closest(".world-bible-editor-panel")) return
+    if (displayMode.value !== "editor" || disposed) return
+    scheduleWorldDraftAutosave()
+  }
+
+  function bindAutosaveListeners() {
+    if (typeof document === "undefined") return
+    document.addEventListener("input", handleEditorInputForAutosave)
+    nextTick(() => bindShellSave())
+  }
+
+  watch([activePageId, activeDraftId], () => {
+    // 切换编辑对象后，上一份工作稿的冲突状态不再适用。
+    autosaveStatus.value = "idle"
+  })
+
+  if (typeof document !== "undefined") {
+    bindAutosaveListeners()
+    watch(displayMode, (mode) => {
+      if (mode === "editor" && !disposed) {
+        setTimeout(() => {
+          if (displayMode.value === "editor" && !disposed) maybeOfferDraftBackupRestore()
+        }, 80)
+      }
+    })
+  }
+
   // ---- lifecycle ----
   function onBeforeUnmount() {
     disposed = true
@@ -2349,6 +2618,12 @@ export function useWorldBible(props) {
       window.removeEventListener("beforeunload", handleBeforeUnload)
       beforeUnloadBound.value = false
     }
+    if (autosaveTimer) clearTimeout(autosaveTimer)
+    if (backupTimer) clearTimeout(backupTimer)
+    if (typeof document !== "undefined") {
+      document.removeEventListener("input", handleEditorInputForAutosave)
+    }
+    unbindShellSave()
     syncSession()
   }
 
@@ -2375,6 +2650,9 @@ export function useWorldBible(props) {
     projectionRetryPending,
     editorMutationPending,
     sectionsSignal,
+    autosaveStatus,
+    scheduleWorldDraftAutosave,
+    maybeOfferDraftBackupRestore,
     suggestions,
     conflicts,
     semanticInspectionPending,

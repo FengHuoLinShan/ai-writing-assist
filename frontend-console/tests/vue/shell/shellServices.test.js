@@ -92,3 +92,25 @@ describe("shell workspace service seam", () => {
     expect(localStorage.getItem("novel_theme")).toBe("warm")
   })
 })
+
+describe("shell quickopen seam", () => {
+  it("dispatches a cancelable shell:quickopen-request on the route host", () => {
+    const host = document.createElement("div")
+    const seen = []
+    host.addEventListener("shell:quickopen-request", (event) => {
+      seen.push(event)
+      event.preventDefault()
+    })
+    const services = createShellServices({ state: {}, router: {}, commands: {}, api: {} })
+
+    expect(services.workspace.quickopen(host)).toBe(true)
+    expect(seen).toHaveLength(1)
+    expect(seen[0].cancelable).toBe(true)
+  })
+
+  it("returns false when no route host can receive the event", () => {
+    const services = createShellServices({ state: {}, router: {}, commands: {}, api: {} })
+    expect(services.workspace.quickopen(null)).toBe(false)
+    expect(services.workspace.quickopen(undefined)).toBe(false)
+  })
+})

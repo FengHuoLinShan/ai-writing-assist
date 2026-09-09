@@ -531,9 +531,26 @@ class WorldBibleLifecycleService:
         novel_id: str,
         draft_id: str,
         data: WorldBiblePageDraftUpdate,
+        *,
+        expected_updated_at=None,
+        require_edit_baseline: bool = False,
     ) -> WorldBiblePageDraftResponse:
-        draft = await self._get_draft_model(db, novel_id, draft_id)
+        draft = await self._get_draft_model(
+            db,
+            novel_id,
+            draft_id,
+            for_update=require_edit_baseline,
+        )
+        if require_edit_baseline:
+            from modules.world.services.common import assert_edit_baseline
+
+            assert_edit_baseline(
+                expected_updated_at,
+                draft.updated_at,
+                label="工作稿",
+            )
         payload = data.model_dump(mode="json", exclude_unset=True)
+        payload.pop("expected_updated_at", None)
         if "page_type" in payload:
             await self._ensure_category_key(db, draft.novel_id, payload["page_type"])
         if "linked_asset_refs_json" in payload:

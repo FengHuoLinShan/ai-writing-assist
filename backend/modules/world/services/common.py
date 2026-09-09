@@ -51,3 +51,38 @@ def find_alias_in_list(aliases: list | None, alias_text: str) -> bool:
         if isinstance(entry, dict) and entry.get("alias") == alias_text:
             return True
     return False
+
+
+def _baseline_as_utc(value):
+    from datetime import UTC
+
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def assert_edit_baseline(
+    expected_updated_at,
+    current_updated_at,
+    *,
+    label: str,
+) -> None:
+    """作者编辑基线检查：缺失或过期都返回可识别的 409 冲突，不接受无条件覆盖。
+
+    比较前统一到 UTC，避免 SQLite/PG 时区表达差异造成误判；调用方必须先在
+    行锁内加载目标行，再执行本检查。
+    """
+    from core.errors import ConflictError
+
+    if expected_updated_at is None:
+        raise ConflictError(
+            f"{label}编辑需要携带基线 expected_updated_at",
+            code="edit_baseline_required",
+        )
+    if current_updated_at is None or _baseline_as_utc(
+        expected_updated_at
+    ) != _baseline_as_utc(current_updated_at):
+        raise ConflictError(
+            f"{label}已在别处更新，请刷新后重试",
+            code="edit_baseline_stale",
+        )

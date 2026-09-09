@@ -1042,6 +1042,10 @@ class CoreEntityUpdate(BaseModel):
     reveal_level: Annotated[str | None, Field(None, max_length=16)]
     status: Annotated[str | None, Field(None, max_length=32)]
     approved_by: Annotated[str | None, Field(None, max_length=64)]
+    expected_updated_at: Annotated[
+        datetime | None,
+        Field(None, description="编辑基线；缺失或过期返回 409，不接受无条件覆盖"),
+    ]
 
     @field_validator("entity_type")
     @classmethod
@@ -1899,6 +1903,10 @@ class CharacterUpdate(BaseModel):
     relationship_summary: Annotated[str | None, Field(None)]
     meta: Annotated[dict | None, Field(None)]
     status: Annotated[str | None, Field(None, max_length=32)]
+    expected_updated_at: Annotated[
+        datetime | None,
+        Field(None, description="编辑基线；缺失或过期返回 409，不接受无条件覆盖"),
+    ]
 
 
 class CharacterResponse(BaseModel):
@@ -2897,6 +2905,10 @@ class WorldBiblePageDraftUpdate(BaseModel):
     template_key: str | None = Field(default=None, max_length=128)
     template_version: int | None = Field(default=None, ge=1)
     updated_by: str | None = Field(default=None, max_length=64)
+    expected_updated_at: datetime | None = Field(
+        default=None,
+        description="编辑基线；缺失或过期返回 409，不接受无条件覆盖",
+    )
 
     @model_validator(mode="after")
     def reject_null_required_fields(self) -> WorldBiblePageDraftUpdate:

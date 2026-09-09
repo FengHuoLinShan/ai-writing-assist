@@ -2143,6 +2143,20 @@ class CharacterRepository:
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_for_update(
+        self,
+        db: AsyncSession,
+        character_id: uuid.UUID,
+    ) -> Character | None:
+        stmt = (
+            select(Character)
+            .where(Character.entity_id == character_id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def list_by_novel(
         self,
         db: AsyncSession,

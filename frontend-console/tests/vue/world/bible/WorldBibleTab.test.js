@@ -2630,3 +2630,194 @@ describe("资料库主题目录与服务端列表", () => {
     expect(query.get("fav")).toBe("1")
   })
 })
+
+describe("二期：工作稿自动保存与编辑基线", () => {
+  function draftResponse(payload = {}) {
+    return {
+      id: DRAFT_1.id,
+      page_id: "page-1",
+      title: payload.title ?? "世界基本背景",
+      page_type: payload.page_type ?? "background",
+      free_text: payload.free_text ?? "",
+      sort_order: payload.sort_order ?? 0,
+      sections_json: payload.sections_json ?? [],
+      linked_asset_refs_json: payload.linked_asset_refs_json ?? [],
+      updated_at: "2026-09-09T01:00:00.000Z",
+    }
+  }
+
+  function mountEditorTab() {
+    return mountTab({
+      bibleDeepLink: { draftId: DRAFT_1.id, pageId: "page-1" },
+    })
+  }
+
+  afterEach(() => {
+    localStorage.clear()
+  })
+
+  it("停止输入 1 秒后自动保存工作稿：携带基线且不发布", async () => {
+    vi.useFakeTimers()
+    try {
+      const updateDraft = vi.fn(async (_id, payload) => draftResponse({ free_text: payload.free_text }))
+      globalThis.api.world.updateBibleDraft = updateDraft
+      const wrapper = mountEditorTab()
+      await vi.advanceTimersByTimeAsync(0)
+
+      await wrapper.get("#bible-free-text").setValue("自动保存的新内容")
+      expect(updateDraft).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(updateDraft).toHaveBeenCalledTimes(1)
+      const [draftId, payload, novelId] = updateDraft.mock.calls[0]
+      expect(draftId).toBe(DRAFT_1.id)
+      expect(novelId).toBe("p1")
+      expect(payload.free_text).toBe("自动保存的新内容")
+      expect(payload.expected_updated_at).toBe(DRAFT_1.updated_at)
+      // 自动保存只写工作稿，不发布页面
+      expect(globalThis.api.world.publishBibleDraft).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("保存进行中最多一个请求，完成后继续保存新输入；晚到响应不覆盖新输入", async () => {
+    vi.useFakeTimers()
+    try {
+      let resolveFirst
+      const updateDraft = vi.fn()
+      updateDraft.mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
+      updateDraft.mockImplementationOnce(async (_id, payload) => draftResponse({ free_text: payload.free_text }))
+      globalThis.api.world.updateBibleDraft = updateDraft
+      const wrapper = mountEditorTab()
+      await vi.advanceTimersByTimeAsync(0)
+
+      await wrapper.get("#bible-free-text").setValue("第一段")
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(updateDraft).toHaveBeenCalledTimes(1)
+
+      // 第一个请求仍在进行：新输入只排队，不并发第二个保存
+      await wrapper.get("#bible-free-text").setValue("第二段")
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(updateDraft).toHaveBeenCalledTimes(1)
+
+      resolveFirst(draftResponse({ free_text: "第一段" }))
+      await vi.advanceTimersByTimeAsync(2100)
+      expect(updateDraft).toHaveBeenCalledTimes(2)
+      expect(updateDraft.mock.calls[1][1].free_text).toBe("第二段")
+      // 晚到的第一个响应没有把输入重置回旧值
+      expect(wrapper.get("#bible-free-text").element.value).toBe("第二段")
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("基线 409 冲突时暂停自动保存、提示作者并保留输入", async () => {
+    vi.useFakeTimers()
+    try {
+      const conflict = Object.assign(new Error("请求冲突：工作稿已在别处更新"), {
+        status: 409,
+        body: { error: "edit_baseline_stale" },
+      })
+      const updateDraft = vi.fn()
+      updateDraft.mockRejectedValueOnce(conflict)
+      updateDraft.mockImplementationOnce(async (_id, payload) => draftResponse({ free_text: payload.free_text }))
+      globalThis.api.world.updateBibleDraft = updateDraft
+      const wrapper = mountEditorTab()
+      await vi.advanceTimersByTimeAsync(0)
+
+      await wrapper.get("#bible-free-text").setValue("冲突前的修改")
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(updateDraft).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(100)
+      const statusEl = wrapper.get("#bible-autosave-status")
+      expect(statusEl.element.textContent).toContain("已暂停自动保存")
+      expect(statusEl.attributes("data-autosave-status")).toBe("conflict")
+
+      // 冲突后继续输入不再自动保存，输入保留
+      await wrapper.get("#bible-free-text").setValue("冲突后的修改")
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(updateDraft).toHaveBeenCalledTimes(1)
+      expect(wrapper.get("#bible-free-text").element.value).toBe("冲突后的修改")
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("输入先写入本机备份，自动保存成功后清理", async () => {
+    vi.useFakeTimers()
+    try {
+      const updateDraft = vi.fn(async (_id, payload) => draftResponse({ free_text: payload.free_text }))
+      globalThis.api.world.updateBibleDraft = updateDraft
+      const wrapper = mountEditorTab()
+      await vi.advanceTimersByTimeAsync(0)
+
+      await wrapper.get("#bible-free-text").setValue("需要备份的内容")
+      await vi.advanceTimersByTimeAsync(300)
+      const backupKey = `world_draft_backup_p1_page_page-1`
+      const backup = JSON.parse(localStorage.getItem(backupKey))
+      expect(backup.payload.free_text).toBe("需要备份的内容")
+
+      await vi.advanceTimersByTimeAsync(800)
+      expect(localStorage.getItem(backupKey)).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("手动保存在自动保存进行中先等其完成，再携带最新基线", async () => {
+    vi.useFakeTimers()
+    try {
+      let resolveFirst
+      const updateDraft = vi.fn()
+      updateDraft.mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
+      updateDraft.mockImplementationOnce(async (_id, payload) => draftResponse({ free_text: payload.free_text }))
+      globalThis.api.world.updateBibleDraft = updateDraft
+      const host = document.createElement("div")
+      host.id = "workspace-content"
+      document.body.appendChild(host)
+      const wrapper = mountEditorTab()
+      await vi.advanceTimersByTimeAsync(0)
+
+      await wrapper.get("#bible-free-text").setValue("先由自动保存接管")
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(updateDraft).toHaveBeenCalledTimes(1)
+
+      const event = new CustomEvent("shell:save-request", { bubbles: false, cancelable: true })
+      host.dispatchEvent(event)
+      expect(event.defaultPrevented).toBe(true)
+      // 手动保存尚未发出第二个请求：在等第一个完成
+      await vi.advanceTimersByTimeAsync(50)
+      expect(updateDraft).toHaveBeenCalledTimes(1)
+
+      resolveFirst(draftResponse({ free_text: "先由自动保存接管" }))
+      await vi.advanceTimersByTimeAsync(50)
+      expect(updateDraft).toHaveBeenCalledTimes(2)
+      // 第二次保存携带自动保存返回后的新基线，而不是旧基线
+      expect(updateDraft.mock.calls[1][1].expected_updated_at).toBe("2026-09-09T01:00:00.000Z")
+      expect(updateDraft.mock.calls[1][1].free_text).toBe("先由自动保存接管")
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("Cmd/Ctrl+S 经 shell:save-request 触发手动保存并携带基线", async () => {
+    const updateDraft = vi.fn(async (_id, payload) => draftResponse({ free_text: payload.free_text }))
+    globalThis.api.world.updateBibleDraft = updateDraft
+    const host = document.createElement("div")
+    host.id = "workspace-content"
+    document.body.appendChild(host)
+    const wrapper = mountEditorTab()
+    await nextTick()
+    await nextTick()
+
+    await wrapper.get("#bible-free-text").setValue("快捷键保存的内容")
+    expect(host).not.toBeNull()
+    const event = new CustomEvent("shell:save-request", { bubbles: false, cancelable: true })
+    host.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(true)
+    await vi.waitFor(() => expect(updateDraft).toHaveBeenCalledTimes(1))
+    expect(updateDraft.mock.calls[0][1].free_text).toBe("快捷键保存的内容")
+    expect(updateDraft.mock.calls[0][1].expected_updated_at).toBe(DRAFT_1.updated_at)
+  })
+})

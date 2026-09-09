@@ -189,7 +189,10 @@ async def test_auto_materialized_profile_does_not_block_entity_type_correction(
 
     corrected = await async_client.put(
         f"/api/world/entities/{entity_id}?novel_id={novel_id}",
-        json={"entity_type": "location"},
+        json={
+            "entity_type": "location",
+            "expected_updated_at": entity.json()["updated_at"],
+        },
     )
 
     assert corrected.status_code == 200

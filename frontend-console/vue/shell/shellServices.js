@@ -100,6 +100,12 @@ export function createShellServices(overrides = {}) {
         host.dispatchEvent(event)
         return event.defaultPrevented
       },
+      quickopen(host) {
+        if (!host?.dispatchEvent) return false
+        const event = new CustomEvent("shell:quickopen-request", { bubbles: false, cancelable: true })
+        host.dispatchEvent(event)
+        return event.defaultPrevented
+      },
       toggleOutlineFloat(host) {
         const button = host?.querySelector?.('[data-action="toggle-outline-float"]')
         if (button) {

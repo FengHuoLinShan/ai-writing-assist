@@ -211,11 +211,25 @@ class CharacterService(
         data: CharacterUpdate,
         *,
         novel_id: str,
+        expected_updated_at=None,
+        require_edit_baseline: bool = False,
     ) -> CharacterResponse:
         cid = parse_uuid(id, self.id_param)
         nid = parse_uuid(novel_id, "novel_id")
-        character = await self.repo.get(db, cid)
+        character = await (
+            self.repo.get_for_update(db, cid)
+            if require_edit_baseline
+            else self.repo.get(db, cid)
+        )
         self._assert_found_in_novel(character, id, nid)
+        if require_edit_baseline:
+            from modules.world.services.common import assert_edit_baseline
+
+            assert_edit_baseline(
+                expected_updated_at,
+                character.updated_at,
+                label="人物档案",
+            )
         await self._require_canonical_entity(
             db,
             nid,

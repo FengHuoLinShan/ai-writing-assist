@@ -153,9 +153,13 @@ class TestWorldEntityCRUD:
         eid = eids["值夜者"]
 
         # Act
+        current = await client.get(f"/api/world/entities/{eid}?novel_id={pid}")
         resp = await client.put(
             f"/api/world/entities/{eid}?novel_id={pid}",
-            json={"summary": "更新后的摘要"},
+            json={
+                "summary": "更新后的摘要",
+                "expected_updated_at": current.json()["updated_at"],
+            },
         )
 
         # Assert
@@ -168,9 +172,13 @@ class TestWorldEntityCRUD:
         eid = eids["值夜者"]
 
         # Act
+        current = await client.get(f"/api/world/entities/{eid}?novel_id={pid}")
         resp = await client.put(
             f"/api/world/entities/{eid}?novel_id={pid}",
-            json={"summary": "仅更新摘要"},
+            json={
+                "summary": "仅更新摘要",
+                "expected_updated_at": current.json()["updated_at"],
+            },
         )
 
         # Assert
