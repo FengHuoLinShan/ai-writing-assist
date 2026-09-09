@@ -122,6 +122,8 @@ export function useWorldBible(props) {
   const projectionRetryPending = ref(false)
   const editorMutationPending = ref(false)
   const beforeUnloadBound = ref(false)
+  // 资料页视图：默认渲染正文（阅读），编辑为显式切换；工作稿深链直达编辑。
+  const pageViewMode = ref("read")
   const suggestionBatchKey = ref(null)
   let disposed = false
   let activationGeneration = 0
@@ -210,6 +212,7 @@ export function useWorldBible(props) {
           ? (pages.value.find((p) => p.id === requestedDraft.page_id)?.id || null)
           : null
         displayMode.value = "editor"
+        pageViewMode.value = "edit"
       }
     } else if (dl.pageId) {
       const requestedPage = pages.value.find((p) => p.id === dl.pageId)
@@ -217,6 +220,7 @@ export function useWorldBible(props) {
         activePageId.value = requestedPage.id
         activeDraftId.value = draftForActivePage.value?.id || null
         displayMode.value = "editor"
+        pageViewMode.value = "read"
       }
     }
 
@@ -232,9 +236,10 @@ export function useWorldBible(props) {
       startSynopsisPolling(syn.active_task_id)
     }
 
-    // fallback active page
+    // fallback active page：默认渲染正文，编辑为显式动作
     if (!activePageId.value && !activeDraftId.value && pages.value.length) {
       activePageId.value = pages.value[0].id
+      pageViewMode.value = "read"
     }
     if (activePageId.value && !activeDraftId.value) {
       activeDraftId.value = draftForActivePage.value?.id || null
@@ -324,6 +329,7 @@ export function useWorldBible(props) {
     }
     displayMode.value = mode
     if (mode !== "gallery") galleryCategory.value = null
+    if (mode !== "editor") pageViewMode.value = "read"
     saveDisplayPref(projectId.value, "displayMode", mode)
   }
 
@@ -367,6 +373,7 @@ export function useWorldBible(props) {
       ? (pages.value.find((p) => p.id === draft.page_id)?.id || null)
       : null
     displayMode.value = "editor"
+    pageViewMode.value = "edit"
     resetEditorBaseline()
     syncSession()
     replaceEditorDeepLink({ draftId: draft.id })
@@ -586,7 +593,17 @@ export function useWorldBible(props) {
       return true
     } catch (err) {
       if (ownsEditor(owner) && (!modalOwner || ownsModalOwner(modalOwner))) {
-        toast(editBaselineErrorMessage(err, "工作稿"), "error")
+        if (isEditBaselineConflict(err)) {
+          let localPayload = null
+          try {
+            localPayload = readEditorPayloadFromDom({ lenient: true })
+          } catch {
+            localPayload = null
+          }
+          await showDraftBaselineConflict(owner, localPayload)
+        } else {
+          toast(err.message || "保存失败", "error")
+        }
       }
       return false
     } finally {
@@ -606,11 +623,91 @@ export function useWorldBible(props) {
   let autosaveRevision = 0
   let shellSaveBound = false
 
-  function editBaselineErrorMessage(err, label) {
-    if (err?.status === 409 && ["edit_baseline_required", "edit_baseline_stale"].includes(err?.body?.error)) {
-      return `这份${label}已在别处更新（可能是另一个标签页），当前输入已保留；请刷新后对照最新内容再保存。`
+  function isEditBaselineConflict(err) {
+    return Boolean(
+      err?.status === 409
+      && ["edit_baseline_required", "edit_baseline_stale"].includes(err?.body?.error),
+    )
+  }
+
+  function draftConflictExcerpt(text) {
+    const value = String(text || "").trim()
+    if (!value) return "（空）"
+    return value.length > 160 ? `${value.slice(0, 160)}…` : value
+  }
+
+  /** 基线冲突时展示服务器版本供作者选择；对话框为命令式 DOM，不影响编辑器输入。 */
+  async function showDraftBaselineConflict(owner, localPayload) {
+    if (!ownsEditor(owner)) return
+    let serverDraft = null
+    try {
+      const listed = await api.world.listBibleDrafts(projectId.value)
+      serverDraft = (listed?.items || []).find((item) => item.id === owner.draftId) || null
+    } catch {
+      // 服务器版本读取失败时仍展示本地信息与选项。
     }
-    return err?.message || "保存失败"
+    if (!ownsEditor(owner)) return
+    const rows = [
+      ["标题", localPayload?.title || "", serverDraft?.title || ""],
+      ["页面概览", localPayload?.free_text || "", serverDraft?.free_text || ""],
+      ["分区数", String((localPayload?.sections_json || []).length), String((serverDraft?.sections_json || []).length)],
+      ["更新时间", "本浏览器未保存", serverDraft?.updated_at || "未读取到"],
+    ]
+    const body = `
+      <p>这份工作稿已在别处更新（可能是另一个标签页）。下面是两份内容的对照，请选择保留哪一份。</p>
+      <div class="world-draft-conflict">
+        <table class="data-table">
+          <thead><tr><th>字段</th><th>我的输入（未保存）</th><th>服务器版本</th></tr></thead>
+          <tbody>
+            ${rows.map(([label, mine, server]) => `
+              <tr>
+                <td>${esc(label)}</td>
+                <td>${esc(draftConflictExcerpt(mine))}</td>
+                <td>${esc(draftConflictExcerpt(server))}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>`
+    showModalHtml(
+      "工作稿保存冲突",
+      body,
+      [
+        {
+          text: "保留我的修改",
+          class: "btn-ghost",
+          handler: () => {
+            closeModal()
+            toast("已保留本地修改；自动保存保持暂停，可继续编辑后手动保存", "info")
+          },
+        },
+        {
+          text: "采用服务器版本",
+          class: "btn-primary",
+          handler: () => {
+            closeModal()
+            void adoptServerDraft(owner, serverDraft)
+          },
+        },
+      ],
+      { size: "large" },
+    )
+  }
+
+  async function adoptServerDraft(owner, serverDraft) {
+    if (!serverDraft) {
+      toast("暂时读不到服务器版本，请刷新页面后重试", "warning")
+      return
+    }
+    if (!ownsEditor(owner)) return
+    savedDrafts.set(serverDraft.id, serverDraft)
+    activeDraftId.value = serverDraft.id
+    setEditorBaseline(serverDraft)
+    rememberDraft(serverDraft)
+    autosaveStatus.value = "idle"
+    clearDraftBackup()
+    // 正文 textarea 以插值渲染、不随状态 patch；采用服务器版本必须直接写回 DOM。
+    applyDraftBackupToDom(serverDraft)
+    toast("已载入服务器版本；本地未保存修改已被替换", "success")
   }
 
   function draftBackupKey() {
@@ -771,9 +868,15 @@ export function useWorldBible(props) {
       await autosavePromise
     } catch (err) {
       if (ownsEditor(owner)) {
-        if (err?.status === 409 && ["edit_baseline_required", "edit_baseline_stale"].includes(err?.body?.error)) {
+        if (isEditBaselineConflict(err)) {
           autosaveStatus.value = "conflict"
-          toast(editBaselineErrorMessage(err, "工作稿"), "error")
+          let localPayload = null
+          try {
+            localPayload = readEditorPayloadFromDom({ lenient: true })
+          } catch {
+            localPayload = null
+          }
+          await showDraftBaselineConflict(owner, localPayload)
         } else {
           autosaveStatus.value = "error"
         }
@@ -791,6 +894,21 @@ export function useWorldBible(props) {
     ) {
       scheduleWorldDraftAutosave()
     }
+  }
+
+  /** 立即执行一次自动保存（切回阅读态前冲刷未保存输入）；成功返回 true。 */
+  async function flushWorldDraftAutosave() {
+    if (autosaveTimer) {
+      clearTimeout(autosaveTimer)
+      autosaveTimer = null
+    }
+    await runWorldDraftAutosave()
+    if (autosaveTimer) {
+      clearTimeout(autosaveTimer)
+      autosaveTimer = null
+    }
+    if (autosaveStatus.value === "conflict" || autosaveStatus.value === "error") return false
+    return !editorHasUnsavedChanges() || autosaveStatus.value === "idle"
   }
 
   function handleShellSaveRequest(event) {
@@ -1152,6 +1270,7 @@ export function useWorldBible(props) {
             activeDraftId.value = draft.id
             activePageId.value = null
             displayMode.value = "editor"
+            pageViewMode.value = "edit"
             galleryCategory.value = null
             saveDisplayPref(owner.novelId, "displayMode", "editor")
             setEditorBaseline(draft)
@@ -2652,7 +2771,9 @@ export function useWorldBible(props) {
     sectionsSignal,
     autosaveStatus,
     scheduleWorldDraftAutosave,
+    flushWorldDraftAutosave,
     maybeOfferDraftBackupRestore,
+    pageViewMode,
     suggestions,
     conflicts,
     semanticInspectionPending,

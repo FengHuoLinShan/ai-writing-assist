@@ -42,7 +42,8 @@ describe("World Bible 关联图", () => {
     const wrapper = mountGraph()
     await wrapper.get("[data-mode='graph']").trigger("click"); await nextTick()
     await wrapper.get("[data-graph-node-id='p1']").trigger("click")
-    expect(wrapper.find("#bible-title").exists()).toBe(true)
+    // 页面默认渲染正文（阅读态）
+    expect(wrapper.find(".world-page-reader").exists()).toBe(true)
     expect(wrapper.get("[data-mode='editor']").attributes("aria-pressed")).toBe("true")
     await wrapper.get("[data-mode='graph']").trigger("click"); await nextTick()
     await wrapper.get("[data-graph-node-id='e1']").trigger("click")

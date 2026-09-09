@@ -407,6 +407,19 @@
           <!-- editor panel (main) -->
           <main class="panel world-bible-editor-panel">
           <template v-if="editSource">
+            <WorldPageReader
+              v-if="pageViewMode === 'read'"
+              :source="editSource"
+              :sections="sortedSections"
+              :asset-refs="editSource.linked_asset_refs_json || []"
+              :ref-items="readerRefItems"
+              :type-label="typeMeta(editSource.page_type).label"
+              :status-label="statusLabel(activePage?.status)"
+              :working="isWorkingDraft"
+              @edit="switchPageView('edit')"
+              @back="returnToLibrary()"
+            />
+            <template v-else>
             <div class="world-bible-source-notice" role="note">资料页，不是事实源。正式设定请编辑对应世界对象；AI 建议不会自动发布。</div>
             <div class="world-bible-panel__header">
               <div>
@@ -417,6 +430,7 @@
                 </div>
               </div>
               <div class="world-bible-panel__actions">
+                <button class="btn btn-sm btn-ghost" data-action="bible-back-to-read" @click="switchPageView('read')">完成编辑</button>
                 <button v-if="activePage?.id" class="btn btn-sm btn-ghost" data-action="bible-create-author-task" @click="createTaskForWorldPage">添加到计划中的任务</button>
                 <button v-if="activePage?.id" class="btn btn-sm" data-action="bible-improve-with-ai" @click="openInGenerationCenter">用 AI 完善此页</button>
                 <button class="btn btn-sm" :class="{ 'btn-primary': !canPublish }" data-action="bible-save-page" @click="savePage()">保存工作稿</button>
@@ -581,6 +595,7 @@
                 </div>
               </div>
             </div>
+            </template>
           </template>
           <div v-else class="empty-state">
             <p>创建一个世界书页面开始整理设定。</p>
@@ -687,6 +702,7 @@ import WorldLibraryHome from "../library/WorldLibraryHome.vue"
 import WorldLibraryList from "../library/WorldLibraryList.vue"
 import WorldLibraryTypeGrid from "../library/WorldLibraryTypeGrid.vue"
 import WorldTopicPickerDialog from "../library/WorldTopicPickerDialog.vue"
+import WorldPageReader from "../library/WorldPageReader.vue"
 import WorldBibleKnowledgeGraph from "../pages/WorldBibleKnowledgeGraph.vue"
 import WorldbookImportPanel from "./WorldbookImportPanel.vue"
 import WorldHealthPanel from "./WorldHealthPanel.vue"
@@ -742,6 +758,9 @@ const {
   editorMutationPending,
   semanticInspectionPending,
   autosaveStatus,
+  flushWorldDraftAutosave,
+  pageViewMode,
+  editorHasUnsavedChanges,
   pages,
   drafts,
   pageTemplates,
@@ -1304,6 +1323,69 @@ const AUTOSAVE_STATUS_LABELS = {
   conflict: "工作稿已在别处更新，已暂停自动保存；请对照最新内容后手动保存",
   error: "自动保存暂时失败，输入已在本机备份；恢复后自动重试",
 }
+// ---- 阅读态：切换与引用名称解析 ----
+async function switchPageView(mode) {
+  if (mode === "read") {
+    if (pageViewMode.value === "edit" && editorHasUnsavedChanges && editorHasUnsavedChanges()) {
+      const flushed = await flushWorldDraftAutosave()
+      if (!flushed) return // 冲突或失败：留在编辑态处理
+    }
+    pageViewMode.value = "read"
+    void resolveReaderRefs()
+  } else {
+    pageViewMode.value = "edit"
+    nextTick(() => document.getElementById("bible-title")?.focus?.())
+  }
+}
+
+const readerRefItems = ref([])
+let readerRefGeneration = 0
+async function resolveReaderRefs() {
+  const source = editSource.value
+  if (!source) {
+    readerRefItems.value = []
+    return
+  }
+  const refs = (source.linked_asset_refs_json || []).slice(0, 50)
+  if (!refs.length) {
+    readerRefItems.value = []
+    return
+  }
+  const generation = ++readerRefGeneration
+  const items = refs.map((rawRef) => {
+    const kind = canonicalAssetRefType(assetRefType(rawRef))
+    const id = assetRefId(rawRef)
+    return { kind, id, label: id || "引用", unavailable: false }
+  })
+  readerRefItems.value = items
+  for (const [index, rawRef] of refs.entries()) {
+    const kind = canonicalAssetRefType(assetRefType(rawRef))
+    const id = assetRefId(rawRef)
+    if (!id || generation !== readerRefGeneration) continue
+    try {
+      if (kind === "world_bible_page") {
+        const page = pages.value.find((item) => item.id === id)
+          || await Promise.resolve(getApi().world.getBiblePage(id, props.projectId)).catch(() => null)
+        if (generation !== readerRefGeneration) return
+        if (page) items[index] = { kind, id, label: page.title || id, unavailable: false }
+        else items[index] = { kind, id, label: id, unavailable: true }
+      } else if (kind === "core_entity") {
+        const known = visibleEntities.value.find((item) => (item.id || item.entity_id) === id)
+        const entity = known || await Promise.resolve(getApi().world.getEntity(id, props.projectId)).catch(() => null)
+        if (generation !== readerRefGeneration) return
+        if (entity) items[index] = { kind, id, label: entity.name || id, unavailable: false }
+        else items[index] = { kind, id, label: id, unavailable: true }
+      }
+    } catch {
+      // 单条解析失败保留 ID 兜底。
+    }
+  }
+  if (generation === readerRefGeneration) readerRefItems.value = [...items]
+}
+watch(() => pageViewMode.value === "read" ? editSource.value?.id : null, () => {
+  if (pageViewMode.value === "read") void resolveReaderRefs()
+}, { immediate: true })
+
 // 编辑器输入是 DOM 驱动的非受控表单：状态必须命令式写入，
 // 任何输入期间的响应式重渲染都会把输入框重置回绑定值。
 watch(autosaveStatus, (status) => {
@@ -1650,6 +1732,11 @@ onMounted(() => {
   rootEl.value?.dispatchEvent(new Event("workspace:content-rendered", { bubbles: true }))
   mountAssetRefPicker()
   restoreLibraryScroll()
+})
+
+// 页面默认阅读态：编辑是显式切换，进入时再挂载依赖编辑 DOM 的资产选择器
+watch(pageViewMode, (mode) => {
+  if (mode === "edit") nextTick(() => mountAssetRefPicker())
 })
 
 onBeforeUnmount(() => {

@@ -186,6 +186,13 @@ function mountTab(propOverrides = {}) {
   })
 }
 
+/** 页面默认进入阅读态；需要编辑表单的测试显式切换（必要时把用例改为 async）。 */
+async function enterEditorFromReader(wrapper) {
+  await wrapper.get("[data-action='world-reader-edit']").trigger("click")
+  await nextTick()
+  await nextTick()
+}
+
 async function openNewPage() {
   document.querySelector("#sidebar-context-slot [data-action='bible-new-resource']").click()
   await nextTick()
@@ -284,7 +291,7 @@ describe("渲染契约", () => {
     expect(panel.textContent).not.toContain("已归档的旧问题")
 
     panel.querySelector("[data-bible-open-question-page-id='page-2']").click()
-    await vi.waitFor(() => expect(wrapper.get("#bible-title").element.value).toBe("种族设定"))
+    await vi.waitFor(() => expect(wrapper.get("#world-page-reader-title").text()).toBe("种族设定"))
 
     await wrapper.get("[data-mode='gallery']").trigger("click")
     document.querySelector("[data-action='world-tool-questions']").click()
@@ -317,7 +324,7 @@ describe("渲染契约", () => {
       defaultDisplayMode: "gallery",
       bibleDeepLink: { draftId: "", pageId: "page-2" },
     })
-    expect(deepLink.get("#bible-title").element.value).toBe("种族设定")
+    expect(deepLink.get("#world-page-reader-title").text()).toBe("种族设定")
   })
 
   it("从资料返回时按项目与查询恢复滚动位置", async () => {
@@ -337,8 +344,9 @@ describe("渲染契约", () => {
     await vi.waitFor(() => expect(content.scrollTop).toBe(240))
   })
 
-  it("编辑器桌面只保留目录与内容两列，AI 规则在内容内按需展开", () => {
+  it("编辑器桌面只保留目录与内容两列，AI 规则在内容内按需展开", async () => {
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     const synopsis = wrapper.get(".world-bible-synopsis-panel")
     const layout = wrapper.get(".world-bible-layout")
     const content = layout.get(".world-bible-content-column")
@@ -373,8 +381,9 @@ describe("渲染契约", () => {
     expect(inspector.get("summary").text()).toContain("按需设置")
   })
 
-  it("AI 参考规则使用作者可读状态，不暴露内部标识", () => {
+  it("AI 参考规则使用作者可读状态，不暴露内部标识", async () => {
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     const inspector = wrapper.get(".world-bible-inspector")
 
     expect(inspector.text()).toContain("规则方案")
@@ -385,8 +394,9 @@ describe("渲染契约", () => {
     expect(inspector.text()).not.toContain("writing.generate")
   })
 
-  it("编辑器面板显示 active page 标题、元数据、表单和分区", () => {
+  it("编辑器面板显示 active page 标题、元数据、表单和分区", async () => {
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     const panel = wrapper.find(".world-bible-editor-panel")
     expect(panel.text()).toContain(PAGE_1.title)
     expect(panel.text()).toContain("背景")
@@ -638,6 +648,7 @@ describe("显示模式切换", () => {
     const wrapper = mountTab({
       worldCardFilters: { q: "港", kind: "entity", type: "location", state: "", layout: "list" },
     })
+    await enterEditorFromReader(wrapper)
     await wrapper.get("#bible-title").setValue("未保存的修改")
     const picker = createReferencePicker.mock.results.at(-1).value
 
@@ -658,17 +669,23 @@ describe("显示模式切换", () => {
 
   it("gallery 模式从页面卡打开编辑", async () => {
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     await wrapper.find("[data-mode='gallery']").trigger("click")
     await wrapper.find("[data-action='bible-gallery-open'][data-category='background']").trigger("click")
     await nextTick()
     await wrapper.find("[data-action='bible-open-page-card']").trigger("click")
     await nextTick()
-    expect(wrapper.find(".world-bible-editor-panel").exists()).toBe(true)
+    // 打开页面默认渲染正文（阅读态），编辑为显式切换
+    expect(wrapper.find(".world-page-reader").exists()).toBe(true)
+    expect(wrapper.get("#world-page-reader-title").text()).toContain("世界基本背景")
+    await wrapper.get("[data-action='world-reader-edit']").trigger("click")
+    await nextTick()
     expect(wrapper.find("#bible-title").exists()).toBe(true)
   })
 
   it("切换到 filter 模式", async () => {
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     await wrapper.find("[data-mode='filter']").trigger("click")
     expect(wrapper.find("[data-mode='editor']").attributes("aria-pressed")).toBe("false")
     expect(wrapper.find("[data-mode='gallery']").attributes("aria-pressed")).toBe("false")
@@ -698,6 +715,7 @@ describe("显示模式切换", () => {
 
   it("filter 模式页面卡打开编辑", async () => {
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     await wrapper.find("[data-mode='filter']").trigger("click")
     await nextTick()
     await wrapper.find("[data-action='bible-set-category'][data-category='all']").trigger("click")
@@ -709,6 +727,7 @@ describe("显示模式切换", () => {
 
   it("切换模式时带未保存修改则弹确认", async () => {
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     // Make an unsaved change by modifying the free text DOM
     const textarea = wrapper.find("#bible-free-text")
     await textarea.setValue("未保存的修改")
@@ -720,6 +739,7 @@ describe("显示模式切换", () => {
   it("取消未保存修改的模式切换时保留已选状态", async () => {
     confirmMock.mockReturnValue(false)
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     await wrapper.find("#bible-free-text").setValue("未保存的修改")
     await wrapper.find("[data-mode='gallery']").trigger("click")
 
@@ -733,6 +753,7 @@ describe("显示模式切换", () => {
 describe("编辑器行为", () => {
   it("page nav 点击切换 active page", async () => {
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     expect(wrapper.find("#bible-title").exists()).toBe(true)
     // Default active is page-1
     expect(wrapper.find("#bible-title").element.value).toContain("世界基本背景")
@@ -745,6 +766,7 @@ describe("编辑器行为", () => {
   it("page nav 点击未保存修改弹确认", async () => {
     confirmMock.mockReturnValue(false)
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     const textarea = wrapper.find("#bible-free-text")
     await textarea.setValue("未保存")
     await wrapper.find("[data-bible-page-id='page-2']").trigger("click")
@@ -753,14 +775,16 @@ describe("编辑器行为", () => {
     expect(wrapper.find("#bible-title").element.value).toContain("世界基本背景")
   })
 
-  it("工作稿页面按钮高亮", () => {
+  it("工作稿页面按钮高亮", async () => {
     const wrapper = mountTab({ bible: { ...defaultBible(), drafts: [DRAFT_FREE] } })
+    await enterEditorFromReader(wrapper)
     // free draft button shows badge
     expect(wrapper.find("[data-bible-draft-id='draft-free'] .badge").exists()).toBe(true)
   })
 
-  it("分区编辑器显示已有分区", () => {
+  it("分区编辑器显示已有分区", async () => {
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     const sections = wrapper.findAll(".world-bible-section-editor")
     expect(sections.length).toBeGreaterThanOrEqual(1)
     expect(sections[0].find("[data-section-field='title']").element.value).toBe("货币")
@@ -777,6 +801,7 @@ describe("编辑器行为", () => {
     const api = (await import("../../../../vue/bridge/index.js")).getApi()
     api.world.updateBibleDraft = vi.fn().mockResolvedValue({ ...DRAFT_1 })
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     const section = wrapper.findAll(".world-bible-section-editor")[0]
 
     await section.find("[data-section-field='section_type']").setValue("checklist")
@@ -797,6 +822,7 @@ describe("编辑器行为", () => {
 
   it("新增分区通过模板块操作", async () => {
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     const initialCount = wrapper.findAll(".world-bible-section-editor").length
     await wrapper.find("[data-action='bible-section-add']").trigger("click")
     await nextTick()
@@ -808,6 +834,7 @@ describe("编辑器行为", () => {
     const api = (await import("../../../../vue/bridge/index.js")).getApi()
     api.world.updateBibleDraft = vi.fn().mockResolvedValue({ id: "draft-1", page_id: "page-1", ...DRAFT_1 })
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     // Fill in some text
     await wrapper.find("#bible-free-text").setValue("作者编辑的正文")
     await wrapper.find("#bible-title").setValue("世界基本背景")
@@ -832,6 +859,7 @@ describe("编辑器行为", () => {
       updated_at: "2026-08-12T12:00:00Z",
     })
     const wrapper = mountTab({ bible: { ...defaultBible(), drafts: [] } })
+    await enterEditorFromReader(wrapper)
     const editor = wrapper.find("#bible-free-text")
     await editor.setValue("本地保存后的正文")
     editor.element.focus()
@@ -862,6 +890,7 @@ describe("编辑器行为", () => {
       page_type: "background", sections_json: [], linked_asset_refs_json: [],
     })
     const wrapper = mountTab({ bible: { ...defaultBible(), drafts: [] } })
+    await enterEditorFromReader(wrapper)
     await wrapper.find("#bible-title").setValue("P1 标题")
     await wrapper.find("#bible-free-text").setValue("P1 正文")
 
@@ -892,6 +921,7 @@ describe("编辑器行为", () => {
     const updated = deferred()
     api.world.updateBibleDraft = vi.fn(() => updated.promise)
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
 
     const saving = wrapper.vm.$.setupState.savePage(false)
     await vi.waitFor(() => expect(api.world.updateBibleDraft).toHaveBeenCalled())
@@ -909,6 +939,7 @@ describe("编辑器行为", () => {
     const updated = deferred()
     api.world.updateBibleDraft = vi.fn(() => updated.promise)
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
 
     await wrapper.find("[data-action='bible-save-page']").trigger("click")
     await vi.waitFor(() => expect(api.world.updateBibleDraft).toHaveBeenCalledTimes(1))
@@ -933,6 +964,7 @@ describe("编辑器行为", () => {
       },
     })
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     await wrapper.find("#bible-title").setValue("世界基本背景")
     await wrapper.find("[data-action='bible-publish-page']").trigger("click")
     await nextTick()
@@ -971,6 +1003,7 @@ describe("编辑器行为", () => {
       }],
     })
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
 
     await wrapper.find("[data-action='bible-publish-page']").trigger("click")
     await nextTick()
@@ -990,6 +1023,7 @@ describe("编辑器行为", () => {
     api.world.previewBibleDraftPublishImpact = vi.fn().mockRejectedValue(new Error("offline"))
     api.world.publishBibleDraft = vi.fn().mockResolvedValue({ ...PAGE_1, version_number: 2 })
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
 
     await wrapper.find("[data-action='bible-publish-page']").trigger("click")
     await nextTick()
@@ -1009,6 +1043,7 @@ describe("编辑器行为", () => {
     const conflict = Object.assign(new Error("conflict"), { status: 409 })
     api.world.publishBibleDraft = vi.fn().mockRejectedValue(conflict)
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
 
     await wrapper.find("[data-action='bible-publish-page']").trigger("click")
     await nextTick()
@@ -1041,6 +1076,7 @@ describe("编辑器行为", () => {
       }],
     })
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     const editorRoot = wrapper.find(".world-bible-editor-panel").element
     await wrapper.find("#bible-page-template").setValue("e2e_trade_guide")
 
@@ -1056,6 +1092,7 @@ describe("编辑器行为", () => {
     const api = (await import("../../../../vue/bridge/index.js")).getApi()
     api.world.discardBibleDraft = vi.fn().mockResolvedValue({})
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     await wrapper.find("[data-action='bible-discard-draft']").trigger("click")
     // vanilla 契约：confirmAction 应用模态（非原生 confirm）
     expect(confirmActionMock).toHaveBeenCalledWith(expect.stringContaining("丢弃这个工作稿"), expect.any(Function))
@@ -1069,6 +1106,7 @@ describe("编辑器行为", () => {
     api.world.discardBibleDraft = vi.fn(() => discarded.promise)
     confirmActionMock.mockImplementationOnce((_message, handler) => { discardAction = handler })
     const wrapper = mountTab({ bible: { ...defaultBible(), drafts: [DRAFT_1, DRAFT_2] } })
+    await enterEditorFromReader(wrapper)
 
     await wrapper.find("[data-action='bible-discard-draft']").trigger("click")
     const discarding = discardAction()
@@ -1085,6 +1123,7 @@ describe("编辑器行为", () => {
 
   it("用 AI 完善此页打开生成中心", async () => {
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     await wrapper.find("[data-action='bible-improve-with-ai']").trigger("click")
     await nextTick()
     expect(navigateMock).toHaveBeenCalledWith("generate", null, true, expect.any(URLSearchParams))
@@ -1097,6 +1136,7 @@ describe("编辑器行为", () => {
   it("用 AI 完善此页时未保存修改先弹保存", async () => {
     navigateMock.mockClear()
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     await wrapper.find("#bible-free-text").setValue("未保存修改")
     await wrapper.find("[data-action='bible-improve-with-ai']").trigger("click")
     await nextTick()
@@ -1114,6 +1154,7 @@ describe("模态操作", () => {
     const saved = deferred()
     api.world.updateBibleDraft = vi.fn(() => saved.promise)
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     installModalHost()
 
     await wrapper.find("#bible-free-text").setValue("未保存修改")
@@ -1436,6 +1477,7 @@ describe("模态操作", () => {
       updated_at: "2026-08-12T12:00:00Z",
     })
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     installModalHost()
 
     await openNewPage()
@@ -1716,6 +1758,7 @@ describe("模态操作", () => {
     const api = (await import("../../../../vue/bridge/index.js")).getApi()
     api.world.listBiblePageRevisions = vi.fn().mockResolvedValue([])
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     await wrapper.find("[data-action='bible-page-history']").trigger("click")
     await nextTick()
     expect(showModalHtmlMock).toHaveBeenCalled()
@@ -1731,6 +1774,7 @@ describe("模态操作", () => {
       document.body.insertAdjacentHTML("beforeend", body)
     })
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
 
     await wrapper.find("[data-action='bible-page-history']").trigger("click")
     await vi.waitFor(() => expect(document.querySelector("[data-bible-page-restore]")).not.toBeNull())
@@ -1754,6 +1798,7 @@ describe("模态操作", () => {
       updated_at: "2026-08-12T12:00:00Z",
     })
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     installModalHost()
 
     await wrapper.find("[data-action='bible-page-history']").trigger("click")
@@ -2170,6 +2215,7 @@ describe("模态操作", () => {
 
   it("发布激活规则调用 confirmAction", async () => {
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     await wrapper.find("[data-action='bible-activation-publish']").trigger("click")
     expect(confirmActionMock).toHaveBeenCalled()
   })
@@ -2181,6 +2227,7 @@ describe("模态操作", () => {
     const bibleNoDraft = defaultBible()
     bibleNoDraft.drafts = [DRAFT_FREE] // DRAFT_FREE has page_id=null, so page-1 has no draft
     const wrapper = mountTab({ bible: bibleNoDraft })
+    await enterEditorFromReader(wrapper)
     await wrapper.find("[data-action='bible-archive-page']").trigger("click")
     // vanilla 契约：confirmAction 应用模态（非原生 confirm）
     expect(confirmActionMock).toHaveBeenCalledWith(expect.stringContaining("归档"), expect.any(Function))
@@ -2194,6 +2241,7 @@ describe("模态操作", () => {
     api.world.updateBiblePage = vi.fn(() => archived.promise)
     confirmActionMock.mockImplementationOnce((_message, handler) => { archiveAction = handler })
     const wrapper = mountTab({ bible: { ...defaultBible(), drafts: [DRAFT_2] } })
+    await enterEditorFromReader(wrapper)
 
     await wrapper.find("[data-action='bible-archive-page']").trigger("click")
     const archiving = archiveAction()
@@ -2217,28 +2265,31 @@ describe("模态操作", () => {
     expect(wrapper.find(".world-bible-diagnostics").exists()).toBe(true)
   })
 
-  it("有成功 synopsis 版本时显示 rendered text", () => {
+  it("有成功 synopsis 版本时显示 rendered text", async () => {
     const bible = defaultBible()
     bible.synopsis = {
       status: "fresh", stale: false, auto_refresh_enabled: false, warnings: [],
       current_revision: { id: "rev-1", version_number: 3, rendered_text: "只读世界观简介", token_estimate: 120, coverage_json: { source_count: 8 } },
     }
     const wrapper = mountTab({ bible })
+    await enterEditorFromReader(wrapper)
     expect(wrapper.find("pre.generate-markdown-pre").text()).toContain("只读世界观简介")
     expect(wrapper.find(".world-bible-synopsis-panel").text()).toContain("第 3 版")
   })
 })
 
 describe("激活面板", () => {
-  it("显示 AI 参考规则选择器", () => {
+  it("显示 AI 参考规则选择器", async () => {
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     expect(wrapper.find("#bible-activation-profile").exists()).toBe(true)
     const select = wrapper.find("#bible-activation-profile").element
     expect(select.options.length).toBeGreaterThanOrEqual(2) // empty + profiles
   })
 
-  it("选择规则方案后显示可读摘要和试运行", () => {
+  it("选择规则方案后显示可读摘要和试运行", async () => {
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     expect(wrapper.find(".world-bible-profile-summary").exists()).toBe(true)
     expect(wrapper.find(".world-bible-profile-summary").text()).toContain("工作稿 写作规则")
     expect(wrapper.find("#bible-activation-task").exists()).toBe(true)
@@ -2291,6 +2342,7 @@ describe("激活面板", () => {
       saveHandlers.push(buttons[0].handler)
     })
     const wrapper = mountTab({ bible: { ...defaultBible(), activationProfiles: profiles } })
+    await enterEditorFromReader(wrapper)
 
     await wrapper.find("[data-action='bible-activation-edit']").trigger("click")
     const oldPicker = createReferencePicker.mock.results.at(-1).value
@@ -2326,6 +2378,7 @@ describe("激活面板", () => {
     api.context.publishActivationProfile = vi.fn(() => published.promise)
     confirmActionMock.mockImplementationOnce((_message, handler) => { publishAction = handler })
     const wrapper = mountTab({ bible: { ...defaultBible(), activationProfiles: profiles } })
+    await enterEditorFromReader(wrapper)
 
     await wrapper.find("[data-action='bible-activation-publish']").trigger("click")
     const publishing = publishAction()
@@ -2352,6 +2405,7 @@ describe("激活面板", () => {
       warnings: ["projection_stale"],
     })
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
 
     await wrapper.find("#bible-activation-task").setValue("检查北境税制")
     await wrapper.find("[data-action='bible-activation-dry-run']").trigger("click")
@@ -2379,8 +2433,9 @@ describe("投影状态", () => {
     expect(wrapper.find(".world-bible-projection-status").exists()).toBe(false)
   })
 
-  it("有 active page 时显示投影区域", () => {
+  it("有 active page 时显示投影区域", async () => {
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     expect(wrapper.find(".world-bible-projection-status").exists()).toBe(true)
     expect(wrapper.find(".world-bible-empty-hint--projection").exists()).toBe(true)
   })
@@ -2390,6 +2445,7 @@ describe("投影状态", () => {
     api.world.refreshBibleProjection = vi.fn().mockResolvedValue({ task_id: "task-proj", existing: false })
     api.tasks.get = vi.fn().mockResolvedValue({ task_id: "task-proj", status: "pending", progress: 0, meta: { novel_id: "p1", page_id: "page-1", projection_type: "context_brief" } })
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     await wrapper.find("[data-action='bible-refresh-projection']").trigger("click")
     await nextTick()
     expect(api.world.refreshBibleProjection).toHaveBeenCalledWith("page-1", "p1", "context_brief", false)
@@ -2422,6 +2478,7 @@ describe("同步与事件", () => {
 
   it("卸载时销毁页面资产选择器", async () => {
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
     await nextTick()
     const picker = createReferencePicker.mock.results.at(-1).value
 
@@ -2437,10 +2494,12 @@ describe("同步与事件", () => {
     ]
     const bible = { ...defaultBible(), activationProfiles: profiles }
     const first = mountTab({ bible })
+    await enterEditorFromReader(first)
     await first.find("#bible-activation-profile").setValue("prof-2")
     first.unmount()
 
     const remounted = mountTab({ bible })
+    await enterEditorFromReader(remounted)
 
     expect(remounted.find("#bible-activation-profile").element.value).toBe("prof-2")
   })
@@ -2451,6 +2510,7 @@ describe("beforeunload 守卫", () => {
     const listenerSpy = vi.spyOn(window, "addEventListener")
     const removeSpy = vi.spyOn(window, "removeEventListener")
     const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
 
     const bound = listenerSpy.mock.calls.filter(([event]) => event === "beforeunload")
     expect(bound.length).toBeGreaterThan(0)
@@ -2819,5 +2879,133 @@ describe("二期：工作稿自动保存与编辑基线", () => {
     await vi.waitFor(() => expect(updateDraft).toHaveBeenCalledTimes(1))
     expect(updateDraft.mock.calls[0][1].free_text).toBe("快捷键保存的内容")
     expect(updateDraft.mock.calls[0][1].expected_updated_at).toBe(DRAFT_1.updated_at)
+  })
+})
+
+describe("二期：资料页阅读态", () => {
+  const readerBible = () => {
+    const bible = defaultBible()
+    bible.pages = [{
+      ...PAGE_1,
+      free_text: "这是**页面概览**正文。",
+      sections_json: [
+        { section_id: "s1", section_type: "markdown", title: "货币", body_markdown: "北境使用**银币**。", sort_order: 10, linked_asset_ref_hashes: [], projection_policy: "eligible", sensitivity_hint: "author_safe" },
+        { section_id: "s2", section_type: "markdown", title: "冬季商路", body_markdown: "冬季商路关闭。", sort_order: 20, linked_asset_ref_hashes: [], projection_policy: "eligible", sensitivity_hint: "author_safe" },
+      ],
+      linked_asset_refs_json: [{ type: "core_entity", id: "entity-1" }],
+    }]
+    bible.entities = [{ id: "entity-1", name: "雾港灯塔", entity_type: "location", display_state: "active" }]
+    // 无工作稿时阅读态渲染正式页本身
+    bible.drafts = []
+    return bible
+  }
+
+  // 兜底选中第一页并默认进入阅读态
+  async function mountReader(bible = readerBible()) {
+    const wrapper = mountTab({ bible })
+    await nextTick()
+    return wrapper
+  }
+
+  it("打开页面默认渲染正文：标题目录、Markdown 节点输出与分区折叠", async () => {
+    const wrapper = await mountReader()
+
+    const reader = wrapper.get(".world-page-reader")
+    expect(reader.attributes("data-reader-mode")).toBe("read")
+    expect(wrapper.get("#world-page-reader-title").text()).toBe("世界基本背景")
+    // 概览与分区正文经安全 Markdown 渲染为 Vue 节点（strong 而非原始星号）
+    expect(reader.get(".world-page-reader__markdown strong").text()).toBe("页面概览")
+    // 标题目录包含概览与两个分区
+    const toc = reader.findAll("[data-action='world-reader-toc']").map((button) => button.text())
+    expect(toc).toEqual(["页面概览", "货币", "冬季商路"])
+    // 分区可折叠
+    await reader.findAll("[data-action='world-reader-toggle']")[0].trigger("click")
+    expect(reader.findAll(".world-page-reader__section-body")).toHaveLength(1)
+    expect(reader.get(".world-page-reader__section-head").attributes("aria-expanded")).toBe("false")
+  })
+
+  it("引用预览解析为资料名称，未命中标记不可用", async () => {
+    const bible = readerBible()
+    bible.pages[0].linked_asset_refs_json = [
+      { type: "core_entity", id: "entity-1" },
+      { type: "core_entity", id: "entity-gone" },
+    ]
+    const wrapper = await mountReader(bible)
+    await vi.waitFor(() => expect(wrapper.findAll(".world-page-reader__refs li")).toHaveLength(2))
+    const labels = wrapper.findAll(".world-page-reader__refs li").map((li) => li.text())
+    expect(labels[0]).toContain("雾港灯塔")
+    expect(labels[1]).toContain("不可用引用")
+  })
+
+  it("阅读/编辑切换：编辑后完成编辑会冲刷自动保存并回到阅读态", async () => {
+    const updateDraft = vi.fn(async (_id, payload) => ({
+      id: "draft-flush", page_id: "page-1", title: payload.title, page_type: payload.page_type,
+      free_text: payload.free_text ?? "", sort_order: payload.sort_order ?? 0,
+      sections_json: payload.sections_json ?? [], linked_asset_refs_json: payload.linked_asset_refs_json ?? [],
+      updated_at: "2026-09-09T02:00:00.000Z",
+    }))
+    globalThis.api.world.updateBibleDraft = updateDraft
+    globalThis.api.world.createBibleDraft = vi.fn(async () => ({
+      id: "draft-flush", page_id: "page-1", title: "世界基本背景", page_type: "background",
+      free_text: "", sections_json: [], linked_asset_refs_json: [],
+      updated_at: "2026-09-09T01:00:00.000Z",
+    }))
+    const wrapper = await mountReader()
+
+    await wrapper.get("[data-action='world-reader-edit']").trigger("click")
+    await nextTick()
+    expect(wrapper.find("#bible-free-text").exists()).toBe(true)
+
+    await wrapper.get("#bible-free-text").setValue("阅读前先自动保存的新内容")
+    await wrapper.get("[data-action='bible-back-to-read']").trigger("click")
+    await vi.waitFor(() => expect(updateDraft).toHaveBeenCalledTimes(1))
+    expect(updateDraft.mock.calls[0][1].free_text).toBe("阅读前先自动保存的新内容")
+    // 冲刷完成后回到阅读态
+    await vi.waitFor(() => expect(wrapper.find(".world-page-reader").exists()).toBe(true))
+    expect(wrapper.find("#bible-free-text").exists()).toBe(false)
+  })
+
+  it("编辑器内页面栏切换保持编辑态，资料库进入的页面默认阅读", async () => {
+    const wrapper = mountTab({ bible: defaultBible() })
+    await enterEditorFromReader(wrapper)
+    await wrapper.find("[data-bible-page-id='page-2']").trigger("click")
+    await nextTick()
+    // 编辑器页面栏是编辑上下文：切换后仍在编辑
+    expect(wrapper.find("#bible-title").exists()).toBe(true)
+    expect(wrapper.get("#bible-title").element.value).toBe("种族设定")
+  })
+})
+
+describe("二期：保存冲突展示服务器版本", () => {
+  it("基线 409 时弹出对照对话框，可选择采用服务器版本", async () => {
+    const conflict = Object.assign(new Error("请求冲突"), { status: 409, body: { error: "edit_baseline_stale" } })
+    const updateDraft = vi.fn()
+    updateDraft.mockRejectedValueOnce(conflict)
+    globalThis.api.world.updateBibleDraft = updateDraft
+    globalThis.api.world.listBibleDrafts = vi.fn(async () => ({
+      items: [{
+        id: DRAFT_1.id, page_id: "page-1", title: "世界基本背景（服务器）", page_type: "background",
+        free_text: "服务器上的概要。", sections_json: [], linked_asset_refs_json: [],
+        updated_at: "2026-09-09T03:00:00Z",
+      }],
+    }))
+    const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
+    await wrapper.get("#bible-free-text").setValue("我的本地修改")
+
+    await wrapper.get("[data-action='bible-save-page']").trigger("click")
+    await vi.waitFor(() => expect(globalThis.api.world.listBibleDrafts).toHaveBeenCalled())
+    await vi.waitFor(() => expect(showModalHtmlMock).toHaveBeenCalled())
+    const [dialogTitle, dialogBody, dialogButtons] = showModalHtmlMock.mock.calls.at(-1)
+    expect(dialogTitle).toBe("工作稿保存冲突")
+    expect(dialogBody).toContain("我的本地修改")
+    expect(dialogBody).toContain("世界基本背景（服务器）")
+    expect(dialogBody).toContain("服务器上的概要。")
+
+    // 采用服务器版本：本地编辑器载入服务器内容
+    const adopt = dialogButtons.find((button) => button.text.includes("采用服务器版本"))
+    await adopt.handler()
+    await vi.waitFor(() => expect(wrapper.get("#bible-free-text").element.value).toBe("服务器上的概要。"))
+    expect(wrapper.get("#bible-title").element.value).toBe("世界基本背景（服务器）")
   })
 })

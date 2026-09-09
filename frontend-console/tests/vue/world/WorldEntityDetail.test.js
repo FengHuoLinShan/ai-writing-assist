@@ -96,3 +96,80 @@ describe("WorldEntityDetail 人物档案", () => {
     expect(wrapper.find(".world-character-profile__form").exists()).toBe(false)
   })
 })
+
+describe("WorldEntityDetail 基本资料就地编辑", () => {
+  const withTimestamp = (entity) => ({ ...entity, updated_at: "2026-09-09T02:00:00Z" })
+
+  beforeEach(() => {
+    api.world.getEntity = vi.fn(async () => withTimestamp(character))
+    api.world.updateEntity = vi.fn(async (_id, payload) => withTimestamp({ ...character, ...payload, expected_updated_at: undefined }))
+  })
+
+  it("就地编辑名称/概要/公开信息/作者秘密，保存携带基线且不弹独立表单", async () => {
+    const wrapper = mountDetail(withTimestamp(character))
+    expect(wrapper.find(".world-entity-basic__facts").text()).toContain("林澈")
+
+    await wrapper.get("[data-action='world-entity-basic-edit']").trigger("click")
+    await wrapper.get("[data-basic-field='name']").setValue("林澈（成年）")
+    await wrapper.get("[data-basic-field='summary']").setValue("雾港的调查者")
+    await wrapper.get("[data-basic-field='public_info']").setValue("港务登记在册")
+    await wrapper.get("[data-basic-field='hidden_truth']").setValue("暗桩")
+
+    await wrapper.get("[data-action='world-entity-basic-save']").trigger("click")
+    expect(api.world.updateEntity).toHaveBeenCalledTimes(1)
+    const [entityId, payload, projectId] = api.world.updateEntity.mock.calls[0]
+    expect(entityId).toBe("character-1")
+    expect(projectId).toBe("p1")
+    expect(payload).toMatchObject({
+      name: "林澈（成年）",
+      summary: "雾港的调查者",
+      public_info: "港务登记在册",
+      hidden_truth: "暗桩",
+      expected_updated_at: "2026-09-09T02:00:00Z",
+    })
+    // 保存成功后回到展示态并刷新
+    expect(wrapper.find(".world-entity-basic__form").exists()).toBe(false)
+  })
+
+  it("取消不触发保存；有修改时取消需确认", async () => {
+    const confirmSpy = vi.fn(() => false)
+    setBridgeOverrides({ api, toast: vi.fn(), confirm: confirmSpy })
+    const wrapper = mountDetail(withTimestamp(character))
+    await wrapper.get("[data-action='world-entity-basic-edit']").trigger("click")
+    await wrapper.get("[data-basic-field='summary']").setValue("临时修改")
+    await wrapper.get("[data-action='world-entity-basic-cancel']").trigger("click")
+    expect(confirmSpy).toHaveBeenCalled()
+    expect(wrapper.find(".world-entity-basic__form").exists()).toBe(true)
+    expect(api.world.updateEntity).not.toHaveBeenCalled()
+    confirmSpy.mockRestore()
+  })
+
+  it("基线 409 展示服务器版本供作者选择，采用后载入新基线", async () => {
+    const conflict = Object.assign(new Error("请求冲突：已在别处更新"), {
+      status: 409,
+      body: { error: "edit_baseline_stale" },
+    })
+    api.world.updateEntity.mockRejectedValueOnce(conflict)
+    const server = { ...character, name: "林澈（服务器）", summary: "服务器概要", updated_at: "2026-09-09T03:00:00Z" }
+    api.world.getEntity.mockResolvedValue(server)
+    const wrapper = mountDetail(withTimestamp(character))
+
+    await wrapper.get("[data-action='world-entity-basic-edit']").trigger("click")
+    await wrapper.get("[data-basic-field='summary']").setValue("我的修改")
+    await wrapper.get("[data-action='world-entity-basic-save']").trigger("click")
+    await vi.waitFor(() => expect(wrapper.find("[data-conflict='basic']").exists()).toBe(true))
+    expect(wrapper.find("[data-conflict='basic']").text()).toContain("林澈（服务器）")
+
+    await wrapper.get("[data-action='world-entity-basic-adopt-server']").trigger("click")
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get("[data-basic-field='name']").element.value).toBe("林澈（服务器）")
+    expect(wrapper.get("[data-basic-field='summary']").element.value).toBe("服务器概要")
+
+    // 在服务器版本之上再次保存携带新基线
+    api.world.updateEntity.mockClear()
+    await wrapper.get("[data-basic-field='summary']").setValue("服务器概要＋补充")
+    await wrapper.get("[data-action='world-entity-basic-save']").trigger("click")
+    await vi.waitFor(() => expect(api.world.updateEntity).toHaveBeenCalledTimes(1))
+    expect(api.world.updateEntity.mock.calls[0][1].expected_updated_at).toBe("2026-09-09T03:00:00Z")
+  })
+})
