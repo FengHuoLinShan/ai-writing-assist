@@ -138,3 +138,12 @@ export async function waitWritingReady(page, { chapter = null, editor = false } 
   }
   if (editor) await expect(page.locator("#writing-editor")).toBeVisible({ timeout: 10000 })
 }
+
+/** Opens the single active module tool card on narrow screens. */
+export async function openWorkspaceTools(page) {
+  const trigger = page.locator(".workspace-tools-trigger")
+  if ((page.viewportSize()?.width || 1280) <= 760) {
+    await expect(trigger).toBeVisible()
+    if (!await page.locator(".workspace-drawer .workspace-tools").isVisible()) await trigger.click()
+  }
+}

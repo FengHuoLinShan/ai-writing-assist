@@ -1,13 +1,13 @@
 <template>
-  <section class="map-editor" :class="{ 'map-focused': focused }" aria-label="空间地图编辑器">
+  <section ref="toolsRoot" class="map-editor" :class="{ 'map-focused': focused }" aria-label="空间地图编辑器">
     <header class="map-toolbar">
       <div><strong>{{ focused ? node.title : '空间示意' }}</strong><span class="map-caption">不按比例</span></div>
       <div class="map-actions">
         <button v-if="!focused || dirty" class="btn btn-primary" :disabled="busy || readOnly || incompleteGeometry || (!dirty && revision)" @click="save">保存地图</button>
         <button v-if="!focused" class="btn btn-sm" :disabled="busy || readOnly || !undoStack.length" @click="undo">撤销</button>
         <button v-if="!focused" class="btn btn-sm" :disabled="busy || readOnly || !redoStack.length" @click="redo">重做</button>
-        <button v-if="!readOnly" class="btn btn-sm" :aria-pressed="focused" @click="focused = !focused">{{ focused ? '展开编辑工具' : '专注看图' }}</button>
-        <button v-if="hasReference" class="btn btn-sm" :aria-pressed="referenceOnly" @click="toggleReference">{{ referenceOnly ? '返回空间地图' : '查看图片参考' }}</button>
+        <button v-if="!externalTools && !readOnly" class="btn btn-sm" :aria-pressed="focused" @click="focused = !focused">{{ focused ? '展开编辑工具' : '专注看图' }}</button>
+        <button v-if="!externalTools && hasReference" class="btn btn-sm" :aria-pressed="referenceOnly" @click="toggleReference">{{ referenceOnly ? '返回空间地图' : '查看图片参考' }}</button>
       </div>
     </header>
     <p v-if="!focused || dirty || busy" role="status" class="map-save-status">{{ saveLabel }}</p>
@@ -25,7 +25,7 @@
         <div class="map-actions"><button ref="discardBackupConfirm" class="btn btn-sm" aria-describedby="map-discard-backup-question" @click="confirmDiscardBackup">确认放弃这份备份</button><button class="btn btn-sm" @click="cancelDiscardBackup">保留备份</button></div>
       </div>
     </div>
-    <div v-if="conflict" class="map-warning">
+    <div v-if="conflict" class="map-warning map-conflict">
       服务器已有更新，当前编辑已保留。请先查看差异，再决定使用哪一版。
       <MapChangeReview :changes="conflictChanges" @locate="locateChange" />
       <button class="btn btn-sm" @click="compareServer = !compareServer">{{ compareServer ? '回到我的编辑' : '查看服务器版' }}</button>
@@ -59,7 +59,7 @@
     <div v-if="!focused" class="map-reader">
       <label>阅读预览：进入第 <input v-model.number="readerChapter" aria-label="阅读预览章节" type="number" min="1" max="100000" /> 章时</label>
       <button class="btn btn-sm" :disabled="busy || !revision || dirty" @click="previewReader">{{ reader ? '更新阅读预览' : '预览读者所见' }}</button>
-      <button v-if="reader" class="btn btn-sm" @click="exitReader">回到作者视图</button>
+      <button v-if="reader && !externalTools" class="btn btn-sm" @click="exitReader">回到作者视图</button>
       <span v-if="reader">仅显示该章开始前可公开的内容，位置保持不变。</span>
     </div>
     <FocusedEvidencePanel v-if="!readOnly && !focused"
@@ -166,14 +166,14 @@
         <label>最早在第几章开始时展示<input :value="selectedFeature.reader_from_chapter || ''" type="number" min="1" max="100000" class="form-input" placeholder="留空：仅作者可见" @change="changeFeature('reader_from_chapter', $event.target.value ? Number($event.target.value) : null)" /></label>
         <label>补充说明<textarea :value="selectedFeature.note" class="form-textarea" maxlength="1000" @input="changeFeature('note', $event.target.value)" /></label>
         <label>打开子图<select :value="selectedFeature.target_node_id || ''" class="form-select" @change="changeFeature('target_node_id', $event.target.value || null)"><option value="">不跳转</option><option v-for="target in childChoices" :key="target.id" :value="target.id">{{ target.title }}</option></select></label>
-        <div class="map-actions"><button v-if="selectedFeature.target_node_id" class="btn btn-sm" @click="emit('open-node', selectedFeature.target_node_id)">进入子图</button><button v-if="childLevel && ['location', 'landmark', 'area'].includes(selectedFeature.kind) && !selectedFeature.target_node_id" class="btn btn-sm" :disabled="busy" @click="createChild">为此地点创建{{ childLevel.label }}图</button><button v-if="selectedFeature.entity_id" class="btn btn-sm" @click="openEntity">查看世界资料</button><button class="btn btn-sm" @click="removeFeature">移出地图</button></div>
+        <div class="map-actions"><button v-if="selectedFeature.target_node_id && !externalTools" class="btn btn-sm" @click="emit('open-node', selectedFeature.target_node_id)">进入子图</button><button v-if="childLevel && ['location', 'landmark', 'area'].includes(selectedFeature.kind) && !selectedFeature.target_node_id" class="btn btn-sm" :disabled="busy" @click="createChild">为此地点创建{{ childLevel.label }}图</button><button v-if="selectedFeature.entity_id" class="btn btn-sm" @click="openEntity">查看世界资料</button><button class="btn btn-sm" @click="removeFeature">移出地图</button></div>
         <ul v-if="selectedRelations.length"><li v-for="item in selectedRelations" :key="item.id">{{ featureLabel(item.subject) }} · {{ relationLabels[item.relation] }} · {{ featureLabel(item.target) }}<button class="btn btn-sm" @click="locateFeature(item.subject === selectedId ? item.target : item.subject)">查看关联位置</button></li></ul>
         <img v-for="layer in selectedIllustrations" :key="layer.page_id" :src="imageUrls[imageKey(layer.page_id)]" alt="地点配图" class="map-detail-image" />
       </aside>
     </div>
     <aside v-if="(recovery || reader || focused || candidateView) && displayedFeature && !referenceOnly" class="map-inspector" :aria-label="reader ? '读者地点详情' : '地图地点详情'">
       <strong>{{ displayedFeature.label }}</strong>
-      <template v-if="!reader"><p v-if="displayedFeature.note">{{ displayedFeature.note }}</p><p v-for="(source, index) in displayedFeature.sources" :key="index">{{ source.quote }}<button v-if="source.kind === 'source_range'" class="btn btn-sm" @click="openSourceChapter(source)">打开第 {{ source.source_ref.chapter_index }} 章</button></p><button v-if="!candidateView && displayedFeature.target_node_id" class="btn btn-sm" @click="emit('open-node', displayedFeature.target_node_id)">进入子图</button></template>
+      <template v-if="!reader"><p v-if="displayedFeature.note">{{ displayedFeature.note }}</p><p v-for="(source, index) in displayedFeature.sources" :key="index">{{ source.quote }}<button v-if="source.kind === 'source_range'" class="btn btn-sm" @click="openSourceChapter(source)">打开第 {{ source.source_ref.chapter_index }} 章</button></p><button v-if="!candidateView && displayedFeature.target_node_id && !externalTools" class="btn btn-sm" @click="emit('open-node', displayedFeature.target_node_id)">进入子图</button></template>
       <img v-for="layer in selectedIllustrations" :key="layer.page_id" :src="imageUrls[imageKey(layer.page_id)]" class="map-detail-image" :alt="reader ? '可公开的地点配图' : '地点配图'" />
     </aside>
     <details v-if="!readOnly && !focused && images.length" class="map-image-controls">
@@ -203,8 +203,8 @@
       <ul><li v-for="placement in doc.images" :key="placement.page_id">{{ imageTitle(placement.page_id) }} · {{ placement.role === 'background' ? '底图' : '配图' }} <strong v-if="imageState(placement) !== 'ready'">{{ imageState(placement) === 'stale' ? '待复核，已退出叠加' : '图片已移出，展示已关闭' }}</strong><button class="btn btn-sm" @click="editImage(placement)">调整／重新校准</button><button class="btn btn-sm" @click="removeImage(placement.page_id)">关闭此展示层</button></li></ul>
       <details v-if="annotations.length || doc.annotation_bindings.length"><summary>绑定原图片标注</summary><ul><li v-for="binding in doc.annotation_bindings" :key="binding.annotation_id">已绑定到 {{ featureLabel(binding.feature_id) }} <button class="btn btn-sm" @click="unbindAnnotation(binding.annotation_id)">解除绑定</button></li></ul><form class="map-inline-form" @submit.prevent="bindAnnotation"><label>原标注<select v-model="annotationId" class="form-select"><option value="">请选择</option><option v-for="annotation in annotations" :key="annotation.id" :value="annotation.id">{{ annotation.label }}</option></select></label><label>地图地点<select v-model="annotationFeatureId" class="form-select"><option value="">请选择</option><option v-for="feature in doc.features" :key="feature.id" :value="feature.id">{{ feature.label }}</option></select></label><button class="btn btn-sm" :disabled="!annotationId || !annotationFeatureId">绑定</button></form></details>
     </details>
-    <details v-if="problems.length && !reader" open class="map-warning"><summary>需要核对 {{ problems.length }} 项</summary><ul><li v-for="(problem, index) in problems" :key="index">{{ problem.message }}<button v-if="problem.feature_ids.length" class="btn btn-sm" @click="selectFeature(problem.feature_ids[0])">定位</button></li></ul></details>
-    <details v-if="!reader && !focused"><summary @click="loadHistory">地图历史</summary><div v-for="item in history" :key="item.id" class="map-history"><span>{{ formatDate(item.created_at) }} · {{ item.status === 'saved' ? '已保存' : item.status === 'candidate' ? '候选' : '已处理候选' }}</span><button class="btn btn-sm" :disabled="busy" @click="viewCandidate(item)">查看并比较</button><button v-if="item.status === 'saved'" class="btn btn-sm" :disabled="busy || dirty || Boolean(recovery) || item.id === revision?.id" @click="review(item, 'restore')">恢复为新版本</button></div></details>
+    <details v-if="problems.length && !reader" open class="map-warning map-problems"><summary>需要核对 {{ problems.length }} 项</summary><ul><li v-for="(problem, index) in problems" :key="index">{{ problem.message }}<button v-if="problem.feature_ids.length" class="btn btn-sm" @click="selectFeature(problem.feature_ids[0])">定位</button></li></ul></details>
+    <details v-if="!reader && !focused" class="map-history-panel"><summary @click="loadHistory">地图历史</summary><div v-for="item in history" :key="item.id" class="map-history"><span>{{ formatDate(item.created_at) }} · {{ item.status === 'saved' ? '已保存' : item.status === 'candidate' ? '候选' : '已处理候选' }}</span><button class="btn btn-sm" :disabled="busy" @click="viewCandidate(item)">查看并比较</button><button v-if="item.status === 'saved'" class="btn btn-sm" :disabled="busy || dirty || Boolean(recovery) || item.id === revision?.id" @click="review(item, 'restore')">恢复为新版本</button></div></details>
     <MapSourcePicker v-if="selectedFeature" :key="node.id + ':' + selectedId" :open="sourcePickerOpen" :project-id="projectId" :feature="selectedFeature" :initial-source="sourcePickerInitial" @close="sourcePickerOpen = false" @add="addSource" />
   </section>
 </template>
@@ -215,13 +215,15 @@ import { getApi, getConfirm, getRouter } from "../../bridge/index.js"
 import { confirmAiReference } from "../../../shared/aiReferenceModal.js"
 import { ACCOUNT_MARKER_KEY } from "../../../shared/accountStorage.js"
 import { copyMap, emptyMap, geometrySignature, mapBounds, mapChangeDetails, mapFeatureCenter, mapImageChanges, mapRelationLabels, mapSourceRangeKey, mapSourceSelections, pointsAttribute, rehearseMapRoute, removeMapFeature } from "./mapStructureEditor.js"
+import { focusWorkspaceTool } from "../../components/workspaceTools.js"
 import FocusedEvidencePanel from "../../components/FocusedEvidencePanel.vue"
 import MapChangeReview from './MapChangeReview.vue'
 import MapRehearsalPanel from './MapRehearsalPanel.vue'
 import MapSourcePicker from './MapSourcePicker.vue'
 
-const props = defineProps({ projectId: { type: String, required: true }, node: { type: Object, required: true }, images: { type: Array, default: () => [] }, knownNodes: { type: Array, default: () => [] }, hasReference: Boolean, reviewImageId: { type: String, default: "" }, initialFeatureId: { type: String, default: '' }, evidenceRefs: { type: Array, default: () => [] } })
+const props = defineProps({ projectId: { type: String, required: true }, node: { type: Object, required: true }, images: { type: Array, default: () => [] }, knownNodes: { type: Array, default: () => [] }, hasReference: Boolean, externalTools: Boolean, reviewImageId: { type: String, default: "" }, initialFeatureId: { type: String, default: '' }, evidenceRefs: { type: Array, default: () => [] } })
 const emit = defineEmits(["saved", "open-node", "reference-visible", "state", "select-feature", "pin-evidence", "clear-evidence"])
+const toolsRoot = ref(null)
 const api = getApi(), confirm = getConfirm()
 const doc = ref(emptyMap()), revision = ref(null), serverRevision = ref(null), baseline = ref(JSON.stringify(emptyMap()))
 const candidates = ref([]), candidateView = ref(null), history = ref([]), imageLayers = ref([]), checkedGeometry = ref("")
@@ -815,7 +817,77 @@ watch(doc, () => {
 }, { deep: true, flush: "sync" })
 watch(canvas, (element, previous) => { if (previous) resizeObserver?.unobserve(previous); if (element) resizeObserver?.observe(element) })
 watch(() => props.reviewImageId, id => { if (!dirty.value) { referenceOnly.value = Boolean(id); emit("reference-visible", referenceOnly.value) } }, { immediate: true })
-watch([dirty, revision, reader, focused], () => emit("state", { dirty: dirty.value, revision: revision.value, reader: Boolean(reader.value), focused: focused.value }), { immediate: true })
+const toolbar = computed(() => {
+  const action = (key, label, extra = {}) => ({ key, label, ...extra })
+  const context = reader.value ? "阅读预览" : candidateView.value ? "版本对照" : [props.node.title, selectedFeature.value?.label].filter(Boolean).join(" · ")
+  const state = { context, status: saveLabel.value, restricted: Boolean(reader.value || focused.value || candidateView.value), protected: Boolean(recovery.value || conflict.value || dirty.value || readOnly.value || focused.value), actions: [], moreActions: [] }
+  if (reader.value) {
+    state.status = "仅显示当前阅读进度可公开的内容"
+    state.actions = [action("exit-reader", "回到作者视图", { primary: true }), action("reader-settings", "调整阅读进度"), action("find", "查找可见地点")]
+    return state
+  }
+  if (focused.value) {
+    state.actions = [action("exit-focus", "展开编辑工具", { primary: true }), action("find", "查找地图内容")]
+    if (displayedFeature.value?.target_node_id) state.actions.push(action("child", "进入子图"))
+    return state
+  }
+  if (candidateView.value || compareServer.value) {
+    state.actions = [action("comparison", "继续核对差异", { primary: true }), action("exit-comparison", "返回当前地图")]
+    return state
+  }
+  if (referenceOnly.value && !dirty.value && !recovery.value && !conflict.value) {
+    state.actions = [action("reference", "返回空间地图", { primary: true }), action("images", "添加新画面"), action("image-sources", "查看绘制依据")]
+    if (props.images.length > 1) state.actions.push(action("compare-images", "对比已有图片"))
+    state.moreActions = [action("history", "地图历史")]
+    return state
+  }
+  const base = [
+    action("add", "添加地点与绘制"),
+    action("generate", selectedId.value ? "整理所选空间关系" : "整理空间关系", { disabled: busy.value || taskRunning.value || dirty.value || Boolean(recovery.value), hint: dirty.value ? "请先保存当前地图" : "" }),
+    action("images", "图片与底图", { disabled: busy.value || Boolean(recovery.value) }),
+    action("rehearsal", "排演路线"),
+  ]
+  if (selectedFeature.value) {
+    base[0] = action("selected", selectedFeature.value.points.length ? "编辑所选地图内容" : "定位所选地图内容")
+    base[3] = action("source", "查证地点依据", { disabled: busy.value || Boolean(recovery.value) })
+    if (selectedFeature.value.target_node_id) base[2] = action("child", "进入子图")
+    state.moreActions.push(action("add", "添加地点与绘制"), action("rehearsal", "排演路线"))
+  }
+  let primary = base[0]
+  if (candidates.value.length) primary = action("candidates", "检查空间候选", { badge: candidates.value.length })
+  if (taskRunning.value || ["failed", "cancelled"].includes(taskStatus.value)) primary = action("progress", taskRunning.value ? "查看整理进度" : "查看失败与恢复")
+  if (dirty.value) primary = action("save-area", "继续编辑并保存")
+  if (conflict.value) primary = action("conflict", "处理版本冲突")
+  if (recovery.value) primary = action("recovery", "处理本机编辑")
+  if (loading.value) primary = action("loading", "正在读取地图…", { disabled: true })
+  state.actions = [{ ...primary, primary: true }, ...base.filter(item => item.key !== primary.key)]
+  if (problems.value.length) state.moreActions.push(action("problems", "本图需要核对 " + problems.value.length + " 项"))
+  state.moreActions.push(action("reader-settings", "阅读预览", { disabled: busy.value || dirty.value || !revision.value || Boolean(recovery.value), hint: dirty.value ? "请先保存当前地图" : "" }), action("focus", "专注看图"), action("history", "地图历史"))
+  if (props.hasReference) state.moreActions.push(action("reference", referenceOnly.value ? "返回空间地图" : "查看图片参考"))
+  return state
+})
+async function runToolbarAction(key) {
+  if (key === "image-settings") return focusWorkspaceTool(toolsRoot.value, ".map-image-controls")
+  if (![...toolbar.value.actions, ...toolbar.value.moreActions].some(item => item.key === key && !item.disabled)) return
+  if (key === "exit-reader") return exitReader()
+  if (key === "exit-focus") { focused.value = false; return }
+  if (key === "focus") { focused.value = true; return }
+  if (key === "reference") return toggleReference()
+  if (key === "exit-comparison") { if (candidateView.value) exitCandidate(); compareServer.value = false; return }
+  if (key === "child" && displayedFeature.value?.target_node_id) return emit("open-node", displayedFeature.value.target_node_id)
+  if (key === "source") { if (!readOnly.value && selectedFeature.value) openSourcePicker(); return }
+  if (key === "generate") {
+    if (selectedId.value) selectedFeatureIds.value = [selectedId.value]
+    await showGenerationChoices()
+    return
+  }
+  if (key === "history") await loadHistory()
+  if (["add", "selected", "rehearsal", "reader-settings"].includes(key) && referenceOnly.value) { referenceOnly.value = false; emit("reference-visible", false); await nextTick() }
+  const selectors = { add: ".map-edit-grid details", selected: ".map-inspector", "save-area": ".map-toolbar", recovery: ".map-recovery", conflict: ".map-conflict", comparison: '[aria-label="候选地图差异"], .map-conflict', candidates: ".map-candidates", progress: ".map-generation-feedback", rehearsal: ".map-rehearsal", "reader-settings": ".map-reader", find: ".map-locator", history: ".map-history-panel", problems: ".map-problems" }
+  if (selectors[key]) return focusWorkspaceTool(toolsRoot.value, selectors[key])
+}
+watch([dirty, revision, reader, focused, toolbar], () => emit("state", { nodeId: props.node.id, dirty: dirty.value, revision: revision.value, reader: Boolean(reader.value), focused: focused.value, toolbar: toolbar.value }), { immediate: true })
+
 watch([selectedId, zoom, focused, rehearsalStops], rememberView, { deep: true })
 watch([selectedId, busy, focused, readOnly], () => { sourcePickerOpen.value = false }, { flush: 'sync' })
 watch([candidateView, () => revision.value?.id, () => serverRevision.value?.id, selectedChangeKeys], () => { ++reviewEpoch; adoptionPreview.value = null; previewing.value = false }, { deep: true, flush: 'sync' })
@@ -831,7 +903,7 @@ onMounted(() => {
   }
 })
 onBeforeUnmount(() => { rememberView(); resizeObserver?.disconnect(); persistDraft(); alive = false; epoch += 1; clearTimeout(backupTimer); clearTimeout(pollTimer); globalThis.removeEventListener("beforeunload", beforeUnload); for (const url of Object.values(imageUrls)) URL.revokeObjectURL(url) })
-defineExpose({ canLeave, save, dirty, revision })
+defineExpose({ canLeave, save, dirty, revision, runToolbarAction })
 </script>
 
 <style scoped>

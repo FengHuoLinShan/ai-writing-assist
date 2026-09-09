@@ -47,7 +47,8 @@
 | 反馈 | 正常、首次、空态、加载、失败、冲突、成功；失败提供可执行下一步，不只显示日志 |
 | 长任务 | 原位进度、停止／恢复、离开后续接；任务完成不等于作品内容自动采用 |
 
-复用 `ActionMenu`、`useModalDialog`、`useLeaveGuard`、`OwnerAiDrawer`，手机上下文使用 `WorkspaceDrawer`。不为无额外行为的原生按钮和输入增加组件壳。
+全页工作流工具复用 `WorkspaceToolCard` 与现有侧栏插槽；手机抽屉挂在 body 层，保留可见关闭入口。
+复用 `ActionMenu`（侧栏使用可视视口内的浮层定位）、`useModalDialog`、`useLeaveGuard`、`OwnerAiDrawer`，手机上下文使用 `WorkspaceDrawer`。不为无额外行为的原生按钮和输入增加组件壳。
 
 ## 5. 布局与响应式
 

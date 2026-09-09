@@ -4,7 +4,11 @@
   L340-365）。稳定 class/data-action 保留（e2e/视觉基线契约）。
 -->
 <template>
-  <div class="view-header view-header--with-tabs outline-toolbar">
+  <WorkspaceToolCard v-if="subView === 'threads' || subView === 'arcs' || reviewMode" title="故事工具"
+    :context="subViewLabel" :actions="toolActions" :more-actions="moreTools" action-prefix="outline-tool" @select="runTool">
+    <template v-if="!reviewMode" #more><span data-role="smart-dedup-action"></span></template>
+  </WorkspaceToolCard>
+  <div ref="headerEl" class="view-header view-header--with-tabs outline-toolbar">
     <div class="subnav">
       <button type="button" class="subnav-item" :class="{ active: subView === 'story-outline' }" :aria-current="subView === 'story-outline' ? 'page' : undefined" data-action="nav-story-outline" @click="navigateSub('story-outline')">故事总览</button>
       <button type="button" class="subnav-item" :class="{ active: subView === 'arcs' }" :aria-current="subView === 'arcs' ? 'page' : undefined" data-action="nav-arcs" @click="navigateSub('arcs')">篇章</button>
@@ -27,52 +31,28 @@
         }"
         :aria-label="subView === 'scenes' ? '场景操作' : subView === 'threads' ? '剧情线操作' : subView === 'arcs' ? '篇章操作' : undefined"
       >
-        <slot name="actions">
-          <template v-if="reviewMode && (subView === 'threads' || subView === 'arcs' || subView === 'scenes')">
-            <button type="button" class="btn btn-sm" data-action="close-outline-generate-preview" @click="closeReview">返回{{ subViewLabel }}</button>
-          </template>
-          <template v-else-if="subView === 'threads'">
-            <button type="button" class="btn btn-sm btn-primary" data-action="create-thread" @click="showCreateThreadForm()">新建剧情线</button>
-            <button type="button" class="btn btn-sm" data-action="ai-create-plot-thread" @click="showOutlineLayerAiForm('plot_thread')">AI 创作剧情线</button>
-            <details class="scene-workbench-tools outline-structure-tools">
-              <summary class="btn btn-sm">分析与整理</summary>
-              <div class="scene-workbench-tools__menu" @click.capture="closeToolMenu">
-                <button type="button" class="btn btn-sm" data-action="analyze-outline" :disabled="analysisBusy" @click="showOutlineAnalysisForm()">{{ analysisBusy ? "AI 分析中" : "AI 分析大纲" }}</button>
-                <button type="button" class="btn btn-sm" data-action="plot-structure-auto-extract" :disabled="plotExtractBusy" @click="showPlotStructureAutoExtractForm()">{{ plotExtractBusy ? "提取中..." : "从正文提取剧情线" }}</button>
-                <span data-role="smart-dedup-action"></span>
-              </div>
-            </details>
-          </template>
-          <template v-else-if="subView === 'arcs'">
-            <button type="button" class="btn btn-sm btn-primary" data-action="create-arc" @click="showCreateArcForm()">新建篇章</button>
-            <button type="button" class="btn btn-sm" data-action="ai-create-outline-arc" @click="showOutlineLayerAiForm('outline_arc')">AI 规划篇章</button>
-            <details class="scene-workbench-tools outline-structure-tools">
-              <summary class="btn btn-sm">分析与整理</summary>
-              <div class="scene-workbench-tools__menu" @click.capture="closeToolMenu">
-                <button type="button" class="btn btn-sm" data-action="analyze-outline" :disabled="analysisBusy" @click="showOutlineAnalysisForm()">{{ analysisBusy ? "AI 分析中" : "AI 分析大纲" }}</button>
-                <button type="button" class="btn btn-sm" data-action="plot-structure-auto-extract" :disabled="plotExtractBusy" @click="showPlotStructureAutoExtractForm()">{{ plotExtractBusy ? "整理中..." : "从正文整理篇章" }}</button>
-                <span data-role="smart-dedup-action"></span>
-              </div>
-            </details>
-          </template>
-          <span v-else data-role="smart-dedup-action"></span>
-        </slot>
+        <slot name="actions" />
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed } from "vue"
+import { computed, ref } from "vue"
 import { getAppState, getRouteQuery, getRouter } from "../../../bridge/index.js"
 import { showCreateArcForm, showCreateThreadForm } from "../logic/outlineStructureOps.js"
 import {
+  showOutlineGeneratePreview,
   showOutlineAnalysisForm,
   showOutlineLayerAiForm,
   showPlotStructureAutoExtractForm,
 } from "../ai/outlineAiOps.js"
-import { outlineAnalysisManager, plotAutoExtractManager } from "../ai/outlineWorkflowManagers.js"
+import { outlineAnalysisManager, outlineGenerateManager, plotAutoExtractManager } from "../ai/outlineWorkflowManagers.js"
 
+import WorkspaceToolCard from "../../../components/WorkspaceToolCard.vue"
+import { focusWorkspaceTool } from "../../../components/workspaceTools.js"
+import { getBulkSelection } from "../logic/outlineBulkSelection.js"
+const headerEl = ref(null)
 const props = defineProps({
   subView: { type: String, default: "story-outline" },
   itemCount: { type: Number, default: null },
@@ -108,10 +88,40 @@ function closeReview() {
   router?.replace?.("outline", props.subView, query)
 }
 
-function closeToolMenu(event) {
-  if (!event.target.closest?.("button")) return
-  const details = event.currentTarget.closest("details")
-  details.open = false
-  details.querySelector("summary")?.focus()
+
+const target = computed(() => props.subView === "threads" ? "plot_thread" : "outline_arc")
+const selectedIds = computed(() => [...getBulkSelection(props.subView === "threads" ? "outline-threads" : "outline-arcs")])
+const generationBusy = computed(() => outlineGenerateManager.state.submitting || (outlineGenerateManager.state.progress && !outlineGenerateManager.state.progress.terminal))
+const moreTools = computed(() => props.reviewMode ? [] : props.subView === "threads"
+  ? [{ key: "analyze", label: "检查故事结构", dataAction: "analyze-outline", disabled: analysisBusy.value }]
+  : [])
+const toolActions = computed(() => {
+  if (props.reviewMode) return [
+    { key: "review-current", label: "继续核对建议", primary: true },
+    { key: "return", label: "返回" + subViewLabel.value, dataAction: "close-outline-generate-preview" },
+  ]
+  const thread = props.subView === "threads"
+  const base = [
+    { key: "create", label: thread ? "新建剧情线" : "新建篇章", dataAction: thread ? "create-thread" : "create-arc" },
+    { key: "ai", label: selectedIds.value.length ? "AI 修订所选" : thread ? "AI 创作剧情线" : "AI 规划篇章", badge: selectedIds.value.length, dataAction: thread ? "ai-create-plot-thread" : "ai-create-outline-arc", disabled: Boolean(generationBusy.value) },
+    { key: "extract", label: thread ? "从正文整理剧情线" : "从正文整理篇章", dataAction: "plot-structure-auto-extract", disabled: plotExtractBusy.value },
+    thread ? { key: "information", label: "查看伏笔与揭示" } : { key: "analyze", label: "检查故事结构", dataAction: "analyze-outline", disabled: analysisBusy.value },
+  ]
+  let primary = base[selectedIds.value.length ? 1 : 0]
+  if (generationBusy.value || analysisBusy.value || plotExtractBusy.value) primary = { key: "progress", label: "查看运行进度" }
+  else if (outlineGenerateManager.state.preview) primary = { key: "preview", label: "检查建议", dataAction: "view-outline-generate-preview" }
+  else if (outlineAnalysisManager.state.progress?.failed || plotAutoExtractManager.state.progress?.failed || outlineGenerateManager.state.progress?.failed) primary = { key: "progress", label: "查看失败与恢复" }
+  return [{ ...primary, primary: true }, ...base.filter(action => action.key !== primary.key)]
+})
+function runTool(key) {
+  if (![...toolActions.value, ...moreTools.value].some(action => action.key === key && !action.disabled)) return
+  if (key === "create") return props.subView === "threads" ? showCreateThreadForm() : showCreateArcForm()
+  if (key === "ai") return showOutlineLayerAiForm(target.value, { selectedIds: selectedIds.value })
+  if (key === "extract") return showPlotStructureAutoExtractForm()
+  if (key === "analyze") return showOutlineAnalysisForm()
+  if (key === "preview") return showOutlineGeneratePreview()
+  if (key === "return") return closeReview()
+  const selector = { progress: ".outline-task-status", information: "#outline-thread-information", "review-current": ".outline-thread-review, .outline-arc-review, .outline-scene-review" }[key]
+  if (selector) return focusWorkspaceTool(headerEl.value?.parentElement, selector)
 }
 </script>

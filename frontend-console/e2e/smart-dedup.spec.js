@@ -25,8 +25,8 @@ async function startSmartDedup(page) {
     await page.locator('#sidebar-context-slot [data-action="start-smart-dedup"]').click()
     return
   }
-  const mobileTools = page.locator(".world-sidebar-tools-mobile")
-  if (await mobileTools.getAttribute("open") === null) await mobileTools.locator("summary").click()
+  await page.locator(".workspace-tools-trigger").click()
+  const mobileTools = page.locator(".workspace-drawer .workspace-tools")
   await mobileTools.locator('[data-action="start-smart-dedup"]').click()
 }
 

@@ -109,10 +109,10 @@ describe("渲染 · 当前版本与空状态", () => {
     const wrapper = mount(OutlineStoryTab, { props: makeProps() })
     const onboarding = wrapper.get(".story-outline-onboarding")
     expect(onboarding.get("#story-outline-intro-title").text()).toBe("先确定故事方向")
-    expect(onboarding.get('[data-action="generate-story-outline"]').text()).toBe("AI 生成可编辑预览")
-    expect(onboarding.get('[data-action="generate-story-outline"]').classes()).toContain("btn-primary")
-    expect(onboarding.get('[data-action="edit-story-outline"]').text()).toBe("手工创建")
-    expect(onboarding.get(".story-outline-more").attributes("open")).toBeUndefined()
+    expect(wrapper.get('[data-action="generate-story-outline"]').text()).toBe("AI 生成总览")
+    expect(wrapper.get('[data-action="generate-story-outline"]').classes()).toContain("btn-primary")
+    expect(wrapper.get('[data-action="edit-story-outline"]').text()).toBe("手工创建")
+    expect(wrapper.get(".action-menu-btn").attributes("aria-expanded")).toBe("false")
     expect(wrapper.find("#story-outline-empty-title").exists()).toBe(false)
     expect(wrapper.find("#story-outline-history-title").exists()).toBe(false)
     expect(wrapper.find(".empty-icon").exists()).toBe(false)
@@ -228,7 +228,7 @@ describe("渲染 · 边界状态", () => {
     expect(wrapper.text()).toContain("网络请求异常")
     const reloadBtn = wrapper.find('[data-action="reload-story-outline"]')
     expect(reloadBtn.exists()).toBe(true)
-    expect(reloadBtn.text()).toBe("重新加载")
+    expect(reloadBtn.text()).toContain("重新加载")
   })
 
   it("assetLoadError 在当前主操作区显示", () => {
@@ -258,7 +258,7 @@ describe("渲染 · AI 生成按钮状态", () => {
         current: { current_revision_id: "rev-1", revision: revisionFixture() },
       }),
     })
-    expect(wrapper.find('[data-action="edit-story-outline"]').text()).toContain("编辑为新版本")
+    expect(wrapper.find('[data-action="edit-story-outline"]').text()).toContain("编辑总览")
   })
 
   it("有运行中任务时 AI 生成按钮 disabled", () => {
@@ -284,10 +284,10 @@ describe("渲染 · AI 生成按钮状态", () => {
 
   it("正常状态把重新加载收进更多操作", () => {
     const wrapper = mount(OutlineStoryTab, { props: makeProps() })
-    const more = wrapper.get(".story-outline-more")
-    expect(more.attributes("open")).toBeUndefined()
-    expect(more.get("summary").text()).toBe("更多")
-    expect(more.get('[data-action="reload-story-outline"]').text()).toBe("重新加载内容")
+    const more = wrapper.get(".action-menu")
+    expect(more.get(".action-menu-btn").attributes("aria-expanded")).toBe("false")
+    expect(more.get(".action-menu-btn").text()).toBe("更多工具")
+    expect(more.get('[data-action="reload-story-outline"]').text()).toBe("重新加载")
   })
 })
 
