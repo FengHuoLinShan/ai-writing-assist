@@ -117,7 +117,7 @@ test.describe("world 视觉基线", () => {
 
     await openWorkbench(page, proj, "world", "bible")
     await expect(page.locator(".world-bible-workspace")).toBeVisible({ timeout: 10000 })
-    await expect(page.locator(".world-type-grid")).toBeVisible()
+    await expect(page.locator(".world-library-home")).toBeVisible()
     for (const theme of THEMES) {
       await applyTheme(page, theme)
       await screenshotPage(page, `world-bible-${theme}.png`)

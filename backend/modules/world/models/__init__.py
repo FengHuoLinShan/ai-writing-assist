@@ -14,6 +14,13 @@ from .authority import (
 )
 from .character import Character, CharacterKnowledge
 from .core import CoreEntity, EntityRelation, EntityRevision, Event, TextArchive
+from .library import (
+    WorldLibraryFavorite,
+    WorldLibraryRecent,
+    WorldLibraryTopic,
+    WorldLibraryTopicMember,
+    WorldLibraryWorkspaceProfile,
+)
 from .profiles import (
     EntityProfileTemplate,
     FactionProfile,
@@ -99,5 +106,10 @@ __all__ = [
     "WorldCanonRevision",
     "WorldEntity",
     "WorldEntityAlias",
+    "WorldLibraryFavorite",
+    "WorldLibraryRecent",
+    "WorldLibraryTopic",
+    "WorldLibraryTopicMember",
+    "WorldLibraryWorkspaceProfile",
     "_ProfileMixin",
 ]

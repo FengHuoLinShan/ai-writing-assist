@@ -5,7 +5,7 @@ defineProps({
   cards: { type: Array, default: () => [] },
   metaFor: { type: Function, required: true },
 })
-const emit = defineEmits(["open", "create-task"])
+const emit = defineEmits(["open", "create-task", "toggle-favorite", "add-to-topic"])
 </script>
 
 <template>
@@ -18,17 +18,20 @@ const emit = defineEmits(["open", "create-task"])
           <h3>{{ card.title }}</h3>
           <div class="world-bible-page-card__meta">
             <span>{{ metaFor(card).label }}</span>
+            <span v-if="card.isFavorite" class="world-library-cards__star" aria-label="已收藏">★</span>
             <span class="badge" :class="displayStateBadgeClass(card.state)">{{ card.stateLabel }}</span>
           </div>
         </div>
       </div>
       <p class="world-bible-page-card__summary">{{ card.summary || '还没有摘要，可以打开后补充。' }}</p>
       <div class="world-bible-page-card__footer">
-        <span>{{ card.kind === 'page' ? '资料页' : '人物或具体设定' }}</span>
+        <span>{{ card.kind === 'entity' ? '人物或具体设定' : '资料页' }}</span>
         <span v-if="card.draftId">已保留未发布修改</span>
       </div>
       <div class="world-bible-page-card__actions">
         <button class="btn btn-sm btn-ghost" type="button" data-action="world-card-create-task" @click="emit('create-task', card)">添加到计划中的任务</button>
+        <button class="btn btn-sm btn-ghost" type="button" :data-action="card.isFavorite ? 'world-card-unfavorite' : 'world-card-favorite'" :aria-pressed="card.isFavorite ? 'true' : 'false'" @click="emit('toggle-favorite', card)">{{ card.isFavorite ? '★ 已收藏' : '☆ 收藏' }}</button>
+        <button class="btn btn-sm btn-ghost" type="button" data-action="world-card-add-topic" @click="emit('add-to-topic', card)">加入主题</button>
         <button class="btn btn-sm btn-primary" type="button" data-action="open-world-card" @click="emit('open', card)">{{ card.state === 'working' ? '继续编辑' : '打开' }}</button>
       </div>
     </article>
@@ -36,6 +39,7 @@ const emit = defineEmits(["open", "create-task"])
 </template>
 
 <style scoped>
+.world-library-cards__star { color: var(--accent); }
 @media (max-width: 760px) {
   .world-bible-page-card__actions .btn { min-height: 44px; }
 }

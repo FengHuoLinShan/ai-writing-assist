@@ -86,6 +86,8 @@ RAG 或 LLM 上下文。
 - `species_profiles` / `faction_profiles` / `location_profiles` / `rule_profiles` / `item_profiles` / `secret_profiles` / `entity_profile_templates` / `entity_profile_template_revisions` / `generic_entity_profiles` — 世界对象的类型化 Profile、模板与可精确引用的模板修订
 - `generation_prompt_templates` / `generation_prompt_template_revisions` — 项目生成模板及不可变版本
 - `world_bible_categories` / `world_bible_page_drafts` / `world_bible_pages` / `world_bible_page_revisions` / `world_bible_page_projections` — 世界书类别、服务器工作稿、含稳定 sections 的已发布页、带 digest 的不可变修订和派生投影
+- `world_library_topics` / `world_library_topic_members` — 资料库主题目录与成员：作者组织用嵌套主题树（`parent_id` 复合外键保证同项目嵌套、service 拒绝成环），成员是对 Page / Draft / Entity 的多主题引用；独立工作稿发布时自动转换为 page 引用并去重。目录只是组织方式，不构成地理或事实依赖，也不进入生成上下文
+- `world_library_favorites` / `world_library_recents` / `world_library_workspace_profiles` — 作者工作区收藏、最近访问（服务端保留最近 50 条）与每项目视图偏好
 - `world_validation_runs` — 持久化 targeted/full 校验输入、分片 hash、结果、预算、新鲜度与作者签收
 - `world_bible_page_templates` / `world_bible_page_template_revisions` — 项目页面布局模板及不可变历史；内置模板仍由代码注册
 - `world_bible_synopsis_heads` / `world_bible_synopsis_revisions` — 作者版世界观简介的刷新状态、授权与不可变版本

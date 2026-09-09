@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest"
 
 import {
   buildWorldCards,
+  cardsFromLibraryItems,
+  usesServerLibrary,
   worldCardFiltersFromQuery,
   worldCardQuery,
 } from "../../../vue/views/world/bible/worldCards.js"
@@ -27,7 +29,7 @@ describe("unified world cards", () => {
 
   it("uses one bounded query for URL-backed kind, type, and text filters", () => {
     const filters = worldCardFiltersFromQuery(new URLSearchParams("kind=entity&type=location&q=%20%E9%9B%BE%E6%B8%AF%20"))
-    expect(filters).toMatchObject({ kind: "entity", type: "location", q: "雾港", state: "", layout: "cards" })
+    expect(filters).toMatchObject({ kind: "entity", type: "location", q: "雾港", state: "", layout: "list" })
     expect(worldCardQuery(filters).toString()).toBe("q=%E9%9B%BE%E6%B8%AF&kind=entity&type=location")
     expect(buildWorldCards({
       pages: [{ id: "p1", title: "雾港史", page_type: "location", status: "canonical" }],
@@ -37,20 +39,43 @@ describe("unified world cards", () => {
       filters,
     }).map((card) => card.key)).toEqual(["entity:e1"])
     expect(worldCardFiltersFromQuery(new URLSearchParams("type=custom"))).toMatchObject({
-      kind: "all", type: "", q: "", state: "", layout: "cards",
+      kind: "all", type: "", q: "", state: "", layout: "list",
     })
   })
 
   it("在 URL 中恢复工作稿目录与列表视图", () => {
     const filters = worldCardFiltersFromQuery(new URLSearchParams("state=working&layout=list"))
     expect(filters).toMatchObject({ state: "working", layout: "list" })
-    expect(worldCardQuery(filters).toString()).toContain("state=working&layout=list")
+    // list 已是默认布局，不再写回 URL；卡片视图仍显式保留。
+    expect(worldCardQuery(filters).toString()).toBe("state=working")
+    expect(worldCardQuery({ ...filters, layout: "cards" }).toString()).toBe("state=working&layout=cards")
     expect(buildWorldCards({
       pages: [{ id: "p1", title: "已发布", status: "canonical" }],
       drafts: [{ id: "d1", title: "工作稿", status: "draft" }],
       entities: [{ id: "e1", name: "人物", display_state: "active" }],
       filters,
     }).map((card) => card.key)).toEqual(["draft:d1"])
+  })
+
+  it("主题、收藏、未归类与分页通过 URL 恢复并触发服务端列表", () => {
+    const filters = worldCardFiltersFromQuery(new URLSearchParams("topic_id=t1&skip=50&fav=1"))
+    expect(filters).toMatchObject({ topicId: "t1", skip: 50, favorite: true, unclassified: false })
+    expect(worldCardQuery(filters).toString()).toBe("topic_id=t1&fav=1&skip=50")
+    expect(usesServerLibrary(filters)).toBe(true)
+    expect(usesServerLibrary(worldCardFiltersFromQuery(new URLSearchParams("")))).toBe(false)
+    expect(usesServerLibrary(worldCardFiltersFromQuery(new URLSearchParams("unclassified=1")))).toBe(true)
+    expect(usesServerLibrary(worldCardFiltersFromQuery(new URLSearchParams("kind=entity")))).toBe(true)
+  })
+
+  it("服务端统一资料条目映射为卡片读模型并合并工作稿状态", () => {
+    const cards = cardsFromLibraryItems([
+      { kind: "page", id: "p1", title: "已发布页", summary: "概要", state: "active", working: true, draft_id: "d1", item_type: "rule", is_favorite: true, updated_at: "2026-09-01T00:00:00Z" },
+      { kind: "draft", id: "d2", title: "独立工作稿", state: "review", working: true, item_type: "custom" },
+      { kind: "entity", id: "e1", title: "雾港", state: "archived", item_type: "location" },
+    ])
+    expect(cards[0]).toMatchObject({ key: "page:p1", kind: "page", id: "p1", draftId: "d1", state: "working", stateLabel: "工作稿", isFavorite: true })
+    expect(cards[1]).toMatchObject({ key: "draft:d2", kind: "page", id: null, targetKind: "draft", draftId: "d2", state: "working" })
+    expect(cards[2]).toMatchObject({ key: "entity:e1", kind: "entity", id: "e1", state: "archived", stateLabel: "已归档" })
   })
 
   it("保留服务端按别名命中的对象，资料页则搜索完整内容", () => {

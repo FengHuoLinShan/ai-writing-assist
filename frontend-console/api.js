@@ -1293,6 +1293,106 @@ const api = {
       return request(withQuery("/world/bible/drafts", { novel_id: novelId }))
     },
 
+    async listWorldLibrary(params = {}) {
+      return request(withQuery("/world/library", params))
+    },
+
+    async getWorldLibraryOverview(novelId) {
+      return request(withQuery("/world/library/overview", { novel_id: novelId }))
+    },
+
+    async recordWorldLibraryRecent(novelId, targetKind, targetId) {
+      return post("/world/library/recents", {
+        novel_id: novelId,
+        target_kind: targetKind,
+        target_id: targetId,
+      })
+    },
+
+    async addWorldLibraryFavorite(novelId, targetKind, targetId) {
+      return post("/world/library/favorites", {
+        novel_id: novelId,
+        target_kind: targetKind,
+        target_id: targetId,
+      })
+    },
+
+    async removeWorldLibraryFavorite(novelId, targetKind, targetId) {
+      return deleteRequest(withQuery("/world/library/favorites", {
+        novel_id: novelId,
+        target_kind: targetKind,
+        target_id: targetId,
+      }))
+    },
+
+    async getWorldLibraryViewPrefs(novelId) {
+      return request(withQuery("/world/library/view-prefs", { novel_id: novelId }))
+    },
+
+    async updateWorldLibraryViewPrefs(novelId, viewPrefs) {
+      return put("/world/library/view-prefs", {
+        novel_id: novelId,
+        view_prefs: viewPrefs || {},
+      })
+    },
+
+    async listWorldLibraryTopics(novelId, includeArchived = false) {
+      return request(withQuery("/world/library/topics", {
+        novel_id: novelId,
+        include_archived: includeArchived,
+      }))
+    },
+
+    async createWorldLibraryTopic(novelId, payload = {}) {
+      return post("/world/library/topics", { novel_id: novelId, ...payload })
+    },
+
+    async updateWorldLibraryTopic(topicId, payload, novelId) {
+      return patch(withQuery(`/world/library/topics/${topicId}`, { novel_id: novelId }), payload)
+    },
+
+    async moveWorldLibraryTopic(topicId, payload, novelId) {
+      return post(withQuery(`/world/library/topics/${topicId}/move`, { novel_id: novelId }), payload)
+    },
+
+    async reorderWorldLibraryTopics(novelId, parentId, orderedIds) {
+      return post("/world/library/topics/reorder", {
+        novel_id: novelId,
+        parent_id: parentId || null,
+        ordered_ids: orderedIds,
+      })
+    },
+
+    async archiveWorldLibraryTopic(topicId, novelId, archived = true) {
+      return post(withQuery(`/world/library/topics/${topicId}/archive`, { novel_id: novelId }), {
+        novel_id: novelId,
+        archived,
+      })
+    },
+
+    async addWorldLibraryTopicMember(topicId, novelId, targetKind, targetId) {
+      return post(withQuery(`/world/library/topics/${topicId}/members`, { novel_id: novelId }), {
+        novel_id: novelId,
+        target_kind: targetKind,
+        target_id: targetId,
+      })
+    },
+
+    async removeWorldLibraryTopicMember(topicId, novelId, targetKind, targetId) {
+      return deleteRequest(withQuery(
+        `/world/library/topics/${topicId}/members/${targetKind}/${targetId}`,
+        { novel_id: novelId },
+      ))
+    },
+
+    async getWorldLibraryMemberships(novelId, targetKind, targetId) {
+      return request(withQuery("/world/library/memberships", {
+        novel_id: novelId,
+        target_kind: targetKind,
+        target_id: targetId,
+      }))
+    },
+
     async createBibleDraft(payload) {
       return post("/world/bible/drafts", payload)
     },

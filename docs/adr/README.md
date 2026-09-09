@@ -35,6 +35,7 @@ make docs-check BASE_REF=origin/main
 | [ADR-0018](0018-versioned-author-source-context-for-rp.md) | Accepted / Implemented | RP 只能以同 owner、显式版本化的 author 资料只读绑定进入 Evidence；source 读与 interaction 写严格分离。 |
 
 | [ADR-0019](0019-local-theme-resource-packages.md) | Accepted | 现代简约双模式、浏览器本地受限主题资源包、无服务端上传及手机统一编辑器。 |
+| [ADR-0020](0020-world-library-topics-and-workspace.md) | Accepted | 资料库主题目录（嵌套/多主题引用/发布转换）与作者工作区（收藏/最近访问/视图偏好）归 World 模块自有；统一 `/api/world/library` 只读合并分页，目录不构成事实依赖。 |
 
 `ADR-0009 附录 A` 延续 ADR-0009 的编号，不是第二个独立决策编号。
 

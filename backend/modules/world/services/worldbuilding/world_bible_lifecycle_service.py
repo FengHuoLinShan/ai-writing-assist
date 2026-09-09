@@ -803,6 +803,16 @@ class WorldBibleLifecycleService:
             )
             db.add(page)
             await db.flush()
+            from modules.world.services.worldbuilding.world_library_service import (
+                WorldLibraryService,
+            )
+
+            await WorldLibraryService().adopt_draft_workspace_refs(
+                db,
+                novel_id,
+                draft.id,
+                page.id,
+            )
         else:
             if page is None:
                 raise ConflictError("World Bible draft page changed during publish")

@@ -43,16 +43,6 @@ test.describe("作者任务工作台", () => {
     }
   }
 
-  async function switchLibraryLayout(page, label) {
-    if ((page.viewportSize()?.width || 1280) > 760) {
-      await page.locator("#sidebar-context-slot button", { hasText: label }).click()
-      return
-    }
-    const tools = page.locator(".world-sidebar-tools-mobile")
-    if (await tools.getAttribute("open") === null) await tools.locator("summary").click()
-    await tools.locator("button", { hasText: label }).click()
-  }
-
   test("返回作者两步内继续最近正文，并在 390px 保留带文字导航", async ({ page }) => {
     project = await createProject({ title: "今日工作续写", genre: "fantasy", language: "zh" })
     await createDraft(project.id, 3, "雾港来信", "潮声越过窗沿。")
@@ -178,9 +168,9 @@ test.describe("作者任务工作台", () => {
       await openWorkbench(page, project, "world", "bible")
       await page.getByRole("search").getByRole("searchbox", { name: "搜索资料" }).fill("港口资料")
       await page.getByRole("search").getByRole("button", { name: "查找" }).click()
-      await switchLibraryLayout(page, "切换到列表")
       await expect(page).toHaveURL(/world\/bible\?.*q=%E6%B8%AF%E5%8F%A3%E8%B5%84%E6%96%99/)
-      await expect(page).toHaveURL(/layout=list/)
+      // list 已是默认布局，不再写回 URL；只要确认没有停留在卡片视图。
+      await expect(page).not.toHaveURL(/layout=cards/)
       await expect(page.locator(".world-library-list__row")).toHaveCount(25)
 
       const content = page.locator("#workspace-content")
@@ -192,10 +182,10 @@ test.describe("作者任务工作台", () => {
         .click()
       await expect(page.locator("#bible-title")).toHaveValue("港口资料总览")
       await page.getByRole("button", { name: `打开 ${linkedEntity.name}` }).click()
-      await expect(page).toHaveURL(new RegExp(`world/bible\\?.*q=.*layout=list.*entity_id=${linkedEntity.id}`))
+      await expect(page).toHaveURL(new RegExp(`world/bible\\?.*q=.*entity_id=${linkedEntity.id}`))
       await expect(page.getByRole("heading", { name: linkedEntity.name })).toBeVisible()
       await page.locator(".world-entity-detail__back").click()
-      await expect(page).toHaveURL(/world\/bible\?.*q=.*layout=list/)
+      await expect(page).toHaveURL(/world\/bible\?.*q=/)
       await expect(page.locator(".world-library-list__row", { hasText: "港口资料总览" })).toBeVisible()
       await expect.poll(() => content.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
 
@@ -357,10 +347,10 @@ test.describe("作者任务工作台", () => {
     await page.getByRole("search").getByRole("searchbox", { name: "搜索资料" }).fill("港口")
     await page.getByRole("search").getByRole("button", { name: "查找" }).click()
     await expect(page.getByRole("alert")).toContainText("资料页和工作稿仍可使用")
-    await expect(page.locator(".world-bible-page-card", { hasText: "仍可使用的港口页" })).toBeVisible()
+    await expect(page.locator(".world-library-list__row", { hasText: "仍可使用的港口页" })).toBeVisible()
     await page.getByRole("button", { name: "重新加载" }).click()
     await expect(page.getByRole("alert")).toHaveCount(0)
-    await expect(page.locator(".world-card", { hasText: "重试后出现的港口灯塔" })).toBeVisible()
+    await expect(page.locator(".world-library-list__row", { hasText: "重试后出现的港口灯塔" })).toBeVisible()
   })
 
   test("默认前 50 条之外的对象仍可通过服务端搜索找到", async ({ page }) => {
@@ -389,20 +379,21 @@ test.describe("作者任务工作台", () => {
     ))
 
     await openWorkbench(page, project, "world", "bible")
-    await page.locator(".world-type-card", { hasText: "地点" }).click()
-    await expect(page.getByText("已显示前 50 个人物或设定")).toBeVisible()
+    await page.locator(".world-library-home__type-chip", { hasText: "地点" }).click()
+    // 服务端统一列表给出准确总数与完整分页，不再用“已显示前 50 条”截断提示。
+    await expect(page.locator(".world-pagination")).toContainText("共 100 条")
     await expect(page.locator(".world-card", { hasText: hiddenTarget.name })).toHaveCount(0)
     const searchRequest = page.waitForRequest((request) => {
       const url = new URL(request.url())
-      return url.pathname.endsWith("/api/world/entities")
+      return url.pathname.endsWith("/api/world/library")
         && url.searchParams.get("novel_id") === project.id
         && url.searchParams.get("q") === hiddenTarget.name
     })
     await page.getByRole("search").getByRole("searchbox", { name: "搜索资料" }).fill(hiddenTarget.name)
     await page.getByRole("search").getByRole("button", { name: "查找" }).click()
     await searchRequest
-    await expect(page.locator(".world-card", { hasText: hiddenTarget.name })).toBeVisible()
-    await page.locator(".world-card", { hasText: hiddenTarget.name })
+    await expect(page.locator(".world-library-list__row", { hasText: hiddenTarget.name })).toBeVisible()
+    await page.locator(".world-library-list__row", { hasText: hiddenTarget.name })
       .locator("[data-action='open-world-card']")
       .click()
     await expect(page).toHaveURL(new RegExp(`entity_id=${hiddenTarget.id}`))

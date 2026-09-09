@@ -329,7 +329,7 @@ describe("渲染契约", () => {
     content.scrollTop = 240
 
     await first.get("[data-action='open-world-card']").trigger("click")
-    expect(worldSession.bible.libraryScrollPositions["p1:q=%E5%8C%97%E5%A2%83"]).toBe(240)
+    expect(worldSession.bible.libraryScrollPositions["p1:q=%E5%8C%97%E5%A2%83&layout=cards"]).toBe(240)
     first.unmount()
     content.scrollTop = 0
 
@@ -535,7 +535,8 @@ describe("显示模式切换", () => {
       .get("[data-action='open-world-card']").trigger("click")
     let query = navigateMock.mock.calls.at(-1)[3]
     expect(query.get("kind")).toBe("page")
-    expect(query.get("layout")).toBe("list")
+    // list 是默认布局，不再写回 URL；读取时按默认值理解。
+    expect(query.get("layout") ?? "list").toBe("list")
     expect(query.get("page_id")).toBe("page-2")
     expect(query.get("draft_id")).toBeNull()
 
@@ -652,7 +653,7 @@ describe("显示模式切换", () => {
     expect(query.get("q")).toBe("港")
     expect(query.get("kind")).toBe("entity")
     expect(query.get("type")).toBe("location")
-    expect(query.get("layout")).toBe("list")
+    expect(query.get("layout") ?? "list").toBe("list")
   })
 
   it("gallery 模式从页面卡打开编辑", async () => {
@@ -2507,5 +2508,125 @@ describe("beforeunload 守卫", () => {
     handler(event)
     expect(event.defaultPrevented).toBe(false)
     listenerSpy.mockRestore()
+  })
+})
+
+describe("资料库主题目录与服务端列表", () => {
+  const OVERVIEW = {
+    topics: [
+      {
+        id: "topic-1", name: "地理", description: null, status: "active",
+        sort_order: 10, parent_id: null, member_count: 2,
+        children: [
+          { id: "topic-2", name: "北境", status: "active", sort_order: 10, parent_id: "topic-1", member_count: 1, children: [] },
+        ],
+      },
+    ],
+    totals: { all: 5, entity: 3, page: 1, draft: 1, working: 1, unclassified: 4, favorites: 1 },
+    type_facets: [{ type: "location", count: 3 }],
+    recent_items: [{ kind: "entity", id: "entity-1", title: "雾港", state: "active", working: false, item_type: "location", summary: "北境港口", last_opened_at: "2026-09-01T00:00:00Z" }],
+    favorite_items: [{ kind: "page", id: "page-1", title: "世界基本背景", state: "active", working: true, draft_id: "draft-1", item_type: "background", is_favorite: true }],
+    working_items: [{ kind: "draft", id: "draft-free", title: "新页工作稿", state: "review", working: true, item_type: "custom" }],
+  }
+
+  it("首页展示继续编辑、最近使用、收藏、主题目录与类型筛选入口", () => {
+    const wrapper = mountTab({
+      defaultDisplayMode: "gallery",
+      bible: { ...defaultBible(), libraryOverview: OVERVIEW },
+    })
+
+    expect(wrapper.find(".world-library-home").exists()).toBe(true)
+    expect(wrapper.text()).toContain("继续编辑")
+    expect(wrapper.text()).toContain("最近使用")
+    expect(wrapper.text()).toContain("收藏")
+    expect(wrapper.text()).toContain("主题目录")
+    expect(wrapper.find(".world-library-home__type-chip").text()).toContain("location")
+    // 类型大卡在首页让位给筛选入口
+    expect(wrapper.find(".world-type-grid").exists()).toBe(false)
+  })
+
+  it("从首页点主题进入服务端列表并携带 topic_id", async () => {
+    const wrapper = mountTab({
+      defaultDisplayMode: "gallery",
+      bible: { ...defaultBible(), libraryOverview: OVERVIEW },
+    })
+
+    await wrapper.get("[data-action='world-home-open-topic']").trigger("click")
+    const query = navigateMock.mock.calls.at(-1)[3]
+    expect(query.get("topic_id")).toBe("topic-1")
+  })
+
+  it("服务端列表渲染目录、紧凑列表与分页器，翻页写入 skip", async () => {
+    const libraryItems = Array.from({ length: 3 }, (_, index) => ({
+      kind: "entity", id: `entity-${index}`, title: `地点${index}`, state: "active",
+      working: false, item_type: "location", summary: "概要",
+    }))
+    const wrapper = mountTab({
+      defaultDisplayMode: "gallery",
+      worldCardFilters: { q: "", kind: "all", type: "location", state: "", layout: "list" },
+      bible: { ...defaultBible(), libraryOverview: OVERVIEW, libraryItems, libraryTotal: 120 },
+    })
+
+    expect(wrapper.find(".world-library-browse").exists()).toBe(true)
+    expect(wrapper.find(".world-library-directory").exists()).toBe(true)
+    expect(wrapper.findAll(".world-library-list__row")).toHaveLength(3)
+    const pager = wrapper.findComponent({ name: "WorldPager" })
+    expect(pager.exists()).toBe(true)
+    expect(wrapper.text()).toContain("120 项资料")
+
+    await pager.get("[data-action='world-library-next-page']").trigger("click")
+    const query = navigateMock.mock.calls.at(-1)[3]
+    expect(query.get("skip")).toBe("50")
+    expect(query.get("type")).toBe("location")
+  })
+
+  it("收藏切换与加入主题调用工作区接口", async () => {
+    const favoriteSpy = vi.fn().mockResolvedValue({ favorited: true })
+    const removeFavoriteSpy = vi.fn().mockResolvedValue({ favorited: false })
+    const membershipSpy = vi.fn().mockResolvedValue({ topic_ids: ["topic-1"] })
+    const addMemberSpy = vi.fn().mockResolvedValue({ added: true })
+    globalThis.api.world.addWorldLibraryFavorite = favoriteSpy
+    globalThis.api.world.removeWorldLibraryFavorite = removeFavoriteSpy
+    globalThis.api.world.getWorldLibraryMemberships = membershipSpy
+    globalThis.api.world.addWorldLibraryTopicMember = addMemberSpy
+
+    const libraryItems = [{
+      kind: "entity", id: "entity-9", title: "北境军镇", state: "active",
+      working: false, item_type: "location", is_favorite: false,
+    }]
+    const wrapper = mountTab({
+      defaultDisplayMode: "gallery",
+      worldCardFilters: { q: "军镇", kind: "all", type: "", state: "", layout: "list" },
+      bible: { ...defaultBible(), libraryOverview: OVERVIEW, libraryItems, libraryTotal: 1 },
+    })
+
+    await wrapper.get("[data-action='world-card-favorite']").trigger("click")
+    expect(favoriteSpy).toHaveBeenCalledWith("p1", "entity", "entity-9")
+
+    await wrapper.get("[data-action='world-card-add-topic']").trigger("click")
+    await vi.waitFor(() => expect(membershipSpy).toHaveBeenCalled())
+    const dialog = wrapper.findComponent({ name: "WorldTopicPickerDialog" })
+    expect(dialog.exists()).toBe(true)
+    document.querySelector("[data-topic-id='topic-2']").click()
+    await nextTick()
+    expect(addMemberSpy).toHaveBeenCalledWith("topic-2", "p1", "entity", "entity-9")
+  })
+
+  it("目录选择未归类与收藏写入对应筛选", async () => {
+    const wrapper = mountTab({
+      defaultDisplayMode: "gallery",
+      worldCardFilters: { q: "", kind: "all", type: "location", state: "", layout: "list" },
+      bible: { ...defaultBible(), libraryOverview: OVERVIEW, libraryItems: [], libraryTotal: 0 },
+    })
+
+    const directory = wrapper.findComponent({ name: "WorldLibraryDirectory" })
+    expect(directory.exists()).toBe(true)
+    await directory.vm.$emit("select", { unclassified: true, topicId: "", favorite: false, state: "", type: "", kind: "all" })
+    let query = navigateMock.mock.calls.at(-1)[3]
+    expect(query.get("unclassified")).toBe("1")
+
+    await directory.vm.$emit("select", { unclassified: false, topicId: "", favorite: true, state: "", type: "", kind: "all" })
+    query = navigateMock.mock.calls.at(-1)[3]
+    expect(query.get("fav")).toBe("1")
   })
 })

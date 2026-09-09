@@ -165,8 +165,8 @@ test.describe("世界书工作台", () => {
 
     await expect(page.locator(".world-bible-workspace")).toBeVisible()
     await page.evaluate(() => { document.documentElement.style.zoom = "1.1" })
-    await expect(page.locator(".world-type-grid")).toBeVisible()
-    await expect(page.locator(".world-type-card")).toHaveCount(8)
+    await expect(page.locator(".world-library-home")).toBeVisible()
+    await expect(page.locator(".world-library-home__heading h3")).toContainText(["主题目录", "按类型"])
     await clickWorldTool(page, "世界健康")
     await expect(page.getByRole("dialog")).toContainText("世界健康")
     await page.keyboard.press("Escape")
@@ -241,6 +241,10 @@ test.describe("世界书工作台", () => {
     await expect(page.locator(".world-bible-gallery__hero h2")).toHaveText("人物与世界")
     await page.getByRole("search").getByRole("searchbox").fill("E2E 世界基本背景")
     await page.getByRole("search").getByRole("button", { name: "查找", exact: true }).click()
+    // 搜索结果默认就是紧凑列表布局。
+    await expect(page.locator(".world-library-list")).toContainText("E2E 世界基本背景")
+    await clickWorldTool(page, "切换到卡片")
+    await expect(page.locator(".world-bible-page-card", { hasText: "E2E 世界基本背景" })).toBeVisible()
     await clickWorldTool(page, "切换到列表")
     await expect(page.locator(".world-library-list")).toContainText("E2E 世界基本背景")
     await clickWorldTool(page, "切换到卡片")
