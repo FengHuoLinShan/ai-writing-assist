@@ -219,7 +219,9 @@ test.describe("世界书工作台", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("已保存", { timeout: 10000 })
     await expect(page.locator("[data-action='bible-publish-page']")).toBeVisible()
     const publishedPage = await publishCurrentDraft(page)
-    await expect(page.locator(".world-bible-editor-panel > .world-bible-panel__header .world-bible-page-meta")).toContainText("已采用")
+    // 发布后回到已发布页的阅读态
+    await expect(page.locator(".world-page-reader")).toBeVisible()
+    await expect(page.locator(".world-page-reader__meta")).toContainText("已采用")
 
     await openDisclosure(page, "bible-ai-reference-rules")
     await page.locator("[data-action='bible-activation-new']").click()
@@ -238,7 +240,8 @@ test.describe("世界书工作台", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("AI 参考规则已发布", { timeout: 10000 })
     await expect(page.locator(".world-bible-profile-summary")).toContainText("已发布")
 
-    await page.getByRole("button", { name: /返回资料库/ }).click()
+    // 阅读态从阅读器返回资料库（视图头也有同名按钮，避免歧义）
+    await page.locator("[data-action='world-reader-back']").click()
     await expect(page.locator(".world-bible-gallery__hero h2")).toHaveText("人物与世界")
     await page.getByRole("search").getByRole("searchbox").fill("E2E 世界基本背景")
     await page.getByRole("search").getByRole("button", { name: "查找", exact: true }).click()
@@ -254,6 +257,8 @@ test.describe("世界书工作台", () => {
       .click()
     await expect(page).toHaveURL(new RegExp(`page_id=${publishedPage.id}`))
     await page.reload()
+    // 深链刷新后默认阅读态，进入编辑再核对正文
+    await page.locator("[data-action='world-reader-edit']").click()
     await expect(page.locator("#bible-free-text")).toHaveValue(freeText)
     await expectNoAppErrors(page, "展示模式切换后")
 
@@ -293,6 +298,7 @@ test.describe("世界书工作台", () => {
     await page.locator(".world-bible-page-card", { hasText: "E2E 世界基本背景" })
       .locator("[data-action='open-world-card']")
       .click()
+    await page.locator("[data-action='world-reader-edit']").click()
 
     await openDisclosure(page, "bible-page-tools")
     await page.locator("[data-action='bible-refresh-projection']").click()
@@ -308,6 +314,7 @@ test.describe("世界书工作台", () => {
     await expectNoAppErrors(page, "强制刷新后")
 
     await page.reload()
+    await page.locator("[data-action='world-reader-edit']").click()
     await expect(page.locator(".world-bible-workspace")).toContainText("E2E 世界基本背景")
     await expect(page.locator("#bible-free-text")).toHaveValue(freeText)
     await expect(page.locator("[data-section-field='body_markdown']").first()).toHaveValue("北境使用银币进行贸易。")
@@ -355,6 +362,7 @@ test.describe("世界书工作台", () => {
     await expect(page.locator("#btn-new-entity")).toBeVisible()
     await page.goBack()
     await expect(page.locator(".world-bible-workspace")).toBeVisible()
+    await page.locator("[data-action='world-reader-edit']").click()
     await expect(page.locator("#bible-free-text")).toHaveValue(freeText)
     await page.goForward()
     await expect(page).toHaveURL(new RegExp(`#workbench/${testProject.id}/world/bible\\?.*open=object-tools`))
@@ -390,6 +398,10 @@ test.describe("世界书工作台", () => {
     const publishedPage = await publishCurrentDraft(page)
     const sourcePageId = publishedPage.id || null
     expect(sourcePageId).toBeTruthy()
+
+    // 发布后默认阅读态；继续补充正文需要显式进入编辑
+    await expect(page.locator(".world-page-reader")).toBeVisible()
+    await page.locator("[data-action='world-reader-edit']").click()
 
     const header = page.locator(".world-bible-editor-panel > .world-bible-panel__header")
     const actions = header.locator(".world-bible-panel__actions")
@@ -439,6 +451,42 @@ test.describe("世界书工作台", () => {
     ]))
   })
 
+  test("资料页默认阅读态：目录定位、分区折叠、阅读/编辑切换，768px 无横向溢出", async ({ page }) => {
+    await createWorldBiblePage(testProject.id, {
+      title: "北境贸易志",
+      page_type: "background",
+      free_text: "北境以**银币**结算，冬季商路中断。",
+    })
+
+    await openWorkbench(page, testProject, "world", "bible")
+    await page.getByRole("search").getByRole("searchbox", { name: "搜索资料" }).fill("北境贸易志")
+    await page.getByRole("search").getByRole("button", { name: "查找", exact: true }).click()
+    await page.locator(".world-library-list__row", { hasText: "北境贸易志" })
+      .locator("[data-action='open-world-card']")
+      .click()
+
+    const reader = page.locator(".world-page-reader")
+    await expect(reader).toBeVisible()
+    await expect(page.locator("#world-page-reader-title")).toHaveText("北境贸易志")
+    await expect(reader.locator(".world-page-reader__markdown strong")).toHaveText("银币")
+
+    // 阅读态在 768px 下单列且不产生横向溢出
+    await page.setViewportSize({ width: 768, height: 900 })
+    await expectNoPageOverflow(page)
+
+    // 显式进入编辑，再返回阅读态
+    await reader.locator("[data-action='world-reader-edit']").click()
+    await expect(page.locator("#bible-free-text")).toBeVisible()
+    await page.locator("#bible-free-text").fill("北境以银币结算；夏季改走海路。")
+    await page.locator("[data-action='bible-back-to-read']").click()
+    await expect(reader).toBeVisible()
+    await expect(reader.locator(".world-page-reader__markdown")).toContainText("夏季改走海路")
+    const drafts = await listWorldBibleDrafts(testProject.id)
+    expect(drafts.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ free_text: "北境以银币结算；夏季改走海路。" }),
+    ]))
+  })
+
   test("Cmd/Ctrl+K 快速打开资料，Cmd/Ctrl+S 在输入中保存工作稿", async ({ page }) => {
     const sourcePage = await createWorldBiblePage(testProject.id, {
       title: "北境年鉴",
@@ -456,6 +504,8 @@ test.describe("世界书工作台", () => {
     await expect(quickOpen.locator(".world-quick-open__list")).toContainText("北境年鉴")
     await page.keyboard.press("Enter")
     await expect(page).toHaveURL(new RegExp(`page_id=${sourcePage.id}`))
+    // 快速打开落在阅读态，进入编辑后再验证快捷键保存
+    await page.locator("[data-action='world-reader-edit']").click()
     await expect(page.locator("#bible-free-text")).toBeVisible()
 
     // Cmd/Ctrl+S 在正文输入中直接保存工作稿（携带编辑基线）

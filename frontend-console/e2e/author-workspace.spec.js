@@ -180,6 +180,9 @@ test.describe("作者任务工作台", () => {
       await page.locator(".world-library-list__row", { hasText: "港口资料总览" })
         .locator("[data-action='open-world-card']")
         .click()
+      // 打开资料页默认落在阅读态，进入编辑后核对标题并打开引用对象
+      await expect(page.locator(".world-page-reader")).toBeVisible()
+      await page.locator("[data-action='world-reader-edit']").click()
       await expect(page.locator("#bible-title")).toHaveValue("港口资料总览")
       await page.getByRole("button", { name: `打开 ${linkedEntity.name}` }).click()
       await expect(page).toHaveURL(new RegExp(`world/bible\\?.*q=.*entity_id=${linkedEntity.id}`))
@@ -193,6 +196,7 @@ test.describe("作者任务工作台", () => {
       await page.locator(".world-library-list__row", { hasText: "港口资料总览" })
         .locator("[data-action='open-world-card']")
         .click()
+      await page.locator("[data-action='world-reader-edit']").click()
       const pageOverview = page.locator("#bible-free-text")
       await pageOverview.fill("未保存的港口补充")
       const leaveDialog = page.waitForEvent("dialog")

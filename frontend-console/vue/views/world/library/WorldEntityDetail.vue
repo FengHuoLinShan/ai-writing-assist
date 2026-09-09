@@ -1,7 +1,8 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref, watch } from "vue"
 import { displayStateBadgeClass, worldAssetDisplay } from "../../../../shared/assetDisplayState.js"
-import { getApi, getToast } from "../../../bridge/index.js"
+import { getApi, getConfirm, getToast } from "../../../bridge/index.js"
+import { updateEntityWithBaseline } from "../logic/worldEntityOps.js"
 import TargetedCompletionPanel from "../../../components/TargetedCompletionPanel.vue"
 
 const props = defineProps({
@@ -36,6 +37,92 @@ const profileBaseline = ref(JSON.stringify(profileForm))
 const profileBaselineUpdatedAt = ref(null)
 const profileDirty = computed(() => profileLoaded.value && JSON.stringify(profileForm) !== profileBaseline.value)
 let profileGeneration = 0
+
+// ---- 基本资料就地编辑：名称 / 概要 / 公开信息 / 作者秘密 ----
+const BASIC_FIELDS = [
+  ["name", "名称", "对象的名字"],
+  ["summary", "概要", "一句话说明它是什么"],
+  ["public_info", "公开信息", "读者与其他人物可以知道的内容"],
+  ["hidden_truth", "作者秘密", "仅作者可见的真相或设定"],
+]
+const basicEditing = ref(false)
+const basicSaving = ref(false)
+const basicError = ref("")
+const basicConflict = ref(null)
+const basicForm = reactive(Object.fromEntries(BASIC_FIELDS.map(([key]) => [key, ""])))
+const basicBaseline = ref(JSON.stringify(basicForm))
+const basicBaselineUpdatedAt = ref(null)
+
+function fillBasicForm(entity = props.entity) {
+  for (const [key] of BASIC_FIELDS) basicForm[key] = entity?.[key] || ""
+  basicBaseline.value = JSON.stringify(basicForm)
+  basicBaselineUpdatedAt.value = entity?.updated_at || null
+}
+
+const basicDirty = computed(() => basicEditing.value && JSON.stringify(basicForm) !== basicBaseline.value)
+
+function startBasicEdit() {
+  basicConflict.value = null
+  basicError.value = ""
+  fillBasicForm()
+  basicEditing.value = true
+}
+
+function cancelBasicEdit() {
+  if (basicDirty.value && !getConfirm()?.("有未保存的修改，确定取消吗？")) return
+  basicEditing.value = false
+  basicConflict.value = null
+  basicError.value = ""
+  fillBasicForm()
+}
+
+async function saveBasicEdit() {
+  if (basicSaving.value || !basicDirty.value) return
+  basicSaving.value = true
+  basicError.value = ""
+  basicConflict.value = null
+  try {
+    const payload = {}
+    for (const [key] of BASIC_FIELDS) payload[key] = basicForm[key]
+    payload.expected_updated_at = basicBaselineUpdatedAt.value
+    const updated = await updateEntityWithBaseline(
+      { ...props.entity, updated_at: basicBaselineUpdatedAt.value },
+      payload,
+      props.projectId,
+    )
+    basicBaselineUpdatedAt.value = updated?.updated_at || null
+    for (const [key] of BASIC_FIELDS) basicForm[key] = updated?.[key] ?? basicForm[key]
+    basicBaseline.value = JSON.stringify(basicForm)
+    basicEditing.value = false
+    getToast()("基本资料已保存", "success")
+    emit("refresh", props.entity.id || props.entity.entity_id)
+  } catch (error) {
+    if (error?.status === 409 && ["edit_baseline_required", "edit_baseline_stale"].includes(error?.body?.error)) {
+      try {
+        const server = await getApi().world.getEntity(props.entity.id || props.entity.entity_id, props.projectId)
+        basicConflict.value = { server, message: error.message }
+      } catch {
+        basicConflict.value = { server: null, message: error.message }
+      }
+    } else {
+      basicError.value = error?.message || "基本资料保存失败，输入已保留"
+    }
+  } finally {
+    basicSaving.value = false
+  }
+}
+
+function adoptServerEntity() {
+  const server = basicConflict.value?.server
+  basicConflict.value = null
+  if (!server) {
+    basicError.value = "暂时读不到服务器版本，请稍后重试"
+    return
+  }
+  fillBasicForm(server)
+  basicEditing.value = true
+  getToast()("已载入服务器版本；在此基础上修改后再保存", "info")
+}
 
 function fillProfile(value = {}) {
   for (const [key] of profileFields) profileForm[key] = value[key] || ""
@@ -81,8 +168,12 @@ async function saveProfile() {
   }
 }
 
-watch(profileDirty, (dirty) => emit("profile-dirty", dirty), { immediate: true })
+watch([profileDirty, basicDirty], ([profile, basic]) => emit("profile-dirty", Boolean(profile || basic)), { immediate: true })
 watch(() => props.entity?.id || props.entity?.entity_id, () => {
+  basicEditing.value = false
+  basicConflict.value = null
+  basicError.value = ""
+  fillBasicForm()
   profileGeneration += 1
   profileOpen.value = false
   profileLoading.value = false
@@ -107,9 +198,61 @@ onBeforeUnmount(() => { profileGeneration += 1; emit("profile-dirty", false) })
         <button type="button" class="btn btn-sm btn-primary" @click="emit('edit')">编辑资料</button>
       </div>
     </header>
-    <section>
-      <h3>概要</h3>
-      <p>{{ entity.summary || entity.public_info || '还没有概要，可以编辑后补充。' }}</p>
+    <section class="world-entity-basic" aria-label="基本资料">
+      <header class="world-entity-basic__header">
+        <h3>基本资料</h3>
+        <button v-if="!basicEditing" type="button" class="btn btn-sm" data-action="world-entity-basic-edit" @click="startBasicEdit">就地编辑</button>
+        <template v-else>
+          <button type="button" class="btn btn-sm btn-ghost" data-action="world-entity-basic-cancel" :disabled="basicSaving" @click="cancelBasicEdit">取消</button>
+          <button type="button" class="btn btn-sm btn-primary" data-action="world-entity-basic-save" :disabled="basicSaving || !basicDirty" @click="saveBasicEdit">{{ basicSaving ? '保存中…' : '保存' }}</button>
+        </template>
+      </header>
+
+      <template v-if="!basicEditing">
+        <dl class="world-entity-basic__facts">
+          <div><dt>名称</dt><dd>{{ entity.name || '未命名' }}</dd></div>
+          <div><dt>概要</dt><dd>{{ entity.summary || entity.public_info || '还没有概要，可以编辑后补充。' }}</dd></div>
+          <div v-if="entity.public_info"><dt>公开信息</dt><dd>{{ entity.public_info }}</dd></div>
+          <div v-if="entity.hidden_truth" class="world-entity-basic__secret"><dt>作者秘密</dt><dd>{{ entity.hidden_truth }}</dd></div>
+        </dl>
+      </template>
+
+      <div v-else class="world-entity-basic__form" :aria-busy="basicSaving">
+        <p v-if="basicError" class="error-card" role="alert">{{ basicError }}</p>
+        <div v-if="basicConflict" class="world-entity-basic__conflict" role="alert" data-conflict="basic">
+          <p>{{ basicConflict.message }}</p>
+          <dl v-if="basicConflict.server">
+            <div><dt>服务器版本 · 名称</dt><dd>{{ basicConflict.server.name || '（空）' }}</dd></div>
+            <div><dt>服务器版本 · 概要</dt><dd>{{ basicConflict.server.summary || '（空）' }}</dd></div>
+            <div><dt>服务器版本 · 更新时间</dt><dd>{{ basicConflict.server.updated_at || '未知' }}</dd></div>
+          </dl>
+          <div class="world-entity-basic__conflict-actions">
+            <button type="button" class="btn btn-sm" data-action="world-entity-basic-adopt-server" @click="adoptServerEntity">采用服务器版本</button>
+            <button type="button" class="btn btn-sm btn-ghost" data-action="world-entity-basic-keep-mine" @click="basicConflict = null">保留我的修改</button>
+          </div>
+        </div>
+        <label v-for="[key, label, hint] in BASIC_FIELDS" :key="key" class="world-entity-basic__field">
+          <span>{{ label }}</span>
+          <textarea
+            v-if="key !== 'name'"
+            v-model="basicForm[key]"
+            :data-basic-field="key"
+            rows="2"
+            :placeholder="hint"
+            :disabled="basicSaving"
+          ></textarea>
+          <input
+            v-else
+            v-model="basicForm[key]"
+            :data-basic-field="key"
+            type="text"
+            maxlength="255"
+            :placeholder="hint"
+            :disabled="basicSaving"
+          >
+        </label>
+        <p class="world-entity-basic__hint">保存需要明确点击“保存”；失焦不会修改已采用事实。</p>
+      </div>
     </section>
     <TargetedCompletionPanel :project-id="projectId" :entity-id="entity.id || entity.entity_id" :initial-name="entity.name || ''" @applied="emit('refresh', entity.id || entity.entity_id)" />
     <section v-if="isCharacter" class="world-character-profile">
@@ -143,6 +286,30 @@ onBeforeUnmount(() => { profileGeneration += 1; emit("profile-dirty", false) })
 
 <style scoped>
 .world-entity-detail { display: grid; gap: 20px; }
+.world-entity-basic { display: grid; gap: 10px; }
+.world-entity-basic__header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.world-entity-basic__header h3 { margin: 0; }
+.world-entity-basic__facts { display: grid; gap: 8px; margin: 0; }
+.world-entity-basic__facts > div { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 10px; }
+.world-entity-basic__facts dt { color: var(--text-muted); }
+.world-entity-basic__facts dd { margin: 0; white-space: pre-wrap; }
+.world-entity-basic__secret dd { color: var(--text-secondary); }
+.world-entity-basic__form { display: grid; gap: 10px; }
+.world-entity-basic__field { display: grid; gap: 4px; }
+.world-entity-basic__field span { color: var(--text-secondary); font-size: var(--text-sm); }
+.world-entity-basic__field input, .world-entity-basic__field textarea { width: 100%; }
+.world-entity-basic__hint { margin: 0; color: var(--text-muted); font-size: 12px; }
+.world-entity-basic__conflict { display: grid; gap: 8px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-panel); padding: 10px 12px; }
+.world-entity-basic__conflict p { margin: 0; }
+.world-entity-basic__conflict dl { display: grid; gap: 4px; margin: 0; }
+.world-entity-basic__conflict dl > div { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 8px; }
+.world-entity-basic__conflict dt { color: var(--text-muted); }
+.world-entity-basic__conflict dd { margin: 0; }
+.world-entity-basic__conflict-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 760px) {
+  .world-entity-basic__header .btn, .world-entity-basic__conflict-actions .btn { min-height: 44px; }
+  .world-entity-basic__field input, .world-entity-basic__field textarea { min-height: 44px; }
+}
 .world-entity-detail__header { display: flex; align-items: start; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--border); padding-bottom: 16px; }
 .world-entity-detail__header h2 { margin: 12px 0 6px; }
 .world-entity-detail__header p { margin: 0; color: var(--text-muted); }
