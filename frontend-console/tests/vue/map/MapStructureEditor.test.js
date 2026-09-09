@@ -9,6 +9,8 @@ vi.mock("../../../shared/aiReferenceModal.js", () => ({ confirmAiReference }))
 enableAutoUnmount(afterEach)
 
 const nodeId = "20000000-0000-0000-0000-000000000001"
+const confirmDecision = vi.hoisted(() => ({ current: () => true }))
+vi.mock('../../../shared/confirmAsync.js', () => ({ confirmAsync: message => Promise.resolve(confirmDecision.current(message)) }))
 const projectId = "10000000-0000-0000-0000-000000000001"
 const revisionId = "30000000-0000-0000-0000-000000000001"
 const nextId = "30000000-0000-0000-0000-000000000002"
@@ -39,6 +41,7 @@ describe("统一地图编辑器", () => {
     } }
     api.tasks = { cancel: vi.fn(async id => ({ task_id: id, status: 'cancelled', cancelled: true })), retry: vi.fn() }
     confirm = vi.fn(() => true)
+    confirmDecision.current = confirm
     router = { navigate: vi.fn() }
     setBridgeOverrides({ api, confirm, router })
     confirmAiReference.mockReset()
@@ -54,7 +57,27 @@ describe("统一地图编辑器", () => {
     vi.unstubAllGlobals()
     resetBridgeOverrides()
   })
-  const render = (props = {}) => mount(MapStructureEditor, { props: { projectId, node: { id: nodeId, title: "区域", level: "region" }, ...props } })
+  const render = (props = {}) => mount(MapStructureEditor, { global: { stubs: { teleport: true } }, props: { projectId, node: { id: nodeId, title: "区域", level: "region" }, ...props } })
+
+  it('保存失败时离开决定仍待定，继续编辑保留当前输入', async () => {
+    const proto = HTMLDialogElement.prototype
+    const oldShow = proto.showModal, oldClose = proto.close
+    proto.showModal = function () { this.open = true }
+    proto.close = function () { this.open = false }
+    const wrapper = render(); await flushPromises()
+    try {
+      await wrapper.get('.map-inspector input[maxlength="200"]').setValue('尚未保存的地点名')
+      const leaving = wrapper.vm.canLeave()
+      let settled = false; void leaving.then(() => { settled = true })
+      api.world.saveMapRevision.mockRejectedValueOnce(new Error('保存失败'))
+      await button(wrapper, '保存并离开').trigger('click'); await flushPromises()
+      expect(settled).toBe(false)
+      expect(wrapper.get('dialog').text()).toContain('保存失败')
+      expect(wrapper.get('.map-inspector input[maxlength="200"]').element.value).toBe('尚未保存的地点名')
+      await button(wrapper, '继续编辑').trigger('click')
+      expect(await leaving).toBe(false)
+    } finally { wrapper.unmount(); proto.showModal = oldShow; proto.close = oldClose }
+  })
 
   it("无需图片连接即可编辑保存，文字使用安全的 SVG 文本", async () => {
     const wrapper = render()
@@ -203,7 +226,7 @@ describe("统一地图编辑器", () => {
     const backup = document(); backup.features[0].label = '可选择恢复的编辑'
     const raw = JSON.stringify({ base_revision_id: revisionId, document: backup })
     localStorage.setItem(key, raw)
-    const wrapper = mount(MapStructureEditor, { props: { projectId, node: { id: nodeId, title: '区域', level: 'region' } }, attachTo: globalThis.document.body })
+    const wrapper = mount(MapStructureEditor, { global: { stubs: { teleport: true } }, props: { projectId, node: { id: nodeId, title: '区域', level: 'region' } }, attachTo: globalThis.document.body })
     await flushPromises()
     await button(wrapper, '放弃本机编辑').trigger('click'); await flushPromises()
     expect(wrapper.find('[aria-label="确认放弃本机编辑"]').exists()).toBe(true)
@@ -398,7 +421,7 @@ describe("统一地图编辑器", () => {
     const wrapper = render()
     await flushPromises()
     await button(wrapper, "查找").trigger("submit")
-    await wrapper.get(".map-inline-form").trigger("submit")
+    await wrapper.get(".map-location-search").trigger("submit")
     await flushPromises()
     expect(wrapper.findAll(".map-world-locations input")).toHaveLength(1)
     await wrapper.get(".map-world-locations input").setValue(true)
@@ -450,7 +473,7 @@ describe("统一地图编辑器", () => {
     api.world.getNodeMap.mockResolvedValue({ ...state(record()), task_id: 'old-task', task_status: 'done', generation_summary: generationSummary({ message: '旧任务摘要' }) })
     api.world.listEntities.mockResolvedValue({ items: [{ id: 'world-location', name: '临江城', status: 'canonical' }] })
     const wrapper = render(); await flushPromises()
-    await wrapper.get('.map-inline-form').trigger('submit'); await flushPromises()
+    await wrapper.get('.map-location-search').trigger('submit'); await flushPromises()
     await wrapper.get('.map-world-locations input').setValue(true)
     api.world.getNodeMap.mockRejectedValueOnce(new Error('本次地图读取失败'))
     await button(wrapper, '用这些地点生成空间关系').trigger('click'); await flushPromises()
@@ -797,6 +820,32 @@ describe("统一地图编辑器", () => {
     await button(wrapper, "返回当前地图").trigger("click")
     expect(wrapper.vm.dirty).toBe(false)
     expect(api.world.saveMapRevision).not.toHaveBeenCalled()
+  })
+
+  it("查证输入与完成结果在专注切换后保留，不重复查询", async () => {
+    api.context = {
+      startFocusedSearch: vi.fn(async () => ({ task_id: "lookup-1", status: "pending" })),
+      getFocusedSearch: vi.fn(async () => ({ status: "completed", result: {
+        targets: [{ key: "root", name: "查证结果地点", depth: 0 }], evidence: [],
+        coverage: { complete: true, total_chapters: 1, scanned_chapters: 1 }, warnings: [],
+      } })),
+    }
+    const wrapper = render(); await flushPromises()
+    const panel = wrapper.get(".focused-evidence")
+    panel.element.open = true; await panel.trigger("toggle")
+    await panel.get("input").setValue("待核对地点")
+    await panel.get("textarea").setValue("保留这个查证问题")
+    await panel.get("form").trigger("submit"); await flushPromises()
+    expect(panel.text()).toContain("查证结果地点")
+    await button(wrapper, "专注看图").trigger("click")
+    expect(wrapper.get(".map-evidence-panel").element.style.display).toBe("none")
+    await button(wrapper, "展开编辑工具").trigger("click")
+    expect(wrapper.get(".map-evidence-panel").element.style.display).not.toBe("none")
+    expect(wrapper.get(".focused-evidence").element).toBe(panel.element)
+    expect(panel.get("input").element.value).toBe("待核对地点")
+    expect(panel.get("textarea").element.value).toBe("保留这个查证问题")
+    expect(panel.text()).toContain("查证结果地点")
+    expect(api.context.startFocusedSearch).toHaveBeenCalledOnce()
   })
 
   it("专注浏览能查找选择地点，方向键和拖动不会改图", async () => {

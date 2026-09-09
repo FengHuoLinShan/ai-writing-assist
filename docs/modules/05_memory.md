@@ -89,3 +89,5 @@ Context 审查升级不改变 continuity 表或 checkpoint 语义。Scene/角色
 cd backend
 pytest modules/story/continuity/tests/ -v
 ```
+
+作者在资料审阅、篇章快速编辑或总览草稿中整理结构，不会直接重写 Memory 事件和角色知识；继续沿用 Story/Memory 的既有来源、可见性与版本校验边界。

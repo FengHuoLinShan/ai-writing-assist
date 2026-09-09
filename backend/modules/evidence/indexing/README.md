@@ -27,6 +27,8 @@ RAG P@5/MRR/R@10 语义质量评测。
 
 ## 不负责
 
+- 专项查证的模型提名与续查状态由 compilation 拥有；该步骤的预算不改变本域分块、向量或重建契约
+
 - 复杂 GraphRAG 社区摘要
 - Neo4j / Qdrant 集成
 - 自动剧情推理
@@ -368,3 +370,5 @@ Compilation 的 `retrieve_focused_evidence` 将本层混合检索用于有界语
 该过滤仍维持 contains-all 语义。本轮未修改 indexing API、评分、索引、表或任务行为。
 地图已有图元的精确原文来源可以通过 compilation pinned_refs 选入，不要求重建或复制索引。
 章首 offset=0 的选择校验修复不改变本子域的分块、offset/hash、检索排序或持久化表。
+
+检索 metrics 投影增加 `embedding_provider`，供前端结合既有 embedding_runtime 的健康状态区分本地检索准备与查询；不暴露凭据，也不把未知外部服务状态当作 ready。

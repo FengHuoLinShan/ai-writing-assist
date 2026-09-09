@@ -81,3 +81,9 @@ and continue writing” while keeping previews editable, sourced, versioned and
 reversible. It is not an RP-user entry point and does not expose raw task or
 database concepts as a product requirement. Adoption/undo/conflict behavior
 must remain visible to the author in the workbench.
+
+### 作者结构整理
+
+前端可选择现有剧情线、篇章加入可编辑总览草稿，并在手工版本 provenance.source_refs 保留来源版本标识；不双向覆盖来源或人工总览。篇章支持就地编辑，线索支持分组归类。生成线程分类统一为 main/sub/background；旧生成词项 subplot/secondary/relationship 映射 sub，mystery/hidden/world 映射 background，未知词项由 schema 拒绝而非静默变为主线。现有手工未知类型在前端编辑时保留。简单结构参数契约升级为 phase3_structure_simple_v3。
+
+剧情线名称/分类与篇章名称/范围可就地编辑；未保存行按账户与作品保存在当前浏览器，保存失败保留输入，备份失败或保存进行中阻止离开。未知旧分类在只改名称时原样保留。

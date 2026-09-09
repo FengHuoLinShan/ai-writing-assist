@@ -1499,16 +1499,6 @@
     color-mix(in srgb, var(--archive-paper-muted) 58%, transparent);
 }
 
-[data-workspace-view="writing"] .modal-content > .modal-header::after {
-  content: "DIALOG";
-  position: absolute;
-  right: 52px;
-  bottom: 7px;
-  color: var(--text-tertiary);
-  font: 8px/1 var(--font-mono);
-  letter-spacing: 0.22em;
-  pointer-events: none;
-}
 
 [data-workspace-view="writing"] .modal-content > .modal-header h3 {
   color: var(--archive-ink);

@@ -757,6 +757,8 @@ const api = {
   // 项目
   // ============================================================
   projects: {
+    async smartDedupReviewState(id, taskId) { return request(`/projects/${encodeURIComponent(id)}/smart-dedup/scans/${encodeURIComponent(taskId)}/review-state`) },
+    async recentSmartDedupScans(id) { return request(`/projects/${encodeURIComponent(id)}/smart-dedup/scans`) },
     async list() {
       return contractFetch("projects.list")
     },
@@ -1206,6 +1208,8 @@ const api = {
       return request(withQuery("/world/characters", params))
     },
 
+    async getEntityRelations(id, novelId) { return request(withQuery(`/world/entities/${id}/relations`, { novel_id: novelId })) },
+    async getEntityRevisions(id, novelId, skip = 0) { return request(withQuery(`/world/entities/${id}/revisions`, { novel_id: novelId, skip, limit: 20 })) },
     async getEntity(id, novelId, options = {}) {
       return contractFetch("world.getEntity", { id }, { novel_id: novelId }, options)
     },
@@ -2110,6 +2114,10 @@ const api = {
   // 导入
   // ============================================================
   imports: {
+    async workflowImpact(novelId, assetId) { return request(withQuery('/imports/workflows/impact', { novel_id: novelId, asset_id: assetId })) },
+    async recentWorkflows(novelId, skip = 0) { return request(withQuery('/imports/workflows/recent', { novel_id: novelId, skip, limit: 20 })) },
+    async deferTargetedCompletion(taskId) { return post(`/imports/targeted-completions/${taskId}/defer`, {}) },
+
     async targetedCompletion(payload) {
       return post("/imports/targeted-completions", payload)
     },
@@ -2162,8 +2170,8 @@ const api = {
       })
     },
 
-    async resumeDeepImport(taskId) {
-      return contractJson("imports.resumeDeepImport", {}, {}, { task_id: taskId })
+    async resumeDeepImport(taskId, options = {}) {
+      return contractJson("imports.resumeDeepImport", {}, {}, { task_id: taskId, ...options })
     },
 
     async abandonDeepImport(taskId) {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   authorFacingDiagnosticValue,
+  authorFacingDiagnosticText,
   checkItems,
   errorItems,
   eventItems,
@@ -9,6 +10,14 @@ import {
 } from "../../vue/components/progressUtils.js"
 
 describe("progressUtils 作者诊断投影", () => {
+  it("可读错误保留原因但不暴露异常类名", () => {
+    expect(authorFacingDiagnosticText("RuntimeError: 直接关联对象查读未完成，已保留进度供恢复")).toBe("直接关联对象查读未完成，已保留进度供恢复")
+  })
+
+  it("修复摘要中的阶段编号显示为作者可读步骤", () => {
+    expect(authorFacingDiagnosticText("phase1a_scene_slicing 已尝试修复 1 次")).toBe("阶段 2 · 划分场景边界 已尝试修复 1 次")
+  })
+
   it("递归转换 imports 真实嵌套错误字段与未知内部码", () => {
     const projected = authorFacingDiagnosticValue({
       phase2: {

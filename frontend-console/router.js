@@ -570,7 +570,20 @@ function _isRouteTransition(routeState) {
   return !_sameRoute(_representedRouteState(), routeState)
 }
 
-function _canLeaveMountedRoute(routeState) {
+// Only asynchronous leave decisions serialize navigation; ordinary loader races
+// retain the existing generation-based cancellation behavior.
+let _guardTransition = null
+async function _runGuardedNavigation(action) {
+  while (_guardTransition) await _guardTransition.done
+  const pending = action()
+  const owned = _guardTransition
+  try { return await pending }
+  finally {
+    if (owned && _guardTransition === owned) { _guardTransition = null; owned.finish() }
+  }
+}
+
+async function _canLeaveMountedRoute(routeState) {
   if (!_isRouteTransition(routeState)) return true
   const mounted = _currentMountedRoute()
   const renderer = mounted?.renderer || (
@@ -580,7 +593,13 @@ function _canLeaveMountedRoute(routeState) {
   )
   if (!renderer?.canLeave) return true
   try {
-    return renderer.canLeave() !== false
+    const decision = renderer.canLeave()
+    if (decision && typeof decision.then === "function" && !_guardTransition) {
+      let finish
+      const done = new Promise(resolve => { finish = resolve })
+      _guardTransition = { done, finish }
+    }
+    return (await decision) !== false
   } catch (err) {
     console.error(err)
     return false
@@ -595,8 +614,8 @@ function _isProjectOwnershipBoundary(routeState) {
   )
 }
 
-function _prepareRouteTransition(routeState) {
-  if (!_canLeaveMountedRoute(routeState)) return false
+async function _prepareRouteTransition(routeState) {
+  if (!await _canLeaveMountedRoute(routeState)) return false
   if (!_isProjectOwnershipBoundary(routeState)) return true
   if (typeof closeModal !== "function") return true
   try {
@@ -1079,7 +1098,7 @@ async function _navigateWithHistory(viewName, subView, query, historyMode) {
   }
 
   const sourceRoute = _representedRouteState()
-  if (!_prepareRouteTransition(routeState)) return false
+  if (!await _prepareRouteTransition(routeState)) return false
 
   if (sourceRoute.viewName) {
     if (
@@ -1118,21 +1137,21 @@ async function _navigateWithHistory(viewName, subView, query, historyMode) {
 }
 
 async function navigate(viewName, subView = null, pushHistory = true, query = null) {
-  return _navigateWithHistory(
+  return _runGuardedNavigation(() => _navigateWithHistory(
     viewName,
     subView,
     query || new URLSearchParams(),
     pushHistory ? "push" : "none",
-  )
+  ))
 }
 
 async function replace(viewName, subView = null, query = null) {
-  return _navigateWithHistory(
+  return _runGuardedNavigation(() => _navigateWithHistory(
     viewName,
     subView,
     query || new URLSearchParams(),
     "replace",
-  )
+  ))
 }
 
 async function _retryFailedProjectRoute(failure) {
@@ -1213,13 +1232,16 @@ async function refresh() {
 
 let _popstateBound = false
 
-async function _handlePopState() {
+function _handlePopState() {
+  const hash = window.location.hash.slice(1) || "home"
+  return _runGuardedNavigation(() => _applyPopState(hash))
+}
+async function _applyPopState(hash) {
   try {
-    const hash = window.location.hash.slice(1) || "home"
     const parsed = _parseHash(hash)
     const routeState = _normalizeRoute(parsed)
     const sourceRoute = _representedRouteState()
-    if (!_prepareRouteTransition(routeState)) {
+    if (!await _prepareRouteTransition(routeState)) {
       _restoreMountedRouteHash()
       return false
     }
@@ -1246,7 +1268,8 @@ async function _handlePopState() {
 /**
  * 根据当前 hash 初始化路由
  */
-async function initRouter() {
+function initRouter() { return _runGuardedNavigation(_initializeRouter) }
+async function _initializeRouter() {
   // Bind before the initial metadata await so an immediate browser back/forward
   // invalidates the initializing route instead of being missed.
   if (!_popstateBound) {
@@ -1257,7 +1280,7 @@ async function initRouter() {
   let hash = window.location.hash.slice(1) || "home"
   let parsed = _parseHash(hash)
   let routeState = _normalizeRoute(parsed)
-  if (!_prepareRouteTransition(routeState)) {
+  if (!await _prepareRouteTransition(routeState)) {
     _restoreMountedRouteHash()
     return false
   }

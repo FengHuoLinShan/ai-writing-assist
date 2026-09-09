@@ -242,6 +242,40 @@ async def test_author_task_source_validation_and_lost_source_projection(
 
 
 @pytest.mark.asyncio
+async def test_chapter_task_sources_use_real_writing_contract(
+    async_client: AsyncClient, db_session: AsyncSession,
+) -> None:
+    from modules.writing.facade import create_draft_only
+
+    project_id = await _project(async_client, "章节来源")
+    other_id = await _project(async_client, "其他作品")
+    await create_draft_only(db_session, project_id, 1, "旧标题", "原文")
+    await create_draft_only(db_session, project_id, 1, "最新标题", "新原文")
+    await create_draft_only(db_session, other_id, 2, "其他作品章节", "不可跨作品引用")
+    created = await async_client.post(
+        f"/api/projects/{project_id}/author-tasks",
+        json={"title": "核对本章", "source": {"kind": "writing_chapter", "id": "1"}},
+        headers=XHR,
+    )
+    assert created.status_code == 201
+    assert created.json()["source"]["label"] == "最新标题"
+    assert created.json()["source"]["available"] is True
+    listing = await async_client.get(
+        f"/api/projects/{project_id}/author-tasks", params={"scope": "inbox"},
+    )
+    assert listing.status_code == 200
+    assert listing.json()["items"][0]["source"]["label"] == "最新标题"
+    summary = await async_client.get(f"/api/projects/{project_id}/workspace-summary")
+    assert summary.status_code == 200
+    foreign = await async_client.post(
+        f"/api/projects/{project_id}/author-tasks",
+        json={"title": "其他作品", "source": {"kind": "writing_chapter", "id": "2"}},
+        headers=XHR,
+    )
+    assert foreign.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_author_task_source_boundaries_reject_invalid_ids_and_missing_scene(
     async_client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,

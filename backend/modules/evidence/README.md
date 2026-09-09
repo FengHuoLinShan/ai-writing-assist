@@ -57,3 +57,5 @@ pytest modules/evidence/indexing/tests modules/evidence/compilation/tests -q
 HTTP 与内部边界、来源范围及恢复详见 compilation/README.md。
 原文选择支持 `start_offset=0`，以半开区间定位章首；缺失或负数起点仍拒绝。地图的已保存图元
 来源通过既有 pinned_refs 预填，仍受作者排除、预算、正文版本/hash与可见性重验约束。
+
+共享一跳提名使用明确的32768输出上限与600秒截止，首轮传完整schema并使用低强度low推理；恢复仍只重做未完成提名，不丢弃已查原文。

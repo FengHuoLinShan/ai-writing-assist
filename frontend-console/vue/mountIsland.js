@@ -15,8 +15,8 @@
  * router 不再缓存 DocumentFragment。离开任何业务视图都会执行 onLeave，
  * 需要恢复的编辑会话由所属视图显式持久化，不依赖存活 DOM。
  *
- * canLeave：router 的路由守卫契约（router.js _canLeaveCurrentRoute，同步返回
- * false 阻断导航）。组件经 useLeaveGuard(fn) 注册同步守卫（如 worldBible 的
+ * canLeave：router 的路由守卫契约（router.js _canLeaveCurrentRoute，支持同步或异步返回
+ * false 阻断导航）。组件经 useLeaveGuard(fn) 注册守卫（如 worldBible 的
  * 未保存确认）；单槽位，后注册覆盖先注册，组件卸载时注销。
  *
  * query-only 导航兜底：router 的 isSameRender 优化在同视图+同子视图+同项目
@@ -89,7 +89,7 @@ export function mountIsland({ viewName, component, load = null }) {
 
     canLeave() {
       if (!leaveGuard) return true
-      return leaveGuard() !== false
+      return leaveGuard()
     },
   }
 }

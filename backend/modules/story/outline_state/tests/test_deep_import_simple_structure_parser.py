@@ -154,7 +154,7 @@ async def test_deep_import_simple_structure_parser_converts_probe_shape() -> Non
     assert [item.name for item in parsed.foreshadowing_plans] == ["灰雾空间"]
     assert [item.target_name for item in parsed.reveal_plans] == ["罗塞尔日记"]
     assert parsed.turning_points[0]["title"] == "决定加入值夜者"
-    assert parsed.diagnostics["parameter_version"] == "phase3_structure_simple_v2"
+    assert parsed.diagnostics["parameter_version"] == "phase3_structure_simple_v3"
     assert parsed.diagnostics["invalid_scene_ref_count"] == 1
     assert parsed.diagnostics["turning_point_count"] == 1
 

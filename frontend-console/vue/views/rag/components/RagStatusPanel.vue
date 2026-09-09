@@ -111,6 +111,7 @@ watch(
 )
 
 const health = computed(() => props.evidenceHealth)
+const healthState = computed(() => fields.statusDegraded ? "degraded" : health.value?.health_state)
 const healthScene = computed(() => health.value?.scene_span_coverage || {})
 const healthMapping = computed(() => health.value?.rag_mapping_coverage || {})
 const healthRetrieval = computed(() => health.value?.retrieval_summary || {})
@@ -224,9 +225,10 @@ const statusItems = computed(() => fields.statusItems || [])
         </div>
       </div>
 
-      <div v-if="fields.statusDegraded" class="rag-status-message rag-status-message--warning" role="status">
+      <div v-if="fields.statusDegraded || fields.retryableEmbeddingCount > 0" class="rag-status-message rag-status-message--warning" role="status">
         <strong>部分资料暂时找不到</strong>
         <p>{{ statusWarningText }}</p>
+        <button v-if="fields.retryableEmbeddingCount > 0" type="button" class="btn btn-sm" data-action="retry-embeddings" :disabled="maintenanceBusy" @click="emit('retry-embeddings')">重试 {{ fields.retryableEmbeddingCount }} 个未完成片段</button>
       </div>
 
       <div v-if="fields.totalChunks === 0" class="rag-status-message" role="status">
@@ -239,8 +241,8 @@ const statusItems = computed(() => fields.statusItems || [])
         <div class="card-title">查找资料概览</div>
         <div class="rag-status-metrics">
           <div class="rag-status-metric">
-            <strong class="rag-status-value"><span class="badge" :class="statusBadgeOk ? 'badge-canonical' : 'badge-draft'">{{ statusBadgeOk ? "正常" : "未连接" }}</span></strong><br>
-            <span class="rag-status-label">查找功能</span>
+            <strong class="rag-status-value"><span class="badge" :class="statusBadgeOk ? 'badge-canonical' : 'badge-draft'">{{ statusBadgeOk ? "已连接" : "未连接" }}</span></strong><br>
+            <span class="rag-status-label">服务连接</span>
           </div>
           <div class="rag-status-metric">
             <strong class="rag-status-value">{{ countDisplay }}</strong><br>
@@ -261,11 +263,11 @@ const statusItems = computed(() => fields.statusItems || [])
         </div>
         </section>
 
-        <section v-if="health" class="card rag-status-card" :class="{ 'rag-status-warning-card': health.health_state === 'degraded' }">
+        <section v-if="health" class="card rag-status-card" :class="{ 'rag-status-warning-card': healthState === 'degraded' }">
         <div class="card-title">查找质量</div>
         <div class="rag-status-metrics">
           <div class="rag-status-metric">
-            <strong class="rag-status-value rag-status-value--state">{{ EVIDENCE_HEALTH_LABELS[health.health_state] || health.health_state }}</strong><br>
+            <strong class="rag-status-value rag-status-value--state">{{ EVIDENCE_HEALTH_LABELS[healthState] || healthState }}</strong><br>
             <span class="rag-status-label">近期状态</span>
           </div>
           <div class="rag-status-metric">
@@ -286,7 +288,7 @@ const statusItems = computed(() => fields.statusItems || [])
           </div>
         </div>
         <p v-if="healthReasons" class="rag-empty-copy">原因：{{ healthReasons }}</p>
-        <p v-if="health.health_state === 'degraded'" class="rag-empty-copy" data-author-action="can_improve">
+        <p v-if="healthState === 'degraded'" class="rag-empty-copy" data-author-action="can_improve">
           这表示当前查找证据还不完整，不代表作品内容有错，也不会阻止手写正文。
         </p>
         </section>
@@ -335,7 +337,6 @@ const statusItems = computed(() => fields.statusItems || [])
         </div>
         <div class="rag-maintenance-tools__actions">
           <button type="button" class="btn btn-sm" data-action="prewarm-rag" :disabled="session.prewarmState === 'running'" @click="emit('prewarm')">{{ session.prewarmState === "running" ? "正在重新连接…" : "重新连接查找功能" }}</button>
-          <button v-if="fields.retryableEmbeddingCount > 0" type="button" class="btn btn-sm" data-action="retry-embeddings" :disabled="maintenanceBusy" @click="emit('retry-embeddings')">重试 {{ fields.retryableEmbeddingCount }} 个未完成片段</button>
         </div>
       </section>
 

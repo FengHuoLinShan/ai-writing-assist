@@ -606,3 +606,7 @@ character_ranges_verified，knowledge_boundary_audit 始终为 not_performed，�
 可见性门禁声称为完整角色知识审查。reader/author 原文行为与全局 NovelEvidence.read 不变。
 `ContextSelectionRefRequest` 接受原文半开区间的合法起点 0（不能用 truthiness 判为空）；缺失、
 负数或布尔起点拒绝。地图复用 source_range/target pinned_refs，不新增 scope 或绕过确认重物化。
+
+直接关联提名从首轮附完整 NeighborNominations schema，使用低强度 low 推理参数、32768输出上限和600秒受管等待，独立查证与导入调用均保持相同界限。该预算不继承账户通用输出上限，不改变深度1、引用逐字验证、只读权限或续查范围。
+
+一跳提名的 DeepSeek `low` 选项依据[官方思考模式接口](https://api-docs.deepseek.com/guides/thinking_mode/)，只改变这项只读步骤的推理强度；其他工作流设置和证据校验保持各自契约。

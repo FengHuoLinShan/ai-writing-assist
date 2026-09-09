@@ -104,6 +104,7 @@ class TaskLifecycleService:
         task_id: str,
         task_types: set[str],
         novel_id: str,
+        allow_completed: bool = False,
     ) -> TaskLifecycleContract:
         """Requeue one exactly scoped manual-resume task."""
         try:
@@ -124,10 +125,9 @@ class TaskLifecycleService:
         if task is None:
             raise ValueError("task not found")
         contract = lifecycle_contract(task, max_heartbeat_gap=0)
-        if (
-            task.status != "failed"
-            or task.recovery_policy != "manual_resume"
-            or not contract.recovery_required
+        if task.recovery_policy != "manual_resume" or not (
+            (task.status == "failed" and contract.recovery_required)
+            or (allow_completed and task.status == "done")
         ):
             raise ValueError("task does not require manual recovery")
         if await self._has_pending_follower(db, task):
@@ -520,6 +520,29 @@ class TaskLifecycleService:
         )
         await db.flush()
         return result.rowcount or 0
+
+    async def list_recent_summaries(
+        self, db: AsyncSession, *, novel_id: str, task_type: str, limit: int = 20
+    ) -> list[dict]:
+        rows = (
+            await db.execute(
+                select(AsyncTask.id, AsyncTask.status, AsyncTask.created_at)
+                .where(
+                    AsyncTask.novel_id == uuid.UUID(novel_id),
+                    AsyncTask.task_type == task_type,
+                )
+                .order_by(AsyncTask.created_at.desc(), AsyncTask.id.desc())
+                .limit(min(100, max(1, limit)))
+            )
+        ).all()
+        return [
+            {
+                "task_id": str(row.id),
+                "status": row.status,
+                "created_at": row.created_at.isoformat(),
+            }
+            for row in rows
+        ]
 
     async def list_contracts(
         self,

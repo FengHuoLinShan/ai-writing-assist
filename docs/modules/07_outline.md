@@ -300,3 +300,5 @@ OpenAPI 标记 deprecated；来源 Scene 在 worker 写回前按项目和来源�
 cd backend
 pytest modules/story/outline_state/tests/ -v
 ```
+
+作者可就地编辑篇章并批量归类信息推进计划；总览引用已有剧情线、篇章只形成可编辑草稿，经确认保存为新版本。生成线程分类与旧词项映射见 Story README。

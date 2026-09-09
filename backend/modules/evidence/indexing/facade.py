@@ -438,11 +438,13 @@ async def split_text_into_chunks(
 
 async def get_metrics_status() -> dict:
     """获取 RAG 检索运行时指标与熔断器状态。"""
+    from core.config import get_settings
     from infrastructure.embedding.client import BgeEmbeddingClient
     from modules.evidence.indexing.circuit_breaker import get_circuit_breaker
     from modules.evidence.indexing.metrics import get_metrics
 
     return {
+        "embedding_provider": get_settings().embedding_provider,
         "metrics": get_metrics().snapshot,
         "circuit_breaker": get_circuit_breaker().status,
         "embedding_runtime": BgeEmbeddingClient.runtime_snapshot(),

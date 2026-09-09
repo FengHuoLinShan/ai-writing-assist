@@ -118,7 +118,7 @@
               </span>
             </header>
             <div class="world-candidate-alias-group__items">
-              <WorldCandidateGroupItem v-for="candidate in group.candidates" :key="entityIdOf(candidate)" :candidate="candidate" badge-label="建议别名" :active="activeKey === entityIdOf(candidate)" @select="selectReviewItem" />
+              <WorldCandidateGroupItem v-for="candidate in group.candidates" :key="entityIdOf(candidate)" :candidate="candidate" :type-label="entityTypeLabel(candidate.entity_type)" badge-label="建议别名" :active="activeKey === entityIdOf(candidate)" @select="selectReviewItem" />
             </div>
           </section>
         </div>
@@ -140,7 +140,7 @@
               </span>
             </header>
             <div class="world-candidate-alias-group__items">
-              <WorldCandidateGroupItem v-for="candidate in group" :key="entityIdOf(candidate)" :candidate="candidate" badge-label="相似名称" :active="activeKey === entityIdOf(candidate)" @select="selectReviewItem" />
+              <WorldCandidateGroupItem v-for="candidate in group" :key="entityIdOf(candidate)" :candidate="candidate" :type-label="entityTypeLabel(candidate.entity_type)" badge-label="相似名称" :active="activeKey === entityIdOf(candidate)" @select="selectReviewItem" />
             </div>
           </section>
         </div>
@@ -225,6 +225,7 @@
         @run="(action) => runReviewBulkAction('world-aliases', action, flatAliases)"
       />
 
+      <WorldReviewBatch v-if="flatAliases.length" kind="alias" :items="flatAliases" :catalog="reviewTypeCatalog" />
       <div v-if="aliasReviewLoadError" class="empty-state" role="alert" data-author-action="must_fix">
         <strong>待决定别名没有加载出来</strong>
         <p>原有资料没有变化，可以重新加载。</p>
@@ -325,6 +326,7 @@
         @run="(action) => runReviewBulkAction('world-relation-groups', action, relationGroups)"
       />
 
+      <WorldReviewBatch v-if="relationGroups.length" kind="relation" :items="relationGroups" :catalog="reviewTypeCatalog" />
       <div v-if="relationReviewLoadError" class="empty-state" role="alert" data-author-action="must_fix">
         <strong>待决定关系没有加载出来</strong>
         <p>原有资料没有变化，可以重新加载。</p>
@@ -470,8 +472,8 @@
             <p v-else-if="dependencyState.blocker" class="review-warning">需先决定“{{ dependencyState.blocker.name }}”，才能安心采用这条关系。</p>
             <button v-if="dependencyState.blocker" type="button" class="btn btn-primary world-review-touch-target" @click="openBlockingObject(dependencyState.blocker.id)">先处理对象</button>
             <div v-else-if="!dependencyState.error" class="world-relation-decision">
-              <p class="world-text-dim">拖动任意一张人物卡到空槽；另一张会自动补入另一侧，每组只需拖一次。</p>
-              <div class="world-relation-decision__people" role="group" aria-label="待配对人物">
+              <p class="world-text-dim">请核对下方关系方向；可以交换两端，或重新选择对象。</p>
+              <div v-if="!relationPairingComplete" class="world-relation-decision__people" role="group" aria-label="待配对人物">
                 <button
                   v-for="person in relationPeople"
                   :key="person.id"
@@ -505,6 +507,7 @@
                   <strong>{{ relationEndpointName(relationDecisionForm.target_id) || "拖入人物" }}</strong>
                 </button>
               </div>
+              <button v-if="relationPairingComplete" type="button" class="btn btn-sm" @click="assignRelationPerson(relationDecisionForm.target_id, 'source')">交换方向</button><button v-if="relationPairingComplete" type="button" class="btn btn-sm" data-action="reset-relation-pair" @click="relationDecisionForm.source_id = ''; relationDecisionForm.target_id = ''; persistActiveRelationDecision()">重新配对</button>
               <p v-if="selectedRelationPersonId && !relationPairingComplete" class="world-text-dim" role="status">已选择“{{ relationEndpointName(selectedRelationPersonId) }}”，再点一个空槽即可。</p>
 
               <div class="world-relation-decision__fields">
@@ -546,7 +549,7 @@
               <p v-if="relationDecisionStale" class="review-warning">旧草稿对应的内容已变化，已按当前内容重新载入，请重新确认。</p>
               <p v-if="session.relationReviewErrors[activeItem.group_id]" class="review-item-error" role="alert">{{ session.relationReviewErrors[activeItem.group_id] }}</p>
               <div class="world-relation-decision__actions">
-                <button type="button" class="btn btn-primary world-review-touch-target" data-action="confirm-relation-decision" :disabled="relationDecisionProcessing" @click="confirmActiveRelationDecision">采用关系</button>
+                <button type="button" class="btn btn-primary world-review-touch-target" data-action="confirm-relation-decision" :disabled="relationDecisionProcessing" @click="confirmActiveRelationDecision">{{ nextRelationKey ? '采用并查看下一条' : '采用关系' }}</button>
                 <button type="button" class="btn btn-danger world-review-touch-target" data-action="ignore-current-relation" :disabled="relationDecisionProcessing" @click="applyRelationReviewBatch([activeItem], true)">忽略本组</button>
                 <button type="button" class="btn world-review-touch-target" data-action="cancel-relation-decision" :disabled="relationDecisionProcessing" @click="cancelRelationDecision">稍后再决定</button>
               </div>
@@ -563,6 +566,7 @@
 </template>
 
 <script setup>
+import WorldReviewBatch from "./WorldReviewBatch.vue"
 import { computed, reactive, ref, watch, onBeforeUnmount, onMounted, nextTick } from "vue"
 import { getApi, getAppState, getRouteQuery, getRouter } from "../../../bridge/index.js"
 import { worldSession as session } from "../worldSession.js"
@@ -1090,15 +1094,22 @@ function placeSelectedRelationPerson(side) {
   if (selectedRelationPersonId.value) assignRelationPerson(selectedRelationPersonId.value, side)
 }
 
+const nextRelationKey = computed(() => {
+  const index = props.relationGroups.findIndex(group => group.group_id === activeKey.value)
+  return props.relationGroups[index + 1]?.group_id || ""
+})
 async function confirmActiveRelationDecision() {
   const group = activeRelationGroup.value
   if (!group) return
-  const accepted = await acceptRelationReviewDecision(group, relationDecisionForm)
-  if (accepted) {
-    activeKey.value = ""
-    mobileDetailOpen.value = false
-    syncReviewSelection("")
-  }
+  const nextKey = nextRelationKey.value
+  const accepted = await acceptRelationReviewDecision(group, relationDecisionForm, { refresh: false })
+  if (!accepted || disposed) return
+  activeKey.value = nextKey
+  mobileDetailOpen.value = Boolean(nextKey)
+  syncReviewSelection(nextKey)
+  await nextTick()
+  decisionEl.value?.focus?.()
+  await getRouter()?.refresh?.()
 }
 
 function cancelRelationDecision() {
@@ -1246,3 +1257,7 @@ function canonicalTypeLabels(group) {
   return (group.canonical_relations || []).map((item) => reviewTypeLabel("relation", item.relation_type)).join("、")
 }
 </script>
+
+<style scoped>
+.review-member-row__description,.world-review-candidate-summary{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.world-review-decision__actions,.world-relation-decision__actions,.world-alias-decision__actions{position:sticky;bottom:0;background:var(--bg-base);padding-block:12px;z-index:1}
+</style>

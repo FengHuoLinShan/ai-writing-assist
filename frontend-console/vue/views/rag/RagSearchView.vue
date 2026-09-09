@@ -58,7 +58,7 @@ watch(form, (value) => {
   session.formRouteSignature = currentFormRouteSignature
 }, { deep: true, immediate: true })
 
-const { searching, searchError, doSearch, loadMore } = useRagSearch()
+const { searching, searchStage, searchError, doSearch, loadMore } = useRagSearch()
 const drawer = useEvidenceDrawer()
 const chapterRangeError = computed(() => (
   normalizeChapterRange(form.chapterFrom, form.chapterTo).error || ""
@@ -362,6 +362,7 @@ onMounted(() => {
     :chapter-range-error="chapterRangeError"
     :ask-world-pending="askingWorld"
     :search-pending="searching"
+    :search-stage="searchStage"
     @submit="submit"
     @ask-world="askWorld"
   />

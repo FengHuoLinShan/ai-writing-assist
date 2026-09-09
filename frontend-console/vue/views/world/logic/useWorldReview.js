@@ -8,6 +8,7 @@
  * 草稿/错误/批量选择落 worldSession（见 worldSession.js 进入协调语义）。
  */
 import { getApi, getAppState, getCloseModal, getConfirmAction, getEsc, getRouter, getShowModalHtml, getToast } from "../../../bridge/index.js"
+import { confirmAsync } from "../../../../shared/confirmAsync.js"
 import { worldSession } from "../worldSession.js"
 import {
   WORLD_SUGGESTED_ACTION_LABELS,
@@ -319,13 +320,14 @@ function relationDecisionReusesCanonical(group, decision) {
 
 /** 对应 vanilla _inlineEvidenceHtml；返回键值对数组供模板渲染。 */
 export function inlineEvidencePairs(item = {}) {
+  const quotes = Object.values(item.field_evidence || {}).flat().filter(value => typeof value === "string" && value.trim())
   return [
     ["来源", reviewSourceLabel(item.source)],
     ["处理批次", item.workflow_id],
     ["章节", item.source_chapter_index],
-    ["场景", item.scene_index || item.scene_id],
+    ["场景", item.scene_index ?? item.source_scene_index ?? item.scene_id],
     ["置信度", item.confidence != null ? `${(Number(item.confidence) * 100).toFixed(0)}%` : ""],
-    ["引用", item.quote],
+    ["引用", item.quote || [...new Set(quotes)].join("\n")],
   ].filter(([, value]) => value != null && String(value).trim() !== "")
 }
 
@@ -512,7 +514,7 @@ export function changeReviewPage(kind, delta, currentFilters, total) {
 
 function aliasEvidenceHtml(item = {}) {
   const esc = getEsc()
-  const evidence = inlineEvidencePairs(item)
+  const evidence = inlineEvidencePairs(item).filter(([label, value]) => label !== "处理批次" && (label !== "场景" || Number.isInteger(Number(value))))
   if (!evidence.length) return ""
   return `
     <div class="form-group">
@@ -596,8 +598,8 @@ export function prepareRelationReviewDecision(group) {
     stale: draftState.stale,
     draft: {
       ...fallback,
-      source_id: draft && Object.hasOwn(draft, "source_id") ? draft.source_id : "",
-      target_id: draft && Object.hasOwn(draft, "target_id") ? draft.target_id : "",
+      source_id: draft && Object.hasOwn(draft, "source_id") ? draft.source_id : fallback.source_id,
+      target_id: draft && Object.hasOwn(draft, "target_id") ? draft.target_id : fallback.target_id,
       relation_kind: relationKind,
       relation_type: relationType,
       description: draft && Object.hasOwn(draft, "description") ? draft.description : fallback.description,
@@ -932,7 +934,9 @@ export async function acceptAliasReviewItem(item) {
   })
 }
 
-export function acceptRelationReviewDecision(group, draft) {
+export async function acceptRelationReviewDecision(group, draft, { refresh = true } = {}) {
+  const projectId = getAppState()?.currentProjectId
+  const processing = worldSession.processingReviewIds
   const decision = persistRelationReviewDecision(group, draft)
   if (!decision) return false
   if (!decision.source_id || !decision.target_id || !decision.relation_kind || !decision.relation_type) {
@@ -944,12 +948,14 @@ export function acceptRelationReviewDecision(group, draft) {
     return false
   }
   const run = async () => {
-    worldSession.processingReviewIds[group.group_id] = true
+    if (getAppState()?.currentProjectId !== projectId) return false
+    processing[group.group_id] = true
     try {
-      const result = await getApi().world.reviewRelationsBatch({ confirmed: true, decisions: [reviewDecisionPayload(decision)] }, getAppState()?.currentProjectId)
+      const result = await getApi().world.reviewRelationsBatch({ confirmed: true, decisions: [reviewDecisionPayload(decision)] }, projectId)
+      if (getAppState()?.currentProjectId !== projectId) return false
       const response = result?.results?.[0]
-      if (response && response.status !== "success") {
-        worldSession.relationReviewErrors[group.group_id] = reviewBatchItemError(response)
+      if (!response || response.status !== "success") {
+        worldSession.relationReviewErrors[group.group_id] = response ? reviewBatchItemError(response) : "未收到明确的保存回执，请重新核对"
         getToast()(worldSession.relationReviewErrors[group.group_id], "warning")
         return false
       }
@@ -965,22 +971,22 @@ export function acceptRelationReviewDecision(group, draft) {
         detail: `采用 ${adopted || 1} 条${reused ? `，复用已有 ${reused} 条` : ""}，仍待处理 ${remaining} 条。`,
       }
       getToast()("关系决策已保存", "success")
-      await getRouter()?.refresh?.()
+      if (refresh) await getRouter()?.refresh?.()
       return true
     } catch (err) {
+      if (getAppState()?.currentProjectId !== projectId) return false
       worldSession.relationReviewErrors[group.group_id] = err.message || "处理失败，请重试"
       getToast()(worldSession.relationReviewErrors[group.group_id], "error")
       return false
     } finally {
-      delete worldSession.processingReviewIds[group.group_id]
+      delete processing[group.group_id]
     }
   }
   if (decision.action === "merge" || relationDecisionReusesCanonical(group, decision)) {
     const message = decision.action === "merge"
       ? `将 ${decision.member_relation_ids.length} 条证据归并为一条正式关系，确定继续吗？`
       : "将候选证据并入已有正式关系，确定继续吗？"
-    getConfirmAction()(message, run, "确认采用")
-    return false
+    if (!await confirmAsync(message, "确认采用", { confirmAction: getConfirmAction() })) return false
   }
   return run()
 }
@@ -1017,6 +1023,7 @@ async function advanceAliasReview() {
 
 /** 对应 vanilla _applyRelationReviewBatch。 */
 export function applyRelationReviewBatch(groups, ignoreAll = false) {
+  const projectId = getAppState()?.currentProjectId
   const toast = getToast()
   const decisions = []
   let hasStaleDraft = false
@@ -1064,9 +1071,11 @@ export function applyRelationReviewBatch(groups, ignoreAll = false) {
       ? `确定忽略所选 ${groups.length} 个关系组吗？候选会进入历史并保留审计。`
       : `确定应用所选 ${decisions.length} 个关系决策吗？请确认归并范围和最终类型。`,
     async () => {
+      if (getAppState()?.currentProjectId !== projectId) return
       const toast2 = getToast()
       try {
-        const result = await getApi().world.reviewRelationsBatch({ confirmed: true, decisions }, getAppState()?.currentProjectId)
+        const result = await getApi().world.reviewRelationsBatch({ confirmed: true, decisions }, projectId)
+        if (getAppState()?.currentProjectId !== projectId) return
         const selection = getBulkSelection("world-relation-groups")
         for (const item of result.results || []) {
           if (item.status === "success") {
@@ -1082,6 +1091,7 @@ export function applyRelationReviewBatch(groups, ignoreAll = false) {
         getRouter()?.refresh?.()
         await advanceRelationReview()
       } catch (err) {
+        if (getAppState()?.currentProjectId !== projectId) return
         for (const group of groups) worldSession.relationReviewErrors[group.group_id] = err.message || "网络异常，请重试"
         toast2(err.message || "关系批量复核失败，已保留当前决策草稿", "error")
         getRouter()?.refresh?.()
@@ -1093,6 +1103,7 @@ export function applyRelationReviewBatch(groups, ignoreAll = false) {
 
 /** 对应 vanilla _applyAliasReviewBatch。 */
 export function applyAliasReviewBatch(items, action) {
+  const projectId = getAppState()?.currentProjectId
   const toast = getToast()
   if (items.length > 50) {
     toast(`单次最多处理 50 条别名；当前已选 ${items.length} 条。请减少选择后重试。`, "warning")
@@ -1142,6 +1153,7 @@ export function applyAliasReviewBatch(items, action) {
       ? `确定忽略所选 ${items.length} 个别名吗？条目会进入历史并保留证据。`
       : `确定应用所选 ${items.length} 个别名决策吗？请确认归属对象与分类。`,
     async () => {
+      if (getAppState()?.currentProjectId !== projectId) return
       const state = getAppState()
       const owner = {
         projectId: state?.currentProjectId,
@@ -1157,6 +1169,7 @@ export function applyAliasReviewBatch(items, action) {
       try {
         const result = await getApi().world.reviewAliasesBatch({ confirmed: true, decisions }, owner.projectId)
         if (!ownsRequest()) return
+        if (getAppState()?.currentProjectId !== projectId) return
         const selection = getBulkSelection("world-aliases")
         for (const item of result.results || []) {
           const key = decisionKeys.get(item.client_decision_id)
@@ -1186,6 +1199,7 @@ export function applyAliasReviewBatch(items, action) {
         if (!ownsRequest()) return
         await advanceAliasReview()
       } catch (err) {
+        if (getAppState()?.currentProjectId !== projectId) return
         if (!ownsRequest()) return
         for (const item of items) worldSession.aliasReviewErrors[aliasKey(item)] = err.message || "网络异常，请重试"
         if (!ownsRequest()) return

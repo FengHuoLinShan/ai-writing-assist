@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 from typing import Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -386,3 +387,29 @@ from modules.project.settings_api import (  # noqa: E402
 )
 
 router.include_router(settings_handler_router)
+
+
+@router.get("/{project_id}/smart-dedup/scans")
+async def recent_smart_dedup_scans(project_id: str, db: DbSession) -> dict:
+    from modules.project.facade import require_active_project
+
+    await require_active_project(db, project_id)
+    from infrastructure.tasks.facade import list_recent_task_summaries
+
+    return {
+        "items": await list_recent_task_summaries(
+            db, novel_id=project_id, task_type="smart_dedup_scan", limit=20
+        )
+    }
+
+
+@router.get("/{project_id}/smart-dedup/scans/{task_id}/review-state")
+async def smart_dedup_scan_review_state(
+    project_id: str, task_id: UUID, db: DbSession
+) -> dict:
+    from modules.project.facade import require_active_project
+
+    await require_active_project(db, project_id)
+    return await _smart_dedup_service.scan_review_state(
+        db, novel_id=project_id, task_id=str(task_id)
+    )

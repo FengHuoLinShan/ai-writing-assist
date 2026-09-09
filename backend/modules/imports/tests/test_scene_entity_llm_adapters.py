@@ -20,7 +20,10 @@ from modules.imports.entity_extraction.scene_entity_llm_adapters import (
     call_alias_relation_extraction,
     call_llm_extraction,
 )
-from modules.imports.llm_schemas import Phase2aSceneExtractionOutput
+from modules.imports.llm_schemas import (
+    Phase2aEntityObservation,
+    Phase2aSceneExtractionOutput,
+)
 
 
 class _FakeClient:
@@ -138,6 +141,13 @@ async def test_phase2a_prompt_keeps_full_scene_and_fences_untrusted_context(
 
     request = fake.requests[0]
     system_text = request.messages[0].content
+    allowed_types = Phase2aEntityObservation.model_json_schema()["properties"][
+        "entity_type"
+    ]["enum"]
+    assert "character" in allowed_types and "location" in allowed_types
+    assert "entity_type 合法值：" + " | ".join(allowed_types) in system_text
+    assert "顶层三个集合" in system_text
+    assert "field_evidence` 是对象" in system_text
     user_text = request.messages[1].content
     assert "完整正文尾部标记" in user_text
     assert malicious not in user_text

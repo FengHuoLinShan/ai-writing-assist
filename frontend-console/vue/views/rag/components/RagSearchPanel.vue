@@ -13,6 +13,7 @@ const props = defineProps({
   scenes: { type: Array, default: () => [] },
   chapterRangeError: { type: String, default: "" },
   askWorldPending: { type: Boolean, default: false },
+  searchStage: { type: String, default: "" },
   searchPending: { type: Boolean, default: false },
 })
 
@@ -85,6 +86,7 @@ function characterIdOf(character) {
       <h2 class="card-title">查找小说资料</h2>
       <p class="rag-empty-copy">回查人物、场景、设定和原文出处，为当前创作核对事实。</p>
     </header>
+    <p v-if="searchPending" role="status">{{ searchStage || '正在查找资料…' }} <button v-if="form.searchKind !== 'literal'" type="button" class="btn btn-sm" @click="form.searchKind = 'literal'; form.scopes = ['manuscript']; form.includePending = false; emit('submit')">改用字面搜索</button></p>
     <div class="rag-search-form">
       <label class="rag-query-field" for="rag-search-input">
         <span>想查什么</span>

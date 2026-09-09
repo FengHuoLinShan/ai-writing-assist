@@ -256,7 +256,8 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
-import { getApi, getConfirm, getRouteQuery, getRouter, getToast } from "../../bridge/index.js"
+import { getConfirmAction, getApi, getConfirm, getRouteQuery, getRouter, getToast } from "../../bridge/index.js"
+import { confirmAsync } from "../../../shared/confirmAsync.js"
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
 import MapStructureEditor from "./MapStructureEditor.vue"
 import { useEvidenceSelection } from "../../composables/useEvidenceSelection.js"
@@ -403,10 +404,10 @@ const referenceChoices = computed(() => flattenNodes(atlas.value.nodes || []).fl
     .map(page => ({ id: page.id, label: `${node.title} · ${formatDate(page.created_at)}` }))
 )))
 
-function canLeaveStructure() { return structureEditor.value?.canLeave?.() !== false }
+async function canLeaveStructure() { return (await structureEditor.value?.canLeave?.()) !== false }
 function startCreateMap() { creatingMap.value = true }
 async function createMap() {
-  if (!canLeaveStructure()) return
+  if (!await canLeaveStructure()) return
   busy.value = true
   try {
     const node = await api.world.createMapNode(props.projectId, { title: newMap.title.trim(), level: newMap.level, parent_id: newMap.parent_id || null })
@@ -420,7 +421,7 @@ async function refreshAtlasOnly() {
   if (mounted && projectId === props.projectId) atlas.value = result
 }
 async function openMapNode(nodeId) {
-  if (!canLeaveStructure()) return
+  if (!await canLeaveStructure()) return
   tab.value = 'atlas'
   const node = adoptedNodes.value.find(node => node.id === nodeId)
   if (node) { activeNodeId.value = node.id; activePageId.value = node.pages?.[0]?.id || null }
@@ -448,7 +449,7 @@ function historyStatusLabel(page) {
   if (page.generation_status === "retry_requires_confirmation") return "需确认费用后重试"
   return "等待决定"
 }
-async function selectNode(node) { if (node.id !== activeNodeId.value && !canLeaveStructure()) return; if (node.id !== activeNodeId.value) referenceVisible.value = false; if (currentRun.value?.status === "prompt_review" && !await savePrompt()) return; activeNodeId.value = node.id; const page = node.pages?.find(item => item.review_status === "candidate") || node.pages?.[0]; activePageId.value = page?.id || null }
+async function selectNode(node) { if (node.id !== activeNodeId.value && !await canLeaveStructure()) return; if (node.id !== activeNodeId.value) referenceVisible.value = false; if (currentRun.value?.status === "prompt_review" && !await savePrompt()) return; activeNodeId.value = node.id; const page = node.pages?.find(item => item.review_status === "candidate") || node.pages?.[0]; activePageId.value = page?.id || null }
 function annotationStyle(item) { return { left: `${item.position_x * 100}%`, top: `${item.position_y * 100}%` } }
 function imageCanvasStyle(page) {
   const width = Number(page?.width)
@@ -837,13 +838,13 @@ function setError(err) {
 function clearError() { error.value = ""; errorCode.value = "" }
 function openImageSettings() { getRouter()?.navigate("settings") }
 async function viewRun(runId) {
-  if (!canLeaveStructure()) return
+  if (!await canLeaveStructure()) return
   if (writeLocked.value || !runId || runId === currentRun.value?.id) return
   tab.value = "review"
   await loadAll(runId === latestRunId.value ? null : runId)
 }
 async function selectTab(value) {
-  if (value !== tab.value && !canLeaveStructure()) return
+  if (value !== tab.value && !await canLeaveStructure()) return
   if (currentRun.value?.status === "prompt_review" && !await savePrompt()) return
   tab.value = value
 }
@@ -879,11 +880,11 @@ watch(activeNode, (node, previous) => {
   if (!node) return
   nodeEdit.title = node.title; nodeEdit.parent_id = node.parent_id || null; nodeEdit.level = node.level; nodeEdit.before_node_id = "__keep__"
 })
-useLeaveGuard(() => {
-  if (!canLeaveStructure()) return false
+useLeaveGuard(async () => {
+  if (!await canLeaveStructure()) return false
   if (uploading.value) return false
-  if (promptDirty.value && !confirm("画面说明还没有保存，确定离开吗？")) return false
-  return !uploadDraftDirty.value || confirm("放弃未上传的地图？")
+  if (promptDirty.value && !await confirmAsync("画面说明还没有保存，确定离开吗？", "确认离开", { confirmAction: getConfirmAction() })) return false
+  return !uploadDraftDirty.value || await confirmAsync("放弃未上传的地图？", "确认放弃", { confirmAction: getConfirmAction() })
 })
 function warnBeforeUnload(event) { if (!promptDirty.value && !uploadDraftDirty.value && !uploading.value) return; event.preventDefault(); event.returnValue = "" }
 onMounted(loadAll)

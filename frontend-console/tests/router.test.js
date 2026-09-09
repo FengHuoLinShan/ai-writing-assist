@@ -931,7 +931,7 @@ describe("route guard and normalization", () => {
     window.dispatchEvent(new PopStateEvent("popstate"))
     await vi.waitFor(() => expect(canLeave).toHaveBeenCalledTimes(1))
 
-    expect(window.location.hash).toBe("#workbench/p1/map")
+    await vi.waitFor(() => expect(window.location.hash).toBe("#workbench/p1/map"))
     expect(state.currentView).toBe("map")
   })
 
@@ -953,7 +953,7 @@ describe("route guard and normalization", () => {
     window.dispatchEvent(new PopStateEvent("popstate"))
     await vi.waitFor(() => expect(canLeave).toHaveBeenCalledTimes(1))
 
-    expect(window.location.hash).toBe("#workbench/project-a/world/bible")
+    await vi.waitFor(() => expect(window.location.hash).toBe("#workbench/project-a/world/bible"))
     expect(content.querySelector("#guarded-project")?.textContent).toBe("project-a")
     expect(content.querySelector(".loading-skeleton")).toBeNull()
     expect(api.projects.get).not.toHaveBeenCalled()
@@ -1620,5 +1620,29 @@ describe("scene workbench navigation compatibility", () => {
     expect(state.currentSubView).toBe("scenes")
     expect(window.router.getCurrentQuery().get("scene_id")).toBe("s1")
     expect(content.textContent).toContain("scenes")
+  })
+})
+
+describe('asynchronous leave decisions', () => {
+  it('keeps the mounted page until approval and serializes a second navigation', async () => {
+    addWorkspace()
+    let resolveLeave
+    const waiting = new Promise(resolve => { resolveLeave = resolve })
+    const canLeave = vi.fn().mockReturnValueOnce(waiting).mockReturnValue(true)
+    const onLeave = vi.fn()
+    window.router.registerView('map', { canLeave, onLeave, render: () => '<p>地图草稿</p>' })
+    registerBasicView('project'); registerBasicView('settings')
+    state.currentProjectId = 'p1'; state.currentProject = { id: 'p1', title: '项目一' }
+    await window.router.navigate('map')
+    const first = window.router.navigate('project')
+    const second = window.router.navigate('settings')
+    expect(canLeave).toHaveBeenCalledTimes(1)
+    expect(onLeave).not.toHaveBeenCalled()
+    expect(state.currentView).toBe('map')
+    resolveLeave(false)
+    expect(await first).toBe(false)
+    expect(await second).toBe(true)
+    expect(canLeave).toHaveBeenCalledTimes(2)
+    expect(state.currentView).toBe('settings')
   })
 })

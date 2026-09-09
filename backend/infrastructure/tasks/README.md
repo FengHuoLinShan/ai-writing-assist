@@ -308,3 +308,9 @@ RP max 沿用既有任务、lease、心跳与恢复策略；Interaction handler 
 UUID。过滤在领取 SQL 中完成，只处理匹配的 pending 任务；不会领取、取消或修改其他排队任务。
 不传参数仍是原队列领取方式。退避、coalescing、SKIP LOCKED、lease、preflight 和提交 fence
 全部复用；该入口用于明确任务的手动验收，不是浏览器权限或项目边界的替代。
+
+普通 handler 失败保留由领域在 fenced checkpoint 中写入的匹配双恢复标记；只有 manual_resume 且 meta/result 同时为 true 才展示恢复。缺失或单边标记仍不授予恢复能力。
+
+### 已完成阶段的领域继续
+
+`resume_manual_task(..., allow_completed=True)` 是 Imports 已核验 deferred 阶段的窄继续入口；默认仍只恢复要求人工恢复的 failed task。调用方必须在同一事务持有项目与领域运行锁，确认范围、阶段和单飞后使用；队列仍执行 task type/novel、恢复策略与后继任务门禁。`list_recent_task_summaries` 只返回指定项目、任务类型的时间与状态，不暴露 meta/result。

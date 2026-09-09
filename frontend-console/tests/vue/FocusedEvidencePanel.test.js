@@ -146,6 +146,23 @@ describe("专项查证实际交互", () => {
 })
 
 describe("手动查漏补全", () => {
+  it("前序导入运行不冒充补全运行，也不提供会停止整个导入的补全按钮", async () => {
+    api.tasks.get.mockResolvedValue({ status: "running", result: { targeted_completion: {} } })
+    const wrapper = mount(TargetedCompletionPanel, { props: { projectId: "p1", sourceTaskId: "deep-import-1" } })
+    await flushPromises()
+    expect(wrapper.text()).toContain("等待前序整理完成")
+    expect(wrapper.text()).not.toContain("正在查证并补全")
+    expect(wrapper.findAll("button").some(button => button.text() === "停止补全")).toBe(false)
+  })
+
+  it("补全已结束时不被仍在运行的后续结构整理误报为进行中", async () => {
+    api.tasks.get.mockResolvedValue({ status: "running", result: { targeted_completion: { status: "done" } } })
+    const wrapper = mount(TargetedCompletionPanel, { props: { projectId: "p1", sourceTaskId: "deep-import-1" } })
+    await flushPromises()
+    expect(wrapper.text()).toContain("本轮补全已结束")
+    expect(wrapper.text()).not.toContain("正在查证并补全")
+  })
+
   it("导入中的自动补全可直接显示原任务结果并撤销，不重新提交", async () => {
     const wrapper = mount(TargetedCompletionPanel, { props: { projectId: "p1", sourceTaskId: "deep-import-1" } })
     await flushPromises()

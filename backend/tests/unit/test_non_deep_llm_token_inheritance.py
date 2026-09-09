@@ -14,6 +14,8 @@ _DEEP_IMPORT_BUDGET_ALLOWLIST = {
 _EXPLICIT_OUTPUT_BUDGET_ALLOWLIST = {
     *_DEEP_IMPORT_BUDGET_ALLOWLIST,
     "modules/evidence/compilation/services/retrieval_query_planner.py",
+    # Focused one-hop nominations have a schema-bound budget to avoid truncated JSON.
+    "modules/evidence/compilation/services/focused_evidence.py",
     "modules/interaction/generation.py",
     "modules/world/map_atlas_workflow.py",
     # Five-location spatial extraction shares the atlas's bounded JSON output budget.

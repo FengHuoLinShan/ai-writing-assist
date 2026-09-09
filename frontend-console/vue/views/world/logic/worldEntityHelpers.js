@@ -3,6 +3,7 @@
  * 被 objects/review/relations+aliases tabs 与 worldEntityOps 共用。
  */
 import { worldAssetDisplay } from "../../../../shared/assetDisplayState.js"
+import { SYSTEM_ENTITY_TYPE_FALLBACK } from "./worldQuery.js"
 
 /** 对应 vanilla _entityId。 */
 export function entityId(entity) {
@@ -98,7 +99,7 @@ export function entityReferenceItem(entity) {
     kind: "entity",
     id: entityId(entity),
     label: entity?.name || "未命名对象",
-    description: [entity?.entity_type || "世界对象", entity?.summary || entity?.public_info].filter(Boolean).join(" · "),
+    description: [SYSTEM_ENTITY_TYPE_FALLBACK.find((type) => type.value === entity?.entity_type)?.label || entity?.entity_type || "世界对象", (entity?.summary || entity?.public_info || "").slice(0, 90)].filter(Boolean).join(" · "),
     status: display.label,
     unavailable: display.isHistory,
   }

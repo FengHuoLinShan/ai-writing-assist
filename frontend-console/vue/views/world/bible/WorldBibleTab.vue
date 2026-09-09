@@ -65,7 +65,7 @@
         <button v-for="type in extraTypeOptions" :key="type.value" type="button" class="btn" @click="selectMoreType(type.value)">{{ type.label }}</button>
       </div>
       <div v-else-if="toolDialog === 'create'" class="world-create-choices">
-        <button type="button" class="btn btn-primary" data-action="bible-new-entity-choice" @click="createEntityFromDialog">人物或具体设定</button>
+        <button type="button" class="btn btn-primary" data-action="bible-new-entity-choice" @click="createEntityFromDialog('character')">人物</button><button type="button" class="btn" @click="createEntityFromDialog('location')">地点</button><button type="button" class="btn" @click="createEntityFromDialog('')">其他设定</button>
         <button type="button" class="btn" data-action="bible-new-page-choice" @click="createPageFromDialog">资料页</button>
       </div>
       <div v-else-if="toolDialog === 'more'" class="world-more-tools">
@@ -871,8 +871,7 @@ function runDialogAction(action) {
   nextTick(action)
 }
 
-function createEntityFromDialog() {
-  const selectedType = props.entityTypes.some((item) => item.value === cardFilters.value.type) ? cardFilters.value.type : ""
+function createEntityFromDialog(selectedType = "") {
   toolDialog.value = ""
   nextTick(() => showEntityCreateForm({ entity_type: selectedType }, {
     onCreated: (entity) => {

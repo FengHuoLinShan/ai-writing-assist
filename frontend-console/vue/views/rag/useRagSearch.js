@@ -11,6 +11,7 @@ import { ragSearchSession } from "./ragSearchSession.js"
 
 export function useRagSearch() {
   const searching = ref(false)
+  const searchStage = ref("")
   /** @type {import("vue").Ref<{reason: string}|{reason: Error, searchKind: string}|null>} */
   const searchError = ref(null)
   let controller = null
@@ -37,6 +38,7 @@ export function useRagSearch() {
     ragSearchSession.query = query
     searching.value = true
     searchError.value = null
+    searchStage.value = formState?.searchKind === "literal" ? "正在查找正文词句…" : "正在查找小说资料…"
 
     const isCurrent = () => (
       controller === searchController
@@ -45,6 +47,13 @@ export function useRagSearch() {
       && projectId === getAppState()?.currentProjectId
     )
 
+    if (formState?.searchKind !== 'literal') {
+      void Promise.resolve().then(() => getApi().rag.metrics()).then(value => {
+        if (!isCurrent() || !searching.value) return
+        const runtime = value?.embedding_runtime
+        if (value.embedding_provider === 'bge_onnx' && runtime && !runtime.healthy) searchStage.value = '正在准备检索服务，首次使用可能需要较长时间；可切换字面搜索。'
+      }).catch(() => {})
+    }
     try {
       const writingLocation = state?.viewStates?.writing
       const currentSceneId = writingLocation?.projectId === projectId
@@ -125,5 +134,5 @@ export function useRagSearch() {
     })
   }
 
-  return { searching, searchError, doSearch, loadMore, cancelActiveSearch }
+  return { searching, searchStage, searchError, doSearch, loadMore, cancelActiveSearch }
 }

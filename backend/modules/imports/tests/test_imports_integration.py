@@ -154,6 +154,7 @@ class TestDeepImportApiValidation:
             high_quality: bool,
             adoption_policy: str,
             authorization_confirmed: bool,
+            targeted_completion: dict | None = None,
         ) -> dict:
             return {
                 "novel_id": novel_id,

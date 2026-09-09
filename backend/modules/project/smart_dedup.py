@@ -160,6 +160,58 @@ class SmartDedupService:
             "summary": f"生成 {len(suggestions)} 条智能去重建议",
         }
 
+    async def scan_review_state(
+        self, db: AsyncSession, *, novel_id: str, task_id: str
+    ) -> dict:
+        from infrastructure.tasks.facade import get_completed_task_payload
+
+        task = await get_completed_task_payload(
+            db, task_id=task_id, task_type="smart_dedup_scan", novel_id=novel_id
+        )
+        if task is None:
+            return {"group_results": [], "decisions": {}}
+        receipts = dict(task.result.get("workbench_receipts") or {})
+        groups = task.result.get("groups") or []
+        # Legacy two-card keep-separate decisions already have durable receipts.
+        records = await SmartDedupWorkbenchDecisionRepository().list_active(
+            db,
+            parse_uuid(novel_id, "novel_id"),
+            {group["asset_type"] for group in groups},
+        )
+        pairs = {
+            (record.asset_type, record.left_asset_id, record.right_asset_id)
+            for record in records
+            if record.source_scan_task_id == task_id
+        }
+        for group in groups:
+            members = group.get("members") or []
+            if len(members) != 2 or group["group_id"] in receipts:
+                continue
+            left, right = sorted(str(member["asset_id"]) for member in members)
+            if (group["asset_type"], left, right) in pairs:
+                primary = group.get("recommended_primary_asset_id") or left
+                receipts[group["group_id"]] = {
+                    "result": {
+                        "group_id": group["group_id"],
+                        "status": "success",
+                        "applied": 1,
+                        "message": "已决定保持独立，两份资料均保留",
+                    },
+                    "payload": {
+                        "primary_asset_id": primary,
+                        "operations": [
+                            {
+                                "source_asset_id": right if primary == left else left,
+                                "action": "keep_separate",
+                            }
+                        ],
+                    },
+                }
+        return {
+            "group_results": [receipt["result"] for receipt in receipts.values()],
+            "decisions": {key: receipt["payload"] for key, receipt in receipts.items()},
+        }
+
     async def apply_groups(
         self,
         db: AsyncSession,
@@ -186,6 +238,7 @@ class SmartDedupService:
         if task is None:
             raise ValidationError("invalid scan task", code="invalid_group")
         result = task.result
+        receipts = dict(result.get("workbench_receipts") or {})
         if result.get("schema_version") != 2:
             raise ValidationError(
                 "group apply requires smart dedup schema version 2",
@@ -257,9 +310,7 @@ class SmartDedupService:
                 primary_asset_id=str(request_group["primary_asset_id"]),
                 operations=prepared,
                 validate_only=validate_only,
-                execution_fingerprints_prevalidated=(
-                    execution_fingerprints_prevalidated
-                ),
+                execution_fingerprints_prevalidated=(execution_fingerprints_prevalidated),
             )
 
         prepared_by_group: dict[str, list[dict[str, Any]]] = {}
@@ -271,6 +322,14 @@ class SmartDedupService:
         for request_group in groups:
             group_id = str(request_group["group_id"])
             server_group = server_groups[group_id]
+            previous = receipts.get(group_id)
+            if previous and previous["result"].get("status") == "success":
+                if previous["payload"] != request_group:
+                    preflight_failures[group_id] = (
+                        "stale_suggestion",
+                        "本组已处理，请重新扫描后核对新的决定",
+                    )
+                continue
             try:
                 prepared = _validate_group_request(server_group, request_group)
                 async with db.begin_nested():
@@ -312,6 +371,11 @@ class SmartDedupService:
                         "message": message,
                     }
                 )
+                continue
+            previous = receipts.get(group_id)
+            if previous and previous["result"].get("status") == "success":
+                group_results.append(previous["result"])
+                applied += int(previous["result"].get("applied", 0))
                 continue
             try:
                 async with db.begin_nested():
@@ -369,6 +433,32 @@ class SmartDedupService:
                         "message": _public_group_error_message(code),
                     }
                 )
+        from infrastructure.tasks.facade import replace_completed_task_result
+
+        requests = {str(group["group_id"]): group for group in groups}
+        for outcome in group_results:
+            group_id = outcome["group_id"]
+            if outcome["status"] == "success":
+                receipts[group_id] = {
+                    "result": {
+                        key: outcome[key]
+                        for key in ("group_id", "status", "applied", "message")
+                        if key in outcome
+                    },
+                    "payload": requests[group_id],
+                }
+        replaced = await replace_completed_task_result(
+            db,
+            task_id=scan_task_id,
+            task_type="smart_dedup_scan",
+            novel_id=novel_id,
+            expected_revision_token=task.revision_token,
+            result={**result, "workbench_receipts": receipts},
+        )
+        if not replaced:
+            raise ValidationError(
+                "扫描回执已变化，请重新读取后核对", code="stale_suggestion"
+            )
         return {
             "applied": applied,
             "skipped": skipped,

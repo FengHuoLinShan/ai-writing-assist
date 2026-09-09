@@ -5,6 +5,15 @@
 
 export const PHASE_DISPLAY_LABELS = {
   targeted_completion: "查漏补全",
+  scene_plan: "规划场景范围",
+  scene_segmentation: "整理场景骨架",
+  scene_slicing: "划分场景边界",
+  scene_enrichment: "补充场景资料",
+  scene_fusion: "整理相邻场景",
+  scene_entity_extraction: "提取场景中的人物与设定",
+  phase2_dedup: "核对重复对象",
+  alias_relation_extraction: "整理别名与关系",
+  merge: "归并重复资料",
   phase0_plan: "阶段 1 · 规划场景范围",
   phase1a_scene_slicing: "阶段 2 · 划分场景边界",
   phase1b_enrichment: "阶段 3 · 补充场景资料",
@@ -63,11 +72,12 @@ function escapeRegExp(value) {
 export function authorFacingDiagnosticText(value, { fallbackForCode = false } = {}) {
   let text = String(value ?? "").trim()
   if (!text) return ""
+  text = text.replace(/^[A-Z][A-Za-z]*(?:Error|Exception):\s*/, "")
   text = text.replace(
     /(?:health\.)?error_kind\s*[:=]\s*([a-z0-9_.:-]+)/gi,
     (_match, kind) => `原因：${errorKindLabel(kind)}`,
   )
-  for (const [kind, label] of Object.entries(ERROR_KIND_LABELS)) {
+  for (const [kind, label] of Object.entries({ ...PHASE_DISPLAY_LABELS, ...ERROR_KIND_LABELS })) {
     text = text.replace(new RegExp(`\\b${escapeRegExp(kind)}\\b`, "gi"), label)
   }
   if (fallbackForCode && /^[a-z0-9_.:-]+$/i.test(text)) return "任务执行失败，请稍后重试或查看恢复操作"

@@ -65,3 +65,5 @@ model，便于作者另存或重新应用。
 只从确认后的实际 selected assets 中选取，并把确认 Markdown 与通用指纹写入任务 provenance。
 Scene 融合的请求 Scene 集合还必须与 confirmation 中的 pinned Scene 引用完全一致；provider
 只接收重新物化的 confirmed Markdown，不再旁路加载完整 World/Outline 资料。
+
+总览手工版本可携带既有结构的来源版本标识，源结构更新只提示核对，不双向覆盖。简单结构生成使用 main/sub/background 分类及显式兼容映射，参数版本 phase3_structure_simple_v3。

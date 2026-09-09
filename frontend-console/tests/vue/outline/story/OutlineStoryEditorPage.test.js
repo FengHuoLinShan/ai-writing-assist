@@ -236,3 +236,32 @@ describe("故事总览编辑页", () => {
     wrapper.unmount()
   })
 })
+
+it('从现有结构分页读取并形成草稿，保存前不改写版本', async () => {
+  api.outline.listThreads = vi.fn(async (_project, params) => {
+    expect(params.limit).toBe(50)
+    return { items: [{ id: 'thread-2', name: '新线索', summary: '追查线索来源', updated_at: '2026-09-09' }] }
+  })
+  api.outline.listArcs = vi.fn(async (_project, params) => {
+    expect(params.limit).toBe(50)
+    return { items: [{ id: 'arc-2', title: '调查开始', arc_goal: '查明真相', updated_at: '2026-09-09' }] }
+  })
+  const wrapper = mountEditor()
+  const picker = wrapper.get('.story-structure-import')
+  picker.element.open = true
+  await picker.trigger('toggle'); await flushPromises()
+  const choices = picker.findAll('input[type="checkbox"]')
+  expect(choices).toHaveLength(2)
+  for (const choice of choices) await choice.setValue(true)
+  await picker.get('button').trigger('click')
+  expect(wrapper.findAll('input').some(input => input.element.value === '新线索')).toBe(true)
+  expect(api.outline.createStoryOutlineRevision).not.toHaveBeenCalled()
+  expect(wrapper.findAll('textarea').some(input => input.element.value === '追查线索来源')).toBe(true)
+  expect(wrapper.findAll('textarea').some(input => input.element.value === '查明真相')).toBe(true)
+  api.outline.createStoryOutlineRevision.mockResolvedValueOnce({ version_number: 2 })
+  await wrapper.get('[data-action="save-story-outline-revision"]').trigger('submit')
+  await flushPromises()
+  expect(api.outline.createStoryOutlineRevision).toHaveBeenCalledWith('p1', expect.objectContaining({ provenance: expect.objectContaining({ source_refs: ['structure:thread:thread-2:2026-09-09', 'structure:arc:arc-2:2026-09-09'] }) }))
+
+  wrapper.unmount()
+})

@@ -7,6 +7,9 @@
         <button type="button" class="btn-icon" aria-label="关闭" @click="requestClose">×</button>
       </div>
       <div class="modal-body">
+        <ProjectOrganizationHistory v-if="projectId" :project-id="projectId" @prepare="Object.assign(model, $event)" />
+        <h4>开始新的整理</h4>
+        <label class="form-group">本次整理目标<select v-model="model.stage" class="form-select"><option value="deep">完整基础整理</option><option value="scenes">补充场景</option><option value="world_objects">补充人物与世界资料</option><option value="plot_structure">整理剧情结构</option></select></label>
         <div class="form-group">
           <label for="vue-auto-extract-start">起始章节</label>
           <input id="vue-auto-extract-start" v-model.number="model.start" class="form-input" type="number" min="1">
@@ -18,14 +21,10 @@
         <label v-if="model.stage === 'scenes' || model.stage === 'deep'" class="writing-checkbox-label writing-form-option">
           <input v-model="model.highQuality" type="checkbox">
           <span>更高质量</span>
-          <span class="writing-checkbox-hint">最大推理 + 融合补强，约需更长时间</span>
+          <span class="writing-checkbox-hint">逐段复核并整理相邻场景，需要更长时间</span>
         </label>
-        <label v-if="['deep', 'world_objects'].includes(model.stage)" class="writing-checkbox-label writing-form-option">
-          <input v-model="model.targetedCompletion" type="checkbox">
-          <span>提取后查漏补全</span>
-        </label>
-        <p v-if="model.targetedCompletion && ['deep', 'world_objects'].includes(model.stage)" class="writing-form-hint" role="note">授权在所选章节中追查遗漏线索及直接关联对象；有可靠原文依据时新增资料、填补空白，已有内容与冲突留待审阅。可离开后继续，也可撤销本轮补全。</p>
-        <p v-else class="writing-form-hint" role="note">只有确认后才会开始整理；AI 结果会先进入待处理，不会自动变成正式设定。</p>
+        <p v-if="['deep', 'world_objects'].includes(model.stage)" class="writing-form-hint">基础成果先交付；系统保留本批查漏范围，稍后由你确认并继续。</p>
+        <p class="writing-form-hint" role="note">{{ importAuthorizationNotice() }}</p>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-ghost" @click="requestClose">取消</button>
@@ -36,9 +35,11 @@
 </template>
 
 <script setup>
+import ProjectOrganizationHistory from "../../../components/ProjectOrganizationHistory.vue"
 import { computed } from "vue"
+import { importAuthorizationNotice } from "../../../../shared/importAuthorization.js"
 import { useModalDialog } from "../../../composables/useModalDialog.js"
-const props = defineProps({ model: { type: Object, required: true } })
+const props = defineProps({ projectId: { type: String, default: null }, model: { type: Object, required: true } })
 defineEmits(["submit"])
 const requestClose = () => { props.model.open = false }
 const { overlayRef, dialogRef, onKeydown, onFocusin } = useModalDialog({ isOpen: () => props.model.open, requestClose })

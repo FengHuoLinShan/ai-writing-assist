@@ -36,7 +36,6 @@ import {
   bindTypeKindControls,
   detailTypeOptionsHtml,
   kindOptionsHtml,
-  kindOrTypeDefault,
   readDetailType,
 } from "./worldTypeCatalog.js"
 
@@ -109,6 +108,7 @@ function mountEntityReferencePicker({
   if (replaceExisting) destroyWorldEntityPickers()
   const api = getApi()
   const projectId = getAppState()?.currentProjectId
+  let selectedEntityType = ""
   const eligible = canonicalOnly ? isMergeTargetEntity : isAliasTargetEntity
   const source = {
     kind: "entity",
@@ -117,6 +117,7 @@ function mountEntityReferencePicker({
       const data = await api.world.listEntities({
         novel_id: pid,
         q: query || undefined,
+        entity_type: selectedEntityType || undefined,
         ...(canonicalOnly ? { display_state: "active" } : {}),
         skip: 0,
         limit,
@@ -157,6 +158,15 @@ function mountEntityReferencePicker({
       onChange?.(_items, refs)
     },
   })
+  const typeLabel = document.createElement('label')
+  typeLabel.textContent = '对象类型 '
+  const typeSelect = document.createElement('select')
+  typeSelect.className = 'form-select'; typeSelect.setAttribute('aria-label', '筛选目标对象类型')
+  for (const item of [{ value: '', label: '全部类型' }, ...worldListRegistry.entityTypes]) {
+    const option = document.createElement('option'); option.value = item.value; option.textContent = item.label; typeSelect.append(option)
+  }
+  typeLabel.append(typeSelect); root.prepend(typeLabel)
+  typeSelect.addEventListener('change', () => { selectedEntityType = typeSelect.value; root.querySelector('input[role="combobox"]')?.dispatchEvent(new Event('input', { bubbles: true })) })
   if (selectedId && !initialItems.length) picker.resolve([{ kind: "entity", id: selectedId }])
   referencePickers.push(picker)
   return picker
@@ -390,9 +400,8 @@ function aliasEvidenceHtml(item = {}) {
   const esc = getEsc()
   const evidence = [
     ["来源", item.source === "deep_import" ? "深度导入" : item.source],
-    ["处理批次", item.workflow_id],
     ["章节", item.source_chapter_index],
-    ["场景", item.scene_id || item.scene_index],
+    ["场景", item.scene_index ?? item.source_scene_index],
     ["置信度", item.confidence != null ? `${(Number(item.confidence) * 100).toFixed(0)}%` : ""],
     ["引用", item.quote],
   ].filter(([, value]) => value != null && String(value).trim() !== "")
@@ -523,7 +532,7 @@ export function editEntity(id) {
 
   const formHtml = `
     <div class="world-entity-editor">
-      <div class="world-entity-editor__form">
+      <div class="world-entity-editor__form"><p id="edit-entity-impact" role="status" hidden></p>
         <div class="form-group">
           <label>名称</label>
           <input class="form-input" id="edit-entity-name" value="${esc(entity.name)}" />
@@ -595,6 +604,14 @@ export function editEntity(id) {
       },
     },
   ], { size: "large" })
+  const impactNode = document.getElementById('edit-entity-impact')
+  void Promise.resolve().then(() => getApi().imports.workflowImpact(projectId, id)).then(result => {
+    if (getAppState()?.currentProjectId !== projectId || !impactNode?.isConnected) return
+    impactNode.textContent = result.items.map(item => `${item.label || '资料整理'}：${item.message}${item.chapters?.length ? ` 涉及第 ${item.chapters.join('、')} 章。` : item.whole_unit ? ' 涉及本次整体生成结果。' : ''}`).join(' ')
+    impactNode.hidden = !result.items.length
+  }).catch(() => {
+    if (impactNode?.isConnected) { impactNode.textContent = '暂时无法检查运行任务的引用；保存时仍会核对版本。'; impactNode.hidden = false }
+  })
   bindEntityTypeControl("edit")
   releaseEntityImagePreview = mountEntityImagePreview(entity, projectId)
 }
@@ -782,8 +799,11 @@ export function showResolveAliasForm(candidateId) {
   const sid = suggestionId(candidate)
   const targetId = candidateTargetId(candidate)
   const targetName = candidateTargetName(candidate)
-  const selectedType = "alias"
-  const selectedKind = kindOrTypeDefault(worldListRegistry.reviewTypeCatalog, "alias", "", selectedType)
+  const meta = candidateMeta(candidate)
+  const selectedType = meta.alias_type || meta.suggested_alias_type || "name"
+  const explicitKind = meta.alias_kind || meta.suggested_alias_kind || ""
+  const literalName = candidate.entity_type === "character" && String(candidate.name || "").length >= 2 && targetName.includes(candidate.name)
+  const selectedKind = ["name", "title", "identity"].includes(explicitKind) ? explicitKind : literalName ? "name" : ""
   const formHtml = `
     <p style="margin-bottom:10px;">将 <strong>${esc(candidate.name || "")}</strong> 登记为已有对象的别名。</p>
     <div class="form-group">
@@ -795,16 +815,18 @@ export function showResolveAliasForm(candidateId) {
       <label>别名文本 *</label>
       <input class="form-input" id="alias-edit-text" value="${esc(candidate.name || "")}" />
     </div>
+    <details ${selectedKind ? "" : "open"}><summary>名称分类与称呼（按需修改）</summary>
     <div class="form-group">
       <label for="alias-edit-kind">别名分类</label>
       <select class="form-select" id="alias-edit-kind" aria-describedby="alias-edit-kind-help">${kindOptionsHtml(worldListRegistry.reviewTypeCatalog, "alias", selectedKind, esc)}</select>
-      <div class="form-help" id="alias-edit-kind-help">用于 AI 检索的通用分类。</div>
+      <div class="form-help" id="alias-edit-kind-help">普通姓名或简称使用“名称”；职务、身份等请核对后修改。</div>
     </div>
     <div class="form-group">
       <label for="alias-edit-type">详细类型</label>
       <select class="form-select" id="alias-edit-type">${detailTypeOptionsHtml(worldListRegistry.reviewTypeCatalog, "alias", selectedType, esc)}</select>
       <div id="alias-edit-type-custom-wrap" hidden><label for="alias-edit-type-custom">自定义详细类型</label><input class="form-input" id="alias-edit-type-custom" maxlength="20" /></div>
     </div>
+    </details>
     ${aliasEvidenceHtml(candidateMeta(candidate))}
   `
   showModalHtml("设为别名", formHtml, [{
@@ -849,6 +871,7 @@ export function showResolveAliasForm(candidateId) {
     kindHelp: document.getElementById("alias-edit-kind-help"),
     catalog: worldListRegistry.reviewTypeCatalog,
     domain: "alias",
+    kindExplicit: !literalName || Boolean(explicitKind),
   })
   mountEntityReferencePicker({
     rootId: "alias-target-picker",
