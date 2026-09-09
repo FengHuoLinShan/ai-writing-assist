@@ -2825,6 +2825,101 @@ describe("二期：工作稿自动保存与编辑基线", () => {
     }
   })
 
+  it("阅读态不弹备份恢复也不清备份，进入编辑后才提示恢复并自动保存", async () => {
+    vi.useFakeTimers()
+    try {
+      const bible = defaultBible()
+      bible.drafts = [] // 已发布页且尚无工作稿：编辑源先是正式页对象
+      const pageScopedKey = `world_draft_backup_p1_draft_page-1`
+      localStorage.setItem(pageScopedKey, JSON.stringify({
+        payload: {
+          title: "世界基本背景", page_type: "background",
+          free_text: "断网期间未保存的补充。",
+          sort_order: 0, linked_asset_refs_json: [], sections_json: [],
+        },
+        savedAt: "2026-09-09T08:00:00.000Z",
+      }))
+      const createBibleDraft = vi.fn(async () => ({
+        id: "draft-restored", page_id: "page-1", title: "世界基本背景",
+        updated_at: "2026-09-09T08:05:00.000Z",
+      }))
+      const updateDraft = vi.fn(async (_id, payload) => ({
+        id: "draft-restored", page_id: "page-1", updated_at: "2026-09-09T08:06:00.000Z", ...payload,
+      }))
+      globalThis.api.world.createBibleDraft = createBibleDraft
+      globalThis.api.world.updateBibleDraft = updateDraft
+
+      const wrapper = mountTab({ bible })
+      await vi.advanceTimersByTimeAsync(300)
+      // 默认阅读态：不弹恢复确认，也不因未选择而清掉备份
+      expect(confirmMock).not.toHaveBeenCalled()
+      expect(localStorage.getItem(pageScopedKey)).not.toBeNull()
+
+      await wrapper.get("[data-action='world-reader-edit']").trigger("click")
+      await nextTick()
+      await vi.advanceTimersByTimeAsync(200)
+      expect(confirmMock).toHaveBeenCalledTimes(1)
+      expect(String(confirmMock.mock.calls[0][0])).toContain("未完成本机备份")
+      expect(wrapper.get("#bible-free-text").element.value).toBe("断网期间未保存的补充。")
+
+      // 恢复后 1 秒自动保存到服务器，正式页与工作稿两个作用域的本机备份一并清理
+      await vi.advanceTimersByTimeAsync(1300)
+      expect(createBibleDraft).toHaveBeenCalledTimes(1)
+      expect(updateDraft).toHaveBeenCalledTimes(1)
+      expect(updateDraft.mock.calls[0][1].free_text).toBe("断网期间未保存的补充。")
+      expect(localStorage.getItem(pageScopedKey)).toBeNull()
+      expect(localStorage.getItem(`world_draft_backup_p1_page_page-1`)).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("晚到的自动保存响应不覆盖新输入，排队保存复用已创建的工作稿并携带新基线", async () => {
+    vi.useFakeTimers()
+    try {
+      const createBibleDraft = vi.fn(async () => ({
+        id: "draft-9", page_id: "page-1", title: "世界基本背景",
+        updated_at: "2026-09-09T01:30:00.000Z",
+      }))
+      let resolveFirst
+      const updateDraft = vi.fn()
+      updateDraft.mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
+      updateDraft.mockImplementationOnce(async (_id, payload) => ({
+        id: "draft-9", page_id: "page-1", updated_at: "2026-09-09T02:00:00.000Z", ...payload,
+      }))
+      globalThis.api.world.createBibleDraft = createBibleDraft
+      globalThis.api.world.updateBibleDraft = updateDraft
+      const bible = defaultBible()
+      bible.drafts = [] // 页面尚无工作稿：首次自动保存需要先创建
+      const wrapper = mountTab({ bible })
+      await vi.advanceTimersByTimeAsync(0)
+      await wrapper.get("[data-action='world-reader-edit']").trigger("click")
+      await nextTick()
+      await nextTick()
+
+      await wrapper.get("#bible-free-text").setValue("第一段输入")
+      await vi.advanceTimersByTimeAsync(1100)
+      expect(createBibleDraft).toHaveBeenCalledTimes(1)
+      expect(updateDraft).toHaveBeenCalledTimes(1)
+
+      // 第一次保存在途时继续输入
+      await wrapper.get("#bible-free-text").setValue("第二段输入")
+      resolveFirst({ id: "draft-9", page_id: "page-1", free_text: "第一段输入", updated_at: "2026-09-09T01:45:00.000Z" })
+      await vi.advanceTimersByTimeAsync(1500)
+      // 排队保存复用同一份工作稿，不再重复创建；携带第一段保存后的新基线
+      expect(createBibleDraft).toHaveBeenCalledTimes(1)
+      expect(updateDraft).toHaveBeenCalledTimes(2)
+      expect(updateDraft.mock.calls[1][0]).toBe("draft-9")
+      expect(updateDraft.mock.calls[1][1].expected_updated_at).toBe("2026-09-09T01:45:00.000Z")
+      expect(updateDraft.mock.calls[1][1].free_text).toBe("第二段输入")
+      // 晚到响应没有重置输入，第二次保存成功后基线推进
+      expect(wrapper.get("#bible-free-text").element.value).toBe("第二段输入")
+      expect(wrapper.get("#bible-autosave-status").attributes("data-autosave-status")).toBe("idle")
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("手动保存在自动保存进行中先等其完成，再携带最新基线", async () => {
     vi.useFakeTimers()
     try {

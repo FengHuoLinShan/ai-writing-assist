@@ -734,6 +734,11 @@ export function useWorldBible(props) {
   function clearDraftBackup() {
     const key = draftBackupKey()
     if (key) window.localStorage.removeItem(key)
+    // 首次自动保存会把编辑对象从正式页换成工作稿，备份 key 随之变化；两个变体一起清理。
+    const source = editSource.value
+    if (source?.page_id) {
+      window.localStorage.removeItem(`world_draft_backup_${projectId.value}_draft_${source.page_id}`)
+    }
   }
 
   function readDraftBackup() {
@@ -772,6 +777,9 @@ export function useWorldBible(props) {
 
   function maybeOfferDraftBackupRestore() {
     if (displayMode.value !== "editor") return
+    // 阅读态不弹恢复确认，也不能因作者“取消”而清掉备份；表单已渲染的编辑态才提示。
+    if (pageViewMode.value !== "edit") return
+    if (!document.getElementById("bible-title")) return
     const backup = readDraftBackup()
     if (!backup) return
     const current = (() => {
@@ -848,6 +856,9 @@ export function useWorldBible(props) {
           novel_id: owner.novelId,
           page_id: page.id,
         })
+        // 创建即登记：PATCH 失败或晚到后的重试复用这份工作稿，而不是再次创建。
+        if (!ownsEditor(owner)) return
+        savedDrafts.set(draft.id, draft)
       }
       const saved = await api.world.updateBibleDraft(
         draft.id,
@@ -855,9 +866,10 @@ export function useWorldBible(props) {
         owner.novelId,
       )
       if (!ownsEditor(owner)) return
-      // 晚到响应不得覆盖新输入：请求期间又有输入时不推进基线，下一次保存继续。
-      if (autosaveRevision !== revisionAtRequest) return
+      // 晚到响应不推进编辑基线（不覆盖新输入），但记录服务器最新版本，
+      // 排队中的下一次保存据此携带新基线并复用同一工作稿。
       savedDrafts.set(saved.id, saved)
+      if (autosaveRevision !== revisionAtRequest) return
       activeDraftId.value = saved.id
       setEditorBaseline(saved)
       rememberDraft(saved)
@@ -2720,6 +2732,16 @@ export function useWorldBible(props) {
       if (mode === "editor" && !disposed) {
         setTimeout(() => {
           if (displayMode.value === "editor" && !disposed) maybeOfferDraftBackupRestore()
+        }, 80)
+      }
+    })
+    // 从阅读态点“编辑”进入表单时同样提供本机备份恢复。
+    watch(pageViewMode, (mode) => {
+      if (mode === "edit" && !disposed) {
+        setTimeout(() => {
+          if (pageViewMode.value === "edit" && displayMode.value === "editor" && !disposed) {
+            maybeOfferDraftBackupRestore()
+          }
         }, 80)
       }
     })
