@@ -10,6 +10,7 @@ vi.mock("../../../shared/referencePicker.js", () => ({
 import GenerateView from "../../../vue/views/generate/GenerateView.vue"
 import {
   emptyGenerateSession,
+  cocreationSessionKey,
   generateSessionKey,
   readCreativeContinuation,
   readGenerateSession,
@@ -2262,7 +2263,7 @@ describe("GenerateView Vue behavior matrix", () => {
     }))
     expect(api.world.cocreationChat).toHaveBeenCalledWith("cs-1", expect.objectContaining({ session_action: "pressure" }), expect.objectContaining({ signal: expect.any(AbortSignal) }))
     expect(api.generate.worldChat).not.toHaveBeenCalled()
-    expect(readGenerateSession(key).serverSessionId).toBe("cs-1")
+    expect(readGenerateSession(cocreationSessionKey(key, "cs-1")).serverSessionId).toBe("cs-1")
     expect(wrapper.get("#generate-chat-messages").text()).toContain("检验日常与故障")
     expect(wrapper.text()).toContain("已存服务器")
   })
@@ -2303,10 +2304,9 @@ describe("GenerateView Vue behavior matrix", () => {
       checkpoint_suggestion_id: "ck-2",
       expected_checkpoint_id: null,
     }))
-    expect(api.world.getCocreationSession).toHaveBeenCalledWith("cs-1", "p1")
-    expect(readGenerateSession(key).checkpointId).toBe("ck-2")
-    expect(readGenerateSession(key).serverCheckpointId).toBe("ck-9")
-    expect(toast).toHaveBeenCalledWith(expect.stringContaining("请核对差异后再次保存"), "warning")
+    expect(readGenerateSession(cocreationSessionKey(key, "cs-1")).checkpointId).toBe("ck-2")
+    expect(readGenerateSession(cocreationSessionKey(key, "cs-1")).serverCheckpointId).toBeNull()
+    expect(toast).toHaveBeenCalledWith(expect.stringContaining("请刷新并核对"), "warning")
   })
 
   it("records the author decision into the server session history", async () => {
@@ -2342,8 +2342,8 @@ describe("GenerateView Vue behavior matrix", () => {
 
     document.querySelector("[data-action='open-cocreation-session']").click()
     await flushPromises()
-    expect(readGenerateSession(key).serverSessionId).toBe("cs-2")
-    expect(readGenerateSession(key).serverCheckpointId).toBe("ck-4")
+    expect(readGenerateSession(cocreationSessionKey(key, "cs-1")).serverSessionId).toBe("cs-1")
+    expect(readGenerateSession(cocreationSessionKey(key, "cs-2")).serverSessionId).toBeNull()
     const navigateCall = router.navigate.mock.calls.find((call) => call[0] === "generate")
     expect(navigateCall?.[3]?.get?.("session_id")).toBe("cs-2")
     expect(navigateCall?.[3]?.get?.("preset")).toBe("world_core")

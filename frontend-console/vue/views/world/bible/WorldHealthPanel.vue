@@ -83,7 +83,7 @@
           校验中断（{{ run.error_code || "未知错误" }}）。已完成分片不会丢失，可继续校验收尾。
         </p>
         <p v-else-if="run.gate === 'block' && run.verdict === 'author-required'" class="world-health-callout is-blocked">
-          存在需要作者裁定的项：逐项记录处置后即可继续发布或采用。
+          存在需要作者裁定的项；稍后再定的项目仍待处理，硬错误需修正后重新校验。
         </p>
         <p v-else-if="run.gate === 'block'" class="world-health-callout is-blocked">当前有阻断项，修正或完成作者裁定后再校验。</p>
         <p v-else-if="run.gate === 'warn' && !warningsAccepted" class="world-health-callout">没有硬阻断，但存在需作者明确承担的风险。</p>
@@ -104,7 +104,7 @@
           @click="continueRun"
         >{{ continuing ? "正在续接…" : "继续校验（续接已检查分片）" }}</button>
 
-        <div v-if="findingsTotal > 0 || pageFindings.length" class="world-health-findings-toolbar">
+        <div v-if="findings.length || findingsTotal > 0 || pageFindings.length || filterSeverity || filterAction" class="world-health-findings-toolbar">
           <label>筛选
             <select v-model="filterSeverity" class="form-input" data-field="world-health-filter-severity" @change="resetFindingsPage">
               <option value="">全部级别</option>
@@ -121,16 +121,18 @@
           <small class="world-bible-empty-hint">共 {{ findingsTotal }} 项 · 第 {{ findingsPageNo }}/{{ findingsPageCount || 1 }} 页</small>
         </div>
 
-        <ul v-if="pageFindings.length" class="world-health-findings" aria-label="校验问题" data-section="world-health-findings">
+        <p v-if="findingsLoading" role="status">正在读取校验问题…</p>
+        <p v-else-if="findingsError" class="form-error" role="alert">{{ findingsError }} <button type="button" class="btn btn-sm" @click="loadFindings">重试</button></p>
+        <ul v-else-if="pageFindings.length" class="world-health-findings" aria-label="校验问题" data-section="world-health-findings">
           <li v-for="finding in pageFindings" :key="finding.finding_id" :class="`is-${finding.severity}`">
             <div>
               <strong>{{ actionLabel(finding.action) }}</strong>
               <p>{{ finding.message }}</p>
               <small v-if="finding.location">{{ locationLabel(finding.location) }}</small>
               <div v-if="dispositions[finding.finding_id]" class="world-health-disposition is-done" :data-disposition="dispositions[finding.finding_id]">
-                已复核：{{ dispositionLabel(dispositions[finding.finding_id]) }}
+                {{ dispositions[finding.finding_id] === 'deferred' ? '待处理' : '已复核' }}：{{ dispositionLabel(dispositions[finding.finding_id]) }}
               </div>
-              <div v-else-if="isReviewable(finding)" class="world-health-disposition">
+              <div v-if="isReviewable(finding) && (!dispositions[finding.finding_id] || dispositions[finding.finding_id] === 'deferred')" class="world-health-disposition">
                 <button type="button" class="btn btn-sm" :data-action="'review-resolved-' + finding.finding_id" :disabled="reviewSubmitting === finding.finding_id" @click="submitDisposition(finding, 'resolved')">已修正</button>
                 <button type="button" class="btn btn-sm btn-ghost" :data-action="'review-acknowledged-' + finding.finding_id" :disabled="reviewSubmitting === finding.finding_id" @click="submitDisposition(finding, 'acknowledged')">已知悉</button>
                 <button type="button" class="btn btn-sm btn-ghost" :data-action="'review-deferred-' + finding.finding_id" :disabled="reviewSubmitting === finding.finding_id" @click="submitDisposition(finding, 'deferred')">稍后再定</button>
@@ -139,7 +141,8 @@
             <button v-if="sourceTarget(finding)" type="button" class="btn btn-sm btn-ghost" data-action="world-health-open-source" @click="emit('open-source', sourceTarget(finding))">打开来源</button>
           </li>
         </ul>
-        <p v-else-if="run.status === 'completed'" class="world-health-callout is-pass">本次范围未发现需处理的问题。</p>
+        <p v-else-if="filterSeverity || filterAction" class="world-bible-empty-hint">当前筛选没有匹配的问题，可调整筛选查看其他项目。</p>
+        <p v-else-if="run.status === 'completed' && !findings.length" class="world-health-callout is-pass">本次范围未发现需处理的问题。</p>
 
         <div v-if="findingsPageCount > 1" class="world-health-pager">
           <button type="button" class="btn btn-sm btn-ghost" :disabled="findingsPageNo <= 1 || findingsLoading" @click="turnFindingsPage(findingsPageNo - 1)">上一页</button>
@@ -189,10 +192,22 @@
           <p class="world-bible-empty-hint">“禁止匹配”与“不包含”是禁区；其余为原则。触发时按所选级别提示或阻断。</p>
           <ul class="world-policy-editor__rows">
             <li v-for="(rule, index) in policyForm.rules" :key="index">
-              <select v-model="rule.operator" class="form-input" :data-field="'world-policy-rule-op-' + index">
+              <select v-model="rule.operator" class="form-input" :data-field="'world-policy-rule-op-' + index" @change="changeRuleOperator(rule)">
                 <option v-for="op in operatorOptions" :key="op" :value="op">{{ operatorLabel(op) }}</option>
               </select>
-              <input v-model.trim="rule.value" class="form-input" :placeholder="rule.operator === 'max_chars' ? '字数上限' : '匹配内容'" :data-field="'world-policy-rule-value-' + index" />
+              <div v-if="['field_equals', 'numeric_tolerance'].includes(rule.operator)" class="world-policy-values">
+                <label>检查字段<input v-model.trim="rule.value.field" class="form-input" placeholder="例如：population" /></label>
+                <template v-if="rule.operator === 'numeric_tolerance'">
+                  <label>预期数值<input v-model.number="rule.value.expected" class="form-input" type="number" step="any" /></label>
+                  <label>允许偏差<input v-model.number="rule.value.tolerance" class="form-input" type="number" min="0" step="any" /></label>
+                </template>
+                <template v-else>
+                  <label>值的类型<select :value="typeof rule.value.equals" class="form-input" @change="rule.value.equals = $event.target.value === 'boolean' ? false : $event.target.value === 'number' ? 0 : ''"><option value="string">文字</option><option value="number">数值</option><option value="boolean">是或否</option></select></label>
+                  <label v-if="typeof rule.value.equals === 'boolean'">预期为是<input v-model="rule.value.equals" type="checkbox" /></label>
+                  <label v-else>预期值<input v-model="rule.value.equals" class="form-input" :type="typeof rule.value.equals === 'number' ? 'number' : 'text'" step="any" /></label>
+                </template>
+              </div>
+              <input v-else v-model.trim="rule.value" class="form-input" :type="rule.operator === 'max_chars' ? 'number' : 'text'" :min="rule.operator === 'max_chars' ? 1 : undefined" :placeholder="rule.operator === 'max_chars' ? '字数上限' : '匹配内容'" :data-field="'world-policy-rule-value-' + index" />
               <select v-model="rule.severity" class="form-input">
                 <option value="error">阻断</option>
                 <option value="warning">提示</option>
@@ -270,6 +285,8 @@ const activating = ref(false)
 const warningReason = ref("")
 const continuing = ref(false)
 const findingsLoading = ref(false)
+const findingsError = ref("")
+let findingsGeneration = 0
 const findingsPageNo = ref(1)
 const findingsPageSize = 20
 const findingsTotal = ref(0)
@@ -282,6 +299,7 @@ const policyEditorOpen = ref(false)
 const policySaving = ref(false)
 const policyError = ref("")
 const policyForm = reactive(emptyPolicyForm())
+const policyEditBaseline = ref(null)
 let generation = 0
 let poller = null
 
@@ -386,6 +404,7 @@ async function activatePolicy() {
 }
 
 function openPolicyEditor() {
+  policyEditBaseline.value = policy.value?.draft?.updated_at || null
   const source = policy.value?.draft?.policy || policy.value?.policy || null
   const base = source ? JSON.parse(JSON.stringify(source)) : null
   Object.assign(policyForm, emptyPolicyForm(), base || {}, {
@@ -401,6 +420,12 @@ function addRule() {
   policyForm.rules.push({ rule_id: `rule-${policyForm.rules.length + 1}-${Date.now().toString(36)}`, operator: "contains", value: "", severity: "warning", message: "", page_type: null })
 }
 
+function changeRuleOperator(rule) {
+  if (rule.operator === "numeric_tolerance") rule.value = { field: "", expected: 0, tolerance: 0 }
+  else if (rule.operator === "field_equals") rule.value = { field: "", equals: "" }
+  else if (typeof rule.value === "object") rule.value = ""
+}
+
 function addQuestion() {
   policyForm.required_questions.push({ question_id: `q-${policyForm.required_questions.length + 1}-${Date.now().toString(36)}`, gate: "knowledge", question: "" })
 }
@@ -413,10 +438,11 @@ async function savePolicyDraft() {
     const payload = {
       policy: {
         ...JSON.parse(JSON.stringify(policyForm)),
-        rules: policyForm.rules.filter((rule) => rule.message && String(rule.value ?? "") !== ""),
+        rules: policyForm.rules.filter((rule) => rule.message && String(rule.value ?? "") !== "").map((rule) => ({ ...rule, value: rule.operator === "max_chars" ? Number(rule.value) : rule.value })),
         required_questions: policyForm.required_questions.filter((item) => item.question),
       },
       summary: `项目校验政策草稿：${policyForm.policy_version}`,
+      expected_updated_at: policyEditBaseline.value,
     }
     if (payload.policy.required_questions.length && !payload.policy.semantic_enabled) {
       policyError.value = "有必问项时必须启用语义审计。"
@@ -568,21 +594,17 @@ async function startGapRun() {
 async function continueRun() {
   if (!canContinue.value || continuing.value || !run.value?.id) return false
   continuing.value = true
+  const token = generation
+  const runId = run.value.id
   error.value = ""
   try {
-    const confirmation = policy.value.semantic_enabled
-      ? await confirmAiReference({
-          novel_id: props.projectId,
-          action: "world.validation.semantic",
-          task: "续接世界书校验（跳过已检查分片）",
-          scope: "world",
-          include_pending_objects: false,
-          budget_tokens: 12000,
-        })
-      : null
-    const continued = await api.world.continueWorldValidationRun(run.value.id, props.projectId, {
-      context_confirmation_id: confirmation?.id || undefined,
+    if (policy.value.semantic_enabled && !run.value.context_confirmation_id) {
+      throw new Error("旧回执没有保存原参考资料确认，请重新发起校验。")
+    }
+    const continued = await api.world.continueWorldValidationRun(runId, props.projectId, {
+      context_confirmation_id: run.value.context_confirmation_id || undefined,
     })
+    if (token !== generation || run.value?.id !== runId) return false
     run.value = continued
     emit("updated", continued)
     startPolling(continued)
@@ -590,7 +612,7 @@ async function continueRun() {
     return true
   } catch (err) {
     if (err?.message === "已取消 AI 参考资料确认") return false
-    error.value = err?.message || "无法续接校验。"
+    if (token === generation) error.value = err?.message || "无法续接校验。"
     return false
   } finally {
     continuing.value = false
@@ -598,6 +620,8 @@ async function continueRun() {
 }
 
 async function loadFindings() {
+  const request = ++findingsGeneration
+  const token = generation
   const runId = run.value?.id
   if (!runId) {
     pageFindings.value = []
@@ -606,6 +630,7 @@ async function loadFindings() {
     return
   }
   findingsLoading.value = true
+  findingsError.value = ""
   try {
     const result = await api.world.listWorldValidationFindings(runId, props.projectId, {
       page: findingsPageNo.value,
@@ -613,14 +638,17 @@ async function loadFindings() {
       ...(filterSeverity.value ? { severity: filterSeverity.value } : {}),
       ...(filterAction.value ? { action: filterAction.value } : {}),
     })
+    if (request !== findingsGeneration || token !== generation || run.value?.id !== runId) return
     pageFindings.value = result?.items || []
     findingsTotal.value = Number(result?.total || 0)
     dispositions.value = result?.dispositions || {}
-  } catch {
+  } catch (err) {
+    if (request !== findingsGeneration || token !== generation || run.value?.id !== runId) return
     pageFindings.value = []
     findingsTotal.value = 0
+    findingsError.value = err?.message || "校验问题暂时无法读取。"
   } finally {
-    findingsLoading.value = false
+    if (request === findingsGeneration && token === generation) findingsLoading.value = false
   }
 }
 
@@ -637,18 +665,21 @@ function turnFindingsPage(page) {
 async function submitDisposition(finding, disposition) {
   if (!run.value?.id || reviewSubmitting.value) return false
   reviewSubmitting.value = finding.finding_id
+  const token = generation
+  const runId = run.value.id
   error.value = ""
   try {
     const updated = await api.world.createWorldValidationReviewItems(run.value.id, props.projectId, {
       items: [{ finding_id: finding.finding_id, disposition, note: "" }],
     })
+    if (token !== generation || run.value?.id !== runId) return false
     run.value = updated
     emit("updated", updated)
     await loadFindings()
     toast(`已记录复核：${dispositionLabel(disposition)}`, "success")
     return true
   } catch (err) {
-    error.value = err?.message || "无法记录复核。"
+    if (token === generation) error.value = err?.message || "无法记录复核。"
     return false
   } finally {
     reviewSubmitting.value = ""
@@ -746,3 +777,12 @@ onBeforeUnmount(() => {
   stopPolling()
 })
 </script>
+
+<style scoped>
+.world-policy-values { display: grid; gap: 8px; min-width: 0; }
+.world-policy-values label { display: grid; gap: 4px; min-width: 0; }
+.world-policy-values input, .world-policy-values select { min-width: 0; max-width: 100%; min-height: 44px; }
+@media (max-width: 760px) {
+  .world-policy-editor__rows li { grid-template-columns: minmax(0, 1fr); align-items: start; gap: 8px; }
+}
+</style>

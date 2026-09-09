@@ -692,10 +692,28 @@ def deterministic_findings(
 
     combined = "\n\n".join(str(item.get("content") or "") for item in items)
     page_types = {str(item.get("page_type") or "") for item in items}
+    rule_items = []
+    for item in items:
+        metadata = dict(item.get("metadata") or {})
+        if isinstance(metadata.pop("validation_policy", None), dict):
+            # A policy's own match strings are instructions, not world evidence.
+            rule_items.append(
+                {
+                    **item,
+                    "content": "\n\n".join(
+                        [
+                            str(item.get("body") or ""),
+                            json.dumps(metadata, ensure_ascii=False) if metadata else "",
+                        ]
+                    ),
+                }
+            )
+        else:
+            rule_items.append(item)
     for rule in policy.rules:
         scoped = [
             item
-            for item in items
+            for item in rule_items
             if not rule.page_type or item.get("page_type") == rule.page_type
         ]
         if rule.operator == "page_type_exists":

@@ -3314,6 +3314,7 @@ class WorldValidationPolicyDraftUpsert(BaseModel):
 
     policy: WorldValidationPolicy
     summary: str = Field(default="", max_length=2000)
+    expected_updated_at: datetime | None = None
 
 
 class WorldValidationFinding(BaseModel):
@@ -3396,6 +3397,7 @@ class WorldValidationRunResponse(BaseModel):
     id: str
     novel_id: str
     task_id: str | None = None
+    context_confirmation_id: str | None = None
     trigger: str
     scope: Literal["targeted", "full"]
     target_type: str | None = None

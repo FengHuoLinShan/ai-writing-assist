@@ -175,6 +175,17 @@ export function emptyGenerateSession() {
   }
 }
 
+export function cocreationSessionKey(baseKey, sessionId) {
+  return sessionId ? `${baseKey}_session_${sessionId}` : baseKey
+}
+
+export function unfinishedCocreationMessages(messages = []) {
+  return messages.filter((item, index, items) => (
+    item?.pending || item?.error || item?.interrupted
+    || (item?.role === "user" && (items[index + 1]?.pending || items[index + 1]?.error || items[index + 1]?.interrupted))
+  ))
+}
+
 export const SERVER_SESSION_OUTCOME_LABELS = {
   pending_review: "待审阅",
   saved_draft: "已存工作稿",

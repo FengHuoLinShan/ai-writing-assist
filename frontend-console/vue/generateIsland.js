@@ -6,10 +6,13 @@ import { getApi, getAppState, getRouteQuery, getRouter, getToast } from "./bridg
 import GenerateView from "./views/generate/GenerateView.vue"
 import {
   clearCreativeContinuation,
+  cocreationSessionKey,
+  emptyGenerateSession,
   generateSessionKey,
   readCreativeContinuation,
   readGenerateSession,
   serverMessagesToLocal,
+  unfinishedCocreationMessages,
 } from "./views/generate/generateSession.js"
 import { OBJECT_TEMPLATES, PAGE_SIZE, convergenceDraftFromCheckpoint, listItems, normalizeTemplate } from "./views/generate/logic/generateLogic.js"
 
@@ -168,19 +171,32 @@ export async function loadGenerate(options = {}) {
       if (detail?.session) {
         serverSessionDetail = detail
         const info = detail.session
+        if ((info.source_kind && info.source_kind !== (sourcePageId ? "world_bible_page" : "project"))
+          || (info.source_id || null) !== sourcePageId
+          || (info.workflow_preset && info.workflow_preset !== (preset === "world_core" ? "world_core" : "default"))
+          || (info.target_kind && info.target_kind !== targetKind)) {
+          serverSessionDetail = null
+          throw new Error("会话与当前创作对象不一致")
+        }
+        const cached = readSession(cocreationSessionKey(sessionKey, info.id))
+        if (cached.serverSessionId === info.id) Object.assign(session, cached)
+        else if (session.serverSessionId !== info.id) Object.assign(session, emptyGenerateSession())
+        const checkpointChanged = session.serverCheckpointId !== (info.current_checkpoint_id || null)
         session.serverSessionId = info.id
         session.serverSessionTitle = info.title || ""
         session.serverCheckpointId = info.current_checkpoint_id || null
         if (Number.isFinite(Number(info.checkpoint_round))) {
-          session.checkpointRound = Math.max(Number(session.checkpointRound || 0), Number(info.checkpoint_round || 0))
+          session.checkpointRound = Number(info.checkpoint_round || 0)
         }
         if (info.checkpoint_depth) session.checkpointDepth = info.checkpoint_depth
-        const serverMessages = serverMessagesToLocal(detail.messages || [])
-        if (serverMessages.length) {
-          // 保留本地未完成/失败的气泡（重试入口），其余以服务端终态记录为准。
-          const localTransient = (session.messages || []).filter((item) => item.pending || item.error || item.interrupted)
-          session.messages = [...serverMessages, ...localTransient]
+        if (checkpointChanged) {
+          session.checkpointId = info.current_checkpoint_id || null
+          session.convergenceDraft = null
         }
+        const serverMessages = serverMessagesToLocal(detail.messages || [])
+        // 已同步历史来自当前会话；失败回合连同作者原问题一起保留。
+        const localTransient = unfinishedCocreationMessages(session.messages)
+        session.messages = [...serverMessages, ...localTransient]
       } else if (querySessionId) {
         serverSessionWarning = "指定的共创会话不存在或已被归档；已回退到本地会话。"
       }
@@ -270,6 +286,7 @@ export async function loadGenerate(options = {}) {
             clearCreativeContinuation(projectId)
           }
         } else {
+          await serverSessionPromise
           const restored = await restoreSuggestion(api, projectId, session.suggestionId, sourcePageId, targetKind)
           props.restoredWorldResult = restored?.result || null
           props.restoredPreviousWorldResult = restored?.previousResult || null

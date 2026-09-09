@@ -55,6 +55,25 @@ beforeEach(() => {
 afterEach(() => resetBridgeOverrides())
 
 describe("generateIsland load contract", () => {
+  it("does not carry another session's decisions into an empty server session", async () => {
+    const key = generateSessionKey("p1", null, "core_entity", "world_core")
+    writeGenerateSession(key, {
+      ...emptyGenerateSession(), serverSessionId: "old", checkpointId: "old-checkpoint",
+      successfulRounds: 8, checkpointRound: 6, suggestionId: "old-suggestion",
+      composer: "旧会话未发送内容", messages: [{ role: "user", content: "旧会话决定" }],
+    })
+    api.world.listCocreationSessions = vi.fn()
+    api.world.getCocreationSession = vi.fn(async () => ({
+      session: { id: "new", source_kind: "project", workflow_preset: "world_core", target_kind: "core_entity", current_checkpoint_id: null, checkpoint_round: 0 },
+      messages: [],
+    }))
+    const props = await loadGenerate({ query: "tab=world&preset=world_core&session_id=new" })
+    expect(props.initialSession).toMatchObject({
+      serverSessionId: "new", messages: [], checkpointId: null,
+      checkpointRound: 0, successfulRounds: 0, suggestionId: null, composer: "",
+    })
+  })
+
   it("starts independent world data while prompt templates are still loading", async () => {
     let resolveTemplates
     api.generate.listPromptTemplates.mockReturnValue(new Promise((resolve) => {

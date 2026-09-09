@@ -556,6 +556,7 @@ export function useWorldBible(props) {
     if (!page && !draft) return false
     const owner = captureEditorOwner()
     const novelId = owner.novelId
+    const revisionAtRequest = autosaveRevision
     editorMutationPending.value = true
     try {
       const payload = {
@@ -575,6 +576,7 @@ export function useWorldBible(props) {
           novel_id: novelId,
           page_id: page.id,
         })
+        if (ownsEditor(owner)) savedDrafts.set(draft.id, draft)
       }
       draft = await api.world.updateBibleDraft(
         draft.id,
@@ -583,6 +585,12 @@ export function useWorldBible(props) {
       )
       if (!ownsEditor(owner) || (modalOwner && !ownsModalOwner(modalOwner))) return false
       savedDrafts.set(draft.id, draft)
+      if (revisionAtRequest !== autosaveRevision) {
+        writeDraftBackup()
+        scheduleWorldDraftAutosave()
+        toast("这一版已保存；你刚才继续输入的内容仍待保存", "info")
+        return false
+      }
       activeDraftId.value = draft.id
       setEditorBaseline(draft)
       rememberDraft(draft)
@@ -622,6 +630,14 @@ export function useWorldBible(props) {
   let autosavePromise = null
   let autosaveRevision = 0
   let shellSaveBound = false
+  let backupWriteFailed = false
+  let backupFailureNotified = false
+
+  function reportFailedBackup() {
+    if (!backupWriteFailed || backupFailureNotified) return
+    backupFailureNotified = true
+    toast("服务器保存与本机备份均未成功，请保持页面打开并复制当前内容。", "error")
+  }
 
   function isEditBaselineConflict(err) {
     return Boolean(
@@ -642,7 +658,7 @@ export function useWorldBible(props) {
     let serverDraft = null
     try {
       const listed = await api.world.listBibleDrafts(projectId.value)
-      serverDraft = (listed?.items || []).find((item) => item.id === owner.draftId) || null
+      serverDraft = (listed?.items || []).find((item) => item.id === owner.draftId || (owner.pageId && item.page_id === owner.pageId)) || null
     } catch {
       // 服务器版本读取失败时仍展示本地信息与选项。
     }
@@ -675,9 +691,21 @@ export function useWorldBible(props) {
         {
           text: "保留我的修改",
           class: "btn-ghost",
-          handler: () => {
+          handler: async () => {
             closeModal()
-            toast("已保留本地修改；自动保存保持暂停，可继续编辑后手动保存", "info")
+            if (!ownsEditor(owner)) return
+            if (serverDraft) {
+              const current = readEditorPayloadFromDom({ lenient: true })
+              savedDrafts.set(serverDraft.id, serverDraft)
+              activeDraftId.value = serverDraft.id
+              setEditorBaseline(serverDraft)
+              rememberDraft(serverDraft)
+              await nextTick()
+              applyDraftBackupToDom(current)
+            }
+            autosaveStatus.value = "conflict"
+            writeDraftBackup()
+            toast("已保留本地修改；自动保存保持暂停，手动保存将更新刚才核对的服务器版本", "info")
           },
         },
         {
@@ -725,13 +753,16 @@ export function useWorldBible(props) {
     try {
       const payload = readEditorPayloadFromDom({ lenient: true })
       if (!payload) return
-      window.localStorage.setItem(key, JSON.stringify({ payload, savedAt: new Date().toISOString() }))
+      window.localStorage.setItem(key, JSON.stringify({ payload, baselineUpdatedAt: editSource.value?.updated_at || null, savedAt: new Date().toISOString() }))
+      backupWriteFailed = false
+      backupFailureNotified = false
     } catch {
-      // 本机备份失败不阻断输入；服务器保存与离开保护仍然有效。
+      backupWriteFailed = true
     }
   }
 
   function clearDraftBackup() {
+    try {
     const key = draftBackupKey()
     if (key) window.localStorage.removeItem(key)
     // 首次自动保存会把编辑对象从正式页换成工作稿，备份 key 随之变化；两个变体一起清理。
@@ -739,6 +770,7 @@ export function useWorldBible(props) {
     if (source?.page_id) {
       window.localStorage.removeItem(`world_draft_backup_${projectId.value}_draft_${source.page_id}`)
     }
+    } catch { /* 服务器保存已成功；浏览器禁用存储不能使已保存内容变成失败。 */ }
   }
 
   function readDraftBackup() {
@@ -768,7 +800,7 @@ export function useWorldBible(props) {
     const assetRefs = document.getElementById("bible-asset-refs")
     if (assetRefs) assetRefs.value = formatAssetRefs(payload.linked_asset_refs_json || [])
     const sections = payload.sections_json || []
-    if (sections.length && editSource.value) {
+    if (editSource.value) {
       editSource.value.sections_json = sections
       rerenderSectionEditor()
     }
@@ -793,6 +825,12 @@ export function useWorldBible(props) {
     const time = new Date(backup.savedAt).toLocaleString("zh-CN")
     if (getConfirm()(`发现 ${time} 的未完成本机备份，是否恢复到编辑器？\n\n选择“取消”将丢弃这份备份。`)) {
       if (applyDraftBackupToDom(backup.payload)) {
+        if (!backup.baselineUpdatedAt || backup.baselineUpdatedAt !== editSource.value?.updated_at) {
+          autosaveStatus.value = "conflict"
+          void showDraftBaselineConflict(captureEditorOwner(), backup.payload)
+          toast("备份的编辑基线已变化，请先核对服务器版本；恢复内容尚未保存", "warning")
+          return
+        }
         scheduleWorldDraftAutosave()
         toast("已恢复本机备份；确认无误后会自动保存到服务器工作稿", "success")
       }
@@ -891,6 +929,7 @@ export function useWorldBible(props) {
           await showDraftBaselineConflict(owner, localPayload)
         } else {
           autosaveStatus.value = "error"
+          reportFailedBackup()
         }
       }
     } finally {

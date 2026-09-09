@@ -75,9 +75,11 @@ import {
 import {
   clearCreativeContinuation,
   readGenerateSession,
+  cocreationSessionKey,
   readCreativeContinuation,
   readGenerateContextPreview,
   serverMessagesToLocal,
+  unfinishedCocreationMessages,
   writeCreativeContinuation,
   writeGenerateContextPreview,
   writeGenerateSession,
@@ -178,7 +180,7 @@ function persistContextPreview() {
   })
 }
 function persist() {
-  const saved = writeGenerateSession(props.sessionKey, { ...session, composer: composer.value, taskPreset: taskPreset.value, taskForm: taskForm.value, povForm: povForm.value }, { notify: notifyOnce })
+  const saved = writeGenerateSession(cocreationSessionKey(props.sessionKey, session.serverSessionId), { ...session, composer: composer.value, taskPreset: taskPreset.value, taskForm: taskForm.value, povForm: povForm.value }, { notify: notifyOnce })
   if (!saved) clearGenerateContinuation()
   return saved
 }
@@ -227,12 +229,13 @@ async function ensureServerSession() {
   return created.id
 }
 async function refreshServerSessionMessages() {
-  if (!session.serverSessionId || !api.world?.listCocreationMessages) return false
+  if (!session.serverSessionId || !api.world?.getCocreationSession) return false
+  const sessionId = session.serverSessionId
   try {
-    const data = await api.world.listCocreationMessages(session.serverSessionId, props.projectId, { limit: 40 })
-    if (!owner.isDisposed()) {
-      const localTransient = session.messages.filter((item) => item.pending || item.error || item.interrupted)
-      session.messages = [...serverMessagesToLocal(data?.items || []), ...localTransient]
+    const data = await api.world.getCocreationSession(sessionId, props.projectId)
+    if (!owner.isDisposed() && session.serverSessionId === sessionId) {
+      const localTransient = unfinishedCocreationMessages(session.messages)
+      session.messages = [...serverMessagesToLocal(data?.messages || []), ...localTransient]
       persist()
     }
     return true
@@ -709,12 +712,8 @@ async function saveWorldCoreCheckpoint() {
         session.serverCheckpointId = updated.current_checkpoint_id || saved.id
       } catch (err) {
         if (Number(err?.status) === 409 || String(err?.message || "").includes("checkpoint_pointer_drift")) {
-          // 漂移：提案已保留，不覆盖其他设备的推进；重新拉取当前基线，要求作者核对。
-          try {
-            const detail = await api.world.getCocreationSession(session.serverSessionId, props.projectId)
-            session.serverCheckpointId = detail?.session?.current_checkpoint_id || null
-          } catch {}
-          pointerWarning = "会话基线已在其他设备推进；本轮提案已保留，请核对差异后再次保存以推进指针。"
+          // 保留旧基线，重新进入会话时 loader 才会发现漂移并恢复最新决定。
+          pointerWarning = "会话基线已在其他设备推进；本轮提案已保留，请刷新并核对会话的最新阶段成果后继续。"
         } else {
           pointerWarning = "阶段成果已保存，但会话指针暂时未能推进；可稍后重试保存。"
         }
@@ -923,7 +922,6 @@ async function generateWorldSuggestion(revisesSuggestionId = null) {
     explored,
     proposal_draft_baseline: JSON.stringify(session.pageProposalDraft),
   }
-  persistActiveWorkflow({ taskId: operationId, workflowType: "world_generation_suggestion", label: "生成世界设定建议", projectId: props.projectId, view: "generate", meta }, receiptStorage)
   worldTaskProgress.value = normalizeTaskProgress({ task_id: operationId, task_type: "world_generation_suggestion", status: "pending" }, "world_generation_suggestion")
   try {
     let payload = currentWorldPayload()
@@ -937,6 +935,7 @@ async function generateWorldSuggestion(revisesSuggestionId = null) {
       if (taskAction) payload.session_action = taskAction
       if (payload.session_id) meta.session_id = payload.session_id
     } catch { /* 会话绑定失败不阻塞生成；成果仍进入待处理建议 */ }
+    persistActiveWorkflow({ taskId: operationId, workflowType: "world_generation_suggestion", label: "生成世界设定建议", projectId: props.projectId, view: "generate", meta }, receiptStorage)
     const response = await api.generate.enqueueWorldSuggestion({ ...payload, operation_id: operationId })
     if (owner.isDisposed()) return true
     const taskId = response?.task_id || operationId
@@ -1049,15 +1048,7 @@ function sessionBindingQuery(extra = {}) {
 }
 function switchToCocreationSession(item) {
   if (!confirmDiscard("整页提案仍有未应用的编辑，确定放弃修改并切换会话吗？")) return false
-  session.serverSessionId = item.id
-  session.serverSessionTitle = item.title || ""
-  session.serverCheckpointId = item.current_checkpoint_id || null
-  session.messages = []
-  session.suggestionId = null
-  session.convergenceDraft = null
-  worldResult.value = null
-  previousWorldResult.value = null
-  discardPageProposalDraft()
+  // 原会话的输入、阶段成果与任务收据保存到它自己的缓存；新会话交给 loader 水合。
   persist()
   closeModal()
   router.navigate("generate", null, true, sessionBindingQuery({ session_id: item.id }))
@@ -1345,7 +1336,7 @@ async function openChapterPicker() {
 }
 function viewGenerationContext(kind) { const usage = kind === "chat" ? chatContextUsage.value : entityContextUsage.value; if (!usage) return toast("本次生成没有返回可审计的上下文记录", "warning"); const body = `<div class="generate-context-header"><span class="generate-context-stat">${esc(usage.section_key || "world_bible_synopsis")}</span><span class="generate-context-meta">状态：${esc(usage.status || "unknown")}</span><span class="generate-context-meta">Tokens：${esc(usage.token_count || 0)}</span></div><table class="data-table"><tbody><tr><th>Revision</th><td>${esc(usage.revision_id || "确定性降级/未包含")}</td></tr><tr><th>Source hash</th><td>${esc(usage.source_hash || "-")}</td></tr><tr><th>Block hash</th><td>${esc(usage.block_hash || "-")}</td></tr><tr><th>Context snapshot</th><td>${esc(usage.context_snapshot_id || "-")}</td></tr><tr><th>Stale</th><td>${usage.stale ? "是" : "否"}</td></tr><tr><th>Fallback</th><td>${usage.fallback ? "是" : "否"}</td></tr></tbody></table>`; openOwnedModal("本次实际使用的上下文", body, [], { size: "large" }) }
 
-const recoveredWorldTask = recoverActiveWorkflows(props.projectId, receiptStorage).find((item) => item.workflowType === "world_generation_suggestion" && item.meta?.session_key === props.sessionKey)
+const recoveredWorldTask = recoverActiveWorkflows(props.projectId, receiptStorage).find((item) => item.workflowType === "world_generation_suggestion" && item.meta?.session_key === props.sessionKey && (item.meta?.session_id || null) === (session.serverSessionId || null))
 if (recoveredWorldTask) startWorldTaskPolling(recoveredWorldTask.taskId, recoveredWorldTask.meta)
 const recoveredPovTask = recoverActiveWorkflows(props.projectId, receiptStorage).find((item) => item.workflowType === "writing_generate" && item.view === "generate" && item.meta?.kind === "pov_prose" && item.meta?.sessionKey === props.sessionKey)
 if (recoveredPovTask) void recoverPovTask(recoveredPovTask)

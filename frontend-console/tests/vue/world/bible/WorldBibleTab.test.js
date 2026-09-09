@@ -2882,6 +2882,7 @@ describe("二期：工作稿自动保存与编辑基线", () => {
     try {
       const bible = defaultBible()
       bible.drafts = [] // 已发布页且尚无工作稿：编辑源先是正式页对象
+      bible.pages = bible.pages.map((page) => ({ ...page, updated_at: "2026-09-09T07:00:00Z" }))
       const pageScopedKey = `world_draft_backup_p1_draft_page-1`
       localStorage.setItem(pageScopedKey, JSON.stringify({
         payload: {
@@ -2890,6 +2891,7 @@ describe("二期：工作稿自动保存与编辑基线", () => {
           sort_order: 0, linked_asset_refs_json: [], sections_json: [],
         },
         savedAt: "2026-09-09T08:00:00.000Z",
+        baselineUpdatedAt: "2026-09-09T07:00:00Z",
       }))
       const createBibleDraft = vi.fn(async () => ({
         id: "draft-restored", page_id: "page-1", title: "世界基本背景",
@@ -3124,6 +3126,25 @@ describe("二期：资料页阅读态", () => {
 })
 
 describe("二期：保存冲突展示服务器版本", () => {
+  it("保留本地修改后能使用核对过的服务器基线手动保存", async () => {
+    const server = { ...DRAFT_1, free_text: "服务器版本", sections_json: [], updated_at: "2026-09-09T03:00:00Z" }
+    globalThis.api.world.updateBibleDraft = vi.fn()
+      .mockRejectedValueOnce(Object.assign(new Error("请求冲突"), { status: 409, body: { error: "edit_baseline_stale" } }))
+      .mockImplementationOnce(async (_id, payload) => ({ ...server, ...payload }))
+    globalThis.api.world.listBibleDrafts = vi.fn(async () => ({ items: [server] }))
+    const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
+    await wrapper.get("#bible-free-text").setValue("本地版本")
+    await wrapper.get("[data-action='bible-save-page']").trigger("click")
+    await vi.waitFor(() => expect(showModalHtmlMock.mock.calls.at(-1)?.[0]).toBe("工作稿保存冲突"))
+    await showModalHtmlMock.mock.calls.at(-1)[2].find((button) => button.text === "保留我的修改").handler()
+    expect(wrapper.get("#bible-free-text").element.value).toBe("本地版本")
+    await wrapper.get("[data-action='bible-save-page']").trigger("click")
+    expect(globalThis.api.world.updateBibleDraft.mock.calls[1][1]).toMatchObject({
+      free_text: "本地版本", expected_updated_at: server.updated_at,
+    })
+  })
+
   it("基线 409 时弹出对照对话框，可选择采用服务器版本", async () => {
     const conflict = Object.assign(new Error("请求冲突"), { status: 409, body: { error: "edit_baseline_stale" } })
     const updateDraft = vi.fn()

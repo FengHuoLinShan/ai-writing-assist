@@ -23,6 +23,7 @@ from sqlalchemy import (
     nullslast,
     or_,
     select,
+    text,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -249,7 +250,7 @@ class WorldLibraryService:
     def _empty_union() -> Any:
         return select(
             literal("page").label("kind"),
-            literal(None).label("target_id"),
+            literal(None, type_=WorldBiblePage.id.type).label("target_id"),
             literal(None).label("title"),
             literal(None).label("summary"),
             literal("review").label("state"),
@@ -282,7 +283,7 @@ class WorldLibraryService:
                     working=working,
                 )
             )
-        if kind in {"all", "page", "draft"}:
+        if kind in {"all", "page", "draft"} and working is not False:
             sources.append(
                 self._free_drafts_source(
                     nid,
@@ -666,6 +667,7 @@ class WorldLibraryService:
         data: WorldLibraryTopicCreate,
     ) -> WorldLibraryTopicNode:
         nid = parse_uuid(novel_id, "novel_id")
+        await self._lock_workspace(db, nid)
         name = data.name.strip()
         if not name:
             raise ValidationError("主题名称不能为空")
@@ -706,6 +708,7 @@ class WorldLibraryService:
         data: WorldLibraryTopicUpdate,
     ) -> WorldLibraryTopicNode:
         nid = parse_uuid(novel_id, "novel_id")
+        await self._lock_workspace(db, nid)
         topic = await self._get_topic(db, nid, topic_id, for_update=True)
         self._check_baseline(topic, data.expected_updated_at)
         if data.name is not None:
@@ -726,6 +729,7 @@ class WorldLibraryService:
         data: WorldLibraryTopicMoveRequest,
     ) -> WorldLibraryTopicNode:
         nid = parse_uuid(novel_id, "novel_id")
+        await self._lock_workspace(db, nid)
         topic = await self._get_topic(db, nid, topic_id, for_update=True)
         self._check_baseline(topic, data.expected_updated_at)
         new_parent_id = (
@@ -782,6 +786,7 @@ class WorldLibraryService:
         data: WorldLibraryTopicReorderRequest,
     ) -> list[WorldLibraryTopicNode]:
         nid = parse_uuid(novel_id, "novel_id")
+        await self._lock_workspace(db, nid)
         parent_id = parse_uuid(data.parent_id, "parent_id") if data.parent_id else None
         if len(set(data.ordered_ids)) != len(data.ordered_ids):
             raise ValidationError("ordered_ids 不能重复")
@@ -815,6 +820,7 @@ class WorldLibraryService:
         archived: bool,
     ) -> WorldLibraryTopicNode:
         nid = parse_uuid(novel_id, "novel_id")
+        await self._lock_workspace(db, nid)
         topic = await self._get_topic(db, nid, topic_id, for_update=True)
         topic.status = "archived" if archived else "active"
         await db.flush()
@@ -828,6 +834,7 @@ class WorldLibraryService:
         data: WorldLibraryMemberRequest,
     ) -> bool:
         nid = parse_uuid(novel_id, "novel_id")
+        await self._lock_workspace(db, nid)
         topic = await self._get_topic(db, nid, topic_id)
         if topic.status != "active":
             raise ValidationError("主题已归档，不能添加资料")
@@ -864,6 +871,7 @@ class WorldLibraryService:
         target_id: str,
     ) -> bool:
         nid = parse_uuid(novel_id, "novel_id")
+        await self._lock_workspace(db, nid)
         topic = await self._get_topic(db, nid, topic_id)
         kind, normalized_id = await self._normalize_target(
             db, nid, target_kind, target_id
@@ -910,6 +918,7 @@ class WorldLibraryService:
         target_id: str,
     ) -> None:
         nid = parse_uuid(novel_id, "novel_id")
+        await self._lock_workspace(db, nid)
         kind, normalized_id = await self._normalize_target(
             db, nid, target_kind, target_id
         )
@@ -967,6 +976,7 @@ class WorldLibraryService:
         favorited: bool,
     ) -> WorldLibraryFavoriteResponse:
         nid = parse_uuid(novel_id, "novel_id")
+        await self._lock_workspace(db, nid)
         kind, normalized_id = await self._normalize_target(
             db, nid, target_kind, target_id
         )
@@ -1003,8 +1013,14 @@ class WorldLibraryService:
         novel_id: str,
     ) -> WorldLibraryViewPrefsResponse:
         nid = parse_uuid(novel_id, "novel_id")
-        row = await self._get_profile(db, nid)
-        return WorldLibraryViewPrefsResponse(view_prefs=dict(row.view_prefs_json or {}))
+        row = await db.scalar(
+            select(WorldLibraryWorkspaceProfile).where(
+                WorldLibraryWorkspaceProfile.novel_id == nid
+            )
+        )
+        return WorldLibraryViewPrefsResponse(
+            view_prefs=dict(row.view_prefs_json or {}) if row else {}
+        )
 
     async def update_view_prefs(
         self,
@@ -1013,6 +1029,7 @@ class WorldLibraryService:
         view_prefs: dict[str, Any],
     ) -> WorldLibraryViewPrefsResponse:
         nid = parse_uuid(novel_id, "novel_id")
+        await self._lock_workspace(db, nid)
         try:
             encoded = json.dumps(view_prefs, ensure_ascii=False)
         except (TypeError, ValueError) as exc:
@@ -1037,6 +1054,7 @@ class WorldLibraryService:
     ) -> None:
         """工作稿发布后，把目录成员/收藏/最近访问的 draft 引用转换为 page 引用。"""
         nid = parse_uuid(novel_id, "novel_id")
+        await self._lock_workspace(db, nid)
         did = (
             draft_id
             if isinstance(draft_id, uuid_module.UUID)
@@ -1140,6 +1158,15 @@ class WorldLibraryService:
     # Internals
     # ============================================================
 
+    @staticmethod
+    async def _lock_workspace(db: AsyncSession, nid: uuid_module.UUID) -> None:
+        # ponytail: per-novel metadata lock; split only on measured contention.
+        if db.get_bind().dialect.name == "postgresql":
+            await db.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                {"key": f"world-library:{nid}"},
+            )
+
     async def _get_topic(
         self,
         db: AsyncSession,
@@ -1160,7 +1187,7 @@ class WorldLibraryService:
             WorldLibraryTopic.id == tid,
         )
         if for_update:
-            stmt = stmt.with_for_update()
+            stmt = stmt.execution_options(populate_existing=True).with_for_update()
         topic = (await db.execute(stmt)).scalar_one_or_none()
         if topic is None:
             raise NotFoundError("主题不存在")

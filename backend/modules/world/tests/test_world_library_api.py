@@ -103,6 +103,17 @@ async def _list_library(
 
 
 @pytest.mark.asyncio
+async def test_without_working_filter_excludes_standalone_drafts(async_client):
+    novel_id = await _create_project(async_client, "没有工作稿的资料")
+    await _create_free_draft(async_client, novel_id, title="独立工作稿")
+    entity_id = await _create_entity(async_client, novel_id, name="正式对象")
+    result = await _list_library(async_client, novel_id, working=False)
+    assert [item["id"] for item in result["items"]] == [entity_id]
+    drafts = await _list_library(async_client, novel_id, kind="draft", working=False)
+    assert drafts["total"] == 0
+
+
+@pytest.mark.asyncio
 async def test_library_pagination_covers_all_items(async_client: AsyncClient) -> None:
     novel_id = await _create_project(async_client, "资料分页")
     for index in range(55):

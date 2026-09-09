@@ -73,9 +73,7 @@ class WorldImpactService:
             root_terms = self._page_terms(page.title, page.page_meta_json)
         elif target_type == "core_entity":
             entity = await db.scalar(
-                select(CoreEntity).where(
-                    CoreEntity.id == tid, CoreEntity.novel_id == nid
-                )
+                select(CoreEntity).where(CoreEntity.id == tid, CoreEntity.novel_id == nid)
             )
             if entity is None:
                 raise NotFoundError("Core entity not found")
@@ -170,9 +168,7 @@ class WorldImpactService:
                 await db.scalar(
                     select(func.count())
                     .select_from(CoreEntity)
-                    .where(
-                        CoreEntity.novel_id == nid, CoreEntity.status == "canonical"
-                    )
+                    .where(CoreEntity.novel_id == nid, CoreEntity.status == "canonical")
                 )
                 or 0
             )
@@ -482,10 +478,9 @@ class WorldImpactService:
         return WorldImpactPreviewSection(
             section="story_threads",
             items=items,
+            truncated=len(items) >= 500,
             uncovered=(
-                []
-                if items
-                else ["没有故事线声明依赖该对象（按故事线关联对象反查）"]
+                [] if items else ["没有故事线声明依赖该对象（按故事线关联对象反查）"]
             ),
         )
 
@@ -558,7 +553,11 @@ class WorldImpactService:
         return WorldImpactPreviewSection(
             section="prose",
             items=items,
-            uncovered=["正文按名称/别名字面匹配：代词、改写与未列别名无法覆盖"],
+            truncated=cursor is not None,
+            uncovered=[
+                "正文按名称/别名字面匹配：代词、改写与未列别名无法覆盖",
+                *(["正文扫描已达批次上限，仍有章节未检查"] if cursor is not None else []),
+            ],
         )
 
     @staticmethod
@@ -606,8 +605,7 @@ class WorldImpactService:
                 for node in nodes[:_AFFECTED_PAGE_CAP]
             ],
             uncovered=[
-                "Scene 级依赖仅按章节粒度列示，未逐一核对场景脚本；"
-                "地图标注引用未纳入"
+                "Scene 级依赖仅按章节粒度列示，未逐一核对场景脚本；地图标注引用未纳入"
             ],
             truncated=truncated,
         )
@@ -628,7 +626,17 @@ class WorldImpactService:
         aliases = content.get("aliases")
         if not isinstance(aliases, list):
             return []
-        return [str(item) for item in aliases if str(item).strip()]
+        return [
+            item if isinstance(item, str) else str(item["alias"])
+            for item in aliases
+            if (isinstance(item, str) and item.strip())
+            or (
+                isinstance(item, dict)
+                and item.get("alias")
+                and item.get("status", "canonical") in _ADOPTED_STATUSES
+                and not item.get("needs_review")
+            )
+        ]
 
     @staticmethod
     def _global_uncovered(sections: list[WorldImpactPreviewSection]) -> list[str]:

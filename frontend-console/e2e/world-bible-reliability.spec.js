@@ -117,6 +117,40 @@ test.describe("世界书可靠保存", () => {
     await tab2.close()
   })
 
+  test("旧备份恢复先核对版本，保留本地修改后可以明确保存", async ({ page }) => {
+    const projectId = testProject.id
+    const source = await createWorldBiblePage(projectId, {
+      title: "旧备份基线核对", page_type: "background", free_text: "初始正文",
+    })
+    await openBibleWorkbench(page)
+    await searchAndOpenRow(page, source.title)
+    await enterEditor(page)
+    await page.locator("#bible-free-text").fill("服务器新版本")
+    await waitForAutosave(page, "idle")
+    const server = await draftForPage(projectId, source.id)
+    await page.evaluate(({ projectId, source, server }) => {
+      localStorage.setItem(`world_draft_backup_${projectId}_page_${source.id}`, JSON.stringify({
+        payload: { ...server, free_text: "旧备份里的新输入", sections_json: [] },
+        baselineUpdatedAt: "2000-01-01T00:00:00Z", savedAt: new Date().toISOString(),
+      }))
+    }, { projectId, source, server })
+    await page.reload()
+    await openPageInReader(page, projectId, source.id)
+    page.once("dialog", (dialog) => dialog.accept())
+    await enterEditor(page)
+    await expect(page.locator("#modal-title")).toHaveText("工作稿保存冲突")
+    await expect(page.locator(".world-draft-conflict")).toContainText("服务器新版本")
+    await waitForAutosave(page, "conflict")
+    expect((await draftForPage(projectId, source.id)).free_text).toBe("服务器新版本")
+    await page.getByRole("button", { name: "保留我的修改", exact: true }).click()
+    await expect(page.locator("#bible-free-text")).toHaveValue("旧备份里的新输入")
+    await page.locator("[data-action='bible-save-page']").click()
+    await waitForAutosave(page, "idle")
+    const saved = await draftForPage(projectId, source.id)
+    expect(saved.free_text).toBe("旧备份里的新输入")
+    expect(saved.sections_json).toEqual([])
+  })
+
   test("断网期间输入先落本机备份，恢复网络后刷新可还原并保存", async ({ page }) => {
     test.setTimeout(90_000)
     const projectId = testProject.id
@@ -252,6 +286,7 @@ test.describe("世界书可靠保存", () => {
     await page.locator("#bible-free-text").fill("双失败场景下的未保存输入。")
     await expect.poll(() => failedSaveAttempts.length).toBeGreaterThan(0)
     await expect(page.locator("#bible-free-text")).toHaveValue("双失败场景下的未保存输入。")
+    await expect(page.getByText("服务器保存与本机备份均未成功", { exact: false })).toBeVisible()
 
     // 离开当前页面前必须经过未保存确认；取消离开后输入仍在
     const leaveDialog = page.waitForEvent("dialog")

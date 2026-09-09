@@ -67,15 +67,20 @@ class WorldCocreationSessionService:
         db: AsyncSession,
         novel_id: str,
         session_id: str,
+        *,
+        for_update: bool = False,
     ) -> WorldCocreationSession:
         nid = parse_uuid(novel_id, "novel_id")
         sid = parse_uuid(session_id, "session_id")
-        row = await db.scalar(
-            select(WorldCocreationSession).where(
-                WorldCocreationSession.novel_id == nid,
-                WorldCocreationSession.id == sid,
-            )
+        statement = select(WorldCocreationSession).where(
+            WorldCocreationSession.novel_id == nid,
+            WorldCocreationSession.id == sid,
         )
+        if for_update:
+            statement = statement.execution_options(
+                populate_existing=True
+            ).with_for_update()
+        row = await db.scalar(statement)
         if row is None:
             raise NotFoundError("Co-creation session not found")
         return row
@@ -93,16 +98,16 @@ class WorldCocreationSessionService:
             models.append(WorldBiblePageDraft)
         for model in models:
             count = await db.scalar(
-                select(func.count()).select_from(model).where(
+                select(func.count())
+                .select_from(model)
+                .where(
                     model.novel_id == nid,
                     model.id == source_id,
                 )
             )
             if count:
                 return
-        raise NotFoundError(
-            "Co-creation session source not found in this project"
-        )
+        raise NotFoundError("Co-creation session source not found in this project")
 
     async def create(
         self,
@@ -110,9 +115,7 @@ class WorldCocreationSessionService:
         data: WorldCocreationSessionCreateRequest,
     ) -> WorldCocreationSessionResponse:
         nid = parse_uuid(data.novel_id, "novel_id")
-        source_id = (
-            parse_uuid(data.source.id, "source id") if data.source.id else None
-        )
+        source_id = parse_uuid(data.source.id, "source id") if data.source.id else None
         if data.source.kind != "project":
             await self._require_source(db, nid, data.source.kind, source_id)
         row = WorldCocreationSession(
@@ -151,13 +154,10 @@ class WorldCocreationSessionService:
             conditions.append(WorldCocreationSession.source_kind == source_kind)
         if source_id:
             conditions.append(
-                WorldCocreationSession.source_id
-                == parse_uuid(source_id, "source_id")
+                WorldCocreationSession.source_id == parse_uuid(source_id, "source_id")
             )
         total = await db.scalar(
-            select(func.count()).select_from(WorldCocreationSession).where(
-                *conditions
-            )
+            select(func.count()).select_from(WorldCocreationSession).where(*conditions)
         )
         rows = (
             await db.scalars(
@@ -276,13 +276,9 @@ class WorldCocreationSessionService:
                 .replace("%", "\\%")
                 .replace("_", "\\_")
             )
-            conditions.append(
-                WorldCocreationMessage.content.ilike(f"%{escaped}%")
-            )
+            conditions.append(WorldCocreationMessage.content.ilike(f"%{escaped}%"))
         total = await db.scalar(
-            select(func.count()).select_from(WorldCocreationMessage).where(
-                *conditions
-            )
+            select(func.count()).select_from(WorldCocreationMessage).where(*conditions)
         )
         rows = (
             await db.scalars(
@@ -306,9 +302,9 @@ class WorldCocreationSessionService:
         limit: int = RECENT_MESSAGE_LIMIT,
     ) -> tuple[list[WorldCocreationMessageResponse], int]:
         total = await db.scalar(
-            select(func.count()).select_from(WorldCocreationMessage).where(
-                WorldCocreationMessage.session_id == session.id
-            )
+            select(func.count())
+            .select_from(WorldCocreationMessage)
+            .where(WorldCocreationMessage.session_id == session.id)
         )
         newest = (
             await db.scalars(
@@ -390,7 +386,7 @@ class WorldCocreationSessionService:
         session_id: str,
         data: WorldCocreationCheckpointAdvanceRequest,
     ) -> WorldCocreationSessionResponse:
-        session = await self._require_session(db, novel_id, session_id)
+        session = await self._require_session(db, novel_id, session_id, for_update=True)
         suggestion_id = parse_uuid(
             data.checkpoint_suggestion_id,
             "checkpoint_suggestion_id",
@@ -405,8 +401,7 @@ class WorldCocreationSessionService:
             raise NotFoundError("Checkpoint suggestion not found in this project")
         if suggestion.target_type not in COCREATION_CHECKPOINT_TARGET_TYPES:
             raise ConflictError(
-                "Only a world design/core checkpoint can advance the session "
-                "pointer",
+                "Only a world design/core checkpoint can advance the session pointer",
                 code="checkpoint_target_mismatch",
             )
         expected = (
@@ -441,11 +436,7 @@ class WorldCocreationSessionService:
         session = await self._require_session(db, data.novel_id, session_id)
         result = await WorldGenerationCenterService().chat(db, data)
         last_user = next(
-            (
-                message
-                for message in reversed(data.messages)
-                if message.role == "user"
-            ),
+            (message for message in reversed(data.messages) if message.role == "user"),
             None,
         )
         if last_user is not None:
@@ -482,7 +473,7 @@ class WorldCocreationSessionService:
         """Append the completed async candidate turn into its session."""
         try:
             session = await self._require_session(db, novel_id, session_id)
-        except Exception as exc:
+        except NotFoundError as exc:
             logger.warning(
                 "Skip co-creation outcome recording for missing session %s: %s",
                 session_id,
