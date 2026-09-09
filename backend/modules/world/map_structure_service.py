@@ -9,7 +9,10 @@ import uuid
 from sqlalchemy import select
 
 from core.errors import ConflictError, NotFoundError, ValidationError
-from infrastructure.tasks.facade import list_task_lifecycle_contracts
+from infrastructure.tasks.facade import (
+    get_completed_task_payload,
+    list_task_lifecycle_contracts,
+)
 from modules.evidence.contracts import VisibilityContextContract
 from modules.evidence.facade import (
     inspect_novel_target,
@@ -36,7 +39,13 @@ from modules.world.map_structure_geometry import (
     layout,
 )
 from modules.world.map_structure_schemas import (
+    STRUCTURE_LEVELS,
     MapDocument,
+    MapExtractionSummary,
+    MapLayoutResponse,
+    MapLink,
+    MapLinkQuery,
+    MapLinksResponse,
     MapNodeCreate,
     MapNodeMapResponse,
     MapProblem,
@@ -52,6 +61,7 @@ from shared.utils import parse_uuid
 
 MAP_ACTION = "world.map_atlas.structure"
 MAP_TASK = "world_map_schematic_generate"
+_CALIBRATION_HISTORY_LIMIT = 100
 
 
 def source_payload(item) -> dict:
@@ -130,6 +140,75 @@ class MapStructureService:
             problems=row.problems,
             created_at=row.created_at,
         )
+
+    async def map_links(self, db, novel_id: str, query: MapLinkQuery) -> MapLinksResponse:
+        await require_active_project(db, novel_id)
+        query = MapLinkQuery.model_validate(query.model_dump())
+        text = query.q.strip().casefold()
+        if query.chapter_index is None and query.entity_id is None and not text:
+            return MapLinksResponse()
+        nid = parse_uuid(novel_id, "novel_id")
+        # ponytail: scan at most 200 saved maps; add a search index if maps outgrow this.
+        rows = (
+            await db.execute(
+                select(MapAtlasNode, MapAtlasRevision.document)
+                .join(
+                    MapAtlasRevision,
+                    (
+                        (MapAtlasRevision.id == MapAtlasNode.current_revision_id)
+                        & (MapAtlasRevision.node_id == MapAtlasNode.id)
+                        & (MapAtlasRevision.novel_id == MapAtlasNode.novel_id)
+                    ),
+                )
+                .where(
+                    MapAtlasNode.novel_id == nid,
+                    MapAtlasNode.status == "adopted",
+                    MapAtlasRevision.novel_id == nid,
+                    MapAtlasRevision.status == "saved",
+                )
+                .order_by(MapAtlasNode.updated_at.desc(), MapAtlasNode.id)
+                .limit(201)
+            )
+        ).all()
+        response = MapLinksResponse(truncated=len(rows) > 200)
+        for node, payload in rows[:200]:
+            document = MapDocument.model_validate(payload)
+            for feature in document.features:
+                chapters = sorted(
+                    {
+                        source.source_ref["chapter_index"]
+                        for source in feature.sources
+                        if source.kind == "source_range"
+                    }
+                )
+                if (
+                    query.chapter_index is not None
+                    and query.chapter_index not in chapters
+                ):
+                    continue
+                if query.entity_id is not None and query.entity_id != feature.entity_id:
+                    continue
+                if (
+                    text
+                    and text not in feature.label.casefold()
+                    and text not in node.title.casefold()
+                ):
+                    continue
+                if len(response.items) == query.limit:
+                    response.truncated = True
+                    return response
+                response.items.append(
+                    MapLink(
+                        node_id=node.id,
+                        node_title=node.title,
+                        level=node.level,
+                        feature_id=feature.id,
+                        feature_label=feature.label,
+                        entity_id=feature.entity_id,
+                        chapter_indices=chapters,
+                    )
+                )
+        return response
 
     async def create_node(self, db, novel_id: str, data: MapNodeCreate):
         await require_active_project_exclusive(db, novel_id)
@@ -349,14 +428,45 @@ class MapStructureService:
 
         return problems
 
-    async def save(self, db, novel_id: str, node_id: str, data: MapSaveRequest):
+    async def save(
+        self,
+        db,
+        novel_id: str,
+        node_id: str,
+        data: MapSaveRequest,
+        *,
+        _trusted_generation: bool = False,
+    ):
         await require_active_project_exclusive(db, novel_id)
         node = await self.node(db, novel_id, node_id, lock=True)
-        if node.level not in {"region", "city"}:
-            raise ValidationError("当前仅支持区域和城市空间图，原图片仍可浏览")
+        if node.level not in STRUCTURE_LEVELS:
+            raise ValidationError("空间图支持区域、城市、街区和街道，原图片仍可浏览")
         if node.current_revision_id != data.base_revision_id:
             raise ConflictError("地图已在别处更新；当前编辑仍保留，请先比较版本")
         document = data.document.model_copy(deep=True)
+        if not _trusted_generation:
+            previous = (
+                await self.revision(db, novel_id, node_id, node.current_revision_id)
+                if node.current_revision_id
+                else None
+            )
+            prior = (
+                {
+                    item.id: item
+                    for item in MapDocument.model_validate(previous.document).constraints
+                }
+                if previous
+                else {}
+            )
+            for item in document.constraints:
+                if item.generated_by_task_id is None:
+                    continue
+                old = prior.get(item.id)
+                if old is None or old.generated_by_task_id != item.generated_by_task_id:
+                    raise ValidationError("手工保存不能指定空间提取任务来源")
+                if old != item:
+                    # An author edit owns the relation from now on.
+                    item.generated_by_task_id = None
         source_problems = await self.validate_document(db, novel_id, node, document)
         row = MapAtlasRevision(
             novel_id=node.novel_id,
@@ -389,7 +499,99 @@ class MapStructureService:
         ).all()
         return [self.response(row) for row in rows]
 
+    async def preview_revision(self, db, novel_id, node_id, revision_id):
+        await self.node(db, novel_id, node_id)
+        row = await self.revision(db, novel_id, node_id, revision_id)
+        document = MapDocument.model_validate(row.document)
+        problems = list(row.problems)
+        for item in [*document.features, *document.constraints]:
+            for source in item.sources:
+                try:
+                    await self.source(db, novel_id, source)
+                except (ConflictError, ValidationError):
+                    problems.append(
+                        {
+                            "code": "source_stale",
+                            "message": "此版本的部分来源已变化或不可用，请核对后再使用",
+                            "feature_ids": [item.id]
+                            if hasattr(item, "points")
+                            else [item.subject, item.target],
+                        }
+                    )
+                    break
+        return MapLayoutResponse(
+            document=document,
+            geometry_hash=row.geometry_hash,
+            problems=problems,
+            image_layers=await self.image_layers(db, novel_id, node_id, document),
+        )
+
+    async def _adoption_document(self, db, novel_id, node_id, node, row, data):
+        from modules.world.map_structure_review import (
+            apply_revision_changes,
+            document_items,
+        )
+
+        if node.current_revision_id != data.base_revision_id:
+            raise ConflictError("地图已更新，请重新比较后再操作")
+        if row.status != "candidate" or row.base_revision_id != node.current_revision_id:
+            raise ConflictError("候选基于旧地图，请重新生成或手动比较")
+        if not row.confirmation_id:
+            raise ConflictError("候选缺少原参考资料确认，请重新生成")
+        try:
+            prepared = await prepare_confirmed_ai_action(
+                db,
+                novel_id=novel_id,
+                action=MAP_ACTION,
+                confirmation_id=str(row.confirmation_id),
+            )
+        except ValueError as exc:
+            raise ConflictError("候选参考资料已经失效，请重新生成") from exc
+        if prepared.confirmation.context_fingerprint != row.context_fingerprint:
+            raise ConflictError("候选来源已变化，请重新生成")
+        candidate = MapDocument.model_validate(row.document)
+        baseline = (
+            MapDocument.model_validate(
+                (
+                    await self.revision(db, novel_id, node_id, row.base_revision_id)
+                ).document
+            )
+            if row.base_revision_id
+            else MapDocument()
+        )
+        document, applied, expanded = apply_revision_changes(
+            baseline, candidate, data.change_keys
+        )
+        items = document_items(document)
+        for key in applied:
+            item = items.get(key)
+            if item is not None and key.startswith(("feature:", "constraint:")):
+                for source in item.sources:
+                    await self.source(db, novel_id, source)
+        return document, applied, expanded
+
+    async def review_preview(
+        self, db, novel_id, node_id, revision_id, data: MapRevisionReview
+    ):
+        from modules.world.map_structure_schemas import MapReviewPreview
+
+        if data.action != "adopt":
+            raise ValidationError("采用范围预览只接受采用操作")
+        node = await self.node(db, novel_id, node_id)
+        row = await self.revision(db, novel_id, node_id, revision_id)
+        _, applied, expanded = await self._adoption_document(
+            db, novel_id, node_id, node, row, data
+        )
+        return MapReviewPreview(
+            candidate_revision_id=str(row.id),
+            base_revision_id=str(row.base_revision_id) if row.base_revision_id else None,
+            applied_change_keys=applied,
+            expanded_change_keys=expanded,
+        )
+
     async def review(self, db, novel_id, node_id, revision_id, data: MapRevisionReview):
+        from modules.world.map_structure_review import changed_items
+
         await require_active_project_exclusive(db, novel_id)
         node = await self.node(db, novel_id, node_id, lock=True)
         row = await self.revision(db, novel_id, node_id, revision_id)
@@ -401,21 +603,12 @@ class MapStructureService:
             return self.response(row)
         if node.current_revision_id != data.base_revision_id:
             raise ConflictError("地图已更新，请重新比较后再操作")
+        candidate = MapDocument.model_validate(row.document)
+        document, applied, expanded = candidate, [], []
         if data.action == "adopt":
-            if (
-                row.status != "candidate"
-                or row.base_revision_id != node.current_revision_id
-            ):
-                raise ConflictError("候选基于旧地图，请重新生成或手动比较")
-            if row.confirmation_id:
-                prepared = await prepare_confirmed_ai_action(
-                    db,
-                    novel_id=novel_id,
-                    action=MAP_ACTION,
-                    confirmation_id=str(row.confirmation_id),
-                )
-                if prepared.confirmation.context_fingerprint != row.context_fingerprint:
-                    raise ConflictError("候选来源已变化，请重新生成")
+            document, applied, expanded = await self._adoption_document(
+                db, novel_id, node_id, node, row, data
+            )
         elif row.status != "saved":
             raise ConflictError("只能恢复已保存的历史版本")
         result = await self.save(
@@ -424,11 +617,35 @@ class MapStructureService:
             node_id,
             MapSaveRequest(
                 base_revision_id=data.base_revision_id,
-                document=MapDocument.model_validate(row.document),
+                document=document,
             ),
+            _trusted_generation=True,
         )
         if data.action == "adopt":
-            row.status = "saved"
+            result.applied_change_keys = applied
+            result.expanded_change_keys = expanded
+            if changed_items(document, candidate):
+                # The original complete candidate was never fully adopted. Retire it
+                # without making its unchecked remainder restorable as saved history.
+                row.status = "rejected"
+                remaining = MapAtlasRevision(
+                    novel_id=row.novel_id,
+                    node_id=row.node_id,
+                    base_revision_id=uuid.UUID(result.id),
+                    status="candidate",
+                    document=candidate.model_dump(mode="json"),
+                    geometry_hash=geometry_hash(candidate),
+                    problems=list(row.problems),
+                    confirmation_id=row.confirmation_id,
+                    context_fingerprint=row.context_fingerprint,
+                )
+                # The remaining full candidate retains the same dependency-valid
+                # document and exact confirmation; only its comparison base changes.
+                db.add(remaining)
+                await db.flush()
+                result.remaining_candidate_id = str(remaining.id)
+            else:
+                row.status = "saved"
         await db.flush()
         return result
 
@@ -460,6 +677,52 @@ class MapStructureService:
                     transform = affine_transform(placement, document)
                 except ValueError:
                     state = "stale"
+            calibration_revision_id = None
+            calibration_status = None
+            if placement.role == "background":
+                calibration_status = "not_found"
+                if page is not None and placement.geometry_hash:
+                    # ponytail: inspect 100 matching versions; add an indexed image
+                    # lookup if long histories regularly exhaust this visible cap.
+                    history = (
+                        await db.execute(
+                            select(
+                                MapAtlasRevision.id,
+                                MapAtlasRevision.document["images"].label("images"),
+                            )
+                            .where(
+                                MapAtlasRevision.novel_id
+                                == parse_uuid(novel_id, "novel_id"),
+                                MapAtlasRevision.node_id
+                                == parse_uuid(node_id, "node_id"),
+                                MapAtlasRevision.status == "saved",
+                                MapAtlasRevision.geometry_hash == placement.geometry_hash,
+                            )
+                            .order_by(
+                                MapAtlasRevision.created_at.desc(),
+                                MapAtlasRevision.id.desc(),
+                            )
+                            .limit(_CALIBRATION_HISTORY_LIMIT + 1)
+                        )
+                    ).all()
+                    anchors = [
+                        anchor.model_dump(mode="json") for anchor in placement.anchors
+                    ]
+                    for version in history[:_CALIBRATION_HISTORY_LIMIT]:
+                        if any(
+                            isinstance(item, dict)
+                            and item.get("page_id") == str(placement.page_id)
+                            and item.get("role") == "background"
+                            and item.get("geometry_hash") == placement.geometry_hash
+                            and item.get("anchors") == anchors
+                            for item in (version.images or [])
+                        ):
+                            calibration_revision_id = str(version.id)
+                            calibration_status = "found"
+                            break
+                    else:
+                        if len(history) > _CALIBRATION_HISTORY_LIMIT:
+                            calibration_status = "truncated"
             layers.append(
                 {
                     "page_id": str(placement.page_id),
@@ -469,6 +732,8 @@ class MapStructureService:
                     "transform": transform,
                     "opacity": placement.opacity,
                     "image_hash": page.sha256 if page else None,
+                    "calibration_revision_id": calibration_revision_id,
+                    "calibration_lookup_status": calibration_status,
                 }
             )
         return layers
@@ -492,6 +757,33 @@ class MapStructureService:
                 .limit(10)
             )
         ).all()
+        revision = self.response(current) if current else None
+        candidate_responses = [self.response(row) for row in candidates]
+        checked = {}
+        for response in [revision, *candidate_responses]:
+            if response is None:
+                continue
+            response.problems = [p for p in response.problems if p.code != "source_stale"]
+            for item in [*response.document.features, *response.document.constraints]:
+                for ref in item.sources:
+                    key = ref.model_dump_json()
+                    if key not in checked:
+                        try:
+                            await self.source(db, novel_id, ref)
+                            checked[key] = True
+                        except (ConflictError, NotFoundError, ValidationError):
+                            checked[key] = False
+                    if not checked[key]:
+                        response.problems.append(
+                            MapProblem(
+                                code="source_stale",
+                                message="已有空间资料发生变化，请核对来源；阅读预览暂不展示相关内容",
+                                feature_ids=[item.id]
+                                if hasattr(item, "points")
+                                else [item.subject, item.target],
+                            )
+                        )
+                        break
         tasks = (
             await list_task_lifecycle_contracts(
                 db,
@@ -503,12 +795,23 @@ class MapStructureService:
             else {}
         )
         task = tasks.get(str(node.structure_task_id))
+        summary = None
+        if task and task.status == "done":
+            completed = await get_completed_task_payload(
+                db,
+                task_id=str(node.structure_task_id),
+                task_type=MAP_TASK,
+                novel_id=novel_id,
+            )
+            if completed and isinstance(completed.result.get("summary"), dict):
+                summary = MapExtractionSummary.model_validate(completed.result["summary"])
         return MapNodeMapResponse(
             node_id=node_id,
-            revision=self.response(current) if current else None,
+            revision=revision,
             task_id=str(node.structure_task_id) if node.structure_task_id else None,
             task_status=task.status if task else None,
-            candidates=[self.response(row) for row in candidates],
+            generation_summary=summary,
+            candidates=candidate_responses,
             image_layers=await self.image_layers(
                 db, novel_id, node_id, MapDocument.model_validate(current.document)
             )

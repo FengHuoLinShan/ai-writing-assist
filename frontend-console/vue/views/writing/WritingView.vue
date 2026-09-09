@@ -43,6 +43,7 @@
     <div class="view-header__actions">
       <button v-if="vm.isNarrow.value" type="button" class="btn" :aria-expanded="leftRailOpen" @click="toggleRail('chapters')">章节</button>
       <button v-if="vm.isNarrow.value" type="button" class="btn" :aria-expanded="rightRailOpen" @click="toggleRail('reference')">本章资料</button>
+      <button ref="chapterMapTriggerEl" type="button" class="btn btn-sm" :disabled="!hasEditableChapter" data-action="open-chapter-map" @click="openChapterMap()">本章地图</button>
       <details ref="viewMenuEl" class="writing-page-menu" @toggle="onViewMenuToggle" @keydown="onViewMenuKeydown">
         <summary
           class="btn btn-sm"
@@ -222,6 +223,7 @@
           @clear-evidence="vm.focusedSelection.clear"
           @organize="vm.navigateSceneWorkbench"
           @toggle-collapse="toggleRail('reference')"
+          @open-map="openChapterMap"
         />
       </div>
     </aside>
@@ -253,6 +255,14 @@
     </footer>
   </div>
 
+  <ChapterMapDialog
+    v-if="props.projectId && vm.selectedChapter.value"
+    :open="chapterMapOpen"
+    :project-id="props.projectId"
+    :chapter="vm.selectedChapter.value"
+    :entity-id="chapterMapEntityId"
+    @close="chapterMapOpen = false"
+  />
   <OutlineFloat
     :model="vm.outlineFloat"
     :current-chapter="vm.selectedChapter.value"
@@ -304,6 +314,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import ChapterTree from "./components/ChapterTree.vue"
+import ChapterMapDialog from "./components/ChapterMapDialog.vue"
 import AutoExtractionDialog from "./components/AutoExtractionDialog.vue"
 import ConflictDetailDialog from "./components/ConflictDetailDialog.vue"
 import ConflictOptionsDialog from "./components/ConflictOptionsDialog.vue"
@@ -339,6 +350,25 @@ const vm = useWritingWorkspace(props)
 const router = getRouter()
 const viewMenuEl = ref(null)
 const viewMenuOpen = ref(false)
+const chapterMapOpen = ref(false)
+const chapterMapEntityId = ref(null)
+const chapterMapTriggerEl = ref(null)
+async function openChapterMap(entityId = null) {
+  if (!hasEditableChapter.value) return
+  const chapter = vm.selectedChapter.value
+  chapterMapEntityId.value = entityId
+  if (vm.isNarrow.value && rightRailOpen.value) {
+    rightRailOpen.value = false
+    await nextTick()
+    chapterMapTriggerEl.value?.focus()
+  }
+  if (vm.selectedChapter.value !== chapter) return
+  chapterMapOpen.value = true
+}
+watch(() => [props.projectId, vm.selectedChapter.value, vm.currentScene.value?.id], () => {
+  chapterMapOpen.value = false
+  chapterMapEntityId.value = null
+})
 let focusOrigin = null
 const aiDrawerOpen = ref(Boolean(props.ownerAiOpen))
 const aiDrawerOwner = ref(props.ownerAiMode === "world" ? "world" : "writing")

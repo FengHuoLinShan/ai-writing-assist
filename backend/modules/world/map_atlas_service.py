@@ -49,6 +49,7 @@ from modules.world.map_atlas_storage import (
     require_matching_mask,
     require_owned_page_object_key,
 )
+from modules.world.map_structure_schemas import STRUCTURE_LEVELS
 from shared.utils import parse_uuid
 
 MAP_ATLAS_TASK_TYPE = "map_atlas_generate"
@@ -878,15 +879,20 @@ class MapAtlasService:
             raise NotFoundError("地图节点不存在")
         if node.updated_at != data.expected_updated_at:
             raise ConflictError("地图层级已在别处更新，请刷新后重试")
-        run = await self._require_run(db, novel_id, str(node.created_by_run_id))
-        if node.status == "provisional" and run.run_kind != "upload":
-            raise ConflictError("该候选节点不能手动调整")
-        if node.status == "adopted" and "title" in data.model_fields_set:
-            raise ValidationError("已加入地图册的地点不能在此改名")
+        if node.status == "provisional":
+            if node.created_by_run_id is None:
+                raise ConflictError("该候选节点不能手动调整")
+            run = await self._require_run(db, novel_id, str(node.created_by_run_id))
+            if run.run_kind != "upload":
+                raise ConflictError("该候选节点不能手动调整")
+        if node.location_entity_id is not None and "title" in data.model_fields_set:
+            raise ValidationError("已绑定世界地点的地图不能在此改名")
         new_parent_id = (
             data.parent_id if "parent_id" in data.model_fields_set else node.parent_id
         )
         new_level = data.level or node.level
+        if node.current_revision_id is not None and new_level not in STRUCTURE_LEVELS:
+            raise ValidationError("已有位置示意的地图只能使用区域、城市、街区或街道层级")
         if new_parent_id == node.id:
             raise ValidationError("地图节点不能成为自己的上级")
         parent = by_id.get(new_parent_id) if new_parent_id else None
@@ -909,6 +915,8 @@ class MapAtlasService:
             raise ValidationError("地图上下级层级无效")
         before_supplied = "before_node_id" in data.model_fields_set
         before = by_id.get(data.before_node_id) if data.before_node_id else None
+        if data.before_node_id and before is None:
+            raise ValidationError("插入位置必须是同一上级下的已加入地点")
         if before and (
             before.id == node.id
             or before.parent_id != new_parent_id
@@ -926,12 +934,12 @@ class MapAtlasService:
         ):
             parent_semantic = parent.semantic_key if parent else "root"
             replacement = f"path:{parent_semantic}:{_path_part(node.title)}"
-            rewrites = {
-                item.id: replacement + item.semantic_key[len(old_semantic) :]
-                for item in nodes
-                if item.semantic_key == old_semantic
-                or item.semantic_key.startswith(f"{old_semantic}:")
-            }
+            rewrites = {node.id: replacement}
+            for item in sorted(nodes, key=lambda item: ATLAS_LEVEL_RANK[item.level]):
+                if item.parent_id in rewrites and item.semantic_key.startswith("path:"):
+                    rewrites[item.id] = (
+                        f"path:{rewrites[item.parent_id]}:{_path_part(item.title)}"
+                    )
             untouched = {item.semantic_key for item in nodes if item.id not in rewrites}
             if (
                 len(set(rewrites.values())) != len(rewrites)
@@ -1158,6 +1166,19 @@ class MapAtlasService:
             source_geometry_hash=source_geometry_hash,
             sort_order=0,
         )
+        if source_revision_id and source_revision_id != source.source_map_revision_id:
+            from modules.world.map_structure_images import (
+                set_structure_page_content,
+                validate_image_structure,
+            )
+            from modules.world.map_structure_schemas import MapDocument
+
+            # A new geometry version has its own confirmed evidence. Copying the
+            # old prompt would reintroduce old sources and mismatched guide labels.
+            await validate_image_structure(db, run, derived)
+            set_structure_page_content(
+                derived, MapDocument.model_validate(revision.document)
+            )
         storage = self._get_storage()
         uploaded_mask_key: str | None = None
         try:

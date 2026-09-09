@@ -22,6 +22,8 @@ from modules.writing.contracts import SourceRangeRefContract
 
 FeatureKey = Annotated[str, Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9:_.-]{0,95}$")]
 Coordinate = Annotated[float, Field(ge=-100000, le=100000, allow_inf_nan=False)]
+StructureLevel = Literal["region", "city", "district", "street"]
+STRUCTURE_LEVELS = {"region", "city", "district", "street"}
 
 
 SpatialRelation = Literal[
@@ -37,6 +39,9 @@ SpatialRelation = Literal[
     "adjacent",
     "connects",
     "passes_through",
+    "along_street",
+    "entrance_to",
+    "faces",
 ]
 
 
@@ -126,6 +131,7 @@ class SpatialConstraint(SpatialModel):
     path_kind: Literal["road", "river"] = "road"
     path_label: str | None = Field(default=None, min_length=1, max_length=200)
     sources: list[MapSource] = Field(default_factory=list, max_length=8)
+    generated_by_task_id: UUID | None = None
 
 
 class CalibrationAnchor(SpatialModel):
@@ -180,9 +186,28 @@ class MapDocument(SpatialModel):
         for item in self.features:
             if not set(item.depends_on).issubset(ids) or item.id in item.depends_on:
                 raise ValueError("invalid geometry dependency")
+        features = {item.id: item for item in self.features}
         for item in self.constraints:
             if not {item.subject, item.target, *item.via}.issubset(ids):
                 raise ValueError("constraint refers to a missing feature")
+            if item.relation in {"along_street", "entrance_to", "faces"}:
+                if item.subject == item.target or item.via:
+                    raise ValueError(
+                        "a point relation needs distinct endpoints and no via"
+                    )
+                allowed_targets = (
+                    {"road"}
+                    if item.relation == "along_street"
+                    else {"location", "landmark", "area"}
+                )
+                if features[item.subject].kind not in {"location", "landmark"}:
+                    raise ValueError(
+                        "a point relation must start at a location or landmark"
+                    )
+                if features[item.target].kind not in allowed_targets:
+                    raise ValueError(
+                        "point relation target has an incompatible feature kind"
+                    )
         for item in self.images:
             if item.feature_id is not None and item.feature_id not in ids:
                 raise ValueError("image refers to a missing feature")
@@ -213,7 +238,7 @@ class MapProblem(SpatialModel):
 
 class MapNodeCreate(SpatialModel):
     title: str = Field(min_length=1, max_length=200)
-    level: Literal["region", "city"] = "region"
+    level: StructureLevel = "region"
     parent_id: UUID | None = None
     location_entity_id: UUID | None = None
 
@@ -233,19 +258,45 @@ class MapSaveRequest(SpatialModel):
 class MapRevisionReview(SpatialModel):
     base_revision_id: UUID | None
     action: Literal["adopt", "reject", "restore"]
+    change_keys: list[str] | None = Field(default=None, min_length=1, max_length=1480)
+
+    @model_validator(mode="after")
+    def selection(self):
+        if self.change_keys is not None:
+            if self.action != "adopt" or len(set(self.change_keys)) != len(
+                self.change_keys
+            ):
+                raise ValueError("only adoption accepts unique change keys")
+            if any(len(key) > 120 for key in self.change_keys):
+                raise ValueError("change key is too long")
+        return self
 
 
 class MapGenerateRequest(SpatialModel):
     operation_id: UUID
     base_revision_id: UUID | None
     context_confirmation_id: UUID
-    location_ids: list[UUID] = Field(min_length=1, max_length=20)
+    location_ids: list[UUID] = Field(default_factory=list, max_length=20)
+    feature_ids: list[FeatureKey] = Field(default_factory=list, max_length=20)
 
     @model_validator(mode="after")
     def unique_locations(self):
         if len(set(self.location_ids)) != len(self.location_ids):
             raise ValueError("locations must be unique")
+        if len(set(self.feature_ids)) != len(self.feature_ids):
+            raise ValueError("features must be unique")
+        if not 1 <= len(self.location_ids) + len(self.feature_ids) <= 20:
+            raise ValueError("select between one and twenty map targets")
+        if self.feature_ids and self.base_revision_id is None:
+            raise ValueError("existing features require a saved baseline")
         return self
+
+
+class MapReviewPreview(SpatialModel):
+    candidate_revision_id: str
+    base_revision_id: str | None
+    applied_change_keys: list[str]
+    expanded_change_keys: list[str]
 
 
 class MapRevisionResponse(SpatialModel):
@@ -257,6 +308,9 @@ class MapRevisionResponse(SpatialModel):
     geometry_hash: str
     problems: list[MapProblem]
     created_at: datetime
+    applied_change_keys: list[str] = Field(default_factory=list)
+    expanded_change_keys: list[str] = Field(default_factory=list)
+    remaining_candidate_id: str | None = None
 
 
 class MapLayoutResponse(SpatialModel):
@@ -273,6 +327,12 @@ class MapNodeMapResponse(SpatialModel):
     image_layers: list[dict] = Field(default_factory=list)
     task_id: str | None = None
     task_status: str | None = None
+    generation_summary: MapExtractionSummary | None = None
+
+
+class MapRelationEvidence(SpatialModel):
+    source_key: str = Field(min_length=1, max_length=200)
+    quote: str = Field(min_length=1, max_length=1000)
 
 
 class MapGeneratedRelation(SpatialModel):
@@ -282,12 +342,53 @@ class MapGeneratedRelation(SpatialModel):
     via: list[FeatureKey] = Field(default_factory=list, max_length=20)
     path_kind: Literal["road", "river"] = "road"
     path_label: str | None = Field(default=None, min_length=1, max_length=200)
-    source_keys: list[str] = Field(min_length=1, max_length=5)
-    quote: str = Field(min_length=1, max_length=1000)
+    evidence: list[MapRelationEvidence] = Field(default_factory=list, max_length=5)
+    source_keys: list[str] = Field(default_factory=list, max_length=5)
+    quote: str = Field(default="", max_length=1000)
+
+    @model_validator(mode="after")
+    def cited_evidence(self):
+        if self.evidence:
+            if self.source_keys or self.quote:
+                raise ValueError(
+                    "use per-source evidence or legacy shared quote, not both"
+                )
+        elif not self.source_keys or not self.quote:
+            raise ValueError("each spatial relation requires quoted evidence")
+        return self
 
 
 class MapRelationBatch(SpatialModel):
-    relations: list[MapGeneratedRelation] = Field(default_factory=list, max_length=60)
+    relations: list[MapGeneratedRelation] = Field(max_length=60)
+
+
+DiscardReason = Literal[
+    "unknown_feature",
+    "outside_selection",
+    "unknown_source",
+    "quote_mismatch",
+    "path_label_mismatch",
+    "source_changed",
+    "invalid_geometry",
+    "invalid_schema",
+]
+
+
+class MapExtractionSummary(SpatialModel):
+    outcome: Literal["complete", "partial", "no_supported_relations", "failed"]
+    message: str
+    targets: int = Field(ge=0)
+    sources: int = Field(ge=0)
+    input_characters: int = Field(ge=0)
+    batches: int = Field(ge=0)
+    failed_batches: int = Field(ge=0)
+    truncated_batches: int = Field(ge=0)
+    received_relations: int = Field(ge=0)
+    accepted_relations: int = Field(ge=0)
+    discarded_relations: int = Field(ge=0)
+    discard_reasons: dict[DiscardReason, int]
+    structured_attempts: int | None = Field(default=None, ge=0)
+    format_retries: int | None = Field(default=None, ge=0)
 
 
 class MapTaskResponse(SpatialModel):
@@ -314,3 +415,25 @@ class MapReaderPreview(SpatialModel):
     chapter: int = Field(ge=1, le=100000)
     features: list[MapReaderFeature] = Field(max_length=200)
     images: list[MapReaderImage] = Field(max_length=40)
+
+
+class MapLinkQuery(SpatialModel):
+    chapter_index: int | None = Field(default=None, ge=1, le=100000)
+    entity_id: UUID | None = None
+    q: str = Field(default="", max_length=100)
+    limit: int = Field(default=50, ge=1, le=100)
+
+
+class MapLink(SpatialModel):
+    node_id: UUID
+    node_title: str
+    level: str
+    feature_id: FeatureKey
+    feature_label: str
+    entity_id: UUID | None
+    chapter_indices: list[int]
+
+
+class MapLinksResponse(SpatialModel):
+    items: list[MapLink] = Field(default_factory=list, max_length=100)
+    truncated: bool = False

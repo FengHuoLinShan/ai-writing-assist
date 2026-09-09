@@ -379,7 +379,7 @@ export function useWritingWorkspace(props) {
       isReadonly: editorState.readonly,
       currentSceneId,
     }
-    if (persistLocation) {
+    if (persistLocation && currentChapter && Number(editorState.chapter) === Number(currentChapter)) {
       rememberWritingLocation(projectId, {
         currentChapter,
         currentDraftId: editorState.draftId,

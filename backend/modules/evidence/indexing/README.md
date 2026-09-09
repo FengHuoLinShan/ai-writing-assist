@@ -366,3 +366,5 @@ Compilation 的 `retrieve_focused_evidence` 将本层混合检索用于有界语
 完整字面覆盖由 Writing 冻结版本的多词逐章扫描给出，不以 Top-K 或对象出场标签代替。
 专项请求传入 exact source manifest；不得把所有根和邻居 ID 一起用作 metadata 过滤，
 该过滤仍维持 contains-all 语义。本轮未修改 indexing API、评分、索引、表或任务行为。
+地图已有图元的精确原文来源可以通过 compilation pinned_refs 选入，不要求重建或复制索引。
+章首 offset=0 的选择校验修复不改变本子域的分块、offset/hash、检索排序或持久化表。

@@ -131,6 +131,9 @@ spec 可为特定页面追加 mask，但不得放宽全局阈值来接受未解�
 
 AI 地图册自动测试使用固定 PNG、mock OpenAI 与 mock S3，不产生费用；付费 live smoke 默认跳过。
 地图册组件回归见 `tests/vue/map/MapAtlasView.test.js`，浏览器主流程见 `e2e/map-atlas.spec.js`。
+统一空间地图还提供无图片节点管理、地点查找、专注浏览与候选差异对照；相关行为回归见
+`tests/vue/map/MapStructureEditor.test.js` 和 `e2e/map-structure.spec.js`。专注浏览禁止拖动/方向键改图，
+阅读预览搜索仅匹配服务端白名单。诡秘演示数据是保留资产，不能用自动测试的清理 fixture 管理。
 
 后端地址可用 `API_HOST` 覆盖，支持 `http://localhost:8000` 或 `http://localhost:8000/api`。
 如果 `webServer` 超时，先运行：
@@ -479,3 +482,6 @@ RP 回顾抽屉顶部提供最多4,000字符的“长期约定”，无自动回
 访问统一 API，复用现有轮询和账号作用域恢复记录；不新增顶层页面或通用任务中心。
 停止请求失败时继续接收原任务进度；查询确认任务不存在时退出忙碌状态，提示重新开始。
 验收为 `tests/vue/FocusedEvidencePanel.test.js` 与 `e2e/focused-evidence.spec.js`。
+地图与写作可通过“本章地图”双向定位，地图读取 `node_id/feature_id/from_chapter`，返回正文只带
+chapter_index，不强制加载 draft_id 而丢失本机草稿。字段差异、历史预览、图元生成选择与临时排演
+回归见 `tests/vue/map/`；写作查找和往返保护回归见 `tests/vue/writing/`。

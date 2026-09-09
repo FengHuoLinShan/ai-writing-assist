@@ -413,3 +413,5 @@ character 原文许可比作者查阅更窄：需要截止点前 canonical/full 
 known_content 与精确原文一致，并由 active 精确 EvidenceLink 绑定该字段。缺少证明时
 保留已知 metadata、省略原文；固定来源无法证明则 blocker。此许可不等于完整知识边界
 审查，coverage 明示 not_performed；reader/author 的原文读取不采用此角色特有门禁。
+地图已有标记可把精确 source_range/target 引用预填到资料确认。章首 start_offset=0 合法，
+缺失或负数起点无效；执行仍只使用 retained items，不独立补读作者排除或预算遗漏的来源。

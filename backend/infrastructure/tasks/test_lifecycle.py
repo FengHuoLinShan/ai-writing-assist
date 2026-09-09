@@ -561,3 +561,92 @@ async def test_checkpoint_running_attempt_merges_detached_progress_result_and_me
     unchanged = await db_session.get(AsyncTask, task.id)
     assert unchanged is not None
     assert unchanged.progress == 0.6
+
+
+@pytest.mark.parametrize(
+    "scope",
+    [
+        {"task_id": str(uuid.uuid4())},
+        {"novel_id": str(uuid.uuid4())},
+        {"task_id": "bad", "novel_id": str(uuid.uuid4())},
+        {"task_id": str(uuid.uuid4()), "novel_id": "bad"},
+        {"task_id": "", "novel_id": ""},
+    ],
+)
+async def test_claim_scope_validation_precedes_every_database_call(scope):
+    db = AsyncMock()
+    with pytest.raises(ValueError):
+        await TaskLifecycleService().claim_next(db, **scope)
+    db.execute.assert_not_awaited()
+    db.commit.assert_not_awaited()
+
+
+async def test_exact_claim_retains_sql_skip_locked_and_identity_filters():
+    db = AsyncMock()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    db.execute.return_value = result
+    task_id, novel_id = uuid.uuid4(), uuid.uuid4()
+    assert (
+        await TaskLifecycleService().claim_next(db, task_id=task_id, novel_id=novel_id)
+        is None
+    )
+    statement = db.execute.await_args.args[0]
+    compiled = statement.compile(dialect=postgresql.dialect())
+    assert "FOR UPDATE SKIP LOCKED" in str(compiled)
+    assert "async_tasks.id =" in str(compiled)
+    assert "async_tasks.novel_id =" in str(compiled)
+    assert {task_id, novel_id}.issubset(set(compiled.params.values()))
+    db.commit.assert_not_awaited()
+
+
+async def test_exact_claim_preserves_retry_coalescing_and_lease_fences(db_session):
+    service = TaskLifecycleService()
+    novel_id = uuid.uuid4()
+    key = "a" * 64
+    running = AsyncTask(
+        task_type="same-key",
+        novel_id=novel_id,
+        coalescing_key=key,
+        status="running",
+        lease_id=str(uuid.uuid4()),
+        attempt=1,
+    )
+    pending = AsyncTask(
+        task_type="same-key",
+        novel_id=novel_id,
+        coalescing_key=key,
+        status="pending",
+        transition_reason="handler_error_retry",
+        attempt=1,
+        updated_at=datetime.now(UTC) - timedelta(seconds=5),
+    )
+    other = AsyncTask(task_type="unrelated", novel_id=novel_id, status="pending")
+    db_session.add_all([running, pending, other])
+    await db_session.commit()
+    scope = {"task_id": pending.id, "novel_id": novel_id}
+    assert await service.claim_next(db_session, **scope) is None
+    pending.updated_at = datetime.now(UTC)
+    await db_session.commit()
+    # Complete the predecessor; the pending retry must still respect its backoff.
+    assert await service.finalize(
+        db_session, task_id=running.id, lease_id=running.lease_id, status="done"
+    )
+    assert await service.claim_next(db_session, **scope) is None
+    pending.updated_at = datetime.now(UTC) - timedelta(seconds=5)
+    await db_session.commit()
+    claimed = await service.claim_next(db_session, **scope)
+    assert claimed.id == pending.id and claimed.attempt == 2 and claimed.lease_id
+    lease = claimed.lease_id
+    assert await service.claim_next(db_session, **scope) is None
+    assert not await service.finalize(
+        db_session, task_id=pending.id, lease_id=str(uuid.uuid4()), status="done"
+    )
+    await db_session.refresh(pending)
+    assert pending.status == "running" and pending.lease_id == lease
+    assert await service.finalize(
+        db_session, task_id=pending.id, lease_id=lease, status="done"
+    )
+    assert await service.claim_next(db_session, **scope) is None
+    await db_session.refresh(other)
+    assert other.status == "pending" and other.attempt == 0 and other.lease_id is None

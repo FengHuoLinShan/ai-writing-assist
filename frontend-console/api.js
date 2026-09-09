@@ -1647,6 +1647,9 @@ const api = {
     async listMapRevisions(novelId, nodeId) {
       return contractFetch("world.listMapRevisions", { novelId, nodeId }, {}, { cache: "no-store" })
     },
+    async previewMapRevision(novelId, nodeId, revisionId) {
+      return request(`/world/map-atlas/${novelId}/nodes/${nodeId}/revisions/${revisionId}/preview`, { cache: 'no-store' })
+    },
     async layoutMap(novelId, nodeId, payload) {
       return contractJson("world.layoutMap", { novelId, nodeId }, {}, payload)
     },
@@ -1664,6 +1667,12 @@ const api = {
     },
     async getMapAtlas(novelId) {
       return contractFetch("world.getMapAtlas", { novelId }, {}, { cache: "no-store" })
+    },
+    async findMapLinks(novelId, filters = {}) {
+      return request(withQuery(`/world/map-atlas/${novelId}/map-links`, filters), { cache: "no-store" })
+    },
+    async previewMapReview(novelId, nodeId, revisionId, payload) {
+      return post(`/world/map-atlas/${novelId}/nodes/${nodeId}/revisions/${revisionId}/review-preview`, payload)
     },
     async getMapAtlasPageHistory(novelId) {
       return request(`/world/map-atlas/${novelId}/pages/history`, { cache: "no-store" })

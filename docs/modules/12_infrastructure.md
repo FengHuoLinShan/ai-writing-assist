@@ -467,3 +467,10 @@ RP DeepSeek能力快照可固定max/900秒及65,536输出预算，旧快照按�
 `targeted_completion` 属于 imports，均通过领域入口提交并使用 manual_resume。
 通用 `/api/tasks` 不允许提交它们；状态响应隐藏 meta/result 顶层下划线内部字段。
 查证 checkpoint 不给客户端回传为可修改状态，续查只接受任务标识并重验项目/来源/lease。
+
+### 指定项目的单次任务执行
+
+应用组合根创建的 Worker 可使用 `run_once(task_id=..., novel_id=...)`，两项必须同时提供且为
+UUID。过滤在领取 SQL 中完成，只处理匹配的 pending 任务；不会领取、取消或修改其他排队任务。
+不传参数仍是原队列领取方式。退避、coalescing、SKIP LOCKED、lease、preflight 和提交 fence
+全部复用；该入口用于明确任务的手动验收，不是浏览器权限或项目边界的替代。

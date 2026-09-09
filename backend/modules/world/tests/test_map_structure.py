@@ -12,7 +12,8 @@ from modules.world.map_atlas_models import (
     MapAtlasRevision,
     MapAtlasRun,
 )
-from modules.world.map_atlas_service import MapAtlasService
+from modules.world.map_atlas_schemas import MapAtlasNodeUpdate
+from modules.world.map_atlas_service import MapAtlasService, _path_part
 from modules.world.map_structure_geometry import (
     affine_transform,
     geometry_hash,
@@ -158,6 +159,12 @@ def test_affine_calibration_and_structure_fingerprint():
     with_image = original.model_copy(deep=True)
     with_image.images = [image_placement()]
     with_image.features[0].reader_from_chapter = 3
+    from modules.world.map_structure_schemas import MapSource
+
+    with_image.features[0].sources = [
+        MapSource(kind="entity", id=uuid.uuid4(), source_hash="a" * 64)
+    ]
+    with_image.images[0].opacity = 0.2
     assert geometry_hash(original) == geometry_hash(with_image)
     with_image.features[0].points[0].x += 1
     assert geometry_hash(original) != geometry_hash(with_image)
@@ -187,6 +194,304 @@ async def test_manual_map_needs_no_image_run_and_is_in_existing_tree(
     )
     tree = await MapAtlasService().get_tree(db_session, test_project_id)
     assert tree["nodes"][0]["children"][0]["id"] == child["id"]
+
+
+@pytest.mark.asyncio
+async def test_manual_map_can_rename_move_and_reorder_with_cas(
+    db_session, test_project_id, async_client
+):
+    structure, parent = await create_map(db_session, test_project_id)
+    _, other = await create_map(db_session, test_project_id)
+    child = await structure.create_node(
+        db_session,
+        test_project_id,
+        MapNodeCreate(title="旧城图", level="city", parent_id=parent["id"]),
+    )
+    child_row = await db_session.get(MapAtlasNode, uuid.UUID(child["id"]))
+    baseline = child_row.updated_at.isoformat()
+    path = f"/api/world/map-atlas/{test_project_id}/nodes/{child['id']}"
+    response = await async_client.patch(
+        path,
+        json={
+            "title": "  城市位置示意  ",
+            "parent_id": other["id"],
+            "expected_updated_at": baseline,
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["title"] == "城市位置示意"
+    assert response.json()["parent_id"] == other["id"]
+    assert response.json()["current_revision_id"] == child["current_revision_id"]
+    conflict = await async_client.patch(
+        path,
+        json={
+            "title": "过期编辑",
+            "expected_updated_at": baseline,
+        },
+    )
+    assert conflict.status_code == 409
+    other_row = await db_session.get(MapAtlasNode, uuid.UUID(other["id"]))
+    updated = await MapAtlasService().update_node(
+        db_session,
+        test_project_id,
+        other["id"],
+        MapAtlasNodeUpdate(
+            before_node_id=parent["id"], expected_updated_at=other_row.updated_at
+        ),
+    )
+    tree = await MapAtlasService().get_tree(db_session, test_project_id)
+    assert [node["id"] for node in tree["nodes"]] == [other["id"], parent["id"]]
+    assert updated["sort_order"] == 0
+    assert tree["nodes"][0]["children"][0]["title"] == "城市位置示意"
+
+
+@pytest.mark.asyncio
+async def test_spatial_node_level_changes_preserve_editing(
+    db_session, test_project_id, async_client
+):
+    service, node = await create_map(db_session, test_project_id)
+    path = f"/api/world/map-atlas/{test_project_id}/nodes/{node['id']}"
+    row = await db_session.get(MapAtlasNode, uuid.UUID(node["id"]))
+    baseline = row.updated_at.isoformat()
+    for level in ("cover", "world", "interior"):
+        response = await async_client.patch(
+            path,
+            json={
+                "title": "不能覆盖的名称",
+                "level": level,
+                "expected_updated_at": baseline,
+            },
+        )
+        assert response.status_code == 400, response.text
+        assert row.level == "region"
+        assert row.title == node["title"]
+        assert str(row.current_revision_id) == node["current_revision_id"]
+    response = await async_client.patch(
+        path,
+        json={"level": "city", "expected_updated_at": baseline},
+    )
+    assert response.status_code == 200, response.text
+    saved = await service.save(
+        db_session,
+        test_project_id,
+        node["id"],
+        MapSaveRequest(base_revision_id=node["current_revision_id"], document=document()),
+    )
+    assert saved.document.features
+    image_only = MapAtlasNode(
+        novel_id=uuid.UUID(test_project_id),
+        semantic_key=f"manual:{uuid.uuid4()}",
+        title="旧街区图片",
+        level="district",
+        status="adopted",
+    )
+    db_session.add(image_only)
+    await db_session.flush()
+    updated = await MapAtlasService().update_node(
+        db_session,
+        test_project_id,
+        str(image_only.id),
+        MapAtlasNodeUpdate(level="street", expected_updated_at=image_only.updated_at),
+    )
+    assert updated["level"] == "street"
+
+
+@pytest.mark.asyncio
+async def test_path_node_rename_and_move_rewrite_only_actual_path_descendants(
+    db_session, test_project_id
+):
+    nodes = []
+    for title, level in (("旧世界", "world"), ("地区", "region"), ("城", "city")):
+        parent = nodes[-1] if nodes else None
+        parent_key = parent.semantic_key if parent else "root"
+        node = MapAtlasNode(
+            novel_id=uuid.UUID(test_project_id),
+            semantic_key=f"path:{parent_key}:{_path_part(title)}",
+            title=title,
+            level=level,
+            parent_id=parent.id if parent else None,
+            status="adopted",
+        )
+        db_session.add(node)
+        await db_session.flush()
+        nodes.append(node)
+    root, region, city = nodes
+    _, destination = await create_map(db_session, test_project_id)
+    # A legacy key can share the text prefix without belonging to this subtree.
+    unrelated = MapAtlasNode(
+        novel_id=uuid.UUID(test_project_id),
+        semantic_key=f"{root.semantic_key}:unrelated",
+        title="独立区域",
+        level="region",
+        status="adopted",
+    )
+    fixed_identity = MapAtlasNode(
+        novel_id=uuid.UUID(test_project_id),
+        semantic_key=f"manual:{uuid.uuid4()}",
+        title="手工图",
+        level="region",
+        parent_id=root.id,
+        status="adopted",
+    )
+    db_session.add_all([unrelated, fixed_identity])
+    await db_session.flush()
+    preserved = (unrelated.semantic_key, fixed_identity.semantic_key)
+    service = MapAtlasService()
+    await service.update_node(
+        db_session,
+        test_project_id,
+        str(root.id),
+        MapAtlasNodeUpdate(title="新世界", expected_updated_at=root.updated_at),
+    )
+    assert root.semantic_key == f"path:root:{_path_part('新世界')}"
+    assert region.semantic_key == f"path:{root.semantic_key}:{_path_part('地区')}"
+    assert city.semantic_key == f"path:{region.semantic_key}:{_path_part('城')}"
+    await service.update_node(
+        db_session,
+        test_project_id,
+        str(city.id),
+        MapAtlasNodeUpdate(
+            parent_id=destination["id"], expected_updated_at=city.updated_at
+        ),
+    )
+    destination_row = await db_session.get(MapAtlasNode, uuid.UUID(destination["id"]))
+    assert city.semantic_key == f"path:{destination_row.semantic_key}:{_path_part('城')}"
+    assert (unrelated.semantic_key, fixed_identity.semantic_key) == preserved
+
+
+@pytest.mark.asyncio
+async def test_manual_node_update_preserves_hierarchy_and_project_boundaries(
+    db_session, test_project_id, project_factory
+):
+    structure, parent = await create_map(db_session, test_project_id)
+    child = await structure.create_node(
+        db_session,
+        test_project_id,
+        MapNodeCreate(title="城", level="city", parent_id=parent["id"]),
+    )
+    foreign_id = str(await project_factory.create_project())
+    _, foreign = await create_map(db_session, foreign_id)
+    service = MapAtlasService()
+    row = await db_session.get(MapAtlasNode, uuid.UUID(parent["id"]))
+    for patch in (
+        {"parent_id": parent["id"]},
+        {"parent_id": child["id"]},
+        {"parent_id": foreign["id"]},
+        {"before_node_id": foreign["id"]},
+        {"level": "district"},
+    ):
+        with pytest.raises(ValidationError):
+            await service.update_node(
+                db_session,
+                test_project_id,
+                parent["id"],
+                MapAtlasNodeUpdate(expected_updated_at=row.updated_at, **patch),
+            )
+    with pytest.raises(NotFoundError):
+        await service.update_node(
+            db_session,
+            test_project_id,
+            foreign["id"],
+            MapAtlasNodeUpdate(title="越界", expected_updated_at=foreign["updated_at"]),
+        )
+    assert row.parent_id is None
+    assert row.level == "region"
+
+
+@pytest.mark.asyncio
+async def test_map_title_update_does_not_rename_bound_world_location(
+    db_session, test_project_id
+):
+    from modules.world.models import CoreEntity
+
+    entity = CoreEntity(
+        novel_id=uuid.UUID(test_project_id),
+        entity_type="location",
+        name="廷根",
+        status="canonical",
+    )
+    db_session.add(entity)
+    await db_session.flush()
+    node = await MapStructureService().create_node(
+        db_session,
+        test_project_id,
+        MapNodeCreate(title="廷根", level="city", location_entity_id=entity.id),
+    )
+    row = await db_session.get(MapAtlasNode, uuid.UUID(node["id"]))
+    with pytest.raises(ValidationError, match="绑定世界地点"):
+        await MapAtlasService().update_node(
+            db_session,
+            test_project_id,
+            node["id"],
+            MapAtlasNodeUpdate(title="改名", expected_updated_at=row.updated_at),
+        )
+    assert entity.name == "廷根"
+    assert (await db_session.get(MapAtlasNode, uuid.UUID(node["id"]))).title == "廷根"
+
+
+@pytest.mark.asyncio
+async def test_map_read_and_node_update_require_current_owner(
+    db_session, test_project_id
+):
+    from modules.account.context import bind_principal, reset_principal
+    from modules.account.contracts import AccountPrincipal
+
+    service, node = await create_map(db_session, test_project_id)
+    token = bind_principal(
+        AccountPrincipal(
+            account_id=uuid.uuid4(),
+            status="active",
+            identity_type="email",
+            support_code="MAP-OTHER-OWNER",
+        )
+    )
+    try:
+        with pytest.raises(NotFoundError):
+            await service.get_map(db_session, test_project_id, node["id"])
+        with pytest.raises(NotFoundError):
+            await MapAtlasService().update_node(
+                db_session,
+                test_project_id,
+                node["id"],
+                MapAtlasNodeUpdate(title="越权", expected_updated_at=node["updated_at"]),
+            )
+    finally:
+        reset_principal(token)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("run_kind", [None, "initial", "upload"])
+async def test_only_uploaded_provisional_nodes_allow_manual_changes(
+    db_session, test_project_id, run_kind
+):
+    run = None
+    if run_kind:
+        run = MapAtlasRun(
+            novel_id=uuid.UUID(test_project_id), run_kind=run_kind, status="review_ready"
+        )
+        db_session.add(run)
+        await db_session.flush()
+    node = MapAtlasNode(
+        novel_id=uuid.UUID(test_project_id),
+        created_by_run_id=run.id if run else None,
+        semantic_key=f"manual:{uuid.uuid4()}",
+        title="候选图",
+        level="region",
+        status="provisional",
+    )
+    db_session.add(node)
+    await db_session.flush()
+    request = MapAtlasNodeUpdate(title="手工改名", expected_updated_at=node.updated_at)
+    service = MapAtlasService()
+    if run_kind != "upload":
+        with pytest.raises(ConflictError, match="候选节点不能手动调整"):
+            await service.update_node(db_session, test_project_id, str(node.id), request)
+        assert node.title == "候选图"
+    else:
+        updated = await service.update_node(
+            db_session, test_project_id, str(node.id), request
+        )
+        assert updated["title"] == "手工改名"
 
 
 @pytest.mark.asyncio
@@ -309,6 +614,9 @@ async def test_images_share_node_and_stale_background_is_disabled(
     )
     state = await service.get_map(db_session, test_project_id, node["id"])
     assert state.image_layers[0]["transform"] == [200, 0, 0, 200, 100, 100]
+    assert page.source_map_revision_id is None  # This image came from an upload.
+    assert state.image_layers[0]["calibration_revision_id"] == saved.id
+    assert state.image_layers[0]["calibration_lookup_status"] == "found"
     changed = saved.document.model_copy(deep=True)
     changed.features[0].points[0].x += 10
     await service.save(
@@ -319,10 +627,18 @@ async def test_images_share_node_and_stale_background_is_disabled(
     )
     state = await service.get_map(db_session, test_project_id, node["id"])
     assert state.image_layers[0]["state"] == "stale"
+    assert state.image_layers[0]["transform"] is None
+    assert state.image_layers[0]["calibration_revision_id"] == saved.id
+    historic = await service.preview_revision(
+        db_session, test_project_id, node["id"], saved.id
+    )
+    assert historic.image_layers[0]["state"] == "ready"
+    assert historic.image_layers[0]["calibration_revision_id"] == saved.id
     page.review_status = "deprecated"
     await db_session.flush()
     state = await service.get_map(db_session, test_project_id, node["id"])
     assert state.image_layers[0]["state"] == "unavailable"
+    assert state.image_layers[0]["calibration_revision_id"] == saved.id
     assert (await MapAtlasService().get_tree(db_session, test_project_id))["nodes"]
 
 
@@ -418,6 +734,14 @@ async def test_existing_stale_sources_remain_editable_but_cannot_be_copied_to_ne
     )
     entity.summary = "已经修改的记载"
     await db_session.flush()
+    loaded = await service.get_map(db_session, test_project_id, node["id"])
+    assert loaded.revision.id == saved.id
+    assert [(p.code, p.feature_ids) for p in loaded.revision.problems] == [
+        ("source_stale", ["harbor"])
+    ]
+    persisted = await db_session.get(MapAtlasRevision, uuid.UUID(saved.id))
+    assert persisted.problems == []
+    assert not db_session.dirty
     edited = saved.document.model_copy(deep=True)
     edited.features[0].points[0].x += 10
     retained = await service.save(
@@ -440,6 +764,30 @@ async def test_existing_stale_sources_remain_editable_but_cannot_be_copied_to_ne
             node["id"],
             MapSaveRequest(base_revision_id=retained.id, document=copied),
         )
+    candidate = MapAtlasRevision(
+        novel_id=uuid.UUID(test_project_id),
+        node_id=uuid.UUID(node["id"]),
+        base_revision_id=uuid.UUID(retained.id),
+        status="candidate",
+        document=retained.document.model_dump(mode="json"),
+        geometry_hash=retained.geometry_hash,
+        problems=[],
+    )
+    db_session.add(candidate)
+    entity.status = "deprecated"
+    await db_session.flush()
+    unavailable = await service.get_map(db_session, test_project_id, node["id"])
+    assert unavailable.revision.problems[0].code == "source_stale"
+    assert unavailable.candidates[0].problems[0].code == "source_stale"
+    assert candidate.problems == []
+    entity.status, entity.summary = "canonical", "旧记载"
+    await db_session.flush()
+    recovered = await service.get_map(db_session, test_project_id, node["id"])
+    assert recovered.revision.problems == []
+    assert recovered.candidates[0].problems == []
+    history = await service.history(db_session, test_project_id, node["id"])
+    assert next(row for row in history if row.id == retained.id).problems
+    assert not db_session.dirty
 
 
 @pytest.mark.asyncio
@@ -540,3 +888,154 @@ def test_structure_task_is_registered_with_project_scope():
     assert definition.owner_scope == "project"
     assert definition.recovery_policy == "manual_resume"
     assert definition.max_attempts == 4
+
+
+async def test_calibration_history_requires_matching_owner_node_page_and_anchors(
+    db_session,
+    test_project_id,
+    project_factory,
+):
+    from sqlalchemy import select
+
+    service, node = await create_map(db_session, test_project_id)
+    run = MapAtlasRun(
+        novel_id=uuid.UUID(test_project_id), run_kind="upload", status="review_ready"
+    )
+    db_session.add(run)
+    await db_session.flush()
+    page = MapAtlasPage(
+        novel_id=run.novel_id,
+        node_id=uuid.UUID(node["id"]),
+        run_id=run.id,
+        title="上传底图",
+        visual_brief="",
+        prompt="",
+        generation_status="review_ready",
+        review_status="adopted",
+    )
+    db_session.add(page)
+    await db_session.flush()
+    doc = document()
+    placement = image_placement(page.id)
+    placement.geometry_hash = geometry_hash(doc)
+    doc.images = [placement]
+    _, other_node = await create_map(db_session, test_project_id)
+    foreign_id = str(await project_factory.create_project())
+    _, foreign_node = await create_map(db_session, foreign_id)
+    variants = [
+        (test_project_id, other_node["id"], "saved", {}),
+        (foreign_id, foreign_node["id"], "saved", {}),
+        (test_project_id, node["id"], "candidate", {}),
+        (test_project_id, node["id"], "rejected", {}),
+        (test_project_id, node["id"], "saved", {"page_id": str(uuid.uuid4())}),
+        (test_project_id, node["id"], "saved", {"geometry_hash": "b" * 64}),
+        (
+            test_project_id,
+            node["id"],
+            "saved",
+            {"anchors": [anchor.model_dump() for anchor in reversed(placement.anchors)]},
+        ),
+    ]
+    for owner, target, status, change in variants:
+        payload = doc.model_dump(mode="json")
+        payload["images"][0].update(change)
+        db_session.add(
+            MapAtlasRevision(
+                novel_id=uuid.UUID(owner),
+                node_id=uuid.UUID(target),
+                status=status,
+                document=payload,
+                geometry_hash=placement.geometry_hash,
+                problems=[],
+            )
+        )
+    await db_session.flush()
+    before = list((await db_session.scalars(select(MapAtlasRevision.id))).all())
+    layers = await service.image_layers(db_session, test_project_id, node["id"], doc)
+    assert layers[0]["calibration_revision_id"] is None
+    assert layers[0]["calibration_lookup_status"] == "not_found"
+    assert list((await db_session.scalars(select(MapAtlasRevision.id))).all()) == before
+    exact = MapAtlasRevision(
+        novel_id=run.novel_id,
+        node_id=page.node_id,
+        status="saved",
+        document=doc.model_dump(mode="json"),
+        geometry_hash=placement.geometry_hash,
+        problems=[],
+    )
+    db_session.add(exact)
+    await db_session.flush()
+    layers = await service.image_layers(db_session, test_project_id, node["id"], doc)
+    assert layers[0]["calibration_revision_id"] == str(exact.id)
+    assert layers[0]["calibration_lookup_status"] == "found"
+
+
+async def test_calibration_history_reports_scan_truncation_without_loading_geometry(
+    db_session,
+    test_project_id,
+    monkeypatch,
+):
+    from datetime import UTC, datetime, timedelta
+
+    service, node = await create_map(db_session, test_project_id)
+    run = MapAtlasRun(
+        novel_id=uuid.UUID(test_project_id), run_kind="upload", status="review_ready"
+    )
+    db_session.add(run)
+    await db_session.flush()
+    page = MapAtlasPage(
+        novel_id=run.novel_id,
+        node_id=uuid.UUID(node["id"]),
+        run_id=run.id,
+        title="上传底图",
+        visual_brief="",
+        prompt="",
+        generation_status="review_ready",
+        review_status="adopted",
+    )
+    db_session.add(page)
+    await db_session.flush()
+    doc = document()
+    placement = image_placement(page.id)
+    placement.geometry_hash = geometry_hash(doc)
+    doc.images = [placement]
+    saved = []
+    for index in range(3):
+        payload = doc.model_dump(mode="json")
+        if index:
+            payload["images"][0]["anchors"][0]["image_x"] = index * 0.1
+        row = MapAtlasRevision(
+            novel_id=run.novel_id,
+            node_id=page.node_id,
+            status="saved",
+            document=payload,
+            geometry_hash=placement.geometry_hash,
+            problems=[],
+            created_at=datetime.now(UTC) + timedelta(seconds=index),
+        )
+        db_session.add(row)
+        saved.append(row)
+    await db_session.flush()
+    monkeypatch.setattr(
+        "modules.world.map_structure_service._CALIBRATION_HISTORY_LIMIT", 2
+    )
+    execute = db_session.execute
+    selected_columns = []
+
+    async def capture(statement, *args, **kwargs):
+        selected_columns.append(list(statement.selected_columns))
+        return await execute(statement, *args, **kwargs)
+
+    monkeypatch.setattr(db_session, "execute", capture)
+    layers = await service.image_layers(db_session, test_project_id, node["id"], doc)
+    assert layers[0]["calibration_revision_id"] is None
+    assert layers[0]["calibration_lookup_status"] == "truncated"
+    assert len(selected_columns[-1]) == 2
+    assert selected_columns[-1][0].name == "id"
+    assert selected_columns[-1][1].name == "images"
+    monkeypatch.setattr(
+        "modules.world.map_structure_service._CALIBRATION_HISTORY_LIMIT", 3
+    )
+    layers = await service.image_layers(db_session, test_project_id, node["id"], doc)
+    assert layers[0]["calibration_revision_id"] == str(saved[0].id)
+    assert layers[0]["calibration_lookup_status"] == "found"

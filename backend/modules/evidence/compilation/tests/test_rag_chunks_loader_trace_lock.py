@@ -82,6 +82,7 @@ async def test_pg_trace_session_sets_lock_timeout_before_record(
 @pytest.mark.asyncio
 async def test_pg_trace_lock_timeout_does_not_block_context_loading(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     class _Manager:
         def session_factory(self):
@@ -109,4 +110,66 @@ async def test_pg_trace_lock_timeout_does_not_block_context_loading(
         {"candidate_count": 0, "unique_count": 0, "hydrated_count": 0},
     )
 
-    assert "RAG 检索诊断记录失败" in bundle.warnings
+    assert bundle.warnings == []
+    assert "Context retrieval trace write failed" in caplog.text
+
+
+async def test_trace_failure_preserves_confirmation_but_source_change_still_blocks(
+    db_session,
+    test_project_id,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from unittest.mock import patch
+
+    from core.errors import ConflictError
+    from modules.evidence.compilation.services.confirmation_service import (
+        ContextConfirmationService,
+    )
+    from modules.evidence.compilation.services.context_compiler import ContextCompiler
+
+    diagnostic_failed = False
+    project_title = "不变的测试资料"
+
+    async def record(*_args, **_kwargs):
+        if diagnostic_failed:
+            raise RuntimeError("simulated lock timeout")
+
+    loader = RagChunksLoader(trace_recorder=record)
+    compiler = ContextCompiler()
+
+    async def compile_bundle(db, options):
+        bundle = StructureContextBundle(
+            novel_id=options.novel_id,
+            task=options.task,
+            scope=options.scope,
+            project={"title": project_title},
+        )
+        await loader._record_trace(db, options, bundle, {"candidate_count": 0})
+        return bundle
+
+    service = ContextConfirmationService(compiler=compiler)
+    with patch.object(compiler, "compile", autospec=True, side_effect=compile_bundle):
+        confirmation = await service.confirm_context(
+            db_session,
+            novel_id=test_project_id,
+            action="world.map_atlas.structure",
+            task="整理地图空间关系",
+            scope="full",
+        )
+        diagnostic_failed = True
+        replay = await service.compile_from_confirmation(
+            db_session,
+            novel_id=test_project_id,
+            action="world.map_atlas.structure",
+            confirmation_id=confirmation.id,
+        )
+        assert not replay.warnings
+        assert all(section.key != "compiler_warnings" for section in replay.sections)
+        project_title = "确实变化的测试资料"
+        with pytest.raises(ConflictError, match="AI 参考资料已变化"):
+            await service.compile_from_confirmation(
+                db_session,
+                novel_id=test_project_id,
+                action="world.map_atlas.structure",
+                confirmation_id=confirmation.id,
+            )

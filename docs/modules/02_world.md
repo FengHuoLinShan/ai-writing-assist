@@ -502,3 +502,9 @@ creation_suggestion_queue 中保存封闭的 owner 授权 carrier；普通建议
 自动路径仍服从 World Validation Policy 的 full-scope/人工 warning 签收门禁。采用回执
 原子保存逐项 before/after；`rollback_focused_world_package()` 锁后比较，安全恢复填空或
 软废弃未被后续修改/引用的新资产，有冲突的项留待处理。
+纯空间地图可独立调整目录和顺序；未绑定世界地点时允许改地图标题，不回写世界对象名称。
+当前地图与候选响应实时核对来源，失效提示不写回不可变历史，也不放宽保存或采用门禁。
+
+地图持续创作沿用 World 派生资产边界：四层结构编辑、受限空间关系、`map-links` 只读定位、
+已有图元局部生成与依赖完整的逐项采用。来源与预算仍由 Evidence confirmation 决定，
+未采用的剩余候选继续等待确认。当前完整契约见 `docs/modules/15_map.md`。

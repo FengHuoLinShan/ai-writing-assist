@@ -55,3 +55,5 @@ pytest modules/evidence/indexing/tests modules/evidence/compilation/tests -q
 输出可回读证据、完整性回执与独立预算后的 CompiledContext；只读结果不携带资产写入授权。
 深度固定为 0 或 1，内部 continuation 和异步恢复沿用现有任务表，不新增检索设施或业务表。
 HTTP 与内部边界、来源范围及恢复详见 compilation/README.md。
+原文选择支持 `start_offset=0`，以半开区间定位章首；缺失或负数起点仍拒绝。地图的已保存图元
+来源通过既有 pinned_refs 预填，仍受作者排除、预算、正文版本/hash与可见性重验约束。

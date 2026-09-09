@@ -40,7 +40,7 @@ def geometry_hash(document: MapDocument) -> str:
             for f in sorted(document.features, key=lambda f: f.id)
         ],
         "constraints": [
-            c.model_dump(mode="json", exclude={"sources"})
+            c.model_dump(mode="json", exclude={"sources", "generated_by_task_id"})
             for c in sorted(document.constraints, key=lambda c: c.id)
         ],
     }
@@ -101,6 +101,36 @@ def _direction_ok(a: MapPoint, b: MapPoint, direction: tuple[int, int]) -> bool:
     )
 
 
+def _nearest_edge(point: MapPoint, feature: MapFeature) -> MapPoint | None:
+    if feature.kind in {"location", "landmark"}:
+        return _center(feature)
+    points = feature.points + (feature.points[:1] if feature.kind == "area" else [])
+    nearest, distance = None, float("inf")
+    for start, end in zip(points, points[1:]):
+        dx, dy = end.x - start.x, end.y - start.y
+        length = dx * dx + dy * dy
+        fraction = (
+            max(0, min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / length))
+            if length
+            else 0
+        )
+        projected = MapPoint(x=start.x + dx * fraction, y=start.y + dy * fraction)
+        candidate = hypot(projected.x - point.x, projected.y - point.y)
+        if candidate < distance:
+            nearest, distance = projected, candidate
+    return nearest
+
+
+def _point_relation_ok(point: MapPoint, target: MapFeature, relation: str) -> bool:
+    if relation == "faces":
+        center = _center(target)
+        return center is not None and hypot(point.x - center.x, point.y - center.y) >= 1
+    edge = _nearest_edge(point, target)
+    return edge is not None and hypot(point.x - edge.x, point.y - edge.y) <= (
+        45 if relation == "along_street" else 75
+    )
+
+
 def diagnose(document: MapDocument) -> list[MapProblem]:
     features = {f.id: f for f in document.features}
     problems = []
@@ -135,6 +165,22 @@ def diagnose(document: MapDocument) -> list[MapProblem]:
                     feature_ids=[c.subject, c.target],
                 )
             )
+        if c.relation in {
+            "along_street",
+            "entrance_to",
+            "faces",
+        } and not _point_relation_ok(a, features[c.target], c.relation):
+            problems.append(
+                MapProblem(
+                    code=f"{c.relation}_conflict",
+                    message={
+                        "along_street": "地点离所属街道较远，请核对位置",
+                        "entrance_to": "入口离所属地点或区域边界较远，请核对位置",
+                        "faces": "地点与朝向目标重合，无法确定朝向",
+                    }[c.relation],
+                    feature_ids=[c.subject, c.target],
+                )
+            )
         if c.relation in {"connects", "passes_through"}:
             road = features.get(route_key(c.id))
             if road and road.points and (road.points[0] != a or road.points[-1] != b):
@@ -160,22 +206,24 @@ def diagnose(document: MapDocument) -> list[MapProblem]:
     return problems
 
 
-def layout(document: MapDocument) -> MapLayoutResponse:
-    result = document.model_copy(deep=True)
-    features = {f.id: f for f in result.features}
-    ranks, cycles = [], set()
-    for axis in (0, 1):
-        edges = []
-        for c in result.constraints:
-            sign = DIRECTIONS.get(c.relation, (0, 0))[axis]
-            if sign:
-                edges.append((c.target, c.subject) if sign > 0 else (c.subject, c.target))
-        rank, cyclic = _ranks(set(features), edges)
-        ranks.append(rank)
-        cycles.update(cyclic)
+def _place_points(result, features, ranks, cycles):
+    dependencies, _ = _ranks(
+        set(features),
+        [
+            (c.target, c.subject)
+            for c in result.constraints
+            if c.relation in {"along_street", "entrance_to", "faces"}
+        ],
+    )
     # ponytail: bounded grid search; use a solver if 200-feature maps outgrow it.
     for f in sorted(
-        result.features, key=lambda f: (ranks[1][f.id], ranks[0][f.id], f.id)
+        result.features,
+        key=lambda f: (
+            dependencies[f.id],
+            ranks[1].get(f.id, 0),
+            ranks[0].get(f.id, 0),
+            f.id,
+        ),
     ):
         if (
             f.points
@@ -184,7 +232,25 @@ def layout(document: MapDocument) -> MapLayoutResponse:
             or f.kind not in {"location", "landmark"}
         ):
             continue
+        point_relations = [
+            c
+            for c in result.constraints
+            if c.subject == f.id
+            and c.relation in {"along_street", "entrance_to", "faces"}
+        ]
+        if any(
+            not features[c.target].points and c.relation != "faces"
+            for c in point_relations
+        ):
+            continue
         x, y = 100 + ranks[0][f.id] * 180, 100 + ranks[1][f.id] * 140
+        for c in sorted(point_relations, key=lambda c: c.id):
+            other = _nearest_edge(MapPoint(x=x, y=y), features[c.target])
+            if other:
+                x, y = other.x, other.y
+                if c.relation in {"entrance_to", "faces"}:
+                    x += 60
+                break
         for c in sorted(result.constraints, key=lambda c: c.id):
             if f.id not in {c.subject, c.target}:
                 continue
@@ -231,11 +297,33 @@ def layout(document: MapDocument) -> MapLayoutResponse:
                         fits = False
                         break
                 if fits:
+                    fits = all(
+                        not features[c.target].points
+                        or _point_relation_ok(point, features[c.target], c.relation)
+                        for c in point_relations
+                    )
+                if fits:
                     f.points = [point]
                     found = True
                     break
             if found:
                 break
+
+
+def layout(document: MapDocument) -> MapLayoutResponse:
+    result = document.model_copy(deep=True)
+    features = {f.id: f for f in result.features}
+    ranks, cycles = [], set()
+    for axis in (0, 1):
+        edges = []
+        for c in result.constraints:
+            sign = DIRECTIONS.get(c.relation, (0, 0))[axis]
+            if sign:
+                edges.append((c.target, c.subject) if sign > 0 else (c.subject, c.target))
+        rank, cyclic = _ranks(set(features), edges)
+        ranks.append(rank)
+        cycles.update(cyclic)
+    _place_points(result, features, ranks, cycles)
     for f in result.features:
         if f.kind != "area" or f.points or f.locked:
             continue
@@ -261,6 +349,8 @@ def layout(document: MapDocument) -> MapLayoutResponse:
                 MapPoint(x=left, y=bottom),
             ]
             f.depends_on = sorted(set(f.depends_on) | {child.id for child in children})
+    # Areas generated from known contents can now anchor their entrance points.
+    _place_points(result, features, ranks, cycles)
     for c in result.constraints:
         if c.relation not in {"connects", "passes_through"}:
             continue
@@ -336,34 +426,60 @@ def affine_transform(placement: MapImagePlacement, document: MapDocument) -> lis
     return [a, b, c, d, e, f]
 
 
+def structure_reference_manifest(document: MapDocument) -> list[dict]:
+    """Match names to exact normalized pixels in the provider-only reference image."""
+    points = [point for feature in document.features for point in feature.points]
+    if not points:
+        return []
+    left, top = min(p.x for p in points) - 40, min(p.y for p in points) - 40
+    width = max(p.x for p in points) - left + 40
+    height = max(p.y for p in points) - top + 40
+    scale = min(984 / width, 728 / height)
+    return [
+        {
+            "reference": f"S{index + 1:03d}",
+            "name": feature.label,
+            "kind": feature.kind,
+            "points": [
+                {
+                    "x": round((20 + (point.x - left) * scale) / 1024, 6),
+                    "y": round((20 + (point.y - top) * scale) / 768, 6),
+                }
+                for point in feature.points
+            ],
+        }
+        for index, feature in enumerate(
+            sorted(document.features, key=lambda item: item.id)
+        )
+        if feature.points
+    ]
+
+
 def render_structure_png(document: MapDocument) -> bytes:
-    """Render known geometry only. This is guidance, not a claim of image compliance."""
+    """Provider reference marks must be removed from the final generated artwork."""
     from PIL import Image, ImageDraw
 
     image = Image.new("RGB", (1024, 768), "#f4efe4")
     draw = ImageDraw.Draw(image)
-    points = [p for feature in document.features for p in feature.points]
-    if points:
-        left, top = min(p.x for p in points) - 40, min(p.y for p in points) - 40
-        width = max(p.x for p in points) - left + 40
-        height = max(p.y for p in points) - top + 40
-        scale = min(984 / width, 728 / height)
-        for feature in sorted(document.features, key=lambda f: f.kind != "area"):
-            xy = [
-                (20 + (p.x - left) * scale, 20 + (p.y - top) * scale)
-                for p in feature.points
-            ]
-            if not xy:
-                continue
-            if feature.kind == "area":
-                draw.polygon(xy, fill="#c6d3b5", outline="#697e54")
-            elif feature.kind in {"river", "road"}:
-                draw.line(
-                    xy, fill="#407aa4" if feature.kind == "river" else "#92634a", width=5
-                )
-            else:
-                x, y = xy[0]
-                draw.ellipse((x - 7, y - 7, x + 7, y + 7), fill="#49382f")
+    manifest = structure_reference_manifest(document)
+    for item in sorted(manifest, key=lambda item: item["kind"] != "area"):
+        xy = [(point["x"] * 1024, point["y"] * 768) for point in item["points"]]
+        if item["kind"] == "area":
+            draw.polygon(xy, fill="#c6d3b5", outline="#697e54")
+        elif item["kind"] in {"river", "road"}:
+            draw.line(
+                xy, fill="#407aa4" if item["kind"] == "river" else "#92634a", width=5
+            )
+        else:
+            x, y = xy[0]
+            draw.ellipse((x - 7, y - 7, x + 7, y + 7), fill="#49382f")
+    for item in manifest:
+        point = item["points"][0]
+        draw.text(
+            (point["x"] * 1024 + 9, point["y"] * 768 + 5),
+            item["reference"],
+            fill="#49382f",
+        )
     output = io.BytesIO()
     image.save(output, format="PNG")
     return output.getvalue()

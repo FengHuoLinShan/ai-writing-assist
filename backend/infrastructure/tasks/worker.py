@@ -22,6 +22,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from time import monotonic
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -292,14 +293,16 @@ class TaskWorker:
                 logger.info("TaskWorker control-loop observer recovered")
             self._control_loop_observer_failed = False
 
-    async def run_once(self) -> AsyncTask | None:
-        """单次执行：领取一个任务并执行
+    async def run_once(
+        self, *, task_id: str | UUID | None = None, novel_id: str | UUID | None = None
+    ) -> AsyncTask | None:
+        """单次执行：可指定成对任务与项目 ID，只领取这一项待处理任务。
 
         Returns:
             执行完成的任务对象，如果没有 pending 任务则返回 None
         """
         async with self._db_manager.session_factory() as session:
-            task = await self._claim_task(session)
+            task = await self._claim_task(session, task_id=task_id, novel_id=novel_id)
             if task is None:
                 return None
         return await self._execute_claimed_task(task)
@@ -464,9 +467,17 @@ class TaskWorker:
                     _task_error_for_log(exc),
                 )
 
-    async def _claim_task(self, session: AsyncSession) -> AsyncTask | None:
+    async def _claim_task(
+        self,
+        session: AsyncSession,
+        *,
+        task_id: str | UUID | None = None,
+        novel_id: str | UUID | None = None,
+    ) -> AsyncTask | None:
         """使用 FOR UPDATE SKIP LOCKED 领取一个 pending 任务"""
-        task = await self._lifecycle.claim_next(session)
+        task = await self._lifecycle.claim_next(
+            session, task_id=task_id, novel_id=novel_id
+        )
         if task is not None:
             self._running_task_ids.add(task.id)
             novel_id_state = "<none>" if _task_novel_id(task) is None else "<unverified>"

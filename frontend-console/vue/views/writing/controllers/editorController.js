@@ -376,8 +376,8 @@ export function createEditorController({
     scheduleAutosave()
   }
 
-  function updateCursor() {
-    if (!elements.editor || document.activeElement !== elements.editor) return
+  function updateCursor(event) {
+    if (!elements.editor || (document.activeElement !== elements.editor && event?.type !== "blur")) return
     state.cursorOffset = elements.editor.selectionStart || 0
     emit({ durable: false, hot: true })
     scheduleLocalPersistence()
@@ -390,6 +390,7 @@ export function createEditorController({
     elements.title?.addEventListener("input", handleInput)
     elements.editor?.addEventListener("input", handleInput)
     elements.editor?.addEventListener("click", updateCursor)
+    elements.editor?.addEventListener("blur", updateCursor)
     keyupHandler = () => {
       if (cursorTimer) clearTimeout(cursorTimer)
       cursorTimer = setTimeout(updateCursor, 150)
@@ -400,11 +401,12 @@ export function createEditorController({
   }
 
   function detach() {
-    flushLocalPersistence()
+    if (elements.editor || elements.title) flushLocalPersistence()
     if (elements.title) elements.title.removeEventListener("input", handleInput)
     if (elements.editor) {
       elements.editor.removeEventListener("input", handleInput)
       elements.editor.removeEventListener("click", updateCursor)
+      elements.editor.removeEventListener("blur", updateCursor)
       if (keyupHandler) elements.editor.removeEventListener("keyup", keyupHandler)
     }
     if (selectionHandler) document.removeEventListener("selectionchange", selectionHandler)

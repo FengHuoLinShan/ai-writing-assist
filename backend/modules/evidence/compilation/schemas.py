@@ -47,7 +47,12 @@ class ContextSelectionRefRequest(BaseModel):
             raise ValueError("source_ref chapter_index is invalid")
         if int(self.source_ref.get("version_number") or 0) < 1:
             raise ValueError("source_ref version_number is invalid")
-        start = int(self.source_ref.get("start_offset") or -1)
+        start_value = self.source_ref.get("start_offset")
+        start = (
+            int(start_value)
+            if start_value is not None and not isinstance(start_value, bool)
+            else -1
+        )
         end = int(self.source_ref.get("end_offset") or -1)
         if start < 0 or end <= start:
             raise ValueError("source_ref offsets are invalid")

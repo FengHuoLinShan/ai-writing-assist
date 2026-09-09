@@ -92,6 +92,7 @@
             <div class="place-name">{{ typeof location === 'string' ? location : (location.name || location.title || '未知地点') }}</div>
             <div v-if="typeof location === 'object'" class="place-desc">{{ location.description || location.summary || '' }}</div>
             <button class="btn btn-sm" @click="focusObject(location)">查证地点资料</button>
+            <button v-if="locationEntityId" type="button" class="btn btn-sm" @click="$emit('open-map', locationEntityId)">在地图中查看</button>
           </div>
         </section>
 
@@ -189,7 +190,9 @@ const props = defineProps({
   lens: { type: Object, default: () => ({ loading: false, data: null, error: null }) },
   evidenceRefs: { type: Array, default: () => [] },
 })
-const emit = defineEmits(["run-conflict", "open-conflict", "insert-text", "organize", "toggle-collapse", "select-scene", "load-lens", "pin-evidence", "clear-evidence"])
+const emit = defineEmits(["run-conflict", "open-conflict", "insert-text", "organize", "toggle-collapse", "select-scene", "load-lens", "pin-evidence", "clear-evidence", "open-map"])
+const locationEntityId = computed(() => typeof props.location === "object"
+  ? props.location?.entity_id || props.location?.id || null : null)
 
 const tabs = [
   { key: "alerts", label: "警报" }, { key: "people", label: "人物" }, { key: "place", label: "地点" },

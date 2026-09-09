@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
@@ -33,9 +34,12 @@ from modules.world.map_atlas_storage import MAX_IMAGE_BYTES
 from modules.world.map_structure_schemas import (
     MapGenerateRequest,
     MapLayoutResponse,
+    MapLinkQuery,
+    MapLinksResponse,
     MapNodeCreate,
     MapNodeMapResponse,
     MapReaderPreview,
+    MapReviewPreview,
     MapRevisionResponse,
     MapRevisionReview,
     MapSaveRequest,
@@ -67,6 +71,27 @@ async def create_map_node(db: DbSession, novel_id: ActiveNovelId, data: MapNodeC
     return await _structure.create_node(db, novel_id, data)
 
 
+@router.get("/{novel_id}/map-links", response_model=MapLinksResponse)
+async def get_map_links(
+    db: DbSession,
+    novel_id: ActiveNovelId,
+    chapter_index: int | None = Query(default=None, ge=1, le=100000),
+    entity_id: UUID | None = None,
+    q: str = Query(default="", max_length=100),
+    limit: int = Query(default=50, ge=1, le=100),
+):
+    return await _structure.map_links(
+        db,
+        novel_id,
+        MapLinkQuery(
+            chapter_index=chapter_index,
+            entity_id=entity_id,
+            q=q,
+            limit=limit,
+        ),
+    )
+
+
 @router.get("/{novel_id}/nodes/{node_id}/map", response_model=MapNodeMapResponse)
 async def get_node_map(db: DbSession, novel_id: ActiveNovelId, node_id: str):
     return await _structure.get_map(db, novel_id, node_id)
@@ -77,6 +102,16 @@ async def get_node_map(db: DbSession, novel_id: ActiveNovelId, node_id: str):
 )
 async def get_map_revisions(db: DbSession, novel_id: ActiveNovelId, node_id: str):
     return await _structure.history(db, novel_id, node_id)
+
+
+@router.get(
+    "/{novel_id}/nodes/{node_id}/revisions/{revision_id}/preview",
+    response_model=MapLayoutResponse,
+)
+async def preview_map_revision(
+    db: DbSession, novel_id: ActiveNovelId, node_id: str, revision_id: str
+):
+    return await _structure.preview_revision(db, novel_id, node_id, revision_id)
 
 
 @router.post(
@@ -100,6 +135,21 @@ async def preview_map_layout(
     db: DbSession, novel_id: ActiveNovelId, node_id: str, data: MapSaveRequest
 ):
     return await _structure.preview_layout(db, novel_id, node_id, data)
+
+
+@router.post(
+    "/{novel_id}/nodes/{node_id}/revisions/{revision_id}/review-preview",
+    response_model=MapReviewPreview,
+    dependencies=_xhr,
+)
+async def preview_map_review(
+    db: DbSession,
+    novel_id: ActiveNovelId,
+    node_id: str,
+    revision_id: str,
+    data: MapRevisionReview,
+):
+    return await _structure.review_preview(db, novel_id, node_id, revision_id, data)
 
 
 @router.post(

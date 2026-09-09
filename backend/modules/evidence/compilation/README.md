@@ -604,3 +604,5 @@ known_content 与精确原文逐字相等，且该 known_content 字段有 activ
 可见的已知内容 metadata；无法证明的固定原文产生 Context blocker。仅该窄范围计入
 character_ranges_verified，knowledge_boundary_audit 始终为 not_performed，不能把检索
 可见性门禁声称为完整角色知识审查。reader/author 原文行为与全局 NovelEvidence.read 不变。
+`ContextSelectionRefRequest` 接受原文半开区间的合法起点 0（不能用 truthiness 判为空）；缺失、
+负数或布尔起点拒绝。地图复用 source_range/target pinned_refs，不新增 scope 或绕过确认重物化。

@@ -341,3 +341,5 @@ API Key、完整 Base URL/query、prompt 或正文。
 限制同章可见截止；返回方必须按 SourceRangeRef 严格回读，不能将 read 的整段展示文本误当
 精确范围。新版本替换、跨小说 manifest 或 hash 漂移均失败关闭。普通 grep 的分页与章分组
 行为不变。
+写作前端新增按需地图入口，消费 World 的 `map-links` 作者只读 API，不引入后端 World 实现依赖。
+编辑器失焦记录光标，未 attach 的空状态不覆盖已有恢复指针。原文、SourceRange 与发布契约不变。

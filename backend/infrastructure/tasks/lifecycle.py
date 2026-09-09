@@ -549,7 +549,23 @@ class TaskLifecycleService:
             for task in tasks
         }
 
-    async def claim_next(self, db: AsyncSession) -> AsyncTask | None:
+    async def claim_next(
+        self,
+        db: AsyncSession,
+        *,
+        task_id: str | uuid.UUID | None = None,
+        novel_id: str | uuid.UUID | None = None,
+    ) -> AsyncTask | None:
+        if (task_id is None) != (novel_id is None):
+            raise ValueError("task_id and novel_id must be provided together")
+        scope = []
+        if task_id is not None:
+            try:
+                parsed_task = uuid.UUID(str(task_id))
+                parsed_novel = uuid.UUID(str(novel_id))
+            except (TypeError, ValueError) as exc:
+                raise ValueError("task_id and novel_id must be UUIDs") from exc
+            scope = [AsyncTask.id == parsed_task, AsyncTask.novel_id == parsed_novel]
         running = aliased(AsyncTask)
         now = datetime.now(UTC)
         queue_time = case(
@@ -562,6 +578,7 @@ class TaskLifecycleService:
         stmt = (
             select(AsyncTask)
             .where(
+                *scope,
                 AsyncTask.status == "pending",
                 _handler_retry_ready(now),
                 or_(

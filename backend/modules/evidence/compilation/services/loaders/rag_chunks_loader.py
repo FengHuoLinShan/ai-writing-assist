@@ -525,9 +525,9 @@ class RagChunksLoader(Loader):
                 "Context retrieval trace write failed: %s",
                 redact_diagnostic(exc, limit=300),
             )
-            warning = "RAG 检索诊断记录失败"
-            if warning not in bundle.warnings:
-                bundle.warnings.append(warning)
+            # Diagnostic storage is not provider evidence. Adding this failure to
+            # bundle warnings changes compiler_warnings and invalidates an otherwise
+            # identical confirmation when its caller holds the project write lock.
 
 
 def _safe_empty_reason(trace: dict, *, strict_scene_filter: bool) -> str | None:
