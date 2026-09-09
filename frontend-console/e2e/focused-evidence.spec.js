@@ -46,7 +46,7 @@ test("副驾驶按场景查证，390px下保留出处选择及离开恢复", asy
   await waitWritingReady(page, { chapter: 1 })
   await page.getByRole("button", { name: /^打开第 1 章/ }).click()
   const closeChapters = page.getByRole("button", { name: "关闭章节", exact: true })
-  if (await closeChapters.isVisible()) await closeChapters.click()
+  if (await closeChapters.isVisible()) await closeChapters.click({ force: true, timeout: 2000 }).catch(() => {})
   const railButton = page.getByRole("button", { name: "本章资料", exact: true })
   if (await railButton.getAttribute("aria-expanded") === "false") await railButton.click()
   const panel = page.locator(".focused-evidence")

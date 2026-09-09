@@ -62,7 +62,7 @@
       <button v-if="reader" class="btn btn-sm" @click="exitReader">回到作者视图</button>
       <span v-if="reader">仅显示该章开始前可公开的内容，位置保持不变。</span>
     </div>
-    <FocusedEvidencePanel v-if="!readOnly"
+    <FocusedEvidencePanel v-if="!readOnly && !focused"
       :project-id="projectId" consumer="map" :scope-key="node.id"
       :roots="evidenceRoots" :initial-name="selectedFeature?.label || node.title || ''"
       question="核对地点的方位、相邻区域、道路、河流和直接关联地点；只查原文明确依据"

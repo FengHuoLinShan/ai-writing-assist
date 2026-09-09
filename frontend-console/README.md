@@ -462,7 +462,7 @@ frontend-console/
 
 编辑通过 owner/project/node 隔离的本机备份与服务器版本 CAS 保护，双重保存失败不放行导航；
 晚到布局不覆盖新输入。章首阅读预览不显示作者诊断和未获准图片。地图使用原生 SVG、滚动与
-缩放，地点标签按画布尺寸保持可读并做有界避让；窄屏使用单列编辑区及触控/键盘替代操作。
+缩放，地点标签按画布尺寸保持可读并做有界避让；“专注看图”隐藏查证与编辑工具；窄屏使用单列编辑区及触控/键盘替代操作。
 
 定向验证：`npm run test -- tests/vue/map` 与专用数据库、MinIO 上的
 `npm run test:e2e:functional -- map-structure.spec.js`。

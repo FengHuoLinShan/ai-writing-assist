@@ -91,8 +91,8 @@ test.describe("worldView 子视图切换", () => {
     await page.locator(SEL.navItem("map")).click()
     await expect(page).toHaveURL(new RegExp(`#workbench/${testProjectId}/map`))
     await expect(page.locator(SEL.viewTitle)).toHaveText("地图")
-    await expect(page.locator(SEL.workspaceContent)).toContainText("AI 地图册")
-    await expect(page.getByRole("button", { name: "一键生成地图册" })).toBeVisible()
+    await expect(page.locator(SEL.workspaceContent)).toContainText("你的地图册还是空的")
+    await expect(page.getByRole("button", { name: "新建地图", exact: true })).toBeVisible()
 
     expect(failedResponses, `出现失败的资源请求: ${JSON.stringify(failedResponses)}`).toHaveLength(0)
     expect(consoleErrors, `控制台报错: ${JSON.stringify(consoleErrors)}`).toHaveLength(0)
