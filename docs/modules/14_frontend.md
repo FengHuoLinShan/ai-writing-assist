@@ -469,7 +469,7 @@ map / rag / outline / settings / project-settings`，其主 DOM 全部由 Vue SF
 `map` 路由继续由同一 Vue island 承载。`MapStructureEditor` 在当前节点中提供空间 SVG、
 底图和地点配图，原图片参考与审核仍在相同画布区域切换。新建地图不要求图片或文本连接；
 结构生成只要求项目文本连接。编辑支持控制点、键盘替代、撤销、服务器 CAS、本机备份和版本比较。
-图片设置与历史渐进展开，已完成图片任务在正式地图视图不占主要空间。
+图片设置与历史渐进展开，已完成图片任务在正式地图视图不占主要空间。“专注看图”隐藏查证与编辑工具，保留画布、定位和返回编辑入口。
 
 阅读预览只渲染专用服务端响应，并经独立图片预览接口读取获准图片；不将作者响应隐藏几个
 标签后冒充读者投影。新 wire 增加节点 map/revisions/layout/generate-structure/review/reader-preview
