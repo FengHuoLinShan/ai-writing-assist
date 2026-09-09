@@ -1,8 +1,13 @@
 """World library unified list, topic directory and workspace API tests."""
 
+import uuid
+
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.world.models.core import CoreEntity
+from modules.world.models.worldbuilding import WorldBiblePage, WorldBiblePageDraft
 from modules.world.tests.helpers import publish_bible_draft
 
 
@@ -117,6 +122,61 @@ async def test_library_pagination_covers_all_items(async_client: AsyncClient) ->
     second_ids = {(item["kind"], item["id"]) for item in second["items"]}
     assert first_ids.isdisjoint(second_ids)
     assert len(first_ids | second_ids) == 55
+
+
+@pytest.mark.asyncio
+async def test_library_browse_integrity_at_scale(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """验收：1,000 项混合资料逐页浏览无重复遗漏（ORM 批量播种，避免千次 API 调用）。"""
+    novel_id = await _create_project(async_client, "千项资料浏览")
+    nid = uuid.UUID(novel_id)
+    entities = [
+        CoreEntity(
+            novel_id=nid,
+            entity_type="location",
+            name=f"规模地点{idx:03d}",
+            status="canonical",
+            summary=f"第 {idx} 个地点的概要",
+        )
+        for idx in range(400)
+    ]
+    pages = [
+        WorldBiblePage(
+            novel_id=nid,
+            page_type="background",
+            page_key=f"scale-page-{idx:03d}",
+            title=f"规模页面{idx:03d}",
+            status="canonical",
+            free_text=f"规模页面 {idx} 的正文。",
+        )
+        for idx in range(400)
+    ]
+    drafts = [
+        WorldBiblePageDraft(
+            novel_id=nid,
+            title=f"规模工作稿{idx:03d}",
+            page_type="background",
+            free_text=f"规模工作稿 {idx} 的正文。",
+        )
+        for idx in range(200)
+    ]
+    db_session.add_all([*entities, *pages, *drafts])
+    await db_session.commit()
+
+    seen: set[tuple[str, str]] = set()
+    skip = 0
+    while skip < 1000:
+        payload = await _list_library(async_client, novel_id, limit=50, skip=skip)
+        assert payload["total"] == 1000
+        for item in payload["items"]:
+            key = (item["kind"], item["id"])
+            assert key not in seen, f"分页出现重复：skip={skip} {key}"
+            seen.add(key)
+        assert len(payload["items"]) == 50, f"skip={skip} 返回 {len(payload['items'])} 项"
+        skip += 50
+    assert len(seen) == 1000
 
 
 @pytest.mark.asyncio
