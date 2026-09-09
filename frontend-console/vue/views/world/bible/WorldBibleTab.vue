@@ -79,6 +79,15 @@
       </div>
     </WorldToolDialog>
 
+    <WorldTopicPickerDialog
+      :open="Boolean(topicPickerCard)"
+      :topics="libraryTopics"
+      :target-title="topicPickerCard?.title || ''"
+      :member-topic-ids="topicPickerMemberIds"
+      @close="topicPickerCard = null"
+      @toggle="toggleTopicMembership"
+    />
+
     <!-- ==================== display modes ==================== -->
 
     <!-- GALLERY mode -->
@@ -139,7 +148,7 @@
         <template v-else-if="showTypeHome">
           <div class="world-bible-gallery__hero">
             <h2>人物与世界</h2>
-            <p>按类型浏览和管理长期创作资料。</p>
+            <p>按主题和类型组织长期创作资料；同一份资料可以出现在多个主题里。</p>
           </div>
           <form class="world-card-filters world-card-filters--home" role="search" @submit.prevent="applyCardFilters()">
             <label class="world-card-filters__search"><span>搜索资料</span><input v-model="cardSearch" type="search" maxlength="120" placeholder="名称、别名或内容" /></label>
@@ -148,36 +157,89 @@
           <div v-if="props.bible?.entitiesLoadError" class="empty-state" role="alert" data-author-action="retry">
             <p>人物与设定数量暂时没有加载出来；资料页和工作稿仍可使用。</p><button class="btn btn-sm" type="button" @click="retryCards">重新加载</button>
           </div>
-          <WorldLibraryTypeGrid :cards="commonTypeCards" :working-count="workingCardCount" @select="selectTypeCard" @more="toolDialog = 'types'" />
+          <WorldLibraryHome
+            v-if="libraryOverview"
+            :overview="libraryOverview"
+            :type-options="cardTypeOptions"
+            :meta-for="cardMeta"
+            @open="openWorldCard"
+            @select-topic="selectHomeTopic"
+            @select-type="selectTypeCard"
+            @select-working="selectTypeCard('working')"
+            @create-topic="createTopicFromDirectory({ name: $event, parentId: null })"
+            @browse-all="applyCardFilters({})"
+          />
+          <WorldLibraryTypeGrid v-else :cards="commonTypeCards" :working-count="workingCardCount" @select="selectTypeCard" @more="toolDialog = 'types'" />
         </template>
         <template v-else>
-          <header class="world-type-results__header">
-            <button type="button" class="btn btn-sm btn-ghost" @click="clearCardFilters">← 全部类型</button>
-            <div><h2>{{ activeTypeLabel }}</h2><p>{{ typeResultCount }} 项资料</p></div>
-          </header>
-          <form class="world-card-filters" role="search" @submit.prevent="applyCardFilters()">
-              <label class="world-card-filters__search">
-                <span>搜索资料</span>
-                <input v-model="cardSearch" type="search" maxlength="120" placeholder="名称、别名或内容" />
-              </label>
-              <label>
-                <span>资料形态</span>
-                <select :value="cardFilters.kind" @change="applyCardFilters({ kind: $event.target.value })">
-                  <option value="all">全部资料</option>
-                  <option value="entity">人物与具体设定</option>
-                  <option value="page">资料页与工作稿</option>
-                </select>
-              </label>
-              <div class="world-card-filters__actions">
-                <button class="btn btn-sm btn-primary" type="submit">查找</button>
-                <button v-if="hasCardFilters" class="btn btn-sm" type="button" @click="clearCardFilters">清除</button>
+          <div class="world-library-browse">
+            <WorldLibraryDirectory
+              class="world-library-browse__directory"
+              :filters="{ ...cardFilters, unclassified: cardFilters.unclassified }"
+              :topics="libraryTopics"
+              :total-count="libraryOverview?.totals?.all ?? 0"
+              :working-count="libraryOverview?.totals?.working ?? workingCardCount"
+              :unclassified-count="libraryOverview?.totals?.unclassified ?? 0"
+              :favorite-count="libraryOverview?.totals?.favorites ?? 0"
+              :types="directoryTypes"
+              :project-id="projectId"
+              @select="applyCardFilters"
+              @create-topic="createTopicFromDirectory"
+              @rename-topic="renameTopicFromDirectory"
+              @archive-topic="archiveTopicFromDirectory"
+              @move-topic="moveTopicFromDirectory"
+            />
+            <div class="world-library-browse__main">
+              <header class="world-type-results__header">
+                <button type="button" class="btn btn-sm btn-ghost" @click="clearCardFilters">← 返回资料库首页</button>
+                <div><h2>{{ activeTopicLabel || activeTypeLabel }}</h2><p>{{ libraryTotalLabel }}</p></div>
+              </header>
+              <form class="world-card-filters" role="search" @submit.prevent="applyCardFilters()">
+                <label class="world-card-filters__search">
+                  <span>搜索资料</span>
+                  <input v-model="cardSearch" type="search" maxlength="120" placeholder="名称、别名或内容" />
+                </label>
+                <label>
+                  <span>资料形态</span>
+                  <select :value="cardFilters.kind" @change="applyCardFilters({ kind: $event.target.value })">
+                    <option value="all">全部资料</option>
+                    <option value="entity">人物与具体设定</option>
+                    <option value="page">资料页与工作稿</option>
+                  </select>
+                </label>
+                <label>
+                  <span>排序</span>
+                  <select :value="cardFilters.sort" @change="applyCardFilters({ sort: $event.target.value, skip: 0 })">
+                    <option value="updated">最近更新</option>
+                    <option value="recent">最近使用</option>
+                    <option value="title">名称</option>
+                    <option value="created">创建时间</option>
+                  </select>
+                </label>
+                <div class="world-card-filters__actions">
+                  <button class="btn btn-sm btn-primary" type="submit">查找</button>
+                  <button v-if="hasCardFilters" class="btn btn-sm" type="button" @click="clearCardFilters">清除</button>
+                </div>
+              </form>
+              <div v-if="props.bible?.libraryError" class="empty-state" role="alert" data-author-action="retry">
+                <p>资料列表暂时没有加载出来，正在显示本地缓存结果。</p><button class="btn btn-sm" type="button" @click="retryCards">重新加载</button>
               </div>
-          </form>
-          <div v-if="props.bible?.entitiesLoadError" class="empty-state" role="alert" data-author-action="retry"><p>人物与设定暂时没有加载出来；资料页和工作稿仍可使用。</p><button class="btn btn-sm" type="button" @click="retryCards">重新加载</button></div>
-          <WorldLibraryCards v-if="unifiedCards.length && cardFilters.layout === 'cards'" :cards="unifiedCards" :meta-for="cardMeta" @open="openWorldCard" @create-task="createTaskForWorldCard" />
-          <WorldLibraryList v-else-if="unifiedCards.length" :cards="unifiedCards" :meta-for="cardMeta" @open="openWorldCard" @create-task="createTaskForWorldCard" />
-          <div v-else-if="!props.bible?.entitiesLoadError" class="empty-state"><p>没有找到符合条件的资料。</p><button class="btn btn-sm btn-primary" type="button" @click="toolDialog = 'create'">新建资料</button></div>
-          <p v-if="entityCardsTruncated" class="world-bible-empty-hint">已显示前 50 个人物或设定；可继续使用搜索精确定位。</p>
+              <div v-else-if="props.bible?.entitiesLoadError" class="empty-state" role="alert" data-author-action="retry"><p>人物与设定暂时没有加载出来；资料页和工作稿仍可使用。</p><button class="btn btn-sm" type="button" @click="retryCards">重新加载</button></div>
+              <WorldLibraryCards v-if="unifiedCards.length && cardFilters.layout === 'cards'" :cards="unifiedCards" :meta-for="cardMeta" @open="openWorldCard" @create-task="createTaskForWorldCard" @toggle-favorite="toggleFavoriteCard" @add-to-topic="openTopicPicker" />
+              <WorldLibraryList v-else-if="unifiedCards.length" :cards="unifiedCards" :meta-for="cardMeta" @open="openWorldCard" @create-task="createTaskForWorldCard" @toggle-favorite="toggleFavoriteCard" @add-to-topic="openTopicPicker" />
+              <div v-else-if="!props.bible?.entitiesLoadError && !props.bible?.libraryError" class="empty-state"><p>没有找到符合条件的资料。</p><button class="btn btn-sm btn-primary" type="button" @click="toolDialog = 'create'">新建资料</button></div>
+              <WorldPager
+                v-if="serverDriven"
+                :total="libraryTotal"
+                :skip="cardFilters.skip || 0"
+                :limit="libraryPageSize"
+                prev-action="world-library-prev-page"
+                next-action="world-library-next-page"
+                @change="changeLibraryPage"
+              />
+              <p v-else-if="entityCardsTruncated" class="world-bible-empty-hint">已显示前 50 个人物或设定；可继续使用搜索精确定位。</p>
+            </div>
+          </div>
         </template>
         <div v-if="pages.length" hidden aria-hidden="true"><button v-for="item in categoryItems(true)" :key="item.type" type="button" data-action="bible-gallery-open" :data-category="item.type" @click="openGalleryCategory(item.type)">{{ item.meta.title }}</button></div>
       </div>
@@ -614,15 +676,25 @@ import { showAliasCreateForm, showAliasEditForm, syncRelationsAliasesRegistry } 
 import { worldSession } from "../worldSession.js"
 import WorldSidebarToolCard from "../components/WorldSidebarToolCard.vue"
 import WorldToolDialog from "../components/WorldToolDialog.vue"
+import WorldPager from "../components/WorldPager.vue"
 import WorldEntityDetail from "../library/WorldEntityDetail.vue"
 import WorldLibraryCards from "../library/WorldLibraryCards.vue"
+import WorldLibraryDirectory from "../library/WorldLibraryDirectory.vue"
+import WorldLibraryHome from "../library/WorldLibraryHome.vue"
 import WorldLibraryList from "../library/WorldLibraryList.vue"
 import WorldLibraryTypeGrid from "../library/WorldLibraryTypeGrid.vue"
+import WorldTopicPickerDialog from "../library/WorldTopicPickerDialog.vue"
 import WorldBibleKnowledgeGraph from "../pages/WorldBibleKnowledgeGraph.vue"
 import WorldbookImportPanel from "./WorldbookImportPanel.vue"
 import WorldHealthPanel from "./WorldHealthPanel.vue"
 import { useWorldBible } from "./useWorldBible.js"
-import { buildWorldCards, worldCardQuery } from "./worldCards.js"
+import {
+  LIBRARY_PAGE_SIZE,
+  buildWorldCards,
+  cardsFromLibraryItems,
+  usesServerLibrary,
+  worldCardQuery,
+} from "./worldCards.js"
 
 const props = defineProps({
   projectId: { type: String, default: null },
@@ -723,7 +795,19 @@ setExternalLeaveGuard(
   () => entityProfileDirty.value,
 )
 
-const cardFilters = computed(() => ({ q: "", kind: "all", type: "", state: "", layout: "cards", ...(props.worldCardFilters || {}) }))
+const cardFilters = computed(() => ({
+  q: "",
+  kind: "all",
+  type: "",
+  state: "",
+  layout: "list",
+  sort: "updated",
+  topicId: "",
+  favorite: false,
+  unclassified: false,
+  skip: 0,
+  ...(props.worldCardFilters || {}),
+}))
 const cardSearch = ref(cardFilters.value.q || "")
 watch(() => cardFilters.value.q, (value) => { cardSearch.value = value || "" })
 const bibleEntityTotal = computed(() => Number(props.bible?.entityTotal || 0))
@@ -742,16 +826,31 @@ async function refreshCompletedEntity(entityId) {
   }
 }
 watch(() => props.bible?.entities, () => { completedEntityRows.value = {} })
-const unifiedCards = computed(() => buildWorldCards({
-  pages: pages.value,
-  drafts: drafts.value,
-  entities: visibleEntities.value,
-  filters: cardFilters.value,
-}))
+const libraryOverview = computed(() => props.bible?.libraryOverview || null)
+const libraryTopics = computed(() => libraryOverview.value?.topics || [])
+// 服务端列表可用时结果视图由其驱动；否则回退到既有客户端合并卡片。
+const serverDriven = computed(() => usesServerLibrary(cardFilters.value)
+  && Array.isArray(props.bible?.libraryItems)
+  && !props.bible?.libraryError)
+const serverLibraryCards = computed(() => cardsFromLibraryItems(props.bible?.libraryItems || []))
+const libraryTotal = computed(() => Number(props.bible?.libraryTotal || 0))
+const libraryPageSize = LIBRARY_PAGE_SIZE
+const unifiedCards = computed(() => {
+  if (serverDriven.value) return serverLibraryCards.value
+  return buildWorldCards({
+    pages: pages.value,
+    drafts: drafts.value,
+    entities: visibleEntities.value,
+    filters: cardFilters.value,
+  })
+})
 const hasCardFilters = computed(() => Boolean(
   cardFilters.value.q
   || cardFilters.value.type
   || cardFilters.value.state
+  || cardFilters.value.topicId
+  || cardFilters.value.favorite
+  || cardFilters.value.unclassified
   || cardFilters.value.kind !== "all",
 ))
 const workingCardCount = computed(() => drafts.value.length)
@@ -811,12 +910,41 @@ const commonTypeCards = computed(() => COMMON_TYPE_KEYS.map((value) => {
 const extraTypeOptions = computed(() => cardTypeOptions.value.filter((item) => !COMMON_TYPE_KEYS.includes(item.value)))
 const showTypeHome = computed(() => displayMode.value === "gallery" && !selectedEntity.value && !galleryCategory.value && !hasCardFilters.value)
 const activeTypeLabel = computed(() => {
+  if (cardFilters.value.favorite) return "收藏的资料"
+  if (cardFilters.value.unclassified) return "未归类资料"
   if (cardFilters.value.state === "working") return "工作稿"
   if (cardFilters.value.type) return cardTypeOptions.value.find((item) => item.value === cardFilters.value.type)?.label || cardFilters.value.type
   if (cardFilters.value.q) return `“${cardFilters.value.q}”的搜索结果`
   return "全部资料"
 })
-const typeResultCount = computed(() => cardFilters.value.state === "working" ? workingCardCount.value : cardFilters.value.type ? countForType(cardFilters.value.type) : unifiedCards.value.length)
+const activeTopicLabel = computed(() => {
+  if (!cardFilters.value.topicId) return ""
+  const find = (nodes) => {
+    for (const node of nodes || []) {
+      if (node.id === cardFilters.value.topicId) return node
+      const child = find(node.children || [])
+      if (child) return child
+    }
+    return null
+  }
+  const topic = find(libraryTopics.value)
+  return topic ? `主题：${topic.name}` : ""
+})
+const libraryTotalLabel = computed(() => (
+  serverDriven.value
+    ? `${libraryTotal.value} 项资料${libraryTotal.value > libraryPageSize ? `，第 ${Math.floor((cardFilters.value.skip || 0) / libraryPageSize) + 1} / ${Math.ceil(libraryTotal.value / libraryPageSize)} 页` : ""}`
+    : `${typeResultCount.value} 项资料`
+))
+const directoryTypes = computed(() => cardTypeOptions.value.map((item) => ({
+  ...item,
+  count: countForType(item.value),
+})))
+const typeResultCount = computed(() => {
+  if (serverDriven.value) return libraryTotal.value
+  if (cardFilters.value.state === "working") return workingCardCount.value
+  if (cardFilters.value.type) return countForType(cardFilters.value.type)
+  return unifiedCards.value.length
+})
 const sidebarActions = computed(() => {
   if (selectedEntity.value) return [
     { key: "edit", label: "编辑资料", primary: true },
@@ -914,9 +1042,160 @@ function cardMeta(card) {
 
 function applyCardFilters(overrides = {}) {
   const next = { ...cardFilters.value, q: cardSearch.value, ...overrides }
+  // 筛选条件变化时回到第一页；仅翻页时保留 skip。
+  const filtersChanged = worldCardQuery({ ...next, skip: 0 }).toString()
+    !== worldCardQuery({ ...cardFilters.value, skip: 0 }).toString()
+  if (filtersChanged && !("skip" in overrides)) next.skip = 0
   if (overrides.kind === "page" && next.type && !pages.value.some((page) => page.page_type === next.type)) next.type = ""
   getRouter()?.navigate("world", "bible", true, worldCardQuery(next))
 }
+
+function changeLibraryPage(delta) {
+  const current = cardFilters.value.skip || 0
+  const nextSkip = Math.max(0, current + delta * libraryPageSize)
+  if (nextSkip === current) return
+  rememberLibraryScroll()
+  applyCardFilters({ skip: nextSkip })
+}
+
+const topicPickerCard = ref(null)
+const topicPickerMemberIds = ref([])
+
+function cardTargetRef(card) {
+  if (card.targetKind && card.targetId) return { kind: card.targetKind, id: card.targetId }
+  if (card.kind === "entity") return { kind: "entity", id: card.id }
+  if (card.draftId && !card.id) return { kind: "draft", id: card.draftId }
+  if (card.id) return { kind: "page", id: card.id }
+  return null
+}
+
+function recordOpenRecent(card) {
+  const target = cardTargetRef(card)
+  const api = getApi()
+  if (!target || !api?.world?.recordWorldLibraryRecent || !props.projectId) return
+  api.world.recordWorldLibraryRecent(props.projectId, target.kind, String(target.id)).catch(() => {})
+}
+
+async function toggleFavoriteCard(card) {
+  const target = cardTargetRef(card)
+  const api = getApi()
+  if (!target || !api?.world?.addWorldLibraryFavorite || !props.projectId) return
+  try {
+    if (card.isFavorite) await api.world.removeWorldLibraryFavorite(props.projectId, target.kind, String(target.id))
+    else await api.world.addWorldLibraryFavorite(props.projectId, target.kind, String(target.id))
+    getRouter()?.refresh?.()
+  } catch (error) {
+    getToast()(error?.message || "收藏状态没有保存，请稍后重试", "warning")
+  }
+}
+
+async function openTopicPicker(card) {
+  const target = cardTargetRef(card)
+  const api = getApi()
+  if (!target || !api?.world?.getWorldLibraryMemberships || !props.projectId) return
+  topicPickerCard.value = card
+  topicPickerMemberIds.value = []
+  try {
+    const result = await api.world.getWorldLibraryMemberships(props.projectId, target.kind, String(target.id))
+    if (topicPickerCard.value === card) topicPickerMemberIds.value = result?.topic_ids || []
+  } catch {
+    // 成员关系读取失败时仍允许选择主题，保存时会重新校验。
+  }
+}
+
+async function toggleTopicMembership(topic) {
+  const card = topicPickerCard.value
+  const target = card ? cardTargetRef(card) : null
+  const api = getApi()
+  if (!target || !api?.world?.addWorldLibraryTopicMember || !props.projectId) return
+  const member = topicPickerMemberIds.value.includes(topic.id)
+  try {
+    if (member) await api.world.removeWorldLibraryTopicMember(topic.id, props.projectId, target.kind, String(target.id))
+    else await api.world.addWorldLibraryTopicMember(topic.id, props.projectId, target.kind, String(target.id))
+    topicPickerMemberIds.value = member
+      ? topicPickerMemberIds.value.filter((id) => id !== topic.id)
+      : [...topicPickerMemberIds.value, topic.id]
+  } catch (error) {
+    getToast()(error?.message || "主题成员没有保存，请稍后重试", "warning")
+  }
+}
+
+function selectHomeTopic(topicId) {
+  applyCardFilters({ topicId, skip: 0, q: "", type: "", state: "", kind: "all", favorite: false, unclassified: false })
+}
+
+async function createTopicFromDirectory({ name, parentId }) {
+  const api = getApi()
+  if (!api?.world?.createWorldLibraryTopic || !props.projectId) return
+  try {
+    await api.world.createWorldLibraryTopic(props.projectId, { name, parent_id: parentId || null })
+    getToast()("主题已创建", "success")
+    getRouter()?.refresh?.()
+  } catch (error) {
+    getToast()(error?.message || "主题创建失败，请稍后重试", "warning")
+  }
+}
+
+async function renameTopicFromDirectory({ topicId, name }) {
+  const api = getApi()
+  if (!api?.world?.updateWorldLibraryTopic || !props.projectId) return
+  try {
+    await api.world.updateWorldLibraryTopic(topicId, { novel_id: props.projectId, name }, props.projectId)
+    getToast()("主题已改名", "success")
+    getRouter()?.refresh?.()
+  } catch (error) {
+    getToast()(error?.message || "主题改名失败，请稍后重试", "warning")
+  }
+}
+
+async function archiveTopicFromDirectory({ topicId, archived }) {
+  const api = getApi()
+  if (!api?.world?.archiveWorldLibraryTopic || !props.projectId) return
+  const run = async () => {
+    try {
+      await api.world.archiveWorldLibraryTopic(topicId, props.projectId, archived)
+      getToast()(archived ? "主题已归档，资料保持不变" : "主题已恢复", "success")
+      if (cardFilters.value.topicId === topicId && archived) applyCardFilters({ topicId: "" })
+      else getRouter()?.refresh?.()
+    } catch (error) {
+      getToast()(error?.message || "主题状态没有保存，请稍后重试", "warning")
+    }
+  }
+  const confirm = getConfirmAction()
+  if (confirm && archived) {
+    confirm("归档这个主题吗？主题会从目录中隐藏，其中的资料和子主题保持不变。", run)
+    return
+  }
+  await run()
+}
+
+async function moveTopicFromDirectory({ topicId, direction }) {
+  const api = getApi()
+  if (!api?.world?.reorderWorldLibraryTopics || !props.projectId) return
+  const collect = (nodes) => {
+    const rows = []
+    for (const node of nodes || []) {
+      rows.push(node, ...collect(node.children || []))
+    }
+    return rows
+  }
+  const all = collect(libraryTopics.value)
+  const topic = all.find((node) => node.id === topicId)
+  if (!topic) return
+  const parentId = topic.parent_id || null
+  const siblings = all.filter((node) => (node.parent_id || null) === parentId)
+  const index = siblings.findIndex((node) => node.id === topicId)
+  const swapWith = siblings[index + direction]
+  if (index < 0 || !swapWith) return
+  const ordered = siblings.map((node, position) => (position === index ? swapWith : position === index + direction ? topic : node))
+  try {
+    await api.world.reorderWorldLibraryTopics(props.projectId, parentId, ordered.map((node) => node.id))
+    getRouter()?.refresh?.()
+  } catch (error) {
+    getToast()(error?.message || "主题顺序没有保存，请稍后重试", "warning")
+  }
+}
+
 
 function setLibraryLayout(layout) {
   if (!["cards", "list"].includes(layout)) return
@@ -961,6 +1240,7 @@ function restoreLibraryScroll() {
 
 function openWorldCard(card) {
   if (displayMode.value === "gallery" && !selectedEntity.value) rememberLibraryScroll()
+  recordOpenRecent(card)
   const query = worldCardQuery(cardFilters.value)
   if (card.kind === "entity") {
     query.set("entity_id", card.id)
@@ -1423,6 +1703,13 @@ function assetRefId(ref) {
 <style scoped>
 .world-library-content { min-width: 0; }
 .world-library-content :deep(.world-bible-page-card__actions) { flex-wrap: wrap; }
+.world-library-browse { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 22px; align-items: start; }
+.world-library-browse__directory { position: sticky; top: 12px; }
+.world-library-browse__main { display: grid; gap: 12px; min-width: 0; }
+@media (max-width: 960px) {
+  .world-library-browse { grid-template-columns: minmax(0, 1fr); }
+  .world-library-browse__directory { position: static; }
+}
 .world-type-results__header { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
 .world-type-results__header h2, .world-type-results__header p { margin: 0; }
 .world-type-results__header p { margin-top: 3px; color: var(--text-muted); }

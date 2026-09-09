@@ -139,11 +139,11 @@ test.describe("世界对象入口", () => {
     await page.locator(SEL.modalFooter).getByRole("button", { name: "编辑后采用" }).click()
 
     await page.locator(SEL.subnavItem("bible")).click()
-    await page.getByRole("button", { name: /更多类型/ }).click()
-    await page.getByRole("dialog").getByRole("button", { name: "宗教/神祇", exact: true }).click()
+    // 首页类型筛选 chips 已包含项目自定义类型，不再经过“更多类型”弹窗。
+    await page.locator(".world-library-home__type-chip", { hasText: "宗教/神祇" }).click()
     await expect(page).toHaveURL(/type=%E5%AE%97%E6%95%99%2F%E7%A5%9E%E7%A5%87/)
-    await expect(page.locator(".world-card-grid")).toContainText("月廷")
-    await expect(page.locator(".world-card-grid")).toContainText("宗教/神祇")
+    await expect(page.locator(".world-library-list")).toContainText("月廷")
+    await expect(page.locator(".world-library-list")).toContainText("宗教/神祇")
 
     const ownCatalog = await listEntityTypes(project.id)
     const otherCatalog = await listEntityTypes(otherProject.id)

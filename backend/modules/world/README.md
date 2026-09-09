@@ -371,6 +371,11 @@ PNG 后才进入地图册私有 S3。此例外不改变 imports 的文稿上传�
 | `world_canon_revisions` | 完整 Canon manifest、内联 admission receipt 与 decision 投影 |
 | `world_canon_heads` | 每个作者项目唯一的当前 CanonRevision 指针 |
 | `world_bible_categories` | 项目自定义世界书类别；内置类别不落库 |
+| `world_library_topics` | 资料库主题目录：作者组织用嵌套主题树，`parent_id` 复合外键保证同项目嵌套，service 拒绝成环移动；归档主题不归档其资料 |
+| `world_library_topic_members` | 主题成员：对 Page / Draft / Entity 的多主题引用（`target_kind + target_id`，无跨表外键）；独立工作稿发布时转换为 page 引用并去重 |
+| `world_library_favorites` | 作者工作区收藏（`novel_id + target` 唯一） |
+| `world_library_recents` | 作者工作区最近访问（服务端保留最近 50 条） |
+| `world_library_workspace_profiles` | 每项目一条的资料库视图偏好 JSON |
 | `world_bible_page_drafts` | 新页或已有页的服务器工作稿与发布基线版本 |
 | `world_bible_pages` | 已发布作者手册页面；新版 UI 只发布为 canonical |
 | `world_bible_page_revisions` | 页面发布点的不可变快照与 `revision_digest`，项目/页面/版本唯一，并以复合外键阻止跨项目页面引用 |

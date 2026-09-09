@@ -3,6 +3,9 @@ import { worldAssetDisplay } from "../../../../shared/assetDisplayState.js"
 const CARD_KINDS = new Set(["all", "page", "entity"])
 const CARD_STATES = new Set(["", "working", "active", "review", "archived"])
 const CARD_LAYOUTS = new Set(["cards", "list"])
+const CARD_SORTS = new Set(["updated", "recent", "title", "created"])
+
+export const LIBRARY_PAGE_SIZE = 50
 
 function textSummary(source) {
   const freeText = String(source?.free_text || "").trim()
@@ -38,13 +41,20 @@ export function worldCardFiltersFromQuery(query) {
   const kind = String(query?.get?.("kind") || "all")
   const type = String(query?.get?.("type") || "").trim().slice(0, 64)
   const state = String(query?.get?.("state") || "")
-  const layout = String(query?.get?.("layout") || "cards")
+  const layout = String(query?.get?.("layout") || "list")
+  const sort = String(query?.get?.("sort") || "updated")
+  const skip = Number.parseInt(String(query?.get?.("skip") || "0"), 10)
   return {
     q: String(query?.get?.("q") || "").trim().slice(0, 120),
     kind: CARD_KINDS.has(kind) ? kind : "all",
     type: type === "custom" ? "" : type,
     state: CARD_STATES.has(state) ? state : "",
-    layout: CARD_LAYOUTS.has(layout) ? layout : "cards",
+    layout: CARD_LAYOUTS.has(layout) ? layout : "list",
+    sort: CARD_SORTS.has(sort) ? sort : "updated",
+    topicId: String(query?.get?.("topic_id") || "").trim().slice(0, 64),
+    favorite: String(query?.get?.("fav") || "") === "1",
+    unclassified: String(query?.get?.("unclassified") || "") === "1",
+    skip: Number.isFinite(skip) && skip > 0 ? skip : 0,
     source: String(query?.get?.("source") || "").trim().slice(0, 64),
     workflowId: String(query?.get?.("workflow_id") || "").trim().slice(0, 128),
     needsReview: String(query?.get?.("needs_review") || "").trim(),
@@ -59,12 +69,59 @@ export function worldCardQuery(filters) {
   if (filters?.kind && filters.kind !== "all") query.set("kind", filters.kind)
   if (filters?.type) query.set("type", filters.type)
   if (filters?.state) query.set("state", filters.state)
-  if (filters?.layout && filters.layout !== "cards") query.set("layout", filters.layout)
+  if (filters?.layout && filters.layout !== "list") query.set("layout", filters.layout)
+  if (filters?.sort && filters.sort !== "updated") query.set("sort", filters.sort)
+  if (filters?.topicId) query.set("topic_id", filters.topicId)
+  if (filters?.favorite) query.set("fav", "1")
+  if (filters?.unclassified) query.set("unclassified", "1")
+  if (filters?.skip > 0) query.set("skip", String(filters.skip))
   if (filters?.source) query.set("source", filters.source)
   if (filters?.workflowId) query.set("workflow_id", filters.workflowId)
   if (filters?.needsReview) query.set("needs_review", filters.needsReview)
   if (filters?.autoIngested) query.set("auto_ingested", filters.autoIngested)
   return query
+}
+
+/** 是否处于服务端统一列表负责结果集的浏览状态（首页除外）。 */
+export function usesServerLibrary(filters) {
+  return Boolean(
+    filters?.q
+    || filters?.type
+    || filters?.state
+    || filters?.topicId
+    || filters?.favorite
+    || filters?.unclassified
+    || filters?.skip > 0
+    || (filters?.kind && filters.kind !== "all"),
+  )
+}
+
+const LIBRARY_STATE_LABELS = { active: "已采用", review: "待完善", archived: "已归档" }
+
+/** 把服务端统一资料条目映射成资料卡读模型。 */
+export function cardsFromLibraryItems(items) {
+  return (Array.isArray(items) ? items : []).map((item) => {
+    const working = Boolean(item?.working)
+    const state = working ? "working" : String(item?.state || "review")
+    const kind = item?.kind === "entity" ? "entity" : "page"
+    return {
+      key: `${item?.kind}:${item?.id}`,
+      kind,
+      id: kind === "entity" ? item.id : (item?.kind === "draft" ? null : item.id),
+      targetKind: item?.kind,
+      targetId: item?.id,
+      draftId: item?.draft_id || (item?.kind === "draft" ? item.id : null),
+      title: item?.title || "未命名资料",
+      summary: String(item?.summary || ""),
+      searchText: "",
+      typeKey: item?.item_type || "custom",
+      state,
+      stateLabel: working ? "工作稿" : LIBRARY_STATE_LABELS[state] || "待完善",
+      updatedAt: String(item?.updated_at || item?.created_at || ""),
+      isFavorite: Boolean(item?.is_favorite),
+      lastOpenedAt: item?.last_opened_at || null,
+    }
+  })
 }
 
 export function buildWorldCards({ pages = [], drafts = [], entities = [], filters = {} }) {
@@ -109,6 +166,7 @@ export function buildWorldCards({ pages = [], drafts = [], entities = [], filter
     draftId: null,
     title: entity.name || "未命名人物或设定",
     summary: textSummary(entity),
+    searchText: searchableText(entity),
     typeKey: entity.entity_type || "custom",
     ...cardState(entity),
     updatedAt: timestamp(entity),

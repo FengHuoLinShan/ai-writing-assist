@@ -13,7 +13,8 @@ import { getApi, getAppState, getRouteQuery, getRouter, getToast } from "./bridg
 import { worldAssetDisplay } from "../shared/assetDisplayState.js"
 import { markWorldLeft, reconcileWorldEntry, worldSession } from "./views/world/worldSession.js"
 import { autoExtractManager, fusionManager } from "./views/world/workflowManagers.js"
-import { worldCardFiltersFromQuery } from "./views/world/bible/worldCards.js"
+import { worldCardFiltersFromQuery, usesServerLibrary } from "./views/world/bible/worldCards.js"
+import { LIBRARY_PAGE_SIZE } from "./views/world/bible/worldCards.js"
 import {
   REVIEW_ALIAS_KIND_FALLBACK,
   REVIEW_ALIAS_TYPE_FALLBACK,
@@ -93,6 +94,24 @@ function reviewGroupParams(projectId, filters, keys, numberKeys, boolKeys) {
     else if (boolKeys.includes(key)) params[key] = value === true || value === "true"
     else params[key] = value
   }
+  return params
+}
+
+/** 服务端统一资料列表的参数构造（URL 筛选为事实源）。 */
+function libraryListParams(projectId, filters) {
+  const params = {
+    novel_id: projectId,
+    skip: filters.skip || 0,
+    limit: LIBRARY_PAGE_SIZE,
+    sort: filters.sort || "updated",
+  }
+  if (filters.q) params.q = filters.q
+  if (filters.kind && filters.kind !== "all") params.kind = filters.kind
+  if (filters.type) params.item_type = filters.type
+  if (filters.state) params.state = filters.state
+  if (filters.topicId) params.topic_id = filters.topicId
+  if (filters.favorite) params.favorite = true
+  if (filters.unclassified) params.unclassified = true
   return params
 }
 
@@ -401,8 +420,12 @@ export async function loadWorld() {
       && !cardFilters.q
       && !cardFilters.type
       && !cardFilters.state
+      && !cardFilters.topicId
+      && !cardFilters.favorite
+      && !cardFilters.unclassified
       && cardFilters.kind === "all"
-    const [pages, categories, drafts, synopsis, pageTemplates, activationProfiles, validationRun, validationPolicy, cardEntities] = await Promise.all([
+    const serverList = (usesServerLibrary(cardFilters) || cardFilters.unclassified) && api.world.listWorldLibrary
+    const [pages, categories, drafts, synopsis, pageTemplates, activationProfiles, validationRun, validationPolicy, cardEntities, overview, library] = await Promise.all([
       api.world.listBiblePages({ novel_id: projectId }),
       api.world.listBibleCategories(projectId, true),
       api.world.listBibleDrafts(projectId),
@@ -440,6 +463,12 @@ export async function loadWorld() {
           skip: 0,
           limit: 50,
         })).catch((error) => ({ items: [], total: 0, loadError: error?.message || "人物与设定加载失败" })),
+      api.world.getWorldLibraryOverview
+        ? api.world.getWorldLibraryOverview(projectId).catch(() => null)
+        : Promise.resolve(null),
+      serverList
+        ? api.world.listWorldLibrary(libraryListParams(projectId, cardFilters)).catch((error) => ({ items: [], total: 0, loadError: error?.message || "资料列表加载失败" }))
+        : Promise.resolve(null),
     ])
     props.bible = {
       pages: pages?.items || [],
@@ -454,6 +483,10 @@ export async function loadWorld() {
       entityTotal: Number(cardEntities?.total || 0),
       entityFacets: cardEntities?.facets?.by_type || [],
       entitiesLoadError: cardEntities?.loadError || null,
+      libraryOverview: overview,
+      libraryItems: library?.items || [],
+      libraryTotal: Number(library?.total || 0),
+      libraryError: library?.loadError || null,
     }
   }
   return props
