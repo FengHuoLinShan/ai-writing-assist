@@ -1623,6 +1623,35 @@ const api = {
       }), payload)
     },
 
+    async listWorldValidationFindings(runId, novelId, params = {}) {
+      return request(withQuery(`/world/bible/validation-runs/${runId}/findings`, {
+        novel_id: novelId,
+        ...params,
+      }))
+    },
+
+    async createWorldValidationReviewItems(runId, novelId, payload) {
+      return post(withQuery(`/world/bible/validation-runs/${runId}/review-items`, {
+        novel_id: novelId,
+      }), payload)
+    },
+
+    async continueWorldValidationRun(runId, novelId, payload = {}) {
+      return post(withQuery(`/world/bible/validation-runs/${runId}/continue`, {
+        novel_id: novelId,
+      }), payload)
+    },
+
+    async saveWorldValidationPolicyDraft(novelId, payload) {
+      return post(withQuery("/world/bible/validation-policy/draft", {
+        novel_id: novelId,
+      }), payload)
+    },
+
+    async previewWorldImpact(params = {}) {
+      return request(withQuery("/world/impact-preview", params))
+    },
+
     async getAdoptionArtifact(suggestionId, novelId) {
       return request(withQuery(`/world/adoption-packages/${suggestionId}`, { novel_id: novelId }))
     },

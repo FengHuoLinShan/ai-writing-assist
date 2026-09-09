@@ -3,7 +3,7 @@
     <div class="world-bible-panel__header">
       <div>
         <h2 id="world-bible-graph-title">关联图</h2>
-        <div class="world-bible-page-meta">关联不等于变更影响；依赖影响未覆盖。</div>
+        <div class="world-bible-page-meta">资料关联与已声明依赖分开展示；传递遍历只用于列出影响，需要完整影响时使用页内“影响预演”。</div>
       </div>
       <div class="world-bible-panel__actions" role="group" aria-label="关联图范围">
         <button class="btn btn-sm" data-action="bible-graph-depth-1" :disabled="!hasPageRoot" :aria-pressed="graphScope === 'local' && graphDepth === 1" :class="{ 'btn-primary': graphScope === 'local' && graphDepth === 1 }" @click="setGraphDepth(1)">当前页 · 1 跳</button>
@@ -27,8 +27,14 @@
           </button>
         </li>
       </ul>
-      <ul v-if="graphEdges.length" class="world-bible-graph__edges" aria-label="关联图关联列表">
-        <li v-for="edge in graphEdges" :key="edge.id">{{ edge.sourceLabel }} → {{ edge.kindLabel }}{{ edge.via_relation_id ? '（经关系）' : '' }} → {{ edge.targetLabel }}</li>
+      <label class="world-bible-graph__filter">
+        <input type="checkbox" v-model="dependencyOnly" data-field="graph-dependency-only" />
+        只看已声明依赖（依赖/派生/冲突）
+      </label>
+      <ul v-if="visibleGraphEdges.length" class="world-bible-graph__edges" aria-label="关联图关联列表" data-section="graph-edges">
+        <li v-for="edge in visibleGraphEdges" :key="edge.id" :class="`is-dependency-${edge.dependencyKind}`">
+          {{ edge.sourceLabel }} → {{ edge.kindLabel }}{{ edge.via_relation_id ? '（经关系）' : '' }}<span v-if="edge.dependencyBadge" class="world-bible-graph__badge" :data-dependency="edge.dependencyKind">{{ edge.dependencyBadge }}</span> → {{ edge.targetLabel }}
+        </li>
       </ul>
       <details class="world-bible-graph__visual">
         <summary>查看关系示意图（最多 40 个节点 / 80 条边）</summary>
@@ -68,16 +74,26 @@ const partialDetails = computed(() => {
   const reasons = result.truncated ? (result.truncation_reasons || []) : []
   return [...reasons, ...counts.map(([key, value]) => `${key} ${value}`)]
 })
+const dependencyOnly = ref(false)
+const dependencyBadges = { requires: "依赖", derives: "派生", conflicts: "冲突" }
 const graphEdges = computed(() => {
   const labels = new Map((knowledgeGraph.value?.nodes || []).map((node) => [node.id, node.label || "未命名资料"]))
   const kinds = { page_reference: "页面引用", page_entity_reference: "页面关联对象", entity_relation: "对象关系" }
-  return (knowledgeGraph.value?.edges || []).map((edge) => ({
-    ...edge,
-    sourceLabel: labels.get(edge.source_id) || "不可用来源",
-    targetLabel: labels.get(edge.target_id) || "不可用目标",
-    kindLabel: kinds[edge.kind] || "关联",
-  }))
+  return (knowledgeGraph.value?.edges || []).map((edge) => {
+    const dependencyKind = dependencyBadges[edge.dependency_relation] ? edge.dependency_relation : "informs"
+    return {
+      ...edge,
+      sourceLabel: labels.get(edge.source_id) || "不可用来源",
+      targetLabel: labels.get(edge.target_id) || "不可用目标",
+      kindLabel: kinds[edge.kind] || "关联",
+      dependencyKind,
+      dependencyBadge: dependencyBadges[edge.dependency_relation] || "",
+    }
+  })
 })
+const visibleGraphEdges = computed(() => dependencyOnly.value
+  ? graphEdges.value.filter((edge) => edge.dependencyKind !== "informs")
+  : graphEdges.value)
 
 function graphParams() {
   if (!props.activePage?.id) return { novel_id: props.projectId, scope: "global" }

@@ -2186,6 +2186,63 @@ export function useWorldBible(props) {
     }
   }
 
+  async function openImpactPreview(targetType, targetId, targetLabel = "") {
+    const novelId = projectId.value
+    const modalOwner = captureModalOwner()
+    try {
+      const preview = await api.world.previewWorldImpact({
+        novel_id: novelId,
+        target_type: targetType,
+        target_id: targetId,
+      })
+      if (!ownsProject(novelId) || !ownsModalOwner(modalOwner)) return false
+      const sectionLabels = {
+        world_pages: "世界书页面",
+        world_entities: "世界对象与关系",
+        characters: "人物资料",
+        story_threads: "故事结构（故事线）",
+        prose: "正文（按章节字面匹配）",
+        map: "地图",
+      }
+      const kindNav = { world_bible_page: "bible-page", core_entity: "entity" }
+      const body = preview.sections?.map((section) => {
+        const rows = section.items?.length
+          ? `<ul class="world-impact-preview__items">${section.items.map((item) => {
+              const nav = kindNav[item.kind]
+              const meta = [item.version ? `版本 ${esc(item.version)}` : "", item.source_hash ? `来源 ${esc(String(item.source_hash).slice(0, 10))}` : "", item.distance ? `距离 ${item.distance} 跳` : ""].filter(Boolean).join(" · ")
+              return `<li><button type="button" class="btn btn-ghost" ${nav ? `data-impact-open-kind="${esc(nav)}" data-impact-open-id="${esc(item.id)}"` : "disabled"}>${esc(item.label)}</button><small>${esc(meta)}${item.detail ? ` · ${esc(item.detail)}` : ""}</small></li>`
+            }).join("")}</ul>`
+          : `<p class="world-bible-empty-hint">本层没有可证明的依赖。</p>`
+        const uncovered = section.uncovered?.length
+          ? `<p class="world-bible-empty-hint">未覆盖：${section.uncovered.map((note) => esc(note)).join("；")}</p>`
+          : ""
+        return `<article class="world-impact-preview__section"><h4>${esc(sectionLabels[section.section] || section.section)} · ${section.items?.length || 0} 项</h4>${rows}${uncovered}</article>`
+      }).join("") || ""
+      const header = `<p class="world-bible-empty-hint">${esc(targetLabel || "目标")} 的可证明依赖清单；传递遍历只列示影响，不会自动扩大生成上下文。</p>${preview.complete ? "" : `<p class="form-error">本清单存在未覆盖范围，不能当作全量影响证明。</p>`}`
+      showModalHtml("影响预演", header + body, [])
+      document.querySelectorAll("[data-impact-open-kind]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const kind = button.getAttribute("data-impact-open-kind")
+          const id = button.getAttribute("data-impact-open-id")
+          getCloseModal()?.()
+          if (kind === "bible-page") openPageCard(id)
+          else {
+            getRouter()?.navigate(
+              "world",
+              "objects",
+              true,
+              new URLSearchParams({ entity_id: id })
+            )
+          }
+        })
+      })
+      return true
+    } catch (err) {
+      if (ownsProject(novelId) && ownsModalOwner(modalOwner)) toast(err.message || "影响预演暂不可用", "error")
+      return false
+    }
+  }
+
   async function openConflicts(focusId = "") {
     const novelId = projectId.value
     const modalOwner = captureModalOwner()
@@ -2835,6 +2892,7 @@ export function useWorldBible(props) {
     openInGenerationCenter,
     openAdoptionPackage,
     openSuggestions,
+    openImpactPreview,
     openConflicts,
     inspectCurrentPage,
     openCategoryManager,

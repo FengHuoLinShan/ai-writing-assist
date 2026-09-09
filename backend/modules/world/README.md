@@ -389,7 +389,8 @@ PNG 后才进入地图册私有 S3。此例外不改变 imports 的文稿上传�
 | `world_bible_page_templates` | 项目自定义页面布局模板；与代码内置模板 key 隔离 |
 | `world_bible_page_template_revisions` | 页面模板每次修改/恢复产生的不可变快照 |
 | `world_bible_synopsis_heads` | 每项目简介指针、stale/pin/task 与自动维护授权 |
-| `world_validation_runs` | 冻结校验输入、分片/结果哈希、coverage/budget 账本、verdict/gate 与 warning 签收回执 |
+| `world_validation_runs` | 冻结校验输入、分片/结果哈希、coverage/budget 账本、verdict/gate 与 warning 签收回执；第四期扩展影响清单/分批计划/失效原因/续接计数 |
+| `world_validation_review_items` | 逐条 finding 的作者复核处置记录，复合外键绑定回执，快照含 target/manifest hash（ADR-0022） |
 | `world_bible_synopsis_revisions` | 作者版世界观简介的不可变 LLM 派生版本 |
 | `entity_revisions` | 实体快照版本表（旧版快照；当前活跃回滚优先使用 `TextArchive`，无归档时回退到 `EntityRevision`） |
 | `map_atlas_runs` | AI 地图册计划、上下文快照、任务进度与停止状态 |

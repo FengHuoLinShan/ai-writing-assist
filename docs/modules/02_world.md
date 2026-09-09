@@ -94,7 +94,8 @@ RAG 或 LLM 上下文。
 `expected_updated_at`，服务端在行锁内校验；缺失返回 `edit_baseline_required`、过期返回
 `edit_baseline_stale`（均为可识别 409），不接受无条件覆盖。服务端内部流程（建议应用、导入、
 发布 seal、类型迁移等）不走该基线，仍由各自的事务与锁保证一致性。
-- `world_validation_runs` — 持久化 targeted/full 校验输入、分片 hash、结果、预算、新鲜度与作者签收
+- `world_validation_runs` — 持久化 targeted/full 校验输入、分片 hash、结果、预算、新鲜度与作者签收；第四期在同一回执上扩展冻结影响清单（`impact_json`，跨模块只读枚举）、分批计划与覆盖进度（`plan_json` + packet 账本）、失效原因（`stale_reason`：policy/manifest/dependency/target）、`semantic_gap` 定向查漏 scope（根对象 + 声明依赖一跳）与失败/预算中断后的同回执续接（`continued_count`）
+- `world_validation_review_items` — 逐条 finding 的作者处置（已修正/已知悉/稍后再定）与快照，绑定回执的 target/manifest hash；`require_gate` 在存在未处置的作者裁定项时保持 `review_pending`，目标或政策再变化后旧回执失效、需重新复核（ADR-0022）
 - `world_bible_page_templates` / `world_bible_page_template_revisions` — 项目页面布局模板及不可变历史；内置模板仍由代码注册
 - `world_bible_synopsis_heads` / `world_bible_synopsis_revisions` — 作者版世界观简介的刷新状态、授权与不可变版本
 - `knowledge_tags` / `character_knowledge_tags` / `asset_knowledge_tags` / `knowledge_tag_exclusions` / `knowledge_visibility_policies` / `reader_reveal_policies` / `creation_suggestion_queue` / `conflict_check_queue` — 知识标签、可见性和待处理工作队列
@@ -175,7 +176,7 @@ helper 和历史兼容入口：
   `cocreation_session_service.py`、
   `knowledge_tag_service.py`、`reader_safety_service.py`、`conflict_queue_service.py`、
   `activation_preview_service.py`、`activation_target_service.py` 和
-  `page_template_service.py`。
+  `page_template_service.py`、`world_impact_service.py`（跨模块只读影响枚举：世界页反向引用、对象关系、人物档案、故事线、正文字面扫描与地图节点，逐层带未覆盖说明）。
 - `services/common.py`：跨子包通用 helper，如 `parse_uuid`、`normalize_name`。
 - `map_atlas_*.py`：地图册 API、模型、service、workflow、storage、task 与 deletion cleanup seam。
 

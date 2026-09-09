@@ -27,9 +27,11 @@ from modules.project.facade import (
     restore_project_llm_execution_settings,
 )
 from modules.world.models import (
+    CoreEntity,
     CreationSuggestion,
     WorldBiblePage,
     WorldBiblePageDraft,
+    WorldValidationReviewItem,
     WorldValidationRun,
 )
 from modules.world.schemas import (
@@ -38,8 +40,13 @@ from modules.world.schemas import (
     WorldBiblePageResponse,
     WorldDesignCheckpointPayload,
     WorldValidationFinding,
+    WorldValidationFindingsPage,
     WorldValidationPolicy,
+    WorldValidationPolicyDraftInfo,
+    WorldValidationPolicyDraftUpsert,
     WorldValidationPolicyStatus,
+    WorldValidationReviewItemRecord,
+    WorldValidationReviewListResponse,
     WorldValidationRunCreate,
     WorldValidationRunListResponse,
     WorldValidationRunResponse,
@@ -54,6 +61,9 @@ from modules.world.services.worldbuilding.world_authority_service import (
 )
 from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
     WorldBibleLifecycleService,
+)
+from modules.world.services.worldbuilding.world_impact_service import (
+    WorldImpactService,
 )
 from modules.world.services.worldbuilding.world_validation_engine import (
     build_review_packets,
@@ -76,6 +86,7 @@ class WorldValidationService:
         self._lifecycle = WorldBibleLifecycleService()
         self._authority = WorldAuthorityService()
         self._adoption = WorldAdoptionPackageService()
+        self._impact = WorldImpactService()
 
     @staticmethod
     def builtin_policy() -> WorldValidationPolicy:
@@ -162,6 +173,113 @@ class WorldValidationService:
                 estimated_characters > policy.max_input_characters
                 or estimated_packets > policy.max_packets
             ),
+            policy=policy if active else None,
+            draft=await self._policy_draft_info(db, novel_id),
+        )
+
+    async def _policy_draft_info(
+        self, db: AsyncSession, novel_id: str
+    ) -> WorldValidationPolicyDraftInfo | None:
+        page = await db.scalar(
+            select(WorldBiblePage).where(
+                WorldBiblePage.novel_id == parse_uuid(novel_id, "novel_id"),
+                WorldBiblePage.page_key == _POLICY_PAGE_KEY,
+            )
+        )
+        if page is None:
+            return None
+        draft = await db.scalar(
+            select(WorldBiblePageDraft)
+            .where(
+                WorldBiblePageDraft.novel_id == parse_uuid(novel_id, "novel_id"),
+                WorldBiblePageDraft.page_id == page.id,
+            )
+            .order_by(WorldBiblePageDraft.created_at.desc())
+        )
+        if draft is None:
+            return None
+        raw = dict(draft.page_meta_json or {}).get("validation_policy")
+        if not isinstance(raw, dict):
+            return None
+        return WorldValidationPolicyDraftInfo(
+            draft_id=str(draft.id),
+            page_id=str(page.id) if page.id else None,
+            updated_at=draft.updated_at,
+            policy=WorldValidationPolicy.model_validate(raw),
+        )
+
+    async def save_policy_draft(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        data: WorldValidationPolicyDraftUpsert,
+    ):
+        """Persist an author-edited policy onto the rule page draft (ADR-0022).
+
+        Publishing still goes through the standard draft publish flow, which
+        enforces a full-scope validation because rule pages are full-scope
+        targets; the active policy (and its hash) only change on admission.
+        """
+        from modules.world.schemas import WorldBiblePageDraftUpdate
+
+        nid = parse_uuid(novel_id, "novel_id")
+        page = await db.scalar(
+            select(WorldBiblePage).where(
+                WorldBiblePage.novel_id == nid,
+                WorldBiblePage.page_key == _POLICY_PAGE_KEY,
+            )
+        )
+        if page is None:
+            staged = await self._lifecycle.create_page(
+                db,
+                WorldBiblePageCreate(
+                    novel_id=novel_id,
+                    page_key=_POLICY_PAGE_KEY,
+                    page_type="rule",
+                    title="世界书校验策略",
+                    status="draft",
+                    page_meta_json={
+                        "validation_policy": data.policy.model_dump(mode="json")
+                    },
+                    free_text=data.summary or "项目校验政策草稿。",
+                    created_by="world_health",
+                ),
+            )
+            draft = await self._lifecycle.create_draft(
+                db,
+                WorldBiblePageDraftCreate(
+                    novel_id=novel_id,
+                    page_id=staged.id,
+                    created_by="world_health",
+                ),
+            )
+            return draft
+        draft = await db.scalar(
+            select(WorldBiblePageDraft)
+            .where(
+                WorldBiblePageDraft.novel_id == nid,
+                WorldBiblePageDraft.page_id == page.id,
+            )
+            .order_by(WorldBiblePageDraft.created_at.desc())
+        )
+        if draft is None:
+            draft = await self._lifecycle.create_draft(
+                db,
+                WorldBiblePageDraftCreate(
+                    novel_id=novel_id,
+                    page_id=str(page.id),
+                    created_by="world_health",
+                ),
+            )
+        meta = dict(draft.page_meta_json or {})
+        meta["validation_policy"] = data.policy.model_dump(mode="json")
+        update = WorldBiblePageDraftUpdate(page_meta_json=meta)
+        if data.summary:
+            update = WorldBiblePageDraftUpdate(
+                page_meta_json=meta, free_text=data.summary
+            )
+        return await self._lifecycle.update_draft(
+            db, novel_id, str(draft.id), update
         )
 
     async def activate_builtin_policy(
@@ -268,12 +386,35 @@ class WorldValidationService:
             scope=data.scope,
             target_type=data.target_type,
             target_id=data.target_id,
+            root_type=data.root_type,
         )
         snapshot = (
             await build_project_llm_execution_snapshot(db, data.novel_id)
             if policy.semantic_enabled
             else {}
         )
+        impact = await self._impact.snapshot(
+            db,
+            data.novel_id,
+            scope=data.scope,
+            target_type=data.target_type,
+            target_id=data.target_id,
+            root_type=data.root_type,
+        )
+        plan: dict[str, Any] = {}
+        if policy.semantic_enabled:
+            _, estimate = build_review_packets(
+                run_id="estimate",
+                scope=data.scope,
+                policy=policy,
+                manifest=manifest,
+            )
+            plan = {
+                "planned_packets": int(estimate.get("planned_packets") or 0),
+                "planned_input_characters": int(
+                    estimate.get("planned_input_characters") or 0
+                ),
+            }
         run = WorldValidationRun(
             id=data.operation_id,
             novel_id=parse_uuid(data.novel_id, "novel_id"),
@@ -283,6 +424,7 @@ class WorldValidationService:
                 "target_type": data.target_type,
                 "target_id": data.target_id,
                 "target_hash": target_hash,
+                "root_type": data.root_type,
                 "required_question_ids": [
                     item.question_id for item in policy.required_questions
                 ],
@@ -294,6 +436,8 @@ class WorldValidationService:
             manifest_hash=stable_hash(manifest),
             dependency_hash=dependency_hash,
             model_snapshot_json=snapshot,
+            impact_json=impact,
+            plan_json=plan,
         )
         db.add(run)
         await db.flush()
@@ -311,7 +455,7 @@ class WorldValidationService:
         )
         run.task_id = uuid.UUID(receipt.task_id)
         await db.flush()
-        return self.response(run)
+        return await self._enriched_response(db, [run])
 
     async def get(
         self,
@@ -321,7 +465,7 @@ class WorldValidationService:
     ) -> WorldValidationRunResponse:
         run = await self._get_model(db, novel_id, run_id)
         await self._refresh_freshness(db, run)
-        return self.response(run)
+        return await self._enriched_response(db, [run])
 
     async def latest(
         self,
@@ -361,7 +505,7 @@ class WorldValidationService:
         if run is None:
             return None
         await self._refresh_freshness(db, run)
-        return self.response(run)
+        return await self._enriched_response(db, [run])
 
     async def list_runs(
         self,
@@ -393,10 +537,8 @@ class WorldValidationService:
         )
         for run in runs:
             await self._refresh_freshness(db, run)
-        return WorldValidationRunListResponse(
-            items=[self.response(run) for run in runs],
-            total=total,
-        )
+        items = await self._enriched_responses(db, runs)
+        return WorldValidationRunListResponse(items=items, total=total)
 
     async def accept_warnings(
         self,
@@ -430,7 +572,7 @@ class WorldValidationService:
             "accepted_at": datetime.now(UTC).isoformat(),
         }
         await db.flush()
-        return self.response(run)
+        return await self._enriched_response(db, [run])
 
     async def require_gate(
         self,
@@ -473,11 +615,28 @@ class WorldValidationService:
             }
             if any(run.scope_json.get(key) != value for key, value in expected.items()):
                 self._required_validation(run, "target_changed")
-        if run.status != "completed" or run.gate == "block":
+        if run.status != "completed":
             self._required_validation(run, run.status)
-        if run.gate == "warn":
+        if run.gate == "block":
+            # Author adjudication (ADR-0022): an author-required block can be
+            # cleared by explicit per-finding dispositions bound to this run;
+            # deterministic errors still block.
+            if run.verdict != "author-required":
+                self._required_validation(run, run.status)
+            state = await self._review_state(db, run)
+            if state["reviewed"] < state["required"]:
+                self._required_validation(run, "review_pending")
+        elif run.gate == "warn":
             receipt = dict(run.warning_receipt_json or {})
-            if receipt.get("receipt_hash") != self._receipt_hash(run):
+            if receipt.get("receipt_hash") == self._receipt_hash(run):
+                return
+            state = await self._review_state(db, run)
+            warning_ids = {
+                str(item.get("finding_id"))
+                for item in run.findings_json
+                if item.get("severity") == "warning"
+            }
+            if not warning_ids <= set(state["reviewed_finding_ids"]):
                 self._required_validation(run, "warnings_not_accepted")
 
     async def _target_requires_full_scope(
@@ -587,12 +746,20 @@ class WorldValidationService:
                 if policy.semantic_enabled and confirmed_context is not None
                 else run.manifest_json
             )
+            completed_before = {
+                item["input_hash"]
+                for item in run.packet_hashes_json
+                if item.get("input_hash") and item.get("result_hash")
+            }
             packets, budget = build_review_packets(
                 run_id=run_id,
                 scope=run.scope,
                 policy=policy,
                 manifest=semantic_manifest,
+                completed_input_hashes=completed_before,
+                allow_over_budget=True,
             )
+            total_planned = int(budget.get("planned_packets") or 0)
             insufficient = policy.semantic_enabled and not packets
             if insufficient:
                 coverage = [
@@ -627,9 +794,28 @@ class WorldValidationService:
                     *deterministic_findings(policy, run.manifest_json, checkpoint),
                     *semantic_findings,
                 ]
-                coverage = semantic_coverage
                 packet_hashes = hashes
                 completed_hashes = {item["input_hash"] for item in hashes}
+                answered = {
+                    str(item.get("question_id"))
+                    for item in semantic_coverage
+                    if item.get("answered")
+                }
+                coverage = [
+                    *semantic_coverage,
+                    *(
+                        {
+                            "question_id": item.question_id,
+                            "answered": False,
+                            "skip_reason": "semantic_budget_exceeded",
+                        }
+                        for item in policy.required_questions
+                        if item.question_id not in answered
+                    ),
+                ]
+                insufficient = policy.semantic_enabled and (
+                    len(completed_hashes) < total_planned
+                )
                 budget["used_packets"] = len(completed_hashes)
                 budget["used_input_characters"] = sum(
                     len(packet["content"]["text"])
@@ -656,8 +842,9 @@ class WorldValidationService:
                 attempt=attempt,
             )
             run = await self._get_model(db, novel_id, run_id, for_update=True)
-            if not await self._matches_frozen_inputs(db, run):
-                self._mark_stale(run)
+            stale_reason = await self._matches_frozen_inputs(db, run)
+            if stale_reason:
+                self._mark_stale(run, stale_reason)
             else:
                 finding_payloads = [item.model_dump(mode="json") for item in findings]
                 receipt_hash = stable_hash(
@@ -866,6 +1053,7 @@ class WorldValidationService:
         scope: str,
         target_type: str | None,
         target_id: str | None,
+        root_type: str | None = None,
     ) -> tuple[dict[str, Any], str, str | None]:
         nid = parse_uuid(novel_id, "novel_id")
         target_hash: str | None = None
@@ -931,6 +1119,10 @@ class WorldValidationService:
             impact = await self._lifecycle.preview_publish_impact(db, novel_id, target_id)
             target_hash = impact.impact_scope_hash
             items = [self._draft_manifest_item(draft)]
+        elif target_type == "semantic_gap" and target_id:
+            items, target_hash = await self._semantic_gap_items(
+                db, nid, root_type=root_type, root_id=target_id
+            )
         elif target_type == "world_adoption_package" and target_id:
             preview = await self._adoption.preview(db, novel_id, target_id)
             target_hash = preview.expected_preview_hash
@@ -1164,7 +1356,8 @@ class WorldValidationService:
 
     async def _matches_frozen_inputs(
         self, db: AsyncSession, run: WorldValidationRun
-    ) -> bool:
+    ) -> str | None:
+        """Return the stale reason, or None when every frozen input matches."""
         active = await self.active_policy(db, str(run.novel_id))
         current_policy_hash = (
             active[1]
@@ -1177,30 +1370,35 @@ class WorldValidationService:
             scope=run.scope,
             target_type=run.scope_json.get("target_type"),
             target_id=run.scope_json.get("target_id"),
+            root_type=run.scope_json.get("root_type"),
         )
-        return (
-            current_policy_hash == run.policy_hash
-            and stable_hash(manifest) == run.manifest_hash
-            and dependency_hash == run.dependency_hash
-            and target_hash == run.scope_json.get("target_hash")
-        )
+        if current_policy_hash != run.policy_hash:
+            return "policy"
+        if stable_hash(manifest) != run.manifest_hash:
+            return "manifest"
+        if dependency_hash != run.dependency_hash:
+            return "dependency"
+        if target_hash != run.scope_json.get("target_hash"):
+            return "target"
+        return None
 
     async def _refresh_freshness(self, db: AsyncSession, run: WorldValidationRun) -> None:
         if run.status not in {"completed", "stale"}:
             return
         try:
-            matches = await self._matches_frozen_inputs(db, run)
+            reason = await self._matches_frozen_inputs(db, run)
         except (ConflictError, NotFoundError, ValidationError):
-            matches = False
-        if not matches and run.status != "stale":
-            self._mark_stale(run)
+            reason = "manifest"
+        if reason and run.status != "stale":
+            self._mark_stale(run, reason)
             await db.flush()
 
     @staticmethod
-    def _mark_stale(run: WorldValidationRun) -> None:
+    def _mark_stale(run: WorldValidationRun, reason: str = "manifest") -> None:
         run.status = "stale"
         run.verdict = "insufficient-evidence"
         run.gate = "block"
+        run.stale_reason = reason
         run.warning_receipt_json = {}
         run.finished_at = datetime.now(UTC)
 
@@ -1231,8 +1429,22 @@ class WorldValidationService:
         return None
 
     @staticmethod
-    def response(run: WorldValidationRun) -> WorldValidationRunResponse:
+    def response(
+        run: WorldValidationRun,
+        *,
+        review_items: list[WorldValidationReviewItem] | None = None,
+    ) -> WorldValidationRunResponse:
         scope = dict(run.scope_json or {})
+        findings = run.findings_json or []
+        packets_done = sum(
+            1
+            for item in run.packet_hashes_json or []
+            if item.get("input_hash") and item.get("result_hash")
+        )
+        plan = dict(run.plan_json or {})
+        reviewable = WorldValidationService._reviewable_finding_ids(findings)
+        items = review_items or []
+        reviewed = [item for item in items if item.finding_id in reviewable]
         return WorldValidationRunResponse(
             id=str(run.id),
             novel_id=str(run.novel_id),
@@ -1248,12 +1460,46 @@ class WorldValidationService:
             manifest_hash=run.manifest_hash,
             dependency_hash=run.dependency_hash,
             receipt_hash=WorldValidationService._receipt_hash(run),
-            findings=run.findings_json or [],
+            findings=findings,
             omissions=run.omissions_json or [],
             coverage_ledger=run.coverage_ledger_json or [],
             budget_ledger=run.budget_ledger_json or {},
             warning_receipt=run.warning_receipt_json or {},
             attempt_count=run.attempt_count,
+            impact=dict(run.impact_json or {}),
+            plan=plan,
+            stale_reason=run.stale_reason,
+            continued_count=run.continued_count,
+            review={
+                "required": len(reviewable),
+                "reviewed": len(reviewed),
+                "pending_finding_ids": sorted(
+                    reviewable - {i.finding_id for i in reviewed}
+                ),
+                "items": [
+                    {
+                        "finding_id": item.finding_id,
+                        "disposition": item.disposition,
+                        "note": item.note,
+                        "reviewed_at": item.reviewed_at.isoformat()
+                        if item.reviewed_at
+                        else None,
+                    }
+                    for item in sorted(items, key=lambda i: i.finding_id)
+                ],
+            },
+            progress={
+                "packets_planned": plan.get("planned_packets"),
+                "packets_completed": packets_done,
+                "findings_total": len(findings),
+                "findings_errors": sum(
+                    1 for item in findings if item.get("severity") == "error"
+                ),
+                "findings_warnings": sum(
+                    1 for item in findings if item.get("severity") == "warning"
+                ),
+                "omissions": list(run.omissions_json or []),
+            },
             error_code=run.error_code,
             error_summary=run.error_summary,
             started_at=run.started_at,
@@ -1261,6 +1507,457 @@ class WorldValidationService:
             created_at=run.created_at,
             updated_at=run.updated_at,
         )
+
+    @staticmethod
+    def _reviewable_finding_ids(findings: list) -> set[str]:
+        return {
+            str(item.get("finding_id"))
+            for item in findings
+            if isinstance(item, dict)
+            and (
+                item.get("action") == "AUTHOR-REQUIRED"
+                or item.get("severity") == "warning"
+            )
+        }
+
+    async def _review_state(
+        self, db: AsyncSession, run: WorldValidationRun
+    ) -> dict[str, Any]:
+        rows = list(
+            (
+                await db.execute(
+                    select(WorldValidationReviewItem).where(
+                        WorldValidationReviewItem.novel_id == run.novel_id,
+                        WorldValidationReviewItem.run_id == run.id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        reviewable = self._reviewable_finding_ids(run.findings_json or [])
+        reviewed = [item for item in rows if item.finding_id in reviewable]
+        return {
+            "required": len(reviewable),
+            "reviewed": len(reviewed),
+            "reviewed_finding_ids": {item.finding_id for item in rows},
+        }
+
+    async def _enriched_responses(
+        self, db: AsyncSession, runs: list[WorldValidationRun]
+    ) -> list[WorldValidationRunResponse]:
+        if not runs:
+            return []
+        rows = list(
+            (
+                await db.execute(
+                    select(WorldValidationReviewItem).where(
+                        WorldValidationReviewItem.novel_id == runs[0].novel_id,
+                        WorldValidationReviewItem.run_id.in_([run.id for run in runs]),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        by_run: dict[str, list[WorldValidationReviewItem]] = {}
+        for row in rows:
+            by_run.setdefault(str(row.run_id), []).append(row)
+        return [
+            self.response(run, review_items=by_run.get(str(run.id), []))
+            for run in runs
+        ]
+
+    async def _enriched_response(
+        self, db: AsyncSession, runs: list[WorldValidationRun]
+    ) -> WorldValidationRunResponse:
+        return (await self._enriched_responses(db, runs))[0]
+
+    # ------------------------------------------------------------------
+    # Per-finding review records (ADR-0022)
+    # ------------------------------------------------------------------
+
+    async def list_review_items(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        run_id: str,
+    ) -> WorldValidationReviewListResponse:
+        run = await self._get_model(db, novel_id, run_id)
+        rows = list(
+            (
+                await db.execute(
+                    select(WorldValidationReviewItem)
+                    .where(
+                        WorldValidationReviewItem.novel_id == run.novel_id,
+                        WorldValidationReviewItem.run_id == run.id,
+                    )
+                    .order_by(WorldValidationReviewItem.reviewed_at)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return WorldValidationReviewListResponse(
+            items=[
+                WorldValidationReviewItemRecord(
+                    finding_id=row.finding_id,
+                    disposition=row.disposition,
+                    note=row.note,
+                    finding_snapshot=dict(row.finding_snapshot or {}),
+                    reviewed_at=row.reviewed_at,
+                )
+                for row in rows
+            ],
+            total=len(rows),
+        )
+
+    async def review_items(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        run_id: str,
+        data,
+    ) -> WorldValidationRunResponse:
+        run = await self._get_model(db, novel_id, run_id, for_update=True)
+        await self._refresh_freshness(db, run)
+        if run.status != "completed":
+            raise ConflictError(
+                "Only a completed validation run can be reviewed",
+                code="validation_run_not_reviewable",
+            )
+        findings = {
+            str(item.get("finding_id")): item
+            for item in run.findings_json or []
+            if isinstance(item, dict)
+        }
+        reviewable = self._reviewable_finding_ids(run.findings_json or [])
+        unknown = [
+            item.finding_id
+            for item in data.items
+            if item.finding_id not in findings
+        ]
+        if unknown:
+            raise ValidationError("Unknown finding ids cannot be reviewed")
+        not_reviewable = [
+            item.finding_id for item in data.items if item.finding_id not in reviewable
+        ]
+        if not_reviewable:
+            raise ValidationError(
+                "Only author-required or warning findings can be reviewed"
+            )
+        context = await get_project_context(db, novel_id)
+        if context is None or not context.owner_id:
+            raise ConflictError("Active project owner is unavailable")
+        rows = {
+            row.finding_id: row
+            for row in (
+                await db.execute(
+                    select(WorldValidationReviewItem).where(
+                        WorldValidationReviewItem.novel_id == run.novel_id,
+                        WorldValidationReviewItem.run_id == run.id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        }
+        now = datetime.now(UTC)
+        seen: set[str] = set()
+        for item in data.items:
+            if item.finding_id in seen:
+                raise ValidationError("Each finding can be reviewed at most once")
+            seen.add(item.finding_id)
+            finding = findings[item.finding_id]
+            row = rows.get(item.finding_id)
+            if row is None:
+                row = WorldValidationReviewItem(
+                    novel_id=run.novel_id,
+                    run_id=run.id,
+                    finding_id=item.finding_id,
+                )
+                db.add(row)
+                rows[item.finding_id] = row
+            row.disposition = item.disposition
+            row.note = item.note or ""
+            row.finding_snapshot = {
+                "action": finding.get("action"),
+                "severity": finding.get("severity"),
+                "category": finding.get("category"),
+                "message": finding.get("message"),
+                "source_key": finding.get("source_key"),
+                "target_hash": run.scope_json.get("target_hash"),
+                "manifest_hash": run.manifest_hash,
+                "reviewed_by": context.owner_id,
+            }
+            row.reviewed_at = now
+        await db.flush()
+        return await self._enriched_response(db, [run])
+
+    async def findings_page(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        run_id: str,
+        *,
+        severity: str | None = None,
+        action: str | None = None,
+        category: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> WorldValidationFindingsPage:
+        run = await self._get_model(db, novel_id, run_id)
+        await self._refresh_freshness(db, run)
+        findings = [item for item in run.findings_json or [] if isinstance(item, dict)]
+        if severity:
+            findings = [item for item in findings if item.get("severity") == severity]
+        if action:
+            findings = [item for item in findings if item.get("action") == action]
+        if category:
+            findings = [item for item in findings if item.get("category") == category]
+        findings.sort(
+            key=lambda item: (
+                0 if item.get("severity") == "error" else 1,
+                str(item.get("category") or ""),
+                str(item.get("finding_id") or ""),
+            )
+        )
+        total = len(findings)
+        start = max(0, (page - 1) * page_size)
+        slice_ = findings[start : start + page_size]
+        rows = list(
+            (
+                await db.execute(
+                    select(WorldValidationReviewItem).where(
+                        WorldValidationReviewItem.novel_id == run.novel_id,
+                        WorldValidationReviewItem.run_id == run.id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        dispositions = {row.finding_id: row.disposition for row in rows}
+        return WorldValidationFindingsPage(
+            items=[WorldValidationFinding.model_validate(item) for item in slice_],
+            total=total,
+            page=page,
+            page_size=page_size,
+            dispositions=dispositions,
+        )
+
+    # ------------------------------------------------------------------
+    # Batch continuation (ADR-0022: 分批续接 on the same run row)
+    # ------------------------------------------------------------------
+
+    async def continue_run(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        run_id: str,
+        *,
+        context_confirmation_id: str | None = None,
+    ) -> WorldValidationRunResponse:
+        run = await self._get_model(db, novel_id, run_id, for_update=True)
+        await self._refresh_freshness(db, run)
+        resumable = run.status == "failed" or (
+            run.status == "completed" and "semantic_budget_exceeded" in run.omissions_json
+        )
+        if not resumable:
+            raise ConflictError(
+                "Only a failed or budget-interrupted validation can be continued",
+                code="validation_run_not_continuable",
+            )
+        if run.scope == "full":
+            active = await db.scalar(
+                select(WorldValidationRun.id).where(
+                    WorldValidationRun.novel_id == run.novel_id,
+                    WorldValidationRun.scope == "full",
+                    WorldValidationRun.status.in_(("queued", "running")),
+                    WorldValidationRun.id != run.id,
+                )
+            )
+            if active is not None:
+                raise ConflictError(
+                    "A full World Bible validation is already running",
+                    code="world_validation_full_in_progress",
+                    context={"run_id": str(active)},
+                )
+        run.status = "queued"
+        run.verdict = None
+        run.gate = None
+        run.error_code = None
+        run.error_summary = None
+        run.omissions_json = []
+        run.finished_at = None
+        run.continued_count = (run.continued_count or 0) + 1
+        await db.flush()
+        receipt = await enqueue_task_with_optional_operation(
+            db,
+            operation_id=None,
+            task_type="world_validation",
+            novel_id=novel_id,
+            request_payload={
+                "novel_id": novel_id,
+                "run_id": run_id,
+                "continued": True,
+            },
+            meta={
+                "novel_id": novel_id,
+                "run_id": run_id,
+                "context_confirmation_id": context_confirmation_id,
+            },
+        )
+        run.task_id = uuid.UUID(receipt.task_id)
+        await db.flush()
+        return await self._enriched_response(db, [run])
+
+    # ------------------------------------------------------------------
+    # Semantic gap scope (ADR-0022: root object + one declared hop)
+    # ------------------------------------------------------------------
+
+    async def _semantic_gap_items(
+        self,
+        db: AsyncSession,
+        nid,
+        *,
+        root_type: str | None,
+        root_id: str,
+    ) -> tuple[list[dict[str, Any]], str]:
+        if root_type not in {"world_bible_page", "core_entity", "world_bible_page_draft"}:
+            raise ValidationError("semantic_gap validation requires a valid root_type")
+        items: list[dict[str, Any]] = []
+        if root_type == "core_entity":
+            entity = await db.scalar(
+                select(CoreEntity).where(
+                    CoreEntity.id == parse_uuid(root_id, "root_id"),
+                    CoreEntity.novel_id == nid,
+                    CoreEntity.status == "canonical",
+                )
+            )
+            if entity is None:
+                raise NotFoundError("Semantic gap root entity not found")
+            items.append(self._entity_manifest_item(entity))
+            pages = list(
+                (
+                    await db.execute(
+                        select(WorldBiblePage)
+                        .where(
+                            WorldBiblePage.novel_id == nid,
+                            WorldBiblePage.status.in_(_ADOPTED_STATUSES),
+                        )
+                        .order_by(WorldBiblePage.page_key, WorldBiblePage.id)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            for page in pages:
+                if self._declares_dependency_on_entity(page, str(entity.id)):
+                    items.append(self._page_manifest_item(page))
+        else:
+            model = (
+                WorldBiblePage
+                if root_type == "world_bible_page"
+                else WorldBiblePageDraft
+            )
+            statement = select(model).where(
+                model.id == parse_uuid(root_id, "root_id"),
+                model.novel_id == nid,
+            )
+            if root_type == "world_bible_page":
+                statement = statement.where(
+                    WorldBiblePage.status.in_(_ADOPTED_STATUSES)
+                )
+            root = await db.scalar(statement)
+            if root is None:
+                raise NotFoundError("Semantic gap root page not found")
+            root_item = (
+                self._page_manifest_item(root)
+                if root_type == "world_bible_page"
+                else self._draft_manifest_item(root)
+            )
+            items.append(root_item)
+            for ref in root.linked_asset_refs_json or []:
+                if not isinstance(ref, dict):
+                    continue
+                if str(ref.get("relation") or "informs") not in {"requires", "derives"}:
+                    continue
+                ref_type = str(ref.get("target_type") or ref.get("type") or "")
+                ref_id = str(ref.get("target_id") or ref.get("id") or "")
+                if ref_type in {"world_bible_page", "page"}:
+                    page = await db.scalar(
+                        select(WorldBiblePage).where(
+                            WorldBiblePage.id == parse_uuid(ref_id, "ref_id"),
+                            WorldBiblePage.novel_id == nid,
+                            WorldBiblePage.status.in_(_ADOPTED_STATUSES),
+                        )
+                    )
+                    if page is not None:
+                        items.append(self._page_manifest_item(page))
+                elif ref_type in {"core_entity", "entity"}:
+                    entity = await db.scalar(
+                        select(CoreEntity).where(
+                            CoreEntity.id == parse_uuid(ref_id, "ref_id"),
+                            CoreEntity.novel_id == nid,
+                            CoreEntity.status == "canonical",
+                        )
+                    )
+                    if entity is not None:
+                        items.append(self._entity_manifest_item(entity))
+        deduped = {item["source_key"]: item for item in items}
+        items = list(deduped.values())
+        target_hash = stable_hash(
+            {
+                "items": sorted(
+                    (item["source_key"], item["content_hash"]) for item in items
+                )
+            }
+        )
+        return items, target_hash
+
+    @staticmethod
+    def _declares_dependency_on_entity(page: WorldBiblePage, entity_id: str) -> bool:
+        for ref in page.linked_asset_refs_json or []:
+            if not isinstance(ref, dict):
+                continue
+            ref_id = str(ref.get("target_id") or ref.get("id") or "")
+            ref_type = str(ref.get("target_type") or ref.get("type") or "")
+            if (
+                ref_id == entity_id
+                and ref_type in {"core_entity", "entity"}
+                and str(ref.get("relation") or "informs") in {"requires", "derives"}
+            ):
+                return True
+        return False
+
+    @staticmethod
+    def _entity_manifest_item(entity) -> dict[str, Any]:
+        parts = [
+            str(part)
+            for part in (entity.name, entity.summary, entity.public_info)
+            if part
+        ]
+        content_json = dict(getattr(entity, "content_json", None) or {})
+        if content_json:
+            parts.append(json.dumps(content_json, ensure_ascii=False, sort_keys=True))
+        content = "\n\n".join(parts)
+        return {
+            "source_key": f"entity:{entity.id}",
+            "identity_key": f"entity:{entity.id}",
+            "target_type": "core_entity",
+            "target_id": str(entity.id),
+            "title": entity.name,
+            "page_type": f"entity:{entity.entity_type}",
+            "status": entity.status,
+            "version": 1,
+            "content_hash": stable_hash(content),
+            "content": content,
+            "body": content,
+            "metadata": {},
+            "anchors": [],
+            "linked_asset_refs": [],
+        }
 
     @staticmethod
     def _required_validation(run: WorldValidationRun | None, reason: str) -> None:

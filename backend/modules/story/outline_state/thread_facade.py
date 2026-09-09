@@ -6,6 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.story.outline_state.contracts import PlotThreadContract
 from modules.story.outline_state.services import PlotThreadService
+from shared.utils import parse_uuid
+
+_THREAD_SCAN_CAP = 500
 
 
 def _contract(item) -> PlotThreadContract:
@@ -51,3 +54,31 @@ async def get_plot_threads_for_context(
                 seen.add(contract.id)
                 items.append(contract)
     return items
+
+
+async def list_plot_threads_referencing_entities(
+    db: AsyncSession,
+    novel_id: str,
+    entity_ids: list[str],
+) -> list[PlotThreadContract]:
+    """Read-only reverse lookup: plot threads whose related_entity_ids hit the set."""
+    wanted = {str(item) for item in entity_ids if str(item).strip()}
+    if not wanted:
+        return []
+    parse_uuid(novel_id, "novel_id")
+    service = PlotThreadService()
+    matches: list[PlotThreadContract] = []
+    seen: set[str] = set()
+    skip = 0
+    while len(matches) < _THREAD_SCAN_CAP:
+        items, total = await service.list(db, novel_id, skip=skip, limit=100)
+        for contract in items:
+            if contract.id in seen:
+                continue
+            seen.add(contract.id)
+            if wanted & {str(item) for item in contract.related_entity_ids or []}:
+                matches.append(contract)
+        skip += len(items)
+        if skip >= total or not items:
+            break
+    return matches[:_THREAD_SCAN_CAP]

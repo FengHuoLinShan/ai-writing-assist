@@ -1097,6 +1097,8 @@ def build_review_packets(
     scope: str,
     policy: WorldValidationPolicy,
     manifest: dict[str, Any],
+    completed_input_hashes: set[str] | frozenset[str] | None = None,
+    allow_over_budget: bool = False,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     questions = [item.model_dump(mode="json") for item in policy.required_questions]
     parts: list[dict[str, str]] = []
@@ -1146,10 +1148,11 @@ def build_review_packets(
         "max_output_tokens_per_packet": policy.max_output_tokens_per_packet,
         "per_packet_timeout_seconds": policy.per_packet_timeout_seconds,
     }
-    if (
+    over_budget = (
         budget["planned_input_characters"] > policy.max_input_characters
         or len(parts) > policy.max_packets
-    ):
+    )
+    if over_budget and not allow_over_budget:
         return [], budget
     packets = []
     for index, content in enumerate(parts):
@@ -1181,6 +1184,28 @@ def build_review_packets(
         }
         packet["input_hash"] = stable_hash(packet)
         packets.append(packet)
+    if over_budget and allow_over_budget:
+        # Batch mode (ADR-0022): keep full-shard packet hashes stable and slice
+        # only the next unprocessed batch that fits the per-execution budget;
+        # planned_* totals keep describing the whole frozen source list.
+        completed = set(completed_input_hashes or ())
+        batch: list[dict[str, Any]] = []
+        batch_chars = 0
+        for packet in packets:
+            if packet["input_hash"] in completed:
+                continue
+            if (
+                len(batch) + 1 > policy.max_packets
+                or batch_chars + len(packet["content"]["text"])
+                > policy.max_input_characters
+            ):
+                break
+            batch.append(packet)
+            batch_chars += len(packet["content"]["text"])
+        budget["budget_exceeded"] = True
+        budget["batch_packets"] = len(batch)
+        budget["batch_input_characters"] = batch_chars
+        return batch, budget
     return packets, budget
 
 

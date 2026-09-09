@@ -51,9 +51,11 @@
         :requires-full-scope="validationRequiresFullScope"
         :initial-run="validationRun"
         :policy-status="validationPolicy"
+        :gap-root="healthGapRoot"
         @updated="validationRun = $event"
         @policy-updated="validationPolicy = $event"
         @open-source="openValidationSource"
+        @gap-root-needed="openHealthFromLibrary"
       />
       <div v-else-if="toolDialog === 'questions'" class="world-bible-open-questions__list">
         <button v-for="entry in authorOpenQuestions" :key="entry.key" type="button" class="btn world-bible-open-question" :data-bible-open-question-page-id="entry.pageId || undefined" :data-bible-open-question-draft-id="entry.draftId || undefined" @click="openQuestionFromDialog(entry)">
@@ -144,6 +146,7 @@
           @create-task="createTaskForWorldEntity(selectedEntity)"
           @profile-dirty="entityProfileDirty = $event"
           @refresh="refreshCompletedEntity"
+          @impact-preview="openImpactPreview('core_entity', selectedEntity.id, selectedEntity.name)"
         />
         <template v-else-if="showTypeHome">
           <div class="world-bible-gallery__hero">
@@ -433,6 +436,7 @@
                 <button class="btn btn-sm btn-ghost" data-action="bible-back-to-read" @click="switchPageView('read')">完成编辑</button>
                 <button v-if="activePage?.id" class="btn btn-sm btn-ghost" data-action="bible-create-author-task" @click="createTaskForWorldPage">添加到计划中的任务</button>
                 <button v-if="activePage?.id" class="btn btn-sm" data-action="bible-improve-with-ai" @click="openInGenerationCenter">用 AI 完善此页</button>
+                <button v-if="activePage?.id" class="btn btn-sm btn-ghost" data-action="bible-impact-preview" @click="openImpactPreview('world_bible_page', activePage.id, activePage.title)">影响预演</button>
                 <button class="btn btn-sm" :class="{ 'btn-primary': !canPublish }" data-action="bible-save-page" @click="savePage()">保存工作稿</button>
                 <button v-if="canPublish" class="btn btn-sm btn-primary" data-action="bible-publish-page" @click="publishDraft">保存并发布</button>
                 <details v-if="activePage?.id || isWorkingDraft" class="world-bible-editor-tools" data-section="bible-page-tools">
@@ -559,6 +563,27 @@
                   <div id="bible-asset-ref-picker"></div>
                   <textarea id="bible-asset-refs" hidden>{{ formatAssetRefs(editSource.linked_asset_refs_json) }}</textarea>
                 </label>
+                <ul
+                  v-if="(editSource.linked_asset_refs_json || []).length"
+                  class="bible-asset-ref-relations"
+                  data-section="bible-asset-ref-relations"
+                  aria-label="引用语义分级"
+                >
+                  <li v-for="(ref, index) in editSource.linked_asset_refs_json" :key="index">
+                    <span class="bible-asset-ref-relations__label">{{ assetRefDisplayName(ref) }}</span>
+                    <select
+                      class="form-input"
+                      :data-field="'asset-ref-relation-' + index"
+                      :value="ref.relation || 'informs'"
+                      @change="setAssetRefRelation(index, $event.target.value)"
+                    >
+                      <option value="informs">参考</option>
+                      <option value="requires">依赖</option>
+                      <option value="derives">派生</option>
+                      <option value="conflicts">冲突</option>
+                    </select>
+                  </li>
+                </ul>
 
                 <!-- projection status -->
                 <div v-if="activePage?.id" class="world-bible-projection-status">
@@ -791,6 +816,7 @@ const {
   openInGenerationCenter,
   openSuggestions,
   openConflicts,
+  openImpactPreview,
   inspectCurrentPage,
   openCategoryManager,
   openPageTemplateManager,
@@ -1400,6 +1426,25 @@ const validationRequiresFullScope = computed(() => Boolean(props.bibleDeepLink?.
   || ["rule", "schema", "terminology", "world_core"].includes(activeDraft.value?.page_type)
   || Boolean(activeDraft.value?.page_meta_json?.validation_policy)
   || Boolean(activeDraft.value?.linked_asset_refs_json?.length))
+const healthGapRoot = computed(() => {
+  if (props.bibleDeepLink?.adoptionPackageId) return null
+  if (activeDraft.value?.id) {
+    return {
+      type: "world_bible_page_draft",
+      id: activeDraft.value.id,
+      label: activeDraft.value.title || "当前工作稿",
+      selected_world_bible_draft_ids: [activeDraft.value.id],
+    }
+  }
+  if (activePage.value?.id) {
+    return { type: "world_bible_page", id: activePage.value.id, label: activePage.value.title || "当前页面" }
+  }
+  return null
+})
+function openHealthFromLibrary() {
+  toolDialog.value = "health"
+  getToast()("先打开一份工作稿或页面，再从它发起定向查漏", "warning")
+}
 const authorOpenQuestions = computed(() => {
   const sources = [
     ...pages.value
@@ -1792,6 +1837,25 @@ function openAssetRef(type, id) {
     return
   }
   getToast()("该引用类型暂无可用的编辑入口", "warning")
+}
+
+function setAssetRefRelation(index, relation) {
+  const refs = editSource.value?.linked_asset_refs_json || []
+  if (!refs[index]) return
+  refs[index] = { ...refs[index], relation }
+  const input = document.getElementById("bible-asset-refs")
+  if (input) input.value = formatAssetRefs(refs)
+}
+
+function assetRefDisplayName(ref) {
+  const kind = canonicalAssetRefType(assetRefType(ref))
+  const id = assetRefId(ref)
+  const kindLabel = { core_entity: "世界对象", entity_relation: "对象关系", world_bible_page: "世界书页面" }[kind] || kind
+  if (kind === "world_bible_page") {
+    const page = pages.value.find((item) => item.id === id)
+    if (page?.title) return `${kindLabel} · ${page.title}`
+  }
+  return `${kindLabel} · ${String(id).slice(0, 8)}`
 }
 
 function assetRefType(ref) {

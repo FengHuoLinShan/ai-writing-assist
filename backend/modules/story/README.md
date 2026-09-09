@@ -9,7 +9,9 @@ through its stable facade and never writes World, Memory, or Writing records.
 
 - `contracts.py`: read contracts for character-card and script-file responses.
 - `facade.py`: card CRUD/restore/archive, script save/adopt/archive/unadopt,
-  Scene context and the adopted-only `get_scene_story_assets` read seam.
+  Scene context and the adopted-only `get_scene_story_assets` read seam, plus
+  the read-only plot-thread reverse lookup `list_plot_threads_referencing_entities`
+  consumed by the World impact preview (ADR-0022).
 - `schemas.py`: strict Pydantic request, preview and response payloads.
 - `tasks.py`: four deterministic async handlers registered through the shared
   task registry: `story_character_card_generate`, `story_reaction_propose`,
