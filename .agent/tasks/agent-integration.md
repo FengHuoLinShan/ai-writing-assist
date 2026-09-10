@@ -766,3 +766,10 @@ BASE_REF=origin/main、git diff --check再次通过。实时远端main仍a8de5aa
 唯一交付记录：[隔离整合任务](2026/T-20260910-agent-main-integration/TASK.md)。
 本节仅对codex/agent-main-integration工作树有效；原Agent工作树不变。
 合并结果已暂存，未创建merge提交或移动main；下一步需用户授权提交/合入。
+
+
+## 本地 main 已交付
+
+用户明确授权合并后，整合提交a6c9ecf8a已fast-forward进入本地main；业务tree与完整回归
+验证结果一致。详见[隔离整合任务](2026/T-20260910-agent-main-integration/TASK.md)末节。
+未推送/部署，原Agent工作树WIP与整合工作树保留；正式模型/人工验收仍按原范围延期。
