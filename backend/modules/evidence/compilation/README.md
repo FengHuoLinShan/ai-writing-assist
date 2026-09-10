@@ -606,3 +606,7 @@ character_ranges_verified，knowledge_boundary_audit 始终为 not_performed，�
 可见性门禁声称为完整角色知识审查。reader/author 原文行为与全局 NovelEvidence.read 不变。
 `ContextSelectionRefRequest` 接受原文半开区间的合法起点 0（不能用 truthiness 判为空）；缺失、
 负数或布尔起点拒绝。地图复用 source_range/target pinned_refs，不新增 scope 或绕过确认重物化。
+
+### 世界复核的精确范围
+
+world.validation.semantic 的调用方冻结原 confirmation 编译后保留的 items，而非根据 selected ID 重新读取整份未裁剪资产。确认后的模型输入、源 hash、范围与遗漏共同形成 World 回执，续接保持同一确认。pinned prose 使用 highlight_start/end 截取精确选段；Story 规划与地图当前版本只向无章节/Scene/offset 截止的作者 inspect 开放，reader/character 不走这条缺少可见性投影的路径。

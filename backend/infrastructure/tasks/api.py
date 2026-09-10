@@ -77,6 +77,7 @@ _MODULE_API_ONLY_TASK_TYPES = {
     "world_alias_relation_extraction",
     "world_entity_fusion_suggestions",
     "world_generation_suggestion",
+    "world_cocreation_turn",
     "world_bible_projection_refresh",
     "world_bible_synopsis_refresh",
     "plot_structure_generate",
@@ -327,10 +328,14 @@ async def cancel_task(
     （Bug L3: task_id 改为原生 UUID 类型）
     """
     await _require_active_project(db, novel_id)
-    stmt = select(AsyncTask).where(
-        AsyncTask.id == task_id,
-        AsyncTask.novel_id == uuid.UUID(str(novel_id)),
-    ).with_for_update()
+    stmt = (
+        select(AsyncTask)
+        .where(
+            AsyncTask.id == task_id,
+            AsyncTask.novel_id == uuid.UUID(str(novel_id)),
+        )
+        .with_for_update()
+    )
     result = await db.execute(stmt)
     task = result.scalar_one_or_none()
 
@@ -361,10 +366,14 @@ async def retry_task(
     novel_id: NovelIdQuery,
 ) -> TaskRetryResponse:
     await _require_active_project(db, novel_id)
-    stmt = select(AsyncTask).where(
-        AsyncTask.id == task_id,
-        AsyncTask.novel_id == uuid.UUID(str(novel_id)),
-    ).with_for_update()
+    stmt = (
+        select(AsyncTask)
+        .where(
+            AsyncTask.id == task_id,
+            AsyncTask.novel_id == uuid.UUID(str(novel_id)),
+        )
+        .with_for_update()
+    )
     task = (await db.execute(stmt)).scalar_one_or_none()
     if task is None:
         raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")

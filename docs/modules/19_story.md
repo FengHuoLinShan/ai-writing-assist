@@ -72,3 +72,7 @@ Scene 融合的请求 Scene 集合还必须与 confirmation 中的 pinned Scene 
 按故事线 `related_entity_ids` 返回声明依赖这些对象的 PlotThreadContract，供 World 模块的影响
 预演枚举"故事结构"层来源。该接口不写任何 Story 状态，也不扩大生成上下文；Story 域内行为
 不变。
+
+### 世界变更的结构来源
+
+Story 经 list_world_dependencies/read_world_dependency 提供故事线、篇章纲、Scene 与当前总纲的只读版本依据，区分声明引用与名称提及。World 聚合复核与遗漏，Story 保留本域编辑和修订责任；检查不会改写故事结构或连续性状态。没有读者/场景可见性投影的规划资料不进入这些受限视角。

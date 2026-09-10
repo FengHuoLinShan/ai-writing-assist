@@ -1,4 +1,5 @@
 <template>
+  <CocreationHistory :open="historyOpen" :project-id="projectId" :session-id="session.serverSessionId" :session-title="session.serverSessionTitle" :checkpoint-id="session.serverCheckpointId" @restore-preview="restoreDesignPreview" :source="sessionSourceRef()" :preset="isWorldCore ? 'world_core' : 'default'" :target-kind="targetKind" :selected-ids="session.selectedHistoryIds || []" @close="historyOpen = false" @new-session="startNewCocreationSession" @switch-session="switchToCocreationSession" @update:selected-ids="session.selectedHistoryIds = $event" @open-outcome="openHistoricalOutcome" />
   <div v-if="!embedded" class="view-header view-header--with-tabs generate-toolbar">
     <div class="subnav generate-subtabs" role="tablist" aria-label="生成模式">
       <button v-for="item in tabs" :key="item.key" :id="tabId(item.key)" class="generate-subtab" :class="{ active: activeTab === item.key }"
@@ -21,12 +22,18 @@
       <button v-if="!worldTaskProgress.terminal" type="button" class="btn btn-sm" @click="cancelWorldTask">取消生成</button>
       <button v-else-if="worldTaskProgress.failed || worldTaskProgress.cancelled" type="button" class="btn btn-sm" @click="dismissWorldTask">收起</button>
     </WorkflowProgressCard>
+    <WorkflowProgressCard v-if="turnTaskProgress" :progress="turnTaskProgress" variant="card" title="世界共创" :show-task-id="false">
+      <button v-if="!turnTaskProgress.terminal" type="button" class="btn btn-sm" @click="cancelCocreationTurn">停止本轮</button>
+      <button v-else type="button" class="btn btn-sm" @click="turnTaskProgress = null">收起</button>
+    </WorkflowProgressCard>
     <WorldWorkspace ref="worldWorkspaceRef"
       :project-id="projectId" :source-page-id="sourcePageId" :target-kind="targetKind" :source-page="world.sourcePage" :source-draft="world.sourceDraft"
       :warning="world.warning" :templates="templates" :activation-profiles="activationProfiles" :categories="world.categories" :page-templates="world.pageTemplates" :pages="world.pages"
       :scenes="world.scenes" :threads="world.threads" :characters="world.characters" :entities="world.entities" :result="worldResult" :previous-result="previousWorldResult" :proposal-draft="session.pageProposalDraft" :proposal-reset-token="pageProposalEditorResetToken" :recovered-page-proposal="recoveredPageProposal"
       :chat-context-usage="chatContextUsage" :entity-context-usage="entityContextUsage" :convergence-draft="session.convergenceDraft" :convergence-pending="convergencePending" :visual-brief="session.visualBrief" :external-packets="session.externalPackets" :exploration-draft="explorationDraft" :exploration-pending="explorationPending" :exploration-selection="explorationSelection" :source-revision-result="sourceRevisionResult" :busy="worldBusy" :chat-pending="chatPending" :loading-result="suggestionPending" :result-error="worldError"
       :world-core="isWorldCore" :successful-rounds="session.successfulRounds" :checkpoint-round="session.checkpointRound" :checkpoint-pending="checkpointPending" :checkpoint-saved="Boolean(session.checkpointId)" :session-title="session.serverSessionTitle" :session-server-bound="Boolean(session.serverSessionId)"
+      :full-world-design="Boolean(session.worldDesignCheckpoint)"
+      :choice-loading="choiceLoading" :choice-total="choiceTotal" :choice-offset="choiceOffset" @search-reference-choices="searchReferenceChoices"
       v-model:selected-template-id="session.selectedTemplateId" v-model:messages="session.messages" v-model:composer="composer"
       v-model:external-packet-draft="session.externalPacketDraft"
       v-model:quality-mode="session.qualityMode" v-model:include-world-synopsis="session.includeWorldSynopsis" v-model:activation-profile-id="session.activationProfileId"
@@ -41,6 +48,7 @@
       @copy-handoff="copyWorldHandoff" @download-handoff="downloadWorldHandoff" @open-story-outline="openStoryOutline" @preview-external-packet="previewExternalPacket" @clear-external-packet="session.externalPacketDraft = ''"
       @create-visual-brief="createVisualBrief" @edit-visual-brief="editVisualBrief" @confirm-visual-brief="confirmVisualBrief" @copy-visual-brief="copyVisualBrief" @download-visual-brief="downloadVisualBrief" @preview-visual-map="previewVisualMap"
       @apply-page="applyWorldPage" @proposal-dirty="pageProposalDirty = $event" @proposal-edit="capturePageProposalEdit" @clear-result="requestWorldSuggestion" @open-review="openReview" @view-context="viewGenerationContext" />
+    <WorldDesignPanel v-if="isWorldCore && session.worldDesignCheckpoint" :checkpoint="session.worldDesignCheckpoint" :proposal="session.worldDesignProposal" :historical="historicalCheckpoint" :state-sections="session.worldStateSections || []" @update:state-sections="session.worldStateSections = $event" :busy="worldBusy" @fork="forkHistoricalCheckpoint()" @export="downloadWorldHandoff" @prepare-suggestion="prepareDesignSuggestion" @update:proposal="session.worldDesignProposal = $event" @generate="previewDesignIteration" @save="saveDesignRevision" @discard="discardDesignProposal" />
   </div>
   <div v-else-if="activeTab === 'pov_prose'" :id="tabPanelId('pov_prose')" class="generate-tab-panel" :role="embedded ? undefined : 'tabpanel'" :aria-labelledby="embedded ? undefined : tabId('pov_prose')">
     <PovProseTab v-model:form="povForm" :loading="pov.loading" :chapters="pov.chapters" :scenes="pov.scenes" :characters="pov.characters" :warning="pov.warning" :submission="povSubmission" :pending="povPending" :progress="povProgress" :error="povError" @change-chapter="changePovChapter" @change-scene="changePovScene" @generate="generatePov" @retry-load="retryPovLoad" @cancel="cancelPovTask" @open-result="openPovResult" @open-writing="openPovWriting" @return-world="switchTab('world')" />
@@ -59,6 +67,8 @@ import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
 import { getApi, getAppState, getCloseModal, getConfirm, getEsc, getRouteQuery, getRouter, getShowModalHtml, getToast } from "../../bridge/index.js"
 import { confirmAiReference } from "../../../shared/aiReferenceModal.js"
 import WorldWorkspace from "./components/WorldWorkspace.vue"
+import WorldDesignPanel from "./components/WorldDesignPanel.vue"
+import CocreationHistory from "./components/CocreationHistory.vue"
 import PovProseTab from "./components/PovProseTab.vue"
 import TaskContextTab from "./components/TaskContextTab.vue"
 import ContextPreviewTab from "./components/ContextPreviewTab.vue"
@@ -89,7 +99,7 @@ import {
   AI_MESSAGE_LIMIT, AI_SELECTED_CHAPTER_LIMIT, EXTERNAL_HANDOFF_PACKET_CHAR_LIMIT, OBJECT_TEMPLATES, PAGE_SIZE, TASK_PRESETS, VISUAL_BRIEF_FIELD_LIMIT, VISUAL_BRIEF_PURPOSE_OPTIONS, applyTaskPreset,
   buildPovInstruction, buildTaskPayload, buildVisualBriefMarkdown, buildWorldCoreCheckpointContext, buildWorldDesignCheckpointRequest, buildWorldHandoffMarkdown, buildWorldPayload, characterId, compileConvergenceMessage,
   convergenceDraftFromResponse, convergenceSourceMatchesPayload, createDefaultTaskForm, externalDispositionCounts, externalPacketCharacterCount,
-  hashExternalPacket, listItems, normalizeTemplate, parseExternalPacketPosition, validateTaskPayload, visualBriefFromConvergence, visualBriefMatchesConvergence,
+  hashExternalPacket, listItems, normalizeTemplate, suggestionResult, parseExternalPacketPosition, validateTaskPayload, visualBriefFromConvergence, visualBriefMatchesConvergence,
 } from "./logic/generateLogic.js"
 
 const props = defineProps({
@@ -124,6 +134,8 @@ const restoredContext = readGenerateContextPreview(props.projectId)
 const lastContextBundle = ref(restoredContext.bundle); const lastContextMarkdown = ref(restoredContext.markdown); const lastContextSource = ref(restoredContext.source); const lastContextRequest = ref(restoredContext.request)
 const worldResult = ref(props.restoredWorldResult); const previousWorldResult = ref(props.restoredPreviousWorldResult); const chatContextUsage = ref(null); const entityContextUsage = ref(null); const worldError = ref("")
 const worldTaskProgress = ref(null)
+const turnTaskProgress = ref(null)
+let turnTaskPoller = null
 const initialPageProposalDraft = pageProposalDraftMatches(worldResult.value, session.pageProposalDraft)
 const pageProposalDirty = ref(Boolean(initialPageProposalDraft))
 const recoveredPageProposal = ref(Boolean(initialPageProposalDraft))
@@ -132,6 +144,10 @@ const taskPending = ref(false); const taskPendingStage = ref(""); const taskErro
 const chatPending = ref(false); const convergencePending = ref(false); const explorationPending = ref(false); const suggestionPending = ref(false); const applyPending = ref(false); const checkpointPending = ref(false)
 const explorationDraft = ref(null); const explorationSelection = ref(null); const sourceRevisionResult = ref(null)
 const worldWorkspaceRef = ref(null)
+const historyOpen = ref(false)
+const choiceLoading = ref(false); const choiceTotal = ref(0); const choiceOffset = ref(0)
+let choiceGeneration = 0
+const sessionBackupFailed = ref(false)
 const sourceUnavailable = ref(props.worldSourceUnavailable)
 const world = reactive({ sourcePage: props.sourcePage, sourceDraft: props.sourceDraft, categories: props.worldCategories, pageTemplates: props.worldPageTemplates, pages: props.worldPages, scenes: props.worldScenes, threads: props.worldThreads, characters: props.worldCharacters, entities: props.worldEntities, warning: props.worldWorkspaceWarning, loaded: props.tab === "world" })
 const pov = reactive({ chapters: props.povChapters, scenes: [], characters: props.povCharacters, warning: props.povLoadWarning, loaded: props.tab === "pov_prose" && !props.povLoadWarning, loading: false })
@@ -150,8 +166,10 @@ let pendingChatAction = null
 const tabs = [{ key: "world", label: "世界设定" }, { key: "pov_prose", label: "角色视角正文" }, { key: "task", label: "任务" }, { key: "preview", label: "完整参考资料" }]
 const projectTitle = computed(() => appState?.currentProject?.title || appState?.currentProject?.name || "")
 const isWorldCore = computed(() => props.preset === "world_core")
+const historicalCheckpoint = computed(() => Boolean(session.serverSessionId && session.checkpointId && session.checkpointId !== session.serverCheckpointId))
 const worldBusy = computed(() => (
   sourceUnavailable.value
+  || (turnTaskProgress.value && !turnTaskProgress.value.terminal)
   || chatPending.value
   || convergencePending.value
   || explorationPending.value
@@ -167,7 +185,7 @@ const contextSourceText = computed(() => {
   return `任务：${task.length > 60 ? `${task.slice(0, 60)}…` : task}`
 })
 const taskPendingLabel = computed(() => taskPendingStage.value === "render" ? "正在准备可复制的完整文本…" : "正在整理与任务有关的资料…")
-const worldHandoffMarkdown = computed(() => buildWorldHandoffMarkdown({ projectTitle: projectTitle.value, targetKind: props.targetKind, sourcePage: world.sourcePage, sourceDraft: world.sourceDraft, convergenceDraft: session.convergenceDraft }))
+const worldHandoffMarkdown = computed(() => buildWorldHandoffMarkdown({ projectTitle: projectTitle.value, targetKind: props.targetKind, sourcePage: world.sourcePage, sourceDraft: world.sourceDraft, convergenceDraft: session.convergenceDraft, worldCheckpoint: session.worldDesignCheckpoint }))
 const visualBriefMarkdown = computed(() => buildVisualBriefMarkdown({ handoffMarkdown: worldHandoffMarkdown.value, visualBrief: session.visualBrief, convergenceDraft: session.convergenceDraft }))
 const visualBriefCurrent = computed(() => visualBriefMatchesConvergence(session.visualBrief, session.convergenceDraft))
 function notifyOnce(code, message) { const key = `${props.sessionKey}:${code}`; if (notices.has(key)) return; notices.add(key); toast(message, "warning") }
@@ -181,6 +199,7 @@ function persistContextPreview() {
 }
 function persist() {
   const saved = writeGenerateSession(cocreationSessionKey(props.sessionKey, session.serverSessionId), { ...session, composer: composer.value, taskPreset: taskPreset.value, taskForm: taskForm.value, povForm: povForm.value }, { notify: notifyOnce })
+  sessionBackupFailed.value = !saved
   if (!saved) clearGenerateContinuation()
   return saved
 }
@@ -205,6 +224,7 @@ function clearGenerateContinuation() {
   ) clearCreativeContinuation(props.projectId)
 }
 function sessionSourceRef() {
+  if (["core_entity", "world_library_topic"].includes(session.serverSourceKind) && session.serverSourceId) return { kind: session.serverSourceKind, id: session.serverSourceId }
   return props.sourcePageId ? { kind: "world_bible_page", id: props.sourcePageId } : { kind: "project" }
 }
 function defaultSessionTitle() {
@@ -222,9 +242,14 @@ async function ensureServerSession() {
     target_kind: props.targetKind,
     source_page_id: props.sourcePageId || null,
   })
+  if (!created?.id || typeof created.id !== "string") throw new Error("会话未能建立，请稍后重试；原问题仍保留")
   session.serverSessionId = created.id
   session.serverSessionTitle = created.title || defaultSessionTitle()
   session.serverCheckpointId = created.current_checkpoint_id || null
+  if (session.checkpointId && !session.serverCheckpointId) {
+    await api.world.advanceCocreationCheckpoint(created.id, { novel_id: props.projectId, checkpoint_suggestion_id: session.checkpointId, expected_checkpoint_id: null, round_no: session.checkpointRound, depth: session.checkpointDepth || 'seed' })
+    session.serverCheckpointId = session.checkpointId
+  }
   persist()
   return created.id
 }
@@ -278,7 +303,12 @@ function capturePageProposalEdit(draft) {
   if (persist()) rememberGenerateContinuation()
 }
 function confirmDiscard(message) { if (!pageProposalDirty.value) return true; const accepted = confirm(message); if (accepted) { discardPageProposalDraft(); persist() } return accepted }
-useLeaveGuard(() => confirmDiscard("整页提案仍有未应用的编辑，确定放弃修改并离开吗？"))
+useLeaveGuard(() => {
+  if (session.worldDesignProposal && !persist() && !confirm('本轮世界设计修改尚未保存，本机备份也失败。确定仍要离开吗？')) return false
+  return confirmDiscard("整页提案仍有未应用的编辑，确定放弃修改并离开吗？")
+})
+function protectDesignBeforeUnload(event) { if (session.worldDesignProposal && sessionBackupFailed.value) { event.preventDefault(); event.returnValue = '' } }
+window.addEventListener('beforeunload', protectDesignBeforeUnload)
 
 async function loadAll(fetchPage) { const output = []; let skip = 0; while (true) { const data = await fetchPage(skip); const page = data?.items || []; output.push(...page); const total = Number(data?.total); if (page.length < PAGE_SIZE || (Number.isFinite(total) && output.length >= total) || !page.length) return output; skip += page.length } }
 async function ensureWorld() {
@@ -286,13 +316,13 @@ async function ensureWorld() {
   const scope = owner.begin()
   try {
     const [pages, drafts, categories, pageTemplates, scenes, threads, characters, entities] = await Promise.all([
-      api.world.listBiblePages({ novel_id: props.projectId }), api.world.listBibleDrafts(props.projectId), api.world.listBibleCategories(props.projectId), api.world.listBiblePageTemplates(props.projectId),
+      api.world.listLibraryChoices({ novel_id: props.projectId, kind: 'page' }), props.sourcePageId ? api.world.listBibleDrafts(props.projectId, { page_id: props.sourcePageId }) : Promise.resolve({ items: [] }), api.world.listBibleCategories(props.projectId), api.world.listBiblePageTemplates(props.projectId),
       api.outline.listScenesOrdered(props.projectId), api.outline.listThreads(props.projectId, { limit: 50 }),
-      loadAll((skip) => api.world.listCharacters({ novel_id: props.projectId, skip, limit: PAGE_SIZE })), loadAll((skip) => api.world.listEntities({ novel_id: props.projectId, display_state: "active", skip, limit: PAGE_SIZE })),
+      api.world.listLibraryChoices({ novel_id: props.projectId, kind: 'entity', item_type: 'character' }).then(listItems), api.world.listLibraryChoices({ novel_id: props.projectId, kind: 'entity' }).then(listItems),
     ])
     if (!owner.isActive(scope)) return
     const pagesList = listItems(pages); const draftsList = listItems(drafts)
-    world.sourcePage = props.sourcePageId ? pagesList.find((item) => item.id === props.sourcePageId) || null : null
+    world.sourcePage = props.sourcePageId ? await api.world.getBiblePage(props.sourcePageId, props.projectId) : null
     world.sourceDraft = props.sourcePageId ? draftsList.find((item) => item.page_id === props.sourcePageId) || null : null
     world.categories = listItems(categories); world.pageTemplates = listItems(pageTemplates); world.pages = pagesList.filter((item) => ["canonical", "confirmed"].includes(item.status)); world.scenes = listItems(scenes); world.threads = listItems(threads); world.characters = characters
     const characterIds = new Set(characters.flatMap((item) => [item.id, item.entity_id].filter(Boolean)))
@@ -373,9 +403,28 @@ function onTabKeydown(event, tab) {
 }
 function currentWorldPayload() {
   const payload = buildWorldPayload({ ...session, projectId: props.projectId, sourcePageId: props.sourcePageId, targetKind: props.targetKind, sourcePage: world.sourcePage, sourceDraft: world.sourceDraft, templates: templates.value, activationProfiles: activationProfiles.value, worldPageTemplates: world.pageTemplates, worldPages: world.pages, workflowPreset: isWorldCore.value ? "world_core" : "default" })
-  const checkpointContext = buildWorldCoreCheckpointContext(session.convergenceDraft)
+  if (session.serverSessionId) {
+    payload.session_id = session.serverSessionId
+    payload.expected_checkpoint_id = session.serverCheckpointId || null
+    payload.selected_history_ids = session.selectedHistoryIds || []
+    payload.world_state_sections = session.worldStateSections || []
+    payload.world_state_target_id = session.designTargetId || undefined
+  }
+  const checkpointContext = !session.serverSessionId && buildWorldCoreCheckpointContext(session.convergenceDraft)
   if (checkpointContext) payload.pasted_context = checkpointContext
   return payload
+}
+async function searchReferenceChoices({ kind = 'pages', query = '', offset = 0 }) {
+  const token = ++choiceGeneration; choiceLoading.value = true
+  try {
+    const result = await api.world.listLibraryChoices({ novel_id: props.projectId, kind: kind === 'pages' ? 'page' : 'entity', ...(kind === 'characters' ? { item_type: 'character' } : {}), q: query || undefined, skip: offset, limit: 30 })
+    if (owner.isDisposed() || token !== choiceGeneration) return
+    const selected = kind === 'pages' ? session.selectedWorldPageIds : kind === 'characters' ? session.selectedCharacterIds : session.selectedEntityIds
+    const current = world[kind] || []
+    world[kind] = [...new Map([...current.filter(item => selected.includes(item.entity_id || item.id)), ...(result.items || [])].map(item => [item.entity_id || item.id, item])).values()]
+    choiceTotal.value = result.total || 0; choiceOffset.value = offset
+  } catch (err) { if (!owner.isDisposed() && token === choiceGeneration) toast(err?.message || '参考资料搜索失败', 'error') }
+  finally { if (token === choiceGeneration) choiceLoading.value = false }
 }
 function worldPinnedRefs(payload) {
   const refs = []
@@ -440,6 +489,7 @@ watch(convergenceInputSignature, (value, previous) => {
   if (value === previous) return
   if (!convergencePending.value && session.convergenceDraft) session.convergenceDraft.stale = true
   if (!explorationPending.value && explorationDraft.value) explorationDraft.value.stale = true
+  if (!checkpointPending.value && session.worldDesignProposal?.context_confirmation_id) session.worldDesignProposal.stale = true
   if (!convergencePending.value) markVisualBriefStale()
 })
 watch(() => session.externalPacketDraft, (value, previous) => {
@@ -449,58 +499,109 @@ watch(() => session.externalPacketDraft, (value, previous) => {
 })
 function captureComposer() { const text = composer.value.trim(); if (!text) return false; session.messages.push({ role: "user", content: text }); composer.value = ""; return true }
 function clearChatStages() { chatStageTimers.forEach(clearTimeout); chatStageTimers = [] }
-function beginChatStages(pending) {
-  clearChatStages()
-  pending.content = "正在理解你的目标…"
-  chatStageTimers = [
-    setTimeout(() => { if (pending.pending) pending.content = "正在核对相关设定和前文…" }, 2500),
-    setTimeout(() => { if (pending.pending) pending.content = "正在组织可以继续讨论的回复…" }, 8000),
-  ]
-}
-function beforeUnload() { clearChatStages(); persist(); owner.dispose() }
-function armBeforeUnload() { window.addEventListener("beforeunload", beforeUnload) }
-function disarmBeforeUnload() { window.removeEventListener("beforeunload", beforeUnload) }
+function beginChatStages(pending) { clearChatStages(); pending.content = '正在准备本轮…' }
 
-async function requestChatReply(pending) {
-  const scope = owner.begin()
-  beginChatStages(pending)
-  armBeforeUnload()
-  chatPending.value = true
-  await worldWorkspaceRef.value?.scrollToLatest?.(true)
+async function requestChatReply(pending) { return submitCocreationTurn('chat', pending) }
+async function submitCocreationTurn(mode, pending = null) {
+  if (historicalCheckpoint.value) { if (pending) Object.assign(pending, { pending: false, error: true, content: '这份历史成果尚未作为当前会话起点，请先在新会话继续' }); return false }
+  const scope = owner.begin(); const operationId = createOperationId()
+  if (pending) beginChatStages(pending)
+  chatPending.value = mode === 'chat'; checkpointPending.value = mode === 'design'
+  let meta = null; let submitted = false
   try {
-    const payload = await confirmWorldPayload(currentWorldPayload(), "world.generation.chat", "世界设定共创对话")
-    const action = pendingChatAction
-    let sessionId = null
-    try { sessionId = await ensureServerSession() } catch { /* 服务端会话暂不可用：本地回复继续，不阻塞作者 */ }
-    const response = sessionId
-      ? await api.world.cocreationChat(sessionId, { ...payload, ...(action ? { session_action: action } : {}) }, { signal: scope.controller.signal })
-      : await api.generate.worldChat(payload, { signal: scope.controller.signal })
-    if (!owner.isActive(scope)) return
-    chatContextUsage.value = response?.context_usage || null
-    if (action) {
-      const authorMessage = session.messages[session.messages.indexOf(pending) - 1]
-      if (authorMessage?.role === "user") authorMessage.action = action
-    }
+    const sessionId = await ensureServerSession()
+    const payload = mode === 'design' ? convergencePayload() : currentWorldPayload()
+    delete payload.excluded_message_count
+    delete payload.world_state_target_id
+    if (mode === 'design' && !composer.value.trim()) payload.messages = [...payload.messages.slice(-39), { role: 'user', content: WORLD_CORE_ACTIONS[session.worldCoreAction] }]
+    const confirmed = await confirmWorldPayload({ ...payload, session_id: sessionId, expected_checkpoint_id: session.serverCheckpointId || null }, 'world.generation.chat', mode === 'design' ? '继续完善当前世界模型' : '世界设定共创对话')
+    if (!owner.isActive(scope)) return false
+    const action = pendingChatAction || session.worldCoreAction
+    meta = { session_key: props.sessionKey, session_id: sessionId, mode, action, signature: convergenceInputSignature.value, composer: composer.value }
+    if (!persistActiveWorkflow({ taskId: operationId, workflowType: 'world_cocreation_turn', label: '世界共创', projectId: props.projectId, view: 'generate', meta }, receiptStorage)) throw new Error('无法保存本轮恢复记录，请检查浏览器存储后重试')
+    submitted = true
+    const response = await api.world.enqueueCocreationTurn({ ...confirmed, operation_id: operationId, mode, session_action: action, ...(mode === 'design' ? { parent_checkpoint_id: session.checkpointId } : {}) })
+    if (!owner.isActive(scope)) return true
     pendingChatAction = null
-    pending.content = response?.reply || "生成完成，但没有返回回复。"
-    pending.pending = false
-    if (isWorldCore.value) session.successfulRounds = Math.min(999, Number(session.successfulRounds || 0) + 1)
-    persist()
-  }
-  catch (err) { if (!owner.isActive(scope)) return; if (err?.message === "已取消 AI 参考资料确认") { session.messages = session.messages.filter((item) => item !== pending); persist(); return } pending.content = `暂时没能回复：${err?.message || "未知错误"}`; pending.pending = false; pending.error = true; persist(); toast("回复失败，刚才的问题仍保留，可以直接重试", "error") }
-  finally {
-    const settledHere = owner.isActive(scope)
-    clearChatStages()
-    owner.finish(scope)
-    disarmBeforeUnload()
-    chatPending.value = false
-    if (settledHere) {
-      await nextTick()
-      if (pending.error) worldWorkspaceRef.value?.focusLatestChatError?.()
-      else worldWorkspaceRef.value?.focusComposer?.()
+    if (pending) pending.content = '本轮已提交，正在等待回复…'
+    startTurnPolling(response.task_id || operationId, meta, pending)
+    return true
+  } catch (err) {
+    if (!owner.isActive(scope)) return false
+    if (submitted && !(Number(err?.status) >= 400 && Number(err?.status) < 500)) {
+      startTurnPolling(operationId, meta, pending)
+      toast('提交结果暂未确认，正在查询原任务；请勿重复发送', 'warning')
+    } else {
+      try { clearActiveWorkflow(operationId, receiptStorage) } catch { /* 存储不可用，仍保留当前输入并明确报错 */ }
+      if (pending) { pending.pending = false; pending.error = true; pending.content = err?.message || '回复未完成，原问题已保留' }
+      if (err?.message !== '已取消 AI 参考资料确认') toast(err?.message || '未能开始本轮', 'error')
     }
-  }
+    return false
+  } finally { clearChatStages(); owner.finish(scope); chatPending.value = false; checkpointPending.value = false; persist() }
 }
+function startTurnPolling(taskId, meta, pending = null) {
+  turnTaskPoller?.stop()
+  const belongs = () => !owner.isDisposed() && session.serverSessionId === meta.session_id
+  turnTaskProgress.value = normalizeTaskProgress({ task_id: taskId, task_type: 'world_cocreation_turn', status: 'pending' }, 'world_cocreation_turn')
+  turnTaskPoller = pollTaskProgress({ taskId, workflowType: 'world_cocreation_turn', novelId: props.projectId, receiptStorage, apiClient: api,
+    onUpdate: progress => { if (belongs()) turnTaskProgress.value = progress },
+    onDone: async (progress, task) => {
+      clearActiveWorkflow(taskId, receiptStorage)
+      if (!belongs()) return
+      const result = task.result || {}; const inputsChanged = Boolean(meta.signature && meta.signature !== convergenceInputSignature.value)
+      turnTaskProgress.value = progress
+      if (meta.mode === 'design' || result.mode === 'design') {
+        if (session.worldDesignProposal && meta.recovered) { toast('已有本轮编辑；可在历史任务中查看已完成推演', 'info'); return }
+        await refreshServerSessionMessages()
+        if (!belongs()) return
+        session.worldDesignProposal = { ...result, originTaskId: taskId, decisions: [], action: meta.action || session.worldCoreAction, depth: session.checkpointDepth, stale: inputsChanged || (meta.composer != null && meta.composer !== composer.value) }
+      } else {
+        if (pending) { pending.content = result.reply || ''; pending.pending = false; pending.error = false; pending.interrupted = false }
+        chatContextUsage.value = result.context_usage || null
+        if (isWorldCore.value && !meta.recovered) session.successfulRounds = Math.min(999, Number(session.successfulRounds || 0) + 1)
+        await refreshServerSessionMessages()
+      }
+      if (belongs()) { persist(); await nextTick(); worldWorkspaceRef.value?.focusComposer?.() }
+    },
+    onFailed: async progress => {
+      clearActiveWorkflow(taskId, receiptStorage)
+      if (!belongs()) return
+      turnTaskProgress.value = progress
+      if (pending) { pending.pending = false; pending.error = true; pending.content = progress.errorMessage || '本轮未完成，原问题已保留，可明确重试' }
+      persist(); await nextTick(); if (belongs()) worldWorkspaceRef.value?.focusLatestChatError?.()
+    },
+  })
+}
+async function cancelCocreationTurn() {
+  try { await api.tasks.cancel(turnTaskProgress.value.taskId, props.projectId) }
+  catch { toast('暂时无法停止，仍在查询原任务，请稍后重试', 'error') }
+}
+async function recoverTurnOperation(receipt) {
+  const taskId = receipt?.taskId || session.lastOperation?.task_id
+  if (!taskId || !session.serverSessionId) return
+  try {
+    const task = await api.tasks.get(taskId, props.projectId)
+    if (owner.isDisposed() || task.meta?.session_id !== session.serverSessionId) return
+    const mode = task.meta.mode || 'chat'
+    if (task.status === 'done' && mode === 'chat') {
+      const question = [...(task.meta.messages || [])].reverse().find(item => item.role === 'user')?.content
+      const pendingIndex = session.messages.findLastIndex((item, index) => (item.error || item.interrupted || item.pending) && session.messages[index - 1]?.content === question)
+      if (pendingIndex >= 0) Object.assign(session.messages[pendingIndex], { pending: false, error: false, interrupted: false, content: task.result?.reply || '' })
+      await refreshServerSessionMessages(); clearActiveWorkflow(taskId, receiptStorage); return
+    }
+    if (task.status === 'done' && mode === 'design' && session.worldDesignProposal?.originTaskId === taskId) return
+    const author = [...(task.meta.messages || [])].reverse().find(item => item.role === 'user')?.content
+    let pending = null
+    if (mode === 'chat') {
+      pending = session.messages.findLast(item => item.error || item.interrupted || item.pending)
+      if (pending && ['pending', 'running'].includes(task.status)) Object.assign(pending, { pending: true, error: false, interrupted: false, content: '原任务仍在进行，正在恢复进度…' })
+      if (!pending) { if (author) session.messages.push({ role: 'user', content: author }); pending = reactive({ role: 'assistant', content: '正在恢复原任务…', pending: true }); session.messages.push(pending) }
+    }
+    const meta = { ...receipt?.meta, session_id: session.serverSessionId, session_key: props.sessionKey, mode, action: task.meta.session_action, recovered: true }
+    startTurnPolling(taskId, meta, pending)
+  } catch (err) { if (!owner.isDisposed()) toast(err?.status === 404 ? '原任务不存在，请核对后明确重新开始' : '原任务暂时无法恢复，请稍后刷新；未重复提交', 'warning') }
+}
+
 async function sendChat() {
   if (worldBusy.value) return false
   if (!composer.value.trim()) return toast("请输入要聊的内容", "warning")
@@ -680,8 +781,68 @@ function prefillWorldCore(action) {
   composer.value = WORLD_CORE_ACTIONS[action]
   return true
 }
+async function previewDesignIteration() {
+  if (worldBusy.value || !session.worldDesignCheckpoint) return false
+  if (session.worldDesignProposal && !confirm('本轮已有尚未保存的修改。重新推演将替换这份预览，是否继续？')) return false
+  return submitCocreationTurn('design')
+}
+
+async function saveDesignRevision() {
+  const proposal = session.worldDesignProposal
+  if (worldBusy.value || !proposal || proposal.stale) return false
+  checkpointPending.value = true
+  const scope = owner.begin()
+  try {
+    await ensureServerSession()
+    const saved = await api.world.reviseDesignCheckpoint({
+      novel_id: props.projectId, session_id: session.serverSessionId,
+      parent_checkpoint_id: proposal.parent_checkpoint_id || session.checkpointId,
+      expected_checkpoint_id: session.serverCheckpointId || null,
+      action: proposal.action || session.worldCoreAction, summary: proposal.summary,
+      changes: proposal.changes, decisions: proposal.decisions || [],
+      depth: proposal.depth || session.checkpointDepth,
+      context_confirmation_id: proposal.context_confirmation_id || null,
+    })
+    if (!owner.isActive(scope)) return false
+    session.worldDesignCheckpoint = saved.payload_json
+    session.checkpointId = saved.id
+    session.serverCheckpointId = saved.id
+    session.checkpointRound = saved.payload_json.round_no
+    session.checkpointDepth = saved.payload_json.depth
+    session.successfulRounds = Math.max(session.successfulRounds || 0, session.checkpointRound)
+    session.worldDesignProposal = null
+    session.convergenceDraft = null
+    session.designTargetId = null
+    persist()
+    toast("本轮成果已保存，未修改内容与历史继续保留", "success")
+    return true
+  } catch (err) {
+    if (owner.isActive(scope)) {
+      if (Number(err?.status) === 409) proposal.stale = true
+      toast(`未能保存，本轮修改仍保留：${err?.message || "请重试"}`, "error")
+    }
+    return false
+  } finally { owner.finish(scope); checkpointPending.value = false }
+}
+function prepareDesignSuggestion(item) {
+  if (worldBusy.value || historicalCheckpoint.value) return false
+  if (composer.value.trim() && !confirm('把输入框保留的内容换成这份设定提案的整理目标？')) return false
+  session.designTargetId = item.id
+  if (session.worldStateSections?.length && !session.worldStateSections.includes(item.section)) session.worldStateSections = [...session.worldStateSections, item.section]
+  composer.value = `请只将当前世界模型中选定的“${item.name}”整理成一份可审阅的世界对象提案。保留作者决定和来源，说明尚未解决的问题；不要采用或发布。`
+  return requestWorldSuggestion()
+}
+function restoreDesignPreview(value) {
+  if (worldBusy.value) return false
+  if (session.worldDesignProposal && !confirm('用这份已完成推演替换当前尚未保存的预览？')) return false
+  session.worldDesignProposal = { ...value.proposal, decisions: [], depth: value.checkpoint.depth, stale: value.proposal.parent_checkpoint_id !== session.serverCheckpointId }
+  historyOpen.value = false; persist(); return true
+}
+function discardDesignProposal() {
+  if (confirm("放弃本轮尚未保存的修改？已保存的世界资料与历史会保留。")) session.worldDesignProposal = null
+}
 async function saveWorldCoreCheckpoint() {
-  if (!isWorldCore.value || checkpointPending.value || Number(session.successfulRounds || 0) - Number(session.checkpointRound || 0) < 3) return false
+  if (!isWorldCore.value || checkpointPending.value || (!session.checkpointId && Number(session.successfulRounds || 0) - Number(session.checkpointRound || 0) < 3)) return false
   const request = buildWorldDesignCheckpointRequest({
     novelId: props.projectId,
     projectTitle: projectTitle.value,
@@ -696,6 +857,7 @@ async function saveWorldCoreCheckpoint() {
   try {
     const saved = await api.world.saveDesignCheckpoint(request)
     if (!owner.isActive(scope)) return false
+    session.worldDesignCheckpoint = saved.payload_json || request.checkpoint
     session.checkpointId = saved.id
     session.checkpointRound = Number(session.successfulRounds || 0)
     session.checkpointDepth = "seed"
@@ -985,6 +1147,7 @@ function startWorldTaskPolling(taskId, meta) {
       worldResult.value = response.result || null
       sourceRevisionResult.value = response.source_revision || null
       session.suggestionId = response.result?.suggestion?.id || null
+      session.designTargetId = null
       entityContextUsage.value = response.context_usage || null
       discardPageProposalDraft()
       dismissExploration()
@@ -1035,10 +1198,7 @@ function openReview() {
   router.navigate("world", "review", true, query)
 }
 
-function cocreationBindingFilter(item) {
-  return (item.workflow_preset || "world_core") === (isWorldCore.value ? "world_core" : "default")
-    && (item.target_kind || null) === (props.targetKind || null)
-}
+
 function sessionBindingQuery(extra = {}) {
   const query = new URLSearchParams({ tab: "world", ...extra })
   if (props.sourcePageId) query.set("source_page_id", props.sourcePageId)
@@ -1051,20 +1211,9 @@ function switchToCocreationSession(item) {
   // 原会话的输入、阶段成果与任务收据保存到它自己的缓存；新会话交给 loader 水合。
   persist()
   closeModal()
+  historyOpen.value = false
   router.navigate("generate", null, true, sessionBindingQuery({ session_id: item.id }))
   return true
-}
-async function archiveCocreationSession(item) {
-  if (!confirm(`归档会话“${item.title || "未命名会话"}”？归档后不再出现在默认列表，消息不会删除。`)) return false
-  try {
-    await api.world.updateCocreationSession(item.id, { novel_id: props.projectId, archived: true })
-    toast("会话已归档", "success")
-    await openSessionHistory()
-    return true
-  } catch (err) {
-    toast(`归档失败：${err?.message || "未知错误"}`, "error")
-    return false
-  }
 }
 async function startNewCocreationSession() {
   try {
@@ -1082,52 +1231,39 @@ async function startNewCocreationSession() {
     return false
   }
 }
-async function openSessionHistory() {
-  const modalOwner = captureModalOwner()
-  const scope = owner.begin()
-  let items = []
+function openSessionHistory() { historyOpen.value = true }
+async function forkHistoricalCheckpoint(artifact = { id: session.checkpointId, payload_json: session.worldDesignCheckpoint }) {
+  if (checkpointPending.value) return false
+  if (session.worldDesignProposal && !persist()) { toast('本轮修改未能备份，请先保存或复制内容', 'error'); return false }
+  checkpointPending.value = true; const scope = owner.begin()
   try {
-    const data = await api.world.listCocreationSessions(props.projectId, {
-      source_kind: props.sourcePageId ? "world_bible_page" : "project",
-      ...(props.sourcePageId ? { source_id: props.sourcePageId } : {}),
-      include_archived: true,
-      limit: 50,
-    })
-    items = (data?.items || []).filter(cocreationBindingFilter)
-  } catch (err) {
-    if (owner.isActive(scope) && modalStateUnchanged(modalOwner)) toast(`历史会话加载失败：${err?.message || "未知错误"}`, "error")
-    owner.finish(scope)
-    return false
-  }
-  if (!owner.isActive(scope) || !modalStateUnchanged(modalOwner)) {
-    owner.finish(scope)
-    return false
-  }
-  owner.finish(scope)
-  const rows = items.map((item, index) => {
-    const current = session.serverSessionId === item.id
-    const activity = String(item.last_message_at || item.created_at || "").slice(0, 16).replace("T", " ")
-    return `<tr><td>${esc(item.title || "未命名会话")}${item.status === "archived" ? '<span class="badge">已归档</span>' : ""}</td><td>第 ${Number(item.checkpoint_round || 0)} 轮</td><td>${esc(activity)}</td><td>${current ? '<span class="badge">当前</span>' : ""}</td><td><button class="btn btn-sm" type="button" data-action="open-cocreation-session" data-session-index="${index}" ${current || item.status === "archived" ? "disabled" : ""}>打开</button> <button class="btn btn-sm btn-ghost" type="button" data-action="archive-cocreation-session" data-session-index="${index}" ${item.status === "archived" ? "disabled" : ""}>归档</button></td></tr>`
-  }).join("")
-  openOwnedModal(
-    "共创会话历史",
-    rows
-      ? `<div class="generate-session-history"><table class="data-table"><thead><tr><th>会话</th><th>阶段成果</th><th>最近活动</th><th></th><th>操作</th></tr></thead><tbody>${rows}</tbody></table><p class="generate-empty-copy">会话保存在服务器，换设备也能继续；归档只是收起，消息不会删除。</p></div>`
-      : `<div class="generate-session-history"><p class="generate-empty-copy">当前来源还没有共创会话；发送第一条消息时会自动建立并保存到服务器。</p></div>`,
-    [
-      { text: "新建会话", class: "btn", handler: startNewCocreationSession },
-      { text: "关闭", class: "btn-ghost", handler: closeModal },
-    ],
-  )
-  document.getElementById("modal-body")?.addEventListener("click", (event) => {
-    const button = event.target.closest?.("[data-action='open-cocreation-session'],[data-action='archive-cocreation-session']")
-    if (!button) return
-    const item = items[Number(button.dataset.sessionIndex)]
-    if (!item) return
-    if (button.dataset.action === "open-cocreation-session") switchToCocreationSession(item)
-    else void archiveCocreationSession(item)
-  })
-  return true
+    const created = await api.world.createCocreationSession({ novel_id: props.projectId, title: `从第 ${artifact.payload_json.round_no} 轮继续`, source: sessionSourceRef(), workflow_preset: 'world_core', target_kind: props.targetKind, source_page_id: props.sourcePageId || null })
+    await api.world.advanceCocreationCheckpoint(created.id, { novel_id: props.projectId, checkpoint_suggestion_id: artifact.id, expected_checkpoint_id: null, round_no: artifact.payload_json.round_no, depth: artifact.payload_json.depth || 'seed' })
+    if (owner.isActive(scope)) return switchToCocreationSession(created)
+  } catch (err) { if (owner.isActive(scope)) toast(err?.message || '未能建立新的共创起点', 'error') }
+  finally { owner.finish(scope); checkpointPending.value = false }
+}
+async function openHistoricalOutcome(message) {
+  const scope = owner.begin()
+  try {
+    const artifact = await api.world.getWorldSuggestion(message.outcome_suggestion_id, props.projectId)
+    if (!owner.isActive(scope)) return
+    const payload = artifact.payload_json || {}
+    if (artifact.target_type === 'world_adoption_package') { historyOpen.value = false; router.navigate('world', 'bible', true, new URLSearchParams({ adoption_package_id: artifact.id })); return }
+    if (!['world_design_checkpoint.v1', 'world_core_checkpoint.v1'].includes(payload.schema_version)) {
+      const result = suggestionResult(artifact, props.sourcePageId, props.targetKind)
+      if (!result) { toast('这份成果属于另一创作目标，请从对应会话打开', 'warning'); return }
+      if (!confirmDiscard('当前提案有未应用的编辑，确定打开这份历史成果？')) return
+      previousWorldResult.value = worldResult.value; worldResult.value = result; session.suggestionId = artifact.id
+      discardPageProposalDraft(); historyOpen.value = false; persist(); return
+    }
+    const details = (payload.decisions || []).map(item => `<li>${esc(item.text)}</li>`).join('')
+    openOwnedModal('已保存的阶段成果', `<p>第 ${Number(payload.round_no || 0)} 轮 · 历史内容保持不变</p><ul>${details}</ul>`, [
+      { text: '继续阅读历史', class: 'btn-ghost', handler: closeModal },
+      { text: '在新会话继续', class: 'btn', handler: () => forkHistoricalCheckpoint(artifact) },
+    ])
+  } catch (err) { if (owner.isActive(scope)) toast(err?.message || '阶段成果无法读取', 'error') }
+  finally { owner.finish(scope) }
 }
 
 async function changePovChapter(value, { preserveSelection = false } = {}) {
@@ -1336,11 +1472,13 @@ async function openChapterPicker() {
 }
 function viewGenerationContext(kind) { const usage = kind === "chat" ? chatContextUsage.value : entityContextUsage.value; if (!usage) return toast("本次生成没有返回可审计的上下文记录", "warning"); const body = `<div class="generate-context-header"><span class="generate-context-stat">${esc(usage.section_key || "world_bible_synopsis")}</span><span class="generate-context-meta">状态：${esc(usage.status || "unknown")}</span><span class="generate-context-meta">Tokens：${esc(usage.token_count || 0)}</span></div><table class="data-table"><tbody><tr><th>Revision</th><td>${esc(usage.revision_id || "确定性降级/未包含")}</td></tr><tr><th>Source hash</th><td>${esc(usage.source_hash || "-")}</td></tr><tr><th>Block hash</th><td>${esc(usage.block_hash || "-")}</td></tr><tr><th>Context snapshot</th><td>${esc(usage.context_snapshot_id || "-")}</td></tr><tr><th>Stale</th><td>${usage.stale ? "是" : "否"}</td></tr><tr><th>Fallback</th><td>${usage.fallback ? "是" : "否"}</td></tr></tbody></table>`; openOwnedModal("本次实际使用的上下文", body, [], { size: "large" }) }
 
+const recoveredTurn = recoverActiveWorkflows(props.projectId, receiptStorage).find(item => item.workflowType === 'world_cocreation_turn' && item.meta?.session_id === session.serverSessionId)
+if (recoveredTurn || session.lastOperation) void recoverTurnOperation(recoveredTurn)
 const recoveredWorldTask = recoverActiveWorkflows(props.projectId, receiptStorage).find((item) => item.workflowType === "world_generation_suggestion" && item.meta?.session_key === props.sessionKey && (item.meta?.session_id || null) === (session.serverSessionId || null))
 if (recoveredWorldTask) startWorldTaskPolling(recoveredWorldTask.taskId, recoveredWorldTask.meta)
 const recoveredPovTask = recoverActiveWorkflows(props.projectId, receiptStorage).find((item) => item.workflowType === "writing_generate" && item.view === "generate" && item.meta?.kind === "pov_prose" && item.meta?.sessionKey === props.sessionKey)
 if (recoveredPovTask) void recoverPovTask(recoveredPovTask)
 if (activeTab.value === "pov_prose" && povForm.value.chapterIndex) void changePovChapter(povForm.value.chapterIndex, { preserveSelection: true })
 
-onBeforeUnmount(() => { clearChatStages(); disarmBeforeUnload(); persist(); worldTaskPoller?.stop(); owner.dispose(); if (ownsModal(ownedModal)) closeModal() })
+onBeforeUnmount(() => { window.removeEventListener('beforeunload', protectDesignBeforeUnload); clearChatStages(); persist(); worldTaskPoller?.stop(); turnTaskPoller?.stop(); owner.dispose(); if (ownsModal(ownedModal)) closeModal() })
 </script>

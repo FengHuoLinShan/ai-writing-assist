@@ -1,29 +1,29 @@
-# ADR-0021 — 共创会话持久化
+# ADR-0021 — 共创会话与持续世界模型
 
-- 状态：Accepted / Partially implemented
-- 日期：2026-09-09
-- 授权：用户确认“世界观能力对齐与作者工作台优化”第三期方向：项目内持久化共创会话，绑定主题/资料/世界核心，保存作者消息、完成的模型回复、作者决定、来源与成果引用，支持历史分页与跨设备继续；四动作与 checkpoint 续写沿用既有载体，不建立新事实源或自治运行时。
+- 状态：Accepted
+- 日期：2026-09-09；补全决策：2026-09-10
+- 授权：用户确认世界观能力对齐第三期，并要求执行审查后的补全计划。
 
 ## 决策
 
-World 模块新增自有数据 `world_cocreation_sessions` / `world_cocreation_messages`，保持 owner 与 `novel_id` 隔离，随项目 CASCADE 删除。会话以 `source_kind + source_id` 绑定创作对象（`project` / `world_bible_page` / `core_entity` / `world_library_topic`，读取时校验存在性），并保存工作区形状（`workflow_preset` / `target_kind` / `source_page_id`）供任意设备恢复到同一生成工作台。归档是软删除，已产生消息永不硬删。
+World 自有 `world_cocreation_sessions` / `world_cocreation_messages` 保存项目内来源绑定、终态讨论和成果引用，owner 与 `novel_id` 继续隔离。主题目录只是作者组织层，不自动产生地理或事实关系。归档保留历史，旧成果在独立会话中继续。
 
-消息只持久化终态记录：作者消息（可带四动作 `expand/connect/pressure/consolidate` 之一）、完成的模型回复、作者决定。生成类消息绑定来源 `context_confirmation_id` 与任务 `task_id`；候选类回复以 `outcome_suggestion_id` 引用既有 `creation_suggestion_queue` 成果，不复制建议内容。进行中的请求不落库：刷新后查询原 operation receipt，不自动重复提交，中断的气泡由前端标记为终态并允许显式重试。
+官方聊天与世界模型推演通过 `POST /api/world/cocreation-turns/task` 使用既有任务队列。`world_cocreation_turn` 的 `mode=chat|design`、会话、当前成果、作者消息、显式选入历史、聚焦面向和原参考确认共同进入请求指纹；前端提交前保存 operation receipt，刷新/换设备查询原任务。同步聊天入口保留一个兼容版本并 deprecated，不作为官方前端的恢复路径。
 
-会话绑定的生成请求仍走确定性工作流：同步会话聊天在 LLM 成功后原子追加作者消息与模型回复；异步候选任务把 `session_id` 与动作放入 task meta，worker 成功后追加成果消息。模型输入 = 近期消息（≤40 条）＋持久化作者决定（checkpoint 决定摘要）＋本次确认资料；完整历史仅可检索、可显式选入，不把“最近 40 条”当作全部创作记忆，服务端不替作者拼装隐性记忆。
+worker 使用 secret-free project LLM snapshot；provider 前释放事务，写入前重验项目、来源及会话。终态作者消息、回复与可恢复结果在同一 lease-fenced commit 中保存，重入不重复追加；取消/旧 attempt 不写入。进行中的正文不作为终态消息保存，失败问题保留在本地和原任务请求内。session detail 返回最后操作的轻量引用，不能绕过任务 API 的 owner 校验。
 
-checkpoint 续写沿用现有载体：会话只保存 `current_checkpoint_id` 工作区指针（checkpoint 本体仍是 suggestion 队列里的 `world_design_checkpoint.v1`）。推进指针必须携带 `expected_checkpoint_id`，与当前基线不符时返回可识别的 `pointer_drift` 409，提案保留、要求重新核对；旧 checkpoint 可读取可继续，不回写历史，不重置未修改区域，也不擅自晋升正典。会话条目状态（讨论中/待审阅/已存工作稿/已采用，另有作者否定）由消息成果引用 join 建议当前状态实时推导，不做冗余状态列。
+模型输入由服务端装配：最近至多 40 条会话消息、当前成果的全部有效作者决定、本次显式选入的历史、作者聚焦的模型面向，以及同一 confirmation 允许的资料。浏览历史不会自动选入；客户端 assistant 文本不能替代服务器记录。新消息与已保存决定冲突时先核对，长期决定的修改由作者明确保存；候选生成的决定守卫同样消费这些边界。
+
+完整世界模型沿用 suggestion 中的 `world_design_checkpoint.v1`，覆盖 19 区域。首次构造 seed；后续 `POST /api/world/design-checkpoints/revisions` 以父成果和 typed changes 合并，省略条目表示继承，废弃为显式状态，ID 和历史不因重排改变。服务端在会话锁内校验 expected pointer、保存新快照并推进指针，附带成果历史引用。旧 world_core/decision_state 摘要在新完整模型修订中清空，避免与当前世界状态冲突；旧父成果仍可读取。
+
+受影响依赖、测试与下游状态重新待查，旧结果保留供对照。candidate/instance 依赖实际规则、生活情境与实例证据，不按聊天轮数自动升级，也不意味着 Canon 采用。模型条目可明确送入已有待审建议流程；模型快照本体不可直接采用。
+
+容量使用既有 schema 上限、1 MiB 快照及有界上下文；聚焦面向可以缩小本轮读取，但不会静默裁掉长期决定。完整模型没有 Scene 可见性投影时失败关闭，不以普通作者模型替代人物/场景边界。资料库对象的真实 owner 由业务 `novel_id` 决定，模型内 `project.id` 保留其独立世界标识。
 
 ## 影响与替代
 
-考虑过复用 interaction 模块的 `interaction_message_nodes` 会话树：它是阅读原型的一项目一会话结构，按 `parent_node_id` 组织分支，与“一个来源对象多条会话、消息按时间分页、绑定生成 confirmation 与成果引用”的共创语义不匹配，跨模块还会引入 world→interaction 依赖。也考虑过继续用前端 localStorage v2 会话：无法跨设备、无服务端分页与检索，且 512 KiB/5 会话上限会把“完整历史”截断成最近若干条，违背第三期验收。
-
-该决定不引入新事实源：会话消息是讨论记录，不是 Canon；候选保存与正典采用仍是两个明确动作，成果只能进入既有 pending 建议与采用流程；作者决定持久化的是“决定文本”，其权威载体仍是 checkpoint 与采用包。LLM 配置继续经 `open_project_llm_client` / secret-free snapshot seam 获取，会话不保存 provider 或 Key。
+复用 suggestion、采用包、任务、Context 和 Vue bridge，不引入新的事实库、队列、自治 Agent 或 interaction 会话依赖。完整历史使用已有分页/检索和消息定位，聚焦、比较与编辑在当前工作区完成；后台任务引用不赋予资产写权限。
 
 ## 验证
 
-后端 API 测试覆盖会话 CRUD 与来源校验、消息分页/检索、四动作合法性、聊天原子落库（失败不写半截回合）、任务成功后成果消息与 confirmation/task 绑定、checkpoint 指针推进与 `pointer_drift` 409（提案保留）、旧 checkpoint 只读续写、状态推导（pending/accepted+page_draft/accepted 其他/rejected/无成果）、跨项目 404 隔离与无候选自动采用。前端 Vitest 覆盖会话水合、发送回合、指针推进与四态渲染；e2e 覆盖跨设备（双页面上下文）继续、刷新不重复提交、重名资料 Wiki 引用选择与账号切换恢复。
-
-## 当前实现范围
-
-会话、终态消息、阶段成果指针和来源引用已持久化；指针推进使用行锁和比较后写入，本地编辑缓存按服务器会话隔离。完整消息分页/检索已有服务接口，前端尚无完整历史阅读/选择界面；同步 chat 尚无独立 operation receipt。当前阶段成果构造器仍重建 seed 状态，未实现基于父 checkpoint 的完整 world-state 增量续写；上文持续世界模型相关决策是目标契约，不能视为已完成验收。
+验证覆盖完整状态保留、稳定身份、决定守卫、并发指针、来源变化、异操作指纹、任务重复执行与取消、历史定位/选择、跨设备恢复、未保存推演回看、局部编辑和窄屏。实际执行证据与尚未验证的模型质量/作者喜好分开记录；本地代码不等于发布或部署。

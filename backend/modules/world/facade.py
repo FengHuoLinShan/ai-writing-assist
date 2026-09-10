@@ -67,6 +67,7 @@ from modules.world.event_facade import (  # noqa: F401
     get_full_state,
     rollback_to_revision,
 )
+from modules.world.map_atlas_facade import get_map_review_source  # noqa: F401
 from modules.world.worldbuilding_facade import (  # noqa: F401
     apply_focused_world_package,
     assemble_post_import_adoption_package,

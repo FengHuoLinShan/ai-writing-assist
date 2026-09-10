@@ -83,3 +83,7 @@ and continue writing” while keeping previews editable, sourced, versioned and
 reversible. It is not an RP-user entry point and does not expose raw task or
 database concepts as a product requirement. Adoption/undo/conflict behavior
 must remain visible to the author in the workbench.
+
+## World dependency review
+
+`list_world_dependencies` / `read_world_dependency` expose versioned, read-only references from plot threads, arcs, Scenes and the current story-outline revision. They separate declared object references from literal outline mentions and return source hashes. World owns review receipts; resolving a finding still uses Story's own editor and version rules. The seam does not write World, Writing or continuity state, and planning records have no reader/Scene-local visibility projection.

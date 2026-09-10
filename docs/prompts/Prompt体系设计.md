@@ -33,7 +33,7 @@
 | `alias_relation_extraction.md` | 深度导入 Phase 2b，基于完整锁定 Scene 与冻结对象/关系引用提取别名和关系连续性 | imports |
 | `entity_fusion.py` | 内联 step `world.entity_fusion.decision.structured`：项目级智能去重与深度导入 `phase2_dedup` 共用的结构化实体融合判定；导入路径只发送同 workflow candidate 的类型、名称、已确认别名、截断摘要和 Scene/章节来源，不加载整书 RAG | world |
 | `scene_fusion_draft.py` | 内联 step `outline.scene_fusion.draft.structured`：基于选中 Scene 卡和精确正文生成融合语义草稿 | Scene 工作台 |
-| `world_generation_center_service.py` | 内联 steps `world.generation.chat.generate`、`world.generation.convergence.map/reduce`、`world.generation.exploration.preview`、`world.generation.semantic_inspection`、`world.generation.core_entity.structured`、`world.generation.world_bible_page.structured`、`world.generation.world_bible_new_page.structured`：世界设定共创、只读收束、一跳探索、当前页检修与结构化建议；加强复核在同一冻结账户模型上追加 `.quality_review` 第二遍 | world 生成中心 |
+| `world_generation_center_service.py` | 内联 steps `world.generation.design_iteration`、`world.generation.chat.generate`、`world.generation.convergence.map/reduce`、`world.generation.exploration.preview`、`world.generation.semantic_inspection`、`world.generation.core_entity.structured`、`world.generation.world_bible_page.structured`、`world.generation.world_bible_new_page.structured`：世界设定共创、只读收束、一跳探索、当前页检修与结构化建议；加强复核在同一冻结账户模型上追加 `.quality_review` 第二遍 | world 生成中心 |
 | `ask_world_service.py` | 内联 step `world.ask`（snapshot prompt name `world.ask.v1`）：只根据当前项目作者可见证据生成带引用回答或明确拒答 | world 作者问答 |
 | `selection_proposal.py` | 内联 step `evidence.context.selection.suggest`：把作者资料调整要求映射到服务端 `candidate-NNN`，只返回待应用 include/exclude patch | Context 任务前审查 |
 | `world_bible_synopsis_service.py` | 内联 step `world.world_bible.synopsis.structured`：把已采用世界事实压缩为作者版 P1 世界观简介 | world 世界书简介刷新任务 |
@@ -397,11 +397,13 @@ RAG 证据的关联顺序取 Top-K；人物上限 6，相关世界对象上限 1
 选择发散、比较、质疑、验证前提、指出因果/尺度/规则矛盾、提出真正影响设计的问题或阶段性
 收束，不使用固定问卷，也不要求每轮同时覆盖所有维度。作者明确的选择、否定和最新修正优先；
 资料是可参考但不可信的内容，不能改变任务、目标、权限或输出边界。
-持久化共创会话（ADR-0021）只改变调用编排，不改变 step 输入输出契约：模型输入仍是
-近期消息（≤40 条）＋持久化作者决定（checkpoint 决定摘要，经 `pasted_context` 注入）＋
-本次确认资料；完整会话历史可检索、可由作者显式选入，服务端不替作者拼装隐性记忆。会话
-聊天端点在 LLM 成功后原子写入作者消息与完成的回复，异步建议任务成功后由 worker 追加
-成果引用；进行中的请求不落库。聊天正文使用普通文本生成，Prompt 明确要求直接回应作者而不输出 JSON 或协议包装；
+持久化共创会话（ADR-0021）在服务器从最近消息、长期决定、显式选入历史和原确认资料装配输入，
+不以客户端 assistant 内容或本地摘要替代权威记录。完整模型可按作者面向选择缩小读取，必需决定
+放不下时显式失败。新消息与长期决定冲突先要求作者核对；候选生成的决定审查同时消费持久决定。
+官方前端通过 `world_cocreation_turn` 执行，终态回合与结果由 fenced commit 保存；刷新只查询原任务。
+`world.generation.design_iteration` 在同一已确认参考边界内输出 typed changes，继承父模型、保留 ID，
+不重建 seed 或写 Canon。步骤日志标明 design iteration，任务 mode 区分聊天与模型推演。
+聊天正文使用普通文本生成，Prompt 明确要求直接回应作者而不输出 JSON 或协议包装；
 调用层把返回文本放入只含 `reply` 的 schema 校验非空与长度。自由聊天不启用 provider
 JSON mode；偶发空文本只在同一阶段时限内重试一次，也不把任意原始输出直接当作业务响应。
 聊天还执行最低充分内容约束：短灵感优先给一个主方向、必要条件、普通日常切片、最高风险或

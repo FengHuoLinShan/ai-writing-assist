@@ -11,7 +11,9 @@
     </summary>
 
     <div class="world-health-body">
-      <div v-if="!policy.active" class="world-health-callout">
+      <p v-if="initialLoading" role="status">正在读取校验政策与最近回执…</p>
+      <div v-else-if="initialError" role="alert"><p>{{ initialError }}</p><button class="btn btn-sm" type="button" @click="loadInitialPolicy">重新读取</button></div>
+      <div v-if="!policy.active && policy.loaded !== false" class="world-health-callout">
         <p>当前可自愿运行校验，但发布和设定采用尚未启用强制门禁，旧项目行为不变。</p>
         <button
           type="button"
@@ -71,11 +73,32 @@
         </button>
       </div>
 
+      <details v-if="gapRoot?.id" class="world-health-scope">
+        <summary>定向复核范围</summary>
+        <label>关联深度<select v-model.number="gapDepth" :disabled="busy" @change="gapDomains = ['world']; gapSources = null; gapSelected = []"><option :value="0">只检查当前资料</option><option :value="1">当前资料与直接关联</option></select></label>
+        <div class="world-health-scope__domains"><label v-for="(label, domain) in gapDomainLabels" :key="domain"><input v-model="gapDomains" type="checkbox" :value="domain" :disabled="busy || domain === 'world' || gapDepth === 0 || !policy.semantic_enabled" />{{ label }}</label></div>
+        <template v-if="gapDomains.length > 1">
+          <button class="btn btn-sm" type="button" :disabled="busy || gapSourcesLoading" @click="loadGapSources">{{ gapSourcesLoading ? '正在读取关联…' : '读取可选来源' }}</button>
+          <p>选择本次实际要核对的资料，最多 40 项；没有选入的部分会明确记为未覆盖。</p>
+          <p v-if="gapSources && !gapAvailable.length">该范围没有可定位的关联来源，不能据此认定没有影响。</p>
+          <label v-for="item in gapAvailable" :key="`${item.kind}:${item.id}`" class="world-health-scope__item"><input v-model="gapSelected" type="checkbox" :value="gapItemKey(item)" :disabled="busy || (!gapSelected.includes(gapItemKey(item)) && gapSelected.length >= 40)" />{{ item.label }} · {{ item.match_basis === 'literal' ? '可能提及' : '声明关联' }}</label>
+        </template>
+      </details>
       <p v-if="error" class="form-error" role="alert">{{ error }}</p>
       <p v-else-if="busy" class="world-bible-empty-hint" role="status">校验在后台进行，离开后也会保留进度。</p>
       <p v-else-if="!run" class="world-bible-empty-hint">尚未校验。可先检查当前工作稿，准备采用整体设定时再做全面校验。</p>
 
       <template v-if="run">
+        <section v-if="sourceLoading || sourcePreview || sourceError" class="world-health-source-preview" aria-label="本次复核来源">
+          <p v-if="sourceLoading" role="status">正在核对来源版本…</p>
+          <p v-else-if="sourceError" role="alert">{{ sourceError }}</p>
+          <template v-else><h4>{{ sourcePreview.label }}</h4><p id="world-health-source-content" tabindex="-1" class="world-health-source-preview__text">{{ sourcePreview.text }}</p><p v-if="sourcePreview.truncated">这里只显示部分内容。</p></template>
+          <button type="button" class="btn btn-sm" @click="closeSourcePreview">返回问题列表</button>
+        </section>
+        <div v-if="scopeCoverage" class="world-health-callout">
+          <p>实际复核 {{ scopeCoverage.reviewed_sources }} 份已确认资料 · {{ scopeCoverage.review_depth === 0 ? '当前资料' : '当前资料与直接关联' }}。语义检查不能证明全库穷尽。</p>
+          <p v-for="omission in scopeCoverage.omissions || []" :key="omission">未覆盖：{{ omission }}</p>
+        </div>
         <p v-if="run.status === 'stale'" class="world-health-callout is-blocked" data-field="world-health-stale">
           {{ staleReasonLabel }}，旧回执不再能用于发布或采用；请重新校验并重新复核。
         </p>
@@ -138,11 +161,11 @@
                 <button type="button" class="btn btn-sm btn-ghost" :data-action="'review-deferred-' + finding.finding_id" :disabled="reviewSubmitting === finding.finding_id" @click="submitDisposition(finding, 'deferred')">稍后再定</button>
               </div>
             </div>
-            <button v-if="sourceTarget(finding)" type="button" class="btn btn-sm btn-ghost" data-action="world-health-open-source" @click="emit('open-source', sourceTarget(finding))">打开来源</button>
+            <button v-if="sourceTarget(finding) || finding.source_key?.startsWith('confirmed:')" type="button" class="btn btn-sm btn-ghost" data-action="world-health-open-source" @click="finding.source_key.startsWith('confirmed:') ? readReviewSource(finding, $event.currentTarget) : emit('open-source', sourceTarget(finding))">打开来源</button>
           </li>
         </ul>
         <p v-else-if="filterSeverity || filterAction" class="world-bible-empty-hint">当前筛选没有匹配的问题，可调整筛选查看其他项目。</p>
-        <p v-else-if="run.status === 'completed' && !findings.length" class="world-health-callout is-pass">本次范围未发现需处理的问题。</p>
+        <p v-else-if="run.status === 'completed' && run.gate === 'pass' && !omissionCount && !findings.length" class="world-health-callout is-pass">本次范围未发现需处理的问题。</p>
 
         <div v-if="findingsPageCount > 1" class="world-health-pager">
           <button type="button" class="btn btn-sm btn-ghost" :disabled="findingsPageNo <= 1 || findingsLoading" @click="turnFindingsPage(findingsPageNo - 1)">上一页</button>
@@ -256,7 +279,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import { createOperationId, pollTaskProgress } from "../../../../shared/workflowProgress.js"
 import { confirmAiReference } from "../../../../shared/aiReferenceModal.js"
 import { getApi, getConfirm, getToast } from "../../../bridge/index.js"
@@ -276,8 +299,49 @@ const confirm = getConfirm()
 const toast = getToast()
 const run = ref(props.initialRun)
 const policy = ref(props.policyStatus || { active: false })
+const initialLoading = ref(props.policyStatus?.loaded === false)
+const initialError = ref("")
 const history = ref([])
+const gapDepth = ref(1)
+const gapDomains = ref(['world'])
+const gapDomainLabels = { world: '世界资料', story: '故事结构', prose: '正文选段', map: '地图结构' }
+const gapSources = ref(null)
+const gapSelected = ref([])
+const gapSourcesLoading = ref(false)
+let gapSourceGeneration = 0
+const gapItemKey = item => `${item.kind}:${item.id}`
+const gapDomain = item => ({ story_thread: 'story', outline_arc: 'story', outline_scene: 'story', story_outline: 'story', prose_chapter: 'prose', map_node: 'map' }[item.kind] || 'world')
+const gapAvailable = computed(() => (gapSources.value?.sections || []).flatMap(section => section.items || []).filter(item => gapDomain(item) !== 'world' && gapDomains.value.includes(gapDomain(item))))
+watch(() => `${props.projectId}:${props.gapRoot?.type}:${props.gapRoot?.id}`, () => { gapSourceGeneration++; gapSources.value = null; gapSelected.value = []; gapSourcesLoading.value = false })
+async function loadGapSources() {
+  const root = props.gapRoot
+  if (!root?.id) return
+  const targetType = root.type === 'world_bible_page_draft' ? 'world_bible_page' : root.type
+  const targetId = root.type === 'world_bible_page_draft' ? root.page_id : root.id
+  if (!targetId) { error.value = '独立工作稿尚无可追踪的已发布来源，可先只检查当前稿件'; return }
+  const token = ++gapSourceGeneration; gapSourcesLoading.value = true; gapSelected.value = []; error.value = ''
+  try { const result = await api.world.previewWorldImpact({ novel_id: props.projectId, target_type: targetType, target_id: targetId }); if (token === gapSourceGeneration) gapSources.value = result }
+  catch (err) { if (token === gapSourceGeneration) error.value = err?.message || '关联来源无法读取' }
+  finally { if (token === gapSourceGeneration) gapSourcesLoading.value = false }
+}
 const error = ref("")
+const sourcePreview = ref(null)
+const sourceLoading = ref(false)
+const sourceError = ref('')
+let sourceGeneration = 0
+let sourceTrigger = null
+const scopeCoverage = computed(() => [...(run.value?.coverage_ledger || [])].reverse().find(item => item.layer === 'scope'))
+async function readReviewSource(finding, trigger) {
+  const token = ++sourceGeneration; const runId = run.value?.id
+  sourceTrigger = trigger; sourceLoading.value = true; sourcePreview.value = null; sourceError.value = ''
+  try {
+    const result = await api.world.readWorldValidationSource(runId, props.projectId, finding.source_key)
+    if (token !== sourceGeneration || runId !== run.value?.id) return
+    sourcePreview.value = result; await nextTick(); document.getElementById('world-health-source-content')?.focus()
+  } catch (err) { if (token === sourceGeneration) sourceError.value = err?.message || '来源读取失败，请重试' }
+  finally { if (token === sourceGeneration) sourceLoading.value = false }
+}
+function closeSourcePreview() { sourceGeneration++; sourcePreview.value = null; sourceError.value = ''; sourceLoading.value = false; sourceTrigger?.focus?.() }
 const pendingScope = ref("")
 const historyLoading = ref(false)
 const accepting = ref(false)
@@ -320,7 +384,7 @@ function emptyPolicyForm() {
   }
 }
 
-const busy = computed(() => ["queued", "running"].includes(run.value?.status) || Boolean(pendingScope.value))
+const busy = computed(() => initialLoading.value || policy.value.loaded === false || ["queued", "running"].includes(run.value?.status) || Boolean(pendingScope.value))
 const findings = computed(() => Array.isArray(run.value?.findings) ? run.value.findings : [])
 const decisionCount = computed(() => findings.value.filter((item) => item.action === "AUTHOR-REQUIRED").length)
 const gapCategories = new Set(["facet-gap", "pressure-not-run", "missing-world-state", "reproduction-loop-gap", "coupling-chain-gap", "situated-test-gap", "rule-economics-gap", "candidate-mountain"])
@@ -490,7 +554,7 @@ const locationLabel = (location) => {
   })[key] || "来源中的具体位置"
 }
 function sourceTarget(finding) {
-  const match = String(finding?.source_key || "").match(/^(page|draft):(.+)$/)
+  const match = String(finding?.source_key || "").match(/^(page|draft|entity|adoption):(.+)$/)
   return match ? { kind: match[1], id: match[2] } : null
 }
 function formatTime(value) {
@@ -548,6 +612,10 @@ async function startGapRun() {
     emit("gap-root-needed")
     return false
   }
+  const selected = gapAvailable.value.filter(item => gapSelected.value.includes(gapItemKey(item)))
+  if (gapDomains.value.length > 1 && !selected.length) { error.value = '请先读取并勾选本次需要核对的关联来源'; return false }
+  const pinned = selected.map(item => item.source_ref ? { kind: 'source_range', source_ref: item.source_ref } : { kind: 'target', target_ref: item.target_ref })
+  if (props.gapRoot.type !== 'world_bible_page_draft') pinned.unshift({ kind: 'target', target_ref: { target_type: props.gapRoot.type, target_id: props.gapRoot.id, target_path: '' } })
   const token = ++generation
   pendingScope.value = "gap"
   error.value = ""
@@ -560,6 +628,7 @@ async function startGapRun() {
           task: `定向查漏：${props.gapRoot.label || "根对象"}及其声明的直接依赖`,
           scope: "world",
           include_pending_objects: false,
+          pinned_refs: pinned,
           ...(props.gapRoot.selected_world_bible_draft_ids?.length
             ? { selected_world_bible_draft_ids: props.gapRoot.selected_world_bible_draft_ids }
             : {}),
@@ -574,6 +643,7 @@ async function startGapRun() {
       target_id: props.gapRoot.id,
       root_type: props.gapRoot.type,
       trigger: "world_health",
+      ...(gapDomains.value.length > 1 || gapDepth.value === 0 ? { review_domains: [...gapDomains.value], review_depth: gapDepth.value, expected_impact_scope_hash: gapSources.value?.scope_hash || undefined } : {}),
       context_confirmation_id: confirmation?.id || undefined,
     })
     if (token !== generation) return false
@@ -768,17 +838,38 @@ function stopPolling() {
   poller = null
 }
 
+async function loadInitialPolicy() {
+  const token = ++generation
+  initialLoading.value = true; initialError.value = ''
+  try {
+    const [nextPolicy, latest] = await Promise.all([api.world.getWorldValidationPolicyStatus(props.projectId), api.world.getLatestWorldValidationRun(props.projectId)])
+    if (token !== generation) return
+    policy.value = { ...nextPolicy, loaded: true }
+    run.value = latest
+    initialLoading.value = false
+    emit('policy-updated', policy.value); emit('updated', latest)
+    recoverPolling(); loadFindings()
+  } catch (err) { if (token === generation) initialError.value = err?.message || '校验资料读取失败' }
+  finally { if (token === generation) initialLoading.value = false }
+}
 onMounted(() => {
+  if (props.policyStatus?.loaded === false) { void loadInitialPolicy(); return }
   recoverPolling()
   loadFindings()
 })
-onBeforeUnmount(() => {
+onBeforeUnmount(() => { gapSourceGeneration++; sourceGeneration++;
   generation += 1
   stopPolling()
 })
 </script>
 
 <style scoped>
+.world-health-scope { display: grid; gap: 12px; }
+.world-health-scope summary { min-height: 44px; cursor: pointer; }
+.world-health-scope label { display: flex; gap: 8px; align-items: center; min-height: 44px; }
+.world-health-scope__domains { display: flex; flex-wrap: wrap; gap: 12px; }
+.world-health-source-preview__text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 60vh; overflow: auto; line-height: 1.85; }
+
 .world-policy-values { display: grid; gap: 8px; min-width: 0; }
 .world-policy-values label { display: grid; gap: 4px; min-width: 0; }
 .world-policy-values input, .world-policy-values select { min-width: 0; max-width: 100%; min-height: 44px; }

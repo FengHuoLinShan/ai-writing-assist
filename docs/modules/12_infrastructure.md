@@ -350,7 +350,7 @@ bucket。这不是分布式或全局 DDoS 防护，也不表示当前外部 Clou
 | 模块 | 当前注册处理器 |
 |------|------|
 | project | `smart_dedup_scan` |
-| world | `world_alias_relation_extraction`、`world_entity_fusion_suggestions`、`world_bible_projection_refresh`、`world_bible_synopsis_refresh`、`world_generation_suggestion`、`world_validation`、`map_atlas_generate`、`world_map_schematic_generate`、`map_atlas_storage_cleanup`、`world_object_image_cleanup` |
+| world | `world_alias_relation_extraction`、`world_entity_fusion_suggestions`、`world_bible_projection_refresh`、`world_bible_synopsis_refresh`、`world_generation_suggestion`、`world_cocreation_turn`、`world_validation`、`map_atlas_generate`、`world_map_schematic_generate`、`map_atlas_storage_cleanup`、`world_object_image_cleanup` |
 
 `world_generation_suggestion` 的 task meta 可携带 `session_id` 与 `session_action`（ADR-0021）：任务成功后由 world 域把作者回合与成果引用追加进持久化共创会话，失败或重试不落半截记录；transport 幂等仍由 operation receipt 承担，会话写入不改变任务指纹语义。
 | story | `story_outline_generate`、`outline_analyze`、`outline_generate`、`scene_fusion_preview`、`story_character_card_generate`、`story_reaction_propose`、`story_scene_script_generate`、`story_one_click`；`plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate` 仅为存量任务的 unsupported 兼容注册 |
@@ -476,3 +476,7 @@ RP DeepSeek能力快照可固定max/900秒及65,536输出预算，旧快照按�
 UUID。过滤在领取 SQL 中完成，只处理匹配的 pending 任务；不会领取、取消或修改其他排队任务。
 不传参数仍是原队列领取方式。退避、coalescing、SKIP LOCKED、lease、preflight 和提交 fence
 全部复用；该入口用于明确任务的手动验收，不是浏览器权限或项目边界的替代。
+
+### 共创回合恢复
+
+`world_cocreation_turn` 使用 `auto_requeue`、至多两个 attempt 与现有 transport retry scope。World 持有业务判断，任务基础设施只提供 operation fingerprint、lease commit fence 和精确 `novel_id + task_type + session_id` 的最后操作查询；该类型禁止 generic submit。终态回合与可恢复结果原子保存，进度不等于采用内容；没有新任务表或调度器。

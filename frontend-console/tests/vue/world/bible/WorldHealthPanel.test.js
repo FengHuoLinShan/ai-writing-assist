@@ -400,3 +400,13 @@ describe("WorldHealthPanel", () => {
     })
   })
 })
+
+
+it("finishes lazy policy loading before resuming receipt polling", async () => {
+  api.world.getWorldValidationPolicyStatus.mockResolvedValue({ active: true, semantic_enabled: false })
+  api.world.getLatestWorldValidationRun = vi.fn(async () => null)
+  const wrapper = mountPanel({ policyStatus: { active: false, loaded: false } })
+  await flushPromises()
+  expect(wrapper.text()).not.toContain('正在读取校验政策')
+  expect(wrapper.get('[data-action="world-health-run-full"]').element.disabled).toBe(false)
+})

@@ -160,8 +160,10 @@ from modules.world.schemas import (
     WorldCocreationSessionListResponse,
     WorldCocreationSessionResponse,
     WorldCocreationSessionUpdateRequest,
+    WorldCocreationTurnTaskRequest,
     WorldCoreCheckpointSaveRequest,
     WorldDesignCheckpointSaveRequest,
+    WorldDesignRevisionRequest,
     WorldGenerationApplyPageDraftRequest,
     WorldGenerationApplyPageDraftResponse,
     WorldGenerationChatRequest,
@@ -177,6 +179,8 @@ from modules.world.schemas import (
     WorldGenerationSuggestionTaskRequest,
     WorldGenerationTaskResponse,
     WorldImpactPreviewResponse,
+    WorldImpactSourceReadRequest,
+    WorldImpactSourceReadResponse,
     WorldKnowledgeGraphResponse,
     WorldLibraryFavoriteRequest,
     WorldLibraryFavoriteResponse,
@@ -761,6 +765,19 @@ async def enqueue_world_suggestion(
 
 
 @router.post(
+    "/cocreation-turns/task", response_model=WorldGenerationTaskResponse, status_code=202
+)
+async def enqueue_world_cocreation_turn(
+    db: DbSession, data: WorldCocreationTurnTaskRequest
+):
+    await require_active_project(db, data.novel_id)
+    try:
+        return await _cocreation_session_service.enqueue_turn(db, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post(
     "/cocreation-sessions",
     response_model=WorldCocreationSessionResponse,
     status_code=201,
@@ -785,6 +802,9 @@ async def list_world_cocreation_sessions(
     include_archived: bool = Query(default=False),
     source_kind: str | None = Query(None),
     source_id: str | None = Query(None),
+    workflow_preset: str | None = Query(None),
+    target_kind: str | None = Query(None),
+    search: str | None = Query(None, max_length=200),
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=20, ge=1, le=100),
 ) -> WorldCocreationSessionListResponse:
@@ -794,6 +814,9 @@ async def list_world_cocreation_sessions(
         include_archived=include_archived,
         source_kind=source_kind,
         source_id=source_id,
+        workflow_preset=workflow_preset,
+        target_kind=target_kind,
+        search=search,
         limit=limit,
         skip=skip,
     )
@@ -846,18 +869,20 @@ async def list_world_cocreation_messages(
     *,
     novel_id: ActiveNovelIdQuery,
     search: str | None = Query(None),
+    around_message_id: str | None = Query(None),
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=200),
 ) -> WorldCocreationMessageListResponse:
-    items, total = await _cocreation_session_service.list_messages(
+    items, total, offset = await _cocreation_session_service.list_messages(
         db,
         novel_id=novel_id,
         session_id=session_id,
         limit=limit,
         skip=skip,
         search=search,
+        around_message_id=around_message_id,
     )
-    return WorldCocreationMessageListResponse(items=items, total=total)
+    return WorldCocreationMessageListResponse(items=items, total=total, offset=offset)
 
 
 @router.post(
@@ -1304,6 +1329,7 @@ async def list_world_library(
     *,
     novel_id: ActiveNovelIdQuery,
     q: str | None = Query(None, description="标题、正文或摘要的模糊搜索"),
+    target_id: uuid.UUID | None = Query(None, description="项目内精确资料定位"),
     kind: str | None = Query("all", description="资料类别：all / entity / page / draft"),
     item_type: str | None = Query(None, description="实体类型或页面类型"),
     state: str | None = Query(
@@ -1328,6 +1354,7 @@ async def list_world_library(
         db,
         novel_id,
         q=q,
+        target_id=str(target_id) if target_id else None,
         kind=kind,
         item_type=item_type,
         state=state,
@@ -1574,8 +1601,11 @@ async def list_bible_drafts(
     db: DbSession,
     *,
     novel_id: ActiveNovelIdQuery,
+    page_id: uuid.UUID | None = Query(None),
 ) -> WorldBiblePageDraftListResponse:
-    items, total = await _bible_lifecycle_service.list_drafts(db, novel_id)
+    items, total = await _bible_lifecycle_service.list_drafts(
+        db, novel_id, page_id=str(page_id) if page_id else None
+    )
     return WorldBiblePageDraftListResponse(items=items, total=total)
 
 
@@ -1876,6 +1906,27 @@ async def save_world_validation_policy_draft(
 ) -> WorldBiblePageDraftResponse:
     await _require_active_project_exclusive(db, novel_id)
     return await _world_validation_service.save_policy_draft(db, novel_id, data)
+
+
+@router.post("/impact-preview/source", response_model=WorldImpactSourceReadResponse)
+async def read_world_impact_source(db: DbSession, data: WorldImpactSourceReadRequest):
+    await require_active_project(db, data.novel_id)
+    return await _world_impact_service.read_source(db, data)
+
+
+@router.get(
+    "/bible/validation-runs/{run_id}/source", response_model=WorldImpactSourceReadResponse
+)
+async def read_world_validation_source(
+    db: DbSession,
+    run_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    source_key: str = Query(..., max_length=256),
+):
+    return await _world_validation_service.read_review_source(
+        db, novel_id, run_id, source_key
+    )
 
 
 @router.get("/impact-preview", response_model=WorldImpactPreviewResponse)
@@ -2341,6 +2392,16 @@ async def save_world_design_checkpoint(
     return await _adoption_package_service.save_design_checkpoint(db, data)
 
 
+@router.post(
+    "/design-checkpoints/revisions",
+    response_model=CreationSuggestionResponse,
+    status_code=201,
+)
+async def revise_world_design_checkpoint(db: DbSession, data: WorldDesignRevisionRequest):
+    await require_active_project(db, data.novel_id)
+    return await _adoption_package_service.revise_design_checkpoint(db, data)
+
+
 @router.get(
     "/adoption-packages/{suggestion_id}", response_model=CreationSuggestionResponse
 )
@@ -2425,6 +2486,13 @@ async def list_world_suggestions(
         limit=limit,
     )
     return CreationSuggestionListResponse(items=items, total=total)
+
+
+@router.get("/suggestions/{suggestion_id}", response_model=CreationSuggestionResponse)
+async def get_world_suggestion(
+    db: DbSession, suggestion_id: str, *, novel_id: ActiveNovelIdQuery
+):
+    return await _suggestion_service.get(db, novel_id, suggestion_id)
 
 
 @router.post(

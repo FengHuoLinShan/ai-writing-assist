@@ -27,6 +27,10 @@ let state
 let router
 let toast
 let showModalHtml
+let completeChat
+let turnTasks
+// Durable task polling settles after the shared polling interval.
+const waitFor = (assertion, options = {}) => vi.waitFor(assertion, { timeout: 3500, ...options })
 
 function baseProps(overrides = {}) {
   return {
@@ -142,6 +146,9 @@ beforeEach(() => {
   writeGenerateContextPreview("p1", {})
   document.body.innerHTML = '<div id="topbar-module"></div><div id="modal-body"></div>'
   const worldTaskResults = new Map()
+  const sessionMessages = new Map()
+  turnTasks = new Map()
+  completeChat = vi.fn()
   const generateWorldSuggestion = vi.fn()
   const enqueueWorldSuggestion = vi.fn(async (payload) => {
     const { operation_id: operationId, ...request } = payload
@@ -160,17 +167,30 @@ beforeEach(() => {
       saveCoreCheckpoint: vi.fn(), saveDesignCheckpoint: vi.fn(),
       createCocreationSession: vi.fn(), listCocreationSessions: vi.fn(), getCocreationSession: vi.fn(),
       updateCocreationSession: vi.fn(), listCocreationMessages: vi.fn(), appendCocreationMessage: vi.fn(),
-      advanceCocreationCheckpoint: vi.fn(), cocreationChat: vi.fn(),
+      advanceCocreationCheckpoint: vi.fn(), cocreationChat: vi.fn(), reviseDesignCheckpoint: vi.fn(),
+      enqueueCocreationTurn: vi.fn(async payload => {
+        turnTasks.set(payload.operation_id, { task_id: payload.operation_id, status: 'running', meta: payload, task_type: 'world_cocreation_turn' })
+        Promise.resolve().then(() => completeChat(payload)).then(result => {
+          const rows = sessionMessages.get(payload.session_id) || []
+          const author = [...payload.messages].reverse().find(item => item.role === 'user')
+          if (author) rows.push({ id: `${payload.operation_id}-author`, role: 'author', content: author.content, action: payload.session_action })
+          rows.push({ id: `${payload.operation_id}-assistant`, role: 'assistant', content: result.reply, task_id: payload.operation_id })
+          sessionMessages.set(payload.session_id, rows)
+          turnTasks.set(payload.operation_id, { task_id: payload.operation_id, task_type: 'world_cocreation_turn', status: 'done', meta: payload, result: { ...result, mode: payload.mode, session_id: payload.session_id } })
+        }).catch(error => turnTasks.set(payload.operation_id, { task_id: payload.operation_id, task_type: 'world_cocreation_turn', status: 'failed', meta: payload, error_message: error.message }))
+        return { task_id: payload.operation_id, status: 'pending' }
+      }),
     },
     outline: { listScenesOrdered: vi.fn(), listThreads: vi.fn(), listScenesByChapter: vi.fn(), getSceneWorkbench: vi.fn(), getScene: vi.fn() },
     writing: { listChapters: vi.fn(), get: vi.fn(), getDraft: vi.fn(), generate: vi.fn() },
     tasks: {
-      get: vi.fn(async (taskId) => worldTaskResults.has(taskId)
+      get: vi.fn(async (taskId) => turnTasks.has(taskId) ? turnTasks.get(taskId) : worldTaskResults.has(taskId)
         ? { task_id: taskId, task_type: "world_generation_suggestion", status: "done", result: worldTaskResults.get(taskId) }
         : { task_id: taskId, status: "pending", progress: 0 }),
       cancel: vi.fn(),
     },
   }
+  api.world.getCocreationSession.mockImplementation(async sessionId => ({ messages: sessionMessages.get(sessionId) || [], session: { id: sessionId } }))
   state = { currentProjectId: "p1", currentProject: { title: "项目一" }, viewStates: {} }
   router = { navigate: vi.fn(), replace: vi.fn(), getCurrentQuery: vi.fn(() => new URLSearchParams()), commitCurrentQuery: vi.fn() }
   toast = vi.fn()
@@ -194,7 +214,7 @@ describe("GenerateView Vue behavior matrix", () => {
       destination: "generate",
       route: { source_page_id: null, target: "core_entity" },
     })
-    expect(api.generate.worldChat).not.toHaveBeenCalled()
+    expect(completeChat).not.toHaveBeenCalled()
     expect(api.generate.generateWorldSuggestion).not.toHaveBeenCalled()
 
     first.unmount()
@@ -203,7 +223,7 @@ describe("GenerateView Vue behavior matrix", () => {
       attachTo: document.body,
     })
     expect(second.get("#generate-chat-input").element.value).toBe("尚未发送的白堤校验说明")
-    expect(api.generate.worldChat).not.toHaveBeenCalled()
+    expect(completeChat).not.toHaveBeenCalled()
   })
 
   it("restores the POV selections and author instruction after remount", async () => {
@@ -214,7 +234,7 @@ describe("GenerateView Vue behavior matrix", () => {
     const first = mount(GenerateView, { props: baseProps({ tab: "pov_prose", sessionKey: key, povChapters: chapters, povCharacters: characters }), attachTo: document.body })
 
     await first.get("#generate-pov-chapter").setValue("1")
-    await vi.waitFor(() => expect(first.findAll("#generate-pov-scene option")).toHaveLength(2))
+    await waitFor(() => expect(first.findAll("#generate-pov-scene option")).toHaveLength(2))
     await first.get("#generate-pov-scene").setValue("scene-1")
     await first.get("#generate-pov-instruction").setValue("保持克制")
     await flushPromises()
@@ -222,7 +242,7 @@ describe("GenerateView Vue behavior matrix", () => {
 
     first.unmount()
     const second = mount(GenerateView, { props: baseProps({ tab: "pov_prose", sessionKey: key, initialSession: readGenerateSession(key), povChapters: chapters, povCharacters: characters }), attachTo: document.body })
-    await vi.waitFor(() => expect(second.findAll("#generate-pov-scene option")).toHaveLength(2))
+    await waitFor(() => expect(second.findAll("#generate-pov-scene option")).toHaveLength(2))
     expect(second.get("#generate-pov-chapter").element.value).toBe("1")
     expect(second.get("#generate-pov-scene").element.value).toBe("scene-1")
     expect(second.get("#generate-pov-character").element.value).toBe("char-1")
@@ -250,77 +270,73 @@ describe("GenerateView Vue behavior matrix", () => {
   })
 
   it("renders the world workspace without v-html and completes chat", async () => {
-    api.generate.worldChat.mockResolvedValue({ reply: "旧友型反派", context_usage: { revision_id: "r-chat" } })
+    api.world.createCocreationSession.mockResolvedValue({ id: 'cs-test', title: '测试会话', current_checkpoint_id: null })
+    completeChat.mockResolvedValue({ reply: "旧友型反派", context_usage: { revision_id: "r-chat" } })
     const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
     await wrapper.get("#generate-chat-input").setValue("帮我设计反派")
     await wrapper.get('[data-action="send-chat-message"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.get("#generate-chat-messages").text()).toContain("旧友型反派"))
-    expect(api.generate.worldChat).toHaveBeenCalledWith(expect.objectContaining({ novel_id: "p1", messages: [{ role: "user", content: "帮我设计反派" }] }), expect.objectContaining({ signal: expect.any(AbortSignal) }))
+    await waitFor(() => expect(wrapper.get("#generate-chat-messages").text()).toContain("旧友型反派"))
+    expect(api.world.enqueueCocreationTurn).toHaveBeenCalledWith(expect.objectContaining({ novel_id: "p1", messages: [{ role: "user", content: "帮我设计反派" }], session_id: "cs-test", mode: "chat", operation_id: expect.any(String) }))
     expect(wrapper.html()).not.toContain("v-html")
   })
 
-  it("shows honest chat stages while waiting", async () => {
-    vi.useFakeTimers()
-    let wrapper
-    try {
-      api.generate.worldChat.mockImplementation(() => new Promise(() => {}))
-      wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
-      await wrapper.get("#generate-chat-input").setValue("慢一点也要保留反馈")
-      await wrapper.get('[data-action="send-chat-message"]').trigger("click")
-
-      expect(wrapper.get("#generate-chat-messages").text()).toContain("正在理解你的目标")
-      await vi.advanceTimersByTimeAsync(2500)
-      expect(wrapper.get("#generate-chat-messages").text()).toContain("正在核对相关设定和前文")
-      await vi.advanceTimersByTimeAsync(5500)
-      expect(wrapper.get("#generate-chat-messages").text()).toContain("正在组织可以继续讨论的回复")
-    } finally {
-      wrapper?.unmount()
-      vi.useRealTimers()
-    }
+  it("shows the durable operation while its reply is pending", async () => {
+    api.world.createCocreationSession.mockResolvedValue({ id: 'cs-test' })
+    completeChat.mockImplementation(() => new Promise(() => {}))
+    const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
+    await wrapper.get('#generate-chat-input').setValue('慢一点也要保留反馈')
+    await wrapper.get('[data-action="send-chat-message"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('停止本轮')
+    expect(wrapper.get('[data-action="send-chat-message"]').element.disabled).toBe(true)
+    expect(JSON.parse(sessionStorage.getItem('novel_active_workflows_v1'))[0]).toMatchObject({ workflowType: 'world_cocreation_turn', meta: { session_id: 'cs-test' } })
   })
 
   it("keeps a failed chat question and retries without duplicating it", async () => {
-    api.generate.worldChat
+    api.world.createCocreationSession.mockResolvedValue({ id: 'cs-test', title: '测试会话', current_checkpoint_id: null })
+    completeChat
       .mockRejectedValueOnce(new Error("服务暂时不可用"))
       .mockResolvedValueOnce({ reply: "已恢复回复" })
     const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
     await wrapper.get("#generate-chat-input").setValue("核对潮汐交通规则")
     await wrapper.get('[data-action="send-chat-message"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.get('[data-action="retry-chat-message"]')).toBeTruthy())
+    await waitFor(() => expect(wrapper.get('[data-action="retry-chat-message"]')).toBeTruthy())
 
-    expect(wrapper.get("#generate-chat-messages").text()).toContain("暂时没能回复")
+    expect(wrapper.get("#generate-chat-messages").text()).toContain("服务暂时不可用")
     expect(document.activeElement).toBe(wrapper.get('[data-action="retry-chat-message"]').element)
     expect(wrapper.findAll(".generate-chat-message.user")).toHaveLength(1)
     await wrapper.get('[data-action="retry-chat-message"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.get("#generate-chat-messages").text()).toContain("已恢复回复"))
+    await waitFor(() => expect(wrapper.get("#generate-chat-messages").text()).toContain("已恢复回复"))
 
-    expect(api.generate.worldChat).toHaveBeenCalledTimes(2)
+    expect(completeChat).toHaveBeenCalledTimes(2)
     expect(wrapper.findAll(".generate-chat-message.user")).toHaveLength(1)
   })
 
   it("runs bounded World Core rounds and never saves from a shortcut or the third reply", async () => {
-    api.generate.worldChat.mockResolvedValue({ reply: "只生长当前一层。" })
+    api.world.createCocreationSession.mockResolvedValue({ id: 'cs-test', title: '测试会话', current_checkpoint_id: null })
+    completeChat.mockResolvedValue({ reply: "只生长当前一层。" })
     const key = generateSessionKey("p1", null, "core_entity", "world_core")
     const wrapper = mount(GenerateView, { props: baseProps({ preset: "world_core", sessionKey: key }), attachTo: document.body })
 
     await wrapper.get('[data-action="world-core-pressure"]').trigger("click")
     expect(wrapper.get("#generate-chat-input").element.value).toContain("压力测试")
-    expect(api.generate.worldChat).not.toHaveBeenCalled()
+    expect(completeChat).not.toHaveBeenCalled()
     for (let round = 0; round < 3; round += 1) {
       if (round) await wrapper.get("#generate-chat-input").setValue(`第 ${round + 1} 轮`)
       await wrapper.get('[data-action="send-chat-message"]').trigger("click")
       await flushPromises()
-      await vi.waitFor(() => expect(api.generate.worldChat).toHaveBeenCalledTimes(round + 1))
+      await waitFor(() => expect(completeChat).toHaveBeenCalledTimes(round + 1))
+      await waitFor(() => expect(wrapper.findComponent({ name: "WorldWorkspace" }).props("successfulRounds")).toBe(round + 1))
     }
 
-    expect(api.generate.worldChat.mock.calls[0][0]).toMatchObject({
+    expect(completeChat.mock.calls[0][0]).toMatchObject({
       workflow_preset: "world_core",
       target: { kind: "core_entity", template: "none" },
     })
     expect(wrapper.get("[data-action='save-world-core-checkpoint']").element.disabled).toBe(true)
     expect(wrapper.text()).toContain("未保存的草稿仍只保证在当前浏览器恢复")
     expect(api.world.saveCoreCheckpoint).not.toHaveBeenCalled()
-    expect(readGenerateSession(key).successfulRounds).toBe(3)
+    expect(readGenerateSession(cocreationSessionKey(key, "cs-test")).successfulRounds).toBe(3)
     expect(wrapper.find('[data-action="generate-world-suggestion"]').exists()).toBe(false)
   })
 
@@ -332,13 +348,13 @@ describe("GenerateView Vue behavior matrix", () => {
     const wrapper = mount(GenerateView, { props: baseProps({ preset: "world_core", sessionKey: key, initialSession }), attachTo: document.body })
 
     await wrapper.get('[data-action="converge-world"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.text()).toContain("世界核心已通过交接门"))
+    await waitFor(() => expect(wrapper.text()).toContain("世界核心已通过交接门"))
     expect(api.generate.convergeWorld.mock.calls[0][0]).toMatchObject({ workflow_preset: "world_core" })
     expect(wrapper.findAll(".generate-convergence-items select")[2].element.value).toBe("rejected")
     expect(api.world.saveDesignCheckpoint).not.toHaveBeenCalled()
 
     await wrapper.get('[data-action="save-world-core-checkpoint"]').trigger("click")
-    await vi.waitFor(() => expect(api.world.saveDesignCheckpoint).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(api.world.saveDesignCheckpoint).toHaveBeenCalledTimes(1))
 
     expect(api.world.saveDesignCheckpoint.mock.calls[0][0]).toMatchObject({
       novel_id: "p1",
@@ -386,7 +402,7 @@ describe("GenerateView Vue behavior matrix", () => {
     }), attachTo: document.body })
 
     await wrapper.get('[data-subtab="world"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.text()).toContain("原来源与生成上下文暂时无法核对"))
+    await waitFor(() => expect(wrapper.text()).toContain("原来源与生成上下文暂时无法核对"))
 
     expect(wrapper.get("#generate-chat-input").element.value).toBe("保留的未发送内容")
     expect(wrapper.get('[data-action="generate-world-suggestion"]').element.disabled).toBe(true)
@@ -410,14 +426,14 @@ describe("GenerateView Vue behavior matrix", () => {
     const wrapper = mount(GenerateView, { props: baseProps({ sessionKey: key, initialSession }), attachTo: document.body })
 
     await wrapper.get('[data-action="converge-world"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.get('[data-section="convergence-preview"]').text()).toContain("制度骨架与精度边界"))
+    await waitFor(() => expect(wrapper.get('[data-section="convergence-preview"]').text()).toContain("制度骨架与精度边界"))
 
     expect(api.generate.convergeWorld).toHaveBeenCalledWith(expect.objectContaining({
       novel_id: "p1",
       messages: initialSession.messages,
       excluded_message_count: 0,
     }), expect.objectContaining({ signal: expect.any(AbortSignal) }))
-    expect(api.generate.worldChat).not.toHaveBeenCalled()
+    expect(completeChat).not.toHaveBeenCalled()
     expect(api.generate.generateWorldSuggestion).not.toHaveBeenCalled()
     expect(wrapper.get('[data-section="convergence-preview"]').text()).toContain("84")
     expect(wrapper.get('[data-section="convergence-preview"]').text()).toContain("故事结构")
@@ -436,7 +452,7 @@ describe("GenerateView Vue behavior matrix", () => {
     expect(wrapper.find('[data-section="convergence-preview"]').exists()).toBe(false)
     expect(wrapper.get("#generate-chat-messages").text()).toContain("作者改写后的决定消息")
     expect(readGenerateSession(key).messages.at(-1)).toMatchObject({ role: "user", content: "作者改写后的决定消息", kind: "decision" })
-    expect(api.generate.worldChat).not.toHaveBeenCalled()
+    expect(completeChat).not.toHaveBeenCalled()
     expect(api.generate.generateWorldSuggestion).not.toHaveBeenCalled()
   })
 
@@ -454,7 +470,7 @@ describe("GenerateView Vue behavior matrix", () => {
     })
 
     await wrapper.get('[data-action="converge-world"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.text()).toContain("白堤港口仍被封锁"))
+    await waitFor(() => expect(wrapper.text()).toContain("白堤港口仍被封锁"))
     const sourceButton = wrapper.findAll(".generate-convergence-sources button").find((button) => button.text().includes("白堤港口仍被封锁"))
     await sourceButton.trigger("click")
 
@@ -484,7 +500,7 @@ describe("GenerateView Vue behavior matrix", () => {
     expect(wrapper.get("#generate-world-pages").text()).not.toContain("当前页")
     await wrapper.get("#generate-world-pages").setValue(["page-2", "page-3"])
     await wrapper.get('[data-action="converge-world"]').trigger("click")
-    await vi.waitFor(() => expect(api.generate.convergeWorld).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(api.generate.convergeWorld).toHaveBeenCalledTimes(1))
 
     expect(api.generate.convergeWorld.mock.calls[0][0].selected_asset_refs).toEqual([
       { type: "world_bible_page", id: "page-2" },
@@ -521,19 +537,19 @@ describe("GenerateView Vue behavior matrix", () => {
     })
 
     await wrapper.get('[data-action="explore-world"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.findAll(".generate-exploration__results article")).toHaveLength(3))
+    await waitFor(() => expect(wrapper.findAll(".generate-exploration__results article")).toHaveLength(3))
     expect(api.generate.generateWorldSuggestion).not.toHaveBeenCalled()
 
     await wrapper.findAll(".generate-exploration__results article button").filter((button) => button.text().includes("选择这一条"))[1].trigger("click")
     expect(wrapper.get('[data-action="generate-world-suggestion"]').text()).toBe("生成所选探索建议")
     await wrapper.get('[data-action="generate-world-suggestion"]').trigger("click")
-    await vi.waitFor(() => expect(api.generate.generateWorldSuggestion).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(api.generate.generateWorldSuggestion).toHaveBeenCalledTimes(1))
 
     const payload = api.generate.generateWorldSuggestion.mock.calls[0][0]
     expect(payload.exploration_selection).toEqual(expect.objectContaining({ depth: 1, item_id: "E2", title: "地方税契", request_fingerprint: "f".repeat(64) }))
     expect(JSON.stringify(payload.exploration_selection)).not.toContain("边境道路")
     expect(JSON.stringify(payload.exploration_selection)).not.toContain("夜航邮驿")
-    await vi.waitFor(() => expect(wrapper.find('[data-state="source-revision-created"]').exists()).toBe(true))
+    await waitFor(() => expect(wrapper.find('[data-state="source-revision-created"]').exists()).toBe(true))
     expect(wrapper.get('[data-state="source-revision-created"]').text()).toContain("1 条待处理修订")
     await wrapper.get('[data-state="source-revision-created"] button').trigger("click")
     expect(router.navigate).toHaveBeenCalledWith("world", "bible", true, expect.any(URLSearchParams))
@@ -545,7 +561,7 @@ describe("GenerateView Vue behavior matrix", () => {
     const initialSession = { ...emptyGenerateSession(), messages: [{ role: "user", content: "整理本轮" }] }
     const first = mount(GenerateView, { props: baseProps({ sessionKey: key, initialSession }), attachTo: document.body })
     await first.get('[data-action="converge-world"]').trigger("click")
-    await vi.waitFor(() => expect(first.find('[data-section="convergence-preview"]').exists()).toBe(true))
+    await waitFor(() => expect(first.find('[data-section="convergence-preview"]').exists()).toBe(true))
     await first.findAll(".generate-convergence-items select")[0].setValue("open")
     await first.get(".generate-convergence-message textarea").setValue("刷新后仍要保留的作者消息")
     await flushPromises()
@@ -580,7 +596,7 @@ describe("GenerateView Vue behavior matrix", () => {
     expect(wrapper.text()).toContain("对话接近 40 条发送边界")
     expect(api.generate.convergeWorld).not.toHaveBeenCalled()
     await wrapper.get('[data-action="converge-world"]').trigger("click")
-    await vi.waitFor(() => expect(api.generate.convergeWorld).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(api.generate.convergeWorld).toHaveBeenCalledTimes(1))
     expect(api.generate.convergeWorld.mock.calls[0][0].messages).toHaveLength(40)
     expect(api.generate.convergeWorld.mock.calls[0][0].excluded_message_count).toBe(2)
     expect(wrapper.get('[data-section="convergence-preview"]').text()).toContain("2 条更早对话未纳入")
@@ -594,11 +610,11 @@ describe("GenerateView Vue behavior matrix", () => {
     })
 
     await wrapper.get('[data-action="converge-world"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.get('[data-section="convergence-preview"]').text()).toContain("范围不完整"))
+    await waitFor(() => expect(wrapper.get('[data-section="convergence-preview"]').text()).toContain("范围不完整"))
     expect(wrapper.get('[data-section="convergence-preview"]').text()).toContain("缺少一个来源块")
     expect(wrapper.get('[data-action="apply-convergence-message"]').element.disabled).toBe(true)
     expect(wrapper.get('[data-action="open-story-outline"]').element.disabled).toBe(true)
-    expect(api.generate.worldChat).not.toHaveBeenCalled()
+    expect(completeChat).not.toHaveBeenCalled()
     expect(api.generate.generateWorldSuggestion).not.toHaveBeenCalled()
   })
 
@@ -619,7 +635,7 @@ describe("GenerateView Vue behavior matrix", () => {
 
     await wrapper.get("#generate-page-title").setValue("仍未应用的标题")
     await wrapper.get('[data-action="converge-world"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.find('[data-action="open-story-outline"]').exists()).toBe(true))
+    await waitFor(() => expect(wrapper.find('[data-action="open-story-outline"]').exists()).toBe(true))
     await wrapper.get('[data-action="open-story-outline"]').trigger("click")
 
     expect(confirmDiscard).toHaveBeenCalledTimes(1)
@@ -648,7 +664,7 @@ describe("GenerateView Vue behavior matrix", () => {
     await wrapper.get("#generate-chat-input").setValue("只核对当前港口制度，不处理故事大纲")
     await wrapper.get("#generate-external-packet").setValue(packet)
     await wrapper.get('[data-action="preview-external-packet"]').trigger("click")
-    await vi.waitFor(() => expect(api.generate.convergeWorld).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(api.generate.convergeWorld).toHaveBeenCalledTimes(1))
 
     expect(api.generate.convergeWorld).toHaveBeenCalledWith(expect.objectContaining({
       pasted_context: packet,
@@ -663,10 +679,10 @@ describe("GenerateView Vue behavior matrix", () => {
     expect(wrapper.get('[data-section="external-handoff"]').text()).toContain("第 2/5 包 · 已形成预览")
     expect(wrapper.get('[data-section="external-handoff"]').text()).toContain("本地尚未验证")
     expect(wrapper.get('[data-section="convergence-preview"]').text()).toContain("需要修复")
-    await vi.waitFor(() => expect(wrapper.get('[data-action="preview-external-packet"]').element.disabled).toBe(false))
+    await waitFor(() => expect(wrapper.get('[data-action="preview-external-packet"]').element.disabled).toBe(false))
 
     await wrapper.get('[data-action="preview-external-packet"]').trigger("click")
-    await vi.waitFor(() => expect(toast).toHaveBeenCalledWith(expect.stringContaining("当前已显示"), "info"))
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.stringContaining("当前已显示"), "info"))
     expect(api.generate.convergeWorld).toHaveBeenCalledTimes(1)
     expect(readGenerateSession(key).externalPackets).toHaveLength(1)
     expect(readGenerateSession(key).externalPackets[0].status).toBe("previewed")
@@ -676,7 +692,7 @@ describe("GenerateView Vue behavior matrix", () => {
     expect(readGenerateSession(key).externalPackets[0]).toMatchObject({ packetIndex: 2, packetTotal: 5, status: "decision_ready" })
 
     await wrapper.get('[data-action="preview-external-packet"]').trigger("click")
-    await vi.waitFor(() => expect(toast).toHaveBeenCalledWith(expect.stringContaining("完全相同"), "info"))
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.stringContaining("完全相同"), "info"))
     expect(api.generate.convergeWorld).toHaveBeenCalledTimes(1)
     expect(readGenerateSession(key).externalPackets.at(-1).status).toBe("exact_duplicate")
     expect(api.generate.generateWorldSuggestion).not.toHaveBeenCalled()
@@ -693,12 +709,12 @@ describe("GenerateView Vue behavior matrix", () => {
     await wrapper.get("#generate-external-packet").setValue(packet)
 
     await wrapper.get('[data-action="preview-external-packet"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.get('[data-section="convergence-preview"]').text()).toContain("范围不完整"))
+    await waitFor(() => expect(wrapper.get('[data-section="convergence-preview"]').text()).toContain("范围不完整"))
     expect(readGenerateSession(key).externalPackets.at(-1).status).toBe("incomplete")
     expect(wrapper.get('[data-action="rerun-external-packet"]').text()).toBe("重新整理这份回包")
 
     await wrapper.get('[data-action="rerun-external-packet"]').trigger("click")
-    await vi.waitFor(() => expect(api.generate.convergeWorld).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(api.generate.convergeWorld).toHaveBeenCalledTimes(2))
     expect(wrapper.get('[data-section="convergence-preview"]').text()).toContain("范围已覆盖")
     expect(readGenerateSession(key).externalPackets.map((item) => item.status)).toEqual([
       "incomplete",
@@ -729,7 +745,7 @@ describe("GenerateView Vue behavior matrix", () => {
     await wrapper.get("#generate-chat-input").setValue("核对当前目标")
     await wrapper.get("#generate-external-packet").setValue("第一版外部回包")
     wrapper.get('[data-action="preview-external-packet"]').element.click()
-    await vi.waitFor(() => expect(api.generate.convergeWorld).toHaveBeenCalledOnce())
+    await waitFor(() => expect(api.generate.convergeWorld).toHaveBeenCalledOnce())
     await wrapper.get("#generate-external-packet").setValue("等待期间修订的第二版")
     resolveConvergence(convergenceResponse())
     await flushPromises()
@@ -754,10 +770,10 @@ describe("GenerateView Vue behavior matrix", () => {
       attachTo: document.body,
     })
     await wrapper.get('[data-action="converge-world"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.find('[data-action="copy-world-handoff"]').exists()).toBe(true))
+    await waitFor(() => expect(wrapper.find('[data-action="copy-world-handoff"]').exists()).toBe(true))
 
     await wrapper.get('[data-action="copy-world-handoff"]').trigger("click")
-    await vi.waitFor(() => expect(writeText).toHaveBeenCalledOnce())
+    await waitFor(() => expect(writeText).toHaveBeenCalledOnce())
     const copied = writeText.mock.calls[0][0]
     await wrapper.get('[data-action="download-world-handoff"]').trigger("click")
     const blob = createObjectURL.mock.calls[0][0]
@@ -783,10 +799,10 @@ describe("GenerateView Vue behavior matrix", () => {
       attachTo: document.body,
     })
     await wrapper.get('[data-action="converge-world"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.find('[data-action="copy-world-handoff"]').exists()).toBe(true))
+    await waitFor(() => expect(wrapper.find('[data-action="copy-world-handoff"]').exists()).toBe(true))
 
     await wrapper.get('[data-action="copy-world-handoff"]').trigger("click")
-    await vi.waitFor(() => expect(showModalHtml).toHaveBeenCalledWith(
+    await waitFor(() => expect(showModalHtml).toHaveBeenCalledWith(
       "手动复制创作交接快照",
       expect.stringContaining("handoff_version: world-handoff-v1"),
       [],
@@ -806,7 +822,7 @@ describe("GenerateView Vue behavior matrix", () => {
       attachTo: document.body,
     })
     await wrapper.get('[data-action="converge-world"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.find('[data-action="create-visual-brief"]').exists()).toBe(true))
+    await waitFor(() => expect(wrapper.find('[data-action="create-visual-brief"]').exists()).toBe(true))
     await wrapper.get('[data-action="create-visual-brief"]').trigger("click")
 
     const visual = wrapper.get('[data-section="visual-brief"]')
@@ -838,12 +854,12 @@ describe("GenerateView Vue behavior matrix", () => {
       attachTo: document.body,
     })
     await wrapper.get('[data-action="converge-world"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.find('[data-section="convergence-preview"]').exists()).toBe(true))
+    await waitFor(() => expect(wrapper.find('[data-section="convergence-preview"]').exists()).toBe(true))
     const previousMessage = wrapper.get(".generate-convergence-message textarea").element.value
     api.generate.convergeWorld.mockRejectedValueOnce(Object.assign(new Error("source changed"), { status: 409 }))
 
     await wrapper.get('[data-action="converge-world"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.get('[data-section="convergence-preview"]').text()).toContain("材料已变化"))
+    await waitFor(() => expect(wrapper.get('[data-section="convergence-preview"]').text()).toContain("材料已变化"))
 
     expect(wrapper.get(".generate-convergence-message textarea").element.value).toBe(previousMessage)
     expect(wrapper.get('[data-action="apply-convergence-message"]').element.disabled).toBe(true)
@@ -954,7 +970,7 @@ describe("GenerateView Vue behavior matrix", () => {
     expect(wrapper.get(".generate-side-rail").text()).not.toContain("结果")
     await wrapper.get("#generate-chat-input").setValue("把这段外部对话收束为港口设定")
     await wrapper.get('[data-action="generate-world-suggestion"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.get("#generate-result").text()).toContain("雾港"))
+    await waitFor(() => expect(wrapper.get("#generate-result").text()).toContain("雾港"))
     expect(wrapper.get("#generate-result").text()).toContain("地点 · 待处理")
     expect(wrapper.get("#generate-result").text()).not.toContain("location ·")
     expect(wrapper.get("#generate-result").element.closest(".generate-side-rail")).toBeNull()
@@ -991,7 +1007,7 @@ describe("GenerateView Vue behavior matrix", () => {
     button.click()
     button.click()
 
-    await vi.waitFor(() => expect(api.generate.generateWorldSuggestion).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(api.generate.generateWorldSuggestion).toHaveBeenCalledTimes(1))
     resolveSuggestion({
       result: {
         kind: "core_entity",
@@ -1009,7 +1025,7 @@ describe("GenerateView Vue behavior matrix", () => {
     await wrapper.get("#generate-chat-input").setValue("生成期间不要重复提交")
 
     await wrapper.get('[data-action="generate-world-suggestion"]').trigger("click")
-    await vi.waitFor(() => expect(api.tasks.get).toHaveBeenCalledWith("world-running", "p1"))
+    await waitFor(() => expect(api.tasks.get).toHaveBeenCalledWith("world-running", "p1"))
 
     const button = wrapper.get('[data-action="generate-world-suggestion"]')
     expect(button.element.disabled).toBe(true)
@@ -1052,7 +1068,7 @@ describe("GenerateView Vue behavior matrix", () => {
     })
 
     const wrapper = mount(GenerateView, { props: baseProps({ sessionKey }), attachTo: document.body })
-    await vi.waitFor(() => expect(wrapper.get("#generate-result").text()).toContain("恢复雾港"))
+    await waitFor(() => expect(wrapper.get("#generate-result").text()).toContain("恢复雾港"))
 
     expect(api.generate.enqueueWorldSuggestion).not.toHaveBeenCalled()
     expect(api.tasks.get).toHaveBeenCalledWith("world-recover", "p1")
@@ -1060,8 +1076,9 @@ describe("GenerateView Vue behavior matrix", () => {
   })
 
   it("keeps world chat, suggestion generation, and apply mutually exclusive", async () => {
+    api.world.createCocreationSession.mockResolvedValue({ id: 'cs-test', title: '测试会话', current_checkpoint_id: null })
     let resolveChat
-    api.generate.worldChat.mockImplementation(() => new Promise((resolve) => { resolveChat = resolve }))
+    completeChat.mockImplementation(() => new Promise((resolve) => { resolveChat = resolve }))
     const wrapper = mount(GenerateView, {
       props: baseProps({
         targetKind: "world_bible_page",
@@ -1084,13 +1101,14 @@ describe("GenerateView Vue behavior matrix", () => {
     resolveChat({ reply: "聊天完成" })
     await flushPromises()
     expect(wrapper.get('[data-action="send-chat-message"]').element.disabled).toBe(true)
-    expect(wrapper.get('[data-action="generate-world-suggestion"]').element.disabled).toBe(false)
+    await waitFor(() => expect(wrapper.get('[data-action="generate-world-suggestion"]').element.disabled).toBe(false), { timeout: 3000 })
     await wrapper.get("#generate-chat-input").setValue("下一条")
     expect(wrapper.get('[data-action="send-chat-message"]').element.disabled).toBe(false)
   })
 
   it("keeps send beside the composer and supports IME-safe Cmd/Ctrl+Enter", async () => {
-    api.generate.worldChat.mockResolvedValue({ reply: "继续完善" })
+    api.world.createCocreationSession.mockResolvedValue({ id: 'cs-test', title: '测试会话', current_checkpoint_id: null })
+    completeChat.mockResolvedValue({ reply: "继续完善" })
     const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
     const input = wrapper.get("#generate-chat-input")
     const send = wrapper.get('[data-action="send-chat-message"]')
@@ -1107,14 +1125,14 @@ describe("GenerateView Vue behavior matrix", () => {
     await input.setValue("用快捷键发送")
     expect(wrapper.find('[data-action="converge-world"]').exists()).toBe(true)
     await input.trigger("keydown", { key: "Enter", metaKey: true, isComposing: true })
-    expect(api.generate.worldChat).not.toHaveBeenCalled()
+    expect(completeChat).not.toHaveBeenCalled()
     await input.trigger("compositionstart")
     await input.trigger("keydown", { key: "Enter", ctrlKey: true, isComposing: false })
-    expect(api.generate.worldChat).not.toHaveBeenCalled()
+    expect(completeChat).not.toHaveBeenCalled()
     await input.trigger("compositionend")
     await input.trigger("keydown", { key: "Enter", ctrlKey: true, isComposing: false })
-    await vi.waitFor(() => expect(api.generate.worldChat).toHaveBeenCalledTimes(1))
-    await vi.waitFor(() => expect(document.activeElement).toBe(input.element))
+    await waitFor(() => expect(completeChat).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(document.activeElement).toBe(input.element))
   })
 
   it("shows loading before a lazy POV load can confirm the project has no chapters", async () => {
@@ -1131,7 +1149,7 @@ describe("GenerateView Vue behavior matrix", () => {
 
     resolveChapters({ chapters: [] })
     resolveCharacters({ items: [] })
-    await vi.waitFor(() => expect(wrapper.text()).toContain("角色视角正文需要先准备章节"))
+    await waitFor(() => expect(wrapper.text()).toContain("角色视角正文需要先准备章节"))
   })
 
   it("offers zero-chapter POV prerequisites and routes without starting a generation", async () => {
@@ -1148,7 +1166,7 @@ describe("GenerateView Vue behavior matrix", () => {
     await wrapper.get('[data-action="open-writing-from-pov-empty"]').trigger("click")
     expect(router.navigate).toHaveBeenCalledWith("writing")
     await wrapper.get('[data-action="return-world-from-pov-empty"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.find("#generate-mode-panel-world").exists()).toBe(true))
+    await waitFor(() => expect(wrapper.find("#generate-mode-panel-world").exists()).toBe(true))
     expect(confirmAiReference).not.toHaveBeenCalled()
     expect(api.writing.generate).not.toHaveBeenCalled()
   })
@@ -1167,7 +1185,7 @@ describe("GenerateView Vue behavior matrix", () => {
     expect(wrapper.find('[data-action="generate-pov-prose"]').exists()).toBe(false)
 
     await wrapper.get('[data-action="retry-pov-options"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.find("#generate-pov-chapter").exists()).toBe(true))
+    await waitFor(() => expect(wrapper.find("#generate-pov-chapter").exists()).toBe(true))
     expect(wrapper.text()).not.toContain("加载章节或角色失败")
   })
 
@@ -1183,7 +1201,7 @@ describe("GenerateView Vue behavior matrix", () => {
     })
 
     await wrapper.get("#generate-pov-chapter").setValue("1")
-    await vi.waitFor(() => expect(wrapper.text()).toContain("这个章节的场景暂时无法加载，请重试"))
+    await waitFor(() => expect(wrapper.text()).toContain("这个章节的场景暂时无法加载，请重试"))
     expect(wrapper.find("#generate-pov-chapter").exists()).toBe(true)
     expect(wrapper.find("#generate-pov-scene").exists()).toBe(true)
     expect(wrapper.find("#generate-pov-character").exists()).toBe(true)
@@ -1243,11 +1261,11 @@ describe("GenerateView Vue behavior matrix", () => {
     })
     api.outline.listScenesByChapter.mockResolvedValueOnce([{ id: "scene-1", title: "场景", pov_character_id: "char-a" }])
     await wrapper.get("#generate-pov-chapter").setValue("1")
-    await vi.waitFor(() => expect(wrapper.findAll("#generate-pov-scene option").length).toBeGreaterThan(1))
+    await waitFor(() => expect(wrapper.findAll("#generate-pov-scene option").length).toBeGreaterThan(1))
     await wrapper.get("#generate-pov-scene").setValue("scene-1")
     await wrapper.get("#generate-pov-character").setValue("char-a")
     const pending = wrapper.get('[data-action="generate-pov-prose"]').trigger("click")
-    await vi.waitFor(() => expect(api.writing.generate).toHaveBeenCalled())
+    await waitFor(() => expect(api.writing.generate).toHaveBeenCalled())
 
     await wrapper.get("#generate-pov-character").setValue("char-b")
     generated.resolve({ task_id: "task-1" })
@@ -1259,94 +1277,65 @@ describe("GenerateView Vue behavior matrix", () => {
     expect(wrapper.get("#generate-pov-result").text()).not.toContain("乙")
   })
 
-  it("aborts an in-flight world request and rejects its late response after unmount", async () => {
-    let resolve
-    api.generate.worldChat.mockImplementation((_payload, options) => new Promise((done) => { resolve = done; expect(options.signal.aborted).toBe(false) }))
-    const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
-    await wrapper.get("#generate-chat-input").setValue("迟到请求")
-    const button = wrapper.get('[data-action="send-chat-message"]')
-    await button.trigger("click")
-    await vi.waitFor(() => expect(api.generate.worldChat).toHaveBeenCalledTimes(1))
-    const signal = api.generate.worldChat.mock.calls[0][1].signal
-    wrapper.unmount()
-    expect(signal.aborted).toBe(true)
-    resolve({ reply: "不应回写" })
-    await Promise.resolve()
-    expect(toast).not.toHaveBeenCalledWith(expect.stringContaining("不应回写"), expect.anything())
-  })
-
-  it("marks the snapshot interrupted before browser unload can report a navigation fetch failure", async () => {
-    let reject
-    api.generate.worldChat.mockImplementation(() => new Promise((_resolve, fail) => { reject = fail }))
-    const key = generateSessionKey("p1")
+  it("keeps the server operation and ignores a late reply after unmount", async () => {
+    api.world.createCocreationSession.mockResolvedValue({ id: 'cs-test' })
+    const pending = deferred(); completeChat.mockReturnValue(pending.promise)
+    const key = generateSessionKey('p1')
     const wrapper = mount(GenerateView, { props: baseProps({ sessionKey: key }), attachTo: document.body })
-    await wrapper.get("#generate-chat-input").setValue("刷新前的问题")
-    await wrapper.get('[data-action="send-chat-message"]').trigger("click")
-    await vi.waitFor(() => expect(api.generate.worldChat).toHaveBeenCalledTimes(1))
-    const signal = api.generate.worldChat.mock.calls[0][1].signal
-
-    window.dispatchEvent(new Event("beforeunload"))
-    expect(signal.aborted).toBe(true)
-    reject(new Error("无法访问 API 服务"))
+    await wrapper.get('#generate-chat-input').setValue('迟到请求')
+    await wrapper.get('[data-action="send-chat-message"]').trigger('click')
     await flushPromises()
-
-    const messages = readGenerateSession(key).messages
-    expect(messages.at(-1)).toEqual(expect.objectContaining({ role: "assistant", error: true, interrupted: true }))
-    expect(messages.at(-1).content).toContain("上次回复在离开或刷新时尚未返回")
-    expect(messages.at(-1).content).not.toContain("无法访问 API 服务")
     wrapper.unmount()
+    const snapshot = readGenerateSession(cocreationSessionKey(key, 'cs-test'))
+    pending.resolve({ reply: '服务器完成的迟到回复' }); await flushPromises()
+    expect(api.tasks.cancel).not.toHaveBeenCalled()
+    expect(readGenerateSession(cocreationSessionKey(key, 'cs-test')).messages).toEqual(snapshot.messages)
+    expect(JSON.parse(sessionStorage.getItem('novel_active_workflows_v1'))).toHaveLength(1)
   })
 
-  it("disarms the unload listener after a settled world chat", async () => {
-    api.generate.worldChat
-      .mockResolvedValueOnce({ reply: "第一条回复" })
-      .mockResolvedValueOnce({ reply: "第二条回复" })
-    const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
-    await wrapper.get("#generate-chat-input").setValue("第一条")
-    await wrapper.get('[data-action="send-chat-message"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.get("#generate-chat-messages").text()).toContain("第一条回复"))
-
-    window.dispatchEvent(new Event("beforeunload"))
-    await wrapper.get("#generate-chat-input").setValue("第二条")
-    await wrapper.get('[data-action="send-chat-message"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.get("#generate-chat-messages").text()).toContain("第二条回复"))
-    expect(api.generate.worldChat).toHaveBeenCalledTimes(2)
-  })
-
-  it("recovers an interrupted chat as a terminal local message and leaves the composer usable", async () => {
-    let resolve
-    api.generate.worldChat.mockImplementation(() => new Promise((done) => { resolve = done }))
-    const key = generateSessionKey("p1")
-    const first = mount(GenerateView, { props: baseProps({ sessionKey: key }), attachTo: document.body })
-    await first.get("#generate-chat-input").setValue("离开前的问题")
-    await first.get('[data-action="send-chat-message"]').trigger("click")
-    await vi.waitFor(() => expect(api.generate.worldChat).toHaveBeenCalledTimes(1))
-
-    expect(first.get("#generate-chat-messages").text()).toContain("正在理解你的目标")
-    const interruptedSnapshot = readGenerateSession(key).messages
-    expect(interruptedSnapshot).toEqual([
-      { role: "user", content: "离开前的问题" },
-      expect.objectContaining({ role: "assistant", error: true, interrupted: true }),
-    ])
-    expect(interruptedSnapshot.at(-1)).not.toHaveProperty("pending")
-    const signal = api.generate.worldChat.mock.calls[0][1].signal
-    first.unmount()
-    expect(signal.aborted).toBe(true)
-
-    resolve({ reply: "迟到回复" })
-    await flushPromises()
-    expect(readGenerateSession(key).messages.at(-1)).toEqual(expect.objectContaining({ error: true, interrupted: true }))
-    expect(readGenerateSession(key).messages.at(-1).content).not.toContain("迟到回复")
-
-    const second = mount(GenerateView, {
-      props: baseProps({ sessionKey: key, initialSession: readGenerateSession(key) }),
-      attachTo: document.body,
+  it("persists the operation before submission and does not replay after a lost response", async () => {
+    api.world.createCocreationSession.mockResolvedValue({ id: 'cs-test' })
+    api.world.enqueueCocreationTurn.mockImplementation(async payload => {
+      expect(JSON.parse(sessionStorage.getItem('novel_active_workflows_v1'))[0].taskId).toBe(payload.operation_id)
+      throw new Error('响应丢失')
     })
-    expect(second.get("#generate-chat-messages").text()).toContain("离开前的问题")
-    expect(second.get("#generate-chat-messages").text()).toContain("上次回复在离开或刷新时尚未返回")
-    await second.get("#generate-chat-input").setValue("确认后重试")
-    expect(second.get('[data-action="send-chat-message"]').element.disabled).toBe(false)
-    expect(api.generate.worldChat).toHaveBeenCalledTimes(1)
+    const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
+    await wrapper.get('#generate-chat-input').setValue('刷新前的问题')
+    await wrapper.get('[data-action="send-chat-message"]').trigger('click')
+    await flushPromises()
+    expect(api.world.enqueueCocreationTurn).toHaveBeenCalledTimes(1)
+    expect(api.tasks.get).toHaveBeenCalled()
+    expect(wrapper.text()).toContain('刷新前的问题')
+    expect(wrapper.get('[data-action="send-chat-message"]').element.disabled).toBe(true)
+  })
+
+  it("can start another turn after the previous operation has completed", async () => {
+    api.world.createCocreationSession.mockResolvedValue({ id: 'cs-test' })
+    completeChat.mockResolvedValueOnce({ reply: '第一条回复' }).mockResolvedValueOnce({ reply: '第二条回复' })
+    const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
+    for (const [question, reply] of [['第一条', '第一条回复'], ['第二条', '第二条回复']]) {
+      await wrapper.get('#generate-chat-input').setValue(question)
+      await wrapper.get('[data-action="send-chat-message"]').trigger('click')
+      await waitFor(() => expect(wrapper.text()).toContain(reply), { timeout: 3000 })
+    }
+    const operations = api.world.enqueueCocreationTurn.mock.calls.map(([payload]) => payload.operation_id)
+    expect(new Set(operations).size).toBe(2)
+  })
+
+  it("recovers the pending operation after navigation without another submission", async () => {
+    api.world.createCocreationSession.mockResolvedValue({ id: 'cs-test' })
+    const pending = deferred(); completeChat.mockReturnValue(pending.promise)
+    const key = generateSessionKey('p1')
+    const first = mount(GenerateView, { props: baseProps({ sessionKey: key }), attachTo: document.body })
+    await first.get('#generate-chat-input').setValue('离开前的问题')
+    await first.get('[data-action="send-chat-message"]').trigger('click'); await flushPromises(); first.unmount()
+    const second = mount(GenerateView, { props: baseProps({ sessionKey: key, initialSession: readGenerateSession(cocreationSessionKey(key, 'cs-test')) }), attachTo: document.body })
+    await flushPromises()
+    expect(second.text()).toContain('离开前的问题')
+    expect(second.get('[data-action="send-chat-message"]').element.disabled).toBe(true)
+    pending.resolve({ reply: '恢复后的服务器回复' })
+    await waitFor(() => expect(second.text()).toContain('恢复后的服务器回复'), { timeout: 3000 })
+    expect(api.world.enqueueCocreationTurn).toHaveBeenCalledTimes(1)
   })
 
   it("keeps compile errors inline and offers the same retry action", async () => {
@@ -1354,7 +1343,7 @@ describe("GenerateView Vue behavior matrix", () => {
     const wrapper = mount(GenerateView, { props: baseProps({ tab: "task" }), attachTo: document.body })
     await wrapper.get("#gen-task").setValue("测试任务")
     await wrapper.get('[data-action="run-task"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.get("#gen-task-output").text()).toContain("当前任务内容仍保留"))
+    await waitFor(() => expect(wrapper.get("#gen-task-output").text()).toContain("当前任务内容仍保留"))
     expect(wrapper.get("#gen-task-output").text()).not.toContain("compile down")
     expect(wrapper.get('[data-action="retry-task-context"]').exists()).toBe(true)
     expect(document.activeElement).toBe(wrapper.get(".generate-task-error").element)
@@ -1369,14 +1358,14 @@ describe("GenerateView Vue behavior matrix", () => {
     const wrapper = mount(GenerateView, { props: baseProps({ tab: "task" }), attachTo: document.body })
     await wrapper.get("#gen-task").setValue("检查主线冲突")
     await wrapper.get('[data-action="run-task"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.text()).toContain("已准备 1 类参考资料"))
+    await waitFor(() => expect(wrapper.text()).toContain("已准备 1 类参考资料"))
     await wrapper.get('[data-action="render-task-md"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.get(".generate-task-error").text()).toContain("已整理的参考资料仍保留"))
+    await waitFor(() => expect(wrapper.get(".generate-task-error").text()).toContain("已整理的参考资料仍保留"))
     expect(wrapper.text()).toContain("故事主线")
     expect(document.activeElement).toBe(wrapper.get(".generate-task-error").element)
 
     await wrapper.get('[data-action="retry-task-context"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.get(".generate-markdown-pre").text()).toBe("# 完整资料"))
+    await waitFor(() => expect(wrapper.get(".generate-markdown-pre").text()).toBe("# 完整资料"))
     expect(api.context.compile).toHaveBeenCalledTimes(1)
     expect(api.context.render).toHaveBeenCalledTimes(2)
   })
@@ -1390,13 +1379,13 @@ describe("GenerateView Vue behavior matrix", () => {
     const wrapper = mount(GenerateView, { props: baseProps({ tab: "task" }), attachTo: document.body })
     await wrapper.get("#gen-task").setValue("检查主线冲突")
     await wrapper.get('[data-action="run-task"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.text()).toContain("已准备 1 类参考资料"))
+    await waitFor(() => expect(wrapper.text()).toContain("已准备 1 类参考资料"))
     expect(wrapper.get(".generate-context-overview").text()).not.toContain("author_safe")
     expect(wrapper.get(".generate-context-sections").text()).toContain("正文证据")
     expect(wrapper.get('[role="tab"][data-subtab="task"]').attributes("aria-selected")).toBe("true")
     expect(api.context.compile).toHaveBeenCalledWith(expect.objectContaining({ novel_id: "p1", task: "检查主线冲突", budget_tokens: 0 }), expect.objectContaining({ signal: expect.any(AbortSignal) }))
     await wrapper.get('[data-action="render-task-md"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.get(".generate-markdown-pre").text()).toContain("<img"))
+    await waitFor(() => expect(wrapper.get(".generate-markdown-pre").text()).toContain("<img"))
     expect(wrapper.text()).toContain("已准备 1 类参考资料")
     expect(wrapper.get('[role="tab"][data-subtab="preview"]').attributes("aria-selected")).toBe("true")
     expect(wrapper.find("img").exists()).toBe(false)
@@ -1409,7 +1398,7 @@ describe("GenerateView Vue behavior matrix", () => {
     const wrapper = mount(GenerateView, { props: baseProps({ tab: "task", embedded: true, preset: "world_core", sessionKey: taskKey, handoffSessionKey: worldKey }), attachTo: document.body })
     await wrapper.get("#gen-task").setValue("生成剧情线")
     await wrapper.get('[data-action="run-task"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.find('[data-action="apply-to-chat"]').exists()).toBe(true))
+    await waitFor(() => expect(wrapper.find('[data-action="apply-to-chat"]').exists()).toBe(true))
 
     await wrapper.get('[data-action="apply-to-chat"]').trigger("click")
 
@@ -1428,7 +1417,7 @@ describe("GenerateView Vue behavior matrix", () => {
     expect(wrapper.get("#gen-task").element.value).toBe("基于当前设定梳理主线、支线和伏笔推进。")
     await wrapper.get("#gen-task").setValue("保留这份任务草稿")
     await wrapper.get("#gen-scope").setValue("chapter")
-    await vi.waitFor(() => expect(readGenerateSession(key).taskForm.task).toBe("保留这份任务草稿"))
+    await waitFor(() => expect(readGenerateSession(key).taskForm.task).toBe("保留这份任务草稿"))
     expect(readGenerateSession(key)).toMatchObject({ taskPreset: "plot", taskForm: { scope: "chapter" } })
   })
 
@@ -1444,7 +1433,7 @@ describe("GenerateView Vue behavior matrix", () => {
     })
     await first.get("#gen-task").setValue("跨目标检查")
     await first.get('[data-action="run-task"]').trigger("click")
-    await vi.waitFor(() => expect(first.text()).toContain("已准备 1 类参考资料"))
+    await waitFor(() => expect(first.text()).toContain("已准备 1 类参考资料"))
     first.unmount()
 
     const second = mount(GenerateView, {
@@ -1466,11 +1455,11 @@ describe("GenerateView Vue behavior matrix", () => {
     api.tasks.get.mockResolvedValue({ status: "done", progress: 1, result: { draft_id: "draft-1" } })
     const wrapper = mount(GenerateView, { props: baseProps({ tab: "pov_prose", povChapters: [{ chapter_index: 1, title: "旧怨" }], povCharacters: [{ entity_id: "char-1", name: "秦岚" }] }), attachTo: document.body })
     await wrapper.get("#generate-pov-chapter").setValue("1")
-    await vi.waitFor(() => expect(wrapper.findAll("#generate-pov-scene option")).toHaveLength(2))
+    await waitFor(() => expect(wrapper.findAll("#generate-pov-scene option")).toHaveLength(2))
     await wrapper.get("#generate-pov-scene").setValue("scene-1")
     await wrapper.get("#generate-pov-instruction").setValue("保持克制")
     await wrapper.get('[data-action="generate-pov-prose"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.get("#generate-pov-result").text()).toContain("打开写作台审阅"))
+    await waitFor(() => expect(wrapper.get("#generate-pov-result").text()).toContain("打开写作台审阅"))
     expect(confirmAiReference).toHaveBeenCalledWith(expect.objectContaining({ novel_id: "p1", reveal_mode: "character", viewpoint_character_id: "char-1" }))
     expect(api.tasks.get).toHaveBeenCalledWith("task-1", "p1")
     expect(api.writing.generate.mock.calls[0][0].instruction).toContain("用户指令是作者意图，不等于角色知识")
@@ -1485,7 +1474,7 @@ describe("GenerateView Vue behavior matrix", () => {
     const wrapper = mount(GenerateView, { props: baseProps({ templates: [{ id: "tpl-1", value: "tpl-1", label: "自定义", prompt: "当前", object_template: "custom", is_builtin: false, version_number: 3 }], initialSession: { ...emptyGenerateSession(), selectedTemplateId: "tpl-1" } }), attachTo: document.body })
     await wrapper.get('[data-action="edit-object-templates"]').trigger("click")
     document.getElementById("generate-template-history-load").click()
-    await vi.waitFor(() => expect(document.getElementById("generate-template-history").textContent).toContain("v2"))
+    await waitFor(() => expect(document.getElementById("generate-template-history").textContent).toContain("v2"))
     expect(document.getElementById("generate-template-history").querySelector("img")).toBeNull()
     expect(api.generate.listPromptTemplateRevisions).toHaveBeenCalledWith("tpl-1", "p1")
   })
@@ -1502,7 +1491,7 @@ describe("GenerateView Vue behavior matrix", () => {
     }), attachTo: document.body })
     await wrapper.get('[data-action="edit-object-templates"]').trigger("click")
     document.getElementById("generate-template-history-load").click()
-    await vi.waitFor(() => expect(api.generate.listPromptTemplateRevisions).toHaveBeenCalledWith("tpl-a", "p1"))
+    await waitFor(() => expect(api.generate.listPromptTemplateRevisions).toHaveBeenCalledWith("tpl-a", "p1"))
 
     const select = document.getElementById("generate-template-editor-select")
     select.value = "tpl-b"
@@ -1539,7 +1528,7 @@ describe("GenerateView Vue behavior matrix", () => {
     await wrapper.get('[data-action="edit-object-templates"]').trigger("click")
     document.getElementById("generate-template-editor-prompt").value = "新提示词"
     const save = showModalHtml.mock.calls[0][2][0].handler()
-    await vi.waitFor(() => expect(api.generate.copyPromptTemplate).toHaveBeenCalled())
+    await waitFor(() => expect(api.generate.copyPromptTemplate).toHaveBeenCalled())
 
     document.getElementById("modal-body").innerHTML = '<div class="replacement-modal">后续弹窗</div>'
     copied.resolve({ id: "tpl-copy", version_number: 1 })
@@ -1579,7 +1568,7 @@ describe("GenerateView Vue behavior matrix", () => {
     const save = showModalHtml.mock.calls[0][2][0].handler
 
     const first = save()
-    await vi.waitFor(() => expect(api.generate.copyPromptTemplate).toHaveBeenCalledOnce())
+    await waitFor(() => expect(api.generate.copyPromptTemplate).toHaveBeenCalledOnce())
     await expect(save()).resolves.toBe(false)
     copied.resolve({ id: "tpl-copy", version_number: 1 })
     await expect(first).resolves.toBe(true)
@@ -1604,7 +1593,7 @@ describe("GenerateView Vue behavior matrix", () => {
     expect(api.generate.createPromptTemplate).toHaveBeenCalledWith({
       novel_id: "p1", name: "推理约束", object_template: "custom", prompt_text: "优先检查时间线",
     })
-    await vi.waitFor(() => expect(Array.from(wrapper.get("#generate-object-template").element.options).some((option) => option.text === "推理约束")).toBe(true))
+    await waitFor(() => expect(Array.from(wrapper.get("#generate-object-template").element.options).some((option) => option.text === "推理约束")).toBe(true))
   })
 
   it("keeps the current template modal open for validation and API failures", async () => {
@@ -1633,7 +1622,7 @@ describe("GenerateView Vue behavior matrix", () => {
     document.getElementById("generate-template-editor-name").value = "新模板"
     document.getElementById("generate-template-editor-prompt").value = "新提示词"
     const pending = showModalHtml.mock.calls[0][2][1].handler()
-    await vi.waitFor(() => expect(api.generate.createPromptTemplate).toHaveBeenCalled())
+    await waitFor(() => expect(api.generate.createPromptTemplate).toHaveBeenCalled())
 
     document.getElementById("modal-body").innerHTML = '<div class="replacement-modal">后续弹窗</div>'
     creation.resolve({ id: "tpl-new", name: "新模板", prompt_text: "新提示词", object_template: "custom", is_builtin: false, version_number: 1 })
@@ -1660,7 +1649,7 @@ describe("GenerateView Vue behavior matrix", () => {
     const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
 
     await wrapper.get('[data-action="select-source-chapters"]').trigger("click")
-    await vi.waitFor(() => expect(showModalHtml).toHaveBeenCalledWith(
+    await waitFor(() => expect(showModalHtml).toHaveBeenCalledWith(
       "选择附带正文", expect.any(String), expect.any(Array), undefined,
     ))
 
@@ -1679,7 +1668,7 @@ describe("GenerateView Vue behavior matrix", () => {
     const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
 
     await wrapper.get('[data-action="select-source-chapters"]').trigger("click")
-    await vi.waitFor(() => expect(api.writing.get).toHaveBeenCalledWith("draft-1", "p1"))
+    await waitFor(() => expect(api.writing.get).toHaveBeenCalledWith("draft-1", "p1"))
     await wrapper.get('[data-action="edit-object-templates"]').trigger("click")
     const editor = document.querySelector(".generate-template-editor")
     preview.resolve({ title: "第一章", content: "晚到正文" })
@@ -1742,11 +1731,11 @@ describe("GenerateView Vue behavior matrix", () => {
       povCharacters: [{ entity_id: "char-1", name: "秦岚" }],
     }), attachTo: document.body })
     await wrapper.get("#generate-pov-chapter").setValue("1")
-    await vi.waitFor(() => expect(wrapper.findAll("#generate-pov-scene option")).toHaveLength(2))
+    await waitFor(() => expect(wrapper.findAll("#generate-pov-scene option")).toHaveLength(2))
     await wrapper.get("#generate-pov-scene").setValue("scene-1")
     await wrapper.get('[data-action="generate-pov-prose"]').trigger("click")
 
-    await vi.waitFor(() => expect(wrapper.get("#generate-pov-result").text()).toContain(expectedMessage))
+    await waitFor(() => expect(wrapper.get("#generate-pov-result").text()).toContain(expectedMessage))
     expect(toast).toHaveBeenCalledWith(severity === "info" ? "已取消生成，当前选择仍保留" : `角色视角正文生成失败：${expectedMessage}`, severity)
   })
 
@@ -1763,15 +1752,15 @@ describe("GenerateView Vue behavior matrix", () => {
       povCharacters: [{ entity_id: "char-1", name: "秦岚" }],
     }), attachTo: document.body })
     await wrapper.get("#generate-pov-chapter").setValue("1")
-    await vi.waitFor(() => expect(wrapper.findAll("#generate-pov-scene option")).toHaveLength(2))
+    await waitFor(() => expect(wrapper.findAll("#generate-pov-scene option")).toHaveLength(2))
     await wrapper.get("#generate-pov-scene").setValue("scene-1")
     await wrapper.get("#generate-pov-instruction").setValue("保持克制")
     await wrapper.get('[data-action="generate-pov-prose"]').trigger("click")
 
-    await vi.waitFor(() => expect(wrapper.get('[data-action="retry-pov-prose"]').exists()).toBe(true))
+    await waitFor(() => expect(wrapper.get('[data-action="retry-pov-prose"]').exists()).toBe(true))
     expect(document.activeElement).toBe(wrapper.get(".generate-pov-error").element)
     await wrapper.get('[data-action="retry-pov-prose"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.get("#generate-pov-result").text()).toContain("打开写作台审阅"))
+    await waitFor(() => expect(wrapper.get("#generate-pov-result").text()).toContain("打开写作台审阅"))
     expect(wrapper.get("#generate-pov-instruction").element.value).toBe("保持克制")
     expect(api.writing.generate).toHaveBeenCalledTimes(2)
   })
@@ -1788,10 +1777,10 @@ describe("GenerateView Vue behavior matrix", () => {
       povCharacters: [{ entity_id: "char-1", name: "秦岚" }],
     }), attachTo: document.body })
     await wrapper.get("#generate-pov-chapter").setValue("1")
-    await vi.waitFor(() => expect(wrapper.findAll("#generate-pov-scene option")).toHaveLength(2))
+    await waitFor(() => expect(wrapper.findAll("#generate-pov-scene option")).toHaveLength(2))
     await wrapper.get("#generate-pov-scene").setValue("scene-1")
     void wrapper.get('[data-action="generate-pov-prose"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.get("#generate-pov-result").text()).toContain("20%"))
+    await waitFor(() => expect(wrapper.get("#generate-pov-result").text()).toContain("20%"))
 
     await wrapper.get("#generate-pov-result button").trigger("click")
     expect(api.tasks.cancel).toHaveBeenCalledWith("task-cancel-failure", "p1")
@@ -1801,7 +1790,8 @@ describe("GenerateView Vue behavior matrix", () => {
   })
 
   it("shows escaped context provenance returned by the generation API", async () => {
-    api.generate.worldChat.mockResolvedValue({
+    api.world.createCocreationSession.mockResolvedValue({ id: 'cs-test', title: '测试会话', current_checkpoint_id: null })
+    completeChat.mockResolvedValue({
       reply: "已生成",
       context_usage: {
         section_key: "world_bible_synopsis", status: "fresh", token_count: 42,
@@ -1812,7 +1802,7 @@ describe("GenerateView Vue behavior matrix", () => {
     const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
     await wrapper.get("#generate-chat-input").setValue("审计上下文")
     await wrapper.get('[data-action="send-chat-message"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.find('[data-action="view-generation-context"]').exists()).toBe(true))
+    await waitFor(() => expect(wrapper.find('[data-action="view-generation-context"]').exists()).toBe(true))
     await wrapper.get('[data-action="view-generation-context"]').trigger("click")
 
     expect(showModalHtml).toHaveBeenLastCalledWith("本次实际使用的上下文", expect.any(String), [], { size: "large" })
@@ -1834,12 +1824,12 @@ describe("GenerateView Vue behavior matrix", () => {
     const wrapper = mount(GenerateView, { props: baseProps({ tab: "task" }), attachTo: document.body })
     await wrapper.get("#gen-task").setValue("审计上下文")
     await wrapper.get('[data-action="run-task"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.find('[data-action="render-task-md"]').exists()).toBe(true))
+    await waitFor(() => expect(wrapper.find('[data-action="render-task-md"]').exists()).toBe(true))
     await wrapper.get('[data-action="render-task-md"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.get(".generate-markdown-pre").text()).toBe("# 审计上下文"))
+    await waitFor(() => expect(wrapper.get(".generate-markdown-pre").text()).toBe("# 审计上下文"))
 
     await wrapper.get('[data-action="copy-task-md"]').trigger("click")
-    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith("# 审计上下文"))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("# 审计上下文"))
     await wrapper.get('[data-action="export-task-md"]').trigger("click")
 
     expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob))
@@ -1857,12 +1847,12 @@ describe("GenerateView Vue behavior matrix", () => {
     const wrapper = mount(GenerateView, { props: baseProps({ tab: "task" }), attachTo: document.body })
     await wrapper.get("#gen-task").setValue("复制失败测试")
     await wrapper.get('[data-action="run-task"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.find('[data-action="render-task-md"]').exists()).toBe(true))
+    await waitFor(() => expect(wrapper.find('[data-action="render-task-md"]').exists()).toBe(true))
     await wrapper.get('[data-action="render-task-md"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.get(".generate-markdown-pre").text()).toBe("# 仍可手动复制"))
+    await waitFor(() => expect(wrapper.get(".generate-markdown-pre").text()).toBe("# 仍可手动复制"))
 
     await wrapper.get('[data-action="copy-task-md"]').trigger("click")
-    await vi.waitFor(() => expect(toast).toHaveBeenCalledWith("复制失败，请手动选择复制", "warning"))
+    await waitFor(() => expect(toast).toHaveBeenCalledWith("复制失败，请手动选择复制", "warning"))
     expect(wrapper.get(".generate-markdown-pre").text()).toBe("# 仍可手动复制")
   })
 
@@ -1876,7 +1866,7 @@ describe("GenerateView Vue behavior matrix", () => {
     const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
 
     await wrapper.get('[data-action="select-source-chapters"]').trigger("click")
-    await vi.waitFor(() => expect(showModalHtml).toHaveBeenCalledWith(
+    await waitFor(() => expect(showModalHtml).toHaveBeenCalledWith(
       "选择附带正文", expect.any(String), expect.any(Array), undefined,
     ))
 
@@ -1929,7 +1919,7 @@ describe("GenerateView Vue behavior matrix", () => {
     }), attachTo: document.body })
     await wrapper.get("#generate-page-title").setValue("作者修订标题")
     await wrapper.get('[data-action="apply-world-page-draft"]').trigger("click")
-    await vi.waitFor(() => expect(router.navigate).toHaveBeenCalled())
+    await waitFor(() => expect(router.navigate).toHaveBeenCalled())
     expect(api.generate.applyWorldPageDraft).toHaveBeenCalledWith(
       "suggestion-page-1",
       expect.objectContaining({ page: expect.objectContaining({ title: "作者修订标题" }) }),
@@ -1957,7 +1947,7 @@ describe("GenerateView Vue behavior matrix", () => {
     }), attachTo: document.body })
     await wrapper.get("#generate-page-title").setValue("提交版本")
     const pending = wrapper.get('[data-action="apply-world-page-draft"]').trigger("click")
-    await vi.waitFor(() => expect(api.generate.applyWorldPageDraft).toHaveBeenCalled())
+    await waitFor(() => expect(api.generate.applyWorldPageDraft).toHaveBeenCalled())
     expect(wrapper.get(".generate-page-result").attributes()).toHaveProperty("inert")
 
     await wrapper.get("#generate-page-title").setValue("响应前新编辑")
@@ -1983,7 +1973,7 @@ describe("GenerateView Vue behavior matrix", () => {
     }), attachTo: document.body })
     await wrapper.get("#generate-page-title").setValue("已提交编辑")
     const pending = wrapper.get('[data-action="apply-world-page-draft"]').trigger("click")
-    await vi.waitFor(() => expect(api.generate.applyWorldPageDraft).toHaveBeenCalled())
+    await waitFor(() => expect(api.generate.applyWorldPageDraft).toHaveBeenCalled())
 
     wrapper.unmount()
     applied.resolve({ draft: { id: "draft-1", page_id: "page-1" } })
@@ -2007,7 +1997,7 @@ describe("GenerateView Vue behavior matrix", () => {
     }), attachTo: document.body })
     await wrapper.get("#generate-page-title").setValue("尚未应用的作者修订")
     await wrapper.get('[data-action="apply-world-page-draft"]').trigger("click")
-    await vi.waitFor(() => expect(toast).toHaveBeenCalledWith(expect.stringContaining("未覆盖新修改"), "warning"))
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.stringContaining("未覆盖新修改"), "warning"))
     expect(wrapper.get("#generate-page-title").element.value).toBe("尚未应用的作者修订")
     expect(router.navigate).not.toHaveBeenCalled()
   })
@@ -2078,7 +2068,7 @@ describe("GenerateView Vue behavior matrix", () => {
 
     api.generate.applyWorldPageDraft.mockResolvedValueOnce({ draft: { id: "draft-1", page_id: "page-1" } })
     await wrapper.get('[data-action="apply-world-page-draft"]').trigger("click")
-    await vi.waitFor(() => expect(router.navigate).toHaveBeenCalled())
+    await waitFor(() => expect(router.navigate).toHaveBeenCalled())
     expect(readGenerateSession(key).pageProposalDraft).toBeNull()
   })
 
@@ -2120,7 +2110,7 @@ describe("GenerateView Vue behavior matrix", () => {
       },
     })
     await revise.handler()
-    await vi.waitFor(() => expect(wrapper.get("#generate-page-title").element.value).toBe("港口制度"))
+    await waitFor(() => expect(wrapper.get("#generate-page-title").element.value).toBe("港口制度"))
     expect(api.generate.generateWorldSuggestion).toHaveBeenCalledWith(
       expect.objectContaining({ revises_suggestion_id: "suggestion-discard" }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
@@ -2150,7 +2140,7 @@ describe("GenerateView Vue behavior matrix", () => {
     await wrapper.get("#generate-chat-input").setValue("重新生成")
     await wrapper.get('[data-action="generate-world-suggestion"]').trigger("click")
     await showModalHtml.mock.calls.at(-1)[2].find((button) => button.text === "另起方案").handler()
-    await vi.waitFor(() => expect(wrapper.get("#generate-page-title").element.value).toBe("新提案"))
+    await waitFor(() => expect(wrapper.get("#generate-page-title").element.value).toBe("新提案"))
     expect(api.generate.generateWorldSuggestion.mock.calls[0][0]).not.toHaveProperty("revises_suggestion_id")
     expect(readGenerateSession(key)).toMatchObject({ suggestionId: "suggestion-new", pageProposalDraft: null })
   })
@@ -2213,7 +2203,7 @@ describe("GenerateView Vue behavior matrix", () => {
     await wrapper.get("#generate-chat-input").setValue("再生成一次")
     await wrapper.get('[data-action="generate-world-suggestion"]').trigger("click")
     await showModalHtml.mock.calls.at(-1)[2].find((button) => button.text === "修订此版").handler()
-    await vi.waitFor(() => expect(toast).toHaveBeenCalledWith(expect.stringContaining("当前对话和编辑仍保留"), "warning"))
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.stringContaining("当前对话和编辑仍保留"), "warning"))
 
     expect(wrapper.get("#generate-page-title").element.value).toBe("放弃的标题")
     expect(wrapper.get("#generate-page-sections").element.value).toBe('[{"title":"放弃的分区"}]')
@@ -2247,13 +2237,13 @@ describe("GenerateView Vue behavior matrix", () => {
 
   it("creates a server co-creation session on first send and tags the action turn", async () => {
     api.world.createCocreationSession.mockResolvedValue({ id: "cs-1", title: "世界核心共创", current_checkpoint_id: null })
-    api.world.cocreationChat.mockResolvedValue({ reply: "潮门规则需要一条维护代价。" })
+    completeChat.mockResolvedValue({ reply: "潮门规则需要一条维护代价。" })
     const key = generateSessionKey("p1", null, "core_entity", "world_core")
     const wrapper = mount(GenerateView, { props: baseProps({ preset: "world_core", sessionKey: key }), attachTo: document.body })
 
     await wrapper.get('[data-action="world-core-pressure"]').trigger("click")
     await wrapper.get('[data-action="send-chat-message"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.get("#generate-chat-messages").text()).toContain("维护代价"))
+    await waitFor(() => expect(wrapper.get("#generate-chat-messages").text()).toContain("维护代价"))
 
     expect(api.world.createCocreationSession).toHaveBeenCalledWith(expect.objectContaining({
       novel_id: "p1",
@@ -2261,43 +2251,44 @@ describe("GenerateView Vue behavior matrix", () => {
       workflow_preset: "world_core",
       target_kind: "core_entity",
     }))
-    expect(api.world.cocreationChat).toHaveBeenCalledWith("cs-1", expect.objectContaining({ session_action: "pressure" }), expect.objectContaining({ signal: expect.any(AbortSignal) }))
+    expect(api.world.enqueueCocreationTurn).toHaveBeenCalledWith(expect.objectContaining({ session_id: "cs-1", session_action: "pressure" }))
     expect(api.generate.worldChat).not.toHaveBeenCalled()
     expect(readGenerateSession(cocreationSessionKey(key, "cs-1")).serverSessionId).toBe("cs-1")
     expect(wrapper.get("#generate-chat-messages").text()).toContain("检验日常与故障")
     expect(wrapper.text()).toContain("已存服务器")
   })
 
-  it("falls back to the local chat path when the session service is unavailable", async () => {
-    api.world.createCocreationSession.mockRejectedValue(new Error("offline"))
-    api.generate.worldChat.mockResolvedValue({ reply: "本地回复仍可用" })
+  it("preserves the question when its server session cannot be created", async () => {
+    api.world.createCocreationSession.mockRejectedValue(new Error('offline'))
     const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
-    await wrapper.get("#generate-chat-input").setValue("继续推敲北境银币")
-    await wrapper.get('[data-action="send-chat-message"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.get("#generate-chat-messages").text()).toContain("本地回复仍可用"))
-    expect(api.generate.worldChat).toHaveBeenCalledTimes(1)
+    await wrapper.get('#generate-chat-input').setValue('继续推敲北境银币')
+    await wrapper.get('[data-action="send-chat-message"]').trigger('click'); await flushPromises()
+    expect(wrapper.text()).toContain('继续推敲北境银币')
+    expect(wrapper.find('[data-action="retry-chat-message"]').exists()).toBe(true)
+    expect(api.world.enqueueCocreationTurn).not.toHaveBeenCalled()
+    expect(completeChat).not.toHaveBeenCalled()
   })
 
   it("advances the checkpoint pointer and keeps the proposal on drift", async () => {
     const key = generateSessionKey("p1", null, "core_entity", "world_core")
     api.world.createCocreationSession.mockResolvedValue({ id: "cs-1", title: "世界核心共创", current_checkpoint_id: null })
-    api.world.cocreationChat.mockResolvedValue({ reply: "只生长当前一层。" })
+    completeChat.mockResolvedValue({ reply: "只生长当前一层。" })
     api.generate.convergeWorld.mockResolvedValue(worldCoreResponse())
     api.world.saveDesignCheckpoint.mockResolvedValue({ id: "ck-2" })
     api.world.advanceCocreationCheckpoint.mockRejectedValueOnce(Object.assign(new Error("checkpoint_pointer_drift: 会话基线已变化"), { status: 409 }))
-    api.world.getCocreationSession.mockResolvedValue({ session: { id: "cs-1", title: "世界核心共创", current_checkpoint_id: "ck-9", checkpoint_round: 7, checkpoint_depth: "seed", status: "active" }, messages: [], message_total: 0 })
     const wrapper = mount(GenerateView, { props: baseProps({ preset: "world_core", sessionKey: key }), attachTo: document.body })
 
     for (let round = 0; round < 3; round += 1) {
       if (round) await wrapper.get("#generate-chat-input").setValue(`第 ${round + 1} 轮`)
       else await wrapper.get('[data-action="world-core-expand"]').trigger("click")
       await wrapper.get('[data-action="send-chat-message"]').trigger("click")
-      await vi.waitFor(() => expect(api.world.cocreationChat).toHaveBeenCalledTimes(round + 1))
+      await waitFor(() => expect(completeChat).toHaveBeenCalledTimes(round + 1))
+      await waitFor(() => expect(wrapper.findComponent({ name: "WorldWorkspace" }).props("successfulRounds")).toBe(round + 1))
     }
     await wrapper.get('[data-action="converge-world"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.find('[data-section="convergence-preview"]').exists()).toBe(true))
+    await waitFor(() => expect(wrapper.find('[data-section="convergence-preview"]').exists()).toBe(true))
     await wrapper.get('[data-action="save-world-core-checkpoint"]').trigger("click")
-    await vi.waitFor(() => expect(api.world.advanceCocreationCheckpoint).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(api.world.advanceCocreationCheckpoint).toHaveBeenCalledTimes(1))
 
     expect(api.world.advanceCocreationCheckpoint).toHaveBeenCalledWith("cs-1", expect.objectContaining({
       novel_id: "p1",
@@ -2317,7 +2308,7 @@ describe("GenerateView Vue behavior matrix", () => {
     const wrapper = mount(GenerateView, { props: baseProps({ preset: "world_core", sessionKey: key, initialSession }), attachTo: document.body })
     await wrapper.get("#generate-chat-input").setValue("先收束这一轮")
     await wrapper.get('[data-action="converge-world"]').trigger("click")
-    await vi.waitFor(() => expect(wrapper.find('[data-section="convergence-preview"]').exists()).toBe(true))
+    await waitFor(() => expect(wrapper.find('[data-section="convergence-preview"]').exists()).toBe(true))
     await wrapper.get('[data-action="apply-convergence-message"]').trigger("click")
     await flushPromises()
 
@@ -2337,10 +2328,10 @@ describe("GenerateView Vue behavior matrix", () => {
     const wrapper = mount(GenerateView, { props: baseProps({ preset: "world_core", sessionKey: key, initialSession }), attachTo: document.body })
 
     await wrapper.get('[data-action="open-session-history"]').trigger("click")
-    await vi.waitFor(() => expect(api.world.listCocreationSessions).toHaveBeenCalledWith("p1", expect.objectContaining({ source_kind: "project" })))
-    expect(document.getElementById("modal-body").textContent).toContain("北境第二轮")
+    await waitFor(() => expect(api.world.listCocreationSessions).toHaveBeenCalledWith("p1", expect.objectContaining({ source_kind: "project" })))
+    expect(wrapper.findComponent({ name: "CocreationHistory" }).text()).toContain("北境第二轮")
 
-    document.querySelector("[data-action='open-cocreation-session']").click()
+    wrapper.findComponent({ name: "CocreationHistory" }).findAll("button").find(button => button.text() === "继续共创").element.click()
     await flushPromises()
     expect(readGenerateSession(cocreationSessionKey(key, "cs-1")).serverSessionId).toBe("cs-1")
     expect(readGenerateSession(cocreationSessionKey(key, "cs-2")).serverSessionId).toBeNull()

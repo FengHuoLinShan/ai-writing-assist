@@ -17204,7 +17204,7 @@ button.rp-journey-card__main:hover {
    small, contextual drawer instead of a second top-level destination. */
 .owner-ai-drawer {
   position: fixed;
-  z-index: 30;
+  z-index: 95;
   inset: var(--topbar-height) 0 0 auto;
   width: min(1100px, calc(100vw - var(--space-5)));
   overflow: visible;

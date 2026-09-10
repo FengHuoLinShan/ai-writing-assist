@@ -29,3 +29,13 @@
 ## 验证
 
 后端测试覆盖：复核记录绑定与 unknown/stale 拒绝、author-required 门禁在处置前后 `review_pending` 变化、continue 的续接与运行中冲突、semantic_gap 冻结范围与目标漂移失效、影响预演各域来源与跨项目隔离、findings 分页筛选、政策草稿端点与旧回执 `stale_reason=policy`、冲突队列分页。前端 Vitest 覆盖政策编辑器、引用分级选择、图谱依赖区分、健康面板筛选/分页/逐项处置；e2e 覆盖“找到资料 → 安全修改 → 继续创设 → 采用成果 → 完成复核”的完整作者流程。
+
+## 2026-09-10：跨域来源与实际语义范围
+
+影响来源扩展为 Story 故事线/篇章纲/Scene/当前总纲、正文精确选段和地图当前空间版本。Story 经 `list_world_dependencies` / `read_world_dependency`，Writing 经 manifest/range facade，地图由 World 自有版本服务提供。来源 hash 与范围 hash 包括版本与依赖集合；新增关联、正文改版或地图换版使旧回执过期。来源打开时重验，返回清单保留位置；声明关联与字面提及分开显示。
+
+`semantic_gap` 可显式选择 `review_domains` 和 0/1 层范围。真正进入模型的是原 confirmation 编译后保留的 items，不把原始全文重新塞回被裁剪/排除的确认。World 受审采用包是领域执行资料，其外部引用仍受原确认约束。Focused Evidence 用于冻结范围和只读回读，回执不复制正文、不增加写权限；检索覆盖不宣称穷尽。
+
+run 的 manifest 保存实际语义资料、确认指纹、范围指纹、聚焦回执和遗漏。开始、续接、完成、读取与门禁重验；失败或预算中断只复用同一输入分片。旧未保存实际语义范围的回执须重建，不能继续沿用旧全文语义结果。硬错误始终阻断，待定仍未完成，旧签收不跨来源版本复用。
+
+Evidence 的 Story/map 规划资料只向无 Scene 截止的作者读取开放，reader/character 或带截止上下文不走这条无投影路径。pinned prose 严格截取回读结果的 highlight 区间。地图语义范围覆盖保存的空间声明及其依据，不包括图像视觉几何识别。

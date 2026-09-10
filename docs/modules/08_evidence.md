@@ -415,3 +415,7 @@ known_content 与精确原文一致，并由 active 精确 EvidenceLink 绑定�
 审查，coverage 明示 not_performed；reader/author 的原文读取不采用此角色特有门禁。
 地图已有标记可把精确 source_range/target 引用预填到资料确认。章首 start_offset=0 合法，
 缺失或负数起点无效；执行仍只使用 retained items，不独立补读作者排除或预算遗漏的来源。
+
+### 世界跨域复核
+
+World 复核使用原确认编译后实际保留的内容；Focused Evidence 只读冻结/回读，不扩大 selected/excluded 语义。Story/map author inspect 不适用于 reader/character 或 Scene 截止；缺少投影时失败关闭。pinned prose 精确截取 highlight 范围。所有问题与复核处置仍在 World，索引和生成资产所有权不变。

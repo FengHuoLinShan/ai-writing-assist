@@ -634,19 +634,27 @@ async def test_semantic_continuation_rejects_a_different_confirmation(
     confirmation_id = str(uuid.uuid4())
     run.scope_json = {**run.scope_json, "context_confirmation_id": confirmation_id}
     await db_session.flush()
-    with pytest.raises(ConflictError) as exc_info:
-        await service.continue_run(
+    # Confirmation identity is independent of source freshness (covered separately).
+    with patch.object(service, "_refresh_freshness", autospec=True):
+        with pytest.raises(ConflictError) as exc_info:
+            await service.continue_run(
+                db_session,
+                project_novel_id,
+                str(run.id),
+                context_confirmation_id=str(uuid.uuid4()),
+            )
+        assert exc_info.value.code == "validation_confirmation_changed"
+        continued = await service.continue_run(
             db_session,
             project_novel_id,
             str(run.id),
-            context_confirmation_id=str(uuid.uuid4()),
+            context_confirmation_id=confirmation_id,
         )
-    assert exc_info.value.code == "validation_confirmation_changed"
-    continued = await service.continue_run(
-        db_session, project_novel_id, str(run.id), context_confirmation_id=confirmation_id
-    )
-    assert continued.context_confirmation_id == confirmation_id
-    assert continued.status == "queued"
+        assert continued.context_confirmation_id == confirmation_id
+        assert continued.status == "queued"
+    run.status = "failed"
+    await service._refresh_freshness(db_session, run)
+    assert run.status == "stale"  # old receipts without a semantic scope cannot resume
 
 
 @pytest.mark.asyncio
@@ -1002,7 +1010,18 @@ class SimpleNamespaceSourceRef:
 
 class SimpleNamespaceHit:
     def __init__(self, chapter: int, count: int) -> None:
-        self.source_ref = SimpleNamespaceSourceRef(chapter)
+        from modules.writing.contracts import SourceRangeRefContract
+
+        self.source_ref = SourceRangeRefContract(
+            draft_id="d1",
+            chapter_index=chapter,
+            version_number=1,
+            content_mode="canonical",
+            start_offset=0,
+            end_offset=1,
+            source_hash="s1",
+            range_hash=f"rangehash{chapter}",
+        )
         self.title = f"第{chapter}章"
         self.terms = ["潮汐商会"]
         self.match_count = count
@@ -1081,7 +1100,7 @@ async def test_impact_preview_enumerates_proven_cross_module_sources(
     thread = _thread("thread-1", "商会主线", str(entity.id))
     with (
         patch(
-            "modules.story.facade.list_plot_threads_referencing_entities",
+            "modules.story.facade.list_world_dependencies",
             autospec=True,
         ) as thread_mock,
         patch(
@@ -1093,7 +1112,18 @@ async def test_impact_preview_enumerates_proven_cross_module_sources(
             autospec=True,
         ) as scan_mock,
     ):
-        thread_mock.return_value = [thread]
+        from modules.story.contracts import StoryWorldDependencyContract
+
+        thread_mock.return_value = [
+            StoryWorldDependencyContract(
+                kind="story_thread",
+                id=thread.id,
+                label=thread.name,
+                source_hash="t" * 64,
+                version="1",
+                text=thread.summary or "商会",
+            )
+        ]
         manifest_mock.return_value = [{"draft_id": "d1", "source_hash": "s1"}]
         scan_mock.return_value = SimpleNamespaceScan(
             [SimpleNamespaceHit(3, 4)], cursor=None

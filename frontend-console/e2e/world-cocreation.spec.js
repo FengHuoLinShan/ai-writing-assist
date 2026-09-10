@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures.js"
+import { mockCocreationTurns } from "./helpers/cocreation-turns.js"
 import { API_BASE, API_HOST, createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
 import { openWorkbench } from "./helpers/workbench.js"
 
@@ -62,7 +63,8 @@ test.describe("共创会话持久化", () => {
     await waitForBackend(60000)
   })
 
-  test.afterEach(async () => {
+  test.afterEach(async ({ page }) => {
+    await page.unrouteAll({ behavior: 'wait' })
     if (testProjectId) {
       try { await cleanupProject(testProjectId) } catch {}
       testProjectId = null
@@ -83,9 +85,9 @@ test.describe("共创会话持久化", () => {
     await expect(page.locator(".generate-chat-action-badge").first()).toContainText("完善体系")
 
     await page.locator("[data-action='open-session-history']").click()
-    await expect(page.locator("#modal-title")).toContainText("共创会话历史")
-    await expect(page.locator("#modal-body")).toContainText("北境潮门共创")
-    await expect(page.locator("#modal-body").locator(".badge").first()).toContainText("当前")
+    await expect(page.getByRole("dialog", { name: "历史与决定" })).toBeVisible()
+    await expect(page.getByRole("dialog", { name: "历史与决定" })).toContainText("北境潮门共创")
+    await expect(page.getByRole("dialog", { name: "历史与决定" }).getByRole("button", { name: "继续共创" })).toBeDisabled()
 
     // 模拟换设备：清空本机全部会话缓存后重开，内容仍从服务器恢复。
     const device2 = await page.context().newPage()
@@ -107,7 +109,7 @@ test.describe("共创会话持久化", () => {
   test("会话聊天绑定会话与动作，刷新后不自动重复提交", async ({ page }) => {
     const project = await createProject({ title: "共创回合项目", language: "zh" })
     testProjectId = project.id
-    const chatRequests = []
+    let chatRequests
     await page.route("**/api/evidence/compilation/compile", async (route) => {
       const body = route.request().postDataJSON()
       await route.fulfill({
@@ -148,22 +150,8 @@ test.describe("共创会话持久化", () => {
         }),
       })
     })
-    await page.route("**/api/world/cocreation-sessions/*/chat", async (route) => {
-      chatRequests.push({
-        url: route.request().url(),
-        body: route.request().postDataJSON(),
-      })
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          reply: "潮门规则需要一条维护代价。",
-          model: "account-model",
-          provider: "fake",
-          source_snapshot: { kind: "project" },
-        }),
-      })
-    })
+    const transport = await mockCocreationTurns(page, async () => ({ reply: '潮门规则需要一条维护代价。', model: 'account-model', provider: 'fake', source_snapshot: { kind: 'project' } }))
+    chatRequests = transport.requests
 
     await openWorldCoreWorkspace(page, project)
     await page.locator("[data-action='world-core-pressure']").click()
@@ -173,7 +161,7 @@ test.describe("共创会话持久化", () => {
     await expect(page.locator("#generate-chat-messages")).toContainText("潮门规则需要一条维护代价。", { timeout: 15000 })
 
     expect(chatRequests).toHaveLength(1)
-    expect(chatRequests[0].url).toContain("/api/world/cocreation-sessions/")
+    expect(chatRequests[0].url).toContain("/api/world/cocreation-turns/task")
     expect(chatRequests[0].url).not.toContain("/generation-center/chat")
     expect(chatRequests[0].body).toMatchObject({ novel_id: project.id, session_action: "pressure" })
     expect(page.locator("[data-section='cocreation-session']")).toContainText("已存服务器")

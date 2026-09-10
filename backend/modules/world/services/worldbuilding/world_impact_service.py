@@ -10,13 +10,15 @@ complete dependency proof it did not actually perform.
 from __future__ import annotations
 
 import logging
+from dataclasses import asdict
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.errors import NotFoundError, ValidationError
-from modules.world.map_atlas_models import MapAtlasNode
+from core.errors import ConflictError, NotFoundError, ValidationError
+from modules.world.map_atlas_models import MapAtlasNode, MapAtlasRevision
 from modules.world.models import (
     Character,
     CoreEntity,
@@ -29,7 +31,10 @@ from modules.world.schemas import (
     WorldImpactPreviewResponse,
     WorldImpactPreviewSection,
     WorldImpactPreviewTarget,
+    WorldImpactSourceReadRequest,
+    WorldImpactSourceReadResponse,
 )
+from modules.world.services.worldbuilding.world_validation_engine import stable_hash
 from shared.target_ref import TargetRef
 from shared.utils import parse_uuid
 
@@ -43,6 +48,179 @@ _PROSE_SCAN_ITERATIONS = 50
 
 class WorldImpactService:
     """Enumerate proven dependents of a world page / entity / relation."""
+
+    @staticmethod
+    def _stamp(value):
+        if isinstance(value, datetime):
+            return (
+                value.replace(tzinfo=UTC)
+                if value.tzinfo is None
+                else value.astimezone(UTC)
+            ).isoformat()
+        return str(value or "")
+
+    @staticmethod
+    def _row_hash(row):
+        return stable_hash(
+            {
+                column.name: WorldImpactService._stamp(value)
+                if isinstance(value, datetime)
+                else value
+                for column in row.__table__.columns
+                for value in [getattr(row, column.name)]
+            }
+        )
+
+    async def read_source(
+        self, db: AsyncSession, data: WorldImpactSourceReadRequest
+    ) -> WorldImpactSourceReadResponse:
+        from pydantic import TypeAdapter
+
+        from modules.writing.contracts import SourceRangeRefContract
+        from modules.writing.facade import (
+            get_manuscript_source_manifest,
+            read_manuscript_range,
+        )
+
+        item = data.item
+        if not item.source_hash:
+            raise ConflictError("该记录缺少来源版本，请刷新影响清单")
+        nid = parse_uuid(data.novel_id, "novel_id")
+        source_ref = None
+        target_ref = {
+            "target_type": "core_entity" if item.kind == "character" else item.kind,
+            "target_id": item.id,
+            "target_path": "",
+        }
+        if item.kind == "prose_chapter":
+            ref = TypeAdapter(SourceRangeRefContract).validate_python(item.source_ref)
+            if str(ref.chapter_index) != item.id:
+                raise ValidationError("正文选段与章节不匹配")
+            target_ref = None
+            manifest = await get_manuscript_source_manifest(
+                db,
+                data.novel_id,
+                content_mode=ref.content_mode,
+                chapter_from=ref.chapter_index,
+                chapter_to=ref.chapter_index,
+            )
+            if not any(
+                str(row["draft_id"]) == ref.draft_id
+                and row["source_hash"] == ref.source_hash
+                for row in manifest
+            ):
+                raise ConflictError("正文版本已变化，请刷新影响清单后核对")
+            result = await read_manuscript_range(
+                db, data.novel_id, ref, before=0, after=0
+            )
+            text = result.text[result.highlight_start : result.highlight_end]
+            source_ref = asdict(result.source_ref)
+            source_hash = result.source_ref.range_hash
+            label = result.title or f"第 {ref.chapter_index} 章"
+        elif item.kind in {
+            "story_thread",
+            "outline_arc",
+            "outline_scene",
+            "story_outline",
+        }:
+            from modules.story.facade import read_world_dependency
+
+            result = await read_world_dependency(db, data.novel_id, item.kind, item.id)
+            text, source_hash, label = result.text, result.source_hash, result.label
+        else:
+            models = {
+                "world_bible_page": WorldBiblePage,
+                "core_entity": CoreEntity,
+                "entity_relation": EntityRelation,
+                "character": Character,
+                "map_node": MapAtlasNode,
+            }
+            model = models[item.kind]
+            identity = Character.entity_id if item.kind == "character" else model.id
+            row = await db.scalar(
+                select(model)
+                .where(
+                    model.novel_id == nid, identity == parse_uuid(item.id, "source_id")
+                )
+                .execution_options(populate_existing=True)
+            )
+            if row is None:
+                raise NotFoundError("来源已不存在或不属于当前作品")
+            source_hash = self._row_hash(row)
+            label = (
+                getattr(row, "title", None) or getattr(row, "name", None) or "对象关系"
+            )
+            text = "\n\n".join(
+                str(getattr(row, key))
+                for key in (
+                    "title",
+                    "name",
+                    "free_text",
+                    "summary",
+                    "description",
+                    "relation_type",
+                    "personality",
+                    "background",
+                )
+                if getattr(row, key, None)
+            )
+            if item.kind == "world_bible_page":
+                text += "\n\n" + "\n\n".join(
+                    str(section.get("body_markdown") or "")
+                    for section in row.sections_json or []
+                    if isinstance(section, dict)
+                )
+            if item.kind == "map_node" and row.current_revision_id:
+                revision = await db.scalar(
+                    select(MapAtlasRevision).where(
+                        MapAtlasRevision.id == row.current_revision_id,
+                        MapAtlasRevision.novel_id == nid,
+                        MapAtlasRevision.node_id == row.id,
+                    )
+                )
+                if revision is None:
+                    raise ConflictError("地图的当前版本不可用")
+                features = {
+                    feature["id"]: feature
+                    for feature in revision.document.get("features", [])
+                }
+                text += "\n\n" + "\n".join(
+                    f"{feature['label']}：{feature.get('note') or '已记录空间位置'}"
+                    for feature in features.values()
+                )
+                relations = {
+                    "inside": "位于内部",
+                    "north": "位于北面",
+                    "south": "位于南面",
+                    "east": "位于东面",
+                    "west": "位于西面",
+                    "northeast": "位于东北",
+                    "northwest": "位于西北",
+                    "southeast": "位于东南",
+                    "southwest": "位于西南",
+                    "adjacent": "相邻",
+                    "connects": "连接",
+                    "passes_through": "穿过",
+                    "along_street": "沿街",
+                    "entrance_to": "入口通向",
+                    "faces": "面向",
+                }
+                text += "\n" + "\n".join(
+                    f"{features.get(edge['subject'], {}).get('label', '未解析位置')} "
+                    f"{relations.get(edge['relation'], '关联')} "
+                    f"{features.get(edge['target'], {}).get('label', '未解析位置')}"
+                    for edge in revision.document.get("constraints", [])
+                )
+        if source_hash != item.source_hash:
+            raise ConflictError("来源已在预演后变化，请刷新清单；旧记录未覆盖当前版本")
+        return WorldImpactSourceReadResponse(
+            label=label,
+            text=text[:200_000],
+            source_hash=source_hash,
+            target_ref=target_ref,
+            source_ref=source_ref,
+            truncated=len(text) > 200_000,
+        )
 
     async def preview(
         self,
@@ -112,7 +290,9 @@ class WorldImpactService:
         root_entity_ids = list(dict.fromkeys([*root_entity_ids, *related_entity_ids]))
 
         character_section = await self._character_dependents(db, nid, root_entity_ids)
-        thread_section = await self._thread_dependents(db, novel_id, root_entity_ids)
+        thread_section = await self._thread_dependents(
+            db, novel_id, root_entity_ids, root_terms
+        )
         prose_section = await self._prose_dependents(
             db, novel_id, root_terms or [label or ""]
         )
@@ -138,6 +318,19 @@ class WorldImpactService:
             sections=sections,
             uncovered=self._global_uncovered(sections),
             complete=complete,
+            scope_hash=stable_hash(
+                {
+                    "root": self._row_hash(
+                        page
+                        if target_type == "world_bible_page"
+                        else entity
+                        if target_type == "core_entity"
+                        else relation
+                    ),
+                    "pages": [self._row_hash(item) for item in pages],
+                    "sections": [section.model_dump(mode="json") for section in sections],
+                }
+            ),
         )
 
     async def snapshot(
@@ -245,6 +438,7 @@ class WorldImpactService:
             },
             "uncovered": preview.uncovered,
             "complete": preview.complete,
+            "scope_hash": preview.scope_hash,
         }
 
     # ------------------------------------------------------------------
@@ -296,6 +490,12 @@ class WorldImpactService:
                         id=referrer_id,
                         label=page.title,
                         version=f"v{page.version_number}",
+                        source_hash=WorldImpactService._row_hash(page),
+                        target_ref={
+                            "target_type": "world_bible_page",
+                            "target_id": str(page.id),
+                            "target_path": "",
+                        },
                         distance=distance + 1,
                         detail=(
                             f"经 {relation} 引用本目标"
@@ -375,7 +575,15 @@ class WorldImpactService:
                             if relation.relation_type
                             else "对象关系"
                         ),
-                        version="canonical",
+                        version=WorldImpactService._stamp(
+                            relation.updated_at or relation.created_at
+                        ),
+                        source_hash=WorldImpactService._row_hash(relation),
+                        target_ref={
+                            "target_type": "entity_relation",
+                            "target_id": str(relation.id),
+                            "target_path": "",
+                        },
                         detail="关系的另一端或本对象受影响",
                     )
                 )
@@ -427,6 +635,13 @@ class WorldImpactService:
                     id=str(row.entity_id),
                     label=row.name,
                     detail="人物档案绑定该对象",
+                    source_hash=WorldImpactService._row_hash(row),
+                    version=WorldImpactService._stamp(row.updated_at or row.created_at),
+                    target_ref={
+                        "target_type": "core_entity",
+                        "target_id": str(row.entity_id),
+                        "target_path": "",
+                    },
                 )
                 for row in rows[:_AFFECTED_PAGE_CAP]
             ],
@@ -439,49 +654,42 @@ class WorldImpactService:
         )
 
     @staticmethod
-    async def _thread_dependents(
-        db: AsyncSession, novel_id: str, entity_ids: list[str]
-    ) -> WorldImpactPreviewSection:
-        if not entity_ids:
-            return WorldImpactPreviewSection(
-                section="story_threads",
-                items=[],
-                uncovered=["目标未直接关联对象，故事线层未纳入本次预演"],
-            )
-        try:
-            from modules.story.facade import list_plot_threads_referencing_entities
+    async def _thread_dependents(db, novel_id, entity_ids, terms=()):
+        from modules.story.facade import list_world_dependencies
 
-            threads = await list_plot_threads_referencing_entities(
-                db, novel_id, entity_ids
-            )
+        try:
+            sources = await list_world_dependencies(db, novel_id, entity_ids, list(terms))
         except Exception:
-            logger.exception("story thread impact lookup failed")
+            logger.exception("story impact lookup failed")
             return WorldImpactPreviewSection(
-                section="story_threads",
-                items=[],
-                uncovered=["read_failed:故事线读取失败，本次预演未覆盖故事结构"],
+                section="story_threads", uncovered=["read_failed:故事结构读取失败"]
             )
-        items = [
-            WorldImpactPreviewItem(
-                kind="story_thread",
-                id=thread.id,
-                label=thread.name,
-                version=thread.status,
-                detail=(
-                    f"{thread.thread_type} · 当前阶段 {thread.current_stage or '未设定'}"
-                    if thread.thread_type
-                    else None
-                ),
-            )
-            for thread in threads
-        ]
         return WorldImpactPreviewSection(
             section="story_threads",
-            items=items,
-            truncated=len(items) >= 500,
-            uncovered=(
-                [] if items else ["没有故事线声明依赖该对象（按故事线关联对象反查）"]
+            items=[
+                WorldImpactPreviewItem(
+                    kind=item.kind,
+                    id=item.id,
+                    label=item.label,
+                    version=item.version,
+                    source_hash=item.source_hash,
+                    match_basis=item.match_basis,
+                    target_ref={
+                        "target_type": item.kind,
+                        "target_id": item.id,
+                        "target_path": "",
+                    },
+                    detail="声明关联"
+                    if item.match_basis == "declared"
+                    else "总纲中的名称提及，仍需核对",
+                )
+                for item in sources[:_AFFECTED_PAGE_CAP]
+            ],
+            scope_hash=stable_hash(
+                [(item.kind, item.id, item.source_hash) for item in sources]
             ),
+            truncated=len(sources) > _AFFECTED_PAGE_CAP,
+            uncovered=["只列声明关联和总纲中的名称提及；未声明的隐含依赖仍需定向检查"],
         )
 
     @staticmethod
@@ -525,8 +733,8 @@ class WorldImpactService:
                         {
                             "title": hit.title,
                             "count": 0,
-                            "source_hash": hit.source_ref.range_hash
-                            or hit.source_ref.source_hash,
+                            "source_hash": hit.source_ref.range_hash,
+                            "source_ref": asdict(hit.source_ref),
                         },
                     )
                     entry["count"] += hit.match_count
@@ -539,7 +747,10 @@ class WorldImpactService:
                     id=str(chapter),
                     label=f"第 {chapter} 章",
                     source_hash=str(entry["source_hash"] or "") or None,
-                    detail=f"正文出现 {entry['count']} 次（字面匹配）",
+                    detail=f"正文出现 {entry['count']} 次（字面匹配，打开首个精确选段）",
+                    source_ref=entry["source_ref"],
+                    version=str(entry["source_ref"]["version_number"]),
+                    match_basis="literal",
                 )
                 for chapter, entry in sorted(hits.items())
             ]
@@ -554,6 +765,7 @@ class WorldImpactService:
             section="prose",
             items=items,
             truncated=cursor is not None,
+            scope_hash=stable_hash(manifest),
             uncovered=[
                 "正文按名称/别名字面匹配：代词、改写与未列别名无法覆盖",
                 *(["正文扫描已达批次上限，仍有章节未检查"] if cursor is not None else []),
@@ -599,7 +811,15 @@ class WorldImpactService:
                     kind="map_node",
                     id=str(node.id),
                     label=node.title,
-                    version=node.status,
+                    version=str(
+                        node.current_revision_id or node.updated_at or node.created_at
+                    ),
+                    source_hash=WorldImpactService._row_hash(node),
+                    target_ref={
+                        "target_type": "map_node",
+                        "target_id": str(node.id),
+                        "target_path": "",
+                    },
                     detail=f"地图层级 {node.level}，以该地点对象为空间依据",
                 )
                 for node in nodes[:_AFFECTED_PAGE_CAP]

@@ -37,7 +37,7 @@ infrastructure/tasks/
 - project：`smart_dedup_scan`
 - world：`world_alias_relation_extraction`、
   `world_entity_fusion_suggestions`、`world_bible_projection_refresh`、
-  `world_bible_synopsis_refresh`、`world_generation_suggestion`、`world_validation`、`map_atlas_generate`、`world_map_schematic_generate`、
+  `world_bible_synopsis_refresh`、`world_generation_suggestion`、`world_cocreation_turn`、`world_validation`、`map_atlas_generate`、`world_map_schematic_generate`、
   `map_atlas_storage_cleanup`、`world_object_image_cleanup`
   （`world_generation_suggestion` 的 meta 可携带 `session_id`/`session_action`：任务成功后由
   world 域把回合与成果追加进持久化共创会话，见 ADR-0021；transport 合并与任务指纹不受影响）
@@ -310,3 +310,7 @@ RP max 沿用既有任务、lease、心跳与恢复策略；Interaction handler 
 UUID。过滤在领取 SQL 中完成，只处理匹配的 pending 任务；不会领取、取消或修改其他排队任务。
 不传参数仍是原队列领取方式。退避、coalescing、SKIP LOCKED、lease、preflight 和提交 fence
 全部复用；该入口用于明确任务的手动验收，不是浏览器权限或项目边界的替代。
+
+### 共创回合恢复
+
+`world_cocreation_turn` 使用 `auto_requeue`、至多两个 attempt 与现有 transport retry scope。World 持有业务判断，任务基础设施只提供 operation fingerprint、lease commit fence 和精确 `novel_id + task_type + session_id` 的最后操作查询；该类型禁止 generic submit。终态回合与可恢复结果原子保存，进度不等于采用内容；没有新任务表或调度器。

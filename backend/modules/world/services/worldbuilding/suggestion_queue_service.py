@@ -1231,6 +1231,13 @@ class SuggestionQueueService:
         suggestion = await self._get_suggestion(db, novel_id, suggestion_id)
         return suggestion
 
+    async def get(
+        self, db: AsyncSession, novel_id: str, suggestion_id: str
+    ) -> CreationSuggestionResponse:
+        return CreationSuggestionResponse.model_validate(
+            await self._get_suggestion(db, novel_id, suggestion_id)
+        )
+
     async def _get_suggestion(
         self,
         db: AsyncSession,

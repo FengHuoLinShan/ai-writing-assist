@@ -14,7 +14,7 @@ import {
   serverMessagesToLocal,
   unfinishedCocreationMessages,
 } from "./views/generate/generateSession.js"
-import { OBJECT_TEMPLATES, PAGE_SIZE, convergenceDraftFromCheckpoint, listItems, normalizeTemplate } from "./views/generate/logic/generateLogic.js"
+import { OBJECT_TEMPLATES, PAGE_SIZE, convergenceDraftFromCheckpoint, listItems, normalizeTemplate, suggestionResult } from "./views/generate/logic/generateLogic.js"
 
 const VALID_TABS = new Set(["world", "task", "preview", "pov_prose"])
 const VALID_TARGETS = new Set(["core_entity", "world_bible_page", "world_bible_new_page"])
@@ -34,6 +34,10 @@ async function loadAll(fetchPage) {
 }
 
 async function findSuggestion(api, projectId, suggestionId, status) {
+  if (api.world.getWorldSuggestion) {
+    try { const item = await api.world.getWorldSuggestion(suggestionId, projectId); return item.status === status ? item : null }
+    catch (error) { if (error.status === 404) return null; throw error }
+  }
   let skip = 0
   const limit = 200
   while (true) {
@@ -53,25 +57,6 @@ async function findSuggestion(api, projectId, suggestionId, status) {
   }
 }
 
-function suggestionResult(item, sourcePageId, targetKind) {
-  if (!item) return null
-  const payload = item.payload_json || {}
-  if (item.target_type === "core_entity_draft" && targetKind === "core_entity") {
-    return { kind: "core_entity", suggestion: item, proposal: payload }
-  }
-  if (
-    item.target_type === "world_bible_page_draft"
-    && payload.operation === "replace_existing"
-    && targetKind === "world_bible_page"
-    && payload.target_page_id === sourcePageId
-  ) return { kind: "world_bible_page", suggestion: item, proposal: payload }
-  if (
-    item.target_type === "world_bible_page_draft"
-    && payload.operation === "create_new"
-    && targetKind === "world_bible_new_page"
-  ) return { kind: "world_bible_new_page", suggestion: item, proposal: payload }
-  return null
-}
 
 async function restoreSuggestion(api, projectId, suggestionId, sourcePageId, targetKind) {
   if (!suggestionId || !api?.world?.listSuggestions) return null
@@ -171,8 +156,9 @@ export async function loadGenerate(options = {}) {
       if (detail?.session) {
         serverSessionDetail = detail
         const info = detail.session
-        if ((info.source_kind && info.source_kind !== (sourcePageId ? "world_bible_page" : "project"))
-          || (info.source_id || null) !== sourcePageId
+        const explicitlyBoundObject = querySessionId && !sourcePageId && ['core_entity', 'world_library_topic'].includes(info.source_kind)
+        if ((!explicitlyBoundObject && info.source_kind && info.source_kind !== (sourcePageId ? "world_bible_page" : "project"))
+          || (!explicitlyBoundObject && (info.source_id || null) !== sourcePageId)
           || (info.workflow_preset && info.workflow_preset !== (preset === "world_core" ? "world_core" : "default"))
           || (info.target_kind && info.target_kind !== targetKind)) {
           serverSessionDetail = null
@@ -184,6 +170,9 @@ export async function loadGenerate(options = {}) {
         const checkpointChanged = session.serverCheckpointId !== (info.current_checkpoint_id || null)
         session.serverSessionId = info.id
         session.serverSessionTitle = info.title || ""
+        session.serverSourceKind = info.source_kind || "project"
+        session.serverSourceId = info.source_id || null
+        session.lastOperation = detail.last_operation || null
         session.serverCheckpointId = info.current_checkpoint_id || null
         if (Number.isFinite(Number(info.checkpoint_round))) {
           session.checkpointRound = Number(info.checkpoint_round || 0)
@@ -192,6 +181,8 @@ export async function loadGenerate(options = {}) {
         if (checkpointChanged) {
           session.checkpointId = info.current_checkpoint_id || null
           session.convergenceDraft = null
+          session.designTargetId = null
+          if (session.worldDesignProposal) session.worldDesignProposal.stale = true
         }
         const serverMessages = serverMessagesToLocal(detail.messages || [])
         // 已同步历史来自当前会话；失败回合连同作者原问题一起保留。
@@ -216,7 +207,8 @@ export async function loadGenerate(options = {}) {
     try {
       const artifact = await api.world.getAdoptionArtifact(checkpointId, projectId)
       const restored = convergenceDraftFromCheckpoint(artifact)
-      if (!restored) throw new Error("阶段成果类型不匹配")
+      if (!restored && artifact.payload_json?.schema_version !== "world_design_checkpoint.v1") throw new Error("阶段成果类型不匹配")
+      session.worldDesignCheckpoint = artifact.payload_json?.world_state ? artifact.payload_json : null
       session.checkpointId = checkpointId
       session.successfulRounds = Math.max(session.successfulRounds || 0, Number(artifact.payload_json?.round_no || 0))
       session.checkpointRound = Math.max(session.checkpointRound || 0, Number(artifact.payload_json?.round_no || 0))
@@ -252,18 +244,20 @@ export async function loadGenerate(options = {}) {
     tabPromise = (async () => {
       try {
         const [pages, drafts, categories, pageTemplates, scenes, threads, characters, entities] = await Promise.all([
-          api.world.listBiblePages({ novel_id: projectId }),
-          api.world.listBibleDrafts(projectId),
+          api.world.listLibraryChoices({ novel_id: projectId, kind: 'page' }),
+          sourcePageId ? api.world.listBibleDrafts(projectId, { page_id: sourcePageId }) : Promise.resolve({ items: [] }),
           api.world.listBibleCategories(projectId),
           api.world.listBiblePageTemplates(projectId),
           api.outline.listScenesOrdered(projectId),
           api.outline.listThreads(projectId, { limit: 50 }),
-          loadAll((skip) => api.world.listCharacters({ novel_id: projectId, skip, limit: PAGE_SIZE })),
-          loadAll((skip) => api.world.listEntities({ novel_id: projectId, display_state: "active", skip, limit: PAGE_SIZE })),
+          api.world.listLibraryChoices({ novel_id: projectId, kind: 'entity', item_type: 'character' }).then(listItems),
+          api.world.listLibraryChoices({ novel_id: projectId, kind: 'entity' }).then(listItems),
         ])
         const pageItems = listItems(pages)
         const draftItems = listItems(drafts)
-        props.sourcePage = sourcePageId ? pageItems.find((item) => item.id === sourcePageId) || null : null
+        props.sourcePage = sourcePageId ? await api.world.getBiblePage(sourcePageId, projectId) : null
+        const selectedPages = await Promise.all((session.selectedWorldPageIds || []).filter(id => !pageItems.some(item => item.id === id)).map(id => api.world.getBiblePage(id, projectId)))
+        pageItems.push(...selectedPages.map(({ id, title, page_type, status }) => ({ id, title, page_type, status })))
         props.sourceDraft = sourcePageId ? draftItems.find((item) => item.page_id === sourcePageId) || null : null
         props.worldCategories = listItems(categories)
         props.worldPageTemplates = listItems(pageTemplates)
@@ -287,9 +281,13 @@ export async function loadGenerate(options = {}) {
           }
         } else {
           await serverSessionPromise
-          const restored = await restoreSuggestion(api, projectId, session.suggestionId, sourcePageId, targetKind)
-          props.restoredWorldResult = restored?.result || null
-          props.restoredPreviousWorldResult = restored?.previousResult || null
+          try {
+            const restored = await restoreSuggestion(api, projectId, session.suggestionId, sourcePageId, targetKind)
+            props.restoredWorldResult = restored?.result || null
+            props.restoredPreviousWorldResult = restored?.previousResult || null
+          } catch {
+            props.worldWorkspaceWarning = '已保存提案暂时无法恢复，当前来源与对话仍可使用；请稍后刷新重试。'
+          }
         }
       } catch (err) {
         props.worldSourceUnavailable = Boolean(sourcePageId)

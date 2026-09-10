@@ -337,6 +337,22 @@ async def list_task_lifecycle_contracts(
     )
 
 
+async def find_session_operation(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    task_type: str,
+    session_id: str,
+) -> TaskLifecycleContract | None:
+    """Discover one page-local operation without exposing task metadata."""
+    return await TaskLifecycleService().find_session_operation(
+        db,
+        novel_id=novel_id,
+        task_type=task_type,
+        session_id=session_id,
+    )
+
+
 async def get_task_owner(
     db: AsyncSession,
     *,

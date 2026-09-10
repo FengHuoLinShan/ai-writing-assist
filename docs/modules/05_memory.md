@@ -91,3 +91,5 @@ pytest modules/story/continuity/tests/ -v
 ```
 
 第四期复核所有权（ADR-0022）未改变 memory 子域：影响预演不读取记忆事件，故事线反查仅覆盖 `related_entity_ids`。
+
+World 的变更复核只消费 Story 结构来源并保存 World 回执，不写 continuity 的事件、Scene checkpoint 或 memory 快照，也不把候选世界推演记为已发生剧情。连续性写入与回滚边界保持由 Story 负责。

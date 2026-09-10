@@ -368,3 +368,5 @@ Compilation 的 `retrieve_focused_evidence` 将本层混合检索用于有界语
 该过滤仍维持 contains-all 语义。本轮未修改 indexing API、评分、索引、表或任务行为。
 地图已有图元的精确原文来源可以通过 compilation pinned_refs 选入，不要求重建或复制索引。
 章首 offset=0 的选择校验修复不改变本子域的分块、offset/hash、检索排序或持久化表。
+
+世界跨域复核通过 compilation/facade 消费现有确认与聚焦证据，不新增索引、重建任务或资产写权限。字面命中、Top-K 与聚焦覆盖仍不能证明全库语义穷尽，源版本校验继续先于结果使用。

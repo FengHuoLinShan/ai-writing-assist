@@ -19,6 +19,8 @@ function makeApi() {
     context: { listActivationProfiles: vi.fn(async () => collection()) },
     world: {
       listBiblePages: vi.fn(async () => collection()),
+      listLibraryChoices: vi.fn(async () => collection()),
+      getBiblePage: vi.fn(async () => null),
       listBibleDrafts: vi.fn(async () => collection()),
       listBibleCategories: vi.fn(async () => collection()),
       listBiblePageTemplates: vi.fn(async () => collection()),
@@ -83,14 +85,14 @@ describe("generateIsland load contract", () => {
     const loading = loadGenerate()
 
     expect(api.context.listActivationProfiles).toHaveBeenCalledWith("p1")
-    expect(api.world.listBiblePages).toHaveBeenCalledWith({ novel_id: "p1" })
-    expect(api.world.listBibleDrafts).toHaveBeenCalledWith("p1")
+    expect(api.world.listLibraryChoices).toHaveBeenCalledWith({ novel_id: "p1", kind: "page" })
+    expect(api.world.listBibleDrafts).not.toHaveBeenCalled()
     expect(api.world.listBibleCategories).toHaveBeenCalledWith("p1")
     expect(api.world.listBiblePageTemplates).toHaveBeenCalledWith("p1")
     expect(api.outline.listScenesOrdered).toHaveBeenCalledWith("p1")
     expect(api.outline.listThreads).toHaveBeenCalledWith("p1", { limit: 50 })
-    expect(api.world.listCharacters).toHaveBeenCalledWith({ novel_id: "p1", skip: 0, limit: 50 })
-    expect(api.world.listEntities).toHaveBeenCalledWith({ novel_id: "p1", display_state: "active", skip: 0, limit: 50 })
+    expect(api.world.listLibraryChoices).toHaveBeenCalledWith({ novel_id: "p1", kind: "entity", item_type: "character" })
+    expect(api.world.listLibraryChoices).toHaveBeenCalledWith({ novel_id: "p1", kind: "entity" })
 
     resolveTemplates(collection())
     await loading
@@ -129,7 +131,7 @@ describe("generateIsland load contract", () => {
 
   it("keeps the world warning when a checkpoint fails later", async () => {
     router.getCurrentQuery.mockReturnValue(new URLSearchParams("tab=world&preset=world_core&checkpoint_id=checkpoint-1"))
-    api.world.listBiblePages.mockRejectedValue(new Error("世界加载失败"))
+    api.world.listLibraryChoices.mockRejectedValue(new Error("世界加载失败"))
     api.world.getAdoptionArtifact.mockImplementation(async () => {
       await Promise.resolve()
       throw new Error("阶段成果加载失败")
@@ -146,7 +148,7 @@ describe("generateIsland load contract", () => {
       generateSessionKey("p1", "page-1", "world_bible_page"),
       { ...emptyGenerateSession(), suggestionId: "suggestion-restore" },
     )
-    api.world.listBiblePages.mockResolvedValue(collection([{ id: "page-1", version_number: 3 }]))
+    api.world.getBiblePage.mockResolvedValue({ id: "page-1", version_number: 3 })
     api.world.listSuggestions.mockResolvedValue(collection([{
       id: "suggestion-restore",
       target_type: "world_bible_page_draft",
@@ -200,33 +202,19 @@ describe("generateIsland load contract", () => {
     }))
   })
 
-  it("paginates all active assets and uses the ordered active-scene seam", async () => {
-    api.world.listBiblePages.mockResolvedValue(collection([
-      { id: "page-adopted", title: "已采用页", status: "canonical" },
-      { id: "page-draft", title: "未发布页", status: "draft" },
-    ]))
-    const firstCharacters = Array.from({ length: 50 }, (_, index) => ({ entity_id: `character-${index + 1}` }))
-    const firstEntities = Array.from({ length: 50 }, (_, index) => ({ id: `entity-${index + 1}`, entity_type: "item" }))
-    api.world.listCharacters.mockImplementation(async ({ skip }) => (
-      skip === 0 ? { items: firstCharacters, total: 51 } : { items: [{ entity_id: "character-51" }], total: 51 }
-    ))
-    api.world.listEntities.mockImplementation(async ({ skip }) => (
-      skip === 0 ? { items: firstEntities, total: 51 } : { items: [{ id: "entity-51", entity_type: "location" }], total: 51 }
-    ))
-    api.outline.listScenesOrdered.mockResolvedValue([
-      { id: "scene-1", status: "canonical" },
-      { id: "scene-2", status: "draft" },
-    ])
-
+  it("loads bounded reference choices without fetching every asset body", async () => {
+    api.world.listLibraryChoices.mockImplementation(async ({ kind, item_type }) => kind === 'page'
+      ? collection([{ id: 'page-adopted', title: '已采用页', status: 'canonical' }])
+      : collection(Array.from({ length: 30 }, (_, index) => ({ id: `${item_type || 'item'}-${index}`, entity_type: item_type || 'item', status: 'canonical' }))))
+    api.outline.listScenesOrdered.mockResolvedValue([{ id: 'scene-1', status: 'canonical' }])
     const props = await loadGenerate()
-
-    expect(props.worldCharacters).toHaveLength(51)
-    expect(props.worldEntities).toHaveLength(51)
-    expect(props.worldPages.map((item) => item.id)).toEqual(["page-adopted"])
-    expect(props.worldScenes.map((item) => item.id)).toEqual(["scene-1", "scene-2"])
-    expect(api.world.listCharacters).toHaveBeenNthCalledWith(2, { novel_id: "p1", skip: 50, limit: 50 })
-    expect(api.world.listEntities).toHaveBeenNthCalledWith(2, { novel_id: "p1", display_state: "active", skip: 50, limit: 50 })
-    expect(api.outline.listScenesOrdered).toHaveBeenCalledWith("p1")
+    expect(props.worldCharacters).toHaveLength(30)
+    expect(props.worldEntities).toHaveLength(30)
+    expect(props.worldPages.map(item => item.id)).toEqual(['page-adopted'])
+    expect(api.world.listBiblePages).not.toHaveBeenCalled()
+    expect(api.world.listEntities).not.toHaveBeenCalled()
+    expect(api.world.getBiblePage).not.toHaveBeenCalled()
+    expect(api.outline.listScenesOrdered).toHaveBeenCalledWith('p1')
   })
 
   it("does not reuse a foreign project session or silently downgrade a missing source page", async () => {
@@ -252,8 +240,8 @@ describe("generateIsland load contract", () => {
     expect(props.worldWorkspaceWarning).toContain("本地对话和未发送内容仍保留")
     expect(props.restoredWorldResult).toBeNull()
     expect(api.world.listSuggestions).not.toHaveBeenCalled()
-    expect(api.world.listBiblePages).toHaveBeenCalledWith({ novel_id: "p2" })
-    expect(api.world.listCharacters).toHaveBeenCalledWith({ novel_id: "p2", skip: 0, limit: 50 })
+    expect(api.world.listLibraryChoices).toHaveBeenCalledWith({ novel_id: "p2", kind: "page" })
+    expect(api.world.listLibraryChoices).toHaveBeenCalledWith({ novel_id: "p2", kind: "entity", item_type: "character" })
     expect(toast).not.toHaveBeenCalledWith(expect.stringContaining("foreign-suggestion"), expect.anything())
   })
 

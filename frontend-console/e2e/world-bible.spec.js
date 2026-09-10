@@ -318,6 +318,7 @@ test.describe("世界书工作台", () => {
     await expect(page.locator(".world-bible-workspace")).toContainText("E2E 世界基本背景")
     await expect(page.locator("#bible-free-text")).toHaveValue(freeText)
     await expect(page.locator("[data-section-field='body_markdown']").first()).toHaveValue("北境使用银币进行贸易。")
+    await openDisclosure(page, "bible-ai-reference-rules")
     await expect(page.locator("#bible-activation-profile option", { hasText: "E2E 贸易规则" })).toContainText("已发布")
     await expectNoAppErrors(page, "页面刷新恢复后")
 

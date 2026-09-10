@@ -1,0 +1,727 @@
+{
+  "schema_version": "world_design_checkpoint.v1",
+  "depth": "seed",
+  "round_no": 3,
+  "action": "consolidate",
+  "parent_checkpoint_id": null,
+  "source_manifest_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "seeds": [],
+  "decision_state": null,
+  "world_core": null,
+  "decisions": [
+    {
+      "item_key": "no-revival",
+      "text": "不得复活死者",
+      "disposition": "rejected",
+      "rule_key": null,
+      "source_keys": [
+        "author:1"
+      ]
+    }
+  ],
+  "world_state": {
+    "schema_version": "0.1.0",
+    "engine_version": "worldbuilding-engine/0.7.0",
+    "project": {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "title": "合成潮门世界",
+      "language": "zh-CN",
+      "seed": "",
+      "mode": "create",
+      "status": "developing",
+      "created_at": null,
+      "updated_at": null
+    },
+    "authority": {
+      "source_of_truth": [],
+      "read_only": [],
+      "constraints": [
+        "不得复活死者"
+      ],
+      "locked_decisions": [],
+      "author_required": [],
+      "open_questions": []
+    },
+    "premise": {
+      "status": "draft",
+      "core_difference": "",
+      "human_experience": "",
+      "scale": "",
+      "aesthetic_surface": [],
+      "themes": [],
+      "evidence": []
+    },
+    "knowledge_layers": {
+      "author_truth": [],
+      "expert_models": [],
+      "public_beliefs": [],
+      "reader_unknowns": []
+    },
+    "rules": [
+      {
+        "id": "rule:tide",
+        "name": "潮门",
+        "status": "proposed",
+        "capability": "输送货物",
+        "impossibility": "不能运送生命",
+        "inputs": [],
+        "outputs": [],
+        "costs": [
+          "每次耗盐"
+        ],
+        "losses": [],
+        "access": [],
+        "visibility": [],
+        "scale_limits": [],
+        "failure_modes": [],
+        "maintenance": [],
+        "countermeasures": [],
+        "knowledge_layer": "author_truth",
+        "dependencies": [],
+        "evidence": [
+          "author:1"
+        ]
+      }
+    ],
+    "reproduction_loops": {
+      "material": {
+        "status": "gap",
+        "chain": [],
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "reason": "尚未审计"
+      },
+      "population_care": {
+        "status": "gap",
+        "chain": [],
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "reason": "尚未审计"
+      },
+      "economic": {
+        "status": "gap",
+        "chain": [],
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "reason": "尚未审计"
+      },
+      "institutional": {
+        "status": "gap",
+        "chain": [],
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "reason": "尚未审计"
+      },
+      "knowledge": {
+        "status": "gap",
+        "chain": [],
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "reason": "尚未审计"
+      },
+      "meaning_identity": {
+        "status": "gap",
+        "chain": [],
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "reason": "尚未审计"
+      }
+    },
+    "facets": [
+      {
+        "id": "F01",
+        "name": "本体法则与不可行域",
+        "status": "gap",
+        "maturity": {
+          "framework": 0,
+          "instance": 0
+        },
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "dependencies": [],
+        "reason": "尚未审计"
+      },
+      {
+        "id": "F02",
+        "name": "地理、生态与气候",
+        "status": "gap",
+        "maturity": {
+          "framework": 0,
+          "instance": 0
+        },
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "dependencies": [],
+        "reason": "尚未审计"
+      },
+      {
+        "id": "F03",
+        "name": "资源、承载力与城市代谢",
+        "status": "gap",
+        "maturity": {
+          "framework": 0,
+          "instance": 0
+        },
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "dependencies": [],
+        "reason": "尚未审计"
+      },
+      {
+        "id": "F04",
+        "name": "技术、魔法与基础设施",
+        "status": "gap",
+        "maturity": {
+          "framework": 0,
+          "instance": 0
+        },
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "dependencies": [],
+        "reason": "尚未审计"
+      },
+      {
+        "id": "F05",
+        "name": "故障、维修与韧性",
+        "status": "gap",
+        "maturity": {
+          "framework": 0,
+          "instance": 0
+        },
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "dependencies": [],
+        "reason": "尚未审计"
+      },
+      {
+        "id": "F06",
+        "name": "人口结构与生命历程",
+        "status": "gap",
+        "maturity": {
+          "framework": 0,
+          "instance": 0
+        },
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "dependencies": [],
+        "reason": "尚未审计"
+      },
+      {
+        "id": "F07",
+        "name": "家庭、亲属与照护",
+        "status": "gap",
+        "maturity": {
+          "framework": 0,
+          "instance": 0
+        },
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "dependencies": [],
+        "reason": "尚未审计"
+      },
+      {
+        "id": "F08",
+        "name": "身体、医疗、残障与死亡",
+        "status": "gap",
+        "maturity": {
+          "framework": 0,
+          "instance": 0
+        },
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "dependencies": [],
+        "reason": "尚未审计"
+      },
+      {
+        "id": "F09",
+        "name": "劳动、职业与技能传承",
+        "status": "gap",
+        "maturity": {
+          "framework": 0,
+          "instance": 0
+        },
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "dependencies": [],
+        "reason": "尚未审计"
+      },
+      {
+        "id": "F10",
+        "name": "住房、消费与日常时间",
+        "status": "gap",
+        "maturity": {
+          "framework": 0,
+          "instance": 0
+        },
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "dependencies": [],
+        "reason": "尚未审计"
+      },
+      {
+        "id": "F11",
+        "name": "财产、货币、信用、债务与供应链",
+        "status": "gap",
+        "maturity": {
+          "framework": 0,
+          "instance": 0
+        },
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "dependencies": [],
+        "reason": "尚未审计"
+      },
+      {
+        "id": "F12",
+        "name": "正式制度、非正式制度与组织政治",
+        "status": "gap",
+        "maturity": {
+          "framework": 0,
+          "instance": 0
+        },
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "dependencies": [],
+        "reason": "尚未审计"
+      },
+      {
+        "id": "F13",
+        "name": "行政能力、裁量与合法性",
+        "status": "gap",
+        "maturity": {
+          "framework": 0,
+          "instance": 0
+        },
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "dependencies": [],
+        "reason": "尚未审计"
+      },
+      {
+        "id": "F14",
+        "name": "法律、证据、申诉与多法域",
+        "status": "gap",
+        "maturity": {
+          "framework": 0,
+          "instance": 0
+        },
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "dependencies": [],
+        "reason": "尚未审计"
+      },
+      {
+        "id": "F15",
+        "name": "阶层、地位、身份与社会边界",
+        "status": "gap",
+        "maturity": {
+          "framework": 0,
+          "instance": 0
+        },
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "dependencies": [],
+        "reason": "尚未审计"
+      },
+      {
+        "id": "F16",
+        "name": "战争、边境、迁徙与外部关系",
+        "status": "gap",
+        "maturity": {
+          "framework": 0,
+          "instance": 0
+        },
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "dependencies": [],
+        "reason": "尚未审计"
+      },
+      {
+        "id": "F17",
+        "name": "知识、教育、档案与谣言",
+        "status": "gap",
+        "maturity": {
+          "framework": 0,
+          "instance": 0
+        },
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "dependencies": [],
+        "reason": "尚未审计"
+      },
+      {
+        "id": "F18",
+        "name": "语言、语域、命名与翻译",
+        "status": "gap",
+        "maturity": {
+          "framework": 0,
+          "instance": 0
+        },
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "dependencies": [],
+        "reason": "尚未审计"
+      },
+      {
+        "id": "F19",
+        "name": "宗教、仪式、禁忌与道德经济",
+        "status": "gap",
+        "maturity": {
+          "framework": 0,
+          "instance": 0
+        },
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "dependencies": [],
+        "reason": "尚未审计"
+      },
+      {
+        "id": "F20",
+        "name": "情绪规则、身体经验与物质文化",
+        "status": "gap",
+        "maturity": {
+          "framework": 0,
+          "instance": 0
+        },
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "dependencies": [],
+        "reason": "尚未审计"
+      },
+      {
+        "id": "F21",
+        "name": "历史沉积与路径依赖",
+        "status": "gap",
+        "maturity": {
+          "framework": 0,
+          "instance": 0
+        },
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "dependencies": [],
+        "reason": "尚未审计"
+      },
+      {
+        "id": "F22",
+        "name": "网络、集体行动、涌现与反馈",
+        "status": "gap",
+        "maturity": {
+          "framework": 0,
+          "instance": 0
+        },
+        "evidence": [],
+        "gaps": [
+          "尚未审计"
+        ],
+        "dependencies": [],
+        "reason": "尚未审计"
+      }
+    ],
+    "coupling_chains": [
+      {
+        "id": "C01",
+        "name": "权利链",
+        "status": "gap",
+        "nodes": [],
+        "breaks": [],
+        "evidence": [],
+        "reason": "尚未审计"
+      },
+      {
+        "id": "C02",
+        "name": "技术链",
+        "status": "gap",
+        "nodes": [],
+        "breaks": [],
+        "evidence": [],
+        "reason": "尚未审计"
+      },
+      {
+        "id": "C03",
+        "name": "身份链",
+        "status": "gap",
+        "nodes": [],
+        "breaks": [],
+        "evidence": [],
+        "reason": "尚未审计"
+      },
+      {
+        "id": "C04",
+        "name": "证据链",
+        "status": "gap",
+        "nodes": [],
+        "breaks": [],
+        "evidence": [],
+        "reason": "尚未审计"
+      },
+      {
+        "id": "C05",
+        "name": "分配链",
+        "status": "gap",
+        "nodes": [],
+        "breaks": [],
+        "evidence": [],
+        "reason": "尚未审计"
+      }
+    ],
+    "situated_tests": {
+      "ordinary_tuesday": {
+        "status": "gap",
+        "scenario": "",
+        "actors": [],
+        "evidence": [],
+        "contradictions": [],
+        "reason": "尚未审计"
+      },
+      "seven_day_failure": {
+        "status": "gap",
+        "scenario": "",
+        "actors": [],
+        "evidence": [],
+        "contradictions": [],
+        "reason": "尚未审计"
+      },
+      "life_course": {
+        "status": "gap",
+        "scenario": "",
+        "actors": [],
+        "evidence": [],
+        "contradictions": [],
+        "reason": "尚未审计"
+      },
+      "ten_year_feedback": {
+        "status": "gap",
+        "scenario": "",
+        "actors": [],
+        "evidence": [],
+        "contradictions": [],
+        "reason": "尚未审计"
+      }
+    },
+    "pressure_tests": [
+      {
+        "id": "T01",
+        "name": "主角移除",
+        "status": "pass",
+        "result": "原测试结果",
+        "evidence": [
+          "author:1"
+        ],
+        "failures": []
+      },
+      {
+        "id": "T02",
+        "name": "普通星期二",
+        "status": "not-run",
+        "result": "",
+        "evidence": [],
+        "failures": []
+      },
+      {
+        "id": "T03",
+        "name": "一生",
+        "status": "not-run",
+        "result": "",
+        "evidence": [],
+        "failures": []
+      },
+      {
+        "id": "T04",
+        "name": "最贫者",
+        "status": "not-run",
+        "result": "",
+        "evidence": [],
+        "failures": []
+      },
+      {
+        "id": "T05",
+        "name": "上层例外",
+        "status": "not-run",
+        "result": "",
+        "evidence": [],
+        "failures": []
+      },
+      {
+        "id": "T06",
+        "name": "一项权利",
+        "status": "not-run",
+        "result": "",
+        "evidence": [],
+        "failures": []
+      },
+      {
+        "id": "T07",
+        "name": "一件商品",
+        "status": "not-run",
+        "result": "",
+        "evidence": [],
+        "failures": []
+      },
+      {
+        "id": "T08",
+        "name": "故障与维修",
+        "status": "not-run",
+        "result": "",
+        "evidence": [],
+        "failures": []
+      },
+      {
+        "id": "T09",
+        "name": "跨境",
+        "status": "not-run",
+        "result": "",
+        "evidence": [],
+        "failures": []
+      },
+      {
+        "id": "T10",
+        "name": "历史来源",
+        "status": "not-run",
+        "result": "",
+        "evidence": [],
+        "failures": []
+      },
+      {
+        "id": "T11",
+        "name": "集体行动",
+        "status": "not-run",
+        "result": "",
+        "evidence": [],
+        "failures": []
+      },
+      {
+        "id": "T12",
+        "name": "十年后",
+        "status": "not-run",
+        "result": "",
+        "evidence": [],
+        "failures": []
+      }
+    ],
+    "actors": [
+      {
+        "id": "actor:1",
+        "name": "盐商",
+        "status": "proposed",
+        "summary": "维护潮门",
+        "evidence": [
+          "author:1"
+        ]
+      }
+    ],
+    "places": [],
+    "institutions": [],
+    "history": [],
+    "fiction_core": {
+      "world": {
+        "status": "not-started",
+        "artifacts": [],
+        "invalidated_by": [],
+        "notes": []
+      },
+      "character": {
+        "status": "not-started",
+        "artifacts": [],
+        "invalidated_by": [],
+        "notes": []
+      },
+      "story": {
+        "status": "not-started",
+        "artifacts": [],
+        "invalidated_by": [],
+        "notes": []
+      },
+      "outline": {
+        "status": "not-started",
+        "artifacts": [],
+        "invalidated_by": [],
+        "notes": []
+      },
+      "prose": {
+        "status": "valid",
+        "artifacts": [
+          "rule:tide"
+        ],
+        "invalidated_by": [],
+        "notes": []
+      },
+      "editor": {
+        "status": "not-started",
+        "artifacts": [],
+        "invalidated_by": [],
+        "notes": []
+      }
+    },
+    "dependencies": [
+      {
+        "from": "T01",
+        "to": "rule:tide",
+        "kind": "requires",
+        "status": "active"
+      }
+    ],
+    "change_log": [],
+    "audit": {
+      "last_run_at": null,
+      "engine_version": "worldbuilding-engine/0.7.0",
+      "valid": null,
+      "blocking_gaps": [],
+      "warnings": []
+    },
+    "extensions": {}
+  }
+}

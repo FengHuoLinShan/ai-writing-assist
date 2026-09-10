@@ -95,6 +95,7 @@ class WorldLibraryService:
         novel_id: str,
         *,
         q: str | None = None,
+        target_id: str | None = None,
         kind: str | None = "all",
         item_type: str | None = None,
         state: str | None = None,
@@ -142,6 +143,10 @@ class WorldLibraryService:
             topic_ids=topic_ids,
             unclassified=unclassified,
         )
+        if target_id is not None:
+            outer = outer.where(
+                order_columns["target_id"] == parse_uuid(target_id, "target_id")
+            )
         total = await db.scalar(select(func.count()).select_from(outer.subquery()))
         result = await db.execute(
             outer.order_by(*self._order_clause(order_columns, sort))
