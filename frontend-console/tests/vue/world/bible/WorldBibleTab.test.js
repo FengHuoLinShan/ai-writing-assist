@@ -644,6 +644,58 @@ describe("显示模式切换", () => {
     expect(wrapper.get(".world-entity-detail__back").text()).toContain("返回资料库")
   })
 
+  it("引用编辑提供参考/依赖/派生/冲突分级并写回隐藏引用清单", async () => {
+    const bible = defaultBible()
+    bible.drafts = bible.drafts.map((draft) => (
+      draft.id === "draft-1"
+        ? {
+            ...draft,
+            linked_asset_refs_json: [
+              { type: "core_entity", id: "entity-1", relation: "requires" },
+              { type: "core_entity", id: "entity-2" },
+            ],
+          }
+        : draft
+    ))
+    const wrapper = mountTab({ bible })
+    await enterEditorFromReader(wrapper)
+
+    const relations = wrapper.get("[data-section='bible-asset-ref-relations']")
+    const selects = relations.findAll("select")
+    expect(selects.length).toBe(2)
+    expect(selects[0].element.value).toBe("requires")
+    expect(selects[1].element.value).toBe("informs")
+
+    await selects[1].setValue("derives")
+    const hidden = wrapper.get("#bible-asset-refs").element.value
+    const parsed = JSON.parse(hidden)
+    expect(parsed[1]).toEqual({ type: "core_entity", id: "entity-2", relation: "derives" })
+    expect(parsed[0]).toEqual({ type: "core_entity", id: "entity-1", relation: "requires" })
+  })
+
+  it("页面详情与对象详情提供影响预演入口", async () => {
+    api.world.previewWorldImpact = api.world.previewWorldImpact || vi.fn(async () => ({
+      target: { target_type: "world_bible_page", target_id: "page-1", label: "世界基本背景" },
+      sections: [
+        { section: "world_pages", items: [{ kind: "world_bible_page", id: "page-2", label: "货币制度", version: "v1", distance: 1, detail: null }], uncovered: [], truncated: false },
+        { section: "prose", items: [], uncovered: ["正文按名称/别名字面匹配：代词、改写与未列别名无法覆盖"], truncated: false },
+      ],
+      uncovered: ["证据分片的实体标注与语义相似改写未纳入本次预演"],
+      complete: true,
+    }))
+    const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
+    await wrapper.get("[data-action='bible-impact-preview']").trigger("click")
+    await vi.waitFor(() => expect(api.world.previewWorldImpact).toHaveBeenCalledWith(
+      expect.objectContaining({ novel_id: "p1", target_type: "world_bible_page", target_id: "page-1" })
+    ))
+    await vi.waitFor(() => expect(showModalHtmlMock).toHaveBeenCalled())
+    const [, body] = showModalHtmlMock.mock.calls.at(-1)
+    expect(body).toContain("世界书页面 · 1 项")
+    expect(body).toContain("货币制度")
+    expect(body).toContain("未覆盖")
+  })
+
   it("关联资产保留对象深链并进入统一详情，未保存时仍受离开门禁保护", async () => {
     const wrapper = mountTab({
       worldCardFilters: { q: "港", kind: "entity", type: "location", state: "", layout: "list" },
@@ -2830,6 +2882,7 @@ describe("二期：工作稿自动保存与编辑基线", () => {
     try {
       const bible = defaultBible()
       bible.drafts = [] // 已发布页且尚无工作稿：编辑源先是正式页对象
+      bible.pages = bible.pages.map((page) => ({ ...page, updated_at: "2026-09-09T07:00:00Z" }))
       const pageScopedKey = `world_draft_backup_p1_draft_page-1`
       localStorage.setItem(pageScopedKey, JSON.stringify({
         payload: {
@@ -2838,6 +2891,7 @@ describe("二期：工作稿自动保存与编辑基线", () => {
           sort_order: 0, linked_asset_refs_json: [], sections_json: [],
         },
         savedAt: "2026-09-09T08:00:00.000Z",
+        baselineUpdatedAt: "2026-09-09T07:00:00Z",
       }))
       const createBibleDraft = vi.fn(async () => ({
         id: "draft-restored", page_id: "page-1", title: "世界基本背景",
@@ -3072,6 +3126,25 @@ describe("二期：资料页阅读态", () => {
 })
 
 describe("二期：保存冲突展示服务器版本", () => {
+  it("保留本地修改后能使用核对过的服务器基线手动保存", async () => {
+    const server = { ...DRAFT_1, free_text: "服务器版本", sections_json: [], updated_at: "2026-09-09T03:00:00Z" }
+    globalThis.api.world.updateBibleDraft = vi.fn()
+      .mockRejectedValueOnce(Object.assign(new Error("请求冲突"), { status: 409, body: { error: "edit_baseline_stale" } }))
+      .mockImplementationOnce(async (_id, payload) => ({ ...server, ...payload }))
+    globalThis.api.world.listBibleDrafts = vi.fn(async () => ({ items: [server] }))
+    const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
+    await wrapper.get("#bible-free-text").setValue("本地版本")
+    await wrapper.get("[data-action='bible-save-page']").trigger("click")
+    await vi.waitFor(() => expect(showModalHtmlMock.mock.calls.at(-1)?.[0]).toBe("工作稿保存冲突"))
+    await showModalHtmlMock.mock.calls.at(-1)[2].find((button) => button.text === "保留我的修改").handler()
+    expect(wrapper.get("#bible-free-text").element.value).toBe("本地版本")
+    await wrapper.get("[data-action='bible-save-page']").trigger("click")
+    expect(globalThis.api.world.updateBibleDraft.mock.calls[1][1]).toMatchObject({
+      free_text: "本地版本", expected_updated_at: server.updated_at,
+    })
+  })
+
   it("基线 409 时弹出对照对话框，可选择采用服务器版本", async () => {
     const conflict = Object.assign(new Error("请求冲突"), { status: 409, body: { error: "edit_baseline_stale" } })
     const updateDraft = vi.fn()

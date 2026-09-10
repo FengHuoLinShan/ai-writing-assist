@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
+import { mockCocreationTurns } from "./helpers/cocreation-turns.js"
 import { expectNoPageOverflow } from "./helpers/responsive.js"
 import { openWorkbench, openWritingAiDrawer } from "./helpers/workbench.js"
 import {
@@ -36,6 +37,7 @@ test.describe("生成中心模块", () => {
   let worldSuggestionRequests = []
   let pageDraftApplyRequests = []
   let worldTaskResults = new Map()
+  let chatTransport
 
   test.beforeAll(async () => {
     await waitForBackend(60000)
@@ -61,26 +63,6 @@ test.describe("生成中心模块", () => {
       { id: "builtin:faction", name: "组织", object_template: "faction", prompt_text: "聚焦组织卡", is_builtin: true, version_number: 1 },
       { id: "builtin:rule", name: "规则设定", object_template: "rule", prompt_text: "聚焦规则设定", is_builtin: true, version_number: 1 },
     ]
-
-    // 本 spec 聚焦既有本地聊天/建议路径：让持久化会话服务不可用，工作台回退到
-    // generation-center 端点（会话路径由 world-cocreation.spec.js 单独覆盖）。
-    await page.route("**/api/world/cocreation-sessions**", async (route) => {
-      if (route.request().method() === "GET") {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ items: [], total: 0 }),
-        })
-        return
-      }
-      // 空对象使 ensureServerSession 拿不到 id，工作台静默回退到本地聊天路径；
-      // 会话路径的行为由 world-cocreation.spec.js 单独覆盖。
-      await route.fulfill({
-        status: 201,
-        contentType: "application/json",
-        body: JSON.stringify({}),
-      })
-    })
 
     await page.route("**/api/world/generation-prompt-templates", async (route) => {
       const method = route.request().method()
@@ -139,21 +121,11 @@ test.describe("生成中心模块", () => {
       await route.fulfill({ status: 405, body: "Method not allowed" })
     })
 
-    await page.route("**/api/world/generation-center/chat", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          reply: "可以设计成旧友型反派，动机来自一次被误解的牺牲。",
-          model: "account-model",
-          provider: "fake",
-          source_snapshot: { kind: "project" },
-        }),
-      })
-    })
+    chatTransport = await mockCocreationTurns(page, async () => ({ reply: '可以设计成旧友型反派，动机来自一次被误解的牺牲。', model: 'account-model', provider: 'fake', source_snapshot: { kind: 'project' } }))
 
     const fulfillWorldTask = async (route, postBody, result) => {
       worldTaskResults.set(postBody.operation_id, result)
+      chatTransport.recordSuggestion(postBody, result)
       await route.fulfill({
         status: 202,
         contentType: "application/json",
@@ -231,6 +203,13 @@ test.describe("生成中心模块", () => {
             },
           },
       })
+    })
+
+    await page.route('**/api/world/suggestions/*?*', async route => {
+      const id = new URL(route.request().url()).pathname.split('/').at(-1)
+      const item = [...worldTaskResults.values()].flatMap(value => [value.result?.suggestion, value.source_revision?.suggestion]).find(item => item?.id === id)
+      if (!item || route.request().method() !== 'GET') return route.fallback()
+      await route.fulfill({ json: { status: 'pending', ...item } })
     })
 
     await page.route("**/api/tasks/**", async (route) => {
@@ -341,7 +320,8 @@ test.describe("生成中心模块", () => {
     await openWorkbench(page, project, "generate")
   })
 
-  test.afterEach(async () => {
+  test.afterEach(async ({ page }) => {
+    await page.unrouteAll({ behavior: 'wait' })
     if (testProjectId) {
       try { await cleanupProject(testProjectId) } catch {}
       testProjectId = null
@@ -352,8 +332,8 @@ test.describe("生成中心模块", () => {
     await expect(page.locator("#topbar-module")).toContainText("人物与世界")
     await expect(page.locator("#topbar-view-note")).toContainText("需要 AI 时就在本页打开工具")
     await expect(page.locator("#workspace-content")).toContainText("人物")
-    await expect(page.locator("#workspace-content")).toContainText("加强复核")
-    await expect(page.locator("#workspace-content")).toContainText("生成世界对象建议")
+    await expect(page.locator("[data-owner-ai-drawer]")).toContainText("加强复核")
+    await expect(page.locator("[data-owner-ai-drawer]")).toContainText("生成世界对象建议")
     await expect(page.getByRole("tablist", { name: "AI 工具类别" })).toBeVisible()
     await expect(page.getByRole("tab", { name: "设定共创" })).toHaveAttribute("aria-selected", "true")
     await expect(page.getByRole("tab", { name: "整理资料" })).toBeVisible()
@@ -364,7 +344,7 @@ test.describe("生成中心模块", () => {
     expect(await page.locator('[data-action="generate-world-suggestion"]').evaluate((element) => element.closest("form")?.classList.contains("generate-composer"))).toBe(true)
     await expect(page.locator('[data-action="converge-world"]')).toHaveCount(0)
     await expect(page.locator("#generate-object-template")).toHaveValue("builtin:none")
-    await expect(page.locator("#workspace-content")).not.toContainText("粘贴已有对话")
+    await expect(page.locator("[data-owner-ai-drawer]")).not.toContainText("粘贴已有对话")
   })
 
   test("零章节项目在角色视角正文给出前置条件并前往写作台", async ({ page }) => {
@@ -405,9 +385,9 @@ test.describe("生成中心模块", () => {
     const generate = page.locator('[data-action="generate-pov-prose"]')
     await expect(generate).toHaveText("生成正文建议")
     expect(await generate.evaluate((element) => element.closest("form") !== null)).toBe(true)
-    await expect(page.locator("#workspace-content")).toContainText("角色只会知道自己应当知道的事")
-    await expect(page.locator("#workspace-content")).not.toContainText("逐事实可见性过滤链")
-    await expect(page.locator("#workspace-content")).not.toContainText("结构化 POV 面板")
+    await expect(page.locator("[data-owner-ai-drawer]")).toContainText("角色只会知道自己应当知道的事")
+    await expect(page.locator("[data-owner-ai-drawer]")).not.toContainText("逐事实可见性过滤链")
+    await expect(page.locator("[data-owner-ai-drawer]")).not.toContainText("结构化 POV 面板")
 
     await generate.click()
     await expect(page.locator(SEL.modalTitle)).toContainText("AI 参考资料")
@@ -545,16 +525,11 @@ test.describe("生成中心模块", () => {
   })
 
   test("世界共创失败保留问题并可原位重试", async ({ page }) => {
-    const chatRoute = "**/api/world/generation-center/chat"
     let attempts = 0
-    await page.unroute(chatRoute)
-    await page.route(chatRoute, async (route) => {
-      attempts += 1
-      if (attempts === 1) {
-        await route.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify({ detail: "暂时无法回复" }) })
-        return
-      }
-      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ reply: "重试后已恢复" }) })
+    chatTransport.setHandler(async () => {
+      attempts++
+      if (attempts === 1) throw new Error('暂时无法回复')
+      return { reply: '重试后已恢复' }
     })
 
     await page.locator("#generate-chat-input").fill("不要丢掉这个问题")
@@ -570,45 +545,21 @@ test.describe("生成中心模块", () => {
     expect(attempts).toBe(2)
   })
 
-  test("刷新中断聊天后恢复确定的本地终态，不重复或接受迟到回复", async ({ page }) => {
-    const chatRoute = "**/api/world/generation-center/chat"
-    let releaseRoute
-    let chatRequests = 0
-    let completeRoute
-    const routeFinished = new Promise((resolve) => { completeRoute = resolve })
-    const delayedChatHandler = async (route) => {
-      chatRequests += 1
-      await new Promise((resolve) => { releaseRoute = resolve })
-      try {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ reply: "不应显示的迟到回复" }),
-        })
-      } catch {} finally { completeRoute() }
-    }
-    await page.route(chatRoute, delayedChatHandler)
-
-    try {
-      await page.locator("#generate-chat-input").fill("刷新前的问题")
-      await page.getByRole("button", { name: "发送" }).click()
-      await approveContext(page)
-      await expect(page.locator("#generate-chat-messages")).toContainText("正在理解你的目标")
-      await expect.poll(() => chatRequests).toBe(1)
-
-      await page.reload({ waitUntil: "domcontentloaded" })
-      await expect(page.locator("#generate-chat-messages")).toContainText("刷新前的问题")
-      await expect(page.locator("#generate-chat-messages")).toContainText("上次回复在离开或刷新时尚未返回")
-      releaseRoute()
-      await routeFinished
-      await expect(page.locator("#generate-chat-messages")).not.toContainText("不应显示的迟到回复")
-      await page.locator("#generate-chat-input").fill("确认后再试")
-      await expect(page.getByRole("button", { name: "发送" })).toBeEnabled()
-      expect(chatRequests).toBe(1)
-    } finally {
-      releaseRoute?.()
-      if (!page.isClosed()) await page.unroute(chatRoute, delayedChatHandler)
-    }
+  test("刷新后恢复原共创任务并显示完成回复，不重复提交", async ({ page }) => {
+    let release
+    chatTransport.setHandler(() => new Promise(resolve => { release = resolve }))
+    await page.locator('#generate-chat-input').fill('刷新前的问题')
+    await page.getByRole('button', { name: '发送', exact: true }).click()
+    await approveContext(page)
+    await expect.poll(() => chatTransport.requests.length).toBe(1)
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await expect(page.locator('#generate-chat-messages')).toContainText('刷新前的问题')
+    await expect(page.getByRole('button', { name: '发送', exact: true })).toBeDisabled()
+    release({ reply: '原任务已经完成' })
+    await expect(page.locator('#generate-chat-messages')).toContainText('原任务已经完成', { timeout: 15000 })
+    expect(chatTransport.requests).toHaveLength(1)
+    await page.locator('#generate-chat-input').fill('继续下一轮')
+    await expect(page.getByRole('button', { name: '发送', exact: true })).toBeEnabled()
   })
 
   test("粘贴外部对话后生成世界对象建议", async ({ page, browserErrors }) => {
@@ -729,37 +680,10 @@ test.describe("生成中心模块", () => {
         linked_asset_refs_json: [],
       },
     }
-    const suggestionRoute = "**/api/world/suggestions?*"
-    await page.route(suggestionRoute, async (route) => {
-      const url = new URL(route.request().url())
-      if (
-        url.searchParams.get("novel_id") !== testProjectId
-        || url.searchParams.get("status") !== "pending"
-        || url.searchParams.get("review_group") !== "generation_center"
-      ) {
-        await route.fallback()
-        return
-      }
-      expect(route.request().method()).toBe("GET")
-      expect(url.searchParams.get("novel_id")).toBe(testProjectId)
-      expect(url.searchParams.get("status")).toBe("pending")
-      expect(url.searchParams.get("review_group")).toBe("generation_center")
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          items: [{
-            id: "suggestion-existing-page-e2e",
-            novel_id: testProjectId,
-            source_module: "world",
-            review_group: "generation_center",
-            target_type: "world_bible_page_draft",
-            status: "pending",
-            payload_json: restoredPayload,
-          }],
-          total: 1,
-        }),
-      })
+    const suggestionRoute = '**/api/world/suggestions/suggestion-existing-page-e2e?*'
+    await page.route(suggestionRoute, async route => {
+      expect(new URL(route.request().url()).searchParams.get('novel_id')).toBe(testProjectId)
+      await route.fulfill({ json: { id: 'suggestion-existing-page-e2e', novel_id: testProjectId, source_module: 'world', review_group: 'generation_center', target_type: 'world_bible_page_draft', status: 'pending', payload_json: restoredPayload } })
     })
 
     try {
@@ -918,8 +842,8 @@ test.describe("生成中心模块", () => {
 
     await page.getByRole("button", { name: "查看完整资料" }).click()
 
-    await expect(page.locator("#workspace-content")).toContainText("完整参考资料")
-    await expect(page.locator("#workspace-content")).toContainText("任务：基于当前设定梳理主线")
+    await expect(page.locator("[data-owner-ai-drawer]")).toContainText("完整参考资料")
+    await expect(page.locator("[data-owner-ai-drawer]")).toContainText("任务：基于当前设定梳理主线")
     await expect(page.locator("#gen-preview-output")).toContainText("已准备 2 类参考资料")
     await expect(page.locator("#gen-preview-output")).toContainText("基于当前设定梳理主线")
 
@@ -1080,7 +1004,7 @@ test.describe("生成中心模块", () => {
     await page.locator("#gen-task").fill("写角色视角场景")
     await page.getByRole("button", { name: "整理参考资料" }).click()
 
-    await expect(page.locator("#workspace-content")).toContainText("误以为", { timeout: 10000 })
+    await expect(page.locator("[data-owner-ai-drawer]")).toContainText("误以为", { timeout: 10000 })
     await expect(page.locator("#gen-task-output")).not.toContainText("隐藏真相")
     expect(requests.at(-1).reveal_mode).toBe("character")
     expect(requests.at(-1).entity_ids).toEqual([relatedEntity.id])

@@ -19,6 +19,24 @@ function mountDetail(entity = character) {
 }
 
 describe("WorldEntityDetail 人物档案", () => {
+  it("人物档案保存期间的新输入保持未保存，并使用服务器新基线重试", async () => {
+    let resolve
+    api.world.updateCharacter.mockImplementationOnce(() => new Promise((done) => { resolve = done }))
+    const wrapper = mountDetail()
+    await wrapper.get(".world-character-profile > header .btn").trigger("click")
+    await vi.waitFor(() => expect(wrapper.findAll(".world-character-profile textarea").length).toBeGreaterThan(0))
+    await wrapper.findAll(".world-character-profile textarea")[0].setValue("先保存")
+    await wrapper.get(".world-character-profile__actions .btn").trigger("click")
+    await wrapper.findAll(".world-character-profile textarea")[0].setValue("继续输入")
+    resolve({ ...profile, role: "先保存", updated_at: "2026-09-09T03:00:00Z" })
+    await vi.waitFor(() => expect(wrapper.get(".world-character-profile__actions .btn").attributes("disabled")).toBeUndefined())
+    expect(wrapper.findAll(".world-character-profile textarea")[0].element.value).toBe("继续输入")
+    expect(wrapper.emitted("profile-dirty").at(-1)).toEqual([true])
+    await wrapper.get(".world-character-profile__actions .btn").trigger("click")
+    expect(api.world.updateCharacter.mock.calls[1][1]).toMatchObject({ role: "继续输入", expected_updated_at: "2026-09-09T03:00:00Z" })
+    wrapper.unmount()
+  })
+
   it("非人物不显示人物档案", () => {
     const wrapper = mountDetail({ ...character, id: "location-1", entity_type: "location", name: "雾港" })
     expect(wrapper.find(".world-character-profile").exists()).toBe(false)
@@ -103,6 +121,24 @@ describe("WorldEntityDetail 基本资料就地编辑", () => {
   beforeEach(() => {
     api.world.getEntity = vi.fn(async () => withTimestamp(character))
     api.world.updateEntity = vi.fn(async (_id, payload) => withTimestamp({ ...character, ...payload, expected_updated_at: undefined }))
+  })
+
+  it("切换对象后旧基本资料保存响应不能关闭新对象的编辑器", async () => {
+    let resolve
+    api.world.updateEntity.mockImplementationOnce(() => new Promise((done) => { resolve = done }))
+    const wrapper = mountDetail(withTimestamp(character))
+    await wrapper.get("[data-action='world-entity-basic-edit']").trigger("click")
+    await wrapper.get("[data-basic-field='summary']").setValue("旧对象")
+    await wrapper.get("[data-action='world-entity-basic-save']").trigger("click")
+    await wrapper.setProps({ entity: withTimestamp({ ...character, id: "new", name: "新对象" }) })
+    await wrapper.get("[data-action='world-entity-basic-edit']").trigger("click")
+    await wrapper.get("[data-basic-field='summary']").setValue("新对象未保存输入")
+    resolve({ ...character, summary: "旧对象" })
+    await Promise.resolve()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get("[data-basic-field='summary']").element.value).toBe("新对象未保存输入")
+    expect(wrapper.emitted("refresh")).toBeUndefined()
+    wrapper.unmount()
   })
 
   it("就地编辑名称/概要/公开信息/作者秘密，保存携带基线且不弹独立表单", async () => {

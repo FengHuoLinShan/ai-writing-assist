@@ -199,7 +199,7 @@
           </div>
           <p class="generate-empty-copy">全书或分部的核心前提、叙事读法、基调与读者承诺请放在故事总览；前往只切换工作区，不会改写世界事实。放入输入框仍不会创建建议；只有发送消息并再次点击生成建议，才会进入待处理。</p>
         </section>
-        <section v-if="worldCore && successfulRounds - checkpointRound >= 3" class="card generate-world-core-checkpoint" aria-labelledby="world-core-checkpoint-title">
+        <section v-if="worldCore && !fullWorldDesign && (checkpointSaved || successfulRounds - checkpointRound >= 3)" class="card generate-world-core-checkpoint" aria-labelledby="world-core-checkpoint-title">
           <div>
             <strong id="world-core-checkpoint-title">{{ checkpointSaved ? "阶段成果已保存" : "可以保存阶段成果了" }}</strong>
             <p>{{ checkpointSaved ? "下次可从作者决定摘要和世界设计种子继续；这仍不是正式设定。" : worldCoreReady ? "保存的是种子去向、规则和完整世界检查骨架；未知区域会明确保留为空缺。" : "请先点击“收束本轮”，补齐来源覆盖、3–7 条规则和日常＋故障纵切。" }}</p>
@@ -314,15 +314,21 @@
             <div><strong>正文</strong><span id="generate-selected-chapters" class="generate-attachment-summary">{{ chapterSummary }}</span></div>
             <button class="btn btn-sm" data-action="select-source-chapters" @click="$emit('select-chapters')">选择正文</button>
           </div>
-          <p class="generate-empty-copy">正文最多 20 章；对话较长时参考最近 40 条。</p>
+          <p class="generate-empty-copy">正文最多 20 章；近期对话参考最近 40 条，长期决定与选中历史另行保留。</p>
           <details class="generate-world-context-panel">
             <summary><span>指定重点资料</span><small>{{ preciseContextSummary }}</small></summary>
+            <form class="generate-reference-search" @submit.prevent="searchChoices(0)">
+              <label>查找范围<select v-model="choiceKind" @change="searchChoices(0)"><option value="pages">世界书页面</option><option value="characters">人物</option><option value="entities">世界对象</option></select></label>
+              <label>按名称查找<input v-model="choiceQuery" type="search" /></label>
+              <button class="btn btn-sm" type="submit" :disabled="choiceLoading">{{ choiceLoading ? '正在查找…' : '查找资料' }}</button>
+              <template v-if="choicesSearched && !choiceLoading"><span>匹配 {{ choiceTotal }} 项，已选择的资料会继续保留。</span><button v-if="choiceOffset > 0" class="btn btn-sm" type="button" @click="searchChoices(Math.max(0, choiceOffset - 30))">上一页</button><button v-if="choiceOffset + 30 < choiceTotal" class="btn btn-sm" type="button" @click="searchChoices(choiceOffset + 30)">下一页</button></template>
+            </form>
             <label>当前场景<select id="generate-world-scene" v-model="selectedSceneId" class="form-select"><option value="">不指定</option><option v-for="scene in scenes" :key="scene.id" :value="scene.id">{{ scene.title || scene.name || '未命名场景' }}</option></select></label>
             <label>剧情线<select id="generate-world-threads" v-model="selectedThreadIds" class="form-select" multiple size="4"><option v-for="thread in threads" :key="thread.id" :value="thread.id">{{ thread.title || thread.name || "未命名剧情线" }}</option></select></label>
             <label>人物（不手动选择时，自动参考最相关的最多 6 位）<select id="generate-world-characters" v-model="selectedCharacterIds" class="form-select" multiple size="4"><option v-for="item in characters" :key="characterId(item)" :value="characterId(item)">{{ item.name || item.display_name || "未命名人物" }}</option></select></label>
             <label>物品 / 世界对象（不手动选择时，自动参考最相关的最多 16 个）<select id="generate-world-entities" v-model="selectedEntityIds" class="form-select" multiple size="5"><option v-for="item in entities" :key="item.id" :value="item.id">{{ item.name || "未命名世界对象" }}</option></select></label>
             <label v-if="relatedWorldPages.length">相关世界书页（已选 {{ selectedRelatedWorldPageIds.length }}/16）<select id="generate-world-pages" v-model="selectedWorldPageIds" class="form-select" multiple size="5"><option v-for="item in relatedWorldPages" :key="item.id" :value="item.id" :disabled="selectedRelatedWorldPageIds.length >= 16 && !selectedWorldPageIds.includes(item.id)">{{ item.title || '未命名页面' }} · 已采用</option></select></label>
-            <p v-else class="generate-empty-copy">暂无其他已采用的世界书页可作参考。</p>
+            <p v-else class="generate-empty-copy">当前列表没有其他已采用页，可按名称查找资料。</p>
             <p v-if="relatedWorldPages.length" class="generate-empty-copy">所选页只作本轮聊天、收束与建议的参考；不会合并、修改或自动采用。</p>
           </details>
           <details class="generate-reference-more">
@@ -352,19 +358,22 @@ import {
 import WorldResult from "./WorldResult.vue"
 
 const props = defineProps({
+  choiceLoading: Boolean, choiceTotal: { type: Number, default: 0 }, choiceOffset: { type: Number, default: 0 },
   projectId: String, sourcePageId: String, targetKind: String, sourcePage: Object, sourceDraft: Object,
   warning: String, templates: Array, activationProfiles: Array, categories: Array, pageTemplates: Array, pages: Array,
   scenes: Array, threads: Array, characters: Array, entities: Array, result: Object, previousResult: Object,
   chatContextUsage: Object, entityContextUsage: Object, proposalDraft: Object, proposalResetToken: Number, recoveredPageProposal: Boolean, busy: Boolean, chatPending: Boolean, loadingResult: Boolean, resultError: String,
   convergenceDraft: Object, convergencePending: Boolean, visualBrief: Object, externalPackets: { type: Array, default: () => [] },
   explorationDraft: Object, explorationPending: Boolean, explorationSelection: Object, sourceRevisionResult: Object,
-  worldCore: Boolean, successfulRounds: { type: Number, default: 0 }, checkpointRound: { type: Number, default: 0 }, checkpointPending: Boolean, checkpointSaved: Boolean,
+  fullWorldDesign: Boolean, worldCore: Boolean, successfulRounds: { type: Number, default: 0 }, checkpointRound: { type: Number, default: 0 }, checkpointPending: Boolean, checkpointSaved: Boolean,
   sessionTitle: { type: String, default: "" }, sessionServerBound: { type: Boolean, default: false },
 })
-const emit = defineEmits(["send-chat", "retry-chat", "generate-result", "retry-result", "select-target", "edit-templates", "return-world-bible", "select-chapters", "apply-page", "proposal-dirty", "proposal-edit", "clear-result", "open-review", "view-context", "converge", "set-convergence-disposition", "edit-convergence-message", "apply-convergence-message", "dismiss-convergence", "open-convergence-source", "copy-handoff", "download-handoff", "open-story-outline", "create-visual-brief", "edit-visual-brief", "confirm-visual-brief", "copy-visual-brief", "download-visual-brief", "preview-visual-map", "preview-external-packet", "clear-external-packet", "explore", "select-exploration", "dismiss-exploration", "open-source-revision", "prefill-world-core", "save-world-core-checkpoint", "open-session-history"])
+const emit = defineEmits(["search-reference-choices", "send-chat", "retry-chat", "generate-result", "retry-result", "select-target", "edit-templates", "return-world-bible", "select-chapters", "apply-page", "proposal-dirty", "proposal-edit", "clear-result", "open-review", "view-context", "converge", "set-convergence-disposition", "edit-convergence-message", "apply-convergence-message", "dismiss-convergence", "open-convergence-source", "copy-handoff", "download-handoff", "open-story-outline", "create-visual-brief", "edit-visual-brief", "confirm-visual-brief", "copy-visual-brief", "download-visual-brief", "preview-visual-map", "preview-external-packet", "clear-external-packet", "explore", "select-exploration", "dismiss-exploration", "open-source-revision", "prefill-world-core", "save-world-core-checkpoint", "open-session-history"])
 const selectedTemplateId = defineModel("selectedTemplateId", { type: String, required: true })
 const messages = defineModel("messages", { type: Array, required: true })
 const composer = defineModel("composer", { type: String, required: true })
+const choiceKind = ref('pages'); const choiceQuery = ref(''); const choicesSearched = ref(false)
+function searchChoices(offset) { choicesSearched.value = true; emit('search-reference-choices', { kind: choiceKind.value, query: choiceQuery.value, offset }) }
 const externalPacketDraft = defineModel("externalPacketDraft", { type: String, required: true })
 const qualityMode = defineModel("qualityMode", { type: String, required: true })
 const includeWorldSynopsis = defineModel("includeWorldSynopsis", { type: Boolean, required: true })

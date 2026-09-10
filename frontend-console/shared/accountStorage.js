@@ -5,6 +5,7 @@ const THEME_STORAGE_KEY = "novel_theme"
 const LOCAL_STORAGE_PREFIXES = Object.freeze([
   "novel_",
   "draft_backup_",
+  "world_draft_backup_",
   "generate_world_workspace_state_v2_",
   "writing_scene_cockpit_order:",
   "writing_resume_pointer:v1:",

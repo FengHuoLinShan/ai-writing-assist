@@ -53,6 +53,7 @@ from .worldbuilding import (
     WorldBiblePageTemplateRevision,
     WorldBibleSynopsisHead,
     WorldBibleSynopsisRevision,
+    WorldValidationReviewItem,
     WorldValidationRun,
 )
 
@@ -104,6 +105,7 @@ __all__ = [
     "WorldCocreationMessage",
     "WorldCocreationSession",
     "WorldValidationRun",
+    "WorldValidationReviewItem",
     "WorldAssertion",
     "WorldCanonHead",
     "WorldCanonRevision",

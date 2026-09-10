@@ -33,9 +33,9 @@ function boundedText(value, max = 20_000) {
   return typeof value === "string" ? value.slice(0, max) : ""
 }
 
-function boundedIds(value) {
+function boundedIds(value, limit = 20) {
   return Array.isArray(value)
-    ? value.filter((item) => typeof item === "string" && item).slice(0, 20)
+    ? value.filter((item) => typeof item === "string" && item).slice(0, limit)
     : []
 }
 
@@ -166,13 +166,30 @@ export function emptyGenerateSession() {
     checkpointId: null,
     checkpointRound: 0,
     checkpointDepth: null,
+    worldDesignProposal: null,
+    worldStateSections: [],
+    designTargetId: null,
+    selectedHistoryIds: [],
     serverSessionId: null,
     serverSessionTitle: "",
+    serverSourceKind: "project",
+    serverSourceId: null,
     serverCheckpointId: null,
     taskPreset: "custom",
     taskForm: createDefaultTaskForm(),
     povForm: normalizePovForm(),
   }
+}
+
+export function cocreationSessionKey(baseKey, sessionId) {
+  return sessionId ? `${baseKey}_session_${sessionId}` : baseKey
+}
+
+export function unfinishedCocreationMessages(messages = []) {
+  return messages.filter((item, index, items) => (
+    item?.pending || item?.error || item?.interrupted
+    || (item?.role === "user" && (items[index + 1]?.pending || items[index + 1]?.error || items[index + 1]?.interrupted))
+  ))
 }
 
 export const SERVER_SESSION_OUTCOME_LABELS = {
@@ -310,8 +327,14 @@ function persistedShape(value) {
     checkpointId: typeof value.checkpointId === "string" && value.checkpointId ? value.checkpointId : null,
     checkpointRound: Math.max(0, Math.min(999, Number(value.checkpointRound) || 0)),
     checkpointDepth: ["seed", "candidate", "instance"].includes(value.checkpointDepth) ? value.checkpointDepth : null,
+    worldDesignProposal: value.worldDesignProposal && typeof value.worldDesignProposal.changes === "object" ? value.worldDesignProposal : null,
+    selectedHistoryIds: boundedIds(value.selectedHistoryIds, 40),
+    worldStateSections: boundedIds(value.worldStateSections),
+    designTargetId: boundedText(value.designTargetId, 128) || null,
     serverSessionId: typeof value.serverSessionId === "string" && value.serverSessionId ? value.serverSessionId : null,
     serverSessionTitle: boundedText(value.serverSessionTitle, 200),
+    serverSourceKind: value.serverSourceKind || "project",
+    serverSourceId: value.serverSourceId || null,
     serverCheckpointId: typeof value.serverCheckpointId === "string" && value.serverCheckpointId ? value.serverCheckpointId : null,
     taskPreset: TASK_PRESETS[value.taskPreset] ? value.taskPreset : "custom",
     taskForm: normalizeTaskForm(value.taskForm),
@@ -388,8 +411,14 @@ export function readGenerateSession(key, { storage = globalThis.localStorage, no
       checkpointId: typeof parsed.checkpointId === "string" && parsed.checkpointId ? parsed.checkpointId : null,
       checkpointRound: Math.max(0, Math.min(999, Number(parsed.checkpointRound) || 0)),
       checkpointDepth: ["seed", "candidate", "instance"].includes(parsed.checkpointDepth) ? parsed.checkpointDepth : null,
+      worldDesignProposal: parsed.worldDesignProposal && typeof parsed.worldDesignProposal.changes === "object" ? parsed.worldDesignProposal : null,
+      selectedHistoryIds: boundedIds(parsed.selectedHistoryIds, 40),
+      worldStateSections: boundedIds(parsed.worldStateSections),
+      designTargetId: boundedText(parsed.designTargetId, 128) || null,
       serverSessionId: typeof parsed.serverSessionId === "string" && parsed.serverSessionId ? parsed.serverSessionId : null,
       serverSessionTitle: boundedText(parsed.serverSessionTitle, 200),
+      serverSourceKind: parsed.serverSourceKind || "project",
+      serverSourceId: parsed.serverSourceId || null,
       serverCheckpointId: typeof parsed.serverCheckpointId === "string" && parsed.serverCheckpointId ? parsed.serverCheckpointId : null,
       taskPreset: TASK_PRESETS[parsed.taskPreset] ? parsed.taskPreset : "custom",
       taskForm: normalizeTaskForm(parsed.taskForm),

@@ -17204,7 +17204,7 @@ button.rp-journey-card__main:hover {
    small, contextual drawer instead of a second top-level destination. */
 .owner-ai-drawer {
   position: fixed;
-  z-index: 30;
+  z-index: 95;
   inset: var(--topbar-height) 0 0 auto;
   width: min(1100px, calc(100vw - var(--space-5)));
   overflow: visible;
@@ -17638,3 +17638,36 @@ button.rp-journey-card__main:hover {
   .world-relation-decision__fields { grid-template-columns:1fr }
   .world-relation-decision__description { grid-column:auto }
 }
+
+/* ---- Phase 4: 世界健康复核 / 政策编辑 / 引用分级 / 影响预演 ---- */
+.world-health-findings-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin: 0.5rem 0; }
+.world-health-findings-toolbar label { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; }
+.world-health-findings-toolbar select { min-width: 7.5rem; }
+.world-health-pager { display: flex; align-items: center; gap: 0.75rem; margin-top: 0.5rem; }
+.world-health-progress { margin: 0.5rem 0; }
+.world-health-progress__bar { height: 6px; border-radius: 999px; background: var(--rp-border, #d8dee9); overflow: hidden; }
+.world-health-progress__bar span { display: block; height: 100%; background: var(--rp-accent, #4a7de0); transition: width 0.3s ease; }
+.world-health-progress small { color: var(--rp-muted, #667085); }
+.world-health-disposition { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.35rem; }
+.world-health-disposition.is-done { color: var(--rp-muted, #667085); font-size: 0.85rem; }
+.world-policy-editor { position: relative; margin-top: 0.75rem; }
+.world-policy-editor__inner { border: 1px solid var(--rp-border, #d8dee9); border-radius: 10px; padding: 0.9rem; display: grid; gap: 0.75rem; background: var(--rp-surface, #fff); }
+.world-policy-editor__inner header { display: flex; justify-content: space-between; align-items: center; }
+.world-policy-editor__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.6rem; }
+.world-policy-editor__check { display: inline-flex; align-items: center; gap: 0.4rem; }
+.world-policy-editor__rows { list-style: none; margin: 0.4rem 0; padding: 0; display: grid; gap: 0.4rem; }
+.world-policy-editor__rows li { display: grid; grid-template-columns: minmax(9rem, auto) 1fr minmax(6rem, auto) 1fr auto; gap: 0.4rem; align-items: center; }
+@media (max-width: 768px) { .world-policy-editor__rows li { grid-template-columns: 1fr 1fr; } }
+.bible-asset-ref-relations { list-style: none; margin: 0.35rem 0 0; padding: 0; display: grid; gap: 0.35rem; }
+.bible-asset-ref-relations li { display: flex; align-items: center; gap: 0.6rem; }
+.bible-asset-ref-relations__label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.85rem; }
+.bible-asset-ref-relations select { max-width: 8rem; }
+.world-bible-graph__filter { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; margin: 0.25rem 0; }
+.world-bible-graph__badge { display: inline-block; margin: 0 0.25rem; padding: 0 0.4rem; border-radius: 999px; font-size: 0.75rem; border: 1px solid currentColor; }
+.world-bible-graph__edges li.is-dependency-requires .world-bible-graph__badge { color: #b4530a; }
+.world-bible-graph__edges li.is-dependency-derives .world-bible-graph__badge { color: #5b3fa8; }
+.world-bible-graph__edges li.is-dependency-conflicts .world-bible-graph__badge { color: #b42318; }
+.world-impact-preview__section { border: 1px solid var(--rp-border, #d8dee9); border-radius: 10px; padding: 0.7rem 0.9rem; margin: 0.6rem 0; }
+.world-impact-preview__section h4 { margin: 0 0 0.4rem; }
+.world-impact-preview__items { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.3rem; }
+.world-impact-preview__items li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem; }

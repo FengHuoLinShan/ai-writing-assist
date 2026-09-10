@@ -389,7 +389,8 @@ PNG 后才进入地图册私有 S3。此例外不改变 imports 的文稿上传�
 | `world_bible_page_templates` | 项目自定义页面布局模板；与代码内置模板 key 隔离 |
 | `world_bible_page_template_revisions` | 页面模板每次修改/恢复产生的不可变快照 |
 | `world_bible_synopsis_heads` | 每项目简介指针、stale/pin/task 与自动维护授权 |
-| `world_validation_runs` | 冻结校验输入、分片/结果哈希、coverage/budget 账本、verdict/gate 与 warning 签收回执 |
+| `world_validation_runs` | 冻结校验输入、分片/结果哈希、coverage/budget 账本、verdict/gate 与 warning 签收回执；第四期扩展影响清单/分批计划/失效原因/续接计数 |
+| `world_validation_review_items` | 逐条 finding 的作者复核处置记录，复合外键绑定回执，快照含 target/manifest hash（ADR-0022） |
 | `world_bible_synopsis_revisions` | 作者版世界观简介的不可变 LLM 派生版本 |
 | `entity_revisions` | 实体快照版本表（旧版快照；当前活跃回滚优先使用 `TextArchive`，无归档时回退到 `EntityRevision`） |
 | `map_atlas_runs` | AI 地图册计划、上下文快照、任务进度与停止状态 |
@@ -1055,3 +1056,20 @@ World Bible、生成模板，以及 AI 地图册的计划、候选、画廊和�
 ### 资料整理体验
 
 名称精确匹配、精确别名和名称前缀优先于描述命中；只在别名数组中判断别名。作者对象详情提供图片、别名、关系及分页历史入口，复用原有 owner + novel_id 保护的接口。审阅可直接核对建议方向、交换端点并连续处理；批量表必须逐行形成明确决策，歧义与缺证项仍可保留。跨地图地点绑定由作者明确选择图元，每个地图通过原版本 CAS 分别保存，允许部分成功并显示回执，不按同名自动关联。
+### 资料库、共创与复核的可靠性边界
+
+资料库元数据写入按 `novel_id` 取得事务级 advisory lock，使主题移动防环、收藏/成员幂等和最近访问计数覆盖并发请求；读取视图偏好不创建空行。`working=false` 排除独立工作稿。共创 checkpoint 推进在会话行锁内刷新当前指针后比较基线，数据库错误不得被作为“会话不存在”吞掉。
+
+验证回执中的作者处置不能覆盖非 `AUTHOR-REQUIRED` 硬错误；`deferred` 保留待处理状态，不计入完成数量。失败回执也要重验冻结输入；语义续接必须携带原 `context_confirmation_id`，该值随 run 返回并存于 `scope_json`，旧回执缺少此记录时需新建校验。校验政策工作稿的后续编辑要求 `expected_updated_at`，沿用工作稿行锁与 409 冲突。内置政策以内容指纹识别，版本名相同不会替换作者规则；政策定义中的匹配字符串不作为作品内容自匹配。
+
+正文影响预演从已采用的内联别名提取 alias 文本；扫描达到批次上限且仍有 cursor 时明确截断。该预演依然只证明返回的显式引用和字面命中，不能代表跨域语义一致性已经验证。
+
+## 持续模型、跨域复核与大库入口
+
+`POST /api/world/cocreation-turns/task` 将聊天与完整模型推演纳入 `world_cocreation_turn`（chat/design）。输入绑定服务器会话、expected checkpoint、显式历史与聚焦面向；Model 内项目标识不代替业务 novel/owner。完整模型由 `POST /api/world/design-checkpoints/revisions` 按 typed changes 继承并推进，作者决定独立于近期消息，旧成果从独立会话继续。原同步聊天仅兼容，不承担恢复。
+
+`GET /cocreation-sessions/.../messages` 支持 search、skip/limit 与 around_message_id，并返回实际 offset；session detail 带最后操作引用。历史浏览不自动进入模型，未保存的推演预览可回看/显式恢复。完整模型条目可送入既有待审建议，模型快照不可直接采用。
+
+影响清单使用版本与范围 hash，`POST /api/world/impact-preview/source` 精确回读当前来源；`GET /api/world/bible/validation-runs/{run_id}/source` 打开复核实际依据。语义 run 冻结确认后保留的内容、领域/深度、影响范围与只读 Focused Evidence 回执，不能重新注入被排除全文。旧无实际语义范围的回执过期；阶段完成、作者签收与 Canon 采用保持分离。
+
+资料库首屏使用统一轻量分页/概览，正文与对应工作稿按深链读取；draft 列表可按 page_id 过滤。模板、规则、简介及健康回执按入口加载。生成中心资料选择同样使用轻量分页，后端页面目录只来自确认保留的 manifest，不再加载全库正文。

@@ -59,3 +59,6 @@ HTTP 与内部边界、来源范围及恢复详见 compilation/README.md。
 来源通过既有 pinned_refs 预填，仍受作者排除、预算、正文版本/hash与可见性重验约束。
 
 共享一跳提名使用明确的32768输出上限与600秒截止，首轮传完整schema并使用低强度low推理；恢复仍只重做未完成提名，不丢弃已查原文。
+### World 跨域复核消费
+
+World 使用确认后保留的 compiled items 作为实际语义输入，Focused Evidence 继续只读且限深 0/1。Story/map 规划目标的 inspect 仅向无 Scene 截止的作者开放；其他视角因没有对应投影而失败关闭。原文 pinned_ref 只取经验证的 highlight 区间，不把整个段落追加到选择中；回执与修订仍归 World，Evidence 不写跨域资产。

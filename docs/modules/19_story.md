@@ -67,3 +67,13 @@ Scene 融合的请求 Scene 集合还必须与 confirmation 中的 pinned Scene 
 只接收重新物化的 confirmed Markdown，不再旁路加载完整 World/Outline 资料。
 
 总览手工版本可携带既有结构的来源版本标识，源结构更新只提示核对，不双向覆盖。简单结构生成使用 main/sub/background 分类及显式兼容映射，参数版本 phase3_structure_simple_v3。
+## 复核来源接口（ADR-0022）
+
+`modules.story.facade` 新增只读反查 `list_plot_threads_referencing_entities(db, novel_id, entity_ids)`，
+按故事线 `related_entity_ids` 返回声明依赖这些对象的 PlotThreadContract，供 World 模块的影响
+预演枚举"故事结构"层来源。该接口不写任何 Story 状态，也不扩大生成上下文；Story 域内行为
+不变。
+
+### 世界变更的结构来源
+
+Story 经 list_world_dependencies/read_world_dependency 提供故事线、篇章纲、Scene 与当前总纲的只读版本依据，区分声明引用与名称提及。World 聚合复核与遗漏，Story 保留本域编辑和修订责任；检查不会改写故事结构或连续性状态。没有读者/场景可见性投影的规划资料不进入这些受限视角。

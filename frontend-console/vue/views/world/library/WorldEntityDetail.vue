@@ -13,7 +13,7 @@ const props = defineProps({
   typeLabel: { type: String, default: "人物或设定" },
   aliasesOpen: { type: Boolean, default: false },
 })
-const emit = defineEmits(["back", "edit", "create-alias", "edit-alias", "create-task", "profile-dirty", "refresh"])
+const emit = defineEmits(["back", "edit", "create-alias", "edit-alias", "create-task", "profile-dirty", "refresh", "impact-preview"])
 const aliases = computed(() => (props.entity?.content_json?.aliases || []).map((item) => (
   typeof item === "string" ? { alias: item } : item
 )).filter((item) => String(item?.alias || "").trim()))
@@ -70,6 +70,7 @@ const basicConflict = ref(null)
 const basicForm = reactive(Object.fromEntries(BASIC_FIELDS.map(([key]) => [key, ""])))
 const basicBaseline = ref(JSON.stringify(basicForm))
 const basicBaselineUpdatedAt = ref(null)
+let basicGeneration = 0
 
 function fillBasicForm(entity = props.entity) {
   for (const [key] of BASIC_FIELDS) basicForm[key] = entity?.[key] || ""
@@ -96,6 +97,8 @@ function cancelBasicEdit() {
 
 async function saveBasicEdit() {
   if (basicSaving.value || !basicDirty.value) return
+  const generation = ++basicGeneration
+  const entityId = props.entity.id || props.entity.entity_id
   basicSaving.value = true
   basicError.value = ""
   basicConflict.value = null
@@ -108,25 +111,28 @@ async function saveBasicEdit() {
       payload,
       props.projectId,
     )
+    if (generation !== basicGeneration) return
     basicBaselineUpdatedAt.value = updated?.updated_at || null
     for (const [key] of BASIC_FIELDS) basicForm[key] = updated?.[key] ?? basicForm[key]
     basicBaseline.value = JSON.stringify(basicForm)
     basicEditing.value = false
     getToast()("基本资料已保存", "success")
-    emit("refresh", props.entity.id || props.entity.entity_id)
+    emit("refresh", entityId)
   } catch (error) {
+    if (generation !== basicGeneration) return
     if (error?.status === 409 && ["edit_baseline_required", "edit_baseline_stale"].includes(error?.body?.error)) {
       try {
-        const server = await getApi().world.getEntity(props.entity.id || props.entity.entity_id, props.projectId)
+        const server = await getApi().world.getEntity(entityId, props.projectId, { cache: "no-store" })
+        if (generation !== basicGeneration) return
         basicConflict.value = { server, message: error.message }
       } catch {
-        basicConflict.value = { server: null, message: error.message }
+        if (generation === basicGeneration) basicConflict.value = { server: null, message: error.message }
       }
     } else {
       basicError.value = error?.message || "基本资料保存失败，输入已保留"
     }
   } finally {
-    basicSaving.value = false
+    if (generation === basicGeneration) basicSaving.value = false
   }
 }
 
@@ -140,6 +146,17 @@ function adoptServerEntity() {
   fillBasicForm(server)
   basicEditing.value = true
   getToast()("已载入服务器版本；在此基础上修改后再保存", "info")
+}
+
+function keepLocalEntity() {
+  const server = basicConflict.value?.server
+  if (!server) {
+    basicError.value = "暂时读不到服务器版本，请稍后重试"
+    return
+  }
+  basicBaselineUpdatedAt.value = server.updated_at || null
+  basicConflict.value = null
+  getToast()("已保留输入，再次保存将更新刚才核对的服务器版本", "info")
 }
 
 function fillProfile(value = {}) {
@@ -172,13 +189,18 @@ async function saveProfile() {
   const generation = ++profileGeneration
   profileSaving.value = true
   profileError.value = ""
+  const submittedForm = JSON.stringify(profileForm)
   try {
     const payload = Object.fromEntries(profileFields.map(([key]) => [key, profileForm[key]]))
     payload.expected_updated_at = profileBaselineUpdatedAt.value
     const value = await getApi().world.updateCharacter(props.entity.id || props.entity.entity_id, payload, props.projectId)
     if (generation !== profileGeneration) return
-    fillProfile(value)
-    getToast()("人物档案已保存", "success")
+    if (JSON.stringify(profileForm) === submittedForm) fillProfile(value)
+    else {
+      profileBaseline.value = JSON.stringify(Object.fromEntries(profileFields.map(([key]) => [key, value?.[key] ?? payload[key]])))
+      profileBaselineUpdatedAt.value = value?.updated_at || null
+    }
+    getToast()(profileDirty.value ? "上一版人物档案已保存，新输入仍待保存" : "人物档案已保存", "success")
   } catch (error) {
     if (generation === profileGeneration) profileError.value = error?.message || "人物档案保存失败，输入已保留"
   } finally {
@@ -188,6 +210,8 @@ async function saveProfile() {
 
 watch([profileDirty, basicDirty], ([profile, basic]) => emit("profile-dirty", Boolean(profile || basic)), { immediate: true })
 watch(() => props.entity?.id || props.entity?.entity_id, () => {
+  basicGeneration += 1
+  basicSaving.value = false
   basicEditing.value = false
   basicConflict.value = null
   basicError.value = ""
@@ -200,7 +224,7 @@ watch(() => props.entity?.id || props.entity?.entity_id, () => {
   profileError.value = ""
   fillProfile()
 })
-onBeforeUnmount(() => { profileGeneration += 1; emit("profile-dirty", false) })
+onBeforeUnmount(() => { basicGeneration += 1; profileGeneration += 1; emit("profile-dirty", false) })
 </script>
 
 <template>
@@ -212,6 +236,7 @@ onBeforeUnmount(() => { profileGeneration += 1; emit("profile-dirty", false) })
         <p><span>{{ typeLabel }}</span> · <span class="badge" :class="displayStateBadgeClass(display.displayState)">{{ display.label }}</span></p>
       </div>
       <div class="world-entity-detail__actions">
+        <button type="button" class="btn btn-sm btn-ghost" data-action="world-entity-impact-preview" @click="emit('impact-preview')">影响预演</button>
         <button type="button" class="btn btn-sm" @click="emit('create-task')">添加到计划中的任务</button>
         <button type="button" class="btn btn-sm btn-primary" @click="emit('edit')">编辑资料</button>
       </div>
@@ -248,7 +273,7 @@ onBeforeUnmount(() => { profileGeneration += 1; emit("profile-dirty", false) })
           </dl>
           <div class="world-entity-basic__conflict-actions">
             <button type="button" class="btn btn-sm" data-action="world-entity-basic-adopt-server" @click="adoptServerEntity">采用服务器版本</button>
-            <button type="button" class="btn btn-sm btn-ghost" data-action="world-entity-basic-keep-mine" @click="basicConflict = null">保留我的修改</button>
+            <button type="button" class="btn btn-sm btn-ghost" data-action="world-entity-basic-keep-mine" @click="keepLocalEntity">保留我的修改</button>
           </div>
         </div>
         <label v-for="[key, label, hint] in BASIC_FIELDS" :key="key" class="world-entity-basic__field">

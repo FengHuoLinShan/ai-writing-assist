@@ -610,3 +610,6 @@ character_ranges_verified，knowledge_boundary_audit 始终为 not_performed，�
 直接关联提名从首轮附完整 NeighborNominations schema，使用低强度 low 推理参数、32768输出上限和600秒受管等待，独立查证与导入调用均保持相同界限。该预算不继承账户通用输出上限，不改变深度1、引用逐字验证、只读权限或续查范围。
 
 一跳提名的 DeepSeek `low` 选项依据[官方思考模式接口](https://api-docs.deepseek.com/guides/thinking_mode/)，只改变这项只读步骤的推理强度；其他工作流设置和证据校验保持各自契约。
+### 世界复核的精确范围
+
+world.validation.semantic 的调用方冻结原 confirmation 编译后保留的 items，而非根据 selected ID 重新读取整份未裁剪资产。确认后的模型输入、源 hash、范围与遗漏共同形成 World 回执，续接保持同一确认。pinned prose 使用 highlight_start/end 截取精确选段；Story 规划与地图当前版本只向无章节/Scene/offset 截止的作者 inspect 开放，reader/character 不走这条缺少可见性投影的路径。

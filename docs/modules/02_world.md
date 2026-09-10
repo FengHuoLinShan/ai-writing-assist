@@ -94,7 +94,8 @@ RAG 或 LLM 上下文。
 `expected_updated_at`，服务端在行锁内校验；缺失返回 `edit_baseline_required`、过期返回
 `edit_baseline_stale`（均为可识别 409），不接受无条件覆盖。服务端内部流程（建议应用、导入、
 发布 seal、类型迁移等）不走该基线，仍由各自的事务与锁保证一致性。
-- `world_validation_runs` — 持久化 targeted/full 校验输入、分片 hash、结果、预算、新鲜度与作者签收
+- `world_validation_runs` — 持久化 targeted/full 校验输入、分片 hash、结果、预算、新鲜度与作者签收；第四期在同一回执上扩展冻结影响清单（`impact_json`，跨模块只读枚举）、分批计划与覆盖进度（`plan_json` + packet 账本）、失效原因（`stale_reason`：policy/manifest/dependency/target）、`semantic_gap` 定向查漏 scope（根对象 + 声明依赖一跳）与失败/预算中断后的同回执续接（`continued_count`）
+- `world_validation_review_items` — 逐条 finding 的作者处置（已修正/已知悉/稍后再定）与快照，绑定回执的 target/manifest hash；`require_gate` 在存在未处置的作者裁定项时保持 `review_pending`，目标或政策再变化后旧回执失效、需重新复核（ADR-0022）
 - `world_bible_page_templates` / `world_bible_page_template_revisions` — 项目页面布局模板及不可变历史；内置模板仍由代码注册
 - `world_bible_synopsis_heads` / `world_bible_synopsis_revisions` — 作者版世界观简介的刷新状态、授权与不可变版本
 - `knowledge_tags` / `character_knowledge_tags` / `asset_knowledge_tags` / `knowledge_tag_exclusions` / `knowledge_visibility_policies` / `reader_reveal_policies` / `creation_suggestion_queue` / `conflict_check_queue` — 知识标签、可见性和待处理工作队列
@@ -175,7 +176,7 @@ helper 和历史兼容入口：
   `cocreation_session_service.py`、
   `knowledge_tag_service.py`、`reader_safety_service.py`、`conflict_queue_service.py`、
   `activation_preview_service.py`、`activation_target_service.py` 和
-  `page_template_service.py`。
+  `page_template_service.py`、`world_impact_service.py`（跨模块只读影响枚举：世界页反向引用、对象关系、人物档案、故事线、正文字面扫描与地图节点，逐层带未覆盖说明）。
 - `services/common.py`：跨子包通用 helper，如 `parse_uuid`、`normalize_name`。
 - `map_atlas_*.py`：地图册 API、模型、service、workflow、storage、task 与 deletion cleanup seam。
 
@@ -523,3 +524,14 @@ creation_suggestion_queue 中保存封闭的 owner 授权 carrier；普通建议
 未采用的剩余候选继续等待确认。当前完整契约见 `docs/modules/15_map.md`。
 
 对象详情统一提供图片、别名、关系及版本历史入口；目标搜索优先精确名称/别名与前缀。连续和批量审阅复用已有候选、指纹与历史机制，世界对象和地图关联的权限不变。
+### 资料库与复核并发边界
+
+目录和工作区元数据按项目串行写入，防止并发相向移动形成环，以及重复收藏/成员写入触发唯一键错误；偏好 GET 不写数据库。会话 checkpoint 的比较和推进在同一行锁内完成。政策编辑的 `expected_updated_at` 与普通工作稿相同：基线缺失或过期均返回 409。
+
+作者复核只有已修正或已知悉可解除对应裁定/警告；稍后再定仍待处理，其他硬错误始终阻断。失败续接先核对来源，语义任务继续使用原 confirmation，不能更换选定资料后复用旧分片覆盖率。影响预演仍区分声明引用、字面命中和未覆盖范围。
+
+## 持续共创与定向复核补全
+
+共创聊天/模型变化通过 world_cocreation_turn 保存可恢复终态；完整模型以父成果＋typed changes 续写，稳定身份、原作者决定与未改区域继承，相关旧检查重新待查。最近消息与长期决定分离，历史引用必须显式选择，当前工作区与历史起点不能混用。具体契约见 ADR-0021。
+
+跨域影响包含 Story 结构、正文精确 range 和地图当前 revision；打开来源与使用回执前校验 hash。语义复核仅使用同一确认实际保留的资料，并记录 domains/depth/遗漏；采用包作为受审内容不扩大其外部引用权限。旧未冻结实际语义内容的回执需重建，见 ADR-0022。

@@ -25,6 +25,30 @@ beforeEach(() => {
 afterEach(() => { resetBridgeOverrides(); document.body.innerHTML = "" })
 
 describe("World Bible 关联图", () => {
+  it("区分资料关联与已声明依赖，并支持只看依赖", async () => {
+    getKnowledgeGraph.mockResolvedValue({
+      ...graph,
+      edges: [
+        { id: "edge-informs", kind: "page_entity_reference", source_id: "p1", target_id: "e1", dependency_relation: "informs" },
+        { id: "edge-requires", kind: "page_reference", source_id: "p1", target_id: "p2", dependency_relation: "requires" },
+        { id: "edge-conflicts", kind: "page_reference", source_id: "p1", target_id: "p3", dependency_relation: "conflicts" },
+      ],
+      nodes: [...graph.nodes, { id: "p2", kind: "world_bible_page", label: "货币制度" }, { id: "p3", kind: "world_bible_page", label: "旧币制" }],
+    })
+    const wrapper = mountGraph()
+    await wrapper.get("[data-mode='graph']").trigger("click")
+    await nextTick()
+
+    const edges = wrapper.get("[data-section='graph-edges']")
+    expect(edges.text()).toContain("依赖")
+    expect(edges.text()).toContain("冲突")
+    expect(wrapper.findAll("[data-section='graph-edges'] li").length).toBe(3)
+
+    await wrapper.get("[data-field='graph-dependency-only']").setValue(true)
+    expect(wrapper.findAll("[data-section='graph-edges'] li").length).toBe(2)
+    expect(wrapper.text()).not.toContain("依赖影响未覆盖")
+  })
+
   it("uses the knowledge graph API with the default current-page one-hop scope and expands explicitly", async () => {
     const wrapper = mountGraph()
     await wrapper.get("[data-mode='graph']").trigger("click")

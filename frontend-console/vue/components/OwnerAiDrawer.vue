@@ -223,6 +223,7 @@ watch(modeKey, () => {
 </script>
 
 <template>
+  <Teleport to="body">
   <aside v-if="open" class="owner-ai-drawer" data-owner-ai-drawer role="dialog" aria-labelledby="owner-ai-drawer-title" @keydown.esc.stop.prevent="closeDrawer()">
     <button type="button" class="btn owner-ai-drawer__collapse" data-action="collapse-owner-ai-drawer" aria-label="收回 AI 工具" title="收回 AI 工具" @click="closeDrawer()">›</button>
     <div class="owner-ai-drawer__scroll">
@@ -321,4 +322,5 @@ watch(modeKey, () => {
     </section>
     </div>
   </aside>
+  </Teleport>
 </template>

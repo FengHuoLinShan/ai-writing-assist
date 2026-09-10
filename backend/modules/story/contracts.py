@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Literal
+
 from modules.story.continuity.contracts import (
     SCENE_MEMORY_DIMENSIONS,
     ChapterPanoramaContract,
@@ -41,7 +44,20 @@ from modules.story.schemas import (
     StorySceneContextResponse,
 )
 
+
+@dataclass(frozen=True)
+class StoryWorldDependencyContract:
+    kind: Literal["story_thread", "outline_arc", "outline_scene", "story_outline"]
+    id: str
+    label: str
+    source_hash: str
+    version: str
+    text: str
+    match_basis: Literal["declared", "literal"] = "declared"
+
+
 __all__ = [
+    "StoryWorldDependencyContract",
     "CharacterCardResponse",
     "CharacterCardRevisionResponse",
     "SceneScriptFileResponse",

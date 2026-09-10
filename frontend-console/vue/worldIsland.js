@@ -425,60 +425,49 @@ export async function loadWorld() {
       && !cardFilters.unclassified
       && cardFilters.kind === "all"
     const serverList = (usesServerLibrary(cardFilters) || cardFilters.unclassified) && api.world.listWorldLibrary
-    const [pages, categories, drafts, synopsis, pageTemplates, activationProfiles, validationRun, validationPolicy, cardEntities, overview, library] = await Promise.all([
-      api.world.listBiblePages({ novel_id: projectId }),
+    const detailPromise = (async () => {
+      if (props.bibleDeepLink.draftId) {
+        const draft = await api.world.getBibleDraft(props.bibleDeepLink.draftId, projectId)
+        const page = draft.page_id ? await api.world.getBiblePage(draft.page_id, projectId) : null
+        return { pages: page ? [page] : [], drafts: [draft] }
+      }
+      if (props.bibleDeepLink.pageId) {
+        if (api.world.listWorldLibrary) {
+          const query = { novel_id: projectId, kind: 'page', target_id: props.bibleDeepLink.pageId, limit: 1 }
+          let match = await api.world.listWorldLibrary(query)
+          if (!match.items?.length) match = await api.world.listWorldLibrary({ ...query, state: 'archived' })
+          if (!match.items?.length) return { pages: [], drafts: [], error: '这份资料已不可用或不属于当前作品，可返回目录重新选择。' }
+        }
+        const [page, drafts] = await Promise.all([
+          api.world.getBiblePage(props.bibleDeepLink.pageId, projectId),
+          api.world.listBibleDrafts(projectId, { page_id: props.bibleDeepLink.pageId }),
+        ])
+        return { pages: [page], drafts: drafts.items || [] }
+      }
+      return { pages: [], drafts: [] }
+    })().catch(error => ({ pages: [], drafts: [], error: [400, 404].includes(Number(error?.status)) ? "这份资料已不可用或不属于当前作品，可返回目录重新选择。" : "当前资料读取失败，请重试；其他资料仍可使用。" }))
+    const [detail, categories, overview, library, cardEntities] = await Promise.all([
+      detailPromise,
       api.world.listBibleCategories(projectId, true),
-      api.world.listBibleDrafts(projectId),
-      api.world.getBibleSynopsis(projectId),
-      api.world.listBiblePageTemplates
-        ? api.world.listBiblePageTemplates(projectId)
-        : Promise.resolve({ items: [] }),
-      api.context?.listActivationProfiles
-        ? api.context.listActivationProfiles(projectId, true)
-        : Promise.resolve({ items: [] }),
-      api.world.getLatestWorldValidationRun
-        ? api.world.getLatestWorldValidationRun(projectId).catch(() => null)
-        : Promise.resolve(null),
-      api.world.getWorldValidationPolicyStatus
-        ? api.world.getWorldValidationPolicyStatus(projectId).catch(() => ({ active: false }))
-        : Promise.resolve({ active: false }),
+      api.world.getWorldLibraryOverview ? api.world.getWorldLibraryOverview(projectId) : null,
+      serverList ? api.world.listWorldLibrary(libraryListParams(projectId, cardFilters)).catch(error => ({ items: [], total: 0, loadError: error?.message || '资料列表加载失败' })) : null,
       props.bibleDeepLink.entityId
-        ? api.world.getEntity(props.bibleDeepLink.entityId, projectId).then((item) => ({ items: [item], total: 1 }))
-        : typeHome
-          ? (api.world.listEntities
-            ? api.world.listEntities({ novel_id: projectId, display_state: "active", view_mode: "hot", skip: 0, limit: 1 })
-            : Promise.resolve({ items: [], total: 0 }))
-        : (cardFilters.kind === "page" || cardFilters.state === "working" || !api.world.listEntities
-          ? Promise.resolve({ items: [], total: 0 })
-          : api.world.listEntities({
-          novel_id: projectId,
-          display_state: ["active", "review", "archived"].includes(cardFilters.state) ? cardFilters.state : "active",
-          view_mode: "normal",
-          q: cardFilters.q || undefined,
-          entity_type: cardFilters.type || undefined,
-          source: cardFilters.source || undefined,
-          workflow_id: cardFilters.workflowId || undefined,
-          needs_review: cardFilters.needsReview === "true" ? true : cardFilters.needsReview === "false" ? false : undefined,
-          auto_ingested: cardFilters.autoIngested === "true" ? true : cardFilters.autoIngested === "false" ? false : undefined,
-          skip: 0,
-          limit: 50,
-        })).catch((error) => ({ items: [], total: 0, loadError: error?.message || "人物与设定加载失败" })),
-      api.world.getWorldLibraryOverview
-        ? api.world.getWorldLibraryOverview(projectId).catch(() => null)
-        : Promise.resolve(null),
-      serverList
-        ? api.world.listWorldLibrary(libraryListParams(projectId, cardFilters)).catch((error) => ({ items: [], total: 0, loadError: error?.message || "资料列表加载失败" }))
-        : Promise.resolve(null),
+        ? api.world.getEntity(props.bibleDeepLink.entityId, projectId).then(item => ({ items: [item], total: 1 })).catch(error => ({ items: [], total: 0, loadError: error?.message || "人物与设定加载失败" }))
+        : !serverList && !typeHome && api.world.listEntities
+          ? api.world.listEntities({ novel_id: projectId, display_state: 'active', view_mode: 'normal', entity_type: cardFilters.type || undefined, skip: cardFilters.skip || 0, limit: LIBRARY_PAGE_SIZE, q: cardFilters.q || undefined }).catch(error => ({ items: [], total: 0, loadError: error?.message || '人物与设定加载失败' }))
+          : { items: [], total: 0 },
     ])
     props.bible = {
-      pages: pages?.items || [],
+      pages: detail.pages,
+      detailError: detail.error || null,
       categories: categories?.items || [],
-      drafts: drafts?.items || [],
-      synopsis: synopsis || null,
-      pageTemplates: pageTemplates?.items || [],
-      activationProfiles: activationProfiles?.items || [],
-      validationRun,
-      validationPolicy,
+      drafts: detail.drafts,
+      synopsis: null,
+      pageTemplates: [],
+      activationProfiles: [],
+      lazySupport: true,
+      validationRun: null,
+      validationPolicy: { active: false, loaded: false },
       entities: cardEntities?.items || [],
       entityTotal: Number(cardEntities?.total || 0),
       entityFacets: cardEntities?.facets?.by_type || [],

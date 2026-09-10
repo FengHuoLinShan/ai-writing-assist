@@ -21,6 +21,7 @@ from infrastructure.tasks.contracts import (
 from infrastructure.tasks.enqueuer import lock_task_coalescing_key
 from infrastructure.tasks.identity import require_matching_task_identity
 from infrastructure.tasks.models import AsyncTask
+from shared.constants import TASK_MAX_HEARTBEAT_GAP
 
 _INVALID_TASK_META = object()
 _AUTO_REQUEUE_DELAYS_SECONDS = (1, 2, 4, 8, 16, 30)
@@ -58,6 +59,30 @@ def _handler_retry_ready(now: datetime) -> Any:
 
 
 class TaskLifecycleService:
+    async def find_session_operation(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        task_type: str,
+        session_id: str,
+    ) -> TaskLifecycleContract | None:
+        row = await db.scalar(
+            select(AsyncTask)
+            .where(
+                AsyncTask.novel_id == uuid.UUID(novel_id),
+                AsyncTask.task_type == task_type,
+                AsyncTask.meta["session_id"].as_string() == session_id,
+            )
+            .order_by(AsyncTask.created_at.desc(), AsyncTask.id.desc())
+            .limit(1)
+        )
+        return (
+            lifecycle_contract(row, max_heartbeat_gap=TASK_MAX_HEARTBEAT_GAP)
+            if row
+            else None
+        )
+
     async def update_projection(
         self,
         db: AsyncSession,

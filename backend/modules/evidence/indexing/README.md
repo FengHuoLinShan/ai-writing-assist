@@ -372,3 +372,4 @@ Compilation 的 `retrieve_focused_evidence` 将本层混合检索用于有界语
 章首 offset=0 的选择校验修复不改变本子域的分块、offset/hash、检索排序或持久化表。
 
 检索 metrics 投影增加 `embedding_provider`，供前端结合既有 embedding_runtime 的健康状态区分本地检索准备与查询；不暴露凭据，也不把未知外部服务状态当作 ready。
+世界跨域复核通过 compilation/facade 消费现有确认与聚焦证据，不新增索引、重建任务或资产写权限。字面命中、Top-K 与聚焦覆盖仍不能证明全库语义穷尽，源版本校验继续先于结果使用。

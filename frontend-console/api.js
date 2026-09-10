@@ -1262,6 +1262,11 @@ const api = {
       return request(withQuery("/world/bible/pages", params))
     },
 
+    async listLibraryChoices(params) {
+      const result = await request(withQuery("/world/library", { state: "active", limit: 30, ...params }))
+      return { total: result.total, items: result.items.map(item => ({ id: item.id, title: item.title, name: item.title, page_type: item.item_type, entity_type: item.item_type, status: item.status })) }
+    },
+
     async getKnowledgeGraph(params = {}, options = {}) {
       return contractFetch("world.getKnowledgeGraph", {}, params, options)
     },
@@ -1293,8 +1298,12 @@ const api = {
       return patch(withQuery(`/world/bible/categories/${categoryId}`, { novel_id: novelId }), payload)
     },
 
-    async listBibleDrafts(novelId) {
-      return request(withQuery("/world/bible/drafts", { novel_id: novelId }))
+    async listBibleDrafts(novelId, params = {}) {
+      return request(withQuery("/world/bible/drafts", { novel_id: novelId, ...params }))
+    },
+
+    async getBibleDraft(draftId, novelId) {
+      return request(withQuery(`/world/bible/drafts/${draftId}`, { novel_id: novelId }), { cache: "no-store" })
     },
 
     async listWorldLibrary(params = {}) {
@@ -1537,6 +1546,10 @@ const api = {
       return request(withQuery("/world/suggestions", params))
     },
 
+    async getWorldSuggestion(suggestionId, novelId) {
+      return request(withQuery(`/world/suggestions/${suggestionId}`, { novel_id: novelId }), { cache: "no-store" })
+    },
+
     async saveCoreCheckpoint(payload) {
       return post("/world/core-checkpoints", payload)
     },
@@ -1545,8 +1558,13 @@ const api = {
       return post("/world/design-checkpoints", payload)
     },
 
+    async reviseDesignCheckpoint(payload) {
+      return post("/world/design-checkpoints/revisions", payload)
+    },
+
+
     async listCocreationSessions(novelId, params = {}) {
-      return request(withQuery("/world/cocreation-sessions", { novel_id: novelId, ...params }))
+      return request(withQuery("/world/cocreation-sessions", { novel_id: novelId, ...params }), { cache: "no-store" })
     },
 
     async createCocreationSession(payload) {
@@ -1554,7 +1572,7 @@ const api = {
     },
 
     async getCocreationSession(sessionId, novelId) {
-      return request(withQuery(`/world/cocreation-sessions/${sessionId}`, { novel_id: novelId }))
+      return request(withQuery(`/world/cocreation-sessions/${sessionId}`, { novel_id: novelId }), { cache: "no-store" })
     },
 
     async updateCocreationSession(sessionId, payload) {
@@ -1562,7 +1580,7 @@ const api = {
     },
 
     async listCocreationMessages(sessionId, novelId, params = {}) {
-      return request(withQuery(`/world/cocreation-sessions/${sessionId}/messages`, { novel_id: novelId, ...params }))
+      return request(withQuery(`/world/cocreation-sessions/${sessionId}/messages`, { novel_id: novelId, ...params }), { cache: "no-store" })
     },
 
     async appendCocreationMessage(sessionId, payload) {
@@ -1575,6 +1593,10 @@ const api = {
 
     async cocreationChat(sessionId, payload, options = {}) {
       return contractJson("world.cocreationChat", { sessionId }, {}, payload, options)
+    },
+
+    async enqueueCocreationTurn(payload) {
+      return contractJson("world.enqueueCocreationTurn", {}, {}, payload)
     },
 
     async previewWorldbookImport(novelId, files) {
@@ -1625,6 +1647,43 @@ const api = {
       return post(withQuery(`/world/bible/validation-runs/${runId}/accept-warnings`, {
         novel_id: novelId,
       }), payload)
+    },
+
+    async listWorldValidationFindings(runId, novelId, params = {}) {
+      return request(withQuery(`/world/bible/validation-runs/${runId}/findings`, {
+        novel_id: novelId,
+        ...params,
+      }))
+    },
+
+    async createWorldValidationReviewItems(runId, novelId, payload) {
+      return post(withQuery(`/world/bible/validation-runs/${runId}/review-items`, {
+        novel_id: novelId,
+      }), payload)
+    },
+
+    async continueWorldValidationRun(runId, novelId, payload = {}) {
+      return post(withQuery(`/world/bible/validation-runs/${runId}/continue`, {
+        novel_id: novelId,
+      }), payload)
+    },
+
+    async saveWorldValidationPolicyDraft(novelId, payload) {
+      return post(withQuery("/world/bible/validation-policy/draft", {
+        novel_id: novelId,
+      }), payload)
+    },
+
+    async readWorldImpactSource(payload) {
+      return post("/world/impact-preview/source", payload)
+    },
+
+    async readWorldValidationSource(runId, novelId, sourceKey) {
+      return request(withQuery(`/world/bible/validation-runs/${runId}/source`, { novel_id: novelId, source_key: sourceKey }))
+    },
+
+    async previewWorldImpact(params = {}) {
+      return request(withQuery("/world/impact-preview", params))
     },
 
     async getAdoptionArtifact(suggestionId, novelId) {

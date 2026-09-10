@@ -37,7 +37,7 @@ infrastructure/tasks/
 - project：`smart_dedup_scan`
 - world：`world_alias_relation_extraction`、
   `world_entity_fusion_suggestions`、`world_bible_projection_refresh`、
-  `world_bible_synopsis_refresh`、`world_generation_suggestion`、`world_validation`、`map_atlas_generate`、`world_map_schematic_generate`、
+  `world_bible_synopsis_refresh`、`world_generation_suggestion`、`world_cocreation_turn`、`world_validation`、`map_atlas_generate`、`world_map_schematic_generate`、
   `map_atlas_storage_cleanup`、`world_object_image_cleanup`
   （`world_generation_suggestion` 的 meta 可携带 `session_id`/`session_action`：任务成功后由
   world 域把回合与成果追加进持久化共创会话，见 ADR-0021；transport 合并与任务指纹不受影响）
@@ -316,3 +316,6 @@ UUID。过滤在领取 SQL 中完成，只处理匹配的 pending 任务；不�
 ### 已完成阶段的领域继续
 
 `resume_manual_task(..., allow_completed=True)` 是 Imports 已核验 deferred 阶段的窄继续入口；默认仍只恢复要求人工恢复的 failed task。调用方必须在同一事务持有项目与领域运行锁，确认范围、阶段和单飞后使用；队列仍执行 task type/novel、恢复策略与后继任务门禁。`list_recent_task_summaries` 只返回指定项目、任务类型的时间与状态，不暴露 meta/result。
+### 共创回合恢复
+
+`world_cocreation_turn` 使用 `auto_requeue`、至多两个 attempt 与现有 transport retry scope。World 持有业务判断，任务基础设施只提供 operation fingerprint、lease commit fence 和精确 `novel_id + task_type + session_id` 的最后操作查询；该类型禁止 generic submit。终态回合与可恢复结果原子保存，进度不等于采用内容；没有新任务表或调度器。
