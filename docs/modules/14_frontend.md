@@ -354,7 +354,7 @@ map / rag / outline / settings / project-settings`，其主 DOM 全部由 Vue SF
   的集中计数与
   [Gerrit ported unresolved comments](https://gerrit-review.googlesource.com/Documentation/user-porting-comments.html)
   的跨版本可达性，但不复制内容、不生成第二套状态，也不阻断发布。汇总与跳转全是确定性前端
-  投影，因此不引入 Pi 或 Agent runtime。
+  投影；上层 Agent 集成另见 ADR-0023。
 - 世界书内的“世界健康”折叠面板显示待作者决定、待补证据、失效数和复核进度，支持当前
   工作稿/采用包的定向校验、全面校验、定向语义查漏（根对象 + 声明依赖一跳）、后台恢复、
   来源回到与最近回执。第四期新增：findings 服务端分页与级别/类型筛选、逐项复核处置
@@ -530,3 +530,10 @@ Vue `FocusedEvidencePanel` 用于地图与写作副驾驶，展示根/直接关�
 Writing session 和离开保护保留草稿与光标。地图支持字段级差异、历史预览、已有标记资料确认、
 四层子图、世界地点绑定和临时路线排演；图面选择/缩放/专注状态按账户、项目和节点恢复。
 排演只用明确道路，缺失、待核对、相邻或河流关系不冒充可通行路线。
+
+## 项目助手界面（ADR-0023）
+
+作者 shell 增加跨页面 ProjectAssistant；通过 bridge 捕获当前位置/选区，通过原
+workflowManager 恢复运行，账户切换清理本地输入与不确定提交回执。修改显示具体前后内容、
+影响、依赖和逐组回执；确认前校验未保存正文。讨论与提醒采用独立面板视图，窄屏焦点受控。
+RP 保留独立故事界面，仅接入旅程级提醒；工具/规划文本不进入故事正文。

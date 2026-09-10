@@ -304,6 +304,20 @@ describe("world island deep links", () => {
     expect(props.bibleDeepLink.adoptionPackageId).toBe("package-1")
   })
 
+  it("consumed draft receipt resolves to the exact published history instead of the library home", async () => {
+    const getBibleDraftPublication = vi.fn(async () => ({ page_id: "published-page", version_number: 2 }))
+    const api = { world: {
+      listEntityTypes: vi.fn(async () => ({ items: [] })), getReviewTypeCatalog: vi.fn(async () => ({})),
+      listBiblePages: vi.fn(async () => ({ items: [{ id: "published-page" }] })), listBibleCategories: vi.fn(async () => ({ items: [] })),
+      listBibleDrafts: vi.fn(async () => ({ items: [] })), getBibleSynopsis: vi.fn(async () => null), getBibleDraftPublication,
+    } }
+    setBridgeOverrides({ api, state: { currentProjectId: "novel-1", currentSubView: "bible" }, router: { getCurrentQuery: () => new URLSearchParams("draft_id=consumed-draft"), registerView: vi.fn() }, toast: vi.fn() })
+    const { loadWorld } = await import("../../../vue/worldIsland.js")
+    const props = await loadWorld()
+    expect(getBibleDraftPublication).toHaveBeenCalledWith("consumed-draft", "novel-1")
+    expect(props.bibleDeepLink).toMatchObject({ draftId: "", pageId: "published-page", openHistory: true, historyVersion: "2" })
+  })
+
   it("passes a focused conflict deep link to the World Bible workspace", async () => {
     const api = {
       world: {

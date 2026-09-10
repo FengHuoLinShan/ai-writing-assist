@@ -83,3 +83,30 @@ and continue writing” while keeping previews editable, sourced, versioned and
 reversible. It is not an RP-user entry point and does not expose raw task or
 database concepts as a product requirement. Adoption/undo/conflict behavior
 must remain visible to the author in the workbench.
+
+## Project assistant integration (ADR-0023)
+
+Story-owned operations prepare concrete previews for versioned outlines, appended Scene plans,
+Scene edits, character cards and script revisions. Confirmation invokes the existing CAS/version
+services; scripts enter Writing only through their adopted head. Assistant provenance remains
+with the saved revision. Ordinary Scene edits cannot disguise reordering, archival or source remapping.
+
+Structure and card/script changes mark pending review in the same transaction. The
+`story_reference_review` task reads existing adopted-script basis/staleness projections over
+bounded, directly associated Scenes. It is a reference check, not a semantic or character-quality review.
+
+Assistant 的 story.plan_structure 复用 P20 的整层来源快照、outline_generate 任务和提案结构，
+story.adopt_structure 复用原采用包及 revision history、场景正文映射和信息推进投影。API 与助手
+共享 OutlineAIWorkflowService.submit_layer_generation；新工具不进入旧冻结运行的目录。
+P20采用在同一事务向 source.changed 发出真实成果引用；规则引用检查不等同语义强提醒。
+
+
+### 助手维护与变化检查
+
+结构成果返回具体 revision_id，P20 采用回执返回类型化 result_refs。原任务可打开专业审阅页；
+信息推进结果定位到具体计划，助手可修改内容、章节与关联剧情线，目标对象变更沿用结构工作台。
+
+新剧本以 basis_manifest.version=2 记录明确关联的剧情线、篇章和信息计划指纹。已知起点、
+无结束章的活跃剧情线按原领域开放区间语义参与；未定位范围不推测。旧 v1 仍按原算法读取，
+稳定 facade 的默认计算版本保留 v1。变更通知携带原关联场景，与最新范围合并后有界检查，
+不得因范围迁移或投影退役丢掉先前受影响的场景。版本提醒不替代语义审稿。

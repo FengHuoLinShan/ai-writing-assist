@@ -38,6 +38,10 @@ x-runtime-environment: &runtime-environment
   MAP_ATLAS_S3_SECRET_ACCESS_KEY: ${MAP_ATLAS_S3_SECRET_ACCESS_KEY:-}
   MAP_ATLAS_S3_FORCE_PATH_STYLE: ${MAP_ATLAS_S3_FORCE_PATH_STYLE:-false}
   TASK_WORKER_MAX_CONCURRENT_TASKS: ${TASK_WORKER_MAX_CONCURRENT_TASKS:-1}
+  ASSISTANT_ENABLED: ${ASSISTANT_ENABLED:-false}
+  INTERACTION_AGENT_ENABLED: ${INTERACTION_AGENT_ENABLED:-false}
+  WEB_SEARCH_URL: ${WEB_SEARCH_URL:-}
+  WEB_DNS_SERVERS: ${WEB_DNS_SERVERS:-}
   IMPORT_MAX_CHAPTERS: ${IMPORT_MAX_CHAPTERS:-1000}
   EMBEDDING_DIM: ${EMBEDDING_DIM:-768}
   EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
@@ -84,6 +88,19 @@ x-ops-environment: &ops-environment
   DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
 
 services:
+  searxng:
+    image: searxng/searxng@sha256:50978048218cfa6f31cd833a1c828cfb94e908be65842aac09ef1d5644f7b002
+    profiles: [search]
+    restart: unless-stopped
+    logging: *bounded-logging
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-}
+    volumes:
+      - ../docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [egress]
+
   postgres:
     image: ${POSTGRES_IMAGE:-docker.m.daocloud.io/pgvector/pgvector:0.8.6-pg17-bookworm@sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f}
     restart: unless-stopped

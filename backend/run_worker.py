@@ -109,6 +109,7 @@ def _build_task_worker():
     """Compose the generic worker with process-specific task services."""
     from infrastructure.tasks.liveness import write_control_loop_liveness
     from infrastructure.tasks.worker import TaskWorker
+    from modules.assistant.facade import execute_review_task, schedule_due
     from modules.evidence.facade import reconcile_index_task_owners
     from modules.imports.facade import reconcile_workflow_task_owners
     from modules.interaction.facade import reconcile_interaction_task_owners
@@ -124,6 +125,8 @@ def _build_task_worker():
             reconcile_map_atlas_task_owners,
         ),
         control_loop_observer=write_control_loop_liveness,
+        maintenance_tick=schedule_due,
+        execution_wrapper=execute_review_task,
     )
 
 

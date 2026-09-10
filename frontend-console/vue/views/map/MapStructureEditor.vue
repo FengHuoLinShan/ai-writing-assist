@@ -220,7 +220,7 @@ import MapChangeReview from './MapChangeReview.vue'
 import MapRehearsalPanel from './MapRehearsalPanel.vue'
 import MapSourcePicker from './MapSourcePicker.vue'
 
-const props = defineProps({ projectId: { type: String, required: true }, node: { type: Object, required: true }, images: { type: Array, default: () => [] }, knownNodes: { type: Array, default: () => [] }, hasReference: Boolean, reviewImageId: { type: String, default: "" }, initialFeatureId: { type: String, default: '' }, evidenceRefs: { type: Array, default: () => [] } })
+const props = defineProps({ projectId: { type: String, required: true }, node: { type: Object, required: true }, images: { type: Array, default: () => [] }, knownNodes: { type: Array, default: () => [] }, hasReference: Boolean, reviewImageId: { type: String, default: "" }, initialFeatureId: { type: String, default: '' }, initialRevisionId: { type: String, default: '' }, evidenceRefs: { type: Array, default: () => [] } })
 const emit = defineEmits(["saved", "open-node", "reference-visible", "state", "select-feature", "pin-evidence", "clear-evidence"])
 const api = getApi(), confirm = getConfirm()
 const doc = ref(emptyMap()), revision = ref(null), serverRevision = ref(null), baseline = ref(JSON.stringify(emptyMap()))
@@ -568,6 +568,11 @@ async function load(initial = false) {
     } else if (!dirty.value && !candidateView.value && revision.value?.id !== result.revision?.id) install(result.revision)
     else if (!dirty.value && !candidateView.value) problems.value = result.revision?.problems || []
     await loadLayerImages()
+    if (initial && props.initialRevisionId && props.initialRevisionId !== result.revision?.id) {
+      const preview = await api.world.previewMapRevision(props.projectId, props.node.id, props.initialRevisionId)
+      if (!alive || token !== epoch) return
+      await viewCandidate({ ...preview, id: props.initialRevisionId, status: 'saved' }, preview)
+    }
   } catch (err) { if (alive && token === epoch) error.value = lastLoadError = err.message || "地图读取失败" }
   finally { if (alive && token === epoch) { loading.value = false; if (taskRunning.value) { clearTimeout(pollTimer); pollTimer = setTimeout(() => load(), 2500) } } }
 }

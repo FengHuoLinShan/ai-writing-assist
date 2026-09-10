@@ -14,6 +14,13 @@ from modules.imports.orchestrator import DeepImportOrchestrator
 logger = logging.getLogger(__name__)
 
 
+@task_handler("imports_completion_review", recovery_policy="manual_resume")
+async def handle_imports_completion_review(db, task):
+    from modules.imports.assistant_tools import review_completed_import
+
+    return await review_completed_import(db, task)
+
+
 def _uses_domain_workflow_run(db) -> bool:
     return bool(
         getattr(db, "task_checkpoint_enabled", False) is True

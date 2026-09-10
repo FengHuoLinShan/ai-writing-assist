@@ -47,6 +47,8 @@ from infrastructure.llm.schemas import (
     LLMCallRequest,
     LLMCallResponse,
     LLMStreamChunk,
+    LLMToolCall,
+    LLMToolDelta,
     LLMUsage,
 )
 
@@ -61,6 +63,10 @@ _RESERVED_EXTRA_FIELDS = {
     "headers",
     "authorization",
     "timeout",
+    "tools",
+    "tool_choice",
+    "functions",
+    "function_call",
 }
 
 _EXTRA_BODY_FIELDS = {
@@ -243,6 +249,18 @@ class OpenAIProvider:
             usage.completion_tokens = response.usage.completion_tokens or 0
             usage.total_tokens = response.usage.total_tokens or 0
 
+        tool_calls = (
+            [
+                LLMToolCall(
+                    id=call.id,
+                    name=call.function.name,
+                    arguments=call.function.arguments,
+                )
+                for call in (getattr(choice.message, "tool_calls", None) or [])
+            ]
+            if choice
+            else []
+        )
         return LLMCallResponse(
             content=content,
             finish_reason=finish_reason,
@@ -251,6 +269,10 @@ class OpenAIProvider:
             provider=self.name,
             latency_ms=round(elapsed_ms, 1),
             raw=response.model_dump() if hasattr(response, "model_dump") else {},
+            tool_calls=tool_calls,
+            reasoning_content=getattr(choice.message, "reasoning_content", None)
+            if choice
+            else None,
         )
 
     async def generate_stream(
@@ -287,6 +309,15 @@ class OpenAIProvider:
                             total_tokens=chunk.usage.total_tokens or 0,
                         )
 
+                    tool_deltas = [
+                        LLMToolDelta(
+                            index=part.index,
+                            id=part.id,
+                            name=part.function.name if part.function else None,
+                            arguments=part.function.arguments if part.function else None,
+                        )
+                        for part in (getattr(delta, "tool_calls", None) or [])
+                    ]
                     yield LLMStreamChunk(
                         content=content,
                         reasoning_chars=len(reasoning)
@@ -294,11 +325,29 @@ class OpenAIProvider:
                         else 0,
                         finish_reason=finish,
                         usage=usage,
+                        tool_deltas=tool_deltas,
+                        reasoning_content=reasoning
+                        if isinstance(reasoning, str)
+                        else None,
                     )
             except _OPENAI_PROVIDER_ERRORS as error:
                 raise self._map_provider_error(error, model=model) from error
 
         return iterate_stream()
+
+    async def research(self, *, provider_id, model, question, before_request):
+        from infrastructure.llm.native_search import research_with_supplier
+
+        try:
+            return await research_with_supplier(
+                self._client,
+                provider_id=provider_id,
+                model=model,
+                question=question,
+                before_request=before_request,
+            )
+        except _OPENAI_PROVIDER_ERRORS as error:
+            raise self._map_provider_error(error, model=model) from error
 
     async def generate_embedding(
         self,
@@ -411,7 +460,7 @@ class OpenAIProvider:
 
     def _build_kwargs(self, request: LLMCallRequest, model: str) -> dict[str, Any]:
         """构建 OpenAI SDK 调用参数"""
-        messages = [m.model_dump() for m in request.messages]
+        messages = [m.provider_message() for m in request.messages]
         if request.response_format == {"type": "json_object"} and not any(
             "json" in str(message.get("content") or "").casefold() for message in messages
         ):
@@ -438,6 +487,13 @@ class OpenAIProvider:
             "model": model,
             "messages": messages,
         }
+        if request.tools:
+            kwargs["tools"] = [
+                {"type": "function", "function": tool.model_dump()}
+                for tool in request.tools
+            ]
+        if request.tool_choice is not None:
+            kwargs["tool_choice"] = request.tool_choice
         if request.temperature is not None:
             kwargs["temperature"] = request.temperature
         if request.max_tokens is not None:
@@ -462,6 +518,8 @@ class OpenAIProvider:
             raise ValueError(f"reserved LLM extra fields are not allowed: {fields}")
 
         extra_body = dict(request.extra.get("extra_body") or {})
+        if _RESERVED_EXTRA_FIELDS.intersection(key.lower() for key in extra_body):
+            raise ValueError("reserved LLM extra_body fields are not allowed")
         for key, value in request.extra.items():
             if key in _EXTRA_BODY_FIELDS:
                 extra_body[key] = value

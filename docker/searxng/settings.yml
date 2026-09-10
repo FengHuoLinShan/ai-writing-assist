@@ -1,0 +1,25 @@
+# Private backend only. Each request selects one of these engines explicitly.
+use_default_settings:
+  engines:
+    keep_only: [bing, duckduckgo]
+general:
+  instance_name: NovelCraft Public Research
+  debug: false
+search:
+  formats: [json]
+  autocomplete: ""
+server:
+  bind_address: "0.0.0.0"
+  port: 8080
+  limiter: false
+  image_proxy: false
+  public_instance: false
+outgoing:
+  request_timeout: 10.0
+  max_request_timeout: 15.0
+  retries: 0
+engines:
+  - name: bing
+    disabled: false
+  - name: duckduckgo
+    disabled: false

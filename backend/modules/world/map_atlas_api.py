@@ -53,6 +53,13 @@ _structure = MapStructureService()
 _xhr = [Depends(require_xhr_request)]
 
 
+@router.get("/capabilities")
+async def get_map_capabilities(db: DbSession, novel_id: UUID):
+    from modules.world.map_atlas_facade import map_capabilities
+
+    return await map_capabilities(db, str(novel_id))
+
+
 async def _require_active_novel_id(db: DbSession, novel_id: str) -> str:
     await require_active_project(db, novel_id)
     return novel_id

@@ -238,6 +238,10 @@ export function showOutlineGeneratePreview() {
     return
   }
   const query = getRouteQuery()
+  if (query.get("source_task_id") === preview.sourceTaskId && query.get("review") === "ai" && getAppState()?.currentView === "outline" && getAppState()?.currentSubView === subView) {
+    router?.refresh?.()
+    return
+  }
   query.set("review", "ai")
   router?.navigate?.("outline", subView, true, query)
 }

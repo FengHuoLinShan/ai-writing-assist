@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from collections import defaultdict
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.errors import ValidationError
+from core.errors import ConflictError, ValidationError
 from infrastructure.llm.redaction import redact_diagnostic
 from modules.project.repositories import SmartDedupWorkbenchDecisionRepository
 from modules.story import facade as outline_facade
@@ -28,6 +29,52 @@ logger = logging.getLogger(__name__)
 
 class SmartDedupService:
     """Project-level orchestrator for module-owned dedupe suggestion services."""
+
+    async def submit_scan(
+        self, db, novel_id, data, *, llm_snapshot=None, internal_meta=None
+    ):
+        from infrastructure.tasks.facade import (
+            enqueue_task_with_optional_operation,
+            get_operation_task,
+        )
+        from modules.project.facade import (
+            build_project_llm_execution_snapshot,
+            require_active_project,
+        )
+        from modules.project.schemas import SmartDedupScanResponse
+
+        await require_active_project(db, novel_id)
+        payload = data.model_dump(mode="json", exclude={"operation_id"})
+        operation_id = str(data.operation_id) if data.operation_id else None
+        existing = await get_operation_task(
+            db,
+            operation_id=operation_id,
+            task_type="smart_dedup_scan",
+            novel_id=novel_id,
+            request_payload=payload,
+        )
+        if existing is not None:
+            return SmartDedupScanResponse(
+                task_id=existing.task_id, status=existing.status
+            )
+        snapshot = llm_snapshot or await build_project_llm_execution_snapshot(
+            db, novel_id
+        )
+        receipt = await enqueue_task_with_optional_operation(
+            db,
+            operation_id=operation_id,
+            task_type="smart_dedup_scan",
+            novel_id=novel_id,
+            request_payload=payload,
+            meta={
+                "novel_id": novel_id,
+                "llm_execution_snapshot": snapshot,
+                **payload,
+                **(internal_meta or {}),
+            },
+        )
+        await db.flush()
+        return SmartDedupScanResponse(task_id=receipt.task_id, status=receipt.status)
 
     async def scan(
         self,
@@ -191,6 +238,28 @@ class SmartDedupService:
                 "group apply requires smart dedup schema version 2",
                 code="invalid_group",
             )
+        receipts = dict(result.get("group_receipts") or {})
+        request_hashes = {
+            str(group["group_id"]): hashlib.sha256(
+                json.dumps(
+                    group, sort_keys=True, ensure_ascii=False, default=str
+                ).encode()
+            ).hexdigest()
+            for group in groups
+        }
+        replayed = []
+        if len(request_hashes) != len(groups):
+            raise ValidationError("同一组只能提交一份选择", code="invalid_group")
+        pending = []
+        for group in groups:
+            previous = receipts.get(str(group["group_id"]), {})
+            if previous.get("result", {}).get("status") == "success":
+                if previous.get("request_hash") != request_hashes[str(group["group_id"])]:
+                    raise ConflictError("该组已按另一份选择处理，请查看原回执或重新扫描")
+                replayed.append({**previous["result"], "replayed": True})
+            else:
+                pending.append(group)
+        groups = pending
         server_groups = {
             str(item.get("group_id")): item for item in result.get("groups") or []
         }
@@ -257,9 +326,7 @@ class SmartDedupService:
                 primary_asset_id=str(request_group["primary_asset_id"]),
                 operations=prepared,
                 validate_only=validate_only,
-                execution_fingerprints_prevalidated=(
-                    execution_fingerprints_prevalidated
-                ),
+                execution_fingerprints_prevalidated=(execution_fingerprints_prevalidated),
             )
 
         prepared_by_group: dict[str, list[dict[str, Any]]] = {}
@@ -369,12 +436,30 @@ class SmartDedupService:
                         "message": _public_group_error_message(code),
                     }
                 )
+        for item in group_results:
+            receipts[item["group_id"]] = {
+                "request_hash": request_hashes[item["group_id"]],
+                "result": item,
+            }
+        if group_results:
+            from infrastructure.tasks.facade import replace_completed_task_result
+
+            saved = await replace_completed_task_result(
+                db,
+                novel_id=novel_id,
+                task_id=scan_task_id,
+                task_type="smart_dedup_scan",
+                expected_revision_token=task.revision_token,
+                result={**result, "group_receipts": receipts},
+            )
+            if not saved:
+                raise ConflictError("扫描回执已变化，本次修改未提交，请重新读取")
         return {
             "applied": applied,
             "skipped": skipped,
             "results": {},
             "warnings": warnings,
-            "group_results": group_results,
+            "group_results": [*replayed, *group_results],
         }
 
     async def apply(

@@ -14,6 +14,83 @@ from infrastructure.tasks.models import AsyncTask
 
 
 @pytest.mark.asyncio
+async def test_parent_cancel_finds_unprojected_children_and_preserves_other_projects(
+    db_session,
+):
+    service = TaskLifecycleService()
+    novel, other = str(uuid.uuid4()), str(uuid.uuid4())
+    parent = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="assistant_turn",
+        status="running",
+        meta={"novel_id": novel},
+    )
+
+    def child(project):
+        return AsyncTask(
+            id=uuid.uuid4(),
+            task_type="writing_semantic_review",
+            status="pending",
+            meta={
+                "novel_id": project,
+                "_parent_task_id": str(parent.id),
+                "_execution_mode": "inline_only",
+            },
+        )
+
+    own, foreign = child(novel), child(other)
+    db_session.add_all([parent, own, foreign])
+    await db_session.flush()
+    for _ in range(2):
+        await service.cancel_exact(
+            db_session,
+            task_id=str(parent.id),
+            task_types={"assistant_turn"},
+            novel_id=novel,
+            transition_reason="user_stop",
+        )
+    assert parent.status == own.status == "cancelled"
+    assert foreign.status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_orphan_inline_tasks_converge_but_resumable_parent_keeps_child(db_session):
+    service = TaskLifecycleService()
+    novel = str(uuid.uuid4())
+    resumable = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="assistant_turn",
+        status="failed",
+        recovery_policy="manual_resume",
+        meta={"novel_id": novel},
+    )
+    terminal = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="assistant_turn",
+        status="done",
+        meta={"novel_id": novel},
+    )
+    children = [
+        AsyncTask(
+            id=uuid.uuid4(),
+            task_type="writing_semantic_review",
+            status="pending",
+            meta={
+                "novel_id": novel,
+                "_parent_task_id": parent,
+                "_execution_mode": "inline_only",
+            },
+        )
+        for parent in [str(resumable.id), str(terminal.id), "malformed"]
+    ]
+    db_session.add_all([resumable, terminal, *children])
+    await db_session.flush()
+    await service.recover_stale(db_session, max_heartbeat_gap=60)
+    await db_session.refresh(children[0])
+    assert [item.status for item in children] == ["pending", "cancelled", "cancelled"]
+
+
+@pytest.mark.asyncio
 async def test_get_owner_returns_minimal_projection_without_task_payloads() -> None:
     service = TaskLifecycleService()
     task_id = str(uuid.uuid4())

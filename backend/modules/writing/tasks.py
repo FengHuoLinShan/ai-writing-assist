@@ -217,6 +217,7 @@ async def handle_writing_generate(db, task):
 )
 async def handle_writing_semantic_review(db, task):
     """用与生成器分离的 managed run 运行正文语义审查。"""
+    from modules.writing.schemas import WritingWorldReviewScope
     from modules.writing.semantic_review import WritingSemanticWorkflowService
 
     meta = dict(task.meta or {})
@@ -241,6 +242,11 @@ async def handle_writing_semantic_review(db, task):
         draft_ids=draft_ids,
         scope=str(meta.get("scope") or "selection"),
         llm_execution_snapshot=snapshot,
+        manual_world_scope=WritingWorldReviewScope.model_validate(
+            meta["manual_world_scope"]
+        )
+        if meta.get("manual_world_scope") is not None
+        else None,
     )
     task.update_progress(1.0)
     await db.flush()

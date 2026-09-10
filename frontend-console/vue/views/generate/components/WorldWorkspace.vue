@@ -90,7 +90,11 @@
   <div class="generate-chatbox">
     <div class="generate-chat-main">
       <div class="card generate-chat-panel">
-        <div id="generate-chat-messages" ref="messagesEl" class="generate-chat-messages" @scroll="rememberMessagePosition">
+        <div v-if="assistantEnabled" class="generate-convergence-action">
+          <div><strong>在项目助手继续这次共创</strong><span>讨论、查证与执行进度会随作品保留；这里继续审阅和编辑世界成果。</span></div>
+          <button class="btn" type="button" :disabled="busy" @click="$emit('open-assistant')">打开这次讨论</button>
+        </div>
+        <div v-if="!assistantEnabled" id="generate-chat-messages" ref="messagesEl" class="generate-chat-messages" @scroll="rememberMessagePosition">
           <div v-if="!messages.length" class="generate-chat-empty">
             <strong>{{ worldCore ? "先写下几个真正重要的灵感" : "先说你想创造或推敲什么" }}</strong>
             <p>{{ worldCore ? "系统会逐轮补规则、连因果并做压力测试。" : "可以从一个人物、地点或规则开始，也可以粘贴已经聊过的材料。" }}</p>
@@ -271,8 +275,8 @@
             </article>
           </div>
         </details>
-        <form class="generate-composer" @submit.prevent="$emit('send-chat')">
-          <label class="generate-composer__label" for="generate-chat-input">{{ messages.length ? "继续完善这个世界" : "说说你想创造或推敲什么" }}</label>
+        <form class="generate-composer" @submit.prevent="assistantEnabled ? $emit('open-assistant') : $emit('send-chat')">
+          <label class="generate-composer__label" for="generate-chat-input">{{ assistantEnabled ? "给本轮建议补充说明（可选）" : messages.length ? "继续完善这个世界" : "说说你想创造或推敲什么" }}</label>
           <textarea
             id="generate-chat-input"
             v-model="composer"
@@ -288,7 +292,7 @@
             <span id="generate-chat-input-hint">内容会保存在当前浏览器；生成建议也会参考尚未发送的文字</span>
             <div class="generate-composer__actions">
               <button v-if="!worldCore" class="btn generate-composer-generate" data-action="generate-world-suggestion" type="button" :disabled="busy" @click="$emit('generate-result')">{{ loadingResult ? "正在生成…" : generateLabel }}</button>
-              <button class="btn btn-primary generate-composer-send" data-action="send-chat-message" type="submit" :disabled="busy || !composer.trim()">{{ chatPending ? "正在发送…" : "发送" }}</button>
+              <button v-if="!assistantEnabled" class="btn btn-primary generate-composer-send" data-action="send-chat-message" type="submit" :disabled="busy || !composer.trim()">{{ chatPending ? "正在发送…" : "发送" }}</button>
             </div>
           </div>
         </form>
@@ -358,10 +362,10 @@ const props = defineProps({
   chatContextUsage: Object, entityContextUsage: Object, proposalDraft: Object, proposalResetToken: Number, recoveredPageProposal: Boolean, busy: Boolean, chatPending: Boolean, loadingResult: Boolean, resultError: String,
   convergenceDraft: Object, convergencePending: Boolean, visualBrief: Object, externalPackets: { type: Array, default: () => [] },
   explorationDraft: Object, explorationPending: Boolean, explorationSelection: Object, sourceRevisionResult: Object,
-  worldCore: Boolean, successfulRounds: { type: Number, default: 0 }, checkpointRound: { type: Number, default: 0 }, checkpointPending: Boolean, checkpointSaved: Boolean,
+  assistantEnabled: Boolean, worldCore: Boolean, successfulRounds: { type: Number, default: 0 }, checkpointRound: { type: Number, default: 0 }, checkpointPending: Boolean, checkpointSaved: Boolean,
   sessionTitle: { type: String, default: "" }, sessionServerBound: { type: Boolean, default: false },
 })
-const emit = defineEmits(["send-chat", "retry-chat", "generate-result", "retry-result", "select-target", "edit-templates", "return-world-bible", "select-chapters", "apply-page", "proposal-dirty", "proposal-edit", "clear-result", "open-review", "view-context", "converge", "set-convergence-disposition", "edit-convergence-message", "apply-convergence-message", "dismiss-convergence", "open-convergence-source", "copy-handoff", "download-handoff", "open-story-outline", "create-visual-brief", "edit-visual-brief", "confirm-visual-brief", "copy-visual-brief", "download-visual-brief", "preview-visual-map", "preview-external-packet", "clear-external-packet", "explore", "select-exploration", "dismiss-exploration", "open-source-revision", "prefill-world-core", "save-world-core-checkpoint", "open-session-history"])
+const emit = defineEmits(["open-assistant", "send-chat", "retry-chat", "generate-result", "retry-result", "select-target", "edit-templates", "return-world-bible", "select-chapters", "apply-page", "proposal-dirty", "proposal-edit", "clear-result", "open-review", "view-context", "converge", "set-convergence-disposition", "edit-convergence-message", "apply-convergence-message", "dismiss-convergence", "open-convergence-source", "copy-handoff", "download-handoff", "open-story-outline", "create-visual-brief", "edit-visual-brief", "confirm-visual-brief", "copy-visual-brief", "download-visual-brief", "preview-visual-map", "preview-external-packet", "clear-external-packet", "explore", "select-exploration", "dismiss-exploration", "open-source-revision", "prefill-world-core", "save-world-core-checkpoint", "open-session-history"])
 const selectedTemplateId = defineModel("selectedTemplateId", { type: String, required: true })
 const messages = defineModel("messages", { type: Array, required: true })
 const composer = defineModel("composer", { type: String, required: true })
@@ -443,7 +447,7 @@ function readRail() {
   return !globalThis.matchMedia?.("(max-width: 900px)")?.matches
 }
 function onRailToggle(event) { railOpen.value = event.target.open; try { sessionStorage.setItem(railKey.value, railOpen.value ? "open" : "closed") } catch {} }
-async function focusComposer() { await nextTick(); document.getElementById("generate-chat-input")?.focus() }
+async function focusComposer() { if (props.assistantEnabled) { emit("open-assistant"); return } await nextTick(); document.getElementById("generate-chat-input")?.focus() }
 async function focusLatestChatError() { await nextTick(); document.querySelector('[data-action="retry-chat-message"]')?.focus() }
 async function scrollToLatest(force = false) { await nextTick(); if (messagesEl.value && (force || stickToLatest)) messagesEl.value.scrollTop = messagesEl.value.scrollHeight }
 function rememberMessagePosition(event) { const element = event.currentTarget; stickToLatest = element.scrollHeight - element.scrollTop - element.clientHeight < 56 }

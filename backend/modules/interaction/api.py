@@ -12,6 +12,13 @@ from core.csrf import require_xhr_request
 from core.dependencies import DbSession
 from core.errors import ConflictError, ValidationError
 from modules.account.facade import current_account_id
+from modules.assistant import facade as assistant
+from modules.assistant.contracts import (
+    NoticeDecision,
+    NoticeDisposition,
+    NoticeRecheck,
+    ProactivePolicy,
+)
 from modules.imports.contracts import MAX_IMPORT_FILE_SIZE
 from modules.imports.facade import apply_source_update, preview_source_update
 from modules.interaction.schemas import (
@@ -62,6 +69,47 @@ router = APIRouter(prefix="/api/interactions", tags=["interactions"])
 _service = InteractionService()
 _source_service = InteractionSourceService()
 _xhr = [Depends(require_xhr_request)]
+
+
+@router.get("/journeys/{journey_id}/care/policy")
+async def care_policy(db: DbSession, journey_id: str):
+    journey = await _service._owned_journey(db, journey_id)
+    return await assistant.policy(db, str(journey.novel_id), interaction=True)
+
+
+@router.put("/journeys/{journey_id}/care/policy", dependencies=_xhr)
+async def update_care_policy(db: DbSession, journey_id: str, data: ProactivePolicy):
+    journey = await _service._owned_journey(db, journey_id)
+    return await assistant.save_policy(db, str(journey.novel_id), data, interaction=True)
+
+
+@router.get("/journeys/{journey_id}/care/notices")
+async def care_notices(db: DbSession, journey_id: str):
+    journey = await _service._owned_journey(db, journey_id)
+    return await assistant.list_notices(db, str(journey.novel_id), interaction=True)
+
+
+@router.post("/journeys/{journey_id}/care/notices/{notice_id}/recheck", dependencies=_xhr)
+async def recheck_care_notice(
+    db: DbSession, journey_id: str, notice_id: uuid.UUID, data: NoticeRecheck
+):
+    journey = await _service._owned_journey(db, journey_id)
+    return await assistant.recheck_notice(
+        db, str(journey.novel_id), notice_id, data.operation_id, interaction=True
+    )
+
+
+@router.post("/journeys/{journey_id}/care/notices/{notice_id}/decide", dependencies=_xhr)
+async def decide_care_notice(
+    db: DbSession, journey_id: str, notice_id: uuid.UUID, data: NoticeDisposition
+):
+    journey = await _service._owned_journey(db, journey_id)
+    return await assistant.decide_notice(
+        db,
+        str(notice_id),
+        NoticeDecision(novel_id=journey.novel_id, **data.model_dump()),
+        interaction=True,
+    )
 
 
 async def _read_source_upload(file: UploadFile) -> tuple[str, bytes]:
@@ -687,6 +735,7 @@ async def update_modes(
         journey_id=journey_id,
         see_sea_enabled=data.see_sea_enabled,
         action_options_enabled=data.action_options_enabled,
+        web_search_enabled=data.web_search_enabled,
         expected_selection_epoch=data.expected_selection_epoch,
     )
 

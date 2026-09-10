@@ -177,7 +177,7 @@ dict/list 形状修正，不宣称有完整历史门禁。
 双时态数据库。[MediaWiki 页面历史](https://www.mediawiki.org/wiki/Help%3AHistory/en)
 只适合对比修订，不能充当故事 valid-time，因此当前 World revision 仅供修复参考。
 全流程的 Scene 选择、事件重放、coverage、修复和指纹核对都是确定步骤，
-因此本轮不引入 Pi 或任何 Agent 运行时。
+该连续性子流程保持确定性；上层 Agent 集成另见 ADR-0023。
 
 深度导入在事实写入同一 savepoint 记录 evidence link；quote 只有在当前可见、
 版本绑定的 Scene 原文中唯一命中才可形成 active source ref。无法定位时标记
@@ -415,3 +415,9 @@ known_content 与精确原文一致，并由 active 精确 EvidenceLink 绑定�
 审查，coverage 明示 not_performed；reader/author 的原文读取不采用此角色特有门禁。
 地图已有标记可把精确 source_range/target 引用预填到资料确认。章首 start_offset=0 合法，
 缺失或负数起点无效；执行仍只使用 retained items，不独立补读作者排除或预算遗漏的来源。
+
+## Agent 接入后的责任（ADR-0023）
+
+Evidence 保持只读证据与 Context 权威，工具选择由外层有界 Agent 控制。新增 author-only
+工作区 inspection 仍执行来源/角色范围，不对 reader/character 开放工作稿、人物卡或地图内部数据。
+原 confirmation 重新物化，角色知识不能靠另开查询扩大；变化事件只交给已注册的调度消费者。

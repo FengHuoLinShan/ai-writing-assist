@@ -426,3 +426,18 @@ RP 长期约定与max兼容性用例位于 interaction 的 services/prompts/task
 字段漂移/撤销门禁。继续使用显式专用数据库与 fresh server；模型网络响应可用合成证据
 替身，验证不等于付费真实模型效果或作者满意度。新增与填空的自动采用必须另覆盖
 旧授权拒绝、混合置信度、来源过期和后续人工编辑保护。
+
+## Agent 核心与项目助手验收（ADR-0023）
+
+- `modules/assistant/tests` 覆盖身份/范围、成组预检/重放/部分重试、变化合并、提醒与事件游标；
+  `infrastructure/llm/test_agent_runtime.py` 与 `test_native_search.py` 验证同一 SDK 预算和协议。
+- `tests/e2e/test_assistant_concurrency.py` 在独立 PostgreSQL 以两连接及真实 worker 验证批准、
+  合并领取、故障后的累计预算；`test_assistant_review_runtime.py` 验证父助手直接调用领域
+  只读复核的双 lease 与共享预算。模型输入输出为合成数据。
+- `RUN_ASSISTANT_REAL_LLM=1 pytest infrastructure/llm/test_agent_live.py -m real_llm`
+  显式调用 DeepSeek，验证工具、保存后的历史续接、原生联网、流关闭；报告只含计数/用量/耗时，
+  位于 `.test-artifacts/assistant-live-core.json`。未知费用不记为零，不能据此宣称 RP 质量通过。
+- `playwright.assistant.config.js` 需要独立、带 `agent_e2e` 标记的本地 PostgreSQL、
+  `PW_REUSE_EXISTING_SERVER=0`。真实 API 与 worker 由 test-only harness 启动，模型 IO 合成；
+  检查确认、跨页/刷新恢复、窄屏和键盘。该 harness 在其他数据库/环境拒绝启动，不用于生产。
+- 强提醒精确率、RP 人物可信度/连贯性需要冻结人工评测，实际采用率和复用意愿另行观察。

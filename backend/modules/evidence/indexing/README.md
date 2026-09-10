@@ -368,3 +368,9 @@ Compilation 的 `retrieve_focused_evidence` 将本层混合检索用于有界语
 该过滤仍维持 contains-all 语义。本轮未修改 indexing API、评分、索引、表或任务行为。
 地图已有图元的精确原文来源可以通过 compilation pinned_refs 选入，不要求重建或复制索引。
 章首 offset=0 的选择校验修复不改变本子域的分块、offset/hash、检索排序或持久化表。
+
+## 项目助手消费者
+
+ADR-0023 的 Agent 通过 Evidence facade 消费已有检索与原文回读，不直接读取索引表。
+本次接入不改变 embedding、chunk、版本并存、索引 fresh 判定或 reader/character 截止规则；
+角色工具仍只能使用固定 source revision 的资料包。

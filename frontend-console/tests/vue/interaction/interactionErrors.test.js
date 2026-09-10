@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest"
 import { safeInteractionError } from "../../../vue/views/interaction/interactionErrors.js"
 
 describe("RP 安全错误文案", () => {
+  it("明确区分用户停止与生成失败", () => {
+    expect(safeInteractionError("cancelled").message).toContain("已停止")
+    expect(safeInteractionError("cancelled").action).toBe("retry")
+  })
   it("只返回受控用户文案，不透传 provider 或服务端详情", () => {
     const raw = "upstream request failed: secret-provider-debug-payload"
     const result = safeInteractionError({

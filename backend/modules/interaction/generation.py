@@ -52,6 +52,7 @@ from modules.interaction.prompts import (
     summary_system_prompt,
 )
 from modules.interaction.repositories import InteractionRepository
+from modules.interaction.runtime_policy import clear_private_agent_state, story_task_type
 from modules.interaction.schemas import (
     InteractionOverviewSections,
     InteractionResponseMetadata,
@@ -697,7 +698,7 @@ class InteractionGenerationWorkflow:
                 attempt.metadata_text = ""
                 next_task_id = enqueue_task(
                     db,
-                    "interaction_story_generate",
+                    story_task_type(dict(attempt.llm_execution_snapshot or {})),
                     meta=self._service._story_task_meta(journey, attempt),
                     novel_id=str(journey.novel_id),
                 )
@@ -764,6 +765,7 @@ class InteractionGenerationWorkflow:
         attempt.result_node_id = node.id
         attempt.status = terminal_status
         attempt.metadata_text = ""
+        clear_private_agent_state(attempt)
         selected = selection_is_current
         if selected:
             await self._repo.set_selected_child(
@@ -834,6 +836,7 @@ class InteractionGenerationWorkflow:
         *,
         task: Any,
         error: Exception,
+        visible_delta: str = "",
     ) -> None:
         require_task_checkpoint_session(db)
         novel_id, journey_id, attempt_id = self._task_ids(task)
@@ -863,11 +866,22 @@ class InteractionGenerationWorkflow:
                 await db.rollback()
                 return
             kind, message = self._safe_story_error(error)
+            if (
+                visible_delta
+                and attempt.status == "running"
+                and journey.source_revision_id == attempt.source_revision_id
+                and journey.source_context_epoch == attempt.started_source_context_epoch
+                and journey.selection_epoch == attempt.started_selection_epoch
+            ):
+                attempt.visible_text += visible_delta
+                attempt.visible_offset = len(attempt.visible_text)
+                attempt.last_checkpoint_at = datetime.now(UTC)
             attempt.status = "failed"
             attempt.error_kind = kind
             attempt.error_message = message
             attempt.finish_reason = "provider_error"
             attempt.metadata_text = ""
+            clear_private_agent_state(attempt)
             if self._attempt_is_see_sea_step(attempt):
                 journey.see_sea_enabled = False
                 journey.see_sea_last_heartbeat_at = None
@@ -1299,6 +1313,7 @@ class InteractionGenerationWorkflow:
         await db.flush()
         journey.overview_head_revision_id = revision.id
         journey.overview_epoch += 1
+        await self._repo.notify_state_changed(db, journey)
         journey.overview_failure = {}
         if origin_attempt is not None:
             origin_attempt.status = "pending"

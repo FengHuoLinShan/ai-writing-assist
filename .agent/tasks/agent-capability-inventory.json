@@ -1,0 +1,5212 @@
+{
+  "baseline_sha": "a8de5aa9e98301943e4311aa1e5a356dd1fb177e",
+  "inventory_kind": "current_code_inventory_not_acceptance",
+  "integration_status_source": ".agent/tasks/agent-capabilities.md",
+  "api_entries": [
+    {
+      "owner": "account",
+      "path": "/api/account/deletion",
+      "methods": [
+        "DELETE"
+      ],
+      "entry": "modules.account.api:cancel_deletion",
+      "source": "backend/modules/account/api.py",
+      "authority_reference": "backend/modules/account/README.md"
+    },
+    {
+      "owner": "account",
+      "path": "/api/account/deletion",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.account.api:deletion_state",
+      "source": "backend/modules/account/api.py",
+      "authority_reference": "backend/modules/account/README.md"
+    },
+    {
+      "owner": "account",
+      "path": "/api/account/deletion",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.account.api:request_deletion",
+      "source": "backend/modules/account/api.py",
+      "authority_reference": "backend/modules/account/README.md"
+    },
+    {
+      "owner": "account",
+      "path": "/api/account/settings/author-preferences",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.account.settings_api:api_get_global_author_prefs",
+      "source": "backend/modules/account/settings_api.py",
+      "authority_reference": "backend/modules/account/README.md"
+    },
+    {
+      "owner": "account",
+      "path": "/api/account/settings/author-preferences",
+      "methods": [
+        "PUT"
+      ],
+      "entry": "modules.account.settings_api:api_put_global_author_prefs",
+      "source": "backend/modules/account/settings_api.py",
+      "authority_reference": "backend/modules/account/README.md"
+    },
+    {
+      "owner": "account",
+      "path": "/api/account/settings/image-connection",
+      "methods": [
+        "DELETE"
+      ],
+      "entry": "modules.account.settings_api:api_clear_account_image_provider",
+      "source": "backend/modules/account/settings_api.py",
+      "authority_reference": "backend/modules/account/README.md"
+    },
+    {
+      "owner": "account",
+      "path": "/api/account/settings/image-connection",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.account.settings_api:api_get_account_image_connection",
+      "source": "backend/modules/account/settings_api.py",
+      "authority_reference": "backend/modules/account/README.md"
+    },
+    {
+      "owner": "account",
+      "path": "/api/account/settings/image-connection",
+      "methods": [
+        "PUT"
+      ],
+      "entry": "modules.account.settings_api:api_connect_account_image_provider",
+      "source": "backend/modules/account/settings_api.py",
+      "authority_reference": "backend/modules/account/README.md"
+    },
+    {
+      "owner": "account",
+      "path": "/api/account/settings/llm-balances",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.account.settings_api:api_get_account_llm_balances",
+      "source": "backend/modules/account/settings_api.py",
+      "authority_reference": "backend/modules/account/README.md"
+    },
+    {
+      "owner": "account",
+      "path": "/api/account/settings/llm-connections",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.account.settings_api:api_get_account_llm_connections",
+      "source": "backend/modules/account/settings_api.py",
+      "authority_reference": "backend/modules/account/README.md"
+    },
+    {
+      "owner": "account",
+      "path": "/api/account/settings/llm-connections/{provider_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "entry": "modules.account.settings_api:api_clear_account_llm_provider",
+      "source": "backend/modules/account/settings_api.py",
+      "authority_reference": "backend/modules/account/README.md"
+    },
+    {
+      "owner": "account",
+      "path": "/api/account/settings/llm-connections/{provider_id}",
+      "methods": [
+        "PUT"
+      ],
+      "entry": "modules.account.settings_api:api_connect_account_llm_provider",
+      "source": "backend/modules/account/settings_api.py",
+      "authority_reference": "backend/modules/account/README.md"
+    },
+    {
+      "owner": "account",
+      "path": "/api/account/settings/llm-connections/{provider_id}/activate",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.account.settings_api:api_activate_account_llm_provider",
+      "source": "backend/modules/account/settings_api.py",
+      "authority_reference": "backend/modules/account/README.md"
+    },
+    {
+      "owner": "account",
+      "path": "/api/account/settings/llm-defaults",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.account.settings_api:api_get_global_llm_defaults",
+      "source": "backend/modules/account/settings_api.py",
+      "authority_reference": "backend/modules/account/README.md"
+    },
+    {
+      "owner": "account",
+      "path": "/api/account/settings/llm-defaults",
+      "methods": [
+        "PUT"
+      ],
+      "entry": "modules.account.settings_api:api_put_global_llm_defaults",
+      "source": "backend/modules/account/settings_api.py",
+      "authority_reference": "backend/modules/account/README.md"
+    },
+    {
+      "owner": "account",
+      "path": "/api/account/settings/refresh",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.account.settings_api:api_refresh_settings",
+      "source": "backend/modules/account/settings_api.py",
+      "authority_reference": "backend/modules/account/README.md"
+    },
+    {
+      "owner": "account",
+      "path": "/api/auth/config",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.account.api:auth_config",
+      "source": "backend/modules/account/api.py",
+      "authority_reference": "backend/modules/account/README.md"
+    },
+    {
+      "owner": "account",
+      "path": "/api/auth/email/request-code",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.account.api:request_email_code",
+      "source": "backend/modules/account/api.py",
+      "authority_reference": "backend/modules/account/README.md"
+    },
+    {
+      "owner": "account",
+      "path": "/api/auth/email/verify",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.account.api:verify_email",
+      "source": "backend/modules/account/api.py",
+      "authority_reference": "backend/modules/account/README.md"
+    },
+    {
+      "owner": "account",
+      "path": "/api/auth/logout",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.account.api:logout",
+      "source": "backend/modules/account/api.py",
+      "authority_reference": "backend/modules/account/README.md"
+    },
+    {
+      "owner": "account",
+      "path": "/api/auth/me",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.account.api:auth_me",
+      "source": "backend/modules/account/api.py",
+      "authority_reference": "backend/modules/account/README.md"
+    },
+    {
+      "owner": "account",
+      "path": "/api/auth/reauth/email/request-code",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.account.api:request_reauth_email_code",
+      "source": "backend/modules/account/api.py",
+      "authority_reference": "backend/modules/account/README.md"
+    },
+    {
+      "owner": "account",
+      "path": "/api/auth/reauth/email/verify",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.account.api:verify_reauth_email",
+      "source": "backend/modules/account/api.py",
+      "authority_reference": "backend/modules/account/README.md"
+    },
+    {
+      "owner": "account",
+      "path": "/api/auth/reauth/wechat/start",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.account.oidc:start_wechat_reauth",
+      "source": "backend/modules/account/oidc.py",
+      "authority_reference": "backend/modules/account/README.md"
+    },
+    {
+      "owner": "account",
+      "path": "/api/auth/wechat/callback",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.account.oidc:wechat_callback",
+      "source": "backend/modules/account/oidc.py",
+      "authority_reference": "backend/modules/account/README.md"
+    },
+    {
+      "owner": "account",
+      "path": "/api/auth/wechat/start",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.account.oidc:start_wechat",
+      "source": "backend/modules/account/oidc.py",
+      "authority_reference": "backend/modules/account/README.md"
+    },
+    {
+      "owner": "assistant",
+      "path": "/api/assistant/batches/{batch_id}/decide",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.assistant.api:approve_batch",
+      "source": "backend/modules/assistant/api.py",
+      "authority_reference": "backend/modules/assistant/README.md"
+    },
+    {
+      "owner": "assistant",
+      "path": "/api/assistant/batches/{batch_id}/recheck",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.assistant.api:recheck_batch",
+      "source": "backend/modules/assistant/api.py",
+      "authority_reference": "backend/modules/assistant/README.md"
+    },
+    {
+      "owner": "assistant",
+      "path": "/api/assistant/capabilities",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.assistant.api:capabilities",
+      "source": "backend/modules/assistant/api.py",
+      "authority_reference": "backend/modules/assistant/README.md"
+    },
+    {
+      "owner": "assistant",
+      "path": "/api/assistant/notices",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.assistant.api:get_notices",
+      "source": "backend/modules/assistant/api.py",
+      "authority_reference": "backend/modules/assistant/README.md"
+    },
+    {
+      "owner": "assistant",
+      "path": "/api/assistant/notices/{notice_id}/decide",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.assistant.api:update_notice",
+      "source": "backend/modules/assistant/api.py",
+      "authority_reference": "backend/modules/assistant/README.md"
+    },
+    {
+      "owner": "assistant",
+      "path": "/api/assistant/notices/{notice_id}/recheck",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.assistant.api:recheck_notice",
+      "source": "backend/modules/assistant/api.py",
+      "authority_reference": "backend/modules/assistant/README.md"
+    },
+    {
+      "owner": "assistant",
+      "path": "/api/assistant/policy",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.assistant.api:get_policy",
+      "source": "backend/modules/assistant/api.py",
+      "authority_reference": "backend/modules/assistant/README.md"
+    },
+    {
+      "owner": "assistant",
+      "path": "/api/assistant/policy",
+      "methods": [
+        "PUT"
+      ],
+      "entry": "modules.assistant.api:update_policy",
+      "source": "backend/modules/assistant/api.py",
+      "authority_reference": "backend/modules/assistant/README.md"
+    },
+    {
+      "owner": "assistant",
+      "path": "/api/assistant/runs/{run_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.assistant.api:get_run",
+      "source": "backend/modules/assistant/api.py",
+      "authority_reference": "backend/modules/assistant/README.md"
+    },
+    {
+      "owner": "assistant",
+      "path": "/api/assistant/runs/{run_id}/events",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.assistant.api:get_run_events",
+      "source": "backend/modules/assistant/api.py",
+      "authority_reference": "backend/modules/assistant/README.md"
+    },
+    {
+      "owner": "assistant",
+      "path": "/api/assistant/runs/{run_id}/resume",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.assistant.api:resume_run",
+      "source": "backend/modules/assistant/api.py",
+      "authority_reference": "backend/modules/assistant/README.md"
+    },
+    {
+      "owner": "assistant",
+      "path": "/api/assistant/runs/{run_id}/stop",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.assistant.api:stop_run",
+      "source": "backend/modules/assistant/api.py",
+      "authority_reference": "backend/modules/assistant/README.md"
+    },
+    {
+      "owner": "assistant",
+      "path": "/api/assistant/sessions",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.assistant.api:list_sessions",
+      "source": "backend/modules/assistant/api.py",
+      "authority_reference": "backend/modules/assistant/README.md"
+    },
+    {
+      "owner": "assistant",
+      "path": "/api/assistant/sessions",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.assistant.api:create_session",
+      "source": "backend/modules/assistant/api.py",
+      "authority_reference": "backend/modules/assistant/README.md"
+    },
+    {
+      "owner": "assistant",
+      "path": "/api/assistant/sessions/{session_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.assistant.api:get_session",
+      "source": "backend/modules/assistant/api.py",
+      "authority_reference": "backend/modules/assistant/README.md"
+    },
+    {
+      "owner": "assistant",
+      "path": "/api/assistant/sessions/{session_id}/messages",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.assistant.api:list_messages",
+      "source": "backend/modules/assistant/api.py",
+      "authority_reference": "backend/modules/assistant/README.md"
+    },
+    {
+      "owner": "assistant",
+      "path": "/api/assistant/sessions/{session_id}/turns",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.assistant.api:submit_turn",
+      "source": "backend/modules/assistant/api.py",
+      "authority_reference": "backend/modules/assistant/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/compilation/activation-preview",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.evidence.compilation.api:activation_preview",
+      "source": "backend/modules/evidence/compilation/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/compilation/activation-preview",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.evidence.compilation.api:structured_activation_preview",
+      "source": "backend/modules/evidence/compilation/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/compilation/activation-profiles",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.evidence.compilation.api:list_activation_profiles",
+      "source": "backend/modules/evidence/compilation/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/compilation/activation-profiles",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.evidence.compilation.api:create_activation_profile",
+      "source": "backend/modules/evidence/compilation/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/compilation/activation-profiles/{profile_id}",
+      "methods": [
+        "PATCH"
+      ],
+      "entry": "modules.evidence.compilation.api:update_activation_profile",
+      "source": "backend/modules/evidence/compilation/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/compilation/activation-profiles/{profile_id}/publish",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.evidence.compilation.api:publish_activation_profile",
+      "source": "backend/modules/evidence/compilation/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/compilation/activation-profiles/{profile_id}/revisions",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.evidence.compilation.api:list_activation_profile_revisions",
+      "source": "backend/modules/evidence/compilation/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/compilation/activation-profiles/{profile_id}/revisions/{version_number}/restore-draft",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.evidence.compilation.api:restore_activation_profile_revision",
+      "source": "backend/modules/evidence/compilation/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/compilation/compile",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.evidence.compilation.api:compile_context",
+      "source": "backend/modules/evidence/compilation/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/compilation/confirm",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.evidence.compilation.api:confirm_context",
+      "source": "backend/modules/evidence/compilation/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/compilation/evidence-health",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.evidence.compilation.api:get_evidence_health",
+      "source": "backend/modules/evidence/compilation/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/compilation/evidence/grep",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.evidence.compilation.api:grep_evidence",
+      "source": "backend/modules/evidence/compilation/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/compilation/evidence/inspect",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.evidence.compilation.api:inspect_evidence",
+      "source": "backend/modules/evidence/compilation/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/compilation/evidence/read",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.evidence.compilation.api:read_evidence",
+      "source": "backend/modules/evidence/compilation/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/compilation/evidence/search",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.evidence.compilation.api:search_evidence",
+      "source": "backend/modules/evidence/compilation/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/compilation/evidence/trace",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.evidence.compilation.api:trace_evidence",
+      "source": "backend/modules/evidence/compilation/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/compilation/focused-search",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.evidence.compilation.api:focused_search_submit",
+      "source": "backend/modules/evidence/compilation/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/compilation/focused-search/{task_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.evidence.compilation.api:focused_search_result",
+      "source": "backend/modules/evidence/compilation/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/compilation/focused-search/{task_id}/resume",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.evidence.compilation.api:focused_search_resume",
+      "source": "backend/modules/evidence/compilation/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/compilation/render",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.evidence.compilation.api:render_context",
+      "source": "backend/modules/evidence/compilation/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/compilation/retrieval-traces",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.evidence.compilation.api:list_retrieval_traces",
+      "source": "backend/modules/evidence/compilation/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/compilation/scene-lens",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.evidence.compilation.api:scene_lens",
+      "source": "backend/modules/evidence/compilation/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/compilation/selection-proposals",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.evidence.compilation.api:propose_context_selection",
+      "source": "backend/modules/evidence/compilation/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/compilation/snapshots",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.evidence.compilation.api:list_context_snapshots",
+      "source": "backend/modules/evidence/compilation/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/compilation/snapshots/maintenance",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.evidence.compilation.api:maintain_context_snapshots",
+      "source": "backend/modules/evidence/compilation/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/compilation/snapshots/{snapshot_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.evidence.compilation.api:get_context_snapshot",
+      "source": "backend/modules/evidence/compilation/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/indexing/chunks",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.evidence.indexing.api:list_rag_chunks",
+      "source": "backend/modules/evidence/indexing/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/indexing/chunks",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.evidence.indexing.api:create_rag_chunk",
+      "source": "backend/modules/evidence/indexing/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/indexing/chunks/split",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.evidence.indexing.api:split_text",
+      "source": "backend/modules/evidence/indexing/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/indexing/metrics",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.evidence.indexing.api:get_rag_metrics",
+      "source": "backend/modules/evidence/indexing/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/indexing/prewarm",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.evidence.indexing.api:prewarm_rag_embedding",
+      "source": "backend/modules/evidence/indexing/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/indexing/rebuild",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.evidence.indexing.api:rebuild_rag_index",
+      "source": "backend/modules/evidence/indexing/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/indexing/retrieve",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.evidence.indexing.api:retrieve_chunks",
+      "source": "backend/modules/evidence/indexing/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "evidence",
+      "path": "/api/evidence/indexing/retry-embeddings",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.evidence.indexing.api:retry_embeddings",
+      "source": "backend/modules/evidence/indexing/api.py",
+      "authority_reference": "backend/modules/evidence/README.md"
+    },
+    {
+      "owner": "imports",
+      "path": "/api/imports",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.imports.api:list_imports",
+      "source": "backend/modules/imports/api.py",
+      "authority_reference": "backend/modules/imports/README.md"
+    },
+    {
+      "owner": "imports",
+      "path": "/api/imports/deep",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.imports.api:submit_deep_import",
+      "source": "backend/modules/imports/api.py",
+      "authority_reference": "backend/modules/imports/README.md"
+    },
+    {
+      "owner": "imports",
+      "path": "/api/imports/deep/abandon",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.imports.api:abandon_deep_import",
+      "source": "backend/modules/imports/api.py",
+      "authority_reference": "backend/modules/imports/README.md"
+    },
+    {
+      "owner": "imports",
+      "path": "/api/imports/deep/resume",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.imports.api:resume_deep_import",
+      "source": "backend/modules/imports/api.py",
+      "authority_reference": "backend/modules/imports/README.md"
+    },
+    {
+      "owner": "imports",
+      "path": "/api/imports/stages/plot-structure",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.imports.api:submit_plot_structure_auto_extraction",
+      "source": "backend/modules/imports/api.py",
+      "authority_reference": "backend/modules/imports/README.md"
+    },
+    {
+      "owner": "imports",
+      "path": "/api/imports/stages/scenes",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.imports.api:submit_scene_auto_extraction",
+      "source": "backend/modules/imports/api.py",
+      "authority_reference": "backend/modules/imports/README.md"
+    },
+    {
+      "owner": "imports",
+      "path": "/api/imports/stages/world-objects",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.imports.api:submit_world_object_auto_extraction",
+      "source": "backend/modules/imports/api.py",
+      "authority_reference": "backend/modules/imports/README.md"
+    },
+    {
+      "owner": "imports",
+      "path": "/api/imports/targeted-completions",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.imports.api:submit_targeted_completion",
+      "source": "backend/modules/imports/api.py",
+      "authority_reference": "backend/modules/imports/README.md"
+    },
+    {
+      "owner": "imports",
+      "path": "/api/imports/targeted-completions/{task_id}/rollback",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.imports.api:rollback_targeted_completion",
+      "source": "backend/modules/imports/api.py",
+      "authority_reference": "backend/modules/imports/README.md"
+    },
+    {
+      "owner": "imports",
+      "path": "/api/imports/upload",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.imports.api:upload_file",
+      "source": "backend/modules/imports/api.py",
+      "authority_reference": "backend/modules/imports/README.md"
+    },
+    {
+      "owner": "imports",
+      "path": "/api/imports/{record_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.imports.api:get_import",
+      "source": "backend/modules/imports/api.py",
+      "authority_reference": "backend/modules/imports/README.md"
+    },
+    {
+      "owner": "infrastructure",
+      "path": "/api/debug/frontend-errors",
+      "methods": [
+        "DELETE"
+      ],
+      "entry": "app.debug_api:clear_frontend_errors",
+      "source": "backend/app/debug_api.py",
+      "authority_reference": "backend/infrastructure/tasks/README.md"
+    },
+    {
+      "owner": "infrastructure",
+      "path": "/api/debug/frontend-errors",
+      "methods": [
+        "GET"
+      ],
+      "entry": "app.debug_api:list_frontend_errors",
+      "source": "backend/app/debug_api.py",
+      "authority_reference": "backend/infrastructure/tasks/README.md"
+    },
+    {
+      "owner": "infrastructure",
+      "path": "/api/debug/frontend-errors",
+      "methods": [
+        "POST"
+      ],
+      "entry": "app.debug_api:record_frontend_error",
+      "source": "backend/app/debug_api.py",
+      "authority_reference": "backend/infrastructure/tasks/README.md"
+    },
+    {
+      "owner": "infrastructure",
+      "path": "/api/docs",
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "entry": "fastapi.applications:swagger_ui_html",
+      "source": "backend/.venv/lib/python3.14/site-packages/fastapi/applications.py",
+      "authority_reference": "backend/infrastructure/tasks/README.md"
+    },
+    {
+      "owner": "infrastructure",
+      "path": "/api/health",
+      "methods": [
+        "GET"
+      ],
+      "entry": "app.main:health_check",
+      "source": "backend/app/main.py",
+      "authority_reference": "backend/infrastructure/tasks/README.md"
+    },
+    {
+      "owner": "infrastructure",
+      "path": "/api/health/llm",
+      "methods": [
+        "GET"
+      ],
+      "entry": "app.main:llm_health_check",
+      "source": "backend/app/main.py",
+      "authority_reference": "backend/infrastructure/tasks/README.md"
+    },
+    {
+      "owner": "infrastructure",
+      "path": "/api/openapi.json",
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "entry": "fastapi.applications:openapi",
+      "source": "backend/.venv/lib/python3.14/site-packages/fastapi/applications.py",
+      "authority_reference": "backend/infrastructure/tasks/README.md"
+    },
+    {
+      "owner": "infrastructure",
+      "path": "/api/redoc",
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "entry": "fastapi.applications:redoc_html",
+      "source": "backend/.venv/lib/python3.14/site-packages/fastapi/applications.py",
+      "authority_reference": "backend/infrastructure/tasks/README.md"
+    },
+    {
+      "owner": "infrastructure",
+      "path": "/api/tasks",
+      "methods": [
+        "POST"
+      ],
+      "entry": "infrastructure.tasks.api:submit_task",
+      "source": "backend/infrastructure/tasks/api.py",
+      "authority_reference": "backend/infrastructure/tasks/README.md"
+    },
+    {
+      "owner": "infrastructure",
+      "path": "/api/tasks/{task_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "infrastructure.tasks.api:get_task_status",
+      "source": "backend/infrastructure/tasks/api.py",
+      "authority_reference": "backend/infrastructure/tasks/README.md"
+    },
+    {
+      "owner": "infrastructure",
+      "path": "/api/tasks/{task_id}/cancel",
+      "methods": [
+        "POST"
+      ],
+      "entry": "infrastructure.tasks.api:cancel_task",
+      "source": "backend/infrastructure/tasks/api.py",
+      "authority_reference": "backend/infrastructure/tasks/README.md"
+    },
+    {
+      "owner": "infrastructure",
+      "path": "/api/tasks/{task_id}/retry",
+      "methods": [
+        "POST"
+      ],
+      "entry": "infrastructure.tasks.api:retry_task",
+      "source": "backend/infrastructure/tasks/api.py",
+      "authority_reference": "backend/infrastructure/tasks/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.interaction.api:list_journeys",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.interaction.api:create_journey",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "entry": "modules.interaction.api:delete_journey",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.interaction.api:get_journey",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/archive",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.interaction.api:archive_journey",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/attempts/{attempt_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.interaction.api:get_attempt",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/attempts/{attempt_id}/continue",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.interaction.api:continue_attempt",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/attempts/{attempt_id}/events",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.interaction.api:stream_attempt",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/attempts/{attempt_id}/keep",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.interaction.api:keep_partial",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/attempts/{attempt_id}/retry",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.interaction.api:retry_attempt",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/attempts/{attempt_id}/stop",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.interaction.api:stop_attempt",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/care/notices",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.interaction.api:care_notices",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/care/notices/{notice_id}/decide",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.interaction.api:decide_care_notice",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/care/notices/{notice_id}/recheck",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.interaction.api:recheck_care_notice",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/care/policy",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.interaction.api:care_policy",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/care/policy",
+      "methods": [
+        "PUT"
+      ],
+      "entry": "modules.interaction.api:update_care_policy",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/export",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.interaction.api:export_journey",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/generation-records",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.interaction.api:list_generation_records",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/heartbeat",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.interaction.api:heartbeat",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/leave",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.interaction.api:leave_story_page",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/messages",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.interaction.api:get_message_page",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/messages",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.interaction.api:send_message",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/modes",
+      "methods": [
+        "PATCH"
+      ],
+      "entry": "modules.interaction.api:update_modes",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/nodes/{node_id}/branches",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.interaction.api:list_branches",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/nodes/{node_id}/continue-from-here",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.interaction.api:continue_from_node",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/nodes/{node_id}/edit",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.interaction.api:edit_user_message",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/nodes/{node_id}/regenerate",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.interaction.api:regenerate",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/nodes/{node_id}/select",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.interaction.api:select_branch",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/overview",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.interaction.api:get_overview",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/overview",
+      "methods": [
+        "PUT"
+      ],
+      "entry": "modules.interaction.api:update_overview",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/overview/retry",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.interaction.api:retry_overview",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/path-index",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.interaction.api:get_path_index",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/references",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.interaction.api:get_journey_references",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/references",
+      "methods": [
+        "PATCH"
+      ],
+      "entry": "modules.interaction.api:update_journey_references",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/restore",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.interaction.api:restore_journey",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/source",
+      "methods": [
+        "PATCH"
+      ],
+      "entry": "modules.interaction.api:update_journey_source",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/title",
+      "methods": [
+        "PATCH"
+      ],
+      "entry": "modules.interaction.api:update_title",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/journeys/{journey_id}/tree",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.interaction.api:get_tree",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/preferences",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.interaction.api:get_preferences",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/preferences/see-sea-notice",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.interaction.api:acknowledge_see_sea_notice",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/sources",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.interaction.api:list_sources",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/sources/from-project",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.interaction.api:create_source_from_project",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/sources/import",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.interaction.api:import_source",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/sources/import-preview",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.interaction.api:preview_source_import",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/sources/{revision_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.interaction.api:get_source",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/sources/{revision_id}/ambiguities/{ambiguity_key}",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.interaction.api:resolve_source_ambiguity",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/sources/{revision_id}/anchors",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.interaction.api:list_source_anchors",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/sources/{revision_id}/anchors/match",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.interaction.api:match_source_anchors",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "interaction",
+      "path": "/api/interactions/sources/{revision_id}/objects",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.interaction.api:list_source_objects",
+      "source": "backend/modules/interaction/api.py",
+      "authority_reference": "backend/modules/interaction/README.md"
+    },
+    {
+      "owner": "project",
+      "path": "/api/account/settings/projects-using-defaults",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.project.settings_api:api_list_projects_using_defaults",
+      "source": "backend/modules/project/settings_api.py",
+      "authority_reference": "backend/modules/project/README.md"
+    },
+    {
+      "owner": "project",
+      "path": "/api/projects",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.project.api:api_list_projects",
+      "source": "backend/modules/project/api.py",
+      "authority_reference": "backend/modules/project/README.md"
+    },
+    {
+      "owner": "project",
+      "path": "/api/projects",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.project.api:api_create_project",
+      "source": "backend/modules/project/api.py",
+      "authority_reference": "backend/modules/project/README.md"
+    },
+    {
+      "owner": "project",
+      "path": "/api/projects/llm/provider-templates",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.project.api:api_list_llm_provider_templates",
+      "source": "backend/modules/project/api.py",
+      "authority_reference": "backend/modules/project/README.md"
+    },
+    {
+      "owner": "project",
+      "path": "/api/projects/recycle-bin",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.project.api:api_list_deleted_projects",
+      "source": "backend/modules/project/api.py",
+      "authority_reference": "backend/modules/project/README.md"
+    },
+    {
+      "owner": "project",
+      "path": "/api/projects/recycle-bin/permanent-delete",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.project.api:api_bulk_permanent_delete_projects",
+      "source": "backend/modules/project/api.py",
+      "authority_reference": "backend/modules/project/README.md"
+    },
+    {
+      "owner": "project",
+      "path": "/api/projects/{project_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "entry": "modules.project.api:api_delete_project",
+      "source": "backend/modules/project/api.py",
+      "authority_reference": "backend/modules/project/README.md"
+    },
+    {
+      "owner": "project",
+      "path": "/api/projects/{project_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.project.api:api_get_project",
+      "source": "backend/modules/project/api.py",
+      "authority_reference": "backend/modules/project/README.md"
+    },
+    {
+      "owner": "project",
+      "path": "/api/projects/{project_id}",
+      "methods": [
+        "PUT"
+      ],
+      "entry": "modules.project.api:api_update_project",
+      "source": "backend/modules/project/api.py",
+      "authority_reference": "backend/modules/project/README.md"
+    },
+    {
+      "owner": "project",
+      "path": "/api/projects/{project_id}/author-preferences",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.project.settings_api:api_get_project_author_prefs",
+      "source": "backend/modules/project/settings_api.py",
+      "authority_reference": "backend/modules/project/README.md"
+    },
+    {
+      "owner": "project",
+      "path": "/api/projects/{project_id}/author-preferences",
+      "methods": [
+        "PUT"
+      ],
+      "entry": "modules.project.settings_api:api_put_project_author_prefs",
+      "source": "backend/modules/project/settings_api.py",
+      "authority_reference": "backend/modules/project/README.md"
+    },
+    {
+      "owner": "project",
+      "path": "/api/projects/{project_id}/author-preferences/field/{field_name}",
+      "methods": [
+        "DELETE"
+      ],
+      "entry": "modules.project.settings_api:api_reset_project_author_prefs_field",
+      "source": "backend/modules/project/settings_api.py",
+      "authority_reference": "backend/modules/project/README.md"
+    },
+    {
+      "owner": "project",
+      "path": "/api/projects/{project_id}/author-tasks",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.project.api:api_list_author_tasks",
+      "source": "backend/modules/project/api.py",
+      "authority_reference": "backend/modules/project/README.md"
+    },
+    {
+      "owner": "project",
+      "path": "/api/projects/{project_id}/author-tasks",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.project.api:api_create_author_task",
+      "source": "backend/modules/project/api.py",
+      "authority_reference": "backend/modules/project/README.md"
+    },
+    {
+      "owner": "project",
+      "path": "/api/projects/{project_id}/author-tasks/{task_id}",
+      "methods": [
+        "PATCH"
+      ],
+      "entry": "modules.project.api:api_patch_author_task",
+      "source": "backend/modules/project/api.py",
+      "authority_reference": "backend/modules/project/README.md"
+    },
+    {
+      "owner": "project",
+      "path": "/api/projects/{project_id}/effective-author-preferences",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.project.api:api_get_effective_author_prefs",
+      "source": "backend/modules/project/api.py",
+      "authority_reference": "backend/modules/project/README.md"
+    },
+    {
+      "owner": "project",
+      "path": "/api/projects/{project_id}/effective-llm-settings",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.project.api:api_get_effective_llm_settings",
+      "source": "backend/modules/project/api.py",
+      "authority_reference": "backend/modules/project/README.md"
+    },
+    {
+      "owner": "project",
+      "path": "/api/projects/{project_id}/llm-settings",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.project.api:api_get_project_llm_settings",
+      "source": "backend/modules/project/api.py",
+      "authority_reference": "backend/modules/project/README.md"
+    },
+    {
+      "owner": "project",
+      "path": "/api/projects/{project_id}/llm-settings",
+      "methods": [
+        "PUT"
+      ],
+      "entry": "modules.project.api:api_update_project_llm_settings",
+      "source": "backend/modules/project/api.py",
+      "authority_reference": "backend/modules/project/README.md"
+    },
+    {
+      "owner": "project",
+      "path": "/api/projects/{project_id}/llm-settings/field/{field_name}",
+      "methods": [
+        "DELETE"
+      ],
+      "entry": "modules.project.api:api_reset_llm_settings_field",
+      "source": "backend/modules/project/api.py",
+      "authority_reference": "backend/modules/project/README.md"
+    },
+    {
+      "owner": "project",
+      "path": "/api/projects/{project_id}/permanent",
+      "methods": [
+        "DELETE"
+      ],
+      "entry": "modules.project.api:api_permanent_delete_project",
+      "source": "backend/modules/project/api.py",
+      "authority_reference": "backend/modules/project/README.md"
+    },
+    {
+      "owner": "project",
+      "path": "/api/projects/{project_id}/restore",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.project.api:api_restore_project",
+      "source": "backend/modules/project/api.py",
+      "authority_reference": "backend/modules/project/README.md"
+    },
+    {
+      "owner": "project",
+      "path": "/api/projects/{project_id}/smart-dedup/apply",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.project.api:api_apply_smart_dedup",
+      "source": "backend/modules/project/api.py",
+      "authority_reference": "backend/modules/project/README.md"
+    },
+    {
+      "owner": "project",
+      "path": "/api/projects/{project_id}/smart-dedup/scan",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.project.api:api_start_smart_dedup_scan",
+      "source": "backend/modules/project/api.py",
+      "authority_reference": "backend/modules/project/README.md"
+    },
+    {
+      "owner": "project",
+      "path": "/api/projects/{project_id}/workspace-summary",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.project.api:api_get_project_workspace_summary",
+      "source": "backend/modules/project/api.py",
+      "authority_reference": "backend/modules/project/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/novels/{novel_id}/memories/events",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.continuity.api:list_events",
+      "source": "backend/modules/story/continuity/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/novels/{novel_id}/memories/events/{entity_id}/timeline",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.continuity.api:get_entity_timeline",
+      "source": "backend/modules/story/continuity/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/novels/{novel_id}/memories/panorama",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.continuity.api:get_panorama",
+      "source": "backend/modules/story/continuity/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/novels/{novel_id}/memories/rebuild",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.continuity.api:trigger_rebuild",
+      "source": "backend/modules/story/continuity/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/novels/{novel_id}/memories/scene-checkpoints",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.continuity.api:get_scene_checkpoints",
+      "source": "backend/modules/story/continuity/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/novels/{novel_id}/memories/scene-checkpoints/ensure",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.continuity.api:ensure_scene_checkpoints",
+      "source": "backend/modules/story/continuity/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/novels/{novel_id}/memories/scene-checkpoints/rebuild",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.continuity.api:rebuild_scene_checkpoints",
+      "source": "backend/modules/story/continuity/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/novels/{novel_id}/memories/scene-checkpoints/repair",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.continuity.api:repair_scene_checkpoint",
+      "source": "backend/modules/story/continuity/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/novels/{novel_id}/memories/snapshots",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.continuity.api:list_snapshots",
+      "source": "backend/modules/story/continuity/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/novels/{novel_id}/memories/snapshots/capture",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.continuity.api:trigger_capture",
+      "source": "backend/modules/story/continuity/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/novels/{novel_id}/memories/status",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.continuity.api:get_status",
+      "source": "backend/modules/story/continuity/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/analyze",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.outline_state.api:api_analyze_outline",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/arcs",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.outline_state.api:api_list_arcs",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/arcs",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.outline_state.api:api_create_arc",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/arcs/{arc_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "entry": "modules.story.outline_state.api:api_delete_arc",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/arcs/{arc_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.outline_state.api:api_get_arc",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/arcs/{arc_id}",
+      "methods": [
+        "PATCH"
+      ],
+      "entry": "modules.story.outline_state.api:api_update_arc",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/foreshadowing",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.outline_state.api:api_list_foreshadowing",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/foreshadowing",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.outline_state.api:api_create_foreshadowing",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/foreshadowing/{plan_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "entry": "modules.story.outline_state.api:api_delete_foreshadowing",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/foreshadowing/{plan_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.outline_state.api:api_get_foreshadowing",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/foreshadowing/{plan_id}",
+      "methods": [
+        "PATCH"
+      ],
+      "entry": "modules.story.outline_state.api:api_update_foreshadowing",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/generate",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.outline_state.api:api_generate_plot_structure",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/generate/apply",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.outline_state.api:api_apply_structure_preview",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/reveals",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.outline_state.api:api_list_reveals",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/reveals",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.outline_state.api:api_create_reveal",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/reveals/{plan_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "entry": "modules.story.outline_state.api:api_delete_reveal",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/reveals/{plan_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.outline_state.api:api_get_reveal",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/reveals/{plan_id}",
+      "methods": [
+        "PATCH"
+      ],
+      "entry": "modules.story.outline_state.api:api_update_reveal",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/scene-workbench",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.outline_state.api:api_get_scene_workbench",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/scene-workbench/chapters/{chapter_index}/scenes",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.outline_state.api:api_create_scene_for_chapter",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/scene-workbench/chapters/{chapter_index}/scenes/{scene_id}",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.outline_state.api:api_link_scene_to_chapter",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/scene-workbench/fusion-suggestions",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.outline_state.api:api_list_fusion_suggestions",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/scene-workbench/fusion-suggestions/dismiss",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.outline_state.api:api_dismiss_fusion_suggestions",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/scene-workbench/fusion/preview",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.outline_state.api:api_preview_scene_fusion",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/scene-workbench/fusion/preview-task",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.outline_state.api:api_preview_scene_fusion_task",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/scene-workbench/fusion/save",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.outline_state.api:api_save_scene_fusion",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/scene-workbench/merge",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.outline_state.api:api_merge_scene",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/scene-workbench/merge/preview",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.outline_state.api:api_preview_scene_merge",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/scene-workbench/replacement-suggestions/apply",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.outline_state.api:api_apply_replacement_suggestion",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/scene-workbench/review",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.outline_state.api:api_review_scene_workbench_items",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/scene-workbench/scenes/{scene_id}/mapping",
+      "methods": [
+        "PATCH"
+      ],
+      "entry": "modules.story.outline_state.api:api_update_scene_workbench_mapping",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/scene-workbench/source-mapping/review",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.outline_state.api:api_review_scene_source_mappings",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/scene-workbench/split",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.outline_state.api:api_split_scene",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/scene-workbench/split/preview",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.outline_state.api:api_preview_scene_split",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/scenes",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.outline_state.api:api_list_scenes",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/scenes",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.outline_state.api:api_create_scene",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/scenes/by-chapter",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.outline_state.api:api_list_scenes_by_chapter",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/scenes/ordered",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.outline_state.api:api_list_scenes_ordered",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/scenes/reorder",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.outline_state.api:api_reorder_scenes",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/scenes/split",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.outline_state.api:api_split_chapters",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/scenes/{scene_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "entry": "modules.story.outline_state.api:api_delete_scene",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/scenes/{scene_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.outline_state.api:api_get_scene",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/scenes/{scene_id}",
+      "methods": [
+        "PATCH"
+      ],
+      "entry": "modules.story.outline_state.api:api_update_scene",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/story-outline",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.outline_state.api:api_get_story_outline",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/story-outline/generate",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.outline_state.api:api_generate_story_outline",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/story-outline/generate/apply",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.outline_state.api:api_apply_generated_story_outline",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/story-outline/revisions",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.outline_state.api:api_list_story_outline_revisions",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/story-outline/revisions",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.outline_state.api:api_create_story_outline_revision",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/story-outline/revisions/{revision_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.outline_state.api:api_get_story_outline_revision",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/story-outline/revisions/{revision_id}/apply",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.outline_state.api:api_apply_story_outline_revision",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/threads",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.outline_state.api:api_list_threads",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/threads",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.outline_state.api:api_create_thread",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/threads/{thread_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "entry": "modules.story.outline_state.api:api_delete_thread",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/threads/{thread_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.outline_state.api:api_get_thread",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/outline/threads/{thread_id}",
+      "methods": [
+        "PATCH"
+      ],
+      "entry": "modules.story.outline_state.api:api_update_thread",
+      "source": "backend/modules/story/outline_state/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/character-cards",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.api:api_list_character_cards",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/character-cards",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.api:api_create_character_card",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/character-cards/{card_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.api:api_get_character_card",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/character-cards/{card_id}/restore",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.api:api_restore_character_card",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/character-cards/{card_id}/revisions",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.api:api_list_character_card_revisions",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/character-cards/{card_id}/revisions",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.api:api_create_character_card_revision",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/character-cards/{card_id}/revisions/{revision_id}/archive",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.api:api_archive_character_card_revision",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/scenes/{scene_id}/character-cards",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.api:api_scene_character_cards",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/scenes/{scene_id}/character-cards",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.api:api_scene_character_card_create",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/scenes/{scene_id}/character-cards/generate",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.api:api_scene_character_cards_generate",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/scenes/{scene_id}/character-cards/{card_id}/revisions",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.api:api_scene_character_card_revision",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/scenes/{scene_id}/reactions/generate",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.api:api_scene_reactions_generate",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/scenes/{scene_id}/script-files",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.api:api_list_scene_script_files",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/scenes/{scene_id}/script-files",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.api:api_create_scene_script_file",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/scenes/{scene_id}/script-revisions",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.api:api_create_scene_script_revision",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/scenes/{scene_id}/scripts",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.api:api_scene_scripts",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/scenes/{scene_id}/scripts",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.api:api_scene_script_file_create",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/scenes/{scene_id}/scripts/generate",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.api:api_scene_scripts_generate",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/scenes/{scene_id}/scripts/{file_id}/revisions",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.api:api_scene_script_revision_save",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/scenes/{scene_id}/scripts/{file_id}/revisions/{revision_id}/adopt",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.api:api_scene_script_revision_adopt",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/scenes/{scene_id}/simulate",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.api:api_scene_simulate",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/scenes/{scene_id}/story-context",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.api:api_get_story_scene_context",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/script-files/{file_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.api:api_get_scene_script_file",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/script-files/{file_id}/revisions",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.story.api:api_list_scene_script_revisions",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/script-files/{file_id}/revisions/{revision_id}/adopt",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.api:api_adopt_scene_script_revision",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/script-files/{file_id}/revisions/{revision_id}/archive",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.api:api_archive_scene_script_revision",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/script-files/{file_id}/unadopt",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.api:api_unadopt_scene_script_file",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/tasks/character-card",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.api:api_submit_character_card_task",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/tasks/one-click",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.api:api_submit_one_click_task",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/tasks/reaction",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.api:api_submit_reaction_task",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "story",
+      "path": "/api/story/tasks/script",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.story.api:api_submit_script_task",
+      "source": "backend/modules/story/api.py",
+      "authority_reference": "backend/modules/story/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/_test/entities/{entity_id}/text-archive",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:seed_entity_text_archive",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/adoption-packages",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:save_world_adoption_package",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/adoption-packages/{suggestion_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:get_world_adoption_artifact",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/adoption-packages/{suggestion_id}/apply",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:apply_world_adoption_package",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/adoption-packages/{suggestion_id}/preview",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:preview_world_adoption_package",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/alias-relations/extract",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:extract_alias_relations",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/aliases",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_aliases",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/aliases",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:create_alias",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/aliases/review-batch",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:review_aliases_batch",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/aliases/review-groups",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_alias_review_groups",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/ask-world",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:ask_world",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/ask-world/citations/open",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:open_ask_world_citation",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/ask-world/suggestions",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:save_ask_world_suggestion",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/categories",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_bible_categories",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/categories",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:create_bible_category",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/categories/{category_id}",
+      "methods": [
+        "PATCH"
+      ],
+      "entry": "modules.world.api:update_bible_category",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/drafts",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_bible_drafts",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/drafts",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:create_bible_draft",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/drafts/{draft_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "entry": "modules.world.api:discard_bible_draft",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/drafts/{draft_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:get_bible_draft",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/drafts/{draft_id}",
+      "methods": [
+        "PATCH"
+      ],
+      "entry": "modules.world.api:update_bible_draft",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/drafts/{draft_id}/apply-template",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:apply_bible_page_template",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/drafts/{draft_id}/publication",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:get_bible_draft_publication",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/drafts/{draft_id}/publish",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:publish_bible_draft",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/drafts/{draft_id}/publish-impact",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:preview_bible_draft_publish_impact",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/imports/preview",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:preview_worldbook_import",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/imports/{suggestion_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:get_worldbook_import_preview",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/imports/{suggestion_id}/apply",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:apply_worldbook_import",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/page-templates",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_bible_page_templates",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/page-templates",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:create_bible_page_template",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/page-templates/{template_id}",
+      "methods": [
+        "PATCH"
+      ],
+      "entry": "modules.world.api:update_bible_page_template",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/page-templates/{template_id}/revisions",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_bible_page_template_revisions",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/page-templates/{template_id}/revisions/{version_number}/restore-draft",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:restore_bible_page_template_revision",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/pages",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_bible_pages",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/pages",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:create_bible_page",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/pages/{page_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:get_bible_page",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/pages/{page_id}",
+      "methods": [
+        "PATCH"
+      ],
+      "entry": "modules.world.api:update_bible_page",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/pages/{page_id}/organize",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:organize_bible_page",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/pages/{page_id}/refresh-projection",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:refresh_bible_projection",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/pages/{page_id}/revisions",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_bible_page_revisions",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/pages/{page_id}/revisions/{version_number}/restore-draft",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:restore_bible_revision_to_draft",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/synopsis",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:get_bible_synopsis",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/synopsis/auto-refresh",
+      "methods": [
+        "PATCH"
+      ],
+      "entry": "modules.world.api:set_bible_synopsis_auto_refresh",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/synopsis/refresh",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:refresh_bible_synopsis",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/synopsis/revisions",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_bible_synopsis_revisions",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/synopsis/revisions/{revision_id}/restore",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:restore_bible_synopsis_revision",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/synopsis/unpin",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:unpin_bible_synopsis",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/templates",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_bible_templates",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/validation-policy",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:get_world_validation_policy_status",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/validation-policy/activate",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:activate_world_validation_policy",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/validation-policy/draft",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:save_world_validation_policy_draft",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/validation-runs",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_world_validation_runs",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/validation-runs",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:create_world_validation_run",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/validation-runs/latest",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:get_latest_world_validation_run",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/validation-runs/{run_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:get_world_validation_run",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/validation-runs/{run_id}/accept-warnings",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:accept_world_validation_warnings",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/validation-runs/{run_id}/continue",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:continue_world_validation_run",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/validation-runs/{run_id}/findings",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_world_validation_findings",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/validation-runs/{run_id}/review-items",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_world_validation_review_items",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/bible/validation-runs/{run_id}/review-items",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:create_world_validation_review_items",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/canon/admissions",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:admit_world_canon_change",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/canon/admissions/preview",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:preview_world_canon_admission",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/canon/head",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:get_world_canon_head",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/canon/revert",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:revert_world_canon",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/canon/revisions/{revision_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:get_world_canon_revision",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/characters",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_characters",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/characters",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:create_character",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/characters/{character_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "entry": "modules.world.api:delete_character",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/characters/{character_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:get_character",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/characters/{character_id}",
+      "methods": [
+        "PUT"
+      ],
+      "entry": "modules.world.api:update_character",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/characters/{character_id}/knowledge",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_knowledge",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/characters/{character_id}/knowledge",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:create_knowledge",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/characters/{character_id}/knowledge-tags/{tag_id}/exclude",
+      "methods": [
+        "DELETE"
+      ],
+      "entry": "modules.world.api:delete_character_knowledge_tag_exclusion",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/characters/{character_id}/knowledge-tags/{tag_id}/exclude",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:exclude_character_knowledge_tag",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/characters/{character_id}/knowledge-tags/{tag_id}/lock",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:lock_character_knowledge_tag",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/cocreation-sessions",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_world_cocreation_sessions",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/cocreation-sessions",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:create_world_cocreation_session",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/cocreation-sessions/{session_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:get_world_cocreation_session",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/cocreation-sessions/{session_id}",
+      "methods": [
+        "PATCH"
+      ],
+      "entry": "modules.world.api:update_world_cocreation_session",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/cocreation-sessions/{session_id}/chat",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:chat_world_cocreation_session",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/cocreation-sessions/{session_id}/checkpoint",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:advance_world_cocreation_checkpoint",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/cocreation-sessions/{session_id}/messages",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_world_cocreation_messages",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/cocreation-sessions/{session_id}/messages",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:append_world_cocreation_message",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/conflicts",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_world_conflicts",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/conflicts/{conflict_id}/resolve",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:resolve_world_conflict",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/core-checkpoints",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:save_world_core_checkpoint",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/design-checkpoints",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:save_world_design_checkpoint",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/entities",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_entities",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/entities",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:create_entity",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/entities/fusion-suggestions",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:create_entity_fusion_suggestions",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/entities/fusion-suggestions/apply",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:apply_entity_fusion_suggestions",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/entities/{candidate_id}/merge",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:merge_entity",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/entities/{candidate_id}/resolve-as-alias",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:resolve_entity_as_alias",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/entities/{entity_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "entry": "modules.world.api:delete_entity",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/entities/{entity_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:get_entity",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/entities/{entity_id}",
+      "methods": [
+        "PUT"
+      ],
+      "entry": "modules.world.api:update_entity",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/entities/{entity_id}/aliases",
+      "methods": [
+        "DELETE"
+      ],
+      "entry": "modules.world.api:delete_alias",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/entities/{entity_id}/aliases",
+      "methods": [
+        "PATCH"
+      ],
+      "entry": "modules.world.api:update_alias",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/entities/{entity_id}/aliases/edit",
+      "methods": [
+        "PATCH"
+      ],
+      "entry": "modules.world.api:edit_alias",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/entities/{entity_id}/image",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:get_entity_image",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/entities/{entity_id}/image",
+      "methods": [
+        "PUT"
+      ],
+      "entry": "modules.world.api:upload_entity_image",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/entities/{entity_id}/promote",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:promote_entity",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/entities/{entity_id}/relations",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:get_entity_relations",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/entities/{entity_id}/revisions",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_revisions",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/entities/{entity_id}/rollback",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:rollback_entity",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/entities/{entity_id}/rollback-by-revision",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:rollback_entity_by_revision",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/entity-batches",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_entity_batches",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/entity-types",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_entity_types",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/events",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_events",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/events",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:create_event",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/events/{entity_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "entry": "modules.world.api:delete_event",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/events/{entity_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:get_event",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/events/{entity_id}",
+      "methods": [
+        "PUT"
+      ],
+      "entry": "modules.world.api:update_event",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/generation-center/chat",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:chat_world_generation_center",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/generation-center/convergence",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:converge_world_generation_center",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/generation-center/exploration",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:explore_world_generation_center",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/generation-center/semantic-inspection",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:inspect_world_generation_center_page",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/generation-center/suggestions",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:generate_world_suggestion",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/generation-center/suggestions/task",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:enqueue_world_suggestion",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/generation-center/suggestions/{suggestion_id}/apply-page-draft",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:apply_world_generation_page_draft",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/generation-prompt-templates",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_generation_prompt_templates",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/generation-prompt-templates",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:create_generation_prompt_template",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/generation-prompt-templates/preview",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:preview_generation_prompt_template",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/generation-prompt-templates/validate",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:validate_generation_prompt_template",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/generation-prompt-templates/{template_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "entry": "modules.world.api:archive_generation_prompt_template",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/generation-prompt-templates/{template_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:get_generation_prompt_template",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/generation-prompt-templates/{template_id}",
+      "methods": [
+        "PUT"
+      ],
+      "entry": "modules.world.api:update_generation_prompt_template",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/generation-prompt-templates/{template_id}/copy",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:copy_builtin_generation_prompt_template",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/generation-prompt-templates/{template_id}/revisions",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_generation_prompt_template_revisions",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/impact-preview",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:preview_world_impact",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/knowledge-graph",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:get_world_knowledge_graph",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/knowledge/{knowledge_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "entry": "modules.world.api:delete_knowledge",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/knowledge/{knowledge_id}",
+      "methods": [
+        "PUT"
+      ],
+      "entry": "modules.world.api:update_knowledge",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/library",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_world_library",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/library/favorites",
+      "methods": [
+        "DELETE"
+      ],
+      "entry": "modules.world.api:remove_world_library_favorite",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/library/favorites",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:add_world_library_favorite",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/library/memberships",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:get_world_library_memberships",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/library/overview",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:get_world_library_overview",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/library/recents",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:record_world_library_recent",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/library/topics",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_world_library_topics",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/library/topics",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:create_world_library_topic",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/library/topics/reorder",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:reorder_world_library_topics",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/library/topics/{topic_id}",
+      "methods": [
+        "PATCH"
+      ],
+      "entry": "modules.world.api:update_world_library_topic",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/library/topics/{topic_id}/archive",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:archive_world_library_topic",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/library/topics/{topic_id}/members",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:add_world_library_topic_member",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/library/topics/{topic_id}/members/{target_kind}/{target_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "entry": "modules.world.api:remove_world_library_topic_member",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/library/topics/{topic_id}/move",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:move_world_library_topic",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/library/view-prefs",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:get_world_library_view_prefs",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/library/view-prefs",
+      "methods": [
+        "PUT"
+      ],
+      "entry": "modules.world.api:update_world_library_view_prefs",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/capabilities",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.map_atlas_api:get_map_capabilities",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/annotations/{annotation_id}",
+      "methods": [
+        "PATCH"
+      ],
+      "entry": "modules.world.map_atlas_api:update_annotation",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/atlas",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.map_atlas_api:get_atlas",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/map-links",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.map_atlas_api:get_map_links",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/nodes",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.map_atlas_api:create_map_node",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/nodes/{node_id}",
+      "methods": [
+        "PATCH"
+      ],
+      "entry": "modules.world.map_atlas_api:update_node",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/nodes/{node_id}/generate-structure",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.map_atlas_api:generate_map_structure",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/nodes/{node_id}/layout",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.map_atlas_api:preview_map_layout",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/nodes/{node_id}/map",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.map_atlas_api:get_node_map",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/nodes/{node_id}/reader-preview",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.map_atlas_api:preview_reader_map",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/nodes/{node_id}/reader-preview/images/{page_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.map_atlas_api:preview_reader_image",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/nodes/{node_id}/revisions",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.map_atlas_api:get_map_revisions",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/nodes/{node_id}/revisions",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.map_atlas_api:save_map_revision",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/nodes/{node_id}/revisions/{revision_id}/preview",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.map_atlas_api:preview_map_revision",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/nodes/{node_id}/revisions/{revision_id}/review",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.map_atlas_api:review_map_revision",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/nodes/{node_id}/revisions/{revision_id}/review-preview",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.map_atlas_api:preview_map_review",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/pages/history",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.map_atlas_api:get_page_history",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/pages/upload",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.map_atlas_api:upload_page",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/pages/{page_id}/adopt",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.map_atlas_api:adopt_page",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/pages/{page_id}/archive",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.map_atlas_api:archive_page",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/pages/{page_id}/edit",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.map_atlas_api:edit_page",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/pages/{page_id}/image",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.map_atlas_api:read_page_image",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/pages/{page_id}/prompt",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.map_atlas_api:get_page_prompt",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/pages/{page_id}/prompt",
+      "methods": [
+        "PATCH"
+      ],
+      "entry": "modules.world.map_atlas_api:update_page_prompt",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/pages/{page_id}/regenerate",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.map_atlas_api:regenerate_page",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/pages/{page_id}/reject",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.map_atlas_api:reject_page",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/pages/{page_id}/restore",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.map_atlas_api:restore_page",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/pages/{page_id}/retry",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.map_atlas_api:retry_page",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/runs",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.map_atlas_api:create_run",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/runs/latest",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.map_atlas_api:get_latest_run",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/runs/{run_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.map_atlas_api:get_run",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/runs/{run_id}/confirm-prompts",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.map_atlas_api:confirm_prompts",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/runs/{run_id}/results",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.map_atlas_api:get_run_results",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/runs/{run_id}/resume",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.map_atlas_api:resume_run",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/map-atlas/{novel_id}/runs/{run_id}/stop",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.map_atlas_api:stop_run",
+      "source": "backend/modules/world/map_atlas_api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/profiles",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_world_profiles",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/profiles/{entity_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:get_world_profile",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/profiles/{entity_id}",
+      "methods": [
+        "PUT"
+      ],
+      "entry": "modules.world.api:upsert_world_profile",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/profiles/{entity_id}/migrate-generic",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:migrate_generic_profile",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/relations",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_relations",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/relations",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:create_relation",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/relations/review-batch",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:review_relations_batch",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/relations/review-groups",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_relation_review_groups",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/relations/{rel_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "entry": "modules.world.api:delete_relation",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/relations/{rel_id}",
+      "methods": [
+        "PUT"
+      ],
+      "entry": "modules.world.api:update_relation",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/relations/{rel_id}/review-edit",
+      "methods": [
+        "PATCH"
+      ],
+      "entry": "modules.world.api:review_edit_relation",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/review-type-catalog",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:get_review_type_catalog",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/suggestions",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.world.api:list_world_suggestions",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/suggestions/{suggestion_id}/confirm",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:confirm_world_suggestion",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/suggestions/{suggestion_id}/edit-confirm",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:edit_and_confirm_world_suggestion",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/suggestions/{suggestion_id}/merge",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:merge_world_suggestion",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/suggestions/{suggestion_id}/reject",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:reject_world_suggestion",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "world",
+      "path": "/api/world/suggestions/{suggestion_id}/resolve-as-alias",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.world.api:resolve_world_suggestion_as_alias",
+      "source": "backend/modules/world/api.py",
+      "authority_reference": "backend/modules/world/README.md"
+    },
+    {
+      "owner": "writing",
+      "path": "/api/writing/chapters",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.writing.api:list_chapters",
+      "source": "backend/modules/writing/api.py",
+      "authority_reference": "backend/modules/writing/README.md"
+    },
+    {
+      "owner": "writing",
+      "path": "/api/writing/chapters/{chapter_index}",
+      "methods": [
+        "DELETE"
+      ],
+      "entry": "modules.writing.api:delete_chapter",
+      "source": "backend/modules/writing/api.py",
+      "authority_reference": "backend/modules/writing/README.md"
+    },
+    {
+      "owner": "writing",
+      "path": "/api/writing/chapters/{chapter_index}/draft",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.writing.api:get_latest_chapter_draft",
+      "source": "backend/modules/writing/api.py",
+      "authority_reference": "backend/modules/writing/README.md"
+    },
+    {
+      "owner": "writing",
+      "path": "/api/writing/chapters/{chapter_index}/versions",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.writing.api:get_chapter_version_history",
+      "source": "backend/modules/writing/api.py",
+      "authority_reference": "backend/modules/writing/README.md"
+    },
+    {
+      "owner": "writing",
+      "path": "/api/writing/conflict-check-items/{item_id}",
+      "methods": [
+        "PATCH"
+      ],
+      "entry": "modules.writing.api:update_conflict_item",
+      "source": "backend/modules/writing/api.py",
+      "authority_reference": "backend/modules/writing/README.md"
+    },
+    {
+      "owner": "writing",
+      "path": "/api/writing/conflict-check-items/{item_id}/ai-suggestion",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.writing.api:create_conflict_item_ai_suggestion",
+      "source": "backend/modules/writing/api.py",
+      "authority_reference": "backend/modules/writing/README.md"
+    },
+    {
+      "owner": "writing",
+      "path": "/api/writing/conflict-check-items/{item_id}/ai-suggestion-task",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.writing.api:enqueue_conflict_item_ai_suggestion",
+      "source": "backend/modules/writing/api.py",
+      "authority_reference": "backend/modules/writing/README.md"
+    },
+    {
+      "owner": "writing",
+      "path": "/api/writing/conflict-checks",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.writing.api:list_conflict_checks",
+      "source": "backend/modules/writing/api.py",
+      "authority_reference": "backend/modules/writing/README.md"
+    },
+    {
+      "owner": "writing",
+      "path": "/api/writing/conflict-checks",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.writing.api:create_conflict_check",
+      "source": "backend/modules/writing/api.py",
+      "authority_reference": "backend/modules/writing/README.md"
+    },
+    {
+      "owner": "writing",
+      "path": "/api/writing/conflict-checks/{check_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.writing.api:get_conflict_check",
+      "source": "backend/modules/writing/api.py",
+      "authority_reference": "backend/modules/writing/README.md"
+    },
+    {
+      "owner": "writing",
+      "path": "/api/writing/conflict-checks/{check_id}/ai-review",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.writing.api:run_conflict_check_ai_review",
+      "source": "backend/modules/writing/api.py",
+      "authority_reference": "backend/modules/writing/README.md"
+    },
+    {
+      "owner": "writing",
+      "path": "/api/writing/conflict-checks/{check_id}/ai-review-task",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.writing.api:enqueue_conflict_check_ai_review",
+      "source": "backend/modules/writing/api.py",
+      "authority_reference": "backend/modules/writing/README.md"
+    },
+    {
+      "owner": "writing",
+      "path": "/api/writing/drafts",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.writing.api:create_draft",
+      "source": "backend/modules/writing/api.py",
+      "authority_reference": "backend/modules/writing/README.md"
+    },
+    {
+      "owner": "writing",
+      "path": "/api/writing/drafts/autosave",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.writing.api:create_autosaved_draft",
+      "source": "backend/modules/writing/api.py",
+      "authority_reference": "backend/modules/writing/README.md"
+    },
+    {
+      "owner": "writing",
+      "path": "/api/writing/drafts/{draft_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "entry": "modules.writing.api:delete_draft",
+      "source": "backend/modules/writing/api.py",
+      "authority_reference": "backend/modules/writing/README.md"
+    },
+    {
+      "owner": "writing",
+      "path": "/api/writing/drafts/{draft_id}",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.writing.api:get_draft",
+      "source": "backend/modules/writing/api.py",
+      "authority_reference": "backend/modules/writing/README.md"
+    },
+    {
+      "owner": "writing",
+      "path": "/api/writing/drafts/{draft_id}",
+      "methods": [
+        "PUT"
+      ],
+      "entry": "modules.writing.api:update_draft",
+      "source": "backend/modules/writing/api.py",
+      "authority_reference": "backend/modules/writing/README.md"
+    },
+    {
+      "owner": "writing",
+      "path": "/api/writing/drafts/{draft_id}/adopt",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.writing.api:adopt_candidate_to_working",
+      "source": "backend/modules/writing/api.py",
+      "authority_reference": "backend/modules/writing/README.md"
+    },
+    {
+      "owner": "writing",
+      "path": "/api/writing/drafts/{draft_id}/checkpoint",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.writing.api:checkpoint_draft",
+      "source": "backend/modules/writing/api.py",
+      "authority_reference": "backend/modules/writing/README.md"
+    },
+    {
+      "owner": "writing",
+      "path": "/api/writing/drafts/{draft_id}/discard",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.writing.api:discard_draft",
+      "source": "backend/modules/writing/api.py",
+      "authority_reference": "backend/modules/writing/README.md"
+    },
+    {
+      "owner": "writing",
+      "path": "/api/writing/drafts/{draft_id}/regeneration-context",
+      "methods": [
+        "GET"
+      ],
+      "entry": "modules.writing.api:get_regeneration_context",
+      "source": "backend/modules/writing/api.py",
+      "authority_reference": "backend/modules/writing/README.md"
+    },
+    {
+      "owner": "writing",
+      "path": "/api/writing/generate",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.writing.api:generate_writing_candidate",
+      "source": "backend/modules/writing/api.py",
+      "authority_reference": "backend/modules/writing/README.md"
+    },
+    {
+      "owner": "writing",
+      "path": "/api/writing/semantic-reviews",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.writing.api:enqueue_semantic_review",
+      "source": "backend/modules/writing/api.py",
+      "authority_reference": "backend/modules/writing/README.md"
+    },
+    {
+      "owner": "writing",
+      "path": "/api/writing/targeted-revisions",
+      "methods": [
+        "POST"
+      ],
+      "entry": "modules.writing.api:enqueue_targeted_revision",
+      "source": "backend/modules/writing/api.py",
+      "authority_reference": "backend/modules/writing/README.md"
+    }
+  ],
+  "orm_tables": [
+    "account_consents",
+    "account_identities",
+    "account_llm_credentials",
+    "account_security_events",
+    "accounts",
+    "asset_knowledge_tags",
+    "assistant_action_batches",
+    "assistant_notices",
+    "assistant_runs",
+    "assistant_watches",
+    "async_tasks",
+    "character_knowledge",
+    "character_knowledge_tags",
+    "characters",
+    "conflict_check_queue",
+    "context_activation_profile_revisions",
+    "context_activation_profiles",
+    "context_confirmation_asset_refs",
+    "context_confirmations",
+    "context_retrieval_traces",
+    "context_snapshots",
+    "core_entities",
+    "creation_suggestion_queue",
+    "delta_log",
+    "email_login_challenges",
+    "entity_profile_template_revisions",
+    "entity_profile_templates",
+    "entity_relations",
+    "entity_revisions",
+    "events",
+    "evidence_links",
+    "faction_profiles",
+    "foreshadowing_plans",
+    "generation_prompt_template_revisions",
+    "generation_prompt_templates",
+    "generic_entity_profiles",
+    "global_author_preferences",
+    "global_llm_defaults",
+    "import_records",
+    "import_workflow_runs",
+    "imported_chapters",
+    "interaction_account_preferences",
+    "interaction_branch_selections",
+    "interaction_generation_attempts",
+    "interaction_journeys",
+    "interaction_message_nodes",
+    "interaction_overview_revisions",
+    "interaction_source_revisions",
+    "interaction_summary_segments",
+    "item_profiles",
+    "knowledge_tag_exclusions",
+    "knowledge_tags",
+    "knowledge_visibility_policies",
+    "location_profiles",
+    "map_atlas_annotations",
+    "map_atlas_nodes",
+    "map_atlas_pages",
+    "map_atlas_revisions",
+    "map_atlas_runs",
+    "memory_events",
+    "memory_scene_checkpoints",
+    "memory_scene_snapshots",
+    "memory_snapshots",
+    "outline_arcs",
+    "plot_threads",
+    "project_author_preferences",
+    "project_author_tasks",
+    "projects",
+    "rag_chunks",
+    "rag_entity_appearances",
+    "rag_index_state",
+    "reader_reveal_policies",
+    "reveal_plans",
+    "rule_profiles",
+    "scene_chapter_links",
+    "scene_fusion_suggestions",
+    "scene_spans",
+    "scene_summary_checkpoints",
+    "scenes",
+    "secret_profiles",
+    "smart_dedup_workbench_decisions",
+    "species_profiles",
+    "story_character_card_revisions",
+    "story_character_cards",
+    "story_outline_heads",
+    "story_outline_revisions",
+    "story_scene_script_files",
+    "story_scene_script_revisions",
+    "text_archive",
+    "web_sessions",
+    "world_assertions",
+    "world_bible_categories",
+    "world_bible_page_drafts",
+    "world_bible_page_projections",
+    "world_bible_page_revisions",
+    "world_bible_page_template_revisions",
+    "world_bible_page_templates",
+    "world_bible_pages",
+    "world_bible_synopsis_heads",
+    "world_bible_synopsis_revisions",
+    "world_canon_heads",
+    "world_canon_revisions",
+    "world_cocreation_messages",
+    "world_cocreation_sessions",
+    "world_library_favorites",
+    "world_library_recents",
+    "world_library_topic_members",
+    "world_library_topics",
+    "world_library_workspace_profiles",
+    "world_validation_review_items",
+    "world_validation_runs",
+    "writing_conflict_checks",
+    "writing_conflict_items",
+    "writing_drafts"
+  ],
+  "orm_owners": {
+    "account_consents": "account",
+    "account_identities": "account",
+    "account_llm_credentials": "account",
+    "account_security_events": "account",
+    "accounts": "account",
+    "asset_knowledge_tags": "world",
+    "assistant_action_batches": "assistant",
+    "assistant_notices": "assistant",
+    "assistant_runs": "assistant",
+    "assistant_watches": "assistant",
+    "async_tasks": "infrastructure",
+    "character_knowledge": "world",
+    "character_knowledge_tags": "world",
+    "characters": "world",
+    "conflict_check_queue": "world",
+    "context_activation_profile_revisions": "evidence",
+    "context_activation_profiles": "evidence",
+    "context_confirmation_asset_refs": "evidence",
+    "context_confirmations": "evidence",
+    "context_retrieval_traces": "evidence",
+    "context_snapshots": "evidence",
+    "core_entities": "world",
+    "creation_suggestion_queue": "world",
+    "delta_log": "story",
+    "email_login_challenges": "account",
+    "entity_profile_template_revisions": "world",
+    "entity_profile_templates": "world",
+    "entity_relations": "world",
+    "entity_revisions": "world",
+    "events": "world",
+    "evidence_links": "evidence",
+    "faction_profiles": "world",
+    "foreshadowing_plans": "story",
+    "generation_prompt_template_revisions": "world",
+    "generation_prompt_templates": "world",
+    "generic_entity_profiles": "world",
+    "global_author_preferences": "account",
+    "global_llm_defaults": "account",
+    "import_records": "imports",
+    "import_workflow_runs": "imports",
+    "imported_chapters": "imports",
+    "interaction_account_preferences": "interaction",
+    "interaction_branch_selections": "interaction",
+    "interaction_generation_attempts": "interaction",
+    "interaction_journeys": "interaction",
+    "interaction_message_nodes": "interaction",
+    "interaction_overview_revisions": "interaction",
+    "interaction_source_revisions": "interaction",
+    "interaction_summary_segments": "interaction",
+    "item_profiles": "world",
+    "knowledge_tag_exclusions": "world",
+    "knowledge_tags": "world",
+    "knowledge_visibility_policies": "world",
+    "location_profiles": "world",
+    "map_atlas_annotations": "world",
+    "map_atlas_nodes": "world",
+    "map_atlas_pages": "world",
+    "map_atlas_revisions": "world",
+    "map_atlas_runs": "world",
+    "memory_events": "story",
+    "memory_scene_checkpoints": "story",
+    "memory_scene_snapshots": "story",
+    "memory_snapshots": "story",
+    "outline_arcs": "story",
+    "plot_threads": "story",
+    "project_author_preferences": "project",
+    "project_author_tasks": "project",
+    "projects": "project",
+    "rag_chunks": "evidence",
+    "rag_entity_appearances": "evidence",
+    "rag_index_state": "evidence",
+    "reader_reveal_policies": "world",
+    "reveal_plans": "story",
+    "rule_profiles": "world",
+    "scene_chapter_links": "story",
+    "scene_fusion_suggestions": "story",
+    "scene_spans": "story",
+    "scene_summary_checkpoints": "story",
+    "scenes": "story",
+    "secret_profiles": "world",
+    "smart_dedup_workbench_decisions": "project",
+    "species_profiles": "world",
+    "story_character_card_revisions": "story",
+    "story_character_cards": "story",
+    "story_outline_heads": "story",
+    "story_outline_revisions": "story",
+    "story_scene_script_files": "story",
+    "story_scene_script_revisions": "story",
+    "text_archive": "world",
+    "web_sessions": "account",
+    "world_assertions": "world",
+    "world_bible_categories": "world",
+    "world_bible_page_drafts": "world",
+    "world_bible_page_projections": "world",
+    "world_bible_page_revisions": "world",
+    "world_bible_page_template_revisions": "world",
+    "world_bible_page_templates": "world",
+    "world_bible_pages": "world",
+    "world_bible_synopsis_heads": "world",
+    "world_bible_synopsis_revisions": "world",
+    "world_canon_heads": "world",
+    "world_canon_revisions": "world",
+    "world_cocreation_messages": "assistant",
+    "world_cocreation_sessions": "assistant",
+    "world_library_favorites": "world",
+    "world_library_recents": "world",
+    "world_library_topic_members": "world",
+    "world_library_topics": "world",
+    "world_library_workspace_profiles": "world",
+    "world_validation_review_items": "world",
+    "world_validation_runs": "world",
+    "writing_conflict_checks": "writing",
+    "writing_conflict_items": "writing",
+    "writing_drafts": "writing"
+  }
+}

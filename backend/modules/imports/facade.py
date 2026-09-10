@@ -27,6 +27,29 @@ _orchestrator = DeepImportOrchestrator()
 _source_updates = SourceUpdateService()
 
 
+async def get_active_organization(db, novel_id: str) -> dict | None:
+    """Read the stable organization owner, without checkpoints or credentials."""
+    from modules.imports.workflow_runs import ImportWorkflowRunService
+
+    run = await ImportWorkflowRunService().get_active_for_novel(db, novel_id=novel_id)
+    if run is None:
+        return None
+    return {
+        "id": str(run.id),
+        "task_id": str(run.task_id),
+        "status": run.status,
+        "recovery_required": run.recovery_required,
+        "start_chapter": run.start_chapter,
+        "end_chapter": run.end_chapter,
+    }
+
+
+async def inspect_organization_status(db, novel_id, task_id=None):
+    from modules.imports.assistant_tools import read_organization_status
+
+    return await read_organization_status(db, novel_id, task_id)
+
+
 async def import_file(
     db: AsyncSession,
     novel_id: str,

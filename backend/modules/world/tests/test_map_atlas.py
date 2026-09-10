@@ -1156,7 +1156,7 @@ async def test_create_run_reuses_partial_run_with_recoverable_page(
             autospec=True,
         ) as enqueue,
     ):
-        result = await MapAtlasService().create_run(
+        result = await MapAtlasService(storage=SimpleNamespace()).create_run(
             db_session, test_project_id, MapAtlasRunCreate()
         )
 
@@ -1195,7 +1195,7 @@ async def test_create_run_allows_new_run_after_ordinary_partial(
             return_value=SimpleNamespace(task_id=task_id),
         ),
     ):
-        result = await MapAtlasService().create_run(
+        result = await MapAtlasService(storage=SimpleNamespace()).create_run(
             db_session, test_project_id, MapAtlasRunCreate()
         )
 

@@ -72,3 +72,14 @@ Scene 融合的请求 Scene 集合还必须与 confirmation 中的 pinned Scene 
 按故事线 `related_entity_ids` 返回声明依赖这些对象的 PlotThreadContract，供 World 模块的影响
 预演枚举"故事结构"层来源。该接口不写任何 Story 状态，也不扩大生成上下文；Story 域内行为
 不变。
+
+## 项目助手与结构变化
+
+ADR-0023 注册 Story 自有的版本化总纲、场景规划、人物卡和剧本操作；确认后调用原服务，
+保留 provenance 与采用头。story_reference_review 只检查现有引用/basis失效，
+不替代因果、人物或正文语义审稿。专业工作台继续拥有复杂调整与恢复体验。
+
+
+信息计划编辑经原服务和版本预检。新剧本 basis v2 纳入章节/Scene/关联剧情线重叠的信息计划；
+既有 v1 按原算法回验，新增 hash 字段不会使旧剧本自动失效。开放结尾的剧情线从已知起点延续。
+结构采用/退役/移动保存旧受影响 Scene，再合并新范围到同事务待检标记，结果注明实际检查上限。

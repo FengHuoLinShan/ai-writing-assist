@@ -4,6 +4,13 @@
   组件根负责子标签分派、进度/结果区与场景工作台的所有权切换。
 -->
 <template>
+  <section v-if="linkedTaskReceipt && !linkedTaskReceipt.preview" aria-label="结构成果" class="outline-task-status">
+    <p :role="linkedTaskReceipt.error ? 'alert' : 'status'">{{ linkedTaskReceipt.message }}</p>
+    <OutlineGenerateProgressCard v-if="!linkedTaskReceipt.applied && !linkedTaskReceipt.error" />
+    <button v-if="linkedTaskReceipt.error" type="button" class="btn btn-sm" @click="getRouter().refresh()">重新读取</button>
+    <button v-for="(reference, index) in linkedTaskReceipt.refs || []" :key="`${reference.type}:${reference.id}`" type="button" class="btn btn-sm" @click="locateAssistantSource(reference)">查看第 {{ index + 1 }} 项成果</button>
+  </section>
+  <template v-if="!linkedTaskReceipt || linkedTaskReceipt.preview">
   <template v-if="subView === 'scenes'">
     <OutlineHeader v-if="outlineGenerateReview" :sub-view="subView" :review-mode="true" />
     <SceneWorkbenchView
@@ -52,6 +59,7 @@
     :entities="entities"
     :load-error="loadError"
     :asset-load-error="assetLoadError"
+    :initial-revision-id="initialRevisionId"
   />
   <OutlineThreadPreviewPage
     v-else-if="subView === 'threads' && outlineGenerateReview"
@@ -73,7 +81,9 @@
     :unassigned-foreshadowing="unassignedForeshadowing"
     :unassigned-reveals="unassignedReveals"
     :information-focus="informationFocus"
+    :focused-information-id="focusedInformationId"
     :filters="structureFilters"
+    :focused-asset="focusedAsset"
   />
   <OutlineArcsTab
     v-else-if="subView === 'arcs'"
@@ -83,11 +93,15 @@
     :arcs-total="structureTotals.arcs"
     :arcs-load-error="structureLoadErrors.arcs || null"
     :filters="structureFilters"
+    :focused-asset="focusedAsset"
   />
+  </template>
 </template>
 
 <script setup>
 import { computed, defineAsyncComponent, onMounted } from "vue"
+import { locateAssistantSource } from "../../shared/assistantNavigation.js"
+import { getRouter } from "../../bridge/index.js"
 import OutlineHeader from "./components/OutlineHeader.vue"
 import OutlineAnalysisProgressCard from "./ai/OutlineAnalysisProgressCard.vue"
 import OutlineGenerateProgressCard from "./ai/OutlineGenerateProgressCard.vue"
@@ -121,6 +135,8 @@ defineProps({
   editorMode: { type: Boolean, default: false },
   structureFilters: { type: Object, default: () => ({}) },
   outlineGenerateReview: { type: Boolean, default: false },
+  linkedTaskReceipt: { type: Object, default: null },
+  initialRevisionId: { type: String, default: null },
   // story-outline 分支（storyOutlineData.loadStoryOutlineProps）
   current: { type: Object, default: null },
   history: { type: Array, default: () => [] },
@@ -130,6 +146,7 @@ defineProps({
   loadError: { type: String, default: null },
   assetLoadError: { type: String, default: null },
   // 结构分支（logic/outlineStructure.loadStructureProps）
+  focusedAsset: { type: Object, default: null },
   threads: { type: Array, default: () => [] },
   arcs: { type: Array, default: () => [] },
   foreshadowing: { type: Array, default: () => [] },
@@ -137,6 +154,7 @@ defineProps({
   unassignedForeshadowing: { type: Array, default: () => [] },
   unassignedReveals: { type: Array, default: () => [] },
   informationFocus: { type: String, default: null },
+  focusedInformationId: { type: String, default: null },
   structureTotals: { type: Object, default: () => ({ threads: 0, arcs: 0, foreshadowing: 0, reveals: 0 }) },
   structureLoadErrors: { type: Object, default: () => ({}) },
   // scenes 分支（sceneModel.loadSceneWorkbenchProps）

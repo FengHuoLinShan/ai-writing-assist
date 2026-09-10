@@ -26,7 +26,7 @@
       :warning="world.warning" :templates="templates" :activation-profiles="activationProfiles" :categories="world.categories" :page-templates="world.pageTemplates" :pages="world.pages"
       :scenes="world.scenes" :threads="world.threads" :characters="world.characters" :entities="world.entities" :result="worldResult" :previous-result="previousWorldResult" :proposal-draft="session.pageProposalDraft" :proposal-reset-token="pageProposalEditorResetToken" :recovered-page-proposal="recoveredPageProposal"
       :chat-context-usage="chatContextUsage" :entity-context-usage="entityContextUsage" :convergence-draft="session.convergenceDraft" :convergence-pending="convergencePending" :visual-brief="session.visualBrief" :external-packets="session.externalPackets" :exploration-draft="explorationDraft" :exploration-pending="explorationPending" :exploration-selection="explorationSelection" :source-revision-result="sourceRevisionResult" :busy="worldBusy" :chat-pending="chatPending" :loading-result="suggestionPending" :result-error="worldError"
-      :world-core="isWorldCore" :successful-rounds="session.successfulRounds" :checkpoint-round="session.checkpointRound" :checkpoint-pending="checkpointPending" :checkpoint-saved="Boolean(session.checkpointId)" :session-title="session.serverSessionTitle" :session-server-bound="Boolean(session.serverSessionId)"
+      :assistant-enabled="assistantEnabled" @open-assistant="openUnifiedDiscussion()" :world-core="isWorldCore" :successful-rounds="session.successfulRounds" :checkpoint-round="session.checkpointRound" :checkpoint-pending="checkpointPending" :checkpoint-saved="Boolean(session.checkpointId)" :session-title="session.serverSessionTitle" :session-server-bound="Boolean(session.serverSessionId)"
       v-model:selected-template-id="session.selectedTemplateId" v-model:messages="session.messages" v-model:composer="composer"
       v-model:external-packet-draft="session.externalPacketDraft"
       v-model:quality-mode="session.qualityMode" v-model:include-world-synopsis="session.includeWorldSynopsis" v-model:activation-profile-id="session.activationProfileId"
@@ -55,6 +55,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue"
+import { getAssistantWorkContext, openProjectAssistant, onProjectAssistantChanged } from "../../bridge/index.js"
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
 import { getApi, getAppState, getCloseModal, getConfirm, getEsc, getRouteQuery, getRouter, getShowModalHtml, getToast } from "../../bridge/index.js"
 import { confirmAiReference } from "../../../shared/aiReferenceModal.js"
@@ -93,6 +94,7 @@ import {
 const props = defineProps({
   projectId: { type: String, default: null }, tab: { type: String, default: "world" }, preset: { type: String, default: "custom" },
   embedded: { type: Boolean, default: false },
+  onAssistantHandoff: { type: Function, default: null },
   handoffSessionKey: { type: String, default: null },
   sourcePageId: { type: String, default: null }, targetKind: { type: String, default: "core_entity" }, sessionKey: { type: String, required: true },
   initialSession: { type: Object, required: true }, templates: { type: Array, default: () => [] }, activationProfiles: { type: Array, default: () => [] },
@@ -228,9 +230,10 @@ async function ensureServerSession() {
 }
 async function refreshServerSessionMessages() {
   if (!session.serverSessionId || !api.world?.listCocreationMessages) return false
+  const requestedSession = session.serverSessionId, requestedProject = props.projectId
   try {
-    const data = await api.world.listCocreationMessages(session.serverSessionId, props.projectId, { limit: 40 })
-    if (!owner.isDisposed()) {
+    const data = await api.world.listCocreationMessages(requestedSession, requestedProject, { limit: 40 })
+    if (!owner.isDisposed() && session.serverSessionId === requestedSession && props.projectId === requestedProject) {
       const localTransient = session.messages.filter((item) => item.pending || item.error || item.interrupted)
       session.messages = [...serverMessagesToLocal(data?.items || []), ...localTransient]
       persist()
@@ -239,6 +242,17 @@ async function refreshServerSessionMessages() {
   } catch {
     return false
   }
+}
+async function openUnifiedDiscussion(message = "") {
+  try {
+    const sessionId = await ensureServerSession()
+    await openProjectAssistant({ projectId: props.projectId, sessionId, message,
+      context: getAssistantWorkContext(props.projectId, "generate") })
+    if (message && composer.value === message) { composer.value = ""; persist() }
+    if (!persist()) throw new Error("本页内容暂时无法备份，请先保留输入再切换。")
+    await props.onAssistantHandoff?.()
+    return true
+  } catch (error) { toast(error.message || "讨论暂时无法打开，内容仍保留。", "error"); return false }
 }
 watch(session, persist, { deep: true })
 watch(composer, () => { if (persist()) rememberGenerateContinuation() })
@@ -465,7 +479,17 @@ async function requestChatReply(pending) {
   chatPending.value = true
   await worldWorkspaceRef.value?.scrollToLatest?.(true)
   try {
+    if (pending.assistantRun) {
+      await openProjectAssistant({ projectId: props.projectId, sessionId: pending.assistantRun.session_id })
+      pending.pending = false; pending.error = false
+      if (!persist()) throw new Error("本页内容暂时无法备份，请先保留输入再切换。")
+      await props.onAssistantHandoff?.()
+      return
+    }
     const payload = await confirmWorldPayload(currentWorldPayload(), "world.generation.chat", "世界设定共创对话")
+    pending.operationId ||= createOperationId()
+    payload.operation_id = pending.operationId
+    persist()
     const action = pendingChatAction
     let sessionId = null
     try { sessionId = await ensureServerSession() } catch { /* 服务端会话暂不可用：本地回复继续，不阻塞作者 */ }
@@ -473,6 +497,17 @@ async function requestChatReply(pending) {
       ? await api.world.cocreationChat(sessionId, { ...payload, ...(action ? { session_action: action } : {}) }, { signal: scope.controller.signal })
       : await api.generate.worldChat(payload, { signal: scope.controller.signal })
     if (!owner.isActive(scope)) return
+    if (response?.task_id && response?.session_id) {
+      session.serverSessionId = response.session_id
+      pending.assistantRun = response
+      pending.content = "这轮讨论已交由项目助手处理，可在切页后继续查看。"
+      pending.pending = false
+      persist()
+      await openProjectAssistant({ projectId: props.projectId, sessionId: response.session_id })
+      if (!persist()) throw new Error("本页内容暂时无法备份，请先保留输入再切换。")
+      await props.onAssistantHandoff?.()
+      return
+    }
     chatContextUsage.value = response?.context_usage || null
     if (action) {
       const authorMessage = session.messages[session.messages.indexOf(pending) - 1]
@@ -675,6 +710,7 @@ function prefillWorldCore(action) {
   session.worldCoreAction = action
   pendingChatAction = action
   composer.value = WORLD_CORE_ACTIONS[action]
+  if (assistantEnabled.value) void openUnifiedDiscussion(composer.value)
   return true
 }
 async function saveWorldCoreCheckpoint() {
@@ -1351,5 +1387,16 @@ const recoveredPovTask = recoverActiveWorkflows(props.projectId, receiptStorage)
 if (recoveredPovTask) void recoverPovTask(recoveredPovTask)
 if (activeTab.value === "pov_prose" && povForm.value.chapterIndex) void changePovChapter(povForm.value.chapterIndex, { preserveSelection: true })
 
-onBeforeUnmount(() => { clearChatStages(); disarmBeforeUnload(); persist(); worldTaskPoller?.stop(); owner.dispose(); if (ownsModal(ownedModal)) closeModal() })
+const assistantEnabled = ref(false)
+let assistantProbe = 0
+watch(() => props.projectId, async projectId => {
+  const probe = ++assistantProbe
+  assistantEnabled.value = false
+  if (!api.assistant?.capabilities) return
+  try { const value = await api.assistant.capabilities(projectId); if (probe === assistantProbe && !owner.isDisposed()) assistantEnabled.value = Boolean(value.enabled) } catch { /* Older servers keep the legacy entry. */ }
+}, { immediate: true })
+const unsubscribeAssistant = onProjectAssistantChanged(value => {
+  if (value.projectId === props.projectId && value.sessionId === session.serverSessionId) void refreshServerSessionMessages()
+})
+onBeforeUnmount(() => { assistantProbe += 1; unsubscribeAssistant(); clearChatStages(); disarmBeforeUnload(); persist(); worldTaskPoller?.stop(); owner.dispose(); if (ownsModal(ownedModal)) closeModal() })
 </script>

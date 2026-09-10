@@ -733,6 +733,7 @@ from modules.account.oidc import (  # noqa: E402
     reauth_router as account_oidc_reauth_router,
 )
 from modules.account.oidc import router as account_oidc_router  # noqa: E402
+from modules.assistant import api as assistant_api  # noqa: E402
 from modules.evidence import api as evidence_api  # noqa: E402
 
 # geo/review — 已从 minimal-core 移除
@@ -750,6 +751,7 @@ from modules.world import api as world_api  # noqa: E402
 from modules.world import map_atlas_api as world_map_atlas_api  # noqa: E402
 from modules.writing import api as writing_api  # noqa: E402
 
+app.include_router(assistant_api.router)
 app.include_router(project_router)
 app.include_router(account_auth_router)
 app.include_router(account_router)

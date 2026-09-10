@@ -76,6 +76,7 @@ from modules.writing.schemas import (
     WritingDraftResponse,
     WritingDraftUpdate,
     WritingPublishRequest,
+    WritingRegenerationContext,
     project_writing_draft_state,
 )
 from modules.writing.source_hashing import has_substantive_change, hash_text
@@ -203,6 +204,65 @@ class WritingDraftService:
         repo: WritingDraftRepository | None = None,
     ) -> None:
         self._repo = repo or WritingDraftRepository()
+
+    async def regeneration_context(
+        self, db: AsyncSession, draft_id: str, novel_id: str
+    ) -> WritingRegenerationContext:
+        from modules.evidence.facade import require_confirmation
+        from modules.writing.semantic_review import _candidate_confirmation_id
+
+        draft = await self.get_draft(db, draft_id, novel_id)
+        if draft.status != "candidate":
+            raise ValidationError("请先打开待处理正文建议")
+        provenance = draft.provenance_json or {}
+        confirmation_id = _candidate_confirmation_id(provenance)
+        original = None
+        if confirmation_id:
+            try:
+                # Only read the original selection. This never freshens or rebinds it.
+                original = await require_confirmation(
+                    db,
+                    novel_id=novel_id,
+                    action="writing.generate",
+                    confirmation_id=confirmation_id,
+                )
+            except (NotFoundError, ValidationError, ValueError):
+                pass
+        options: dict[str, Any] = {
+            "scope": "chapter",
+            "chapter_index": draft.chapter_index,
+            "reveal_mode": "author_safe",
+            "include_pending_objects": False,
+        }
+        if original:
+            options.update(deepcopy(original.compile_options))
+            options.update(
+                scope=original.scope,
+                context_mode=original.context_mode,
+                include_pending_objects=original.include_pending_objects,
+                excluded_asset_ids=deepcopy(original.excluded_asset_ids),
+                user_note=original.user_note,
+            )
+            for key in ("pinned_refs", "excluded_refs"):
+                if key in original.selection_state:
+                    options[key] = deepcopy(original.selection_state[key])
+        # Identity and operation are always supplied by the current server-owned draft.
+        options.update(
+            novel_id=novel_id,
+            action="writing.generate",
+            chapter_index=draft.chapter_index,
+        )
+        message = (
+            "沿用原参考资料选择与排除项，重新整理确认后生成新版；旧建议保持不变。"
+            if original
+            else "原资料记录缺失。请为本章重新选材生成新版；旧建议仍不能通过原审查。"
+        )
+        options["task"] = message
+        return WritingRegenerationContext(
+            original_scope_available=original is not None,
+            reference_options=options,
+            message=message,
+        )
 
     async def create_draft(
         self,
@@ -1652,6 +1712,121 @@ class WritingConflictCheckService:
 
 class WritingGenerationService:
     """AI 正文建议生成服务。"""
+
+    async def submit_generation(
+        self,
+        db,
+        data,
+        *,
+        llm_execution_snapshot=None,
+        internal_meta=None,
+        operation_payload=None,
+    ):
+        from infrastructure.tasks.facade import (
+            enqueue_task_with_optional_operation,
+            get_operation_task,
+        )
+        from modules.evidence.facade import (
+            bind_confirmed_action_result,
+            prepare_confirmed_ai_action,
+        )
+        from modules.project.facade import (
+            build_project_llm_execution_snapshot,
+            require_active_project,
+            restore_project_llm_execution_settings,
+        )
+        from modules.story.facade import get_scene_story_assets
+
+        await require_active_project(db, data.novel_id)
+        if set(internal_meta or {}) - {
+            "_execution_mode",
+            "_parent_task_id",
+            "_task_priority",
+        }:
+            raise ValueError("Unsupported internal generation metadata")
+        payload = data.model_dump(mode="json", exclude={"operation_id"})
+        identity = operation_payload if operation_payload is not None else payload
+        try:
+            existing = await get_operation_task(
+                db,
+                operation_id=str(data.operation_id) if data.operation_id else None,
+                task_type="writing_generate",
+                novel_id=data.novel_id,
+                request_payload=identity,
+            )
+        except ValueError as error:
+            raise ConflictError(
+                "该请求已用于另一份正文生成，请沿用原请求或重新提交"
+            ) from error
+        if existing:
+            return {"task_id": existing.task_id, "status": existing.status}
+        confirmed = await prepare_confirmed_ai_action(
+            db,
+            novel_id=data.novel_id,
+            action="writing.generate",
+            confirmation_id=data.context_confirmation_id,
+        )
+        scene_id = str((confirmed.compile_options or {}).get("scene_id") or "") or None
+        basis = []
+        if scene_id:
+            assets = await get_scene_story_assets(
+                db, novel_id=data.novel_id, scene_id=scene_id
+            )
+            basis = [
+                {
+                    "file_id": str(item.get("id") or ""),
+                    "adopted_revision_id": str(item.get("adopted_revision_id") or ""),
+                    "basis_hash": item.get("basis_hash"),
+                    "expected_basis_hash": item.get("expected_basis_hash"),
+                }
+                for item in assets.get("adopted_scripts", [])
+                if isinstance(item, dict)
+            ]
+            stale = [
+                item
+                for item in basis
+                if item.get("basis_hash") != item.get("expected_basis_hash")
+            ]
+            if stale and not data.confirm_stale_story_assets:
+                raise ConflictError(
+                    "已采用的 Scene 剧本依据已变化；请明确确认后继续写作",
+                    code="stale_story_assets",
+                    context={"assets": stale},
+                )
+        if llm_execution_snapshot:
+            await restore_project_llm_execution_settings(
+                db, data.novel_id, llm_execution_snapshot
+            )
+        snapshot = llm_execution_snapshot or await build_project_llm_execution_snapshot(
+            db, data.novel_id
+        )
+        try:
+            receipt = await enqueue_task_with_optional_operation(
+                db,
+                operation_id=str(data.operation_id) if data.operation_id else None,
+                task_type="writing_generate",
+                novel_id=data.novel_id,
+                request_payload=identity,
+                meta={
+                    **payload,
+                    "story_asset_basis": basis,
+                    "llm_execution_snapshot": snapshot,
+                    **(internal_meta or {}),
+                },
+            )
+        except ValueError as error:
+            raise ConflictError("正文生成提交发生冲突，请刷新原任务") from error
+        if not receipt.reused:
+            await bind_confirmed_action_result(
+                db,
+                novel_id=data.novel_id,
+                confirmation_id=data.context_confirmation_id,
+                result_type="task",
+                result_id=receipt.task_id,
+                status="running",
+            )
+        await db.flush()
+        return {"task_id": receipt.task_id, "status": receipt.status}
 
     def __init__(
         self,

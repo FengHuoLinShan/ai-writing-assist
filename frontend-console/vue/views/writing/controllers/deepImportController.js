@@ -11,6 +11,7 @@ const SUPPORTED = new Set([
   "scene_auto_extraction",
   "world_object_auto_extraction",
   "plot_structure_auto_extraction",
+  "targeted_completion",
 ])
 
 const POLL_INTERVAL_MS = 3000
@@ -78,7 +79,7 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
       phase: result.phase || task.status || "running",
       status: task.status || "running",
       workflowType: result.workflow_type || task.task_type || workflow.workflowType || "deep_import",
-      label: workflow.label || result.label || "自动提取",
+      label: workflow.label || result.label || (task.task_type === "targeted_completion" ? "查漏补全" : "自动提取"),
       message: result.message || task.error_message || task.status || "处理中...",
       percent: taskPercent(task, result),
       availableActions: Array.isArray(task.available_actions) ? task.available_actions : [],
@@ -94,7 +95,7 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
       currentItem: result.current_item || {},
       qualityStatus: result.quality_status || null,
       qualityStats: result.quality_stats || {},
-      targetedCompletion: result.targeted_completion || null,
+      targetedCompletion: result.targeted_completion || (task.task_type === "targeted_completion" ? {} : null),
       qualityRerun: result.quality_rerun || {},
       degraded: Boolean(result.degraded),
       degradedReason: result.degraded_reason || null,
@@ -208,11 +209,27 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
     poll(generation)
   }
 
-  async function recover() {
+  async function recover(requestedTaskId = null) {
     if (finalized) return
     disposed = false
     stop()
     projectId = getProjectId()
+    if (requestedTaskId) {
+      const token = generation, requestedProject = projectId
+      try {
+        const task = await api.tasks.get(requestedTaskId, requestedProject)
+        if (finalized || token !== generation || getProjectId() !== requestedProject) return
+        if (!SUPPORTED.has(task.task_type)) throw new Error("这项任务不是正文整理，请从原处理入口查看。")
+        if (task.novel_id && task.novel_id !== requestedProject) throw new Error("这项整理不属于当前作品。")
+        taskId = requestedTaskId
+        progress = fromTask(task)
+        emit()
+        if (!["done", "failed", "cancelled"].includes(task.status)) schedule(token)
+      } catch (error) {
+        if (!finalized && token === generation && getProjectId() === requestedProject) toast(error.message || "整理回执暂时无法读取。", "error")
+      }
+      return
+    }
     const supported = recoverActiveWorkflows(projectId)
       .filter((item) => SUPPORTED.has(item.workflowType))
     // persistActiveWorkflow 会把最新提交移动到数组末尾。恢复最新任务，避免旧失败

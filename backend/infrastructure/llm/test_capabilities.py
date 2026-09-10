@@ -21,6 +21,11 @@ def test_deepseek_capability_is_deterministic_and_bounded() -> None:
     assert profile.summary_input_ceiling_tokens == 256_000
     assert profile.to_snapshot() == profile.to_snapshot()
 
+    canonical = resolve_llm_capability_profile("deepseek", "deepseek-flash")
+    assert canonical.model == "deepseek-flash"
+    assert canonical.hard_input_tokens == profile.hard_input_tokens
+    assert canonical.interaction_reasoning_effort == "max"
+
 
 def test_unknown_model_uses_short_fallback() -> None:
     profile = resolve_llm_capability_profile("kimi", "moonshot-v1-8k")

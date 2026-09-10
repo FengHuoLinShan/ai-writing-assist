@@ -80,6 +80,17 @@ describe("AI 地图册工作台", () => {
     vi.restoreAllMocks()
   })
 
+  it("图片存储缺配置时保留空间新建，提前解释上传不可用", async () => {
+    api.world.getMapCapabilities = vi.fn(async () => ({ upload: { available: false, reason: "图片存储尚未配置" }, image_generation: { available: false, reason: "图片存储尚未配置" } }))
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: "p1" } })
+    await flushPromises()
+    expect(wrapper.text()).toContain("图片存储尚未配置")
+    const buttons = wrapper.findAll("button")
+    expect(buttons.find(button => button.text() === "新建地图").attributes("disabled")).toBeUndefined()
+    expect(buttons.find(button => button.text() === "上传地图").attributes("disabled")).toBeDefined()
+    delete api.world.getMapCapabilities
+  })
+
   it("空地图册以无需图片连接的新建地图为主操作", async () => {
     api.world.getMapAtlas.mockResolvedValue(tree([], "atlas"))
     api.world.getLatestMapAtlasRun.mockResolvedValue(null)

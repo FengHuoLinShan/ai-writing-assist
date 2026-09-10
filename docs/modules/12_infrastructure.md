@@ -2,6 +2,31 @@
 
 ## 1. LLM 客户端
 
+ADR-0023 增加 `pydantic-ai-slim==2.42.0` 的有限单 Agent 循环。网关协议加性支持工具定义、
+调用 ID、JSON 参数、结果配对、流式参数分片与私有供应商续接信息；旧文本与结构化调用不变。
+身份、凭据、队列、事务和采用仍由应用拥有；不运行自治多 Agent 或任意代码工具。
+仅通过 Project 的账户连接/snapshot seam 创建客户端。PydanticAI 自己处理该循环的 schema
+修复，transport 不叠加重试；既有确定性审稿可通过 `workflow_budget` 计量每个实际请求。
+
+`assistant_turn` 是跨页面讨论执行；`interaction_agent_story_generate` 复用 RP attempt、
+流式正文与失败残段规则；`interaction_continuity_review` 保存近期选中历史的独立检查结果。
+`imports_completion_review` 汇总完成导入的覆盖/降级回执，`story_reference_review` 检查
+结构变更后的采用剧本引用失效；两者不调用模型，也不作为语义质量评测的替代品。
+后三者与既有 LLM 任务共用队列和 lease。worker 仅在前台队列无可领任务时领取到期待检变化；
+`_task_priority=background` 标识的后台任务排在普通任务后，已经发出的请求不抢占。
+持续授权、dirty generation 与提醒由 Assistant 管理；审稿事实仍由所属领域任务产生。
+
+只读领域复核由 `review_assets` 直接调用既有固定任务和 inline executor。子任务标为
+`_execution_mode=inline_only`，普通 worker 不自行领取；执行需原 parent task 的项目范围、
+双 lease fence 和同一 `workflow_budget`，并给助手最终回复预留一次请求。子流程使用父运行
+冻结的 Project snapshot，不切换供应商或扩大资料范围。多槽 worker 为前台保留一个执行位置。
+
+作者/RP/后台的初始请求上限分别为 12/8/6，工具尝试 32/24/16，联网子请求 4/2/2；
+恢复累计不归零，单 run 最长 30 分钟。未知费用显示未知；token 使用量不等于已核对的费用。
+外部查证隔离于小说上下文。新作者 v3 / RP v2 运行使用私有 SearXNG 与受控网页回读，
+服务地址指纹和明确渠道授权随运行冻结。原生适配只服务旧协议；未通过真实门禁的能力不注册，
+配置记录不等于原生搜索成功，不会静默切换供应商或搜索渠道。详见 LLM README 与 ADR-0023。
+
 `infrastructure/llm/` 目录提供 OpenAI 兼容的 LLM 调用能力。
 任务 result 的 `phase_artifacts` 可承载业务模块的 compact 后置回执。例如 completed
 Deep Import 的 adoption-package receipt 只用于展示/回跳；它不改变 task 生命周期，也不把
@@ -102,7 +127,7 @@ Embedding、streaming 和 `generate_simple()` 不是本 harness 的默认迁移�
 `test override` 只用于显式测试注入，不是生产项目之间的回退来源。
 
 `infrastructure.llm.capabilities` 是唯一 model capability budget registry。当前只有官方
-`deepseek-v4-flash` 经 dev eval 校准：官方 context 为 1M，生产 hard input 仍限制为已验证的
+`deepseek-flash` 经 dev eval 校准（旧 `deepseek-v4-flash` 快照兼容）：官方 context 为 1M，生产 hard input 仍限制为已验证的
 400K；normal/compact 为 256K/360K，summary input ceiling 为 256K。unknown model 使用
 16K/20K/24K short fallback，不继承上一模型档案，也不接受浏览器自报窗口。
 
@@ -136,7 +161,7 @@ endpoint 或 provider-specific extra 的 hash 变化时 fail closed。
 
 业务供应商 profile 不从 `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL` 等环境变量
 继承。当前账户模板默认是官方 DeepSeek：
-`https://api.deepseek.com` + `deepseek-v4-flash`；没有已验证 Key 时 fail closed。
+`https://api.deepseek.com` + `deepseek-flash`；没有已验证 Key 时 fail closed。
 
 - `LLM_TRUST_ENV`：是否允许 httpx/OpenAI SDK 读取系统代理环境，默认 `false`
 - `LLM_PROXY_URL`：显式代理地址，默认空

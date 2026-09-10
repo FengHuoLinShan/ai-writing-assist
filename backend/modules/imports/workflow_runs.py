@@ -106,18 +106,12 @@ class ImportWorkflowAttempt:
                 "include_pending_objects": self.include_pending_objects,
                 "high_quality": self.high_quality,
                 "replace_existing": self.replace_existing,
-                "adoption_policy": self.authorization_snapshot.get(
-                    "adoption_policy"
-                ),
+                "adoption_policy": self.authorization_snapshot.get("adoption_policy"),
                 "authorization_confirmed": self.authorization_snapshot.get(
                     "authorization_confirmed"
                 ),
-                "authorization_snapshot": _thaw_json(
-                    self.authorization_snapshot
-                ),
-                "llm_execution_snapshot": _thaw_json(
-                    self.llm_execution_snapshot
-                ),
+                "authorization_snapshot": _thaw_json(self.authorization_snapshot),
+                "llm_execution_snapshot": _thaw_json(self.llm_execution_snapshot),
             }
         )
         return projection
@@ -177,10 +171,9 @@ class ImportWorkflowRunService:
         """Lock and converge only the requested owner scope when provided."""
         from infrastructure.tasks.facade import list_task_lifecycle_contracts
 
-        active_predicate = (
-            ImportWorkflowRun.status.in_(sorted(ACTIVE_RUN_STATUSES))
-            | ImportWorkflowRun.recovery_required.is_(True)
-        )
+        active_predicate = ImportWorkflowRun.status.in_(
+            sorted(ACTIVE_RUN_STATUSES)
+        ) | ImportWorkflowRun.recovery_required.is_(True)
         if task_id is not None:
             selection_predicate = ImportWorkflowRun.task_id == _parse_uuid(task_id)
         elif include_restartable_history or novel_id is not None:
@@ -447,6 +440,14 @@ class ImportWorkflowRunService:
         run.recovery_required = False
         self._clear_owner(run)
         await db.flush()
+        from core.container import get
+
+        try:
+            observer = get("source.changed")
+        except KeyError:
+            observer = None
+        if observer is not None:
+            await observer(db, str(run.novel_id), "import_workflow", str(run.id))
 
     async def fail(
         self,

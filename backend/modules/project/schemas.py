@@ -452,7 +452,7 @@ class ProjectLLMSettingsResponse(BaseModel):
     provider_id: str = "deepseek"
     label: str | None = "DeepSeek"
     base_url: str = "https://api.deepseek.com"
-    model: str = "deepseek-v4-flash"
+    model: str = "deepseek-flash"
     timeout: int | None = 180
     max_tokens: int | None = DEFAULT_LLM_MAX_TOKENS
     temperature: float | None = 0.3

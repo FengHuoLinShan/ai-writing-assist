@@ -6,11 +6,13 @@
   >
     <Topbar v-if="showAuthorChrome" :project-title="projectTitle" :module-title="moduleTitle" :submodule-title="submoduleTitle" :view-note="viewNote"
       :connected="health.connected.value" :theme="theme.current.value" :wordcount="wordcount.dashboard" :wordcount-visible="wordcountVisible"
+      :assistant-enabled="assistantEnabled" :assistant-open="assistantOpen" @assistant-context="captureAssistant" @open-assistant="assistantOpen = !assistantOpen"
       @select-theme="theme.apply" @manage-account="accountOpen = true" @open-settings="navigate('settings')" @show-help="showHelp" />
     <div id="main-layout" :class="{ 'main-layout--immersive': !showAuthorChrome }">
       <Sidebar v-if="showAuthorChrome" ref="sidebar" :current-view="shellState.currentView" :project-title="projectTitle" @navigate="navigate" @show-help="showHelp" />
       <WorkspaceHost ref="workspace" @ready="setRouteHost" />
       <aside id="contextual-notes"></aside>
+      <ProjectAssistant v-if="showAuthorChrome && shellState.currentProjectId" :project-id="shellState.currentProjectId" :page="shellState.currentView" :open="assistantOpen" :initial-context="assistantContext" @open="assistantOpen = true" @close="assistantOpen = false" @availability="assistantEnabled = $event" />
     </div>
     <CommandPalette ref="commandPalette" :services="services" />
     <ShortcutHelp :open="helpOpen" @close="hideHelp" />
@@ -23,6 +25,8 @@
 
 <script setup>
 import { computed, ref, watch } from "vue"
+import ProjectAssistant from "../components/ProjectAssistant.vue"
+import { getAssistantWorkContext } from "../bridge/index.js"
 import CommandPalette from "./components/CommandPalette.vue"
 import AccountDialog from "./components/AccountDialog.vue"
 import ServiceHosts from "./components/ServiceHosts.vue"
@@ -41,6 +45,13 @@ const props = defineProps({
   services: { type: Object, required: true },
   healthIntervalMs: { type: Number, default: 30_000 },
 })
+const assistantOpen = ref(false)
+const assistantEnabled = ref(false)
+const assistantContext = ref(null)
+function captureAssistant() {
+  try { assistantContext.value = { projectId: shellState.currentProjectId, context: getAssistantWorkContext(shellState.currentProjectId, shellState.currentView) } }
+  catch { assistantContext.value = null }
+}
 
 const services = props.services
 const accountService = services.account ?? {

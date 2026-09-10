@@ -293,3 +293,13 @@ POST `/api/imports/targeted-completions/{task_id}/rollback?novel_id=...` 携带
 公开 targeted_completion 摘要包含 package_refs，可查看每组修改和原文出处，并打开
 已有采用包审阅。自动补全的结果/撤销入口直接绑定原导入任务；发生完整或部分撤销后
 禁止继续原任务，仍可重试安全撤销。abandon 遇受保护下游时保留冲突并报告 partial。
+
+## 助手与完成回访
+
+ADR-0023 只封装原章节整理流水线，文件选择/覆盖仍使用受控入口。完成事务报告
+import_workflow 变化；imports_completion_review 汇总自身回执的降级和待处理内容，
+不把未完整整理数据冒充逻辑审查，也不改变专项查漏的授权、恢复与回滚。
+
+
+专项补全的精确任务入口复用 TargetedCompletionPanel 展示出处、原采用包与安全撤销。
+同名目标回执包含有限候选身份和章节范围，作者确认身份后提交独立查漏，原任务授权不改写。

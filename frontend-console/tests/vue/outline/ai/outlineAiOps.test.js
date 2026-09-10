@@ -245,6 +245,14 @@ describe("generateOutlineLayer", () => {
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("showOutlineGeneratePreview", () => {
+  it("refreshes a completed task when its pending deep link is already open", () => {
+    const router = { refresh: vi.fn(), navigate: vi.fn(), getCurrentQuery: () => new URLSearchParams("review=ai&source_task_id=st1") }
+    setupBridge({ router })
+    outlineGenerateManager.state.preview = { sourceTaskId: "st1", target: "plot_thread" }
+    showOutlineGeneratePreview()
+    expect(router.refresh).toHaveBeenCalledOnce()
+    expect(router.navigate).not.toHaveBeenCalled()
+  })
   it("无 preview 时 toast 提示", () => {
     const toast = vi.fn()
     setupBridge({ toast })

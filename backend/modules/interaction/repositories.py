@@ -33,6 +33,16 @@ def parent_key(parent_node_id: uuid.UUID | None) -> str:
 
 
 class InteractionRepository:
+    @staticmethod
+    async def notify_state_changed(db, journey):
+        from core.container import get
+
+        try:
+            observer = get("source.changed")
+        except KeyError:
+            return
+        await observer(db, str(journey.novel_id), "interaction_journey", str(journey.id))
+
     async def get_source_revision(
         self,
         db: AsyncSession,
@@ -519,6 +529,7 @@ class InteractionRepository:
             row.parent_node_id = parent_node_id
             row.selected_child_node_id = child_node_id
         await db.flush()
+        await self.notify_state_changed(db, journey)
 
     async def list_children(
         self,

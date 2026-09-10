@@ -27,7 +27,9 @@ pytestmark = pytest.mark.asyncio
 
 
 def _task():
-    value = SimpleNamespace(id=uuid.uuid4(), meta={}, progress=0.0)
+    value = SimpleNamespace(
+        id=uuid.uuid4(), meta={}, progress=0.0, task_type="interaction_story_generate"
+    )
     value.update_progress = lambda progress: setattr(value, "progress", progress)
     return value
 

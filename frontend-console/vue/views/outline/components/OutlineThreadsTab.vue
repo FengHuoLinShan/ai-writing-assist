@@ -143,6 +143,13 @@
       aria-labelledby="outline-thread-information-title"
     >
       <h3 id="outline-thread-information-title">信息推进</h3>
+      <article v-if="focusedInformationPlan" ref="focusedInformationElement" class="outline-preview-section is-deep-linked" tabindex="-1" aria-label="当前定位的信息计划">
+        <h4>{{ informationPlanName(focusedInformationPlan) }}</h4>
+        <p>{{ informationPlanContent(focusedInformationPlan.plan, focusedInformationPlan.kind) }}</p>
+        <p v-if="informationPlanChapter(focusedInformationPlan.plan, focusedInformationPlan.kind)">第 {{ informationPlanChapter(focusedInformationPlan.plan, focusedInformationPlan.kind) }} 章</p>
+        <p class="writing-form-hint">这是规划资料，不代表故事中已经发生。可从项目助手继续修改这条计划。</p>
+      </article>
+      <p v-else-if="focusedInformationId" role="status">这条计划暂时无法读取，请检查筛选条件或返回原成果。</p>
       <p class="writing-form-hint">伏笔、暗示、揭示与兑现按同一条线索和章节排列；未归类的计划可在下方归入剧情线。</p>
       <template v-if="threads.length > 0">
         <details
@@ -233,6 +240,7 @@ const THREAD_BULK_ACTIONS = [
 const THREAD_TYPE_LABELS = { main: "主线", sub: "支线", background: "暗线" }
 
 const props = defineProps({
+  focusedAsset: { type: Object, default: null },
   projectId: { type: String, default: null },
   subView: { type: String, default: "threads" },
   threads: { type: Array, default: () => [] },
@@ -243,6 +251,7 @@ const props = defineProps({
   unassignedForeshadowing: { type: Array, default: () => [] },
   unassignedReveals: { type: Array, default: () => [] },
   informationFocus: { type: String, default: null },
+  focusedInformationId: { type: String, default: null },
   filters: { type: Object, default: () => ({ ...STRUCTURE_FILTER_DEFAULTS }) },
 })
 
@@ -310,6 +319,11 @@ const informationFocusKind = computed(() => ({
 })[props.informationFocus] || null)
 const hasInformationFocusMatch = computed(() => props.threads.some(threadHasInformationFocus))
 const informationSection = ref(null)
+const focusedInformationElement = ref(null)
+const focusedInformationPlan = computed(() => [
+  ...props.foreshadowing.map(plan => ({ plan, kind: "foreshadowing" })),
+  ...props.reveals.map(plan => ({ plan, kind: "reveal" })),
+].find(item => item.plan.id === props.focusedInformationId) || null)
 
 // ---- Assignment values (track selection per plan) ----
 const assignmentValues = reactive({})
@@ -375,13 +389,17 @@ function informationPlanName(item) {
 }
 
 onMounted(async () => {
+  if (props.focusedAsset) {
+    editThreadOp(props.focusedAsset.id, [props.focusedAsset])
+    return
+  }
   await nextTick()
   if (restoreFilterFocusOnMount) {
     filterPanel.value?.querySelector(":scope > summary")?.focus()
     return
   }
   if (!informationFocusKind.value) return
-  const target = informationSection.value?.querySelector('[data-information-focus-match="true"] > summary')
+  const target = focusedInformationElement.value || informationSection.value?.querySelector('[data-information-focus-match="true"] > summary')
     || informationSection.value
   target?.scrollIntoView?.({ block: "center" })
   target?.focus?.({ preventScroll: true })

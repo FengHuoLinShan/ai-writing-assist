@@ -30,6 +30,7 @@ from modules.writing.schemas import (
     WritingDraftResponse,
     WritingSemanticReviewChunkOutput,
     WritingTargetedRevisionOutput,
+    WritingWorldReviewScope,
 )
 from modules.writing.text_sanitizer import sanitize_writing_text
 
@@ -79,7 +80,10 @@ def _candidate_confirmation_id(provenance: dict[str, Any]) -> str:
 
 
 def _requires_confirmed_context(provenance: dict[str, Any]) -> bool:
-    return str(provenance.get("source") or "") in _CONTEXT_BOUND_CANDIDATE_SOURCES
+    source = str(provenance.get("source") or "")
+    if source == "assistant_revision":
+        source = str(provenance.get("context_origin") or "")
+    return source in _CONTEXT_BOUND_CANDIDATE_SOURCES
 
 
 def _redact_guard_phrases(value: Any, phrases: list[str]) -> Any:
@@ -257,6 +261,59 @@ async def validate_candidate_upstream(
 
 
 class WritingSemanticWorkflowService:
+    async def submit_review(
+        self,
+        db,
+        *,
+        novel_id,
+        draft_ids,
+        scope="selection",
+        operation_id=None,
+        internal_meta=None,
+        llm_execution_snapshot=None,
+        manual_world_scope: WritingWorldReviewScope | None = None,
+    ):
+        from infrastructure.tasks.facade import enqueue_task_with_optional_operation
+        from modules.project.facade import (
+            build_project_llm_execution_snapshot,
+            require_active_project,
+        )
+        from modules.writing.schemas import WritingSemanticReviewRequest
+
+        await require_active_project(db, novel_id)
+        data = WritingSemanticReviewRequest(
+            novel_id=novel_id, draft_ids=draft_ids, scope=scope, operation_id=operation_id
+        )
+        if set(internal_meta or {}) - {
+            "_assistant_policy",
+            "_task_priority",
+            "_execution_mode",
+            "_parent_task_id",
+        }:
+            raise ValueError("Unsupported internal review metadata")
+        payload = data.model_dump(mode="json", exclude={"operation_id"})
+        if manual_world_scope is not None:
+            payload["manual_world_scope"] = manual_world_scope.model_dump(mode="json")
+        if llm_execution_snapshot is not None:
+            from modules.project.facade import restore_project_llm_execution_settings
+
+            await restore_project_llm_execution_settings(
+                db, novel_id, llm_execution_snapshot
+            )
+            snapshot = llm_execution_snapshot
+        else:
+            snapshot = await build_project_llm_execution_snapshot(db, novel_id)
+        receipt = await enqueue_task_with_optional_operation(
+            db,
+            operation_id=str(operation_id) if operation_id else None,
+            task_type="writing_semantic_review",
+            novel_id=novel_id,
+            request_payload=payload,
+            meta={**payload, "llm_execution_snapshot": snapshot, **(internal_meta or {})},
+        )
+        await db.flush()
+        return {"task_id": receipt.task_id, "status": receipt.status}
+
     def __init__(
         self,
         repo: WritingDraftRepository | None = None,
@@ -434,6 +491,7 @@ class WritingSemanticWorkflowService:
         novel_id: str,
         draft_id: str,
         role: str,
+        manual_world_scope: WritingWorldReviewScope | None = None,
     ) -> dict[str, Any]:
         draft = await self._repo.get(db, uuid.UUID(draft_id))
         if draft is None or str(draft.novel_id) != novel_id:
@@ -441,15 +499,29 @@ class WritingSemanticWorkflowService:
         if draft.status == "deprecated":
             raise ValidationError("已归档正文不能作为新审查对象")
         provenance = dict(draft.provenance_json or {})
+        if manual_world_scope is not None:
+            excluded = {
+                value.rsplit(":", 1)[-1] for value in manual_world_scope.excluded_targets
+            }
+            if str(draft.id) in excluded or (
+                manual_world_scope.cutoff_chapter is not None
+                and draft.chapter_index > manual_world_scope.cutoff_chapter
+            ):
+                raise ConflictError("正文不在本次审查授权范围内")
+            if _requires_confirmed_context(provenance):
+                raise ConflictError("AI 正文必须使用原生成参考资料进行独立审查")
         bundle = await _scene_bundle(
             db,
             novel_id=novel_id,
-            scene_id=str(provenance.get("scene_id") or "") or None,
+            scene_id=(str(provenance.get("scene_id") or "") or None)
+            if manual_world_scope is None
+            else None,
         )
         stored_bundle_hash = provenance.get("scene_execution_bundle_hash")
         if (
             role == "target"
             and stored_bundle_hash
+            and manual_world_scope is None
             and _bundle_hash(bundle) != stored_bundle_hash
         ):
             raise ConflictError("故事总纲或场景合同已变化，请重新生成后再审查正文建议。")
@@ -461,6 +533,27 @@ class WritingSemanticWorkflowService:
                 draft=draft,
                 provenance=provenance,
             )
+            if manual_world_scope is not None:
+                from modules.evidence.facade import compile_review_world_evidence
+
+                world = await compile_review_world_evidence(
+                    db,
+                    novel_id=novel_id,
+                    chapter_index=draft.chapter_index,
+                    scene_id=str(manual_world_scope.scene_id)
+                    if manual_world_scope.scene_id
+                    else None,
+                    excluded_targets=manual_world_scope.excluded_targets,
+                )
+                review_context = {
+                    **review_context,
+                    "review_mode": "world_constraints",
+                    "world_evidence": world["items"],
+                    "omissions": world["omissions"],
+                    "context_fingerprint": _stable_hash(world),
+                    "world_constraints_checked": bool(world["items"]),
+                    "review_scope": manual_world_scope.model_dump(mode="json"),
+                }
         return {
             "draft_id": str(draft.id),
             "chapter_index": int(draft.chapter_index),
@@ -483,6 +576,7 @@ class WritingSemanticWorkflowService:
         *,
         novel_id: str,
         draft_ids: list[str],
+        manual_world_scope: WritingWorldReviewScope | None = None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         targets = [
             await self._freeze_draft(
@@ -490,11 +584,15 @@ class WritingSemanticWorkflowService:
                 novel_id=novel_id,
                 draft_id=draft_id,
                 role="target",
+                manual_world_scope=manual_world_scope,
             )
             for draft_id in draft_ids
         ]
         known = set(draft_ids)
         adjacent: list[dict[str, Any]] = []
+        if manual_world_scope is not None:
+            # Only the selected prose and reread world evidence are authorized.
+            return targets, adjacent
         nid = uuid.UUID(novel_id)
         for chapter in sorted(
             {
@@ -529,6 +627,8 @@ class WritingSemanticWorkflowService:
             "status": review_context.get("status"),
             "review_mode": review_context.get("review_mode"),
             "confirmed_context": review_context.get("confirmed_context"),
+            "world_evidence": review_context.get("world_evidence", []),
+            "omissions": review_context.get("omissions", []),
             "generation_profile": review_context.get("generation_profile"),
             "viewpoint_character_id": review_context.get("viewpoint_character_id"),
             "pov_view": deepcopy(review_context.get("pov_view")),
@@ -647,6 +747,10 @@ class WritingSemanticWorkflowService:
                         "否则 coverage 中使用 not_applicable，不得宣称已检查。"
                         "confirmed_context 是该角色本次允许使用的完整知识边界，"
                         "Scene 导演约束不能当成角色已知事实。"
+                        "world_constraints 模式只按 world_evidence 中回读的资料核对，"
+                        "不能把设定检查当成人物知道这些事实的证明。"
+                        "依据世界资料报告的问题必须在 finding.world_evidence 中给出"
+                        "对应 source_hash 和可精确回读的 excerpt，不得编造引用。"
                         "不得忽略 deterministic_pov_validation 已发现的问题。"
                         "只报告能在冻结正文中唯一定位的 excerpt；contract_refs 引用已给定"
                         "的合同字段。每个 target 必须在 coverage 中恰好返回一项，"
@@ -712,6 +816,7 @@ class WritingSemanticWorkflowService:
         draft_ids: list[str],
         scope: str,
         llm_execution_snapshot: dict[str, Any],
+        manual_world_scope: WritingWorldReviewScope | None = None,
     ) -> dict[str, Any]:
         from infrastructure.tasks.facade import require_task_checkpoint_session
         from modules.project.facade import require_active_project
@@ -722,6 +827,7 @@ class WritingSemanticWorkflowService:
             db,
             novel_id=novel_id,
             draft_ids=draft_ids,
+            manual_world_scope=manual_world_scope,
         )
         chunks = self._chunks(targets, adjacent=adjacent)
         profile = llm_execution_snapshot.get("profile")
@@ -781,6 +887,7 @@ class WritingSemanticWorkflowService:
             db,
             novel_id=novel_id,
             draft_ids=draft_ids,
+            manual_world_scope=manual_world_scope,
         )
         current_hash = _review_set_fingerprint([*current_targets, *current_adjacent])
         if current_hash != frozen_hash:
@@ -795,6 +902,7 @@ class WritingSemanticWorkflowService:
         coverage_by_id: dict[str, dict[str, Any]] = {}
         for target in targets:
             review_context = target.get("review_context") or {}
+            not_checked.extend(review_context.get("omissions", []))
             deterministic = review_context.get("deterministic_pov_validation") or {}
             if any(
                 isinstance(raw, dict)
@@ -859,6 +967,31 @@ class WritingSemanticWorkflowService:
                     )
                     incomplete_draft_ids.add(draft_id)
                     continue
+                available_world = {
+                    item["source_hash"]: item
+                    for item in (target.get("review_context") or {}).get(
+                        "world_evidence", []
+                    )
+                }
+                if any(
+                    quote["source_hash"] not in available_world
+                    or quote["excerpt"]
+                    not in available_world[quote["source_hash"]]["content"]
+                    for quote in data.get("world_evidence", [])
+                ):
+                    not_checked.append("世界设定引用无法回读，已丢弃该判断")
+                    incomplete_draft_ids.add(draft_id)
+                    continue
+                if data.get("world_evidence"):
+                    data["world_evidence"] = [
+                        {
+                            **quote,
+                            "target_ref": available_world[quote["source_hash"]][
+                                "target_ref"
+                            ],
+                        }
+                        for quote in data["world_evidence"]
+                    ]
                 offset = target["content"].find(excerpt)
                 data["location"]["start_hint"] = offset
                 data["location"]["end_hint"] = offset + len(excerpt)
@@ -938,6 +1071,18 @@ class WritingSemanticWorkflowService:
                     "knowledge_boundary_checked": bool(
                         review_context.get("knowledge_boundary_checked")
                     ),
+                    "world_constraints_checked": bool(
+                        review_context.get("world_constraints_checked")
+                    )
+                    and coverage_by_id.get(target["draft_id"], {}).get(
+                        "ability_world_rule"
+                    )
+                    == "checked",
+                    "world_evidence_manifest": [
+                        {key: item[key] for key in ("target_ref", "title", "source_hash")}
+                        for item in review_context.get("world_evidence", [])
+                    ],
+                    "review_scope": review_context.get("review_scope"),
                     "reviewed_at": reviewed_at,
                     "scope": scope,
                     "verdict": draft_verdict,
@@ -978,6 +1123,34 @@ class WritingSemanticWorkflowService:
                     if (item.get("review_context") or {}).get("status") != "checked"
                 ],
                 "frozen_manifest_hash": frozen_hash,
+                "world_constraints": {
+                    item["draft_id"]: {
+                        "chapter_index": item["chapter_index"],
+                        "scene_id": str(manual_world_scope.scene_id)
+                        if manual_world_scope.scene_id
+                        else None,
+                        "checked": bool(
+                            (item.get("review_context") or {}).get(
+                                "world_constraints_checked"
+                            )
+                        )
+                        and coverage_by_id.get(item["draft_id"], {}).get(
+                            "ability_world_rule"
+                        )
+                        == "checked",
+                        "sources": [
+                            {
+                                key: source[key]
+                                for key in ("target_ref", "title", "source_hash")
+                            }
+                            for source in (item.get("review_context") or {}).get(
+                                "world_evidence", []
+                            )
+                        ],
+                    }
+                    for item in targets
+                    if manual_world_scope is not None
+                },
                 "chunk_count": len(chunks),
                 "semantic_checks": coverage_by_id,
                 "incomplete_draft_ids": sorted(incomplete_draft_ids),
@@ -1008,25 +1181,58 @@ class WritingSemanticWorkflowService:
             "reviewer_separate_from_generator": True,
         }
 
-    async def revise_for_task(
-        self,
-        db: AsyncSession,
-        *,
-        task_id: str,
-        novel_id: str,
-        draft_id: str,
-        review_task_id: str,
-        finding_ids: list[str],
-        instruction: str | None,
-        llm_execution_snapshot: dict[str, Any],
-    ) -> WritingDraftResponse:
-        from infrastructure.tasks.facade import (
-            get_completed_task_payload,
-            require_task_checkpoint_session,
+    async def submit_targeted_revision(
+        self, db, data, *, internal_meta=None, llm_execution_snapshot=None
+    ):
+        from infrastructure.tasks.facade import enqueue_task_with_optional_operation
+        from modules.project.facade import (
+            build_project_llm_execution_snapshot,
+            require_active_project,
+            restore_project_llm_execution_settings,
         )
+
+        await require_active_project(db, data.novel_id)
+        if set(internal_meta or {}) - {
+            "_execution_mode",
+            "_parent_task_id",
+            "_task_priority",
+        }:
+            raise ValueError("Unsupported internal revision metadata")
+        if llm_execution_snapshot:
+            await restore_project_llm_execution_settings(
+                db, data.novel_id, llm_execution_snapshot
+            )
+        snapshot = llm_execution_snapshot or await build_project_llm_execution_snapshot(
+            db, data.novel_id
+        )
+        payload = data.model_dump(mode="json", exclude={"operation_id"})
+        try:
+            receipt = await enqueue_task_with_optional_operation(
+                db,
+                operation_id=str(data.operation_id) if data.operation_id else None,
+                task_type="writing_targeted_revision",
+                novel_id=data.novel_id,
+                request_payload=payload,
+                meta={
+                    **payload,
+                    "llm_execution_snapshot": snapshot,
+                    **(internal_meta or {}),
+                },
+            )
+        except ValueError as error:
+            raise ConflictError(
+                "原返修请求已用于另一组问题，请沿用原请求或重新提交"
+            ) from error
+        await db.flush()
+        return {"task_id": receipt.task_id, "status": receipt.status}
+
+    async def prepare_targeted_revision(
+        self, db, *, novel_id, draft_id, review_task_id, finding_ids
+    ):
+        """Freeze the same original review/context before preview and execution."""
+        from infrastructure.tasks.facade import get_completed_task_payload
         from modules.project.facade import require_active_project
 
-        require_task_checkpoint_session(db)
         await require_active_project(db, novel_id)
         review = await get_completed_task_payload(
             db,
@@ -1081,6 +1287,48 @@ class WritingSemanticWorkflowService:
         if frozen.get("scene_execution_bundle_hash") != _bundle_hash(bundle):
             raise ConflictError("审查后场景合同已变化，不能套用旧问题返修。")
         revision_ranges = _targeted_revision_ranges(selected, base.content or "")
+        return {
+            "base": base,
+            "selected": selected,
+            "frozen": frozen,
+            "review_context": review_context,
+            "bundle": bundle,
+            "revision_ranges": revision_ranges,
+            "expected_context_fingerprint": expected_context_fingerprint,
+        }
+
+    async def revise_for_task(
+        self,
+        db: AsyncSession,
+        *,
+        task_id: str,
+        novel_id: str,
+        draft_id: str,
+        review_task_id: str,
+        finding_ids: list[str],
+        instruction: str | None,
+        llm_execution_snapshot: dict[str, Any],
+    ) -> WritingDraftResponse:
+        from infrastructure.tasks.facade import (
+            require_task_checkpoint_session,
+        )
+        from modules.project.facade import require_active_project
+
+        require_task_checkpoint_session(db)
+        prepared = await self.prepare_targeted_revision(
+            db,
+            novel_id=novel_id,
+            draft_id=draft_id,
+            review_task_id=review_task_id,
+            finding_ids=finding_ids,
+        )
+        base = prepared["base"]
+        selected = prepared["selected"]
+        frozen = prepared["frozen"]
+        review_context = prepared["review_context"]
+        bundle = prepared["bundle"]
+        revision_ranges = prepared["revision_ranges"]
+        expected_context_fingerprint = prepared["expected_context_fingerprint"]
         profile = llm_execution_snapshot.get("profile")
         model = str(profile.get("model") or "") if isinstance(profile, dict) else ""
         if not model:

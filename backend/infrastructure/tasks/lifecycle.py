@@ -8,7 +8,7 @@ from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, case, delete, exists, or_, select, update
+from sqlalchemy import String, and_, case, delete, exists, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -213,15 +213,36 @@ class TaskLifecycleService:
             parsed_id = uuid.UUID(str(task_id))
         except (TypeError, ValueError) as exc:
             raise ValueError("task_id must be a UUID") from exc
+        scope = (
+            AsyncTask.id == parsed_id,
+            AsyncTask.task_type.in_(sorted(task_types)),
+            AsyncTask.novel_id == uuid.UUID(str(novel_id)),
+        )
+        # Inline commits acquire the child fence before the parent fence. Match
+        # that order, including children not yet projected into a domain receipt.
+        if not await db.scalar(select(exists().where(*scope))):
+            raise ValueError("task not found")
+        children = await db.scalars(
+            select(AsyncTask)
+            .where(
+                AsyncTask.novel_id == uuid.UUID(str(novel_id)),
+                AsyncTask.meta["_parent_task_id"].as_string() == str(parsed_id),
+                AsyncTask.meta["_execution_mode"].as_string() == "inline_only",
+                AsyncTask.status.in_(("pending", "running")),
+            )
+            .order_by(AsyncTask.id)
+            .with_for_update()
+        )
+        for child in children:
+            child.mark_cancelled()
+            child.transition_reason = "parent_cancelled"
+        await db.flush()
         task = (
             await db.execute(
                 select(AsyncTask)
-                .where(
-                    AsyncTask.id == parsed_id,
-                    AsyncTask.task_type.in_(sorted(task_types)),
-                    AsyncTask.novel_id == uuid.UUID(str(novel_id)),
-                )
+                .where(*scope)
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
         ).scalar_one_or_none()
         if task is None:
@@ -555,17 +576,30 @@ class TaskLifecycleService:
         *,
         task_id: str | uuid.UUID | None = None,
         novel_id: str | uuid.UUID | None = None,
+        foreground_only: bool = False,
     ) -> AsyncTask | None:
         if (task_id is None) != (novel_id is None):
             raise ValueError("task_id and novel_id must be provided together")
         scope = []
+        if task_id is None:
+            scope.append(
+                func.coalesce(AsyncTask.meta["_execution_mode"].as_string(), "queue")
+                != "inline_only"
+            )
+        if foreground_only:
+            scope.append(
+                func.coalesce(AsyncTask.meta["_task_priority"].as_string(), "foreground")
+                != "background"
+            )
         if task_id is not None:
             try:
                 parsed_task = uuid.UUID(str(task_id))
                 parsed_novel = uuid.UUID(str(novel_id))
             except (TypeError, ValueError) as exc:
                 raise ValueError("task_id and novel_id must be UUIDs") from exc
-            scope = [AsyncTask.id == parsed_task, AsyncTask.novel_id == parsed_novel]
+            scope.extend(
+                [AsyncTask.id == parsed_task, AsyncTask.novel_id == parsed_novel]
+            )
         running = aliased(AsyncTask)
         now = datetime.now(UTC)
         queue_time = case(
@@ -592,6 +626,10 @@ class TaskLifecycleService:
                 ),
             )
             .order_by(
+                case(
+                    (AsyncTask.meta["_task_priority"].as_string() == "background", 1),
+                    else_=0,
+                ),
                 case(
                     (
                         and_(
@@ -813,11 +851,22 @@ class TaskLifecycleService:
         *,
         task: AsyncTask,
     ) -> None:
+        if task.novel_id is not None:
+            await self.cancel_exact(
+                db,
+                task_id=str(task.id),
+                task_types={task.task_type},
+                novel_id=str(task.novel_id),
+                transition_reason="user_cancelled",
+            )
+            return
         task.mark_cancelled()
         task.transition_reason = "user_cancelled"
         await db.flush()
 
     async def retry(self, db: AsyncSession, *, task: AsyncTask) -> None:
+        if (task.meta or {}).get("_execution_mode") == "inline_only":
+            raise ValueError("请从原助手运行恢复复核，子任务不能单独重试")
         if task.status != "failed":
             raise ValueError("task is not failed")
         if task.recovery_policy != "auto_requeue":
@@ -877,7 +926,38 @@ class TaskLifecycleService:
                 counts["failed"] += 1
                 if task.recovery_policy == "manual_resume":
                     counts["manual_resume"] += 1
-        if tasks:
+        await db.flush()
+        parent = aliased(AsyncTask)
+        orphans = list(
+            await db.scalars(
+                select(AsyncTask)
+                .where(
+                    AsyncTask.status.in_(("pending", "running")),
+                    AsyncTask.meta["_execution_mode"].as_string() == "inline_only",
+                    ~exists().where(
+                        func.replace(parent.id.cast(String), "-", "")
+                        == func.replace(
+                            AsyncTask.meta["_parent_task_id"].as_string(), "-", ""
+                        ),
+                        parent.novel_id == AsyncTask.novel_id,
+                        or_(
+                            parent.status.in_(("pending", "running")),
+                            and_(
+                                parent.status == "failed",
+                                parent.recovery_policy == "manual_resume",
+                            ),
+                        ),
+                    ),
+                )
+                .order_by(AsyncTask.id)
+                .with_for_update(skip_locked=True)
+            )
+        )
+        for child in orphans:
+            child.mark_cancelled()
+            child.transition_reason = "parent_unavailable"
+        counts["failed"] += len(orphans)
+        if tasks or orphans:
             await db.commit()
         return counts
 

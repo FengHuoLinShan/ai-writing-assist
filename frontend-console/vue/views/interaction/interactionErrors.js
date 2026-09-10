@@ -1,4 +1,8 @@
 const ERROR_STATES = {
+  cancelled: {
+    message: "已停止这次生成。先前故事和这次输入仍保留，可以重新生成。",
+    action: "retry",
+  },
   configuration: {
     message: "模型连接不可用，请检查账户设置。",
     action: "connection",

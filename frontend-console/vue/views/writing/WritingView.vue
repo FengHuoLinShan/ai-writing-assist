@@ -143,6 +143,7 @@
         @reject="rejectCandidate"
         @semantic-review="vm.reviewCandidate"
         @targeted-revision="vm.reviseCandidate"
+        @regenerate-candidate="vm.regenerateCandidate"
         @compare-candidate="vm.compareCandidateWithWorkingDraft"
         @export="vm.exportChapter"
         @retry-load="vm.retryChapterLoad"

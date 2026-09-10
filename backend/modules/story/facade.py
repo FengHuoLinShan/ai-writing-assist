@@ -27,6 +27,15 @@ from modules.story.service import (
 
 _service = StoryService()
 
+
+async def inspect_information_plan(db, novel_id: str, kind: str, plan_id: str) -> dict:
+    from modules.story.assistant_information_tools import (
+        inspect_information_plan as inspect,
+    )
+
+    return await inspect(db, novel_id, kind, plan_id)
+
+
 # Story is the physical owner of the authoring workflow.  The two internal
 # subdomains keep their own locality, while this root facade is the stable
 # cross-module seam during and after the compatibility release.
@@ -291,12 +300,14 @@ async def get_scene_story_basis_hash(
     novel_id: str,
     scene_id: str,
     exclude_file_id: str | None = None,
+    basis_version: int = 1,
 ) -> str:
     return await _service.get_scene_story_basis_hash(
         db,
         novel_id=novel_id,
         scene_id=scene_id,
         exclude_file_id=exclude_file_id,
+        basis_version=basis_version,
     )
 
 

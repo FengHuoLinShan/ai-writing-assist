@@ -30,7 +30,7 @@ LLM_DEFAULTS_SYSTEM: dict[str, Any] = {
     "provider_id": "deepseek",
     "label": "DeepSeek",
     "base_url": "https://api.deepseek.com",
-    "model": "deepseek-v4-flash",
+    "model": "deepseek-flash",
     "timeout": 180,
     "max_tokens": DEFAULT_LLM_MAX_TOKENS,
     "temperature": 0.3,

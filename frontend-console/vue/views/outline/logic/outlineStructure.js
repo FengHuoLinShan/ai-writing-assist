@@ -165,7 +165,7 @@ export function structureStatusOptions(subView) {
  * - structureTotals: { threads: number, arcs: number, foreshadowing: number, reveals: number }
  * - structureLoadErrors: { [subView]: string | null }
  */
-export async function loadStructureProps({ projectId, subView, filters }) {
+export async function loadStructureProps({ projectId, subView, filters, focusId = null }) {
   const api = getApi()
   const props = {
     threads: [],
@@ -260,6 +260,10 @@ export async function loadStructureProps({ projectId, subView, filters }) {
     )
   }
 
+  if (focusId) {
+    const read = subView === "threads" ? api.outline.getThread : api.outline.getArc
+    promises.push(read(focusId, projectId).then(item => { props.focusedAsset = item }).catch(err => setError(subView, err)))
+  }
   if (promises.length > 0) {
     await Promise.all(promises)
   }

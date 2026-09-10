@@ -669,6 +669,11 @@ async def preview_activation_profile(
     return await service.preview(db, request)
 
 
+async def preview_context_confirmation(db: AsyncSession, options: CompileOptions) -> dict:
+    """Preview the exact material a later confirmation must rematerialize."""
+    return await _confirmation_service.preview_confirmation(db, options)
+
+
 async def confirm_context(
     db: AsyncSession,
     *,
@@ -838,6 +843,22 @@ async def search_novel_evidence(
         chapter_to=chapter_to,
         top_k=top_k,
         context_scene_id=context_scene_id,
+    )
+
+
+async def compile_review_world_evidence(
+    db, *, novel_id, chapter_index, scene_id=None, excluded_targets=()
+):
+    from modules.evidence.compilation.novel_evidence import (
+        compile_review_world_evidence as compile_review,
+    )
+
+    return await compile_review(
+        db,
+        novel_id=novel_id,
+        chapter_index=chapter_index,
+        scene_id=scene_id,
+        excluded_targets=list(excluded_targets),
     )
 
 
@@ -1057,13 +1078,22 @@ async def mark_asset_context_changed(
     asset_id: str,
     reason: str,
 ) -> int:
-    return await _confirmation_service.mark_asset_context_changed(
+    changed = await _confirmation_service.mark_asset_context_changed(
         db,
         novel_id=novel_id,
         asset_type=asset_type,
         asset_id=asset_id,
         reason=reason,
     )
+    from core.container import get
+
+    try:
+        observer = get("source.changed")
+    except KeyError:
+        observer = None
+    if observer is not None:
+        await observer(db, novel_id, asset_type, asset_id)
+    return changed
 
 
 async def create_context_snapshot(
@@ -1382,3 +1412,34 @@ async def run_snapshot_maintenance(
         retain_latest_retrieval_traces=retain_latest_retrieval_traces,
         dry_run=dry_run,
     )
+
+
+async def list_author_task_evidence(db, *, novel_id, scope, on_date, skip, visibility):
+    """Author-only work items through Evidence; not story facts or character knowledge."""
+    from core.errors import NotFoundError
+    from modules.project.facade import inspect_project_workspace
+
+    if visibility.mode != "author":
+        raise NotFoundError("作者待办不对读者或角色开放")
+    return {
+        "visible": True,
+        "item": await inspect_project_workspace(
+            db,
+            novel_id,
+            task_scope=scope,
+            on_date=on_date,
+            skip=skip,
+        ),
+    }
+
+
+async def read_organization_evidence(db, *, novel_id, task_id, visibility):
+    from core.errors import NotFoundError
+    from modules.imports.facade import inspect_organization_status
+
+    if visibility.mode != "author":
+        raise NotFoundError("整理进度仅对作者开放")
+    return {
+        "visible": True,
+        "item": await inspect_organization_status(db, novel_id, task_id),
+    }

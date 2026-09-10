@@ -181,6 +181,24 @@ beforeEach(() => {
 
 afterEach(() => resetBridgeOverrides())
 
+it("opens the existing co-creation identity in the project assistant and keeps workbench notes", async () => {
+  api.assistant = { capabilities: vi.fn(async () => ({ enabled: true })) }
+  api.world.createCocreationSession.mockResolvedValue({ id: "shared-session", title: "同一讨论" })
+  const open = vi.fn(async () => {})
+  setBridgeOverrides({ assistantOpener: open })
+  const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
+  await flushPromises()
+  expect(wrapper.find('[data-action="send-chat-message"]').exists()).toBe(false)
+  expect(wrapper.find("#generate-chat-messages").exists()).toBe(false)
+  await wrapper.get("#generate-chat-input").setValue("给候选补充的说明")
+  await wrapper.findAll("button").find(button => button.text() === "打开这次讨论").trigger("click")
+  await flushPromises()
+  expect(open).toHaveBeenCalledWith(expect.objectContaining({ projectId: "p1", sessionId: "shared-session" }))
+  expect(wrapper.get("#generate-chat-input").element.value).toBe("给候选补充的说明")
+  expect(api.world.cocreationChat).not.toHaveBeenCalled()
+  expect(api.generate.worldChat).not.toHaveBeenCalled()
+})
+
 describe("GenerateView Vue behavior matrix", () => {
   it("restores unsent composer text inside the bounded session without starting a request", async () => {
     const key = generateSessionKey("p1", null, "core_entity")

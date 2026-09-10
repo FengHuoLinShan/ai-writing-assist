@@ -317,7 +317,7 @@ def test_provider_does_not_fall_back_to_llm_env_profile(monkeypatch) -> None:
 
     assert provider._api_key == ""
     assert provider._base_url == "https://api.deepseek.com"
-    assert provider._default_model == "deepseek-v4-flash"
+    assert provider._default_model == "deepseek-flash"
     assert openai_cls.call_args.kwargs["api_key"] == ""
 
 

@@ -133,10 +133,7 @@ def validate_map_atlas_s3_endpoint_url(value: str) -> str:
         "127.0.0.1",
         "::1",
     }
-    production_minio = (
-        app_env == "production"
-        and cleaned == "http://minio:9000"
-    )
+    production_minio = app_env == "production" and cleaned == "http://minio:9000"
     if parsed.scheme.lower() == "http" and not (local_http or production_minio):
         raise RuntimeError(
             "MAP_ATLAS_S3_ENDPOINT_URL must use https except for local development"
@@ -292,7 +289,15 @@ class Settings:
     # These legacy attributes remain for old helpers and explicit test construction.
     llm_api_key: str = ""
     llm_base_url: str = "https://api.deepseek.com"
-    llm_model: str = "deepseek-v4-flash"
+    llm_model: str = "deepseek-flash"
+    assistant_enabled: bool = field(
+        default_factory=lambda: _env_bool("ASSISTANT_ENABLED", False)
+    )
+    interaction_agent_enabled: bool = field(
+        default_factory=lambda: _env_bool("INTERACTION_AGENT_ENABLED", False)
+    )
+    web_search_url: str = field(default_factory=lambda: _env("WEB_SEARCH_URL", ""))
+    web_dns_servers: str = field(default_factory=lambda: _env("WEB_DNS_SERVERS", ""))
     llm_max_tokens: int = DEFAULT_LLM_MAX_TOKENS
     llm_timeout: int = 180
     llm_trust_env: bool = field(default_factory=lambda: _env_bool("LLM_TRUST_ENV", False))

@@ -12,6 +12,7 @@ const name = ref(props.initialName), startChapter = ref(1), endChapter = ref(0)
 const taskId = ref(null), task = ref(null), error = ref(""), submitting = ref(false)
 const storageWarning = ref("")
 const artifact = ref(null), artifactBusy = ref(false)
+const identities = ref({}), identityChoices = ref({})
 let epoch = 0, alive = true
 const key = computed(() => `${props.projectId}:${props.sourceTaskId || props.entityId || 'manual'}`)
 const info = computed(() => task.value?.result?.targeted_completion || {})
@@ -42,6 +43,29 @@ function reviewPackage(packageId) { getRouter()?.navigate("world", "bible", true
 function proposedFields(item) {
   const value = item.payload?.entity || item.payload?.fields || {}
   return [["概要", value.summary], ["公开资料", value.public_info], ["作者资料", value.hidden_truth]].filter(([, text]) => text)
+}
+async function loadIdentities(item) {
+  const token = epoch, scope = key.value
+  const ids = (item.candidate_ids || []).filter(id => !identities.value[id])
+  const results = await Promise.all(ids.map(async id => {
+    try { const entity = await api.world.getEntity(id, props.projectId); return [id, { name: entity.name, summary: entity.summary || entity.public_info || "暂无说明" }] }
+    catch { return [id, { unavailable: true, name: "对象暂不可用", summary: "请从人物与世界核对身份" }] }
+  }))
+  if (owns(token, scope)) identities.value = { ...identities.value, ...Object.fromEntries(results) }
+}
+async function completeIdentity(item) {
+  const id = identityChoices.value[item.key]
+  if (busy.value || !item.candidate_ids.includes(id) || identities.value[id]?.unavailable) return
+  const token = ++epoch, scope = key.value
+  submitting.value = true; error.value = ""
+  try {
+    const range = info.value.chapter_range || {}
+    const value = await api.imports.targetedCompletion({ novel_id: props.projectId, targets: [{ entity_id: id }], start_chapter: range.start || 1, end_chapter: range.end || 0, authorization_confirmed: true })
+    if (!value?.task_id) throw new Error("新补全未能开始，原结果仍保留。")
+    saveReceipt(value.task_id, receiptScope())
+    if (owns(token, scope)) getRouter()?.navigate("writing", null, true, new URLSearchParams({ novel_id: props.projectId, import_task_id: value.task_id }))
+  } catch (err) { if (owns(token, scope)) error.value = err.message || "新补全未能开始。" }
+  finally { if (owns(token, scope)) submitting.value = false }
 }
 function observe(id, token = epoch, scope = key.value) {
   polling.stopAll()
@@ -126,6 +150,17 @@ onBeforeUnmount(() => { alive = false; epoch += 1 })
       <p v-if="storageWarning" role="alert">{{ storageWarning }}</p>
       <p v-if="taskId">已处理 {{ info.completed_roots || 0 }} / {{ info.root_count || 0 }} 个目标 · 新增 {{ info.created || 0 }} · 填空 {{ info.filled || 0 }} · 待审 {{ info.review || 0 }}</p>
       <p v-for="warning in info.warnings || []" :key="warning">{{ warning }}</p>
+      <fieldset v-for="item in info.ambiguities || []" :key="item.key">
+        <legend>{{ item.name }}：需要确认身份</legend>
+        <label>选择这次要补全的对象
+          <select v-model="identityChoices[item.key]" class="form-select" :disabled="busy" @focus="loadIdentities(item)">
+            <option value="">请选择</option>
+            <option v-for="id in item.candidate_ids" :key="id" :value="id" :disabled="!identities[id] || identities[id].unavailable">{{ identities[id]?.name || '正在读取对象…' }}{{ identities[id]?.summary ? ' · ' + identities[id].summary.slice(0, 100) : '' }}</option>
+          </select>
+        </label>
+        <p>确认后按原章节范围发起一次新的查漏；原任务和已有结果保留。</p>
+        <button class="btn btn-sm" :disabled="busy || !identityChoices[item.key]" @click="completeIdentity(item)">确认身份并重新查漏</button>
+      </fieldset>
       <div class="targeted-completion__actions">
         <button v-if="busy && taskId" type="button" class="btn btn-sm" :disabled="submitting" @click="act('cancel')">停止补全</button>
         <button v-if="canResume && !busy" type="button" class="btn btn-sm" @click="act('resume')">继续未完成的补全</button>

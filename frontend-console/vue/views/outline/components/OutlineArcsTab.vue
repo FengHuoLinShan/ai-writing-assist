@@ -171,6 +171,7 @@ const ARC_BULK_ACTIONS = [
 ]
 
 const props = defineProps({
+  focusedAsset: { type: Object, default: null },
   projectId: { type: String, default: null },
   subView: { type: String, default: "arcs" },
   arcs: { type: Array, default: () => [] },
@@ -215,6 +216,10 @@ async function navigateFilters(filters, restoreFilterFocus = false) {
 }
 
 onMounted(async () => {
+  if (props.focusedAsset) {
+    editArcOp(props.focusedAsset.id, [props.focusedAsset])
+    return
+  }
   if (!restoreFilterFocusOnMount) return
   await nextTick()
   filterPanel.value?.querySelector(":scope > summary")?.focus()

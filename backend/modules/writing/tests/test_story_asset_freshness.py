@@ -46,10 +46,14 @@ async def test_generate_preflight_returns_structured_stale_story_assets_409(
             ]
         }
 
-    monkeypatch.setattr(api, "require_active_project", _allow_project)
-    monkeypatch.setattr(api, "get_operation_task", _no_existing_task)
-    monkeypatch.setattr(api, "prepare_confirmed_ai_action", _confirmed_context)
-    monkeypatch.setattr(api, "get_scene_story_assets", _stale_assets)
+    monkeypatch.setattr("modules.project.facade.require_active_project", _allow_project)
+    monkeypatch.setattr(
+        "infrastructure.tasks.facade.get_operation_task", _no_existing_task
+    )
+    monkeypatch.setattr(
+        "modules.evidence.facade.prepare_confirmed_ai_action", _confirmed_context
+    )
+    monkeypatch.setattr("modules.story.facade.get_scene_story_assets", _stale_assets)
 
     request = WritingGenerateRequest(
         novel_id="novel-1",

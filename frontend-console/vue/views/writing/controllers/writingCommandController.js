@@ -222,7 +222,7 @@ export function createWritingCommandController({
     }
   }
 
-  async function generate(mode = "draft", { confirmStaleStoryAssets = false } = {}) {
+  async function generate(mode = "draft", { confirmStaleStoryAssets = false, regenerateCandidate = false } = {}) {
     const { projectId, chapter, scene } = context()
     if (!projectId || !chapter) {
       toast("请先选择章节", "warning")
@@ -234,7 +234,8 @@ export function createWritingCommandController({
     }
     const pendingResult = recoverActiveWorkflows(projectId, receiptStorage).find((item) => item.workflowType === "writing_generate" && item.view === "writing")
     if (pendingResult) { toast("已有正文建议待处理，请先在进度卡中查看或关闭", "info"); return null }
-    if (editor.isReadonly()) {
+    if (regenerateCandidate && editor.getStatus?.() !== "candidate") return null
+    if (editor.isReadonly() && !regenerateCandidate) {
       toast("当前内容只读；待处理建议不会作为工作稿参考", "warning")
       return null
     }
@@ -253,12 +254,19 @@ export function createWritingCommandController({
     generating = true
     readyResult = null
     pendingStaleStoryScript = null
-    onProgress({ staleStoryScript: null })
+    onProgress({ staleStoryScript: null, result: null })
     onLoadingChange(true)
     const token = ++generation
     try {
       const pov = mode === "pov"
       const pinnedRefs = getPinnedRefs()
+      const sourceDraftId = editor.getDraftId()
+      const stillHere = () => !disposed && token === generation && getProjectId() === projectId
+        && getChapter() === chapter && editor.getDraftId() === sourceDraftId
+        && (getScene()?.id || null) === (scene?.id || null)
+      const regenerationContext = regenerateCandidate
+        ? await api.writing.regenerationContext(sourceDraftId, projectId) : null
+      if (!stillHere()) return null
       const confirmation = await confirmAiReference({
         novel_id: projectId,
         action: "writing.generate",
@@ -272,8 +280,9 @@ export function createWritingCommandController({
         include_pending_objects: false,
         pinned_refs: pinnedRefs,
         ...(pinnedRefs.some(ref => ref.source_ref?.content_mode === "working") ? { content_mode: "working", context_mode: "working" } : {}),
+        ...(regenerationContext ? regenerationContext.reference_options : {}),
       })
-      if (disposed || token !== generation) return null
+      if (!stillHere()) return null
       const instruction = pov
         ? `${confirmation.user_note ? `${confirmation.user_note}\n\n` : ""}请严格使用视角人物在当前场景可见的信息生成正文建议。`
         : (confirmation.user_note || "")
@@ -391,6 +400,7 @@ export function createWritingCommandController({
     generatePovDraft: () => generate("pov"),
     reviewCandidate: () => runCandidateWorkflow("writing_semantic_review"),
     reviseCandidate: () => runCandidateWorkflow("writing_targeted_revision"),
+    regenerateCandidate: () => generate("draft", { regenerateCandidate: true }),
     recover,
     openResult,
     retryUsingStaleStoryScript,

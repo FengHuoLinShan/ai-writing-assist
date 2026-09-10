@@ -1,0 +1,90 @@
+{
+  "tools_hash": "702393b4ca0d825a44398fa5f5c227f0703f5866e39379bd1cef35fb818971ed",
+  "operations": {
+    "world.add_alias": {
+      "schema_hash": "ba5d3367f14ed5297574749dc2d8c639ccc83ac62b9c14fbbe61884a3498fb43",
+      "revision": "1"
+    },
+    "world.add_relation": {
+      "schema_hash": "df03981f85c9d9d6f24039046687367030e2234eb7b16b17dfd91dc53b4fc81c",
+      "revision": "1"
+    },
+    "world.adopt_package": {
+      "schema_hash": "4eaea77a15fcf5c31f74cdeda84647fa261c3cb83c9ca61a3e6cae1ec69df876",
+      "revision": "1"
+    },
+    "world.create_entity": {
+      "schema_hash": "4e6c3c0e2d6d0688cc57eed99a388b5f975d80ce044748f38901a8815e2a107c",
+      "revision": "1"
+    },
+    "world.edit_entity": {
+      "schema_hash": "c64528871690a5431612f666e727b92127e5933a164e784df4d543501b02d67f",
+      "revision": "1"
+    },
+    "world.create_page_draft": {
+      "schema_hash": "adf52616c8a6a8c66826d45fb87c1f1bfc507055053aefde7f77fe1e34338662",
+      "revision": "1"
+    },
+    "writing.new_chapter": {
+      "schema_hash": "cc3db9d799dfa422e9412ddda17fa420cd8a6bba6195df20b10e8d8480f7838e",
+      "revision": "1"
+    },
+    "writing.review": {
+      "schema_hash": "0583d7f90da0a2808b53cc158ee2ecaed4e1acb1c53551d36cba6f7ebf8c927b",
+      "revision": "1"
+    },
+    "writing.revise": {
+      "schema_hash": "ea9a26eb790d2a9fb4896afce382232ebfb9e6cb380e153d87c3cea9abf61faf",
+      "revision": "1"
+    },
+    "project.add_task": {
+      "schema_hash": "bfdf8879b8d52dd94b18baad4cf76565d978c46ad9fe37d4b842d9535d03e7cd",
+      "revision": "1"
+    },
+    "story.save_outline": {
+      "schema_hash": "ee854706b30f5852747418da229299bb0f9609ca5fb3d72283e51f310cde214f",
+      "revision": "1"
+    },
+    "story.create_scenes": {
+      "schema_hash": "77c3f8ff202a8b211d06572526484664c4e1fd13cd33b5f5afb0b090d9e95708",
+      "revision": "1"
+    },
+    "story.save_card": {
+      "schema_hash": "964adf60134153e7798d686e46b4dc7f2e49ce2bb6e375905ca0617f9263e08d",
+      "revision": "1"
+    },
+    "story.save_script": {
+      "schema_hash": "d4c90c75068daaf6a48f8c62d34ce1b8b034bd3d0d7b88e367e8a124f25d514c",
+      "revision": "1"
+    },
+    "story.edit_scene": {
+      "schema_hash": "2e0b34277a7c6af8efb5eb3ba1b66ed9885fa5c010227c3b2ffe6ad37b01d706",
+      "revision": "1"
+    },
+    "imports.organize": {
+      "schema_hash": "34c80520557ecdf2a5f4296a57f4205f910d32320320d88a9e5aae022d914058",
+      "revision": "1"
+    },
+    "map.create_node": {
+      "schema_hash": "afb6aa06a68c39a27026fc50565cdc87d72e266e569b362d95fdd23a428c2bc8",
+      "revision": "1"
+    },
+    "map.review_revision": {
+      "schema_hash": "d91dc3adc0b113d0daffdfb3a5fd3aaf95235adfca2eb68b228346caf99c1e98",
+      "revision": "1"
+    },
+    "world.review": {
+      "schema_hash": "34140fb9d80c080108ed1dcf0467636f5fa31c3bb076e830a1f6648711683a7f",
+      "revision": "1"
+    }
+  },
+  "read_tools": {
+    "search_project": "4a77abe9c28957eccb110e679d5c2787966625dd2a4b09dfb669c9febe7f1357",
+    "read_evidence": "a4d24341455effc13020a92f135762cc60482c976fd58f03a828ad056cba80ad",
+    "inspect_current": "e50485c3b54ee8d0d2f7d61db800789151ca0867c14beaa0d149e4cca93721fd",
+    "project_overview": "99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa",
+    "scene_assets": "99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa",
+    "current_scene": "99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa",
+    "research_fact": "9e9526a0ad4c423fe5685b9086b05b527a981467f4363b554fa4d9b236a85d6b"
+  }
+}

@@ -126,3 +126,12 @@ group 裁决和 legacy suggestions。group apply 必须引用原扫描任务，�
 智能去重扫描接受可选 `operation_id` 以兼容旧客户端；官方前端提交前持久化 UUID，并以
 该 UUID 恢复原任务和裁决工作台。相同 receipt 的不同请求返回 409；不同标签页或设备仍可
 各自发起扫描，不增加项目级排他锁。
+
+## Assistant 集成
+
+见 ADR-0023 与 Project README。模型凭据仍归 Account、执行配置仍经 Project snapshot；
+项目工作区汇总作为只读证据投影，作者待办仍由 Project 持有，模型推断的待办经明确确认后创建。
+
+
+相似资料扫描可由 Assistant 组织，实际比较裁决仍由原工作台完成。扫描任务结果持久化
+`group_receipts`，同一成功组相同决定幂等重放，不同决定拒绝；失败组仍保留独立处理回执。

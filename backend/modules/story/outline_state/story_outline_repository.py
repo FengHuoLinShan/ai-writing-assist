@@ -10,6 +10,13 @@ from modules.story.outline_state.models import StoryOutlineHead, StoryOutlineRev
 
 
 class StoryOutlineRepository:
+    async def set_current_revision(self, db, head, revision_id):
+        from modules.story.outline_state.repositories import _notify_structure_change
+
+        head.current_revision_id = revision_id
+        await db.flush()
+        await _notify_structure_change(db, head, "story_outline")
+
     async def get_head(
         self,
         db: AsyncSession,

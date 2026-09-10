@@ -41,12 +41,14 @@ import { PROJECT_CARDS_SCOPE, projectSession } from "./projectSession.js"
  */
 const props = defineProps({
   loadError: { type: String, default: null },
+  openImport: Boolean,
 })
 
 const projects = useStateKey("projects")
 const currentProjectId = useStateKey("currentProjectId")
 const loadError = ref(props.loadError)
 const session = projectSession
+watch(() => props.openImport, value => { if (value) session.importSectionOpen = true }, { immediate: true })
 const selection = getBulkSelection(session, PROJECT_CARDS_SCOPE)
 let disposed = false
 

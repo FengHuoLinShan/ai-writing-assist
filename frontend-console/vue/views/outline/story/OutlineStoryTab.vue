@@ -192,7 +192,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from "vue"
+import { computed, onMounted, ref } from "vue"
 import WorkflowProgressCard from "../../../components/WorkflowProgressCard.vue"
 import StoryOutlineEditorFields from "./StoryOutlineEditorFields.vue"
 import { useStoryOutline } from "./useStoryOutline.js"
@@ -207,9 +207,11 @@ const props = defineProps({
   entities: { type: Array, default: () => [] },
   loadError: { type: String, default: null },
   assetLoadError: { type: String, default: null },
+  initialRevisionId: { type: String, default: null },
 })
 
 const ctx = useStoryOutline(props)
+onMounted(() => { if (props.initialRevisionId) void ctx.viewRevision(props.initialRevisionId) })
 
 const reloading = ref(false)
 

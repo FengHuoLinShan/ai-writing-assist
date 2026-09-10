@@ -210,6 +210,45 @@ class WorldAuthorityService:
         await self._validate_manifest_replay(db, revision)
         return await self._response(db, revision)
 
+    async def find_page_publication(self, db: AsyncSession, novel_id: str, draft_id: str):
+        """Resolve a consumed draft through its immutable, project-owned receipt."""
+        nid, did = parse_uuid(novel_id, "novel_id"), parse_uuid(draft_id, "draft_id")
+        existing = await db.scalar(
+            select(WorldCanonRevision)
+            .where(
+                WorldCanonRevision.novel_id == nid,
+                WorldCanonRevision.receipt_json["admission_input"]["draft_snapshot"][
+                    "draft_id"
+                ].as_string()
+                == str(did),
+            )
+            .order_by(WorldCanonRevision.version_number.desc())
+            .limit(1)
+        )
+        if existing is None:
+            raise NotFoundError("原工作稿未找到发布回执，可能已被放弃。")
+        await self._validate_manifest_replay(db, existing)
+        references = existing.receipt_json.get("affected_resources") or []
+        for ref in references:
+            resource = ref.get("resource") or {}
+            if resource.get("kind") != "world_bible_page":
+                continue
+            revision = await db.scalar(
+                select(WorldBiblePageRevision).where(
+                    WorldBiblePageRevision.novel_id == nid,
+                    WorldBiblePageRevision.id
+                    == parse_uuid(ref["revision_id"], "revision_id"),
+                    WorldBiblePageRevision.page_id
+                    == parse_uuid(resource["resource_id"], "page_id"),
+                )
+            )
+            if revision is not None:
+                return {
+                    "page_id": str(revision.page_id),
+                    "version_number": revision.version_number,
+                }
+        raise NotFoundError("原工作稿的发布版本暂不可用。")
+
     async def get_admitted_page_publish(
         self,
         db: AsyncSession,
@@ -235,9 +274,7 @@ class WorldAuthorityService:
         await self._validate_manifest_replay(db, existing)
         receipt = CanonAdmissionReceiptV1.model_validate(existing.receipt_json)
         admission_input = receipt.admission_input
-        expected_head = parse_uuid(
-            str(expected_previous_head), "expected_previous_head"
-        )
+        expected_head = parse_uuid(str(expected_previous_head), "expected_previous_head")
         requested_draft_id = parse_uuid(str(draft_id), "draft_id")
         requested_validation_run_id = (
             parse_uuid(str(validation_run_id), "validation_run_id")
@@ -251,8 +288,7 @@ class WorldAuthorityService:
             or admission_input.validation_run_id != requested_validation_run_id
             or (
                 expected_impact_scope_hash is not None
-                and admission_input.impact_scope_hash
-                != expected_impact_scope_hash
+                and admission_input.impact_scope_hash != expected_impact_scope_hash
             )
         ):
             raise _fail(
@@ -468,9 +504,7 @@ class WorldAuthorityService:
             novel_id=request.novel_id,
             target_revision_id=request.target_revision_id,
             expected_previous_head=current.id,
-            compatibility_judgment=self._revert_compatibility_judgment(
-                current, target
-            ),
+            compatibility_judgment=self._revert_compatibility_judgment(current, target),
         ), {"action": "restore_history", "target_version": target.version_number}
 
     async def _admit_page_publish(
@@ -787,8 +821,7 @@ class WorldAuthorityService:
                 if (
                     current.version_number != 0
                     or current.parent_revision_id is not None
-                    or current.decision_id
-                    != bootstrap_decision_id(current.novel_id)
+                    or current.decision_id != bootstrap_decision_id(current.novel_id)
                     or manifest != empty_canon_manifest()
                 ):
                     self._digest_mismatch()
@@ -840,13 +873,9 @@ class WorldAuthorityService:
         ):
             self._digest_mismatch()
         affected = receipt.affected_resources[0]
-        if (
-            affected.resource.kind != "world_bible_page"
-            or (
-                admission_input.draft_snapshot.page_id is not None
-                and affected.resource.resource_id
-                != admission_input.draft_snapshot.page_id
-            )
+        if affected.resource.kind != "world_bible_page" or (
+            admission_input.draft_snapshot.page_id is not None
+            and affected.resource.resource_id != admission_input.draft_snapshot.page_id
         ):
             self._digest_mismatch()
         parent = await self._get_revision_model(
@@ -1199,8 +1228,7 @@ class WorldAuthorityService:
         if (
             admission_input.compatibility_judgment != expected_judgment
             or revision.manifest_digest != target.manifest_digest
-            or receipt.affected_resources
-            != target_manifest.active_resources
+            or receipt.affected_resources != target_manifest.active_resources
         ):
             self._digest_mismatch()
         return parent, target

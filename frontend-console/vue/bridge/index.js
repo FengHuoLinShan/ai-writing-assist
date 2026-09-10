@@ -10,6 +10,50 @@
  * setBridgeOverrides() 注入替身（生产代码不 import/检测 Mock）。
  */
 import { getCurrentScope, onScopeDispose, readonly, ref } from "vue"
+import { captureWorkContext } from "../shared/assistantContext.js"
+
+let assistantOpener = null
+export async function openSmartDedupTask(taskId) {
+  const projectId = getAppState()?.currentProjectId
+  const manager = _overrides.smartDedup ?? globalThis.App?._smartDedup
+  if (!projectId || !manager) throw new Error("查重工作台正在准备，请稍后重试。")
+  return manager.openTask(taskId, projectId)
+}
+const assistantListeners = new Set()
+export function onProjectAssistantChanged(listener) {
+  assistantListeners.add(listener)
+  return () => assistantListeners.delete(listener)
+}
+export function notifyProjectAssistantChanged(projectId, sessionId) {
+  for (const listener of assistantListeners) listener({ projectId, sessionId })
+}
+export function registerProjectAssistantOpener(handler) {
+  assistantOpener = handler
+  return () => { if (assistantOpener === handler) assistantOpener = null }
+}
+export async function openProjectAssistant(request) {
+  if (getAppState()?.currentProjectId !== request.projectId) throw new Error("作品已切换，请在当前作品重新打开讨论。")
+  const open = _overrides.assistantOpener ?? assistantOpener
+  if (!open) throw new Error("项目助手正在准备，请稍后从顶部打开。")
+  return open(request)
+}
+
+export function getAssistantWorkContext(projectId, page) {
+  return captureWorkContext(getAppState(), getRouter(), projectId, page,
+    globalThis.document?.activeElement, globalThis.getSelection?.(),
+    globalThis.document?.getElementById("workspace-content"))
+}
+
+export async function getCurrentWritingFingerprint(projectId, draftId) {
+  if (_overrides.writingFingerprint) return _overrides.writingFingerprint(projectId, draftId)
+  const state = getAppState()
+  const editor = globalThis.document?.getElementById("writing-editor")
+  if (state?.currentProjectId !== projectId || state?._currentDraftId !== draftId
+    || editor?.closest?.(".vue-island")?.dataset.projectId !== projectId) return null
+  if (!globalThis.crypto?.subtle) throw new Error("暂时无法核对当前编辑器，请保存正文后再采用方案。")
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(editor.value))
+  return Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, "0")).join("")
+}
 
 const _overrides = {}
 

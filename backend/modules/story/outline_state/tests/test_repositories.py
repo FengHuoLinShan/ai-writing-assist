@@ -204,6 +204,7 @@ class TestPlotThreadRepository:
             (),
             {
                 "id": thread_id,
+                "novel_id": uuid.uuid4(),
                 "name": "旧线程",
                 "current_stage": "初期",
                 "related_entity_ids": [],
@@ -421,6 +422,7 @@ class TestOutlineArcRepository:
             (),
             {
                 "id": arc_id,
+                "novel_id": uuid.uuid4(),
                 "title": "旧篇章",
                 "core_conflict": None,
                 "related_thread_ids": [],

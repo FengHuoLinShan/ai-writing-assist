@@ -65,6 +65,10 @@
       </div>
       <div v-else-if="workbench" class="scene-runtime-shell">
         <SceneRuntimeTabs :active-tab="storyWorkspace.activeTab" @select="storyWorkspace.selectTab" />
+        <section v-if="storyWorkspace.linkedRevision" class="scene-runtime-note" aria-label="定位的历史成果">
+          <p v-if="storyWorkspace.linkedRevision.error" role="alert">{{ storyWorkspace.linkedRevision.error }}</p>
+          <details v-else open><summary>{{ storyWorkspace.linkedRevision.title }} · 第 {{ storyWorkspace.linkedRevision.version }} 版</summary><p>正在查看原成果，当前编辑稿保持不变。</p><p v-if="typeof storyWorkspace.linkedRevision.content === 'string'" style="white-space: pre-wrap; overflow-wrap: anywhere">{{ storyWorkspace.linkedRevision.content }}</p><AssistantValue v-else :value="storyWorkspace.linkedRevision.content" /></details>
+        </section>
         <div v-if="storyWorkspace.activeTab === 'management'" id="scene-runtime-panel-management" class="scene-runtime-management" role="tabpanel" aria-labelledby="scene-runtime-tab-management">
         <div class="scene-workbench">
         <section class="scene-workbench__organize" :aria-busy="loading ? 'true' : 'false'">
@@ -285,6 +289,7 @@ import OutlineHeader from "../outline/components/OutlineHeader.vue"
 import { authorTaskPanelQuery } from "../writing/home/authorTaskSource.js"
 import ReferencePickerAdapter from "../generate/components/ReferencePickerAdapter.vue"
 import CharacterCardsPanel from "./CharacterCardsPanel.vue"
+import AssistantValue from "../../components/AssistantValue.vue"
 import SceneAutoExtractProgressCard from "./SceneAutoExtractProgressCard.vue"
 import { sceneAutoExtractManager } from "./sceneAutoExtractManager.js"
 import SceneRuntimeTabs from "./SceneRuntimeTabs.vue"

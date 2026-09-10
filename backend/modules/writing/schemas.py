@@ -36,7 +36,7 @@ def project_writing_draft_state(
         display_state = "active"
 
     raw_source = str(provenance.get("source") or "").strip().lower()
-    if raw_source in {"writing_generate", "ai", "llm"}:
+    if raw_source in {"writing_generate", "ai", "llm", "assistant_revision"}:
         source = "ai_generated"
     elif raw_source:
         source = raw_source
@@ -147,6 +147,12 @@ class WritingPublishRequest(WritingDraftCreate):
 # ============================================================
 # 响应 Schema
 # ============================================================
+
+
+class WritingRegenerationContext(BaseModel):
+    original_scope_available: bool
+    reference_options: dict[str, Any]
+    message: str
 
 
 class WritingDraftResponse(BaseModel):
@@ -354,6 +360,15 @@ class WritingGenerateResponse(BaseModel):
     status: str = "pending"
 
 
+class WritingWorldReviewScope(BaseModel):
+    """Reading grant for manual prose; never an AI generation confirmation."""
+
+    model_config = ConfigDict(extra="forbid")
+    cutoff_chapter: int | None = Field(default=None, ge=1)
+    scene_id: uuid.UUID | None = None
+    excluded_targets: list[str] = Field(default_factory=list, max_length=200)
+
+
 class WritingSemanticReviewRequest(BaseModel):
     """对一组冻结正文运行独立语义审查。"""
 
@@ -386,6 +401,12 @@ class WritingSemanticReviewLocation(BaseModel):
     end_hint: int | None = Field(None, ge=0)
 
 
+class WritingWorldEvidenceQuote(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    excerpt: str = Field(min_length=1, max_length=500)
+
+
 class WritingSemanticReviewFindingDraft(BaseModel):
     """LLM output before the server assigns a stable finding ID."""
 
@@ -405,6 +426,9 @@ class WritingSemanticReviewFindingDraft(BaseModel):
     location: WritingSemanticReviewLocation
     message: str = Field(..., min_length=1, max_length=2000)
     contract_refs: list[str] = Field(default_factory=list, max_length=20)
+    world_evidence: list[WritingWorldEvidenceQuote] = Field(
+        default_factory=list, max_length=4
+    )
     preserve: list[str] = Field(default_factory=list, max_length=20)
 
 

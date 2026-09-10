@@ -95,6 +95,34 @@ class WorldValidationService:
             policy_version="builtin-v1",
         )
 
+    @staticmethod
+    def assistant_advisory_policy() -> WorldValidationPolicy:
+        """An opt-in diagnostic default, never a replacement Canon policy."""
+        return WorldValidationPolicy(
+            schema_version="world_validation_policy.v1",
+            policy_version="assistant-advisory-v1",
+            semantic_enabled=True,
+            max_packets=6,
+            required_questions=[
+                {
+                    "question_id": "internal-consistency",
+                    "gate": "structure",
+                    "question": (
+                        "资料中是否存在可以用精确引文证明的直接矛盾？"
+                        "资料不足、刻意留白与角色误解不能判为矛盾。"
+                    ),
+                },
+                {
+                    "question_id": "causal-consequences",
+                    "gate": "narrative",
+                    "question": (
+                        "已声明的规则、代价和结果是否有缺失的因果环节？"
+                        "区分明确冲突、待作者决定的建议与尚无证据。"
+                    ),
+                },
+            ],
+        )
+
     async def active_policy(
         self,
         db: AsyncSession,
@@ -107,7 +135,7 @@ class WorldValidationService:
         return policy, stable_hash(policy.model_dump(mode="json"))
 
     async def _active_policy_candidates(
-        self, db: AsyncSession, novel_id: str
+        self, db: AsyncSession, novel_id: str, *, include_disabled: bool = False
     ) -> list[tuple[WorldBiblePage, WorldValidationPolicy]]:
         pages = list(
             (
@@ -130,7 +158,7 @@ class WorldValidationService:
             if not isinstance(raw, dict):
                 continue
             policy = WorldValidationPolicy.model_validate(raw)
-            if policy.enabled:
+            if policy.enabled or include_disabled:
                 candidates.append((page, policy))
         if len(candidates) > 1:
             raise ConflictError("Multiple active World validation policies exist")
@@ -278,9 +306,7 @@ class WorldValidationService:
             update = WorldBiblePageDraftUpdate(
                 page_meta_json=meta, free_text=data.summary
             )
-        return await self._lifecycle.update_draft(
-            db, novel_id, str(draft.id), update
-        )
+        return await self._lifecycle.update_draft(db, novel_id, str(draft.id), update)
 
     async def activate_builtin_policy(
         self, db: AsyncSession, novel_id: str
@@ -306,9 +332,7 @@ class WorldValidationService:
         context = await get_project_context(db, novel_id)
         if context is None or not context.owner_id:
             raise ConflictError("Active project owner is unavailable")
-        expected_canon_head = await self._authority.lock_head_for_admission(
-            db, novel_id
-        )
+        expected_canon_head = await self._authority.lock_head_for_admission(db, novel_id)
         async with db.begin_nested():
             staged = await self._lifecycle.create_page(
                 db,
@@ -318,9 +342,7 @@ class WorldValidationService:
                     page_type="rule",
                     title="世界书校验策略",
                     status="draft",
-                    page_meta_json={
-                        "validation_policy": policy.model_dump(mode="json")
-                    },
+                    page_meta_json={"validation_policy": policy.model_dump(mode="json")},
                     free_text=(
                         "已启用世界书结构、证据、依赖和作者裁定门禁。"
                         "语义审计需在高级策略中明确启用。"
@@ -348,6 +370,9 @@ class WorldValidationService:
         self,
         db: AsyncSession,
         data: WorldValidationRunCreate,
+        *,
+        assistant_advisory: bool = False,
+        llm_execution_snapshot: dict | None = None,
     ) -> WorldValidationRunResponse:
         request_payload = data.model_dump(mode="json", exclude={"operation_id"})
         existing = await get_operation_task(
@@ -376,9 +401,18 @@ class WorldValidationService:
                 )
 
         active_policy = await self.active_policy(db, data.novel_id)
+        published = (
+            await self._active_policy_candidates(db, data.novel_id, include_disabled=True)
+            if assistant_advisory
+            else []
+        )
+        if assistant_advisory and active_policy is None and published:
+            raise ConflictError("作者已关闭世界复核政策，请在世界复核设置中调整")
+        advisory = assistant_advisory and active_policy is None
+        fallback = self.assistant_advisory_policy() if advisory else self.builtin_policy()
         policy, policy_hash = active_policy or (
-            self.builtin_policy(),
-            stable_hash(self.builtin_policy().model_dump(mode="json")),
+            fallback,
+            stable_hash(fallback.model_dump(mode="json")),
         )
         manifest, dependency_hash, target_hash = await self._freeze_manifest(
             db,
@@ -388,11 +422,15 @@ class WorldValidationService:
             target_id=data.target_id,
             root_type=data.root_type,
         )
-        snapshot = (
-            await build_project_llm_execution_snapshot(db, data.novel_id)
-            if policy.semantic_enabled
-            else {}
-        )
+        snapshot = {}
+        if policy.semantic_enabled:
+            if llm_execution_snapshot is None:
+                snapshot = await build_project_llm_execution_snapshot(db, data.novel_id)
+            else:
+                await restore_project_llm_execution_settings(
+                    db, data.novel_id, llm_execution_snapshot
+                )
+                snapshot = llm_execution_snapshot
         impact = await self._impact.snapshot(
             db,
             data.novel_id,
@@ -425,6 +463,7 @@ class WorldValidationService:
                 "target_id": data.target_id,
                 "target_hash": target_hash,
                 "root_type": data.root_type,
+                **({"purpose": "assistant_advisory"} if advisory else {}),
                 "required_question_ids": [
                     item.question_id for item in policy.required_questions
                 ],
@@ -437,7 +476,14 @@ class WorldValidationService:
             dependency_hash=dependency_hash,
             model_snapshot_json=snapshot,
             impact_json=impact,
-            plan_json=plan,
+            plan_json={
+                **plan,
+                **(
+                    {"advisory_policy": policy.model_dump(mode="json")}
+                    if advisory
+                    else {}
+                ),
+            },
         )
         db.add(run)
         await db.flush()
@@ -590,6 +636,8 @@ class WorldValidationService:
         if not validation_run_id:
             self._required_validation(None, "run_required")
         run = await self._get_model(db, novel_id, validation_run_id or "")
+        if run.scope_json.get("purpose") == "assistant_advisory":
+            self._required_validation(run, "advisory_only")
         await self._refresh_freshness(db, run)
         requires_full = await self._target_requires_full_scope(
             db, novel_id, target_type=target_type, target_id=target_id
@@ -946,6 +994,7 @@ class WorldValidationService:
             novel_id=novel_id,
         )
         run = await self._get_model(db, novel_id, run_id)
+        advisory = run.scope_json.get("purpose") == "assistant_advisory"
         findings = [
             WorldValidationFinding.model_validate(item)
             for item in run.findings_json
@@ -963,6 +1012,14 @@ class WorldValidationService:
             for packet in packets:
                 if packet["input_hash"] in completed:
                     continue
+                if advisory:
+                    current = await self._get_model(db, novel_id, run_id)
+                    reason = await self._matches_frozen_inputs(db, current)
+                    if reason:
+                        self._mark_stale(current, reason)
+                        await db.commit()
+                        raise ConflictError("诊断资料或世界政策已变化")
+                    await db.commit()
                 request = LLMCallRequest(
                     model=model,
                     temperature=0,
@@ -1036,6 +1093,20 @@ class WorldValidationService:
     async def _policy_for_run(
         self, db: AsyncSession, run: WorldValidationRun
     ) -> WorldValidationPolicy:
+        if run.scope_json.get("purpose") == "assistant_advisory":
+            policy = WorldValidationPolicy.model_validate(
+                run.plan_json.get("advisory_policy")
+            )
+            if (
+                await self._active_policy_candidates(
+                    db, str(run.novel_id), include_disabled=True
+                )
+                or stable_hash(policy.model_dump(mode="json")) != run.policy_hash
+            ):
+                self._mark_stale(run)
+                await db.commit()
+                raise ConflictError("World diagnostic policy was superseded")
+            return policy
         if run.policy_version == "builtin-v1":
             return self.builtin_policy()
         active = await self.active_policy(db, str(run.novel_id))
@@ -1359,6 +1430,14 @@ class WorldValidationService:
     ) -> str | None:
         """Return the stale reason, or None when every frozen input matches."""
         active = await self.active_policy(db, str(run.novel_id))
+        if run.scope_json.get("purpose") == "assistant_advisory":
+            if await self._active_policy_candidates(
+                db, str(run.novel_id), include_disabled=True
+            ):
+                return "policy"
+            frozen_policy = run.plan_json.get("advisory_policy") or {}
+            if stable_hash(frozen_policy) != run.policy_hash:
+                return "policy"
         current_policy_hash = (
             active[1]
             if active is not None
@@ -1372,7 +1451,10 @@ class WorldValidationService:
             target_id=run.scope_json.get("target_id"),
             root_type=run.scope_json.get("root_type"),
         )
-        if current_policy_hash != run.policy_hash:
+        if (
+            run.scope_json.get("purpose") != "assistant_advisory"
+            and current_policy_hash != run.policy_hash
+        ):
             return "policy"
         if stable_hash(manifest) != run.manifest_hash:
             return "manifest"
@@ -1564,8 +1646,7 @@ class WorldValidationService:
         for row in rows:
             by_run.setdefault(str(row.run_id), []).append(row)
         return [
-            self.response(run, review_items=by_run.get(str(run.id), []))
-            for run in runs
+            self.response(run, review_items=by_run.get(str(run.id), [])) for run in runs
         ]
 
     async def _enriched_response(
@@ -1633,9 +1714,7 @@ class WorldValidationService:
         }
         reviewable = self._reviewable_finding_ids(run.findings_json or [])
         unknown = [
-            item.finding_id
-            for item in data.items
-            if item.finding_id not in findings
+            item.finding_id for item in data.items if item.finding_id not in findings
         ]
         if unknown:
             raise ValidationError("Unknown finding ids cannot be reviewed")
@@ -1857,18 +1936,14 @@ class WorldValidationService:
                     items.append(self._page_manifest_item(page))
         else:
             model = (
-                WorldBiblePage
-                if root_type == "world_bible_page"
-                else WorldBiblePageDraft
+                WorldBiblePage if root_type == "world_bible_page" else WorldBiblePageDraft
             )
             statement = select(model).where(
                 model.id == parse_uuid(root_id, "root_id"),
                 model.novel_id == nid,
             )
             if root_type == "world_bible_page":
-                statement = statement.where(
-                    WorldBiblePage.status.in_(_ADOPTED_STATUSES)
-                )
+                statement = statement.where(WorldBiblePage.status.in_(_ADOPTED_STATUSES))
             root = await db.scalar(statement)
             if root is None:
                 raise NotFoundError("Semantic gap root page not found")

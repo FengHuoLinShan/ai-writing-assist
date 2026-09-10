@@ -73,6 +73,7 @@ export function mountIsland({ viewName, component, load = null }) {
         console.error(`vue island mount point missing: ${viewName}`)
         return
       }
+      el.dataset.projectId = loadedProps?.projectId || ""
       app = createApp(component, loadedProps)
       app.provide(ISLAND_LEAVE_GUARD, (fn) => { leaveGuard = fn || null })
       app.mount(el)

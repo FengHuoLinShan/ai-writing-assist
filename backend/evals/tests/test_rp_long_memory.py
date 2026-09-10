@@ -66,7 +66,7 @@ def _write_jsonl(path: Path, payloads: list[dict]) -> None:
 
 def _verified_dataset(tmp_path: Path) -> Path:
     payload = _payloads()[0]
-    payload["capability_profile"]["provider"] = "test-provider"
+    payload["capability_profile"]["provider"] = "deepseek"
     payload["capability_profile"]["calibration_status"] = "verified"
     payload["capability_profile"]["official_spec_url"] = "https://example.test/models"
     payload["capability_profile"]["spec_verified_on"] = "2026-09-01"
@@ -138,7 +138,7 @@ def _install_fake_model_runtime(
     monkeypatch,
     *,
     model: str = "deepseek-v4-flash",
-    provider: str = "test-provider",
+    provider: str = "deepseek",
     project_error: Exception | None = None,
     probe_value: str = "只能操纵水流且不能使用火焰",
     story_text: str = "米娅放下火把，改用水流推动机关。",
@@ -1203,7 +1203,7 @@ def test_unexecutable_blocker_case_does_not_require_provider_calibration(
     monkeypatch,
 ) -> None:
     payloads = [_payloads()[0], _payloads()[-1]]
-    payloads[0]["capability_profile"]["provider"] = "test-provider"
+    payloads[0]["capability_profile"]["provider"] = "deepseek"
     payloads[0]["capability_profile"]["calibration_status"] = "verified"
     payloads[0]["capability_profile"]["official_spec_url"] = "https://example.test/models"
     payloads[0]["capability_profile"]["spec_verified_on"] = "2026-09-01"

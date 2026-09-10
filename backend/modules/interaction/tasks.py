@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import time
 
+from infrastructure.llm.agent_runtime import run_project_agent
+from infrastructure.llm.capabilities import capability_from_execution_settings
 from infrastructure.llm.retry import retry_with_backoff
 from infrastructure.tasks.registry import task_handler
+from modules.interaction.agent_runtime import InteractionAgentRun
 from modules.interaction.framing import InteractionStreamFramer
 from modules.interaction.generation import (
     InteractionContextBudgetError,
@@ -15,6 +18,7 @@ from modules.interaction.generation import (
     story_request,
     summary_request,
 )
+from modules.interaction.runtime_policy import AGENT_STORY_TASK, agent_story_enabled
 from modules.interaction.schemas import InteractionSummaryOutput
 from modules.project.facade import create_project_snapshot_llm_client
 
@@ -24,7 +28,15 @@ _CHECKPOINT_SECONDS = 2.0
 _MAX_URGENT_SUMMARY_PASSES = 4
 
 
+@task_handler("interaction_continuity_review", recovery_policy="manual_resume")
+async def handle_interaction_continuity_review(db, task):
+    from modules.interaction.proactive import handle_continuity_review
+
+    return await handle_continuity_review(db, task)
+
+
 @task_handler("interaction_story_generate", recovery_policy="restart_origin")
+@task_handler("interaction_agent_story_generate", recovery_policy="restart_origin")
 async def handle_interaction_story_generate(db, task):
     client = None
     framer = InteractionStreamFramer()
@@ -32,7 +44,16 @@ async def handle_interaction_story_generate(db, task):
     finish_reason = "stop"
     final_usage: dict[str, int] | None = None
     last_checkpoint = time.monotonic()
+    agent_run = None
     try:
+        agent_enabled = agent_story_enabled(
+            dict((task.meta or {}).get("llm_execution_snapshot") or {})
+        )
+        if agent_enabled != (task.task_type == AGENT_STORY_TASK):
+            raise RuntimeError("RP runtime dispatch does not match its frozen snapshot")
+        if agent_enabled:
+            agent_run = InteractionAgentRun(db, task, _workflow)
+            await agent_run.load()
         prepared = await _workflow.prepare_story_task(db, task=task)
         summary_passes = 0
         while isinstance(prepared, PreparedSummaryGeneration):
@@ -48,16 +69,32 @@ async def handle_interaction_story_generate(db, task):
                 timeout_override=rp_timeout_seconds(prepared),
             )
             try:
-                output = await summary_client.generate_structured(
-                    summary_request(prepared),
-                    InteractionSummaryOutput,
-                    max_fix_attempts=1,
-                    diagnostics=summary_diagnostics,
-                    fix_prompt=(
-                        "上一轮回顾没有遵守固定结构。只输出合法 JSON；"
-                        "不得添加新剧情或改变已有事实。"
-                    ),
-                )
+                if agent_run is not None:
+                    summary_output = await run_project_agent(
+                        summary_client,
+                        summary_request(prepared),
+                        tools=[],
+                        deps=None,
+                        output_type=InteractionSummaryOutput,
+                        budget=agent_run.budget,
+                        input_limit=capability_from_execution_settings(
+                            prepared.executable_settings
+                        ).hard_input_tokens,
+                        checkpoint=agent_run.checkpoint,
+                        future_requests=2,
+                    )
+                    output = summary_output.output
+                else:
+                    output = await summary_client.generate_structured(
+                        summary_request(prepared),
+                        InteractionSummaryOutput,
+                        max_fix_attempts=1,
+                        diagnostics=summary_diagnostics,
+                        fix_prompt=(
+                            "上一轮回顾没有遵守固定结构。只输出合法 JSON；"
+                            "不得添加新剧情或改变已有事实。"
+                        ),
+                    )
             finally:
                 await summary_client.close()
             summary_result = await _workflow.finalize_summary_task(
@@ -75,16 +112,18 @@ async def handle_interaction_story_generate(db, task):
             novel_id=prepared.novel_id,
             timeout_override=rp_timeout_seconds(prepared),
         )
-        async for chunk in client.generate_stream(
-            story_request(prepared),
-            transport_retries=False,
-        ):
+        stream = (
+            agent_run.stream(client, prepared)
+            if agent_run is not None
+            else client.generate_stream(story_request(prepared), transport_retries=False)
+        )
+        async for chunk in stream:
             visible = framer.feed(chunk.content)
             if visible:
                 pending_visible += visible
             if chunk.finish_reason:
                 finish_reason = str(chunk.finish_reason)
-            if chunk.usage is not None:
+            if chunk.usage is not None and agent_run is None:
                 final_usage = chunk.usage.model_dump()
             now = time.monotonic()
             if pending_visible and (
@@ -109,6 +148,7 @@ async def handle_interaction_story_generate(db, task):
             usage=final_usage,
             progress=0.95,
         )
+        pending_visible = ""
         return await _workflow.finalize_story_task(
             db,
             task=task,
@@ -116,7 +156,10 @@ async def handle_interaction_story_generate(db, task):
             metadata=metadata,
         )
     except Exception as exc:
-        await _workflow.fail_story_task(db, task=task, error=exc)
+        trailing, _, _ = framer.finish()
+        await _workflow.fail_story_task(
+            db, task=task, error=exc, visible_delta=pending_visible + trailing
+        )
         raise
     finally:
         if client is not None:

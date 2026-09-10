@@ -265,6 +265,7 @@ export function useWorldBible(props) {
     }
     if (dl.openConflicts) void openConflicts(dl.conflictId)
     if (dl.adoptionPackageId) void openAdoptionPackage(dl.adoptionPackageId)
+    if (dl.openHistory && activePageId.value === dl.pageId) void nextTick(() => openPageHistory(Number(dl.historyVersion) || null))
   }
 
   function syncSession() {
@@ -280,6 +281,8 @@ export function useWorldBible(props) {
     query.delete("entity_id")
     query.delete("page_id")
     query.delete("draft_id")
+    query.delete("history")
+    query.delete("history_version")
     if (draftId) query.set("draft_id", draftId)
     else if (pageId) query.set("page_id", pageId)
     router.commitCurrentQuery?.(query, "replace")
@@ -2693,7 +2696,7 @@ export function useWorldBible(props) {
   }
 
   // ---- page history ----
-  async function openPageHistory() {
+  async function openPageHistory(version = null) {
     const page = activePage.value
     if (!page?.id) return
     const novelId = projectId.value
@@ -2702,13 +2705,14 @@ export function useWorldBible(props) {
     try {
       const revisions = await api.world.listBiblePageRevisions(pageId, novelId)
       if (!ownsPage(novelId, pageId) || !ownsModalOwner(modalOwner)) return false
-      const body = Array.isArray(revisions) && revisions.length ? revisions.map((item) => `
+      const selected = Array.isArray(revisions) ? revisions.filter(item => !Number.isInteger(version) || item.version_number === version) : []
+      const body = selected.length ? selected.map((item) => `
         <article class="world-bible-suggestion-item">
-          <strong>v${esc(item.version_number)}</strong> · ${esc(item.revision_reason)}
+          <strong>v${esc(item.version_number)}</strong> · ${esc(({ manual_publish: "发布保存", legacy_create: "初始版本", legacy_update: "历史更新", restore: "历史恢复" })[item.revision_reason] || "历史保存")}
           <pre class="generate-markdown-pre">${esc(String(item.snapshot_json?.free_text || "").slice(0, 1200))}</pre>
           <button class="btn btn-sm" data-bible-page-restore="${esc(item.version_number)}">恢复为工作稿</button>
         </article>
-      `).join("") : `<div class="empty-state"><p>暂无页面版本</p></div>`
+      `).join("") : `<div class="empty-state"><p>${Number.isInteger(version) ? "这份历史版本已不可用" : "暂无页面版本"}</p></div>`
       showModalHtml("世界书页面版本", body, [], { size: "large" })
       document.querySelectorAll("[data-bible-page-restore]").forEach((button) => {
         button.addEventListener("click", () => restorePageRevision(Number(button.getAttribute("data-bible-page-restore")), novelId, pageId, button))
@@ -2731,6 +2735,8 @@ export function useWorldBible(props) {
       setEditorBaseline(draft)
       syncSession()
       toast("旧版本已恢复为工作稿，再次发布后才会生效", "success")
+      replaceEditorDeepLink({ draftId: draft.id })
+      rememberDraft(draft)
       return true
     } catch (err) {
       if (ownsPage(novelId, pageId) && ownsModalOwner(modalOwner)) toast(err.message || "恢复页面版本失败", "error")

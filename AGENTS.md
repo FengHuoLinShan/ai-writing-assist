@@ -1,153 +1,85 @@
 # AGENTS.md
 
-本文件是本仓库所有编码 Agent 的单一共享约束源。用户指令优先，但不得绕过安全、
-`novel_id` 隔离、真实数据保护或危险操作确认。目录内更近的 `AGENTS.md` 只补充局部规则；
-`CLAUDE.md` 仅供 Claude Code 导入同一份规则，不维护第二套契约。实现与当前事实以模块
-README、稳定接口、ORM、migration 和测试为准。
+本文件是仓库编码 Agent 的共享规则；局部 `AGENTS.md` 仅补充，`CLAUDE.md` 仅导入。遵守宿主指令层级、权限与沙箱。
+仓库决策顺序：用户指令 → 本文件 → 已采纳 ADR → 模块稳定接口 → Spec → 工程判断。实现事实以当前代码、ORM、migration 和测试为准；安全、`novel_id` 隔离、真实数据保护及危险操作确认不得绕过。
 
-## 开始工作
+## 自主决策
 
-1. 阅读本文件、目标目录内最近的 `AGENTS.md` 与模块 README；跨模块任务再读相关
-   `contracts.py` / `facade.py` / DI 注册。不要把 `CLAUDE.md` 当成另一份事实源。
-2. 非平凡计划必须说明：影响模块、稳定接口、API/schema/wire 风险、是否需用户确认或 ADR、
-   以及验证方式。
-3. 架构、数据库、共享层或安全任务还应读 `CONTEXT.md`、相关 ADR、设计文档和 migration。
-4. 新增或显著修改用户可见功能前，阅读 `docs/product/user-personas.md`；计划与 Review 必须
-   明确目标画像、用户会喜欢它的理由、前端舒适度、主要摩擦和验证方式。功能可以只服务其中
-   一类画像，但不得把作者后台复杂度无差别转嫁给阅读型用户。
-5. 开始非平凡实现前运行 `make docs-check`，确认当前架构文档清单没有既有漂移；收尾运行
-   `make docs-check BASE_REF=origin/main`，按输出更新文档，或在 PR 中逐项说明无当前文档
-   影响。机器清单位于 `docs/architecture/architecture-documents.toml`。
+- 将“帮我做”“能否修复”等行动请求视为执行授权，默认完成调查、实现、验证和必要文档；明确要求讨论、审查或计划时遵守范围，中途追问不自动取消任务。
+- 提问前先完成上下文已授权且能让决定具体可审查的工作。只有缺失信息会实质改变范围、正确性或安全边界且无法查证时，才提出聚焦问题并仅暂停受阻部分；普通歧义按目标与契约选择可验证方案，记录重要假设后继续。
+- 内部实现、模块职责、普通依赖、非破坏性 schema 及跨层重构可在请求范围内自主调整；同步全部调用方、测试和权威文档并保持外部契约。不得借实现选择扩大产品范围。
+- 更换主栈或核心存储/调度、引入常驻外部服务或新基础设施、超授权成本/数据外发、破坏对外兼容、改变重大产品语义及下述危险操作须明确授权，已授权范围不重复确认。待授权可做无外部影响的只读调查或隔离实验，不纳入正式实现。
+- ADR 记录重大长期决定，不作重构审批、不代替授权。需确认时说明方案、证据和影响，仅暂停受阻部分。
 
-Skill、自动化和编码工具的内部能力不构成仓库契约，不能覆盖本文件或稳定接口。
+## 调查与记录
 
-## 执行与验证尺度
+- 编辑前核对工作目录、最近的适用 `AGENTS.md`、已有改动和目标模块 README；先追踪真实入口、共享实现、调用方、稳定接口、ORM 和测试。跨模块再查 DI，架构、数据库或安全任务补读 `CONTEXT.md`、ADR、设计文档和 migration。
+- 仅当任务跨模块、长周期或高不确定性且上下文丢失会影响继续执行时，复用 `.agent/TASKS.md` 和匹配的 `.agent/tasks/` 记录，并按 `.agent/PLANS.md` 更新；简单问答和小修不建记录。记录目标、关键决定与证据、进展、验证、阻塞和一个可执行下一步，不复制对话，也不构成新增授权。
+- 命令/测试门禁见 `development-guide.md`、`testing-guide.md`；Issue、triage 及领域文档消费规则见 `docs/agents/`。
 
-- 用户提出实现或修复请求后，在授权范围内持续完成实现、验证和文档收尾；普通可逆的实现
-  选择按当前契约自行判断，不把计划或 Skill 建议变成额外审批。需要确认的架构与危险操作
-  仍按下文门禁执行；询问时指出具体规则、待决定事项及影响，并继续不依赖答案的工作。
-- 若 Skill 导致暂停、额外确认或偏离任务，链接实际读取的 `SKILL.md`、引用相关原文并说明
-  适用原因；用户明确指令优先于 Skill 建议，但不能放宽本仓库安全、数据与交付约束。
-- 先追踪实际入口、共享实现和调用方，再修复根因；复用既有接口，不为假设需求扩大改动。
-- 验证按影响面选择：纯文档改动运行文档门禁与 `git diff --check`；业务逻辑改动覆盖关键
-  行为和失败路径，并完成适用模块测试与 lint。安全、数据库和 UI 的专项要求仍然有效。
-  检查通过后，仅因新改动、失败或未解决风险扩大或重复测试。
-- 默认简洁中文，先给结论与证据；收尾明确已改内容、验证范围和未完成项，分别报告本地、
-  提交、远端、CI 与部署状态。中途澄清或状态问题不自动取消原任务。
+## 执行与验证
+
+- 修复根因并选择覆盖实际调用链的最小充分改动；先复用现有实现、标准库和平台能力，不为假设需求新增抽象、依赖或功能。仅清理本次范围内已证实无用的死代码、重复逻辑、转发层和过时兼容。
+- 在信任边界建立不变量，内部按契约工作；可删本次调用链中无依据的重复判空、宽泛异常吞噬和兜底，不削弱鉴权、输入校验、并发控制、事务、幂等或真实故障恢复。
+- 逻辑改动按影响与失败代价覆盖关键行为、实际失败路径，完成适用模块测试与 lint；共享契约、数据库、安全、关键 UI 扩大对应回归。低风险改动不机械增加复述实现的测试；通过后仅因新改动、失败或未决风险重验。
+- 非平凡实现前运行 `make docs-check`；收尾运行 `make docs-check BASE_REF=origin/main`。纯文档运行适用文档门禁和 `git diff --check`。公共契约、用户行为、数据模型或跨模块调用变化须同步权威文档和测试；内部重排不为留痕改文档。
+- 用户明确指令优先于 Skill 指南，但不得放宽本文件的安全、数据和交付约束。若 Skill 导致额外确认、暂停、未完成或偏离目标，链接实际读取的 `SKILL.md`，引用相关原文并说明适用理由，区分明确要求与自己的推断。
+- 默认用简洁中文短段落，先说结论和证据；仅在内容确实并列、顺序化或便于比较时用列表，避免不必要的表格、嵌套列表、术语和套话。仅播报重要进展、转向和阻塞；收尾说明结果、验证和未完成项，区分本地、提交、远端、CI、部署状态。
 
 ## 运行时 LLM
 
-- 本项目不实现自治或多 Agent 运行时。LLM step 必须由确定性业务工作流编排，带 schema
-  校验、预算、超时、日志和明确权限；不得自主选工具、跨模块编排或绕过确认。
-- 新增任何带 `novel_id` 的业务 LLM 服务必须通过
-  `modules.project.facade.open_project_llm_client()` 获取有效配置。provider、model 与 Key
-  来自项目 owner 当前已验证的账户连接；项目仅提供非 secret 工作流设置。可恢复任务使用
-  secret-free project snapshot seam，并以 snapshot 固定的 provider 读取当前轮换后的账户 Key。业务模块不得直接
-  `LLMClient()`、`LLMClient.from_project_settings()` 或自行拼装 provider/profile。独立
-  embedding 适配器仅可保留静态门禁中已有的窄例外，新增例外必须说明配置边界和迁移决定。
-- Prompt 清单与调用契约见 `docs/prompts/Prompt体系设计.md`，不要在此复制易变文件清单。
-- 普通 LLM 输出只进入待处理建议或临时预览。仅经持久化用户授权的自动流水线可写入允许的
-  派生/已采用资产，且必须保存授权范围、来源、workflow、可编辑/可回滚标记与测试；冲突、
-  低置信或无法消歧结果仍进入待处理。
-- 使用已确认 Context 的工作流必须经 Evidence facade 重新物化同一 confirmation，并保留
-  selected/excluded 资产、可见性和指纹语义。领域 overlay 可以追加本域执行资料，但不得重新
-  纳入作者排除资产或 Scene-local 截止点之后的事实；确需读取后序 Scene 的边界/融合任务必须
-  明确隔离，不能把该证据回流给当前 Scene 的生成、抽取或角色知识判断。
-- AI candidate 的独立审查和定向返修必须绑定并重验原生成 confirmation、Context/hidden guard
-  指纹和正文来源；缺失或 stale 时失败关闭。没有 confirmation 的人工正文只能声明实际覆盖的
-  prose-only 审查，不能宣称已检查角色知识边界。
+- 产品禁自治多 Agent 运行时；普通 LLM step 用确定性工作流。仅 ADR-0023 授权的项目助手/RP 可用有界单 Agent 循环，在服务端注册、授权及可见范围内选择查证/提案工具。各路径须有 schema、预算、超时、日志和权限；业务写入须领域确认、来源重验和事务，禁任意工具、跨项目访问及绕过确认。
+- 新增带 `novel_id` 的业务 LLM 服务仅经 `modules.project.facade.open_project_llm_client()` 获取配置；provider/model/Key 来自项目 owner 当前已验证的账户连接，项目仅提供非 secret 工作流设置。可恢复任务用 secret-free project snapshot seam 固定 provider，读取当前轮换后的账户 Key。业务模块禁绕过上述入口创建 LLM 客户端或自行拼装 provider/profile；独立 embedding 仅保留静态门禁已有窄例外，新增例外须说明配置边界和迁移决定。
+- Prompt 清单/契约见 `docs/prompts/Prompt体系设计.md`，此处不复制。
+- 普通输出仅作待处理建议/临时预览；持久化用户授权的自动流水线才可写允许的派生/已采用资产，须留存授权范围、来源、workflow、可编辑/可回滚标记并配套测试。冲突、低置信或无法消歧仍待处理。
+- 已确认 Context 须经 Evidence facade 重新物化同一 confirmation，保留 selected/excluded 资产、可见性和指纹语义。领域 overlay 可追加本域执行资料，不带回排除资产或 Scene-local 截止后事实；确需后序 Scene 的边界/融合任务须隔离，证据不得回流当前 Scene 的生成、抽取或角色知识判断。
+- AI candidate 独立审查/定向返修须绑定并重验原生成 confirmation、Context/hidden guard 指纹和正文来源，缺失/stale 则失败关闭。无 confirmation 的人工正文默认 prose-only；本次或持续授权的世界约束审查可追加 Evidence 回读设定，保存来源指纹、排除项及实际覆盖，不得宣称检查了角色知识边界或替代 AI candidate 原 confirmation。
 
-## 不可违反的约束
+## 项目边界
 
 ### 架构与代码
 
-- 默认栈为 FastAPI、PostgreSQL async task queue 与 Vue 3 SFC 前端（ADR-0009）。既有 hash
-  router 仍是窄的 route-host seam；业务页经 `vue/mountIsland.js` 注册，组件只能经
-  `vue/bridge/index.js` 访问 API、state、router、toast 等既有基建（禁裸全局）。新增基础设施、前端栈、
-  数据库/队列/向量存储或强制类型门禁，须用户确认或 ADR。
-- 生产业务代码跨模块只能依赖 `contracts.py`、`facade.py` 或已注册 DI port；不得直接依赖
-  其他模块的 `models.py`、`repositories.py`、`services.py`。测试、Alembic、ORM metadata
-  注册与应用组合根可有限导入实现，但组合根不得承载业务判断。
-- API 与 facade 保持薄层：参数适配、稳定返回形状和委托。非平凡编排下沉到拥有领域概念的
-  模块实现。新增 facade/contracts/DI port 前做 deletion test，避免 pass-through seam。
-- 动态用户、AI 或 API 内容不得未经转义进入 `innerHTML`；Vue 模板动态内容禁止 `v-html`
-  （依赖 `{{ }}` 自动转义）；不得 `eval` / `exec` LLM 输出；不得硬编码、记录或返回 API Key。
-- 生产代码不得 import 或检测 `Mock`；测试替身通过 DI。所有 `@patch` / `mock.patch` 使用
-  `autospec=True`，无法使用时说明原因。
+- 默认 FastAPI、PostgreSQL async task queue、Vue 3 SFC（ADR-0009）；hash router 仅作窄 route-host seam。业务页经 `vue/mountIsland.js` 注册，组件仅经 `vue/bridge/index.js` 访问 API/state/router/toast 等基建，禁裸全局。新增前端栈、数据库/队列/向量存储或强制类型门禁须用户确认或 ADR。
+- 生产业务跨模块仅依赖 `contracts.py`、`facade.py` 或已注册 DI port，不直引实现。测试、Alembic、ORM metadata 注册及应用组合根可有限导入实现；组合根禁业务判断。
+- API/facade 仅适配参数、稳定返回和委托；非平凡编排归所属领域模块，不为分层增加无价值转发接口。
+- 用户/AI/API 动态内容须转义后进入 `innerHTML`；Vue 禁动态 `v-html`，用 `{{ }}` 转义。禁 `eval`/`exec` LLM 输出及硬编码、记录、返回 API Key。
+- 生产禁 import/检测 `Mock`；测试替身走 DI。所有 `@patch` / `mock.patch` 使用 `autospec=True`，无法使用时说明原因。
 
-### 产品与前端体验
+### 产品与前端
 
-- 用户可见功能不能只以“技术可实现”或“测试通过”证明价值；按
-  `docs/product/user-personas.md` 回答目标用户是否会喜欢、是否愿意重复使用，以及前端是否
-  舒服。缺少真实数据时将结论标记为产品假设，不伪装成用户验证。
-- 默认界面使用作者或读者能理解的语言，不暴露 raw ID、JSON、Prompt/token、内部枚举或
-  数据库心智模型；诊断能力放入明确的次级入口。复杂能力渐进展开，高频任务就地完成。
-- 用户可见行为验收除正常流外，还应覆盖适用的首次进入、空态、加载、失败/冲突、保存反馈、
-  离开恢复、误操作保护和窄屏体验。草稿、当前上下文和长任务进度不得因导航或晚到响应静默丢失。
-- UI 只有在对应持久化操作真实成功后才能声称“已保存/已备份”。服务端保存与本地备份同时失败
-  时必须明确提示，并在离开、切章或覆盖前保留可验证的保护路径。
+- 新增/显著改变用户功能前读 `docs/product/user-personas.md`，围绕目标用户价值、易用性和摩擦设计，无需重复画像报告，不向读者转嫁作者后台复杂度。技术可行或测试通过不证明产品价值；无真实数据时标记产品假设。
+- 默认用作者/读者语言，不暴露 raw ID、JSON、Prompt/token、内部枚举或数据库心智模型；诊断放次级入口，复杂能力渐进展开，高频任务就地完成。
+- 验收受影响的正常流及适用的首次进入、空态、加载、失败/冲突、保存反馈、离开恢复、误操作保护和窄屏；不机械全量重验，草稿、上下文及长任务进度不得静默丢失。
+- 对应持久化真实成功才可显示“已保存/已备份”；服务端保存与本地备份均失败须明示，在离开、切章或覆盖前保留可验证的保护路径。
 
 ### 数据与安全
 
-- 所有业务读写保持 `novel_id` 隔离；API、LLM 输出和入库必须经过 Pydantic/调用方 schema。
-  唯一例外是 ADR-0018：同 owner、显式版本化的 author source revision 到 interaction consumer
-  的只读引用（来源查询用 source `novel_id`，RP 写入用 consumer `novel_id`）。
-- 公开浏览器路径还必须同时遵守当前 account principal 与项目 `owner_id` 门禁；不得接受调用方
-  指定的 owner，也不得用 worker/system 身份绕过用户请求的 owner 校验。owner 边界不替代
-  `novel_id` 过滤。
-- 已采用对象默认不硬删除，优先历史状态；项目永久删除除外。文稿导入入口当前只接受
-  `.txt .epub .html .htm .mobi .azw3`，且不超过 50MB；锁定运行时只验证了
-  `.txt .epub .html .htm`，在补齐 MOBI/AZW3 解析依赖与真实文件验收前，不得把后两者描述为
-  已支持格式。世界对象图片是受限例外：仅可经
-  owner + `novel_id` 门禁的对象图片接口上传真实 PNG/JPEG，严格小于 6MiB、最大
-  4096×4096，并由服务端去元数据后转换为 WebP；不得把该例外扩展为通用文件上传。
-- 实体抽取只保留长期创作资产；别名附着已有对象，不创建重复实体。
-- demo 阶段可重建开发库，不要求保留 schema 迁移数据兼容；仍必须同步 ORM、schema、调用方、
-  测试和文档，且不放宽上述安全约束。
+- 业务读写隔离 `novel_id`；API、LLM 输出和入库须经 Pydantic/调用方 schema 校验。唯一跨项目例外为 ADR-0018：同 owner、显式版本化的 author source revision → interaction consumer 只读引用；来源查询用 source `novel_id`，RP 写入用 consumer `novel_id`。
+- 公开浏览器路径同时校验当前 account principal 与项目 `owner_id`；不接受调用方指定 owner，不用 worker/system 绕过 owner 校验，且仍过滤 `novel_id`。
+- 已采用对象默认保留历史、不硬删，项目永久删除除外。文稿仅接受 `.txt .epub .html .htm .mobi .azw3`，≤50MB；锁定运行时仅验证前四种，补齐 MOBI/AZW3 依赖及真实文件验收前不得宣称支持后两种。
+- 世界对象图片仅经 owner + `novel_id` 门禁的专用接口上传真实 PNG/JPEG，<6MiB、最大 4096×4096；服务端去元数据并转 WebP，不扩展为通用上传。
+- 实体抽取仅留长期创作资产；别名附着已有对象，不重复建实体。
+- demo 可重建本任务专用且已确认数据可丢弃的开发库，无需保留 schema 迁移数据兼容；仍同步 ORM、schema、调用方、测试和文档。共享库、真实数据或归属不明不适用，安全边界不变。
 
 ### 交付与操作
 
-- 合并、删除、废弃等危险操作保留二次确认；不得提交 `.env`，不得跳过受影响模块测试合并。
-- 公共契约、用户行为、数据模型或跨模块调用变化时，在评审前同步权威文档和测试。纯内部重排
-  不强制改写设计文档，但必须显式核对并记录无影响原因。执行细则和自动门禁见
-  `docs/architecture/documentation-maintenance.md`。
-- 修改 `core/`、`shared/`、`infrastructure/` 前必须理解调用边界并显式说明风险。
+- 产品对象合并、删除、废弃保留领域二次确认；代码清理、重复实现合并、内部组件替换不因此审批。丢弃用户工作、破坏真实数据、重写共享 Git 历史须确认。
+- 禁提交 `.env`、跳过受影响模块测试合并、为过检删除有效断言/削弱安全门禁/隐藏失败。改 `core/`、`shared/`、`infrastructure/` 须理解调用边界并验证受影响路径。
+- 文档维护见 `docs/architecture/documentation-maintenance.md`，机器清单见 `docs/architecture/architecture-documents.toml`。
 
 ## 协作与冲突
 
-- 开发工具子代理与产品运行时 LLM 是不同层次。只有用户或适用指令明确要求且宿主允许时
-  才委派独立子任务，明确目标、写入范围和验收证据，由主 Agent 审查集成；小修直接完成。
-- 并行开发使用独立 worktree/分支；不同 Agent 不同时改同一模块。共享层修改在 PR 标注冲突
-  风险。涉及分支、PR 或 Issue 协调时，尽力检查远端分支、`ready-for-agent` Issue 和本地
-  改动；网络不可用时记录限制。小修、静态审查和文档审查无需远端检查。
-- 本地实现不得直接提交到 `main`：从最新 `origin/main` 创建 `codex/<slug>` 主题分支，
-  经受影响测试、lint、文档同步和评审后再合入 `main`。`main` 是唯一发布主干，不维护会与
-  实际部署漂移的长期“生产分支”。
-- 生产只允许通过 `deploy/scripts/release.sh <full-40-character-sha>` 部署
-  `origin/main` 可达的固定 commit；服务器 checkout 保持 detached，发布状态以
-  `deploy/.state/current-commit` 为准。主题分支、脏工作树、本地未推送 commit 和分支名
-  均不得直接作为生产部署输入。
-- Issue/PR 用 `gh` 管理；标签见 `docs/agents/triage-labels.md`。常规上下文放 Issue/PR，重大
-  长期决策放 ADR；不要把 Agent 交接写进代码注释。
-- 冲突优先级：用户指令（受安全例外限制）→ 本文件 → ADR → 模块稳定接口 → Spec → 自行判断。
-  Spec 内部矛盾或无法裁定的设计冲突应标记 `needs-triage` 并等待澄清；后提交者负责兼容
-  逻辑和文档冲突。
+- 本节委派仅指开发工具子代理。仅当用户或适用上层指令明确要求且宿主支持时，才委派可独立执行的调查、实现、测试或审查；主 Agent 明确目标、读写范围、依赖及验收证据并审查集成。小修直接完成。
+- 并行写入默认独立 worktree/分支，按文件、接口或隔离变更分工；同模块独立文件可并行，共享接口、migration、生成文件各设单一写入者，只读无需 worktree。不覆盖他人未提交工作；协作时查本地改动及相关远端分支/Issue，网络受限不阻断独立工作。
+- 不直接提交 `main`；可续用任务主题分支，新任务从尽可能新的 `origin/main` 建 `codex/<slug>`，远端不可用时可用已核实本地基线并记录限制。合入 `main` 前更新基线，完成受影响测试、lint、文档同步和评审，取得合并授权；`main` 为唯一发布主干，不设与部署漂移的长期生产分支。
+- 生产须明确授权，仅用 `deploy/scripts/release.sh <full-40-character-sha>` 发布 `origin/main` 可达固定 commit；服务器 checkout 保持 detached，以 `deploy/.state/current-commit` 为准。禁用主题分支、脏工作树、未推送 commit 或分支名部署。
+- Issue/PR 用 `gh`，标签见 `docs/agents/triage-labels.md`；关联任务记录，交接不写代码注释。本地实现无需先建 Issue/PR。
+- Spec 不足/文档冲突先查代码、测试、历史和上下文；能依证据裁定且在授权内则修正继续，不把既有实现或 bug 当正确契约。仅无法裁定且实质影响目标、契约或风险时标记 `needs-triage`，暂停受影响部分。
 
 ## 完成与停止
 
-- 完成：指定功能、受影响测试、适用 lint、`make docs-check BASE_REF=origin/main` 和文档
-  同步/无影响核对均已完成。
-- 停止并报告：需要用户确认、Spec 矛盾、外部依赖连续 3 次不可用、同一测试修复尝试 3 次后
-  仍失败，或任务需要未经确认的新架构。
-- 立即停止：发现真实数据丢失风险、跨 `novel_id` 泄漏、安全规则绕过，或未确认的破坏性 Git
-  操作（如 force push main、`reset --hard`）。
+- 完成须交付目标、相关验证和必要文档。检查不可执行或既有失败时，区分新增、环境和基线问题，报告验证范围及风险，不声称全通过、不跳过合并门禁。
+- 有可验证的新假设或替代路径且成本合理时继续；同一外部依赖连续 3 次不可用，或同一测试修复 3 次仍无新证据时暂停对应部分。必需授权缺失、关键歧义无法查证或无有效验证路径时也仅暂停受阻部分，交付其余成果。
+- 发现真实数据丢失风险、跨 `novel_id` 泄漏、安全绕过或未确认的破坏性 Git 操作，立即停止相关危险操作并报告；可继续只读诊断和隔离修复，不扩大影响。
 
-## 文档导航
-
-- 单模块：模块 README → 稳定接口 → 测试；需要诊断内部行为时再读实现。
-- 跨模块：加读全部相关稳定接口；架构/安全：加读 `CONTEXT.md`、ADR 与全仓库证据。
-- 开发命令与测试门禁见 `development-guide.md`、`testing-guide.md`；Issue、triage 与领域文档
-  消费细则见 `docs/agents/`。
-
-本文件只放会改变实现或验收决策的硬约束；可由代码直接看出的结构、一次性流程和长篇解释分别
-放在模块 README、开发指南、Skill 或 ADR。重复失败应提炼成可验证不变量，过时规则应删除。
+本文件仅留权限、边界及导航，其余另存相关文档。过时流程凭证据修订，不得改规则、ADR 或测试追认越权。

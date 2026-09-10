@@ -9,7 +9,7 @@ import { loadProjectsIntoState } from "./views/project/logic/projectState.js"
 
 async function loadProjects() {
   const { error } = await loadProjectsIntoState()
-  return { loadError: error }
+  return { loadError: error, openImport: getRouter()?.getCurrentQuery?.().get("open") === "import" }
 }
 
 export function registerProjectIsland() {

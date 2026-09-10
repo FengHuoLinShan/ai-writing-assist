@@ -35,6 +35,7 @@ from sqlalchemy.pool import StaticPool
 import infrastructure.tasks.models  # noqa: F401
 import modules.account.models  # noqa: F401
 import modules.account.settings_models  # noqa: F401
+import modules.assistant.models  # noqa: F401, E402
 import modules.evidence.models  # noqa: F401
 import modules.imports.models  # noqa: F401
 

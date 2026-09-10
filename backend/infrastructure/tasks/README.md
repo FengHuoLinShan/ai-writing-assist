@@ -34,6 +34,23 @@ infrastructure/tasks/
 并由 API 与 worker 两个组合根共同调用以注册这些声明。基础设施本身不导入或发现业务模块。
 当前注册项为：
 
+- assistant：`assistant_turn`，持久化 PydanticAI 消息检查点，manual_resume 不重置预算。
+- 变化后的确定性回访：`imports_completion_review`、`story_reference_review`，分别由
+  Imports、Story 持有覆盖缺口和引用失效结果，不伪装成语义审稿。
+- interaction Agent：`interaction_agent_story_generate` 沿原 attempt 的 restart_origin 规则；
+  `interaction_continuity_review` 是独立的只读增量检查，manual_resume，结果仍归 Interaction。
+  旧 `interaction_story_generate` 继续收束旧执行版本，不在恢复时升级协议。
+
+`_task_priority=background` 是基础设施的低优先级标记。多槽 worker 为前台留一个位置，
+普通队列不领取 `_execution_mode=inline_only` 子任务。该类领域复核由助手在原 task scope
+内调用既有 inline executor；父子 lease 同时约束提交，共享累计预算。inline 的 progress
+与 worker 一样脱离 ORM identity map，领域 `expire_all()` 不得丢失 lease/进度身份。
+
+父子关系在子任务创建时写入 `_parent_task_id`，取消按该关系查找，不能依赖领域稍后投影的
+结果引用。取消按子任务→父任务锁序收敛；失联扫描清理终态父任务的遗留子任务，可恢复父任务
+仍保留原子任务。子任务不可从通用重试接口独立运行。inline 心跳与取消清理使用调用者的数据库
+绑定，不能转向另一个默认数据库；独立清理事务只收束任务元数据，不提交已撤回的领域写入。
+
 - project：`smart_dedup_scan`
 - world：`world_alias_relation_extraction`、
   `world_entity_fusion_suggestions`、`world_bible_projection_refresh`、
@@ -310,3 +327,7 @@ RP max 沿用既有任务、lease、心跳与恢复策略；Interaction handler 
 UUID。过滤在领取 SQL 中完成，只处理匹配的 pending 任务；不会领取、取消或修改其他排队任务。
 不传参数仍是原队列领取方式。退避、coalescing、SKIP LOCKED、lease、preflight 和提交 fence
 全部复用；该入口用于明确任务的手动验收，不是浏览器权限或项目边界的替代。
+
+助手停止通过提交时保存的 `_parent_task_id` 查找 inline 子任务，范围仍含 novel_id；
+不依赖稍后生成的证据回执。子任务 heartbeat 与取消清理绑定原数据库会话工厂；
+父 lease 已失效时只允许按子 lease 完成终态清理，不提交领域写入。

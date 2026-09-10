@@ -34,6 +34,39 @@ _repo = ProjectRepository()
 _settings_service = ProjectSettingsService()
 
 
+async def inspect_project_workspace(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    task_scope: str | None = None,
+    on_date=None,
+    skip: int = 0,
+) -> dict:
+    """Bounded workspace/task projections, without account configuration."""
+    from modules.project.author_task_service import AuthorTaskService
+    from modules.project.workspace_service import ProjectWorkspaceSummaryService
+
+    if task_scope is not None:
+        from core.errors import ValidationError
+
+        if (
+            task_scope not in {"today", "inbox", "later", "completed", "archived"}
+            or not 0 <= skip <= 10000
+            or on_date is None
+        ):
+            raise ValidationError("待办查询范围无效")
+        tasks = await AuthorTaskService(_service).list_tasks(
+            db, novel_id, scope=task_scope, on_date=on_date, skip=skip, limit=30
+        )
+        return tasks.model_dump(mode="json")
+    service = ProjectWorkspaceSummaryService(
+        project_reader=_service.get_project,
+        author_task_summary_reader=AuthorTaskService(_service).get_workspace_summary,
+    )
+    summary = await service.get_summary(db, novel_id)
+    return summary.model_dump(mode="json")
+
+
 # Imported after service/repository setup so callers get one stable project seam
 # without exposing llm_runtime implementation details.
 from modules.project.image_runtime import (  # noqa: E402,F401

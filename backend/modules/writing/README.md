@@ -23,6 +23,11 @@ Writing 模块是章节正文的事实源，同时负责在 fresh context confir
 - 对冻结正文、总纲 profile 和 Scene 执行合同运行带结构化 coverage 的独立语义审查
 - 按审查 finding 的唯一正文范围应用 replacement patch，生成不覆盖原稿的定向返修 candidate
 
+人工正文的可选世界约束审查由助手本次范围或后台持续授权提交，最多追加8份、16000字符
+内的完整世界资料，不扩张到邻章或未授权 Scene 合同。每份资料经 Evidence 精确回读与最终
+指纹重验；世界引用必须带可回读原文。回执分别记录世界约束覆盖与人物知识覆盖，前者不赋予
+后者的通过资格。未选择此模式的人工审稿保持 prose-only；AI candidate 仍要求原 confirmation。
+
 ## 不负责
 
 - 未经确认自动采用、覆盖或发布 AI 正文
@@ -343,3 +348,28 @@ API Key、完整 Base URL/query、prompt 或正文。
 行为不变。
 写作前端新增按需地图入口，消费 World 的 `map-links` 作者只读 API，不引入后端 World 实现依赖。
 编辑器失焦记录光标，未 attach 的空状态不覆盖已有恢复指针。原文、SourceRange 与发布契约不变。
+
+## 项目助手接入（ADR-0023）
+
+助手可直接复核正文并引用原领域回执，复核共享父运行预算与冻结连接，不需要另行确认
+“检查”本身。原 AI 正文仍须原 generation confirmation；人工来源默认仅正文，另行授权后可
+检查 Evidence 实际回读的世界约束，仍不签署角色知识检查。外加排除范围不能被静默扩大。
+
+writing.revise 使用版本/hash 与精确不重叠区间，确认后新建工作稿；writing.new_chapter
+只在末尾追加工作稿。保存 assistant_revision 来源、原 context_origin、批准人和恢复基线，
+不制造独立审稿通过记录。浏览器采用前还核对未保存编辑内容。实际保存变化同事务标记待检，
+相同内容的重复保存不触发新检查；版本/发布/删除仍走 Writing 自己的门禁。
+
+Assistant 可提交原正文生成/续写、原 finding 定向返修，并确认采用或从已采用历史版本继续写。
+生成提交编排由 WritingGenerationService.submit_generation 统一持有；旧 HTTP 入口只是适配。
+定向返修提交与预检由 WritingSemanticWorkflowService 持有，worker 与助手预览使用同一原
+confirmation、正文、finding、Scene bundle 校验。恢复历史版本创建新 working，不借用发布入口。
+采用/恢复同步请求 working 索引；候选独立阅读不会降低后续门禁。存在无法安全自动物化的排除
+范围时保留原受控参考资料入口，不用广范围确认替换。
+
+### 候选资料变化后的新版本入口
+
+`GET /api/writing/drafts/{id}/regeneration-context` 只读取当前项目候选的原参考选择、排除项和
+补充要求，供受控参考资料弹窗再次确认。原记录缺失时明确标注本章重新选材；不重绑、更新或
+放宽旧 candidate 的 confirmation。新生成仍走 writing.generate，产生独立 candidate；审查、
+定向返修、采用旧 candidate 的严格门禁不变。确认期间换项目、章或 Scene 会放弃晚到的提交。

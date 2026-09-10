@@ -50,6 +50,13 @@ from modules.story.schemas import (
 logger = logging.getLogger(__name__)
 
 
+@task_handler("story_reference_review", recovery_policy="manual_resume")
+async def handle_story_reference_review(db, task):
+    from modules.story.proactive import review_references
+
+    return await review_references(db, task)
+
+
 def _stable_hash(value: Any) -> str:
     raw = json.dumps(
         value,
@@ -78,9 +85,7 @@ def _parse_task_request(meta: dict[str, Any], request_model: type[Any]) -> Any:
     request_payload = meta.get("request")
     if not isinstance(request_payload, dict):
         request_payload = {
-            name: meta[name]
-            for name in request_model.model_fields
-            if name in meta
+            name: meta[name] for name in request_model.model_fields if name in meta
         }
     return request_model.model_validate(request_payload)
 
@@ -145,9 +150,7 @@ def _character_card_source_hashes(
                 **shared,
                 "character_id": str(character_id),
                 "character_reveal_hash": (
-                    (character_reveals or {})
-                    .get(str(character_id), {})
-                    .get("hash")
+                    (character_reveals or {}).get(str(character_id), {}).get("hash")
                 ),
             }
         )
@@ -193,9 +196,7 @@ async def _compile_character_reveals(
             include_pending_objects=bool(
                 selection_options.get("include_pending_objects", False)
             ),
-            excluded_asset_ids=dict(
-                selection_options.get("excluded_asset_ids") or {}
-            ),
+            excluded_asset_ids=dict(selection_options.get("excluded_asset_ids") or {}),
             pinned_refs=list(selection_options.get("pinned_refs") or []),
             excluded_refs=list(selection_options.get("excluded_refs") or []),
         )
@@ -354,8 +355,7 @@ async def _prepare_task_input(
             for item in getattr(data, "accepted_reactions", [])
         ],
         "accepted_beats": [
-            item.model_dump(mode="json")
-            for item in getattr(data, "accepted_beats", [])
+            item.model_dump(mode="json") for item in getattr(data, "accepted_beats", [])
         ],
         "budget_tokens": compiled.budget_tokens,
         "reveal_mode": (

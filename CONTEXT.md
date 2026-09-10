@@ -33,7 +33,7 @@ README、ORM 模型与 Alembic migration。当前文档范围由
 | 概念 | 当前承载 | 含义 |
 |---|---|---|
 | 世界书页 | `world_bible_pages` | 作者可编辑的世界观组织页；它引用和解释事实，但不拥有 CoreEntity/关系等已采用事实。 |
-| 世界书类别与工作稿 | `world_bible_categories` / `world_bible_page_drafts` | 自定义类别只定义展示信息；工作稿是可丢弃的服务器编辑快照，发布后才以页面 revision 进入已采用世界观。 |
+| 世界书类别与工作稿 | `world_bible_categories` / `world_bible_page_drafts` | 自定义类别只定义展示信息；工作稿是服务器编辑快照，发布后才以页面 revision 进入已采用世界观。工作稿、对象与人物编辑携带 `expected_updated_at` 基线（缺失 `edit_baseline_required`、过期 `edit_baseline_stale`，均为可识别 409）；自动保存复用同一工作稿并刷新基线，冲突由作者在保留本地版或服务器版之间选择。 |
 | 世界书修订与投影 | `world_bible_page_revisions` / `world_bible_page_projections` | PageRevision 是带持久化 digest 和 same-novel 复合外键的封闭页面快照；发布在同一 Admit 事务中选入新 CanonRevision。旧 POST/PATCH 由 adapter 转成工作稿发布；纯页面归档只改 workflow head 状态，不改写已选历史 revision。投影是缓存，不是事实源。 |
 | 世界观简介 | `world_bible_synopsis_heads` / `world_bible_synopsis_revisions` | 仅作者模式可用的 P1 LLM 派生背景；revision 不可变且可回滚，head 只协调 stale、pin、刷新任务与持久化自动授权。它不替代确定性 `World Core Brief`，reader/character 不得读取。 |
 | 页面模板 | 代码注册表 + `template_key` / `template_version` | 内置模板目前不使用 `world_bible_page_templates` 数据表。 |
@@ -44,7 +44,11 @@ README、ORM 模型与 Alembic migration。当前文档范围由
 | 创设建议 | `creation_suggestion_queue` | 会改动结构化资产的普通 AI 建议先进入此队列，作者采用后才调用 world 领域命令写入当前有效资产。 |
 | 冲突队列 | `conflict_check_queue` | 世界设定冲突与叙事风险的待处理项；它是当前表，不是未来预留。 |
 | 世界设计 checkpoint | `creation_suggestion_queue` 中的 `world_design_checkpoint.v1` | 作者显式保存、不可采用的分阶段世界状态；内嵌 `world-state 0.1.0` 完整 taxonomy，未有证据的区域保持 gap/not-run。 |
-| 世界书校验回执 | `world_validation_runs` | 对冻结 policy/manifest/dependency/target 的 targeted/full 校验证据；只证明结构与已登记证据，不等于文学质量或作者采纳。激活项目策略后，新鲜回执是工作稿发布和采用包应用的硬门禁。 |
+| 世界书校验回执 | `world_validation_runs` | 对冻结 policy/manifest/dependency/target 的 targeted/full 校验证据；只证明结构与已登记证据，不等于文学质量或作者采纳。激活项目策略后，新鲜回执是工作稿发布和采用包应用的硬门禁。第四期在同一回执上冻结跨模块影响清单（`impact_json`）、分批计划与覆盖进度（`plan_json` + packet 账本）、失效原因（`stale_reason`）与同回执续接计数（`continued_count`）。 |
+| 校验复核条目 | `world_validation_review_items` | 逐条 finding 的作者处置（已修正 / 已知悉 / 稍后再定）与快照，绑定回执的 target/manifest hash；存在未处置项时门禁保持 `review_pending`，目标或政策变化后旧回执失效、需在新回执上重新裁定（ADR-0022）。 |
+| 资料库主题目录 | `world_library_topics` / `world_library_topic_members` | 作者组织资料的嵌套主题树：同项目复合外键嵌套、service 拒绝成环；成员是 Page / Draft / Entity 的多主题引用，独立工作稿发布时自动转换为 page 引用并去重。目录只表达组织方式，不构成地理或事实依赖，不进入生成上下文。 |
+| 作者工作区 | `world_library_favorites` / `world_library_recents` / `world_library_workspace_profiles` | 资料库收藏、最近访问（服务端保留最近 50 条）与每项目一条的视图偏好；不保存 checkpoint 或正文。 |
+| 共创会话 | `world_cocreation_sessions` / `world_cocreation_messages` | ADR-0021 的持久化共创会话：会话绑定项目 / 资料页 / 世界对象 / 主题，保存工作区形状与 `current_checkpoint_id` 指针；消息只落作者消息、完成的模型回复与作者决定，回合绑定 confirmation 与任务，候选成果引用创设建议队列。指针推进要求 `expected_checkpoint_id`，漂移返回 409 并保留提案，不自动采用；归档为软删除。 |
 
 ## 3. 结构、正文与导入
 
@@ -77,7 +81,9 @@ README、ORM 模型与 Alembic migration。当前文档范围由
 | 编译上下文 | CompiledContext | evidence compilation 按 scope、视角、预算和候选模式选择、裁剪并解释资料的中间表示。 |
 | 可操作资料项 | ContextItem | CompiledContext 内实际交给模型的单项资料；状态为 required、automatic、author_pinned、excluded 或 omitted。 |
 | Context 指纹 | compiled_context_fingerprint | 对 provider 可见 sections/items、来源身份、选择与有效范围的通用 SHA-256；预览、确认、执行必须一致。 |
-| 统一地图 | `map_atlas_nodes` / `map_atlas_revisions`，以及既有图片 run/page/annotation | 同一地点目录的空间示意、底图和配图；版本可恢复，不作为时间化世界事实。 |
+| 定向查证 | `retrieve_focused_evidence()` / `focused_evidence_neighbors` | 导入、地图和写作副客服用的只读稳定入口：按对象引用或未入库名称与关注问题做最大深度 0/1 的受限一跳查读；邻居模型步骤只对已核验根证据提名，不选工具、不扩大范围、不写事实。checkpoint 由服务端保存并可续查；手动新增资料须重新预览确认。 |
+| 角色原文许可 | CharacterKnowledge + 精确 EvidenceLink | character 视角引用原文须有截止点前 canonical/full 的 `known_content` 与精确原文一致，并由 active 精确 EvidenceLink 绑定该字段；缺少证明时保留已知 metadata、省略原文，固定来源无法证明则 blocker。该许可不等于完整知识边界审查，coverage 明示 `not_performed`。 |
+| 统一地图 | `map_atlas_nodes` / `map_atlas_revisions`，以及既有图片 run/page/annotation | 区域、城市、街区、街道四级空间结构（`cover → world → region → city → district → street → interior`，默认最深到街道）的空间示意、底图和配图；空间图元、来源与生成身份追加写入并由数据库 trigger 禁止原地修改，写入比较 `base_revision_id`、冲突 409；底图三锚点仿射校准只改图片展示、不改空间位置。版本可恢复，不作为时间化世界事实。 |
 
 地图册经既有 generation-background operation `world.map_atlas.generate` 取得 author-full 的
 canonical world background，并以 RAG `map_atlas` purpose 补充已确认正文和 Scene。工作稿仅在
@@ -138,7 +144,7 @@ Context。同一任务的内部复核/格式修复复用原 confirmation；自�
 | 生成 attempt | `interaction_generation_attempts` | 排队、上下文准备、流式缓冲、停止、失败和完成的领域状态；任务 transport 终态不能替代它。 |
 | 分段概要 | `interaction_summary_segments` | 按 token 规模压缩已选故事的不可变记忆段，记录覆盖锚点和脱敏 producer provenance。 |
 | 总回顾 | `interaction_overview_revisions` | 世界与起点、玩家角色、当前局面、人物势力、转折、未决事项和必须记住内容的活动总概要；revision 不可变，journey head 选择当前版。 |
-| 看海模式 | interaction 确定性循环 | 用户留在故事页且开关开启时，逐段提交有界 story attempt；不是自治 Agent，也不让模型自行调用工具。 |
+| 看海模式 | interaction 确定性循环 | 用户留在故事页且开关开启时，逐段提交有界 story attempt；每轮启用后使用有限 Agent；看海授权、节拍与离页停止仍由代码约束。 |
 
 旅程“正史”只表示当前代码级选中路径，不等于原作品正史。未选 sibling、失败残段和模型训练
 先验都不自动成为已经发生的历史；用户明确修正优先，并由后续回顾收敛。source-bound 旅程的
@@ -148,7 +154,9 @@ Context。同一任务的内部复核/格式修复复用原 confirmation；自�
 
 ## 7. 受控 LLM 工作流
 
-项目不构建自治或多 Agent 运行时。`infrastructure.llm.agent_step_harness` 提供
+ADR-0023 增加有限单 Agent 运行时，允许作者助手与 RP 在服务端注册的只读/提案工具中选择；
+业务修改仍以具体结果确认，身份与资料边界不交给模型。固定导入/索引/复核流程继续使用
+`infrastructure.llm.agent_step_harness` 提供的
 `ManagedLLMStep`、schema/output guard、预算、超时、journal 和错误分类：
 
 - step 可声明 read、suggest、draft 或 act-with-confirmation 权限；`autonomous` 被拒绝。
@@ -171,11 +179,16 @@ Context。同一任务的内部复核/格式修复复用原 confirmation；自�
 ## 8. 模块边界与文档使用
 
 当前业务模块为 `account`、`project`、`world`、`evidence`、`story`、`writing`、
-`imports`、`interaction`；Story 内部的 `outline_state` 与 `continuity` 吸收原 outline/memory
+`imports`、`interaction`、`assistant`；Story 内部的 `outline_state` 与 `continuity` 吸收原 outline/memory
 唯一生产实现，旧 Outline/Memory 兼容包已退场。RAG 索引与 Context 编译/确认归 evidence，
 账户连接与全局偏好归 account，项目偏好及有效配置
-归 project；`map` 是 world 子系统，
-`infrastructure/tasks` 是共享基础设施。`interaction` 是 RP 私人故事领域，不属于作者
+归 project；`map` 是 world 子系统，`infrastructure/tasks` 是共享基础设施。
+
+Assistant 拥有项目讨论、运行、操作批次及提醒展示（`/api/assistant`）；World 通用会话
+保留原物理表与 ID 后移交 Assistant。RP 树和 attempt 留在 Interaction，共用有限执行核心。
+主动检查的待检标记与内容变化同事务提交，领域审稿继续持有结果，Assistant 只投影提醒。
+作者/RP 开关分开，旧执行快照不在恢复中升级；迁移与产品验收状态见 ADR-0023 和任务记录。
+`interaction` 是 RP 私人故事领域，不属于作者
 创作资产的事实层、结构层或辅助层。
 
 生产业务代码只能跨模块依赖 `contracts.py`、`facade.py` 或已注册 DI port。应用组合根、

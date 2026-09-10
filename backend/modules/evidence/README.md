@@ -57,3 +57,26 @@ pytest modules/evidence/indexing/tests modules/evidence/compilation/tests -q
 HTTP 与内部边界、来源范围及恢复详见 compilation/README.md。
 原文选择支持 `start_offset=0`，以半开区间定位章首；缺失或负数起点仍拒绝。地图的已保存图元
 来源通过既有 pinned_refs 预填，仍受作者排除、预算、正文版本/hash与可见性重验约束。
+
+## Agent 读取出口（ADR-0023）
+
+Assistant 的搜索、精确原文、当前对象/Scene 和项目事项投影均经本模块出口。
+author-only inspection 加入 World 工作稿、采用地图与 Scene 人物卡/剧本；reader/character
+不能从这些作者入口获得内容。引用与实际读取分开计量，确认前重新物化/重验原来源。
+资产失效事件在原事务向组合根注册的 source.changed port 发出；Evidence 不调度主动任务，
+也不取得业务写入权限。专门 confirmation preview 与确认使用同一参数和指纹。
+
+`list_author_task_evidence` 是作者待办的有界只读出口；调用方必须为作者视角，复用 Project
+的日期/状态/分页查询，不将工作事项当成角色知识。TargetRef.target_path 继续只表示字段
+路径，不复用为任意查询表达式。
+
+writing_candidate 只对作者提供有界候选摘录及 ID/hash/版本定位。它不能伪装为 working 或
+canonical 的 SourceRangeRef，reader/character 与越过章/Scene 范围的读取被拒绝。
+read_organization_evidence 只返回原整理状态与恢复投影，不把任务进度当正文或世界事实。
+
+### 作者规划与历史的读取边界
+
+`world_bible_page_history`、`foreshadowing_plan`、`reveal_plan` 仅在无截止点的作者范围内读取，
+分别标注历史非当前事实、规划非已发生故事。完整作者地图也不能进入带截止点的资料包；章节
+阅读预览继续由 World 提供。地图读取附最近20张图片的状态及结果引用，不返回私有 URL、
+存储 key 或生图 Prompt。正文精确回读、排除、同 owner 固定 RP 来源版本约束不变。

@@ -1840,6 +1840,7 @@ describe("模态操作", () => {
   it("恢复页面版本后就地打开工作稿", async () => {
     const api = (await import("../../../../vue/bridge/index.js")).getApi()
     const router = (await import("../../../../vue/bridge/index.js")).getRouter()
+    router.commitCurrentQuery = vi.fn()
     api.world.listBiblePageRevisions = vi.fn().mockResolvedValue([
       { version_number: 1, revision_reason: "初版", snapshot_json: { free_text: "旧版正文" } },
     ])
@@ -1859,6 +1860,8 @@ describe("模态操作", () => {
     await vi.waitFor(() => expect(wrapper.find("#bible-free-text").element.value).toBe("旧版正文"))
 
     expect(worldSession.bible.activeDraftId).toBe("restored-draft")
+    expect(router.commitCurrentQuery.mock.calls.at(-1)[0].get("draft_id")).toBe("restored-draft")
+    expect(router.commitCurrentQuery.mock.calls.at(-1)[0].has("history")).toBe(false)
     expect(router.refresh).not.toHaveBeenCalled()
   })
 

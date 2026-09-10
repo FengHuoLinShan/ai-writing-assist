@@ -522,3 +522,12 @@ creation_suggestion_queue 中保存封闭的 owner 授权 carrier；普通建议
 地图持续创作沿用 World 派生资产边界：四层结构编辑、受限空间关系、`map-links` 只读定位、
 已有图元局部生成与依赖完整的逐项采用。来源与预算仍由 Evidence confirmation 决定，
 未采用的剩余候选继续等待确认。当前完整契约见 `docs/modules/15_map.md`。
+
+## Assistant 集成与复核归属
+
+见 ADR-0023。通用会话实现迁移到 Assistant，World 保留成果/checkpoint/采用包与复核真相。
+只读建议性语义复核在没有作者政策时使用固定快照，不替代 Canon 准入；既有政策及关闭选择
+始终优先。对象/别名/关系、工作稿与采用包通过领域预览与原门禁执行。
+
+工作稿发布后，旧 draft 链接通过 `drafts/{id}/publication` 读取同项目不可变 Canon 发布回执，
+定位其精确页面历史版本；不按名称猜页面、不重新创建工作稿。已放弃或无法验证的来源明确失败。

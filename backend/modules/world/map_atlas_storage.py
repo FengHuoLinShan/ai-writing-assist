@@ -266,6 +266,18 @@ def require_owned_page_object_key(key: str, novel_id: str, page_id: str) -> str:
     return canonical
 
 
+def storage_configuration_status() -> dict:
+    settings = get_settings()
+    reason = None
+    if not settings.map_atlas_s3_bucket.strip():
+        reason = "图片存储尚未配置，请联系管理员完成私有存储设置。"
+    try:
+        validate_map_atlas_s3_endpoint_url(settings.map_atlas_s3_endpoint_url)
+    except ValueError:
+        reason = "图片存储地址配置无效，请联系管理员修复。"
+    return {"available": reason is None, "reason": reason, "check": "configuration"}
+
+
 class MapAtlasStorage:
     """Small async wrapper around one synchronous boto3 S3 client."""
 

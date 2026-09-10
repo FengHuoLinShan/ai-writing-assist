@@ -126,11 +126,16 @@
         <p v-if="state.candidateActionError" class="writing-candidate-action-error" role="alert">{{ state.candidateActionError }}</p>
         <div class="writing-candidate-review-actions">
           <button v-if="canAdoptCandidate" class="btn btn-primary" :disabled="candidateBusy" @click="$emit('adopt')">{{ state.candidateAction === 'adopt' ? '采用中…' : '采用到工作稿' }}</button>
-          <button v-else-if="reviewBlocked" class="btn btn-primary" :disabled="candidateBusy" @click="$emit('targeted-revision')">{{ generationLoading ? '返修中…' : '按问题定向返修' }}</button>
-          <button v-else class="btn btn-primary" :disabled="candidateBusy" @click="$emit('semantic-review')">{{ generationLoading ? '审查中…' : '运行独立语义审查' }}</button>
+          <button v-else-if="reviewBlocked" class="btn btn-primary" :disabled="candidateBusy" @click="$emit('targeted-revision')">{{ generationLoading ? '处理中…' : '按问题定向返修' }}</button>
+          <button v-else class="btn btn-primary" :disabled="candidateBusy" @click="$emit('semantic-review')">{{ generationLoading ? '处理中…' : '运行独立语义审查' }}</button>
           <button v-if="canAdoptCandidate || independentReview" class="btn" :disabled="candidateBusy" @click="$emit('semantic-review')">{{ independentReview ? '重新独立审查' : '运行独立语义审查' }}</button>
           <button class="btn writing-candidate-reject" :disabled="candidateBusy" @click="$emit('reject')">{{ state.candidateAction === 'reject' ? '拒绝中…' : '拒绝建议' }}</button>
         </div>
+        <details>
+          <summary>参考资料已变化或无法审查</summary>
+          <p>重新确认资料后生成另一份建议，当前建议及其审查记录保留。</p>
+          <button class="btn" :disabled="candidateBusy" @click="$emit('regenerate-candidate')">重新确认资料并生成新版</button>
+        </details>
       </section>
       <div class="writing-sheet" :class="{ 'writing-sheet--candidate': state.status === 'candidate' }">
         <textarea
@@ -170,7 +175,7 @@ const props = defineProps({
 })
 const emit = defineEmits(["open-chapters", "create-chapter",
   "autosave", "checkpoint", "conflict-check", "publish", "discard",
-  "generate-draft", "generate-continuation", "generate-pov",
+  "generate-draft", "generate-continuation", "generate-pov", "regenerate-candidate",
   "auto-extract", "open-deep-import-settings", "open-ai-tools", "adopt", "reject",
   "semantic-review", "targeted-revision", "compare-candidate", "export",
   "retry-load",

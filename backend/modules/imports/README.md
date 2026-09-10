@@ -401,3 +401,22 @@ cd ../.. && make test-real-llm
 # 真实小说语料不进入默认测试；路径由调用者显式提供
 cd ../.. && make test-manual REAL_SOURCE_PATH=/abs/path/novel.txt
 ```
+
+## 助手整合（ADR-0023）
+
+`imports.organize` 以具体章节版本预览调用既有完整/分阶段流水线，确认后保存原授权范围，
+不强制覆盖、不扩大专项查漏权限。文件选择和破坏性来源替换仍走受控界面。
+`ImportWorkflowRunService.complete` 同事务标记完成事件；`imports_completion_review` 只投影
+本次整理的覆盖/降级回执。后台分析在同项目整理尚未收束时等待，不把中途派生资料当作终态。
+
+organization_status 经 Evidence 读取最近十次或指定整理的范围、进度摘要与恢复动作，不输出
+私有执行快照或正文。imports.resume 使用原 task ID / generation / 授权范围继续；
+imports.complete_targets 复用原专项查漏，目标与正文来源先形成具体预览。放弃、撤销及文件
+替换仍使用原受控流程，不能通过普通查证工具执行。
+
+### 专项补全的同名身份处置
+
+`targeted_completion` 的公开回执增加 `ambiguities` 与 `chapter_range`，同名目标不进入自动
+填空。每项包含待确认名称和最多20个候选对象引用；受控面板按需读取身份说明，作者选择后
+按原章节范围提交一项新的明确目标查漏。不会修改旧任务冻结 targets 或把新目标当作旧任务
+恢复。Writing 的 `import_task_id` 精确入口支持此任务，复用出处、待审采用包、继续与安全撤销。

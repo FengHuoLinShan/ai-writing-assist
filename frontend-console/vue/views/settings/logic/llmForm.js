@@ -15,7 +15,7 @@ export const SYSTEM_LLM_DEFAULTS = {
   provider_id: "deepseek",
   label: "DeepSeek",
   base_url: "https://api.deepseek.com",
-  model: "deepseek-v4-flash",
+  model: "deepseek-flash",
   timeout: 180,
   max_tokens: 12000,
   temperature: 0.3,

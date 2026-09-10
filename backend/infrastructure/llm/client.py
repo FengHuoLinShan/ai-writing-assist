@@ -595,21 +595,35 @@ class LLMClient:
         resolved_request = self.resolve_request_defaults(request)
         limiter = get_llm_limiter()
         from infrastructure.llm.retry import transport_retries_enabled
+        from infrastructure.llm.workflow_budget import current_workflow_budget
+
+        async def provider_request():
+            meter = current_workflow_budget()
+            if meter is not None:
+                await meter.before_request()
+            try:
+                response = await self._provider.generate(resolved_request)
+            except Exception:
+                if meter is not None:
+                    await meter.completed(None)
+                raise
+            if meter is not None:
+                await meter.completed(response.usage)
+            return response
 
         if transport_retries and transport_retries_enabled():
 
             async def call():
                 return await retry_with_backoff(
-                    self._provider.generate,
+                    provider_request,
                     max_attempts=self._settings.llm_retry_max_attempts,
                     base_delay=self._settings.llm_retry_base_delay,
                     max_delay=self._settings.llm_retry_max_delay,
-                    request=resolved_request,
                 )
         else:
 
             async def call():
-                return await self._provider.generate(resolved_request)
+                return await provider_request()
 
         return await limiter.run(call, limiter_scope=self._limiter_scope("chat"))
 
@@ -649,6 +663,24 @@ class LLMClient:
                 )
             async for chunk in stream:
                 yield chunk
+
+    async def research(self, question: str, *, before_request):
+        """Use this account's native search protocol in an isolated request."""
+        from infrastructure.llm.native_search import (
+            NativeSearchUnavailableError,
+            verified_native_search,
+        )
+
+        provider_id = self.profile_summary.get("provider_id", "")
+        if verified_native_search(provider_id, self.model_name) is None:
+            raise NativeSearchUnavailableError("当前模型尚未提供已适配的原生联网能力。")
+        async with get_llm_limiter().scope(limiter_scope=self._limiter_scope("chat")):
+            return await self._provider.research(
+                provider_id=provider_id,
+                model=self.model_name,
+                question=question,
+                before_request=before_request,
+            )
 
     async def generate_structured(
         self,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import uuid
 from collections.abc import Sequence
@@ -21,6 +23,100 @@ from shared.target_ref import TargetRef, normalize_target_ref
 
 _PRELOADED_SOURCE_UNSET = object()
 _SEARCH_SNIPPET_CHARS = 500
+
+
+async def compile_review_world_evidence(
+    db,
+    *,
+    novel_id: str,
+    chapter_index: int,
+    scene_id: str | None,
+    excluded_targets: list[str],
+) -> dict:
+    """Select bounded world references, then reread each permitted source exactly."""
+    from modules.evidence.compilation.facade import compile_with_tiers
+
+    if scene_id:
+        from modules.story.facade import get_scene_contract
+
+        if await get_scene_contract(db, novel_id, scene_id) is None:
+            raise NotFoundError("审查场景不属于本次作品")
+    compiled = await compile_with_tiers(
+        db,
+        novel_id=novel_id,
+        task="核对当前正文与世界设定的一致性",
+        scope="chapter",
+        chapter_index=chapter_index,
+        scene_id=scene_id,
+        reveal_mode="author_safe",
+        content_mode="working",
+        context_mode="canonical",
+        include_pending_objects=False,
+        retrieval_purpose="conflict_review",
+        budget_tokens=4000,
+    )
+    excluded = {value.rsplit(":", 1)[-1] for value in excluded_targets}
+    visibility = VisibilityContextContract(
+        mode="author",
+        cutoff_chapter=chapter_index,
+        cutoff_scene_id=scene_id,
+    )
+    service = NovelEvidenceService()
+    items, seen = [], set()
+    used = 0
+    omissions = ["只核对本次回读的世界资料，未覆盖整部作品或人物知识边界"]
+    for section in compiled.sections:
+        for source in section.sources:
+            source_type, source_id = (
+                str(source.get("type") or ""),
+                str(source.get("id") or ""),
+            )
+            if source_type not in {
+                "core_entity",
+                "world_entity",
+                "entity",
+                "world_bible_page",
+            }:
+                continue
+            if not source_id or source_id in excluded or (source_type, source_id) in seen:
+                continue
+            seen.add((source_type, source_id))
+            target = {
+                "target_type": source_type,
+                "target_id": source_id,
+                "target_path": "",
+            }
+            inspected = await service.inspect(
+                db,
+                novel_id=novel_id,
+                target_ref=target,
+                content_mode="working",
+                visibility=visibility,
+            )
+            if not inspected.get("visible"):
+                continue
+            content = json.dumps(
+                inspected["item"], ensure_ascii=False, sort_keys=True, default=str
+            )
+            if len(items) >= 8 or used + len(content) > 16000:
+                omissions.append("部分世界资料超过本次增量审查范围，未回传给模型")
+                continue
+            used += len(content)
+            items.append(
+                {
+                    "target_ref": target,
+                    "title": str(source.get("label") or "世界资料"),
+                    "content": content,
+                    "source_hash": hashlib.sha256(content.encode()).hexdigest(),
+                }
+            )
+    if not items:
+        omissions.append("没有可用于核对的世界资料，本次仅检查正文")
+    if excluded:
+        omissions.append("已排除作者指定的资料，不能据此判断被排除的设定")
+    return {"items": items, "omissions": list(dict.fromkeys(omissions))}
+
+
 _SCENE_CONTEXT_SUMMARY_CHARS = 320
 _QUERY_NGRAM_MAX_CHARS = 8
 _QUERY_SNIPPET_STOP_TERMS = {
@@ -1338,6 +1434,109 @@ class NovelEvidenceService:
 
     async def _visible_target(self, db, *, novel_id, target, content_mode, visibility):
         warnings: list[str] = []
+        if target.target_type == "writing_candidate":
+            if visibility.mode != "author":
+                return None, ["正文候选仅供作者审阅，不是已采用故事"]
+            from modules.writing.facade import get_draft
+
+            draft = await get_draft(db, novel_id, target.target_id)
+            if draft is None or draft.status != "candidate":
+                return None, ["候选已采用、撤回或不属于本项目"]
+            if (
+                visibility.cutoff_chapter
+                and draft.chapter_index > visibility.cutoff_chapter
+            ):
+                return None, ["候选位于当前章节之后"]
+            if visibility.cutoff_scene_id and str(
+                (draft.provenance_json or {}).get("scene_id") or ""
+            ) != str(visibility.cutoff_scene_id):
+                return None, ["候选没有绑定当前场景，请从原候选审阅入口核对范围"]
+            match = re.fullmatch(r"content\[(\d+)\]", target.target_path or "content[0]")
+            if match is None:
+                raise ValidationError("候选引用只接受正文位置")
+            start = int(match[1])
+            content = draft.content or ""
+            if not 0 <= start < max(1, len(content)):
+                raise ValidationError("候选正文位置越界")
+            end = min(start + 8000, len(content))
+            return {
+                "draft_id": str(draft.id),
+                "chapter_index": draft.chapter_index,
+                "title": draft.title,
+                "source_hash": draft.content_hash,
+                "version_number": draft.version_number,
+                "text": content[start:end],
+                "range": [start, end],
+                "total_characters": len(content),
+                "next_offset": end if end < len(content) else None,
+                "authority": "未采用的正文候选，不是正史或人物已知事实",
+            }, ["读取候选不代表其原参考资料已通过审查"]
+        if target.target_type in {"assistant_session", "world_checkpoint"}:
+            if (
+                visibility.mode != "author"
+                or visibility.cutoff_chapter is not None
+                or visibility.cutoff_scene_id
+            ):
+                return None, ["讨论与世界阶段成果只在作者未限制剧情截止的范围内读取"]
+            if target.target_type == "assistant_session":
+                from modules.assistant.facade import inspect_discussion
+
+                return await inspect_discussion(db, novel_id, target.target_id), []
+            from modules.world.worldbuilding_facade import inspect_world_checkpoint
+
+            return await inspect_world_checkpoint(db, novel_id, target.target_id), [
+                "阶段成果不代表正式设定或角色知识"
+            ]
+        if target.target_type == "project_workspace":
+            if visibility.mode != "author" or target.target_id != str(novel_id):
+                return None, ["工作区概览只适用于当前作者项目"]
+            from modules.project.facade import inspect_project_workspace
+
+            return await inspect_project_workspace(db, novel_id), []
+        if target.target_type == "scene_story_assets":
+            if visibility.mode != "author":
+                return None, ["场景工作稿仅对作者开放"]
+            from modules.story.facade import get_scene_story_context
+
+            material = await get_scene_story_context(
+                db, novel_id=novel_id, scene_id=target.target_id
+            )
+            return material.model_dump(mode="json") if material else None, [
+                "作者工作资料不是角色知识证明"
+            ]
+        if target.target_type in {
+            "map_atlas_node",
+            "world_bible_page_draft",
+            "world_bible_draft",
+        }:
+            if visibility.mode != "author":
+                return None, ["作者地图与工作稿不直接进入读者或角色视角"]
+            if target.target_type == "map_atlas_node":
+                if visibility.cutoff_chapter is not None or visibility.cutoff_scene_id:
+                    return None, ["作者地图可能含后续安排；请在地图页使用本章的阅读预览"]
+                from modules.world.map_atlas_facade import inspect_map_node
+
+                item = await inspect_map_node(db, novel_id, target.target_id)
+            else:
+                from modules.world.worldbuilding_facade import inspect_world_draft
+
+                item = await inspect_world_draft(db, novel_id, target.target_id)
+            return item, list(item.get("warnings") or [])
+        if target.target_type == "world_bible_page_history":
+            if (
+                visibility.mode != "author"
+                or visibility.cutoff_chapter is not None
+                or visibility.cutoff_scene_id
+            ):
+                return None, ["历史版本需在作者完整资料范围内查看，不进入角色知识"]
+            from modules.world.worldbuilding_facade import inspect_world_page_history
+
+            path = target.target_path or ""
+            if path and (not path.isdecimal() or int(path) < 1):
+                return None, ["历史版本编号无效"]
+            return await inspect_world_page_history(
+                db, novel_id, target.target_id, int(path) if path else None
+            ), ["历史资料不是当前正式事实"]
         if target.target_type in {"world_bible_page", "page"}:
             if visibility.mode in {"reader", "character"}:
                 return None, ["世界书页面不直接进入读者或角色视角"]
@@ -1470,6 +1669,18 @@ class NovelEvidenceService:
                 warnings.append("人物知识缺少可判定的同章先后位置，已按保守可见性排除")
                 return None, warnings
             return item, warnings
+        if target.target_type in {"foreshadowing_plan", "reveal_plan"}:
+            if (
+                visibility.mode != "author"
+                or visibility.cutoff_chapter is not None
+                or visibility.cutoff_scene_id
+            ):
+                return None, ["信息计划仅在作者完整规划范围中读取，不进入角色知识"]
+            from modules.story.facade import inspect_information_plan
+
+            return await inspect_information_plan(
+                db, novel_id, target.target_type, target.target_id
+            ), ["信息安排不代表故事已发生"]
         if target.target_type == "outline_scene":
             from modules.story.facade import (
                 get_scene_contract,

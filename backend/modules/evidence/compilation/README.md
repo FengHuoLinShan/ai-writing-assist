@@ -606,3 +606,10 @@ character_ranges_verified，knowledge_boundary_audit 始终为 not_performed，�
 可见性门禁声称为完整角色知识审查。reader/author 原文行为与全局 NovelEvidence.read 不变。
 `ContextSelectionRefRequest` 接受原文半开区间的合法起点 0（不能用 truthiness 判为空）；缺失、
 负数或布尔起点拒绝。地图复用 source_range/target pinned_refs，不新增 scope 或绕过确认重物化。
+
+## Assistant 消费契约（ADR-0023）
+
+Agent 重用原 confirmation 的 selected/excluded 与可见性，不把跨 consumer 的新资料隐式
+追加到旧确认。新增只读 inspection 面向 author 工作区（工作稿、采用地图、场景工作资料、
+项目事项）；这些投影不成为人物知识证明。preview_context_confirmation 与最终确认保持
+同一选项、user_note 和指纹；source.changed 只报告已提交事务内的资产变化。

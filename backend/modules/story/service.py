@@ -94,6 +94,11 @@ def _as_dict(value: Any) -> dict[str, Any]:
     return {"value": value}
 
 
+def _revision_basis_version(revision):
+    provenance = (revision.provenance or {}) if revision is not None else {}
+    return (provenance.get("basis_manifest") or {}).get("version", 1)
+
+
 class StoryService:
     """Own Story-layer writes and read models; never mutates other domains."""
 
@@ -415,6 +420,9 @@ class StoryService:
         card.stale = False
         card.stale_reason = None
         await db.flush()
+        from modules.story.proactive import changed
+
+        await changed(db, nid, sid)
         return await self._card_revision_response(db, card, revision)
 
     async def restore_card_revision(
@@ -714,9 +722,7 @@ class StoryService:
             nid,
             list(revision_ids),
         )
-        return [
-            await self._script_file_response(db, file, revisions) for file in files
-        ]
+        return [await self._script_file_response(db, file, revisions) for file in files]
 
     async def get_script_file(
         self,
@@ -821,6 +827,7 @@ class StoryService:
             **(provenance or {}),
             "basis_hash": basis_hash,
             "basis_manifest": {
+                "version": 2,
                 "scene_id": str(sid),
                 "excluded_script_file_id": str(file.id),
             },
@@ -871,6 +878,9 @@ class StoryService:
                         "working" if old.id == file.current_revision_id else "archived"
                     )
         await db.flush()
+        from modules.story.proactive import changed
+
+        await changed(db, nid, file.scene_id)
         return await self._script_file_response(db, file)
 
     @staticmethod
@@ -926,6 +936,9 @@ class StoryService:
         if file.adopted_revision_id != revision.id:
             raise StoryConflictError("scene script adoption failed")
         await db.flush()
+        from modules.story.proactive import changed
+
+        await changed(db, nid, file.scene_id)
         return await self._script_file_response(db, file)
 
     async def archive_script_revision(
@@ -995,6 +1008,9 @@ class StoryService:
         file.adopted_revision_id = None
         file.adopted_version_number = 0
         await db.flush()
+        from modules.story.proactive import changed
+
+        await changed(db, nid, file.scene_id)
         return await self._script_file_response(db, file)
 
     async def get_scene_story_assets(
@@ -1062,6 +1078,9 @@ class StoryService:
             files=file_models,
             script_revisions=script_revisions,
         )
+        from modules.story.information_dependencies import script_information_basis
+
+        basis_components["information"] = await script_information_basis(db, nid, sid)
         adopted_files = [item for item in files if item.adopted_revision is not None]
         beats: list[Any] = []
         snapshots: set[str] = set()
@@ -1086,6 +1105,7 @@ class StoryService:
                 expected_basis_hash=self._story_basis_hash_from_components(
                     basis_components,
                     exclude_file_id=str(item.id),
+                    basis_version=_revision_basis_version(item.adopted_revision),
                 ),
             )
             for item in adopted_files
@@ -1125,6 +1145,7 @@ class StoryService:
                 novel_id=str(item.novel_id),
                 scene_id=str(item.scene_id),
                 exclude_file_id=str(item.id),
+                basis_version=_revision_basis_version(revision),
             )
         stale = not stored_basis_hash or stored_basis_hash != expected_basis_hash
         return {
@@ -1137,9 +1158,7 @@ class StoryService:
                 str(item.adopted_revision_id) if item.adopted_revision_id else None
             ),
             "adopted_version_number": item.adopted_version_number,
-            "adopted_revision": (
-                revision.model_dump(mode="json") if revision else None
-            ),
+            "adopted_revision": (revision.model_dump(mode="json") if revision else None),
             "basis_hash": stored_basis_hash or None,
             "expected_basis_hash": expected_basis_hash,
             "stale": stale,
@@ -1153,6 +1172,7 @@ class StoryService:
         novel_id: str,
         scene_id: str,
         exclude_file_id: str | None = None,
+        basis_version: int = 2,
     ) -> str:
         """Hash upstream Scene/outline/cards/adopted scripts, excluding one file."""
         nid = _uuid(novel_id, "novel_id")
@@ -1187,9 +1207,14 @@ class StoryService:
             files=files,
             script_revisions=script_revisions,
         )
+        if basis_version == 2:
+            from modules.story.information_dependencies import script_information_basis
+
+            components["information"] = await script_information_basis(db, nid, sid)
         return self._story_basis_hash_from_components(
             components,
             exclude_file_id=exclude_file_id,
+            basis_version=basis_version,
         )
 
     @staticmethod
@@ -1248,11 +1273,17 @@ class StoryService:
         components: dict[str, Any],
         *,
         exclude_file_id: str | None,
+        basis_version: int = 2,
     ) -> str:
         scripts = components["adopted_scripts"]
         if exclude_file_id is not None:
             scripts = [item for item in scripts if item["id"] != exclude_file_id]
-        return _hash_payload({**components, "adopted_scripts": scripts})
+        if basis_version not in {1, 2}:
+            raise StoryConflictError("剧本依据版本不可用，请重新核对后保存新版本")
+        values = {**components, "adopted_scripts": scripts}
+        if basis_version == 1:
+            values.pop("information", None)
+        return _hash_payload(values)
 
     async def get_scene_story_context(
         self,

@@ -38,6 +38,7 @@ make docs-check BASE_REF=origin/main
 | [ADR-0020](0020-world-library-topics-and-workspace.md) | Accepted | 资料库主题目录（嵌套/多主题引用/发布转换）与作者工作区（收藏/最近访问/视图偏好）归 World 模块自有；统一 `/api/world/library` 只读合并分页，目录不构成事实依赖。 |
 | [ADR-0021](0021-world-cocreation-session-persistence.md) | Accepted / Implemented | 共创会话与消息持久化归 World 模块自有（终态记录、绑定 confirmation/任务/成果引用、历史分页与跨设备继续）；checkpoint 续写沿用 suggestion 载体 + 会话指针，漂移 409 保留提案，不自动采用。 |
 | [ADR-0022](0022-world-review-ownership.md) | Accepted / Implemented | 复核聚合与回执归 World（validation run 扩展影响清单/覆盖进度/逐项复核记录/失效原因）；Evidence 只读供证，Story/Writing/地图经稳定只读接口提供来源；定向查漏与分批续接复用同一 run；政策编辑复用 rule 页版本化政策。 |
+| [ADR-0023](0023-bounded-agent-runtime.md) | Accepted / Implementation in progress | PydanticAI 有界单 Agent、项目助手与 RP 工具执行；Project 连接、Evidence 可见性、成组确认与领域所有权继续有效。 |
 
 `ADR-0009 附录 A` 延续 ADR-0009 的编号，不是第二个独立决策编号。
 

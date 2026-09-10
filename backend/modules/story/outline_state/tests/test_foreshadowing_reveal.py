@@ -47,7 +47,7 @@ async def test_foreshadowing_update_reuses_loaded_plan(
 ) -> None:
     repo = ForeshadowingPlanRepository()
     plan_id = uuid.uuid4()
-    plan = type("Plan", (), {"id": plan_id, "name": "旧伏笔"})()
+    plan = type("Plan", (), {"id": plan_id, "novel_id": uuid.uuid4(), "name": "旧伏笔"})()
     get_calls = 0
 
     async def fake_get(_db, requested_id):
@@ -73,7 +73,9 @@ async def test_reveal_update_reuses_loaded_plan(
 ) -> None:
     repo = RevealPlanRepository()
     plan_id = uuid.uuid4()
-    plan = type("Plan", (), {"id": plan_id, "secret_summary": "旧秘密"})()
+    plan = type(
+        "Plan", (), {"id": plan_id, "novel_id": uuid.uuid4(), "secret_summary": "旧秘密"}
+    )()
     get_calls = 0
 
     async def fake_get(_db, requested_id):

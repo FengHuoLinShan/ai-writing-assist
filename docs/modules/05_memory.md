@@ -91,3 +91,8 @@ pytest modules/story/continuity/tests/ -v
 ```
 
 第四期复核所有权（ADR-0022）未改变 memory 子域：影响预演不读取记忆事件，故事线反查仅覆盖 `related_entity_ids`。
+
+## Agent 消费边界
+
+ADR-0023 不改变连续性状态的所有权和确定性重放。助手只经 Evidence 的 Scene lens 读取，
+不能把对话推断写成已发生历史。RP 的故事历史与回顾继续归 Interaction，不能混入作者 memory。

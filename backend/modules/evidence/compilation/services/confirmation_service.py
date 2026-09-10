@@ -38,6 +38,34 @@ _ASSET_TYPE_ALIASES = {
 
 
 class ContextConfirmationService:
+    async def preview_confirmation(self, db, options: CompileOptions) -> dict:
+        from dataclasses import replace
+
+        options = replace(
+            options,
+            requested_chapter_index=options.chapter_index,
+            retrieval_purpose=resolve_retrieval_purpose(
+                options.consumer_action or "",
+                options.retrieval_purpose,
+                reveal_mode=options.reveal_mode,
+            ),
+        )
+        compiled = await self._compiler.compile_with_tiers(
+            db, options, budget_tokens=options.budget_tokens
+        )
+        review = context_review_metadata(compiled, options)
+        return {
+            "context_fingerprint": review["context_fingerprint"],
+            "selected_asset_ids": review["selected_asset_ids"],
+            "sources": [
+                {"title": item.title or section.title, "source": item.source}
+                for section in compiled.sections
+                for item in section.items
+                if item.source
+            ],
+            "blockers": list(compiled.blockers),
+        }
+
     """Owns AI reference confirmation semantics."""
 
     def __init__(

@@ -314,7 +314,7 @@ watch(modeKey, () => {
 
     <section v-else :id="`owner-ai-panel-${activeCategory}`" class="owner-ai-drawer__generate" role="tabpanel" :aria-labelledby="`owner-ai-tab-${activeCategory}`">
       <div v-if="mode === 'pov_prose'" class="owner-ai-drawer__backbar"><button type="button" class="btn btn-sm" data-action="return-owner-writing-tools" @click="selectMode('writing')">返回写作建议</button></div>
-      <GenerateView v-if="generateProps" :key="`${generateProps.sessionKey}:${generateProps.tab}`" v-bind="generateProps" embedded @select-mode="selectMode" />
+      <GenerateView v-if="generateProps" :key="`${generateProps.sessionKey}:${generateProps.tab}`" v-bind="generateProps" embedded :on-assistant-handoff="() => closeDrawer({ restoreFocus: false })" @select-mode="selectMode" />
       <p v-else-if="generateLoading" class="owner-ai-drawer__status" role="status">正在恢复生成工作台…</p>
       <p v-else-if="generateError" class="owner-ai-drawer__status" role="alert">{{ generateError }}</p>
       <p v-else class="owner-ai-drawer__status">请选择一个工具。</p>

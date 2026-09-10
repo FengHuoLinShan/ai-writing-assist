@@ -8,10 +8,11 @@
       </div>
       <div class="atlas-primary-actions">
         <button :class="['btn', atlas.nodes.length ? 'btn-sm' : 'btn-primary']" :disabled="loading || busy" @click="startCreateMap">新建地图</button>
-        <button v-if="activeNode && (activeNode.current_revision_id || activePage)" class="btn btn-sm" :disabled="writeLocked || runUnfinished" @click="startRun(false)">{{ activeNode.current_revision_id ? '添加地图画面' : '生成图片新候选' }}</button>
-        <button class="btn btn-sm" :disabled="writeLocked || runUnfinished" @click="openUpload">上传地图</button>
+        <button v-if="activeNode && (activeNode.current_revision_id || activePage)" class="btn btn-sm" :disabled="writeLocked || runUnfinished" @click="startRun(false)">{{ mapCapabilities?.image_generation?.available === false ? '准备画面说明' : activeNode.current_revision_id ? '添加地图画面' : '生成图片新候选' }}</button>
+        <button class="btn btn-sm" :disabled="writeLocked || runUnfinished || mapCapabilities?.upload?.available === false" @click="openUpload">上传地图</button>
       </div>
     </header>
+    <p v-if="mapCapabilities?.upload?.available === false" class="atlas-alert" role="status">{{ mapCapabilities.upload.reason }} 空间示意仍可编辑，画面说明可复制后在外部使用。</p>
 
     <form v-if="creatingMap" class="card atlas-options" aria-label="新建空间地图" @submit.prevent="createMap">
       <label>地图名称<input v-model="newMap.title" class="form-input" maxlength="200" required /></label>
@@ -26,7 +27,8 @@
       <nav aria-label="选择地图页"><button v-for="item in visiblePages" :key="item.id" class="btn btn-sm" :class="{ active: activePage?.id === item.id }" @click="selectPromptPage(item)">{{ item.title }}</button></nav>
       <div v-if="activePrompt" class="atlas-prompt-editor">
         <label>画面说明<textarea v-model="activePrompt.prompt" class="form-textarea" rows="9" maxlength="64000" :disabled="!activePrompt.editable" @input="markPromptDirty" /></label>
-        <fieldset><legend>这一页怎么生成</legend><label><input v-model="activePrompt.generation_choice" value="internal" type="radio" @change="markPromptDirty" /> 站内生成</label><label><input v-model="activePrompt.generation_choice" value="external" type="radio" @change="markPromptDirty" /> 我在外部生成</label></fieldset>
+        <fieldset><legend>这一页怎么生成</legend><label><input v-model="activePrompt.generation_choice" value="internal" type="radio" :disabled="mapCapabilities?.image_generation?.available === false" @change="markPromptDirty" /> 站内生成</label><label><input v-model="activePrompt.generation_choice" value="external" type="radio" @change="markPromptDirty" /> 我在外部生成</label></fieldset>
+        <p v-if="mapCapabilities?.image_generation?.available === false" role="status">{{ mapCapabilities.image_generation.reason }}</p>
         <div><button class="btn btn-sm" @click="copyPrompt">复制画面说明</button><span role="status">{{ promptSaveLabel }}</span></div>
       </div>
     </section>
@@ -107,7 +109,7 @@
         </header>
 
         <button v-if="!structureEnabled && structureLevels.includes(activeNode.level)" class="btn btn-sm" @click="editStructureNodeId = activeNode.id">补建空间示意</button>
-        <MapStructureEditor v-if="structureEnabled" :key="projectId + ':' + activeNode.id" ref="structureEditor" :project-id="projectId" :node="activeNode" :known-nodes="adoptedNodes" :images="nodeImages" :has-reference="Boolean(activePage)" :initial-feature-id="initialFeatureId" :review-image-id="tab === 'review' && activePage?.review_status === 'candidate' ? activePage.id : ''" :evidence-refs="focusedSelection.refs.value" @pin-evidence="focusedSelection.add" @clear-evidence="focusedSelection.clear" @saved="refreshAtlasOnly" @open-node="openMapNode" @select-feature="persistFeatureFocus" @reference-visible="referenceVisible = $event" @state="structureState = $event" />
+        <MapStructureEditor v-if="structureEnabled" :key="projectId + ':' + activeNode.id" ref="structureEditor" :project-id="projectId" :node="activeNode" :known-nodes="adoptedNodes" :images="nodeImages" :has-reference="Boolean(activePage)" :initial-feature-id="initialFeatureId" :initial-revision-id="initialRevisionId" :review-image-id="tab === 'review' && activePage?.review_status === 'candidate' ? activePage.id : ''" :evidence-refs="focusedSelection.refs.value" @pin-evidence="focusedSelection.add" @clear-evidence="focusedSelection.clear" @saved="refreshAtlasOnly" @open-node="openMapNode" @select-feature="persistFeatureFocus" @reference-visible="referenceVisible = $event" @state="structureState = $event" />
         <template v-if="activePage && !structureState.reader">
         <label v-if="tab === 'atlas' && oldPages.length && (!structureEnabled || referenceVisible)" class="atlas-compare-toggle"><input v-model="compareAdopted" type="checkbox" />对比已有图片</label>
         <div v-if="!structureEnabled || referenceVisible" :class="['atlas-images', { compare: comparingImages }]">
@@ -231,7 +233,7 @@
           <summary>高级选项</summary>
           <label><input v-model="options.include_working_drafts" type="checkbox" :disabled="writeLocked || runUnfinished" /> 加入工作稿资料</label>
           <label><input v-model="options.include_interiors" type="checkbox" :disabled="writeLocked || runUnfinished" /> 允许规划室内图</label>
-          <label><input v-model="options.review_image_prompts" type="checkbox" :disabled="writeLocked || runUnfinished" /> 生图前检查画面说明</label>
+          <label><input v-model="options.review_image_prompts" type="checkbox" :disabled="writeLocked || runUnfinished || mapCapabilities?.image_generation?.available === false" /> 生图前检查画面说明</label>
         </details>
       </section>
     </details>
@@ -285,10 +287,12 @@ const latestRunId = ref(null)
 const review = ref({ mode: "review", nodes: [], total_pages: 0 })
 const atlas = ref({ mode: "atlas", nodes: [], total_pages: 0 })
 const pageHistory = ref([])
-const activePageId = ref(null)
+const activePageId = ref(getRouteQuery().get("page_id"))
 const activeNodeId = ref(getRouteQuery().get("node_id"))
 const focusedSelection = useEvidenceSelection(() => `${props.projectId}:map:${activeNodeId.value || ''}`)
 const initialFeatureId = ref(getRouteQuery().get('feature_id') || '')
+const initialRevisionId = ref(getRouteQuery().get('revision_id') || '')
+const mapCapabilities = ref(null)
 const fromChapterValue = Number(getRouteQuery().get('from_chapter'))
 const fromChapter = Number.isInteger(fromChapterValue) && fromChapterValue > 0 ? fromChapterValue : null
 const oldPageId = ref(null)
@@ -512,16 +516,19 @@ async function loadAll(preferredRunId = null) {
   if (!projectId) { loading.value = false; error.value = "请先选择一个作品"; return }
   error.value = ""; errorCode.value = ""
   try {
-    const [savedAtlas, latest, history, preferredRun] = await Promise.all([
+    const [savedAtlas, latest, history, preferredRun, capabilities] = await Promise.all([
       api.world.getMapAtlas(projectId),
       api.world.getLatestMapAtlasRun(projectId),
       api.world.getMapAtlasPageHistory(projectId),
       preferredRunId ? api.world.getMapAtlasRun(projectId, preferredRunId) : null,
+      api.world.getMapCapabilities?.(projectId).catch(() => ({ upload: { available: false, reason: "图片服务状态暂时无法读取，请重试。" }, image_generation: { available: false } })),
     ])
     const selectedRun = preferredRun || latest
     const selectedReview = selectedRun ? await api.world.getMapAtlasRunResults(projectId, selectedRun.id) : { mode: "review", nodes: [], total_pages: 0 }
     if (!mounted || epoch !== dataEpoch || projectId !== props.projectId) return
     atlas.value = savedAtlas
+    mapCapabilities.value = capabilities || null
+    if (capabilities?.image_generation?.available === false) options.review_image_prompts = true
     for (const key of Object.keys(promptRecords)) delete promptRecords[key]
     pageHistory.value = history
     latestRunId.value = latest?.id || null
@@ -851,7 +858,7 @@ async function selectTab(value) {
 function persistMapFocus() {
   if (loading.value) return
   const query = getRouteQuery()
-  if (query.get('node_id') !== activeNodeId.value) { query.delete('feature_id'); initialFeatureId.value = '' }
+  if (query.get('node_id') !== activeNodeId.value) { query.delete('feature_id'); initialFeatureId.value = ''; query.delete('revision_id'); initialRevisionId.value = '' }
   if (activeNodeId.value) query.set('node_id', activeNodeId.value); else query.delete('node_id')
   if (tab.value === 'review') query.set('atlas_view', 'review'); else query.delete('atlas_view')
   getRouter()?.commitCurrentQuery?.(query, 'replace')
@@ -886,7 +893,7 @@ useLeaveGuard(() => {
   return !uploadDraftDirty.value || confirm("放弃未上传的地图？")
 })
 function warnBeforeUnload(event) { if (!promptDirty.value && !uploadDraftDirty.value && !uploading.value) return; event.preventDefault(); event.returnValue = "" }
-onMounted(loadAll)
+onMounted(() => loadAll(getRouteQuery().get('run_id')))
 onMounted(() => globalThis.addEventListener("beforeunload", warnBeforeUnload))
 onBeforeUnmount(() => { mounted = false; clearTimeout(pollTimer); clearTimeout(promptTimer); uploadController?.abort(); globalThis.removeEventListener("beforeunload", warnBeforeUnload); globalThis.removeEventListener("pointermove", dragAnnotation); globalThis.removeEventListener("pointerup", endAnnotationDrag); if (uploadPreview.value) URL.revokeObjectURL(uploadPreview.value); for (const pageId of Object.keys(imageUrls)) releaseImage(pageId) })
 </script>

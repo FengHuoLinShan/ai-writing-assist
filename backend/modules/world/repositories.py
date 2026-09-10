@@ -2257,11 +2257,25 @@ class CharacterRepository:
         if data.meta is not None:
             update_values["meta"] = data.meta
 
+        update_values = {
+            key: value
+            for key, value in update_values.items()
+            if getattr(character, key) != value
+        }
         if update_values:
             for field, value in update_values.items():
                 setattr(character, field, value)
             db.add(character)
             await db.flush()
+            from modules.evidence.facade import mark_asset_context_changed
+
+            await mark_asset_context_changed(
+                db,
+                novel_id=str(character.novel_id),
+                asset_type="world_entity",
+                asset_id=str(character.entity_id),
+                reason="character_updated",
+            )
 
         return character
 

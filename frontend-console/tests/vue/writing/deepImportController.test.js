@@ -2,6 +2,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createDeepImportController } from "../../../vue/views/writing/controllers/deepImportController.js"
 
 describe("deepImportController", () => {
+  it("opens targeted completion in its existing source and rollback panel", async () => {
+    const onChange = vi.fn()
+    const api = { tasks: { get: vi.fn().mockResolvedValue({ task_type: "targeted_completion", novel_id: "project", status: "done", result: { targeted_completion: { created: 1 } } }) } }
+    const controller = createDeepImportController({ api, toast: vi.fn(), getProjectId: () => "project", onChange })
+    await controller.recover("completion-task")
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ taskId: "completion-task", progress: expect.objectContaining({ workflowType: "targeted_completion", targetedCompletion: { created: 1 } }) }))
+    controller.dispose()
+  })
+  it("opens a server receipt without a local workflow pointer or resubmission", async () => {
+    const onChange = vi.fn(), onDone = vi.fn()
+    const api = { tasks: { get: vi.fn().mockResolvedValue({ task_type: "deep_import", status: "done", result: { workflow_id: "workflow", phase: "done", phase_errors: [{ message: "保留的遗漏" }] } }) } }
+    const controller = createDeepImportController({ api, toast: vi.fn(), getProjectId: () => "project", onChange, onDone })
+    await controller.recover("old-task")
+    expect(api.tasks.get).toHaveBeenCalledWith("old-task", "project")
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ taskId: "old-task", progress: expect.objectContaining({ status: "done", workflowId: "workflow", phaseErrors: [{ message: "保留的遗漏" }] }) }))
+    expect(onDone).not.toHaveBeenCalled()
+    controller.dispose()
+  })
   beforeEach(() => {
     localStorage.clear()
     vi.clearAllMocks()

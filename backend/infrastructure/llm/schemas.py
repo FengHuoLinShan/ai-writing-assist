@@ -8,7 +8,32 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+class LLMToolCall(BaseModel):
+    """Provider tool call; arguments remain JSON until tool schema validation."""
+
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(min_length=1, max_length=256)
+    name: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,128}$")
+    arguments: str = Field(default="{}", max_length=100000)
+
+
+class LLMToolDefinition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,128}$")
+    description: str = Field(default="", max_length=8000)
+    parameters: dict[str, Any]
+
+
+class LLMToolDelta(BaseModel):
+    """Incomplete JSON is permitted only while assembling a provider stream."""
+
+    index: int = Field(ge=0)
+    id: str | None = None
+    name: str | None = None
+    arguments: str | None = None
 
 
 class LLMMessage(BaseModel):
@@ -16,12 +41,40 @@ class LLMMessage(BaseModel):
 
     role: Literal["system", "user", "assistant", "tool"] = "user"
     content: str = ""
+    tool_calls: list[LLMToolCall] = Field(
+        default_factory=list, exclude_if=lambda value: not value
+    )
+    tool_call_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    reasoning_content: str | None = Field(default=None, exclude=True, repr=False)
+
+    @model_validator(mode="after")
+    def validate_tool_role(self) -> LLMMessage:
+        if self.tool_calls and self.role != "assistant":
+            raise ValueError("Only assistant messages can request tools")
+        if (self.role == "tool") != bool(self.tool_call_id):
+            raise ValueError("Tool results require a paired tool call ID")
+        return self
+
+    def provider_message(self) -> dict[str, Any]:
+        result = self.model_dump()
+        if self.tool_calls:
+            result["tool_calls"] = [
+                {
+                    "id": call.id,
+                    "type": "function",
+                    "function": {"name": call.name, "arguments": call.arguments},
+                }
+                for call in self.tool_calls
+            ]
+        if self.reasoning_content is not None:
+            result["reasoning_content"] = self.reasoning_content
+        return result
 
 
 class LLMCallRequest(BaseModel):
     """LLM 调用请求参数"""
 
-    model: str = "deepseek-v4-flash"
+    model: str = "deepseek-flash"
     """模型名称"""
     messages: list[LLMMessage] = Field(default_factory=list)
     """对话消息列表"""
@@ -43,6 +96,34 @@ class LLMCallRequest(BaseModel):
     """随机种子（用于可复现生成）"""
     extra: dict[str, Any] = Field(default_factory=dict)
     """额外 provider 特定参数"""
+    tools: list[LLMToolDefinition] = Field(default_factory=list)
+    tool_choice: Literal["auto", "none", "required"] | None = None
+
+    @model_validator(mode="after")
+    def validate_tool_history(self) -> LLMCallRequest:
+        names = [tool.name for tool in self.tools]
+        if len(set(names)) != len(names):
+            raise ValueError("Tool names must be unique")
+        pending: set[str] = set()
+        seen: set[str] = set()
+        for message in self.messages:
+            if message.role == "tool":
+                if message.tool_call_id not in pending:
+                    raise ValueError("Unpaired or duplicate tool result")
+                pending.remove(message.tool_call_id)
+            else:
+                if pending:
+                    raise ValueError(
+                        "Tool calls must be resolved before the next message"
+                    )
+                for call in message.tool_calls:
+                    if call.id in seen:
+                        raise ValueError("Tool call IDs must be unique")
+                    seen.add(call.id)
+                    pending.add(call.id)
+        if pending:
+            raise ValueError("Unresolved tool calls cannot be sent to the model")
+        return self
 
 
 class LLMUsage(BaseModel):
@@ -70,6 +151,14 @@ class LLMCallResponse(BaseModel):
     """调用耗时（毫秒）"""
     raw: dict[str, Any] = Field(default_factory=dict)
     """原始响应（调试用）"""
+    tool_calls: list[LLMToolCall] = Field(default_factory=list)
+    reasoning_content: str | None = Field(default=None, exclude=True, repr=False)
+
+    @model_validator(mode="after")
+    def unique_tool_calls(self):
+        if len({call.id for call in self.tool_calls}) != len(self.tool_calls):
+            raise ValueError("Provider returned duplicate tool call IDs in one response")
+        return self
 
 
 class LLMStreamChunk(BaseModel):
@@ -83,3 +172,5 @@ class LLMStreamChunk(BaseModel):
     """如果该片段是最后一个，提供结束原因"""
     usage: LLMUsage | None = None
     """最后一块可能包含用量信息"""
+    tool_deltas: list[LLMToolDelta] = Field(default_factory=list)
+    reasoning_content: str | None = Field(default=None, exclude=True, repr=False)

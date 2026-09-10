@@ -31,6 +31,43 @@ PNG = base64.b64decode(
 )
 
 
+@pytest.mark.asyncio
+async def test_missing_storage_leaves_structure_available_and_blocks_image_enqueue(
+    db_session, test_project_id, monkeypatch
+):
+    from dataclasses import replace
+
+    from core.config import get_settings
+    from core.errors import ValidationError
+    from modules.world.map_atlas_facade import map_capabilities
+    from modules.world.map_atlas_schemas import MapAtlasRunCreate
+    from modules.world.map_atlas_service import MapAtlasService
+
+    settings = replace(get_settings(), map_atlas_s3_bucket="")
+    monkeypatch.setattr("modules.world.map_atlas_storage.get_settings", lambda: settings)
+    status = await map_capabilities(db_session, test_project_id)
+    assert status["structure"]["available"] and status["external_prompt"]["available"]
+    assert (
+        not status["upload"]["available"] and not status["image_generation"]["available"]
+    )
+    with (
+        patch(
+            "modules.world.map_atlas_service.build_project_llm_execution_snapshot",
+            autospec=True,
+            return_value={},
+        ),
+        patch(
+            "modules.world.map_atlas_service.build_project_image_execution_snapshot",
+            autospec=True,
+        ) as images,
+    ):
+        with pytest.raises(ValidationError, match="存储"):
+            await MapAtlasService().create_run(
+                db_session, test_project_id, MapAtlasRunCreate()
+            )
+        images.assert_not_called()
+
+
 def _storage_settings(endpoint_url: str) -> SimpleNamespace:
     return SimpleNamespace(
         map_atlas_s3_bucket="private",

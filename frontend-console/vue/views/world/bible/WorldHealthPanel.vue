@@ -1,8 +1,9 @@
 <template>
   <details
+    ref="panelRef"
     class="panel world-health-panel"
     data-section="world-health"
-    :open="busy || Boolean(error) || ['block'].includes(run?.gate) || ['failed', 'stale'].includes(run?.status)"
+    :open="requestedRunId === run?.id || busy || Boolean(error) || ['block'].includes(run?.gate) || ['failed', 'stale'].includes(run?.status)"
   >
     <summary>
       <strong>世界健康</strong>
@@ -241,10 +242,10 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import { createOperationId, pollTaskProgress } from "../../../../shared/workflowProgress.js"
 import { confirmAiReference } from "../../../../shared/aiReferenceModal.js"
-import { getApi, getConfirm, getToast } from "../../../bridge/index.js"
+import { getApi, getConfirm, getRouteQuery, getToast } from "../../../bridge/index.js"
 
 const props = defineProps({
   projectId: { type: String, required: true },
@@ -260,6 +261,8 @@ const api = getApi()
 const confirm = getConfirm()
 const toast = getToast()
 const run = ref(props.initialRun)
+const panelRef = ref(null)
+const requestedRunId = getRouteQuery().get("validation_run_id")
 const policy = ref(props.policyStatus || { active: false })
 const history = ref([])
 const error = ref("")
@@ -738,6 +741,11 @@ function stopPolling() {
 }
 
 onMounted(() => {
+  if (requestedRunId === run.value?.id) nextTick(() => {
+    const target = panelRef.value?.querySelector("summary")
+    target?.scrollIntoView?.({ block: "start" })
+    target?.focus?.()
+  })
   recoverPolling()
   loadFindings()
 })

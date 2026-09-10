@@ -218,6 +218,8 @@ export async function loadWorld() {
     bibleDeepLink: {
       draftId: query.get("draft_id") || "",
       pageId: query.get("page_id") || "",
+      openHistory: query.get("history") === "1",
+      historyVersion: query.get("history_version") || "",
       ownerAiSourcePageId: query.get("source_page_id") || "",
       openSuggestions: query.get("open") === "suggestions",
       suggestionId: query.get("suggestion_id") || "",
@@ -436,9 +438,11 @@ export async function loadWorld() {
       api.context?.listActivationProfiles
         ? api.context.listActivationProfiles(projectId, true)
         : Promise.resolve({ items: [] }),
-      api.world.getLatestWorldValidationRun
-        ? api.world.getLatestWorldValidationRun(projectId).catch(() => null)
-        : Promise.resolve(null),
+      query.get("validation_run_id") && api.world.getWorldValidationRun
+        ? api.world.getWorldValidationRun(query.get("validation_run_id"), projectId)
+        : api.world.getLatestWorldValidationRun
+          ? api.world.getLatestWorldValidationRun(projectId).catch(() => null)
+          : Promise.resolve(null),
       api.world.getWorldValidationPolicyStatus
         ? api.world.getWorldValidationPolicyStatus(projectId).catch(() => ({ active: false }))
         : Promise.resolve({ active: false }),
@@ -487,6 +491,11 @@ export async function loadWorld() {
       libraryItems: library?.items || [],
       libraryTotal: Number(library?.total || 0),
       libraryError: library?.loadError || null,
+    }
+    if (props.bibleDeepLink.draftId && !props.bible.drafts.some(draft => draft.id === props.bibleDeepLink.draftId) && api.world.getBibleDraftPublication) {
+      const published = await api.world.getBibleDraftPublication(props.bibleDeepLink.draftId, projectId)
+      if (!props.bible.pages.some(page => page.id === published.page_id)) props.bible.pages.push(await api.world.getBiblePage(published.page_id, projectId))
+      props.bibleDeepLink = { ...props.bibleDeepLink, draftId: "", pageId: published.page_id, openHistory: true, historyVersion: String(published.version_number) }
     }
   }
   return props

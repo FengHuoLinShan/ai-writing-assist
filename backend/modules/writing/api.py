@@ -23,13 +23,11 @@ from infrastructure.tasks.facade import (
 )
 from modules.evidence.facade import (
     bind_confirmed_action_result,
-    prepare_confirmed_ai_action,
 )
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
     require_active_project,
 )
-from modules.story.facade import get_scene_story_assets
 from modules.writing.facade import (
     create_draft_only as _create_draft_only,
 )
@@ -53,6 +51,7 @@ from modules.writing.schemas import (
     WritingGenerateRequest,
     WritingGenerateResponse,
     WritingPublishRequest,
+    WritingRegenerationContext,
     WritingSemanticReviewRequest,
     WritingSemanticReviewTaskResponse,
     WritingTargetedRevisionRequest,
@@ -386,104 +385,25 @@ async def generate_writing_candidate(
     data: WritingGenerateRequest,
 ) -> WritingGenerateResponse:
     """提交 AI 正文建议生成任务；采用前不进入工作稿。"""
-    await require_active_project(db, data.novel_id)
-    payload = data.model_dump(mode="json", exclude={"operation_id"})
-    try:
-        existing = await get_operation_task(
-            db,
-            operation_id=str(data.operation_id) if data.operation_id else None,
-            task_type="writing_generate",
-            novel_id=data.novel_id,
-            request_payload=payload,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    if existing is not None:
-        return WritingGenerateResponse(
-            task_id=existing.task_id,
-            status=existing.status,
-        )
-    try:
-        confirmed_context = await prepare_confirmed_ai_action(
-            db,
-            novel_id=data.novel_id,
-            action="writing.generate",
-            confirmation_id=data.context_confirmation_id,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    from core.errors import ConflictError
+    from modules.writing.services import WritingGenerationService
 
-    compile_options = dict(getattr(confirmed_context, "compile_options", None) or {})
-    scene_id = str(compile_options.get("scene_id") or "") or None
-    story_asset_basis: list[dict[str, str | None]] = []
-    if scene_id:
-        story_assets = await get_scene_story_assets(
-            db,
-            novel_id=data.novel_id,
-            scene_id=scene_id,
-        )
-        story_asset_basis = [
-            {
-                "file_id": str(item.get("id") or ""),
-                "adopted_revision_id": str(item.get("adopted_revision_id") or ""),
-                "basis_hash": item.get("basis_hash"),
-                "expected_basis_hash": item.get("expected_basis_hash"),
-            }
-            for item in story_assets.get("adopted_scripts", [])
-            if isinstance(item, dict)
-        ]
-        stale_assets = [
-            item
-            for item in story_asset_basis
-            if item.get("basis_hash") != item.get("expected_basis_hash")
-        ]
-        if stale_assets and not data.confirm_stale_story_assets:
+    try:
+        result = await WritingGenerationService().submit_generation(db, data)
+    except ConflictError as error:
+        if error.code == "stale_story_assets":
             raise HTTPException(
                 status_code=409,
                 detail={
-                    "code": "stale_story_assets",
-                    "message": "已采用的 Scene 剧本依据已变化；请明确确认后继续写作",
-                    "assets": stale_assets,
+                    "code": error.code,
+                    "message": error.message,
+                    **(error.context or {}),
                 },
-            )
-
-    llm_execution_snapshot = await build_project_llm_execution_snapshot(
-        db,
-        data.novel_id,
-    )
-    try:
-        receipt = await enqueue_task_with_optional_operation(
-            db,
-            operation_id=str(data.operation_id) if data.operation_id else None,
-            task_type="writing_generate",
-            novel_id=data.novel_id,
-            request_payload=payload,
-            meta={
-                "novel_id": data.novel_id,
-                "chapter_index": data.chapter_index,
-                "title": data.title,
-                "instruction": data.instruction,
-                "context_confirmation_id": data.context_confirmation_id,
-                "generation_mode": data.generation_mode,
-                "base_draft_id": data.base_draft_id,
-                "confirm_stale_story_assets": data.confirm_stale_story_assets,
-                "story_asset_basis": story_asset_basis,
-                "llm_execution_snapshot": llm_execution_snapshot,
-            },
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    if not receipt.reused:
-        await bind_confirmed_action_result(
-            db,
-            novel_id=data.novel_id,
-            confirmation_id=data.context_confirmation_id,
-            result_type="task",
-            result_id=receipt.task_id,
-            status="running",
-        )
-    await db.flush()
-    return WritingGenerateResponse(task_id=receipt.task_id, status=receipt.status)
+            ) from error
+        raise
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return WritingGenerateResponse(**result)
 
 
 @router.post(
@@ -529,27 +449,10 @@ async def enqueue_targeted_revision(
     data: WritingTargetedRevisionRequest,
 ) -> WritingSemanticReviewTaskResponse:
     """从独立审查 finding 生成一份不覆盖原稿的定向返修候选。"""
-    await require_active_project(db, data.novel_id)
-    payload = data.model_dump(mode="json", exclude={"operation_id"})
-    snapshot = await build_project_llm_execution_snapshot(db, data.novel_id)
-    try:
-        receipt = await enqueue_task_with_optional_operation(
-            db,
-            operation_id=str(data.operation_id) if data.operation_id else None,
-            task_type="writing_targeted_revision",
-            novel_id=data.novel_id,
-            request_payload=payload,
-            meta={**payload, "llm_execution_snapshot": snapshot},
-        )
-    except ValueError as exc:
-        from fastapi import HTTPException
+    from modules.writing.semantic_review import WritingSemanticWorkflowService
 
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    await db.flush()
-    return WritingSemanticReviewTaskResponse(
-        task_id=receipt.task_id,
-        status=receipt.status,
-    )
+    result = await WritingSemanticWorkflowService().submit_targeted_revision(db, data)
+    return WritingSemanticReviewTaskResponse(**result)
 
 
 @router.post("/drafts", response_model=PublishResponse, status_code=201)
@@ -625,6 +528,19 @@ async def get_draft(
     """获取指定草稿"""
     await require_active_project(db, novel_id)
     return await _service.get_draft(db, draft_id, novel_id)
+
+
+@router.get(
+    "/drafts/{draft_id}/regeneration-context", response_model=WritingRegenerationContext
+)
+async def get_regeneration_context(
+    db: DbSession,
+    draft_id: str,
+    *,
+    novel_id: NovelIdQuery,
+) -> WritingRegenerationContext:
+    await require_active_project(db, novel_id)
+    return await _service.regeneration_context(db, draft_id, novel_id)
 
 
 @router.post("/drafts/{draft_id}/adopt", response_model=WritingDraftResponse)

@@ -50,6 +50,14 @@ module_catalogs = [
 ]
 
 [[components]]
+name = "assistant"
+kind = "business"
+source_roots = ["backend/modules/assistant"]
+design_docs = ["docs/modules/20_assistant.md"]
+code_docs = ["backend/modules/assistant/README.md"]
+api_prefixes = ["/api/assistant"]
+
+[[components]]
 name = "account"
 kind = "business"
 source_roots = ["backend/modules/account"]

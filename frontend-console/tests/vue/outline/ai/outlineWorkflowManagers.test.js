@@ -32,6 +32,7 @@ import {
   outlineAnalysisManager,
   plotAutoExtractManager,
   captureOutlineGeneratePreview,
+  restoreLinkedOutlineTask,
   resetOutlineGenerateState,
   resetOutlineAnalysisState,
   clearOutlineGenerateWorkflowsForTarget,
@@ -546,5 +547,23 @@ describe("plotAutoExtractLabel", () => {
   })
   it("默认回落 threads", () => {
     expect(plotAutoExtractLabel()).toBe("从正文提取剧情线")
+  })
+})
+
+
+describe("assistant linked structure task", () => {
+  it("loads the precise server preview and never offers an adopted task again", async () => {
+    const task = { task_type: "outline_generate", novel_id: "p1", id: "t1", status: "done", result: { requires_apply: true, target: "plot_thread", context_confirmation_id: "c1", draft_structure: { threads: [] } } }
+    const get = vi.fn(async () => task)
+    setBridgeOverrides({ state: { currentProjectId: "p1" }, api: { tasks: { get } }, router: { getCurrentQuery: () => new URLSearchParams({ source_task_id: "t1" }) } })
+    expect(await restoreLinkedOutlineTask("p1", "t1", "threads")).toEqual({ preview: true })
+    expect(get).toHaveBeenCalledWith("t1", "p1")
+    expect(outlineGenerateManager.state.preview.sourceTaskId).toBe("t1")
+    task.result.apply_status = "applied"
+    task.result.applied_result = { result_refs: [{ type: "plot_thread", id: "thread" }] }
+    expect((await restoreLinkedOutlineTask("p1", "t1", "threads")).refs).toEqual(task.result.applied_result.result_refs)
+    expect(outlineGenerateManager.state.preview).toBeNull()
+    task.novel_id = "other"
+    await expect(restoreLinkedOutlineTask("p1", "t1", "threads")).rejects.toThrow("当前作品")
   })
 })

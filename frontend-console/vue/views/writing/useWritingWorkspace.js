@@ -1454,7 +1454,9 @@ export function useWritingWorkspace(props) {
     window.addEventListener("beforeunload", beforeUnload)
     window.addEventListener("pagehide", pageHide)
     window.addEventListener("resize", resize)
-    await deepImport.recover()
+    const importReceipt = getRouteQuery().get("import_task_id")
+    await deepImport.recover(importReceipt)
+    if (importReceipt && !disposed.value && deepImportState.progress) deepAuditOpen.value = true
     dispatchDashboardUpdate()
     const requested = props.requestedLocation
     if (requested?.chapter && chapterList.value.includes(Number(requested.chapter))) {
@@ -1582,6 +1584,7 @@ export function useWritingWorkspace(props) {
     retryUsingStaleStoryScript: commands.retryUsingStaleStoryScript,
     reviewCandidate: commands.reviewCandidate,
     reviseCandidate: commands.reviseCandidate,
+    regenerateCandidate: commands.regenerateCandidate,
     openGenerationResult: commands.openResult,
     cancelGeneration: commands.cancel,
     dismissGeneration: commands.dismiss,

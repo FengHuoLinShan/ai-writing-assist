@@ -34,6 +34,18 @@ def public_conflict_summary(summary: dict | None) -> dict:
 class WritingDraftRepository:
     """正文草稿数据访问"""
 
+    @staticmethod
+    async def _changed(db, draft):
+        if draft.status not in WORKING_DRAFT_STATUSES:
+            return
+        from core.container import get
+
+        try:
+            observer = get("source.changed")
+        except KeyError:
+            return
+        await observer(db, str(draft.novel_id), "writing_draft", str(draft.id))
+
     async def _build_draft(
         self,
         db: AsyncSession,
@@ -70,6 +82,7 @@ class WritingDraftRepository:
         draft = await self._build_draft(db, data, status="draft")
         db.add(draft)
         await db.flush()
+        await self._changed(db, draft)
         return draft
 
     async def create_with_status(
@@ -83,6 +96,7 @@ class WritingDraftRepository:
         draft = await self._build_draft(db, data, status=status)
         db.add(draft)
         await db.flush()
+        await self._changed(db, draft)
         return draft
 
     async def create_many_with_status(
@@ -138,6 +152,8 @@ class WritingDraftRepository:
             )
         db.add_all(drafts)
         await db.flush()
+        for draft in drafts:
+            await self._changed(db, draft)
         return drafts
 
     async def get(
@@ -279,7 +295,7 @@ class WritingDraftRepository:
         update_values: dict[str, object] = {}
         for field in ("title", "content"):
             value = getattr(data, field, None)
-            if value is not None:
+            if value is not None and value != getattr(draft, field):
                 update_values[field] = value
 
         if update_values:
@@ -295,6 +311,7 @@ class WritingDraftRepository:
                 draft.content_hash = hash_text(draft.content)
             db.add(draft)
             await db.flush()
+            await self._changed(db, draft)
 
         return draft
 
@@ -686,11 +703,14 @@ class WritingDraftRepository:
             raise ValueError(f"No draft found for chapter {chapter_index}")
         if draft.status == "published":
             raise ValueError("published drafts cannot be updated in place")
+        changed = draft.title != title or draft.content != content
         draft.title = title
         draft.content = content
         draft.content_hash = hash_text(content)
         db.add(draft)
         await db.flush()
+        if changed:
+            await self._changed(db, draft)
         return draft
 
     async def set_conflict_check_snapshot(

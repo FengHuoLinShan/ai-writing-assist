@@ -13,6 +13,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.config import get_settings
 from core.errors import NotFoundError
 from infrastructure.llm.capabilities import (
     LLM_CAPABILITY_EXECUTION_KEY,
@@ -98,6 +99,8 @@ async def _resolve_project_runtime_profile(
 async def build_project_llm_execution_snapshot(
     db: AsyncSession,
     novel_id: str,
+    *,
+    web_search_enabled: bool = False,
 ) -> dict[str, Any]:
     """Freeze a secret-free project runtime profile for a resumable task.
 
@@ -141,6 +144,16 @@ async def build_project_llm_execution_snapshot(
             inherited_llm_max_tokens=profile.max_tokens,
         ),
     }
+    if get_settings().interaction_agent_enabled:
+        context = await _service.get_project_context(db, novel_id, project_kind=None)
+        if context is not None and context.project_kind == "interaction":
+            from infrastructure.llm.web_search import search_snapshot
+
+            payload["agent_runtime"] = {
+                "version": "2",
+                "mode": "rp",
+                "web_search": search_snapshot() if web_search_enabled else None,
+            }
     payload["profile_hash"] = _stable_hash(payload)
     return payload
 
@@ -228,6 +241,7 @@ async def restore_project_llm_execution_settings(
         raise ProjectLLMConfigurationError(str(exc)) from exc
     return {
         "llm": restored_llm,
+        "_agent_runtime": deepcopy(snapshot.get("agent_runtime")),
         "deep_import": deepcopy(snapshot.get("deep_import") or {}),
         DEEP_IMPORT_FROZEN_SETTINGS_KEY: True,
         _RUNTIME_SOURCES_KEY: dict(sources),

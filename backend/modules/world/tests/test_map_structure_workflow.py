@@ -293,7 +293,7 @@ async def test_structure_guided_image_does_not_require_a_second_text_model_plan(
             return_value={"image": "test"},
         ),
     ):
-        run = await MapAtlasService().create_run(
+        run = await MapAtlasService(storage=SimpleNamespace()).create_run(
             db_session,
             test_project_id,
             MapAtlasRunCreate(

@@ -64,6 +64,11 @@ async def _require_active_project(db: DbSession, novel_id: str) -> None:
 
 
 _MODULE_API_ONLY_TASK_TYPES = {
+    "assistant_turn",
+    "interaction_agent_story_generate",
+    "interaction_continuity_review",
+    "imports_completion_review",
+    "story_reference_review",
     "smart_dedup_scan",
     "interaction_story_generate",
     "interaction_summary_refresh",
@@ -330,7 +335,7 @@ async def cancel_task(
     stmt = select(AsyncTask).where(
         AsyncTask.id == task_id,
         AsyncTask.novel_id == uuid.UUID(str(novel_id)),
-    ).with_for_update()
+    )
     result = await db.execute(stmt)
     task = result.scalar_one_or_none()
 
@@ -349,7 +354,7 @@ async def cancel_task(
     return TaskCancelResponse(
         task_id=str(task.id),
         status=str(task.status),
-        cancelled=True,
+        cancelled=task.status == "cancelled",
     )
 
 
@@ -361,10 +366,14 @@ async def retry_task(
     novel_id: NovelIdQuery,
 ) -> TaskRetryResponse:
     await _require_active_project(db, novel_id)
-    stmt = select(AsyncTask).where(
-        AsyncTask.id == task_id,
-        AsyncTask.novel_id == uuid.UUID(str(novel_id)),
-    ).with_for_update()
+    stmt = (
+        select(AsyncTask)
+        .where(
+            AsyncTask.id == task_id,
+            AsyncTask.novel_id == uuid.UUID(str(novel_id)),
+        )
+        .with_for_update()
+    )
     task = (await db.execute(stmt)).scalar_one_or_none()
     if task is None:
         raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")

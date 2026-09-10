@@ -15,6 +15,7 @@ import {
   outlineAnalysisManager,
   outlineGenerateManager,
   plotAutoExtractManager,
+  restoreLinkedOutlineTask,
 } from "./views/outline/ai/outlineWorkflowManagers.js"
 import { loadStoryOutlineProps, storyOutlineTaskManager } from "./views/outline/story/storyOutlineData.js"
 import { loadStructureProps, structureFiltersFromQuery } from "./views/outline/logic/outlineStructure.js"
@@ -44,6 +45,15 @@ async function loadOutline() {
   const query = getRouteQuery()
   scopeBulkSelectionsToProject(projectId)
 
+  if (query.get("source_task_id") && ["threads", "arcs", "scenes"].includes(subView)) {
+    try {
+      const linkedTaskReceipt = await restoreLinkedOutlineTask(projectId, query.get("source_task_id"), subView)
+      return { projectId, subView, outlineGenerateReview: Boolean(linkedTaskReceipt?.preview), linkedTaskReceipt }
+    } catch (error) {
+      return { projectId, subView, linkedTaskReceipt: { error: true, message: error.message || "结构成果暂时无法读取，请重试。" } }
+    }
+  }
+
   if (subView === "scenes") {
     outlineGenerateManager.recover(projectId)
     if (query.get("review") === "ai") {
@@ -69,18 +79,19 @@ async function loadOutline() {
 
   if (subView === "story-outline") {
     const storyProps = await loadStoryOutlineProps(projectId)
-    return { projectId, subView, editorMode: query.get("edit") === "1", ...storyProps }
+    return { projectId, subView, editorMode: query.get("edit") === "1", initialRevisionId: query.get("revision_id") || null, ...storyProps }
   }
 
   // threads / arcs
   const filters = structureFiltersFromQuery(subView, query)
-  const structureProps = await loadStructureProps({ projectId, subView, filters })
+  const structureProps = await loadStructureProps({ projectId, subView, filters, focusId: query.get(subView === "threads" ? "thread_id" : "arc_id") })
   return {
     projectId,
     subView,
     outlineGenerateReview: query.get("review") === "ai" && (subView === "threads" || subView === "arcs"),
     structureFilters: filters,
     informationFocus: query.get("information") || null,
+    focusedInformationId: query.get("plan_id") || null,
     ...structureProps,
   }
 }

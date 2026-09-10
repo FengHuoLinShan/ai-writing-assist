@@ -59,8 +59,8 @@
         <span v-else>后端正在确认可用的恢复操作，请稍后刷新任务状态。</span>
       </div>
       <div class="workflow-progress__actions deep-import-recovery__actions">
-        <button v-if="needsRecovery" class="btn btn-sm btn-primary" @click="$emit('resume')">继续</button>
-        <button v-if="needsRecovery" class="btn btn-sm" @click="$emit('abandon')">放弃恢复</button>
+        <button v-if="needsRecovery && deepImport.progress?.workflowType !== 'targeted_completion'" class="btn btn-sm btn-primary" @click="$emit('resume')">继续</button>
+        <button v-if="needsRecovery && deepImport.progress?.workflowType !== 'targeted_completion'" class="btn btn-sm" @click="$emit('abandon')">放弃恢复</button>
         <button v-if="canCancel" class="btn btn-sm" @click="$emit('cancel')">取消任务</button>
         <button v-if="canOpenScenes" class="btn btn-sm btn-primary" @click="$emit('open-scenes')">查看场景骨架</button>
         <button v-if="hasAudit" class="btn btn-sm" @click="$emit('open-audit')">查看快照状态</button>

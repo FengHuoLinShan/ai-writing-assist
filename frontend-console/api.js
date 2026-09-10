@@ -718,6 +718,24 @@ const api = {
   setAccessToken: _setAccessToken,
   clearAccessToken: _clearAccessToken,
   reportFrontendError,
+  assistant: {
+    capabilities: (novelId) => request(withQuery("/assistant/capabilities", { novel_id: novelId }), { cache: "no-store" }),
+    sessions: (novelId, params = {}) => request(withQuery("/assistant/sessions", { ...params, novel_id: novelId }), { cache: "no-store" }),
+    createSession: (novelId, title = "项目助手") => post("/assistant/sessions", { novel_id: novelId, title }),
+    session: (novelId, sessionId) => request(withQuery(`/assistant/sessions/${sessionId}`, { novel_id: novelId }), { cache: "no-store" }),
+    messages: (novelId, sessionId, params = {}) => request(withQuery(`/assistant/sessions/${sessionId}/messages`, { ...params, novel_id: novelId }), { cache: "no-store" }),
+    submit: (sessionId, payload) => post(`/assistant/sessions/${sessionId}/turns`, payload),
+    run: (novelId, runId) => request(withQuery(`/assistant/runs/${runId}`, { novel_id: novelId }), { cache: "no-store" }),
+    stop: (novelId, runId) => post(withQuery(`/assistant/runs/${runId}/stop`, { novel_id: novelId })),
+    resume: (runId, payload) => post(`/assistant/runs/${runId}/resume`, payload),
+    decide: (batchId, payload) => post(`/assistant/batches/${batchId}/decide`, payload),
+    recheck: (batchId, payload) => post(`/assistant/batches/${batchId}/recheck`, payload),
+    carePolicy: (novelId) => request(withQuery("/assistant/policy", { novel_id: novelId }), { cache: "no-store" }),
+    saveCarePolicy: (novelId, policy) => request("/assistant/policy", { method: "PUT", body: JSON.stringify({ novel_id: novelId, policy }) }),
+    careNotices: (novelId) => request(withQuery("/assistant/notices", { novel_id: novelId }), { cache: "no-store" }),
+    recheckCareNotice: (novelId, noticeId, operationId) => post(withQuery(`/assistant/notices/${encodeURIComponent(noticeId)}/recheck`, { novel_id: novelId }), { operation_id: operationId }),
+    decideCareNotice: (novelId, noticeId, disposition) => post(`/assistant/notices/${encodeURIComponent(noticeId)}/decide`, { novel_id: novelId, ...disposition }),
+  },
   auth: {
     async config() {
       const config = await request("/auth/config", { cache: "no-store" })
@@ -1096,6 +1114,11 @@ const api = {
         { cache: "no-store" },
       )
     },
+    carePolicy: (journeyId) => request(`/interactions/journeys/${encodeURIComponent(journeyId)}/care/policy`, { cache: "no-store" }),
+    saveCarePolicy: (journeyId, policy) => request(`/interactions/journeys/${encodeURIComponent(journeyId)}/care/policy`, { method: "PUT", body: JSON.stringify(policy) }),
+    careNotices: (journeyId) => request(`/interactions/journeys/${encodeURIComponent(journeyId)}/care/notices`, { cache: "no-store" }),
+    recheckCareNotice: (journeyId, noticeId, operationId) => post(`/interactions/journeys/${encodeURIComponent(journeyId)}/care/notices/${encodeURIComponent(noticeId)}/recheck`, { operation_id: operationId }),
+    decideCareNotice: (journeyId, noticeId, disposition) => post(`/interactions/journeys/${encodeURIComponent(journeyId)}/care/notices/${encodeURIComponent(noticeId)}/decide`, disposition),
     updateOverview(journeyId, payload) {
       return contractJson(
         "interactions.updateOverview",
@@ -1291,6 +1314,10 @@ const api = {
 
     async listBibleDrafts(novelId) {
       return request(withQuery("/world/bible/drafts", { novel_id: novelId }))
+    },
+
+    async getBibleDraftPublication(draftId, novelId) {
+      return request(withQuery(`/world/bible/drafts/${draftId}/publication`, { novel_id: novelId }))
     },
 
     async listWorldLibrary(params = {}) {
@@ -1829,6 +1856,10 @@ const api = {
     async getMapAtlas(novelId) {
       return contractFetch("world.getMapAtlas", { novelId }, {}, { cache: "no-store" })
     },
+
+    async getMapCapabilities(novelId) {
+      return request(withQuery("/world/map-atlas/capabilities", { novel_id: novelId }))
+    },
     async findMapLinks(novelId, filters = {}) {
       return request(withQuery(`/world/map-atlas/${novelId}/map-links`, filters), { cache: "no-store" })
     },
@@ -2110,6 +2141,10 @@ const api = {
       return request(withQuery(`/writing/drafts/${draftId}`, { novel_id: novelId }))
     },
 
+    async regenerationContext(draftId, novelId) {
+      return request(withQuery(`/writing/drafts/${draftId}/regeneration-context`, { novel_id: novelId }))
+    },
+
     async deleteDraft(draftId, novelId) {
       return deleteRequest(withQuery(`/writing/drafts/${draftId}`, { novel_id: novelId }))
     },
@@ -2386,6 +2421,10 @@ const api = {
       return request(withQuery("/outline/threads", { novel_id: novelId, ...params }))
     },
 
+    async getThread(threadId, novelId) {
+      return request(withQuery(`/outline/threads/${threadId}`, { novel_id: novelId }))
+    },
+
     async createThread(novelId, data) {
       return post(withQuery("/outline/threads", { novel_id: novelId }), data)
     },
@@ -2400,6 +2439,10 @@ const api = {
 
     async listArcs(novelId, params = {}) {
       return request(withQuery("/outline/arcs", { novel_id: novelId, ...params }))
+    },
+
+    async getArc(arcId, novelId) {
+      return request(withQuery(`/outline/arcs/${arcId}`, { novel_id: novelId }))
     },
 
     async createArc(novelId, data) {
@@ -2605,6 +2648,9 @@ const api = {
     },
     async listSceneScriptRevisions(fileId, novelId) {
       return request(withQuery(`/story/script-files/${fileId}/revisions`, { novel_id: novelId }))
+    },
+    async getSceneScriptFile(fileId, novelId) {
+      return request(withQuery(`/story/script-files/${fileId}`, { novel_id: novelId }))
     },
     async adoptSceneScriptRevision(fileId, revisionId, novelId, expectedRevisionId = null) {
       return post(`/story/script-files/${fileId}/revisions/${revisionId}/adopt`, {

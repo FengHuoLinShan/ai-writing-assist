@@ -4,6 +4,7 @@
 
 系统使用受确定性工作流编排的 Prompt 完成正文生成、结构生成、
 抽取和切分任务，不构建自治多 Agent 运行时。
+ADR-0023 增加单次有界 Agent 的工具选择；固定领域工作流继续持有输入/输出契约。
 
 统一原则：
 
@@ -15,6 +16,13 @@
 - reveal、知识边界以及待处理建议与已采用资产的隔离由调用方服务和上下文编译器共同保证
 
 ## 2. 当前活跃 Prompt
+
+Agent 内联指令还包括 `modules/assistant/service.py::_INSTRUCTIONS`（工作位置、证据与
+确认边界）、`modules/interaction/agent_runtime.py`（本轮准备，输出 StoryPreparation）、
+`modules/interaction/proactive.py`（近期连续性，输出 ContinuityReview）与
+`infrastructure/llm/native_search.py`（隔离通用事实）。正文仍由原 interaction-story Prompt
+生成，准备/工具文字不能混入正文。AssistantAnswer 的引用、参数与依赖用 PydanticAI
+output_validator 校验，修复计入同一执行预算；固定审稿保留原 managed schema 修复。
 
 | 文件 | 用途 | 主要调用方 |
 |------|------|-----------|

@@ -28,6 +28,22 @@ from modules.story.outline_state.schemas import (
 from shared.constants import DEFAULT_PAGE_SIZE
 
 
+async def _notify_structure_change(db, row, kind, *, related_scene_ids=None):
+    from core.container import get
+
+    try:
+        observer = get("source.changed")
+    except KeyError:
+        return
+    await observer(
+        db,
+        str(row.novel_id),
+        kind,
+        str(row.id),
+        **({"related_scene_ids": related_scene_ids} if related_scene_ids else {}),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class SceneWorkbenchHealthProjection:
     """Lightweight Scene fields needed for global workbench health summaries."""
@@ -98,6 +114,7 @@ def apply_structure_asset_filters(
 
 class StructurePlanRepository[ModelT]:
     model_class: ClassVar[type[ModelT]]
+    change_type: ClassVar[str]
     order_by: ClassVar[tuple[Any, ...]] = ()
 
     async def create(
@@ -109,6 +126,7 @@ class StructurePlanRepository[ModelT]:
         plan = self.model_class(novel_id=novel_id, **data)
         db.add(plan)
         await db.flush()
+        await _notify_structure_change(db, plan, self.change_type)
         return plan
 
     async def create_batch(
@@ -120,6 +138,8 @@ class StructurePlanRepository[ModelT]:
         plans = [self.model_class(novel_id=novel_id, **data) for data in items]
         db.add_all(plans)
         await db.flush()
+        for plan in plans:
+            await _notify_structure_change(db, plan, self.change_type)
         return plans
 
     async def get(self, db: AsyncSession, plan_id: uuid.UUID) -> ModelT | None:
@@ -166,10 +186,21 @@ class StructurePlanRepository[ModelT]:
         plan = await self.get(db, plan_id)
         if plan is None:
             return None
-        for field, value in data.items():
+        changes = {
+            key: value for key, value in data.items() if getattr(plan, key) != value
+        }
+        if not changes:
+            return plan
+        from modules.story.information_dependencies import capture_change_scenes
+
+        previous_scenes = await capture_change_scenes(db, plan)
+        for field, value in changes.items():
             setattr(plan, field, value)
         db.add(plan)
         await db.flush()
+        await _notify_structure_change(
+            db, plan, self.change_type, related_scene_ids=previous_scenes
+        )
         return plan
 
     async def delete(self, db: AsyncSession, plan_id: uuid.UUID) -> bool:
@@ -211,6 +242,7 @@ class PlotThreadRepository:
         thread = self._build(novel_id, data)
         db.add(thread)
         await db.flush()
+        await _notify_structure_change(db, thread, "plot_thread")
         return thread
 
     async def create_many(
@@ -223,6 +255,8 @@ class PlotThreadRepository:
         if threads:
             db.add_all(threads)
             await db.flush()
+            for thread in threads:
+                await _notify_structure_change(db, thread, "plot_thread")
         return threads
 
     async def get(self, db: AsyncSession, thread_id: uuid.UUID) -> PlotThread | None:
@@ -356,10 +390,20 @@ class PlotThreadRepository:
                 update_values[json_field] = value
 
         if update_values:
+            changed = any(
+                getattr(thread, field) != value for field, value in update_values.items()
+            )
+            from modules.story.information_dependencies import capture_change_scenes
+
+            previous_scenes = await capture_change_scenes(db, thread) if changed else []
             for field, value in update_values.items():
                 setattr(thread, field, value)
             db.add(thread)
             await db.flush()
+            if changed:
+                await _notify_structure_change(
+                    db, thread, "plot_thread", related_scene_ids=previous_scenes
+                )
 
         return thread
 
@@ -403,6 +447,7 @@ class OutlineArcRepository:
         arc = self._build(novel_id, data)
         db.add(arc)
         await db.flush()
+        await _notify_structure_change(db, arc, "outline_arc")
         return arc
 
     async def create_many(
@@ -415,6 +460,8 @@ class OutlineArcRepository:
         if arcs:
             db.add_all(arcs)
             await db.flush()
+            for arc in arcs:
+                await _notify_structure_change(db, arc, "outline_arc")
         return arcs
 
     async def get(self, db: AsyncSession, arc_id: uuid.UUID) -> OutlineArc | None:
@@ -540,10 +587,20 @@ class OutlineArcRepository:
                 update_values[json_field] = value
 
         if update_values:
+            changed = any(
+                getattr(arc, field) != value for field, value in update_values.items()
+            )
+            from modules.story.information_dependencies import capture_change_scenes
+
+            previous_scenes = await capture_change_scenes(db, arc) if changed else []
             for field, value in update_values.items():
                 setattr(arc, field, value)
             db.add(arc)
             await db.flush()
+            if changed:
+                await _notify_structure_change(
+                    db, arc, "outline_arc", related_scene_ids=previous_scenes
+                )
 
         return arc
 
@@ -1062,6 +1119,7 @@ class SceneRepository:
         await db.flush()
         self._add_new_scene_indexes(db, [scene])
         await db.flush()
+        await _notify_structure_change(db, scene, "outline_scene")
         return scene
 
     async def create_many(
@@ -1077,6 +1135,8 @@ class SceneRepository:
         await db.flush()
         self._add_new_scene_indexes(db, scenes)
         await db.flush()
+        for scene in scenes:
+            await _notify_structure_change(db, scene, "outline_scene")
         return scenes
 
     def _add_new_scene_indexes(
@@ -1578,6 +1638,9 @@ class SceneRepository:
                 value = getattr(data, json_field)
                 update_values[json_field] = value
 
+        changed = any(
+            getattr(scene, field) != value for field, value in update_values.items()
+        )
         if update_values:
             for field, value in update_values.items():
                 setattr(scene, field, value)
@@ -1601,6 +1664,8 @@ class SceneRepository:
             "scene_chunks",
         } & fields_set:
             await self.stale_fusion_suggestions_for_scene(db, scene)
+        if changed:
+            await _notify_structure_change(db, scene, "outline_scene")
         return scene
 
     async def deprecate_with_reference(

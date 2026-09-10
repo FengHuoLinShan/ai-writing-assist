@@ -110,7 +110,7 @@ def test_resolve_llm_profile_uses_deepseek_code_defaults_without_env(monkeypatch
 
     assert profile.provider_id == "deepseek"
     assert profile.base_url == "https://api.deepseek.com"
-    assert profile.model == "deepseek-v4-flash"
+    assert profile.model == "deepseek-flash"
     assert profile.timeout == 180
     assert profile.max_tokens == 12_000
     assert profile.sources["model"] == "default"
@@ -128,7 +128,7 @@ def test_resolve_llm_profile_ignores_legacy_env_when_configured(monkeypatch) -> 
 
     assert profile.api_key == ""
     assert profile.base_url == "https://api.deepseek.com"
-    assert profile.model == "deepseek-v4-flash"
+    assert profile.model == "deepseek-flash"
     assert profile.timeout == 180
     assert profile.max_tokens == 12_000
     assert profile.sources["api_key"] == "default"

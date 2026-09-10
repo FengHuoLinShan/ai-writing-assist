@@ -241,6 +241,8 @@ class TaskWorker:
         | None = None,
         startup_reconcilers: Sequence[Callable[[AsyncSession], Awaitable[int]]] = (),
         control_loop_observer: Callable[[], None] | None = None,
+        maintenance_tick: Callable[[AsyncSession], Awaitable[int]] | None = None,
+        execution_wrapper: Callable[..., Awaitable[Any]] | None = None,
     ) -> None:
         self._db_manager = db_manager or get_manager()
         self._registry = TaskRegistry()
@@ -252,6 +254,8 @@ class TaskWorker:
         self._task_commit_guard = task_commit_guard
         self._startup_reconcilers = tuple(startup_reconcilers)
         self._control_loop_observer = control_loop_observer
+        self._maintenance_tick = maintenance_tick
+        self._execution_wrapper = execution_wrapper
         self._control_loop_observer_failed = False
         self._max_concurrent_tasks = max(
             1,
@@ -259,6 +263,7 @@ class TaskWorker:
         )
         self._running = False
         self._running_task_ids: set[Any] = set()
+        self._claimed_background_ids: set[Any] = set()
         self._running_tasks: dict[Any, AsyncTask] = {}
         self._heartbeat_tasks: dict[Any, asyncio.Task[None]] = {}
         self._runner_tasks: dict[Any, asyncio.Task[Any]] = {}
@@ -331,6 +336,12 @@ class TaskWorker:
                     while self._running and len(in_flight) < self._max_concurrent_tasks:
                         runner = await self._claim_task_runner()
                         if runner is None:
+                            if self._maintenance_tick is not None:
+                                async with (
+                                    self._db_manager.session_factory() as maintenance
+                                ):
+                                    await self._maintenance_tick(maintenance)
+                                    await maintenance.commit()
                             break
                         in_flight.add(runner)
 
@@ -405,6 +416,10 @@ class TaskWorker:
             expire_on_commit=False,
             autoflush=False,
         )
+        session.info["task_scope"] = {
+            "task_id": str(task.id),
+            "novel_id": str(task.novel_id or ""),
+        }
         session.set_task_commit_hook(
             lambda: self._checkpoint_handler_commit(session, task, lease_id)
         )
@@ -475,11 +490,18 @@ class TaskWorker:
         novel_id: str | UUID | None = None,
     ) -> AsyncTask | None:
         """使用 FOR UPDATE SKIP LOCKED 领取一个 pending 任务"""
+        options = {}
+        if task_id is None and len(self._claimed_background_ids) >= max(
+            1, self._max_concurrent_tasks - 1
+        ):
+            options["foreground_only"] = True
         task = await self._lifecycle.claim_next(
-            session, task_id=task_id, novel_id=novel_id
+            session, task_id=task_id, novel_id=novel_id, **options
         )
         if task is not None:
             self._running_task_ids.add(task.id)
+            if (task.meta or {}).get("_task_priority") == "background":
+                self._claimed_background_ids.add(task.id)
             novel_id_state = "<none>" if _task_novel_id(task) is None else "<unverified>"
             logger.info(
                 "Task claimed: %s (type=%s, novel_id=%s)",
@@ -562,11 +584,13 @@ class TaskWorker:
 
                 # 执行任务处理器
                 with llm_transport_retry_scope(
-                    enabled=not bool(
-                        definition and definition.retry_transient_llm_errors
-                    )
+                    enabled=not bool(definition and definition.retry_transient_llm_errors)
                 ):
-                    result = await handler(task=task, db=session)
+                    result = (
+                        await self._execution_wrapper(session, task, handler)
+                        if self._execution_wrapper is not None
+                        else await handler(task=task, db=session)
+                    )
 
                 # 更新任务为完成
                 result_data = (
@@ -695,6 +719,7 @@ class TaskWorker:
 
             finally:
                 self._running_task_ids.discard(task.id)
+                self._claimed_background_ids.discard(task.id)
                 self._running_tasks.pop(task.id, None)
                 self._runner_tasks.pop(task.id, None)
                 heartbeat_task = self._heartbeat_tasks.pop(task.id, None)
@@ -795,9 +820,7 @@ class TaskWorker:
         recovered = 0
         try:
             if run_all_reconcilers:
-                transition = await self._maybe_recover_stale_task_transitions(
-                    force=force
-                )
+                transition = await self._maybe_recover_stale_task_transitions(force=force)
                 recovered = transition[0]
             else:
                 recovered = await self._maybe_recover_stale_tasks(force=force)

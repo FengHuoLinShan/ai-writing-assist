@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.interaction.proactive import read_continuity_review as read_continuity_review
 from modules.interaction.repositories import InteractionRepository
 from modules.interaction.services import InteractionService
 from shared.utils import parse_uuid

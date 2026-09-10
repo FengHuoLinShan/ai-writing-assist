@@ -641,6 +641,11 @@ async def _run_targeted_completion(
             **state["counts"],
             "coverage": state.get("coverage", {}),
             "warnings": state.get("warnings", []),
+            "ambiguities": list(state.get("ambiguities", {}).values()),
+            "chapter_range": {
+                "start": permission["chapter_from"],
+                "end": permission["chapter_to"],
+            },
             "package_refs": [
                 {"id": package_id, "status": status}
                 for status, package_ids in (
@@ -705,6 +710,19 @@ async def _run_targeted_completion(
                 result = await retrieve_focused_evidence(
                     db, request, llm_client=client, before_llm=save
                 )
+                for target in result.targets:
+                    if target.resolution == "ambiguous":
+                        state.setdefault("ambiguities", {})[target.key] = {
+                            "key": target.key,
+                            "name": target.name,
+                            "candidate_ids": [
+                                ref["target_id"]
+                                for ref in target.identity_candidates
+                                if ref.get("target_type") == "entity"
+                                and ref.get("target_id")
+                            ][:20],
+                        }
+                await save()
                 items, diagnostics, outputs, snapshots, context_fingerprints = (
                     [],
                     [],
@@ -716,6 +734,7 @@ async def _run_targeted_completion(
                     target.key
                     for target in result.targets
                     if any(target.key in item.target_keys for item in result.evidence)
+                    and target.resolution != "ambiguous"
                 ]
                 for offset in range(0, len(keys), BATCH_SIZE):
                     selected = keys[offset : offset + BATCH_SIZE]

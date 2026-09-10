@@ -76,6 +76,23 @@ export function createSmartDedupManager({
       return typeof getCurrentRouteKey === "function" ? getCurrentRouteKey() : null
     },
 
+    async openTask(taskId, projectId = this._currentProjectId()) {
+      if (!projectId || projectId !== this._currentProjectId()) throw new Error("作品已切换，请从当前作品重新打开成果。")
+      this._clearScanState()
+      this._activeProjectId = projectId
+      this._taskId = taskId
+      const task = await api.tasks.get(taskId, projectId)
+      if (this._currentProjectId() !== projectId || this._taskId !== taskId) return
+      if (task.task_type !== "smart_dedup_scan" || (task.novel_id && task.novel_id !== projectId)) throw new Error("这份扫描不属于当前作品。")
+      this._scanProjectId = projectId
+      this._scanTaskId = taskId
+      this._progress = normalizeTaskProgress(task, "smart_dedup_scan")
+      this._groupResults = Object.fromEntries(Object.entries(task.result?.group_receipts || {}).map(([id, receipt]) => [id, receipt.result]))
+      if (!this._progress.terminal) this._startPolling(taskId, projectId)
+      this.showProgress()
+      this._notifyRender()
+    },
+
     getState() {
       return {
         taskId: this._taskId,
@@ -836,7 +853,8 @@ export function createSmartDedupManager({
         if (groups.every((group) => this._groupResults[group.group_id]?.status === "success")) {
           this._progress = null
         }
-        toast(`本次执行成功 ${succeeded} 组，失败 ${(response.group_results || []).length - succeeded} 组`, succeeded ? "success" : "warning")
+        const replayed = (response.group_results || []).filter(item => item.replayed).length
+        toast(`新完成 ${succeeded - replayed} 组，先前已完成 ${replayed} 组，未完成 ${(response.group_results || []).length - succeeded} 组`, succeeded ? "success" : "warning")
         this._showGroupWorkbench()
         return true
       } catch (error) {

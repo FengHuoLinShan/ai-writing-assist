@@ -42,8 +42,10 @@ ADR-0018 定义同 owner author source revision 到 hidden interaction consumer 
 
 ## 当前读图约定
 
-- 业务模块共 8 个：`account`、`project`、`world`、`evidence`、`story`、`imports`、
-  `writing`、`interaction`。原 `memory` 与 `outline` 目录已在兼容准备版本发布后删除。
+- 业务模块共 9 个：`account`、`project`、`world`、`evidence`、`story`、`imports`、
+  `writing`、`interaction`、`assistant`。原 `memory` 与 `outline` 目录已在兼容准备版本发布后删除。
+- Assistant 持有项目讨论、运行、成组确认和提醒投影；经 Evidence 只读查证，经领域操作提交
+  具体修改。有限 PydanticAI 核心复用共享 LLM/队列，RP 继续持有自己的树、回顾和 attempt。
 - 创作三层为事实层（`project/world`）、结构与连续性层（`story/outline_state`、
   `story/continuity`）和辅助层（`imports/evidence/story/writing`）。RAG 索引和 Context 编译/确认归 `evidence`；
   账户连接与全局偏好归 `account`，项目偏好与有效配置

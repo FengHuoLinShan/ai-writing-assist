@@ -9,6 +9,7 @@
       <span id="topbar-chapter" class="topbar-chapter" :class="{ hidden: !wordcountVisible }">{{ wordcountVisible ? `第 ${wordcount.chapterIndex} 章` : '' }}</span>
     </div>
     <div class="topbar-right">
+      <button v-if="assistantEnabled" type="button" class="btn btn-sm" aria-controls="project-assistant-panel" :aria-expanded="assistantOpen" @pointerdown="$emit('assistant-context')" @click="$emit('open-assistant')">项目助手</button>
       <span id="topbar-status-dot" class="status-indicator" :class="connected ? 'connected' : 'disconnected'" role="status" :aria-label="connectionLabel" :title="connectionLabel"></span>
       <span id="topbar-status" class="status-text hidden">{{ connected ? '已连接' : '未连接' }}</span>
       <div id="topbar-wordcount" class="topbar-wordcount" :class="{ hidden: !wordcountVisible }" aria-label="写作字数仪表盘">
@@ -38,8 +39,9 @@ import ThemePicker from "./ThemePicker.vue"
 const props = defineProps({
   projectTitle: { type: String, default: "" }, moduleTitle: { type: String, default: "项目" }, submoduleTitle: { type: String, default: "" },
   viewNote: { type: String, default: "" }, connected: Boolean, theme: { type: String, required: true }, wordcount: { type: Object, required: true }, wordcountVisible: Boolean,
+  assistantEnabled: Boolean, assistantOpen: Boolean,
 })
-const emit = defineEmits(["select-theme", "manage-account", "open-settings", "show-help"])
+const emit = defineEmits(["select-theme", "manage-account", "open-settings", "show-help", "assistant-context", "open-assistant"])
 const accountMenu = ref(null)
 const connectionLabel = computed(() => props.connected ? "服务已连接" : "服务未连接")
 const accountMenuLabel = computed(() => `账户菜单，${connectionLabel.value}`)

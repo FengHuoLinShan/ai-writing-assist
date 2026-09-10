@@ -3,6 +3,44 @@
 from __future__ import annotations
 
 
+async def inspect_world_draft(db, novel_id: str, draft_id: str) -> dict:
+    """Read an author work draft through the world's stable boundary."""
+    from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
+        WorldBibleLifecycleService,
+    )
+
+    row = await WorldBibleLifecycleService().get_draft(db, novel_id, draft_id)
+    return row.model_dump(mode="json")
+
+
+async def inspect_world_page_history(
+    db, novel_id: str, page_id: str, version_number: int | None = None
+) -> dict:
+    from modules.world.assistant_page_tools import inspect_page_history
+
+    return await inspect_page_history(db, novel_id, page_id, version_number)
+
+
+async def inspect_world_checkpoint(db, novel_id: str, checkpoint_id: str) -> dict | None:
+    from modules.world.services.worldbuilding.suggestion_queue_service import (
+        SuggestionQueueService,
+    )
+
+    row = await SuggestionQueueService()._get_suggestion(db, novel_id, checkpoint_id)
+    if (
+        row.target_type not in {"world_design_checkpoint", "world_core_checkpoint"}
+        or row.status == "rejected"
+    ):
+        return None
+    return {
+        "id": str(row.id),
+        "checkpoint_type": row.target_type,
+        "status": row.status,
+        "payload": row.payload_json,
+        "authority": "作者阶段成果；不是正式世界事实或角色知识",
+    }
+
+
 async def authorize_focused_world_completion(db, **kwargs):
     from modules.world.services.worldbuilding.focused_adoption import authorize
 

@@ -9,7 +9,7 @@ from collections.abc import Callable
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from infrastructure.llm.agent_step_harness import (
     managed_llm_provenance_scope,
@@ -40,6 +40,25 @@ async def run_task_inline(
     handler = TaskRegistry().get_handler(expected_task_type)
     if handler is None:
         raise ValueError(f"no handler registered for task type: {expected_task_type}")
+    candidate = await db.scalar(
+        select(AsyncTask).where(
+            AsyncTask.id == parsed_id, AsyncTask.task_type == expected_task_type
+        )
+    )
+    parent_task_id = (candidate.meta or {}).get("_parent_task_id") if candidate else None
+    if parent_task_id:
+        from infrastructure.llm.workflow_budget import current_workflow_budget
+
+        parent = db.info.get("task_scope") or {}
+        if (
+            parent.get("task_id") != candidate.meta["_parent_task_id"]
+            or parent.get("novel_id") != str(candidate.novel_id)
+            or current_workflow_budget() is None
+            or getattr(db, "task_checkpoint_enabled", False) is not True
+        ):
+            raise ValueError(
+                "inline review requires its original fenced parent and shared budget"
+            )
     task = await TaskLifecycleService().claim_exact(
         db,
         task_id=parsed_id,
@@ -61,7 +80,13 @@ async def run_task_inline(
         raise ValueError("only a pending task can run inline")
     claimed_task_id = task.id
     lease_id = str(task.lease_id or "")
-    heartbeat_task = asyncio.create_task(_heartbeat_loop(claimed_task_id, lease_id))
+    # Match TaskWorker's detached progress record: domain checkpoints may expire
+    # their ORM identity map while the lease/metadata must remain readable.
+    db.expunge(task)
+    sessions = async_sessionmaker(db.bind, expire_on_commit=False)
+    heartbeat_task = asyncio.create_task(
+        _heartbeat_loop(claimed_task_id, lease_id, sessions)
+    )
     previous_inline_marker = getattr(db, "task_inline_execution_enabled", None)
     db.task_inline_execution_enabled = True
     restore_commit = _install_commit_fence(db, task=task, lease_id=lease_id)
@@ -88,12 +113,23 @@ async def run_task_inline(
         except asyncio.CancelledError:
             restore_commit()
             await db.rollback()
-            await TaskLifecycleService().finalize(
-                db,
-                task_id=claimed_task_id,
-                lease_id=lease_id,
-                status="cancelled",
-            )
+            if parent_task_id:
+                # The parent fence may already reject all commits. Only task
+                # metadata is finalized independently; domain writes rolled back.
+                async with sessions() as cleanup_db:
+                    await TaskLifecycleService().finalize(
+                        cleanup_db,
+                        task_id=claimed_task_id,
+                        lease_id=lease_id,
+                        status="cancelled",
+                    )
+            else:
+                await TaskLifecycleService().finalize(
+                    db,
+                    task_id=claimed_task_id,
+                    lease_id=lease_id,
+                    status="cancelled",
+                )
             raise
         except Exception as exc:
             restore_commit()
@@ -160,14 +196,12 @@ def _install_commit_fence(
     return restore
 
 
-async def _heartbeat_loop(task_id: Any, lease_id: str) -> None:
-    from core.database import get_manager
-
+async def _heartbeat_loop(task_id: Any, lease_id: str, sessions) -> None:
     lifecycle = TaskLifecycleService()
     while True:
         await asyncio.sleep(TASK_HEARTBEAT_INTERVAL)
         try:
-            async with get_manager().session_factory() as session:
+            async with sessions() as session:
                 accepted = await lifecycle.heartbeat(
                     session,
                     task_id=task_id,

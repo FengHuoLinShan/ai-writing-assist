@@ -76,7 +76,15 @@ class MapAtlasService:
         self._storage = storage
 
     def _get_storage(self) -> MapAtlasStorage:
+        self._require_storage_configuration()
         return self._storage or MapAtlasStorage()
+
+    def _require_storage_configuration(self) -> None:
+        from modules.world.map_atlas_storage import storage_configuration_status
+
+        status = storage_configuration_status()
+        if self._storage is None and not status["available"]:
+            raise ValidationError(status["reason"])
 
     async def create_run(
         self,
@@ -115,6 +123,8 @@ class MapAtlasService:
             if bound_snapshot
             else await build_project_llm_execution_snapshot(db, novel_id)
         )
+        if not data.review_image_prompts:
+            self._require_storage_configuration()
         image_snapshot = (
             {}
             if data.review_image_prompts
@@ -731,6 +741,7 @@ class MapAtlasService:
             return self._run_dict(run)
         # Build the image connection only after the author has confirmed prompts.
         # Failure leaves the durable prompt-review state untouched.
+        self._require_storage_configuration()
         image_snapshot = await build_project_image_execution_snapshot(db, novel_id)
         for page in pages:
             if page.generation_choice == "external":
@@ -1059,6 +1070,7 @@ class MapAtlasService:
         )
         if other_active is not None:
             raise ConflictError("当前项目已有地图册生成任务")
+        self._require_storage_configuration()
         page.generation_status = "prepared"
         page.error_code = None
         page.error_message = None
@@ -1134,6 +1146,7 @@ class MapAtlasService:
                 "source_map_revision_id": str(revision.id),
                 "context_confirmation_id": confirmation_id,
             }
+        self._require_storage_configuration()
         image_snapshot = await build_project_image_execution_snapshot(db, novel_id)
         run = MapAtlasRun(
             id=uuid.uuid4(),

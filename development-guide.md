@@ -330,3 +330,28 @@ World focused completion 和 Imports targeted completion tests。前端共用面
 `frontend-console/tests/vue/FocusedEvidencePanel.test.js`，三入口浏览器验收为
 `frontend-console/e2e/focused-evidence.spec.js`。涉及自动采用时，还须在专用 PostgreSQL
 运行 `tests/e2e/test_focused_completion_concurrency.py`，不能以 SQLite 替代并发门禁。
+
+## Agent 集成开发
+
+ADR-0023 采用 pydantic-ai-slim 2.42.0 与既有 LLM/task seams。ASSISTANT_ENABLED、
+INTERACTION_AGENT_ENABLED 分期启用；先迁移，再开启。只在独立测试库做父子lease/预算/
+审批重放和浏览器验收，不能以关闭功能开关为由绕过 owner、novel_id 或资料范围。
+
+
+### 私有公开资料搜索（开发中的 Agent 功能）
+
+使用 [SearXNG JSON API](https://docs.searxng.org/dev/search_api.html)，配置仅由管理员提供：
+
+```bash
+SEARXNG_SECRET="$(openssl rand -hex 32)" docker compose --profile search up -d searxng
+```
+
+API 与 worker 的进程环境设置 `WEB_SEARCH_URL=http://127.0.0.1:8888`。若本机系统 DNS 返回
+198.18 等代理占位地址，可显式设置 `WEB_DNS_SERVERS=1.1.1.1`；读取器仍拒绝非公网目标。
+生产配置使用私有服务名 `http://searxng:8080`，不发布搜索端口，并提供持久的 SEARXNG_SECRET。
+镜像按完整 digest 固定；生产启用仍须遵守固定主干 SHA 发布规则。
+
+`ASSISTANT_ENABLED` 与 `INTERACTION_AGENT_ENABLED` 按路径启用；作者/RP 的联网选择及项目
+主动服务授权仍需明确开启。开发模拟使用独立数据库与 tests.support.assistant_browser_app 的
+合成模型 IO；真实搜索可单独启用。Computer Use 操作必须从页面实际入口进行，不能把该模拟
+或合成模型响应当成真实模型质量与产品验收。

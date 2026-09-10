@@ -126,6 +126,90 @@ class _FakeChatClient:
         return None
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("quality_mode", ["fast", "pro"])
+async def test_enabled_cocreation_reuses_identity_and_queues_only_one_agent(
+    async_client,
+    db_session,
+    monkeypatch,
+    account_llm_connection,
+    quality_mode,
+):
+    from dataclasses import replace
+
+    from core.config import get_settings
+    from modules.assistant.models import AssistantRun
+
+    settings = replace(get_settings(), assistant_enabled=True)
+    monkeypatch.setattr("modules.assistant.service.get_settings", lambda: settings)
+    fake = _install_fake_llm(monkeypatch)
+    novel_id = await _create_project(async_client, "共创入口整合")
+    session = await _create_session(async_client, novel_id)
+    original = await _append_message(
+        async_client, novel_id, session["id"], "此前决定保留潮汐限制"
+    )
+    confirmation_id = await _confirm_chat_context(async_client, novel_id)
+    operation_id = str(uuid.uuid4())
+    body = {
+        "novel_id": novel_id,
+        "context_confirmation_id": confirmation_id,
+        "source_context": {"kind": "project"},
+        "target": {"kind": "core_entity", "template": "character"},
+        "messages": [
+            {"role": "user", "content": "继续"},
+            {"role": "assistant", "content": "已讨论潮门"},
+            {"role": "user", "content": "继续"},
+        ],
+        "quality_mode": quality_mode,
+        "session_action": "pressure",
+        "operation_id": operation_id,
+    }
+    for _ in range(2):
+        response = await async_client.post(
+            f"/api/world/cocreation-sessions/{session['id']}/chat", json=body
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["id"] == operation_id
+        assert response.json()["session_id"] == session["id"]
+    assert not fake.requests
+    stored = await db_session.get(AssistantRun, uuid.UUID(operation_id))
+    assert stored.status == "pending"
+    assert len(stored.request_json["quoted_discussion"]) == 2
+    messages = await _list_messages(async_client, novel_id, session["id"])
+    assert messages["total"] == 2
+    assert messages["items"][0]["id"] == original["id"]
+    assert messages["items"][1]["action"] == "pressure"
+    assert messages["items"][1]["context_confirmation_id"] == confirmation_id
+    assert stored.request_json["cocreation_intent"]["template"]["instruction"]
+    from infrastructure.tasks.models import AsyncTask
+    from modules.assistant.service import AssistantService
+    from modules.assistant.tests.test_assistant import FakeClient
+
+    class Client(FakeClient):
+        def __init__(self):
+            self.requests = []
+
+        async def generate(self, request, *, transport_retries):
+            self.requests.append(request)
+            return await super().generate(request, transport_retries=transport_retries)
+
+    client = Client()
+    monkeypatch.setattr(
+        "modules.assistant.service.create_project_snapshot_llm_client",
+        lambda *args, **kwargs: client,
+    )
+    db_session.task_checkpoint_enabled = True
+    task = await db_session.get(AsyncTask, stored.task_id)
+    task.status = "running"
+    await db_session.flush()
+    result = await AssistantService().execute(db_session, task)
+    assert result["status"] == "waiting_approval"
+    assert len(client.requests) == (2 if quality_mode == "pro" else 1)
+    if quality_mode == "pro":
+        assert len(client.requests[-1].tools) == 1
+        assert stored.checkpoint_json["quality_review_done"]
+
+
 def _install_fake_llm(monkeypatch: pytest.MonkeyPatch) -> _FakeChatClient:
     fake = _FakeChatClient()
 
@@ -511,9 +595,9 @@ async def test_outcome_state_derivation_from_suggestion_lifecycle(
         )
     await db_session.flush()
 
-    items = (
-        await _list_messages(async_client, novel_id, session["id"], limit=100)
-    )["items"]
+    items = (await _list_messages(async_client, novel_id, session["id"], limit=100))[
+        "items"
+    ]
     states = {
         item["content"].removesuffix("的成果"): item["outcome_state"]
         for item in items
@@ -577,9 +661,9 @@ async def test_record_generation_outcome_binds_task_and_skips_missing_session(
         outcome_label="悬空会话",
     )
 
-    items = (
-        await _list_messages(async_client, novel_id, session["id"], limit=100)
-    )["items"]
+    items = (await _list_messages(async_client, novel_id, session["id"], limit=100))[
+        "items"
+    ]
     assert len(items) == 2
     author, assistant = items
     assert author["action"] == "pressure"

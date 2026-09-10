@@ -23,7 +23,7 @@ from modules.project.facade import (
     require_active_project,
 )
 from modules.story.outline_state.p20_schemas import OutlineLayerGenerateRequest
-from modules.story.outline_state.p20_service import P20ConflictError, P20GenerationService
+from modules.story.outline_state.p20_service import P20ConflictError
 from modules.story.outline_state.scene_workbench import (
     SceneSuggestionConflictError,
     SceneWorkbenchService,
@@ -236,76 +236,12 @@ async def _enqueue_outline_layer_task(
     db: DbSession,
     data: OutlineLayerGenerateRequest,
 ) -> OutlineAiTaskResponse:
-    request_payload = data.model_dump(
-        exclude_none=True,
-        mode="json",
-        exclude={"operation_id"},
-    )
+    from modules.story.outline_state.ai_workflow_service import OutlineAIWorkflowService
+
     try:
-        existing = await get_operation_task(
-            db,
-            operation_id=str(data.operation_id) if data.operation_id else None,
-            task_type="outline_generate",
-            novel_id=data.novel_id,
-            request_payload=request_payload,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=redact_diagnostic(exc)) from exc
-    if existing is not None:
-        return OutlineAiTaskResponse(
-            task_id=existing.task_id,
-            status=existing.status,
-        )
-    try:
-        await require_fresh_confirmation(
-            db,
-            novel_id=data.novel_id,
-            action="outline.generate",
-            confirmation_id=data.context_confirmation_id,
-        )
-        plan = await P20GenerationService().prepare(db, data)
+        return await OutlineAIWorkflowService().submit_layer_generation(db, data)
     except (LookupError, ValueError) as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=redact_diagnostic(exc),
-        ) from exc
-
-    meta = dict(request_payload)
-    meta.update(
-        {
-            "action": "outline.generate",
-            "submission_fingerprint": plan.source_fingerprint,
-            "context_provenance": plan.context_provenance,
-        }
-    )
-    from modules.project.facade import build_project_llm_execution_snapshot
-
-    meta["llm_execution_snapshot"] = await build_project_llm_execution_snapshot(
-        db,
-        data.novel_id,
-    )
-    try:
-        receipt = await enqueue_task_with_optional_operation(
-            db,
-            operation_id=str(data.operation_id) if data.operation_id else None,
-            task_type="outline_generate",
-            novel_id=data.novel_id,
-            request_payload=request_payload,
-            meta=meta,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=redact_diagnostic(exc)) from exc
-    if not receipt.reused:
-        await attach_result_ref(
-            db,
-            novel_id=data.novel_id,
-            confirmation_id=data.context_confirmation_id,
-            result_type="task",
-            result_id=receipt.task_id,
-            status="running",
-        )
-    await db.flush()
-    return OutlineAiTaskResponse(task_id=receipt.task_id, status=receipt.status)
+        raise HTTPException(status_code=400, detail=redact_diagnostic(exc)) from exc
 
 
 # ============================================================

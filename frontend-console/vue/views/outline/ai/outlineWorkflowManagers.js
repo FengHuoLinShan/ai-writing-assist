@@ -14,7 +14,7 @@
  * - outlineAnalysis 使用 novelId 参数轮询、支持显式取消；
  * - plotAutoExtract 简单提交→轮询→终态刷新。
  */
-import { getAppState, getRouter, getToast } from "../../../bridge/index.js"
+import { getApi, getAppState, getRouteQuery, getRouter, getToast } from "../../../bridge/index.js"
 import {
   clearActiveWorkflow,
   recoverActiveWorkflows,
@@ -134,6 +134,28 @@ export function captureOutlineGeneratePreview(task, progress) {
     overlap: result.overlap || {},
   }
   return state.preview
+}
+
+/** Restore the exact server task linked by an assistant receipt, across devices. */
+export async function restoreLinkedOutlineTask(projectId, taskId, subView) {
+  outlineGenerateManager.resetMemoryScope()
+  const task = await getApi().tasks.get(taskId, projectId)
+  if (getAppState()?.currentProjectId !== projectId || getRouteQuery().get("source_task_id") !== taskId) return null
+  if (task.task_type !== "outline_generate" || (task.novel_id && task.novel_id !== projectId)) throw new Error("这份成果不属于当前作品的结构规划")
+  const target = P20_TARGET_BY_SUBVIEW[subView]
+  const result = task.result || {}
+  if (result.target && result.target !== target) throw new Error("这份成果属于其他结构层级，请从原回执打开")
+  const state = outlineGenerateManager.state
+  state.ownerProjectId = projectId
+  state.meta = { ...(task.meta || {}), target }
+  state.taskId = taskId
+  if (["pending", "running"].includes(task.status)) {
+    outlineGenerateManager.adopt({ task_id: taskId }, state.meta, projectId)
+    return { message: "结构建议正在准备，可稍后返回继续处理。" }
+  }
+  if (result.apply_status === "applied") return { applied: true, message: "这份结构方案已采用。", refs: result.applied_result?.result_refs || [] }
+  if (captureOutlineGeneratePreview(task)) return { preview: true }
+  return { message: ["failed", "cancelled"].includes(task.status) ? "这次结构规划未完成，请返回助手查看回执并继续处理。" : "这份规划没有可采用的修改。" }
 }
 
 /** 重置 outline generate 全部状态（stop polling + 清所有字段）。 */

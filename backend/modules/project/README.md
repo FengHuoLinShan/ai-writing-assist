@@ -292,3 +292,20 @@ python -m pytest modules/project/tests/ -v
 除 CRUD 和项目上下文外，project 当前还拥有 author/interaction kind 门禁、隐藏互动项目
 生命周期、账户连接解析、novel-scoped client lifecycle、可恢复任务的 secret-free
 execution snapshot 和项目级智能去重聚合入口。它不拥有各业务模块的生成、去重或采用规则。
+
+## 项目助手边界（ADR-0023）
+
+Assistant 经 Project 的当前连接/冻结 snapshot 执行；RP 的新旧执行版本由 snapshot 固定，恢复不随功能开关升级。
+`inspect_project_workspace` 复用既有待办/继续写作/待处理汇总，不输出账户配置。助手确认后仍由
+Project 创建作者待办；它不是剧情线索，提醒处置也不改变作者待办或领域问题的完成状态。
+
+Assistant 的按日待办查询通过 Evidence 到 `inspect_project_workspace`，复用
+AuthorTaskService 的 today/inbox/later/completed/archived 与分页规则，每次最多30项。
+待办与作品事实分开，更新仍需具体预览和原 updated_at，不因查到待办自动采用。
+
+### 助手组织相似资料比较
+
+`project.scan_duplicates` 是建议生成工具，复用 SmartDedup 的队列、冻结连接和成组比较页面。
+只接受完整项目授权，不扩大已有 Context 或排除范围。扫描 task 的 `group_receipts` 同事务
+保存每组选择与结果：成功裁决的相同选择直接重放回执，改变选择拒绝，失败组可继续处理。
+界面按原 task 打开比较，不把新一轮扫描结果替换为旧扫描的依据。

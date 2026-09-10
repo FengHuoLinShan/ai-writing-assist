@@ -164,6 +164,12 @@ class InteractionJourney(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         default=True,
     )
+    web_search_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
     setup_clarification_used: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
@@ -451,6 +457,9 @@ class InteractionGenerationAttempt(Base, UUIDMixin, TimestampMixin):
         default=0,
     )
     usage: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    agent_checkpoint_json: Mapped[dict] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
     last_checkpoint_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,

@@ -11,10 +11,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from core.csrf import require_xhr_request
 from core.dependencies import DbSession
-from infrastructure.tasks.facade import (
-    enqueue_task_with_optional_operation,
-    get_operation_task,
-)
 from modules.project.author_task_service import AuthorTaskService
 from modules.project.schemas import (
     AuthorTaskCreateRequest,
@@ -191,40 +187,10 @@ async def api_start_smart_dedup_scan(
     data: SmartDedupScanRequest,
 ) -> SmartDedupScanResponse:
     """提交项目级智能去重扫描任务。"""
-    await _service.get_project(db, project_id)
-    from modules.project.facade import build_project_llm_execution_snapshot
-
-    request_payload = data.model_dump(mode="json", exclude={"operation_id"})
     try:
-        existing = await get_operation_task(
-            db,
-            operation_id=str(data.operation_id) if data.operation_id else None,
-            task_type="smart_dedup_scan",
-            novel_id=project_id,
-            request_payload=request_payload,
-        )
+        return await _smart_dedup_service.submit_scan(db, project_id, data)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    if existing is not None:
-        return SmartDedupScanResponse(
-            task_id=existing.task_id,
-            status=existing.status,
-        )
-    llm_execution_snapshot = await build_project_llm_execution_snapshot(db, project_id)
-    receipt = await enqueue_task_with_optional_operation(
-        db,
-        operation_id=str(data.operation_id) if data.operation_id else None,
-        task_type="smart_dedup_scan",
-        novel_id=project_id,
-        request_payload=request_payload,
-        meta={
-            "novel_id": project_id,
-            "llm_execution_snapshot": llm_execution_snapshot,
-            **request_payload,
-        },
-    )
-    await db.flush()
-    return SmartDedupScanResponse(task_id=receipt.task_id, status=receipt.status)
 
 
 @router.post(

@@ -111,7 +111,7 @@ async def test_runtime_uses_account_profile_and_ignores_legacy_project_connectio
 
     async with open_project_llm_client(db_session, test_project_id) as client:
         summary = client.profile_summary
-        assert client.model_name == "deepseek-v4-flash"
+        assert client.model_name == "deepseek-flash"
         assert summary["provider_id"] == "deepseek"
         assert summary["base_url_host"] == "api.deepseek.com"
         assert summary["api_key_configured"] is True
@@ -267,7 +267,7 @@ async def test_execution_snapshot_is_secret_free_and_uses_rotated_provider_key(
     assert context_before_rotation is not None
     assert "unit-test-before-rotation" not in str(context_before_rotation.settings)
     assert snapshot["profile"]["provider_id"] == "deepseek"
-    assert snapshot["profile"]["model"] == "deepseek-v4-flash"
+    assert snapshot["profile"]["model"] == "deepseek-flash"
     assert snapshot[LLM_CAPABILITY_SNAPSHOT_KEY]["capability_hash"]
     assert capability_from_execution_snapshot(snapshot).hard_input_tokens == 400_000
     assert snapshot["sources"]["model"] == "account"
@@ -283,7 +283,7 @@ async def test_execution_snapshot_is_secret_free_and_uses_rotated_provider_key(
     )
     context_after_rotation = await get_project_context(db_session, test_project_id)
 
-    assert restored["llm"]["model"] == "deepseek-v4-flash"
+    assert restored["llm"]["model"] == "deepseek-flash"
     assert restored["llm"]["api_key"] == "unit-test-after-rotation"
     assert restored["llm"]["api_key"] != "unit-test-before-rotation"
     assert capability_from_execution_settings(restored).hard_input_tokens == 400_000
@@ -323,7 +323,7 @@ async def test_snapshot_provider_survives_active_template_hot_switch(
         snapshot,
     )
     assert restored["llm"]["provider_id"] == "deepseek"
-    assert restored["llm"]["model"] == "deepseek-v4-flash"
+    assert restored["llm"]["model"] == "deepseek-flash"
     assert restored["llm"]["api_key"] == "unit-test-deepseek-key"
 
 
@@ -464,8 +464,8 @@ async def test_same_owner_projects_share_account_profile_not_legacy_profiles(
 
     async with open_project_llm_client(db_session, test_project_id) as first:
         async with open_project_llm_client(db_session, second_id) as second:
-            assert first.model_name == "deepseek-v4-flash"
-            assert second.model_name == "deepseek-v4-flash"
+            assert first.model_name == "deepseek-flash"
+            assert second.model_name == "deepseek-flash"
             assert first.profile_summary == second.profile_summary
 
 
@@ -495,7 +495,7 @@ async def test_browser_runtime_cannot_open_another_owners_project(
         api_key="unit-test-owner-b-key",
     )
     async with open_project_llm_client(db_session, test_project_id) as first:
-        assert first.model_name == "deepseek-v4-flash"
+        assert first.model_name == "deepseek-flash"
 
     with pytest.raises(Exception, match="not found"):
         async with open_project_llm_client(db_session, second_id):

@@ -115,8 +115,7 @@ def _information_movement_chronology_violations(output: BaseModel) -> list[str]:
             if concrete_chapters == sorted(concrete_chapters):
                 continue
             node_path = (
-                f"threads[{thread_index}].information_movements"
-                f"[{movement_index}].nodes"
+                f"threads[{thread_index}].information_movements[{movement_index}].nodes"
             )
             violations.append(
                 f"{node_path} 的已知章号顺序为 {concrete_chapters}，不是从早到晚；"
@@ -339,8 +338,7 @@ class P20GenerationService:
                 payload,
                 prompt_name="p20_scope_rule_audit",
                 step_name=(
-                    f"outline.p20.{plan.request.target}.scope_rule_audit."
-                    f"{audit_round}"
+                    f"outline.p20.{plan.request.target}.scope_rule_audit.{audit_round}"
                 ),
             ),
             cls._run_audit(
@@ -589,6 +587,10 @@ class P20ApplyService:
                 result_refs=result_refs,
                 status="done",
             )
+            from modules.story.proactive import changed
+
+            for reference in result_refs:
+                await changed(db, novel_id, reference["id"], asset_type=reference["type"])
             applied_result = {
                 "status": "applied",
                 "contract_version": "outline_layer_v2",
@@ -596,15 +598,12 @@ class P20ApplyService:
                 "mode": request.mode,
                 "result": edited.result,
                 "applied_ids": [item["id"] for item in result_refs],
+                "result_refs": result_refs,
                 "total_threads": sum(
                     item["type"] == "plot_thread" for item in result_refs
                 ),
-                "total_arcs": sum(
-                    item["type"] == "outline_arc" for item in result_refs
-                ),
-                "total_scenes": sum(
-                    item["type"] == "scene" for item in result_refs
-                ),
+                "total_arcs": sum(item["type"] == "outline_arc" for item in result_refs),
+                "total_scenes": sum(item["type"] == "scene" for item in result_refs),
             }
             from infrastructure.tasks.facade import replace_completed_task_result
 
@@ -702,8 +701,7 @@ class P20ApplyService:
                 )
                 require_subset(item.related_entity_refs, valid_entities, "entities")
                 movement_refs = [
-                    movement.movement_ref
-                    for movement in item.information_movements
+                    movement.movement_ref for movement in item.information_movements
                 ]
                 if len(movement_refs) != len(set(movement_refs)):
                     raise ValueError("information movement references must be unique")
@@ -903,14 +901,12 @@ class P20ApplyService:
         adopted_at: str,
     ) -> list[dict[str, str]]:
         refs: list[dict[str, str]] = []
-        next_index = int(
-            await db.scalar(
-                select(func.max(Scene.scene_index)).where(
-                    Scene.novel_id == uuid.UUID(request.novel_id)
-                )
+        maximum = await db.scalar(
+            select(func.max(Scene.scene_index)).where(
+                Scene.novel_id == uuid.UUID(request.novel_id)
             )
-            or -1
-        ) + 1
+        )
+        next_index = int(maximum) + 1 if maximum is not None else 0
         for draft in output.scenes:
             if request.mode == "revise":
                 scene_id = uuid.UUID(reference_map["scenes"][draft.target_scene_ref])
@@ -1017,8 +1013,7 @@ class P20ApplyService:
         for movement in draft.information_movements:
             movement_id = self._information_movement_id(thread.id, movement.movement_ref)
             if any(
-                node.kind in {"seed", "reinforce", "payoff"}
-                for node in movement.nodes
+                node.kind in {"seed", "reinforce", "payoff"} for node in movement.nodes
             ):
                 desired_foreshadow_ids.add(movement_id)
             if (
@@ -1087,6 +1082,12 @@ class P20ApplyService:
                     request.novel_id,
                     movement_id,
                 )
+                from modules.story.information_dependencies import capture_change_scenes
+                from modules.story.outline_state.repositories import (
+                    _notify_structure_change,
+                )
+
+                previous_scenes = await capture_change_scenes(db, plan)
                 if plan is None:
                     plan = ForeshadowingPlan(
                         novel_id=uuid.UUID(request.novel_id),
@@ -1120,6 +1121,9 @@ class P20ApplyService:
                 plan.related_thread_ids = [str(thread.id)]
                 plan.provenance_meta = common_meta
                 await db.flush()
+                await _notify_structure_change(
+                    db, plan, "foreshadowing_plan", related_scene_ids=previous_scenes
+                )
                 refs.append({"type": "foreshadowing_plan", "id": str(plan.id)})
             if reveal_nodes:
                 if not movement.target_ref or not movement.hidden_content:
@@ -1139,6 +1143,12 @@ class P20ApplyService:
                     request.novel_id,
                     movement_id,
                 )
+                from modules.story.information_dependencies import capture_change_scenes
+                from modules.story.outline_state.repositories import (
+                    _notify_structure_change,
+                )
+
+                previous_scenes = await capture_change_scenes(db, plan)
                 if plan is None:
                     plan = RevealPlan(
                         novel_id=uuid.UUID(request.novel_id),
@@ -1179,6 +1189,9 @@ class P20ApplyService:
                 plan.related_thread_ids = [str(thread.id)]
                 plan.provenance_meta = plan_meta
                 await db.flush()
+                await _notify_structure_change(
+                    db, plan, "reveal_plan", related_scene_ids=previous_scenes
+                )
                 refs.append({"type": "reveal_plan", "id": str(plan.id)})
         return refs
 
@@ -1224,6 +1237,12 @@ class P20ApplyService:
                 movement_id = str(meta.get("information_movement_id") or "")
                 if movement_id in desired_ids:
                     continue
+                from modules.story.information_dependencies import capture_change_scenes
+                from modules.story.outline_state.repositories import (
+                    _notify_structure_change,
+                )
+
+                previous_scenes = await capture_change_scenes(db, plan)
                 remaining_thread_ids = [
                     str(value)
                     for value in (plan.related_thread_ids or [])
@@ -1243,6 +1262,13 @@ class P20ApplyService:
                 else:
                     plan.status = "deprecated"
                 plan.provenance_meta = meta
+                await db.flush()
+                await _notify_structure_change(
+                    db,
+                    plan,
+                    "foreshadowing_plan" if model is ForeshadowingPlan else "reveal_plan",
+                    related_scene_ids=previous_scenes,
+                )
 
     @staticmethod
     async def _find_projection(

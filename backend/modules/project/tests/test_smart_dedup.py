@@ -449,6 +449,22 @@ async def test_group_apply_rolls_back_failed_group_and_continues(
     )
     assert "forced group failure" not in result["group_results"][0]["message"]
 
+    async def no_reexecution(*args, **kwargs):
+        raise AssertionError("已完成裁决不能再次执行或重新预检")
+
+    monkeypatch.setattr("modules.world.facade.apply_entity_fusion_group", no_reexecution)
+    replay = await SmartDedupService().apply_groups(
+        db_session,
+        novel_id=str(project.id),
+        scan_task_id=str(task.id),
+        groups=[requests[1]],
+        confirmed=True,
+    )
+    assert replay["applied"] == 0
+    assert replay["group_results"][0]["replayed"]
+    await db_session.refresh(task)
+    assert task.result["group_receipts"]["g2"]["result"]["status"] == "success"
+
 
 async def test_group_apply_preflights_all_fingerprints_before_any_group_mutates(
     db_session: AsyncSession,

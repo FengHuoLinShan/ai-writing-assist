@@ -13,6 +13,10 @@ function setup(overrides = {}) {
       generate: vi.fn(async () => ({ draft_id: "candidate-1" })),
       semanticReview: vi.fn(),
       targetedRevision: vi.fn(),
+      regenerationContext: vi.fn(async () => ({ reference_options: {
+        scope: "chapter", chapter_index: 1, excluded_asset_ids: { core_entities: ["excluded-1"] },
+        scene_id: "original-scene", task: "重新确认原选择并生成新版",
+      } })),
     },
     tasks: { get: vi.fn() },
   }
@@ -75,6 +79,31 @@ describe("writingCommandController", () => {
     const { controller } = setup({ getPinnedRefs: () => pinned })
     await controller.generateDraft()
     expect(confirmAiReference).toHaveBeenCalledWith(expect.objectContaining({ content_mode: "working", context_mode: "working", pinned_refs: pinned }))
+  })
+
+  it("只读候选可重新确认原选择生成新版，不重绑旧候选或送审", async () => {
+    const onProgress = vi.fn()
+    const { api, editor, controller } = setup({ onProgress })
+    editor.isReadonly.mockReturnValue(true)
+    editor.getStatus.mockReturnValue("candidate")
+    await controller.regenerateCandidate()
+    expect(api.writing.regenerationContext).toHaveBeenCalledWith("draft-1", "p1")
+    expect(confirmAiReference).toHaveBeenCalledWith(expect.objectContaining({
+      scene_id: "original-scene", excluded_asset_ids: { core_entities: ["excluded-1"] },
+    }))
+    expect(api.writing.generate).toHaveBeenCalledWith(expect.objectContaining({ context_confirmation_id: "confirmation-1" }))
+    expect(api.writing.semanticReview).not.toHaveBeenCalled()
+    expect(api.writing.targetedRevision).not.toHaveBeenCalled()
+    expect(onProgress).toHaveBeenNthCalledWith(1, expect.objectContaining({ result: null }))
+  })
+
+  it("重新读取原选择期间切换作品不打开确认或生成", async () => {
+    const { api, editor, project, controller } = setup()
+    editor.getStatus.mockReturnValue("candidate")
+    api.writing.regenerationContext.mockImplementation(async () => { project.value = "p2"; return { reference_options: {} } })
+    await controller.regenerateCandidate()
+    expect(confirmAiReference).not.toHaveBeenCalled()
+    expect(api.writing.generate).not.toHaveBeenCalled()
   })
 
   it("采用剧本过期时停在确认条，重试只对本次任务确认旧资产", async () => {

@@ -14,6 +14,7 @@ from modules.story.outline_state.repositories import StructurePlanRepository
 
 class RevealPlanRepository(StructurePlanRepository[RevealPlan]):
     model_class = RevealPlan
+    change_type = "reveal_plan"
     order_by = (RevealPlan.created_at,)
 
     async def get_by_novel(
@@ -43,12 +44,16 @@ class RevealPlanRepository(StructurePlanRepository[RevealPlan]):
             needs_review=needs_review,
         )
         plans: Sequence[RevealPlan] = (
-            await db.execute(
-                select(RevealPlan)
-                .where(*conditions)
-                .order_by(RevealPlan.created_at, RevealPlan.id)
+            (
+                await db.execute(
+                    select(RevealPlan)
+                    .where(*conditions)
+                    .order_by(RevealPlan.created_at, RevealPlan.id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         active_thread_ids = {
             str(value)
             for value in (

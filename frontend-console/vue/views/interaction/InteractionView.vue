@@ -35,6 +35,7 @@ import RpAdaptiveConfirmPopover from "./RpAdaptiveConfirmPopover.vue"
 import { safeInteractionError } from "./interactionErrors.js"
 import { sourceEntityTypeLabel } from "./sourceLabels.js"
 import RpMarkdownContent from "./RpMarkdownContent.vue"
+import ProactiveCare from "../../components/ProactiveCare.vue"
 
 const props = defineProps({
   initialJourney: { type: Object, default: null },
@@ -267,6 +268,7 @@ const failedError = computed(() => safeInteractionError(
 // attempt.error_message 由后端 _safe_story_error/blocker 写入,是面向用户的
 // 固定文案(如具体的资料阻断原因);优先于按 kind 推导的通用文案展示。
 const failedMessage = computed(() => {
+  if (currentAttempt.value?.status === "cancelled") return safeInteractionError("cancelled").message
   const serverMessage = String(currentAttempt.value?.error_message || "").trim()
   return serverMessage || failedError.value.message
 })
@@ -403,6 +405,7 @@ function applyModeJourney(nextJourney, expectedEpoch) {
   mergeJourneyMetadata(nextJourney, [
     "see_sea_enabled",
     "action_options_enabled",
+    "web_search_enabled",
   ])
   return false
 }
@@ -2134,7 +2137,7 @@ onBeforeUnmount(() => {
         <button type="button" class="rp-mutation-button rp-mutation-button--keep" :disabled="sending" :aria-busy="sending && mutationAction === 'keep-partial'" @click="keepPartial"><span v-if="sending && mutationAction === 'keep-partial'" class="rp-button-spinner" aria-hidden="true"></span>{{ sending && mutationAction === 'keep-partial' ? '正在保留…' : '保留这段' }}</button>
         <button type="button" class="rp-mutation-button rp-mutation-button--retry" :disabled="sending" :aria-busy="sending && mutationAction === 'retry'" @click="retryAttempt"><span v-if="sending && mutationAction === 'retry'" class="rp-button-spinner" aria-hidden="true"></span>{{ sending && mutationAction === 'retry' ? '正在重新生成…' : '重新生成' }}</button>
       </div>
-      <div v-else-if="failedAttempt" class="rp-attempt-actions rp-attempt-actions--error" role="alert">
+      <div v-else-if="failedAttempt" class="rp-attempt-actions rp-attempt-actions--error" :role="currentAttempt?.status === 'cancelled' ? 'status' : 'alert'">
         <p>{{ failedMessage }}</p>
         <button
           v-if="failedError.action === 'connection'"
@@ -2273,6 +2276,7 @@ onBeforeUnmount(() => {
         <button type="button" @click="goConnect">去连接模型</button>
       </div>
       <div class="rp-composer-tools">
+        <ProactiveCare :target-id="journey.id" interaction @locate="source => source.location?.node_id ? locateMessage(source.location.node_id) : openOverview()" />
         <button
           v-if="storyStarted"
           type="button"
@@ -2307,6 +2311,11 @@ onBeforeUnmount(() => {
           :aria-pressed="journey.action_options_enabled"
           @click="requestModeToggle('action_options_enabled')"
         >行动选项</button>
+        <details class="rp-public-research">
+          <summary>现实资料查证</summary>
+          <p>仅向本站搜索服务及上游搜索网站发送通用事实问题，不发送故事原文，也不查原作剧情。开启后从下一轮生效；关闭后停止新查证，已查资料保留。</p>
+          <label><input type="checkbox" :checked="journey.web_search_enabled" @change="requestModeToggle('web_search_enabled')">允许按需查证公开资料</label>
+        </details>
         <span>{{
           stopAfterCurrentNotice
             ? "将在本段结束后停止"

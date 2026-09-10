@@ -29,7 +29,8 @@ infrastructure/llm/
 - 支持重试
 - 支持结构化输出修复
 - 支持由上层 project facade 解析的账户级 OpenAI-compatible LLM Profile
-- 提供版本化 model capability budget；当前只校准官方 `deepseek-v4-flash`，未知模型使用
+- 提供版本化 model capability budget；当前校准 canonical `deepseek-flash`，并保留
+  `deepseek-v4-flash` 冻结兼容配置；未知模型使用
   保守 short fallback，不继承上一模型的 context ceiling
 - 记录 token 和调用耗时
 - 结构化调用的每次首发/修复都向可选受控诊断写入 prompt/completion/total token；provider 提供时
@@ -83,6 +84,28 @@ transport attempt。
 
 ### 受控 LLM Step
 
+ADR-0023 的 `agent_runtime.py` 通过 `ProjectGatewayModel` 接入锁定的 PydanticAI。
+工具历史使用显式调用 ID、JSON 参数和配对结果，拒绝孤立/重复/未完成配对；`extra` 和
+`extra_body` 不可注入工具。供应商思考续接字段只在私有模型协议中保留，不进入普通 dump。
+请求、全部工具尝试和联网子请求按运行预算累计，恢复不重置；新 Agent 关闭 transport
+自动重放，格式修复由 PydanticAI 独立拥有。现有确定性 structured helper 不改变行为。
+`native_search.py` 保留供应商原生协议兼容代码，未通过真实兼容验证的能力不注册。
+新运行使用 `web_search.py` 的私有 SearXNG 搜索与公开网页读取，不依赖模型供应商原生搜索。
+前台与后台需要明确的新渠道授权；旧运行不会因为增加工具而获得新权限。网页只是外部参考，
+只有实际读到的正文才能成为引用，搜索摘要不能作为已查证依据。
+
+读取器仅支持公开 HTTP(S) HTML/纯文本，单页 2 MiB、正文 12,000 字、请求 20 秒、最多三次
+重定向。DNS 解析后的全部地址必须为公网，实际连接绑定检查过的数值 IP，TLS 仍校验原主机名；
+不执行网页脚本、不带浏览器 Cookie、不接受模型指定的请求头或任意 URL。管理员可用
+`WEB_DNS_SERVERS` 指定公共 DNS，以适配返回代理占位地址的开发环境；没有放宽公网地址检查。
+
+`WEB_SEARCH_URL` 仅指向管理员配置的私有 SearXNG。搜索按固定引擎顺序逐个请求，失败切换、
+网页请求和重定向均计入同一运行的联网额度；不伪计模型请求或 token。联网子额度耗尽返回
+明确遗漏，继续使用已取得的依据；模型、工具和总时限仍是硬边界。关闭 RP 联网只停止新检索，
+已经冻结的合法准备资料可以用于续写。来源保存读取时间、最终 URL、字节和摘录指纹、覆盖说明。
+费用无法核对时仍显示未知。
+
+
 业务模块的 text / structured generation 应优先通过
 `run_managed_generate()` 或 `run_managed_structured()` 包装 `LLMClient` 调用。
 这两个 helper 不改变 provider/retry 行为：structured JSON 修复仍由
@@ -106,7 +129,7 @@ Completions 请求；缓存命中不等于复用同一会话，项目不保存 p
 
 前端通过 settings 模块维护账户连接。第一版 provider 模板固定为：
 
-- DeepSeek `deepseek-v4-flash`
+- DeepSeek `deepseek-flash`（旧任务兼容 `deepseek-v4-flash`）
 - Kimi `kimi-k3`（真实兼容门禁通过并显式启用前不可达）
 
 带 `novel_id` 的业务模块不得自行读取项目配置或直接构造客户端，必须使用 project
@@ -198,3 +221,11 @@ DeepSeek 新能力快照以可选 `interaction_reasoning_effort=max`、`interact
 完整 JSON 仅在解码器定位为非法反斜杠转义时最多修复8处，保留字面内容并继续schema校验；
 截断、损坏Unicode或无法完整解析仍走失败路径。截断重试不会将调用方已设置的更大预算
 降到旧40K扩展目标，重试层数不增加。
+
+2026-09-10 的最新 DeepSeek 原生联网兼容门禁连续三次未收到搜索事件或引用，运行时注册已
+撤下；适配代码仅保留给显式验证。账户文本/结构化模型连接不因此换供应商。无实际completed
+搜索事件不出具联网结果；已收到但不符合搜索要求的响应仍保留已知用量，缺失用量为未知。
+
+工具准备与读取中的内部模型步骤使用 workflow_budget.budgeted_tool；原工具签名保留，嵌套
+工作流共享累计预算且不会重复计数，离开工具后恢复外层上下文。Pydantic 主循环的模型请求
+仍由 ProjectGatewayModel 计量，不套入工具内部计量层。

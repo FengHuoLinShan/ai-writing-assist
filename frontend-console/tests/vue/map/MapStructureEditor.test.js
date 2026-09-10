@@ -56,6 +56,17 @@ describe("统一地图编辑器", () => {
   })
   const render = (props = {}) => mount(MapStructureEditor, { props: { projectId, node: { id: nodeId, title: "区域", level: "region" }, ...props } })
 
+  it("成果链接打开指定历史版进行比较而不替换当前编辑", async () => {
+    api.world.previewMapRevision.mockResolvedValue({ document: { ...emptyMap(), features: [feature("old", "旧港口", 10, 10)] }, image_layers: [], problems: [] })
+    const wrapper = render({ initialRevisionId: nextId })
+    await flushPromises()
+    expect(api.world.previewMapRevision).toHaveBeenCalledWith(projectId, nodeId, nextId)
+    expect(wrapper.text()).toContain("正在查看历史地图")
+    expect(wrapper.text()).toContain("旧港口")
+    expect(api.world.saveMapRevision).not.toHaveBeenCalled()
+    expect(wrapper.vm.revision.id).toBe(revisionId)
+  })
+
   it("无需图片连接即可编辑保存，文字使用安全的 SVG 文本", async () => {
     const wrapper = render()
     await flushPromises()

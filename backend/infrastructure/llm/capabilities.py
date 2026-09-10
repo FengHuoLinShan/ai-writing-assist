@@ -47,7 +47,8 @@ class LLMCapabilityProfile:
 
     def validate(self) -> LLMCapabilityProfile:
         if self.interaction_reasoning_effort is not None and (
-            (self.provider_id, self.model) != ("deepseek", "deepseek-v4-flash")
+            self.provider_id != "deepseek"
+            or self.model not in {"deepseek-flash", "deepseek-v4-flash"}
             or self.interaction_reasoning_effort != "max"
             or self.interaction_timeout_seconds != 900
         ):
@@ -116,6 +117,15 @@ _DEEPSEEK_V4_FLASH = LLMCapabilityProfile(
     interaction_timeout_seconds=900,
 ).validate()
 
+_DEEPSEEK_FLASH = LLMCapabilityProfile(
+    **{
+        **asdict(_DEEPSEEK_V4_FLASH),
+        "profile_id": "deepseek-flash-rp-max-20260910-v1",
+        "model": "deepseek-flash",
+        "spec_verified_on": "2026-09-10",
+    }
+).validate()
+
 
 def _short_fallback(
     provider_id: str, model: str, *, legacy: bool = False
@@ -143,11 +153,9 @@ def resolve_llm_capability_profile(
 ) -> LLMCapabilityProfile:
     provider = str(provider_id or "")
     model_name = str(model or "")
-    if (provider, model_name) == (
-        _DEEPSEEK_V4_FLASH.provider_id,
-        _DEEPSEEK_V4_FLASH.model,
-    ):
-        return _DEEPSEEK_V4_FLASH
+    for profile in (_DEEPSEEK_FLASH, _DEEPSEEK_V4_FLASH):
+        if (provider, model_name) == (profile.provider_id, profile.model):
+            return profile
     return _short_fallback(provider, model_name)
 
 

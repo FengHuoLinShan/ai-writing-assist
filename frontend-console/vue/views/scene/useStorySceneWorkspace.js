@@ -9,6 +9,7 @@ import {
 import {
   getApi,
   getAppState,
+  getRouteQuery,
   getToast,
 } from "../../bridge/index.js"
 import { confirmAiReference } from "../../../shared/aiReferenceModal.js"
@@ -223,6 +224,7 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
   const activeTab = ref(runtimeTabFromQuery())
   const characters = ref([])
   const scripts = ref([])
+  const linkedRevision = ref(null)
   const cardDraft = reactive({
     characterId: null,
     cardId: null,
@@ -539,6 +541,7 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
     const token = ++requestGeneration.value
     loading.value = true
     loadError.value = null
+    linkedRevision.value = null
     restoreDraft(targetScene.id)
     try {
       let context = null
@@ -621,6 +624,23 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
         throw contextError
       }
       if (activeTab.value === "script" && selectedScript?.fileId) void loadScriptHistory(selectedScript.fileId, token)
+      const query = getRouteQuery()
+      const revisionId = query.get("revision_id")
+      const cardId = query.get("card_id"), fileId = query.get("file_id")
+      if (revisionId && (cardId || fileId)) {
+        try {
+          const asset = cardId ? await api.story.getCharacterCard(cardId, projectId) : await api.story.getSceneScriptFile(fileId, projectId)
+          if (!owns(token, targetScene.id)) return false
+          if (asset.scene_id !== targetScene.id) throw new Error("成果不属于当前场景")
+          const versions = cardId ? await api.story.listCharacterCardRevisions(cardId, projectId) : await api.story.listSceneScriptRevisions(fileId, projectId)
+          if (!owns(token, targetScene.id)) return false
+          const version = listItems(versions).find(item => item.id === revisionId)
+          if (!version) throw new Error("成果版本不存在")
+          linkedRevision.value = { title: cardId ? "人物卡原成果" : "剧本原成果", version: version.version_number, content: version.content }
+        } catch {
+          if (owns(token, targetScene.id)) linkedRevision.value = { error: "原成果版本暂时无法读取，当前场景仍可继续编辑。" }
+        }
+      }
       return true
     } catch (err) {
       if (!owns(token, targetScene.id)) return false
@@ -1172,6 +1192,7 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
     hasScene: computed(() => Boolean(scene.value?.id)),
     loadError,
     loadWorkspace,
+    linkedRevision,
     loadCardHistory,
     loadScriptHistory,
     loading,

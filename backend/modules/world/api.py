@@ -26,6 +26,8 @@ from infrastructure.tasks.facade import (
     get_operation_task,
 )
 from modules.account.facade import current_account_id
+from modules.assistant.contracts import RunResponse as AssistantRunResponse
+from modules.assistant.facade import project_assistant_enabled
 from modules.evidence.facade import attach_result_ref, require_fresh_confirmation
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
@@ -127,6 +129,7 @@ from modules.world.schemas import (
     WorldBibleCategoryListResponse,
     WorldBibleCategoryResponse,
     WorldBibleCategoryUpdate,
+    WorldBibleDraftPublicationResponse,
     WorldBiblePageCreate,
     WorldBiblePageDraftCreate,
     WorldBiblePageDraftListResponse,
@@ -532,7 +535,7 @@ async def _attach_manual_context_result(db: DbSession, data, result) -> None:
 
 @router.post(
     "/generation-center/chat",
-    response_model=WorldGenerationChatResponse,
+    response_model=WorldGenerationChatResponse | AssistantRunResponse,
 )
 async def chat_world_generation_center(
     db: DbSession,
@@ -540,8 +543,13 @@ async def chat_world_generation_center(
 ) -> WorldGenerationChatResponse:
     """World co-creation chat; never writes a business asset or suggestion."""
     await require_active_project(db, data.novel_id)
-    await _require_generation_confirmation(db, data, "world.generation.chat")
+    if not project_assistant_enabled():
+        await _require_generation_confirmation(db, data, "world.generation.chat")
     try:
+        if project_assistant_enabled():
+            from modules.assistant.facade import submit_cocreation
+
+            return await submit_cocreation(db, data)
         result = await _world_generation_service.chat(db, data)
         await _attach_manual_context_result(db, data, result)
         return result
@@ -883,7 +891,7 @@ async def append_world_cocreation_message(
 
 @router.post(
     "/cocreation-sessions/{session_id}/chat",
-    response_model=WorldGenerationChatResponse,
+    response_model=WorldGenerationChatResponse | AssistantRunResponse,
 )
 async def chat_world_cocreation_session(
     db: DbSession,
@@ -893,7 +901,8 @@ async def chat_world_cocreation_session(
 ) -> WorldGenerationChatResponse:
     """Session-scoped chat; the completed turn is persisted atomically."""
     await require_active_project(db, data.novel_id)
-    await _require_generation_confirmation(db, data, "world.generation.chat")
+    if not project_assistant_enabled():
+        await _require_generation_confirmation(db, data, "world.generation.chat")
     try:
         return await _cocreation_session_service.chat(db, session_id, data)
     except TemplateVersionConflictError as exc:
@@ -1915,6 +1924,20 @@ async def get_bible_draft(
     novel_id: ActiveNovelIdQuery,
 ) -> WorldBiblePageDraftResponse:
     return await _bible_lifecycle_service.get_draft(db, novel_id, draft_id)
+
+
+@router.get(
+    "/bible/drafts/{draft_id}/publication",
+    response_model=WorldBibleDraftPublicationResponse,
+)
+async def get_bible_draft_publication(
+    db: DbSession, draft_id: str, *, novel_id: ActiveNovelIdQuery
+):
+    from modules.world.services.worldbuilding.world_authority_service import (
+        WorldAuthorityService,
+    )
+
+    return await WorldAuthorityService().find_page_publication(db, novel_id, draft_id)
 
 
 @router.patch("/bible/drafts/{draft_id}", response_model=WorldBiblePageDraftResponse)

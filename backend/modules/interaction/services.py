@@ -27,6 +27,11 @@ from modules.interaction.models import (
 )
 from modules.interaction.prompts import render_overview_sections
 from modules.interaction.repositories import InteractionRepository
+from modules.interaction.runtime_policy import (
+    STORY_TASK_TYPES,
+    clear_private_agent_state,
+    story_task_type,
+)
 from modules.interaction.schemas import (
     InteractionActionSuggestion,
     InteractionAttemptResponse,
@@ -200,6 +205,7 @@ class InteractionService:
             see_sea_enabled=data.see_sea_enabled,
             see_sea_last_heartbeat_at=now if data.see_sea_enabled else None,
             action_options_enabled=data.action_options_enabled,
+            web_search_enabled=data.web_search_enabled,
             selection_epoch=0,
             overview_epoch=0,
             source_revision_id=source_binding[0].id if source_binding else None,
@@ -236,6 +242,7 @@ class InteractionService:
         snapshot = await build_project_llm_execution_snapshot(
             db,
             str(journey.novel_id),
+            **({"web_search_enabled": True} if journey.web_search_enabled else {}),
         )
         attempt = await self._create_attempt(
             db,
@@ -360,6 +367,7 @@ class InteractionService:
                     status=journey.status,
                     see_sea_enabled=journey.see_sea_enabled,
                     action_options_enabled=journey.action_options_enabled,
+                    web_search_enabled=journey.web_search_enabled,
                     selection_epoch=journey.selection_epoch,
                     latest_activity_at=journey.latest_activity_at,
                     current_excerpt=current[:240] if current else None,
@@ -475,6 +483,7 @@ class InteractionService:
             "excluded": remap(list(policy.get("excluded") or []), required=False),
         }
         journey.source_context_epoch += 1
+        await self._repo.notify_state_changed(db, journey)
         self._repo.touch(journey)
         await db.flush()
         return await self._detail(db, journey)
@@ -521,6 +530,7 @@ class InteractionService:
             pinned = [item for item in pinned if item != key]
         journey.reference_policy = {"pinned": pinned, "excluded": excluded}
         journey.source_context_epoch += 1
+        await self._repo.notify_state_changed(db, journey)
         self._repo.touch(journey)
         await db.flush()
         return await self.get_reference_summary(db, journey_id=journey_id)
@@ -899,6 +909,7 @@ class InteractionService:
             previous.status = "cancelled"
             previous.finish_reason = "regenerated"
             previous.metadata_text = ""
+            clear_private_agent_state(previous)
         attempt = await self._start_new_attempt(
             db,
             journey=journey,
@@ -1361,7 +1372,7 @@ class InteractionService:
         attempt.continuation_count += 1
         task_id = enqueue_task(
             db,
-            "interaction_story_generate",
+            story_task_type(dict(attempt.llm_execution_snapshot or {})),
             meta=self._story_task_meta(journey, attempt),
             novel_id=str(journey.novel_id),
         )
@@ -1382,6 +1393,7 @@ class InteractionService:
         see_sea_enabled: bool | None,
         action_options_enabled: bool | None,
         expected_selection_epoch: int,
+        web_search_enabled: bool | None = None,
     ) -> InteractionMutationResponse:
         journey = await self._active_journey_for_update(db, journey_id)
         self._check_epoch(journey, expected_selection_epoch)
@@ -1392,6 +1404,13 @@ class InteractionService:
             )
         if action_options_enabled is not None:
             journey.action_options_enabled = action_options_enabled
+        if web_search_enabled is not None:
+            if web_search_enabled:
+                from infrastructure.llm.web_search import search_snapshot
+
+                if search_snapshot() is None:
+                    raise ValidationError("公开资料搜索尚未配置")
+            journey.web_search_enabled = web_search_enabled
         self._repo.touch(journey)
         attempt = await self._repo.get_unresolved_attempt(db, journey=journey)
         if (
@@ -1686,6 +1705,7 @@ class InteractionService:
         await db.flush()
         journey.overview_head_revision_id = revision.id
         journey.overview_epoch += 1
+        await self._repo.notify_state_changed(db, journey)
         self._repo.touch(journey)
         enqueued = False
         if await self._overview_refresh_is_due(db, journey=journey, path=path):
@@ -1738,6 +1758,7 @@ class InteractionService:
         snapshot = await build_project_llm_execution_snapshot(
             db,
             str(journey.novel_id),
+            **({"web_search_enabled": True} if journey.web_search_enabled else {}),
         )
         await self._enqueue_overview_refresh(
             db,
@@ -2117,6 +2138,7 @@ class InteractionService:
         snapshot = await build_project_llm_execution_snapshot(
             db,
             str(journey.novel_id),
+            **({"web_search_enabled": True} if journey.web_search_enabled else {}),
         )
         return await self._create_attempt(
             db,
@@ -2168,7 +2190,7 @@ class InteractionService:
         await db.flush()
         task_id = enqueue_task(
             db,
-            "interaction_story_generate",
+            story_task_type(dict(attempt.llm_execution_snapshot or {})),
             meta=self._story_task_meta(journey, attempt),
             novel_id=str(journey.novel_id),
         )
@@ -2238,6 +2260,7 @@ class InteractionService:
         snapshot = await build_project_llm_execution_snapshot(
             db,
             str(journey.novel_id),
+            **({"web_search_enabled": True} if journey.web_search_enabled else {}),
         )
         return await self._create_attempt(
             db,
@@ -2309,7 +2332,7 @@ class InteractionService:
         attempt.error_message = None
         task_id = enqueue_task(
             db,
-            "interaction_story_generate",
+            story_task_type(dict(attempt.llm_execution_snapshot or {})),
             meta=self._story_task_meta(journey, attempt),
             novel_id=str(journey.novel_id),
         )
@@ -2339,7 +2362,7 @@ class InteractionService:
             await cancel_exact_task(
                 db,
                 task_id=str(attempt.task_id),
-                task_types={"interaction_story_generate"},
+                task_types=STORY_TASK_TYPES,
                 novel_id=str(journey.novel_id),
                 transition_reason=end_reason,
             )
@@ -2358,6 +2381,7 @@ class InteractionService:
             attempt.finish_reason = end_reason
         attempt.metadata_text = ""
         self._repo.touch(journey)
+        clear_private_agent_state(attempt)
         return node
 
     async def _formalize_partial_attempt(
@@ -2478,6 +2502,7 @@ class InteractionService:
             current.error_kind = "worker_interrupted"
             current.error_message = "生成服务曾中断，请重新生成"
             current.metadata_text = ""
+            clear_private_agent_state(current)
             self._repo.touch(journey)
             repaired += 1
         if repaired:
@@ -2514,6 +2539,7 @@ class InteractionService:
             status=journey.status,
             see_sea_enabled=journey.see_sea_enabled,
             action_options_enabled=journey.action_options_enabled,
+            web_search_enabled=journey.web_search_enabled,
             selection_epoch=journey.selection_epoch,
             overview_epoch=journey.overview_epoch,
             selected_leaf_node_id=(
@@ -2752,6 +2778,7 @@ class InteractionService:
         else:
             journey.overview_head_revision_id = None
         journey.overview_epoch += 1
+        await self._repo.notify_state_changed(db, journey)
         return best
 
     async def _automatic_overview_descends_from(

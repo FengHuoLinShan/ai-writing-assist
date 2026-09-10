@@ -145,7 +145,7 @@ class StoryOutlineService:
             content_hash=self._hash(content),
         )
         await self.repository.create_revision(db, revision)
-        head.current_revision_id = revision.id
+        await self.repository.set_current_revision(db, head, revision.id)
         await db.flush()
         return self._response(revision, current_revision_id=revision.id)
 
@@ -204,7 +204,7 @@ class StoryOutlineService:
             content_hash=target.content_hash,
         )
         await self.repository.create_revision(db, revision)
-        head.current_revision_id = revision.id
+        await self.repository.set_current_revision(db, head, revision.id)
         await db.flush()
         return self._response(revision, current_revision_id=revision.id)
 
@@ -314,7 +314,7 @@ class StoryOutlineService:
             content_hash=self._hash(content),
         )
         await self.repository.create_revision(db, revision)
-        head.current_revision_id = revision.id
+        await self.repository.set_current_revision(db, head, revision.id)
         replaced = await replace_completed_task_result(
             db,
             task_id=task_id,

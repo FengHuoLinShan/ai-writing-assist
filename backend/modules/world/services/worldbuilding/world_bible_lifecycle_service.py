@@ -881,7 +881,7 @@ class WorldBibleLifecycleService:
             scope_label=(f"当前页面与 {len(current_impact.affected_pages)} 个显式下游"),
             source_version=page.version_number,
             checked=[
-                "目标页面的 schema、来源基线与写入版本",
+                "目标页面的内容结构、来源基线与写入版本",
                 "发布时显式引用路径与影响范围",
                 "当前页面修订历史与派生内容失效标记",
             ],
@@ -1138,7 +1138,7 @@ class WorldBibleLifecycleService:
             not_checked=[
                 "故事总纲与 Scene",
                 "正文和自由文本中的语义提及",
-                "地图、人物及其他没有 typed 引用的内容",
+                "地图、人物及其他未明确关联的内容",
             ],
             complete=not omissions,
             impact_scope_hash=impact_scope_hash,

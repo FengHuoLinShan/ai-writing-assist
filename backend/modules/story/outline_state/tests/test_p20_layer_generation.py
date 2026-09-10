@@ -727,10 +727,17 @@ def test_information_movement_allows_unknown_hidden_content_without_invention() 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("existing_index", [None, 0])
 async def test_planned_scene_materializes_without_prose_mapping(
     db_session: AsyncSession,
     sample_novel_id: str,
+    existing_index,
 ) -> None:
+    if existing_index is not None:
+        db_session.add(
+            Scene(novel_id=uuid.UUID(sample_novel_id), scene_index=existing_index)
+        )
+        await db_session.flush()
     request = _request(sample_novel_id, target="planned_scene")
     output = P20PlannedSceneOutput.model_validate(
         {
@@ -768,6 +775,7 @@ async def test_planned_scene_materializes_without_prose_mapping(
         select(Scene).where(Scene.id == uuid.UUID(refs[0]["id"]))
     )
     assert scene is not None
+    assert scene.scene_index == (0 if existing_index is None else existing_index + 1)
     assert scene.scene_chunks == []
     assert scene.chapter_ids == []
     assert scene.structure_meta["planning_state"] == "planned"

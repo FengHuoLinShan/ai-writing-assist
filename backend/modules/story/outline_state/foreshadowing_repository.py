@@ -13,6 +13,7 @@ from modules.story.outline_state.repositories import StructurePlanRepository
 
 class ForeshadowingPlanRepository(StructurePlanRepository[ForeshadowingPlan]):
     model_class = ForeshadowingPlan
+    change_type = "foreshadowing_plan"
     order_by = (ForeshadowingPlan.planned_seed_chapter,)
 
     async def get_by_novel(
@@ -51,7 +52,9 @@ class ForeshadowingPlanRepository(StructurePlanRepository[ForeshadowingPlan]):
                         ForeshadowingPlan.id,
                     )
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
         active_thread_ids = {
             str(value)
