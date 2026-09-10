@@ -13,7 +13,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get
@@ -65,7 +65,7 @@ class AssistantSessionService:
         )
         if lock:
             query = query.with_for_update().execution_options(populate_existing=True)
-        row = await db.scalar(query)
+        row = await db.scalar(query.execution_options(populate_existing=True))
         if row is None:
             raise NotFoundError("Co-creation session not found")
         return row
@@ -113,6 +113,9 @@ class AssistantSessionService:
         include_archived: bool = False,
         source_kind: str | None = None,
         source_id: str | None = None,
+        workflow_preset: str | None = None,
+        target_kind: str | None = None,
+        search: str | None = None,
         limit: int = 20,
         skip: int = 0,
     ) -> tuple[list[WorldCocreationSessionResponse], int]:
@@ -122,6 +125,14 @@ class AssistantSessionService:
             conditions.append(WorldCocreationSession.status == "active")
         if source_kind:
             conditions.append(WorldCocreationSession.source_kind == source_kind)
+        if workflow_preset:
+            conditions.append(WorldCocreationSession.workflow_preset == workflow_preset)
+        if target_kind:
+            conditions.append(WorldCocreationSession.target_kind == target_kind)
+        if search:
+            conditions.append(
+                WorldCocreationSession.title.icontains(search.strip(), autoescape=True)
+            )
         if source_id:
             conditions.append(
                 WorldCocreationSession.source_id == parse_uuid(source_id, "source_id")
@@ -139,6 +150,7 @@ class AssistantSessionService:
                         WorldCocreationSession.created_at,
                     ).desc(),
                     WorldCocreationSession.created_at.desc(),
+                    WorldCocreationSession.id.desc(),
                 )
                 .offset(skip)
                 .limit(limit)
@@ -156,10 +168,21 @@ class AssistantSessionService:
     ) -> WorldCocreationSessionDetailResponse:
         session = await self._require_session(db, novel_id, session_id)
         messages, total = await self.recent_messages(db, session)
+        from infrastructure.tasks.facade import find_session_operation
+
+        operation = await find_session_operation(
+            db,
+            novel_id=novel_id,
+            task_type="world_cocreation_turn",
+            session_id=session_id,
+        )
         return WorldCocreationSessionDetailResponse(
             session=WorldCocreationSessionResponse.model_validate(session),
             messages=messages,
             message_total=total,
+            last_operation=dict(task_id=operation.task_id, status=operation.status)
+            if operation
+            else None,
         )
 
     async def update_session(
@@ -236,12 +259,39 @@ class AssistantSessionService:
         limit: int = 50,
         skip: int = 0,
         search: str | None = None,
-    ) -> tuple[list[WorldCocreationMessageResponse], int]:
+        around_message_id: str | None = None,
+    ) -> tuple[list[WorldCocreationMessageResponse], int, int]:
         session = await self._require_session(db, novel_id, session_id)
         conditions = [
             WorldCocreationMessage.session_id == session.id,
             WorldCocreationMessage.novel_id == session.novel_id,
         ]
+        if around_message_id:
+            anchor = await db.scalar(
+                select(WorldCocreationMessage).where(
+                    *conditions,
+                    WorldCocreationMessage.id
+                    == parse_uuid(around_message_id, "message_id"),
+                )
+            )
+            if anchor is None:
+                raise NotFoundError("历史消息不属于当前会话")
+            before = await db.scalar(
+                select(func.count())
+                .select_from(WorldCocreationMessage)
+                .where(
+                    *conditions,
+                    or_(
+                        WorldCocreationMessage.created_at < anchor.created_at,
+                        and_(
+                            WorldCocreationMessage.created_at == anchor.created_at,
+                            WorldCocreationMessage.id < anchor.id,
+                        ),
+                    ),
+                )
+            )
+            skip = max(0, int(before or 0) - limit // 2)
+            search = None
         if search:
             escaped = (
                 search.strip()
@@ -266,7 +316,7 @@ class AssistantSessionService:
             )
         ).all()
         states = await self._outcome_states(db, session.novel_id, list(rows))
-        return await self._message_responses(db, list(rows), states), (total or 0)
+        return await self._message_responses(db, list(rows), states), (total or 0), skip
 
     async def recent_messages(
         self,
@@ -370,7 +420,7 @@ class AssistantSessionService:
             data.checkpoint_suggestion_id,
             "checkpoint_suggestion_id",
         )
-        await get("world.assistant.require_checkpoint")(
+        checkpoint = await get("world.assistant.require_checkpoint")(
             db, session.novel_id, suggestion_id
         )
         expected = (
@@ -384,10 +434,27 @@ class AssistantSessionService:
                 code="checkpoint_pointer_drift",
             )
         session.current_checkpoint_id = suggestion_id
-        if data.round_no is not None:
+        payload = checkpoint["payload"]
+        if payload.get("round_no") is not None:
+            session.checkpoint_round = int(payload["round_no"])
+        elif data.round_no is not None:
             session.checkpoint_round = data.round_no
-        if data.depth is not None:
+        if payload.get("depth") in {"seed", "candidate", "instance"}:
+            session.checkpoint_depth = payload["depth"]
+        elif data.depth is not None:
             session.checkpoint_depth = data.depth
+        changes = (payload.get("world_state") or {}).get("change_log") or []
+        await self.append_message(
+            db,
+            session,
+            role="author",
+            kind="decision",
+            content=(changes[-1].get("summary") if changes else None)
+            or f"保存第 {session.checkpoint_round} 轮阶段成果",
+            action=payload.get("action"),
+            outcome_suggestion_id=str(suggestion_id),
+            outcome_kind=checkpoint["target_type"],
+        )
         await db.flush()
         return WorldCocreationSessionResponse.model_validate(session)
 

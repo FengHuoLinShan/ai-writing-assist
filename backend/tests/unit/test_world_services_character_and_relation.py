@@ -66,6 +66,7 @@ async def test_character_update_reuses_loaded_object(
     character_id = uuid.uuid4()
     character = SimpleNamespace(
         entity_id=character_id,
+        novel_id=uuid.uuid4(),
         current_goal=None,
         voice_style=None,
         aliases=[],
@@ -92,6 +93,8 @@ async def test_character_update_reuses_loaded_object(
             self.flush_count += 1
 
     monkeypatch.setattr(repo, "get", fake_get)
+    changed = AsyncMock()
+    monkeypatch.setattr("modules.evidence.facade.mark_asset_context_changed", changed)
     db = Session()
 
     updated = await repo.update(
@@ -106,6 +109,13 @@ async def test_character_update_reuses_loaded_object(
         ),
     )
 
+    changed.assert_awaited_once_with(
+        db,
+        novel_id=str(character.novel_id),
+        asset_type="world_entity",
+        asset_id=str(character.entity_id),
+        reason="character_updated",
+    )
     assert updated is character
     assert character.current_goal == "寻找真相"
     assert character.voice_style == "冷静"
@@ -123,6 +133,8 @@ async def test_character_update_loaded_object_does_not_fetch_again(
     repo = CharacterRepository()
     character = SimpleNamespace(
         current_state=None,
+        entity_id=uuid.uuid4(),
+        novel_id=uuid.uuid4(),
         current_goal=None,
         aliases=[],
         behavior_rules=[],
@@ -144,6 +156,8 @@ async def test_character_update_loaded_object_does_not_fetch_again(
             self.flush_count += 1
 
     monkeypatch.setattr(repo, "get", fail_get)
+    changed = AsyncMock()
+    monkeypatch.setattr("modules.evidence.facade.mark_asset_context_changed", changed)
     db = Session()
 
     updated = await repo.update(
@@ -152,6 +166,13 @@ async def test_character_update_loaded_object_does_not_fetch_again(
         CharacterUpdate(current_state="潜伏", current_goal="找到线索"),
     )
 
+    changed.assert_awaited_once_with(
+        db,
+        novel_id=str(character.novel_id),
+        asset_type="world_entity",
+        asset_id=str(character.entity_id),
+        reason="character_updated",
+    )
     assert updated is character
     assert character.current_state == "潜伏"
     assert character.current_goal == "找到线索"

@@ -36,6 +36,27 @@ async def inspect_information_plan(db, novel_id: str, kind: str, plan_id: str) -
     return await inspect(db, novel_id, kind, plan_id)
 
 
+async def list_world_dependencies(
+    db: AsyncSession, novel_id: str, entity_ids: list[str], terms: list[str]
+):
+    """Read declared World references and literal mentions in current story structure."""
+    from modules.story.outline_state.world_dependencies import (
+        list_world_dependencies as read,
+    )
+
+    return await read(db, novel_id, entity_ids, terms)
+
+
+async def read_world_dependency(
+    db: AsyncSession, novel_id: str, kind: str, source_id: str
+):
+    from modules.story.outline_state.world_dependencies import (
+        read_world_dependency as read,
+    )
+
+    return await read(db, novel_id, kind, source_id)
+
+
 # Story is the physical owner of the authoring workflow.  The two internal
 # subdomains keep their own locality, while this root facade is the stable
 # cross-module seam during and after the compatibility release.

@@ -32,10 +32,12 @@ from modules.world.schemas import (
     WorldAdoptionPagePayload,
     WorldAdoptionRelationPayload,
     WorldBiblePageDraftCreate,
+    WorldCocreationCheckpointAdvanceRequest,
     WorldCoreCheckpointPayload,
     WorldCoreCheckpointSaveRequest,
     WorldDesignCheckpointPayload,
     WorldDesignCheckpointSaveRequest,
+    WorldDesignRevisionRequest,
 )
 from modules.world.services.worldbuilding.suggestion_queue_service import (
     SuggestionQueueService,
@@ -110,6 +112,69 @@ class WorldAdoptionPackageService:
                 risk_level="low",
             ),
         )
+
+    async def revise_design_checkpoint(
+        self,
+        db: AsyncSession,
+        request: WorldDesignRevisionRequest,
+    ) -> CreationSuggestionResponse:
+        from modules.evidence.facade import prepare_confirmed_ai_action
+        from modules.world.services.worldbuilding.cocreation_session_service import (
+            WorldCocreationSessionService,
+        )
+        from modules.world.services.worldbuilding.world_design_iteration import (
+            revise_world_design,
+        )
+
+        await require_active_project(db, request.novel_id)
+        sessions = WorldCocreationSessionService()
+        session = await sessions._require_session(
+            db, request.novel_id, str(request.session_id), for_update=True
+        )
+        if (
+            session.status != "active"
+            or session.current_checkpoint_id != request.expected_checkpoint_id
+        ):
+            raise ConflictError(
+                "会话基线已变化，请核对最新阶段成果；本轮提案仍可保留",
+                code="checkpoint_pointer_drift",
+            )
+        parent = await self._suggestions._get_suggestion(
+            db, request.novel_id, str(request.parent_checkpoint_id)
+        )
+        if parent.target_type != "world_design_checkpoint":
+            raise ValidationError("请先将旧世界核心保存为世界设计阶段成果")
+        if request.context_confirmation_id:
+            await prepare_confirmed_ai_action(
+                db,
+                novel_id=request.novel_id,
+                action="world.generation.chat",
+                confirmation_id=str(request.context_confirmation_id),
+            )
+        checkpoint = revise_world_design(
+            WorldDesignCheckpointPayload.model_validate(parent.payload_json), request
+        )
+        saved = await self.save_design_checkpoint(
+            db,
+            WorldDesignCheckpointSaveRequest(
+                novel_id=request.novel_id, checkpoint=checkpoint
+            ),
+        )
+        await sessions.advance_checkpoint(
+            db,
+            request.novel_id,
+            str(request.session_id),
+            WorldCocreationCheckpointAdvanceRequest(
+                novel_id=request.novel_id,
+                checkpoint_suggestion_id=saved.id,
+                expected_checkpoint_id=str(request.expected_checkpoint_id)
+                if request.expected_checkpoint_id
+                else None,
+                round_no=checkpoint.round_no,
+                depth=checkpoint.depth,
+            ),
+        )
+        return saved
 
     async def save(
         self,

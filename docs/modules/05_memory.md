@@ -90,9 +90,12 @@ cd backend
 pytest modules/story/continuity/tests/ -v
 ```
 
+作者在资料审阅、篇章快速编辑或总览草稿中整理结构，不会直接重写 Memory 事件和角色知识；继续沿用 Story/Memory 的既有来源、可见性与版本校验边界。
 第四期复核所有权（ADR-0022）未改变 memory 子域：影响预演不读取记忆事件，故事线反查仅覆盖 `related_entity_ids`。
 
 ## Agent 消费边界
 
 ADR-0023 不改变连续性状态的所有权和确定性重放。助手只经 Evidence 的 Scene lens 读取，
 不能把对话推断写成已发生历史。RP 的故事历史与回顾继续归 Interaction，不能混入作者 memory。
+
+World 的变更复核只消费 Story 结构来源并保存 World 回执，不写 continuity 的事件、Scene checkpoint 或 memory 快照，也不把候选世界推演记为已发生剧情。连续性写入与回滚边界保持由 Story 负责。

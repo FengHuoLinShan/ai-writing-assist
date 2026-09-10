@@ -235,20 +235,24 @@ class DeepImportWorkflow:
             if on_targeted_completion is not None:
                 await on_targeted_completion(progress)
 
-            phase3_result = await phase_runners.structure_full.run_full_pipeline(
-                StructureFullPipelineRequest(
-                    db=db,
-                    novel_id=novel_id,
-                    start_chapter=start_chapter,
-                    end_chapter=end_chapter,
-                    progress=progress,
-                    workflow_id=workflow_id,
-                    on_progress=on_progress,
-                    total_scenes=total_scenes,
-                    context_mode=context_mode,
-                    include_pending_objects=include_pending_objects,
+            if progress.checkpoints.get("base_structure_complete"):
+                phase3_result = dict(progress.quality_stats.get("phase3") or {})
+            else:
+                phase3_result = await phase_runners.structure_full.run_full_pipeline(
+                    StructureFullPipelineRequest(
+                        db=db,
+                        novel_id=novel_id,
+                        start_chapter=start_chapter,
+                        end_chapter=end_chapter,
+                        progress=progress,
+                        workflow_id=workflow_id,
+                        on_progress=on_progress,
+                        total_scenes=total_scenes,
+                        context_mode=context_mode,
+                        include_pending_objects=include_pending_objects,
+                    )
                 )
-            )
+                progress.checkpoints["base_structure_complete"] = True
 
             progress.current_step = None
             progress.phase = "done"

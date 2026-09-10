@@ -3,6 +3,8 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from "vue"
 import { displayStateBadgeClass, worldAssetDisplay } from "../../../../shared/assetDisplayState.js"
 import { getApi, getConfirm, getToast } from "../../../bridge/index.js"
 import { updateEntityWithBaseline } from "../logic/worldEntityOps.js"
+import { showRelationReviewEditForm, syncRelationsAliasesRegistry } from "../logic/worldRelationsAliasesOps.js"
+import WorldEntityImage from "../components/WorldEntityImage.vue"
 import TargetedCompletionPanel from "../../../components/TargetedCompletionPanel.vue"
 
 const props = defineProps({
@@ -17,6 +19,22 @@ const aliases = computed(() => (props.entity?.content_json?.aliases || []).map((
 )).filter((item) => String(item?.alias || "").trim()))
 const display = computed(() => worldAssetDisplay(props.entity))
 const isCharacter = computed(() => props.entity?.entity_type === "character")
+const related = ref([]), revisions = ref([]), relatedError = ref(''), revisionTotal = ref(0), revisionSkip = ref(0), infoLoading = ref(false)
+let infoEpoch = 0
+async function loadInfo(kind, skip = 0) {
+  const token = ++infoEpoch
+  infoLoading.value = true; relatedError.value = ''
+  try {
+    const id = props.entity.id || props.entity.entity_id
+    const result = await (kind === 'relations' ? getApi().world.getEntityRelations(id, props.projectId) : getApi().world.getEntityRevisions(id, props.projectId, skip))
+    if (token !== infoEpoch) return
+    if (kind === 'relations') { related.value = result.items || []; syncRelationsAliasesRegistry({ relations: related.value }) }
+    else { revisions.value = result.items || []; revisionTotal.value = result.total; revisionSkip.value = skip }
+  } catch (err) { if (token === infoEpoch) relatedError.value = err.message || '资料读取失败，请重新展开重试' }
+  finally { if (token === infoEpoch) infoLoading.value = false }
+}
+watch(() => [props.projectId, props.entity.id || props.entity.entity_id], () => { infoEpoch += 1; related.value = []; revisions.value = []; relatedError.value = ''; infoLoading.value = false })
+onBeforeUnmount(() => { infoEpoch += 1 })
 const profileOpen = ref(false)
 const profileLoading = ref(false)
 const profileSaving = ref(false)
@@ -52,6 +70,7 @@ const basicConflict = ref(null)
 const basicForm = reactive(Object.fromEntries(BASIC_FIELDS.map(([key]) => [key, ""])))
 const basicBaseline = ref(JSON.stringify(basicForm))
 const basicBaselineUpdatedAt = ref(null)
+let basicGeneration = 0
 
 function fillBasicForm(entity = props.entity) {
   for (const [key] of BASIC_FIELDS) basicForm[key] = entity?.[key] || ""
@@ -78,6 +97,8 @@ function cancelBasicEdit() {
 
 async function saveBasicEdit() {
   if (basicSaving.value || !basicDirty.value) return
+  const generation = ++basicGeneration
+  const entityId = props.entity.id || props.entity.entity_id
   basicSaving.value = true
   basicError.value = ""
   basicConflict.value = null
@@ -90,25 +111,28 @@ async function saveBasicEdit() {
       payload,
       props.projectId,
     )
+    if (generation !== basicGeneration) return
     basicBaselineUpdatedAt.value = updated?.updated_at || null
     for (const [key] of BASIC_FIELDS) basicForm[key] = updated?.[key] ?? basicForm[key]
     basicBaseline.value = JSON.stringify(basicForm)
     basicEditing.value = false
     getToast()("基本资料已保存", "success")
-    emit("refresh", props.entity.id || props.entity.entity_id)
+    emit("refresh", entityId)
   } catch (error) {
+    if (generation !== basicGeneration) return
     if (error?.status === 409 && ["edit_baseline_required", "edit_baseline_stale"].includes(error?.body?.error)) {
       try {
-        const server = await getApi().world.getEntity(props.entity.id || props.entity.entity_id, props.projectId)
+        const server = await getApi().world.getEntity(entityId, props.projectId, { cache: "no-store" })
+        if (generation !== basicGeneration) return
         basicConflict.value = { server, message: error.message }
       } catch {
-        basicConflict.value = { server: null, message: error.message }
+        if (generation === basicGeneration) basicConflict.value = { server: null, message: error.message }
       }
     } else {
       basicError.value = error?.message || "基本资料保存失败，输入已保留"
     }
   } finally {
-    basicSaving.value = false
+    if (generation === basicGeneration) basicSaving.value = false
   }
 }
 
@@ -122,6 +146,17 @@ function adoptServerEntity() {
   fillBasicForm(server)
   basicEditing.value = true
   getToast()("已载入服务器版本；在此基础上修改后再保存", "info")
+}
+
+function keepLocalEntity() {
+  const server = basicConflict.value?.server
+  if (!server) {
+    basicError.value = "暂时读不到服务器版本，请稍后重试"
+    return
+  }
+  basicBaselineUpdatedAt.value = server.updated_at || null
+  basicConflict.value = null
+  getToast()("已保留输入，再次保存将更新刚才核对的服务器版本", "info")
 }
 
 function fillProfile(value = {}) {
@@ -154,13 +189,18 @@ async function saveProfile() {
   const generation = ++profileGeneration
   profileSaving.value = true
   profileError.value = ""
+  const submittedForm = JSON.stringify(profileForm)
   try {
     const payload = Object.fromEntries(profileFields.map(([key]) => [key, profileForm[key]]))
     payload.expected_updated_at = profileBaselineUpdatedAt.value
     const value = await getApi().world.updateCharacter(props.entity.id || props.entity.entity_id, payload, props.projectId)
     if (generation !== profileGeneration) return
-    fillProfile(value)
-    getToast()("人物档案已保存", "success")
+    if (JSON.stringify(profileForm) === submittedForm) fillProfile(value)
+    else {
+      profileBaseline.value = JSON.stringify(Object.fromEntries(profileFields.map(([key]) => [key, value?.[key] ?? payload[key]])))
+      profileBaselineUpdatedAt.value = value?.updated_at || null
+    }
+    getToast()(profileDirty.value ? "上一版人物档案已保存，新输入仍待保存" : "人物档案已保存", "success")
   } catch (error) {
     if (generation === profileGeneration) profileError.value = error?.message || "人物档案保存失败，输入已保留"
   } finally {
@@ -170,6 +210,8 @@ async function saveProfile() {
 
 watch([profileDirty, basicDirty], ([profile, basic]) => emit("profile-dirty", Boolean(profile || basic)), { immediate: true })
 watch(() => props.entity?.id || props.entity?.entity_id, () => {
+  basicGeneration += 1
+  basicSaving.value = false
   basicEditing.value = false
   basicConflict.value = null
   basicError.value = ""
@@ -182,7 +224,7 @@ watch(() => props.entity?.id || props.entity?.entity_id, () => {
   profileError.value = ""
   fillProfile()
 })
-onBeforeUnmount(() => { profileGeneration += 1; emit("profile-dirty", false) })
+onBeforeUnmount(() => { basicGeneration += 1; profileGeneration += 1; emit("profile-dirty", false) })
 </script>
 
 <template>
@@ -199,6 +241,8 @@ onBeforeUnmount(() => { profileGeneration += 1; emit("profile-dirty", false) })
         <button type="button" class="btn btn-sm btn-primary" @click="emit('edit')">编辑资料</button>
       </div>
     </header>
+    <div class="world-entity-overview">
+    <WorldEntityImage :entity="entity" :project-id="projectId" />
     <section class="world-entity-basic" aria-label="基本资料">
       <header class="world-entity-basic__header">
         <h3>基本资料</h3>
@@ -229,7 +273,7 @@ onBeforeUnmount(() => { profileGeneration += 1; emit("profile-dirty", false) })
           </dl>
           <div class="world-entity-basic__conflict-actions">
             <button type="button" class="btn btn-sm" data-action="world-entity-basic-adopt-server" @click="adoptServerEntity">采用服务器版本</button>
-            <button type="button" class="btn btn-sm btn-ghost" data-action="world-entity-basic-keep-mine" @click="basicConflict = null">保留我的修改</button>
+            <button type="button" class="btn btn-sm btn-ghost" data-action="world-entity-basic-keep-mine" @click="keepLocalEntity">保留我的修改</button>
           </div>
         </div>
         <label v-for="[key, label, hint] in BASIC_FIELDS" :key="key" class="world-entity-basic__field">
@@ -255,6 +299,10 @@ onBeforeUnmount(() => { profileGeneration += 1; emit("profile-dirty", false) })
         <p class="world-entity-basic__hint">保存需要明确点击“保存”；失焦不会修改已采用事实。</p>
       </div>
     </section>
+    </div>
+    <p v-if="relatedError" role="alert">{{ relatedError }}</p>
+    <details @toggle="$event.target.open && loadInfo('relations')"><summary>关系</summary><p v-if="infoLoading">正在读取…</p><p v-else-if="!related.length">尚无关联关系</p><article v-for="relation in related" :key="relation.id"><strong>{{ relation.source_name }} → {{ relation.target_name }}</strong><p>{{ relation.description || '已记录关联' }}</p><button class="btn btn-sm" @click="showRelationReviewEditForm(relation.id)">编辑关系</button></article></details>
+    <details @toggle="$event.target.open && loadInfo('history')"><summary>版本历史</summary><p v-if="infoLoading">正在读取…</p><p v-else-if="!revisions.length">还没有历史版本</p><p v-for="revision in revisions" :key="revision.revision_id">{{ revision.created_at }} · 已保存资料快照</p><button v-if="revisionSkip" class="btn" :disabled="infoLoading" @click="loadInfo('history', revisionSkip - 20)">上一页</button><button v-if="revisionSkip + 20 < revisionTotal" class="btn" :disabled="infoLoading" @click="loadInfo('history', revisionSkip + 20)">下一页</button></details>
     <TargetedCompletionPanel :project-id="projectId" :entity-id="entity.id || entity.entity_id" :initial-name="entity.name || ''" @applied="emit('refresh', entity.id || entity.entity_id)" />
     <section v-if="isCharacter" class="world-character-profile">
       <header><div><h3>人物档案</h3><p>按需补充人物动机、状态和声音；名称与别名仍在基本资料中管理。</p></div><button type="button" class="btn btn-sm" @click="profileOpen ? (profileOpen = false) : openProfile()">{{ profileOpen ? '收起' : '完善人物档案' }}</button></header>
@@ -286,6 +334,7 @@ onBeforeUnmount(() => { profileGeneration += 1; emit("profile-dirty", false) })
 </template>
 
 <style scoped>
+.world-entity-overview{display:grid;grid-template-columns:minmax(180px,260px) minmax(0,1fr);gap:24px;align-items:start}.world-entity-overview p{line-height:1.7}@media(max-width:700px){.world-entity-overview{grid-template-columns:minmax(0,1fr)}}
 .world-entity-detail { display: grid; gap: 20px; }
 .world-entity-basic { display: grid; gap: 10px; }
 .world-entity-basic__header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }

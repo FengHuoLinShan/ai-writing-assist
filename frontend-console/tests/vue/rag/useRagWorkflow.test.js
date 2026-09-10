@@ -58,7 +58,7 @@ describe("rebuildIndex", () => {
     await vi.waitFor(() => {
       expect(globalThis.api.tasks.get).toHaveBeenCalledWith("t1", "p1")
     })
-    expect(globalThis.toast).toHaveBeenCalledWith("索引重建任务已提交", "success")
+    expect(globalThis.toast).toHaveBeenCalledWith("查找修复已开始，可离开后继续查看", "success")
     const persisted = JSON.parse(localStorage.getItem("novel_active_workflows_v1") || "[]")
     expect(persisted.some((w) => w.taskId === "t1" && w.workflowType === "rag_reindex_novel")).toBe(true)
     scope.stop()
@@ -99,8 +99,8 @@ describe("rebuildIndex", () => {
     const scope = effectScope()
     const workflow = scope.run(() => useRagWorkflow({ statusFields: makeStatusFields() }))
     await workflow.rebuildIndex({ contentMode: "canonical", start: "", end: "" })
-    expect(ragSearchSession.rebuildInfo).toBe("暂无可索引工作稿")
-    expect(globalThis.toast).toHaveBeenCalledWith("暂无可索引工作稿", "info")
+    expect(ragSearchSession.rebuildInfo).toBe("暂无可整理的正文")
+    expect(globalThis.toast).toHaveBeenCalledWith("暂无可整理的正文", "info")
     scope.stop()
   })
 
@@ -191,7 +191,7 @@ describe("retryEmbeddings", () => {
     const scope = effectScope()
     const workflow = scope.run(() => useRagWorkflow({ statusFields: makeStatusFields() }))
     await workflow.retryEmbeddings()
-    expect(globalThis.toast).toHaveBeenCalledWith("暂无可重试的失败向量", "info")
+    expect(globalThis.toast).toHaveBeenCalledWith("暂无需要补齐的查找片段", "info")
     expect(globalThis.api.rag.retryEmbeddings).not.toHaveBeenCalled()
     scope.stop()
   })
@@ -313,6 +313,25 @@ describe("recoverRebuildWorkflow", () => {
     scope.stop()
   })
 
+  it("重建完成后重新读取失败片段与章节覆盖，清除旧的修复提示", async () => {
+    localStorage.setItem("novel_active_workflows_v1", JSON.stringify([
+      { taskId: "t-rebuilt", workflowType: "rag_reindex_novel", projectId: "p1", view: "rag" },
+    ]))
+    globalThis.api.tasks.get = vi.fn(async () => ({
+      task_id: "t-rebuilt", task_type: "rag_reindex_novel", status: "done",
+      result: { chunks_created: 238, embedding_failed_count: 0, warnings: [] },
+    }))
+    const statusFields = makeStatusFields({ retryableEmbeddingCount: 151, statusDegraded: true })
+    const refreshStatus = vi.fn(async () => { statusFields.retryableEmbeddingCount = 0 })
+    const scope = effectScope()
+    const workflow = scope.run(() => useRagWorkflow({ statusFields, refreshStatus }))
+    workflow.recoverRebuildWorkflow()
+    await vi.waitFor(() => expect(refreshStatus).toHaveBeenCalledOnce())
+    expect(statusFields.retryableEmbeddingCount).toBe(0)
+    expect(statusFields.statusDegraded).toBe(false)
+    scope.stop()
+  })
+
   it("终态刷新失败也会收口已完成工作流", async () => {
     localStorage.setItem("novel_active_workflows_v1", JSON.stringify([
       { taskId: "t-refresh", workflowType: "rag_retry_embeddings", projectId: "p1", view: "rag" },
@@ -332,7 +351,7 @@ describe("recoverRebuildWorkflow", () => {
 
     workflow.recoverRebuildWorkflow()
     await vi.waitFor(() => expect(globalThis.toast).toHaveBeenCalledWith(
-      "索引任务已完成，但状态刷新失败：暂时不可用",
+      "查找整理已完成，但状态刷新失败：暂时不可用",
       "warning",
     ))
 

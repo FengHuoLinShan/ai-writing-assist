@@ -487,6 +487,15 @@ describe("acceptCandidate / ignoreCandidate（乐观钩子）", () => {
 })
 
 describe("showResolveAliasForm", () => {
+  it("不把无法确认的称呼默认为名称，先要求显式分类", async () => {
+    showResolveAliasForm("c1")
+    document.body.innerHTML = modalCalls[0].html
+    document.getElementById("alias-target-id").value = "e1"
+    expect(document.getElementById("alias-edit-kind").value).toBe("")
+    await expect(modalCalls[0].buttons[0].handler()).resolves.toBe(false)
+    expect(apiMock.world.resolveEntityAsAlias).not.toHaveBeenCalled()
+  })
+
   it("模态挂载 referencePicker 并提交 resolveEntityAsAlias", async () => {
     showResolveAliasForm("c1")
     expect(modalCalls).toHaveLength(1)
@@ -496,6 +505,7 @@ describe("showResolveAliasForm", () => {
     document.getElementById("alias-edit-text").value = "潮声行会"
     // jsdom selected 属性跨 option 解析不可靠，显式设置（浏览器行为正常）
     document.getElementById("alias-edit-type").value = "alias"
+    document.getElementById("alias-edit-kind").value = "name"
     await modalCalls[0].buttons[0].handler()
     expect(apiMock.world.resolveEntityAsAlias).toHaveBeenCalledWith(
       "c1",
@@ -524,6 +534,7 @@ describe("showResolveAliasForm", () => {
     document.getElementById("alias-target-id").value = "e1"
     document.getElementById("alias-edit-text").value = "潮声行会"
     document.getElementById("alias-edit-type").value = "alias"
+    document.getElementById("alias-edit-kind").value = "name"
 
     await modalCalls[0].buttons[0].handler()
 
@@ -616,6 +627,7 @@ describe("当前表单请求失败保留弹窗", () => {
       showResolveAliasForm("c1")
       document.body.innerHTML = modalCalls[0].html
       document.getElementById("alias-target-id").value = "e1"
+      document.getElementById("alias-edit-kind").value = "name"
     }],
     ["回滚对象", "rollbackEntity", () => {
       showRollbackForm("e1")

@@ -64,6 +64,8 @@ async def require_checkpoint(db, novel_id, suggestion_id):
             code="checkpoint_target_mismatch",
         )
 
+    return {"payload": dict(row.payload_json or {}), "target_type": row.target_type}
+
 
 async def chat(db, data):
     from modules.world.services.worldbuilding.world_generation_center_service import (

@@ -270,7 +270,7 @@
     @close="vm.toggleOutlineFloat"
     @select="selectChapterFromTree"
   />
-  <AutoExtractionDialog :model="vm.autoExtraction" @submit="vm.submitAutoExtraction" />
+  <AutoExtractionDialog :project-id="props.projectId" :model="vm.autoExtraction" @submit="vm.submitAutoExtraction" />
   <ConflictOptionsDialog :model="vm.conflictOptions" @submit="vm.runConflictCheck" />
   <ConflictDetailDialog
     :model="vm.conflictDialog"

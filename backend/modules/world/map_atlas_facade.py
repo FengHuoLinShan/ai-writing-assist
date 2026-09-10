@@ -143,3 +143,10 @@ async def reconcile_map_atlas_task_owners(db: AsyncSession) -> int:
     )
 
     return await reconcile(db)
+
+
+async def get_map_review_source(db: AsyncSession, novel_id: str, node_id: str) -> dict:
+    """Current saved spatial declarations for explicit author evidence selection."""
+    from modules.world.map_atlas_service import MapAtlasService
+
+    return await MapAtlasService().review_source(db, novel_id, node_id)

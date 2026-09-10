@@ -12,6 +12,7 @@ from modules.imports.entity_extraction.scene_entity_phase2b_context import (
     render_phase2b_user_payload,
 )
 from modules.imports.llm_schemas import (
+    _AI_WORLD_ENTITY_TYPES,
     AliasRelationExtractionOutput,
     DeltaEvent,
     ExtractedEntity,
@@ -37,7 +38,11 @@ async def call_llm_extraction(
     from infrastructure.llm.prompt_loader import load_prompt
     from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 
-    system_prompt = load_prompt("scene_entity_extraction")
+    entity_types = " | ".join(sorted(_AI_WORLD_ENTITY_TYPES))
+    system_prompt = (
+        load_prompt("scene_entity_extraction")
+        + f"\n\nentity_type 合法值：{entity_types}。"
+    )
     materialization_context = dict(context_bundle or {})
     prompt_context = {
         key: value
@@ -125,7 +130,9 @@ async def call_llm_extraction(
                 "basis、uncertainties、evidence_quotes、confidence；"
                 "uncertain_items 项只能使用 mention_name、description、reason、"
                 "evidence_quotes。所有 uncertainties 和 evidence_quotes 都必须是"
-                " JSON 字符串数组。除顶层三个集合及上述字符串数组外，其余字段"
+                " JSON 字符串数组。field_evidence 必须是对象，值为证据字符串数组。"
+                f"entity_type 合法值：{entity_types}。"
+                "除顶层三个集合、field_evidence 及上述字符串数组外，其余字段"
                 "必须是 schema 指定的单值字符串、数值或 null，不能写成数组或对象。"
                 "不要 Markdown 或解释。"
             ),

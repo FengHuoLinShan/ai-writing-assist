@@ -23,11 +23,13 @@ function suggestion(index, overrides = {}) {
 async function startSmartDedup(page) {
   if ((page.viewportSize()?.width || 1280) > 760) {
     await page.locator('#sidebar-context-slot [data-action="start-smart-dedup"]').click()
+    await page.locator('#sidebar-context-slot').getByRole('button', { name: '查看去重建议', exact: true }).click({ timeout: 10000 })
     return
   }
-  const mobileTools = page.locator(".world-sidebar-tools-mobile")
-  if (await mobileTools.getAttribute("open") === null) await mobileTools.locator("summary").click()
+  await page.locator(".workspace-tools-trigger").click()
+  const mobileTools = page.locator(".workspace-drawer .workspace-tools")
   await mobileTools.locator('[data-action="start-smart-dedup"]').click()
+  await mobileTools.getByRole('button', { name: '查看去重建议', exact: true }).click({ timeout: 10000 })
 }
 
 test.describe("智能去重", () => {

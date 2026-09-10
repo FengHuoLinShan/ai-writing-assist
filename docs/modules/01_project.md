@@ -114,7 +114,7 @@ Outline seam 验证属于当前项目，并以 `chapter_ids` 或 `scene_chunks` 
 `author_tasks` 摘要只返回今日/收件箱/之后计数和最多 3 条今日预览。任务本体只有
 标题、可选备注/日期、`open/completed/archived` 与一个封闭来源；请求不接受 owner/
 `novel_id` 或任意路由。来源限于 `world_page | world_entity | writing_chapter | outline_scene`，
-经对应模块 facade 验证同项目。失效来源不删任务，已归档任务不硬删除。
+经对应模块 facade 验证同项目。章节来源复用 Writing 的最小合法正文投影获取最新标题，创建、列表与首页均使用该路径；不加载整章正文。失效来源不删任务，已归档任务不硬删除。
 
 项目级智能去重只聚合各资产模块的建议；`schema_version=2` 任务结果同时提供
 group 裁决和 legacy suggestions。group apply 必须引用原扫描任务，服务端以任务结果
@@ -135,3 +135,5 @@ group 裁决和 legacy suggestions。group apply 必须引用原扫描任务，�
 
 相似资料扫描可由 Assistant 组织，实际比较裁决仍由原工作台完成。扫描任务结果持久化
 `group_receipts`，同一成功组相同决定幂等重放，不同决定拒绝；失败组仍保留独立处理回执。
+
+首页待决定按来源渐进展开；最近智能去重扫描通过项目 owner 门禁读取任务摘要，批次裁决保留独立指纹和回执，详见 Project README。

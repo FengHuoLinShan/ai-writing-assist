@@ -224,8 +224,8 @@ describe("WritingWorkflowBars", () => {
           status: "done",
           message: "完成",
           currentPhase: "entity_extraction",
-          currentWindow: { start: 1, end: 3 },
-          currentOperation: "merge",
+          currentWindow: "B0004-53-60-owned-53-60",
+          currentOperation: "scene_slicing",
           qualityStatus: "partial",
           qualityStats: {
             phase1a: { fallback_count: 2 },
@@ -244,6 +244,8 @@ describe("WritingWorkflowBars", () => {
       },
     })
     expect(wrapper.text()).toContain("世界对象与关系提取")
+    expect(wrapper.text()).toContain("划分场景边界")
+    expect(wrapper.text()).not.toMatch(/B0004|owned|scene_slicing/)
     expect(wrapper.text()).toContain("证据门禁通过：5")
     expect(wrapper.text()).toContain("待复核：4")
     expect(wrapper.text()).toContain("章级降级：2")

@@ -55,7 +55,7 @@ Phase 1c 仅在 `high_quality=true` 时运行：先按窗口批量审阅完整�
   起止 anchor；本地 materializer 负责唯一命中、chapter-local offset、
   draft/content hash 绑定和邻接/整章覆盖推断。
 - `scene_chunks` 不由 LLM 自由填 offset；锚点未解析时使用统一
-  reasoning 策略的小上下文 repair，连续覆盖缺口按整段恢复，仍失败才保留
+  reasoning 策略的小上下文 repair；锚点修复与连续覆盖缺口恢复统一使用 32768 输出上限，避免高推理在旧 8192/16384 预算内耗尽后仍无结构化结果。连续覆盖缺口按整段恢复，仍失败才保留
   `needs_review` 的章节级语义 fallback。精确 span 重叠会先要求模型按本地诊断纠正；
   仍重叠时隔离整个受影响章节范围再恢复，不能把重叠候选传入后续阶段。
 - 覆盖按实际源草稿 offset 判断，不以“章节出现在某个 Scene 的 chapter_ids 中”代替。
@@ -303,3 +303,11 @@ import_workflow 变化；imports_completion_review 汇总自身回执的降级�
 
 专项补全的精确任务入口复用 TargetedCompletionPanel 展示出处、原采用包与安全撤销。
 同名目标回执包含有限候选身份和章节范围，作者确认身份后提交独立查漏，原任务授权不改写。
+
+P13 v4 的 `entity_type` 清单来自同一系统校验集合，同时进入首轮提示、返修说明和 JSON Schema enum。输出固定三个顶层数组，`field_evidence` 为对象且值为字符串数组；旧提示版本的 checkpoint 按指纹重新处理，入库证据和类型门禁不变。
+
+专项补全从首轮提供完整输出 schema 与合法类型，采用低强度 low 推理、32768 输出上限、600 秒总等待；审计记录使用相同预算。失败恢复从原补全 checkpoint 继续，已完成的场景和世界提取不重放。
+
+补全部分失败在同一领域 checkpoint 保存双恢复标记，任务失败投影保留这些标记；既有 resume API 验证后从补全继续，未完成的目标与已完成的场景/对象保持。
+
+新整理默认冻结可选查漏范围并暂缓到基础成果之后；defer/分阶段 resume、近期记录和引用影响的接口及恢复语义见 backend/modules/imports/README.md。

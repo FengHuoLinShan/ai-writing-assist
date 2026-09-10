@@ -42,6 +42,7 @@
       @close="worldbookImportOpen = false"
     />
 
+    <p v-if="bible?.detailError" class="form-error" role="alert">{{ bible.detailError }} <button class="btn btn-sm" type="button" @click="getRouter()?.refresh()">重试</button></p>
     <WorldToolDialog :open="Boolean(toolDialog)" :title="toolDialogTitle" @close="toolDialog = ''">
       <WorldHealthPanel
         v-if="toolDialog === 'health'"
@@ -67,10 +68,11 @@
         <button v-for="type in extraTypeOptions" :key="type.value" type="button" class="btn" @click="selectMoreType(type.value)">{{ type.label }}</button>
       </div>
       <div v-else-if="toolDialog === 'create'" class="world-create-choices">
-        <button type="button" class="btn btn-primary" data-action="bible-new-entity-choice" @click="createEntityFromDialog">人物或具体设定</button>
+        <button type="button" class="btn btn-primary" data-action="bible-new-entity-choice" @click="createEntityFromDialog('character')">人物</button><button type="button" class="btn" @click="createEntityFromDialog('location')">地点</button><button type="button" class="btn" @click="createEntityFromDialog('')">其他设定</button>
         <button type="button" class="btn" data-action="bible-new-page-choice" @click="createPageFromDialog">资料页</button>
       </div>
       <div v-else-if="toolDialog === 'more'" class="world-more-tools">
+        <button class="btn" type="button" @click="toolDialog = 'health'">世界健康</button>
         <button class="btn" type="button" @click="runDialogAction(openCategoryManager)">管理分类</button>
         <button class="btn" type="button" @click="runDialogAction(openPageTemplateManager)">页面模板</button>
         <button class="btn" type="button" @click="runDialogAction(openObjectTools)">人物与设定工具</button>
@@ -323,6 +325,7 @@
       <details
         class="panel world-bible-synopsis-panel"
         data-section="bible-synopsis"
+        @toggle="$event.target.open && ensureBibleSupport('synopsis')"
         :open="['queued', 'running'].includes(synopsis?.status)"
       >
         <summary class="world-bible-support-summary">
@@ -331,9 +334,9 @@
             <span class="badge">创作参考</span>
             <div class="world-bible-page-meta">AI 整理的参考资料；不会替代你已确认的核心设定。</div>
           </div>
-          <span class="world-bible-support-summary__status">{{ taskStatusLabel(synopsis?.status || 'missing') }}</span>
+          <span class="world-bible-support-summary__status">{{ supportState.synopsis === 'ready' ? taskStatusLabel(synopsis?.status || 'missing') : supportState.synopsis === 'loading' ? '正在读取…' : '打开后读取' }}</span>
         </summary>
-        <div class="world-bible-synopsis-panel__body">
+        <div v-if="supportState.synopsis === 'ready'" class="world-bible-synopsis-panel__body">
           <div class="world-bible-panel__actions">
             <button
               class="btn btn-sm btn-primary"
@@ -632,6 +635,7 @@
             class="panel world-bible-inspector"
             data-section="bible-ai-reference-rules"
             :open="Boolean(currentProfile || activationTrace)"
+            @toggle="$event.target.open && ensureBibleSupport('profiles')"
           >
           <summary class="world-bible-support-summary">
             <div>
@@ -790,6 +794,9 @@ const {
   drafts,
   pageTemplates,
   activationProfiles,
+  supportState,
+  ensureBibleSupport,
+  rememberActivationProfile,
 
   onBeforeUnmount: cleanup,
   setDisplayMode,
@@ -902,7 +909,7 @@ const hasCardFilters = computed(() => Boolean(
   || cardFilters.value.unclassified
   || cardFilters.value.kind !== "all",
 ))
-const workingCardCount = computed(() => drafts.value.length)
+const workingCardCount = computed(() => Number(libraryOverview.value?.totals?.working ?? drafts.value.length))
 const selectedEntity = computed(() => {
   const id = props.bibleDeepLink?.entityId
   if (!id) return null
@@ -951,7 +958,7 @@ const pageTypeCounts = computed(() => {
   }
   return counts
 })
-const countForType = (value) => Number(entityTypeCounts.value.get(value) || 0) + Number(pageTypeCounts.value.get(value) || 0)
+const countForType = (value) => Number(libraryOverview.value?.type_facets?.find(item => item.type === value)?.count ?? (Number(entityTypeCounts.value.get(value) || 0) + Number(pageTypeCounts.value.get(value) || 0)))
 const commonTypeCards = computed(() => COMMON_TYPE_KEYS.map((value) => {
   const option = cardTypeOptions.value.find((item) => item.value === value)
   return { value, label: option?.label || COMMON_TYPE_META[value][0], symbol: COMMON_TYPE_META[value][1], count: countForType(value) }
@@ -1048,8 +1055,7 @@ function runDialogAction(action) {
   nextTick(action)
 }
 
-function createEntityFromDialog() {
-  const selectedType = props.entityTypes.some((item) => item.value === cardFilters.value.type) ? cardFilters.value.type : ""
+function createEntityFromDialog(selectedType = "") {
   toolDialog.value = ""
   nextTick(() => showEntityCreateForm({ entity_type: selectedType }, {
     onCreated: (entity) => {
@@ -1095,7 +1101,6 @@ function applyCardFilters(overrides = {}) {
   const filtersChanged = worldCardQuery({ ...next, skip: 0 }).toString()
     !== worldCardQuery({ ...cardFilters.value, skip: 0 }).toString()
   if (filtersChanged && !("skip" in overrides)) next.skip = 0
-  if (overrides.kind === "page" && next.type && !pages.value.some((page) => page.page_type === next.type)) next.type = ""
   getRouter()?.navigate("world", "bible", true, worldCardQuery(next))
 }
 
@@ -1340,6 +1345,8 @@ function editAliasForSelectedEntity(alias) {
 function openValidationSource(target) {
   if (target?.kind === "draft") openDraft(target.id)
   else if (target?.kind === "page") openPageCard(target.id)
+  else if (target?.kind === "entity") openWorldCard({ kind: "entity", id: target.id })
+  else if (target?.kind === "adoption") getRouter()?.navigate("world", "bible", true, new URLSearchParams({ adoption_package_id: target.id }))
 }
 
 // ---- computed locals ----
@@ -1428,10 +1435,12 @@ const validationRequiresFullScope = computed(() => Boolean(props.bibleDeepLink?.
   || Boolean(activeDraft.value?.linked_asset_refs_json?.length))
 const healthGapRoot = computed(() => {
   if (props.bibleDeepLink?.adoptionPackageId) return null
+  if (selectedEntity.value?.id) return { type: "core_entity", id: selectedEntity.value.id, label: selectedEntity.value.name }
   if (activeDraft.value?.id) {
     return {
       type: "world_bible_page_draft",
       id: activeDraft.value.id,
+      page_id: activeDraft.value.page_id,
       label: activeDraft.value.title || "当前工作稿",
       selected_world_bible_draft_ids: [activeDraft.value.id],
     }
@@ -1687,11 +1696,8 @@ function assetRefSources() {
     {
       kind: "world_bible_page", label: "世界书页面",
       search: async (query) => {
-        const needle = String(query || "").toLowerCase()
-        return pages.value.filter((p) => ["canonical", "confirmed"].includes(p.status))
-          .filter((p) => !needle || String(p.title || "").toLowerCase().includes(needle))
-          .slice(0, 20)
-          .map((p) => ({ kind: "world_bible_page", id: p.id, label: p.title || "未命名世界书页面", description: typeMeta(p?.page_type).label, status: "已发布" }))
+        const result = await api.world.listWorldLibrary({ novel_id: props.projectId, kind: 'page', state: 'active', q: query || undefined, limit: 20 })
+        return (result.items || []).map(item => ({ kind: 'world_bible_page', id: item.id, label: item.title || '未命名世界书页面', description: typeMeta(item.item_type).label, status: '已发布' }))
       },
       resolve: async (ids) => Promise.all(ids.map(async (id) => {
         const loaded = pages.value.find((p) => p.id === id)
@@ -1737,10 +1743,9 @@ async function saveActivationProfileEditor(profile, { profileKey, action }) {
     destroyActivationTargetPicker(owner.picker)
     if (!ownsActivationOwner(owner)) return true
     getCloseModal()()
-    activeActivationProfileId.value = saved.id
+    rememberActivationProfile(saved)
     activationTrace.value = null
     getToast()("规则工作稿已保存；发布前不会影响真实调用", "success")
-    getRouter().refresh()
   } catch (err) {
     if (ownsActivationOwner(owner)) {
       getToast()(err.message || "保存规则失败", "error")
@@ -1759,9 +1764,8 @@ async function publishActivationProfile() {
       const api = getApi()
       const saved = await api.context.publishActivationProfile(profile.id, { base_version_number: profile.version_number, revision_reason: "manual_publish" }, owner.novelId)
       if (!ownsActivationOwner(owner)) return true
-      activeActivationProfileId.value = saved.id
+      rememberActivationProfile(saved)
       getToast()("AI 参考规则已发布", "success")
-      getRouter().refresh()
     } catch (err) {
       if (ownsActivationOwner(owner)) {
         getToast()(err.message || "发布规则失败", "error")

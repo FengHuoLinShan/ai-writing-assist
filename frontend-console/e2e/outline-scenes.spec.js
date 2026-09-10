@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures.js"
+import { openWorkspaceTools } from "./helpers/workbench.js"
 import { SEL } from "./helpers/selectors.js"
 import { createScene, createStoryOutlineRevision, waitForBackend } from "./helpers/api-client.js"
 import { expectNoPageOverflow, expectWithinViewport } from "./helpers/responsive.js"
@@ -412,21 +413,21 @@ test.describe("Outline View — 场景工作台", () => {
     await expect(workspace.locator("#story-outline-history-title")).toHaveCount(0)
     await expect(workspace.locator(".empty-icon")).toHaveCount(0)
 
-    const generate = onboarding.locator('[data-action="generate-story-outline"]')
-    const manual = onboarding.locator('[data-action="edit-story-outline"]')
-    await expect(generate).toHaveText("AI 生成可编辑预览")
+    const generate = page.locator('[data-action="generate-story-outline"]')
+    const manual = page.locator('[data-action="edit-story-outline"]')
+    await expect(generate).toHaveText("AI 生成总览")
     await expect(generate).toHaveClass(/btn-primary/)
     await expect(manual).toHaveText("手工创建")
     await expect(manual).not.toHaveClass(/btn-primary/)
 
-    const more = onboarding.locator(".story-outline-more")
-    const moreSummary = more.locator("summary")
-    const reload = more.locator('[data-action="reload-story-outline"]')
-    await expect(more).not.toHaveAttribute("open", "")
+    const more = page.locator(".workspace-tools .action-menu")
+    const moreSummary = more.locator(".action-menu-btn")
+    const reload = page.locator('[data-action="reload-story-outline"]')
+    await expect(moreSummary).toHaveAttribute("aria-expanded", "false")
     await expect(reload).toBeHidden()
     await moreSummary.focus()
     await moreSummary.press("Enter")
-    await expect(more).toHaveAttribute("open", "")
+    await expect(moreSummary).toHaveAttribute("aria-expanded", "true")
     await expect(reload).toBeVisible()
     await moreSummary.click()
 
@@ -481,6 +482,7 @@ test.describe("Outline View — 场景工作台", () => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
     await expectNoPageOverflow(page)
     await expectWithinViewport(onboarding)
+    await openWorkspaceTools(page)
     for (const control of [generate, manual, moreSummary]) {
       expect(await control.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
     }
@@ -839,6 +841,7 @@ test.describe("Outline View — 场景工作台", () => {
     })
 
     await page.locator('[data-action="nav-story-outline"]').click()
+    await openWorkspaceTools(page)
     await page.locator('[data-action="edit-story-outline"]').click()
     await expect(page).toHaveURL(/\/outline\/story-outline\?edit=1/)
     const editor = page.locator(".story-outline-editor-page")
@@ -869,12 +872,14 @@ test.describe("Outline View — 场景工作台", () => {
     await page.locator(".sidebar-project-switcher").click()
     await page.locator(`.project-card[data-id="${otherProject.id}"] [data-action="continue-writing"]`).click()
     await page.locator('.nav-item[data-view="outline"]').click()
+    await openWorkspaceTools(page)
     await page.locator('[data-action="edit-story-outline"]').click()
     await expect(editor.locator("#story-outline-manual-title-input")).toHaveValue("")
 
     await page.locator(".sidebar-project-switcher").click()
     await page.locator(`.project-card[data-id="${testProjectId}"] [data-action="continue-writing"]`).click()
     await page.locator('.nav-item[data-view="outline"]').click()
+    await openWorkspaceTools(page)
     await page.locator('[data-action="edit-story-outline"]').click()
     await expect(title).toHaveValue("潮门与航盟")
 
@@ -887,6 +892,7 @@ test.describe("Outline View — 场景工作台", () => {
 
     await page.setViewportSize({ width: 390, height: 844 })
     await page.emulateMedia({ reducedMotion: "reduce" })
+    await openWorkspaceTools(page)
     await page.locator('[data-action="edit-story-outline"]').click()
     await expectNoPageOverflow(page)
     for (const button of await editor.locator("button:visible").all()) {
@@ -970,7 +976,8 @@ test.describe("Outline View — 场景工作台", () => {
         availableActions: ["cancel"], message: "正在生成故事总览预览",
       }
     })
-    await expect(taskRegion.locator(".workflow-progress")).toHaveCount(1)
+    // The still-running structure analysis remains available beside overview generation.
+    await expect(taskRegion.locator(".workflow-progress")).toHaveCount(2)
     expect(await taskRegion.evaluate((region) => Boolean(
       region.compareDocumentPosition(document.querySelector("[aria-labelledby='story-outline-intro-title']"))
       & Node.DOCUMENT_POSITION_FOLLOWING

@@ -391,12 +391,17 @@ class WorldBibleLifecycleService:
         self,
         db: AsyncSession,
         novel_id: str,
+        *,
+        page_id: str | None = None,
     ) -> tuple[list[WorldBiblePageDraftResponse], int]:
         nid = parse_uuid(novel_id, "novel_id")
+        statement = select(WorldBiblePageDraft).where(WorldBiblePageDraft.novel_id == nid)
+        if page_id is not None:
+            statement = statement.where(
+                WorldBiblePageDraft.page_id == parse_uuid(page_id, "page_id")
+            )
         result = await db.execute(
-            select(WorldBiblePageDraft)
-            .where(WorldBiblePageDraft.novel_id == nid)
-            .order_by(WorldBiblePageDraft.updated_at.desc())
+            statement.order_by(WorldBiblePageDraft.updated_at.desc())
         )
         drafts = list(result.scalars().all())
         return [WorldBiblePageDraftResponse.model_validate(item) for item in drafts], len(

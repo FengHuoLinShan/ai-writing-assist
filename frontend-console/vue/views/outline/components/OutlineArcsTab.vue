@@ -5,6 +5,7 @@
 -->
 <template>
   <div>
+    <p v-if="!inlineBackupOk" role="alert">本机草稿无法备份，请先保存到作品再离开。</p><p v-else-if="Object.keys(inlineDrafts).length" role="status">未保存行已在此浏览器备份，可稍后继续。</p>
     <!-- 筛选面板 -->
     <details ref="filterPanel" class="outline-structure-filters">
       <summary>
@@ -109,16 +110,18 @@
               </label>
             </td>
             <td data-label="状态"><span class="badge" :class="statusBadgeClass(a)">{{ statusLabel(a) }}</span></td>
-            <td data-label="名称">{{ a.name || a.title }}</td>
-            <td data-label="章节范围" class="outline-asset-mono">{{ chapterRange(a) }}</td>
+            <td data-label="名称"><input v-if="inlineDrafts[a.id]" v-model="inlineDrafts[a.id].name" class="form-input" :disabled="inlineSaving" :aria-label="`篇章名称：${a.name || a.title}`" /><template v-else>{{ a.name || a.title }}</template></td>
+            <td data-label="章节范围" class="outline-asset-mono"><template v-if="inlineDrafts[a.id]"><input v-model.number="inlineDrafts[a.id].start_chapter" type="number" min="1" class="form-input" aria-label="起始章节" :disabled="inlineSaving" /><input v-model.number="inlineDrafts[a.id].end_chapter" type="number" min="1" class="form-input" aria-label="结束章节" :disabled="inlineSaving" /></template><template v-else>{{ chapterRange(a) }}</template></td>
             <td data-label="标记">
               <template v-if="badgesFor(a).length">
                 <span v-for="badge in badgesFor(a)" :key="`${badge.text}-${badge.cls}`" class="badge" :class="badge.cls">{{ badge.text }}</span>
               </template>
               <template v-else>-</template>
             </td>
-            <td data-label="描述" class="outline-asset-description">{{ arcDescription(a) }}</td>
+            <td data-label="描述" class="outline-asset-description"><textarea v-if="inlineDrafts[a.id]" v-model="inlineDrafts[a.id].description" aria-label="篇章描述" :disabled="inlineSaving" /><template v-else>{{ arcDescription(a) }}</template></td>
             <td data-label="操作">
+              <button class="btn btn-sm" :disabled="inlineSaving" @click="inlineDrafts[a.id] ? saveInlineArc(a) : startInlineArc(a)">{{ inlineSaving ? '保存中…' : inlineDrafts[a.id] ? '保存这一行' : '就地修改' }}</button>
+              <p v-if="inlineErrors[a.id]" role="status">{{ inlineErrors[a.id] }}</p>
               <button v-if="reviewActionHtml(a)" class="btn btn-sm" :class="reviewActionHtml(a).className" data-action="mark-arc-reviewed" :data-id="a.id || a.arc_id" @click="markReviewed(a.id || a.arc_id)">{{ reviewActionHtml(a).label }}</button>
               <button class="btn btn-sm btn-primary" data-action="edit-arc" :data-id="a.id || a.arc_id" @click="editArc(a.id || a.arc_id)">编辑</button>
               <ActionMenu :menu-id="`arc-actions-${a.id || a.arc_id}`" :label="`${a.name || a.title || '篇章'}的更多操作`" :items="arcMenuItems(a)" @select="onArcMenuSelect" />
@@ -138,8 +141,8 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref, watch } from "vue"
-import { getRouter } from "../../../bridge/index.js"
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
+import { getApi, getAppState, getRouter } from "../../../bridge/index.js"
 import { structureAssetDisplay, displayStateBadgeClass, assetAttentionReasons } from "../../../../shared/assetDisplayState.js"
 import {
   STRUCTURE_FILTER_DEFAULTS,
@@ -162,6 +165,8 @@ import {
   toggleBulkSelection,
   toggleAllBulkSelection,
 } from "../logic/outlineBulkSelection.js"
+import { ACCOUNT_MARKER_KEY } from "../../../../shared/accountStorage.js"
+import { useLeaveGuard } from "../../../composables/useLeaveGuard.js"
 import ActionMenu from "../../../components/ActionMenu.vue"
 import OutlineBulkToolbar from "./OutlineBulkToolbar.vue"
 
@@ -180,6 +185,36 @@ const props = defineProps({
   filters: { type: Object, default: () => ({ ...STRUCTURE_FILTER_DEFAULTS }) },
 })
 
+const inlineSaved = reactive({})
+const arcs = computed(() => props.arcs.map(arc => inlineSaved[arc.id] || arc))
+watch(() => props.arcs, () => { for (const key of Object.keys(inlineSaved)) delete inlineSaved[key] })
+const inlineDrafts = ref({}), inlineErrors = reactive({}), inlineSaving = ref(false)
+let inlineAccount = "local"
+try { inlineAccount = localStorage.getItem(ACCOUNT_MARKER_KEY) || "local" } catch { /* The backup below remains independently checked. */ }
+const inlineDraftKey = `novel_outline_arc_edits:${inlineAccount}:${props.projectId}`
+let inlineBackupOk = true
+try { inlineDrafts.value = JSON.parse(localStorage.getItem(inlineDraftKey) || sessionStorage.getItem(inlineDraftKey) || '{}') } catch { inlineBackupOk = false }
+watch(inlineDrafts, value => {
+  try { const raw = JSON.stringify(value); localStorage.setItem(inlineDraftKey, raw); inlineBackupOk = localStorage.getItem(inlineDraftKey) === raw } catch { inlineBackupOk = false }
+}, { deep: true, flush: 'sync' })
+useLeaveGuard(() => !inlineSaving.value && (!Object.keys(inlineDrafts.value).length || inlineBackupOk))
+function startInlineArc(arc) { inlineDrafts.value[arc.id] = { name: arc.name || arc.title || '', start_chapter: arc.start_chapter, end_chapter: arc.end_chapter, description: arcDescription(arc) === '-' ? '' : arcDescription(arc) } }
+async function saveInlineArc(arc) {
+  const draft = inlineDrafts.value[arc.id]
+  if (inlineSaving.value || !draft) return
+  const validChapter = value => value == null || value === '' || (Number.isInteger(value) && value > 0)
+  if (!draft.name.trim() || !validChapter(draft.start_chapter) || !validChapter(draft.end_chapter) || (draft.start_chapter && draft.end_chapter && draft.end_chapter < draft.start_chapter)) { inlineErrors[arc.id] = '请填写名称及有效的起止章节'; return }
+  inlineSaving.value = true
+  try {
+    const saved = await getApi().outline.updateArc(arc.id, props.projectId, { title: draft.name.trim(), arc_goal: draft.description, start_chapter: draft.start_chapter || null, end_chapter: draft.end_chapter || null })
+    if (getAppState()?.currentProjectId !== props.projectId) return
+    inlineSaved[arc.id] = saved; delete inlineDrafts.value[arc.id]; inlineErrors[arc.id] = '已保存'
+  } catch (err) { inlineErrors[arc.id] = err.message || '保存失败，输入已保留' }
+  finally { inlineSaving.value = false }
+}
+function warnUnbackedRows(event) { if (inlineSaving.value || (Object.keys(inlineDrafts.value).length && !inlineBackupOk)) { event.preventDefault(); event.returnValue = '' } }
+onMounted(() => globalThis.addEventListener('beforeunload', warnUnbackedRows))
+onBeforeUnmount(() => globalThis.removeEventListener('beforeunload', warnUnbackedRows))
 const statusOptions = computed(() => structureStatusOptions("arcs"))
 
 const scope = "outline-arcs"
@@ -268,7 +303,6 @@ function badgesFor(a) {
   for (const reason of assetAttentionReasons(a)) {
     badges.push({ text: reason, cls: "badge-warning" })
   }
-  if (meta.phase) badges.push({ text: meta.phase, cls: "" })
   return badges
 }
 
@@ -342,7 +376,7 @@ function onArcMenuSelect(item) {
 }
 
 function editArc(id) {
-  editArcOp(id, props.arcs)
+  editArcOp(id, arcs.value)
 }
 function deleteArc(id) {
   deleteArcOp(id)

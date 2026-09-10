@@ -185,7 +185,10 @@ class WorldValidationService:
                 run_id="estimate",
                 scope="full",
                 policy=policy,
-                manifest=manifest,
+                manifest={
+                    **manifest,
+                    "items": manifest.get("semantic_items", manifest.get("items", [])),
+                },
             )
         estimated_characters = estimate["planned_input_characters"]
         estimated_packets = estimate["planned_packets"]
@@ -282,6 +285,7 @@ class WorldValidationService:
                 ),
             )
             return draft
+        expected_updated_at = data.expected_updated_at
         draft = await db.scalar(
             select(WorldBiblePageDraft)
             .where(
@@ -299,6 +303,7 @@ class WorldValidationService:
                     created_by="world_health",
                 ),
             )
+            expected_updated_at = draft.updated_at
         meta = dict(draft.page_meta_json or {})
         meta["validation_policy"] = data.policy.model_dump(mode="json")
         update = WorldBiblePageDraftUpdate(page_meta_json=meta)
@@ -306,7 +311,14 @@ class WorldValidationService:
             update = WorldBiblePageDraftUpdate(
                 page_meta_json=meta, free_text=data.summary
             )
-        return await self._lifecycle.update_draft(db, novel_id, str(draft.id), update)
+        return await self._lifecycle.update_draft(
+            db,
+            novel_id,
+            str(draft.id),
+            update,
+            expected_updated_at=expected_updated_at,
+            require_edit_baseline=True,
+        )
 
     async def activate_builtin_policy(
         self, db: AsyncSession, novel_id: str
@@ -439,13 +451,35 @@ class WorldValidationService:
             target_id=data.target_id,
             root_type=data.root_type,
         )
+        if (
+            data.expected_impact_scope_hash
+            and data.expected_impact_scope_hash != impact.get("scope_hash")
+        ):
+            raise ConflictError("影响范围已变化，请重新读取并选择来源")
+        if policy.semantic_enabled:
+            manifest = await self._freeze_semantic_scope(
+                db,
+                data.novel_id,
+                manifest,
+                impact,
+                confirmation_id=data.context_confirmation_id,
+                domains=data.review_domains,
+                depth=data.review_depth,
+                root_type=data.root_type,
+                root_id=data.target_id,
+            )
+        elif data.review_domains != ["world"]:
+            raise ValidationError("请先启用语义检查政策，再选择跨领域复核")
         plan: dict[str, Any] = {}
         if policy.semantic_enabled:
             _, estimate = build_review_packets(
                 run_id="estimate",
                 scope=data.scope,
                 policy=policy,
-                manifest=manifest,
+                manifest={
+                    **manifest,
+                    "items": manifest.get("semantic_items", manifest.get("items", [])),
+                },
             )
             plan = {
                 "planned_packets": int(estimate.get("planned_packets") or 0),
@@ -464,6 +498,9 @@ class WorldValidationService:
                 "target_hash": target_hash,
                 "root_type": data.root_type,
                 **({"purpose": "assistant_advisory"} if advisory else {}),
+                "context_confirmation_id": data.context_confirmation_id,
+                "review_domains": data.review_domains,
+                "review_depth": data.review_depth,
                 "required_question_ids": [
                     item.question_id for item in policy.required_questions
                 ],
@@ -665,6 +702,11 @@ class WorldValidationService:
                 self._required_validation(run, "target_changed")
         if run.status != "completed":
             self._required_validation(run, run.status)
+        if any(
+            item.get("severity") == "error" and item.get("action") != "AUTHOR-REQUIRED"
+            for item in run.findings_json
+        ):
+            self._required_validation(run, "hard_errors")
         if run.gate == "block":
             # Author adjudication (ADR-0022): an author-required block can be
             # cleared by explicit per-finding dispositions bound to this run;
@@ -752,6 +794,14 @@ class WorldValidationService:
             return self.response(run).model_dump(mode="json")
         if run.status == "stale":
             return self.response(run).model_dump(mode="json")
+        try:
+            stale_reason = await self._matches_frozen_inputs(db, run)
+        except (ConflictError, NotFoundError, ValidationError):
+            stale_reason = "manifest"
+        if stale_reason:
+            self._mark_stale(run, stale_reason)
+            await db.commit()
+            return self.response(run).model_dump(mode="json")
         run.status = "running"
         run.attempt_count = max(run.attempt_count, attempt)
         run.started_at = run.started_at or datetime.now(UTC)
@@ -808,7 +858,11 @@ class WorldValidationService:
                 allow_over_budget=True,
             )
             total_planned = int(budget.get("planned_packets") or 0)
-            insufficient = policy.semantic_enabled and not packets
+            insufficient = (
+                policy.semantic_enabled
+                and not packets
+                and (total_planned == 0 or len(completed_before) < total_planned)
+            )
             if insufficient:
                 coverage = [
                     {
@@ -870,7 +924,9 @@ class WorldValidationService:
                     for packet in packets
                     if packet["input_hash"] in completed_hashes
                 )
-            elif policy.semantic_enabled and not insufficient:
+            elif policy.semantic_enabled and any(
+                item.severity == "error" for item in findings
+            ):
                 coverage = [
                     {
                         "question_id": item.question_id,
@@ -880,6 +936,23 @@ class WorldValidationService:
                     for item in policy.required_questions
                 ]
 
+            scope_omissions = list(run.manifest_json.get("semantic_omissions") or [])
+            budget_incomplete = insufficient
+            insufficient = insufficient or bool(scope_omissions)
+            if "semantic_items" in run.manifest_json:
+                coverage.append(
+                    {
+                        "layer": "scope",
+                        "review_domains": run.manifest_json.get("review_domains"),
+                        "review_depth": run.manifest_json.get("review_depth"),
+                        "reviewed_sources": len(run.manifest_json["semantic_items"]),
+                        "omissions": scope_omissions,
+                        "focused_coverage": (
+                            run.manifest_json.get("focused_result") or {}
+                        ).get("coverage"),
+                        "semantic_exhaustive": False,
+                    }
+                )
             verdict, gate = overall_result(findings, insufficient_evidence=insufficient)
             await require_running_task_attempt(
                 db,
@@ -909,7 +982,10 @@ class WorldValidationService:
                 run.verdict = verdict
                 run.gate = gate
                 run.findings_json = finding_payloads
-                run.omissions_json = ["semantic_budget_exceeded"] if insufficient else []
+                run.omissions_json = [
+                    *(["semantic_budget_exceeded"] if budget_incomplete else []),
+                    *scope_omissions,
+                ]
                 run.coverage_ledger_json = coverage
                 run.budget_ledger_json = budget
                 run.packet_hashes_json = [
@@ -940,11 +1016,303 @@ class WorldValidationService:
             await db.commit()
             raise
 
+    async def _freeze_semantic_scope(
+        self,
+        db,
+        novel_id,
+        manifest,
+        impact,
+        *,
+        confirmation_id,
+        domains,
+        depth=1,
+        root_type=None,
+        root_id=None,
+        previous=None,
+    ):
+        from dataclasses import fields
+
+        from modules.evidence.contracts import (
+            CompileOptions,
+            FocusedEvidenceRequest,
+            FocusedEvidenceResult,
+        )
+        from modules.evidence.facade import (
+            prepare_confirmed_ai_action,
+            retrieve_focused_evidence,
+            revalidate_focused_evidence,
+        )
+
+        if not confirmation_id:
+            raise ValidationError("语义复核需要作者确认本次参考范围")
+        try:
+            confirmed = await prepare_confirmed_ai_action(
+                db,
+                novel_id=novel_id,
+                action="world.validation.semantic",
+                confirmation_id=confirmation_id,
+            )
+        except ValueError as exc:
+            raise ValidationError("原参考确认已不可用，请重新确认后检查") from exc
+        aliases = {
+            "world_entity": "core_entity",
+            "entity": "core_entity",
+            "world_bible_draft": "world_bible_page_draft",
+            "plot_thread": "story_thread",
+            "scene": "outline_scene",
+        }
+        domain_for = {
+            "core_entity": "world",
+            "character": "world",
+            "world_bible_page": "world",
+            "world_bible_page_draft": "world",
+            "story_thread": "story",
+            "outline_arc": "story",
+            "outline_scene": "story",
+            "story_outline": "story",
+            "map_node": "map",
+            "writing_draft": "prose",
+            "manuscript": "prose",
+        }
+        originals = manifest.get("items", [])
+        if root_id and depth == 0:
+            originals = [item for item in originals if item.get("target_id") == root_id]
+        eligible = {
+            (
+                aliases.get(item.get("target_type"), item.get("target_type")),
+                item.get("target_id"),
+            )
+            for item in originals
+        }
+        prose_ids = set()
+        impact_refs = {}
+        for section in (impact.get("sections") or {}).values() if depth else []:
+            for item in section.get("items", []):
+                if item.get("distance", 1) and (item.get("distance") or 1) > depth:
+                    continue
+                if item.get("source_ref"):
+                    prose_ids.add(item["source_ref"].get("draft_id"))
+                else:
+                    eligible.add((aliases.get(item["kind"], item["kind"]), item["id"]))
+                    impact_refs[(aliases.get(item["kind"], item["kind"]), item["id"])] = (
+                        item
+                    )
+        items = []
+        selected_refs = []
+        seen = set()
+        for section in confirmed.compiled.sections:
+            if section.excluded:
+                continue
+            for item in section.materialize_items().items:
+                if (
+                    item.selection_state in {"excluded", "omitted"}
+                    or not item.content.strip()
+                ):
+                    continue
+                selection = item.selection_ref or {}
+                source = item.source or {}
+                target = selection.get("target_ref") or source.get("target_ref") or {}
+                source_ref = selection.get("source_ref") or source.get("source_ref")
+                kind = target.get("target_type") or source.get("type")
+                kind = aliases.get(kind, kind)
+                target_id = target.get("target_id") or source.get("id")
+                if source_ref:
+                    kind, target_id = "writing_draft", source_ref.get("draft_id")
+                    allowed = target_id in prose_ids and depth == 1
+                else:
+                    allowed = (kind, target_id) in eligible
+                domain = domain_for.get(kind)
+                if not allowed or domain not in domains:
+                    continue
+                key = f"confirmed:{stable_hash(selection or source)}"
+                if key in seen:
+                    continue
+                seen.add(key)
+                if selection:
+                    selected_refs.append(selection)
+                items.append(
+                    {
+                        "source_key": key,
+                        "identity_key": key,
+                        "target_type": kind,
+                        "target_id": target_id,
+                        "title": item.title or section.title,
+                        "page_type": f"review:{domain}",
+                        "status": item.status,
+                        "version": str(source.get("source_version") or "confirmed"),
+                        "content_hash": stable_hash(item.content),
+                        "content": item.content,
+                        "body": item.content,
+                        "metadata": {},
+                        "anchors": [],
+                        "linked_asset_refs": [],
+                        "selection_ref": selection,
+                        "impact_ref": impact_refs.get((kind, target_id)),
+                    }
+                )
+        # Adoption payloads are the World-owned subject being reviewed, not extra
+        # retrieved assets; their referenced sources still require confirmation.
+        for original in originals:
+            if original.get("target_type") == "world_adoption_package":
+                items.append({**original, "page_type": "review:world"})
+        if not items:
+            raise ValidationError(
+                "所选范围没有可复核的已确认来源，请选择根资料及相关内容"
+            )
+        covered_domains = {item["page_type"].split(":")[1] for item in items}
+        omissions = [
+            f"未确认可用的{domain}领域来源"
+            for domain in domains
+            if domain not in covered_domains
+        ]
+        reviewed = {(item["target_type"], item["target_id"]) for item in items}
+        missing_world = sum(
+            (
+                aliases.get(item.get("target_type"), item.get("target_type")),
+                item.get("target_id"),
+            )
+            not in reviewed
+            for item in originals
+        )
+        if missing_world:
+            omissions.append(f"世界范围中有 {missing_world} 项未进入确认后的实际内容")
+        frozen = {
+            **manifest,
+            "semantic_items": items,
+            "confirmation_fingerprint": confirmed.confirmation.context_fingerprint,
+            "semantic_omissions": omissions,
+            "review_domains": domains,
+            "review_depth": depth,
+            "impact_scope_hash": impact.get("scope_hash"),
+        }
+        if root_type in {"core_entity", "world_bible_page"} and root_id:
+            if previous and previous.get("focused_request"):
+                request = FocusedEvidenceRequest.model_validate(
+                    previous["focused_request"]
+                )
+                result = FocusedEvidenceResult.model_validate(previous["focused_result"])
+                await revalidate_focused_evidence(db, request, result)
+            else:
+                options = {
+                    key: value
+                    for key, value in confirmed.compile_options.items()
+                    if key in {field.name for field in fields(CompileOptions)}
+                }
+                options["budget_tokens"] = max(1, options.get("budget_tokens") or 1)
+                request = FocusedEvidenceRequest(
+                    novel_id=novel_id,
+                    roots=[
+                        {
+                            "target_ref": {
+                                "target_type": root_type,
+                                "target_id": root_id,
+                                "target_path": "",
+                            }
+                        }
+                    ],
+                    question="核对本次已确认资料的依赖与来源",
+                    max_depth=depth,
+                    compile_options=CompileOptions(**options),
+                    allowed_refs=selected_refs,
+                    limits={"semantic_top_k": 0},
+                )
+                result = await retrieve_focused_evidence(db, request)
+                result = result.model_copy(
+                    update={
+                        "evidence": [
+                            item.model_copy(update={"text": ""})
+                            for item in result.evidence
+                        ]
+                    }
+                )
+            frozen["focused_request"] = request.model_dump(mode="json")
+            frozen["focused_result"] = result.model_dump(mode="json")
+        return frozen
+
+    async def read_review_source(self, db, novel_id, run_id, source_key):
+        from modules.world.schemas import (
+            WorldImpactPreviewItem,
+            WorldImpactSourceReadRequest,
+        )
+
+        run = await self._get_model(db, novel_id, run_id)
+        await self._refresh_freshness(db, run)
+        if run.status == "stale":
+            raise ConflictError("来源已变化，请重新检查；旧回执仍可回看")
+        items = [
+            *run.manifest_json.get("semantic_items", []),
+            *run.manifest_json.get("items", []),
+        ]
+        item = next(
+            (value for value in items if value.get("source_key") == source_key), None
+        )
+        if item is None:
+            raise NotFoundError("该来源不在本次复核范围内")
+        ref = (item.get("selection_ref") or {}).get("source_ref")
+        impact_ref = item.get("impact_ref")
+        if ref:
+            impact_ref = {
+                "kind": "prose_chapter",
+                "id": str(ref["chapter_index"]),
+                "label": item["title"],
+                "source_ref": ref,
+                "source_hash": ref["range_hash"],
+            }
+        if impact_ref:
+            return await self._impact.read_source(
+                db,
+                WorldImpactSourceReadRequest(
+                    novel_id=novel_id,
+                    item=WorldImpactPreviewItem.model_validate(impact_ref),
+                ),
+            )
+        from modules.world.schemas import WorldImpactSourceReadResponse
+
+        text = str(item.get("content") or "")
+        if text.startswith("<AUTHOR_PINNED_TARGET_DATA>"):
+            try:
+                value = json.loads(text.split(">", 1)[1].rsplit("<", 1)[0])
+                text = "\n\n".join(
+                    value[key]
+                    for key in (
+                        "title",
+                        "name",
+                        "content",
+                        "summary",
+                        "public_info",
+                        "description",
+                    )
+                    if isinstance(value.get(key), str)
+                )
+            except (ValueError, TypeError):
+                raise ValidationError("来源预览格式不可用，请重新检查") from None
+        return WorldImpactSourceReadResponse(
+            label=item.get("title") or "本次参考资料",
+            text=text,
+            source_hash=item["content_hash"],
+            target_ref={
+                "target_type": item["target_type"],
+                "target_id": item["target_id"],
+                "target_path": "",
+            },
+        )
+
     @staticmethod
     def _confirmed_semantic_manifest(
         manifest: dict[str, Any],
         confirmed_context: ConfirmedAIActionContext,
     ) -> dict[str, Any]:
+        if "semantic_items" in manifest:
+            if (
+                manifest.get("confirmation_fingerprint")
+                != confirmed_context.confirmation.context_fingerprint
+            ):
+                raise ConflictError("复核参考确认已变化")
+            return {
+                **manifest,
+                "items": manifest["semantic_items"],
+                "world_state_checkpoint": None,
+            }
         selected = confirmed_context.confirmation.selected_asset_ids
         aliases = {
             "entity": "world_entities",
@@ -1107,7 +1475,7 @@ class WorldValidationService:
                 await db.commit()
                 raise ConflictError("World diagnostic policy was superseded")
             return policy
-        if run.policy_version == "builtin-v1":
+        if run.policy_hash == stable_hash(self.builtin_policy().model_dump(mode="json")):
             return self.builtin_policy()
         active = await self.active_policy(db, str(run.novel_id))
         if active is None or active[1] != run.policy_hash:
@@ -1456,6 +1824,33 @@ class WorldValidationService:
             and current_policy_hash != run.policy_hash
         ):
             return "policy"
+        if (
+            active
+            and active[0].semantic_enabled
+            and "semantic_items" not in run.manifest_json
+        ):
+            return "semantic_scope"
+        if "semantic_items" in run.manifest_json:
+            impact = await self._impact.snapshot(
+                db,
+                str(run.novel_id),
+                scope=run.scope,
+                target_type=run.scope_json.get("target_type"),
+                target_id=run.scope_json.get("target_id"),
+                root_type=run.scope_json.get("root_type"),
+            )
+            manifest = await self._freeze_semantic_scope(
+                db,
+                str(run.novel_id),
+                manifest,
+                impact,
+                confirmation_id=run.scope_json.get("context_confirmation_id"),
+                domains=run.scope_json.get("review_domains", ["world"]),
+                depth=run.scope_json.get("review_depth", 1),
+                root_type=run.scope_json.get("root_type"),
+                root_id=run.scope_json.get("target_id"),
+                previous=run.manifest_json,
+            )
         if stable_hash(manifest) != run.manifest_hash:
             return "manifest"
         if dependency_hash != run.dependency_hash:
@@ -1465,7 +1860,7 @@ class WorldValidationService:
         return None
 
     async def _refresh_freshness(self, db: AsyncSession, run: WorldValidationRun) -> None:
-        if run.status not in {"completed", "stale"}:
+        if run.status not in {"completed", "failed", "stale"}:
             return
         try:
             reason = await self._matches_frozen_inputs(db, run)
@@ -1497,7 +1892,9 @@ class WorldValidationService:
             WorldValidationRun.novel_id == parse_uuid(novel_id, "novel_id"),
         )
         if for_update:
-            statement = statement.with_for_update()
+            statement = statement.execution_options(
+                populate_existing=True
+            ).with_for_update()
         run = await db.scalar(statement)
         if run is None:
             raise NotFoundError("World validation run not found")
@@ -1526,7 +1923,11 @@ class WorldValidationService:
         plan = dict(run.plan_json or {})
         reviewable = WorldValidationService._reviewable_finding_ids(findings)
         items = review_items or []
-        reviewed = [item for item in items if item.finding_id in reviewable]
+        reviewed = [
+            item
+            for item in items
+            if item.finding_id in reviewable and item.disposition != "deferred"
+        ]
         return WorldValidationRunResponse(
             id=str(run.id),
             novel_id=str(run.novel_id),
@@ -1535,6 +1936,7 @@ class WorldValidationService:
             scope=run.scope,
             target_type=scope.get("target_type"),
             target_id=scope.get("target_id"),
+            context_confirmation_id=scope.get("context_confirmation_id"),
             status=run.status,
             verdict=run.verdict,
             gate=run.gate,
@@ -1618,11 +2020,15 @@ class WorldValidationService:
             .all()
         )
         reviewable = self._reviewable_finding_ids(run.findings_json or [])
-        reviewed = [item for item in rows if item.finding_id in reviewable]
+        reviewed = [
+            item
+            for item in rows
+            if item.finding_id in reviewable and item.disposition != "deferred"
+        ]
         return {
             "required": len(reviewable),
             "reviewed": len(reviewed),
-            "reviewed_finding_ids": {item.finding_id for item in rows},
+            "reviewed_finding_ids": {item.finding_id for item in reviewed},
         }
 
     async def _enriched_responses(
@@ -1847,6 +2253,15 @@ class WorldValidationService:
                 "Only a failed or budget-interrupted validation can be continued",
                 code="validation_run_not_continuable",
             )
+        policy = await self._policy_for_run(db, run)
+        if policy.semantic_enabled and (
+            not run.scope_json.get("context_confirmation_id")
+            or context_confirmation_id != run.scope_json.get("context_confirmation_id")
+        ):
+            raise ConflictError(
+                "续接必须使用本次校验原有的参考资料确认；如需更换范围，请新建校验。",
+                code="validation_confirmation_changed",
+            )
         if run.scope == "full":
             active = await db.scalar(
                 select(WorldValidationRun.id).where(
@@ -2026,7 +2441,13 @@ class WorldValidationService:
             "page_type": f"entity:{entity.entity_type}",
             "status": entity.status,
             "version": 1,
-            "content_hash": stable_hash(content),
+            "content_hash": stable_hash(
+                {
+                    "content": content,
+                    "hidden_truth": getattr(entity, "hidden_truth", None),
+                    "updated_at": getattr(entity, "updated_at", None),
+                }
+            ),
             "content": content,
             "body": content,
             "metadata": {},

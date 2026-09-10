@@ -10,10 +10,8 @@
       <div class="world-extract-panel">
         <div class="world-extract-panel__label">从正文整理人物、设定与关系</div>
         <div class="world-extract-panel__controls">
-          起始章 <input id="w-extract-start" v-model.number="extractStart" type="number" min="1" class="world-extract-panel__input" />
-          结束章 <input id="w-extract-end" v-model.number="extractEnd" type="number" min="1" class="world-extract-panel__input" />
-          <button class="btn btn-sm btn-primary" data-action="submit-extract" data-type="world_object_auto_extraction" :disabled="extractRunning" @click="onSubmitExtract">
-            {{ extractRunning ? "提取中..." : "确认并开始提取" }}
+          <button class="btn btn-sm btn-primary" data-action="submit-extract" data-type="world_object_auto_extraction" @click="onSubmitExtract">
+            打开整理进度与成果
           </button>
         </div>
         <p class="writing-form-hint" role="note">{{ importNotice }}</p>
@@ -183,12 +181,12 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from "vue"
+import { computed, onMounted, reactive, watch } from "vue"
 import { getRouter } from "../../../bridge/index.js"
 import { importAuthorizationNotice } from "../../../../shared/importAuthorization.js"
 import WorkflowProgressCard from "../../../components/WorkflowProgressCard.vue"
 import { worldSession as session, saveFilterPanelState } from "../worldSession.js"
-import { autoExtractManager, submitAutoExtract } from "../workflowManagers.js"
+import { autoExtractManager } from "../workflowManagers.js"
 import {
   WORLD_FILTER_DEFAULTS,
   WORLD_OBJECT_QUERY_KEYS,
@@ -332,18 +330,9 @@ function setHotType(entityType) {
 }
 
 // ---- 自动提取 ----
-const extractStart = ref(1)
-const extractEnd = ref(10)
 
 const extractProgress = computed(() => autoExtractManager.state.progress)
-const extractRunning = computed(() => (
-  autoExtractManager.state.submitting
-  || (
-    Boolean(autoExtractManager.state.taskId)
-    && !extractProgress.value?.terminal
-    && !extractProgress.value?.failed
-  )
-))
+
 
 /** 对应 vanilla _renderAutoExtractPanel 的范围文案（_updateExtractStatusDOM 1102-1119）。 */
 const extractDestination = computed(() => {
@@ -361,7 +350,7 @@ const extractStatusText = computed(() => {
 })
 
 function onSubmitExtract() {
-  void submitAutoExtract(Number(extractStart.value) || 1, Number(extractEnd.value) || 10)
+  getRouter()?.navigate("writing", null, true, new URLSearchParams({ organize: "world_objects" }))
 }
 
 // ---- 批次分组（vanilla 1161-1213） ----

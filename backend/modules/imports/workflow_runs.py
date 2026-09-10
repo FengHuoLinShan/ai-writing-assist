@@ -420,6 +420,22 @@ class ImportWorkflowRunService:
         checkpoints: dict[str, Any] | None = None,
     ) -> None:
         run = await self.require_owner(db, owner)
+        # Author controls survive a worker's earlier in-memory checkpoint.
+        from modules.imports.completion_control import read_completion_control
+
+        control = await read_completion_control(
+            db, task_id=owner.task_id, novel_id=str(run.novel_id)
+        )
+        if control:
+            progress = {
+                **progress,
+                "checkpoints": {
+                    **dict(progress.get("checkpoints") or {}),
+                    "completion_control": control,
+                },
+            }
+            if checkpoints is not None:
+                checkpoints = {**checkpoints, "completion_control": control}
         run.progress = deepcopy(progress)
         if prepare_checkpoint is not None:
             run.prepare_checkpoint = deepcopy(prepare_checkpoint)

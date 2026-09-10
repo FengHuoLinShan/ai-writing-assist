@@ -527,7 +527,15 @@ class ContextCompiler:
                 before=0,
                 after=0,
             )
-            text = str(read.get("text") or "").strip()
+            original = str(read.get("text") or "")
+            start, end = read.get("highlight_start"), read.get("highlight_end")
+            if (
+                not isinstance(start, int)
+                or not isinstance(end, int)
+                or not 0 <= start < end <= len(original)
+            ):
+                return None
+            text = original[start:end].strip()
             if not text:
                 return None
             title = str(read.get("title") or f"第 {source_ref['chapter_index']} 章正文")

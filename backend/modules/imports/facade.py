@@ -140,10 +140,14 @@ async def run_submitted_deep_import_stage(
 async def resume_deep_import(
     db: AsyncSession,
     prev_task_id: str,
+    *,
+    stage: str | None = None,
 ) -> dict[str, Any]:
     """恢复被中断的 deep_import 任务，复用原 task_id。"""
     _parse_uuid(prev_task_id)
-    return await _orchestrator.resume_interrupted(db, prev_task_id)
+    return await _orchestrator.resume_interrupted(
+        db, prev_task_id, **({"stage": stage} if stage else {})
+    )
 
 
 async def abandon_deep_import(

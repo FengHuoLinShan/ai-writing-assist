@@ -27,6 +27,8 @@ RAG P@5/MRR/R@10 语义质量评测。
 
 ## 不负责
 
+- 专项查证的模型提名与续查状态由 compilation 拥有；该步骤的预算不改变本域分块、向量或重建契约
+
 - 复杂 GraphRAG 社区摘要
 - Neo4j / Qdrant 集成
 - 自动剧情推理
@@ -374,3 +376,6 @@ Compilation 的 `retrieve_focused_evidence` 将本层混合检索用于有界语
 ADR-0023 的 Agent 通过 Evidence facade 消费已有检索与原文回读，不直接读取索引表。
 本次接入不改变 embedding、chunk、版本并存、索引 fresh 判定或 reader/character 截止规则；
 角色工具仍只能使用固定 source revision 的资料包。
+
+检索 metrics 投影增加 `embedding_provider`，供前端结合既有 embedding_runtime 的健康状态区分本地检索准备与查询；不暴露凭据，也不把未知外部服务状态当作 ready。
+世界跨域复核通过 compilation/facade 消费现有确认与聚焦证据，不新增索引、重建任务或资产写权限。字面命中、Top-K 与聚焦覆盖仍不能证明全库语义穷尽，源版本校验继续先于结果使用。

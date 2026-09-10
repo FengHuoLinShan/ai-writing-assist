@@ -161,7 +161,7 @@ defineExpose({ open: async () => { expanded.value = true; await nextTick(); name
         <button v-if="canResume && !busy" type="button" class="btn btn-sm" @click="resume">继续未完成的查证</button>
       </div>
       <template v-if="result">
-        <p v-if="coverage" class="focused-evidence__hint">已扫描 {{ coverage.scanned_chapters }} / {{ coverage.total_chapters }} 章 · 找到 {{ coverage.matched_occurrences }} 处提及 · 本轮返回 {{ evidence.length }} 段资料。{{ coverage.complete ? '声明范围内的查读已结束，不代表对象没有其他遗漏。' : '还有资料未覆盖，当前为部分结果。' }}</p>
+        <p v-if="coverage" class="focused-evidence__hint">已完成 {{ coverage.scanned_chapters }} / {{ coverage.total_chapters }} 次章节查读（含关联资料复查） · 找到 {{ coverage.matched_occurrences }} 处提及 · 本轮返回 {{ evidence.length }} 段资料。{{ coverage.complete ? '声明范围内的查读已结束，不代表对象没有其他遗漏。' : '还有资料未覆盖，当前为部分结果。' }}</p>
         <p v-for="warning in result.warnings || []" :key="warning" class="focused-evidence__hint">{{ warning }}</p>
         <ul v-if="result.targets?.length" class="focused-evidence__targets">
           <li v-for="target in result.targets" :key="target.key">{{ target.name }} · {{ target.depth ? '直接关联' : '本次目标' }}<span v-if="target.resolution === 'ambiguous'"> · 同名身份待确认</span><span v-else-if="target.resolution === 'unresolved'"> · 尚无明确档案</span></li>

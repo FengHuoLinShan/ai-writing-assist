@@ -519,6 +519,15 @@ class StructureAnalysisPhaseRunner:
             f"{phase3_result.get('total_threads', 0)} 条剧情线，"
             f"{phase3_result.get('total_arcs', 0)} 个篇章纲。"
         )
+        if (
+            phase3_result.get("total_threads", 0) <= 0
+            and phase3_result.get("total_arcs", 0) <= 0
+        ):
+            progress.quality_status = "failed"
+            progress.message = (
+                "本次未得到可用结构；已有资料保留，请核对来源后重试本阶段。"
+            )
+
         workflow._finish_phase(
             progress,
             "structure_analysis",

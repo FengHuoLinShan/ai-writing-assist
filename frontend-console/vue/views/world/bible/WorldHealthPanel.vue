@@ -12,7 +12,9 @@
     </summary>
 
     <div class="world-health-body">
-      <div v-if="!policy.active" class="world-health-callout">
+      <p v-if="initialLoading" role="status">正在读取校验政策与最近回执…</p>
+      <div v-else-if="initialError" role="alert"><p>{{ initialError }}</p><button class="btn btn-sm" type="button" @click="loadInitialPolicy">重新读取</button></div>
+      <div v-if="!policy.active && policy.loaded !== false" class="world-health-callout">
         <p>当前可自愿运行校验，但发布和设定采用尚未启用强制门禁，旧项目行为不变。</p>
         <button
           type="button"
@@ -72,11 +74,32 @@
         </button>
       </div>
 
+      <details v-if="gapRoot?.id" class="world-health-scope">
+        <summary>定向复核范围</summary>
+        <label>关联深度<select v-model.number="gapDepth" :disabled="busy" @change="gapDomains = ['world']; gapSources = null; gapSelected = []"><option :value="0">只检查当前资料</option><option :value="1">当前资料与直接关联</option></select></label>
+        <div class="world-health-scope__domains"><label v-for="(label, domain) in gapDomainLabels" :key="domain"><input v-model="gapDomains" type="checkbox" :value="domain" :disabled="busy || domain === 'world' || gapDepth === 0 || !policy.semantic_enabled" />{{ label }}</label></div>
+        <template v-if="gapDomains.length > 1">
+          <button class="btn btn-sm" type="button" :disabled="busy || gapSourcesLoading" @click="loadGapSources">{{ gapSourcesLoading ? '正在读取关联…' : '读取可选来源' }}</button>
+          <p>选择本次实际要核对的资料，最多 40 项；没有选入的部分会明确记为未覆盖。</p>
+          <p v-if="gapSources && !gapAvailable.length">该范围没有可定位的关联来源，不能据此认定没有影响。</p>
+          <label v-for="item in gapAvailable" :key="`${item.kind}:${item.id}`" class="world-health-scope__item"><input v-model="gapSelected" type="checkbox" :value="gapItemKey(item)" :disabled="busy || (!gapSelected.includes(gapItemKey(item)) && gapSelected.length >= 40)" />{{ item.label }} · {{ item.match_basis === 'literal' ? '可能提及' : '声明关联' }}</label>
+        </template>
+      </details>
       <p v-if="error" class="form-error" role="alert">{{ error }}</p>
       <p v-else-if="busy" class="world-bible-empty-hint" role="status">校验在后台进行，离开后也会保留进度。</p>
       <p v-else-if="!run" class="world-bible-empty-hint">尚未校验。可先检查当前工作稿，准备采用整体设定时再做全面校验。</p>
 
       <template v-if="run">
+        <section v-if="sourceLoading || sourcePreview || sourceError" class="world-health-source-preview" aria-label="本次复核来源">
+          <p v-if="sourceLoading" role="status">正在核对来源版本…</p>
+          <p v-else-if="sourceError" role="alert">{{ sourceError }}</p>
+          <template v-else><h4>{{ sourcePreview.label }}</h4><p id="world-health-source-content" tabindex="-1" class="world-health-source-preview__text">{{ sourcePreview.text }}</p><p v-if="sourcePreview.truncated">这里只显示部分内容。</p></template>
+          <button type="button" class="btn btn-sm" @click="closeSourcePreview">返回问题列表</button>
+        </section>
+        <div v-if="scopeCoverage" class="world-health-callout">
+          <p>实际复核 {{ scopeCoverage.reviewed_sources }} 份已确认资料 · {{ scopeCoverage.review_depth === 0 ? '当前资料' : '当前资料与直接关联' }}。语义检查不能证明全库穷尽。</p>
+          <p v-for="omission in scopeCoverage.omissions || []" :key="omission">未覆盖：{{ omission }}</p>
+        </div>
         <p v-if="run.status === 'stale'" class="world-health-callout is-blocked" data-field="world-health-stale">
           {{ staleReasonLabel }}，旧回执不再能用于发布或采用；请重新校验并重新复核。
         </p>
@@ -84,7 +107,7 @@
           校验中断（{{ run.error_code || "未知错误" }}）。已完成分片不会丢失，可继续校验收尾。
         </p>
         <p v-else-if="run.gate === 'block' && run.verdict === 'author-required'" class="world-health-callout is-blocked">
-          存在需要作者裁定的项：逐项记录处置后即可继续发布或采用。
+          存在需要作者裁定的项；稍后再定的项目仍待处理，硬错误需修正后重新校验。
         </p>
         <p v-else-if="run.gate === 'block'" class="world-health-callout is-blocked">当前有阻断项，修正或完成作者裁定后再校验。</p>
         <p v-else-if="run.gate === 'warn' && !warningsAccepted" class="world-health-callout">没有硬阻断，但存在需作者明确承担的风险。</p>
@@ -105,7 +128,7 @@
           @click="continueRun"
         >{{ continuing ? "正在续接…" : "继续校验（续接已检查分片）" }}</button>
 
-        <div v-if="findingsTotal > 0 || pageFindings.length" class="world-health-findings-toolbar">
+        <div v-if="findings.length || findingsTotal > 0 || pageFindings.length || filterSeverity || filterAction" class="world-health-findings-toolbar">
           <label>筛选
             <select v-model="filterSeverity" class="form-input" data-field="world-health-filter-severity" @change="resetFindingsPage">
               <option value="">全部级别</option>
@@ -122,25 +145,28 @@
           <small class="world-bible-empty-hint">共 {{ findingsTotal }} 项 · 第 {{ findingsPageNo }}/{{ findingsPageCount || 1 }} 页</small>
         </div>
 
-        <ul v-if="pageFindings.length" class="world-health-findings" aria-label="校验问题" data-section="world-health-findings">
+        <p v-if="findingsLoading" role="status">正在读取校验问题…</p>
+        <p v-else-if="findingsError" class="form-error" role="alert">{{ findingsError }} <button type="button" class="btn btn-sm" @click="loadFindings">重试</button></p>
+        <ul v-else-if="pageFindings.length" class="world-health-findings" aria-label="校验问题" data-section="world-health-findings">
           <li v-for="finding in pageFindings" :key="finding.finding_id" :class="`is-${finding.severity}`">
             <div>
               <strong>{{ actionLabel(finding.action) }}</strong>
               <p>{{ finding.message }}</p>
               <small v-if="finding.location">{{ locationLabel(finding.location) }}</small>
               <div v-if="dispositions[finding.finding_id]" class="world-health-disposition is-done" :data-disposition="dispositions[finding.finding_id]">
-                已复核：{{ dispositionLabel(dispositions[finding.finding_id]) }}
+                {{ dispositions[finding.finding_id] === 'deferred' ? '待处理' : '已复核' }}：{{ dispositionLabel(dispositions[finding.finding_id]) }}
               </div>
-              <div v-else-if="isReviewable(finding)" class="world-health-disposition">
+              <div v-if="isReviewable(finding) && (!dispositions[finding.finding_id] || dispositions[finding.finding_id] === 'deferred')" class="world-health-disposition">
                 <button type="button" class="btn btn-sm" :data-action="'review-resolved-' + finding.finding_id" :disabled="reviewSubmitting === finding.finding_id" @click="submitDisposition(finding, 'resolved')">已修正</button>
                 <button type="button" class="btn btn-sm btn-ghost" :data-action="'review-acknowledged-' + finding.finding_id" :disabled="reviewSubmitting === finding.finding_id" @click="submitDisposition(finding, 'acknowledged')">已知悉</button>
                 <button type="button" class="btn btn-sm btn-ghost" :data-action="'review-deferred-' + finding.finding_id" :disabled="reviewSubmitting === finding.finding_id" @click="submitDisposition(finding, 'deferred')">稍后再定</button>
               </div>
             </div>
-            <button v-if="sourceTarget(finding)" type="button" class="btn btn-sm btn-ghost" data-action="world-health-open-source" @click="emit('open-source', sourceTarget(finding))">打开来源</button>
+            <button v-if="sourceTarget(finding) || finding.source_key?.startsWith('confirmed:')" type="button" class="btn btn-sm btn-ghost" data-action="world-health-open-source" @click="finding.source_key.startsWith('confirmed:') ? readReviewSource(finding, $event.currentTarget) : emit('open-source', sourceTarget(finding))">打开来源</button>
           </li>
         </ul>
-        <p v-else-if="run.status === 'completed'" class="world-health-callout is-pass">本次范围未发现需处理的问题。</p>
+        <p v-else-if="filterSeverity || filterAction" class="world-bible-empty-hint">当前筛选没有匹配的问题，可调整筛选查看其他项目。</p>
+        <p v-else-if="run.status === 'completed' && run.gate === 'pass' && !omissionCount && !findings.length" class="world-health-callout is-pass">本次范围未发现需处理的问题。</p>
 
         <div v-if="findingsPageCount > 1" class="world-health-pager">
           <button type="button" class="btn btn-sm btn-ghost" :disabled="findingsPageNo <= 1 || findingsLoading" @click="turnFindingsPage(findingsPageNo - 1)">上一页</button>
@@ -190,10 +216,22 @@
           <p class="world-bible-empty-hint">“禁止匹配”与“不包含”是禁区；其余为原则。触发时按所选级别提示或阻断。</p>
           <ul class="world-policy-editor__rows">
             <li v-for="(rule, index) in policyForm.rules" :key="index">
-              <select v-model="rule.operator" class="form-input" :data-field="'world-policy-rule-op-' + index">
+              <select v-model="rule.operator" class="form-input" :data-field="'world-policy-rule-op-' + index" @change="changeRuleOperator(rule)">
                 <option v-for="op in operatorOptions" :key="op" :value="op">{{ operatorLabel(op) }}</option>
               </select>
-              <input v-model.trim="rule.value" class="form-input" :placeholder="rule.operator === 'max_chars' ? '字数上限' : '匹配内容'" :data-field="'world-policy-rule-value-' + index" />
+              <div v-if="['field_equals', 'numeric_tolerance'].includes(rule.operator)" class="world-policy-values">
+                <label>检查字段<input v-model.trim="rule.value.field" class="form-input" placeholder="例如：population" /></label>
+                <template v-if="rule.operator === 'numeric_tolerance'">
+                  <label>预期数值<input v-model.number="rule.value.expected" class="form-input" type="number" step="any" /></label>
+                  <label>允许偏差<input v-model.number="rule.value.tolerance" class="form-input" type="number" min="0" step="any" /></label>
+                </template>
+                <template v-else>
+                  <label>值的类型<select :value="typeof rule.value.equals" class="form-input" @change="rule.value.equals = $event.target.value === 'boolean' ? false : $event.target.value === 'number' ? 0 : ''"><option value="string">文字</option><option value="number">数值</option><option value="boolean">是或否</option></select></label>
+                  <label v-if="typeof rule.value.equals === 'boolean'">预期为是<input v-model="rule.value.equals" type="checkbox" /></label>
+                  <label v-else>预期值<input v-model="rule.value.equals" class="form-input" :type="typeof rule.value.equals === 'number' ? 'number' : 'text'" step="any" /></label>
+                </template>
+              </div>
+              <input v-else v-model.trim="rule.value" class="form-input" :type="rule.operator === 'max_chars' ? 'number' : 'text'" :min="rule.operator === 'max_chars' ? 1 : undefined" :placeholder="rule.operator === 'max_chars' ? '字数上限' : '匹配内容'" :data-field="'world-policy-rule-value-' + index" />
               <select v-model="rule.severity" class="form-input">
                 <option value="error">阻断</option>
                 <option value="warning">提示</option>
@@ -264,8 +302,49 @@ const run = ref(props.initialRun)
 const panelRef = ref(null)
 const requestedRunId = getRouteQuery().get("validation_run_id")
 const policy = ref(props.policyStatus || { active: false })
+const initialLoading = ref(props.policyStatus?.loaded === false)
+const initialError = ref("")
 const history = ref([])
+const gapDepth = ref(1)
+const gapDomains = ref(['world'])
+const gapDomainLabels = { world: '世界资料', story: '故事结构', prose: '正文选段', map: '地图结构' }
+const gapSources = ref(null)
+const gapSelected = ref([])
+const gapSourcesLoading = ref(false)
+let gapSourceGeneration = 0
+const gapItemKey = item => `${item.kind}:${item.id}`
+const gapDomain = item => ({ story_thread: 'story', outline_arc: 'story', outline_scene: 'story', story_outline: 'story', prose_chapter: 'prose', map_node: 'map' }[item.kind] || 'world')
+const gapAvailable = computed(() => (gapSources.value?.sections || []).flatMap(section => section.items || []).filter(item => gapDomain(item) !== 'world' && gapDomains.value.includes(gapDomain(item))))
+watch(() => `${props.projectId}:${props.gapRoot?.type}:${props.gapRoot?.id}`, () => { gapSourceGeneration++; gapSources.value = null; gapSelected.value = []; gapSourcesLoading.value = false })
+async function loadGapSources() {
+  const root = props.gapRoot
+  if (!root?.id) return
+  const targetType = root.type === 'world_bible_page_draft' ? 'world_bible_page' : root.type
+  const targetId = root.type === 'world_bible_page_draft' ? root.page_id : root.id
+  if (!targetId) { error.value = '独立工作稿尚无可追踪的已发布来源，可先只检查当前稿件'; return }
+  const token = ++gapSourceGeneration; gapSourcesLoading.value = true; gapSelected.value = []; error.value = ''
+  try { const result = await api.world.previewWorldImpact({ novel_id: props.projectId, target_type: targetType, target_id: targetId }); if (token === gapSourceGeneration) gapSources.value = result }
+  catch (err) { if (token === gapSourceGeneration) error.value = err?.message || '关联来源无法读取' }
+  finally { if (token === gapSourceGeneration) gapSourcesLoading.value = false }
+}
 const error = ref("")
+const sourcePreview = ref(null)
+const sourceLoading = ref(false)
+const sourceError = ref('')
+let sourceGeneration = 0
+let sourceTrigger = null
+const scopeCoverage = computed(() => [...(run.value?.coverage_ledger || [])].reverse().find(item => item.layer === 'scope'))
+async function readReviewSource(finding, trigger) {
+  const token = ++sourceGeneration; const runId = run.value?.id
+  sourceTrigger = trigger; sourceLoading.value = true; sourcePreview.value = null; sourceError.value = ''
+  try {
+    const result = await api.world.readWorldValidationSource(runId, props.projectId, finding.source_key)
+    if (token !== sourceGeneration || runId !== run.value?.id) return
+    sourcePreview.value = result; await nextTick(); document.getElementById('world-health-source-content')?.focus()
+  } catch (err) { if (token === sourceGeneration) sourceError.value = err?.message || '来源读取失败，请重试' }
+  finally { if (token === sourceGeneration) sourceLoading.value = false }
+}
+function closeSourcePreview() { sourceGeneration++; sourcePreview.value = null; sourceError.value = ''; sourceLoading.value = false; sourceTrigger?.focus?.() }
 const pendingScope = ref("")
 const historyLoading = ref(false)
 const accepting = ref(false)
@@ -273,6 +352,8 @@ const activating = ref(false)
 const warningReason = ref("")
 const continuing = ref(false)
 const findingsLoading = ref(false)
+const findingsError = ref("")
+let findingsGeneration = 0
 const findingsPageNo = ref(1)
 const findingsPageSize = 20
 const findingsTotal = ref(0)
@@ -285,6 +366,7 @@ const policyEditorOpen = ref(false)
 const policySaving = ref(false)
 const policyError = ref("")
 const policyForm = reactive(emptyPolicyForm())
+const policyEditBaseline = ref(null)
 let generation = 0
 let poller = null
 
@@ -305,7 +387,7 @@ function emptyPolicyForm() {
   }
 }
 
-const busy = computed(() => ["queued", "running"].includes(run.value?.status) || Boolean(pendingScope.value))
+const busy = computed(() => initialLoading.value || policy.value.loaded === false || ["queued", "running"].includes(run.value?.status) || Boolean(pendingScope.value))
 const findings = computed(() => Array.isArray(run.value?.findings) ? run.value.findings : [])
 const decisionCount = computed(() => findings.value.filter((item) => item.action === "AUTHOR-REQUIRED").length)
 const gapCategories = new Set(["facet-gap", "pressure-not-run", "missing-world-state", "reproduction-loop-gap", "coupling-chain-gap", "situated-test-gap", "rule-economics-gap", "candidate-mountain"])
@@ -389,6 +471,7 @@ async function activatePolicy() {
 }
 
 function openPolicyEditor() {
+  policyEditBaseline.value = policy.value?.draft?.updated_at || null
   const source = policy.value?.draft?.policy || policy.value?.policy || null
   const base = source ? JSON.parse(JSON.stringify(source)) : null
   Object.assign(policyForm, emptyPolicyForm(), base || {}, {
@@ -404,6 +487,12 @@ function addRule() {
   policyForm.rules.push({ rule_id: `rule-${policyForm.rules.length + 1}-${Date.now().toString(36)}`, operator: "contains", value: "", severity: "warning", message: "", page_type: null })
 }
 
+function changeRuleOperator(rule) {
+  if (rule.operator === "numeric_tolerance") rule.value = { field: "", expected: 0, tolerance: 0 }
+  else if (rule.operator === "field_equals") rule.value = { field: "", equals: "" }
+  else if (typeof rule.value === "object") rule.value = ""
+}
+
 function addQuestion() {
   policyForm.required_questions.push({ question_id: `q-${policyForm.required_questions.length + 1}-${Date.now().toString(36)}`, gate: "knowledge", question: "" })
 }
@@ -416,10 +505,11 @@ async function savePolicyDraft() {
     const payload = {
       policy: {
         ...JSON.parse(JSON.stringify(policyForm)),
-        rules: policyForm.rules.filter((rule) => rule.message && String(rule.value ?? "") !== ""),
+        rules: policyForm.rules.filter((rule) => rule.message && String(rule.value ?? "") !== "").map((rule) => ({ ...rule, value: rule.operator === "max_chars" ? Number(rule.value) : rule.value })),
         required_questions: policyForm.required_questions.filter((item) => item.question),
       },
       summary: `项目校验政策草稿：${policyForm.policy_version}`,
+      expected_updated_at: policyEditBaseline.value,
     }
     if (payload.policy.required_questions.length && !payload.policy.semantic_enabled) {
       policyError.value = "有必问项时必须启用语义审计。"
@@ -467,7 +557,7 @@ const locationLabel = (location) => {
   })[key] || "来源中的具体位置"
 }
 function sourceTarget(finding) {
-  const match = String(finding?.source_key || "").match(/^(page|draft):(.+)$/)
+  const match = String(finding?.source_key || "").match(/^(page|draft|entity|adoption):(.+)$/)
   return match ? { kind: match[1], id: match[2] } : null
 }
 function formatTime(value) {
@@ -525,6 +615,10 @@ async function startGapRun() {
     emit("gap-root-needed")
     return false
   }
+  const selected = gapAvailable.value.filter(item => gapSelected.value.includes(gapItemKey(item)))
+  if (gapDomains.value.length > 1 && !selected.length) { error.value = '请先读取并勾选本次需要核对的关联来源'; return false }
+  const pinned = selected.map(item => item.source_ref ? { kind: 'source_range', source_ref: item.source_ref } : { kind: 'target', target_ref: item.target_ref })
+  if (props.gapRoot.type !== 'world_bible_page_draft') pinned.unshift({ kind: 'target', target_ref: { target_type: props.gapRoot.type, target_id: props.gapRoot.id, target_path: '' } })
   const token = ++generation
   pendingScope.value = "gap"
   error.value = ""
@@ -537,6 +631,7 @@ async function startGapRun() {
           task: `定向查漏：${props.gapRoot.label || "根对象"}及其声明的直接依赖`,
           scope: "world",
           include_pending_objects: false,
+          pinned_refs: pinned,
           ...(props.gapRoot.selected_world_bible_draft_ids?.length
             ? { selected_world_bible_draft_ids: props.gapRoot.selected_world_bible_draft_ids }
             : {}),
@@ -551,6 +646,7 @@ async function startGapRun() {
       target_id: props.gapRoot.id,
       root_type: props.gapRoot.type,
       trigger: "world_health",
+      ...(gapDomains.value.length > 1 || gapDepth.value === 0 ? { review_domains: [...gapDomains.value], review_depth: gapDepth.value, expected_impact_scope_hash: gapSources.value?.scope_hash || undefined } : {}),
       context_confirmation_id: confirmation?.id || undefined,
     })
     if (token !== generation) return false
@@ -571,21 +667,17 @@ async function startGapRun() {
 async function continueRun() {
   if (!canContinue.value || continuing.value || !run.value?.id) return false
   continuing.value = true
+  const token = generation
+  const runId = run.value.id
   error.value = ""
   try {
-    const confirmation = policy.value.semantic_enabled
-      ? await confirmAiReference({
-          novel_id: props.projectId,
-          action: "world.validation.semantic",
-          task: "续接世界书校验（跳过已检查分片）",
-          scope: "world",
-          include_pending_objects: false,
-          budget_tokens: 12000,
-        })
-      : null
-    const continued = await api.world.continueWorldValidationRun(run.value.id, props.projectId, {
-      context_confirmation_id: confirmation?.id || undefined,
+    if (policy.value.semantic_enabled && !run.value.context_confirmation_id) {
+      throw new Error("旧回执没有保存原参考资料确认，请重新发起校验。")
+    }
+    const continued = await api.world.continueWorldValidationRun(runId, props.projectId, {
+      context_confirmation_id: run.value.context_confirmation_id || undefined,
     })
+    if (token !== generation || run.value?.id !== runId) return false
     run.value = continued
     emit("updated", continued)
     startPolling(continued)
@@ -593,7 +685,7 @@ async function continueRun() {
     return true
   } catch (err) {
     if (err?.message === "已取消 AI 参考资料确认") return false
-    error.value = err?.message || "无法续接校验。"
+    if (token === generation) error.value = err?.message || "无法续接校验。"
     return false
   } finally {
     continuing.value = false
@@ -601,6 +693,8 @@ async function continueRun() {
 }
 
 async function loadFindings() {
+  const request = ++findingsGeneration
+  const token = generation
   const runId = run.value?.id
   if (!runId) {
     pageFindings.value = []
@@ -609,6 +703,7 @@ async function loadFindings() {
     return
   }
   findingsLoading.value = true
+  findingsError.value = ""
   try {
     const result = await api.world.listWorldValidationFindings(runId, props.projectId, {
       page: findingsPageNo.value,
@@ -616,14 +711,17 @@ async function loadFindings() {
       ...(filterSeverity.value ? { severity: filterSeverity.value } : {}),
       ...(filterAction.value ? { action: filterAction.value } : {}),
     })
+    if (request !== findingsGeneration || token !== generation || run.value?.id !== runId) return
     pageFindings.value = result?.items || []
     findingsTotal.value = Number(result?.total || 0)
     dispositions.value = result?.dispositions || {}
-  } catch {
+  } catch (err) {
+    if (request !== findingsGeneration || token !== generation || run.value?.id !== runId) return
     pageFindings.value = []
     findingsTotal.value = 0
+    findingsError.value = err?.message || "校验问题暂时无法读取。"
   } finally {
-    findingsLoading.value = false
+    if (request === findingsGeneration && token === generation) findingsLoading.value = false
   }
 }
 
@@ -640,18 +738,21 @@ function turnFindingsPage(page) {
 async function submitDisposition(finding, disposition) {
   if (!run.value?.id || reviewSubmitting.value) return false
   reviewSubmitting.value = finding.finding_id
+  const token = generation
+  const runId = run.value.id
   error.value = ""
   try {
     const updated = await api.world.createWorldValidationReviewItems(run.value.id, props.projectId, {
       items: [{ finding_id: finding.finding_id, disposition, note: "" }],
     })
+    if (token !== generation || run.value?.id !== runId) return false
     run.value = updated
     emit("updated", updated)
     await loadFindings()
     toast(`已记录复核：${dispositionLabel(disposition)}`, "success")
     return true
   } catch (err) {
-    error.value = err?.message || "无法记录复核。"
+    if (token === generation) error.value = err?.message || "无法记录复核。"
     return false
   } finally {
     reviewSubmitting.value = ""
@@ -740,17 +841,48 @@ function stopPolling() {
   poller = null
 }
 
+async function loadInitialPolicy() {
+  const token = ++generation
+  initialLoading.value = true; initialError.value = ''
+  try {
+    const [nextPolicy, latest] = await Promise.all([api.world.getWorldValidationPolicyStatus(props.projectId), requestedRunId ? api.world.getWorldValidationRun(requestedRunId, props.projectId) : api.world.getLatestWorldValidationRun(props.projectId)])
+    if (token !== generation) return
+    policy.value = { ...nextPolicy, loaded: true }
+    run.value = latest
+    initialLoading.value = false
+    emit('policy-updated', policy.value); emit('updated', latest)
+    recoverPolling(); loadFindings()
+  } catch (err) { if (token === generation) initialError.value = err?.message || '校验资料读取失败' }
+  finally { if (token === generation) initialLoading.value = false }
+}
 onMounted(() => {
   if (requestedRunId === run.value?.id) nextTick(() => {
     const target = panelRef.value?.querySelector("summary")
     target?.scrollIntoView?.({ block: "start" })
     target?.focus?.()
   })
+
+  if (props.policyStatus?.loaded === false) { void loadInitialPolicy(); return }
   recoverPolling()
   loadFindings()
 })
-onBeforeUnmount(() => {
+onBeforeUnmount(() => { gapSourceGeneration++; sourceGeneration++;
   generation += 1
   stopPolling()
 })
 </script>
+
+<style scoped>
+.world-health-scope { display: grid; gap: 12px; }
+.world-health-scope summary { min-height: 44px; cursor: pointer; }
+.world-health-scope label { display: flex; gap: 8px; align-items: center; min-height: 44px; }
+.world-health-scope__domains { display: flex; flex-wrap: wrap; gap: 12px; }
+.world-health-source-preview__text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 60vh; overflow: auto; line-height: 1.85; }
+
+.world-policy-values { display: grid; gap: 8px; min-width: 0; }
+.world-policy-values label { display: grid; gap: 4px; min-width: 0; }
+.world-policy-values input, .world-policy-values select { min-width: 0; max-width: 100%; min-height: 44px; }
+@media (max-width: 760px) {
+  .world-policy-editor__rows li { grid-template-columns: minmax(0, 1fr); align-items: start; gap: 8px; }
+}
+</style>

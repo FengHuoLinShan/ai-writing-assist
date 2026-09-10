@@ -7,8 +7,7 @@ Evidence 读取；业务写入需具体批次确认与来源重验。
 ## 会话迁移
 
 `session_models.py` 接管原 World 共创会话和消息的唯一 ORM。物理表仍使用
-`world_cocreation_sessions` / `world_cocreation_messages`，无需复制数据或重建身份；旧 World 类型与入口是
-兼容适配。World source/checkpoint/outcome 判断由组合根注册的 World port 执行。
+`world_cocreation_sessions` / `world_cocreation_messages`，无需复制数据或重建身份；旧 World 类型与入口复用共享会话存储；World 保留世界模型上下文与持久共创任务。World source/checkpoint/outcome 判断由组合根注册的 World port 执行。
 讨论不是 Canon；checkpoint 和候选内容仍引用原 World 载体。
 
 ## 执行记录

@@ -1,5 +1,6 @@
 <template>
-  <main class="story-outline-editor-page" :aria-busy="saving ? 'true' : undefined">
+  <main ref="rootEl" class="story-outline-editor-page" :aria-busy="saving ? 'true' : undefined">
+    <WorkspaceToolCard v-if="projectId" title="故事工具" context="编辑故事总览" :status="saveState" :actions="toolActions" action-prefix="story-editor-tool" @select="runTool" />
     <div v-if="!projectId" class="empty-state"><p>请先选择项目。</p></div>
     <div v-else-if="loadError" class="empty-state" role="alert">
       <div class="empty-icon">!</div>
@@ -38,6 +39,14 @@
       <p v-if="storageError" class="form-error" role="alert">{{ storageError }}</p>
 
       <form class="story-outline-editor-page__form" @submit.prevent="save">
+        <details class="story-structure-import" @toggle="$event.target.open && loadStructure()">
+          <summary>从已有剧情线和篇章整理草稿</summary>
+          <p>选择要引用的内容，加入后仍可编辑；缺失的作用与收束方向标为待补充。保存新版本前不会改变总览或来源资料。</p>
+          <p v-if="structureError" role="alert">{{ structureError }}</p>
+          <p v-if="structureStale" role="status">引用的结构已有更新；当前人工内容保持不变，请核对后调整。</p><button v-if="structureStale" type="button" class="btn" @click="acknowledgeStructureSources">已核对更新，保留当前文字</button>
+          <label v-for="item in structureItems" :key="item.key" class="structure-choice"><input v-model="structureSelected" type="checkbox" :value="item.key" />{{ item.kind === 'thread' ? '剧情线' : '篇章' }} · {{ item.value.name || item.value.title }}</label>
+          <button type="button" class="btn" :disabled="structureLoading || !structureSelected.length" @click="addStructureToDraft">{{ structureLoading ? '正在读取…' : '加入当前草稿' }}</button>
+        </details>
         <StoryOutlineEditorFields :model-value="content" prefix="story-outline-manual" />
         <p v-if="saveError" id="story-outline-manual-error" ref="errorSummary" class="form-error" role="alert" tabindex="-1">{{ saveError }}</p>
         <footer class="story-outline-editor-page__actions">
@@ -58,6 +67,9 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import { getApi, getAppState, getConfirm, getRouter, getToast } from "../../../bridge/index.js"
 import { useLeaveGuard } from "../../../composables/useLeaveGuard.js"
+import { threadDescription, arcDescription } from "../logic/outlineStructureOps.js"
+import WorkspaceToolCard from "../../../components/WorkspaceToolCard.vue"
+import { focusWorkspaceTool } from "../../../components/workspaceTools.js"
 import StoryOutlineEditorFields from "./StoryOutlineEditorFields.vue"
 import {
   editableStoryOutlineContent,
@@ -71,6 +83,7 @@ const props = defineProps({
   loadError: { type: String, default: null },
 })
 
+const rootEl = ref(null)
 const api = getApi()
 const router = getRouter()
 const toast = getToast()
@@ -79,10 +92,50 @@ const currentRevision = computed(() => props.current?.revision || null)
 const baseRevisionId = ref(props.current?.current_revision_id || null)
 const baseVersionNumber = ref(currentRevision.value?.version_number || null)
 const hasBaseRevision = computed(() => Boolean(baseRevisionId.value))
-const baselineFingerprint = ref(JSON.stringify(editableStoryOutlineContent(currentRevision.value || {})))
+const baselineFingerprint = ref(JSON.stringify({ content: editableStoryOutlineContent(currentRevision.value || {}), source_refs: currentRevision.value?.provenance?.source_refs || [] }))
 const draftKey = `story-outline-editor-draft:${encodeURIComponent(props.projectId || "none")}`
 const savedDraft = readDraft()
 const content = reactive(editableStoryOutlineContent(savedDraft?.content || currentRevision.value || {}))
+const structureItems = ref([]), structureSelected = ref([]), structureLoading = ref(false), structureLoaded = ref(false), structureError = ref('')
+const sourceRefs = ref(savedDraft?.source_refs || currentRevision.value?.provenance?.source_refs || [])
+const structureStale = computed(() => structureLoaded.value && sourceRefs.value.some(ref => ref.startsWith('structure:') && !structureItems.value.some(item => item.sourceRef === ref)))
+async function loadStructure() {
+  if (structureLoading.value) return
+  structureLoading.value = true; structureError.value = ''
+  const projectId = props.projectId
+  try {
+    const items = []
+    for (const kind of ['thread', 'arc']) {
+      for (let skip = 0; ; skip += 50) {
+        const data = await (kind === 'thread' ? api.outline.listThreads(projectId, { skip, limit: 50 }) : api.outline.listArcs(projectId, { skip, limit: 50 }))
+        if (getAppState()?.currentProjectId !== projectId) return
+        const rows = Array.isArray(data) ? data : data.items || []
+        for (const value of rows.filter(item => !['deprecated', 'archived', 'rejected'].includes(item.status))) {
+          const key = `${kind}:${value.id}`
+          items.push({ key, kind, value, sourceRef: `structure:${key}:${value.updated_at || ''}` })
+        }
+        if (rows.length < 50 || Array.isArray(data)) break
+      }
+    }
+    structureItems.value = items; structureLoaded.value = true
+  } catch (err) { structureError.value = err.message || '结构资料读取失败，请重新展开重试' }
+  finally { structureLoading.value = false }
+}
+function acknowledgeStructureSources() {
+  sourceRefs.value = sourceRefs.value.map(reference => structureItems.value.find(item => reference.startsWith(`structure:${item.key}:`))?.sourceRef || reference)
+  scheduleDraft()
+}
+function addStructureToDraft() {
+  const chosen = structureItems.value.filter(item => structureSelected.value.includes(item.key))
+  if (new Set([...sourceRefs.value, ...chosen.map(item => item.sourceRef)]).size > 100) { structureError.value = '每份总览最多引用 100 项，请缩小范围'; return }
+  for (const item of chosen) {
+    const name = item.value.name || item.value.title || ''
+    if (item.kind === 'thread' && !content.major_storylines.some(row => row.name === name)) content.major_storylines.push({ name, narrative_function: item.value.visible_goal || '这条剧情线的叙事作用待作者补充。', trajectory: threadDescription(item.value), intersections: [], resolution_direction: '收束方向尚未确定，待作者补充。' })
+    if (item.kind === 'arc' && !content.macro_movements.some(row => row.name === name)) content.macro_movements.push({ name, story_state_change: arcDescription(item.value), advanced_storylines: [] })
+  }
+  sourceRefs.value = [...new Set([...sourceRefs.value, ...chosen.map(item => item.sourceRef)])]
+  structureSelected.value = []; scheduleDraft()
+}
 const restoredDraft = ref(Boolean(savedDraft))
 const staleDraft = ref(Boolean(savedDraft && savedDraft.base_revision_id !== baseRevisionId.value))
 const draftSavedAt = ref(savedDraft?.saved_at || null)
@@ -98,7 +151,7 @@ let operationKey = null
 let lastAttemptFingerprint = null
 let draftTimer = null
 
-const fingerprint = computed(() => JSON.stringify(content))
+const fingerprint = computed(() => JSON.stringify({ content, source_refs: sourceRefs.value }))
 const dirty = computed(() => fingerprint.value !== baselineFingerprint.value)
 const saveState = computed(() => {
   if (saving.value) return "正在保存新版本…"
@@ -151,7 +204,7 @@ function persistDraft() {
       project_id: props.projectId,
       base_revision_id: baseRevisionId.value,
       saved_at: savedAt,
-      content: editableStoryOutlineContent(content),
+      content: editableStoryOutlineContent(content), source_refs: sourceRefs.value,
     }))
     draftSavedAt.value = savedAt
     storageError.value = ""
@@ -207,7 +260,7 @@ async function save() {
     return false
   }
 
-  const attemptFingerprint = JSON.stringify({ base_revision_id: baseRevisionId.value, content: validated })
+  const attemptFingerprint = JSON.stringify({ base_revision_id: baseRevisionId.value, content: validated, source_refs: sourceRefs.value })
   try {
     if (!operationKey || lastAttemptFingerprint !== attemptFingerprint) operationKey = idempotencyKey()
     lastAttemptFingerprint = attemptFingerprint
@@ -227,10 +280,10 @@ async function save() {
       base_revision_id: baseRevisionId.value,
       idempotency_key: operationKey,
       source: "manual",
-      provenance: { actor: "author", note: "前端手工保存" },
+      provenance: { actor: "author", note: "前端手工保存", source_refs: sourceRefs.value },
     })
     clearStoredDraft()
-    baselineFingerprint.value = JSON.stringify(validated)
+    baselineFingerprint.value = JSON.stringify({ content: validated, source_refs: sourceRefs.value })
     allowLeave.value = true
     if (getAppState()?.currentProjectId !== props.projectId) return true
     toast(`故事总览已保存为新版本 v${response?.version_number || ""}`, "success")
@@ -303,4 +356,13 @@ onBeforeUnmount(() => {
   clearTimeout(draftTimer)
   window.removeEventListener("beforeunload", beforeUnload)
 })
+
+const toolActions = computed(() => [
+  { key: "continue", label: conflict.value || staleDraft.value ? "处理版本变化" : dirty.value ? "继续编辑并保存" : "编辑故事总览", primary: true },
+  { key: "return", label: "返回故事总览" },
+])
+function runTool(key) {
+  if (key === "return") return returnToOverview()
+  return focusWorkspaceTool(rootEl.value, conflict.value || staleDraft.value ? ".story-outline-editor-notice--warning" : ".story-outline-editor-page__form")
+}
 </script>

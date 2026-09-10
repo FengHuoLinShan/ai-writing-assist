@@ -93,8 +93,8 @@
               </label>
             </td>
             <td data-label="状态"><span class="badge" :class="threadStatusBadgeClass(t)">{{ threadStatusLabel(t) }}</span></td>
-            <td data-label="名称">{{ t.name || t.title }}</td>
-            <td data-label="类型" class="outline-asset-meta">{{ threadTypeLabel(t) }}</td>
+            <td data-label="名称"><input v-if="rowDrafts[t.id]" v-model="rowDrafts[t.id].name" class="form-input" :aria-label="`剧情线名称：${t.name || t.title}`" :disabled="rowSaving" /><template v-else>{{ t.name || t.title }}</template></td>
+            <td data-label="类型" class="outline-asset-meta"><select v-if="rowDrafts[t.id]" v-model="rowDrafts[t.id].thread_type" class="form-select" aria-label="剧情线分类" :disabled="rowSaving"><option v-if="!['main','sub','background'].includes(rowDrafts[t.id].thread_type)" :value="rowDrafts[t.id].thread_type">未分类（保留现值）</option><option value="main">主线</option><option value="sub">支线</option><option value="background">暗线</option></select><template v-else>{{ threadTypeLabel(t) }}</template></td>
             <td data-label="标记">
               <template v-if="threadBadges(t).length">
                 <span v-for="badge in threadBadges(t)" :key="`${badge.text}-${badge.cls}`" class="badge" :class="badge.cls">{{ badge.text }}</span>
@@ -102,7 +102,7 @@
               <template v-else>-</template>
             </td>
             <td data-label="描述" class="outline-asset-description">{{ threadDesc(t) }}</td>
-            <td data-label="操作">
+            <td data-label="操作"><button class="btn btn-sm" :disabled="rowSaving" @click="rowDrafts[t.id] ? saveThreadRow(t) : (rowDrafts[t.id] = { name: t.name || t.title || '', thread_type: t.thread_type || '' })">{{ rowSaving ? '保存中…' : rowDrafts[t.id] ? '保存这一行' : '就地修改' }}</button><p v-if="rowErrors[t.id]" role="status">{{ rowErrors[t.id] }}</p>
               <button v-if="threadReviewAction(t)" class="btn btn-sm" :class="threadReviewAction(t).className" data-action="mark-thread-reviewed" :data-id="t.id || t.thread_id" @click="markThreadReviewed(t.id || t.thread_id)">{{ threadReviewAction(t).label }}</button>
               <button class="btn btn-sm btn-primary" data-action="edit-thread" :data-id="t.id || t.thread_id" @click="editThread(t.id || t.thread_id)">编辑</button>
               <ActionMenu :menu-id="`thread-actions-${t.id || t.thread_id}`" :label="`${t.name || t.title || '剧情线'}的更多操作`" :items="threadMenuItems(t)" @select="onThreadMenuSelect" />
@@ -188,9 +188,10 @@
       <details class="outline-preview-section" :open="unassignedPlans.length > 0">
         <summary><span>未归入剧情线</span><span class="outline-information-count">（{{ unassignedPlans.length }}）</span></summary>
         <template v-if="unassignedPlans.length">
+          <div class="outline-assignment-bulk"><select v-model="bulkThread" class="form-select" aria-label="批量归入剧情线"><option value="">选择剧情线…</option><option v-for="thread in threads" :key="thread.id" :value="thread.id">{{ thread.name }}</option></select><button class="btn" :disabled="assigning || !bulkThread || !selectedPlans.length" @click="assignSelectedPlans">{{ assigning ? '正在归类…' : '归类所选线索' }}</button><span role="status">{{ assignmentReceipt }}</span></div>
           <ul class="outline-information-unassigned-list">
             <li v-for="item in unassignedPlans" :key="`${item.kind}-${item.plan.id}`" class="outline-information-unassigned">
-              <span>{{ informationPlanName(item) }}</span>
+              <label><input v-model="selectedPlans" type="checkbox" :value="`${item.kind}-${item.plan.id}`" :disabled="assigning" />{{ informationPlanName(item) }}</label>
               <select class="form-select" data-role="information-thread-assignment" :data-kind="item.kind" :data-id="item.plan.id" :aria-label="`将 ${informationPlanName(item)} 归入剧情线`" v-model="assignmentValues[`${item.kind}-${item.plan.id}`]" @change="assignPlan(item.kind, item.plan.id, $event.target.value)">
                 <option value="">选择剧情线…</option>
                 <option v-for="thread in threads" :key="thread.id || thread.thread_id" :value="thread.id || thread.thread_id">{{ thread.name || thread.title || thread.id || thread.thread_id }}</option>
@@ -205,8 +206,10 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref, watch } from "vue"
-import { getRouter } from "../../../bridge/index.js"
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
+import { getApi, getAppState, getRouter } from "../../../bridge/index.js"
+import { useLeaveGuard } from "../../../composables/useLeaveGuard.js"
+import { ACCOUNT_MARKER_KEY } from "../../../../shared/accountStorage.js"
 import { structureAssetDisplay, displayStateBadgeClass, assetAttentionReasons } from "../../../../shared/assetDisplayState.js"
 import {
   STRUCTURE_FILTER_DEFAULTS,
@@ -255,6 +258,32 @@ const props = defineProps({
   filters: { type: Object, default: () => ({ ...STRUCTURE_FILTER_DEFAULTS }) },
 })
 
+const rowDrafts = ref({}), rowSaved = reactive({}), rowErrors = reactive({}), rowSaving = ref(false), rowStorageError = ref('')
+const threads = computed(() => props.threads.map(thread => rowSaved[thread.id] || thread))
+let rowAccount = 'local'
+try { rowAccount = localStorage.getItem(ACCOUNT_MARKER_KEY) || 'local' } catch { /* Persistence reports its own failure below. */ }
+const rowKey = `novel_outline_thread_edits:${rowAccount}:${props.projectId}`
+try { rowDrafts.value = JSON.parse(localStorage.getItem(rowKey) || '{}') } catch { rowStorageError.value = '本机草稿暂时不可读，请保留当前页面并保存到作品。' }
+watch(rowDrafts, value => {
+  try { const raw = JSON.stringify(value); localStorage.setItem(rowKey, raw); if (localStorage.getItem(rowKey) !== raw) throw new Error(); rowStorageError.value = '' }
+  catch { rowStorageError.value = '未保存行无法备份，请先保存到作品再离开。' }
+}, { deep: true, flush: 'sync' })
+useLeaveGuard(() => !rowSaving.value && (!Object.keys(rowDrafts.value).length || !rowStorageError.value))
+async function saveThreadRow(thread) {
+  const draft = rowDrafts.value[thread.id]
+  if (rowSaving.value || !draft) return
+  if (!draft.name.trim()) { rowErrors[thread.id] = '请填写剧情线名称'; return }
+  rowSaving.value = true
+  try {
+    const saved = await getApi().outline.updateThread(thread.id, props.projectId, { name: draft.name.trim(), thread_type: draft.thread_type })
+    if (getAppState()?.currentProjectId !== props.projectId) return
+    rowSaved[thread.id] = saved; delete rowDrafts.value[thread.id]; rowErrors[thread.id] = '已保存'
+  } catch (err) { rowErrors[thread.id] = err.message || '保存失败，输入已保留' }
+  finally { rowSaving.value = false }
+}
+function warnUnbackedRows(event) { if (rowSaving.value || (Object.keys(rowDrafts.value).length && rowStorageError.value)) { event.preventDefault(); event.returnValue = '' } }
+onMounted(() => globalThis.addEventListener('beforeunload', warnUnbackedRows))
+onBeforeUnmount(() => globalThis.removeEventListener('beforeunload', warnUnbackedRows))
 const threadStatusOptions = computed(() => structureStatusOptions("threads"))
 
 // ---- Filters ----
@@ -427,7 +456,6 @@ function threadBadges(t) {
   for (const reason of assetAttentionReasons(t)) {
     badges.push({ text: reason, cls: "badge-warning" })
   }
-  if (meta.phase) badges.push({ text: meta.phase, cls: "" })
   return badges
 }
 
@@ -497,12 +525,28 @@ function toggleAllThread(e) { toggleAllBulkSelection(threadScope, props.threads.
 function runBulkThread(action) { runBulkOutlineAction(threadScope, action, props.threads) }
 
 // ---- CRUD ----
-function editThread(id) { editThreadOp(id, props.threads) }
+function editThread(id) { editThreadOp(id, threads.value) }
 function deleteThread(id) { deleteThreadOp(id) }
 function markThreadReviewed(id) { markThreadReviewedOp(id, props.threads) }
 const threadDesc = (t) => threadDescription(t)
 
 // ---- Assign information plan to thread ----
+const selectedPlans = ref([]), bulkThread = ref(''), assigning = ref(false), assignmentReceipt = ref('')
+async function assignSelectedPlans() {
+  if (assigning.value) return
+  assigning.value = true
+  let succeeded = 0, failed = 0
+  const target = bulkThread.value
+  try {
+    for (const item of unassignedPlans.value.filter(item => selectedPlans.value.includes(`${item.kind}-${item.plan.id}`))) {
+      if (getAppState()?.currentProjectId !== props.projectId) break
+      const ok = await assignInformationPlan(item.plan.id, item.kind, target, props.unassignedForeshadowing, props.unassignedReveals, { refresh: false })
+      if (ok) { succeeded += 1; selectedPlans.value = selectedPlans.value.filter(key => key !== `${item.kind}-${item.plan.id}`) }
+      else failed += 1
+    }
+    assignmentReceipt.value = `已归类 ${succeeded} 条，失败 ${failed} 条；失败项仍已选中。`
+  } finally { assigning.value = false }
+}
 function assignPlan(kind, planId, threadId) {
   if (!threadId || !planId) return
   assignInformationPlan(planId, kind, threadId, props.unassignedForeshadowing, props.unassignedReveals)

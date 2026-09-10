@@ -5,21 +5,31 @@ import { useWorkflowPolling } from "../composables/useWorkflowPolling.js"
 import { clearActiveWorkflow, persistActiveWorkflow, recoverActiveWorkflows } from "../../shared/workflowProgress.js"
 import { ACCOUNT_MARKER_KEY } from "../../shared/accountStorage.js"
 
-const props = defineProps({ projectId: { type: String, required: true }, entityId: { type: String, default: null }, initialName: { type: String, default: "" }, sourceTaskId: { type: String, default: null } })
-const emit = defineEmits(["applied"])
+const props = defineProps({ deferRequested: { type: Boolean, default: false }, initialOpen: { type: Boolean, default: false }, projectId: { type: String, required: true }, entityId: { type: String, default: null }, initialName: { type: String, default: "" }, sourceTaskId: { type: String, default: null } })
+const emit = defineEmits(["applied", "updated"])
 const api = getApi(), confirm = getConfirm(), polling = useWorkflowPolling()
 const name = ref(props.initialName), startChapter = ref(1), endChapter = ref(0)
 const taskId = ref(null), task = ref(null), error = ref(""), submitting = ref(false)
-const storageWarning = ref("")
+const storageWarning = ref(""), localDeferPending = ref(false), actionNotice = ref("")
+const deferPending = computed(() => localDeferPending.value || props.deferRequested)
 const artifact = ref(null), artifactBusy = ref(false)
 const identities = ref({}), identityChoices = ref({})
 let epoch = 0, alive = true
 const key = computed(() => `${props.projectId}:${props.sourceTaskId || props.entityId || 'manual'}`)
 const info = computed(() => task.value?.result?.targeted_completion || {})
 const busy = computed(() => submitting.value || ["pending", "running"].includes(task.value?.status))
-const canResume = computed(() => !info.value.rollback_status && ((task.value?.available_actions || []).includes("resume") || info.value.status === "partial"))
+const canResume = computed(() => !info.value.rollback_status && ((info.value.status === 'deferred' && task.value?.status === 'done') || (task.value?.status === 'failed' && ((task.value?.available_actions || []).includes('resume') || (info.value.available_actions || []).includes('resume')))))
 const canRollback = computed(() => taskId.value && !busy.value && info.value.rollback_status !== "rolled_back" && (Number(info.value.created || 0) + Number(info.value.filled || 0) > 0))
-const statusLabel = computed(() => info.value.rollback_status === "partial" ? "已撤销可安全恢复的部分；后续修改或引用冲突已保留，可审阅后重试撤销。" : info.value.rollback_status === "rolled_back" ? "本次补全已安全撤销。" : info.value.message || ({ pending: "等待补全", running: "正在查证并补全", done: "本轮处理结束", failed: "补全未完成，已处理结果保留", cancelled: "已停止，已处理结果保留" }[task.value?.status] || ""))
+const statusLabel = computed(() => {
+  if (info.value.rollback_status === "partial") return "已撤销可安全恢复的部分；后续修改或引用冲突已保留，可审阅后重试撤销。"
+  if (info.value.rollback_status === "rolled_back") return "本次补全已安全撤销。"
+  if (info.value.message) return info.value.message
+  if (info.value.status === "done") return "本轮补全已结束"
+  if (info.value.status === "deferred") return "查漏已暂缓；基础成果可继续使用"
+  if (info.value.status === "partial") return "补全部分完成，已处理结果保留"
+  if (props.sourceTaskId && !info.value.status) return busy.value ? "等待前序整理完成" : "本次尚无补全结果"
+  return { pending: "等待补全", running: "正在查证并补全", done: "本轮处理结束", failed: "补全未完成，已处理结果保留", cancelled: "已停止，已处理结果保留" }[task.value?.status] || ""
+})
 const owns = (token, scope) => alive && token === epoch && scope === key.value && (!getAppState()?.currentProjectId || getAppState().currentProjectId === props.projectId)
 function accountMarker() { try { return localStorage.getItem(ACCOUNT_MARKER_KEY) } catch { return null } }
 function receiptScope() { return { account: accountMarker(), projectId: props.projectId, meta: { completionKey: key.value, name: name.value, startChapter: startChapter.value, endChapter: endChapter.value } } }
@@ -101,7 +111,13 @@ async function act(action) {
   const receiptScopeSnapshot = receiptScope()
   submitting.value = true; error.value = ""
   try {
-    if (action === "cancel") await api.tasks.cancel(id, props.projectId)
+    if (action === "defer") {
+      const result = await api.imports.deferTargetedCompletion(id)
+      if (!owns(token, scope)) return
+      localDeferPending.value = result.status === 'defer_requested'
+      actionNotice.value = result.message || '暂缓请求已提交，正在等待安全检查点。'
+    }
+    else if (action === "cancel") await api.tasks.cancel(id, props.projectId)
     else if (action === "rollback") {
       const receipt = await api.imports.rollbackTargetedCompletion(id, props.projectId)
       if (!owns(token, scope)) return
@@ -111,12 +127,14 @@ async function act(action) {
       if (!partial) forget(id)
       refreshAssets(); return
     } else {
-      const value = await api.imports.resumeDeepImport(id)
+      if (info.value.status === "deferred" && !confirm("继续这批查漏？范围保持原章节与对象，仅有可靠依据时新增和填空，冲突留待审阅。")) return
+      localDeferPending.value = false; actionNotice.value = ""
+      const value = await api.imports.resumeDeepImport(id, ...(info.value.status === "deferred" ? [{ stage: "targeted_completion", authorization_confirmed: true }] : []))
       if (value?.task_id) saveReceipt(value.task_id, receiptScopeSnapshot)
       if (!owns(token, scope)) return
       if (value?.task_id && value.task_id !== id) { forget(id); taskId.value = value.task_id }
     }
-    if (owns(token, scope)) observe(taskId.value, token, scope)
+    if (owns(token, scope)) { emit("updated"); observe(taskId.value, token, scope) }
   } catch (err) { if (owns(token, scope)) error.value = err.message || "操作未完成，原进度仍保留。" }
   finally { if (owns(token, scope)) submitting.value = false }
 }
@@ -133,7 +151,7 @@ onBeforeUnmount(() => { alive = false; epoch += 1 })
 </script>
 
 <template>
-  <details class="targeted-completion">
+  <details class="targeted-completion" :open="initialOpen || undefined">
     <summary>{{ sourceTaskId ? '本轮补全结果' : '查漏补全' }}<span v-if="taskId"> · {{ statusLabel }}</span></summary>
     <div class="targeted-completion__body">
       <form v-if="!sourceTaskId" @submit.prevent="start">
@@ -147,6 +165,7 @@ onBeforeUnmount(() => { alive = false; epoch += 1 })
       </form>
       <p v-if="statusLabel" role="status">{{ statusLabel }}</p>
       <p v-if="error" role="alert">{{ error }}</p>
+      <p v-if="actionNotice && busy" role="status">{{ actionNotice }}</p>
       <p v-if="storageWarning" role="alert">{{ storageWarning }}</p>
       <p v-if="taskId">已处理 {{ info.completed_roots || 0 }} / {{ info.root_count || 0 }} 个目标 · 新增 {{ info.created || 0 }} · 填空 {{ info.filled || 0 }} · 待审 {{ info.review || 0 }}</p>
       <p v-for="warning in info.warnings || []" :key="warning">{{ warning }}</p>
@@ -161,8 +180,9 @@ onBeforeUnmount(() => { alive = false; epoch += 1 })
         <p>确认后按原章节范围发起一次新的查漏；原任务和已有结果保留。</p>
         <button class="btn btn-sm" :disabled="busy || !identityChoices[item.key]" @click="completeIdentity(item)">确认身份并重新查漏</button>
       </fieldset>
-      <div class="targeted-completion__actions">
-        <button v-if="busy && taskId" type="button" class="btn btn-sm" :disabled="submitting" @click="act('cancel')">停止补全</button>
+      <p v-if="sourceTaskId && busy">可暂缓查漏，当前批次保存后停止；其余基础整理继续。</p>
+      <div class="targeted-completion__actions"><button v-if="busy && taskId" type="button" class="btn btn-sm" :disabled="submitting || deferPending" @click="act('defer')">{{ deferPending ? '正在等待当前批次保存…' : '暂缓查漏' }}</button>
+        <button v-if="!sourceTaskId && busy && taskId" type="button" class="btn btn-sm" :disabled="submitting" @click="act('cancel')">停止补全</button>
         <button v-if="canResume && !busy" type="button" class="btn btn-sm" @click="act('resume')">继续未完成的补全</button>
         <button v-if="canRollback" type="button" class="btn btn-sm" @click="act('rollback')">撤销这次补全</button>
       </div>

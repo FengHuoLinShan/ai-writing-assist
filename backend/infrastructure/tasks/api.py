@@ -82,6 +82,7 @@ _MODULE_API_ONLY_TASK_TYPES = {
     "world_alias_relation_extraction",
     "world_entity_fusion_suggestions",
     "world_generation_suggestion",
+    "world_cocreation_turn",
     "world_bible_projection_refresh",
     "world_bible_synopsis_refresh",
     "plot_structure_generate",
@@ -332,9 +333,12 @@ async def cancel_task(
     （Bug L3: task_id 改为原生 UUID 类型）
     """
     await _require_active_project(db, novel_id)
-    stmt = select(AsyncTask).where(
-        AsyncTask.id == task_id,
-        AsyncTask.novel_id == uuid.UUID(str(novel_id)),
+    stmt = (
+        select(AsyncTask)
+        .where(
+            AsyncTask.id == task_id,
+            AsyncTask.novel_id == uuid.UUID(str(novel_id)),
+        )
     )
     result = await db.execute(stmt)
     task = result.scalar_one_or_none()
@@ -348,6 +352,7 @@ async def cancel_task(
             detail=f"Task cannot be cancelled (status: {task.status})",
         )
 
+    # Lifecycle locks inline children before their parent and rechecks its status.
     await _lifecycle.cancel(db, task=task)
     await db.flush()
 

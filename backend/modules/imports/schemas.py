@@ -71,6 +71,7 @@ class TargetedCompletionOptions(BaseModel):
 
     model_config = {"extra": "forbid"}
     enabled: bool = False
+    defer: bool = True
 
 
 class TargetedCompletionTarget(BaseModel):

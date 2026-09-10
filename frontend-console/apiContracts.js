@@ -391,6 +391,11 @@
       hasBody: true,
       timeout: LLM_GENERATE_TIMEOUT,
     }),
+    "world.enqueueCocreationTurn": define("POST", () => "/world/cocreation-turns/task", {
+      hasBody: true,
+      requiredBody: ["novel_id", "session_id", "operation_id"],
+      timeout: AI_TASK_SUBMIT_TIMEOUT,
+    }),
     "world.createCocreationSession": define("POST", () => "/world/cocreation-sessions", {
       hasBody: true,
       requiredBody: ["novel_id", "source"],

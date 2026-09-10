@@ -758,3 +758,11 @@ BASE_REF=origin/main、git diff --check再次通过。实时远端main仍a8de5aa
 9个独有提交或整合验收。未操作真实分支合并及暂存区。
 结论：本次两处修复复审通过，当前仍不能直接合入本地main。下一步仍为用户授权后隔离
 解决冲突并验证实际整合结果。本次没有重审全库或重跑正式产品验收。
+
+
+## 隔离整合完成
+
+本工作树已将Agent快照与本地main整合，39处文件冲突解决且完整工程回归通过。
+唯一交付记录：[隔离整合任务](2026/T-20260910-agent-main-integration/TASK.md)。
+本节仅对codex/agent-main-integration工作树有效；原Agent工作树不变。
+合并结果已暂存，未创建merge提交或移动main；下一步需用户授权提交/合入。

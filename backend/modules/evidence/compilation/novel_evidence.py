@@ -1537,6 +1537,45 @@ class NovelEvidenceService:
             return await inspect_world_page_history(
                 db, novel_id, target.target_id, int(path) if path else None
             ), ["历史资料不是当前正式事实"]
+
+        if target.target_type in {
+            "story_thread",
+            "plot_thread",
+            "outline_arc",
+            "story_outline",
+            "map_node",
+        }:
+            # These author planning records have no reader/Scene-local projection.
+            if visibility.mode != "author" or any(
+                value is not None
+                for value in (
+                    visibility.cutoff_chapter,
+                    visibility.cutoff_scene_id,
+                    visibility.cutoff_offset,
+                )
+            ):
+                return None, ["该规划资料仅供无场景截止点的作者复核使用"]
+            if target.target_type == "map_node":
+                from modules.world.facade import get_map_review_source
+
+                return await get_map_review_source(db, novel_id, target.target_id), []
+            from modules.story.facade import read_world_dependency
+
+            item = await read_world_dependency(
+                db,
+                novel_id,
+                "story_thread"
+                if target.target_type == "plot_thread"
+                else target.target_type,
+                target.target_id,
+            )
+            return {
+                "id": item.id,
+                "title": item.label,
+                "content": item.text,
+                "source_hash": item.source_hash,
+                "source_version": item.version,
+            }, []
         if target.target_type in {"world_bible_page", "page"}:
             if visibility.mode in {"reader", "character"}:
                 return None, ["世界书页面不直接进入读者或角色视角"]

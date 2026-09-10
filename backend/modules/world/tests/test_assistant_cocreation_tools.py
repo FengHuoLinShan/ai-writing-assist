@@ -75,10 +75,18 @@ async def test_stage_save_keeps_session_lineage_decisions_and_rejects_late_point
     }
     assert checkpoint.status == "pending"
     messages = (await db.scalars(select(AssistantMessage))).all()
-    assert len(messages) == 2 and all(
-        message.outcome_kind == "checkpoint" for message in messages
+    decisions = [message for message in messages if message.kind == "decision"]
+    receipts = [message for message in messages if message.kind == "message"]
+    assert len(decisions) == len(receipts) == 2
+    assert {str(message.outcome_suggestion_id) for message in decisions} == {
+        result["id"],
+        result2["id"],
+    }
+    assert all(message.outcome_kind == "world_core_checkpoint" for message in decisions)
+    assert all(
+        message.outcome_kind == "checkpoint" and message.task_id == task.id
+        for message in receipts
     )
-    assert all(message.task_id == task.id for message in messages)
     from modules.world.assistant_outcome_tools import (
         OPERATIONS as OUTCOMES,
     )

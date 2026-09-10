@@ -11,7 +11,10 @@ beforeEach(() => {
   setBridgeOverrides({ state: { currentProjectId: "p1", currentProject: { title: "雾港" } }, router: { navigate, commitCurrentQuery: vi.fn() } })
 })
 
-afterEach(() => resetBridgeOverrides())
+afterEach(async () => {
+  await vi.dynamicImportSettled()
+  resetBridgeOverrides()
+})
 
 describe("WorldView 动态工具卡", () => {
   it("关系页提供关系上下文动作", async () => {

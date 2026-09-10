@@ -74,6 +74,7 @@ describe("AI 地图册工作台", () => {
   })
 
   afterEach(() => {
+    delete api.world.getMapCapabilities
     vi.useRealTimers()
     vi.unstubAllGlobals()
     resetBridgeOverrides()
@@ -82,12 +83,15 @@ describe("AI 地图册工作台", () => {
 
   it("图片存储缺配置时保留空间新建，提前解释上传不可用", async () => {
     api.world.getMapCapabilities = vi.fn(async () => ({ upload: { available: false, reason: "图片存储尚未配置" }, image_generation: { available: false, reason: "图片存储尚未配置" } }))
+    api.world.getMapAtlas.mockResolvedValue(tree([page({ review_status: "adopted" })], "atlas"))
     const wrapper = mount(MapWorkspaceView, { props: { projectId: "p1" } })
     await flushPromises()
     expect(wrapper.text()).toContain("图片存储尚未配置")
     const buttons = wrapper.findAll("button")
     expect(buttons.find(button => button.text() === "新建地图").attributes("disabled")).toBeUndefined()
-    expect(buttons.find(button => button.text() === "上传地图").attributes("disabled")).toBeDefined()
+    const uploads = buttons.filter(button => button.text() === "上传地图图片")
+    expect(uploads.length).toBeGreaterThan(0)
+    for (const button of uploads) expect(button.attributes("disabled")).toBeDefined()
     delete api.world.getMapCapabilities
   })
 
@@ -98,7 +102,7 @@ describe("AI 地图册工作台", () => {
     const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
     await flushPromises()
 
-    expect(wrapper.get(".atlas-primary-actions .btn-primary").text()).toBe("新建地图")
+    expect(wrapper.get('[data-action="map-tool-new-map"]').text()).toBe("新建地图")
     expect(wrapper.text()).toContain("你的地图册还是空的")
     expect(wrapper.find(".atlas-generation-settings").exists()).toBe(false)
     expect(wrapper.find(".atlas-tabs").exists()).toBe(false)
@@ -199,7 +203,7 @@ describe("AI 地图册工作台", () => {
   it("上传失败保留图片和表单以便重试", async () => {
     api.world.uploadMapAtlasPage.mockRejectedValue(new Error("网络中断"))
     const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" }, attachTo: document.body })
-    await flushPromises(); await wrapper.get(".atlas-primary-actions > .btn-sm").trigger("click")
+    await flushPromises(); await wrapper.get('[data-action="map-tool-upload"]').trigger("click")
     const file = new File(["png"], "map.png", { type: "image/png" })
     const input = wrapper.get(".atlas-upload-modal input[type='file']")
     Object.defineProperty(input.element, "files", { value: [file], configurable: true })
@@ -216,7 +220,7 @@ describe("AI 地图册工作台", () => {
   it("上传对话框困住焦点，关闭路径确认脏表单并恢复触发按钮", async () => {
     const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" }, attachTo: document.body })
     await flushPromises()
-    const trigger = wrapper.get(".atlas-primary-actions > .btn-sm")
+    const trigger = wrapper.get('[data-action="map-tool-upload"]')
     trigger.element.focus()
     await trigger.trigger("click")
     await flushPromises()
@@ -298,7 +302,7 @@ describe("AI 地图册工作台", () => {
       }))
     })
     const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" }, attachTo: document.body })
-    await flushPromises(); await wrapper.get(".atlas-primary-actions > .btn-sm").trigger("click")
+    await flushPromises(); await wrapper.get('[data-action="map-tool-upload"]').trigger("click")
     const input = wrapper.get(".atlas-upload-modal input[type='file']")
     Object.defineProperty(input.element, "files", { value: [new File(["png"], "map.png", { type: "image/png" })], configurable: true })
     await input.trigger("change")
@@ -331,7 +335,7 @@ describe("AI 地图册工作台", () => {
       }))
     })
     const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" }, attachTo: document.body })
-    await flushPromises(); await wrapper.get(".atlas-primary-actions > .btn-sm").trigger("click")
+    await flushPromises(); await wrapper.get('[data-action="map-tool-upload"]').trigger("click")
     const input = wrapper.get(".atlas-upload-modal input[type='file']")
     Object.defineProperty(input.element, "files", { value: [new File(["png"], "map.png", { type: "image/png" })], configurable: true })
     await input.trigger("change")
@@ -388,15 +392,15 @@ describe("AI 地图册工作台", () => {
     await wrapper.get(".atlas-node-form button").trigger("click"); await flushPromises()
     expect(api.world.updateMapAtlasNode).toHaveBeenCalledWith("novel-1", "manual-map", expect.objectContaining({ title: "廷根地图", expected_updated_at: "v1" }))
     const editor = wrapper.getComponent({ name: 'MapStructureEditor' })
-    editor.vm.$emit('state', { dirty: false, focused: true }); await flushPromises()
+    editor.vm.$emit('state', { nodeId: wrapper.getComponent({ name: 'MapStructureEditor' }).props('node').id, dirty: false, focused: true }); await flushPromises()
     expect(wrapper.find('.atlas-header').exists()).toBe(false)
     expect(wrapper.find('.atlas-page-header').exists()).toBe(false)
     expect(wrapper.find('.atlas-node-form').exists()).toBe(false)
     expect(wrapper.find('.atlas-generation-settings').exists()).toBe(false)
-    editor.vm.$emit('state', { dirty: false, focused: false }); await flushPromises()
+    editor.vm.$emit('state', { nodeId: wrapper.getComponent({ name: 'MapStructureEditor' }).props('node').id, dirty: false, focused: false }); await flushPromises()
     expect(wrapper.find('.atlas-header').exists()).toBe(true)
     expect(wrapper.find('.atlas-node-form').exists()).toBe(true)
-    editor.vm.$emit('state', { dirty: false, focused: true, reader: true }); await flushPromises()
+    editor.vm.$emit('state', { nodeId: wrapper.getComponent({ name: 'MapStructureEditor' }).props('node').id, dirty: false, focused: true, reader: true }); await flushPromises()
     await wrapper.findAll('.atlas-tree button')[1].trigger('click'); await flushPromises()
     expect(wrapper.findComponent({ name: 'MapStructureEditor' }).exists()).toBe(false)
     expect(wrapper.find('.atlas-header').exists()).toBe(true)
@@ -478,7 +482,7 @@ describe("AI 地图册工作台", () => {
     expect(wrapper.text()).toContain("补充并发布世界书")
     expect(wrapper.text()).toContain("加入工作稿资料")
 
-    await wrapper.get(".atlas-primary-actions .btn-primary").trigger("click")
+    await wrapper.get('[data-action="map-tool-new-map"]').trigger("click")
     await wrapper.get('form[aria-label="新建空间地图"] input').setValue("区域")
     await wrapper.get('form[aria-label="新建空间地图"]').trigger("submit")
     await flushPromises()
@@ -506,8 +510,8 @@ describe("AI 地图册工作台", () => {
     const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
     await flushPromises()
 
-    const generate = wrapper.get(".atlas-primary-actions .btn-primary")
-    expect(generate.attributes("disabled")).toBeDefined()
+    const generate = wrapper.get('[data-action="map-tool-new-map"]')
+    expect(generate.attributes("aria-disabled")).toBe("true")
     await generate.trigger("click")
     expect(api.world.createMapAtlasRun).not.toHaveBeenCalled()
     resolveAtlas(tree([], "atlas"))
@@ -537,7 +541,7 @@ describe("AI 地图册工作台", () => {
 
     const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
     await flushPromises()
-    await wrapper.findAll(".atlas-primary-actions button").find(button => button.text() === "生成图片新候选").trigger("click")
+    await wrapper.findAll(".atlas-primary-actions button").find(button => button.text() === "添加地图画面").trigger("click")
     await flushPromises()
 
     expect(wrapper.get(".atlas-alert").text()).toContain("OpenAI 图片连接已失效")
@@ -601,7 +605,7 @@ describe("AI 地图册工作台", () => {
     const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
     await flushPromises()
 
-    expect(wrapper.get(".atlas-primary-actions .btn-primary").attributes("disabled")).toBeUndefined()
+    expect(wrapper.get('[data-action="map-tool-new-map"]').attributes("disabled")).toBeUndefined()
     expect(wrapper.get(".atlas-review-actions .btn-primary").attributes("disabled")).toBeDefined()
     expect(wrapper.get(".atlas-history button").attributes("disabled")).toBeDefined()
     wrapper.unmount()
@@ -632,7 +636,7 @@ describe("AI 地图册工作台", () => {
     const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
     await flushPromises()
     expect(wrapper.find(".atlas-run-actions .btn-primary").exists()).toBe(false)
-    await wrapper.get(".atlas-primary-actions .btn-primary").trigger("click")
+    await wrapper.get('[data-action="map-tool-new-map"]').trigger("click")
     expect(wrapper.find('form[aria-label="新建空间地图"]').exists()).toBe(true)
     expect(api.world.resumeMapAtlasRun).not.toHaveBeenCalled()
     expect(api.world.createMapAtlasRun).not.toHaveBeenCalled()
@@ -886,7 +890,7 @@ describe("AI 地图册工作台", () => {
     api.world.getMapAtlas.mockResolvedValue(atlas)
     const wrapper = mount(MapWorkspaceView, { props: { projectId: 'novel-1' }, global: { stubs: { MapStructureEditor: true } } }); await flushPromises()
     const editor = wrapper.getComponent({ name: 'MapStructureEditor' })
-    editor.vm.$emit('state', { dirty: false, revision: { document: { features: [{ id: 'house', label: '水仙花街2号' }], images: [{ page_id: 'a', role: 'background' }, { page_id: 'b', role: 'illustration', feature_id: 'house' }] } } })
+    editor.vm.$emit('state', { nodeId: wrapper.getComponent({ name: 'MapStructureEditor' }).props('node').id, dirty: false, revision: { document: { features: [{ id: 'house', label: '水仙花街2号' }], images: [{ page_id: 'a', role: 'background' }, { page_id: 'b', role: 'illustration', feature_id: 'house' }] } } })
     editor.vm.$emit('reference-visible', true); await flushPromises()
     await wrapper.get('.atlas-compare-toggle input').setValue(true); await flushPromises()
     const choices = wrapper.get('select[aria-label="选择右侧图片"]').text()

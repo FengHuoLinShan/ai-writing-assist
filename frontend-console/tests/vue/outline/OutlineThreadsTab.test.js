@@ -28,6 +28,7 @@ let toastCalls
 let confirmAction
 
 beforeEach(() => {
+  localStorage.clear(); sessionStorage.clear()
   clearAllBulkSelections()
   clearOutlineFilterDrafts()
   routerCalls = []
@@ -300,4 +301,21 @@ describe("批量选择", () => {
     expect(menu.classes()).toContain("open")
     expect(row.find('[data-action="delete-thread"]').exists()).toBe(true)
   })
+})
+
+it('就地改名保留未知分类，保存失败保留输入', async () => {
+  const thread = { id: 't1', name: '旧名称', thread_type: 'legacy_type', status: 'canonical' }
+  const updateThread = vi.fn().mockRejectedValueOnce(new Error('保存失败')).mockImplementation(async (_id, _project, payload) => ({ ...thread, ...payload }))
+  setBridgeOverrides({ state: { currentProjectId: 'p1' }, api: { outline: { updateThread } } })
+  const wrapper = mount(OutlineThreadsTab, { props: { projectId: 'p1', threads: [thread] } })
+  await wrapper.findAll('button').find(button => button.text() === '就地修改').trigger('click')
+  await wrapper.get('input[aria-label="剧情线名称：旧名称"]').setValue('新名称')
+  await wrapper.findAll('button').find(button => button.text() === '保存这一行').trigger('click')
+  await vi.waitFor(() => expect(wrapper.text()).toContain('保存失败'))
+  expect(wrapper.get('input[aria-label="剧情线名称：旧名称"]').element.value).toBe('新名称')
+  expect(updateThread).toHaveBeenCalledWith('t1', 'p1', { name: '新名称', thread_type: 'legacy_type' })
+  await wrapper.findAll('button').find(button => button.text() === '保存这一行').trigger('click')
+  await vi.waitFor(() => expect(wrapper.text()).toContain('已保存'))
+  expect(wrapper.text()).toContain('新名称')
+  wrapper.unmount()
 })

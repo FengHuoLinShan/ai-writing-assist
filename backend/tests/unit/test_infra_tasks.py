@@ -405,15 +405,21 @@ class TestCancelTask:
 
         task_mock = MagicMock()
         task_mock.id = task_id
+        task_mock.novel_id = uuid.UUID(_TASK_NOVEL_ID)
+        task_mock.task_type = "writing_generate"
         task_mock.status = "pending"
         task_mock.meta = {"novel_id": _TASK_NOVEL_ID}
-        task_mock.mark_cancelled = MagicMock()
+        task_mock.mark_cancelled = MagicMock(
+            side_effect=lambda: setattr(task_mock, "status", "cancelled")
+        )
 
         db = AsyncMock()
         result_mock = MagicMock()
         result_mock.scalar_one_or_none.return_value = task_mock
         db.execute = AsyncMock(return_value=result_mock)
         db.flush = AsyncMock()
+        db.scalar = AsyncMock(return_value=True)
+        db.scalars = AsyncMock(return_value=[])
 
         response = await cancel_task(task_id, db=db, novel_id=_TASK_NOVEL_ID)
 
@@ -438,15 +444,21 @@ class TestCancelTask:
 
         task_mock = MagicMock()
         task_mock.id = task_id
+        task_mock.novel_id = uuid.UUID(_TASK_NOVEL_ID)
+        task_mock.task_type = "writing_generate"
         task_mock.status = "running"
         task_mock.meta = {"novel_id": _TASK_NOVEL_ID}
-        task_mock.mark_cancelled = MagicMock()
+        task_mock.mark_cancelled = MagicMock(
+            side_effect=lambda: setattr(task_mock, "status", "cancelled")
+        )
 
         db = AsyncMock()
         result_mock = MagicMock()
         result_mock.scalar_one_or_none.return_value = task_mock
         db.execute = AsyncMock(return_value=result_mock)
         db.flush = AsyncMock()
+        db.scalar = AsyncMock(return_value=True)
+        db.scalars = AsyncMock(return_value=[])
 
         response = await cancel_task(task_id, db=db, novel_id=_TASK_NOVEL_ID)
         assert response.cancelled is True
@@ -2112,7 +2124,9 @@ class TestInlineHeartbeatLoop:
         monkeypatch.setattr(core_database, "get_manager", MagicMock(return_value=manager))
         monkeypatch.setattr(inline_module, "TASK_HEARTBEAT_INTERVAL", 0.01)
 
-        loop = asyncio.create_task(_heartbeat_loop(task_id, "lease-1"))
+        loop = asyncio.create_task(
+            _heartbeat_loop(task_id, "lease-1", manager.session_factory)
+        )
         await asyncio.sleep(0.08)
 
         assert not loop.done()
@@ -2139,7 +2153,9 @@ class TestInlineHeartbeatLoop:
         monkeypatch.setattr(core_database, "get_manager", MagicMock(return_value=manager))
         monkeypatch.setattr(inline_module, "TASK_HEARTBEAT_INTERVAL", 0.01)
 
-        loop = asyncio.create_task(_heartbeat_loop(task_id, "lease-1"))
+        loop = asyncio.create_task(
+            _heartbeat_loop(task_id, "lease-1", manager.session_factory)
+        )
         await asyncio.sleep(0.05)
 
         # lease 已被接管：循环应退出而不是继续竞争

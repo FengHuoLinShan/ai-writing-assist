@@ -36,6 +36,12 @@
 - 测试要求与 Review 分级写入根目录 `testing-guide.md`
 - 模块专属硬约束写入最近的 `AGENTS.md`；模块 README 继续保存职责、接口和测试事实
 
+## 复杂任务工作记忆
+
+- [`.agent/PLANS.md`](../.agent/PLANS.md) — 按需读取的任务触发、恢复、更新、关闭协议及模板。
+- [`.agent/TASKS.md`](../.agent/TASKS.md) — 开放任务导航；详细状态仅保存在对应 `TASK.md`。
+- `.agent/tasks/` 保存可恢复执行记录，不替代正式文档、ADR、代码和测试；历史计划不批量迁移。
+
 ## 权威性与历史分类
 
 - 当前架构和数据库设计以 `docs/00_整体设计.md`、`docs/01_数据库设计.md`、活跃模块

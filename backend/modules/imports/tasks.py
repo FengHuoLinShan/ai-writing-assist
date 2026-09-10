@@ -51,6 +51,10 @@ async def _claim_workflow_attempt(db, task):
 async def _project_task(task, result: dict[str, Any], progress: float) -> None:
     """Update only the detached task API projection owned by TaskWorker."""
     task.result = dict(result)
+    task.meta = {
+        **dict(getattr(task, "meta", None) or {}),
+        "recovery_required": result.get("recovery_required") is True,
+    }
     task.update_progress(progress)
 
 

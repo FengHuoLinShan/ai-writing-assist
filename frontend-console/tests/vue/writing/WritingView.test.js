@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { flushPromises, mount } from "@vue/test-utils"
+import { DOMWrapper, flushPromises, mount } from "@vue/test-utils"
 import WritingView from "../../../vue/views/writing/WritingView.vue"
 import { getAppState, resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 import { ISLAND_LEAVE_GUARD } from "../../../vue/mountIsland.js"
@@ -213,7 +213,7 @@ describe("WritingView", () => {
     await wrapper.get('[data-action="writing-open-owner-ai"]').trigger("click")
     await flushPromises()
 
-    expect(wrapper.find("[data-owner-ai-drawer]").exists()).toBe(true)
+    expect(new DOMWrapper(document.body).find("[data-owner-ai-drawer]").exists()).toBe(true)
     wrapper.unmount()
   })
 
@@ -936,12 +936,12 @@ describe("WritingView", () => {
     expect(wrapper.findAll("button").some((button) => button.text() === "续写建议")).toBe(false)
     await wrapper.get('[data-action="writing-open-owner-ai"]').trigger("click")
     await flushPromises()
-    const drawer = wrapper.get("[data-owner-ai-drawer]")
-    await vi.waitFor(() => expect(wrapper.get('[data-action="close-owner-ai-drawer"]').element).toBe(document.activeElement))
+    const drawer = new DOMWrapper(document.body).get("[data-owner-ai-drawer]")
+    await vi.waitFor(() => expect(drawer.get('[data-action="close-owner-ai-drawer"]').element).toBe(document.activeElement))
     await drawer.trigger("keydown", { key: "Escape" })
     await flushPromises()
 
-    expect(wrapper.find("[data-owner-ai-drawer]").exists()).toBe(false)
+    expect(new DOMWrapper(document.body).find("[data-owner-ai-drawer]").exists()).toBe(false)
     expect(document.activeElement).toBe(summary.element)
     wrapper.unmount()
   })

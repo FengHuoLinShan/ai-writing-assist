@@ -320,7 +320,7 @@ test.describe("作者任务工作台", () => {
     await expectNoPageOverflow(page)
   })
 
-  test("Entity 局部失败不阻断资料页，并可原位重试", async ({ page }) => {
+  test("统一资料目录不依赖额外的实体全量接口", async ({ page }) => {
     project = await createProject({ title: "Entity 局部失败", genre: "fantasy", language: "zh" })
     await createWorldBiblePage(project.id, {
       title: "仍可使用的港口页",
@@ -350,9 +350,9 @@ test.describe("作者任务工作台", () => {
     await openWorkbench(page, project, "world", "bible")
     await page.getByRole("search").getByRole("searchbox", { name: "搜索资料" }).fill("港口")
     await page.getByRole("search").getByRole("button", { name: "查找" }).click()
-    await expect(page.getByRole("alert")).toContainText("资料页和工作稿仍可使用")
+    await expect(page.getByRole("alert")).toHaveCount(0)
     await expect(page.locator(".world-library-list__row", { hasText: "仍可使用的港口页" })).toBeVisible()
-    await page.getByRole("button", { name: "重新加载" }).click()
+    expect(failed).toBe(false)
     await expect(page.getByRole("alert")).toHaveCount(0)
     await expect(page.locator(".world-library-list__row", { hasText: "重试后出现的港口灯塔" })).toBeVisible()
   })

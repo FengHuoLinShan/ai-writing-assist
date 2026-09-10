@@ -14,6 +14,7 @@ import {
 } from "./workflowProgress.js"
 import { renderWorkflowCard } from "./progressRenderer.js"
 import { createReferencePicker } from "./referencePicker.js"
+import { ACCOUNT_MARKER_KEY } from "./accountStorage.js"
 import { worldAssetDisplay } from "./assetDisplayState.js"
 
 const PAGE_SIZE = 6
@@ -68,6 +69,7 @@ export function createSmartDedupManager({
     _activeGroupId: null,
     _groupResults: {},
     _activeProjectId: null,
+    _recentScans: [],
     _manualPrimaryPickers: [],
     _currentProjectId() {
       return typeof getCurrentProjectId === "function" ? getCurrentProjectId() : null
@@ -106,6 +108,39 @@ export function createSmartDedupManager({
       }
     },
 
+    _reviewStorageKey() {
+      return `novel_dedup_review:${localStorage.getItem(ACCOUNT_MARKER_KEY) || 'local'}:${this._currentProjectId()}:${this._scanTaskId}`
+    },
+    _rememberReview() {
+      if (!this._scanTaskId || this._scanProjectId !== this._currentProjectId()) return
+      try { sessionStorage.setItem(this._reviewStorageKey(), JSON.stringify({ drafts: this._groupDraft, results: this._groupResults, active: this._activeGroupId })) } catch { /* Server receipts and fingerprints still protect adopted data. */ }
+    },
+    async _openSavedScan(taskId) {
+      const projectId = this._currentProjectId()
+      try {
+        const [task, review] = await Promise.all([api.tasks.get(taskId, projectId), api.projects.smartDedupReviewState(projectId, taskId)])
+        if (projectId !== this._currentProjectId()) return
+        this._scanTaskId = taskId; this._scanProjectId = projectId; this._activeProjectId = projectId
+        this._progress = normalizeTaskProgress(task, "smart_dedup_scan")
+        this._groupDraft = {}; this._groupResults = {}; this._activeGroupId = null
+        try {
+          const saved = JSON.parse(sessionStorage.getItem(this._reviewStorageKey()) || 'null')
+          if (saved) { this._groupDraft = saved.drafts || {}; this._groupResults = saved.results || {}; this._activeGroupId = saved.active || null }
+        } catch { /* An invalid local position never replaces the server scan. */ }
+        for (const result of review.group_results || []) this._groupResults[result.group_id] = result
+        for (const group of this._groups(task.result || {})) {
+          const payload = review.decisions?.[group.group_id]
+          if (!payload) continue
+          const draft = this._groupDraftFor(group)
+          draft.primaryId = payload.primary_asset_id
+          for (const operation of payload.operations || []) draft.operations[operation.source_asset_id] = { ...draft.operations[operation.source_asset_id], action: operation.action, allowCanonicalMerge: Boolean(operation.allow_canonical_merge), allowCanonicalAlias: Boolean(operation.allow_canonical_alias) }
+          this._groupDraft[this._draftKey(group.group_id)] = draft
+        }
+        if (this._progress.done) this._showSuggestions()
+        else if (!this._progress.terminal) { this._taskId = taskId; this._startPolling(taskId, projectId); this.showProgress() }
+        else this._showModalHtml("本次扫描未完成", "<p>已采用资料仍保留，可重新扫描。</p>", [{ text: "重新扫描", handler: () => this.startScan() }])
+      } catch (error) { if (projectId === this._currentProjectId()) toast(error.message || "扫描结果读取失败", "error") }
+    },
     _showModalHtml(title, body, buttons = [], options = {}) {
       this._destroyManualPrimaryPickers()
       const fn = modalApi.showModalHtml || modalApi.showHtml
@@ -200,7 +235,16 @@ export function createSmartDedupManager({
       }
     },
 
-    showProgress() {
+    async showProgress() {
+      if (!this._progress && this._currentProjectId()) {
+        const projectId = this._currentProjectId()
+        try {
+          const recent = await api.projects.recentSmartDedupScans(projectId)
+          if (projectId !== this._currentProjectId()) return
+          this._recentScans = recent.items || []
+          if (this._recentScans.length) { await this._openSavedScan(this._recentScans[0].task_id); return }
+        } catch (error) { toast(error.message || "最近去重记录暂时不可读，可重试", "warning"); return }
+      }
       const progress = this._progress
       if (!progress) {
         this.startScan()
@@ -219,7 +263,7 @@ export function createSmartDedupManager({
 
     handleAction(action) {
       if (action === "start-smart-dedup") {
-        this.startScan()
+        this.showProgress()
       } else if (action === "show-smart-dedup-progress") {
         this.showProgress()
       }
@@ -277,7 +321,7 @@ export function createSmartDedupManager({
           this._progress = progress
           toast("智能去重扫描完成", "success")
           this._notifyRender()
-          this._showSuggestions()
+          if (document.getElementById("modal-title")?.textContent === "智能去重") this._showSuggestions()
         },
         onFailed: (progress) => {
           if (this._currentProjectId() !== capturedProjectId) {
@@ -487,6 +531,7 @@ export function createSmartDedupManager({
     },
 
     _showGroupWorkbench({ preserveScroll = false } = {}) {
+      this._rememberReview()
       const scrollSnapshot = preserveScroll ? this._captureGroupWorkbenchScroll() : null
       const focusSnapshot = preserveScroll ? this._captureGroupWorkbenchFocus() : null
       if (this._scanProjectId !== this._currentProjectId()) {
@@ -508,22 +553,20 @@ export function createSmartDedupManager({
         this._activeGroupId = groups[0].group_id
       }
       groups.forEach((group) => this._groupDraftFor(group))
-      const readyCount = groups.filter((group) => this._groupReadiness(group).ready).length
-      const successful = groups.filter((group) => this._groupResults[group.group_id]?.status === "success").length
-      const staleCount = groups.filter((group) => this._groupResults[group.group_id]?.error_code === "stale_suggestion").length
-      this._showModalHtml("智能去重裁决工作台", this._renderGroupWorkbench(result, groups), [
-        {
-          text: `执行已就绪组 (${readyCount})`,
+      const readyCount = groups.filter(group => this._groupReadiness(group).ready).length
+      this._showModalHtml("核对重复资料", this._renderGroupWorkbench(result, groups), [
+        ...(groups.every(group => this._groupResults[group.group_id]?.status === 'success') ? [] : [{
+          text: `确认本次处理 (${readyCount})`,
           class: "btn-primary",
           handler: async () => this._applyReadyGroups(groups),
-        },
-        ...(successful === groups.length || staleCount > 0 ? [{
+        }]),
+        ...[{
           text: "重新扫描",
           handler: async () => {
             this._resetResult()
             await this.startScan()
           },
-        }] : []),
+        }],
       ], { size: "large", protectUnsaved: true })
       this._bindGroupControls(groups)
       this._restoreGroupWorkbenchScroll(scrollSnapshot)
@@ -592,12 +635,12 @@ export function createSmartDedupManager({
       if (this._groupResults[group.group_id]?.status === "success") {
         return { ready: false, status: "success", message: "已执行成功" }
       }
-      if (this._groupResults[group.group_id]?.error_code === "stale_suggestion") {
+      if (["stale_suggestion", "receipt_missing"].includes(this._groupResults[group.group_id]?.error_code)) {
         return { ready: false, status: "stale", message: "建议已过期，请重新扫描" }
       }
       const draft = this._groupDraftFor(group)
       if (!draft.primaryId || !(group.eligible_primary_asset_ids || []).includes(draft.primaryId)) {
-        return { ready: false, status: "incomplete", message: "请选择合格主对象" }
+        return { ready: false, status: "incomplete", message: "请选择要保留的资料卡" }
       }
       for (const member of group.members) {
         if (member.asset_id === draft.primaryId) continue
@@ -637,9 +680,10 @@ export function createSmartDedupManager({
       return `
         <div class="smart-dedup-workbench">
           <header class="smart-dedup-summary">
+            ${this._recentScans.length ? `<label>最近扫描<select data-smart-dedup-history>${this._recentScans.map(item => `<option value="${esc(item.task_id)}" ${item.task_id === this._scanTaskId ? 'selected' : ''}>${esc(new Date(item.created_at).toLocaleString())}</option>`).join('')}</select></label>` : ''}
             <span>已扫描 ${esc(result.total_assets_scanned || 0)} 个资产</span>
-            <span>${esc(groups.length)} 个待裁决组</span>
-            <span>各组独立提交与回滚</span>
+            <span>${esc(groups.length)} 个候选组（处理状态见各组）</span>
+            <span>各组独立提交与回滚；含相同资料的组分批执行</span>
           </header>
           <div class="smart-dedup-layout">
             <aside class="smart-dedup-queue" aria-label="重复组队列">${queue}</aside>
@@ -656,7 +700,7 @@ export function createSmartDedupManager({
       const readiness = this._groupReadiness(group)
       const primaryChoices = group.eligible_primary_asset_ids.map((id) => {
         const member = group.members.find((item) => item.asset_id === id)
-        return `<label class="smart-dedup-primary-option"><input type="radio" name="smart-dedup-group-primary" value="${esc(id)}" data-smart-dedup-group-primary="${esc(id)}" ${draft.primaryId === id ? "checked" : ""} ${locked ? "disabled" : ""}/><span>${esc(member?.title || id)}</span><small>${esc(member?.status || "-")}</small></label>`
+        return `<label class="smart-dedup-primary-option"><input type="radio" name="smart-dedup-group-primary" value="${esc(id)}" data-smart-dedup-group-primary="${esc(id)}" ${draft.primaryId === id ? "checked" : ""} ${locked ? "disabled" : ""}/><span>${esc(member?.title || id)}</span><small>${esc(worldAssetDisplay(member || {}).label)}</small></label>`
       }).join("")
       const operationCards = group.members
         .filter((member) => member.asset_id !== draft.primaryId)
@@ -670,12 +714,12 @@ export function createSmartDedupManager({
           <span class="smart-dedup-readiness is-${esc(readiness.status)}">${esc(readiness.message)}</span>
         </div>
         ${group.risk_level === "high" ? '<div class="smart-dedup-risk">高风险命中：需要逐项确认，系统不会自动应用。</div>' : ""}
-        <section class="smart-dedup-section"><h4>1. 选择主对象</h4><div class="smart-dedup-primary-grid">${primaryChoices}</div></section>
-        <section class="smart-dedup-section">
-          <div class="smart-dedup-section-title"><h4>2. 对比成员字段</h4><label><input type="checkbox" data-smart-dedup-diff ${draft.onlyDifferences ? "checked" : ""}/> 只看差异</label></div>
+        <section class="smart-dedup-section"><h4>保留哪张资料卡</h4><div class="smart-dedup-primary-grid">${primaryChoices}</div></section>
+        <details class="smart-dedup-section" ${group.members.length > 2 || group.asset_type === 'scene' ? 'open' : ''}><summary>查看内容差异与完整资料</summary>
+          <div class="smart-dedup-section-title"><h4>核对内容差异</h4><label><input type="checkbox" data-smart-dedup-diff ${draft.onlyDifferences ? "checked" : ""}/> 只看差异</label></div>
           ${this._renderComparison(group.members, draft.onlyDifferences)}
-        </section>
-        <section class="smart-dedup-section"><h4>3. 为每个非主成员选择动作</h4>${operationCards}</section>
+        </details>
+        <section class="smart-dedup-section"><h4>另一张资料如何处理</h4>${operationCards}</section>
       `
     },
 
@@ -685,7 +729,7 @@ export function createSmartDedupManager({
       const rows = fields.filter((field) => {
         if (!onlyDifferences) return true
         return new Set(members.map((member) => JSON.stringify(member[field] ?? null))).size > 1
-      }).map((field) => `<tr><th>${esc(this._fieldLabel(field))}</th>${members.map((member) => `<td>${esc(this._displayValue(member[field]))}</td>`).join("")}</tr>`).join("")
+      }).map((field) => `<tr><th>${esc(this._fieldLabel(field))}</th>${members.map((member) => `<td>${field === "details" ? `<details><summary>查看诊断字段</summary><pre>${esc(this._displayValue(member[field]))}</pre></details>` : esc(field === "status" ? worldAssetDisplay(member).label : this._displayValue(member[field]))}</td>`).join("")}</tr>`).join("")
       return `<div class="smart-dedup-compare-scroll"><table class="smart-dedup-compare"><thead><tr><th>字段</th>${members.map((member) => `<th>${esc(member.title)}</th>`).join("")}</tr></thead><tbody>${rows || '<tr><td colspan="99">没有可见差异</td></tr>'}</tbody></table></div>`
     },
 
@@ -695,7 +739,7 @@ export function createSmartDedupManager({
       const options = [{ value: "later", label: "稍后处理" }, ...(edge?.allowed_actions || []).map((action) => ({
         value: action,
         label: group.asset_type === "scene" && action === "merge"
-          ? "机械融合并迁移映射"
+          ? "合并资料并迁移引用"
           : this._actionLabel(action),
       }))]
       const evidence = (edge?.evidence_anchors || []).map((item) => item?.snippet || item?.reason || item?.source_type).filter(Boolean)
@@ -704,7 +748,7 @@ export function createSmartDedupManager({
       const scenePreview = group.asset_type === "scene" && operation.action === "merge"
       return `
         <article class="smart-dedup-operation">
-          <div class="smart-dedup-operation-head"><div><strong>${esc(member.title)}</strong><small>将处理到主对象</small></div><select class="form-select" data-smart-dedup-operation="${esc(member.asset_id)}" ${locked ? "disabled" : ""}>${options.map((item) => `<option value="${esc(item.value)}" ${operation.action === item.value ? "selected" : ""}>${esc(item.label)}</option>`).join("")}</select></div>
+          <div class="smart-dedup-operation-head"><div><strong>${esc(member.title)}</strong><small>处理到保留的资料卡</small></div><select class="form-select" data-smart-dedup-operation="${esc(member.asset_id)}" ${locked ? "disabled" : ""}>${options.map((item) => `<option value="${esc(item.value)}" ${operation.action === item.value ? "selected" : ""}>${esc(item.label)}</option>`).join("")}</select></div>
           <p class="smart-dedup-reason">${esc(edge?.reason || "系统未提供额外原因。")}</p>
           <div class="smart-dedup-impact">影响：${esc(this._impactText(operation.action, member, group.members.find((item) => item.asset_id === draft.primaryId)))}</div>
           ${canonicalMerge ? `<label class="smart-dedup-confirm"><input type="checkbox" data-smart-dedup-confirm-merge="${esc(member.asset_id)}" ${operation.allowCanonicalMerge ? "checked" : ""} ${locked ? "disabled" : ""}/> 我理解来源是已采用对象，融合后将进入历史态</label>` : ""}
@@ -716,6 +760,7 @@ export function createSmartDedupManager({
     },
 
     _bindGroupControls(groups) {
+      document.querySelector("[data-smart-dedup-history]")?.addEventListener("change", event => { this._rememberReview(); void this._openSavedScan(event.target.value) })
       document.querySelectorAll("[data-smart-dedup-group]").forEach((button) => button.addEventListener("click", () => {
         this._activeGroupId = button.getAttribute("data-smart-dedup-group")
         this._showGroupWorkbench()
@@ -810,6 +855,18 @@ export function createSmartDedupManager({
       }
     },
 
+    _readyGroups(groups, frozen = null) {
+      const seen = new Set()
+      return groups.filter((group) => {
+        if (!frozen && !this._groupReadiness(group).ready) return false
+        const payload = frozen?.get(group.group_id) || this._buildGroupPayload(group)
+        const involved = [payload.primary_asset_id, ...payload.operations.map((item) => item.source_asset_id)]
+        if (involved.some((id) => seen.has(id))) return false
+        involved.forEach((id) => seen.add(id))
+        return true
+      })
+    },
+
     async _applyReadyGroups(groups) {
       const modalOwner = captureModalOwner(".smart-dedup-workbench")
       if (!ownsModal(modalOwner)) return true
@@ -830,22 +887,40 @@ export function createSmartDedupManager({
         toast("项目已切换，旧扫描裁决已清理", "warning")
         return
       }
-      const ready = groups.filter((group) => this._groupReadiness(group).ready)
-      if (!ready.length) {
+      const approved = groups.filter(group => this._groupReadiness(group).ready)
+      if (!approved.length) {
         toast("请先完成至少一组裁决", "warning")
         return false
       }
+      const frozen = new Map(approved.map(group => [group.group_id, structuredClone(this._buildGroupPayload(group))]))
+      let pending = [...approved], succeeded = 0, failed = 0, replayed = 0, inFlight = []
+      const workbench = document.querySelector('.smart-dedup-workbench')
+      const wasInert = workbench?.hasAttribute('inert')
+      workbench?.setAttribute('inert', '')
       try {
-        const response = await api.projects.applySmartDedup(requestProjectId, {
-          confirmed: true,
-          scan_task_id: scanOwnerTaskId,
-          groups: ready.map((group) => this._buildGroupPayload(group)),
-        })
-        if (!stillOwnsRequest()) return true
-        ;(response.group_results || []).forEach((item) => {
-          this._groupResults[item.group_id] = item
-        })
-        const succeeded = (response.group_results || []).filter((item) => item.status === "success").length
+        while (pending.length && stillOwnsRequest()) {
+          const batch = this._readyGroups(pending, frozen)
+          if (!batch.length) break
+          inFlight = batch
+          const ids = new Set(batch.map(group => group.group_id))
+          pending = pending.filter(group => !ids.has(group.group_id))
+          const response = await api.projects.applySmartDedup(requestProjectId, {
+            confirmed: true,
+            scan_task_id: scanOwnerTaskId,
+            groups: batch.map(group => frozen.get(group.group_id)),
+          })
+          if (!stillOwnsRequest()) return true
+          for (const group of batch) {
+            const item = response.group_results?.find(item => item.group_id === group.group_id)
+              || { group_id: group.group_id, status: "failed", error_code: "receipt_missing", message: "未收到处理回执，请重新核对" }
+            this._groupResults[group.group_id] = item
+            if (item.replayed) replayed += 1
+            if (item.status === "success") succeeded += 1
+            else failed += 1
+          }
+          inFlight = []
+          this._rememberReview()
+        }
         if (succeeded) {
           api.clearCache()
           router.refresh()
@@ -853,14 +928,18 @@ export function createSmartDedupManager({
         if (groups.every((group) => this._groupResults[group.group_id]?.status === "success")) {
           this._progress = null
         }
-        const replayed = (response.group_results || []).filter(item => item.replayed).length
-        toast(`新完成 ${succeeded - replayed} 组，先前已完成 ${replayed} 组，未完成 ${(response.group_results || []).length - succeeded} 组`, succeeded ? "success" : "warning")
+        toast(`新完成 ${succeeded - replayed} 组，先前已完成 ${replayed} 组，未完成 ${failed} 组`, succeeded ? "success" : "warning")
         this._showGroupWorkbench()
         return true
       } catch (error) {
         if (!stillOwnsRequest()) return true
-        toast(error.message || "执行失败", "error")
+        for (const group of inFlight) this._groupResults[group.group_id] = { group_id: group.group_id, status: "failed", error_code: "receipt_missing", message: "本批未收到明确回执，请重新扫描核对；已完成组保留。" }
+        this._rememberReview()
+        toast(error.message || "执行失败，已完成成果保留", "error")
+        this._showGroupWorkbench()
         return false
+      } finally {
+        if (workbench?.isConnected && !wasInert) workbench.removeAttribute('inert')
       }
     },
 
@@ -869,7 +948,7 @@ export function createSmartDedupManager({
     },
 
     _actionLabel(action) {
-      return { ai_fusion: "转入 AI 融合工作台", merge: "融合内容并迁移引用", alias_only: "仅登记别名并迁移关系", deprecate_duplicate: "废弃重复项", keep_separate: "保持独立" }[action] || action
+      return { ai_fusion: "转入 AI 融合工作台", merge: "融合内容并迁移引用", alias_only: "作为另一个名字，迁移关系", deprecate_duplicate: "废弃重复项", keep_separate: "保持独立" }[action] || action
     },
 
     _impactText(action, source, target) {
@@ -878,16 +957,17 @@ export function createSmartDedupManager({
       const references = Number(source?.relation_count || source?.reference_count || 0)
       if (action === "alias_only") return `来源进入历史态，迁移/去重 ${references} 条当前关系，不融合正文字段`
       if (action === "ai_fusion") return "创建待处理的 AI 融合建议；当前场景不会立即修改或废弃"
-      if (action === "merge") return `机械保留「${target?.title || "主对象"}」的优先字段并合并映射，来源进入历史态；语义冲突会标记复核`
-      return "来源标记为重复历史项，主对象保留"
+      if (action === "merge") return `保留「${target?.title || "主对象"}」的优先字段并合并映射，来源进入历史态；语义冲突会标记复核`
+      return "来源标记为重复历史项，所选资料卡保留"
     },
 
     _fieldLabel(field) {
-      return { title: "名称", status: "状态", summary: "概要", aliases: "别名", chapter_span: "章节范围", source: "来源", updated_at: "更新时间", relation_count: "关系数", details: "业务字段" }[field] || field
+      return { title: "名称", status: "状态", summary: "概要", aliases: "别名", chapter_span: "章节范围", source: "来源", updated_at: "更新时间", relation_count: "关系数", details: "诊断详情", source_chapter_index: "来源章节", source_scene_index: "来源场景" }[field] || field
     },
 
     _displayValue(value) {
       if (value == null || value === "") return "-"
+      if (Array.isArray(value) && value.every((item) => typeof item !== "object")) return value.join("、") || "-"
       if (typeof value === "object") return JSON.stringify(value, null, 2)
       return String(value)
     },

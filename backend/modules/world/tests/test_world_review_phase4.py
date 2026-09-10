@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 from sqlalchemy import select
 
-from core.errors import ConflictError, ValidationError
+from core.errors import ConflictError, NotFoundError, ValidationError
 from infrastructure.tasks.models import AsyncTask
 from modules.world.map_atlas_models import MapAtlasNode
 from modules.world.models import (
@@ -39,6 +39,7 @@ from modules.world.services.worldbuilding.world_impact_service import (
 )
 from modules.world.services.worldbuilding.world_validation_engine import (
     build_review_packets,
+    deterministic_findings,
     stable_hash,
 )
 from modules.world.services.worldbuilding.world_validation_service import (
@@ -68,6 +69,37 @@ def _finding(
         "excerpt": None,
         "question_id": None,
     }
+
+
+def test_policy_match_strings_do_not_match_the_policy_itself():
+    from modules.world.schemas import WorldValidationPolicyRule
+
+    policy = _policy().model_copy(
+        update={
+            "rules": [
+                WorldValidationPolicyRule(
+                    rule_id="forbidden",
+                    operator="not_contains",
+                    value="不可出现的词",
+                    severity="error",
+                    message="存在禁用词",
+                )
+            ]
+        }
+    )
+    policy_doc = {
+        "source_key": "page:policy",
+        "title": "校验政策",
+        "page_type": "rule",
+        "body": "项目校验规则",
+        "content": "项目校验规则 不可出现的词",
+        "metadata": {"validation_policy": policy.model_dump(mode="json")},
+    }
+    findings = deterministic_findings(policy, {"items": [policy_doc]}, None)
+    assert not any(item.category == "policy:forbidden" for item in findings)
+    story_doc = {"source_key": "page:story", "content": "设定出现不可出现的词"}
+    findings = deterministic_findings(policy, {"items": [policy_doc, story_doc]}, None)
+    assert any(item.category == "policy:forbidden" for item in findings)
 
 
 async def _draft_for_target(db_session, novel_id: str):
@@ -131,6 +163,104 @@ async def _completed_run(
 # ----------------------------------------------------------------------
 # Per-finding review records
 # ----------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "hard_error,disposition", [(True, "resolved"), (False, "deferred")]
+)
+async def test_review_cannot_clear_hard_errors_or_deferred_decisions(
+    db_session, project_novel_id, hard_error, disposition
+):
+    service = WorldValidationService()
+    findings = [_finding("decision", action="AUTHOR-REQUIRED")]
+    if hard_error:
+        findings.append(_finding("hard-error", severity="error"))
+    run, draft = await _completed_run(db_session, project_novel_id, findings=findings)
+    reviewed = await service.review_items(
+        db_session,
+        project_novel_id,
+        str(run.id),
+        WorldValidationReviewRequest(
+            items=[
+                WorldValidationReviewItemInput(
+                    finding_id="decision",
+                    disposition=disposition,
+                )
+            ]
+        ),
+    )
+    with pytest.raises(ConflictError):
+        await service.require_gate(
+            db_session,
+            novel_id=project_novel_id,
+            validation_run_id=str(run.id),
+            target_type="world_bible_draft",
+            target_id=draft.id,
+            target_hash=run.scope_json["target_hash"],
+        )
+    if disposition == "deferred":
+        assert reviewed.review["reviewed"] == 0
+        assert reviewed.review["pending_finding_ids"] == ["decision"]
+
+
+@pytest.mark.asyncio
+async def test_failed_validation_cannot_resume_changed_sources(
+    db_session, project_novel_id
+):
+    service = WorldValidationService()
+    run, draft = await _completed_run(db_session, project_novel_id, findings=[])
+    run.status = "failed"
+    from modules.world.schemas import WorldBiblePageDraftUpdate
+
+    await WorldBibleLifecycleService().update_draft(
+        db_session,
+        project_novel_id,
+        draft.id,
+        WorldBiblePageDraftUpdate(free_text="来源在失败后发生变化。"),
+    )
+    with pytest.raises(ConflictError):
+        await service.continue_run(db_session, project_novel_id, str(run.id))
+
+
+@pytest.mark.asyncio
+async def test_queued_validation_marks_a_disappeared_source_stale(
+    db_session, project_novel_id
+):
+    service = WorldValidationService()
+    run, _ = await _completed_run(db_session, project_novel_id, findings=[])
+    task = AsyncTask(
+        task_type="world_validation",
+        novel_id=uuid.UUID(project_novel_id),
+        status="running",
+        meta={},
+    )
+    db_session.add(task)
+    await db_session.flush()
+    run.status = "queued"
+    run.task_id = task.id
+    with (
+        patch(
+            "modules.world.services.worldbuilding.world_validation_service.require_running_task_attempt",
+            autospec=True,
+        ),
+        patch.object(
+            WorldValidationService,
+            "_matches_frozen_inputs",
+            autospec=True,
+            side_effect=NotFoundError("source removed"),
+        ),
+    ):
+        result = await service.execute_run(
+            db_session,
+            novel_id=project_novel_id,
+            run_id=str(run.id),
+            task_id=str(task.id),
+            lease_id=str(uuid.uuid4()),
+            attempt=1,
+        )
+    assert result["status"] == "stale"
+    assert result["gate"] == "block"
 
 
 @pytest.mark.asyncio
@@ -337,9 +467,7 @@ async def test_policy_change_records_stale_reason(
 
 
 @pytest.mark.asyncio
-async def test_review_rejected_for_stale_run(
-    db_session, project_novel_id: str
-) -> None:
+async def test_review_rejected_for_stale_run(db_session, project_novel_id: str) -> None:
     from modules.world.schemas import WorldBiblePageDraftUpdate
 
     service = WorldValidationService()
@@ -363,9 +491,9 @@ async def test_review_rejected_for_stale_run(
             WorldValidationReviewRequest(
                 items=[
                     WorldValidationReviewItemInput(
-                    finding_id="finding:a1",
-                    disposition="resolved",
-                )
+                        finding_id="finding:a1",
+                        disposition="resolved",
+                    )
                 ]
             ),
         )
@@ -382,12 +510,10 @@ async def test_findings_page_filters_and_paginates(
     db_session, project_novel_id: str
 ) -> None:
     service = WorldValidationService()
-    findings = [
-        _finding(f"finding:w{i}", severity="warning") for i in range(5)
-    ] + [_finding("finding:e0", severity="error", action="CLOSE")]
-    run, _ = await _completed_run(
-        db_session, project_novel_id, findings=findings
-    )
+    findings = [_finding(f"finding:w{i}", severity="warning") for i in range(5)] + [
+        _finding("finding:e0", severity="error", action="CLOSE")
+    ]
+    run, _ = await _completed_run(db_session, project_novel_id, findings=findings)
     page = await service.findings_page(
         db_session,
         project_novel_id,
@@ -487,6 +613,120 @@ async def test_continue_budget_exhausted_run_is_allowed(
     assert continued.status == "queued"
     assert continued.continued_count == 1
     assert continued.omissions == []
+
+
+@pytest.mark.asyncio
+async def test_semantic_continuation_rejects_a_different_confirmation(
+    db_session, project_novel_id
+):
+    service = WorldValidationService()
+    run, _ = await _completed_run(db_session, project_novel_id, findings=[])
+    policy = _policy(semantic=True)
+    policy_page = await db_session.scalar(
+        select(WorldBiblePage).where(
+            WorldBiblePage.novel_id == uuid.UUID(project_novel_id),
+            WorldBiblePage.page_key == "validation-policy",
+        )
+    )
+    policy_page.page_meta_json = {"validation_policy": policy.model_dump(mode="json")}
+    run.policy_hash = stable_hash(policy.model_dump(mode="json"))
+    run.status = "failed"
+    confirmation_id = str(uuid.uuid4())
+    run.scope_json = {**run.scope_json, "context_confirmation_id": confirmation_id}
+    await db_session.flush()
+    # Confirmation identity is independent of source freshness (covered separately).
+    with patch.object(service, "_refresh_freshness", autospec=True):
+        with pytest.raises(ConflictError) as exc_info:
+            await service.continue_run(
+                db_session,
+                project_novel_id,
+                str(run.id),
+                context_confirmation_id=str(uuid.uuid4()),
+            )
+        assert exc_info.value.code == "validation_confirmation_changed"
+        continued = await service.continue_run(
+            db_session,
+            project_novel_id,
+            str(run.id),
+            context_confirmation_id=confirmation_id,
+        )
+        assert continued.context_confirmation_id == confirmation_id
+        assert continued.status == "queued"
+    run.status = "failed"
+    await service._refresh_freshness(db_session, run)
+    assert run.status == "stale"  # old receipts without a semantic scope cannot resume
+
+
+@pytest.mark.asyncio
+async def test_a_custom_policy_named_builtin_keeps_its_actual_rules(
+    db_session, project_novel_id
+):
+    service = WorldValidationService()
+    run, _ = await _completed_run(db_session, project_novel_id, findings=[])
+    policy = _policy(semantic=True).model_copy(update={"policy_version": "builtin-v1"})
+    page = await db_session.scalar(
+        select(WorldBiblePage).where(
+            WorldBiblePage.novel_id == uuid.UUID(project_novel_id),
+            WorldBiblePage.page_key == "validation-policy",
+        )
+    )
+    page.page_meta_json = {"validation_policy": policy.model_dump(mode="json")}
+    run.policy_version = policy.policy_version
+    run.policy_hash = stable_hash(policy.model_dump(mode="json"))
+    await db_session.flush()
+    restored = await service._policy_for_run(db_session, run)
+    assert restored == policy
+    assert restored.semantic_enabled
+
+
+def test_impact_uses_adopted_alias_text_and_skips_pending_aliases():
+    entity = CoreEntity(
+        content_json={
+            "aliases": [
+                "旧称",
+                {"alias": "别名", "status": "canonical"},
+                {"alias": "未采用", "status": "candidate"},
+                {"alias": "待核对", "needs_review": True},
+            ]
+        }
+    )
+    assert WorldImpactService._entity_aliases(entity) == ["旧称", "别名"]
+
+
+def test_entity_freshness_tracks_hidden_changes_without_expanding_prompt_content():
+    entity = CoreEntity(
+        id=uuid.uuid4(),
+        name="对象",
+        entity_type="rule",
+        summary="公开摘要",
+        hidden_truth="原秘密",
+        status="canonical",
+    )
+    before = WorldValidationService._entity_manifest_item(entity)
+    entity.hidden_truth = "更新后的作者秘密"
+    after = WorldValidationService._entity_manifest_item(entity)
+    assert before["content_hash"] != after["content_hash"]
+    assert "作者秘密" not in after["content"]
+    assert before["content"] == after["content"]
+
+
+@pytest.mark.asyncio
+async def test_impact_marks_unfinished_prose_scan_as_truncated(
+    db_session, project_novel_id
+):
+    with (
+        patch(
+            "modules.writing.facade.get_manuscript_source_manifest", autospec=True
+        ) as manifest,
+        patch("modules.writing.facade.scan_manuscript_terms", autospec=True) as scan,
+    ):
+        manifest.return_value = []
+        scan.return_value = SimpleNamespaceScan([], cursor="more")
+        result = await WorldImpactService._prose_dependents(
+            db_session, project_novel_id, ["术语"]
+        )
+    assert result.truncated
+    assert any("仍有章节未检查" in note for note in result.uncovered)
 
 
 # ----------------------------------------------------------------------
@@ -770,7 +1010,18 @@ class SimpleNamespaceSourceRef:
 
 class SimpleNamespaceHit:
     def __init__(self, chapter: int, count: int) -> None:
-        self.source_ref = SimpleNamespaceSourceRef(chapter)
+        from modules.writing.contracts import SourceRangeRefContract
+
+        self.source_ref = SourceRangeRefContract(
+            draft_id="d1",
+            chapter_index=chapter,
+            version_number=1,
+            content_mode="canonical",
+            start_offset=0,
+            end_offset=1,
+            source_hash="s1",
+            range_hash=f"rangehash{chapter}",
+        )
         self.title = f"第{chapter}章"
         self.terms = ["潮汐商会"]
         self.match_count = count
@@ -849,7 +1100,7 @@ async def test_impact_preview_enumerates_proven_cross_module_sources(
     thread = _thread("thread-1", "商会主线", str(entity.id))
     with (
         patch(
-            "modules.story.facade.list_plot_threads_referencing_entities",
+            "modules.story.facade.list_world_dependencies",
             autospec=True,
         ) as thread_mock,
         patch(
@@ -861,7 +1112,18 @@ async def test_impact_preview_enumerates_proven_cross_module_sources(
             autospec=True,
         ) as scan_mock,
     ):
-        thread_mock.return_value = [thread]
+        from modules.story.contracts import StoryWorldDependencyContract
+
+        thread_mock.return_value = [
+            StoryWorldDependencyContract(
+                kind="story_thread",
+                id=thread.id,
+                label=thread.name,
+                source_hash="t" * 64,
+                version="1",
+                text=thread.summary or "商会",
+            )
+        ]
         manifest_mock.return_value = [{"draft_id": "d1", "source_hash": "s1"}]
         scan_mock.return_value = SimpleNamespaceScan(
             [SimpleNamespaceHit(3, 4)], cursor=None
@@ -923,9 +1185,7 @@ async def test_impact_preview_isolates_projects(
 
 
 @pytest.mark.asyncio
-async def test_policy_draft_upsert_and_status(
-    db_session, project_novel_id: str
-) -> None:
+async def test_policy_draft_upsert_and_status(db_session, project_novel_id: str) -> None:
     service = WorldValidationService()
     policy = _policy(semantic=True)
     first = await service.save_policy_draft(
@@ -945,11 +1205,20 @@ async def test_policy_draft_upsert_and_status(
         WorldValidationPolicyDraftUpsert(
             policy=policy.model_copy(update={"policy_version": "draft-v2"}),
             summary="第二版草稿",
+            expected_updated_at=first.updated_at,
         ),
     )
     status2 = await service.policy_status(db_session, project_novel_id)
     assert status2.draft.policy.policy_version == "draft-v2"
     assert status2.draft.draft_id == updated.id
+    with pytest.raises(ConflictError):
+        await service.save_policy_draft(
+            db_session,
+            project_novel_id,
+            WorldValidationPolicyDraftUpsert(
+                policy=policy, expected_updated_at=first.updated_at
+            ),
+        )
 
 
 # ----------------------------------------------------------------------
@@ -958,9 +1227,7 @@ async def test_policy_draft_upsert_and_status(
 
 
 @pytest.mark.asyncio
-async def test_conflicts_list_paginates(
-    db_session, project_novel_id: str
-) -> None:
+async def test_conflicts_list_paginates(db_session, project_novel_id: str) -> None:
     from modules.world.models import ConflictCheckQueueItem
 
     for i in range(3):

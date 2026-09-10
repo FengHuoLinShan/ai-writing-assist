@@ -322,6 +322,7 @@ def test_compose_uses_one_bounded_logging_extension_for_every_service() -> None:
     assert 'max-file: "10"' in extension
 
     service_names = (
+        "searxng",
         "postgres",
         "embedding",
         "minio",

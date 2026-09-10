@@ -110,7 +110,7 @@ class TestSettingsEffectiveDefaults:
         assert Settings().llm_base_url == "https://api.deepseek.com"
 
     def test_effective_llm_model(self):
-        assert Settings().llm_model == "deepseek-v4-flash"
+        assert Settings().llm_model == "deepseek-flash"
 
     def test_effective_embedding_model(self):
         assert Settings().embedding_model == "bge-base-zh-v1.5"
@@ -224,7 +224,7 @@ class TestSettingsFromEnvFactoryFields:
 
     def test_llm_model_ignores_env(self, monkeypatch):
         monkeypatch.setenv("LLM_MODEL", "test-model")
-        assert Settings().llm_model == "deepseek-v4-flash"
+        assert Settings().llm_model == "deepseek-flash"
 
     def test_llm_base_url_ignores_env(self, monkeypatch):
         monkeypatch.setenv("LLM_BASE_URL", "https://test.local/v1")

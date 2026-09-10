@@ -389,7 +389,14 @@ function handoffPageMarkdown(source) {
   return parts.join("\n\n")
 }
 
-export function buildWorldHandoffMarkdown({ projectTitle, targetKind, sourcePage, sourceDraft, convergenceDraft }) {
+export function buildWorldHandoffMarkdown({ projectTitle, targetKind, sourcePage, sourceDraft, convergenceDraft, worldCheckpoint }) {
+  if (worldCheckpoint?.world_state) return [
+    '# 世界模型交接快照',
+    `作品：${projectTitle || '当前作品'} · 第 ${worldCheckpoint.round_no} 轮`,
+    '这份模型由作者主动导出，用于继续推演；候选、正式依据与未决项按模型内状态区分。保存阶段成果不等于采用正典，未运行的检查仍未运行。',
+    '以下结构化模型包含完整世界面向、长期决定、来源和变更记录。继续时保留稳定身份和未改内容；外部工具不能替作者采用设定。',
+    '```json', JSON.stringify(worldCheckpoint, null, 2), '```',
+  ].join('\n\n')
   const draft = convergenceDraft
   if (!draft?.coverage?.complete || draft.stale || !draft.manifest?.length) return ""
   const snapshot = draft.sourceSnapshot || { kind: "project" }
@@ -843,4 +850,24 @@ export function buildPovInstruction(instruction, userNote = "") {
 
 export function tierName(key) {
   return ({ core: "核心", standard: "标准", memory: "记忆", rag: "RAG", optional: "可选" })[key] || key
+}
+
+export function suggestionResult(item, sourcePageId, targetKind) {
+  if (!item) return null
+  const payload = item.payload_json || {}
+  if (item.target_type === "core_entity_draft" && targetKind === "core_entity") {
+    return { kind: "core_entity", suggestion: item, proposal: payload }
+  }
+  if (
+    item.target_type === "world_bible_page_draft"
+    && payload.operation === "replace_existing"
+    && targetKind === "world_bible_page"
+    && payload.target_page_id === sourcePageId
+  ) return { kind: "world_bible_page", suggestion: item, proposal: payload }
+  if (
+    item.target_type === "world_bible_page_draft"
+    && payload.operation === "create_new"
+    && targetKind === "world_bible_new_page"
+  ) return { kind: "world_bible_new_page", suggestion: item, proposal: payload }
+  return null
 }

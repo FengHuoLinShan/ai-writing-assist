@@ -188,7 +188,7 @@ async def test_legacy_discussion_identity_outcomes_and_pagination_survive_upgrad
             outcome = await db.get(AssistantMessage, message_ids[41])
             assert outcome.outcome_suggestion_id == checkpoint_id
             service = AssistantSessionService()
-            page, total = await service.list_messages(
+            page, total, _offset = await service.list_messages(
                 db, novel_id=str(novel), session_id=str(session_id), skip=40, limit=10
             )
             assert total == 43

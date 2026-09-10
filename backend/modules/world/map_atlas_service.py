@@ -86,6 +86,28 @@ class MapAtlasService:
         if self._storage is None and not status["available"]:
             raise ValidationError(status["reason"])
 
+    async def review_source(self, db, novel_id: str, node_id: str) -> dict:
+        from modules.world.map_structure_service import MapStructureService
+
+        service = MapStructureService()
+        node = await service.node(db, novel_id, node_id)
+        await db.refresh(node)
+        if not node.current_revision_id:
+            raise NotFoundError("地图尚无已保存的空间版本")
+        revision = await service.revision(db, novel_id, node_id, node.current_revision_id)
+        payload = {
+            "id": str(node.id),
+            "title": node.title,
+            "status": node.status,
+            "source_version": str(revision.id),
+            "document": revision.document,
+            "geometry_hash": revision.geometry_hash,
+        }
+        payload["source_hash"] = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str).encode()
+        ).hexdigest()
+        return payload
+
     async def create_run(
         self,
         db: AsyncSession,

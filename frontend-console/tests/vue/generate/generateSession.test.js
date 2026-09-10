@@ -14,6 +14,7 @@ import {
   readGenerateContextPreview,
   readGenerateSession,
   serializeGenerateSession,
+  unfinishedCocreationMessages,
   writeCreativeContinuation,
   writeGenerateContextPreview,
   writeGenerateSession,
@@ -55,6 +56,17 @@ beforeEach(() => {
 })
 
 describe("generate Vue bounded session", () => {
+  it("keeps the author's original question with a failed reply during server refresh", () => {
+    const question = { role: "user", content: "尚未得到回复的问题" }
+    const failure = { role: "assistant", content: "请求中断", interrupted: true }
+    const messages = [
+      { role: "user", content: "已经同步的问题" },
+      { role: "assistant", content: "已经同步的回复" },
+      question, failure,
+    ]
+    expect(unfinishedCocreationMessages(messages)).toEqual([question, failure])
+  })
+
   it("isolates project, source page, and target", () => {
     expect(generateSessionKey("p1", "page-1", "world_bible_page")).toBe("generate_world_workspace_state_v2_p1_page-1_world_bible_page")
     expect(generateSessionKey("p2", null, "core_entity")).not.toBe(generateSessionKey("p1", null, "core_entity"))

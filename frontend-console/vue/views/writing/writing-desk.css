@@ -1499,6 +1499,7 @@
     color-mix(in srgb, var(--archive-paper-muted) 58%, transparent);
 }
 
+
 [data-workspace-view="writing"] .modal-content > .modal-header h3 {
   color: var(--archive-ink);
   font-family: var(--font-body);

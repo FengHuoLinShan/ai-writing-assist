@@ -497,6 +497,14 @@ async def test_deep_import_stage_endpoints_enqueue_expected_task(
 ) -> None:
     novel_id = sample_project["id"]
 
+    if expected_type == "world_object_auto_extraction":
+        from modules.writing.facade import create_published_draft_only
+
+        for chapter in range(1, 6):
+            await create_published_draft_only(
+                db_session, novel_id, chapter, content=f"第{chapter}章的可核对正文。"
+            )
+
     resp = await async_client.post(
         endpoint,
         json={
@@ -539,7 +547,6 @@ async def test_deep_import_stage_endpoints_enqueue_expected_task(
     assert task.result["asset_summary"]["adopted"] == 0
 
 
-
 @pytest.mark.asyncio
 async def test_scene_stage_rejects_missing_llm_key_without_enqueue(
     async_client: AsyncClient,
@@ -568,7 +575,6 @@ async def test_scene_stage_rejects_missing_llm_key_without_enqueue(
         select(AsyncTask).where(AsyncTask.meta["novel_id"].as_string() == novel_id)
     )
     assert result.scalars().all() == []
-
 
 
 @pytest.mark.asyncio

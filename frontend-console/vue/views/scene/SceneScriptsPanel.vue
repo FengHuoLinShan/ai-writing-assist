@@ -11,8 +11,6 @@
         <span v-else-if="savedAt" class="scene-runtime-saved">草稿已保存</span>
         <button type="button" class="btn btn-sm" :disabled="saving || !scene" data-action="save-scene-script-draft" @click="$emit('save', { adopt: false })">{{ saving ? "保存中..." : "保存新版本" }}</button>
         <button type="button" class="btn btn-sm" :disabled="saving || !scene" data-action="adopt-scene-script-draft" @click="$emit('save', { adopt: true })">保存并采用</button>
-        <button type="button" class="btn btn-sm" :disabled="scriptGenerating || !scene" data-action="generate-scene-script" @click="$emit('generate')">{{ scriptGenerating ? "生成中..." : "生成剧本建议" }}</button>
-        <button type="button" class="btn btn-sm btn-primary" :disabled="!scene" data-action="open-scene-writing" @click="$emit('open-writing')">回到写作</button>
       </div>
     </header>
 

@@ -74,7 +74,7 @@ async def test_phase3_without_scene_evidence_returns_review_without_provider() -
     assert result is not None
     assert result.threads == []
     assert result.diagnostics == {
-        "parameter_version": "phase3_structure_simple_v2",
+        "parameter_version": "phase3_structure_simple_v3",
         "input_mode": "no_scene_evidence",
         "prompt_level": "none",
         "provider_called": False,

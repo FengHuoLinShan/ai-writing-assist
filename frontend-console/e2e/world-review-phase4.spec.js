@@ -98,7 +98,11 @@ async function openBibleLibrary(page, projectId) {
 
 async function clickWorldTool(page, label) {
   const desktop = page.locator("#sidebar-context-slot button", { hasText: label })
-  await desktop.first().click()
+  if (await desktop.count()) await desktop.first().click()
+  else {
+    await page.locator("#workspace-content").getByRole("button", { name: "更多工具", exact: true }).click()
+    await page.getByRole("dialog").getByRole("button", { name: label, exact: true }).click()
+  }
 }
 
 async function openHealth(page) {
@@ -108,8 +112,9 @@ async function openHealth(page) {
 
 async function activatePolicy(page) {
   const details = page.locator("[data-section='world-health']")
+  await expect(details).not.toContainText("正在读取校验政策与最近回执…")
   if (await details.getAttribute("open") === null) {
-    await details.locator("summary").click()
+    await details.locator(":scope > summary").click()
   }
   const dialogAccept = (dialog) => void dialog.accept()
   page.on("dialog", dialogAccept)
@@ -130,6 +135,10 @@ test.describe("第四期：规则、依赖与变更复核", () => {
   })
 
   test.afterEach(async () => {
+    if (worker) {
+      worker.kill()
+      worker = null
+    }
     if (testProjectId) {
       try { await cleanupProject(testProjectId) } catch {}
       testProjectId = null
@@ -138,6 +147,36 @@ test.describe("第四期：规则、依赖与变更复核", () => {
 
   test.afterAll(async () => {
     if (worker) worker.kill()
+  })
+
+  test("政策数值与字段比较使用可编辑表单，390px 保持可读", async ({ page }, testInfo) => {
+    const project = await createProject({ title: "政策表单验收" })
+    testProjectId = project.id
+    await openBibleLibrary(page, project.id)
+    await openHealth(page)
+    const health = page.locator("[data-section='world-health']")
+    await expect(health).not.toContainText("正在读取校验政策与最近回执…")
+    if (await health.getAttribute("open") === null) await health.locator(":scope > summary").click()
+    await page.locator("[data-action='world-health-edit-policy']").click()
+    await page.locator("[data-action='world-policy-rule-add']").click()
+    await page.locator("[data-field='world-policy-rule-op-0']").selectOption("numeric_tolerance")
+    await page.getByLabel("检查字段", { exact: true }).fill("population")
+    await page.getByLabel("预期数值", { exact: true }).fill("1000")
+    await page.getByLabel("允许偏差", { exact: true }).fill("100")
+    await page.locator("[data-field='world-policy-rule-message-0']").fill("人口应在约定范围内")
+    await page.locator("[data-action='world-policy-rule-add']").click()
+    await page.locator("[data-field='world-policy-rule-op-1']").selectOption("max_chars")
+    await page.locator("[data-field='world-policy-rule-value-1']").fill("20000")
+    await page.locator("[data-field='world-policy-rule-message-1']").fill("篇幅应控制在范围内")
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.locator("[data-section='world-policy-editor']").scrollIntoViewIfNeeded()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await page.screenshot({ path: testInfo.outputPath("world-policy-390.png"), fullPage: true })
+    await page.locator("[data-action='world-policy-save']").click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("政策工作稿已保存")
+    const status = await apiJson(`/world/bible/validation-policy?novel_id=${project.id}`)
+    expect(status.draft.policy.rules[0].value).toEqual({ field: "population", expected: 1000, tolerance: 100 })
+    expect(status.draft.policy.rules[1].value).toBe(20000)
   })
 
   test("完整作者流程：找到资料→安全修改→继续创设→采用成果→完成复核", async ({ page }) => {
@@ -203,19 +242,23 @@ test.describe("第四期：规则、依赖与变更复核", () => {
       expect(entity.status || entity.entity?.status).toBe("canonical")
     }).toPass({ timeout: 20000 })
 
-    // ---- 完成复核：启用校验政策并完成一次全面校验 ----
+    // ---- 完成复核：明确回到本次修改的资料，不把任意首页条目当作查漏根 ----
     await openBibleLibrary(page, project.id)
+    await page.evaluate(({ projectId, pageId }) => { location.hash = `#workbench/${projectId}/world/bible?page_id=${pageId}` }, { projectId: project.id, pageId: seeded.currency.id })
+    await expect(page.locator('#world-page-reader-title')).toContainText('货币制度')
     await openHealth(page)
     await activatePolicy(page)
 
     worker = startWorker()
     await page.locator("[data-action='world-health-run-full']").click()
     await expect(
-      page.locator("[data-section='world-health'] .badge, [data-section='world-health'] summary .badge"),
-    ).toContainText(/已通过|有提示|需修正|已完成|校验失败|已失效/, { timeout: 60000 })
+      page.locator("[data-section='world-health'] > summary > .badge"),
+    ).toContainText(/已通过|有提示|需修正/, { timeout: 60000 })
     await expect(page.locator("[data-section='world-health']")).toContainText("回执", { timeout: 15000 })
 
     // 政策编辑：保存工作稿后旧回执因政策变化失效，可追溯
+    const health = page.locator("[data-section='world-health']")
+    if (await health.getAttribute("open") === null) await health.locator(":scope > summary").click()
     await page.locator("[data-action='world-health-edit-policy']").click()
     await expect(page.locator("[data-section='world-policy-editor']")).toBeVisible()
     await page.locator("[data-field='world-policy-version']").fill("author-v2")
@@ -252,7 +295,7 @@ test.describe("第四期：规则、依赖与变更复核", () => {
     worker = startWorker()
     await page.locator("[data-action='world-health-run-full']").click()
     await expect(
-      page.locator("[data-section='world-health'] summary .badge"),
+      page.locator("[data-section='world-health'] > summary > .badge"),
     ).toContainText(/需修正|已通过|有提示/, { timeout: 60000 })
 
     // 逐项复核：作者裁定 AUTHOR-REQUIRED 项，进度 1/1，刷新后仍在。

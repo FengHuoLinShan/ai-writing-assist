@@ -72,7 +72,7 @@ describe("writing modal dialog contracts", () => {
       model: reactive({ open: true, busy: false, stage: "deep", start: 1, end: 2, highQuality: false }),
     })
     await nextTick()
-    expect(document.activeElement).toBe(auto.wrapper.get(".modal-body input").element)
+    expect(document.activeElement).toBe(auto.wrapper.get(".modal-body select").element)
     auto.wrapper.unmount()
 
     const options = mountInShell(ConflictOptionsDialog, { model: reactive({ open: true, includeCandidates: false }) })

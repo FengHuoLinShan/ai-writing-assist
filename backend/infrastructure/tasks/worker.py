@@ -207,7 +207,11 @@ def _handler_failure_result(task: AsyncTask, *, requeued: bool) -> dict[str, Any
         {
             "reason": "handler_error",
             "recovery_policy": str(getattr(task, "recovery_policy", "")),
-            "recovery_required": False,
+            "recovery_required": bool(
+                getattr(task, "recovery_policy", None) == "manual_resume"
+                and result.get("recovery_required") is True
+                and (getattr(task, "meta", None) or {}).get("recovery_required") is True
+            ),
             "transitions": transitions[-50:],
         }
     )

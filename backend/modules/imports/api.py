@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import uuid
 from typing import Literal
 
 from fastapi import APIRouter, Body, File, HTTPException, Query, UploadFile
@@ -93,6 +94,8 @@ class DeepImportRequest(BaseModel):
 class DeepImportRecoveryRequest(BaseModel):
     """Resume/abandon payload; defaults preserve the existing 400 response."""
 
+    stage: Literal["targeted_completion"] | None = None
+    authorization_confirmed: bool = False
     task_id: str = Field(
         default="",
         description="待继续或放弃的深度导入任务 ID",
@@ -274,7 +277,7 @@ async def submit_deep_import(
         authorization_confirmed=body.authorization_confirmed,
         **(
             {"targeted_completion": body.targeted_completion.model_dump()}
-            if body.targeted_completion.enabled
+            if body.targeted_completion.enabled or body.targeted_completion.defer
             else {}
         ),
     )
@@ -307,7 +310,8 @@ async def _submit_stage(
         authorization_confirmed=body.authorization_confirmed,
         **(
             {"targeted_completion": body.targeted_completion.model_dump()}
-            if body.targeted_completion.enabled
+            if stage == "world_objects"
+            and (body.targeted_completion.enabled or body.targeted_completion.defer)
             else {}
         ),
     )
@@ -360,7 +364,11 @@ async def resume_deep_import(
 
     try:
         await _require_task_owner_active_project(db, task_id)
-        result = await imports_facade.resume_deep_import(db, task_id)
+        if body.stage and not body.authorization_confirmed:
+            raise ValueError("请确认专项查漏范围与授权")
+        result = await imports_facade.resume_deep_import(
+            db, task_id, **({"stage": body.stage} if body.stage else {})
+        )
     except TaskNotFoundError as exc:
         raise HTTPException(404, detail="Not found") from exc
     except ValueError as exc:
@@ -441,3 +449,42 @@ async def rollback_targeted_completion(
         raise HTTPException(404, detail="Not found") from exc
     except ValueError as exc:
         raise HTTPException(409, detail=redact_diagnostic(exc)) from exc
+
+
+@router.post("/targeted-completions/{task_id}/defer")
+async def defer_completion(task_id: uuid.UUID, db: DbSession) -> dict:
+    from modules.imports.completion_control import request_completion_defer
+    from modules.imports.contracts import TaskNotFoundError
+
+    try:
+        await _require_task_owner_active_project(db, str(task_id))
+        return await request_completion_defer(db, task_id=str(task_id))
+    except TaskNotFoundError as exc:
+        raise HTTPException(404, detail="Not found") from exc
+    except ValueError as exc:
+        raise HTTPException(409, detail=redact_diagnostic(exc)) from exc
+
+
+@router.get("/workflows/recent")
+async def recent_workflows(
+    novel_id: str,
+    db: DbSession,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+) -> dict:
+    from modules.imports.completion_control import list_recent_workflows
+    from modules.project.facade import require_active_project
+
+    await require_active_project(db, novel_id)
+    return await list_recent_workflows(db, novel_id=novel_id, skip=skip, limit=limit)
+
+
+@router.get("/workflows/impact")
+async def workflow_asset_impact(
+    novel_id: str, asset_id: uuid.UUID, db: DbSession
+) -> dict:
+    from modules.imports.completion_control import active_asset_impact
+    from modules.project.facade import require_active_project
+
+    await require_active_project(db, novel_id)
+    return await active_asset_impact(db, novel_id=novel_id, asset_id=str(asset_id))

@@ -486,6 +486,106 @@ async def handle_world_entity_fusion_suggestions(db, task):
 
 
 @task_handler(
+    "world_cocreation_turn",
+    recovery_policy="auto_requeue",
+    max_attempts=2,
+    retry_transient_llm_errors=True,
+)
+async def handle_world_cocreation_turn(db, task):
+    from infrastructure.tasks.facade import require_task_checkpoint_session
+    from modules.project.facade import require_active_project
+    from modules.world.schemas import (
+        WorldCocreationTurnTaskRequest,
+        WorldDesignIterationRequest,
+    )
+    from modules.world.services.worldbuilding.cocreation_session_service import (
+        WorldCocreationSessionService,
+    )
+    from modules.world.services.worldbuilding.world_generation_center_service import (
+        WorldGenerationCenterService,
+    )
+
+    require_task_checkpoint_session(db)
+    if (
+        task.task_type != "world_cocreation_turn"
+        or task.status != "running"
+        or not task.lease_id
+    ):
+        raise ValueError("invalid co-creation task lease")
+    meta = dict(task.meta or {})
+    data = WorldCocreationTurnTaskRequest.model_validate(
+        {**meta, "operation_id": str(task.id)}
+    )
+    await require_active_project(db, data.novel_id)
+    sessions = WorldCocreationSessionService()
+    session = await sessions._require_session(db, data.novel_id, data.session_id)
+    completed = (task.result or {}).get("_cocreation_turn_response")
+    if isinstance(completed, dict):
+        return completed
+    snapshot = meta.get("llm_execution_snapshot")
+    if not isinstance(snapshot, dict) or not snapshot:
+        raise ValueError("llm_execution_snapshot is required")
+    author = next(
+        (item.content for item in reversed(data.messages) if item.role == "user"), None
+    )
+    task.update_progress(0.05)
+    service = WorldGenerationCenterService()
+    if data.mode == "design":
+        result = await service.design_iteration(
+            db,
+            WorldDesignIterationRequest.model_validate(
+                {**data.model_dump(), "action": data.session_action}
+            ),
+            llm_execution_snapshot=snapshot,
+        )
+        reply = result.summary
+    else:
+        result = await service.chat(db, data, llm_execution_snapshot=snapshot)
+        reply = result.reply
+    # A single fenced commit saves both terminal messages and the recoverable result.
+    session = await sessions._require_session(
+        db, data.novel_id, data.session_id, lock=True
+    )
+    if session.status != "active":
+        raise ValueError("会话已归档，生成结果未写入")
+    current_checkpoint = (
+        str(session.current_checkpoint_id) if session.current_checkpoint_id else None
+    )
+    if current_checkpoint != data.expected_checkpoint_id:
+        from core.errors import ConflictError
+
+        raise ConflictError(
+            "阶段成果已变化，本轮回复未写入", code="checkpoint_pointer_drift"
+        )
+    kwargs = {
+        "task_id": str(task.id),
+        "context_confirmation_id": data.context_confirmation_id,
+        "action": data.session_action,
+    }
+    if author:
+        await sessions.append_message(
+            db, session, role="author", content=author, **kwargs
+        )
+    await sessions.append_message(
+        db,
+        session,
+        role="assistant",
+        content=reply,
+        outcome_kind="world_design_preview" if data.mode == "design" else None,
+        **kwargs,
+    )
+    response = {
+        **result.model_dump(mode="json"),
+        "mode": data.mode,
+        "session_id": data.session_id,
+    }
+    task.result = {**(task.result or {}), "_cocreation_turn_response": response}
+    task.update_progress(1.0)
+    await db.commit()
+    return response
+
+
+@task_handler(
     "world_generation_suggestion",
     recovery_policy="auto_requeue",
     max_attempts=2,
@@ -527,11 +627,7 @@ async def handle_world_generation_suggestion(db, task):
         else:
             label = (payload_json.get("page") or {}).get("title") or "资料页候选"
         last_user = next(
-            (
-                message
-                for message in reversed(data.messages)
-                if message.role == "user"
-            ),
+            (message for message in reversed(data.messages) if message.role == "user"),
             None,
         )
         await WorldCocreationSessionService().record_generation_outcome(

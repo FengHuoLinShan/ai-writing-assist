@@ -44,6 +44,7 @@ const WORKFLOW_LABELS = {
   writing_targeted_revision: "定向返修",
   plot_analysis: "剧情分析",
   world_generation_suggestion: "生成世界设定建议",
+  world_cocreation_turn: "世界共创",
   world_validation: "世界书校验",
   scene_fusion_preview: "生成场景融合预览",
   scene_simulation_runtime: "场景推演",

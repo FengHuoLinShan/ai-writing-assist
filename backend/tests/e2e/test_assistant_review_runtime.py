@@ -35,12 +35,19 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
 
 
 @pytest.mark.parametrize(
-    "cancel_review,world_review", [(False, False), (True, False), (False, True)]
+    "cancel_review,world_review,cancel_via_tasks",
+    [
+        (False, False, False),
+        (True, False, False),
+        (True, False, True),
+        (False, True, False),
+    ],
 )
 async def test_agent_runs_read_only_review_without_confirmation_or_extra_budget(
     monkeypatch,
     cancel_review,
     world_review,
+    cancel_via_tasks,
 ):
     engine = create_async_engine(DATABASE_URL, pool_size=4, max_overflow=0)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -224,12 +231,22 @@ async def test_agent_runs_read_only_review_without_confirmation_or_extra_budget(
                     stored = await db.get(AssistantRun, uuid.UUID(run_id))
                     stored.checkpoint_json = {"evidence_refs": {}}
                     await db.flush()
-                    await stop_run(db, uuid.UUID(run_id), nid)
+                    if cancel_via_tasks:
+                        from infrastructure.tasks.api import cancel_task
+
+                        response = await cancel_task(
+                            uuid.UUID(run_id), db=db, novel_id=str(nid)
+                        )
+                        assert response.cancelled
+                    else:
+                        await stop_run(db, uuid.UUID(run_id), nid)
                 release_review.set()
             finished = await asyncio.wait_for(runner, timeout=15)
         if cancel_review:
             assert finished.status == "cancelled"
             async with sessions() as db:
+                if cancel_via_tasks:
+                    await AssistantService().get_run(db, str(nid), run_id)
                 stored = await db.get(AssistantRun, uuid.UUID(run_id))
                 child = await db.scalar(
                     select(AsyncTask).where(

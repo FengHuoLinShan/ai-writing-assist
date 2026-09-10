@@ -126,7 +126,7 @@ const currentPositions = computed(() => {
     ["阶段", value.currentPhase ? phaseDisplayLabel(value.currentPhase) : null],
     ["步骤", value.step ? phaseDisplayLabel(value.step) : null], ["轮次", value.currentRound],
     ["章节范围", value.currentChapterRange], ["章节", value.currentChapter],
-    ["处理批次", value.currentWindow], ["当前步骤", value.currentOperation ? phaseDisplayLabel(value.currentOperation) : null],
+    ["当前步骤", value.currentOperation ? phaseDisplayLabel(value.currentOperation) : null],
     ["整理状态", value.qualityStatus === "partial" ? "部分完成" : value.qualityStatus === "complete" ? "已完成" : null],
   ].filter((entry) => entry[1] != null && entry[1] !== "").map(([label, value]) => [label, formatAuthorFacingDiagnostic(value)])
 })

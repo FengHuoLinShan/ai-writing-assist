@@ -423,7 +423,7 @@ export async function updateRevealStatus(id, newStatus) {
 // 信息推进分配（vanilla _bindEvents L2705-2730）
 // ============================================================
 
-export async function assignInformationPlan(planId, kind, threadId, unassignedForeshadowing, unassignedReveals) {
+export async function assignInformationPlan(planId, kind, threadId, unassignedForeshadowing, unassignedReveals, { refresh = true } = {}) {
   const scope = captureOutlineOperationScope()
   const toast = getToast()
   const api = getApi()
@@ -440,7 +440,7 @@ export async function assignInformationPlan(planId, kind, threadId, unassignedFo
         related_thread_ids: Array.from(new Set([...(plan?.related_thread_ids || []), threadId])),
       })
     }
-    return await finishMutation(scope, "信息推进计划已归入剧情线")
+    return refresh ? await finishMutation(scope, "信息推进计划已归入剧情线") : ownsOutlineOperationScope(scope)
   } catch (err) {
     if (!ownsOutlineOperationScope(scope)) return false
     toast(err.message || "分配失败", "error")
@@ -512,7 +512,8 @@ export function editThread(id, threadsList) {
     <div class="form-group">
       <label>类型</label>
       <select class="form-select" id="edit-thread-type">
-        <option value="main" ${(thread.thread_type || "main") === "main" ? "selected" : ""}>主线</option>
+        ${!["main", "sub", "background"].includes(thread.thread_type) ? `<option value="${esc(thread.thread_type || '')}" selected>未分类（保留现值）</option>` : ''}
+        <option value="main" ${thread.thread_type === "main" ? "selected" : ""}>主线</option>
         <option value="sub" ${thread.thread_type === "sub" ? "selected" : ""}>支线</option>
         <option value="background" ${thread.thread_type === "background" ? "selected" : ""}>暗线</option>
       </select>

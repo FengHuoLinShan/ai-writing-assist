@@ -8,7 +8,9 @@ World 数据访问层 — v3 因果时空网
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import re
 import uuid
 from collections import OrderedDict
 from collections.abc import Sequence
@@ -96,8 +98,22 @@ class CoreEntityRepository:
             CoreEntity.public_info.ilike(like_expr),
             CoreEntity.hidden_truth.ilike(like_expr),
         )
+        quoted = (
+            "(?:"
+            + "|".join(
+                re.escape(json.dumps(normalized, ensure_ascii=ascii_only))
+                for ascii_only in (False, True)
+            )
+            + ")"
+        )
+        exact_alias = aliases_text.regexp_match(
+            r'(?:"alias"\s*:\s*' + quoted + r"|(?:\[|,)\s*" + quoted + r"\s*(?:,|\]))",
+            flags="i",
+        )
         return case(
-            (CoreEntity.name == normalized, 4),
+            (func.lower(CoreEntity.name) == normalized.lower(), 6),
+            (exact_alias, 5),
+            (CoreEntity.name.istartswith(normalized, autoescape=True), 4),
             (CoreEntity.name.ilike(like_expr), 3),
             (aliases_text.ilike(like_expr), 2),
             (description_match, 1),
@@ -331,6 +347,7 @@ class CoreEntityRepository:
                     or_(
                         CoreEntity.name.ilike(like_expr),
                         aliases_text.ilike(like_expr),
+                        self._entity_search_rank(query) >= 5,
                         CoreEntity.summary.ilike(like_expr),
                         CoreEntity.public_info.ilike(like_expr),
                         CoreEntity.hidden_truth.ilike(like_expr),

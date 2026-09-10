@@ -118,6 +118,17 @@ const attentionCategories = computed(() => [
 ])
 const hasProjectedAttention = computed(() => Array.isArray(attention.value.items))
 const attentionRows = computed(() => hasProjectedAttention.value ? attention.value.items : [])
+const attentionExpanded = ref(false)
+const attentionGroups = computed(() => {
+  const groups = new Map()
+  const rank = item => /conflict/.test(item.source_kind || item.kind || item.key) ? 0 : item.relevance === 'current_scene' ? 1 : 2
+  for (const item of [...attentionRows.value].sort((a, b) => rank(a) - rank(b))) {
+    const key = `${sourceLabel(item)}:${item.workflow_id || item.source_batch_id || ''}`
+    if (!groups.has(key)) groups.set(key, { key, label: sourceLabel(item), items: [] })
+    groups.get(key).items.push(item)
+  }
+  return [...groups.values()].slice(0, 5)
+})
 const attentionTotal = computed(() => hasProjectedAttention.value
   ? Number(attention.value.actionable_total || 0)
   : Number(attention.value.total || 0))
@@ -477,7 +488,11 @@ function retry() {
         <div><h2 id="today-attention-title">需要你决定</h2><p>按正在写的场景优先；不会自动修改作品。</p></div>
         <span v-if="summary && attentionTotal" class="today-count">{{ attentionTotal }}</span>
       </div>
-      <div v-if="attentionRows.length" class="today-attention-list">
+      <div v-if="attentionRows.length && !attentionExpanded" class="today-attention-list">
+        <article v-for="group in attentionGroups" :key="group.key" class="today-attention-row"><div class="today-attention-row__copy"><strong>{{ group.label }} · {{ group.items.length }} 项</strong><span class="badge">{{ relevanceLabel(group.items[0].relevance) }}</span><span class="badge">{{ actionLabel(group.items[0].author_action) }}</span><p>{{ group.items[0].title }}：{{ group.items[0].summary }}</p></div><button class="btn" @click="openAttention(group.items[0])">查看并决定</button></article>
+        <button class="btn btn-ghost" @click="attentionExpanded = true">展开全部待决定事项（{{ attentionTotal }}）</button>
+      </div>
+      <div v-else-if="attentionRows.length" class="today-attention-list">
         <article v-for="item in attentionRows" :key="item.key" class="today-attention-row">
           <div class="today-attention-row__copy">
             <span class="today-attention-row__source">{{ sourceLabel(item) }}</span>

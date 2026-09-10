@@ -1,19 +1,24 @@
 <template>
-  <main class="atlas-workspace" :class="{ 'atlas-focused': structureState.focused }">
+  <main ref="toolsRoot" class="atlas-workspace" :class="{ 'atlas-focused': structureState.focused }">
+    <WorkspaceToolCard title="地图工具" :context="mapToolContext" :status="currentMapToolbar?.status || ''" :actions="mapToolActions" :more-actions="mapMoreTools" action-prefix="map-tool" @select="runMapTool" />
     <button v-if="fromChapter" class="btn btn-sm atlas-writing-return" @click="returnToWriting">回到第 {{ fromChapter }} 章写作</button>
     <header v-if="!structureState.focused" class="atlas-header">
       <div>
         <h1>地图</h1>
         <p v-if="!atlas.nodes.length && !currentRun">从已知地点建立空间示意，在同一张地图上添加底图与地点配图。</p>
       </div>
-      <div class="atlas-primary-actions">
-        <button :class="['btn', atlas.nodes.length ? 'btn-sm' : 'btn-primary']" :disabled="loading || busy" @click="startCreateMap">新建地图</button>
-        <button v-if="activeNode && (activeNode.current_revision_id || activePage)" class="btn btn-sm" :disabled="writeLocked || runUnfinished" @click="startRun(false)">{{ mapCapabilities?.image_generation?.available === false ? '准备画面说明' : activeNode.current_revision_id ? '添加地图画面' : '生成图片新候选' }}</button>
-        <button class="btn btn-sm" :disabled="writeLocked || runUnfinished || mapCapabilities?.upload?.available === false" @click="openUpload">上传地图</button>
-      </div>
+
     </header>
     <p v-if="mapCapabilities?.upload?.available === false" class="atlas-alert" role="status">{{ mapCapabilities.upload.reason }} 空间示意仍可编辑，画面说明可复制后在外部使用。</p>
 
+    <details v-if="activeNode && !structureState.reader && !structureState.focused" class="atlas-image-tools card">
+      <summary>图片与底图</summary>
+      <div class="atlas-primary-actions">
+        <button v-if="activeNode.current_revision_id || activePage" class="btn" :disabled="writeLocked || runUnfinished" @click="startRun(false)">{{ mapCapabilities?.image_generation?.available === false ? "准备画面说明" : "添加地图画面" }}</button>
+        <button class="btn" :disabled="writeLocked || runUnfinished || mapCapabilities?.upload?.available === false" @click="openUpload">上传地图图片</button>
+        <button v-if="structureEnabled && nodeImages.length" class="btn" @click="structureEditor?.runToolbarAction('image-settings')">设置底图与地点配图</button>
+      </div>
+    </details>
     <form v-if="creatingMap" class="card atlas-options" aria-label="新建空间地图" @submit.prevent="createMap">
       <label>地图名称<input v-model="newMap.title" class="form-input" maxlength="200" required /></label>
       <label>范围<select v-model="newMap.level" class="form-select"><option value="region">区域</option><option value="city">城市</option><option value="district">街区</option><option value="street">街道</option></select></label>
@@ -109,7 +114,7 @@
         </header>
 
         <button v-if="!structureEnabled && structureLevels.includes(activeNode.level)" class="btn btn-sm" @click="editStructureNodeId = activeNode.id">补建空间示意</button>
-        <MapStructureEditor v-if="structureEnabled" :key="projectId + ':' + activeNode.id" ref="structureEditor" :project-id="projectId" :node="activeNode" :known-nodes="adoptedNodes" :images="nodeImages" :has-reference="Boolean(activePage)" :initial-feature-id="initialFeatureId" :initial-revision-id="initialRevisionId" :review-image-id="tab === 'review' && activePage?.review_status === 'candidate' ? activePage.id : ''" :evidence-refs="focusedSelection.refs.value" @pin-evidence="focusedSelection.add" @clear-evidence="focusedSelection.clear" @saved="refreshAtlasOnly" @open-node="openMapNode" @select-feature="persistFeatureFocus" @reference-visible="referenceVisible = $event" @state="structureState = $event" />
+        <MapStructureEditor v-if="structureEnabled" :key="projectId + ':' + activeNode.id" ref="structureEditor" external-tools :project-id="projectId" :node="activeNode" :known-nodes="adoptedNodes" :images="nodeImages" :has-reference="Boolean(activePage)" :initial-feature-id="initialFeatureId" :initial-revision-id="initialRevisionId" :review-image-id="tab === 'review' && activePage?.review_status === 'candidate' ? activePage.id : ''" :evidence-refs="focusedSelection.refs.value" @pin-evidence="focusedSelection.add" @clear-evidence="focusedSelection.clear" @saved="refreshAtlasOnly" @open-node="openMapNode" @select-feature="persistFeatureFocus" @reference-visible="referenceVisible = $event" @state="updateStructureState" />
         <template v-if="activePage && !structureState.reader">
         <label v-if="tab === 'atlas' && oldPages.length && (!structureEnabled || referenceVisible)" class="atlas-compare-toggle"><input v-model="compareAdopted" type="checkbox" />对比已有图片</label>
         <div v-if="!structureEnabled || referenceVisible" :class="['atlas-images', { compare: comparingImages }]">
@@ -258,8 +263,11 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
-import { getApi, getConfirm, getRouteQuery, getRouter, getToast } from "../../bridge/index.js"
+import { getConfirmAction, getApi, getConfirm, getRouteQuery, getRouter, getToast } from "../../bridge/index.js"
+import { confirmAsync } from "../../../shared/confirmAsync.js"
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
+import WorkspaceToolCard from "../../components/WorkspaceToolCard.vue"
+import { focusWorkspaceTool } from "../../components/workspaceTools.js"
 import MapStructureEditor from "./MapStructureEditor.vue"
 import { useEvidenceSelection } from "../../composables/useEvidenceSelection.js"
 import { useModalDialog } from "../../composables/useModalDialog.js"
@@ -276,6 +284,7 @@ const newMap = reactive({ title: "", level: "region", parent_id: "" })
 const structureEditor = ref(null)
 const structureState = ref({ dirty: false, revision: null })
 const editStructureNodeId = ref(null)
+const toolsRoot = ref(null)
 const referenceVisible = ref(false)
 const loading = ref(true)
 const busy = ref(false)
@@ -407,10 +416,10 @@ const referenceChoices = computed(() => flattenNodes(atlas.value.nodes || []).fl
     .map(page => ({ id: page.id, label: `${node.title} · ${formatDate(page.created_at)}` }))
 )))
 
-function canLeaveStructure() { return structureEditor.value?.canLeave?.() !== false }
+async function canLeaveStructure() { return (await structureEditor.value?.canLeave?.()) !== false }
 function startCreateMap() { creatingMap.value = true }
 async function createMap() {
-  if (!canLeaveStructure()) return
+  if (!await canLeaveStructure()) return
   busy.value = true
   try {
     const node = await api.world.createMapNode(props.projectId, { title: newMap.title.trim(), level: newMap.level, parent_id: newMap.parent_id || null })
@@ -424,7 +433,7 @@ async function refreshAtlasOnly() {
   if (mounted && projectId === props.projectId) atlas.value = result
 }
 async function openMapNode(nodeId) {
-  if (!canLeaveStructure()) return
+  if (!await canLeaveStructure()) return
   tab.value = 'atlas'
   const node = adoptedNodes.value.find(node => node.id === nodeId)
   if (node) { activeNodeId.value = node.id; activePageId.value = node.pages?.[0]?.id || null }
@@ -452,7 +461,7 @@ function historyStatusLabel(page) {
   if (page.generation_status === "retry_requires_confirmation") return "需确认费用后重试"
   return "等待决定"
 }
-async function selectNode(node) { if (node.id !== activeNodeId.value && !canLeaveStructure()) return; if (node.id !== activeNodeId.value) referenceVisible.value = false; if (currentRun.value?.status === "prompt_review" && !await savePrompt()) return; activeNodeId.value = node.id; const page = node.pages?.find(item => item.review_status === "candidate") || node.pages?.[0]; activePageId.value = page?.id || null }
+async function selectNode(node) { if (node.id !== activeNodeId.value && !await canLeaveStructure()) return; if (node.id !== activeNodeId.value) referenceVisible.value = false; if (currentRun.value?.status === "prompt_review" && !await savePrompt()) return; activeNodeId.value = node.id; const page = node.pages?.find(item => item.review_status === "candidate") || node.pages?.[0]; activePageId.value = page?.id || null }
 function annotationStyle(item) { return { left: `${item.position_x * 100}%`, top: `${item.position_y * 100}%` } }
 function imageCanvasStyle(page) {
   const width = Number(page?.width)
@@ -844,13 +853,13 @@ function setError(err) {
 function clearError() { error.value = ""; errorCode.value = "" }
 function openImageSettings() { getRouter()?.navigate("settings") }
 async function viewRun(runId) {
-  if (!canLeaveStructure()) return
+  if (!await canLeaveStructure()) return
   if (writeLocked.value || !runId || runId === currentRun.value?.id) return
   tab.value = "review"
   await loadAll(runId === latestRunId.value ? null : runId)
 }
 async function selectTab(value) {
-  if (value !== tab.value && !canLeaveStructure()) return
+  if (value !== tab.value && !await canLeaveStructure()) return
   if (currentRun.value?.status === "prompt_review" && !await savePrompt()) return
   tab.value = value
 }
@@ -886,16 +895,61 @@ watch(activeNode, (node, previous) => {
   if (!node) return
   nodeEdit.title = node.title; nodeEdit.parent_id = node.parent_id || null; nodeEdit.level = node.level; nodeEdit.before_node_id = "__keep__"
 })
-useLeaveGuard(() => {
-  if (!canLeaveStructure()) return false
+useLeaveGuard(async () => {
+  if (!await canLeaveStructure()) return false
   if (uploading.value) return false
-  if (promptDirty.value && !confirm("画面说明还没有保存，确定离开吗？")) return false
-  return !uploadDraftDirty.value || confirm("放弃未上传的地图？")
+  if (promptDirty.value && !await confirmAsync("画面说明还没有保存，确定离开吗？", "确认离开", { confirmAction: getConfirmAction() })) return false
+  return !uploadDraftDirty.value || await confirmAsync("放弃未上传的地图？", "确认放弃", { confirmAction: getConfirmAction() })
 })
 function warnBeforeUnload(event) { if (!promptDirty.value && !uploadDraftDirty.value && !uploading.value) return; event.preventDefault(); event.returnValue = "" }
 onMounted(() => loadAll(getRouteQuery().get('run_id')))
 onMounted(() => globalThis.addEventListener("beforeunload", warnBeforeUnload))
 onBeforeUnmount(() => { mounted = false; clearTimeout(pollTimer); clearTimeout(promptTimer); uploadController?.abort(); globalThis.removeEventListener("beforeunload", warnBeforeUnload); globalThis.removeEventListener("pointermove", dragAnnotation); globalThis.removeEventListener("pointerup", endAnnotationDrag); if (uploadPreview.value) URL.revokeObjectURL(uploadPreview.value); for (const pageId of Object.keys(imageUrls)) releaseImage(pageId) })
+
+const currentMapToolbar = computed(() => structureState.value.nodeId === activeNode.value?.id ? structureState.value.toolbar : null)
+const mapToolContext = computed(() => currentMapToolbar.value?.context || activeNode.value?.title || "我的地图")
+const mapMoreTools = computed(() => {
+  if (currentMapToolbar.value?.restricted) return currentMapToolbar.value.moreActions || []
+  return [
+    { key: "new-map", label: "新建地图", disabled: loading.value || busy.value },
+    { key: "upload", label: "上传地图图片", disabled: writeLocked.value || runUnfinished.value || mapCapabilities.value?.upload?.available === false },
+    ...(currentMapToolbar.value?.moreActions || []),
+    ...(!structureEnabled.value && historyPages.value.length ? [{ key: "image-history", label: "图片历史" }] : []),
+  ].filter(item => !mapToolActions.value.some(action => action.key === item.key))
+})
+const mapToolActions = computed(() => {
+  if (loading.value) return [{ key: "loading", label: "正在读取地图…", primary: true, disabled: true }]
+  const child = currentMapToolbar.value
+  if (child?.protected) return child.actions
+  if (error.value) return [{ key: "retry", label: connectionError.value ? "检查图片连接" : "重试加载地图", primary: true }, ...(child?.actions || []).filter(item => !item.primary)]
+  if (promptDirty.value || promptConflict.value || currentRun.value?.status === "prompt_review") return [{ key: "prompts", label: "检查画面说明", primary: true }, { key: "image-progress", label: "查看生成进度" }]
+  let primary
+  if (runActive.value || canResume.value) primary = { key: "image-progress", label: canResume.value ? "继续未完成的生成" : "查看生成进度" }
+  if (!primary && child?.actions[0]?.key === "candidates") return child.actions
+  if (!primary && activePage.value?.review_status === "candidate") primary = { key: "image-review", label: "检查图片候选" }
+  const base = child?.actions || [
+    activePage.value && structureLevels.includes(activeNode.value?.level) ? { key: "spatial", label: "查看空间示意", primary: true } : { key: "new-map", label: "新建地图", primary: true },
+    { key: "upload", label: "上传地图图片", disabled: writeLocked.value || runUnfinished.value || mapCapabilities.value?.upload?.available === false },
+    ...(activePage.value ? [{ key: "images", label: "添加新画面" }, { key: "image-sources", label: "查看绘制依据" }] : []),
+  ]
+  return primary ? [{ ...primary, primary: true }, ...base.filter(item => item.key !== primary.key).map(item => ({ ...item, primary: false }))] : base
+})
+function updateStructureState(value) {
+  if (value.nodeId === activeNode.value?.id) structureState.value = value
+}
+async function runMapTool(key) {
+  if (![...mapToolActions.value, ...mapMoreTools.value].some(item => item.key === key && !item.disabled)) return
+  if (key === "new-map") { startCreateMap(); return focusWorkspaceTool(toolsRoot.value, '[aria-label="新建空间地图"]') }
+  if (key === "spatial") { editStructureNodeId.value = activeNode.value.id; return focusWorkspaceTool(toolsRoot.value, ".map-editor") }
+  if (key === "compare-images") { if (oldPages.value.length) compareAdopted.value = true; return focusWorkspaceTool(toolsRoot.value, ".atlas-compare-controls") }
+  if (key === "upload") return openUpload()
+  if (key === "retry") return connectionError.value ? openImageSettings() : loadAll()
+  const selectors = { images: ".atlas-image-tools", prompts: ".atlas-prompt-review", "image-progress": ".atlas-run", "image-review": ".atlas-review-actions", "image-sources": ".atlas-evidence", "image-history": ".atlas-history" }
+  if (key === "image-review" && structureEditor.value && !referenceVisible.value) await structureEditor.value.runToolbarAction("reference")
+  if (selectors[key]) return focusWorkspaceTool(toolsRoot.value, selectors[key])
+  if (currentMapToolbar.value) return structureEditor.value?.runToolbarAction(key)
+}
+watch(activeNodeId, () => { structureState.value = { dirty: false, revision: null, reader: false, focused: false } })
 </script>
 
 <style scoped>

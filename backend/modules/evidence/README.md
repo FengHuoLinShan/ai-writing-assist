@@ -80,3 +80,8 @@ read_organization_evidence 只返回原整理状态与恢复投影，不把任�
 分别标注历史非当前事实、规划非已发生故事。完整作者地图也不能进入带截止点的资料包；章节
 阅读预览继续由 World 提供。地图读取附最近20张图片的状态及结果引用，不返回私有 URL、
 存储 key 或生图 Prompt。正文精确回读、排除、同 owner 固定 RP 来源版本约束不变。
+
+共享一跳提名使用明确的32768输出上限与600秒截止，首轮传完整schema并使用低强度low推理；恢复仍只重做未完成提名，不丢弃已查原文。
+### World 跨域复核消费
+
+World 使用确认后保留的 compiled items 作为实际语义输入，Focused Evidence 继续只读且限深 0/1。Story/map 规划目标的 inspect 仅向无 Scene 截止的作者开放；其他视角因没有对应投影而失败关闭。原文 pinned_ref 只取经验证的 highlight 区间，不把整个段落追加到选择中；回执与修订仍归 World，Evidence 不写跨域资产。

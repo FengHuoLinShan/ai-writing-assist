@@ -213,6 +213,7 @@ Scene、本章、项目级，再按需要决定、严重度、更新时间和稳
 `project_author_tasks` 只有标题、可选备注/日期、`open/completed/archived` 和一个可选来源。
 创建与更新 schema 拒绝 `owner_id` / `novel_id` 和任意 URL；来源只能是
 `world_page | world_entity | writing_chapter | outline_scene`，并通过对应模块稳定 facade 验证属于同一项目。
+章节来源通过 Writing facade 的最小合法正文投影读取最新标题；创建、列表和首页共用同一来源校验，不读取完整正文。
 任务 ID 读写同时过滤 `novel_id`，浏览器请求先过当前 owner 门禁；不硬删除，失效来源只标记不可用并保留作者文字。
 
 单个和批量永久删除都必须显式提交 `confirmed=true`，且只能删除已在回收站的
@@ -309,3 +310,9 @@ AuthorTaskService 的 today/inbox/later/completed/archived 与分页规则，每
 只接受完整项目授权，不扩大已有 Context 或排除范围。扫描 task 的 `group_receipts` 同事务
 保存每组选择与结果：成功裁决的相同选择直接重放回执，改变选择拒绝，失败组可继续处理。
 界面按原 task 打开比较，不把新一轮扫描结果替换为旧扫描的依据。
+
+### 作者待决定与去重回看
+
+首页将当前页待决定事项按来源聚合为最多五组，并保留原始事项和后续领域入口。`GET /api/projects/{project_id}/smart-dedup/scans` 通过任务 facade 返回该项目最近二十次扫描身份、时间和状态，经原项目 owner 门禁；完整结果仍走受保护的任务查询。去重确认集合按不重叠批次顺序执行，逐批指纹重验；过期或无明确回执的组暂停，不重写原裁决。浏览器仅保留按账户、项目、扫描隔离的裁决位置和回执。
+
+去重成功回执与批准的原始裁决保存在扫描任务 result.workbench_receipts，同一事务落盘；重放相同裁决返回已有回执，改变已完成裁决必须重新扫描。review-state 读取这些回执，并兼容已有二元 keep_separate 账本，避免换浏览器后把已完成组当作未处理。

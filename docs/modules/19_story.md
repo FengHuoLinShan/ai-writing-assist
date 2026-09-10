@@ -66,6 +66,7 @@ model，便于作者另存或重新应用。
 Scene 融合的请求 Scene 集合还必须与 confirmation 中的 pinned Scene 引用完全一致；provider
 只接收重新物化的 confirmed Markdown，不再旁路加载完整 World/Outline 资料。
 
+总览手工版本可携带既有结构的来源版本标识，源结构更新只提示核对，不双向覆盖。简单结构生成使用 main/sub/background 分类及显式兼容映射，参数版本 phase3_structure_simple_v3。
 ## 复核来源接口（ADR-0022）
 
 `modules.story.facade` 新增只读反查 `list_plot_threads_referencing_entities(db, novel_id, entity_ids)`，
@@ -83,3 +84,7 @@ ADR-0023 注册 Story 自有的版本化总纲、场景规划、人物卡和剧�
 信息计划编辑经原服务和版本预检。新剧本 basis v2 纳入章节/Scene/关联剧情线重叠的信息计划；
 既有 v1 按原算法回验，新增 hash 字段不会使旧剧本自动失效。开放结尾的剧情线从已知起点延续。
 结构采用/退役/移动保存旧受影响 Scene，再合并新范围到同事务待检标记，结果注明实际检查上限。
+
+### 世界变更的结构来源
+
+Story 经 list_world_dependencies/read_world_dependency 提供故事线、篇章纲、Scene 与当前总纲的只读版本依据，区分声明引用与名称提及。World 聚合复核与遗漏，Story 保留本域编辑和修订责任；检查不会改写故事结构或连续性状态。没有读者/场景可见性投影的规划资料不进入这些受限视角。

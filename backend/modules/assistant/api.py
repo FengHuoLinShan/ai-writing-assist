@@ -35,6 +35,7 @@ service = AssistantService()
 async def recheck_notice(
     db: DbSession, novel_id: UUID, notice_id: UUID, data: NoticeRecheck
 ):
+    await require_active_project(db, str(novel_id))
     from modules.assistant.proactive import recheck_notice as recheck
 
     return await recheck(db, str(novel_id), notice_id, data.operation_id)
@@ -98,6 +99,7 @@ async def capabilities(db: DbSession, novel_id: UUID):
 
 @router.post("/sessions", status_code=201)
 async def create_session(db: DbSession, data: SessionCreate):
+    await require_active_project(db, str(data.novel_id))
     return await service.create_session(db, data)
 
 
@@ -146,7 +148,7 @@ async def list_messages(
     search: str | None = Query(None, max_length=200),
 ):
     await require_active_project(db, str(novel_id))
-    rows, total = await service.sessions.list_messages(
+    rows, total, offset = await service.sessions.list_messages(
         db,
         novel_id=str(novel_id),
         session_id=str(session_id),
@@ -154,16 +156,18 @@ async def list_messages(
         limit=limit,
         search=search,
     )
-    return {"items": rows, "total": total}
+    return {"items": rows, "total": total, "offset": offset}
 
 
 @router.post("/sessions/{session_id}/turns", status_code=202, response_model=RunResponse)
 async def submit_turn(db: DbSession, session_id: UUID, data: TurnCreate):
+    await require_active_project(db, str(data.novel_id))
     return await service.submit(db, str(session_id), data, str(current_account_id()))
 
 
 @router.get("/runs/{run_id}", response_model=RunResponse)
 async def get_run(db: DbSession, run_id: UUID, novel_id: UUID):
+    await require_active_project(db, str(novel_id))
     return await service.get_run(db, str(novel_id), str(run_id))
 
 
@@ -171,6 +175,7 @@ async def get_run(db: DbSession, run_id: UUID, novel_id: UUID):
 async def get_run_events(
     db: DbSession, run_id: UUID, novel_id: UUID, after: int = Query(0, ge=0)
 ):
+    await require_active_project(db, str(novel_id))
     return await service.get_events(db, str(novel_id), str(run_id), after)
 
 
@@ -204,21 +209,25 @@ async def stop_run(db: DbSession, run_id: UUID, novel_id: UUID):
 
 @router.post("/batches/{batch_id}/decide")
 async def approve_batch(db: DbSession, batch_id: UUID, data: BatchDecision):
+    await require_active_project(db, str(data.novel_id))
     return await decide_batch(db, str(batch_id), data, str(current_account_id()))
 
 
 @router.post("/batches/{batch_id}/recheck", response_model=RunResponse, status_code=202)
 async def recheck_batch(db: DbSession, batch_id: UUID, data: BatchRecheck):
+    await require_active_project(db, str(data.novel_id))
     return await service.recheck_batch(db, str(batch_id), data, str(current_account_id()))
 
 
 @router.post("/runs/{run_id}/resume", status_code=202, response_model=RunResponse)
 async def resume_run(db: DbSession, run_id: UUID, data: RunResume):
+    await require_active_project(db, str(data.novel_id))
     return await service.resume(db, str(run_id), data, str(current_account_id()))
 
 
 @router.get("/policy")
 async def get_policy(db: DbSession, novel_id: UUID):
+    await require_active_project(db, str(novel_id))
     from modules.assistant.proactive import policy
 
     return await policy(db, str(novel_id))
@@ -226,6 +235,7 @@ async def get_policy(db: DbSession, novel_id: UUID):
 
 @router.put("/policy")
 async def update_policy(db: DbSession, data: ProactivePolicyUpdate):
+    await require_active_project(db, str(data.novel_id))
     from modules.assistant.proactive import save_policy
 
     return await save_policy(db, str(data.novel_id), data.policy)
@@ -233,6 +243,7 @@ async def update_policy(db: DbSession, data: ProactivePolicyUpdate):
 
 @router.get("/notices")
 async def get_notices(db: DbSession, novel_id: UUID):
+    await require_active_project(db, str(novel_id))
     from modules.assistant.proactive import list_notices
 
     return await list_notices(db, str(novel_id))
@@ -240,6 +251,7 @@ async def get_notices(db: DbSession, novel_id: UUID):
 
 @router.post("/notices/{notice_id}/decide")
 async def update_notice(db: DbSession, notice_id: UUID, data: NoticeDecision):
+    await require_active_project(db, str(data.novel_id))
     from modules.assistant.proactive import decide_notice
 
     return await decide_notice(db, str(notice_id), data)

@@ -143,12 +143,14 @@ class WorldCocreationMessageResponse(BaseModel):
 class WorldCocreationMessageListResponse(BaseModel):
     items: list[WorldCocreationMessageResponse]
     total: int
+    offset: int = 0
 
 
 class WorldCocreationSessionDetailResponse(BaseModel):
     session: WorldCocreationSessionResponse
     messages: list[WorldCocreationMessageResponse]
     message_total: int
+    last_operation: dict[str, str] | None = None
 
 
 class WorldCocreationMessageCreateRequest(BaseModel):

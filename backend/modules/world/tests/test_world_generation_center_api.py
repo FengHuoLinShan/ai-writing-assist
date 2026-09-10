@@ -1565,47 +1565,32 @@ async def test_pre_llm_projection_failure_closes_opened_context_snapshot(
     assert fake.requests == []
 
 
-async def test_page_catalog_projection_failure_closes_opened_context_snapshot(
+async def test_generation_catalog_does_not_read_unselected_page_bodies(
     async_client: AsyncClient,
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake = _install_fake_llm(monkeypatch)
-    novel_id = await _create_llm_project(async_client, "目录投影失败收尾")
+    novel_id = await _create_llm_project(async_client, "目录仅用已确认来源")
     from modules.world import api as world_api
 
-    class _BrokenCatalogPage:
-        title = "会在来源引用之后才失败"
-        page_type = "background"
-
-        @property
-        def free_text(self):
-            raise RuntimeError("page catalog projection failed")
-
-    async def list_broken_catalog(*_args, **_kwargs):
-        return [_BrokenCatalogPage()], 1
+    async def forbidden_full_catalog(*_args, **_kwargs):
+        raise AssertionError("must not reload all World Bible bodies")
 
     monkeypatch.setattr(
-        world_api._world_generation_service._bible,
-        "list_pages",
-        list_broken_catalog,
+        world_api._world_generation_service._bible, "list_pages", forbidden_full_catalog
     )
-
-    with pytest.raises(RuntimeError, match="page catalog projection failed"):
-        await async_client.post(
-            "/api/world/generation-center/chat",
-            json=_project_source_payload(novel_id),
-        )
-
+    response = await async_client.post(
+        "/api/world/generation-center/chat", json=_project_source_payload(novel_id)
+    )
+    assert response.status_code == 200, response.text
     snapshot = await db_session.scalar(
         select(ContextSnapshot)
         .where(ContextSnapshot.novel_id == uuid.UUID(novel_id))
         .order_by(ContextSnapshot.created_at.desc())
     )
-    assert snapshot is not None
-    assert snapshot.status == "failed"
-    assert snapshot.error_kind == "RuntimeError"
-    assert fake.requests == []
+    assert snapshot is not None and snapshot.status == "succeeded"
+    assert fake.requests
 
 
 @pytest.mark.asyncio
@@ -3412,6 +3397,7 @@ async def test_ask_world_citation_open_does_not_mask_infrastructure_failure() ->
         malformed,
     )
     assert opened.status == "unavailable"
+
 
 @pytest.fixture(autouse=True)
 def _exercise_generation_behavior_without_repeating_preflight(

@@ -79,6 +79,45 @@ beforeEach(() => {
 afterEach(() => resetBridgeOverrides())
 
 describe("WorldHealthPanel", () => {
+  it("读取问题失败不会显示通过，稍后再定的项可继续裁定", async () => {
+    const finding = { finding_id: "f1", severity: "warning", action: "AUTHOR-REQUIRED", category: "gap", message: "需要决定" }
+    api.world.listWorldValidationFindings.mockRejectedValueOnce(new Error("读取失败"))
+    const wrapper = mountPanel({ initialRun: completedRun({ findings: [finding] }) })
+    await flushPromises()
+    expect(wrapper.text()).toContain("读取失败")
+    expect(wrapper.text()).not.toContain("本次范围未发现需处理的问题")
+    api.world.listWorldValidationFindings.mockResolvedValue({ items: [finding], total: 1, dispositions: { f1: "deferred" } })
+    await wrapper.findAll("button").find((button) => button.text() === "重试").trigger("click")
+    await flushPromises()
+    expect(wrapper.get('[data-action="review-resolved-f1"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain("待处理：稍后再定")
+  })
+
+  it("问题筛选响应乱序时只显示最新结果，空筛选仍可以清除", async () => {
+    let releaseOld
+    const finding = { finding_id: "old", severity: "warning", action: "KEEP-GATE", category: "gap", message: "旧结果" }
+    api.world.listWorldValidationFindings.mockImplementationOnce(() => new Promise((resolve) => { releaseOld = resolve }))
+    const wrapper = mountPanel({ initialRun: completedRun({ findings: [finding] }) })
+    await flushPromises()
+    api.world.listWorldValidationFindings.mockResolvedValue({ items: [], total: 0, dispositions: {} })
+    await wrapper.get('[data-field="world-health-filter-severity"]').setValue("error")
+    await flushPromises()
+    releaseOld({ items: [finding], total: 1, dispositions: {} })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain("旧结果")
+    expect(wrapper.text()).toContain("当前筛选没有匹配")
+    expect(wrapper.find('[data-field="world-health-filter-severity"]').exists()).toBe(true)
+  })
+
+  it("续接语义校验复用原参考确认，不重新选范围", async () => {
+    const run = completedRun({ status: "failed", context_confirmation_id: "original-confirmation" })
+    api.world.continueWorldValidationRun.mockResolvedValue({ ...run, status: "queued" })
+    const wrapper = mountPanel({ initialRun: run, policyStatus: { active: true, semantic_enabled: true } })
+    await wrapper.get('[data-action="world-health-continue-run"]').trigger("click")
+    expect(api.world.continueWorldValidationRun).toHaveBeenCalledWith("run-1", "p1", { context_confirmation_id: "original-confirmation" })
+    expect(confirmAiReference).not.toHaveBeenCalled()
+  })
+
   it("用作者语言呈现空态和两种校验范围", () => {
     const wrapper = mountPanel()
 
@@ -360,4 +399,14 @@ describe("WorldHealthPanel", () => {
       expect(pollTaskProgress).toHaveBeenCalledWith(expect.objectContaining({ taskId: "task-1" }))
     })
   })
+})
+
+
+it("finishes lazy policy loading before resuming receipt polling", async () => {
+  api.world.getWorldValidationPolicyStatus.mockResolvedValue({ active: true, semantic_enabled: false })
+  api.world.getLatestWorldValidationRun = vi.fn(async () => null)
+  const wrapper = mountPanel({ policyStatus: { active: false, loaded: false } })
+  await flushPromises()
+  expect(wrapper.text()).not.toContain('正在读取校验政策')
+  expect(wrapper.get('[data-action="world-health-run-full"]').element.disabled).toBe(false)
 })

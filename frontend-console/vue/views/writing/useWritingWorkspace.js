@@ -682,8 +682,8 @@ export function useWritingWorkspace(props) {
     }[autoExtraction.stage] || ["scene_auto_extraction", "从正文整理场景"]
     try {
       const authorization = importAuthorizationPayload()
-      if (autoExtraction.targetedCompletion && ["deep", "world_objects"].includes(autoExtraction.stage)) {
-        authorization.targeted_completion = { enabled: true }
+      if (["deep", "world_objects"].includes(autoExtraction.stage)) {
+        authorization.targeted_completion = { enabled: false, defer: true }
       }
       const result = autoExtraction.stage === "deep"
         ? await api.imports.deepImport(
@@ -1450,6 +1450,8 @@ export function useWritingWorkspace(props) {
   }, { immediate: true })
 
   onMounted(async () => {
+    const organize = getRouteQuery().get("organize")
+    if (["deep", "scenes", "world_objects", "plot_structure"].includes(organize)) openAutoExtraction(organize)
     if (homeMode.value) return
     window.addEventListener("beforeunload", beforeUnload)
     window.addEventListener("pagehide", pageHide)

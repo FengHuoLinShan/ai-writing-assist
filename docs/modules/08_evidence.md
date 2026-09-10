@@ -390,6 +390,7 @@ future Scene 永不进入该输出；别名/关系全局对账仍属于 Phase 2b
 `CompileOptions`、冻结来源、每批预算及最大深度 0/1。Evidence 不依赖 imports，不携带
 采用权限。代码依次查根对象、验证并冻结直接关联名单、查读一层；受限
 `focused_evidence_neighbors` 模型步骤仅对已核验根证据提名，不选工具、扩大范围或写事实。
+该步骤从首轮附完整 schema，使用 low 推理、32768 输出上限与600秒截止；不再继承账户通用输出预算。
 
 Writing 的 `get_manuscript_source_manifest()` / `scan_manuscript_terms()` 按冻结 draft/hash
 分章、按字面词项完整扫描，语义检索仅补充。回读必须以 highlight 边界裁成精确引用并核对
@@ -421,3 +422,7 @@ known_content 与精确原文一致，并由 active 精确 EvidenceLink 绑定�
 Evidence 保持只读证据与 Context 权威，工具选择由外层有界 Agent 控制。新增 author-only
 工作区 inspection 仍执行来源/角色范围，不对 reader/character 开放工作稿、人物卡或地图内部数据。
 原 confirmation 重新物化，角色知识不能靠另开查询扩大；变化事件只交给已注册的调度消费者。
+
+### 世界跨域复核
+
+World 复核使用原确认编译后实际保留的内容；Focused Evidence 只读冻结/回读，不扩大 selected/excluded 语义。Story/map author inspect 不适用于 reader/character 或 Scene 截止；缺少投影时失败关闭。pinned prose 精确截取 highlight 范围。所有问题与复核处置仍在 World，索引和生成资产所有权不变。

@@ -14,11 +14,17 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from modules.imports.llm_schemas import RelationKind, _normalize_ai_world_entity_type
+from modules.imports.llm_schemas import (
+    _AI_WORLD_ENTITY_TYPES,
+    RelationKind,
+    _normalize_ai_world_entity_type,
+)
 from modules.imports.workflow_schemas import DeepImportStep
 
 COMPLETION_VERSION = "imports.targeted_completion.v1"
 BATCH_SIZE = 5
+COMPLETION_MAX_TOKENS = 32_768
+COMPLETION_TIMEOUT_SECONDS = 600
 
 
 def stable_hash(value: Any) -> str:
@@ -60,7 +66,9 @@ async def freeze_completion_permission(
 ) -> dict | None:
     from modules.writing.facade import list_latest_drafts_for_chapters
 
-    if not options or options.get("enabled") is not True:
+    if not options or not (
+        options.get("enabled") is True or options.get("defer") is True
+    ):
         return None
     drafts = await list_latest_drafts_for_chapters(
         db, novel_id, list(range(start_chapter, end_chapter + 1)), content_limit=1
@@ -70,7 +78,8 @@ async def freeze_completion_permission(
         raise ValueError("专项补全需要可校验的章节正文")
     return {
         "version": COMPLETION_VERSION,
-        "enabled": True,
+        "enabled": options.get("enabled") is True,
+        "defer": options.get("defer") is True,
         "roots": normalize_roots(targets or []),
         "root_selection": "explicit" if targets else "import_completion_hints",
         "source_manifest": manifest,
@@ -119,7 +128,9 @@ class _Judgment(BaseModel):
 
 class _Entity(_Judgment):
     target_key: str
-    entity_type: str = "other"
+    entity_type: str = Field(
+        default="other", json_schema_extra={"enum": sorted(_AI_WORLD_ENTITY_TYPES)}
+    )
     summary: str | None = Field(default=None, max_length=5000)
     public_info: str | None = Field(default=None, max_length=5000)
     hidden_truth: str | None = Field(default=None, max_length=5000)
@@ -202,17 +213,26 @@ async def _complete_batch(
     )
     from infrastructure.llm.prompt_loader import load_prompt
     from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+    from modules.imports.entity_extraction.scene_entity_llm_adapters import (
+        _reasoning_extra,
+    )
 
     payload = _batch_payload(result, targets=targets, batch_keys=batch_keys)
+    request_extra = _reasoning_extra(client, high_quality=False)
+    if request_extra:
+        request_extra["reasoning_effort"] = "low"
     request = LLMCallRequest(
         model=client.model_name,
         temperature=0.2,
-        max_tokens=8192,
+        max_tokens=COMPLETION_MAX_TOKENS,
+        extra=request_extra,
         response_format={"type": "json_object"},
         messages=[
             LLMMessage(
                 role="system",
-                content=load_prompt("targeted_completion"),
+                content=load_prompt("targeted_completion")
+                + "\n\n输出 JSON Schema：\n"
+                + json.dumps(CompletionOutput.model_json_schema(), ensure_ascii=False),
             ),
             LLMMessage(role="user", content=json.dumps(payload, ensure_ascii=False)),
         ],
@@ -225,12 +245,12 @@ async def _complete_batch(
             step_name="imports.targeted_completion.structured",
             max_fix_attempts=1,
             transport_retries=False,
-            timeout=270,
+            timeout=COMPLETION_TIMEOUT_SECONDS,
             context_budget=ContextBudget(
                 max_input_chars=100_000, max_output_chars=40_000
             ),
         ),
-        timeout=270,
+        timeout=COMPLETION_TIMEOUT_SECONDS,
     )
 
 
@@ -529,6 +549,7 @@ async def run_targeted_completion(
     db, *, task, progress, checkpoint, project_settings: dict
 ) -> None:
     """Keep any recoverable search/apply failure visibly partial under the run fence."""
+    progress.recovery_required = False
     try:
         await _run_targeted_completion(
             db,
@@ -543,6 +564,7 @@ async def run_targeted_completion(
         state = progress.checkpoints.get("targeted_completion")
         if state and state.get("rollback_receipts") is None:
             state["status"] = "partial"
+            progress.recovery_required = True
             progress.targeted_completion = {
                 **progress.targeted_completion,
                 "status": "partial",
@@ -589,8 +611,13 @@ async def _run_targeted_completion(
 
     if (
         permission.get("version") != COMPLETION_VERSION
-        or permission.get("enabled") is not True
-        or not permission.get("authorization_id")
+        or (
+            not permission.get("defer")
+            and (
+                permission.get("enabled") is not True
+                or not permission.get("authorization_id")
+            )
+        )
         or not permission.get("source_manifest")
         or permission.get("max_depth") != 1
     ):
@@ -654,14 +681,38 @@ async def _run_targeted_completion(
                 )
                 for package_id in dict.fromkeys(package_ids)
             ],
-            "available_actions": (["resume"] if state["status"] == "partial" else [])
+            "available_actions": (
+                ["resume"] if state["status"] in {"partial", "deferred"} else []
+            )
             + (["rollback"] if state["packages"] else []),
         }
         progress.message = "正在查读指定对象与直接关联资料"
         await checkpoint(progress, 0.8)
 
+    async def defer_if_requested():
+        from modules.imports.completion_control import read_completion_control
+
+        control = await read_completion_control(
+            db, task_id=str(task.id), novel_id=novel_id
+        )
+        if control.get("defer_requested") or (
+            permission.get("defer") and not control.get("resume_requested")
+        ):
+            state["status"] = "deferred"
+            await save()
+            return True
+        if permission.get("enabled") is not True or not permission.get(
+            "authorization_id"
+        ):
+            raise ValueError("专项补全需要作者确认授权")
+        return False
+
     await save()
+    if await defer_if_requested():
+        return
     while state["root_position"] < len(state["roots"]):
+        if await defer_if_requested():
+            return
         batch = state["roots"][
             state["root_position"] : state["root_position"] + BATCH_SIZE
         ]
@@ -703,7 +754,9 @@ async def _run_targeted_completion(
         page = state.get("page")
         if page is None:
             client = create_project_snapshot_llm_client(
-                project_settings, novel_id=novel_id, timeout_override=240
+                project_settings,
+                novel_id=novel_id,
+                timeout_override=COMPLETION_TIMEOUT_SECONDS - 60,
             )
             snapshots = []
             try:
@@ -779,8 +832,8 @@ async def _run_targeted_completion(
                                 "input_characters": len(
                                     json.dumps(payload, ensure_ascii=False)
                                 ),
-                                "max_tokens": 8192,
-                                "timeout_seconds": 270,
+                                "max_tokens": COMPLETION_MAX_TOKENS,
+                                "timeout_seconds": COMPLETION_TIMEOUT_SECONDS,
                             },
                             rendered_context=json.dumps(payload, ensure_ascii=False),
                             retain_rendered_context=False,
@@ -854,6 +907,8 @@ async def _run_targeted_completion(
             await save()
         result = FocusedEvidenceResult.model_validate(page["result"])
         while page["next_batch"] < len(page["item_batches"]):
+            if await defer_if_requested():
+                return
             items = json.loads(json.dumps(page["item_batches"][page["next_batch"]]))
             if (
                 items

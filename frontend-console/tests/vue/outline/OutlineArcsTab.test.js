@@ -17,6 +17,7 @@ let toastCalls
 let confirmAction
 
 beforeEach(() => {
+  localStorage.clear(); sessionStorage.clear()
   clearAllBulkSelections()
   clearOutlineFilterDrafts()
   routerCalls = []
@@ -206,4 +207,18 @@ describe("批量选择", () => {
     expect(confirmAction).toHaveBeenCalledOnce()
     expect(confirmAction.mock.calls[0][0]).toContain("选中的 1 项")
   })
+})
+
+it('就地编辑使用篇章真实字段并显示服务端保存结果', async () => {
+  const updateArc = vi.fn(async (_id, _project, payload) => ({ id: 'a1', ...payload, status: 'canonical' }))
+  setBridgeOverrides({ state: { currentProjectId: 'p1' }, api: { outline: { updateArc } } })
+  const wrapper = mount(OutlineArcsTab, { props: { projectId: 'p1', arcs: [{ id: 'a1', title: '旧篇章', arc_goal: '旧目标', start_chapter: 1, end_chapter: 10 }] } })
+  await wrapper.findAll('button').find(button => button.text() === '就地修改').trigger('click')
+  await wrapper.get('input[aria-label="篇章名称：旧篇章"]').setValue('新篇章')
+  await wrapper.get('textarea[aria-label="篇章描述"]').setValue('新的目标')
+  await wrapper.findAll('button').find(button => button.text() === '保存这一行').trigger('click')
+  await vi.waitFor(() => expect(wrapper.text()).toContain('已保存'))
+  expect(updateArc).toHaveBeenCalledWith('a1', 'p1', { title: '新篇章', arc_goal: '新的目标', start_chapter: 1, end_chapter: 10 })
+  expect(wrapper.text()).toContain('新篇章')
+  wrapper.unmount()
 })

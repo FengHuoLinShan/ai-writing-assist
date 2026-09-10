@@ -1625,9 +1625,7 @@ class TestDeepImportSchema:
                 progress,
                 "llm_call",
                 phase="phase0_prefetch",
-                message=(
-                    f"Authorization: Bearer {secret} api_key={secret}"
-                ),
+                message=(f"Authorization: Bearer {secret} api_key={secret}"),
                 details={
                     "index": index,
                     "raw_prompt": "do not persist",
@@ -1667,8 +1665,7 @@ class TestDeepImportSchema:
                                 "scene_id": "scene-1",
                                 "status": "failed",
                                 "error": (
-                                    f"Authorization: Bearer {secret} "
-                                    f"api_key={secret}"
+                                    f"Authorization: Bearer {secret} api_key={secret}"
                                 ),
                             }
                         ]
@@ -1687,9 +1684,7 @@ class TestDeepImportSchema:
             progress,
             {
                 "snapshot_health_summary": {
-                    "recent_error": (
-                        f"Authorization: Bearer {secret} api_key={secret}"
-                    )
+                    "recent_error": (f"Authorization: Bearer {secret} api_key={secret}")
                 }
             },
         )
@@ -3252,7 +3247,10 @@ class TestDeepImportWorkflowAutoRun:
                 ]
             }
         }
-        assert result.checkpoints == returned_checkpoints
+        assert result.checkpoints == {
+            **returned_checkpoints,
+            "base_structure_complete": True,
+        }
 
     @pytest.mark.asyncio
     async def test_small_sample_structure_fallback_balances_categories(self):
@@ -3711,9 +3709,10 @@ class TestDeepImportWorkflowAutoRun:
         assert result.phase_errors[0]["phase"] == "entity_extraction"
         assert result.phase_errors[0]["error_kind"] == "phase_failed"
         assert secret not in result.phase_errors[0]["message"]
-        assert secret not in result.phase_artifacts["entity_extraction"]["errors"][0][
-            "message"
-        ]
+        assert (
+            secret
+            not in result.phase_artifacts["entity_extraction"]["errors"][0]["message"]
+        )
         timeline = {item["phase"]: item for item in result.phase_timeline}
         assert timeline["entity_extraction"]["status"] == "failed"
         assert timeline["entity_extraction"]["error_kind"] == "phase_failed"

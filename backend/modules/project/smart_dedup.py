@@ -207,6 +207,65 @@ class SmartDedupService:
             "summary": f"生成 {len(suggestions)} 条智能去重建议",
         }
 
+    async def scan_review_state(
+        self, db: AsyncSession, *, novel_id: str, task_id: str
+    ) -> dict:
+        from infrastructure.tasks.facade import get_completed_task_payload
+
+        task = await get_completed_task_payload(
+            db, task_id=task_id, task_type="smart_dedup_scan", novel_id=novel_id
+        )
+        if task is None:
+            return {"group_results": [], "decisions": {}}
+        receipts = {
+            **(task.result.get("group_receipts") or {}),
+            **(task.result.get("workbench_receipts") or {}),
+        }
+        groups = task.result.get("groups") or []
+        # Legacy two-card keep-separate decisions already have durable receipts.
+        records = await SmartDedupWorkbenchDecisionRepository().list_active(
+            db,
+            parse_uuid(novel_id, "novel_id"),
+            {group["asset_type"] for group in groups},
+        )
+        pairs = {
+            (record.asset_type, record.left_asset_id, record.right_asset_id)
+            for record in records
+            if record.source_scan_task_id == task_id
+        }
+        for group in groups:
+            members = group.get("members") or []
+            if len(members) != 2 or group["group_id"] in receipts:
+                continue
+            left, right = sorted(str(member["asset_id"]) for member in members)
+            if (group["asset_type"], left, right) in pairs:
+                primary = group.get("recommended_primary_asset_id") or left
+                receipts[group["group_id"]] = {
+                    "result": {
+                        "group_id": group["group_id"],
+                        "status": "success",
+                        "applied": 1,
+                        "message": "已决定保持独立，两份资料均保留",
+                    },
+                    "payload": {
+                        "primary_asset_id": primary,
+                        "operations": [
+                            {
+                                "source_asset_id": right if primary == left else left,
+                                "action": "keep_separate",
+                            }
+                        ],
+                    },
+                }
+        return {
+            "group_results": [receipt["result"] for receipt in receipts.values()],
+            "decisions": {
+                key: receipt["payload"]
+                for key, receipt in receipts.items()
+                if "payload" in receipt
+            },
+        }
+
     async def apply_groups(
         self,
         db: AsyncSession,
@@ -238,7 +297,10 @@ class SmartDedupService:
                 "group apply requires smart dedup schema version 2",
                 code="invalid_group",
             )
-        receipts = dict(result.get("group_receipts") or {})
+        receipts = {
+            **(result.get("group_receipts") or {}),
+            **(result.get("workbench_receipts") or {}),
+        }
         request_hashes = {
             str(group["group_id"]): hashlib.sha256(
                 json.dumps(
@@ -254,7 +316,12 @@ class SmartDedupService:
         for group in groups:
             previous = receipts.get(str(group["group_id"]), {})
             if previous.get("result", {}).get("status") == "success":
-                if previous.get("request_hash") != request_hashes[str(group["group_id"])]:
+                if (
+                    previous.get("payload") != group
+                    if "payload" in previous
+                    else previous.get("request_hash")
+                    != request_hashes[str(group["group_id"])]
+                ):
                     raise ConflictError("该组已按另一份选择处理，请查看原回执或重新扫描")
                 replayed.append({**previous["result"], "replayed": True})
             else:
@@ -437,9 +504,16 @@ class SmartDedupService:
                     }
                 )
         for item in group_results:
+            if item["status"] != "success":
+                continue
             receipts[item["group_id"]] = {
                 "request_hash": request_hashes[item["group_id"]],
                 "result": item,
+                "payload": next(
+                    group
+                    for group in groups
+                    if str(group["group_id"]) == item["group_id"]
+                ),
             }
         if group_results:
             from infrastructure.tasks.facade import replace_completed_task_result
@@ -450,7 +524,7 @@ class SmartDedupService:
                 task_id=scan_task_id,
                 task_type="smart_dedup_scan",
                 expected_revision_token=task.revision_token,
-                result={**result, "group_receipts": receipts},
+                result={**result, "workbench_receipts": receipts},
             )
             if not saved:
                 raise ConflictError("扫描回执已变化，本次修改未提交，请重新读取")

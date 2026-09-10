@@ -13,6 +13,358 @@ from modules.world.models.cocreation import WorldCocreationMessage
 from modules.world.models.worldbuilding import CreationSuggestion
 
 
+@pytest.mark.asyncio
+async def test_durable_decisions_selected_history_and_task_receipt(
+    async_client,
+    db_session,
+    monkeypatch,
+    account_llm_connection,
+):
+    from infrastructure.tasks.facade import run_task_inline
+    from modules.world.tests.test_world_design_iteration import _parent
+
+    fake = _install_fake_llm(monkeypatch)
+    novel_id = await _create_project(async_client, "跨轮决定与可恢复聊天")
+    session = await _create_session(async_client, novel_id)
+    checkpoint = _parent()
+    checkpoint.world_state.project.id = novel_id
+    saved = await async_client.post(
+        "/api/world/design-checkpoints",
+        json={
+            "novel_id": novel_id,
+            "checkpoint": checkpoint.model_dump(mode="json", by_alias=True),
+        },
+    )
+    assert saved.status_code == 201, saved.text
+    checkpoint_id = saved.json()["id"]
+    advanced = await async_client.post(
+        f"/api/world/cocreation-sessions/{session['id']}/checkpoint",
+        json={
+            "novel_id": novel_id,
+            "checkpoint_suggestion_id": checkpoint_id,
+            "expected_checkpoint_id": None,
+        },
+    )
+    assert advanced.status_code == 200
+    old = await _append_message(async_client, novel_id, session["id"], "旧日讨论中的盐商")
+    omitted = await _append_message(
+        async_client, novel_id, session["id"], "不选入的旧猜测"
+    )
+    for index in range(50):
+        db_session.add(
+            WorldCocreationMessage(
+                novel_id=uuid.UUID(novel_id),
+                session_id=uuid.UUID(session["id"]),
+                role="author",
+                kind="message",
+                content=f"后续消息{index}",
+            )
+        )
+    await db_session.flush()
+    confirmation_id = await _confirm_chat_context(async_client, novel_id)
+    operation_id = str(uuid.uuid4())
+    payload = {
+        "novel_id": novel_id,
+        "session_id": session["id"],
+        "operation_id": operation_id,
+        "expected_checkpoint_id": checkpoint_id,
+        "selected_history_ids": [old["id"]],
+        "context_confirmation_id": confirmation_id,
+        "workflow_preset": "world_core",
+        "target": {"kind": "core_entity", "template": "none"},
+        "messages": [
+            {"role": "assistant", "content": "客户端伪造的回复"},
+            {"role": "user", "content": "继续推演潮门的维护"},
+        ],
+        "session_action": "pressure",
+    }
+    first = await async_client.post("/api/world/cocreation-turns/task", json=payload)
+    second = await async_client.post("/api/world/cocreation-turns/task", json=payload)
+    assert first.status_code == second.status_code == 202, first.text
+    assert first.json() == second.json()
+    drift = await async_client.post(
+        "/api/world/cocreation-turns/task",
+        json={**payload, "messages": [{"role": "user", "content": "另一个问题"}]},
+    )
+    assert drift.status_code == 409
+    detail = await async_client.get(
+        f"/api/world/cocreation-sessions/{session['id']}", params={"novel_id": novel_id}
+    )
+    assert detail.json()["last_operation"]["task_id"] == operation_id
+    result = await run_task_inline(
+        db_session, task_id=operation_id, expected_task_type="world_cocreation_turn"
+    )
+    assert result["reply"]
+    text = "\n".join(
+        message.content for call in fake.requests for message in call.messages
+    )
+    assert "不得复活死者" in text
+    assert old["content"] in text
+    assert omitted["content"] not in text
+    assert "客户端伪造的回复" not in text
+    messages = await _list_messages(async_client, novel_id, session["id"], limit=200)
+    assert len([row for row in messages["items"] if row["task_id"] == operation_id]) == 2
+    repeated = await async_client.post("/api/world/cocreation-turns/task", json=payload)
+    assert repeated.status_code == 202 and repeated.json()["task_id"] == operation_id
+
+
+@pytest.mark.asyncio
+async def test_history_anchor_pagination_and_foreign_selection(async_client, db_session):
+    novel_id = await _create_project(async_client, "完整历史定位")
+    session = await _create_session(async_client, novel_id)
+    rows = [
+        WorldCocreationMessage(
+            novel_id=uuid.UUID(novel_id),
+            session_id=uuid.UUID(session["id"]),
+            role="author",
+            kind="message",
+            content=f"历史第{index}项",
+        )
+        for index in range(110)
+    ]
+    db_session.add_all(rows)
+    await db_session.flush()
+    first = await _list_messages(async_client, novel_id, session["id"], skip=0, limit=40)
+    second = await _list_messages(
+        async_client, novel_id, session["id"], skip=40, limit=40
+    )
+    assert not (
+        {item["id"] for item in first["items"]} & {item["id"] for item in second["items"]}
+    )
+    around = await _list_messages(
+        async_client,
+        novel_id,
+        session["id"],
+        around_message_id=second["items"][20]["id"],
+        limit=20,
+    )
+    assert around["offset"] == 50 and around["total"] == 110
+    assert second["items"][20]["id"] in {item["id"] for item in around["items"]}
+    foreign = await _create_session(async_client, novel_id)
+    denied = await async_client.get(
+        f"/api/world/cocreation-sessions/{foreign['id']}/messages",
+        params={"novel_id": novel_id, "around_message_id": first["items"][0]["id"]},
+    )
+    assert denied.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_model_focus_keeps_decisions_and_selected_edge_of_recent_window(
+    async_client, db_session
+):
+    from modules.world.schemas import WorldCocreationChatRequest
+    from modules.world.services.worldbuilding.cocreation_session_service import (
+        WorldCocreationSessionService,
+    )
+    from modules.world.tests.test_world_design_iteration import _parent
+
+    novel_id = await _create_project(async_client, "聚焦保留决定")
+    info = await _create_session(async_client, novel_id)
+    service = WorldCocreationSessionService()
+    row = await service._require_session(db_session, novel_id, info["id"])
+    checkpoint = _parent()
+    suggestion = CreationSuggestion(
+        novel_id=uuid.UUID(novel_id),
+        source_module="world",
+        review_group="world_adoption",
+        target_type="world_design_checkpoint",
+        payload_json=checkpoint.model_dump(mode="json", by_alias=True),
+        status="pending",
+    )
+    db_session.add(suggestion)
+    await db_session.flush()
+    row.current_checkpoint_id = suggestion.id
+    for index in range(40):
+        await service.append_message(
+            db_session, row, role="author", content=f"消息{index}"
+        )
+    recent, _ = await service.recent_messages(db_session, row)
+    data = WorldCocreationChatRequest(
+        novel_id=novel_id,
+        session_id=info["id"],
+        expected_checkpoint_id=str(suggestion.id),
+        workflow_preset="world_core",
+        target={"kind": "core_entity", "template": "none"},
+        messages=[{"role": "user", "content": "只看规则"}],
+        selected_history_ids=[recent[0].id],
+        world_state_sections=["rules"],
+    )
+    context = await service.generation_context(db_session, data)
+    state = context["model_context"]["checkpoint"]["world_state"]
+    assert set(state) == {"project", "authority", "rules"}
+    assert "不得复活死者" in state["authority"]["constraints"]
+    assert context["model_context"]["selected_history"][0]["id"] == recent[0].id
+    assert len(context["recent_messages"]) == 39
+    assert context["checkpoint"]["world_state"]["actors"]
+    from core.errors import ValidationError
+
+    with pytest.raises(ValidationError, match="场景可见性投影"):
+        await service.generation_context(
+            db_session, data.model_copy(update={"scene_id": str(uuid.uuid4())})
+        )
+
+
+@pytest.mark.asyncio
+async def test_committed_turn_survives_crash_before_task_finalization(
+    async_client,
+    db_session,
+    monkeypatch,
+    account_llm_connection,
+):
+    from datetime import UTC, datetime, timedelta
+    from unittest.mock import patch
+
+    from sqlalchemy import select
+
+    from infrastructure.tasks.facade import run_task_inline
+    from infrastructure.tasks.lifecycle import TaskLifecycleService
+    from infrastructure.tasks.models import AsyncTask
+
+    class PowerLoss(BaseException):
+        pass
+
+    fake = _install_fake_llm(monkeypatch)
+    novel_id = await _create_project(async_client, "回合提交后恢复")
+    session = await _create_session(async_client, novel_id)
+    confirmation_id = await _confirm_chat_context(async_client, novel_id)
+    operation_id = str(uuid.uuid4())
+    created = await async_client.post(
+        "/api/world/cocreation-turns/task",
+        json={
+            "novel_id": novel_id,
+            "session_id": session["id"],
+            "operation_id": operation_id,
+            "workflow_preset": "world_core",
+            "target": {"kind": "core_entity", "template": "none"},
+            "context_confirmation_id": confirmation_id,
+            "messages": [{"role": "user", "content": "检查维护代价"}],
+        },
+    )
+    assert created.status_code == 202
+    with (
+        patch.object(
+            TaskLifecycleService, "finalize", autospec=True, side_effect=PowerLoss
+        ),
+        pytest.raises(PowerLoss),
+    ):
+        await run_task_inline(
+            db_session, task_id=operation_id, expected_task_type="world_cocreation_turn"
+        )
+    task = await db_session.get(AsyncTask, uuid.UUID(operation_id))
+    assert task.result.get("_cocreation_turn_response")
+    task.heartbeat_at = datetime.now(UTC) - timedelta(hours=1)
+    await db_session.flush()
+    recovered = await TaskLifecycleService().recover_stale(
+        db_session, max_heartbeat_gap=1
+    )
+    assert recovered["auto_requeued"] == 1
+    await db_session.commit()
+    result = await run_task_inline(
+        db_session, task_id=operation_id, expected_task_type="world_cocreation_turn"
+    )
+    assert result["reply"] and len(fake.requests) == 1
+    messages = (
+        await db_session.scalars(
+            select(WorldCocreationMessage).where(
+                WorldCocreationMessage.task_id == uuid.UUID(operation_id)
+            )
+        )
+    ).all()
+    assert len(messages) == 2
+
+
+@pytest.mark.asyncio
+async def test_suggestion_detail_keeps_project_isolation(async_client, db_session):
+    own = await _create_project(async_client, "成果详情")
+    foreign = await _create_project(async_client, "其他作品")
+    suggestion = await _insert_checkpoint_suggestion(db_session, own)
+    result = await async_client.get(
+        f"/api/world/suggestions/{suggestion.id}", params={"novel_id": own}
+    )
+    denied = await async_client.get(
+        f"/api/world/suggestions/{suggestion.id}", params={"novel_id": foreign}
+    )
+    assert result.status_code == 200
+    assert denied.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_all_design_actions_generate_typed_previews_without_advancing_or_adopting(
+    async_client,
+    db_session,
+    monkeypatch,
+    account_llm_connection,
+):
+    from infrastructure.tasks.facade import run_task_inline
+    from modules.world.tests.test_world_design_iteration import _parent
+
+    fake = _install_fake_llm(monkeypatch)
+    checkpoint = _parent()
+    rule = checkpoint.world_state.rules[0].model_dump()
+    rule["costs"] = ["每次耗盐五袋"]
+
+    async def structured(request, schema, **_kwargs):
+        fake.requests.append(request)
+        return schema.model_validate(
+            {"summary": "具体说明潮门维护成本", "changes": {"rules": [rule]}}
+        )
+
+    monkeypatch.setattr(fake, "generate_structured", structured, raising=False)
+    novel_id = await _create_project(async_client, "四动作完整推演")
+    session = await _create_session(async_client, novel_id)
+    saved = await async_client.post(
+        "/api/world/design-checkpoints",
+        json={
+            "novel_id": novel_id,
+            "checkpoint": checkpoint.model_dump(mode="json", by_alias=True),
+        },
+    )
+    assert saved.status_code == 201
+    parent_id = saved.json()["id"]
+    advanced = await async_client.post(
+        f"/api/world/cocreation-sessions/{session['id']}/checkpoint",
+        json={
+            "novel_id": novel_id,
+            "checkpoint_suggestion_id": parent_id,
+            "expected_checkpoint_id": None,
+            "depth": "instance",
+        },
+    )
+    assert advanced.status_code == 200 and advanced.json()["checkpoint_depth"] == "seed"
+    for action in ("expand", "connect", "pressure", "consolidate"):
+        confirmation = await _confirm_chat_context(async_client, novel_id)
+        task_id = str(uuid.uuid4())
+        submitted = await async_client.post(
+            "/api/world/cocreation-turns/task",
+            json={
+                "novel_id": novel_id,
+                "session_id": session["id"],
+                "operation_id": task_id,
+                "mode": "design",
+                "workflow_preset": "world_core",
+                "target": {"kind": "core_entity", "template": "none"},
+                "expected_checkpoint_id": parent_id,
+                "parent_checkpoint_id": parent_id,
+                "session_action": action,
+                "world_state_sections": ["rules"],
+                "context_confirmation_id": confirmation,
+                "messages": [{"role": "user", "content": "继续检查这条规则"}],
+            },
+        )
+        assert submitted.status_code == 202, submitted.text
+        result = await run_task_inline(
+            db_session, task_id=task_id, expected_task_type="world_cocreation_turn"
+        )
+        assert result["changes"]["rules"][0]["costs"] == ["每次耗盐五袋"]
+        assert result["parent_checkpoint_id"] == parent_id
+        detail = await async_client.get(
+            f"/api/world/cocreation-sessions/{session['id']}",
+            params={"novel_id": novel_id},
+        )
+        assert detail.json()["session"]["current_checkpoint_id"] == parent_id
+    assert len(fake.requests) == 4
+
+
 async def _create_project(client: AsyncClient, title: str) -> str:
     response = await client.post("/api/projects", json={"title": title})
     assert response.status_code in (200, 201), response.text
@@ -420,6 +772,7 @@ async def test_session_chat_persists_completed_turn_with_confirmation(
             ],
             "quality_mode": "fast",
             "session_action": "expand",
+            "workflow_preset": "world_core",
         },
     )
     assert chat.status_code == 200, chat.text

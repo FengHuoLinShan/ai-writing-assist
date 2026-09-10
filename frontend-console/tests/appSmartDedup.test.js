@@ -48,6 +48,7 @@ describe("App smart dedup integration", () => {
     globalThis.currentAccount = { id: "account-old" }
     localStorage.setItem("novel_accountId", "account-new")
     localStorage.setItem("draft_backup_project-old_1", "private")
+    localStorage.setItem("world_draft_backup_project-old_page_old", "private world draft")
     localStorage.setItem("novel_theme", "dark")
     sessionStorage.setItem("workspace-rail:project-old:writing:assistant", "closed")
     App._shell = { unmount: vi.fn() }
@@ -65,6 +66,7 @@ describe("App smart dedup integration", () => {
     expect(state.currentProjectId).toBeNull()
     expect(localStorage.getItem("novel_accountId")).toBe("account-new")
     expect(localStorage.getItem("draft_backup_project-old_1")).toBeNull()
+    expect(localStorage.getItem("world_draft_backup_project-old_page_old")).toBeNull()
     expect(sessionStorage.getItem("workspace-rail:project-old:writing:assistant")).toBeNull()
     expect(localStorage.getItem("novel_theme")).toBe("dark")
     expect(document.getElementById("app").textContent).toContain("账号状态已变化")
@@ -114,7 +116,7 @@ describe("App smart dedup integration", () => {
   })
 
   it("delegates start-smart-dedup action to the manager", () => {
-    const startScan = vi.spyOn(App._smartDedup, "startScan").mockImplementation(() => {})
+    const startScan = vi.spyOn(App._smartDedup, "showProgress").mockImplementation(() => {})
 
     App._renderGlobalActions()
     document.querySelector('[data-action="start-smart-dedup"]').click()
@@ -123,7 +125,7 @@ describe("App smart dedup integration", () => {
   })
 
   it("renders and delegates the teleported sidebar action", () => {
-    const startScan = vi.spyOn(App._smartDedup, "startScan").mockImplementation(() => {})
+    const startScan = vi.spyOn(App._smartDedup, "showProgress").mockImplementation(() => {})
     const mount = document.createElement("span")
     mount.dataset.role = "smart-dedup-action"
     document.getElementById("sidebar-context-slot").appendChild(mount)

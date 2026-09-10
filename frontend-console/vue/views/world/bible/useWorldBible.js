@@ -99,7 +99,46 @@ export function useWorldBible(props) {
     for (const [id, template] of savedPageTemplates) merged.set(id, template)
     return Array.from(merged.values()).filter((template) => template.status !== "archived")
   })
-  const activationProfiles = computed(() => props.bible?.activationProfiles || [])
+  const loadedActivationProfiles = ref(null)
+  const activationProfiles = computed(() => loadedActivationProfiles.value || props.bible?.activationProfiles || [])
+  const supportState = reactive(Object.fromEntries(['templates', 'profiles', 'synopsis'].map(key => [key, props.bible?.lazySupport ? 'idle' : 'ready'])))
+  const supportRequests = new Map()
+  async function ensureBibleSupport(kind) {
+    if (supportState[kind] === 'ready') return true
+    if (supportRequests.has(kind)) return supportRequests.get(kind)
+    const novelId = projectId.value
+    supportState[kind] = 'loading'
+    const promise = (async () => {
+      try {
+        if (kind === 'templates') {
+          const result = await api.world.listBiblePageTemplates(novelId)
+          if (!ownsProject(novelId)) return false
+          for (const template of result.items || []) savedPageTemplates.set(template.id || template.template_key, template)
+        } else if (kind === 'profiles') {
+          const result = await api.context.listActivationProfiles(novelId, true)
+          if (!ownsProject(novelId)) return false
+          loadedActivationProfiles.value = result.items || []
+          if (!loadedActivationProfiles.value.some(item => item.id === activeActivationProfileId.value)) activeActivationProfileId.value = loadedActivationProfiles.value[0]?.id || null
+        } else if (kind === 'synopsis') {
+          const result = await api.world.getBibleSynopsis(novelId)
+          if (!ownsProject(novelId)) return false
+          synopsis.value = result
+          if (result?.active_task_id) { synopsisTask.value = { task_id: result.active_task_id, status: 'running' }; startSynopsisPolling(result.active_task_id) }
+        }
+        supportState[kind] = 'ready'
+        return true
+      } catch (err) { if (ownsProject(novelId)) { supportState[kind] = 'error'; toast(err?.message || '资料设置读取失败，请重新打开重试', 'error') }; return false }
+      finally { supportRequests.delete(kind) }
+    })()
+    supportRequests.set(kind, promise)
+    return promise
+  }
+  function rememberActivationProfile(profile) {
+    loadedActivationProfiles.value = [...activationProfiles.value.filter(item => item.id !== profile.id), profile]
+    activeActivationProfileId.value = profile.id
+    supportState.profiles = 'ready'
+    syncSession()
+  }
   const bibleDeepLink = computed(() => props.bibleDeepLink || { draftId: "", pageId: "" })
 
   // ---- reactive state (对应 vanilla 模块单例字段) ----
@@ -225,9 +264,11 @@ export function useWorldBible(props) {
     }
 
     // activation profile default
-    if (!activationProfiles.value.some((profile) => profile.id === activeActivationProfileId.value)) {
+    if (supportState.profiles === 'ready' && !activationProfiles.value.some((profile) => profile.id === activeActivationProfileId.value)) {
       activeActivationProfileId.value = activationProfiles.value[0]?.id || null
     }
+
+    if (activeActivationProfileId.value && supportState.profiles !== 'ready') void ensureBibleSupport('profiles')
 
     // synopsis recovery
     const syn = props.bible?.synopsis
@@ -354,7 +395,10 @@ export function useWorldBible(props) {
 
   function openPageCard(pageId) {
     const page = pages.value.find((p) => p.id === pageId)
-    if (!page) return
+    if (!page) {
+      const query = new URLSearchParams(getRouteQuery()); query.delete('draft_id'); query.delete('entity_id'); query.set('page_id', pageId)
+      getRouter()?.navigate('world', 'bible', true, query); return
+    }
     if (editorHasUnsavedChanges() && !confirm("当前页面有未保存修改，确定放弃并打开其他页面吗？")) return
     activePageId.value = page.id
     activeDraftId.value = draftForActivePage.value?.id || null
@@ -369,7 +413,10 @@ export function useWorldBible(props) {
 
   function openDraft(draftId) {
     const draft = drafts.value.find((d) => d.id === draftId)
-    if (!draft) return
+    if (!draft) {
+      const query = new URLSearchParams(getRouteQuery()); query.delete('page_id'); query.delete('entity_id'); query.set('draft_id', draftId)
+      getRouter()?.navigate('world', 'bible', true, query); return
+    }
     if (editorHasUnsavedChanges() && !confirm("当前页面有未保存修改，确定放弃并切换工作稿吗？")) return
     activeDraftId.value = draft.id
     activePageId.value = draft.page_id
@@ -559,6 +606,7 @@ export function useWorldBible(props) {
     if (!page && !draft) return false
     const owner = captureEditorOwner()
     const novelId = owner.novelId
+    const revisionAtRequest = autosaveRevision
     editorMutationPending.value = true
     try {
       const payload = {
@@ -578,6 +626,7 @@ export function useWorldBible(props) {
           novel_id: novelId,
           page_id: page.id,
         })
+        if (ownsEditor(owner)) savedDrafts.set(draft.id, draft)
       }
       draft = await api.world.updateBibleDraft(
         draft.id,
@@ -586,6 +635,12 @@ export function useWorldBible(props) {
       )
       if (!ownsEditor(owner) || (modalOwner && !ownsModalOwner(modalOwner))) return false
       savedDrafts.set(draft.id, draft)
+      if (revisionAtRequest !== autosaveRevision) {
+        writeDraftBackup()
+        scheduleWorldDraftAutosave()
+        toast("这一版已保存；你刚才继续输入的内容仍待保存", "info")
+        return false
+      }
       activeDraftId.value = draft.id
       setEditorBaseline(draft)
       rememberDraft(draft)
@@ -625,6 +680,14 @@ export function useWorldBible(props) {
   let autosavePromise = null
   let autosaveRevision = 0
   let shellSaveBound = false
+  let backupWriteFailed = false
+  let backupFailureNotified = false
+
+  function reportFailedBackup() {
+    if (!backupWriteFailed || backupFailureNotified) return
+    backupFailureNotified = true
+    toast("服务器保存与本机备份均未成功，请保持页面打开并复制当前内容。", "error")
+  }
 
   function isEditBaselineConflict(err) {
     return Boolean(
@@ -644,8 +707,11 @@ export function useWorldBible(props) {
     if (!ownsEditor(owner)) return
     let serverDraft = null
     try {
-      const listed = await api.world.listBibleDrafts(projectId.value)
-      serverDraft = (listed?.items || []).find((item) => item.id === owner.draftId) || null
+      if (owner.draftId && api.world.getBibleDraft) serverDraft = await api.world.getBibleDraft(owner.draftId, projectId.value)
+      else if (owner.pageId) {
+        const listed = await api.world.listBibleDrafts(projectId.value, { page_id: owner.pageId })
+        serverDraft = (listed?.items || []).find(item => item.page_id === owner.pageId) || null
+      }
     } catch {
       // 服务器版本读取失败时仍展示本地信息与选项。
     }
@@ -678,9 +744,21 @@ export function useWorldBible(props) {
         {
           text: "保留我的修改",
           class: "btn-ghost",
-          handler: () => {
+          handler: async () => {
             closeModal()
-            toast("已保留本地修改；自动保存保持暂停，可继续编辑后手动保存", "info")
+            if (!ownsEditor(owner)) return
+            if (serverDraft) {
+              const current = readEditorPayloadFromDom({ lenient: true })
+              savedDrafts.set(serverDraft.id, serverDraft)
+              activeDraftId.value = serverDraft.id
+              setEditorBaseline(serverDraft)
+              rememberDraft(serverDraft)
+              await nextTick()
+              applyDraftBackupToDom(current)
+            }
+            autosaveStatus.value = "conflict"
+            writeDraftBackup()
+            toast("已保留本地修改；自动保存保持暂停，手动保存将更新刚才核对的服务器版本", "info")
           },
         },
         {
@@ -728,13 +806,16 @@ export function useWorldBible(props) {
     try {
       const payload = readEditorPayloadFromDom({ lenient: true })
       if (!payload) return
-      window.localStorage.setItem(key, JSON.stringify({ payload, savedAt: new Date().toISOString() }))
+      window.localStorage.setItem(key, JSON.stringify({ payload, baselineUpdatedAt: editSource.value?.updated_at || null, savedAt: new Date().toISOString() }))
+      backupWriteFailed = false
+      backupFailureNotified = false
     } catch {
-      // 本机备份失败不阻断输入；服务器保存与离开保护仍然有效。
+      backupWriteFailed = true
     }
   }
 
   function clearDraftBackup() {
+    try {
     const key = draftBackupKey()
     if (key) window.localStorage.removeItem(key)
     // 首次自动保存会把编辑对象从正式页换成工作稿，备份 key 随之变化；两个变体一起清理。
@@ -742,6 +823,7 @@ export function useWorldBible(props) {
     if (source?.page_id) {
       window.localStorage.removeItem(`world_draft_backup_${projectId.value}_draft_${source.page_id}`)
     }
+    } catch { /* 服务器保存已成功；浏览器禁用存储不能使已保存内容变成失败。 */ }
   }
 
   function readDraftBackup() {
@@ -771,7 +853,7 @@ export function useWorldBible(props) {
     const assetRefs = document.getElementById("bible-asset-refs")
     if (assetRefs) assetRefs.value = formatAssetRefs(payload.linked_asset_refs_json || [])
     const sections = payload.sections_json || []
-    if (sections.length && editSource.value) {
+    if (editSource.value) {
       editSource.value.sections_json = sections
       rerenderSectionEditor()
     }
@@ -796,6 +878,12 @@ export function useWorldBible(props) {
     const time = new Date(backup.savedAt).toLocaleString("zh-CN")
     if (getConfirm()(`发现 ${time} 的未完成本机备份，是否恢复到编辑器？\n\n选择“取消”将丢弃这份备份。`)) {
       if (applyDraftBackupToDom(backup.payload)) {
+        if (!backup.baselineUpdatedAt || backup.baselineUpdatedAt !== editSource.value?.updated_at) {
+          autosaveStatus.value = "conflict"
+          void showDraftBaselineConflict(captureEditorOwner(), backup.payload)
+          toast("备份的编辑基线已变化，请先核对服务器版本；恢复内容尚未保存", "warning")
+          return
+        }
         scheduleWorldDraftAutosave()
         toast("已恢复本机备份；确认无误后会自动保存到服务器工作稿", "success")
       }
@@ -894,6 +982,7 @@ export function useWorldBible(props) {
           await showDraftBaselineConflict(owner, localPayload)
         } else {
           autosaveStatus.value = "error"
+          reportFailedBackup()
         }
       }
     } finally {
@@ -1485,6 +1574,7 @@ export function useWorldBible(props) {
   }
 
   async function refreshSynopsis() {
+    if (!await ensureBibleSupport('synopsis')) return
     if (synopsis.value?.pinned) {
       toast('当前固定在历史版本；请先"取消固定并刷新"', "warning")
       return false
@@ -1553,6 +1643,7 @@ export function useWorldBible(props) {
   }
 
   async function toggleSynopsisAuto() {
+    if (!await ensureBibleSupport('synopsis')) return
     const novelId = projectId.value
     const enabled = !synopsis.value?.auto_refresh_enabled
     try {
@@ -2193,55 +2284,50 @@ export function useWorldBible(props) {
     const novelId = projectId.value
     const modalOwner = captureModalOwner()
     try {
-      const preview = await api.world.previewWorldImpact({
-        novel_id: novelId,
-        target_type: targetType,
-        target_id: targetId,
-      })
+      const preview = await api.world.previewWorldImpact({ novel_id: novelId, target_type: targetType, target_id: targetId })
       if (!ownsProject(novelId) || !ownsModalOwner(modalOwner)) return false
-      const sectionLabels = {
-        world_pages: "世界书页面",
-        world_entities: "世界对象与关系",
-        characters: "人物资料",
-        story_threads: "故事结构（故事线）",
-        prose: "正文（按章节字面匹配）",
-        map: "地图",
+      const sections = { world_pages: '世界书页面', world_entities: '世界对象与关系', characters: '人物资料', story_threads: '故事结构', prose: '正文', map: '地图' }
+      const allItems = []
+      const body = (preview.sections || []).map(section => {
+        const rows = section.items?.length ? `<ul class="world-impact-preview__items">${section.items.map(item => {
+          const index = allItems.push(item) - 1
+          return `<li><button type="button" class="btn btn-ghost" data-impact-source="${index}">${esc(item.label)}</button><small>${item.match_basis === 'literal' ? '可能提及 · 需要核对' : '声明关联'}${item.distance ? ` · ${Number(item.distance)} 层关联` : ''}${item.detail ? ` · ${esc(item.detail)}` : ''}</small></li>`
+        }).join('')}</ul>` : '<p class="world-bible-empty-hint">本层没有可证明的关联。</p>'
+        const uncovered = section.uncovered?.length ? `<p class="world-bible-empty-hint">未覆盖：${section.uncovered.map(esc).join('；')}</p>` : ''
+        return `<article><h4>${esc(sections[section.section] || '其他资料')} · ${section.items?.length || 0} 项</h4>${rows}${uncovered}${section.truncated ? '<p class="form-error">该领域仅列出部分结果。</p>' : ''}</article>`
+      }).join('')
+      const header = `<p>${esc(targetLabel || '当前资料')} 的影响清单。点击条目核对具体来源；来源变化后需重新检查。</p>${preview.complete ? '' : '<p class="form-error">存在未覆盖范围，本清单不能证明全量影响。</p>'}`
+      const renderList = (scrollTop = 0) => {
+        if (!ownsProject(novelId)) return
+        showModalHtml('影响预演', header + body, [])
+        const root = document.getElementById('modal-body')
+        if (root) root.scrollTop = scrollTop
+        root?.querySelectorAll('[data-impact-source]').forEach(button => button.addEventListener('click', async () => {
+          const item = allItems[Number(button.dataset.impactSource)]
+          if (!item) return
+          const owner = captureModalOwner(); const position = root.scrollTop
+          button.disabled = true
+          try {
+            const source = await api.world.readWorldImpactSource({ novel_id: novelId, item })
+            if (!ownsProject(novelId) || !ownsModalOwner(owner)) return
+            showModalHtml(`来源：${source.label}`, `<div class="world-bible-reader-body">${esc(source.text).replace(/\n/g, '<br>')}</div>${source.truncated ? '<p class="form-error">来源过长，此处仅显示部分内容。</p>' : ''}`, [
+              { text: '返回影响清单', class: 'btn', handler: () => renderList(position) },
+              { text: '关闭', class: 'btn-ghost', handler: getCloseModal() },
+            ])
+          } catch (err) {
+            if (ownsProject(novelId) && ownsModalOwner(owner)) {
+              showModalHtml('来源暂不可用', `<p role="alert">${esc(err?.message || '请重试')}</p>`, [
+                { text: '返回影响清单', class: 'btn', handler: () => renderList(position) },
+                { text: '重新读取影响', class: 'btn-ghost', handler: () => openImpactPreview(targetType, targetId, targetLabel) },
+              ])
+            }
+          } finally { button.disabled = false }
+        }))
       }
-      const kindNav = { world_bible_page: "bible-page", core_entity: "entity" }
-      const body = preview.sections?.map((section) => {
-        const rows = section.items?.length
-          ? `<ul class="world-impact-preview__items">${section.items.map((item) => {
-              const nav = kindNav[item.kind]
-              const meta = [item.version ? `版本 ${esc(item.version)}` : "", item.source_hash ? `来源 ${esc(String(item.source_hash).slice(0, 10))}` : "", item.distance ? `距离 ${item.distance} 跳` : ""].filter(Boolean).join(" · ")
-              return `<li><button type="button" class="btn btn-ghost" ${nav ? `data-impact-open-kind="${esc(nav)}" data-impact-open-id="${esc(item.id)}"` : "disabled"}>${esc(item.label)}</button><small>${esc(meta)}${item.detail ? ` · ${esc(item.detail)}` : ""}</small></li>`
-            }).join("")}</ul>`
-          : `<p class="world-bible-empty-hint">本层没有可证明的依赖。</p>`
-        const uncovered = section.uncovered?.length
-          ? `<p class="world-bible-empty-hint">未覆盖：${section.uncovered.map((note) => esc(note)).join("；")}</p>`
-          : ""
-        return `<article class="world-impact-preview__section"><h4>${esc(sectionLabels[section.section] || section.section)} · ${section.items?.length || 0} 项</h4>${rows}${uncovered}</article>`
-      }).join("") || ""
-      const header = `<p class="world-bible-empty-hint">${esc(targetLabel || "目标")} 的可证明依赖清单；传递遍历只列示影响，不会自动扩大生成上下文。</p>${preview.complete ? "" : `<p class="form-error">本清单存在未覆盖范围，不能当作全量影响证明。</p>`}`
-      showModalHtml("影响预演", header + body, [])
-      document.querySelectorAll("[data-impact-open-kind]").forEach((button) => {
-        button.addEventListener("click", () => {
-          const kind = button.getAttribute("data-impact-open-kind")
-          const id = button.getAttribute("data-impact-open-id")
-          getCloseModal()?.()
-          if (kind === "bible-page") openPageCard(id)
-          else {
-            getRouter()?.navigate(
-              "world",
-              "objects",
-              true,
-              new URLSearchParams({ entity_id: id })
-            )
-          }
-        })
-      })
+      renderList()
       return true
     } catch (err) {
-      if (ownsProject(novelId) && ownsModalOwner(modalOwner)) toast(err.message || "影响预演暂不可用", "error")
+      if (ownsProject(novelId) && ownsModalOwner(modalOwner)) toast(err.message || '影响预演暂不可用', 'error')
       return false
     }
   }
@@ -2556,7 +2642,8 @@ export function useWorldBible(props) {
   }
 
   // ---- page template manager ----
-  function openPageTemplateManager() {
+  async function openPageTemplateManager() {
+    if (!await ensureBibleSupport('templates')) return
     const body = `
       <p class="world-bible-empty-hint">页面模板只定义分区布局和默认值，不保存 Prompt、provider、工具或脚本。</p>
       <div class="world-bible-suggestion-list">
@@ -2801,6 +2888,7 @@ export function useWorldBible(props) {
     // 从阅读态点“编辑”进入表单时同样提供本机备份恢复。
     watch(pageViewMode, (mode) => {
       if (mode === "edit" && !disposed) {
+        void ensureBibleSupport("templates")
         setTimeout(() => {
           if (pageViewMode.value === "edit" && displayMode.value === "editor" && !disposed) {
             maybeOfferDraftBackupRestore()
@@ -2868,6 +2956,9 @@ export function useWorldBible(props) {
     drafts,
     pageTemplates,
     activationProfiles,
+    supportState,
+    ensureBibleSupport,
+    rememberActivationProfile,
 
     // operations
     initialize,

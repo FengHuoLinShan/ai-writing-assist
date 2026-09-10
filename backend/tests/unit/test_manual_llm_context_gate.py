@@ -8,8 +8,17 @@ from pathlib import Path
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
 GATED_FUNCTIONS = {
+    "modules/writing/services.py": {
+        "submit_generation": ("prepare_confirmed_ai_action", "context_confirmation_id")
+    },
+    "modules/story/outline_state/ai_workflow_service.py": {
+        "submit_layer_generation": (
+            "require_fresh_confirmation",
+            "context_confirmation_id",
+        )
+    },
     "modules/writing/api.py": {
-        "generate_writing_candidate": ("context_confirmation_id",),
+        "generate_writing_candidate": ("WritingGenerationService", "submit_generation"),
         "run_conflict_check_ai_review": ("run_ai_review",),
         "enqueue_conflict_check_ai_review": ("context_confirmation_id",),
         "create_conflict_item_ai_suggestion": ("generate_ai_suggestion",),
@@ -21,7 +30,10 @@ GATED_FUNCTIONS = {
     },
     "modules/story/outline_state/api.py": {
         "_enqueue_confirmed_outline_task": ("require_fresh_confirmation",),
-        "_enqueue_outline_layer_task": ("require_fresh_confirmation",),
+        "_enqueue_outline_layer_task": (
+            "OutlineAIWorkflowService",
+            "submit_layer_generation",
+        ),
         "api_generate_story_outline": ("context_confirmation_id", "prepare"),
         "api_preview_scene_fusion": ("_require_scene_fusion_confirmation",),
         "api_preview_scene_fusion_task": ("_require_scene_fusion_confirmation",),
@@ -30,9 +42,7 @@ GATED_FUNCTIONS = {
         "chat_world_generation_center": ("_require_generation_confirmation",),
         "converge_world_generation_center": ("_require_generation_confirmation",),
         "explore_world_generation_center": ("_require_generation_confirmation",),
-        "inspect_world_generation_center_page": (
-            "_require_generation_confirmation",
-        ),
+        "inspect_world_generation_center_page": ("_require_generation_confirmation",),
         "ask_world": ("_require_generation_confirmation",),
         "generate_world_suggestion": ("_require_generation_confirmation",),
         "enqueue_world_suggestion": ("_require_generation_confirmation",),
@@ -79,9 +89,7 @@ def test_domain_overlays_preserve_confirmed_selection() -> None:
             'selection_options.get("excluded_asset_ids")',
             'selection_options.get("excluded_refs")',
         ),
-        "modules/story/outline_state/tasks.py": (
-            "confirmed_context=confirmed_context",
-        ),
+        "modules/story/outline_state/tasks.py": ("confirmed_context=confirmed_context",),
         "modules/world/services/worldbuilding/ask_world_service.py": (
             "_confirmed_candidates",
             "selected_asset_ids",
@@ -106,7 +114,6 @@ def test_domain_overlays_preserve_confirmed_selection() -> None:
         f"{relative_path}:{marker}"
         for relative_path, markers in required_markers.items()
         for marker in markers
-        if marker
-        not in (BACKEND_ROOT / relative_path).read_text(encoding="utf-8")
+        if marker not in (BACKEND_ROOT / relative_path).read_text(encoding="utf-8")
     ]
     assert missing == []

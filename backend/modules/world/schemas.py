@@ -412,6 +412,28 @@ class WorldGenerationRequestBase(BaseModel):
     """Shared, author-selected inputs for world generation-center operations."""
 
     novel_id: str
+    session_id: str | None = Field(default=None, min_length=1, max_length=64)
+    expected_checkpoint_id: str | None = Field(default=None, min_length=1, max_length=64)
+    selected_history_ids: list[uuid.UUID] = Field(default_factory=list, max_length=40)
+    world_state_target_id: str | None = Field(default=None, max_length=128)
+    world_state_sections: list[
+        Literal[
+            "premise",
+            "knowledge_layers",
+            "rules",
+            "reproduction_loops",
+            "facets",
+            "coupling_chains",
+            "situated_tests",
+            "pressure_tests",
+            "actors",
+            "places",
+            "institutions",
+            "history",
+            "dependencies",
+            "fiction_core",
+        ]
+    ] = Field(default_factory=list, max_length=14)
     context_confirmation_id: str | None = Field(
         default=None,
         min_length=1,
@@ -3319,6 +3341,7 @@ class WorldValidationPolicyDraftUpsert(BaseModel):
 
     policy: WorldValidationPolicy
     summary: str = Field(default="", max_length=2000)
+    expected_updated_at: datetime | None = None
 
 
 class WorldValidationFinding(BaseModel):
@@ -3364,6 +3387,13 @@ class WorldValidationRunCreate(BaseModel):
     operation_id: uuid.UUID
     scope: Literal["targeted", "full"]
     trigger: str = Field(default="manual", min_length=1, max_length=64)
+    review_domains: list[Literal["world", "story", "prose", "map"]] = Field(
+        default_factory=lambda: ["world"], min_length=1, max_length=4
+    )
+    review_depth: Literal[0, 1] = 1
+    expected_impact_scope_hash: str | None = Field(
+        default=None, pattern=r"^[a-f0-9]{64}$"
+    )
     target_type: (
         Literal["world_bible_draft", "world_adoption_package", "semantic_gap"] | None
     ) = None
@@ -3389,6 +3419,14 @@ class WorldValidationRunCreate(BaseModel):
             raise ValueError("semantic_gap validation requires root_type")
         if self.target_type != "semantic_gap" and self.root_type:
             raise ValueError("root_type is only valid for semantic_gap validation")
+        if self.target_type != "semantic_gap" and self.review_domains != ["world"]:
+            raise ValueError("cross-domain review requires a targeted root")
+        if self.review_depth == 0 and self.review_domains != ["world"]:
+            raise ValueError("root-only review cannot include downstream domains")
+        if "world" not in self.review_domains or len(self.review_domains) != len(
+            set(self.review_domains)
+        ):
+            raise ValueError("review domains must be unique and include the World root")
         return self
 
 
@@ -3398,6 +3436,7 @@ class WorldValidationRunResponse(BaseModel):
     id: str
     novel_id: str
     task_id: str | None = None
+    context_confirmation_id: str | None = None
     trigger: str
     scope: Literal["targeted", "full"]
     target_type: str | None = None
@@ -3587,6 +3626,9 @@ class WorldImpactPreviewItem(BaseModel):
         "entity_relation",
         "character",
         "story_thread",
+        "outline_arc",
+        "outline_scene",
+        "story_outline",
         "prose_chapter",
         "map_node",
     ]
@@ -3596,6 +3638,9 @@ class WorldImpactPreviewItem(BaseModel):
     source_hash: str | None = Field(default=None, max_length=128)
     distance: int | None = Field(default=None, ge=1, le=64)
     detail: str | None = Field(default=None, max_length=1000)
+    target_ref: dict[str, str] | None = None
+    source_ref: dict[str, Any] | None = None
+    match_basis: Literal["declared", "literal"] = "declared"
 
     @field_validator("id", mode="before")
     @classmethod
@@ -3617,6 +3662,7 @@ class WorldImpactPreviewSection(BaseModel):
     items: list[WorldImpactPreviewItem] = Field(default_factory=list, max_length=200)
     uncovered: list[str] = Field(default_factory=list)
     truncated: bool = False
+    scope_hash: str | None = None
 
 
 class WorldImpactPreviewTarget(BaseModel):
@@ -3641,6 +3687,22 @@ class WorldImpactPreviewResponse(BaseModel):
     sections: list[WorldImpactPreviewSection] = Field(default_factory=list, max_length=8)
     uncovered: list[str] = Field(default_factory=list)
     complete: bool = True
+    scope_hash: str | None = None
+
+
+class WorldImpactSourceReadRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    novel_id: str
+    item: WorldImpactPreviewItem
+
+
+class WorldImpactSourceReadResponse(BaseModel):
+    label: str
+    text: str
+    source_hash: str
+    target_ref: dict[str, str] | None = None
+    source_ref: dict[str, Any] | None = None
+    truncated: bool = False
 
 
 class WorldBiblePageRevisionResponse(BaseModel):
@@ -4514,6 +4576,87 @@ class WorldDesignCheckpointSaveRequest(BaseModel):
     checkpoint: WorldDesignCheckpointPayload
 
 
+class WorldDesignChanges(BaseModel):
+    """Typed changed entries only; omitted entries always inherit the parent."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    premise: WorldStatePremise | None = None
+    knowledge_layers: dict[
+        Literal["author_truth", "expert_models", "public_beliefs", "reader_unknowns"],
+        list[WorldStateKnowledge],
+    ] = Field(default_factory=dict)
+    rules: list[WorldStateRule] = Field(default_factory=list, max_length=128)
+    reproduction_loops: dict[
+        Literal[
+            "material",
+            "population_care",
+            "economic",
+            "institutional",
+            "knowledge",
+            "meaning_identity",
+        ],
+        WorldStateCoverageEntry,
+    ] = Field(default_factory=dict)
+    facets: list[WorldStateFacet] = Field(default_factory=list, max_length=22)
+    coupling_chains: list[WorldStateCouplingChain] = Field(
+        default_factory=list, max_length=5
+    )
+    situated_tests: dict[
+        Literal[
+            "ordinary_tuesday", "seven_day_failure", "life_course", "ten_year_feedback"
+        ],
+        WorldStateSituatedTest,
+    ] = Field(default_factory=dict)
+    pressure_tests: list[WorldStatePressureTest] = Field(
+        default_factory=list, max_length=12
+    )
+    actors: list[WorldStateEntity] = Field(default_factory=list, max_length=256)
+    places: list[WorldStateEntity] = Field(default_factory=list, max_length=256)
+    institutions: list[WorldStateEntity] = Field(default_factory=list, max_length=256)
+    history: list[WorldStateEntity] = Field(default_factory=list, max_length=256)
+    dependencies: list[WorldStateDependency] = Field(default_factory=list, max_length=512)
+    fiction_core: dict[
+        Literal["world", "character", "story", "outline", "prose", "editor"],
+        WorldStatePipelineEntry,
+    ] = Field(default_factory=dict)
+
+
+class WorldDesignRevisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    novel_id: str
+    session_id: uuid.UUID
+    parent_checkpoint_id: uuid.UUID
+    expected_checkpoint_id: uuid.UUID | None
+    action: Literal["expand", "connect", "pressure", "consolidate"]
+    summary: str = Field(..., min_length=1, max_length=5000)
+    changes: WorldDesignChanges
+    decisions: list[WorldCoreCheckpointDecision] = Field(
+        default_factory=list, max_length=64
+    )
+    depth: Literal["seed", "candidate", "instance"] | None = None
+    context_confirmation_id: uuid.UUID | None = None
+
+
+class WorldDesignIterationRequest(WorldGenerationChatRequest):
+    action: Literal["expand", "connect", "pressure", "consolidate"]
+    parent_checkpoint_id: uuid.UUID
+
+
+class WorldDesignIterationOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str = Field(..., min_length=1, max_length=5000)
+    changes: WorldDesignChanges
+
+
+class WorldDesignIterationResponse(WorldDesignIterationOutput):
+    parent_checkpoint_id: str
+    context_confirmation_id: str
+    source_manifest_hash: str
+
+
 class WorldAdoptionSourceRef(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -5062,3 +5205,18 @@ class WorldCocreationChatRequest(WorldGenerationChatRequest):
     """会话内聊天：LLM 成功后把作者消息与完成的模型回复原子落库。"""
 
     session_action: WorldCocreationAction | None = None
+
+
+class WorldCocreationTurnTaskRequest(WorldCocreationChatRequest):
+    operation_id: uuid.UUID
+    session_id: str = Field(..., min_length=1, max_length=64)
+    mode: Literal["chat", "design"] = "chat"
+    parent_checkpoint_id: uuid.UUID | None = None
+
+    @model_validator(mode="after")
+    def require_turn_scope(self) -> WorldCocreationTurnTaskRequest:
+        if self.mode == "design" and (
+            not self.parent_checkpoint_id or not self.session_action
+        ):
+            raise ValueError("design iteration requires parent and action")
+        return self

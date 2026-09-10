@@ -24,10 +24,9 @@ def test_story_asset_staleness_only_reads_adopted_script_projection() -> None:
 @pytest.mark.asyncio
 async def test_generate_preflight_returns_structured_stale_story_assets_409(
     monkeypatch: pytest.MonkeyPatch,
+    db_session,
+    test_project_id,
 ) -> None:
-    async def _allow_project(*_args, **_kwargs) -> None:
-        return None
-
     async def _no_existing_task(*_args, **_kwargs):
         return None
 
@@ -46,7 +45,6 @@ async def test_generate_preflight_returns_structured_stale_story_assets_409(
             ]
         }
 
-    monkeypatch.setattr("modules.project.facade.require_active_project", _allow_project)
     monkeypatch.setattr(
         "infrastructure.tasks.facade.get_operation_task", _no_existing_task
     )
@@ -56,13 +54,13 @@ async def test_generate_preflight_returns_structured_stale_story_assets_409(
     monkeypatch.setattr("modules.story.facade.get_scene_story_assets", _stale_assets)
 
     request = WritingGenerateRequest(
-        novel_id="novel-1",
+        novel_id=test_project_id,
         chapter_index=1,
         context_confirmation_id="confirmation-1",
     )
 
     with pytest.raises(HTTPException) as caught:
-        await api.generate_writing_candidate(SimpleNamespace(), request)
+        await api.generate_writing_candidate(db_session, request)
 
     assert caught.value.status_code == 409
     assert caught.value.detail == {

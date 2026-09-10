@@ -301,6 +301,7 @@ cd backend
 pytest modules/story/outline_state/tests/ -v
 ```
 
+作者可就地编辑篇章并批量归类信息推进计划；总览引用已有剧情线、篇章只形成可编辑草稿，经确认保存为新版本。生成线程分类与旧词项映射见 Story README。
 第四期复核所有权（ADR-0022）下 outline 子域仅新增经 `modules.story.facade` 暴露的故事线只读反查（`list_plot_threads_referencing_entities`）；Scene/大纲状态与生成上下文不变。
 
 ## 项目助手操作
@@ -308,3 +309,5 @@ pytest modules/story/outline_state/tests/ -v
 ADR-0023 的 Story 操作可保存总纲版本、追加场景规划及准备 Scene 修改；明确确认后复用原
 版本/CAS服务。普通编辑不接受重排、归档或正文映射字段。结构变化同事务标记引用检查，
 既有复杂拆分/合并、伏笔与揭示工作台仍保留独立的精确预览和采用流程。
+
+世界变更复核经 Story facade 读取当前故事线/篇章纲/Scene/总纲的引用与版本，不直接导入 outline_state 的 ORM。范围变动使 World 旧回执失效；结构修改仍通过 Story 自有编辑流程，不由复核聚合器写入。

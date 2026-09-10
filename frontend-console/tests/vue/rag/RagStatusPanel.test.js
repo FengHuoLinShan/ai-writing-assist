@@ -67,12 +67,32 @@ afterEach(() => {
 describe("状态页渲染", () => {
   it("概览指标与片段表", () => {
     const wrapper = mountPanel()
-    expect(wrapper.text()).toContain("正常")
+    expect(wrapper.text()).toContain("已连接")
     expect(wrapper.text()).toContain("128")
     expect(wrapper.text()).toContain("10/12")
     expect(wrapper.get(".rag-status-overview").element.closest("details")).toBeNull()
     expect(wrapper.findAll(".rag-chunk-table tbody tr")).toHaveLength(1)
     expect(wrapper.find(".rag-chunk-preview").text()).toContain("旧塔的铜铃")
+  })
+
+  it("当前资料降级时不被历史健康摘要掩盖", () => {
+    const wrapper = mountPanel({
+      statusFields: makeStatusFields({ statusDegraded: true }),
+      evidenceHealth: { health_state: "healthy" },
+    })
+    expect(wrapper.get(".rag-status-value--state").text()).toBe("可以改进")
+    expect(wrapper.get(".rag-status-warning-card").text()).toContain("当前查找证据还不完整")
+    expect(wrapper.text()).toContain("已连接")
+  })
+
+  it("在失败提示旁直接重试片段，维护中禁止重复提交", async () => {
+    const wrapper = mountPanel({ statusFields: makeStatusFields({ statusDegraded: true }) })
+    const retry = wrapper.get('[data-action="retry-embeddings"]')
+    expect(retry.element.closest("details")).toBeNull()
+    await retry.trigger("click")
+    expect(wrapper.emitted("retry-embeddings")).toHaveLength(1)
+    await wrapper.setProps({ maintenanceBusy: true })
+    expect(retry.attributes("disabled")).toBeDefined()
   })
 
   it("未连接时显示断连空态", () => {

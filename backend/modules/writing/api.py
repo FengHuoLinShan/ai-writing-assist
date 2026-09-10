@@ -385,6 +385,7 @@ async def generate_writing_candidate(
     data: WritingGenerateRequest,
 ) -> WritingGenerateResponse:
     """提交 AI 正文建议生成任务；采用前不进入工作稿。"""
+    await require_active_project(db, data.novel_id)
     from core.errors import ConflictError
     from modules.writing.services import WritingGenerationService
 
@@ -449,6 +450,7 @@ async def enqueue_targeted_revision(
     data: WritingTargetedRevisionRequest,
 ) -> WritingSemanticReviewTaskResponse:
     """从独立审查 finding 生成一份不覆盖原稿的定向返修候选。"""
+    await require_active_project(db, data.novel_id)
     from modules.writing.semantic_review import WritingSemanticWorkflowService
 
     result = await WritingSemanticWorkflowService().submit_targeted_revision(db, data)
