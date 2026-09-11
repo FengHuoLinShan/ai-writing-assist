@@ -1,5 +1,9 @@
 # 全库代码简化审查（Code Simplification Audit）— 2026-09-10
 
+> 2026-09-11 计划更新：后续全量审查遵循 [全代码库优化审查计划](full-codebase-optimization-review-plan.md)。用户本轮仅要求写计划，功能保持兼容，允许提出内部架构调整；新增全量审查与实施均未启动。下文保留历史候选及当时判断，不作为执行授权；尤其 Wave 0 清理命令、零引用结论和收益估计必须重新取证。当前工作区已有他人/其他任务 WIP，本轮未修改实现。
+>
+> 2026-09-11 全量审查完成：上段"未启动"状态已终结。全库 2453 文件已按新计划审毕，本文约 70 项候选逐条复核（多项重大纠偏，如 `deep_import_phase01`/`deepseek_scene_probe` 判误报不得删除、A3-5 规模 24→64 处、A1-1"恒 403"不成立）。结论与批次见 [full-codebase-review/review-report.md](full-codebase-review/review-report.md) 与 [full-codebase-review/batch-plan.md](full-codebase-review/batch-plan.md)；本文历史段落仅作线索留存，执行以新账本为准。优化实施仍未授权。
+
 多 Agent 并行只读审查：10 个区域/跨模块单元（A1–A9、X1）+ 1 个 Reviewer（Wave 2）。
 基线：codex/agent-integration 工作树（只读）；原始候选 ~106 条，合并去重后约 70 项；Reviewer 对 5 个关键 S/A 项读码重验全部证实。本文是执行阶段的工作底稿。
 
