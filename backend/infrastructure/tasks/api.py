@@ -78,6 +78,7 @@ _MODULE_API_ONLY_TASK_TYPES = {
     "world_object_auto_extraction",
     "plot_structure_auto_extraction",
     "targeted_completion",
+    "import_review_resolution",
     "evidence_focused_search",
     "world_alias_relation_extraction",
     "world_entity_fusion_suggestions",
@@ -333,12 +334,9 @@ async def cancel_task(
     （Bug L3: task_id 改为原生 UUID 类型）
     """
     await _require_active_project(db, novel_id)
-    stmt = (
-        select(AsyncTask)
-        .where(
-            AsyncTask.id == task_id,
-            AsyncTask.novel_id == uuid.UUID(str(novel_id)),
-        )
+    stmt = select(AsyncTask).where(
+        AsyncTask.id == task_id,
+        AsyncTask.novel_id == uuid.UUID(str(novel_id)),
     )
     result = await db.execute(stmt)
     task = result.scalar_one_or_none()

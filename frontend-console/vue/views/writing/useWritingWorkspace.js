@@ -684,6 +684,7 @@ export function useWritingWorkspace(props) {
       const authorization = importAuthorizationPayload()
       if (["deep", "world_objects"].includes(autoExtraction.stage)) {
         authorization.targeted_completion = { enabled: false, defer: true }
+        authorization.review_resolution = { enabled: true, version: "imports.review_resolution.v1", repair_scenes: true }
       }
       const result = autoExtraction.stage === "deep"
         ? await api.imports.deepImport(
@@ -1166,7 +1167,13 @@ export function useWritingWorkspace(props) {
   }
 
   async function openConflictDialog(value = conflictState.latest, focusItemId = null) {
-    let check = value
+    if (value?.source === "结构") {
+      const query = new URLSearchParams({ chapter_index: String(selectedChapter.value || "") })
+      if (currentScene.value?.id) query.set("scene_id", currentScene.value.id)
+      router?.navigate("outline", "scenes", true, query)
+      return
+    }
+    let check = value?.source ? conflictState.latest : value
     if (check?.id && !Array.isArray(check.items)) check = await refreshConflictCheck(check.id)
     if (!check) {
       toast("检查记录暂不可用", "warning")

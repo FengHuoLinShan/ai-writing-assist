@@ -2340,6 +2340,11 @@ const api = {
   // 导入
   // ============================================================
   imports: {
+    async reviewSummary(novelId) { return request(withQuery('/imports/review-summary', { novel_id: novelId })) },
+    async decideReview(taskId, novelId, payload) { return post(withQuery(`/imports/review-resolutions/${taskId}/decisions`, { novel_id: novelId }), payload) },
+    async applyReviewSceneGroup(taskId, groupKey, novelId, payload) { return post(withQuery(`/imports/review-resolutions/${taskId}/scene-groups/${groupKey}/apply`, { novel_id: novelId }), payload) },
+    async resolveReview(payload) { return post('/imports/review-resolutions', payload) },
+    async rollbackReviewResolution(taskId, novelId) { return post(withQuery(`/imports/review-resolutions/${taskId}/rollback`, { novel_id: novelId }), { confirmed: true }) },
     async workflowImpact(novelId, assetId) { return request(withQuery('/imports/workflows/impact', { novel_id: novelId, asset_id: assetId })) },
     async recentWorkflows(novelId, skip = 0) { return request(withQuery('/imports/workflows/recent', { novel_id: novelId, skip, limit: 20 })) },
     async deferTargetedCompletion(taskId) { return post(`/imports/targeted-completions/${taskId}/defer`, {}) },
@@ -2376,6 +2381,7 @@ const api = {
         high_quality: highQuality,
         adoption_policy: authorization.adoption_policy || "user_authorized_pipeline",
         authorization_confirmed: true,
+        ...(authorization.review_resolution?.enabled ? { review_resolution: authorization.review_resolution } : {}),
         ...(authorization.targeted_completion?.enabled ? { targeted_completion: { enabled: true } } : {}),
       })
     },
@@ -2392,6 +2398,7 @@ const api = {
         high_quality: highQuality,
         adoption_policy: authorization.adoption_policy || "user_authorized_pipeline",
         authorization_confirmed: true,
+        ...(authorization.review_resolution?.enabled ? { review_resolution: authorization.review_resolution } : {}),
         ...(authorization.targeted_completion?.enabled ? { targeted_completion: { enabled: true } } : {}),
       })
     },

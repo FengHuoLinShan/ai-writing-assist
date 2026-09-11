@@ -1,0 +1,1 @@
+{"judgments":[{"candidate_key":"alias-1","support":"explicit","identity":"unique","persistence":"stable","confidence":0.95,"field_evidence":{"alias":[{"evidence_key":"chapter-1","quote":"青港又名北港"}]},"counter_evidence":[],"uncertainties":[],"explanation":"原文明示同一地点的另一名称。","question":"","missing_evidence":[]}],"groups":[]}

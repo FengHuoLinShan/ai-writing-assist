@@ -1119,3 +1119,12 @@ checkpoint 语义，并持有世界事实、采用包和复核结论。助手通
 ### 审阅与导航体验约定
 
 资料库有查询词时先按姓名/有效别名精确、前缀、包含、描述匹配排序，再使用既有稳定排序并分页。关联图支持人物根节点，边返回具体 `relation_type`；对象历史列表返回既有只读 `snapshot`，仍受owner和项目隔离。问世界只使用confirmation保留的正文范围及版本/来源指纹；缺失别名证据明确待核对，不用置信度替代原文。
+
+智能整理导入候选使用 Imports 的 `import_review_resolution` 持久任务，工作台与项目助手共用入口；
+结果区分已整理、需要决定、可选建议与处理未完成。授权、恢复、来源和质量资格边界见
+`backend/modules/imports/README.md` 的“智能整理现有候选”。旧候选与旧授权不自动迁移。
+
+导入整理新增的根 facade 入口：list_review_resolution_candidates、authorize_review_resolution、
+resolve_redundant_review_alias、prepare_review_resolution_decision、apply_review_resolution_decision。
+它们只处理可证明导入来源的候选；其他 AI 建议继续遵守原 confirmation 与领域采用规则。
+作者注意事项读取 Imports 的新鲜分流，生命周期候选总数与必须决定的问题数分别展示。

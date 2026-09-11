@@ -1,0 +1,13 @@
+{
+  "id": "review_resolution_scenes",
+  "version": 1,
+  "owner": "story",
+  "schema_model": "modules.story.outline_state.scene_resolution.SceneBoundaryReview",
+  "declared_prompt_fields": ["scenes"],
+  "forbidden_fields": ["status", "approved_by", "needs_review"],
+  "strict_schema_coverage": true,
+  "required_mappings": [],
+  "observed_fields": ["scenes.scene_id", "scenes.verdict", "scenes.confidence", "scenes.anchors.evidence_key", "scenes.anchors.start_anchor", "scenes.anchors.end_anchor", "scenes.explanation", "scenes.uncertain_fields", "scenes.field_evidence"],
+  "ignored_fields": [],
+  "probes": []
+}

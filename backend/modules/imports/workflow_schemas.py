@@ -63,6 +63,7 @@ class DeepImportProgress(BaseModel):
         description="阶段: pending / running / done / failed",
     )
     targeted_completion: dict[str, Any] = Field(default_factory=dict)
+    review_resolution: dict[str, Any] = Field(default_factory=dict)
     quality_status: str = Field(
         default="pending",
         description="质量状态: pending / complete / partial / failed",

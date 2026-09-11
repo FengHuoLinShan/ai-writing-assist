@@ -262,3 +262,33 @@ async def mark_worldbuilding_context_stale(
         asset_id=asset_id,
         reason=reason,
     )
+
+
+async def list_review_resolution_candidates(db, novel_id, *, workflow_id=None, keys=None):
+    from modules.world.services.core.review_resolution import candidates
+
+    return await candidates(db, novel_id, workflow_id=workflow_id, keys=keys)
+
+
+async def authorize_review_resolution(db, **kwargs):
+    from modules.world.services.core.review_resolution import authorize_resolution
+
+    return await authorize_resolution(db, **kwargs)
+
+
+async def prepare_review_resolution_decision(db, **kwargs):
+    from modules.world.services.core.review_resolution import prepare_manual_decision
+
+    return await prepare_manual_decision(db, **kwargs)
+
+
+async def apply_review_resolution_decision(db, **kwargs):
+    from modules.world.services.core.review_resolution import apply_manual_decision
+
+    return await apply_manual_decision(db, **kwargs)
+
+
+async def resolve_redundant_review_alias(db, **kwargs):
+    from modules.world.services.core.review_resolution import resolve_redundant_alias
+
+    return await resolve_redundant_alias(db, **kwargs)

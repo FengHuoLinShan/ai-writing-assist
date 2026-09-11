@@ -1439,10 +1439,16 @@ def _coordinate_window_edges(
                 }
                 mismatches.append(mismatch)
                 for candidate in candidates:
-                    if candidate.source_window_id in {
-                        previous_observation["window_id"],
-                        result.window.window_id,
-                    }:
+                    boundary = result.window.owned_start
+                    if (
+                        candidate.source_window_id
+                        in {
+                            previous_observation["window_id"],
+                            result.window.window_id,
+                        }
+                        and candidate.start_chapter <= boundary
+                        and candidate.end_chapter >= boundary - 1
+                    ):
                         candidate.needs_review = True
                         candidate.review_reason = " ".join(
                             part

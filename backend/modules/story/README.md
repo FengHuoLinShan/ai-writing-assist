@@ -120,7 +120,10 @@ P20采用在同一事务向 source.changed 发出真实成果引用；规则引�
 
 `list_world_dependencies` / `read_world_dependency` expose versioned, read-only references from plot threads, arcs, Scenes and the current story-outline revision. They separate declared object references from literal outline mentions and return source hashes. World owns review receipts; resolving a finding still uses Story's own editor and version rules. The seam does not write World, Writing or continuity state, and planning records have no reader/Scene-local visibility projection.
 
-
 ### 审阅与导航体验约定
 
 场景相关用户标签统一使用“场景”；剧本区修改或切换文件后将临时检查标为过期，检查不被解释为新稿结论。篇章行编辑只备份实际修改，提供取消及Escape退出。
+
+## 导入场景的定向核对
+
+Story 提供 `preview_import_scene_resolution`、`apply_import_scene_resolution` 和对应撤销 seam。Imports 冻结原场景指纹、从 Evidence 读取来源、执行边界提案与终检；Story 在提交时重验正文和全章覆盖。当前仅自动处理原定位不变、未编辑的导入草稿；改变引用范围的提案保持待决定。字段必须有独立证据，不因边界正确而自动通过写作约束，自动核对不伪造人工 reviewed_at。

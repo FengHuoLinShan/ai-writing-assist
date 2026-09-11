@@ -926,6 +926,8 @@ class EntityAliasService:
         entity_id: str,
         alias: str,
         changes: dict,
+        *,
+        _validation_prechecked: bool = False,
     ) -> dict:
         """更新实体别名条目的元数据；None 值表示移除对应字段。"""
         nid = parse_uuid(novel_id, "novel_id")
@@ -946,10 +948,10 @@ class EntityAliasService:
             current_status = (
                 alias_item.get("status") if isinstance(alias_item, dict) else None
             )
-            if current_status in {"canonical", "confirmed"} or changes.get("status") in {
-                "canonical",
-                "confirmed",
-            }:
+            if not _validation_prechecked and (
+                current_status in {"canonical", "confirmed"}
+                or changes.get("status") in {"canonical", "confirmed"}
+            ):
                 await self._require_legacy_canon_write_allowed(db, novel_id)
 
             updated = (

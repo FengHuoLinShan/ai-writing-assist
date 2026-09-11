@@ -776,7 +776,8 @@ def _final_candidate(
         scene.needs_review
         or phase1a_fallback
         or not source_integrity.get("complete")
-        or uncertain_fields
+        or set(uncertain_fields)
+        - {"narrative_tag", "narrative_function", "emotional_beat"}
         or fallback_required
     )
     return FinalSceneCandidate(

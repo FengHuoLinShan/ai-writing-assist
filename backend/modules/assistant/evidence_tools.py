@@ -753,6 +753,33 @@ async def world_page_history(
     )
 
 
+@budgeted_tool
+async def review_resolution_result(
+    ctx: RunContext[AssistantToolContext], task_id: UUID
+) -> dict:
+    """读取本次智能整理的关键问题、候选字段和可选择成员；建议不是作品事实。"""
+    deps = ctx.deps
+    await deps.guard()
+    if deps.fixed_context or deps.work.excluded_targets:
+        await deps.db.commit()
+        return {"omission": "当前限定资料范围，请到原整理回执查看"}
+    value = await evidence.read_review_resolution_evidence(
+        deps.db, novel_id=deps.novel_id, task_id=str(task_id), visibility=deps.visibility
+    )
+    result = deps.remember(
+        {
+            "title": "智能整理结果",
+            "target_ref": {
+                "target_type": "project_workspace",
+                "target_id": deps.novel_id,
+            },
+            "inspection": value,
+        }
+    )
+    await deps.db.commit()
+    return result or {}
+
+
 def author_read_tools(*, allow_web: bool, version: str = "2") -> list[Tool]:
     functions = [
         search_project,
@@ -770,5 +797,5 @@ def author_read_tools(*, allow_web: bool, version: str = "2") -> list[Tool]:
             [search_general_fact, read_web_source] if version == "3" else [research_fact]
         )
     if version == "3":
-        functions.append(world_page_history)
+        functions.extend([world_page_history, review_resolution_result])
     return [Tool(function, sequential=True) for function in functions]

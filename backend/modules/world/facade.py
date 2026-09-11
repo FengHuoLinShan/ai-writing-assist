@@ -69,18 +69,23 @@ from modules.world.event_facade import (  # noqa: F401
 )
 from modules.world.worldbuilding_facade import (  # noqa: F401
     apply_focused_world_package,
+    apply_review_resolution_decision,
     assemble_post_import_adoption_package,
     authorize_focused_world_completion,
+    authorize_review_resolution,
     get_world_background,
     get_world_bible_page_source_manifest,
     get_world_bible_projection_candidates,
     get_world_bible_synopsis_context,
     get_world_bible_working_pages_context,
     initialize_world_canon,
+    list_review_resolution_candidates,
     list_world_bible_working_page_ids,
     mark_world_bible_synopsis_stale,
     mark_worldbuilding_context_stale,
+    prepare_review_resolution_decision,
     preview_worldbuilding_activation,
+    resolve_redundant_review_alias,
     rollback_focused_world_package,
     submit_focused_world_package,
 )
@@ -88,6 +93,11 @@ from modules.world.worldbuilding_facade import (  # noqa: F401
 # Frozen cross-module API. New names require a deletion test, contract/README
 # update, and an explicit change to the public-surface regression test.
 __all__ = [
+    "list_review_resolution_candidates",
+    "authorize_review_resolution",
+    "prepare_review_resolution_decision",
+    "apply_review_resolution_decision",
+    "resolve_redundant_review_alias",
     "authorize_focused_world_completion",
     "submit_focused_world_package",
     "apply_focused_world_package",

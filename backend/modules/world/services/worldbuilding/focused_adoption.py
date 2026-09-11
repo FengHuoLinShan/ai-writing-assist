@@ -56,6 +56,7 @@ async def authorize(
     task_id=None,
     workflow_id=None,
     authorization_id=None,
+    resolution_scope=None,
 ):
     await require_active_project(db, novel_id)
     project = await get_project_context(db, novel_id)
@@ -63,7 +64,12 @@ async def authorize(
     if not project or project.owner_id != actor:
         raise ValidationError("Focused completion requires the current project owner")
     allowed = list(actions if actions is not None else sorted(ACTIONS))
-    if not set(allowed).issubset(ACTIONS) or not allowed or max_depth not in (0, 1):
+    permitted = (
+        {"promote_entity", "promote_relation", "resolve_alias"}
+        if resolution_scope is not None
+        else ACTIONS
+    )
+    if not set(allowed).issubset(permitted) or not allowed or max_depth not in (0, 1):
         raise ValidationError("Invalid focused completion authorization")
     if root_selection not in {"explicit", "import_completion_hints"} or not task_id:
         raise ValidationError("Focused authorization requires a bound task")
@@ -91,6 +97,11 @@ async def authorize(
         "workflow_id": workflow_id,
         "authorized_at": datetime.now(UTC).isoformat(),
     }
+    if resolution_scope is not None:
+        if not resolution_scope:
+            raise ValidationError("Resolution requires frozen candidates")
+        snapshot["policy"] = "world.review_resolution.v1"
+        snapshot["resolution_scope"] = resolution_scope
     if authorization_id:
         original = await authorization(db, novel_id, authorization_id)
         immutable = set(snapshot) - {"task_id", "authorized_at"}
@@ -149,7 +160,7 @@ async def authorization(db, novel_id, authorization_id):
     snapshot = record.payload_json
     project = await get_project_context(db, novel_id)
     if (
-        snapshot.get("policy") != POLICY
+        snapshot.get("policy") not in {POLICY, "world.review_resolution.v1"}
         or snapshot.get("owner_id") != getattr(project, "owner_id", None)
         or stable_hash(snapshot)
         != record.result_ref_json.get("authorization_fingerprint")
@@ -282,6 +293,13 @@ async def validate_items(service, db, novel_id, package, snapshot):
         if item.disposition != "include":
             continue
         try:
+            if snapshot["policy"] == "world.review_resolution.v1":
+                from modules.world.services.core.review_resolution import (
+                    validate_resolution_item,
+                )
+
+                await validate_resolution_item(service, db, novel_id, item, snapshot)
+                continue
             action = _action(item)
             if action != "reference" and action not in snapshot["actions"]:
                 raise ValidationError("Change is outside focused write authorization")
@@ -554,7 +572,10 @@ async def rollback(service, db, *, novel_id, suggestion_id):
     if (
         suggestion is None
         or suggestion.status != "accepted"
-        or not suggestion.payload_json.get("focused_authorization_id")
+        or not (
+            suggestion.payload_json.get("focused_authorization_id")
+            or suggestion.payload_json.get("review_resolution_run")
+        )
     ):
         raise ValidationError("No accepted focused package to roll back")
     receipt = copy.deepcopy(suggestion.result_ref_json)

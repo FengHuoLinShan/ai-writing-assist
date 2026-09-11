@@ -1128,7 +1128,8 @@ async def test_post_import_package_is_idempotent_and_keeps_existing_separate(
     first = await service.assemble_post_import(db_session, request)
     second = await service.assemble_post_import(db_session, request)
     assert first.created is True
-    assert second == type(second)(suggestion_id=first.suggestion_id, created=False)
+    assert second.suggestion_ids == first.suggestion_ids
+    assert second.created is False
     package = (
         await service.get(db_session, project_novel_id, first.suggestion_id)
     ).payload_json
@@ -1148,12 +1149,7 @@ async def test_post_import_package_is_idempotent_and_keeps_existing_separate(
         item["action"] for item in preview.canon_diff if item["kind"] == "entity_relation"
     }
     assert relation_actions == {"promote", "existing_ref"}
-    page = next(item for item in package["items"] if item["kind"] == "world_bible_page")
-    rendered_claims = "\n".join(
-        section["body_markdown"] for section in page["payload"]["sections_json"]
-    )
-    assert "待确认（location）：潮门失准时会中断补给。" in rendered_claims
-    assert "已确认导入世界对象" not in rendered_claims
+    assert not any(item["kind"] == "world_bible_page" for item in package["items"])
 
 
 @pytest.mark.asyncio

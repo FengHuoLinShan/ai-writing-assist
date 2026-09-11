@@ -4662,7 +4662,12 @@ class WorldAdoptionSourceRef(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     source_type: Literal[
-        "world_bible_page", "core_entity", "manuscript", "conversation", "external"
+        "world_bible_page",
+        "core_entity",
+        "manuscript",
+        "conversation",
+        "external",
+        "author_decision",
     ]
     source_id: str = Field(..., min_length=1, max_length=128)
     source_version: str | None = Field(default=None, max_length=128)
@@ -4766,6 +4771,9 @@ class WorldAdoptionCoreEntityPayload(BaseModel):
 
 class WorldAdoptionAliasPayload(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    candidate_fingerprint: str | None = Field(
+        default=None, min_length=64, max_length=64, exclude_if=lambda value: value is None
+    )
 
     entity_ref: str = Field(min_length=1, max_length=128)
     alias: str = Field(min_length=1, max_length=255)
@@ -4850,6 +4858,9 @@ class WorldAdoptionPackageItem(BaseModel):
     root_key: str | None = Field(default=None, max_length=128)
     depth: Literal[0, 1] = 0
     review_reasons: list[str] = Field(default_factory=list, max_length=16)
+    review_evidence: dict[str, list[str]] = Field(
+        default_factory=dict, exclude_if=lambda value: not value
+    )
     direct_relation_ref: dict[str, str] | None = None
 
     @model_validator(mode="after")
@@ -4880,6 +4891,9 @@ class WorldAdoptionPackagePayload(BaseModel):
 
     schema_version: Literal["world_adoption_package.v1", "world_adoption_package.v2"]
     focused_authorization_id: str | None = None
+    review_resolution_run: str | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     focused_roots: list[dict[str, Any]] = Field(default_factory=list, max_length=1000)
     context_fingerprint: str | None = None
     focused_request_hash: str | None = None
@@ -4899,6 +4913,12 @@ class WorldAdoptionPackagePayload(BaseModel):
 
     @model_validator(mode="after")
     def validate_item_keys(self) -> WorldAdoptionPackagePayload:
+        if self.review_resolution_run and any(
+            item.kind == "world_bible_page"
+            or item.payload.get("operation") in {"create", "replace", "fill_empty"}
+            for item in self.items
+        ):
+            raise ValueError("Manual resolution only adopts existing candidates")
         specialized = any(
             item.kind == "entity_alias" or item.payload.get("operation") == "fill_empty"
             for item in self.items

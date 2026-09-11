@@ -49,6 +49,7 @@ STAGE_TASK_TYPES = {
     "world_objects": "world_object_auto_extraction",
     "plot_structure": "plot_structure_auto_extraction",
     "targeted_completion": "targeted_completion",
+    "review_resolution": "import_review_resolution",
 }
 IMPORT_TASK_TYPES = {"deep_import", *STAGE_TASK_TYPES.values()}
 
@@ -170,6 +171,7 @@ class DeepImportOrchestrator:
         adoption_policy: str = DEFAULT_ADOPTION_POLICY,
         authorization_confirmed: bool = False,
         targeted_completion: dict[str, Any] | None = None,
+        review_resolution: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         authorization_snapshot = build_authorization_snapshot(
             novel_id=novel_id,
@@ -198,6 +200,17 @@ class DeepImportOrchestrator:
                 "message": warning,
             }
 
+        from modules.imports.review_resolution import freeze_future_resolution
+
+        resolution = await freeze_future_resolution(
+            db,
+            novel_id=novel_id,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+            options=review_resolution,
+        )
+        if resolution:
+            authorization_snapshot["review_resolution"] = resolution
         from modules.imports.targeted_completion import freeze_completion_permission
 
         permission = await freeze_completion_permission(
@@ -260,6 +273,7 @@ class DeepImportOrchestrator:
         adoption_policy: str = DEFAULT_ADOPTION_POLICY,
         authorization_confirmed: bool = False,
         targeted_completion: dict[str, Any] | None = None,
+        review_resolution: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if stage not in STAGE_TASK_TYPES:
             raise ValueError(f"unsupported deep import stage: {stage}")
@@ -292,6 +306,17 @@ class DeepImportOrchestrator:
                     "warning": warning,
                     "message": warning,
                 }
+        from modules.imports.review_resolution import freeze_future_resolution
+
+        resolution = await freeze_future_resolution(
+            db,
+            novel_id=novel_id,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+            options=review_resolution,
+        )
+        if resolution:
+            authorization_snapshot["review_resolution"] = resolution
         from modules.imports.targeted_completion import freeze_completion_permission
 
         if (
@@ -431,6 +456,72 @@ class DeepImportOrchestrator:
             "message": "专项补全任务已提交",
         }
 
+    async def start_review_resolution(self, db, request):
+        from shared.utils import parse_uuid
+
+        request = request.model_copy(
+            update={"novel_id": str(parse_uuid(request.novel_id))}
+        )
+        from modules.imports.review_resolution import freeze_resolution
+        from modules.project.facade import require_active_project_exclusive
+        from modules.writing.facade import list_chapter_indices
+
+        await require_active_project_exclusive(db, request.novel_id)
+        chapters = await list_chapter_indices(db, request.novel_id)
+        end = request.end_chapter or max(chapters, default=0)
+        if end < request.start_chapter:
+            raise ValueError("项目没有所选章节")
+        permission = await freeze_resolution(
+            db,
+            novel_id=request.novel_id,
+            start_chapter=request.start_chapter,
+            end_chapter=end,
+            asset_keys=request.asset_keys,
+            repair_scenes=request.repair_scenes,
+        )
+        active = await self._find_active_import_task(db, request.novel_id)
+        if active is not None:
+            original = (active.authorization_snapshot or {}).get(
+                "review_resolution"
+            ) or {}
+            if (
+                active.workflow_type != "import_review_resolution"
+                or original.get("scope_hash") != permission["scope_hash"]
+            ):
+                raise ConflictError("已有其他范围的整理任务，请先处理原任务")
+            return self._existing_task_response(active, active.authorization_snapshot)
+        authorization = build_authorization_snapshot(
+            novel_id=request.novel_id,
+            start_chapter=request.start_chapter,
+            end_chapter=end,
+            adoption_policy=DEFAULT_ADOPTION_POLICY,
+            authorization_confirmed=request.authorization_confirmed,
+            stage="review_resolution",
+        )
+        authorization["review_resolution"] = permission
+        profile = await self._build_llm_execution_snapshot(db, request.novel_id)
+        queued = await self._enqueue_workflow(
+            db,
+            task_type="import_review_resolution",
+            novel_id=request.novel_id,
+            start_chapter=request.start_chapter,
+            end_chapter=end,
+            stage="review_resolution",
+            context_mode="working",
+            include_pending_objects=True,
+            high_quality=False,
+            replace_existing=False,
+            authorization_snapshot=authorization,
+            llm_execution_snapshot=profile,
+        )
+        return {
+            "task_id": queued.task_id,
+            "workflow_id": queued.task_id,
+            "workflow_type": "import_review_resolution",
+            "status": "pending",
+            "message": "智能整理已开始，可离开后继续查看",
+        }
+
     async def run_task(self, db: AsyncSession, task: Any) -> dict[str, Any]:
         meta = task.meta or {}
         novel_id = meta.get("novel_id", "")
@@ -474,6 +565,15 @@ class DeepImportOrchestrator:
                 checkpoint=_record_progress,
                 project_settings=project_settings,
             )
+            from modules.imports.review_resolution import resolve_import_candidates
+
+            await resolve_import_candidates(
+                db,
+                task=task,
+                progress=updated,
+                checkpoint=_record_progress,
+                project_settings=project_settings,
+            )
 
         progress = await self.workflow.run_step(
             db,
@@ -496,9 +596,10 @@ class DeepImportOrchestrator:
             raise DeepImportWorkflowFailedError(
                 progress.message or "Deep import workflow failed"
             )
-        await self._assemble_post_import_package(
-            db, progress, meta, novel_id, str(task.id)
-        )
+        if not progress.authorization_snapshot.get("review_resolution"):
+            await self._assemble_post_import_package(
+                db, progress, meta, novel_id, str(task.id)
+            )
         return self._result_from_progress(progress)
 
     @staticmethod
@@ -550,6 +651,7 @@ class DeepImportOrchestrator:
             )
             progress.phase_artifacts["post_import_adoption_package"] = {
                 "suggestion_id": result.suggestion_id,
+                "suggestion_ids": list(result.suggestion_ids or (result.suggestion_id,)),
                 "created": result.created,
             }
         except Exception as exc:
@@ -641,8 +743,27 @@ class DeepImportOrchestrator:
                 checkpoint=_record_progress,
                 project_settings=project_settings,
             )
+            from modules.imports.review_resolution import resolve_import_candidates
 
-        if stage == "targeted_completion":
+            await resolve_import_candidates(
+                db,
+                task=task,
+                progress=updated,
+                checkpoint=_record_progress,
+                project_settings=project_settings,
+            )
+
+        if stage == "review_resolution":
+            from modules.imports.review_resolution import run_resolution
+
+            await run_resolution(
+                db,
+                task=task,
+                progress=progress,
+                checkpoint=_record_progress,
+                project_settings=project_settings,
+            )
+        elif stage == "targeted_completion":
             await _completion(progress)
             progress.phase = "done"
             progress.current_step = None
@@ -1488,6 +1609,13 @@ class DeepImportOrchestrator:
                 novel_id=novel_id,
                 task_id=task_id,
             )
+        resolution_rollback = {}
+        if (run.checkpoints or {}).get("review_resolution"):
+            from modules.imports.review_resolution import rollback_resolution
+
+            resolution_rollback = await rollback_resolution(
+                db, novel_id=novel_id, task_id=task_id, release_run=False
+            )
         cleanup_summary = await self.cleanup_workflow_assets(db, novel_id, workflow_id)
         conflicts = int(focused_rollback.get("conflicts", 0))
         if focused_rollback:
@@ -1495,6 +1623,14 @@ class DeepImportOrchestrator:
                 cleanup_status="partial" if conflicts else "complete",
                 unreverted_targeted_items=conflicts,
                 targeted_completion_rollback=focused_rollback,
+            )
+        if resolution_rollback:
+            resolution_conflicts = int(resolution_rollback.get("conflicts", 0))
+            conflicts += resolution_conflicts
+            cleanup_summary.update(
+                cleanup_status="partial" if conflicts else "complete",
+                unreverted_resolution_items=resolution_conflicts,
+                review_resolution_rollback=resolution_rollback,
             )
         await cancel_recoverable_task(
             db,
@@ -1617,6 +1753,10 @@ class DeepImportOrchestrator:
             raise ValueError(
                 "task_id must reference a deep_import or deep import stage task"
             )
+        if ((run.checkpoints or {}).get("review_resolution") or {}).get(
+            "rollback_started"
+        ):
+            raise ValueError("撤销后的整理任务不能继续，请新建任务")
         if ((run.progress or {}).get("targeted_completion") or {}).get("rollback_status"):
             raise ValueError("本次专项补全已开始撤销，请新建补全任务")
         if run.status != "failed":
@@ -1829,6 +1969,20 @@ class DeepImportOrchestrator:
                 novel_id=novel_id,
                 meta_patch={"authorization_snapshot": authorization_snapshot},
             )
+        resolution = authorization_snapshot.get("review_resolution")
+        if existing is None and resolution:
+            from modules.imports.review_resolution import authorize_resolution
+
+            authorization_snapshot["review_resolution"] = await authorize_resolution(
+                db, novel_id=novel_id, task_id=queued.task_id, permission=resolution
+            )
+            await update_task_projection(
+                db,
+                task_id=queued.task_id,
+                task_type=task_type,
+                novel_id=novel_id,
+                meta_patch={"authorization_snapshot": authorization_snapshot},
+            )
         initial_result = {
             "workflow_type": task_type,
             "stage": stage,
@@ -1934,6 +2088,12 @@ class DeepImportOrchestrator:
     @staticmethod
     def _result_from_progress(progress: DeepImportProgress) -> dict[str, Any]:
         trim_progress_diagnostics(progress)
+        resolution = progress.review_resolution
+        if (resolution.get("counts") or {}).get("incomplete") or (
+            resolution.get("scene_counts") or {}
+        ).get("incomplete"):
+            progress.quality_status = "partial"
+            progress.degraded = True
         progress.asset_summary = build_asset_summary(progress.quality_stats)
         return {
             "workflow_type": progress.workflow_type,
@@ -1942,6 +2102,11 @@ class DeepImportOrchestrator:
             "authorization_snapshot": progress.authorization_snapshot,
             "llm_execution_snapshot": progress.llm_execution_snapshot,
             "asset_summary": progress.asset_summary,
+            **(
+                {"review_resolution": progress.review_resolution}
+                if progress.review_resolution
+                else {}
+            ),
             **(
                 {"targeted_completion": progress.targeted_completion}
                 if progress.targeted_completion

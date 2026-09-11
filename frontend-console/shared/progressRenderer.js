@@ -49,7 +49,11 @@ function renderWarnings(warnings = []) {
   return `<ul class="workflow-progress__warnings">${items}</ul>`
 }
 
-function renderAssetSummary(summary = {}) {
+function renderAssetSummary(summary = {}, resolution = {}) {
+  if (resolution?.counts) {
+    const counts = resolution.counts, scenes = resolution.scene_counts || {}
+    return `<div class="workflow-progress-card__asset-summary" aria-label="智能整理结果"><span>已整理 ${escapeHtml(Number(counts.organized || 0))} 项资料</span><span>需要决定 ${escapeHtml(Number(resolution.question_count || 0) + Number(scenes.decision || 0))} 组</span><span>可选建议 ${escapeHtml(Number(counts.optional || 0))} 项</span><span>处理未完成 ${escapeHtml(Number(counts.incomplete || 0) + Number(scenes.incomplete || 0))} 项</span></div>`
+  }
   if (!summary || typeof summary !== "object") return ""
   const hasSummary = ["adopted", "review", "not_adopted"]
     .some((key) => summary[key] !== undefined && summary[key] !== null)
@@ -274,7 +278,7 @@ export function renderInlineProgress(progress, options = {}) {
     <div class="workflow-progress__body">
       ${message ? `<div class="workflow-progress__message">${escapeHtml(message)}</div>` : ""}
       ${summary}
-      ${renderAssetSummary(progress.assetSummary)}
+      ${renderAssetSummary(progress.assetSummary, progress.reviewResolution)}
       ${renderPhaseArtifacts(progress.phaseArtifacts)}
       ${renderDetailedProgress(progress, options)}
       ${error}

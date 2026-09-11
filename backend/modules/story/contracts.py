@@ -91,3 +91,7 @@ __all__ = [
     "SceneSummaryCheckpointContract",
     "scene_semantic_field_status",
 ]
+
+from modules.story.outline_state.scene_resolution import (  # noqa: E402
+    SceneBoundaryReview,  # noqa: F401
+)

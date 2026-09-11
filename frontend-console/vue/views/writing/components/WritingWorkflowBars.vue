@@ -59,6 +59,7 @@
         <span v-else>后端正在确认可用的恢复操作，请稍后刷新任务状态。</span>
       </div>
       <div class="workflow-progress__actions deep-import-recovery__actions">
+        <button v-if="deepImport.progress?.reviewResolution?.counts" class="btn btn-sm" @click="$emit('open-review-resolution', deepImport.progress.taskId)">查看整理结果与关键问题</button>
         <button v-if="needsRecovery && deepImport.progress?.workflowType !== 'targeted_completion'" class="btn btn-sm btn-primary" @click="$emit('resume')">继续</button>
         <button v-if="needsRecovery && deepImport.progress?.workflowType !== 'targeted_completion'" class="btn btn-sm" @click="$emit('abandon')">放弃恢复</button>
         <button v-if="canCancel" class="btn btn-sm" @click="$emit('cancel')">取消任务</button>
@@ -93,7 +94,7 @@ const props = defineProps({
   generation: { type: Object, default: null },
   conflictTask: { type: Object, default: null },
 })
-const emit = defineEmits(["cancel", "resume", "abandon", "dismiss", "open-audit", "open-scenes", "open-conflict", "retry-publish", "dismiss-publish", "open-generation", "cancel-generation", "dismiss-generation", "retry-stale-story-script", "cancel-conflict-task", "dismiss-conflict-task"])
+const emit = defineEmits(["open-review-resolution", "cancel", "resume", "abandon", "dismiss", "open-audit", "open-scenes", "open-conflict", "retry-publish", "dismiss-publish", "open-generation", "cancel-generation", "dismiss-generation", "retry-stale-story-script", "cancel-conflict-task", "dismiss-conflict-task"])
 
 const terminal = computed(() => ["done", "failed", "cancelled"].includes(props.deepImport.progress?.status || props.deepImport.progress?.phase))
 const dedupReviewCount = computed(() => Number(props.deepImport.progress?.phase2Dedup?.review_required || 0))
@@ -216,6 +217,7 @@ const normalizedDeepImportProgress = computed(() => {
           : null,
       warnings,
       asset_summary: value.assetSummary || {},
+      review_resolution: value.reviewResolution || {},
       phase_artifacts: authorFacingDiagnosticValue(value.phaseArtifacts || {}),
       progress_events: value.progressEvents || [],
       acceptance_checks: value.acceptanceChecks || [],

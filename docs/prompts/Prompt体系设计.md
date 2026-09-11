@@ -38,6 +38,8 @@ output_validator 校验，修复计入同一执行预算；固定审稿保留原
 | `scene_entity_extraction.md` | 深度导入 Phase 2a，Scene 世界对象、Delta 与不确定项抽取 | imports |
 | `map_structure_workflow.py` | 内联 `relation_prompt`：一次最多 20 地点、每批 5 个，提取有限关系、已有路线/河流名称与逐字证据；输出 `MapRelationBatch`，不生成坐标 | world 统一地图 |
 | `map_atlas_workflow.py` | 内联 step `world.map_atlas.plan.structured`：把已确认资料规划为最多 20 页的地图册层级；图片 Prompt 交给固定 Image API | world 地图册 |
+| `review_resolution.md` / `review_resolution_groups.md` | 导入候选的逐字段证据审查、定向补查返修和共同身份问题归纳；模型不持有采用权限 | imports |
+| `review_resolution_scenes.md` | 原章节证据下的现有场景边界提案与独立终检；拓扑变化保留人工决定 | imports / story |
 | `alias_relation_extraction.md` | 深度导入 Phase 2b，基于完整锁定 Scene 与冻结对象/关系引用提取别名和关系连续性 | imports |
 | `entity_fusion.py` | 内联 step `world.entity_fusion.decision.structured`：项目级智能去重与深度导入 `phase2_dedup` 共用的结构化实体融合判定；导入路径只发送同 workflow candidate 的类型、名称、已确认别名、截断摘要和 Scene/章节来源，不加载整书 RAG | world |
 | `scene_fusion_draft.py` | 内联 step `outline.scene_fusion.draft.structured`：基于选中 Scene 卡和精确正文生成融合语义草稿 | Scene 工作台 |
