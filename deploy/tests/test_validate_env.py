@@ -33,7 +33,7 @@ def _valid_values() -> dict[str, str]:
         "POSTGRES_USER": "ai_writing_assist",
         "POSTGRES_IMAGE": (
             "docker.m.daocloud.io/pgvector/pgvector:0.8.6-pg17-bookworm"
-            "@sha256:7ae6051efd0e60444282c27c7e141af07f322ce033300e727a49c3dd11075e38"
+            "@sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f"
         ),
         "DATABASE_MODE": "fresh",
         "POSTGRES_PASSWORD": "a_secure_database_password_123",
@@ -67,7 +67,7 @@ def _valid_values() -> dict[str, str]:
         "EMBEDDING_DEPLOYMENT": "local_tei",
         "EMBEDDING_IMAGE": (
             "ghcr.io/huggingface/text-embeddings-inference:cpu-1.9"
-            "@sha256:c26a226262ad4ff3330fb30b76653c1bb65da2fcf413b92284545a010e0a8a48"
+            "@sha256:ad950d30878eceb72aaf32024d26fa2b1d04a75304fa0b4776b49aa1941fea07"
         ),
         "EMBEDDING_MODEL_ID": "BAAI/bge-base-zh-v1.5",
         "EMBEDDING_PROVIDER": "openai",

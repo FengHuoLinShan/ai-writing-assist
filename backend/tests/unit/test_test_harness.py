@@ -477,7 +477,7 @@ def test_production_toolchain_contract_is_pinned_everywhere() -> None:
     )
     postgres_image = (
         "pgvector/pgvector:0.8.6-pg17-bookworm@sha256:"
-        "7ae6051efd0e60444282c27c7e141af07f322ce033300e727a49c3dd11075e38"
+        "cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f"
     )
 
     assert backend_dockerfile.count(f"FROM {python_image}") == 2

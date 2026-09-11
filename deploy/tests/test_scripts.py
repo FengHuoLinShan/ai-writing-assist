@@ -407,6 +407,18 @@ def test_production_database_image_is_explicitly_tagged_and_digest_pinned() -> N
     assert f"POSTGRES_IMAGE={expected}" in example
 
 
+def test_production_embedding_image_uses_one_index_digest() -> None:
+    compose = (DEPLOY_ROOT / "compose.production.yml").read_text(encoding="utf-8")
+    example = (DEPLOY_ROOT / ".env.production.example").read_text(encoding="utf-8")
+    expected = (
+        "ghcr.io/huggingface/text-embeddings-inference:cpu-1.9@sha256:"
+        "ad950d30878eceb72aaf32024d26fa2b1d04a75304fa0b4776b49aa1941fea07"
+    )
+
+    assert f"image: ${{EMBEDDING_IMAGE:-{expected}}}" in compose
+    assert f"EMBEDDING_IMAGE={expected}" in example
+
+
 def test_production_minio_is_internal_pinned_and_initializes_private_quotas() -> None:
     compose_path = DEPLOY_ROOT / "compose.production.yml"
     compose_text = compose_path.read_text(encoding="utf-8")
