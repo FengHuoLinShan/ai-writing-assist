@@ -359,37 +359,6 @@ async def test_low_level_output_guard_normalizes_bare_list() -> None:
 
 
 @pytest.mark.asyncio
-async def test_low_level_output_guard_repairs_once() -> None:
-    async def repairer(payload):
-        assert payload["raw_output_hash"]
-        assert payload["validation_errors"]
-        return {"items": ["fixed"]}
-
-    result = await OutputGuard(_ItemsPayload, repairer=repairer).validate(
-        '{"items":"bad"}'
-    )
-
-    assert result.status == StepExecutionStatus.succeeded
-    assert result.output.items == ["fixed"]
-    assert result.repair_attempts == 1
-
-
-@pytest.mark.asyncio
-async def test_low_level_output_guard_repair_failure_degrades() -> None:
-    def repairer(_payload):
-        return {"items": "still-bad"}
-
-    result = await OutputGuard(_ItemsPayload, repairer=repairer).validate(
-        '{"items":"bad"}'
-    )
-
-    assert result.status == StepExecutionStatus.degraded
-    assert result.degraded is True
-    assert result.error_kind == "repair_failed"
-    assert result.repair_attempts == 1
-
-
-@pytest.mark.asyncio
 async def test_managed_step_applies_low_level_output_schema_guard() -> None:
     step = ManagedLLMStep(
         StepToolEnvelope(

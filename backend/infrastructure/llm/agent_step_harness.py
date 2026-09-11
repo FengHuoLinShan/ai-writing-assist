@@ -41,7 +41,6 @@ __all__ = [
     "MANAGED_LLM_PROVENANCE_KEY",
     "OutputGuard",
     "OutputGuardResult",
-    "RetryPolicy",
     "StepExecutionResult",
     "StepExecutionStatus",
     "StepToolEnvelope",
@@ -287,7 +286,6 @@ class StepExecutionStatus(StrEnum):
 class AgentErrorKind(StrEnum):
     invalid_json = "invalid_json"
     schema_validation = "schema_validation"
-    repair_failed = "repair_failed"
     timeout = "timeout"
     provider_http_422 = "provider_http_422"
     rate_limit = "rate_limit"
@@ -295,15 +293,6 @@ class AgentErrorKind(StrEnum):
     missing_chapter_coverage = "missing_chapter_coverage"
     degraded_fallback = "degraded_fallback"
     unknown = "unknown"
-
-
-@dataclass(frozen=True)
-class RetryPolicy:
-    max_attempts: int = 1
-    retry_on: tuple[str, ...] = (
-        AgentErrorKind.timeout.value,
-        AgentErrorKind.rate_limit.value,
-    )
 
 
 @dataclass(frozen=True)
@@ -357,9 +346,7 @@ class StepToolEnvelope:
     output_schema: type[BaseModel] | dict[str, Any] | None = None
     permission_level: AgentPermissionLevel = AgentPermissionLevel.read
     read_only: bool = True
-    concurrent_safe: bool = True
     timeout: int | float | None = None
-    retry_policy: RetryPolicy = field(default_factory=RetryPolicy)
     context_budget: ContextBudget = field(default_factory=ContextBudget)
     output_guard: bool = True
 
@@ -443,7 +430,6 @@ class OutputGuardResult:
 
 
 T = TypeVar("T", bound=BaseModel)
-Repairer = Callable[[dict[str, Any]], Any | Awaitable[Any]]
 
 
 class OutputGuard:
@@ -454,53 +440,13 @@ class OutputGuard:
     layer with different semantics.
     """
 
-    def __init__(
-        self,
-        schema: type[T],
-        *,
-        repairer: Repairer | None = None,
-        max_repair_attempts: int = 1,
-    ) -> None:
+    def __init__(self, schema: type[T]) -> None:
         self.schema = schema
-        self.repairer = repairer
-        self.max_repair_attempts = max(max_repair_attempts, 0)
 
     async def validate(self, raw_output: Any) -> OutputGuardResult:
         raw_hash = _raw_hash(raw_output)
         result = self._validate_once(raw_output, raw_hash)
-        if result.status == StepExecutionStatus.succeeded:
-            return result
-        if self.repairer is None or self.max_repair_attempts <= 0:
-            return result
-
-        repair_payload = {
-            "raw_output_hash": raw_hash,
-            "schema": self.schema.model_json_schema(),
-            "validation_errors": result.validation_errors,
-            "error_kind": result.error_kind,
-        }
-        try:
-            repaired = self.repairer(repair_payload)
-            if inspect.isawaitable(repaired):
-                repaired = await repaired
-        except Exception:
-            return OutputGuardResult(
-                status=StepExecutionStatus.degraded,
-                degraded=True,
-                error_kind=AgentErrorKind.repair_failed.value,
-                repair_attempts=1,
-                validation_errors=result.validation_errors,
-                raw_output_hash=raw_hash,
-            )
-
-        repaired_result = self._validate_once(repaired, _raw_hash(repaired))
-        repaired_result.repair_attempts = 1
-        if repaired_result.status == StepExecutionStatus.succeeded:
-            return repaired_result
-        repaired_result.status = StepExecutionStatus.degraded
-        repaired_result.degraded = True
-        repaired_result.error_kind = AgentErrorKind.repair_failed.value
-        return repaired_result
+        return result
 
     def _validate_once(self, raw_output: Any, raw_hash: str) -> OutputGuardResult:
         try:
