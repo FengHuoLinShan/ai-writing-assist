@@ -20,7 +20,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from core.base import Base, TimestampMixin, UUIDMixin, UUIDType
+from core.base import Base, NovelMixin, TimestampMixin, UUIDMixin, UUIDType
 from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID
 
 
@@ -103,7 +103,7 @@ class Project(Base, UUIDMixin, TimestampMixin):
         return f"<Project id={self.id} title={self.title!r}>"
 
 
-class SmartDedupWorkbenchDecision(Base, UUIDMixin, TimestampMixin):
+class SmartDedupWorkbenchDecision(Base, UUIDMixin, TimestampMixin, NovelMixin):
     """Project-workbench disposition for one fingerprinted asset pair."""
 
     __tablename__ = "smart_dedup_workbench_decisions"
@@ -139,12 +139,6 @@ class SmartDedupWorkbenchDecision(Base, UUIDMixin, TimestampMixin):
         {"comment": ("项目级智能去重工作台裁决；不替代 world/outline 领域判断")},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        UUIDType,
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     asset_type: Mapped[str] = mapped_column(String(64), nullable=False)
     left_asset_id: Mapped[str] = mapped_column(String(36), nullable=False)
     right_asset_id: Mapped[str] = mapped_column(String(36), nullable=False)
@@ -159,7 +153,7 @@ class SmartDedupWorkbenchDecision(Base, UUIDMixin, TimestampMixin):
     )
 
 
-class ProjectAuthorTask(Base, UUIDMixin, TimestampMixin):
+class ProjectAuthorTask(Base, UUIDMixin, TimestampMixin, NovelMixin):
     """Author-owned lightweight task, distinct from async worker tasks."""
 
     __tablename__ = "project_author_tasks"
@@ -200,12 +194,6 @@ class ProjectAuthorTask(Base, UUIDMixin, TimestampMixin):
         {"comment": "作者个人轻量待办；不承载领域决定或后台任务"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        UUIDType,
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(
