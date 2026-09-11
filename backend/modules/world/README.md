@@ -328,9 +328,9 @@ PNG 后才进入地图册私有 S3。此例外不改变 imports 的文稿上传�
   双变和源缺失进入 `worldbook_import_conflict`，不覆盖、不删除。
 - 已发布且 `page_key=validation-policy` 的页面可在
   `page_meta_json.validation_policy` 激活 `world_validation_policy.v1`。策略只接受
-  命名 operator，不执行 regex、表达式、Prompt 或导入的配置文件。首次激活前保持
-  旧项目行为；激活后，页面发布、采用包以及旧的对象/关系/别名/建议正典直写
-  均必须经验证路径，避免旁路绕过。
+  有界命名 operator；`regex` / `forbid_regex` 禁止分组、或、反向引用与嵌套量词，
+  不执行任意表达式、Prompt 或导入的配置文件。首次激活前保持旧项目行为；激活后，
+  页面发布、采用包以及旧的对象/关系/别名/建议正典直写均必须经验证路径，避免旁路绕过。
 - `world_validation_runs` 冻结 policy、manifest、依赖、target 与 ReviewPacket 哈希。
   结构层先运行，出错不消耗 LLM 预算；语义层仅使用项目级 secret-free snapshot，
   引文必须来自冻结分片。full run 以数据库部分唯一索引单飞，targeted run 不受影响。
