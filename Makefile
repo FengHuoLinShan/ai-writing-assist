@@ -155,7 +155,7 @@ eval-pilot:  ## Generate/judge the 400-raw-case Pilot with resumable local cache
 	cd $(BACKEND_DIR) && python -m evals.cli pilot --variant $(or $(VARIANT),pilot) --stage $(or $(STAGE),all) --output-dir $(or $(OUTPUT_DIR),evals/datasets/local/pilot-v0) $(if $(CACHE_ONLY),--cache-only,)
 
 eval-fast:  ## Run deterministic eval toolkit tests without remote LLM calls
-	cd $(BACKEND_DIR) && pytest evals/tests -q
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) pytest evals/tests -q --timeout=$(FAST_TEST_TIMEOUT_SECONDS)
 
 eval-rp-long-memory:  ## Compile the synthetic RP long-memory gate offline
 	cd $(BACKEND_DIR) && python -m evals.rp_long_memory compile $(or $(DATASET),evals/datasets/baselines/rp-long-memory-v2.jsonl) --split $(or $(SPLIT),dev) --output $(or $(OUTPUT),evals/artifacts/rp-long-memory/compile.json)

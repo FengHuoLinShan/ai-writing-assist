@@ -889,6 +889,8 @@ async def test_reference_snapshot_is_generated_before_questions() -> None:
 
 @pytest.mark.asyncio
 async def test_ragas_adapter_routes_structured_calls_to_local_codex() -> None:
+    pytest.importorskip("ragas")
+
     class FixtureResult(BaseModel):
         accepted: bool
 
