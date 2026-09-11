@@ -39,7 +39,7 @@
   - `importance` 与 `confidence` 是 0–1 数值。
   - `uncertainties` 与 `evidence_quotes` 必须是 JSON 字符串数组；每个可物化实体至少有一条 `evidence_quotes`。
   - `field_evidence` 是 JSON object，只能使用 `name`、`entity_type`、`summary`、`public_info`、`hidden_truth` 作为键，每个值都是当前 Scene 逐字证据字符串数组。
-- `delta_events[]` 每项只包含：`subject_name`、`category`、`field`、`old`、`new`、`description`、`basis`、`uncertainties`、`evidence_quotes`、`confidence`。`uncertainties` 与 `evidence_quotes` 必须是 JSON 字符串数组；每项至少有一条当前 Scene 的逐字证据。
+- `delta_events[]` 每项只包含：`subject_name`、`category`、`dimension`、`field`、`old`、`new`、`description`、`basis`、`uncertainties`、`evidence_quotes`、`confidence`。`dimension` 只能是 `entities | relations | locations | knowledge | timeline | causality`；空间位置变化使用 `locations`，显式时间锚/先后/持续时长/截止条件使用 `timeline`，明确前提/原因/结果/承诺使用 `causality`。无法可靠归类时为 `null`，不得猜测。`uncertainties` 与 `evidence_quotes` 必须是 JSON 字符串数组；每项至少有一条当前 Scene 的逐字证据。
 - `uncertain_items[]` 每项只包含：`mention_name`、`description`、`reason`、`evidence_quotes`；`mention_name` 是可选的原文具名线索，无法确定时为 `null`；`evidence_quotes` 必须是 JSON 字符串数组，可以为空。
 
 完整顶层形状为：

@@ -970,6 +970,7 @@ def _to_extracted_relation(item: Phase2WorldRelation) -> ExtractedRelation:
 def _to_delta_event(item: Phase2WorldDelta) -> DeltaEvent:
     return DeltaEvent(
         category=item.category or "other",
+        dimension=None,
         field=item.field or None,
         old=item.old,
         new=item.new,

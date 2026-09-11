@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ValidationError
 from modules.story.continuity.contracts import (
+    SCENE_MEMORY_DIMENSIONS,
     MemoryContinuityEvidenceContract,
     MemoryDeltaEventIngest,
     MemoryDeltaIngestResult,
@@ -152,7 +153,7 @@ class MemoryService:
         rows: list[dict[str, Any]] = []
         for sequence, event in enumerate(events, start=1):
             dimension = event.get("dimension") or self._event_dimension(event)
-            if dimension not in {"entities", "relations", "locations", "knowledge"}:
+            if dimension not in SCENE_MEMORY_DIMENSIONS:
                 raise ValidationError("Unsupported memory event dimension")
             payload = event.get("snapshot_after", event.get("payload", {}))
             serialized = json.dumps(payload, ensure_ascii=False, default=str)
@@ -184,7 +185,7 @@ class MemoryService:
             db,
             parse_uuid(novel_id, "novel_id"),
             scene_index,
-            ["entities", "relations", "locations", "knowledge"],
+            list(SCENE_MEMORY_DIMENSIONS),
             include_start=True,
         )
         await self._scene_snapshot_repo.supersede_from(
@@ -345,7 +346,8 @@ class MemoryService:
             scene_groups.setdefault(key, []).append(
                 {
                     "event_type": "manual_correction",
-                    "dimension": self._delta_dimension(event.category),
+                    "dimension": event.dimension
+                    or self._delta_dimension(event.category),
                     "entity_id": (event.meta or {}).get("entity_id"),
                     "snapshot_after": {
                         "category": event.category,
@@ -383,6 +385,23 @@ class MemoryService:
     @staticmethod
     def _delta_dimension(category: str) -> str:
         normalized = str(category or "").lower()
+        if any(
+            token in normalized
+            for token in ("timeline", "temporal", "time_", "duration", "deadline")
+        ):
+            return "timeline"
+        if any(
+            token in normalized
+            for token in (
+                "causal",
+                "cause",
+                "effect",
+                "precondition",
+                "prerequisite",
+                "commitment",
+            )
+        ):
+            return "causality"
         if "relation" in normalized:
             return "relations"
         if "location" in normalized or "move" in normalized:
@@ -400,6 +419,10 @@ class MemoryService:
             return "locations"
         if event_type == "knowledge_changed":
             return "knowledge"
+        if event_type == "timeline_changed":
+            return "timeline"
+        if event_type == "causality_changed":
+            return "causality"
         return cls._delta_dimension(str(event.get("category") or event_type))
 
     async def rollback_deep_import_delta_logs_by_workflow(

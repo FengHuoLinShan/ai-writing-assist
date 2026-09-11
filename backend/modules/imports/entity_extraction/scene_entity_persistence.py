@@ -1049,6 +1049,7 @@ class SceneEntityPersistenceMixin:
                 MemoryDeltaEventIngest(
                     scene_index=scene_index,
                     category=event.category,
+                    dimension=event.dimension,
                     field_path=event.field,
                     old_value=event.old,
                     new_value=event.new,

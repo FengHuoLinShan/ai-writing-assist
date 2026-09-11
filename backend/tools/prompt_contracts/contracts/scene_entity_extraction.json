@@ -1,6 +1,6 @@
 {
   "id": "scene_entity_extraction",
-  "version": 3,
+  "version": 4,
   "owner": "imports",
   "schema_model": "modules.imports.llm_schemas.Phase2aSceneExtractionOutput",
   "declared_prompt_fields": [
@@ -29,6 +29,7 @@
     "entities.field_evidence",
     "entities.confidence",
     "delta_events.subject_name",
+    "delta_events.dimension",
     "delta_events.description",
     "delta_events.basis",
     "delta_events.uncertainties",

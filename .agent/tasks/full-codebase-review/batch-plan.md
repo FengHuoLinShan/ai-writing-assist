@@ -14,7 +14,7 @@
 | 批次 | 状态 | 结果/剩余门禁 |
 |---|---|---|
 | R1–R4 | 已完成 | 导入恢复、生产 Prompt、错误语义、测试收集/运行器均已独立提交并通过对应模块门禁 |
-| R5 | R5a 已完成 | V1 四维指纹字节兼容；新 confirmation 使用 V2 六维，旧 Scene 无时间/因果证据时保持 missing。R5b–f 待实施；见[实施细案](../2026/T-20260911-full-codebase-optimization-implementation/authorized-remaining-plan.md) |
+| R5 | R5a/R5b 已完成 | V1 四维指纹兼容；V2 六维契约已接入 Phase 2a 显式 dimension、旧 category 兼容映射与确定性投影。R5c–f 待实施；见[实施细案](../2026/T-20260911-full-codebase-optimization-implementation/authorized-remaining-plan.md) |
 | R6 | X2-3 已授权，待实施 | X1-3、D2a-1、E3-1 完成；F4-4 复核为 ORM metadata 注册而非缺 FK；X2-3 采用“取消只停止、回收站显式软清理” |
 | B1a/B1b | 已完成 | 后端/前端可证明死代码清理完成；保留真实消费者、兼容面与安全门禁 |
 | B1c | 归类清理已授权，待实施 | coverage、53 MiB 夹具、旧 schema 脚本、docs 索引完成；剩余项先建逐路径分类账，只删除无消费者、无唯一证据且无明显价值的工件，版权原文换合成样本 |

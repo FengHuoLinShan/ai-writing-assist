@@ -25,6 +25,7 @@
     {
       "subject_name": "北境商道",
       "category": "ENTITY_UPDATED",
+      "dimension": "locations",
       "field": "route_state",
       "old": "open",
       "new": "blocked",

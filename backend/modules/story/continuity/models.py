@@ -79,7 +79,7 @@ class MemoryEvent(Base, NovelMixin):
         String(32),
         nullable=True,
         index=True,
-        comment="entities / relations / locations / knowledge",
+        comment="entities / relations / locations / knowledge / timeline / causality",
     )
     sequence: Mapped[int] = mapped_column(
         Integer,

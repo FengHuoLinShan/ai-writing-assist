@@ -137,6 +137,13 @@ async def test_ingest_delta_events_owns_provenance_and_result_refs(
     assert row.meta["source_ref"]["scene_provenance_key"] == "wf-1:scene:3"
 
 
+def test_delta_dimension_prefers_time_and_causality_categories() -> None:
+    assert MemoryService._delta_dimension("timeline_anchor") == "timeline"
+    assert MemoryService._delta_dimension("duration_changed") == "timeline"
+    assert MemoryService._delta_dimension("precondition_changed") == "causality"
+    assert MemoryService._delta_dimension("causal_effect") == "causality"
+
+
 @pytest.mark.asyncio
 async def test_rollback_deep_import_delta_logs_is_scoped_and_idempotent(
     db_session: AsyncSession,

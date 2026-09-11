@@ -226,7 +226,7 @@ preview 伪装成 manual revision，也不能引用其他项目的 task。
 这类 Prompt 面向“从已有正文中识别长期资产”，重点是：
 
 - 不是 NER，而是长期创作资产识别
-- `scene_entity_extraction.md`（P13）只读取一个锁定 Scene 的完整精确正文及相关结构上下文，输出长期世界对象、持久 Delta 和不确定项；关系、新别名、数据库 ID、持久化动作和审核状态不属于该契约
+- `scene_entity_extraction.md`（P13）只读取一个锁定 Scene 的完整精确正文及相关结构上下文，输出长期世界对象、带可选 `entities/relations/locations/knowledge/timeline/causality` 维度的持久 Delta 和不确定项；每条 Delta 仍须绑定当前 Scene 逐字证据，关系、新别名、数据库 ID、持久化动作和审核状态不属于该契约
 - P13 v4 的既有身份只允许引用服务端生成的 `entity-xxx`，且 prompt 候选只含名称、已确认别名、类型和状态。实体名称、类型、summary/public/hidden 分别用 `field_evidence` 绑定当前 Scene 逐字证据；新对象名称必须原文出现，未命名幻象进入 `uncertain_items`。正文与项目资料都作为 fenced 不可信 JSON 注入，system prompt 保持静态
 - P13 v4 的合法类型清单与 JSON Schema enum 从同一校验集合生成，首轮与返修均明确三个顶层数组、字段证据对象及其字符串数组值；不放宽类型、身份或证据门禁。
 - P13 不按固定类别或数量凑结果，也不对输入做应用层字符/token 裁剪。直接名称/别名命中全部保留；其余人物 Top-6、非人物对象 Top-16 是相关性边界

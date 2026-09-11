@@ -126,7 +126,8 @@ async def call_llm_extraction(
                 "hidden_truth、importance、identity_disposition、matched_existing_ref、"
                 "basis、uncertainties、evidence_quotes、field_evidence、confidence；"
                 "delta_events 项"
-                "只能使用 subject_name、category、field、old、new、description、"
+                "只能使用 subject_name、category、dimension、field、old、new、"
+                "description、"
                 "basis、uncertainties、evidence_quotes、confidence；"
                 "uncertain_items 项只能使用 mention_name、description、reason、"
                 "evidence_quotes。所有 uncertainties 和 evidence_quotes 都必须是"
@@ -303,6 +304,7 @@ def _materialize_phase2a_output(
         delta_events.append(
             DeltaEvent(
                 category=observation.category,
+                dimension=observation.dimension,
                 field=observation.field,
                 old=observation.old,
                 new=observation.new,

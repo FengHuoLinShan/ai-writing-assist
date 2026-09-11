@@ -397,6 +397,35 @@ def test_phase2a_creates_single_mention_new_entity_with_field_evidence() -> None
     assert result.uncertain_items == []
 
 
+def test_phase2a_preserves_explicit_continuity_dimensions() -> None:
+    quote = "钟声响起后，北门才缓缓打开。"
+    raw = Phase2aSceneExtractionOutput.model_validate(
+        {
+            "delta_events": [
+                {
+                    "subject_name": "北门",
+                    "category": "TIME_ORDER_CHANGED",
+                    "dimension": "timeline",
+                    "field": "opened_after",
+                    "new": "钟声",
+                    "description": "北门在钟声后开启。",
+                    "evidence_quotes": [quote],
+                    "confidence": 0.95,
+                }
+            ]
+        }
+    )
+
+    result = _materialize_phase2a_output(
+        raw,
+        current_scene_text=quote,
+        context_bundle={"identity_candidates": []},
+    )
+
+    assert result.delta_events[0].dimension == "timeline"
+    assert result.delta_events[0].meta["evidence_quotes"] == [quote]
+
+
 def test_phase2a_schema_rejects_relations_and_entity_aliases() -> None:
     with pytest.raises(ValidationError):
         Phase2aSceneExtractionOutput.model_validate(

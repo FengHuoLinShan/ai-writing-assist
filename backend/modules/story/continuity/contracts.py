@@ -57,6 +57,7 @@ class MemoryDeltaEventIngest:
     scene_index: int
     category: str
     field_path: str | None
+    dimension: str | None = None
     old_value: Any = None
     new_value: Any = None
     source: str = "deep_import"

@@ -94,6 +94,54 @@ async def test_scene_checkpoint_reports_only_contract_dimensions_as_missing(
 
 
 @pytest.mark.asyncio
+async def test_timeline_and_causality_events_project_deterministically(
+    db_session: AsyncSession,
+    test_project_id: str,
+) -> None:
+    scene = await _scene(db_session, test_project_id, 0, 1)
+    memory = MemoryService()
+    projection = SceneMemoryProjectionService()
+    events = [
+        {
+            "dimension": "timeline",
+            "event_type": "timeline_changed",
+            "snapshot_after": {
+                "category": "time_order",
+                "field_path": "opened_after",
+                "new_value": "钟声",
+            },
+        },
+        {
+            "dimension": "causality",
+            "event_type": "causality_changed",
+            "snapshot_after": {
+                "category": "precondition",
+                "field_path": "north_gate.open",
+                "new_value": "钟声已响",
+            },
+        },
+    ]
+
+    await memory.record_scene_events(
+        db_session,
+        test_project_id,
+        scene_id=str(scene.id),
+        scene_index=0,
+        chapter_index=1,
+        events=events,
+    )
+    first = await projection.ensure_scene(db_session, test_project_id, str(scene.id))
+    second = await projection.ensure_scene(db_session, test_project_id, str(scene.id))
+
+    assert first.coverage_status == "ready"
+    assert first.missing_dimensions == []
+    assert [item.id for item in first.items] == [item.id for item in second.items]
+    states = {item.dimension: item.state_json for item in first.items}
+    assert states["timeline"]["facts"][0]["new_value"] == "钟声"
+    assert states["causality"]["claims"][0]["new_value"] == "钟声已响"
+
+
+@pytest.mark.asyncio
 async def test_empty_scene_rerun_clears_events_and_invalidates_downstream_projection(
     db_session: AsyncSession,
     test_project_id: str,

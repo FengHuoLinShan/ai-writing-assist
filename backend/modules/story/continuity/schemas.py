@@ -33,6 +33,8 @@ class EventType(StrEnum):
     relation_established = "relation_established"
     relation_ended = "relation_ended"
     knowledge_changed = "knowledge_changed"
+    timeline_changed = "timeline_changed"
+    causality_changed = "causality_changed"
     manual_correction = "manual_correction"
 
 

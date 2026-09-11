@@ -800,6 +800,9 @@ class DeltaEvent(BaseModel):
     """Phase 2 LLM 输出的结构化 Delta。"""
 
     category: str = Field(default="ENTITY_UPDATED")
+    dimension: Literal[
+        "entities", "relations", "locations", "knowledge", "timeline", "causality"
+    ] | None = None
     field: str | None = Field(default=None)
     old: Any | None = Field(default=None)
     new: Any | None = Field(default=None)
@@ -899,6 +902,9 @@ class Phase2aDeltaObservation(BaseModel):
 
     subject_name: str = Field(..., min_length=1)
     category: str = Field(..., min_length=1)
+    dimension: Literal[
+        "entities", "relations", "locations", "knowledge", "timeline", "causality"
+    ] | None = None
     field: str | None = None
     old: Any | None = None
     new: Any | None = None
