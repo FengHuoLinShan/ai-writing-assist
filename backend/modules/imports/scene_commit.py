@@ -597,6 +597,23 @@ def _build_structure_meta(
         "boundary_workflow_reason": boundary_workflow_reason,
         "needs_review": candidate.needs_review,
         "review_reason": candidate.review_reason,
+        "review_issues_version": 1,
+        "review_issues": (
+            [
+                {
+                    "kind": "source_or_structure",
+                    "required": True,
+                    "message": candidate.review_reason,
+                }
+            ]
+            if candidate.needs_review
+            else []
+        )
+        + [
+            {"kind": "optional_interpretation", "field": field, "required": False}
+            for field in candidate.phase1b_uncertain_fields
+            if field in {"narrative_tag", "narrative_function", "emotional_beat"}
+        ],
         "provenance_key": provenance_key,
         "phase1a_fallback": (
             candidate.phase == "phase1a_fallback" or candidate.fallback_required

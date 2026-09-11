@@ -69,6 +69,7 @@ async def start_deep_import(
     adoption_policy: str = DEFAULT_ADOPTION_POLICY,
     authorization_confirmed: bool = False,
     targeted_completion: dict[str, Any] | None = None,
+    review_resolution: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """提交深度导入任务（异步）
 
@@ -83,6 +84,11 @@ async def start_deep_import(
         high_quality=high_quality,
         adoption_policy=adoption_policy,
         authorization_confirmed=authorization_confirmed,
+        **(
+            {"review_resolution": review_resolution}
+            if review_resolution is not None
+            else {}
+        ),
         **(
             {"targeted_completion": targeted_completion}
             if targeted_completion is not None
@@ -103,6 +109,7 @@ async def start_deep_import_stage(
     adoption_policy: str = DEFAULT_ADOPTION_POLICY,
     authorization_confirmed: bool = False,
     targeted_completion: dict[str, Any] | None = None,
+    review_resolution: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """提交分阶段自动提取任务。"""
     return await _orchestrator.start_stage(
@@ -115,6 +122,11 @@ async def start_deep_import_stage(
         high_quality=high_quality,
         adoption_policy=adoption_policy,
         authorization_confirmed=authorization_confirmed,
+        **(
+            {"review_resolution": review_resolution}
+            if review_resolution is not None
+            else {}
+        ),
         **(
             {"targeted_completion": targeted_completion}
             if targeted_completion is not None
@@ -237,3 +249,25 @@ async def rollback_targeted_completion(
     )
 
     return await rollback(db, novel_id=novel_id, task_id=task_id)
+
+
+async def start_review_resolution(db, request):
+    return await _orchestrator.start_review_resolution(db, request)
+
+
+async def get_review_summary(db, novel_id, **kwargs):
+    from modules.imports.review_resolution import review_summary
+
+    return await review_summary(db, novel_id, **kwargs)
+
+
+async def inspect_review_resolution(db, **kwargs):
+    from modules.imports.review_resolution import inspect_resolution
+
+    return await inspect_resolution(db, **kwargs)
+
+
+async def get_review_dispositions(db, novel_id):
+    from modules.imports.review_resolution import review_dispositions
+
+    return await review_dispositions(db, novel_id)

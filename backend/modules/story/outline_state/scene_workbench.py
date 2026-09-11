@@ -2141,11 +2141,9 @@ class SceneWorkbenchService:
     ) -> list[str]:
         health: list[str] = []
         meta = scene.structure_meta or {}
-        if meta.get("needs_review") or (
-            scene.source in {"deep_import", "ai_generated"}
-            and scene.status in {"draft", "candidate"}
-            and not meta.get("reviewed_at")
-        ):
+        from modules.story.outline_state.review_attention import needs_scene_decision
+
+        if needs_scene_decision(source=scene.source, status=scene.status, meta=meta):
             health.append("unreviewed")
         chapter_ids = scene.chapter_ids or []
         if not chapter_ids and meta.get("planning_state") != "planned":

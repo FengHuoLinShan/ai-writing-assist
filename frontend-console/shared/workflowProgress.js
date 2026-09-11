@@ -23,6 +23,7 @@ export function createOperationId() {
 const WORKFLOW_LABELS = {
   evidence_focused_search: "专项查证",
   targeted_completion: "查漏补全",
+  import_review_resolution: "智能整理导入资料",
   deep_import: "深度导入",
   scene_auto_extraction: "从正文整理场景",
   smart_dedup_scan: "智能去重扫描",
@@ -382,6 +383,7 @@ export function normalizeTaskProgress(task, workflowType = undefined) {
     warnings: collectWarnings(result, meta).map(authorFacingStateText),
     resultSummary: authorFacingStateText(buildResultSummary(result, type)),
     assetSummary: safeObject(result.asset_summary || result.assetSummary),
+    reviewResolution: safeObject(result.review_resolution || result.reviewResolution),
     phaseArtifacts: safeObject(result.phase_artifacts),
     progressEvents: safeArray(result.progress_events),
     acceptanceChecks: safeArray(result.acceptance_checks),

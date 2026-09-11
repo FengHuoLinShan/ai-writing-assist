@@ -1,0 +1,1 @@
+{"scenes":[{"scene_id":"scene-1","verdict":"supported","confidence":0.95,"anchors":[{"evidence_key":"chapter-1","start_anchor":"他推开门。","end_anchor":"他收好信离开。"}],"explanation":"进门、读信、离开构成连续行动。","uncertain_fields":[]}]}

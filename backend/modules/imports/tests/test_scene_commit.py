@@ -375,6 +375,14 @@ async def test_scene_commit_writes_complete_structure_meta(
         "boundary_workflow_reason": "Phase 1b kept a soft boundary.",
         "needs_review": True,
         "review_reason": "Boundary should be checked.",
+        "review_issues_version": 1,
+        "review_issues": [
+            {
+                "kind": "source_or_structure",
+                "required": True,
+                "message": "Boundary should be checked.",
+            }
+        ],
         "provenance_key": provenance_key,
         "phase1a_fallback": True,
     }

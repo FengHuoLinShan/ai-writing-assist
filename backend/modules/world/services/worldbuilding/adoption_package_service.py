@@ -236,16 +236,10 @@ class WorldAdoptionPackageService:
             .scalars()
             .all()
         )
-        for suggestion in existing:
-            payload = (
-                suggestion.payload_json
-                if isinstance(suggestion.payload_json, dict)
-                else {}
-            )
-            if payload.get("source_manifest_hash") == manifest:
-                return PostImportWorldAdoptionResultContract(
-                    suggestion_id=str(suggestion.id), created=False
-                )
+        existing_by_manifest = {
+            (suggestion.payload_json or {}).get("source_manifest_hash"): suggestion
+            for suggestion in existing
+        }
 
         entity_refs: dict[str, list[dict[str, Any]]] = {}
         relation_refs: dict[str, list[dict[str, Any]]] = {}
@@ -328,7 +322,6 @@ class WorldAdoptionPackageService:
 
         items: list[dict[str, Any]] = []
         entity_keys: dict[str, str] = {}
-        entity_by_key: dict[str, CoreEntity] = {}
         for entity in sorted(entities, key=lambda value: str(value.id)):
             refs = self._unique_source_refs(entity_refs.get(str(entity.id), []))
             meta = (entity.content_json or {}).get("_meta") or {}
@@ -347,7 +340,6 @@ class WorldAdoptionPackageService:
                 continue
             key = f"entity-{str(entity.id).replace('-', '')[:24]}"
             entity_keys[str(entity.id)] = key
-            entity_by_key[key] = entity
             operation = "existing_ref" if entity.status == "canonical" else "promote"
             item: dict[str, Any] = {
                 "item_key": key,
@@ -366,7 +358,6 @@ class WorldAdoptionPackageService:
                 }
             items.append(item)
 
-        relation_by_key: dict[str, EntityRelation] = {}
         for relation in sorted(relations, key=lambda value: str(value.id)):
             source_key = entity_keys.get(str(relation.source_id))
             target_key = entity_keys.get(str(relation.target_id))
@@ -386,7 +377,6 @@ class WorldAdoptionPackageService:
                     )
                 ]
             key = f"relation-{str(relation.id).replace('-', '')[:22]}"
-            relation_by_key[key] = relation
             payload = {
                 "operation": (
                     "promote" if relation.status == "candidate" else "existing_ref"
@@ -407,78 +397,36 @@ class WorldAdoptionPackageService:
                     "payload": payload,
                 }
             )
-        if len(items) > 31:
-            raise ValidationError(
-                "Post-import package exceeds 31 assets; batching is required"
-            )
-        if items:
-            page_items = [item for item in items if item["kind"] != "world_bible_page"]
-            sections = []
-            mappings = []
-            for index, item in enumerate(page_items):
-                claim = self._post_import_claim(
-                    item,
-                    entity_by_key=entity_by_key,
-                    relation_by_key=relation_by_key,
-                )
-                section_id = f"claim-{index + 1}"
-                sections.append(
-                    {
-                        "section_id": section_id,
-                        "title": "已纳入事实",
-                        "body_markdown": claim,
-                        "sort_order": index,
-                    }
-                )
-                mappings.append(
-                    {
-                        "content_key": section_id,
-                        "claim": claim,
-                        "item_key": item["item_key"],
-                        "source_ref": item["source_refs"][0],
-                    }
-                )
-            items.append(
-                {
-                    "item_key": "world-bible",
-                    "kind": "world_bible_page",
-                    "disposition": "include",
-                    "authority_kind": "generated_bridge",
-                    "source_refs": self._unique_source_refs(
-                        [item["source_refs"][0] for item in page_items]
-                    ),
-                    "payload": {
-                        "operation": "create",
-                        "title": "深度导入设定索引",
-                        "page_type": "custom",
-                        "sections_json": sections,
-                        "linked_asset_refs_json": [
-                            {
-                                "target_type": "core_entity",
-                                "target_id": f"local:{item['item_key']}",
-                            }
-                            for item in page_items
-                            if item["kind"] == "core_entity"
-                        ],
-                        "claim_mappings": mappings,
-                    },
-                }
-            )
         if not items:
             return PostImportWorldAdoptionResultContract(suggestion_id="", created=False)
-        saved = await self.save(
-            db,
-            WorldAdoptionPackageSaveRequest(
-                novel_id=request.novel_id,
-                package=WorldAdoptionPackagePayload(
-                    schema_version="world_adoption_package.v1",
-                    source_manifest_hash=manifest,
-                    items=items,
+        batches = partition_post_import_items(items)
+        ids = []
+        created = False
+        for index, batch in enumerate(batches):
+            batch_manifest = hashlib.sha256(
+                f"post-import-batches-v2:{manifest}:{index}".encode()
+            ).hexdigest()
+            previous = existing_by_manifest.get(batch_manifest)
+            if previous is not None:
+                ids.append(str(previous.id))
+                continue
+            saved = await self.save(
+                db,
+                WorldAdoptionPackageSaveRequest(
+                    novel_id=request.novel_id,
+                    package=WorldAdoptionPackagePayload(
+                        schema_version="world_adoption_package.v1",
+                        source_manifest_hash=batch_manifest,
+                        items=batch,
+                    ),
                 ),
-            ),
-            source_module="imports",
+                source_module="imports",
+            )
+            ids.append(str(saved.id))
+            created = True
+        return PostImportWorldAdoptionResultContract(
+            suggestion_id=ids[0], created=created, suggestion_ids=tuple(ids)
         )
-        return PostImportWorldAdoptionResultContract(suggestion_id=saved.id, created=True)
 
     @staticmethod
     def _post_import_source_ref(source, workflow_id, authorization_ref):
@@ -508,29 +456,6 @@ class WorldAdoptionPackageService:
             key = json.dumps(ref, sort_keys=True, separators=(",", ":"))
             unique[key] = ref
         return [unique[key] for key in sorted(unique)]
-
-    @staticmethod
-    def _post_import_claim(
-        item: dict[str, Any],
-        *,
-        entity_by_key: dict[str, CoreEntity],
-        relation_by_key: dict[str, EntityRelation],
-    ) -> str:
-        if item["kind"] == "entity_relation":
-            relation = relation_by_key[item["item_key"]]
-            names = {str(entity.id): entity.name for entity in entity_by_key.values()}
-            statement = (
-                f"{names[str(relation.source_id)]} —{relation.relation_type}→ "
-                f"{names[str(relation.target_id)]}"
-            )
-            return (
-                f"{statement}：{relation.description}"
-                if relation.description
-                else statement
-            )
-        entity = entity_by_key[item["item_key"]]
-        label = f"{entity.name}（{entity.entity_type}）"
-        return f"{label}：{entity.summary}" if entity.summary else label
 
     async def preview(
         self, db: AsyncSession, novel_id: str, suggestion_id: str
@@ -721,6 +646,10 @@ class WorldAdoptionPackageService:
                 )
                 continue
             if payload.operation == "promote":
+                before_entity = await self._canonical_or_candidate_entity(
+                    db, novel_id, payload.entity_id or "", True
+                )
+                promotion_before = entity_state(before_entity)
                 promoted = await self._suggestions._entities.promote(
                     db,
                     payload.entity_id or "",
@@ -737,6 +666,19 @@ class WorldAdoptionPackageService:
                     suggestion.id,
                     item,
                     package.source_manifest_hash,
+                )
+                after_entity = await self._canonical_endpoint(
+                    db, novel_id, entity_id, True
+                )
+                applied_changes.append(
+                    {
+                        "item_key": item.item_key,
+                        "kind": "core_entity",
+                        "id": entity_id,
+                        "operation": "promote",
+                        "before": promotion_before,
+                        "after": entity_state(after_entity),
+                    }
                 )
             else:
                 draft = payload.entity
@@ -818,6 +760,15 @@ class WorldAdoptionPackageService:
                 )
                 continue
             if payload.operation == "promote":
+                before_relation = await db.scalar(
+                    select(EntityRelation)
+                    .where(
+                        EntityRelation.id == uuid.UUID(payload.relation_id),
+                        EntityRelation.novel_id == uuid.UUID(novel_id),
+                    )
+                    .with_for_update()
+                )
+                promotion_before = relation_state(before_relation)
                 relation = await self._promote_relation(
                     db,
                     novel_id,
@@ -827,6 +778,16 @@ class WorldAdoptionPackageService:
                     suggestion.id,
                     item,
                     package.source_manifest_hash,
+                )
+                applied_changes.append(
+                    {
+                        "item_key": item.item_key,
+                        "kind": "entity_relation",
+                        "id": str(relation.id),
+                        "operation": "promote",
+                        "before": promotion_before,
+                        "after": relation_state(relation),
+                    }
                 )
                 local_refs[item.item_key] = str(relation.id)
                 results.append(
@@ -914,7 +875,23 @@ class WorldAdoptionPackageService:
                 row["id"] != entity_id for row in matches["entities"]
             ):
                 raise ConflictError("Alias identity requires author review")
-            if matches["entities"]:
+            if payload.candidate_fingerprint:
+                from modules.world.services.core.review_resolution import (
+                    _alias_key,
+                    candidates,
+                )
+
+                current = await candidates(
+                    db, novel_id, keys={_alias_key(entity_id, payload.alias)}
+                )
+                if (
+                    len(current) != 1
+                    or current[0]["fingerprint"] != payload.candidate_fingerprint
+                ):
+                    raise ConflictError("Candidate alias changed; review again")
+            if matches["entities"] and not (
+                item.review_evidence or payload.candidate_fingerprint
+            ):
                 results.append(
                     {
                         "item_key": item.item_key,
@@ -934,19 +911,41 @@ class WorldAdoptionPackageService:
             await EntityRevisionService().create_snapshot(
                 db, entity_id, novel_id, revision_reason="focused_completion"
             )
-            await self._suggestions._aliases.create_alias(
-                db,
-                novel_id,
-                entity_id,
-                payload.alias,
-                payload.alias_type,
-                alias_kind=payload.alias_kind,
-                status="confirmed",
-                source="focused_completion",
-                evidence_refs=[ref.model_dump(mode="json") for ref in item.source_refs],
-                reviewed_by=authorization_actor,
-                _validation_prechecked=True,
-            )
+            if item.review_evidence or payload.candidate_fingerprint:
+                await self._suggestions._aliases.update_alias(
+                    db,
+                    novel_id,
+                    entity_id,
+                    payload.alias,
+                    {
+                        "type": payload.alias_type,
+                        "alias_kind": payload.alias_kind,
+                        "status": "confirmed",
+                        "needs_review": False,
+                        "reviewed_by": authorization_actor,
+                        "reviewed_from": "review_resolution",
+                        "evidence_refs": [
+                            ref.model_dump(mode="json") for ref in item.source_refs
+                        ],
+                    },
+                    _validation_prechecked=True,
+                )
+            else:
+                await self._suggestions._aliases.create_alias(
+                    db,
+                    novel_id,
+                    entity_id,
+                    payload.alias,
+                    payload.alias_type,
+                    alias_kind=payload.alias_kind,
+                    status="confirmed",
+                    source="focused_completion",
+                    evidence_refs=[
+                        ref.model_dump(mode="json") for ref in item.source_refs
+                    ],
+                    reviewed_by=authorization_actor,
+                    _validation_prechecked=True,
+                )
             applied_changes.append(
                 {
                     "item_key": item.item_key,
@@ -1670,3 +1669,29 @@ class WorldAdoptionPackageService:
                 asset_id=entity_id,
                 reason="world_adoption_package",
             )
+
+
+def partition_post_import_items(items: list[dict]) -> list[list[dict]]:
+    """Keep local references inside a package; later packages use domain IDs.
+
+    Entity items precede their relations. Cross-package endpoints must be adopted
+    first; the existing World baseline gate rejects unavailable endpoints.
+    """
+    from copy import deepcopy
+
+    entity_ids = {
+        item["item_key"]: item["payload"]["entity_id"]
+        for item in items
+        if item["kind"] == "core_entity"
+    }
+    batches = []
+    for offset in range(0, len(items), 32):
+        batch = deepcopy(items[offset : offset + 32])
+        local_keys = {item["item_key"] for item in batch}
+        for item in batch:
+            for field in ("source_ref", "target_ref", "entity_ref"):
+                ref = item["payload"].get(field, "")
+                if ref.startswith("local:") and ref[6:] not in local_keys:
+                    item["payload"][field] = entity_ids[ref[6:]]
+        batches.append(batch)
+    return batches

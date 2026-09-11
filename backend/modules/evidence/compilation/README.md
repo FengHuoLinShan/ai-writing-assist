@@ -620,3 +620,7 @@ Agent 重用原 confirmation 的 selected/excluded 与可见性，不把跨 cons
 ### 世界复核的精确范围
 
 world.validation.semantic 的调用方冻结原 confirmation 编译后保留的 items，而非根据 selected ID 重新读取整份未裁剪资产。确认后的模型输入、源 hash、范围与遗漏共同形成 World 回执，续接保持同一确认。pinned prose 使用 highlight_start/end 截取精确选段；Story 规划与地图当前版本只向无章节/Scene/offset 截止的作者 inspect 开放，reader/character 不走这条缺少可见性投影的路径。
+
+## 候选整理与边界核对
+
+Imports 的 review_resolution 通过本域读取完整场景/章节并保存 ContextSnapshot；模型失败和返修分别有回执，原文不截断后冒称已读完。补查复用有界 focused evidence，快照保留源引用、输入指纹和调用阶段。未解决的来源/场景问题保持未完成，不通过修改展示标签绕过编译边界。

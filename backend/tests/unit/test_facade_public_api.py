@@ -8,6 +8,11 @@ from modules.world import contracts as world_contracts
 from modules.world import facade as world_facade
 
 WORLD_FACADE_API = {
+    "list_review_resolution_candidates",
+    "authorize_review_resolution",
+    "prepare_review_resolution_decision",
+    "apply_review_resolution_decision",
+    "resolve_redundant_review_alias",
     "get_focused_world_terms",
     "get_focused_world_neighbors",
     "authorize_focused_world_completion",

@@ -91,3 +91,7 @@ World 负责世界书编辑/发布/恢复与历史读取；Story 负责信息计
 `POST /notices/{id}/recheck?novel_id=...` 以 operation_id 去重，重新检查当前授权的最新资料。
 准备失败可由服务器的 change_key 恢复；不需要伪造旧任务。重新检查使用新的运行额度，旧预算
 保持，活动任务不重复执行，仍受项目每日额度限制。RP 使用 journey-scoped 对应接口。
+
+## 导入确认减负
+
+`imports.resolve_review` 按明确章节/候选范围启动 Imports 智能整理，`imports.accept_review` 预览并采用作者选中的具体结果。v3 的 `review_resolution_result` 只经 Evidence 回读范围内的新鲜结果；固定 confirmation 或排除项无法证明一致时不开放整批结果。已获授权的后台整理不逐项回到助手确认，身份/事实冲突仍以领域操作批次处理。

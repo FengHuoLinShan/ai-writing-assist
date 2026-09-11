@@ -25,3 +25,30 @@ async def revalidate_focused_evidence(db, request, result):
     )
 
     return await FocusedEvidenceService().revalidate(db, request, result)
+
+
+async def read_review_resolution_sources(db, **kwargs):
+    from modules.evidence.compilation.services.review_resolution_sources import (
+        read_sources,
+    )
+
+    return await read_sources(db, **kwargs)
+
+
+async def read_review_resolution_chapters(db, **kwargs):
+    from modules.evidence.compilation.services.review_resolution_sources import (
+        read_chapters,
+    )
+
+    return await read_chapters(db, **kwargs)
+
+
+async def read_review_resolution_evidence(db, *, novel_id, task_id, visibility):
+    from core.errors import NotFoundError
+    from modules.imports.facade import inspect_review_resolution
+
+    if visibility.mode != "author":
+        raise NotFoundError("整理结果仅对作者开放")
+    return await inspect_review_resolution(
+        db, novel_id=novel_id, task_id=task_id, cutoff_chapter=visibility.cutoff_chapter
+    )

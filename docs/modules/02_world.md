@@ -544,3 +544,8 @@ creation_suggestion_queue 中保存封闭的 owner 授权 carrier；普通建议
 共创聊天/模型变化通过 world_cocreation_turn 保存可恢复终态；完整模型以父成果＋typed changes 续写，稳定身份、原作者决定与未改区域继承，相关旧检查重新待查。最近消息与长期决定分离，历史引用必须显式选择，当前工作区与历史起点不能混用。具体契约见 ADR-0021。
 
 跨域影响包含 Story 结构、正文精确 range 和地图当前 revision；打开来源与使用回执前校验 hash。语义复核仅使用同一确认实际保留的资料，并记录 domains/depth/遗漏；采用包作为受审内容不扩大其外部引用权限。旧未冻结实际语义内容的回执需重建，见 ADR-0022。
+
+
+智能整理导入候选使用 Imports 的 `import_review_resolution` 持久任务，工作台与项目助手共用入口；
+结果区分已整理、需要决定、可选建议与处理未完成。授权、恢复、来源和质量资格边界见
+`backend/modules/imports/README.md` 的“智能整理现有候选”。旧候选与旧授权不自动迁移。

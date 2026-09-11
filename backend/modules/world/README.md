@@ -1114,3 +1114,13 @@ checkpoint 语义，并持有世界事实、采用包和复核结论。助手通
 影响清单使用版本与范围 hash，`POST /api/world/impact-preview/source` 精确回读当前来源；`GET /api/world/bible/validation-runs/{run_id}/source` 打开复核实际依据。语义 run 冻结确认后保留的内容、领域/深度、影响范围与只读 Focused Evidence 回执，不能重新注入被排除全文。旧无实际语义范围的回执过期；阶段完成、作者签收与 Canon 采用保持分离。
 
 资料库首屏使用统一轻量分页/概览，正文与对应工作稿按深链读取；draft 列表可按 page_id 过滤。模板、规则、简介及健康回执按入口加载。生成中心资料选择同样使用轻量分页，后端页面目录只来自确认保留的 manifest，不再加载全库正文。
+
+
+智能整理导入候选使用 Imports 的 `import_review_resolution` 持久任务，工作台与项目助手共用入口；
+结果区分已整理、需要决定、可选建议与处理未完成。授权、恢复、来源和质量资格边界见
+`backend/modules/imports/README.md` 的“智能整理现有候选”。旧候选与旧授权不自动迁移。
+
+导入整理新增的根 facade 入口：list_review_resolution_candidates、authorize_review_resolution、
+resolve_redundant_review_alias、prepare_review_resolution_decision、apply_review_resolution_decision。
+它们只处理可证明导入来源的候选；其他 AI 建议继续遵守原 confirmation 与领域采用规则。
+作者注意事项读取 Imports 的新鲜分流，生命周期候选总数与必须决定的问题数分别展示。

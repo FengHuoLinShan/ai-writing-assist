@@ -311,3 +311,8 @@ P13 v4 的 `entity_type` 清单来自同一系统校验集合，同时进入首�
 补全部分失败在同一领域 checkpoint 保存双恢复标记，任务失败投影保留这些标记；既有 resume API 验证后从补全继续，未完成的目标与已完成的场景/对象保持。
 
 新整理默认冻结可选查漏范围并暂缓到基础成果之后；defer/分阶段 resume、近期记录和引用影响的接口及恢复语义见 backend/modules/imports/README.md。
+
+
+智能整理导入候选使用 Imports 的 `import_review_resolution` 持久任务，工作台与项目助手共用入口；
+结果区分已整理、需要决定、可选建议与处理未完成。授权、恢复、来源和质量资格边界见
+`backend/modules/imports/README.md` 的“智能整理现有候选”。旧候选与旧授权不自动迁移。

@@ -22,6 +22,7 @@ IMPORT_WORKFLOW_TYPES = {
     "world_object_auto_extraction",
     "plot_structure_auto_extraction",
     "targeted_completion",
+    "import_review_resolution",
 }
 MANUAL_RECOVERY_WORKFLOW_TYPES = IMPORT_WORKFLOW_TYPES
 

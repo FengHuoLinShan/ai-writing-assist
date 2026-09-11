@@ -1,0 +1,13 @@
+{
+  "id": "review_resolution",
+  "version": 1,
+  "owner": "imports",
+  "schema_model": "modules.imports.review_resolution_schemas.ReviewJudgments",
+  "declared_prompt_fields": ["judgments", "groups"],
+  "forbidden_fields": ["status", "approved_by", "needs_review"],
+  "strict_schema_coverage": true,
+  "required_mappings": [],
+  "observed_fields": ["judgments.candidate_key", "judgments.support", "judgments.identity", "judgments.persistence", "judgments.confidence", "judgments.field_evidence", "judgments.counter_evidence", "judgments.uncertainties", "judgments.explanation", "judgments.question", "judgments.missing_evidence", "groups.candidate_keys", "groups.question", "groups.common_basis"],
+  "ignored_fields": [],
+  "probes": []
+}

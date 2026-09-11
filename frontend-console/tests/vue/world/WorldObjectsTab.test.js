@@ -397,7 +397,7 @@ describe("页内视图控件", () => {
     expect(options.element.open).toBe(false)
   })
 
-  it("需要决定是直达待处理对象的顶层当前页按钮", async () => {
+  it("待处理资料是直达待处理对象的顶层当前页按钮", async () => {
     const wrapper = shallowMount(WorldView, {
       props: {
         projectId: "p-obj",
@@ -414,7 +414,7 @@ describe("页内视图控件", () => {
     expect(review.attributes("aria-current")).toBe("page")
     expect(review.classes()).toContain("active")
     expect(review.get(".today-count").text()).toBe("6")
-    expect(review.attributes("aria-label")).toBe("需要决定，6 项")
+    expect(review.attributes("aria-label")).toBe("待处理资料，6 项")
     expect(library.attributes("aria-current")).toBeUndefined()
     expect(library.classes()).not.toContain("active")
     expect(wrapper.find(".world-attention-menu").exists()).toBe(false)
@@ -423,7 +423,7 @@ describe("页内视图控件", () => {
     expect(navigateMock).toHaveBeenCalledWith("world", "review", true, expect.any(URLSearchParams))
   })
 
-  it("待决定计数收起零值并限制视觉宽度，别名深链保留当前页语义", async () => {
+  it("资料计数收起零值并限制视觉宽度，别名深链保留当前页语义", async () => {
     const wrapper = shallowMount(WorldView, {
       props: {
         projectId: "p-obj",
@@ -434,7 +434,7 @@ describe("页内视图控件", () => {
     const review = wrapper.get('[data-action="nav-review"]')
 
     expect(review.get(".today-count").text()).toBe("99+")
-    expect(review.attributes("aria-label")).toBe("需要决定，316 项")
+    expect(review.attributes("aria-label")).toBe("待处理资料，316 项")
     expect(wrapper.get('[data-action="nav-bible"]').attributes("aria-current")).toBe("page")
 
     await wrapper.setProps({ reviewCounts: { objects: 0, aliases: 0, relations: 0 } })

@@ -10,7 +10,7 @@
       <div class="subnav">
         <button type="button" class="subnav-item" :class="{ active: subView === 'bible' || subView === 'objects' || subView === 'aliases' }" :aria-current="subView === 'bible' || subView === 'objects' || subView === 'aliases' ? 'page' : undefined" data-subview="bible" data-action="nav-bible" @click="navigateSub('bible')">资料库</button>
         <button type="button" class="subnav-item" :class="{ active: subView === 'relations' }" :aria-current="subView === 'relations' ? 'page' : undefined" data-subview="relations" data-action="nav-relations" @click="navigateSub('relations')">关系</button>
-        <button type="button" class="subnav-item" :class="{ active: !!reviewSubView }" :aria-current="reviewSubView ? 'page' : undefined" :aria-label="reviewTotal ? `需要决定，${reviewTotal} 项` : undefined" data-action="nav-review" @click="navigateReview()">需要决定 <span v-if="reviewTotal" class="today-count" aria-hidden="true">{{ reviewCountLabel }}</span></button>
+        <button type="button" class="subnav-item" :class="{ active: !!reviewSubView }" :aria-current="reviewSubView ? 'page' : undefined" :aria-label="reviewTotal ? `待处理资料，${reviewTotal} 项` : undefined" data-action="nav-review" @click="navigateReview()">待处理资料 <span v-if="reviewTotal" class="today-count" aria-hidden="true">{{ reviewCountLabel }}</span></button>
       </div>
       <div class="view-header__tail">
         <h1 v-if="headerTitle" class="view-header__title">
@@ -212,7 +212,7 @@ function handleSidebarTool(key) {
 /** 对应 vanilla _renderHeaderTitle（worldView.js:756-779）。 */
 const headerTitle = computed(() => {
   if (props.subView === "objects" || objectToolsOpen.value) return { text: "人物与设定工具", count: props.entitiesTotal }
-  if (props.reviewSubView) return { text: "需要决定", count: reviewTotal.value }
+  if (props.reviewSubView) return { text: "待处理资料", count: reviewTotal.value }
   if (props.subView === "relations") return { text: "关系", count: props.relationsTotal }
   if (props.subView === "aliases") return { text: "别名", count: props.aliasesTotal }
   return null

@@ -72,6 +72,7 @@
     @abandon="vm.abandonDeepImport"
     @dismiss="vm.dismissDeepImport"
     @open-audit="vm.deepAuditOpen.value = true"
+    @open-review-resolution="openReviewResolution"
     @open-scenes="vm.openSceneWorkbench"
     @open-conflict="vm.openConflictDialog"
     @retry-publish="vm.retryPublish"
@@ -349,6 +350,7 @@ const props = defineProps({
 
 const vm = useWritingWorkspace(props)
 const router = getRouter()
+function openReviewResolution(taskId) { router?.navigate("world", "review", true, new URLSearchParams(taskId ? { review_task_id: taskId } : {})) }
 const viewMenuEl = ref(null)
 const viewMenuOpen = ref(false)
 const chapterMapOpen = ref(false)

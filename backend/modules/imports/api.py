@@ -21,6 +21,12 @@ from core.errors import DomainError, NotFoundError
 from core.errors import ValidationError as DomainValidationError
 from infrastructure.llm.redaction import redact_diagnostic
 from modules.imports.parsers import MAX_FILE_SIZE
+from modules.imports.review_resolution_schemas import (
+    ReviewResolutionDecisionRequest,
+    ReviewResolutionOptions,
+    ReviewResolutionRequest,
+    SceneResolutionDecisionRequest,
+)
 from modules.imports.schemas import (
     ImportListResponse,
     ImportResponse,
@@ -73,6 +79,9 @@ class DeepImportRequest(BaseModel):
     end_chapter: int = Field(default=0, ge=0)
     force: bool = False
     high_quality: bool = False
+    review_resolution: ReviewResolutionOptions = Field(
+        default_factory=ReviewResolutionOptions
+    )
     targeted_completion: TargetedCompletionOptions = Field(
         default_factory=TargetedCompletionOptions
     )
@@ -113,6 +122,12 @@ class DeepImportCleanupSummaryResponse(BaseModel):
     cleanup_status: Literal["complete", "partial"] = "complete"
     unreverted_targeted_items: int = 0
     targeted_completion_rollback: dict = Field(default_factory=dict)
+    review_resolution_rollback: dict = Field(
+        default_factory=dict, exclude_if=lambda value: not value
+    )
+    unreverted_resolution_items: int = Field(
+        default=0, exclude_if=lambda value: value == 0
+    )
     rolled_back_delta_logs: int = 0
     rolled_back_aliases: int = 0
     rolled_back_relations: int = 0
@@ -276,6 +291,11 @@ async def submit_deep_import(
         adoption_policy=body.adoption_policy,
         authorization_confirmed=body.authorization_confirmed,
         **(
+            {"review_resolution": body.review_resolution.model_dump()}
+            if body.review_resolution.enabled
+            else {}
+        ),
+        **(
             {"targeted_completion": body.targeted_completion.model_dump()}
             if body.targeted_completion.enabled or body.targeted_completion.defer
             else {}
@@ -308,6 +328,11 @@ async def _submit_stage(
         high_quality=body.high_quality,
         adoption_policy=body.adoption_policy,
         authorization_confirmed=body.authorization_confirmed,
+        **(
+            {"review_resolution": body.review_resolution.model_dump()}
+            if body.review_resolution.enabled
+            else {}
+        ),
         **(
             {"targeted_completion": body.targeted_completion.model_dump()}
             if stage == "world_objects"
@@ -488,3 +513,88 @@ async def workflow_asset_impact(
 
     await require_active_project(db, novel_id)
     return await active_asset_impact(db, novel_id=novel_id, asset_id=str(asset_id))
+
+
+@router.get("/review-summary")
+async def get_review_summary(
+    db: DbSession,
+    *,
+    novel_id: NovelIdQuery,
+    start_chapter: int = Query(1, ge=1),
+    end_chapter: int = Query(0, ge=0),
+) -> dict:
+    from modules.imports.facade import get_review_summary as read
+
+    await _require_active_project(db, novel_id)
+    result = await read(
+        db, novel_id, start_chapter=start_chapter, end_chapter=end_chapter
+    )
+    from modules.imports.review_resolution import latest_resolution
+
+    public = {
+        key: value for key, value in result.items() if key not in {"candidates", "scenes"}
+    }
+    from modules.imports.facade import get_review_dispositions
+
+    dispositions = await get_review_dispositions(db, novel_id)
+    public["unclassified"] = sum(
+        key not in dispositions["outcomes"] for key in result["candidate_keys"]
+    )
+    public["total_candidates"] = len(result["candidate_keys"])
+    public["latest"] = await latest_resolution(db, novel_id)
+    return public
+
+
+@router.post("/review-resolutions", status_code=201)
+async def submit_review_resolution(db: DbSession, body: ReviewResolutionRequest) -> dict:
+    from modules.imports.facade import start_review_resolution
+
+    await _require_active_project_exclusive(db, body.novel_id)
+    end = await _resolve_end_chapter(db, body)
+    _validate_chapter_count_limit(body.start_chapter, end)
+    return await start_review_resolution(db, body.model_copy(update={"end_chapter": end}))
+
+
+@router.post("/review-resolutions/{task_id}/rollback")
+async def rollback_review_resolution(
+    db: DbSession,
+    task_id: str,
+    body: TargetedCompletionRollbackRequest,
+    *,
+    novel_id: NovelIdQuery,
+) -> dict:
+    from modules.imports.review_resolution import rollback_resolution
+
+    await _require_active_project_exclusive(db, novel_id)
+    return await rollback_resolution(db, novel_id=novel_id, task_id=task_id)
+
+
+@router.post("/review-resolutions/{task_id}/decisions")
+async def decide_review_resolution(
+    db: DbSession,
+    task_id: str,
+    body: ReviewResolutionDecisionRequest,
+    *,
+    novel_id: NovelIdQuery,
+) -> dict:
+    from modules.imports.review_resolution import accept_decision
+
+    await _require_active_project_exclusive(db, novel_id)
+    return await accept_decision(db, novel_id=novel_id, task_id=task_id, data=body)
+
+
+@router.post("/review-resolutions/{task_id}/scene-groups/{group_key}/apply")
+async def apply_scene_resolution_group(
+    db: DbSession,
+    task_id: str,
+    group_key: str,
+    body: SceneResolutionDecisionRequest,
+    *,
+    novel_id: NovelIdQuery,
+) -> dict:
+    from modules.imports.review_resolution import accept_scene_group
+
+    await _require_active_project_exclusive(db, novel_id)
+    return await accept_scene_group(
+        db, novel_id=novel_id, task_id=task_id, group_key=group_key, data=body
+    )

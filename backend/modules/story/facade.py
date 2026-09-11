@@ -394,7 +394,42 @@ __all__ = [
     "get_continuity_evidence_for_writing",
     "get_memory_panorama",
     "get_scene_checkpoints",
+    "group_import_scene_resolution",
     "ingest_delta_events",
+    "apply_import_scene_resolution",
+    "apply_import_scene_resolution_group",
+    "preview_import_scene_resolution",
     "replace_scene_memory_events",
+    "rollback_import_scene_resolution",
     "rollback_deep_import_delta_logs_by_workflow",
 ]
+
+
+async def preview_import_scene_resolution(db, novel_id, chapter_from, chapter_to):
+    from modules.story.outline_state.scene_resolution import preview
+
+    return await preview(db, novel_id, chapter_from, chapter_to)
+
+
+async def apply_import_scene_resolution(db, **kwargs):
+    from modules.story.outline_state.scene_resolution import apply_review
+
+    return await apply_review(db, **kwargs)
+
+
+async def rollback_import_scene_resolution(db, **kwargs):
+    from modules.story.outline_state.scene_resolution import rollback
+
+    return await rollback(db, **kwargs)
+
+
+async def group_import_scene_resolution(rows):
+    from modules.story.outline_state.scene_resolution import group_scene_inputs
+
+    return group_scene_inputs(rows)
+
+
+async def apply_import_scene_resolution_group(db, **kwargs):
+    from modules.story.outline_state.scene_resolution import apply_group
+
+    return await apply_group(db, **kwargs)

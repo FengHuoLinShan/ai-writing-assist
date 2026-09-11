@@ -246,7 +246,156 @@ async def _apply(db, novel_id, args, preview, *, context=None):
     }
 
 
+class ResolveImportReview(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    start_chapter: int = Field(ge=1)
+    end_chapter: int = Field(ge=1)
+    asset_keys: list[str] = Field(default_factory=list, max_length=10000)
+    repair_scenes: bool = True
+
+
+async def _resolution_preview(db, novel_id, args, *, context=None):
+    from modules.imports.review_resolution import freeze_resolution
+
+    source = await _prepare(
+        db,
+        novel_id,
+        OrganizeManuscript(
+            start_chapter=args.start_chapter, end_chapter=args.end_chapter, stage="all"
+        ),
+        context=context,
+    )
+    scope = await freeze_resolution(
+        db,
+        novel_id=novel_id,
+        start_chapter=args.start_chapter,
+        end_chapter=args.end_chapter,
+        asset_keys=args.asset_keys,
+        repair_scenes=args.repair_scenes,
+    )
+    return {
+        **source,
+        "title": "智能整理导入资料",
+        "scope_hash": scope["scope_hash"],
+        "candidate_fingerprints": {
+            item["key"]: item["fingerprint"] for item in scope["items"]
+        },
+        "after": {
+            "范围": f"第{args.start_chapter}～{args.end_chapter}章",
+            "待整理资料": len(scope["items"]),
+        },
+        "effect": (
+            "一次授权后查证并整理可靠资料；关键问题成组决定，可选建议保留，可停止和撤销。"
+        ),
+    }
+
+
+async def _resolve_review(db, novel_id, args, preview, *, context=None):
+    from modules.imports.facade import start_review_resolution
+    from modules.imports.review_resolution_schemas import ReviewResolutionRequest
+
+    if await _resolution_preview(db, novel_id, args, context=context) != preview:
+        raise ConflictError("资料或正文已变化，请重新核对整理范围")
+    result = await start_review_resolution(
+        db,
+        ReviewResolutionRequest(
+            novel_id=novel_id, authorization_confirmed=True, **args.model_dump()
+        ),
+    )
+    return {
+        "type": "import_workflow",
+        "id": result["task_id"],
+        "task_id": result["task_id"],
+        "label": "已开始智能整理导入资料",
+    }
+
+
+class AcceptReviewGroup(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    task_id: UUID
+    candidate_keys: list[str] = Field(min_length=1, max_length=32)
+    expected_fingerprints: dict[str, str]
+
+
+async def _review_decision_preview(db, novel_id, args, *, context=None):
+    from modules.imports.facade import inspect_review_resolution
+
+    result = await inspect_review_resolution(
+        db, novel_id=novel_id, task_id=str(args.task_id)
+    )
+    source = await _prepare(
+        db,
+        novel_id,
+        OrganizeManuscript(
+            start_chapter=result["chapter_from"],
+            end_chapter=result["chapter_to"],
+            stage="all",
+        ),
+        context=context,
+    )
+    by_key = {item["key"]: item for item in result["summary"].get("groups", [])}
+    if set(args.candidate_keys) != set(args.expected_fingerprints) or any(
+        key not in by_key
+        or by_key[key].get("fingerprint") != args.expected_fingerprints[key]
+        for key in args.candidate_keys
+    ):
+        raise ConflictError("所选决定已变化，请重新查证")
+    return {
+        **source,
+        "title": "采用本组选中资料",
+        "after": [
+            {
+                "资料": by_key[key].get("label"),
+                "说明": by_key[key].get("explanation"),
+                "概要": (by_key[key].get("proposed_fields") or {}).get("summary"),
+                "关系说明": (by_key[key].get("proposed_fields") or {}).get("description"),
+                "别名": (by_key[key].get("proposed_fields") or {}).get("alias"),
+            }
+            for key in args.candidate_keys
+        ],
+        "effect": "采用所列具体候选，保留来源和撤销记录；世界规则校验仍生效。",
+    }
+
+
+async def _apply_review_decision(db, novel_id, args, preview, *, context=None):
+    from modules.imports.review_resolution import accept_decision
+    from modules.imports.review_resolution_schemas import ReviewResolutionDecisionRequest
+
+    if await _review_decision_preview(db, novel_id, args, context=context) != preview:
+        raise ConflictError("候选或来源已变化，请重新确认")
+    result = await accept_decision(
+        db,
+        novel_id=novel_id,
+        task_id=str(args.task_id),
+        data=ReviewResolutionDecisionRequest(
+            candidate_keys=args.candidate_keys,
+            expected_fingerprints=args.expected_fingerprints,
+            confirmed=True,
+        ),
+    )
+    return {
+        "type": "world_adoption_package",
+        "id": result["suggestion_id"],
+        "label": "所选资料已采用"
+        if result["status"] == "accepted"
+        else "本组资料仍需校验或审阅",
+        "status": result["status"],
+    }
+
+
 OPERATIONS = {
+    "imports.accept_review": AssistantOperation(
+        "采用明确选中的整理结果",
+        AcceptReviewGroup,
+        _review_decision_preview,
+        _apply_review_decision,
+    ),
+    "imports.resolve_review": AssistantOperation(
+        "查证并整理已有导入候选，只保留关键决定",
+        ResolveImportReview,
+        _resolution_preview,
+        _resolve_review,
+    ),
     "imports.complete_targets": AssistantOperation(
         "按原范围对指定对象专项查漏",
         CompleteSelectedTargets,

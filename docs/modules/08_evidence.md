@@ -426,3 +426,7 @@ Evidence 保持只读证据与 Context 权威，工具选择由外层有界 Agen
 ### 世界跨域复核
 
 World 复核使用原确认编译后实际保留的内容；Focused Evidence 只读冻结/回读，不扩大 selected/excluded 语义。Story/map author inspect 不适用于 reader/character 或 Scene 截止；缺少投影时失败关闭。pinned prose 精确截取 highlight 范围。所有问题与复核处置仍在 World，索引和生成资产所有权不变。
+
+### 智能整理的证据范围
+
+review_resolution 的场景/章节回读使用稳定 Evidence facade，补查使用既有 focused retrieval；每次模型步骤保存来源与上下文回执。输出只能引用冻结候选与实际证据，后序支持需先明确时序/可见性，不能回流为原场景已有事实。索引和角色/读者编译边界不因减少确认而放宽。

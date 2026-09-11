@@ -6,6 +6,7 @@
 -->
 <template>
   <div class="world-review-view">
+    <ImportReviewResolutionPanel v-if="projectId" :project-id="projectId" :source-task-id="initialQuery.get('review_task_id')" @updated="retryLoad" />
     <div class="subnav subnav-secondary world-review-tabs">
       <button type="button" class="subnav-item" :class="{ active: tab === 'all' }" :aria-current="tab === 'all' ? 'page' : undefined" data-action="nav-review-all" @click="navigateKind('all')">全部</button>
       <button type="button" class="subnav-item" :class="{ active: tab === 'objects' }" :aria-current="tab === 'objects' ? 'page' : undefined" data-action="nav-review-objects" @click="navigateKind('objects')">对象 ({{ reviewCounts.objects || 0 }})</button>
@@ -14,8 +15,8 @@
     </div>
 
     <p v-if="tab === 'all' && currentReviewCount" class="world-list-description" data-author-action="needs_decision">
-      <span class="pill pill-warning">需要决定</span>
-      这里只列当前仍有效、尚未采用的候选；已采用、忽略或过期内容不计入当前待办。
+      <span class="pill">候选资料</span>
+      尚未采用不代表必须逐项确认；可先智能整理，再处理关键问题。
     </p>
 
     <section v-if="tab === 'all'" class="world-review-overview" aria-labelledby="review-overview-title">
@@ -566,6 +567,7 @@
 </template>
 
 <script setup>
+import ImportReviewResolutionPanel from "../../../components/ImportReviewResolutionPanel.vue"
 import WorldReviewBatch from "./WorldReviewBatch.vue"
 import { computed, reactive, ref, watch, onBeforeUnmount, onMounted, nextTick } from "vue"
 import { getApi, getAppState, getRouteQuery, getRouter } from "../../../bridge/index.js"

@@ -119,7 +119,7 @@ fail closed。旧的本地任务若没有此字段，兼容路径在首次新 wo
 幂等创建 post-import `world_adoption_package.v1`。它不改变 Phase 2 的 adopted/review/checkpoint/
 resume/rollback/asset_summary；包创建失败仅记录诊断，导入仍保持成功。已写入 canonical 资产只作
 `existing_ref/no-op` 预览，candidate 实体/关系与 World Bible revision 仍需作者显式 preview/apply。
-冻结 result ref 漂移或单包超过 31 个资产时显式记录组包失败，不静默截断。
+冻结 result ref 漂移仍失败关闭；资产按每包至多 32 项分组，先对象后关系，跨包引用使用已有对象 ID。结果包含 suggestion_ids，旧 suggestion_id 指向首包。不附带自动发布世界书页。
 
 `force=true` 的重复 Scene 提取把替换意图写入 task meta，直到 Scene commit 才执行。
 commit 只软废弃 workflow-owned、未人工编辑的 `draft/candidate`；`canonical`、
@@ -434,3 +434,39 @@ P13 v4 同步首轮、格式返修与 JSON Schema 的对象类型集合和字段
 `POST /api/imports/targeted-completions/{task_id}/defer` 在当前安全检查点请求暂缓；控制保存在现有 ImportWorkflowRun.checkpoints 中，worker 写入不能覆盖作者的新请求。`POST /api/imports/deep/resume` 可传 `stage=targeted_completion`、`authorization_confirmed=true`，仅对已结束执行、查漏为 deferred 且未开始撤销的原任务重新入队；重验 owner、单飞、正文清单与授权，增加 generation，保留根、游标和采用回执。基础结构通过检查点避免重跑。普通失败恢复契约不变。
 
 `GET /api/imports/workflows/recent` 按项目分页返回阶段、范围、成果计数与可继续状态，不返回授权或模型快照。`GET /api/imports/workflows/impact` 经 Evidence facade 检查运行快照是否引用指定资产，只返回受影响处理单元摘要；这不替代提交时的指纹校验。
+
+
+## 智能整理现有候选
+
+`GET /api/imports/review-summary?novel_id=...` 只读候选概况，不调用模型。
+`POST /api/imports/review-resolutions` 接受章节范围、可选 asset_keys、repair_scenes
+与 authorization_confirmed=true，创建 `import_review_resolution`。复用项目单飞、
+ImportWorkflowRun、冻结账户模型、原 task/generation/lease、手动恢复和任务查询/取消。
+`POST /api/imports/review-resolutions/{task_id}/rollback?novel_id=...` 要求 confirmed=true；
+运行中拒绝撤销，已编辑的后续值保留并报告冲突，开始撤销后不可恢复原执行。
+
+完整导入和世界对象阶段可带 review_resolution.enabled=true（版本
+imports.review_resolution.v1）；旧调用缺少选项不会获得权限。新导入仅选择同 workflow
+新候选，存量任务冻结已选候选指纹。World 以 world.review_resolution.v1 独立授权提升
+原候选；旧 focused_world_completion.v1 仍不能提升候选。
+
+结构化审查区分 explicit/inference/unsupported/conflict/uncertain、身份和持续性，逐字段
+绑定精确引文。初审、一次补查返修、终检每组最多三次，恢复不重置已消费次数；模型自评
+不能授权写入。候选类型的自动采用还受人工保留样本质量资格控制，未获资格的类型保留建议。
+项目助手 imports.resolve_review 与工作台共用领域入口，助手不独立持有采用状态。
+
+result.review_resolution 单独列出 organized、decision、optional、incomplete 和场景核对结果。
+未完成不能计为建议或已整理；原候选生命周期不被展示过滤改写。未知旧场景标记保持需要
+核实；边界复核只清理来源/覆盖/指纹及终检通过的未编辑导入草稿，改变引用范围的调整
+保留为具体提案。自动采用仍通过正式 World 校验，不能代写作者裁定或警告签收。
+
+整理只接收有导入来源的候选，人工创建和其他 AI 工作流的候选不继承导入自动采用授权。
+首页按新鲜的来源/资产/提示词指纹读取整理分流：可选建议不重复列为必须决定；尚未整理的
+导入候选聚合为一个开始整理入口，不改变其候选生命周期。供应商配置/模型/提示词变更
+不能继承旧人工质量资格。完整导入中的局部整理失败保留为降级结果，独立步骤继续。
+
+场景按共享章节形成闭合分组；未打标但缺精确定位的场景也纳入。提交前先验证全章覆盖，
+受保护/变更引用范围的组给出原起止与建议边界。
+`POST /api/imports/review-resolutions/{task_id}/scene-groups/{group_key}/apply` 绑定
+原分组指纹与明确确认；成功后可按原预算继续原失败任务中的依赖核对。撤销按整组 CAS，
+任一成员被后续编辑时保留整组，避免部分撤销造成空洞或重叠。

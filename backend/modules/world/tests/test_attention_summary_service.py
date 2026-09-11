@@ -27,6 +27,7 @@ async def test_attention_summary_uses_review_queues_for_one_novel() -> None:
     conflict_service = SimpleNamespace(list=AsyncMock(return_value=([], 0)))
     suggestion_service = SimpleNamespace(list=AsyncMock(return_value=([], 0)))
     service = WorldAttentionSummaryService(
+        resolution_reader=AsyncMock(return_value={"imported_keys": [], "outcomes": {}}),
         entity_service=entity_service,
         alias_service=alias_service,
         relation_service=relation_service,
@@ -180,6 +181,7 @@ async def test_attention_summary_projects_actionable_world_items_without_duplica
         )
     )
     service = WorldAttentionSummaryService(
+        resolution_reader=AsyncMock(return_value={"imported_keys": [], "outcomes": {}}),
         entity_service=entity_service,
         alias_service=alias_service,
         relation_service=relation_service,
@@ -246,6 +248,7 @@ async def test_attention_summary_keeps_reverse_relation_groups_exact() -> None:
         )
     )
     service = WorldAttentionSummaryService(
+        resolution_reader=AsyncMock(return_value={"imported_keys": [], "outcomes": {}}),
         entity_service=SimpleNamespace(list=AsyncMock(return_value=empty_list)),
         alias_service=SimpleNamespace(
             list_review_groups=AsyncMock(return_value=empty_groups)
@@ -267,3 +270,40 @@ async def test_attention_summary_keeps_reverse_relation_groups_exact() -> None:
         "有 4 条关系待确认。",
     ]
     assert [item.item_id for item in result.items] == ["a-to-b", "b-to-a"]
+
+
+async def test_classified_optional_imports_are_not_repeated_author_decisions():
+    entity = SimpleNamespace(id="entity-1", name="灰塔", content_json={}, updated_at=None)
+    service = WorldAttentionSummaryService(
+        entity_service=SimpleNamespace(
+            list=AsyncMock(return_value=SimpleNamespace(total=1, items=[entity]))
+        ),
+        alias_service=SimpleNamespace(
+            list_review_groups=AsyncMock(
+                return_value=SimpleNamespace(groups=[], group_total=0, item_total=0)
+            )
+        ),
+        relation_service=SimpleNamespace(
+            list_review_groups=AsyncMock(
+                return_value=SimpleNamespace(groups=[], group_total=0, item_total=0)
+            )
+        ),
+        conflict_service=SimpleNamespace(list=AsyncMock(return_value=([], 0))),
+        suggestion_service=SimpleNamespace(list=AsyncMock(return_value=([], 0))),
+        resolution_reader=AsyncMock(
+            return_value={
+                "imported_keys": ["entity-entity-1"],
+                "outcomes": {"entity-entity-1": {"outcome": "optional"}},
+            }
+        ),
+    )
+    result = await service.get_summary(SimpleNamespace(), "novel-1")
+    assert result.world_objects == 1  # lifecycle count is not falsified
+    assert result.items == ()
+    service._resolution_reader = AsyncMock(
+        return_value={"imported_keys": ["entity-entity-1"], "outcomes": {}}
+    )
+    result = await service.get_summary(SimpleNamespace(), "novel-1")
+    assert len(result.items) == 1
+    assert result.items[0].title == "先整理导入资料"
+    assert result.items[0].author_action == "needs_decision"

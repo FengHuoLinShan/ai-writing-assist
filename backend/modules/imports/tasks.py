@@ -170,3 +170,11 @@ async def handle_targeted_completion(db, task) -> dict[str, Any]:
         attempt,
         project=lambda payload, value: _project_task(task, payload, value),
     )
+
+
+@task_handler("import_review_resolution", recovery_policy="manual_resume")
+async def handle_import_review_resolution(db, task):
+    attempt = await _claim_workflow_attempt(db, task)
+    return await DeepImportOrchestrator().run_attempt(
+        db, attempt, project=lambda payload, value: _project_task(task, payload, value)
+    )

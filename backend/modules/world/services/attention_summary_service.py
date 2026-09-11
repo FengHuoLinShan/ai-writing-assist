@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -125,12 +126,14 @@ class WorldAttentionSummaryService:
         relation_service: EntityRelationService | None = None,
         conflict_service: ConflictQueueService | None = None,
         suggestion_service: SuggestionQueueService | None = None,
+        resolution_reader=None,
     ) -> None:
         self._entity_service = entity_service or WorldEntityService()
         self._alias_service = alias_service or EntityAliasService()
         self._relation_service = relation_service or EntityRelationService()
         self._conflict_service = conflict_service or ConflictQueueService()
         self._suggestion_service = suggestion_service or SuggestionQueueService()
+        self._resolution_reader = resolution_reader
 
     async def _review_entities(
         self,
@@ -359,13 +362,70 @@ class WorldAttentionSummaryService:
             and _value(item, "status") == "pending"
             and not _has_compatibility_shadow(item)
         ]
-        items = [
-            *(self._conflict_item(item) for item in conflicts),
-            *(self._entity_item(item) for item in entities),
-            *(self._alias_item(group) for group in aliases),
-            *(self._relation_item(group) for group in relations),
-            *suggestion_items,
-        ]
+        from modules.imports.facade import get_review_dispositions
+        from modules.world.services.core.review_resolution import _alias_key
+
+        resolved = await (self._resolution_reader or get_review_dispositions)(
+            db, novel_id
+        )
+        imported = set(resolved["imported_keys"])
+        dispositions = resolved["outcomes"]
+        items = [self._conflict_item(item) for item in conflicts]
+        pending = []
+        for item in entities:
+            pending.append((self._entity_item(item), [f"entity-{_value(item, 'id')}"]))
+        for group in aliases:
+            keys = [
+                _alias_key(
+                    _value(member, "entity_id", _value(group, "entity_id")),
+                    str(_value(member, "alias", "")),
+                )
+                for member in (_value(group, "members", []) or [])
+            ]
+            pending.append((self._alias_item(group), keys))
+        for group in relations:
+            keys = [
+                f"relation-{_value(member, 'id')}"
+                for member in (_value(group, "members", []) or [])
+            ]
+            pending.append((self._relation_item(group), keys))
+        unknown = set()
+        for item, keys in pending:
+            if not keys or not set(keys) <= imported:
+                items.append(item)
+                continue
+            unknown.update(key for key in keys if key not in dispositions)
+            required = [
+                dispositions[key]
+                for key in keys
+                if key in dispositions
+                and dispositions[key].get("outcome") in {"decision", "incomplete"}
+            ]
+            if required:
+                incomplete = any(value["outcome"] == "incomplete" for value in required)
+                items.append(
+                    replace(
+                        item,
+                        title="继续核对导入资料" if incomplete else item.title,
+                        summary=f"{len(required)} 项需要处理；其余候选可稍后查看。",
+                    )
+                )
+        if unknown:
+            items.append(
+                WorldAuthorAttentionItemContract(
+                    key="world:import-review:unclassified",
+                    source_kind="world_object",
+                    title="先整理导入资料",
+                    summary=(
+                        f"{len(unknown)} 项导入候选尚未整理，"
+                        "可让系统先查证并归纳关键问题。"
+                    ),
+                    author_action="needs_decision",
+                    severity="medium",
+                    target_kind="world_review_objects",
+                )
+            )
+        items.extend(suggestion_items)
         return WorldAttentionSummaryContract(
             novel_id=novel_id,
             world_objects=entity_total,

@@ -127,6 +127,7 @@ class PostImportWorldAdoptionRequestContract:
 class PostImportWorldAdoptionResultContract:
     suggestion_id: str
     created: bool
+    suggestion_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

@@ -52,5 +52,25 @@ async def test_post_import_package_uses_frozen_phase2_result_refs(monkeypatch) -
     assert source.relation_ids == ("relation-1",)
     assert progress.phase_artifacts["post_import_adoption_package"] == {
         "suggestion_id": "package-1",
+        "suggestion_ids": ["package-1"],
         "created": True,
     }
+
+
+@pytest.mark.parametrize("review_enabled", [False, True])
+async def test_smart_resolution_does_not_reintroduce_blanket_adoption_queue(monkeypatch, review_enabled):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from modules.imports.adoption_policy import build_authorization_snapshot
+    authorization=build_authorization_snapshot(novel_id="novel-1",start_chapter=1,end_chapter=1,adoption_policy="user_authorized_pipeline",authorization_confirmed=True)
+    if review_enabled:
+        authorization["review_resolution"]={"version":"imports.review_resolution.v1"}
+    progress=DeepImportProgress(phase="done",review_resolution={"counts":{"optional":1}} if review_enabled else {})
+    orchestrator=DeepImportOrchestrator()
+    monkeypatch.setattr(orchestrator.workflow,"run_step",AsyncMock(return_value=progress))
+    monkeypatch.setattr(orchestrator,"_restore_llm_execution_snapshot",AsyncMock(return_value={}))
+    assemble=AsyncMock()
+    monkeypatch.setattr(orchestrator,"_assemble_post_import_package",assemble)
+    task=SimpleNamespace(id="task-1",result={},task_type="deep_import",meta={"novel_id":"novel-1","start_chapter":1,"end_chapter":1,"authorization_snapshot":authorization})
+    await orchestrator.run_task(None,task)
+    assert assemble.await_count == (0 if review_enabled else 1)

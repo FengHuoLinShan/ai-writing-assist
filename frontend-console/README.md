@@ -566,3 +566,7 @@ World 草稿备份携带编辑基线，恢复旧版本先核对再保存；保�
 共用 AI 抽屉沿用 Vue Teleport 挂载到 body，层级介于侧栏与顶栏之间；768px 下操作不能被侧栏遮挡。浏览器回归同时检查实际命中、局部编辑和刷新恢复，组件测试读取真实挂载的浮层节点。
 
 长资料性能可显式运行 `RUN_WORLD_LIBRARY_PERF=1 npm run test:e2e:functional -- e2e/world-library-performance.spec.js`，仍要求专用 PostgreSQL 和 `PW_REUSE_EXISTING_SERVER=0`。该测试记录合成 100/1,000 项、冷/热各 20 次、搜索与输入 p95；不把自动化指标当作作者喜好或真实模型质量。
+
+### 智能整理导入资料
+
+World 待处理页复用 ImportReviewResolutionPanel：一次授权、按问题分组、排除例外后采用、查看原文与撤销。四类结果分别展示，未分类旧候选不自动降为建议。完成卡通过 review_task_id 打开精确结果；恢复终态只展示，不重复通知父页刷新。切换作品忽略晚到结果，本机恢复失败可从服务端最近回执恢复。写作结构警报直达对应场景，取消仍需等待服务端真实状态。
