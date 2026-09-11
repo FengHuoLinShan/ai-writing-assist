@@ -15,6 +15,7 @@ const LOCAL_STORAGE_PREFIXES = Object.freeze([
 ])
 
 const LOCAL_STORAGE_KEYS = new Set(["_errorLog"])
+// Workspace views own keys shaped as workspace-rail:<project|global>:<view>:<rail>.
 const SESSION_STORAGE_PREFIXES = Object.freeze([
   "novel_",
   "workspace-rail:",

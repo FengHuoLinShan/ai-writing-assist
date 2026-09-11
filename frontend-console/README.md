@@ -163,7 +163,6 @@ frontend-console/
 │   ├── referencePicker.js  # 作者向对象名称搜索与稳定 ID 回写
 │   ├── confirmAsync.js     # 异步二次确认封装
 │   ├── writingToolsResult.js # 工具结果应用到 Vue Writing workspace
-│   ├── sceneLocator.js     # 其他视图仍可复用的 Scene 区间定位 helper；写作台不用它自动切换
 │   └── ...                 # 其他共享模块
 ├── vue/                    # Vue 3 shell 与业务页面（ADR-0009）
 │   ├── shell/              #   topbar/sidebar/命令栏/主题/快捷键/service hosts
