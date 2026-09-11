@@ -175,6 +175,31 @@ async def test_smart_dedup_apply_request_requires_exactly_one_non_empty_mode() -
         )
 
 
+async def test_legacy_smart_dedup_apply_requires_confirmation(
+    async_client: AsyncClient,
+) -> None:
+    created = await async_client.post("/api/projects", json={"title": "去重确认"})
+    project_id = created.json()["id"]
+
+    response = await async_client.post(
+        f"/api/projects/{project_id}/smart-dedup/apply",
+        json={
+            "confirmed": False,
+            "suggestions": [
+                {
+                    "asset_type": "world_entity",
+                    "action": "merge",
+                    "source_asset_id": str(uuid4()),
+                    "target_asset_id": str(uuid4()),
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"] == "confirmation_required"
+
+
 async def test_smart_dedup_apply_dispatches_by_asset_type(
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,

@@ -545,7 +545,10 @@ class SmartDedupService:
         suggestions: list[dict[str, Any]],
     ) -> dict[str, Any]:
         if not confirmed:
-            raise ValueError("confirmed=true is required")
+            raise ValidationError(
+                "confirmed=true is required",
+                code="confirmation_required",
+            )
 
         world_items: list[dict[str, Any]] = []
         outline_items: list[dict[str, Any]] = []
