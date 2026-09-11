@@ -109,6 +109,7 @@ testpaths = [
     "infrastructure",
     "tests/unit",
     "tests/integration",
+    "tests/account_project_preferences",
     "tests/modules",
     "tests/prompt_contracts",
     "tests/test_api.py",
