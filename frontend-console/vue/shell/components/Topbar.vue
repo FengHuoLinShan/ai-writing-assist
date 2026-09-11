@@ -13,8 +13,8 @@
       <span id="topbar-status-dot" class="status-indicator" :class="connected ? 'connected' : 'disconnected'" role="status" :aria-label="connectionLabel" :title="connectionLabel"></span>
       <span id="topbar-status" class="status-text hidden">{{ connected ? '已连接' : '未连接' }}</span>
       <div id="topbar-wordcount" class="topbar-wordcount" :class="{ hidden: !wordcountVisible }" aria-label="写作字数仪表盘">
-        <span id="topbar-chapter-wc" title="本章字数">{{ formatNumber(wordcount.chapterWords) }}</span><span class="wc-separator">/</span>
-        <span id="topbar-today-wc" title="今日字数">{{ formatNumber(wordcount.todayWords) }}</span>
+        <span id="topbar-chapter-wc" title="本章字数">{{ formatNumber(wordcount.chapterWords) }} 字</span>
+        <span v-if="wordcount.todayWords > 0" id="topbar-today-wc" title="今日新增字数">今日新增 {{ formatNumber(wordcount.todayWords) }} 字</span>
         <span id="topbar-save-state" class="save-state" :class="wordcount.saveState" :title="saveStateTitle">◆</span>
       </div>
       <ThemePicker :model-value="theme" @update:model-value="$emit('select-theme', $event)" />

@@ -49,8 +49,8 @@ export function renderContextSummary(summary = {}, options = {}) {
       ` : ""}
       ${warnings.length ? `
         <div class="ai-ref-section">
-          <div class="ai-ref-section-title">警告</div>
-          <ul class="ai-ref-list">${warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>
+          <div class="ai-ref-section-title">资料整理提示</div><p>本次有部分资料未完整载入，请核对所选来源。</p><details><summary>查看诊断详情</summary>
+          <ul class="ai-ref-list">${warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></details>
         </div>
       ` : ""}
       ${blockers.length ? `
@@ -104,7 +104,7 @@ function renderItemGroup(title, items, options = {}) {
   if (!items.length) return ""
   return `
     <div class="ai-ref-section">
-      <div class="ai-ref-section-title">${esc(title)} <span class="ai-ref-count">${items.length}</span></div>
+      <div class="ai-ref-section-title">${esc(authorLabel(title))} <span class="ai-ref-count">${items.length}</span></div>
       <div class="ai-ref-section-list">${items.map((item) => renderContextItem(item, options)).join("")}</div>
     </div>
   `
@@ -116,16 +116,16 @@ function renderContextItem(item, options = {}) {
   return `
     <article class="ai-ref-source-card ${options.restore || options.omitted ? "is-excluded" : ""}">
       <div class="ai-ref-source-head">
-        <div><strong>${esc(title)}</strong><span>${esc(item.activation_reason || "")}</span></div>
+        <div><strong>${esc(authorLabel(title))}</strong><span>${esc(authorLabel(item.activation_reason || ""))}</span></div>
         <div class="ai-ref-source-actions">
           ${item.status ? `<span class="ai-ref-chip">${esc(renderStatus(item.status))}</span>` : ""}
           ${options.restore && item.selection_ref ? `<button type="button" class="btn btn-ghost btn-xs" data-ai-ref-restore-item="${escAttr(item.key)}">${options.omitted ? "加入本次资料" : "恢复使用"}</button>` : ""}
           ${!options.restore && !options.omitted && item.can_exclude && item.selection_ref ? `<button type="button" class="btn btn-ghost btn-xs" data-ai-ref-exclude-item="${escAttr(item.key)}">本次不用</button>` : ""}
         </div>
       </div>
-      ${item.preview ? `<div class="ai-ref-source-preview">${esc(item.preview)}</div>` : ""}
+      ${item.preview ? `<div class="ai-ref-source-preview">${referencePreview(item.preview)}</div>` : ""}
       ${source.label ? `<div class="ai-ref-source-meta">来源：${esc(source.label)}</div>` : ""}
-      ${item.omission_reason ? `<div class="ai-ref-warning-note">${esc(item.omission_reason)}</div>` : ""}
+      ${item.omission_reason ? `<div class="ai-ref-warning-note">${esc(authorLabel(item.omission_reason))}</div>` : ""}
     </article>
   `
 }
@@ -134,7 +134,7 @@ function renderSectionGroup(title, sections, options) {
   if (!sections.length) return ""
   return `
     <div class="ai-ref-section">
-      <div class="ai-ref-section-title">${esc(title)}</div>
+      <div class="ai-ref-section-title">${esc(authorLabel(title))}</div>
       <div class="ai-ref-section-list">${sections.map((section) => renderSectionItem(section, options)).join("")}</div>
     </div>
   `
@@ -151,7 +151,7 @@ function renderSectionItem(section, options = {}) {
     <div class="ai-ref-source-card ${section.excluded ? "is-excluded" : ""}">
       <div class="ai-ref-source-head">
         <div>
-          <strong>${esc(title)}</strong>
+          <strong>${esc(authorLabel(title))}</strong>
           ${options.diagnostic ? `<span>${esc(key)}</span>` : ""}
         </div>
         <div class="ai-ref-source-actions">
@@ -161,12 +161,12 @@ function renderSectionItem(section, options = {}) {
           ${section.can_exclude ? `<button type="button" class="btn btn-ghost btn-xs" data-ai-ref-exclude-section="${escAttr(key)}">本次排除</button>` : ""}
         </div>
       </div>
-      ${section.activation_reason ? `<div class="ai-ref-source-reason">${esc(section.activation_reason)}</div>` : ""}
+      ${section.activation_reason ? `<div class="ai-ref-source-reason">${esc(authorLabel(section.activation_reason))}</div>` : ""}
       ${section.key === "scene_world_state"
         ? renderSceneWorldState(section, options)
         : section.key === "role_visible_knowledge" && section.content
         ? `<div class="ai-ref-source-preview">${esc(section.content).replace(/\n/g, "<br>")}</div>`
-        : section.preview ? `<div class="ai-ref-source-preview">${esc(section.preview)}</div>` : ""}
+        : section.preview ? `<div class="ai-ref-source-preview">${referencePreview(section.preview)}</div>` : ""}
       ${section.key === "role_visible_knowledge" && options.knowledgeRepairHref ? '<div class="ai-ref-source-reason">修改后回到这里点“重新整理”；不会自动再次生成正文。</div>' : ""}
       ${truncated ? `<div class="ai-ref-warning-note">已裁剪：${esc(section.truncated_reason || "超过预算")}</div>` : ""}
       ${sources.length ? `
@@ -200,10 +200,10 @@ function renderSceneWorldState(section, options) {
 function renderBudgetEvent(event, sections, options) {
   const label = event.event_type === "evicted" ? "已移除" : "已裁剪"
   const title = sections.find((section) => section.key === event.section_key)?.title || "一组参考资料"
-  if (!options.diagnostic) return `<li>${esc(label)}${esc(title)}：${esc(event.reason || "超出本次可用范围")}</li>`
+  if (!options.diagnostic) return `<li>${esc(label)}${esc(authorLabel(title))}：${esc(event.reason || "超出本次可用范围")}</li>`
   const before = Number(event.before_tokens) || 0
   const after = Number(event.after_tokens) || 0
-  return `<li>${esc(label)} ${esc(event.section_key || "-")}：${before} → ${after} tokens，${esc(event.reason || "")}</li>`
+  return `<li>${esc(label)} ${esc(event.section_key || "-")}：${before} → ${after} tokens，${esc(authorLabel(event.reason || ""))}</li>`
 }
 
 function renderStatus(status) {
@@ -237,6 +237,22 @@ function renderAssetCounts(selected) {
 
 function sourceTypeLabel(type) {
   return ({ character: "人物", entity: "世界资料", rag: "检索资料", chapter: "章节", scene: "场景" })[type] || "来源"
+}
+
+function authorLabel(value) {
+  return String(value).replaceAll("Scene", "场景").replaceAll("RAG", "检索").replace(/Top-\d+/g, "相关资料").replaceAll("author_safe", "作者可见范围").replaceAll("scene_id", "场景").replaceAll("scope", "本次范围").replaceAll("token", "资料容量")
+}
+function referencePreview(value) {
+  const text = String(value || "")
+  if (/^\s*[{[]/.test(text)) {
+    let summary = "已载入结构资料"
+    try {
+      const data = JSON.parse(text)
+      summary = [data.title, data.name, data.summary, data.goal, data.core_conflict].filter(item => typeof item === "string" && item.trim()).join("；") || summary
+    } catch { /* Partial structured previews remain available in diagnostics. */ }
+    return `${esc(summary)}<details><summary>资料字段（诊断）</summary><pre>${esc(text)}</pre></details>`
+  }
+  return esc(authorLabel(text))
 }
 
 function escAttr(value) {

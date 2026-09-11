@@ -23,6 +23,7 @@ from modules.evidence.compilation.services.compiled_context import (
     ContextItem,
     ContextSection,
     Tier,
+    selection_ref_from_source,
     selection_ref_key,
 )
 from modules.evidence.compilation.services.constraint_engine import ConstraintEngine
@@ -209,6 +210,7 @@ class ContextCompiler:
         warnings: list[str] = []
 
         relevance_generation = options.consumer_action in {
+            "world.ask",
             "writing.generate",
             "outline.analyze",
             "world.generation.chat",
@@ -955,7 +957,11 @@ class ContextCompiler:
                     content=content,
                     token_count=estimate_token_count(content),
                     title="当前 Scene",
-                    preview=content[:160],
+                    preview="；".join(
+                        str(bundle.scene.get(key) or "")
+                        for key in ("title", "goal", "core_conflict")
+                        if bundle.scene.get(key)
+                    )[:160],
                     status=options.context_mode if options else "canonical",
                     activation_reason="当前 scene_id/章节范围",
                     sources=[
@@ -976,7 +982,9 @@ class ContextCompiler:
             sections.append(
                 ContextSection(
                     key="pov_knowledge",
-                    tier=Tier.P1,
+                    tier=Tier.P3
+                    if options and options.consumer_action == "world.ask"
+                    else Tier.P1,
                     content=prefixed,
                     token_count=estimate_token_count(prefixed),
                     title="人物与视角知识",
@@ -1098,10 +1106,39 @@ class ContextCompiler:
             }:
                 for source in rag_sources:
                     source["type"] = "rag"
+            evidence_items = []
+            if options and options.consumer_action == "world.ask":
+                for index, (chunk, source) in enumerate(
+                    zip(bundle.rag_chunks, rag_sources, strict=True)
+                ):
+                    text = str(chunk.get("text") or "")
+                    item_key = f"retrieval_evidence_packs:{index}:{source.get('id', '')}"
+                    chapter = (
+                        source.get("source_ref", {}).get("chapter_index")
+                        or chunk.get("chapter_index")
+                        or "—"
+                    )
+                    evidence_items.append(
+                        ContextItem(
+                            key=item_key,
+                            content=text,
+                            token_count=estimate_token_count(text),
+                            title=f"第 {chapter} 章原文",
+                            preview=text[:160],
+                            status=options.context_mode,
+                            activation_reason="与本次问题相关的正文",
+                            source=source,
+                            selection_ref=selection_ref_from_source(source),
+                        )
+                    )
+                content = "\n".join(item.content for item in evidence_items)
             sections.append(
                 ContextSection(
+                    items=evidence_items,
                     key="retrieval_evidence_packs",
-                    tier=Tier.P2,
+                    tier=Tier.P1
+                    if options and options.consumer_action == "world.ask"
+                    else Tier.P2,
                     content=content,
                     token_count=estimate_token_count(content),
                     truncatable_per_item=True,

@@ -7029,7 +7029,7 @@ kbd {
 
   .outline-scene-layout > .outline-toolbar .scene-workbench-actions {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
     width: 100%;
     margin-left: 0;
     padding: 0;
@@ -7591,6 +7591,8 @@ kbd {
 
 .scene-workbench-actions {
   display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
   flex-shrink: 0;
   align-items: center;
   gap: 8px;
@@ -17671,3 +17673,7 @@ button.rp-journey-card__main:hover {
 .world-impact-preview__section h4 { margin: 0 0 0.4rem; }
 .world-impact-preview__items { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.3rem; }
 .world-impact-preview__items li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem; }
+
+.world-review-workbench:not(.has-selection){grid-template-columns:minmax(0,1fr)}
+.world-review-workbench:not(.has-selection)>.world-review-decision{display:none}
+.world-canonical-list td[data-label="源对象"],.world-canonical-list td[data-label="目标对象"]{min-width:8em;overflow-wrap:normal}

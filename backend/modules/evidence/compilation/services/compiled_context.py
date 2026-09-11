@@ -119,9 +119,8 @@ class ContextSection(BaseModel):
             return self
         required = self.tier == Tier.P0 or not self.can_exclude
         lines = self.content.splitlines()
-        if (
-            (self.key in LINE_ITEM_SOURCE_KEYS or self.truncatable_per_item)
-            and (not self.sources or len(lines) == len(self.sources))
+        if (self.key in LINE_ITEM_SOURCE_KEYS or self.truncatable_per_item) and (
+            not self.sources or len(lines) == len(self.sources)
         ):
             items = [
                 ContextItem(
@@ -132,9 +131,9 @@ class ContextSection(BaseModel):
                     content=line,
                     token_count=estimate_token_count(line),
                     title=str(source.get("label") or self.title),
-                    preview=str(
-                        source.get("summary") or source.get("label") or line
-                    )[:160],
+                    preview=str(source.get("summary") or source.get("label") or line)[
+                        :160
+                    ],
                     status=str(source.get("status") or self.status),
                     activation_reason=self.activation_reason,
                     source=dict(source),
@@ -159,9 +158,7 @@ class ContextSection(BaseModel):
                     status=self.status,
                     activation_reason=self.activation_reason,
                     source=source,
-                    selection_ref=(
-                        selection_ref_from_source(source) if source else None
-                    ),
+                    selection_ref=(selection_ref_from_source(source) if source else None),
                     selection_state="required" if required else "automatic",
                     can_exclude=not required,
                 )
@@ -382,9 +379,7 @@ class CompiledContext(BaseModel):
             new_sections = []
             for s in sections:
                 if s.tier == Tier.P1 and current > self.budget_tokens:
-                    if any(
-                        item.selection_state == "author_pinned" for item in s.items
-                    ):
+                    if any(item.selection_state == "author_pinned" for item in s.items):
                         new_sections.append(s)
                         continue
                     available_for_section = max(
@@ -450,6 +445,26 @@ class CompiledContext(BaseModel):
         total = sum(s.token_count for s in sections)
         if self.budget_tokens > 0 and total > self.budget_tokens:
             blockers.append("必需资料和作者添加资料超过本次可用容量")
+            required = [
+                s
+                for s in sections
+                if s.tier == Tier.P0
+                or any(
+                    item.selection_state in {"required", "author_pinned"}
+                    for item in s.items
+                )
+            ]
+            if required:
+                blockers.append(
+                    "占用较大的必需资料："
+                    + "、".join(
+                        s.title or s.key
+                        for s in sorted(
+                            required, key=lambda s: s.token_count, reverse=True
+                        )[:3]
+                    )
+                    + "。请缩小章节范围或改为单场景任务后重新整理资料。"
+                )
         return CompiledContext(
             sections=sections,
             total_tokens=total,

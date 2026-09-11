@@ -638,7 +638,7 @@ class SceneWorkbenchService:
                 OutlineAuthorAttentionItemContract(
                     key=f"outline:scene-health:{scene_id}",
                     source_kind="outline_scene_health",
-                    title=f"检查 Scene：{scene_label}",
+                    title=f"检查场景：{scene_label}",
                     summary=f"待处理：{'、'.join(labels)}。",
                     author_action=(
                         "needs_decision" if "unreviewed" in health else "can_improve"

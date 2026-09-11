@@ -20,15 +20,14 @@ export const BIBLE_PAGE_TYPES = {
 }
 
 /** Deterministic, intentionally non-physical layout for the optional SVG aid. */
-export function knowledgeGraphLayout(nodes, edges, maxNodes = 40) {
-  const visible = [...nodes].sort((a, b) => String(a.id).localeCompare(String(b.id))).slice(0, maxNodes)
+export function knowledgeGraphLayout(nodes, edges, maxNodes = 40, rootId = null) {
+  const visible = [...nodes].sort((a, b) => Number(b.id === rootId) - Number(a.id === rootId) || String(a.id).localeCompare(String(b.id))).slice(0, maxNodes)
   const ids = new Set(visible.map((node) => node.id))
-  const lanes = { world_bible_page: [], core_entity: [] }
-  for (const node of visible) (lanes[node.kind] || lanes.core_entity).push(node)
-  const positions = Object.fromEntries(visible.map((node) => {
-    const lane = node.kind === "world_bible_page" ? 0 : 1
-    const index = lanes[node.kind]?.indexOf(node) ?? 0
-    return [node.id, { x: 110 + lane * 300, y: 56 + index * 72 }]
-  }))
-  return { nodes: visible, edges: edges.filter((edge) => ids.has(edge.source_id) && ids.has(edge.target_id)).slice(0, 80), positions }
+  const columns = Math.max(1, Math.ceil(Math.sqrt(visible.length)))
+  const width = Math.max(320, columns * 180)
+  const height = Math.max(180, Math.ceil(visible.length / columns) * 110)
+  const positions = Object.fromEntries(visible.map((node, index) => [node.id, {
+    x: 90 + (index % columns) * 180, y: 55 + Math.floor(index / columns) * 110,
+  }]))
+  return { nodes: visible, edges: edges.filter((edge) => ids.has(edge.source_id) && ids.has(edge.target_id)).slice(0, 80), positions, width, height }
 }

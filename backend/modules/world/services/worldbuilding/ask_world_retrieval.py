@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 import unicodedata
 
+from shared.utils import retrieval_question_text
+
 MIN_RELEVANCE = 0.2
 _QUESTION_NOISE = (
     "请问",
@@ -33,7 +35,7 @@ def _normalized(value: str) -> str:
 
 
 def _question_terms(value: str) -> set[str]:
-    normalized = unicodedata.normalize("NFKC", value).casefold()
+    normalized = unicodedata.normalize("NFKC", retrieval_question_text(value)).casefold()
     for phrase in _QUESTION_NOISE:
         normalized = normalized.replace(phrase, " ")
     terms = set(re.findall(r"[a-z0-9_]{2,}", normalized))

@@ -69,8 +69,15 @@ function toggleScope(scope, checked) {
   if (!form.value.scopes.includes("world")) form.value.includePending = false
 }
 
+const cutoffScenes = computed(() => {
+  const chapter = Number(form.value.cutoffChapter)
+  return chapter > 0 ? props.scenes.filter(scene => (scene.chapter_ids || []).map(Number).includes(chapter)) : props.scenes
+})
+watch(() => form.value.cutoffChapter, () => {
+  if (form.value.cutoffSceneId && !cutoffScenes.value.some(scene => scene.id === form.value.cutoffSceneId)) form.value.cutoffSceneId = ""
+})
 function sceneOptionLabel(scene) {
-  const title = scene.title || `场景 ${scene.scene_index ?? "-"}`
+  const title = scene.title || `场景 ${scene.scene_index == null ? "-" : Number(scene.scene_index) + 1}`
   const chapters = (scene.chapter_ids || []).join("/")
   return chapters ? `${title} · 第 ${chapters} 章` : title
 }
@@ -169,7 +176,7 @@ function characterIdOf(character) {
             <label id="rag-cutoff-scene-field" :hidden="form.visibilityMode === 'author'">可见到哪个场景
               <select class="form-input" id="rag-cutoff-scene-id" data-rag-advanced-filter v-model="form.cutoffSceneId">
                 <option value="">可选</option>
-                <option v-for="scene in scenes" :key="scene.id" :value="scene.id">{{ sceneOptionLabel(scene) }}</option>
+                <option v-for="scene in cutoffScenes" :key="scene.id" :value="scene.id">{{ sceneOptionLabel(scene) }}</option>
               </select>
             </label>
             <label id="rag-cutoff-offset-field" :hidden="form.visibilityMode === 'author'">本章前多少个字可见 <input class="form-input" id="rag-cutoff-offset" data-rag-advanced-filter type="number" min="0" inputmode="numeric" placeholder="可选" v-model="form.cutoffOffset" /></label>

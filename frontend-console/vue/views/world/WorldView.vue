@@ -181,7 +181,6 @@ const reviewTotal = computed(() => (
   Object.values(props.reviewCounts || {}).reduce((sum, value) => sum + Number(value || 0), 0)
 ))
 const reviewCountLabel = computed(() => reviewTotal.value > 99 ? "99+" : String(reviewTotal.value))
-const nextReviewKind = computed(() => ["objects", "aliases", "relations"].find((kind) => Number(props.reviewCounts?.[kind] || 0)) || "all")
 const sidebarToolActions = computed(() => {
   if (props.subView === "relations") return [
     { key: "new-relation", label: "新建关系", primary: true },
@@ -191,10 +190,6 @@ const sidebarToolActions = computed(() => {
     { key: "more", label: "更多工具" },
   ]
   if (props.reviewSubView) return [
-    { key: "start-review", label: "开始处理", primary: true, disabled: !reviewTotal.value },
-    { key: "review-objects", label: "对象", badge: props.reviewCounts?.objects || 0 },
-    { key: "review-aliases", label: "别名", badge: props.reviewCounts?.aliases || 0 },
-    { key: "review-relations", label: "关系", badge: props.reviewCounts?.relations || 0 },
     { key: "library", label: "返回资料库" },
   ]
   return []
@@ -202,7 +197,6 @@ const sidebarToolActions = computed(() => {
 
 function handleSidebarTool(key) {
   if (key === "new-relation") { showRelationCreateForm(props.reviewTypeCatalog); return }
-  if (key === "start-review") { navigateReview(nextReviewKind.value); return }
   if (key.startsWith("review-")) { navigateReview(key.slice(7)); return }
   if (key === "ai") { openOwnerAi(); return }
   if (key === "library") { navigateSub("bible"); return }
@@ -281,7 +275,7 @@ function setDiscoveryMode(mode) {
 
 /** 对应 vanilla _toggleAutoExtract（worldView.js:842-845）；响应式重绘取代 router.refresh。 */
 function toggleExtract() {
-  getRouter()?.navigate("writing", null, true, new URLSearchParams({ organize: "world_objects" }))
+  session.autoExtractOpen = !session.autoExtractOpen
 }
 
 function closeViewOptions() {

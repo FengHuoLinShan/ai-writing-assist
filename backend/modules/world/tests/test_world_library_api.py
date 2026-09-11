@@ -694,3 +694,30 @@ async def test_publish_converts_draft_workspace_refs_to_page(
 
     recent_sorted = await _list_library(async_client, novel_id, sort="recent")
     assert recent_sorted["items"][0]["id"] == page_id
+
+
+async def test_short_name_and_alias_rank_before_description_across_pages(
+    async_client, db_session
+):
+    novel_id = await _create_project(async_client, "名称排序")
+    exact = await _create_entity(async_client, novel_id, name="克莱恩", summary="本人")
+    alias_owner = await _create_entity(
+        async_client, novel_id, name="主角", summary="人物"
+    )
+    alias_entity = await db_session.get(CoreEntity, uuid.UUID(alias_owner))
+    alias_entity.content_json = {"aliases": [{"alias": "克莱恩", "status": "active"}]}
+    await db_session.commit()
+    partial = await _create_entity(async_client, novel_id, name="克莱恩的朋友")
+    description = await _create_entity(
+        async_client, novel_id, name="班森", summary="描述提到克莱恩"
+    )
+    ids = []
+    for skip in range(4):
+        page = await _list_library(async_client, novel_id, q="克莱恩", limit=1, skip=skip)
+        ids.append(
+            page["items"][0]["id"]
+            if "id" in page["items"][0]
+            else page["items"][0]["target_id"]
+        )
+    assert set(ids[:2]) == {exact, alias_owner}
+    assert ids[2:] == [partial, description]

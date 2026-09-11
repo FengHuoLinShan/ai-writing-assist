@@ -2,6 +2,7 @@
 import { reactive, ref, watch } from "vue"
 
 const props = defineProps({
+  defaultDate: { type: String, default: "" },
   task: { type: Object, default: null },
   source: { type: Object, default: null },
   draft: { type: Object, default: null },
@@ -15,7 +16,7 @@ const error = ref("")
 function reset() {
   form.title = props.draft?.title ?? props.task?.title ?? props.source?.taskTitle ?? ""
   form.note = props.draft?.note ?? props.task?.note ?? ""
-  form.dueDate = props.draft?.dueDate ?? props.task?.due_date ?? ""
+  form.dueDate = props.draft?.dueDate ?? (props.task ? props.task.due_date || "" : props.defaultDate)
   error.value = ""
 }
 watch(() => [props.task, props.source, props.draft], reset, { immediate: true })

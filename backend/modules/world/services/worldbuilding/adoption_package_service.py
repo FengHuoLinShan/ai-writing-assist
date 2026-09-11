@@ -129,7 +129,7 @@ class WorldAdoptionPackageService:
         await require_active_project(db, request.novel_id)
         sessions = WorldCocreationSessionService()
         session = await sessions._require_session(
-            db, request.novel_id, str(request.session_id), for_update=True
+            db, request.novel_id, str(request.session_id), lock=True
         )
         if (
             session.status != "active"

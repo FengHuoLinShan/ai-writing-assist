@@ -60,6 +60,16 @@ test.describe("世界对象入口", () => {
     await expect(filterToggle).toHaveAttribute("aria-expanded", "true")
     await expect(page.locator("#filter-q")).toBeVisible()
 
+    await page.locator('#filter-q').fill('沉钟')
+    const beforeHistory = page.url()
+    await page.locator('[data-action="toggle-extract"]').click()
+    const history = page.getByRole('region', { name: '整理进度与成果', exact: true })
+    await expect(history).toBeVisible()
+    await expect(page).toHaveURL(beforeHistory)
+    await history.getByRole('button', { name: '关闭', exact: true }).click()
+    await expect(history).toHaveCount(0)
+    await expect(page.locator('#filter-q')).toHaveValue('沉钟')
+
     await page.locator('.bulk-toolbar__select-all input[data-action="bulk-toggle-all"]').check()
     const selectedRows = page.locator('.world-object-table input[data-action="bulk-toggle-one"]')
     await expect(selectedRows).toHaveCount(2)

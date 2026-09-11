@@ -2645,11 +2645,11 @@ export function useWorldBible(props) {
   async function openPageTemplateManager() {
     if (!await ensureBibleSupport('templates')) return
     const body = `
-      <p class="world-bible-empty-hint">页面模板只定义分区布局和默认值，不保存 Prompt、provider、工具或脚本。</p>
+      <p class="world-bible-empty-hint">页面模板帮助你复用分区布局和默认内容。新建资料页时可选择模板。</p>
       <div class="world-bible-suggestion-list">
         ${pageTemplates.value.map((item) => `
           <div class="world-bible-suggestion-item">
-            <div><strong>${esc(item.name)}</strong> · ${esc(item.template_key)} · v${esc(item.version_number)} ${item.builtin ? "· 内置" : `· ${esc(item.status)}`}</div>
+            <div><strong>${esc(item.name)}</strong> · v${esc(item.version_number)} ${item.builtin ? "· 内置" : `· ${esc(item.status)}`}</div>
             ${item.builtin ? "" : `<div class="world-bible-suggestion-item__actions">
               <button class="btn btn-sm" data-page-template-rename="${esc(item.id)}">编辑</button>
               <button class="btn btn-sm" data-page-template-history="${esc(item.id)}">历史</button>
@@ -2658,9 +2658,9 @@ export function useWorldBible(props) {
         `).join("")}
       </div>
       <hr />
-      <div class="form-group"><label>模板 key</label><input class="form-input" id="bible-template-key" placeholder="trade_guide" /></div>
-      <div class="form-group"><label>名称</label><input class="form-input" id="bible-template-name" placeholder="贸易资料页" /></div>
-      <div class="form-group"><label>默认分区标题</label><input class="form-input" id="bible-template-section-title" placeholder="货币与交换" /></div>
+      <details><summary>高级：模板标识</summary><div class="form-group"><label for="bible-template-key">模板标识（可选）</label><input class="form-input" id="bible-template-key" placeholder="留空自动生成" /></div></details>
+      <div class="form-group"><label for="bible-template-name">名称</label><input class="form-input" id="bible-template-name" required placeholder="贸易资料页" /></div>
+      <div class="form-group"><label for="bible-template-section-title">默认分区标题</label><input class="form-input" id="bible-template-section-title" required placeholder="货币与交换" /></div>
     `
     showModalHtml("页面模板", body, [{ text: "创建自定义模板", class: "btn-primary", handler: () => createPageTemplateFromModal() }], { size: "large" })
     const custom = pageTemplates.value.filter((t) => !t.builtin)
@@ -2674,15 +2674,18 @@ export function useWorldBible(props) {
   }
 
   async function createPageTemplateFromModal() {
-    const key = document.getElementById("bible-template-key")?.value?.trim() || ""
+    const key = document.getElementById("bible-template-key")?.value?.trim() || `custom_${globalThis.crypto.randomUUID().replaceAll("-", "")}`
     const name = document.getElementById("bible-template-name")?.value?.trim() || ""
     const title = document.getElementById("bible-template-section-title")?.value?.trim() || ""
-    if (!key || !name || !title) {
-      toast("请填写模板 key、名称和默认分区标题", "warning")
+    if (!name || !title) {
+      const input = ["bible-template-name", "bible-template-section-title"].map(id => document.getElementById(id)).find(element => !element?.value?.trim())
+      input?.focus()
+      input?.reportValidity()
+      toast("请填写名称和默认分区标题", "warning")
       return false
     }
     const owner = captureEditorOwner()
-    const modalOwner = captureModalOwner(document.getElementById("bible-template-key"))
+    const modalOwner = captureModalOwner(document.getElementById("bible-template-name"))
     try {
       const template = await api.world.createBiblePageTemplate({
         novel_id: owner.novelId,

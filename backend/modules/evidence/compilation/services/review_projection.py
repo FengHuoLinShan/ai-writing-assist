@@ -39,6 +39,11 @@ def selected_asset_ids_from_compiled(
         if not sources:
             sources = list(section.sources)
         for source in sources:
+            source_ref = source.get("source_ref")
+            if isinstance(source_ref, dict) and source_ref.get("draft_id"):
+                selected.setdefault("writing_drafts", []).append(
+                    str(source_ref["draft_id"])
+                )
             asset_type = _ASSET_KEYS.get(
                 str(source.get("type") or ""),
                 str(source.get("type") or ""),

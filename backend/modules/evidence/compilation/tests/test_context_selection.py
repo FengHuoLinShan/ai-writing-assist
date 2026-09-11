@@ -81,9 +81,7 @@ def test_required_item_cannot_be_excluded() -> None:
 
 
 def test_author_pinned_item_is_not_silently_trimmed() -> None:
-    pinned = _item("entity-2").model_copy(
-        update={"selection_state": "author_pinned"}
-    )
+    pinned = _item("entity-2").model_copy(update={"selection_state": "author_pinned"})
     compiled = CompiledContext(
         sections=[
             ContextSection(
@@ -110,7 +108,9 @@ def test_author_pinned_item_is_not_silently_trimmed() -> None:
         for section in compiled.sections
         for item in section.items
     )
-    assert compiled.blockers == ["必需资料和作者添加资料超过本次可用容量"]
+    assert compiled.blockers[0] == "必需资料和作者添加资料超过本次可用容量"
+    assert "占用较大的必需资料" in compiled.blockers[1]
+    assert "缩小章节范围" in compiled.blockers[1]
 
 
 def test_selected_manifest_comes_from_actual_kept_items() -> None:

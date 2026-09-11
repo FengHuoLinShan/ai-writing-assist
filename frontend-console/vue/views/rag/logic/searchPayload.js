@@ -1,3 +1,4 @@
+import { sceneNumber } from "../../../../shared/sceneNumbers.js"
 /**
  * RAG 检索 payload / 结果处理纯逻辑 — 从 ragView 移植。
  * 数据来源由 DOM 读取改为表单状态对象；校验/截断/高亮语义保持一致。
@@ -108,8 +109,9 @@ export function parentSceneContexts(hit = {}) {
 }
 
 export function parentSceneLabel(ref = {}) {
-  const index = ref.scene_index ?? "-"
-  const title = ref.scene_title || ref.target_name
+  const index = sceneNumber(ref.scene_index) ?? "-"
+  const rawTitle = ref.scene_title || ref.target_name
+  const title = rawTitle === `Scene ${ref.scene_index}` ? "" : rawTitle
   return title && title !== `Scene ${index}`
     ? `场景 ${index} · ${title}`
     : `场景 ${index}`

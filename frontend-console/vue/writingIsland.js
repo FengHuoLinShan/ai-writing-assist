@@ -16,6 +16,7 @@ async function loadWriting() {
     props.homeProps = {
       ...await loadTodayProps(),
       taskPanel: query.get("panel") === "tasks",
+      taskCreate: query.get("create") === "1",
       taskScope: ["today", "inbox", "later", "completed", "archived"].includes(query.get("scope"))
         ? query.get("scope")
         : "today",

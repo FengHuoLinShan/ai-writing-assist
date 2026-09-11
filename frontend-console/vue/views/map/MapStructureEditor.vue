@@ -10,7 +10,8 @@
     </div>
   </dialog>
   <section ref="toolsRoot" class="map-editor" :class="{ 'map-focused': focused }" aria-label="空间地图编辑器">
-    <header class="map-toolbar">
+    <header v-if="!externalTools || dirty || focused" class="map-toolbar">
+      <button v-if="selectedFeature && !readOnly && !focused" class="btn btn-sm" :aria-expanded="inspectorOpen" @click="inspectorOpen = !inspectorOpen">{{ inspectorOpen ? '收起详情' : '编辑所选内容' }}</button>
       <div><strong>{{ focused ? node.title : '空间示意' }}</strong><span class="map-caption">不按比例</span></div>
       <div class="map-actions">
         <button v-if="!focused || dirty" class="btn btn-primary" :disabled="busy || readOnly || incompleteGeometry || (!dirty && revision)" @click="save">保存地图</button>
@@ -51,8 +52,9 @@
         <button class="btn btn-sm" :disabled="busy || Boolean(recovery)" @click="review(candidate, 'reject')">不使用</button>
       </div>
     </section>
-    <section v-if="candidateView" class="map-warning" aria-label="候选地图差异">
+    <section v-if="candidateView" ref="comparisonPanel" tabindex="-1" class="map-warning" aria-label="候选地图差异">
       <strong>{{ compareCandidateCurrent ? '正在对照已保存地图' : candidateView.status === 'saved' ? '正在查看历史地图' : '正在查看空间候选' }}</strong>
+      <p>{{ formatDate(candidateView.created_at) }} · 对照基线：{{ formatDate(revision?.created_at) }}</p>
       <p>与当前已保存地图比较；这些变化尚未应用。采用或恢复时会再次核对来源与版本。</p>
       <MapChangeReview v-model="selectedChangeKeys" :changes="candidateChanges" :selectable="candidateView.status === 'candidate' && !recovery" @locate="locateChange" />
       <p v-if="candidateView.status === 'candidate' && candidateView.base_revision_id !== revision?.id" role="alert">此候选基于较早地图，仅供比较；请重新整理需要更新的部分。</p>
@@ -67,26 +69,12 @@
       <button class="btn btn-sm" @click="compareCandidateCurrent = !compareCandidateCurrent">{{ compareCandidateCurrent ? '查看候选地图' : '对照已保存地图' }}</button>
       <button class="btn btn-sm" @click="exitCandidate">返回当前地图</button>
     </section>
-    <div v-if="!focused" class="map-reader">
-      <label>阅读预览：进入第 <input v-model.number="readerChapter" aria-label="阅读预览章节" type="number" min="1" max="100000" /> 章时</label>
-      <button class="btn btn-sm" :disabled="busy || !revision || dirty" @click="previewReader">{{ reader ? '更新阅读预览' : '预览读者所见' }}</button>
-      <button v-if="reader && !externalTools" class="btn btn-sm" @click="exitReader">回到作者视图</button>
-      <span v-if="reader">仅显示该章开始前可公开的内容，位置保持不变。</span>
-    </div>
-    <FocusedEvidencePanel v-show="!focused" v-if="!readOnly"
-      :project-id="projectId" consumer="map" :scope-key="node.id"
-      :roots="evidenceRoots" :initial-name="selectedFeature?.label || node.title || ''"
-      question="核对地点的方位、相邻区域、道路、河流和直接关联地点；只查原文明确依据"
-      :selected-refs="evidenceRefs" select-label="加入本次地图资料"
-      @select-source="emit('pin-evidence', $event)"
-      @clear-selection="emit('clear-evidence')"
-    />
     <template v-if="!referenceOnly">
       <div class="map-navigation">
         <div class="map-canvas-controls">
           <label>缩放 <input v-model.number="zoom" aria-label="空间地图缩放" type="range" min="60" max="200" step="10" /></label>
           <button class="btn btn-sm" @click="zoom = 100">适合画布</button>
-          <span v-if="!focused">● 地点  ━ 河流  ┄ 道路  ▱ 区域</span>
+          <details v-if="!focused" class="map-legend"><summary>图例</summary><span>● 地点 ━ 河流 ┄ 道路 ▱ 区域</span></details>
         </div>
         <div class="map-locator">
           <label>查找地图内容<input v-model="mapQuery" class="form-input" type="search" placeholder="地点、道路或区域名称" /></label>
@@ -94,7 +82,7 @@
           <p v-if="locatorMessage" role="status" class="map-caption">{{ locatorMessage }}</p>
         </div>
       </div>
-      <div class="map-canvas-inspector" :class="{ 'has-inspector': selectedFeature && !readOnly && !focused }">
+      <div class="map-canvas-inspector" :class="{ 'has-inspector': inspectorOpen && selectedFeature && !readOnly && !focused }">
       <div ref="scrollArea" class="map-scroll" :class="{ panning }" tabindex="0" role="region" aria-label="地图视口，方向键平移" @scroll="rememberView" @pointerdown="startPan" @pointermove="movePan" @pointerup="endPan" @pointercancel="endPan" @keydown.self="panByKey">
         <svg ref="canvas" class="map-canvas" :style="{ width: zoom + '%', '--map-zoom': zoom / 100 }" :viewBox="[bounds.x, bounds.y, bounds.width, bounds.height].join(' ')" role="group" aria-label="空间地图画布" @click.self="placePoint" @pointermove="moveDrag" @pointerup="endDrag" @pointercancel="endDrag">
           <rect :x="bounds.x" :y="bounds.y" :width="bounds.width" :height="bounds.height" class="map-paper" @click="placePoint" />
@@ -111,12 +99,12 @@
           </g>
           <g v-if="selectedFeature && !readOnly && !focused && !selectedFeature.locked">
             <line v-for="(segment, index) in selectedSegments" :key="'segment:' + index" :x1="segment[0].x" :y1="segment[0].y" :x2="segment[1].x" :y2="segment[1].y" class="map-segment" :class="{ selected: selectedSegment === index }" :style="{ strokeWidth: 12 * mapUnit }" @click.stop="selectedSegment = index" />
-            <circle v-for="(point, index) in selectedFeature.points" :key="index" :cx="point.x" :cy="point.y" :r="7 * mapUnit" class="map-handle" :class="{ selected: selectedVertex === index }" @pointerdown.stop="startDrag($event, selectedFeature, index)" @click.stop="selectedVertex = index" />
+            <circle v-for="(point, index) in selectedFeature.points" :key="index" :cx="point.x" :cy="point.y" :r="7 * mapUnit" class="map-handle" :class="{ selected: selectedVertex === index }" @pointerdown.stop="startDrag($event, selectedFeature, index)" @click.stop="inspectorOpen = true; selectedVertex = index" />
           </g>
         </svg>
       </div>
-      <aside v-if="selectedFeature && !readOnly && !focused" class="map-inspector" aria-label="地图内容详情">
-        <div class="map-actions"><button class="btn btn-primary" :disabled="busy || !dirty" @click="save">保存地图</button><button v-if="images.length" class="btn" @click="chooseImageRole('illustration')">添加配图</button></div>
+      <aside v-if="inspectorOpen && selectedFeature && !readOnly && !focused" class="map-inspector" aria-label="地图内容详情">
+        <div v-if="images.length" class="map-actions"><button class="btn" @click="chooseImageRole('illustration')">添加配图</button></div>
         <label>显示名称<input :value="selectedFeature.label" class="form-input" maxlength="200" @input="changeFeature('label', $event.target.value)" /></label>
         <form v-if="['location', 'landmark', 'area'].includes(selectedFeature.kind)" class="map-inline-form" @submit.prevent="searchBindings"><label>搜索关联地点<input v-model="bindingQuery" class="form-input" placeholder="名称或别名" /></label><button class="btn btn-sm" :disabled="bindingLoading">{{ bindingLoading ? '查找中…' : '查找地点' }}</button></form>
         <p v-if="bindingError" role="alert">{{ bindingError }}</p>
@@ -136,10 +124,10 @@
         <details><summary>位置与几何编辑</summary>
         <label><input :checked="selectedFeature.locked" type="checkbox" @change="changeFeature('locked', $event.target.checked)" />锁定位置</label>
         <div class="map-actions"><button class="btn btn-sm" :disabled="selectedFeature.locked" @click="placing = true">点击画布定位／添点</button><button class="btn btn-sm" :disabled="selectedFeature.locked || !canRemovePoint" @click="removePoint">移出选中控制点</button></div>
-        <p class="map-caption">可拖动控制点，或用下面的方向按钮微调；键盘方向键也可移动。</p>
+        <p class="map-caption">{{ selectedFeature.locked ? "位置已锁定，解锁后才能移动。" : "可拖动控制点，或用下面的方向按钮微调；键盘方向键也可移动。" }}</p>
         <label v-if="selectedFeature.points.length > 1">控制点<select v-model.number="selectedVertex" class="form-select"><option v-for="(_, index) in selectedFeature.points" :key="index" :value="index">{{ index + 1 }}</option></select></label>
         <div v-if="selectedSegments.length" class="map-inline-form"><label>插入位置<select v-model.number="selectedSegment" class="form-select"><option v-for="(_, index) in selectedSegments" :key="index" :value="index">第 {{ index + 1 }} 点到第 {{ (index + 1) % selectedFeature.points.length + 1 }} 点</option></select></label><button class="btn btn-sm" :disabled="selectedFeature.locked || selectedFeature.points.length >= 128" @click="insertPoint">在线段中点插入</button></div>
-        <div class="map-actions"><button class="btn btn-sm" aria-label="向左移动" @click="nudge(-10, 0)">←</button><button class="btn btn-sm" aria-label="向上移动" @click="nudge(0, -10)">↑</button><button class="btn btn-sm" aria-label="向下移动" @click="nudge(0, 10)">↓</button><button class="btn btn-sm" aria-label="向右移动" @click="nudge(10, 0)">→</button></div>
+        <div class="map-actions"><button class="btn btn-sm"  :disabled="selectedFeature.locked" aria-label="向左移动" @click="nudge(-10, 0)">←</button><button class="btn btn-sm"  :disabled="selectedFeature.locked" aria-label="向上移动" @click="nudge(0, -10)">↑</button><button class="btn btn-sm"  :disabled="selectedFeature.locked" aria-label="向下移动" @click="nudge(0, 10)">↓</button><button class="btn btn-sm"  :disabled="selectedFeature.locked" aria-label="向右移动" @click="nudge(10, 0)">→</button></div>
         </details>
         <label>最早在第几章开始时展示<input :value="selectedFeature.reader_from_chapter || ''" type="number" min="1" max="100000" class="form-input" placeholder="留空：仅作者可见" @change="changeFeature('reader_from_chapter', $event.target.value ? Number($event.target.value) : null)" /></label>
         <label>补充说明<textarea :value="selectedFeature.note" class="form-textarea" maxlength="1000" @input="changeFeature('note', $event.target.value)" /></label>
@@ -155,7 +143,7 @@
     <div v-if="!focused" class="map-reader">
       <label>阅读预览：进入第 <input v-model.number="readerChapter" aria-label="阅读预览章节" type="number" min="1" max="100000" /> 章时</label>
       <button class="btn btn-sm" :disabled="busy || !revision || dirty" @click="previewReader">{{ reader ? '更新阅读预览' : '预览读者所见' }}</button>
-      <button v-if="reader" class="btn btn-sm" @click="exitReader">回到作者视图</button>
+      <button v-if="reader && !externalTools" class="btn btn-sm" @click="exitReader">回到作者视图</button>
       <span v-if="reader">仅显示该章开始前可公开的内容，位置保持不变。</span>
     </div>
     <div v-if="!readOnly" v-show="!focused" class="map-evidence-panel">
@@ -177,7 +165,7 @@
     <MapRehearsalPanel v-if="!readOnly && !referenceOnly" v-model:stops="rehearsalStops" :document="doc" :result="rehearsal" @open-source="openSourceChapter" />
     <div v-if="!readOnly && !referenceOnly && !focused" class="map-edit-grid">
       <div>
-        <details ref="generationTools" open>
+        <details ref="generationTools">
           <summary>地点与绘制</summary>
           <form class="map-inline-form map-location-search" @submit.prevent="searchLocations"><label>查找已采用地点<input v-model="searchQuery" class="form-input" placeholder="输入地点名称" /></label><button class="btn btn-sm" :disabled="busy">查找</button></form>
           <div class="map-location-list map-world-locations">
@@ -205,33 +193,7 @@
           <ul><li v-for="constraint in doc.constraints" :key="constraint.id">{{ featureLabel(constraint.subject) }} · {{ relationLabels[constraint.relation] }} · {{ featureLabel(constraint.target) }} <button class="btn btn-sm" @click="removeConstraint(constraint.id)">移出</button></li></ul>
         </details>
       </div>
-      <aside v-if="selectedFeature" class="map-inspector" aria-label="地图内容详情">
-        <label>显示名称<input :value="selectedFeature.label" class="form-input" maxlength="200" @input="changeFeature('label', $event.target.value)" /></label>
-        <label v-if="['location', 'landmark', 'area'].includes(selectedFeature.kind)">关联世界地点<select :value="selectedFeature.entity_id || ''" class="form-select" @change="bindEntity($event.target.value)"><option value="">独立地图标记</option><option v-if="selectedFeature.entity_id && !locations.some(item => item.id === selectedFeature.entity_id)" :value="selectedFeature.entity_id">当前已关联的世界地点</option><option v-for="location in locations" :key="location.id" :value="location.id">{{ location.name }}</option></select></label>
-        <section class="map-feature-sources" aria-label="地点资料依据">
-          <strong>资料依据（{{ selectedFeature.sources.length }}/8）</strong>
-          <p v-if="!selectedFeature.sources.length" class="map-caption">尚未关联依据。可以查找正文里的位置描述，关联并保存后再整理空间关系。</p>
-          <button type="button" class="btn btn-sm" :disabled="busy || selectedFeature.sources.length >= 8" @click="openSourcePicker()">添加正文依据</button>
-          <p v-if="selectedFeature.sources.length >= 8" class="map-caption">最多关联 8 条依据，可先移出不需要的内容。</p>
-          <article v-for="(source, index) in selectedFeature.sources" :key="index">
-            <strong>{{ source.kind === 'source_range' ? '第 ' + (source.source_ref?.chapter_index || '—') + ' 章正文' : '已关联世界资料' }}</strong>
-            <p>{{ source.quote || '保留了已确认资料的引用' }}</p>
-            <div class="map-actions"><button v-if="source.kind === 'source_range'" type="button" class="btn btn-sm" @click="openSourcePicker(source)">查看正文</button><button v-if="source.kind === 'source_range' && source.source_ref?.chapter_index" class="btn btn-sm" @click="openSourceChapter(source)">打开章节</button><button type="button" class="btn btn-sm" :disabled="busy" :aria-label="'移出第 ' + (index + 1) + ' 条依据'" @click="removeSource(index)">移出依据</button></div>
-          </article>
-        </section>
-        <label><input :checked="selectedFeature.locked" type="checkbox" @change="changeFeature('locked', $event.target.checked)" />锁定位置</label>
-        <div class="map-actions"><button class="btn btn-sm" :disabled="selectedFeature.locked" @click="placing = true">点击画布定位／添点</button><button class="btn btn-sm" :disabled="selectedFeature.locked || !canRemovePoint" @click="removePoint">移出选中控制点</button></div>
-        <p class="map-caption">可拖动控制点，或用下面的方向按钮微调；键盘方向键也可移动。</p>
-        <label v-if="selectedFeature.points.length > 1">控制点<select v-model.number="selectedVertex" class="form-select"><option v-for="(_, index) in selectedFeature.points" :key="index" :value="index">{{ index + 1 }}</option></select></label>
-        <div v-if="selectedSegments.length" class="map-inline-form"><label>插入位置<select v-model.number="selectedSegment" class="form-select"><option v-for="(_, index) in selectedSegments" :key="index" :value="index">第 {{ index + 1 }} 点到第 {{ (index + 1) % selectedFeature.points.length + 1 }} 点</option></select></label><button class="btn btn-sm" :disabled="selectedFeature.locked || selectedFeature.points.length >= 128" @click="insertPoint">在线段中点插入</button></div>
-        <div class="map-actions"><button class="btn btn-sm" aria-label="向左移动" @click="nudge(-10, 0)">←</button><button class="btn btn-sm" aria-label="向上移动" @click="nudge(0, -10)">↑</button><button class="btn btn-sm" aria-label="向下移动" @click="nudge(0, 10)">↓</button><button class="btn btn-sm" aria-label="向右移动" @click="nudge(10, 0)">→</button></div>
-        <label>最早在第几章开始时展示<input :value="selectedFeature.reader_from_chapter || ''" type="number" min="1" max="100000" class="form-input" placeholder="留空：仅作者可见" @change="changeFeature('reader_from_chapter', $event.target.value ? Number($event.target.value) : null)" /></label>
-        <label>补充说明<textarea :value="selectedFeature.note" class="form-textarea" maxlength="1000" @input="changeFeature('note', $event.target.value)" /></label>
-        <label>打开子图<select :value="selectedFeature.target_node_id || ''" class="form-select" @change="changeFeature('target_node_id', $event.target.value || null)"><option value="">不跳转</option><option v-for="target in childChoices" :key="target.id" :value="target.id">{{ target.title }}</option></select></label>
-        <div class="map-actions"><button v-if="selectedFeature.target_node_id && !externalTools" class="btn btn-sm" @click="emit('open-node', selectedFeature.target_node_id)">进入子图</button><button v-if="childLevel && ['location', 'landmark', 'area'].includes(selectedFeature.kind) && !selectedFeature.target_node_id" class="btn btn-sm" :disabled="busy" @click="createChild">为此地点创建{{ childLevel.label }}图</button><button v-if="selectedFeature.entity_id" class="btn btn-sm" @click="openEntity">查看世界资料</button><button class="btn btn-sm" @click="removeFeature">移出地图</button></div>
-        <ul v-if="selectedRelations.length"><li v-for="item in selectedRelations" :key="item.id">{{ featureLabel(item.subject) }} · {{ relationLabels[item.relation] }} · {{ featureLabel(item.target) }}<button class="btn btn-sm" @click="locateFeature(item.subject === selectedId ? item.target : item.subject)">查看关联位置</button></li></ul>
-        <img v-for="layer in selectedIllustrations" :key="layer.page_id" :src="imageUrls[imageKey(layer.page_id)]" alt="地点配图" class="map-detail-image" />
-      </aside>
+
     </div>
     <aside v-if="(recovery || reader || focused || candidateView) && displayedFeature && !referenceOnly" class="map-inspector" :aria-label="reader ? '读者地点详情' : '地图地点详情'">
       <strong>{{ displayedFeature.label }}</strong>
@@ -485,7 +447,7 @@ function mutate(change) {
 }
 function undo() { if (readOnly.value || !undoStack.value.length) return; redoStack.value.push(JSON.stringify(doc.value)); doc.value = JSON.parse(undoStack.value.pop()) }
 function redo() { if (readOnly.value || !redoStack.value.length) return; undoStack.value.push(JSON.stringify(doc.value)); doc.value = JSON.parse(redoStack.value.pop()) }
-function selectFeature(id) { selectedId.value = id; selectedVertex.value = 0; selectedSegment.value = 0; if (!readOnly.value) emit('select-feature', id) }
+function selectFeature(id) { inspectorOpen.value = Boolean(id); selectedId.value = id; selectedVertex.value = 0; selectedSegment.value = 0; if (!readOnly.value) emit('select-feature', id) }
 function locateChange(ids) {
   const id = ids.find(value => displayDocument.value.features.some(feature => feature.id === value))
   if (id) return locateFeature(id)
@@ -723,10 +685,17 @@ async function generateSelection(locationIds, featureIds) {
   } catch (err) { if (err.message !== "已取消 AI 参考资料确认") error.value = err.message || "空间整理暂时不可用" }
   finally { if (alive) saving.value = false }
 }
+const inspectorOpen = ref(Boolean(props.initialFeatureId))
+const comparisonPanel = ref(null)
+let comparisonReturn = null
 async function viewCandidate(value, existingPreview = null) {
+  if (!candidateView.value) comparisonReturn = document.activeElement
   const token = ++comparisonEpoch
   compareServer.value = false; candidateView.value = value; compareCandidateCurrent.value = false; reader.value = null; referenceOnly.value = false; focused.value = false; emit('reference-visible', false); problems.value = value.problems || []
   selectedChangeKeys.value = candidateChanges.value.map(change => change.key); comparisonLayers.value = []
+  await nextTick()
+  comparisonPanel.value?.scrollIntoView?.({ block: 'start' })
+  comparisonPanel.value?.focus({ preventScroll: true })
   try {
     const preview = existingPreview || await api.world.previewMapRevision(props.projectId, props.node.id, value.id)
     if (!alive || token !== comparisonEpoch || candidateView.value?.id !== value.id) return
@@ -734,7 +703,7 @@ async function viewCandidate(value, existingPreview = null) {
     await Promise.all(comparisonLayers.value.filter(layer => layer.state === 'ready').map(layer => loadImage(layer.page_id)))
   } catch (err) { if (alive && token === comparisonEpoch && candidateView.value?.id === value.id) error.value = err.message || '版本图片读取失败，结构仍可比较' }
 }
-function exitCandidate() { ++comparisonEpoch; candidateView.value = null; compareCandidateCurrent.value = false; problems.value = serverRevision.value?.problems || revision.value?.problems || [] }
+function exitCandidate() { comparisonReturn?.focus?.(); comparisonReturn?.scrollIntoView?.({ block: 'nearest' }); ++comparisonEpoch; candidateView.value = null; compareCandidateCurrent.value = false; problems.value = serverRevision.value?.problems || revision.value?.problems || [] }
 async function previewAdoption() {
   const value = candidateView.value, baseId = revision.value?.id || null, keys = [...selectedChangeKeys.value]
   if (!value || value.status !== 'candidate' || value.base_revision_id !== baseId || busy.value || dirty.value || recovery.value || !keys.length) return
@@ -800,7 +769,7 @@ function restoreBackup() {
   if (recovery.value.base_revision_id !== (revision.value?.id || null)) {
     revision.value = { ...(revision.value || {}), id: recovery.value.base_revision_id }; conflict.value = true
   }
-  recovery.value = null; discardBackupOpen.value = false; reader.value = null; exitCandidate(); compareServer.value = false; persistDraft(); nextTick(() => scrollArea.value?.focus())
+  recovery.value = null; inspectorOpen.value = true; discardBackupOpen.value = false; reader.value = null; exitCandidate(); compareServer.value = false; persistDraft(); nextTick(() => scrollArea.value?.focus())
 }
 function recoveryIsCurrent() {
   try {
@@ -816,14 +785,14 @@ function cancelDiscardBackup() { discardBackupOpen.value = false; nextTick(() =>
 function confirmDiscardBackup() {
   if (!recovery.value || busy.value || !recoveryIsCurrent()) return
   if (!clearBackup()) { reviewNotice.value = '本机备份暂时无法清理，未放弃任何编辑。请重新核对后再试。'; return }
-  recovery.value = null; recoveryCorrupt.value = false; discardBackupOpen.value = false; reviewNotice.value = '已放弃这份本机编辑，已保存地图和历史仍保留。'; nextTick(() => scrollArea.value?.focus())
+  recovery.value = null; inspectorOpen.value = true; recoveryCorrupt.value = false; discardBackupOpen.value = false; reviewNotice.value = '已放弃这份本机编辑，已保存地图和历史仍保留。'; nextTick(() => scrollArea.value?.focus())
 }
 async function useServer() {
   if (recovery.value) return
   const before = JSON.stringify(doc.value), server = serverRevision.value
   if (!await confirm("使用服务器版？当前编辑将从工作区移出。")) return
   if (JSON.stringify(doc.value) !== before || serverRevision.value?.id !== server?.id) { reviewNotice.value = '编辑或服务器版本已变化，请重新核对。'; return }
-  install(server); clearBackup(); conflict.value = false; compareServer.value = false
+  install(server); clearBackup(); conflict.value = false; compareServer.value = false; error.value = ""; reviewNotice.value = "已切换到服务器版本"
 }
 async function rebaseManually() {
   if (recovery.value) return
@@ -995,6 +964,7 @@ async function runToolbarAction(key) {
     await showGenerationChoices()
     return
   }
+  if (key === "selected") { inspectorOpen.value = true; focused.value = false; await nextTick() }
   if (key === "history") await loadHistory()
   if (["add", "selected", "rehearsal", "reader-settings"].includes(key) && referenceOnly.value) { referenceOnly.value = false; emit("reference-visible", false); await nextTick() }
   const selectors = { add: ".map-edit-grid details", selected: ".map-inspector", "save-area": ".map-toolbar", recovery: ".map-recovery", conflict: ".map-conflict", comparison: '[aria-label="候选地图差异"], .map-conflict', candidates: ".map-candidates", progress: ".map-generation-feedback", rehearsal: ".map-rehearsal", "reader-settings": ".map-reader", find: ".map-locator", history: ".map-history-panel", problems: ".map-problems" }
@@ -1025,7 +995,7 @@ defineExpose({ canLeave, save, dirty, revision, runToolbarAction })
 .map-leave-dialog{max-width:min(480px,90vw);background:var(--bg-base);color:var(--text-primary);border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--space-4)}.map-leave-dialog::backdrop{background:rgb(0 0 0 / .4)}
 .map-recovery button{min-height:44px}.map-recovery-confirm{padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius-md)}
 .map-feature-sources{display:grid;gap:var(--space-2);padding-block:var(--space-3);border-block:1px solid var(--border)}.map-feature-sources article>p{max-height:8rem;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}.map-feature-sources button{min-height:44px}
-.map-editor{display:grid;gap:var(--space-3);min-width:0}.map-toolbar,.map-actions,.map-reader,.map-canvas-controls,.map-history,.map-candidates>div{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-2)}.map-toolbar{justify-content:space-between}.map-caption,.map-save-status{color:var(--text-secondary);font-size:var(--text-sm)}.map-caption{display:block;margin-top:var(--space-1)}.map-toolbar .map-caption{display:inline;margin-left:var(--space-2)}.map-editor>p{margin:0}.map-editor .map-save-status{font-size:var(--text-xs)}.map-actions .btn,.map-editor summary{min-height:44px}.map-editor label{display:grid;gap:var(--space-1);min-width:0}.map-editor details{padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius-md);min-width:0}.map-editor summary{cursor:pointer;font-weight:600}.map-inline-form{display:flex;align-items:end;flex-wrap:wrap;gap:var(--space-2);margin-block:var(--space-2)}.map-inline-form>label{flex:1 1 140px}.map-editor input,.map-editor select,.map-editor textarea{max-width:100%;min-width:0}.map-editor input[type=number]{width:100px;min-height:36px}.map-reader>label{display:flex;align-items:center;flex-wrap:wrap}.map-edit-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,320px);gap:var(--space-3)}.map-inspector{display:grid;align-content:start;gap:var(--space-2);padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius-md)}.map-scroll{overflow:auto;max-height:70vh;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--bg-base)}.map-canvas{display:block;min-width:320px;min-height:300px;max-width:none;touch-action:pan-x pan-y pinch-zoom}.map-paper{fill:var(--bg-base)}.map-feature{cursor:pointer;outline:none}.map-feature circle{fill:var(--accent);stroke:var(--bg-base);stroke-width:3}.map-feature polygon{fill:var(--bg-muted);stroke:var(--border);stroke-width:2}.map-feature polyline{fill:none;stroke:var(--text-secondary);stroke-width:3;stroke-dasharray:7 4}.map-kind-river polyline{stroke:var(--accent);stroke-width:5;stroke-dasharray:none}.map-feature text{fill:var(--text-primary);font-size:15px;paint-order:stroke;stroke:var(--bg-base);stroke-width:4;stroke-linejoin:round}.map-feature:focus circle,.map-feature.selected circle{stroke:var(--text-primary);stroke-width:4}.map-feature:focus polyline,.map-feature.selected polyline,.map-feature:focus polygon,.map-feature.selected polygon{stroke:var(--accent);stroke-width:4}.map-feature .map-hit{fill:transparent;stroke:none;cursor:move}.map-handle{fill:var(--bg-base);stroke:var(--accent);stroke-width:3;cursor:move;touch-action:none}.map-location-list{display:grid;gap:var(--space-1);max-height:220px;overflow:auto}.map-location-list label{display:flex;align-items:center;gap:var(--space-2);min-height:38px}.map-warning{padding:var(--space-3);background:var(--warning-soft);border:1px solid var(--warning);border-radius:var(--radius-md)}.map-error{color:var(--error)}.map-calibration{position:relative;max-width:500px;cursor:crosshair}.map-calibration img{display:block;width:100%;height:auto}.map-calibration span{position:absolute;transform:translate(-50%,-50%);background:var(--text-primary);color:var(--bg-base);border-radius:50%;width:24px;height:24px;text-align:center;pointer-events:none}.map-detail-image{max-width:100%;height:auto;border-radius:var(--radius-md)}.map-history{padding:var(--space-2);justify-content:space-between}
+.map-editor{display:grid;gap:var(--space-3);min-width:0}.map-toolbar,.map-actions,.map-reader,.map-canvas-controls,.map-history,.map-candidates>div{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-2)}.map-toolbar{justify-content:space-between}.map-caption,.map-save-status{color:var(--text-secondary);font-size:var(--text-sm)}.map-caption{display:block;margin-top:var(--space-1)}.map-toolbar .map-caption{display:inline;margin-left:var(--space-2)}.map-editor>p{margin:0}.map-editor .map-save-status{font-size:var(--text-xs)}.map-actions .btn,.map-editor summary{min-height:44px}.map-editor label{display:grid;gap:var(--space-1);min-width:0}.map-editor details{padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius-md);min-width:0}.map-editor summary{cursor:pointer;font-weight:600}.map-inline-form{display:flex;align-items:end;flex-wrap:wrap;gap:var(--space-2);margin-block:var(--space-2)}.map-inline-form>label{flex:1 1 140px}.map-editor input,.map-editor select,.map-editor textarea{max-width:100%;min-width:0}.map-editor input[type=number]{width:100px;min-height:36px}.map-reader>label{display:flex;align-items:center;flex-wrap:wrap}.map-edit-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-3)}.map-inspector{display:grid;align-content:start;gap:var(--space-2);padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius-md)}.map-scroll{overflow:auto;max-height:70vh;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--bg-base)}.map-canvas{display:block;min-width:320px;min-height:300px;max-width:none;touch-action:pan-x pan-y pinch-zoom}.map-paper{fill:var(--bg-base)}.map-feature{cursor:pointer;outline:none}.map-feature circle{fill:var(--accent);stroke:var(--bg-base);stroke-width:3}.map-feature polygon{fill:var(--bg-muted);stroke:var(--border);stroke-width:2}.map-feature polyline{fill:none;stroke:var(--text-secondary);stroke-width:3;stroke-dasharray:7 4}.map-kind-river polyline{stroke:var(--accent);stroke-width:5;stroke-dasharray:none}.map-feature text{fill:var(--text-primary);font-size:15px;paint-order:stroke;stroke:var(--bg-base);stroke-width:4;stroke-linejoin:round}.map-feature:focus circle,.map-feature.selected circle{stroke:var(--text-primary);stroke-width:4}.map-feature:focus polyline,.map-feature.selected polyline,.map-feature:focus polygon,.map-feature.selected polygon{stroke:var(--accent);stroke-width:4}.map-feature .map-hit{fill:transparent;stroke:none;cursor:move}.map-handle{fill:var(--bg-base);stroke:var(--accent);stroke-width:3;cursor:move;touch-action:none}.map-location-list{display:grid;gap:var(--space-1);max-height:220px;overflow:auto}.map-location-list label{display:flex;align-items:center;gap:var(--space-2);min-height:38px}.map-warning{padding:var(--space-3);background:var(--warning-soft);border:1px solid var(--warning);border-radius:var(--radius-md)}.map-error{color:var(--error)}.map-calibration{position:relative;max-width:500px;cursor:crosshair}.map-calibration img{display:block;width:100%;height:auto}.map-calibration span{position:absolute;transform:translate(-50%,-50%);background:var(--text-primary);color:var(--bg-base);border-radius:50%;width:24px;height:24px;text-align:center;pointer-events:none}.map-detail-image{max-width:100%;height:auto;border-radius:var(--radius-md)}.map-history{padding:var(--space-2);justify-content:space-between}
 @media(max-width:900px){.map-edit-grid{grid-template-columns:minmax(0,1fr)}.map-toolbar{align-items:stretch;flex-direction:column}.map-reader{align-items:start}.map-editor .form-input,.map-editor .form-select{width:100%}.map-canvas-controls{justify-content:space-between}.map-candidates>div{align-items:start}.map-editor details{padding:var(--space-2)}}
 .map-illustration-preview{display:block;max-width:100%;width:280px;max-height:210px;object-fit:contain;border-radius:var(--radius-md)}
 .map-rehearsal-line{fill:none;stroke:var(--accent);stroke-width:7;stroke-opacity:.45;stroke-dasharray:12 6}.map-feature.rehearsed circle:not(.map-hit){stroke:var(--accent);stroke-width:5}.map-facing-line{fill:none;stroke:var(--accent);stroke-width:3;stroke-dasharray:4 5}.map-facing-head{fill:var(--accent)}
@@ -1033,4 +1003,10 @@ defineExpose({ canLeave, save, dirty, revision, runToolbarAction })
 @media(max-width:900px){.map-focused .map-canvas{height:auto}}
 .map-scroll{touch-action:pan-x pan-y pinch-zoom}.map-scroll.panning{cursor:grabbing;user-select:none}.map-paper{cursor:grab}.map-scroll:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.map-segment{stroke:transparent;cursor:pointer}.map-segment.selected{stroke:var(--accent);stroke-opacity:.2}.map-handle.selected{fill:var(--accent)}.map-feature.selected text{font-weight:700}.map-adoption-preview{padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius-md)}
 .map-generation-feedback{display:grid;gap:var(--space-2);padding:var(--space-2);border:1px solid var(--border);border-radius:var(--radius-md)}.map-generation-feedback>p{margin:0}.map-generation-feedback>.btn{justify-self:start}.map-generation-feedback dl{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--space-1) var(--space-3)}.map-generation-feedback dd{margin:0}.map-generation-feedback summary{font-size:var(--text-sm)}
+
+.map-editor:not(.map-focused) .map-scroll{height:clamp(220px,calc(100dvh - 480px),520px);max-height:none}
+.map-editor:not(.map-focused) .map-canvas{height:calc(var(--map-zoom,1) * 100%);min-height:0;min-width:0}
+.map-locator>label{display:flex;align-items:center;gap:8px}.map-locator input{flex:1;min-width:0;width:100px}
+.map-editor .map-legend{padding:0;border:0;position:relative}.map-legend>summary{min-height:44px;display:flex;align-items:center;font-size:var(--text-sm)}.map-legend>span{position:absolute;right:0;top:100%;z-index:2;width:220px;padding:8px;background:var(--bg-base);border:1px solid var(--border)}
+@media(max-width:900px){.map-canvas-controls{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px}.map-canvas-controls label{display:flex;align-items:center;gap:6px;min-width:0}.map-canvas-controls input[type=range]{flex:1;min-width:0;width:0}.map-legend>summary{min-width:44px;justify-content:center}}
 </style>

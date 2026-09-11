@@ -15,7 +15,7 @@
         >
       </div>
       <div id="writing-editor-buttons" class="writing-editor-buttons">
-        <button v-if="hasChapter && state.status !== 'candidate'" id="btn-publish" class="btn btn-primary btn-sm writing-primary-action" :disabled="!chapterReady || state.readonly || Boolean(state.saveError) || !state.content.trim()" @click="$emit('publish')">设为正式正文</button>
+        <button v-if="hasChapter && state.status !== 'candidate' && (state.status !== 'published' || state.dirty)" id="btn-publish" class="btn btn-primary btn-sm writing-primary-action" :disabled="!chapterReady || state.readonly || Boolean(state.saveError) || !state.content.trim()" @click="$emit('publish')">设为正式正文</button>
         <span v-if="hasChapter && state.status !== 'candidate'" class="writing-primary-action__hint">只在本作品内生效，不会对外发布</span>
         <div ref="toolMenusEl" class="writing-editor-buttons__menus" @click.capture="closeToolMenuAfterAction" @keydown="onToolMenuKeydown">
           <details v-if="state.status !== 'candidate'" class="writing-tools-menu" @toggle="onToolMenuToggle('save', $event)">

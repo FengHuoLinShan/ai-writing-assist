@@ -4,6 +4,7 @@ import { displayStateBadgeClass, worldAssetDisplay } from "../../../../shared/as
 import { getApi, getConfirm, getToast } from "../../../bridge/index.js"
 import { updateEntityWithBaseline } from "../logic/worldEntityOps.js"
 import { showRelationReviewEditForm, syncRelationsAliasesRegistry } from "../logic/worldRelationsAliasesOps.js"
+import AssistantValue from "../../../components/AssistantValue.vue"
 import WorldEntityImage from "../components/WorldEntityImage.vue"
 import TargetedCompletionPanel from "../../../components/TargetedCompletionPanel.vue"
 
@@ -302,7 +303,7 @@ onBeforeUnmount(() => { basicGeneration += 1; profileGeneration += 1; emit("prof
     </div>
     <p v-if="relatedError" role="alert">{{ relatedError }}</p>
     <details @toggle="$event.target.open && loadInfo('relations')"><summary>关系</summary><p v-if="infoLoading">正在读取…</p><p v-else-if="!related.length">尚无关联关系</p><article v-for="relation in related" :key="relation.id"><strong>{{ relation.source_name }} → {{ relation.target_name }}</strong><p>{{ relation.description || '已记录关联' }}</p><button class="btn btn-sm" @click="showRelationReviewEditForm(relation.id)">编辑关系</button></article></details>
-    <details @toggle="$event.target.open && loadInfo('history')"><summary>版本历史</summary><p v-if="infoLoading">正在读取…</p><p v-else-if="!revisions.length">还没有历史版本</p><p v-for="revision in revisions" :key="revision.revision_id">{{ revision.created_at }} · 已保存资料快照</p><button v-if="revisionSkip" class="btn" :disabled="infoLoading" @click="loadInfo('history', revisionSkip - 20)">上一页</button><button v-if="revisionSkip + 20 < revisionTotal" class="btn" :disabled="infoLoading" @click="loadInfo('history', revisionSkip + 20)">下一页</button></details>
+    <details @toggle="$event.target.open && loadInfo('history')"><summary>版本历史</summary><p v-if="infoLoading">正在读取…</p><p v-else-if="!revisions.length">还没有历史版本</p><details v-for="(revision, index) in revisions" :key="revision.revision_id"><summary>{{ new Date(revision.created_at).toLocaleString() }} · 版本 {{ revisionTotal - revisionSkip - index }} · 查看快照</summary><template v-if="revision.snapshot"><h3>{{ revision.snapshot.name }}</h3><p>{{ revision.snapshot.summary || '暂无概要' }}</p><p>{{ revision.snapshot.public_info }}</p><details v-if="revision.snapshot.content_json"><summary>别名与其他资料（只读）</summary><AssistantValue :value="revision.snapshot.content_json" /></details><details v-if="revision.snapshot.hidden_truth"><summary>作者秘密</summary><p>{{ revision.snapshot.hidden_truth }}</p></details></template><p v-else>这个历史版本没有可读取的快照内容。</p></details><button v-if="revisionSkip" class="btn" :disabled="infoLoading" @click="loadInfo('history', revisionSkip - 20)">上一页</button><button v-if="revisionSkip + 20 < revisionTotal" class="btn" :disabled="infoLoading" @click="loadInfo('history', revisionSkip + 20)">下一页</button></details>
     <TargetedCompletionPanel :project-id="projectId" :entity-id="entity.id || entity.entity_id" :initial-name="entity.name || ''" @applied="emit('refresh', entity.id || entity.entity_id)" />
     <section v-if="isCharacter" class="world-character-profile">
       <header><div><h3>人物档案</h3><p>按需补充人物动机、状态和声音；名称与别名仍在基本资料中管理。</p></div><button type="button" class="btn btn-sm" @click="profileOpen ? (profileOpen = false) : openProfile()">{{ profileOpen ? '收起' : '完善人物档案' }}</button></header>

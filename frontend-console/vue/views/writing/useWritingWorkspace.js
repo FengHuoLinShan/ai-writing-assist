@@ -240,7 +240,7 @@ export function useWritingWorkspace(props) {
         : "保存失败，本地备份不可用"
     }
     if (editorState.readonly) return "只读"
-    if (!editorState.dirty) return "已保存到工作稿"
+    if (!editorState.dirty) return editorState.status === "published" ? "已保存 · 与正式正文一致" : "已保存到工作稿"
     if (editorState.backupComplete === false) return "本地备份不可用"
     return substantiveWritingText(editorState.content) === substantiveWritingText(editorState.lastSavedContent)
       ? "排版修改已保留在本地"
@@ -1046,7 +1046,7 @@ export function useWritingWorkspace(props) {
     conflictOptions.open = true
   }
 
-  async function runConflictCheck() {
+  async function runConflictCheck({ force = false } = {}) {
     if (!canEdit.value || conflictState.loading) return
     const generation = selectionGeneration
     const chapter = selectedChapter.value
@@ -1066,6 +1066,20 @@ export function useWritingWorkspace(props) {
     try {
       await editor.autosave()
       if (!ownsRequest()) return
+      if (!force && editorState.draftId) {
+        const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(editorState.content)))).map(byte => byte.toString(16).padStart(2, "0")).join("")
+        if (!ownsRequest()) return
+        const history = await api.writing.listConflictChecks({ novel_id: projectId, chapter_index: chapter, scene_id: sceneId, draft_id: editorState.draftId, version_number: editorState.versionNumber, content_hash: hash, include_candidates: conflictOptions.includeCandidates, ai_review_only: true, limit: 1 })
+        if (!ownsRequest()) return
+        const latest = history?.items?.[0] || conflictState.latest
+        if (latest?.scope?.content_hash === hash && checkMatchesSelection(latest)
+          && latest.draft_id === editorState.draftId && Number(latest.version_number) === Number(editorState.versionNumber)
+          && Boolean(latest.include_candidates) === Boolean(conflictOptions.includeCandidates)) {
+          conflictState.latest = latest
+          await openConflictDialog(latest)
+          return
+        }
+      }
       const check = await api.writing.createConflictCheck({
         novel_id: projectId,
         chapter_index: chapter,
@@ -1342,9 +1356,11 @@ export function useWritingWorkspace(props) {
     }
   }
 
-  function navigateSceneWorkbench() {
+  function navigateSceneWorkbench(alertId = "") {
     const query = new URLSearchParams()
     if (currentScene.value?.id) query.set("scene_id", currentScene.value.id)
+    const field = { "structure-pov": "pov-character", "structure-review": "review", "structure-goal": "goal", "structure-core_conflict": "core_conflict", "structure-emotional_beat": "emotional_beat", "structure-chapter-map": "context" }[alertId]
+    if (field) query.set("scene_field", field)
     router?.navigate?.("outline", "scenes", true, query)
   }
 
@@ -1451,7 +1467,13 @@ export function useWritingWorkspace(props) {
 
   onMounted(async () => {
     const organize = getRouteQuery().get("organize")
-    if (["deep", "scenes", "world_objects", "plot_structure"].includes(organize)) openAutoExtraction(organize)
+    if (["deep", "scenes", "world_objects", "plot_structure"].includes(organize)) {
+      openAutoExtraction(organize)
+      for (const key of ["start", "end"]) {
+        const value = Number(getRouteQuery().get(`organize_${key}`))
+        if (Number.isInteger(value) && value > 0) autoExtraction[key] = value
+      }
+    }
     if (homeMode.value) return
     window.addEventListener("beforeunload", beforeUnload)
     window.addEventListener("pagehide", pageHide)

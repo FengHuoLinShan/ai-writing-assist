@@ -1610,3 +1610,69 @@ async def test_drifted_suggestion_keeps_new_takeover_untouched() -> None:
     )
 
     assert item.suggestion_status == "running"
+
+
+@pytest.mark.asyncio
+async def test_same_draft_review_survives_a_newer_rule_only_check(
+    async_client, db_session
+):
+    from modules.writing.models import WritingConflictCheck
+    from modules.writing.source_hashing import hash_text
+
+    novel_id = await _create_project(async_client)
+    scene = await _create_scene(async_client, novel_id)
+    draft_response = await async_client.post(
+        "/api/writing/drafts",
+        json={
+            "novel_id": novel_id,
+            "chapter_index": 1,
+            "title": "核对",
+            "content": "同一版本正文",
+        },
+    )
+    assert draft_response.status_code == 201, draft_response.text
+    draft = draft_response.json()["draft"]
+    payload = dict(
+        novel_id=novel_id,
+        chapter_index=1,
+        scene_id=scene["id"],
+        draft_id=draft["id"],
+        version_number=draft["version_number"],
+        content="同一版本正文",
+        include_candidates=False,
+    )
+    first = await async_client.post("/api/writing/conflict-checks", json=payload)
+    assert first.status_code == 201, first.text
+    check = await db_session.get(WritingConflictCheck, uuid.UUID(first.json()["id"]))
+    check.ai_review_status = "done"
+    check.summary_json = {
+        **check.summary_json,
+        "ai_review": {"status": "done", "item_count": 0},
+    }
+    await db_session.commit()
+    second = await async_client.post("/api/writing/conflict-checks", json=payload)
+    assert second.status_code == 201, second.text
+    params = {
+        **{
+            key: payload[key]
+            for key in (
+                "novel_id",
+                "chapter_index",
+                "scene_id",
+                "draft_id",
+                "version_number",
+                "include_candidates",
+            )
+        },
+        "content_hash": hash_text(payload["content"]),
+        "ai_review_only": True,
+        "limit": 1,
+    }
+    response = await async_client.get("/api/writing/conflict-checks", params=params)
+    assert response.status_code == 200, response.text
+    assert [item["id"] for item in response.json()["items"]] == [first.json()["id"]]
+    stale = await async_client.get(
+        "/api/writing/conflict-checks",
+        params={**params, "content_hash": hash_text("别的正文")},
+    )
+    assert stale.json()["items"] == []

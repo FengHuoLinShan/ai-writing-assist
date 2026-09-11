@@ -202,6 +202,16 @@ class ContextSelectionRequest(BaseModel):
         description="用户本次 AI 操作的额外注意事项",
     )
 
+    @model_validator(mode="after")
+    def default_writing_budget(self):
+        # Match the existing bounded writing assistant context budget.
+        if (
+            getattr(self, "action", None) == "writing.generate"
+            and "budget_tokens" not in self.model_fields_set
+        ):
+            self.budget_tokens = 12000
+        return self
+
     @field_validator("budget_tokens")
     @classmethod
     def validate_budget_tokens(cls, value: int) -> int:
@@ -461,9 +471,9 @@ class ContextActivationPreviewRequest(BaseModel):
 
 class ActivationRuleScope(BaseModel):
     actions: list[str] = Field(default_factory=list, min_length=1, max_length=20)
-    modes: list[
-        Literal["author_safe", "author_full", "reader", "character"]
-    ] = Field(default_factory=lambda: ["author_safe"], min_length=1, max_length=4)
+    modes: list[Literal["author_safe", "author_full", "reader", "character"]] = Field(
+        default_factory=lambda: ["author_safe"], min_length=1, max_length=4
+    )
     match_sources: list[
         Literal[
             "task_text",
@@ -491,9 +501,7 @@ class ActivationRuleMatch(BaseModel):
     negative_terms: list[str] = Field(default_factory=list, max_length=32)
     positive_logic: Literal["any", "all"] = "any"
     negative_logic: Literal["any", "all"] = "any"
-    mode: Literal["normalized_substring", "token_boundary"] = (
-        "normalized_substring"
-    )
+    mode: Literal["normalized_substring", "token_boundary"] = "normalized_substring"
 
     @field_validator("positive_terms", "negative_terms")
     @classmethod
@@ -612,9 +620,7 @@ class ContextActivationProfileCreate(BaseModel):
             raise ValueError("profile actions must not be blank")
         self.applicable_actions_json = list(dict.fromkeys(actions))
         rule_actions = {
-            action
-            for rule in self.rules_json
-            for action in rule.scope.actions
+            action for rule in self.rules_json for action in rule.scope.actions
         }
         if not rule_actions.issubset(set(self.applicable_actions_json)):
             raise ValueError("rule actions must be declared by the profile")

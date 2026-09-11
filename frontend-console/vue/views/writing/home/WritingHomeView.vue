@@ -12,6 +12,7 @@ defineProps({
   worldLoadError: { type: String, default: null },
   loadError: { type: String, default: null },
   onOpenAi: { type: Function, default: null },
+  taskCreate: { type: Boolean, default: false },
   taskPanel: { type: Boolean, default: false },
   taskScope: { type: String, default: "today" },
   taskSource: { type: Object, default: null },
@@ -20,7 +21,7 @@ defineProps({
 
 <template>
   <div class="writing-home-view" data-writing-home="true">
-    <AuthorTasksView v-if="taskPanel && summary?.project_id" :project-id="summary.project_id" :scope="taskScope" :source="taskSource" />
+    <AuthorTasksView v-if="taskPanel && summary?.project_id" :project-id="summary.project_id" :scope="taskScope" :create="taskCreate" :source="taskSource" />
     <TodayView v-else v-bind="$props" />
   </div>
 </template>

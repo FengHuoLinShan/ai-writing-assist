@@ -5,7 +5,7 @@
 -->
 <template>
   <div>
-    <p v-if="!inlineBackupOk" role="alert">本机草稿无法备份，请先保存到作品再离开。</p><p v-else-if="Object.keys(inlineDrafts).length" role="status">未保存行已在此浏览器备份，可稍后继续。</p>
+    <p v-if="!inlineBackupOk" role="alert">本机草稿无法备份，请先保存到作品再离开。</p><p v-else-if="Object.keys(changedInlineDrafts).length" role="status">未保存行已在此浏览器备份，可稍后继续。</p>
     <!-- 筛选面板 -->
     <details ref="filterPanel" class="outline-structure-filters">
       <summary>
@@ -96,7 +96,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="a in arcs" :key="a.id || a.arc_id" class="outline-structure-row" :data-id="a.id || a.arc_id">
+          <tr @keydown.esc.stop="cancelInlineArc(a)" v-for="a in arcs" :key="a.id || a.arc_id" class="outline-structure-row" :data-id="a.id || a.arc_id">
             <td class="selection-cell">
               <label class="selection-checkbox" :title="`选择 ${a.name || a.title || '篇章'}`">
                 <input type="checkbox"
@@ -121,6 +121,7 @@
             <td data-label="描述" class="outline-asset-description"><textarea v-if="inlineDrafts[a.id]" v-model="inlineDrafts[a.id].description" aria-label="篇章描述" :disabled="inlineSaving" /><template v-else>{{ arcDescription(a) }}</template></td>
             <td data-label="操作">
               <button class="btn btn-sm" :disabled="inlineSaving" @click="inlineDrafts[a.id] ? saveInlineArc(a) : startInlineArc(a)">{{ inlineSaving ? '保存中…' : inlineDrafts[a.id] ? '保存这一行' : '就地修改' }}</button>
+              <button v-if="inlineDrafts[a.id]" class="btn btn-sm" :disabled="inlineSaving" @click="cancelInlineArc(a)">取消</button>
               <p v-if="inlineErrors[a.id]" role="status">{{ inlineErrors[a.id] }}</p>
               <button v-if="reviewActionHtml(a)" class="btn btn-sm" :class="reviewActionHtml(a).className" data-action="mark-arc-reviewed" :data-id="a.id || a.arc_id" @click="markReviewed(a.id || a.arc_id)">{{ reviewActionHtml(a).label }}</button>
               <button class="btn btn-sm btn-primary" data-action="edit-arc" :data-id="a.id || a.arc_id" @click="editArc(a.id || a.arc_id)">编辑</button>
@@ -142,7 +143,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
-import { getApi, getAppState, getRouter } from "../../../bridge/index.js"
+import { getApi, getAppState, getRouter, getConfirm } from "../../../bridge/index.js"
 import { structureAssetDisplay, displayStateBadgeClass, assetAttentionReasons } from "../../../../shared/assetDisplayState.js"
 import {
   STRUCTURE_FILTER_DEFAULTS,
@@ -192,13 +193,24 @@ const inlineDrafts = ref({}), inlineErrors = reactive({}), inlineSaving = ref(fa
 let inlineAccount = "local"
 try { inlineAccount = localStorage.getItem(ACCOUNT_MARKER_KEY) || "local" } catch { /* The backup below remains independently checked. */ }
 const inlineDraftKey = `novel_outline_arc_edits:${inlineAccount}:${props.projectId}`
-let inlineBackupOk = true
-try { inlineDrafts.value = JSON.parse(localStorage.getItem(inlineDraftKey) || sessionStorage.getItem(inlineDraftKey) || '{}') } catch { inlineBackupOk = false }
-watch(inlineDrafts, value => {
-  try { const raw = JSON.stringify(value); localStorage.setItem(inlineDraftKey, raw); inlineBackupOk = localStorage.getItem(inlineDraftKey) === raw } catch { inlineBackupOk = false }
+const inlineBackupOk = ref(true)
+try { inlineDrafts.value = JSON.parse(localStorage.getItem(inlineDraftKey) || sessionStorage.getItem(inlineDraftKey) || '{}') } catch { inlineBackupOk.value = false }
+function arcDraft(arc) { return { name: arc.name || arc.title || '', start_chapter: arc.start_chapter, end_chapter: arc.end_chapter, description: arcDescription(arc) === '-' ? '' : arcDescription(arc) } }
+const changedInlineDrafts = computed(() => Object.fromEntries(Object.entries(inlineDrafts.value).filter(([id, draft]) => {
+  const arc = arcs.value.find(item => item.id === id)
+  return !arc || JSON.stringify(draft) !== JSON.stringify(arcDraft(arc))
+})))
+function cancelInlineArc(arc) {
+  if (inlineSaving.value) return
+  if (changedInlineDrafts.value[arc.id] && !getConfirm()('放弃这一行的未保存修改？')) return
+  delete inlineDrafts.value[arc.id]
+  delete inlineErrors[arc.id]
+}
+watch(changedInlineDrafts, value => {
+  try { const raw = JSON.stringify(value); localStorage.setItem(inlineDraftKey, raw); inlineBackupOk.value = localStorage.getItem(inlineDraftKey) === raw } catch { inlineBackupOk.value = false }
 }, { deep: true, flush: 'sync' })
-useLeaveGuard(() => !inlineSaving.value && (!Object.keys(inlineDrafts.value).length || inlineBackupOk))
-function startInlineArc(arc) { inlineDrafts.value[arc.id] = { name: arc.name || arc.title || '', start_chapter: arc.start_chapter, end_chapter: arc.end_chapter, description: arcDescription(arc) === '-' ? '' : arcDescription(arc) } }
+useLeaveGuard(() => !inlineSaving.value && (!Object.keys(changedInlineDrafts.value).length || inlineBackupOk.value))
+function startInlineArc(arc) { inlineDrafts.value[arc.id] = arcDraft(arc) }
 async function saveInlineArc(arc) {
   const draft = inlineDrafts.value[arc.id]
   if (inlineSaving.value || !draft) return
@@ -212,7 +224,7 @@ async function saveInlineArc(arc) {
   } catch (err) { inlineErrors[arc.id] = err.message || '保存失败，输入已保留' }
   finally { inlineSaving.value = false }
 }
-function warnUnbackedRows(event) { if (inlineSaving.value || (Object.keys(inlineDrafts.value).length && !inlineBackupOk)) { event.preventDefault(); event.returnValue = '' } }
+function warnUnbackedRows(event) { if (inlineSaving.value || (Object.keys(changedInlineDrafts.value).length && !inlineBackupOk.value)) { event.preventDefault(); event.returnValue = '' } }
 onMounted(() => globalThis.addEventListener('beforeunload', warnUnbackedRows))
 onBeforeUnmount(() => globalThis.removeEventListener('beforeunload', warnUnbackedRows))
 const statusOptions = computed(() => structureStatusOptions("arcs"))

@@ -175,6 +175,7 @@ test.describe("世界书工作台", () => {
 
     await openMoreTool(page, "页面模板")
     await expect(page.locator(SEL.modalTitle)).toHaveText("页面模板")
+    await page.getByText("高级：模板标识", { exact: true }).click()
     await page.locator("#bible-template-key").fill("e2e_trade_guide")
     await page.locator("#bible-template-name").fill("E2E 贸易模板")
     await page.locator("#bible-template-section-title").fill("货币与交换")

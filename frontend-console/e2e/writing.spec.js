@@ -1305,6 +1305,23 @@ test.describe("写作台模块", () => {
     expect(latestDraft.conflict_check_snapshot_json.items.some((item) => item.kind === "forbidden_present")).toBe(true)
   })
 
+  test("长篇目录自动定位末章并可按章号查找", async ({ page }) => {
+    for (let chapter = 2; chapter <= 16; chapter += 1) await createDraft(testProjectId, chapter, `测试第${chapter}章`, '目录定位正文')
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto(`/#workbench/${testProjectId}/writing?chapter_index=16`)
+    await page.reload()
+    await waitWritingReady(page, { chapter: 16 })
+    const list = page.locator('.chapter-tree-list')
+    const current = list.locator('[aria-current="true"]')
+    await expect(current).toContainText('第 16 章')
+    await expect.poll(async () => {
+      const [container, row] = await Promise.all([list.boundingBox(), current.boundingBox()])
+      return row && container && row.y >= container.y - 1 && row.y + row.height <= container.y + container.height + 1
+    }).toBe(true)
+    await page.getByRole('searchbox', { name: '查找章节' }).fill('16')
+    await expect(list.locator('.chapter-row')).toHaveCount(1)
+  })
+
   test("纯章节目录的章节行有尺寸并可直接点击", async ({ page }) => {
     await createDraft(testProjectId, 1, "第一章", "第一章正文")
     await createDraft(testProjectId, 3, "第三章 归潮尽头", "第三章正文")
@@ -1335,7 +1352,7 @@ test.describe("写作台模块", () => {
     await expect(page.locator("#writing-title-input")).toHaveValue("第三章 归潮尽头", { timeout: 5000 })
     await expect(page.locator("#writing-editor")).toHaveValue("第三章正文", { timeout: 5000 })
     await expect(page.locator("#btn-autosave")).toBeEnabled()
-    await expect(page.locator("#btn-publish")).toBeEnabled()
+    await expect(page.locator("#btn-publish")).toHaveCount(0)
     await expect(page.locator("#btn-conflict-check")).toBeEnabled()
 
     await page.getByRole("button", { name: /打开第 1 章/ }).click()
@@ -1346,7 +1363,7 @@ test.describe("写作台模块", () => {
     await expect(page.locator("#writing-editor")).toHaveValue("第三章正文", { timeout: 5000 })
   })
 
-  test("重复发布无实质变化的正文不制造版本或任务", async ({ page }) => {
+  test("正式正文无修改时不提供重复发布操作，也不制造版本或任务", async ({ page }) => {
     const initial = await createDraft(testProjectId, 3, "第三章 归潮尽头", "第三章正文")
     await reloadWorkbench(page, "writing")
     await waitWritingReady(page, { chapter: 3 })
@@ -1379,18 +1396,16 @@ test.describe("写作台模块", () => {
       })
     })
 
-    await page.locator("#btn-publish").click()
-    await confirmPublishIfPrompted(page)
-    await expect(page.locator("#writing-publish-bar-container")).toContainText("无实质变化")
+    await expect(page.locator("#btn-publish")).toHaveCount(0)
+    await expect(page.locator("#writing-save-status")).toContainText("与正式正文一致")
     expect(polledTaskUrls).toEqual([])
 
     const afterFirstPublish = await getLatestDraft(testProjectId, 3)
     expect(afterFirstPublish.version_number).toBe(initial.draft.version_number)
     expect(afterFirstPublish.status).toBe("published")
 
-    await page.locator("#btn-publish").click()
-    await confirmPublishIfPrompted(page)
-    await expect(page.locator("#writing-publish-bar-container")).toContainText("无实质变化")
+    await expect(page.locator("#btn-publish")).toHaveCount(0)
+    await expect(page.locator("#writing-save-status")).toContainText("与正式正文一致")
 
     const afterSecondPublish = await getLatestDraft(testProjectId, 3)
     expect(afterSecondPublish.version_number).toBe(afterFirstPublish.version_number)
@@ -1487,12 +1502,13 @@ test.describe("写作台模块", () => {
   test("390px 抽屉开关与跨作品导航保留正文和编辑会话", async ({ page, projectFactory }) => {
     const browserErrors = []
     const failedApiRequests = []
+    let reloading = true
     page.on("pageerror", (error) => browserErrors.push(error.message))
     page.on("console", (message) => {
       if (message.type() === "error") browserErrors.push(message.text())
     })
     page.on("requestfailed", (request) => {
-      if (request.url().includes("/api/")) failedApiRequests.push(`${request.method()} ${request.url()}`)
+      if (request.url().includes("/api/") && !(reloading && request.failure()?.errorText === "net::ERR_ABORTED")) failedApiRequests.push(`${request.method()} ${request.url()}`)
     })
     const otherProject = await projectFactory({ title: "移动模式隔离作品", genre: "fantasy", language: "zh" })
     await createDraft(otherProject.id, 1, "另一个作品", "独立的移动正文")
@@ -1500,6 +1516,7 @@ test.describe("写作台模块", () => {
     await page.setViewportSize({ width: 390, height: 844 })
     await reloadWorkbench(page, "writing")
     await waitWritingReady(page)
+    reloading = false
     await selectWritingChapter(page, 1)
     const editor = page.getByLabel("章节正文")
     await expect(editor).toHaveValue("切换前正文")
@@ -1527,8 +1544,10 @@ test.describe("写作台模块", () => {
     await page.getByRole("button", { name: "保存工作稿", exact: true }).click()
     await expect(page.locator("#writing-save-tools")).toBeHidden()
     await expect(page.locator("#writing-save-status")).toHaveText("已保存到工作稿", { timeout: 10000 })
+    reloading = true
     await page.reload()
     await waitWritingReady(page)
+    reloading = false
     await expect(page.locator("#writing-editor")).toBeVisible()
     await expect(page.getByRole("button", { name: "本章资料", exact: true })).toBeVisible()
 
@@ -1557,6 +1576,7 @@ test.describe("写作台模块", () => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.evaluate(() => window.router.navigate("writing"))
     await waitWritingReady(page)
+    reloading = false
     await expect(page.getByRole("button", { name: "本章资料", exact: true })).toBeVisible({ timeout: 10000 })
     expect(browserErrors).toEqual([])
     expect(failedApiRequests).toEqual([])

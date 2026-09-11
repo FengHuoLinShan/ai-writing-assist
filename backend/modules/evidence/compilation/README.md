@@ -620,3 +620,10 @@ Agent 重用原 confirmation 的 selected/excluded 与可见性，不把跨 cons
 ### 世界复核的精确范围
 
 world.validation.semantic 的调用方冻结原 confirmation 编译后保留的 items，而非根据 selected ID 重新读取整份未裁剪资产。确认后的模型输入、源 hash、范围与遗漏共同形成 World 回执，续接保持同一确认。pinned prose 使用 highlight_start/end 截取精确选段；Story 规划与地图当前版本只向无章节/Scene/offset 截止的作者 inspect 开放，reader/character 不走这条缺少可见性投影的路径。
+
+
+### 审阅与导航体验约定
+
+`writing.generate` 的HTTP预览/确认默认资料预算为12000，显式预算仍保持原值；预算失败说明主要必需资料并要求重新确认范围。资料选择投影从保留项的 `source_ref.draft_id` 提取正文版本，来源的范围与指纹仍保留，不能把版本ID当作整章读取授权。
+
+问世界使用问题相关性选择，相关正文优先于通用人物档案分配资料预算；被预算移除或作者排除的正文不进入最终问答。

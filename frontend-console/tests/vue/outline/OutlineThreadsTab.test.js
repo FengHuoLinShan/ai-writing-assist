@@ -125,7 +125,7 @@ describe("信息推进", () => {
     expect(wrapper.text()).toContain("秘密")
   })
 
-  it("有信息的剧情线默认展开并按信息运动分组，空剧情线保持折叠", () => {
+  it("有信息的剧情线默认展开并按信息运动分组，空剧情线保持折叠", async () => {
     const wrapper = mount(OutlineThreadsTab, {
       props: {
         projectId: "p1",
@@ -152,8 +152,11 @@ describe("信息推进", () => {
     expect(details[0].attributes("open")).toBe("")
     expect(details[1].attributes("open")).toBeUndefined()
     expect(wrapper.findAll(".outline-information-movement")).toHaveLength(1)
-    expect(wrapper.find(".outline-information-movement h4").text()).toBe("推进 1")
+    expect(wrapper.find(".outline-information-movement h4").text()).toBe("先让潮门发光")
     expect(wrapper.findAll(".outline-information-node")).toHaveLength(2)
+    await wrapper.findAll("button").find(button => button.text() === "回查第 3 章").trigger("click")
+    expect(routerCalls.at(-1).slice(0, 3)).toEqual(["writing", null, true])
+    expect(routerCalls.at(-1)[3].get("chapter_index")).toBe("3")
   })
 
   it("旧揭示深链聚焦并标出包含揭示的剧情线", async () => {

@@ -29,6 +29,12 @@ const searched = computed(() => Boolean(session.lastSearchPayload))
 const canRetryLiteral = computed(() => (
   searched.value && session.lastSearchPayload?.search_kind !== "literal"
 ))
+const emptyAdvice = computed(() => {
+  const payload = session.lastSearchPayload || {}
+  const range = payload.visibility?.mode && payload.visibility.mode !== "author"
+    ? "检查阅读截止位置和章节范围。" : "检查章节和资料范围。"
+  return `试试缩短关键词，${payload.search_kind === "literal" ? "或改用智能搜索" : "或换用字面搜索"}；${range}`
+})
 const authorMode = computed(() => (
   (session.lastSearchPayload?.visibility?.mode || "author") === "author"
 ))
@@ -74,8 +80,8 @@ function hitScore(hit) {
       </article>
     </div>
 
-    <div v-else-if="searchError?.validation" class="empty-state">
-      <p class="rag-search-empty">请完善可见性条件</p>
+    <div v-else-if="searchError?.validation" class="empty-state" role="alert">
+      <p class="rag-search-empty">{{ searchError.reason || "请完善查找条件" }}</p>
     </div>
 
     <section v-else-if="searchError" class="card error-card rag-search-error" role="alert">
@@ -95,7 +101,7 @@ function hitScore(hit) {
       </div>
       <section class="empty-state rag-results-empty" role="status">
         <h2>{{ searched ? "没有找到匹配资料" : "从作品中找回需要的资料" }}</h2>
-        <p class="rag-search-empty">{{ searched ? "试试缩短关键词，或换用字面搜索。" : "输入人物、地点、事件或原文片段开始查找。" }}</p>
+        <p class="rag-search-empty">{{ searched ? emptyAdvice : "输入人物、地点、事件或原文片段开始查找。" }}</p>
         <div v-if="canRetryLiteral" class="actions">
           <button type="button" class="btn" data-action="retry-literal-search" @click="emit('retry-literal')">用字面搜索重试</button>
         </div>

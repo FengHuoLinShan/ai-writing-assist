@@ -274,6 +274,7 @@
   <ConflictOptionsDialog :model="vm.conflictOptions" @submit="vm.runConflictCheck" />
   <ConflictDetailDialog
     :model="vm.conflictDialog"
+    @rerun="vm.runConflictCheck({ force: true })"
     @close="vm.closeConflictDialog"
     @status="vm.updateConflictStatus"
     @ai-review="vm.runConflictAiReview"
@@ -401,7 +402,7 @@ function openWritingHome() {
 const conflictSummary = computed(() => (
   vm.conflictState.error
   || vm.conflictState.latest?.summary_json?.message
-  || vm.conflictState.latest?.status
+  || ({ completed: "规则检查已完成", degraded: "检查覆盖不完整", running: "检查中", failed: "检查失败" })[vm.conflictState.latest?.status]
   || "已完成"
 ))
 

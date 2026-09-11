@@ -27,7 +27,7 @@ export function useRagSearch() {
    * @param {{routeSignature?: string, formState: object}} options
    *   formState 为当前表单状态（buildEvidencePayload 的输入，query 字段会被覆盖）
    */
-  async function doSearch(query, { routeSignature = "", formState } = {}) {
+  async function doSearch(query, { routeSignature = "", formState, scenes = [] } = {}) {
     const state = getAppState()
     if (!query) return
     cancelActiveSearch()
@@ -55,6 +55,15 @@ export function useRagSearch() {
       }).catch(() => {})
     }
     try {
+      const cutoffScene = scenes.find(scene => scene.id === formState?.cutoffSceneId)
+      if (["reader", "character"].includes(formState?.visibilityMode) && cutoffScene && !(cutoffScene.chapter_ids || []).map(Number).includes(Number(formState.cutoffChapter))) {
+        const message = "截止章节不属于所选场景，请调整截止章节或清除场景选择。"
+        getToast()(message, "warning")
+        searchError.value = { reason: message, validation: true }
+        ragSearchSession.hits = []
+        ragSearchSession.total = 0
+        return
+      }
       const writingLocation = state?.viewStates?.writing
       const currentSceneId = writingLocation?.projectId === projectId
         ? (writingLocation.currentSceneId || null)
@@ -69,7 +78,7 @@ export function useRagSearch() {
         ragSearchSession.hits = []
         ragSearchSession.total = 0
         ragSearchSession.resultMeta = null
-        searchError.value = { reason: "请完善可见性条件", validation: true }
+        searchError.value = { reason: error || "请完善查找条件", validation: true }
         return
       }
       ragSearchSession.lastSearchPayload = payload

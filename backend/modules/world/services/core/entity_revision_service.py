@@ -103,6 +103,7 @@ class EntityRevisionService:
                 "revision_id": str(r.id),
                 "entity_id": str(r.entity_id),
                 "revision_reason": r.revision_reason,
+                "snapshot": r.snapshot,
                 "created_at": str(r.created_at),
             }
             for r in revisions

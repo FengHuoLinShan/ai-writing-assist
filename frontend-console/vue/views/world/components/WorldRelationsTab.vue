@@ -45,7 +45,6 @@
       <WorldBulkToolbar
         scope="world-relations"
         :actions="[
-          { action: 'review-relations', label: '批量采用', className: 'btn-primary' },
           { action: 'delete-relations', label: '批量删除', className: 'btn-danger' },
         ]"
         noun="关系"
@@ -84,9 +83,9 @@
             <td class="world-table-cell--dim world-table-cell--ellipsis" data-label="描述">{{ r.description || "未填写" }}</td>
             <td class="world-table-cell--dim" data-label="来源与证据">
               <template v-if="authorEvidencePairs(r).length">
-                <div class="world-canonical-evidence">
+                <details class="world-canonical-evidence"><summary>查看依据</summary>
                   <div v-for="([label, value]) in authorEvidencePairs(r)" :key="label"><strong>{{ label }}：</strong>{{ value }}</div>
-                </div>
+                </details>
               </template>
               <template v-else>暂无来源说明</template>
               <details v-if="diagnosticEvidencePairs(r).length" class="world-canonical-diagnostics">

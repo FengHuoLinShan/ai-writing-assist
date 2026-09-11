@@ -1,3 +1,4 @@
+import { sceneNumber } from "../../../../shared/sceneNumbers.js"
 /**
  * worldEntityOps — world 实体/候选操作（对应 vanilla worldView 的公开操作面）。
  *
@@ -143,7 +144,7 @@ function mountEntityReferencePicker({
   const initialItems = selectedId && selectedEntity && eligible(selectedEntity)
     ? [entityReferenceItem(selectedEntity)]
     : selectedId && selectedName
-      ? [{ kind: "entity", id: selectedId, label: selectedName, description: "已选目标" }]
+      ? [{ kind: "entity", id: selectedId, label: selectedName, description: ariaLabel.replace("搜索", "已选") }]
       : []
   const picker = createReferencePicker({
     root,
@@ -161,7 +162,7 @@ function mountEntityReferencePicker({
   const typeLabel = document.createElement('label')
   typeLabel.textContent = '对象类型 '
   const typeSelect = document.createElement('select')
-  typeSelect.className = 'form-select'; typeSelect.setAttribute('aria-label', '筛选目标对象类型')
+  typeSelect.className = 'form-select'; typeSelect.setAttribute('aria-label', `${ariaLabel.replace('搜索', '筛选')}类型`)
   for (const item of [{ value: '', label: '全部类型' }, ...worldListRegistry.entityTypes]) {
     const option = document.createElement('option'); option.value = item.value; option.textContent = item.label; typeSelect.append(option)
   }
@@ -418,7 +419,7 @@ function aliasEvidenceHtml(item = {}) {
   const evidence = [
     ["来源", item.source === "deep_import" ? "深度导入" : item.source],
     ["章节", item.source_chapter_index],
-    ["场景", item.scene_index ?? item.source_scene_index],
+    ["场景", sceneNumber(item.scene_index ?? item.source_scene_index)],
     ["置信度", item.confidence != null ? `${(Number(item.confidence) * 100).toFixed(0)}%` : ""],
     ["引用", item.quote],
   ].filter(([, value]) => value != null && String(value).trim() !== "")
@@ -447,11 +448,11 @@ export function showEntityCreateForm(initial = {}, options = {}) {
   const formHtml = `
     <div class="form-group">
       <label>名称 *</label>
-      <input class="form-input" id="create-entity-name" placeholder="对象名称" value="${esc(initial.name || "")}" />
+      <input class="form-input" id="create-entity-name" required placeholder="对象名称" value="${esc(initial.name || "")}" />
     </div>
     <div class="form-group">
       <label>类型</label>
-      ${entityTypeControlHtml("create", initial.entity_type || "character")}
+      ${entityTypeControlHtml("create", initial.entity_type || "")}
     </div>
     <div class="form-group">
       <label>概要</label>
@@ -466,8 +467,11 @@ export function showEntityCreateForm(initial = {}, options = {}) {
       handler: async () => {
         if (submissionPending) return false
         const projectId = getAppState()?.currentProjectId
-        const name = document.getElementById("create-entity-name")?.value
+        const nameInput = document.getElementById("create-entity-name")
+        const name = nameInput?.value?.trim()
         if (!name) {
+          nameInput?.focus()
+          nameInput?.reportValidity()
           toast("请输入名称", "warning")
           return false
         }
@@ -478,6 +482,7 @@ export function showEntityCreateForm(initial = {}, options = {}) {
         }
         if (!payload.entity_type) {
           const custom = document.getElementById("create-entity-type")?.value === CUSTOM_ENTITY_TYPE_SENTINEL
+          document.getElementById(custom ? "create-entity-type-custom" : "create-entity-type")?.focus()
           toast(custom ? "请输入自定义类型名称" : "请选择资料类型", "warning")
           return false
         }

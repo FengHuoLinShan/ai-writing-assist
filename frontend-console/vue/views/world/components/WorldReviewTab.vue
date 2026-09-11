@@ -25,14 +25,10 @@
         <p>{{ recommendedKind.description }}</p>
         <button v-if="recommendedKind.kind" type="button" class="btn btn-primary world-review-touch-target" data-action="open-recommended-review" @click="navigateKind(recommendedKind.kind)">开始处理</button>
       </div>
-      <div class="world-review-overview__cards">
-        <button v-for="item in overviewKinds" :key="item.kind" type="button" class="world-review-overview-card" :disabled="!item.count" @click="navigateKind(item.kind)">
-          <span>{{ item.label }}</span><strong>{{ item.count }}</strong><small>{{ item.hint }}</small>
-        </button>
-      </div>
+
     </section>
 
-    <div v-else class="world-review-workbench" :class="{ 'is-detail-open': mobileDetailOpen }">
+    <div v-else class="world-review-workbench" :class="{ 'is-detail-open': mobileDetailOpen, 'has-selection': Boolean(activeItem) }">
       <section class="world-review-queue" aria-label="待决定队列">
     <!-- ==================== review-objects ==================== -->
     <template v-if="tab === 'objects'">
@@ -152,12 +148,12 @@
               <th class="selection-cell"><WorldSelectionInput mode="all" scope="world-candidates" :ids="regularCandidates.map(entityIdOf)" label="全选普通待处理项" /></th>
               <th>待处理对象</th>
               <th>AI 建议</th>
-              <th>来源</th>
+
               <th>操作</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="candidate in regularCandidates" :key="entityIdOf(candidate)" :data-id="entityIdOf(candidate)" :class="{ 'is-active': activeKey === entityIdOf(candidate) }" tabindex="0" @click="selectReviewItem(entityIdOf(candidate), $event)" @keydown.enter.self="selectReviewItem(entityIdOf(candidate), $event)" @keydown.space.prevent.self="selectReviewItem(entityIdOf(candidate), $event)">
+            <tr v-for="candidate in regularCandidates" :key="entityIdOf(candidate)" :data-id="entityIdOf(candidate)" :class="{ 'is-active': activeKey === entityIdOf(candidate) }" tabindex="0" @click="selectReviewItem(entityIdOf(candidate), $event)" @keydown.enter.self.prevent.stop="selectReviewItem(entityIdOf(candidate), $event)" @keydown.space.self.prevent.stop="selectReviewItem(entityIdOf(candidate), $event)">
               <td class="selection-cell"><WorldSelectionInput mode="one" scope="world-candidates" :id="entityIdOf(candidate)" :label="`选择 ${candidate.name || '待处理项'}`" /></td>
               <td data-label="待处理对象" class="world-review-candidate-cell">
                 <strong>{{ candidate.name || "未命名对象" }}</strong>
@@ -165,7 +161,7 @@
                 <p v-if="candidateSummary(candidate)">{{ candidateSummary(candidate) }}</p>
               </td>
               <td data-label="AI 建议"><span class="candidate-action-badge" :class="`candidate-action-badge--${actionLabelOf(candidate).action}`">{{ actionLabelOf(candidate).label }}</span></td>
-              <td data-label="来源" class="world-review-evidence-cell"><WorldInlineEvidence v-if="candidateEvidence(candidate).length" :pairs="candidateEvidence(candidate)" /><span v-else>未附来源</span></td>
+
               <td data-label="操作"><button type="button" class="btn btn-sm world-review-queue-action" data-action="prepare-candidate-review" :data-id="entityIdOf(candidate)" @click.stop="selectReviewItem(entityIdOf(candidate), $event)">查看并决定</button></td>
             </tr>
           </tbody>
@@ -250,7 +246,7 @@
               </label>
             </header>
             <div class="review-group-card__members">
-              <article v-for="item in group.members || []" :key="aliasKeyOf(item)" class="review-member-row review-member-row--selectable" :class="{ 'is-active': activeKey === aliasKeyOf(item) }" tabindex="0" @click="selectReviewItem(aliasKeyOf(item), $event)" @keydown.enter.self="selectReviewItem(aliasKeyOf(item), $event)" @keydown.space.prevent.self="selectReviewItem(aliasKeyOf(item), $event)">
+              <article v-for="item in group.members || []" :key="aliasKeyOf(item)" class="review-member-row review-member-row--selectable" :class="{ 'is-active': activeKey === aliasKeyOf(item) }" tabindex="0" @click="selectReviewItem(aliasKeyOf(item), $event)" @keydown.enter.self.prevent.stop="selectReviewItem(aliasKeyOf(item), $event)" @keydown.space.self.prevent.stop="selectReviewItem(aliasKeyOf(item), $event)">
                 <div class="selection-cell">
                   <WorldSelectionInput v-if="!item.managed_by_suggestion" mode="one" scope="world-aliases" :id="aliasKeyOf(item)" :label="`选择别名 ${item.alias}`" />
                 </div>
@@ -339,7 +335,7 @@
       </div>
       <template v-else>
         <div class="review-group-list">
-          <section v-for="group in relationGroups" :key="group.group_id" class="review-group-card" :class="{ 'is-active': activeKey === group.group_id }" :data-group-id="group.group_id" tabindex="0" @click="selectReviewItem(group.group_id, $event)" @keydown.enter.self="selectReviewItem(group.group_id, $event)" @keydown.space.prevent.self="selectReviewItem(group.group_id, $event)">
+          <section v-for="group in relationGroups" :key="group.group_id" class="review-group-card" :class="{ 'is-active': activeKey === group.group_id }" :data-group-id="group.group_id" tabindex="0" @click="selectReviewItem(group.group_id, $event)" @keydown.enter.self.prevent.stop="selectReviewItem(group.group_id, $event)" @keydown.space.self.prevent.stop="selectReviewItem(group.group_id, $event)">
             <header class="review-group-card__header">
               <div class="review-group-card__select"><WorldSelectionInput mode="one" scope="world-relation-groups" :id="group.group_id" :label="`选择 ${group.source_name || '源对象'} 到 ${group.target_name || '目标对象'}`" /></div>
               <div class="review-group-card__title">
@@ -397,9 +393,9 @@
             <p class="world-review-candidate-meta">{{ entityTypeLabel(activeItem.entity_type) }}<template v-if="candidateImportanceText(activeItem)"> · {{ candidateImportanceText(activeItem) }}</template></p>
             <p v-if="candidateSummary(activeItem)" class="world-review-candidate-summary">{{ candidateSummary(activeItem) }}</p>
             <p><strong>AI 建议：</strong>{{ actionLabelOf(activeItem).label }}</p>
-            <details v-if="activeCandidateEvidence.length" class="world-review-candidate-evidence">
-              <summary>查看来源依据</summary>
-              <WorldInlineEvidence :pairs="activeCandidateEvidence" />
+            <details open v-if="activeCandidateEvidence.length" class="world-review-candidate-evidence">
+              <summary>来源依据</summary>
+              <WorldInlineEvidence :pairs="activeCandidateEvidence" expanded />
             </details>
             <p v-else class="world-text-dim">这条建议没有附带可复核来源，请谨慎判断。</p>
             <div class="world-review-decision__actions"><WorldCandidateActions :candidate="activeItem" :action-options="{ allowAlias: true, allowMerge: true }" /></div>
@@ -453,7 +449,7 @@
 
                 <section class="world-alias-decision__evidence" aria-label="证据">
                   <strong>证据</strong>
-                  <WorldEvidenceSummary :item="activeAlias" kind="alias" :numeric-value="activeAlias.confidence" />
+                  <WorldEvidenceSummary :item="activeAlias" kind="alias" show-actions :numeric-value="activeAlias.confidence" />
                 </section>
                 <p v-if="aliasDecisionStale" class="review-warning">旧草稿对应的内容已变化，已按当前内容重新载入，请重新确认。</p>
                 <p v-if="session.aliasReviewErrors[aliasKeyOf(activeAlias)]" class="review-item-error" role="alert">{{ session.aliasReviewErrors[aliasKeyOf(activeAlias)] }}</p>
@@ -566,9 +562,10 @@
 </template>
 
 <script setup>
+import { sceneNumber, sceneIndex } from "../../../../shared/sceneNumbers.js"
 import WorldReviewBatch from "./WorldReviewBatch.vue"
 import { computed, reactive, ref, watch, onBeforeUnmount, onMounted, nextTick } from "vue"
-import { getApi, getAppState, getRouteQuery, getRouter } from "../../../bridge/index.js"
+import { getApi, getAppState, getRouteQuery, getRouter, getToast } from "../../../bridge/index.js"
 import { worldSession as session } from "../worldSession.js"
 import { WORLD_CANDIDATE_QUERY_KEYS } from "../logic/worldQuery.js"
 import { reconcileBulkSelection } from "../logic/worldBulkSelection.js"
@@ -787,19 +784,19 @@ function isNarrowReviewViewport() {
   return typeof globalThis.matchMedia === "function" && globalThis.matchMedia("(max-width: 760px)").matches
 }
 
-function syncReviewSelection(key) {
+function syncReviewSelection(key, historyMode = "replace") {
   const router = getRouter()
   const query = getRouteQuery()
   if (key) query.set(REVIEW_ITEM_QUERY_KEY, key)
   else query.delete(REVIEW_ITEM_QUERY_KEY)
-  return router?.commitCurrentQuery?.(query) === true
+  return router?.commitCurrentQuery?.(query, historyMode) === true
 }
 
 function selectReviewItem(key, event) {
   activeKey.value = key || ""
   mobileDetailOpen.value = true
   lastSelectionEl = event?.currentTarget || lastSelectionEl
-  syncReviewSelection(activeKey.value)
+  syncReviewSelection(activeKey.value, "push")
   void nextTick(() => (isNarrowReviewViewport() ? mobileBackEl.value : decisionEl.value)?.focus())
 }
 
@@ -1182,9 +1179,9 @@ const candidateForm = reactive({})
 const aliasForm = reactive({})
 const relationForm = reactive({})
 
-watch(() => props.candidateFilters, (filters) => Object.assign(candidateForm, filters), { immediate: true, deep: true })
-watch(() => props.aliasReviewFilters, (filters) => Object.assign(aliasForm, filters), { immediate: true, deep: true })
-watch(() => props.relationReviewFilters, (filters) => Object.assign(relationForm, filters), { immediate: true, deep: true })
+watch(() => props.candidateFilters, (filters) => Object.assign(candidateForm, filters, { scene_index: sceneNumber(filters.scene_index) ?? "" }), { immediate: true, deep: true })
+watch(() => props.aliasReviewFilters, (filters) => Object.assign(aliasForm, filters, { scene_index: sceneNumber(filters.scene_index) ?? "" }), { immediate: true, deep: true })
+watch(() => props.relationReviewFilters, (filters) => Object.assign(relationForm, filters, { scene_index: sceneNumber(filters.scene_index) ?? "" }), { immediate: true, deep: true })
 
 const candidateHasActiveFilters = computed(() => (
   WORLD_CANDIDATE_QUERY_KEYS.some((key) => Boolean(props.candidateFilters[key]))
@@ -1198,14 +1195,22 @@ const candidateActiveFilterCount = computed(() => activeFilterCount(props.candid
 const aliasActiveFilterCount = computed(() => activeFilterCount(props.aliasReviewFilters))
 const relationActiveFilterCount = computed(() => activeFilterCount(props.relationReviewFilters))
 
+function sceneFilterForm(form) {
+  const index = sceneIndex(form.scene_index)
+  if (form.scene_index !== "" && form.scene_index != null && index == null) { getToast()("场景编号须为1或更大的整数", "warning"); return null }
+  return { ...form, scene_index: index == null ? "" : String(index) }
+}
 function applyCandidateFilters() {
-  void applyCandidateReviewFilters(candidateForm)
+  const form = sceneFilterForm(candidateForm)
+  if (form) void applyCandidateReviewFilters(form)
 }
 function applyAliasFilters() {
-  void applyAliasReviewFilters(aliasForm, props.aliasReviewFilters)
+  const form = sceneFilterForm(aliasForm)
+  if (form) void applyAliasReviewFilters(form, props.aliasReviewFilters)
 }
 function applyRelationFilters() {
-  void applyRelationReviewFilters(relationForm, props.relationReviewFilters)
+  const form = sceneFilterForm(relationForm)
+  if (form) void applyRelationReviewFilters(form, props.relationReviewFilters)
 }
 
 function clearReviewKeyword(kind) {

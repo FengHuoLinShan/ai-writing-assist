@@ -3,6 +3,7 @@ import { enableAutoUnmount, mount } from "@vue/test-utils"
 import { nextTick } from "vue"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
+import WorldBibleKnowledgeGraph from "../../../../vue/views/world/pages/WorldBibleKnowledgeGraph.vue"
 import WorldBibleTab from "../../../../vue/views/world/bible/WorldBibleTab.vue"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../../vue/bridge/index.js"
 import { knowledgeGraphLayout } from "../../../../vue/views/world/pages/worldBiblePresentation.js"
@@ -114,4 +115,25 @@ describe("World Bible 关联图", () => {
     expect(component).not.toContain("v-html")
     expect(css).toContain("@media (max-width: 390px)")
   })
+})
+
+
+it("人物根节点使用局部关联，40个对象不会压成竖线", async () => {
+  const wrapper = mount(WorldBibleKnowledgeGraph, { props: { projectId: "n1", activeEntityId: "e1" } })
+  await nextTick()
+  expect(getKnowledgeGraph).toHaveBeenCalledWith(expect.objectContaining({ scope: "local", root_type: "core_entity", root_id: "e1" }))
+  const layout = knowledgeGraphLayout(Array.from({ length: 40 }, (_, index) => ({ id: String(index), kind: "core_entity", label: "人物" })), [])
+  expect(new Set(Object.values(layout.positions).map(point => point.x)).size).toBeGreaterThan(1)
+  expect(layout.width / layout.height).toBeGreaterThan(0.8)
+  wrapper.unmount()
+})
+
+
+it("关联图显示实际关系的作者名称", async () => {
+  getKnowledgeGraph.mockResolvedValue({ ...graph, edges: [{ id: "r", kind: "entity_relation", source_id: "p1", target_id: "e1", relation_type: "mentor_of" }] })
+  const wrapper = mount(WorldBibleKnowledgeGraph, { props: { projectId: "n1", activeEntityId: "e1", typeCatalog: { relation_types: [{ value: "mentor_of", label: "导师" }] } } })
+  await nextTick(); await nextTick()
+  expect(wrapper.get('[data-section="graph-edges"]').text()).toContain('导师')
+  expect(wrapper.get('[data-section="graph-edges"]').text()).not.toContain('mentor_of')
+  wrapper.unmount()
 })

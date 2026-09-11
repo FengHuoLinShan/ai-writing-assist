@@ -181,6 +181,7 @@ class WorldKnowledgeGraphService:
                 WorldKnowledgeGraphEdge(
                     id=str(relation.id),
                     kind="entity_relation",
+                    relation_type=relation.relation_type,
                     source_id=str(relation.source_id),
                     target_id=str(relation.target_id),
                     status=relation.status,

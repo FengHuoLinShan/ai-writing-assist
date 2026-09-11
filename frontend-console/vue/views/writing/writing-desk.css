@@ -524,6 +524,16 @@
   border-bottom: 1px solid var(--nc-hairline-strong);
 }
 
+.chapter-tree-search-list {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.chapter-tree-search-list > input { flex: 0 0 auto; }
+
 .chapter-tree-list {
   flex: 1;
   min-height: 0;

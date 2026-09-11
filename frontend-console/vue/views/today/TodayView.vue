@@ -187,8 +187,8 @@ function openWriting() {
   router.navigate("writing", null, true, query)
 }
 
-function openTasks(scope = "today") {
-  router.navigate("writing", null, true, new URLSearchParams({ home: "1", panel: "tasks", scope }))
+function openTasks(scope = "today", create = false) {
+  router.navigate("writing", null, true, new URLSearchParams({ home: "1", panel: "tasks", scope, ...(create ? { create: "1" } : {}) }))
 }
 
 async function completeTask(task, event) {
@@ -447,7 +447,7 @@ function retry() {
           <p>今天 {{ authorTasks.today_count }} 项 · 收件箱 {{ authorTasks.inbox_count }} 项</p>
         </div>
         <div class="today-author-tasks__actions">
-          <button type="button" class="btn btn-sm" @click="openTasks('inbox')">＋ 添加</button>
+          <button type="button" class="btn btn-sm" @click="openTasks('inbox', true)">＋ 添加</button>
           <button type="button" class="btn btn-sm btn-ghost" @click="openTasks('today')">查看全部</button>
         </div>
       </div>

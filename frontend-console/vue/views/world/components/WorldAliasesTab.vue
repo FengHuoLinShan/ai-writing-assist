@@ -136,6 +136,7 @@
 </template>
 
 <script setup>
+import { sceneNumber } from "../../../../shared/sceneNumbers.js"
 import { computed, ref, watch } from "vue"
 import { getRouter, getConfirmAction, getToast } from "../../../bridge/index.js"
 import { worldSession as session } from "../worldSession.js"
@@ -208,7 +209,7 @@ function confidenceLabelOf(a) {
 function authorEvidencePairs(a) {
   return [
     ["章节", Number(a.source_chapter_index) > 0 ? a.source_chapter_index : ""],
-    ["场景", Number(a.scene_index) > 0 ? a.scene_index : ""],
+    ["场景", sceneNumber(a.scene_index)],
     ["引用", a.quote],
   ].filter(([, value]) => value != null && String(value).trim() !== "")
 }
@@ -216,7 +217,7 @@ function authorEvidencePairs(a) {
 function diagnosticEvidencePairs(a) {
   return [
     ["处理批次", a.workflow_id],
-    ["场景标识", Number(a.scene_index) > 0 ? "" : a.scene_id],
+    ["场景标识", sceneNumber(a.scene_index) != null ? "" : a.scene_id],
     ["章节标识", Number(a.source_chapter_index) > 0 ? "" : a.source_chapter_id],
   ].filter(([, value]) => value != null && String(value).trim() !== "")
 }

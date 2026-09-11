@@ -1,3 +1,4 @@
+import { sceneNumber } from "../../../../shared/sceneNumbers.js"
 /**
  * worldRelationsAliasesOps — world 关系/别名模态操作与 inline 动作。
  *
@@ -427,7 +428,7 @@ export function inlineEvidencePairs(item = {}) {
     ["来源", item.source === "deep_import" ? "深度导入" : item.source],
     ["处理批次", item.workflow_id],
     ["章节", item.source_chapter_index],
-    ["场景", item.scene_index || item.scene_id],
+    ["场景", sceneNumber(item.scene_index)],
     ["置信度", item.confidence != null ? `${(Number(item.confidence) * 100).toFixed(0)}%` : ""],
     ["引用", item.quote],
   ].filter(([, value]) => value != null && String(value).trim() !== "")
@@ -444,7 +445,7 @@ export function inlineRelationEvidencePairs(relation = {}) {
   const pairs = [
     ["来源", (reviewMeta.source || relation.source) === "deep_import" ? "深度导入" : (reviewMeta.source || relation.source)],
     ["处理批次", reviewMeta.workflow_id || relation.workflow_id],
-    ["场景", reviewMeta.scene_index ?? reviewMeta.scene_id ?? relation.scene_index ?? relation.scene_id],
+    ["场景", sceneNumber(reviewMeta.scene_index ?? relation.scene_index)],
     ["章节", reviewMeta.source_chapter_index ?? relation.source_chapter_index ?? relation.source_chapter_id],
     ["强度", relation.strength != null ? `${Math.round(Number(relation.strength) * 100)}%` : ""],
     ["引用", reviewMeta.quote || relation.quote || ""],

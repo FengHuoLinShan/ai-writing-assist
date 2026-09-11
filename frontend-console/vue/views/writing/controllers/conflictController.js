@@ -102,7 +102,12 @@ export function createConflictController({ api, toast, getProjectId, getCheck, o
     try {
       const confirmation = await confirmAiReference({ novel_id: projectId, action: "writing.conflict_check.ai_review", task: "writing conflict AI review", scope: "chapter", chapter_index: check.chapter_index, scene_id: check.scene_id, context_mode: "canonical", include_pending_objects: Boolean(check.include_candidates), budget_tokens: 0 })
       guard(token, projectId)
-      const { started, task } = await submitTask({ workflowType: "writing_conflict_ai_review", meta: { checkId: check.id, kind: "review" }, token, projectId, submit: (operationId) => api.writing.enqueueConflictAiReview(check.id, { novel_id: projectId, context_confirmation_id: confirmation.id, operation_id: operationId }) })
+      const { started, task } = await submitTask({ workflowType: "writing_conflict_ai_review", meta: { checkId: check.id, kind: "review" }, token, projectId, submit: async (operationId) => {
+        const started = await api.writing.enqueueConflictAiReview(check.id, { novel_id: projectId, context_confirmation_id: confirmation.id, operation_id: operationId })
+        guard(token, projectId)
+        onCheck(started?.check || { ...check, ai_review_status: "running", ai_review_confirmation_id: confirmation.id })
+        return started
+      } })
       onCheck(started?.check || { ...check, ai_review_status: "running", ai_review_confirmation_id: confirmation.id })
       const updated = await api.writing.getConflictCheck(task.result?.check_id || check.id, projectId)
       guard(token, projectId); onCheck(updated); return updated

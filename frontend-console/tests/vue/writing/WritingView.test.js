@@ -331,14 +331,14 @@ describe("WritingView", () => {
     await flushPromises()
     await expandWritingCopilot(wrapper)
 
-    await wrapper.findAll("button").find((button) => button.text().includes("关联 Scene")).trigger("click")
+    await wrapper.findAll("button").find((button) => button.text().includes("关联场景")).trigger("click")
     await wrapper.get('[aria-label="关联 旅店暗号"]').trigger("click")
     await flushPromises()
     expect(globalThis.api.outline.associateSceneWithChapter).toHaveBeenCalledWith("p1", 1, "s2")
     expect(wrapper.get('[aria-label="旅店暗号已关联"]').exists()).toBe(true)
     expect(wrapper.get('[role="dialog"]').exists()).toBe(true)
 
-    await wrapper.findAll("button").find((button) => button.text().includes("新建 Scene")).trigger("click")
+    await wrapper.findAll("button").find((button) => button.text().includes("新建场景")).trigger("click")
     await wrapper.get("#scene-associate-title-input").setValue("  钟楼会面  ")
     await wrapper.get(".scene-associate-create").trigger("submit")
     await flushPromises()
@@ -350,12 +350,12 @@ describe("WritingView", () => {
     wrapper.unmount()
   })
 
-  it("从关联弹窗打开 Scene 工作台时携带当前手选 Scene", async () => {
+  it("从关联弹窗打开场景工作台时携带当前手选 Scene", async () => {
     const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
     await flushPromises()
     await expandWritingCopilot(wrapper)
-    await wrapper.findAll("button").find((button) => button.text().includes("关联 Scene")).trigger("click")
-    await wrapper.findAll("button").find((button) => button.text().includes("打开 Scene 工作台")).trigger("click")
+    await wrapper.findAll("button").find((button) => button.text().includes("关联场景")).trigger("click")
+    await wrapper.findAll("button").find((button) => button.text().includes("打开场景工作台")).trigger("click")
 
     const call = globalThis.router.navigate.mock.calls.at(-1)
     expect(call.slice(0, 3)).toEqual(["outline", "scenes", true])

@@ -17,6 +17,7 @@
 </template>
 
 <script setup>
+import { sceneNumber } from "../../../../shared/sceneNumbers.js"
 import { computed } from "vue"
 import { removeReviewFilter } from "../logic/useWorldReview.js"
 import { detailTypeLabel, kindLabel } from "../logic/worldTypeCatalog.js"
@@ -49,6 +50,7 @@ const DISPLAY_VALUES = {
 }
 
 function chipDisplay(key, value) {
+  if (key === "scene_index") return sceneNumber(value) ?? "未定位"
   if (key === "relation_kind") return kindLabel(props.reviewTypeCatalog, "relation", value)
   if (key === "alias_kind") return kindLabel(props.reviewTypeCatalog, "alias", value)
   if (key === "relation_type") return detailTypeLabel(props.reviewTypeCatalog, "relation", value)

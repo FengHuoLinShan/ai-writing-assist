@@ -1211,6 +1211,11 @@ class WritingConflictCheckService:
         chapter_index: int,
         scene_id: str | None,
         limit: int,
+        draft_id: str | None = None,
+        version_number: int | None = None,
+        content_hash: str | None = None,
+        include_candidates: bool | None = None,
+        ai_review_only: bool = False,
     ) -> WritingConflictCheckListResponse:
         nid = _parse_uuid(novel_id, "novel_id")
         sid = _parse_uuid(scene_id, "scene_id") if scene_id else None
@@ -1220,6 +1225,12 @@ class WritingConflictCheckService:
             chapter_index=chapter_index,
             scene_id=sid,
             limit=limit,
+            draft_id=_parse_uuid(draft_id, "draft_id") if draft_id else None,
+            version_number=version_number,
+            content_hash=content_hash,
+            include_candidates=include_candidates,
+            ai_review_only=ai_review_only,
+            exact_scene_scope=ai_review_only,
         )
         return WritingConflictCheckListResponse(
             items=[self._to_check_response(check, items) for check, items in pairs],

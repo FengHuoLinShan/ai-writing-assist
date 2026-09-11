@@ -766,7 +766,7 @@ def resolve_retrieval_purpose(
     if action.startswith("world.entity_fusion"):
         return "world_fusion"
     if action == "world.ask":
-        return "manual_search"
+        return "ask_world"
     if action.startswith("world.generation"):
         return "world_generation"
     return "generic_context"

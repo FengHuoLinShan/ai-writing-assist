@@ -314,6 +314,8 @@
       <WorldBibleKnowledgeGraph
         :project-id="projectId"
         :active-page="activePage"
+        :active-entity-id="bibleDeepLink?.entityId || null"
+        :type-catalog="reviewTypeCatalog"
         @open-page="openPageCard"
         @open-entity="openGraphEntity"
       />

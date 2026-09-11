@@ -79,6 +79,35 @@ beforeEach(() => {
 afterEach(() => resetBridgeOverrides())
 
 describe("WorldHealthPanel", () => {
+  it("父页面刷新同一回执时重新读取问题，不停留在加载中", async () => {
+    let finish
+    const finding = { finding_id: "gap", severity: "error", action: "CLOSE", category: "missing-world-state", message: "缺少准备" }
+    api.world.listWorldValidationFindings.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const run = completedRun({ gate: "block", findings: [finding] })
+    const wrapper = mountPanel({ initialRun: run })
+    await flushPromises()
+    api.world.listWorldValidationFindings.mockResolvedValue({ items: [finding], total: 1, dispositions: {} })
+    await wrapper.setProps({ initialRun: { ...run, updated_at: "2026-09-11T00:00:00Z" } })
+    finish({ items: [], total: 0 }); await flushPromises()
+    expect(wrapper.text()).not.toContain("正在读取校验问题")
+    expect(wrapper.text()).toContain("准备整体世界设计")
+  })
+
+  it("缺少校验前提可进入世界设计准备，不改变门禁或创建资料", async () => {
+    const navigate = vi.fn()
+    setBridgeOverrides({ router: { navigate }, state: { currentProjectId: "p1" } })
+    const finding = { finding_id: "missing", severity: "error", action: "CLOSE", category: "missing-world-state", message: "尚未保存整体世界设计" }
+    api.world.listWorldValidationFindings.mockResolvedValue({ items: [finding], total: 1, dispositions: {} })
+    const wrapper = mountPanel({ initialRun: completedRun({ gate: "block", findings: [finding] }) })
+    await flushPromises()
+    expect(wrapper.text()).toContain("尚未具备全面校验前提")
+    await wrapper.findAll("button").find(button => button.text() === "准备整体世界设计").trigger("click")
+    expect(navigate.mock.calls[0].slice(0, 3)).toEqual(["generate", null, true])
+    expect(navigate.mock.calls[0][3].get("preset")).toBe("world_core")
+    expect(api.world.activateWorldValidationPolicy).not.toHaveBeenCalled()
+    expect(api.world.createWorldValidationRun).not.toHaveBeenCalled()
+  })
+
   it("读取问题失败不会显示通过，稍后再定的项可继续裁定", async () => {
     const finding = { finding_id: "f1", severity: "warning", action: "AUTHOR-REQUIRED", category: "gap", message: "需要决定" }
     api.world.listWorldValidationFindings.mockRejectedValueOnce(new Error("读取失败"))

@@ -168,11 +168,11 @@
           <template v-if="informationMovements(thread).size">
             <ol class="outline-information-timeline">
               <li v-for="(items, idx) in informationMovementGroups(thread)" :key="idx" class="outline-information-movement">
-                <h4>推进 {{ idx + 1 }}</h4>
+                <h4>{{ informationPlanName(items[0]) }}</h4>
                 <ul class="outline-information-events">
                   <li v-for="item in items" :key="item.plan.id" class="outline-information-node" :data-kind="item.kind">
-                    <span class="outline-information-node__kind">{{ item.kind === "foreshadowing" ? "暗示 / 兑现" : "局部 / 完整揭示" }}</span>
-                    <span v-if="informationPlanChapter(item.plan, item.kind)" class="outline-asset-mono">第 {{ informationPlanChapter(item.plan, item.kind) }} 章</span>
+                    <span class="outline-information-node__kind">{{ informationStage(item) }}</span>
+                    <button v-if="informationPlanChapter(item.plan, item.kind)" class="btn btn-sm" @click="openInformationChapter(item)">回查第 {{ informationPlanChapter(item.plan, item.kind) }} 章</button>
                     <span class="outline-information-node__content">{{ informationPlanContent(item.plan, item.kind) }}</span>
                   </li>
                 </ul>
@@ -406,6 +406,13 @@ function informationPlanChapter(plan, kind) {
   return chapters.length ? Math.min(...chapters) : null
 }
 
+function openInformationChapter(item) {
+  const chapter = informationPlanChapter(item.plan, item.kind)
+  if (chapter) getRouter().navigate("writing", null, true, new URLSearchParams({ chapter_index: String(chapter) }))
+}
+function informationStage(item) {
+  return ({ planted: '已埋设', seeded: '已埋设', hinted: '已暗示', revealed: '已揭示', paid_off: '已兑现', resolved: '已兑现' })[item.plan.status] || '阶段待确认'
+}
 function informationPlanContent(plan, kind) {
   if (kind === "foreshadowing") return plan.summary || plan.hidden_meaning || plan.name
   return plan.secret_summary

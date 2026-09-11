@@ -107,7 +107,7 @@ describe("ShellApp", () => {
 
     expect(host.querySelector('[data-router-owned="yes"]')).toBe(external)
     expect(wrapper.get("#topbar-chapter").text()).toContain("12")
-    expect(wrapper.get("#topbar-chapter-wc").text()).toBe("3,456")
+    expect(wrapper.get("#topbar-chapter-wc").text()).toBe("3,456 字")
     expect(wrapper.get("#topbar-save-state").classes()).toContain("unsaved")
     expect(wrapper.get("#topbar-status-dot").classes()).toContain("connected")
     expect(wrapper.get("#topbar-status-dot").attributes("aria-label")).toBe("服务已连接")

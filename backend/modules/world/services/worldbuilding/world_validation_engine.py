@@ -910,7 +910,7 @@ def deterministic_findings(
                 severity="error" if manifest.get("scope") == "full" else "warning",
                 category="missing-world-state",
                 action=("CLOSE" if manifest.get("scope") == "full" else "CANDIDATE"),
-                message="尚无 world_design_checkpoint，无法审计完整世界状态。",
+                message="尚未保存整体世界设计，暂不具备全面校验的前提。请先在世界核心共创中整理并确认世界设计，再重新校验；已有资料并未丢失。",
             )
         )
         return findings

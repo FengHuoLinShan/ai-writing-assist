@@ -53,6 +53,17 @@ describe("SceneCockpit", () => {
     expect(wrapper.emitted("open-conflict")).toHaveLength(1)
   })
 
+  it("结构警报直达场景，没有检查记录时可开始规则检查", async () => {
+    const wrapper = mountCockpit({ conflict: {}, alerts: [{ id: "structure-pov", severity: "low", message: "缺少视角人物" }] })
+    await wrapper.findAll('[role="tab"]').find(tab => tab.text() === "警报").trigger("click")
+    await wrapper.get(".scene-alert-card__action").trigger("click")
+    expect(wrapper.emitted("organize")).toHaveLength(1)
+    expect(wrapper.emitted("open-conflict")).toBeUndefined()
+    await wrapper.setProps({ alerts: [{ id: "check-missing", severity: "info", message: "尚无检查" }] })
+    await wrapper.get(".scene-alert-card__action").trigger("click")
+    expect(wrapper.emitted("run-conflict")).toHaveLength(1)
+  })
+
   it("默认显示白名单本场摘要，扩展资料需显式点击", async () => {
     const wrapper = mountCockpit({
       scene: {
@@ -139,7 +150,7 @@ describe("SceneCockpit", () => {
     const unlinked = { id: "s2", title: "旅店暗号", scene_index: 3, status: "draft", chapter_ids: [] }
     const wrapper = mountCockpit({ allScenes: [scene, unlinked], associateScene, createScene })
 
-    await wrapper.findAll("button").find((button) => button.text().includes("关联 Scene")).trigger("click")
+    await wrapper.findAll("button").find((button) => button.text().includes("关联场景")).trigger("click")
     expect(wrapper.get('[role="dialog"]').exists()).toBe(true)
     await wrapper.get('[aria-label="关联 旅店暗号"]').trigger("click")
     expect(associateScene).toHaveBeenCalledWith("s2")
@@ -147,13 +158,13 @@ describe("SceneCockpit", () => {
     await wrapper.setProps({ allScenes: [scene, { ...unlinked, chapter_ids: ["1"] }] })
     expect(wrapper.get('[aria-label="旅店暗号已关联"]').text()).toBe("✓")
 
-    await wrapper.findAll("button").find((button) => button.text().includes("新建 Scene")).trigger("click")
+    await wrapper.findAll("button").find((button) => button.text().includes("新建场景")).trigger("click")
     await wrapper.get("#scene-associate-title-input").setValue("  钟楼会面  ")
     await wrapper.get(".scene-associate-create").trigger("submit")
     expect(createScene).toHaveBeenCalledWith("钟楼会面")
     expect(wrapper.get('[role="dialog"]').exists()).toBe(true)
 
-    await wrapper.findAll("button").find((button) => button.text().includes("打开 Scene 工作台")).trigger("click")
+    await wrapper.findAll("button").find((button) => button.text().includes("打开场景工作台")).trigger("click")
     expect(wrapper.emitted("organize")).toHaveLength(1)
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
   })
@@ -164,7 +175,7 @@ describe("SceneCockpit", () => {
       .mockResolvedValueOnce({ id: "s2" })
     const unlinked = { id: "s2", title: "旅店暗号", scene_index: 3, status: "draft", chapter_ids: [] }
     const wrapper = mountCockpit({ allScenes: [scene, unlinked], associateScene })
-    await wrapper.findAll("button").find((button) => button.text().includes("关联 Scene")).trigger("click")
+    await wrapper.findAll("button").find((button) => button.text().includes("关联场景")).trigger("click")
 
     await wrapper.get('[aria-label="关联 旅店暗号"]').trigger("click")
     expect(wrapper.text()).toContain("网络暂时不可用")

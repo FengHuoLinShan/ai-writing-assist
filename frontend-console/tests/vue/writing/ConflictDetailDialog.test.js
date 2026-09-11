@@ -60,7 +60,7 @@ describe("ConflictDetailDialog", () => {
     const wrapper = mount(ConflictDetailDialog, { props: { model: model() } })
     expect(wrapper.text()).toContain("字面预警")
     expect(wrapper.text()).toContain("AI 判断")
-    expect(wrapper.text()).toContain("状态：部分生成")
+    expect(wrapper.text()).toContain("状态：语义复核仅部分完成")
     expect(wrapper.text()).toContain("禁止传送")
     expect(wrapper.text()).toContain("需要人工检查")
     expect(wrapper.text()).toContain("置信度 72%")

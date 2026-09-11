@@ -58,7 +58,8 @@ watch(form, (value) => {
   session.formRouteSignature = currentFormRouteSignature
 }, { deep: true, immediate: true })
 
-const { searching, searchStage, searchError, doSearch, loadMore } = useRagSearch()
+const { searching, searchStage, searchError, doSearch: runSearch, loadMore } = useRagSearch()
+const doSearch = (query, options = {}) => runSearch(query, { ...options, scenes: props.scenes })
 const drawer = useEvidenceDrawer()
 const chapterRangeError = computed(() => (
   normalizeChapterRange(form.chapterFrom, form.chapterTo).error || ""
@@ -133,7 +134,7 @@ async function askWorld() {
       scope: "full",
       user_note: question,
       include_pending_objects: false,
-      budget_tokens: 8000,
+      budget_tokens: 12000,
     })
     const result = await getApi().generate.askWorld(
       { novel_id: projectId, question, context_confirmation_id: confirmation.id },
@@ -323,6 +324,11 @@ async function retry({ literal = false } = {}) {
   await submit()
 }
 
+function adjustQuestion() {
+  const input = document.getElementById("rag-search-input")
+  input?.closest("form")?.scrollIntoView?.({ block: "start" })
+  input?.focus?.({ preventScroll: true })
+}
 function openScene(ref) {
   if (ref?.target_id) getRouter().navigate("scene", ref.target_id)
 }
@@ -384,6 +390,10 @@ onMounted(() => {
 
     <template v-if="askWorldResult">
       <p class="ask-world-answer">{{ askWorldResult.answer }}</p>
+      <div v-if="askWorldResult.no_answer" class="ask-world-recovery">
+        <p v-if="askWorldResult.evidence_trace?.included_titles?.length">本次找到的相关资料：{{ askWorldResult.evidence_trace.included_titles.join('、') }}；它们尚不足以支持答案。</p>
+        <button type="button" class="btn btn-sm" @click="adjustQuestion">调整问题或查找条件</button>
+      </div>
       <div v-if="askWorldResult.claims?.length" class="ask-world-claims">
         <article v-for="(claim, index) in askWorldResult.claims" :key="index" class="ask-world-claim">
           <p>{{ claim.text }}</p>

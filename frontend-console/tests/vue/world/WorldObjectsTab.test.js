@@ -27,6 +27,7 @@ let refreshMock
 function mountTab(propOverrides = {}, mountOptions = {}) {
   return mount(WorldObjectsTab, {
     ...mountOptions,
+    global: { ...mountOptions.global, stubs: { ...mountOptions.global?.stubs, ProjectOrganizationHistory: true } },
     props: {
       projectId: "p-obj",
       entities: ENTITIES,
@@ -399,6 +400,7 @@ describe("页内视图控件", () => {
 
   it("需要决定是直达待处理对象的顶层当前页按钮", async () => {
     const wrapper = shallowMount(WorldView, {
+      global: { stubs: { WorldReviewTab: true } },
       props: {
         projectId: "p-obj",
         subView: "review-objects",
@@ -504,7 +506,7 @@ describe("热点概览", () => {
 })
 
 describe("自动提取抽屉", () => {
-  it("默认收起；autoExtractOpen 时渲染面板并可提交", async () => {
+  it("默认收起；展开后就地读取进度，关闭不切换页面", async () => {
     const startStage = vi.fn(async () => ({ task_id: "task-extract-1", status: "running" }))
     setBridgeOverrides({
       api: { imports: { startStage } },
@@ -516,11 +518,12 @@ describe("自动提取抽屉", () => {
     const wrapper = mountTab()
     const panel = wrapper.find(".world-extract-panel")
     expect(panel.exists()).toBe(true)
-    expect(wrapper.find("#w-extract-status").text()).toContain("就绪")
-    await wrapper.find('[data-action="submit-extract"]').trigger("click")
     expect(startStage).not.toHaveBeenCalled()
-    expect(navigateMock).toHaveBeenCalledWith("writing", null, true, expect.any(URLSearchParams))
-    expect(navigateMock.mock.calls.at(-1)[3].get("organize")).toBe("world_objects")
+    expect(navigateMock).not.toHaveBeenCalled()
+    expect(wrapper.find('[aria-label="整理进度与成果"]').exists()).toBe(true)
+    await wrapper.findAll('button').find(button => button.text() === '关闭').trigger('click')
+    expect(navigateMock).not.toHaveBeenCalled()
+    expect(wrapper.find('[aria-label="整理进度与成果"]').exists()).toBe(false)
   })
 
   it("有 progress 时渲染进度卡而非状态行", () => {

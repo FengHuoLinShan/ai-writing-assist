@@ -24,7 +24,7 @@
           <span class="writing-checkbox-hint">逐段复核并整理相邻场景，需要更长时间</span>
         </label>
         <p v-if="['deep', 'world_objects'].includes(model.stage)" class="writing-form-hint">基础成果先交付；系统保留本批查漏范围，稍后由你确认并继续。</p>
-        <p class="writing-form-hint" role="note">{{ importAuthorizationNotice() }}</p>
+        <p class="writing-form-hint" role="note">{{ importAuthorizationNotice(model.stage) }}</p>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-ghost" @click="requestClose">取消</button>

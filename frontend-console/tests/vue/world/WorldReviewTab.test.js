@@ -137,7 +137,8 @@ describe("二级导航", () => {
 
   it("全部概览按对象优先给出推荐下一项", async () => {
     const wrapper = mountTab({ reviewSubView: "review", reviewKind: "all" })
-    expect(wrapper.findAll(".world-review-overview-card")).toHaveLength(3)
+    expect(wrapper.findAll(".world-review-tabs button")).toHaveLength(4)
+    expect(wrapper.findAll(".world-review-overview-card")).toHaveLength(0)
     expect(wrapper.get(".world-review-next").text()).toContain("对象")
     await wrapper.get('[data-action="open-recommended-review"]').trigger("click")
     expect(navigateMock.mock.calls[0].slice(0, 3)).toEqual(["world", "review", true])
@@ -325,7 +326,7 @@ describe("review-aliases", () => {
       },
     })
     const controls = [
-      ["#review-alias-scene", "按场景序号筛选待处理别名", "3"],
+      ["#review-alias-scene", "按场景序号筛选待处理别名", "4"],
       ["#review-alias-chapter", "按章节序号筛选待处理别名", "2"],
       ["#review-alias-confidence-min", "待处理别名最低置信度", "0.85"],
       ["#review-alias-confidence-max", "待处理别名最高置信度", "0.99"],
@@ -354,7 +355,7 @@ describe("review-aliases", () => {
     expect(query.get("source")).toBe("deep_import")
     expect(query.get("type_kind")).toBe("custom")
     expect(query.get("alias_kind")).toBe("name")
-    expect(query.get("scene_index")).toBe("8")
+    expect(query.get("scene_index")).toBe("7")
     expect(query.get("has_quote")).toBe("false")
     expect(query.get("limit")).toBeNull()
   })
@@ -600,7 +601,7 @@ describe("review-relations", () => {
     const controls = [
       ["#review-relation-kind", "按关系分类筛选待处理关系", "social"],
       ["#review-relation-type", "按详细类型筛选待处理关系", "friend_of"],
-      ["#review-relation-scene", "按场景序号筛选待处理关系", "5"],
+      ["#review-relation-scene", "按场景序号筛选待处理关系", "6"],
       ["#review-relation-source-chapter", "按章节序号筛选待处理关系", "4"],
       ["#review-relation-strength-min", "待处理关系最低强度", "0.7"],
       ["#review-relation-strength-max", "待处理关系最高强度", "0.9"],

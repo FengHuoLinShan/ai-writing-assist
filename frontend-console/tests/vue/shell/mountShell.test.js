@@ -21,7 +21,7 @@ describe("mountShell", () => {
     expect(mounted.getRouteHost().textContent).toBe("router rendered")
     mounted.updateWordcountDashboard({ chapterIndex: 1, chapterWords: 22 })
     await nextTick()
-    expect(document.getElementById("topbar-chapter-wc").textContent).toBe("22")
+    expect(document.getElementById("topbar-chapter-wc").textContent).toBe("22 字")
   })
 
   it("unmounts the shell when initial route bootstrap rejects", async () => {

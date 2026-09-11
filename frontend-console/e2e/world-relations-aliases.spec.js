@@ -266,7 +266,7 @@ test.describe("世界对象 — 关系与别名", () => {
     await expect(aliasBulk).toBeVisible()
     await expect(aliasBulk.locator('[data-bulk-action="review-aliases-batch"]')).toBeDisabled()
     await page.getByRole("button", { name: "更多筛选", exact: true }).click()
-    await page.getByLabel("按场景序号筛选待处理别名", { exact: true }).fill("3")
+    await page.getByLabel("按场景序号筛选待处理别名", { exact: true }).fill("4")
     await page.getByLabel("待处理别名详细类型范围", { exact: true }).selectOption("custom")
     await page.getByLabel("待处理别名每页数量", { exact: true }).selectOption("50")
     await page.locator('[data-action="apply-alias-review-filters"]').last().click()
@@ -300,6 +300,25 @@ test.describe("世界对象 — 关系与别名", () => {
     await expect(page.locator('.bulk-toolbar[data-scope="world-aliases"]')).toBeVisible()
   })
 
+  test("待决定第二页详情返回保留搜索和页码", async ({ page }) => {
+    const source = await createEntity(testProjectId, { name: '分页源对象', entity_type: 'character', status: 'canonical' })
+    for (let index = 0; index < 21; index += 1) {
+      const target = await createEntity(testProjectId, { name: `分页目标${index}`, entity_type: 'character', status: 'canonical' })
+      await createRelation(testProjectId, { source_id: source.id, target_id: target.id, relation_type: 'friend_of', description: `排队关系${index}`, status: 'candidate' })
+    }
+    await reloadWorkbench(page, 'world', 'review-relations')
+    await page.getByRole('textbox', { name: '搜索待处理关系', exact: true }).fill('排队')
+    await page.getByRole('button', { name: '搜索', exact: true }).click()
+    await page.getByRole('button', { name: '下一页', exact: true }).click()
+    await expect(page).toHaveURL(/page=2/)
+    await page.locator('[data-action="prepare-relation-review"]').first().click()
+    await expect(page).toHaveURL(/review_item=/)
+    await page.goBack()
+    await expect(page).toHaveURL(/page=2/)
+    await expect(page).not.toHaveURL(/review_item=/)
+    await expect(page.getByRole('textbox', { name: '搜索待处理关系', exact: true })).toHaveValue('排队')
+  })
+
   test("普通别名和单条关系可在决策栏直接采用", async ({ page }) => {
     const source = await createEntity(testProjectId, { name: "决策栏源对象", entity_type: "character", status: "canonical" })
     const target = await createEntity(testProjectId, { name: "决策栏目标对象", entity_type: "character", status: "canonical" })
@@ -318,8 +337,9 @@ test.describe("世界对象 — 关系与别名", () => {
     await reloadWorkbench(page, "world", "review-relations")
     await page.locator(".review-group-card", { hasText: "直接采用关系" }).click()
     const relationDecision = page.locator(".world-relation-decision")
-    await expect(relationDecision).toContainText("每组只需拖一次")
+    await expect(relationDecision).toContainText("关系发起方")
     await expect(page.locator(SEL.modalOverlay)).toHaveClass(/hidden/)
+    await relationDecision.getByRole("button", { name: "重新配对", exact: true }).click()
     await relationDecision.locator(`[data-person-id="${source.id}"]`).dragTo(relationDecision.locator('[data-relation-slot="source"]'))
     await expect(relationDecision.locator('[data-relation-slot="source"]')).toContainText(source.name)
     await expect(relationDecision.locator('[data-relation-slot="target"]')).toContainText(target.name)
@@ -373,6 +393,7 @@ test.describe("世界对象 — 关系与别名", () => {
     await expect(card).not.toContainText(source.id)
     await card.locator('[data-action="prepare-relation-review"]').click()
     const decision = page.locator(".world-relation-decision")
+    await decision.getByRole("button", { name: "重新配对", exact: true }).click()
     await expect(decision.locator('[data-relation-slot="source"]')).toContainText("拖入人物")
     await decision.locator(`[data-person-id="${source.id}"]`).dragTo(decision.locator('[data-relation-slot="source"]'))
     await expect(decision.locator('[data-relation-slot="target"]')).toContainText(target.name)
@@ -452,7 +473,7 @@ test.describe("世界对象 — 关系与别名", () => {
     await page.setViewportSize({ width: 390, height: 844 })
     await reloadWorkbench(page, "world", "review-aliases")
     const row = page.locator(".review-member-row", { hasText: "移动端焦点别名" })
-    await row.click()
+    await row.press("Enter")
 
     const back = page.getByRole("button", { name: "返回队列", exact: true })
     await expect(back).toBeFocused()
@@ -465,7 +486,7 @@ test.describe("世界对象 — 关系与别名", () => {
     await expect(page).not.toHaveURL(/review_item=/)
     await expect(page.locator(".world-review-queue")).toBeVisible()
 
-    await row.click()
+    await row.press("Enter")
     await page.reload()
     await expect(page.locator("#world-review-decision-title")).toContainText("移动端焦点别名")
     await expect(page.locator(".world-review-queue")).toBeHidden()
@@ -492,6 +513,7 @@ test.describe("世界对象 — 关系与别名", () => {
     await expect(page.getByRole("button", { name: "返回队列", exact: true })).toBeFocused()
 
     const decision = page.locator(".world-relation-decision")
+    await decision.getByRole("button", { name: "重新配对", exact: true }).click()
     await decision.locator(`[data-person-id="${target.id}"]`).click()
     await decision.locator('[data-relation-slot="target"]').click()
     await expect(decision.locator('[data-relation-slot="source"]')).toContainText(source.name)
@@ -513,6 +535,7 @@ test.describe("世界对象 — 关系与别名", () => {
       const card = page.locator(".review-group-card").filter({ hasText: source.name })
       await card.locator('[data-action="prepare-relation-review"]').click()
       const decision = page.locator(".world-relation-decision")
+    await decision.getByRole("button", { name: "重新配对", exact: true }).click()
       adoptedTypes.push(await decision.locator("#relation-inline-type").inputValue())
       await decision.locator(`[data-person-id="${source.id}"]`).dragTo(decision.locator('[data-relation-slot="source"]'))
       await decision.locator('[data-action="confirm-relation-decision"]').click()

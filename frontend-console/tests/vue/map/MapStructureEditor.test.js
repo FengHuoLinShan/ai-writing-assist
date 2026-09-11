@@ -57,14 +57,39 @@ describe("统一地图编辑器", () => {
     vi.unstubAllGlobals()
     resetBridgeOverrides()
   })
-  const render = (props = {}) => mount(MapStructureEditor, { global: { stubs: { teleport: true } }, props: { projectId, node: { id: nodeId, title: "区域", level: "region" }, ...props } })
+  const render = async ({ browseOnly = false, ...props } = {}) => {
+    const wrapper = mount(MapStructureEditor, { global: { stubs: { teleport: true } }, props: { projectId, node: { id: nodeId, title: "区域", level: "region" }, ...props } })
+    await flushPromises()
+    if (!browseOnly) {
+      const edit = wrapper.findAll('button').find(item => item.text() === '编辑所选内容')
+      if (edit) await edit.trigger('click')
+    }
+    return wrapper
+  }
+
+  it('默认先展示画布，详情按需打开，阅读预览只有一份', async () => {
+    const wrapper = await render({ browseOnly: true })
+    expect(wrapper.findAll('.map-reader')).toHaveLength(1)
+    expect(wrapper.find('.map-inspector input').exists()).toBe(false)
+    await button(wrapper, '编辑所选内容').trigger('click')
+    expect(wrapper.findAll('.map-inspector')).toHaveLength(1)
+    expect(wrapper.get('.map-inspector input').element.value).toBe('临江城')
+  })
+
+  it('锁定地点时四个微调按钮均禁用并解释解锁入口', async () => {
+    const data = document(); data.features[0].locked = true
+    api.world.getNodeMap.mockResolvedValue(state(record(data)))
+    const wrapper = await render()
+    for (const label of ['向左移动','向右移动','向上移动','向下移动']) expect(wrapper.get(`button[aria-label="${label}"]`).attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('解锁后才能移动')
+  })
 
   it('保存失败时离开决定仍待定，继续编辑保留当前输入', async () => {
     const proto = HTMLDialogElement.prototype
     const oldShow = proto.showModal, oldClose = proto.close
     proto.showModal = function () { this.open = true }
     proto.close = function () { this.open = false }
-    const wrapper = render(); await flushPromises()
+    const wrapper = await render(); await flushPromises()
     try {
       await wrapper.get('.map-inspector input[maxlength="200"]').setValue('尚未保存的地点名')
       const leaving = wrapper.vm.canLeave()
@@ -81,7 +106,7 @@ describe("统一地图编辑器", () => {
 
   it("成果链接打开指定历史版进行比较而不替换当前编辑", async () => {
     api.world.previewMapRevision.mockResolvedValue({ document: { ...emptyMap(), features: [feature("old", "旧港口", 10, 10)] }, image_layers: [], problems: [] })
-    const wrapper = render({ initialRevisionId: nextId })
+    const wrapper = await render({ initialRevisionId: nextId })
     await flushPromises()
     expect(api.world.previewMapRevision).toHaveBeenCalledWith(projectId, nodeId, nextId)
     expect(wrapper.text()).toContain("正在查看历史地图")
@@ -91,7 +116,7 @@ describe("统一地图编辑器", () => {
   })
 
   it("无需图片连接即可编辑保存，文字使用安全的 SVG 文本", async () => {
-    const wrapper = render()
+    const wrapper = await render()
     await flushPromises()
     expect(wrapper.findAll(".map-feature")).toHaveLength(3)
     await wrapper.get(".map-inspector input").setValue("<img src=x onerror=alert(1)>")
@@ -105,7 +130,7 @@ describe("统一地图编辑器", () => {
   })
 
   it("键盘替代按钮可移动地点，并可撤销重做", async () => {
-    const wrapper = render()
+    const wrapper = await render()
     await flushPromises()
     await wrapper.get('button[aria-label="向右移动"]').trigger("click")
     expect(wrapper.get(".map-feature circle").attributes("cx")).toBe("110")
@@ -118,7 +143,7 @@ describe("统一地图编辑器", () => {
   it.each(['卸载', '立即刷新'])('编辑已备份后撤销回服务端版，%s再重开不会复活已撤销内容', async exit => {
     vi.useFakeTimers()
     const key = `novel_map_draft:test-account:${projectId}:${nodeId}`
-    const wrapper = render(); await flushPromises()
+    const wrapper = await render(); await flushPromises()
     await wrapper.get('.map-inspector input').setValue('不再保留的编辑')
     await vi.advanceTimersByTimeAsync(250)
     expect(JSON.parse(localStorage.getItem(key)).document.features[0].label).toBe('不再保留的编辑')
@@ -133,7 +158,7 @@ describe("统一地图编辑器", () => {
     }
     wrapper.unmount()
     expect(localStorage.getItem(key)).toBeNull()
-    const reopened = render(); await flushPromises()
+    const reopened = await render(); await flushPromises()
     expect(reopened.text()).not.toContain('发现未保存的本机编辑')
     expect(reopened.get('.map-inspector input').element.value).toBe('临江城')
   })
@@ -146,17 +171,17 @@ describe("统一地图编辑器", () => {
     localStorage.setItem(key, raw)
     let finish
     api.world.getNodeMap.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
-    const pending = render()
+    const pending = await render()
     pending.unmount()
     expect(localStorage.getItem(key)).toBe(raw)
     finish(state(record())); await flushPromises()
-    const deciding = render(); await flushPromises()
+    const deciding = await render(); await flushPromises()
     expect(deciding.text()).toContain('发现未保存的本机编辑')
     await vi.advanceTimersByTimeAsync(250)
     deciding.unmount()
     expect(localStorage.getItem(key)).toBe(raw)
     localStorage.setItem(key, '{unfinished')
-    const unreadable = render(); await flushPromises()
+    const unreadable = await render(); await flushPromises()
     unreadable.unmount()
     expect(localStorage.getItem(key)).toBe('{unfinished')
   })
@@ -165,7 +190,7 @@ describe("统一地图编辑器", () => {
     vi.useFakeTimers()
     const oldKey = `novel_map_draft:test-account:${projectId}:${nodeId}`
     const otherKey = `novel_map_draft:other-account:${projectId}:${nodeId}`
-    const wrapper = render(); await flushPromises()
+    const wrapper = await render(); await flushPromises()
     await wrapper.get('.map-inspector input').setValue('旧账户的本机编辑')
     await vi.advanceTimersByTimeAsync(250)
     const oldBackup = localStorage.getItem(oldKey)
@@ -181,7 +206,7 @@ describe("统一地图编辑器", () => {
   it.each([false, true])('干净标签页不删除同账户另一标签页后来写入的备份（本页曾编辑：%s）', async edited => {
     vi.useFakeTimers()
     const key = `novel_map_draft:test-account:${projectId}:${nodeId}`
-    const wrapper = render(); await flushPromises()
+    const wrapper = await render(); await flushPromises()
     if (edited) {
       await wrapper.get('.map-inspector input').setValue('本标签页已备份的编辑')
       await vi.advanceTimersByTimeAsync(250)
@@ -194,7 +219,7 @@ describe("统一地图编辑器", () => {
     globalThis.dispatchEvent(new Event('beforeunload', { cancelable: true }))
     wrapper.unmount()
     expect(localStorage.getItem(key)).toBe(raw)
-    const reopened = render(); await flushPromises()
+    const reopened = await render(); await flushPromises()
     expect(reopened.text()).toContain('发现未保存的本机编辑')
   })
 
@@ -207,7 +232,7 @@ describe("统一地图编辑器", () => {
     const candidate = { ...record(backup, nextId), status: 'candidate', base_revision_id: revisionId }
     api.world.getNodeMap.mockResolvedValue({ ...state(record()), candidates: [candidate] })
     api.world.listMapRevisions.mockResolvedValue([record(backup, 'historical')])
-    const wrapper = render({ images: [{ id: 'image' }] }); await flushPromises()
+    const wrapper = await render({ images: [{ id: 'image' }] }); await flushPromises()
     expect(wrapper.text()).toContain('可以继续浏览')
     expect(wrapper.find('.map-edit-grid').exists()).toBe(false)
     expect(wrapper.find('.map-image-controls').exists()).toBe(false)
@@ -226,7 +251,7 @@ describe("统一地图编辑器", () => {
     wrapper.unmount()
     expect(localStorage.getItem(key)).toBe(raw)
     expect(api.world.reviewMapRevision).not.toHaveBeenCalled()
-    const reopened = render(); await flushPromises()
+    const reopened = await render(); await flushPromises()
     await button(reopened, '恢复到编辑区').trigger('click'); await flushPromises()
     expect(reopened.get('.map-inspector input').element.value).toBe('尚未决定的编辑')
     expect(reopened.vm.dirty).toBe(true)
@@ -259,7 +284,7 @@ describe("统一地图编辑器", () => {
     const key = `novel_map_draft:test-account:${projectId}:${nodeId}`
     const backup = document(); backup.features[0].label = '第一份备份'
     localStorage.setItem(key, JSON.stringify({ base_revision_id: revisionId, document: backup }))
-    const wrapper = render(); await flushPromises()
+    const wrapper = await render(); await flushPromises()
     if (action.startsWith('确认')) await button(wrapper, '放弃本机编辑').trigger('click')
     const changed = document(); changed.features[0].label = '另一处的新备份'
     const raw = JSON.stringify({ base_revision_id: revisionId, document: changed })
@@ -275,7 +300,7 @@ describe("统一地图编辑器", () => {
 
   it('保存请求等待时另一处写入的新备份不被完成清理删除', async () => {
     const key = `novel_map_draft:test-account:${projectId}:${nodeId}`
-    const wrapper = render(); await flushPromises()
+    const wrapper = await render(); await flushPromises()
     await wrapper.get('.map-inspector input').setValue('本页保存内容')
     let finish
     api.world.saveMapRevision.mockReturnValue(new Promise(resolve => { finish = resolve }))
@@ -296,7 +321,7 @@ describe("统一地图编辑器", () => {
     const key = `novel_map_draft:test-account:${projectId}:${nodeId}`
     const backup = document(); backup.features[0].label = '原本待决定的编辑'
     localStorage.setItem(key, JSON.stringify({ base_revision_id: revisionId, document: backup }))
-    const wrapper = render(); await flushPromises()
+    const wrapper = await render(); await flushPromises()
     await button(wrapper, '放弃本机编辑').trigger('click')
     localStorage.setItem(key, '{damaged-in-another-tab')
     await button(wrapper, '确认放弃这份备份').trigger('click'); await flushPromises()
@@ -316,7 +341,7 @@ describe("统一地图编辑器", () => {
     const backup = document(); backup.features[0].label = '不能丢的原备份'
     const raw = JSON.stringify({ base_revision_id: revisionId, document: backup })
     localStorage.setItem(key, raw)
-    const wrapper = render(); await flushPromises()
+    const wrapper = await render(); await flushPromises()
     const original = localStorage.getItem.bind(localStorage)
     const storage = vi.spyOn(localStorage, 'getItem').mockImplementation(value => { if (value === key) throw new Error('storage unavailable'); return original(value) })
     await button(wrapper, '恢复到编辑区').trigger('click'); await flushPromises()
@@ -329,7 +354,7 @@ describe("统一地图编辑器", () => {
   })
 
   it("服务端与本地备份同时失败时不放行导航，也不声称已备份", async () => {
-    const wrapper = render()
+    const wrapper = await render()
     await flushPromises()
     vi.stubGlobal("localStorage", { getItem: () => "test-account", setItem: () => { throw new DOMException("full", "QuotaExceededError") }, removeItem: vi.fn() })
     api.world.saveMapRevision.mockRejectedValue(new Error("保存失败"))
@@ -343,7 +368,7 @@ describe("统一地图编辑器", () => {
   })
 
   it("版本冲突保留当前编辑与旧基准，先提供服务器版比较", async () => {
-    const wrapper = render()
+    const wrapper = await render()
     await flushPromises()
     await wrapper.get(".map-inspector input").setValue("本机修改")
     const server = document(); server.features[0].label = "另一窗口修改"
@@ -361,7 +386,7 @@ describe("统一地图编辑器", () => {
   })
 
   it("晚到布局不能覆盖请求之后的新编辑", async () => {
-    const wrapper = render()
+    const wrapper = await render()
     await flushPromises()
     let finish
     api.world.layoutMap.mockReturnValue(new Promise(resolve => { finish = resolve }))
@@ -378,7 +403,7 @@ describe("统一地图编辑器", () => {
     revision.problems = [{ code: "hidden", message: "后续章节秘密", feature_ids: [] }]
     api.world.getNodeMap.mockResolvedValue({ ...state(revision), candidates: [record(document(), nextId)] })
     api.world.previewReaderMap.mockResolvedValue({ features: [feature("a", "临江城", 100, 100)], images: [], chapter: 1 })
-    const wrapper = render()
+    const wrapper = await render()
     await flushPromises()
     await button(wrapper, "预览读者所见").trigger("click")
     await flushPromises()
@@ -401,7 +426,7 @@ describe("统一地图编辑器", () => {
     const data = document()
     data.images = [{ page_id: pageId, role: "background", feature_id: null, opacity: 0.6, anchors: [], geometry_hash: "a".repeat(64), reader_from_chapter: null, reader_image_hash: null }]
     api.world.getNodeMap.mockResolvedValue({ ...state(record(data)), image_layers: [{ page_id: pageId, role: "background", state: "ready", transform: [200, 0, 0, 200, 100, 100], opacity: 0.6 }] })
-    const wrapper = render({ images: [{ id: pageId, title: "区域底图", image_hash: "b".repeat(64) }] })
+    const wrapper = await render({ images: [{ id: pageId, title: "区域底图", image_hash: "b".repeat(64) }] })
     await flushPromises()
     expect(wrapper.get(".map-canvas image").attributes("transform")).toBe("matrix(200 0 0 200 100 100)")
     await wrapper.get('button[aria-label="向右移动"]').trigger("click")
@@ -413,7 +438,7 @@ describe("统一地图编辑器", () => {
     const data = document()
     data.images = [{ page_id: 'image-a', role: 'illustration', feature_id: 'a', anchors: [] }]
     api.world.getNodeMap.mockResolvedValue(state(record(data)))
-    const wrapper = render({ images: [{ id: 'image-a', title: '城市示意' }, { id: 'image-b', title: '城市示意' }] })
+    const wrapper = await render({ images: [{ id: 'image-a', title: '城市示意' }, { id: 'image-b', title: '城市示意' }] })
     await flushPromises()
     const select = wrapper.get('.map-image-controls select')
     expect(select.text()).toContain('临江城配图')
@@ -429,7 +454,7 @@ describe("统一地图编辑器", () => {
       { id: "location-1", name: "临江城", status: "canonical" },
       { id: "location-2", name: "未采用对象", status: "candidate" },
     ] })
-    const wrapper = render()
+    const wrapper = await render()
     await flushPromises()
     await button(wrapper, "查找").trigger("submit")
     await wrapper.get(".map-location-search").trigger("submit")
@@ -444,7 +469,7 @@ describe("统一地图编辑器", () => {
 
   it.each([null, 0, 2])('整理结果显示安全摘要，尝试计数%s如实展示且不进入读者预览', async attempts => {
     api.world.getNodeMap.mockResolvedValue({ ...state(record()), task_status: 'done', generation_summary: generationSummary({ message: '<img src=x>引文未通过来源检查，已排除。', structured_attempts: attempts }) })
-    const wrapper = render(); await flushPromises()
+    const wrapper = await render(); await flushPromises()
     const feedback = wrapper.get('[aria-label="空间整理结果"]')
     expect(feedback.get('p[role=status]').text()).toBe('<img src=x>引文未通过来源检查，已排除。')
     expect(feedback.find('img').exists()).toBe(false)
@@ -460,7 +485,7 @@ describe("统一地图编辑器", () => {
 
   it('停止整理复用当前项目任务接口，只有服务器成功后才说明已停止', async () => {
     api.world.getNodeMap.mockResolvedValue({ ...state(record()), task_id: 'task-1', task_status: 'running' })
-    const wrapper = render({ hasReference: true }); await flushPromises()
+    const wrapper = await render({ hasReference: true }); await flushPromises()
     api.tasks.cancel.mockRejectedValueOnce(new Error('暂时无法停止'))
     await button(wrapper, '停止本次整理').trigger('click'); await flushPromises()
     expect(wrapper.text()).not.toContain('本次整理已停止')
@@ -483,7 +508,7 @@ describe("统一地图编辑器", () => {
     vi.useFakeTimers()
     api.world.getNodeMap.mockResolvedValue({ ...state(record()), task_id: 'old-task', task_status: 'done', generation_summary: generationSummary({ message: '旧任务摘要' }) })
     api.world.listEntities.mockResolvedValue({ items: [{ id: 'world-location', name: '临江城', status: 'canonical' }] })
-    const wrapper = render(); await flushPromises()
+    const wrapper = await render(); await flushPromises()
     await wrapper.get('.map-location-search').trigger('submit'); await flushPromises()
     await wrapper.get('.map-world-locations input').setValue(true)
     api.world.getNodeMap.mockRejectedValueOnce(new Error('本次地图读取失败'))
@@ -502,7 +527,7 @@ describe("统一地图编辑器", () => {
     const sourceRef = { draft_id: nextId, chapter_index: 30, version_number: 1, content_mode: 'canonical', start_offset: 0, end_offset: 45, source_hash: 'a'.repeat(64), range_hash: 'b'.repeat(64) }
     const data = document(); data.features[0].sources = [{ kind: 'source_range', id: nextId, source_hash: sourceRef.source_hash, source_ref: sourceRef, quote: '临江城位于河岸' }]
     api.world.getNodeMap.mockResolvedValue(state(record(data)))
-    const wrapper = render(); await flushPromises()
+    const wrapper = await render(); await flushPromises()
     const choices = wrapper.findAll('details').find(item => item.find('summary').text() === '整理地图中已有内容')
     await choices.get('input[type=checkbox]').setValue(true)
     await button(wrapper, '整理所选内容的空间关系').trigger('click'); await flushPromises()
@@ -522,7 +547,7 @@ describe("统一地图编辑器", () => {
       return saved
     })
     setBridgeOverrides({ state: { currentProjectId: projectId } })
-    const wrapper = render(); await flushPromises()
+    const wrapper = await render(); await flushPromises()
     const form = wrapper.findAll('form').find(item => item.text().includes('标记名称'))
     await form.get('input').setValue('旅馆')
     await form.trigger('submit')
@@ -553,7 +578,7 @@ describe("统一地图编辑器", () => {
     const candidate = document(); candidate.features[0].note = '第一项'; candidate.features[1].note = '第二项'
     const proposed = { ...record(candidate, nextId), status: 'candidate', base_revision_id: revisionId }
     api.world.getNodeMap.mockResolvedValue({ ...state(record()), candidates: [proposed] })
-    const wrapper = render(); await flushPromises(); await button(wrapper, '查看').trigger('click'); await flushPromises()
+    const wrapper = await render(); await flushPromises(); await button(wrapper, '查看').trigger('click'); await flushPromises()
     const selection = wrapper.findAll('.map-change-review input[type=checkbox]')
     await selection[1].setValue(false)
     const applied = document(); applied.features[0].note = '第一项'
@@ -570,14 +595,14 @@ describe("统一地图编辑器", () => {
   })
 
   it('返回或刷新恢复选中地点、缩放与专注状态，地图文档不改变', async () => {
-    const wrapper = render({ initialFeatureId: 'b' }); await flushPromises()
+    const wrapper = await render({ initialFeatureId: 'b' }); await flushPromises()
     expect(wrapper.get('.map-feature.selected').attributes('data-feature-id')).toBe('b')
     await wrapper.get('[aria-label="空间地图缩放"]').setValue(150)
     wrapper.get('.map-scroll').element.scrollLeft = 120
     wrapper.get('.map-scroll').element.scrollTop = 80
     await wrapper.get('.map-scroll').trigger('scroll')
     wrapper.unmount()
-    const restored = render(); await flushPromises()
+    const restored = await render(); await flushPromises()
     expect(restored.get('.map-feature.selected').attributes('data-feature-id')).toBe('b')
     expect(restored.get('[aria-label="空间地图缩放"]').element.value).toBe('150')
     expect(restored.get('.map-scroll').element.scrollLeft).toBe(120)
@@ -590,7 +615,7 @@ describe("统一地图编辑器", () => {
     const old = record(document(), 'historical')
     api.world.listMapRevisions.mockResolvedValue([old])
     api.world.previewMapRevision.mockResolvedValue({ image_layers: [{ page_id: 'old-image', state: 'ready', role: 'background', opacity: 0.8, transform: [200, 0, 0, 200, 10, 20] }], problems: [] })
-    const wrapper = render(); await flushPromises()
+    const wrapper = await render(); await flushPromises()
     await wrapper.findAll('summary').find(item => item.text() === '地图历史').trigger('click'); await flushPromises()
     await button(wrapper, '查看并比较').trigger('click'); await flushPromises()
     expect(wrapper.text()).toContain('正在查看历史地图')
@@ -603,7 +628,7 @@ describe("统一地图编辑器", () => {
     const candidate = document(); candidate.features[0].note = '原选择'; candidate.features[1].note = '依赖修改'
     api.world.getNodeMap.mockResolvedValue({ ...state(record()), candidates: [{ ...record(candidate, nextId), status: 'candidate', base_revision_id: revisionId }] })
     api.world.previewMapReview.mockResolvedValue({ candidate_revision_id: nextId, base_revision_id: revisionId, applied_change_keys: ['feature:a', 'feature:b'], expanded_change_keys: ['feature:b'] })
-    const wrapper = render(); await flushPromises(); await button(wrapper, '查看').trigger('click'); await flushPromises()
+    const wrapper = await render(); await flushPromises(); await button(wrapper, '查看').trigger('click'); await flushPromises()
     await wrapper.findAll('.map-change-review input')[1].setValue(false)
     await button(wrapper, '核对所选 1 项修改').trigger('click'); await flushPromises()
     expect(wrapper.get('[aria-label="即将采用的修改"]').text()).toContain('黑石关（关联修改）')
@@ -618,7 +643,7 @@ describe("统一地图编辑器", () => {
     api.world.getNodeMap.mockResolvedValue({ ...state(record()), candidates: [{ ...record(candidate, nextId), status: 'candidate', base_revision_id: revisionId }] })
     let finish
     api.world.previewMapReview.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
-    const wrapper = render(); await flushPromises(); await button(wrapper, '查看').trigger('click'); await flushPromises()
+    const wrapper = await render(); await flushPromises(); await button(wrapper, '查看').trigger('click'); await flushPromises()
     await button(wrapper, '核对所选 2 项修改').trigger('click')
     await wrapper.findAll('.map-change-review input')[1].setValue(false)
     finish({ candidate_revision_id: nextId, base_revision_id: revisionId, applied_change_keys: ['feature:a', 'feature:b'], expanded_change_keys: [] }); await flushPromises()
@@ -635,14 +660,14 @@ describe("统一地图编辑器", () => {
     const candidate = document(); candidate.features[0].note = 'A'
     const proposed = { ...record(candidate, nextId), status: 'candidate', base_revision_id: revisionId }
     api.world.getNodeMap.mockResolvedValue({ ...state(record()), candidates: [proposed], task_id: 'task', task_status: 'running' })
-    const wrapper = render(); await flushPromises(); await button(wrapper, '查看').trigger('click'); await flushPromises()
+    const wrapper = await render(); await flushPromises(); await button(wrapper, '查看').trigger('click'); await flushPromises()
     await button(wrapper, '核对所选 1 项修改').trigger('click'); await flushPromises()
     expect(wrapper.find('[aria-label="即将采用的修改"]').exists()).toBe(true)
     api.world.getNodeMap.mockResolvedValue({ ...state(record(document(), 'server-new')), candidates: [proposed] })
     await vi.advanceTimersByTimeAsync(2500); await flushPromises()
     expect(wrapper.find('[aria-label="即将采用的修改"]').exists()).toBe(false)
     wrapper.unmount(); vi.useRealTimers()
-    const refreshed = render(); await flushPromises(); await button(refreshed, '查看').trigger('click'); await flushPromises()
+    const refreshed = await render(); await flushPromises(); await button(refreshed, '查看').trigger('click'); await flushPromises()
     expect(refreshed.find('[aria-label="即将采用的修改"]').exists()).toBe(false)
     expect(button(refreshed, '核对所选 1 项修改').attributes('disabled')).toBeDefined()
   })
@@ -652,7 +677,7 @@ describe("统一地图编辑器", () => {
     api.world.getNodeMap.mockResolvedValue(state(current))
     api.world.listMapRevisions.mockResolvedValue([record(document(), 'historical')])
     api.world.previewMapRevision.mockResolvedValue({ image_layers: [{ page_id: 'old-illustration', role: 'illustration', state: 'ready', feature_id: 'a' }], problems: [{ code: 'stale', message: '历史版正文来源已失效', feature_ids: ['a'] }] })
-    const wrapper = render(); await flushPromises()
+    const wrapper = await render(); await flushPromises()
     await wrapper.findAll('summary').find(item => item.text() === '地图历史').trigger('click'); await flushPromises()
     await button(wrapper, '查看并比较').trigger('click'); await flushPromises()
     expect(wrapper.text()).toContain('历史版正文来源已失效')
@@ -669,13 +694,13 @@ describe("统一地图编辑器", () => {
     api.world.getNodeMap.mockResolvedValue(state(record(data)))
     api.world.previewMapRevision.mockResolvedValue({ document: original, image_layers: [], problems: [] })
     const props = { images: [{ id: 'picture', title: '地图', source_map_revision_id: 'old-source' }] }
-    let wrapper = render(props); await flushPromises()
+    let wrapper = await render(props); await flushPromises()
     await wrapper.get('.map-image-controls select').setValue('picture'); await flushPromises()
     expect(wrapper.text()).toContain('校准点发生变化：临江城')
     await wrapper.get('button[aria-label="向右移动"]').trigger('click')
     await button(wrapper, '保存地图').trigger('click'); await flushPromises()
     expect(wrapper.text()).toContain('校准点发生变化：临江城')
-    wrapper.unmount(); wrapper = render(props); await flushPromises()
+    wrapper.unmount(); wrapper = await render(props); await flushPromises()
     await wrapper.get('.map-image-controls select').setValue('picture'); await flushPromises()
     expect(wrapper.text()).toContain('校准点发生变化：临江城')
     await button(wrapper, '对照图片生成时的地图').trigger('click'); await flushPromises()
@@ -687,7 +712,7 @@ describe("统一地图编辑器", () => {
   it('无生成版的上传图片明确说明基准未知，晚到基准不能套到另一图片', async () => {
     let finish
     api.world.previewMapRevision.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
-    const wrapper = render({ images: [{ id: 'generated', title: '生成图片', source_map_revision_id: 'old-source' }, { id: 'uploaded', title: '上传图片' }] }); await flushPromises()
+    const wrapper = await render({ images: [{ id: 'generated', title: '生成图片', source_map_revision_id: 'old-source' }, { id: 'uploaded', title: '上传图片' }] }); await flushPromises()
     const select = wrapper.get('.map-image-controls select')
     await select.setValue('generated'); await select.setValue('uploaded')
     finish({ document: document(), image_layers: [], problems: [] }); await flushPromises()
@@ -703,7 +728,7 @@ describe("统一地图编辑器", () => {
     const layer = { page_id: 'uploaded', role: 'background', state: 'stale', calibration_revision_id: 'calibrated-old', calibration_lookup_status: 'found' }
     api.world.getNodeMap.mockResolvedValue({ ...state(record(current)), image_layers: [layer] })
     api.world.previewMapRevision.mockResolvedValue({ document: original, image_layers: [], problems: [] })
-    const wrapper = render({ images: [{ id: 'uploaded', title: '上传底图', source_map_revision_id: null }] }); await flushPromises()
+    const wrapper = await render({ images: [{ id: 'uploaded', title: '上传底图', source_map_revision_id: null }] }); await flushPromises()
     await wrapper.get('.map-image-controls select').setValue('uploaded'); await flushPromises()
     expect(api.world.previewMapRevision).toHaveBeenCalledWith(projectId, nodeId, 'calibrated-old')
     expect(wrapper.text()).toContain('校准点发生变化：临江城')
@@ -717,7 +742,7 @@ describe("统一地图编辑器", () => {
 
   it.each(['not_found', 'truncated', null])('没有可信校准版本时(%s)不使用臆测的历史基准', async lookup => {
     api.world.getNodeMap.mockResolvedValue({ ...state(record()), image_layers: [{ page_id: 'uploaded', role: lookup ? 'background' : 'illustration', state: 'unavailable', calibration_revision_id: null, calibration_lookup_status: lookup }] })
-    const wrapper = render({ images: [{ id: 'uploaded', title: '上传图片' }] }); await flushPromises()
+    const wrapper = await render({ images: [{ id: 'uploaded', title: '上传图片' }] }); await flushPromises()
     await wrapper.get('.map-image-controls select').setValue('uploaded'); await flushPromises()
     expect(wrapper.get('.map-image-baseline-status').text()).toContain(lookup === 'truncated' ? '校准历史较多' : lookup === 'not_found' ? '未找到与此底图校准配置匹配' : '没有绑定生成时的地图版本')
     expect(wrapper.get('.map-image-baseline-status').text()).toContain('无法自动判断空间变化')
@@ -728,7 +753,7 @@ describe("统一地图编辑器", () => {
   it('同一图片同时保留生成与校准来源，分别打开对应的冻结地图', async () => {
     api.world.getNodeMap.mockResolvedValue({ ...state(record()), image_layers: [{ page_id: 'picture', role: 'background', state: 'stale', calibration_revision_id: 'calibration', calibration_lookup_status: 'found' }] })
     api.world.previewMapRevision.mockResolvedValue({ document: document(), image_layers: [], problems: [] })
-    const wrapper = render({ images: [{ id: 'picture', title: '地图图片', source_map_revision_id: 'generated' }] }); await flushPromises()
+    const wrapper = await render({ images: [{ id: 'picture', title: '地图图片', source_map_revision_id: 'generated' }] }); await flushPromises()
     await wrapper.get('.map-image-controls select').setValue('picture'); await flushPromises()
     expect(wrapper.get('.map-image-baseline-status').text()).toContain('图片生成时绑定的地图版本')
     expect(button(wrapper, '对照图片生成时的地图')).toBeDefined()
@@ -740,7 +765,7 @@ describe("统一地图编辑器", () => {
   it('两类来源对照只接受最后一次点击，晚到的生成版不能覆盖校准版', async () => {
     api.world.getNodeMap.mockResolvedValue({ ...state(record()), image_layers: [{ page_id: 'picture', role: 'background', state: 'stale', calibration_revision_id: 'calibration', calibration_lookup_status: 'found' }] })
     api.world.previewMapRevision.mockResolvedValue({ document: document(), image_layers: [], problems: [] })
-    const wrapper = render({ images: [{ id: 'picture', title: '地图图片', source_map_revision_id: 'generated' }] }); await flushPromises()
+    const wrapper = await render({ images: [{ id: 'picture', title: '地图图片', source_map_revision_id: 'generated' }] }); await flushPromises()
     await wrapper.get('.map-image-controls select').setValue('picture'); await flushPromises()
     let finish
     const calibrated = document(); calibrated.features[0].label = '校准版地点'
@@ -756,7 +781,7 @@ describe("统一地图编辑器", () => {
   it('空白画布拖动和视口方向键只平移，触摸由原生滚动与缩放处理', async () => {
     const data = document(); data.features.push({ ...feature('area', '区域', 0, 0), kind: 'area', points: [{ x: 0, y: 0 }, { x: 400, y: 0 }, { x: 400, y: 400 }] })
     api.world.getNodeMap.mockResolvedValue(state(record(data)))
-    const wrapper = render(); await flushPromises()
+    const wrapper = await render(); await flushPromises()
     const viewport = wrapper.get('.map-scroll')
     viewport.element.scrollLeft = 100
     await wrapper.get('.map-paper').trigger('pointerdown', { button: 0, clientX: 90, clientY: 40, pointerId: 1, pointerType: 'mouse' })
@@ -784,7 +809,7 @@ describe("统一地图编辑器", () => {
     const data = document()
     data.features.push({ ...feature('road', '河边路', 0, 0), kind: 'road', points: [0, 100, 200, 300].map(x => ({ x, y: 0 })) })
     api.world.getNodeMap.mockResolvedValue(state(record(data)))
-    const wrapper = render(); await flushPromises(); await wrapper.get('[data-feature-id="road"]').trigger('click')
+    const wrapper = await render(); await flushPromises(); await wrapper.get('[data-feature-id="road"]').trigger('click')
     const select = label => wrapper.findAll('.map-inspector label').find(item => item.text().startsWith(label)).get('select')
     await select('控制点').setValue('1')
     await button(wrapper, '移出选中控制点').trigger('click')
@@ -803,13 +828,13 @@ describe("统一地图编辑器", () => {
   it('密集标签优先显示选中内容，切账号不能读取或写入另一账号视角', async () => {
     const data = document(); data.features = ['a', 'b', 'c', 'd', 'e'].map(id => feature(id, '地点' + id, 100, 100))
     api.world.getNodeMap.mockResolvedValue(state(record(data)))
-    const wrapper = render(); await flushPromises(); await wrapper.get('[data-feature-id="e"]').trigger('click')
+    const wrapper = await render(); await flushPromises(); await wrapper.get('[data-feature-id="e"]').trigger('click')
     expect(wrapper.get('[data-feature-id="e"] text').text()).toBe('地点e')
     await wrapper.get('[aria-label="空间地图缩放"]').setValue(180)
     localStorage.setItem('novel_accountId', 'another-account')
     await wrapper.get('[aria-label="空间地图缩放"]').setValue(190)
     wrapper.unmount()
-    const next = render(); await flushPromises()
+    const next = await render(); await flushPromises()
     expect(next.get('[aria-label="空间地图缩放"]').element.value).toBe('100')
     expect(next.get('.map-feature.selected').attributes('data-feature-id')).toBe('a')
   })
@@ -820,7 +845,7 @@ describe("统一地图编辑器", () => {
     candidate.constraints = [{ id: "c1", subject: "a", target: "b", relation: "east", via: [], sources: [] }]
     candidate.images = [{ page_id: "private-page-id", role: "illustration", anchors: [] }]
     api.world.getNodeMap.mockResolvedValue({ ...state(record()), candidates: [{ ...record(candidate, nextId), status: "candidate", base_revision_id: revisionId }] })
-    const wrapper = render(); await flushPromises()
+    const wrapper = await render(); await flushPromises()
     await button(wrapper, "查看").trigger("click")
     expect(wrapper.get('[aria-label="候选地图差异"]').text()).toContain("临江新城 · 在东侧 · 黑石关")
     expect(wrapper.get('[aria-label="候选地图差异"]').text()).toContain("地点配图")
@@ -841,7 +866,7 @@ describe("统一地图编辑器", () => {
         coverage: { complete: true, total_chapters: 1, scanned_chapters: 1 }, warnings: [],
       } })),
     }
-    const wrapper = render(); await flushPromises()
+    const wrapper = await render(); await flushPromises()
     const panel = wrapper.get(".focused-evidence")
     panel.element.open = true; await panel.trigger("toggle")
     await panel.get("input").setValue("待核对地点")
@@ -860,7 +885,7 @@ describe("统一地图编辑器", () => {
   })
 
   it("专注浏览能查找选择地点，方向键和拖动不会改图", async () => {
-    const wrapper = render(); await flushPromises()
+    const wrapper = await render(); await flushPromises()
     await button(wrapper, "专注看图").trigger("click")
     expect(wrapper.find(".map-edit-grid").exists()).toBe(false)
     expect(wrapper.find('.map-reader').exists()).toBe(false)
@@ -883,7 +908,7 @@ describe("统一地图编辑器", () => {
     const data = document()
     data.features[0].sources = [{ kind: 'source_range', quote: '前往临江城', source_ref: { chapter_index: 12 } }]
     api.world.getNodeMap.mockResolvedValue(state(record(data)))
-    const wrapper = render(); await flushPromises()
+    const wrapper = await render(); await flushPromises()
     await wrapper.get('button[aria-label="向右移动"]').trigger('click')
     await button(wrapper, '专注看图').trigger('click')
     expect(wrapper.get('.map-save-status').text()).toContain('未保存')

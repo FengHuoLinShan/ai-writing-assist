@@ -471,3 +471,14 @@ def test_map_upload_keeps_clean_png_byte_identical() -> None:
     normalized, metadata = normalize_map_upload(PNG)
     assert normalized == PNG
     assert metadata.sha256 == hashlib.sha256(PNG).hexdigest()
+
+
+@pytest.mark.asyncio
+async def test_map_capabilities_http_accepts_valid_project_uuid(
+    async_client, test_project_id
+):
+    response = await async_client.get(
+        "/api/world/map-atlas/capabilities", params={"novel_id": test_project_id}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["structure"]["available"] is True

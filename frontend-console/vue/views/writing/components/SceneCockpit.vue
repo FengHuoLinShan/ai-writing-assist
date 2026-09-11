@@ -16,10 +16,10 @@
 
     <section v-if="!railCollapsed && chapter" class="scene-cockpit-switcher" aria-labelledby="scene-cockpit-switcher-title">
       <div class="scene-cockpit-switcher__head">
-        <strong id="scene-cockpit-switcher-title">本章 Scene</strong>
-        <button type="button" class="btn btn-sm btn-ghost" @click="openAssociate">＋ 关联 Scene</button>
+        <strong id="scene-cockpit-switcher-title">本章场景</strong>
+        <button type="button" class="btn btn-sm btn-ghost" @click="openAssociate">＋ 关联场景</button>
       </div>
-      <div v-if="scenes.length" class="scene-cockpit-switcher__list" role="list" aria-label="切换本章 Scene">
+      <div v-if="scenes.length" class="scene-cockpit-switcher__list" role="list" aria-label="切换本章场景">
         <button
           v-for="item in scenes"
           :key="item.id"
@@ -27,14 +27,14 @@
           class="scene-cockpit-switcher__item"
           :class="{ active: item.id === scene?.id }"
           :aria-pressed="item.id === scene?.id"
-          :title="item.title || '未命名 Scene'"
+          :title="item.title || '未命名场景'"
           @click="$emit('select-scene', item.id)"
         >
-          <span>{{ item.title || '未命名 Scene' }}</span>
+          <span>{{ item.title || '未命名场景' }}</span>
           <small v-if="sceneChapterCount(item) > 1">跨章</small>
         </button>
       </div>
-      <p v-else class="scene-cockpit-switcher__empty">本章未关联 Scene</p>
+      <p v-else class="scene-cockpit-switcher__empty">本章未关联场景</p>
     </section>
 
     <div v-if="!railCollapsed && !chapter" class="empty-state writing-scene-panel-empty">
@@ -43,11 +43,11 @@
     <div v-else-if="!railCollapsed && scene" class="scene-alert-summary" :class="`scene-alert-summary--${alertSummary.highest}`" aria-live="polite">
       <span v-if="loading">警报加载中…</span>
       <span v-else-if="alertSummary.actionable">
-        {{ alertSummary.actionable }} 项警报 · 最高{{ severityLabel(alertSummary.highest) }}严重度{{ alertSummary.stale ? ' · 最近校验已过期' : '' }}
+        {{ alertSummary.actionable }} 项警报 · {{ severityLabel(alertSummary.highest) }}{{ alertSummary.stale ? ' · 最近校验已过期' : '' }}
       </span>
       <span v-else>✓ 当前未发现确定性警报</span>
     </div>
-    <div v-if="!railCollapsed && chapter && !scene" class="scene-cockpit-empty">关联 Scene 后，可在这里查看本次写作的人物、设定和检查结果。</div>
+    <div v-if="!railCollapsed && chapter && !scene" class="scene-cockpit-empty">关联场景 后，可在这里查看本次写作的人物、设定和检查结果。</div>
 
     <template v-if="!railCollapsed && chapter && scene">
       <div class="cockpit-tabs" role="tablist" aria-label="场景参考">
@@ -58,9 +58,9 @@
           <div v-if="alertError" class="scene-alert-load-error">{{ alertError }}</div>
           <template v-for="severity in severities" :key="severity">
             <section v-if="alertsBySeverity[severity].length" class="scene-alert-group" :class="`scene-alert-group--${severity}`">
-              <div class="scene-alert-group__title">{{ severityLabel(severity) }}严重度 · {{ alertsBySeverity[severity].length }}</div>
+              <div class="scene-alert-group__title">{{ severityLabel(severity) }} · {{ alertsBySeverity[severity].length }}</div>
               <article v-for="(alert, index) in alertsBySeverity[severity]" :key="alert.code || index" class="scene-alert-card" :class="`scene-alert-card--${severity}`">
-                <div class="scene-alert-card__head"><span>{{ alert.source || '现场' }}<template v-if="alert.stale"> · 已过期</template></span><button type="button" class="scene-alert-card__action" @click="$emit('open-conflict')">查看 →</button></div>
+                <div class="scene-alert-card__head"><span>{{ alert.source || '现场' }}<template v-if="alert.stale"> · 已过期</template></span><button type="button" class="scene-alert-card__action" @click="openAlert(alert)">查看 →</button></div>
                 <div class="scene-alert-card__message">{{ alert.message || alert.label || alert.code }}</div>
                 <div v-if="alert.detail" class="scene-alert-card__detail">{{ alert.detail }}</div>
               </article>
@@ -121,7 +121,7 @@
     <div v-if="associateOpen" ref="overlayRef" class="modal-overlay" @keydown="onKeydown" @focusin="onFocusin">
       <div ref="dialogRef" class="modal-content scene-associate-dialog" role="dialog" aria-modal="true" aria-labelledby="scene-associate-title" tabindex="-1">
         <div class="modal-header">
-          <h3 id="scene-associate-title">关联 Scene</h3>
+          <h3 id="scene-associate-title">关联场景</h3>
           <button type="button" class="btn-icon" aria-label="关闭" @click="requestClose">×</button>
         </div>
         <div class="modal-body">
@@ -136,30 +136,30 @@
           </form>
           <template v-else>
             <label class="scene-associate-search" for="scene-associate-search">
-              <span class="sr-only">搜索已有 Scene</span>
-              <input id="scene-associate-search" v-model="search" class="form-input" type="search" placeholder="搜索已有 Scene…">
+              <span class="sr-only">搜索已有场景</span>
+              <input id="scene-associate-search" v-model="search" class="form-input" type="search" placeholder="搜索已有场景…">
             </label>
             <div class="scene-associate-list" role="list">
               <div v-for="item in filteredScenes" :key="item.id" class="scene-associate-row" role="listitem">
-                <span :title="item.title || '未命名 Scene'">{{ item.title || '未命名 Scene' }}</span>
+                <span :title="item.title || '未命名场景'">{{ item.title || '未命名场景' }}</span>
                 <button
                   v-if="!isAssociated(item)"
                   type="button"
                   class="btn-icon"
                   :disabled="rowBusy === item.id"
-                  :aria-label="`关联 ${item.title || '未命名 Scene'}`"
+                  :aria-label="`关联 ${item.title || '未命名场景'}`"
                   @click="associate(item)"
                 >{{ rowBusy === item.id ? '…' : '＋' }}</button>
-                <span v-else class="scene-associate-check" :aria-label="`${item.title || '未命名 Scene'}已关联`">✓</span>
+                <span v-else class="scene-associate-check" :aria-label="`${item.title || '未命名场景'}已关联`">✓</span>
                 <p v-if="rowErrors[item.id]" class="writing-form-error" role="alert">{{ rowErrors[item.id] }}</p>
               </div>
-              <p v-if="!filteredScenes.length" class="cockpit-empty">没有匹配的 Scene</p>
+              <p v-if="!filteredScenes.length" class="cockpit-empty">没有匹配的场景</p>
             </div>
           </template>
         </div>
         <div v-if="!creating" class="modal-footer scene-associate-footer">
-          <button type="button" class="btn" @click="startCreate">＋ 新建 Scene</button>
-          <button type="button" class="btn" @click="openWorkbench">打开 Scene 工作台</button>
+          <button type="button" class="btn" @click="startCreate">＋ 新建场景</button>
+          <button type="button" class="btn" @click="openWorkbench">打开场景工作台</button>
         </div>
       </div>
     </div>
@@ -190,6 +190,11 @@ const props = defineProps({
   lens: { type: Object, default: () => ({ loading: false, data: null, error: null }) },
   evidenceRefs: { type: Array, default: () => [] },
 })
+function openAlert(alert) {
+  if (String(alert.id || alert.code || "").startsWith("structure-")) emit("organize", alert.id || alert.code)
+  else if (props.conflict?.latest) emit("open-conflict")
+  else emit("run-conflict")
+}
 const emit = defineEmits(["run-conflict", "open-conflict", "insert-text", "organize", "toggle-collapse", "select-scene", "load-lens", "pin-evidence", "clear-evidence", "open-map"])
 const locationEntityId = computed(() => typeof props.location === "object"
   ? props.location?.entity_id || props.location?.id || null : null)
@@ -286,6 +291,6 @@ const alertSummary = computed(() => {
   }
 })
 
-const severityLabel = (severity) => ({ high: "高", medium: "中", low: "提示", info: "信息" }[severity] || severity)
+const severityLabel = (severity) => ({ high: "需优先处理", medium: "需要核对", low: "提示", info: "信息" }[severity] || severity)
 const personName = (person) => person?.name || person?.title || "未命名"
 </script>

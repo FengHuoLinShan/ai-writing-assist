@@ -119,3 +119,8 @@ P20采用在同一事务向 source.changed 发出真实成果引用；规则引�
 ## World dependency review
 
 `list_world_dependencies` / `read_world_dependency` expose versioned, read-only references from plot threads, arcs, Scenes and the current story-outline revision. They separate declared object references from literal outline mentions and return source hashes. World owns review receipts; resolving a finding still uses Story's own editor and version rules. The seam does not write World, Writing or continuity state, and planning records have no reader/Scene-local visibility projection.
+
+
+### 审阅与导航体验约定
+
+场景相关用户标签统一使用“场景”；剧本区修改或切换文件后将临时检查标为过期，检查不被解释为新稿结论。篇章行编辑只备份实际修改，提供取消及Escape退出。

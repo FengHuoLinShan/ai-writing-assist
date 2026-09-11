@@ -271,9 +271,10 @@
 
 <script setup>
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
+import { sceneNumber } from "../../../shared/sceneNumbers.js"
 import { structureAssetDisplay, worldAssetDisplay } from "../../../shared/assetDisplayState.js"
 import { confirmAsync } from "../../../shared/confirmAsync.js"
-import { getApi, getConfirm, getRouter } from "../../bridge/index.js"
+import { getApi, getConfirm, getRouteQuery, getRouter } from "../../bridge/index.js"
 import WorkspaceToolCard from "../../components/WorkspaceToolCard.vue"
 import { focusWorkspaceTool } from "../../components/workspaceTools.js"
 import ActionMenu from "../../components/ActionMenu.vue"
@@ -552,6 +553,19 @@ function storedRailOpen() {
   try { return sessionStorage.getItem(railKey.value) !== "closed" } catch { return true }
 }
 const railOpen = ref(storedRailOpen())
+watch(() => selectedItem.value?.scene?.id, async id => {
+  const field = getRouteQuery().get('scene_field')
+  const selectors = { 'pov-character': '#scene-detail-pov-character', goal: '#scene-detail-goal', core_conflict: '#scene-detail-core_conflict', emotional_beat: '#scene-detail-emotional_beat', review: '.scene-detail-context-action', context: '#scene-detail-context-title' }
+  if (!id || !selectors[field]) return
+  railOpen.value = true
+  if (narrow.value) mobileDetailOpen.value = true
+  await nextTick()
+  if (selectedItem.value?.scene?.id !== id) return
+  const target = toolsRoot.value?.querySelector(selectors[field])
+  target?.scrollIntoView?.({ block: 'center' })
+  const input = target?.querySelector('input,button') || target
+  input?.focus?.()
+}, { immediate: true })
 watch(railKey, () => { railOpen.value = storedRailOpen() })
 function onRailToggle(event) {
   railOpen.value = event.target.open
@@ -561,7 +575,7 @@ function onRailToggle(event) {
 function createPlannedScene() {
   return showOutlineLayerAiForm("planned_scene", { selectedIds: selectedItem.value?.scene?.id ? [selectedItem.value.scene.id] : [] })
 }
-function sceneIndex(scene) { return Number.isFinite(Number(scene?.scene_index)) ? Number(scene.scene_index) + 1 : "-" }
+function sceneIndex(scene) { return sceneNumber(scene?.scene_index) ?? "-" }
 function segmentLabel(segment) { return { current: "当前剧情", upcoming: "后续", past: "已写过", unassigned: "未定位" }[segment] || "" }
 function firstOverlap(item) { return Array.isArray(item?.overlap_details) ? item.overlap_details[0] : null }
 function rowSpanSummary(item) {
@@ -664,7 +678,7 @@ const SceneDetailPanel = defineComponent({
         componentProps.saveError ? h("p", { class: "scene-detail-save-error", role: "alert" }, `保存失败：${componentProps.saveError}`) : null,
         h("div", { class: "scene-detail-actions" }, [
           h("button", { class: "btn btn-primary", disabled: componentProps.saving || !componentProps.dirty, "data-action": "save-scene-detail", onClick: () => emit("save") }, componentProps.saving ? "保存中..." : componentProps.dirty ? "保存修改" : "已保存"),
-          action.key !== "edit" ? h("button", { class: "btn btn-sm", disabled: Boolean(secondaryHint), title: secondaryHint || undefined, onClick: () => emit("context") }, action.label) : null,
+          action.key !== "edit" ? h("button", { class: "btn btn-sm scene-detail-context-action", disabled: Boolean(secondaryHint), title: secondaryHint || undefined, onClick: () => emit("context") }, action.label) : null,
           h(ActionMenu, {
             class: "scene-detail-action-menu",
             menuId: `scene-detail-actions-${scene.id}`,

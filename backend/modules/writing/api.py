@@ -111,6 +111,11 @@ async def list_conflict_checks(
     novel_id: NovelIdQuery,
     chapter_index: int = Query(..., ge=1, description="章节索引"),
     scene_id: str | None = Query(None, description="Scene ID"),
+    draft_id: str | None = Query(None),
+    version_number: int | None = Query(None, ge=1),
+    content_hash: str | None = Query(None, pattern=r"^[0-9a-f]{64}$"),
+    include_candidates: bool | None = Query(None),
+    ai_review_only: bool = Query(False),
     limit: int = Query(10, ge=1, le=50, description="返回条数"),
 ) -> WritingConflictCheckListResponse:
     """获取章节/Scene 的冲突检查历史，最近记录优先。"""
@@ -121,6 +126,11 @@ async def list_conflict_checks(
         chapter_index=chapter_index,
         scene_id=scene_id,
         limit=limit,
+        draft_id=draft_id,
+        version_number=version_number,
+        content_hash=content_hash,
+        include_candidates=include_candidates,
+        ai_review_only=ai_review_only,
     )
 
 

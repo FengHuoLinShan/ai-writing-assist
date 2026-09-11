@@ -1281,6 +1281,7 @@ def _summary_with_ai_review(
         }
     )
     summary["ai_review"] = {
+        "recorded_at": datetime.now(UTC).isoformat(),
         "status": status,
         "item_count": ai_count,
         "discarded_count": discarded_count,

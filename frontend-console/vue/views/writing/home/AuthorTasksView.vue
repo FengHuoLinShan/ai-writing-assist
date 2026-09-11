@@ -8,6 +8,7 @@ import { useAuthorTasks } from "./useAuthorTasks.js"
 
 const props = defineProps({
   projectId: { type: String, required: true },
+  create: { type: Boolean, default: false },
   scope: { type: String, default: "today" },
   source: { type: Object, default: null },
 })
@@ -44,7 +45,7 @@ const activeScope = ["today", "inbox", "later", "completed", "archived"].include
   ? props.scope
   : "today"
 const tasks = useAuthorTasks(props.projectId, activeScope)
-const formOpen = ref(Boolean(props.source || restoredDraft))
+const formOpen = ref(Boolean(props.create || props.source || restoredDraft))
 const editingTask = ref(restoredDraft?.task || null)
 const restoredSource = ref(restoredDraft?.source || null)
 const initialDraft = ref(restoredDraft?.form || null)
@@ -101,7 +102,12 @@ async function save(payload) {
     formOpen.value = false
     editingTask.value = null
     tasks.clearConflict()
-    if (!task && props.source) clearTaskSource()
+    if (!task) {
+      const today = new Date().toLocaleDateString("en-CA")
+      const scope = !payload.due_date ? "inbox" : payload.due_date <= today ? "today" : "later"
+      if (scope !== activeScope) navigateScope(scope)
+      else clearTaskSource()
+    }
   } finally {
     if (!disposed) submitting.value = false
   }
@@ -124,6 +130,7 @@ function closeForm() {
   tasks.clearConflict()
   formOpen.value = false
   editingTask.value = null
+  if (props.create || props.source) clearTaskSource()
 }
 
 const formSource = computed(() => editingTask.value?.source || restoredSource.value || props.source)
@@ -192,7 +199,7 @@ onBeforeUnmount(() => {
       <button type="button" class="btn btn-sm btn-ghost author-task-tabs__archive" :disabled="navigationBusy" :aria-current="activeScope === 'archived' ? 'page' : undefined" @click="navigateScope('archived')">已归档</button>
     </nav>
 
-    <AuthorTaskForm v-if="formOpen" :task="editingTask" :source="formSource" :draft="initialDraft" :busy="navigationBusy" @submit="save" @cancel="closeForm" @change="rememberDraft" />
+    <AuthorTaskForm v-if="formOpen" :default-date="activeScope === 'today' ? new Date().toLocaleDateString('en-CA') : ''" :task="editingTask" :source="formSource" :draft="initialDraft" :busy="navigationBusy" @submit="save" @cancel="closeForm" @change="rememberDraft" />
     <p v-if="tasks.conflict.value" class="author-task-conflict field-error" role="alert">{{ tasks.conflict.value.message }}</p>
 
     <div v-if="tasks.loadError.value" class="error-card" role="alert">

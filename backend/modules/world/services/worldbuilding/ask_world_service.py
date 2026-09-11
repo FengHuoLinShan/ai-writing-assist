@@ -86,12 +86,27 @@ class AskWorldService:
                 action="world.ask",
                 confirmation_id=data.context_confirmation_id,
             )
-        candidates, retrieval = await self._retrieve_candidates(db, data)
+        candidates, retrieval = await self._retrieve_candidates(
+            db,
+            data,
+            top_k=int(prepared.compile_options.get("top_k", 10))
+            if prepared is not None
+            else 10,
+        )
         if prepared is not None:
             before = len(candidates)
             candidates = self._confirmed_candidates(
                 candidates,
                 prepared.confirmation.selected_asset_ids,
+                source_refs=[
+                    source["source_ref"]
+                    for section in prepared.compiled.sections
+                    for source in (
+                        [item.source for item in section.items if item.source]
+                        or section.sources
+                    )
+                    if isinstance(source.get("source_ref"), dict)
+                ],
             )
             if len(candidates) < before:
                 retrieval.setdefault("warnings", []).append(
@@ -99,7 +114,9 @@ class AskWorldService:
                 )
         from modules.evidence.facade import compile_author_question_evidence
 
-        packet = compile_author_question_evidence(candidates)
+        packet = compile_author_question_evidence(
+            candidates, max_sources=10 if prepared is not None else 5
+        )
         included = packet["included"]
         trace = self._evidence_trace(packet["trace"], candidates, retrieval)
         if not included:
@@ -150,6 +167,8 @@ class AskWorldService:
     def _confirmed_candidates(
         candidates: list[dict],
         selected_asset_ids: dict[str, list[str]],
+        *,
+        source_refs: list[dict] | None = None,
     ) -> list[dict]:
         allowed_pages = set(selected_asset_ids.get("world_bible_page") or [])
         allowed_entities = set(selected_asset_ids.get("world_entities") or [])
@@ -169,8 +188,30 @@ class AskWorldService:
                     result.append(candidate)
             elif kind == "manuscript":
                 source = dict(citation.source_ref or {})
-                if str(source.get("draft_id") or "") in allowed_drafts:
-                    result.append(candidate)
+                if str(source.get("draft_id") or "") not in allowed_drafts:
+                    continue
+                if source_refs is not None and not any(
+                    all(
+                        source.get(key) == ref.get(key)
+                        for key in (
+                            "draft_id",
+                            "version_number",
+                            "source_hash",
+                            "content_mode",
+                        )
+                    )
+                    and isinstance(source.get("start_offset"), int)
+                    and isinstance(source.get("end_offset"), int)
+                    and isinstance(ref.get("start_offset"), int)
+                    and isinstance(ref.get("end_offset"), int)
+                    and ref["start_offset"]
+                    <= source["start_offset"]
+                    < source["end_offset"]
+                    <= ref["end_offset"]
+                    for ref in source_refs
+                ):
+                    continue
+                result.append(candidate)
         return result
 
     async def open_citation(
@@ -263,6 +304,8 @@ class AskWorldService:
         self,
         db: AsyncSession,
         data: AskWorldQuestionRequest,
+        *,
+        top_k: int = 10,
     ) -> tuple[list[dict], dict]:
         from modules.evidence.facade import retrieve_planned_context_evidence
 
@@ -273,7 +316,7 @@ class AskWorldService:
             retrieval_purpose="ask_world",
             consumer_action="world.ask",
             content_mode="canonical",
-            top_k=10,
+            top_k=top_k,
         )
         candidates = await self._page_candidates(db, data)
         entity_candidates, entity_limited = await self._entity_candidates(db, data)

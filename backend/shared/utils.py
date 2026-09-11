@@ -16,6 +16,7 @@ from core.errors import ValidationError as DomainValidationError
 
 logger = logging.getLogger(__name__)
 
+
 def parse_uuid(value: str, field_name: str = "id") -> uuid.UUID:
     """将字符串 ID 解析为 UUID，格式错误时抛出 422
 
@@ -148,3 +149,15 @@ def parse_llm_json(content: str, label: str = "LLM response") -> dict:
 
     logger.warning("%s JSON parse failed (length=%d)", label, len(text))
     raise ValueError(f"{label} is not valid JSON")
+
+
+def retrieval_question_text(value: str) -> str:
+    """Remove citation-request boilerplate only; source visibility is unchanged."""
+    value = re.sub(
+        r"请(?:给出|提供|附上)(?:相关|对应|明确的?)?(?:章节依据|章节出处|原文依据)[。！!]?",
+        " ",
+        value,
+    )
+    value = re.sub(r"请引用第[0-9一二三四五六七八九十百]+章[。！!]?", " ", value)
+    value = re.sub(r"^前\s*\d+\s*章[中里]?[，,\s]*", "", value)
+    return value.strip()

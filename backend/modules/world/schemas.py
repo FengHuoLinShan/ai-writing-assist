@@ -761,9 +761,9 @@ class AskWorldClaim(BaseModel):
 
 
 class AskWorldEvidenceTrace(BaseModel):
-    included_titles: list[str] = Field(default_factory=list, max_length=5)
+    included_titles: list[str] = Field(default_factory=list, max_length=10)
     excluded_count: int = Field(default=0, ge=0)
-    truncated_titles: list[str] = Field(default_factory=list, max_length=5)
+    truncated_titles: list[str] = Field(default_factory=list, max_length=10)
     warnings: list[str] = Field(default_factory=list, max_length=20)
     degraded: bool = False
     checks_run: list[str] = Field(default_factory=list, max_length=10)
@@ -776,7 +776,7 @@ class AskWorldResponse(BaseModel):
     claims: list[AskWorldClaim] = Field(default_factory=list, max_length=8)
     uncertainty: str = Field(default="", max_length=2000)
     no_answer: bool = False
-    citations: list[AskWorldCitation] = Field(default_factory=list, max_length=5)
+    citations: list[AskWorldCitation] = Field(default_factory=list, max_length=10)
     response_hash: str = Field(..., pattern=r"^[0-9a-f]{64}$")
     evidence_trace: AskWorldEvidenceTrace
     model: str = ""
@@ -799,7 +799,7 @@ class AskWorldSaveRequest(BaseModel):
     answer: str = Field(..., min_length=1, max_length=6000)
     claims: list[AskWorldClaim] = Field(..., min_length=1, max_length=8)
     uncertainty: str = Field(default="", max_length=2000)
-    citations: list[AskWorldCitation] = Field(..., min_length=1, max_length=5)
+    citations: list[AskWorldCitation] = Field(..., min_length=1, max_length=10)
     response_hash: str = Field(..., pattern=r"^[0-9a-f]{64}$")
 
     @model_validator(mode="after")
@@ -2659,6 +2659,7 @@ class WorldKnowledgeGraphNode(BaseModel):
 
 
 class WorldKnowledgeGraphEdge(BaseModel):
+    relation_type: str | None = None
     id: str
     kind: Literal["page_reference", "page_entity_reference", "entity_relation"]
     source_id: str

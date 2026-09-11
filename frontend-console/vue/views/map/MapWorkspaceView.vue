@@ -11,14 +11,7 @@
     </header>
     <p v-if="mapCapabilities?.upload?.available === false" class="atlas-alert" role="status">{{ mapCapabilities.upload.reason }} 空间示意仍可编辑，画面说明可复制后在外部使用。</p>
 
-    <details v-if="activeNode && !structureState.reader && !structureState.focused" class="atlas-image-tools card">
-      <summary>图片与底图</summary>
-      <div class="atlas-primary-actions">
-        <button v-if="activeNode.current_revision_id || activePage" class="btn" :disabled="writeLocked || runUnfinished" @click="startRun(false)">{{ mapCapabilities?.image_generation?.available === false ? "准备画面说明" : "添加地图画面" }}</button>
-        <button class="btn" :disabled="writeLocked || runUnfinished || mapCapabilities?.upload?.available === false" @click="openUpload">上传地图图片</button>
-        <button v-if="structureEnabled && nodeImages.length" class="btn" @click="structureEditor?.runToolbarAction('image-settings')">设置底图与地点配图</button>
-      </div>
-    </details>
+
     <form v-if="creatingMap" class="card atlas-options" aria-label="新建空间地图" @submit.prevent="createMap">
       <label>地图名称<input v-model="newMap.title" class="form-input" maxlength="200" required /></label>
       <label>范围<select v-model="newMap.level" class="form-select"><option value="region">区域</option><option value="city">城市</option><option value="district">街区</option><option value="street">街道</option></select></label>
@@ -93,13 +86,15 @@
     </section>
 
     <section v-else-if="currentRun?.status !== 'prompt_review'" class="atlas-browser" role="tabpanel" :aria-label="tab === 'review' ? '本次生成结果' : '我的地图册'">
+      <label class="atlas-mobile-picker">地图<select class="form-select" :value="activeNodeId" @change="selectNode(visibleNodes.find(item => item.node.id === $event.target.value).node)"><option v-for="item in visibleNodes" :key="item.node.id" :value="item.node.id">{{ item.node.title }}</option></select></label>
       <aside class="card atlas-tree" aria-label="地图层级">
         <button
           v-for="item in visibleNodes"
           :key="item.node.id"
           :class="{ active: activeNodeId === item.node.id }"
           :aria-current="activeNodeId === item.node.id ? 'true' : undefined"
-          :style="{ paddingLeft: `${12 + item.depth * 18}px` }"
+          :title="item.node.title"
+          :style="{ paddingLeft: `${12 + Math.min(item.depth, 3) * 8}px` }"
           @click="selectNode(item.node)"
         >
           <span>{{ levelLabel(item.node.level) }}</span>{{ item.node.title }}
@@ -214,7 +209,15 @@
           </details>
         </section>
         </template>
-        <details v-if="!structureState.reader && !structureState.focused && (tab === 'atlas' || currentRun?.run_kind === 'upload')" class="atlas-edit"><summary class="btn btn-sm">调整地图层级与位置</summary><div class="atlas-node-form"><label v-if="canEditNodeTitle">地图名称<input v-model="nodeEdit.title" class="form-input" maxlength="200" /></label><label>上级地图<select v-model="nodeEdit.parent_id" class="form-select"><option :value="null">无（顶层）</option><option v-for="item in nodeParentChoices" :key="item.id" :value="item.id">{{ item.title }}</option></select></label><label>层级<select v-model="nodeEdit.level" class="form-select"><option v-for="item in nodeLevelChoices" :key="item.value" :value="item.value">{{ item.label }}</option></select></label><label>同级位置<select v-model="nodeEdit.before_node_id" class="form-select"><option value="__keep__">保持当前位置</option><option value="__append__">放在最后</option><option v-for="item in siblingChoices" :key="item.id" :value="item.id">放在“{{ item.title }}”之前</option></select></label><button class="btn btn-sm" :disabled="writeLocked" @click="saveNodePosition">保存调整</button></div></details>
+        <details v-if="activeNode && !structureState.reader && !structureState.focused" class="atlas-image-tools card">
+      <summary>图片与底图</summary>
+      <div class="atlas-primary-actions">
+        <button v-if="activeNode.current_revision_id || activePage" class="btn" :disabled="writeLocked || runUnfinished" @click="startRun(false)">{{ mapCapabilities?.image_generation?.available === false ? "准备画面说明" : "添加地图画面" }}</button>
+        <button class="btn" :disabled="writeLocked || runUnfinished || mapCapabilities?.upload?.available === false" @click="openUpload">上传地图图片</button>
+        <button v-if="structureEnabled && nodeImages.length" class="btn" @click="structureEditor?.runToolbarAction('image-settings')">设置底图与地点配图</button>
+      </div>
+    </details>
+    <details v-if="!structureState.reader && !structureState.focused && (tab === 'atlas' || currentRun?.run_kind === 'upload')" class="atlas-edit"><summary class="btn btn-sm">调整地图层级与位置</summary><div class="atlas-node-form"><label v-if="canEditNodeTitle">地图名称<input v-model="nodeEdit.title" class="form-input" maxlength="200" /></label><label>上级地图<select v-model="nodeEdit.parent_id" class="form-select"><option :value="null">无（顶层）</option><option v-for="item in nodeParentChoices" :key="item.id" :value="item.id">{{ item.title }}</option></select></label><label>层级<select v-model="nodeEdit.level" class="form-select"><option v-for="item in nodeLevelChoices" :key="item.value" :value="item.value">{{ item.label }}</option></select></label><label>同级位置<select v-model="nodeEdit.before_node_id" class="form-select"><option value="__keep__">保持当前位置</option><option value="__append__">放在最后</option><option v-for="item in siblingChoices" :key="item.id" :value="item.id">放在“{{ item.title }}”之前</option></select></label><button class="btn btn-sm" :disabled="writeLocked" @click="saveNodePosition">保存调整</button></div></details>
       </article>
     </section>
 
@@ -286,6 +289,7 @@ const structureState = ref({ dirty: false, revision: null })
 const editStructureNodeId = ref(null)
 const toolsRoot = ref(null)
 const referenceVisible = ref(false)
+watch(referenceVisible, async value => { if (value) { await nextTick(); toolsRoot.value?.querySelector('.atlas-images')?.scrollIntoView?.({ block: 'start' }) } })
 const loading = ref(true)
 const busy = ref(false)
 const refreshing = ref(false)
@@ -978,4 +982,6 @@ watch(activeNodeId, () => { structureState.value = { dirty: false, revision: nul
 .atlas-focused{padding:12px;gap:8px}.atlas-focused .atlas-page{padding:12px}
 @media(max-width:900px){.atlas-focused .atlas-tree{max-height:100px}}
 .atlas-compare-toggle{display:flex;align-items:center;gap:var(--space-2);min-height:44px;margin-top:var(--space-2);font-size:var(--text-sm)}
+.atlas-mobile-picker{display:none}.atlas-tree button{overflow-wrap:normal;word-break:normal;text-wrap:pretty}.atlas-tree button>span{display:block}.atlas-page-header h2{margin-block:0;font-size:var(--text-lg)}.atlas-header h1{margin-block:0}
+@media(max-width:900px){.atlas-mobile-picker{display:flex;align-items:center;gap:8px}.atlas-mobile-picker select{flex:1;min-width:0;width:0}.atlas-browser>.atlas-tree{display:none}.atlas-workspace{gap:8px;padding:0}.atlas-page{padding:8px}.atlas-header,.atlas-page-header{display:none}}
 </style>

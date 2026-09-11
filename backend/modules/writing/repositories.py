@@ -943,6 +943,11 @@ class WritingConflictCheckRepository:
         scene_id: uuid.UUID | None,
         limit: int,
         exact_scene_scope: bool = False,
+        draft_id: uuid.UUID | None = None,
+        version_number: int | None = None,
+        content_hash: str | None = None,
+        include_candidates: bool | None = None,
+        ai_review_only: bool = False,
     ) -> tuple[list[tuple[WritingConflictCheck, list[WritingConflictItem]]], int]:
         conditions = [
             WritingConflictCheck.novel_id == novel_id,
@@ -953,13 +958,33 @@ class WritingConflictCheckRepository:
         elif exact_scene_scope:
             conditions.append(WritingConflictCheck.scene_id.is_(None))
 
+        if draft_id is not None:
+            conditions.append(WritingConflictCheck.draft_id == draft_id)
+        if version_number is not None:
+            conditions.append(WritingConflictCheck.version_number == version_number)
+        if content_hash is not None:
+            conditions.append(
+                WritingConflictCheck.scope["content_hash"].as_string() == content_hash
+            )
+        if include_candidates is not None:
+            conditions.append(
+                WritingConflictCheck.include_candidates == include_candidates
+            )
+        if ai_review_only:
+            conditions.append(
+                WritingConflictCheck.ai_review_status.in_(
+                    ["running", "done", "partial", "failed"]
+                )
+            )
         count_stmt = select(func.count(WritingConflictCheck.id)).where(*conditions)
         total = (await db.execute(count_stmt)).scalar() or 0
         stmt = (
             select(WritingConflictCheck)
             .where(*conditions)
             .order_by(
-                WritingConflictCheck.created_at.desc(),
+                WritingConflictCheck.updated_at.desc()
+                if ai_review_only
+                else WritingConflictCheck.created_at.desc(),
                 WritingConflictCheck.id.desc(),
             )
             .limit(limit)

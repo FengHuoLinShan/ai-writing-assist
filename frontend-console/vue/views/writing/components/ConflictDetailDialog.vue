@@ -19,7 +19,8 @@
             <span>检查范围：第 {{ check.chapter_index || '-' }} 章</span>
             <span>来源版本：{{ sourceVersionLabel }}</span>
             <span>定向复检：{{ recheckScopeLabel }}</span>
-            <span>问题 {{ items.length }} 条</span>
+            <span>已记录问题 {{ items.length }} 条</span>
+            <span v-if="check.created_at">检查时间：{{ new Date(check.created_at).toLocaleString() }}</span>
             <span v-if="check.include_candidates" class="pill pill-warning">包含待处理内容
             </span>
           </div>
@@ -30,11 +31,11 @@
 
           <section class="writing-conflict-group">
             <div class="writing-conflict-group__head">
-              <strong>字面预警</strong>
+              <strong>字面预警</strong><button type="button" class="btn btn-sm" :disabled="model.busy || check.ai_review_status === 'running'" @click="$emit('rerun')">重新运行规则检查</button>
               <span>{{ ruleItems.length }} 条</span>
             </div>
             <ConflictRows
-              :items="ruleItems"
+              :items="ruleItems" :empty-label="check.status === 'completed' ? '字面检查已完成，未发现问题' : check.status === 'degraded' ? '本次仅完成部分字面检查，请查看覆盖说明' : '字面检查尚未完成'"
               :busy="model.busy"
               :drafts="suggestionDrafts"
               @status="forwardStatus"
@@ -61,9 +62,10 @@
                 @click="$emit('ai-review')"
               >手动补充 AI 语义复核</button>
               <span class="pill">状态：{{ aiReviewStatusLabel(check.ai_review_status) }}</span>
+              <span v-if="check.summary_json?.ai_review?.recorded_at">复核记录时间：{{ new Date(check.summary_json.ai_review.recorded_at).toLocaleString() }}</span><span v-else-if="check.updated_at && ['done','partial','failed'].includes(check.ai_review_status)">复核记录更新：{{ new Date(check.updated_at).toLocaleString() }}</span>
             </div>
             <ConflictRows
-              :items="aiItems"
+              :items="aiItems" :empty-label="check.ai_review_status === 'done' ? '语义复核已完成，未发现问题' : aiReviewStatusLabel(check.ai_review_status)"
               :busy="model.busy"
               :drafts="suggestionDrafts"
               @status="forwardStatus"
@@ -106,7 +108,7 @@ const props = defineProps({
     default: () => ({ open: false, check: null, busy: false, error: null, sourcePreview: null }),
   },
 })
-const emit = defineEmits(["close", "status", "ai-review", "suggestion", "apply", "locate", "source", "dismiss-source"])
+const emit = defineEmits(["rerun", "close", "status", "ai-review", "suggestion", "apply", "locate", "source", "dismiss-source"])
 const requestClose = () => emit("close")
 const { overlayRef, dialogRef, onKeydown, onFocusin } = useModalDialog({
   isOpen: () => props.model.open,
@@ -165,6 +167,7 @@ const ConflictRows = defineComponent({
   props: {
     items: { type: Array, default: () => [] },
     busy: Boolean,
+    emptyLabel: { type: String, default: "尚未检查" },
     drafts: { type: Object, required: true },
   },
   emits: ["status", "suggestion", "apply", "locate", "source", "update-draft", "copy"],
@@ -265,7 +268,7 @@ const ConflictRows = defineComponent({
     }
     return () => rowProps.items.length
       ? h("div", { class: "writing-conflict-list" }, rowProps.items.map(itemView))
-      : h("div", { class: "writing-conflict-empty" }, "暂无记录")
+      : h("div", { class: "writing-conflict-empty" }, rowProps.emptyLabel)
   },
 })
 
@@ -319,7 +322,7 @@ watch(
 )
 
 function aiReviewStatusLabel(status) {
-  return { not_requested: "未生成", running: "生成中", done: "已生成", partial: "部分生成", failed: "失败" }[status] || status || "未生成"
+  return { not_requested: "尚未运行语义复核", running: "语义复核中", done: "语义复核已完成", partial: "语义复核仅部分完成", failed: "失败" }[status] || status || "未生成"
 }
 function updateDraft({ itemId, text }) { suggestionDrafts[itemId] = text }
 function forwardStatus(value) { emit("status", value) }

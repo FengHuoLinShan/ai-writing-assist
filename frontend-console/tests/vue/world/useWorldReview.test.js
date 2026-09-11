@@ -159,7 +159,7 @@ describe("splitCandidateGroups / 动作标签与可见性", () => {
 describe("证据模型", () => {
   it("导入对象使用来源场景序号，并展示去重后的字段原文依据", () => {
     const pairs = inlineEvidencePairs({ source_scene_index: 7, scene_id: "internal-scene", field_evidence: { name: ["原文中的姓名"], summary: ["原文中的姓名", "第二条依据"] } })
-    expect(pairs).toContainEqual(["场景", 7])
+    expect(pairs).toContainEqual(["场景", 8])
     expect(pairs).toContainEqual(["引用", "原文中的姓名\n第二条依据"])
     expect(JSON.stringify(pairs)).not.toContain("internal-scene")
   })
@@ -167,7 +167,7 @@ describe("证据模型", () => {
   it("inlineEvidencePairs 过滤空值", () => {
     const pairs = inlineEvidencePairs({ source: "deep_import", scene_index: 3, quote: "旧塔倒塌" })
     expect(pairs).toContainEqual(["来源", "深度导入"])
-    expect(pairs).toContainEqual(["场景", 3])
+    expect(pairs).toContainEqual(["场景", 4])
     expect(pairs.find(([label]) => label === "处理批次")).toBeUndefined()
   })
 

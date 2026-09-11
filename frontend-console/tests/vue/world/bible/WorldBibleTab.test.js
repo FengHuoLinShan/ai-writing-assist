@@ -1688,11 +1688,10 @@ describe("模态操作", () => {
     await wrapper.find("[data-action='bible-manage-page-templates']").trigger("click")
     const [, body, buttons] = showModalHtmlMock.mock.calls.at(-1)
     document.body.insertAdjacentHTML("beforeend", body)
-    document.getElementById("bible-template-key").value = "trade_guide"
     document.getElementById("bible-template-name").value = "贸易模板"
     document.getElementById("bible-template-section-title").value = "货币与交换"
     const creating = buttons[0].handler()
-    await vi.waitFor(() => expect(api.world.createBiblePageTemplate).toHaveBeenCalledWith(expect.objectContaining({ novel_id: "p1" })))
+    await vi.waitFor(() => expect(api.world.createBiblePageTemplate).toHaveBeenCalledWith(expect.objectContaining({ novel_id: "p1", template_key: expect.stringMatching(/^custom_[a-f0-9]{32}$/) })))
     appState.currentProjectId = "p2"
     wrapper.unmount()
     created.resolve({ id: "template-new" })

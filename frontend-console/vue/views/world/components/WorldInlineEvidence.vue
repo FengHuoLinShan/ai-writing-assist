@@ -1,7 +1,7 @@
 <template>
   <div v-if="pairs.length">
     <div v-for="[label, value] in visiblePairs" :key="label"><strong>{{ label }}：</strong>{{ value }}</div>
-    <details v-if="quote" @click.stop>
+    <details v-if="quote" :open="expanded" @click.stop>
       <summary>查看原文依据</summary>
       <blockquote class="world-inline-evidence-quote">{{ quote }}</blockquote>
     </details>
@@ -15,7 +15,7 @@
 
 <script setup>
 import { computed } from "vue"
-const props = defineProps({ pairs: { type: Array, default: () => [] } })
+const props = defineProps({ expanded: { type: Boolean, default: false }, pairs: { type: Array, default: () => [] } })
 const isDiagnostic = ([label, value]) => label === "处理批次" || (label === "场景" && !Number.isInteger(Number(value)))
 const diagnosticPairs = computed(() => props.pairs.filter(isDiagnostic))
 const visiblePairs = computed(() => props.pairs.filter(pair => !isDiagnostic(pair) && pair[0] !== "引用"))

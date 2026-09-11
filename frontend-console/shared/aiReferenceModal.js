@@ -387,13 +387,13 @@ function renderBody(options, sessionId) {
     <div class="ai-ref-modal" data-ai-reference-session="${escAttr(sessionId)}">
       <p class="ai-ref-intro">任务开始前，先确认 AI 会看到哪些资料。你可以手动调整，也可以让当前项目模型提出调整建议。</p>
       <div class="ai-ref-section ai-ref-task-note"><label for="ai-ref-user-note">本次补充要求</label>
-        <textarea id="ai-ref-user-note" data-ai-ref-selection-input class="form-textarea" rows="3" placeholder="例如：重点检查第 8 章后人物动机变化，不引用后续 Scene">${esc(options.user_note || "")}</textarea>
+        <textarea id="ai-ref-user-note" data-ai-ref-selection-input class="form-textarea" rows="3" placeholder="例如：重点检查第 8 章后人物动机变化，不引用后续场景">${esc(options.user_note || "")}</textarea>
         <div class="ai-ref-help">这段要求会参与资料检索，并随本次任务一起确认。</div>
       </div>
       <details class="ai-ref-section ai-ref-advanced">
         <summary>调整范围与来源</summary>
         <div class="ai-ref-form-grid">
-          <label>范围<select id="ai-ref-scope" data-ai-ref-selection-input class="form-select" ${options.lock_scope ? "disabled" : ""}>${option("project", "项目", scope)}${option("world", "世界资料", scope)}${option("world_character", "人物与世界", scope)}${option("generation_center", "生成中心", scope)}${option("arc", "篇章", scope)}${option("chapter", "章节", scope)}${option("scene", "当前 Scene", scope)}${option("full", "全部", scope)}</select></label>
+          <label>范围<select id="ai-ref-scope" data-ai-ref-selection-input class="form-select" ${options.lock_scope ? "disabled" : ""}>${option("project", "项目", scope)}${option("world", "世界资料", scope)}${option("world_character", "人物与世界", scope)}${option("generation_center", "生成中心", scope)}${option("arc", "篇章", scope)}${option("chapter", "章节", scope)}${option("scene", "当前场景", scope)}${option("full", "全部", scope)}</select></label>
           <label>${options.visible_until_chapter ? "起始章节" : "章节"}<input id="ai-ref-chapter" data-ai-ref-selection-input class="form-input" type="number" min="1" value="${escAttr(chapterValue)}" ${options.lock_chapter ? "readonly" : ""} /></label>
           ${options.visible_until_chapter ? `<label>结束章节<input class="form-input" type="number" value="${escAttr(options.visible_until_chapter)}" readonly /></label>` : ""}
           <label>内容版本<select id="ai-ref-context-mode" data-ai-ref-selection-input class="form-select">${option("canonical", contextContentModeLabel("canonical"), contextMode)}${option("working", contextContentModeLabel("working"), contextMode)}</select></label>
@@ -409,7 +409,7 @@ function renderBody(options, sessionId) {
           <div class="ai-ref-field-error" data-for="ai-ref-selection-command"></div><div id="ai-ref-proposal"></div>
         </section>
         <details class="ai-ref-section"><summary>手动添加更多资料</summary>
-          <div class="ai-ref-inline-form"><input id="ai-ref-search-input" class="form-input" placeholder="搜索人物、设定、Scene 或正文线索" /><button id="ai-ref-search-submit" type="button" class="btn">搜索</button></div>
+          <div class="ai-ref-inline-form"><input id="ai-ref-search-input" class="form-input" placeholder="搜索人物、设定、场景或正文线索" /><button id="ai-ref-search-submit" type="button" class="btn">搜索</button></div>
           <div class="ai-ref-field-error" data-for="ai-ref-search-input"></div><div id="ai-ref-search-results" class="ai-ref-search-results"></div>
         </details>
       </div>

@@ -251,6 +251,12 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
   const simulation = ref(null)
   const selectedCharacterId = ref(null)
   const validation = ref([])
+  let validatedScript = null
+  watch([scriptDraft, activeScriptFileId], () => {
+    if (validatedScript !== null) {
+      validation.value = [{ level: "info", message: "剧本已变化，检查结果已过期，请重新检查" }]
+    }
+  }, { flush: "sync" })
   const loading = ref(false)
   const loadError = ref(null)
   const scriptSaving = ref(false)
@@ -683,6 +689,7 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
     if (scene.value?.must_happen && scriptDraft.value.trim()) {
       findings.push({ level: "info", message: "请人工确认“必须发生”已在正文中兑现" })
     }
+    validatedScript = scriptDraft.value
     validation.value = findings
     return findings
   }
@@ -1144,6 +1151,7 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
     scriptHistory.value = []
     scriptPreview.value = null
     scriptDraftSource.value = null
+    validatedScript = null
     validation.value = []
     loadError.value = null
     restoreDraft(next)

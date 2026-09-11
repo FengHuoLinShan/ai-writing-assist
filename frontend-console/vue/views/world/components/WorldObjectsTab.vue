@@ -5,31 +5,12 @@
 -->
 <template>
   <div>
-    <!-- 自动提取抽屉（vanilla _renderAutoExtractPanel 847-873） -->
-    <div v-if="session.autoExtractOpen" class="world-extract-drawer">
-      <div class="world-extract-panel">
-        <div class="world-extract-panel__label">从正文整理人物、设定与关系</div>
-        <div class="world-extract-panel__controls">
-          <button class="btn btn-sm btn-primary" data-action="submit-extract" data-type="world_object_auto_extraction" @click="onSubmitExtract">
-            打开整理进度与成果
-          </button>
-        </div>
-        <p class="writing-form-hint" role="note">{{ importNotice }}</p>
-        <div id="w-extract-progress" class="world-extract-panel__progress">
-          <WorkflowProgressCard
-            v-if="extractProgress"
-            :progress="extractProgress"
-            variant="card"
-            title="正在整理人物、设定与关系"
-            :show-task-id="false"
-          >
-            <div class="workflow-progress__destination">{{ extractDestination }}</div>
-          </WorkflowProgressCard>
-          <div v-else id="w-extract-status" class="world-extract-panel__status">{{ extractStatusText }}</div>
-        </div>
-      </div>
-    </div>
-
+    <section v-if="session.autoExtractOpen" class="card world-extract-panel" aria-label="整理进度与成果">
+      <div class="row-actions"><h2>整理进度与成果</h2><button type="button" class="btn btn-sm" @click="session.autoExtractOpen = false">关闭</button></div>
+      <ProjectOrganizationHistory :project-id="projectId" @prepare="beginOrganization" />
+      <WorkflowProgressCard v-if="extractProgress" :progress="extractProgress" variant="card" title="正在整理人物、设定与关系" :show-task-id="false"><div class="workflow-progress__destination">{{ extractDestination }}</div></WorkflowProgressCard>
+      <details><summary>开始新的整理</summary><p class="writing-form-hint" role="note">{{ importNotice }}</p><button type="button" class="btn" data-action="submit-extract" @click="beginOrganization()">调整范围与来源</button></details>
+    </section>
     <!-- 筛选面板（vanilla _renderFilters/_renderFilterPanel 1219-1291） -->
     <section class="world-filter-panel" data-filter-panel="objects">
       <div class="world-filter-panel__heading">
@@ -184,6 +165,7 @@
 import { computed, onMounted, reactive, watch } from "vue"
 import { getRouter } from "../../../bridge/index.js"
 import { importAuthorizationNotice } from "../../../../shared/importAuthorization.js"
+import ProjectOrganizationHistory from "../../../components/ProjectOrganizationHistory.vue"
 import WorkflowProgressCard from "../../../components/WorkflowProgressCard.vue"
 import { worldSession as session, saveFilterPanelState } from "../worldSession.js"
 import { autoExtractManager } from "../workflowManagers.js"
@@ -220,7 +202,7 @@ const statuses = [
   { value: "archived", label: "历史" },
 ]
 
-const importNotice = importAuthorizationNotice()
+const importNotice = importAuthorizationNotice("world_objects")
 
 // ---- 筛选表单（query 保存已应用条件；会话保存尚未应用的编辑副本） ----
 const routeSignature = objectQueryFromState(
@@ -342,15 +324,11 @@ const extractDestination = computed(() => {
     : "完成后查看世界对象、别名和待处理关系。"
 })
 
-/** 对应 vanilla _updateExtractStatusDOM 的状态行（无 progress 时）。 */
-const extractStatusText = computed(() => {
-  const taskId = autoExtractManager.state.taskId
-  const prefix = taskId ? `任务 ${taskId.slice(0, 8)}... — ` : "状态: "
-  return prefix + autoExtractManager.state.status
-})
-
-function onSubmitExtract() {
-  getRouter()?.navigate("writing", null, true, new URLSearchParams({ organize: "world_objects" }))
+function beginOrganization(request = {}) {
+  const query = new URLSearchParams({ organize: request.stage || "world_objects" })
+  if (Number(request.start) > 0) query.set("organize_start", String(request.start))
+  if (Number(request.end) > 0) query.set("organize_end", String(request.end))
+  getRouter()?.navigate("writing", null, true, query)
 }
 
 // ---- 批次分组（vanilla 1161-1213） ----

@@ -85,3 +85,8 @@ read_organization_evidence 只返回原整理状态与恢复投影，不把任�
 ### World 跨域复核消费
 
 World 使用确认后保留的 compiled items 作为实际语义输入，Focused Evidence 继续只读且限深 0/1。Story/map 规划目标的 inspect 仅向无 Scene 截止的作者开放；其他视角因没有对应投影而失败关闭。原文 pinned_ref 只取经验证的 highlight 区间，不把整个段落追加到选择中；回执与修订仍归 World，Evidence 不写跨域资产。
+
+
+### 审阅与导航体验约定
+
+手动写作资料确认在未显式指定预算时采用有界的12000预算，预览与确认保持一致；容量不足返回主要必需资料名称。已保留正文片段的稳定来源同时投影到确认的正文版本集合，排除片段不进入该集合。

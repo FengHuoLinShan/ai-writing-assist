@@ -28,6 +28,7 @@ from modules.evidence.compilation.contracts import (
     RetrievalClause,
     RetrievalQueryPlan,
 )
+from shared.utils import retrieval_question_text
 
 PLAN_VERSION = "context-query-v1"
 LLM_PLAN_VERSION = "context-query-v2-llm"
@@ -127,6 +128,21 @@ class RetrievalQueryPlanner:
         purpose: str,
         query: str,
     ) -> list[dict]:
+        if purpose == "ask_world":
+            meaningful = retrieval_question_text(query)
+            clauses = [self._task_clause(options, meaningful)] if meaningful else []
+            if re.search(r"搬到|搬家|新家|住在哪|哪条街", meaningful):
+                clauses.insert(
+                    0,
+                    self._clause(
+                        options,
+                        clause_id="residence_evidence",
+                        query="搬家",
+                        reason_code="task_intent",
+                        priority=1.5,
+                    ),
+                )
+            return _deduplicate_drafts(clauses)
         if purpose == "manual_search":
             return [self._task_clause(options, query)] if query else []
 

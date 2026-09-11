@@ -25,9 +25,11 @@
         <p>尚无章节</p>
         <p class="writing-empty-hint">从下方新建第一章开始写作。</p>
       </div>
-      <div v-else class="chapter-tree-list">
+      <div v-else class="chapter-tree-search-list">
+        <input v-model="query" class="form-input" type="search" aria-label="查找章节" placeholder="章号或标题" />
+        <div ref="listEl" class="chapter-tree-list">
         <ChapterRow
-          v-for="chapter in chapterList"
+          v-for="chapter in visibleChapters"
           :key="chapter"
           :chapter="chapter"
           :meta="chapters[chapter]"
@@ -37,6 +39,8 @@
           @select="$emit('select', chapter)"
           @toggle-bulk="toggleBulk(chapter)"
         />
+        <p v-if="!visibleChapters.length" class="writing-empty-hint">没有匹配的章节</p>
+        </div>
       </div>
 
       <div class="chapter-tree-footer">
@@ -55,7 +59,7 @@
 </template>
 
 <script setup>
-import { defineComponent, h, ref, watch } from "vue"
+import { computed, defineComponent, h, nextTick, ref, watch } from "vue"
 
 const props = defineProps({
   chapterList: { type: Array, default: () => [] },
@@ -105,6 +109,14 @@ const ChapterRow = defineComponent({
   },
 })
 
+const query = ref("")
+const listEl = ref(null)
+const visibleChapters = computed(() => props.chapterList.filter(chapter => !query.value.trim() || `${chapter} ${props.chapters[chapter]?.title || ""}`.includes(query.value.trim())))
+watch([() => props.selectedChapter, () => props.collapsed, () => props.chapterList], async () => {
+  query.value = ""
+  await nextTick()
+  listEl.value?.querySelector("[aria-current=true]")?.scrollIntoView?.({ block: "nearest" })
+}, { immediate: true })
 const manage = ref(false)
 const selectedBulk = ref(new Set())
 

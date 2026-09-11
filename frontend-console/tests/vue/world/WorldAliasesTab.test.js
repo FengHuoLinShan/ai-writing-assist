@@ -120,7 +120,7 @@ describe("渲染", () => {
       aliasesTotal: 1,
     })
 
-    expect(wrapper.find(".world-canonical-evidence").text()).toBe("引用：作者可读引用")
+    expect(wrapper.find(".world-canonical-evidence").text()).toBe("场景：1引用：作者可读引用")
     expect(wrapper.find(".world-canonical-evidence").text()).not.toContain("private")
     expect(wrapper.find(".world-canonical-diagnostics summary").text()).toBe("诊断信息")
     expect(wrapper.find(".world-canonical-diagnostics").text()).toContain("750d04f2-private-workflow")

@@ -148,11 +148,61 @@ class WorldLibraryService:
                 order_columns["target_id"] == parse_uuid(target_id, "target_id")
             )
         total = await db.scalar(select(func.count()).select_from(outer.subquery()))
-        result = await db.execute(
-            outer.order_by(*self._order_clause(order_columns, sort))
-            .offset(skip)
-            .limit(limit)
-        )
+        order = self._order_clause(order_columns, sort)
+        if q and q.strip():
+            query = q.strip().casefold()
+            alias_rows = await db.execute(
+                select(CoreEntity.id, CoreEntity.content_json).where(
+                    CoreEntity.novel_id == nid,
+                    self._alias_search_condition(q),
+                )
+            )
+            alias_ranks: dict[int, list] = {0: [], 1: [], 2: []}
+            for entity_id, content in alias_rows:
+                names = [
+                    (item if isinstance(item, str) else item.get("alias", "")).casefold()
+                    for item in (content or {}).get("aliases", [])
+                    if isinstance(item, str)
+                    or (
+                        isinstance(item, dict)
+                        and item.get("status", "active") == "active"
+                    )
+                ]
+                rank = (
+                    0
+                    if query in names
+                    else 1
+                    if any(name.startswith(query) for name in names)
+                    else 2
+                    if any(query in name for name in names)
+                    else None
+                )
+                if rank is not None:
+                    alias_ranks[rank].append(entity_id)
+            title = func.lower(order_columns["title"])
+            target = order_columns["target_id"]
+            order.insert(
+                0,
+                case(
+                    (or_(title == query, target.in_(alias_ranks[0])), 0),
+                    (
+                        or_(
+                            title.startswith(query, autoescape=True),
+                            target.in_(alias_ranks[1]),
+                        ),
+                        1,
+                    ),
+                    (
+                        or_(
+                            title.contains(query, autoescape=True),
+                            target.in_(alias_ranks[2]),
+                        ),
+                        2,
+                    ),
+                    else_=3,
+                ),
+            )
+        result = await db.execute(outer.order_by(*order).offset(skip).limit(limit))
         items = [self._row_to_item(row) for row in result.mappings()]
         return WorldLibraryListResponse(items=items, total=int(total or 0))
 
@@ -430,6 +480,17 @@ class WorldLibraryService:
             stmt = stmt.where(q_condition)
         return stmt
 
+    @staticmethod
+    def _alias_search_condition(q: str):
+        aliases = CoreEntity.content_json["aliases"].cast(Text)
+        # JSON text can preserve Unicode or escape it, depending on the database.
+        return or_(
+            aliases.icontains(q.strip(), autoescape=True),
+            aliases.icontains(
+                json.dumps(q.strip(), ensure_ascii=True)[1:-1], autoescape=True
+            ),
+        )
+
     def _entities_source(
         self,
         nid: uuid_module.UUID,
@@ -472,7 +533,7 @@ class WorldLibraryService:
             CoreEntity.hidden_truth,
         )
         if q_condition is not None:
-            stmt = stmt.where(q_condition)
+            stmt = stmt.where(or_(q_condition, self._alias_search_condition(q)))
         return stmt
 
     @staticmethod

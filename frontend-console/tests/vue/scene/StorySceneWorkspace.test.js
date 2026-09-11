@@ -162,6 +162,19 @@ describe("Story Scene workspace panels", () => {
     expect(wrapper.get(".scene-character-cards").text()).toContain("阿遥")
   })
 
+  it("编辑后旧稿检查立即失效，重新检查恢复当前结论", async () => {
+    createWrapper({ selectedSceneId: "s1" })
+    await wrapper.get('[data-action="scene-runtime-tab-script"]').trigger('click'); await flushPromises()
+    await wrapper.get('[data-action="validate-scene-script"]').trigger('click')
+    expect(wrapper.text()).toContain('还没有剧本草稿')
+    await wrapper.get('[data-action="scene-script-draft-input"]').setValue('这是一段新写的剧本内容')
+    expect(wrapper.text()).toContain('检查结果已过期')
+    expect(wrapper.text()).not.toContain('还没有剧本草稿')
+    await wrapper.get('[data-action="validate-scene-script"]').trigger('click')
+    expect(wrapper.text()).not.toContain('检查结果已过期')
+    expect(wrapper.text()).toContain('草稿较短')
+  })
+
   it("restores a project-and-scene scoped script draft", async () => {
     persistSceneRuntimeDraft("p1", "s1", { scriptDraft: "本场留下的草稿" })
     createWrapper({ selectedSceneId: "s1" })

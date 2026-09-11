@@ -1,3 +1,4 @@
+import { sceneNumber } from "../../../../shared/sceneNumbers.js"
 /**
  * useWorldReview — world review（待处理）三队列的逻辑层。
  *
@@ -262,7 +263,7 @@ export function reviewEvidenceSummary(item = {}, kind = "alias", numericValue = 
   const source = reviewSourceLabel(item.source)
   const summary = [
     source,
-    item.scene_index != null ? `场景 ${item.scene_index}` : "",
+    item.scene_index != null ? `场景 ${sceneNumber(item.scene_index)}` : "",
     item.source_chapter_index != null ? `第 ${item.source_chapter_index} 章` : "",
     numericValue != null ? `${kind === "relation" ? "强度" : "置信度"} ${Math.round(Number(numericValue) * 100)}%` : "",
   ].filter(Boolean).join(" · ")
@@ -325,7 +326,7 @@ export function inlineEvidencePairs(item = {}) {
     ["来源", reviewSourceLabel(item.source)],
     ["处理批次", item.workflow_id],
     ["章节", item.source_chapter_index],
-    ["场景", item.scene_index ?? item.source_scene_index ?? item.scene_id],
+    ["场景", sceneNumber(item.scene_index ?? item.source_scene_index)],
     ["置信度", item.confidence != null ? `${(Number(item.confidence) * 100).toFixed(0)}%` : ""],
     ["引用", item.quote || [...new Set(quotes)].join("\n")],
   ].filter(([, value]) => value != null && String(value).trim() !== "")
@@ -337,17 +338,14 @@ export function inlineRelationEvidencePairs(relation = {}) {
     ? relation.review_meta
     : {}
   const sceneLabel = [
-    reviewMeta.scene_id,
-    reviewMeta.scene_index != null ? `序号 ${reviewMeta.scene_index}` : "",
+    reviewMeta.scene_index != null ? `场景 ${sceneNumber(reviewMeta.scene_index)}` : "场景未定位",
   ].filter(Boolean).join("（")
-  const normalizedSceneLabel = sceneLabel && reviewMeta.scene_id && reviewMeta.scene_index != null
-    ? `${sceneLabel}）`
-    : sceneLabel
+  const normalizedSceneLabel = sceneLabel
   const evidenceRefs = Array.isArray(reviewMeta.evidence_refs)
     ? reviewMeta.evidence_refs.map((ref) => {
       if (ref == null) return ""
       if (typeof ref !== "object") return String(ref)
-      const refScene = ref.scene_id || (ref.scene_index != null ? `场景 ${ref.scene_index}` : "")
+      const refScene = ref.scene_index != null ? `场景 ${sceneNumber(ref.scene_index)}` : "场景未定位"
       const refChapter = ref.source_chapter_index != null ? `章节 ${ref.source_chapter_index}` : ""
       return [refScene, refChapter, ref.quote || ref.evidence || ""].filter(Boolean).join(" · ")
     }).filter(Boolean).join("；")

@@ -564,7 +564,9 @@ test.describe("RAG 检索模块", () => {
 
     await page.getByLabel("从第几章").fill("1")
     await page.getByLabel("到第几章").fill("1")
+    const submitted = page.waitForResponse(response => response.url().includes('/rebuild') && response.request().method() === 'POST')
     await page.locator('[data-action="rebuild-index"]').click()
-    await expect(page.locator(SEL.toastContainer)).toContainText("索引", { timeout: 10000 })
+    expect((await submitted).ok()).toBe(true)
+    await expect(page.locator('#rag-rebuild-progress')).toContainText(/整理|修复|索引/, { timeout: 10000 })
   })
 })

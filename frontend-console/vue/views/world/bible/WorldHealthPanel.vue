@@ -150,8 +150,9 @@
         <ul v-else-if="pageFindings.length" class="world-health-findings" aria-label="校验问题" data-section="world-health-findings">
           <li v-for="finding in pageFindings" :key="finding.finding_id" :class="`is-${finding.severity}`">
             <div>
-              <strong>{{ actionLabel(finding.action) }}</strong>
-              <p>{{ finding.message }}</p>
+              <strong>{{ finding.category === 'missing-world-state' ? '缺少准备' : actionLabel(finding.action) }}</strong>
+              <p>{{ finding.category === 'missing-world-state' ? '尚未保存整体世界设计，暂不具备全面校验的前提。请先整理并确认世界设计，再重新校验；已有资料并未丢失。' : finding.message }}</p>
+              <button v-if="finding.category === 'missing-world-state'" class="btn btn-sm" @click="prepareWorldDesign">准备整体世界设计</button>
               <small v-if="finding.location">{{ locationLabel(finding.location) }}</small>
               <div v-if="dispositions[finding.finding_id]" class="world-health-disposition is-done" :data-disposition="dispositions[finding.finding_id]">
                 {{ dispositions[finding.finding_id] === 'deferred' ? '待处理' : '已复核' }}：{{ dispositionLabel(dispositions[finding.finding_id]) }}
@@ -283,7 +284,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import { createOperationId, pollTaskProgress } from "../../../../shared/workflowProgress.js"
 import { confirmAiReference } from "../../../../shared/aiReferenceModal.js"
-import { getApi, getConfirm, getRouteQuery, getToast } from "../../../bridge/index.js"
+import { getApi, getConfirm, getRouteQuery, getRouter, getToast } from "../../../bridge/index.js"
 
 const props = defineProps({
   projectId: { type: String, required: true },
@@ -399,7 +400,7 @@ const invalidatedCount = computed(() => omissionCount.value
 const warningsAccepted = computed(() => Boolean(run.value?.warning_receipt?.receipt_hash))
 const reviewRequired = computed(() => Number(run.value?.review?.required || 0))
 const reviewDone = computed(() => Number(run.value?.review?.reviewed || 0))
-const statusLabel = computed(() => runStatusLabel(run.value))
+const statusLabel = computed(() => [...findings.value, ...pageFindings.value].some(item => item.category === "missing-world-state") ? "尚未具备全面校验前提" : runStatusLabel(run.value))
 const statusHint = computed(() => run.value
   ? `${historyScopeLabel(run.value)} · ${formatTime(run.value.finished_at || run.value.created_at)}`
   : "尚无回执")
@@ -438,6 +439,7 @@ const gateOptions = ["structure", "ontology", "knowledge", "society", "experienc
 watch(() => props.initialRun, (value) => {
   run.value = value
   recoverPolling()
+  loadFindings()
 })
 watch(() => props.policyStatus, (value) => {
   policy.value = value || { active: false }
@@ -530,6 +532,9 @@ async function savePolicyDraft() {
   }
 }
 
+function prepareWorldDesign() {
+  getRouter().navigate("generate", null, true, new URLSearchParams({ tab: "world", preset: "world_core" }))
+}
 function runStatusLabel(value) {
   if (!value) return "未运行"
   if (["queued", "running"].includes(value.status)) return "校验中"

@@ -51,13 +51,15 @@ test("无需图片模型即可创建、编辑保存并进入城市子图", async
   await expect(page.locator('[aria-label="地图地点详情"]')).toContainText('临江城')
   await expect(page.locator('.map-edit-grid')).toHaveCount(0)
   await page.getByRole('button', { name: '展开编辑工具', exact: true }).click()
-  await page.locator(".map-feature").filter({ has: page.locator("text", { hasText: "临江城" }) }).click()
+  await page.getByRole('button', { name: '编辑所选地图内容', exact: true }).click()
+  await page.locator('.map-inspector').getByText('位置与几何编辑', { exact: true }).click()
   await page.getByRole("button", { name: "向右移动", exact: true }).click()
   await page.getByRole("button", { name: "保存地图", exact: true }).click()
   await expect(page.locator(".map-save-status")).toHaveText("已保存到服务端")
   await reloadWorkbench(page, "map")
   const state = await (await request.get(API_BASE + "/world/map-atlas/" + project.id + "/nodes/" + node.id + "/map")).json()
   expect(state.revision.document.features.find(feature => feature.id === "place0").points[0].x).toBe(150)
+  await page.getByRole('button', { name: '编辑所选地图内容', exact: true }).click()
   await page.getByRole("button", { name: "为此地点创建城市图" }).click()
   await page.getByRole("button", { name: "保存地图", exact: true }).click()
   await expect(page.locator(".map-save-status")).toHaveText("已保存到服务端")
@@ -138,7 +140,29 @@ test("旧图片上传采用后可校准到同一画布，阅读预览保守排�
   await page.getByRole("button", { name: "更新阅读预览" }).click()
   await expect(page.locator(".map-canvas image")).toHaveCount(1)
   await page.getByRole("button", { name: "回到作者视图" }).click()
+  await page.getByRole('button', { name: '编辑所选地图内容', exact: true }).click()
+  await page.locator('.map-inspector').getByText('位置与几何编辑', { exact: true }).click()
   await page.getByRole("button", { name: "向右移动", exact: true }).click()
   await expect(page.locator(".map-canvas image")).toHaveCount(0)
   await expect(controls).toContainText("待复核，已退出叠加")
 })
+
+
+for (const width of [320, 354, 360, 390, 1570]) {
+  test(`${width}px 默认地图画布在首屏内，且详情不重复`, async ({ page, request, projectFactory }) => {
+    const project = await projectFactory({ title: '地图首屏验收' })
+    await createMap(request, project.id)
+    await page.setViewportSize({ width, height: 875 })
+    await openWorkbench(page, project, 'map')
+    const canvas = page.locator('.map-scroll')
+    await expect(canvas).toBeVisible()
+    await expect.poll(async () => {
+      const box = await canvas.boundingBox()
+      const bottom = await page.locator('.sidebar-mobile-nav').isVisible() ? (await page.locator('.sidebar-mobile-nav').boundingBox()).y : 875
+      return box && box.y >= 0 && box.height >= 220 && box.y + box.height <= bottom
+    }).toBe(true)
+    await expect(page.locator('.map-reader')).toHaveCount(1)
+    await expect(page.locator('.map-inspector input')).toHaveCount(0)
+    await expectNoPageOverflow(page)
+  })
+}
