@@ -3,15 +3,15 @@ id: T-20260911-guimi-ux-fixes
 title: 修复全部35项Chrome审计问题并更新演示副本
 status: completed
 created: 2026-09-11T12:00:00+08:00
-updated: 2026-09-11T13:32:00+08:00
+updated: 2026-09-11T15:51:19+08:00
 ---
 
 # 交付与恢复快照
 
-- 工作区：`/Users/tywww/Desktop/项目/ai-writing-assist-guimi-ux-fixes`，分支`codex/guimi-ux-fixes`，基线a89e8b813。原main工作区WIP、原审计任务和.zcode完全保留。
+- 工作区：`/Users/tywww/Desktop/项目/ai-writing-assist-guimi-ux-fixes`，分支`codex/guimi-ux-fixes`，基线a89e8b813，实施提交`9a5a0b454`。原main工作区WIP、原审计任务和.zcode完全保留。
 - 已交付：UX-001—035实现、自动化及Chrome验收，原演示升级并通过原启动器重启。逐项证据/限制见`docs/frontend/uiux/guimi-chrome-audit-fixes-2026-09-11.md`；原报告保留。
-- 未提交、未合并main、未推送、未公网部署。没有替作者采用模型候选、别名、关系或世界设定。
-- 下一步：当前授权范围完成；如后续要求集成，先重新核实分支差异及main状态，不能把本记录当合并授权。
+- 已审查并合入本地main；未推送、未公网部署。没有替作者采用模型候选、别名、关系或世界设定。
+- 下一步：当前授权范围完成；远端交付或部署需另行授权。
 
 ## 目标与上下文
 
