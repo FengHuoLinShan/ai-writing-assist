@@ -7,6 +7,34 @@
 生命周期收敛 → 数据结构调整（必要性另裁定）。功能性修复不混入优化批次，单列为 R 组。
 每批一个可验收结果，机械移动与行为逻辑分开；小 diff、独立提交、独立回滚。
 
+## 实施进度（2026-09-12）
+
+实施位于 `codex/full-optimization-implementation` 隔离分支；本节只记录执行证据，不追溯改变原审查裁定或授权边界。
+
+| 批次 | 状态 | 结果/剩余门禁 |
+|---|---|---|
+| R1–R4 | 已完成 | 导入恢复、生产 Prompt、错误语义、测试收集/运行器均已独立提交并通过对应模块门禁 |
+| R5 | 待产品选择 | continuity 位置证据需在“删除失实 seam”与“补功能”之间明确选择 |
+| R6 | 部分完成 | X1-3、D2a-1、E3-1 完成；F4-4 复核为 ORM metadata 注册而非缺 FK；X2-3 仍需取消后资产处置语义 |
+| B1a/B1b | 已完成 | 后端/前端可证明死代码清理完成；保留真实消费者、兼容面与安全门禁 |
+| B1c | 部分完成 | coverage、53 MiB 夹具、旧 schema 脚本、docs 索引完成；历史工具记录/版权样本需留存与法务决定 |
+| B1d | 受保护 WIP 阻塞 | 原工作区 `styles.css` 有他人未提交改动，本分支未触碰 |
+| B2a/B2b/B2c | 已完成 | snapshot client、checkpoint、stable hash 单点化；固定输入/字节兼容与模块测试通过 |
+| B2d | 部分完成 | UUID coercion、无差异 NovelMixin、imports shim/progress、interaction helper、World/前端复用项完成；A6-4 与 F5 环境项未做 |
+| B2e | 部分完成 | Vue 生产文件守卫扩面完成；Story HTTP 层覆盖仍待独立测试批 |
+| B3a | 部分完成 | Story 两条入队流已收敛；Outline 三条因预校验/重放/meta 差异保留 |
+| B3b/B3e | 已完成 | semantic review 委托既有 service；worker 项目任务判断归项目 facade |
+| B3c | 待付费验收授权 | 同步生成/冲突双轨退役需真实模型验收，不以单测替代 |
+| B3d | 重裁后完成 | Scene auto/runtime 两处迁入工厂、净删 215 行；Story Outline 的身份拒绝+终态重放专用实现保留，避免多开关工厂 |
+| B4a/B4b | 未实施 | smartDedup split-brain 与三预览页骨架仍是高风险结构批，需浏览器专项验收 |
+| B4c | 部分完成 | 任务查询失败统一 3/6/12/24/30 秒退避；其余轮询形态未强并工厂 |
+| B4d | 已完成 | 两个 writing helper 已迁入 Vue 目录，生产 JS 守卫同步扩面 |
+| B4e | 重裁保留 | R1 已在恢复根因处关闭死循环/漂移风险，暂无证据支持再做架构级重写 |
+| B4f | 未实施 | 裸 ValueError 长效静态守卫仍需避免对合法内部异常产生误报 |
+| B5/收益待测项 | 按计划延期 | 无性能基线、生产 revision 或数据结构必要性证据，不实施 |
+
+当前累计：89 个原子提交，225 个文件，`+2137/-10453`（净 `-8316` 行）。门禁：后端 fast `5383 passed / 13 skipped / 7 deselected`；PostgreSQL critical `32 passed`；前端 `183 files / 2448 tests`、lint、build、资源校验通过；docs-check 通过。专用库 `alembic check` 仍暴露一组既有 ORM/migration 漂移，未混入本轮自动迁移。
+
 ## R 组：功能性修复与门禁缺口（单列，优先于一切优化批）
 
 | 批 | 内容 | 关键契约与验证 | 回滚 |
