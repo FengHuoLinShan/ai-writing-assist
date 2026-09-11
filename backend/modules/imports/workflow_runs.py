@@ -156,10 +156,7 @@ class ImportWorkflowRunService:
 
     async def reconcile_task_owners(self, db: AsyncSession) -> int:
         """Converge active/recovery runs from the queue's stable lifecycle view."""
-        return await self.reconcile_scoped_task_owners(
-            db,
-            include_restartable_history=True,
-        )
+        return await self.reconcile_scoped_task_owners(db)
 
     async def reconcile_scoped_task_owners(
         self,
@@ -167,7 +164,6 @@ class ImportWorkflowRunService:
         *,
         novel_id: str | None = None,
         task_id: str | None = None,
-        include_restartable_history: bool = False,
     ) -> int:
         """Lock and converge only the requested owner scope when provided."""
         from infrastructure.tasks.facade import list_task_lifecycle_contracts
@@ -177,8 +173,6 @@ class ImportWorkflowRunService:
         ) | ImportWorkflowRun.recovery_required.is_(True)
         if task_id is not None:
             selection_predicate = ImportWorkflowRun.task_id == _parse_uuid(task_id)
-        elif include_restartable_history or novel_id is not None:
-            selection_predicate = active_predicate
         else:
             selection_predicate = active_predicate
         stmt = select(ImportWorkflowRun).where(selection_predicate)

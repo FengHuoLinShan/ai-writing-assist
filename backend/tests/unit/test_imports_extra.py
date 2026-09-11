@@ -49,8 +49,6 @@ from modules.imports.parsers import (
 from modules.imports.repositories import ImportRecordRepository
 from modules.imports.schemas import (
     ImportChapterItem,
-    ImportedChapterListResponse,
-    ImportedChapterResponse,
     ImportListResponse,
     ImportResponse,
 )
@@ -546,34 +544,6 @@ class TestImportSchemas:
         item = ImportChapterItem(chapter_index=1, draft_id="draft-1")
         assert item.title is None
         assert item.word_count == 0
-
-    def test_imported_chapter_response_defaults(self):
-        """ImportedChapterResponse 默认值"""
-        resp = ImportedChapterResponse(
-            id="c1",
-            novel_id="n1",
-            import_record_id="r1",
-            chapter_index=1,
-            title="第一章",
-            content="正文",
-        )
-        assert resp.is_analyzed is False
-        assert resp.created_at is None
-
-    def test_imported_chapter_list_response(self):
-        """ImportedChapterListResponse 包含 items 和 total"""
-        items = [
-            ImportedChapterResponse(
-                id="c1",
-                novel_id="n1",
-                import_record_id="r1",
-                chapter_index=1,
-                title="第一章",
-                content="正文",
-            ),
-        ]
-        resp = ImportedChapterListResponse(items=items, total=1)
-        assert resp.total == 1
 
     def test_import_response_model_dump_roundtrip(self):
         """ImportResponse JSON 序列化/反序列化"""

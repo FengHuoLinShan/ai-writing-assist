@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-import inspect
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -78,19 +77,6 @@ __all__ = [
     "SMALL_SAMPLE_STRUCTURE_TARGET_COUNT",
     "minimum_structure_category_targets",
 ]
-
-
-def _accepts_keyword(callable_obj: Any, keyword: str) -> bool:
-    try:
-        signature = inspect.signature(callable_obj)
-    except (TypeError, ValueError):
-        return True
-    for parameter in signature.parameters.values():
-        if parameter.kind == inspect.Parameter.VAR_KEYWORD:
-            return True
-        if parameter.name == keyword:
-            return True
-    return False
 
 
 @dataclass(frozen=True, kw_only=True)
