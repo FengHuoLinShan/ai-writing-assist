@@ -78,6 +78,9 @@ from modules.writing.schemas import (
     WritingRegenerationContext,
     project_writing_draft_state,
 )
+from modules.writing.source_hashing import (
+    compiled_context_fingerprint as _generation_compiled_context_fingerprint,
+)
 from modules.writing.source_hashing import has_substantive_change, hash_text
 from modules.writing.text_sanitizer import sanitize_writing_text
 from shared.utils import parse_uuid as _shared_parse_uuid
@@ -2657,46 +2660,6 @@ class WritingGenerationService:
             status="candidate",
         )
         return WritingDraftResponse.model_validate(draft)
-
-
-def _generation_compiled_context_fingerprint(compiled: object) -> dict[str, Any]:
-    sections: list[dict[str, Any]] = []
-    for section in getattr(compiled, "sections", []):
-        retrieval_metadata = dict(getattr(section, "retrieval_metadata", None) or {})
-        retrieval_metadata.pop("latency_metadata", None)
-        tier = getattr(section, "tier", 0)
-        try:
-            tier = int(tier)
-        except (TypeError, ValueError):
-            tier = str(tier)
-        sections.append(
-            {
-                "key": getattr(section, "key", None),
-                "tier": tier,
-                "content": getattr(section, "content", None),
-                "token_count": getattr(section, "token_count", None),
-                "status": getattr(section, "status", None),
-                "sources": deepcopy(getattr(section, "sources", None) or []),
-                "excluded": bool(getattr(section, "excluded", False)),
-                "truncated_reason": getattr(section, "truncated_reason", None),
-                "retrieval_metadata": deepcopy(retrieval_metadata),
-            }
-        )
-    budget_events: list[Any] = []
-    for event in getattr(compiled, "budget_events", []):
-        if hasattr(event, "model_dump"):
-            budget_events.append(event.model_dump(mode="json"))
-        else:
-            budget_events.append(deepcopy(event))
-    return {
-        "sections": sections,
-        "total_tokens": getattr(compiled, "total_tokens", None),
-        "budget_tokens": getattr(compiled, "budget_tokens", None),
-        "evicted_keys": list(getattr(compiled, "evicted_keys", []) or []),
-        "truncated_keys": list(getattr(compiled, "truncated_keys", []) or []),
-        "budget_events": budget_events,
-        "warnings": list(getattr(compiled, "warnings", []) or []),
-    }
 
 
 def _story_assets_are_stale(execution_bundle: dict[str, Any] | None) -> bool:
