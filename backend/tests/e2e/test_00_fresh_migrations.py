@@ -200,6 +200,106 @@ def test_old_dynamic_baseline_objects_do_not_break_upgrade(monkeypatch) -> None:
         _assert_current_schema(target_engine, expected_heads)
 
 
+def test_schema_parity_repair_upgrades_drifted_database(monkeypatch) -> None:
+    with _disposable_database() as (migration_url, target_engine):
+        config, _ = _migration_config(monkeypatch, migration_url)
+        command.upgrade(config, "20260912_web_search_consent")
+
+        with target_engine.begin() as connection:
+            connection.exec_driver_sql(
+                "DROP TRIGGER trg_story_outline_revision_immutable "
+                "ON story_outline_revisions"
+            )
+            connection.exec_driver_sql(
+                "DROP FUNCTION reject_story_outline_revision_update()"
+            )
+            connection.exec_driver_sql(
+                "ALTER TABLE story_outline_heads DROP CONSTRAINT "
+                "fk_story_outline_head_current_novel"
+            )
+            connection.exec_driver_sql(
+                "ALTER TABLE story_outline_revisions DROP CONSTRAINT "
+                "fk_story_outline_revision_base_novel"
+            )
+            connection.exec_driver_sql(
+                "ALTER TABLE story_outline_revisions DROP CONSTRAINT "
+                "fk_story_outline_revision_restored_novel"
+            )
+            connection.exec_driver_sql(
+                "ALTER TABLE story_outline_revisions DROP CONSTRAINT "
+                "uq_story_outline_revision_id_novel"
+            )
+            connection.exec_driver_sql(
+                "ALTER TABLE story_outline_revisions ADD CONSTRAINT "
+                "story_outline_revisions_base_revision_id_fkey "
+                "FOREIGN KEY (base_revision_id) "
+                "REFERENCES story_outline_revisions(id) ON DELETE SET NULL"
+            )
+            connection.exec_driver_sql(
+                "ALTER TABLE story_outline_revisions ADD CONSTRAINT "
+                "story_outline_revisions_restored_from_revision_id_fkey "
+                "FOREIGN KEY (restored_from_revision_id) "
+                "REFERENCES story_outline_revisions(id) ON DELETE SET NULL"
+            )
+            connection.exec_driver_sql(
+                "ALTER TABLE story_outline_heads ADD CONSTRAINT "
+                "story_outline_heads_current_revision_id_fkey "
+                "FOREIGN KEY (current_revision_id) "
+                "REFERENCES story_outline_revisions(id) ON DELETE SET NULL"
+            )
+            connection.exec_driver_sql(
+                "ALTER TABLE project_author_tasks DROP CONSTRAINT "
+                "ck_project_author_tasks_title_not_blank"
+            )
+            connection.exec_driver_sql(
+                "ALTER TABLE project_author_tasks DROP CONSTRAINT "
+                "ck_project_author_tasks_note_length"
+            )
+
+        command.upgrade(config, "head")
+
+        with target_engine.connect() as connection:
+            inspector = inspect(connection)
+            revision_constraints = {
+                item["name"]
+                for item in inspector.get_unique_constraints(
+                    "story_outline_revisions"
+                )
+            } | {
+                item["name"]
+                for item in inspector.get_foreign_keys("story_outline_revisions")
+            }
+            head_foreign_keys = {
+                item["name"]
+                for item in inspector.get_foreign_keys("story_outline_heads")
+            }
+            task_checks = {
+                item["name"]
+                for item in inspector.get_check_constraints("project_author_tasks")
+            }
+            outline_triggers = set(
+                connection.execute(
+                    text(
+                        "SELECT tgname FROM pg_trigger "
+                        "WHERE tgrelid = 'story_outline_revisions'::regclass "
+                        "AND NOT tgisinternal"
+                    )
+                ).scalars()
+            )
+
+        assert {
+            "uq_story_outline_revision_id_novel",
+            "fk_story_outline_revision_base_novel",
+            "fk_story_outline_revision_restored_novel",
+        } <= revision_constraints
+        assert "fk_story_outline_head_current_novel" in head_foreign_keys
+        assert {
+            "ck_project_author_tasks_title_not_blank",
+            "ck_project_author_tasks_note_length",
+        } <= task_checks
+        assert "trg_story_outline_revision_immutable" in outline_triggers
+
+
 def test_world_authority_upgrade_preserves_legacy_float_snapshots(monkeypatch) -> None:
     with _disposable_database() as (migration_url, target_engine):
         config, expected_heads = _migration_config(monkeypatch, migration_url)
