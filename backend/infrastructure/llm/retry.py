@@ -13,7 +13,6 @@ import random
 from collections.abc import Callable
 from contextlib import contextmanager
 from contextvars import ContextVar
-from functools import wraps
 from typing import Any, ParamSpec, TypeVar
 
 from infrastructure.llm.errors import (
@@ -190,31 +189,3 @@ async def retry_with_backoff(
     if last_error:
         raise last_error
     raise LLMError("Retry failed for unknown reason")
-
-
-def retryable(
-    max_attempts: int = LLM_RETRY_MAX_ATTEMPTS,
-    base_delay: float = LLM_RETRY_BASE_DELAY,
-    max_delay: float = 60.0,
-) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """重试装饰器
-
-    用法:
-        @retryable(max_attempts=3, base_delay=1.0)
-        async def my_llm_call(...):
-            ...
-    """
-
-    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-        @wraps(func)
-        async def wrapper(*args: Any, **kwargs: Any) -> Any:
-            return await retry_with_backoff(
-                lambda: func(*args, **kwargs),
-                max_attempts=max_attempts,
-                base_delay=base_delay,
-                max_delay=max_delay,
-            )
-
-        return wrapper
-
-    return decorator

@@ -20,7 +20,6 @@ from infrastructure.llm.retry import (
     _is_retryable,
     is_retryable_llm_error,
     retry_with_backoff,
-    retryable,
 )
 
 
@@ -118,27 +117,6 @@ class TestRetryWithBackoff:
         assert result == "ok"
         assert call_count == 1
         assert retry_waits == []
-
-    @pytest.mark.asyncio
-    async def test_retryable_decorator_preserves_arguments_and_policy(
-        self,
-        retry_waits: list[float],
-    ) -> None:
-        call_count = 0
-
-        @retryable(max_attempts=2, base_delay=0.01, max_delay=0.1)
-        async def decorated(value: str, *, suffix: str) -> str:
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                raise LLMTimeoutError("timeout", provider="test", model="m")
-            return value + suffix
-
-        result = await decorated("ok", suffix="!")
-
-        assert result == "ok!"
-        assert call_count == 2
-        assert retry_waits == [1.0]
 
     @pytest.mark.asyncio
     async def test_retry_then_succeed(self, retry_waits: list[float]) -> None:
