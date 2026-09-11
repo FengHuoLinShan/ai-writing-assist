@@ -678,6 +678,39 @@ class TestRetrievalOrchestratorInjected:
         assert len(results) == expected_count
 
     @pytest.mark.asyncio
+    async def test_retrieve_records_meaningful_match_guard_rejection(self) -> None:
+        novel_id = uuid.uuid4()
+        fake_chunk = _rerank_test_chunk(novel_id, 0)
+        fake_chunk.text = "月光落在旧桥上"
+        repo = type(
+            "Repo",
+            (),
+            {
+                "has_embeddings": AsyncMock(return_value=False),
+                "keyword_search": AsyncMock(return_value=[fake_chunk]),
+            },
+        )()
+        recorded: dict[str, object] = {}
+
+        class _Metrics:
+            def record(self, **kwargs) -> None:
+                recorded.update(kwargs)
+
+        async def _no_terms(_db, _novel_id):
+            return []
+
+        orch = RetrievalOrchestrator(
+            repo=repo,  # type: ignore[arg-type]
+            query_expander=QueryExpander(term_loader=_no_terms),
+            metrics=_Metrics,
+        )
+
+        bundle = await orch.retrieve(None, novel_id, "语义查询")  # type: ignore[arg-type]
+
+        assert bundle.chunks == []
+        assert recorded["meaningful_match_fail"] is True
+
+    @pytest.mark.asyncio
     async def test_retrieve_uses_injected_embedder_and_metrics(self) -> None:
         fake_chunk = type(
             "Chunk",

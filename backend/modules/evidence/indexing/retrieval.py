@@ -112,6 +112,7 @@ class RetrievalOrchestrator:
         weights: tuple[float, float, float, float] | None = None,
         source_manifest: dict[uuid.UUID, str] | None = None,
         expand_query: bool = True,
+        diagnostics: dict[str, bool] | None = None,
     ) -> list[tuple[RagChunk, float]]:
         """混合检索：关键词 + 关系 + 重要性 + 向量。
 
@@ -334,6 +335,8 @@ class RetrievalOrchestrator:
             )
 
         if not has_meaningful_match:
+            if diagnostics is not None and scored_chunks:
+                diagnostics["meaningful_match_fail"] = True
             return []
 
         return scored_chunks[:top_k]
@@ -464,6 +467,7 @@ class RetrievalOrchestrator:
 
         rerank_enabled = _is_rerank_enabled(mode) and rerank is not False
         candidate_top_k = top_k * 2 if rerank_enabled else top_k
+        search_diagnostics: dict[str, bool] = {}
         _search_t0 = _time.monotonic()
         scored_chunks = await self.hybrid_search(
             db,
@@ -484,6 +488,7 @@ class RetrievalOrchestrator:
             reference_chapter_index=reference_chapter_index,
             source_manifest=source_manifest,
             expand_query=expand_query,
+            diagnostics=search_diagnostics,
         )
         _search_ms = (_time.monotonic() - _search_t0) * 1000
 
@@ -551,6 +556,10 @@ class RetrievalOrchestrator:
             latency_ms=_latency_ms,
             degraded=degraded,
             empty=len(chunk_contracts) == 0,
+            meaningful_match_fail=search_diagnostics.get(
+                "meaningful_match_fail",
+                False,
+            ),
             embedding_ms=_embedding_ms,
             search_ms=_search_ms,
             rerank_ms=_rerank_ms,
