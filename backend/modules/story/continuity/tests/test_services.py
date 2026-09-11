@@ -179,12 +179,6 @@ async def test_rollback_deep_import_delta_logs_is_scoped_and_idempotent(
     await db_session.flush()
 
     assert (
-        await memory_service.count_deep_import_delta_logs_by_workflow(
-            db_session, novel_id, "wf-rollback"
-        )
-        == 1
-    )
-    assert (
         await memory_service.rollback_deep_import_delta_logs_by_workflow(
             db_session, novel_id, "wf-rollback"
         )
@@ -203,7 +197,7 @@ async def test_rollback_deep_import_delta_logs_is_scoped_and_idempotent(
 
 
 @pytest.mark.asyncio
-async def test_delta_count_and_rollback_use_repository_filters_and_keyset_batches(
+async def test_delta_rollback_uses_repository_filters_and_keyset_batches(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from modules.story.continuity.models import DeltaLog
@@ -220,7 +214,6 @@ async def test_delta_count_and_rollback_use_repository_filters_and_keyset_batche
         for _ in range(2)
     ]
     delta_repo = MagicMock()
-    delta_repo.count_active_by_workflow = AsyncMock(return_value=2)
     delta_repo.get_active_by_workflow_page_after = AsyncMock(
         side_effect=[[rows[0]], [rows[1]], []]
     )
@@ -229,16 +222,11 @@ async def test_delta_count_and_rollback_use_repository_filters_and_keyset_batche
     db = MagicMock()
     db.flush = AsyncMock()
 
-    count = await service.count_deep_import_delta_logs_by_workflow(db, novel_id, "wf-1")
     rolled_back = await service.rollback_deep_import_delta_logs_by_workflow(
         db, novel_id, "wf-1"
     )
 
-    assert count == 2
     assert rolled_back == 2
-    delta_repo.count_active_by_workflow.assert_awaited_once_with(
-        db, uuid.UUID(novel_id), "wf-1"
-    )
     assert delta_repo.get_active_by_workflow_page_after.await_count == 3
     assert all(row.meta["rolled_back"] is True for row in rows)
 

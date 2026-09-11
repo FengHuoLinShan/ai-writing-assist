@@ -62,8 +62,6 @@ async def read_world_dependency(
 # cross-module seam during and after the compatibility release.
 from modules.story.continuity.facade import (  # noqa: E402,F401
     capture_snapshot,
-    count_deep_import_delta_logs_by_workflow,
-    create_delta_log,
     ensure_scene_checkpoints,
     get_continuity_evidence_for_writing,
     get_memory_panorama,
@@ -388,8 +386,6 @@ __all__ = [
     "restore_character_card_revision",
     *_outline_state_facade_exports,
     "capture_snapshot",
-    "count_deep_import_delta_logs_by_workflow",
-    "create_delta_log",
     "ensure_scene_checkpoints",
     "get_continuity_evidence_for_writing",
     "get_memory_panorama",

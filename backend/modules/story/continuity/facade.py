@@ -24,8 +24,6 @@ _scene_memory = SceneMemoryProjectionService()
 
 __all__ = [
     "capture_snapshot",
-    "count_deep_import_delta_logs_by_workflow",
-    "create_delta_log",
     "ensure_scene_checkpoints",
     "get_continuity_evidence_for_writing",
     "get_memory_panorama",
@@ -74,15 +72,6 @@ async def capture_snapshot(
     return await _memory.capture_snapshot(db, novel_id, chapter_index)
 
 
-async def create_delta_log(
-    db: AsyncSession,
-    novel_id: str,
-    **kwargs: Any,
-) -> dict[str, Any]:
-    """创建 Delta Log 记录，返回 dict。"""
-    return await _memory.create_delta_log(db, novel_id, **kwargs)
-
-
 async def ingest_delta_events(
     db: AsyncSession,
     novel_id: str,
@@ -116,19 +105,6 @@ async def replace_scene_memory_events(
         scene_index=scene_index,
         chapter_index=chapter_index,
         events=events,
-    )
-
-
-async def count_deep_import_delta_logs_by_workflow(
-    db: AsyncSession,
-    novel_id: str,
-    workflow_id: str,
-) -> int:
-    """Count deep import delta logs for cleanup reporting only."""
-    return await _memory.count_deep_import_delta_logs_by_workflow(
-        db,
-        novel_id,
-        workflow_id,
     )
 
 

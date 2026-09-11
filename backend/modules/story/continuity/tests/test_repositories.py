@@ -576,9 +576,6 @@ class TestDeltaLogRepository:
         await db_with_project.flush()
         repository = DeltaLogRepository()
 
-        count = await repository.count_active_by_workflow(
-            db_with_project, sample_novel_id, "wf-1"
-        )
         page = await repository.get_active_by_workflow_page_after(
             db_with_project,
             sample_novel_id,
@@ -587,21 +584,11 @@ class TestDeltaLogRepository:
             limit=10,
         )
 
-        assert count == 3
         assert [item.id for item in page] == [
             matching.id,
             explicit_false.id,
             non_boolean_rollback.id,
         ]
-        assert (
-            await repository.count_active_by_workflow(
-                db_with_project,
-                sample_novel_id,
-                "123",
-            )
-            == 0
-        )
-
     def test_workflow_filter_sql_preserves_json_types_in_both_dialects(self) -> None:
         novel_id = uuid.uuid4()
         repository = DeltaLogRepository()

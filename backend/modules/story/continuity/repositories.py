@@ -586,22 +586,6 @@ class DeltaLogRepository:
         bind = db.get_bind()
         return bind.dialect.name if bind is not None else ""
 
-    async def count_active_by_workflow(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        workflow_id: str,
-    ) -> int:
-        stmt = select(func.count(DeltaLog.id)).where(
-            *self._active_workflow_conditions(
-                novel_id,
-                workflow_id,
-                dialect_name=self._dialect_name(db),
-            )
-        )
-        result = await db.execute(stmt)
-        return int(result.scalar_one())
-
     async def get_active_by_workflow_page_after(
         self,
         db: AsyncSession,

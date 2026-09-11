@@ -402,20 +402,6 @@ class MemoryService:
             return "knowledge"
         return cls._delta_dimension(str(event.get("category") or event_type))
 
-    async def count_deep_import_delta_logs_by_workflow(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        workflow_id: str,
-    ) -> int:
-        """Count auto-ingested deep import DeltaLogs for cleanup reporting."""
-        nid = parse_uuid(novel_id, "novel_id")
-        return await self._delta_log_repo.count_active_by_workflow(
-            db,
-            nid,
-            workflow_id,
-        )
-
     async def rollback_deep_import_delta_logs_by_workflow(
         self,
         db: AsyncSession,
