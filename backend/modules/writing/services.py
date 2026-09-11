@@ -7,7 +7,6 @@ Writing 业务逻辑层
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import logging
 import re
@@ -29,6 +28,7 @@ from infrastructure.llm.agent_step_harness import (
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+from infrastructure.stable_hash import stable_hash as _generation_stable_fingerprint
 from modules.writing.conflict_ai import (
     AI_REVIEW_ACTION,
     ConflictCheckAiReviewService,
@@ -2657,17 +2657,6 @@ class WritingGenerationService:
             status="candidate",
         )
         return WritingDraftResponse.model_validate(draft)
-
-
-def _generation_stable_fingerprint(value: Any) -> str:
-    encoded = json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
 
 
 def _generation_compiled_context_fingerprint(compiled: object) -> dict[str, Any]:

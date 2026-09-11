@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import copy
-import hashlib
-import json
 from datetime import UTC, datetime
 
 from sqlalchemy import String, cast, select
 
 from core.errors import ConflictError, ValidationError
+from infrastructure.stable_hash import stable_hash
 from infrastructure.tasks.facade import require_running_task_attempt
 from modules.account.facade import current_account_id
 from modules.project.facade import (
@@ -28,14 +27,6 @@ from shared.utils import parse_uuid
 
 POLICY = "focused_world_completion.v1"
 ACTIONS = {"create_entity", "create_relation", "append_alias", "fill_empty"}
-
-
-def stable_hash(value):
-    return hashlib.sha256(
-        json.dumps(
-            value, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str
-        ).encode()
-    ).hexdigest()
 
 
 def is_empty(value):

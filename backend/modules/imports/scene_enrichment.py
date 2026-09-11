@@ -10,6 +10,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from infrastructure.stable_hash import stable_hash as _stable_hash
 from modules.imports.deep_import_retry import run_deep_import_llm_with_retry
 from modules.imports.env_helpers import positive_int_env
 from modules.imports.llm_schemas import SceneChunk, SceneEnrichmentOutput
@@ -622,10 +623,6 @@ def _dedupe_values(values: Sequence[Any]) -> list[Any]:
         seen.add(identity)
         result.append(value)
     return result
-
-
-def _stable_hash(value: Any) -> str:
-    return hashlib.sha256(_stable_json(value).encode("utf-8")).hexdigest()
 
 
 def _stable_json(value: Any) -> str:

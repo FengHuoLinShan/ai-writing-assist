@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -11,6 +10,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.stable_hash import stable_hash
 from modules.evidence import facade as context_facade
 from modules.evidence.contracts import ConfirmedAIActionContext
 from modules.story.outline_state.models import (
@@ -34,17 +34,6 @@ P20_CHARACTER_TOP_K = 6
 P20_ENTITY_TOP_K = 16
 P20_CHARACTER_PAGE_SIZE = 50
 _TEXT_TOKEN_RE = re.compile(r"[\u4e00-\u9fff]+|[a-z0-9]+", re.IGNORECASE)
-
-
-def stable_hash(value: Any) -> str:
-    encoded = json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
 
 
 def serialize_untrusted_json(value: Any) -> str:

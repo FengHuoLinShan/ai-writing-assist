@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import asdict, dataclass
 from typing import Any
+
+from infrastructure.stable_hash import stable_hash
 
 LLM_CAPABILITY_SNAPSHOT_KEY = "llm_capability_profile"
 LLM_CAPABILITY_EXECUTION_KEY = "_llm_capability_profile"
@@ -88,13 +88,7 @@ class LLMCapabilityProfile:
 
 
 def _stable_hash(value: Any) -> str:
-    encoded = json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+    return stable_hash(value, stringify_unknown=False)
 
 
 _DEEPSEEK_V4_FLASH = LLMCapabilityProfile(

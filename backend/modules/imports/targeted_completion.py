@@ -14,6 +14,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from infrastructure.stable_hash import stable_hash as _shared_stable_hash
 from modules.imports.llm_schemas import (
     _AI_WORLD_ENTITY_TYPES,
     RelationKind,
@@ -28,11 +29,7 @@ COMPLETION_TIMEOUT_SECONDS = 600
 
 
 def stable_hash(value: Any) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-        ).encode()
-    ).hexdigest()
+    return _shared_stable_hash(value, stringify_unknown=False)
 
 
 def normalize_roots(targets: list[dict]) -> list[dict]:

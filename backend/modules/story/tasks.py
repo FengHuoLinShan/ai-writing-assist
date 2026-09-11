@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import uuid
 from collections.abc import AsyncIterator
@@ -11,6 +10,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from infrastructure.llm.agent_step_harness import managed_llm_provenance_scope
+from infrastructure.stable_hash import stable_hash as _stable_hash
 from infrastructure.tasks.facade import require_task_checkpoint_session
 from infrastructure.tasks.registry import task_handler
 from modules.evidence.facade import (
@@ -55,17 +55,6 @@ async def handle_story_reference_review(db, task):
     from modules.story.proactive import review_references
 
     return await review_references(db, task)
-
-
-def _stable_hash(value: Any) -> str:
-    raw = json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    )
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def _text_hash(value: str) -> str:

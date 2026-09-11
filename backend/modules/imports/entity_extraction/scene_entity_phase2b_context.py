@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from typing import Any
 
+from infrastructure.stable_hash import stable_hash as _shared_stable_hash
 from modules.imports.entity_extraction.scene_entity_config import (
     PHASE2B_PROMPT_CONTRACT_VERSION,
 )
@@ -28,8 +28,7 @@ def _stable_json(value: Any) -> str:
 
 
 def stable_hash(value: Any) -> str:
-    payload = value if isinstance(value, str) else _stable_json(value)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return _shared_stable_hash(value, passthrough_str=True)
 
 
 def _prompt_scene_history(items: Any) -> list[dict[str, Any]]:

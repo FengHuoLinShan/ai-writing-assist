@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import re
@@ -12,6 +11,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from core.errors import ValidationError
+from infrastructure.stable_hash import stable_hash
 from modules.world.schemas import (
     WorldDesignCheckpointPayload,
     WorldValidationFinding,
@@ -149,18 +149,6 @@ def _field_value(item: dict[str, Any], path: str) -> Any:
             return None
         value = value.get(part)
     return value
-
-
-def stable_hash(value: Any) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            value,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            default=str,
-        ).encode()
-    ).hexdigest()
 
 
 def _finding(

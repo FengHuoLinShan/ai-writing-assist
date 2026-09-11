@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import json
 import logging
 import uuid
 from copy import deepcopy
@@ -20,6 +18,7 @@ from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+from infrastructure.stable_hash import stable_hash as _stable_fingerprint
 from modules.writing.repositories import (
     AI_REVIEW_TASK_OWNER_KEY,
     WritingConflictCheckRepository,
@@ -1027,17 +1026,6 @@ def _task_owner(summary: dict | None) -> str | None:
 
 def _summary_without_task_runtime(summary: dict | None) -> dict:
     return public_conflict_summary(summary)
-
-
-def _stable_fingerprint(value: Any) -> str:
-    encoded = json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
 
 
 def _compiled_context_fingerprint(compiled: object) -> dict[str, Any]:

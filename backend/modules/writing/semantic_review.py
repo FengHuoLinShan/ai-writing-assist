@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import uuid
 from copy import deepcopy
@@ -21,6 +20,7 @@ from infrastructure.llm.agent_step_harness import (
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+from infrastructure.stable_hash import stable_hash as _stable_hash
 from modules.writing.pov_generation import CharacterRevealGuard
 from modules.writing.repositories import WritingDraftRepository
 from modules.writing.schemas import (
@@ -41,17 +41,6 @@ _CONTEXT_BOUND_CANDIDATE_SOURCES = {
     "ai",
     "llm",
 }
-
-
-def _stable_hash(value: Any) -> str:
-    encoded = json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
 
 
 def _cache_usage_from_diagnostics(items: list[dict[str, Any]]) -> dict[str, int]:

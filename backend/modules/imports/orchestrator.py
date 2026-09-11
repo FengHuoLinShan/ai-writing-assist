@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import inspect
-import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -18,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError
 from infrastructure.llm.redaction import redact_diagnostic
+from infrastructure.stable_hash import stable_hash
 from modules.imports.adoption_policy import (
     DEFAULT_ADOPTION_POLICY,
     SUPPORTED_ADOPTION_POLICIES,
@@ -1310,16 +1310,7 @@ class DeepImportOrchestrator:
             )
         ]
 
-    @staticmethod
-    def _stable_hash(value: Any) -> str:
-        payload = json.dumps(
-            value,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            default=str,
-        )
-        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    _stable_hash = staticmethod(stable_hash)
 
     @staticmethod
     def _public_scene_prepare_checkpoint(

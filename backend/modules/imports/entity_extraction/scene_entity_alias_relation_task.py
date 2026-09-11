@@ -9,7 +9,6 @@ one atomic persistence transaction.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import time
 from typing import Any, Literal
@@ -20,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.llm.errors import LLMInvalidResponseError
 from infrastructure.llm.profiles import resolve_llm_profile
 from infrastructure.llm.redaction import redact_diagnostic
+from infrastructure.stable_hash import stable_hash
 from modules.imports.entity_extraction import scene_entity_config as _phase2_config
 from modules.imports.entity_extraction.scene_entity_alias_relation import (
     _accepts_keyword,
@@ -107,8 +107,7 @@ def _stable_json(value: Any) -> str:
 
 
 def _stable_hash(value: Any) -> str:
-    payload = value if isinstance(value, str) else _stable_json(value)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return stable_hash(value, passthrough_str=True)
 
 
 def _normalized_asset_ids(value: Any) -> dict[str, list[str]]:

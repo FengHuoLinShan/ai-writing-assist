@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -25,6 +23,7 @@ from infrastructure.llm.capabilities import (
 )
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.profiles import LLM_API_KEY_FIELD, resolve_llm_profile
+from infrastructure.stable_hash import stable_hash as _stable_hash
 from modules.account.facade import resolve_account_llm_runtime_profile
 from modules.project.contracts import ProjectLLMConfigurationError
 from modules.project.services import ProjectService
@@ -38,17 +37,6 @@ PROJECT_LLM_EXECUTION_SNAPSHOT_VERSION = "1"
 _RUNTIME_SOURCES_KEY = "_llm_runtime_sources"
 
 _service = ProjectService()
-
-
-def _stable_hash(value: Any) -> str:
-    payload = json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    )
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 async def _resolve_project_runtime_profile(
