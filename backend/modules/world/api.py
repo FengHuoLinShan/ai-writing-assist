@@ -1984,11 +1984,9 @@ async def get_bible_draft(
 async def get_bible_draft_publication(
     db: DbSession, draft_id: str, *, novel_id: ActiveNovelIdQuery
 ):
-    from modules.world.services.worldbuilding.world_authority_service import (
-        WorldAuthorityService,
+    return await _world_authority_service.find_page_publication(
+        db, novel_id, draft_id
     )
-
-    return await WorldAuthorityService().find_page_publication(db, novel_id, draft_id)
 
 
 @router.patch("/bible/drafts/{draft_id}", response_model=WorldBiblePageDraftResponse)
