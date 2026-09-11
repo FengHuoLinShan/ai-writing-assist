@@ -65,7 +65,7 @@ describe("Smart Dedup Manager", () => {
     await manager.startScan()
     await flushPromises()
     expect(showModal).not.toHaveBeenCalled()
-    expect(manager.renderActionButton()).toContain("查看去重建议")
+    expect(manager.getState().progress.done).toBe(true)
     manager.showProgress()
     expect(latestModal().title).toBe("核对重复资料")
     manager.dispose()

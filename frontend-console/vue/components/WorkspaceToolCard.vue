@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from "vue"
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId } from "vue"
 import ActionMenu from "./ActionMenu.vue"
 import WorkspaceDrawer from "./WorkspaceDrawer.vue"
 
@@ -44,10 +44,6 @@ async function select(key) {
   emit("select", key)
 }
 function resize() { mobile.value = media.matches; drawerOpen.value = false; frozen.value = null }
-watch([drawerOpen, mobile], async () => {
-  await nextTick()
-  document.getElementById("workspace")?.dispatchEvent(new Event("workspace:content-rendered", { bubbles: true }))
-})
 onMounted(() => media?.addEventListener("change", resize))
 onBeforeUnmount(() => media?.removeEventListener("change", resize))
 </script>

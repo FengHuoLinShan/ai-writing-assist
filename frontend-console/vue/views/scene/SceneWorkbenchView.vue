@@ -1,7 +1,7 @@
 <template>
   <div ref="toolsRoot" class="outline-scene-layout">
     <WorkspaceToolCard title="故事工具" :context="toolContext" :actions="toolActions" :more-actions="moreTools" action-prefix="scene-tool" @select="runTool">
-      <template #more><span data-role="smart-dedup-action"></span></template>
+      <template #more><SmartDedupAction /></template>
     </WorkspaceToolCard>
     <OutlineHeader sub-view="scenes" :item-count="total">
       <template #actions>
@@ -270,12 +270,13 @@
 </template>
 
 <script setup>
-import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
+import { computed, defineComponent, h, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue"
 import { sceneNumber } from "../../../shared/sceneNumbers.js"
 import { structureAssetDisplay, worldAssetDisplay } from "../../../shared/assetDisplayState.js"
 import { confirmAsync } from "../../../shared/confirmAsync.js"
 import { getApi, getConfirm, getRouteQuery, getRouter } from "../../bridge/index.js"
 import WorkspaceToolCard from "../../components/WorkspaceToolCard.vue"
+import SmartDedupAction from "../../components/SmartDedupAction.vue"
 import { focusWorkspaceTool } from "../../components/workspaceTools.js"
 import ActionMenu from "../../components/ActionMenu.vue"
 import WorkflowProgressCard from "../../components/WorkflowProgressCard.vue"
@@ -329,10 +330,6 @@ const props = defineProps({
   sceneLoadError: { type: String, default: null },
 })
 const router = getRouter()
-
-onMounted(() => {
-  document.querySelector(".outline-toolbar")?.dispatchEvent(new Event("workspace:content-rendered", { bubbles: true }))
-})
 
 const api = getApi()
 function characterReferenceItem(character) {

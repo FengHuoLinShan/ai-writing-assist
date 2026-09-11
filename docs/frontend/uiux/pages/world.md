@@ -342,7 +342,7 @@ world 全部组件头部注释声明「DOM class/id/data-action 逐节点保留�
   `data-bible-page-id/draft-id`、`data-section-id`、`data-target-id`（候选别名分组）、
   `data-group-id`、`tr[data-id]`、`data-label`（表格卡片化）、
   `[data-reference-query/result/selected]`（资产引用 picker）、
-  `input[name="world-bulk-target"]`、`span[data-role="smart-dedup-action"]`（外部注入位）。
+  `input[name="world-bulk-target"]`、`span[data-role="smart-dedup-action"]`（Vue 去重操作组件）。
 - 可访问名称：筛选输入的中文 label 文案有 `world-relations-aliases.spec.js:127+`
   专项回归；改名前全局 grep `getByRole({name})` / `getByText`（主规范 §9）。
 

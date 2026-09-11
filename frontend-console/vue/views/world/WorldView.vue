@@ -74,7 +74,7 @@
 </template>
 
 <script setup>
-import { computed, defineAsyncComponent, onMounted, ref, watch } from "vue"
+import { computed, defineAsyncComponent, ref, watch } from "vue"
 import { getAppState, getRouter } from "../../bridge/index.js"
 import { worldSession as session } from "./worldSession.js"
 import { objectQueryFromState } from "./logic/worldQuery.js"
@@ -282,10 +282,6 @@ function closeViewOptions() {
   viewOptionsEl.value?.removeAttribute("open")
 }
 
-onMounted(() => {
-  // app.js 监听该事件填充 [data-role="smart-dedup-action"]（worldView.js:660,672 同款契约）
-  rootEl.value?.dispatchEvent(new Event("workspace:content-rendered", { bubbles: true }))
-})
 </script>
 
 <style scoped>

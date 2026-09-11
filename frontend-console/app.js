@@ -17,6 +17,7 @@ import { mountAuthGate } from "./vue/auth/mountAuthGate.js"
 import { consumeEntryMode } from "./vue/auth/entryMode.js"
 import { registerViewLoaders } from "./vue/viewLoaders.js"
 import { getThemeController } from "./vue/shell/composables/useTheme.js"
+import { notifySmartDedupChanged, registerSmartDedupManager } from "./vue/bridge/index.js"
 
 // 只注册按路由加载的 island import 函数；不会在应用启动或认证门禁期间加载业务模块。
 registerViewLoaders()
@@ -26,10 +27,8 @@ const App = {
   _shell: null,
   _authGate: null,
   _smartDedup: null,
+  _unregisterSmartDedup: null,
   _unbindNavigate: null,
-  _workspace: null,
-  _workspaceClickHandler: null,
-  _workspaceRenderedHandler: null,
   _accountInvalidatedHandler: null,
   _accountStorageHandler: null,
   _accountBoundaryInvalidated: false,
@@ -75,30 +74,29 @@ const App = {
         toast,
         modal: { showModalHtml, closeModal },
         esc,
-        onRenderActions: () => this._renderGlobalActions(),
+        onRenderActions: notifySmartDedupChanged,
         getCurrentProjectId: () => state.currentProjectId,
         getCurrentRouteKey: () => `${state.currentView || ""}:${state.currentSubView || ""}`,
       })
+      this._unregisterSmartDedup = registerSmartDedupManager(this._smartDedup)
 
       // mountShell 先创建 #workspace-content，再初始化现有 hash router。
       this._shell = await this._mountShell()
-      this._bindGlobalActions()
 
       const unsubscribe = router.onNavigate?.(() => {
         this._smartDedup?.syncProject(state.currentProjectId)
-        this._renderGlobalActions()
       })
       this._unbindNavigate = typeof unsubscribe === "function" ? unsubscribe : null
 
       this._smartDedup.syncProject(state.currentProjectId)
-      this._renderGlobalActions()
 
       console.log("小说结构化创作控制台 v2.0 已启动")
       return this._shell
     } catch (error) {
-      this._unbindGlobalActions()
       this._unbindNavigate?.()
       this._unbindNavigate = null
+      this._unregisterSmartDedup?.()
+      this._unregisterSmartDedup = null
       this._smartDedup?.dispose?.()
       this._smartDedup = null
       this._shell?.unmount?.()
@@ -111,9 +109,10 @@ const App = {
 
   dispose() {
     getThemeController().dispose()
-    this._unbindGlobalActions()
     this._unbindNavigate?.()
     this._unbindNavigate = null
+    this._unregisterSmartDedup?.()
+    this._unregisterSmartDedup = null
     this._smartDedup?.dispose?.()
     this._smartDedup = null
     this._shell?.unmount?.()
@@ -216,62 +215,6 @@ const App = {
     } finally {
       reload()
     }
-  },
-
-  _bindGlobalActions() {
-    this._unbindGlobalActions()
-    const workspace = document.getElementById("workspace")
-    if (!workspace) return
-    // Module tools also live in body-level mobile drawers.
-    const clickRoot = document
-
-    this._workspaceClickHandler = (event) => {
-      const button = event.target?.closest?.("[data-action]")
-      if (!button) return
-      const action = button.getAttribute("data-action")
-      if (action === "start-smart-dedup" || action === "show-smart-dedup-progress") {
-        this._smartDedup?.handleAction(action)
-      }
-    }
-    this._workspaceRenderedHandler = () => this._renderGlobalActions()
-    clickRoot.addEventListener("click", this._workspaceClickHandler)
-    workspace.addEventListener("workspace:content-rendered", this._workspaceRenderedHandler)
-    this._workspace = workspace
-    this._globalActionRoot = clickRoot
-  },
-
-  _unbindGlobalActions() {
-    if (this._workspace) {
-      this._workspace.removeEventListener("workspace:content-rendered", this._workspaceRenderedHandler)
-    }
-    this._globalActionRoot?.removeEventListener("click", this._workspaceClickHandler)
-    this._workspace = null
-    this._globalActionRoot = null
-    this._workspaceClickHandler = null
-    this._workspaceRenderedHandler = null
-  },
-
-  _renderGlobalActions() {
-    const mounts = document.querySelectorAll('[data-role="smart-dedup-action"]')
-    if (!mounts.length) return
-
-    const supportedView = state.currentView === "world" || state.currentView === "outline"
-    if (!state.currentProjectId || !supportedView || !this._smartDedup) {
-      mounts.forEach((mount) => mount.replaceChildren())
-      return
-    }
-
-    // SmartDedup 只返回内部生成的静态按钮/进度标记，不含用户或 AI 文本。
-    const html = this._smartDedup.renderActionButton(this._smartDedup.getState().progress)
-    mounts.forEach((mount) => {
-      mount.innerHTML = html
-      if (mount.closest('[role="menu"]')) {
-        mount.querySelectorAll("button").forEach((button) => {
-          button.setAttribute("role", "menuitem")
-          button.setAttribute("tabindex", "-1")
-        })
-      }
-    })
   },
 
   _restoreProjectState() {

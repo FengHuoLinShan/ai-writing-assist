@@ -6,7 +6,7 @@
 <template>
   <WorkspaceToolCard v-if="subView === 'threads' || subView === 'arcs' || reviewMode" title="故事工具"
     :context="subViewLabel" :actions="toolActions" :more-actions="moreTools" action-prefix="outline-tool" @select="runTool">
-    <template v-if="!reviewMode" #more><span data-role="smart-dedup-action"></span></template>
+    <template v-if="!reviewMode" #more><SmartDedupAction /></template>
   </WorkspaceToolCard>
   <div ref="headerEl" class="view-header view-header--with-tabs outline-toolbar">
     <div class="subnav">
@@ -50,6 +50,7 @@ import {
 import { outlineAnalysisManager, outlineGenerateManager, plotAutoExtractManager } from "../ai/outlineWorkflowManagers.js"
 
 import WorkspaceToolCard from "../../../components/WorkspaceToolCard.vue"
+import SmartDedupAction from "../../../components/SmartDedupAction.vue"
 import { focusWorkspaceTool } from "../../../components/workspaceTools.js"
 import { getBulkSelection } from "../logic/outlineBulkSelection.js"
 const headerEl = ref(null)

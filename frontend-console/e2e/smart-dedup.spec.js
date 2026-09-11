@@ -386,17 +386,17 @@ test.describe("智能去重", () => {
     await openWorkbench(page, project, "world")
     await startSmartDedup(page)
 
-    await expect(page.locator("#modal-title")).toHaveText("智能去重裁决工作台", { timeout: 10000 })
+    await expect(page.locator("#modal-title")).toHaveText("核对重复资料", { timeout: 10000 })
     await expect(page.locator("#modal-content")).toHaveAttribute("data-modal-size", "large")
     await expect(page.locator("#modal-body")).toContainText("周明瑞")
     await expect(page.locator("#modal-body")).toContainText("只看差异")
     await expect(page.locator("#modal-body")).not.toContainText("手动主体 ID")
-    await expect(page.getByRole("button", { name: "执行已就绪组 (1)" })).toBeEnabled()
+    await expect(page.getByRole("button", { name: "确认本次处理 (1)" })).toBeEnabled()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 
-    await page.getByRole("button", { name: "执行已就绪组 (1)" }).click()
+    await page.getByRole("button", { name: "确认本次处理 (1)" }).click()
     await expect(page.locator("#modal-body")).toContainText("执行成功")
-    await expect(page.locator("#modal-title")).toHaveText("智能去重裁决工作台")
+    await expect(page.locator("#modal-title")).toHaveText("核对重复资料")
     expect(applyPayload).toMatchObject({
       confirmed: true,
       scan_task_id: "smart-dedup-group-task",

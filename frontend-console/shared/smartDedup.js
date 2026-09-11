@@ -269,19 +269,6 @@ export function createSmartDedupManager({
       }
     },
 
-    renderActionButton(progressState = null) {
-      const progress = progressState !== null ? progressState : this._progress
-      const running = progress && !progress.terminal
-      const done = progress?.done
-      const label = running ? "查看智能去重" : done ? "查看去重建议" : "智能去重"
-      const action = running || done ? "show-smart-dedup-progress" : "start-smart-dedup"
-      return `
-        <button class="btn btn-sm ${running ? "btn-primary" : ""}" data-action="${action}">
-          ${esc(label)}
-        </button>
-      `
-    },
-
     dispose() {
       this._destroyManualPrimaryPickers()
       this._stopPolling()

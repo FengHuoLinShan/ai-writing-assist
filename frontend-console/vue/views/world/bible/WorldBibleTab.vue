@@ -1780,7 +1780,6 @@ async function publishActivationProfile() {
 
 // ---- lifecycle ----
 onMounted(() => {
-  rootEl.value?.dispatchEvent(new Event("workspace:content-rendered", { bubbles: true }))
   mountAssetRefPicker()
   restoreLibraryScroll()
 })

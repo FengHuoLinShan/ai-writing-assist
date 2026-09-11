@@ -99,7 +99,7 @@
 </template>
 
 <script setup>
-import { computed, defineAsyncComponent, onMounted } from "vue"
+import { computed, defineAsyncComponent } from "vue"
 import { locateAssistantSource } from "../../shared/assistantNavigation.js"
 import { getRouter } from "../../bridge/index.js"
 import OutlineHeader from "./components/OutlineHeader.vue"
@@ -175,8 +175,4 @@ const hasAnyProgress = computed(() => Boolean(
   || plotAutoExtractManager.state.progress
 ))
 
-onMounted(() => {
-  // app.js 监听该事件填充 [data-role="smart-dedup-action"]（同 WorldView 契约）
-  document.querySelector(".outline-toolbar")?.dispatchEvent(new Event("workspace:content-rendered", { bubbles: true }))
-})
 </script>

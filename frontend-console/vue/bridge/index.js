@@ -12,10 +12,48 @@
 import { getCurrentScope, onScopeDispose, readonly, ref } from "vue"
 import { captureWorkContext } from "../shared/assistantContext.js"
 
+let smartDedupManager = null
+const smartDedupListeners = new Set()
+
+function activeSmartDedupManager() {
+  return _overrides.smartDedup ?? smartDedupManager
+}
+
+export function notifySmartDedupChanged() {
+  for (const listener of smartDedupListeners) listener()
+}
+
+export function registerSmartDedupManager(manager) {
+  smartDedupManager = manager
+  notifySmartDedupChanged()
+  return () => {
+    if (smartDedupManager !== manager) return
+    smartDedupManager = null
+    notifySmartDedupChanged()
+  }
+}
+
+export function onSmartDedupChanged(listener) {
+  smartDedupListeners.add(listener)
+  return () => smartDedupListeners.delete(listener)
+}
+
+export function getSmartDedupActionState() {
+  const manager = activeSmartDedupManager()
+  return {
+    available: Boolean(getAppState()?.currentProjectId && manager),
+    progress: manager?.getState?.().progress || null,
+  }
+}
+
+export function runSmartDedupAction(action) {
+  return activeSmartDedupManager()?.handleAction?.(action)
+}
+
 let assistantOpener = null
 export async function openSmartDedupTask(taskId) {
   const projectId = getAppState()?.currentProjectId
-  const manager = _overrides.smartDedup ?? globalThis.App?._smartDedup
+  const manager = activeSmartDedupManager()
   if (!projectId || !manager) throw new Error("查重工作台正在准备，请稍后重试。")
   return manager.openTask(taskId, projectId)
 }
