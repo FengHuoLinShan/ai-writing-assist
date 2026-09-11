@@ -688,6 +688,10 @@ class TestDeepImportOrchestrator:
         db_session,
     ):
         task = await _create_recoverable_deep_import_task(db_session)
+        task.result = {**task.result, "phase": "failed"}
+        run = await db_session.get(ImportWorkflowRun, task.id)
+        run.progress = dict(task.result)
+        await db_session.flush()
 
         result = await _unit_orchestrator().resume_interrupted(db_session, str(task.id))
 
@@ -695,6 +699,8 @@ class TestDeepImportOrchestrator:
         assert result["workflow_id"] == str(task.id)
         assert result["status"] == "pending"
         assert task.status == "pending"
+        assert task.result["phase"] == "pending"
+        assert run.progress["phase"] == "pending"
         assert task.result["interrupted"] is False
         assert task.result["recovery_required"] is False
         assert task.meta["interrupted"] is False

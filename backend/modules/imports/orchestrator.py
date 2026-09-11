@@ -1541,6 +1541,8 @@ class DeepImportOrchestrator:
 
         run = await self._get_recoverable_deep_import_run(db, task_id)
         result_data = dict(run.progress or {})
+        if result_data.get("phase") == "failed":
+            result_data["phase"] = "pending"
         if (run.checkpoints or {}).get("completion_control"):
             run.checkpoints = {
                 **run.checkpoints,
