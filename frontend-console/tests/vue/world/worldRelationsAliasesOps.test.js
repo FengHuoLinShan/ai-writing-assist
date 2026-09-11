@@ -8,8 +8,6 @@ import {
   showAliasCreateForm,
   deleteRelation,
   deleteAlias,
-  markRelationReviewed,
-  markAliasReviewed,
   showAliasEditForm,
   showRelationReviewEditForm,
   syncRelationsAliasesRegistry,
@@ -440,56 +438,5 @@ describe("deleteAlias", () => {
     deleteAlias("", "")
     expect(toastCalls).toContainEqual(["参数错误：缺少实体 ID 或别名", "error"])
     expect(confirmCalls).toHaveLength(0)
-  })
-})
-
-describe("markRelationReviewed", () => {
-  it("调 reviewEditRelationship 并 refresh", async () => {
-    const ok = await markRelationReviewed("r1")
-    expect(ok).toBe(true)
-    expect(apiMock.world.reviewEditRelationship).toHaveBeenCalledWith(
-      "r1",
-      { confirm_review: true },
-      "p-ra",
-    )
-    expect(routerMock.refresh).toHaveBeenCalledOnce()
-    expect(toastCalls).toContainEqual(["关系已采用", "success"])
-  })
-
-  it("同项目切换子视图后延迟结果不刷新新页", async () => {
-    const state = { currentProjectId: "p-ra", currentView: "world", currentSubView: "relations" }
-    let resolveReview
-    apiMock.world.reviewEditRelationship.mockReturnValue(new Promise((resolve) => { resolveReview = resolve }))
-    setBridgeOverrides({ state })
-
-    const pending = markRelationReviewed("r1")
-    expect(apiMock.world.reviewEditRelationship).toHaveBeenCalledWith(
-      "r1",
-      { confirm_review: true },
-      "p-ra",
-    )
-    state.currentSubView = "aliases"
-    resolveReview({})
-
-    expect(await pending).toBe(true)
-    expect(routerMock.refresh).not.toHaveBeenCalled()
-    expect(toastCalls).not.toContainEqual(["关系已采用", "success"])
-  })
-})
-
-describe("markAliasReviewed", () => {
-  it("调 updateAlias 并 refresh", async () => {
-    const ok = await markAliasReviewed("e1", "小名")
-    expect(ok).toBe(true)
-    expect(apiMock.world.updateAlias).toHaveBeenCalledWith(
-      "e1", "小名",
-      expect.objectContaining({ status: "canonical", needs_review: false, reviewed_by: "manual", reviewed_from: "world_aliases" }),
-      { novel_id: "p-ra" },
-    )
-  })
-
-  it("缺少参数返回 false", async () => {
-    const ok = await markAliasReviewed("", "")
-    expect(ok).toBe(false)
   })
 })

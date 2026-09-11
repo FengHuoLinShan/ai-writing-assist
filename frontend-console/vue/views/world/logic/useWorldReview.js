@@ -8,7 +8,7 @@ import { sceneNumber } from "../../../../shared/sceneNumbers.js"
  * 因此维护 reviewRegistry（WorldReviewTab 在 props 变化时同步）。
  * 草稿/错误/批量选择落 worldSession（见 worldSession.js 进入协调语义）。
  */
-import { getApi, getAppState, getCloseModal, getConfirmAction, getEsc, getRouter, getShowModalHtml, getToast } from "../../../bridge/index.js"
+import { getApi, getAppState, getConfirmAction, getRouter, getToast } from "../../../bridge/index.js"
 import { confirmAsync } from "../../../../shared/confirmAsync.js"
 import { worldSession } from "../worldSession.js"
 import {
@@ -32,15 +32,11 @@ import {
   isSuggestionShadow,
   isTargetedAliasCandidate,
 } from "./worldEntityHelpers.js"
-import { adoptEntity, ignoreEntity, mountEntityReferencePickerForReview } from "./worldEntityOps.js"
+import { adoptEntity, ignoreEntity } from "./worldEntityOps.js"
 import {
-  bindTypeKindControls,
   detailTypeLabel,
-  detailTypeOptionsHtml,
   kindLabel,
-  kindOptionsHtml,
   kindOrTypeDefault,
-  readDetailType,
 } from "./worldTypeCatalog.js"
 
 // ============================================================
@@ -510,25 +506,6 @@ export function changeReviewPage(kind, delta, currentFilters, total) {
 // 审阅决策（草稿落 worldSession）
 // ============================================================
 
-function aliasEvidenceHtml(item = {}) {
-  const esc = getEsc()
-  const evidence = inlineEvidencePairs(item).filter(([label, value]) => label !== "处理批次" && (label !== "场景" || Number.isInteger(Number(value))))
-  if (!evidence.length) return ""
-  return `
-    <div class="form-group">
-      <label>证据</label>
-      <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;color:var(--text-muted);font-size:12px;">
-        ${evidence.map(([label, value]) => `<div><strong>${esc(label)}：</strong>${esc(value)}</div>`).join("")}
-      </div>
-    </div>
-  `
-}
-
-function findAlias(entityIdParam, aliasText) {
-  return reviewRegistry.aliases.find((item) => item.entity_id === entityIdParam && item.alias === aliasText) || null
-}
-
-/** 加载可恢复的单条别名决策草稿。 */
 export function prepareAliasReviewDecision(alias) {
   const key = aliasKey(alias)
   const draftState = loadReviewDraft("alias", key, alias.execution_fingerprint, worldSession.aliasReviewDrafts[key])
@@ -625,218 +602,6 @@ export function persistRelationReviewDecision(group, draft) {
   worldSession.relationReviewDrafts[group.group_id] = next
   storeReviewDraft("relation", group.group_id, next)
   return next
-}
-
-/** 对应 vanilla showAliasReviewEditForm。 */
-export function showAliasReviewEditForm(entityIdParam, aliasText) {
-  const esc = getEsc()
-  const toast = getToast()
-  const showModalHtml = getShowModalHtml()
-  const alias = findAlias(entityIdParam, aliasText)
-  if (!alias) {
-    toast("未找到目标别名", "error")
-    return
-  }
-  const selectedAliasType = alias.alias_type || "name"
-  const selectedAliasKind = kindOrTypeDefault(reviewRegistry.reviewTypeCatalog, "alias", alias.alias_kind, selectedAliasType)
-  const formHtml = `
-    <div class="form-group">
-      <label>目标对象 *</label>
-      <div id="alias-target-picker"></div>
-      <input type="hidden" id="alias-target-id" data-modal-dirty-track value="${esc(entityIdParam)}" />
-    </div>
-    <div class="form-group">
-      <label>别名文本 *</label>
-      <input class="form-input" id="alias-edit-text" value="${esc(alias.alias || "")}" />
-    </div>
-    <div class="form-group">
-      <label for="alias-edit-kind">别名分类</label>
-      <select class="form-select" id="alias-edit-kind" aria-describedby="alias-edit-kind-help">${kindOptionsHtml(reviewRegistry.reviewTypeCatalog, "alias", selectedAliasKind, esc)}</select>
-      <div class="form-help" id="alias-edit-kind-help">用于 AI 检索的通用分类。</div>
-    </div>
-    <div class="form-group">
-      <label for="alias-edit-type">详细类型</label>
-      <select class="form-select" id="alias-edit-type">${detailTypeOptionsHtml(reviewRegistry.reviewTypeCatalog, "alias", selectedAliasType, esc)}</select>
-      <div id="alias-edit-type-custom-wrap" hidden><label for="alias-edit-type-custom">自定义详细类型</label><input class="form-input" id="alias-edit-type-custom" maxlength="20" value="${esc(selectedAliasType)}" /></div>
-    </div>
-    ${aliasEvidenceHtml(alias)}
-  `
-  showModalHtml("编辑后采用别名", formHtml, [{
-    text: "保存并采用",
-    class: "btn-primary",
-    handler: async () => {
-      const targetId = document.getElementById("alias-target-id")?.value
-      const text = document.getElementById("alias-edit-text")?.value?.trim()
-      const aliasKind = document.getElementById("alias-edit-kind")?.value || ""
-      const type = readDetailType(document.getElementById("alias-edit-type"), document.getElementById("alias-edit-type-custom"))
-      if (!targetId || !text || !aliasKind || !type) {
-        toast("请选择目标对象、别名分类并输入别名和详细类型", "warning")
-        return false
-      }
-      try {
-        await getApi().world.editAlias(entityIdParam, aliasText, {
-          target_entity_id: targetId,
-          alias: text,
-          alias_kind: aliasKind,
-          alias_type: type,
-          confirm_review: true,
-        }, { novel_id: getAppState()?.currentProjectId })
-        toast("别名已保存并采用", "success")
-        getRouter()?.refresh?.()
-      } catch (err) {
-        toast(err.message || "保存失败", "error")
-        return false
-      }
-    },
-  }])
-  bindTypeKindControls({
-    typeSelect: document.getElementById("alias-edit-type"),
-    customInput: document.getElementById("alias-edit-type-custom"),
-    customContainer: document.getElementById("alias-edit-type-custom-wrap"),
-    kindSelect: document.getElementById("alias-edit-kind"),
-    kindHelp: document.getElementById("alias-edit-kind-help"),
-    catalog: reviewRegistry.reviewTypeCatalog,
-    domain: "alias",
-    kindExplicit: Boolean(alias.alias_kind),
-  })
-  mountEntityReferencePickerForReview({
-    rootId: "alias-target-picker",
-    inputId: "alias-target-id",
-    selectedId: entityIdParam,
-    selectedName: alias.entity_name || "当前对象",
-  })
-  globalThis.refreshModalFormBaseline?.()
-}
-
-/** 模态内复制诊断按钮绑定（vanilla _bindReviewDiagnosticCopyButtons）。 */
-function bindDiagnosticCopyButtons(root = document) {
-  root?.querySelectorAll?.('[data-action="copy-review-diagnostic"]').forEach((button) => {
-    if (button.dataset.reviewDiagnosticBound === "true") return
-    button.dataset.reviewDiagnosticBound = "true"
-    button.addEventListener("click", async (event) => {
-      event.preventDefault()
-      await copyReviewDiagnostic(button.getAttribute("data-diagnostic") || "{}")
-    })
-  })
-}
-
-
-/** 对应 vanilla showRelationReviewEditForm。 */
-export function showRelationReviewEditForm(relationId) {
-  const esc = getEsc()
-  const toast = getToast()
-  const showModalHtml = getShowModalHtml()
-  const closeModal = getCloseModal()
-  const relation = reviewRegistry.relations.find((item) => (item.id || item.relationship_id) === relationId)
-  if (!relation) {
-    toast("未找到目标关系", "error")
-    return
-  }
-  const selectedType = relation.relation_type || ""
-  const selectedKind = kindOrTypeDefault(reviewRegistry.reviewTypeCatalog, "relation", relation.relation_kind, selectedType)
-  const optionsHtml = (selectedId) => relationEntityOptionsHtml(selectedId)
-  const evidence = reviewEvidenceSummary({
-    ...(relation.review_meta || {}),
-    source_chapter_index: relation.review_meta?.source_chapter_index ?? relation.source_chapter_id,
-    quote: relation.quote || relation.review_meta?.quote,
-  }, "relation", relation.strength)
-  const formHtml = `
-    <div class="form-group">
-      <label>源对象</label>
-      <select class="form-select" id="rel-review-source">${optionsHtml(relation.source_id)}</select>
-    </div>
-    <div class="form-group">
-      <label for="rel-review-kind">关系分类</label>
-      <select class="form-select" id="rel-review-kind" aria-describedby="rel-review-kind-help">${kindOptionsHtml(reviewRegistry.reviewTypeCatalog, "relation", selectedKind, esc)}</select>
-      <div class="form-help" id="rel-review-kind-help">用于 AI 检索的通用分类。</div>
-    </div>
-    <div class="form-group">
-      <label for="rel-review-type">详细类型</label>
-      <select class="form-select" id="rel-review-type">${detailTypeOptionsHtml(reviewRegistry.reviewTypeCatalog, "relation", selectedType, esc)}</select>
-      <div id="rel-review-type-custom-wrap" hidden><label for="rel-review-type-custom">自定义详细类型</label><input class="form-input" id="rel-review-type-custom" value="${esc(selectedType)}" /></div>
-    </div>
-    <div class="form-group">
-      <label>目标对象</label>
-      <select class="form-select" id="rel-review-target">${optionsHtml(relation.target_id)}</select>
-    </div>
-    <div class="form-group">
-      <label>描述</label>
-      <textarea class="form-textarea" id="rel-review-description" rows="3">${esc(relation.description || "")}</textarea>
-    </div>
-    <div class="form-group">
-      <label>强度</label>
-      <input class="form-input" id="rel-review-strength" type="number" min="0" max="1" step="0.01" value="${esc(relation.strength ?? 0.5)}" />
-    </div>
-    <div class="review-evidence-summary">
-      <span>${esc(evidence.summary)}</span>
-      ${evidence.quote ? `<blockquote>${esc(evidence.quote)}</blockquote>` : '<span class="world-text-dim">无原文引用</span>'}
-      <details>
-        <summary>诊断信息</summary>
-        <pre>${esc(evidence.diagnostic)}</pre>
-        <button class="btn btn-sm" data-action="copy-review-diagnostic" data-diagnostic="${esc(evidence.diagnostic)}">复制诊断信息</button>
-      </details>
-    </div>
-  `
-  showModalHtml("编辑后采用关系", formHtml, [{
-    text: "采用", class: "btn-primary", handler: async () => {
-      const sourceId = document.getElementById("rel-review-source")?.value || ""
-      const targetId = document.getElementById("rel-review-target")?.value || ""
-      const relationKind = document.getElementById("rel-review-kind")?.value || ""
-      const relationType = readDetailType(document.getElementById("rel-review-type"), document.getElementById("rel-review-type-custom"))
-      if (!sourceId || !targetId || !relationKind || !relationType) {
-        toast("请填写源对象、目标对象、关系分类和详细类型", "warning")
-        return false
-      }
-      try {
-        await getApi().world.reviewEditRelationship(relationId, {
-          source_id: sourceId,
-          target_id: targetId,
-          relation_kind: relationKind,
-          relation_type: relationType,
-          description: document.getElementById("rel-review-description")?.value?.trim() || "",
-          strength: Number(document.getElementById("rel-review-strength")?.value || 0.5),
-          confirm_review: true,
-        }, getAppState()?.currentProjectId)
-        closeModal()
-        toast("关系已采用", "success")
-        getRouter()?.refresh?.()
-      } catch (err) {
-        toast(err.message || "采用关系失败", "error")
-        return false
-      }
-    },
-  }])
-  bindTypeKindControls({
-    typeSelect: document.getElementById("rel-review-type"),
-    customInput: document.getElementById("rel-review-type-custom"),
-    customContainer: document.getElementById("rel-review-type-custom-wrap"),
-    kindSelect: document.getElementById("rel-review-kind"),
-    kindHelp: document.getElementById("rel-review-kind-help"),
-    catalog: reviewRegistry.reviewTypeCatalog,
-    domain: "relation",
-    kindExplicit: Boolean(relation.relation_kind),
-  })
-  bindDiagnosticCopyButtons(document.getElementById("modal-body"))
-}
-
-/** 对应 vanilla _relationEntityOptionsHtml（候选+实体合并去重、排除历史态）。 */
-function relationEntityOptionsHtml(selectedId = "") {
-  const esc = getEsc()
-  const items = [...reviewRegistry.entities, ...reviewRegistry.candidates]
-    .filter((item) => !["merged", "ignored", "deprecated"].includes(item.status))
-  const seen = new Set()
-  const options = []
-  for (const item of items) {
-    const id = entityId(item)
-    if (!id || seen.has(id)) continue
-    seen.add(id)
-    const label = `${item.name || id} (${item.entity_type || "-"})`
-    options.push(`<option value="${esc(id)}" ${id === selectedId ? "selected" : ""}>${esc(label)}</option>`)
-  }
-  if (!seen.has(selectedId) && selectedId) {
-    options.unshift(`<option value="${esc(selectedId)}" selected>${esc(selectedId)}</option>`)
-  }
-  return options.length ? options.join("") : `<option value="">暂无对象</option>`
 }
 
 // ============================================================

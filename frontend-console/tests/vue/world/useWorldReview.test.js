@@ -26,8 +26,6 @@ import {
   recommendedRelationDecision,
   reviewTypeLabel,
   runReviewBulkAction,
-  showAliasReviewEditForm,
-  showRelationReviewEditForm,
   splitCandidateGroups,
   syncReviewRegistry,
 } from "../../../vue/views/world/logic/useWorldReview.js"
@@ -206,63 +204,6 @@ describe("changeReviewPage", () => {
 })
 
 describe("审阅决策", () => {
-  it.each([
-    [
-      "别名",
-      () => {
-        syncReviewRegistry({ aliases: [{ entity_id: "e1", alias: "旧港", alias_type: "name" }] })
-        showAliasReviewEditForm("e1", "旧港")
-      },
-      () => { document.getElementById("alias-target-id").value = "" },
-      "editAlias",
-    ],
-    [
-      "关系",
-      () => {
-        syncReviewRegistry({ relations: [{
-          id: "r1",
-          source_id: "e1",
-          target_id: "e2",
-          relation_kind: "social", relation_type: "friend_of",
-        }] })
-        showRelationReviewEditForm("r1")
-      },
-      () => { document.getElementById("rel-review-type").value = "" },
-      "reviewEditRelationship",
-    ],
-  ])("编辑后采用%s的本地校验失败时返回 false 且不调接口", async (_label, openForm, invalidate, apiMethod) => {
-    openForm()
-    document.body.innerHTML = modalCalls[0].html
-    invalidate()
-
-    await expect(modalCalls[0].buttons[0].handler()).resolves.toBe(false)
-    expect(apiMock.world[apiMethod]).not.toHaveBeenCalled()
-  })
-
-  it.each([
-    ["别名", "editAlias", () => {
-      syncReviewRegistry({ aliases: [{ entity_id: "e1", alias: "旧港", alias_type: "name" }] })
-      showAliasReviewEditForm("e1", "旧港")
-    }],
-    ["关系", "reviewEditRelationship", () => {
-      syncReviewRegistry({ relations: [{
-        id: "r1",
-        source_id: "e1",
-        target_id: "e2",
-        relation_kind: "social", relation_type: "friend_of",
-      }] })
-      showRelationReviewEditForm("r1")
-    }],
-  ])("编辑后采用%s的 API 失败时返回 false 供原位重试", async (_label, apiMethod, openForm) => {
-    apiMock.world[apiMethod].mockRejectedValueOnce(new Error("请求失败"))
-    openForm()
-    document.body.innerHTML = modalCalls[0].html
-
-    await expect(modalCalls[0].buttons[0].handler()).resolves.toBe(false)
-    expect(apiMock.world[apiMethod]).toHaveBeenCalledTimes(1)
-    expect(toastMock).toHaveBeenCalledWith("请求失败", "error")
-  })
-
   it("就地别名决策提交单条内容并清草稿", async () => {
     const alias = { entity_id: "e1", entity_name: "沉钟港", alias: "旧港", alias_kind: "name", alias_type: "name", confidence: 0.8, execution_fingerprint: "fp" }
     worldSession.aliasReviewErrors["e1::旧港"] = "旧错误"
