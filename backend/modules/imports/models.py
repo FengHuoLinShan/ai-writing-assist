@@ -101,18 +101,12 @@ class ImportRecord(Base, UUIDMixin, TimestampMixin, NovelMixin):
         )
 
 
-class ImportedChapter(Base, UUIDMixin, TimestampMixin):
+class ImportedChapter(Base, UUIDMixin, TimestampMixin, NovelMixin):
     """已导入的章节正文内容"""
 
     __tablename__ = "imported_chapters"
     __table_args__ = {"comment": "已导入的章节内容"}
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     import_record_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("import_records.id", ondelete="CASCADE"),
@@ -147,7 +141,7 @@ class ImportedChapter(Base, UUIDMixin, TimestampMixin):
         )
 
 
-class ImportWorkflowRun(Base, UUIDMixin, TimestampMixin):
+class ImportWorkflowRun(Base, UUIDMixin, TimestampMixin, NovelMixin):
     """Imports-owned durable workflow state and attempt ownership.
 
     ``async_tasks`` remains the queue/lease projection.  This row owns the
@@ -181,12 +175,6 @@ class ImportWorkflowRun(Base, UUIDMixin, TimestampMixin):
         ForeignKey("async_tasks.id", ondelete="CASCADE"),
         nullable=False,
         unique=True,
-    )
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
     )
     workflow_type: Mapped[str] = mapped_column(String(64), nullable=False)
     stage: Mapped[str | None] = mapped_column(String(64), nullable=True)
