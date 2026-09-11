@@ -175,12 +175,12 @@ async def test_analyze_task_restores_frozen_profile_and_waits_without_transactio
 
     with (
         mock.patch(
-            "modules.project.facade.restore_project_llm_execution_settings",
+            "modules.project.llm_runtime.restore_project_llm_execution_settings",
             side_effect=_restore,
             autospec=True,
         ) as restore_snapshot,
         mock.patch(
-            "modules.project.facade.create_project_snapshot_llm_client",
+            "modules.project.llm_runtime.create_project_snapshot_llm_client",
             side_effect=_create,
             autospec=True,
         ) as create_client,
@@ -214,21 +214,23 @@ async def test_analyze_task_restores_frozen_profile_and_waits_without_transactio
 
 
 async def test_outline_task_client_applies_generation_timeout_override() -> None:
+    from modules.project.facade import open_project_snapshot_llm_client
+
     client = SimpleNamespace(close=mock.AsyncMock())
     settings = {"llm": {"model": "frozen-model"}}
     with (
         mock.patch(
-            "modules.project.facade.restore_project_llm_execution_settings",
+            "modules.project.llm_runtime.restore_project_llm_execution_settings",
             autospec=True,
         ) as restore_settings,
         mock.patch(
-            "modules.project.facade.create_project_snapshot_llm_client",
+            "modules.project.llm_runtime.create_project_snapshot_llm_client",
             return_value=client,
             autospec=True,
         ) as create_client,
     ):
         restore_settings.return_value = settings
-        async with OutlineAIWorkflowService()._open_task_llm_client(
+        async with open_project_snapshot_llm_client(
             SimpleNamespace(),
             "11111111-1111-1111-1111-111111111111",
             {"profile_hash": "frozen"},

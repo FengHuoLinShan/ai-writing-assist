@@ -296,6 +296,30 @@ def create_project_snapshot_llm_client(
 
 
 @asynccontextmanager
+async def open_project_snapshot_llm_client(
+    db: AsyncSession,
+    novel_id: str,
+    snapshot: dict[str, Any],
+    *,
+    timeout_override: int | None = None,
+    injected_client: LLMClient | None = None,
+) -> AsyncIterator[LLMClient]:
+    """Open a managed client from one validated, secret-free task snapshot."""
+    if injected_client is not None:
+        yield injected_client
+        return
+    settings = await restore_project_llm_execution_settings(db, novel_id, snapshot)
+    client_kwargs: dict[str, Any] = {"novel_id": novel_id}
+    if timeout_override is not None:
+        client_kwargs["timeout_override"] = timeout_override
+    client = create_project_snapshot_llm_client(settings, **client_kwargs)
+    try:
+        yield client
+    finally:
+        await client.close()
+
+
+@asynccontextmanager
 async def open_project_llm_client(
     db: AsyncSession,
     novel_id: str,

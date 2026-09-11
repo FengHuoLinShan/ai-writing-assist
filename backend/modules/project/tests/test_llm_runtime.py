@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import select
@@ -33,6 +33,7 @@ from modules.project.facade import (
     create_project_snapshot_llm_client,
     get_project_context,
     open_project_llm_client,
+    open_project_snapshot_llm_client,
     restore_project_llm_execution_settings,
 )
 from modules.project.models import Project
@@ -245,6 +246,54 @@ async def test_snapshot_client_keeps_same_fail_closed_rules() -> None:
 
     with pytest.raises(ProjectLLMConfigurationError, match="API key"):
         create_project_snapshot_llm_client({"llm": {"model": "missing-key"}})
+
+
+@pytest.mark.asyncio
+async def test_snapshot_context_manager_restores_closes_and_preserves_injection() -> None:
+    snapshot = {"profile_hash": "frozen"}
+    settings = {"llm": {"model": "snapshot-model"}}
+    managed = MagicMock()
+    managed.close = AsyncMock()
+    injected = MagicMock()
+    injected.close = AsyncMock()
+    db = MagicMock()
+
+    with (
+        patch(
+            "modules.project.llm_runtime.restore_project_llm_execution_settings",
+            autospec=True,
+            return_value=settings,
+        ) as restore,
+        patch(
+            "modules.project.llm_runtime.create_project_snapshot_llm_client",
+            autospec=True,
+            return_value=managed,
+        ) as create,
+    ):
+        async with open_project_snapshot_llm_client(
+            db,
+            "novel-1",
+            snapshot,
+            timeout_override=99,
+        ) as client:
+            assert client is managed
+
+        restore.assert_awaited_once_with(db, "novel-1", snapshot)
+        create.assert_called_once_with(
+            settings,
+            timeout_override=99,
+            novel_id="novel-1",
+        )
+        managed.close.assert_awaited_once_with()
+
+    async with open_project_snapshot_llm_client(
+        MagicMock(),
+        "novel-1",
+        snapshot,
+        injected_client=injected,
+    ) as client:
+        assert client is injected
+    injected.close.assert_not_awaited()
 
 
 @pytest.mark.asyncio

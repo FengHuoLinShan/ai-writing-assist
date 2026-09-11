@@ -6,8 +6,6 @@ import asyncio
 import hashlib
 import json
 import uuid
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from copy import deepcopy
 from dataclasses import asdict, is_dataclass
 from datetime import UTC, datetime
@@ -321,33 +319,6 @@ class WritingSemanticWorkflowService:
     ) -> None:
         self._repo = repo or WritingDraftRepository()
         self._llm = llm_client
-
-    @asynccontextmanager
-    async def _open_client(
-        self,
-        db: AsyncSession,
-        *,
-        novel_id: str,
-        snapshot: dict[str, Any],
-    ) -> AsyncIterator[LLMClient]:
-        if self._llm is not None:
-            yield self._llm
-            return
-        from modules.project.facade import (
-            create_project_snapshot_llm_client,
-            restore_project_llm_execution_settings,
-        )
-
-        settings = await restore_project_llm_execution_settings(db, novel_id, snapshot)
-        client = create_project_snapshot_llm_client(
-            settings,
-            timeout_override=SEMANTIC_REVIEW_TIMEOUT_SECONDS,
-            novel_id=novel_id,
-        )
-        try:
-            yield client
-        finally:
-            await client.close()
 
     @staticmethod
     async def _checkpoint(db: AsyncSession) -> None:
@@ -839,10 +810,14 @@ class WritingSemanticWorkflowService:
         outputs: list[WritingSemanticReviewChunkOutput] = []
         managed_steps: list[dict[str, Any]] = []
         try:
-            async with self._open_client(
+            from modules.project.facade import open_project_snapshot_llm_client
+
+            async with open_project_snapshot_llm_client(
                 db,
-                novel_id=novel_id,
-                snapshot=llm_execution_snapshot,
+                novel_id,
+                llm_execution_snapshot,
+                timeout_override=SEMANTIC_REVIEW_TIMEOUT_SECONDS,
+                injected_client=self._llm,
             ) as client:
                 await self._checkpoint(db)
                 for index, chunk in enumerate(chunks, 1):
@@ -1402,10 +1377,14 @@ class WritingSemanticWorkflowService:
             ],
         )
         try:
-            async with self._open_client(
+            from modules.project.facade import open_project_snapshot_llm_client
+
+            async with open_project_snapshot_llm_client(
                 db,
-                novel_id=novel_id,
-                snapshot=llm_execution_snapshot,
+                novel_id,
+                llm_execution_snapshot,
+                timeout_override=SEMANTIC_REVIEW_TIMEOUT_SECONDS,
+                injected_client=self._llm,
             ) as client:
                 await self._checkpoint(db)
                 revision_diagnostics: list[dict[str, Any]] = []

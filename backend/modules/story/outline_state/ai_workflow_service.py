@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import AsyncIterator, Callable
-from contextlib import asynccontextmanager
+from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -147,41 +146,6 @@ class OutlineAIWorkflowService:
         await db.flush()
         return OutlineAiTaskResponse(task_id=receipt.task_id, status=receipt.status)
 
-    @asynccontextmanager
-    async def _open_task_llm_client(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        llm_execution_snapshot: dict[str, Any],
-        *,
-        timeout_override: float | None = None,
-    ) -> AsyncIterator[LLMClient]:
-        """Restore one frozen task profile before the transaction checkpoint."""
-        if self._llm_client is not None:
-            yield self._llm_client
-            return
-        if not isinstance(llm_execution_snapshot, dict) or not llm_execution_snapshot:
-            raise ValueError("llm_execution_snapshot is required for outline tasks")
-
-        from modules.project.facade import (
-            create_project_snapshot_llm_client,
-            restore_project_llm_execution_settings,
-        )
-
-        project_settings = await restore_project_llm_execution_settings(
-            db,
-            novel_id,
-            llm_execution_snapshot,
-        )
-        client_kwargs: dict[str, Any] = {"novel_id": novel_id}
-        if timeout_override is not None:
-            client_kwargs["timeout_override"] = timeout_override
-        client = create_project_snapshot_llm_client(project_settings, **client_kwargs)
-        try:
-            yield client
-        finally:
-            await client.close()
-
     async def analyze_for_task(
         self,
         db: AsyncSession,
@@ -210,10 +174,15 @@ class OutlineAIWorkflowService:
             end_chapter=end_chapter,
         )
         confirmed_request = self._confirmed_analysis_request(plan)
-        async with self._open_task_llm_client(
+        if not isinstance(llm_execution_snapshot, dict) or not llm_execution_snapshot:
+            raise ValueError("llm_execution_snapshot is required for outline tasks")
+        from modules.project.facade import open_project_snapshot_llm_client
+
+        async with open_project_snapshot_llm_client(
             db,
             novel_id,
             llm_execution_snapshot,
+            injected_client=self._llm_client,
         ) as client:
             await self._checkpoint_before_external_call(db)
             response = await self._run_analysis_llm(
@@ -261,11 +230,16 @@ class OutlineAIWorkflowService:
             )
         if progress_callback is not None:
             progress_callback(0.2)
-        async with self._open_task_llm_client(
+        if not isinstance(llm_execution_snapshot, dict) or not llm_execution_snapshot:
+            raise ValueError("llm_execution_snapshot is required for outline tasks")
+        from modules.project.facade import open_project_snapshot_llm_client
+
+        async with open_project_snapshot_llm_client(
             db,
             data.novel_id,
             llm_execution_snapshot,
             timeout_override=P20_TIMEOUT_SECONDS,
+            injected_client=self._llm_client,
         ) as client:
             await self._checkpoint_before_external_call(db)
             output = await generation.execute(

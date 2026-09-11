@@ -137,7 +137,7 @@ def test_novel_scoped_generation_modules_use_project_runtime_seam() -> None:
         "modules/writing/services.py": "open_project_llm_client",
         "modules/writing/conflict_ai.py": "open_project_llm_client",
         "modules/story/outline_state/ai_workflow_service.py": (
-            "open_project_llm_client"
+            "open_project_snapshot_llm_client"
         ),
         "modules/story/outline_state/generator.py": "open_project_llm_client",
         "modules/story/outline_state/structure_dedup.py": (
@@ -162,7 +162,6 @@ def test_every_db_backed_workflow_passes_its_novel_id_to_runtime_seam() -> None:
     expected_call_counts = {
         "modules/writing/services.py": 1,
         "modules/writing/conflict_ai.py": 2,
-        "modules/story/outline_state/ai_workflow_service.py": 1,
         "modules/story/outline_state/generator.py": 1,
         "modules/story/outline_state/structure_dedup.py": 1,
         "modules/world/entity_fusion.py": 1,
@@ -202,6 +201,39 @@ def test_every_db_backed_workflow_passes_its_novel_id_to_runtime_seam() -> None:
 
     assert violations == []
     assert actual_counts == expected_call_counts
+
+
+def test_resumable_workflows_use_managed_snapshot_context() -> None:
+    expected_call_counts = {
+        "modules/writing/services.py": 1,
+        "modules/writing/conflict_ai.py": 1,
+        "modules/writing/semantic_review.py": 2,
+        "modules/story/outline_state/ai_workflow_service.py": 2,
+        "modules/story/outline_state/story_outline_generation.py": 1,
+    }
+    actual_counts: dict[str, int] = {}
+    missing_scope: list[str] = []
+    for relative_path in expected_call_counts:
+        tree = python_ast(BACKEND_ROOT / relative_path)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            name = (
+                node.func.id
+                if isinstance(node.func, ast.Name)
+                else node.func.attr
+                if isinstance(node.func, ast.Attribute)
+                else None
+            )
+            if name != "open_project_snapshot_llm_client":
+                continue
+            actual_counts[relative_path] = actual_counts.get(relative_path, 0) + 1
+            args = [ast.unparse(item) for item in node.args]
+            if len(args) < 3 or args[0] != "db":
+                missing_scope.append(f"{relative_path}:{node.lineno}:{args}")
+
+    assert actual_counts == expected_call_counts
+    assert missing_scope == []
 
 
 def test_frozen_workflows_use_project_owned_snapshot_runtime_seam() -> None:

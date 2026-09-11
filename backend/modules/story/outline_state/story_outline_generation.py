@@ -5,8 +5,7 @@ import hashlib
 import json
 import logging
 import re
-from collections.abc import AsyncIterator, Callable
-from contextlib import asynccontextmanager
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -518,10 +517,16 @@ class StoryOutlineGenerationService:
         if progress_callback is not None:
             progress_callback(0.2)
 
-        async with self._open_task_client(
+        if not isinstance(llm_execution_snapshot, dict) or not llm_execution_snapshot:
+            raise ValueError("llm_execution_snapshot is required for StoryOutline task")
+        from modules.project.facade import open_project_snapshot_llm_client
+
+        async with open_project_snapshot_llm_client(
             db,
             data.novel_id,
             llm_execution_snapshot,
+            timeout_override=STORY_OUTLINE_TIMEOUT_SECONDS,
+            injected_client=self._llm_client,
         ) as client:
             await self._checkpoint_before_provider(db)
             preview = await self._generate_preview(client, plan)
@@ -546,38 +551,6 @@ class StoryOutlineGenerationService:
             + len(plan.context["core_world_rules"]),
         )
         return preview.model_dump(mode="json")
-
-    @asynccontextmanager
-    async def _open_task_client(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        snapshot: dict[str, Any],
-    ) -> AsyncIterator[LLMClient]:
-        if self._llm_client is not None:
-            yield self._llm_client
-            return
-        if not isinstance(snapshot, dict) or not snapshot:
-            raise ValueError("llm_execution_snapshot is required for StoryOutline task")
-        from modules.project.facade import (
-            create_project_snapshot_llm_client,
-            restore_project_llm_execution_settings,
-        )
-
-        settings = await restore_project_llm_execution_settings(
-            db,
-            novel_id,
-            snapshot,
-        )
-        client = create_project_snapshot_llm_client(
-            settings,
-            timeout_override=STORY_OUTLINE_TIMEOUT_SECONDS,
-            novel_id=novel_id,
-        )
-        try:
-            yield client
-        finally:
-            await client.close()
 
     @staticmethod
     async def _checkpoint_before_provider(db: AsyncSession) -> None:

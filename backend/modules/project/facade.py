@@ -78,6 +78,7 @@ from modules.project.llm_runtime import (  # noqa: E402,F401
     build_project_llm_execution_snapshot,
     create_project_snapshot_llm_client,
     open_project_llm_client,
+    open_project_snapshot_llm_client,
     restore_project_llm_execution_settings,
 )
 

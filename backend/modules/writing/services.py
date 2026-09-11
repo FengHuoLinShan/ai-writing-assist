@@ -12,8 +12,7 @@ import json
 import logging
 import re
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
-from contextlib import asynccontextmanager
+from collections.abc import Awaitable, Callable, Mapping
 from copy import deepcopy
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -2149,38 +2148,6 @@ class WritingGenerationService:
             raise ValidationError("Continuation base draft is empty")
         return draft
 
-    @asynccontextmanager
-    async def _open_task_llm_client(
-        self,
-        db: AsyncSession,
-        *,
-        novel_id: str,
-        llm_execution_snapshot: dict[str, Any],
-    ) -> AsyncIterator[LLMClient]:
-        if self._llm is not None:
-            yield self._llm
-            return
-
-        from modules.project.facade import (
-            create_project_snapshot_llm_client,
-            restore_project_llm_execution_settings,
-        )
-
-        settings = await restore_project_llm_execution_settings(
-            db,
-            novel_id,
-            llm_execution_snapshot,
-        )
-        client = create_project_snapshot_llm_client(
-            settings,
-            timeout_override=WRITING_GENERATION_TIMEOUT_SECONDS,
-            novel_id=novel_id,
-        )
-        try:
-            yield client
-        finally:
-            await client.close()
-
     @staticmethod
     async def _checkpoint_before_external_call(db: AsyncSession) -> None:
         await db.commit()
@@ -2380,10 +2347,14 @@ class WritingGenerationService:
         )
 
         try:
-            async with self._open_task_llm_client(
+            from modules.project.facade import open_project_snapshot_llm_client
+
+            async with open_project_snapshot_llm_client(
                 db,
-                novel_id=novel_id,
-                llm_execution_snapshot=llm_execution_snapshot,
+                novel_id,
+                llm_execution_snapshot,
+                timeout_override=WRITING_GENERATION_TIMEOUT_SECONDS,
+                injected_client=self._llm,
             ) as client:
                 await self._checkpoint_before_external_call(db)
                 response = await run_managed_generate(

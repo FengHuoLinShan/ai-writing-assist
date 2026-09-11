@@ -7,8 +7,6 @@ import hashlib
 import json
 import logging
 import uuid
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -83,38 +81,6 @@ class ConflictCheckAiReviewService:
     ) -> None:
         self._repo = repo
         self._llm = llm_client
-
-    @asynccontextmanager
-    async def _open_task_llm_client(
-        self,
-        db: AsyncSession,
-        *,
-        novel_id: str,
-        llm_execution_snapshot: dict[str, Any],
-    ) -> AsyncIterator[LLMClient]:
-        if self._llm is not None:
-            yield self._llm
-            return
-        if not isinstance(llm_execution_snapshot, dict) or not llm_execution_snapshot:
-            raise ValueError(
-                "llm_execution_snapshot is required for conflict review tasks"
-            )
-
-        from modules.project.facade import (
-            create_project_snapshot_llm_client,
-            restore_project_llm_execution_settings,
-        )
-
-        settings = await restore_project_llm_execution_settings(
-            db,
-            novel_id,
-            llm_execution_snapshot,
-        )
-        client = create_project_snapshot_llm_client(settings, novel_id=novel_id)
-        try:
-            yield client
-        finally:
-            await client.close()
 
     async def run(
         self,
@@ -307,13 +273,20 @@ class ConflictCheckAiReviewService:
         )
         if not isinstance(prepared, _ConflictReviewTaskPlan):
             return prepared
+        if not isinstance(llm_execution_snapshot, dict) or not llm_execution_snapshot:
+            raise ValueError(
+                "llm_execution_snapshot is required for conflict review tasks"
+            )
 
         model: str | None = None
         try:
-            async with self._open_task_llm_client(
+            from modules.project.facade import open_project_snapshot_llm_client
+
+            async with open_project_snapshot_llm_client(
                 db,
-                novel_id=novel_id,
-                llm_execution_snapshot=llm_execution_snapshot,
+                novel_id,
+                llm_execution_snapshot,
+                injected_client=self._llm,
             ) as client:
                 model = getattr(client, "model_name", None)
                 await self._checkpoint_before_external_call(db)

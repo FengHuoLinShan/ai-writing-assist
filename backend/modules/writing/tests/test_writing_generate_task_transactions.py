@@ -524,12 +524,12 @@ async def test_task_client_closes_on_cancellation(
     client.close = mock.AsyncMock()  # type: ignore[attr-defined]
     with (
         mock.patch(
-            "modules.project.facade.restore_project_llm_execution_settings",
+            "modules.project.llm_runtime.restore_project_llm_execution_settings",
             autospec=True,
             return_value={"llm": {"model": "frozen-model"}},
         ),
         mock.patch(
-            "modules.project.facade.create_project_snapshot_llm_client",
+            "modules.project.llm_runtime.create_project_snapshot_llm_client",
             autospec=True,
             return_value=client,
         ),
@@ -570,15 +570,17 @@ async def test_task_client_closes_once_and_revalidates_profile_before_finalize(
     client.close = mock.AsyncMock(side_effect=_close)  # type: ignore[attr-defined]
     with (
         mock.patch(
+            "modules.project.llm_runtime.restore_project_llm_execution_settings",
+            autospec=True,
+            return_value={"llm": {"model": "frozen-model"}},
+        ) as open_restore,
+        mock.patch(
             "modules.project.facade.restore_project_llm_execution_settings",
             autospec=True,
-            side_effect=[
-                {"llm": {"model": "frozen-model"}},
-                {"llm": {"model": "frozen-model"}},
-            ],
-        ) as restore_snapshot,
+            return_value={"llm": {"model": "frozen-model"}},
+        ) as finalize_restore,
         mock.patch(
-            "modules.project.facade.create_project_snapshot_llm_client",
+            "modules.project.llm_runtime.create_project_snapshot_llm_client",
             autospec=True,
             return_value=client,
         ) as create_client,
@@ -592,10 +594,11 @@ async def test_task_client_closes_once_and_revalidates_profile_before_finalize(
             context_confirmation_id="33333333-3333-3333-3333-333333333333",
             source_task_id="task-1",
             llm_execution_snapshot=_snapshot(),
-        )
+    )
 
     assert result.status == "candidate"
-    assert restore_snapshot.await_count == 2
+    open_restore.assert_awaited_once()
+    finalize_restore.assert_awaited_once()
     create_client.assert_called_once()
     assert create_client.call_args.kwargs["timeout_override"] == 1800
     client.close.assert_awaited_once()
@@ -611,17 +614,19 @@ async def test_project_profile_drift_before_finalize_writes_no_candidate(
     client.close = mock.AsyncMock()  # type: ignore[attr-defined]
     with (
         mock.patch(
+            "modules.project.llm_runtime.restore_project_llm_execution_settings",
+            autospec=True,
+            return_value={"llm": {"model": "frozen-model"}},
+        ) as open_restore,
+        mock.patch(
             "modules.project.facade.restore_project_llm_execution_settings",
             autospec=True,
-            side_effect=[
-                {"llm": {"model": "frozen-model"}},
-                ProjectLLMConfigurationError(
-                    "Project LLM provider changed after the task started"
-                ),
-            ],
-        ) as restore_snapshot,
+            side_effect=ProjectLLMConfigurationError(
+                "Project LLM provider changed after the task started"
+            ),
+        ) as finalize_restore,
         mock.patch(
-            "modules.project.facade.create_project_snapshot_llm_client",
+            "modules.project.llm_runtime.create_project_snapshot_llm_client",
             autospec=True,
             return_value=client,
         ),
@@ -638,7 +643,8 @@ async def test_project_profile_drift_before_finalize_writes_no_candidate(
                 llm_execution_snapshot=_snapshot(),
             )
 
-    assert restore_snapshot.await_count == 2
+    open_restore.assert_awaited_once()
+    finalize_restore.assert_awaited_once()
     client.close.assert_awaited_once()
     repo.create_with_status.assert_not_awaited()
 
@@ -943,12 +949,17 @@ async def test_real_worker_rejected_finalization_rolls_back_candidate_and_bindin
 
         with (
             mock.patch(
+                "modules.project.llm_runtime.restore_project_llm_execution_settings",
+                autospec=True,
+                return_value={"llm": {"model": "frozen-model"}},
+            ) as open_restore,
+            mock.patch(
                 "modules.project.facade.restore_project_llm_execution_settings",
                 autospec=True,
                 return_value={"llm": {"model": "frozen-model"}},
-            ) as restore_snapshot,
+            ) as finalize_restore,
             mock.patch(
-                "modules.project.facade.create_project_snapshot_llm_client",
+                "modules.project.llm_runtime.create_project_snapshot_llm_client",
                 autospec=True,
                 return_value=client,
             ),
@@ -963,7 +974,8 @@ async def test_real_worker_rejected_finalization_rolls_back_candidate_and_bindin
         assert returned is not None
         assert returned.id == task_id
         assert returned.status == "cancelled"
-        assert restore_snapshot.await_count == 2
+        open_restore.assert_awaited_once()
+        finalize_restore.assert_awaited_once()
         assert client.close_count == 1
         async with sessions() as verify_db:
             drafts = list(

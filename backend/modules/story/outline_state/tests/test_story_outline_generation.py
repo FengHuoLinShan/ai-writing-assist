@@ -556,12 +556,12 @@ async def test_task_restores_project_snapshot_and_waits_without_transaction() ->
     client = _Client()
     with (
         mock.patch(
-            "modules.project.facade.restore_project_llm_execution_settings",
+            "modules.project.llm_runtime.restore_project_llm_execution_settings",
             autospec=True,
             return_value={"llm": {"model": "frozen-model"}},
         ) as restore,
         mock.patch(
-            "modules.project.facade.create_project_snapshot_llm_client",
+            "modules.project.llm_runtime.create_project_snapshot_llm_client",
             autospec=True,
             return_value=client,
         ) as create,
