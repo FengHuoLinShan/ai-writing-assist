@@ -3,14 +3,14 @@ id: T-20260911-full-codebase-review
 title: 全代码库全量优化审查（并行执行）
 status: completed
 created: 2026-09-11T18:07:04+08:00
-updated: 2026-09-11T22:30:00+08:00
+updated: 2026-09-12T07:22:49+08:00
 ---
 
 # 全代码库全量优化审查（并行执行）
 
 ## 恢复快照
 
-- 实际完成：**全量审查交付**——2453/2453 跟踪文件全部已审（25 个槽位报告 + 9 条 P2 链走读），发现 241 条（P0=0/P1=4/P2=58/P3=179）、历史候选约 70 项逐条复核、P3 架构裁定与 P4 批次表完成。交付物：[review-report.md](../../full-codebase-review/review-report.md)、[batch-plan.md](../../full-codebase-review/batch-plan.md)、[findings-ledger.md](../../full-codebase-review/findings-ledger.md)、[coverage-ledger.csv](../../full-codebase-review/coverage-ledger.csv)、[baseline.md](../../full-codebase-review/baseline.md)、units/ 下 25 份槽位报告。
+- 实际完成：**全量审查交付**——2453/2453 跟踪文件全部已审（28 个槽位报告 + 9 条 P2 链走读），发现 241 条（P0=0/P1=4/P2=58/P3=179）、历史候选约 70 项逐条复核、P3 架构裁定与 P4 批次表完成。交付物：[review-report.md](../../full-codebase-review/review-report.md)、[batch-plan.md](../../full-codebase-review/batch-plan.md)、[findings-ledger.md](../../full-codebase-review/findings-ledger.md)、[coverage-ledger.csv](../../full-codebase-review/coverage-ledger.csv)、[baseline.md](../../full-codebase-review/baseline.md)、units/ 下 28 份槽位报告。
 - 当前里程碑：全部完成。优化实施是独立验收结果，未开始、未授权。
 - 下一步：无（本任务闭环）。若用户要实施优化，从 batch-plan.md 的 R1（导入恢复语义）或 B1 批起步，逐批授权。
 - 阻塞：无。
@@ -35,7 +35,7 @@ updated: 2026-09-11T22:30:00+08:00
 
 - [x] W0 基线与覆盖账本（2026-09-11，baseline.md）
 - [x] W1 基础横切 F1–F6（2026-09-11，1033 路径）
-- [x] W2 领域与页面 D/E 组（2026-09-11，五波 15 槽位，1420 路径）
+- [x] W2 领域与页面 D/E 组（2026-09-11，W2a–W2d 四个子波、18 槽位，1420 路径）
 - [x] W3 交叉链 X1–X4 与性能取证（2026-09-11，9 链闭环；动态基准如实受阻）
 - [x] P3/P4 裁定与批次表、总报告（2026-09-11，review-report.md + batch-plan.md）
 
@@ -45,6 +45,7 @@ updated: 2026-09-11T22:30:00+08:00
 - 2026-09-11：历史候选多项重大纠偏——`deep_import_phase01`/`deepseek_scene_probe` 删除为误报（真实验收工具链）、`frontend-console/docs` 已跟踪、A3-5 规模 24→64 处、A1-1"恒 403"不成立、mock autospec 担忧不成立（AST 守卫零违规）、"evals 全部 CI 活跃"仅 1 目标。
 - 2026-09-11：P1 四条中两条为生产功能性错误（D5a-1 prompt 硬编码第三方内容、D5b-1 恢复死循环），均经主 Agent 独立实锤；按 §2 单列修复不混入优化。
 - 2026-09-11：教训——一次性脚本的正则归属规则需对抽样输出核对（world 槽位拆分曾整体错位 176 文件与 W2C 规则未生效，均由账本统计异常暴露并修复）；子代理 prompt 必须内嵌精确路径来源（账本/JSON）而非目录描述。
+- 2026-09-12：完成后事实更正——`units/` 实际有 28 份报告，W2 为四个子波、18 槽；验证记录能证明的独立单测定性复跑只有 `test_identity`。不改变覆盖、发现数量或审查结论。
 
 ## 验证证据
 
@@ -54,7 +55,7 @@ updated: 2026-09-11T22:30:00+08:00
 
 ## 交付结果
 
-- 已交付：全量审查总报告、覆盖账本（2453 文件全归属全已审）、发现账本（241 条带证据与裁定）、P3 架构裁定、P4 带依赖批次表（R1–R6 + B1–B5）、25 份槽位报告、基线记录。
+- 已交付：全量审查总报告、覆盖账本（2453 文件全归属全已审）、发现账本（241 条带证据与裁定）、P3 架构裁定、P4 带依赖批次表（R1–R6 + B1–B5）、28 份槽位报告、基线记录。
 - 未交付：优化实施（按计划为独立验收结果，未授权未开始）；PG critical/E2E/浏览器/动态性能/真实模型验收（如实未运行，见报告 §9）。
 - 交付边界：全部为本地未提交文件；无提交、无远端、无 CI、无部署；代码零改动。
 - 正式知识与后续任务：审查结论以本目录为准；实施按批次表另行授权立项。

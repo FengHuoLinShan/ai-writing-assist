@@ -14,17 +14,17 @@
 | 批次 | 状态 | 结果/剩余门禁 |
 |---|---|---|
 | R1–R4 | 已完成 | 导入恢复、生产 Prompt、错误语义、测试收集/运行器均已独立提交并通过对应模块门禁 |
-| R5 | 待产品选择 | continuity 位置证据需在“删除失实 seam”与“补功能”之间明确选择 |
-| R6 | 部分完成 | X1-3、D2a-1、E3-1 完成；F4-4 复核为 ORM metadata 注册而非缺 FK；X2-3 仍需取消后资产处置语义 |
+| R5 | 方案已授权，待实施 | 保留 continuity，扩展为版本化的空间、时间、逻辑连续性检查与消费闭环；见[实施细案](../2026/T-20260911-full-codebase-optimization-implementation/authorized-remaining-plan.md) |
+| R6 | X2-3 已授权，待实施 | X1-3、D2a-1、E3-1 完成；F4-4 复核为 ORM metadata 注册而非缺 FK；X2-3 采用“取消只停止、回收站显式软清理” |
 | B1a/B1b | 已完成 | 后端/前端可证明死代码清理完成；保留真实消费者、兼容面与安全门禁 |
-| B1c | 部分完成 | coverage、53 MiB 夹具、旧 schema 脚本、docs 索引完成；历史工具记录/版权样本需留存与法务决定 |
+| B1c | 归类清理已授权，待实施 | coverage、53 MiB 夹具、旧 schema 脚本、docs 索引完成；剩余项先建逐路径分类账，只删除无消费者、无唯一证据且无明显价值的工件，版权原文换合成样本 |
 | B1d | 已完成 | 原 WIP 已进入本分支基线且文件恢复干净；按当前树重验后删除 world/review 副本 342 行与死 review 选择器 111 行，设置页副本已由基线提交清理 |
 | B2a/B2b/B2c | 已完成 | snapshot client、checkpoint、stable hash 单点化；固定输入/字节兼容与模块测试通过 |
-| B2d | 重裁后完成 | A6-4 导入启动编排已单点化；wheel 排除测试/eval、锁定运行器、镜像索引 digest、nginx header 继承已完成。F5-7 信任代理需生产网络拓扑，保留为运维门禁而非猜测子网 |
+| B2d | 重裁后完成 | A6-4 导入启动编排已单点化；wheel 排除测试/eval、锁定运行器、镜像索引 digest、nginx header 继承已完成。F5-7 经用户明确暂缓，待部署窗口取得生产网络拓扑后另立运维安全批 |
 | B2e | 已完成 | Vue 生产文件守卫扩面；Story HTTP 的项目范围、422、202 动作合同与 path/body 冲突覆盖完成 |
 | B3a | 重裁后完成 | Story 两条入队流已收敛；Outline 三条因冻结时机、响应、meta 与错误映射不同保留，避免多开关 helper |
 | B3b/B3e | 已完成 | semantic review 委托既有 service；worker 项目任务判断归项目 facade |
-| B3c | 待付费验收授权 | 同步生成/冲突双轨退役需真实模型验收，不以单测替代 |
+| B3c | 付费验收已授权，待 R5 | 允许实施阶段通过项目 LLM seam 做有界真实模型验收；R5 任务轨消费通过后再删除同步生成/冲突双轨 |
 | B3d | 重裁后完成 | Scene auto/runtime 两处迁入工厂、净删 215 行；Story Outline 的身份拒绝+终态重放专用实现保留，避免多开关工厂 |
 | B4a/B4b | 已完成 | smartDedup 按钮迁入 Vue 组件，删除全局点击/HTML 注入/重绘事件；三个 Outline 预览页复用窄草稿生命周期，领域校验仍分立。smartDedup 桌面+窄屏 4 条浏览器链通过 |
 | B4c | 已完成 | `pollRetryDelay` 统一 workflowProgress、writing 两路、conflict 与 POV 任务的 3/6/12/24/30 秒失败退避；成功即复位 |
@@ -43,8 +43,8 @@
 | R2 | D5a-1 + D5a-2：清除生产 prompt 硬编码《诡秘之主》实体名/评测名（scene_entity_bulk.py:416-423）与 1000 行死 reducer（内嵌同类内容） | 先删死 reducer（rg 证实仅测试引用，迁移有效断言），再改 sweep prompt 为结构化规则；imports 测试 | 独立提交 revert |
 | R3 | 错误语义统一批：D1-4、D5b-2、X1-1、X4-2——裸 ValueError→DomainError(404/409)，stale 文案中文化；前端恢复按钮按 recoverable 门控 | 每端点断言状态码；assistant/imports/project/story 相关测试 + 前端 vitest | revert |
 | R4 | E1-1 + E1-2：门禁缺口——testpaths 收回 account_project_preferences 52 测试；evals 测试接入自动层；`make eval-fast` 改走锁定运行器（同 F5-9） | 首跑通过率如实记录（可能暴露存量失败，逐个修复或显式 xfail 并留 issue）；testing-guide.md 同步 | revert（测试收集面无数据风险） |
-| R5 | D3b-1 + D4-1 裁定落地：continuity 位置证据死 seam——用户选"删 seam+改文档+删失实 real-LLM 断言（test_conflict_checks_real_llm.py:209/211/329）"或"补实现（转功能 backlog）"；二选一后执行 | 删路径：story/writing 测试 + 文档两处；补实现路径：另立项 | 删除可 revert；补实现为新功能 |
-| R6 | 小型功能修正组：X2-3（取消后产物清理入口）、X1-3（幂等回执并发 500）、D2a-1（背景包排序确定性）、F4-4（world_library FK 声明漂移）、E3-1（generate-e2e 死入口补 env） | 各自模块测试；FK 修复走 migration 常规链 | revert |
+| R5 | D3b-1 + D4-1 裁定落地：保留 continuity，在既有 Story memory/Evidence/Writing conflict 之上补齐空间、时间、逻辑的版本化状态、确定性检查、AI 软审查、作者确认与生成/修订消费；不建平行平台 | V1 fingerprint 字节兼容；Story/Evidence/Writing 模块、PG 并发、前端与桌面/窄屏浏览器；见[完整细案](../2026/T-20260911-full-codebase-optimization-implementation/authorized-remaining-plan.md) | 叶子批独立 revert；V2 数据只停止消费、不破坏性删除 |
+| R6 | 小型功能修正组：X2-3 采用“取消只停止，深度导入回收站显式软清理”；X1-3、D2a-1、E3-1 已完成；F4-4 已复核无需 migration | X2-3 覆盖预览 fingerprint、owner/novel、项目锁、幂等/partial 与桌面/窄屏浏览器；其余保持既有验证 | 代码可 revert；已执行软废弃须走领域恢复，不靠代码 revert |
 
 ## 优化批次（依赖序）
 
@@ -54,7 +54,7 @@
 |---|---|---|---|
 | B1a 后端死代码 | F1-1（shared/enums 14 枚举，扣除 D2a 修正的 CandidateAction/RelationType）、F1-2、F1-4/5/6/7、F2 P3 死代码组（OutputGuard 死层、retryable、reuse_active 第二查询）、F2-2 附带、D4-6/7、D3a 死方法簇（one_click_preview、四旧一代方法）、D3b-3/4（delete_* 须保"保留历史"语义）、D5b 死代码（_accepts_keyword、死 schema、include_restartable_history）、D6a-1/4/5/7/8、D6b-1/3/7/11/12、X2-1 | 全仓 rg 零引用复查（逐符号限定路径）→ `make lint` + `make test` + 受影响模块测试 | 无 |
 | B1b 前端死代码 | F3-1（11 死契约+activationPreview 死包装；**POST /activation-preview 不得动**）、F3-3（today/generate 死注册，保留模块）、F3-5、D8b-1（280 行 review 死簇，逐符号三查：import+模板 @click+data-action，per E2-9 警示）、D8c-3（LlmFormFields 簇）、E2-2（workspaceRail，保 `workspace-rail:` 键约定）、E2-3/4/5、D8c-2 死选择器族 | `npm run lint` + `npm test` + `npm run build`（资源校验） | 无 |
-| B1c git 卫生 | F6-2（.coverage 2/3）、F6-3+F5-1（backend/backend 11 文件——先确认无证据价值后 git rm + .dockerignore 已有根锚定复核 + 镜像重建验证）、F6-4（工具历史 57 文件去留裁定，.gitignore 补 .opencode/.superpowers）、F6-1（dev_migrate_worldbuilding_v1.py 修复或删除并改 development-guide.md:51）、F6-5/F6-9（docs 索引）、E1-9（e2e 诡秘原文样本法务裁定）、E3-2（53MB 夹具改运行时生成）、E3-5 | `git status`/`git ls-files` 比对 + `make test-deploy` + 镜像重建抽查 | F6-3 需用户确认证据去留 |
+| B1c git 卫生 | 已完成无争议项；剩余 F6-3+F5-1、F6-4、F6-8、E1-9 先产出逐路径分类账：纯运行时/无消费者/无唯一证据项删除；唯一验收证据摘要或最小保留；《诡秘之主》原文换等价合成样本；不重写 Git 历史 | 分类账 + `git ls-files`/引用比对 + imports e2e + `make test-deploy` + 镜像内容抽查 | 用户已授权此判定规则；每类独立提交 |
 | B1d 样式去重 | D8c-1：styles.css 三对成批重复 ~780 行（行级方案已定位；**styles.css 有他任务 WIP，须在其合入后实施**） | `npm run build` + 视觉抽查（settings/review/world 三区）+ 现有视觉基线 | 等 styles.css WIP 合入 |
 
 ### B2 同语义复用（行为等价证明前置）
@@ -73,7 +73,7 @@
 |---|---|---|---|
 | B3a | A5-1 + D3a-1：story/outline_state 五处入队流合并（+extra_meta） | API 参数适配层内收，外部契约不变 | B2a |
 | B3b | D4-3：/semantic-reviews 委托 submit_review（A5-8 定案） | 前端契约不变 | B2a |
-| B3c | D4-4/D4-5：writing 同步 generate_candidate 与 conflict 双轨退役（A5-5/A5-4；real-LLM 验收载体一并迁移——联动 R5 的 test_conflict 修正） | 需一次显式付费验收确认 | B2a、R5 |
+| B3c | D4-4/D4-5：writing 同步 generate_candidate 与 conflict 双轨退役（A5-5/A5-4）；先把所有测试迁到任务轨，按 R5 新契约做最多 4 次有界真实模型验收，通过后删除 deprecated 路由与同步 service | 用户已允许付费调用；仅经项目 LLM seam，原创小语料，保留预算/指纹/脱敏回执 | B2a、R5 |
 | B3d | A8-2 + D8a-6：三处手写 workflow manager 工厂化（工厂按能力差距清单扩展；storyOutline 任务身份校验与终态重放语义必须保留） | 前端 vitest + 关键链手动回归 | B1b |
 | B3e | F1-8：run_worker interaction_ 分支显性化（D7 已证分支必需——非删除，改为注册式声明） | worker 测试 | 无 |
 
