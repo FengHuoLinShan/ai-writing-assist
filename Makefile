@@ -192,7 +192,8 @@ prompt-contracts-json:  ## Check prompt contracts with stable JSON output
 	cd $(BACKEND_DIR) && python -m tools.prompt_contracts check --json
 
 generate-e2e:  ## Run Generation Center Playwright E2E from frontend project config
-	cd $(FRONTEND_DIR) && BACKEND_PORT=18000 FRONTEND_PORT=18080 npx playwright test e2e/generate.spec.js
+	@test -n "$$E2E_DATABASE_URL" || (echo "E2E_DATABASE_URL must target a dedicated PostgreSQL test database" >&2; exit 2)
+	cd $(FRONTEND_DIR) && DATABASE_URL="$$E2E_DATABASE_URL" PW_REUSE_EXISTING_SERVER=0 BACKEND_PORT=18000 FRONTEND_PORT=18080 npx playwright test e2e/generate.spec.js
 
 # ─── Utilities ──────────────────────────────────────
 

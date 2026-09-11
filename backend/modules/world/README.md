@@ -997,9 +997,7 @@ section，且不会进入可投影正文。页面预览保持零写入并把页�
 直接传 `frontend-console/e2e/generate.spec.js`。推荐命令：
 
 ```bash
-make generate-e2e
-# 等价于：
-cd frontend-console && BACKEND_PORT=18000 FRONTEND_PORT=18080 npx playwright test e2e/generate.spec.js
+E2E_DATABASE_URL='<dedicated-postgresql-url>' make generate-e2e
 ```
 
 | 方法 | 路径 | 用途 |

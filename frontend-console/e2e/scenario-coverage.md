@@ -87,7 +87,7 @@ cd frontend-console && DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTI
 # 以当前运行输出为准，不在矩阵中固化历史通过数
 
 # 生成中心合约验收
-cd /path/to/repo && make generate-e2e
+cd /path/to/repo && E2E_DATABASE_URL='<dedicated-postgresql-url>' make generate-e2e
 
 # AI 地图册定向 Playwright
 cd frontend-console && DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:map -- --reporter=list
