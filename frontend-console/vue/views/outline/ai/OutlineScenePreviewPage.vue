@@ -169,15 +169,15 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
-import { useLeaveGuard } from "../../../composables/useLeaveGuard.js"
-import { getConfirmAction, getRouteQuery, getRouter, getToast } from "../../../bridge/index.js"
+import { computed, nextTick, ref, toRef } from "vue"
+import { getConfirmAction, getRouteQuery, getRouter } from "../../../bridge/index.js"
 import { applyOutlineGeneratePreview } from "./outlineAiOps.js"
 import {
   clearOutlineGenerateWorkflowsForTarget,
   outlineGenerateManager,
   resetOutlineGenerateState,
 } from "./outlineWorkflowManagers.js"
+import { useOutlinePreviewDraft } from "./useOutlinePreviewDraft.js"
 
 const CONFLICT_OPTIONS = [
   ["present", "有明确冲突"],
@@ -195,7 +195,6 @@ const NARRATIVE_VALUES = new Set(NARRATIVE_OPTIONS.map(([value]) => value))
 const props = defineProps({ projectId: { type: String, required: true } })
 const manager = outlineGenerateManager
 const router = getRouter()
-const toast = getToast()
 const confirmAction = getConfirmAction()
 
 const preview = computed(() => (
@@ -208,123 +207,35 @@ const overlaps = computed(() => preview.value?.overlap?.scenes || [])
 const storyConflict = computed(() => draft.value?.story_outline_conflict || null)
 const authorDecisions = computed(() => draft.value?.author_decisions || [])
 const applyError = computed(() => manager.state.applyError || null)
-const previewConflict = ref(false)
-const conflict = computed(() => previewConflict.value || applyError.value?.status === 409)
-
-const draft = ref(null)
-const originalDraft = ref(null)
-const restored = ref(false)
-const savedAt = ref(null)
-const storageError = ref("")
 const applying = ref(false)
-const validationErrors = ref([])
 const errorSummary = ref(null)
-let currentTaskId = null
-let currentProjectId = null
-let saveTimer = null
-let initializing = false
 let localRefCounter = 0
 
 const clone = (value) => JSON.parse(JSON.stringify(value))
-const storageKey = (projectId, taskId) => `novel_outline_scene_preview:${encodeURIComponent(projectId)}:${encodeURIComponent(taskId)}`
 const fieldId = (sceneIndex, field) => `outline-scene-preview-${sceneIndex}-${field}`
 const errorId = (sceneIndex, field) => `${fieldId(sceneIndex, field)}-error`
 const fieldError = (id) => validationErrors.value.find((item) => item.id === id)?.message || ""
-
-const saveState = computed(() => {
-  if (applying.value) return "正在采用…"
-  if (storageError.value) return "本机暂存不可用"
-  if (!savedAt.value) return "修改后会自动暂存在本机"
-  const date = new Date(savedAt.value)
-  return Number.isNaN(date.getTime()) ? "修改已暂存在本机" : `修改已暂存在本机 · ${date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`
+const {
+  conflict,
+  draft,
+  finishDraft,
+  restored,
+  restoreOriginalDraft,
+  saveDraft,
+  saveState,
+  storageError,
+  validationErrors,
+} = useOutlinePreviewDraft({
+  projectId: toRef(props, "projectId"),
+  preview,
+  target: "planned_scene",
+  collectionKey: "scenes",
+  storageNamespace: "novel_outline_scene_preview",
+  applying,
+  applyError,
+  manager,
+  busyLabel: "场景",
 })
-
-watch([() => props.projectId, () => preview.value?.sourceTaskId], initializeDraft, { immediate: true })
-watch(draft, () => {
-  if (initializing || !draft.value || !currentTaskId) return
-  validationErrors.value = []
-  if (!conflict.value) manager.state.applyError = null
-  clearTimeout(saveTimer)
-  saveTimer = setTimeout(saveDraft, 250)
-}, { deep: true })
-watch(applyError, (error) => {
-  if (error?.status !== 409) return
-  previewConflict.value = true
-  saveDraft()
-})
-
-useLeaveGuard(() => {
-  saveDraft()
-  if (!applying.value) return true
-  toast("正在采用场景，请稍候", "info")
-  return false
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener("beforeunload", saveDraft)
-  clearTimeout(saveTimer)
-  saveDraft()
-})
-onMounted(() => window.addEventListener("beforeunload", saveDraft))
-
-function initializeDraft() {
-  saveDraft()
-  clearTimeout(saveTimer)
-  currentProjectId = props.projectId
-  currentTaskId = preview.value?.sourceTaskId || null
-  validationErrors.value = []
-  manager.state.applyError = null
-  previewConflict.value = false
-  if (!preview.value || !currentTaskId) {
-    draft.value = null
-    originalDraft.value = null
-    restored.value = false
-    return
-  }
-  originalDraft.value = clone(preview.value.draftStructure)
-  let saved = null
-  try {
-    saved = JSON.parse(localStorage.getItem(storageKey(props.projectId, currentTaskId)) || "null")
-    if (
-      saved?.project_id !== props.projectId
-      || saved?.source_task_id !== currentTaskId
-      || saved?.target !== "planned_scene"
-      || !saved?.draft_structure
-      || !Array.isArray(saved.draft_structure.scenes)
-    ) saved = null
-  } catch {
-    saved = null
-  }
-  initializing = true
-  draft.value = clone(saved?.draft_structure || originalDraft.value)
-  restored.value = Boolean(saved)
-  previewConflict.value = saved?.conflict === true
-  savedAt.value = saved?.saved_at || null
-  storageError.value = ""
-  void nextTick(() => { initializing = false })
-}
-
-function saveDraft() {
-  if (!draft.value || !currentProjectId || !currentTaskId) return
-  try {
-    const saved = new Date().toISOString()
-    localStorage.setItem(storageKey(currentProjectId, currentTaskId), JSON.stringify({
-      version: 1, project_id: currentProjectId, source_task_id: currentTaskId,
-      target: "planned_scene", conflict: conflict.value, saved_at: saved, draft_structure: draft.value,
-    }))
-    savedAt.value = saved
-    storageError.value = ""
-  } catch {
-    storageError.value = "浏览器未能保存这次修改；离开本页前请先采用，或稍后重试。"
-  }
-}
-
-function clearDraft() {
-  if (!currentProjectId || !currentTaskId) return
-  try { localStorage.removeItem(storageKey(currentProjectId, currentTaskId)) } catch {}
-  savedAt.value = null
-  restored.value = false
-}
 
 function closeReview(shouldSave = true) {
   if (shouldSave) saveDraft()
@@ -418,10 +329,7 @@ async function apply() {
   try {
     const result = await applyOutlineGeneratePreview(normalizeDraft())
     if (result && result !== true) {
-      clearDraft()
-      currentProjectId = null
-      currentTaskId = null
-      draft.value = null
+      finishDraft()
       resetOutlineGenerateState()
       applying.value = false
       const query = getRouteQuery()
@@ -435,20 +343,13 @@ async function apply() {
 
 function restoreOriginal() {
   confirmAction("恢复 AI 最初给出的场景建议？当前本机修改会被替换。", () => {
-    initializing = true
-    draft.value = clone(originalDraft.value)
-    clearDraft()
-    manager.state.applyError = null
-    void nextTick(() => { initializing = false; saveDraft() })
+    restoreOriginalDraft()
   }, "恢复 AI 原稿")
 }
 
 function discard() {
   confirmAction("放弃这份场景建议？本机暂存的修改也会一并清除。", () => {
-    clearDraft()
-    currentProjectId = null
-    currentTaskId = null
-    draft.value = null
+    finishDraft()
     clearOutlineGenerateWorkflowsForTarget("planned_scene")
     resetOutlineGenerateState()
     closeReview(false)
