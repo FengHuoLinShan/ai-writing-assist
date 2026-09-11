@@ -48,7 +48,6 @@ npm run test:e2e:map             # Complete map regression list; workers=1/retri
 make db                          # start PostgreSQL, loopback-only MinIO, and one-shot private-bucket init
 make migrate                     # alembic upgrade head (demo schema 历史已压缩；旧开发库可重建)
 make schema-check                # Read-only fail-fast check: current DB must be at every Alembic head
-./scripts/dev_migrate_worldbuilding_v1.py  # 补齐 Worldbuilding Workspace v1 dev schema
 
 # Local diagnostics
 make doctor                      # Read-only local Doctor: env/ports/Docker/API/DB/LLM config
