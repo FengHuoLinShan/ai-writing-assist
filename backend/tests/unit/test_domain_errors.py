@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 import logging
 from pathlib import Path
@@ -11,7 +12,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.main import _TimingMiddleware, app, domain_error_handler
 from core.errors import ConflictError, DomainError, NotFoundError, ValidationError
-from tests.support.inventory import production_python_files, python_source
+from tests.support.inventory import production_python_files, python_ast, python_source
 
 
 def _backend_path(*parts: str) -> Path:
@@ -89,6 +90,84 @@ def test_non_api_backend_code_has_no_fastapi_http_exception_dependency() -> None
             offenders.append(path.as_posix())
 
     assert offenders == []
+
+
+class _UncaughtRouteValueErrorVisitor(ast.NodeVisitor):
+    def __init__(self) -> None:
+        self.caught_depth = 0
+        self.lines: list[int] = []
+
+    @staticmethod
+    def _catches_value_error(node: ast.expr | None) -> bool:
+        if isinstance(node, ast.Name):
+            return node.id in {"ValueError", "Exception", "BaseException"}
+        return isinstance(node, ast.Tuple) and any(
+            _UncaughtRouteValueErrorVisitor._catches_value_error(item)
+            for item in node.elts
+        )
+
+    def visit_Try(self, node: ast.Try) -> None:
+        catches = any(self._catches_value_error(item.type) for item in node.handlers)
+        self.caught_depth += int(catches)
+        for statement in node.body:
+            self.visit(statement)
+        self.caught_depth -= int(catches)
+        for statement in (*node.handlers, *node.orelse, *node.finalbody):
+            self.visit(statement)
+
+    def visit_Raise(self, node: ast.Raise) -> None:
+        if (
+            self.caught_depth == 0
+            and isinstance(node.exc, ast.Call)
+            and isinstance(node.exc.func, ast.Name)
+            and node.exc.func.id == "ValueError"
+        ):
+            self.lines.append(node.lineno)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        return
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        return
+
+
+def test_uncaught_route_value_error_guard_respects_local_handler() -> None:
+    tree = ast.parse(
+        "try:\n    raise ValueError('handled')\nexcept ValueError:\n    pass\n"
+        "raise ValueError('unhandled')\n"
+    )
+    visitor = _UncaughtRouteValueErrorVisitor()
+    visitor.visit(tree)
+
+    assert visitor.lines == [5]
+
+
+def test_api_routes_do_not_directly_raise_uncaught_value_error() -> None:
+    methods = {"delete", "get", "patch", "post", "put"}
+    violations: list[str] = []
+    for path in production_python_files():
+        if path.name != "api.py":
+            continue
+        for node in python_ast(path).body:
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            is_route = any(
+                isinstance(decorator, ast.Call)
+                and isinstance(decorator.func, ast.Attribute)
+                and decorator.func.attr in methods
+                for decorator in node.decorator_list
+            )
+            if not is_route:
+                continue
+            visitor = _UncaughtRouteValueErrorVisitor()
+            for statement in node.body:
+                visitor.visit(statement)
+            violations.extend(
+                f"{path.relative_to(_backend_path())}:{line}"
+                for line in visitor.lines
+            )
+
+    assert violations == []
 
 
 def test_legacy_application_error_handler_is_not_registered_in_main() -> None:
