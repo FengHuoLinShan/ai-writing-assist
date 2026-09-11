@@ -2583,6 +2583,11 @@ async def test_small_sample_supplement_includes_review_entities_for_dedup() -> N
         limit=500,
         include_review=True,
     )
+    prompt = svc._call_llm_extraction.await_args.args[2]
+    assert "只根据当前正文与已有对象" in prompt
+    assert "目标新增不超过 3 个" in prompt
+    assert "Codex5.3" not in prompt
+    assert "克莱恩" not in prompt
 
 
 @pytest.mark.asyncio
@@ -2665,7 +2670,7 @@ def test_trim_supplement_chapter_text_keeps_head_and_tail() -> None:
     assert "章节中段已压缩" in trimmed
 
 
-def test_bulk_entity_memory_context_adds_1_to_7_recall_guidance() -> None:
+def test_bulk_entity_memory_context_keeps_generic_guidance_for_1_to_7() -> None:
     svc = SceneEntityExtractionService()
     scenes = [
         {
@@ -2678,9 +2683,10 @@ def test_bulk_entity_memory_context_adds_1_to_7_recall_guidance() -> None:
 
     context = svc._bulk_entity_memory_context(scenes)
 
-    assert "整体目标应接近 24-32 个长期资产" in context
-    assert "主要人物及别名" in context
-    assert "神秘学概念/力量体系" in context
+    assert context == (
+        "小样本批量实体提取：请按 Scene 上下文识别长期创作资产，"
+        "不要抽取路人、普通道具或一次性细节。"
+    )
 
 
 def test_bulk_entity_memory_context_keeps_generic_guidance_for_other_ranges() -> None:

@@ -54,28 +54,10 @@ def fallback_entity_label(entity_type: str) -> str:
 
 
 def bulk_entity_memory_context(scenes: list[dict[str, Any]]) -> str:
-    chapter_ids: set[int] = set()
-    for scene in scenes:
-        for raw in scene.get("chapter_ids") or []:
-            try:
-                chapter_ids.add(int(raw))
-            except (TypeError, ValueError):
-                continue
-    base = (
+    return (
         "小样本批量实体提取：请按 Scene 上下文识别长期创作资产，"
         "不要抽取路人、普通道具或一次性细节。"
     )
-    if chapter_ids == set(range(1, 8)):
-        return (
-            f"{base}\n"
-            "当前样本覆盖 1-7 章，整体目标应接近 24-32 个长期资产；"
-            "每个有效 Scene 优先召回 4-8 个高价值对象。请按类别覆盖："
-            "主要人物及别名、长期地点、组织/教会/聚会、关键物品和文本、"
-            "神秘学概念/力量体系、推动后续剧情的事件或秘密。"
-            "允许把低置信但明显会反复出现的对象标为 temporary_only 或"
-            " needs_review 候选，不要因保守而漏掉核心资产。"
-        )
-    return base
 
 
 class BulkSceneEntityExtractionMixin:
@@ -414,11 +396,9 @@ class BulkSceneEntityExtractionMixin:
             or "无已有对象"
         )
         memory_context = (
-            "1-7章世界对象补充 sweep：前一轮抽取低于 Codex5.3 标准，"
-            f"请只补充遗漏的长期资产，目标新增不超过 {needed} 个。"
-            "重点检查：周明瑞/克莱恩别名、莫雷蒂家庭、廷根地点、"
-            "黑夜女神教会与值夜者线索、塔罗/灰雾/占卜/转运仪式、"
-            "奥黛丽、阿尔杰、非凡者、魔药、罗塞尔日记和塔罗会规则。"
+            "小样本世界对象补充：前一轮抽取数量不足，"
+            "请只根据当前正文与已有对象补充遗漏的长期资产，"
+            f"目标新增不超过 {needed} 个。"
             "不要输出已存在对象；不确定但明显重要的对象可标记 temporary_only。"
         )
         try:
