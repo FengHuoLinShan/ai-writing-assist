@@ -32,7 +32,7 @@
         <span>源缺失 {{ count("missing") }}</span>
       </div>
       <p>识别为 {{ formatLabel }}；{{ preview.ignored_paths?.length || 0 }} 个控制或不支持文件已忽略。</p>
-      <details v-if="preview.ignored_paths?.length" class="worldbook-import-ignored">
+      <details v-if="preview.ignored_paths?.length" class="worldbook-import-ignored worldbook-import-items">
         <summary>查看已忽略文件</summary>
         <ul>
           <li v-for="path in preview.ignored_paths" :key="path">{{ path }}</li>

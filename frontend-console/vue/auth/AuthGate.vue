@@ -131,7 +131,7 @@ async function restore() {
 
 <style scoped>
 .auth-theme-notice{margin:0;padding:12px 20px;background:var(--nc-warning-soft);color:var(--text-body);font-size:14px;line-height:1.5}
-.auth-page{min-height:100vh;display:grid;place-items:center;padding:24px;background:var(--bg-base);color:var(--text-body)}
+.auth-page{min-height:100vh;min-height:100dvh;display:grid;place-items:center;padding:24px;background:var(--bg-base);color:var(--text-body)}
 .auth-card{width:min(100%,440px);display:grid;gap:18px;padding:36px;border:1px solid var(--border);border-radius:18px;background:var(--bg-panel);box-shadow:0 18px 50px transparent}
 .auth-brand{font-weight:700;letter-spacing:.04em;color:var(--text-primary)}.auth-card h1{margin:0;font-size:28px}.auth-card p{margin:0;line-height:1.6}
 .auth-card label{display:grid;gap:8px;font-size:14px}.auth-card input{min-width:0;padding:12px;border:1px solid var(--nc-hairline-strong);border-radius:9px;font:inherit}

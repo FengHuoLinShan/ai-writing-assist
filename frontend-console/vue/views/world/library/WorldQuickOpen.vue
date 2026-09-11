@@ -204,7 +204,7 @@ onBeforeUnmount(() => {
 .world-quick-open__header h2 { margin: 0; font-size: var(--text-md); }
 .world-quick-open__body { display: grid; gap: 10px; padding: 8px 16px 16px; }
 .world-quick-open__input { min-height: 44px; width: 100%; }
-.world-quick-open__list { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; max-height: 46vh; overflow-y: auto; }
+.world-quick-open__list { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; max-height: 46vh; max-height: 46dvh; overflow-y: auto; }
 .world-quick-open__list button { display: flex; width: 100%; min-height: 48px; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-panel); color: var(--text-primary); padding: 8px 12px; text-align: left; cursor: pointer; }
 .world-quick-open__list button:hover, .world-quick-open__row--active { border-color: var(--accent); background: var(--bg-hover); }
 .world-quick-open__list button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

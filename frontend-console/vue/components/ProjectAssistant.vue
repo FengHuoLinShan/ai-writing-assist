@@ -96,7 +96,7 @@ const removeOpener = registerProjectAssistantOpener(async request => {
 watch(() => props.projectId, value => { activeTab.value = "chat"; loadPromise = assistant.load(value) }, { immediate: true })
 watch(() => state.enabled, value => emit("availability", value))
 watch(() => props.open, async value => { if (value && !state.input && !state.context) { try { state.context = capture() } catch (error) { state.error = error.message } } if (value) await nextTick() })
-onMounted(() => { media = globalThis.matchMedia?.("(max-width: 800px)"); syncMedia(); media?.addEventListener?.("change", syncMedia) })
+onMounted(() => { media = globalThis.matchMedia?.("(max-width: 1100px)"); syncMedia(); media?.addEventListener?.("change", syncMedia) })
 onBeforeUnmount(() => { disposed = true; removeOpener(); assistant.dispose(); media?.removeEventListener?.("change", syncMedia) })
 </script>
 
@@ -123,5 +123,5 @@ onBeforeUnmount(() => { disposed = true; removeOpener(); assistant.dispose(); me
 .project-assistant-composer textarea{box-sizing:border-box;width:100%;min-height:80px;resize:vertical;max-height:220px;padding:10px;background:var(--bg-muted);color:inherit;border:1px solid var(--border-color,var(--border));border-radius:8px;font:inherit;line-height:1.6;margin:8px 0}
 .project-assistant-selection{font-size:12px;line-height:1.5;overflow-wrap:anywhere}.assistant-value-fields{display:grid;grid-template-columns:minmax(4rem,auto) minmax(0,1fr);gap:6px 12px}.assistant-value-fields dt{font-weight:600}.assistant-value-fields dd{margin:0;min-width:0}.assistant-value-list{padding-left:20px}
 .project-assistant button,.project-assistant input,.project-assistant select,.project-assistant textarea,.project-assistant summary{outline-offset:3px}
-@media(max-width:800px){.project-assistant{position:fixed;inset:0;z-index:1300;border:none;background:transparent}.project-assistant-backdrop{position:absolute;inset:0;border:0;background:rgba(0,0,0,.35)}.project-assistant-panel{position:absolute;inset:0 0 0 auto;width:min(100%,28rem);background:var(--bg-primary,var(--bg-base));padding-bottom:env(safe-area-inset-bottom)}.project-assistant .btn{min-height:44px}.project-assistant input[type=checkbox]{width:20px;height:20px}.project-assistant-composer textarea{font-size:16px}}
+@media(max-width:1100px){.project-assistant{position:fixed;inset:0;z-index:1300;border:none;background:transparent}.project-assistant-backdrop{position:absolute;inset:0;border:0;background:rgba(0,0,0,.35)}.project-assistant-panel{position:absolute;inset:0 0 0 auto;width:min(100%,28rem);background:var(--bg-primary,var(--bg-base));padding-bottom:env(safe-area-inset-bottom)}.project-assistant .btn{min-height:44px}.project-assistant input[type=checkbox]{width:20px;height:20px}.project-assistant-composer textarea{font-size:16px}}
 </style>

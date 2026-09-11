@@ -1161,13 +1161,13 @@
 .writing-version-label {
   color: var(--archive-ink-soft);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-xs);
   letter-spacing: 0.06em;
 }
 
 .writing-version-select {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 .writing-version-bar--compact {
@@ -1193,8 +1193,8 @@
 }
 
 .writing-version-bar--compact .writing-version-select-wrap {
-  min-width: 104px;
-  max-width: 132px;
+  min-width: 120px;
+  max-width: 168px;
   background: var(--archive-paper-raised);
 }
 
@@ -1384,10 +1384,10 @@
 }
 
 .writing-conflict-strip--compact {
-  flex: 0 1 180px;
+  flex: 1 1 240px;
   flex-wrap: nowrap;
   min-width: 128px;
-  max-width: 210px;
+  max-width: 320px;
   min-height: 32px;
   margin: 0;
   padding: 5px 8px;

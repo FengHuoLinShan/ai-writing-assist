@@ -1883,7 +1883,7 @@ function assetRefId(ref) {
 .world-library-browse__main { display: grid; gap: 12px; min-width: 0; }
 .world-bible-autosave-status { margin-left: 8px; color: var(--text-muted); font-size: 12px; }
 .world-bible-autosave-status[data-autosave-status="conflict"] { color: var(--danger, #b42318); }
-@media (max-width: 960px) {
+@media (max-width: 1100px) {
   .world-library-browse { grid-template-columns: minmax(0, 1fr); }
   .world-library-browse__directory { position: static; }
 }

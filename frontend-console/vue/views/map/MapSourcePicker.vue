@@ -130,7 +130,6 @@ onBeforeUnmount(() => { ++generation })
 <style scoped>
 .map-source-overlay{justify-content:flex-end;align-items:stretch}.map-source-overlay>.map-source-picker{margin:0;max-height:100dvh;height:100dvh;width:min(680px,100vw);max-width:100vw;overflow:hidden;border-radius:var(--radius-md) 0 0 var(--radius-md)}
 .map-source-picker>.modal-header,.map-source-picker>.modal-footer{flex-shrink:0}.map-source-picker>.modal-body{min-height:0}
-.map-source-picker { width: min(44rem, calc(100vw - 2rem)); }
 .map-source-picker h3, .map-source-picker p { overflow-wrap: anywhere; }
 .map-source-search { display: grid; gap: var(--space-2); margin-block: var(--space-4); }
 .map-source-search > div { display: flex; gap: var(--space-2); }

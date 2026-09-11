@@ -188,7 +188,7 @@
       <details class="outline-preview-section" :open="unassignedPlans.length > 0">
         <summary><span>未归入剧情线</span><span class="outline-information-count">（{{ unassignedPlans.length }}）</span></summary>
         <template v-if="unassignedPlans.length">
-          <div class="outline-assignment-bulk"><select v-model="bulkThread" class="form-select" aria-label="批量归入剧情线"><option value="">选择剧情线…</option><option v-for="thread in threads" :key="thread.id" :value="thread.id">{{ thread.name }}</option></select><button class="btn" :disabled="assigning || !bulkThread || !selectedPlans.length" @click="assignSelectedPlans">{{ assigning ? '正在归类…' : '归类所选线索' }}</button><span role="status">{{ assignmentReceipt }}</span></div>
+          <div class="outline-assignment-bulk bulk-toolbar"><select v-model="bulkThread" class="form-select" aria-label="批量归入剧情线"><option value="">选择剧情线…</option><option v-for="thread in threads" :key="thread.id" :value="thread.id">{{ thread.name }}</option></select><button class="btn" :disabled="assigning || !bulkThread || !selectedPlans.length" @click="assignSelectedPlans">{{ assigning ? '正在归类…' : '归类所选线索' }}</button><span role="status">{{ assignmentReceipt }}</span></div>
           <ul class="outline-information-unassigned-list">
             <li v-for="item in unassignedPlans" :key="`${item.kind}-${item.plan.id}`" class="outline-information-unassigned">
               <label><input v-model="selectedPlans" type="checkbox" :value="`${item.kind}-${item.plan.id}`" :disabled="assigning" />{{ informationPlanName(item) }}</label>

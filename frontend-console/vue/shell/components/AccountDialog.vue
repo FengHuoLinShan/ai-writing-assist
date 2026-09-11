@@ -170,7 +170,7 @@ async function requestDeletion() {
 
 <style scoped>
 .account-overlay{position:fixed;inset:0;z-index:1200;display:grid;place-items:center;padding:20px;background:rgb(0 0 0 / .4)}
-.account-dialog{position:relative;width:min(100%,440px);display:grid;gap:16px;padding:28px;border-radius:14px;background:var(--bg-panel);color:var(--text-body)}
+.account-dialog{position:relative;width:min(100%,440px);max-height:calc(100vh - 40px);max-height:calc(100dvh - 40px);display:grid;gap:16px;overflow-y:auto;padding:28px;border-radius:14px;background:var(--bg-panel);color:var(--text-body)}
 .account-dialog h2,.account-dialog p{margin:0}.account-close{position:absolute;right:12px;top:10px;border:0;background:transparent;font-size:25px}
 .account-dialog details{display:grid;gap:12px;border-top:1px solid var(--border);padding-top:14px}.account-dialog details[open]{display:grid}
 .account-dialog label{display:grid;gap:6px}.account-dialog input{padding:10px;border:1px solid var(--nc-hairline-strong);border-radius:8px}

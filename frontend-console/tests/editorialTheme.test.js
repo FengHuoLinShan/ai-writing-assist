@@ -84,7 +84,7 @@ describe("editorial archive theme", () => {
     expect(styles).toMatch(/\.btn-fab\s*\{[^}]*color:\s*var\(--text-on-accent\);/s)
     expect(styles).toMatch(/\.outline-float-chapter\.current\s*\{[^}]*color:\s*var\(--text-on-accent\);/s)
     expect(styles).toMatch(/\.badge-new\s*\{[^}]*color:\s*var\(--text-on-accent\);/s)
-    expect(styles.match(/\.btn\.btn-primary\.settings-btn-loading::after\s*\{[^}]*color:\s*var\(--text-on-accent\);/gs)).toHaveLength(2)
+    expect(styles.match(/\.btn\.btn-primary\.settings-btn-loading::after\s*\{[^}]*color:\s*var\(--text-on-accent\);/gs)).toHaveLength(1)
     expect(theme).toMatch(/\.btn-primary\s*\{[^}]*color:\s*var\(--text-on-accent\);/s)
     expect(theme).toMatch(/\.btn-primary:hover\s*\{[^}]*color:\s*var\(--text-on-accent\);/s)
     expect(theme).toMatch(/\.btn-fab\s*\{[^}]*color:\s*var\(--text-on-accent\);/s)

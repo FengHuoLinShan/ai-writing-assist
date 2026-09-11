@@ -108,6 +108,25 @@ describe("writing modal dialog contracts", () => {
     expect(model.diffOpen).toBe(false)
   })
 
+  it("版本差异使用共享样式约定的左右标记", () => {
+    const model = reactive({
+      open: true,
+      loading: false,
+      diffOpen: true,
+      leftId: "v1",
+      rightId: "v2",
+      error: null,
+      diff: {
+        identical: false,
+        fallbackUsed: false,
+        stats: { leftChars: 1, rightChars: 1, changedParagraphs: 1, movedParagraphs: 0 },
+        rows: [{ type: "delete", leftSegments: [{ type: "delete", text: "旧" }], rightSegments: [] }],
+      },
+    })
+    const { wrapper } = mountInShell(VersionHistoryDialog, { model, versions: [] })
+    expect(wrapper.findAll(".writing-version-diff__cell").map((cell) => cell.attributes("data-side"))).toEqual(["左", "右"])
+  })
+
   it("版本历史突出与当前版本比较，并把预览和移入历史收进更多菜单", async () => {
     const model = reactive({ open: true, loading: false, diffOpen: false, leftId: "v1", rightId: "v2", error: null })
     const { wrapper } = mountInShell(VersionHistoryDialog, {

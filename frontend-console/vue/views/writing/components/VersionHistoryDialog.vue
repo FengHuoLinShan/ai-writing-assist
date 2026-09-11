@@ -65,13 +65,13 @@
             <div class="writing-version-diff__header" role="columnheader">版本 A</div>
             <div class="writing-version-diff__header" role="columnheader">版本 B</div>
             <template v-for="(row, index) in model.diff.rows" :key="index">
-              <div class="writing-version-diff__cell" :class="`writing-version-diff__cell--${row.type}`" role="cell" data-side="版本 A">
+              <div class="writing-version-diff__cell" :class="`writing-version-diff__cell--${row.type}`" role="cell" data-side="左">
                 <template v-if="row.leftSegments?.length">
                   <component :is="segment.type === 'delete' ? 'mark' : 'span'" v-for="(segment, i) in row.leftSegments" :key="i" :class="{ 'writing-version-diff__removed': segment.type === 'delete' }">{{ segment.text }}</component>
                 </template>
                 <span v-else class="writing-version-diff__placeholder">此侧无对应段落</span>
               </div>
-              <div class="writing-version-diff__cell" :class="`writing-version-diff__cell--${row.type}`" role="cell" data-side="版本 B">
+              <div class="writing-version-diff__cell" :class="`writing-version-diff__cell--${row.type}`" role="cell" data-side="右">
                 <template v-if="row.rightSegments?.length">
                   <component :is="segment.type === 'insert' ? 'mark' : 'span'" v-for="(segment, i) in row.rightSegments" :key="i" :class="{ 'writing-version-diff__added': segment.type === 'insert' }">{{ segment.text }}</component>
                 </template>

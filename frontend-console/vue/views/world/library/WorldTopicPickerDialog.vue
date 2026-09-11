@@ -59,11 +59,13 @@ const topicRows = computed(() => flatten(props.topics))
 </template>
 
 <style scoped>
-.world-topic-picker { max-width: 440px; max-height: min(600px, calc(100vh - 32px)); }
+.world-topic-picker { max-width: 440px; max-height: min(600px, calc(100vh - 32px)); max-height: min(600px, calc(100dvh - 32px)); }
 .world-topic-picker__target { margin: 0 0 10px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .world-topic-picker__empty { margin: 0; color: var(--text-muted); }
 .world-topic-picker__list { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.world-topic-picker__list li, .world-topic-picker__list button { min-width: 0; }
 .world-topic-picker__list button { display: flex; width: 100%; min-height: 44px; align-items: center; gap: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-panel); color: var(--text-primary); padding: 8px 12px; text-align: left; cursor: pointer; }
+.world-topic-picker__list button > span:nth-child(2) { min-width: 0; overflow-wrap: anywhere; }
 .world-topic-picker__list button:hover { border-color: var(--accent); background: var(--bg-hover); }
 .world-topic-picker__list button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
 .world-topic-picker__list small { margin-left: auto; color: var(--text-muted); }

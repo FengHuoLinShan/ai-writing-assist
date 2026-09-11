@@ -990,7 +990,7 @@ defineExpose({ canLeave, save, dirty, revision, runToolbarAction })
 </script>
 
 <style scoped>
-.map-canvas-inspector{display:grid;gap:var(--space-3);min-width:0}.map-canvas-inspector.has-inspector{grid-template-columns:minmax(0,1fr) minmax(240px,320px)}.map-canvas-inspector>.map-inspector{max-height:70vh;overflow:auto}.map-canvas-inspector .map-actions:first-child{position:sticky;top:0;background:var(--bg-base);z-index:1;padding-block:8px}@media(max-width:900px){.map-canvas-inspector.has-inspector{grid-template-columns:minmax(0,1fr)}.map-canvas-inspector>.map-inspector{max-height:none}}
+.map-canvas-inspector{display:grid;gap:var(--space-3);min-width:0}.map-canvas-inspector.has-inspector{grid-template-columns:minmax(0,1fr) minmax(240px,320px)}.map-canvas-inspector>.map-inspector{max-height:70vh;overflow:auto}.map-canvas-inspector .map-actions:first-child{position:sticky;top:0;background:var(--bg-base);z-index:1;padding-block:8px}@media(max-width:960px){.map-canvas-inspector.has-inspector{grid-template-columns:minmax(0,1fr)}.map-canvas-inspector>.map-inspector{max-height:none}}
 
 .map-leave-dialog{max-width:min(480px,90vw);background:var(--bg-base);color:var(--text-primary);border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--space-4)}.map-leave-dialog::backdrop{background:rgb(0 0 0 / .4)}
 .map-recovery button{min-height:44px}.map-recovery-confirm{padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius-md)}
