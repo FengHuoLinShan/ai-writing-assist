@@ -107,6 +107,7 @@ asyncio_default_fixture_loop_scope = "function"
 testpaths = [
     "modules",
     "infrastructure",
+    "evals/tests",
     "tests/unit",
     "tests/integration",
     "tests/account_project_preferences",
