@@ -336,7 +336,6 @@
     "context.getSnapshot": define("GET", ({ snapshotId }) => `/evidence/compilation/snapshots/${required(snapshotId, "snapshotId", "context.getSnapshot")}`, {
       requiredParams: ["snapshotId"],
     }),
-    "context.activationPreview": define("GET", () => "/evidence/compilation/activation-preview"),
     "context.evidenceHealth": define("GET", () => "/evidence/compilation/evidence-health", {
       requiredQuery: ["novel_id"],
     }),
@@ -395,36 +394,6 @@
       hasBody: true,
       requiredBody: ["novel_id", "session_id", "operation_id"],
       timeout: AI_TASK_SUBMIT_TIMEOUT,
-    }),
-    "world.createCocreationSession": define("POST", () => "/world/cocreation-sessions", {
-      hasBody: true,
-      requiredBody: ["novel_id", "source"],
-    }),
-    "world.listCocreationSessions": define("GET", () => "/world/cocreation-sessions", {
-      requiredQuery: ["novel_id"],
-    }),
-    "world.getCocreationSession": define("GET", ({ sessionId }) => `/world/cocreation-sessions/${required(sessionId, "sessionId", "world.getCocreationSession")}`, {
-      requiredParams: ["sessionId"],
-      requiredQuery: ["novel_id"],
-    }),
-    "world.updateCocreationSession": define("PATCH", ({ sessionId }) => `/world/cocreation-sessions/${required(sessionId, "sessionId", "world.updateCocreationSession")}`, {
-      requiredParams: ["sessionId"],
-      hasBody: true,
-      requiredBody: ["novel_id"],
-    }),
-    "world.listCocreationMessages": define("GET", ({ sessionId }) => `/world/cocreation-sessions/${required(sessionId, "sessionId", "world.listCocreationMessages")}/messages`, {
-      requiredParams: ["sessionId"],
-      requiredQuery: ["novel_id"],
-    }),
-    "world.appendCocreationMessage": define("POST", ({ sessionId }) => `/world/cocreation-sessions/${required(sessionId, "sessionId", "world.appendCocreationMessage")}/messages`, {
-      requiredParams: ["sessionId"],
-      hasBody: true,
-      requiredBody: ["novel_id", "content"],
-    }),
-    "world.advanceCocreationCheckpoint": define("POST", ({ sessionId }) => `/world/cocreation-sessions/${required(sessionId, "sessionId", "world.advanceCocreationCheckpoint")}/checkpoint`, {
-      requiredParams: ["sessionId"],
-      hasBody: true,
-      requiredBody: ["novel_id", "checkpoint_suggestion_id"],
     }),
     "generate.applyWorldPageDraft": define("POST", ({ suggestionId }) => `/world/generation-center/suggestions/${required(suggestionId, "suggestionId", "generate.applyWorldPageDraft")}/apply-page-draft`, {
       requiredParams: ["suggestionId"],
@@ -525,9 +494,6 @@
     }),
     "world.getMapAtlasPagePrompt": define("GET", ({ novelId, pageId }) => `/world/map-atlas/${required(novelId, "novelId", "world.getMapAtlasPagePrompt")}/pages/${required(pageId, "pageId", "world.getMapAtlasPagePrompt")}/prompt`, { requiredParams: ["novelId", "pageId"] }),
     "world.updateMapAtlasPagePrompt": define("PATCH", ({ novelId, pageId }) => `/world/map-atlas/${required(novelId, "novelId", "world.updateMapAtlasPagePrompt")}/pages/${required(pageId, "pageId", "world.updateMapAtlasPagePrompt")}/prompt`, { requiredParams: ["novelId", "pageId"], hasBody: true, requiredBody: ["prompt", "generation_choice", "expected_updated_at"] }),
-    "world.confirmMapAtlasPrompts": define("POST", ({ novelId, runId }) => `/world/map-atlas/${required(novelId, "novelId", "world.confirmMapAtlasPrompts")}/runs/${required(runId, "runId", "world.confirmMapAtlasPrompts")}/confirm-prompts`, { requiredParams: ["novelId", "runId"], hasBody: true, requiredBody: ["pages"] }),
-    "world.uploadMapAtlasPage": define("POST", ({ novelId }) => `/world/map-atlas/${required(novelId, "novelId", "world.uploadMapAtlasPage")}/pages/upload`, { requiredParams: ["novelId"], hasBody: true }),
-    "world.updateMapAtlasNode": define("PATCH", ({ novelId, nodeId }) => `/world/map-atlas/${required(novelId, "novelId", "world.updateMapAtlasNode")}/nodes/${required(nodeId, "nodeId", "world.updateMapAtlasNode")}`, { requiredParams: ["novelId", "nodeId"], hasBody: true }),
     "world.reviewMapAtlasPage": define("POST", ({ novelId, pageId, action }) => `/world/map-atlas/${required(novelId, "novelId", "world.reviewMapAtlasPage")}/pages/${required(pageId, "pageId", "world.reviewMapAtlasPage")}/${required(action, "action", "world.reviewMapAtlasPage")}`, {
       requiredParams: ["novelId", "pageId", "action"],
       hasBody: true,

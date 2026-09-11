@@ -2075,10 +2075,6 @@ const api = {
       return contractFetch("context.getSnapshot", { snapshotId }, params)
     },
 
-    async activationPreview(params = {}) {
-      return contractFetch("context.activationPreview", {}, params)
-    },
-
     async previewActivationProfile(payload) {
       return post("/evidence/compilation/activation-preview", payload)
     },
