@@ -19,6 +19,7 @@ export function createWorkflowManager({
   pollNovelId = null,
   clearOnDone = true,
   clearOnFailed = true,
+  clearTaskOnFailed = clearOnFailed,
   matchesActiveScope = null,
   onScopeReset = null,
   restartActiveOnRecover = false,
@@ -27,6 +28,8 @@ export function createWorkflowManager({
   transformRecoveredMeta = (meta) => meta || null,
   requireActiveProjectOnAdopt = true,
   claimProjectOnRecover = false,
+  initialState = {},
+  onRecovered = null,
 }) {
   const state = reactive({
     taskId: null,
@@ -36,6 +39,7 @@ export function createWorkflowManager({
     ownerProjectId: null,
     cancelPending: false,
     submitting: false,
+    ...initialState,
   })
   let poller = null
   let submissionGeneration = 0
@@ -74,13 +78,14 @@ export function createWorkflowManager({
 
   async function handleTerminal(progress, task, ownerProjectId, ownedTaskId) {
     if (state.ownerProjectId !== ownerProjectId || state.taskId !== ownedTaskId) return
-    const shouldClear = progress.done ? clearOnDone : clearOnFailed
-    if (shouldClear) clearActiveWorkflow(progress.taskId || ownedTaskId)
+    const shouldClearReceipt = progress.done ? clearOnDone : clearOnFailed
+    const shouldClearTask = progress.done ? clearOnDone : clearTaskOnFailed
+    if (shouldClearReceipt) clearActiveWorkflow(progress.taskId || ownedTaskId)
     stop()
-    if (shouldClear) state.taskId = null
+    if (shouldClearTask) state.taskId = null
     state.progress = progress
     await onTerminal?.(progress, state, task, ownerProjectId)
-    await terminalHandler?.(progress)
+    await terminalHandler?.(progress, state.meta)
   }
 
   function startPolling(taskId, ownerProjectId) {
@@ -135,7 +140,7 @@ export function createWorkflowManager({
       return
     }
     if (skipRecover?.(state, scopeMatches)) return
-    const workflow = matchRecovered(recoverActiveWorkflows(projectId))
+    const workflow = matchRecovered(recoverActiveWorkflows(projectId), state, projectId)
     if (!workflow?.taskId) return
     state.taskId = workflow.taskId
     state.status = "运行中"
@@ -147,6 +152,7 @@ export function createWorkflowManager({
       status: "running",
       meta: workflow.meta || {},
     }, workflow.workflowType || workflowType)
+    onRecovered?.(state, workflow, projectId)
     startPolling(workflow.taskId, projectId)
   }
 
