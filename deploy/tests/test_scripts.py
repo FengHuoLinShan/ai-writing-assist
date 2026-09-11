@@ -419,6 +419,21 @@ def test_production_embedding_image_uses_one_index_digest() -> None:
     assert f"EMBEDDING_IMAGE={expected}" in example
 
 
+def test_frontend_nginx_locations_keep_security_headers() -> None:
+    config = (
+        DEPLOY_ROOT.parent / "frontend-console" / "nginx.production.conf"
+    ).read_text(encoding="utf-8")
+    assets = config.split("location /assets/ {", maxsplit=1)[1].split("}", maxsplit=1)[0]
+    spa = config.split("location / {", maxsplit=1)[1].split("}", maxsplit=1)[0]
+
+    for location in (assets, spa):
+        assert 'add_header X-Content-Type-Options "nosniff" always;' in location
+        assert (
+            'add_header Referrer-Policy "strict-origin-when-cross-origin" always;'
+            in location
+        )
+
+
 def test_production_minio_is_internal_pinned_and_initializes_private_quotas() -> None:
     compose_path = DEPLOY_ROOT / "compose.production.yml"
     compose_text = compose_path.read_text(encoding="utf-8")
