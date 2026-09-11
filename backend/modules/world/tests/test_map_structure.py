@@ -430,6 +430,102 @@ async def test_map_title_update_does_not_rename_bound_world_location(
 
 
 @pytest.mark.asyncio
+async def test_continuity_facts_require_current_adopted_revision_and_sources(
+    db_session, test_project_id
+):
+    from modules.world.facade import list_adopted_map_continuity_facts
+    from modules.world.map_structure_service import source_digest, source_payload
+    from modules.world.models import CoreEntity
+
+    source = CoreEntity(
+        novel_id=uuid.UUID(test_project_id),
+        entity_type="location",
+        name="道路志",
+        summary="甲城与乙城由北道相连。",
+        status="canonical",
+    )
+    start = CoreEntity(
+        novel_id=uuid.UUID(test_project_id),
+        entity_type="location",
+        name="甲城",
+        status="canonical",
+    )
+    end = CoreEntity(
+        novel_id=uuid.UUID(test_project_id),
+        entity_type="location",
+        name="乙城",
+        status="canonical",
+    )
+    db_session.add_all([source, start, end])
+    await db_session.flush()
+    node = await MapStructureService().create_node(
+        db_session,
+        test_project_id,
+        MapNodeCreate(title="北道", level="region"),
+    )
+    document = MapDocument(
+        features=[
+            {
+                "id": "start",
+                "kind": "location",
+                "label": "甲城",
+                "entity_id": start.id,
+            },
+            {
+                "id": "end",
+                "kind": "location",
+                "label": "乙城",
+                "entity_id": end.id,
+            },
+        ],
+        constraints=[
+            {
+                "id": "north-road",
+                "subject": "start",
+                "relation": "connects",
+                "target": "end",
+                "sources": [
+                    {
+                        "kind": "entity",
+                        "id": source.id,
+                        "source_hash": source_digest(source_payload(source)),
+                    }
+                ],
+            }
+        ],
+    )
+    await MapStructureService().save(
+        db_session,
+        test_project_id,
+        node["id"],
+        MapSaveRequest(
+            base_revision_id=node["current_revision_id"],
+            document=document,
+        ),
+    )
+
+    facts = await list_adopted_map_continuity_facts(
+        db_session,
+        test_project_id,
+        [str(start.id), str(end.id)],
+    )
+
+    assert len(facts) == 1
+    assert facts[0].relation == "connects"
+    assert facts[0].subject_entity_id == str(start.id)
+    assert facts[0].target_entity_id == str(end.id)
+    assert facts[0].source_hashes
+
+    source.summary = "来源已修改。"
+    await db_session.flush()
+    assert await list_adopted_map_continuity_facts(
+        db_session,
+        test_project_id,
+        [str(start.id), str(end.id)],
+    ) == []
+
+
+@pytest.mark.asyncio
 async def test_map_read_and_node_update_require_current_owner(
     db_session, test_project_id
 ):

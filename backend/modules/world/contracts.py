@@ -51,6 +51,20 @@ class EventContract:
 
 
 @dataclass(frozen=True)
+class MapContinuityFactContract:
+    """Adopted, source-validated spatial relation for continuity checks."""
+
+    node_id: str
+    revision_id: str
+    revision_hash: str
+    relation: str
+    subject_entity_id: str
+    target_entity_id: str
+    via_entity_ids: tuple[str, ...] = ()
+    source_hashes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class EntityRelationContract:
     """关系契约"""
 

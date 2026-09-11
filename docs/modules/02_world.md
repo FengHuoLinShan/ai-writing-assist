@@ -519,6 +519,8 @@ creation_suggestion_queue 中保存封闭的 owner 授权 carrier；普通建议
 纯空间地图可独立调整目录和顺序；未绑定世界地点时允许改地图标题，不回写世界对象名称。
 当前地图与候选响应实时核对来源，失效提示不写回不可变历史，也不放宽保存或采用门禁。
 
+跨模块连续性检查只经 `list_adopted_map_continuity_facts` 读取当前 adopted node 的 saved revision，返回绑定目标地点且来源 hash/引文仍有效的受限关系；不返回坐标、图片或历史候选，不写 Scene memory。来源失效或没有采用地图时由 Writing 标记未检查，不据缺失信息推断矛盾。
+
 地图持续创作沿用 World 派生资产边界：四层结构编辑、受限空间关系、`map-links` 只读定位、
 已有图元局部生成与依赖完整的逐项采用。来源与预算仍由 Evidence confirmation 决定，
 未采用的剩余候选继续等待确认。当前完整契约见 `docs/modules/15_map.md`。

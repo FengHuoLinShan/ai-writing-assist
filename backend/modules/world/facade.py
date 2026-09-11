@@ -67,6 +67,9 @@ from modules.world.event_facade import (  # noqa: F401
     get_full_state,
     rollback_to_revision,
 )
+from modules.world.map_atlas_facade import (  # noqa: F401
+    list_adopted_map_continuity_facts,
+)
 from modules.world.worldbuilding_facade import (  # noqa: F401
     apply_focused_world_package,
     apply_review_resolution_decision,
@@ -146,6 +149,7 @@ __all__ = [
     "list_world_bible_working_page_ids",
     "get_world_context",
     "list_auto_ingested_entities",
+    "list_adopted_map_continuity_facts",
     "list_characters",
     "list_entities",
     "list_entity_terms",

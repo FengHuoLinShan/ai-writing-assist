@@ -3,7 +3,7 @@ id: T-20260911-full-codebase-optimization-implementation
 title: 全代码库优化实施
 status: in_progress
 created: 2026-09-11T23:00:00+08:00
-updated: 2026-09-12T08:00:00+08:00
+updated: 2026-09-12T08:12:00+08:00
 ---
 
 # 全代码库优化实施
@@ -16,8 +16,8 @@ updated: 2026-09-12T08:00:00+08:00
 - 已完成：R0a/R0b、R1–R4、R6b/R6c/R6d/R6e；B1a/B1b/B1d 与 B1c 无争议 leaf；B2a–c、B2e；B2d 全部代码项（F5-7 转运维拓扑门禁）；B3a/b/d/e；B4a/b/c/d/f。
 - 当前验证：fast 全量 5397 passed/13 skipped/7 deselected；PostgreSQL critical 32 passed；前端 184 files / 2437 tests、lint/build/生产资源校验通过；smartDedup 浏览器 4/4，设置+世界审查功能链 4/4；docs-check 及 `BASE_REF=origin/main` 显式复核通过。
 - 最新原子提交：`47ca84ba0`–`702fd8cd8`。新增完成 imports start 编排、wheel/锁定运行器、服务镜像 digest、nginx 头继承、Outline 草稿生命周期、API 异常守卫、smartDedup Vue 迁移与重复样式清理。
-- 当前里程碑：R5a/R5b/R5c-core 完成；确定性空间、时间、逻辑规则已复用 WritingConflictItem，证据缺失仅记 not_checked/degraded。
-- 下一步：完成 R5c 地图 adopted revision 只读证据 seam，再进入 R5d 的 Evidence/生成/AI 审查消费。
+- 当前里程碑：R5a–R5c 完成；确定性三类规则和 adopted map source-hash 重验只读 seam 已落地，地图缺失/过期不会被当作矛盾。
+- 下一步：实施 R5d，把六维 Scene 状态接入 Writing 生成、冲突 AI review/suggestion、semantic review 与 Scene Lens。
 - 未完成：R5 空间/时间/逻辑连续性闭环；R6a/X2-3 显式回收站清理；B1c 剩余分类清理与合成样本；B3c 任务轨付费验收及同步轨删除。F5-7、B5/收益待测项按决定延期。
 
 ## 边界与决定
@@ -64,3 +64,4 @@ updated: 2026-09-12T08:00:00+08:00
 - R5a：旧四维 fingerprint 固定样本仍为 `9b0c68160db434ae0f0854d55e5d2de1b92320e1afcc90df34ec4357a6b8a92d`；Story continuity + Evidence compilation 366 passed；相关 ruff 与 diff check 通过。
 - R5b：Imports + Story continuity 793 passed；Prompt contracts 22 passed；PostgreSQL critical 32 passed；相关 ruff/diff check 通过。首次未带 E2E_DATABASE_URL 的 critical 调用按门禁拒绝，随后使用既有专用库 `ai_writing_assist_e2e_full_optimization` 通过。
 - R5c-core：Writing + Story continuity 317 passed/1 deselected；新增规则覆盖空间同点互斥、时间环/锚冲突、事实互斥、明确前提缺失与逾期承诺；缺维度反例不产出冲突。
+- R5c-map：World + Writing 1151 passed/1 deselected；地图 seam 仅返回 adopted node 当前 saved revision、两端地点绑定且来源仍可重验的关系；来源修改反例返回空证据。

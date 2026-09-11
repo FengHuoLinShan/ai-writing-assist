@@ -115,6 +115,8 @@ published，不因 RP 历史引用改变作者编辑心智。
 
 `POST /api/writing/conflict-checks` 是写作页的规则层检查入口。前端会在发起检查前弹出选项；兼容字段 `include_candidates` 仍控制待处理世界对象，但地图册图片不参与正文事实检查。
 
+规则层同时读取 V2 Scene 时点状态：空间、时间、逻辑分别输出 `space_continuity_risk`、`time_continuity_risk`、`logic_continuity_risk`，具体规则码与证据引用保存在 `location_json`。只使用可重放的 system ready 或作者确认 checkpoint；地图关系还必须来自当前已采用 revision 且来源 hash 仍有效。缺少时间/因果 checkpoint 或地图证据时只标 `not_checked`/degraded，不生成伪冲突，也不从当前 World 回填过去。
+
 规则层检查只对当前 Scene 的有效正文范围做确定性字面预检：
 
 - 注入的 Scene contract loader 提供 `must_happen` / `must_not_happen` 和当前章 `scene_chunks`；只有全部目标范围有效且已有 `source_content_hash` 仍匹配本次正文时才检查，缺失、越界、部分无效或 hash 失效均返回 `degraded` 和 omission，不回退扫描整章。旧的无 hash 范围继续按边界校验兼容。

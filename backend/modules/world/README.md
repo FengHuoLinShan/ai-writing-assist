@@ -1073,6 +1073,8 @@ checkpoint 语义，并持有世界事实、采用包和复核结论。助手通
 采用/恢复。它不获得任意坐标、图片上传或校准写入参数；名称/备注操作保留原几何、来源和锁定
 位置。地图回读附带有界版本元数据，历史版本不作为当前地理事实。
 
+Writing 连续性检查只通过 `facade.list_adopted_map_continuity_facts` 读取当前 adopted node 的 saved revision；仅返回两端都绑定目标地点、constraint 保留来源且来源 hash/引文仍可重验的空间关系。该 seam 不返回坐标或图片、不把地图复制进 Scene memory，也不把缺少路线声明解释为确定的地理事实。
+
 
 ### 助手页面维护
 

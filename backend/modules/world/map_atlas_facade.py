@@ -4,12 +4,102 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.facade import enqueue_task
 from modules.world.map_atlas_storage import project_object_prefix
 from modules.world.world_object_images import project_image_prefix
+
+
+async def list_adopted_map_continuity_facts(
+    db: AsyncSession,
+    novel_id: str,
+    location_entity_ids: list[str],
+):
+    """Return only current adopted map relations with still-valid sources."""
+    from core.errors import ConflictError, NotFoundError, ValidationError
+    from modules.world.contracts import MapContinuityFactContract
+    from modules.world.map_atlas_models import MapAtlasNode, MapAtlasRevision
+    from modules.world.map_structure_schemas import MapDocument
+    from modules.world.map_structure_service import MapStructureService
+    from shared.utils import parse_uuid
+
+    requested = {
+        parse_uuid(value, "location_entity_id") for value in location_entity_ids
+    }
+    if len(requested) < 2:
+        return []
+    rows = (
+        await db.execute(
+            select(MapAtlasNode, MapAtlasRevision)
+            .join(
+                MapAtlasRevision,
+                and_(
+                    MapAtlasRevision.id == MapAtlasNode.current_revision_id,
+                    MapAtlasRevision.novel_id == MapAtlasNode.novel_id,
+                    MapAtlasRevision.node_id == MapAtlasNode.id,
+                ),
+            )
+            .where(
+                MapAtlasNode.novel_id == parse_uuid(novel_id, "novel_id"),
+                MapAtlasNode.status == "adopted",
+                MapAtlasRevision.status == "saved",
+            )
+            .order_by(MapAtlasNode.sort_order, MapAtlasNode.id)
+            .limit(200)
+        )
+    ).all()
+    service = MapStructureService()
+    facts: list[MapContinuityFactContract] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for node, revision in rows:
+        document = MapDocument.model_validate(revision.document)
+        features = {item.id: item for item in document.features}
+        for constraint in document.constraints:
+            subject = features[constraint.subject].entity_id
+            target = features[constraint.target].entity_id
+            if (
+                subject not in requested
+                or target not in requested
+                or not constraint.sources
+            ):
+                continue
+            try:
+                for source in constraint.sources:
+                    await service.source(db, novel_id, source)
+            except (
+                ConflictError,
+                NotFoundError,
+                TypeError,
+                ValidationError,
+                ValueError,
+            ):
+                continue
+            via = tuple(
+                str(entity_id)
+                for key in constraint.via
+                if (entity_id := features[key].entity_id) is not None
+            )
+            key = (str(revision.id), constraint.relation, str(subject), str(target))
+            if key in seen:
+                continue
+            seen.add(key)
+            facts.append(
+                MapContinuityFactContract(
+                    node_id=str(node.id),
+                    revision_id=str(revision.id),
+                    revision_hash=revision.geometry_hash,
+                    relation=constraint.relation,
+                    subject_entity_id=str(subject),
+                    target_entity_id=str(target),
+                    via_entity_ids=via,
+                    source_hashes=tuple(
+                        sorted({source.source_hash for source in constraint.sources})
+                    ),
+                )
+            )
+    return facts
 
 
 async def map_capabilities(db: AsyncSession, novel_id: str) -> dict:

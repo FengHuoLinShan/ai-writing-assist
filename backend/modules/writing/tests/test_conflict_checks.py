@@ -343,6 +343,7 @@ async def test_conflict_check_persists_deterministic_continuity_risks(
         "space": "checked",
         "time": "checked",
         "logic": "checked",
+        "map": "not_applicable",
     }
     rules = {
         item.location_json["rule_code"]
@@ -416,12 +417,95 @@ async def test_conflict_check_marks_missing_continuity_as_not_checked(
         "space": "checked",
         "time": "not_checked",
         "logic": "not_checked",
+        "map": "not_applicable",
     }
     assert not any(item.source_module == "memory" for item in result.items)
     assert {item["source"] for item in result.summary_json["omissions"]} >= {
         "continuity.time",
         "continuity.logic",
     }
+
+
+@pytest.mark.asyncio
+async def test_conflict_check_uses_only_adopted_map_facts_for_route_coverage(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4()
+    scene_id = uuid.uuid4()
+    start = uuid.uuid4()
+    end = uuid.uuid4()
+    db_session.add(Project(id=novel_id, title="Map continuity"))
+    await db_session.flush()
+
+    async def fake_scene_loader(*_args) -> object:
+        return SimpleNamespace(
+            id=str(scene_id),
+            scene_index=1,
+            title="跨城",
+            must_happen=None,
+            must_not_happen=None,
+            pov_character_id=None,
+            structure_meta={},
+            scene_chunks=[{"chapter_index": 1, "start_pos": 0, "end_pos": 4}],
+        )
+
+    async def fake_checkpoint_loader(*_args) -> dict:
+        def ready(dimension: str, state: dict) -> dict:
+            return {
+                "id": dimension,
+                "dimension": dimension,
+                "status": "ready",
+                "source": "system_generated",
+                "state_json": state,
+            }
+
+        return {
+            "items": [
+                ready(
+                    "locations",
+                    {
+                        "character_locations": {},
+                        "changes": [
+                            {"old_value": str(start), "new_value": str(end)}
+                        ],
+                    },
+                ),
+                ready("timeline", {"facts": []}),
+                ready("causality", {"claims": []}),
+            ]
+        }
+
+    async def fake_map_loader(*_args) -> list[dict]:
+        return [
+            {
+                "subject_entity_id": str(start),
+                "target_entity_id": str(end),
+                "relation": "inside",
+                "revision_id": "map-revision",
+                "revision_hash": "a" * 64,
+            }
+        ]
+
+    result = await WritingConflictCheckService(
+        scene_contract_loader=fake_scene_loader,
+        scene_checkpoint_loader=fake_checkpoint_loader,
+        map_continuity_loader=fake_map_loader,
+    ).create_check(
+        db_session,
+        WritingConflictCheckCreate(
+            novel_id=str(novel_id),
+            chapter_index=1,
+            scene_id=str(scene_id),
+            content="跨城而行",
+        ),
+    )
+
+    assert result.summary_json["continuity_coverage"]["map"] == "checked"
+    assert {
+        item.location_json["rule_code"]
+        for item in result.items
+        if item.source_module == "memory"
+    } == {"space_route_not_declared"}
 
 
 @pytest.mark.asyncio

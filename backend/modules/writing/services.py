@@ -91,6 +91,9 @@ logger = logging.getLogger(__name__)
 
 SceneContractLoader = Callable[[AsyncSession, str, str], Awaitable[object | None]]
 SceneCheckpointLoader = Callable[[AsyncSession, str, str], Awaitable[object | None]]
+MapContinuityLoader = Callable[
+    [AsyncSession, str, list[str]], Awaitable[list[object]]
+]
 
 
 @dataclass(frozen=True)
@@ -183,6 +186,20 @@ async def _default_scene_checkpoint_loader(
     from modules.story.facade import ensure_scene_checkpoints
 
     return await ensure_scene_checkpoints(db, novel_id, scene_id)
+
+
+async def _default_map_continuity_loader(
+    db: AsyncSession,
+    novel_id: str,
+    location_entity_ids: list[str],
+) -> list[object]:
+    from modules.world.facade import list_adopted_map_continuity_facts
+
+    return await list_adopted_map_continuity_facts(
+        db,
+        novel_id,
+        location_entity_ids,
+    )
 
 
 def _sanitize_draft_create(
@@ -1134,6 +1151,7 @@ class WritingConflictCheckService:
         draft_repo: WritingDraftRepository | None = None,
         scene_contract_loader: SceneContractLoader | None = None,
         scene_checkpoint_loader: SceneCheckpointLoader | None = None,
+        map_continuity_loader: MapContinuityLoader | None = None,
         llm_client: LLMClient | None = None,
     ) -> None:
         self._repo = repo or WritingConflictCheckRepository()
@@ -1147,6 +1165,9 @@ class WritingConflictCheckService:
             else _default_scene_checkpoint_loader
             if scene_contract_loader is None
             else None
+        )
+        self._map_continuity_loader = (
+            map_continuity_loader or _default_map_continuity_loader
         )
         self._ai_review_service = ConflictCheckAiReviewService(
             self._repo,
@@ -1200,8 +1221,18 @@ class WritingConflictCheckService:
                     data.scene_id,
                 )
                 if checkpoint_set is not None:
+                    map_facts, map_coverage = await self._load_map_facts(
+                        db,
+                        data.novel_id,
+                        checkpoint_set,
+                    )
                     continuity_items, continuity_coverage, continuity_omissions = (
-                        self._continuity_rule_items(scene, checkpoint_set)
+                        self._continuity_rule_items(
+                            scene,
+                            checkpoint_set,
+                            map_facts=map_facts,
+                            map_coverage=map_coverage,
+                        )
                     )
                     items.extend(continuity_items)
                     for dimension, coverage in continuity_coverage.items():
@@ -1609,10 +1640,37 @@ class WritingConflictCheckService:
             )
             return None
 
+    async def _load_map_facts(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        checkpoint_set: object,
+    ) -> tuple[list[dict[str, Any]], str]:
+        location_ids = self._continuity_location_ids(checkpoint_set)
+        if len(location_ids) < 2:
+            return [], "not_applicable"
+        try:
+            facts = await self._map_continuity_loader(
+                db,
+                novel_id,
+                sorted(location_ids),
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to load adopted map continuity evidence: %s",
+                redact_diagnostic(exc, limit=500),
+            )
+            return [], "not_checked"
+        projected = [item if isinstance(item, dict) else asdict(item) for item in facts]
+        return projected, "checked" if projected else "not_checked"
+
     def _continuity_rule_items(
         self,
         scene: object,
         checkpoint_set: object,
+        *,
+        map_facts: list[dict[str, Any]] | None = None,
+        map_coverage: str = "not_applicable",
     ) -> tuple[list[dict], dict[str, str], list[dict[str, str]]]:
         payload = (
             checkpoint_set.model_dump()
@@ -1648,17 +1706,34 @@ class WritingConflictCheckService:
                         "reason": str(checkpoint.get("status") or "missing"),
                     }
                 )
+        coverage["map"] = map_coverage
+        if map_coverage == "not_checked":
+            omissions.append(
+                {"source": "continuity.map", "reason": "adopted_map_unavailable"}
+            )
 
         items: list[dict] = []
         if checkpoint := trusted.get("locations"):
-            items.extend(self._space_rule_items(scene, checkpoint))
+            items.extend(
+                self._space_rule_items(
+                    scene,
+                    checkpoint,
+                    map_facts=map_facts or [],
+                )
+            )
         if checkpoint := trusted.get("timeline"):
             items.extend(self._time_rule_items(scene, checkpoint))
         if checkpoint := trusted.get("causality"):
             items.extend(self._logic_rule_items(scene, checkpoint))
         return items, coverage, omissions
 
-    def _space_rule_items(self, scene: object, checkpoint: dict) -> list[dict]:
+    def _space_rule_items(
+        self,
+        scene: object,
+        checkpoint: dict,
+        *,
+        map_facts: list[dict[str, Any]],
+    ) -> list[dict]:
         state = checkpoint.get("state_json") or {}
         issues: list[tuple[str, str]] = []
         structure_meta = getattr(scene, "structure_meta", None) or {}
@@ -1708,6 +1783,36 @@ class WritingConflictCheckService:
                     "同一对象在同一时点存在互斥的位置记录",
                 )
             )
+        transition_pairs = self._location_transition_pairs_from_state(state)
+        if transition_pairs and map_facts:
+            route_edges = {
+                frozenset(
+                    (
+                        str(fact.get("subject_entity_id") or ""),
+                        str(fact.get("target_entity_id") or ""),
+                    )
+                )
+                for fact in map_facts
+                if fact.get("relation")
+                in {"adjacent", "connects", "passes_through", "entrance_to"}
+            }
+            known_locations = {
+                str(fact.get(key) or "")
+                for fact in map_facts
+                for key in ("subject_entity_id", "target_entity_id")
+                if fact.get(key)
+            }
+            if any(
+                {start, end}.issubset(known_locations)
+                and frozenset((start, end)) not in route_edges
+                for start, end in transition_pairs
+            ):
+                issues.append(
+                    (
+                        "space_route_not_declared",
+                        "已采用地图覆盖起止地点，但未声明两地之间的通行关系",
+                    )
+                )
         return [
             self._continuity_item(
                 scene,
@@ -1883,6 +1988,53 @@ class WritingConflictCheckService:
             separators=(",", ":"),
             default=str,
         )
+
+    @classmethod
+    def _continuity_location_ids(cls, checkpoint_set: object) -> set[str]:
+        payload = (
+            checkpoint_set.model_dump()
+            if hasattr(checkpoint_set, "model_dump")
+            else dict(checkpoint_set)
+        )
+        checkpoint = next(
+            (
+                item
+                for item in payload.get("items") or []
+                if isinstance(item, dict) and item.get("dimension") == "locations"
+            ),
+            {},
+        )
+        pairs = cls._location_transition_pairs_from_state(
+            checkpoint.get("state_json") or {}
+        )
+        return {location_id for pair in pairs for location_id in pair}
+
+    @classmethod
+    def _location_transition_pairs_from_state(
+        cls,
+        state: dict[str, Any],
+    ) -> set[tuple[str, str]]:
+        pairs: set[tuple[str, str]] = set()
+        for change in state.get("changes") or []:
+            if not isinstance(change, dict):
+                continue
+            before = cls._location_id(change.get("old_value"))
+            after = cls._location_id(change.get("new_value"))
+            if before and after and before != after:
+                pairs.add((before, after))
+        return pairs
+
+    @staticmethod
+    def _location_id(value: Any) -> str | None:
+        candidate = (
+            value.get("location_id") or value.get("id")
+            if isinstance(value, dict)
+            else value
+        )
+        try:
+            return str(uuid.UUID(str(candidate)))
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def _is_true_value(value: Any) -> bool:
