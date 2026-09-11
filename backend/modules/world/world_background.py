@@ -154,7 +154,7 @@ class WorldBackgroundAggregation:
                 & (target_entity.novel_id == EntityRelation.novel_id),
             )
             .where(EntityRelation.novel_id == nid, EntityRelation.status.in_(statuses))
-            .order_by(EntityRelation.strength.desc())
+            .order_by(EntityRelation.strength.desc(), EntityRelation.id)
             .limit(limit)
         )
         for relation, source_name, target_name in relations.all():
@@ -189,6 +189,7 @@ class WorldBackgroundAggregation:
                 CharacterKnowledge.novel_id == nid,
                 CharacterKnowledge.status.in_(statuses),
             )
+            .order_by(CharacterKnowledge.id)
             .limit(limit)
         )
         for item in knowledge.scalars().all():

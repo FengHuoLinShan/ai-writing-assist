@@ -7,6 +7,14 @@ from modules.world.models import CoreEntity, EntityRelation, Event
 from modules.world.world_background import WorldBackgroundAggregation
 
 
+class _EmptyResult:
+    def scalars(self):
+        return self
+
+    def all(self):
+        return []
+
+
 def test_source_hash_tracks_content_beyond_rendered_summary() -> None:
     shared_prefix = "a" * 1000
     first = WorldBackgroundAggregation._entry(
@@ -36,6 +44,33 @@ def test_source_hash_tracks_content_beyond_rendered_summary() -> None:
 
     assert first.summary == second.summary == shared_prefix
     assert first.source_hash != second.source_hash
+
+
+@pytest.mark.asyncio
+async def test_background_limited_queries_have_stable_tie_breaks() -> None:
+    class CapturingSession:
+        statements: list[str] = []
+
+        async def execute(self, statement):
+            self.statements.append(str(statement))
+            return _EmptyResult()
+
+    db = CapturingSession()
+
+    await WorldBackgroundAggregation().build(
+        db,  # type: ignore[arg-type]
+        "00000000-0000-0000-0000-000000000001",
+        limit=1,
+    )
+
+    relation_sql = next(
+        item for item in db.statements if "FROM entity_relations" in item
+    )
+    knowledge_sql = next(
+        item for item in db.statements if "FROM character_knowledge" in item
+    )
+    assert "entity_relations.strength DESC, entity_relations.id" in relation_sql
+    assert "ORDER BY character_knowledge.id" in knowledge_sql
 
 
 @pytest.mark.asyncio
