@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.evidence.indexing.facade import get_index_status, index_chapter
 from modules.project.models import Project
-from modules.writing.facade import create_draft
+from modules.writing.facade import create_published_draft_only
 
 SYNTHETIC_FILE_PATH = (
     Path(__file__).resolve().parents[4]
@@ -60,7 +60,7 @@ class TestRebuildIndexFirst10Chapters:
 
         for idx in range(FIRST_10_CHAPTER_COUNT):
             ch = all_chapters[idx]
-            await create_draft(
+            await create_published_draft_only(
                 db_session,
                 novel_id=project_id,
                 chapter_index=idx + 1,
@@ -213,7 +213,7 @@ class TestRetrievalDeterminism:
 
         for idx in range(3):
             ch = all_chapters[idx]
-            await create_draft(
+            await create_published_draft_only(
                 db_session,
                 novel_id=project_id,
                 chapter_index=idx + 1,

@@ -22,7 +22,7 @@ from core.errors import ConflictError, DomainError, NotFoundError, ValidationErr
 from infrastructure.llm.schemas import LLMCallResponse
 from modules.writing.contracts import WritingDraftContract
 from modules.writing.facade import (
-    create_draft,
+    create_published_draft_only,
     get_draft,
     get_latest_draft_for_chapter,
     list_chapter_indices,
@@ -1515,12 +1515,12 @@ class TestWritingDraftService:
 
 class TestWritingFacade:
     @pytest.mark.asyncio
-    async def test_create_draft(
+    async def test_create_published_draft_only(
         self,
         db_session: AsyncSession,
         sample_draft_data: WritingDraftCreate,
     ) -> None:
-        draft, task_id = await create_draft(
+        draft = await create_published_draft_only(
             db_session,
             sample_draft_data.novel_id,
             sample_draft_data.chapter_index,
@@ -1529,7 +1529,6 @@ class TestWritingFacade:
         )
         assert draft.id is not None
         assert isinstance(draft, WritingDraftContract)
-        assert task_id is not None  # 发布任务也应创建
         assert draft.title == "第一章：开端"
         assert draft.chapter_index == 1
 
@@ -1539,7 +1538,7 @@ class TestWritingFacade:
         db_session: AsyncSession,
         sample_draft_data: WritingDraftCreate,
     ) -> None:
-        draft, _ = await create_draft(
+        draft = await create_published_draft_only(
             db_session,
             sample_draft_data.novel_id,
             sample_draft_data.chapter_index,
@@ -1557,7 +1556,7 @@ class TestWritingFacade:
         db_session: AsyncSession,
         sample_draft_data: WritingDraftCreate,
     ) -> None:
-        draft, _ = await create_draft(
+        draft = await create_published_draft_only(
             db_session,
             sample_draft_data.novel_id,
             sample_draft_data.chapter_index,
@@ -1581,7 +1580,7 @@ class TestWritingFacade:
         db_session: AsyncSession,
         sample_draft_data: WritingDraftCreate,
     ) -> None:
-        await create_draft(
+        await create_published_draft_only(
             db_session,
             sample_draft_data.novel_id,
             sample_draft_data.chapter_index,
@@ -1609,10 +1608,10 @@ class TestWritingFacade:
         db_session: AsyncSession,
     ) -> None:
         novel_id = str(uuid.uuid4())
-        await create_draft(db_session, novel_id, 1, "第一章 v1", "旧内容")
-        await create_draft(db_session, novel_id, 1, "第一章 v2", "新内容")
-        await create_draft(db_session, novel_id, 2, "第二章", "不应返回")
-        await create_draft(db_session, novel_id, 3, "第三章", "第三章内容")
+        await create_published_draft_only(db_session, novel_id, 1, "第一章 v1", "旧内容")
+        await create_published_draft_only(db_session, novel_id, 1, "第一章 v2", "新内容")
+        await create_published_draft_only(db_session, novel_id, 2, "第二章", "不应返回")
+        await create_published_draft_only(db_session, novel_id, 3, "第三章", "第三章内容")
 
         drafts = await list_latest_drafts_for_chapters(
             db_session,
@@ -1699,7 +1698,9 @@ class TestWritingFacade:
     ) -> None:
         novel_id = str(uuid.uuid4())
         for ch in (1, 1, 3, 5):
-            await create_draft(db_session, novel_id, ch, f"第{ch}章", "内容")
+            await create_published_draft_only(
+                db_session, novel_id, ch, f"第{ch}章", "内容"
+            )
         indices = await list_chapter_indices(db_session, novel_id)
         assert indices == [1, 3, 5]
 
@@ -1717,8 +1718,8 @@ class TestWritingFacade:
         db_session: AsyncSession,
     ) -> None:
         novel_id = str(uuid.uuid4())
-        await create_draft(db_session, novel_id, 1, "占位", " \n\u3000")
-        await create_draft(db_session, novel_id, 2, "正文", "有效正文")
+        await create_published_draft_only(db_session, novel_id, 1, "占位", " \n\u3000")
+        await create_published_draft_only(db_session, novel_id, 2, "正文", "有效正文")
 
         assert await list_effective_chapter_indices(db_session, novel_id) == [2]
 
@@ -1730,10 +1731,12 @@ class TestWritingFacade:
         novel_id = str(uuid.uuid4())
         other_id = str(uuid.uuid4())
         missing_id = str(uuid.uuid4())
-        await create_draft(db_session, novel_id, 1, "第一章 v1", "旧稿")
-        await create_draft(db_session, novel_id, 1, "第一章 v2", "新稿内容")
-        await create_draft(db_session, novel_id, 2, "第二章", "第二")
-        await create_draft(db_session, other_id, 1, "另一项目", "其他")
+        await create_published_draft_only(db_session, novel_id, 1, "第一章 v1", "旧稿")
+        await create_published_draft_only(
+            db_session, novel_id, 1, "第一章 v2", "新稿内容"
+        )
+        await create_published_draft_only(db_session, novel_id, 2, "第二章", "第二")
+        await create_published_draft_only(db_session, other_id, 1, "另一项目", "其他")
 
         stats = await list_project_writing_stats(
             db_session,

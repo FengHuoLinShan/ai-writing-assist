@@ -17,12 +17,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.schemas import LLMCallResponse
+from infrastructure.tasks.facade import enqueue_task
 from infrastructure.tasks.models import AsyncTask
 from modules.story.outline_state.repositories import SceneRepository
 from modules.story.outline_state.schemas import SceneCreate
-from modules.writing.facade import (
-    create_draft,
-)
+from modules.writing.facade import create_published_draft_only
 from modules.writing.repositories import WritingDraftRepository
 from modules.writing.schemas import (
     WritingDraftCreate,
@@ -1368,14 +1367,19 @@ async def test_publish_creates_rag_chunks(
         mock_client.generate_embedding = AsyncMock(side_effect=embed_exc)
         mock_client_cls.return_value = mock_client
 
-        _, task_id = await create_draft(
+        await create_published_draft_only(
             db_session,
             test_project_id,
             1,
             "第一章",
             "周明瑞从梦中醒来，发现一切都变得陌生。" * 20,
         )
-        assert task_id is not None
+        task_id = enqueue_task(
+            db_session,
+            "publish_chapter",
+            meta={"novel_id": test_project_id, "chapter_index": 1},
+            novel_id=test_project_id,
+        )
 
         task = await db_session.get(AsyncTask, _uuid.UUID(hex=task_id))
         assert task is not None
@@ -1397,12 +1401,18 @@ async def test_publish_creates_rag_chunks(
         mock_client.generate_embedding = AsyncMock(side_effect=embed_exc)
         mock_client_cls.return_value = mock_client
 
-        _, task_id_2 = await create_draft(
+        await create_published_draft_only(
             db_session,
             test_project_id,
             1,
             "第一章（修订）",
             "周明瑞从梦中醒来，发现世界已经完全不同。" * 20,
+        )
+        task_id_2 = enqueue_task(
+            db_session,
+            "publish_chapter",
+            meta={"novel_id": test_project_id, "chapter_index": 1},
+            novel_id=test_project_id,
         )
         task_2 = await db_session.get(AsyncTask, _uuid.UUID(hex=task_id_2))
         assert task_2 is not None

@@ -24,7 +24,6 @@ from modules.writing.services import WritingConflictCheckService, WritingDraftSe
 __all__ = [
     "adopt_candidate_to_working",
     "build_manuscript_range_ref",
-    "create_draft",
     "create_draft_only",
     "create_published_draft_only",
     "create_published_drafts_only",
@@ -109,30 +108,6 @@ async def deprecate_chapter_versions(
 ) -> int:
     """Soft-delete every version of one chapter for a confirmed source update."""
     return await _service.delete_chapter(db, novel_id, chapter_index)
-
-
-async def create_draft(
-    db: AsyncSession,
-    novel_id: str,
-    chapter_index: int,
-    title: str | None = None,
-    content: str = "",
-) -> tuple[WritingDraftContract, str]:
-    """创建正文草稿并触发发布流程（兼容旧接口，新代码优先用 create_draft_only）
-
-    Returns:
-        (WritingDraftContract, task_id) — 草稿契约 + 发布任务 ID
-    """
-    from infrastructure.tasks.enqueuer import enqueue_task
-
-    draft = await create_published_draft_only(db, novel_id, chapter_index, title, content)
-    task_id = enqueue_task(
-        db,
-        "publish_chapter",
-        meta={"novel_id": novel_id, "chapter_index": chapter_index},
-        novel_id=novel_id,
-    )
-    return draft, task_id
 
 
 async def get_draft(

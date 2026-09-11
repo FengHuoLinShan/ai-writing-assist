@@ -2929,14 +2929,6 @@ def _split_rule_phrases(value: str | None) -> list[str]:
     return [part.strip() for part in re.split(r"[；;，,\n。]+", value) if part.strip()]
 
 
-def _read_field(value: object, field: str, default: object | None = None) -> object:
-    if value is None:
-        return default
-    if isinstance(value, dict):
-        return value.get(field, default)
-    return getattr(value, field, default)
-
-
 def _as_utc_aware(dt: datetime) -> datetime:
     """将可能为 naive 的 datetime 统一转为 UTC aware，便于比较。"""
     if dt.tzinfo is None:
