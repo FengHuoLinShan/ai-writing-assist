@@ -3,7 +3,7 @@ import { SEL } from "./helpers/selectors.js"
 import { openProjectView } from "./helpers/workbench.js"
 import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
 import { expectNoPageOverflow } from "./helpers/responsive.js"
-import { copyFile, mkdir, rm } from "fs/promises"
+import { mkdir, rm, writeFile } from "fs/promises"
 import path from "path"
 import { fileURLToPath } from "url"
 
@@ -53,7 +53,7 @@ test.describe("导入异常流", () => {
     const temporaryFilePath = testInfo.outputPath("oversized.txt")
     await mkdir(path.dirname(temporaryFilePath), { recursive: true })
     try {
-      await copyFile(path.join(__dirname, "helpers", "fixtures", "oversized.bin"), temporaryFilePath)
+      await writeFile(temporaryFilePath, Buffer.alloc(50 * 1024 * 1024 + 1))
       await page.locator("#pv-import-file").setInputFiles(temporaryFilePath)
       await page.locator('[data-action="upload-file"]').click()
 
