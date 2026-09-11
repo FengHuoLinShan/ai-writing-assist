@@ -372,7 +372,7 @@
 
       <!-- editor layout -->
       <div class="world-bible-layout">
-        <!-- page nav rail (left) — uses workspace-rail to match vanilla renderWorkspaceRail -->
+        <!-- page navigation rail -->
         <details class="workspace-rail world-bible-nav-rail workspace-rail--left" :data-workspace-rail-key="workspaceRailKey" :open="navRailOpen" @toggle="onNavRailToggle">
           <summary class="workspace-rail__summary" aria-label="收起页面">
             <span class="workspace-rail__title">页面</span>
@@ -1554,7 +1554,7 @@ const workspaceRailKey = computed(() =>
   `workspace-rail:${props.projectId || 'global'}:world-bible:pages`
 )
 
-// nav rail open/closed state (from sessionStorage, matching vanilla renderWorkspaceRail)
+// nav rail open/closed state persisted for this project and view
 const navRailOpen = ref(readNavRailState())
 function readNavRailState() {
   try {
