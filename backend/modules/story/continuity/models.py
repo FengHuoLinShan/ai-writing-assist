@@ -15,7 +15,6 @@ from sqlalchemy import (
     JSON,
     Boolean,
     DateTime,
-    ForeignKey,
     Index,
     Integer,
     String,
@@ -30,7 +29,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from core.base import Base, NovelMixin, UUIDMixin, UUIDType
 
 
-class MemoryEvent(Base):
+class MemoryEvent(Base, NovelMixin):
     """记忆变化事件 — 每章写入时记录，重放可得任意章的世界全景"""
 
     __tablename__ = "memory_events"
@@ -53,12 +52,6 @@ class MemoryEvent(Base):
         UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
-    )
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
     )
     chapter_index: Mapped[int] = mapped_column(
         Integer,
@@ -139,7 +132,7 @@ class MemoryEvent(Base):
         )
 
 
-class MemorySnapshot(Base):
+class MemorySnapshot(Base, NovelMixin):
     """记忆阶段性快照 — 每 10 章物化，加速全景查询"""
 
     __tablename__ = "memory_snapshots"
@@ -148,12 +141,6 @@ class MemorySnapshot(Base):
         UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
-    )
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
     )
     chapter_index: Mapped[int] = mapped_column(
         Integer,
@@ -251,7 +238,7 @@ class DeltaLog(Base, UUIDMixin, NovelMixin):
         )
 
 
-class MemorySceneCheckpoint(Base, UUIDMixin):
+class MemorySceneCheckpoint(Base, UUIDMixin, NovelMixin):
     """Scene 结束后的单维度轻量状态；历史版本只软 supersede。"""
 
     __tablename__ = "memory_scene_checkpoints"
@@ -274,12 +261,6 @@ class MemorySceneCheckpoint(Base, UUIDMixin):
         {"comment": "Scene 分维度轻量状态与覆盖缺口"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     scene_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False, index=True
     )
@@ -309,7 +290,7 @@ class MemorySceneCheckpoint(Base, UUIDMixin):
     )
 
 
-class MemorySceneSnapshot(Base, UUIDMixin):
+class MemorySceneSnapshot(Base, UUIDMixin, NovelMixin):
     """stage0、周期、章末和 latest 的稀疏全量 Scene 快照。"""
 
     __tablename__ = "memory_scene_snapshots"
@@ -326,12 +307,6 @@ class MemorySceneSnapshot(Base, UUIDMixin):
         {"comment": "Scene 时间轴稀疏全量快照"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     scene_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     scene_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
     stage_index: Mapped[int] = mapped_column(Integer, nullable=False)
