@@ -151,6 +151,8 @@ class RagIndexStateService:
                 generation=1,
             )
             db.add(state)
+        elif state.status == "running" and state.active_task_id is None:
+            return None
         elif state.active_task_id is not None and state.active_task_id != parsed_task_id:
             owner_status = await self._owner_status(
                 db,
@@ -521,71 +523,6 @@ class RagIndexStateService:
         state.status = enqueued.status
         await db.flush()
         return self._state_dict(state, task_id=task_id)
-
-    async def mark_running(
-        self,
-        db: AsyncSession,
-        *,
-        novel_id: str,
-        chapter_index: int,
-        content_mode: str,
-    ) -> bool:
-        """Claim a queued execution, skipping duplicate or already-fresh work."""
-        await self._lock_state_key(
-            db,
-            novel_id=novel_id,
-            chapter_index=chapter_index,
-            content_mode=content_mode,
-        )
-        source = await self._get_source(
-            db,
-            novel_id=novel_id,
-            chapter_index=chapter_index,
-            content_mode=content_mode,
-        )
-        state = await self._get(
-            db,
-            novel_id=novel_id,
-            chapter_index=chapter_index,
-            content_mode=content_mode,
-            lock=True,
-        )
-        if state is None:
-            state = RagIndexState(
-                novel_id=uuid.UUID(str(novel_id)),
-                chapter_index=chapter_index,
-                content_mode=content_mode,
-                requested_source_id=(
-                    uuid.UUID(str(source.id)) if source and source.id else None
-                ),
-                requested_hash=source.content_hash if source else None,
-                status="running",
-            )
-            db.add(state)
-            await db.flush()
-            return True
-        if state.status == "running":
-            return False
-
-        # A queued task may outlive the source version captured when it was
-        # requested.  Refresh the target when the task actually claims the
-        # state row so finish() compares its report with the source it was
-        # asked to index, instead of requeueing forever against a stale hash.
-        state.requested_source_id = (
-            uuid.UUID(str(source.id)) if source and source.id else None
-        )
-        state.requested_hash = source.content_hash if source else None
-        if (
-            source is not None
-            and state.status == "succeeded"
-            and state.indexed_hash == source.content_hash
-            and state.indexed_source_id == uuid.UUID(str(source.id))
-        ):
-            await db.flush()
-            return False
-        state.status = "running"
-        await db.flush()
-        return True
 
     async def finish(
         self,

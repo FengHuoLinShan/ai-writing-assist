@@ -82,11 +82,12 @@ async def test_index_state_coalesces_requests_and_requeues_latest_source(
     owner = await db_session.get(AsyncTask, uuid.UUID(first["task_id"]))
     assert owner is not None
     owner.mark_running()
-    await service.mark_running(
+    assert await service.claim_task_owner(
         db_session,
         novel_id=test_project_id,
         chapter_index=19,
         content_mode="working",
+        task_id=str(owner.id),
     )
     second_source = await create_draft_only(
         db_session,
@@ -646,6 +647,7 @@ async def test_queued_index_claim_refreshes_source_changed_before_execution(
     db_session: AsyncSession,
     test_project_id: str,  # noqa: F811
 ) -> None:
+    from infrastructure.tasks.models import AsyncTask
     from modules.evidence.indexing.contracts import RagIndexReport
     from modules.evidence.indexing.index_state import RagIndexStateService
     from modules.writing.facade import create_draft_only
@@ -671,11 +673,28 @@ async def test_queued_index_claim_refreshes_source_changed_before_execution(
         23,
         content="执行前已经切换的工作稿",
     )
-    assert await service.mark_running(
+    owner_task = await db_session.get(AsyncTask, uuid.UUID(requested["task_id"]))
+    assert owner_task is not None
+    owner_task.mark_running()
+    token = await service.claim_task_owner(
         db_session,
         novel_id=test_project_id,
         chapter_index=23,
         content_mode="working",
+        task_id=requested["task_id"],
+    )
+    assert token is not None
+    assert (
+        await service.begin_prepared(
+            db_session,
+            novel_id=test_project_id,
+            chapter_index=23,
+            content_mode="working",
+            source_draft_id=latest_source.id,
+            source_content_hash=latest_source.content_hash,
+            owner_token=token,
+        )
+        == "claimed"
     )
 
     stored = await service._get(
@@ -747,7 +766,7 @@ async def test_direct_and_queued_index_claims_skip_duplicate_execution(
         content="只应索引一次",
     )
     service = RagIndexStateService()
-    await service.mark_dirty(
+    queued = await service.mark_dirty(
         db_session,
         novel_id=test_project_id,
         chapter_index=21,
@@ -766,11 +785,12 @@ async def test_direct_and_queued_index_claims_skip_duplicate_execution(
         chapter_index=21,
         content_mode="canonical",
     )
-    assert not await service.mark_running(
+    assert not await service.claim_task_owner(
         db_session,
         novel_id=test_project_id,
         chapter_index=21,
         content_mode="canonical",
+        task_id=queued["task_id"],
     )
 
     await service.finish(
@@ -801,7 +821,7 @@ async def test_direct_and_queued_index_claims_skip_duplicate_execution(
 
 
 @pytest.mark.asyncio
-async def test_legacy_queued_index_claim_creates_missing_state(
+async def test_queued_index_claim_creates_missing_state(
     db_session: AsyncSession,
     test_project_id: str,  # noqa: F811
 ) -> None:
@@ -815,12 +835,27 @@ async def test_legacy_queued_index_claim_creates_missing_state(
         content="旧入队路径仍可建立状态",
     )
     service = RagIndexStateService()
+    task_id = str(uuid.uuid4())
 
-    assert await service.mark_running(
+    token = await service.claim_task_owner(
         db_session,
         novel_id=test_project_id,
         chapter_index=22,
         content_mode="working",
+        task_id=task_id,
+    )
+    assert token is not None
+    assert (
+        await service.begin_prepared(
+            db_session,
+            novel_id=test_project_id,
+            chapter_index=22,
+            content_mode="working",
+            source_draft_id=source.id,
+            source_content_hash=source.content_hash,
+            owner_token=token,
+        )
+        == "claimed"
     )
     state = await service.freshness(
         db_session,
