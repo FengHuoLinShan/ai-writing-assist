@@ -24,11 +24,7 @@ from infrastructure.llm.errors import (
 )
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from infrastructure.llm.token_estimation import estimate_token_count
-from infrastructure.tasks.facade import (
-    enqueue_coalesced_task,
-    enqueue_task,
-    require_task_checkpoint_session,
-)
+from infrastructure.tasks.facade import enqueue_task, require_task_checkpoint_session
 from modules.evidence.facade import (
     INTERACTION_SOURCE_CONTEXT_MAX_TOKENS,
     compile_interaction_story_context,
@@ -60,6 +56,7 @@ from modules.interaction.schemas import (
 )
 from modules.interaction.services import (
     InteractionService,
+    _enqueue_overview_refresh_task,
     _summary_compressible_prefix_end,
     estimate_story_tokens,
     path_hash,
@@ -810,7 +807,7 @@ class InteractionGenerationWorkflow:
                 path=current_path,
             )
             if await self._summary_is_due(db, journey, current_path):
-                summary_task_id = await self._enqueue_summary(
+                summary_task_id = await _enqueue_overview_refresh_task(
                     db,
                     journey=journey,
                     path=current_path,
@@ -931,7 +928,7 @@ class InteractionGenerationWorkflow:
             or journey.overview_epoch != started_epoch
         ):
             if current_path and await self._summary_is_due(db, journey, current_path):
-                await self._enqueue_summary(
+                await _enqueue_overview_refresh_task(
                     db,
                     journey=journey,
                     path=current_path,
@@ -1158,7 +1155,7 @@ class InteractionGenerationWorkflow:
             or journey.overview_epoch != prepared.started_overview_epoch
         ):
             if current_path and await self._summary_is_due(db, journey, current_path):
-                await self._enqueue_summary(
+                await _enqueue_overview_refresh_task(
                     db,
                     journey=journey,
                     path=current_path,
@@ -1427,31 +1424,6 @@ class InteractionGenerationWorkflow:
         task.update_progress(1.0)
         await db.commit()
         db.expire_all()
-
-    async def _enqueue_summary(
-        self,
-        db: AsyncSession,
-        *,
-        journey: InteractionJourney,
-        path: list[InteractionMessageNode],
-        snapshot: dict[str, Any],
-    ) -> str:
-        contract = await enqueue_coalesced_task(
-            db,
-            task_type="interaction_summary_refresh",
-            novel_id=str(journey.novel_id),
-            scope=("interaction_summary", str(journey.id)),
-            mode="one_pending_follower",
-            meta={
-                "novel_id": str(journey.novel_id),
-                "journey_id": str(journey.id),
-                "path_hash": path_hash(path),
-                "selected_leaf_node_id": str(path[-1].id),
-                "started_overview_epoch": journey.overview_epoch,
-                "llm_execution_snapshot": dict(snapshot),
-            },
-        )
-        return contract.task_id
 
     @staticmethod
     def _task_ids(task: Any) -> tuple[str, uuid.UUID, uuid.UUID]:

@@ -89,6 +89,31 @@ def path_hash(nodes: list[InteractionMessageNode]) -> str:
     return hashlib.sha256(payload.encode("ascii")).hexdigest()
 
 
+async def _enqueue_overview_refresh_task(
+    db: AsyncSession,
+    *,
+    journey: InteractionJourney,
+    path: list[InteractionMessageNode],
+    snapshot: dict,
+) -> str:
+    contract = await enqueue_coalesced_task(
+        db,
+        task_type="interaction_summary_refresh",
+        novel_id=str(journey.novel_id),
+        scope=("interaction_summary", str(journey.id)),
+        mode="one_pending_follower",
+        meta={
+            "novel_id": str(journey.novel_id),
+            "journey_id": str(journey.id),
+            "path_hash": path_hash(path),
+            "selected_leaf_node_id": str(path[-1].id),
+            "started_overview_epoch": journey.overview_epoch,
+            "llm_execution_snapshot": dict(snapshot),
+        },
+    )
+    return contract.task_id
+
+
 def _summary_compressible_prefix_end(
     nodes: list[InteractionMessageNode],
 ) -> int:
@@ -1066,7 +1091,7 @@ class InteractionService:
                     db,
                     str(journey.novel_id),
                 )
-                await self._enqueue_overview_refresh(
+                await _enqueue_overview_refresh_task(
                     db,
                     journey=journey,
                     path=path,
@@ -1714,7 +1739,7 @@ class InteractionService:
                     db,
                     str(journey.novel_id),
                 )
-                await self._enqueue_overview_refresh(
+                await _enqueue_overview_refresh_task(
                     db,
                     journey=journey,
                     path=path,
@@ -1760,7 +1785,7 @@ class InteractionService:
             str(journey.novel_id),
             **({"web_search_enabled": True} if journey.web_search_enabled else {}),
         )
-        await self._enqueue_overview_refresh(
+        await _enqueue_overview_refresh_task(
             db,
             journey=journey,
             path=path,
@@ -2838,31 +2863,6 @@ class InteractionService:
             candidate = parent
         return None
 
-    async def _enqueue_overview_refresh(
-        self,
-        db: AsyncSession,
-        *,
-        journey: InteractionJourney,
-        path: list[InteractionMessageNode],
-        snapshot: dict,
-    ) -> str:
-        contract = await enqueue_coalesced_task(
-            db,
-            task_type="interaction_summary_refresh",
-            novel_id=str(journey.novel_id),
-            scope=("interaction_summary", str(journey.id)),
-            mode="one_pending_follower",
-            meta={
-                "novel_id": str(journey.novel_id),
-                "journey_id": str(journey.id),
-                "path_hash": path_hash(path),
-                "selected_leaf_node_id": str(path[-1].id),
-                "started_overview_epoch": journey.overview_epoch,
-                "llm_execution_snapshot": dict(snapshot),
-            },
-        )
-        return contract.task_id
-
     async def _overview_refresh_is_due(
         self,
         db: AsyncSession,
@@ -2911,7 +2911,7 @@ class InteractionService:
             path=path,
         ):
             return None
-        return await self._enqueue_overview_refresh(
+        return await _enqueue_overview_refresh_task(
             db,
             journey=journey,
             path=path,
