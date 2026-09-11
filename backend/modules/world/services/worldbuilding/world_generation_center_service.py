@@ -97,6 +97,9 @@ from modules.world.services.worldbuilding.generation_prompt_template_service imp
 from modules.world.services.worldbuilding.page_template_service import (
     WorldBiblePageTemplateService,
 )
+from modules.world.services.worldbuilding.structured_reference_retry import (
+    run_structured_with_known_keys,
+)
 from modules.world.services.worldbuilding.suggestion_queue_service import (
     SuggestionQueueService,
 )
@@ -2486,40 +2489,27 @@ class WorldGenerationCenterService:
         model: str,
     ) -> GeneratedWorldSemanticInspectionOutput:
         request = self._semantic_inspection_request(data, sources, model=model)
-        known = {source["manifest"].key for source in sources}
-        for attempt in range(2):
-            generated = await self._run_structured_with_quality_review(
+        return await run_structured_with_known_keys(
+            client,
+            request,
+            generate=lambda: self._run_structured_with_quality_review(
                 client,
                 request,
                 GeneratedWorldSemanticInspectionOutput,
                 step_name="world.generation.semantic_inspection",
                 quality_mode=data.quality_mode,
-            )
-            unknown = sorted(
-                {
-                    key
-                    for finding in generated.findings
-                    for key in finding.source_keys
-                    if key not in known
-                }
-            )
-            if not unknown:
-                return generated
-            if attempt == 0:
-                request.messages.append(
-                    LLMMessage(
-                        role="user",
-                        content=(
-                            "上一轮引用了不存在的 source_key。只修正证据引用；"
-                            "不得新增发现。未知 key："
-                            + json.dumps(unknown, ensure_ascii=False)
-                        ),
-                    )
-                )
-        raise LLMInvalidResponseError(
-            "World semantic inspection returned unknown source keys",
-            provider=str(client.provider),
-            model=request.model,
+            ),
+            known_keys={source["manifest"].key for source in sources},
+            keys_of=lambda generated: (
+                key
+                for finding in generated.findings
+                for key in finding.source_keys
+            ),
+            repair_note=(
+                "上一轮引用了不存在的 source_key。只修正证据引用；"
+                "不得新增发现。未知 key："
+            ),
+            error_message="World semantic inspection returned unknown source keys",
         )
 
     @staticmethod
@@ -2563,40 +2553,25 @@ class WorldGenerationCenterService:
         model: str,
     ) -> GeneratedWorldGenerationExplorationOutput:
         request = self._exploration_request(data, sources, model=model)
-        known = {source["manifest"].key for source in sources}
-        for attempt in range(2):
-            generated = await self._run_structured_with_quality_review(
+        return await run_structured_with_known_keys(
+            client,
+            request,
+            generate=lambda: self._run_structured_with_quality_review(
                 client,
                 request,
                 GeneratedWorldGenerationExplorationOutput,
                 step_name="world.generation.exploration.preview",
                 quality_mode=data.quality_mode,
-            )
-            unknown = sorted(
-                {
-                    key
-                    for target in generated.targets
-                    for key in target.source_keys
-                    if key not in known
-                }
-            )
-            if not unknown:
-                return generated
-            if attempt == 0:
-                request.messages.append(
-                    LLMMessage(
-                        role="user",
-                        content=(
-                            "上一轮引用了不存在的 source_key。只修正证据引用；"
-                            "不得新增目标。未知 key："
-                            + json.dumps(unknown, ensure_ascii=False)
-                        ),
-                    )
-                )
-        raise LLMInvalidResponseError(
-            "World exploration returned unknown source keys",
-            provider=str(client.provider),
-            model=request.model,
+            ),
+            known_keys={source["manifest"].key for source in sources},
+            keys_of=lambda generated: (
+                key for target in generated.targets for key in target.source_keys
+            ),
+            repair_note=(
+                "上一轮引用了不存在的 source_key。只修正证据引用；"
+                "不得新增目标。未知 key："
+            ),
+            error_message="World exploration returned unknown source keys",
         )
 
     def _exploration_response(

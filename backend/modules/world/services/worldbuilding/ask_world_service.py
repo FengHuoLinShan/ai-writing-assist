@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.errors import ConflictError, NotFoundError, ValidationError
 from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.client import LLMClient
-from infrastructure.llm.errors import LLMInvalidResponseError
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.evidence.contracts import ContextSnapshotRequest, VisibilityContextContract
@@ -32,6 +31,9 @@ from modules.world.services.core.entity_context_service import EntityContextServ
 from modules.world.services.worldbuilding.ask_world_retrieval import (
     MIN_RELEVANCE,
     ask_world_relevance,
+)
+from modules.world.services.worldbuilding.structured_reference_retry import (
+    run_structured_with_known_keys,
 )
 from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
     WorldBibleLifecycleService,
@@ -500,43 +502,28 @@ class AskWorldService:
             ],
             temperature=0.0,
         )
-        known = {item["key"] for item in sources}
         async with asyncio.timeout(_TIMEOUT_SECONDS):
-            for attempt in range(2):
-                generated = await run_managed_structured(
+            return await run_structured_with_known_keys(
+                client,
+                request,
+                generate=lambda: run_managed_structured(
                     client,
                     request,
                     GeneratedAskWorldOutput,
                     step_name="world.ask",
                     max_fix_attempts=2,
                     timeout=_TIMEOUT_SECONDS,
-                )
-                unknown = sorted(
-                    {
-                        key
-                        for claim in generated.claims
-                        for key in claim.citation_keys
-                        if key not in known
-                    }
-                )
-                if not unknown:
-                    return generated
-                if attempt == 0:
-                    request.messages.append(
-                        LLMMessage(
-                            role="user",
-                            content=(
-                                "上一轮引用了不存在的 citation_key。"
-                                "只修正引用，不新增主张："
-                                + json.dumps(unknown, ensure_ascii=False)
-                            ),
-                        )
-                    )
-        raise LLMInvalidResponseError(
-            "Ask World returned unknown citation keys",
-            provider=str(client.provider),
-            model=model,
-        )
+                ),
+                known_keys={item["key"] for item in sources},
+                keys_of=lambda generated: (
+                    key for claim in generated.claims for key in claim.citation_keys
+                ),
+                repair_note=(
+                    "上一轮引用了不存在的 citation_key。"
+                    "只修正引用，不新增主张："
+                ),
+                error_message="Ask World returned unknown citation keys",
+            )
 
     async def _revalidate_sources(
         self,
