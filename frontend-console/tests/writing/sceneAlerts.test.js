@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   buildSceneAlerts,
   summarizeSceneAlerts,
-} from "../../views/writing/sceneAlerts.js"
+} from "../../vue/views/writing/sceneAlerts.js"
 
 const completeScene = {
   id: "s1",

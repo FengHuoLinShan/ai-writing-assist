@@ -173,11 +173,10 @@ frontend-console/
 │   ├── composables/        #   跨视图组合式函数（上传/轮询/保存按钮）
 │   ├── *Island.js          #   各一级路由注册与首屏数据预取
 │   └── views/              #   home/interaction 与作者 project/rag/world/outline/... SFC
+│       ├── writing/*.js     #     Scene 警报与版本 Diff 纯 helper
 │       ├── writing/home/   #     写作首页、作者任务页/表单与类型化来源跳转
 │       ├── world/library/  #     资料库类型首页、同源 cards/list 与对象详情
 │       └── world/pages/    #     资料页编辑/发布展示 helper 与关联图完整次级工具
-├── views/                  # Vue 页之下的限定兼容 seam（不再注册页面 renderer）
-│   └── writing/            # sceneAlerts.js / versionDiff.js 无 DOM 纯 helper
 ├── tests/                  # 测试目录
 │   ├── vue/                # Vue shell、业务视图、controller 与 owner gate 测试
 │   └── shared/             # shared 模块测试

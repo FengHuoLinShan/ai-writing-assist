@@ -16,17 +16,14 @@ const {
 } = globalThis.apiContracts
 
 function viewFiles() {
-  const viewsDir = join(projectRoot, "views")
-  return readdirSync(viewsDir)
-    .filter((name) => name.endsWith(".js"))
-    .map((name) => join(viewsDir, name))
+  return codeFilesRecursively(join(projectRoot, "vue", "views"))
 }
 
-function jsFilesRecursively(directory) {
+function codeFilesRecursively(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name)
-    if (entry.isDirectory()) return jsFilesRecursively(path)
-    return entry.isFile() && entry.name.endsWith(".js") ? [path] : []
+    if (entry.isDirectory()) return codeFilesRecursively(path)
+    return entry.isFile() && /\.(?:js|vue)$/.test(entry.name) ? [path] : []
   })
 }
 
@@ -36,8 +33,8 @@ function productionJsFiles() {
     .map((entry) => join(projectRoot, entry.name))
   return [
     ...rootFiles,
-    ...["shared", "ui", "views"].flatMap((directory) => (
-      jsFilesRecursively(join(projectRoot, directory))
+    ...["shared", "ui", "vue"].flatMap((directory) => (
+      codeFilesRecursively(join(projectRoot, directory))
     )),
   ]
 }

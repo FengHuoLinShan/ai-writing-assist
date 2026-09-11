@@ -16,8 +16,8 @@ import {
   getToast,
 } from "../../bridge/index.js"
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
-import { buildSceneAlerts } from "../../../views/writing/sceneAlerts.js"
-import { buildVersionDiff } from "../../../views/writing/versionDiff.js"
+import { buildSceneAlerts } from "./sceneAlerts.js"
+import { buildVersionDiff } from "./versionDiff.js"
 import { applyToolsResult } from "../../../shared/writingToolsResult.js"
 import { importAuthorizationPayload } from "../../../shared/importAuthorization.js"
 import { sanitizeTaskErrorMessage } from "../../../shared/workflowProgress.js"

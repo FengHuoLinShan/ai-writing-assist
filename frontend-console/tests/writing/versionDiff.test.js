@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { buildVersionDiff, renderVersionDiff } from "../../views/writing/versionDiff.js"
+import { buildVersionDiff, renderVersionDiff } from "../../vue/views/writing/versionDiff.js"
 
 describe("versionDiff", () => {
   it("先对齐段落，再标记中文字符级替换", () => {
