@@ -2935,13 +2935,16 @@ class TestContextConfirmation:
 
         from modules.evidence.compilation.facade import require_fresh_confirmation
 
-        with pytest.raises(ValueError, match="stale_context"):
+        with pytest.raises(
+            ValueError, match="参考资料已更新，请重新确认后开始任务"
+        ) as error:
             await require_fresh_confirmation(
                 db_session,
                 novel_id=novel_id,
                 action="world.alias_relations.extract",
                 confirmation_id=created.id,
             )
+        assert "stale_context" not in str(error.value)
 
     @pytest.mark.asyncio
     async def test_attach_result_refs_batches_and_deduplicates(

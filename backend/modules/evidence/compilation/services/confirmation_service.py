@@ -233,10 +233,7 @@ class ContextConfirmationService:
             for_update=for_update,
         )
         if confirmation.result_status in {"stale_context", "needs_review"}:
-            raise ValueError(
-                f"context confirmation is {confirmation.result_status}; "
-                "please review and confirm the latest context",
-            )
+            raise ValueError("参考资料已更新，请重新确认后开始任务")
         return confirmation
 
     async def compile_from_confirmation(
