@@ -19,7 +19,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from core.base import Base, TimestampMixin, UUIDMixin, UUIDType
+from core.base import Base, NovelMixin, TimestampMixin, UUIDMixin, UUIDType
 
 
 class InteractionSourceRevision(Base, UUIDMixin, TimestampMixin):
@@ -219,7 +219,7 @@ class InteractionJourney(Base, UUIDMixin, TimestampMixin):
     )
 
 
-class InteractionMessageNode(Base, UUIDMixin, TimestampMixin):
+class InteractionMessageNode(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "interaction_message_nodes"
     __table_args__ = (
         CheckConstraint(
@@ -248,12 +248,6 @@ class InteractionMessageNode(Base, UUIDMixin, TimestampMixin):
         ),
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        UUIDType,
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     journey_id: Mapped[uuid.UUID] = mapped_column(
         UUIDType,
         ForeignKey("interaction_journeys.id", ondelete="CASCADE"),
@@ -302,7 +296,7 @@ class InteractionMessageNode(Base, UUIDMixin, TimestampMixin):
     )
 
 
-class InteractionBranchSelection(Base, UUIDMixin, TimestampMixin):
+class InteractionBranchSelection(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "interaction_branch_selections"
     __table_args__ = (
         UniqueConstraint(
@@ -312,12 +306,6 @@ class InteractionBranchSelection(Base, UUIDMixin, TimestampMixin):
         ),
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        UUIDType,
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     journey_id: Mapped[uuid.UUID] = mapped_column(
         UUIDType,
         ForeignKey("interaction_journeys.id", ondelete="CASCADE"),
@@ -337,7 +325,7 @@ class InteractionBranchSelection(Base, UUIDMixin, TimestampMixin):
     )
 
 
-class InteractionGenerationAttempt(Base, UUIDMixin, TimestampMixin):
+class InteractionGenerationAttempt(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "interaction_generation_attempts"
     __table_args__ = (
         CheckConstraint(
@@ -364,12 +352,6 @@ class InteractionGenerationAttempt(Base, UUIDMixin, TimestampMixin):
         ),
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        UUIDType,
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     journey_id: Mapped[uuid.UUID] = mapped_column(
         UUIDType,
         ForeignKey("interaction_journeys.id", ondelete="CASCADE"),
@@ -466,7 +448,7 @@ class InteractionGenerationAttempt(Base, UUIDMixin, TimestampMixin):
     )
 
 
-class InteractionSummarySegment(Base, UUIDMixin, TimestampMixin):
+class InteractionSummarySegment(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "interaction_summary_segments"
     __table_args__ = (
         UniqueConstraint(
@@ -477,12 +459,6 @@ class InteractionSummarySegment(Base, UUIDMixin, TimestampMixin):
         ),
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        UUIDType,
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     journey_id: Mapped[uuid.UUID] = mapped_column(
         UUIDType,
         ForeignKey("interaction_journeys.id", ondelete="CASCADE"),
@@ -506,7 +482,7 @@ class InteractionSummarySegment(Base, UUIDMixin, TimestampMixin):
     producer: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 
 
-class InteractionOverviewRevision(Base, UUIDMixin, TimestampMixin):
+class InteractionOverviewRevision(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "interaction_overview_revisions"
     __table_args__ = (
         CheckConstraint(
@@ -520,12 +496,6 @@ class InteractionOverviewRevision(Base, UUIDMixin, TimestampMixin):
         ),
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        UUIDType,
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     journey_id: Mapped[uuid.UUID] = mapped_column(
         UUIDType,
         ForeignKey("interaction_journeys.id", ondelete="CASCADE"),
