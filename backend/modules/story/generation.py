@@ -14,7 +14,6 @@ from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.story.schemas import (
     CardPreview,
     CharacterCardContent,
-    OneClickOutput,
     ReactionPreview,
     ScriptPreview,
     StorySchema,
@@ -198,37 +197,5 @@ class StoryGenerationService:
             ),
             ScriptPreview,
             step_name="story.script.generate.structured",
-        )
-        return output
-
-    async def one_click_preview(
-        self,
-        client: Any,
-        *,
-        context_markdown: str,
-        scene_context: dict[str, Any],
-        character_ids: list[str],
-        additional_notes: str | None = None,
-        accepted_reactions: list[dict[str, Any]] | None = None,
-        accepted_beats: list[dict[str, Any]] | None = None,
-    ) -> OneClickOutput:
-        output = await self._run(
-            client,
-            self._request(
-                client,
-                purpose="full_scene_one_click_preview",
-                context_markdown=context_markdown,
-                scene_context=scene_context,
-                target={
-                    "scene_id": scene_context.get("scene_id"),
-                    "character_ids": character_ids,
-                    "additional_notes": additional_notes or "",
-                    "accepted_reactions": accepted_reactions or [],
-                    "accepted_beats": accepted_beats or [],
-                },
-                schema=OneClickOutput,
-            ),
-            OneClickOutput,
-            step_name="story.one_click.structured",
         )
         return output
