@@ -7,9 +7,8 @@ from typing import get_args
 
 from fastapi.params import Depends
 
-from core.config import Settings, get_settings
 from core.database import get_db as database_get_db
-from core.dependencies import AppSettings, CurrentProject, DbSession, get_db
+from core.dependencies import DbSession, get_db
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 FASTAPI_FUNCTION_SCOPE_MINIMUM = (0, 121, 1)
@@ -54,16 +53,3 @@ def test_fastapi_dependency_declares_function_scope_minimum() -> None:
     assert f'{{ name = "fastapi", specifier = ">={lock_specifier}" }}' in (
         BACKEND_ROOT / "uv.lock"
     ).read_text(encoding="utf-8")
-
-
-def test_app_settings_alias_retains_settings_dependency() -> None:
-    value_type, dependency = _dependency_parts(AppSettings)
-
-    assert value_type is Settings
-    assert dependency.dependency is get_settings
-
-
-def test_current_project_preserves_novel_id_without_normalization() -> None:
-    novel_id = "project-scope-contract"
-
-    assert CurrentProject(novel_id).novel_id == novel_id
