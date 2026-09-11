@@ -19,30 +19,6 @@ SCENE_MEMORY_DIMENSIONS = (
 
 
 @dataclass(frozen=True)
-class MemoryEventContract:
-    """记忆事件契约"""
-
-    id: str
-    chapter_index: int
-    event_type: str
-    entity_id: str | None = None
-    entity_type: str | None = None
-    snapshot_after: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class ChapterPanoramaContract:
-    """章节全景契约"""
-
-    novel_id: str
-    chapter_index: int
-    entities: list[dict[str, Any]] = field(default_factory=list)
-    relations: list[dict[str, Any]] = field(default_factory=list)
-    character_locations: dict[str, dict[str, Any]] = field(default_factory=dict)
-    character_knowledge: list[dict[str, Any]] = field(default_factory=list)
-
-
-@dataclass(frozen=True)
 class MemoryContinuityEvidenceContract:
     """Stable memory continuity evidence for writing conflict checks."""
 
@@ -79,10 +55,3 @@ class MemoryDeltaIngestResult:
 
     count: int
     delta_logs: list[dict[str, Any]]
-
-
-@dataclass(frozen=True)
-class SceneCheckpointRepairResult:
-    scene_id: str
-    dimension: str
-    rebuilt_scene_count: int

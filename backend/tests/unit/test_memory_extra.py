@@ -1,7 +1,7 @@
 """
-Memory 模块单元测试 — api.py + contracts.py
+Memory 模块单元测试 — api.py
 
-覆盖所有 API 端点（7 个）和 2 个数据契约。
+覆盖所有 API 端点（7 个）。
 使用 unittest.mock 完全隔离 DB 和外部依赖。
 """
 
@@ -23,10 +23,6 @@ from modules.story.continuity.api import (
     list_snapshots,
     trigger_capture,
     trigger_rebuild,
-)
-from modules.story.continuity.contracts import (
-    ChapterPanoramaContract,
-    MemoryEventContract,
 )
 from modules.story.continuity.schemas import (
     ChapterPanorama,
@@ -82,103 +78,6 @@ def _stub_memory_active_project_guard(monkeypatch: pytest.MonkeyPatch) -> None:
         return None
 
     monkeypatch.setattr(memory_api, "_require_active_project", require_active_project)
-
-
-# ============================================================
-# Contracts 测试
-# ============================================================
-
-
-class TestMemoryEventContract:
-    """MemoryEventContract dataclass — 跨模块契约"""
-
-    def test_minimal_required_fields(self):
-        """仅必需字段时使用默认值"""
-        contract = MemoryEventContract(
-            id="evt-1",
-            chapter_index=3,
-            event_type="entity_created",
-        )
-        assert contract.id == "evt-1"
-        assert contract.chapter_index == 3
-        assert contract.event_type == "entity_created"
-        assert contract.entity_id is None
-        assert contract.entity_type is None
-        assert contract.snapshot_after == {}
-
-    def test_frozen_cannot_modify(self):
-        """@dataclass(frozen=True) 禁止属性修改"""
-        contract = MemoryEventContract(id="evt-1", chapter_index=1, event_type="created")
-        with pytest.raises(AttributeError):
-            contract.id = "new"  # type: ignore[misc]
-
-    def test_full_fields(self):
-        """所有字段全部传入"""
-        contract = MemoryEventContract(
-            id="evt-2",
-            chapter_index=5,
-            event_type="entity_updated",
-            entity_id="ent-42",
-            entity_type="location",
-            snapshot_after={"name": "城堡"},
-        )
-        assert contract.entity_id == "ent-42"
-        assert contract.entity_type == "location"
-        assert contract.snapshot_after == {"name": "城堡"}
-
-    def test_default_snapshot_after_is_fresh_each_instance(self):
-        """每个实例的 snapshot_after 是独立 dict"""
-        c1 = MemoryEventContract(id="a", chapter_index=1, event_type="created")
-        c2 = MemoryEventContract(
-            id="b", chapter_index=1, event_type="created", snapshot_after={"x": 1}
-        )
-        assert c1.snapshot_after == {}
-        assert c2.snapshot_after == {"x": 1}
-        # frozen 只禁止替换属性，不禁止内部 dict 修改（Python 行为）
-        c1.snapshot_after["y"] = 2
-        assert c1.snapshot_after == {"y": 2}
-        assert c2.snapshot_after == {"x": 1}
-
-
-class TestChapterPanoramaContract:
-    """ChapterPanoramaContract dataclass — 跨模块契约"""
-
-    def test_minimal_required_fields(self):
-        """仅必需字段，其余为默认"""
-        contract = ChapterPanoramaContract(
-            novel_id="novel-1",
-            chapter_index=5,
-        )
-        assert contract.novel_id == "novel-1"
-        assert contract.chapter_index == 5
-        assert contract.entities == []
-        assert contract.relations == []
-        assert contract.character_locations == {}
-        assert contract.character_knowledge == []
-
-    def test_frozen_cannot_modify(self):
-        """@dataclass(frozen=True) 禁止属性修改"""
-        contract = ChapterPanoramaContract(novel_id="nid", chapter_index=1)
-        with pytest.raises(AttributeError):
-            contract.novel_id = "new"  # type: ignore[misc]
-
-    def test_full_fields(self):
-        """全部字段传入"""
-        contract = ChapterPanoramaContract(
-            novel_id="novel-1",
-            chapter_index=10,
-            entities=[{"id": "e1", "name": "Alice"}],
-            relations=[{"id": "r1"}],
-            character_locations={"c1": {"location_id": "loc-1"}},
-            character_knowledge=[
-                {"id": "k1", "character_id": "c1", "target_type": "entity"}
-            ],
-        )
-        assert len(contract.entities) == 1
-        assert contract.entities[0]["name"] == "Alice"
-        assert len(contract.relations) == 1
-        assert "c1" in contract.character_locations
-        assert len(contract.character_knowledge) == 1
 
 
 # ============================================================

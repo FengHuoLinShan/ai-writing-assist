@@ -33,20 +33,6 @@ class EventType(StrEnum):
     manual_correction = "manual_correction"
 
 
-class EventSource(StrEnum):
-    """事件来源"""
-
-    ai_extraction = "ai_extraction"
-    manual_edit = "manual_edit"
-
-
-class SnapshotStatus(StrEnum):
-    """快照状态"""
-
-    current = "current"
-    stale = "stale"
-
-
 # ============================================================
 # 全景子结构
 # ============================================================
