@@ -18,6 +18,7 @@ import {
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
 import { buildSceneAlerts } from "./sceneAlerts.js"
 import { buildVersionDiff } from "./versionDiff.js"
+import { isVersionActive } from "./versionState.js"
 import { applyToolsResult } from "../../../shared/writingToolsResult.js"
 import { importAuthorizationPayload } from "../../../shared/importAuthorization.js"
 import { sanitizeTaskErrorMessage } from "../../../shared/workflowProgress.js"
@@ -221,16 +222,12 @@ export function useWritingWorkspace(props) {
     chapterScenes.value.find((scene) => scene.id === selectedSceneId.value) || null
   ))
   const canEdit = computed(() => selectedChapter.value != null && !editorState.readonly && !editorState.loading && !editorState.loadError)
-  const activeVersions = computed(() => versions.value.filter((version) => (
-    version.display_state
-      ? version.display_state === "active"
-      : !["candidate", "deprecated"].includes(version.status)
-  )))
+  const activeVersions = computed(() => versions.value.filter(isVersionActive))
   const candidateComparisonAvailable = computed(() => editorState.status === "candidate"
     && Boolean(editorState.draftId)
     && versions.value.some((version) => version.id === editorState.draftId)
-    && versions.value.some((version) => version.id !== editorState.draftId && (
-      version.display_state ? version.display_state === "active" : !["candidate", "deprecated"].includes(version.status)
+    && versions.value.some((version) => (
+      version.id !== editorState.draftId && isVersionActive(version)
     )))
   const saveStatus = computed(() => {
     if (editorState.saving) return "正在保存"
@@ -751,7 +748,7 @@ export function useWritingWorkspace(props) {
       await editor.autosave()
       if (editor.hasUnsavedChanges() && editor.snapshot().saveError) return false
     }
-    const active = versions.value.filter((item) => item.display_state ? item.display_state === "active" : !["candidate", "deprecated"].includes(item.status))
+    const active = versions.value.filter(isVersionActive)
     const latest = active[0] || active.reduce((best, item) => Number(item.version_number) > Number(best?.version_number || 0) ? item : best, null)
     return selectChapter(selectedChapter.value, {
       draftId,
@@ -786,8 +783,8 @@ export function useWritingWorkspace(props) {
   async function compareCandidateWithWorkingDraft() {
     if (!candidateComparisonAvailable.value) return false
     const base = versions.value
-      .filter((version) => version.id !== editorState.draftId && (
-        version.display_state ? version.display_state === "active" : !["candidate", "deprecated"].includes(version.status)
+      .filter((version) => (
+        version.id !== editorState.draftId && isVersionActive(version)
       ))
       .reduce((latest, version) => Number(version.version_number) > Number(latest?.version_number || 0) ? version : latest, null)
     if (!base) return false
@@ -802,7 +799,7 @@ export function useWritingWorkspace(props) {
   }
 
   async function restoreVersion(version) {
-    const active = versions.value.filter((item) => item.display_state ? item.display_state === "active" : !["candidate", "deprecated"].includes(item.status))
+    const active = versions.value.filter(isVersionActive)
     if (!active.includes(version)) return
     const latest = active.reduce((best, item) => Number(item.version_number) > Number(best?.version_number || 0) ? item : best, null)
     if (version.id !== latest?.id) {
@@ -821,7 +818,7 @@ export function useWritingWorkspace(props) {
   }
 
   async function deleteVersion(version) {
-    const active = versions.value.filter((item) => item.display_state ? item.display_state === "active" : !["candidate", "deprecated"].includes(item.status))
+    const active = versions.value.filter(isVersionActive)
     const latest = active.reduce((best, item) => Number(item.version_number) > Number(best?.version_number || 0) ? item : best, null)
     if (!active.includes(version) || active.length <= 1 || version.id === latest?.id) {
       toast("不能删除唯一版本、最新版本或只读历史", "warning")

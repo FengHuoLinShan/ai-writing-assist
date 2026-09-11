@@ -4,17 +4,12 @@ import {
   readWritingPointer,
   rememberChapterSnapshot,
 } from "../writingSession.js"
+import { isVersionActive } from "../versionState.js"
 
 const LOCAL_PERSIST_DELAY = 250
 
 export function substantiveWritingText(text) {
   return String(text || "").replace(/\s/gu, "")
-}
-
-function activeVersion(version) {
-  if (!version) return false
-  if (version.display_state) return version.display_state === "active"
-  return !["candidate", "deprecated"].includes(version.status)
 }
 
 function legacyBackupKey(projectId, chapter) {
@@ -322,13 +317,13 @@ export function createEditorController({
           if (options.allowMissingPointerFallback !== true || Number(error?.status) !== 404) throw error
           clearWritingPointerDraft(projectId)
           const history = await api.writing.getVersionHistory(state.chapter, projectId)
-          const latest = (history?.versions || []).find(activeVersion)
+          const latest = (history?.versions || []).find(isVersionActive)
           if (latest) draft = await api.writing.get(latest.id, projectId)
         }
       } else {
         const history = await api.writing.getVersionHistory(state.chapter, projectId)
         if (generation !== loadGeneration || lifecycle !== lifecycleGeneration || projectId !== getProjectId()) return false
-        const latest = (history?.versions || []).find(activeVersion)
+        const latest = (history?.versions || []).find(isVersionActive)
         if (latest) draft = await api.writing.get(latest.id, projectId)
       }
       if (generation !== loadGeneration || lifecycle !== lifecycleGeneration || projectId !== getProjectId()) return false

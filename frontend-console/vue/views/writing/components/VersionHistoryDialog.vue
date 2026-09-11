@@ -89,6 +89,7 @@
 import { computed, nextTick, ref, watch } from "vue"
 import ActionMenu from "../../../components/ActionMenu.vue"
 import { useModalDialog } from "../../../composables/useModalDialog.js"
+import { isVersionActive } from "../versionState.js"
 const props = defineProps({
   model: { type: Object, required: true },
   versions: { type: Array, default: () => [] },
@@ -98,10 +99,9 @@ const emit = defineEmits(["preview", "restore", "delete", "compare"])
 const diffRef = ref(null)
 const close = () => { props.model.open = false; props.model.diffOpen = false }
 const { overlayRef, dialogRef, onKeydown, onFocusin } = useModalDialog({ isOpen: () => props.model.open, requestClose: close })
-const isActive = (version) => version.display_state ? version.display_state === "active" : !["candidate", "deprecated"].includes(version.status)
-const activeVersions = computed(() => props.versions.filter(isActive))
+const activeVersions = computed(() => props.versions.filter(isVersionActive))
 const latestActiveId = computed(() => activeVersions.value.reduce((latest, version) => Number(version.version_number) > Number(latest?.version_number || 0) ? version : latest, null)?.id || null)
-const canManage = (version) => isActive(version) && activeVersions.value.length > 1 && version.id !== latestActiveId.value
+const canManage = (version) => isVersionActive(version) && activeVersions.value.length > 1 && version.id !== latestActiveId.value
 const statusLabel = (version) => version.status === "published" ? "正式正文" : version.status === "candidate" ? "待处理" : version.status === "deprecated" ? "历史" : "工作稿"
 const menuItems = (version) => [
   ...(version.id !== props.currentId ? [{ action: "preview", label: "单独预览" }] : []),
