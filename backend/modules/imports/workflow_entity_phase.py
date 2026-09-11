@@ -17,6 +17,7 @@ from modules.imports.workflow_phase_runner import (
     EntityFullPipelineRequest,
     EntityStageRequest,
 )
+from modules.imports.workflow_progress import DeepImportProgressTracker
 from modules.imports.workflow_runtime import DeepImportWorkflowRuntime
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
 
@@ -44,12 +45,12 @@ class EntityExtractionPhaseRunner:
         progress.current_phase = "entity_extraction"
         progress.current_operation = "scene_entity_extraction"
         progress.message = "正在按 Scene 提取世界对象..."
-        workflow._start_phase(
+        DeepImportProgressTracker.start_phase(
             progress,
             "entity_extraction",
             item={"kind": "scene", "completed": 0, "total": total_scenes},
         )
-        await workflow._emit_progress(progress, 0.4, on_progress)
+        await DeepImportProgressTracker.emit_progress(progress, 0.4, on_progress)
 
         async def _on_scene_progress(
             completed: int,
@@ -81,7 +82,7 @@ class EntityExtractionPhaseRunner:
                 value = 0.6 + 0.2 * (completed / total) if total else 0.6
             else:
                 value = 0.4 + 0.2 * (completed / total) if total else 0.4
-            await workflow._emit_progress(progress, value, on_progress)
+            await DeepImportProgressTracker.emit_progress(progress, value, on_progress)
 
         phase2_failed = False
         repair_summary: dict[str, Any] | None = None
@@ -97,7 +98,7 @@ class EntityExtractionPhaseRunner:
                 end_chapter=end_chapter,
                 include_alias_relations=False,
             )
-            workflow._merge_checkpoints(progress, phase2_result)
+            DeepImportProgressTracker.merge_checkpoints(progress, phase2_result)
             phase2_result, repair_summary = await self._maybe_repair_phase2a(
                 db,
                 novel_id,
@@ -121,11 +122,15 @@ class EntityExtractionPhaseRunner:
                 progress_start=0.55,
                 progress_end=0.8,
             )
-            workflow._mark_step_completed(progress, DeepImportStep.entity_extraction)
-            workflow._merge_audit_summary(progress, phase2_result)
-            workflow._merge_snapshot_health_summary(progress, phase2_result)
+            DeepImportProgressTracker.mark_step_completed(
+                progress, DeepImportStep.entity_extraction
+            )
+            DeepImportProgressTracker.merge_audit_summary(progress, phase2_result)
+            DeepImportProgressTracker.merge_snapshot_health_summary(
+                progress, phase2_result
+            )
             progress.quality_stats["phase2"] = phase2_quality_stats(phase2_result)
-            await workflow._refresh_snapshot_health_summary(
+            await DeepImportProgressTracker.refresh_snapshot_health_summary(
                 db,
                 novel_id,
                 workflow_id or progress.workflow_id,
@@ -161,7 +166,7 @@ class EntityExtractionPhaseRunner:
                         "message": error_message[:300],
                     }
                 )
-            workflow._finish_phase(
+            DeepImportProgressTracker.finish_phase(
                 progress,
                 "entity_extraction",
                 status="degraded" if phase2_result.get("degraded") else "completed",
@@ -200,7 +205,7 @@ class EntityExtractionPhaseRunner:
                 }
             )
             progress.message = "实体提取阶段失败，已降级继续结构分析。"
-            workflow._finish_phase(
+            DeepImportProgressTracker.finish_phase(
                 progress,
                 "entity_extraction",
                 status="failed",
@@ -225,7 +230,7 @@ class EntityExtractionPhaseRunner:
                     "message": "实体提取阶段未生成任何实体",
                 }
             )
-            workflow._finish_phase(
+            DeepImportProgressTracker.finish_phase(
                 progress,
                 "entity_extraction",
                 status="degraded",
@@ -278,7 +283,7 @@ class EntityExtractionPhaseRunner:
         progress.current_phase = "entity_extraction"
         progress.current_operation = "scene_entity_extraction"
         progress.message = "正在按 Scene 提取世界对象与别名/关系..."
-        workflow._start_phase(
+        DeepImportProgressTracker.start_phase(
             progress,
             "entity_extraction",
             item={
@@ -287,7 +292,7 @@ class EntityExtractionPhaseRunner:
                 "end_chapter": end_chapter,
             },
         )
-        await workflow._emit_progress(progress, 0.05, on_progress)
+        await DeepImportProgressTracker.emit_progress(progress, 0.05, on_progress)
 
         if workflow._is_llm_health_required():
             health = await workflow._check_llm_health(db, novel_id)
@@ -324,7 +329,7 @@ class EntityExtractionPhaseRunner:
                     "message": progress.message,
                 }
             )
-            workflow._finish_phase(
+            DeepImportProgressTracker.finish_phase(
                 progress,
                 "entity_extraction",
                 status="failed",
@@ -348,7 +353,7 @@ class EntityExtractionPhaseRunner:
                     if error.get("phase") == DeepImportStep.entity_extraction.value
                 ],
             )
-            await workflow._emit_progress(progress, 0.05, on_progress)
+            await DeepImportProgressTracker.emit_progress(progress, 0.05, on_progress)
             return progress
 
         async def _on_scene_progress(
@@ -381,7 +386,7 @@ class EntityExtractionPhaseRunner:
                 value = 0.55 + 0.4 * (completed / total) if total else 0.55
             else:
                 value = 0.1 + 0.45 * (completed / total) if total else 0.1
-            await workflow._emit_progress(progress, value, on_progress)
+            await DeepImportProgressTracker.emit_progress(progress, value, on_progress)
 
         phase2_result = await workflow._extract_entities_by_scene(
             db,
@@ -394,7 +399,7 @@ class EntityExtractionPhaseRunner:
             end_chapter=end_chapter,
             include_alias_relations=False,
         )
-        workflow._merge_checkpoints(progress, phase2_result)
+        DeepImportProgressTracker.merge_checkpoints(progress, phase2_result)
         phase2_result, repair_summary = await self._maybe_repair_phase2a(
             db,
             novel_id,
@@ -418,10 +423,10 @@ class EntityExtractionPhaseRunner:
             progress_start=0.5,
             progress_end=0.95,
         )
-        workflow._merge_audit_summary(progress, phase2_result)
-        workflow._merge_snapshot_health_summary(progress, phase2_result)
+        DeepImportProgressTracker.merge_audit_summary(progress, phase2_result)
+        DeepImportProgressTracker.merge_snapshot_health_summary(progress, phase2_result)
         progress.quality_stats["phase2"] = phase2_quality_stats(phase2_result)
-        await workflow._refresh_snapshot_health_summary(
+        await DeepImportProgressTracker.refresh_snapshot_health_summary(
             db,
             novel_id,
             workflow_id or progress.workflow_id,
@@ -442,7 +447,7 @@ class EntityExtractionPhaseRunner:
         else:
             phase2a_failed = _has_phase2a_failures(phase2_result)
             if not phase2a_failed:
-                workflow._mark_step_completed(
+                DeepImportProgressTracker.mark_step_completed(
                     progress,
                     DeepImportStep.entity_extraction,
                 )
@@ -490,7 +495,7 @@ class EntityExtractionPhaseRunner:
             )
 
         progress.current_step = None
-        workflow._finish_phase(
+        DeepImportProgressTracker.finish_phase(
             progress,
             "entity_extraction",
             status=(
@@ -522,7 +527,7 @@ class EntityExtractionPhaseRunner:
                 if error.get("phase") == DeepImportStep.entity_extraction.value
             ],
         )
-        await workflow._emit_progress(
+        await DeepImportProgressTracker.emit_progress(
             progress,
             1.0 if progress.phase == "done" else 0.95,
             on_progress,
@@ -563,7 +568,7 @@ class EntityExtractionPhaseRunner:
                 "total": 1,
             }
             progress.checkpoints["phase2_dedup"] = checkpoint
-            await self.workflow._emit_progress(
+            await DeepImportProgressTracker.emit_progress(
                 progress,
                 progress_start + dedup_span * value,
                 on_progress,
@@ -641,7 +646,7 @@ class EntityExtractionPhaseRunner:
             end_chapter=end_chapter,
         )
         merged = merge_alias_relation_result(self.workflow, phase2_result, alias_result)
-        self.workflow._merge_checkpoints(progress, merged)
+        DeepImportProgressTracker.merge_checkpoints(progress, merged)
         return merged
 
     async def _maybe_repair_phase2a(
@@ -681,7 +686,7 @@ class EntityExtractionPhaseRunner:
             include_alias_relations=False,
         )
         merged = _merge_phase2_repair_result(phase2_result, repair_result)
-        workflow._merge_checkpoints(progress, merged)
+        DeepImportProgressTracker.merge_checkpoints(progress, merged)
         repair_summary = phase2_repair_summary(
             repair_result,
             attempted=True,

@@ -17,6 +17,7 @@ from modules.imports.service_phase_artifacts import (
     scene_phase_repair_summary,
 )
 from modules.imports.workflow_phase_runner import SceneFullPipelineRequest
+from modules.imports.workflow_progress import DeepImportProgressTracker
 from modules.imports.workflow_runtime import DeepImportWorkflowRuntime
 from modules.imports.workflow_schemas import DeepImportStep
 
@@ -101,7 +102,7 @@ class ScenePhaseRunner:
         progress.current_operation = "scene_plan"
         progress.current_chapter_range = f"{start_chapter}-{end_chapter}"
         progress.message = "正在统计章节字数并规划 Scene 切分窗口..."
-        workflow._start_phase(
+        DeepImportProgressTracker.start_phase(
             progress,
             "phase0_plan",
             item={
@@ -110,7 +111,7 @@ class ScenePhaseRunner:
                 "end_chapter": end_chapter,
             },
         )
-        await workflow._emit_progress(progress, 0.0, on_progress)
+        await DeepImportProgressTracker.emit_progress(progress, 0.0, on_progress)
 
         phase0_result = request.prepared_phase0_result
         if phase0_result is None:
@@ -170,16 +171,16 @@ class ScenePhaseRunner:
                     "message": progress.message[:300],
                 }
             )
-            workflow._finish_phase(
+            DeepImportProgressTracker.finish_phase(
                 progress,
                 "phase0_plan",
                 status="failed",
                 error_kind=progress.degraded_reason,
                 error_message=progress.message,
             )
-            await workflow._emit_progress(progress, 0.0, on_progress)
+            await DeepImportProgressTracker.emit_progress(progress, 0.0, on_progress)
             return ScenePhaseOutcome(total_scenes=0, stopped=True)
-        workflow._finish_phase(
+        DeepImportProgressTracker.finish_phase(
             progress,
             "phase0_plan",
             status="completed",
@@ -192,7 +193,7 @@ class ScenePhaseRunner:
         progress.current_operation = "scene_slicing"
         progress.current_chapter_range = f"{start_chapter}-{end_chapter}"
         progress.message = "正在按完整窗口切分 Scene 边界..."
-        workflow._start_phase(
+        DeepImportProgressTracker.start_phase(
             progress,
             "phase1a_scene_slicing",
             item={
@@ -204,7 +205,7 @@ class ScenePhaseRunner:
                 "phase0_window_count": len(phase0_result.windows),
             },
         )
-        await workflow._emit_progress(progress, 0.1, on_progress)
+        await DeepImportProgressTracker.emit_progress(progress, 0.1, on_progress)
 
         async def _on_phase1a_batch(completed: int, total: int, window_id: str) -> None:
             progress.current_window = window_id
@@ -214,7 +215,7 @@ class ScenePhaseRunner:
                 "total": total,
             }
             value = min(0.2, 0.1 + 0.1 * (completed / total)) if total else 0.1
-            await workflow._emit_progress(progress, value, on_progress)
+            await DeepImportProgressTracker.emit_progress(progress, value, on_progress)
             _assert_provider_window("phase1a progress")
 
         _assert_provider_window("phase1a")
@@ -279,7 +280,7 @@ class ScenePhaseRunner:
                     if error.get("phase") == "phase1a_scene_slicing"
                 ],
             )
-            workflow._finish_phase(
+            DeepImportProgressTracker.finish_phase(
                 progress,
                 "phase1a_scene_slicing",
                 status="failed",
@@ -287,7 +288,7 @@ class ScenePhaseRunner:
                 error_kind=progress.degraded_reason,
                 error_message=progress.message,
             )
-            await workflow._emit_progress(progress, 0.2, on_progress)
+            await DeepImportProgressTracker.emit_progress(progress, 0.2, on_progress)
             return ScenePhaseOutcome(total_scenes=0, stopped=True)
 
         add_phase_artifact(
@@ -313,7 +314,7 @@ class ScenePhaseRunner:
                 else None,
             ),
         )
-        workflow._finish_phase(
+        DeepImportProgressTracker.finish_phase(
             progress,
             "phase1a_scene_slicing",
             status="completed",
@@ -329,7 +330,7 @@ class ScenePhaseRunner:
         progress.current_operation = "scene_enrichment"
         progress.current_chapter_range = f"{start_chapter}-{end_chapter}"
         progress.message = "正在逐 Scene 补充叙事字段..."
-        workflow._start_phase(
+        DeepImportProgressTracker.start_phase(
             progress,
             "phase1b_enrichment",
             item={
@@ -341,7 +342,7 @@ class ScenePhaseRunner:
                 "input_candidate_count": len(phase1a_result.candidates),
             },
         )
-        await workflow._emit_progress(progress, 0.2, on_progress)
+        await DeepImportProgressTracker.emit_progress(progress, 0.2, on_progress)
 
         async def _on_phase1b_batch(
             completed: int, total: int, candidate_id: str
@@ -353,7 +354,7 @@ class ScenePhaseRunner:
                 "total": total,
             }
             value = min(0.3, 0.2 + 0.1 * (completed / total)) if total else 0.2
-            await workflow._emit_progress(progress, value, on_progress)
+            await DeepImportProgressTracker.emit_progress(progress, value, on_progress)
             _assert_provider_window("phase1b progress")
 
         _assert_provider_window("phase1b")
@@ -450,7 +451,7 @@ class ScenePhaseRunner:
             progress.message = (
                 "Phase 1b Scene enrichment 缺少章节覆盖，已停止正式 Scene 提交。"
             )
-            workflow._finish_phase(
+            DeepImportProgressTracker.finish_phase(
                 progress,
                 "phase1b_enrichment",
                 status="failed",
@@ -462,9 +463,9 @@ class ScenePhaseRunner:
                 error_kind="missing_chapter_coverage",
                 error_message=progress.message,
             )
-            await workflow._emit_progress(progress, 0.3, on_progress)
+            await DeepImportProgressTracker.emit_progress(progress, 0.3, on_progress)
             return ScenePhaseOutcome(total_scenes=0, stopped=True)
-        workflow._finish_phase(
+        DeepImportProgressTracker.finish_phase(
             progress,
             "phase1b_enrichment",
             status="degraded" if phase1b_result.degraded else "completed",
@@ -483,12 +484,12 @@ class ScenePhaseRunner:
             progress.current_phase = "phase1c_scene_fusion"
             progress.current_operation = "scene_fusion"
             progress.message = "正在审核相邻 Scene 边界并静默融合..."
-            workflow._start_phase(
+            DeepImportProgressTracker.start_phase(
                 progress,
                 "phase1c_scene_fusion",
                 item={"kind": "scene_pairs", "count": max(len(final_candidates) - 1, 0)},
             )
-            await workflow._emit_progress(progress, 0.30, on_progress)
+            await DeepImportProgressTracker.emit_progress(progress, 0.30, on_progress)
 
             async def _on_phase1c_pair(
                 completed: int,
@@ -502,7 +503,7 @@ class ScenePhaseRunner:
                     "pair_id": pair_id,
                 }
                 fraction = completed / total if total else 1.0
-                await workflow._emit_progress(
+                await DeepImportProgressTracker.emit_progress(
                     progress,
                     0.30 + 0.05 * fraction,
                     on_progress,
@@ -548,7 +549,7 @@ class ScenePhaseRunner:
                     end_chapter,
                 ),
             )
-            workflow._finish_phase(
+            DeepImportProgressTracker.finish_phase(
                 progress,
                 "phase1c_scene_fusion",
                 status="degraded" if phase1c_result.degraded else "completed",
@@ -598,7 +599,7 @@ class ScenePhaseRunner:
         progress.current_operation = "scene_commit"
         progress.current_chapter_range = f"{start_chapter}-{end_chapter}"
         progress.message = "正在提交正式 Scene 与融合建议..."
-        workflow._start_phase(
+        DeepImportProgressTracker.start_phase(
             progress,
             "scene_commit",
             item={
@@ -613,7 +614,7 @@ class ScenePhaseRunner:
             phase1b_result,
             commit_started=True,
         )
-        await workflow._emit_progress(progress, 0.35, on_progress)
+        await DeepImportProgressTracker.emit_progress(progress, 0.35, on_progress)
 
         commit_kwargs: dict[str, Any] = {
             "workflow_id": workflow_id or progress.workflow_id or "manual",
@@ -686,8 +687,10 @@ class ScenePhaseRunner:
                 progress.quality_stats["scene_commit"]["rag_reindex_task_id"] = (
                     rag_task_id
                 )
-            workflow._mark_step_completed(progress, DeepImportStep.scene_segmentation)
-            workflow._finish_phase(
+            DeepImportProgressTracker.mark_step_completed(
+                progress, DeepImportStep.scene_segmentation
+            )
+            DeepImportProgressTracker.finish_phase(
                 progress,
                 "scene_commit",
                 status="completed",
@@ -715,7 +718,7 @@ class ScenePhaseRunner:
                 }
             )
             progress.message = f"{error_message}，已停止深度导入。"
-            workflow._finish_phase(
+            DeepImportProgressTracker.finish_phase(
                 progress,
                 "scene_commit",
                 status="failed",
@@ -723,7 +726,7 @@ class ScenePhaseRunner:
                 error_kind=progress.degraded_reason,
                 error_message=progress.message,
             )
-            await workflow._emit_progress(progress, 0.3, on_progress)
+            await DeepImportProgressTracker.emit_progress(progress, 0.3, on_progress)
             return ScenePhaseOutcome(total_scenes=0, stopped=True)
         progress.message = (
             "Scene 提交完成，"
@@ -751,7 +754,7 @@ class ScenePhaseRunner:
                 f"新增 {commit_result.created_count} 个，"
                 f"复用 {commit_result.skipped_count} 个。"
             )
-            await workflow._emit_progress(progress, 1.0, on_progress)
+            await DeepImportProgressTracker.emit_progress(progress, 1.0, on_progress)
             return ScenePhaseOutcome(total_scenes=total_scenes, stopped=True)
 
         return ScenePhaseOutcome(total_scenes=total_scenes)

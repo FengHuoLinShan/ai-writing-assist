@@ -7,7 +7,7 @@ from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
+from modules.imports.workflow_schemas import DeepImportProgress
 
 ProgressCallback = Callable[[DeepImportProgress, float], Awaitable[None]]
 SceneProgressCallback = Callable[..., Awaitable[None]]
@@ -20,39 +20,6 @@ class DeepImportWorkflowRuntime(Protocol):
     preserved for compatibility with existing monkeypatch-based tests while
     phase runner constructors stop accepting an untyped owner object.
     """
-
-    def _start_phase(
-        self,
-        progress: DeepImportProgress,
-        phase: str,
-        *,
-        item: dict[str, Any] | None = None,
-        details: dict[str, Any] | None = None,
-    ) -> None: ...
-
-    def _finish_phase(
-        self,
-        progress: DeepImportProgress,
-        phase: str,
-        *,
-        status: str,
-        details: dict[str, Any] | None = None,
-        error_kind: str | None = None,
-        error_message: str | None = None,
-    ) -> None: ...
-
-    def _emit_progress(
-        self,
-        progress: DeepImportProgress,
-        value: float,
-        on_progress: ProgressCallback | None,
-    ) -> Awaitable[None]: ...
-
-    def _mark_step_completed(
-        self,
-        progress: DeepImportProgress,
-        step: DeepImportStep,
-    ) -> None: ...
 
     def _diagnostic_samples(self, diagnostics: Any) -> Any: ...
 
@@ -150,32 +117,6 @@ class DeepImportWorkflowRuntime(Protocol):
         start_chapter: int | None,
         end_chapter: int | None,
     ) -> Awaitable[dict[str, Any]]: ...
-
-    def _merge_checkpoints(
-        self,
-        progress: DeepImportProgress,
-        phase_result: dict[str, Any],
-    ) -> None: ...
-
-    def _merge_audit_summary(
-        self,
-        progress: DeepImportProgress,
-        phase_result: dict[str, Any],
-    ) -> None: ...
-
-    def _merge_snapshot_health_summary(
-        self,
-        progress: DeepImportProgress,
-        phase_result: dict[str, Any],
-    ) -> None: ...
-
-    def _refresh_snapshot_health_summary(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        workflow_id: str | None,
-        progress: DeepImportProgress,
-    ) -> Awaitable[None]: ...
 
     def _rollback_after_phase_failure(
         self,

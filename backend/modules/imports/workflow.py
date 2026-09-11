@@ -166,7 +166,9 @@ class DeepImportWorkflow:
                             "message": health.message[:300],
                         }
                     )
-                    await self._emit_progress(progress, 0.0, on_progress)
+                    await DeepImportProgressTracker.emit_progress(
+                        progress, 0.0, on_progress
+                    )
                     return progress
 
             progress.phase = "running"
@@ -247,7 +249,7 @@ class DeepImportWorkflow:
                 f"{phase3_result.get('total_threads', 0)} 条剧情线，"
                 f"{phase3_result.get('total_arcs', 0)} 个篇章纲。"
             )
-            await self._emit_progress(progress, 1.0, on_progress)
+            await DeepImportProgressTracker.emit_progress(progress, 1.0, on_progress)
 
         else:
             raise ValueError(f"无法处理当前进度状态: {progress.phase}")
@@ -543,96 +545,6 @@ class DeepImportWorkflow:
                 break
         return samples
 
-    @classmethod
-    def _start_phase(
-        cls,
-        progress: DeepImportProgress,
-        phase: str,
-        *,
-        item: dict[str, Any] | None = None,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        DeepImportProgressTracker.start_phase(
-            progress,
-            phase,
-            item=item,
-            details=details,
-        )
-
-    @classmethod
-    def _finish_phase(
-        cls,
-        progress: DeepImportProgress,
-        phase: str,
-        *,
-        status: str = "completed",
-        details: dict[str, Any] | None = None,
-        error_kind: str | None = None,
-        error_message: str | None = None,
-    ) -> None:
-        DeepImportProgressTracker.finish_phase(
-            progress,
-            phase,
-            status=status,
-            details=details,
-            error_kind=error_kind,
-            error_message=error_message,
-        )
-
-    @staticmethod
-    async def _emit_progress(
-        progress: DeepImportProgress,
-        progress_value: float,
-        on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None,
-    ) -> None:
-        await DeepImportProgressTracker.emit_progress(
-            progress,
-            progress_value,
-            on_progress,
-        )
-
-    @staticmethod
-    def _mark_step_completed(
-        progress: DeepImportProgress,
-        step: DeepImportStep,
-    ) -> None:
-        DeepImportProgressTracker.mark_step_completed(progress, step)
-
-    @staticmethod
-    def _merge_checkpoints(
-        progress: DeepImportProgress,
-        phase_result: dict[str, Any],
-    ) -> None:
-        DeepImportProgressTracker.merge_checkpoints(progress, phase_result)
-
-    @staticmethod
-    def _merge_audit_summary(
-        progress: DeepImportProgress,
-        phase_result: dict[str, Any],
-    ) -> None:
-        DeepImportProgressTracker.merge_audit_summary(progress, phase_result)
-
-    @staticmethod
-    def _merge_snapshot_health_summary(
-        progress: DeepImportProgress,
-        phase_result: dict[str, Any],
-    ) -> None:
-        DeepImportProgressTracker.merge_snapshot_health_summary(progress, phase_result)
-
-    @staticmethod
-    async def _refresh_snapshot_health_summary(
-        db: AsyncSession,
-        novel_id: str,
-        workflow_id: str | None,
-        progress: DeepImportProgress,
-    ) -> None:
-        await DeepImportProgressTracker.refresh_snapshot_health_summary(
-            db,
-            novel_id,
-            workflow_id,
-            progress,
-        )
-
     @staticmethod
     async def _rollback_after_phase_failure(
         db: AsyncSession,
@@ -749,7 +661,9 @@ class DeepImportWorkflow:
             }
         )
         current_progress = 0.05 if progress.current_phase else 0.0
-        await self._emit_progress(progress, current_progress, on_progress)
+        await DeepImportProgressTracker.emit_progress(
+            progress, current_progress, on_progress
+        )
         return progress
 
     async def _scene_chapter_coverage(

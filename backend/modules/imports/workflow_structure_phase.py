@@ -14,6 +14,7 @@ from modules.imports.workflow_phase_runner import (
     StructureFullPipelineRequest,
     StructureStageRequest,
 )
+from modules.imports.workflow_progress import DeepImportProgressTracker
 from modules.imports.workflow_runtime import DeepImportWorkflowRuntime
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
 
@@ -149,7 +150,7 @@ class StructureAnalysisPhaseRunner:
         progress.current_phase = "structure_analysis"
         progress.current_operation = "structure_analysis"
         progress.message = "正在生成剧情线、篇章纲、伏笔和揭示计划..."
-        workflow._start_phase(
+        DeepImportProgressTracker.start_phase(
             progress,
             "structure_analysis",
             item={
@@ -158,7 +159,7 @@ class StructureAnalysisPhaseRunner:
                 "end_chapter": end_chapter,
             },
         )
-        await workflow._emit_progress(progress, 0.8, on_progress)
+        await DeepImportProgressTracker.emit_progress(progress, 0.8, on_progress)
         phase3_failed = False
         try:
             phase3_result = await asyncio.wait_for(
@@ -187,7 +188,9 @@ class StructureAnalysisPhaseRunner:
             )
             progress.message = "剧情结构分析超时，已降级完成。"
         else:
-            workflow._mark_step_completed(progress, DeepImportStep.structure_analysis)
+            DeepImportProgressTracker.mark_step_completed(
+                progress, DeepImportStep.structure_analysis
+            )
             phase3_result, structure_gate = await rerun_structure_once_if_needed(
                 workflow,
                 db,
@@ -200,8 +203,10 @@ class StructureAnalysisPhaseRunner:
                 include_pending_objects=include_pending_objects,
             )
             phase3_result["structure_quality_gate"] = structure_gate
-            workflow._merge_audit_summary(progress, phase3_result)
-            workflow._merge_snapshot_health_summary(progress, phase3_result)
+            DeepImportProgressTracker.merge_audit_summary(progress, phase3_result)
+            DeepImportProgressTracker.merge_snapshot_health_summary(
+                progress, phase3_result
+            )
             phase3_result["structure_dedup"] = await _review_structure_dedup(
                 db,
                 novel_id,
@@ -211,7 +216,7 @@ class StructureAnalysisPhaseRunner:
             phase3_result,
             failed=phase3_failed,
         )
-        await workflow._refresh_snapshot_health_summary(
+        await DeepImportProgressTracker.refresh_snapshot_health_summary(
             db,
             novel_id,
             workflow_id or progress.workflow_id,
@@ -235,7 +240,7 @@ class StructureAnalysisPhaseRunner:
                     "message": "剧情结构阶段未生成剧情线或篇章纲",
                 }
             )
-        workflow._finish_phase(
+        DeepImportProgressTracker.finish_phase(
             progress,
             "structure_analysis",
             status="failed"
@@ -293,7 +298,7 @@ class StructureAnalysisPhaseRunner:
         progress.current_phase = "structure_analysis"
         progress.current_operation = "structure_analysis"
         progress.message = "正在生成剧情线、篇章纲、伏笔和揭示计划..."
-        workflow._start_phase(
+        DeepImportProgressTracker.start_phase(
             progress,
             "structure_analysis",
             item={
@@ -302,7 +307,7 @@ class StructureAnalysisPhaseRunner:
                 "end_chapter": end_chapter,
             },
         )
-        await workflow._emit_progress(progress, 0.05, on_progress)
+        await DeepImportProgressTracker.emit_progress(progress, 0.05, on_progress)
 
         if workflow._is_llm_health_required():
             health = await workflow._check_llm_health(db, novel_id)
@@ -339,7 +344,7 @@ class StructureAnalysisPhaseRunner:
                     "message": progress.message,
                 }
             )
-            workflow._finish_phase(
+            DeepImportProgressTracker.finish_phase(
                 progress,
                 "structure_analysis",
                 status="failed",
@@ -362,7 +367,7 @@ class StructureAnalysisPhaseRunner:
                     if error.get("phase") == DeepImportStep.structure_analysis.value
                 ],
             )
-            await workflow._emit_progress(progress, 0.05, on_progress)
+            await DeepImportProgressTracker.emit_progress(progress, 0.05, on_progress)
             return progress
 
         if await workflow._count_world_objects(db, novel_id) <= 0:
@@ -402,7 +407,9 @@ class StructureAnalysisPhaseRunner:
                 }
             )
         else:
-            workflow._mark_step_completed(progress, DeepImportStep.structure_analysis)
+            DeepImportProgressTracker.mark_step_completed(
+                progress, DeepImportStep.structure_analysis
+            )
             phase3_result, structure_gate = await rerun_structure_once_if_needed(
                 workflow,
                 db,
@@ -415,8 +422,10 @@ class StructureAnalysisPhaseRunner:
                 include_pending_objects=include_pending_objects,
             )
             phase3_result["structure_quality_gate"] = structure_gate
-            workflow._merge_audit_summary(progress, phase3_result)
-            workflow._merge_snapshot_health_summary(progress, phase3_result)
+            DeepImportProgressTracker.merge_audit_summary(progress, phase3_result)
+            DeepImportProgressTracker.merge_snapshot_health_summary(
+                progress, phase3_result
+            )
             phase3_result["structure_dedup"] = await _review_structure_dedup(
                 db,
                 novel_id,
@@ -427,7 +436,7 @@ class StructureAnalysisPhaseRunner:
             phase3_result,
             failed=phase3_failed,
         )
-        await workflow._refresh_snapshot_health_summary(
+        await DeepImportProgressTracker.refresh_snapshot_health_summary(
             db,
             novel_id,
             workflow_id or progress.workflow_id,
@@ -464,7 +473,7 @@ class StructureAnalysisPhaseRunner:
                 "本次未得到可用结构；已有资料保留，请核对来源后重试本阶段。"
             )
 
-        workflow._finish_phase(
+        DeepImportProgressTracker.finish_phase(
             progress,
             "structure_analysis",
             status="failed"
@@ -492,7 +501,7 @@ class StructureAnalysisPhaseRunner:
                 if error.get("phase") == DeepImportStep.structure_analysis.value
             ],
         )
-        await workflow._emit_progress(progress, 1.0, on_progress)
+        await DeepImportProgressTracker.emit_progress(progress, 1.0, on_progress)
         return progress
 
 

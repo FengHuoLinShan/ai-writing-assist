@@ -2062,7 +2062,6 @@ class TestDeepImportWorkflowAutoRun:
     @pytest.mark.asyncio
     async def test_plot_structure_stage_allows_missing_world_objects_as_partial(self):
         workflow = DeepImportWorkflow()
-        workflow._refresh_snapshot_health_summary = AsyncMock()
         workflow._scene_chapter_coverage = AsyncMock(
             return_value=_scene_coverage({1, 2, 3, 4, 5}, 1, 5)
         )
@@ -2081,14 +2080,18 @@ class TestDeepImportWorkflowAutoRun:
             stage="plot_structure",
         )
 
-        result = await workflow.run_structure_analysis_only(
-            db=AsyncMock(),
-            novel_id=str(uuid.uuid4()),
-            start_chapter=1,
-            end_chapter=5,
-            progress=progress,
-            workflow_id="wf-plot",
-        )
+        with patch(
+            "modules.imports.workflow_progress.DeepImportProgressTracker.refresh_snapshot_health_summary",
+            autospec=True,
+        ):
+            result = await workflow.run_structure_analysis_only(
+                db=AsyncMock(),
+                novel_id=str(uuid.uuid4()),
+                start_chapter=1,
+                end_chapter=5,
+                progress=progress,
+                workflow_id="wf-plot",
+            )
 
         assert result.phase == "done"
         assert result.quality_status == "partial"
@@ -4158,9 +4161,8 @@ class TestHandleDeepImportTaskResult:
                 autospec=True,
                 return_value={"total_threads": 2, "total_arcs": 4},
             ),
-            patch.object(
-                DeepImportWorkflow,
-                "_refresh_snapshot_health_summary",
+            patch(
+                "modules.imports.workflow_progress.DeepImportProgressTracker.refresh_snapshot_health_summary",
                 autospec=True,
             ),
         ):
