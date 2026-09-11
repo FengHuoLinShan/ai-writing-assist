@@ -173,92 +173,19 @@ class DeepImportOrchestrator:
         targeted_completion: dict[str, Any] | None = None,
         review_resolution: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        authorization_snapshot = build_authorization_snapshot(
+        return await self._start(
+            db,
             novel_id=novel_id,
             start_chapter=start_chapter,
             end_chapter=end_chapter,
+            stage=None,
+            force=force,
+            high_quality=high_quality,
             adoption_policy=adoption_policy,
             authorization_confirmed=authorization_confirmed,
+            targeted_completion=targeted_completion,
+            review_resolution=review_resolution,
         )
-        active_task = await self._find_active_import_task(db, novel_id)
-        if active_task is not None:
-            return self._existing_task_response(active_task, authorization_snapshot)
-        llm_execution_snapshot = await self._build_llm_execution_snapshot(
-            db,
-            novel_id,
-        )
-        warning = await self._check_duplicate_import(
-            db, novel_id, start_chapter, end_chapter
-        )
-        if warning and not force:
-            return {
-                "workflow_id": None,
-                "task_id": None,
-                "status": "requires_confirmation",
-                "requires_confirmation": True,
-                "warning": warning,
-                "message": warning,
-            }
-
-        from modules.imports.review_resolution import freeze_future_resolution
-
-        resolution = await freeze_future_resolution(
-            db,
-            novel_id=novel_id,
-            start_chapter=start_chapter,
-            end_chapter=end_chapter,
-            options=review_resolution,
-        )
-        if resolution:
-            authorization_snapshot["review_resolution"] = resolution
-        from modules.imports.targeted_completion import freeze_completion_permission
-
-        permission = await freeze_completion_permission(
-            db,
-            novel_id=novel_id,
-            start_chapter=start_chapter,
-            end_chapter=end_chapter,
-            options=targeted_completion,
-        )
-        if permission:
-            authorization_snapshot["targeted_completion"] = permission
-        task_id = self._enqueue_deep_import(
-            db,
-            novel_id,
-            start_chapter,
-            end_chapter,
-            context_mode="working",
-            include_pending_objects=True,
-            high_quality=high_quality,
-            replace_existing=force,
-            authorization_snapshot=authorization_snapshot,
-            llm_execution_snapshot=llm_execution_snapshot,
-        )
-        if inspect.isawaitable(task_id):
-            task_id = await task_id
-        if isinstance(task_id, _WorkflowEnqueueResult):
-            enqueue_result = task_id
-            task_id = enqueue_result.task_id
-            if enqueue_result.reused:
-                submitted_run = await self._runs.get_by_task(
-                    db,
-                    task_id=str(task_id),
-                )
-                if submitted_run is not None:
-                    return self._existing_task_response(
-                        submitted_run,
-                        authorization_snapshot,
-                    )
-        await db.flush()
-        return {
-            "workflow_id": str(task_id),
-            "task_id": str(task_id),
-            "status": "pending",
-            "requires_confirmation": False,
-            "adoption_policy": adoption_policy,
-            "authorization_snapshot": authorization_snapshot,
-            "message": f"深度导入任务已提交（第{start_chapter}-{end_chapter}章）",
-        }
 
     async def start_stage(
         self,
@@ -277,23 +204,50 @@ class DeepImportOrchestrator:
     ) -> dict[str, Any]:
         if stage not in STAGE_TASK_TYPES:
             raise ValueError(f"unsupported deep import stage: {stage}")
-        authorization_snapshot = build_authorization_snapshot(
+        return await self._start(
+            db,
             novel_id=novel_id,
             start_chapter=start_chapter,
             end_chapter=end_chapter,
+            stage=stage,
+            force=force,
+            high_quality=high_quality,
             adoption_policy=adoption_policy,
             authorization_confirmed=authorization_confirmed,
-            stage=stage,
+            targeted_completion=targeted_completion,
+            review_resolution=review_resolution,
         )
+
+    async def _start(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        start_chapter: int,
+        end_chapter: int,
+        stage: str | None,
+        force: bool,
+        high_quality: bool,
+        adoption_policy: str,
+        authorization_confirmed: bool,
+        targeted_completion: dict[str, Any] | None,
+        review_resolution: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        snapshot_kwargs = {
+            "novel_id": novel_id,
+            "start_chapter": start_chapter,
+            "end_chapter": end_chapter,
+            "adoption_policy": adoption_policy,
+            "authorization_confirmed": authorization_confirmed,
+        }
+        if stage is not None:
+            snapshot_kwargs["stage"] = stage
+        authorization_snapshot = build_authorization_snapshot(**snapshot_kwargs)
         active_task = await self._find_active_import_task(db, novel_id)
         if active_task is not None:
             return self._existing_task_response(active_task, authorization_snapshot)
-        llm_execution_snapshot = await self._build_llm_execution_snapshot(
-            db,
-            novel_id,
-        )
-
-        if stage == "scenes":
+        llm_execution_snapshot = await self._build_llm_execution_snapshot(db, novel_id)
+        if stage in {None, "scenes"}:
             warning = await self._check_duplicate_import(
                 db, novel_id, start_chapter, end_chapter
             )
@@ -306,6 +260,7 @@ class DeepImportOrchestrator:
                     "warning": warning,
                     "message": warning,
                 }
+
         from modules.imports.review_resolution import freeze_future_resolution
 
         resolution = await freeze_future_resolution(
@@ -317,14 +272,14 @@ class DeepImportOrchestrator:
         )
         if resolution:
             authorization_snapshot["review_resolution"] = resolution
+
+        if targeted_completion and targeted_completion.get("enabled") and stage not in {
+            None,
+            "world_objects",
+        }:
+            raise ValueError("自动专项补全仅用于完整导入或世界对象提取")
         from modules.imports.targeted_completion import freeze_completion_permission
 
-        if (
-            targeted_completion
-            and targeted_completion.get("enabled")
-            and stage != "world_objects"
-        ):
-            raise ValueError("自动专项补全仅用于完整导入或世界对象提取")
         permission = await freeze_completion_permission(
             db,
             novel_id=novel_id,
@@ -334,47 +289,61 @@ class DeepImportOrchestrator:
         )
         if permission:
             authorization_snapshot["targeted_completion"] = permission
-        task_id = self._enqueue_stage_task(
-            db,
-            task_type=STAGE_TASK_TYPES[stage],
-            novel_id=novel_id,
-            start_chapter=start_chapter,
-            end_chapter=end_chapter,
-            stage=stage,
-            context_mode="working",
-            include_pending_objects=True,
-            high_quality=high_quality,
-            replace_existing=force if stage == "scenes" else False,
-            authorization_snapshot=authorization_snapshot,
-            llm_execution_snapshot=llm_execution_snapshot,
-        )
-        if inspect.isawaitable(task_id):
-            task_id = await task_id
-        if isinstance(task_id, _WorkflowEnqueueResult):
-            enqueue_result = task_id
-            task_id = enqueue_result.task_id
-            if enqueue_result.reused:
-                submitted_run = await self._runs.get_by_task(
-                    db,
-                    task_id=str(task_id),
-                )
-                if submitted_run is not None:
-                    return self._existing_task_response(
-                        submitted_run,
-                        authorization_snapshot,
-                    )
+        if stage is None:
+            queued = self._enqueue_deep_import(
+                db,
+                novel_id,
+                start_chapter,
+                end_chapter,
+                context_mode="working",
+                include_pending_objects=True,
+                high_quality=high_quality,
+                replace_existing=force,
+                authorization_snapshot=authorization_snapshot,
+                llm_execution_snapshot=llm_execution_snapshot,
+            )
+        else:
+            queued = self._enqueue_stage_task(
+                db,
+                task_type=STAGE_TASK_TYPES[stage],
+                novel_id=novel_id,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+                stage=stage,
+                context_mode="working",
+                include_pending_objects=True,
+                high_quality=high_quality,
+                replace_existing=force if stage == "scenes" else False,
+                authorization_snapshot=authorization_snapshot,
+                llm_execution_snapshot=llm_execution_snapshot,
+            )
+        if inspect.isawaitable(queued):
+            queued = await queued
+        task_id = queued.task_id if isinstance(queued, _WorkflowEnqueueResult) else queued
+        if isinstance(queued, _WorkflowEnqueueResult) and queued.reused:
+            submitted_run = await self._runs.get_by_task(db, task_id=str(task_id))
+            if submitted_run is not None:
+                return self._existing_task_response(submitted_run, authorization_snapshot)
         await db.flush()
-        return {
+        response = {
             "workflow_id": str(task_id),
             "task_id": str(task_id),
             "status": "pending",
             "requires_confirmation": False,
-            "workflow_type": STAGE_TASK_TYPES[stage],
-            "stage": stage,
             "adoption_policy": adoption_policy,
             "authorization_snapshot": authorization_snapshot,
-            "message": self._stage_pending_message(stage, start_chapter, end_chapter),
         }
+        if stage is None:
+            response["message"] = (
+                f"深度导入任务已提交（第{start_chapter}-{end_chapter}章）"
+            )
+        else:
+            response.update(
+                workflow_type=STAGE_TASK_TYPES[stage],
+                stage=stage,
+                message=self._stage_pending_message(stage, start_chapter, end_chapter),
+            )
+        return response
 
     async def start_targeted_completion(
         self,
