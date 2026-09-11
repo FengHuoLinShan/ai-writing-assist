@@ -96,64 +96,6 @@ async def test_outline_analysis_uses_only_the_confirmed_author_request() -> None
     )
 
 
-async def test_generate_returns_preview_without_persisting(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    db = mock.AsyncMock()
-    generator = SimpleNamespace(
-        generate=mock.AsyncMock(
-            return_value={
-                "total_threads": 1,
-                "total_arcs": 0,
-                "total_scenes": 0,
-                "threads": [{"name": "主线", "display_state": "review"}],
-                "arcs": [],
-                "scenes": [],
-                "extra_sections": {},
-                "warnings": [],
-                "draft_structure": {"threads": [{"name": "主线"}]},
-                "requires_apply": True,
-            }
-        )
-    )
-    compile_confirmation = mock.AsyncMock(return_value=SimpleNamespace())
-    attach_preview = mock.AsyncMock()
-    monkeypatch.setattr(
-        "modules.story.outline_state.ai_workflow_service.context_facade.compile_from_confirmation",
-        compile_confirmation,
-    )
-    monkeypatch.setattr(
-        "modules.story.outline_state.ai_workflow_service.context_facade.attach_result_ref",
-        attach_preview,
-    )
-    monkeypatch.setattr(
-        "modules.story.outline_state.ai_workflow_service.PlotStructureGenerator",
-        lambda **_kwargs: generator,
-    )
-
-    result = await OutlineAIWorkflowService(llm_client=mock.MagicMock()).generate(
-        db,
-        novel_id="11111111-1111-1111-1111-111111111111",
-        confirmation_id="confirmation-1",
-        task_id="task-1",
-        start_chapter=1,
-        end_chapter=3,
-    )
-
-    assert generator.generate.await_args.kwargs["persist"] is False
-    assert result["source_task_id"] == "task-1"
-    assert result["context_confirmation_id"] == "confirmation-1"
-    attach_preview.assert_awaited_once_with(
-        db,
-        novel_id="11111111-1111-1111-1111-111111111111",
-        confirmation_id="confirmation-1",
-        result_type="outline_structure_preview",
-        result_id="task-1",
-        status="done",
-    )
-    db.flush.assert_awaited_once()
-
-
 async def test_apply_structure_preview_requires_confirmation_and_rejects_legacy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

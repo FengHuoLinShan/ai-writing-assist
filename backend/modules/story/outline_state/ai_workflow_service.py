@@ -148,21 +148,6 @@ class OutlineAIWorkflowService:
         return OutlineAiTaskResponse(task_id=receipt.task_id, status=receipt.status)
 
     @asynccontextmanager
-    async def _open_llm_client(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-    ) -> AsyncIterator[LLMClient]:
-        if self._llm_client is not None:
-            yield self._llm_client
-            return
-
-        from modules.project.facade import open_project_llm_client
-
-        async with open_project_llm_client(db, novel_id) as client:
-            yield client
-
-    @asynccontextmanager
     async def _open_task_llm_client(
         self,
         db: AsyncSession,
@@ -250,70 +235,6 @@ class OutlineAIWorkflowService:
         await db.flush()
         return {"analysis": response.content}
 
-    async def generate_for_task(
-        self,
-        db: AsyncSession,
-        *,
-        novel_id: str,
-        confirmation_id: str,
-        task_id: str,
-        start_chapter: int,
-        end_chapter: int,
-        llm_execution_snapshot: dict[str, Any],
-        progress_callback: Callable[[float], None] | None = None,
-    ) -> dict:
-        """Generate a confirmed structure preview without a long DB transaction."""
-        self._require_task_session(db)
-        await self._require_active_project(db, novel_id)
-        confirmation_plan = await self._prepare_confirmed_task_prompt(
-            db,
-            novel_id=novel_id,
-            action="outline.generate",
-            confirmation_id=confirmation_id,
-        )
-        generator = PlotStructureGenerator()
-        generator_plan = await generator.prepare_task_preview(
-            db,
-            novel_id=novel_id,
-            start_chapter=start_chapter,
-            end_chapter=end_chapter,
-            project_settings_snapshot=self._frozen_generator_settings(
-                llm_execution_snapshot
-            ),
-        )
-        async with self._open_task_llm_client(
-            db,
-            novel_id,
-            llm_execution_snapshot,
-        ) as client:
-            await self._checkpoint_before_external_call(db)
-            result = await generator.execute_task_preview(
-                generator_plan,
-                llm_client=client,
-            )
-
-        await self._require_active_project(db, novel_id)
-        await self._require_confirmed_task_prompt_fresh(db, confirmation_plan)
-        await generator.require_task_preview_fresh(db, generator_plan)
-        result.update(
-            {
-                "source_task_id": task_id,
-                "context_confirmation_id": confirmation_id,
-            }
-        )
-        await context_facade.attach_result_ref(
-            db,
-            novel_id=novel_id,
-            confirmation_id=confirmation_id,
-            result_type="outline_structure_preview",
-            result_id=task_id,
-            status="done",
-        )
-        if progress_callback is not None:
-            progress_callback(1.0)
-        await db.flush()
-        return result
-
     async def generate_layer_for_task(
         self,
         db: AsyncSession,
@@ -396,40 +317,6 @@ class OutlineAIWorkflowService:
         if progress_callback is not None:
             progress_callback(1.0)
         await db.flush()
-        return result
-
-    async def generate_legacy_preview_for_task(
-        self,
-        db: AsyncSession,
-        *,
-        novel_id: str,
-        start_chapter: int,
-        end_chapter: int,
-        llm_execution_snapshot: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Run the legacy preview-only task with the same checkpoint protocol."""
-        self._require_task_session(db)
-        await self._require_active_project(db, novel_id)
-        generator = PlotStructureGenerator()
-        plan = await generator.prepare_task_preview(
-            db,
-            novel_id=novel_id,
-            start_chapter=start_chapter,
-            end_chapter=end_chapter,
-            project_settings_snapshot=self._frozen_generator_settings(
-                llm_execution_snapshot
-            ),
-        )
-        async with self._open_task_llm_client(
-            db,
-            novel_id,
-            llm_execution_snapshot,
-        ) as client:
-            await self._checkpoint_before_external_call(db)
-            result = await generator.execute_task_preview(plan, llm_client=client)
-
-        await self._require_active_project(db, novel_id)
-        await generator.require_task_preview_fresh(db, plan)
         return result
 
     @staticmethod
@@ -712,91 +599,6 @@ class OutlineAIWorkflowService:
             ),
             step_name="outline.ai_workflow.analyze.generate",
         )
-
-    async def analyze(
-        self,
-        db: AsyncSession,
-        *,
-        novel_id: str,
-        confirmation_id: str,
-        task_id: str,
-        instruction: str | None = None,
-        start_chapter: int | None = None,
-        end_chapter: int | None = None,
-        progress_callback: Callable[[float], None] | None = None,
-    ) -> dict:
-        compiled = await context_facade.compile_from_confirmation(
-            db,
-            novel_id=novel_id,
-            action="outline.analyze",
-            confirmation_id=confirmation_id,
-        )
-        markdown = context_facade.render_compiled_context(compiled)
-        async with self._open_llm_client(db, novel_id) as client:
-            response = await self._run_analysis_llm(
-                client,
-                markdown=markdown,
-                instruction=instruction,
-                start_chapter=start_chapter,
-                end_chapter=end_chapter,
-            )
-
-        await context_facade.attach_result_ref(
-            db,
-            novel_id=novel_id,
-            confirmation_id=confirmation_id,
-            result_type="outline_analysis",
-            result_id=task_id,
-            status="done",
-        )
-        if progress_callback is not None:
-            progress_callback(1.0)
-        await db.flush()
-        return {"analysis": response.content}
-
-    async def generate(
-        self,
-        db: AsyncSession,
-        *,
-        novel_id: str,
-        confirmation_id: str,
-        task_id: str,
-        start_chapter: int,
-        end_chapter: int,
-        progress_callback: Callable[[float], None] | None = None,
-    ) -> dict:
-        await context_facade.compile_from_confirmation(
-            db,
-            novel_id=novel_id,
-            action="outline.generate",
-            confirmation_id=confirmation_id,
-        )
-        async with self._open_llm_client(db, novel_id) as client:
-            result = await PlotStructureGenerator(llm_client=client).generate(
-                db,
-                novel_id=novel_id,
-                start_chapter=start_chapter,
-                end_chapter=end_chapter,
-                persist=False,
-            )
-        result.update(
-            {
-                "source_task_id": task_id,
-                "context_confirmation_id": confirmation_id,
-            }
-        )
-        await context_facade.attach_result_ref(
-            db,
-            novel_id=novel_id,
-            confirmation_id=confirmation_id,
-            result_type="outline_structure_preview",
-            result_id=task_id,
-            status="done",
-        )
-        if progress_callback is not None:
-            progress_callback(1.0)
-        await db.flush()
-        return result
 
     async def apply_structure_preview(
         self,

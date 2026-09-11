@@ -13,7 +13,6 @@ from modules.evidence.compilation.services.compiled_context import (
     Tier,
 )
 from modules.story.outline_state.ai_workflow_service import OutlineAIWorkflowService
-from modules.story.outline_state.generation.context_builder import PlotStructureContext
 from modules.story.outline_state.generator import PlotStructureGenerator
 
 pytestmark = [pytest.mark.asyncio]
@@ -116,24 +115,6 @@ def _patch_confirmation_dependencies(
             {
                 "confirmation_id": "confirmation-1",
                 "task_id": "task-1",
-                "llm_execution_snapshot": {"profile_hash": "frozen"},
-            },
-        ),
-        (
-            "generate_for_task",
-            {
-                "confirmation_id": "confirmation-1",
-                "task_id": "task-1",
-                "start_chapter": 1,
-                "end_chapter": 3,
-                "llm_execution_snapshot": {"profile_hash": "frozen"},
-            },
-        ),
-        (
-            "generate_legacy_preview_for_task",
-            {
-                "start_chapter": 1,
-                "end_chapter": 3,
                 "llm_execution_snapshot": {"profile_hash": "frozen"},
             },
         ),
@@ -355,80 +336,6 @@ async def test_real_task_handler_session_checkpoints_before_provider_wait(
         await task_session.close()
 
 
-async def test_generate_tasks_wait_without_transaction_and_revalidate_sources(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    db = _CheckpointSession()
-    _patch_confirmation_dependencies(
-        monkeypatch,
-        "confirmed markdown",
-        "confirmed markdown",
-    )
-    generator_plan = object()
-    transaction_states: list[bool] = []
-    generator = SimpleNamespace(
-        prepare_task_preview=mock.AsyncMock(return_value=generator_plan),
-        require_task_preview_fresh=mock.AsyncMock(),
-    )
-
-    async def _execute(_plan, *, llm_client):
-        assert llm_client.model_name == "test-model"
-        transaction_states.append(db.in_transaction())
-        return {
-            "total_threads": 1,
-            "total_arcs": 0,
-            "total_scenes": 0,
-            "draft_structure": {"threads": [{"name": "主线"}]},
-            "requires_apply": True,
-        }
-
-    generator.execute_task_preview = mock.AsyncMock(side_effect=_execute)
-    monkeypatch.setattr(
-        "modules.story.outline_state.ai_workflow_service.PlotStructureGenerator",
-        lambda: generator,
-    )
-    client = SimpleNamespace(model_name="test-model")
-
-    result = await OutlineAIWorkflowService(
-        llm_client=client,
-    ).generate_for_task(
-        db,
-        novel_id="11111111-1111-1111-1111-111111111111",
-        confirmation_id="confirmation-1",
-        task_id="task-1",
-        start_chapter=1,
-        end_chapter=3,
-        llm_execution_snapshot={"profile_hash": "frozen"},
-    )
-
-    assert transaction_states == [False]
-    assert db.commit_count == 1
-    assert result["source_task_id"] == "task-1"
-    assert db.expire_all_count == 1
-    generator.require_task_preview_fresh.assert_awaited_once_with(db, generator_plan)
-    prepared_settings = generator.prepare_task_preview.await_args.kwargs[
-        "project_settings_snapshot"
-    ]
-    assert prepared_settings["_deep_import_settings_frozen"] is True
-
-    legacy_db = _CheckpointSession()
-    legacy_result = await OutlineAIWorkflowService(
-        llm_client=client,
-    ).generate_legacy_preview_for_task(
-        legacy_db,
-        novel_id="11111111-1111-1111-1111-111111111111",
-        start_chapter=1,
-        end_chapter=3,
-        llm_execution_snapshot={"profile_hash": "frozen"},
-    )
-
-    assert legacy_result["total_threads"] == 1
-    assert transaction_states == [False, False]
-    assert legacy_db.commit_count == 1
-    assert legacy_db.expire_all_count == 1
-    assert generator.require_task_preview_fresh.await_count == 2
-
-
 async def test_task_generator_budget_uses_frozen_snapshot_not_current_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -578,31 +485,6 @@ async def test_task_cancellation_does_not_attach_partial_result(
     assert db.commit_count == 1
     assert db.in_transaction() is False
     attached.assert_not_awaited()
-
-
-async def test_generator_task_plan_rejects_source_drift() -> None:
-    context_builder = SimpleNamespace(
-        build=mock.AsyncMock(
-            side_effect=[
-                PlotStructureContext(markdown="source before"),
-                PlotStructureContext(markdown="source after"),
-            ]
-        )
-    )
-    generator = PlotStructureGenerator(
-        context_builder=context_builder,
-        llm_client=mock.MagicMock(),
-        persister=mock.MagicMock(),
-    )
-    plan = await generator.prepare_task_preview(
-        mock.AsyncMock(),
-        novel_id="11111111-1111-1111-1111-111111111111",
-        start_chapter=1,
-        end_chapter=3,
-    )
-
-    with pytest.raises(ValueError, match="discarded stale preview"):
-        await generator.require_task_preview_fresh(mock.AsyncMock(), plan)
 
 
 async def test_legacy_task_freezes_missing_profile_before_workflow_checkpoint() -> None:
@@ -921,9 +803,7 @@ async def test_task_only_methods_are_not_cross_module_facade_exports() -> None:
 
     assert not {
         "analyze_for_task",
-        "generate_for_task",
         "generate_layer_for_task",
-        "generate_legacy_preview_for_task",
     }.intersection(facade.__all__)
 
 

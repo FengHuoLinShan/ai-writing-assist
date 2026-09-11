@@ -8,7 +8,6 @@ import hashlib
 import json
 import logging
 from copy import deepcopy
-from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,25 +46,6 @@ from shared.utils import parse_uuid
 logger = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True)
-class PlotStructureTaskPreviewPlan:
-    """Detached generator input used only by the TaskWorker workflow."""
-
-    novel_id: str
-    start_chapter: int
-    end_chapter: int
-    context_mode: str
-    include_pending_objects: bool
-    include_chapter_texts: bool
-    include_existing_scenes: bool
-    generate_scenes: bool
-    fast_structured: bool
-    high_quality: bool
-    max_tokens: int
-    context: PlotStructureContext
-    source_fingerprint: str
-
-
 class PlotStructureGenerator:
     """AI 剧情结构生成器 — 薄协调层。"""
 
@@ -84,131 +64,6 @@ class PlotStructureGenerator:
             foreshadowing_service=ForeshadowingPlanService(),
             reveal_service=RevealPlanService(),
         )
-
-    async def prepare_task_preview(
-        self,
-        db: AsyncSession,
-        *,
-        novel_id: str,
-        start_chapter: int,
-        end_chapter: int,
-        context_mode: str = "canonical",
-        include_pending_objects: bool = False,
-        include_chapter_texts: bool = True,
-        include_existing_scenes: bool = False,
-        generate_scenes: bool = True,
-        fast_structured: bool = False,
-        high_quality: bool = False,
-        project_settings_snapshot: dict[str, Any] | None = None,
-    ) -> PlotStructureTaskPreviewPlan:
-        """Materialize plain generator input before a task releases its DB locks."""
-        context = await self._context_builder.build(
-            db,
-            novel_id,
-            start_chapter,
-            end_chapter,
-            context_mode=context_mode,
-            include_pending_objects=include_pending_objects,
-            include_chapter_texts=include_chapter_texts,
-            include_existing_scenes=include_existing_scenes,
-        )
-        detached_context = self._detach_context(context)
-        max_tokens = self._structure_max_tokens(project_settings_snapshot)
-        source_fingerprint = self._task_preview_fingerprint(
-            detached_context,
-            novel_id=novel_id,
-            start_chapter=start_chapter,
-            end_chapter=end_chapter,
-            context_mode=context_mode,
-            include_pending_objects=include_pending_objects,
-            include_chapter_texts=include_chapter_texts,
-            include_existing_scenes=include_existing_scenes,
-            generate_scenes=generate_scenes,
-            fast_structured=fast_structured,
-            high_quality=high_quality,
-            max_tokens=max_tokens,
-        )
-        return PlotStructureTaskPreviewPlan(
-            novel_id=novel_id,
-            start_chapter=start_chapter,
-            end_chapter=end_chapter,
-            context_mode=context_mode,
-            include_pending_objects=include_pending_objects,
-            include_chapter_texts=include_chapter_texts,
-            include_existing_scenes=include_existing_scenes,
-            generate_scenes=generate_scenes,
-            fast_structured=fast_structured,
-            high_quality=high_quality,
-            max_tokens=max_tokens,
-            context=detached_context,
-            source_fingerprint=source_fingerprint,
-        )
-
-    async def execute_task_preview(
-        self,
-        plan: PlotStructureTaskPreviewPlan,
-        *,
-        llm_client: LLMClient | None = None,
-    ) -> dict[str, Any]:
-        """Run only the external LLM phase for a prepared task preview."""
-        client = llm_client or self._llm_client
-        if client is None:
-            raise RuntimeError("task preview execution requires a prepared LLM client")
-        parsed = await PlotStructureParser(
-            plan.context,
-            include_scenes=plan.generate_scenes,
-            fast_structured=plan.fast_structured,
-            max_tokens=plan.max_tokens,
-            high_quality=plan.high_quality,
-        ).parse(
-            client,
-            client.model_name,
-            plan.start_chapter,
-            plan.end_chapter,
-        )
-        if parsed is None:
-            logger.error(
-                "All generation attempts returned empty or failed for novel %s",
-                plan.novel_id,
-            )
-            return self._empty_task_preview_result()
-        return self._preview_result(parsed, warnings=plan.context.warnings)
-
-    async def require_task_preview_fresh(
-        self,
-        db: AsyncSession,
-        plan: PlotStructureTaskPreviewPlan,
-    ) -> None:
-        """Rebuild task input and reject an LLM result derived from stale sources."""
-        context = await self._context_builder.build(
-            db,
-            plan.novel_id,
-            plan.start_chapter,
-            plan.end_chapter,
-            context_mode=plan.context_mode,
-            include_pending_objects=plan.include_pending_objects,
-            include_chapter_texts=plan.include_chapter_texts,
-            include_existing_scenes=plan.include_existing_scenes,
-        )
-        current_fingerprint = self._task_preview_fingerprint(
-            self._detach_context(context),
-            novel_id=plan.novel_id,
-            start_chapter=plan.start_chapter,
-            end_chapter=plan.end_chapter,
-            context_mode=plan.context_mode,
-            include_pending_objects=plan.include_pending_objects,
-            include_chapter_texts=plan.include_chapter_texts,
-            include_existing_scenes=plan.include_existing_scenes,
-            generate_scenes=plan.generate_scenes,
-            fast_structured=plan.fast_structured,
-            high_quality=plan.high_quality,
-            max_tokens=plan.max_tokens,
-        )
-        if current_fingerprint != plan.source_fingerprint:
-            raise ValueError(
-                "outline generation sources changed while the task was running; "
-                "discarded stale preview"
-            )
 
     async def generate(
         self,
@@ -641,30 +496,6 @@ class PlotStructureGenerator:
             default=str,
         ).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
-
-    @classmethod
-    def _empty_task_preview_result(cls) -> dict[str, Any]:
-        return {
-            "total_threads": 0,
-            "total_arcs": 0,
-            "total_scenes": 0,
-            "existing_threads_count": 0,
-            "existing_arcs_count": 0,
-            "threads": [],
-            "arcs": [],
-            "scenes": [],
-            "extra_sections": {},
-            "warnings": ["LLM 多次返回空结果，请重试"],
-            "audit_summary": cls._audit_summary(
-                snapshot_count=0,
-                succeeded=0,
-                failed=0,
-            ),
-            "snapshot_health_summary": {},
-            "draft_structure": cls._empty_draft_structure(),
-            "requires_apply": False,
-            "display_state": "review",
-        }
 
     @staticmethod
     def _empty_draft_structure() -> dict[str, Any]:
