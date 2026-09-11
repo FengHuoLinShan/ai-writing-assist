@@ -427,27 +427,19 @@ async def enqueue_semantic_review(
     data: WritingSemanticReviewRequest,
 ) -> WritingSemanticReviewTaskResponse:
     """对冻结正文与执行合同运行独立语义审查。"""
-    await require_active_project(db, data.novel_id)
-    payload = data.model_dump(mode="json", exclude={"operation_id"})
-    snapshot = await build_project_llm_execution_snapshot(db, data.novel_id)
+    from modules.writing.semantic_review import WritingSemanticWorkflowService
+
     try:
-        receipt = await enqueue_task_with_optional_operation(
+        result = await WritingSemanticWorkflowService().submit_review(
             db,
-            operation_id=str(data.operation_id) if data.operation_id else None,
-            task_type="writing_semantic_review",
             novel_id=data.novel_id,
-            request_payload=payload,
-            meta={**payload, "llm_execution_snapshot": snapshot},
+            draft_ids=data.draft_ids,
+            scope=data.scope,
+            operation_id=data.operation_id,
         )
     except ValueError as exc:
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    await db.flush()
-    return WritingSemanticReviewTaskResponse(
-        task_id=receipt.task_id,
-        status=receipt.status,
-    )
+    return WritingSemanticReviewTaskResponse(**result)
 
 
 @router.post(
