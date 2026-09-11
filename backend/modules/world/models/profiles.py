@@ -11,6 +11,7 @@ from .common import (
     ForeignKey,
     Integer,
     Mapped,
+    NovelMixin,
     StatusMixin,
     String,
     Text,
@@ -26,15 +27,9 @@ from .common import (
 # ============================================================
 
 
-class _ProfileMixin(TimestampMixin, StatusMixin):
+class _ProfileMixin(TimestampMixin, StatusMixin, NovelMixin):
     """Common fields for worldbuilding profile tables."""
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     entity_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("core_entities.id", ondelete="CASCADE"),
@@ -141,7 +136,9 @@ class SecretProfile(Base, _ProfileMixin):
     )
 
 
-class EntityProfileTemplate(Base, UUIDMixin, TimestampMixin, StatusMixin):
+class EntityProfileTemplate(
+    Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin
+):
     __tablename__ = "entity_profile_templates"
     __table_args__ = (
         UniqueConstraint("novel_id", "profile_type", name="uq_profile_template_type"),
@@ -149,31 +146,19 @@ class EntityProfileTemplate(Base, UUIDMixin, TimestampMixin, StatusMixin):
         {"comment": "通用世界资产模板"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     profile_type: Mapped[str] = mapped_column(String(64), nullable=False)
     template_schema_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     display_schema_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     version_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
 
-class GenericEntityProfile(Base, UUIDMixin, TimestampMixin, StatusMixin):
+class GenericEntityProfile(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     __tablename__ = "generic_entity_profiles"
     __table_args__ = (
         UniqueConstraint("novel_id", "entity_id", name="uq_generic_profile_entity"),
         {"comment": "通用世界资产档案"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     entity_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("core_entities.id", ondelete="CASCADE"),

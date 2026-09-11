@@ -224,7 +224,7 @@ class Event(Base, NovelMixin):
 # ============================================================
 
 
-class EntityRelation(Base, UUIDMixin, TimestampMixin):
+class EntityRelation(Base, UUIDMixin, TimestampMixin, NovelMixin):
     """实体关系边 — UUID FK → core_entities + 章节追溯"""
 
     __tablename__ = "entity_relations"
@@ -254,12 +254,6 @@ class EntityRelation(Base, UUIDMixin, TimestampMixin):
         {"comment": "实体关系边"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     source_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("core_entities.id", ondelete="CASCADE"),

@@ -13,9 +13,9 @@ from .common import (
     PG_UUID,
     Base,
     DateTime,
-    ForeignKey,
     Integer,
     Mapped,
+    NovelMixin,
     String,
     Text,
     TimestampMixin,
@@ -29,7 +29,7 @@ from .common import (
 LIBRARY_TARGET_KINDS = ("page", "draft", "entity")
 
 
-class WorldLibraryTopic(Base, UUIDMixin, TimestampMixin):
+class WorldLibraryTopic(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "world_library_topics"
     __table_args__ = (
         UniqueConstraint("novel_id", "id", name="uq_world_library_topic_novel_id"),
@@ -52,12 +52,6 @@ class WorldLibraryTopic(Base, UUIDMixin, TimestampMixin):
         {"comment": "资料库主题目录（作者组织方式，不构成事实依赖）"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     parent_id: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
         nullable=True,
@@ -73,7 +67,7 @@ class WorldLibraryTopic(Base, UUIDMixin, TimestampMixin):
     )
 
 
-class WorldLibraryTopicMember(Base, UUIDMixin, TimestampMixin):
+class WorldLibraryTopicMember(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "world_library_topic_members"
     __table_args__ = (
         UniqueConstraint(
@@ -102,18 +96,12 @@ class WorldLibraryTopicMember(Base, UUIDMixin, TimestampMixin):
         {"comment": "主题成员：对 Page / Draft / Entity 的多主题引用"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     topic_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
     target_kind: Mapped[str] = mapped_column(String(16), nullable=False)
     target_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
 
 
-class WorldLibraryFavorite(Base, UUIDMixin, TimestampMixin):
+class WorldLibraryFavorite(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "world_library_favorites"
     __table_args__ = (
         UniqueConstraint(
@@ -129,17 +117,11 @@ class WorldLibraryFavorite(Base, UUIDMixin, TimestampMixin):
         {"comment": "作者工作区收藏"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     target_kind: Mapped[str] = mapped_column(String(16), nullable=False)
     target_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
 
 
-class WorldLibraryRecent(Base, UUIDMixin, TimestampMixin):
+class WorldLibraryRecent(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "world_library_recents"
     __table_args__ = (
         UniqueConstraint(
@@ -160,12 +142,6 @@ class WorldLibraryRecent(Base, UUIDMixin, TimestampMixin):
         {"comment": "作者工作区最近访问"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     target_kind: Mapped[str] = mapped_column(String(16), nullable=False)
     target_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
     last_opened_at: Mapped[datetime] = mapped_column(
@@ -175,17 +151,11 @@ class WorldLibraryRecent(Base, UUIDMixin, TimestampMixin):
     open_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
 
-class WorldLibraryWorkspaceProfile(Base, UUIDMixin, TimestampMixin):
+class WorldLibraryWorkspaceProfile(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "world_library_workspace_profiles"
     __table_args__ = (
         UniqueConstraint("novel_id", name="uq_world_library_workspace_novel"),
         {"comment": "作者工作区视图偏好"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     view_prefs_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)

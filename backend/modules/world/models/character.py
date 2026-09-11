@@ -12,6 +12,7 @@ from .common import (
     ForeignKey,
     Integer,
     Mapped,
+    NovelMixin,
     StatusMixin,
     String,
     Text,
@@ -30,7 +31,7 @@ if TYPE_CHECKING:
 # ============================================================
 
 
-class Character(Base, TimestampMixin, StatusMixin):
+class Character(Base, TimestampMixin, StatusMixin, NovelMixin):
     """人物档案 — entity_id PK+FK → core_entities"""
 
     __tablename__ = "characters"
@@ -40,12 +41,6 @@ class Character(Base, TimestampMixin, StatusMixin):
         PG_UUID(as_uuid=True),
         ForeignKey("core_entities.id", ondelete="CASCADE"),
         primary_key=True,
-    )
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
     )
     name: Mapped[str] = mapped_column(
         String(255),
@@ -150,18 +145,12 @@ class Character(Base, TimestampMixin, StatusMixin):
 # ============================================================
 
 
-class CharacterKnowledge(Base, UUIDMixin, TimestampMixin, StatusMixin):
+class CharacterKnowledge(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     """人物知识边界 — 角色知道什么、不知道什么、误解什么"""
 
     __tablename__ = "character_knowledge"
     __table_args__ = {"comment": "人物知识边界"}
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     character_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("characters.entity_id", ondelete="CASCADE"),

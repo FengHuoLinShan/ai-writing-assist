@@ -14,6 +14,7 @@ from .common import (
     Index,
     Integer,
     Mapped,
+    NovelMixin,
     StatusMixin,
     String,
     Text,
@@ -30,7 +31,7 @@ from .common import (
 # ============================================================
 
 
-class GenerationPromptTemplate(Base, UUIDMixin, TimestampMixin, StatusMixin):
+class GenerationPromptTemplate(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     __tablename__ = "generation_prompt_templates"
     __table_args__ = (
         Index(
@@ -49,12 +50,6 @@ class GenerationPromptTemplate(Base, UUIDMixin, TimestampMixin, StatusMixin):
         {"comment": "生成中心 Prompt 模板"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     target_kind: Mapped[str] = mapped_column(
         String(64), nullable=False, default="world_object", index=True
     )
@@ -78,7 +73,7 @@ class GenerationPromptTemplate(Base, UUIDMixin, TimestampMixin, StatusMixin):
     updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
-class GenerationPromptTemplateRevision(Base, UUIDMixin, TimestampMixin):
+class GenerationPromptTemplateRevision(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "generation_prompt_template_revisions"
     __table_args__ = (
         Index(
@@ -94,12 +89,6 @@ class GenerationPromptTemplateRevision(Base, UUIDMixin, TimestampMixin):
         {"comment": "生成中心 Prompt 模板版本"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     template_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("generation_prompt_templates.id", ondelete="CASCADE"),
@@ -129,7 +118,7 @@ class GenerationPromptTemplateRevision(Base, UUIDMixin, TimestampMixin):
 # ============================================================
 
 
-class WorldBiblePage(Base, UUIDMixin, TimestampMixin, StatusMixin):
+class WorldBiblePage(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     __tablename__ = "world_bible_pages"
     __table_args__ = (
         UniqueConstraint("novel_id", "page_key", name="uq_world_bible_page_key"),
@@ -137,12 +126,6 @@ class WorldBiblePage(Base, UUIDMixin, TimestampMixin, StatusMixin):
         {"comment": "World Bible 手册页面"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     page_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     page_key: Mapped[str] = mapped_column(String(128), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -167,7 +150,7 @@ class WorldBiblePage(Base, UUIDMixin, TimestampMixin, StatusMixin):
     updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
-class WorldBiblePageRevision(Base, UUIDMixin, TimestampMixin):
+class WorldBiblePageRevision(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "world_bible_page_revisions"
     __table_args__ = (
         UniqueConstraint(
@@ -185,12 +168,6 @@ class WorldBiblePageRevision(Base, UUIDMixin, TimestampMixin):
         {"comment": "World Bible 页面版本"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     page_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("world_bible_pages.id", ondelete="CASCADE"),
@@ -203,7 +180,7 @@ class WorldBiblePageRevision(Base, UUIDMixin, TimestampMixin):
     revision_reason: Mapped[str] = mapped_column(String(64), nullable=False)
 
 
-class WorldBiblePageProjection(Base, UUIDMixin, TimestampMixin, StatusMixin):
+class WorldBiblePageProjection(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     __tablename__ = "world_bible_page_projections"
     __table_args__ = (
         UniqueConstraint(
@@ -215,12 +192,6 @@ class WorldBiblePageProjection(Base, UUIDMixin, TimestampMixin, StatusMixin):
         {"comment": "World Bible 上下文投影缓存"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     page_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("world_bible_pages.id", ondelete="CASCADE"),
@@ -245,7 +216,7 @@ class WorldBiblePageProjection(Base, UUIDMixin, TimestampMixin, StatusMixin):
     error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
-class WorldBibleCategory(Base, UUIDMixin, TimestampMixin, StatusMixin):
+class WorldBibleCategory(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     __tablename__ = "world_bible_categories"
     __table_args__ = (
         UniqueConstraint(
@@ -256,12 +227,6 @@ class WorldBibleCategory(Base, UUIDMixin, TimestampMixin, StatusMixin):
         {"comment": "项目自定义 World Bible 类别"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     category_key: Mapped[str] = mapped_column(String(64), nullable=False)
     name: Mapped[str] = mapped_column(String(80), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -271,7 +236,7 @@ class WorldBibleCategory(Base, UUIDMixin, TimestampMixin, StatusMixin):
     default_template_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
 
-class WorldBiblePageDraft(Base, UUIDMixin, TimestampMixin):
+class WorldBiblePageDraft(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "world_bible_page_drafts"
     __table_args__ = (
         UniqueConstraint(
@@ -282,12 +247,6 @@ class WorldBiblePageDraft(Base, UUIDMixin, TimestampMixin):
         {"comment": "World Bible 页面服务器工作稿"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     page_id: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("world_bible_pages.id", ondelete="CASCADE"),
@@ -312,7 +271,7 @@ class WorldBiblePageDraft(Base, UUIDMixin, TimestampMixin):
     updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
-class WorldBiblePageTemplate(Base, UUIDMixin, TimestampMixin, StatusMixin):
+class WorldBiblePageTemplate(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     __tablename__ = "world_bible_page_templates"
     __table_args__ = (
         UniqueConstraint(
@@ -323,12 +282,6 @@ class WorldBiblePageTemplate(Base, UUIDMixin, TimestampMixin, StatusMixin):
         {"comment": "项目自定义 World Bible 页面模板"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     template_key: Mapped[str] = mapped_column(String(128), nullable=False)
     name: Mapped[str] = mapped_column(String(80), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -353,7 +306,7 @@ class WorldBiblePageTemplate(Base, UUIDMixin, TimestampMixin, StatusMixin):
     updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
-class WorldBiblePageTemplateRevision(Base, UUIDMixin, TimestampMixin):
+class WorldBiblePageTemplateRevision(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "world_bible_page_template_revisions"
     __table_args__ = (
         UniqueConstraint(
@@ -364,12 +317,6 @@ class WorldBiblePageTemplateRevision(Base, UUIDMixin, TimestampMixin):
         {"comment": "World Bible 页面模板不可变版本"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     template_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("world_bible_page_templates.id", ondelete="CASCADE"),
@@ -383,7 +330,7 @@ class WorldBiblePageTemplateRevision(Base, UUIDMixin, TimestampMixin):
     created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
-class WorldBibleSynopsisRevision(Base, UUIDMixin, TimestampMixin):
+class WorldBibleSynopsisRevision(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "world_bible_synopsis_revisions"
     __table_args__ = (
         UniqueConstraint(
@@ -394,12 +341,6 @@ class WorldBibleSynopsisRevision(Base, UUIDMixin, TimestampMixin):
         {"comment": "LLM 派生的不可变作者版世界观简介"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="ready")
     rendered_text: Mapped[str] = mapped_column(Text, nullable=False)
@@ -424,19 +365,13 @@ class WorldBibleSynopsisRevision(Base, UUIDMixin, TimestampMixin):
     )
 
 
-class WorldBibleSynopsisHead(Base, UUIDMixin, TimestampMixin, StatusMixin):
+class WorldBibleSynopsisHead(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     __tablename__ = "world_bible_synopsis_heads"
     __table_args__ = (
         UniqueConstraint("novel_id", name="uq_world_bible_synopsis_head_novel"),
         {"comment": "世界观简介当前指针、失效与自动维护授权"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     desired_source_hash: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
@@ -480,26 +415,20 @@ class WorldBibleSynopsisHead(Base, UUIDMixin, TimestampMixin, StatusMixin):
 # ============================================================
 
 
-class KnowledgeTag(Base, UUIDMixin, TimestampMixin, StatusMixin):
+class KnowledgeTag(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     __tablename__ = "knowledge_tags"
     __table_args__ = (
         UniqueConstraint("novel_id", "slug", name="uq_knowledge_tag_slug"),
         {"comment": "知识域标签"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     slug: Mapped[str] = mapped_column(String(128), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     source: Mapped[str] = mapped_column(String(64), nullable=False, default="manual")
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
-class CharacterKnowledgeTag(Base, UUIDMixin, TimestampMixin, StatusMixin):
+class CharacterKnowledgeTag(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     __tablename__ = "character_knowledge_tags"
     __table_args__ = (
         UniqueConstraint(
@@ -512,12 +441,6 @@ class CharacterKnowledgeTag(Base, UUIDMixin, TimestampMixin, StatusMixin):
         {"comment": "人物知识标签授权"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     character_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("characters.entity_id", ondelete="CASCADE"),
@@ -543,19 +466,13 @@ class CharacterKnowledgeTag(Base, UUIDMixin, TimestampMixin, StatusMixin):
     author_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
-class AssetKnowledgeTag(Base, UUIDMixin, TimestampMixin, StatusMixin):
+class AssetKnowledgeTag(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     __tablename__ = "asset_knowledge_tags"
     __table_args__ = (
         Index("ix_asset_knowledge_tags_target_hash", "novel_id", "target_hash"),
         {"comment": "资产知识标签"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     target: Mapped[dict] = mapped_column(JSON, nullable=False)
     target_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     tag_id: Mapped[uuid.UUID] = mapped_column(
@@ -565,7 +482,7 @@ class AssetKnowledgeTag(Base, UUIDMixin, TimestampMixin, StatusMixin):
     )
 
 
-class KnowledgeTagExclusion(Base, UUIDMixin, TimestampMixin):
+class KnowledgeTagExclusion(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "knowledge_tag_exclusions"
     __table_args__ = (
         UniqueConstraint(
@@ -577,12 +494,6 @@ class KnowledgeTagExclusion(Base, UUIDMixin, TimestampMixin):
         {"comment": "人物派生知识标签排除"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     character_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("characters.entity_id", ondelete="CASCADE"),
@@ -597,19 +508,13 @@ class KnowledgeTagExclusion(Base, UUIDMixin, TimestampMixin):
     source: Mapped[str] = mapped_column(String(64), nullable=False, default="manual")
 
 
-class KnowledgeVisibilityPolicy(Base, UUIDMixin, TimestampMixin, StatusMixin):
+class KnowledgeVisibilityPolicy(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     __tablename__ = "knowledge_visibility_policies"
     __table_args__ = (
         Index("ix_visibility_policies_target_hash", "novel_id", "target_hash"),
         {"comment": "知识可见性策略"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     target: Mapped[dict] = mapped_column(JSON, nullable=False)
     target_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     visibility_mode: Mapped[str] = mapped_column(
@@ -620,7 +525,7 @@ class KnowledgeVisibilityPolicy(Base, UUIDMixin, TimestampMixin, StatusMixin):
     policy_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 
 
-class ReaderRevealPolicy(Base, UUIDMixin, TimestampMixin, StatusMixin):
+class ReaderRevealPolicy(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     __tablename__ = "reader_reveal_policies"
     __table_args__ = (
         Index("ix_reader_reveal_target_hash", "novel_id", "target_hash"),
@@ -628,12 +533,6 @@ class ReaderRevealPolicy(Base, UUIDMixin, TimestampMixin, StatusMixin):
         {"comment": "读者揭示点策略"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     target: Mapped[dict] = mapped_column(JSON, nullable=False)
     target_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     reveal_chapter_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -642,16 +541,10 @@ class ReaderRevealPolicy(Base, UUIDMixin, TimestampMixin, StatusMixin):
     public_baseline: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
-class CreationSuggestion(Base, UUIDMixin, TimestampMixin, StatusMixin):
+class CreationSuggestion(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     __tablename__ = "creation_suggestion_queue"
     __table_args__ = {"comment": "创设建议队列"}
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     source_module: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     review_group: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     target_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
@@ -662,16 +555,10 @@ class CreationSuggestion(Base, UUIDMixin, TimestampMixin, StatusMixin):
     result_ref_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 
 
-class ConflictCheckQueueItem(Base, UUIDMixin, TimestampMixin, StatusMixin):
+class ConflictCheckQueueItem(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     __tablename__ = "conflict_check_queue"
     __table_args__ = {"comment": "世界设定冲突/叙事风险队列"}
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     conflict_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     severity: Mapped[str] = mapped_column(String(32), nullable=False, default="medium")
     source_module: Mapped[str] = mapped_column(
@@ -686,7 +573,7 @@ class ConflictCheckQueueItem(Base, UUIDMixin, TimestampMixin, StatusMixin):
     resolution_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 
 
-class WorldValidationRun(Base, UUIDMixin, TimestampMixin):
+class WorldValidationRun(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "world_validation_runs"
     __table_args__ = (
         CheckConstraint(
@@ -721,12 +608,6 @@ class WorldValidationRun(Base, UUIDMixin, TimestampMixin):
         {"comment": "World Bible deterministic and semantic validation receipts"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     task_id: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("async_tasks.id", ondelete="SET NULL"),

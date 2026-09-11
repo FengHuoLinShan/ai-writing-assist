@@ -18,10 +18,10 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from core.base import Base, UUIDMixin, UUIDType
+from core.base import Base, NovelMixin, UUIDMixin, UUIDType
 
 
-class WorldAssertion(Base, UUIDMixin):
+class WorldAssertion(Base, UUIDMixin, NovelMixin):
     __tablename__ = "world_assertions"
     __table_args__ = (
         UniqueConstraint("novel_id", "content_digest", name="uq_world_assertion_digest"),
@@ -34,12 +34,6 @@ class WorldAssertion(Base, UUIDMixin):
         ),
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        UUIDType,
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     regime: Mapped[str] = mapped_column(String(64), nullable=False)
     polarity: Mapped[str] = mapped_column(String(16), nullable=False)
     statement_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
@@ -56,7 +50,7 @@ class WorldAssertion(Base, UUIDMixin):
     )
 
 
-class WorldCanonRevision(Base, UUIDMixin):
+class WorldCanonRevision(Base, UUIDMixin, NovelMixin):
     __tablename__ = "world_canon_revisions"
     __table_args__ = (
         UniqueConstraint("novel_id", "id", name="uq_world_canon_revision_novel_id"),
@@ -74,12 +68,6 @@ class WorldCanonRevision(Base, UUIDMixin):
         ),
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        UUIDType,
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
     parent_revision_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType)
     manifest_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
@@ -117,7 +105,7 @@ class WorldCanonHead(Base):
     )
 
 
-class EntityProfileTemplateRevision(Base, UUIDMixin):
+class EntityProfileTemplateRevision(Base, UUIDMixin, NovelMixin):
     __tablename__ = "entity_profile_template_revisions"
     __table_args__ = (
         UniqueConstraint(
@@ -133,12 +121,6 @@ class EntityProfileTemplateRevision(Base, UUIDMixin):
         ),
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        UUIDType,
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     template_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False, index=True)
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
     snapshot_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
