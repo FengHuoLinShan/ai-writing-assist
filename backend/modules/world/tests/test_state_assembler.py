@@ -142,8 +142,6 @@ async def test_assemble_returns_only_canonical_relations(
     db_session: AsyncSession,
     novel_id: str,
 ) -> None:
-    """EntityRelationRepository.get_by_novel 不支持 status 过滤,
-    必须在 source 层用 Python 端筛 (与旧 facade.py:568 行为一致)。"""
     _set_source(
         relations=[
             _make_relation(novel_id=novel_id, relation_type="ally", status="canonical"),
@@ -461,6 +459,13 @@ async def test_sqlalchemy_source_uses_list_repositories_without_count() -> None:
 
     assert await source.list_canonical_entities(db, nid, skip=0, limit=10) == []
     assert await source.list_canonical_relations(db, nid, skip=0, limit=10) == [relation]
+    source._relation_repo.list_by_novel.assert_awaited_once_with(
+        db,
+        nid,
+        status="canonical",
+        skip=0,
+        limit=10,
+    )
     assert await source.list_characters(db, nid, skip=0, limit=10) == []
     assert await source.list_character_knowledge(db, nid, skip=0, limit=10) == []
 

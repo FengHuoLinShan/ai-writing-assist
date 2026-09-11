@@ -123,15 +123,13 @@ class SqlAlchemyStateSource:
         skip: int,
         limit: int,
     ) -> list:
-        # EntityRelationRepository.get_by_novel 不接受 status 参数
-        # 必须在 Python 端筛 — 与旧 facade.py:568 行为一致
-        rows = await self._relation_repo.list_by_novel(
+        return await self._relation_repo.list_by_novel(
             db,
             novel_id,
+            status="canonical",
             skip=skip,
             limit=limit,
         )
-        return [r for r in rows if r.status == "canonical"]
 
     async def list_characters(
         self,
