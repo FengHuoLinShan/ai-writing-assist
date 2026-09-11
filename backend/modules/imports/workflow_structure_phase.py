@@ -23,14 +23,7 @@ SMALL_SAMPLE_STRUCTURE_TARGET_COUNT = 4
 
 
 def _small_sample_structure_target_count() -> int:
-    workflow_module = import_module("modules.imports.workflow")
-    return int(
-        getattr(
-            workflow_module,
-            "SMALL_SAMPLE_STRUCTURE_TARGET_COUNT",
-            SMALL_SAMPLE_STRUCTURE_TARGET_COUNT,
-        )
-    )
+    return SMALL_SAMPLE_STRUCTURE_TARGET_COUNT
 
 
 def minimum_structure_category_targets(chapter_count: int) -> dict[str, int]:

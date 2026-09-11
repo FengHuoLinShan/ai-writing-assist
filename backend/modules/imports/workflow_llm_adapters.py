@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import inspect
 import json
-from importlib import import_module
 from typing import Any, get_origin
 
 from pydantic import BaseModel
@@ -39,16 +38,6 @@ PHASE1B_ENRICH_TIMEOUT_SECONDS = 1200
 PHASE1C_TIMEOUT_SECONDS = 1200
 PHASE2_WORLD_TIMEOUT_SECONDS = 1200
 PHASE2_WORLD_MIN_MAX_TOKENS = 32_768
-
-
-def _workflow_constant(name: str, default: Any) -> Any:
-    try:
-        workflow_module = import_module("modules.imports.workflow")
-    except ImportError as exc:
-        if "partially initialized module" not in str(exc):
-            raise
-        return default
-    return getattr(workflow_module, name, default)
 
 
 def _phase0_scene_max_tokens(
@@ -157,36 +146,24 @@ def _phase2_world_min_max_tokens(
 def _deep_import_structured_timeout_grace_seconds(
     project_settings: dict[str, Any] | None = None,
 ) -> int:
-    default = int(
-        _workflow_constant(
-            "DEEP_IMPORT_STRUCTURED_TIMEOUT_GRACE_SECONDS",
-            DEEP_IMPORT_STRUCTURED_TIMEOUT_GRACE_SECONDS,
-        )
-    )
     return deep_import_int_setting(
         project_settings,
         "global",
         "structured_timeout_grace_seconds",
         env_name="DEEP_IMPORT_STRUCTURED_TIMEOUT_GRACE_SECONDS",
-        default=default,
+        default=DEEP_IMPORT_STRUCTURED_TIMEOUT_GRACE_SECONDS,
     )
 
 
 def _deep_import_structured_max_fix_attempts(
     project_settings: dict[str, Any] | None = None,
 ) -> int:
-    default = int(
-        _workflow_constant(
-            "DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS",
-            DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS,
-        )
-    )
     return deep_import_int_setting(
         project_settings,
         "global",
         "structured_max_fix_attempts",
         env_name="DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS",
-        default=default,
+        default=DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS,
     )
 
 
@@ -1227,18 +1204,5 @@ async def _run_deep_import_structured_call(
                 await close_result
 
 
-_DEFAULT_DEEP_IMPORT_STRUCTURED_CALL = _run_deep_import_structured_call
-
-
 async def _call_structured(*args, **kwargs):
-    if _run_deep_import_structured_call is not _DEFAULT_DEEP_IMPORT_STRUCTURED_CALL:
-        return await _run_deep_import_structured_call(*args, **kwargs)
-    workflow_module = import_module("modules.imports.workflow")
-    runner = getattr(
-        workflow_module,
-        "_run_deep_import_structured_call",
-        _run_deep_import_structured_call,
-    )
-    if runner is _run_deep_import_structured_call:
-        return await _run_deep_import_structured_call(*args, **kwargs)
-    return await runner(*args, **kwargs)
+    return await _run_deep_import_structured_call(*args, **kwargs)

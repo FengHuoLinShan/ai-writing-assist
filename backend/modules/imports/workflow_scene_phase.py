@@ -5,7 +5,6 @@ from __future__ import annotations
 import inspect
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from importlib import import_module
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -61,14 +60,7 @@ def _enqueue_rag_reindex_after_scene_commit(
 
 
 def _phase0_422_recommendation() -> str:
-    workflow_module = import_module("modules.imports.workflow")
-    return str(
-        getattr(
-            workflow_module,
-            "PHASE0_422_RECOMMENDATION",
-            PHASE0_422_RECOMMENDATION,
-        )
-    )
+    return PHASE0_422_RECOMMENDATION
 
 
 @dataclass(frozen=True)

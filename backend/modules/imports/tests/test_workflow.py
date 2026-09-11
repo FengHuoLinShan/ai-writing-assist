@@ -839,15 +839,6 @@ def test_phase1a_structured_max_fix_attempts_env_override(
     assert workflow_llm_adapters._phase1a_structured_max_fix_attempts() == 2
 
 
-def test_deep_import_structured_call_old_workflow_paths_match() -> None:
-    from modules.imports import workflow, workflow_llm_adapters
-
-    assert (
-        workflow._run_deep_import_structured_call
-        is workflow_llm_adapters._run_deep_import_structured_call
-    )
-
-
 @pytest.mark.asyncio
 async def test_deep_import_structured_call_uses_configured_fix_attempts(monkeypatch):
     captured: dict[str, object] = {}
@@ -3030,12 +3021,12 @@ class TestDeepImportWorkflowAutoRun:
         )
 
     @pytest.mark.asyncio
-    async def test_workflow_constant_monkeypatch_controls_structure_fallback_target(
+    async def test_structure_target_constant_controls_fallback_target(
         self,
         monkeypatch,
     ):
         monkeypatch.setattr(
-            "modules.imports.workflow.SMALL_SAMPLE_STRUCTURE_TARGET_COUNT",
+            "modules.imports.workflow_structure_phase.SMALL_SAMPLE_STRUCTURE_TARGET_COUNT",
             2,
         )
 
