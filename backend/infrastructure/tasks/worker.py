@@ -542,8 +542,9 @@ class TaskWorker:
         # 启动心跳协程（使用独立 session，避免与主执行共享连接）
         self._running_task_ids.add(task.id)
         self._running_tasks[task.id] = task
-        heartbeat_task = asyncio.create_task(self._heartbeat_loop(task.id, lease_id))
-        self._heartbeat_tasks[task.id] = heartbeat_task
+        self._heartbeat_tasks[task.id] = asyncio.create_task(
+            self._heartbeat_loop(task.id, lease_id)
+        )
 
         with managed_llm_provenance_scope() as managed_llm_steps:
             definition = None

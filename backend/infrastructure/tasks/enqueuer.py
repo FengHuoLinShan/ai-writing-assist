@@ -285,18 +285,6 @@ async def enqueue_coalesced_task(
             status=str(existing.status),
             reused=True,
         )
-    if mode == "reuse_active":
-        existing = await _get_active_coalesced_task(
-            db,
-            coalescing_key=key,
-        )
-        if existing is not None:
-            return CoalescedTaskContract(
-                task_id=str(existing.id),
-                status=str(existing.status),
-                reused=True,
-            )
-
     task = _new_task(
         task_type=task_type,
         meta=meta,
