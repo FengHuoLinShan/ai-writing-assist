@@ -9,3 +9,4 @@
 
 - [T-20260911-import-review-resolution](tasks/2026/T-20260911-import-review-resolution/TASK.md) — 深度导入智能整理与确认减负
 - [T-20260911-chrome-ux-audit](tasks/2026/T-20260911-chrome-ux-audit/TASK.md) — 诡秘之主测试项目 Chrome 持续体验走查
+- [T-20260911-promo-recording-readiness](tasks/2026/T-20260911-promo-recording-readiness/TASK.md) — 演示项目宣传视频剧本与产品录屏就绪计划
