@@ -28,10 +28,10 @@ def test_configure_worker_registers_domain_dependencies_and_handlers() -> None:
     sentinel = object()
     reset()
     try:
-        register("memory.capture_snapshot", sentinel)
+        register("memory.service", sentinel)
         _configure_worker_process()
         assert callable(get("writing.list_latest_drafts_for_chapters"))
-        assert get("memory.capture_snapshot") is sentinel
+        assert get("memory.service") is sentinel
         assert "smart_dedup_scan" in TaskRegistry().registered_types
     finally:
         reset()

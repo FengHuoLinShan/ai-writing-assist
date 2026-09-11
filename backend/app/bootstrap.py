@@ -190,7 +190,6 @@ def _container_services() -> Iterable[tuple[str, Any]]:
         ("context.compile", _ctx_compile),
         ("context.generation_background", _ctx_generation_background),
         ("memory.service", memory),
-        ("memory.capture_snapshot", memory.capture_snapshot),
         ("project.require_active", _project_require_active),
         ("interaction.count_source_references", _interaction_source_reference_count),
         ("world.enqueue_map_atlas_cleanup", _map_atlas_cleanup),

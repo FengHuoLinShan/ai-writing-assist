@@ -76,7 +76,6 @@ def test_bootstrap_registers_app_and_worker_services():
         "outline.reveal_service",
         "context.compile",
         "memory.service",
-        "memory.capture_snapshot",
     ]
     for service_name in expected_services:
         assert get(service_name) is not None
@@ -105,7 +104,6 @@ def test_bootstrap_ignore_existing_keeps_registered_object():
     register_container_services(ignore_existing=True)
 
     assert get("world.list_characters") is sentinel
-    assert callable(get("memory.capture_snapshot"))
 
 
 def test_reset_clears_all():
