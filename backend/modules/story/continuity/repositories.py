@@ -851,27 +851,6 @@ class SceneCheckpointRepository:
             for_update=True,
         )
 
-    async def get_latest_ready_before(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        scene_index: int,
-        dimension: str,
-    ) -> MemorySceneCheckpoint | None:
-        result = await db.execute(
-            select(MemorySceneCheckpoint)
-            .where(
-                MemorySceneCheckpoint.novel_id == novel_id,
-                MemorySceneCheckpoint.scene_index < scene_index,
-                MemorySceneCheckpoint.dimension == dimension,
-                MemorySceneCheckpoint.is_current.is_(True),
-                MemorySceneCheckpoint.status == "ready",
-            )
-            .order_by(MemorySceneCheckpoint.scene_index.desc())
-            .limit(1)
-        )
-        return result.scalar_one_or_none()
-
     async def supersede_system_from(
         self,
         db: AsyncSession,
