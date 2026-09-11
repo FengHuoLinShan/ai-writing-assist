@@ -798,7 +798,6 @@ class InteractionGenerationWorkflow:
         self._repo.touch(journey)
 
         summary_task_id = None
-        next_attempt_id = None
         if selected and not is_clarification:
             current_path = await self._repo.get_selected_path(db, journey=journey)
             await self._service._activate_best_overview_head(
@@ -824,7 +823,6 @@ class InteractionGenerationWorkflow:
             "status": terminal_status,
             "selected": selected,
             "summary_task_id": summary_task_id,
-            "next_attempt_id": next_attempt_id,
         }
 
     async def fail_story_task(

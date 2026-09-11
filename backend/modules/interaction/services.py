@@ -2072,14 +2072,6 @@ class InteractionService:
         if latest is not None and latest.status == "awaiting_continue":
             raise ConflictError("请先处理当前未完整的回应")
 
-    async def _ensure_no_active_attempt(
-        self,
-        db: AsyncSession,
-        journey: InteractionJourney,
-    ) -> None:
-        if await self._repo.get_active_attempt(db, journey=journey) is not None:
-            raise ConflictError("这个旅程已有一段故事正在生成")
-
     async def _ensure_no_unresolved_attempt(
         self,
         db: AsyncSession,

@@ -491,16 +491,6 @@ class InteractionBranchListResponse(BaseModel):
     variants: list[InteractionBranchVariantResponse] = Field(default_factory=list)
 
 
-class InteractionTreeNodeResponse(BaseModel):
-    id: str
-    parent_node_id: str | None = None
-    role: str
-    excerpt: str
-    selected: bool
-    depth: int
-    created_at: datetime
-
-
 class InteractionTreeVariantResponse(BaseModel):
     node_id: str
     selected: bool

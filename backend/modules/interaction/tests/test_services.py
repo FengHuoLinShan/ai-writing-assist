@@ -2109,7 +2109,6 @@ async def test_opening_can_clarify_once_without_becoming_story(
     assert clarification.action_suggestions == []
     assert journey.setup_clarification_used is True
     assert result["summary_task_id"] is None
-    assert result["next_attempt_id"] is None
     summary_due.assert_not_awaited()
 
     with patch(
