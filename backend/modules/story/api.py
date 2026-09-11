@@ -447,10 +447,11 @@ async def api_get_story_scene_context(
 
 async def _enqueue_confirmed_task(
     db: DbSession,
-    data: StoryTaskRequest | StoryCardTaskRequest,
+    data: StoryTaskRequest | StoryCardTaskRequest | StoryOneClickTaskRequest,
     *,
     action: str,
     task_type: str,
+    extra_meta: dict | None = None,
 ) -> StoryTaskResponse:
     request_payload = data.model_dump(
         mode="json",
@@ -477,6 +478,7 @@ async def _enqueue_confirmed_task(
             "meta_version": 1,
             "request": request_payload,
             "action": action,
+            **(extra_meta or {}),
             "llm_execution_snapshot": await build_project_llm_execution_snapshot(
                 db,
                 data.novel_id,
@@ -504,68 +506,6 @@ async def _enqueue_confirmed_task(
     except Exception as exc:
         raise _error(exc) from exc
 
-
-async def _enqueue_one_click_task(
-    db: DbSession,
-    data: StoryOneClickTaskRequest,
-) -> StoryTaskResponse:
-    request_payload = data.model_dump(
-        mode="json",
-        exclude_none=True,
-        exclude={"operation_id"},
-    )
-    try:
-        existing = await get_operation_task(
-            db,
-            operation_id=str(data.operation_id) if data.operation_id else None,
-            task_type=STORY_ONE_CLICK_TASK,
-            novel_id=data.novel_id,
-            request_payload=request_payload,
-        )
-        if existing is not None:
-            return StoryTaskResponse(task_id=existing.task_id, status=existing.status)
-        await require_fresh_confirmation(
-            db,
-            novel_id=data.novel_id,
-            action=STORY_ONE_CLICK_ACTION,
-            confirmation_id=data.context_confirmation_id,
-        )
-        meta = {
-            "meta_version": 1,
-            "request": request_payload,
-            "action": STORY_ONE_CLICK_ACTION,
-            "submit_authorized": bool(data.submit_authorized),
-            "authorization_scope": (
-                "missing_or_stale_character_cards_only"
-                if data.submit_authorized
-                else "preview_only"
-            ),
-            "llm_execution_snapshot": await build_project_llm_execution_snapshot(
-                db,
-                data.novel_id,
-            ),
-        }
-        receipt = await enqueue_task_with_optional_operation(
-            db,
-            operation_id=str(data.operation_id) if data.operation_id else None,
-            task_type=STORY_ONE_CLICK_TASK,
-            novel_id=data.novel_id,
-            request_payload=request_payload,
-            meta=meta,
-        )
-        if not receipt.reused:
-            await attach_result_ref(
-                db,
-                novel_id=data.novel_id,
-                confirmation_id=data.context_confirmation_id,
-                result_type="task",
-                result_id=receipt.task_id,
-                status="running",
-            )
-        await db.flush()
-        return StoryTaskResponse(task_id=receipt.task_id, status=receipt.status)
-    except Exception as exc:
-        raise _error(exc) from exc
 
 
 @router.post("/tasks/character-card", response_model=StoryTaskResponse, status_code=202)
@@ -616,7 +556,20 @@ async def api_submit_one_click_task(
     db: DbSession,
 ) -> StoryTaskResponse:
     await require_active_project(db, data.novel_id)
-    return await _enqueue_one_click_task(db, data)
+    return await _enqueue_confirmed_task(
+        db,
+        data,
+        action=STORY_ONE_CLICK_ACTION,
+        task_type=STORY_ONE_CLICK_TASK,
+        extra_meta={
+            "submit_authorized": bool(data.submit_authorized),
+            "authorization_scope": (
+                "missing_or_stale_character_cards_only"
+                if data.submit_authorized
+                else "preview_only"
+            ),
+        },
+    )
 
 
 # Scene-centric aliases keep the workbench wire shape close to the author's
