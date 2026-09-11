@@ -901,3 +901,37 @@ async def test_deep_import_recovery_hides_task_existence_before_project_gate(
     assert "meta_secret" not in recycled.text
     assert "result_secret" not in recycled.text
     assert task.status == "failed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("suffix", "body"),
+    [
+        ("rollback", {"confirmed": True}),
+        (
+            "decisions",
+            {
+                "candidate_keys": ["candidate-1"],
+                "expected_fingerprints": {"candidate-1": "f" * 64},
+                "confirmed": True,
+            },
+        ),
+    ],
+)
+async def test_review_resolution_missing_task_is_hidden(
+    async_client: AsyncClient,
+    sample_project: dict,
+    suffix: str,
+    body: dict,
+) -> None:
+    task_id = str(uuid.uuid4())
+
+    response = await async_client.post(
+        f"/api/imports/review-resolutions/{task_id}/{suffix}",
+        params={"novel_id": sample_project["id"]},
+        json=body,
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Not found"
+    assert task_id not in response.text

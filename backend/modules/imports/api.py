@@ -566,7 +566,10 @@ async def rollback_review_resolution(
     from modules.imports.review_resolution import rollback_resolution
 
     await _require_active_project_exclusive(db, novel_id)
-    return await rollback_resolution(db, novel_id=novel_id, task_id=task_id)
+    try:
+        return await rollback_resolution(db, novel_id=novel_id, task_id=task_id)
+    except ValueError as exc:
+        raise HTTPException(404, detail="Not found") from exc
 
 
 @router.post("/review-resolutions/{task_id}/decisions")
@@ -580,7 +583,10 @@ async def decide_review_resolution(
     from modules.imports.review_resolution import accept_decision
 
     await _require_active_project_exclusive(db, novel_id)
-    return await accept_decision(db, novel_id=novel_id, task_id=task_id, data=body)
+    try:
+        return await accept_decision(db, novel_id=novel_id, task_id=task_id, data=body)
+    except ValueError as exc:
+        raise HTTPException(404, detail="Not found") from exc
 
 
 @router.post("/review-resolutions/{task_id}/scene-groups/{group_key}/apply")
