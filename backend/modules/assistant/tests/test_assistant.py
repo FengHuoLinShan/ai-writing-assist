@@ -420,6 +420,93 @@ async def test_renew_budget_preserves_search_consent_and_replay(
     )
 
 
+async def test_resume_expired_budget_returns_conflict(
+    async_client,
+    db_session,
+    test_project_id,
+):
+    from modules.account.facade import current_account_id
+
+    task = AsyncTask(
+        task_type="assistant_turn",
+        novel_id=uuid.UUID(test_project_id),
+        status="failed",
+        recovery_policy="manual_resume",
+        meta={"novel_id": test_project_id, "recovery_required": True},
+        result={"recovery_required": True},
+    )
+    db_session.add(task)
+    await db_session.flush()
+    run = AssistantRun(
+        novel_id=uuid.UUID(test_project_id),
+        owner_id=current_account_id(),
+        task_id=task.id,
+        request_hash="e" * 64,
+        status="failed",
+        budget_json={"started_at": "2020-01-01T00:00:00Z"},
+    )
+    db_session.add(run)
+    await db_session.commit()
+
+    detail = await async_client.get(
+        f"/api/assistant/runs/{run.id}", params={"novel_id": test_project_id}
+    )
+    response = await async_client.post(
+        f"/api/assistant/runs/{run.id}/resume",
+        json={"novel_id": test_project_id},
+    )
+
+    assert detail.json()["can_resume"] is False
+    assert response.status_code == 409
+    assert response.json()["error"] == "assistant_new_budget_required"
+
+
+async def test_resume_missing_task_returns_not_found(
+    async_client,
+    db_session,
+    test_project_id,
+    monkeypatch,
+):
+    from modules.account.facade import current_account_id
+
+    task = AsyncTask(
+        task_type="assistant_turn",
+        novel_id=uuid.UUID(test_project_id),
+        status="failed",
+        recovery_policy="manual_resume",
+        meta={"novel_id": test_project_id, "recovery_required": True},
+        result={"recovery_required": True},
+    )
+    db_session.add(task)
+    await db_session.flush()
+    run = AssistantRun(
+        novel_id=uuid.UUID(test_project_id),
+        owner_id=current_account_id(),
+        task_id=task.id,
+        request_hash="m" * 64,
+        status="failed",
+        budget_json={},
+    )
+    db_session.add(run)
+    await db_session.commit()
+
+    async def missing(*_args, **_kwargs):
+        raise ValueError("task not found")
+
+    monkeypatch.setattr("modules.assistant.service.resume_manual_task", missing)
+    detail = await async_client.get(
+        f"/api/assistant/runs/{run.id}", params={"novel_id": test_project_id}
+    )
+    response = await async_client.post(
+        f"/api/assistant/runs/{run.id}/resume",
+        json={"novel_id": test_project_id},
+    )
+
+    assert detail.json()["can_resume"] is True
+    assert response.status_code == 404
+    assert response.json()["error"] == "not_found"
+
+
 @pytest.mark.parametrize("scope", ["project", "chapter", "excluded", "confirmed"])
 async def test_legacy_history_reaches_model_only_within_authorized_scope(
     async_client, db_session, test_project_id, account_llm_connection, monkeypatch, scope

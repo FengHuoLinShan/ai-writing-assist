@@ -507,7 +507,7 @@ class AssistantService:
             raise NotFoundError("助手任务不存在")
         return row
 
-    def view(self, run):
+    def view(self, run, *, can_resume: bool = False):
         return {
             "id": str(run.id),
             "session_id": str(run.session_id) if run.session_id else None,
@@ -516,17 +516,19 @@ class AssistantService:
             "usage": run.budget_json or {},
             "error": run.error,
             "task_id": str(run.task_id) if run.task_id else None,
+            "can_resume": can_resume,
             "updated_at": run.updated_at,
         }
 
     async def get_run(self, db, novel_id, run_id):
         await require_active_project(db, novel_id)
         run = await self.require_run(db, novel_id, run_id, lock=True)
+        lifecycle = None
         if run.status in {"pending", "running"} and run.task_id is None:
             run.status = "failed"
             run.error = "原执行回执已不可用，讨论仍保留，可以开始新一轮查证。"
             await db.flush()
-        if run.status in {"pending", "running"} and run.task_id:
+        if run.status in {"pending", "running", "failed"} and run.task_id:
             lifecycle = (
                 await list_task_lifecycle_contracts(
                     db,
@@ -535,7 +537,9 @@ class AssistantService:
                     max_heartbeat_gap=TASK_MAX_HEARTBEAT_GAP,
                 )
             ).get(str(run.task_id))
-            if lifecycle is None or lifecycle.status in {"failed", "cancelled"}:
+            if run.status in {"pending", "running"} and (
+                lifecycle is None or lifecycle.status in {"failed", "cancelled"}
+            ):
                 run.status = (
                     "cancelled"
                     if lifecycle and lifecycle.status == "cancelled"
@@ -559,7 +563,15 @@ class AssistantService:
                     if key != "model_history"
                 }
                 await db.flush()
-        view = self.view(run)
+        view = self.view(
+            run,
+            can_resume=bool(
+                run.status == "failed"
+                and lifecycle
+                and lifecycle.recovery_required
+                and AgentRunBudget.model_validate(run.budget_json).remaining_seconds > 0
+            ),
+        )
         batch = await db.scalar(
             select(AssistantActionBatch).where(
                 AssistantActionBatch.novel_id == run.novel_id,
@@ -669,10 +681,27 @@ class AssistantService:
             )
         if run.status != "failed" or not run.task_id:
             raise ConflictError("请开始新一轮查证", code="assistant_new_budget_required")
-        AgentRunBudget.model_validate(run.budget_json).reserve()
-        await resume_manual_task(
-            db, task_id=str(run.task_id), task_types={"assistant_turn"}, novel_id=novel_id
-        )
+        try:
+            AgentRunBudget.model_validate(run.budget_json).reserve()
+        except AgentBudgetError as exc:
+            raise ConflictError(
+                "请开始新一轮查证",
+                code="assistant_new_budget_required",
+            ) from exc
+        try:
+            await resume_manual_task(
+                db,
+                task_id=str(run.task_id),
+                task_types={"assistant_turn"},
+                novel_id=novel_id,
+            )
+        except ValueError as exc:
+            if str(exc) == "task not found":
+                raise NotFoundError("助手任务不存在") from exc
+            raise ConflictError(
+                "请开始新一轮查证",
+                code="assistant_new_budget_required",
+            ) from exc
         run.status = "pending"
         run.error = None
         await db.flush()

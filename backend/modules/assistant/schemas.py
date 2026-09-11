@@ -73,6 +73,7 @@ class RunResponse(StrictModel):
     usage: dict[str, Any]
     error: str | None
     task_id: UUID | None
+    can_resume: bool = False
     updated_at: datetime | None
 
 

@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from core.config import get_settings
 from core.dependencies import DbSession
+from core.errors import NotFoundError
 from infrastructure.tasks.facade import cancel_exact_task
 from modules.account.facade import current_account_id
 from modules.assistant.models import AssistantRun
@@ -188,13 +189,16 @@ async def stop_run(db: DbSession, run_id: UUID, novel_id: UUID):
         record_run_event(run, "cancelled")
         await db.flush()
     if run.status in {"pending", "running"} and run.task_id:
-        await cancel_exact_task(
-            db,
-            task_id=str(run.task_id),
-            novel_id=str(novel_id),
-            task_types={"assistant_turn"},
-            transition_reason="assistant_user_stop",
-        )
+        try:
+            await cancel_exact_task(
+                db,
+                task_id=str(run.task_id),
+                novel_id=str(novel_id),
+                task_types={"assistant_turn"},
+                transition_reason="assistant_user_stop",
+            )
+        except ValueError as exc:
+            raise NotFoundError("助手任务不存在") from exc
         run.status = "cancelled"
         await db.flush()
     if run.status == "cancelled":
