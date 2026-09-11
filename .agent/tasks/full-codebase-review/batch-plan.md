@@ -21,7 +21,7 @@
 | B1d | 受保护 WIP 阻塞 | 原工作区 `styles.css` 有他人未提交改动，本分支未触碰 |
 | B2a/B2b/B2c | 已完成 | snapshot client、checkpoint、stable hash 单点化；固定输入/字节兼容与模块测试通过 |
 | B2d | 部分完成 | UUID coercion、无差异 NovelMixin、imports shim/progress、interaction helper、World/前端复用项完成；A6-4 与 F5 环境项未做 |
-| B2e | 部分完成 | Vue 生产文件守卫扩面完成；Story HTTP 层覆盖仍待独立测试批 |
+| B2e | 已完成 | Vue 生产文件守卫扩面；Story HTTP 的项目范围、422、202 动作合同与 path/body 冲突覆盖完成 |
 | B3a | 部分完成 | Story 两条入队流已收敛；Outline 三条因预校验/重放/meta 差异保留 |
 | B3b/B3e | 已完成 | semantic review 委托既有 service；worker 项目任务判断归项目 facade |
 | B3c | 待付费验收授权 | 同步生成/冲突双轨退役需真实模型验收，不以单测替代 |
@@ -33,7 +33,7 @@
 | B4f | 未实施 | 裸 ValueError 长效静态守卫仍需避免对合法内部异常产生误报 |
 | B5/收益待测项 | 按计划延期 | 无性能基线、生产 revision 或数据结构必要性证据，不实施 |
 
-当前累计：89 个原子提交，225 个文件，`+2137/-10453`（净 `-8316` 行）。门禁：后端 fast `5383 passed / 13 skipped / 7 deselected`；PostgreSQL critical `32 passed`；前端 `183 files / 2448 tests`、lint、build、资源校验通过；docs-check 通过。专用库 `alembic check` 仍暴露一组既有 ORM/migration 漂移，未混入本轮自动迁移。
+当前累计：91 个原子提交，226 个文件，`+2242/-10453`（净 `-8211` 行）。门禁：后端 fast `5383 passed / 13 skipped / 7 deselected`；Story 模块 `30 passed`；PostgreSQL critical `32 passed`；前端 `183 files / 2448 tests`、lint、build、资源校验通过；docs-check 通过。专用库 `alembic check` 仍暴露一组既有 ORM/migration 漂移，未混入本轮自动迁移。
 
 ## R 组：功能性修复与门禁缺口（单列，优先于一切优化批）
 
