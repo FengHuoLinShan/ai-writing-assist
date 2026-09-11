@@ -10,16 +10,9 @@ const props = defineProps({
 })
 const emit = defineEmits(["open", "select-topic", "select-type", "select-working", "create-topic", "browse-all"])
 
-function toCards(items) {
-  return cardsFromLibraryItems(items).map((card) => ({
-    ...card,
-    stateLabel: card.stateLabel,
-  }))
-}
-
-const workingCards = computed(() => toCards(props.overview?.working_items || []))
-const recentCards = computed(() => toCards(props.overview?.recent_items || []))
-const favoriteCards = computed(() => toCards(props.overview?.favorite_items || []))
+const workingCards = computed(() => cardsFromLibraryItems(props.overview?.working_items || []))
+const recentCards = computed(() => cardsFromLibraryItems(props.overview?.recent_items || []))
+const favoriteCards = computed(() => cardsFromLibraryItems(props.overview?.favorite_items || []))
 const topics = computed(() => props.overview?.topics || [])
 const totals = computed(() => props.overview?.totals || {})
 const typeFacets = computed(() => {

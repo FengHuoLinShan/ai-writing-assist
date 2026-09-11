@@ -96,7 +96,7 @@ export function usesServerLibrary(filters) {
   )
 }
 
-const LIBRARY_STATE_LABELS = { active: "已采用", review: "待完善", archived: "已归档" }
+export const LIBRARY_STATE_LABELS = { active: "已采用", review: "待完善", archived: "已归档" }
 
 /** 把服务端统一资料条目映射成资料卡读模型。 */
 export function cardsFromLibraryItems(items) {

@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue"
 import { getApi, getRouter, getToast } from "../../../bridge/index.js"
 import { useModalDialog } from "../../../composables/useModalDialog.js"
 import { displayStateBadgeClass } from "../../../../shared/assetDisplayState.js"
+import { LIBRARY_STATE_LABELS } from "../bible/worldCards.js"
 
 const props = defineProps({ projectId: { type: String, default: "" } })
 
@@ -23,7 +24,6 @@ const { overlayRef, dialogRef, onKeydown, onFocusin } = useModalDialog({
 })
 
 const KIND_LABELS = { page: "资料页", draft: "工作稿", entity: "人物或设定" }
-const KIND_LABELS_STATE = { active: "已采用", review: "待完善", archived: "已归档" }
 
 const rows = computed(() => (items.value || []).map((item, index) => ({
   id: item.id,
@@ -32,7 +32,7 @@ const rows = computed(() => (items.value || []).map((item, index) => ({
   title: item.title || "未命名资料",
   summary: String(item.summary || ""),
   state: item.working ? "working" : item.state,
-  stateLabel: item.working ? "工作稿" : KIND_LABELS_STATE[item.state] || "待完善",
+  stateLabel: item.working ? "工作稿" : LIBRARY_STATE_LABELS[item.state] || "待完善",
   item_type: item.item_type || "",
   active: index === activeIndex.value,
 })))
