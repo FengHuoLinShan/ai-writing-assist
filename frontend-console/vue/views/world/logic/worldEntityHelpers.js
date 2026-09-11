@@ -10,6 +10,11 @@ export function entityId(entity) {
   return entity?.id || entity?.entity_id || ""
 }
 
+export function aliasKey(alias) {
+  if (!alias) return ""
+  return `${alias.entity_id || ""}::${alias.alias || ""}`
+}
+
 /** 对应 vanilla _suggestionId（仅 draft/candidate 且 compatibility_shadow）。 */
 export function suggestionId(entity) {
   const meta = entity?.content_json?._meta || {}

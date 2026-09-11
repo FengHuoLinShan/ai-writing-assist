@@ -39,6 +39,7 @@ import {
   kindOptionsHtml,
   readDetailType,
 } from "./worldTypeCatalog.js"
+import { captureWorldOperationScope, ownsWorldOperationScope } from "./worldScopeGuards.js"
 
 // ============================================================
 // 列表注册表（tab 在 props 变化时同步当前可见列表）
@@ -244,26 +245,6 @@ function showEntityTypeBlocker(err, targetId) {
 // ============================================================
 // 通用助手
 // ============================================================
-
-function captureWorldOperationScope() {
-  const state = getAppState()
-  return {
-    projectId: state?.currentProjectId || null,
-    view: state?.currentView || null,
-    subView: state?.currentSubView || null,
-  }
-}
-
-function ownsWorldOperationScope(scope) {
-  const state = getAppState()
-  return Boolean(
-    scope
-    && state
-    && (state.currentProjectId || null) === scope.projectId
-    && (state?.currentView || null) === scope.view
-    && (state?.currentSubView || null) === scope.subView,
-  )
-}
 
 /** 对应 vanilla _finishEntityMutation；调用方为受全局 modal/router 管理的模态操作。 */
 async function returnToReviewContextOrRefresh() {

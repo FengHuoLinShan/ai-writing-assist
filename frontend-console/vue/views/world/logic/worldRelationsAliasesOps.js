@@ -13,6 +13,13 @@ import { sceneNumber } from "../../../../shared/sceneNumbers.js"
 import { getApi, getAppState, getConfirmAction, getEsc, getRouter, getShowModalHtml, getToast } from "../../../bridge/index.js"
 import { runBulkAction, bulkResultMessage, clearBulkSelection } from "./worldBulkSelection.js"
 import { mountEntityReferencePickerForReview } from "./worldEntityOps.js"
+import { aliasKey } from "./worldEntityHelpers.js"
+import {
+  captureModalOwner,
+  captureWorldOperationScope,
+  ownsModalOwner,
+  ownsWorldOperationScope,
+} from "./worldScopeGuards.js"
 import {
   bindTypeKindControls,
   catalogTypeItems,
@@ -37,43 +44,6 @@ export function syncRelationsAliasesRegistry(partial = {}) {
   if (Array.isArray(partial.relations)) listRegistry.relations = partial.relations
   if (Array.isArray(partial.aliases)) listRegistry.aliases = partial.aliases
   if (partial.reviewTypeCatalog) listRegistry.reviewTypeCatalog = partial.reviewTypeCatalog
-}
-
-function captureWorldOperationScope() {
-  const state = getAppState()
-  return {
-    projectId: state?.currentProjectId || null,
-    view: state?.currentView || null,
-    subView: state?.currentSubView || null,
-  }
-}
-
-function ownsWorldOperationScope(scope) {
-  const state = getAppState()
-  return Boolean(
-    scope
-    && state
-    && (state.currentProjectId || null) === scope.projectId
-    && (state.currentView || null) === scope.view
-    && (state.currentSubView || null) === scope.subView,
-  )
-}
-
-function captureModalOwner(node = null) {
-  const body = document.getElementById("modal-body")
-  const overlay = document.getElementById("modal-overlay")
-  return { body, overlay, node: node || body?.firstElementChild || null }
-}
-
-function ownsModalOwner(owner) {
-  if (!owner?.body || !owner?.overlay) return true
-  return Boolean(
-    document.getElementById("modal-body") === owner.body
-    && document.getElementById("modal-overlay") === owner.overlay
-    && owner.node?.isConnected
-    && owner.body.contains(owner.node)
-    && !owner.overlay.classList.contains("hidden"),
-  )
 }
 
 // ============================================================
@@ -456,10 +426,7 @@ export function inlineRelationEvidencePairs(relation = {}) {
 /**
  * 对应 vanilla _aliasKey（worldView.js:2922-2925）。
  */
-export function aliasKey(alias) {
-  if (!alias) return ""
-  return `${alias.entity_id || ""}::${alias.alias || ""}`
-}
+export { aliasKey }
 
 /** 编辑或移动已采用别名。 */
 export function showAliasEditForm(entityId, aliasText) {

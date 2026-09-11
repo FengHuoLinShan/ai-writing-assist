@@ -24,6 +24,7 @@ import {
 } from "./worldQuery.js"
 import { getBulkSelection, runBulkAction, bulkResultMessage, selectedItemsFrom, clearBulkSelection } from "./worldBulkSelection.js"
 import {
+  aliasKey,
   candidateAction,
   candidateTargetId,
   candidateTargetName,
@@ -77,11 +78,7 @@ export function syncReviewRegistry(partial = {}) {
   if (Number.isFinite(partial.aliasGroupTotal)) reviewRegistry.aliasGroupTotal = partial.aliasGroupTotal
 }
 
-/** 对应 vanilla _aliasKey。 */
-export function aliasKey(alias) {
-  if (!alias) return ""
-  return `${alias.entity_id || ""}::${alias.alias || ""}`
-}
+export { aliasKey }
 
 function reviewDraftStorageKey(kind, key) {
   const projectId = getAppState()?.currentProjectId || "none"
@@ -325,35 +322,6 @@ export function inlineEvidencePairs(item = {}) {
     ["场景", sceneNumber(item.scene_index ?? item.source_scene_index)],
     ["置信度", item.confidence != null ? `${(Number(item.confidence) * 100).toFixed(0)}%` : ""],
     ["引用", item.quote || [...new Set(quotes)].join("\n")],
-  ].filter(([, value]) => value != null && String(value).trim() !== "")
-}
-
-/** 对应 vanilla _inlineRelationEvidenceHtml（2318-2349）。 */
-export function inlineRelationEvidencePairs(relation = {}) {
-  const reviewMeta = relation.review_meta && typeof relation.review_meta === "object"
-    ? relation.review_meta
-    : {}
-  const sceneLabel = [
-    reviewMeta.scene_index != null ? `场景 ${sceneNumber(reviewMeta.scene_index)}` : "场景未定位",
-  ].filter(Boolean).join("（")
-  const normalizedSceneLabel = sceneLabel
-  const evidenceRefs = Array.isArray(reviewMeta.evidence_refs)
-    ? reviewMeta.evidence_refs.map((ref) => {
-      if (ref == null) return ""
-      if (typeof ref !== "object") return String(ref)
-      const refScene = ref.scene_index != null ? `场景 ${sceneNumber(ref.scene_index)}` : "场景未定位"
-      const refChapter = ref.source_chapter_index != null ? `章节 ${ref.source_chapter_index}` : ""
-      return [refScene, refChapter, ref.quote || ref.evidence || ""].filter(Boolean).join(" · ")
-    }).filter(Boolean).join("；")
-    : ""
-  return [
-    ["来源", reviewSourceLabel(reviewMeta.source)],
-    ["处理批次", reviewMeta.workflow_id],
-    ["场景", normalizedSceneLabel],
-    ["章节", reviewMeta.source_chapter_index ?? relation.source_chapter_id],
-    ["强度", relation.strength != null ? `${Math.round(Number(relation.strength) * 100)}%` : ""],
-    ["引用", relation.quote || reviewMeta.quote],
-    ["证据", evidenceRefs],
   ].filter(([, value]) => value != null && String(value).trim() !== "")
 }
 

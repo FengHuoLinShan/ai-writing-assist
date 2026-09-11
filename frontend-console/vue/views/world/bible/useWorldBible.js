@@ -28,6 +28,7 @@ import {
 } from "../pages/worldBiblePageEditor.js"
 import { BIBLE_CATEGORY_PRESETS, BIBLE_PAGE_TYPES } from "../pages/worldBiblePresentation.js"
 import { publishImpactHtml, publishReceiptHtml } from "../pages/worldBiblePublishing.js"
+import { captureModalOwner, ownsModalOwner } from "../logic/worldScopeGuards.js"
 
 const PROJECTION_TYPE = "context_brief"
 const BIBLE_DISPLAY_MODES = new Set(["editor", "gallery", "filter", "graph"])
@@ -191,30 +192,6 @@ export function useWorldBible(props) {
 
   function ownsEditor(owner) {
     return ownsPage(owner.novelId, owner.pageId) && activeDraftId.value === owner.draftId
-  }
-
-  function captureModalOwner(node = null) {
-    const body = document.getElementById("modal-body")
-    const overlay = document.getElementById("modal-overlay")
-    return {
-      body,
-      overlay,
-      node: node || body?.firstElementChild || null,
-      open: Boolean(overlay && !overlay.classList.contains("hidden")),
-    }
-  }
-
-  function ownsModalOwner(owner) {
-    if (!owner?.body || !owner?.overlay) return true
-    if (document.getElementById("modal-body") !== owner.body || document.getElementById("modal-overlay") !== owner.overlay) return false
-    if (!owner.open) {
-      return owner.overlay.classList.contains("hidden") && owner.body.firstElementChild === owner.node
-    }
-    return Boolean(
-      owner.node?.isConnected
-      && owner.body.contains(owner.node)
-      && !owner.overlay.classList.contains("hidden"),
-    )
   }
 
   // ---- 从 pageId/draftId 解析对象 ----
