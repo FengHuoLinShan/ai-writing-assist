@@ -9,7 +9,7 @@
  * /projects/{id},不含 recycle-bin key,导致遗漏。新实现按集合根(第一路径段)失效。
  *
  * api.js 用 window.api 导出,内部 _invalidateRelatedCache/_apiCache 不可 import,
- * 故此处镜像其失效语义并断言行为(与 state-preservation 测试同一模式)。
+ * 故此处镜像其失效语义并断言行为。
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"

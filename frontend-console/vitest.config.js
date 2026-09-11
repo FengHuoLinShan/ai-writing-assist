@@ -7,6 +7,5 @@ export default defineConfig({
     environment: "happy-dom",
     setupFiles: ["./tests/setup.js"],
     include: ["tests/**/*.test.js"],
-    exclude: ["tests/state-preservation.test.cjs"],
   },
 })
