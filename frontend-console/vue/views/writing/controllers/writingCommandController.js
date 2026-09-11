@@ -3,6 +3,7 @@ import {
   clearActiveWorkflow,
   createOperationId,
   normalizeTaskProgress,
+  pollRetryDelay,
   persistActiveWorkflow,
   recoverActiveWorkflows,
 } from "../../../../shared/workflowProgress.js"
@@ -97,6 +98,7 @@ export function createWritingCommandController({
   async function waitForDraft(submitted, projectId, token) {
     if (submitted?.draft_id) return submitted
     if (!submitted?.task_id) throw new Error("正文建议未能开始，请稍后重试")
+    let pollFailures = 0
     while (!disposed && token === generation) {
       let task = null
       try {
@@ -107,9 +109,11 @@ export function createWritingCommandController({
           onProgress({ taskId: submitted.task_id, progress: normalizeTaskProgress({ id: submitted.task_id, task_type: "writing_generate", status: "failed", error_message: "未找到原任务，请重新开始。" }, "writing_generate") })
           throw Object.assign(new Error("未找到原任务，请重新开始。"), { workflowProgressVisible: true })
         }
-        await wait(1500, token)
+        pollFailures += 1
+        await wait(pollRetryDelay(pollFailures), token)
         continue
       }
+      pollFailures = 0
       if (disposed || token !== generation || getProjectId() !== projectId) throw ABORTED
       onProgress({ taskId: submitted.task_id, progress: normalizeTaskProgress(task, "writing_generate") })
       if (task?.status === "done") {
@@ -131,6 +135,7 @@ export function createWritingCommandController({
 
   async function waitForManagedTask(submitted, projectId, token, workflowType) {
     if (!submitted?.task_id) throw new Error("任务未能开始，请稍后重试")
+    let pollFailures = 0
     while (!disposed && token === generation) {
       let task
       try {
@@ -141,9 +146,11 @@ export function createWritingCommandController({
           onProgress({ taskId: submitted.task_id, progress: normalizeTaskProgress({ id: submitted.task_id, task_type: workflowType, status: "failed", error_message: "未找到原任务，请重新开始。" }, workflowType) })
           throw Object.assign(new Error("未找到原任务，请重新开始。"), { workflowProgressVisible: true })
         }
-        await wait(1500, token)
+        pollFailures += 1
+        await wait(pollRetryDelay(pollFailures), token)
         continue
       }
+      pollFailures = 0
       if (disposed || token !== generation || getProjectId() !== projectId) throw ABORTED
       onProgress({ taskId: submitted.task_id, progress: normalizeTaskProgress(task, workflowType), result: task?.result || null })
       if (task?.status === "done") return task

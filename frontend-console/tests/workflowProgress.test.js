@@ -469,8 +469,10 @@ describe("pollTaskProgress", () => {
       onUpdate,
       onFailed,
     })
-    await vi.runOnlyPendingTimersAsync()
-    await vi.runOnlyPendingTimersAsync()
+    await Promise.resolve()
+    await vi.advanceTimersByTimeAsync(2999)
+    expect(apiClient.tasks.get).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
 
     expect(onUpdate.mock.calls[0][0].stateUnknown).toBe(true)
     expect(apiClient.tasks.get).toHaveBeenCalledTimes(2)

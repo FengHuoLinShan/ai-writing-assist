@@ -8,6 +8,7 @@ import {
   watch,
 } from "vue"
 import { getApi } from "../../bridge/index.js"
+import { pollRetryDelay } from "../../../shared/workflowProgress.js"
 import {
   RP_SOURCE_FILE_ACCEPT,
   validateImportFile,
@@ -67,7 +68,6 @@ let sourceGeneration = 0
 let restoredRevisionId = restored.revisionId || null
 
 const POLL_INTERVAL_MS = 2500
-const POLL_RETRY_DELAYS_MS = [3000, 6000, 12000, 24000, 30000]
 const STEP_ITEMS = [
   { value: 1, label: "选择资料来源" },
   { value: 2, label: "选择作品或文件" },
@@ -512,9 +512,7 @@ async function refreshRevision() {
     if (pollFailures === 1) {
       reportError("整理进度暂时无法刷新。")
     }
-    schedulePoll(
-      POLL_RETRY_DELAYS_MS[Math.min(pollFailures - 1, POLL_RETRY_DELAYS_MS.length - 1)],
-    )
+    schedulePoll(pollRetryDelay(pollFailures))
   }
 }
 

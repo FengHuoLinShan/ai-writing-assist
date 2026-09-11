@@ -4,8 +4,15 @@ const ACTIVE_WORKFLOWS_KEY = "novel_active_workflows_v1"
 
 const TERMINAL_STATUSES = new Set(["done", "failed", "cancelled"])
 const RUNNING_STATUSES = new Set(["pending", "running"])
+const POLL_RETRY_DELAYS_MS = [3000, 6000, 12000, 24000, 30000]
 
 export const TASK_CANCELLED_MESSAGE = "已停止后续处理，不会再排下一步；已保存的阶段结果仍保留。正在结束的远程请求可能不会瞬时断开。"
+
+export function pollRetryDelay(failureCount) {
+  return POLL_RETRY_DELAYS_MS[
+    Math.min(Math.max(1, failureCount) - 1, POLL_RETRY_DELAYS_MS.length - 1)
+  ]
+}
 
 export function createOperationId() {
   if (typeof globalThis.crypto?.randomUUID === "function") {
@@ -469,6 +476,8 @@ export function pollTaskProgress({
   let stopped = false
   let timer = null
   let inFlight = false
+  let pollFailures = 0
+  let nextDelay = intervalMs
   const visibilityDoc = typeof document !== "undefined" ? document : null
   const canPauseForVisibility = Boolean(
     pauseWhenHidden
@@ -487,7 +496,7 @@ export function pollTaskProgress({
   const scheduleNext = () => {
     if (stopped || isHidden()) return
     clearTimer()
-    timer = setTimeout(tick, intervalMs)
+    timer = setTimeout(tick, nextDelay)
   }
 
   const handleVisibilityChange = () => {
@@ -520,6 +529,8 @@ export function pollTaskProgress({
         ? await apiClient.tasks.get(taskId, novelId)
         : await apiClient.tasks.get(taskId)
       if (stopped) return
+      pollFailures = 0
+      nextDelay = intervalMs
       const progress = normalizeTaskProgress(task, workflowType)
       onUpdate?.(progress, task)
       if (progress.done) {
@@ -554,6 +565,8 @@ export function pollTaskProgress({
         }, null)
         return
       }
+      pollFailures += 1
+      nextDelay = pollRetryDelay(pollFailures)
     } finally {
       inFlight = false
     }

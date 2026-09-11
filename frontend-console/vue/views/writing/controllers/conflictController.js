@@ -3,6 +3,7 @@ import {
   clearActiveWorkflow,
   createOperationId,
   normalizeTaskProgress,
+  pollRetryDelay,
   persistActiveWorkflow,
   recoverActiveWorkflows,
 } from "../../../../shared/workflowProgress.js"
@@ -54,6 +55,7 @@ export function createConflictController({ api, toast, getProjectId, getCheck, o
   }
 
   async function waitForTask(taskId, projectId, token, workflowType) {
+    let pollFailures = 0
     while (true) {
       let task
       try { task = await api.tasks.get(taskId, projectId) } catch (err) {
@@ -62,8 +64,10 @@ export function createConflictController({ api, toast, getProjectId, getCheck, o
           onProgress({ taskId, progress: normalizeTaskProgress({ id: taskId, task_type: workflowType, status: "failed", error_message: "未找到原任务，请重新开始。" }, workflowType) })
           throw Object.assign(new Error("未找到原任务，请重新开始。"), { workflowProgressVisible: true })
         }
-        await wait(token, projectId); continue
+        pollFailures += 1
+        await wait(token, projectId, pollRetryDelay(pollFailures)); continue
       }
+      pollFailures = 0
       guard(token, projectId)
       onProgress({ taskId, progress: normalizeTaskProgress(task, workflowType) })
       if (task?.status === "done") { clearActiveWorkflow(taskId, receiptStorage); return task }

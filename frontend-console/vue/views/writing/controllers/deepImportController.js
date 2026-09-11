@@ -1,5 +1,6 @@
 import {
   clearActiveWorkflow,
+  pollRetryDelay,
   persistActiveWorkflow,
   recoverActiveWorkflows,
   TASK_CANCELLED_MESSAGE,
@@ -15,7 +16,6 @@ const SUPPORTED = new Set([
 ])
 
 const POLL_INTERVAL_MS = 3000
-const POLL_RETRY_DELAYS_MS = [3000, 6000, 12000, 24000, 30000]
 
 function taskPercent(task, result) {
   const raw = typeof task.progress === "number" ? task.progress : NaN
@@ -166,9 +166,7 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
         return
       }
       pollFailures += 1
-      nextDelay = POLL_RETRY_DELAYS_MS[
-        Math.min(pollFailures - 1, POLL_RETRY_DELAYS_MS.length - 1)
-      ]
+      nextDelay = pollRetryDelay(pollFailures)
       progress = { ...(progress || {}), message: "任务状态暂不可用，正在重试..." }
       emit()
     }

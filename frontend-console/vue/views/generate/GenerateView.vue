@@ -80,6 +80,7 @@ import {
   createOperationId,
   normalizeTaskProgress,
   persistActiveWorkflow,
+  pollRetryDelay,
   pollTaskProgress,
   recoverActiveWorkflows,
 } from "../../../shared/workflowProgress.js"
@@ -1366,7 +1367,41 @@ async function changePovChapter(value, { preserveSelection = false } = {}) {
 }
 function changePovScene(id) { const scene = pov.scenes.find((item) => item.id === id); povForm.value = { ...povForm.value, sceneId: id || "", viewpointCharacterId: scene?.pov_character_id || "" }; povSubmission.value = null }
 function abortableDelay(ms, signal) { return new Promise((resolve, reject) => { const timer = setTimeout(resolve, ms); signal.addEventListener("abort", () => { clearTimeout(timer); reject(new DOMException("Aborted", "AbortError")) }, { once: true }) }) }
-async function waitForPovTask(taskId, scope) { while (owner.isActive(scope)) { let task; try { task = await api.tasks.get(taskId, props.projectId) } catch (err) { if (!owner.isActive(scope)) throw new DOMException("Aborted", "AbortError"); if (Number(err?.status) === 404) { clearActiveWorkflow(taskId, receiptStorage); throw new Error("未找到原任务，请重新开始。") } await abortableDelay(1500, scope.controller.signal); continue } if (!owner.isActive(scope)) throw new DOMException("Aborted", "AbortError"); povProgress.value = Number(task?.progress || 0); if (task?.status === "done") { if (!task.result?.draft_id) throw new Error("任务已完成，但正文建议未能加载"); return task } if (task?.status === "failed") { clearActiveWorkflow(taskId, receiptStorage); throw new Error(task.error_message || task.result?.error_message || "角色视角正文生成失败") } if (task?.status === "cancelled") { clearActiveWorkflow(taskId, receiptStorage); throw new Error("角色视角正文生成已取消") } await abortableDelay(1500, scope.controller.signal) } throw new DOMException("Aborted", "AbortError") }
+async function waitForPovTask(taskId, scope) {
+  let pollFailures = 0
+  while (owner.isActive(scope)) {
+    let task
+    try {
+      task = await api.tasks.get(taskId, props.projectId)
+    } catch (err) {
+      if (!owner.isActive(scope)) throw new DOMException("Aborted", "AbortError")
+      if (Number(err?.status) === 404) {
+        clearActiveWorkflow(taskId, receiptStorage)
+        throw new Error("未找到原任务，请重新开始。")
+      }
+      pollFailures += 1
+      await abortableDelay(pollRetryDelay(pollFailures), scope.controller.signal)
+      continue
+    }
+    pollFailures = 0
+    if (!owner.isActive(scope)) throw new DOMException("Aborted", "AbortError")
+    povProgress.value = Number(task?.progress || 0)
+    if (task?.status === "done") {
+      if (!task.result?.draft_id) throw new Error("任务已完成，但正文建议未能加载")
+      return task
+    }
+    if (task?.status === "failed") {
+      clearActiveWorkflow(taskId, receiptStorage)
+      throw new Error(task.error_message || task.result?.error_message || "角色视角正文生成失败")
+    }
+    if (task?.status === "cancelled") {
+      clearActiveWorkflow(taskId, receiptStorage)
+      throw new Error("角色视角正文生成已取消")
+    }
+    await abortableDelay(1500, scope.controller.signal)
+  }
+  throw new DOMException("Aborted", "AbortError")
+}
 async function generatePov() {
   if (povPending.value) return false
   const form = { ...povForm.value }; if (!form.chapterIndex) return toast("请先选择章节", "warning"); if (!form.sceneId) return toast("请先选择场景", "warning"); if (!form.viewpointCharacterId) return toast("请先选择视角角色", "warning")

@@ -1719,7 +1719,9 @@ describe("GenerateView Vue behavior matrix", () => {
       await flushPromises()
       expect(api.tasks.get).toHaveBeenCalledTimes(1)
 
-      await vi.advanceTimersByTimeAsync(1500)
+      await vi.advanceTimersByTimeAsync(2999)
+      expect(api.tasks.get).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1)
       await flushPromises()
       expect(api.tasks.get).toHaveBeenCalledTimes(2)
       expect(wrapper.get("#generate-pov-result").text()).toContain("40%")
