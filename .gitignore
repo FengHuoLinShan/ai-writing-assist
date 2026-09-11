@@ -51,6 +51,7 @@ backend/data/dedup_training/*.jsonl
 /output/
 
 # Session/debug artifacts
+.zcode/
 .test-logs/
 backend/evals/.cache/
 backend/evals/artifacts/
