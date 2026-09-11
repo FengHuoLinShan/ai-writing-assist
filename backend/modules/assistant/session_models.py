@@ -19,7 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from core.base import Base, TimestampMixin, UUIDMixin
+from core.base import Base, NovelMixin, TimestampMixin, UUIDMixin
 
 COCREATION_SOURCE_KINDS = (
     "project",
@@ -34,7 +34,7 @@ COCREATION_CHECKPOINT_TARGET_TYPES = (
 )
 
 
-class AssistantSession(Base, UUIDMixin, TimestampMixin):
+class AssistantSession(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "world_cocreation_sessions"
     __table_args__ = (
         UniqueConstraint("novel_id", "id", name="uq_world_cocreation_session_novel"),
@@ -63,12 +63,6 @@ class AssistantSession(Base, UUIDMixin, TimestampMixin):
         {"comment": "共创会话：绑定项目内主题/资料/世界核心的持久化讨论载体"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     source_kind: Mapped[str] = mapped_column(String(32), nullable=False)
     source_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -108,7 +102,7 @@ class AssistantSession(Base, UUIDMixin, TimestampMixin):
     )
 
 
-class AssistantMessage(Base, UUIDMixin, TimestampMixin):
+class AssistantMessage(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "world_cocreation_messages"
     __table_args__ = (
         ForeignKeyConstraint(
@@ -142,12 +136,6 @@ class AssistantMessage(Base, UUIDMixin, TimestampMixin):
         {"comment": "共创会话消息：终态作者消息/模型回复/作者决定，含来源与成果引用"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     session_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     kind: Mapped[str] = mapped_column(String(16), nullable=False, default="message")
