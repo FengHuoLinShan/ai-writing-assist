@@ -3,7 +3,7 @@ id: T-20260911-full-codebase-optimization-implementation
 title: 全代码库优化实施
 status: in_progress
 created: 2026-09-11T23:00:00+08:00
-updated: 2026-09-12T01:20:00+08:00
+updated: 2026-09-12T01:38:00+08:00
 ---
 
 # 全代码库优化实施
@@ -13,11 +13,11 @@ updated: 2026-09-12T01:20:00+08:00
 - 目标：执行全代码库审查产出的全部可执行实施计划；明确延期、收益待测、真实数据清理、付费模型、合并、推送和部署不擅自执行。
 - 工作区：`/Users/tywww/Desktop/项目/ai-writing-assist-full-optimization`，分支 `codex/full-optimization-implementation`，从本地 `main@44728ec22` 建立；`origin/main@2c462f2c7` 落后 5 个本地提交。
 - 选择本地 main 的原因：它包含审查产物和已完成的前端修订；主工作区的 imports 未提交 WIP 未带入本分支。
-- 已完成：R0a/R0b、R1–R4、R6b/R6c/R6d/R6e；B1a 已落地 shared/core/task、story/continuity/writing/imports 与 Evidence 的可证明清理 leaf。
-- 当前验证：fast 5487 passed/13 skipped/7 deselected（R4b 后）；PostgreSQL critical 32 passed；imports 清理后 701 passed；Evidence indexing 318 passed/2 deselected，compilation 275 passed；lint/docs-check 通过。
-- 已提交的最新清理：`eaa0caa36`–`9bfa2eb2c`；其中旧 Scene reducer 与测试自证净删 3,094 行，现行 Phase 1a/1b/1c 链不变。
-- 下一步：继续 B1b 前端死代码，再做 B1c 可无争议的 git 卫生 leaf；随后进入 B2 契约对比。
-- 未完成：R5/R6a 产品语义决策、B1b/B1c/B1d、B2–B4 可执行 leaf 与最终跨模块门禁；B5/收益待测项按计划保持延期。
+- 已完成：R0a/R0b、R1–R4、R6b/R6c/R6d/R6e；B1a/B1b 的可证明清理 leaf；B1c 无争议的 coverage/夹具/旧脚本/文档索引 leaf；B2a/B2b/B2c；B2d 的 timeout、writing 指纹、版本状态、World payload/owner/key、DI 小项；B2e 的 Vue 守卫扩面；B3a story 侧、B3b、B3e 业务逻辑归位；B4d。
+- 当前验证：最新 fast 全量在修复前为 5381 passed/13 skipped/7 deselected，4 个静态/存量测试随后定向 230 passed；PostgreSQL critical 32 passed；imports 701 passed；前端完整 2456 passed，后续 World 相关 215 passed，lint/build 通过。
+- 最新原子提交：`16e4b8889`–`aee94ec2b`。其中 snapshot/checkpoint/stable-hash 均先做字节/行为兼容收敛；World owner/key/状态标签保持旧导出入口。
+- 下一步：继续 B2d 可独立验证的 schema/interaction/前端 leaf，再评估 B3/B4 仍有必要的最小实现；到里程碑重跑后端 fast、前端全量、PostgreSQL critical 与 docs-check。
+- 未完成：R5/R6a 产品语义决策；B1c 历史证据/法务去留、B1d 受保护 styles WIP；B2d 大批量 schema/model 收敛及部署环境项；B2e Story HTTP 覆盖；B3c 付费验收门禁、B3d；B4a/b/c/f；B5/收益待测项按计划保持延期。
 
 ## 边界与决定
 
@@ -36,3 +36,5 @@ updated: 2026-09-12T01:20:00+08:00
 - R4：eval 140 passed/1 skipped；默认 fast 层收集 5507（选中 5500）并通过 5487/13 skipped/7 deselected。
 - R6；assistant PostgreSQL 并发 2 passed；world 924 passed；generate-e2e 真正进入 21 个浏览器测试（17 通过，4 个既有失败已记录）。
 - B1a：continuity 91 passed；writing+real index 228 passed/3 deselected；imports 701 passed；Evidence indexing 318 passed/2 deselected；Evidence compilation 275 passed。
+- B1b/B1c：前端完整 182 files / 2456 tests、lint/build 通过；Playwright 53MB 导入夹具 1 passed；coverage 快照已停止跟踪且本地文件保留。
+- B2/B3/B4 leaf：snapshot 285、checkpoint 338、stable-hash/full fast 2358、writing 222、story 489/12 skipped、worker 66、DI 82、World owner/key 203、World 状态映射 12，相关 lint/build 均通过。
