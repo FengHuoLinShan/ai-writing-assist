@@ -1,7 +1,4 @@
-<!--
-  WorldBulkToolbar — 批量工具条，DOM 契约对齐 shared/bulkSelection.js
-  renderBulkToolbar（.bulk-toolbar[data-scope] > __status + __actions + sr-only）。
--->
+<!-- 批量工具条，选择状态由 worldBulkSelection 驱动。 -->
 <template>
   <div class="bulk-toolbar" :data-scope="scope">
     <div class="bulk-toolbar__status">

@@ -1,9 +1,4 @@
-<!--
-  OutlineBulkToolbar — 批量工具条，DOM 契约对齐 shared/bulkSelection.js
-  renderBulkToolbar（.bulk-toolbar[data-scope] > __status(strong + noun已选)
-  + __actions(bulk-run/bulk-clear) + sr-only title），实现同 WorldBulkToolbar，
-  状态落 outlineBulkSelection。outline 的 vanilla 调用不使用 selectAll/hint。
--->
+<!-- 批量工具条，选择状态由 outlineBulkSelection 驱动。 -->
 <template>
   <div class="bulk-toolbar" :data-scope="scope">
     <div class="bulk-toolbar__status">

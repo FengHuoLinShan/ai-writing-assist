@@ -1,8 +1,4 @@
-<!--
-  WorldSelectionInput — 批量选择复选框，DOM 契约对齐 shared/bulkSelection.js
-  renderSelectionCell / renderSelectionHeader（label.selection-checkbox >
-  input[data-action][data-scope]([data-id]) + span.sr-only）。
--->
+<!-- 批量选择复选框，保留 data-action/data-scope/data-id 与无障碍标签。 -->
 <template>
   <label class="selection-checkbox" :title="label">
     <input

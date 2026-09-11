@@ -4,9 +4,6 @@ import {
   clearBulkSelection,
   getBulkSelection,
   reconcileBulkSelection,
-  renderBulkToolbar,
-  renderSelectionCell,
-  renderSelectionHeader,
   runBulkAction,
   selectedItemsFrom,
   toggleAllBulkSelection,
@@ -31,43 +28,6 @@ describe("bulkSelection helper", () => {
     reconcileBulkSelection(view, "world", ["e2", "e4"])
 
     expect(Array.from(getBulkSelection(view, "world"))).toEqual(["e2"])
-  })
-
-  it("renders escaped selection controls and toolbar", () => {
-    const view = {}
-    toggleBulkSelection(view, "s<1", "id\"1", true)
-
-    expect(renderSelectionCell(view, "s<1", "id\"1", "选 <项>")).toContain("&lt;项&gt;")
-    expect(renderSelectionHeader(view, "s<1", ["id\"1"], "全选")).toContain("checked")
-    const toolbar = renderBulkToolbar(view, "s<1", [{ action: "delete", label: "删除" }], { noun: "对象" })
-    expect(toolbar).toContain("1")
-    expect(toolbar).toContain("对象已选")
-  })
-
-  it("optionally renders select-all for visible toolbar items", () => {
-    const view = { _bulkSelections: {} }
-
-    const toolbar = renderBulkToolbar(view, "world-objects", [], {
-      noun: "对象",
-      selectAllIds: ["e1", "e2"],
-      selectAllLabel: "全选当前页对象",
-    })
-
-    expect(toolbar).toContain('data-action="bulk-toggle-all"')
-    expect(toolbar).toContain('data-scope="world-objects"')
-    expect(toolbar).toContain("全选当前页对象")
-  })
-
-  it("renders indeterminate header checkbox with indeterminate attribute", () => {
-    const view = {}
-    toggleBulkSelection(view, "world", "e1", true)
-    const header = renderSelectionHeader(view, "world", ["e1", "e2"], "全选")
-    const container = document.createElement("div")
-    container.innerHTML = header
-    const checkbox = container.querySelector("input[type='checkbox']")
-    expect(checkbox).not.toBeNull()
-    expect(checkbox.hasAttribute("data-indeterminate")).toBe(true)
-    expect(checkbox.hasAttribute("indeterminate")).toBe(true)
   })
 
   it("filters selected items by ids", () => {

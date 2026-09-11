@@ -1,12 +1,6 @@
 /**
- * worldBulkSelection — world 视图批量选择的 Vue 化实现。
- *
- * 语义逐行对应 shared/bulkSelection.js 的状态函数，但状态落在
- * worldSession.bulkSelections（reactive），checkbox/工具条由模板绑定驱动，
- * 不再需要 syncBulkSelectionUi 的命令式 DOM 同步（与 Vue 渲染冲突）。
- * DOM 契约（data-action/data-scope/data-id、.bulk-toolbar 结构）由组件模板保留。
- * shared/bulkSelection.js 不动（outline/writing 仍消费）；纯函数
- * runBulkAction / bulkResultMessage / selectedItemsFrom 直接从 shared 复用。
+ * world 视图批量选择：状态落在 reactive worldSession，组件模板驱动 UI。
+ * 批量执行和结果处理直接复用 shared/bulkSelection.js。
  */
 import { worldSession } from "../worldSession.js"
 
@@ -51,7 +45,7 @@ export function reconcileBulkSelection(scope, visibleIds) {
   }
 }
 
-/** 全选框状态：对应 shared renderSelectionHeader 的 checked/indeterminate/disabled。 */
+/** 全选框状态：checked/indeterminate/disabled。 */
 export function selectAllState(scope, ids) {
   const cleanIds = ids.filter(Boolean).map(String)
   const selection = getBulkSelection(scope)

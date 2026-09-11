@@ -256,7 +256,7 @@ describe("批量选择", () => {
     const wrapper = mount(OutlineThreadsTab, {
       props: { projectId: "p1", subView: "threads", threads: SAMPLE_THREADS },
     })
-    // vanilla renderBulkToolbar：列表非空时工具条常驻，0 选中时按钮禁用
+    // 列表非空时工具条常驻，0 选中时按钮禁用
     const toolbar = wrapper.find(".bulk-toolbar")
     expect(toolbar.exists()).toBe(true)
     expect(toolbar.find(".bulk-toolbar__status strong").text()).toBe("0")
