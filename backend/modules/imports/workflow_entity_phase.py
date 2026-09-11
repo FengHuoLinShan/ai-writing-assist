@@ -27,31 +27,6 @@ class EntityExtractionPhaseRunner:
     def __init__(self, workflow: DeepImportWorkflowRuntime) -> None:
         self.workflow = workflow
 
-    async def run_full_pipeline_phase(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        start_chapter: int,
-        end_chapter: int,
-        progress: DeepImportProgress,
-        *,
-        workflow_id: str | None,
-        total_scenes: int,
-        on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None,
-    ) -> dict[str, Any]:
-        return await self.run_full_pipeline(
-            EntityFullPipelineRequest(
-                db=db,
-                novel_id=novel_id,
-                start_chapter=start_chapter,
-                end_chapter=end_chapter,
-                progress=progress,
-                workflow_id=workflow_id,
-                on_progress=on_progress,
-                total_scenes=total_scenes,
-            )
-        )
-
     async def run_full_pipeline(
         self,
         request: EntityFullPipelineRequest,
@@ -286,29 +261,6 @@ class EntityExtractionPhaseRunner:
             ],
         )
         return phase2_result
-
-    async def run_stage_only(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        start_chapter: int,
-        end_chapter: int,
-        progress: DeepImportProgress,
-        *,
-        workflow_id: str | None = None,
-        on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None = None,
-    ) -> DeepImportProgress:
-        return await self.run_stage(
-            EntityStageRequest(
-                db=db,
-                novel_id=novel_id,
-                start_chapter=start_chapter,
-                end_chapter=end_chapter,
-                progress=progress,
-                workflow_id=workflow_id,
-                on_progress=on_progress,
-            )
-        )
 
     async def run_stage(self, request: EntityStageRequest) -> DeepImportProgress:
         """Run Phase 2a/2b against already committed Scenes."""

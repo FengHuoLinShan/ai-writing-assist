@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -19,7 +18,7 @@ from modules.imports.service_phase_artifacts import (
 )
 from modules.imports.workflow_phase_runner import SceneFullPipelineRequest
 from modules.imports.workflow_runtime import DeepImportWorkflowRuntime
-from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
+from modules.imports.workflow_schemas import DeepImportStep
 
 PHASE0_422_RECOMMENDATION = (
     "推荐使用官方api以保障稳定性与质量；强推 DeepSeek-v4-flash，质量高价格低并发超快。"
@@ -74,31 +73,6 @@ class ScenePhaseRunner:
 
     def __init__(self, workflow: DeepImportWorkflowRuntime) -> None:
         self.workflow = workflow
-
-    async def run(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        start_chapter: int,
-        end_chapter: int,
-        progress: DeepImportProgress,
-        *,
-        workflow_id: str | None,
-        on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None,
-        stop_after: DeepImportStep | None,
-    ) -> ScenePhaseOutcome:
-        return await self.run_full_pipeline(
-            SceneFullPipelineRequest(
-                db=db,
-                novel_id=novel_id,
-                start_chapter=start_chapter,
-                end_chapter=end_chapter,
-                progress=progress,
-                workflow_id=workflow_id,
-                on_progress=on_progress,
-                stop_after=stop_after,
-            )
-        )
 
     async def run_full_pipeline(
         self,
