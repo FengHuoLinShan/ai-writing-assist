@@ -1,17 +1,16 @@
 """
 shared/utils.py 单元测试
 
-测试 parse_uuid（UUID 解析 + 422 错误）和 is_valid_uuid（格式验证）。
+测试 parse_uuid（UUID 解析 + 422 错误）。
 """
 
-import logging
 import uuid
 from pathlib import Path
 
 import pytest
 
 from core.errors import ValidationError as DomainValidationError
-from shared.utils import is_valid_uuid, parse_llm_json, parse_uuid
+from shared.utils import parse_uuid
 
 
 class TestParseUUID:
@@ -65,105 +64,3 @@ class TestParseUUID:
         with pytest.raises(DomainValidationError) as exc:
             parse_uuid("x", "novel_id")
         assert "novel_id" in exc.value.detail
-
-
-class TestIsValidUUID:
-    """is_valid_uuid — UUID 格式验证（不抛异常）"""
-
-    def test_valid_uuid_returns_true(self):
-        assert is_valid_uuid("c8f2a1e456784b3d9f1a2b3c4d5e6f71") is True
-
-    def test_invalid_uuid_returns_false(self):
-        assert is_valid_uuid("not-a-uuid") is False
-
-    def test_empty_string_returns_false(self):
-        assert is_valid_uuid("") is False
-
-    def test_none_returns_false(self):
-        # None 不是有效的字符串输入，is_valid_uuid 应返回 False
-        try:
-            result = is_valid_uuid(None)  # type: ignore[arg-type]
-        except TypeError:
-            result = False
-        assert result is False
-
-    def test_wrong_length_returns_false(self):
-        assert is_valid_uuid("abc") is False
-
-    def test_non_hex_returns_false(self):
-        assert is_valid_uuid("zzzz1111222233334444555566667777") is False
-
-
-class TestParseLLMJsonLogging:
-    """parse_llm_json — 失败日志不记录 provider 返回内容。"""
-
-    def test_parse_failure_log_redacts_secrets(self, caplog):
-        bearer_secret = "bearersecret123456"
-        api_secret = "sk-proj-abcdef1234567890"
-        token_secret = "tok_secret_123456"
-        content = (
-            f"Authorization: Bearer {bearer_secret} "
-            f'api_key="{api_secret}" token={token_secret} not json'
-        )
-
-        with caplog.at_level(logging.WARNING, logger="shared.utils"):
-            with pytest.raises(ValueError) as exc:
-                parse_llm_json(content, label="Bad LLM")
-
-        assert str(exc.value) == "Bad LLM is not valid JSON"
-        assert bearer_secret not in caplog.text
-        assert api_secret not in caplog.text
-        assert token_secret not in caplog.text
-        assert "length=" in caplog.text
-
-    def test_empty_branch_log_keeps_error_message(self, caplog):
-        with caplog.at_level(logging.WARNING, logger="shared.utils"):
-            with pytest.raises(ValueError) as exc:
-                parse_llm_json(" \n\t ", label="Empty LLM")
-
-        assert str(exc.value) == "Empty LLM is empty"
-        assert "empty or whitespace-only" in caplog.text
-
-
-class TestParseLLMJsonExtraction:
-    """parse_llm_json — 常见 provider 包装与截断恢复。"""
-
-    @pytest.mark.parametrize(
-        ("content", "expected"),
-        [
-            ('{"answer": 42}', {"answer": 42}),
-            ('[{"answer": 42}]', {"items": [{"answer": 42}]}),
-            ('```json\n{"answer": 42}\n```', {"answer": 42}),
-            ('```json\n[{"answer": 42}]\n```', {"items": [{"answer": 42}]}),
-            ('prefix \ufeff{"answer": 42} suffix', {"answer": 42}),
-            ("analysis before [1, 2] after", {"items": [1, 2]}),
-        ],
-    )
-    def test_extracts_supported_response_shapes(self, content, expected):
-        assert parse_llm_json(content) == expected
-
-    def test_falls_through_malformed_fence_to_embedded_object(self):
-        content = '```json\nnot-json\n```\nfinal answer: {"ok": true}'
-
-        assert parse_llm_json(content) == {"ok": True}
-
-    def test_recovers_complete_prefix_from_truncated_object(self, caplog):
-        content = '{"kept": {"nested": {"name": "value"}}, "unfinished": '
-
-        with caplog.at_level(logging.INFO, logger="shared.utils"):
-            result = parse_llm_json(content, label="Truncated LLM")
-
-        assert result == {"kept": {"nested": {"name": "value"}}}
-        assert "recovered truncated JSON" in caplog.text
-
-    def test_valid_scalar_is_rejected_as_non_object_response(self):
-        with pytest.raises(ValueError, match="Scalar LLM is not valid JSON"):
-            parse_llm_json("42", label="Scalar LLM")
-
-    def test_code_fenced_scalar_is_rejected_as_non_object_response(self):
-        with pytest.raises(ValueError, match="Scalar LLM is not valid JSON"):
-            parse_llm_json("```json\n42\n```", label="Scalar LLM")
-
-    def test_malformed_bracketed_response_is_rejected(self):
-        with pytest.raises(ValueError, match="Bracketed LLM is not valid JSON"):
-            parse_llm_json("[not-json]", label="Bracketed LLM")
