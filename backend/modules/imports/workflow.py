@@ -32,9 +32,6 @@ from modules.imports.workflow_llm_adapters import (
     _project_settings_for_novel,
 )
 from modules.imports.workflow_llm_adapters import (
-    _compact_phase1b_payload as _compact_phase1b_payload,
-)
-from modules.imports.workflow_llm_adapters import (
     _run_deep_import_structured_call as _run_deep_import_structured_call,
 )
 from modules.imports.workflow_phase_runner import (

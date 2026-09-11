@@ -249,12 +249,12 @@ single-chapter / fusion wrapper，以及非 runtime seam 的薄包装/死代码�
 - `workflow_entity_phase.py` — Phase 2a / Phase 2b 与 world_objects stage
 - `workflow_structure_phase.py` — Phase 3、plot_structure stage 与小样本结构保底
 - `workflow_progress.py` — progress timeline、诊断计数、checkpoint/audit/snapshot summary 合并
-- `workflow_llm_adapters.py` — 深度导入 LLM adapter、Phase 1a/1b prompt 和 token 预算控制；Phase 0 只做确定性规划，不再有 LLM prefetch adapter
+- `workflow_llm_adapters.py` — 深度导入 LLM adapter、Phase 1a/1b/1c prompt 和 token 预算控制；Phase 0 只做确定性规划，不再有 LLM prefetch adapter
 - `scene_planning.py` — Phase 0 章节字符统计、字符预算窗口 / overlap / max_tokens 规划
 - `scene_slicing.py` — Phase 1a Scene 边界切分、owned range 过滤和章节级 fallback
 - `scene_enrichment.py` — Phase 1b 逐 Scene 补字段、锁定字段保护、确定性 `scene_chunks`
 - `scene_fusion_phase1c.py` — 高质量导入的相邻 Scene 边界审核、高置信融合与建议生成
-- `scene_fusion.py` — 内部兼容/修复路径使用的候选融合组件；旧 `scene_prefetch.py` / `scene_reinforcement.py` 已删除
+- `scene_fusion.py` — Phase 1b enrichment 与 Phase 1c fusion 共享的 Scene candidate schema
 - `deep_import_retry.py` — 深度导入 LLM 错误分类与阶段可控 retry 策略
 - 受控 LLM step 统一从 `infrastructure/llm/agent_step_harness.py` 导入
 
