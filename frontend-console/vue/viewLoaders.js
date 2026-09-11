@@ -13,11 +13,9 @@ const viewLoaders = {
   settings: () => import("./settingsIslands.js"),
   "project-settings": () => import("./settingsIslands.js"),
   project: () => import("./projectIsland.js"),
-  today: () => import("./todayIsland.js"),
   rag: () => import("./ragIsland.js"),
   world: () => import("./worldIsland.js"),
   outline: () => import("./outlineIsland.js"),
-  generate: () => import("./generateIsland.js"),
   writing: () => import("./writingIsland.js"),
   map: () => import("./mapIsland.js"),
 }

@@ -45,7 +45,6 @@ export function useShellShortcuts({
       }
       if (key === "Escape") {
         event.target.blur?.()
-        services.state.mode = "NORMAL"
       }
       return
     }

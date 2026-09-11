@@ -37,7 +37,6 @@ const suggestionsVisible = computed(() => active.value && renderedSuggestions.va
 const activeSuggestion = computed(() => renderedSuggestions.value[activeSuggestionIndex.value] || null)
 const activeSuggestionId = computed(() => activeSuggestion.value ? suggestionId(activeSuggestionIndex.value) : undefined)
 
-function setMode(next) { props.services.state.mode = next }
 function suggestionId(index) { return `command-suggestion-${index}` }
 function clearActiveSuggestion() { activeSuggestionIndex.value = -1 }
 function setActiveSuggestion(index) {
@@ -56,7 +55,6 @@ async function open(prefix = ":") {
   value.value = prefix
   active.value = true
   clearActiveSuggestion()
-  setMode(prefix === "/" ? "SEARCH" : "COMMAND")
   await nextTick()
   input.value?.focus()
   input.value?.setSelectionRange(prefix.length, prefix.length)
@@ -67,12 +65,11 @@ function close({ restoreOrigin = false } = {}) {
   value.value = ""
   active.value = false
   clearActiveSuggestion()
-  setMode("NORMAL")
   originFocus.value = null
   if (inputWasFocused) input.value?.blur()
   if (returnTarget) void nextTick(() => { if (isValidReturnTarget(returnTarget)) returnTarget.focus() })
 }
-function ensureOpen() { if (!active.value) active.value = true; setMode(mode.value) }
+function ensureOpen() { if (!active.value) active.value = true }
 function hideWhenEmpty() { if (!value.value) close() }
 async function execute(command) { const text = String(command || "").trim(); close(); if (!text) return; try { await props.services.commands.execute(text) } catch (err) { props.services.toast(`命令执行失败：${err?.message || "未知错误"}`, "error") } }
 function complete() { const first = renderedSuggestions.value[0]; if (first) value.value = `${first.name} ` }

@@ -25,9 +25,6 @@ const appState = {
   /** @type {Object|null} 当前选中的列表项 */
   selectedItem: null,
 
-  /** @type {"NORMAL"|"COMMAND"|"SEARCH"|"INSERT"} 当前交互模式 */
-  mode: "NORMAL",
-
   /** @type {string} 搜索查询 */
   searchQuery: "",
 

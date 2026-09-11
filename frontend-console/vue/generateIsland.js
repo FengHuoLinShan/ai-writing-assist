@@ -1,9 +1,5 @@
-/**
- * generate Vue island 注册入口。由 app.js import 并注册到现有 hash router。
- */
-import { mountIsland } from "./mountIsland.js"
-import { getApi, getAppState, getRouteQuery, getRouter, getToast } from "./bridge/index.js"
-import GenerateView from "./views/generate/GenerateView.vue"
+/** Owner AI drawer data loader. */
+import { getApi, getAppState, getRouteQuery, getToast } from "./bridge/index.js"
 import {
   clearCreativeContinuation,
   cocreationSessionKey,
@@ -316,11 +312,3 @@ export async function loadGenerate(options = {}) {
   props.worldWorkspaceWarning ||= templateWarning || checkpointWarning || serverSessionWarning
   return props
 }
-
-export const generateIsland = mountIsland({ viewName: "generate", component: GenerateView, load: loadGenerate })
-
-export function registerGenerateIsland() {
-  getRouter()?.registerView?.("generate", generateIsland)
-}
-
-registerGenerateIsland()

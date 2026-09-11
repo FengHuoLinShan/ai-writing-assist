@@ -1,7 +1,5 @@
 import { clearActiveWorkflow, normalizeTaskProgress, recoverActiveWorkflows } from "../shared/workflowProgress.js"
-import { getApi, getAppState, getRouter } from "./bridge/index.js"
-import { mountIsland } from "./mountIsland.js"
-import TodayView from "./views/today/TodayView.vue"
+import { getApi, getAppState } from "./bridge/index.js"
 import {
   clearCreativeContinuation,
   generateSessionKey,
@@ -258,20 +256,3 @@ export async function loadTodayProps() {
       : null,
   }
 }
-
-export function registerTodayIsland() {
-  const router = getRouter()
-  if (!router) {
-    console.error("todayIsland: router 尚未就绪，island 注册跳过")
-    return null
-  }
-  const island = mountIsland({
-    viewName: "today",
-    component: TodayView,
-    load: loadTodayProps,
-  })
-  router.registerView("today", island)
-  return island
-}
-
-registerTodayIsland()
