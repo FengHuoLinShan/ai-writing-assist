@@ -43,47 +43,15 @@ def setup_logging() -> None:
 
 
 async def _require_active_task_project(db, task) -> None:
-    """Non-locking worker start check; lease fencing handles later deletion."""
-    novel_id = str(task.novel_id or "").strip()
-    if not novel_id:
-        return
+    from modules.project.facade import project_task_preflight
 
-    from core.errors import NotFoundError
-
-    if str(task.task_type).startswith("interaction_"):
-        from modules.project.facade import get_any_project_context
-
-        context = await get_any_project_context(db, novel_id)
-        if context is not None and context.project_kind != "interaction":
-            context = None
-    else:
-        from modules.project.facade import get_project_context
-
-        context = await get_project_context(db, novel_id)
-    if context is None:
-        raise NotFoundError(f"Project {novel_id} not found")
+    await project_task_preflight(db, task)
 
 
 async def _guard_active_task_project_finalize(db, task) -> bool:
-    """Linearize terminal task status before or after project deletion."""
-    novel_id = str(task.novel_id or "").strip()
-    if not novel_id:
-        return True
+    from modules.project.facade import project_task_commit_guard
 
-    from core.errors import NotFoundError
-
-    try:
-        if str(task.task_type).startswith("interaction_"):
-            from modules.project.facade import require_interaction_project
-
-            await require_interaction_project(db, novel_id)
-        else:
-            from modules.project.facade import require_active_project
-
-            await require_active_project(db, novel_id)
-    except NotFoundError:
-        return False
-    return True
+    return await project_task_commit_guard(db, task)
 
 
 def _configure_worker_process() -> None:

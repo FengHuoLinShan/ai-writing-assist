@@ -222,6 +222,36 @@ async def require_interaction_project(
     bind_validated_novel_id(novel_id)
 
 
+async def project_task_preflight(db: AsyncSession, task) -> None:
+    """Require the active project kind owned by one queued task."""
+    novel_id = str(task.novel_id or "").strip()
+    if not novel_id:
+        return
+    if str(task.task_type).startswith("interaction_"):
+        context = await get_any_project_context(db, novel_id)
+        if context is not None and context.project_kind != "interaction":
+            context = None
+    else:
+        context = await get_project_context(db, novel_id)
+    if context is None:
+        raise NotFoundError(f"Project {novel_id} not found")
+
+
+async def project_task_commit_guard(db: AsyncSession, task) -> bool:
+    """Return whether terminal task state may commit for its active project."""
+    novel_id = str(task.novel_id or "").strip()
+    if not novel_id:
+        return True
+    try:
+        if str(task.task_type).startswith("interaction_"):
+            await require_interaction_project(db, novel_id)
+        else:
+            await require_active_project(db, novel_id)
+    except NotFoundError:
+        return False
+    return True
+
+
 async def require_any_active_project(
     db: AsyncSession,
     novel_id: str,
