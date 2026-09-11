@@ -90,6 +90,7 @@ WRITING_GENERATION_TIMEOUT_SECONDS = 1800
 logger = logging.getLogger(__name__)
 
 SceneContractLoader = Callable[[AsyncSession, str, str], Awaitable[object | None]]
+SceneCheckpointLoader = Callable[[AsyncSession, str, str], Awaitable[object | None]]
 
 
 @dataclass(frozen=True)
@@ -172,6 +173,16 @@ async def _default_scene_contract_loader(
     from modules.story.facade import get_scene_contract
 
     return await get_scene_contract(db, novel_id, scene_id)
+
+
+async def _default_scene_checkpoint_loader(
+    db: AsyncSession,
+    novel_id: str,
+    scene_id: str,
+) -> object | None:
+    from modules.story.facade import ensure_scene_checkpoints
+
+    return await ensure_scene_checkpoints(db, novel_id, scene_id)
 
 
 def _sanitize_draft_create(
@@ -1122,12 +1133,20 @@ class WritingConflictCheckService:
         repo: WritingConflictCheckRepository | None = None,
         draft_repo: WritingDraftRepository | None = None,
         scene_contract_loader: SceneContractLoader | None = None,
+        scene_checkpoint_loader: SceneCheckpointLoader | None = None,
         llm_client: LLMClient | None = None,
     ) -> None:
         self._repo = repo or WritingConflictCheckRepository()
         self._draft_repo = draft_repo or WritingDraftRepository()
         self._scene_contract_loader = (
             scene_contract_loader or _default_scene_contract_loader
+        )
+        self._scene_checkpoint_loader = (
+            scene_checkpoint_loader
+            if scene_checkpoint_loader is not None
+            else _default_scene_checkpoint_loader
+            if scene_contract_loader is None
+            else None
         )
         self._ai_review_service = ConflictCheckAiReviewService(
             self._repo,
@@ -1154,6 +1173,7 @@ class WritingConflictCheckService:
         items: list[dict] = []
         degraded_sources: list[str] = []
         omissions: list[dict[str, str]] = []
+        continuity_coverage: dict[str, str] = {}
         if data.scene_id:
             scene = await self._load_scene(db, data.novel_id, data.scene_id)
             if scene is None:
@@ -1174,12 +1194,41 @@ class WritingConflictCheckService:
                             "reason": omission_reason,
                         }
                     )
-
+                checkpoint_set = await self._load_scene_checkpoints(
+                    db,
+                    data.novel_id,
+                    data.scene_id,
+                )
+                if checkpoint_set is not None:
+                    continuity_items, continuity_coverage, continuity_omissions = (
+                        self._continuity_rule_items(scene, checkpoint_set)
+                    )
+                    items.extend(continuity_items)
+                    for dimension, coverage in continuity_coverage.items():
+                        if coverage == "not_checked":
+                            source = f"continuity.{dimension}"
+                            degraded_sources.append(source)
+                    omissions.extend(continuity_omissions)
+                elif self._scene_checkpoint_loader is not None:
+                    continuity_coverage = {
+                        "space": "not_checked",
+                        "time": "not_checked",
+                        "logic": "not_checked",
+                    }
+                    degraded_sources.append("continuity")
+                    omissions.append(
+                        {
+                            "source": "continuity",
+                            "reason": "scene_state_unavailable",
+                        }
+                    )
         else:
             scene = None
 
         status = "degraded" if degraded_sources else "completed"
         summary_json = self._summary(items, degraded_sources, omissions)
+        if continuity_coverage:
+            summary_json["continuity_coverage"] = continuity_coverage
         content = data.content or ""
         check, created_items = await self._repo.create_check(
             db,
@@ -1196,7 +1245,10 @@ class WritingConflictCheckService:
                 "content_excerpt": content[:4000],
                 "content_char_count": len(content),
                 "content_hash": hash_text(content),
-                "sources": ["outline"],
+                "sources": [
+                    "outline",
+                    *(["story.continuity"] if continuity_coverage else []),
+                ],
             },
             include_candidates=data.include_candidates,
             status=status,
@@ -1511,6 +1563,9 @@ class WritingConflictCheckService:
             title = {
                 "forbidden_present": "疑似出现 Scene 禁止项",
                 "required_missing": "Scene 必须发生项未逐字出现",
+                "space_continuity_risk": "检查空间连续性",
+                "time_continuity_risk": "检查时间连续性",
+                "logic_continuity_risk": "检查前提与结果",
             }.get(item.kind, "检查写作语义问题")
             items.append(
                 WritingAuthorAttentionItemContract(
@@ -1536,6 +1591,327 @@ class WritingConflictCheckService:
                 redact_diagnostic(exc, limit=500),
             )
             return None
+
+    async def _load_scene_checkpoints(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        scene_id: str,
+    ) -> object | None:
+        if self._scene_checkpoint_loader is None:
+            return None
+        try:
+            return await self._scene_checkpoint_loader(db, novel_id, scene_id)
+        except Exception as exc:
+            logger.warning(
+                "Failed to load Scene continuity state for conflict check: %s",
+                redact_diagnostic(exc, limit=500),
+            )
+            return None
+
+    def _continuity_rule_items(
+        self,
+        scene: object,
+        checkpoint_set: object,
+    ) -> tuple[list[dict], dict[str, str], list[dict[str, str]]]:
+        payload = (
+            checkpoint_set.model_dump()
+            if hasattr(checkpoint_set, "model_dump")
+            else dict(checkpoint_set)
+        )
+        checkpoints = {
+            str(item.get("dimension")): item
+            for item in payload.get("items") or []
+            if isinstance(item, dict) and item.get("dimension")
+        }
+        mapping = {
+            "space": "locations",
+            "time": "timeline",
+            "logic": "causality",
+        }
+        coverage: dict[str, str] = {}
+        omissions: list[dict[str, str]] = []
+        trusted: dict[str, dict[str, Any]] = {}
+        for label, dimension in mapping.items():
+            checkpoint = checkpoints.get(dimension) or {}
+            is_trusted = checkpoint.get("status") == "ready" and (
+                checkpoint.get("source") == "system_generated"
+                or checkpoint.get("confirmed") is True
+            )
+            coverage[label] = "checked" if is_trusted else "not_checked"
+            if is_trusted:
+                trusted[dimension] = checkpoint
+            else:
+                omissions.append(
+                    {
+                        "source": f"continuity.{label}",
+                        "reason": str(checkpoint.get("status") or "missing"),
+                    }
+                )
+
+        items: list[dict] = []
+        if checkpoint := trusted.get("locations"):
+            items.extend(self._space_rule_items(scene, checkpoint))
+        if checkpoint := trusted.get("timeline"):
+            items.extend(self._time_rule_items(scene, checkpoint))
+        if checkpoint := trusted.get("causality"):
+            items.extend(self._logic_rule_items(scene, checkpoint))
+        return items, coverage, omissions
+
+    def _space_rule_items(self, scene: object, checkpoint: dict) -> list[dict]:
+        state = checkpoint.get("state_json") or {}
+        issues: list[tuple[str, str]] = []
+        structure_meta = getattr(scene, "structure_meta", None) or {}
+        exit_state = structure_meta.get("exit_state") or {}
+        pov_id = str(getattr(scene, "pov_character_id", None) or "")
+        if isinstance(exit_state, dict) and pov_id:
+            expected = exit_state.get("location_id") or exit_state.get("location")
+            actual_state = (state.get("character_locations") or {}).get(pov_id) or {}
+            actual = (
+                actual_state.get("location_id")
+                or actual_state.get("location")
+                or actual_state.get("new_value")
+                if isinstance(actual_state, dict)
+                else None
+            )
+            if expected and actual and self._stable_value(expected) != self._stable_value(
+                actual
+            ):
+                issues.append(
+                    (
+                        "space_exit_state_mismatch",
+                        "Scene 结束位置与可追溯位置状态不一致",
+                    )
+                )
+
+        grouped: dict[tuple[str, str], set[str]] = {}
+        for change in state.get("changes") or []:
+            if not isinstance(change, dict):
+                continue
+            meta = change.get("meta") or {}
+            subject = str(meta.get("subject_name") or change.get("subject_id") or "")
+            effective_at = str(
+                change.get("effective_at")
+                or change.get("scene_index")
+                or meta.get("effective_at")
+                or ""
+            )
+            location = change.get("new_value")
+            if subject and effective_at and location not in (None, ""):
+                grouped.setdefault((subject, effective_at), set()).add(
+                    self._stable_value(location)
+                )
+        if any(len(values) > 1 for values in grouped.values()):
+            issues.append(
+                (
+                    "space_simultaneous_presence",
+                    "同一对象在同一时点存在互斥的位置记录",
+                )
+            )
+        return [
+            self._continuity_item(
+                scene,
+                checkpoint,
+                kind="space_continuity_risk",
+                rule_code=rule_code,
+                summary=summary,
+            )
+            for rule_code, summary in issues
+        ]
+
+    def _time_rule_items(self, scene: object, checkpoint: dict) -> list[dict]:
+        facts = [
+            item
+            for item in (checkpoint.get("state_json") or {}).get("facts") or []
+            if isinstance(item, dict)
+        ]
+        edges: set[tuple[str, str]] = set()
+        same_time: set[frozenset[str]] = set()
+        anchors: dict[tuple[str, str], set[str]] = {}
+        for fact in facts:
+            category = str(fact.get("category") or "").lower()
+            meta = fact.get("meta") or {}
+            subject = str(meta.get("subject_name") or fact.get("subject") or "").strip()
+            target = fact.get("new_value") or fact.get("target")
+            if subject and isinstance(target, str) and target.strip():
+                target = target.strip()
+                if "before" in category:
+                    edges.add((subject, target))
+                elif "after" in category:
+                    edges.add((target, subject))
+                elif "same_time" in category or "simultaneous" in category:
+                    same_time.add(frozenset((subject, target)))
+            field = str(fact.get("field_path") or "").strip()
+            effective_at = str(fact.get("scene_index") or meta.get("effective_at") or "")
+            value = fact.get("new_value")
+            if field and effective_at and value not in (None, ""):
+                anchors.setdefault((field, effective_at), set()).add(
+                    self._stable_value(value)
+                )
+
+        issues: list[tuple[str, str]] = []
+        if self._has_directed_cycle(edges):
+            issues.append(("time_order_cycle", "已确认的时间先后关系形成循环"))
+        if any(frozenset(edge) in same_time for edge in edges):
+            issues.append(
+                ("time_simultaneous_order_conflict", "同一事件既被标为同时又有先后顺序")
+            )
+        if any(len(values) > 1 for values in anchors.values()):
+            issues.append(("time_anchor_conflict", "同一时点存在互斥的时间锚记录"))
+        return [
+            self._continuity_item(
+                scene,
+                checkpoint,
+                kind="time_continuity_risk",
+                rule_code=rule_code,
+                summary=summary,
+            )
+            for rule_code, summary in issues
+        ]
+
+    def _logic_rule_items(self, scene: object, checkpoint: dict) -> list[dict]:
+        claims = [
+            item
+            for item in (checkpoint.get("state_json") or {}).get("claims") or []
+            if isinstance(item, dict)
+        ]
+        current_scene_index = int(getattr(scene, "scene_index", 0) or 0)
+        grouped: dict[tuple[str, str], set[str]] = {}
+        true_claims: set[str] = set()
+        required: set[str] = set()
+        overdue: list[str] = []
+        for claim in claims:
+            meta = claim.get("meta") or {}
+            key = str(meta.get("claim_key") or claim.get("field_path") or "").strip()
+            effective_at = str(claim.get("scene_index") or meta.get("effective_at") or "")
+            value = claim.get("new_value")
+            if key and effective_at and value not in (None, ""):
+                grouped.setdefault((key, effective_at), set()).add(
+                    self._stable_value(value)
+                )
+            if key and self._is_true_value(value):
+                true_claims.add(key)
+            for item in meta.get("required_preconditions") or []:
+                if str(item).strip():
+                    required.add(str(item).strip())
+            due = meta.get("due_scene_index")
+            if (
+                key
+                and isinstance(due, int)
+                and due <= current_scene_index
+                and str(value).strip().lower() in {"open", "pending", "unmet"}
+            ):
+                overdue.append(key)
+
+        issues: list[tuple[str, str]] = []
+        if any(len(values) > 1 for values in grouped.values()):
+            issues.append(("logic_claim_conflict", "同一时点存在互斥的事实或前提"))
+        missing = sorted(required - true_claims)
+        if missing:
+            issues.append(
+                (
+                    "logic_precondition_missing",
+                    f"明确要求的前提尚未满足：{'、'.join(missing[:3])}",
+                )
+            )
+        if overdue:
+            issues.append(
+                (
+                    "logic_commitment_unmet",
+                    f"已到约定边界但仍未兑现：{'、'.join(sorted(overdue)[:3])}",
+                )
+            )
+        return [
+            self._continuity_item(
+                scene,
+                checkpoint,
+                kind="logic_continuity_risk",
+                rule_code=rule_code,
+                summary=summary,
+            )
+            for rule_code, summary in issues
+        ]
+
+    @staticmethod
+    def _continuity_item(
+        scene: object,
+        checkpoint: dict,
+        *,
+        kind: str,
+        rule_code: str,
+        summary: str,
+    ) -> dict:
+        scene_id = str(getattr(scene, "id", "") or "")
+        location = evidence_location(
+            source_module="memory",
+            source_type=f"scene_checkpoint.{checkpoint.get('dimension')}",
+            source_id=str(checkpoint.get("id") or ""),
+            source_label=(
+                f"Scene 时点状态：{getattr(scene, 'title', None) or '未命名场景'}"
+            ),
+            source_field={
+                "space_continuity_risk": "空间与位置",
+                "time_continuity_risk": "时间顺序",
+                "logic_continuity_risk": "因果与前提",
+            }[kind],
+            source_excerpt=str(checkpoint.get("display_summary") or summary)[:500],
+            open_target={"kind": "outline_scene", "scene_id": scene_id},
+            needs_review_reason="依据结构化 Scene 时点证据确定性发现，请核对来源后处理",
+        )
+        location.update(
+            rule_code=rule_code,
+            coverage="checked",
+            evidence_refs=list(checkpoint.get("evidence_refs") or [])[:20],
+        )
+        return {
+            "kind": kind,
+            "severity": "medium",
+            "source_module": "memory",
+            "source_type": f"scene_checkpoint.{checkpoint.get('dimension')}",
+            "source_id": str(checkpoint.get("id") or ""),
+            "evidence_summary": summary,
+            "needs_review": True,
+            "location_json": location,
+        }
+
+    @staticmethod
+    def _stable_value(value: Any) -> str:
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+
+    @staticmethod
+    def _is_true_value(value: Any) -> bool:
+        if value is True or value == 1:
+            return True
+        return str(value).strip().lower() in {"true", "met", "satisfied", "done"}
+
+    @staticmethod
+    def _has_directed_cycle(edges: set[tuple[str, str]]) -> bool:
+        graph: dict[str, set[str]] = {}
+        for source, target in edges:
+            graph.setdefault(source, set()).add(target)
+            graph.setdefault(target, set())
+        visiting: set[str] = set()
+        visited: set[str] = set()
+
+        def visit(node: str) -> bool:
+            if node in visiting:
+                return True
+            if node in visited:
+                return False
+            visiting.add(node)
+            if any(visit(target) for target in graph.get(node, ())):
+                return True
+            visiting.remove(node)
+            visited.add(node)
+            return False
+
+        return any(visit(node) for node in graph)
 
     def _scene_rule_items(
         self,

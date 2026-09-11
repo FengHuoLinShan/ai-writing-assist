@@ -354,6 +354,8 @@ class MemoryService:
                         "field_path": event.field_path,
                         "old_value": event.old_value,
                         "new_value": event.new_value,
+                        "scene_index": event.scene_index,
+                        "source_chapter_index": event.source_chapter_index,
                         "meta": event.meta or {},
                     },
                     "source": event.source,

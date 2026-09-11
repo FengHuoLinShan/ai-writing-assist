@@ -231,6 +231,200 @@ async def test_conflict_check_uses_injected_scene_loader_for_rule_hits(
 
 
 @pytest.mark.asyncio
+async def test_conflict_check_persists_deterministic_continuity_risks(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4()
+    scene_id = uuid.uuid4()
+    db_session.add(Project(id=novel_id, title="Continuity rules"))
+    await db_session.flush()
+
+    async def fake_scene_loader(*_args) -> object:
+        return SimpleNamespace(
+            id=str(scene_id),
+            scene_index=1,
+            title="钟响开门",
+            must_happen=None,
+            must_not_happen=None,
+            pov_character_id=None,
+            structure_meta={},
+            scene_chunks=[{"chapter_index": 1, "start_pos": 0, "end_pos": 4}],
+        )
+
+    async def fake_checkpoint_loader(*_args) -> dict:
+        def checkpoint(dimension: str, state: dict) -> dict:
+            return {
+                "id": f"checkpoint-{dimension}",
+                "dimension": dimension,
+                "status": "ready",
+                "source": "system_generated",
+                "confirmed": False,
+                "state_json": state,
+                "evidence_refs": [{"type": "memory_event", "id": dimension}],
+                "display_summary": f"{dimension} state",
+            }
+
+        return {
+            "items": [
+                checkpoint(
+                    "locations",
+                    {
+                        "character_locations": {},
+                        "changes": [
+                            {
+                                "scene_index": 1,
+                                "new_value": "北门",
+                                "meta": {"subject_name": "沈砚"},
+                            },
+                            {
+                                "scene_index": 1,
+                                "new_value": "南门",
+                                "meta": {"subject_name": "沈砚"},
+                            },
+                        ],
+                    },
+                ),
+                checkpoint(
+                    "timeline",
+                    {
+                        "facts": [
+                            {
+                                "category": "happens_before",
+                                "new_value": "开门",
+                                "meta": {"subject_name": "钟响"},
+                            },
+                            {
+                                "category": "happens_before",
+                                "new_value": "钟响",
+                                "meta": {"subject_name": "开门"},
+                            },
+                        ]
+                    },
+                ),
+                checkpoint(
+                    "causality",
+                    {
+                        "claims": [
+                            {
+                                "field_path": "gate.open",
+                                "scene_index": 1,
+                                "new_value": True,
+                                "meta": {
+                                    "required_preconditions": ["gate.unlocked"]
+                                },
+                            },
+                            {
+                                "field_path": "promise.return",
+                                "scene_index": 1,
+                                "new_value": "open",
+                                "meta": {"due_scene_index": 1},
+                            },
+                        ]
+                    },
+                ),
+            ]
+        }
+
+    result = await WritingConflictCheckService(
+        scene_contract_loader=fake_scene_loader,
+        scene_checkpoint_loader=fake_checkpoint_loader,
+    ).create_check(
+        db_session,
+        WritingConflictCheckCreate(
+            novel_id=str(novel_id),
+            chapter_index=1,
+            scene_id=str(scene_id),
+            content="钟响开门",
+        ),
+    )
+
+    assert result.status == "completed"
+    assert result.summary_json["continuity_coverage"] == {
+        "space": "checked",
+        "time": "checked",
+        "logic": "checked",
+    }
+    rules = {
+        item.location_json["rule_code"]
+        for item in result.items
+        if item.source_module == "memory"
+    }
+    assert rules == {
+        "space_simultaneous_presence",
+        "time_order_cycle",
+        "logic_precondition_missing",
+        "logic_commitment_unmet",
+    }
+    assert all(
+        item.location_json["coverage"] == "checked"
+        for item in result.items
+        if item.source_module == "memory"
+    )
+
+
+@pytest.mark.asyncio
+async def test_conflict_check_marks_missing_continuity_as_not_checked(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4()
+    scene_id = uuid.uuid4()
+    db_session.add(Project(id=novel_id, title="Continuity missing"))
+    await db_session.flush()
+
+    async def fake_scene_loader(*_args) -> object:
+        return SimpleNamespace(
+            id=str(scene_id),
+            scene_index=1,
+            title="证据缺口",
+            must_happen=None,
+            must_not_happen=None,
+            pov_character_id=None,
+            structure_meta={},
+            scene_chunks=[{"chapter_index": 1, "start_pos": 0, "end_pos": 4}],
+        )
+
+    async def fake_checkpoint_loader(*_args) -> dict:
+        return {
+            "items": [
+                {
+                    "id": "locations-ready",
+                    "dimension": "locations",
+                    "status": "ready",
+                    "source": "system_generated",
+                    "confirmed": False,
+                    "state_json": {"character_locations": {}, "changes": []},
+                },
+                {"dimension": "timeline", "status": "missing"},
+            ]
+        }
+
+    result = await WritingConflictCheckService(
+        scene_contract_loader=fake_scene_loader,
+        scene_checkpoint_loader=fake_checkpoint_loader,
+    ).create_check(
+        db_session,
+        WritingConflictCheckCreate(
+            novel_id=str(novel_id),
+            chapter_index=1,
+            scene_id=str(scene_id),
+            content="普通正文",
+        ),
+    )
+
+    assert result.status == "degraded"
+    assert result.summary_json["continuity_coverage"] == {
+        "space": "checked",
+        "time": "not_checked",
+        "logic": "not_checked",
+    }
+    assert not any(item.source_module == "memory" for item in result.items)
+    assert {item["source"] for item in result.summary_json["omissions"]} >= {
+        "continuity.time",
+        "continuity.logic",
+    }
+
+
+@pytest.mark.asyncio
 async def test_conflict_check_only_scans_current_scene_chunks(
     db_session: AsyncSession,
 ) -> None:
