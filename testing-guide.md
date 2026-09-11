@@ -431,11 +431,11 @@ RP 长期约定与max兼容性用例位于 interaction 的 services/prompts/task
 ## Agent 核心与项目助手验收（ADR-0023）
 
 - `modules/assistant/tests` 覆盖身份/范围、成组预检/重放/部分重试、变化合并、提醒与事件游标；
-  `infrastructure/llm/test_agent_runtime.py` 与 `test_native_search.py` 验证同一 SDK 预算和协议。
+  `infrastructure/llm/tests/test_agent_runtime.py` 与 `test_native_search.py` 验证同一 SDK 预算和协议。
 - `tests/e2e/test_assistant_concurrency.py` 在独立 PostgreSQL 以两连接及真实 worker 验证批准、
   合并领取、故障后的累计预算；`test_assistant_review_runtime.py` 验证父助手直接调用领域
   只读复核的双 lease 与共享预算。模型输入输出为合成数据。
-- `RUN_ASSISTANT_REAL_LLM=1 pytest infrastructure/llm/test_agent_live.py -m real_llm`
+- `RUN_ASSISTANT_REAL_LLM=1 pytest infrastructure/llm/tests/test_agent_live.py -m real_llm`
   显式调用 DeepSeek，验证工具、保存后的历史续接、原生联网、流关闭；报告只含计数/用量/耗时，
   位于 `.test-artifacts/assistant-live-core.json`。未知费用不记为零，不能据此宣称 RP 质量通过。
 - `playwright.assistant.config.js` 需要独立、带 `agent_e2e` 标记的本地 PostgreSQL、

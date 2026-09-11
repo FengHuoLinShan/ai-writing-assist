@@ -13,7 +13,7 @@ from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
 from tests.support.inventory import production_python_files
 
-BACKEND_ROOT = Path(__file__).resolve().parents[2]
+BACKEND_ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_ordinary_enqueue_requires_explicit_owner_choice() -> None:

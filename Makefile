@@ -13,6 +13,7 @@ BACKEND_POSTGRESQL_CRITICAL_TESTS := tests/e2e/test_00_fresh_migrations.py tests
 FAST_TEST_TIMEOUT_SECONDS ?= 120
 TEST_WORKERS ?= auto
 BACKEND_LOCKED_CI_RUN := uv run --locked --extra ci --
+BACKEND_LOCKED_EVAL_RUN := uv run --locked --extra eval --
 
 # ─── Full Stack ─────────────────────────────────────
 
@@ -57,19 +58,19 @@ test-postgresql-critical:  ## Run the serial PostgreSQL merge-gate contract subs
 	cd $(BACKEND_DIR) && RUN_E2E_TESTS=1 $(BACKEND_LOCKED_CI_RUN) pytest $(BACKEND_POSTGRESQL_CRITICAL_TESTS) -m "not real_llm and not external_data" --timeout=120 --junitxml=.test-artifacts/postgresql-critical.junit.xml $(ARGS)
 
 test-real-llm:  ## Run SQLite real-LLM acceptance tests explicitly
-	cd $(BACKEND_DIR) && RUN_REAL_LLM_TESTS=1 RUN_INTERACTION_REAL_LLM=1 pytest $(BACKEND_REAL_LLM_TESTS) -m real_llm $(ARGS)
+	cd $(BACKEND_DIR) && RUN_REAL_LLM_TESTS=1 RUN_INTERACTION_REAL_LLM=1 $(BACKEND_LOCKED_CI_RUN) pytest $(BACKEND_REAL_LLM_TESTS) -m real_llm $(ARGS)
 
 test-map-atlas-live-image:  ## Run the explicit paid GPT Image 2 smoke test
 	@test "$$RUN_MAP_ATLAS_LIVE_IMAGE" = "1" || (echo "RUN_MAP_ATLAS_LIVE_IMAGE=1 is required" >&2; exit 2)
 	@test -n "$$MAP_ATLAS_LIVE_OPENAI_API_KEY" || (echo "MAP_ATLAS_LIVE_OPENAI_API_KEY must be provided" >&2; exit 2)
-	cd $(BACKEND_DIR) && pytest infrastructure/llm/test_image_live.py -m real_llm --maxfail=1 $(ARGS)
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) pytest infrastructure/llm/tests/test_image_live.py -m real_llm --maxfail=1 $(ARGS)
 
 test-real-kimi:  ## Run the explicit paid Kimi K3 compatibility gate
 	@test "$$RUN_INTERACTION_REAL_KIMI" = "1" || (echo "RUN_INTERACTION_REAL_KIMI=1 is required" >&2; exit 2)
 	@test -n "$$KIMI_API_KEY" || (echo "KIMI_API_KEY must be provided in the process environment" >&2; exit 2)
 	@test -n "$$DEEPSEEK_API_KEY" || (echo "DEEPSEEK_API_KEY is required for the hot-switch gate" >&2; exit 2)
-	cd $(BACKEND_DIR) && pytest infrastructure/llm/test_balance.py::test_kimi_balance_uses_open_platform_available_balance tests/account_project_preferences/test_llm_connections.py::test_balance_failure_is_auxiliary_and_does_not_disconnect modules/project/tests/test_llm_runtime.py::test_snapshot_provider_survives_active_template_hot_switch modules/project/tests/test_llm_runtime.py::test_snapshot_fails_when_original_provider_connection_was_cleared modules/interaction/tests/test_services.py::test_manual_overview_epoch_rejects_late_automatic_summary modules/interaction/tests/test_tasks.py::test_story_handler_checkpoints_by_size_and_flushes_tail -m "not real_llm and not external_data"
-	cd $(BACKEND_DIR) && ENABLE_ACCOUNT_KIMI_K3=1 RUN_REAL_LLM_TESTS=1 pytest $(BACKEND_REAL_KIMI_TESTS) -m real_llm --maxfail=1 $(ARGS)
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) pytest infrastructure/llm/tests/test_balance.py::test_kimi_balance_uses_open_platform_available_balance tests/account_project_preferences/test_llm_connections.py::test_balance_failure_is_auxiliary_and_does_not_disconnect modules/project/tests/test_llm_runtime.py::test_snapshot_provider_survives_active_template_hot_switch modules/project/tests/test_llm_runtime.py::test_snapshot_fails_when_original_provider_connection_was_cleared modules/interaction/tests/test_services.py::test_manual_overview_epoch_rejects_late_automatic_summary modules/interaction/tests/test_tasks.py::test_story_handler_checkpoints_by_size_and_flushes_tail -m "not real_llm and not external_data"
+	cd $(BACKEND_DIR) && ENABLE_ACCOUNT_KIMI_K3=1 RUN_REAL_LLM_TESTS=1 $(BACKEND_LOCKED_CI_RUN) pytest $(BACKEND_REAL_KIMI_TESTS) -m real_llm --maxfail=1 $(ARGS)
 
 test-interaction-long-context:  ## Run paid Kimi token calibration and PostgreSQL long-journey gate
 	@test "$$RUN_INTERACTION_LONG_CONTEXT_CALIBRATION" = "1" || (echo "RUN_INTERACTION_LONG_CONTEXT_CALIBRATION=1 is required" >&2; exit 2)
@@ -77,7 +78,7 @@ test-interaction-long-context:  ## Run paid Kimi token calibration and PostgreSQ
 	@test -n "$$KIMI_API_KEY" || (echo "KIMI_API_KEY must be provided in the process environment" >&2; exit 2)
 	@test -n "$$KIMI_CONTEXT_LIMIT_TOKENS" || (echo "KIMI_CONTEXT_LIMIT_TOKENS must match the current official model contract" >&2; exit 2)
 	@test -n "$$E2E_DATABASE_URL" || (echo "E2E_DATABASE_URL must target a dedicated PostgreSQL test database" >&2; exit 2)
-	cd $(BACKEND_DIR) && pytest modules/interaction/tests/test_services.py -k "extended_context_uses_full_selected_path_without_forced_summary or emergency_summary_resumes_same_story_attempt_without_losing_path or hard_context_budget_fails_closed_and_preserves_selected_path" -m "not real_llm and not external_data" --timeout=120
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) pytest modules/interaction/tests/test_services.py -k "extended_context_uses_full_selected_path_without_forced_summary or emergency_summary_resumes_same_story_attempt_without_losing_path or hard_context_budget_fails_closed_and_preserves_selected_path" -m "not real_llm and not external_data" --timeout=120
 	cd $(BACKEND_DIR) && ENABLE_ACCOUNT_KIMI_K3=1 RUN_E2E_TESTS=1 RUN_REAL_LLM_TESTS=1 pytest $(BACKEND_INTERACTION_LONG_CONTEXT_TESTS) -m "e2e and real_llm" --maxfail=1 $(ARGS)
 
 test-manual:  ## Run real-source and PostgreSQL/real-LLM acceptance tests explicitly
@@ -110,40 +111,40 @@ test-ci: docs-check secret-hygiene audit-backend-deps lint test-deploy audit-fro
 	$(MAKE) test-frontend FRONTEND_ARGS="$(FRONTEND_ARGS)"
 
 eval-corpus:  ## Build a local corpus manifest without copying source text
-	cd $(BACKEND_DIR) && python -m evals.cli corpus-manifest --variant $(or $(VARIANT),pilot) $(if $(OUTPUT),--output $(OUTPUT),)
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_EVAL_RUN) python -m evals.cli corpus-manifest --variant $(or $(VARIANT),pilot) $(if $(OUTPUT),--output $(OUTPUT),)
 
 eval-fixture-manifest:  ## Hash stable writing/outline/world fixtures without payloads
-	cd $(BACKEND_DIR) && python -m evals.cli fixture-manifest $(if $(OUTPUT),--output $(OUTPUT),)
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_EVAL_RUN) python -m evals.cli fixture-manifest $(if $(OUTPUT),--output $(OUTPUT),)
 
 eval-generate:  ## Generate candidate semantic-eval cases with local Codex 5.3
-	cd $(BACKEND_DIR) && python -m evals.cli generate --suite $(SUITE) --variant $(or $(VARIANT),pilot) --size $(or $(SIZE),20) --output $(OUTPUT) $(if $(CACHE_ONLY),--cache-only,)
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_EVAL_RUN) python -m evals.cli generate --suite $(SUITE) --variant $(or $(VARIANT),pilot) --size $(or $(SIZE),20) --output $(OUTPUT) $(if $(CACHE_ONLY),--cache-only,)
 
 eval-judge:  ## Judge a candidate dataset with local Codex 5.3 and cache results
-	cd $(BACKEND_DIR) && python -m evals.cli judge $(DATASET) --variant $(or $(VARIANT),pilot) --output $(OUTPUT) $(if $(CACHE_ONLY),--cache-only,)
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_EVAL_RUN) python -m evals.cli judge $(DATASET) --variant $(or $(VARIANT),pilot) --output $(OUTPUT) $(if $(CACHE_ONLY),--cache-only,)
 
 eval-qc:  ## Run deterministic QC for a local eval dataset
-	cd $(BACKEND_DIR) && python -m evals.cli qc $(DATASET) --variant $(or $(VARIANT),pilot) $(if $(OUTPUT),--output $(OUTPUT),)
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_EVAL_RUN) python -m evals.cli qc $(DATASET) --variant $(or $(VARIANT),pilot) $(if $(OUTPUT),--output $(OUTPUT),)
 
 eval-review-export:  ## Export stratified offline human-review HTML and JSONL
-	cd $(BACKEND_DIR) && python -m evals.cli review-export $(DATASET) --variant $(or $(VARIANT),pilot) --html $(HTML) --jsonl $(JSONL) $(if $(CSV),--csv $(CSV),) $(if $(DOUBLE_HTML),--double-html $(DOUBLE_HTML),) $(if $(DOUBLE_JSONL),--double-jsonl $(DOUBLE_JSONL),) $(if $(DOUBLE_CSV),--double-csv $(DOUBLE_CSV),)
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_EVAL_RUN) python -m evals.cli review-export $(DATASET) --variant $(or $(VARIANT),pilot) --html $(HTML) --jsonl $(JSONL) $(if $(CSV),--csv $(CSV),) $(if $(DOUBLE_HTML),--double-html $(DOUBLE_HTML),) $(if $(DOUBLE_JSONL),--double-jsonl $(DOUBLE_JSONL),) $(if $(DOUBLE_CSV),--double-csv $(DOUBLE_CSV),)
 
 eval-review-import:  ## Import human review decisions and calculate agreement
-	cd $(BACKEND_DIR) && python -m evals.cli review-import $(DATASET) $(REVIEWS) --reviewer-version $(REVIEWER_VERSION) --output $(OUTPUT) --report $(REPORT) $(if $(ADJUDICATION),--adjudication,)
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_EVAL_RUN) python -m evals.cli review-import $(DATASET) $(REVIEWS) --reviewer-version $(REVIEWER_VERSION) --output $(OUTPUT) --report $(REPORT) $(if $(ADJUDICATION),--adjudication,)
 
 eval-report:  ## Produce versioned JSON and Markdown dataset reports
-	cd $(BACKEND_DIR) && python -m evals.cli report $(DATASET) --variant $(or $(VARIANT),pilot) --dataset-id $(DATASET_ID) --dataset-version $(DATASET_VERSION) $(foreach result,$(RESULTS),--result $(result)) $(foreach reuse,$(RESULT_VERSION_REUSE),--result-version-reuse $(reuse)) $(if $(RAW_REVIEWED_DATASET),--raw-reviewed-dataset $(RAW_REVIEWED_DATASET),) --json $(JSON) --markdown $(MARKDOWN)
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_EVAL_RUN) python -m evals.cli report $(DATASET) --variant $(or $(VARIANT),pilot) --dataset-id $(DATASET_ID) --dataset-version $(DATASET_VERSION) $(foreach result,$(RESULTS),--result $(result)) $(foreach reuse,$(RESULT_VERSION_REUSE),--result-version-reuse $(reuse)) $(if $(RAW_REVIEWED_DATASET),--raw-reviewed-dataset $(RAW_REVIEWED_DATASET),) --json $(JSON) --markdown $(MARKDOWN)
 
 eval-baseline-check:  ## Validate existing QC/review decisions without rerunning QC or LLMs
-	cd $(BACKEND_DIR) && python -m evals.cli baseline-check $(DATASET) --suite $(or $(SUITE),all) --tier $(or $(TIER),pilot) $(if $(OUTPUT),--output $(OUTPUT),)
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_EVAL_RUN) python -m evals.cli baseline-check $(DATASET) --suite $(or $(SUITE),all) --tier $(or $(TIER),pilot) $(if $(OUTPUT),--output $(OUTPUT),)
 
 eval-freeze:  ## Freeze an accepted-only baseline dataset after deterministic revalidation
-	cd $(BACKEND_DIR) && python -m evals.cli freeze $(DATASET) --variant $(or $(VARIANT),pilot) --tier $(or $(TIER),pilot) --dataset-id $(DATASET_ID) --dataset-version $(DATASET_VERSION) --output $(OUTPUT) --manifest $(MANIFEST) --readiness $(READINESS)
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_EVAL_RUN) python -m evals.cli freeze $(DATASET) --variant $(or $(VARIANT),pilot) --tier $(or $(TIER),pilot) --dataset-id $(DATASET_ID) --dataset-version $(DATASET_VERSION) --output $(OUTPUT) --manifest $(MANIFEST) --readiness $(READINESS)
 
 eval-rag-prepare:  ## Build a fresh derived RAG index for a baseline chapter range
-	cd $(BACKEND_DIR) && python -m evals.cli prepare-rag --novel-id $(NOVEL_ID) --chapter-from $(or $(CHAPTER_FROM),1) --chapter-to $(or $(CHAPTER_TO),60) --content-mode $(or $(CONTENT_MODE),canonical) $(if $(FORCE),--force,) $(if $(OUTPUT),--output $(OUTPUT),)
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_EVAL_RUN) python -m evals.cli prepare-rag --novel-id $(NOVEL_ID) --chapter-from $(or $(CHAPTER_FROM),1) --chapter-to $(or $(CHAPTER_TO),60) --content-mode $(or $(CONTENT_MODE),canonical) $(if $(FORCE),--force,) $(if $(OUTPUT),--output $(OUTPUT),)
 
 eval-run:  ## Run one/all official suite runners against an explicitly selected project
-	cd $(BACKEND_DIR) && python -m evals.cli run $(DATASET) --suite $(or $(SUITE),all) --novel-id $(NOVEL_ID) --dataset-id $(DATASET_ID) --dataset-version $(DATASET_VERSION) --output-dir $(or $(OUTPUT_DIR),evals/artifacts/results) --baseline-tier $(or $(TIER),pilot) $(if $(ISOLATED_DB),--isolated-db,) $(if $(ALLOW_UNFROZEN),--allow-unfrozen,)
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_EVAL_RUN) python -m evals.cli run $(DATASET) --suite $(or $(SUITE),all) --novel-id $(NOVEL_ID) --dataset-id $(DATASET_ID) --dataset-version $(DATASET_VERSION) --output-dir $(or $(OUTPUT_DIR),evals/artifacts/results) --baseline-tier $(or $(TIER),pilot) $(if $(ISOLATED_DB),--isolated-db,) $(if $(ALLOW_UNFROZEN),--allow-unfrozen,)
 
 eval-rag:  ## Run the RAG baseline runner against an explicitly selected project
 	$(MAKE) eval-run SUITE=rag DATASET=$(DATASET) NOVEL_ID=$(NOVEL_ID) DATASET_ID=$(DATASET_ID) DATASET_VERSION=$(DATASET_VERSION) OUTPUT_DIR=$(OUTPUT_DIR)
@@ -152,20 +153,20 @@ eval-full:  ## Run all four baseline runners; requires a disposable isolated dat
 	$(MAKE) eval-run SUITE=all DATASET=$(DATASET) NOVEL_ID=$(NOVEL_ID) DATASET_ID=$(DATASET_ID) DATASET_VERSION=$(DATASET_VERSION) OUTPUT_DIR=$(OUTPUT_DIR) ISOLATED_DB=1
 
 eval-pilot:  ## Generate/judge the 400-raw-case Pilot with resumable local cache
-	cd $(BACKEND_DIR) && python -m evals.cli pilot --variant $(or $(VARIANT),pilot) --stage $(or $(STAGE),all) --output-dir $(or $(OUTPUT_DIR),evals/datasets/local/pilot-v0) $(if $(CACHE_ONLY),--cache-only,)
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_EVAL_RUN) python -m evals.cli pilot --variant $(or $(VARIANT),pilot) --stage $(or $(STAGE),all) --output-dir $(or $(OUTPUT_DIR),evals/datasets/local/pilot-v0) $(if $(CACHE_ONLY),--cache-only,)
 
 eval-fast:  ## Run deterministic eval toolkit tests without remote LLM calls
 	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) pytest evals/tests -q --timeout=$(FAST_TEST_TIMEOUT_SECONDS)
 
 eval-rp-long-memory:  ## Compile the synthetic RP long-memory gate offline
-	cd $(BACKEND_DIR) && python -m evals.rp_long_memory compile $(or $(DATASET),evals/datasets/baselines/rp-long-memory-v2.jsonl) --split $(or $(SPLIT),dev) --output $(or $(OUTPUT),evals/artifacts/rp-long-memory/compile.json)
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_EVAL_RUN) python -m evals.rp_long_memory compile $(or $(DATASET),evals/datasets/baselines/rp-long-memory-v2.jsonl) --split $(or $(SPLIT),dev) --output $(or $(OUTPUT),evals/artifacts/rp-long-memory/compile.json)
 
 eval-ask-world:  ## Run Ask World API contracts, then the offline evidence-ranking gate
 	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) pytest modules/world/tests/test_world_generation_center_api.py -k ask_world -q
 	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) python -m evals.ask_world $(if $(DATASET),$(DATASET),) $(if $(OUTPUT),--output $(OUTPUT),)
 
 eval-context-planner:  ## Compare task-direct and planner-v1 on accepted RAG cases
-	cd $(BACKEND_DIR) && python -m evals.cli context-planner $(or $(DATASET),evals/datasets/local/pilot-v2-work/pilot-v1.1.accepted.jsonl) --novel-id $(NOVEL_ID) --dataset-version $(or $(DATASET_VERSION),pilot-v1.1) --sut-profile $(or $(SUT_PROFILE),local) --output $(or $(OUTPUT),evals/artifacts/results/$(or $(SUT_PROFILE),local)/$(or $(DATASET_VERSION),pilot-v1.1)/context-planner.result.json) $(if $(LLM_PLANNER),--llm-planner,)
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_EVAL_RUN) python -m evals.cli context-planner $(or $(DATASET),evals/datasets/local/pilot-v2-work/pilot-v1.1.accepted.jsonl) --novel-id $(NOVEL_ID) --dataset-version $(or $(DATASET_VERSION),pilot-v1.1) --sut-profile $(or $(SUT_PROFILE),local) --output $(or $(OUTPUT),evals/artifacts/results/$(or $(SUT_PROFILE),local)/$(or $(DATASET_VERSION),pilot-v1.1)/context-planner.result.json) $(if $(LLM_PLANNER),--llm-planner,)
 
 lint:  ## Run ruff linter
 	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) ruff check .

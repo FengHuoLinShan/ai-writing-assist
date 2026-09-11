@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import tomllib
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from sqlalchemy import select
@@ -12,6 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.main import app
 from core.dependencies import get_db
 from modules.project.models import Project
+
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.mark.asyncio
@@ -47,6 +51,20 @@ def test_root_fixture_clears_dependency_overrides_before_each_test() -> None:
     """The autouse fixture gives every test an initially clean FastAPI app."""
     assert app.dependency_overrides == {}
     app.dependency_overrides[get_db] = lambda: None
+
+
+def test_wheel_discovery_excludes_evals_and_test_modules() -> None:
+    config = tomllib.loads((BACKEND_ROOT / "pyproject.toml").read_text())
+    excludes = set(config["tool"]["setuptools"]["packages"]["find"]["exclude"])
+    assert {"evals*", "*.tests", "*.tests.*"} <= excludes
+
+    leaked = [
+        path.relative_to(BACKEND_ROOT).as_posix()
+        for root in ("app", "core", "shared", "infrastructure", "modules")
+        for path in (BACKEND_ROOT / root).rglob("test_*.py")
+        if "tests" not in path.relative_to(BACKEND_ROOT).parts
+    ]
+    assert leaked == []
 
 
 @pytest.mark.asyncio

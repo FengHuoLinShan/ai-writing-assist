@@ -14,6 +14,7 @@ from pathlib import Path
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 MODULES_ROOT = BACKEND_ROOT / "modules"
+GENERATED_DIR_NAMES = {"build", "dist"}
 
 
 @cache
@@ -24,7 +25,10 @@ def repository_python_files() -> tuple[Path, ...]:
         children[:] = sorted(
             name
             for name in children
-            if not name.startswith(".") and name != "__pycache__"
+            if not name.startswith(".")
+            and name != "__pycache__"
+            and name not in GENERATED_DIR_NAMES
+            and not name.endswith(".egg-info")
         )
         root = Path(directory)
         paths.extend(root / name for name in filenames if name.endswith(".py"))

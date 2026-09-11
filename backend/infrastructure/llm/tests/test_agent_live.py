@@ -240,7 +240,7 @@ async def test_deepseek_agent_tool_native_search_and_stream_stop(
                     "first_stream_text_seconds": time.perf_counter() - stream_started,
                     "total_seconds": time.perf_counter() - started,
                 }
-                directory = Path(__file__).resolve().parents[2] / ".test-artifacts"
+                directory = Path(__file__).resolve().parents[3] / ".test-artifacts"
                 directory.mkdir(exist_ok=True)
                 (directory / "assistant-live-core.json").write_text(
                     json.dumps(report, ensure_ascii=False, indent=2) + "\n"
@@ -251,7 +251,7 @@ async def test_deepseek_agent_tool_native_search_and_stream_stop(
 
         if isinstance(error, NativeSearchUnavailableError) and error.requests:
             budget.add_usage(error.usage, requests=error.requests)
-        directory = Path(__file__).resolve().parents[2] / ".test-artifacts"
+        directory = Path(__file__).resolve().parents[3] / ".test-artifacts"
         directory.mkdir(exist_ok=True)
         with (directory / "assistant-live-failures.jsonl").open("a") as output:
             output.write(
