@@ -72,6 +72,7 @@
 11. `modules/17_account.md` — 公开浏览器账号、身份、账户模型连接、全局偏好、会话与延期删除
 12. `modules/18_interaction.md` — RP 互动旅程、不可变分支、流式恢复、回顾与看海
 13. `modules/19_story.md` — Scene 人物卡、可编辑剧本 revision、采用与 one-click 预览
+14. `modules/20_assistant.md` — 项目助手的有界运行时、操作回执与恢复语义
 
 `modules/` 只放当前模块的设计与稳定接口说明；已替代的模块文档位于
 `archive/modules/`，代码分析参考位于 `references/`。
@@ -103,6 +104,10 @@
   与 Scene 健康标记参考。
 - `audit/` — 代码、性能、安全和文档审计的时间点记录。
 - `acceptance/` — 验收基线、已完成验收报告和回归样本。
+- [`security/content-sanitization-policy.md`](security/content-sanitization-policy.md) — 内容清理政策草案（Draft，不替代已采纳的 ADR 与安全边界）。
+- [`new-user-guide.md`](new-user-guide.md) — 新用户指南源文；[`NovelCraft-新用户指南.docx`](NovelCraft-新用户指南.docx) 为交付版，编辑时以 Markdown 源文为准重新生成。
+- [`word-guide-source.md`](word-guide-source.md) — Word 指南的可编辑源文。
+- [`典型用户路径_goal提示词.md`](典型用户路径_goal提示词.md) — Agent 验收与用户路径提示词参考。
 - `superpowers/` — 历史实施计划、设计快照、报告和验收记录；见
   [`superpowers/README.md`](superpowers/README.md)。
 - `archive/` — 已完成、废弃或仅作追溯的文档；包含旧模块说明、维护记录、
@@ -117,7 +122,7 @@
   `prompts/Prompt体系设计.md` 维护。
 - `frontend-console/README.md` 与 `frontend-console/e2e/scenario-coverage.md` 是前端入口和
   测试覆盖文档；`frontend-console/docs/` 是前端历史分析和实施记录。
-- `frontend/uiux/` 是前端「Editorial Archive 提纯」二次设计的权威规范集：`design-standard.md`
+- `docs/frontend/uiux/` 是前端「Editorial Archive 提纯」二次设计的权威规范集：`design-standard.md`
   为全站 UI/UX 设计标准，`pages/` 为分页执行规范，执行与认领规则见其 `README.md`。
 - `workflows/` 是已落地工作流的实现说明；`tools/*/README.md` 是各开发工具的局部说明。
 - `backend/evals/` 与 `.test-logs/` 保存可复现实验/测试产物，不是当前设计契约；其中受版本
