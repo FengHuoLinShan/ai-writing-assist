@@ -13,6 +13,7 @@ from .common import (
     PG_UUID,
     Base,
     DateTime,
+    ForeignKey,
     Integer,
     Mapped,
     String,
@@ -53,6 +54,7 @@ class WorldLibraryTopic(Base, UUIDMixin, TimestampMixin):
 
     novel_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -102,6 +104,7 @@ class WorldLibraryTopicMember(Base, UUIDMixin, TimestampMixin):
 
     novel_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -128,6 +131,7 @@ class WorldLibraryFavorite(Base, UUIDMixin, TimestampMixin):
 
     novel_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -158,6 +162,7 @@ class WorldLibraryRecent(Base, UUIDMixin, TimestampMixin):
 
     novel_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -179,6 +184,7 @@ class WorldLibraryWorkspaceProfile(Base, UUIDMixin, TimestampMixin):
 
     novel_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )

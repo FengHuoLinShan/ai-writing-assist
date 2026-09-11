@@ -7,8 +7,29 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.world.models.core import CoreEntity
+from modules.world.models.library import (
+    WorldLibraryFavorite,
+    WorldLibraryRecent,
+    WorldLibraryTopic,
+    WorldLibraryTopicMember,
+    WorldLibraryWorkspaceProfile,
+)
 from modules.world.models.worldbuilding import WorldBiblePage, WorldBiblePageDraft
 from modules.world.tests.helpers import publish_bible_draft
+
+
+def test_world_library_models_declare_project_foreign_keys() -> None:
+    for model in (
+        WorldLibraryTopic,
+        WorldLibraryTopicMember,
+        WorldLibraryFavorite,
+        WorldLibraryRecent,
+        WorldLibraryWorkspaceProfile,
+    ):
+        foreign_keys = model.__table__.c.novel_id.foreign_keys
+        assert ("projects.id", "CASCADE") in {
+            (item.target_fullname, item.ondelete) for item in foreign_keys
+        }
 
 
 async def _create_project(client: AsyncClient, title: str) -> str:
