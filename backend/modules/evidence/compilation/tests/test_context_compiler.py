@@ -1303,8 +1303,12 @@ class TestContextCompiler:
             item["label"] == "旧桥"
             for item in scene_state.retrieval_metadata["omissions"]
         )
-        assert (
-            scene_state.activation_reason == "当前 Scene 四维 checkpoint 与相关对象对照"
+        assert scene_state.activation_reason == (
+            "当前 Scene 6 维 checkpoint 与相关对象对照"
+        )
+        assert scene_state.retrieval_metadata["contract_version"] == 2
+        assert scene_state.retrieval_metadata["required_dimensions"] == list(
+            SCENE_MEMORY_DIMENSIONS
         )
         assert [
             item["dimension"]

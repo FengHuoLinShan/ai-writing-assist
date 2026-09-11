@@ -41,7 +41,7 @@ from modules.evidence.compilation.services.loaders import (
     WorldEntitiesLoader,
 )
 from modules.evidence.compilation.services.protocol import Loader
-from modules.story.contracts import SCENE_MEMORY_DIMENSIONS
+from modules.story.contracts import scene_memory_dimensions
 
 logger = logging.getLogger(__name__)
 
@@ -120,8 +120,10 @@ _PREREQUISITE_LOADERS = {"project", "world_entities"}
 _SCENE_STATE_LABELS = {
     "entities": "人物与对象",
     "relations": "关系",
-    "locations": "人物位置",
+    "locations": "空间与位置",
     "knowledge": "知识边界",
+    "timeline": "时间顺序",
+    "causality": "因果与前提",
 }
 
 
@@ -1730,8 +1732,11 @@ class ContextCompiler:
             if checkpoint_set.get("coverage_status") == "unavailable"
             else "missing"
         )
+        required_dimensions = scene_memory_dimensions(
+            options.scene_memory_contract_version
+        )
 
-        for dimension in SCENE_MEMORY_DIMENSIONS:
+        for dimension in required_dimensions:
             item = items.get(dimension) or {}
             status = str(item.get("status") or missing_status)
             is_trusted = status == "ready" and (
@@ -1822,7 +1827,9 @@ class ContextCompiler:
             title="Scene 时点可证状态",
             content=content,
             status="director_only",
-            activation_reason="当前 Scene 四维 checkpoint 与相关对象对照",
+            activation_reason=(
+                f"当前 Scene {len(required_dimensions)} 维 checkpoint 与相关对象对照"
+            ),
             sources=sources,
             can_exclude=False,
             retrieval_metadata={
@@ -1830,6 +1837,8 @@ class ContextCompiler:
                 "dimensions": dimensions,
                 "omissions": omissions,
                 "checkpoint_versions": checkpoint_versions,
+                "contract_version": options.scene_memory_contract_version,
+                "required_dimensions": list(required_dimensions),
                 "current_canon_note": (
                     "当前正典只作为作者修复参考，不会回填这个 Scene 的过去状态。"
                 ),
@@ -1964,9 +1973,33 @@ class ContextCompiler:
                 ("text_state", "location_name", "state", "description"),
             ) or historical_labels.get(location_id)
             if details:
-                lines.append(f"- 人物位置｜{label}: {details}")
+                lines.append(f"- 空间与位置｜{label}: {details}")
 
-        for dimension in ("entities", "relations", "locations"):
+        for dimension, state_key in (("timeline", "facts"), ("causality", "claims")):
+            state = trusted.get(dimension, {}).get("state_json", {})
+            for payload in state.get(state_key) or []:
+                if not isinstance(payload, dict):
+                    continue
+                details = cls._scene_state_details(
+                    payload,
+                    (
+                        "summary",
+                        "label",
+                        "relation",
+                        "description",
+                        "new_value",
+                    ),
+                )
+                if details:
+                    lines.append(f"- {_SCENE_STATE_LABELS[dimension]}｜{details}")
+
+        for dimension in (
+            "entities",
+            "relations",
+            "locations",
+            "timeline",
+            "causality",
+        ):
             item = trusted.get(dimension) or {}
             state = item.get("state_json") or {}
             if item.get("source") == "manual" and item.get("confirmed") is True:

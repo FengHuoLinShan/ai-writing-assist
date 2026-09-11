@@ -6,10 +6,16 @@ from dataclasses import dataclass
 from typing import Literal
 
 from modules.story.continuity.contracts import (
+    CURRENT_SCENE_MEMORY_CONTRACT_VERSION,
+    SCENE_MEMORY_CONTRACT_V1,
+    SCENE_MEMORY_CONTRACT_V2,
     SCENE_MEMORY_DIMENSIONS,
+    SCENE_MEMORY_DIMENSIONS_V1,
+    SCENE_MEMORY_DIMENSIONS_V2,
     MemoryContinuityEvidenceContract,
     MemoryDeltaEventIngest,
     MemoryDeltaIngestResult,
+    scene_memory_dimensions,
 )
 from modules.story.outline_state.contracts import (
     SCENE_SEMANTIC_FIELD_STATUSES,
@@ -60,7 +66,13 @@ __all__ = [
     "SceneScriptFileResponse",
     "SceneScriptRevisionResponse",
     "StorySceneContextResponse",
+    "CURRENT_SCENE_MEMORY_CONTRACT_VERSION",
+    "SCENE_MEMORY_CONTRACT_V1",
+    "SCENE_MEMORY_CONTRACT_V2",
     "SCENE_MEMORY_DIMENSIONS",
+    "SCENE_MEMORY_DIMENSIONS_V1",
+    "SCENE_MEMORY_DIMENSIONS_V2",
+    "scene_memory_dimensions",
     "SCENE_SEMANTIC_FIELDS",
     "SCENE_SEMANTIC_FIELD_STATUSES",
     "MemoryContinuityEvidenceContract",

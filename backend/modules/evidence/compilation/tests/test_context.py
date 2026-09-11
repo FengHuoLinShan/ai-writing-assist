@@ -618,11 +618,42 @@ async def test_scene_state_confirmation_freezes_versions_but_old_records_replay(
 
     compiler = FakeCompiler()
     service = ContextConfirmationService(compiler=compiler)
-    assert service._scene_state_fingerprint(  # noqa: SLF001 - contract regression
+    legacy_fingerprint = service._scene_state_fingerprint(  # noqa: SLF001
         compiled("original", legacy_map_id="map-before")
-    ) == service._scene_state_fingerprint(  # noqa: SLF001 - contract regression
+    )
+    assert legacy_fingerprint == (
+        "9b0c68160db434ae0f0854d55e5d2de1b92320e1afcc90df34ec4357a6b8a92d"
+    )
+    assert legacy_fingerprint == service._scene_state_fingerprint(  # noqa: SLF001
         compiled("original", legacy_map_id="map-after")
     )
+    v2_before = compiled("original")
+    v2_after = compiled("original")
+    fixtures = ((v2_before, "timeline-before"), (v2_after, "timeline-after"))
+    for item, timeline_id in fixtures:
+        section = next(
+            value for value in item.sections if value.key == "scene_world_state"
+        )
+        section.retrieval_metadata.update(
+            contract_version=2,
+            required_dimensions=[
+                "entities",
+                "relations",
+                "locations",
+                "knowledge",
+                "timeline",
+                "causality",
+            ],
+        )
+        section.retrieval_metadata["checkpoint_versions"].extend(
+            [
+                {"dimension": "timeline", "id": timeline_id, "status": "ready"},
+                {"dimension": "causality", "id": "causality-1", "status": "ready"},
+            ]
+        )
+    before_fingerprint = service._scene_state_fingerprint(v2_before)  # noqa: SLF001
+    after_fingerprint = service._scene_state_fingerprint(v2_after)  # noqa: SLF001
+    assert before_fingerprint != after_fingerprint
     confirmation = await service.confirm_context(
         db_session,
         novel_id=novel_id,
@@ -635,6 +666,7 @@ async def test_scene_state_confirmation_freezes_versions_but_old_records_replay(
     )
 
     assert "scene_state_fingerprint" not in confirmation.compile_options
+    assert confirmation.compile_options["scene_memory_contract_version"] == 2
     assert confirmation.compile_options["compiled_context_fingerprint"]
     compiler.current = compiled("changed")
     with pytest.raises(ConflictError, match="AI 参考资料已变化") as conflict:
@@ -653,13 +685,15 @@ async def test_scene_state_confirmation_freezes_versions_but_old_records_replay(
         novel_id=uuid.UUID(novel_id),
     )
     assert record is not None
-    record.compile_options = {
+    legacy_compile_options = {
         **record.compile_options,
         "compiled_context_fingerprint": None,
         "scene_state_fingerprint": service._scene_state_fingerprint(  # noqa: SLF001
             compiled("original")
         ),
     }
+    legacy_compile_options.pop("scene_memory_contract_version")
+    record.compile_options = legacy_compile_options
     await db_session.flush()
 
     with pytest.raises(ConflictError, match="Scene time state changed") as conflict:

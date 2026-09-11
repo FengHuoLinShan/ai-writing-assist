@@ -10,12 +10,31 @@ from dataclasses import dataclass, field
 from typing import Any
 
 # Stable Scene-time state contract. Map/Atlas data is not Scene memory.
-SCENE_MEMORY_DIMENSIONS = (
+SCENE_MEMORY_CONTRACT_V1 = 1
+SCENE_MEMORY_CONTRACT_V2 = 2
+CURRENT_SCENE_MEMORY_CONTRACT_VERSION = SCENE_MEMORY_CONTRACT_V2
+
+SCENE_MEMORY_DIMENSIONS_V1 = (
     "entities",
     "relations",
     "locations",
     "knowledge",
 )
+SCENE_MEMORY_DIMENSIONS_V2 = (
+    *SCENE_MEMORY_DIMENSIONS_V1,
+    "timeline",
+    "causality",
+)
+SCENE_MEMORY_DIMENSIONS = SCENE_MEMORY_DIMENSIONS_V2
+
+
+def scene_memory_dimensions(contract_version: int) -> tuple[str, ...]:
+    """Return the exact dimensions covered by a persisted contract version."""
+    if contract_version == SCENE_MEMORY_CONTRACT_V1:
+        return SCENE_MEMORY_DIMENSIONS_V1
+    if contract_version == SCENE_MEMORY_CONTRACT_V2:
+        return SCENE_MEMORY_DIMENSIONS_V2
+    raise ValueError(f"unsupported Scene memory contract version: {contract_version}")
 
 
 @dataclass(frozen=True)

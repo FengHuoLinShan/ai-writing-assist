@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from modules.story.contracts import CURRENT_SCENE_MEMORY_CONTRACT_VERSION
+
 if TYPE_CHECKING:
     from modules.evidence.compilation.services.compiled_context import CompiledContext
 
@@ -99,7 +101,9 @@ class CompileOptions:
     outline_analysis_fingerprint: str | None = None
     """手动大纲分析确认时固定的完整编译上下文指纹"""
     scene_state_fingerprint: str | None = None
-    """Scene 时点预演确认时固定的四维 checkpoint 指纹"""
+    """Scene 时点预演确认时固定的版本化 checkpoint 指纹"""
+    scene_memory_contract_version: int = CURRENT_SCENE_MEMORY_CONTRACT_VERSION
+    """Scene 时点状态版本；旧 confirmation 缺省按 V1 回放"""
     compiled_context_fingerprint: str | None = None
     """预算执行后完整 Context 与来源身份的稳定指纹"""
 

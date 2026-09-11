@@ -38,7 +38,7 @@ async def _scene(
 
 
 @pytest.mark.asyncio
-async def test_scene_checkpoint_builds_all_dimensions_and_sparse_stage0(
+async def test_scene_checkpoint_keeps_unproven_v2_dimensions_missing(
     db_session: AsyncSession,
     test_project_id: str,
 ) -> None:
@@ -47,9 +47,20 @@ async def test_scene_checkpoint_builds_all_dimensions_and_sparse_stage0(
 
     result = await service.ensure_scene(db_session, test_project_id, str(scene.id))
 
-    assert result.coverage_status == "ready"
+    assert result.contract_version == 2
+    assert result.coverage_status == "missing"
     assert {item.dimension for item in result.items} == set(SCENE_MEMORY_DIMENSIONS)
-    assert result.missing_dimensions == []
+    assert result.missing_dimensions == ["timeline", "causality"]
+    assert {
+        item.dimension: item.status for item in result.items
+    } == {
+        "entities": "ready",
+        "relations": "ready",
+        "locations": "ready",
+        "knowledge": "ready",
+        "timeline": "missing",
+        "causality": "missing",
+    }
     snapshots = list(
         (
             await db_session.execute(
@@ -61,9 +72,8 @@ async def test_scene_checkpoint_builds_all_dimensions_and_sparse_stage0(
         .scalars()
         .all()
     )
-    assert [item.stage_index for item in snapshots] == [0, 1]
+    assert [item.stage_index for item in snapshots] == [0]
     assert snapshots[0].snapshot_reasons == ["initial"]
-    assert set(snapshots[1].snapshot_reasons) == {"chapter_end", "latest"}
 
 
 @pytest.mark.asyncio

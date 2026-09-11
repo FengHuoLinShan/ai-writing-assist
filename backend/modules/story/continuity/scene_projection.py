@@ -11,7 +11,11 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError, ValidationError
-from modules.story.continuity.contracts import SCENE_MEMORY_DIMENSIONS
+from modules.story.continuity.contracts import (
+    CURRENT_SCENE_MEMORY_CONTRACT_VERSION,
+    SCENE_MEMORY_DIMENSIONS,
+    SCENE_MEMORY_DIMENSIONS_V1,
+)
 from modules.story.continuity.models import MemorySceneCheckpoint
 from modules.story.continuity.repositories import (
     EventRepository,
@@ -169,7 +173,12 @@ class SceneMemoryProjectionService:
             db, nid, parse_uuid(scene_id, "scene_id")
         )
         by_dimension = {item.dimension: item for item in rows}
-        missing = [item for item in SCENE_MEMORY_DIMENSIONS if item not in by_dimension]
+        missing = [
+            dimension
+            for dimension in SCENE_MEMORY_DIMENSIONS
+            if dimension not in by_dimension
+            or by_dimension[dimension].status == "missing"
+        ]
         statuses = {item.status for item in rows}
         if missing:
             coverage_status = "missing"
@@ -188,6 +197,8 @@ class SceneMemoryProjectionService:
             stage_index=int(scene["scene_index"]) + 1,
             scene_title=scene.get("title"),
             coverage_status=coverage_status,
+            contract_version=CURRENT_SCENE_MEMORY_CONTRACT_VERSION,
+            required_dimensions=list(SCENE_MEMORY_DIMENSIONS),
             items=[SceneCheckpointResponse.model_validate(item) for item in rows],
             missing_dimensions=missing,
         )
@@ -332,9 +343,16 @@ class SceneMemoryProjectionService:
                     "refs": refs,
                 }
             )
+            projected_status = (
+                "missing"
+                if dimension not in SCENE_MEMORY_DIMENSIONS_V1
+                and previous is None
+                and not refs
+                else "ready"
+            )
             if (
                 current is not None
-                and current.status == "ready"
+                and current.status == projected_status
                 and current.scene_index == scene_index
                 and current.source_hash == source_hash
             ):
@@ -346,7 +364,7 @@ class SceneMemoryProjectionService:
                 scene_index=scene_index,
                 dimension=dimension,
                 values={
-                    "status": "ready",
+                    "status": projected_status,
                     "confirmed": False,
                     "is_current": True,
                     "state_json": state,
@@ -525,6 +543,10 @@ class SceneMemoryProjectionService:
                     item for item in knowledge if item.get("id") != knowledge_id
                 ]
             knowledge.append(after)
+        elif dimension == "timeline":
+            state.setdefault("facts", []).append(after)
+        elif dimension == "causality":
+            state.setdefault("claims", []).append(after)
 
     @staticmethod
     def _manual_state(
@@ -578,6 +600,8 @@ class SceneMemoryProjectionService:
             "relations": "relations",
             "locations": "character_locations",
             "knowledge": "character_knowledge",
+            "timeline": "facts",
+            "causality": "claims",
         }[dimension]
         count = len(state.get(key) or {})
         changes = len(state.get("changes") or [])
@@ -586,6 +610,8 @@ class SceneMemoryProjectionService:
             "relations": "关系",
             "locations": "人物位置",
             "knowledge": "知识边界",
+            "timeline": "时间顺序",
+            "causality": "因果与前提",
         }
         suffix = f"，另有 {changes} 条变更" if changes else ""
         return f"{labels[dimension]} {count} 条{suffix}"
@@ -654,7 +680,7 @@ class SceneMemoryProjectionService:
             db,
             novel_id,
             earliest,
-            ["entities", "relations", "locations", "knowledge"],
+            list(SCENE_MEMORY_DIMENSIONS),
             include_start=True,
         )
         await self._snapshots.supersede_from(
@@ -671,13 +697,18 @@ class SceneMemoryProjectionService:
             "relations": {"relations": [], "changes": []},
             "locations": {"character_locations": {}, "changes": []},
             "knowledge": {"character_knowledge": [], "changes": []},
+            "timeline": {"facts": [], "changes": []},
+            "causality": {"claims": [], "changes": []},
         }[dimension]
 
     @staticmethod
     def _empty_full_state() -> dict[str, Any]:
         return {
-            dimension: SceneMemoryProjectionService._empty_dimension(dimension)
-            for dimension in SCENE_MEMORY_DIMENSIONS
+            "_contract_version": CURRENT_SCENE_MEMORY_CONTRACT_VERSION,
+            **{
+                dimension: SceneMemoryProjectionService._empty_dimension(dimension)
+                for dimension in SCENE_MEMORY_DIMENSIONS
+            },
         }
 
     @staticmethod

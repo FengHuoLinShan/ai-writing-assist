@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.llm.redaction import redact_diagnostic
 from modules.evidence.compilation.contracts import CompileOptions, StructureContextBundle
 from modules.evidence.compilation.services.protocol import Loader
-from modules.story.contracts import SCENE_MEMORY_DIMENSIONS
+from modules.story.contracts import scene_memory_dimensions
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +107,13 @@ class MemoryRecordsLoader(Loader):
             bundle.scene_checkpoint_set = {
                 "coverage_status": "unavailable",
                 "items": [],
-                "missing_dimensions": list(SCENE_MEMORY_DIMENSIONS),
+                "contract_version": options.scene_memory_contract_version,
+                "required_dimensions": list(
+                    scene_memory_dimensions(options.scene_memory_contract_version)
+                ),
+                "missing_dimensions": list(
+                    scene_memory_dimensions(options.scene_memory_contract_version)
+                ),
             }
             bundle.warnings.append("Scene 时点状态核对失败，本次未用当前世界状态回填过去")
 

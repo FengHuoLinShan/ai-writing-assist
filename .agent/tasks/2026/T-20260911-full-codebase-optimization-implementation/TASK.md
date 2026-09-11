@@ -3,7 +3,7 @@ id: T-20260911-full-codebase-optimization-implementation
 title: 全代码库优化实施
 status: in_progress
 created: 2026-09-11T23:00:00+08:00
-updated: 2026-09-12T07:22:49+08:00
+updated: 2026-09-12T07:35:00+08:00
 ---
 
 # 全代码库优化实施
@@ -16,8 +16,8 @@ updated: 2026-09-12T07:22:49+08:00
 - 已完成：R0a/R0b、R1–R4、R6b/R6c/R6d/R6e；B1a/B1b/B1d 与 B1c 无争议 leaf；B2a–c、B2e；B2d 全部代码项（F5-7 转运维拓扑门禁）；B3a/b/d/e；B4a/b/c/d/f。
 - 当前验证：fast 全量 5397 passed/13 skipped/7 deselected；PostgreSQL critical 32 passed；前端 184 files / 2437 tests、lint/build/生产资源校验通过；smartDedup 浏览器 4/4，设置+世界审查功能链 4/4；docs-check 及 `BASE_REF=origin/main` 显式复核通过。
 - 最新原子提交：`47ca84ba0`–`702fd8cd8`。新增完成 imports start 编排、wheel/锁定运行器、服务镜像 digest、nginx 头继承、Outline 草稿生命周期、API 异常守卫、smartDedup Vue 迁移与重复样式清理。
-- 当前里程碑：owner 已裁定全部剩余产品选择；本轮完成实施计划，不修改业务代码。见[详细计划](authorized-remaining-plan.md)。
-- 下一步：用户明确要求开始实施后，从 R5a 版本化契约或 X2-3a 清理预览/执行入口开始，按叶子批独立提交。
+- 当前里程碑：实施已恢复；R5a 版本化连续性契约完成，旧 V1 confirmation 按四维回放，新 confirmation 固定 V2 六维，新增维度无证据时为 missing。
+- 下一步：实施 R5b 的 timeline/causality 事件 schema、深度导入映射与确定性 Scene 投影。
 - 未完成：R5 空间/时间/逻辑连续性闭环；R6a/X2-3 显式回收站清理；B1c 剩余分类清理与合成样本；B3c 任务轨付费验收及同步轨删除。F5-7、B5/收益待测项按决定延期。
 
 ## 边界与决定
@@ -61,3 +61,4 @@ updated: 2026-09-12T07:22:49+08:00
 - B1d：前端全量 184 files / 2437 tests、lint/build 通过；设置双页+世界审查桌面/390px 4 条功能链通过。视觉套件 3/8 通过、5 失败；在 CSS 批前 `cc16daa85` 对照中 settings-global-light 与 world-objects-light 失败像素数完全相同（8483/16425），确认为基线快照漂移，未擅自更新快照。
 - 累计变更：本次记录提交后 103 个原子提交、283 文件、`+2938/-11664`，净删 8726 行。未合并、未推送、未部署。
 - 2026-09-12 计划轮：新增 `authorized-remaining-plan.md`，并同步 `batch-plan.md` 与本恢复快照；仅文档变更，业务门禁尚未运行。
+- R5a：旧四维 fingerprint 固定样本仍为 `9b0c68160db434ae0f0854d55e5d2de1b92320e1afcc90df34ec4357a6b8a92d`；Story continuity + Evidence compilation 366 passed；相关 ruff 与 diff check 通过。

@@ -21,7 +21,11 @@ from modules.evidence.compilation.services.context_compiler import ContextCompil
 from modules.evidence.compilation.services.review_projection import (
     context_review_metadata,
 )
-from modules.story.contracts import SCENE_MEMORY_DIMENSIONS
+from modules.story.contracts import (
+    CURRENT_SCENE_MEMORY_CONTRACT_VERSION,
+    SCENE_MEMORY_CONTRACT_V1,
+    scene_memory_dimensions,
+)
 from shared.utils import parse_uuid
 
 _ASSET_TYPE_ALIASES = {
@@ -149,6 +153,7 @@ class ContextConfirmationService:
             selected_world_bible_draft_ids=selected_world_bible_draft_ids or [],
             activation_profile_id=activation_profile_id,
             activation_profile_version=activation_profile_version,
+            scene_memory_contract_version=CURRENT_SCENE_MEMORY_CONTRACT_VERSION,
         )
         compiled = await self._compiler.compile_with_tiers(
             db,
@@ -250,7 +255,11 @@ class ContextConfirmationService:
             action=action,
             confirmation_id=confirmation_id,
         )
-        options = CompileOptions(**confirmation.compile_options)
+        compile_options = dict(confirmation.compile_options)
+        compile_options.setdefault(
+            "scene_memory_contract_version", SCENE_MEMORY_CONTRACT_V1
+        )
+        options = CompileOptions(**compile_options)
         compiled = await self._compiler.compile_with_tiers(
             db,
             options,
@@ -499,6 +508,7 @@ class ContextConfirmationService:
                 options.activation_included_target_hashes
             ),
             "compiled_context_fingerprint": options.compiled_context_fingerprint,
+            "scene_memory_contract_version": options.scene_memory_contract_version,
         }
 
     @staticmethod
@@ -551,6 +561,13 @@ class ContextConfirmationService:
             for item in versions
             if isinstance(item, dict) and item.get("dimension")
         }
+        metadata = section.retrieval_metadata or {}
+        contract_version = int(
+            metadata.get("contract_version") or SCENE_MEMORY_CONTRACT_V1
+        )
+        required_dimensions = metadata.get("required_dimensions") or list(
+            scene_memory_dimensions(contract_version)
+        )
         payload = [
             {
                 "dimension": dimension,
@@ -559,7 +576,7 @@ class ContextConfirmationService:
                     (by_dimension.get(dimension) or {}).get("status") or "missing"
                 ),
             }
-            for dimension in SCENE_MEMORY_DIMENSIONS
+            for dimension in required_dimensions
         ]
         encoded = json.dumps(
             payload,

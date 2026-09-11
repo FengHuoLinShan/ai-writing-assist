@@ -13,7 +13,10 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from modules.story.continuity.contracts import SCENE_MEMORY_DIMENSIONS
+from modules.story.continuity.contracts import (
+    CURRENT_SCENE_MEMORY_CONTRACT_VERSION,
+    SCENE_MEMORY_DIMENSIONS,
+)
 
 # ============================================================
 # 枚举
@@ -223,6 +226,10 @@ class SceneCheckpointSetResponse(BaseModel):
     stage_index: int
     scene_title: str | None = None
     coverage_status: str
+    contract_version: int = CURRENT_SCENE_MEMORY_CONTRACT_VERSION
+    required_dimensions: list[str] = Field(
+        default_factory=lambda: list(SCENE_MEMORY_DIMENSIONS)
+    )
     items: list[SceneCheckpointResponse] = Field(default_factory=list)
     missing_dimensions: list[str] = Field(default_factory=list)
 
