@@ -10,6 +10,7 @@ import { resolveApiBaseUrl } from "../shared/apiBaseUrl.js"
 const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 const {
   API_CONTRACTS,
+  DEFAULT_TIMEOUT,
   contractPath,
   contractRequest,
   getApiContract,
@@ -184,6 +185,10 @@ function formatMissingApiMethods(used, defined) {
 }
 
 describe("前后端 API 契约", () => {
+  it("共用同一默认传输超时", () => {
+    expect(DEFAULT_TIMEOUT).toBe(15000)
+  })
+
   it("构造项目工作台摘要路径", () => {
     expect(contractPath("projects.getWorkspaceSummary", { id: "project-1" }))
       .toBe("/projects/project-1/workspace-summary")

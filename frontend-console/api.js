@@ -15,7 +15,7 @@ import {
 const API_BASE_URL = resolveApiBaseUrl(
   typeof API_HOST !== "undefined" ? API_HOST : "",
 )
-const API_TIMEOUT = 15000
+const API_TIMEOUT = globalThis.apiContracts?.DEFAULT_TIMEOUT
 const API_CACHE_TTL = 30000
 const API_CACHE_MAX_ENTRIES = 128
 // 封闭测试服令牌只保存在当前页面的 module scope 中。刷新后重新输入，避免
@@ -308,7 +308,7 @@ async function request(path, options = {}) {
   } = options
   const url = `${API_BASE_URL}${path}`
   const controller = new AbortController()
-  const timeoutMs = timeout || API_TIMEOUT
+  const timeoutMs = timeout ?? API_TIMEOUT
   let timeoutFired = false
   const timeoutId = setTimeout(() => {
     timeoutFired = true
