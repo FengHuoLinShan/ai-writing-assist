@@ -528,14 +528,9 @@ export function useWorldBible(props) {
     const titleEl = typeof document !== "undefined" && document.getElementById("bible-title")
     if (titleEl) {
       try {
-        const current = normalizeEditorPayload({
-          title: document.getElementById("bible-title")?.value?.trim() || "",
-          page_type: document.getElementById("bible-page-type")?.value || "custom",
-          free_text: document.getElementById("bible-free-text")?.value || "",
-          sort_order: Number(document.getElementById("bible-sort-order")?.value || 0),
-          linked_asset_refs_json: parseAssetRefs(document.getElementById("bible-asset-refs")?.value || ""),
-          sections_json: readSectionsFromDom(),
-        })
+        const current = normalizeEditorPayload(
+          readEditorPayloadFromDom({ lenient: true }),
+        )
         const source = currentSource()
         if (!source) return true
         const baseline = editorBaselineKey.value === editorSourceKey(source)
@@ -609,14 +604,7 @@ export function useWorldBible(props) {
     const revisionAtRequest = autosaveRevision
     editorMutationPending.value = true
     try {
-      const payload = {
-        title: document.getElementById("bible-title")?.value?.trim() || "",
-        page_type: document.getElementById("bible-page-type")?.value || "custom",
-        free_text: document.getElementById("bible-free-text")?.value || "",
-        sort_order: Number(document.getElementById("bible-sort-order")?.value || 0),
-        linked_asset_refs_json: parseAssetRefs(document.getElementById("bible-asset-refs")?.value || ""),
-        sections_json: readSectionsFromDom(),
-      }
+      const payload = readEditorPayloadFromDom({ lenient: true })
       if (!payload.title) {
         toast("标题不能为空", "warning")
         return false
