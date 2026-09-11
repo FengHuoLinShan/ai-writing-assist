@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.tasks.enqueuer import enqueue_coalesced_task, enqueue_task
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
+from tests.support.inventory import production_python_files
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
@@ -23,9 +24,7 @@ def test_ordinary_enqueue_requires_explicit_owner_choice() -> None:
 def test_production_ordinary_enqueue_calls_pass_explicit_novel_id() -> None:
     missing: list[str] = []
     direct_construction: list[str] = []
-    for source_path in BACKEND_ROOT.rglob("*.py"):
-        if "tests" in source_path.parts or source_path.name.startswith("test_"):
-            continue
+    for source_path in production_python_files():
         tree = ast.parse(source_path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
