@@ -7,53 +7,24 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable, Iterator
-from contextlib import AbstractContextManager, contextmanager
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Literal
-
-ServiceScope = Literal["singleton", "transient"]
+from typing import Any
 
 
 @dataclass
 class _Registration:
-    provider: Any
-    scope: ServiceScope
-    is_factory: bool = False
-    instance: Any = None
-    created: bool = False
+    instance: Any
 
     @classmethod
     def for_instance(cls, instance: Any) -> _Registration:
-        return cls(
-            provider=instance,
-            scope="singleton",
-            instance=instance,
-            created=True,
-        )
-
-    @classmethod
-    def for_factory(
-        cls,
-        factory: Callable[[], Any],
-        *,
-        scope: ServiceScope,
-    ) -> _Registration:
-        return cls(provider=factory, scope=scope, is_factory=True)
+        return cls(instance=instance)
 
     def resolve(self) -> Any:
-        if not self.is_factory:
-            return self.instance
-        if self.scope == "transient":
-            return self.provider()
-        if not self.created:
-            self.instance = self.provider()
-            self.created = True
         return self.instance
 
     def shutdown_instance(self) -> Any | None:
-        if self.scope == "transient" or not self.created:
-            return None
         return self.instance
 
 
@@ -64,19 +35,6 @@ def register(name: str, instance: Any) -> None:
     if name in _container:
         raise ValueError(f"Service {name!r} already registered")
     _container[name] = _Registration.for_instance(instance)
-
-
-def register_factory(
-    name: str,
-    factory: Callable[[], Any],
-    *,
-    scope: ServiceScope = "singleton",
-) -> None:
-    if name in _container:
-        raise ValueError(f"Service {name!r} already registered")
-    if scope not in ("singleton", "transient"):
-        raise ValueError("scope must be 'singleton' or 'transient'")
-    _container[name] = _Registration.for_factory(factory, scope=scope)
 
 
 def get(name: str) -> Any:
@@ -106,10 +64,6 @@ def container_scope(overrides: dict[str, Any] | None = None) -> Iterator[None]:
                 _container.pop(name, None)
             else:
                 _container[name] = old_registration
-
-
-def override(name: str, service: Any) -> AbstractContextManager[None]:
-    return container_scope({name: service})
 
 
 async def shutdown() -> None:

@@ -3,9 +3,7 @@ import pytest
 from core.container import (
     container_scope,
     get,
-    override,
     register,
-    register_factory,
     reset,
     shutdown,
 )
@@ -113,41 +111,6 @@ def test_reset_clears_all():
         get("x")
 
 
-def test_singleton_factory_is_lazy_and_cached():
-    created = 0
-
-    def factory():
-        nonlocal created
-        created += 1
-        return object()
-
-    register_factory("svc", factory)
-
-    assert created == 0
-    first = get("svc")
-    second = get("svc")
-
-    assert first is second
-    assert created == 1
-
-
-def test_transient_factory_creates_each_time():
-    created = 0
-
-    def factory():
-        nonlocal created
-        created += 1
-        return object()
-
-    register_factory("svc", factory, scope="transient")
-
-    first = get("svc")
-    second = get("svc")
-
-    assert first is not second
-    assert created == 2
-
-
 def test_container_scope_restores_existing_and_removes_new_service():
     original = object()
     scoped = object()
@@ -161,17 +124,6 @@ def test_container_scope_restores_existing_and_removes_new_service():
     assert get("svc") is original
     with pytest.raises(KeyError):
         get("temp")
-
-
-def test_override_restores_existing_service():
-    original = object()
-    scoped = object()
-    register("svc", original)
-
-    with override("svc", scoped):
-        assert get("svc") is scoped
-
-    assert get("svc") is original
 
 
 @pytest.mark.asyncio
@@ -220,31 +172,6 @@ async def test_shutdown_prefers_aclose_over_close():
     await shutdown()
 
     assert events == ["aclose"]
-
-
-@pytest.mark.asyncio
-async def test_shutdown_does_not_create_unused_singleton_or_track_transient():
-    created_singleton = 0
-    transient_closed = 0
-
-    class TransientService:
-        def close(self):
-            nonlocal transient_closed
-            transient_closed += 1
-
-    def singleton_factory():
-        nonlocal created_singleton
-        created_singleton += 1
-        return object()
-
-    register_factory("lazy", singleton_factory)
-    register_factory("transient", TransientService, scope="transient")
-
-    assert get("transient") is not get("transient")
-    await shutdown()
-
-    assert created_singleton == 0
-    assert transient_closed == 0
 
 
 @pytest.mark.asyncio

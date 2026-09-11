@@ -20,7 +20,7 @@ import pytest
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict
 
-from core.container import override
+from core.container import container_scope
 from infrastructure.tasks.registry import TaskRegistry
 
 _TASK_NOVEL_ID = "00000000-0000-0000-0000-000000000123"
@@ -48,7 +48,7 @@ def restore_task_registry_method_overrides():
 def active_project_guard():
     """Keep direct endpoint unit tests focused below the project boundary."""
     guard = AsyncMock()
-    with override("project.require_active", guard):
+    with container_scope({"project.require_active": guard}):
         yield guard
 
 
