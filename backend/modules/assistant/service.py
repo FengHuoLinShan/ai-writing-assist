@@ -372,13 +372,8 @@ class AssistantService:
         if continuation_of:
             payload["continuation_of"] = continuation_of
         request_hash = fingerprint(payload)
-        existing = await db.scalar(
-            select(AssistantRun).where(
-                AssistantRun.id == data.operation_id,
-                AssistantRun.novel_id == data.novel_id,
-            )
-        )
-        if existing is not None:
+
+        def same_request(candidate) -> bool:
             compatible_hashes = {request_hash}
             if payload.get("web_backend") is None:
                 compatible_hashes.add(
@@ -390,10 +385,19 @@ class AssistantService:
                         }
                     )
                 )
-            if (
-                existing.novel_id != data.novel_id
-                or existing.request_hash not in compatible_hashes
-            ):
+            return (
+                candidate.novel_id == data.novel_id
+                and candidate.request_hash in compatible_hashes
+            )
+
+        existing = await db.scalar(
+            select(AssistantRun).where(
+                AssistantRun.id == data.operation_id,
+                AssistantRun.novel_id == data.novel_id,
+            )
+        )
+        if existing is not None:
+            if not same_request(existing):
                 raise ConflictError(
                     "请求标识已用于其他操作", code="assistant_operation_changed"
                 )
@@ -470,15 +474,32 @@ class AssistantService:
             budget_json=AgentRunBudget().model_dump(mode="json"),
             status="pending",
         )
+        try:
+            task = await enqueue_operation_task(
+                db,
+                operation_id=str(data.operation_id),
+                task_type="assistant_turn",
+                novel_id=novel_id,
+                request_payload=payload,
+                meta={"run_id": str(run.id)},
+            )
+        except ValueError as exc:
+            raise ConflictError(
+                "请求标识已用于其他操作", code="assistant_operation_changed"
+            ) from exc
+        if task.reused:
+            existing = await db.scalar(
+                select(AssistantRun).where(
+                    AssistantRun.id == data.operation_id,
+                    AssistantRun.novel_id == data.novel_id,
+                )
+            )
+            if existing is not None and same_request(existing):
+                return self.view(existing)
+            raise ConflictError(
+                "请求标识已用于其他操作", code="assistant_operation_changed"
+            )
         db.add(run)
-        task = await enqueue_operation_task(
-            db,
-            operation_id=str(data.operation_id),
-            task_type="assistant_turn",
-            novel_id=novel_id,
-            request_payload=payload,
-            meta={"run_id": str(run.id)},
-        )
         run.task_id = uuid.UUID(task.task_id)
         record_run_event(run, "queued")
         await self.sessions.append_message(

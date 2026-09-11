@@ -11,7 +11,9 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from core.config import get_settings
 from core.container import container_scope
+from core.errors import ConflictError
 from infrastructure.tasks.facade import enqueue_task
+from infrastructure.tasks.models import AsyncTask
 from modules.account.context import bind_principal, reset_principal
 from modules.account.contracts import AccountPrincipal
 from modules.account.models import Account
@@ -24,12 +26,106 @@ from modules.assistant.schemas import (
     BatchDecision,
     ProactivePolicy,
     ProposedAction,
+    TurnCreate,
     WorkContext,
 )
+from modules.assistant.service import AssistantService
+from modules.assistant.session_models import AssistantSession
 from modules.project.models import Project, ProjectAuthorTask
 from tests.e2e.config import DATABASE_URL
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
+
+
+async def test_same_operation_id_across_sessions_never_becomes_server_error(
+    monkeypatch,
+):
+    engine = create_async_engine(DATABASE_URL, pool_size=4, max_overflow=0)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    owner, nid, operation_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    principal = AccountPrincipal(
+        account_id=owner,
+        status="active",
+        identity_type="email",
+        support_code="agent-submit-" + owner.hex[:12],
+    )
+    token = bind_principal(principal)
+    monkeypatch.setattr(
+        "modules.assistant.service.get_settings",
+        lambda: replace(get_settings(), assistant_enabled=True),
+    )
+
+    async def snapshot(*_args, **_kwargs):
+        return {"schema_version": 1, "profile": {"model": "test"}}
+
+    monkeypatch.setattr(
+        "modules.assistant.service.build_project_llm_execution_snapshot", snapshot
+    )
+    try:
+        async with sessions.begin() as db:
+            db.add(
+                Account(
+                    id=owner,
+                    status="active",
+                    support_code=principal.support_code,
+                )
+            )
+            db.add(Project(id=nid, owner_id=owner, title="Assistant submit concurrency"))
+            await db.flush()
+            db.add_all(
+                [
+                    AssistantSession(
+                        id=session_id,
+                        novel_id=nid,
+                        title="并发讨论",
+                        source_kind="project",
+                        workflow_preset="default",
+                    )
+                    for session_id in (uuid.uuid4(), uuid.uuid4())
+                ]
+            )
+        async with sessions() as db:
+            session_ids = list(
+                await db.scalars(
+                    select(AssistantSession.id).where(AssistantSession.novel_id == nid)
+                )
+            )
+        data = TurnCreate(
+            novel_id=nid,
+            operation_id=operation_id,
+            message="同一回执只允许一个请求",
+            allow_web=False,
+        )
+
+        async def submit(session_id):
+            async with sessions.begin() as db:
+                return await AssistantService().submit(
+                    db, str(session_id), data, str(owner)
+                )
+
+        replies = await asyncio.wait_for(
+            asyncio.gather(
+                *(submit(item) for item in session_ids),
+                return_exceptions=True,
+            ),
+            timeout=15,
+        )
+
+        assert sum(isinstance(item, dict) for item in replies) == 1
+        assert sum(isinstance(item, ConflictError) for item in replies) == 1
+        async with sessions() as db:
+            assert await db.scalar(
+                select(func.count())
+                .select_from(AssistantRun)
+                .where(AssistantRun.id == operation_id)
+            ) == 1
+    finally:
+        reset_principal(token)
+        async with sessions.begin() as db:
+            await db.execute(delete(AsyncTask).where(AsyncTask.id == operation_id))
+            await db.execute(delete(Project).where(Project.id == nid))
+            await db.execute(delete(Account).where(Account.id == owner))
+        await engine.dispose()
 
 
 async def test_concurrent_approval_and_background_claim_are_exactly_once(monkeypatch):

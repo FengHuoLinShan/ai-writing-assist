@@ -27,6 +27,47 @@ async def _session(async_client, novel_id):
     return response.json()["id"]
 
 
+async def test_submit_operation_receipt_without_run_returns_conflict(
+    async_client,
+    db_session,
+    test_project_id,
+    account_llm_connection,
+    monkeypatch,
+):
+    from infrastructure.tasks.facade import enqueue_operation_task
+    from modules.assistant.schemas import TurnCreate
+
+    monkeypatch.setattr(
+        "modules.assistant.service.get_settings",
+        lambda: replace(get_settings(), assistant_enabled=True),
+    )
+    session_id = await _session(async_client, test_project_id)
+    data = TurnCreate(
+        novel_id=test_project_id,
+        operation_id=uuid.uuid4(),
+        message="核对同一请求",
+        allow_web=False,
+    )
+    payload = data.model_dump(mode="json") | {"session_id": session_id}
+    await enqueue_operation_task(
+        db_session,
+        operation_id=str(data.operation_id),
+        task_type="assistant_turn",
+        novel_id=test_project_id,
+        request_payload=payload,
+        meta={"run_id": str(data.operation_id)},
+    )
+    await db_session.commit()
+
+    response = await async_client.post(
+        f"/api/assistant/sessions/{session_id}/turns",
+        json=data.model_dump(mode="json"),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"] == "assistant_operation_changed"
+
+
 @pytest.mark.parametrize(
     "allow_web,web_backend", [(True, "searxng-v1"), (False, "searxng-v1"), (True, None)]
 )
