@@ -20,7 +20,6 @@ from modules.evidence.indexing import tasks as rag_tasks  # noqa: F401 — 注�
 from modules.evidence.indexing.chunking import ChunkingService
 from modules.evidence.indexing.contracts import (
     RagChunkContract,
-    RagQueryContract,
     RagResultBundle,
 )
 from modules.evidence.indexing.facade import (
@@ -36,7 +35,6 @@ from modules.evidence.indexing.repositories import RagChunkRepository
 from modules.evidence.indexing.retrieval import RetrievalOrchestrator as RetrievalService
 from modules.evidence.indexing.schemas import (
     RagChunkCreate,
-    SimilarEntity,
 )
 from modules.evidence.indexing.scoring import (
     compute_keyword_score,
@@ -1213,11 +1211,11 @@ class TestRetrievalService:
             )
             mock_client_cls.return_value = mock_client
 
-            async def _no_expand(*args, **kwargs) -> str:  # noqa: ANN002, ANN003
-                return str(args[2])
+            async def _no_expand(_self, _db, _novel_id, query, **_kwargs) -> str:
+                return str(query)
 
             with patch(
-                "modules.evidence.indexing.query_expansion._expand_query_with_project_terms",
+                "modules.evidence.indexing.query_expansion.QueryExpander.expand",
                 side_effect=_no_expand,
                 autospec=True,
             ):
@@ -1252,11 +1250,11 @@ class TestRetrievalService:
         )
         await db_with_project.flush()
 
-        async def _no_expand(*args, **kwargs) -> str:  # noqa: ANN002, ANN003
-            return str(args[2])
+        async def _no_expand(_self, _db, _novel_id, query, **_kwargs) -> str:
+            return str(query)
 
         with patch(
-            "modules.evidence.indexing.query_expansion._expand_query_with_project_terms",
+            "modules.evidence.indexing.query_expansion.QueryExpander.expand",
             side_effect=_no_expand,
             autospec=True,
         ):
@@ -1679,29 +1677,12 @@ class TestRagContracts:
         assert contract.importance == 0.5
         assert contract.visibility == "author_only"
 
-    def test_rag_query_contract(self) -> None:
-        """测试 RAG 查询契约"""
-        contract = RagQueryContract(query="测试")
-        assert contract.query == "测试"
-        assert contract.top_k == 12
-        assert contract.entity_ids is None
-
     def test_rag_result_bundle(self) -> None:
         """测试 RAG 结果"""
         bundle = RagResultBundle()
         assert bundle.chunks == []
         assert bundle.total == 0
         assert bundle.query == ""
-
-    def test_similar_entity(self) -> None:
-        """测试相似实体"""
-        entity = SimilarEntity(
-            entity_id="test-id",
-            name="测试实体",
-            similarity_score=0.95,
-        )
-        assert entity.similarity_score == 0.95
-
 
 # ============================================================
 # 中文分词器测试

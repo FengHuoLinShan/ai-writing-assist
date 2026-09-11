@@ -69,36 +69,6 @@ class RagChunkContract:
 
 
 @dataclass(frozen=True)
-class RagQueryContract:
-    """RAG 检索查询契约"""
-
-    query: str
-    """检索查询文本"""
-    content_mode: str = "canonical"
-    """检索 canonical / working 索引"""
-    entity_ids: list[str] | None = None
-    """限制关联的世界对象 ID 列表"""
-    character_ids: list[str] | None = None
-    """限制关联的人物 ID 列表"""
-    thread_ids: list[str] | None = None
-    """限制关联的剧情线 ID 列表"""
-    chapter_index: int | None = None
-    """限制关联章节索引"""
-    visible_until_chapter: int | None = None
-    """读者进度上界；只召回该章节及之前的片段"""
-    scene_id: str | None = None
-    """限制关联 Scene ID"""
-    strict_scene_filter: bool = False
-    """是否严格按 Scene 过滤，排除未标注 Scene 的片段"""
-    mode: str = "search"
-    """检索模式：search / context / extraction"""
-    retrieval_purpose: str | None = None
-    """可选下游用途，帮助内部证据重排序理解调用目的"""
-    top_k: int = 12
-    """返回的最大结果数"""
-
-
-@dataclass(frozen=True)
 class RagResultBundle:
     """RAG 检索结果束
 

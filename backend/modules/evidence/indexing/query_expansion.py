@@ -142,40 +142,6 @@ def _matched_project_term_keys(
     return partial if len(partial) == 1 else set()
 
 
-async def _expand_query_with_project_terms(
-    db: AsyncSession,
-    novel_id: uuid.UUID,
-    query: str,
-    *,
-    entity_ids: list[str] | None = None,
-    character_ids: list[str] | None = None,
-    thread_ids: list[str] | None = None,
-) -> str:
-    """用项目词典扩展查询词。"""
-    terms = await _load_project_terms(db, novel_id)
-    if not terms:
-        return query
-
-    requested: set[tuple[str, str]] = set()
-    for cid in character_ids or []:
-        requested.add(("character", cid))
-    for eid in entity_ids or []:
-        requested.add(("entity", eid))
-    for tid in thread_ids or []:
-        requested.add(("thread", tid))
-
-    requested.update(_matched_project_term_keys(query, terms))
-
-    expanded: list[str] = [query]
-    for item in terms:
-        if (item["type"], item["id"]) not in requested:
-            continue
-        if item["term"] not in expanded:
-            expanded.append(item["term"])
-
-    return " ".join(expanded)
-
-
 class QueryExpander:
     """可注入 term_loader 的查询扩展器，便于测试替换为 fake loader。"""
 

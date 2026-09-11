@@ -394,28 +394,6 @@ class ChunkingService:
             )
         ]
 
-    @staticmethod
-    def _choose_cn_boundary(
-        text: str,
-        start: int,
-        target_length: int,
-        hard_end: int,
-    ) -> int:
-        min_end = min(start + max(80, target_length // 2), hard_end)
-        target_end = min(start + target_length, hard_end)
-
-        boundary_patterns = ("\n\n", "\r\n\r\n", "。", "！", "？", "”", "」", "\n")
-        best = -1
-        for pattern in boundary_patterns:
-            pos = text.rfind(pattern, min_end, hard_end)
-            if pos >= min_end:
-                candidate = pos + len(pattern)
-                if abs(candidate - target_end) < abs(best - target_end) or best < 0:
-                    best = candidate
-        if best > start:
-            return best
-        return hard_end
-
     def extract_summary(self, chunk_text: str, max_length: int = 200) -> str:
         """提取片段摘要
 

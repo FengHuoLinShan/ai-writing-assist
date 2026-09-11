@@ -344,31 +344,3 @@ class RagResult(BaseModel):
     """检索过程告警"""
     degraded: bool = False
     """是否发生降级（如 embedding/LLM 不可用）"""
-
-
-class SimilarEntity(BaseModel):
-    """相似实体结果"""
-
-    entity_id: str = Field(
-        ...,
-        description="实体 ID (UUID hex string)",
-    )
-    name: str = Field(
-        ...,
-        description="实体名称",
-    )
-    similarity_score: float = Field(
-        ...,
-        ge=0.0,
-        le=1.0,
-        description="相似度评分（0.0-1.0）",
-    )
-
-
-class SimilarEntityResponse(BaseModel):
-    """相似实体检索响应"""
-
-    items: list[SimilarEntity]
-    """相似实体列表"""
-    total: int
-    """结果总数"""

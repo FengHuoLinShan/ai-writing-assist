@@ -20,7 +20,7 @@ from core.container import register, reset
 
 
 class TestContracts:
-    """RagChunkContract / RagQueryContract / RagResultBundle / RagIndexReport"""
+    """RagChunkContract / RagResultBundle / RagIndexReport"""
 
     def test_rag_chunk_contract_defaults(self):
         """GREEN: RagChunkContract 使用最少字段创建"""
@@ -108,39 +108,6 @@ class TestContracts:
         assert c.index_warnings == ["warn1"]
         assert c.meta == {"arc": "arc1"}
         assert c.score == 0.85
-
-    def test_rag_query_contract_defaults(self):
-        """GREEN: RagQueryContract 默认值正确"""
-        from modules.evidence.contracts import RagQueryContract
-
-        q = RagQueryContract(query="test query")
-        assert q.query == "test query"
-        assert q.entity_ids is None
-        assert q.character_ids is None
-        assert q.thread_ids is None
-        assert q.chapter_index is None
-        assert q.mode == "search"
-        assert q.top_k == 12
-
-    def test_rag_query_contract_custom_values(self):
-        """GREEN: RagQueryContract 自定义值"""
-        from modules.evidence.contracts import RagQueryContract
-
-        q = RagQueryContract(
-            query="q",
-            entity_ids=["e1"],
-            character_ids=["c1"],
-            thread_ids=["t1"],
-            chapter_index=5,
-            mode="extraction",
-            top_k=24,
-        )
-        assert q.entity_ids == ["e1"]
-        assert q.character_ids == ["c1"]
-        assert q.thread_ids == ["t1"]
-        assert q.chapter_index == 5
-        assert q.mode == "extraction"
-        assert q.top_k == 24
 
     def test_rag_result_bundle_defaults(self):
         """GREEN: RagResultBundle 默认值为空"""
@@ -390,26 +357,6 @@ class TestSchemas:
         r = RagResult(chunks=[], total=0, query="q")
         assert r.warnings == []
         assert r.degraded is False
-
-    def test_similar_entity_defaults(self):
-        """GREEN: SimilarEntity 必需字段"""
-        from modules.evidence.indexing.schemas import SimilarEntity
-
-        se = SimilarEntity(entity_id="e1", name="entity", similarity_score=0.85)
-        assert se.similarity_score == 0.85
-        assert se.name == "entity"
-
-    def test_similar_entity_response_defaults(self):
-        """GREEN: SimilarEntityResponse"""
-        from modules.evidence.indexing.schemas import SimilarEntity, SimilarEntityResponse
-
-        resp = SimilarEntityResponse(items=[], total=0)
-        assert resp.items == []
-
-        se = SimilarEntity(entity_id="e1", name="n", similarity_score=0.9)
-        resp2 = SimilarEntityResponse(items=[se], total=1)
-        assert len(resp2.items) == 1
-
 
 # ============================================================
 # api.py — API 路由
