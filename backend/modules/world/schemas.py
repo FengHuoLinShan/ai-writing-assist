@@ -15,7 +15,14 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 from pydantic import ValidationError as PydanticValidationError
 
 from modules.world.llm_schemas import (
@@ -53,6 +60,10 @@ def _optional_uuid_validator(v: object) -> str | None:
     if v is None:
         return None
     return _uuid_validator(v)
+
+
+UuidStr = Annotated[str, BeforeValidator(_uuid_validator)]
+OptionalUuidStr = Annotated[str | None, BeforeValidator(_optional_uuid_validator)]
 
 
 def _validate_lower_sha256(value: str, field_name: str) -> str:
@@ -572,13 +583,8 @@ class WorldGenerationExplorationSelection(BaseModel):
 
 
 class WorldGenerationSuggestionRequest(WorldGenerationRequestBase):
-    revises_suggestion_id: str | None = None
+    revises_suggestion_id: OptionalUuidStr = None
     exploration_selection: WorldGenerationExplorationSelection | None = None
-
-    @field_validator("revises_suggestion_id", mode="before")
-    @classmethod
-    def coerce_revision_parent_uuid(cls, value: object) -> str | None:
-        return _optional_uuid_validator(value)
 
     @model_validator(mode="after")
     def validate_exploration_selection_scope(
@@ -1120,8 +1126,8 @@ class CoreEntityResponse(BaseModel):
         json_encoders={uuid.UUID: str},
     )
 
-    id: str
-    novel_id: str
+    id: UuidStr
+    novel_id: UuidStr
     entity_type: str
     name: str
     summary: str | None = None
@@ -1143,11 +1149,6 @@ class CoreEntityResponse(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
     ranking: EntityRankingResponse | None = None
-
-    @field_validator("id", "novel_id", mode="before")
-    @classmethod
-    def coerce_uuid(cls, v: object) -> str:
-        return _uuid_validator(v)
 
     @model_validator(mode="after")
     def derive_author_state(self) -> CoreEntityResponse:
@@ -1219,14 +1220,9 @@ class EntityPromoteResponse(BaseModel):
         json_encoders={uuid.UUID: str},
     )
 
-    entity_id: str
+    entity_id: UuidStr
     status: str
     approved_by: str | None = None
-
-    @field_validator("entity_id", mode="before")
-    @classmethod
-    def coerce_uuid(cls, v: object) -> str:
-        return _uuid_validator(v)
 
 
 # ============================================================
@@ -1297,23 +1293,12 @@ class EventResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    entity_id: str
-    novel_id: str
-    source_chapter_id: str
-    location_entity_id: str
+    entity_id: UuidStr
+    novel_id: UuidStr
+    source_chapter_id: UuidStr
+    location_entity_id: UuidStr
     timeline_order: int
     occurrence_time_label: str | None = None
-
-    @field_validator(
-        "entity_id",
-        "novel_id",
-        "source_chapter_id",
-        "location_entity_id",
-        mode="before",
-    )
-    @classmethod
-    def coerce_uuid(cls, v: object) -> str:
-        return _uuid_validator(v)
 
 
 class EventListResponse(BaseModel):
@@ -1421,18 +1406,18 @@ class EntityRelationResponse(BaseModel):
     # the public serialized field remains ``source``.
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    novel_id: str
-    source_id: str
+    id: Annotated[str, BeforeValidator(_optional_uuid_validator)]
+    novel_id: Annotated[str, BeforeValidator(_optional_uuid_validator)]
+    source_id: Annotated[str, BeforeValidator(_optional_uuid_validator)]
     source_name: str | None = None
-    target_id: str
+    target_id: Annotated[str, BeforeValidator(_optional_uuid_validator)]
     target_name: str | None = None
     relation_type: str
     relation_kind: RelationKind | None = None
     description: str | None = None
     strength: float = 0.5
-    source_chapter_id: str | None = None
-    caused_by_event_id: str | None = None
+    source_chapter_id: OptionalUuidStr = None
+    caused_by_event_id: OptionalUuidStr = None
     quote: str | None = None
     review_meta: dict | None = None
     status: str = "canonical"
@@ -1442,19 +1427,6 @@ class EntityRelationResponse(BaseModel):
     suggested_action: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
-
-    @field_validator(
-        "id",
-        "novel_id",
-        "source_id",
-        "target_id",
-        "source_chapter_id",
-        "caused_by_event_id",
-        mode="before",
-    )
-    @classmethod
-    def coerce_uuid(cls, v: object) -> str | None:
-        return _optional_uuid_validator(v)
 
     @model_validator(mode="after")
     def derive_author_state(self) -> EntityRelationResponse:
@@ -1942,8 +1914,8 @@ class CharacterResponse(BaseModel):
         json_encoders={uuid.UUID: str},
     )
 
-    entity_id: str
-    novel_id: str
+    entity_id: UuidStr
+    novel_id: UuidStr
     name: str
 
     @property
@@ -1970,11 +1942,6 @@ class CharacterResponse(BaseModel):
     status: str = "canonical"
     created_at: datetime | None = None
     updated_at: datetime | None = None
-
-    @field_validator("entity_id", "novel_id", mode="before")
-    @classmethod
-    def coerce_uuid_to_str(cls, v: object) -> str:
-        return _uuid_validator(v)
 
 
 class CharacterListResponse(BaseModel):
@@ -2059,11 +2026,11 @@ class CharacterKnowledgeResponse(BaseModel):
         json_encoders={uuid.UUID: str},
     )
 
-    id: str
-    novel_id: str
-    character_id: str
+    id: Annotated[str, BeforeValidator(_optional_uuid_validator)]
+    novel_id: Annotated[str, BeforeValidator(_optional_uuid_validator)]
+    character_id: Annotated[str, BeforeValidator(_optional_uuid_validator)]
     target_type: str
-    target_id: str
+    target_id: Annotated[str, BeforeValidator(_optional_uuid_validator)]
     target_name: str | None = None
     target_entity_type: str | None = None
     knowledge_level: str
@@ -2071,22 +2038,10 @@ class CharacterKnowledgeResponse(BaseModel):
     misconception: str | None = None
     source_chapter_index: int | None = None
     is_public_baseline: bool = False
-    source_memory_id: str | None = None
+    source_memory_id: OptionalUuidStr = None
     status: str = "canonical"
     created_at: datetime | None = None
     updated_at: datetime | None = None
-
-    @field_validator(
-        "id",
-        "novel_id",
-        "character_id",
-        "target_id",
-        "source_memory_id",
-        mode="before",
-    )
-    @classmethod
-    def coerce_uuid_to_str(cls, v: object) -> str | None:
-        return _optional_uuid_validator(v)
 
 
 class CharacterKnowledgeListResponse(BaseModel):
@@ -2106,7 +2061,7 @@ class WorldEntityContext(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    entity_id: str
+    entity_id: UuidStr
     entity_type: str
     name: str
     summary: str | None = None
@@ -2118,11 +2073,6 @@ class WorldEntityContext(BaseModel):
     status: str = "canonical"
     aliases: list[str] = Field(default_factory=list)
     related_entity_ids: list[str] = Field(default_factory=list)
-
-    @field_validator("entity_id", mode="before")
-    @classmethod
-    def coerce_entity_id(cls, v: object) -> str:
-        return _uuid_validator(v)
 
 
 class WorldContextBundle(BaseModel):
@@ -2621,8 +2571,8 @@ class WorldBibleValidationReceipt(BaseModel):
 class WorldBiblePageResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    novel_id: str
+    id: UuidStr
+    novel_id: UuidStr
     page_type: str
     page_key: str
     title: str
@@ -2639,11 +2589,6 @@ class WorldBiblePageResponse(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
     validation_receipt: WorldBibleValidationReceipt | None = None
-
-    @field_validator("id", "novel_id", mode="before")
-    @classmethod
-    def coerce_page_uuid(cls, v: object) -> str:
-        return _uuid_validator(v)
 
 
 class WorldBiblePageListResponse(BaseModel):
@@ -2724,8 +2669,8 @@ class WorldBibleCategoryUpdate(BaseModel):
 class WorldBibleCategoryResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    novel_id: str
+    id: UuidStr
+    novel_id: UuidStr
     category_key: str
     name: str
     description: str | None = None
@@ -2737,11 +2682,6 @@ class WorldBibleCategoryResponse(BaseModel):
     default_template_key: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
-
-    @field_validator("id", "novel_id", mode="before")
-    @classmethod
-    def coerce_category_uuid(cls, v: object) -> str:
-        return _uuid_validator(v)
 
 
 class WorldBibleCategoryListResponse(BaseModel):
@@ -2759,23 +2699,18 @@ class WorldLibraryItemResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     kind: Literal["page", "draft", "entity"]
-    id: str
+    id: Annotated[str, BeforeValidator(_optional_uuid_validator)]
     title: str = "未命名资料"
     summary: str = ""
     state: Literal["active", "review", "archived"] = "review"
     working: bool = False
-    draft_id: str | None = None
+    draft_id: OptionalUuidStr = None
     item_type: str = ""
     status: str = ""
     is_favorite: bool = False
     last_opened_at: datetime | None = None
     updated_at: datetime | None = None
     created_at: datetime | None = None
-
-    @field_validator("id", "draft_id", mode="before")
-    @classmethod
-    def coerce_library_uuid(cls, v: object) -> object:
-        return _uuid_validator(v) if v is not None else None
 
 
 class WorldLibraryListResponse(BaseModel):
@@ -2786,19 +2721,14 @@ class WorldLibraryListResponse(BaseModel):
 class WorldLibraryTopicNode(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
+    id: Annotated[str, BeforeValidator(_optional_uuid_validator)]
     name: str
     description: str | None = None
     status: str = "active"
     sort_order: int = 100
-    parent_id: str | None = None
+    parent_id: OptionalUuidStr = None
     member_count: int = 0
     children: list[WorldLibraryTopicNode] = Field(default_factory=list)
-
-    @field_validator("id", "parent_id", mode="before")
-    @classmethod
-    def coerce_topic_uuid(cls, v: object) -> object:
-        return _uuid_validator(v) if v is not None else None
 
 
 class WorldLibraryTopicTreeResponse(BaseModel):
@@ -2963,9 +2893,9 @@ class WorldBiblePageDraftUpdate(BaseModel):
 class WorldBiblePageDraftResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    novel_id: str
-    page_id: str | None = None
+    id: UuidStr
+    novel_id: UuidStr
+    page_id: OptionalUuidStr = None
     base_version_number: int | None = None
     title: str
     page_type: str
@@ -2980,16 +2910,6 @@ class WorldBiblePageDraftResponse(BaseModel):
     updated_by: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
-
-    @field_validator("id", "novel_id", mode="before")
-    @classmethod
-    def coerce_draft_uuid(cls, v: object) -> str:
-        return _uuid_validator(v)
-
-    @field_validator("page_id", mode="before")
-    @classmethod
-    def coerce_optional_page_uuid(cls, v: object) -> str | None:
-        return _optional_uuid_validator(v)
 
 
 class WorldBibleDraftPublicationResponse(BaseModel):
@@ -3324,15 +3244,10 @@ class WorldValidationPolicyStatus(BaseModel):
 
 
 class WorldValidationPolicyDraftInfo(BaseModel):
-    draft_id: str
-    page_id: str | None = None
+    draft_id: Annotated[str, BeforeValidator(_optional_uuid_validator)]
+    page_id: OptionalUuidStr = None
     updated_at: datetime | None = None
     policy: WorldValidationPolicy
-
-    @field_validator("draft_id", "page_id", mode="before")
-    @classmethod
-    def coerce_policy_draft_uuids(cls, value: object) -> str | None:
-        return None if value is None else _uuid_validator(value)
 
 
 class WorldValidationPolicyDraftUpsert(BaseModel):
@@ -3434,9 +3349,9 @@ class WorldValidationRunCreate(BaseModel):
 class WorldValidationRunResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    novel_id: str
-    task_id: str | None = None
+    id: Annotated[str, BeforeValidator(_optional_uuid_validator)]
+    novel_id: Annotated[str, BeforeValidator(_optional_uuid_validator)]
+    task_id: OptionalUuidStr = None
     context_confirmation_id: str | None = None
     trigger: str
     scope: Literal["targeted", "full"]
@@ -3470,11 +3385,6 @@ class WorldValidationRunResponse(BaseModel):
     finished_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
-
-    @field_validator("id", "novel_id", "task_id", mode="before")
-    @classmethod
-    def coerce_ids(cls, value: object) -> str | None:
-        return None if value is None else _uuid_validator(value)
 
 
 class WorldValidationReviewItemRecord(BaseModel):
@@ -3541,29 +3451,19 @@ class WorldValidationWarningAcceptRequest(BaseModel):
 
 
 class WorldBibleImpactPathNode(BaseModel):
-    page_id: str
+    page_id: UuidStr
     title: str
     version_number: int = Field(..., ge=1)
     section_titles: list[str] = Field(default_factory=list, max_length=64)
 
-    @field_validator("page_id", mode="before")
-    @classmethod
-    def coerce_path_page_uuid(cls, value: object) -> str:
-        return _uuid_validator(value)
-
 
 class WorldBibleImpactedPage(BaseModel):
-    page_id: str
+    page_id: UuidStr
     title: str
     page_type: str
     version_number: int = Field(..., ge=1)
     distance: int = Field(..., ge=1)
     path: list[WorldBibleImpactPathNode] = Field(..., min_length=2, max_length=256)
-
-    @field_validator("page_id", mode="before")
-    @classmethod
-    def coerce_impacted_page_uuid(cls, value: object) -> str:
-        return _uuid_validator(value)
 
 
 class WorldBibleImpactOmission(BaseModel):
@@ -3572,33 +3472,18 @@ class WorldBibleImpactOmission(BaseModel):
         "unavailable_page_reference",
         "response_limit",
     ]
-    referring_page_id: str | None = None
+    referring_page_id: OptionalUuidStr = None
     referring_page_title: str | None = None
     count: int = Field(default=1, ge=1)
 
-    @field_validator("referring_page_id", mode="before")
-    @classmethod
-    def coerce_optional_referring_page_uuid(cls, value: object) -> str | None:
-        return _optional_uuid_validator(value)
-
 
 class WorldBiblePublishImpactSource(BaseModel):
-    draft_id: str
-    page_id: str | None = None
+    draft_id: UuidStr
+    page_id: OptionalUuidStr = None
     title: str
     page_version: int | None = Field(default=None, ge=1)
     draft_updated_at: datetime | None = None
     content_hash: str = Field(..., pattern=r"^[0-9a-f]{64}$")
-
-    @field_validator("draft_id", mode="before")
-    @classmethod
-    def coerce_impact_draft_uuid(cls, value: object) -> str:
-        return _uuid_validator(value)
-
-    @field_validator("page_id", mode="before")
-    @classmethod
-    def coerce_optional_impact_page_uuid(cls, value: object) -> str | None:
-        return _optional_uuid_validator(value)
 
 
 class WorldBiblePublishImpactResponse(BaseModel):
@@ -3709,19 +3594,14 @@ class WorldImpactSourceReadResponse(BaseModel):
 class WorldBiblePageRevisionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    novel_id: str
-    page_id: str
+    id: UuidStr
+    novel_id: UuidStr
+    page_id: UuidStr
     version_number: int
     snapshot_json: dict = Field(default_factory=dict)
     revision_digest: str
     revision_reason: str
     created_at: datetime | None = None
-
-    @field_validator("id", "novel_id", "page_id", mode="before")
-    @classmethod
-    def coerce_revision_uuid(cls, v: object) -> str:
-        return _uuid_validator(v)
 
 
 class WorldBiblePageTemplateCreate(BaseModel):
@@ -3792,8 +3672,8 @@ class WorldBiblePageTemplateUpdate(BaseModel):
 class WorldBiblePageTemplateResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    novel_id: str
+    id: UuidStr
+    novel_id: UuidStr
     template_key: str
     name: str
     description: str | None = None
@@ -3809,11 +3689,6 @@ class WorldBiblePageTemplateResponse(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
-    @field_validator("id", "novel_id", mode="before")
-    @classmethod
-    def coerce_template_uuid(cls, v: object) -> str:
-        return _uuid_validator(v)
-
 
 class WorldBiblePageTemplateListResponse(BaseModel):
     items: list[WorldBiblePageTemplateResponse]
@@ -3823,20 +3698,15 @@ class WorldBiblePageTemplateListResponse(BaseModel):
 class WorldBiblePageTemplateRevisionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    novel_id: str
-    template_id: str
+    id: UuidStr
+    novel_id: UuidStr
+    template_id: UuidStr
     version_number: int
     snapshot_json: dict = Field(default_factory=dict)
     content_hash: str
     revision_reason: str
     created_by: str | None = None
     created_at: datetime | None = None
-
-    @field_validator("id", "novel_id", "template_id", mode="before")
-    @classmethod
-    def coerce_template_revision_uuid(cls, v: object) -> str:
-        return _uuid_validator(v)
 
 
 class WorldBibleApplyTemplateRequest(BaseModel):
@@ -3930,8 +3800,8 @@ class WorldBibleSynopsisStructuredOutput(BaseModel):
 class WorldBibleSynopsisRevisionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    novel_id: str
+    id: UuidStr
+    novel_id: UuidStr
     version_number: int
     status: str
     rendered_text: str
@@ -3943,11 +3813,6 @@ class WorldBibleSynopsisRevisionResponse(BaseModel):
     omitted_reasons_json: list = Field(default_factory=list)
     generation_meta_json: dict = Field(default_factory=dict)
     created_at: datetime | None = None
-
-    @field_validator("id", "novel_id", mode="before")
-    @classmethod
-    def coerce_synopsis_revision_uuid(cls, v: object) -> str:
-        return _uuid_validator(v)
 
 
 class WorldBibleSynopsisResponse(BaseModel):
@@ -3985,9 +3850,9 @@ class WorldBibleSynopsisRevisionListResponse(BaseModel):
 class WorldBibleProjectionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    novel_id: str
-    page_id: str
+    id: UuidStr
+    novel_id: UuidStr
+    page_id: UuidStr
     projection_type: str
     source_page_version: int = 0
     source_hash: str = ""
@@ -4000,11 +3865,6 @@ class WorldBibleProjectionResponse(BaseModel):
     error_summary: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
-
-    @field_validator("id", "novel_id", "page_id", mode="before")
-    @classmethod
-    def coerce_projection_uuid(cls, v: object) -> str:
-        return _uuid_validator(v)
 
 
 class ProjectionRefreshResponse(BaseModel):
@@ -4977,17 +4837,8 @@ def _suggestion_decision_state(
 
 
 class CreationSuggestionRevisionLink(BaseModel):
-    predecessor_suggestion_id: str | None = None
-    successor_suggestion_id: str | None = None
-
-    @field_validator(
-        "predecessor_suggestion_id",
-        "successor_suggestion_id",
-        mode="before",
-    )
-    @classmethod
-    def coerce_revision_uuid(cls, value: object) -> str | None:
-        return _optional_uuid_validator(value)
+    predecessor_suggestion_id: OptionalUuidStr = None
+    successor_suggestion_id: OptionalUuidStr = None
 
     @model_validator(mode="after")
     def validate_linear_link(self) -> CreationSuggestionRevisionLink:
@@ -5013,8 +4864,8 @@ def _suggestion_revision_link(
 class CreationSuggestionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    novel_id: str
+    id: UuidStr
+    novel_id: UuidStr
     source_module: str
     review_group: str
     target_type: str
@@ -5032,11 +4883,6 @@ class CreationSuggestionResponse(BaseModel):
     result_ref_json: dict = Field(default_factory=dict)
     created_at: datetime | None = None
     updated_at: datetime | None = None
-
-    @field_validator("id", "novel_id", mode="before")
-    @classmethod
-    def coerce_suggestion_uuid(cls, v: object) -> str:
-        return _uuid_validator(v)
 
     @model_validator(mode="after")
     def derive_author_state(self) -> CreationSuggestionResponse:
@@ -5139,8 +4985,8 @@ class SuggestionDecisionResponse(BaseModel):
 class ConflictQueueResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    novel_id: str
+    id: UuidStr
+    novel_id: UuidStr
     conflict_type: str
     severity: str
     source_module: str
@@ -5152,11 +4998,6 @@ class ConflictQueueResponse(BaseModel):
     status: str
     created_at: datetime | None = None
     updated_at: datetime | None = None
-
-    @field_validator("id", "novel_id", mode="before")
-    @classmethod
-    def coerce_conflict_uuid(cls, v: object) -> str:
-        return _uuid_validator(v)
 
 
 class ConflictQueueListResponse(BaseModel):
