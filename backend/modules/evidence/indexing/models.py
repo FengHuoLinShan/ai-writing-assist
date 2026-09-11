@@ -23,7 +23,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from core.base import Base, TimestampMixin, UUIDMixin
+from core.base import Base, NovelMixin, TimestampMixin, UUIDMixin
 
 # 尝试导入 pgvector Vector 类型；不可用时回退
 try:
@@ -213,7 +213,7 @@ class RagChunk(Base, UUIDMixin, TimestampMixin):
         )
 
 
-class RagEntityAppearance(Base, UUIDMixin, TimestampMixin):
+class RagEntityAppearance(Base, UUIDMixin, TimestampMixin, NovelMixin):
     """Rebuildable entity appearance derived from chapter-text chunks."""
 
     __tablename__ = "rag_entity_appearances"
@@ -240,12 +240,6 @@ class RagEntityAppearance(Base, UUIDMixin, TimestampMixin):
         {"comment": "RAG 正文对象出场派生索引"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     entity_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         nullable=False,
@@ -280,7 +274,7 @@ class RagEntityAppearance(Base, UUIDMixin, TimestampMixin):
     )
 
 
-class RagIndexState(Base, UUIDMixin, TimestampMixin):
+class RagIndexState(Base, UUIDMixin, TimestampMixin, NovelMixin):
     """Coalesced, rebuildable chapter index state for one content mode."""
 
     __tablename__ = "rag_index_state"
@@ -294,12 +288,6 @@ class RagIndexState(Base, UUIDMixin, TimestampMixin):
         {"comment": "RAG 章节索引请求与新鲜度状态"},
     )
 
-    novel_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     chapter_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content_mode: Mapped[str] = mapped_column(String(16), nullable=False)
     requested_source_id: Mapped[uuid.UUID | None] = mapped_column(
