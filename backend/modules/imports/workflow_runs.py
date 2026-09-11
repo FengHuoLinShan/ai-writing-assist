@@ -460,21 +460,6 @@ class ImportWorkflowRunService:
         if observer is not None:
             await observer(db, str(run.novel_id), "import_workflow", str(run.id))
 
-    async def fail(
-        self,
-        db: AsyncSession,
-        *,
-        owner: ImportWorkflowOwnerToken,
-        progress: dict[str, Any],
-        recovery_required: bool,
-    ) -> None:
-        run = await self.require_owner(db, owner)
-        run.progress = deepcopy(progress)
-        run.status = "failed"
-        run.recovery_required = bool(recovery_required)
-        self._clear_owner(run)
-        await db.flush()
-
     async def resume(
         self,
         db: AsyncSession,

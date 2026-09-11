@@ -51,6 +51,25 @@ async def _create_pending_run(db_session, novel_id: str, *, task_type="deep_impo
     return task, run
 
 
+async def _project_recoverable_task_failure(
+    db_session,
+    *,
+    task: AsyncTask,
+    service: ImportWorkflowRunService,
+    owner,
+    progress: dict,
+) -> None:
+    await service.checkpoint(db_session, owner=owner, progress=progress)
+    task.status = "failed"
+    task.result = {"recovery_required": True}
+    task.meta = {**dict(task.meta or {}), "recovery_required": True}
+    await db_session.flush()
+    await service.reconcile_scoped_task_owners(
+        db_session,
+        task_id=str(task.id),
+    )
+
+
 async def test_create_pending_run_preserves_public_workflow_task_identity(
     db_session,
     test_project_id: str,
@@ -121,11 +140,12 @@ async def test_resumed_attempt_rehydrates_authoritative_prepare_checkpoint(
             "authorization_snapshot": {"authorization_confirmed": False},
         },
     )
-    await service.fail(
+    await _project_recoverable_task_failure(
         db_session,
+        task=task,
+        service=service,
         owner=first.owner,
         progress={"phase": "failed"},
-        recovery_required=True,
     )
     await service.resume(db_session, task_id=str(task.id))
     second = await service.claim_attempt(
@@ -158,11 +178,12 @@ async def test_stale_attempt_cannot_checkpoint_after_resume_generation(
         attempt=1,
         lease_id=str(uuid.uuid4()),
     )
-    await service.fail(
+    await _project_recoverable_task_failure(
         db_session,
+        task=task,
+        service=service,
         owner=first.owner,
         progress={"phase": "failed", "recovery_required": True},
-        recovery_required=True,
     )
     resumed = await service.resume(db_session, task_id=str(task.id))
     second = await service.claim_attempt(
@@ -187,7 +208,7 @@ async def test_stale_attempt_cannot_checkpoint_after_resume_generation(
     assert current.owner_attempt == 2
 
 
-async def test_stale_failure_cannot_replace_completed_new_attempt(
+async def test_stale_attempt_cannot_replace_completed_new_attempt(
     db_session,
     test_project_id: str,
 ) -> None:
@@ -200,11 +221,12 @@ async def test_stale_failure_cannot_replace_completed_new_attempt(
         attempt=1,
         lease_id=str(uuid.uuid4()),
     )
-    await service.fail(
+    await _project_recoverable_task_failure(
         db_session,
+        task=task,
+        service=service,
         owner=first.owner,
         progress={"phase": "failed"},
-        recovery_required=True,
     )
     await service.resume(db_session, task_id=str(task.id))
     second = await service.claim_attempt(
@@ -221,11 +243,10 @@ async def test_stale_failure_cannot_replace_completed_new_attempt(
     )
 
     with pytest.raises(ImportWorkflowOwnershipLost):
-        await service.fail(
+        await service.checkpoint(
             db_session,
             owner=first.owner,
             progress={"phase": "failed", "winner": 1},
-            recovery_required=True,
         )
     current = await service.get_by_task(db_session, task_id=str(task.id))
     assert current is not None
