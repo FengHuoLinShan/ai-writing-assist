@@ -322,12 +322,14 @@ class WritingSemanticWorkflowService:
 
     @staticmethod
     async def _checkpoint(db: AsyncSession) -> None:
-        await db.commit()
-        if db.in_transaction():
-            raise RuntimeError(
+        from infrastructure.tasks.facade import checkpoint_handler_session
+
+        await checkpoint_handler_session(
+            db,
+            error_message=(
                 "writing semantic workflow requires a transaction-free checkpoint"
-            )
-        db.expire_all()
+            ),
+        )
 
     async def _materialize_review_context(
         self,

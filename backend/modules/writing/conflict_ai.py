@@ -406,13 +406,15 @@ class ConflictCheckAiReviewService:
 
     @staticmethod
     async def _checkpoint_before_external_call(db: AsyncSession) -> None:
-        await db.commit()
-        if db.in_transaction():
-            raise RuntimeError(
+        from infrastructure.tasks.facade import checkpoint_handler_session
+
+        await checkpoint_handler_session(
+            db,
+            error_message=(
                 "conflict review task LLM execution requires a "
                 "transaction-free checkpoint"
-            )
-        db.expire_all()
+            ),
+        )
 
     @staticmethod
     async def _execute_task_review(

@@ -334,11 +334,8 @@ class OutlineAIWorkflowService:
 
     @staticmethod
     async def _checkpoint_before_external_call(db: AsyncSession) -> None:
-        await db.commit()
-        if db.in_transaction():
-            raise RuntimeError(
-                "outline task LLM execution requires a transaction-free checkpoint"
-            )
+        from infrastructure.tasks.facade import checkpoint_handler_session
+
         # TaskHandlerSession deliberately uses expire_on_commit=False so the
         # detached task object can survive handler checkpoints.  Outline source
         # validation must not inherit that cache policy: confirmation/context/
@@ -346,7 +343,12 @@ class OutlineAIWorkflowService:
         # the final SELECTs after a concurrent commit.  The external phase only
         # owns plain DTOs, so expiring the identity map here is both safe and
         # required for the post-LLM fingerprint rebuild to observe current data.
-        db.expire_all()
+        await checkpoint_handler_session(
+            db,
+            error_message=(
+                "outline task LLM execution requires a transaction-free checkpoint"
+            ),
+        )
 
     @classmethod
     async def _prepare_confirmed_task_prompt(

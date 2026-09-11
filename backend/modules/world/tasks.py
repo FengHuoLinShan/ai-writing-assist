@@ -237,10 +237,12 @@ async def handle_world_alias_relation_extraction(db, task):
         )
         meta = {**meta, "llm_execution_snapshot": llm_execution_snapshot}
         task.meta = meta
-        await db.commit()
-        if db.in_transaction():
-            raise RuntimeError("alias/relation profile checkpoint left a transaction")
-        db.expire_all()
+        from infrastructure.tasks.facade import checkpoint_handler_session
+
+        await checkpoint_handler_session(
+            db,
+            error_message="alias/relation profile checkpoint left a transaction",
+        )
         await require_active_project(db, novel_id)
         confirmation = await context_facade.require_fresh_confirmation(
             db,
@@ -332,10 +334,12 @@ async def handle_world_alias_relation_extraction(db, task):
             raise ValueError("alias/relation provider receipt checkpoint is invalid")
         # Close the project/confirmation/source revalidation transaction and
         # fence the current lease before reusing a prior detached receipt.
-        await db.commit()
-        if db.in_transaction():
-            raise RuntimeError("alias/relation retry checkpoint left a transaction")
-        db.expire_all()
+        from infrastructure.tasks.facade import checkpoint_handler_session
+
+        await checkpoint_handler_session(
+            db,
+            error_message="alias/relation retry checkpoint left a transaction",
+        )
 
     # Final lock order is project exclusive -> task/source-writer fences ->
     # confirmation/profile/source reads -> domain writes -> worker CAS commit.

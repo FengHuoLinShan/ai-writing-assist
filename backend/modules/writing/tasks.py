@@ -41,10 +41,12 @@ async def _require_llm_execution_snapshot(
     if legacy_meta_key:
         task_meta[legacy_meta_key] = True
     task.meta = task_meta
-    await db.commit()
-    if db.in_transaction():
-        raise RuntimeError("writing task snapshot checkpoint must close the transaction")
-    db.expire_all()
+    from infrastructure.tasks.facade import checkpoint_handler_session
+
+    await checkpoint_handler_session(
+        db,
+        error_message="writing task snapshot checkpoint must close the transaction",
+    )
     return snapshot, bool(legacy_meta_key)
 
 

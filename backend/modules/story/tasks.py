@@ -268,12 +268,12 @@ async def _require_snapshot(
 
 
 async def _checkpoint_before_provider(db) -> None:
-    await db.commit()
-    if db.in_transaction():
-        raise RuntimeError(
-            "Story provider execution requires a transaction-free checkpoint"
-        )
-    db.expire_all()
+    from infrastructure.tasks.facade import checkpoint_handler_session
+
+    await checkpoint_handler_session(
+        db,
+        error_message="Story provider execution requires a transaction-free checkpoint",
+    )
 
 
 async def _prepare_task_input(

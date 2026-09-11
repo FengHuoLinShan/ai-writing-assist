@@ -68,6 +68,33 @@ def test_task_checkpoint_session_guard_requires_explicit_worker_capability() -> 
     require_task_checkpoint_session(enabled)
 
 
+@pytest.mark.asyncio
+async def test_checkpoint_handler_session_commits_and_expires() -> None:
+    from infrastructure.tasks.facade import checkpoint_handler_session
+
+    db = MagicMock()
+    db.commit = AsyncMock()
+    db.in_transaction.return_value = False
+
+    await checkpoint_handler_session(db, error_message="checkpoint failed")
+
+    db.commit.assert_awaited_once_with()
+    db.expire_all.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_handler_session_rejects_open_transaction() -> None:
+    from infrastructure.tasks.facade import checkpoint_handler_session
+
+    db = MagicMock()
+    db.commit = AsyncMock()
+    db.in_transaction.return_value = True
+
+    with pytest.raises(RuntimeError, match="checkpoint failed"):
+        await checkpoint_handler_session(db, error_message="checkpoint failed")
+    db.expire_all.assert_not_called()
+
+
 # ============================================================
 # enqueuer.py
 # ============================================================

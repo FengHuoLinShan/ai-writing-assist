@@ -250,6 +250,18 @@ def require_task_checkpoint_session(db: AsyncSession) -> None:
         )
 
 
+async def checkpoint_handler_session(
+    db: AsyncSession,
+    *,
+    error_message: str,
+) -> None:
+    """Commit a fenced handler checkpoint and detach its cached ORM state."""
+    await db.commit()
+    if db.in_transaction():
+        raise RuntimeError(error_message)
+    db.expire_all()
+
+
 async def list_running_task_types_for_novel(
     db: AsyncSession,
     *,
