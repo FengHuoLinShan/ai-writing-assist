@@ -14,23 +14,13 @@ from modules.evidence.compilation.services.constraint_engine import ConstraintEn
 @pytest.mark.asyncio
 async def test_static_constraints_returns_p0_sections():
     engine = ConstraintEngine()
-    sections = await engine._static_constraints("zh")
+    sections = await engine._static_constraints()
     assert len(sections) == 1
     s = sections[0]
     assert s.key == "hard_constraints"
     assert s.tier == Tier.P0
     assert s.content.strip() != ""
     assert s.token_count > 0
-
-
-@pytest.mark.asyncio
-async def test_static_constraints_zh_and_en():
-    engine = ConstraintEngine()
-    zh = await engine._static_constraints("zh")
-    en = await engine._static_constraints("en")
-    assert zh[0].content != en[0].content
-    assert "不得" in zh[0].content
-    assert "must not" in en[0].content.lower()
 
 
 @pytest.mark.asyncio

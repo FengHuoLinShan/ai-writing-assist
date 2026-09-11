@@ -26,7 +26,6 @@ GATED_FUNCTIONS = {
     },
     "modules/story/api.py": {
         "_enqueue_confirmed_task": ("require_fresh_confirmation",),
-        "_enqueue_one_click_task": ("require_fresh_confirmation",),
     },
     "modules/story/outline_state/api.py": {
         "_enqueue_confirmed_outline_task": ("require_fresh_confirmation",),

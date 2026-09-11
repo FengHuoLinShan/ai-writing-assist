@@ -429,6 +429,7 @@ async def enqueue_semantic_review(
     """对冻结正文与执行合同运行独立语义审查。"""
     from modules.writing.semantic_review import WritingSemanticWorkflowService
 
+    await require_active_project(db, data.novel_id)
     try:
         result = await WritingSemanticWorkflowService().submit_review(
             db,
