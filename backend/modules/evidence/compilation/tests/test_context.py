@@ -36,6 +36,9 @@ from modules.evidence.compilation.facade import (
     render_context_markdown,
 )
 from modules.evidence.compilation.services import CompileOptions
+from modules.evidence.compilation.services.review_projection import (
+    selected_asset_ids_from_compiled,
+)
 
 
 def _snapshot_request(
@@ -351,10 +354,6 @@ def test_outline_analysis_confirmation_tracks_automatic_range_assets() -> None:
         ContextSection,
         Tier,
     )
-    from modules.evidence.compilation.services.confirmation_service import (
-        ContextConfirmationService,
-    )
-
     options = CompileOptions(
         novel_id=str(uuid.uuid4()),
         task="分析范围结构",
@@ -380,7 +379,10 @@ def test_outline_analysis_confirmation_tracks_automatic_range_assets() -> None:
         ],
     )
 
-    selected = ContextConfirmationService._selected_asset_ids(compiled, options)
+    selected = selected_asset_ids_from_compiled(
+        compiled,
+        novel_id=options.novel_id,
+    )
 
     assert selected["scenes"] == ["scene-1"]
     assert selected["plot_threads"] == ["thread-1"]

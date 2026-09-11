@@ -25,13 +25,6 @@ _STATIC_CONSTRAINTS_ZH = [
     "伏笔未到收束阶段不得提前揭示",
 ]
 
-_STATIC_CONSTRAINTS_EN = [
-    "Characters must not know information beyond their knowledge boundary",
-    "Author-only secrets must not be revealed to readers prematurely",
-    "Foreshadowing must not be revealed before their planned payoff",
-]
-
-
 class ConstraintEngine:
     async def compile_constraints(
         self,
@@ -43,7 +36,7 @@ class ConstraintEngine:
         reveal_mode: str = "author_safe",
     ) -> list[ContextSection]:
         sections: list[ContextSection] = []
-        sections.extend(await self._static_constraints("zh"))
+        sections.extend(await self._static_constraints())
         if reveal_mode in {"reader", "character"}:
             # Dynamic constraints are authored from complete Scene cards,
             # knowledge records and future foreshadowing plans. Reader/character
@@ -61,11 +54,8 @@ class ConstraintEngine:
         )
         return sections
 
-    async def _static_constraints(self, language: str = "zh") -> list[ContextSection]:
-        constraints = (
-            _STATIC_CONSTRAINTS_ZH if language == "zh" else _STATIC_CONSTRAINTS_EN
-        )
-        content = "\n".join(f"- {c}" for c in constraints)
+    async def _static_constraints(self) -> list[ContextSection]:
+        content = "\n".join(f"- {c}" for c in _STATIC_CONSTRAINTS_ZH)
         return [
             ContextSection(
                 key="hard_constraints",

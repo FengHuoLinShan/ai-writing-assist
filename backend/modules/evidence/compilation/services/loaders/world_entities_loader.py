@@ -329,16 +329,6 @@ def _related_entity_candidates(
     return ranked
 
 
-def _related_entity_ids(
-    options: CompileOptions,
-    bundle: StructureContextBundle,
-) -> list[str]:
-    """Compatibility wrapper for callers that only need ranked IDs."""
-    return [
-        entity_id for entity_id, _reason in _related_entity_candidates(options, bundle)
-    ]
-
-
 def _selection_trace(
     candidates: list[tuple[str, str]],
     selected: list[tuple[str, str]],

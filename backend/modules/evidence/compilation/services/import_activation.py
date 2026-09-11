@@ -8,7 +8,6 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from infrastructure.llm.token_estimation import estimate_token_count
 from modules.evidence.compilation.contracts import ImportContextActivationContract
 
 _ACTIVATION_VERSION = "import-context-v3"
@@ -160,7 +159,6 @@ class ImportContextActivationService:
             before_scene_index=window.scene.scene_index,
             before_chapter_index=max(chapter_indices, default=0),
         )
-        world_entries: list[dict] = []
         current_terms = {
             term
             for candidate in identity_candidates
@@ -227,7 +225,6 @@ class ImportContextActivationService:
             current_scene_sources=current_sources,
             previous_briefs=previous_briefs,
             previous_evidence=previous_evidence,
-            world_entries=world_entries,
             world_context_text=world_context_text,
             neighbor_context_text=neighbor_context_text,
             sources=sources,
@@ -593,46 +590,6 @@ class ImportContextActivationService:
             status_filter=["canonical", "draft"],
             content_mode=content_mode,
         )
-
-    @staticmethod
-    def _slice_text(text: str, chunks: list[dict]) -> str:
-        if not text or not chunks:
-            return ""
-        offset_chunks = [
-            chunk
-            for chunk in chunks
-            if chunk.get("start_offset") is not None
-            and chunk.get("end_offset") is not None
-        ]
-        if offset_chunks:
-            parts = [
-                text[
-                    max(0, int(chunk["start_offset"])) : max(
-                        0,
-                        int(chunk["end_offset"]),
-                    )
-                ]
-                for chunk in offset_chunks
-            ]
-            return "\n\n".join(part for part in parts if part)
-        return ""
-
-    @staticmethod
-    def _entry_dict(entry) -> dict:
-        return {
-            "entry_id": entry.entry_id,
-            "asset_type": entry.asset_type,
-            "asset_id": entry.asset_id,
-            "title": entry.title,
-            "summary": entry.summary,
-            "group": entry.group,
-            "importance": entry.importance,
-            "tier": entry.tier,
-            "status": entry.status,
-            "sensitivity": entry.sensitivity,
-            "keywords": entry.keywords,
-            "token_count": entry.token_count,
-        }
 
     @staticmethod
     def _brief_dict(brief) -> dict:
@@ -1059,47 +1016,6 @@ class ImportContextActivationService:
             default=str,
         )
         return hashlib.sha256(serialized.encode()).hexdigest()
-
-    @staticmethod
-    def _matching_terms(text: str, entries: list[dict]) -> set[str]:
-        return {
-            term
-            for entry in entries
-            for term in [entry["title"], *entry["keywords"]]
-            if term and str(term) in text
-        }
-
-    @staticmethod
-    def _world_context(
-        entries: list[dict],
-        *,
-        budget_tokens: int,
-    ) -> tuple[str, list[dict]]:
-        selected: list[str] = []
-        events: list[dict] = []
-        seen_groups: set[str] = set()
-        used = 0
-        for entry in entries:
-            if entry["group"] in seen_groups:
-                continue
-            line = f"- {entry['title']}: {entry['summary']}"
-            token_count = estimate_token_count(line)
-            if used + token_count > budget_tokens:
-                events.append(
-                    {
-                        "section_key": "world_asset_context",
-                        "event_type": "evicted",
-                        "reason": "activation_budget",
-                        "before_tokens": token_count,
-                        "after_tokens": 0,
-                        "tier": 2,
-                    }
-                )
-                continue
-            selected.append(line)
-            seen_groups.add(entry["group"])
-            used += token_count
-        return "## 世界背景\n" + ("\n".join(selected) or "- 无"), events
 
     @staticmethod
     def _neighbor_context(briefs: list[dict], evidence: list[dict]) -> str:

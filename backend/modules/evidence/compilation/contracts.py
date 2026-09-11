@@ -306,7 +306,6 @@ class ImportContextActivationContract:
     current_scene_sources: list[dict]
     previous_briefs: list[dict]
     previous_evidence: list[dict]
-    world_entries: list[dict]
     world_context_text: str
     neighbor_context_text: str
     sources: list[dict]

@@ -409,55 +409,6 @@ class ContextConfirmationService:
         )
 
     @staticmethod
-    def _selected_asset_ids(
-        compiled: CompiledContext,
-        options: CompileOptions,
-    ) -> dict[str, list[str]]:
-        selected: dict[str, list[str]] = {"project": [options.novel_id]}
-        if options.scene_id:
-            selected["scenes"] = [options.scene_id]
-        if options.arc_id:
-            selected["outline_arcs"] = [options.arc_id]
-        if options.entity_ids:
-            selected["world_entities"] = list(options.entity_ids)
-        if options.character_ids:
-            selected["characters"] = list(options.character_ids)
-        if options.location_ids:
-            selected["locations"] = list(options.location_ids)
-        if options.selected_world_bible_draft_ids:
-            selected["world_bible_draft"] = list(options.selected_world_bible_draft_ids)
-        if options.activation_profile_id:
-            selected["activation_profile"] = [options.activation_profile_id]
-        if options.activation_included_target_hashes:
-            selected["activation_target_hash"] = list(
-                options.activation_included_target_hashes
-            )
-        for item in compiled.activation_trace.get("items") or []:
-            target = item.get("target") or {}
-            target_type = str(target.get("target_type") or "")
-            target_id = str(target.get("target_id") or "")
-            if target_type and target_id:
-                selected.setdefault(target_type, []).append(target_id)
-        range_source_keys = {
-            "scene": "scenes",
-            "outline_arc": "outline_arcs",
-            "plot_thread": "plot_threads",
-            "foreshadowing_plan": "foreshadowing_plans",
-            "reveal_plan": "reveal_plans",
-        }
-        for section in compiled.sections:
-            if not section.key.startswith("outline_analysis_"):
-                continue
-            for source in section.sources:
-                asset_key = range_source_keys.get(str(source.get("type") or ""))
-                asset_id = str(source.get("id") or "")
-                if asset_key and asset_id:
-                    selected.setdefault(asset_key, []).append(asset_id)
-        selected = {key: list(dict.fromkeys(values)) for key, values in selected.items()}
-        selected["context_sections"] = [section.key for section in compiled.sections]
-        return selected
-
-    @staticmethod
     def _selected_refs(
         selected_asset_ids: dict[str, list[str]],
     ) -> list[tuple[str, str]]:

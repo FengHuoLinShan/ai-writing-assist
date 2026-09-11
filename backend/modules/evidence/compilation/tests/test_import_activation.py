@@ -11,38 +11,6 @@ from modules.evidence.compilation.services.import_activation import (
 )
 
 
-def test_import_activation_prefers_offset_spans() -> None:
-    text = "0123456789"
-    result = ImportContextActivationService._slice_text(
-        text,
-        [{"start_offset": 2, "end_offset": 6}],
-    )
-    assert result == "2345"
-
-
-def test_import_activation_rejects_paragraph_only_mapping() -> None:
-    text = "one\n\ntwo\n\nthree"
-    result = ImportContextActivationService._slice_text(
-        text,
-        [{"start_paragraph": 1, "end_paragraph": 2}],
-    )
-    assert result == ""
-
-
-def test_world_context_deduplicates_groups_and_records_budget_event() -> None:
-    text, events = ImportContextActivationService._world_context(
-        [
-            {"group": "entity:a", "title": "A", "summary": "first"},
-            {"group": "entity:a", "title": "A2", "summary": "duplicate"},
-            {"group": "entity:b", "title": "B", "summary": "long " * 300},
-        ],
-        budget_tokens=20,
-    )
-    assert "A: first" in text
-    assert "A2" not in text
-    assert events
-
-
 def test_identity_candidates_keep_all_direct_mentions_then_apply_type_top_k() -> None:
     candidates = [
         {

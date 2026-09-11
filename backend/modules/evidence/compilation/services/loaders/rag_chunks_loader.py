@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import time
 from collections import Counter
@@ -590,11 +589,6 @@ def _clause_summary(clause) -> dict:
 
 def _hash_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-def _hash_payload(payload: dict) -> str:
-    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
-    return _hash_text(raw)
 
 
 def _normalized_reveal_mode(value: str) -> str:
