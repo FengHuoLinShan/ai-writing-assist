@@ -59,7 +59,7 @@ updated: 2026-09-12T09:32:00+08:00
 - B2d 环境收尾：wheel 中 test/eval 条目 301→0；`eval-fast` 140 passed/1 skipped；部署测试 269 passed，后端/前端生产镜像与真实恢复演练通过。
 - B4a/B4b/B4f：三预览页定向 16 passed；smartDedup 单元关联 87 passed 且浏览器 4 passed；API 错误守卫 15 passed。
 - B1d：前端全量 184 files / 2437 tests、lint/build 通过；设置双页+世界审查桌面/390px 4 条功能链通过。视觉套件 3/8 通过、5 失败；在 CSS 批前 `cc16daa85` 对照中 settings-global-light 与 world-objects-light 失败像素数完全相同（8483/16425），确认为基线快照漂移，未擅自更新快照。
-- 累计变更：完成记录提交后 122 个原子提交、388 文件、`+7006/-15863`，净删 8857 行。未合并、未推送、未部署。
+- 累计变更：完成记录提交后 123 个原子提交、388 文件、`+7007/-15863`，净删 8856 行。未合并、未推送、未部署。
 - 2026-09-12 计划轮：新增 `authorized-remaining-plan.md`，并同步 `batch-plan.md` 与本恢复快照；仅文档变更，业务门禁尚未运行。
 - R5a：旧四维 fingerprint 固定样本仍为 `9b0c68160db434ae0f0854d55e5d2de1b92320e1afcc90df34ec4357a6b8a92d`；Story continuity + Evidence compilation 366 passed；相关 ruff 与 diff check 通过。
 - R5b：Imports + Story continuity 793 passed；Prompt contracts 22 passed；PostgreSQL critical 32 passed；相关 ruff/diff check 通过。首次未带 E2E_DATABASE_URL 的 critical 调用按门禁拒绝，随后使用既有专用库 `ai_writing_assist_e2e_full_optimization` 通过。
@@ -72,5 +72,5 @@ updated: 2026-09-12T09:32:00+08:00
 - X2-3b/c：前端 185 files / 2441 tests、lint/build/生产资源校验通过；深度整理回收站浏览器链 1 passed，流程内切换 390x844 验证预览、明确确认、历史保留与隐藏内部标识。
 - B1c：分类账见 `b1c-classification.md`；工具会话/占位工件删除 36 文件，错误目录与派生 latest 指针删除 12 文件；保留 239 份付费模型证据及 22 份实质设计探索。第三方原文改为原创三章合成夹具，导入/RAG/Outline 消费链 14 passed，部署门禁 270 passed。另有 1 个与样本文本无关的既有 RAG 重索引失败：同章二次索引后旧 source chunk 未移除（单跑稳定复现），未混入卫生批修复。
 - B3c：Writing 226 passed；前端契约/冲突组件 19 passed、lint/build；冲突浏览器链 1 passed。真实验收改为 PostgreSQL 上的 review-task + suggestion-task，全程经项目 snapshot LLM seam，删除同步轨前后各 1 次通过，共 4 次 DeepSeek 调用；每次均产出 2 条可用 AI 项并完成建议、发布快照及无正文/World/Memory 写回断言。专用库只临时复制加密连接，验收后已清空。E2E 外层事务使独立 retrieval trace 写入看不到未提交项目，产生已记录的 RAG 降级 warning，但 Scene/正文/确认上下文与任务轨验收断言均通过。
-- 完成时分支相对 `44728ec22` 为 122 个原子提交、388 文件、`+7006/-15863`（净删 8857 行）。
+- 完成时分支相对 `44728ec22` 为 123 个原子提交、388 文件、`+7007/-15863`（净删 8856 行）。
 - 最终门禁：docs-check、secret hygiene、后端/前端依赖高危门禁、ruff 均通过；部署 270 passed；后端 fast 5410 passed/13 skipped，覆盖率 85.72%；前端 185 files/2441 tests、lint/build；PostgreSQL critical 33 passed；生产后端/前端镜像、非 root/read-only smoke 与真实恢复演练通过。`langchain-community` 已归档及 Vitest/@vitest-mocker 2 项中危为依赖审计现状，高危门禁未失败，未在本批擅自升级依赖。
