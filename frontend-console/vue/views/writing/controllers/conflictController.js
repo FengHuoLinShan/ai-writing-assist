@@ -54,6 +54,38 @@ export function createConflictController({ api, toast, getProjectId, getCheck, o
     } catch (err) { toast(err?.message || "状态更新失败", "error"); return null }
   }
 
+  async function confirmContinuity({ itemId, content, expectedItemUpdatedAt, category, fieldPath, value, evidenceSummary }) {
+    const projectId = getProjectId()
+    if (!projectId || !itemId) return null
+    const checkId = getCheck()?.id
+    try {
+      const result = await api.writing.confirmContinuity(itemId, {
+        novel_id: projectId,
+        content,
+        expected_item_updated_at: expectedItemUpdatedAt,
+        category,
+        field_path: fieldPath,
+        old_value: null,
+        new_value: value,
+        evidence_summary: evidenceSummary,
+        confirmed: true,
+      })
+      if (getProjectId() !== projectId || disposed) return null
+      replaceItem(result?.item)
+      if (checkId) {
+        const refreshed = await api.writing.getConflictCheck(checkId, projectId)
+        if (getProjectId() !== projectId || disposed) return null
+        onCheck(refreshed)
+      }
+      toast(result?.created === false ? "这条连续性事实已经记录" : "连续性事实已记录，场景状态已更新", "success")
+      return result
+    } catch (err) {
+      const message = err?.message || "连续性事实确认失败"
+      toast(message, "error")
+      return { error: message }
+    }
+  }
+
   async function waitForTask(taskId, projectId, token, workflowType) {
     let pollFailures = 0
     while (true) {
@@ -142,5 +174,5 @@ export function createConflictController({ api, toast, getProjectId, getCheck, o
   function dismiss() { const workflow = activeWorkflow(); if (workflow) clearActiveWorkflow(workflow.taskId, receiptStorage); onProgress({ taskId: null, progress: null }) }
   function dispose() { disposed = true; generation += 1; if (timer) clearTimeout(timer); timer = null }
 
-  return { updateStatus, runAiReview, requestSuggestion, recover, cancel, dismiss, dispose }
+  return { updateStatus, confirmContinuity, runAiReview, requestSuggestion, recover, cancel, dismiss, dispose }
 }

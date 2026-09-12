@@ -2219,6 +2219,10 @@ const api = {
       return patch(withQuery(`/writing/conflict-check-items/${itemId}`, { novel_id: novelId }), payload)
     },
 
+    async confirmContinuity(itemId, payload) {
+      return contractJson("writing.confirmContinuity", { itemId }, {}, payload)
+    },
+
     async runConflictAiReview(checkId, payload) {
       return contractJson("writing.runConflictAiReview", { checkId }, {}, payload)
     },

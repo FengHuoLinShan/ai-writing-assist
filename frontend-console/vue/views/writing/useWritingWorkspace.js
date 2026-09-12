@@ -1204,6 +1204,29 @@ export function useWritingWorkspace(props) {
     }
   }
 
+  function confirmContinuityFact(payload) {
+    return confirmAction(
+      "确认把这条修正记录为当前场景的连续性事实？后续场景状态会据此重新核对。",
+      async () => {
+        if (conflictDialog.busy) return null
+        conflictDialog.busy = true
+        conflictDialog.error = null
+        try {
+          const result = await conflictActions.confirmContinuity({
+            ...payload,
+            content: editorState.content,
+          })
+          if (result?.error) conflictDialog.error = result.error
+          else await loadSceneLens()
+          return result
+        } finally {
+          conflictDialog.busy = false
+        }
+      },
+      "确认记录",
+    )
+  }
+
   async function runConflictAiReview() {
     if (conflictDialog.busy) return
     conflictDialog.busy = true
@@ -1629,6 +1652,7 @@ export function useWritingWorkspace(props) {
     openConflictDialog,
     closeConflictDialog,
     updateConflictStatus,
+    confirmContinuityFact,
     runConflictAiReview,
     requestConflictSuggestion,
     cancelConflictTask: conflictActions.cancel,

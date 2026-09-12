@@ -128,6 +128,8 @@ published，不因 RP 历史引用改变作者编辑心智。
 
 作者可对三类 continuity 问题提交编辑后的 category/field/before/after，并以当前正文和问题时间戳显式确认。服务端锁定检查与问题，重验正文 hash、原 checkpoint，以及 AI 问题绑定的 Evidence confirmation；随后在 Scene 事件锁内按问题 ID 幂等追加 `author_confirmation` 事件，重建受影响维度并把旧 checkpoint confirmation 标为 stale。重复请求返回同一事件回执；它不覆盖 Scene 原事件流，也不自动采用其他 AI 判断。
 
+冲突详情把三类问题显示为“空间与位置风险 / 时间顺序风险 / 因果与前提风险”。作者点击“记录正确事实”后在问题行内填写正确情况，再经二次确认提交；确认中禁止重复操作，失败或 409 保留输入并提示刷新，成功后刷新检查与 Scene Lens。内部 category、field path、事件 ID 和 JSON 不作为主界面字段。
+
 AI 能力是显式追加流程，不替代规则层结果：
 
 - `ai-review` 必须使用 action 为 `writing.conflict_check.ai_review` 的 `context_confirmation_id`。

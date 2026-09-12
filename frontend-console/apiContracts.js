@@ -544,6 +544,10 @@
       hasBody: true,
       timeout: LLM_GENERATE_TIMEOUT,
     }),
+    "writing.confirmContinuity": define("POST", ({ itemId }) => `/writing/conflict-check-items/${required(itemId, "itemId", "writing.confirmContinuity")}/confirm-continuity`, {
+      requiredParams: ["itemId"],
+      hasBody: true,
+    }),
     "writing.generate": define("POST", () => "/writing/generate", {
       hasBody: true,
       timeout: AI_TASK_SUBMIT_TIMEOUT,

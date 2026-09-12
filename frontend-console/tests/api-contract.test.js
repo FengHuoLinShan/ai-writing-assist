@@ -449,6 +449,8 @@ describe("前后端 API 契约", () => {
     })
     expect(contractPath("writing.requestConflictAiSuggestion", { itemId: "item-1" }))
       .toBe("/writing/conflict-check-items/item-1/ai-suggestion")
+    expect(contractPath("writing.confirmContinuity", { itemId: "item-1" }))
+      .toBe("/writing/conflict-check-items/item-1/confirm-continuity")
     expect(getApiContract("writing.generate")).toMatchObject({
       timeout: 600000,
     })

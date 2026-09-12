@@ -21,6 +21,7 @@ function makeController(overrides = {}) {
   const api = {
     writing: {
       updateConflictItem: vi.fn(async (_itemId, _projectId, payload) => ({ id: "item-1", status: payload.status })),
+      confirmContinuity: vi.fn(async () => ({ created: true, item: { id: "item-1", status: "resolved" }, scene_state: { contract_version: 2 } })),
       enqueueConflictAiReview: vi.fn(async (_checkId, payload) => ({ task_id: payload.operation_id, check: { ...state.check, ai_review_status: "running" } })),
       enqueueConflictAiSuggestion: vi.fn(async (_itemId, payload) => ({ task_id: payload.operation_id, status: "pending" })),
       getConflictCheck: vi.fn(async () => ({ ...state.check, ai_review_status: "done" })),
@@ -70,6 +71,36 @@ describe("conflictController", () => {
     await controller.updateStatus("item-1", "resolved")
     expect(api.writing.updateConflictItem).toHaveBeenCalledWith("item-1", "p1", { status: "resolved" })
     expect(state.check.items[0].status).toBe("resolved")
+    controller.dispose()
+  })
+
+  it("作者确认连续性事实时绑定当前正文和问题版本", async () => {
+    const { controller, api, state, toast } = makeController()
+    const result = await controller.confirmContinuity({
+      itemId: "item-1",
+      content: "当前正文",
+      expectedItemUpdatedAt: "2026-09-12T00:00:00Z",
+      category: "logic_continuity_risk",
+      fieldPath: "logic_precondition_missing",
+      value: "令牌已经取得",
+      evidenceSummary: "开门前缺少令牌",
+    })
+
+    expect(api.writing.confirmContinuity).toHaveBeenCalledWith("item-1", {
+      novel_id: "p1",
+      content: "当前正文",
+      expected_item_updated_at: "2026-09-12T00:00:00Z",
+      category: "logic_continuity_risk",
+      field_path: "logic_precondition_missing",
+      old_value: null,
+      new_value: "令牌已经取得",
+      evidence_summary: "开门前缺少令牌",
+      confirmed: true,
+    })
+    expect(api.writing.getConflictCheck).toHaveBeenCalledWith("check-1", "p1")
+    expect(state.check.items[0].status).toBe("resolved")
+    expect(toast).toHaveBeenCalledWith("连续性事实已记录，场景状态已更新", "success")
+    expect(result.scene_state.contract_version).toBe(2)
     controller.dispose()
   })
 

@@ -125,6 +125,42 @@ describe("ConflictDetailDialog", () => {
     expect(wrapper.emitted("apply")[0]).toEqual([{ itemId: "rule-1", text: "作者修改后的建议" }])
   })
 
+  it("用作者语言编辑并显式确认连续性事实", async () => {
+    const item = {
+      id: "logic-1",
+      severity: "medium",
+      kind: "logic_continuity_risk",
+      status: "open",
+      source_module: "memory",
+      evidence_summary: "开门前缺少令牌",
+      updated_at: "2026-09-12T00:00:00Z",
+      location_json: {
+        rule_code: "logic_precondition_missing",
+        source: { label: "场景时点状态", field: "因果与前提" },
+        open_target: { kind: "outline_scene" },
+      },
+    }
+    const wrapper = mount(ConflictDetailDialog, {
+      props: { model: model({ check: { ...model().check, items: [item] } }) },
+    })
+
+    expect(wrapper.text()).toContain("因果与前提风险")
+    await wrapper.get('[data-action="open-continuity-confirmation"]').trigger("click")
+    const input = wrapper.get('[aria-label="记录正确的连续性事实"]')
+    await input.setValue("主角已从王后手中取得令牌")
+    await wrapper.get('[data-action="confirm-continuity"]').trigger("click")
+
+    expect(wrapper.emitted("confirm-continuity")[0]).toEqual([{
+      itemId: "logic-1",
+      value: "主角已从王后手中取得令牌",
+      category: "logic_continuity_risk",
+      fieldPath: "logic_precondition_missing",
+      expectedItemUpdatedAt: "2026-09-12T00:00:00Z",
+      evidenceSummary: "开门前缺少令牌",
+    }])
+    expect(wrapper.text()).toContain("不会自动修改正文")
+  })
+
   it("记忆来源详情也保持在 Vue 树内", async () => {
     const wrapper = mount(ConflictDetailDialog, {
       props: { model: model({ sourcePreview: { kind: "memory", title: "记忆来源", chapterIndex: 7, characterId: "char-1" } }) },

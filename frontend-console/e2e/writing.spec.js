@@ -1086,7 +1086,7 @@ test.describe("写作台模块", () => {
       include_candidates: false,
       status: "completed",
       summary_json: {
-        total: 3,
+        total: 4,
         open_high_count: 1,
         ai_review: { status: "done", item_count: 1, discarded_count: 0 },
       },
@@ -1108,6 +1108,25 @@ test.describe("写作台模块", () => {
           needs_review: false,
           status: "open",
           suggestion_status: "not_requested",
+        },
+        {
+          id: "mock-continuity",
+          check_id: "mock-check-ai",
+          novel_id: testProjectId,
+          kind: "logic_continuity_risk",
+          severity: "medium",
+          source_module: "memory",
+          evidence_summary: "开门前缺少令牌",
+          is_ai_judgment: false,
+          needs_review: true,
+          status: "open",
+          suggestion_status: "not_requested",
+          updated_at: new Date().toISOString(),
+          location_json: {
+            rule_code: "logic_precondition_missing",
+            source: { label: "场景时点状态", field: "因果与前提" },
+            open_target: { kind: "outline_scene" },
+          },
         },
         {
           id: "mock-required",
@@ -1220,7 +1239,7 @@ test.describe("写作台模块", () => {
     await page.route("**/api/writing/conflict-check-items/*/ai-suggestion-task", async (route) => {
       const body = route.request().postDataJSON()
       const updatedAiItem = {
-        ...mockedAiCheck.items[2],
+        ...mockedAiCheck.items.find((item) => item.id === "mock-ai-item"),
         suggestion_status: "done",
         ai_suggestion: JSON.stringify({
           strategy: "补动机过渡",
@@ -1242,7 +1261,7 @@ test.describe("写作台模块", () => {
     })
     await page.route("**/api/writing/conflict-check-items/mock-required?**", async (route) => {
       const updatedRequiredItem = {
-        ...mockedAiCheck.items[1],
+        ...mockedAiCheck.items.find((item) => item.id === "mock-required"),
         status: "later",
       }
       mockedAiCheck.items = mockedAiCheck.items.map((item) => (
@@ -1252,6 +1271,25 @@ test.describe("写作台模块", () => {
         status: 200,
         contentType: "application/json",
         body: JSON.stringify(updatedRequiredItem),
+      })
+    })
+    let continuityPayload = null
+    await page.route("**/api/writing/conflict-check-items/mock-continuity/confirm-continuity", async (route) => {
+      continuityPayload = route.request().postDataJSON()
+      const updated = {
+        ...mockedAiCheck.items.find((item) => item.id === "mock-continuity"),
+        status: "resolved",
+      }
+      mockedAiCheck.items = mockedAiCheck.items.map((item) => item.id === updated.id ? updated : item)
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          event_id: "mock-continuity-event",
+          created: true,
+          item: updated,
+          scene_state: { contract_version: 2 },
+        }),
       })
     })
 
@@ -1283,6 +1321,24 @@ test.describe("写作台模块", () => {
     await expect(page.locator("#modal-overlay")).toContainText("AI 参考资料", { timeout: 10000 })
     await page.locator("#modal-footer").getByRole("button", { name: "按这份资料开始" }).click()
     await expect(conflictDialog).toContainText("补动机过渡", { timeout: 10000 })
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    const continuityItem = conflictDialog.locator(".writing-conflict-item", { hasText: "因果与前提风险" })
+    await continuityItem.getByRole("button", { name: "记录正确事实" }).click()
+    await continuityItem.getByLabel("记录正确的连续性事实").fill("主角已经从王后手中取得令牌")
+    await expectWithinViewport(continuityItem.getByLabel("记录正确的连续性事实"))
+    await continuityItem.getByRole("button", { name: "确认记录" }).click()
+    await expect(page.locator("#modal-overlay")).toContainText("后续场景状态会据此重新核对")
+    await page.locator("#modal-footer").getByRole("button", { name: "确认记录" }).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("连续性事实已记录", { timeout: 10000 })
+    expect(continuityPayload).toMatchObject({
+      novel_id: testProjectId,
+      content: "主角死亡。城门仍未开启。",
+      field_path: "logic_precondition_missing",
+      new_value: "主角已经从王后手中取得令牌",
+      confirmed: true,
+    })
+    await page.setViewportSize({ width: 1440, height: 900 })
 
     await page
       .locator(".writing-conflict-item", { hasText: "必须发生项未逐字出现" })

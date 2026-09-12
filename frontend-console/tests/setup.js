@@ -240,6 +240,7 @@ globalThis.api = {
     listConflictChecks: vi.fn(),
     getConflictCheck: vi.fn(),
     updateConflictItem: vi.fn(),
+    confirmContinuity: vi.fn(),
     runConflictAiReview: vi.fn(),
     requestConflictAiSuggestion: vi.fn(),
   },

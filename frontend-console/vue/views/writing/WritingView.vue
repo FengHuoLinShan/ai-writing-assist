@@ -278,6 +278,7 @@
     @rerun="vm.runConflictCheck({ force: true })"
     @close="vm.closeConflictDialog"
     @status="vm.updateConflictStatus"
+    @confirm-continuity="vm.confirmContinuityFact"
     @ai-review="vm.runConflictAiReview"
     @suggestion="vm.requestConflictSuggestion"
     @apply="vm.applyConflictSuggestion"

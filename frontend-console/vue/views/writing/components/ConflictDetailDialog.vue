@@ -38,6 +38,7 @@
               :items="ruleItems" :empty-label="check.status === 'completed' ? '字面检查已完成，未发现问题' : check.status === 'degraded' ? '本次仅完成部分字面检查，请查看覆盖说明' : '字面检查尚未完成'"
               :busy="model.busy"
               :drafts="suggestionDrafts"
+              :continuity-drafts="continuityDrafts"
               @status="forwardStatus"
               @suggestion="forwardSuggestion"
               @apply="forwardApply"
@@ -45,6 +46,8 @@
               @source="$emit('source', $event)"
               @update-draft="updateDraft"
               @copy="copySuggestion"
+              @confirm-continuity="forwardContinuity"
+              @update-continuity="updateContinuity"
             />
           </section>
 
@@ -68,6 +71,7 @@
               :items="aiItems" :empty-label="check.ai_review_status === 'done' ? '语义复核已完成，未发现问题' : aiReviewStatusLabel(check.ai_review_status)"
               :busy="model.busy"
               :drafts="suggestionDrafts"
+              :continuity-drafts="continuityDrafts"
               @status="forwardStatus"
               @suggestion="forwardSuggestion"
               @apply="forwardApply"
@@ -75,6 +79,8 @@
               @source="$emit('source', $event)"
               @update-draft="updateDraft"
               @copy="copySuggestion"
+              @confirm-continuity="forwardContinuity"
+              @update-continuity="updateContinuity"
             />
           </section>
 
@@ -108,7 +114,7 @@ const props = defineProps({
     default: () => ({ open: false, check: null, busy: false, error: null, sourcePreview: null }),
   },
 })
-const emit = defineEmits(["rerun", "close", "status", "ai-review", "suggestion", "apply", "locate", "source", "dismiss-source"])
+const emit = defineEmits(["rerun", "close", "status", "confirm-continuity", "ai-review", "suggestion", "apply", "locate", "source", "dismiss-source"])
 const requestClose = () => emit("close")
 const { overlayRef, dialogRef, onKeydown, onFocusin } = useModalDialog({
   isOpen: () => props.model.open,
@@ -122,6 +128,9 @@ const kindLabels = {
   forbidden_present: "疑似出现禁止项",
   required_missing: "必须发生项未逐字出现",
   continuity_location_mismatch: "前后连续性风险",
+  space_continuity_risk: "空间与位置风险",
+  time_continuity_risk: "时间顺序风险",
+  logic_continuity_risk: "因果与前提风险",
   motivation_gap: "动机衔接风险",
   emotion_jump: "情绪跳变",
   foreshadowing_misfire: "伏笔承接风险",
@@ -133,6 +142,7 @@ const kindLabels = {
   scene_forbidden_deviation: "场景出现禁止偏离内容",
   continuity_soft_risk: "软连续性风险",
 }
+const continuityKinds = new Set(["space_continuity_risk", "time_continuity_risk", "logic_continuity_risk"])
 
 const authorActionLabels = {
   needs_decision: { key: "needs_decision", label: "需要决定", className: "pill pill-warning" },
@@ -169,8 +179,9 @@ const ConflictRows = defineComponent({
     busy: Boolean,
     emptyLabel: { type: String, default: "尚未检查" },
     drafts: { type: Object, required: true },
+    continuityDrafts: { type: Object, required: true },
   },
-  emits: ["status", "suggestion", "apply", "locate", "source", "update-draft", "copy"],
+  emits: ["status", "confirm-continuity", "suggestion", "apply", "locate", "source", "update-draft", "update-continuity", "copy"],
   setup(rowProps, { emit: rowEmit }) {
     const button = (label, attrs, handler) => h("button", {
       type: "button",
@@ -194,6 +205,8 @@ const ConflictRows = defineComponent({
       const reason = humanReason(location.needs_review_reason || item.needs_review_reason)
       const authorAction = authorActionOf(item)
       const suggestion = item.ai_suggestion ? parseSuggestion(item.ai_suggestion) : null
+      const continuityDraft = rowProps.continuityDrafts[item.id] || { open: false, text: "" }
+      const canConfirmContinuity = continuityKinds.has(item.kind) && ["open", "later"].includes(item.status || "open")
       const evidence = source.module || source.label || source.field || source.type || source.excerpt || target.kind || reason
         ? h("details", { class: "writing-conflict-evidence-drawer" }, [
             h("summary", "证据"),
@@ -229,6 +242,32 @@ const ConflictRows = defineComponent({
               Array.isArray(suggestion.risk_notes) && suggestion.risk_notes.length ? h("small", `注意：${suggestion.risk_notes.join("；")}`) : null,
             ])
           : null
+      const continuityView = canConfirmContinuity && continuityDraft.open
+        ? h("div", { class: "writing-conflict-suggestion" }, [
+            h("label", { for: `continuity-fact-${item.id}` }, "记录正确的连续性事实"),
+            h("textarea", {
+              id: `continuity-fact-${item.id}`,
+              class: "form-textarea",
+              rows: 3,
+              "aria-label": "记录正确的连续性事实",
+              placeholder: "用作者语言写明正确的地点、时间顺序或前提与结果",
+              value: continuityDraft.text || "",
+              onInput: (event) => rowEmit("update-continuity", { itemId: item.id, text: event.target.value }),
+            }),
+            h("small", "确认后会重建后续场景状态；不会自动修改正文或采用其他 AI 判断。"),
+            h("div", { class: "writing-conflict-actions" }, [
+              button("取消", {}, () => rowEmit("update-continuity", { itemId: item.id, open: false })),
+              button("确认记录", { action: "confirm-continuity", primary: true, disabled: !String(continuityDraft.text || "").trim() }, () => rowEmit("confirm-continuity", {
+                itemId: item.id,
+                value: String(continuityDraft.text || "").trim(),
+                category: item.kind,
+                fieldPath: location.rule_code || item.kind,
+                expectedItemUpdatedAt: item.updated_at,
+                evidenceSummary: item.evidence_summary || "作者确认的连续性事实",
+              })),
+            ]),
+          ])
+        : null
       return h("article", {
         key: item.id,
         class: [
@@ -261,8 +300,10 @@ const ConflictRows = defineComponent({
           button("已处理", { action: "resolve-conflict" }, () => rowEmit("status", { itemId: item.id, status: "resolved" })),
           button("忽略", { action: "ignore-conflict" }, () => rowEmit("status", { itemId: item.id, status: "ignored" })),
           button("稍后", { action: "later-conflict" }, () => rowEmit("status", { itemId: item.id, status: "later" })),
+          canConfirmContinuity ? button("记录正确事实", { action: "open-continuity-confirmation" }, () => rowEmit("update-continuity", { itemId: item.id, open: true })) : null,
           button("生成 AI 修复建议", { action: "generate-conflict-suggestion" }, () => rowEmit("suggestion", item.id)),
         ]),
+        continuityView,
         suggestionView,
       ])
     }
@@ -292,13 +333,18 @@ const degradedSourceLabels = computed(() => {
 const ruleItems = computed(() => items.value.filter((item) => !item.is_ai_judgment))
 const aiItems = computed(() => items.value.filter((item) => item.is_ai_judgment))
 const suggestionDrafts = reactive({})
+const continuityDrafts = reactive({})
 
 watch(items, (nextItems) => {
   const present = new Set(nextItems.map((item) => String(item.id)))
   for (const key of Object.keys(suggestionDrafts)) if (!present.has(key)) delete suggestionDrafts[key]
+  for (const key of Object.keys(continuityDrafts)) if (!present.has(key)) delete continuityDrafts[key]
   for (const item of nextItems) {
     if (item.ai_suggestion && suggestionDrafts[item.id] == null) {
       suggestionDrafts[item.id] = parseSuggestion(item.ai_suggestion).suggested_text ?? ""
+    }
+    if (continuityKinds.has(item.kind) && continuityDrafts[item.id] == null) {
+      continuityDrafts[item.id] = { open: false, text: "" }
     }
   }
 }, { immediate: true })
@@ -325,7 +371,15 @@ function aiReviewStatusLabel(status) {
   return { not_requested: "尚未运行语义复核", running: "语义复核中", done: "语义复核已完成", partial: "语义复核仅部分完成", failed: "失败" }[status] || status || "未生成"
 }
 function updateDraft({ itemId, text }) { suggestionDrafts[itemId] = text }
+function updateContinuity({ itemId, text, open }) {
+  continuityDrafts[itemId] = {
+    ...(continuityDrafts[itemId] || { open: false, text: "" }),
+    ...(text == null ? {} : { text }),
+    ...(open == null ? {} : { open }),
+  }
+}
 function forwardStatus(value) { emit("status", value) }
+function forwardContinuity(value) { emit("confirm-continuity", value) }
 function forwardSuggestion(itemId) { emit("suggestion", itemId) }
 function forwardApply(itemId) { emit("apply", { itemId, text: suggestionDrafts[itemId] || "" }) }
 async function copySuggestion(itemId) {
