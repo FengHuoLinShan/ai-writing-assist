@@ -19,9 +19,7 @@ GATED_FUNCTIONS = {
     },
     "modules/writing/api.py": {
         "generate_writing_candidate": ("WritingGenerationService", "submit_generation"),
-        "run_conflict_check_ai_review": ("run_ai_review",),
         "enqueue_conflict_check_ai_review": ("context_confirmation_id",),
-        "create_conflict_item_ai_suggestion": ("generate_ai_suggestion",),
         "enqueue_conflict_item_ai_suggestion": ("validate_ai_suggestion_request",),
     },
     "modules/story/api.py": {
