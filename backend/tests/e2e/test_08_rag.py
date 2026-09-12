@@ -164,8 +164,8 @@ class TestRagRebuildIndex:
                 f"克莱恩相关 chunk 应标记 character_ids 包含克莱恩 ID，实际: {char_ids}"
             )
 
-    async def test_rag_index_chapter_reindex_replaces_old_chunks(self, ctx):
-        """二次索引同一章节应绑定新 draft 并移除旧源 chunks。"""
+    async def test_rag_index_chapter_reindex_preserves_versioned_sources(self, ctx):
+        """二次索引保留冻结旧版，并让默认检索只消费最新 draft。"""
         client, pid, _, db = ctx
 
         # Arrange
@@ -178,8 +178,8 @@ class TestRagRebuildIndex:
             },
         )
         assert first.status_code == 201, first.text
-        first_draft_id = first.json()["draft"]["id"]
-        from modules.evidence.facade import index_chapter
+        first_draft = first.json()["draft"]
+        from modules.evidence.facade import index_chapter, retrieve
 
         # Act — 首次索引
         count_v1 = await index_chapter(db, pid, 2)
@@ -215,16 +215,29 @@ class TestRagRebuildIndex:
         ch2_chunks = [
             c for c in chunks_resp.json().get("items", []) if c.get("chapter_index") == 2
         ]
-        assert len(ch2_chunks) == count_v2, (
-            f"chapter_index=2 的 chunk 数应等于二次索引创建数，"
-            f"实际: {len(ch2_chunks)}, 期望: {count_v2}"
+        assert len(ch2_chunks) == count_v1 + count_v2
+        assert {chunk["source_id"] for chunk in ch2_chunks} == {
+            first_draft["id"],
+            second_draft["id"],
+        }
+
+        current = await retrieve(
+            db,
+            pid,
+            "新版索引词",
+            content_mode="canonical",
+            rerank=False,
         )
-        assert {chunk["source_id"] for chunk in ch2_chunks} == {second_draft["id"]}
-        assert all(
-            chunk["source_content_hash"] == second_draft["content_hash"]
-            for chunk in ch2_chunks
+        assert {chunk.source_id for chunk in current.chunks} == {second_draft["id"]}
+        assert all("仅旧版索引词" not in chunk.text for chunk in current.chunks)
+
+        historical = await retrieve(
+            db,
+            pid,
+            "旧版索引词",
+            content_mode="canonical",
+            source_manifest={first_draft["id"]: first_draft["content_hash"]},
+            rerank=False,
         )
-        indexed_text = "\n".join(chunk["text"] for chunk in ch2_chunks)
-        assert "仅新版索引词" in indexed_text
-        assert "仅旧版索引词" not in indexed_text
-        assert first_draft_id not in {chunk["source_id"] for chunk in ch2_chunks}
+        assert {chunk.source_id for chunk in historical.chunks} == {first_draft["id"]}
+        assert any("仅旧版索引词" in chunk.text for chunk in historical.chunks)
