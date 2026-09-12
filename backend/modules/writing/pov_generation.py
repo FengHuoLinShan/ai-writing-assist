@@ -8,10 +8,7 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from modules.evidence.contracts import ConfirmedAIActionContext
+from typing import Any
 
 POV_PROMPT_NAME = "writing_pov_character"
 POV_FIELDS = (
@@ -57,33 +54,6 @@ class GenerationProfileInfo:
     profile: GenerationProfile
     scene_id: str | None = None
     viewpoint_character_id: str | None = None
-
-
-class GenerationProfileResolver:
-    """Resolve the writing generation profile from a confirmed context."""
-
-    def resolve(
-        self,
-        confirmed_context: ConfirmedAIActionContext,
-    ) -> GenerationProfileInfo:
-        confirmation = confirmed_context.confirmation
-        options = dict(confirmed_context.compile_options or {})
-        scene_id = options.get("scene_id")
-        viewpoint_character_id = options.get("viewpoint_character_id")
-        if (
-            confirmation.action == "writing.generate"
-            and confirmation.result_status == "confirmed"
-            and not confirmation.stale_reasons
-            and options.get("reveal_mode") == "character"
-            and scene_id
-            and viewpoint_character_id
-        ):
-            return GenerationProfileInfo(
-                profile=GenerationProfile.POV_CHARACTER,
-                scene_id=str(scene_id),
-                viewpoint_character_id=str(viewpoint_character_id),
-            )
-        return GenerationProfileInfo(profile=GenerationProfile.DEFAULT)
 
 
 @dataclass

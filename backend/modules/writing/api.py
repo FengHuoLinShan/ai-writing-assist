@@ -36,7 +36,6 @@ from modules.writing.schemas import (
     VersionHistoryResponse,
     WritingConflictAiReviewRequest,
     WritingConflictAiReviewTaskResponse,
-    WritingConflictAiSuggestionRequest,
     WritingConflictAiSuggestionTaskRequest,
     WritingConflictAiSuggestionTaskResponse,
     WritingConflictCheckCreate,
@@ -152,25 +151,6 @@ async def get_conflict_check(
         db,
         novel_id=novel_id,
         check_id=check_id,
-    )
-
-
-@router.post(
-    "/conflict-checks/{check_id}/ai-review",
-    response_model=WritingConflictCheckResponse,
-    deprecated=True,
-)
-async def run_conflict_check_ai_review(
-    db: DbSession,
-    data: WritingConflictAiReviewRequest,
-    check_id: str = Path(..., description="检查记录 ID"),
-) -> WritingConflictCheckResponse:
-    """为一次冲突检查追加 AI 软冲突判断。"""
-    await require_active_project(db, data.novel_id)
-    return await _conflict_service.run_ai_review(
-        db,
-        check_id=check_id,
-        data=data,
     )
 
 
@@ -293,25 +273,6 @@ async def confirm_conflict_item_continuity(
     """作者显式确认一条连续性事实并重建后续 Scene 状态。"""
     await require_active_project(db, data.novel_id)
     return await _conflict_service.confirm_continuity_item(
-        db,
-        item_id=item_id,
-        data=data,
-    )
-
-
-@router.post(
-    "/conflict-check-items/{item_id}/ai-suggestion",
-    response_model=WritingConflictItemResponse,
-    deprecated=True,
-)
-async def create_conflict_item_ai_suggestion(
-    db: DbSession,
-    data: WritingConflictAiSuggestionRequest,
-    item_id: str = Path(..., description="问题项 ID"),
-) -> WritingConflictItemResponse:
-    """为单条冲突问题生成 AI 修复建议。"""
-    await require_active_project(db, data.novel_id)
-    return await _conflict_service.generate_ai_suggestion(
         db,
         item_id=item_id,
         data=data,

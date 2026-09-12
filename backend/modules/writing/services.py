@@ -47,7 +47,6 @@ from modules.writing.pov_generation import (
     CharacterRevealGuard,
     GenerationProfile,
     GenerationProfileInfo,
-    GenerationProfileResolver,
     PovGenerationParser,
     build_pov_generation_prompt,
     prompt_hash,
@@ -1544,21 +1543,6 @@ class WritingConflictCheckService:
             scene_state=self._checkpoint_payload(rebuilt),
         )
 
-    async def run_ai_review(
-        self,
-        db: AsyncSession,
-        *,
-        check_id: str,
-        data: WritingConflictAiReviewRequest,
-    ) -> WritingConflictCheckResponse:
-        check, items = await self._ai_review_service.run(
-            db,
-            novel_id=data.novel_id,
-            check_id=check_id,
-            context_confirmation_id=data.context_confirmation_id,
-        )
-        return self._to_check_response(check, items)
-
     async def run_ai_review_for_task(
         self,
         db: AsyncSession,
@@ -1664,21 +1648,6 @@ class WritingConflictCheckService:
             model=None,
             error=None,
         )
-
-    async def generate_ai_suggestion(
-        self,
-        db: AsyncSession,
-        *,
-        item_id: str,
-        data: WritingConflictAiSuggestionRequest,
-    ) -> WritingConflictItemResponse:
-        item = await self._suggestion_service.generate(
-            db,
-            novel_id=data.novel_id,
-            item_id=item_id,
-            context_confirmation_id=data.context_confirmation_id,
-        )
-        return WritingConflictItemResponse.model_validate(item)
 
     async def validate_ai_suggestion_request(
         self,
@@ -2622,7 +2591,6 @@ class WritingGenerationService:
     ) -> None:
         self._repo = repo or WritingDraftRepository()
         self._llm = llm_client
-        self._profile_resolver = GenerationProfileResolver()
         self._pov_parser = PovGenerationParser()
         self._pov_guard = CharacterRevealGuard()
 
@@ -3296,144 +3264,6 @@ class WritingGenerationService:
         )
         return WritingDraftResponse.model_validate(draft)
 
-    async def generate_candidate(
-        self,
-        db: AsyncSession,
-        *,
-        novel_id: str,
-        chapter_index: int,
-        title: str | None,
-        instruction: str | None,
-        context_confirmation_id: str,
-        source_task_id: str | None = None,
-        generation_mode: str = "draft",
-        base_draft_id: str | None = None,
-    ) -> WritingDraftResponse:
-        from modules.evidence.facade import (
-            build_hidden_guard_context,
-            prepare_confirmed_ai_action,
-        )
-
-        confirmed_context = await prepare_confirmed_ai_action(
-            db,
-            novel_id=novel_id,
-            action="writing.generate",
-            confirmation_id=context_confirmation_id,
-        )
-        profile = self._profile_resolver.resolve(confirmed_context)
-        compile_options = dict(getattr(confirmed_context, "compile_options", None) or {})
-        scene_id = str(compile_options.get("scene_id") or "") or None
-        execution_bundle = await self._execution_bundle(
-            db,
-            novel_id=novel_id,
-            scene_id=scene_id,
-        )
-        execution_bundle_hash = (
-            str(execution_bundle.get("contract_hash") or "") if execution_bundle else None
-        )
-        base_draft = await self._load_generation_base(
-            db,
-            novel_id=novel_id,
-            chapter_index=chapter_index,
-            generation_mode=generation_mode,
-            base_draft_id=base_draft_id,
-        )
-
-        if self._llm is None:
-            from modules.project.facade import open_project_llm_client
-
-            async with open_project_llm_client(db, novel_id) as client:
-                return await WritingGenerationService(
-                    repo=self._repo,
-                    llm_client=client,
-                ).generate_candidate(
-                    db,
-                    novel_id=novel_id,
-                    chapter_index=chapter_index,
-                    title=title,
-                    instruction=instruction,
-                    context_confirmation_id=context_confirmation_id,
-                    source_task_id=source_task_id,
-                    generation_mode=generation_mode,
-                    base_draft_id=base_draft_id,
-                )
-
-        prompt, llm_request = self._build_generation_request(
-            confirmed_context=confirmed_context,
-            profile=profile,
-            chapter_index=chapter_index,
-            instruction=instruction,
-            model=getattr(self._llm, "model_name", "gpt-4o"),
-            generation_mode=generation_mode,
-            base_content=(
-                str(getattr(base_draft, "content", "") or "")
-                if base_draft is not None
-                else None
-            ),
-            scene_execution_bundle=execution_bundle,
-        )
-        response = await run_managed_generate(
-            self._llm,
-            llm_request,
-            step_name="writing.generation.candidate.generate",
-            timeout=WRITING_GENERATION_TIMEOUT_SECONDS,
-        )
-        managed_llm_provenance = build_managed_llm_provenance(
-            self._llm,
-            step_name="writing.generation.candidate.generate",
-            request=llm_request,
-            novel_id=novel_id,
-        )
-        model_name = response.model or getattr(
-            self._llm,
-            "model_name",
-            "gpt-4o",
-        )
-        guard_terms: tuple[_FrozenHiddenGuardTerm, ...] = ()
-        if profile.profile == GenerationProfile.POV_CHARACTER:
-            guard_terms = self._freeze_guard_terms(
-                await build_hidden_guard_context(
-                    db,
-                    confirmed_context=confirmed_context,
-                )
-            )
-        candidate = self._build_candidate_create(
-            novel_id=novel_id,
-            chapter_index=chapter_index,
-            title=title,
-            context_confirmation_id=context_confirmation_id,
-            source_task_id=source_task_id,
-            context_result_refs=list(confirmed_context.result_refs),
-            profile=profile,
-            prompt=prompt,
-            response_content=response.content,
-            model_name=model_name,
-            managed_llm_provenance=managed_llm_provenance,
-            guard_terms=list(guard_terms),
-            generation_mode=generation_mode,
-            base_draft_id=(
-                str(getattr(base_draft, "id")) if base_draft is not None else None
-            ),
-            base_content=(
-                str(getattr(base_draft, "content", "") or "")
-                if base_draft is not None
-                else None
-            ),
-            base_content_hash=(
-                str(getattr(base_draft, "content_hash", ""))
-                if base_draft is not None
-                else None
-            ),
-            scene_id=scene_id,
-            scene_execution_bundle=execution_bundle,
-            scene_execution_bundle_hash=execution_bundle_hash,
-        )
-        draft = await self._repo.create_with_status(
-            db,
-            candidate,
-            status="candidate",
-        )
-        return WritingDraftResponse.model_validate(draft)
 
 
 def _story_assets_are_stale(execution_bundle: dict[str, Any] | None) -> bool:

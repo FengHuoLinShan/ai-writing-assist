@@ -154,18 +154,15 @@ def test_long_ai_compatibility_routes_are_deprecated_in_openapi() -> None:
             "/api/outline/scene-workbench/fusion/preview",
             "/api/outline/scene-workbench/fusion/preview-task",
         ),
-        (
-            "/api/writing/conflict-checks/{check_id}/ai-review",
-            "/api/writing/conflict-checks/{check_id}/ai-review-task",
-        ),
-        (
-            "/api/writing/conflict-check-items/{item_id}/ai-suggestion",
-            "/api/writing/conflict-check-items/{item_id}/ai-suggestion-task",
-        ),
     ]
     for legacy_path, task_path in replacements:
         assert document["paths"][legacy_path]["post"]["deprecated"] is True
         assert "202" in document["paths"][task_path]["post"]["responses"]
+    for removed_path in (
+        "/api/writing/conflict-checks/{check_id}/ai-review",
+        "/api/writing/conflict-check-items/{item_id}/ai-suggestion",
+    ):
+        assert removed_path not in document["paths"]
 
 
 def _module_ast(source_file: str) -> ModuleAst:

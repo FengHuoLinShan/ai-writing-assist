@@ -78,6 +78,56 @@ class FakePovLLMClient:
         return LLMCallResponse(content=self.content, model=self.model_name)
 
 
+async def _generate_candidate_for_task(
+    db_session: AsyncSession,
+    service,
+    *,
+    confirmed_context=None,
+    **kwargs,
+):
+    from modules.evidence.facade import bind_confirmed_action_result
+    from modules.project.models import Project
+
+    task_id = str(uuid.uuid4())
+    confirmation_id = kwargs.pop("context_confirmation_id")
+    novel_uuid = uuid.UUID(kwargs["novel_id"])
+    if await db_session.get(Project, novel_uuid) is None:
+        db_session.add(Project(id=novel_uuid, title="任务轨生成测试"))
+        await db_session.flush()
+    if confirmed_context is None:
+        await bind_confirmed_action_result(
+            db_session,
+            novel_id=kwargs["novel_id"],
+            confirmation_id=confirmation_id,
+            result_type="task",
+            result_id=task_id,
+            status="running",
+        )
+    else:
+        confirmed_context.confirmation.result_status = "running"
+        confirmed_context.result_refs = [{"type": "task", "id": task_id}]
+        confirmed_context.compile_options.setdefault(
+            "requested_chapter_index", kwargs["chapter_index"]
+        )
+
+    previous = getattr(db_session, "task_checkpoint_enabled", None)
+    db_session.task_checkpoint_enabled = True  # type: ignore[attr-defined]
+    try:
+        model = getattr(getattr(service, "_llm", None), "model_name", "task-test-model")
+        return await service.generate_candidate_for_task(
+            db_session,
+            context_confirmation_id=confirmation_id,
+            source_task_id=task_id,
+            llm_execution_snapshot={"profile": {"model": model}},
+            **kwargs,
+        )
+    finally:
+        if previous is None:
+            delattr(db_session, "task_checkpoint_enabled")
+        else:
+            db_session.task_checkpoint_enabled = previous  # type: ignore[attr-defined]
+
+
 def _fake_confirmed_context(
     *,
     action="writing.generate",
@@ -764,9 +814,12 @@ async def test_writing_generation_creates_candidate_without_publish_task(
 ) -> None:
     """AI 正文生成只创建 candidate 草稿，不自动发布/RAG。"""
     from modules.evidence.facade import confirm_context
+    from modules.project.models import Project
     from modules.writing.services import WritingGenerationService
 
     novel_id = "00000000-0000-0000-0000-00000000a201"
+    db_session.add(Project(id=uuid.UUID(novel_id), title="任务轨生成测试"))
+    await db_session.flush()
     confirmation = await confirm_context(
         db_session,
         novel_id=novel_id,
@@ -777,8 +830,9 @@ async def test_writing_generation_creates_candidate_without_publish_task(
     )
     service = WritingGenerationService(llm_client=FakeLLMClient())
 
-    draft = await service.generate_candidate(
+    draft = await _generate_candidate_for_task(
         db_session,
+        service,
         novel_id=novel_id,
         chapter_index=3,
         title=None,
@@ -796,12 +850,15 @@ async def test_writing_generation_creates_candidate_without_publish_task(
     expected = {
         "source": "writing_generate",
         "source_confirmation_id": confirmation.id,
-        "source_task_id": None,
+        "source_task_id": draft.provenance_json["source_task_id"],
         "context_action": "writing.generate",
-        "context_result_refs": confirmation.result_refs,
+        "context_result_refs": draft.provenance_json["context_result_refs"],
     }
     for key, value in expected.items():
         assert draft.provenance_json[key] == value
+    assert draft.provenance_json["context_result_refs"] == [
+        {"type": "task", "id": draft.provenance_json["source_task_id"]}
+    ]
     assert draft.provenance_json["generation_profile"] == "default"
     assert draft.provenance_json["pov_validation"]["status"] == "not_applicable"
 
@@ -815,6 +872,7 @@ async def test_default_writing_prompt_keeps_scene_as_chapter_context(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from modules.evidence import facade as context_facade
+    from modules.evidence.compilation.services.compiled_context import CompiledContext
     from modules.writing.services import WritingGenerationService
 
     novel_id = "00000000-0000-0000-0000-00000000a212"
@@ -833,13 +891,18 @@ async def test_default_writing_prompt_keeps_scene_as_chapter_context(
             "## 剧情线\n逃离封锁\n\n"
             "## 人物与物品\n林澈、铜制密钥"
         ),
+        compiled=CompiledContext(sections=[], total_tokens=0, budget_tokens=0),
         result_refs=[],
     )
 
     async def fake_prepare(*_args, **_kwargs):
         return confirmed
 
+    async def fake_bind(*_args, **_kwargs):
+        return None
+
     monkeypatch.setattr(context_facade, "prepare_confirmed_ai_action", fake_prepare)
+    monkeypatch.setattr(context_facade, "bind_confirmed_action_result", fake_bind)
     monkeypatch.setattr(
         WritingGenerationService,
         "_execution_bundle",
@@ -853,8 +916,10 @@ async def test_default_writing_prompt_keeps_scene_as_chapter_context(
         ),
     )
     client = FakePovLLMClient("林澈握紧了铜制密钥。")
-    draft = await WritingGenerationService(llm_client=client).generate_candidate(
+    draft = await _generate_candidate_for_task(
         db_session,
+        WritingGenerationService(llm_client=client),
+        confirmed_context=confirmed,
         novel_id=novel_id,
         chapter_index=4,
         title=None,
@@ -882,9 +947,12 @@ async def test_continuation_generation_appends_to_frozen_base_deterministically(
     db_session: AsyncSession,
 ) -> None:
     from modules.evidence.facade import confirm_context
+    from modules.project.models import Project
     from modules.writing.services import WritingGenerationService
 
     novel_id = "00000000-0000-0000-0000-00000000a213"
+    db_session.add(Project(id=uuid.UUID(novel_id), title="任务轨续写测试"))
+    await db_session.flush()
     base = await WritingDraftRepository().create_with_status(
         db_session,
         WritingDraftCreate(
@@ -905,8 +973,9 @@ async def test_continuation_generation_appends_to_frozen_base_deterministically(
     )
     client = FakePovLLMClient("这是模型只返回的新增段落。")
 
-    draft = await WritingGenerationService(llm_client=client).generate_candidate(
+    draft = await _generate_candidate_for_task(
         db_session,
+        WritingGenerationService(llm_client=client),
         novel_id=novel_id,
         chapter_index=4,
         title="第四章",
@@ -936,6 +1005,7 @@ async def test_writing_generation_saves_secret_safe_managed_llm_provenance(
 
     from infrastructure.llm.agent_step_harness import MANAGED_LLM_PROVENANCE_KEY
     from modules.evidence.facade import confirm_context
+    from modules.project.models import Project
     from modules.writing.services import WritingGenerationService
 
     class ProvenanceLLMClient:
@@ -963,6 +1033,8 @@ async def test_writing_generation_saves_secret_safe_managed_llm_provenance(
             )
 
     novel_id = "00000000-0000-0000-0000-00000000a211"
+    db_session.add(Project(id=uuid.UUID(novel_id), title="任务轨来源测试"))
+    await db_session.flush()
     confirmation = await confirm_context(
         db_session,
         novel_id=novel_id,
@@ -973,8 +1045,9 @@ async def test_writing_generation_saves_secret_safe_managed_llm_provenance(
     )
     service = WritingGenerationService(llm_client=ProvenanceLLMClient())
 
-    draft = await service.generate_candidate(
+    draft = await _generate_candidate_for_task(
         db_session,
+        service,
         novel_id=novel_id,
         chapter_index=11,
         title=None,
@@ -1010,9 +1083,12 @@ async def test_writing_generation_sanitizes_candidate_html(
     db_session: AsyncSession,
 ) -> None:
     from modules.evidence.facade import confirm_context
+    from modules.project.models import Project
     from modules.writing.services import WritingGenerationService
 
     novel_id = "00000000-0000-0000-0000-00000000a209"
+    db_session.add(Project(id=uuid.UUID(novel_id), title="任务轨清洗测试"))
+    await db_session.flush()
     confirmation = await confirm_context(
         db_session,
         novel_id=novel_id,
@@ -1025,8 +1101,9 @@ async def test_writing_generation_sanitizes_candidate_html(
         llm_client=FakePovLLMClient("<script>alert(1)</script>正文<b>加粗</b>")
     )
 
-    draft = await service.generate_candidate(
+    draft = await _generate_candidate_for_task(
         db_session,
+        service,
         novel_id=novel_id,
         chapter_index=9,
         title="<b>第九章</b>",
@@ -1125,6 +1202,7 @@ async def test_writing_generate_task_records_task_provenance(
 @pytest.mark.asyncio
 async def test_writing_generation_pov_profile_saves_structured_view_and_validation(
     db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """POV character confirmation writes structured view and validation provenance."""
     from modules.evidence.facade import confirm_context
@@ -1230,9 +1308,14 @@ async def test_writing_generation_pov_profile_saves_structured_view_and_validati
         """
     )
     service = WritingGenerationService(llm_client=llm)
+    monkeypatch.setattr(
+        "modules.writing.services._generation_task_source_fingerprint",
+        lambda *_args, **_kwargs: "stable-pov-test",
+    )
 
-    draft = await service.generate_candidate(
+    draft = await _generate_candidate_for_task(
         db_session,
+        service,
         novel_id=novel_id,
         chapter_index=3,
         title="第三章 POV",
@@ -1272,6 +1355,7 @@ async def test_writing_generation_pov_profile_saves_structured_view_and_validati
 @pytest.mark.asyncio
 async def test_writing_generation_pov_parse_failure_keeps_raw_candidate(
     db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Bad POV JSON still creates a raw candidate when LLM returned useful text."""
     from modules.evidence.facade import confirm_context
@@ -1329,9 +1413,14 @@ async def test_writing_generation_pov_parse_failure_keeps_raw_candidate(
     service = WritingGenerationService(
         llm_client=FakePovLLMClient("这不是 JSON，但可以作为候选正文。")
     )
+    monkeypatch.setattr(
+        "modules.writing.services._generation_task_source_fingerprint",
+        lambda *_args, **_kwargs: "stable-pov-test",
+    )
 
-    draft = await service.generate_candidate(
+    draft = await _generate_candidate_for_task(
         db_session,
+        service,
         novel_id=novel_id,
         chapter_index=3,
         title="第三章 POV",

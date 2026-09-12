@@ -148,53 +148,6 @@ class FakePovLLMClient:
         return LLMCallResponse(content=self.content, model=self.model_name)
 
 
-def _fake_confirmed_context(
-    *,
-    action="writing.generate",
-    status="confirmed",
-    stale=None,
-    options=None,
-):
-    return SimpleNamespace(
-        confirmation=SimpleNamespace(
-            action=action,
-            result_status=status,
-            stale_reasons=stale or [],
-        ),
-        compile_options=options or {},
-    )
-
-
-def test_generation_profile_resolver_requires_valid_character_confirmation() -> None:
-    from modules.writing.pov_generation import (
-        GenerationProfile,
-        GenerationProfileResolver,
-    )
-
-    resolver = GenerationProfileResolver()
-    valid_options = {
-        "reveal_mode": "character",
-        "scene_id": "scene-1",
-        "viewpoint_character_id": "char-1",
-    }
-
-    assert resolver.resolve(_fake_confirmed_context(options=valid_options)).profile == (
-        GenerationProfile.POV_CHARACTER
-    )
-    invalid_cases = [
-        _fake_confirmed_context(action="world.extract", options=valid_options),
-        _fake_confirmed_context(status="pending", options=valid_options),
-        _fake_confirmed_context(stale=["context_changed"], options=valid_options),
-        _fake_confirmed_context(options={**valid_options, "scene_id": None}),
-        _fake_confirmed_context(
-            options={**valid_options, "viewpoint_character_id": None}
-        ),
-        _fake_confirmed_context(options={**valid_options, "reveal_mode": "author_safe"}),
-    ]
-    for context in invalid_cases:
-        assert resolver.resolve(context).profile == GenerationProfile.DEFAULT
-
-
 def test_pov_parser_repairs_common_json_wrapper() -> None:
     from modules.writing.pov_generation import PovGenerationParser
 

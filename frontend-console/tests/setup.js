@@ -241,8 +241,6 @@ globalThis.api = {
     getConflictCheck: vi.fn(),
     updateConflictItem: vi.fn(),
     confirmContinuity: vi.fn(),
-    runConflictAiReview: vi.fn(),
-    requestConflictAiSuggestion: vi.fn(),
   },
   world: {
     listEntities: vi.fn(),

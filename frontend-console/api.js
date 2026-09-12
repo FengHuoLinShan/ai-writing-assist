@@ -2223,10 +2223,6 @@ const api = {
       return contractJson("writing.confirmContinuity", { itemId }, {}, payload)
     },
 
-    async runConflictAiReview(checkId, payload) {
-      return contractJson("writing.runConflictAiReview", { checkId }, {}, payload)
-    },
-
     async enqueueConflictAiReview(checkId, payload) {
       return contractJson("writing.enqueueConflictAiReview", { checkId }, {}, payload)
     },
@@ -2235,14 +2231,6 @@ const api = {
       return contractJson("writing.enqueueConflictAiSuggestion", { itemId }, {}, payload)
     },
 
-    async requestConflictAiSuggestion(itemId, payload) {
-      return contractJson(
-        "writing.requestConflictAiSuggestion",
-        { itemId },
-        {},
-        payload,
-      )
-    },
   },
 
   // ============================================================

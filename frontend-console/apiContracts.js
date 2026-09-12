@@ -532,11 +532,6 @@
       requiredQuery: ["novel_id"],
     }),
     "writing.createConflictCheck": define("POST", () => "/writing/conflict-checks", { hasBody: true }),
-    "writing.runConflictAiReview": define("POST", ({ checkId }) => `/writing/conflict-checks/${required(checkId, "checkId", "writing.runConflictAiReview")}/ai-review`, {
-      requiredParams: ["checkId"],
-      hasBody: true,
-      timeout: LLM_GENERATE_TIMEOUT,
-    }),
     "writing.enqueueConflictAiReview": define("POST", ({ checkId }) => `/writing/conflict-checks/${required(checkId, "checkId", "writing.enqueueConflictAiReview")}/ai-review-task`, {
       requiredParams: ["checkId"],
       hasBody: true,
@@ -547,11 +542,6 @@
       requiredBody: ["operation_id"],
       hasBody: true,
       timeout: AI_TASK_SUBMIT_TIMEOUT,
-    }),
-    "writing.requestConflictAiSuggestion": define("POST", ({ itemId }) => `/writing/conflict-check-items/${required(itemId, "itemId", "writing.requestConflictAiSuggestion")}/ai-suggestion`, {
-      requiredParams: ["itemId"],
-      hasBody: true,
-      timeout: LLM_GENERATE_TIMEOUT,
     }),
     "writing.confirmContinuity": define("POST", ({ itemId }) => `/writing/conflict-check-items/${required(itemId, "itemId", "writing.confirmContinuity")}/confirm-continuity`, {
       requiredParams: ["itemId"],

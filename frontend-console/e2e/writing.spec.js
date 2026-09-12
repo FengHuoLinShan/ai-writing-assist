@@ -1173,14 +1173,6 @@ test.describe("写作台模块", () => {
         }),
       })
     })
-    await page.route("**/api/writing/conflict-checks/*/ai-review", async (route) => {
-      aiReviewDone = true
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(mockedAiCheck),
-      })
-    })
     await page.route("**/api/writing/conflict-checks/*/ai-review-task", async (route) => {
       aiReviewDone = true
       await route.fulfill({

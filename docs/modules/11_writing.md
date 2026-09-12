@@ -81,11 +81,9 @@ GET    /api/writing/chapters                            # 列出有草稿的章�
 POST   /api/writing/conflict-checks                    # 创建剧情设定冲突检查
 GET    /api/writing/conflict-checks                    # 获取章节/Scene 检查历史
 GET    /api/writing/conflict-checks/{id}               # 获取检查详情
-POST   /api/writing/conflict-checks/{id}/ai-review     # 兼容同步入口（deprecated）
 POST   /api/writing/conflict-checks/{id}/ai-review-task # 提交异步 AI 软冲突判断任务
 PATCH  /api/writing/conflict-check-items/{id}          # 更新问题处理状态
 POST   /api/writing/conflict-check-items/{id}/confirm-continuity # 作者确认连续性事实
-POST   /api/writing/conflict-check-items/{id}/ai-suggestion # 兼容同步入口（deprecated）
 POST   /api/writing/conflict-check-items/{id}/ai-suggestion-task # 提交单条 AI 修复建议任务
 POST   /api/writing/drafts/autosave                    # 创建纯草稿版本，不发布；合并标脏 working 索引
 POST   /api/writing/generate                            # 生成正文建议预览，不自动采用或发布
@@ -132,8 +130,8 @@ published，不因 RP 历史引用改变作者编辑心智。
 
 AI 能力是显式追加流程，不替代规则层结果：
 
-- `ai-review` 必须使用 action 为 `writing.conflict_check.ai_review` 的 `context_confirmation_id`。
-- `ai-suggestion` 必须使用 action 为 `writing.conflict_check.ai_suggestion` 的 `context_confirmation_id`。
+- `ai-review-task` 必须使用 action 为 `writing.conflict_check.ai_review` 的 `context_confirmation_id`。
+- `ai-suggestion-task` 必须使用 action 为 `writing.conflict_check.ai_suggestion` 的 `context_confirmation_id`。
 - AI 软冲突和建议只写入检查项，不修改正文、Scene、地图册、世界对象、记忆或已采用资产。
 - 手动 AI 复核把规则项视为未确认的字面预警；只有发现真实语义偏差时才追加独立的 `scene_commitment_missing` / `scene_forbidden_deviation`，不会自动关闭字面项。
 - 正文生成、整体验证和单条建议的官方前端提交前保存 operation receipt；刷新后只查询原

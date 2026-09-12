@@ -172,12 +172,10 @@ POST /api/writing/drafts/autosave                 → 创建纯草稿版本，�
 POST /api/writing/conflict-checks                 → 创建剧情设定冲突检查
 GET /api/writing/conflict-checks                  → 获取章节/Scene 检查历史
 GET /api/writing/conflict-checks/{id}             → 获取检查详情
-POST /api/writing/conflict-checks/{id}/ai-review  → 旧同步入口（deprecated）
 POST /api/writing/conflict-checks/{id}/ai-review-task → 异步执行 AI 软冲突判断
 POST /api/writing/conflict-check-items/{id}/ai-suggestion-task → 异步生成单条 AI 修复建议
 PATCH /api/writing/conflict-check-items/{id}      → 更新问题处理状态
 POST /api/writing/conflict-check-items/{id}/confirm-continuity → 作者确认连续性事实并重建 Scene 状态
-POST /api/writing/conflict-check-items/{id}/ai-suggestion → 生成单条问题 AI 修复建议
 POST /api/writing/generate                        → 从已确认 context 生成正文 candidate
 POST /api/writing/semantic-reviews               → 独立语义审查，回执 coverage/findings
 POST /api/writing/targeted-revisions             → 按冻结 finding 生成定向返修 candidate
@@ -223,8 +221,8 @@ finalize 按 project-first 锁序重新验证项目、锁定 base 正文和完�
 profile 与当前最新 running task owner；只有 fresh 结果才在同一最终 worker
 transaction 中创建 candidate 并绑定 confirmation。同一 confirmation 重复入队时，
 最后绑定的 task 取代旧 task，旧结果不会写入。
-上下文漂移、项目删除、取消或 lease 丢失均不会留下 candidate。同步
-`WritingGenerationService.generate_candidate()` 仍保留原调用语义且不自行 commit。
+上下文漂移、项目删除、取消或 lease 丢失均不会留下 candidate。正文候选只经上述
+task-only seam 生成。
 
 Scene 确认存在时，生成 prompt 附带 outline-owned 执行 bundle，候选
 provenance 冻结 `scene_execution_bundle_hash` 和 exact `upstream_manifest`。
@@ -287,14 +285,14 @@ deprecated 仅可在历史视图预览，不允许普通编辑或恢复；candid
 
 Phase 2 AI 能力始终由作者显式触发并追加独立语义问题，不影响、关闭或改写字面预警：
 
-- `POST /api/writing/conflict-checks/{id}/ai-review` 需要 `context_confirmation_id`，且确认记录 action 必须是 `writing.conflict_check.ai_review`。
+- `POST /api/writing/conflict-checks/{id}/ai-review-task` 需要 `context_confirmation_id`，且确认记录 action 必须是 `writing.conflict_check.ai_review`。
 - 冲突复核和修复建议校验 confirmation scope 时优先使用作者请求的
   `requested_chapter_index`；Scene 为检索派生的 `chapter_index` 不能改写本次检查目标，
   旧 confirmation 缺少前者时才兼容回退。
-- `/ai-review-task` 在入队事务中保存 secret-free 项目 LLM execution snapshot 和内部 task owner；worker 只允许在带 lease commit fence 的 task session 中运行。prepare 阶段读取并锁定当前检查/问题、重建已确认上下文后提交，真实 LLM 等待期间不持有数据库事务；finalize 再检查项目、确认上下文、检查及问题的语义指纹。输入漂移或任务被更新任务取代时不会追加旧结果，内部 owner 不进入 API 或发布快照。同步 `/ai-review` 的既有单事务语义不变。
+- `/ai-review-task` 在入队事务中保存 secret-free 项目 LLM execution snapshot 和内部 task owner；worker 只允许在带 lease commit fence 的 task session 中运行。prepare 阶段读取并锁定当前检查/问题、重建已确认上下文后提交，真实 LLM 等待期间不持有数据库事务；finalize 再检查项目、确认上下文、检查及问题的语义指纹。输入漂移或任务被更新任务取代时不会追加旧结果，内部 owner 不进入 API 或发布快照。
 - AI 软冲突判断保存为 `is_ai_judgment=true` 的问题项，保留 `source_confirmation_id`、`confidence`、`llm_rationale`；空间、时间、逻辑风险分别复用三种 continuity kind 并始终标记 `needs_review=true`。复核与单条建议的 confirmation 也消费同一 V2 `scene_world_state`，缺证据不得补成事实。
 - LLM 输出逐条校验；非法条目丢弃并记录到 `summary_json.ai_review.discarded_count`，LLM 失败只把 `ai_review_status` 置为 `failed`，不删除规则层结果。
-- `POST /api/writing/conflict-check-items/{id}/ai-suggestion` 需要 action 为 `writing.conflict_check.ai_suggestion` 的确认记录，只把最新建议写入该问题项，不修改正文、Scene、世界对象、记忆或正史资产。
+- `POST /api/writing/conflict-check-items/{id}/ai-suggestion-task` 需要 action 为 `writing.conflict_check.ai_suggestion` 的确认记录，只把最新建议写入该问题项，不修改正文、Scene、世界对象、记忆或正史资产。
 - 前端把 AI 修复建议当作可编辑草稿展示；用户可修改后显式插入当前正文编辑器，插入只影响当前草稿和自动保存队列，不发布章节，也不自动把问题标记为已解决。
 
 ## 后续扩展方向
