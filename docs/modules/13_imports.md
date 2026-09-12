@@ -189,6 +189,9 @@ GET  /api/imports/workflows/{task_id}/cleanup-preview # 预览已取消整理的
 POST /api/imports/workflows/{task_id}/cleanup         # 用户显式确认后执行软清理
 ```
 
+所有字面量 `GET` 路由（如 `/review-summary`）必须在 `GET /api/imports/{id}`
+之前注册，避免被动态 `id` 匹配吞掉。
+
 上传成功的可见性来自 `DbSession` 的 request-owned transaction：function-scope dependency 在普通非流式响应开始前统一提交，上传路由本身不持有单独的成功提交逻辑。
 
 `/deep` 与三个 `/stages/*` 请求都必须显式发送

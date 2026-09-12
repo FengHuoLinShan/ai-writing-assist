@@ -90,16 +90,16 @@ backend/modules/imports/workflow_structure_phase.py,已审,workflow.py structure
 ### D5b-1
 - **ID**：D5b-1
 - **位置/符号**：`backend/modules/imports/orchestrator.py:1368-1396` `_progress_from_task`（仅 `phase=="running"` 或「有 targeted_completion checkpoint 且 failed」时归一为 pending）；`backend/modules/imports/workflow.py:272-273` `run_step` 的 `raise ValueError(f"无法处理当前进度状态: {progress.phase}")`
-- **问题与触发**：deep_import / scene_auto_extraction 的任何「优雅失败」（阶段 runner 置 `progress.phase="failed"` 后返回，orchestrator 经 `_record_progress` 提交后再抛 `DeepImportWorkflowFailedError`）都会把 `phase:"failed"` 持久化进 task.result 与 run.progress。此后用户走官方恢复链 `POST /api/imports/deep/resume`（README 与 `available_actions` 明示），worker 重新 claim 后 `_progress_from_task` 因无 `targeted_completion` checkpoint 不重置 phase，`run_step` 直接抛 `ValueError("无法处理当前进度状态: failed")` → 任务再次 failed。恢复按钮形成 resume→失败 循环，且内部错误文案（`error_message`）回显给用户；唯一出路是 abandon。受影响失败类：LLM 健康预检失败（workflow.py:174、:757）、Phase0 规划失败（workflow_scene_phase.py:191）、Phase1a 覆盖缺失（:281）、Phase1b 覆盖缺失（:481）、Scene commit 失败（:732）、Phase2（workflow_entity_phase.py:353/479/522）、Phase3（workflow_structure_phase.py:384）。targeted_completion 场景已在 424749166 特例修复；`review_resolution`/`world_objects`/`plot_structure` stage 不经 `run_step`，不受影响。
+- **问题与触发（X2 链复核修正）**：原文所称“任何优雅失败都会形成 resume 死循环”过宽。普通优雅失败持久化 `phase="failed"` 时 `recovery_required=false`，只提供 dismiss，直接调用 resume 也会被拒绝。真实触发需要 `phase="failed"` 与 `recovery_required=true` 同时保留；当前可达入口是优雅失败已提交、worker 尚未终态化时进程死亡，stale 扫描再把任务标成可恢复。用户只有一次 resume 机会，但 `_progress_from_task` 在无 targeted_completion checkpoint 时不归一 phase，`run_step` 立即再次失败；第二次失败收敛为 dismiss-only，resume/abandon 与批量清理入口一起丢失。targeted_completion 已有特例，standalone review_resolution 不经 `run_step`，均不属于该窗口。完整证据见 `units/X2.md` 的“失败三类”。
 - **调用链证据**：失败持久化：orchestrator.py:594-598（run_task）、:825-829（run_stage_task）、:998-1002（fenced scene stage）均先 `_record_progress`（内含 `task.result = updated.model_dump()` + `_runs.checkpoint` + `db.commit()`）再抛错；worker 侧 `_handler_failure_result`（infrastructure/tasks/worker.py:193-219）只追加 lifecycle 元数据不改 phase；恢复链 orchestrator.py:1525-1589 `resume_interrupted` 与 infrastructure/tasks/lifecycle.py:125-199 `resume_manual` 均不重置 phase。测试固化了「failed 不自动重跑」（test_workflow.py:3949-3958）与「失败持久化 phase=failed」（test_workflow_orchestration.py:1454-1470），但无任何测试覆盖 fail→resume→重跑成功；resume 测试 fixture（test_workflow_orchestration.py:320-360）的 result 恰好不含 phase 键，掩盖了该路径。
 - **现有契约**：README「任务在 available_actions 含 resume+abandon 时展示恢复操作；resume 校验 failed 与双份 recovery flag 后转回 pending，不伪装成仍在 running」；`_progress_from_task` 对 running→pending 的归一说明中断重跑是受支持语义。failed 不可直接重跑（test_rejects_failed_state）针对的是程序内直接重入，不是人工恢复。
 - **最小方案**（功能性修复，按计划 §2 单列，不混入优化批次）：在恢复链单点归一——`resume_interrupted` 组装 `result_data` 时（或 `_progress_from_task` 的归一条件改为「`phase=="failed"` 且本次为 manual_resume 恢复的 attempt」）把 `phase` 置回 `"pending"`（保留 `phase_errors`/`quality_status` 诊断）；补一条 fail→resume→handler 重跑的回归测试。
-- **预期收益**：恢复主链路可用；消除 resume→失败 循环与内部错误文案外泄；避免用户被迫 abandon 后重跑全量导入（时间与 LLM 成本）。
+- **预期收益**：窄中断窗口的一次恢复机会可用；避免恢复后立即失败并丢失 abandon/批量清理入口，同时不改变普通 dismiss-only 失败语义。
 - **风险**：需保证不把「未恢复意图的 failed」自动重跑——归一必须只发生在显式 resume 路径；fenced scene stage 的 prepare 指纹校验不受影响（phase 与 input_fingerprint 正交）。
 - **依赖**：无。
 - **验证命令/断言**：`make test TESTS="modules/imports/tests/test_workflow_orchestration.py modules/imports/tests/test_workflow_runs.py"`；新增断言：构造 run.progress.phase="failed"+recovery_required → resume_interrupted → claim → run_task 不抛「无法处理当前进度状态」。
 - **回滚**：单点 revert（orchestrator 一处归一 + 一个测试）。
-- **裁定**：功能性缺陷，立即单列修复任务（按 §7 属「恢复破坏」维度，因 abandon 可退出且无数据丢失定 P1）
+- **裁定**：功能性缺陷，单列修复任务（按 §7 属恢复能力破坏；触发窗口窄但后果确定，维持 P1）
 - **优先级**：P1
 
 ### D5b-2

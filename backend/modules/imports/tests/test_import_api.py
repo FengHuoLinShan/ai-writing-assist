@@ -935,3 +935,21 @@ async def test_review_resolution_missing_task_is_hidden(
     assert response.status_code == 404
     assert response.json()["detail"] == "Not found"
     assert task_id not in response.text
+
+
+@pytest.mark.asyncio
+async def test_review_summary_route_not_shadowed_by_record_id_route(
+    async_client: AsyncClient,
+    sample_project: dict,
+) -> None:
+    """字面量 review-summary 路由不能被动态 record_id 路由吞掉。"""
+    response = await async_client.get(
+        "/api/imports/review-summary",
+        params={"novel_id": sample_project["id"]},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_candidates"] == 0
+    assert data["unclassified"] == 0
+    assert "latest" in data
