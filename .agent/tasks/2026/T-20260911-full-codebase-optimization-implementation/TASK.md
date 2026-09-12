@@ -3,7 +3,7 @@ id: T-20260911-full-codebase-optimization-implementation
 title: 全代码库优化实施
 status: completed
 created: 2026-09-11T23:00:00+08:00
-updated: 2026-09-12T09:56:00+08:00
+updated: 2026-09-12T12:00:00+08:00
 ---
 
 # 全代码库优化实施
@@ -17,8 +17,15 @@ updated: 2026-09-12T09:56:00+08:00
 - 当前验证：fast 全量 5410 passed/13 skipped、覆盖率 85.72%；PostgreSQL critical 33 passed；前端 185 files/2441 tests、lint/build/生产资源校验；部署 270 passed，生产镜像与真实恢复演练通过；docs-check 及 `BASE_REF=origin/main` 显式复核通过。
 - 最新原子提交：`de9846689`–`bf74bc654`。完成六维 continuity、显式导入回收站、B1c 分类清理/合成夹具、B3c 任务轨真实模型验收与同步 AI 轨退役。
 - 当前里程碑：剩余问题复核完成。修复 Vitest 漏洞和 eval Python 兼容；RAG “旧 chunk 残留”经完整回归证明是测试误判，已恢复历史 source revision 并纠正验收。
-- 下一步：等待用户决定是否评审并合并 `codex/full-optimization-implementation`。
+- 下一步：将已通过合并门禁的 `codex/full-optimization-implementation` 快进到本地 `main`；不推送、不部署。
 - 未完成：无可安全实施的已授权项；Ragas 上游归档依赖与 F5-7 仍受外部依赖/生产拓扑证据阻塞。本任务未推送、未合并、未部署。
+
+## 合并复核（2026-09-12）
+
+- 已将本地 `main` 合入候选分支并解决 4 个内容冲突；审查文档保留 `main` 的独立复核版本，imports 同时保留越权隐藏测试与字面量路由优先级回归测试。
+- `GET /api/imports/{record_id}` 已移到全部字面量 GET 路由之后，`test_import_api.py` 57 passed。
+- 完整 `make test-ci TEST_WORKERS=2` 通过：部署 270 passed、后端 5411 passed/13 skipped（覆盖率 85.75%）、前端 185 files/2441 tests；docs、secret、依赖、ruff、lint/build 门禁通过。
+- 专用 PostgreSQL 库的 merge-gate critical 33 passed；`git diff --check` 通过。`langchain-community` 仍是 eval extra 的已归档上游依赖，不是本次合并新增漏洞。
 
 ## 边界与决定
 
