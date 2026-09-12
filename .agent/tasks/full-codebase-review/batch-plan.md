@@ -33,7 +33,7 @@
 | B4f | 已完成 | AST 守卫仅拦截 API route 函数内直接且未在本地捕获的 `ValueError`，不扫描合法领域内部异常 |
 | B5/收益待测项 | 按计划延期 | 无性能基线、生产 revision 或数据结构必要性证据，不实施 |
 
-当前累计（完成记录提交后）：123 个原子提交，388 个文件，`+7007/-15863`（净 `-8856` 行）。最终门禁：后端 fast `5410 passed / 13 skipped`、覆盖率 85.72%；PostgreSQL critical `33 passed`；前端 `185 files / 2441 tests`、lint、build、资源校验通过；部署 `270 passed`，后端/前端生产镜像及真实恢复演练通过；docs-check 与 secret hygiene 通过。浏览器另覆盖 continuity 确认、深度整理回收站和冲突任务轨。视觉套件既有快照漂移、专用库既有 ORM/migration 漂移及独立 RAG 重索引缺陷均已记录，未混入本轮自动修复。
+当前累计（剩余问题复核记录提交后）：129 个原子提交，391 个文件，`+7094/-15924`（净 `-8830` 行）。最终门禁：后端 fast `5410 passed / 13 skipped`、覆盖率 85.72%；PostgreSQL critical `33 passed`；前端 `185 files / 2441 tests`、lint、build、资源校验通过；部署 `270 passed`，后端/前端生产镜像及真实恢复演练通过；docs-check 与 secret hygiene 通过。浏览器另覆盖 continuity 确认、深度整理回收站和冲突任务轨。视觉套件既有快照漂移及专用库既有 ORM/migration 漂移均已记录；RAG 重索引告警经完整回归确认为历史 source revision 契约的测试误判，已纠正测试而未改生产语义。
 
 ## R 组：功能性修复与门禁缺口（单列，优先于一切优化批）
 

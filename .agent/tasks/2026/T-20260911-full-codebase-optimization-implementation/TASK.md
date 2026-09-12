@@ -3,7 +3,7 @@ id: T-20260911-full-codebase-optimization-implementation
 title: 全代码库优化实施
 status: completed
 created: 2026-09-11T23:00:00+08:00
-updated: 2026-09-12T09:32:00+08:00
+updated: 2026-09-12T09:56:00+08:00
 ---
 
 # 全代码库优化实施
@@ -16,9 +16,9 @@ updated: 2026-09-12T09:32:00+08:00
 - 已完成：R0a/R0b、R1–R4、R6b/R6c/R6d/R6e；B1a/B1b/B1d 与 B1c 无争议 leaf；B2a–c、B2e；B2d 全部代码项（F5-7 转运维拓扑门禁）；B3a/b/d/e；B4a/b/c/d/f。
 - 当前验证：fast 全量 5410 passed/13 skipped、覆盖率 85.72%；PostgreSQL critical 33 passed；前端 185 files/2441 tests、lint/build/生产资源校验；部署 270 passed，生产镜像与真实恢复演练通过；docs-check 及 `BASE_REF=origin/main` 显式复核通过。
 - 最新原子提交：`de9846689`–`bf74bc654`。完成六维 continuity、显式导入回收站、B1c 分类清理/合成夹具、B3c 任务轨真实模型验收与同步 AI 轨退役。
-- 当前里程碑：本任务已完成。R5、R6/X2-3、B1c、B3c 均落地；F5-7、B5 和收益待测项按用户决定明确延期，不计为未完成实施。
-- 下一步：等待用户决定是否评审并合并 `codex/full-optimization-implementation`；本任务未推送、未合并、未部署。
-- 未完成：无已授权实施项。独立既有缺陷为 RAG 同章二次索引未移除旧 source chunk；F5-7 需生产网络拓扑证据后另立安全批。
+- 当前里程碑：剩余问题复核完成。修复 Vitest 漏洞和 eval Python 兼容；RAG “旧 chunk 残留”经完整回归证明是测试误判，已恢复历史 source revision 并纠正验收。
+- 下一步：等待用户决定是否评审并合并 `codex/full-optimization-implementation`。
+- 未完成：无可安全实施的已授权项；Ragas 上游归档依赖与 F5-7 仍受外部依赖/生产拓扑证据阻塞。本任务未推送、未合并、未部署。
 
 ## 边界与决定
 
@@ -70,7 +70,19 @@ updated: 2026-09-12T09:32:00+08:00
 - R5f：前端 184 files / 2439 tests、lint/build 通过；Writing 冲突浏览器链 1 passed，流程内切换 390x844 验证作者确认输入与二次确认。首次仅因 `expectWithinViewport` 调用参数错误失败，修正后复跑通过。
 - X2-3a：Imports 703 passed；PostgreSQL critical 33 passed；新增 preview/execute API、recent 清理投影、stale fingerprint、跨项目 404、完整回执重放与 `hard_deleted_assets=0` 断言。
 - X2-3b/c：前端 185 files / 2441 tests、lint/build/生产资源校验通过；深度整理回收站浏览器链 1 passed，流程内切换 390x844 验证预览、明确确认、历史保留与隐藏内部标识。
-- B1c：分类账见 `b1c-classification.md`；工具会话/占位工件删除 36 文件，错误目录与派生 latest 指针删除 12 文件；保留 239 份付费模型证据及 22 份实质设计探索。第三方原文改为原创三章合成夹具，导入/RAG/Outline 消费链 14 passed，部署门禁 270 passed。另有 1 个与样本文本无关的既有 RAG 重索引失败：同章二次索引后旧 source chunk 未移除（单跑稳定复现），未混入卫生批修复。
+- B1c：分类账见 `b1c-classification.md`；工具会话/占位工件删除 36 文件，错误目录与派生 latest 指针删除 12 文件；保留 239 份付费模型证据及 22 份实质设计探索。第三方原文改为原创三章合成夹具，导入/RAG/Outline 消费链 14 passed，部署门禁 270 passed。曾记录的 RAG 重索引失败经完整回归确认为测试误判：旧 source chunk 用于 ADR-0018 历史 revision 冻结检索，已纠正测试而未改生产语义。
 - B3c：Writing 226 passed；前端契约/冲突组件 19 passed、lint/build；冲突浏览器链 1 passed。真实验收改为 PostgreSQL 上的 review-task + suggestion-task，全程经项目 snapshot LLM seam，删除同步轨前后各 1 次通过，共 4 次 DeepSeek 调用；每次均产出 2 条可用 AI 项并完成建议、发布快照及无正文/World/Memory 写回断言。专用库只临时复制加密连接，验收后已清空。E2E 外层事务使独立 retrieval trace 写入看不到未提交项目，产生已记录的 RAG 降级 warning，但 Scene/正文/确认上下文与任务轨验收断言均通过。
-- 完成时分支相对 `44728ec22` 为 123 个原子提交、388 文件、`+7007/-15863`（净删 8856 行）。
+- 首轮完成时分支相对 `44728ec22` 为 123 个原子提交、388 文件、`+7007/-15863`（净删 8856 行）；剩余问题复核的最终统计见本节末。
 - 最终门禁：docs-check、secret hygiene、后端/前端依赖高危门禁、ruff 均通过；部署 270 passed；后端 fast 5410 passed/13 skipped，覆盖率 85.72%；前端 185 files/2441 tests、lint/build；PostgreSQL critical 33 passed；生产后端/前端镜像、非 root/read-only smoke 与真实恢复演练通过。`langchain-community` 已归档及 Vitest/@vitest-mocker 2 项中危为依赖审计现状，高危门禁未失败，未在本批擅自升级依赖。
+
+## 剩余问题复核（2026-09-12 重新开启）
+
+- 用户授权：审查并修复剩余问题；继续当前隔离分支，不合并、不推送、不部署。
+- RAG：初始 E2E 把原始 chunk 表多版本共存误判为残留。完整回归证明旧 source chunk 是 ADR-0018 历史 revision 冻结检索的必要数据；删除尝试已原子 revert。测试现断言默认检索只返回最新 draft、显式 source manifest 可精确回读旧版；PostgreSQL 1 passed，Interaction 历史上下文 8 passed。
+- Vitest：GitHub GHSA-82fw-gwwq-j7x9 明确 4.1.11 修复；已从 4.1.10 升级到 4.1.11，`npm audit` 归零。
+- `langchain-community`：Ragas 0.4.3 当前仍把它列为 core dependency；项目只在 `eval` extra 间接使用 Ragas，生产不安装。0.4.2 会触发 Ragas 已知导入断裂，故不能靠升级/删除提示来伪装修复；待 Ragas 移除该依赖或评测层获准替换。
+- F5-7：本机仍无 production compose network，无法确定宿主 OpenResty 到 api 容器的真实 peer；贸然收窄会让公网请求退化为共享限流桶，继续保持取证门禁。
+- eval runtime：锁定 `scikit-network==0.33.5` 在本机 Python 3.14/macOS 构建失败；Make 的 eval 运行器现默认使用已验证的 Python 3.13，可用 `BACKEND_EVAL_PYTHON` 覆盖。`eval-fast` 140 passed/1 skipped，真实 eval-extra fixture manifest 成功。
+- 真实模型 warning：仅发生在 PostgreSQL E2E 外层回滚事务中；retrieval trace 按生产防锁设计走独立 session，因看不到未提交的测试 Project 而安全降级。生产项目在任务提交前已持久化，现有专门 trace-lock/失败降级测试覆盖；未把测试夹具差异改成生产逻辑。
+- 复核门禁：后端 fast 5410 passed/13 skipped、覆盖率 85.72%；前端 185 files/2441 tests、lint/build、`npm audit` 0 漏洞；eval 140 passed/1 skipped及 fixture manifest；PostgreSQL RAG 1 passed、Interaction 历史上下文 8 passed；生产镜像、非 root/read-only smoke 与真实恢复演练通过。
+- 最终分支相对 `44728ec22` 为 129 个原子提交、391 文件、`+7094/-15924`（净删 8830 行，含本条完成记录提交）。
