@@ -2347,6 +2347,12 @@ const api = {
     async rollbackReviewResolution(taskId, novelId) { return post(withQuery(`/imports/review-resolutions/${taskId}/rollback`, { novel_id: novelId }), { confirmed: true }) },
     async workflowImpact(novelId, assetId) { return request(withQuery('/imports/workflows/impact', { novel_id: novelId, asset_id: assetId })) },
     async recentWorkflows(novelId, skip = 0) { return request(withQuery('/imports/workflows/recent', { novel_id: novelId, skip, limit: 20 })) },
+    async previewCancelledCleanup(taskId, novelId) {
+      return contractFetch("imports.previewCancelledCleanup", { taskId }, { novel_id: novelId })
+    },
+    async cleanupCancelled(taskId, payload) {
+      return contractJson("imports.cleanupCancelled", { taskId }, {}, payload)
+    },
     async deferTargetedCompletion(taskId) { return post(`/imports/targeted-completions/${taskId}/defer`, {}) },
 
     async targetedCompletion(payload) {

@@ -311,6 +311,12 @@ describe("前后端 API 契约", () => {
       .toEqual(["adoption_policy", "authorization_confirmed"])
     expect(getApiContract("imports.startStage").requiredBody)
       .toEqual(["adoption_policy", "authorization_confirmed"])
+    expect(contractPath("imports.previewCancelledCleanup", { taskId: "task-1" }, { novel_id: "novel-1" }))
+      .toBe("/imports/workflows/task-1/cleanup-preview?novel_id=novel-1")
+    expect(contractPath("imports.cleanupCancelled", { taskId: "task-1" }))
+      .toBe("/imports/workflows/task-1/cleanup")
+    expect(getApiContract("imports.cleanupCancelled").requiredBody)
+      .toEqual(["novel_id", "expected_cleanup_fingerprint", "confirmed"])
     expect(contractPath("outline.analyze")).toBe("/outline/analyze")
     expect(getApiContract("outline.analyze")).toMatchObject({
       method: "POST",

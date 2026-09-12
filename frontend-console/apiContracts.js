@@ -311,6 +311,15 @@
     }),
     "imports.resumeDeepImport": define("POST", () => "/imports/deep/resume", { hasBody: true }),
     "imports.abandonDeepImport": define("POST", () => "/imports/deep/abandon", { hasBody: true }),
+    "imports.previewCancelledCleanup": define("GET", ({ taskId }) => `/imports/workflows/${required(taskId, "taskId", "imports.previewCancelledCleanup")}/cleanup-preview`, {
+      requiredParams: ["taskId"],
+      requiredQuery: ["novel_id"],
+    }),
+    "imports.cleanupCancelled": define("POST", ({ taskId }) => `/imports/workflows/${required(taskId, "taskId", "imports.cleanupCancelled")}/cleanup`, {
+      requiredParams: ["taskId"],
+      hasBody: true,
+      requiredBody: ["novel_id", "expected_cleanup_fingerprint", "confirmed"],
+    }),
 
     "context.confirm": define("POST", () => "/evidence/compilation/confirm", {
       hasBody: true,

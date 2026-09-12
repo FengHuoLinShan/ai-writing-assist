@@ -351,6 +351,9 @@ globalThis.api = {
     startStage: vi.fn(),
     resumeDeepImport: vi.fn(),
     abandonDeepImport: vi.fn(),
+    recentWorkflows: vi.fn(async () => ({ items: [], total: 0 })),
+    previewCancelledCleanup: vi.fn(),
+    cleanupCancelled: vi.fn(),
   },
   settings: {
     listGlobalLLMDefaults: vi.fn(async () => null),

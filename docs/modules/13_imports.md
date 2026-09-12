@@ -221,6 +221,7 @@ coverage、checkpoint 和脱敏 provider summary。
 - 新增跨模块依赖应优先走 facade 或 DI container 注册服务；不得直接 import 其他模块 repositories/services
 - 放弃可恢复 workflow 通过各领域 facade 整批软回滚：outline/world 资产废弃、Memory DeltaLog 标记 `rolled_back`；所有操作按 novel/workflow 隔离并保留来源审计
 - 普通取消与清理分离：cancelled run 进入深度导入回收站投影，只有作者携带最新 cleanup fingerprint 显式确认后才复用同一软回滚；项目排他锁、run 行锁、owner/novel 隔离、用户后续编辑保护和幂等回执保持生效
+- 写作台“完整整理世界与结构”的历史面板提供“回收站”页签；作者先查看按内容类型汇总的清理范围，再二次确认。界面不展示任务标识或内部指纹，并明确说明取消只停止、清理不永久删除、历史记录保留。
 
 ## 真实服务验收与恢复证据
 

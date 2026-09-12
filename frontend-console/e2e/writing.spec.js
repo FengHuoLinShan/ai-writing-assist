@@ -1666,6 +1666,92 @@ test.describe("写作台模块", () => {
     await expect(extractionDialog).not.toBeVisible()
   })
 
+  test("已取消整理只在回收站明确确认后清理", async ({ page }) => {
+    await createDraft(testProjectId, 1, "ch1", "测试正文")
+    await reloadWorkbench(page, "writing")
+    await waitWritingReady(page, { chapter: 1 })
+
+    let cleaned = false
+    let cleanupPayload = null
+    await page.route("**/api/imports/workflows/recent**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [{
+            task_id: "cancelled-task",
+            workflow_type: "deep_import",
+            status: "cancelled",
+            start_chapter: 1,
+            end_chapter: 3,
+            asset_summary: { scenes: 2, entities: 1 },
+            cleanup_eligible: !cleaned,
+            cleanup_status: cleaned ? "complete" : "pending",
+          }],
+          total: 1,
+        }),
+      })
+    })
+    await page.route("**/api/imports/workflows/cancelled-task/cleanup-preview**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          task_id: "cancelled-task",
+          workflow_id: "workflow-1",
+          status: "cancelled",
+          cleanup_eligible: true,
+          cleanup_status: "pending",
+          asset_summary: { scenes: 2, entities: 1 },
+          cleanup_summary: {},
+          cleanup_fingerprint: "a".repeat(64),
+          message: "可清理",
+        }),
+      })
+    })
+    await page.route("**/api/imports/workflows/cancelled-task/cleanup", async (route) => {
+      cleanupPayload = route.request().postDataJSON()
+      cleaned = true
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          task_id: "cancelled-task",
+          workflow_id: "workflow-1",
+          status: "cancelled",
+          cleanup_eligible: false,
+          cleanup_status: "complete",
+          cleanup_summary: { deprecated_scenes: 2, hard_deleted_assets: 0 },
+          cleanup_fingerprint: "a".repeat(64),
+          message: "已处理",
+        }),
+      })
+    })
+
+    await page.locator('[data-action="writing-ai-menu"]').click()
+    await page.getByRole("button", { name: "完整整理世界与结构" }).click()
+    const dialog = page.getByRole("dialog", { name: "自动提取" })
+    await dialog.getByRole("tab", { name: /回收站/ }).click()
+    await expect(dialog).toContainText("停止只会停止整理")
+    await expect(dialog).not.toContainText("cancelled-task")
+
+    await dialog.locator('[data-action="preview-import-cleanup"]').click()
+    await expect(dialog).toContainText("不会永久删除")
+    await page.setViewportSize({ width: 390, height: 844 })
+    const confirmCleanup = dialog.locator('[data-action="confirm-import-cleanup"]')
+    await confirmCleanup.scrollIntoViewIfNeeded()
+    await expectWithinViewport(confirmCleanup)
+    await expectNoPageOverflow(page)
+    await confirmCleanup.click()
+
+    await expect(dialog).toContainText("已处理，历史记录仍然保留")
+    expect(cleanupPayload).toEqual({
+      novel_id: testProjectId,
+      expected_cleanup_fingerprint: "a".repeat(64),
+      confirmed: true,
+    })
+  })
+
   // ============================================================
   // 多 Tab 冲突检测
   // ============================================================
