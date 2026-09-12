@@ -1,8 +1,8 @@
-"""Manual real-LLM acceptance for Writing conflict checks.
+"""PostgreSQL real-LLM acceptance for Writing conflict-check task routes.
 
 Skipped by default. Run with:
-    RUN_REAL_LLM_TESTS=1 pytest \
-        modules/writing/tests/test_conflict_checks_real_llm.py -q -s
+    RUN_E2E_TESTS=1 RUN_REAL_LLM_TESTS=1 E2E_DATABASE_URL=... pytest \
+        tests/e2e/test_writing_conflict_real_llm.py -q -s
 """
 
 from __future__ import annotations
@@ -75,7 +75,7 @@ async def _create_scene(async_client: AsyncClient, novel_id: str) -> dict:
                     "chapter_id": str(CHAPTER_INDEX),
                     "chapter_index": CHAPTER_INDEX,
                     "start_pos": 0,
-                    "end_pos": 1000,
+                    "end_pos": len(TEST_CONTENT),
                 }
             ],
         },
@@ -159,6 +159,25 @@ async def _count_rows(db_session: AsyncSession, model: type) -> int:
     return int(result.scalar_one())
 
 
+async def _run_queued_task(
+    db_session: AsyncSession,
+    response,
+    *,
+    task_type: str,
+) -> None:
+    from app.task_runtime import register_task_handlers
+    from infrastructure.tasks.facade import run_task_inline
+
+    assert response.status_code == 202, response.text
+    register_task_handlers()
+    await db_session.commit()
+    await run_task_inline(
+        db_session,
+        task_id=response.json()["task_id"],
+        expected_task_type=task_type,
+    )
+
+
 @real_llm_required
 async def test_real_llm_conflict_review_suggestion_status_and_publish_snapshot(
     async_client: AsyncClient,
@@ -172,6 +191,11 @@ async def test_real_llm_conflict_review_suggestion_status_and_publish_snapshot(
         novel_id,
         character_id=scene["pov_character_id"],
     )
+    checkpoints = await async_client.post(
+        f"/api/novels/{novel_id}/memories/scene-checkpoints/ensure",
+        json={"scene_id": scene_id},
+    )
+    assert checkpoints.status_code == 200, checkpoints.text
 
     world_count_before = await _count_rows(db_session, CoreEntity)
     memory_events_before = await _count_rows(db_session, MemoryEvent)
@@ -206,16 +230,11 @@ async def test_real_llm_conflict_review_suggestion_status_and_publish_snapshot(
     rule_kinds = {item["kind"] for item in check["items"]}
     assert "forbidden_present" in rule_kinds, check
     assert "required_missing" in rule_kinds, check
-    assert "continuity_location_mismatch" in rule_kinds, check
-    memory_item = next(
-        item for item in check["items"] if item["kind"] == "continuity_location_mismatch"
-    )
-    assert memory_item["source_module"] == "memory"
-    assert memory_item["location_json"]["source"]["module"] == "memory"
-    assert memory_item["location_json"]["open_target"] == {
-        "kind": "memory_chapter",
-        "chapter_index": CHAPTER_INDEX - 1,
-        "character_id": scene["pov_character_id"],
+    assert check["summary_json"]["continuity_coverage"] == {
+        "space": "not_checked",
+        "time": "not_checked",
+        "logic": "not_checked",
+        "map": "not_applicable",
     }
 
     review_confirmation_id = await _create_context_confirmation(
@@ -224,12 +243,21 @@ async def test_real_llm_conflict_review_suggestion_status_and_publish_snapshot(
         action="writing.conflict_check.ai_review",
         scene_id=scene_id,
     )
-    review_resp = await async_client.post(
-        f"/api/writing/conflict-checks/{check['id']}/ai-review",
+    review_task = await async_client.post(
+        f"/api/writing/conflict-checks/{check['id']}/ai-review-task",
         json={
             "novel_id": novel_id,
             "context_confirmation_id": review_confirmation_id,
         },
+    )
+    await _run_queued_task(
+        db_session,
+        review_task,
+        task_type="writing_conflict_ai_review",
+    )
+    review_resp = await async_client.get(
+        f"/api/writing/conflict-checks/{check['id']}",
+        params={"novel_id": novel_id},
     )
     assert review_resp.status_code == 200, review_resp.text
     reviewed = review_resp.json()
@@ -263,15 +291,27 @@ async def test_real_llm_conflict_review_suggestion_status_and_publish_snapshot(
         action="writing.conflict_check.ai_suggestion",
         scene_id=scene_id,
     )
-    suggestion_resp = await async_client.post(
-        f"/api/writing/conflict-check-items/{ai_item['id']}/ai-suggestion",
+    suggestion_task = await async_client.post(
+        f"/api/writing/conflict-check-items/{ai_item['id']}/ai-suggestion-task",
         json={
             "novel_id": novel_id,
             "context_confirmation_id": suggestion_confirmation_id,
+            "operation_id": str(uuid.uuid4()),
         },
     )
-    assert suggestion_resp.status_code == 200, suggestion_resp.text
-    suggested = suggestion_resp.json()
+    await _run_queued_task(
+        db_session,
+        suggestion_task,
+        task_type="writing_conflict_item_ai_suggestion",
+    )
+    refreshed = await async_client.get(
+        f"/api/writing/conflict-checks/{check['id']}",
+        params={"novel_id": novel_id},
+    )
+    assert refreshed.status_code == 200, refreshed.text
+    suggested = next(
+        item for item in refreshed.json()["items"] if item["id"] == ai_item["id"]
+    )
     assert suggested["suggestion_status"] == "done", (
         "AI suggestion did not complete: "
         f"item_id={ai_item['id']} confirmation_id={suggestion_confirmation_id} "
@@ -323,20 +363,6 @@ async def test_real_llm_conflict_review_suggestion_status_and_publish_snapshot(
         item["kind"] == "forbidden_present" and item["source_module"] == "outline"
         for item in snapshot["items"]
     )
-    snapshot_memory_item = next(
-        item
-        for item in snapshot["items"]
-        if item["kind"] == "continuity_location_mismatch"
-    )
-    assert snapshot_memory_item["source_module"] == "memory"
-    assert snapshot_memory_item["location_json"]["source"]["module"] == "memory"
-    assert snapshot_memory_item["location_json"]["open_target"] == {
-        "kind": "memory_chapter",
-        "chapter_index": CHAPTER_INDEX - 1,
-        "character_id": scene["pov_character_id"],
-    }
-    assert "text_range" not in snapshot_memory_item["location_json"]
-
     print(
         "[REAL-LLM-WRITING-CONFLICT] "
         f"novel_id={novel_id} check_id={check['id']} "

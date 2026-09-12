@@ -5,10 +5,10 @@ BACKEND_DIR := $(ROOT_DIR)backend
 FRONTEND_DIR := $(ROOT_DIR)frontend-console
 BACKEND_COVERAGE_PACKAGES := app core shared infrastructure modules
 BACKEND_COVERAGE_ARGS := $(addprefix --cov=,$(BACKEND_COVERAGE_PACKAGES))
-BACKEND_REAL_LLM_TESTS := modules/imports/tests/test_real_extraction.py modules/rag/tests/test_real_index.py modules/writing/tests/test_conflict_checks_real_llm.py modules/interaction/tests/test_real_llm.py tests/integration/test_extraction_pipeline.py
+BACKEND_REAL_LLM_TESTS := modules/imports/tests/test_real_extraction.py modules/rag/tests/test_real_index.py modules/interaction/tests/test_real_llm.py tests/integration/test_extraction_pipeline.py
 BACKEND_REAL_KIMI_TESTS := modules/interaction/tests/test_real_kimi.py
 BACKEND_INTERACTION_LONG_CONTEXT_TESTS := tests/e2e/test_interaction_long_context_real_kimi.py
-BACKEND_MANUAL_TESTS := $(BACKEND_REAL_LLM_TESTS) tests/e2e/test_extraction_real_file.py tests/e2e/test_outline_generation.py
+BACKEND_MANUAL_TESTS := $(BACKEND_REAL_LLM_TESTS) tests/e2e/test_writing_conflict_real_llm.py tests/e2e/test_extraction_real_file.py tests/e2e/test_outline_generation.py
 BACKEND_POSTGRESQL_CRITICAL_TESTS := tests/e2e/test_00_fresh_migrations.py tests/e2e/test_context_retrieval_trace_queries.py tests/e2e/test_context_terminal_concurrency.py tests/e2e/test_import_upload_commit_visibility.py tests/e2e/test_interaction_generation_concurrency.py tests/e2e/test_project_task_gate_concurrency.py tests/e2e/test_rp_source_versions.py tests/e2e/test_scene_memory_checkpoint_concurrency.py tests/e2e/test_smart_dedup_group_savepoint.py tests/e2e/test_task_coalescing_concurrency.py tests/e2e/test_writing_route_commit_visibility.py tests/e2e/test_writing_version_concurrency.py
 FAST_TEST_TIMEOUT_SECONDS ?= 120
 TEST_WORKERS ?= auto
