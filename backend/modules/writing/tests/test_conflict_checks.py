@@ -509,6 +509,142 @@ async def test_conflict_check_uses_only_adopted_map_facts_for_route_coverage(
 
 
 @pytest.mark.asyncio
+async def test_author_confirms_continuity_fact_idempotently(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    from modules.story.continuity.models import MemoryEvent
+    from modules.story.continuity.services import MemoryService
+
+    novel_id = await _create_project(async_client, "Continuity confirmation")
+    scene = await _create_scene(async_client, novel_id)
+    content = "主角死亡。王后沉默。"
+    await MemoryService().record_scene_events(
+        db_session,
+        novel_id,
+        scene_id=scene["id"],
+        scene_index=scene["scene_index"],
+        chapter_index=1,
+        events=[
+            {
+                "dimension": "timeline",
+                "event_type": "timeline_changed",
+                "snapshot_after": {
+                    "category": "happens_before",
+                    "new_value": "开门",
+                    "meta": {"subject_name": "钟响"},
+                },
+            },
+            {
+                "dimension": "timeline",
+                "event_type": "timeline_changed",
+                "snapshot_after": {
+                    "category": "happens_before",
+                    "new_value": "钟响",
+                    "meta": {"subject_name": "开门"},
+                },
+            },
+        ],
+    )
+    check = await _create_check(
+        async_client,
+        novel_id,
+        scene["id"],
+        content=content,
+    )
+    item = next(
+        value for value in check["items"] if value["kind"] == "time_continuity_risk"
+    )
+    payload = {
+        "novel_id": novel_id,
+        "content": content,
+        "expected_item_updated_at": item["updated_at"],
+        "category": "timeline_anchor_confirmed",
+        "field_path": "gate.opened_after",
+        "old_value": None,
+        "new_value": "钟响",
+        "evidence_summary": "作者确认北门在钟声之后打开",
+        "confirmed": True,
+    }
+
+    stale_payload = {**payload, "content": "正文已经变化"}
+    stale = await async_client.post(
+        f"/api/writing/conflict-check-items/{item['id']}/confirm-continuity",
+        json=stale_payload,
+    )
+    first = await async_client.post(
+        f"/api/writing/conflict-check-items/{item['id']}/confirm-continuity",
+        json=payload,
+    )
+    replay = await async_client.post(
+        f"/api/writing/conflict-check-items/{item['id']}/confirm-continuity",
+        json=payload,
+    )
+
+    assert stale.status_code == 409
+    assert first.status_code == 200, first.text
+    assert replay.status_code == 200, replay.text
+    assert first.json()["created"] is True
+    assert replay.json()["created"] is False
+    assert replay.json()["event_id"] == first.json()["event_id"]
+    assert first.json()["item"]["status"] == "resolved"
+    assert first.json()["scene_state"]["contract_version"] == 2
+    rows = list(
+        (
+            await db_session.execute(
+                select(MemoryEvent).where(
+                    MemoryEvent.novel_id == uuid.UUID(novel_id),
+                    MemoryEvent.scene_id == uuid.UUID(scene["id"]),
+                    MemoryEvent.source == "author_confirmation",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 1
+    assert rows[0].snapshot_after["meta"]["author_confirmed"] is True
+
+
+@pytest.mark.asyncio
+async def test_continuity_confirmation_rejects_other_kinds_and_cross_project(
+    async_client: AsyncClient,
+) -> None:
+    novel_id = await _create_project(async_client, "Continuity scope A")
+    other_id = await _create_project(async_client, "Continuity scope B")
+    scene = await _create_scene(async_client, novel_id)
+    check = await _create_check(async_client, novel_id, scene["id"])
+    item = next(
+        value
+        for value in check["items"]
+        if value["kind"] in {"required_missing", "forbidden_present"}
+    )
+    payload = {
+        "novel_id": novel_id,
+        "content": "正文已经变化",
+        "expected_item_updated_at": item["updated_at"],
+        "category": "claim_confirmed",
+        "field_path": "scene.claim",
+        "new_value": True,
+        "evidence_summary": "作者确认",
+        "confirmed": True,
+    }
+
+    not_continuity = await async_client.post(
+        f"/api/writing/conflict-check-items/{item['id']}/confirm-continuity",
+        json=payload,
+    )
+    payload["novel_id"] = other_id
+    wrong_project = await async_client.post(
+        f"/api/writing/conflict-check-items/{item['id']}/confirm-continuity",
+        json=payload,
+    )
+
+    assert not_continuity.status_code == 400
+    assert wrong_project.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_conflict_check_only_scans_current_scene_chunks(
     db_session: AsyncSession,
 ) -> None:

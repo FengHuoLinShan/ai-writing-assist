@@ -454,6 +454,62 @@ class EventRepository:
         )
         return list(result.scalars().all())
 
+    async def append_confirmed_scene_event(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: uuid.UUID,
+        scene_id: uuid.UUID,
+        scene_index: int,
+        chapter_index: int,
+        row: dict,
+        idempotency_key: str,
+    ) -> tuple[MemoryEvent, bool]:
+        """Append once under the Scene event lock without replacing sibling facts."""
+        bind = db.get_bind()
+        if bind is not None and bind.dialect.name == "postgresql":
+            await db.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                {"key": f"memory_scene_events:{novel_id}:{scene_id}"},
+            )
+        existing = list(
+            (
+                await db.execute(
+                    select(MemoryEvent)
+                    .where(
+                        MemoryEvent.novel_id == novel_id,
+                        MemoryEvent.scene_id == scene_id,
+                    )
+                    .order_by(MemoryEvent.scene_sequence, MemoryEvent.id)
+                    .with_for_update()
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for item in existing:
+            meta = (item.snapshot_after or {}).get("meta") or {}
+            if meta.get("idempotency_key") == idempotency_key:
+                return item, False
+        scene_sequence = max(
+            (int(item.scene_sequence or 0) for item in existing),
+            default=0,
+        ) + 1
+        if scene_sequence > 500:
+            raise ValueError("Too many memory events for Scene")
+        event = MemoryEvent(
+            **row,
+            novel_id=novel_id,
+            scene_id=scene_id,
+            scene_index=scene_index,
+            scene_sequence=scene_sequence,
+            chapter_index=chapter_index,
+            sequence=(scene_index + 1) * 1000 + scene_sequence,
+        )
+        db.add(event)
+        await db.flush()
+        return event, True
+
     async def align_scene_indices(
         self,
         db: AsyncSession,

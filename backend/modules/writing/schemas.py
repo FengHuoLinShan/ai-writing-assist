@@ -533,6 +533,22 @@ class WritingConflictItemUpdate(BaseModel):
     status: str = Field(..., pattern="^(open|resolved|ignored|later)$")
 
 
+class WritingContinuityConfirmationRequest(BaseModel):
+    """Explicit author adoption of one reviewed continuity fact."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    novel_id: str
+    content: str = Field(max_length=100000)
+    expected_item_updated_at: datetime
+    category: str = Field(min_length=1, max_length=100)
+    field_path: str = Field(min_length=1, max_length=500)
+    old_value: Any = None
+    new_value: Any
+    evidence_summary: str = Field(min_length=1, max_length=2000)
+    confirmed: Literal[True]
+
+
 class WritingConflictAiReviewRequest(BaseModel):
     """为一次检查追加 AI 软冲突判断。"""
 
@@ -655,6 +671,14 @@ class WritingConflictItemResponse(BaseModel):
         if v is None:
             return None
         return str(v)
+
+
+class WritingContinuityConfirmationResponse(BaseModel):
+    event_id: str
+    created: bool
+    item: WritingConflictItemResponse
+    scene_state: dict = Field(default_factory=dict)
+    message: str = "连续性事实已确认"
 
 
 class WritingConflictCheckResponse(BaseModel):

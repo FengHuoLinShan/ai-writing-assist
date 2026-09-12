@@ -44,6 +44,8 @@ from modules.writing.schemas import (
     WritingConflictCheckResponse,
     WritingConflictItemResponse,
     WritingConflictItemUpdate,
+    WritingContinuityConfirmationRequest,
+    WritingContinuityConfirmationResponse,
     WritingDraftAutosaveCreate,
     WritingDraftCheckpoint,
     WritingDraftResponse,
@@ -274,6 +276,24 @@ async def update_conflict_item(
     return await _conflict_service.update_item(
         db,
         novel_id=novel_id,
+        item_id=item_id,
+        data=data,
+    )
+
+
+@router.post(
+    "/conflict-check-items/{item_id}/confirm-continuity",
+    response_model=WritingContinuityConfirmationResponse,
+)
+async def confirm_conflict_item_continuity(
+    db: DbSession,
+    data: WritingContinuityConfirmationRequest,
+    item_id: str = Path(..., description="问题项 ID"),
+) -> WritingContinuityConfirmationResponse:
+    """作者显式确认一条连续性事实并重建后续 Scene 状态。"""
+    await require_active_project(db, data.novel_id)
+    return await _conflict_service.confirm_continuity_item(
+        db,
         item_id=item_id,
         data=data,
     )

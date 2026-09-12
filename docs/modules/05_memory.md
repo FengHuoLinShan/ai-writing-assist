@@ -39,12 +39,13 @@ Story continuity 子域维护小说世界的“变化历史”，不是再存一
 
 - `MemoryService`：全景查询、事件列表、实体时间线、快照管理、重建
 - `facade.get_memory_panorama()`：跨模块读取某章全景
-- `facade.get_continuity_evidence_for_writing()`：给写作冲突检查提供上一章角色位置证据和 `memory_chapter` 打开目标
+- `facade.get_continuity_evidence_for_writing()`：保留旧位置证据读取兼容 seam
 - `facade.capture_snapshot()`：跨模块手动生成快照
 - `facade.create_delta_log()`：跨模块写入结构化差分
 - `facade.ensure_scene_checkpoints()` / `get_scene_checkpoints()`：跨模块确保或读取
-  Scene 四维（`entities`、`relations`、`locations`、`knowledge`）派生投影；不读取当前
+  V1 四维或 V2 六维（追加 `timeline`、`causality`）派生投影；不读取当前
   World 作历史兜底，AI 地图册不属于 Scene memory
+- `facade.confirm_scene_continuity_event()`：在 Scene 事件锁内按 Writing 问题 ID 幂等追加作者确认事实，只失效并重建对应维度；不替换原事件流
 
 ## API
 
@@ -74,8 +75,8 @@ POST /api/novels/{novel_id}/memories/scene-checkpoints/repair
 - memory 不维护旧版 `memory_records` 或 `memory_update_proposals`
 - memory 不再消费地图维度；AI 地图册是 world 拥有的视觉资产，不参与事件重放或连续性事实
 
-Context 审查升级不改变 continuity 表或 checkpoint 语义。Scene/角色任务仍以当前 Scene 截止
-物化 `entities / relations / locations / knowledge`，预览、确认与执行比较同一通用 Context
+Context 审查升级不新增 continuity 表。Scene/角色任务仍以当前 Scene 截止物化版本化六维状态，
+预览、确认与执行比较同一通用 Context
 指纹；人物或脚本领域 overlay 必须继承作者的 `excluded_refs`，不得读取后续 Scene 再回流到
 当前 Scene。缺失/漂移 checkpoint 继续按原规则失败关闭，不由确认窗补写事实。
 - `panorama` 是由事件流和快照重放得到的“某章世界状态视图”；快照后的增量事件按 `(chapter_index, sequence, id)` keyset 分页应用，避免大世界范围重放一次性加载全部事件

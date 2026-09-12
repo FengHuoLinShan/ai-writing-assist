@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.story.continuity.contracts import (
+    ConfirmedContinuityEventIngest,
     MemoryContinuityEvidenceContract,
     MemoryDeltaEventIngest,
     MemoryDeltaIngestResult,
@@ -24,6 +25,7 @@ _scene_memory = SceneMemoryProjectionService()
 
 __all__ = [
     "capture_snapshot",
+    "confirm_scene_continuity_event",
     "ensure_scene_checkpoints",
     "get_continuity_evidence_for_writing",
     "get_memory_panorama",
@@ -105,6 +107,25 @@ async def replace_scene_memory_events(
         scene_index=scene_index,
         chapter_index=chapter_index,
         events=events,
+    )
+
+
+async def confirm_scene_continuity_event(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    scene_id: str,
+    scene_index: int,
+    chapter_index: int,
+    event: ConfirmedContinuityEventIngest,
+):
+    return await _memory.confirm_scene_continuity_event(
+        db,
+        novel_id,
+        scene_id=scene_id,
+        scene_index=scene_index,
+        chapter_index=chapter_index,
+        event=event,
     )
 
 

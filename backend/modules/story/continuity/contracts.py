@@ -75,3 +75,17 @@ class MemoryDeltaIngestResult:
 
     count: int
     delta_logs: list[dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class ConfirmedContinuityEventIngest:
+    """Author-confirmed Scene continuity fact from a reviewed Writing item."""
+
+    dimension: str
+    category: str
+    field_path: str
+    old_value: Any
+    new_value: Any
+    idempotency_key: str
+    evidence_summary: str
+    source_confirmation_id: str | None = None

@@ -176,6 +176,7 @@ POST /api/writing/conflict-checks/{id}/ai-review  → 旧同步入口（deprecat
 POST /api/writing/conflict-checks/{id}/ai-review-task → 异步执行 AI 软冲突判断
 POST /api/writing/conflict-check-items/{id}/ai-suggestion-task → 异步生成单条 AI 修复建议
 PATCH /api/writing/conflict-check-items/{id}      → 更新问题处理状态
+POST /api/writing/conflict-check-items/{id}/confirm-continuity → 作者确认连续性事实并重建 Scene 状态
 POST /api/writing/conflict-check-items/{id}/ai-suggestion → 生成单条问题 AI 修复建议
 POST /api/writing/generate                        → 从已确认 context 生成正文 candidate
 POST /api/writing/semantic-reviews               → 独立语义审查，回执 coverage/findings

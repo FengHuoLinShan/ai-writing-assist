@@ -70,6 +70,8 @@ from modules.writing.schemas import (
     WritingConflictCheckResponse,
     WritingConflictItemResponse,
     WritingConflictItemUpdate,
+    WritingContinuityConfirmationRequest,
+    WritingContinuityConfirmationResponse,
     WritingDraftCheckpoint,
     WritingDraftCreate,
     WritingDraftResponse,
@@ -86,6 +88,11 @@ from modules.writing.text_sanitizer import sanitize_writing_text
 from shared.utils import parse_uuid as _shared_parse_uuid
 
 WRITING_GENERATION_TIMEOUT_SECONDS = 1800
+_CONTINUITY_DIMENSION_BY_KIND = {
+    "space_continuity_risk": "locations",
+    "time_continuity_risk": "timeline",
+    "logic_continuity_risk": "causality",
+}
 
 logger = logging.getLogger(__name__)
 
@@ -1357,6 +1364,186 @@ class WritingConflictCheckService:
             raise NotFoundError("Conflict item not found")
         return WritingConflictItemResponse.model_validate(item)
 
+    async def confirm_continuity_item(
+        self,
+        db: AsyncSession,
+        *,
+        item_id: str,
+        data: WritingContinuityConfirmationRequest,
+    ) -> WritingContinuityConfirmationResponse:
+        nid = _parse_uuid(data.novel_id, "novel_id")
+        iid = _parse_uuid(item_id, "item_id")
+        initial = await self._repo.get_item(db, iid, nid)
+        if initial is None:
+            raise NotFoundError("Conflict item not found")
+        locked = await self._repo.get_check_for_ai_review_update(
+            db,
+            initial.check_id,
+            nid,
+        )
+        if locked is None:
+            raise NotFoundError("Conflict check not found")
+        check, items = locked
+        item = next((candidate for candidate in items if candidate.id == iid), None)
+        if item is None:
+            raise NotFoundError("Conflict item not found")
+        dimension = _CONTINUITY_DIMENSION_BY_KIND.get(item.kind)
+        if dimension is None:
+            raise ValidationError("该问题不是可确认的连续性事实")
+        if not check.scene_id:
+            raise ValidationError("连续性确认必须绑定 Scene")
+        content_hash = hash_text(data.content)
+        request_hash = _generation_stable_fingerprint(
+            {
+                "item_id": item_id,
+                "content_hash": content_hash,
+                "dimension": dimension,
+                "category": data.category,
+                "field_path": data.field_path,
+                "old_value": data.old_value,
+                "new_value": data.new_value,
+                "evidence_summary": data.evidence_summary,
+            }
+        )
+        location = dict(item.location_json or {})
+        receipt = location.get("continuity_receipt") or {}
+        if receipt.get("request_hash") == request_hash and receipt.get("event_id"):
+            scene_state = await self._load_scene_checkpoints(
+                db,
+                data.novel_id,
+                str(check.scene_id),
+            )
+            return WritingContinuityConfirmationResponse(
+                event_id=str(receipt["event_id"]),
+                created=False,
+                item=WritingConflictItemResponse.model_validate(item),
+                scene_state=self._checkpoint_payload(scene_state),
+                message="该连续性事实已经确认",
+            )
+        if self._timestamp_key(item.updated_at) != self._timestamp_key(
+            data.expected_item_updated_at
+        ):
+            raise ConflictError("问题已变化，请刷新后重新确认")
+        if content_hash != str(check.scope.get("content_hash") or ""):
+            raise ConflictError("正文已变化，请重新检查后再确认连续性事实")
+        if check.draft_id:
+            draft = await self._draft_repo.get(db, check.draft_id)
+            if (
+                draft is None
+                or draft.novel_id != nid
+                or draft.content_hash != content_hash
+                or draft.version_number != check.version_number
+            ):
+                raise ConflictError("正文版本已变化，请重新检查后再确认")
+
+        scene = await self._load_scene(db, data.novel_id, str(check.scene_id))
+        if scene is None:
+            raise NotFoundError("Scene not found")
+        confirmed_context = None
+        if item.is_ai_judgment:
+            if not item.source_confirmation_id:
+                raise ConflictError("AI 连续性问题缺少原确认资料")
+            from modules.evidence.facade import prepare_confirmed_ai_action
+
+            confirmed_context = await prepare_confirmed_ai_action(
+                db,
+                novel_id=data.novel_id,
+                action=AI_REVIEW_ACTION,
+                confirmation_id=str(item.source_confirmation_id),
+            )
+
+        checkpoint_set = await self._load_scene_checkpoints(
+            db,
+            data.novel_id,
+            str(check.scene_id),
+        )
+        checkpoint_payload = self._checkpoint_payload(checkpoint_set)
+        current_checkpoint = next(
+            (
+                candidate
+                for candidate in checkpoint_payload.get("items") or []
+                if candidate.get("dimension") == dimension
+            ),
+            None,
+        )
+        expected_checkpoint_id = self._expected_checkpoint_id(
+            item,
+            confirmed_context,
+            dimension,
+        )
+        if (
+            current_checkpoint is None
+            or not expected_checkpoint_id
+            or str(current_checkpoint.get("id") or "") != expected_checkpoint_id
+        ):
+            raise ConflictError("Scene 时点状态已变化，请重新检查后再确认")
+
+        from modules.story.contracts import ConfirmedContinuityEventIngest
+        from modules.story.facade import (
+            confirm_scene_continuity_event,
+            ensure_scene_checkpoints,
+        )
+
+        event, created = await confirm_scene_continuity_event(
+            db,
+            data.novel_id,
+            scene_id=str(check.scene_id),
+            scene_index=int(getattr(scene, "scene_index")),
+            chapter_index=check.chapter_index,
+            event=ConfirmedContinuityEventIngest(
+                dimension=dimension,
+                category=data.category,
+                field_path=data.field_path,
+                old_value=data.old_value,
+                new_value=data.new_value,
+                idempotency_key=f"writing_conflict_item:{item.id}",
+                evidence_summary=data.evidence_summary,
+                source_confirmation_id=(
+                    str(item.source_confirmation_id)
+                    if item.source_confirmation_id
+                    else None
+                ),
+            ),
+        )
+        rebuilt = await ensure_scene_checkpoints(
+            db,
+            data.novel_id,
+            str(check.scene_id),
+        )
+        from modules.evidence.facade import mark_asset_context_changed
+
+        await mark_asset_context_changed(
+            db,
+            novel_id=data.novel_id,
+            asset_type="memory_scene_checkpoint",
+            asset_id=expected_checkpoint_id,
+            reason="continuity_changed",
+        )
+        location["continuity_receipt"] = {
+            "request_hash": request_hash,
+            "event_id": event.id,
+            "dimension": dimension,
+            "confirmed_at": datetime.now(UTC).isoformat(),
+        }
+        item.location_json = location
+        item.status = "resolved"
+        summary = dict(check.summary_json or {})
+        summary["continuity_state_changed"] = {
+            "item_id": str(item.id),
+            "event_id": event.id,
+            "dimension": dimension,
+        }
+        check.summary_json = summary
+        check.status = "degraded"
+        db.add_all([check, item])
+        await db.flush()
+        return WritingContinuityConfirmationResponse(
+            event_id=event.id,
+            created=created,
+            item=WritingConflictItemResponse.model_validate(item),
+            scene_state=self._checkpoint_payload(rebuilt),
+        )
+
     async def run_ai_review(
         self,
         db: AsyncSession,
@@ -1967,6 +2154,10 @@ class WritingConflictCheckService:
             rule_code=rule_code,
             coverage="checked",
             evidence_refs=list(checkpoint.get("evidence_refs") or [])[:20],
+            continuity_confirmation={
+                "dimension": checkpoint.get("dimension"),
+                "editable": True,
+            },
         )
         return {
             "kind": kind,
@@ -1987,6 +2178,61 @@ class WritingConflictCheckService:
             sort_keys=True,
             separators=(",", ":"),
             default=str,
+        )
+
+    @staticmethod
+    def _checkpoint_payload(value: object | None) -> dict[str, Any]:
+        if value is None:
+            return {}
+        if hasattr(value, "model_dump"):
+            payload = value.model_dump()
+            return payload if isinstance(payload, dict) else {}
+        return dict(value) if isinstance(value, Mapping) else {}
+
+    @staticmethod
+    def _timestamp_key(value: object) -> str:
+        if isinstance(value, str):
+            try:
+                value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                return value
+        if not isinstance(value, datetime):
+            return str(value)
+        normalized = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+        return normalized.astimezone(UTC).isoformat()
+
+    @staticmethod
+    def _expected_checkpoint_id(
+        item: object,
+        confirmed_context: object | None,
+        dimension: str,
+    ) -> str:
+        if confirmed_context is None:
+            location = getattr(item, "location_json", None) or {}
+            source = location.get("source") or {}
+            return str(source.get("id") or "")
+        compiled = getattr(confirmed_context, "compiled", None)
+        section = next(
+            (
+                candidate
+                for candidate in getattr(compiled, "sections", [])
+                if candidate.key == "scene_world_state"
+            ),
+            None,
+        )
+        versions = (
+            (section.retrieval_metadata or {}).get("checkpoint_versions") or []
+            if section is not None
+            else []
+        )
+        return next(
+            (
+                str(candidate.get("id") or "")
+                for candidate in versions
+                if isinstance(candidate, dict)
+                and candidate.get("dimension") == dimension
+            ),
+            "",
         )
 
     @classmethod

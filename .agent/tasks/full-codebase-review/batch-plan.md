@@ -14,7 +14,7 @@
 | 批次 | 状态 | 结果/剩余门禁 |
 |---|---|---|
 | R1–R4 | 已完成 | 导入恢复、生产 Prompt、错误语义、测试收集/运行器均已独立提交并通过对应模块门禁 |
-| R5 | R5a–R5d 已完成 | 六维契约、导入/投影、确定性规则及 Evidence/生成/冲突 AI/语义审查/Scene Lens 后端消费完成；缺证据只标未检查。R5e–f 待实施；见[实施细案](../2026/T-20260911-full-codebase-optimization-implementation/authorized-remaining-plan.md) |
+| R5 | R5a–R5e 后端已完成 | 六维契约到消费闭环已落地；作者确认按正文/问题/checkpoint/confirmation 重验并幂等追加事件、重建单维度。R5f 前端与浏览器验收待实施；见[实施细案](../2026/T-20260911-full-codebase-optimization-implementation/authorized-remaining-plan.md) |
 | R6 | X2-3 已授权，待实施 | X1-3、D2a-1、E3-1 完成；F4-4 复核为 ORM metadata 注册而非缺 FK；X2-3 采用“取消只停止、回收站显式软清理” |
 | B1a/B1b | 已完成 | 后端/前端可证明死代码清理完成；保留真实消费者、兼容面与安全门禁 |
 | B1c | 归类清理已授权，待实施 | coverage、53 MiB 夹具、旧 schema 脚本、docs 索引完成；剩余项先建逐路径分类账，只删除无消费者、无唯一证据且无明显价值的工件，版权原文换合成样本 |

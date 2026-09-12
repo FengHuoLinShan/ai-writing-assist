@@ -8,8 +8,11 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from modules.project.models import Project
-from modules.story.continuity.models import MemorySceneCheckpoint
-from modules.story.continuity.repositories import SceneCheckpointRepository
+from modules.story.continuity.models import MemoryEvent, MemorySceneCheckpoint
+from modules.story.continuity.repositories import (
+    EventRepository,
+    SceneCheckpointRepository,
+)
 from tests.e2e.config import DATABASE_URL
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
@@ -113,6 +116,68 @@ async def test_concurrent_first_checkpoint_creation_serializes_per_dimension() -
             task.cancel()
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
+        async with sessions.begin() as cleanup_db:
+            await cleanup_db.execute(delete(Project).where(Project.id == novel_id))
+        await engine.dispose()
+
+
+async def test_confirmed_scene_event_is_idempotent_under_concurrency() -> None:
+    engine = create_async_engine(DATABASE_URL, pool_size=3, max_overflow=0)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    novel_id = uuid.uuid4()
+    scene_id = uuid.uuid4()
+    key = "writing_conflict_item:concurrent"
+    row = {
+        "dimension": "timeline",
+        "event_type": "manual_correction",
+        "entity_id": None,
+        "entity_type": None,
+        "snapshot_before": None,
+        "snapshot_after": {
+            "category": "timeline_anchor_confirmed",
+            "field_path": "gate.opened_after",
+            "new_value": "钟响",
+            "meta": {"idempotency_key": key, "author_confirmed": True},
+        },
+        "source": "author_confirmation",
+    }
+
+    async def append_once() -> tuple[str, bool]:
+        async with sessions.begin() as db:
+            event, created = await EventRepository().append_confirmed_scene_event(
+                db,
+                novel_id=novel_id,
+                scene_id=scene_id,
+                scene_index=0,
+                chapter_index=1,
+                row=row,
+                idempotency_key=key,
+            )
+            return str(event.id), created
+
+    try:
+        async with sessions.begin() as setup_db:
+            setup_db.add(Project(id=novel_id, title="confirmed event concurrency"))
+
+        results = await asyncio.gather(append_once(), append_once())
+
+        assert {event_id for event_id, _created in results} == {results[0][0]}
+        assert sorted(created for _event_id, created in results) == [False, True]
+        async with sessions() as verify_db:
+            events = list(
+                (
+                    await verify_db.execute(
+                        select(MemoryEvent).where(
+                            MemoryEvent.novel_id == novel_id,
+                            MemoryEvent.scene_id == scene_id,
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert len(events) == 1
+    finally:
         async with sessions.begin() as cleanup_db:
             await cleanup_db.execute(delete(Project).where(Project.id == novel_id))
         await engine.dispose()

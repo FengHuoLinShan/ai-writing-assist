@@ -39,6 +39,12 @@ is: `story_outline_heads`, `story_outline_revisions`, `plot_threads`,
 `modules.story.facade`. The old `modules.outline` and `modules.memory` import
 aliases were removed after the canonical-preparation SHA completed production release.
 
+Continuity checkpoints are versioned: V1 confirmations replay the original four dimensions;
+V2 adds timeline and causality without backfilling missing history as empty facts. Writing may
+append one author-confirmed continuity event through the stable facade after revalidating the
+draft, check item, source checkpoint and Evidence confirmation. The append is Scene-locked and
+idempotent and invalidates only the affected downstream dimension.
+
 The existing public prefixes remain `/api/outline` and
 `/api/novels/{novel_id}/memories`, alongside `/api/story`.
 

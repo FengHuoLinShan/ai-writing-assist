@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.errors import ValidationError
 from modules.story.continuity.contracts import (
     SCENE_MEMORY_DIMENSIONS,
+    ConfirmedContinuityEventIngest,
     MemoryContinuityEvidenceContract,
     MemoryDeltaEventIngest,
     MemoryDeltaIngestResult,
@@ -195,6 +196,77 @@ class MemoryService:
             include_start=True,
         )
         return [MemoryEventResponse.model_validate(item) for item in records]
+
+    async def confirm_scene_continuity_event(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        scene_id: str,
+        scene_index: int,
+        chapter_index: int,
+        event: ConfirmedContinuityEventIngest,
+    ) -> tuple[MemoryEventResponse, bool]:
+        """Append one reviewed author fact and invalidate downstream projections."""
+        from modules.story.outline_state.facade import get_scene_contract
+
+        if event.dimension not in SCENE_MEMORY_DIMENSIONS:
+            raise ValidationError("Unsupported memory event dimension")
+        scene = await get_scene_contract(db, novel_id, scene_id)
+        if scene is None:
+            raise ValidationError("Scene not found")
+        if scene.scene_index != scene_index:
+            raise ValidationError("scene_index does not match Scene")
+        payload = {
+            "category": event.category,
+            "field_path": event.field_path,
+            "old_value": event.old_value,
+            "new_value": event.new_value,
+            "scene_index": scene_index,
+            "source_chapter_index": chapter_index,
+            "meta": {
+                "idempotency_key": event.idempotency_key,
+                "evidence_summary": event.evidence_summary,
+                "source_confirmation_id": event.source_confirmation_id,
+                "author_confirmed": True,
+            },
+        }
+        serialized = json.dumps(payload, ensure_ascii=False, default=str)
+        if len(serialized) > MAX_MEMORY_EVENT_PAYLOAD_CHARS:
+            raise ValidationError("Memory event payload exceeds limit")
+        record, created = await self._event_repo.append_confirmed_scene_event(
+            db,
+            novel_id=parse_uuid(novel_id, "novel_id"),
+            scene_id=parse_uuid(scene_id, "scene_id"),
+            scene_index=scene_index,
+            chapter_index=chapter_index,
+            row={
+                "dimension": event.dimension,
+                "event_type": "manual_correction",
+                "entity_id": None,
+                "entity_type": None,
+                "snapshot_before": None,
+                "snapshot_after": payload,
+                "source": "author_confirmation",
+            },
+            idempotency_key=event.idempotency_key,
+        )
+        if created:
+            nid = parse_uuid(novel_id, "novel_id")
+            await self._scene_checkpoint_repo.supersede_system_from(
+                db,
+                nid,
+                scene_index,
+                [event.dimension],
+                include_start=True,
+            )
+            await self._scene_snapshot_repo.supersede_from(
+                db,
+                nid,
+                scene_index,
+                include_start=True,
+            )
+        return MemoryEventResponse.model_validate(record), created
 
     # ============================================================
     # 状态重放

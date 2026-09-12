@@ -84,6 +84,7 @@ GET    /api/writing/conflict-checks/{id}               # 获取检查详情
 POST   /api/writing/conflict-checks/{id}/ai-review     # 兼容同步入口（deprecated）
 POST   /api/writing/conflict-checks/{id}/ai-review-task # 提交异步 AI 软冲突判断任务
 PATCH  /api/writing/conflict-check-items/{id}          # 更新问题处理状态
+POST   /api/writing/conflict-check-items/{id}/confirm-continuity # 作者确认连续性事实
 POST   /api/writing/conflict-check-items/{id}/ai-suggestion # 兼容同步入口（deprecated）
 POST   /api/writing/conflict-check-items/{id}/ai-suggestion-task # 提交单条 AI 修复建议任务
 POST   /api/writing/drafts/autosave                    # 创建纯草稿版本，不发布；合并标脏 working 索引
@@ -124,6 +125,8 @@ published，不因 RP 历史引用改变作者编辑心智。
 - 检查 scope 保存正文 hash。Project Today 只读取每个章节/Scene 最新检查的 open 项；若工作稿 ID、版本或 hash 已变化，则旧项折叠为一条“重新检查”。
 
 问题项的 `location_json` 保存轻量证据结构：`source` 描述来源模块、类型、标签、字段和摘录；`open_target` 描述前端可以打开的目标；`needs_review_reason` 描述候选证据复核原因。发布章节时，最近一次检查会归档到 `writing_drafts.conflict_check_snapshot_json`，快照保留 `source` / `open_target`，但不保留正文 `text_range`。
+
+作者可对三类 continuity 问题提交编辑后的 category/field/before/after，并以当前正文和问题时间戳显式确认。服务端锁定检查与问题，重验正文 hash、原 checkpoint，以及 AI 问题绑定的 Evidence confirmation；随后在 Scene 事件锁内按问题 ID 幂等追加 `author_confirmation` 事件，重建受影响维度并把旧 checkpoint confirmation 标为 stale。重复请求返回同一事件回执；它不覆盖 Scene 原事件流，也不自动采用其他 AI 判断。
 
 AI 能力是显式追加流程，不替代规则层结果：
 

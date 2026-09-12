@@ -3,7 +3,7 @@ id: T-20260911-full-codebase-optimization-implementation
 title: 全代码库优化实施
 status: in_progress
 created: 2026-09-11T23:00:00+08:00
-updated: 2026-09-12T08:28:00+08:00
+updated: 2026-09-12T08:50:00+08:00
 ---
 
 # 全代码库优化实施
@@ -16,8 +16,8 @@ updated: 2026-09-12T08:28:00+08:00
 - 已完成：R0a/R0b、R1–R4、R6b/R6c/R6d/R6e；B1a/B1b/B1d 与 B1c 无争议 leaf；B2a–c、B2e；B2d 全部代码项（F5-7 转运维拓扑门禁）；B3a/b/d/e；B4a/b/c/d/f。
 - 当前验证：fast 全量 5397 passed/13 skipped/7 deselected；PostgreSQL critical 32 passed；前端 184 files / 2437 tests、lint/build/生产资源校验通过；smartDedup 浏览器 4/4，设置+世界审查功能链 4/4；docs-check 及 `BASE_REF=origin/main` 显式复核通过。
 - 最新原子提交：`47ca84ba0`–`702fd8cd8`。新增完成 imports start 编排、wheel/锁定运行器、服务镜像 digest、nginx 头继承、Outline 草稿生命周期、API 异常守卫、smartDedup Vue 迁移与重复样式清理。
-- 当前里程碑：R5a–R5d 完成；六维状态已进入生成、冲突 AI review/suggestion、semantic review 与 Scene Lens 后端，V2 语义审查缺覆盖只能 incomplete。
-- 下一步：实施 R5e，给连续性候选变更增加作者确认、幂等写入、下游 checkpoint 重建与旧检查/confirmation 失效闭环。
+- 当前里程碑：R5a–R5e 后端完成；作者确认会重验正文、问题、checkpoint 与 AI confirmation，在 Scene 锁内幂等追加事件并重建对应维度。
+- 下一步：实施 R5f 前端问题标签、连续性确认表单/冲突恢复与 Scene Lens 六维呈现，再跑桌面/390px 浏览器链。
 - 未完成：R5 空间/时间/逻辑连续性闭环；R6a/X2-3 显式回收站清理；B1c 剩余分类清理与合成样本；B3c 任务轨付费验收及同步轨删除。F5-7、B5/收益待测项按决定延期。
 
 ## 边界与决定
@@ -66,3 +66,4 @@ updated: 2026-09-12T08:28:00+08:00
 - R5c-core：Writing + Story continuity 317 passed/1 deselected；新增规则覆盖空间同点互斥、时间环/锚冲突、事实互斥、明确前提缺失与逾期承诺；缺维度反例不产出冲突。
 - R5c-map：World + Writing 1151 passed/1 deselected；地图 seam 仅返回 adopted node 当前 saved revision、两端地点绑定且来源仍可重验的关系；来源修改反例返回空证据。
 - R5d：Evidence compilation + Writing 506 passed/1 deselected；相关 ruff 通过。author/character Scene 写作与两条 conflict AI action 复用同一 scene_world_state，reader 不消费；语义审查记录 V2 三面覆盖。
+- R5e-backend：Writing + continuity 320 passed/1 deselected；PostgreSQL critical 33 passed（新增同 item 并发确认只产生一个事件）；API 覆盖重复回执、正文漂移、非 continuity kind 与跨项目 404。
