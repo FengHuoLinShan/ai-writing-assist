@@ -1,9 +1,9 @@
 ---
 id: T-20260911-full-codebase-optimization-implementation
 title: 全代码库优化实施
-status: in_progress
+status: completed
 created: 2026-09-11T23:00:00+08:00
-updated: 2026-09-12T09:18:00+08:00
+updated: 2026-09-12T09:32:00+08:00
 ---
 
 # 全代码库优化实施
@@ -14,11 +14,11 @@ updated: 2026-09-12T09:18:00+08:00
 - 工作区：`/Users/tywww/Desktop/项目/ai-writing-assist-full-optimization`，分支 `codex/full-optimization-implementation`，从本地 `main@44728ec22` 建立；`origin/main@2c462f2c7` 落后 5 个本地提交。
 - 选择本地 main 的原因：它包含审查产物和已完成的前端修订；主工作区的 imports 未提交 WIP 未带入本分支。
 - 已完成：R0a/R0b、R1–R4、R6b/R6c/R6d/R6e；B1a/B1b/B1d 与 B1c 无争议 leaf；B2a–c、B2e；B2d 全部代码项（F5-7 转运维拓扑门禁）；B3a/b/d/e；B4a/b/c/d/f。
-- 当前验证：fast 全量 5397 passed/13 skipped/7 deselected；PostgreSQL critical 32 passed；前端 184 files / 2437 tests、lint/build/生产资源校验通过；smartDedup 浏览器 4/4，设置+世界审查功能链 4/4；docs-check 及 `BASE_REF=origin/main` 显式复核通过。
-- 最新原子提交：`47ca84ba0`–`702fd8cd8`。新增完成 imports start 编排、wheel/锁定运行器、服务镜像 digest、nginx 头继承、Outline 草稿生命周期、API 异常守卫、smartDedup Vue 迁移与重复样式清理。
-- 当前里程碑：R5、R6/X2-3、B1c 完成。B1c 分类保留付费运行证据和实质设计探索，仅清理无价值工件；第三方原文已换原创合成夹具。
-- 下一步：实施 B3c，先迁移真实模型测试到任务轨，再经项目 LLM seam 做最多 4 次原创小语料验收；通过后删除同步轨。
-- 未完成：B3c 任务轨付费验收及同步轨删除。F5-7、B5/收益待测项按决定延期。
+- 当前验证：fast 全量 5410 passed/13 skipped、覆盖率 85.72%；PostgreSQL critical 33 passed；前端 185 files/2441 tests、lint/build/生产资源校验；部署 270 passed，生产镜像与真实恢复演练通过；docs-check 及 `BASE_REF=origin/main` 显式复核通过。
+- 最新原子提交：`de9846689`–`bf74bc654`。完成六维 continuity、显式导入回收站、B1c 分类清理/合成夹具、B3c 任务轨真实模型验收与同步 AI 轨退役。
+- 当前里程碑：本任务已完成。R5、R6/X2-3、B1c、B3c 均落地；F5-7、B5 和收益待测项按用户决定明确延期，不计为未完成实施。
+- 下一步：等待用户决定是否评审并合并 `codex/full-optimization-implementation`；本任务未推送、未合并、未部署。
+- 未完成：无已授权实施项。独立既有缺陷为 RAG 同章二次索引未移除旧 source chunk；F5-7 需生产网络拓扑证据后另立安全批。
 
 ## 边界与决定
 
@@ -36,7 +36,7 @@ updated: 2026-09-12T09:18:00+08:00
 | R5 continuity 位置证据 | 生产树仅剩 Story facade/service 定义与导出，Writing 无消费者；Writing README 仍声明该能力，real-LLM 测试仍有 3 个永不可满足的 kind 断言。前端 kind 标签作历史持久记录兼容面保留 | 方案已定：保留并扩展为版本化六维 Scene 状态及空间/时间/逻辑检查、确认、生成/修订消费闭环 |
 | R6/X2-3 取消后产物 | cancelled run 只停止 owner；`abandon_recovery` 仍只接受 failed+recovery_required，`cleanup_workflow_assets` 无 cancelled 入口 | 方案已定：取消不清理；新增预览 fingerprint、显式 cleanup 与深度导入“回收站”Tab，持续软废弃 |
 | B1c 证据/工具历史/样本 | `backend/backend` 有 11 个唯一验收日志（100 KiB）；工具历史 58 路径（372 KiB）；两个被 seed 消费的《诡秘之主》原文样本合计 40 KiB | 方案已定：先建分类账，无明显价值则删除；唯一证据最小保留/摘要；原文换原创合成样本，不重写历史 |
-| B3c 同步生成/冲突双轨 | 弃用同步路由与 service 仍在，仅 real-LLM 验收消费；任务轨是生产前端唯一路径 | 付费调用已获允许；待 R5 任务轨稳定后按最多 4 次原创小语料验收，通过才删除同步轨 |
+| B3c 同步生成/冲突双轨 | 生产前端仅消费任务轨；旧同步路由/service 仅供旧测试 | 已完成：测试迁入任务轨，4 次有界真实模型调用通过后删除旧同步正文生成、冲突复核/建议及前端死契约 |
 | F5-7 forwarded 代理信任 | Dockerfile 仍信任 `*`；当前主机没有生产 `ai-writing-assist-egress` 网络，无法确定 OpenResty 经 loopback/DNAT 到 API 时的真实 peer IP | 用户明确暂缓；发布窗口取得 production network inspect/实际 peer 后另立运维安全批 |
 | B5/收益待测 | 没有新性能基线或生产 revision 证据 | 按实施计划的“默认不实施”已满足，不是完成阻塞 |
 
@@ -59,7 +59,7 @@ updated: 2026-09-12T09:18:00+08:00
 - B2d 环境收尾：wheel 中 test/eval 条目 301→0；`eval-fast` 140 passed/1 skipped；部署测试 269 passed，后端/前端生产镜像与真实恢复演练通过。
 - B4a/B4b/B4f：三预览页定向 16 passed；smartDedup 单元关联 87 passed 且浏览器 4 passed；API 错误守卫 15 passed。
 - B1d：前端全量 184 files / 2437 tests、lint/build 通过；设置双页+世界审查桌面/390px 4 条功能链通过。视觉套件 3/8 通过、5 失败；在 CSS 批前 `cc16daa85` 对照中 settings-global-light 与 world-objects-light 失败像素数完全相同（8483/16425），确认为基线快照漂移，未擅自更新快照。
-- 累计变更：本次记录提交后 103 个原子提交、283 文件、`+2938/-11664`，净删 8726 行。未合并、未推送、未部署。
+- 累计变更：完成记录提交后 122 个原子提交、388 文件、`+7006/-15863`，净删 8857 行。未合并、未推送、未部署。
 - 2026-09-12 计划轮：新增 `authorized-remaining-plan.md`，并同步 `batch-plan.md` 与本恢复快照；仅文档变更，业务门禁尚未运行。
 - R5a：旧四维 fingerprint 固定样本仍为 `9b0c68160db434ae0f0854d55e5d2de1b92320e1afcc90df34ec4357a6b8a92d`；Story continuity + Evidence compilation 366 passed；相关 ruff 与 diff check 通过。
 - R5b：Imports + Story continuity 793 passed；Prompt contracts 22 passed；PostgreSQL critical 32 passed；相关 ruff/diff check 通过。首次未带 E2E_DATABASE_URL 的 critical 调用按门禁拒绝，随后使用既有专用库 `ai_writing_assist_e2e_full_optimization` 通过。
@@ -71,3 +71,6 @@ updated: 2026-09-12T09:18:00+08:00
 - X2-3a：Imports 703 passed；PostgreSQL critical 33 passed；新增 preview/execute API、recent 清理投影、stale fingerprint、跨项目 404、完整回执重放与 `hard_deleted_assets=0` 断言。
 - X2-3b/c：前端 185 files / 2441 tests、lint/build/生产资源校验通过；深度整理回收站浏览器链 1 passed，流程内切换 390x844 验证预览、明确确认、历史保留与隐藏内部标识。
 - B1c：分类账见 `b1c-classification.md`；工具会话/占位工件删除 36 文件，错误目录与派生 latest 指针删除 12 文件；保留 239 份付费模型证据及 22 份实质设计探索。第三方原文改为原创三章合成夹具，导入/RAG/Outline 消费链 14 passed，部署门禁 270 passed。另有 1 个与样本文本无关的既有 RAG 重索引失败：同章二次索引后旧 source chunk 未移除（单跑稳定复现），未混入卫生批修复。
+- B3c：Writing 226 passed；前端契约/冲突组件 19 passed、lint/build；冲突浏览器链 1 passed。真实验收改为 PostgreSQL 上的 review-task + suggestion-task，全程经项目 snapshot LLM seam，删除同步轨前后各 1 次通过，共 4 次 DeepSeek 调用；每次均产出 2 条可用 AI 项并完成建议、发布快照及无正文/World/Memory 写回断言。专用库只临时复制加密连接，验收后已清空。E2E 外层事务使独立 retrieval trace 写入看不到未提交项目，产生已记录的 RAG 降级 warning，但 Scene/正文/确认上下文与任务轨验收断言均通过。
+- 完成时分支相对 `44728ec22` 为 122 个原子提交、388 文件、`+7006/-15863`（净删 8857 行）。
+- 最终门禁：docs-check、secret hygiene、后端/前端依赖高危门禁、ruff 均通过；部署 270 passed；后端 fast 5410 passed/13 skipped，覆盖率 85.72%；前端 185 files/2441 tests、lint/build；PostgreSQL critical 33 passed；生产后端/前端镜像、非 root/read-only smoke 与真实恢复演练通过。`langchain-community` 已归档及 Vitest/@vitest-mocker 2 项中危为依赖审计现状，高危门禁未失败，未在本批擅自升级依赖。

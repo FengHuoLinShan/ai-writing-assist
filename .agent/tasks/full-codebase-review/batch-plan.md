@@ -24,7 +24,7 @@
 | B2e | 已完成 | Vue 生产文件守卫扩面；Story HTTP 的项目范围、422、202 动作合同与 path/body 冲突覆盖完成 |
 | B3a | 重裁后完成 | Story 两条入队流已收敛；Outline 三条因冻结时机、响应、meta 与错误映射不同保留，避免多开关 helper |
 | B3b/B3e | 已完成 | semantic review 委托既有 service；worker 项目任务判断归项目 facade |
-| B3c | 付费验收已授权，待 R5 | 允许实施阶段通过项目 LLM seam 做有界真实模型验收；R5 任务轨消费通过后再删除同步生成/冲突双轨 |
+| B3c | 已完成 | 真实模型验收迁入 PostgreSQL 任务轨；删除同步正文生成、冲突复核/建议路由与前端死契约。DeepSeek 原创小语料前后各跑 1 次，共 4 次调用，均通过 |
 | B3d | 重裁后完成 | Scene auto/runtime 两处迁入工厂、净删 215 行；Story Outline 的身份拒绝+终态重放专用实现保留，避免多开关工厂 |
 | B4a/B4b | 已完成 | smartDedup 按钮迁入 Vue 组件，删除全局点击/HTML 注入/重绘事件；三个 Outline 预览页复用窄草稿生命周期，领域校验仍分立。smartDedup 桌面+窄屏 4 条浏览器链通过 |
 | B4c | 已完成 | `pollRetryDelay` 统一 workflowProgress、writing 两路、conflict 与 POV 任务的 3/6/12/24/30 秒失败退避；成功即复位 |
@@ -33,7 +33,7 @@
 | B4f | 已完成 | AST 守卫仅拦截 API route 函数内直接且未在本地捕获的 `ValueError`，不扫描合法领域内部异常 |
 | B5/收益待测项 | 按计划延期 | 无性能基线、生产 revision 或数据结构必要性证据，不实施 |
 
-当前累计：103 个原子提交，283 个文件，`+2938/-11664`（净 `-8726` 行）。门禁：后端 fast `5397 passed / 13 skipped / 7 deselected`；Story 模块 `30 passed`；PostgreSQL critical `32 passed`；前端 `184 files / 2437 tests`、lint、build、资源校验通过；smartDedup 浏览器 `4 passed`、设置+世界审查功能链 `4 passed`；docs-check 通过。视觉套件的 5 个失败已用批前提交复现为既有快照漂移；专用库 `alembic check` 仍暴露一组既有 ORM/migration 漂移，两者均未混入本轮自动修改。
+当前累计（完成记录提交后）：122 个原子提交，388 个文件，`+7006/-15863`（净 `-8857` 行）。最终门禁：后端 fast `5410 passed / 13 skipped`、覆盖率 85.72%；PostgreSQL critical `33 passed`；前端 `185 files / 2441 tests`、lint、build、资源校验通过；部署 `270 passed`，后端/前端生产镜像及真实恢复演练通过；docs-check 与 secret hygiene 通过。浏览器另覆盖 continuity 确认、深度整理回收站和冲突任务轨。视觉套件既有快照漂移、专用库既有 ORM/migration 漂移及独立 RAG 重索引缺陷均已记录，未混入本轮自动修复。
 
 ## R 组：功能性修复与门禁缺口（单列，优先于一切优化批）
 
