@@ -16,9 +16,9 @@ updated: 2026-09-12T09:18:00+08:00
 - 已完成：R0a/R0b、R1–R4、R6b/R6c/R6d/R6e；B1a/B1b/B1d 与 B1c 无争议 leaf；B2a–c、B2e；B2d 全部代码项（F5-7 转运维拓扑门禁）；B3a/b/d/e；B4a/b/c/d/f。
 - 当前验证：fast 全量 5397 passed/13 skipped/7 deselected；PostgreSQL critical 32 passed；前端 184 files / 2437 tests、lint/build/生产资源校验通过；smartDedup 浏览器 4/4，设置+世界审查功能链 4/4；docs-check 及 `BASE_REF=origin/main` 显式复核通过。
 - 最新原子提交：`47ca84ba0`–`702fd8cd8`。新增完成 imports start 编排、wheel/锁定运行器、服务镜像 digest、nginx 头继承、Outline 草稿生命周期、API 异常守卫、smartDedup Vue 迁移与重复样式清理。
-- 当前里程碑：R5、R6/X2-3 完成。取消仍只停止任务；深度整理历史面板的回收站提供显式预览与二次确认，复用既有软回滚并保留历史。
-- 下一步：实施 B1c，先建立逐路径分类账，再按类别独立清理无消费者、无唯一证据且无明显价值的工件。
-- 未完成：B1c 剩余分类清理与合成样本；B3c 任务轨付费验收及同步轨删除。F5-7、B5/收益待测项按决定延期。
+- 当前里程碑：R5、R6/X2-3、B1c 完成。B1c 分类保留付费运行证据和实质设计探索，仅清理无价值工件；第三方原文已换原创合成夹具。
+- 下一步：实施 B3c，先迁移真实模型测试到任务轨，再经项目 LLM seam 做最多 4 次原创小语料验收；通过后删除同步轨。
+- 未完成：B3c 任务轨付费验收及同步轨删除。F5-7、B5/收益待测项按决定延期。
 
 ## 边界与决定
 
@@ -70,3 +70,4 @@ updated: 2026-09-12T09:18:00+08:00
 - R5f：前端 184 files / 2439 tests、lint/build 通过；Writing 冲突浏览器链 1 passed，流程内切换 390x844 验证作者确认输入与二次确认。首次仅因 `expectWithinViewport` 调用参数错误失败，修正后复跑通过。
 - X2-3a：Imports 703 passed；PostgreSQL critical 33 passed；新增 preview/execute API、recent 清理投影、stale fingerprint、跨项目 404、完整回执重放与 `hard_deleted_assets=0` 断言。
 - X2-3b/c：前端 185 files / 2441 tests、lint/build/生产资源校验通过；深度整理回收站浏览器链 1 passed，流程内切换 390x844 验证预览、明确确认、历史保留与隐藏内部标识。
+- B1c：分类账见 `b1c-classification.md`；工具会话/占位工件删除 36 文件，错误目录与派生 latest 指针删除 12 文件；保留 239 份付费模型证据及 22 份实质设计探索。第三方原文改为原创三章合成夹具，导入/RAG/Outline 消费链 14 passed，部署门禁 270 passed。另有 1 个与样本文本无关的既有 RAG 重索引失败：同章二次索引后旧 source chunk 未移除（单跑稳定复现），未混入卫生批修复。
