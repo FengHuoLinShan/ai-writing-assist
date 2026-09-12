@@ -171,6 +171,36 @@ async def abandon_deep_import(
     return await _orchestrator.abandon_recovery(db, task_id)
 
 
+async def preview_cancelled_import_cleanup(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    task_id: str,
+) -> dict[str, Any]:
+    _parse_uuid(task_id)
+    return await _orchestrator.preview_cancelled_cleanup(
+        db,
+        novel_id=novel_id,
+        task_id=task_id,
+    )
+
+
+async def cleanup_cancelled_import(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    task_id: str,
+    expected_fingerprint: str,
+) -> dict[str, Any]:
+    _parse_uuid(task_id)
+    return await _orchestrator.cleanup_cancelled_run(
+        db,
+        novel_id=novel_id,
+        task_id=task_id,
+        expected_fingerprint=expected_fingerprint,
+    )
+
+
 async def reconcile_workflow_task_owners(db: AsyncSession) -> int:
     """Converge imports-owned owners after queue startup recovery."""
     from modules.imports.workflow_runs import ImportWorkflowRunService

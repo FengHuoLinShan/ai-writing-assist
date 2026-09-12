@@ -433,7 +433,7 @@ P13 v4 同步首轮、格式返修与 JSON Schema 的对象类型集合和字段
 
 `POST /api/imports/targeted-completions/{task_id}/defer` 在当前安全检查点请求暂缓；控制保存在现有 ImportWorkflowRun.checkpoints 中，worker 写入不能覆盖作者的新请求。`POST /api/imports/deep/resume` 可传 `stage=targeted_completion`、`authorization_confirmed=true`，仅对已结束执行、查漏为 deferred 且未开始撤销的原任务重新入队；重验 owner、单飞、正文清单与授权，增加 generation，保留根、游标和采用回执。基础结构通过检查点避免重跑。普通失败恢复契约不变。
 
-`GET /api/imports/workflows/recent` 按项目分页返回阶段、范围、成果计数与可继续状态，不返回授权或模型快照。`GET /api/imports/workflows/impact` 经 Evidence facade 检查运行快照是否引用指定资产，只返回受影响处理单元摘要；这不替代提交时的指纹校验。
+`GET /api/imports/workflows/recent` 按项目分页返回阶段、范围、成果计数、可继续状态和取消后清理状态，不返回授权或模型快照。取消只停止任务，不清理已产生内容。`GET /api/imports/workflows/{task_id}/cleanup-preview` 只对同项目、已取消且无活动 owner 的 run 返回预计范围和清理指纹；`POST /api/imports/workflows/{task_id}/cleanup` 要求 `confirmed=true` 与同一指纹，持有项目排他锁并复用既有 targeted/review rollback 和 workflow 软废弃。实际执行仍逐资产重验 workflow/auto_ingested/user_edited；重复请求返回原回执，partial 可刷新重试，`hard_deleted_assets` 始终为 0。`GET /api/imports/workflows/impact` 经 Evidence facade 检查运行快照是否引用指定资产，只返回受影响处理单元摘要；这不替代提交时的指纹校验。
 
 
 ## 智能整理现有候选

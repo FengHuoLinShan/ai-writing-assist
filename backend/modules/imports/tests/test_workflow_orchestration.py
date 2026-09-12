@@ -825,6 +825,97 @@ class TestDeepImportOrchestrator:
         assert result["cleanup_summary"]["hard_deleted_assets"] == 0
 
     @pytest.mark.asyncio
+    async def test_cancelled_cleanup_preview_and_replay_are_idempotent(
+        self,
+        db_session,
+    ):
+        task = await _create_recoverable_deep_import_task(db_session)
+        task.mark_cancelled()
+        run = await db_session.get(ImportWorkflowRun, task.id)
+        run.status = "cancelled"
+        run.recovery_required = False
+        run.progress = {
+            "asset_summary": {"scenes": 2, "world_objects": 1},
+            "message": "已取消",
+        }
+        await db_session.flush()
+        orchestrator = _unit_orchestrator()
+        orchestrator._cleanup_run_assets = AsyncMock(
+            return_value={
+                "deprecated_scenes": 2,
+                "deprecated_entities": 1,
+                "deprecated_structure_assets": 0,
+                "hard_deleted_assets": 0,
+                "cleanup_mode": "soft_deprecate",
+                "cleanup_status": "complete",
+            }
+        )
+
+        preview = await orchestrator.preview_cancelled_cleanup(
+            db_session,
+            novel_id=str(run.novel_id),
+            task_id=str(task.id),
+        )
+        first = await orchestrator.cleanup_cancelled_run(
+            db_session,
+            novel_id=str(run.novel_id),
+            task_id=str(task.id),
+            expected_fingerprint=preview["cleanup_fingerprint"],
+        )
+        replay = await orchestrator.cleanup_cancelled_run(
+            db_session,
+            novel_id=str(run.novel_id),
+            task_id=str(task.id),
+            expected_fingerprint=preview["cleanup_fingerprint"],
+        )
+
+        assert preview["cleanup_eligible"] is True
+        assert len(preview["cleanup_fingerprint"]) == 64
+        assert first["cleanup_status"] == "complete"
+        assert first["cleanup_summary"]["hard_deleted_assets"] == 0
+        assert replay["cleanup_status"] == "complete"
+        assert replay["message"] == "本次整理产生的可清理内容已经处理"
+        orchestrator._cleanup_run_assets.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_cancelled_cleanup_rejects_stale_preview_and_wrong_project(
+        self,
+        db_session,
+    ):
+        from core.errors import ConflictError
+        from modules.imports.contracts import TaskNotFoundError
+
+        task = await _create_recoverable_deep_import_task(db_session)
+        task.mark_cancelled()
+        run = await db_session.get(ImportWorkflowRun, task.id)
+        run.status = "cancelled"
+        run.recovery_required = False
+        run.progress = {"asset_summary": {"scenes": 1}}
+        await db_session.flush()
+        orchestrator = _unit_orchestrator()
+        preview = await orchestrator.preview_cancelled_cleanup(
+            db_session,
+            novel_id=str(run.novel_id),
+            task_id=str(task.id),
+        )
+        run.progress = {"asset_summary": {"scenes": 2}}
+        await db_session.flush()
+
+        with pytest.raises(ConflictError, match="清理范围已变化"):
+            await orchestrator.cleanup_cancelled_run(
+                db_session,
+                novel_id=str(run.novel_id),
+                task_id=str(task.id),
+                expected_fingerprint=preview["cleanup_fingerprint"],
+            )
+        with pytest.raises(TaskNotFoundError):
+            await orchestrator.preview_cancelled_cleanup(
+                db_session,
+                novel_id=str(uuid.uuid4()),
+                task_id=str(task.id),
+            )
+
+    @pytest.mark.asyncio
     async def test_cleanup_workflow_assets_deprecates_only_same_workflow_assets(
         self,
         db_session,
@@ -1690,3 +1781,75 @@ class TestDeepImportRecoveryApi:
         resolve_owner.assert_awaited_once()
         guard.assert_awaited_once()
         abandon.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_cancelled_cleanup_preview_and_execute_routes(self, async_client):
+        task_id = str(uuid.uuid4())
+        novel_id = str(uuid.uuid4())
+        fingerprint = "a" * 64
+        preview = {
+            "task_id": task_id,
+            "workflow_id": task_id,
+            "status": "cancelled",
+            "cleanup_eligible": True,
+            "cleanup_status": "pending",
+            "asset_summary": {"scenes": 2},
+            "cleanup_summary": {},
+            "cleanup_fingerprint": fingerprint,
+            "message": "停止只会停止整理，已经产生的内容仍会保留",
+        }
+        cleaned = {
+            **preview,
+            "cleanup_eligible": False,
+            "cleanup_status": "complete",
+            "cleanup_summary": {
+                "deprecated_scenes": 2,
+                "hard_deleted_assets": 0,
+                "cleanup_mode": "soft_deprecate",
+            },
+            "message": "已清理本次整理产生的内容，历史记录仍保留",
+        }
+
+        with (
+            patch(
+                "modules.project.facade.require_active_project",
+                autospec=True,
+            ) as read_guard,
+            patch(
+                "modules.imports.api._require_active_project_exclusive",
+                autospec=True,
+            ) as write_guard,
+            patch(
+                "modules.imports.facade.preview_cancelled_import_cleanup",
+                autospec=True,
+                return_value=preview,
+            ) as preview_call,
+            patch(
+                "modules.imports.facade.cleanup_cancelled_import",
+                autospec=True,
+                return_value=cleaned,
+            ) as cleanup_call,
+        ):
+            preview_response = await async_client.get(
+                f"/api/imports/workflows/{task_id}/cleanup-preview",
+                params={"novel_id": novel_id},
+            )
+            cleanup_response = await async_client.post(
+                f"/api/imports/workflows/{task_id}/cleanup",
+                json={
+                    "novel_id": novel_id,
+                    "expected_cleanup_fingerprint": fingerprint,
+                    "confirmed": True,
+                },
+            )
+
+        assert preview_response.status_code == 200
+        assert preview_response.json()["cleanup_eligible"] is True
+        assert cleanup_response.status_code == 200
+        assert cleanup_response.json()["cleanup_status"] == "complete"
+        assert cleanup_response.json()["cleanup_summary"]["hard_deleted_assets"] == 0
+        read_guard.assert_awaited_once()
+        assert read_guard.call_args.args[1] == novel_id
+        write_guard.assert_awaited_once()
+        preview_call.assert_awaited_once()
+        cleanup_call.assert_awaited_once()

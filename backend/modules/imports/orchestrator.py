@@ -11,6 +11,7 @@ import hashlib
 import inspect
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1561,39 +1562,10 @@ class DeepImportOrchestrator:
         novel_id = str(run.novel_id)
         workflow_id = str(run.id)
 
-        completion = (run.checkpoints or {}).get("targeted_completion") or {}
-        focused_rollback = {}
-        if completion.get("packages"):
-            from modules.imports.targeted_completion import rollback_targeted_completion
-
-            focused_rollback = await rollback_targeted_completion(
-                db,
-                novel_id=novel_id,
-                task_id=task_id,
-            )
-        resolution_rollback = {}
-        if (run.checkpoints or {}).get("review_resolution"):
-            from modules.imports.review_resolution import rollback_resolution
-
-            resolution_rollback = await rollback_resolution(
-                db, novel_id=novel_id, task_id=task_id, release_run=False
-            )
-        cleanup_summary = await self.cleanup_workflow_assets(db, novel_id, workflow_id)
-        conflicts = int(focused_rollback.get("conflicts", 0))
-        if focused_rollback:
-            cleanup_summary.update(
-                cleanup_status="partial" if conflicts else "complete",
-                unreverted_targeted_items=conflicts,
-                targeted_completion_rollback=focused_rollback,
-            )
-        if resolution_rollback:
-            resolution_conflicts = int(resolution_rollback.get("conflicts", 0))
-            conflicts += resolution_conflicts
-            cleanup_summary.update(
-                cleanup_status="partial" if conflicts else "complete",
-                unreverted_resolution_items=resolution_conflicts,
-                review_resolution_rollback=resolution_rollback,
-            )
+        cleanup_summary = await self._cleanup_run_assets(db, run)
+        conflicts = int(cleanup_summary.get("unreverted_targeted_items", 0)) + int(
+            cleanup_summary.get("unreverted_resolution_items", 0)
+        )
         await cancel_recoverable_task(
             db,
             task_id=task_id,
@@ -1612,6 +1584,205 @@ class DeepImportOrchestrator:
                 "未撤销，可单独重试撤销"
                 if conflicts
                 else "深度导入恢复已放弃"
+            ),
+        }
+
+    async def preview_cancelled_cleanup(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        task_id: str,
+    ) -> dict[str, Any]:
+        await self._runs.reconcile_scoped_task_owners(db, task_id=task_id)
+        run = await self._cancelled_cleanup_run(
+            db,
+            novel_id=novel_id,
+            task_id=task_id,
+            for_update=False,
+        )
+        cleanup = dict((run.checkpoints or {}).get("cleanup") or {})
+        return self._cleanup_preview(run, cleanup=cleanup)
+
+    async def cleanup_cancelled_run(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        task_id: str,
+        expected_fingerprint: str,
+    ) -> dict[str, Any]:
+        await self._runs.reconcile_scoped_task_owners(db, task_id=task_id)
+        run = await self._cancelled_cleanup_run(
+            db,
+            novel_id=novel_id,
+            task_id=task_id,
+            for_update=True,
+        )
+        previous = dict((run.checkpoints or {}).get("cleanup") or {})
+        if previous.get("status") == "complete" and previous.get("summary"):
+            return {
+                "task_id": str(run.task_id),
+                "workflow_id": str(run.id),
+                "status": "cancelled",
+                "cleanup_eligible": False,
+                "cleanup_status": "complete",
+                "cleanup_summary": previous["summary"],
+                "cleanup_fingerprint": previous.get("request_fingerprint", ""),
+                "message": "本次整理产生的可清理内容已经处理",
+            }
+        preview = self._cleanup_preview(run, cleanup=previous)
+        if not preview["cleanup_eligible"]:
+            raise ValueError("本次整理没有可清理的内容")
+        if expected_fingerprint != preview["cleanup_fingerprint"]:
+            raise ConflictError("清理范围已变化，请刷新回收站后重试")
+        summary = await self._cleanup_run_assets(db, run)
+        status = str(summary.get("cleanup_status") or "complete")
+        completed_at = datetime.now(UTC).isoformat()
+        receipt = {
+            "version": 1,
+            "status": status,
+            "request_fingerprint": expected_fingerprint,
+            "completed_at": completed_at,
+            "summary": summary,
+        }
+        run.checkpoints = {**dict(run.checkpoints or {}), "cleanup": receipt}
+        run.progress = {
+            **dict(run.progress or {}),
+            "cleanup_status": status,
+            "cleanup_summary": summary,
+            "message": (
+                "部分内容因后续修改或引用受到保护，可刷新后重试"
+                if status == "partial"
+                else "已清理本次整理产生的内容，历史记录仍保留"
+            ),
+        }
+        await db.flush()
+        return {
+            "task_id": str(run.task_id),
+            "workflow_id": str(run.id),
+            "status": "cancelled",
+            "cleanup_eligible": status == "partial",
+            "cleanup_status": status,
+            "cleanup_summary": summary,
+            "cleanup_fingerprint": expected_fingerprint,
+            "message": run.progress["message"],
+        }
+
+    async def _cleanup_run_assets(
+        self,
+        db: AsyncSession,
+        run: ImportWorkflowRun,
+    ) -> dict[str, Any]:
+        novel_id = str(run.novel_id)
+        task_id = str(run.task_id)
+        completion = (run.checkpoints or {}).get("targeted_completion") or {}
+        focused_rollback = {}
+        if completion.get("packages"):
+            from modules.imports.targeted_completion import rollback_targeted_completion
+
+            focused_rollback = await rollback_targeted_completion(
+                db,
+                novel_id=novel_id,
+                task_id=task_id,
+            )
+        resolution_rollback = {}
+        if (run.checkpoints or {}).get("review_resolution"):
+            from modules.imports.review_resolution import rollback_resolution
+
+            resolution_rollback = await rollback_resolution(
+                db,
+                novel_id=novel_id,
+                task_id=task_id,
+                release_run=False,
+            )
+        summary = await self.cleanup_workflow_assets(db, novel_id, str(run.id))
+        conflicts = int(focused_rollback.get("conflicts", 0))
+        if focused_rollback:
+            summary.update(
+                cleanup_status="partial" if conflicts else "complete",
+                unreverted_targeted_items=conflicts,
+                targeted_completion_rollback=focused_rollback,
+            )
+        if resolution_rollback:
+            resolution_conflicts = int(resolution_rollback.get("conflicts", 0))
+            conflicts += resolution_conflicts
+            summary.update(
+                cleanup_status="partial" if conflicts else "complete",
+                unreverted_resolution_items=resolution_conflicts,
+                review_resolution_rollback=resolution_rollback,
+            )
+        return summary
+
+    async def _cancelled_cleanup_run(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        task_id: str,
+        for_update: bool,
+    ) -> ImportWorkflowRun:
+        run = await self._runs.get_by_task(
+            db,
+            task_id=task_id,
+            for_update=for_update,
+        )
+        if run is None or str(run.novel_id) != novel_id:
+            raise TaskNotFoundError(task_id)
+        if run.workflow_type not in IMPORT_TASK_TYPES:
+            raise ValueError("该任务不是深度导入整理记录")
+        if run.status != "cancelled" or run.recovery_required:
+            raise ValueError("只有已取消且无需恢复的整理记录可以清理")
+        if run.owner_task_id or run.owner_attempt or run.owner_lease_id:
+            raise ConflictError("整理任务仍在结束中，请稍后刷新")
+        return run
+
+    @staticmethod
+    def _cleanup_preview(
+        run: ImportWorkflowRun,
+        *,
+        cleanup: dict[str, Any],
+    ) -> dict[str, Any]:
+        status = str(cleanup.get("status") or "pending")
+        asset_summary = {
+            str(key): max(0, int(value or 0))
+            for key, value in ((run.progress or {}).get("asset_summary") or {}).items()
+            if isinstance(value, int | float)
+        }
+        fingerprint = stable_hash(
+            {
+                "workflow_id": str(run.id),
+                "generation": int(run.generation),
+                "status": run.status,
+                "updated_at": run.updated_at.isoformat() if run.updated_at else None,
+                "asset_summary": asset_summary,
+                "targeted_completion": (run.checkpoints or {}).get(
+                    "targeted_completion"
+                ),
+                "review_resolution": (run.checkpoints or {}).get(
+                    "review_resolution"
+                ),
+                "previous_cleanup": cleanup,
+            }
+        )
+        eligible = status != "complete" and (
+            any(asset_summary.values())
+            or bool((run.checkpoints or {}).get("targeted_completion"))
+            or bool((run.checkpoints or {}).get("review_resolution"))
+        )
+        return {
+            "task_id": str(run.task_id),
+            "workflow_id": str(run.id),
+            "status": run.status,
+            "cleanup_eligible": eligible,
+            "cleanup_status": status,
+            "asset_summary": asset_summary,
+            "cleanup_summary": cleanup.get("summary") or {},
+            "cleanup_fingerprint": fingerprint,
+            "message": (
+                "停止只会停止整理，已经产生的内容仍会保留"
+                if eligible
+                else "本次整理没有待清理内容"
             ),
         }
 

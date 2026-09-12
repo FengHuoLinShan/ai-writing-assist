@@ -17,9 +17,10 @@ from pydantic import BaseModel, Field, model_validator
 from core.api_params import NovelIdForm, NovelIdQuery
 from core.config import get_settings
 from core.dependencies import DbSession
-from core.errors import DomainError, NotFoundError
+from core.errors import ConflictError, DomainError, NotFoundError
 from core.errors import ValidationError as DomainValidationError
 from infrastructure.llm.redaction import redact_diagnostic
+from modules.imports.contracts import TaskNotFoundError
 from modules.imports.parsers import MAX_FILE_SIZE
 from modules.imports.review_resolution_schemas import (
     ReviewResolutionDecisionRequest,
@@ -139,6 +140,37 @@ class DeepImportCleanupSummaryResponse(BaseModel):
         None,
         description="兼容旧字段；当前清理已在放弃时完成",
     )
+
+
+class DeepImportCleanupPreviewResponse(BaseModel):
+    task_id: str
+    workflow_id: str
+    status: Literal["cancelled"]
+    cleanup_eligible: bool
+    cleanup_status: Literal["pending", "partial", "complete"]
+    asset_summary: dict[str, int] = Field(default_factory=dict)
+    cleanup_summary: DeepImportCleanupSummaryResponse | dict = Field(
+        default_factory=dict
+    )
+    cleanup_fingerprint: str
+    message: str
+
+
+class DeepImportCleanupRequest(BaseModel):
+    novel_id: str
+    expected_cleanup_fingerprint: str = Field(min_length=64, max_length=64)
+    confirmed: Literal[True]
+
+
+class DeepImportCleanupResponse(BaseModel):
+    task_id: str
+    workflow_id: str
+    status: Literal["cancelled"]
+    cleanup_eligible: bool
+    cleanup_status: Literal["partial", "complete"]
+    cleanup_summary: DeepImportCleanupSummaryResponse
+    cleanup_fingerprint: str
+    message: str
 
 
 class DeepImportAbandonResponse(BaseModel):
@@ -502,6 +534,59 @@ async def recent_workflows(
 
     await require_active_project(db, novel_id)
     return await list_recent_workflows(db, novel_id=novel_id, skip=skip, limit=limit)
+
+
+@router.get(
+    "/workflows/{task_id}/cleanup-preview",
+    response_model=DeepImportCleanupPreviewResponse,
+)
+async def preview_cancelled_workflow_cleanup(
+    task_id: str,
+    *,
+    novel_id: NovelIdQuery,
+    db: DbSession,
+) -> DeepImportCleanupPreviewResponse:
+    from modules.imports.facade import preview_cancelled_import_cleanup
+    from modules.project.facade import require_active_project
+
+    await require_active_project(db, novel_id)
+    try:
+        result = await preview_cancelled_import_cleanup(
+            db,
+            novel_id=novel_id,
+            task_id=task_id,
+        )
+    except TaskNotFoundError as exc:
+        raise HTTPException(404, detail="Not found") from exc
+    except (ConflictError, ValueError) as exc:
+        raise HTTPException(409, detail=redact_diagnostic(exc)) from exc
+    return DeepImportCleanupPreviewResponse.model_validate(result)
+
+
+@router.post(
+    "/workflows/{task_id}/cleanup",
+    response_model=DeepImportCleanupResponse,
+)
+async def cleanup_cancelled_workflow(
+    task_id: str,
+    body: DeepImportCleanupRequest,
+    db: DbSession,
+) -> DeepImportCleanupResponse:
+    from modules.imports.facade import cleanup_cancelled_import
+
+    await _require_active_project_exclusive(db, body.novel_id)
+    try:
+        result = await cleanup_cancelled_import(
+            db,
+            novel_id=body.novel_id,
+            task_id=task_id,
+            expected_fingerprint=body.expected_cleanup_fingerprint,
+        )
+    except TaskNotFoundError as exc:
+        raise HTTPException(404, detail="Not found") from exc
+    except (ConflictError, ValueError) as exc:
+        raise HTTPException(409, detail=redact_diagnostic(exc)) from exc
+    return DeepImportCleanupResponse.model_validate(result)
 
 
 @router.get("/workflows/impact")

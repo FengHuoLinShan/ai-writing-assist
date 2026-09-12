@@ -212,6 +212,7 @@ async def list_recent_workflows(db, *, novel_id: str, skip: int, limit: int) -> 
                 "message": (run.progress or {}).get("message", ""),
                 "asset_summary": (run.progress or {}).get("asset_summary", {}),
                 "quality_status": (run.progress or {}).get("quality_status", "pending"),
+                **_recent_cleanup_projection(run),
                 "failed_stages": sorted(
                     {
                         stage
@@ -249,6 +250,26 @@ async def list_recent_workflows(db, *, novel_id: str, skip: int, limit: int) -> 
             }
             for run in runs
         ],
+    }
+
+
+def _recent_cleanup_projection(run: ImportWorkflowRun) -> dict:
+    cleanup = dict((run.checkpoints or {}).get("cleanup") or {})
+    status = str(cleanup.get("status") or "pending")
+    asset_summary = {
+        str(key): max(0, int(value or 0))
+        for key, value in ((run.progress or {}).get("asset_summary") or {}).items()
+        if isinstance(value, int | float)
+    }
+    eligible = run.status == "cancelled" and status != "complete" and (
+        any(asset_summary.values())
+        or bool((run.checkpoints or {}).get("targeted_completion"))
+        or bool((run.checkpoints or {}).get("review_resolution"))
+    )
+    return {
+        "cleanup_eligible": eligible,
+        "cleanup_status": status,
+        "cleanup_summary": cleanup.get("summary") or {},
     }
 
 

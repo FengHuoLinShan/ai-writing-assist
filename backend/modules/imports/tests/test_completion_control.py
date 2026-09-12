@@ -65,6 +65,9 @@ async def test_defer_retains_roots_and_resume_writes_once(
     )
     assert history["total"] == 1
     assert "authorization_snapshot" not in history["items"][0]
+    assert history["items"][0]["cleanup_eligible"] is False
+    assert history["items"][0]["cleanup_status"] == "pending"
+    assert history["items"][0]["cleanup_summary"] == {}
     assert await list_recent_workflows(
         db_session, novel_id=str(uuid.uuid4()), skip=0, limit=20
     ) == {"items": [], "total": 0}

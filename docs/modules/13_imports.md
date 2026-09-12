@@ -185,6 +185,8 @@ POST /api/imports/stages/world-objects     # 只执行 Phase 2a/2b
 POST /api/imports/stages/plot-structure    # 只执行 Phase 3
 POST /api/imports/deep/resume              # 用户确认后继续可恢复的原 deep_import 或 stage task
 POST /api/imports/deep/abandon             # 放弃恢复并清理同 workflow 自动派生资产
+GET  /api/imports/workflows/{task_id}/cleanup-preview # 预览已取消整理的可软清理范围
+POST /api/imports/workflows/{task_id}/cleanup         # 用户显式确认后执行软清理
 ```
 
 上传成功的可见性来自 `DbSession` 的 request-owned transaction：function-scope dependency 在普通非流式响应开始前统一提交，上传路由本身不持有单独的成功提交逻辑。
@@ -218,6 +220,7 @@ coverage、checkpoint 和脱敏 provider summary。
 - Phase 3 通过 story facade / DI handler 写入 `plot_threads` / `outline_arcs` / `foreshadowing_plans` / `reveal_plans`
 - 新增跨模块依赖应优先走 facade 或 DI container 注册服务；不得直接 import 其他模块 repositories/services
 - 放弃可恢复 workflow 通过各领域 facade 整批软回滚：outline/world 资产废弃、Memory DeltaLog 标记 `rolled_back`；所有操作按 novel/workflow 隔离并保留来源审计
+- 普通取消与清理分离：cancelled run 进入深度导入回收站投影，只有作者携带最新 cleanup fingerprint 显式确认后才复用同一软回滚；项目排他锁、run 行锁、owner/novel 隔离、用户后续编辑保护和幂等回执保持生效
 
 ## 真实服务验收与恢复证据
 
