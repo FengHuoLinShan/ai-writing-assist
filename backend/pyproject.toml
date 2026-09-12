@@ -31,7 +31,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "authlib>=1.7.0,<1.8",
+    "authlib>=1.7.0,<1.9",
     "beautifulsoup4>=4.12.0",
     "boto3>=1.42.0,<2.0",
     "chardet>=7.5.1",
@@ -90,7 +90,7 @@ dev = [
 eval = [
     "ragas==0.4.3",
     # Ragas 0.4.3 imports a module removed by langchain-community 0.4.2.
-    "langchain-community==0.4.1",
+    "langchain-community==0.4.2",
 ]
 
 [build-system]
