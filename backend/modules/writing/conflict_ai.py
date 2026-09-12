@@ -1136,13 +1136,28 @@ def _ai_review_items(
                 "kind": issue.kind,
                 "severity": issue.severity,
                 "source_module": "ai",
-                "source_type": "llm.soft_conflict",
+                "source_type": (
+                    "llm.continuity"
+                    if issue.kind
+                    in {
+                        "space_continuity_risk",
+                        "time_continuity_risk",
+                        "logic_continuity_risk",
+                    }
+                    else "llm.soft_conflict"
+                ),
                 "source_id": str(getattr(check, "id", "")),
                 "evidence_summary": f"{issue.summary}｜证据：{issue.evidence}",
                 "location_json": issue.location_hint or {"target": "ai_review"},
                 "is_ai_judgment": True,
                 "needs_review": (
                     include_pending_objects or issue.depends_on_pending_objects
+                    or issue.kind
+                    in {
+                        "space_continuity_risk",
+                        "time_continuity_risk",
+                        "logic_continuity_risk",
+                    }
                 ),
                 "confidence": issue.confidence,
                 "source_confirmation_id": confirmation_id,
@@ -1278,7 +1293,8 @@ def _build_ai_review_prompt(
         "- kind: motivation_gap, emotion_jump, foreshadowing_misfire, "
         "premature_reveal, implicit_lore_conflict, voice_or_pov_drift, "
         "scene_goal_drift, scene_commitment_missing, "
-        "scene_forbidden_deviation, continuity_soft_risk\n"
+        "scene_forbidden_deviation, continuity_soft_risk, "
+        "space_continuity_risk, time_continuity_risk, logic_continuity_risk\n"
         "- severity: high, medium, low\n"
         "- confidence: 0 到 1 之间的数字\n"
         "- depends_on_pending_objects: true 或 false\n"
@@ -1324,7 +1340,9 @@ _AI_REVIEW_SYSTEM_PROMPT = (
     "规则层的 must_happen 和 must_not_happen 结果只是未确认的字面预警；你必须按完整"
     "语义判断，不得要求字面复现。只有确认存在语义问题时，才追加独立的"
     "scene_commitment_missing 或 scene_forbidden_deviation，不要重复或改写字面预警。"
-    "没有语义问题就不要输出对应条目。不要把缺少信息当作事实错误。"
+    "空间、时间、逻辑问题分别使用 space_continuity_risk、"
+    "time_continuity_risk、logic_continuity_risk；必须引用正文可定位短句和"
+    "Scene 时点证据。没有语义问题就不要输出对应条目。不要把缺少信息当作事实错误。"
     "不要输出正史修改指令或一键应用补丁。每条问题必须给出依据、理由、置信度，"
     "依赖待确认对象时 depends_on_pending_objects=true。"
 )

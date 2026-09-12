@@ -9,7 +9,11 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.redaction import redact_diagnostic
-from modules.evidence.compilation.contracts import CompileOptions, StructureContextBundle
+from modules.evidence.compilation.contracts import (
+    CompileOptions,
+    StructureContextBundle,
+    compile_uses_scene_world_state,
+)
 from modules.evidence.compilation.services.protocol import Loader
 from modules.story.contracts import scene_memory_dimensions
 
@@ -82,11 +86,7 @@ class MemoryRecordsLoader(Loader):
             bundle.memory_records = []
             bundle.budget_used["memory"] = 0
 
-        if not (
-            options.consumer_action == "writing.generate"
-            and options.scene_id
-            and options.reveal_mode == "character"
-        ):
+        if not compile_uses_scene_world_state(options):
             return
         try:
             checkpoint_set = await self._ensure_scene_checkpoints(

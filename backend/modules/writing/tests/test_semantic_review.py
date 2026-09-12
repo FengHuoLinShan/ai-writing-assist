@@ -136,6 +136,14 @@ async def test_review_materializes_context_without_sending_hidden_guard_terms(
     confirmed = SimpleNamespace(
         rendered_markdown="秦岚只知道钟楼警报已经响起。",
         compile_options=options,
+        compiled=SimpleNamespace(
+            sections=[
+                SimpleNamespace(
+                    key="scene_world_state",
+                    retrieval_metadata={"contract_version": 2},
+                )
+            ]
+        ),
         confirmation=SimpleNamespace(
             id=confirmation_id,
             action="writing.generate",
@@ -213,6 +221,8 @@ async def test_review_materializes_context_without_sending_hidden_guard_terms(
     assert "绝密守卫词" not in payload_text
     assert "hidden-1" not in payload_text
     assert payload["targets"][0]["review_context"]["knowledge_boundary_checked"] is True
+    assert payload["targets"][0]["review_context"]["continuity_contract_version"] == 2
+    assert "space_continuity" in request.messages[0].content
     assert context["context_fingerprint"]
 
 
@@ -399,6 +409,21 @@ class _RevisionClient:
                                 "knowledge_boundary_checked"
                             )
                             else "not_applicable"
+                        ),
+                        **(
+                            {
+                                "space_continuity": "checked",
+                                "time_continuity": "checked",
+                                "logic_continuity": "checked",
+                            }
+                            if int(
+                                (item.get("review_context") or {}).get(
+                                    "continuity_contract_version"
+                                )
+                                or 0
+                            )
+                            >= 2
+                            else {}
                         ),
                     }
                     for item in payload["targets"]

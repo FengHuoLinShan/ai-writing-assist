@@ -95,6 +95,14 @@ async def test_scene_lens_uses_requested_chapter_as_cross_chapter_cutoff() -> No
         *result["scene_world_state"],
     ]:
         assert set(item) == {"label", "summary", "availability"}
+    assert [item["label"] for item in result["scene_world_state"]] == [
+        "人物与对象",
+        "关系",
+        "空间与位置",
+        "知识边界",
+        "时间顺序",
+        "因果与前提",
+    ]
     serialized = str(result)
     for internal in (
         "coverage_status",

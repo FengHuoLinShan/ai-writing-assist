@@ -345,17 +345,19 @@ CharacterKnowledge 先由 world 按目标选出唯一 canonical 有效检查点�
 `false_belief` / `misunderstood` 缺少明确误解内容时不进入上下文。剧情线等
 `director_only` 作者约束保持独立，不伪装成角色已知事实。
 
-带 `scene_id` 的 `writing.generate + reveal_mode=character` 还会通过 memory 稳定
-facade 确保当前 Scene 四维 checkpoint（`entities`、`relations`、`locations`、`knowledge`），并编译不可排除的 P0
-`scene_world_state`。只有可重放的 system `ready` 或已人工确认的状态会成为
+带 `scene_id` 的 `writing.generate`、`writing.conflict_check.ai_review` 与
+`writing.conflict_check.ai_suggestion` 会通过 memory 稳定 facade 确保当前 Scene 的版本化
+checkpoint；V2 固定包含 `entities`、`relations`、`locations`、`knowledge`、`timeline`、
+`causality` 六维，并编译不可排除的 P0 `scene_world_state`。author/character 模式均可消费，
+reader 模式不消费。只有可重放的 system `ready` 或已人工确认的状态会成为
 `director_only` 环境约束；`knowledge` 只报 coverage，不覆盖上述
 CharacterKnowledge。当前 Scene、POV 和显式选择对象没有命中实体投影时，只在
 确认 UI 显示“尚无时间锚”，模型不收到该项，也不得用当前 World 回填。
 
 `MemoryRecordsLoader` 同时把章级 panorama 规范为可读记忆列表，不再把 dict 塞入
-`memory_records: list`。新的 Scene 确认会按固定四维顺序保存 checkpoint
-ID/status 指纹；执行前指纹变化就拒绝回放并要求重新确认。旧确认没有该可选
-字段时继续兼容。
+`memory_records: list`。新的 Scene 确认会保存 contract version、required dimensions 及
+checkpoint ID/status 指纹；执行前指纹变化就拒绝回放并要求重新确认。旧确认没有版本字段时
+按 V1 四维顺序回放，原指纹字节不变。
 
 `scope=generation_center` 供生成中心整个 world 工作区使用，覆盖共创聊天、只读收束、对象建议、
 完善现有世界书页面和创建新页面。编译器接收来源页面、当前 Scene、显式剧情线/人物/对象、章节

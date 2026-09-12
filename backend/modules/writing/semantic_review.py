@@ -400,6 +400,26 @@ class WritingSemanticWorkflowService:
         knowledge_boundary_checked = bool(
             compile_options.get("reveal_mode") == "character" and viewpoint_character_id
         )
+        scene_state_section = next(
+            (
+                section
+                for section in getattr(
+                    getattr(confirmed, "compiled", None), "sections", []
+                )
+                if section.key == "scene_world_state"
+            ),
+            None,
+        )
+        continuity_contract_version = (
+            int(
+                (scene_state_section.retrieval_metadata or {}).get(
+                    "contract_version"
+                )
+                or 0
+            )
+            if scene_state_section is not None
+            else 0
+        )
         deterministic = CharacterRevealGuard().validate(
             pov_view=None,
             draft_prose=str(getattr(draft, "content", "") or ""),
@@ -442,6 +462,7 @@ class WritingSemanticWorkflowService:
                 "pov_view": pov_view,
                 "deterministic_pov_validation": deterministic,
                 "knowledge_boundary_checked": knowledge_boundary_checked,
+                "continuity_contract_version": continuity_contract_version,
             },
             guard_terms,
         )
@@ -597,6 +618,9 @@ class WritingSemanticWorkflowService:
             "knowledge_boundary_checked": bool(
                 review_context.get("knowledge_boundary_checked")
             ),
+            "continuity_contract_version": int(
+                review_context.get("continuity_contract_version") or 0
+            ),
             "deterministic_pov_validation": {
                 "status": deterministic.get("status"),
                 "warnings": list(deterministic.get("warnings") or []),
@@ -718,7 +742,9 @@ class WritingSemanticWorkflowService:
                         "的合同字段。每个 target 必须在 coverage 中恰好返回一项，"
                         "明确检查 "
                         "scene_contract、timeline_location、identity_relation、"
-                        "ability_world_rule、knowledge_boundary；未检查只能标为 "
+                        "ability_world_rule、knowledge_boundary；当 review_context."
+                        "continuity_contract_version>=2 时还必须返回 space_continuity、"
+                        "time_continuity、logic_continuity。未检查只能标为 "
                         "not_checked，"
                         "确实不适用才标为 not_applicable。角色有限视角候选的 "
                         "knowledge_boundary 必须为 checked。"
@@ -970,6 +996,11 @@ class WritingSemanticWorkflowService:
             "ability_world_rule",
             "knowledge_boundary",
         )
+        continuity_coverage_fields = (
+            "space_continuity",
+            "time_continuity",
+            "logic_continuity",
+        )
         for target in targets:
             draft_id = target["draft_id"]
             coverage = coverage_by_id.get(draft_id)
@@ -987,6 +1018,11 @@ class WritingSemanticWorkflowService:
             ):
                 incomplete_draft_ids.add(draft_id)
             review_context = target.get("review_context") or {}
+            if int(review_context.get("continuity_contract_version") or 0) >= 2 and any(
+                coverage.get(field) != "checked"
+                for field in continuity_coverage_fields
+            ):
+                incomplete_draft_ids.add(draft_id)
             if (
                 review_context.get("knowledge_boundary_checked")
                 and coverage.get("knowledge_boundary") != "checked"

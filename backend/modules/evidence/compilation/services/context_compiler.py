@@ -17,6 +17,7 @@ from modules.evidence.compilation.contracts import (
     CompileOptions,
     StructureContextBundle,
     VisibilityContextContract,
+    compile_uses_scene_world_state,
 )
 from modules.evidence.compilation.services.compiled_context import (
     CompiledContext,
@@ -1704,11 +1705,7 @@ class ContextCompiler:
 
     @staticmethod
     def _uses_scene_world_state(options: CompileOptions) -> bool:
-        return bool(
-            options.consumer_action == "writing.generate"
-            and options.scene_id
-            and options.reveal_mode == "character"
-        )
+        return compile_uses_scene_world_state(options)
 
     @classmethod
     def _build_scene_world_state_section(

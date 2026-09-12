@@ -38,6 +38,34 @@ from modules.evidence.compilation.services.protocol import Loader
 from modules.story.continuity.contracts import SCENE_MEMORY_DIMENSIONS
 
 
+@pytest.mark.parametrize(
+    ("action", "reveal_mode", "expected"),
+    [
+        ("writing.generate", "author_safe", True),
+        ("writing.generate", "character", True),
+        ("writing.conflict_check.ai_review", "author_safe", True),
+        ("writing.conflict_check.ai_suggestion", "author_full", True),
+        ("writing.generate", "reader", False),
+        ("world.ask", "author_safe", False),
+    ],
+)
+def test_scene_world_state_consumer_actions(
+    action: str,
+    reveal_mode: str,
+    expected: bool,
+) -> None:
+    options = CompileOptions(
+        novel_id="project-1",
+        task="continuity consumer",
+        scope="chapter",
+        consumer_action=action,
+        scene_id="scene-1",
+        reveal_mode=reveal_mode,
+    )
+
+    assert ContextCompiler._uses_scene_world_state(options) is expected
+
+
 @pytest.mark.asyncio
 async def test_compiler_serializes_loaders_sharing_one_async_session() -> None:
     active_loaders = 0

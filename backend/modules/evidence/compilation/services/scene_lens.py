@@ -20,8 +20,10 @@ logger = logging.getLogger(__name__)
 _STATE_LABELS = {
     "entities": "人物与对象",
     "relations": "关系",
-    "locations": "人物位置",
+    "locations": "空间与位置",
     "knowledge": "知识边界",
+    "timeline": "时间顺序",
+    "causality": "因果与前提",
 }
 
 

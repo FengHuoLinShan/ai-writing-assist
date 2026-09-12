@@ -1306,11 +1306,11 @@ async def test_ai_review_valid_output_adds_ai_judgment_items(
             {
                 "issues": [
                     {
-                        "kind": "motivation_gap",
+                        "kind": "logic_continuity_risk",
                         "severity": "medium",
-                        "summary": "主角突然信任港务长",
+                        "summary": "开门前提尚未成立",
                         "evidence": "主角点头同意。",
-                        "rationale": "此前没有建立信任动机。",
+                        "rationale": "Scene 时点证据要求先取得令牌。",
                         "location_hint": {
                             "chapter_index": 1,
                             "scene_id": scene["id"],
@@ -1341,11 +1341,13 @@ async def test_ai_review_valid_output_adds_ai_judgment_items(
     assert body["ai_review_status"] == "done"
     ai_items = [item for item in body["items"] if item["is_ai_judgment"]]
     assert len(ai_items) == 1
-    assert ai_items[0]["kind"] == "motivation_gap"
+    assert ai_items[0]["kind"] == "logic_continuity_risk"
     assert ai_items[0]["source_module"] == "ai"
+    assert ai_items[0]["source_type"] == "llm.continuity"
+    assert ai_items[0]["needs_review"] is True
     assert ai_items[0]["source_confirmation_id"] == confirmation_id
     assert ai_items[0]["confidence"] == 0.72
-    assert "信任动机" in ai_items[0]["llm_rationale"]
+    assert "令牌" in ai_items[0]["llm_rationale"]
 
 
 @pytest.mark.asyncio

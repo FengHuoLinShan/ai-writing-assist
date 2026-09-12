@@ -438,6 +438,15 @@ class WritingSemanticReviewCoverageItem(BaseModel):
     draft_id: str
     scene_contract: Literal["checked", "not_applicable", "not_checked"]
     timeline_location: Literal["checked", "not_applicable", "not_checked"]
+    space_continuity: (
+        Literal["checked", "not_applicable", "not_checked"] | None
+    ) = None
+    time_continuity: (
+        Literal["checked", "not_applicable", "not_checked"] | None
+    ) = None
+    logic_continuity: (
+        Literal["checked", "not_applicable", "not_checked"] | None
+    ) = None
     identity_relation: Literal["checked", "not_applicable", "not_checked"]
     ability_world_rule: Literal["checked", "not_applicable", "not_checked"]
     knowledge_boundary: Literal["checked", "not_applicable", "not_checked"]
@@ -568,6 +577,9 @@ class WritingConflictAiReviewIssue(BaseModel):
         "scene_commitment_missing",
         "scene_forbidden_deviation",
         "continuity_soft_risk",
+        "space_continuity_risk",
+        "time_continuity_risk",
+        "logic_continuity_risk",
     ]
     severity: Literal["low", "medium", "high"]
     summary: str = Field(..., min_length=1, max_length=1000)

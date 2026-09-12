@@ -17,6 +17,22 @@ if TYPE_CHECKING:
 
 
 INTERACTION_SOURCE_CONTEXT_MAX_TOKENS = 16_000
+SCENE_WORLD_STATE_ACTIONS = frozenset(
+    {
+        "writing.generate",
+        "writing.conflict_check.ai_review",
+        "writing.conflict_check.ai_suggestion",
+    }
+)
+
+
+def compile_uses_scene_world_state(options: CompileOptions) -> bool:
+    """Whether an author/character action consumes versioned Scene-time state."""
+    return bool(
+        options.consumer_action in SCENE_WORLD_STATE_ACTIONS
+        and options.scene_id
+        and options.reveal_mode in {"author_safe", "author_full", "character"}
+    )
 
 
 @dataclass
