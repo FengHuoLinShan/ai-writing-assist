@@ -1233,8 +1233,7 @@ describe("WritingView", () => {
     await wrapper.get("#btn-conflict-check").trigger("click")
     await wrapper.get('[aria-label="剧情设定冲突检查选项"] input[type="checkbox"]').setValue(true)
     await wrapper.findAll("button").find((button) => button.text() === "开始检查").trigger("click")
-    await flushPromises()
-    expect(globalThis.api.writing.createConflictCheck).toHaveBeenCalledWith(expect.objectContaining({
+    await vi.waitFor(() => expect(globalThis.api.writing.createConflictCheck).toHaveBeenCalledWith(expect.objectContaining({
       novel_id: "p1",
       chapter_index: 1,
       scene_id: "s1",
@@ -1242,7 +1241,7 @@ describe("WritingView", () => {
       version_number: 1,
       content: "正文",
       include_candidates: true,
-    }))
+    })))
     expect(wrapper.find('[aria-label="剧情设定冲突检查"]').exists()).toBe(true)
     expect(globalThis.showModalHtml).not.toHaveBeenCalled()
     wrapper.unmount()
@@ -1262,9 +1261,10 @@ describe("WritingView", () => {
       attachTo: document.body,
     })
     await flushPromises()
-    await wrapper.get("#writing-editor").setValue("等待检查的正文")
-    globalThis.api.writing.autosave.mockReturnValueOnce(late.promise)
     const vm = wrapper.vm.$.setupState.vm
+    await wrapper.get("#writing-editor").setValue("等待检查的正文")
+    await vi.waitFor(() => expect(vm.editorState.content).toBe("等待检查的正文"))
+    globalThis.api.writing.autosave.mockReturnValueOnce(late.promise)
     const checking = vm.runConflictCheck()
     await vi.waitFor(() => expect(globalThis.api.writing.autosave).toHaveBeenCalled())
     const switching = vm.selectChapter(2)

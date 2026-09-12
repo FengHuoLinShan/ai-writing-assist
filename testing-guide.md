@@ -210,7 +210,7 @@ deserialization (`GHSA-w8v5-vhqr-4h9v`) and Ragas multimodal Faithfulness SSRF
 causes a published fix to fail the gate again. Production does not install `eval`,
 and the extra remains trusted/offline-only even though this project's adapter uses
 text collection metrics with an isolated local Codex evaluator. Frontend job first uses
-the SHA-pinned Node setup action with `frontend-console/.node-version` (`24.19.0` LTS) and
+the SHA-pinned Node setup action with `frontend-console/.node-version` (`24.20.0` LTS) and
 the committed lockfile cache, then uses `frontend-console/package-lock.json` to run `npm ci`, then
 `npm audit --package-lock-only --audit-level=high`, ESLint and complete Vitest. The production
 image job owns the production build. `Frontend functional browser` starts a fresh dedicated PostgreSQL, the Compose-managed private

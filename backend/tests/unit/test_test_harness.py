@@ -468,12 +468,12 @@ def test_production_toolchain_contract_is_pinned_everywhere() -> None:
         "23c59390fc717bf09f9336908199a0ae75d9c4264bf296123f94ad772fea3b52"
     )
     node_image = (
-        "node:24.19.0-alpine3.23@sha256:"
-        "244cc2b53f46f9e876304391d17682b0ddae9ac33491f4857e25e35a36ba7995"
+        "node:24.20.0-alpine3.23@sha256:"
+        "0388af2af070cd4736a1567cfed02469ba117848845b4165d87a333edb53d2ca"
     )
     nginx_image = (
-        "nginx:1.31.4-alpine@sha256:"
-        "db35bfc6b2951e7f8a72db5db120288c127ffaeeb4a6d4b95a26fead017d5913"
+        "nginx:1.31.5-alpine@sha256:"
+        "72ba65eb42c10344912a84ff42408db7d34f2feb642204570ab8fc5ffd29f1d3"
     )
     postgres_image = (
         "pgvector/pgvector:0.8.6-pg17-bookworm@sha256:"
@@ -501,7 +501,7 @@ def test_production_toolchain_contract_is_pinned_everywhere() -> None:
     assert (BACKEND_ROOT / ".python-version").read_text(encoding="utf-8") == "3.14.7\n"
     assert (repo_root / "frontend-console/.node-version").read_text(
         encoding="utf-8"
-    ) == "24.19.0\n"
+    ) == "24.20.0\n"
     assert workflow.count("runs-on: ubuntu-24.04") == 5
     assert e2e_workflow.count("runs-on: ubuntu-24.04") == 1
     assert workflow.count('python-version: "3.14.7"') == 3
