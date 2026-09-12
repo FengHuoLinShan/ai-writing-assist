@@ -58,7 +58,7 @@ Evidence indexing/compilation 回归集中在 `backend/modules/evidence/`；
 |---|---|---|
 | `make test` | Modules, infrastructure, deterministic eval toolkit tests, unit, SQLite integration, prompt contracts; narrow with `TESTS=<path>` or `ARGS=<pytest-args>` | None; excludes E2E, real LLM, external source data, and the optional Ragas adapter when the `eval` extra is absent |
 | `make test-fast-coverage TEST_WORKERS=2` | Same fast layer with parallel production-code coverage and an 85% gate | None |
-| `make eval-fast` | The same locked deterministic eval toolkit tests without remote model calls | None; the optional Ragas adapter runs only when the `eval` extra is installed |
+| `make eval-fast` | The same locked deterministic eval toolkit tests without remote model calls | Python 3.13 (override with `BACKEND_EVAL_PYTHON`); Ragas currently depends on `scikit-network`, which has no usable Python 3.14 macOS wheel |
 | `make eval-ask-world` | Ask World project/API contracts, then retrieval, citation-fixture, refusal and integrity thresholds | None; targeted API tests plus deterministic synthetic evidence, not a semantic-answer quality claim |
 | `make eval-context-planner NOVEL_ID=<id> OUTPUT=<path>` | 冻结 RAG 数据上对比 task-direct 与确定性 Planner，输出 split/purpose、MRR/P@5/R@10、结果数、source hash、stale/跨项目与延迟 | 已建立同一冻结语料索引的本地项目；不调 LLM |
 | `make eval-context-planner NOVEL_ID=<id> LLM_PLANNER=1 OUTPUT=<path>` | 在上述对比中增加 `planner-v2-llm`，仅向当前项目模型发送 dev split 中达到复杂度门槛的查询 | 显式付费/外部模型验收；train/test 不发送给 Planner |

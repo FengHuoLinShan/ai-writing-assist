@@ -12,8 +12,9 @@ BACKEND_MANUAL_TESTS := $(BACKEND_REAL_LLM_TESTS) tests/e2e/test_writing_conflic
 BACKEND_POSTGRESQL_CRITICAL_TESTS := tests/e2e/test_00_fresh_migrations.py tests/e2e/test_context_retrieval_trace_queries.py tests/e2e/test_context_terminal_concurrency.py tests/e2e/test_import_upload_commit_visibility.py tests/e2e/test_interaction_generation_concurrency.py tests/e2e/test_project_task_gate_concurrency.py tests/e2e/test_rp_source_versions.py tests/e2e/test_scene_memory_checkpoint_concurrency.py tests/e2e/test_smart_dedup_group_savepoint.py tests/e2e/test_task_coalescing_concurrency.py tests/e2e/test_writing_route_commit_visibility.py tests/e2e/test_writing_version_concurrency.py
 FAST_TEST_TIMEOUT_SECONDS ?= 120
 TEST_WORKERS ?= auto
+BACKEND_EVAL_PYTHON ?= 3.13
 BACKEND_LOCKED_CI_RUN := uv run --locked --extra ci --
-BACKEND_LOCKED_EVAL_RUN := uv run --locked --extra eval --
+BACKEND_LOCKED_EVAL_RUN := uv run --python $(BACKEND_EVAL_PYTHON) --locked --extra eval --
 
 # ─── Full Stack ─────────────────────────────────────
 
