@@ -55,7 +55,7 @@ def _valid_values() -> dict[str, str]:
         "MAP_ATLAS_S3_SECRET_ACCESS_KEY": "fixture-minio-secret",
         "MAP_ATLAS_S3_FORCE_PATH_STYLE": "true",
         "MINIO_IMAGE": (
-            "minio/minio:RELEASE.2025-04-22T22-12-26Z@sha256:"
+            "quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z@sha256:"
             "a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e"
         ),
         "MINIO_MC_IMAGE": (

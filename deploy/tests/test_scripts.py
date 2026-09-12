@@ -450,7 +450,7 @@ def test_production_minio_is_internal_pinned_and_initializes_private_quotas() ->
     assert minio["healthcheck"]["test"][1].endswith("/minio/health/ready")
     assert init["depends_on"]["minio"]["condition"] == "service_healthy"
     assert "condition: service_completed_successfully" in compose_text
-    assert "MINIO_IMAGE=minio/minio:RELEASE." in example
+    assert "MINIO_IMAGE=quay.io/minio/minio:RELEASE." in example
     assert "MINIO_MC_IMAGE=minio/mc:RELEASE." in example
     assert "mc anonymous set none" in init_script
     assert "mc version enable" in init_script
