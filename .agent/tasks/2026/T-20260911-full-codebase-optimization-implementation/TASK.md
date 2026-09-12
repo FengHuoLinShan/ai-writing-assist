@@ -17,8 +17,8 @@ updated: 2026-09-12T12:00:00+08:00
 - 当前验证：fast 全量 5410 passed/13 skipped、覆盖率 85.72%；PostgreSQL critical 33 passed；前端 185 files/2441 tests、lint/build/生产资源校验；部署 270 passed，生产镜像与真实恢复演练通过；docs-check 及 `BASE_REF=origin/main` 显式复核通过。
 - 最新原子提交：`de9846689`–`bf74bc654`。完成六维 continuity、显式导入回收站、B1c 分类清理/合成夹具、B3c 任务轨真实模型验收与同步 AI 轨退役。
 - 当前里程碑：剩余问题复核完成。修复 Vitest 漏洞和 eval Python 兼容；RAG “旧 chunk 残留”经完整回归证明是测试误判，已恢复历史 source revision 并纠正验收。
-- 下一步：将已通过合并门禁的 `codex/full-optimization-implementation` 快进到本地 `main`；不推送、不部署。
-- 未完成：无可安全实施的已授权项；Ragas 上游归档依赖与 F5-7 仍受外部依赖/生产拓扑证据阻塞。本任务未推送、未合并、未部署。
+- 下一步：无；本地合并已完成，不推送、不部署。
+- 未完成：无可安全实施的已授权项；Ragas 上游归档依赖与 F5-7 仍受外部依赖/生产拓扑证据阻塞。本任务已合并到本地 `main`，未推送、未部署。
 
 ## 合并复核（2026-09-12）
 
