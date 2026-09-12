@@ -187,6 +187,9 @@ POST /api/imports/deep/resume              # 用户确认后继续可恢复的�
 POST /api/imports/deep/abandon             # 放弃恢复并清理同 workflow 自动派生资产
 ```
 
+所有字面量 `GET` 路由（如 `/review-summary`）必须在 `GET /api/imports/{id}`
+之前注册，避免被动态 `id` 匹配吞掉。
+
 上传成功的可见性来自 `DbSession` 的 request-owned transaction：function-scope dependency 在普通非流式响应开始前统一提交，上传路由本身不持有单独的成功提交逻辑。
 
 `/deep` 与三个 `/stages/*` 请求都必须显式发送
