@@ -175,28 +175,30 @@ class RagChunkRepository:
             dict.fromkeys(int(item.chunk_index or 0) for item in items)
         )
         index_versions = list(dict.fromkeys(item.index_version for item in items))
-        stale_reasons = [
-            RagChunk.index_version.notin_(index_versions),
-            RagChunk.chunk_index.is_(None),
-            RagChunk.chunk_index.notin_(current_chunk_indices),
-        ]
-        if source_type == "chapter_text" and current_source_id is not None:
-            stale_reasons.extend(
-                [
-                    RagChunk.source_id.is_(None),
-                    RagChunk.source_id != current_source_id,
-                ]
-            )
         stale_stmt = delete(RagChunk).where(
             RagChunk.novel_id == novel_id,
             RagChunk.source_type == source_type,
             RagChunk.chapter_index == chapter_index,
             RagChunk.content_mode == items[0].content_mode,
-            or_(*stale_reasons),
+            or_(
+                RagChunk.index_version.notin_(index_versions),
+                RagChunk.chunk_index.is_(None),
+                RagChunk.chunk_index.notin_(current_chunk_indices),
+            ),
         )
-        if current_source_id is not None and source_type != "chapter_text":
+        if current_source_id is not None:
             stale_stmt = stale_stmt.where(RagChunk.source_id == current_source_id)
         await db.execute(stale_stmt)
+        if source_type == "chapter_text" and current_source_id is not None:
+            await db.execute(
+                delete(RagChunk).where(
+                    RagChunk.novel_id == novel_id,
+                    RagChunk.source_type == source_type,
+                    RagChunk.chapter_index == chapter_index,
+                    RagChunk.content_mode == items[0].content_mode,
+                    RagChunk.source_id.is_(None),
+                )
+            )
         if source_type == "chapter_text":
             await self.replace_entity_appearances(
                 db,
