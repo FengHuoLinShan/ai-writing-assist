@@ -2625,10 +2625,15 @@ async def test_replace_chapter_chunks_is_idempotent_for_same_chapter(
     repo: RagChunkRepository,
     test_project_id: str,  # noqa: F811
 ) -> None:
+    from modules.evidence.indexing.models import RagChunk
+
     nid = uuid.UUID(hex=test_project_id)
+    old_source_id = str(uuid.uuid4())
+    current_source_id = str(uuid.uuid4())
     first = [
         RagChunkCreate(
             source_type="chapter_text",
+            source_id=old_source_id,
             content_mode="working",
             chapter_index=1,
             chunk_index=0,
@@ -2637,6 +2642,7 @@ async def test_replace_chapter_chunks_is_idempotent_for_same_chapter(
         ),
         RagChunkCreate(
             source_type="chapter_text",
+            source_id=old_source_id,
             content_mode="working",
             chapter_index=1,
             chunk_index=1,
@@ -2647,6 +2653,7 @@ async def test_replace_chapter_chunks_is_idempotent_for_same_chapter(
     second = [
         RagChunkCreate(
             source_type="chapter_text",
+            source_id=current_source_id,
             content_mode="working",
             chapter_index=1,
             chunk_index=0,
@@ -2678,6 +2685,17 @@ async def test_replace_chapter_chunks_is_idempotent_for_same_chapter(
         content_mode="working",
     )
     assert [(chunk.chunk_index, chunk.text) for chunk in chunks] == [(0, "新 chunk 0")]
+    stored_source_ids = set(
+        await db_session.scalars(
+            select(RagChunk.source_id).where(
+                RagChunk.novel_id == nid,
+                RagChunk.source_type == "chapter_text",
+                RagChunk.chapter_index == 1,
+                RagChunk.content_mode == "working",
+            )
+        )
+    )
+    assert stored_source_ids == {uuid.UUID(current_source_id)}
 
 
 @pytest.mark.asyncio
