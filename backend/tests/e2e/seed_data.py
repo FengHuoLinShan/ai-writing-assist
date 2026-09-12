@@ -1,5 +1,5 @@
 """
-诡秘之主 第一部 — E2E 测试种子数据
+E2E 测试种子数据
 
 提供分层的工厂函数，按顺序创建测试数据并返回各级 ID 的字典。
 每个函数接受一个 AsyncSession，使用 ORM 模型创建记录。
@@ -343,10 +343,10 @@ async def create_writing_drafts(
     session: AsyncSession,
     project_id: uuid.UUID,
 ) -> dict[str, Any]:
-    """为第 1-3 章创建真实的《诡秘之主 第一部》正文草稿。"""
+    """为第 1-3 章创建原创合成正文草稿。"""
     from modules.writing.models import WritingDraft
 
-    sample_path = Path(__file__).with_name("samples") / "lotm_chapters_1_2_3.txt"
+    sample_path = Path(__file__).with_name("samples") / "synthetic_chapters_1_2_3.txt"
     if not sample_path.exists():
         raise FileNotFoundError(f"找不到章节样本: {sample_path}")
 

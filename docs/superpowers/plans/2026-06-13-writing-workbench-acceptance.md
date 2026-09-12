@@ -17,7 +17,7 @@
 - Existing tests:
   - Backend: `backend/modules/writing/tests/test_writing.py` (53 tests passed).
   - Frontend: `frontend-console/e2e/writing.spec.js` (12 tests) and `frontend-console/e2e/writing-conflict.spec.js` (1 test).
-- Seed data for real LLM extraction: `backend/tests/e2e/seed_data.py` + `backend/tests/e2e/samples/lotm_chapters_1_2_3.txt`.
+- Seed data for real LLM extraction: `backend/tests/e2e/seed_data.py` + `backend/tests/e2e/samples/synthetic_chapters_1_2_3.txt`.
 - LLM is configured: `llm_model=deepseek-v4-flash`, `llm_base_url=https://api.deepseek.com`, key present.
 
 ---
@@ -131,7 +131,7 @@ git commit -m "test(writing): verify frontend E2E acceptance coverage"
 
 **Files:**
 - Use seed script: `backend/tests/e2e/seed_data.py`
-- Use sample text: `backend/tests/e2e/samples/lotm_chapters_1_2_3.txt`
+- Use the equivalent synthetic sample text: `backend/tests/e2e/samples/synthetic_chapters_1_2_3.txt`
 - Endpoint: `POST /api/outline/generate?novel_id=<id>&start_chapter=1&end_chapter=3`
 
 - [ ] **Step 1: Create a standalone acceptance script**

@@ -9,7 +9,7 @@
 ## 1. 数据来源
 
 - 原始文本: `/Users/tywww/Desktop/项目/wirting skill/诡秘之主_第一部 小丑.txt`
-- 样本文件: `backend/tests/e2e/samples/lotm_chapters_1_2_3.txt`
+- 样本文件（现行等价合成夹具）: `backend/tests/e2e/samples/synthetic_chapters_1_2_3.txt`
 - 第 1 章字符数: 2,638
 - 第 2 章字符数: 3,397
 - 第 3 章字符数: 3,322

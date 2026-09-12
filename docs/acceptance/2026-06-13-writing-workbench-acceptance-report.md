@@ -84,7 +84,7 @@ npx playwright test e2e/writing.spec.js e2e/writing-conflict.spec.js --reporter=
 
 - 脚本: `backend/scripts/acceptance_writing_extraction.py`
 - 模型: `deepseek-v4-flash` @ `https://api.deepseek.com`
-- 数据来源: `backend/tests/e2e/samples/lotm_chapters_1_2_3.txt`
+- 数据来源（现行等价合成夹具）: `backend/tests/e2e/samples/synthetic_chapters_1_2_3.txt`
 - 调用链路: 直接调用 `PlotStructureGenerator.generate()`（未 mock），加载真实章节正文后生成剧情结构并持久化。
 
 ### 4.2 结果统计
