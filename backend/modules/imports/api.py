@@ -243,18 +243,6 @@ async def list_imports(
     return await _service.list_import_records(db, novel_id, skip=skip, limit=limit)
 
 
-@router.get("/{record_id}", response_model=ImportResponse)
-async def get_import(
-    db: DbSession,
-    record_id: str,
-    *,
-    novel_id: NovelIdQuery,
-) -> ImportResponse:
-    """获取单条导入记录详情"""
-    await _require_active_project(db, novel_id)
-    return await _service.get_import_record(db, novel_id, record_id)
-
-
 # ====================================================================
 # 深度导入
 # ====================================================================
@@ -598,3 +586,17 @@ async def apply_scene_resolution_group(
     return await accept_scene_group(
         db, novel_id=novel_id, task_id=task_id, group_key=group_key, data=body
     )
+
+
+# 动态路径路由必须放在全部字面量 GET 路由之后：FastAPI 按声明顺序匹配，
+# 若靠前会把 /imports/review-summary 之类路径当作 record_id 吞掉。
+@router.get("/{record_id}", response_model=ImportResponse)
+async def get_import(
+    db: DbSession,
+    record_id: str,
+    *,
+    novel_id: NovelIdQuery,
+) -> ImportResponse:
+    """获取单条导入记录详情"""
+    await _require_active_project(db, novel_id)
+    return await _service.get_import_record(db, novel_id, record_id)

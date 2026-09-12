@@ -4,11 +4,16 @@
 完整字段（§7 全 12 项）以 `units/<槽位>.md` 对应小节为准，此处不重复维护。
 发现 ID 保持槽位前缀；跨槽重复用 `dup-of`/`cross-ref` 标注，不重编号。
 
+2026-09-11 独立复核补充：本文件目前不是 241 条发现的完整逐 ID 清单，且未保存全部去重映射；
+`241（P0=0/P1=4/P2=58/P3=179）` 是原审查汇总值，不应被描述成可由本索引机械复算。
+具体实施只采用在目标 HEAD 上重新核实的 ID。冻结覆盖账本对应 `main@e7d0b8d5b`；当前前端
+分支的新增文件与 19 个已变更 blob 不在该覆盖结论内。
+
 ## 累计汇总（W1+W2+W3 全部完成）
 
 - 覆盖：**2453/2453 路径全部已审**（F 1033 + W2a 252 + W2b 261 + W2c 334 + W2d 573）；P2 端到端 9 条链全部走读完成。
 - 发现 241 条：P0=0，P1=4，P2=58，P3=179。历史候选复核累计约 120 项次（含 Wave0 十条命令逐条）。
-- P1 四条：F4-1（测试扫 venv）、D5a-1、D5b-1（功能性错误）、E1-1（52 个账户/偏好测试不在任何自动门禁）。
+- P1 四条：F4-1（测试扫 venv）、D5a-1、D5b-1（显式恢复的窄进程死亡窗口可保留 failed 态）、E1-1（52 个账户/偏好测试不在任何自动门禁）。
 - 动态性能基准全线受阻（performance_probe 本机必败 + 需隔离环境/专用 PG），已按 §5/§7 如实记录"收益待测"，未虚构 p95/p99。
 
 ## W3 新增（X1–X4，12 条：P2=2、P3=10）
@@ -55,13 +60,13 @@ P2 亮点：
 
 移交与增量：F3-1 的 activationPreview 死链定案（前端死契约+死包装可删；POST `/activation-preview` 有真实消费者 useWorldBible.js:1731 不得误删）；F1-3 census 再增（D6b compilation 内 9 处 sha256-json 指纹，含两个持久化比对面禁止输出漂移）；D8a-6 列出三处手写 manager 与工厂的能力差距（含必须保留的语义）；D8b-2 raw status 枚举暴露给作者（产品裁定项）。
 
-## P1（2 条）
+## W1/W2 生产与基础设施 P1（3 条；E1-1 见 W2d）
 
 | ID | 一句话 | 位置 | 状态 |
 |---|---|---|---|
 | F4-1 | `test_identity` 用 `rglob("*.py")` 从 backend 根 AST 遍历，把 `backend/.venv`（约 1.4 万文件）全部解析——基线"失败"实为 fast 层超时判负；排除 venv 后断言通过，单独跑需 27 分钟 | `backend/infrastructure/tasks/test_identity.py:26`（BACKEND_ROOT.rglob） | 已由独立复跑证实（1 passed in 1623.90s）；修复=测试内加 venv 排除，归 F2/E1 文件，实施批次处理 |
 | D5a-1 | 生产 prompt 硬编码《诡秘之主》实体名清单与内部评测名"Codex5.3"注入小样本 sweep（8–12 Scene 且初抽 <29 实体可达）；bulk_entity_memory_context 另有 1–7 章题材特判——第三方内容注入任意用户的抽取请求，属已有功能错误 | `backend/modules/imports/entity_extraction/scene_entity_bulk.py:416-423`（已独立实锤）；关联 `scene_fusion.py:33-40` 死 reducer 内同类内容 | 按 §2 单列功能性修复任务；持久化证据门禁兜底了大部分落库风险 |
-| D5b-1 | 优雅失败持久化 `phase="failed"` 后，resume 重新入队但 `_progress_from_task` 不重置（仅 targeted_completion 特例），`workflow.run_step` 抛「无法处理当前进度状态： failed」——对 LLM 健康失败等全部优雅失败类形成 resume→失败死循环；现有测试未覆盖 fail→resume→重跑 | `backend/modules/imports/orchestrator.py:1368-1396`（已独立实锤：仅 running 与 targeted_completion 特例重置） | 按 §2 单列功能性修复任务；补 fail→resume→重跑测试 |
+| D5b-1 | `phase="failed"` 与 `recovery_required=true` 同时保留的窄进程死亡窗口中，显式 resume 重新入队后 `_progress_from_task` 不重置（仅 targeted_completion 特例），`workflow.run_step` 再抛「无法处理当前进度状态： failed」。普通优雅失败是 dismiss-only，并非全部可 resume；现有测试未覆盖该窄窗口的 fail→resume→重跑 | `backend/modules/imports/orchestrator.py:1368-1396`；精确触发面见 `units/X2.md` | 按 §2 单列功能性修复任务；只在显式恢复意图下归一状态并补窄窗口回归测试 |
 
 ## P2（29 条，索引）
 

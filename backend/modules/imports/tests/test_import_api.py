@@ -901,3 +901,20 @@ async def test_deep_import_recovery_hides_task_existence_before_project_gate(
     assert "meta_secret" not in recycled.text
     assert "result_secret" not in recycled.text
     assert task.status == "failed"
+
+
+@pytest.mark.asyncio
+async def test_review_summary_route_not_shadowed_by_record_id_route(
+    async_client: AsyncClient,
+    sample_project: dict,
+) -> None:
+    """/imports/review-summary 必须命中字面量路由，而非被 GET /{record_id} 吞掉"""
+    novel_id = sample_project["id"]
+    resp = await async_client.get(
+        f"/api/imports/review-summary?novel_id={novel_id}"
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total_candidates"] == 0
+    assert data["unclassified"] == 0
+    assert "latest" in data
