@@ -785,7 +785,9 @@ async def test_codex_executor_timeout_kills_the_process_group(
         lambda pid, sig: killed.append((pid, sig)),
     )
 
-    executor = CodexStructuredExecutor(timeout_seconds=0.01, attempts=1)
+    executor = CodexStructuredExecutor(
+        command="python", timeout_seconds=0.01, attempts=1
+    )
     with pytest.raises(Exception, match="timed out"):
         await executor.generate_structured(
             "quota probe",
