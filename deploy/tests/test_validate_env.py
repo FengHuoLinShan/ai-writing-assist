@@ -59,7 +59,7 @@ def _valid_values() -> dict[str, str]:
             "a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e"
         ),
         "MINIO_MC_IMAGE": (
-            "minio/mc:RELEASE.2025-03-12T17-29-24Z@sha256:"
+            "quay.io/minio/mc:RELEASE.2025-03-12T17-29-24Z@sha256:"
             "470f5546b596e16c7816b9c3fa7a78ce4076bb73c2c73f7faeec0c8043923123"
         ),
         "MINIO_ROOT_USER": "fixture-minio-root",

@@ -52,7 +52,7 @@ services:
       retries: 12
 
   minio-init:
-    image: minio/mc:RELEASE.2025-03-12T17-29-24Z@sha256:470f5546b596e16c7816b9c3fa7a78ce4076bb73c2c73f7faeec0c8043923123
+    image: quay.io/minio/mc:RELEASE.2025-03-12T17-29-24Z@sha256:470f5546b596e16c7816b9c3fa7a78ce4076bb73c2c73f7faeec0c8043923123
     restart: "no"
     entrypoint: ["/bin/sh", "/usr/local/bin/init-minio.sh"]
     # Worktrees reuse the fixed-name MinIO container. Sharing its network
