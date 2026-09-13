@@ -130,7 +130,7 @@ describe("writingIsland", () => {
     setBridgeOverrides({
       state,
       api,
-      router: { getCurrentQuery: () => new URLSearchParams("demo=1&chapter_index=1&readonly=1") },
+      router: { getCurrentQuery: () => new URLSearchParams("demo=1&chapter_index=99&readonly=1") },
     })
     const island = createWritingIsland()
     try {

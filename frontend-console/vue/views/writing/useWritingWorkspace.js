@@ -146,7 +146,11 @@ export async function loadWritingProps({ homeMode: requestedHomeMode } = {}) {
       defaultFocusMode: Boolean(unwrap(prefsResult.value.default_focus_mode, false)),
     }
   }
-  if (publicDemo && !result.requestedLocation && result.chapterList.length) {
+  if (
+    publicDemo
+    && result.chapterList.length
+    && !result.chapterList.includes(Number(result.requestedLocation?.chapter))
+  ) {
     result.requestedLocation = {
       chapter: result.chapterList.at(-1),
       isReadonly: true,
