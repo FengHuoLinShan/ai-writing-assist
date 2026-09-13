@@ -121,6 +121,23 @@ describe("WritingView", () => {
     wrapper.unmount()
   })
 
+  it("公开正文阅读器在没有已发布章节时显示明确空态", async () => {
+    const wrapper = mount(WritingView, {
+      props: props({
+        publicDemo: true,
+        chapterList: [],
+        chapters: {},
+        scenes: [],
+        requestedLocation: null,
+      }),
+      attachTo: document.body,
+    })
+    await flushPromises()
+
+    expect(wrapper.find(".public-demo-reader__document").text()).toContain("暂无可阅读的正式正文")
+    wrapper.unmount()
+  })
+
   it("通过本章地图离开并返回同章时保留未保存正文和光标", async () => {
     let guard
     const findMapLinks = vi.fn().mockResolvedValue({ items: [{ node_id: "map-1", node_title: "廷根", feature_id: "f1", feature_label: "旅馆" }], truncated: false })

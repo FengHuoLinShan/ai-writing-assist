@@ -31,7 +31,7 @@
           <h1 id="public-demo-chapter-title">{{ vm.editorState.title || `第 ${vm.selectedChapter.value} 章` }}</h1>
           <div class="public-demo-reader__content">{{ vm.editorState.content }}</div>
         </article>
-        <p v-else>请选择一章开始阅读。</p>
+        <p v-else>{{ vm.chapterList.value.length ? "请选择一章开始阅读。" : "演示项目暂无可阅读的正式正文。" }}</p>
       </main>
     </div>
   </template>
