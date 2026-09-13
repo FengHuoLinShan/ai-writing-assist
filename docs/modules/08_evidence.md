@@ -28,8 +28,8 @@ context 本身不拥有业务事实，但当前**有自己的确认与审计记�
 - `rag_index_state`：索引请求源、已完成源、freshness 与 task owner/generation 状态
 - `context_confirmations`：AI 参考资料确认记录，保存 action、scope、selected_asset_ids、warnings、result_refs、stale_reasons 等摘要
 - `context_confirmation_asset_refs`：把确认记录精确索引到资产 kind/id、来源 hash 与失效检查
-- `context_snapshots`：自动 AI 调用上下文快照，保存 source `novel_id`、可空 RP
-  `consumer_novel_id`、task/workflow、摘要/hash、token/section metadata、result refs 和错误；默认不保存完整 rendered context
+- `context_snapshots`：自动 AI 调用上下文快照；普通路径保存当前 `novel_id`，RP 以
+  consumer `novel_id` 隔离写入并以 source revision/refs 记录资料来源；另保存 task/workflow、摘要/hash、token/section metadata、result refs 和错误，默认不保存完整 rendered context
 - `evidence_links`：使用 `TargetRef + claim_path` 将对象字段连到 `SourceRangeRef`；保存 precision/status/provenance，不创建独立 Claim 正史
 - `context_retrieval_traces`：只保存查询计划 hash、clause 摘要、计数和 safe-empty 原因，不保存 raw query/正文
 - PostgreSQL trace 旁路写入设置 2 秒事务级锁等待上限；FK 锁竞争只产生诊断 warning，

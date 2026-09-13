@@ -8,6 +8,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import Settings, get_settings
+from modules.account.constants import SESSION_COOKIE_NAME
 from modules.account.middleware import _is_demo_read_post, _is_demo_read_request
 from modules.account.models import Account
 from modules.account.public_demo import PublicDemoConfig, configured_public_demo
@@ -65,6 +66,10 @@ async def test_public_demo_config_and_scoped_viewer_routes(
         config = await async_client.get("/api/auth/config")
         listing = await async_client.get("/api/projects?demo=1")
         detail = await async_client.get(f"/api/projects/{demo.id}?demo=1")
+        detail_with_stale_cookie = await async_client.get(
+            f"/api/projects/{demo.id}?demo=1",
+            headers={"Cookie": f"{SESSION_COOKIE_NAME}=stale-session"},
+        )
         cross_project = await async_client.get(f"/api/projects/{private.id}?demo=1")
         account = await async_client.get("/api/account/settings/llm-defaults?demo=1")
         assistant = await async_client.get(
@@ -94,6 +99,7 @@ async def test_public_demo_config_and_scoped_viewer_routes(
         assert listing.status_code == 200
         assert [item["id"] for item in listing.json()["items"]] == [str(demo.id)]
         assert detail.status_code == 200
+        assert detail_with_stale_cookie.status_code == 200
         assert cross_project.status_code == 401
         assert account.status_code == 401
         assert assistant.status_code == 401

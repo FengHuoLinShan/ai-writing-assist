@@ -433,7 +433,7 @@ class InteractionStoryContextService:
         tokens = estimate_token_count(rendered)
         snapshot = await self._snapshots.create_context_snapshot(
             db,
-            novel_id=source_novel_id,
+            novel_id=consumer_novel_id,
             consumer_novel_id=consumer_novel_id,
             task_id=task_id,
             phase="interaction_story",
@@ -471,7 +471,7 @@ class InteractionStoryContextService:
         if blockers:
             await self._snapshots.mark_context_snapshot_failed(
                 db,
-                novel_id=source_novel_id,
+                novel_id=consumer_novel_id,
                 snapshot_id=snapshot.id,
                 error_kind="source_context_blocked",
                 error_message=blockers[0],
@@ -479,7 +479,7 @@ class InteractionStoryContextService:
         else:
             await self._snapshots.mark_context_snapshot_succeeded(
                 db,
-                novel_id=source_novel_id,
+                novel_id=consumer_novel_id,
                 snapshot_id=snapshot.id,
                 result_refs=[
                     *included_refs,

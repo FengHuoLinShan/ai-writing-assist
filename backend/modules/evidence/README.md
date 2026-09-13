@@ -14,8 +14,8 @@
 
 ## 数据与不变量
 
-- 表名保持 `rag_*`、`context_*` 和 `evidence_links`；`context_snapshots` 新增可空
-  `consumer_novel_id`，用于记录同 owner RP consumer，`novel_id` 仍是资料来源项目；
+- 表名保持 `rag_*`、`context_*` 和 `evidence_links`；RP `context_snapshots` 以 consumer
+  `novel_id` 隔离审计写入，并用 source revision/SourceRangeRef 保留作者资料来源；
 - task type、recovery policy、owner scope 与 action/payload 保持不变；
 - 所有查询和写入保持 owner + `novel_id` 隔离；
 - reader/character 可见性、hidden truth guard、confirmation 精确失效、snapshot 生命周期、

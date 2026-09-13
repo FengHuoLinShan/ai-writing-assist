@@ -214,41 +214,42 @@ class AccountAuthMiddleware:
             )
             return
 
+        config = configured_public_demo(settings)
+        demo_request = _is_demo_read_request(
+            scope,
+            path=path,
+            method=method,
+            config=config,
+        ) or _is_demo_read_post(
+            scope,
+            path=path,
+            method=method,
+            config=config,
+        )
+        if demo_request:
+            if method == "POST" and (
+                headers.get("x-requested-with") != "XMLHttpRequest"
+                or not _same_origin(
+                    headers.get("origin", ""),
+                    settings.public_base_url,
+                    settings.allowed_origins,
+                )
+            ):
+                await self._reject(scope, receive, send, 403, "Invalid demo request")
+                return
+            principal = await self._demo_principal(config)
+            if principal is None:
+                await self._reject(scope, receive, send, 404, "Demo unavailable")
+                return
+            token = bind_principal(principal)
+            try:
+                await self.app(scope, receive, send)
+            finally:
+                reset_principal(token)
+            return
+
         raw_token = _cookie(headers, SESSION_COOKIE_NAME)
         if not raw_token:
-            config = configured_public_demo(settings)
-            demo_request = _is_demo_read_request(
-                scope,
-                path=path,
-                method=method,
-                config=config,
-            ) or _is_demo_read_post(
-                scope,
-                path=path,
-                method=method,
-                config=config,
-            )
-            if demo_request:
-                if method == "POST" and (
-                    headers.get("x-requested-with") != "XMLHttpRequest"
-                    or not _same_origin(
-                        headers.get("origin", ""),
-                        settings.public_base_url,
-                        settings.allowed_origins,
-                    )
-                ):
-                    await self._reject(scope, receive, send, 403, "Invalid demo request")
-                    return
-                principal = await self._demo_principal(config)
-                if principal is None:
-                    await self._reject(scope, receive, send, 404, "Demo unavailable")
-                    return
-                token = bind_principal(principal)
-                try:
-                    await self.app(scope, receive, send)
-                finally:
-                    reset_principal(token)
-                return
             await self._reject(scope, receive, send, 401, "Authentication required")
             return
         manager = get_manager()
@@ -261,40 +262,6 @@ class AccountAuthMiddleware:
         if principal is None:
             await self._reject(scope, receive, send, 401, "Authentication required")
             return
-        if principal.identity_type == "anonymous_rp":
-            config = configured_public_demo(settings)
-            demo_request = _is_demo_read_request(
-                scope,
-                path=path,
-                method=method,
-                config=config,
-            ) or _is_demo_read_post(
-                scope,
-                path=path,
-                method=method,
-                config=config,
-            )
-            if demo_request:
-                if method == "POST" and (
-                    headers.get("x-requested-with") != "XMLHttpRequest"
-                    or not _same_origin(
-                        headers.get("origin", ""),
-                        settings.public_base_url,
-                        settings.allowed_origins,
-                    )
-                ):
-                    await self._reject(scope, receive, send, 403, "Invalid demo request")
-                    return
-                demo_principal = await self._demo_principal(config)
-                if demo_principal is None:
-                    await self._reject(scope, receive, send, 404, "Demo unavailable")
-                    return
-                token = bind_principal(demo_principal)
-                try:
-                    await self.app(scope, receive, send)
-                finally:
-                    reset_principal(token)
-                return
         if principal.status == "pending_deletion" and path not in _PENDING_ALLOWED_PATHS:
             await self._reject(scope, receive, send, 403, "Account pending deletion")
             return

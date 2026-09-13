@@ -14,6 +14,10 @@ from infrastructure.tasks.models import AsyncTask
 from modules.account.context import bind_principal, reset_principal
 from modules.account.contracts import AccountPrincipal
 from modules.account.models import Account
+from modules.evidence.compilation.models import ContextSnapshot
+from modules.evidence.compilation.services.interaction_story_context import (
+    InteractionStoryContextService,
+)
 from modules.evidence.facade import compile_interaction_story_context
 from modules.interaction.api import _require_non_anonymous_care
 from modules.interaction.generation import (
@@ -323,6 +327,55 @@ async def test_evidence_public_demo_exception_rejects_an_arbitrary_revision(
             public_demo_source=True,
             public_demo_source_fingerprint=revision.fingerprint,
         )
+
+
+async def test_public_demo_context_snapshot_is_owned_by_the_consumer_project(
+    db_session,
+    project_factory,
+) -> None:
+    revision, anchor, _reference_key = await _public_source(
+        db_session,
+        project_factory,
+    )
+    consumer_owner = Account(status="active", support_code="U-DEMO-CONSUMER")
+    db_session.add(consumer_owner)
+    await db_session.flush()
+    consumer_id = await project_factory.create_project(
+        title="匿名旅程",
+        project_kind="interaction",
+        owner_id=consumer_owner.id,
+    )
+
+    compiled = await InteractionStoryContextService()._snapshot_result(  # noqa: SLF001
+        db_session,
+        source_novel_id=str(revision.source_novel_id),
+        consumer_novel_id=str(consumer_id),
+        source_revision_id=str(revision.id),
+        anchor=anchor,
+        task_id=None,
+        model="deepseek-v4-flash",
+        rendered="雾港雨夜",
+        included_refs=[],
+        warnings=[],
+        blockers=[],
+    )
+    snapshot = await db_session.get(ContextSnapshot, uuid.UUID(compiled.snapshot_id))
+
+    assert snapshot is not None
+    assert snapshot.novel_id == consumer_id
+    assert snapshot.consumer_novel_id == consumer_id
+    assert (
+        list(
+            (
+                await db_session.execute(
+                    select(ContextSnapshot).where(
+                        ContextSnapshot.novel_id == revision.source_novel_id
+                    )
+                )
+            ).scalars()
+        )
+        == []
+    )
 
 
 async def test_freeze_candidate_is_dry_run_by_default_and_writes_only_after_gate(

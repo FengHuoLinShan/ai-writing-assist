@@ -208,6 +208,7 @@ async def test_interaction_context_snapshot_keeps_hashes_not_rendered_source_tex
     assert new_text not in compiled.rendered_context
     assert compiled.blockers == []
     assert snapshot is not None
+    assert snapshot.novel_id == consumer_id
     assert snapshot.consumer_novel_id == consumer_id
     assert snapshot.rendered_context is None
     assert snapshot.context_summary["fingerprint"] == compiled.fingerprint
