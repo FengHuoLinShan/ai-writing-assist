@@ -66,7 +66,7 @@ test.describe("首页与导航", () => {
     await expect(page.locator(SEL.navItem("project"))).toHaveCount(0)
     await expect(page.locator(SEL.navItem("generate"))).toHaveCount(0)
     await expect(page.locator(".sidebar-project-switcher")).toBeVisible()
-    await expect(page.getByText("更多", { exact: true })).toBeVisible()
+    await expect(page.getByText("更多工具", { exact: true })).toBeVisible()
   })
 
   test("点击导航切换视图", async ({ page }) => {
@@ -305,7 +305,7 @@ for (const theme of ["light", "dark"]) {
     await expect(entry).toBeFocused()
     expect(await focusStyle()).not.toEqual(resting)
     await entry.press("Enter")
-    await expect(page.getByRole("heading", { name: /作品\s*档案/ })).toBeVisible()
+    await expect(page.locator(SEL.viewTitle)).toHaveText("作品档案")
     const animations = await page.evaluate(() => document.getAnimations().filter(animation =>
       animation.playState === "running" && animation.effect.getTiming().iterations === Infinity).length)
     expect(animations).toBe(0)

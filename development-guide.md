@@ -105,11 +105,12 @@ Frontend uses `npm run lint` for ESLint correctness and Vue essential checks; it
 开发中只跑受影响项；提交前按 `testing-guide.md` 选择一次对应门禁。跨栈、安全或 CI 改动运行
 一次 `make test-ci TEST_WORKERS=2` 即可，不再先跑它已包含的 `make test` 或前端 Vitest。
 
-完整 `npm run test:e2e:functional` 在 GitHub pull request 上运行一次，使用全新的
-专用 PostgreSQL 与 Chromium，固定 workers=1、retries=0，失败诊断保留 14 天。
-`npm run test:e2e:smoke` 和 `npm run test:e2e:map` 保留为本地定向入口，其用例已包含在完整
-Functional 套件中，不再作为独立 CI job。视觉、真实 LLM 和 worker suite 仍需通过
-各自显式命令验收。
+前端源码（包括 CSS、主题与组件）、浏览器配置及未知路径的 PR，以及 main push，运行完整
+`npm run test:e2e:functional`。后端相关 PR 仍使用既有 `test:e2e:smoke`；纯前端单测和
+文档按路径跳过无关浏览器检查。专用 PostgreSQL、私有 MinIO 与全新 Chromium 服务，
+固定 workers=1、retries=0，失败诊断保留 14 天；详情以 `testing-guide.md` 的路径表为准。
+`test:e2e:smoke` 和 `test:e2e:map` 也可作本地定向入口，不增加独立 CI job。
+真实 LLM 和 worker suite 仍需显式验收；截图与录屏只用于设计判断，没有视觉像素比较命令。
 
 `make audit-frontend-deps` uses npm registry/advisory data to check the committed
 lockfile and fails only on high/critical findings. It complements, rather than

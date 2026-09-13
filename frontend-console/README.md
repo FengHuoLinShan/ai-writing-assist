@@ -105,8 +105,8 @@ DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 \
 
 启动命令会在后端启动前执行 `APP_ENV=test alembic upgrade head`；
 `test:e2e:functional` 只收集功能测试，排除真实 LLM 和 worker 套件。相关 pull request 由 `Frontend functional browser` job 运行
-`test:e2e:smoke`（home/project/import/writing 四个文件）；每次 main push 运行完整
-`test:e2e:functional`。修改浏览器测试或配置的 PR 同样运行完整功能集合。两者都使用全新的专用 PostgreSQL、Compose 初始化的私有 MinIO
+`test:e2e:functional`，覆盖 CSS、主题、组件和入口变化后的全部行为；每次 main push 也运行完整集合。
+仅后端相关 PR 使用 `test:e2e:smoke`（home/project/import/writing 四个文件）。两者都使用全新的专用 PostgreSQL、Compose 初始化的私有 MinIO
 bucket 和 Chromium，固定 workers=1、retries=0；失败保留 `test-results/` 14 天。
 无关 PR 按 `scripts/classify_ci_changes.py` 跳过测试步骤；main 全量成功后才可发布，
 不能以 PR 冒烟通过代替完整回归。`test:e2e:map` 保留为本地定向入口。
@@ -591,6 +591,6 @@ World 待处理页复用 ImportReviewResolutionPanel：一次授权、按问题�
 
 执行规范见 [testing-guide.md](../testing-guide.md)。功能断言按用户目标维护，允许随重设计调整入口、步骤与定位。
 受影响单测、构建和真实浏览器功能检查仍须通过。浏览器套件与配置改动在 PR 运行完整 functional 集合，
-普通相关 PR 保留 smoke，main 运行完整集合。截图目录保留为历史资料，无平台基线门禁。
+CSS、主题、组件等前端改动 PR 及 main 运行完整集合；后端相关 PR 保留 smoke。截图目录保留为历史资料，无平台基线门禁。
 
 项目助手功能另由 `test:e2e:assistant` 使用已有的合成模型 harness 验证（专用库名含 `agent_e2e`）；普通 functional 不加载此用例。CI 两者都运行，仍无付费模型调用。

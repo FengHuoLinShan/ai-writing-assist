@@ -67,7 +67,7 @@ test.describe("作者任务工作台", () => {
     await page.getByRole("button", { name: "进入正文编辑" }).click()
     await expect(page).toHaveURL(new RegExp(`#workbench/${project.id}/writing`))
     await expect(page.locator(SEL.viewTitle)).toHaveText("写作")
-    await page.getByRole("button", { name: "写作首页" }).click()
+    await page.getByRole("button", { name: "← 写作首页", exact: true }).click()
     await expect(page).toHaveURL(new RegExp(`#workbench/${project.id}/writing[?]home=1$`))
 
   })
@@ -211,7 +211,7 @@ test.describe("作者任务工作台", () => {
       })
       await page.locator("#author-task-date").fill(localDate)
       await page.getByRole("button", { name: "保存任务" }).click()
-      await page.getByRole("button", { name: "写作首页" }).click()
+      await page.getByRole("button", { name: "← 写作首页", exact: true }).click()
 
       const taskSection = page.locator(".today-author-tasks")
       await expect(taskSection).toContainText(target.name)
@@ -220,7 +220,7 @@ test.describe("作者任务工作台", () => {
       await taskSection.getByRole("button", { name: "查看全部" }).click()
       await page.getByRole("button", { name: /已完成/ }).click()
       await page.getByRole("checkbox", { name: `重开任务：${target.name}` }).uncheck()
-      await page.getByRole("button", { name: "写作首页" }).click()
+      await page.getByRole("button", { name: "← 写作首页", exact: true }).click()
       await expect(page.locator(".today-author-tasks")).toContainText(target.name)
 
       await page.locator(".today-author-tasks").getByRole("button", { name: `${target.name} →` }).click()

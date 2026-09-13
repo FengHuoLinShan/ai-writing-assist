@@ -1,6 +1,6 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
-import { openWorkbench, reloadWorkbench, waitWritingReady } from "./helpers/workbench.js"
+import { clickWritingTool, openWorkbench, reloadWorkbench, waitWritingReady } from "./helpers/workbench.js"
 import {
   createProject,
   cleanupProject,
@@ -177,7 +177,7 @@ test.describe("Writing Conflict Check — 真实 LLM 全流程", () => {
     conflictDialog = page.getByRole("dialog", { name: "剧情设定冲突检查", exact: true })
     await conflictDialog.locator(".modal-footer").getByRole("button", { name: "关闭" }).click()
 
-    await page.locator("#btn-publish").click()
+    await clickWritingTool(page, "#btn-publish")
     await expect(page.locator(SEL.modalOverlay)).toContainText("未处理的重要问题", { timeout: 10000 })
     await confirmPublishIfPrompted(page)
     await expect(page.locator(SEL.toastContainer)).toContainText("已设为正式正文", { timeout: 30000 })

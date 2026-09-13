@@ -97,8 +97,7 @@ export async function openWritingAiDrawer(page) {
     await quickNoteEntry.click()
     return
   }
-  await page.locator('[data-action="writing-ai-menu"]').click()
-  await page.locator('[data-action="writing-open-owner-ai"]').click()
+  await clickWritingTool(page, '[data-action="writing-open-owner-ai"]')
 }
 
 /**
@@ -147,4 +146,19 @@ export async function openWorkspaceTools(page) {
     await trigger.click()
   }
   await expect(page.locator(".workspace-tools")).toBeVisible()
+}
+
+/** 当前可见操作可直接点击；折叠菜单只是定位适配，不冻结布局。 */
+export async function openWritingToolMenu(page, selector) {
+  const tool = page.locator(selector)
+  if (await tool.isVisible()) return
+  const menu = page.locator("details.writing-tools-menu").filter({ has: tool })
+  if (await menu.getAttribute("open") === null) {
+    await menu.locator(":scope > summary").click()
+  }
+}
+
+export async function clickWritingTool(page, selector) {
+  await openWritingToolMenu(page, selector)
+  await page.locator(selector).click()
 }

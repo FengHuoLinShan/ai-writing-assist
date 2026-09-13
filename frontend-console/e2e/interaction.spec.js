@@ -510,7 +510,7 @@ test.describe("RP 路由与窄屏故事页", () => {
     await expect(retry).toBeDisabled()
     await retry.dispatchEvent("click")
     await expect.poll(() => retryRequests).toBe(1)
-    expect(await retry.evaluate(element => element.getAnimations({ subtree: true })
+    await expect.poll(() => retry.evaluate(element => element.getAnimations({ subtree: true })
       .filter(animation => animation.playState === "running").length)).toBe(0)
 
     const metrics = await textContrast(retry)

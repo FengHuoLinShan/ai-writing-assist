@@ -98,7 +98,7 @@ def test_git_diff_includes_deleted_and_both_renamed_paths(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     assert set(output.splitlines()) == {f"{gate}=true" for gate in selector.GATES} | {
-        "browser_suite=test:e2e:smoke"
+        "browser_suite=test:e2e:functional"
     }
 
 
@@ -132,7 +132,13 @@ def test_unsupported_event_fails_without_outputs(tmp_path):
     (["frontend-console/package.json"], "test:e2e:functional"),
     ([".github/workflows/frontend-ci.yml"], "test:e2e:functional"),
     (["frontend-console/e2e/visual-world.spec.js-snapshots/old.png"], "test:e2e:smoke"),
-    (["frontend-console/styles.css"], "test:e2e:smoke"),
+    (["frontend-console/styles.css"], "test:e2e:functional"),
+    (["frontend-console/vue/views/world/WorldView.vue"], "test:e2e:functional"),
+    (["frontend-console/vue/shell/creative-shell.css"], "test:e2e:functional"),
+    (["frontend-console/package-lock.json"], "test:e2e:functional"),
+    (["scripts/classify_ci_changes.py"], "test:e2e:functional"),
+    (["backend/modules/writing/api.py"], "test:e2e:smoke"),
+    (["docs/design.md"], "test:e2e:smoke"),
 ])
 def test_browser_suite_covers_changed_behavior_collection(paths, expected):
     assert selector.browser_suite(paths) == expected

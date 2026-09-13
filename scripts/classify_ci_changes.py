@@ -49,13 +49,8 @@ def classify(paths: list[str]) -> set[str]:
 
 
 def browser_suite(paths: list[str]) -> str:
-    """Browser harness edits must run the new collection, not only the PR smoke list."""
-    return "test:e2e:functional" if any(
-        (path.startswith("frontend-console/e2e/") and path.endswith(".js"))
-        or path.startswith("frontend-console/playwright")
-        or path in {"frontend-console/package.json", ".github/workflows/frontend-ci.yml"}
-        for path in paths
-    ) else "test:e2e:smoke"
+    """Frontend redesign can move any task entry; cover the complete behavior suite."""
+    return "test:e2e:functional" if "frontend" in classify(paths) else "test:e2e:smoke"
 
 
 def changed_paths(base: str, head: str) -> list[str]:

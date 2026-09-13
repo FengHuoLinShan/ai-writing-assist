@@ -142,6 +142,7 @@ jobs:
         if: steps.changes.outputs.browser == 'true'
         run: docker compose run --rm --no-deps minio-init
 
+      # Frontend changes run all behavior tests, including theme, reader and workspace flows.
       - name: Run frontend functional browser
         if: steps.changes.outputs.browser == 'true'
         env:

@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url'
 import { zipSync, strToU8 } from 'fflate'
 import { test, expect } from './fixtures.js'
 import { API_BASE, createDraft } from './helpers/api-client.js'
-import { openWorkbench, waitWritingReady } from './helpers/workbench.js'
+import { clickWritingTool, openWorkbench, waitWritingReady } from './helpers/workbench.js'
 
 const sample = fileURLToPath(new URL('../themes/quiet-library.nctheme.zip', import.meta.url))
 const good = { schemaVersion: 1, id: 'test-theme', name: '测试外观', version: '1', variants: { light: {} } }
@@ -18,9 +18,12 @@ test('主题完整资源在预览、应用、刷新、导出和删除后保持�
   const preview = page.getByRole('dialog', { name: '预览「静阅 · 资源包示例」' })
   await expect(preview).toBeVisible()
   await expect(page.locator('html')).toHaveAttribute('data-theme-package', initial)
-  await preview.getByRole('button', { name: '深色', exact: true }).click()
-  await expect(preview.getByRole('button', { name: '继续写作', exact: true })).toHaveCSS('background-color', 'rgb(237, 237, 242)')
-  await expect(preview.getByRole('button', { name: '查看资料', exact: true })).toHaveCSS('background-color', 'rgb(30, 30, 34)')
+  const darkPreview = preview.getByRole('button', { name: '深色', exact: true })
+  await darkPreview.click()
+  await expect(darkPreview).toHaveAttribute('aria-pressed', 'true')
+  await expect(preview.locator('.theme-preview')).toHaveAttribute('data-theme', 'dark')
+  await expect(preview.locator('.theme-preview__prose')).toHaveCSS('font-family', /nc-quiet-library/)
+  await expect(preview.locator('.theme-preview main')).toHaveCSS('background-image', /blob:/)
   await page.screenshot({ path: info.outputPath('theme-resource-preview.png') })
   await page.keyboard.press('Escape')
   await expect(preview).toHaveCount(0)
@@ -101,8 +104,7 @@ test('手机资料与主题切换保留正文；写作内容可保存恢复', as
   await expect(page.getByRole('button', { name: '本章资料', exact: true })).toBeFocused()
   await page.getByRole('radio', { name: '切换到深色', exact: true }).click()
   await expect(editor).toHaveValue('写到一半的内容必须保留。')
-  await page.locator('[aria-controls=writing-save-tools]').click()
-  await page.getByRole('button', { name: '保存工作稿', exact: true }).click()
+  await clickWritingTool(page, '#btn-autosave')
   await expect(page.locator('#writing-save-status')).toHaveText('已保存到工作稿')
   await page.screenshot({ path: info.outputPath('writing-mobile-dark.png') })
   await page.reload()
