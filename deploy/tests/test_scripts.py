@@ -1495,6 +1495,7 @@ def _write_public_verification_curl(fake_bin: Path) -> Path:
         '            *.css) printf "text/css" ;;\n'
         '            *.json) printf "application/json" ;;\n'
         '            *.txt) printf "text/plain" ;;\n'
+        '            *.zip) printf "application/zip" ;;\n'
         '            *) printf "text/html" ;;\n'
         "        esac\n"
         "        exit 0\n"
@@ -1525,7 +1526,9 @@ def _run_public_verification(
     _write_public_verification_curl(fake_bin)
     curl_log = tmp_path / "curl.log"
     inventory = tmp_path / "asset-inventory.txt"
-    inventory.write_text("\n".join(_RUNTIME_PATHS + ["/assets/app.css"]) + "\n")
+    inventory.write_text(
+        "\n".join(_RUNTIME_PATHS + ["/assets/app.css", "/assets/theme.zip"]) + "\n"
+    )
     headers = tmp_path / "response.headers"
     headers.write_text(
         response_headers
