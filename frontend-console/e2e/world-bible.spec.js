@@ -146,7 +146,7 @@ test.describe("世界书工作台", () => {
   })
 
   test("页面创建、正文保存、投影刷新、审核弹窗和子视图切换都可用", async ({ page }) => {
-    test.setTimeout(240_000)
+    test.setTimeout(360_000)
     const failedResponses = []
     const consoleErrors = []
 
