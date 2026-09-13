@@ -586,6 +586,7 @@ describe("todayIsland", () => {
         true,
         expect.any(URLSearchParams),
       )
+      expect(router.navigate.mock.calls[0][3].get("readonly")).toBe("1")
     } finally {
       globalThis.publicDemoMode = false
     }

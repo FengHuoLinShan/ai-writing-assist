@@ -1,6 +1,41 @@
 <!-- Writing Vue island：Vue owns every workspace node; no legacy HTML injection. -->
 <template>
-  <template v-if="vm.homeMode.value">
+  <template v-if="props.publicDemo">
+    <header class="writing-toolbar writing-document-toolbar public-demo-reader__toolbar">
+      <div class="view-header__title">
+        <button type="button" class="btn btn-sm btn-ghost writing-home-back" @click="openWritingHome">← 返回演示首页</button>
+        <span class="view-header__count">正式正文 · 只读</span>
+      </div>
+      <span>{{ vm.chapterList.value.length }} 章</span>
+    </header>
+    <div class="public-demo-reader">
+      <nav class="public-demo-reader__chapters" aria-label="正文目录">
+        <strong>正文目录</strong>
+        <p v-if="vm.chapterLoadError.value" role="alert">{{ vm.chapterLoadError.value }}</p>
+        <button
+          v-for="chapter in vm.chapterList.value"
+          :key="chapter"
+          type="button"
+          :aria-current="chapter === vm.selectedChapter.value ? 'page' : undefined"
+          @click="vm.selectChapter(chapter)"
+        >
+          <span>第 {{ chapter }} 章</span>
+          <span>{{ vm.chapters[chapter]?.title || '' }}</span>
+        </button>
+      </nav>
+      <main class="public-demo-reader__document">
+        <p v-if="vm.editorState.loading" role="status">正在加载正文…</p>
+        <p v-else-if="vm.editorState.loadError" role="alert">{{ vm.editorState.loadError }}</p>
+        <article v-else-if="vm.selectedChapter.value" aria-labelledby="public-demo-chapter-title">
+          <p>第 {{ vm.selectedChapter.value }} 章 · 正式正文</p>
+          <h1 id="public-demo-chapter-title">{{ vm.editorState.title || `第 ${vm.selectedChapter.value} 章` }}</h1>
+          <div class="public-demo-reader__content">{{ vm.editorState.content }}</div>
+        </article>
+        <p v-else>请选择一章开始阅读。</p>
+      </main>
+    </div>
+  </template>
+  <template v-else-if="vm.homeMode.value">
     <WritingHomeView v-bind="homeProps" :on-open-ai="openOwnerAi" />
     <OwnerAiDrawer
       :open="aiDrawerOpen"
@@ -345,6 +380,7 @@ const props = defineProps({
   authorPreferences: { type: Object, default: () => ({ dailyGoal: null, editorFont: "system", defaultFocusMode: false }) },
   requestedLocation: { type: Object, default: null },
   homeMode: { type: Boolean, default: false },
+  publicDemo: { type: Boolean, default: false },
   homeProps: { type: Object, default: () => ({}) },
   ownerAiOpen: { type: Boolean, default: false },
   ownerAiMode: { type: String, default: "writing" },

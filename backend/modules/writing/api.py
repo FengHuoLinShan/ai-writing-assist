@@ -34,6 +34,7 @@ from modules.writing.facade import (
 )
 from modules.writing.schemas import (
     ChapterSummaryItem,
+    PublicWritingDraftResponse,
     VersionHistoryResponse,
     WritingConflictAiReviewRequest,
     WritingConflictAiReviewTaskResponse,
@@ -689,22 +690,26 @@ async def delete_chapter(
 
 @router.get(
     "/chapters/{chapter_index}/draft",
-    response_model=WritingDraftResponse,
+    response_model=WritingDraftResponse | PublicWritingDraftResponse,
 )
 async def get_latest_chapter_draft(
     db: DbSession,
     chapter_index: int = Path(..., ge=1, description="章节索引"),
     *,
     novel_id: NovelIdQuery,
-) -> WritingDraftResponse:
+) -> WritingDraftResponse | PublicWritingDraftResponse:
     """获取指定章节的最新草稿"""
     await require_active_project(db, novel_id)
-    return await _service.get_latest_draft(
+    public_demo = is_demo_readonly_principal()
+    draft = await _service.get_latest_draft(
         db,
         novel_id,
         chapter_index,
-        published_only=is_demo_readonly_principal(),
+        published_only=public_demo,
     )
+    if public_demo:
+        return PublicWritingDraftResponse.model_validate(draft, from_attributes=True)
+    return draft
 
 
 @router.get(

@@ -177,6 +177,7 @@ const WORKFLOW_COPY = {
 
 function openWriting() {
   const query = new URLSearchParams()
+  if (globalThis.publicDemoMode) query.set("readonly", "1")
   if (continuation.value?.chapter_index != null) {
     query.set("chapter_index", String(continuation.value.chapter_index))
     const pointer = readWritingPointer(projectId.value)

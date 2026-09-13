@@ -91,7 +91,7 @@ POST   /api/writing/semantic-reviews                    # 冻结正文/合同的
 POST   /api/writing/targeted-revisions                  # 按审查 finding 生成新返修候选
 ```
 
-公开演示的 `demo_readonly` principal 只能从正文 GET 获得 `published` 章节、详情和版本；未发布章节不进列表，draft ID 直接读取返回 404，原参考范围 `regeneration-context` 不对公开演示开放。
+公开演示的 `demo_readonly` principal 只能读取 `published` 章节列表与按章最新正文；正文响应是显式白名单投影，不含 provenance、冲突快照或作者状态。未发布章节不进列表，draft ID、版本历史与原参考范围 `regeneration-context` 均不对公开演示开放。
 
 ## 稳定原文引用
 

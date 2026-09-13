@@ -315,7 +315,9 @@ export function createEditorController({
     }
     try {
       let draft = null
-      if (options.draftId) {
+      if (options.publicDemo === true) {
+        draft = await api.writing.getDraft(state.chapter, projectId)
+      } else if (options.draftId) {
         try {
           draft = await api.writing.get(options.draftId, projectId)
         } catch (error) {
@@ -357,7 +359,7 @@ export function createEditorController({
       }
       restoreCursor(projectId, state.chapter, loadedDraftIdentity)
       syncElements()
-      emit()
+      emit({ persist: options.publicDemo !== true })
       return true
     } catch (err) {
       if (

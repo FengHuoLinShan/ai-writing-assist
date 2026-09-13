@@ -57,6 +57,7 @@ _DEMO_SENSITIVE_READ_SEGMENTS = (
     "/activation-profiles",
     "/conflict-checks",
     "/cocreation",
+    "/drafts/",
     "/generation-prompt-templates",
     "/metrics",
     "/prompt",
@@ -67,6 +68,7 @@ _DEMO_SENSITIVE_READ_SEGMENTS = (
     "/suggestions",
     "/tasks",
     "/validation",
+    "/versions",
 )
 _DEMO_READONLY_POST_PATHS = {
     "/api/evidence/compilation/evidence/grep",

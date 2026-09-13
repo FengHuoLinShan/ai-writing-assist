@@ -88,6 +88,8 @@ async def test_public_demo_config_and_scoped_viewer_routes(
         content_hash="a" * 64,
         version_number=1,
         status="published",
+        conflict_check_snapshot_json={"summary": "作者诊断"},
+        provenance_json={"pov_view": {"withheld_known_information": ["隐藏真相"]}},
     )
     unpublished = WritingDraft(
         novel_id=demo.id,
@@ -188,9 +190,17 @@ async def test_public_demo_config_and_scoped_viewer_routes(
         assert mutated.status_code == 401
         assert chapters.json()["chapter_indices"] == [1]
         assert chapters.json()["chapters"][0]["id"] == str(published.id)
-        assert latest.json()["id"] == str(published.id)
-        assert [item["id"] for item in versions.json()["versions"]] == [str(published.id)]
-        assert hidden_draft.status_code == 404
+        assert latest.json() == {
+            "id": str(published.id),
+            "novel_id": str(demo.id),
+            "chapter_index": 1,
+            "title": "已发布章节",
+            "content": "公开正文",
+            "version_number": 1,
+            "status": "published",
+        }
+        assert versions.status_code == 401
+        assert hidden_draft.status_code == 401
         assert regeneration.status_code == 401
         assert (await db_session.get(Project, demo.id)).title == "公开演示"
     finally:

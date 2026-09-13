@@ -103,4 +103,53 @@ describe("writingIsland", () => {
     expect(api.writing.getVersionHistory).not.toHaveBeenCalled()
     island.onLeave()
   })
+
+  it("公开演示只加载正式正文阅读投影", async () => {
+    globalThis.publicDemoMode = true
+    globalThis.publicDemoRpMode = false
+    const state = { currentProjectId: "demo", viewStates: {} }
+    const api = globalThis.api
+    api.writing.listChapters.mockClear()
+    api.writing.getDraft.mockClear()
+    api.writing.getVersionHistory.mockClear()
+    api.writing.listConflictChecks.mockClear()
+    api.outline.listScenesOrdered.mockClear()
+    api.settings.getEffectiveAuthorPrefs.mockClear()
+    api.writing.listChapters.mockResolvedValue({
+      chapters: [{ id: "published-1", chapter_index: 1, title: "第一章", word_count: 4, status: "published" }],
+    })
+    api.writing.getDraft.mockResolvedValue({
+      id: "published-1",
+      novel_id: "demo",
+      chapter_index: 1,
+      title: "第一章",
+      content: "公开正文",
+      version_number: 1,
+      status: "published",
+    })
+    setBridgeOverrides({
+      state,
+      api,
+      router: { getCurrentQuery: () => new URLSearchParams("demo=1&chapter_index=1&readonly=1") },
+    })
+    const island = createWritingIsland()
+    try {
+      await island.onEnter()
+      document.getElementById("workspace-content").innerHTML = island.render()
+      await island.onRendered()
+      await vi.waitFor(() => expect(document.querySelector(".public-demo-reader__content")?.textContent).toBe("公开正文"))
+
+      expect(document.querySelector("#writing-editor")).toBeNull()
+      expect(document.body.textContent).not.toContain("保存工作稿")
+      expect(api.writing.getDraft).toHaveBeenCalledWith(1, "demo")
+      expect(api.writing.getVersionHistory).not.toHaveBeenCalled()
+      expect(api.writing.listConflictChecks).not.toHaveBeenCalled()
+      expect(api.outline.listScenesOrdered).not.toHaveBeenCalled()
+      expect(api.settings.getEffectiveAuthorPrefs).not.toHaveBeenCalled()
+    } finally {
+      island.onLeave()
+      globalThis.publicDemoMode = false
+      globalThis.publicDemoRpMode = false
+    }
+  })
 })

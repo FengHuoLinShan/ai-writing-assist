@@ -245,6 +245,18 @@ class WritingDraftResponse(BaseModel):
         return []
 
 
+class PublicWritingDraftResponse(BaseModel):
+    """公开演示只返回阅读正文所需字段。"""
+
+    id: str
+    novel_id: str
+    chapter_index: int
+    title: str | None = None
+    content: str | None = None
+    version_number: int = 1
+    status: Literal["published"] = "published"
+
+
 class DraftListItem(BaseModel):
     """草稿版本列表项"""
 
