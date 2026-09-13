@@ -21,6 +21,7 @@ from infrastructure.tasks.facade import (
     enqueue_task_with_optional_operation,
     get_operation_task,
 )
+from modules.account.facade import is_demo_readonly_principal
 from modules.evidence.facade import (
     bind_confirmed_action_result,
 )
@@ -33,6 +34,9 @@ from modules.writing.facade import (
 )
 from modules.writing.schemas import (
     ChapterSummaryItem,
+    PublicChapterListResponse,
+    PublicChapterSummaryItem,
+    PublicWritingDraftResponse,
     VersionHistoryResponse,
     WritingConflictAiReviewRequest,
     WritingConflictAiReviewTaskResponse,
@@ -513,7 +517,12 @@ async def get_draft(
 ) -> WritingDraftResponse:
     """获取指定草稿"""
     await require_active_project(db, novel_id)
-    return await _service.get_draft(db, draft_id, novel_id)
+    return await _service.get_draft(
+        db,
+        draft_id,
+        novel_id,
+        published_only=is_demo_readonly_principal(),
+    )
 
 
 @router.get(
@@ -683,17 +692,26 @@ async def delete_chapter(
 
 @router.get(
     "/chapters/{chapter_index}/draft",
-    response_model=WritingDraftResponse,
+    response_model=WritingDraftResponse | PublicWritingDraftResponse,
 )
 async def get_latest_chapter_draft(
     db: DbSession,
     chapter_index: int = Path(..., ge=1, description="章节索引"),
     *,
     novel_id: NovelIdQuery,
-) -> WritingDraftResponse:
+) -> WritingDraftResponse | PublicWritingDraftResponse:
     """获取指定章节的最新草稿"""
     await require_active_project(db, novel_id)
-    return await _service.get_latest_draft(db, novel_id, chapter_index)
+    public_demo = is_demo_readonly_principal()
+    draft = await _service.get_latest_draft(
+        db,
+        novel_id,
+        chapter_index,
+        published_only=public_demo,
+    )
+    if public_demo:
+        return PublicWritingDraftResponse.model_validate(draft, from_attributes=True)
+    return draft
 
 
 @router.get(
@@ -708,21 +726,38 @@ async def get_chapter_version_history(
 ) -> VersionHistoryResponse:
     """获取指定章节的版本历史"""
     await require_active_project(db, novel_id)
-    return await _service.get_version_history(db, novel_id, chapter_index)
+    return await _service.get_version_history(
+        db,
+        novel_id,
+        chapter_index,
+        published_only=is_demo_readonly_principal(),
+    )
 
 
 @router.get(
     "/chapters",
-    response_model=ChapterIndicesResponse,
+    response_model=ChapterIndicesResponse | PublicChapterListResponse,
 )
 async def list_chapters(
     db: DbSession,
     *,
     novel_id: NovelIdQuery,
-) -> ChapterIndicesResponse:
+) -> ChapterIndicesResponse | PublicChapterListResponse:
     """列出该小说所有有草稿的章节索引（去重、升序）"""
     await require_active_project(db, novel_id)
-    chapters = await _service.list_chapter_summaries(db, novel_id)
+    public_demo = is_demo_readonly_principal()
+    chapters = await _service.list_chapter_summaries(
+        db,
+        novel_id,
+        published_only=public_demo,
+    )
+    if public_demo:
+        return PublicChapterListResponse(
+            chapters=[
+                PublicChapterSummaryItem.model_validate(item, from_attributes=True)
+                for item in chapters
+            ]
+        )
     return ChapterIndicesResponse(
         chapter_indices=[item.chapter_index for item in chapters],
         chapters=chapters,

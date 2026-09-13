@@ -181,6 +181,8 @@ POST /api/writing/semantic-reviews               → 独立语义审查，回执
 POST /api/writing/targeted-revisions             → 按冻结 finding 生成定向返修 candidate
 ```
 
+`demo_readonly` principal 只可读取 `published` 章节列表与按章最新正文；公开投影仅含章号、标题、正文和读者可见字数，不含 raw ID、内部状态、时间戳、provenance、冲突快照或作者状态。draft ID、版本历史与 `regeneration-context` 均不在公开演示读取白名单中。
+
 正文保存 API 共享 function-scope `DbSession` 事务边界：普通非流式请求只有在
 事务成功提交后才开始发送成功响应。因此前端收到“已保存到工作稿”对应的
 `POST /drafts/autosave` 201 或 `PUT /drafts/{id}` 200 时，后续请求与独立数据库

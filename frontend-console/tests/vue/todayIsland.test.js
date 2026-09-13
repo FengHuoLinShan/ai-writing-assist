@@ -521,6 +521,97 @@ describe("todayIsland", () => {
     expect(router.navigate.mock.calls.at(-1)[3].get("chapter_index")).toBe("3")
   })
 
+  it("公开演示首页只用已发布章节投影", async () => {
+    globalThis.publicDemoMode = true
+    globalThis.publicDemoRpMode = false
+    const getWorkspaceSummary = vi.fn()
+    const listBibleDrafts = vi.fn()
+    const listSuggestions = vi.fn()
+    setBridgeOverrides({
+      state: { currentProjectId: "demo", currentProject: { id: "demo", title: "演示作品" } },
+      api: {
+        projects: { getWorkspaceSummary },
+        writing: { listChapters: vi.fn(async () => ({
+          chapters: [
+            { id: "published-1", chapter_index: 1, title: "第一章", word_count: 1200 },
+            { id: "published-2", chapter_index: 2, title: "第二章", word_count: 800 },
+          ],
+        })) },
+        world: { listBibleDrafts, listSuggestions },
+      },
+    })
+    try {
+      const props = await loadTodayProps()
+
+      expect(props.summary).toMatchObject({
+        project_id: "demo",
+        continuation: {
+          chapter_index: 2,
+          title: "第二章",
+          has_unpublished_changes: false,
+        },
+        writing: { chapter_count: 2, word_count: 2000 },
+      })
+      expect(getWorkspaceSummary).not.toHaveBeenCalled()
+      expect(listBibleDrafts).not.toHaveBeenCalled()
+      expect(listSuggestions).not.toHaveBeenCalled()
+    } finally {
+      globalThis.publicDemoMode = false
+    }
+  })
+
+  it("让公开演示进入只读正文", async () => {
+    globalThis.publicDemoMode = true
+    const router = { navigate: vi.fn(), refresh: vi.fn() }
+    setBridgeOverrides({ router })
+    try {
+      const wrapper = mount(TodayView, {
+        props: {
+          project: { id: "demo", title: "演示作品" },
+          summary: {
+            project_id: "demo",
+            continuation: { title: "第六十章", chapter_index: 60 },
+            writing: { chapter_count: 60, word_count: 212868 },
+            attention: {},
+          },
+        },
+      })
+
+      const action = wrapper.get(".today-resume__action")
+      expect(action.text()).toBe("阅读正式正文")
+      await action.trigger("click")
+      expect(router.navigate).toHaveBeenCalledWith(
+        "writing",
+        null,
+        true,
+        expect.any(URLSearchParams),
+      )
+      expect(router.navigate.mock.calls[0][3].get("readonly")).toBe("1")
+    } finally {
+      globalThis.publicDemoMode = false
+    }
+  })
+
+  it("公开演示没有已发布章节时显示不可操作空态", async () => {
+    globalThis.publicDemoMode = true
+    globalThis.publicDemoRpMode = false
+    setBridgeOverrides({
+      state: { currentProjectId: "demo", currentProject: { id: "demo", title: "演示作品" } },
+      api: { writing: { listChapters: vi.fn(async () => ({ chapters: [] })) } },
+    })
+    try {
+      const viewProps = await loadTodayProps()
+      const wrapper = mount(TodayView, { props: viewProps })
+
+      expect(wrapper.get("#today-resume-title").text()).toBe("暂无可阅读的正式正文")
+      expect(wrapper.find(".today-resume__action").exists()).toBe(false)
+      expect(wrapper.find('[data-action="start-world-core"]').exists()).toBe(false)
+    } finally {
+      globalThis.publicDemoMode = false
+      globalThis.publicDemoRpMode = false
+    }
+  })
+
   it("deduplicates a world continuation shown beside正文", () => {
     const worldDraft = {
       key: "world_bible_draft:draft-1",

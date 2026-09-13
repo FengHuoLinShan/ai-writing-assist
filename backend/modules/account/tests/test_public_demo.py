@@ -18,6 +18,7 @@ from modules.account.middleware import (
 from modules.account.models import Account
 from modules.account.public_demo import PublicDemoConfig, configured_public_demo
 from modules.project.models import Project
+from modules.writing.models import WritingDraft
 
 
 class _SessionManager:
@@ -79,6 +80,37 @@ async def test_public_demo_config_and_scoped_viewer_routes(
     )
     db_session.add_all([demo, private])
     await db_session.flush()
+    published = WritingDraft(
+        novel_id=demo.id,
+        chapter_index=1,
+        title="已发布章节",
+        content="公开正文",
+        content_hash="a" * 64,
+        version_number=1,
+        status="published",
+        conflict_check_snapshot_json={"summary": "作者诊断"},
+        provenance_json={"pov_view": {"withheld_known_information": ["隐藏真相"]}},
+    )
+    unpublished = WritingDraft(
+        novel_id=demo.id,
+        chapter_index=1,
+        title="未发布修改",
+        content="不得公开",
+        content_hash="b" * 64,
+        version_number=2,
+        status="draft",
+    )
+    draft_only = WritingDraft(
+        novel_id=demo.id,
+        chapter_index=2,
+        title="未发布章节",
+        content="不得公开",
+        content_hash="c" * 64,
+        version_number=1,
+        status="draft",
+    )
+    db_session.add_all([published, unpublished, draft_only])
+    await db_session.flush()
 
     monkeypatch.setenv("AUTH_MODE", "public")
     monkeypatch.setenv("AUTH_SECRET_KEY", "x" * 32)
@@ -96,6 +128,9 @@ async def test_public_demo_config_and_scoped_viewer_routes(
         config = await async_client.get("/api/auth/config")
         listing = await async_client.get("/api/projects?demo=1")
         detail = await async_client.get(f"/api/projects/{demo.id}?demo=1")
+        workspace_summary = await async_client.get(
+            f"/api/projects/{demo.id}/workspace-summary?demo=1"
+        )
         detail_with_stale_cookie = await async_client.get(
             f"/api/projects/{demo.id}?demo=1",
             headers={"Cookie": f"{SESSION_COOKIE_NAME}=stale-session"},
@@ -119,6 +154,22 @@ async def test_public_demo_config_and_scoped_viewer_routes(
             f"/api/projects/{demo.id}?demo=1",
             json={"title": "不应写入"},
         )
+        chapters = await async_client.get(
+            f"/api/writing/chapters?novel_id={demo.id}&demo=1"
+        )
+        latest = await async_client.get(
+            f"/api/writing/chapters/1/draft?novel_id={demo.id}&demo=1"
+        )
+        versions = await async_client.get(
+            f"/api/writing/chapters/1/versions?novel_id={demo.id}&demo=1"
+        )
+        hidden_draft = await async_client.get(
+            f"/api/writing/drafts/{unpublished.id}?novel_id={demo.id}&demo=1"
+        )
+        regeneration = await async_client.get(
+            f"/api/writing/drafts/{published.id}/regeneration-context"
+            f"?novel_id={demo.id}&demo=1"
+        )
 
         assert config.json()["demo"] == {
             "enabled": True,
@@ -129,6 +180,7 @@ async def test_public_demo_config_and_scoped_viewer_routes(
         assert listing.status_code == 200
         assert [item["id"] for item in listing.json()["items"]] == [str(demo.id)]
         assert detail.status_code == 200
+        assert workspace_summary.status_code == 401
         assert detail_with_stale_cookie.status_code == 200
         assert cross_project.status_code == 401
         assert account.status_code == 401
@@ -136,6 +188,23 @@ async def test_public_demo_config_and_scoped_viewer_routes(
         assert demo_search.status_code == 200
         assert cross_search.status_code == 404
         assert mutated.status_code == 401
+        assert chapters.json() == {
+            "chapters": [
+                {
+                    "chapter_index": 1,
+                    "title": "已发布章节",
+                    "word_count": 4,
+                }
+            ]
+        }
+        assert latest.json() == {
+            "chapter_index": 1,
+            "title": "已发布章节",
+            "content": "公开正文",
+        }
+        assert versions.status_code == 401
+        assert hidden_draft.status_code == 401
+        assert regeneration.status_code == 401
         assert (await db_session.get(Project, demo.id)).title == "公开演示"
     finally:
         get_settings.cache_clear()

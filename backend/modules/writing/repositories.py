@@ -454,6 +454,8 @@ class WritingDraftRepository:
         self,
         db: AsyncSession,
         novel_id: uuid.UUID,
+        *,
+        statuses: Sequence[str] = WORKING_DRAFT_STATUSES,
     ) -> Sequence[WritingDraft]:
         """列出每章最新版本草稿，用于章节列表摘要。"""
         latest_versions = (
@@ -463,7 +465,7 @@ class WritingDraftRepository:
             )
             .where(
                 WritingDraft.novel_id == novel_id,
-                WritingDraft.status.in_(WORKING_DRAFT_STATUSES),
+                WritingDraft.status.in_(statuses),
             )
             .group_by(WritingDraft.chapter_index)
             .subquery()
@@ -477,7 +479,7 @@ class WritingDraftRepository:
             )
             .where(
                 WritingDraft.novel_id == novel_id,
-                WritingDraft.status.in_(WORKING_DRAFT_STATUSES),
+                WritingDraft.status.in_(statuses),
             )
             .order_by(WritingDraft.chapter_index, WritingDraft.id)
         )

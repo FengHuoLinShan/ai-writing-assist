@@ -77,6 +77,7 @@ export async function loadWritingProps({ homeMode: requestedHomeMode } = {}) {
   const projectId = state?.currentProjectId || null
   const query = getRouteQuery()
   const homeMode = requestedHomeMode ?? query.get("home") === "1"
+  const publicDemo = Boolean(globalThis.publicDemoMode && !globalThis.publicDemoRpMode)
   const result = {
     projectId,
     chapterList: [],
@@ -86,6 +87,7 @@ export async function loadWritingProps({ homeMode: requestedHomeMode } = {}) {
     authorPreferences: { dailyGoal: null, editorFont: "system", defaultFocusMode: false },
     requestedLocation: null,
     homeMode,
+    publicDemo,
     ownerAiOpen: query.get("owner_ai") === "1",
     ownerAiMode: query.get("owner_ai_mode") || "writing",
   }
@@ -100,21 +102,22 @@ export async function loadWritingProps({ homeMode: requestedHomeMode } = {}) {
   result.requestedLocation = !homeMode && queryChapter > 0
     ? {
         chapter: queryChapter,
-        draftId: query.get("draft_id") || null,
-        restoreSourceVersion: Number(query.get("restore_source_version")) || null,
-        sceneId: querySceneId,
-        openConflict,
-        conflictItemId,
-        source: "url",
+        draftId: publicDemo ? null : query.get("draft_id") || null,
+        restoreSourceVersion: publicDemo ? null : Number(query.get("restore_source_version")) || null,
+        sceneId: publicDemo ? null : querySceneId,
+        openConflict: publicDemo ? false : openConflict,
+        conflictItemId: publicDemo ? null : conflictItemId,
+        isReadonly: publicDemo,
+        source: publicDemo ? "demo" : "url",
       }
-    : !homeMode && session?.currentChapter
+    : !publicDemo && !homeMode && session?.currentChapter
       ? {
           chapter: session.currentChapter,
           draftId: session.currentDraftId,
           sceneId: session.currentSceneId,
           source: "pointer",
         }
-      : !homeMode && state?.viewStates?.writing?.projectId === projectId
+      : !publicDemo && !homeMode && state?.viewStates?.writing?.projectId === projectId
         ? {
             chapter: state.viewStates.writing.currentChapter,
             draftId: state.viewStates.writing.currentDraftId,
@@ -127,8 +130,8 @@ export async function loadWritingProps({ homeMode: requestedHomeMode } = {}) {
 
   const [chapterResult, scenesResult, prefsResult] = await Promise.allSettled([
     api.writing.listChapters(projectId),
-    api.outline.listScenesOrdered(projectId),
-    api.settings?.getEffectiveAuthorPrefs?.(projectId),
+    publicDemo ? [] : api.outline.listScenesOrdered(projectId),
+    publicDemo ? null : api.settings?.getEffectiveAuthorPrefs?.(projectId),
   ])
   if (chapterResult.status === "fulfilled") Object.assign(result, normalizeChapters(chapterResult.value))
   else result.chapterLoadError = chapterResult.reason?.message || "章节列表加载失败"
@@ -143,6 +146,17 @@ export async function loadWritingProps({ homeMode: requestedHomeMode } = {}) {
       defaultFocusMode: Boolean(unwrap(prefsResult.value.default_focus_mode, false)),
     }
   }
+  if (
+    publicDemo
+    && result.chapterList.length
+    && !result.chapterList.includes(Number(result.requestedLocation?.chapter))
+  ) {
+    result.requestedLocation = {
+      chapter: result.chapterList.at(-1),
+      isReadonly: true,
+      source: "demo",
+    }
+  }
   return result
 }
 
@@ -155,6 +169,7 @@ export function useWritingWorkspace(props) {
   const confirmAction = getConfirmAction()
   const confirmDialog = (message, confirmText) => confirmAsync(message, confirmText, { confirmAction })
   const projectId = props.projectId
+  const publicDemo = Boolean(props.publicDemo)
   const homeMode = ref(Boolean(props.homeMode))
   const chapterList = ref([...(props.chapterList || [])])
   const chapters = reactive({ ...(props.chapters || {}) })
@@ -484,6 +499,9 @@ export function useWritingWorkspace(props) {
   }
 
   async function selectChapter(chapter, options = {}) {
+    const loadOptions = publicDemo
+      ? { isReadonly: true, publicDemo: true, skipLocalRestore: true }
+      : options
     const next = Number(chapter) || null
     const rememberedSceneId = rememberedSceneForChapter(projectId, next)
     const generation = ++selectionGeneration
@@ -503,7 +521,7 @@ export function useWritingWorkspace(props) {
       syncLegacyState()
       return true
     }
-    lastChapterSelection = { chapter: next, options: { ...options } }
+    lastChapterSelection = { chapter: next, options: { ...loadOptions } }
     const showsChapterBoundary = chapterChanged
       || Number(editorState.chapter) !== next
       || Boolean(editorState.loadError)
@@ -511,14 +529,14 @@ export function useWritingWorkspace(props) {
     editorState.loadError = null
     try {
       const [loaded] = await Promise.all([
-        editor.loadChapter(next, options),
-        loadVersions(next, generation),
+        editor.loadChapter(next, loadOptions),
+        publicDemo ? Promise.resolve(true) : loadVersions(next, generation),
       ])
       if (!loaded || generation !== selectionGeneration || disposed.value) {
         if (!loaded && generation === selectionGeneration) versions.value = []
         return false
       }
-      if (options.restoreSourceVersion) {
+      if (loadOptions.restoreSourceVersion) {
         const latest = versions.value.filter(isVersionActive).reduce(
           (best, item) => Number(item.version_number) > Number(best?.version_number || 0) ? item : best,
           null,
@@ -527,7 +545,7 @@ export function useWritingWorkspace(props) {
         editorState.restoreExpectedUpdatedAt = latest?.updated_at || null
       }
       const available = activeScenes.value.filter((scene) => sceneMatchesChapter(scene, next))
-      const requestedScene = available.find((scene) => scene.id === options.sceneId)
+      const requestedScene = available.find((scene) => scene.id === loadOptions.sceneId)
       const rememberedScene = available.find((scene) => scene.id === rememberedSceneId)
       selectedSceneId.value = requestedScene?.id
         || rememberedScene?.id
@@ -544,7 +562,7 @@ export function useWritingWorkspace(props) {
         const query = new URLSearchParams(router?.getCurrentQuery?.()?.toString() || "")
         query.set("chapter_index", String(next))
         // Current working text restores its local backup; explicit readonly versions stay pinned.
-        if ((editorState.readonly || editorState.restoreSourceVersion) && editorState.draftId) query.set("draft_id", editorState.draftId)
+        if (!publicDemo && (editorState.readonly || editorState.restoreSourceVersion) && editorState.draftId) query.set("draft_id", editorState.draftId)
         else query.delete("draft_id")
         if (editorState.restoreSourceVersion) query.set("restore_source_version", String(editorState.restoreSourceVersion))
         else query.delete("restore_source_version")
@@ -1534,8 +1552,8 @@ export function useWritingWorkspace(props) {
     window.addEventListener("beforeunload", beforeUnload)
     window.addEventListener("pagehide", pageHide)
     window.addEventListener("resize", resize)
-    const importReceipt = getRouteQuery().get("import_task_id")
-    await deepImport.recover(importReceipt)
+    const importReceipt = publicDemo ? null : getRouteQuery().get("import_task_id")
+    if (!publicDemo) await deepImport.recover(importReceipt)
     if (importReceipt && !disposed.value && deepImportState.progress) deepAuditOpen.value = true
     dispatchDashboardUpdate()
     const requested = props.requestedLocation
@@ -1560,8 +1578,10 @@ export function useWritingWorkspace(props) {
         }
       }
     }
-    void commands.recover()
-    void conflictActions.recover()
+    if (!publicDemo) {
+      void commands.recover()
+      void conflictActions.recover()
+    }
   })
 
   onBeforeUnmount(() => {

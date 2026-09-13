@@ -245,6 +245,26 @@ class WritingDraftResponse(BaseModel):
         return []
 
 
+class PublicWritingDraftResponse(BaseModel):
+    """公开演示只返回阅读正文所需字段。"""
+
+    chapter_index: int
+    title: str | None = None
+    content: str | None = None
+
+
+class PublicChapterSummaryItem(BaseModel):
+    """公开演示章节目录不暴露内部对象身份或工作流状态。"""
+
+    chapter_index: int
+    title: str | None = None
+    word_count: int = 0
+
+
+class PublicChapterListResponse(BaseModel):
+    chapters: list[PublicChapterSummaryItem] = Field(default_factory=list)
+
+
 class DraftListItem(BaseModel):
     """草稿版本列表项"""
 

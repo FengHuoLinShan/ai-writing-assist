@@ -775,7 +775,9 @@ class TestWritingAPI:
 
         result = await get_draft(mock_db, draft_id="did", novel_id="nid")
         assert result.id == expected.id
-        mock_service.get_draft.assert_awaited_once_with(mock_db, "did", "nid")
+        mock_service.get_draft.assert_awaited_once_with(
+            mock_db, "did", "nid", published_only=False
+        )
 
     async def test_update_draft_endpoint(
         self,
@@ -868,7 +870,9 @@ class TestWritingAPI:
 
         result = await get_latest_chapter_draft(mock_db, chapter_index=2, novel_id="nid")
         assert result.version_number == 3
-        mock_service.get_latest_draft.assert_awaited_once_with(mock_db, "nid", 2)
+        mock_service.get_latest_draft.assert_awaited_once_with(
+            mock_db, "nid", 2, published_only=False
+        )
 
     async def test_get_chapter_version_history(
         self,
@@ -889,7 +893,9 @@ class TestWritingAPI:
             mock_db, chapter_index=1, novel_id="nid"
         )
         assert result.total == 0
-        mock_service.get_version_history.assert_awaited_once_with(mock_db, "nid", 1)
+        mock_service.get_version_history.assert_awaited_once_with(
+            mock_db, "nid", 1, published_only=False
+        )
 
     async def test_list_chapters(
         self,
@@ -908,7 +914,9 @@ class TestWritingAPI:
         result = await list_chapters(mock_db, novel_id="nid")
         assert result.chapter_indices == [1, 3, 5]
         assert [item.chapter_index for item in result.chapters] == [1, 3, 5]
-        mock_service.list_chapter_summaries.assert_awaited_once_with(mock_db, "nid")
+        mock_service.list_chapter_summaries.assert_awaited_once_with(
+            mock_db, "nid", published_only=False
+        )
 
 
 # ============================================================

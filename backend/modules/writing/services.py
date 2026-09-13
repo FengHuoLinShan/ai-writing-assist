@@ -97,9 +97,7 @@ logger = logging.getLogger(__name__)
 
 SceneContractLoader = Callable[[AsyncSession, str, str], Awaitable[object | None]]
 SceneCheckpointLoader = Callable[[AsyncSession, str, str], Awaitable[object | None]]
-MapContinuityLoader = Callable[
-    [AsyncSession, str, list[str]], Awaitable[list[object]]
-]
+MapContinuityLoader = Callable[[AsyncSession, str, list[str]], Awaitable[list[object]]]
 
 
 @dataclass(frozen=True)
@@ -469,12 +467,18 @@ class WritingDraftService:
         db: AsyncSession,
         draft_id: str,
         novel_id: str,
+        *,
+        published_only: bool = False,
     ) -> WritingDraftResponse:
         """获取草稿详情"""
         did = _parse_uuid(draft_id, "draft")
         nid = _parse_uuid(novel_id, "novel")
         draft = await self._repo.get(db, did)
-        if draft is None or str(draft.novel_id) != str(nid):
+        if (
+            draft is None
+            or str(draft.novel_id) != str(nid)
+            or (published_only and draft.status != "published")
+        ):
             raise NotFoundError(f"Draft {draft_id} not found")
         response = WritingDraftResponse.model_validate(draft)
         if draft.status == "candidate":
@@ -898,10 +902,16 @@ class WritingDraftService:
         db: AsyncSession,
         novel_id: str,
         chapter_index: int,
+        *,
+        published_only: bool = False,
     ) -> WritingDraftResponse:
         """获取章节最新草稿"""
         nid = _parse_uuid(novel_id, "novel")
-        draft = await self._repo.get_latest_by_chapter(db, nid, chapter_index)
+        draft = await (
+            self._repo.get_latest_published_by_chapter(db, nid, chapter_index)
+            if published_only
+            else self._repo.get_latest_by_chapter(db, nid, chapter_index)
+        )
         if draft is None:
             raise NotFoundError(
                 f"No draft found for chapter {chapter_index} in novel {novel_id}"
@@ -913,10 +923,14 @@ class WritingDraftService:
         db: AsyncSession,
         novel_id: str,
         chapter_index: int,
+        *,
+        published_only: bool = False,
     ) -> VersionHistoryResponse:
         """获取章节版本历史"""
         nid = _parse_uuid(novel_id, "novel")
         versions = await self._repo.get_version_history(db, nid, chapter_index)
+        if published_only:
+            versions = [version for version in versions if version.status == "published"]
         items = []
         for v in versions:
             item = DraftListItem.model_validate(v)
@@ -1099,10 +1113,16 @@ class WritingDraftService:
         self,
         db: AsyncSession,
         novel_id: str,
+        *,
+        published_only: bool = False,
     ) -> list[ChapterSummaryItem]:
         """列出每章最新版本摘要。"""
         nid = _parse_uuid(novel_id, "novel")
-        drafts = await self._repo.list_chapter_summaries(db, nid)
+        drafts = await self._repo.list_chapter_summaries(
+            db,
+            nid,
+            statuses=("published",) if published_only else WORKING_DRAFT_STATUSES,
+        )
         return [
             ChapterSummaryItem(
                 id=str(draft.id),
@@ -1905,8 +1925,10 @@ class WritingConflictCheckService:
                 if isinstance(actual_state, dict)
                 else None
             )
-            if expected and actual and self._stable_value(expected) != self._stable_value(
-                actual
+            if (
+                expected
+                and actual
+                and self._stable_value(expected) != self._stable_value(actual)
             ):
                 issues.append(
                     (
@@ -2198,8 +2220,7 @@ class WritingConflictCheckService:
             (
                 str(candidate.get("id") or "")
                 for candidate in versions
-                if isinstance(candidate, dict)
-                and candidate.get("dimension") == dimension
+                if isinstance(candidate, dict) and candidate.get("dimension") == dimension
             ),
             "",
         )
@@ -3263,7 +3284,6 @@ class WritingGenerationService:
             status="done",
         )
         return WritingDraftResponse.model_validate(draft)
-
 
 
 def _story_assets_are_stale(execution_bundle: dict[str, Any] | None) -> bool:

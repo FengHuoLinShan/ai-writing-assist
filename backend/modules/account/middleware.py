@@ -57,15 +57,18 @@ _DEMO_SENSITIVE_READ_SEGMENTS = (
     "/activation-profiles",
     "/conflict-checks",
     "/cocreation",
+    "/drafts/",
     "/generation-prompt-templates",
     "/metrics",
     "/prompt",
+    "/regeneration-context",
     "/retrieval-traces",
     "/runs/",
     "/snapshots",
     "/suggestions",
     "/tasks",
     "/validation",
+    "/versions",
 )
 _DEMO_READONLY_POST_PATHS = {
     "/api/evidence/compilation/evidence/grep",
@@ -177,10 +180,7 @@ def _is_demo_read_request(
         return False
     if path == "/api/projects":
         return True
-    if path in {
-        f"/api/projects/{configured_id}",
-        f"/api/projects/{configured_id}/workspace-summary",
-    }:
+    if path == f"/api/projects/{configured_id}":
         return True
     return _has_configured_project_path(path, configured_id) or (
         path.startswith(_DEMO_CORE_READ_PREFIXES)
