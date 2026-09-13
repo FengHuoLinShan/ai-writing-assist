@@ -17,7 +17,7 @@ from infrastructure.tasks.facade import (
     get_latest_coalesced_task,
     list_task_lifecycle_contracts,
 )
-from modules.account.facade import current_account_id
+from modules.account.facade import current_account_id, is_anonymous_rp_principal
 from modules.interaction.models import (
     InteractionAccountPreference,
     InteractionGenerationAttempt,
@@ -29,7 +29,9 @@ from modules.interaction.prompts import render_overview_sections
 from modules.interaction.repositories import InteractionRepository
 from modules.interaction.runtime_policy import (
     STORY_TASK_TYPES,
+    anonymous_rp_execution_snapshot,
     clear_private_agent_state,
+    is_anonymous_rp_snapshot,
     story_task_type,
 )
 from modules.interaction.schemas import (
@@ -168,6 +170,38 @@ class InteractionService:
         db: AsyncSession,
         data: JourneyCreateRequest,
     ) -> InteractionMutationResponse:
+        if is_anonymous_rp_principal():
+            raise ValidationError("匿名体验只能从公开作品开始")
+        return await self._create_journey(db, data)
+
+    async def create_demo_journey(
+        self,
+        db: AsyncSession,
+        data: JourneyCreateRequest,
+    ) -> InteractionMutationResponse:
+        if not is_anonymous_rp_principal():
+            raise NotFoundError("公开体验不可用")
+        if data.source_setup is None:
+            raise ValidationError("请选择公开作品的剧情位置和身份")
+        if data.see_sea_enabled or data.web_search_enabled:
+            raise ValidationError("匿名体验不支持持续观看或联网")
+        source_binding = await self._sources.prepare_public_demo_setup(
+            db,
+            data.source_setup,
+        )
+        return await self._create_journey(
+            db,
+            data,
+            source_binding=source_binding,
+        )
+
+    async def _create_journey(
+        self,
+        db: AsyncSession,
+        data: JourneyCreateRequest,
+        *,
+        source_binding: tuple | None = None,
+    ) -> InteractionMutationResponse:
         owner_id = current_account_id()
         existing = await self._repo.get_attempt_by_idempotency(
             db,
@@ -208,11 +242,12 @@ class InteractionService:
                 attempt=self._attempt_response(existing),
             )
         await self._require_generation_slot(db, owner_id)
-        source_binding = (
-            await self._sources.prepare_setup(db, data.source_setup)
-            if data.source_setup
-            else None
-        )
+        if source_binding is None:
+            source_binding = (
+                await self._sources.prepare_setup(db, data.source_setup)
+                if data.source_setup
+                else None
+            )
         title = (
             f"{source_binding[0].title} · 新旅程"[:255]
             if source_binding
@@ -264,10 +299,14 @@ class InteractionService:
             child_node_id=opening.id,
         )
         journey.selected_leaf_node_id = opening.id
-        snapshot = await build_project_llm_execution_snapshot(
-            db,
-            str(journey.novel_id),
-            **({"web_search_enabled": True} if journey.web_search_enabled else {}),
+        snapshot = (
+            anonymous_rp_execution_snapshot()
+            if is_anonymous_rp_principal()
+            else await build_project_llm_execution_snapshot(
+                db,
+                str(journey.novel_id),
+                **({"web_search_enabled": True} if journey.web_search_enabled else {}),
+            )
         )
         attempt = await self._create_attempt(
             db,
@@ -340,9 +379,19 @@ class InteractionService:
             for journey in items
             if journey.source_revision_id
         ]
-        source_responses = await self._sources.journey_source_responses(
-            db,
-            source_requests,
+        source_responses = (
+            [
+                await self._sources.public_demo_journey_source_response(
+                    db,
+                    revision_id=request["revision_id"],
+                    anchor=request["anchor"],
+                    player_identity=request["player_identity"],
+                    source_context_epoch=request["source_context_epoch"],
+                )
+                for request in source_requests
+            ]
+            if is_anonymous_rp_principal()
+            else await self._sources.journey_source_responses(db, source_requests)
         )
         responses: list[JourneySummaryResponse] = []
         source_index = 0
@@ -525,8 +574,15 @@ class InteractionService:
         await self._require_source_mutable(db, journey)
         if journey.source_revision_id is None:
             raise ConflictError("该旅程未使用作品资料")
-        revision = await self._sources.require_ready_revision(
-            db, journey.source_revision_id
+        revision = (
+            await self._sources.require_public_demo_ready_revision(
+                db,
+                revision_id=str(journey.source_revision_id),
+            )
+            if is_anonymous_rp_principal()
+            else await self._sources.require_ready_revision(
+                db, journey.source_revision_id
+            )
         )
         references = {
             item["reference_key"]: item for item in revision.reference_manifest or []
@@ -592,12 +648,22 @@ class InteractionService:
                 response_to_node_id=journey.selected_leaf_node_id,
             )
         return InteractionReferenceSummaryResponse(
-            source=await self._sources.journey_source_response(
-                db,
-                revision_id=journey.source_revision_id,
-                anchor=journey.source_anchor,
-                player_identity=journey.player_identity,
-                source_context_epoch=journey.source_context_epoch,
+            source=(
+                await self._sources.public_demo_journey_source_response(
+                    db,
+                    revision_id=journey.source_revision_id,
+                    anchor=journey.source_anchor,
+                    player_identity=journey.player_identity,
+                    source_context_epoch=journey.source_context_epoch,
+                )
+                if is_anonymous_rp_principal()
+                else await self._sources.journey_source_response(
+                    db,
+                    revision_id=journey.source_revision_id,
+                    anchor=journey.source_anchor,
+                    player_identity=journey.player_identity,
+                    source_context_epoch=journey.source_context_epoch,
+                )
             ),
             pinned=objects(list(policy.get("pinned") or [])),
             excluded=objects(list(policy.get("excluded") or [])),
@@ -969,6 +1035,40 @@ class InteractionService:
         )
         return self._attempt_response(attempt)
 
+    async def claim_anonymous_attempt(
+        self,
+        db: AsyncSession,
+        *,
+        journey_id: str,
+        attempt_id: str,
+    ) -> str:
+        if not is_anonymous_rp_principal():
+            raise ValidationError("仅公开体验使用当前生成方式")
+        journey = await self._active_journey_for_update(db, journey_id)
+        attempt = await self._required_attempt(
+            db,
+            journey,
+            attempt_id,
+            for_update=True,
+        )
+        if attempt.task_id is not None or not is_anonymous_rp_snapshot(
+            dict(attempt.llm_execution_snapshot or {})
+        ):
+            raise NotFoundError("生成记录不存在")
+        if attempt.status != "pending":
+            raise ConflictError("这次生成已在另一处开始")
+        execution_id = uuid.uuid4().hex
+        attempt.status = "preparing_context"
+        attempt.error_kind = None
+        attempt.error_message = None
+        attempt.usage = {
+            **dict(attempt.usage or {}),
+            "inline_execution_id": execution_id,
+        }
+        self._repo.touch(journey)
+        await db.flush()
+        return execution_id
+
     async def list_generation_records(
         self,
         db: AsyncSession,
@@ -1085,7 +1185,11 @@ class InteractionService:
             journey=journey,
             path=path,
         )
-        if active_overview is None and self._story_started(path):
+        if (
+            not is_anonymous_rp_principal()
+            and active_overview is None
+            and self._story_started(path)
+        ):
             try:
                 snapshot = await build_project_llm_execution_snapshot(
                     db,
@@ -1395,13 +1499,14 @@ class InteractionService:
         attempt.status = "pending"
         attempt.request_kind = "continue"
         attempt.continuation_count += 1
-        task_id = enqueue_task(
-            db,
-            story_task_type(dict(attempt.llm_execution_snapshot or {})),
-            meta=self._story_task_meta(journey, attempt),
-            novel_id=str(journey.novel_id),
-        )
-        attempt.task_id = uuid.UUID(task_id)
+        if not is_anonymous_rp_principal():
+            task_id = enqueue_task(
+                db,
+                story_task_type(dict(attempt.llm_execution_snapshot or {})),
+                meta=self._story_task_meta(journey, attempt),
+                novel_id=str(journey.novel_id),
+            )
+            attempt.task_id = uuid.UUID(task_id)
         attempt.error_kind = None
         attempt.error_message = None
         self._repo.touch(journey)
@@ -1420,6 +1525,10 @@ class InteractionService:
         expected_selection_epoch: int,
         web_search_enabled: bool | None = None,
     ) -> InteractionMutationResponse:
+        if is_anonymous_rp_principal() and (
+            see_sea_enabled is True or web_search_enabled is True
+        ):
+            raise ValidationError("匿名体验不支持持续观看或联网")
         journey = await self._active_journey_for_update(db, journey_id)
         self._check_epoch(journey, expected_selection_epoch)
         if see_sea_enabled is not None:
@@ -1485,6 +1594,8 @@ class InteractionService:
         *,
         journey_id: str,
     ) -> InteractionHeartbeatResponse:
+        if is_anonymous_rp_principal():
+            raise ValidationError("匿名体验不支持持续观看")
         journey = await self._active_journey_for_update(db, journey_id)
         if not journey.see_sea_enabled:
             return InteractionHeartbeatResponse(
@@ -1529,6 +1640,9 @@ class InteractionService:
         journey_id: str,
     ) -> InteractionHeartbeatResponse:
         """Revoke foreground sea-loop authorization without cancelling its step."""
+
+        if is_anonymous_rp_principal():
+            raise ValidationError("匿名体验不支持持续观看")
 
         journey = await self._active_journey_for_update(db, journey_id)
         journey.see_sea_last_heartbeat_at = None
@@ -1733,7 +1847,9 @@ class InteractionService:
         await self._repo.notify_state_changed(db, journey)
         self._repo.touch(journey)
         enqueued = False
-        if await self._overview_refresh_is_due(db, journey=journey, path=path):
+        if not is_anonymous_rp_principal() and await self._overview_refresh_is_due(
+            db, journey=journey, path=path
+        ):
             try:
                 snapshot = await build_project_llm_execution_snapshot(
                     db,
@@ -1774,6 +1890,8 @@ class InteractionService:
         *,
         journey_id: str,
     ) -> InteractionOverviewResponse:
+        if is_anonymous_rp_principal():
+            raise ValidationError("匿名体验不提供后台回顾")
         journey = await self._active_journey_for_update(db, journey_id)
         path = await self._repo.get_selected_path(db, journey=journey)
         if not self._story_started(path):
@@ -2152,10 +2270,14 @@ class InteractionService:
             owner_id=journey.owner_id,
         )
         await self._require_generation_slot(db, journey.owner_id)
-        snapshot = await build_project_llm_execution_snapshot(
-            db,
-            str(journey.novel_id),
-            **({"web_search_enabled": True} if journey.web_search_enabled else {}),
+        snapshot = (
+            anonymous_rp_execution_snapshot()
+            if is_anonymous_rp_principal()
+            else await build_project_llm_execution_snapshot(
+                db,
+                str(journey.novel_id),
+                **({"web_search_enabled": True} if journey.web_search_enabled else {}),
+            )
         )
         return await self._create_attempt(
             db,
@@ -2203,15 +2325,20 @@ class InteractionService:
             reference_node_ids=[str(node_id) for node_id in (reference_node_ids or [])],
             usage=({"see_sea_adopted": True} if journey.see_sea_enabled else {}),
         )
+        if is_anonymous_rp_principal() and not is_anonymous_rp_snapshot(
+            llm_execution_snapshot
+        ):
+            raise RuntimeError("anonymous RP attempt requires a fixed execution snapshot")
         db.add(attempt)
         await db.flush()
-        task_id = enqueue_task(
-            db,
-            story_task_type(dict(attempt.llm_execution_snapshot or {})),
-            meta=self._story_task_meta(journey, attempt),
-            novel_id=str(journey.novel_id),
-        )
-        attempt.task_id = uuid.UUID(task_id)
+        if not is_anonymous_rp_principal():
+            task_id = enqueue_task(
+                db,
+                story_task_type(dict(attempt.llm_execution_snapshot or {})),
+                meta=self._story_task_meta(journey, attempt),
+                novel_id=str(journey.novel_id),
+            )
+            attempt.task_id = uuid.UUID(task_id)
         await db.flush()
         return attempt
 
@@ -2235,6 +2362,8 @@ class InteractionService:
         context_nodes: list[InteractionMessageNode],
         response_to: InteractionMessageNode,
     ) -> InteractionGenerationAttempt | None:
+        if is_anonymous_rp_principal():
+            return None
         if not journey.see_sea_enabled or not self._see_sea_is_authorized(journey):
             journey.see_sea_enabled = False
             journey.see_sea_last_heartbeat_at = None
@@ -2274,10 +2403,14 @@ class InteractionService:
             owner_id=journey.owner_id,
         )
         await self._require_generation_slot(db, journey.owner_id)
-        snapshot = await build_project_llm_execution_snapshot(
-            db,
-            str(journey.novel_id),
-            **({"web_search_enabled": True} if journey.web_search_enabled else {}),
+        snapshot = (
+            anonymous_rp_execution_snapshot()
+            if is_anonymous_rp_principal()
+            else await build_project_llm_execution_snapshot(
+                db,
+                str(journey.novel_id),
+                **({"web_search_enabled": True} if journey.web_search_enabled else {}),
+            )
         )
         return await self._create_attempt(
             db,
@@ -2569,12 +2702,22 @@ class InteractionService:
             has_older_messages=len(story) > len(recent),
             active_attempt=self._attempt_response(active) if active else None,
             source=(
-                await self._sources.journey_source_response(
-                    db,
-                    revision_id=journey.source_revision_id,
-                    anchor=journey.source_anchor,
-                    player_identity=journey.player_identity,
-                    source_context_epoch=journey.source_context_epoch,
+                (
+                    await self._sources.public_demo_journey_source_response(
+                        db,
+                        revision_id=journey.source_revision_id,
+                        anchor=journey.source_anchor,
+                        player_identity=journey.player_identity,
+                        source_context_epoch=journey.source_context_epoch,
+                    )
+                    if is_anonymous_rp_principal()
+                    else await self._sources.journey_source_response(
+                        db,
+                        revision_id=journey.source_revision_id,
+                        anchor=journey.source_anchor,
+                        player_identity=journey.player_identity,
+                        source_context_epoch=journey.source_context_epoch,
+                    )
                 )
                 if journey.source_revision_id
                 else None
@@ -2891,6 +3034,8 @@ class InteractionService:
         journey: InteractionJourney,
         snapshot: dict,
     ) -> str | None:
+        if is_anonymous_rp_principal():
+            return None
         path = await self._repo.get_selected_path(db, journey=journey)
         await self._activate_best_overview_head(
             db,

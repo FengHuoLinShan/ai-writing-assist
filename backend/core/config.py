@@ -488,6 +488,9 @@ class Settings:
     public_demo_rp_enabled: bool = field(
         default_factory=lambda: _env_bool("PUBLIC_DEMO_RP_ENABLED", False)
     )
+    public_demo_rp_source_revision_id: str = field(
+        default_factory=lambda: _env("PUBLIC_DEMO_RP_SOURCE_REVISION_ID", "").strip()
+    )
     http_rate_limit_per_minute: int = field(
         default_factory=lambda: _env_int("HTTP_RATE_LIMIT_PER_MINUTE", 0)
     )

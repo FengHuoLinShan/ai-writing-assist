@@ -16,6 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import Settings, get_settings
 from core.errors import ConflictError, NotFoundError, ValidationError
+from modules.account.constants import (
+    ANONYMOUS_RP_IDENTITY_TYPE,
+    ANONYMOUS_RP_SESSION_SECONDS,
+)
 from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID, AccountPrincipal
 from modules.account.email_sender import send_login_code
 from modules.account.models import (
@@ -40,6 +44,12 @@ class LoginResult:
 @dataclass(frozen=True)
 class EmailVerificationRejected:
     message: str = "验证码无效或已过期"
+
+
+@dataclass(frozen=True)
+class AnonymousRpLoginResult:
+    login: LoginResult
+    expires_at: datetime
 
 
 def normalize_email(value: str) -> str:
@@ -84,6 +94,72 @@ def _me(account: Account, identity_type: str) -> AccountMeResponse:
 
 
 class AccountService:
+    async def create_anonymous_rp_session(
+        self,
+        db: AsyncSession,
+        *,
+        accept_terms: bool,
+        accept_privacy: bool,
+        settings: Settings | None = None,
+    ) -> AnonymousRpLoginResult:
+        """Create one isolated, automatically expiring RP-only browser account."""
+        resolved = settings or get_settings()
+        if (
+            not resolved.public_demo_enabled
+            or not resolved.public_demo_rp_enabled
+            or not resolved.public_demo_rp_source_revision_id
+        ):
+            raise NotFoundError("Anonymous RP is not enabled")
+        try:
+            uuid.UUID(resolved.public_demo_rp_source_revision_id)
+        except ValueError as exc:
+            raise NotFoundError("Anonymous RP is not enabled") from exc
+        if not accept_terms or not accept_privacy:
+            raise ValidationError("开始体验前必须同意用户协议和隐私政策")
+        now = _utcnow()
+        expires_at = now + timedelta(seconds=ANONYMOUS_RP_SESSION_SECONDS)
+        account = Account(
+            status="active",
+            support_code=_support_code(),
+            temporary_expires_at=expires_at,
+        )
+        db.add(account)
+        await db.flush()
+        db.add(
+            AccountIdentity(
+                account_id=account.id,
+                provider=ANONYMOUS_RP_IDENTITY_TYPE,
+                issuer="public-demo",
+                subject=secrets.token_urlsafe(24),
+            )
+        )
+        db.add_all(
+            [
+                AccountConsent(
+                    account_id=account.id,
+                    policy_type="terms",
+                    version=resolved.terms_version,
+                    accepted_at=now,
+                ),
+                AccountConsent(
+                    account_id=account.id,
+                    policy_type="privacy",
+                    version=resolved.privacy_version,
+                    accepted_at=now,
+                ),
+            ]
+        )
+        login = await self.create_session(
+            db,
+            account=account,
+            identity_type=ANONYMOUS_RP_IDENTITY_TYPE,
+            settings=resolved,
+            idle_seconds=ANONYMOUS_RP_SESSION_SECONDS,
+            absolute_seconds=ANONYMOUS_RP_SESSION_SECONDS,
+        )
+        await self._record_event(db, account.id, "anonymous_rp_started", "")
+        return AnonymousRpLoginResult(login=login, expires_at=expires_at)
+
     async def login_oidc(
         self,
         db: AsyncSession,
@@ -447,8 +523,20 @@ class AccountService:
         account: Account,
         identity_type: str,
         settings: Settings | None = None,
+        idle_seconds: int | None = None,
+        absolute_seconds: int | None = None,
     ) -> LoginResult:
         resolved = settings or get_settings()
+        resolved_idle_seconds = (
+            resolved.session_idle_seconds if idle_seconds is None else idle_seconds
+        )
+        resolved_absolute_seconds = (
+            resolved.session_absolute_seconds
+            if absolute_seconds is None
+            else absolute_seconds
+        )
+        if resolved_idle_seconds <= 0 or resolved_absolute_seconds <= 0:
+            raise ValueError("session expiry must be positive")
         now = _utcnow()
         locked_account = await db.get(Account, account.id, with_for_update=True)
         if locked_account is None or locked_account.status == "banned":
@@ -470,9 +558,8 @@ class AccountService:
             csrf_digest=_keyed_digest(resolved, "csrf", raw_csrf),
             identity_type=identity_type,
             last_seen_at=now,
-            idle_expires_at=now + timedelta(seconds=resolved.session_idle_seconds),
-            absolute_expires_at=now
-            + timedelta(seconds=resolved.session_absolute_seconds),
+            idle_expires_at=now + timedelta(seconds=resolved_idle_seconds),
+            absolute_expires_at=now + timedelta(seconds=resolved_absolute_seconds),
         )
         db.add(session)
         await db.flush()
@@ -715,6 +802,31 @@ class AccountService:
             await purge_projects_for_owner(db, account.id)
             await db.execute(delete(Account).where(Account.id == account.id))
         await db.flush()
+        return ids
+
+    async def purge_expired_anonymous_rp(
+        self,
+        db: AsyncSession,
+        *,
+        execute: bool,
+    ) -> list[uuid.UUID]:
+        now = _utcnow()
+        ids = list(
+            (
+                await db.execute(
+                    select(Account.id)
+                    .join(AccountIdentity, AccountIdentity.account_id == Account.id)
+                    .where(
+                        AccountIdentity.provider == ANONYMOUS_RP_IDENTITY_TYPE,
+                        Account.temporary_expires_at.is_not(None),
+                        Account.temporary_expires_at <= now,
+                    )
+                )
+            ).scalars()
+        )
+        if execute and ids:
+            await db.execute(delete(Account).where(Account.id.in_(ids)))
+            await db.flush()
         return ids
 
     async def _cancel_account_tasks(

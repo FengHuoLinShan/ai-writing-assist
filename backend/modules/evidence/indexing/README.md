@@ -378,6 +378,9 @@ ADR-0023 的 Agent 通过 Evidence facade 消费已有检索与原文回读，�
 角色工具仍只能使用固定 source revision 的资料包。
 
 检索 metrics 投影增加 `embedding_provider`，供前端结合既有 embedding_runtime 的健康状态区分本地检索准备与查询；不暴露凭据，也不把未知外部服务状态当作 ready。
+
+公开演示不会创建新索引或改变 retrieval 权限；它只以已有 exact draft/hash manifest 调用现有检索。
+冻结命令会先验证 manifest 的章节索引覆盖和 Scene/span 覆盖，不足即拒绝物化公开 source revision。
 世界跨域复核通过 compilation/facade 消费现有确认与聚焦证据，不新增索引、重建任务或资产写权限。字面命中、Top-K 与聚焦覆盖仍不能证明全库语义穷尽，源版本校验继续先于结果使用。
 
 ## 导入资料整理后的刷新

@@ -28,6 +28,9 @@
 - `compile_interaction_story_context()` 是 Evidence 拥有的深层稳定入口；它固定
   `consumer_action=interaction.story`、读者/人物知识与章节/offset 截止。调用方可传本轮
   剩余预算，Evidence 将其限制在 0～16K；必需资料无法容纳时返回 blocker。
+- ADR-0024 仅为 `PUBLIC_DEMO_RP_SOURCE_REVISION_ID` 精确指向、ready、fingerprint 与 manifest
+  均重验通过的公开 source 放宽一次 source/consumer 同 owner 比较；调用方必须显式携带该 contract，
+  任意其它 source 仍按 ADR-0018 拒绝，渲染正文或临时 Key 不进入 snapshot。
 - `author_safe + scene_id` 固定以当前 Scene 为同章截止点；后续或跨越截止点的正文候选在
   原文回读阶段 fail closed，`author_full` 不自动增加该截止。
 

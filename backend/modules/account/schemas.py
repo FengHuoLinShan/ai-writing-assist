@@ -54,6 +54,16 @@ class AccountMeResponse(BaseModel):
     purge_after: datetime | None = None
 
 
+class AnonymousRpSessionResponse(BaseModel):
+    identity_type: str = "anonymous_rp"
+    expires_at: datetime
+
+
+class AnonymousRpSessionRequest(BaseModel):
+    accept_terms: bool = False
+    accept_privacy: bool = False
+
+
 class DeletionStateResponse(BaseModel):
     status: str
     deletion_requested_at: datetime | None = None

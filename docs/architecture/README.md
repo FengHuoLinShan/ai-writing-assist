@@ -40,6 +40,8 @@ ADR-0013 记录作者长任务的 operation receipt、最多两个 attempt 和�
 世界对象图片的鉴权读取、私有双 bucket、最小权限应用凭据和单盘 32GiB MinIO 边界。
 ADR-0018 定义同 owner author source revision 到 hidden interaction consumer 的唯一跨项目只读
 例外：Writing 保留原文，Evidence 按 manifest/截止点编译，interaction 只保存私人旅程。
+ADR-0024 补充一个不扩张该规则的公开演示 contract：配置精确指定的 ready/fingerprint/manifest
+source 才能被 24 小时匿名 RP consumer 只读使用，临时 Key 只在前台 SSE 请求内存在。
 
 ## 当前读图约定
 

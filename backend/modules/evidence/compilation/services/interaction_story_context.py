@@ -45,6 +45,8 @@ class InteractionStoryContextService:
         task_id: str | None,
         model: str,
         budget_tokens: int = INTERACTION_SOURCE_CONTEXT_MAX_TOKENS,
+        public_demo_source: bool = False,
+        public_demo_source_fingerprint: str | None = None,
     ) -> InteractionStoryContextContract:
         from modules.project.facade import (
             get_any_project_context,
@@ -52,7 +54,18 @@ class InteractionStoryContextService:
             require_interaction_project,
         )
 
-        await require_active_project(db, source_novel_id)
+        if public_demo_source:
+            from modules.interaction.facade import validate_public_demo_source_context
+
+            await validate_public_demo_source_context(
+                db,
+                source_novel_id=source_novel_id,
+                source_revision_id=source_revision_id,
+                source_fingerprint=str(public_demo_source_fingerprint or ""),
+                source_manifest=source_manifest,
+            )
+        else:
+            await require_active_project(db, source_novel_id)
         await require_interaction_project(db, consumer_novel_id)
         budget_tokens = min(
             INTERACTION_SOURCE_CONTEXT_MAX_TOKENS,
@@ -65,7 +78,10 @@ class InteractionStoryContextService:
             or consumer_project is None
             or source_project.project_kind != "author"
             or consumer_project.project_kind != "interaction"
-            or source_project.owner_id != consumer_project.owner_id
+            or (
+                not public_demo_source
+                and source_project.owner_id != consumer_project.owner_id
+            )
         ):
             raise NotFoundError("作品资料不存在")
         cutoff_chapter = int(anchor.get("chapter_index") or 0)

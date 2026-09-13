@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -220,3 +222,38 @@ async def test_http_first_agreement_save_and_legacy_omission(async_client, db_se
         **payload, "sections": {"long_term_agreements": "字" * 4001},
     })
     assert invalid.status_code == 422
+
+
+async def test_logged_in_attempt_events_still_stream_persisted_text(
+    async_client,
+    db_session,
+    monkeypatch,
+) -> None:
+    from modules.interaction.tests.test_services import _create_journey
+
+    _service, journey, attempt, _response = await _create_journey(
+        db_session,
+        key="events-regression",
+    )
+    attempt.status = "completed"
+    attempt.visible_text = "已经持久化的故事。"
+    attempt.visible_offset = len(attempt.visible_text)
+    await db_session.flush()
+
+    @asynccontextmanager
+    async def session_scope():
+        yield db_session
+
+    monkeypatch.setattr(
+        "modules.interaction.streaming.get_manager",
+        lambda: SimpleNamespace(session_factory=lambda: session_scope()),
+    )
+
+    response = await async_client.get(
+        f"/api/interactions/journeys/{journey.id}/attempts/{attempt.id}/events"
+    )
+
+    assert response.status_code == 200
+    assert "event: chunk" in response.text
+    assert "已经持久化的故事。" in response.text
+    assert "event: done" in response.text

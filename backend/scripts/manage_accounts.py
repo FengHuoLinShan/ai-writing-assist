@@ -33,6 +33,10 @@ def _parser() -> argparse.ArgumentParser:
     claim.add_argument("--email", required=True)
     purge = commands.add_parser("purge-due")
     purge.add_argument("--execute", action="store_true")
+    anonymous = commands.add_parser("purge-expired-anonymous-rp")
+    anonymous.add_argument("--execute", action="store_true")
+    maintenance = commands.add_parser("purge-maintenance")
+    maintenance.add_argument("--execute", action="store_true")
     smoke = commands.add_parser("smtp-smoke")
     smoke.add_argument("--to", required=True)
     return parser
@@ -95,6 +99,20 @@ async def _run(args: argparse.Namespace) -> int:
         elif args.command == "purge-due":
             ids = await service.purge_due(db, execute=args.execute)
             print(f"due={len(ids)} executed={bool(args.execute)}")
+        elif args.command == "purge-expired-anonymous-rp":
+            ids = await service.purge_expired_anonymous_rp(db, execute=args.execute)
+            print(f"due={len(ids)} executed={bool(args.execute)}")
+        elif args.command == "purge-maintenance":
+            accounts = await service.purge_due(db, execute=args.execute)
+            anonymous = await service.purge_expired_anonymous_rp(
+                db,
+                execute=args.execute,
+            )
+            print(
+                "due_accounts="
+                f"{len(accounts)} due_anonymous={len(anonymous)} "
+                f"executed={bool(args.execute)}"
+            )
     await manager.close()
     return 0
 

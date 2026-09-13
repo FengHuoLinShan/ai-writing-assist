@@ -1816,7 +1816,7 @@ def test_backup_and_maintenance_systemd_units_are_network_ordered_and_bounded() 
     timer_expectations = {
         "ai-writing-backup.timer": ("*-*-* 02:17:00", "ai-writing-backup.service"),
         "ai-writing-account-maintenance.timer": (
-            "*-*-* 03:17:00",
+            "hourly",
             "ai-writing-account-maintenance.service",
         ),
     }

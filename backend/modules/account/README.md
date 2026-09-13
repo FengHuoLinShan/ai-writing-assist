@@ -10,8 +10,9 @@
   失败次数和第 5 次失效状态必须随 HTTP 400 一起持久化。
 - 一个账号只保留一个有效浏览器会话。会话 Cookie 只保存随机令牌，数据库只保存
   HMAC 摘要；写请求同时校验同源、XHR 与 CSRF。
-- `pending_deletion` 账号只能退出、查看删除状态、重新认证和撤销删除；到期清理由
-  `scripts/manage_accounts.py purge-due --execute` 执行。
+- `pending_deletion` 账号只能退出、查看删除状态、重新认证和撤销删除；每小时到期清理由
+  `scripts/manage_accounts.py purge-maintenance --execute` 执行，其中也会级联删除到期的
+  24 小时 `anonymous_rp` 账号及其私人旅程。
 - 管理员工具只显示账号元数据和支持码，不读取项目标题、ID 或内容。
 
 Authing 微信由 `AUTHING_WECHAT_ENABLED` 控制。关闭时所有微信入口返回 404；开启前

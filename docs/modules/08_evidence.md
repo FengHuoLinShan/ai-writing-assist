@@ -423,6 +423,13 @@ Evidence 保持只读证据与 Context 权威，工具选择由外层有界 Agen
 工作区 inspection 仍执行来源/角色范围，不对 reader/character 开放工作稿、人物卡或地图内部数据。
 原 confirmation 重新物化，角色知识不能靠另开查询扩大；变化事件只交给已注册的调度消费者。
 
+### 匿名公开 RP 的固定来源
+
+ADR-0024 的匿名 RP 只经 `compile_interaction_story_context()` 读取配置精确指向的 source revision。
+Evidence 在跳过同 owner 比较前经 interaction facade 重验 ready、fingerprint 与 exact manifest；其余
+source、consumer kind、draft/hash、Scene/offset、角色知识和 snapshot 约束不变。临时 provider Key
+不属于 Evidence 输入或审计内容。
+
 ### 世界跨域复核
 
 World 复核使用原确认编译后实际保留的内容；Focused Evidence 只读冻结/回读，不扩大 selected/excluded 语义。Story/map author inspect 不适用于 reader/character 或 Scene 截止；缺少投影时失败关闭。pinned prose 精确截取 highlight 范围。所有问题与复核处置仍在 World，索引和生成资产所有权不变。

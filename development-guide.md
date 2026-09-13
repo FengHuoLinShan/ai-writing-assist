@@ -87,6 +87,10 @@ make format                      # ruff format --check
 make format-fix                  # ruff format
 ```
 
+公开 RP 演示资料只可先以 `uv --directory backend run python scripts/freeze_public_demo_rp_source.py --project-id <id>`
+做无写入覆盖门禁；确认使用独立演示项目后，才显式增加 `--execute`。该命令不调用模型、导入或索引，
+不得针对真实作者项目运行。
+
 `make db` 为 host-run backend/worker 固定注入本地开发 MinIO 的非生产连接与应用凭据；不要让
 shell 中的生产 `MAP_ATLAS_S3_*` 值覆盖它。S3 API 与可选 MinIO console 只绑定 loopback；开发
 结束用 `make kill` 停止 PostgreSQL 与 MinIO。host-run API/worker 会显式剥离 shell 中的

@@ -14,7 +14,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from core.config import get_settings
 from core.database import get_manager
 from core.errors import NotFoundError
-from modules.account.constants import SESSION_COOKIE_NAME
+from modules.account.constants import ANONYMOUS_RP_IDENTITY_TYPE, SESSION_COOKIE_NAME
 from modules.account.context import bind_principal, reset_principal
 from modules.account.contracts import AccountPrincipal
 from modules.account.public_demo import PublicDemoConfig, configured_public_demo
@@ -22,6 +22,7 @@ from modules.account.services import service
 
 _PUBLIC_AUTH_PATHS = {
     "/api/auth/config",
+    "/api/auth/anonymous-rp",
     "/api/auth/email/request-code",
     "/api/auth/email/verify",
     "/api/auth/wechat/start",
@@ -53,6 +54,14 @@ _DEMO_SENSITIVE_READ_SEGMENTS = (
     "/tasks",
     "/validation",
 )
+
+
+def _anonymous_rp_path_allowed(path: str) -> bool:
+    if path in {"/api/auth/me", "/api/auth/logout", "/api/demo/rp-source"}:
+        return True
+    if path == "/api/interactions/demo-journeys":
+        return True
+    return path.startswith("/api/interactions/journeys/")
 
 
 def _headers(scope: Scope) -> dict[str, str]:
@@ -268,6 +277,19 @@ class AccountAuthMiddleware:
                 return
         if principal.status == "pending_deletion" and path not in _PENDING_ALLOWED_PATHS:
             await self._reject(scope, receive, send, 403, "Account pending deletion")
+            return
+        if (
+            principal.identity_type == ANONYMOUS_RP_IDENTITY_TYPE
+            and getattr(principal, "access_scope", None) != "demo_readonly"
+            and not _anonymous_rp_path_allowed(path)
+        ):
+            await self._reject(
+                scope,
+                receive,
+                send,
+                403,
+                "Anonymous RP access is limited",
+            )
             return
         if method in _STATE_METHODS:
             origin = headers.get("origin", "")

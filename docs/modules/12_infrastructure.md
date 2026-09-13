@@ -213,6 +213,10 @@ systemd 的 backup/account-maintenance oneshot 分别以 4 小时/1 小时作为
 并使用 `TimeoutStopSec=2m`、`KillMode=control-group`：超时会让 service 失败，先给 shell/Docker CLI 子进程
 TERM/cleanup 窗口，再由 systemd 结束整个 control group；Healthchecks `/fail` 与 missed ping 仍承担告警。
 进程终止后 OS 会释放共享 operation lock。
+
+`account-maintenance` timer 按小时运行 `purge-maintenance --execute`，同时处理正常延期删除与
+24 小时 `anonymous_rp` 账户；它不执行公开 source 物化、导入、索引或模型调用。公开 source 的
+只读/显式执行 gate 是独立 management command，仍须在专用 demo 数据库先验收。
 它们 `Wants` 并 `After=network-online.target`，仅保证启动排序，不证明 Internet、B2 或 restic 可达。数值不是
 SLA，应依据观测运行时间通过已评审 systemd drop-in 调整；仍需外部演练 Docker daemon/容器终止行为，本合同不表示
 该演练已完成。

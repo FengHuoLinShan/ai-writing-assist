@@ -11,10 +11,28 @@ from time import monotonic
 from sqlalchemy import select
 
 from core.database import get_manager
+from modules.account.context import bind_principal, reset_principal
+from modules.account.contracts import AccountPrincipal
+from modules.interaction.framing import InteractionStreamFramer
+from modules.interaction.generation import (
+    InlineStoryTask,
+    InteractionClientDisconnectedError,
+    InteractionGenerationWorkflow,
+    PreparedStoryGeneration,
+    PreparedSummaryGeneration,
+    story_request,
+    summary_request,
+)
 from modules.interaction.models import (
     InteractionGenerationAttempt,
     InteractionJourney,
 )
+from modules.interaction.runtime_policy import (
+    anonymous_rp_execution_settings,
+    is_anonymous_rp_snapshot,
+)
+from modules.interaction.schemas import InteractionSummaryOutput
+from modules.project.facade import create_project_snapshot_llm_client
 
 TERMINAL_ATTEMPT_STATUSES = {
     "awaiting_continue",
@@ -23,6 +41,8 @@ TERMINAL_ATTEMPT_STATUSES = {
     "cancelled",
     "stopped",
 }
+
+_inline_workflow = InteractionGenerationWorkflow()
 
 
 def _event(
@@ -71,8 +91,7 @@ async def stream_attempt_events(
                     )
                     .join(
                         InteractionJourney,
-                        InteractionJourney.id
-                        == InteractionGenerationAttempt.journey_id,
+                        InteractionJourney.id == InteractionGenerationAttempt.journey_id,
                     )
                     .where(
                         InteractionJourney.id == journey_id,
@@ -136,3 +155,270 @@ async def stream_attempt_events(
             yield ": keep-alive\n\n"
             last_keepalive = now
         await asyncio.sleep(0.35)
+
+
+def _attempt_status(attempt: InteractionGenerationAttempt) -> dict:
+    return {
+        "status": attempt.status,
+        "offset": int(attempt.visible_offset or 0),
+        "finish_reason": attempt.finish_reason,
+        "error_kind": attempt.error_kind,
+        "error_message": attempt.error_message,
+        "result_node_id": (
+            str(attempt.result_node_id) if attempt.result_node_id else None
+        ),
+    }
+
+
+async def _fail_inline_attempt(
+    *,
+    principal: AccountPrincipal,
+    task: InlineStoryTask,
+    error: Exception,
+) -> InteractionGenerationAttempt | None:
+    async with get_manager().session_factory() as db:
+        await _inline_workflow.fail_story_task(db, task=task, error=error)
+        journey_id = uuid.UUID(str(task.meta["journey_id"]))
+        attempt_id = uuid.UUID(str(task.meta["attempt_id"]))
+        journey = await _inline_workflow._repo.get_journey(  # noqa: SLF001
+            db,
+            journey_id=journey_id,
+            owner_id=principal.account_id,
+            status="active",
+        )
+        return (
+            await _inline_workflow._repo.get_attempt(  # noqa: SLF001
+                db,
+                journey=journey,
+                attempt_id=attempt_id,
+                for_update=False,
+            )
+            if journey is not None
+            else None
+        )
+
+
+async def stream_anonymous_rp_attempt(
+    *,
+    request,
+    principal: AccountPrincipal,
+    journey_id: uuid.UUID,
+    attempt_id: uuid.UUID,
+    api_key: str,
+    execution_id: str,
+) -> AsyncIterator[str]:
+    """Run one anonymous RP attempt inside its SSE request, never a worker."""
+    context_token = bind_principal(principal)
+    client = None
+    task = None
+    try:
+        async with get_manager().session_factory() as db:
+            journey = await _inline_workflow._repo.get_journey(  # noqa: SLF001
+                db,
+                journey_id=journey_id,
+                owner_id=principal.account_id,
+                status="active",
+            )
+            if journey is None:
+                yield _event("error", {"code": "not_found"})
+                return
+            attempt = await _inline_workflow._repo.get_attempt(  # noqa: SLF001
+                db,
+                journey=journey,
+                attempt_id=attempt_id,
+                for_update=False,
+            )
+            if (
+                attempt is None
+                or attempt.task_id is not None
+                or not is_anonymous_rp_snapshot(
+                    dict(attempt.llm_execution_snapshot or {})
+                )
+            ):
+                yield _event("error", {"code": "not_found"})
+                return
+            task = InlineStoryTask(
+                meta={
+                    "novel_id": str(journey.novel_id),
+                    "journey_id": str(journey.id),
+                    "attempt_id": str(attempt.id),
+                    "llm_execution_snapshot": dict(attempt.llm_execution_snapshot or {}),
+                },
+                executable_settings=anonymous_rp_execution_settings(
+                    dict(attempt.llm_execution_snapshot or {})
+                ),
+                execution_id=execution_id,
+            )
+            if await request.is_disconnected():
+                raise InteractionClientDisconnectedError()
+            prepared = await _inline_workflow.prepare_story_task(db, task=task)
+            summary_passes = 0
+            while isinstance(prepared, PreparedSummaryGeneration):
+                summary_passes += 1
+                if summary_passes > 4:
+                    raise RuntimeError("anonymous RP summary pass budget was exhausted")
+                if await request.is_disconnected():
+                    raise InteractionClientDisconnectedError()
+                summary_settings = {
+                    **prepared.executable_settings,
+                    "llm": {
+                        **dict(prepared.executable_settings.get("llm") or {}),
+                        "api_key": api_key,
+                    },
+                }
+                summary_client = create_project_snapshot_llm_client(
+                    summary_settings,
+                    novel_id=prepared.novel_id,
+                )
+                try:
+                    output = await summary_client.generate_structured(
+                        summary_request(prepared),
+                        InteractionSummaryOutput,
+                        max_fix_attempts=1,
+                        diagnostics=[],
+                        fix_prompt=(
+                            "上一轮回顾没有遵守固定结构。只输出合法 JSON；"
+                            "不得添加新剧情或改变已有事实。"
+                        ),
+                    )
+                finally:
+                    await summary_client.close()
+                await _inline_workflow.finalize_summary_task(
+                    db,
+                    task=task,
+                    prepared=prepared,
+                    output=output,
+                    diagnostics=[],
+                )
+                prepared = await _inline_workflow.prepare_story_task(db, task=task)
+            if not isinstance(prepared, PreparedStoryGeneration):
+                raise RuntimeError("anonymous RP preparation is invalid")
+            client_settings = {
+                **prepared.executable_settings,
+                "llm": {
+                    **dict(prepared.executable_settings.get("llm") or {}),
+                    "api_key": api_key,
+                },
+            }
+            client = create_project_snapshot_llm_client(
+                client_settings,
+                novel_id=prepared.novel_id,
+            )
+            yield _event("status", {"status": "running", "offset": 0})
+            framer = InteractionStreamFramer()
+            finish_reason = "stop"
+            final_usage: dict[str, int] | None = None
+            async for chunk in client.generate_stream(
+                story_request(prepared),
+                transport_retries=False,
+            ):
+                if await request.is_disconnected():
+                    raise InteractionClientDisconnectedError()
+                visible = framer.feed(chunk.content)
+                if visible:
+                    offset = await _inline_workflow.checkpoint_story_task(
+                        db,
+                        task=task,
+                        visible_delta=visible,
+                    )
+                    yield _event(
+                        "chunk",
+                        {"offset": offset, "text": visible},
+                        event_id=offset,
+                    )
+                if chunk.finish_reason:
+                    finish_reason = str(chunk.finish_reason)
+                if chunk.usage is not None:
+                    final_usage = chunk.usage.model_dump()
+            trailing, metadata, raw_metadata = framer.finish()
+            offset = await _inline_workflow.checkpoint_story_task(
+                db,
+                task=task,
+                visible_delta=trailing,
+                metadata_text=raw_metadata,
+                usage=final_usage,
+                progress=0.95,
+            )
+            if trailing:
+                yield _event(
+                    "chunk",
+                    {"offset": offset, "text": trailing},
+                    event_id=offset,
+                )
+            result = await _inline_workflow.finalize_story_task(
+                db,
+                task=task,
+                finish_reason=finish_reason,
+                metadata=metadata,
+            )
+            await db.commit()
+            db.expire_all()
+            settled = await _inline_workflow._repo.get_attempt(  # noqa: SLF001
+                db,
+                journey=journey,
+                attempt_id=attempt_id,
+                for_update=False,
+            )
+            if settled is None:
+                yield _event("error", {"code": "not_found"})
+                return
+            yield _event(
+                "status",
+                _attempt_status(settled),
+                event_id=settled.visible_offset,
+            )
+            yield _event(
+                "done",
+                {
+                    "status": result.get("status", settled.status),
+                    "offset": settled.visible_offset,
+                    "result_node_id": (
+                        str(settled.result_node_id) if settled.result_node_id else None
+                    ),
+                },
+                event_id=settled.visible_offset,
+            )
+    except InteractionClientDisconnectedError:
+        if task is not None:
+            await _fail_inline_attempt(
+                principal=principal,
+                task=task,
+                error=InteractionClientDisconnectedError(),
+            )
+        return
+    except asyncio.CancelledError:
+        if task is not None:
+            await _fail_inline_attempt(
+                principal=principal,
+                task=task,
+                error=InteractionClientDisconnectedError(),
+            )
+        raise
+    except Exception as error:
+        if task is not None:
+            attempt = await _fail_inline_attempt(
+                principal=principal,
+                task=task,
+                error=error,
+            )
+            if attempt is not None:
+                yield _event(
+                    "status",
+                    _attempt_status(attempt),
+                    event_id=attempt.visible_offset,
+                )
+                yield _event(
+                    "done",
+                    {
+                        "status": attempt.status,
+                        "offset": attempt.visible_offset,
+                        "result_node_id": None,
+                    },
+                    event_id=attempt.visible_offset,
+                )
+                return
+        yield _event("error", {"code": "generation_failed"})
+    finally:
+        if client is not None:
+            await client.close()
+        reset_principal(context_token)

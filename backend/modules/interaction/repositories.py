@@ -59,6 +59,20 @@ class InteractionRepository:
             stmt = stmt.with_for_update()
         return (await db.execute(stmt)).scalar_one_or_none()
 
+    async def get_source_revision_unscoped(
+        self,
+        db: AsyncSession,
+        *,
+        revision_id: uuid.UUID,
+        for_update: bool = False,
+    ) -> InteractionSourceRevision | None:
+        stmt = select(InteractionSourceRevision).where(
+            InteractionSourceRevision.id == revision_id,
+        )
+        if for_update:
+            stmt = stmt.with_for_update()
+        return (await db.execute(stmt)).scalar_one_or_none()
+
     async def list_source_revisions(
         self,
         db: AsyncSession,

@@ -11,7 +11,11 @@ from fastapi.responses import StreamingResponse
 from core.csrf import require_xhr_request
 from core.dependencies import DbSession
 from core.errors import ConflictError, ValidationError
-from modules.account.facade import current_account_id
+from modules.account.facade import (
+    current_account_id,
+    current_account_principal,
+    is_anonymous_rp_principal,
+)
 from modules.assistant import facade as assistant
 from modules.assistant.contracts import (
     NoticeDecision,
@@ -59,32 +63,52 @@ from modules.interaction.schemas import (
     JourneyListResponse,
     JourneyModeUpdateRequest,
     JourneyTitleUpdateRequest,
+    PublicDemoRpSourceResponse,
 )
 from modules.interaction.services import InteractionService
 from modules.interaction.source_service import InteractionSourceService
-from modules.interaction.streaming import stream_attempt_events
+from modules.interaction.streaming import (
+    stream_anonymous_rp_attempt,
+    stream_attempt_events,
+)
 from modules.project.facade import create_author_project, require_active_project
 
 router = APIRouter(prefix="/api/interactions", tags=["interactions"])
+demo_router = APIRouter(prefix="/api/demo", tags=["public-demo"])
 _service = InteractionService()
 _source_service = InteractionSourceService()
 _xhr = [Depends(require_xhr_request)]
 
 
+def _require_non_anonymous_care() -> None:
+    if is_anonymous_rp_principal():
+        raise ValidationError("匿名体验不支持主动后台续写")
+
+
+@demo_router.get("/rp-source", response_model=PublicDemoRpSourceResponse)
+async def get_public_demo_rp_source(db: DbSession) -> PublicDemoRpSourceResponse:
+    if not is_anonymous_rp_principal():
+        raise ValidationError("请先开始公开体验")
+    return await _source_service.public_demo_source(db)
+
+
 @router.get("/journeys/{journey_id}/care/policy")
 async def care_policy(db: DbSession, journey_id: str):
+    _require_non_anonymous_care()
     journey = await _service._owned_journey(db, journey_id)
     return await assistant.policy(db, str(journey.novel_id), interaction=True)
 
 
 @router.put("/journeys/{journey_id}/care/policy", dependencies=_xhr)
 async def update_care_policy(db: DbSession, journey_id: str, data: ProactivePolicy):
+    _require_non_anonymous_care()
     journey = await _service._owned_journey(db, journey_id)
     return await assistant.save_policy(db, str(journey.novel_id), data, interaction=True)
 
 
 @router.get("/journeys/{journey_id}/care/notices")
 async def care_notices(db: DbSession, journey_id: str):
+    _require_non_anonymous_care()
     journey = await _service._owned_journey(db, journey_id)
     return await assistant.list_notices(db, str(journey.novel_id), interaction=True)
 
@@ -93,6 +117,7 @@ async def care_notices(db: DbSession, journey_id: str):
 async def recheck_care_notice(
     db: DbSession, journey_id: str, notice_id: uuid.UUID, data: NoticeRecheck
 ):
+    _require_non_anonymous_care()
     journey = await _service._owned_journey(db, journey_id)
     return await assistant.recheck_notice(
         db, str(journey.novel_id), notice_id, data.operation_id, interaction=True
@@ -103,6 +128,7 @@ async def recheck_care_notice(
 async def decide_care_notice(
     db: DbSession, journey_id: str, notice_id: uuid.UUID, data: NoticeDisposition
 ):
+    _require_non_anonymous_care()
     journey = await _service._owned_journey(db, journey_id)
     return await assistant.decide_notice(
         db,
@@ -402,6 +428,37 @@ async def create_journey(
     return await _service.create_journey(db, data)
 
 
+@router.post(
+    "/demo-journeys",
+    response_model=InteractionMutationResponse,
+    status_code=201,
+    dependencies=_xhr,
+)
+async def create_demo_journey(
+    db: DbSession,
+    data: JourneyCreateRequest,
+) -> InteractionMutationResponse:
+    return await _service.create_demo_journey(db, data)
+
+
+@router.get("/demo-journeys", response_model=JourneyListResponse)
+async def list_demo_journeys(
+    db: DbSession,
+    status: str = Query(default="active"),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=1, ge=1, le=20),
+) -> JourneyListResponse:
+    if not is_anonymous_rp_principal():
+        raise ValidationError("请先开始公开体验")
+    return await _service.list_journeys(
+        db,
+        status=status,
+        search=None,
+        offset=offset,
+        limit=limit,
+    )
+
+
 @router.get("/journeys", response_model=JourneyListResponse)
 async def list_journeys(
     db: DbSession,
@@ -633,6 +690,46 @@ async def stream_attempt(
             journey_id=uuid.UUID(journey_id),
             attempt_id=uuid.UUID(attempt_id),
             offset=offset,
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post(
+    "/journeys/{journey_id}/attempts/{attempt_id}/stream",
+    dependencies=_xhr,
+)
+async def stream_anonymous_attempt(
+    request: Request,
+    db: DbSession,
+    journey_id: str,
+    attempt_id: str,
+) -> StreamingResponse:
+    if not is_anonymous_rp_principal():
+        raise ValidationError("仅公开体验使用当前生成方式")
+    api_key = request.headers.get("x-deepseek-api-key", "").strip()
+    if not api_key or len(api_key) > 512:
+        raise ValidationError("请提供可用的 DeepSeek Key")
+    execution_id = await _service.claim_anonymous_attempt(
+        db,
+        journey_id=journey_id,
+        attempt_id=attempt_id,
+    )
+    principal = current_account_principal()
+    if principal is None:
+        raise ValidationError("请先开始公开体验")
+    return StreamingResponse(
+        stream_anonymous_rp_attempt(
+            request=request,
+            principal=principal,
+            journey_id=uuid.UUID(journey_id),
+            attempt_id=uuid.UUID(attempt_id),
+            api_key=api_key,
+            execution_id=execution_id,
         ),
         media_type="text/event-stream",
         headers={

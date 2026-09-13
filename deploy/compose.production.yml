@@ -72,6 +72,11 @@ x-api-environment: &api-environment
   SUPPORT_EMAIL: ${SUPPORT_EMAIL:-}
   TERMS_VERSION: ${TERMS_VERSION:-2026-07-23}
   PRIVACY_VERSION: ${PRIVACY_VERSION:-2026-07-23}
+  PUBLIC_DEMO_ENABLED: ${PUBLIC_DEMO_ENABLED:-false}
+  PUBLIC_DEMO_PROJECT_ID: ${PUBLIC_DEMO_PROJECT_ID:-}
+  PUBLIC_DEMO_VERSION: ${PUBLIC_DEMO_VERSION:-}
+  PUBLIC_DEMO_RP_ENABLED: ${PUBLIC_DEMO_RP_ENABLED:-false}
+  PUBLIC_DEMO_RP_SOURCE_REVISION_ID: ${PUBLIC_DEMO_RP_SOURCE_REVISION_ID:-}
   AUTHING_WECHAT_ENABLED: ${AUTHING_WECHAT_ENABLED:-false}
   AUTHING_ISSUER: ${AUTHING_ISSUER:-}
   AUTHING_CLIENT_ID: ${AUTHING_CLIENT_ID:-}
@@ -299,7 +304,7 @@ services:
     <<: *first-party-runtime-hardening
     profiles: ["ops"]
     image: ai-writing-assist-backend:${RELEASE_ID:-local}
-    command: ["python", "scripts/manage_accounts.py", "purge-due", "--execute"]
+    command: ["python", "scripts/manage_accounts.py", "purge-maintenance", "--execute"]
     environment: *ops-environment
     depends_on:
       postgres:

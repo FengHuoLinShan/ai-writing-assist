@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Request, Response
@@ -10,10 +11,16 @@ from fastapi.responses import JSONResponse
 from core.config import get_settings
 from core.dependencies import DbSession
 from core.errors import NotFoundError, ValidationError
-from modules.account.constants import CSRF_COOKIE_NAME, SESSION_COOKIE_NAME
+from modules.account.constants import (
+    ANONYMOUS_RP_SESSION_SECONDS,
+    CSRF_COOKIE_NAME,
+    SESSION_COOKIE_NAME,
+)
 from modules.account.context import current_principal
 from modules.account.schemas import (
     AccountMeResponse,
+    AnonymousRpSessionRequest,
+    AnonymousRpSessionResponse,
     AuthConfigResponse,
     DeletionStateResponse,
     EmailCodeRequest,
@@ -39,9 +46,15 @@ def _require_principal():
     return principal
 
 
-def _set_login_cookies(response: Response, result: LoginResult) -> None:
+def _set_login_cookies(
+    response: Response,
+    result: LoginResult,
+    *,
+    max_age: int | None = None,
+) -> None:
     settings = get_settings()
     secure = settings.public_base_url.startswith("https://")
+    ttl = settings.session_absolute_seconds if max_age is None else max_age
     response.set_cookie(
         SESSION_COOKIE_NAME,
         result.session_token,
@@ -49,7 +62,7 @@ def _set_login_cookies(response: Response, result: LoginResult) -> None:
         secure=secure,
         samesite="lax",
         path="/",
-        max_age=settings.session_absolute_seconds,
+        max_age=ttl,
     )
     response.set_cookie(
         CSRF_COOKIE_NAME,
@@ -58,7 +71,7 @@ def _set_login_cookies(response: Response, result: LoginResult) -> None:
         secure=secure,
         samesite="lax",
         path="/",
-        max_age=settings.session_absolute_seconds,
+        max_age=ttl,
     )
 
 
@@ -103,6 +116,37 @@ async def auth_config() -> AuthConfigResponse:
             rp_enabled=demo.rp_enabled,
         ),
     )
+
+
+@router.post("/anonymous-rp", response_model=AnonymousRpSessionResponse)
+async def create_anonymous_rp_session(
+    db: DbSession,
+    response: Response,
+    data: AnonymousRpSessionRequest,
+) -> AnonymousRpSessionResponse:
+    settings = get_settings()
+    if (
+        settings.auth_mode != "public"
+        or not settings.public_demo_enabled
+        or not settings.public_demo_rp_enabled
+        or not settings.public_demo_rp_source_revision_id
+    ):
+        raise NotFoundError("Anonymous RP is not enabled")
+    try:
+        uuid.UUID(settings.public_demo_rp_source_revision_id)
+    except ValueError as exc:
+        raise NotFoundError("Anonymous RP is not enabled") from exc
+    result = await service.create_anonymous_rp_session(
+        db,
+        accept_terms=data.accept_terms,
+        accept_privacy=data.accept_privacy,
+    )
+    _set_login_cookies(
+        response,
+        result.login,
+        max_age=ANONYMOUS_RP_SESSION_SECONDS,
+    )
+    return AnonymousRpSessionResponse(expires_at=result.expires_at)
 
 
 @router.post("/email/request-code", response_model=EmailCodeResponse)

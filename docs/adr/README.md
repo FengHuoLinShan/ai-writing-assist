@@ -39,6 +39,7 @@ make docs-check BASE_REF=origin/main
 | [ADR-0021](0021-world-cocreation-session-persistence.md) | Accepted | 共创终态消息和 checkpoint 指针已持久化并以 CAS 推进；完整历史阅读界面、同步聊天回执和完整 world-state 增量续写尚未完成，不自动采用。 |
 | [ADR-0022](0022-world-review-ownership.md) | Accepted / Implemented | 复核聚合与回执归 World（validation run 扩展影响清单/覆盖进度/逐项复核记录/失效原因）；Evidence 只读供证，Story/Writing/地图经稳定只读接口提供来源；定向查漏与分批续接复用同一 run；政策编辑复用 rule 页版本化政策。 |
 | [ADR-0023](0023-bounded-agent-runtime.md) | Accepted / Implementation in progress | PydanticAI 有界单 Agent、项目助手与 RP 工具执行；Project 连接、Evidence 可见性、成组确认与领域所有权继续有效。 |
+| [ADR-0024](0024-anonymous-public-demo-rp.md) | Accepted / Implemented | 公开演示使用 24 小时匿名 owner、精确冻结 source 与前台 taskless SSE；临时 Key 零持久化，不能放宽普通 source owner 边界。 |
 
 `ADR-0009 附录 A` 延续 ADR-0009 的编号，不是第二个独立决策编号。
 

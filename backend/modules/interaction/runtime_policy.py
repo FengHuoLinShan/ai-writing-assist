@@ -1,8 +1,60 @@
 """Versioned RP dispatch: an older worker must not downgrade an Agent task."""
 
+from infrastructure.llm.capabilities import (
+    LLM_CAPABILITY_EXECUTION_KEY,
+    LLM_CAPABILITY_SNAPSHOT_KEY,
+    capability_from_execution_snapshot,
+    resolve_llm_capability_profile,
+)
+
 LEGACY_STORY_TASK = "interaction_story_generate"
 AGENT_STORY_TASK = "interaction_agent_story_generate"
 STORY_TASK_TYPES = {LEGACY_STORY_TASK, AGENT_STORY_TASK}
+ANONYMOUS_RP_SNAPSHOT_VERSION = "anonymous-rp-v1"
+ANONYMOUS_RP_BASE_URL = "https://api.deepseek.com"
+ANONYMOUS_RP_MODEL = "deepseek-v4-flash"
+
+
+def anonymous_rp_execution_snapshot() -> dict:
+    capability = resolve_llm_capability_profile("deepseek", ANONYMOUS_RP_MODEL)
+    return {
+        "version": ANONYMOUS_RP_SNAPSHOT_VERSION,
+        "anonymous_rp": True,
+        "profile": {
+            "provider_id": "deepseek",
+            "model": ANONYMOUS_RP_MODEL,
+            "base_url_host": "api.deepseek.com",
+        },
+        LLM_CAPABILITY_SNAPSHOT_KEY: capability.to_snapshot(),
+    }
+
+
+def is_anonymous_rp_snapshot(snapshot: dict) -> bool:
+    profile = snapshot.get("profile") if isinstance(snapshot, dict) else None
+    return bool(
+        snapshot.get("version") == ANONYMOUS_RP_SNAPSHOT_VERSION
+        and snapshot.get("anonymous_rp") is True
+        and isinstance(profile, dict)
+        and profile.get("provider_id") == "deepseek"
+        and profile.get("model") == ANONYMOUS_RP_MODEL
+    )
+
+
+def anonymous_rp_execution_settings(snapshot: dict) -> dict:
+    if not is_anonymous_rp_snapshot(snapshot):
+        raise ValueError("Anonymous RP execution snapshot is invalid")
+    capability = capability_from_execution_snapshot(snapshot)
+    return {
+        "llm": {
+            "provider_id": "deepseek",
+            "base_url": ANONYMOUS_RP_BASE_URL,
+            "model": ANONYMOUS_RP_MODEL,
+            "timeout": capability.interaction_timeout_seconds,
+            "max_tokens": capability.story_output_tokens,
+            "temperature": 0.8,
+        },
+        LLM_CAPABILITY_EXECUTION_KEY: capability.to_snapshot(),
+    }
 
 
 def clear_private_agent_state(attempt):

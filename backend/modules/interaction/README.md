@@ -155,7 +155,7 @@ selection epoch 仍匹配的第一个结果可成为当前路径。Prompt、回�
 
 ## API 分组
 
-路由前缀 `/api/interactions`：
+路由前缀 `/api/interactions`；公开演示冻结资料只读入口为 `/api/demo`：
 
 - 旅程：创建/列表/详情、标题、归档/恢复/永久删除、导出；
 - 作品资料：作者项目列表、两次文件校验导入、完整整理进度/恢复、关键歧义、章节内
@@ -175,6 +175,19 @@ selection epoch 仍匹配的第一个结果可成为当前路径。Prompt、回�
 - RP 导入对外只宣称 `.txt/.epub/.html/.htm`；MOBI/AZW3 未经真实文件门禁前不展示；
 - 不提供项目共享、公开发布、多人协作或复杂跑团数值；
 - 不把模型固定称为 DM，不构建自治多 Agent；工具选择只允许 ADR-0023 的有限单 Agent 路径。
+
+## 匿名公开演示（ADR-0024）
+
+公开演示由 24 小时 `anonymous_rp` owner 承载，只能读取配置精确指定、ready 且 fingerprint 完整的
+source revision。它保留私有 journey、分支和手工回顾，但没有看海、主动后台任务、联网、导入或
+source 管理。故事 attempt 不创建 worker task；`POST .../stream` 在请求内以临时
+`X-DeepSeek-API-Key` 连接固定 DeepSeek V4 Flash，长上下文 summary 同样前台完成。临时 Key 不进入
+cookie、数据库、任务 metadata、snapshot、响应或日志；断开时取消 provider 并把 attempt 收敛为
+可重试终态。
+
+`scripts/freeze_public_demo_rp_source.py --project-id <id>` 默认只验证既有 published drafts、索引、
+Scene/span 与对象资料；只有 `--execute` 才在同一事务中物化或复用 ready revision。它不调用模型、
+导入或索引，任一 coverage/fingerprint/歧义门禁失败不会写入。
 
 ## DeepSeek RP 执行参数
 
