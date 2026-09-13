@@ -336,6 +336,64 @@ async def test_demo_copy_rewrites_author_assets_and_is_idempotent(
 
 
 @pytest.mark.asyncio
+async def test_demo_copy_recovers_a_concurrent_unique_conflict(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _source_owner, target_owner, source = await _seed_source(db_session)
+    winner = Project(
+        owner_id=target_owner.id,
+        title="已创建的演示副本",
+        language="zh",
+        default_reveal_policy="author_safe",
+        settings={},
+    )
+    db_session.add(winner)
+    await db_session.flush()
+    db_session.add(
+        DemoProjectCopy(
+            owner_id=target_owner.id,
+            source_project_id=source.id,
+            source_version="concurrent-v1",
+            project_id=winner.id,
+        )
+    )
+    await db_session.flush()
+    project_count = int(await db_session.scalar(select(func.count(Project.id))) or 0)
+
+    monkeypatch.setenv("AUTH_MODE", "local")
+    monkeypatch.setenv("PUBLIC_DEMO_ENABLED", "true")
+    monkeypatch.setenv("PUBLIC_DEMO_PROJECT_ID", str(source.id))
+    monkeypatch.setenv("PUBLIC_DEMO_VERSION", "concurrent-v1")
+    get_settings.cache_clear()
+    token = bind_principal(_principal(target_owner))
+    service = DemoProjectCopyService()
+    find_copy = service._find_copy
+    calls = 0
+
+    async def hide_first_lookup(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return None
+        return await find_copy(*args, **kwargs)
+
+    monkeypatch.setattr(service, "_find_copy", hide_first_lookup)
+    try:
+        result = await service.copy(db_session)
+
+        assert result.status == "existing"
+        assert result.project.id == str(winner.id)
+        assert (
+            int(await db_session.scalar(select(func.count(Project.id))) or 0)
+            == project_count
+        )
+    finally:
+        reset_principal(token)
+        get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
 async def test_demo_principal_is_limited_to_the_configured_project(
     db_session: AsyncSession,
 ) -> None:

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import delete, func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.schema import Table
 
@@ -120,56 +121,61 @@ class DemoProjectCopyService:
         owner_id = current_account_id()
         await require_account_active(db, owner_id)
 
-        copy = (
-            await db.execute(
-                select(DemoProjectCopy)
-                .where(
-                    DemoProjectCopy.owner_id == owner_id,
-                    DemoProjectCopy.source_project_id == config.project_id,
-                    DemoProjectCopy.source_version == config.version,
-                )
-                .with_for_update()
-            )
-        ).scalar_one_or_none()
+        copy = await self._find_copy(
+            db,
+            owner_id=owner_id,
+            source_project_id=config.project_id,
+            source_version=config.version,
+        )
         if copy is not None:
-            existing = await db.get(Project, copy.project_id, with_for_update=True)
-            if existing is not None and existing.owner_id == owner_id:
-                status = "existing"
-                if existing.deleted_at is not None:
-                    existing.deleted_at = None
-                    await db.flush()
-                    status = "restored"
-                return DemoCopyResult(
-                    status=status,
-                    project=await self._projects.get_project(db, str(existing.id)),
-                )
+            existing = await self._existing_result(db, copy=copy, owner_id=owner_id)
+            if existing is not None:
+                return existing
             await db.delete(copy)
             await db.flush()
 
         source = await self._source_project(db, config.project_id)
-        destination = await self._projects.create_project(
-            db,
-            ProjectCreate(
-                title=source.title,
-                genre=source.genre,
-                tone=source.tone,
-                language=source.language,
-                target_length=source.target_length,
-                current_stage=source.current_stage,
-                default_reveal_policy=source.default_reveal_policy,
-                settings=_secret_free_project_context_settings(source.settings),
-            ),
-        )
-        destination_id = uuid.UUID(destination.id)
-        db.add(
-            DemoProjectCopy(
+        try:
+            async with db.begin_nested():
+                destination = await self._projects.create_project(
+                    db,
+                    ProjectCreate(
+                        title=source.title,
+                        genre=source.genre,
+                        tone=source.tone,
+                        language=source.language,
+                        target_length=source.target_length,
+                        current_stage=source.current_stage,
+                        default_reveal_policy=source.default_reveal_policy,
+                        settings=_secret_free_project_context_settings(source.settings),
+                    ),
+                )
+                destination_id = uuid.UUID(destination.id)
+                db.add(
+                    DemoProjectCopy(
+                        owner_id=owner_id,
+                        source_project_id=source.id,
+                        source_version=config.version,
+                        project_id=destination_id,
+                    )
+                )
+                await db.flush()
+        except IntegrityError:
+            copy = await self._find_copy(
+                db,
                 owner_id=owner_id,
-                source_project_id=source.id,
+                source_project_id=config.project_id,
                 source_version=config.version,
-                project_id=destination_id,
             )
-        )
-        await db.flush()
+            if copy is not None:
+                existing = await self._existing_result(
+                    db,
+                    copy=copy,
+                    owner_id=owner_id,
+                )
+                if existing is not None:
+                    return existing
+            raise
 
         copied_rows, rewrites = await self._copy_assets(
             db,
@@ -204,6 +210,46 @@ class DemoProjectCopyService:
             raise NotFoundError("Authentication required")
         if get_settings().auth_mode == "public" and principal is None:
             raise NotFoundError("Authentication required")
+
+    @staticmethod
+    async def _find_copy(
+        db: AsyncSession,
+        *,
+        owner_id: uuid.UUID,
+        source_project_id: uuid.UUID,
+        source_version: str,
+    ) -> DemoProjectCopy | None:
+        return (
+            await db.execute(
+                select(DemoProjectCopy)
+                .where(
+                    DemoProjectCopy.owner_id == owner_id,
+                    DemoProjectCopy.source_project_id == source_project_id,
+                    DemoProjectCopy.source_version == source_version,
+                )
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+
+    async def _existing_result(
+        self,
+        db: AsyncSession,
+        *,
+        copy: DemoProjectCopy,
+        owner_id: uuid.UUID,
+    ) -> DemoCopyResult | None:
+        existing = await db.get(Project, copy.project_id, with_for_update=True)
+        if existing is None or existing.owner_id != owner_id:
+            return None
+        status = "existing"
+        if existing.deleted_at is not None:
+            existing.deleted_at = None
+            await db.flush()
+            status = "restored"
+        return DemoCopyResult(
+            status=status,
+            project=await self._projects.get_project(db, str(existing.id)),
+        )
 
     @staticmethod
     async def _source_project(db: AsyncSession, project_id: uuid.UUID) -> Project:

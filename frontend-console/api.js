@@ -430,7 +430,7 @@ async function request(path, options = {}) {
           && !(globalThis.publicDemoMode && !globalThis.publicDemoRpMode)
         ) {
           _handleUnauthorizedResponse({
-            invalidateAccount: !_suppressAccountInvalidation,
+            invalidateAccount: !(_suppressAccountInvalidation || demoRpRequest),
           })
         }
         if (resp.status === 401 && !_retriedAuth && _authMode === "closed_test") {
