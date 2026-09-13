@@ -48,9 +48,16 @@ _DEMO_CORE_READ_PREFIXES = (
     "/api/writing/",
 )
 _DEMO_SENSITIVE_READ_SEGMENTS = (
+    "/activation-preview",
+    "/activation-profiles",
     "/conflict-checks",
     "/cocreation",
+    "/generation-prompt-templates",
+    "/metrics",
+    "/prompt",
+    "/retrieval-traces",
     "/runs/",
+    "/snapshots",
     "/suggestions",
     "/tasks",
     "/validation",

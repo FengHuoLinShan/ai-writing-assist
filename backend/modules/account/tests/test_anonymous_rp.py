@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -21,6 +22,8 @@ def _settings() -> Settings:
         auth_mode="public",
         auth_secret_key="test-secret-key-with-at-least-32-bytes",
         public_demo_enabled=True,
+        public_demo_project_id=str(uuid.uuid4()),
+        public_demo_version="test-v1",
         public_demo_rp_enabled=True,
         public_demo_rp_source_revision_id=str(uuid.uuid4()),
     )
@@ -107,6 +110,15 @@ async def test_anonymous_rp_requires_enabled_valid_demo_configuration(db_session
                 auth_mode="public",
                 auth_secret_key="test-secret-key-with-at-least-32-bytes",
             ),
+        )
+
+    invalid = replace(_settings(), public_demo_project_id="not-a-project-id")
+    with pytest.raises(NotFoundError):
+        await service.create_anonymous_rp_session(
+            db_session,
+            accept_terms=True,
+            accept_privacy=True,
+            settings=invalid,
         )
 
 

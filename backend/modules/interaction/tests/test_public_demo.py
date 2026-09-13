@@ -48,9 +48,11 @@ def _principal(account: Account) -> AccountPrincipal:
     )
 
 
-def _settings(revision_id: uuid.UUID) -> Settings:
+def _settings(revision_id: uuid.UUID, project_id: uuid.UUID) -> Settings:
     return Settings(
         public_demo_enabled=True,
+        public_demo_project_id=str(project_id),
+        public_demo_version="test-v1",
         public_demo_rp_enabled=True,
         public_demo_rp_source_revision_id=str(revision_id),
     )
@@ -142,7 +144,7 @@ async def test_anonymous_demo_journey_is_isolated_and_never_enqueues(
     revision, anchor, reference_key = await _public_source(db_session, project_factory)
     monkeypatch.setattr(
         "modules.interaction.source_service.get_settings",
-        lambda: _settings(revision.id),
+        lambda: _settings(revision.id, revision.source_novel_id),
     )
     first = Account(status="active", support_code="U-DEMO-ONE")
     second = Account(status="active", support_code="U-DEMO-TWO")
@@ -215,7 +217,7 @@ async def test_anonymous_demo_rejects_any_source_but_the_configured_revision(
     revision, anchor, reference_key = await _public_source(db_session, project_factory)
     monkeypatch.setattr(
         "modules.interaction.source_service.get_settings",
-        lambda: _settings(revision.id),
+        lambda: _settings(revision.id, revision.source_novel_id),
     )
     account = Account(status="active", support_code="U-DEMO-SOURCE-GATE")
     db_session.add(account)
@@ -263,7 +265,25 @@ async def test_public_demo_source_fails_closed_for_an_empty_frozen_manifest(
     )
     monkeypatch.setattr(
         "modules.interaction.source_service.get_settings",
-        lambda: _settings(revision.id),
+        lambda: _settings(revision.id, revision.source_novel_id),
+    )
+
+    with pytest.raises(NotFoundError):
+        await InteractionSourceService().public_demo_source(db_session)
+
+
+async def test_public_demo_source_must_belong_to_the_configured_project(
+    db_session,
+    project_factory,
+    monkeypatch,
+) -> None:
+    revision, _anchor, _reference_key = await _public_source(
+        db_session,
+        project_factory,
+    )
+    monkeypatch.setattr(
+        "modules.interaction.source_service.get_settings",
+        lambda: _settings(revision.id, uuid.uuid4()),
     )
 
     with pytest.raises(NotFoundError):
@@ -281,7 +301,7 @@ async def test_evidence_public_demo_exception_rejects_an_arbitrary_revision(
     )
     monkeypatch.setattr(
         "modules.interaction.source_service.get_settings",
-        lambda: _settings(revision.id),
+        lambda: _settings(revision.id, revision.source_novel_id),
     )
 
     with pytest.raises(NotFoundError):
@@ -418,7 +438,7 @@ async def test_anonymous_attempt_claim_is_single_owner_and_blocks_background_mod
     revision, anchor, reference_key = await _public_source(db_session, project_factory)
     monkeypatch.setattr(
         "modules.interaction.source_service.get_settings",
-        lambda: _settings(revision.id),
+        lambda: _settings(revision.id, revision.source_novel_id),
     )
     account = Account(status="active", support_code="U-DEMO-CLAIM")
     db_session.add(account)
@@ -524,7 +544,7 @@ async def _claimed_demo_attempt(db_session, project_factory, monkeypatch):  # no
     revision, anchor, reference_key = await _public_source(db_session, project_factory)
     monkeypatch.setattr(
         "modules.interaction.source_service.get_settings",
-        lambda: _settings(revision.id),
+        lambda: _settings(revision.id, revision.source_novel_id),
     )
     account = Account(status="active", support_code="U-DEMO-STREAM")
     db_session.add(account)

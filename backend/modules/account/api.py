@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Request, Response
@@ -125,17 +124,8 @@ async def create_anonymous_rp_session(
     data: AnonymousRpSessionRequest,
 ) -> AnonymousRpSessionResponse:
     settings = get_settings()
-    if (
-        settings.auth_mode != "public"
-        or not settings.public_demo_enabled
-        or not settings.public_demo_rp_enabled
-        or not settings.public_demo_rp_source_revision_id
-    ):
+    if settings.auth_mode != "public":
         raise NotFoundError("Anonymous RP is not enabled")
-    try:
-        uuid.UUID(settings.public_demo_rp_source_revision_id)
-    except ValueError as exc:
-        raise NotFoundError("Anonymous RP is not enabled") from exc
     result = await service.create_anonymous_rp_session(
         db,
         accept_terms=data.accept_terms,

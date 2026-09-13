@@ -195,6 +195,18 @@ def test_demo_route_policy_covers_path_scoped_core_reads_only() -> None:
         method="GET",
         config=config,
     )
+    for path in (
+        "/api/evidence/compilation/retrieval-traces",
+        "/api/evidence/compilation/snapshots",
+        "/api/world/generation-prompt-templates",
+        f"/api/world/map-atlas/{project_id}/pages/page-1/prompt",
+    ):
+        assert not _is_demo_read_request(
+            retrieval_scope,
+            path=path,
+            method="GET",
+            config=config,
+        )
 
 
 def test_rp_entry_requires_a_valid_configured_source_revision() -> None:

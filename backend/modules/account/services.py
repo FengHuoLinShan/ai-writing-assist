@@ -30,6 +30,7 @@ from modules.account.models import (
     EmailLoginChallenge,
     WebSession,
 )
+from modules.account.public_demo import configured_public_demo
 from modules.account.schemas import AccountMeResponse, EmailCodeResponse
 
 
@@ -104,16 +105,8 @@ class AccountService:
     ) -> AnonymousRpLoginResult:
         """Create one isolated, automatically expiring RP-only browser account."""
         resolved = settings or get_settings()
-        if (
-            not resolved.public_demo_enabled
-            or not resolved.public_demo_rp_enabled
-            or not resolved.public_demo_rp_source_revision_id
-        ):
+        if not configured_public_demo(resolved).rp_enabled:
             raise NotFoundError("Anonymous RP is not enabled")
-        try:
-            uuid.UUID(resolved.public_demo_rp_source_revision_id)
-        except ValueError as exc:
-            raise NotFoundError("Anonymous RP is not enabled") from exc
         if not accept_terms or not accept_privacy:
             raise ValidationError("开始体验前必须同意用户协议和隐私政策")
         now = _utcnow()

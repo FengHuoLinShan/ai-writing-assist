@@ -18,6 +18,7 @@ from infrastructure.tasks.facade import (
     list_task_lifecycle_contracts,
 )
 from modules.account.facade import current_account_id
+from modules.account.public_demo import configured_public_demo
 from modules.evidence.facade import (
     VisibilityContextContract,
     get_manifest_entity_appearances,
@@ -161,12 +162,9 @@ class InteractionSourceService:
         revision_id: str | None = None,
     ) -> InteractionSourceRevision:
         settings = get_settings()
+        demo = configured_public_demo(settings)
         configured = settings.public_demo_rp_source_revision_id
-        if (
-            not settings.public_demo_enabled
-            or not settings.public_demo_rp_enabled
-            or not configured
-        ):
+        if not demo.rp_enabled or demo.project_id is None:
             raise NotFoundError("公开演示作品暂不可用")
         try:
             configured_id = uuid.UUID(configured)
@@ -178,7 +176,12 @@ class InteractionSourceService:
             db,
             revision_id=configured_id,
         )
-        if revision is None or revision.status != "ready" or not revision.fingerprint:
+        if (
+            revision is None
+            or revision.source_novel_id != demo.project_id
+            or revision.status != "ready"
+            or not revision.fingerprint
+        ):
             raise NotFoundError("公开演示作品暂不可用")
         if (
             not revision.source_manifest
