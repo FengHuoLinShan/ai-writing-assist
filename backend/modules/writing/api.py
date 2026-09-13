@@ -34,6 +34,8 @@ from modules.writing.facade import (
 )
 from modules.writing.schemas import (
     ChapterSummaryItem,
+    PublicChapterListResponse,
+    PublicChapterSummaryItem,
     PublicWritingDraftResponse,
     VersionHistoryResponse,
     WritingConflictAiReviewRequest,
@@ -734,20 +736,28 @@ async def get_chapter_version_history(
 
 @router.get(
     "/chapters",
-    response_model=ChapterIndicesResponse,
+    response_model=ChapterIndicesResponse | PublicChapterListResponse,
 )
 async def list_chapters(
     db: DbSession,
     *,
     novel_id: NovelIdQuery,
-) -> ChapterIndicesResponse:
+) -> ChapterIndicesResponse | PublicChapterListResponse:
     """列出该小说所有有草稿的章节索引（去重、升序）"""
     await require_active_project(db, novel_id)
+    public_demo = is_demo_readonly_principal()
     chapters = await _service.list_chapter_summaries(
         db,
         novel_id,
-        published_only=is_demo_readonly_principal(),
+        published_only=public_demo,
     )
+    if public_demo:
+        return PublicChapterListResponse(
+            chapters=[
+                PublicChapterSummaryItem.model_validate(item, from_attributes=True)
+                for item in chapters
+            ]
+        )
     return ChapterIndicesResponse(
         chapter_indices=[item.chapter_index for item in chapters],
         chapters=chapters,

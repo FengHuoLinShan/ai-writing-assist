@@ -188,16 +188,19 @@ async def test_public_demo_config_and_scoped_viewer_routes(
         assert demo_search.status_code == 200
         assert cross_search.status_code == 404
         assert mutated.status_code == 401
-        assert chapters.json()["chapter_indices"] == [1]
-        assert chapters.json()["chapters"][0]["id"] == str(published.id)
+        assert chapters.json() == {
+            "chapters": [
+                {
+                    "chapter_index": 1,
+                    "title": "已发布章节",
+                    "word_count": 4,
+                }
+            ]
+        }
         assert latest.json() == {
-            "id": str(published.id),
-            "novel_id": str(demo.id),
             "chapter_index": 1,
             "title": "已发布章节",
             "content": "公开正文",
-            "version_number": 1,
-            "status": "published",
         }
         assert versions.status_code == 401
         assert hidden_draft.status_code == 401
