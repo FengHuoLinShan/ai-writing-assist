@@ -14,7 +14,6 @@ import {
 } from "./shared/accountStorage.js"
 import { mountShell } from "./vue/shell/mountShell.js"
 import { mountAuthGate } from "./vue/auth/mountAuthGate.js"
-import { clearEphemeralDeepSeekKey } from "./shared/ephemeralDeepSeekKey.js"
 import {
   clearDemoCopyIntent,
   consumeEntryMode,
@@ -82,7 +81,6 @@ const App = {
           })
           return this._authGate
         }
-        clearEphemeralDeepSeekKey()
         this._scopeBrowserState(account.id)
         globalThis.currentAccount = account
       }
@@ -161,7 +159,6 @@ const App = {
   },
 
   async _resumeAfterAuthentication(account) {
-    clearEphemeralDeepSeekKey()
     this._scopeBrowserState(account?.id)
     globalThis.currentAccount = account
     this._authGate?.unmount?.()

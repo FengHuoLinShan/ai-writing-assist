@@ -2,6 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import "../apiContracts.js"
 import "../api.js"
+import {
+  clearEphemeralDeepSeekKey,
+  readEphemeralDeepSeekKey,
+  writeEphemeralDeepSeekKey,
+} from "../shared/ephemeralDeepSeekKey.js"
 
 function sseResponse(frame = "event: done\ndata: {\"status\":\"completed\"}\n\n") {
   const bytes = new TextEncoder().encode(frame)
@@ -24,6 +29,7 @@ function sseResponse(frame = "event: done\ndata: {\"status\":\"completed\"}\n\n"
 }
 
 afterEach(() => {
+  clearEphemeralDeepSeekKey()
   vi.unstubAllGlobals()
   globalThis.publicDemoMode = false
   globalThis.publicDemoRpMode = false
@@ -75,7 +81,7 @@ describe("公开演示 API 边界", () => {
   })
 
   it("只读工作台的可选接口 401 不触发账号失效或清除临时 Key", async () => {
-    sessionStorage.setItem("ephemeralDeepSeekKey", "keep-until-session-ends")
+    writeEphemeralDeepSeekKey("keep-in-page-memory")
     const fetch = vi.fn()
       .mockResolvedValueOnce({
         ok: true,
@@ -94,6 +100,6 @@ describe("公开演示 API 边界", () => {
     await expect(globalThis.api.world.listSuggestions({ novel_id: "demo-project" }))
       .rejects.toMatchObject({ status: 401 })
 
-    expect(sessionStorage.getItem("ephemeralDeepSeekKey")).toBe("keep-until-session-ends")
+    expect(readEphemeralDeepSeekKey()).toBe("keep-in-page-memory")
   })
 })

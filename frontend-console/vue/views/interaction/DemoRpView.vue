@@ -418,11 +418,11 @@ onBeforeUnmount(() => {
       <div class="demo-rp-key">
         <label for="demo-deepseek-key">临时 DeepSeek API Key</label>
         <div>
-          <input id="demo-deepseek-key" v-model="apiKey" :type="showKey ? 'text' : 'password'" autocomplete="off" spellcheck="false" placeholder="仅保留在此浏览器标签页期间" @change="saveKey">
+          <input id="demo-deepseek-key" v-model="apiKey" :type="showKey ? 'text' : 'password'" autocomplete="off" spellcheck="false" placeholder="仅保留在当前页面内存" @change="saveKey">
           <button type="button" :aria-label="showKey ? '隐藏临时 Key' : '显示临时 Key'" @click="showKey = !showKey">{{ showKey ? '隐藏' : '显示' }}</button>
           <button type="button" :disabled="!apiKey" @click="clearKey">清除</button>
         </div>
-        <p>Key 只保存在本标签页的临时会话中，仅在开始流式生成时发送；登录、账户切换或会话失效都会清除。</p>
+        <p>Key 只保存在当前页面内存中，仅在开始流式生成时发送；刷新、关闭、登录、账户切换或会话失效都会清除。</p>
       </div>
       <h2 id="demo-rp-opening-title">从哪里开始？</h2>
       <p v-if="sourceAnchor">从{{ sourceAnchor.chapter_title || '已准备的剧情点' }}开始；你可以在开场里写下自己的身份和愿望。</p>

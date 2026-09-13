@@ -134,10 +134,11 @@ describe("account-scoped browser storage", () => {
     expect(sessionStorage.getItem("rpSourceSetupDraft:v1")).toBeNull()
   })
 
-  it("keeps an anonymous DeepSeek key only in this session and clears it at the account boundary", () => {
+  it("keeps an anonymous DeepSeek key only in page memory and clears it at the account boundary", () => {
     writeEphemeralDeepSeekKey("temporary-key")
     expect(readEphemeralDeepSeekKey()).toBe("temporary-key")
     expect(localStorage.getItem("ephemeralDeepSeekKey")).toBeNull()
+    expect(sessionStorage.getItem("ephemeralDeepSeekKey")).toBeNull()
 
     clearAccountScopedBrowserStorage()
     expect(readEphemeralDeepSeekKey()).toBe("")

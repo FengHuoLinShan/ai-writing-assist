@@ -167,7 +167,7 @@ describe("匿名演示 RP", () => {
     )
   })
 
-  it("只把临时 Key 留在 sessionStorage，并只在 direct stream 中发送", async () => {
+  it("只把临时 Key 留在当前页面内存，并只在 direct stream 中发送", async () => {
     const wrapper = mount(DemoRpView)
     await flushPromises()
 
@@ -184,7 +184,7 @@ describe("匿名演示 RP", () => {
     await flushPromises()
     await flushPromises()
 
-    expect(sessionStorage.getItem("ephemeralDeepSeekKey")).toBe("temporary-key")
+    expect(sessionStorage.getItem("ephemeralDeepSeekKey")).toBeNull()
     expect(localStorage.getItem("ephemeralDeepSeekKey")).toBeNull()
     expect(api.interactions.createDemoJourney).toHaveBeenCalledWith(expect.objectContaining({
       opening_text: "我从雨夜进入这座城。",
