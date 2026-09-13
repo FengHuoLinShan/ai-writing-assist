@@ -44,4 +44,4 @@ updated: 2026-09-13T13:24:00+08:00
 ## 环境与交付
 - 仅新建容器 novelcraft-redesign-ci-test-db（55440）与 novelcraft-redesign-ci-test-minio（59001），数据库 novelcraft_redesign_agent_e2e_test 和 novelcraft_redesign_assistant_agent_e2e_test；服务 18003/18083、18005/18085。测试完成后移除这两个容器及其匿名卷，原服务与持久演示环境保留。
 - 本地脚本和日志保留于 /tmp；浏览器诊断目录 /tmp/redesign-ci-locked-browser-results、/tmp/redesign-ci-final-writing-results、/tmp/redesign-ci-assistant-results。没有调用付费模型。
-- 完成本地实现和验证；远端 GitHub Actions、生产镜像运行及部署未执行。没有未修复的本轮功能用例失败。
+- 本地与远端 GitHub Actions 已执行；`c2bf4d336eb7e2e67dc738879613e4f7a928a0a1` 的生产发布因主题包内容类型合同失败，随后已用发布前备份恢复旧版本并通过公网、资产、API、数据库检查。内容类型修复的新版发布仍待补丁 PR 合入后执行；没有未修复的功能用例失败。
