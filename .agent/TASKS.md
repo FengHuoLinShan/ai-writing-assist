@@ -12,3 +12,4 @@
 - [T-20260911-promo-recording-readiness](tasks/2026/T-20260911-promo-recording-readiness/TASK.md) — 演示项目宣传视频剧本与产品录屏就绪计划
 - [T-20260911-full-codebase-optimization-implementation](tasks/2026/T-20260911-full-codebase-optimization-implementation/TASK.md) — 全代码库优化实施
 - [T-20260912-cognitive-seed-research](tasks/2026/T-20260912-cognitive-seed-research/TASK.md) — 逐章认知形成与可演化记忆结构研究
+- [T-20260914-public-demo-rp](tasks/2026/T-20260914-public-demo-rp/TASK.md) — 免登录演示、匿名 RP 与账户副本
