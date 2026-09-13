@@ -3,7 +3,7 @@ id: T-20260913-redesign-ci
 title: 新版前端 CI 与行为门禁同步
 status: completed
 created: 2026-09-13T10:54:42+08:00
-updated: 2026-09-13T12:02:00+08:00
+updated: 2026-09-13T12:16:00+08:00
 ---
 
 ## 目标与边界
@@ -34,6 +34,7 @@ updated: 2026-09-13T12:02:00+08:00
 - 助手独立真实 API/worker + 既有合成模型 harness：1 passed（20.5s），/tmp/redesign-ci-assistant.log；确认、跨页恢复和 390px 键盘路径。
 - PR 首轮完整 functional 通过后，助手 harness 因 CI 无本地 `.env` 而缺少 `LLM_SETTINGS_ENCRYPTION_KEY`；专用 Playwright 配置现生成固定全零 Fernet 测试键，不触及生产或真实凭据。独立新库复验 1 passed（23.8s）。
 - PR 次轮 286 passed / 1 failed / 2 skipped；唯一失败的世界书综合用例已走到末段分类管理，仅因 CI 中耗尽 60 秒总预算。该用例保持原断言和零重试，只将预算对齐同模块可靠性用例为 90 秒；独立新库定向复验 1 passed（25.9s）。
+- PR 全绿后合并规则暴露 5 个未解决的自动评审线程：恢复 Ragas 兼容 pin；无当前作品时隐藏无效继续入口；checkpoint 409 即使无 `saveError` 也显示持久恢复卡；可编辑恢复稿在 URL 保留版本身份并允许同稿本地备份恢复；切换 Scene 同步 `scene_id`。对应 98 个 Vue 定向用例、ESLint 与 Python 3.12 锁定 eval 环境的 Ragas 指标导入通过。
 - 中间诊断保留：旧依赖轮 266 passed / 6 failed / 1 interrupted 后停止（/tmp/redesign-ci-browser.log）；锁定定向过渡轮 2 passed / 2 failed（/tmp/redesign-ci-locked-targeted.log），问题均已在最终结果中复验。
 - make docs-check BASE_REF=origin/main 与 git diff --check 通过，/tmp/redesign-ci-final-docs.log。
 

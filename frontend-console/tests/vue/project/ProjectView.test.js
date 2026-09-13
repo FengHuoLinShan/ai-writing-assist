@@ -88,6 +88,7 @@ describe("渲染状态", () => {
     expect(wrapper.find('[data-action="recycle-bin"]').exists()).toBe(true)
     expect(wrapper.findAll(".project-card[data-id]")).toHaveLength(2)
     expect(wrapper.find(".project-card-placeholder").exists()).toBe(true)
+    expect(wrapper.find(".project-current-resume").exists()).toBe(false)
     expect(wrapper.find("#project-search-input").exists()).toBe(true)
     expect(wrapper.findAll(".btn-primary")).toHaveLength(1)
     expect(wrapper.find('[data-action="select-visible-projects"]').exists()).toBe(false)

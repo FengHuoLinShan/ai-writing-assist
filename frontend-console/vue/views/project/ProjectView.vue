@@ -76,10 +76,10 @@ watch(visibleIds, (ids) => {
   reconcileBulkSelection(session, PROJECT_CARDS_SCOPE, ids)
 }, { immediate: true })
 
-const currentName = computed(() => {
-  const current = (projects.value || []).find((p) => String(p.id) === String(currentProjectId.value || ""))
-  return current ? projectName(current) : "尚未选择"
-})
+const currentProject = computed(() => (
+  (projects.value || []).find((project) => String(project.id) === String(currentProjectId.value || "")) || null
+))
+const currentName = computed(() => currentProject.value ? projectName(currentProject.value) : "尚未选择")
 
 const filterCountLabel = computed(() => projectCountLabel(visibleProjects.value.length, allProjects.value.length))
 const importActionLabel = computed(() => {
@@ -193,7 +193,7 @@ async function retryProjects() {
       </div>
     </header>
 
-    <section v-if="allProjects.length" class="project-current-resume" aria-label="当前作品">
+    <section v-if="currentProject" class="project-current-resume" aria-label="当前作品">
       <div class="project-current-resume__copy">
         <span>继续你的故事</span>
         <div class="project-archive-hero__current">

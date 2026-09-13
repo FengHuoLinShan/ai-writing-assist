@@ -66,7 +66,7 @@ describe("WritingEditor semantic review gate", () => {
   })
 
   it("保存冲突提供导出与明确载入入口，备份失败时不能覆盖本地文字", async () => {
-    const draft = state(null, { status: "draft", readonly: false, dirty: true, saveError: "409", saveConflict: true, backupComplete: true })
+    const draft = state(null, { status: "draft", readonly: false, dirty: false, saveError: null, saveConflict: true, backupComplete: true })
     const wrapper = mount(WritingEditor, { props: { state: draft, attach: vi.fn(), detach: vi.fn() } })
     expect(wrapper.get('[role="alert"]').text()).toContain("没有覆盖服务器的修改")
     const reload = wrapper.findAll('button').find(button => button.text() === "载入服务器最新版")

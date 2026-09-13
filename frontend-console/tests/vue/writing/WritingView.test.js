@@ -718,6 +718,8 @@ describe("WritingView", () => {
   })
 
   it("切章后按章恢复上次手选 Scene", async () => {
+    const commitCurrentQuery = vi.fn(() => true)
+    setBridgeOverrides({ router: { ...globalThis.router, getCurrentQuery: () => new URLSearchParams(), commitCurrentQuery } })
     globalThis.api.writing.getVersionHistory.mockImplementation(async (chapter) => ({
       versions: [{ id: `d${chapter}`, version_number: 1, status: "draft" }],
     }))
@@ -744,6 +746,7 @@ describe("WritingView", () => {
     await flushPromises()
     const vm = wrapper.vm.$.setupState.vm
     await vm.selectScene("s2")
+    expect(commitCurrentQuery.mock.calls.at(-1)[0].get("scene_id")).toBe("s2")
     await vm.selectChapter(2)
     expect(vm.currentScene.value.id).toBe("s3")
     await vm.selectChapter(1)
@@ -1214,6 +1217,8 @@ describe("WritingView", () => {
   })
 
   it("基于历史版本创建时，暂存入口改为发布新版本而非覆盖历史稿", async () => {
+    const commitCurrentQuery = vi.fn(() => true)
+    setBridgeOverrides({ router: { ...globalThis.router, getCurrentQuery: () => new URLSearchParams(), commitCurrentQuery } })
     globalThis.api.writing.getVersionHistory.mockResolvedValue({ versions: [
       { id: "d2", version_number: 2, status: "draft", updated_at: "u2" },
       { id: "d1", version_number: 1, status: "published", updated_at: "u1" },
@@ -1228,9 +1233,22 @@ describe("WritingView", () => {
     const oldVersion = wrapper.findAll(".writing-version-history-item").find((item) => item.text().includes("v1"))
     await oldVersion.findAll("button").find((button) => button.text() === "从此版本继续写").trigger("click")
     await flushPromises()
+    const restoredQuery = commitCurrentQuery.mock.calls.at(-1)[0]
+    expect(restoredQuery.get("draft_id")).toBe("d1")
+    expect(restoredQuery.get("restore_source_version")).toBe("1")
     expect(wrapper.get("#btn-autosave").text()).toBe("保存为新工作稿")
     await wrapper.get("#writing-editor").setValue("基于旧稿修订")
-    await wrapper.get("#btn-autosave").trigger("click")
+    window.dispatchEvent(new Event("pagehide"))
+    expect(localStorage.getItem("draft_backup_p1_1_d1")).toContain("基于旧稿修订")
+    wrapper.unmount()
+
+    const reloaded = mount(WritingView, {
+      props: props({ requestedLocation: { chapter: 1, draftId: "d1", restoreSourceVersion: 1, source: "url" } }),
+      attachTo: document.body,
+    })
+    await flushPromises()
+    expect(reloaded.get("#writing-editor").element.value).toBe("基于旧稿修订")
+    await reloaded.get("#btn-autosave").trigger("click")
     await flushPromises()
     expect(globalThis.api.writing.autosave).not.toHaveBeenCalled()
     expect(globalThis.api.writing.publish).toHaveBeenCalledWith(expect.objectContaining({
@@ -1240,7 +1258,7 @@ describe("WritingView", () => {
       expected_updated_at: "u2",
       content: "基于旧稿修订",
     }))
-    wrapper.unmount()
+    reloaded.unmount()
   })
 
   it("从 Vue 警报页打开由 Vue 托管的完整冲突详情", async () => {

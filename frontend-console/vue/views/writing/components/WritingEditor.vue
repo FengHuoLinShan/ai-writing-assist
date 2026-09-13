@@ -73,7 +73,7 @@
       <button id="writing-retry-load" class="btn btn-sm" type="button" @click="$emit('retry-load')">重新加载</button>
     </div>
     <template v-else>
-      <div v-if="state.saveError || (state.dirty && state.backupComplete === false)" class="writing-save-recovery error-card" role="alert">
+      <div v-if="state.saveConflict || state.saveError || (state.dirty && state.backupComplete === false)" class="writing-save-recovery error-card" role="alert">
         <div>
           <strong>{{ state.saveConflict ? '另一个窗口已更新此章' : '工作稿还没有保存' }}</strong>
           <p v-if="state.saveConflict">你的文字仍保留在编辑器中，没有覆盖服务器的修改。请先导出当前文字，再载入最新版对照整理。{{ state.backupComplete ? '本地备份也已保留。' : '本地备份不可用，请立即导出文字。' }}</p>
