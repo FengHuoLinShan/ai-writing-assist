@@ -521,6 +521,37 @@ describe("todayIsland", () => {
     expect(router.navigate.mock.calls.at(-1)[3].get("chapter_index")).toBe("3")
   })
 
+  it("让公开演示进入只读正文", async () => {
+    globalThis.publicDemoMode = true
+    const router = { navigate: vi.fn(), refresh: vi.fn() }
+    setBridgeOverrides({ router })
+    try {
+      const wrapper = mount(TodayView, {
+        props: {
+          project: { id: "demo", title: "演示作品" },
+          summary: {
+            project_id: "demo",
+            continuation: { title: "第六十章", chapter_index: 60 },
+            writing: { chapter_count: 60, word_count: 212868 },
+            attention: {},
+          },
+        },
+      })
+
+      const action = wrapper.get(".today-resume__action")
+      expect(action.text()).toBe("阅读正式正文")
+      await action.trigger("click")
+      expect(router.navigate).toHaveBeenCalledWith(
+        "writing",
+        null,
+        true,
+        expect.any(URLSearchParams),
+      )
+    } finally {
+      globalThis.publicDemoMode = false
+    }
+  })
+
   it("deduplicates a world continuation shown beside正文", () => {
     const worldDraft = {
       key: "world_bible_draft:draft-1",

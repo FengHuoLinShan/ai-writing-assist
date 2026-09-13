@@ -101,7 +101,7 @@ const resumeTitle = computed(() => {
   return "开始第一章"
 })
 const primaryLabel = computed(() => {
-  if (hasWritingContent.value) return "进入正文编辑"
+  if (hasWritingContent.value) return globalThis.publicDemoMode ? "阅读正式正文" : "进入正文编辑"
   if (primaryWorld.value) return primaryWorld.value.destination === "world_suggestion_review" ? "去审查" : "继续创作"
   if (importWorkflow.value) return "继续整理"
   if (!props.summary) return "进入写作"
