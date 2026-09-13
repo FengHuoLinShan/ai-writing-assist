@@ -58,6 +58,7 @@ function collectUsedApiMethods(sources) {
   const methods = new Map()
   const linter = new Linter()
   for (const [file, source] of sources.entries()) {
+    if (!/\bapi\s*(?:\.|\[)/.test(source)) continue
     const visit = (node) => {
       const group = node.object
       if (group?.type !== "MemberExpression" || group.object?.name !== "api") return
