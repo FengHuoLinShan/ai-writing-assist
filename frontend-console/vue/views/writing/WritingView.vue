@@ -1,6 +1,6 @@
 <!-- Writing Vue island：Vue owns every workspace node; no legacy HTML injection. -->
 <template>
-  <template v-if="props.publicDemo">
+  <template v-if="props.publicDemo && !vm.homeMode.value">
     <header class="writing-toolbar writing-document-toolbar public-demo-reader__toolbar">
       <div class="view-header__title">
         <button type="button" class="btn btn-sm btn-ghost writing-home-back" @click="openWritingHome">← 返回演示首页</button>
