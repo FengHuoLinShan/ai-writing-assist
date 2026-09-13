@@ -10,6 +10,7 @@ const viewLoaders = {
   home: () => import("./interactionIsland.js"),
   journeys: () => import("./interactionIsland.js"),
   interaction: () => import("./interactionIsland.js"),
+  "demo-rp": () => import("./interactionIsland.js"),
   settings: () => import("./settingsIslands.js"),
   "project-settings": () => import("./settingsIslands.js"),
   project: () => import("./projectIsland.js"),

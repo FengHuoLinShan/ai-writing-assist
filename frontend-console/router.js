@@ -15,6 +15,7 @@ const routes = {
   project: { title: "作品档案", subViews: [], requiresProject: false },
   journeys: { title: "互动故事", subViews: [], requiresProject: false, dynamicSubView: true },
   interaction: { title: "互动故事", subViews: [], requiresProject: false, dynamicSubView: true },
+  "demo-rp": { title: "演示 RP", subViews: [], requiresProject: false },
   // Today is now the compatibility name for the writing home.  Keeping the
   // route entry lets old bookmarks resolve without keeping a second page.
   today: { title: "写作首页", subViews: [], requiresProject: true },
@@ -29,6 +30,8 @@ const routes = {
   settings: { title: "账户与模型连接", subViews: [], requiresProject: false },
   "project-settings": { title: "作品偏好", subViews: [], requiresProject: true },
 }
+
+const PUBLIC_DEMO_ROUTES = new Set(["writing", "world", "outline", "map", "rag", "demo-rp"])
 
 /**
  * 视图渲染器映射
@@ -448,6 +451,20 @@ function _normalizeRoute({ projectId = null, viewName = "project", subView = nul
     targetSubView = null
     targetQuery = new URLSearchParams()
     route = routes.project
+  }
+
+  if (
+    globalThis.publicDemoMode
+    && (
+      !PUBLIC_DEMO_ROUTES.has(targetView)
+      || (targetView === "demo-rp" && !globalThis.publicDemoConfig?.rp_enabled)
+    )
+  ) {
+    targetProjectId = state.currentProjectId || globalThis.publicDemoConfig?.project_id || null
+    targetView = "writing"
+    targetSubView = null
+    targetQuery = new URLSearchParams()
+    route = routes.writing
   }
 
   if (route.requiresProject) {

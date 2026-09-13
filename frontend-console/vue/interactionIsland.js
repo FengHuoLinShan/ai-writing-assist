@@ -5,6 +5,7 @@ import {
   getRouter,
 } from "./bridge/index.js"
 import HomeChoiceView from "./views/interaction/HomeChoiceView.vue"
+import DemoRpView from "./views/interaction/DemoRpView.vue"
 import InteractionView from "./views/interaction/InteractionView.vue"
 import JourneyListView from "./views/interaction/JourneyListView.vue"
 
@@ -105,6 +106,10 @@ export function registerInteractionIslands() {
     viewName: "interaction",
     component: InteractionView,
     load: loadInteraction,
+  }))
+  router.registerView("demo-rp", mountIsland({
+    viewName: "demo-rp",
+    component: DemoRpView,
   }))
 }
 

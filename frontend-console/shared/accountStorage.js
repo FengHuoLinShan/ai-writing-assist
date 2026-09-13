@@ -22,7 +22,7 @@ const SESSION_STORAGE_PREFIXES = Object.freeze([
   "workflow-progress-card:",
   "workflow-progress-details:",
 ])
-const SESSION_STORAGE_KEYS = new Set(["rpSourceSetupDraft:v1"])
+const SESSION_STORAGE_KEYS = new Set(["rpSourceSetupDraft:v1", "ephemeralDeepSeekKey"])
 
 function storageKeys(storage) {
   if (!storage) return []

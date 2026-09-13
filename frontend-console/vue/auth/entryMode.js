@@ -1,4 +1,5 @@
 const STORAGE_KEY = "nc-entry-mode-after-auth"
+const DEMO_COPY_INTENT_KEY = "nc-demo-copy-after-auth"
 const MODES = new Set(["author", "rp"])
 
 export function storeEntryMode(mode, storage = globalThis.sessionStorage) {
@@ -18,4 +19,16 @@ export function consumeEntryMode(storage = globalThis.sessionStorage) {
   const mode = readEntryMode(storage)
   try { storage?.removeItem(STORAGE_KEY) } catch {}
   return mode
+}
+
+export function storeDemoCopyIntent(storage = globalThis.sessionStorage) {
+  try { storage?.setItem(DEMO_COPY_INTENT_KEY, "1") } catch {}
+}
+
+export function hasDemoCopyIntent(storage = globalThis.sessionStorage) {
+  try { return storage?.getItem(DEMO_COPY_INTENT_KEY) === "1" } catch { return false }
+}
+
+export function clearDemoCopyIntent(storage = globalThis.sessionStorage) {
+  try { storage?.removeItem(DEMO_COPY_INTENT_KEY) } catch {}
 }

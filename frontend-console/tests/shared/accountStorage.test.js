@@ -6,6 +6,11 @@ import {
   scopeBrowserStorageToAccount,
 } from "../../shared/accountStorage.js"
 import { consumeEntryMode, readEntryMode, storeEntryMode } from "../../vue/auth/entryMode.js"
+import {
+  clearEphemeralDeepSeekKey,
+  readEphemeralDeepSeekKey,
+  writeEphemeralDeepSeekKey,
+} from "../../shared/ephemeralDeepSeekKey.js"
 
 beforeEach(() => {
   localStorage.clear()
@@ -41,6 +46,7 @@ describe("account-scoped browser storage", () => {
       "novel_app_access_token",
       "novel_author_task_form:v1:project-1",
       "rpSourceSetupDraft:v1",
+      "ephemeralDeepSeekKey",
       "workspace-rail:project-1:writing:assistant",
       "workflow-progress-card:task-1",
       "workflow-progress-details:task-1",
@@ -126,5 +132,18 @@ describe("account-scoped browser storage", () => {
 
     expect(scopeBrowserStorageToAccount("account-new")).toBe(true)
     expect(sessionStorage.getItem("rpSourceSetupDraft:v1")).toBeNull()
+  })
+
+  it("keeps an anonymous DeepSeek key only in this session and clears it at the account boundary", () => {
+    writeEphemeralDeepSeekKey("temporary-key")
+    expect(readEphemeralDeepSeekKey()).toBe("temporary-key")
+    expect(localStorage.getItem("ephemeralDeepSeekKey")).toBeNull()
+
+    clearAccountScopedBrowserStorage()
+    expect(readEphemeralDeepSeekKey()).toBe("")
+
+    writeEphemeralDeepSeekKey("temporary-key")
+    clearEphemeralDeepSeekKey()
+    expect(readEphemeralDeepSeekKey()).toBe("")
   })
 })

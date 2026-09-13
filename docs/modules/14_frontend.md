@@ -89,6 +89,7 @@ Prompt 或 token；预算遗漏另行解释。作者可逐项移除/恢复、用
 - `today`（兼容别名，实际进入 Writing Home）
 - `journeys`
 - `interaction`
+- `demo-rp`
 - `writing`
 - `world`
 - `map`
@@ -100,7 +101,7 @@ Prompt 或 token；预算遗漏另行解释。作者可逐项移除/恢复、用
 - `project-settings`
 - `llm`（兼容重定向，按当前项目状态跳转到项目设置或全局设置）
 
-归一化后有 11 个 canonical 路由目标：`home / project / journeys / interaction / writing / world /
+归一化后有 12 个 canonical 路由目标：`home / project / journeys / interaction / demo-rp / writing / world /
 map / rag / outline / settings / project-settings`，其主 DOM 全部由 Vue SFC 拥有。
 `today / scene / generate / llm` 是已注册的兼容输入；未注册为一级页面的旧 `context` hash
 也会在归一化时最终进入 Writing owner 页的任务资料抽屉，不渲染独立 Generate 页。
@@ -125,7 +126,8 @@ map / rag / outline / settings / project-settings`，其主 DOM 全部由 Vue SF
 
 | 视图 | 当前职责 |
 |------|----------|
-| `vue/views/interaction/HomeChoiceView.vue` | `home` 路由与未登录公共首屏共用的双入口；公共模式只回传作者 / RP 选择，不请求受保护资料。双入口与沉浸壳跟随当前现代简约双模式而不闪白；已登录作者入口校验当前账户的已选作品并智能续接 Writing Home，无有效作品时回作品档案；RP 卡使用“进入互动故事”并解释一次角色扮演（RP） |
+| `vue/views/interaction/HomeChoiceView.vue` | `home` 路由与未登录公共首屏共用的双入口；公共模式只回传作者 / RP 选择，不请求受保护资料。配置启用时额外提供“查看演示项目”和“进入演示 RP”；双入口与沉浸壳跟随当前现代简约双模式而不闪白；已登录作者入口校验当前账户的已选作品并智能续接 Writing Home，无有效作品时回作品档案；RP 卡使用“进入互动故事”并解释一次角色扮演（RP） |
+| `vue/views/interaction/DemoRpView.vue` | `demo-rp` 路由；仅在公开演示配置开启时使用匿名 session 恢复最近演示旅程。开场、流式、分支、重抽、纠正、回顾和行动选项复用既有 interaction wire；不显示看海、主动后台续写或网页搜索。临时 DeepSeek Key 只存当前 tab 的 `sessionStorage`，仅随 direct SSE header 发送，匿名 session / 账户边界失效时清除。 |
 | `vue/views/interaction/JourneyListView.vue` / `RpSourceSetup.vue` | `journeys` 路由；扁平旅程列表、新旅程、归档/搜索；归档与永久删除共用 RP 确认层，永久删除保留完整标题门禁，开场创建在原按钮公开忙碌状态；新建页按资料来源、作品/文件、整理与歧义、角色与开场四步渐进展开，已完成步骤保留摘要和返回编辑；复用现有 session、精确 source revision、整理任务、关键歧义与自然语言剧情候选的显式确认，不改创建 wire |
 | `vue/views/interaction/InteractionView.vue` | `interaction/{journey_id}` 路由；640px 舒适阅读列、可辨认且 reduced-motion 安全的流式段落、composer、分支、回顾、看海与右侧定位；内置主题菜单提供 menuitemradio、roving tabindex、方向键/Escape 与焦点归还；发送、停止、继续与重新生成提供按钮级忙碌反馈，历史段落经 RP 确认层说明后可原位建立新分支；消息操作以正文色和较小字阶常显，导出成功/失败都有反馈；source-bound 旅程从“更多 → 作品资料”抽屉查看版本/进度/本轮引用理由、固定/忽略对象并显式升级 |
 | `vue/views/project/ProjectView.vue` | `project` 路由（Vue island）；紧凑作品档案，默认主操作为“继续写作”，搜索/筛选单行展示；回收站始终可见，批量、编辑和删除在“管理作品”模式渐进展开；作品卡支持鼠标、Enter 与 Space 打开；无作品时优先显示新建与导入 |
@@ -163,12 +165,17 @@ map / rag / outline / settings / project-settings`，其主 DOM 全部由 Vue SF
   纳入／未查范围就地显示，不展示模型、token、hash、snapshot 或内部 ID。停止只承诺不再处理
   后续结果，不声称瞬时断开 provider；跨项目迟到响应会丢弃。回答默认只读，作者明确点击后才
   保存为待处理世界笔记建议，来源变化时要求重新提问。
-- `home/journeys/interaction` 使用独立 RP 壳，不显示作者 sidebar；合法深链不要求先选择
+- `home/journeys/interaction/demo-rp` 使用独立 RP 壳，不显示作者 sidebar；合法深链不要求先选择
   author 项目。RP 草稿按旅程保存在本地，服务端流式 buffer/分支/回顾负责跨刷新恢复。
 - 未登录公共流程固定为“双入口 → 登录 → 所选路径”；选择值只在当前
   浏览器会话保留，登录成功时一次性消费。作者进入 `today` 兼容路由并继续复用
   既有项目门禁，RP 进入 `journeys`；登录页可返回原选项且恢复焦点。邮箱、未来开启的
   微信回跳与已登录刷新共用同一消费点，不新增后端登录协议。
+- `?demo=1` 在服务端公开演示配置启用时进入固定项目的只读工作台：所有核心 GET 自动追加
+  `demo=1` 以让服务端构造受限 principal，作者设置、助手、导入、日志和写入入口不显示，明确的
+  编辑/生成/保存控件不可用，浏览、章节切换、标签、展开、筛选、地图和检索保持可用。CTA 把一次性
+  copy intent 放入 sessionStorage；登录成功后立即调用 `POST /api/projects/demo-copy`，按
+  `created / existing / restored` 结果打开用户自己的副本，不将演示项目或 intent 写入项目缓存。
 - RP source 向导只使用读者语言，不展示 UUID/JSON/task/token/Prompt。四步只挂载当前决定，已完成
   步骤保留摘要与返回编辑；步骤、revision、剧情点和身份随既有 session + 服务端 source 恢复。
   session 作为账户私有浏览器状态纳入统一账户切换清理；所有会回写 revision、步骤或剧情候选的异步
