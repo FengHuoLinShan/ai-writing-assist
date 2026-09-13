@@ -63,6 +63,9 @@ onBeforeUnmount(() => {
 const hasWritingContent = computed(() => Boolean(
   continuation.value || Number(writing.value.chapter_count || 0) > 0,
 ))
+const publicDemoEmpty = computed(() => Boolean(
+  globalThis.publicDemoMode && props.summary && !hasWritingContent.value,
+))
 const worldTracks = computed(() => {
   const seen = new Set()
   return [props.creativeContinuation, ...props.worldContinuations].filter((item) => {
@@ -87,12 +90,14 @@ const importWorkflow = computed(() => (
 ))
 const startWorldCore = computed(() => Boolean(
   props.summary
+  && !globalThis.publicDemoMode
   && !primaryWorld.value
   && !continuation.value
   && !importWorkflow.value
   && Number(writing.value.chapter_count || 0) === 0
 ))
 const resumeTitle = computed(() => {
+  if (publicDemoEmpty.value) return "暂无可阅读的正式正文"
   if (continuation.value) return `继续第 ${continuation.value.chapter_index} 章正文`
   if (hasWritingContent.value) return "继续正文写作"
   if (primaryWorld.value) return primaryWorld.value.title
@@ -109,6 +114,7 @@ const primaryLabel = computed(() => {
 })
 const resumeLabel = computed(() => hasWritingContent.value
   ? "正文写作"
+  : publicDemoEmpty.value ? "演示正文"
   : primaryWorld.value ? "接着上次创作" : "接着上次写")
 const attentionCategories = computed(() => [
   { key: "world_objects", label: "人物与设定", value: attention.value.world_objects || 0, view: "world", subView: "review", reviewKind: "objects" },
@@ -397,7 +403,8 @@ function retry() {
         <div>
           <span class="today-resume__label">{{ resumeLabel }}</span>
           <h2 id="today-resume-title">{{ resumeTitle }}</h2>
-          <template v-if="primaryWorld">
+          <p v-if="publicDemoEmpty">演示项目尚未发布可公开阅读的正文。</p>
+          <template v-else-if="primaryWorld">
             <p>{{ primaryWorld.description }}</p>
             <p v-if="!creativeContinuation">本机未发送的文字和对话不会出现在其他设备。</p>
           </template>
@@ -411,7 +418,7 @@ function retry() {
           <p v-if="summary" class="today-resume__stats">{{ writing.chapter_count }} 章 · {{ Number(writing.word_count || 0).toLocaleString() }} 字</p>
         </div>
         <div class="today-resume__actions">
-          <button class="btn btn-primary today-resume__action" type="button" :data-action="primaryWorld ? 'continue-world' : 'continue-writing'" @click="runPrimaryAction">
+          <button v-if="!publicDemoEmpty" class="btn btn-primary today-resume__action" type="button" :data-action="primaryWorld ? 'continue-world' : 'continue-writing'" @click="runPrimaryAction">
             {{ primaryLabel }}
           </button>
           <button v-if="startWorldCore" class="btn btn-ghost" type="button" data-action="start-world-core" @click="openWorldCore">先整理世界观</button>

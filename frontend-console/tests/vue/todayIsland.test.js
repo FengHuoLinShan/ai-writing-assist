@@ -592,6 +592,26 @@ describe("todayIsland", () => {
     }
   })
 
+  it("公开演示没有已发布章节时显示不可操作空态", async () => {
+    globalThis.publicDemoMode = true
+    globalThis.publicDemoRpMode = false
+    setBridgeOverrides({
+      state: { currentProjectId: "demo", currentProject: { id: "demo", title: "演示作品" } },
+      api: { writing: { listChapters: vi.fn(async () => ({ chapters: [] })) } },
+    })
+    try {
+      const viewProps = await loadTodayProps()
+      const wrapper = mount(TodayView, { props: viewProps })
+
+      expect(wrapper.get("#today-resume-title").text()).toBe("暂无可阅读的正式正文")
+      expect(wrapper.find(".today-resume__action").exists()).toBe(false)
+      expect(wrapper.find('[data-action="start-world-core"]').exists()).toBe(false)
+    } finally {
+      globalThis.publicDemoMode = false
+      globalThis.publicDemoRpMode = false
+    }
+  })
+
   it("deduplicates a world continuation shown beside正文", () => {
     const worldDraft = {
       key: "world_bible_draft:draft-1",
