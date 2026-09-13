@@ -2,7 +2,6 @@ import { readFile } from 'node:fs/promises'
 import { test, expect } from './fixtures.js'
 import { API_BASE, createProject, cleanupProject } from './helpers/api-client.js'
 import { openWorkbench } from './helpers/workbench.js'
-import { expectNoPageOverflow } from './helpers/responsive.js'
 
 async function api(path, body) {
   const response = await fetch(`${API_BASE}${path}`, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, ...(body ? { body: JSON.stringify(body) } : {}) })
@@ -38,11 +37,7 @@ for (const width of [390, 768, 1440]) {
         drawer.getByRole('tab', { name: '设定共创', exact: true }),
         drawer.getByRole('button', { name: '收回 AI 工具', exact: true }),
       ]) {
-        await expect.poll(() => control.evaluate(element => {
-          const box = element.getBoundingClientRect()
-          return [2, box.width / 2, box.width - 2].every(offset =>
-            element.contains(document.elementFromPoint(box.left + offset, box.top + box.height / 2)))
-        }), { message: 'AI 工具的标签和收回按钮不能被导航遮挡' }).toBe(true)
+        await control.click({ trial: true })
       }
       if (width === 768) {
         const screenshot = testInfo.outputPath('world-drawer-768.png')
@@ -68,7 +63,7 @@ for (const width of [390, 768, 1440]) {
       expect(child.payload_json.decisions[0].disposition).toBe('rejected')
       await page.reload()
       await expect(panel).toContainText('不得复活死者')
-      await expectNoPageOverflow(page)
+
       await panel.locator('summary').filter({ hasText: /^已保存的决定与世界资料$/ }).click()
       await panel.evaluate(element => element.scrollIntoView({ block: 'start', behavior: 'instant' }))
       const screenshot = testInfo.outputPath(`world-model-${width}.png`)

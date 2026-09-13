@@ -1,6 +1,6 @@
 <!--
   WorldObjectsTab — world/objects 对象库（vanilla _renderEntityList 及子渲染的
-  Vue 化，worldView.js:1121-1610）。DOM 契约逐节点保留；筛选变更一律
+  Vue 化，worldView.js:1121-1610）。功能与数据契约保留，DOM 与定位器可调整；筛选变更一律
   navigate 写 query（URL 是事实源），island 重挂载后由 load() 重新解码。
 -->
 <template>

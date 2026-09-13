@@ -42,6 +42,9 @@ watch(tab, (value) => {
 
 const effectiveLLM = ref(props.effectiveLLM)
 const effectivePrefs = ref(props.effectivePrefs)
+const accountConnections = ref(null)
+const accountConnectionLoading = ref(Boolean(props.projectId))
+const accountConnectionLoadError = ref(false)
 const authorForm = ref(authorFormFromEffective(props.effectivePrefs))
 const deepImportForm = ref(
   deepImportFormFromSettings(deepImportSettingsSource(props.effectiveLLM)),
@@ -68,6 +71,27 @@ function ownsProjectSettings(projectId) {
     && state?.currentView === "project-settings"
 }
 
+async function loadAccountConnectionMetadata(projectId = props.projectId) {
+  if (!projectId) {
+    accountConnectionLoading.value = false
+    return false
+  }
+  accountConnectionLoading.value = true
+  accountConnectionLoadError.value = false
+  try {
+    const result = await getApi().settings.listLLMConnections()
+    if (!ownsProjectSettings(projectId)) return false
+    accountConnections.value = result
+    return true
+  } catch {
+    if (!ownsProjectSettings(projectId)) return false
+    accountConnectionLoadError.value = true
+    return false
+  } finally {
+    if (ownsProjectSettings(projectId)) accountConnectionLoading.value = false
+  }
+}
+
 const dataReady = computed(() => Boolean(effectiveLLM.value && effectivePrefs.value))
 const deepImportSource = computed(() => (
   effectiveLLM.value?.deep_import || { source: "system", value: null }
@@ -84,10 +108,19 @@ const deepImportSourceSummary = computed(() => {
   if (deepImportSource.value.source === "global") return "跟随账户默认设置"
   return "使用系统默认设置"
 })
+const activeAccountProvider = computed(() => {
+  const providers = accountConnections.value?.providers || []
+  const activeId = accountConnections.value?.active_provider_id
+  return providers.find((provider) => provider.active || provider.provider_id === activeId) || null
+})
 const activeModelLabel = computed(() => {
-  const label = effectiveLLM.value?.label?.value || "模型"
-  const model = effectiveLLM.value?.model?.value || ""
-  const connected = Boolean(effectiveLLM.value?.api_key_configured?.value)
+  if (accountConnectionLoading.value) return "正在读取账户连接…"
+  if (accountConnectionLoadError.value) return "账户连接暂时无法读取"
+  const provider = activeAccountProvider.value
+  if (!provider) return "暂无可用模型连接"
+  const label = provider.label || "模型"
+  const model = provider.model || ""
+  const connected = Boolean(provider.connected)
   return `${label}${model ? ` · ${model}` : ""}${connected ? "" : " · 未连接"}`
 })
 const authorDirty = computed(() => JSON.stringify(authorForm.value) !== authorBaseline.value)
@@ -189,7 +222,10 @@ async function retryProjectSettings() {
   loadPending.value = true
   projectLoadError.value = ""
   try {
-    const loaded = await refreshEffective({}, projectId)
+    const [loaded] = await Promise.all([
+      refreshEffective({}, projectId),
+      loadAccountConnectionMetadata(projectId),
+    ])
     if (loaded) projectLoadError.value = ""
   } catch {
     if (ownsProjectSettings(projectId)) {
@@ -364,7 +400,10 @@ function beforeUnload(event) {
   event.returnValue = ""
 }
 
-onMounted(() => window.addEventListener("beforeunload", beforeUnload))
+onMounted(() => {
+  window.addEventListener("beforeunload", beforeUnload)
+  void loadAccountConnectionMetadata()
+})
 onBeforeUnmount(() => {
   disposed = true
   window.removeEventListener("beforeunload", beforeUnload)

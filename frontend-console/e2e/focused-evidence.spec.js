@@ -2,7 +2,6 @@ import { createHash } from "node:crypto"
 import { test, expect } from "./fixtures.js"
 import { createDraft, createEntity, createScene } from "./helpers/api-client.js"
 import { openWorkbench, waitWritingReady } from "./helpers/workbench.js"
-import { expectNoPageOverflow } from "./helpers/responsive.js"
 
 const TEXT = "沈岚的师父柳舟住在北港。沈岚沿河寻找柳舟。"
 const hash = value => createHash("sha256").update(value).digest("hex")
@@ -58,7 +57,7 @@ test("副驾驶按场景查证，390px下保留出处选择及离开恢复", asy
   expect(requests[0]).toMatchObject({ consumer: "writing", scene_id: scene.id, chapter_index: 1, roots: [{ name: "沈岚" }] })
   await panel.getByRole("button", { name: "加入本次写作资料" }).click()
   await expect(panel).toContainText("已加入待确认资料")
-  await expectNoPageOverflow(page)
+
   await page.reload()
   await waitWritingReady(page, { chapter: 1 })
   if (await closeChapters.isVisible()) await closeChapters.click()
@@ -96,7 +95,7 @@ test("地图节点补查使用共用接口，证据选择不修改地图", async
   await panel.getByRole("button", { name: "加入本次地图资料" }).click()
   await expect(panel).toContainText("已加入待确认资料")
   expect(mapWrites).toBe(0)
-  await expectNoPageOverflow(page)
+
 })
 
 test("对象详情明确授权补全，撤销需确认且发送同一任务", async ({ page, projectFactory }) => {

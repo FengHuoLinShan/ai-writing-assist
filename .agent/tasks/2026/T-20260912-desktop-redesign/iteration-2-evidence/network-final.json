@@ -1,0 +1,9 @@
+{
+  "resources": 0,
+  "apiRequests": [],
+  "externalRequests": [],
+  "truncated": false,
+  "scope": "reload, writing AI and comparison, all ten primary preview pages",
+  "observation_valid": false,
+  "limitation": "No expected static resource events captured after re-enabling Network; empty request lists are not evidence of zero requests."
+}

@@ -81,8 +81,6 @@ Evidence indexing/compilation 回归集中在 `backend/modules/evidence/`；
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:functional -- interaction.spec.js --workers=1 --retries=0` | RP 作品复用、导入恢复、关键歧义、剧情锚点、两种身份、资料抽屉与 390px 键盘流 | Same fresh dedicated stack; network responses use synthetic fixtures |
 | `npm --prefix frontend-console run test:e2e:functional -- themes.spec.js` | 本地主题资源、预览取消、持久化／配额失败、刷新／导出／删除、字体偏好与手机正文稳定性 | 同一专用 PostgreSQL 与全新服务门禁；不调用模型 |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:map` | Focused local map regression, including touch/390px; already contained in the functional suite | Explicit dedicated PostgreSQL and fresh backend/frontend |
-| `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:visual` | Deterministic Chromium visual baseline for editorial themes, focus and mobile layouts | Dedicated test PostgreSQL; committed platform baseline; workers=1, retries=0 |
-| `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:visual:update` | Explicitly regenerate visual baselines after an approved UI change | Same prerequisites; every expected/actual/diff image must be reviewed |
 | `make test-real-llm` | Explicit SQLite real-model acceptance | Configured provider credentials |
 | `cd backend && RUN_E2E_TESTS=1 RUN_REAL_LLM_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run --locked --extra ci -- pytest tests/e2e/test_writing_conflict_real_llm.py -m 'e2e and real_llm'` | Writing conflict review and suggestion through queued task routes | Dedicated PostgreSQL with a verified owner provider connection; two paid calls |
 | `RUN_MAP_ATLAS_LIVE_IMAGE=1 MAP_ATLAS_LIVE_OPENAI_API_KEY='<temporary-key>' make test-map-atlas-live-image` | One paid GPT Image 2 smoke image; never part of aggregate gates | Explicit cost approval flag and temporary OpenAI key |
@@ -103,8 +101,7 @@ green. Do not run overlapping aggregate targets back-to-back.
    `make test-ci TEST_WORKERS=2` once; it already subsumes the fast backend and frontend Vitest
    layers, so do not precede it with `make test` or frontend Vitest.
 3. **When the risk requires it**: schema or concurrency changes add the PostgreSQL critical
-   subset; deployment or image changes add their existing contract target; visual,
-   real-LLM, long-context, worker, and real-corpus suites remain explicit
+   subset; deployment or image changes add their existing contract target;    real-LLM, long-context, worker, and real-corpus suites remain explicit
    acceptance gates.
 4. **Private image storage changes**: run `make test-deploy`, the affected world storage/
    cleanup tests, and an isolated MinIO initializer smoke with synthetic credentials. Verify
@@ -151,9 +148,16 @@ that intentionally open an independent session instead of using FastAPI's
 overridden `get_db`; tests must not suppress async connection cleanup warnings
 or silently fall back to the developer database.
 
-视觉回归由独立 `playwright.visual.config.js` 固定 Chromium、语言、时区、DPR、viewport、
-reduced-motion、workers=1 和 retries=0；默认像素差异上限为 0.5%。功能修复不得通过放宽
-全局阈值来接受风格漂移，已确认的 UI 变化必须显式更新并逐张检查基线。
+### 前端重设计回归契约
+
+前端回归以用户任务的功能等价、数据正确和适用操作的幂等性为验收标准。
+允许改变入口、步骤、定位器、组件和 DOM 结构；定位方式是测试适配细节，不是产品合同。
+鉴权、项目隔离、确认与采用、保存恢复、冲突处理、重复提交/重试防重以及基本可访问性仍须验证。
+可访问性检查键盘可操作、语义名称、焦点管理、可读对比度和减少动态效果，不规定具体视觉实现。
+主题包导入/导出、用户字体选择与地图坐标属于功能数据；可检查这些输入的运行效果，不把其样例推广为内置视觉常量。
+截图像素、CSS 写法、固定尺寸、布局、断点与组件层级不作阻断门禁；窄屏/缩放只是操作环境样本。
+旧 PNG 只作历史参考，失败截图和 trace 只供诊断，无需更新基线。
+删除混合视觉测试前，先把有效功能断言迁入现有行为测试；已有等价覆盖则记录对应测试与断言。
 
 ### Continuous integration
 
@@ -167,8 +171,11 @@ PR 多类变更取并集：
 
 | 路径 | 需要执行的质量检查 |
 | --- | --- |
-| 后端目录 | 后端、PostgreSQL critical、浏览器冒烟、生产镜像 |
-| 前端目录（除 Dockerfile） | 前端、浏览器冒烟、生产镜像 |
+| 后端 tests 目录中的 test_*.py | 后端；tests/e2e 另加 PostgreSQL critical |
+| 前端 tests 中的 JS/Vue | 前端 |
+| 历史截图 PNG | 仅始终执行的检查；不比较像素、不要求重建 |
+| 其他后端目录（包括共享 fixture/support） | 后端、PostgreSQL critical、浏览器冒烟、生产镜像 |
+| 前端目录（除 Dockerfile） | 前端单测、浏览器冒烟、生产镜像（含构建）；e2e JS、Playwright 配置、package.json 或浏览器 CI 变更运行完整功能套件 |
 | 两个 Dockerfile 或 deploy 目录 | 后端及部署合同、生产镜像及恢复演练 |
 | Markdown 文档 | 仅始终执行的检查；根 README.md 额外运行镜像 |
 | CI、脚本、Makefile、其他未知路径 | 全部，浏览器使用冒烟 |
@@ -190,7 +197,7 @@ secret hygiene gate，再安装 uv `0.12.3` 与 Python `3.14.7`，
 报告；它只提供离线证据排序与引用完整性诊断，不阻断 PR，也不代表模型语义回答质量。
 这些 CI step 直接调用同一 Make target，由 target 自行解析锁定工具链，避免 CI 与本地走不同
 的 pytest/Ruff 可执行文件。
-架构文档 job 使用 Python 标准库相对 PR base SHA 验证当前清单和代码差异影响，未修改的必查文档
+架构文档 job 使用 Python 标准库相对 PR base SHA 验证当前清单和代码差异影响；普通实现变化仅提示，稳定契约等硬门禁命中时，未修改的必查文档
 只有在 PR 模板逐项核对并提供无影响原因后才能通过。该 workflow 显式监听
 `opened / synchronize / reopened / edited`，因此维护者补齐 Dependabot PR 的文档
 影响说明后会用当前 PR 正文重新验证，无需修改 bot 生成的提交。
@@ -333,13 +340,13 @@ Key points:
 @patch("modules.world.services.SomeService.method")
 ```
 
-例外仅在 C 扩展等无法 autospec 的场景，需显式注释原因。
+例外仅在 C 扩展等无法 autospec 的场景，在 patch 调用结束行注明 `# autospec-exempt: 具体原因`；空说明不通过。不得用例外规避可用的签名检查。
 
 **禁止在生产代码中检测 Mock** — 不要写 `isinstance(db, Mock)` 守卫或 `from unittest.mock import Mock` 在生产 import。测试替身应通过 DI 注入（可选参数或 `Depends` override）传递，而非运行时类型检测改变生产逻辑。
 
 ### Fixture conventions
 
-- 异步 fixture 必须使用 `@pytest_asyncio.fixture`，而非 `@pytest.fixture` + `async def`。虽然 `asyncio_mode = "auto"` 下后者技术上可运行，但 `@pytest_asyncio.fixture` 是显式约定，与 `conftest.py` 用法一致
+- `asyncio_mode = "auto"` 下异步 fixture 可使用 `@pytest.fixture` 或 `@pytest_asyncio.fixture`；用行为测试验证事务回滚、事件循环和资源释放，不冻结装饰器写法。
 - `asyncio_mode = "auto"` 启用后，`@pytest.mark.asyncio` 是冗余装饰器。新测试无需添加；旧测试可逐步清理
 - 模块级 fixture 应放在模块的 `conftest.py` 中；E2E 共用的 `ctx` fixture 应提取到 `e2e/conftest.py`，避免 20+ 次重复实现
 - 静态结构门禁应通过 `tests.support.inventory` 共用缓存的 Python 文件、源码和 AST inventory；各门禁仍保持独立的文件筛选与断言，不合并安全规则
@@ -443,3 +450,13 @@ RP 长期约定与max兼容性用例位于 interaction 的 services/prompts/task
   `PW_REUSE_EXISTING_SERVER=0`。真实 API 与 worker 由 test-only harness 启动，模型 IO 合成；
   检查确认、跨页/刷新恢复、窄屏和键盘。该 harness 在其他数据库/环境拒绝启动，不用于生产。
 - 强提醒精确率、RP 人物可信度/连贯性需要冻结人工评测，实际采用率和复用意愿另行观察。
+
+### 回归测试的精简边界
+
+测试优先断言输入输出、失败路径和用户可见效果，不冻结 CSS 属性顺序、普通修辞、
+CI 显示名称或重复的工具版本常量。新增 facade/Prompt 合同不应因完整集合相等而失败；
+既有必要接口与合同仍检查存在性，导出与实现保持自洽。纯 mock 转发与 schema 测试不请求数据库 fixture。
+前端遵守上方“前端重设计回归契约”，不维护 CSS 源码或像素门禁。
+后端覆盖率阈值由 pyproject.toml 唯一配置为 85%，不可用重试或吞 warning 隐藏失败。
+
+项目助手功能另由 `test:e2e:assistant` 使用已有的合成模型 harness 验证（专用库名含 `agent_e2e`）；普通 functional 不加载此用例。CI 两者都运行，仍无付费模型调用。

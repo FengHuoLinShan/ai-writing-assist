@@ -1,35 +1,22 @@
 <template>
-  <div class="writing-editor-shell">
+  <div class="writing-editor-shell" :aria-busy="state.reloadingServer || undefined">
     <div class="writing-editor-header">
-      <div class="writing-editor-title-group">
-        <span id="writing-chapter-title" class="writing-editor-chapter-title">{{ hasChapter ? `第 ${chapterNumber} 章` : '未选择章节' }}</span>
-        <input
-          v-if="chapterReady"
-          id="writing-title-input"
-          ref="titleEl"
-          class="writing-title-input"
-          type="text"
-          :value="state.title"
-          :readonly="state.readonly"
-          placeholder="章节标题"
-        >
-      </div>
       <div id="writing-editor-buttons" class="writing-editor-buttons">
-        <button v-if="hasChapter && state.status !== 'candidate' && (state.status !== 'published' || state.dirty)" id="btn-publish" class="btn btn-primary btn-sm writing-primary-action" :disabled="!chapterReady || state.readonly || Boolean(state.saveError) || !state.content.trim()" @click="$emit('publish')">设为正式正文</button>
-        <span v-if="hasChapter && state.status !== 'candidate'" class="writing-primary-action__hint">只在本作品内生效，不会对外发布</span>
+        <button v-if="state.status !== 'candidate'" id="btn-autosave" class="btn btn-primary btn-sm writing-save-action" :disabled="!chapterReady || state.readonly || state.saving" :aria-busy="state.saving" @click="$emit('autosave')">{{ state.saving ? '保存中…' : state.restoreSourceVersion ? '保存为新工作稿' : '保存工作稿' }}</button>
         <div ref="toolMenusEl" class="writing-editor-buttons__menus" @click.capture="closeToolMenuAfterAction" @keydown="onToolMenuKeydown">
           <details v-if="state.status !== 'candidate'" class="writing-tools-menu" @toggle="onToolMenuToggle('save', $event)">
-            <summary class="btn btn-sm" aria-controls="writing-save-tools" :aria-expanded="String(openToolMenu === 'save')">保存</summary>
+            <summary class="btn btn-sm" aria-controls="writing-save-tools" :aria-expanded="String(openToolMenu === 'save')">版本与发布</summary>
             <div id="writing-save-tools" class="writing-tools-menu__body">
               <div class="writing-tools-menu__group">
-                <button id="btn-autosave" class="btn btn-sm" :disabled="!chapterReady || state.readonly || state.saving" @click="$emit('autosave')">{{ state.restoreSourceVersion ? '保存为新工作稿' : '保存工作稿' }}</button>
+                <button v-if="hasChapter && (state.status !== 'published' || state.dirty)" id="btn-publish" class="btn btn-sm" :disabled="!chapterReady || state.readonly || state.saving || Boolean(state.saveError) || !state.content.trim()" @click="$emit('publish')">设为正式正文</button>
+                <p class="writing-publish-note">只在本作品内生效，不会对外发布。</p>
                 <button id="btn-checkpoint-version" class="btn btn-sm" :disabled="!chapterReady || state.readonly || state.saving" @click="$emit('checkpoint')">保存版本</button>
                 <button v-if="state.status === 'draft' && Number(state.versionNumber || 0) > 1" class="btn btn-sm btn-ghost" @click="$emit('discard')">放弃未设为正式正文的更改</button>
               </div>
             </div>
           </details>
           <details class="writing-tools-menu" @toggle="onToolMenuToggle('ai', $event)">
-            <summary class="btn btn-sm" data-action="writing-ai-menu" aria-controls="writing-ai-tools" :aria-expanded="String(openToolMenu === 'ai')">AI 写作助手</summary>
+            <summary class="btn btn-sm writing-ai-action" data-action="writing-ai-menu" aria-controls="writing-ai-tools" :aria-expanded="String(openToolMenu === 'ai')">写作伙伴</summary>
             <div id="writing-ai-tools" class="writing-tools-menu__body">
               <div v-if="hasChapters && state.status !== 'candidate'" class="writing-tools-menu__group">
                 <strong>可编辑建议</strong>
@@ -88,15 +75,20 @@
     <template v-else>
       <div v-if="state.saveError || (state.dirty && state.backupComplete === false)" class="writing-save-recovery error-card" role="alert">
         <div>
-          <strong>工作稿还没有保存</strong>
-          <p v-if="state.saveError">
+          <strong>{{ state.saveConflict ? '另一个窗口已更新此章' : '工作稿还没有保存' }}</strong>
+          <p v-if="state.saveConflict">你的文字仍保留在编辑器中，没有覆盖服务器的修改。请先导出当前文字，再载入最新版对照整理。{{ state.backupComplete ? '本地备份也已保留。' : '本地备份不可用，请立即导出文字。' }}</p>
+          <p v-else-if="state.saveError">
             {{ state.saveError }}。{{ state.backupComplete
               ? "本地备份仍保留在这台设备上。"
               : "本地备份不可用，离开或刷新会丢失未保存修改。" }}保存成功前不会切换章节。
           </p>
           <p v-else>本地备份不可用，当前修改只保留在这个页面；离开或刷新会丢失。请尽快保存工作稿。</p>
         </div>
-        <button id="writing-retry-save" class="btn btn-sm" type="button" :disabled="state.saving" @click="$emit('autosave')">{{ state.saving ? '重试中…' : '重试保存' }}</button>
+        <div class="writing-recovery-actions">
+          <button type="button" class="btn btn-sm" @click="$emit('export')">导出当前文字</button>
+          <button v-if="state.saveConflict" type="button" class="btn btn-sm" :disabled="state.saving || state.reloadingServer || !state.backupComplete" @click="$emit('reload-server')">{{ state.reloadingServer ? '正在载入…' : '载入服务器最新版' }}</button>
+          <button v-else id="writing-retry-save" class="btn btn-sm" type="button" :disabled="state.saving" @click="$emit('autosave')">{{ state.saving ? '重试中…' : '重试保存' }}</button>
+        </div>
       </div>
       <section
         v-if="state.status === 'candidate'"
@@ -127,8 +119,8 @@
         <div class="writing-candidate-review-actions">
           <button v-if="canAdoptCandidate" class="btn btn-primary" :disabled="candidateBusy" @click="$emit('adopt')">{{ state.candidateAction === 'adopt' ? '采用中…' : '采用到工作稿' }}</button>
           <button v-else-if="reviewBlocked" class="btn btn-primary" :disabled="candidateBusy" @click="$emit('targeted-revision')">{{ generationLoading ? '处理中…' : '按问题定向返修' }}</button>
-          <button v-else class="btn btn-primary" :disabled="candidateBusy" @click="$emit('semantic-review')">{{ generationLoading ? '处理中…' : '运行独立语义审查' }}</button>
-          <button v-if="canAdoptCandidate || independentReview" class="btn" :disabled="candidateBusy" @click="$emit('semantic-review')">{{ independentReview ? '重新独立审查' : '运行独立语义审查' }}</button>
+          <button v-else class="btn btn-primary" :disabled="candidateBusy" @click="$emit('semantic-review')">{{ generationLoading ? '处理中…' : independentReview ? '重新独立审查' : '运行独立语义审查' }}</button>
+          <button v-if="canAdoptCandidate || reviewBlocked" class="btn" :disabled="candidateBusy" @click="$emit('semantic-review')">{{ independentReview ? '重新独立审查' : '运行独立语义审查' }}</button>
           <button class="btn writing-candidate-reject" :disabled="candidateBusy" @click="$emit('reject')">{{ state.candidateAction === 'reject' ? '拒绝中…' : '拒绝建议' }}</button>
         </div>
         <details>
@@ -138,13 +130,20 @@
         </details>
       </section>
       <div class="writing-sheet" :class="{ 'writing-sheet--candidate': state.status === 'candidate' }">
+        <div class="writing-manuscript-heading">
+          <div class="writing-manuscript-meta">
+            <span id="writing-chapter-title" class="writing-editor-chapter-title">第 {{ chapterNumber }} 章</span>
+            <span class="writing-document-identity" :class="`writing-document-identity--${state.status}`">{{ state.status === 'published' ? '正式正文' : state.status === 'candidate' ? 'AI 候选 · 只读' : state.readonly ? '历史版本 · 只读' : '工作稿' }}</span>
+          </div>
+          <input id="writing-title-input" ref="titleEl" class="writing-title-input" type="text" :value="state.title" :readonly="state.readonly || state.reloadingServer" aria-label="章节标题" placeholder="为这一章命名" />
+        </div>
         <textarea
           id="writing-editor"
           ref="editorEl"
           class="novel-editor"
           :class="[`novel-editor--font-${editorFont}`, { 'novel-editor--focus': focusMode }]"
           :value="state.content"
-          :readonly="state.readonly"
+          :readonly="state.readonly || state.reloadingServer"
           aria-label="章节正文"
           :aria-describedby="state.status === 'candidate' ? 'writing-candidate-review-description' : undefined"
           placeholder="开始写作..."
@@ -178,7 +177,7 @@ const emit = defineEmits(["open-chapters", "create-chapter",
   "generate-draft", "generate-continuation", "generate-pov", "regenerate-candidate",
   "auto-extract", "open-deep-import-settings", "open-ai-tools", "adopt", "reject",
   "semantic-review", "targeted-revision", "compare-candidate", "export",
-  "retry-load",
+  "retry-load", "reload-server",
 ])
 
 const titleEl = ref(null)
@@ -202,7 +201,8 @@ const reviewStatusText = computed(() => {
   if (!props.state.provenanceJson?.review_required) return "请先阅读建议正文；采用会创建新工作稿，拒绝只会将建议留在版本历史中。"
   if (!independentReview.value) return "采用前需要一次独立语义审查，正文仍保持只读。"
   if (reviewBlocked.value) return `独立审查发现 ${independentReview.value.blocking_count || 0} 个必须先处理的问题。`
-  return "独立语义审查已通过，可以采用。"
+  if (independentReview.value.verdict === "pass") return "独立语义审查已通过，可以采用。"
+  return "独立审查尚未完成必要检查，当前不能采用。请重新审查，或保留这份建议稍后处理。"
 })
 const visibleFindings = computed(() => (props.reviewResult?.findings || []).filter((item) => item?.location?.draft_id === props.state.draftId).slice(0, 20))
 const severityLabel = (severity) => ({ blocker: "阻断", major: "重要", minor: "建议" }[severity] || "问题")

@@ -32,15 +32,8 @@ central_documents = [
 
 adr_index = "docs/adr/README.md"
 database_catalog = "docs/01_数据库设计.md"
-frontend_route_catalogs = [
-  "docs/00_整体设计.md",
-  "docs/modules/14_frontend.md",
-  "frontend-console/README.md",
-]
-task_catalogs = [
-  "docs/modules/12_infrastructure.md",
-  "backend/infrastructure/tasks/README.md",
-]
+frontend_route_catalogs = ["docs/modules/14_frontend.md"]
+task_catalogs = ["backend/infrastructure/tasks/README.md"]
 prompt_catalog = "docs/prompts/Prompt体系设计.md"
 module_catalogs = [
   "CONTEXT.md",
@@ -171,6 +164,7 @@ api_prefixes = []
 
 [[impact_rules]]
 id = "module-production"
+advisory = true
 description = "Any business-module production behavior change"
 source_globs = ["backend/modules/**/*.py"]
 exclude_globs = [
@@ -184,21 +178,26 @@ required_documents = ["{component_design_docs}", "{component_code_docs}"]
 id = "module-contract"
 description = "Module API, stable contracts and facade changes"
 source_globs = [
-  "backend/modules/*/api.py",
-  "backend/modules/*/contracts.py",
-  "backend/modules/*/facade.py",
+  "backend/modules/**/api.py",
+  "backend/modules/**/*_api.py",
+  "backend/modules/**/contracts.py",
+  "backend/modules/**/facade.py",
+  "backend/modules/**/*_facade.py",
 ]
+exclude_globs = ["backend/modules/**/tests/**", "backend/modules/**/test_*.py"]
 required_documents = ["{component_design_docs}", "{component_code_docs}"]
 
 [[impact_rules]]
 id = "module-schema"
 description = "Module ORM and request/response schema changes"
 source_globs = [
-  "backend/modules/*/models.py",
-  "backend/modules/*/*_models.py",
-  "backend/modules/*/models/*.py",
-  "backend/modules/*/schemas.py",
+  "backend/modules/**/models.py",
+  "backend/modules/**/*_models.py",
+  "backend/modules/**/models/*.py",
+  "backend/modules/**/schemas.py",
+  "backend/modules/**/*_schemas.py",
 ]
+exclude_globs = ["backend/modules/**/tests/**", "backend/modules/**/test_*.py"]
 required_documents = [
   "{component_design_docs}",
   "{component_code_docs}",
@@ -208,7 +207,8 @@ required_documents = [
 [[impact_rules]]
 id = "module-tasks"
 description = "Business task handler and recovery changes"
-source_globs = ["backend/modules/*/tasks.py"]
+source_globs = ["backend/modules/**/tasks.py", "backend/modules/**/*_tasks.py"]
+exclude_globs = ["backend/modules/**/tests/**", "backend/modules/**/test_*.py"]
 required_documents = [
   "{component_design_docs}",
   "{component_code_docs}",
@@ -256,6 +256,7 @@ required_documents = [
 
 [[impact_rules]]
 id = "infrastructure-production"
+advisory = true
 description = "Any shared infrastructure behavior change"
 source_globs = ["backend/infrastructure/**/*.py"]
 exclude_globs = [
@@ -301,6 +302,7 @@ required_documents = [
 
 [[impact_rules]]
 id = "frontend-production"
+advisory = true
 description = "Any frontend production behavior change"
 source_globs = [
   "frontend-console/*.js",

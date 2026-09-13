@@ -373,8 +373,8 @@ describe("卡片操作", () => {
     const card = wrapper.find('.project-card[data-id="p1"]')
     const openButton = card.find(".project-card__open")
 
-    expect(card.element.tagName).toBe("ARTICLE")
-    expect(openButton.element.tagName).toBe("BUTTON")
+
+
     expect(openButton.attributes("type")).toBe("button")
     expect(openButton.attributes("aria-label")).toBe("打开作品：星际旅人")
     expect(openButton.find("button, input, a").exists()).toBe(false)

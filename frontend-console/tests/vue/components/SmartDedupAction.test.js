@@ -39,7 +39,7 @@ describe("SmartDedupAction", () => {
     notifySmartDedupChanged()
     await nextTick()
     expect(wrapper.get("button").text()).toBe("查看智能去重")
-    expect(wrapper.get("button").classes()).toContain("btn-primary")
+
   })
 
   it("stays hidden without a current project", () => {

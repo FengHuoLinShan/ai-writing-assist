@@ -114,8 +114,8 @@ describe("task context reference search", () => {
     const actions = wrapper.get(".generate-task-output-actions")
     const buttons = actions.findAll("button")
     expect(buttons.map((button) => button.text())).toEqual(["查看完整资料", "带到世界设定对话"])
-    expect(buttons[0].classes()).toContain("btn-primary")
-    expect(buttons[1].classes()).not.toContain("btn-primary")
+
+
     expect(actions.find('[data-action="copy-task-md"]').exists()).toBe(false)
     expect(actions.find('[data-action="export-task-md"]').exists()).toBe(false)
 

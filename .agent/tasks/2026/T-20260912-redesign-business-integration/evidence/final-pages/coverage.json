@@ -1,0 +1,413 @@
+{
+  "generatedOn": "2026-09-13",
+  "base": "http://localhost:8080",
+  "browser": "Chrome",
+  "pages": {
+    "home": {
+      "url": "http://localhost:8080/#home",
+      "heading": [
+        "今天想怎样进入故事？"
+      ],
+      "controls": [
+        "WRITE 我是作家 整理世界、大纲与正文，继续现有创作项目。 进入创作 →",
+        "ROLE PLAY 进入互动故事 用自然语言开始角色扮演（RP），从喜欢的世界、身份和起点出发。 尽情游玩吧 →",
+        "命令栏输入"
+      ],
+      "pageOverflow": false,
+      "viewport": {
+        "width": 1571,
+        "scrollWidth": 1571
+      }
+    },
+    "project": {
+      "url": "http://localhost:8080/#project",
+      "heading": [
+        "把故事放在触手可及的地方。",
+        "诡秘之主 · 廷根篇（前60章演示）"
+      ],
+      "controls": [
+        "写作",
+        "人物与世界",
+        "故事结构",
+        "地图",
+        "查找",
+        "新建空白作品",
+        "导入已有作品",
+        "管理作品",
+        "回收站",
+        "继续写作",
+        "输入作品名称"
+      ],
+      "pageOverflow": false,
+      "viewport": {
+        "scrollWidth": 1280,
+        "width": 1280
+      }
+    },
+    "journeys": {
+      "url": "http://localhost:8080/#journeys",
+      "heading": [
+        "互动故事"
+      ],
+      "controls": [
+        "‹",
+        "账户设置",
+        "进行中",
+        "已归档",
+        "开始新旅程",
+        "搜索",
+        "灯塔下的第七下钟声 石阶被雨泡得发滑，林舟一级一级往上，铁扶手凉得像从海里捞出来的。塔身的白漆剥落处露出旧砖，潮气混着煤油味。老周跟在后面，钥匙串在腰上响，一边爬一边说：“这灯是给海上的船看的，不是给岸上的人照路的。” “就一眼。”林舟说。 塔顶窄得转不开身。老周拉开那道木遮光板，铜镜似的透镜缓缓转起来，一束白光扫出去，海面被切成明暗两半。他又从角落拎出一只搪瓷缸，倒了半缸热水递过来，自己靠在门框上抽烟，没再问什么。 第一轮光扫过防波堤，堤面空着，水泥墩湿得发黑。 第二轮，灯柱挪到堤中段 继续旅程 9/13 00:17",
+        "归档",
+        "命令栏输入"
+      ],
+      "pageOverflow": false,
+      "viewport": {
+        "width": 1571,
+        "scrollWidth": 1571
+      }
+    },
+    "interaction": {
+      "url": "http://localhost:8080/#interaction/d529051e-02ce-4a43-acc4-4bb8fd7135cd",
+      "heading": [
+        "灯塔下的第七下钟声"
+      ],
+      "controls": [
+        "‹",
+        "复制",
+        "重新生成",
+        "修改这一步",
+        "复制",
+        "复制",
+        "重新生成",
+        "第 2 段，共 2 段：石阶被雨泡得发滑，林舟一级一级往上，铁扶手凉得像从海里捞出来的。塔身的白漆剥落处",
+        "继续旅程",
+        "↑",
+        "回顾",
+        "记住这一点",
+        "故事自主发展",
+        "行动选项"
+      ],
+      "pageOverflow": false,
+      "viewport": {
+        "width": 1571,
+        "scrollWidth": 1571
+      }
+    },
+    "writing_home": {
+      "url": "http://localhost:8080/#workbench/937c86f1-a2c3-4db5-963d-f3181095f339/writing?home=1",
+      "heading": [
+        "欢迎回到《诡秘之主 · 廷根篇（前60章演示）》",
+        "继续第 61 章正文",
+        "继续《【体验走查测试】资料保存与恢复 20260911》工作稿",
+        "计划中的任务",
+        "未完成创作"
+      ],
+      "controls": [
+        "写作",
+        "人物与世界",
+        "故事结构",
+        "地图",
+        "查找",
+        "切换作品",
+        "进入正文编辑",
+        "打开工作稿",
+        "＋ 添加",
+        "查看全部",
+        "打开工作稿"
+      ],
+      "pageOverflow": false,
+      "viewport": {
+        "width": 1571,
+        "scrollWidth": 1571
+      }
+    },
+    "writing_tasks": {
+      "url": "http://localhost:8080/#workbench/937c86f1-a2c3-4db5-963d-f3181095f339/writing?home=1&panel=tasks&scope=completed",
+      "heading": [
+        "计划中的任务"
+      ],
+      "controls": [
+        "写作",
+        "人物与世界",
+        "故事结构",
+        "地图",
+        "查找",
+        "← 写作首页",
+        "＋ 添加任务",
+        "今天",
+        "收件箱",
+        "之后",
+        "已完成 2"
+      ],
+      "pageOverflow": false,
+      "viewport": {
+        "width": 1571,
+        "scrollWidth": 1571
+      }
+    },
+    "world_bible": {
+      "url": "http://localhost:8080/#workbench/937c86f1-a2c3-4db5-963d-f3181095f339/world/bible",
+      "heading": [
+        "人物与世界",
+        "继续编辑",
+        "最近使用",
+        "主题目录",
+        "按类型"
+      ],
+      "controls": [
+        "写作",
+        "人物与世界",
+        "故事结构",
+        "地图",
+        "查找",
+        "＋ 新建资料",
+        "世界健康",
+        "页面中的未决项",
+        "AI 工具",
+        "更多工具",
+        "智能去重"
+      ],
+      "pageOverflow": false,
+      "viewport": {
+        "width": 1571,
+        "scrollWidth": 1571
+      }
+    },
+    "world_relations": {
+      "url": "http://localhost:8080/#workbench/937c86f1-a2c3-4db5-963d-f3181095f339/world/relations",
+      "heading": [
+        "关系 共 11 个 诡秘之主 · 廷根篇（前60章演示）"
+      ],
+      "controls": [
+        "写作",
+        "人物与世界",
+        "故事结构",
+        "地图",
+        "查找",
+        "新建关系",
+        "待决定关系 58",
+        "AI 工具",
+        "返回资料库",
+        "更多工具",
+        "智能去重"
+      ],
+      "pageOverflow": false,
+      "viewport": {
+        "width": 1571,
+        "scrollWidth": 1571
+      }
+    },
+    "world_review": {
+      "url": "http://localhost:8080/#workbench/937c86f1-a2c3-4db5-963d-f3181095f339/world/review",
+      "heading": [
+        "待处理资料 共 106 个 诡秘之主 · 廷根篇（前60章演示）",
+        "先让系统整理，再决定关键问题",
+        "对象"
+      ],
+      "controls": [
+        "写作",
+        "人物与世界",
+        "故事结构",
+        "地图",
+        "查找",
+        "返回资料库",
+        "资料库",
+        "关系",
+        "待处理资料 99+",
+        "整理这些资料",
+        "全部"
+      ],
+      "pageOverflow": false,
+      "viewport": {
+        "width": 1571,
+        "scrollWidth": 1571
+      }
+    },
+    "outline_story": {
+      "url": "http://localhost:8080/#workbench/937c86f1-a2c3-4db5-963d-f3181095f339/outline/story-outline",
+      "heading": [
+        "调整整体方向",
+        "廷根篇：身份、魔药与灰雾（前60章）"
+      ],
+      "controls": [
+        "写作",
+        "人物与世界",
+        "故事结构",
+        "地图",
+        "查找",
+        "继续上次编辑",
+        "AI 新方案",
+        "进入篇章规划",
+        "检查故事结构",
+        "更多工具",
+        "故事总览"
+      ],
+      "pageOverflow": false,
+      "viewport": {
+        "width": 1571,
+        "scrollWidth": 1571
+      }
+    },
+    "outline_scenes": {
+      "url": "http://localhost:8080/#workbench/937c86f1-a2c3-4db5-963d-f3181095f339/outline/scenes",
+      "heading": [
+        "场景",
+        "处理场景建议"
+      ],
+      "controls": [
+        "写作",
+        "人物与世界",
+        "故事结构",
+        "地图",
+        "查找",
+        "处理场景建议 6",
+        "AI 创作细纲",
+        "从正文整理场景",
+        "查看待整理场景 9",
+        "更多工具",
+        "故事总览"
+      ],
+      "pageOverflow": false,
+      "viewport": {
+        "width": 1571,
+        "scrollWidth": 1571
+      }
+    },
+    "map": {
+      "url": "http://localhost:8080/#workbench/937c86f1-a2c3-4db5-963d-f3181095f339/map",
+      "heading": [
+        "地图",
+        "【体验走查测试】空白画布 20260911",
+        "为何这样画"
+      ],
+      "controls": [
+        "写作",
+        "人物与世界",
+        "故事结构",
+        "地图",
+        "查找",
+        "编辑所选地图内容",
+        "整理所选空间关系",
+        "图片与底图",
+        "查证地点依据",
+        "更多工具",
+        "本次生成结果 0"
+      ],
+      "pageOverflow": false,
+      "viewport": {
+        "width": 1571,
+        "scrollWidth": 1571
+      }
+    },
+    "rag_search": {
+      "url": "http://localhost:8080/#workbench/937c86f1-a2c3-4db5-963d-f3181095f339/rag/search",
+      "heading": [
+        "让记忆，有迹可循。",
+        "从作品中找回需要的资料"
+      ],
+      "controls": [
+        "写作",
+        "人物与世界",
+        "故事结构",
+        "地图",
+        "查找",
+        "检索关键词",
+        "查找资料",
+        "问世界",
+        "智能搜索 字面搜索",
+        "已发布 最新工作稿",
+        "第一章"
+      ],
+      "pageOverflow": false,
+      "viewport": {
+        "width": 1571,
+        "scrollWidth": 1571
+      }
+    },
+    "rag_status": {
+      "url": "http://localhost:8080/#workbench/937c86f1-a2c3-4db5-963d-f3181095f339/rag/status",
+      "heading": [
+        "查找资料状态",
+        "修复范围",
+        "技术信息",
+        "维护工具",
+        "最近片段"
+      ],
+      "controls": [
+        "写作",
+        "人物与世界",
+        "故事结构",
+        "地图",
+        "查找",
+        "已发布正文 工作稿",
+        "全部",
+        "全部",
+        "修复查找功能",
+        "返回查找",
+        "命令栏输入"
+      ],
+      "pageOverflow": false,
+      "viewport": {
+        "width": 1571,
+        "scrollWidth": 1571
+      }
+    },
+    "project_settings": {
+      "url": "http://localhost:8080/#workbench/937c86f1-a2c3-4db5-963d-f3181095f339/project-settings",
+      "heading": [
+        "当前作品设置",
+        "当前作品的创作偏好"
+      ],
+      "controls": [
+        "写作",
+        "人物与世界",
+        "故事结构",
+        "地图",
+        "查找",
+        "账户设置",
+        "当前作品",
+        "创作偏好",
+        "高级导入",
+        "管理连接",
+        "6000"
+      ],
+      "pageOverflow": false,
+      "viewport": {
+        "width": 1571,
+        "scrollWidth": 1571
+      }
+    },
+    "settings_appearance": {
+      "url": "http://localhost:8080/#settings?section=appearance",
+      "heading": [
+        "外观",
+        "让创作空间适合你",
+        "现代简约"
+      ],
+      "controls": [
+        "写作",
+        "人物与世界",
+        "故事结构",
+        "地图",
+        "查找",
+        "账户设置",
+        "当前作品",
+        "账户连接与偏好",
+        "外观",
+        "导入主题包",
+        "正在使用"
+      ],
+      "pageOverflow": false,
+      "viewport": {
+        "width": 1571,
+        "scrollWidth": 1571
+      }
+    }
+  },
+  "notes": [
+    "所有页面均等待真实内容后采集；未创建旅程、未发送模型请求、未写入业务数据。",
+    "项目设置模型提示实测为 AI 文本服务：DeepSeek · deepseek-flash。",
+    "16 个入口的 documentElement scrollWidth 均等于 clientWidth，未见页面级横向溢出。",
+    "路由按 router 实际归并：today→writing home，scene→outline/scenes，generate→world/writing AI drawer，llm→settings/project-settings。"
+  ]
+}

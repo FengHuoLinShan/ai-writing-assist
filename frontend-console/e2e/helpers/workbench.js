@@ -139,11 +139,12 @@ export async function waitWritingReady(page, { chapter = null, editor = false } 
   if (editor) await expect(page.locator("#writing-editor")).toBeVisible({ timeout: 10000 })
 }
 
-/** Opens the single active module tool card on narrow screens. */
+/** Opens collapsed tools through the currently visible entry, regardless of breakpoint. */
 export async function openWorkspaceTools(page) {
   const trigger = page.locator(".workspace-tools-trigger")
-  if ((page.viewportSize()?.width || 1280) <= 760) {
-    await expect(trigger).toBeVisible()
-    if (!await page.locator(".workspace-drawer .workspace-tools").isVisible()) await trigger.click()
+  await expect(page.locator(".workspace-tools:visible, .workspace-tools-trigger:visible").first()).toBeVisible()
+  if (await trigger.isVisible() && await trigger.getAttribute("aria-expanded") !== "true") {
+    await trigger.click()
   }
+  await expect(page.locator(".workspace-tools")).toBeVisible()
 }

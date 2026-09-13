@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from "vue"
+import "./settings-redesign.css"
 import AppearanceSettings from "./AppearanceSettings.vue"
 import GlobalSettingsView from "./GlobalSettingsView.vue"
 import ProjectSettingsView from "./ProjectSettingsView.vue"
@@ -60,30 +61,38 @@ function selectScope(scope) {
       <button v-if="returningToRp" type="button" class="btn" @click="returnToStory">返回互动故事</button>
       <span v-if="currentProjectTitle && !returningToRp" class="settings-shell__project">当前作品：{{ currentProjectTitle }}</span>
     </header>
-    <nav v-if="!returningToRp" class="settings-shell__tabs" aria-label="设置范围">
-      <button type="button" class="tab-btn" :class="{ active: scope === 'account' }" :aria-current="scope === 'account' ? 'page' : undefined" data-action="settings-scope-account" @click="selectScope('account')">账户设置</button>
-      <button type="button" class="tab-btn" :class="{ active: scope === 'project' }" :aria-current="scope === 'project' ? 'page' : undefined" data-action="settings-scope-project" :disabled="!currentProjectId" @click="selectScope('project')">当前作品</button>
-    </nav>
-    <nav v-if="scope === 'account'" class="settings-sections" aria-label="设置内容">
-      <button class="tab-btn" :aria-current="!appearance ? 'page' : undefined" @click="selectSection('')">账户连接与偏好</button>
-      <button class="tab-btn" :aria-current="appearance ? 'page' : undefined" @click="selectSection('appearance')">外观</button>
-    </nav>
-    <AppearanceSettings v-if="appearance && scope === 'account'" />
-    <GlobalSettingsView
-      v-else-if="scope === 'account'"
-      :llm-connections="llmConnections"
-      :llm-balances="llmBalances"
-      :author-prefs="authorPrefs"
-      :connections-load-error="connectionsLoadError"
-      :author-prefs-load-error="authorPrefsLoadError"
-    />
-    <ProjectSettingsView
-      v-else
-      :project-id="currentProjectId"
-      :project-title="currentProjectTitle"
-      :effective-l-l-m="effectiveLLM"
-      :effective-prefs="effectivePrefs"
-      :load-error="loadError"
-    />
+    <div class="settings-shell__body">
+      <aside v-if="!returningToRp" class="settings-shell__navigation" aria-label="设置导航">
+        <nav class="settings-shell__tabs" aria-label="设置范围">
+          <span class="settings-shell__nav-label">范围</span>
+          <button type="button" class="tab-btn" :class="{ active: scope === 'account' }" :aria-current="scope === 'account' ? 'page' : undefined" data-action="settings-scope-account" @click="selectScope('account')">账户设置</button>
+          <button type="button" class="tab-btn" :class="{ active: scope === 'project' }" :aria-current="scope === 'project' ? 'page' : undefined" data-action="settings-scope-project" :disabled="!currentProjectId" @click="selectScope('project')">当前作品</button>
+        </nav>
+        <nav v-if="scope === 'account'" class="settings-sections" aria-label="设置内容">
+          <span class="settings-shell__nav-label">账户设置</span>
+          <button class="tab-btn" :aria-current="!appearance ? 'page' : undefined" @click="selectSection('')">账户连接与偏好</button>
+          <button class="tab-btn" :aria-current="appearance ? 'page' : undefined" @click="selectSection('appearance')">外观</button>
+        </nav>
+      </aside>
+      <main class="settings-shell__content">
+        <AppearanceSettings v-if="appearance && scope === 'account'" />
+        <GlobalSettingsView
+          v-else-if="scope === 'account'"
+          :llm-connections="llmConnections"
+          :llm-balances="llmBalances"
+          :author-prefs="authorPrefs"
+          :connections-load-error="connectionsLoadError"
+          :author-prefs-load-error="authorPrefsLoadError"
+        />
+        <ProjectSettingsView
+          v-else
+          :project-id="currentProjectId"
+          :project-title="currentProjectTitle"
+          :effective-l-l-m="effectiveLLM"
+          :effective-prefs="effectivePrefs"
+          :load-error="loadError"
+        />
+      </main>
+    </div>
   </div>
 </template>

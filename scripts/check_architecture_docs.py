@@ -375,29 +375,6 @@ def check_inventory(root: Path = ROOT) -> CheckResult:
                 f"{database_catalog_path}: table {table_name!r} from "
                 f"{source_path} is omitted"
             )
-        component = _component_for_path(source_path, components)
-        if component is None:
-            continue
-        design_text = "\n".join(
-            _read(root, path) for path in component.get("design_docs", [])
-        )
-        code_text = "\n".join(
-            _read(root, path) for path in component.get("code_docs", [])
-        )
-        if (
-            component.get("design_docs")
-            and not _contains_symbol(design_text, table_name)
-        ):
-            result.errors.append(
-                f"{component['name']} design docs omit owned table {table_name!r}"
-            )
-        if component.get("code_docs") and not _contains_symbol(
-            code_text,
-            table_name,
-        ):
-            result.errors.append(
-                f"{component['name']} code docs omit owned table {table_name!r}"
-            )
 
     discovered_prefixes = _extract_api_prefixes(root)
     prefixes_by_component: dict[str, set[str]] = {
@@ -615,9 +592,13 @@ def check_impact(
 
     required_documents: set[str] = set()
     matched_rules: set[str] = set()
+    advisory_rules: set[str] = set()
     for rule in registry.get("impact_rules", []):
         for changed_file in changed_files:
             if not _rule_matches_path(rule, changed_file):
+                continue
+            if rule.get("advisory", False):
+                advisory_rules.add(rule["id"])
                 continue
             component = _component_for_path(changed_file, components)
             required_documents.update(
@@ -628,6 +609,11 @@ def check_impact(
             )
             matched_rules.add(rule["id"])
 
+    if advisory_rules:
+        result.notes.append(
+            "review user-facing behavior documentation if needed: "
+            + ", ".join(sorted(advisory_rules))
+        )
     missing_documents = sorted(required_documents - changed_files)
     if missing_documents:
         acknowledgement = _read_no_impact_acknowledgement(

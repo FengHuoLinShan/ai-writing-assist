@@ -531,6 +531,20 @@ export function useWritingWorkspace(props) {
         setFocusMode(true)
       }
       await loadSceneContext()
+      if (generation === selectionGeneration && !disposed.value) {
+        const query = new URLSearchParams(router?.getCurrentQuery?.()?.toString() || "")
+        query.set("chapter_index", String(next))
+        // Current working text restores its local backup; explicit readonly versions stay pinned.
+        if (editorState.readonly && editorState.draftId) query.set("draft_id", editorState.draftId)
+        else query.delete("draft_id")
+        if (selectedSceneId.value) query.set("scene_id", selectedSceneId.value)
+        else query.delete("scene_id")
+        if (chapterChanged) {
+          query.delete("open")
+          query.delete("conflict_item_id")
+        }
+        router?.commitCurrentQuery?.(query, "replace")
+      }
       return true
     } finally {
       if (generation === selectionGeneration) editorState.loading = false
@@ -1620,6 +1634,7 @@ export function useWritingWorkspace(props) {
     attachEditor,
     detachEditor,
     autosave: saveCurrent,
+    reloadServerDraft: () => editor.reloadServerDraft(),
     saveMobileNote,
     checkpoint: editor.checkpoint,
     discardChanges: editor.discardChanges,

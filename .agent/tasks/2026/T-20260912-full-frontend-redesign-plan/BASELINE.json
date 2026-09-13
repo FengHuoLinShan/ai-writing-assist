@@ -1,0 +1,28 @@
+{
+  "created": "2026-09-12T21:25:52.042937+08:00",
+  "archive": "/tmp/novelcraft-full-redesign-baseline-20260912-212552.tar.gz",
+  "branch": "codex/redesign-regression",
+  "sha256": {
+    "frontend-console/prototypes/redesign/ExperiencePreview.vue": "896c48ab5d407e29ae23026f7f8da9fc2d04b94297aed5752c487334d094ec94",
+    "frontend-console/prototypes/redesign/WorkspacePreview.vue": "a329bb914ccb28cb0d770c03167d03f9641ead05f6ce1b239b4e187e3d9aad5c",
+    "frontend-console/prototypes/redesign/PreviewIcon.vue": "6ddd6e1b17a6d6e3618cf9bf1957c04fa088f35bca138bf31457d48f900d3087",
+    "frontend-console/prototypes/redesign/redesign.css": "714c01d7dc156482a18cbe2355c4b103ba77200f04e18ee16f8a84d5387dc65d",
+    "frontend-console/prototypes/redesign/RedesignApp.vue": "f605eaaf9396e0876a3ad674413e3d2fcad96f472327407acf2d0a8c3cf9a8fc",
+    "frontend-console/prototypes/redesign/WritingPreview.vue": "8d70750b15b022df5eaebd8d046f917cb568a140f352cc90f1ffc1f8495f3a06",
+    "frontend-console/prototypes/redesign/main.js": "50a462eb2bf902c714a671d68c8c3222611cb6dd8ccf31e03fb72d7eea5220ca",
+    "frontend-console/prototypes/redesign/PreviewDialog.vue": "e3e0b9cb3a4d4d4555b8d446edc9abcdbd685da48ffe44b4ab34d3db081e5711",
+    "frontend-console/prototypes/redesign/data.js": "8598337fb63c47a7e76f87b35af9fbd9c68b9f75edf68ecc7fd1c1c34df2f1c2",
+    "frontend-console/prototypes/redesign/motion.js": "d95d0fbd50de11b111a6956ca4bba0e91dc3ad2ea2f1212c0a721fb4d5b9160f",
+    "frontend-console/prototypes/redesign/PreviewNotice.vue": "49da87c9153ec5bdd992c9705eba0308b9d5744fb1f7be00ddd29bca721754cb",
+    "frontend-console/prototypes/redesign/motion.css": "018e4701646bc3bd9e95b07c5a0a258734b3a9141f2dbe7e96374af38e65206f",
+    "frontend-console/prototypes/redesign.html": "ab26765b87c2930ef30cb4477e654e2caa7a8f88ff319c9d1074e77bbacf059a",
+    "frontend-console/tests/prototypes/redesign.test.js": "1b14aec8ea8b866c63341427134213f889f5a2818b661bce80be3d9b6e87e8e9",
+    "frontend-console/tests/prototypes/motion.test.js": "c0587074f950aae44b3af9f75d4e52ebbf18895957c433145a485e5003c90f2a",
+    ".agent/tasks/2026/T-20260912-full-frontend-redesign-plan/INDEPENDENT-REVIEW.md": "a308dfe123264fa3c2d1ba1c557858c3c5bf864c56499ac22a087dbdfec97d46",
+    ".agent/tasks/2026/T-20260912-full-frontend-redesign-plan/SUBAGENT-EXECUTION-LUNA.md": "32497bf90c8478e9458c6a850ce41dd695e486646597c8d63ddc00d326f2e0eb",
+    ".agent/tasks/2026/T-20260912-full-frontend-redesign-plan/TASK.md": "08e4777a96fb1bb2ca1fc0d0d5df68aa761a5f95793dcd383945d7d062c94d7f",
+    ".agent/tasks/2026/T-20260912-full-frontend-redesign-plan/PLAN.md": "524f5e1ec13c13733c5b32ed7b5e480ff5d94696eabd50e2489a2ad27f5ee44b",
+    ".agent/tasks/2026/T-20260912-full-frontend-redesign-plan/REVIEW.md": "df59a8a8a9fe63194ab4b34bd78155b2acc92993311a7f71bf56b876bb8cef33",
+    ".agent/tasks/2026/T-20260912-full-frontend-redesign-plan/REVIEW-SYNTHESIS.md": "1ab63a8fb35bc24798b101d5c7580d1e506a9e35d51be0cb8017ede0fb76ea56"
+  }
+}

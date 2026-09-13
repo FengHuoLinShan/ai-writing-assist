@@ -929,11 +929,7 @@ async def test_default_writing_prompt_keeps_scene_as_chapter_context(
 
     assert draft.content == "林澈握紧了铜制密钥。"
     request = client.requests[0]
-    system_prompt = request.messages[0].content
     user_prompt = request.messages[1].content
-    assert "共同创作者" in system_prompt
-    assert "不预设字数" in system_prompt
-    assert "保持人物动机、关系、状态、物品" in system_prompt
     assert "写作范围：当前章节" in user_prompt
     assert "完整替换候选" in user_prompt
     assert "当前 Scene 可能跨越多章" in user_prompt

@@ -19,6 +19,28 @@
 
 手机与桌面共用正文编辑器，章节及资料用手机模态抽屉；现有保存、版本和恢复契约保持。旧速记／完整模式切换被取消，旧偏好自动迁移到新的浅／深色。
 
+## 新版全前端视觉预览
+
+启动 Vite 后打开 `/prototypes/redesign.html`（默认写作页）。左侧导航可浏览全站样板，
+右上角切换明暗，左下角“设计预览”展开状态切换与“组件与动效”。
+组件页可手动切换进度、打开并反向关闭浮层、比较原速与减少动态效果；系统减少运动优先。
+[控件动效清单与验证](../.agent/tasks/2026/T-20260912-component-motion/CONTROL-INVENTORY.md)记录所有入口与共享规则。
+写作采用单一文档工具栏；“潮汐来信”菜单可到达全部工作区，资料/AI侧栏保留可操作正文。
+使用虚构《潮汐来信》，不连接后端、不读写真实账户或作品，刷新恢复默认示例。
+业务操作仅展示反馈；原型沿用现有开发入口机制，不进入生产 `dist/`。
+全前端扩展支持 `?page=world&theme=dark`、`state` 和 `section` 初始寻址；本次页面输入与返回位置保留，刷新重置。
+桌面、平板和手机共用设计语言，手机章节/资料收纳为可访问抽屉；真实设备与业务接回验证分开记录。
+[全前端覆盖与验证](../.agent/tasks/2026/T-20260912-full-frontend-redesign-plan/COVERAGE.md)记录各域、深层状态与独立评审。
+设计与覆盖见 [设计标准](../docs/frontend/uiux/design-standard.md#8-独立桌面重设计预览2026-09-12)。
+
+## 新设计与真实业务接入
+
+当前工作树的正式入口 `/` 已开始采用全站新设计，继续使用原有 Vue 业务 island、账户连接、项目隔离、保存版本与工作流。独立 `/prototypes/redesign.html` 仍保持虚构、无业务请求的设计对照。
+
+正文页把标题移入纸面，直接保存工作稿，并从版本菜单确认正式正文；章节切换同步 URL，刷新可回到当前章。候选版本和独立审查结果明确区分：审查未完成不显示通过、不允许采用。
+
+[业务接入与真实验收记录](../.agent/tasks/2026/T-20260912-redesign-business-integration/TASK.md)记录实际服务、演示项目、模型调用及剩余验收；本地完成不等于已部署。
+
 ## 快速启动
 
 开发时使用 Vite dev server，支持 CSS 热更新和 JS/HTML 自动刷新。AI 地图册是普通 Vue SFC，图片通过同源鉴权 API 读取。
@@ -39,8 +61,6 @@ npm run test:watch
 npm run test:e2e:functional
 npm run test:e2e:smoke
 npm run test:e2e:map
-npm run test:e2e:visual
-npm run test:e2e:visual:update
 npm run test:e2e:real-llm
 npm run test:e2e:worker
 ```
@@ -86,17 +106,15 @@ DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 \
 启动命令会在后端启动前执行 `APP_ENV=test alembic upgrade head`；
 `test:e2e:functional` 只收集功能测试，排除真实 LLM 和 worker 套件。相关 pull request 由 `Frontend functional browser` job 运行
 `test:e2e:smoke`（home/project/import/writing 四个文件）；每次 main push 运行完整
-`test:e2e:functional`。两者都使用全新的专用 PostgreSQL、Compose 初始化的私有 MinIO
+`test:e2e:functional`。修改浏览器测试或配置的 PR 同样运行完整功能集合。两者都使用全新的专用 PostgreSQL、Compose 初始化的私有 MinIO
 bucket 和 Chromium，固定 workers=1、retries=0；失败保留 `test-results/` 14 天。
 无关 PR 按 `scripts/classify_ci_changes.py` 跳过测试步骤；main 全量成功后才可发布，
 不能以 PR 冒烟通过代替完整回归。`test:e2e:map` 保留为本地定向入口。
-视觉、真实 LLM 和 worker suite
-仍是显式验收入口。
+真实 LLM 和 worker suite 仍是显式验收入口。
 
 ```bash
 DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:functional
 DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:map
-DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:visual
 DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:real-llm
 DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 \
   LLM_SETTINGS_ENCRYPTION_KEY='<shared-fernet-key>' \
@@ -117,17 +135,13 @@ worker profile 会随 Playwright 启动连接同一独立 E2E 数据库的真实
 `scripts/e2e-servers.sh` 使用同一 fail-closed guard，会先校验并迁移当前 `DATABASE_URL` 再启动
 backend；通用 `backend/scripts/dev_server.py` 不自动迁移。
 
-视觉回归使用独立的 `playwright.visual.config.js`，只串行收集
-`e2e/visual-*.spec.js`。配置固定 Chromium、`zh-CN`、`Asia/Shanghai`、DPR=1、
-reduced-motion 与默认 1440×900 视口，并把失败产物与 HTML 报告分别写入
-`test-results/visual/` 和 `playwright-report/visual/`。默认像素差异比例上限为 0.5%；
-spec 可为特定页面追加 mask，但不得放宽全局阈值来接受未解释差异。
-
-仓库只提交 darwin 基线；更新基线时需显式运行
-`npm run test:e2e:visual:update`，随后逐张检查 actual / expected / diff PNG，不能只凭
-测试通过接受差异。非 darwin 平台仅在显式设置 `VISUAL_BASELINE=1`
-后生成本平台基线。写作页基线覆盖桌面现代简约双模式、专注模式、390×844 手机编辑器，以及保存失败与 AI 候选决策在
-桌面/移动端的持续恢复入口。
+前端回归以用户任务的功能等价、数据正确和适用操作的幂等性为验收标准。
+允许改变入口、步骤、定位器、组件和 DOM 结构；定位方式是测试适配细节，不是产品合同。
+鉴权、项目隔离、确认与采用、保存恢复、冲突处理、重复提交/重试防重以及基本可访问性仍须验证。
+可访问性检查键盘可操作、语义名称、焦点管理、可读对比度和减少动态效果，不规定具体视觉实现。
+截图像素、CSS 写法、固定尺寸、布局、断点与组件层级不作阻断门禁；窄屏/缩放只是操作环境样本。
+旧 PNG 只作历史参考，失败截图和 trace 只供诊断，无需更新基线。
+删除混合视觉测试前，先把有效功能断言迁入现有行为测试；已有等价覆盖则记录对应测试与断言。
 
 AI 地图册自动测试使用固定 PNG、mock OpenAI 与 mock S3，不产生费用；付费 live smoke 默认跳过。
 地图册组件回归见 `tests/vue/map/MapAtlasView.test.js`，浏览器主流程见 `e2e/map-atlas.spec.js`。
@@ -572,3 +586,11 @@ World 草稿备份携带编辑基线，恢复旧版本先核对再保存；保�
 ### 智能整理导入资料
 
 World 待处理页复用 ImportReviewResolutionPanel：一次授权、按问题分组、排除例外后采用、查看原文与撤销。四类结果分别展示，未分类旧候选不自动降为建议。完成卡通过 review_task_id 打开精确结果；恢复终态只展示，不重复通知父页刷新。切换作品忽略晚到结果，本机恢复失败可从服务端最近回执恢复。写作结构警报直达对应场景，取消仍需等待服务端真实状态。
+
+## 重设计与行为回归
+
+执行规范见 [testing-guide.md](../testing-guide.md)。功能断言按用户目标维护，允许随重设计调整入口、步骤与定位。
+受影响单测、构建和真实浏览器功能检查仍须通过。浏览器套件与配置改动在 PR 运行完整 functional 集合，
+普通相关 PR 保留 smoke，main 运行完整集合。截图目录保留为历史资料，无平台基线门禁。
+
+项目助手功能另由 `test:e2e:assistant` 使用已有的合成模型 harness 验证（专用库名含 `agent_e2e`）；普通 functional 不加载此用例。CI 两者都运行，仍无付费模型调用。

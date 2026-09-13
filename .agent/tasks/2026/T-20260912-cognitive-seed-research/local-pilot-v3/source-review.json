@@ -1,0 +1,81 @@
+{
+  "status": "assistant_source_audit",
+  "independent_human_review": false,
+  "scope": "Final replies and stored states checked against the synthetic source; no new model calls.",
+  "findings": [
+    {
+      "id": "L01", "call": 8, "trajectory": "r29", "arm": "memory", "question": "q1",
+      "kind": "condition_misuse", "label_correct": false,
+      "observation": "回答 no，理由是旧规虽允许持信获资格，初二却观察到需配合签名。",
+      "source_id": "n29",
+      "source_evidence": "低潮和担保并非当时的法定条件",
+      "state_evidence_call": 7,
+      "state_evidence": "观察结论：初一、初二的低潮与签名虽发生，但并非旧规则的法定条件。",
+      "conclusion": "正确限定已经进入记忆，仍在作答时被共现现象覆盖；不能归因于资料未保存。"
+    },
+    {
+      "id": "L02", "call": 9, "trajectory": "r29", "arm": "raw_prefix", "question": "q2",
+      "kind": "effective_time_misuse", "label_correct": false,
+      "observation": "回答初四仍可仅凭红蜡获资格，理由却引用旧规。",
+      "source_id": "n29",
+      "source_evidence": "自初三夜起，红蜡信取消通行许可作用",
+      "conclusion": "全部原文可见仍发生生效时点误用。"
+    },
+    {
+      "id": "L03", "call": 9, "trajectory": "r29", "arm": "raw_prefix", "question": "q5",
+      "kind": "reported_claim_as_proof", "label_correct": false,
+      "observation": "回答 yes，称守闸人的话直接证明红蜡是许可。",
+      "source_id": "c1-v1",
+      "source_evidence": "她没有看到登记簿，也不知道那张签名纸上写了什么，只记住了守闸人的话。",
+      "conclusion": "把人物说法提升为原前两章已经给出的充分证明。"
+    },
+    {
+      "id": "L04", "call": 6, "trajectory": "r17", "arm": "memory", "question": "q5",
+      "kind": "retrospective_justification", "label_correct": true,
+      "observation": "选择 no，但理由使用守闸人的回答及后续发现来证明红蜡并非许可。",
+      "source_id": "n17",
+      "prior_probe_call": 3,
+      "prior_probe_evidence": "守闸人仅是口头称其可夜间通行，未证明其为唯一或必然许可。",
+      "conclusion": "答案标签未改变，但更新后以晚到证据解释早期文本是否充分；该项不能当作历史视角正确使用的证据。"
+    },
+    {
+      "id": "L05", "call": 12, "trajectory": "r43", "arm": "memory", "questions": ["q1", "q5"],
+      "kind": "speaker_attribution_error", "label_correct": true,
+      "observation": "把红蜡仅为监视标记、不是通行资格说成守闸人明确告知的内容。",
+      "source_id": "c1-v2",
+      "source_evidence": "持红蜡的，先登记。",
+      "actual_authority_source": "a43",
+      "conclusion": "红蜡的新性质来自作者修订说明，不能伪写进人物台词或角色经历。"
+    },
+    {
+      "id": "L06", "call": 10, "trajectory": "r43", "arm": "memory",
+      "kind": "state_coverage_gap_and_stale_question",
+      "source_id": "a43",
+      "source_evidence": "当前新稿从故事开始之前就改为‘低潮且有实名担保’",
+      "observation": "状态保留红蜡监视标记、低水位可过船和签名纸用途，却未保留同时满足双条件的当前法定规则；还沿用‘红蜡是否仅限夜间通行’的旧疑问。",
+      "conclusion": "已更新对象说明不等于完整更新规则与依赖它的疑问；当前五题大多问红蜡，可能漏检这一缺失。"
+    },
+    {
+      "id": "L07", "call": 15, "trajectory": "r61", "arm": "raw_prefix", "questions": ["q1", "q2"],
+      "kind": "unknown_collapsed_to_negative", "label_correct": false,
+      "source_id": "a61",
+      "source_evidence": "我尚未决定红蜡究竟是通行许可还是另一种标记，也未决定夜间通行的完整条件。",
+      "observation": "回答 no，依据两次通行伴随签名、水位等现象断言还需其他条件。",
+      "comparison_call": 14,
+      "comparison_observation": "自由记忆条件保留作者未决说明，在这两题回答 unknown。",
+      "conclusion": "该开发例里记忆重述帮助保留未决状态；尚不能区分内容重述、组织方式与额外推理的作用。"
+    },
+    {
+      "id": "L08", "call": 5, "trajectory": "r17", "arm": "raw_prefix", "question": "q1",
+      "kind": "incomplete_citation", "label_correct": true,
+      "observation": "理由说后续材料证明守闸人敷衍，但来源编号只列 c1-v1，缺少提供该判断的 n17。",
+      "conclusion": "40/40 编号存在检查不代表 40/40 语义支撑成立。"
+    }
+  ],
+  "stimulus_limits": [
+    "q2 对初四的判断默认当前规则继续有效；后续版本应显式写出无另行改制的条件。当前 oracle 和分数不因此回改。",
+    "条件中‘必须满足’与‘满足即可’不能混淆。后续新增假设情景不能默认自然语言给出了完整双条件。",
+    "q5 是当前作者视角下对过去证据充分性的追问；没有在每题输入侧隔离未来材料，不能当成正式 reader/character 可见性门禁测试。",
+    "负例偏多且共用前两章，不能把 20 个选择当作 20 部独立作品或显著性证据。"
+  ]
+}

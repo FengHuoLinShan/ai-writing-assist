@@ -129,7 +129,7 @@ describe("OwnerAiDrawer", () => {
 
     expect(rendered.get(".owner-ai-writing__context").text()).toContain("第 2 章 · 雾港来信")
     expect(rendered.get(".owner-ai-writing__context").text()).toContain("当前场景：钟楼换岗")
-    expect(rendered.get('[data-action="owner-writing-continuation"]').classes()).toContain("btn-primary")
+
     expect(rendered.get('[data-action="owner-writing-pov"]').attributes()).toHaveProperty("disabled")
     expect(rendered.get(".owner-ai-writing__more").text()).toContain("当前场景还没有设置视角人物")
 

@@ -70,7 +70,7 @@ describe("状态页渲染", () => {
     expect(wrapper.text()).toContain("已连接")
     expect(wrapper.text()).toContain("128")
     expect(wrapper.text()).toContain("10/12")
-    expect(wrapper.get(".rag-status-overview").element.closest("details")).toBeNull()
+
     expect(wrapper.findAll(".rag-chunk-table tbody tr")).toHaveLength(1)
     expect(wrapper.find(".rag-chunk-preview").text()).toContain("旧塔的铜铃")
   })
@@ -88,7 +88,7 @@ describe("状态页渲染", () => {
   it("在失败提示旁直接重试片段，维护中禁止重复提交", async () => {
     const wrapper = mountPanel({ statusFields: makeStatusFields({ statusDegraded: true }) })
     const retry = wrapper.get('[data-action="retry-embeddings"]')
-    expect(retry.element.closest("details")).toBeNull()
+
     await retry.trigger("click")
     expect(wrapper.emitted("retry-embeddings")).toHaveLength(1)
     await wrapper.setProps({ maintenanceBusy: true })
@@ -194,7 +194,7 @@ describe("状态页渲染", () => {
   it("修复范围就地校验并只保留一个返回入口", async () => {
     const wrapper = mountPanel()
     expect(wrapper.findAll('[data-action="nav-search"]')).toHaveLength(1)
-    expect(wrapper.get(".rag-rebuild-form").element.closest(".rag-repair-card")).not.toBeNull()
+
 
     await wrapper.get("#rag-rebuild-start").setValue("5")
     await wrapper.get("#rag-rebuild-end").setValue("2")
@@ -272,7 +272,7 @@ describe("重建进度", () => {
     }
     const wrapper = mountPanel()
     expect(wrapper.find(".workflow-progress").exists()).toBe(true)
-    expect(wrapper.get("#rag-rebuild-progress").element.closest("details")).toBeNull()
+
     expect(wrapper.find('[data-action="retry-task"]').exists()).toBe(true)
   })
 

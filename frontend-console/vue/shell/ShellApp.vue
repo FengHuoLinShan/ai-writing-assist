@@ -1,12 +1,13 @@
 <template>
   <div
-    class="vue-shell-root"
+    class="vue-shell-root creative-shell"
+    :data-theme="theme.resolved.value"
     @pointerdown.capture="dismissTransientUi"
     @shell-theme-request="theme.apply($event.detail)"
   >
     <Topbar v-if="showAuthorChrome" :project-title="projectTitle" :module-title="moduleTitle" :submodule-title="submoduleTitle" :view-note="viewNote"
       :connected="health.connected.value" :theme="theme.current.value" :wordcount="wordcount.dashboard" :wordcount-visible="wordcountVisible"
-      :assistant-enabled="assistantEnabled" :assistant-open="assistantOpen" @assistant-context="captureAssistant" @open-assistant="assistantOpen = !assistantOpen"
+      :assistant-enabled="assistantEnabled" :assistant-open="assistantOpen" @assistant-context="captureAssistant" @open-assistant="assistantOpen = !assistantOpen" @navigate="navigate"
       @select-theme="theme.apply" @manage-account="accountOpen = true" @open-settings="navigate('settings')" @show-help="showHelp" />
     <div id="main-layout" :class="{ 'main-layout--immersive': !showAuthorChrome }">
       <Sidebar v-if="showAuthorChrome" ref="sidebar" :current-view="shellState.currentView" :project-title="projectTitle" @navigate="navigate" @show-help="showHelp" />
@@ -147,3 +148,5 @@ defineExpose({
   showHelp,
 })
 </script>
+
+<style src="./creative-shell.css"></style>

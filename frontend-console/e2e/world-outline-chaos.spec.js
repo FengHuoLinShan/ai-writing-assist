@@ -1,7 +1,7 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
 import { createDraft, createEntity, createScene, seedEntityArchive, waitForBackend } from "./helpers/api-client.js"
-import { openWorkbench } from "./helpers/workbench.js"
+import { openWorkbench, openWorkspaceTools } from "./helpers/workbench.js"
 
 test.describe("世界对象与大纲 chaos", () => {
   let project = null
@@ -159,8 +159,8 @@ test.describe("世界对象与大纲 chaos", () => {
 
     await page.reload()
     await page.waitForFunction(() => !state.loading, { timeout: 10000 })
-    await page.locator(".scene-workbench-tools summary").click()
-    await page.locator('[data-action="scene-auto-extract"]').click()
+    await openWorkspaceTools(page)
+    await page.locator(".workspace-tools").getByRole("button", { name: "从正文整理场景", exact: true }).click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("从正文整理场景")
     await page.locator("#scene-auto-extract-start").fill("1")
     await page.locator("#scene-auto-extract-end").fill("1")

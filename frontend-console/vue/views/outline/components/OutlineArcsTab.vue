@@ -1,6 +1,6 @@
 <!--
   OutlineArcsTab — outline/arcs 篇章子标签（vanilla _renderArcs L1290-1354）。
-  DOM 结构/class/id/data-action 逐节点对齐。
+  按用户任务验证功能；DOM 与定位器可调整。
   筛选变更一律 router.navigate("outline", "arcs", true, query)。
 -->
 <template>

@@ -1,5 +1,7 @@
 # 写作页：正文优先与一致编辑会话
 
+> 回归依据：[`testing-guide.md`](../../../../testing-guide.md) 的前端重设计契约。本文外观、固定尺寸、布局、断点、DOM/组件结构及旧操作路径为实现参考，不阻断重设计；功能、数据、幂等性、安全和基本可访问性约束继续适用。
+
 > 2026-09-07 当前契约；视觉细节见 [设计标准](../design-standard.md)。
 
 ## 用户任务与布局
@@ -38,4 +40,4 @@
 
 稳定接缝保留 `#writing-editor`、`#writing-title-input`、`#writing-save-status`、章节和版本 API、Writing session。旧速记 DOM 与模式切换测试改为统一编辑器和抽屉；保护路径继续测试，不以旧 DOM 限制新设计。
 
-验证由 `tests/vue/writing/WritingView.test.js`、`e2e/writing.spec.js`、`e2e/themes.spec.js` 和 `e2e/visual-writing.spec.js` 覆盖。图片基线只是视觉证据，不能替代作者真实采用与长时间使用反馈。
+验证由 `tests/vue/writing/WritingView.test.js`、`e2e/writing.spec.js`、`e2e/themes.spec.js` 覆盖。旧图片仅作历史参考，不能替代作者真实采用与长时间使用反馈。

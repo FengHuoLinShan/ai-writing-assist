@@ -1,5 +1,7 @@
 # Generate 高级生成 UI/UX 执行规范
 
+> 回归依据：[`testing-guide.md`](../../../../testing-guide.md) 的前端重设计契约。本文外观、固定尺寸、布局、断点、DOM/组件结构及旧操作路径为实现参考，不阻断重设计；功能、数据、幂等性、安全和基本可访问性约束继续适用。
+
 > 上级标准：`../design-standard.md`（Editorial Archive 唯一权威，下称「主规范」，§x 均指该文件）。本文只做分页落地，不重复定义 token。
 > 覆盖旧 `#workbench/<id>/generate` 深链承接到所属页面 AI 抽屉后的四个模式：world（世界设定聊天）、pov_prose（角色视角正文）、task（参考资料整理）、preview（完整参考资料）。
 
@@ -141,7 +143,5 @@ owner 页使用 `role="tablist"`（aria-label「AI 工具类别」）、相连�
 
 ```bash
 npm run test:e2e:functional -- e2e/generate.spec.js     # 功能契约（tab 导航、聊天、提案、pov、task 编译）
-npm run test                                 # vitest 单测（含 editorialTheme/typographyTokens 契约，样式迁移后必跑）
+npm run test                                 # 行为与数据单测
 ```
-
-task 页已有 light／dark 浅／深色桌面快照及 深色手机快照；world composer 另有 浅色桌面、深色手机与 浅色矮窗口快照；pov 有 浅色桌面与 深色 390px 手机快照；AI 参考资料审阅另有 浅色桌面与 深色 390px 手机快照。均位于 `e2e/visual-generate.spec.js-snapshots/`。使用 `npm run test:e2e:visual -- e2e/visual-generate.spec.js` 校验，需要确认视觉变化时才加 `--update-snapshots`。

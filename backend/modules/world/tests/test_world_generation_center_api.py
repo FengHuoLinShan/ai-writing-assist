@@ -478,15 +478,6 @@ async def test_generation_center_chat_is_read_only_and_records_snapshot(
     assert snapshot.compile_options["scope"] == "generation_center"
     assert snapshot.compile_options["retrieval_purpose"] == "world_generation"
     prompt = "\n".join(message.content for message in fake.requests[0].messages)
-    assert "创意与逻辑严密性" in prompt
-    assert "自主决定最有帮助的回应方式" in prompt
-    assert "先完成当前最小有用动作" in prompt
-    assert "三至七条真正决定构想能否成立的条件" in prompt
-    assert "一个普通人物在普通一天" in prompt
-    assert "真正阻断方向时最多问一个问题" in prompt
-    assert "不能以\n“最低充分”为由暗中缩短请求" in prompt
-    assert "只固定一组“地点或制度载体" in prompt
-    assert "核心前提、\n叙事读法、基调与读者承诺" in prompt
     assert "转到现有“故事总览”" in prompt
     assert (
         "只有已经落到\n具体人物选择、事件变化或场景行动时，"

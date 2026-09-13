@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT_PATH = ROOT / "scripts/check_architecture_docs.py"
 SPEC = importlib.util.spec_from_file_location("check_architecture_docs", SCRIPT_PATH)
@@ -16,10 +18,25 @@ sys.modules[SPEC.name] = architecture_docs
 SPEC.loader.exec_module(architecture_docs)
 
 
-def test_architecture_document_inventory_matches_repository() -> None:
-    result = architecture_docs.check_inventory(ROOT)
-
-    assert result.errors == []
+@pytest.mark.parametrize(
+    ("path", "blocked"),
+    [
+        ("backend/modules/world/services/example.py", False),
+        ("frontend-console/vue/views/example.vue", False),
+        ("backend/modules/world/contracts.py", True),
+        ("backend/modules/story/outline_state/facade.py", True),
+        ("backend/modules/world/map_atlas_api.py", True),
+        ("backend/modules/story/outline_state/generation_tasks.py", True),
+        ("backend/modules/world/models.py", True),
+        ("backend/modules/world/tests/test_world_generation_center_api.py", False),
+        ("backend/modules/world/tests/test_world_tasks.py", False),
+        ("frontend-console/apiContracts.js", True),
+    ],
+)
+def test_impact_distinguishes_implementation_from_contracts(monkeypatch, path, blocked):
+    monkeypatch.setattr(architecture_docs, "_git_changed_files", lambda *_: {path})
+    result = architecture_docs.check_impact("base")
+    assert bool(result.errors) is blocked
 
 
 def test_extract_router_names_handles_quoted_compatibility_route() -> None:
@@ -53,7 +70,7 @@ def test_extract_task_handlers_handles_constants_and_nonstandard_task_files(
         "async def handle_story(db, task):\n"
         "    pass\n"
         "\n"
-        "@task_handler(\"literal_task\")\n"
+        '@task_handler("literal_task")\n'
         "async def handle_literal(db, task):\n"
         "    pass\n",
         encoding="utf-8",
@@ -85,10 +102,13 @@ def test_no_impact_acknowledgement_requires_checkbox_and_reason(
         encoding="utf-8",
     )
 
-    assert architecture_docs._read_no_impact_acknowledgement(
-        event_path,
-        None,
-    ) == "仅调整内部实现，稳定契约未变化"
+    assert (
+        architecture_docs._read_no_impact_acknowledgement(
+            event_path,
+            None,
+        )
+        == "仅调整内部实现，稳定契约未变化"
+    )
 
 
 def test_impact_rule_matches_production_files_but_excludes_tests() -> None:

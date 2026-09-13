@@ -1,5 +1,6 @@
 <script setup>
 import { onBeforeUnmount, ref } from "vue"
+import "./rp-redesign.css"
 import { getApi, getAppState, getRouter, getToast } from "../../bridge/index.js"
 
 const props = defineProps({ selectionOnly: { type: Boolean, default: false } })
@@ -65,7 +66,7 @@ onBeforeUnmount(() => {
 <template>
   <main class="entry-choice">
     <div class="entry-choice__heading">
-      <span class="entry-choice__brand"><i aria-hidden="true">◆</i> NovelCraft</span>
+      <span class="entry-choice__brand"><i class="entry-choice__brand-mark" aria-hidden="true">N</i><span>NovelCraft</span></span>
       <h1>今天想怎样进入故事？</h1>
       <p>创作一部小说，或直接走进熟悉的幻想世界。</p>
     </div>

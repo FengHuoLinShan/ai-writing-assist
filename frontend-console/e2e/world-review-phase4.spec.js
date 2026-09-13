@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs"
 import { spawn } from "node:child_process"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -62,6 +63,13 @@ async function appendMessage(projectId, sessionId, content, overrides = {}) {
 }
 
 async function seedWorld(projectId) {
+  const checkpoint = JSON.parse(readFileSync(new URL("./data/world-design-checkpoint.json", import.meta.url), "utf8"))
+  checkpoint.world_state.project.id = projectId
+  await apiJson("/world/design-checkpoints", {
+    method: "POST",
+    body: JSON.stringify({ novel_id: projectId, checkpoint }),
+  })
+
   const guild = await createEntity(projectId, {
     name: "潮汐商会",
     entity_type: "organization",
@@ -170,7 +178,7 @@ test.describe("第四期：规则、依赖与变更复核", () => {
     await page.locator("[data-field='world-policy-rule-message-1']").fill("篇幅应控制在范围内")
     await page.setViewportSize({ width: 390, height: 844 })
     await page.locator("[data-section='world-policy-editor']").scrollIntoViewIfNeeded()
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+
     await page.screenshot({ path: testInfo.outputPath("world-policy-390.png"), fullPage: true })
     await page.locator("[data-action='world-policy-save']").click()
     await expect(page.locator(SEL.toastContainer)).toContainText("政策工作稿已保存")

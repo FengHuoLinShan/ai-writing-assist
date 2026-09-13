@@ -1,0 +1,30 @@
+{
+  "requestUrls": [
+    "http://localhost:8097/prototypes/redesign.html",
+    "http://localhost:8097/@vite/client",
+    "http://localhost:8097/prototypes/redesign/main.js?t=1789193795662",
+    "http://localhost:8097/node_modules/vite/dist/client/env.mjs",
+    "http://localhost:8097/node_modules/.vite/deps/vue.js?v=aff212f4",
+    "http://localhost:8097/prototypes/redesign/RedesignApp.vue?t=1789193795662",
+    "http://localhost:8097/prototypes/redesign/redesign.css?t=1789193795665",
+    "http://localhost:8097/vue/shell/components/NavIcon.vue",
+    "http://localhost:8097/vue/components/ActionMenu.vue",
+    "http://localhost:8097/prototypes/redesign/WritingPreview.vue",
+    "http://localhost:8097/prototypes/redesign/WorkspacePreview.vue",
+    "http://localhost:8097/prototypes/redesign/ExperiencePreview.vue",
+    "http://localhost:8097/prototypes/redesign/PreviewDialog.vue?t=1789193795662",
+    "http://localhost:8097/prototypes/redesign/PreviewNotice.vue",
+    "http://localhost:8097/prototypes/redesign/data.js",
+    "http://localhost:8097/@id/__x00__plugin-vue:export-helper",
+    "http://localhost:8097/vue/components/actionMenuCoordinator.js",
+    "http://localhost:8097/vue/components/ActionMenu.vue?vue&type=style&index=0&scoped=6d4f97ac&lang.css",
+    "http://localhost:8097/prototypes/redesign/redesign.css?t=1789193830867",
+    "http://localhost:8097/prototypes/redesign/RedesignApp.vue?t=1789193893040",
+    "http://localhost:8097/prototypes/redesign/WorkspacePreview.vue?t=1789193893042",
+    "http://localhost:8097/prototypes/redesign/ExperiencePreview.vue?t=1789193893044"
+  ],
+  "apiRequests": [],
+  "externalRequests": [],
+  "truncated": false,
+  "hasMore": false
+}

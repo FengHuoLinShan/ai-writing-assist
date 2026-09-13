@@ -1,5 +1,7 @@
 # 视觉基线审计报告（2026-08-12）
 
+> 历史审计记录：截图运行入口和像素门禁已撤除；当前验收遵循 [testing-guide.md](../../../testing-guide.md) 的前端重设计契约。
+
 关联 spec：docs/superpowers/specs/2026-08-12-visual-baseline-reestablish-design.md
 分支：codex/uiux-global-layer
 

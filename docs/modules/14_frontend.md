@@ -56,6 +56,11 @@ Prompt 或 token；预算遗漏另行解释。作者可逐项移除/恢复、用
 
 共享样式重设计覆盖认证、账户、作者页面、RP、浮层和状态反馈。手机使用同一 WritingEditor，章节与资料进入 WorkspaceDrawer，保留 useModalDialog 焦点边界；主题与抽屉变化不重建正文节点。
 
+当前正式入口已接入全站新设计：shell、写作纸面、作品/资料/故事/地图/查找、设置与互动页
+复用真实业务组件及控制器，各域样式只负责本域呈现。`prototypes/redesign.html` 保留虚构对照，
+不加载真实账户、业务 API 或持久存储。正式写作在成功切章后通过 `router.commitCurrentQuery`
+同步章节定位；候选保留在版本选择中，审查未完成不能显示通过或解除采用门禁。
+
 ## 架构
 
 - 入口：`index.html`

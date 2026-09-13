@@ -2,7 +2,7 @@ import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
 import { openProjectView } from "./helpers/workbench.js"
 import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
-import { expectNoPageOverflow } from "./helpers/responsive.js"
+
 import path from "path"
 import { fileURLToPath } from "url"
 
@@ -75,6 +75,6 @@ test.describe("导入模块", () => {
     await expect.poll(() => page.locator(SEL.projectImportFile).evaluate((input) => input.files?.[0]?.name)).toBe("sample-novel.txt")
 
     await page.setViewportSize({ width: 390, height: 844 })
-    await expectNoPageOverflow(page)
+
   })
 })

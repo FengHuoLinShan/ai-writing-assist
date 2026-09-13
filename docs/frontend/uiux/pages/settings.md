@@ -1,5 +1,7 @@
 # 设置页 UI/UX 执行规范（账户设置 / 当前作品设置）
 
+> 回归依据：[`testing-guide.md`](../../../../testing-guide.md) 的前端重设计契约。本文外观、固定尺寸、布局、断点、DOM/组件结构及旧操作路径为实现参考，不阻断重设计；功能、数据、幂等性、安全和基本可访问性约束继续适用。
+
 > 依据：`docs/frontend/uiux/design-standard.md`、`docs/product/user-personas.md`。
 > 本页只约束前端呈现与交互，不改变设置 API、schema、wire contract、数据语义或 `novel_id` 隔离。
 
@@ -84,7 +86,6 @@ cd frontend-console
 npm test
 npm run build
 npx playwright test e2e/settings_flow.spec.js
-npx playwright test -c playwright.visual.config.js e2e/visual-settings.spec.js
 ```
 
 浏览器回归必须覆盖：正常进入、加载失败重试、字段校验、保存、刷新、前进/后退、项目切换、未保存确认、RP 返回、桌面与 390px、控制台和 5xx 请求。

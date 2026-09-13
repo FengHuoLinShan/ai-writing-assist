@@ -23,8 +23,8 @@ describe("OutlineHeader", () => {
     const actions = wrapper.get('[aria-label="故事工具"]')
     expect(wrapper.get(`[aria-label="${label}"]`).findAll("button")).toHaveLength(0)
     expect(actions.findAll(".workspace-tools__action.btn-primary")).toHaveLength(1)
-    expect(actions.get(`[data-action="${createAction}"]`).classes()).toContain("btn-primary")
-    expect(actions.get(`[data-action="${aiAction}"]`).classes()).not.toContain("btn-primary")
+
+
     expect(actions.get(".action-menu-btn").text()).toBe("更多工具")
     expect(actions.get('[data-action="analyze-outline"]').text()).toBe("检查故事结构")
     expect(actions.get('[data-action="plot-structure-auto-extract"]').text()).toBe(extractLabel)

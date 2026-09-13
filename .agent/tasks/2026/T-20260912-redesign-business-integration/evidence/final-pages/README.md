@@ -1,0 +1,97 @@
+# Final pages coverage
+
+- 日期：2026-09-13
+- 服务：http://localhost:8080
+- 浏览器：Chrome，默认桌面视口1571×825；作品页最后由本机内置浏览器1280px补拍，实际宽度以coverage.json为准。
+- 采集规则：逐页等待真实业务内容，记录可见标题、主要业务控件和页面级横溢出并保存同名截图。
+- 安全边界：只读；未创建旅程、未发送模型请求、未修改业务数据；互动页使用已有旅程只读查看。
+
+## 页面
+
+- **home** — http://localhost:8080/#home
+  - 标题：今天想怎样进入故事？
+  - 业务控件：WRITE 我是作家 整理世界、大纲与正文，继续现有创作项目。 进入创作 →、ROLE PLAY 进入互动故事 用自然语言开始角色扮演（RP），从喜欢的世界、身份和起点出发。 尽情游玩吧 →、命令栏输入
+  - 横溢出：无
+  - 截图：home.png
+- **project** — http://localhost:8080/#project
+  - 标题：把故事放在触手可及的地方。 / 诡秘之主 · 廷根篇（前60章演示）
+  - 业务控件：写作、人物与世界、故事结构、地图、查找、新建空白作品、导入已有作品、管理作品
+  - 横溢出：无
+  - 截图：project.png
+- **journeys** — http://localhost:8080/#journeys
+  - 标题：互动故事
+  - 业务控件：‹、账户设置、进行中、已归档、开始新旅程、搜索、灯塔下的第七下钟声 石阶被雨泡得发滑，林舟一级一级往上，铁扶手凉得像从海里捞出来的。塔身的白漆剥落处露出旧砖，潮气混着煤油味。老周跟在后面，钥匙串在腰上响，一边爬一边说：“这灯是给海上的船看的，不是给岸上的人照路的。” “就一眼。”林舟说。 塔顶窄得转不开身。老周拉开那道木遮光板，铜镜似的透镜缓缓转起来，一束白光扫出去，海面被切成明暗两半。他又从角落拎出一只搪瓷缸，倒了半缸热水递过来，自己靠在门框上抽烟，没再问什么。 第一轮光扫过防波堤，堤面空着，水泥墩湿得发黑。 第二轮，灯柱挪到堤中段 继续旅程 9/13 00:17、归档
+  - 横溢出：无
+  - 截图：journeys.png
+- **interaction** — http://localhost:8080/#interaction/d529051e-02ce-4a43-acc4-4bb8fd7135cd
+  - 标题：灯塔下的第七下钟声
+  - 业务控件：‹、复制、重新生成、修改这一步、复制、复制、重新生成、第 2 段，共 2 段：石阶被雨泡得发滑，林舟一级一级往上，铁扶手凉得像从海里捞出来的。塔身的白漆剥落处
+  - 横溢出：无
+  - 截图：interaction.png
+- **writing_home** — http://localhost:8080/#workbench/937c86f1-a2c3-4db5-963d-f3181095f339/writing?home=1
+  - 标题：欢迎回到《诡秘之主 · 廷根篇（前60章演示）》 / 继续第 61 章正文 / 继续《【体验走查测试】资料保存与恢复 20260911》工作稿 / 计划中的任务 / 未完成创作
+  - 业务控件：写作、人物与世界、故事结构、地图、查找、切换作品、进入正文编辑、打开工作稿
+  - 横溢出：无
+  - 截图：writing_home.png
+- **writing_tasks** — http://localhost:8080/#workbench/937c86f1-a2c3-4db5-963d-f3181095f339/writing?home=1&panel=tasks&scope=completed
+  - 标题：计划中的任务
+  - 业务控件：写作、人物与世界、故事结构、地图、查找、← 写作首页、＋ 添加任务、今天
+  - 横溢出：无
+  - 截图：writing_tasks.png
+- **world_bible** — http://localhost:8080/#workbench/937c86f1-a2c3-4db5-963d-f3181095f339/world/bible
+  - 标题：人物与世界 / 继续编辑 / 最近使用 / 主题目录 / 按类型
+  - 业务控件：写作、人物与世界、故事结构、地图、查找、＋ 新建资料、世界健康、页面中的未决项
+  - 横溢出：无
+  - 截图：world_bible.png
+- **world_relations** — http://localhost:8080/#workbench/937c86f1-a2c3-4db5-963d-f3181095f339/world/relations
+  - 标题：关系 共 11 个 诡秘之主 · 廷根篇（前60章演示）
+  - 业务控件：写作、人物与世界、故事结构、地图、查找、新建关系、待决定关系 58、AI 工具
+  - 横溢出：无
+  - 截图：world_relations.png
+- **world_review** — http://localhost:8080/#workbench/937c86f1-a2c3-4db5-963d-f3181095f339/world/review
+  - 标题：待处理资料 共 106 个 诡秘之主 · 廷根篇（前60章演示） / 先让系统整理，再决定关键问题 / 对象
+  - 业务控件：写作、人物与世界、故事结构、地图、查找、返回资料库、资料库、关系
+  - 横溢出：无
+  - 截图：world_review.png
+- **outline_story** — http://localhost:8080/#workbench/937c86f1-a2c3-4db5-963d-f3181095f339/outline/story-outline
+  - 标题：调整整体方向 / 廷根篇：身份、魔药与灰雾（前60章）
+  - 业务控件：写作、人物与世界、故事结构、地图、查找、继续上次编辑、AI 新方案、进入篇章规划
+  - 横溢出：无
+  - 截图：outline_story.png
+- **outline_scenes** — http://localhost:8080/#workbench/937c86f1-a2c3-4db5-963d-f3181095f339/outline/scenes
+  - 标题：场景 / 处理场景建议
+  - 业务控件：写作、人物与世界、故事结构、地图、查找、处理场景建议 6、AI 创作细纲、从正文整理场景
+  - 横溢出：无
+  - 截图：outline_scenes.png
+- **map** — http://localhost:8080/#workbench/937c86f1-a2c3-4db5-963d-f3181095f339/map
+  - 标题：地图 / 【体验走查测试】空白画布 20260911 / 为何这样画
+  - 业务控件：写作、人物与世界、故事结构、地图、查找、编辑所选地图内容、整理所选空间关系、图片与底图
+  - 横溢出：无
+  - 截图：map.png
+- **rag_search** — http://localhost:8080/#workbench/937c86f1-a2c3-4db5-963d-f3181095f339/rag/search
+  - 标题：让记忆，有迹可循。 / 从作品中找回需要的资料
+  - 业务控件：写作、人物与世界、故事结构、地图、查找、检索关键词、查找资料、问世界
+  - 横溢出：无
+  - 截图：rag_search.png
+- **rag_status** — http://localhost:8080/#workbench/937c86f1-a2c3-4db5-963d-f3181095f339/rag/status
+  - 标题：查找资料状态 / 修复范围 / 技术信息 / 维护工具 / 最近片段
+  - 业务控件：写作、人物与世界、故事结构、地图、查找、已发布正文 工作稿、全部、全部
+  - 横溢出：无
+  - 截图：rag_status.png
+- **project_settings** — http://localhost:8080/#workbench/937c86f1-a2c3-4db5-963d-f3181095f339/project-settings
+  - 标题：当前作品设置 / 当前作品的创作偏好
+  - 业务控件：写作、人物与世界、故事结构、地图、查找、账户设置、当前作品、创作偏好
+  - 横溢出：无
+  - 截图：project_settings.png
+- **settings_appearance** — http://localhost:8080/#settings?section=appearance
+  - 标题：外观 / 让创作空间适合你 / 现代简约
+  - 业务控件：写作、人物与世界、故事结构、地图、查找、账户设置、当前作品、账户连接与偏好
+  - 横溢出：无
+  - 截图：settings_appearance.png
+
+## 观察
+
+- `project_settings.png` 显示账户当前连接模型 `deepseek-flash`，没有显示旧的 `deepseek-v4-flash`。
+- `rag_status.png` 展示真实维护范围、240 个可查找片段、60/60 已发布正文、1/1 工作稿已准备，并有技术信息与维护工具入口。
+- 所有采集页根文档均无页面级横向溢出；世界资料/关系、故事结构、地图的长列表在当前桌面视口内维持纵向滚动。
+- 原型模拟状态仍只存在 `frontend-console/prototypes/redesign/`，本次正式页面截图未出现原型“演示”状态。

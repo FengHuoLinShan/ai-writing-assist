@@ -83,7 +83,7 @@ describe("AccountDialog", () => {
     const summary = wrapper.get("summary").element
     const email = wrapper.get('input[type="email"]').element
 
-    expect(email.closest("details").open).toBe(false)
+
     expect(email).not.toBe(document.activeElement)
     close.focus()
     const shiftTab = new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true })

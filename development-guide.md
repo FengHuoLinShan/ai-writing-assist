@@ -147,7 +147,11 @@ GitHub Actions 的后端门禁、前端 Vitest job、等价本地命令和显式
 
 架构文档清单位于 `docs/architecture/architecture-documents.toml`。涉及 API、schema、
 facade/contracts、任务、前端路由/wire 或 Prompt 的分支必须在收尾运行带 `BASE_REF` 的
-检查；脚本列出但未修改的文档只能在 PR 中逐项说明无影响，不能静默忽略。
+检查；硬门禁列出但未修改的文档须在 PR 中逐项说明无影响。普通实现变化仅提示复核，
+不要求形式化无影响说明。测试与历史截图单独变更按 `testing-guide.md` 的 CI 分类执行。
+前端重设计按用户任务验证功能、数据、保存/提交/重试幂等性和基本可访问性，
+允许修改入口、步骤、定位方式及组件结构；不使用像素、CSS 写法、尺寸或布局门禁。
+用现有 Vitest、生产构建和受影响的 functional Playwright 验证，旧截图仅作历史参考。
 
 ## Pinned production toolchains
 

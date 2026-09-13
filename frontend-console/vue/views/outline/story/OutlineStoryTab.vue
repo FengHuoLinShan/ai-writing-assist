@@ -1,6 +1,6 @@
 <!--
   OutlineStoryTab — outline/story-outline 子标签根组件。
-  DOM class/id/data-action 保持 E2E 视觉/行为契约；事件由 Vue 绑定。
+  E2E 验证功能与数据，DOM 与定位器可调整；事件由 Vue 绑定。
   短任务（生成表单、历史查看）仍走 showModalHtml；手工长表单进入可恢复的路由页面。
 -->
 <template>
@@ -45,7 +45,7 @@
     >
       <div class="story-outline-primary__layout">
         <div class="story-outline-primary__copy">
-          <span v-if="!hasCurrentRevision" class="story-outline-primary__eyebrow">从这里开始</span>
+          <span class="story-outline-primary__eyebrow">{{ hasCurrentRevision ? '故事摘要' : '从这里开始' }}</span>
           <h2 id="story-outline-intro-title">{{ hasCurrentRevision ? '调整整体方向' : '先确定故事方向' }}</h2>
           <p>{{ hasCurrentRevision
             ? '编辑或采用 AI 建议都会创建新版本，当前内容保留在历史中，不会自动改写篇章或场景。'

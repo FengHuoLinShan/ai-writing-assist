@@ -1,5 +1,7 @@
 # RAG 查找 UI/UX 执行规范
 
+> 回归依据：[`testing-guide.md`](../../../../testing-guide.md) 的前端重设计契约。本文外观、固定尺寸、布局、断点、DOM/组件结构及旧操作路径为实现参考，不阻断重设计；功能、数据、幂等性、安全和基本可访问性约束继续适用。
+
 > 上级标准：`../design-standard.md`（Editorial Archive 唯一权威，下称「主规范」，§x 均指该文件）。本文只做分页落地，不重复定义 token。
 > 覆盖 `#workbench/<id>/rag` 的两个路由子页，以及写作/人物与世界页 AI 抽屉内复用的 search：
 > search（查找）是默认任务页，不设置内容级 tab；status（修复查找）只从降级修复入口或深链进入，
@@ -151,8 +153,6 @@ status 子页信息层级：
 
 ```bash
 npm run test:e2e:functional -- e2e/rag.spec.js      # 功能契约（钩子、分页、375px/横屏响应式）
-npm run test:e2e:visual -- e2e/visual-project-rag.spec.js   # 浅／深色页面快照 + 证据抽屉桌面/手机快照（darwin 限定）
-npm run test:e2e:visual:update -- e2e/visual-project-rag.spec.js   # 改版后重建基线，须人工核对 diff
 ```
 
 改版时以 `e2e/visual-project-rag.spec.js-snapshots/` 下当前 light/dark 页面、手机结果/更多条件与证据抽屉桌面/手机基线做前后对比锚点；任何快照更新必须在 PR 中附说明。

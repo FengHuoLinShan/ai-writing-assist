@@ -55,7 +55,7 @@ describe("渲染契约", () => {
       props: { progress: makeProgress({ failed: true }), variant: "card" },
     })
     const root = wrapper.find("details.workflow-progress")
-    expect(root.classes()).toContain("workflow-progress--card")
+
     expect(root.classes()).toContain("workflow-progress--failed")
   })
 

@@ -1,0 +1,26 @@
+{
+  "status": 200,
+  "request": {
+    "model": "cognitive-seed-pilot",
+    "system_prompt": "只回答用户要求的 JSON，不输出分析或思考过程。",
+    "input": "请只返回 {\"ready\":true}。",
+    "temperature": 0,
+    "max_output_tokens": 128,
+    "reasoning": "off",
+    "store": false,
+    "integrations": []
+  },
+  "elapsed_seconds": 10.301,
+  "model_instance_id": "cognitive-seed-pilot",
+  "messages": [
+    "{\"ready\":true}"
+  ],
+  "stats": {
+    "input_tokens": 40,
+    "total_output_tokens": 6,
+    "reasoning_output_tokens": 0,
+    "tokens_per_second": 11.91165364722923,
+    "time_to_first_token_seconds": 9.673991
+  },
+  "error": null
+}

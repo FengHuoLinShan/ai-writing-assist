@@ -18,8 +18,8 @@ describe("OutlineFloat", () => {
   it("names the complementary float, close control, and mapped chapter links", async () => {
     const wrapper = mount(OutlineFloat, { props: { model: model(), currentChapter: 3 } })
 
-    const panel = wrapper.get('aside[aria-label="大纲浮窗"]')
-    expect(panel.element.tagName).toBe("ASIDE")
+    expect(wrapper.find('[aria-label="大纲浮窗"]').exists()).toBe(true)
+
     const close = wrapper.get('[aria-label="关闭大纲浮窗"]')
     expect(close.attributes("type")).toBe("button")
     await close.trigger("click")

@@ -194,7 +194,7 @@ describe("WritingView", () => {
     document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }))
     await wrapper.vm.$nextTick()
     expect(menu.attributes("open")).toBeUndefined()
-    expect(wrapper.findAll("button").some((button) => button.text() === "进入专注")).toBe(false)
+    expect(wrapper.findAll("button").some((button) => button.text() === "进入专注")).toBe(true)
     expect(wrapper.findAll('[data-action="open-owner-ai-drawer"]')).toHaveLength(0)
     expect(wrapper.findAll('[data-action="writing-ai-menu"]')).toHaveLength(1)
     expect(wrapper.findAll(".btn-primary")).toHaveLength(1)
@@ -374,7 +374,7 @@ describe("WritingView", () => {
     const rail = wrapper.get(".writing-tree-rail")
     const key = "workspace-rail:p1:writing:chapters"
     expect(sessionStorage.getItem(key)).toBeNull()
-    expect(rail.element.tagName).toBe("ASIDE")
+
     expect(wrapper.findAll(".workspace-rail__summary")).toHaveLength(0)
     expect(wrapper.get(".chapter-tree-title").text()).toBe("共 1 章")
     expect(wrapper.get(".writing-rail-heading-label--copilot").text()).toBe("本章资料")
@@ -451,6 +451,38 @@ describe("WritingView", () => {
     expect(wrapper.find("#writing-save-status").text()).toBe("尚未保存")
     window.dispatchEvent(new Event("pagehide"))
     expect(localStorage.getItem("draft_backup_p1_1_d1")).toContain("作者新输入")
+    wrapper.unmount()
+  })
+
+  it("冲突卡的载入操作经过确认并接回真实编辑控制器", async () => {
+    const wrapper = mount(WritingView, { props: props({ scenes: [] }), attachTo: document.body })
+    await flushPromises()
+    await wrapper.get('#writing-editor').setValue('窗口 B 的修改')
+    globalThis.api.writing.autosave.mockRejectedValueOnce(Object.assign(new Error('冲突'), { status: 409 }))
+    await wrapper.get('#btn-autosave').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('另一个窗口已更新此章')
+    globalThis.api.writing.get.mockResolvedValue({ id: 'd1', novel_id: 'p1', title: '最新', content: '服务器最新', status: 'draft', version_number: 1 })
+    await wrapper.findAll('button').find(button => button.text() === '载入服务器最新版').trigger('click')
+    await flushPromises()
+    expect(confirmActionMock).toHaveBeenCalled()
+    expect(wrapper.get('#writing-editor').element.value).toBe('服务器最新')
+    wrapper.unmount()
+  })
+
+  it("切章后刷新定位到新章节，并允许恢复当前工作稿的本地备份", async () => {
+    const commitCurrentQuery = vi.fn(() => true)
+    setBridgeOverrides({ router: { ...globalThis.router, getCurrentQuery: () => new URLSearchParams({ chapter_index: "1", draft_id: "d1", open: "conflicts", conflict_item_id: "old" }), commitCurrentQuery } })
+    globalThis.api.writing.getVersionHistory.mockImplementation(async chapter => ({ versions: [{ id: `d${chapter}`, version_number: 1, status: "draft" }] }))
+    globalThis.api.writing.get.mockImplementation(async id => ({ id, chapter_index: Number(id.slice(1)), content: "正文", status: "draft", version_number: 1 }))
+    const wrapper = mount(WritingView, { props: props({ chapterList: [1, 2], scenes: [] }) })
+    await flushPromises()
+    await wrapper.vm.$.setupState.vm.selectChapter(2)
+    const query = commitCurrentQuery.mock.calls.at(-1)[0]
+    expect(query.get("chapter_index")).toBe("2")
+    expect(query.has("draft_id")).toBe(false)
+    expect(query.has("conflict_item_id")).toBe(false)
+    expect(query.has("open")).toBe(false)
     wrapper.unmount()
   })
 
@@ -841,7 +873,6 @@ describe("WritingView", () => {
     resolveDraft({ id: "d1", novel_id: "p1", chapter_index: 1, title: "第一章", content: "旧正文", version_number: 1, status: "draft" })
     resolveHistory(history)
     await flushPromises()
-    expect(wrapper.get("#version-selector").element).toBe(selector.element)
     expect(document.activeElement).toBe(selector.element)
     wrapper.unmount()
   })
@@ -1233,7 +1264,8 @@ describe("WritingView", () => {
     await wrapper.get("#btn-conflict-check").trigger("click")
     await wrapper.get('[aria-label="剧情设定冲突检查选项"] input[type="checkbox"]').setValue(true)
     await wrapper.findAll("button").find((button) => button.text() === "开始检查").trigger("click")
-    await vi.waitFor(() => expect(globalThis.api.writing.createConflictCheck).toHaveBeenCalledWith(expect.objectContaining({
+    await vi.waitFor(() => expect(wrapper.find('[aria-label="剧情设定冲突检查"]').exists()).toBe(true))
+    expect(globalThis.api.writing.createConflictCheck).toHaveBeenCalledWith(expect.objectContaining({
       novel_id: "p1",
       chapter_index: 1,
       scene_id: "s1",
@@ -1241,7 +1273,7 @@ describe("WritingView", () => {
       version_number: 1,
       content: "正文",
       include_candidates: true,
-    })))
+    }))
     expect(wrapper.find('[aria-label="剧情设定冲突检查"]').exists()).toBe(true)
     expect(globalThis.showModalHtml).not.toHaveBeenCalled()
     wrapper.unmount()

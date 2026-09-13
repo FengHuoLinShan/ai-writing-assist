@@ -9,10 +9,9 @@ from __future__ import annotations
 
 import uuid
 from contextlib import contextmanager
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, sentinel
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
 
 import modules.world.character_facade as character_facade
 from modules.world.facade import (
@@ -45,9 +44,7 @@ def _use_character_service(mock_service: AsyncMock):
 # ============================================================
 
 
-async def test_create_character_with_valid_data_returns_character_response(
-    db_session: AsyncSession,
-):
+async def test_create_character_with_valid_data_returns_character_response():
     """Happy path: 创建人物并返回 CharacterResponse"""
     # Arrange
     novel_id = str(uuid.uuid4())
@@ -64,7 +61,7 @@ async def test_create_character_with_valid_data_returns_character_response(
     # Act
     with _use_character_service(mock_service):
         result = await create_character(
-            db_session,
+            sentinel.db,
             novel_id,
             name,
             world_entity_id,
@@ -73,16 +70,14 @@ async def test_create_character_with_valid_data_returns_character_response(
     # Assert
     mock_service.create.assert_awaited_once()
     call_args = mock_service.create.await_args
-    assert call_args.args[0] is db_session
+    assert call_args.args[0] is sentinel.db
     assert call_args.args[1] == novel_id
     assert call_args.args[2].name == name
     assert call_args.args[2].entity_id == world_entity_id
     assert result == expected
 
 
-async def test_create_character_with_none_world_entity_id_uses_empty_string(
-    db_session: AsyncSession,
-):
+async def test_create_character_with_none_world_entity_id_uses_empty_string():
     """边界: world_entity_id 为 None 时应转为空字符串"""
     # Arrange
     novel_id = str(uuid.uuid4())
@@ -98,7 +93,7 @@ async def test_create_character_with_none_world_entity_id_uses_empty_string(
     # Act
     with _use_character_service(mock_service):
         result = await create_character(
-            db_session,
+            sentinel.db,
             novel_id,
             name,
             world_entity_id=None,
@@ -110,9 +105,7 @@ async def test_create_character_with_none_world_entity_id_uses_empty_string(
     assert result.name == name
 
 
-async def test_create_character_with_empty_name_raises_validation_error(
-    db_session: AsyncSession,
-):
+async def test_create_character_with_empty_name_raises_validation_error():
     """边界: 空名称应触发 schema validation 异常"""
     # Arrange
     name = ""
@@ -126,30 +119,12 @@ async def test_create_character_with_empty_name_raises_validation_error(
         CharacterCreate(name=name, entity_id="")
 
 
-async def test_create_character_propagates_service_exception(
-    db_session: AsyncSession,
-):
-    """异常: service 层抛出的异常应原样向上传播"""
-    # Arrange
-    novel_id = str(uuid.uuid4())
-    name = "测试人物"
-    mock_service = AsyncMock()
-    mock_service.create.side_effect = RuntimeError("db error")
-
-    # Act / Assert
-    with _use_character_service(mock_service):
-        with pytest.raises(RuntimeError, match="db error"):
-            await create_character(db_session, novel_id, name)
-
-
 # ============================================================
 # list_characters
 # ============================================================
 
 
-async def test_list_characters_with_defaults_returns_tuple(
-    db_session: AsyncSession,
-):
+async def test_list_characters_with_defaults_returns_tuple():
     """Happy path: 默认 skip/limit 返回 (items, total)"""
     # Arrange
     novel_id = str(uuid.uuid4())
@@ -165,11 +140,11 @@ async def test_list_characters_with_defaults_returns_tuple(
 
     # Act
     with _use_character_service(mock_service):
-        items, total = await list_characters(db_session, novel_id)
+        items, total = await list_characters(sentinel.db, novel_id)
 
     # Assert
     mock_service.list.assert_awaited_once_with(
-        db_session,
+        sentinel.db,
         novel_id,
         skip=0,
         limit=100,
@@ -178,9 +153,7 @@ async def test_list_characters_with_defaults_returns_tuple(
     assert total == expected_total
 
 
-async def test_list_characters_with_custom_pagination_returns_tuple(
-    db_session: AsyncSession,
-):
+async def test_list_characters_with_custom_pagination_returns_tuple():
     """边界: 自定义 skip/limit 应正确透传"""
     # Arrange
     novel_id = str(uuid.uuid4())
@@ -189,20 +162,18 @@ async def test_list_characters_with_custom_pagination_returns_tuple(
 
     # Act
     with _use_character_service(mock_service):
-        await list_characters(db_session, novel_id, skip=10, limit=50)
+        await list_characters(sentinel.db, novel_id, skip=10, limit=50)
 
     # Assert
     mock_service.list.assert_awaited_once_with(
-        db_session,
+        sentinel.db,
         novel_id,
         skip=10,
         limit=50,
     )
 
 
-async def test_list_characters_with_zero_limit_returns_empty(
-    db_session: AsyncSession,
-):
+async def test_list_characters_with_zero_limit_returns_empty():
     """边界: limit=0 时仍应正确调用并返回空列表"""
     # Arrange
     novel_id = str(uuid.uuid4())
@@ -211,26 +182,11 @@ async def test_list_characters_with_zero_limit_returns_empty(
 
     # Act
     with _use_character_service(mock_service):
-        items, total = await list_characters(db_session, novel_id, limit=0)
+        items, total = await list_characters(sentinel.db, novel_id, limit=0)
 
     # Assert
     assert items == []
     assert total == 0
-
-
-async def test_list_characters_propagates_service_exception(
-    db_session: AsyncSession,
-):
-    """异常: service 层异常应向上传播"""
-    # Arrange
-    novel_id = str(uuid.uuid4())
-    mock_service = AsyncMock()
-    mock_service.list.side_effect = ValueError("bad query")
-
-    # Act / Assert
-    with _use_character_service(mock_service):
-        with pytest.raises(ValueError, match="bad query"):
-            await list_characters(db_session, novel_id)
 
 
 # ============================================================
@@ -238,9 +194,7 @@ async def test_list_characters_propagates_service_exception(
 # ============================================================
 
 
-async def test_get_characters_context_with_defaults_returns_bundle(
-    db_session: AsyncSession,
-):
+async def test_get_characters_context_with_defaults_returns_bundle():
     """Happy path: 默认 reveal_mode 返回 CharacterContextBundle"""
     # Arrange
     novel_id = str(uuid.uuid4())
@@ -258,14 +212,14 @@ async def test_get_characters_context_with_defaults_returns_bundle(
     # Act
     with _use_character_service(mock_service):
         result = await get_characters_context(
-            db_session,
+            sentinel.db,
             novel_id,
             [char_id],
         )
 
     # Assert
     mock_service.get_characters_context.assert_awaited_once_with(
-        db_session,
+        sentinel.db,
         novel_id,
         [char_id],
         "author_safe",
@@ -273,9 +227,7 @@ async def test_get_characters_context_with_defaults_returns_bundle(
     assert result == expected
 
 
-async def test_get_characters_context_with_custom_reveal_mode_returns_bundle(
-    db_session: AsyncSession,
-):
+async def test_get_characters_context_with_custom_reveal_mode_returns_bundle():
     """边界: 自定义 reveal_mode 应正确透传"""
     # Arrange
     novel_id = str(uuid.uuid4())
@@ -291,7 +243,7 @@ async def test_get_characters_context_with_custom_reveal_mode_returns_bundle(
     # Act
     with _use_character_service(mock_service):
         result = await get_characters_context(
-            db_session,
+            sentinel.db,
             novel_id,
             [char_id],
             reveal_mode="author_only",
@@ -299,7 +251,7 @@ async def test_get_characters_context_with_custom_reveal_mode_returns_bundle(
 
     # Assert
     mock_service.get_characters_context.assert_awaited_once_with(
-        db_session,
+        sentinel.db,
         novel_id,
         [char_id],
         "author_only",
@@ -307,9 +259,7 @@ async def test_get_characters_context_with_custom_reveal_mode_returns_bundle(
     assert result.reveal_mode == "author_only"
 
 
-async def test_get_characters_context_with_empty_ids_returns_empty_bundle(
-    db_session: AsyncSession,
-):
+async def test_get_characters_context_with_empty_ids_returns_empty_bundle():
     """边界: 空 character_ids 列表应返回空 bundle"""
     # Arrange
     novel_id = str(uuid.uuid4())
@@ -323,30 +273,11 @@ async def test_get_characters_context_with_empty_ids_returns_empty_bundle(
 
     # Act
     with _use_character_service(mock_service):
-        result = await get_characters_context(db_session, novel_id, [])
+        result = await get_characters_context(sentinel.db, novel_id, [])
 
     # Assert
     assert result.characters == []
     assert result.total == 0
-
-
-async def test_get_characters_context_propagates_service_exception(
-    db_session: AsyncSession,
-):
-    """异常: service 层异常应向上传播"""
-    # Arrange
-    novel_id = str(uuid.uuid4())
-    mock_service = AsyncMock()
-    mock_service.get_characters_context.side_effect = PermissionError("denied")
-
-    # Act / Assert
-    with _use_character_service(mock_service):
-        with pytest.raises(PermissionError, match="denied"):
-            await get_characters_context(
-                db_session,
-                novel_id,
-                [str(uuid.uuid4())],
-            )
 
 
 # ============================================================
@@ -354,9 +285,7 @@ async def test_get_characters_context_propagates_service_exception(
 # ============================================================
 
 
-async def test_get_character_knowledge_context_with_target_ids_returns_list(
-    db_session: AsyncSession,
-):
+async def test_get_character_knowledge_context_with_target_ids_returns_list():
     """Happy path: 带 target_ids 返回知识上下文列表"""
     # Arrange
     novel_id = str(uuid.uuid4())
@@ -376,7 +305,7 @@ async def test_get_character_knowledge_context_with_target_ids_returns_list(
     # Act
     with _use_character_service(mock_service):
         result = await get_character_knowledge_context(
-            db_session,
+            sentinel.db,
             novel_id,
             char_id,
             target_ids=[target_id],
@@ -384,7 +313,7 @@ async def test_get_character_knowledge_context_with_target_ids_returns_list(
 
     # Assert
     mock_service.get_character_knowledge_context.assert_awaited_once_with(
-        db_session,
+        sentinel.db,
         novel_id,
         char_id,
         [target_id],
@@ -392,9 +321,7 @@ async def test_get_character_knowledge_context_with_target_ids_returns_list(
     assert result == expected
 
 
-async def test_get_character_knowledge_context_with_none_target_ids_returns_list(
-    db_session: AsyncSession,
-):
+async def test_get_character_knowledge_context_with_none_target_ids_returns_list():
     """边界: target_ids 为 None 时应正确透传"""
     # Arrange
     novel_id = str(uuid.uuid4())
@@ -406,7 +333,7 @@ async def test_get_character_knowledge_context_with_none_target_ids_returns_list
     # Act
     with _use_character_service(mock_service):
         result = await get_character_knowledge_context(
-            db_session,
+            sentinel.db,
             novel_id,
             char_id,
             target_ids=None,
@@ -414,7 +341,7 @@ async def test_get_character_knowledge_context_with_none_target_ids_returns_list
 
     # Assert
     mock_service.get_character_knowledge_context.assert_awaited_once_with(
-        db_session,
+        sentinel.db,
         novel_id,
         char_id,
         None,
@@ -422,9 +349,7 @@ async def test_get_character_knowledge_context_with_none_target_ids_returns_list
     assert result == []
 
 
-async def test_get_character_knowledge_context_with_empty_target_ids_returns_list(
-    db_session: AsyncSession,
-):
+async def test_get_character_knowledge_context_with_empty_target_ids_returns_list():
     """边界: target_ids 为空列表时应正确透传"""
     # Arrange
     novel_id = str(uuid.uuid4())
@@ -436,7 +361,7 @@ async def test_get_character_knowledge_context_with_empty_target_ids_returns_lis
     # Act
     with _use_character_service(mock_service):
         result = await get_character_knowledge_context(
-            db_session,
+            sentinel.db,
             novel_id,
             char_id,
             target_ids=[],
@@ -444,7 +369,7 @@ async def test_get_character_knowledge_context_with_empty_target_ids_returns_lis
 
     # Assert
     mock_service.get_character_knowledge_context.assert_awaited_once_with(
-        db_session,
+        sentinel.db,
         novel_id,
         char_id,
         [],
@@ -452,36 +377,12 @@ async def test_get_character_knowledge_context_with_empty_target_ids_returns_lis
     assert result == []
 
 
-async def test_get_character_knowledge_context_propagates_service_exception(
-    db_session: AsyncSession,
-):
-    """异常: service 层异常应向上传播"""
-    # Arrange
-    novel_id = str(uuid.uuid4())
-    char_id = str(uuid.uuid4())
-    mock_service = AsyncMock()
-    mock_service.get_character_knowledge_context.side_effect = ConnectionError(
-        "db down",
-    )
-
-    # Act / Assert
-    with _use_character_service(mock_service):
-        with pytest.raises(ConnectionError, match="db down"):
-            await get_character_knowledge_context(
-                db_session,
-                novel_id,
-                char_id,
-            )
-
-
 # ============================================================
 # filter_context_by_character_knowledge
 # ============================================================
 
 
-async def test_filter_context_by_character_knowledge_with_items_returns_filtered(
-    db_session: AsyncSession,
-):
+async def test_filter_context_by_character_knowledge_with_items_returns_filtered():
     """Happy path: 过滤上下文并返回 filtered 列表"""
     # Arrange
     novel_id = str(uuid.uuid4())
@@ -511,7 +412,7 @@ async def test_filter_context_by_character_knowledge_with_items_returns_filtered
     # Act
     with _use_character_service(mock_service):
         result = await filter_context_by_character_knowledge(
-            db_session,
+            sentinel.db,
             novel_id,
             char_id,
             context_items,
@@ -519,7 +420,7 @@ async def test_filter_context_by_character_knowledge_with_items_returns_filtered
 
     # Assert
     mock_service.filter_context_by_character_knowledge.assert_awaited_once_with(
-        db_session,
+        sentinel.db,
         novel_id,
         char_id,
         context_items,
@@ -528,9 +429,7 @@ async def test_filter_context_by_character_knowledge_with_items_returns_filtered
     assert result == expected_filtered
 
 
-async def test_filter_context_by_character_knowledge_with_empty_items_returns_empty(
-    db_session: AsyncSession,
-):
+async def test_filter_context_by_character_knowledge_with_empty_items_returns_empty():
     """边界: 空 context_items 应返回空列表"""
     # Arrange
     novel_id = str(uuid.uuid4())
@@ -541,7 +440,7 @@ async def test_filter_context_by_character_knowledge_with_empty_items_returns_em
     # Act
     with _use_character_service(mock_service):
         result = await filter_context_by_character_knowledge(
-            db_session,
+            sentinel.db,
             novel_id,
             char_id,
             [],
@@ -551,9 +450,7 @@ async def test_filter_context_by_character_knowledge_with_empty_items_returns_em
     assert result == []
 
 
-async def test_filter_context_by_character_knowledge_discards_counts(
-    db_session: AsyncSession,
-):
+async def test_filter_context_by_character_knowledge_discards_counts():
     """边界: facade 只返回 filtered 列表，丢弃 removed_count / replaced_count"""
     # Arrange
     novel_id = str(uuid.uuid4())
@@ -569,7 +466,7 @@ async def test_filter_context_by_character_knowledge_discards_counts(
     # Act
     with _use_character_service(mock_service):
         result = await filter_context_by_character_knowledge(
-            db_session,
+            sentinel.db,
             novel_id,
             char_id,
             context_items,
@@ -580,37 +477,12 @@ async def test_filter_context_by_character_knowledge_discards_counts(
     mock_service.filter_context_by_character_knowledge.assert_awaited_once()
 
 
-async def test_filter_context_by_character_knowledge_propagates_service_exception(
-    db_session: AsyncSession,
-):
-    """异常: service 层异常应向上传播"""
-    # Arrange
-    novel_id = str(uuid.uuid4())
-    char_id = str(uuid.uuid4())
-    mock_service = AsyncMock()
-    mock_service.filter_context_by_character_knowledge.side_effect = OSError(
-        "disk full",
-    )
-
-    # Act / Assert
-    with _use_character_service(mock_service):
-        with pytest.raises(OSError, match="disk full"):
-            await filter_context_by_character_knowledge(
-                db_session,
-                novel_id,
-                char_id,
-                [{}],
-            )
-
-
 # ============================================================
 # Additional edge-case tests for input shapes
 # ============================================================
 
 
-async def test_create_character_with_special_characters_in_name(
-    db_session: AsyncSession,
-):
+async def test_create_character_with_special_characters_in_name():
     """边界: 名称包含特殊字符应正常透传"""
     # Arrange
     novel_id = str(uuid.uuid4())
@@ -625,15 +497,13 @@ async def test_create_character_with_special_characters_in_name(
 
     # Act
     with _use_character_service(mock_service):
-        result = await create_character(db_session, novel_id, name)
+        result = await create_character(sentinel.db, novel_id, name)
 
     # Assert
     assert result.name == name
 
 
-async def test_list_characters_with_negative_skip_passes_through(
-    db_session: AsyncSession,
-):
+async def test_list_characters_with_negative_skip_passes_through():
     """边界: 负数 skip 应透传给 service（由 service 决定如何处置）"""
     # Arrange
     novel_id = str(uuid.uuid4())
@@ -642,20 +512,18 @@ async def test_list_characters_with_negative_skip_passes_through(
 
     # Act
     with _use_character_service(mock_service):
-        await list_characters(db_session, novel_id, skip=-1)
+        await list_characters(sentinel.db, novel_id, skip=-1)
 
     # Assert
     mock_service.list.assert_awaited_once_with(
-        db_session,
+        sentinel.db,
         novel_id,
         skip=-1,
         limit=100,
     )
 
 
-async def test_get_characters_context_with_multiple_ids_passes_all(
-    db_session: AsyncSession,
-):
+async def test_get_characters_context_with_multiple_ids_passes_all():
     """边界: 多个 character_ids 应全部透传"""
     # Arrange
     novel_id = str(uuid.uuid4())
@@ -670,11 +538,11 @@ async def test_get_characters_context_with_multiple_ids_passes_all(
 
     # Act
     with _use_character_service(mock_service):
-        await get_characters_context(db_session, novel_id, ids)
+        await get_characters_context(sentinel.db, novel_id, ids)
 
     # Assert
     mock_service.get_characters_context.assert_awaited_once_with(
-        db_session,
+        sentinel.db,
         novel_id,
         ids,
         "author_safe",

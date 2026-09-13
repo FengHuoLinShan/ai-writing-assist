@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref, watch } from "vue"
+import "../rag-redesign.css"
 import WorkflowProgressCard from "../../../components/WorkflowProgressCard.vue"
 import { getApi, getAppState } from "../../../bridge/index.js"
 import {
@@ -16,7 +17,7 @@ import { ragSearchSession } from "../ragSearchSession.js"
 import { validateRebuildRange } from "../useRagWorkflow.js"
 
 /**
- * 索引维护页 — DOM 契约对齐 vanilla _renderStatus/_renderDiagnostics 等。
+ * 索引维护页 — 迁移来源：vanilla _renderStatus/_renderDiagnostics 等。
  * statusFields 为 RagView 注入的 reactive 状态；rebuildForm 为重建范围表单。
  */
 const props = defineProps({
@@ -140,6 +141,7 @@ const statusItems = computed(() => fields.statusItems || [])
 </script>
 
 <template>
+  <div class="creative-search-maintenance">
   <section v-if="!apiAvailable && fields.totalChunks === null" class="empty-state rag-status-offline" role="alert">
     <h2>暂时无法连接查找服务</h2>
     <p class="rag-empty-copy">正文不受影响。请检查网络后重试，或先返回查找页。</p>
@@ -152,6 +154,7 @@ const statusItems = computed(() => fields.statusItems || [])
   <template v-else>
     <section class="card rag-repair-card">
       <div class="rag-repair-card__intro">
+        <span class="creative-search-eyebrow">资料维护</span>
         <h2>{{ fields.statusDegraded || fields.totalChunks === 0 ? '查找资料尚未准备好' : '查找资料状态' }}</h2>
         <p>{{ fields.statusDegraded ? '部分资料可能暂时找不到。修复期间仍可继续手写正文。' : '如果查找结果不全，可以重新整理当前作品的可查找资料。' }}</p>
       </div>
@@ -377,4 +380,5 @@ const statusItems = computed(() => fields.statusItems || [])
       </div>
     </details>
   </template>
+  </div>
 </template>

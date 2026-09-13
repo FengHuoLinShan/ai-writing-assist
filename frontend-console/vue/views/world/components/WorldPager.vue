@@ -1,5 +1,5 @@
 <!--
-  WorldPager — 分页条，DOM 契约对齐 vanilla _renderPager（worldView.js:1372-1385）。
+  WorldPager — 分页条，迁移来源：vanilla _renderPager（worldView.js:1372-1385）。
   单页仍显示总数，只在多页时显示翻页操作。
 -->
 <template>

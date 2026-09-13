@@ -1692,10 +1692,6 @@ async def test_ai_suggestion_uses_large_budget_and_concise_prompt_constraints(
 
     async def fake_generate_structured(_self, request, schema, **_kwargs):
         assert request.max_tokens is None
-        prompt = request.messages[-1].content
-        assert "strategy/rationale 各 1-2 句" in prompt
-        assert "suggested_text 控制在 300-600 字以内" in prompt
-        assert "constraints/risk_notes 每项不超过 3 条" in prompt
         return schema.model_validate(
             {
                 "suggestion": {

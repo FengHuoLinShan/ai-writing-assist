@@ -357,8 +357,8 @@ describe("RP 故事页", () => {
     const copyIndex = actions.findIndex((button) => button.text() === "复制")
     expect(copyIndex).toBeGreaterThanOrEqual(0)
     expect(actions[copyIndex + 1].text()).toBe("重新生成")
-    expect(actions[copyIndex].classes()).toContain("rp-message-action-button")
-    expect(actions[copyIndex + 1].classes()).toContain("rp-message-action-button")
+
+
 
     await actions[copyIndex].trigger("click")
     expect(writeText).toHaveBeenCalledWith(markdown)

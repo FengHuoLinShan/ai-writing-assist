@@ -1,0 +1,85 @@
+{
+  "checked_at": "2026-09-12T07:24:49.705301+00:00",
+  "run_status": "completed",
+  "calls_checked": 15,
+  "request_hashes_match": true,
+  "source_prefixes_and_branches_isolated": true,
+  "oracle_unchanged_from_v1_snapshot": true,
+  "stateless_no_integrations": true,
+  "reasoning_output_tokens": 0,
+  "output_limit_hits": 0,
+  "max_input_tokens": 1328,
+  "max_actual_output_tokens": 530,
+  "elapsed_seconds": 732.131,
+  "usage_by_kind": {
+    "memory_update:memory": {
+      "calls": 6,
+      "input_tokens": 5027,
+      "output_tokens": 2619,
+      "elapsed_seconds": 401.571
+    },
+    "probe:memory": {
+      "calls": 5,
+      "input_tokens": 4331,
+      "output_tokens": 880,
+      "elapsed_seconds": 184.699
+    },
+    "probe:raw_prefix": {
+      "calls": 4,
+      "input_tokens": 4231,
+      "output_tokens": 614,
+      "elapsed_seconds": 145.702
+    }
+  },
+  "state_source_markers": {
+    "common-state.json": {
+      "characters": 562,
+      "explicit_source_ids": []
+    },
+    "r17-state.json": {
+      "characters": 541,
+      "explicit_source_ids": [
+        "n17"
+      ]
+    },
+    "r29-state.json": {
+      "characters": 596,
+      "explicit_source_ids": []
+    },
+    "r43-state.json": {
+      "characters": 571,
+      "explicit_source_ids": []
+    },
+    "r61-state.json": {
+      "characters": 674,
+      "explicit_source_ids": [
+        "a61"
+      ]
+    }
+  },
+  "label_totals": {
+    "raw_prefix": {
+      "correct": 16,
+      "questions": 20
+    },
+    "memory": {
+      "correct": 19,
+      "questions": 20
+    }
+  },
+  "source_ids_resolve": 40,
+  "source_id_checks": 40,
+  "cleanup": {
+    "research_model_unloaded": true,
+    "loaded_model_list_after_unload": [],
+    "http_server_stopped": true,
+    "http_port": 1234,
+    "lmstudio_background_service": "CLI inventory woke it; application was not forcibly closed"
+  },
+  "limits": [
+    "One local model and four related development trajectories, not independent novel samples.",
+    "No independent human review; source id validity is not semantic support.",
+    "v2 interrupted request token usage is unavailable and excluded from measured totals.",
+    "Backend behavior for oversized context and exact model weight hash are not verified."
+  ]
+}

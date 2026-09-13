@@ -1,0 +1,26 @@
+{
+  "dataset_id": "tidal-gate-development-pilot",
+  "version": "1.0",
+  "visibility": "Evaluator only; never included in model requests or accumulated state.",
+  "status": "Researcher-authored development labels, not independent human validation.",
+  "answers": {
+    "r17": {"q1":"no","q2":"no","q3":"no","q4":"no","q5":"no"},
+    "r29": {"q1":"yes","q2":"no","q3":"yes","q4":"no","q5":"no"},
+    "r43": {"q1":"no","q2":"no","q3":"no","q4":"no","q5":"no"},
+    "r61": {"q1":"unknown","q2":"unknown","q3":"no","q4":"no","q5":"no"}
+  },
+  "reasons": {
+    "r17": "可靠旧章从未改变；后续材料只改变作者/读者的理解。黎安未接触说明。",
+    "r29": "旧制度下红蜡确实许可；初三夜起才改双条件。制度变化不应回填初二。",
+    "r43": "作者追溯修订当前版本，不是故事内改制；新版本初二已是双条件。",
+    "r61": "完整规则由作者保持未决，q1/q2 无确定答案；q3 问的是文本是否已确立变更，作者明确没有写出，因此为 no。",
+    "q4": "各轨迹均明确黎安没有获知实际规章，作者层真相不能自动授予角色。",
+    "q5": "最初两个场景同时包含红蜡、低潮与签名，只记录观察及人物说法；后来的真相不能改写当时的证据充分性。"
+  },
+  "grading_limits": [
+    "Choice accuracy checks narrow explicit distinctions, not open-ended literary quality.",
+    "Matching a label without supporting evidence is not sufficient for a grounded-answer claim.",
+    "All arms within a trajectory receive identical permitted material; trajectory lengths need not match.",
+    "This dataset is development material and cannot be reused as unseen holdout after inspecting results."
+  ]
+}

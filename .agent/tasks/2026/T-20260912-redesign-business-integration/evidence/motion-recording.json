@@ -1,0 +1,18 @@
+{
+  "frames": 58,
+  "start": 1789232132.914772,
+  "end": 1789232134.990448,
+  "actions": [
+    "专注",
+    "Escape退出",
+    "章节收放",
+    "版本菜单开关"
+  ],
+  "source": "Chrome Page.screencastFrame",
+  "reducedMotion": {
+    "tested": true,
+    "controlSample": 8,
+    "durationSeconds": 0.00001,
+    "textLengthUnchanged": 271
+  }
+}

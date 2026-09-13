@@ -1,5 +1,7 @@
 # RP 沉浸路径 UI/UX 执行规范（home / journeys / interaction）
 
+> 回归依据：[`testing-guide.md`](../../../../testing-guide.md) 的前端重设计契约。本文外观、固定尺寸、布局、断点、DOM/组件结构及旧操作路径为实现参考，不阻断重设计；功能、数据、幂等性、安全和基本可访问性约束继续适用。
+
 > 上游权威：`docs/frontend/uiux/design-standard.md`（下称主规范）与
 > `docs/product/user-personas.md`（画像 B）。本文只规定 RP 沉浸路径三个页面的执行标准，
 > 不改变主规范 token 体系；与主规范冲突处以主规范为准，本文的差异化裁定均已显式标注。
@@ -183,7 +185,7 @@
 
 - `showAuthorChrome` 判定（ShellApp.vue:63-72）与 `.main-layout--immersive` 样式
   （`styles.css` 的 `.main-layout--immersive` 规则）保留；硬编码 `#fff` 收编 token（问题 14），
-  Editorial 装饰抹除有测试锁定（tests/editorialTheme.test.js:73-77），改动须同步。
+  装饰方案为历史参考，不再由测试锁定。
 - **主题切换裁定**：沉浸路径隐藏 Topbar，RP 侧**保留** InteractionView 内置
   `rp-more-menu__themes`（:1584-1596），与 Topbar ThemePicker 的双入口是有意设计、
   不属重复缺陷；但必须统一两者语义——RP 版升级为 `role=menu`/`menuitemradio`、
@@ -282,7 +284,7 @@
   骨架、脉冲全部降级。
 - RP token 块（含 `--rp-accent` 系与 RP 专有圆角）保持在沉浸页内，暗夜/水墨只转发
   全局语义 token，作者工作台页面零引用（grep 验证）。
-- interaction/home 行为 e2e 使用 role/可访问名；仅几何与 computed style 验收锁定真实 class。
+- interaction/home 按任务结果验证，定位器可调整；不锁定 class、几何或 CSS 写法。
 - `make docs-check BASE_REF=origin/main` 无漂移，或逐项说明无文档影响。
 
 **验证命令**
@@ -291,11 +293,11 @@
 # 仓库根：架构文档清单
 make docs-check BASE_REF=origin/main
 
-# 前端单测（token / 骨架 / 主题契约）
+# 前端行为单测
 cd frontend-console
-npx vitest run tests/editorialTheme.test.js tests/typographyTokens.test.js tests/loadingSkeleton.test.js
+npx vitest run tests/vue/interaction tests/vue/shell
 
-# RP 路径 e2e（双入口、390px 不横溢、底部 sheet、主题切换、看海 popover）
+# RP 行为 e2e（身份入口、窄屏操作、主题数据、确认与恢复）
 npm run test:e2e:functional -- e2e/home.spec.js e2e/interaction.spec.js
 ```
 

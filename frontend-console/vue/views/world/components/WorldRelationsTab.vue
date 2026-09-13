@@ -1,7 +1,7 @@
 <!--
   WorldRelationsTab — 关系列表（canonical）。
   对应 vanilla _renderRelations({reviewOnly:false})（worldView.js:2045-2127）的 Vue 化。
-  DOM class/id/data-action 逐节点保留（e2e 与视觉基线契约）。
+  功能与数据契约保留；DOM 与定位器可随重设计调整。
 -->
 <template>
   <div>

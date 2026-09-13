@@ -277,7 +277,7 @@ export function createWritingCommandController({
       const confirmation = await confirmAiReference({
         novel_id: projectId,
         action: "writing.generate",
-        task: pov ? "基于当前场景的视角人物认知生成正文建议" : mode === "continue" ? "从当前正式正文末尾续写" : "生成正文建议预览",
+        task: pov ? "基于当前场景的视角人物认知生成正文建议" : mode === "continue" ? "从当前已保存的正文末尾续写" : "生成正文建议预览",
         scope: "chapter",
         chapter_index: chapter,
         scene_id: scene?.id,

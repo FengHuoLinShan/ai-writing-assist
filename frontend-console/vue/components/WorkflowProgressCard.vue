@@ -12,7 +12,7 @@ import {
 /**
  * 工作流进度卡 — shared/progressRenderer.js 的 Vue 组件化（ADR-0009 §4 禁 v-html）。
  * 覆盖 renderInlineProgress / renderWorkflowCard 两形态（variant="inline"|"card"），
- * DOM class/结构/折叠持久化（sessionStorage）契约与 vanilla 一致。
+ * 保留折叠恢复行为；DOM class 与结构可随重设计调整。
  * 操作区（重试按钮、去向提示）经默认 slot 注入，事件由调用方绑定。
  */
 const props = defineProps({

@@ -1,25 +1,34 @@
 <template>
   <aside id="sidebar">
+    <button class="creative-brand" type="button" aria-label="返回写作首页" @click="$emit('navigate', 'today')">
+      <span class="creative-brand__mark" aria-hidden="true">N</span>
+      <span class="creative-brand__copy"><strong>NovelCraft</strong><small>让想象，成为故事。</small></span>
+    </button>
     <button class="sidebar-project-switcher" type="button" title="切换作品" @click="$emit('navigate', 'project')">
-      <span class="sidebar-project-switcher__mark" aria-hidden="true">◆</span>
+      <span class="sidebar-project-switcher__mark" aria-hidden="true">潮</span>
       <span class="sidebar-project-switcher__copy"><small>当前作品</small><strong>{{ projectTitle || '选择作品' }}</strong></span>
-      <span aria-hidden="true">⌄</span>
+      <span class="sidebar-project-switcher__chevron" aria-hidden="true">⌄</span>
     </button>
     <nav aria-label="主导航">
+      <span class="creative-nav-heading">创作空间</span>
       <ul id="nav-list" class="sidebar-desktop-nav">
-        <li v-for="item in SHELL_NAV_ITEMS" :key="item.view" class="nav-item" :class="{ active: currentView === item.view || (item.view === 'today' && currentView === 'writing') }"
-          :data-view="item.view" :title="item.title" role="button" tabindex="0"
-          @click="$emit('navigate', item.view)" @keydown.enter.prevent="$emit('navigate', item.view)" @keydown.space.prevent="$emit('navigate', item.view)">
-          <NavIcon :name="item.icon" /><span class="nav-label">{{ item.label }}</span>
+        <li v-for="item in SHELL_NAV_ITEMS" :key="item.view">
+          <button type="button" class="nav-item" :class="[`nav-item--${item.view}`, { active: currentView === item.view || (item.view === 'today' && currentView === 'writing') }]"
+            :data-view="item.view" :title="item.title" :aria-current="currentView === item.view || (item.view === 'today' && currentView === 'writing') ? 'page' : undefined"
+            @click="$emit('navigate', item.view)"
+            @keydown.enter.prevent="$emit('navigate', item.view)"
+            @keydown.space.prevent="$emit('navigate', item.view)">
+            <span class="nav-icon-frame"><NavIcon :name="item.icon" /></span><span class="nav-label">{{ item.label }}</span>
+          </button>
         </li>
       </ul>
     </nav>
     <div id="sidebar-context-slot" aria-label="当前页面工具"></div>
     <div class="sidebar-footer">
       <details class="sidebar-more" :open="moreOpen" @toggle="moreOpen = $event.target.open">
-        <summary class="nav-item" :class="{ active: moreActive }"><span class="sidebar-more__icon" aria-hidden="true">•••</span><span class="nav-label">更多</span></summary>
+        <summary class="nav-item" :class="{ active: moreActive }"><span class="nav-icon-frame sidebar-more__icon" aria-hidden="true">•••</span><span class="nav-label">更多工具</span></summary>
         <div class="sidebar-more__panel">
-          <strong>更多创作工具</strong>
+          <strong>更多创作工具</strong><small class="sidebar-more__hint">需要时再打开，保持工作区清爽。</small>
           <button v-for="item in SHELL_MORE_ITEMS" :key="item.label" type="button" @click="navigateMore(item)">
             <NavIcon :name="item.icon" /><span><b>{{ item.label }}</b><small>{{ item.title }}</small></span>
           </button>

@@ -1,0 +1,98 @@
+[
+  {
+    "theme": "light",
+    "pair": "ink/paper",
+    "ratio": 15.55,
+    "textAA": true
+  },
+  {
+    "theme": "light",
+    "pair": "muted/bg",
+    "ratio": 5.03,
+    "textAA": true
+  },
+  {
+    "theme": "light",
+    "pair": "blue/blue-bg",
+    "ratio": 5.09,
+    "textAA": true
+  },
+  {
+    "theme": "light",
+    "pair": "purple/purple-bg",
+    "ratio": 5.34,
+    "textAA": true
+  },
+  {
+    "theme": "light",
+    "pair": "green/green-bg",
+    "ratio": 4.95,
+    "textAA": true
+  },
+  {
+    "theme": "light",
+    "pair": "orange/orange-bg",
+    "ratio": 4.73,
+    "textAA": true
+  },
+  {
+    "theme": "light",
+    "pair": "red/red-bg",
+    "ratio": 5.07,
+    "textAA": true
+  },
+  {
+    "theme": "light",
+    "pair": "teal/teal-bg",
+    "ratio": 4.79,
+    "textAA": true
+  },
+  {
+    "theme": "dark",
+    "pair": "ink/paper",
+    "ratio": 13.79,
+    "textAA": true
+  },
+  {
+    "theme": "dark",
+    "pair": "muted/bg",
+    "ratio": 7.13,
+    "textAA": true
+  },
+  {
+    "theme": "dark",
+    "pair": "blue/blue-bg",
+    "ratio": 5.77,
+    "textAA": true
+  },
+  {
+    "theme": "dark",
+    "pair": "purple/purple-bg",
+    "ratio": 6.3,
+    "textAA": true
+  },
+  {
+    "theme": "dark",
+    "pair": "green/green-bg",
+    "ratio": 6.81,
+    "textAA": true
+  },
+  {
+    "theme": "dark",
+    "pair": "orange/orange-bg",
+    "ratio": 7.03,
+    "textAA": true
+  },
+  {
+    "theme": "dark",
+    "pair": "red/red-bg",
+    "ratio": 6.29,
+    "textAA": true
+  },
+  {
+    "theme": "dark",
+    "pair": "teal/teal-bg",
+    "ratio": 6.47,
+    "textAA": true
+  }
+]

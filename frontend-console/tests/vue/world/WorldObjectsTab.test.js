@@ -152,7 +152,7 @@ describe("对象图片与卡片详情", () => {
     const card = wrapper.get('.world-object-card[data-id="e1"]')
     const open = card.get('[data-action="open-entity-detail"]')
 
-    expect(open.element.tagName).toBe("BUTTON")
+
     expect(card.find('[data-action="edit-entity"]').exists()).toBe(false)
 
     // 原生 button 会在真实浏览器中将 Enter/Space 转为 click；组件不额外
@@ -411,7 +411,7 @@ describe("页内视图控件", () => {
     const review = wrapper.get('[data-action="nav-review"]')
     const library = wrapper.get('[data-action="nav-bible"]')
 
-    expect(review.element.tagName).toBe("BUTTON")
+
     expect(review.attributes("type")).toBe("button")
     expect(review.attributes("aria-current")).toBe("page")
     expect(review.classes()).toContain("active")
@@ -471,7 +471,7 @@ describe("页内视图控件", () => {
     expect(document.activeElement).toBe(card.element)
     expect(card.attributes("aria-pressed")).toBe("true")
     expect(wrapper.get('[data-action="set-object-view"][data-view-mode="table"]').attributes("aria-pressed")).toBe("false")
-    expect(card.classes()).not.toContain("btn-primary")
+
     expect(wrapper.findComponent(WorldObjectsTab).props("objectViewMode")).toBe("card")
     expect(commitCurrentQuery).toHaveBeenCalledTimes(1)
     expect(commitCurrentQuery.mock.calls[0][0].get("view")).toBe("card")

@@ -80,16 +80,12 @@ Vue 模板 `{{ }}` 自动转义即满足 AGENTS.md 的 `esc()` 纪律。**禁止
 `@vitejs/plugin-vue` 构建期预编译模板，运行时无编译器、无 `eval`，
 `script-src 'self'` 继续成立。
 
-### 5. 视觉与 DOM 契约
+### 5. 回归契约（2026-09-12 修订）
 
-- `styles.css` / `editorial-theme.css` 不改；Vue 组件复用现有语义化 class，不写
-  scoped style；模板输出的 DOM 结构/class/id 与旧 HTML 字符串逐节点对齐。
-- `e2e/visual-settings.spec.js` 在迁移前对 settings 两页 × 三主题建立像素基线
-  （提交于 `e2e/visual-settings.spec.js-snapshots/`），迁移后同一 spec 做像素对比，
-  动态内容（随机 UUID 列表、toast）mask。基线确定性依赖两条约束：`beforeAll` 显式重置
-  后端全局 LLM 默认与作者偏好（其他 E2E 会持久化修改它们），以及平台门禁——基线仅按
-  平台提交（当前 darwin），其他平台默认跳过，需显式生成并提交本平台基线后启用。
-  后续每批视图迁移沿用同一机制。
+早期迁移曾要求 DOM 逐节点对齐和平台像素基线；迁移完成后，这些限制由用户授权的自由重设计回归要求取代。
+现按 [测试指南](../../testing-guide.md) 验证用户任务结果、数据正确、适用操作幂等性及基本可访问性。
+入口、步骤、定位器、CSS、尺寸、布局、断点和 DOM/组件结构可随重设计调整；旧 PNG 仅作历史参考。
+删除旧视觉测试前迁移有效功能断言。Vue/bridge 边界、动态内容转义、鉴权、项目隔离、确认与采用、保存恢复和冲突保护继续有效。
 
 ### 6. 首阶段范围与后续路线图（历史，已全部完成）
 

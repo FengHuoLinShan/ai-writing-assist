@@ -1,0 +1,134 @@
+{
+  "drawer": [
+    {
+      "frame": 0,
+      "timestamp": 1789194525.12436
+    },
+    {
+      "frame": 1,
+      "timestamp": 1789194525.131674
+    },
+    {
+      "frame": 2,
+      "timestamp": 1789194525.157717
+    },
+    {
+      "frame": 3,
+      "timestamp": 1789194525.171186
+    },
+    {
+      "frame": 4,
+      "timestamp": 1789194525.197973
+    },
+    {
+      "frame": 5,
+      "timestamp": 1789194525.205425
+    },
+    {
+      "frame": 6,
+      "timestamp": 1789194525.220439
+    },
+    {
+      "frame": 7,
+      "timestamp": 1789194525.238736
+    },
+    {
+      "frame": 8,
+      "timestamp": 1789194525.254195
+    },
+    {
+      "frame": 9,
+      "timestamp": 1789194525.271007
+    },
+    {
+      "frame": 10,
+      "timestamp": 1789194525.29644
+    },
+    {
+      "frame": 11,
+      "timestamp": 1789194525.330802
+    },
+    {
+      "frame": 12,
+      "timestamp": 1789194525.337768
+    },
+    {
+      "frame": 13,
+      "timestamp": 1789194525.372041
+    },
+    {
+      "frame": 14,
+      "timestamp": 1789194525.379336
+    },
+    {
+      "frame": 15,
+      "timestamp": 1789194525.397904
+    }
+  ],
+  "dialog": [
+    {
+      "frame": 0,
+      "timestamp": 1789194570.410029
+    },
+    {
+      "frame": 1,
+      "timestamp": 1789194570.414626
+    },
+    {
+      "frame": 2,
+      "timestamp": 1789194570.425838
+    },
+    {
+      "frame": 3,
+      "timestamp": 1789194570.450893
+    },
+    {
+      "frame": 4,
+      "timestamp": 1789194570.4762
+    },
+    {
+      "frame": 5,
+      "timestamp": 1789194570.483892
+    },
+    {
+      "frame": 6,
+      "timestamp": 1789194570.509502
+    },
+    {
+      "frame": 7,
+      "timestamp": 1789194570.517633
+    },
+    {
+      "frame": 8,
+      "timestamp": 1789194570.526257
+    },
+    {
+      "frame": 9,
+      "timestamp": 1789194570.550403
+    },
+    {
+      "frame": 10,
+      "timestamp": 1789194570.558856
+    },
+    {
+      "frame": 11,
+      "timestamp": 1789194570.584748
+    },
+    {
+      "frame": 12,
+      "timestamp": 1789194570.592455
+    },
+    {
+      "frame": 13,
+      "timestamp": 1789194570.618108
+    },
+    {
+      "frame": 14,
+      "timestamp": 1789194570.623901
+    },
+    {
+      "frame": 15,
+      "timestamp": 1789194570.640859
+    }
+  ]
+}

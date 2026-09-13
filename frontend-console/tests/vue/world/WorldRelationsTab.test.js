@@ -73,7 +73,7 @@ describe("渲染", () => {
     const wrapper = mountTab()
     const table = wrapper.find("table.data-table")
     expect(table.exists()).toBe(true)
-    expect(table.classes()).toContain("table-card-list")
+
     const rows = wrapper.findAll("tbody tr[data-id]")
     expect(rows).toHaveLength(2)
     expect(rows[0].attributes("data-id")).toBe("r1")

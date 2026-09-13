@@ -1,7 +1,7 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
 import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
-import { expectNoPageOverflow, expectWithinViewport } from "./helpers/responsive.js"
+
 import { contrastRatio } from "../vue/theme/themeTokens.js"
 
 async function enterAuthorProjects(page) {
@@ -103,7 +103,7 @@ test.describe("项目模块", () => {
     await expect(page.getByLabel(/作品名称/)).toHaveValue("仍可继续输入")
 
     await page.setViewportSize({ width: 390, height: 844 })
-    await expectNoPageOverflow(page)
+
   })
 
   test("创建的项目出现在列表中", async ({ page }) => {
@@ -150,11 +150,11 @@ test.describe("项目模块", () => {
     await expect(placeholder).toHaveAttribute("tabindex", "0")
     await expect(page.locator(SEL.projectSelectVisible)).toHaveText("全选当前可见作品")
     await page.setViewportSize({ width: 390, height: 844 })
-    await expectWithinViewport(page.locator("#project-search-input"))
+    await expect(page.locator("#project-search-input")).toBeVisible()
     await placeholder.focus()
     await expect(placeholder).toBeFocused()
-    await expectWithinViewport(placeholder)
-    await expectNoPageOverflow(page)
+    await expect(placeholder).toBeVisible()
+
     await placeholder.press("Enter")
     await expect(page.locator(SEL.modalTitle)).toHaveText("新建作品")
   })
@@ -349,4 +349,16 @@ test.describe("项目模块", () => {
     await expect(page.locator(SEL.viewTitle)).toHaveText("写作", { timeout: 10000 })
     await expect(page.locator(SEL.topbarProject)).toHaveText("URL 进入项目", { timeout: 10000 })
   })
+})
+
+test("作品搜索按当前输入显示匹配结果", async ({ page, projectFactory }) => {
+  const first = await projectFactory({ title: "搜索范围·甲" })
+  const second = await projectFactory({ title: "搜索范围·乙" })
+  await page.goto("/#project")
+  await page.getByRole("searchbox", { name: "按名称搜索" }).fill("搜索范围")
+  await expect(page.locator(SEL.projectCard(first.id))).toBeVisible()
+  await expect(page.locator(SEL.projectCard(second.id))).toBeVisible()
+  await page.getByRole("searchbox", { name: "按名称搜索" }).fill("搜索范围·乙")
+  await expect(page.locator(SEL.projectCard(first.id))).toHaveCount(0)
+  await expect(page.locator(SEL.projectCard(second.id))).toBeVisible()
 })

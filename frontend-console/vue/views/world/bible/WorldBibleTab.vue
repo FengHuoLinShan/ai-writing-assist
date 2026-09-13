@@ -1,7 +1,7 @@
 <!--
   WorldBibleTab — world/bible tab（世界书）。
   对应 vanilla worldBibleView（worldBibleView.js）的 render + bindEvents + onLeave。
-  DOM class/id/data-action 逐节点保留（e2e 世界书契约）。
+  功能与数据契约保留；DOM 与定位器可随重设计调整。
 -->
 <template>
   <section

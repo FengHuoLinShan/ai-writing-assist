@@ -991,7 +991,7 @@ describe("GenerateView Vue behavior matrix", () => {
     await waitFor(() => expect(wrapper.get("#generate-result").text()).toContain("雾港"))
     expect(wrapper.get("#generate-result").text()).toContain("地点 · 待处理")
     expect(wrapper.get("#generate-result").text()).not.toContain("location ·")
-    expect(wrapper.get("#generate-result").element.closest(".generate-side-rail")).toBeNull()
+
     expect(wrapper.get("#generate-result").element.compareDocumentPosition(wrapper.get(".generate-chatbox").element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     const decision = wrapper.get('[data-section="author-decision-summary"]')
     expect(decision.attributes("open")).toBeUndefined()
@@ -1124,19 +1124,16 @@ describe("GenerateView Vue behavior matrix", () => {
     expect(wrapper.get('[data-action="send-chat-message"]').element.disabled).toBe(false)
   })
 
-  it("keeps send beside the composer and supports IME-safe Cmd/Ctrl+Enter", async () => {
+  it("supports IME-safe Cmd/Ctrl+Enter submission", async () => {
     api.world.createCocreationSession.mockResolvedValue({ id: 'cs-test', title: '测试会话', current_checkpoint_id: null })
     completeChat.mockResolvedValue({ reply: "继续完善" })
     const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
     const input = wrapper.get("#generate-chat-input")
     const send = wrapper.get('[data-action="send-chat-message"]')
-    const generate = wrapper.get('[data-action="generate-world-suggestion"]')
 
-    expect(send.element.closest(".generate-composer")).not.toBeNull()
-    expect(generate.element.closest(".generate-composer")).not.toBeNull()
+
+
     expect(wrapper.find('[data-action="converge-world"]').exists()).toBe(false)
-    expect(wrapper.find(".generate-toolbar [data-action='send-chat-message']").exists()).toBe(false)
-    expect(wrapper.find(".generate-toolbar [data-action='generate-world-suggestion']").exists()).toBe(false)
     await input.setValue("")
     expect(send.element.disabled).toBe(true)
 
@@ -1224,7 +1221,7 @@ describe("GenerateView Vue behavior matrix", () => {
     expect(wrapper.find("#generate-pov-scene").exists()).toBe(true)
     expect(wrapper.find("#generate-pov-character").exists()).toBe(true)
     expect(wrapper.find('[data-action="generate-pov-prose"]').exists()).toBe(true)
-    expect(wrapper.get('[data-action="generate-pov-prose"]').element.closest("form")).not.toBeNull()
+
     expect(wrapper.text()).toContain("角色只会知道自己应当知道的事")
     expect(wrapper.text()).not.toContain("逐事实可见性过滤链")
     expect(wrapper.text()).not.toContain("结构化 POV 面板")

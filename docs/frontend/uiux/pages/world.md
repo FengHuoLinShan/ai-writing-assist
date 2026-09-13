@@ -1,5 +1,7 @@
 # 人物与世界 UI/UX 执行规范
 
+> 回归依据：[`testing-guide.md`](../../../../testing-guide.md) 的前端重设计契约。本文外观、固定尺寸、布局、断点、DOM/组件结构及旧操作路径为实现参考，不阻断重设计；功能、数据、幂等性、安全和基本可访问性约束继续适用。
+
 > 上级标准：`docs/frontend/uiux/design-standard.md`（唯一权威，下称「主规范 §N」）。
 > 适用范围：`frontend-console/vue/views/world/`（WorldView + 统一待决定工作台 + 资产子视图组件 + logic）、
 > `frontend-console/vue/worldIsland.js`、world 相关样式与 e2e。
@@ -273,8 +275,7 @@
 
 ## 7. 必须保留的契约
 
-world 全部组件头部注释声明「DOM class/id/data-action 逐节点保留（e2e 契约）」。
-以下为执行时不得改名/删除的钩子；新增钩子同步补进本清单与 selectors.js。
+以下为当前实现定位器参考，可随重设计修改或移除；同步实际调用方和行为测试，不要求逐节点保留。
 
 ### 7.1 #id（模板）
 
@@ -354,12 +355,12 @@ world 全部组件头部注释声明「DOM class/id/data-action 逐节点保留�
    重试；角标 0 隐藏、>99 显示 99+；「需要决定」直达统一工作台；三个类型队列统一为
    「队列说明 → 常驻搜索 → 任务标签 → 已启用条件 → 更多筛选 → 当前结果 → 批量处理
    → 列表 / 分页」；视图切换默认值单一来源。
-2. 审核队列视觉与 outline/scene/map 待处理模式共用同一套 class 语义（§4.3 复用声明落地）。
+2. 审核队列保留确认、采用、恢复与项目隔离，视觉组织可调整。
 3. bible 不再暴露英文内部枚举；枚举映射文案经产品确认。
-4. 主规范 §1.4：本页新增/触碰样式零直写像素、零行内 style（§2-10 清除）。
-5. 390px 无页面级横向溢出；≤760px 全部表格卡片化、触控目标达标。
+4. 不以 CSS 写法或内部变量名阻断重设计。
+5. 窄屏和键盘下可完成相同任务，允许滚动或更换入口。
 6. 浅／深色下强调色仅用于主操作、链接、焦点和选中状态（角标、focus 环、错误、选中线）。
-7. 全部 e2e 与视觉基线通过（下方命令）；契约钩子（§7）零改名零删除。
+7. 受影响行为单测、构建和真实浏览器功能检查通过；旧截图不参与验收。
 
 ### 8.2 验证命令
 
@@ -370,19 +371,13 @@ cd frontend-console
 npm run test:e2e:functional -- e2e/world.spec.js e2e/world-objects.spec.js \
   e2e/world-relations-aliases.spec.js e2e/world-view-switch.spec.js e2e/world-bible.spec.js
 
-# 视觉基线以 `visual-world.spec.js` 当前的 light/dark 及 focused light 截图为准，
-# 1440×900，darwin 基线；改任何 class 结构都会打破基线，需先确认再更新
-npm run test:e2e:visual -- e2e/visual-world.spec.js
-# 确需更新基线时：
-npm run test:e2e:visual:update -- e2e/visual-world.spec.js
 
-# 单元/契约（token 与主题门禁）
+# 单元行为与数据契约
 npm run test
 ```
 
-非 darwin 平台视觉测试默认 skip，需 `VISUAL_BASELINE=1` 并先生成本地基线
-（`e2e/visual-world.spec.js:34-37`）。已知未覆盖项（执行时补测）：hot 概览 chips、
-批次分组折叠、bible gallery/filter 模式切换、窄屏表格卡片化的视觉回归。
+旧截图保留作历史资料；各平台统一运行功能测试，不生成或比较平台基线。
+覆盖结果以 world 功能套件为准，外观历史记录不新增门禁。
 
 ## 资料库与持续模型补全
 

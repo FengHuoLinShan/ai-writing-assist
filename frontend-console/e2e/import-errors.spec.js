@@ -2,7 +2,7 @@ import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
 import { openProjectView } from "./helpers/workbench.js"
 import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
-import { expectNoPageOverflow } from "./helpers/responsive.js"
+
 import { mkdir, rm, writeFile } from "fs/promises"
 import path from "path"
 import { fileURLToPath } from "url"
@@ -110,6 +110,6 @@ test.describe("导入异常流", () => {
     await page.setViewportSize({ width: 390, height: 844 })
     await expect(page.locator("#import-list-body")).toContainText(longFileName)
     await expect(page.locator("#import-list-body")).toContainText("失败原因：文件中未检测到有效章节")
-    await expectNoPageOverflow(page)
+
   })
 })

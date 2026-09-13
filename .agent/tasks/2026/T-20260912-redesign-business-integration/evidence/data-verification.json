@@ -1,0 +1,48 @@
+{
+  "checked_at": "2026-09-13T00:55:02.562884+08:00",
+  "results": [
+    {
+      "kind": "original_manuscript",
+      "count": 60,
+      "digest": "2b0f7ba6ce32f2560b4a2e88e32413d4"
+    },
+    {
+      "kind": "writing_acceptance",
+      "version": 1,
+      "status": "draft",
+      "characters": 68,
+      "model": null,
+      "review": null
+    },
+    {
+      "kind": "writing_acceptance",
+      "version": 2,
+      "status": "deprecated",
+      "characters": 199,
+      "model": "deepseek-flash",
+      "review": "pass"
+    },
+    {
+      "kind": "writing_acceptance",
+      "version": 3,
+      "status": "draft",
+      "characters": 271,
+      "model": "deepseek-flash",
+      "review": "pass"
+    },
+    {
+      "kind": "author_task",
+      "count": 1,
+      "completed": 1
+    },
+    {
+      "kind": "world_draft",
+      "count": 1,
+      "marker_present": true
+    },
+    {
+      "kind": "active_demo_jobs",
+      "count": 0
+    }
+  ]
+}

@@ -12,12 +12,11 @@
     "test:watch": "vitest",
     "test:e2e:functional": "playwright test --config=playwright.functional.config.js",
     "test:e2e:smoke": "playwright test --config=playwright.functional.config.js e2e/home.spec.js e2e/project.spec.js e2e/import.spec.js e2e/writing.spec.js",
-    "test:e2e:visual": "playwright test --config=playwright.visual.config.js",
-    "test:e2e:visual:update": "playwright test --config=playwright.visual.config.js --update-snapshots=all",
     "test:e2e:map": "playwright test --config=playwright.functional.config.js map-atlas.spec.js --workers=1 --retries=0",
     "test:e2e:real-llm": "ENABLE_REAL_LLM=1 playwright test --config=playwright.real-llm.config.js",
     "test:e2e:worker": "RUN_WORKER_E2E=1 playwright test --config=playwright.worker.config.js",
-    "test:e2e:ui": "playwright test --config=playwright.functional.config.js --ui"
+    "test:e2e:ui": "playwright test --config=playwright.functional.config.js --ui",
+    "test:e2e:assistant": "playwright test --config=playwright.assistant.config.js"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
