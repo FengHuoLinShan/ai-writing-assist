@@ -193,7 +193,10 @@ class DemoProjectCopyService:
             owner_project_ids = await lock_project_ids_for_owner(db, owner_id)
             await self._require_image_quota(db, owner_project_ids)
         except Exception:
-            await self._cleanup_media(written)
+            try:
+                await db.rollback()
+            finally:
+                await self._cleanup_media(written)
             raise
         return DemoCopyResult(
             status="created",

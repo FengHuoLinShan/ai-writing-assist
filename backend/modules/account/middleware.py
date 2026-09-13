@@ -92,6 +92,14 @@ def _session_cookie_name(path: str, headers: dict[str, str]) -> str:
     return SESSION_COOKIE_NAME
 
 
+def _session_token(path: str, headers: dict[str, str]) -> tuple[str, bool]:
+    cookie_name = _session_cookie_name(path, headers)
+    token = _cookie(headers, cookie_name)
+    if cookie_name == DEMO_RP_SESSION_COOKIE_NAME and not token:
+        return _cookie(headers, SESSION_COOKIE_NAME), True
+    return token, False
+
+
 def _headers(scope: Scope) -> dict[str, str]:
     return {
         key.decode("latin1").lower(): value.decode("latin1")
@@ -262,7 +270,7 @@ class AccountAuthMiddleware:
                 reset_principal(token)
             return
 
-        raw_token = _cookie(headers, _session_cookie_name(path, headers))
+        raw_token, legacy_demo_cookie = _session_token(path, headers)
         if not raw_token:
             await self._reject(scope, receive, send, 401, "Authentication required")
             return
@@ -274,6 +282,9 @@ class AccountAuthMiddleware:
                 settings=settings,
             )
         if principal is None:
+            await self._reject(scope, receive, send, 401, "Authentication required")
+            return
+        if legacy_demo_cookie and principal.identity_type != ANONYMOUS_RP_IDENTITY_TYPE:
             await self._reject(scope, receive, send, 401, "Authentication required")
             return
         if principal.status == "pending_deletion" and path not in _PENDING_ALLOWED_PATHS:

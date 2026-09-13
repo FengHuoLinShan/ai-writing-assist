@@ -13,6 +13,7 @@ from modules.account.middleware import (
     _is_demo_read_post,
     _is_demo_read_request,
     _session_cookie_name,
+    _session_token,
 )
 from modules.account.models import Account
 from modules.account.public_demo import PublicDemoConfig, configured_public_demo
@@ -40,6 +41,17 @@ def test_demo_rp_cookie_is_selected_only_for_explicit_interaction_requests() -> 
     assert (
         _session_cookie_name("/api/projects", {"x-demo-rp-session": "1"}) == "aaw_session"
     )
+    assert _session_token(
+        "/api/interactions/demo-journeys",
+        {
+            "x-demo-rp-session": "1",
+            "cookie": "aaw_session=legacy; aaw_demo_rp_session=isolated",
+        },
+    ) == ("isolated", False)
+    assert _session_token(
+        "/api/interactions/demo-journeys",
+        {"x-demo-rp-session": "1", "cookie": "aaw_session=legacy"},
+    ) == ("legacy", True)
 
 
 @pytest.mark.asyncio

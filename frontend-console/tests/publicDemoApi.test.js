@@ -96,6 +96,19 @@ describe("公开演示 API 边界", () => {
     })
   })
 
+  it("升级前匿名会话回退到旧 CSRF Cookie", async () => {
+    document.cookie = "aaw_csrf=legacy-demo-csrf"
+    const fetch = vi.fn(async () => sseResponse())
+    vi.stubGlobal("fetch", fetch)
+    globalThis.publicDemoRpMode = true
+
+    for await (const _event of globalThis.api.interactions.streamDemoAttempt("journey-1", "attempt-1", "temporary-key")) {
+      // consume stream
+    }
+
+    expect(fetch.mock.calls[0][1].headers["X-CSRF-Token"]).toBe("legacy-demo-csrf")
+  })
+
   it("只读工作台的可选接口 401 不触发账号失效或清除临时 Key", async () => {
     writeEphemeralDeepSeekKey("keep-in-page-memory")
     const fetch = vi.fn()

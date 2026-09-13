@@ -539,6 +539,11 @@ async def test_demo_copy_rejects_images_above_the_account_quota(
     )
     await db_session.flush()
     storage = _ImageStorage()
+    storage.on_delete = lambda: (
+        None
+        if not db_session.in_transaction()
+        else pytest.fail("必须在释放账户配额锁后清理对象存储")
+    )
     for variant in ("full", "thumbnail"):
         storage.objects[
             image_object_key(
@@ -568,6 +573,7 @@ class _ImageStorage:
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
         self.on_io = lambda: None
+        self.on_delete = lambda: None
 
     async def get_webp(self, key: str, *, max_bytes: int) -> bytes:
         del max_bytes
@@ -579,6 +585,7 @@ class _ImageStorage:
         self.objects[key] = payload
 
     async def delete_object(self, key: str) -> None:
+        self.on_delete()
         self.objects.pop(key, None)
 
 

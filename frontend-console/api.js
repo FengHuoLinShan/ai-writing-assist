@@ -374,7 +374,9 @@ async function request(path, options = {}) {
   if (demoRpRequest) headers["X-Demo-RP-Session"] = "1"
   if (method !== "GET" && method !== "HEAD") {
     headers["X-Requested-With"] = "XMLHttpRequest"
-    const csrfToken = _cookieValue(demoRpRequest ? "aaw_demo_rp_csrf" : "aaw_csrf")
+    const csrfToken = demoRpRequest
+      ? _cookieValue("aaw_demo_rp_csrf") || _cookieValue("aaw_csrf")
+      : _cookieValue("aaw_csrf")
     if (csrfToken) headers["X-CSRF-Token"] = csrfToken
   }
   if (method !== "GET" && method !== "HEAD" && !isFormData) {
@@ -1091,7 +1093,7 @@ const api = {
       ), options)
     },
     streamDemoAttempt(journeyId, attemptId, apiKey, options = {}) {
-      const csrfToken = _cookieValue("aaw_demo_rp_csrf")
+      const csrfToken = _cookieValue("aaw_demo_rp_csrf") || _cookieValue("aaw_csrf")
       return streamSse(
         `/interactions/journeys/${encodeURIComponent(journeyId)}/attempts/${encodeURIComponent(attemptId)}/stream`,
         {
