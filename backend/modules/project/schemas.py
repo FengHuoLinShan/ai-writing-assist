@@ -133,6 +133,11 @@ class ProjectListResponse(BaseModel):
     total: int
 
 
+class DemoProjectCopyResponse(BaseModel):
+    status: Literal["created", "existing", "restored"]
+    project: ProjectResponse
+
+
 class WorkspaceContinuationResponse(BaseModel):
     """Safe metadata needed to resume the author's most recent working chapter."""
 

@@ -1,11 +1,16 @@
 import { afterEach, describe, it, expect, vi, beforeEach } from "vitest"
 import App from "../app.js"
 import { resetState, clearDocument } from "./helpers.js"
+import {
+  hasDemoCopyIntent,
+  storeDemoCopyIntent,
+} from "../vue/auth/entryMode.js"
 
 beforeEach(() => {
   App._unbindAccountSecurityEvents()
   App._accountBoundaryInvalidated = false
   App._reload = vi.fn()
+  App._demoCopyError = ""
   resetState({ currentProjectId: "p1", currentView: "world" })
   clearDocument()
   document.body.innerHTML = `
@@ -30,6 +35,29 @@ afterEach(() => {
 })
 
 describe("App smart dedup integration", () => {
+  it.each(["created", "existing", "restored"])("consumes the demo copy intent after a %s copy response", async (status) => {
+    storeDemoCopyIntent()
+    globalThis.api.projects.demoCopy = vi.fn(async () => ({
+      status,
+      project: { id: `copy-${status}`, title: "我的演示副本" },
+    }))
+
+    const copied = await App._copyDemoProjectIfRequested()
+
+    expect(globalThis.api.projects.demoCopy).toHaveBeenCalledTimes(1)
+    expect(copied).toMatchObject({ id: `copy-${status}`, title: "我的演示副本" })
+    expect(hasDemoCopyIntent()).toBe(false)
+  })
+
+  it("keeps the demo copy intent when the post-login copy request fails", async () => {
+    storeDemoCopyIntent()
+    globalThis.api.projects.demoCopy = vi.fn(async () => { throw new Error("temporary failure") })
+
+    expect(await App._copyDemoProjectIfRequested()).toBeNull()
+    expect(hasDemoCopyIntent()).toBe(true)
+    expect(App._demoCopyError).toBe("temporary failure")
+  })
+
   it("locks and reloads an old tab when another tab changes the account marker", () => {
     globalThis.currentAccount = { id: "account-old" }
     localStorage.setItem("novel_accountId", "account-new")

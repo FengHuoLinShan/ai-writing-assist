@@ -66,7 +66,7 @@
         <mxCell id="21" value="跨模块只依赖 contracts.py / facade.py / 已注册 DI port；API 与 facade 保持薄层。" style="text;html=1;align=left;verticalAlign=middle;fontSize=13;fontColor=#334155;" vertex="1" parent="20">
           <mxGeometry x="30" y="42" width="710" height="30" as="geometry" />
         </mxCell>
-        <mxCell id="22" value="公开请求同时通过 account owner、project novel_id 与 author / interaction kind 门禁；三者互不替代。" style="text;html=1;align=left;verticalAlign=middle;fontSize=13;fontColor=#334155;" vertex="1" parent="20">
+        <mxCell id="22" value="公开请求同时通过 account owner、project novel_id 与 author / interaction kind 门禁；ADR-0024 仅为配置固定且复验的 public source 增加匿名 RP 只读例外。" style="text;html=1;align=left;verticalAlign=middle;fontSize=13;fontColor=#334155;" vertex="1" parent="20">
           <mxGeometry x="770" y="42" width="710" height="30" as="geometry" />
         </mxCell>
         <mxCell id="23" value="普通 LLM 输出只进入建议或预览；只有持久化授权且可回滚的自动流水线可写允许的派生/已采用资产。" style="text;html=1;align=left;verticalAlign=middle;fontSize=13;fontColor=#334155;" vertex="1" parent="20">

@@ -11,12 +11,14 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.config import get_settings
 from core.errors import ConflictError, NotFoundError, ValidationError
 from infrastructure.tasks.facade import (
     get_latest_coalesced_task,
     list_task_lifecycle_contracts,
 )
 from modules.account.facade import current_account_id
+from modules.account.public_demo import configured_public_demo
 from modules.evidence.facade import (
     VisibilityContextContract,
     get_manifest_entity_appearances,
@@ -38,12 +40,14 @@ from modules.interaction.schemas import (
     InteractionSourceProjectResponse,
     InteractionSourceRevisionResponse,
     JourneySourceSetup,
+    PublicDemoRpSourceResponse,
 )
 from modules.project.facade import (
     get_project_context,
     list_active_project_summaries,
     require_active_project,
     require_active_project_exclusive,
+    validate_configured_public_demo_project,
 )
 from modules.story.facade import get_scene_span_coverage, get_scenes_by_novel
 from modules.world.facade import (
@@ -99,6 +103,295 @@ class InteractionSourceService:
         if revision.status != "ready" or not revision.fingerprint:
             raise ConflictError("作品资料尚未整理完成")
         await self.require_author_project(db, str(revision.source_novel_id))
+        return self._prepare_setup_for_revision(revision, setup)
+
+    async def prepare_public_demo_setup(
+        self,
+        db: AsyncSession,
+        setup: JourneySourceSetup,
+    ) -> tuple[InteractionSourceRevision, dict, dict, dict]:
+        revision = await self.require_public_demo_ready_revision(
+            db,
+            revision_id=setup.source_revision_id,
+        )
+        return self._prepare_setup_for_revision(revision, setup)
+
+    async def public_demo_source(
+        self,
+        db: AsyncSession,
+    ) -> PublicDemoRpSourceResponse:
+        revision = await self.require_public_demo_ready_revision(db)
+        return PublicDemoRpSourceResponse(
+            id=str(revision.id),
+            title=revision.title,
+            version_number=revision.version_number,
+            chapter_count=len(revision.source_manifest or []),
+            anchors=[
+                self._anchor_response(item) for item in revision.anchor_manifest or []
+            ],
+            objects=[
+                self._object_response(item) for item in revision.reference_manifest or []
+            ],
+        )
+
+    async def public_demo_journey_source_response(
+        self,
+        db: AsyncSession,
+        *,
+        revision_id: uuid.UUID,
+        anchor: dict,
+        player_identity: dict,
+        source_context_epoch: int,
+    ) -> InteractionJourneySourceResponse:
+        revision = await self.require_public_demo_ready_revision(
+            db,
+            revision_id=str(revision_id),
+        )
+        return self._journey_source_response(
+            revision,
+            anchor=anchor,
+            player_identity=player_identity,
+            source_context_epoch=source_context_epoch,
+            active=True,
+            latest=None,
+        )
+
+    async def require_public_demo_ready_revision(
+        self,
+        db: AsyncSession,
+        *,
+        revision_id: str | None = None,
+    ) -> InteractionSourceRevision:
+        settings = get_settings()
+        demo = configured_public_demo(settings)
+        configured = settings.public_demo_rp_source_revision_id
+        if not demo.rp_enabled or demo.project_id is None:
+            raise NotFoundError("公开演示作品暂不可用")
+        try:
+            configured_id = uuid.UUID(configured)
+        except ValueError as exc:
+            raise NotFoundError("公开演示作品暂不可用") from exc
+        if revision_id is not None and revision_id != str(configured_id):
+            raise NotFoundError("公开演示作品暂不可用")
+        try:
+            revision = await self.validate_frozen_source_candidate(
+                db,
+                revision_id=str(configured_id),
+                configured_project_id=demo.project_id,
+            )
+        except (ConflictError, NotFoundError, ValidationError) as exc:
+            raise NotFoundError("公开演示作品暂不可用") from exc
+        if revision.source_novel_id != demo.project_id:
+            raise NotFoundError("公开演示作品暂不可用")
+        return revision
+
+    async def validate_public_demo_source_context(
+        self,
+        db: AsyncSession,
+        *,
+        source_novel_id: str,
+        source_revision_id: str,
+        source_fingerprint: str,
+        source_manifest: list[dict],
+    ) -> None:
+        revision = await self.require_public_demo_ready_revision(
+            db,
+            revision_id=source_revision_id,
+        )
+        if (
+            str(revision.source_novel_id) != source_novel_id
+            or revision.fingerprint != source_fingerprint
+            or list(revision.source_manifest or []) != list(source_manifest or [])
+        ):
+            raise NotFoundError("公开演示作品暂不可用")
+
+    async def validate_frozen_source_candidate(
+        self,
+        db: AsyncSession,
+        *,
+        revision_id: str,
+        configured_project_id: uuid.UUID | None = None,
+    ) -> InteractionSourceRevision:
+        """Read-only acceptance gate for an operator-picked demo revision."""
+        try:
+            parsed_id = uuid.UUID(revision_id)
+        except ValueError as exc:
+            raise NotFoundError("作品资料不存在") from exc
+        revision = await self._repo.get_source_revision_unscoped(
+            db,
+            revision_id=parsed_id,
+        )
+        if revision is None or revision.status != "ready" or not revision.fingerprint:
+            raise ConflictError("作品资料尚未整理完成")
+        try:
+            await validate_configured_public_demo_project(
+                db,
+                str(revision.source_novel_id),
+                str(revision.owner_id),
+                configured_project_id=(configured_project_id or revision.source_novel_id),
+            )
+        except NotFoundError as exc:
+            raise ConflictError("作品项目已不可用") from exc
+        if (
+            not revision.source_manifest
+            or not revision.anchor_manifest
+            or not revision.reference_manifest
+            or any(
+                not isinstance(item, dict)
+                or item.get("ambiguity_key") not in (revision.resolutions or {})
+                for item in (revision.ambiguities or [])
+            )
+        ):
+            raise ConflictError("作品资料尚未完整冻结")
+        expected_fingerprint = _fingerprint(
+            {
+                "source_manifest": revision.source_manifest,
+                "anchors": revision.anchor_manifest,
+                "references": revision.reference_manifest,
+                "ambiguities": revision.ambiguities,
+                "resolutions": revision.resolutions,
+            }
+        )
+        if revision.fingerprint != expected_fingerprint:
+            raise ConflictError("作品资料指纹不匹配")
+        if not await self._source_manifest_is_current(db, revision):
+            raise ConflictError("作品正文版本已变化")
+        if not await self._indices_are_fresh(db, revision):
+            raise ConflictError("作品索引尚未覆盖冻结正文")
+        coverage = await get_scene_span_coverage(
+            db,
+            str(revision.source_novel_id),
+            content_mode="canonical",
+        )
+        if (
+            coverage.scene_count == 0
+            or coverage.scene_without_span_count
+            or coverage.imprecise_span_count
+        ):
+            raise ConflictError("作品剧情锚点尚未完整冻结")
+        return revision
+
+    async def materialize_frozen_source_candidate(
+        self,
+        db: AsyncSession,
+        *,
+        project_id: str,
+        execute: bool,
+    ) -> tuple[InteractionSourceRevision, bool]:
+        """Build one ready revision from already-validated author data only.
+
+        This is an operator gate, not an import workflow: every input must
+        already exist and pass coverage checks before a row is added.
+        """
+        source_id = parse_uuid(project_id, "project_id")
+        project = await get_project_context(db, project_id)
+        if project is None or project.project_kind != "author" or not project.owner_id:
+            raise NotFoundError("作者项目不存在")
+        indices = await list_effective_chapter_indices(db, project_id)
+        if not indices:
+            raise ValidationError("作品还没有可冻结的正文")
+        sources = await list_manuscript_sources(
+            db,
+            project_id,
+            indices,
+            content_mode="canonical",
+        )
+        manifest = [
+            {
+                "draft_id": item.id,
+                "chapter_index": item.chapter_index,
+                "version_number": item.version_number,
+                "content_mode": "canonical",
+                "source_hash": item.content_hash,
+                "title": item.title or f"第{item.chapter_index}章",
+                "char_count": len(item.content or ""),
+            }
+            for item in sources
+            if item.id and item.content_hash
+        ]
+        if len(manifest) != len(indices):
+            raise ValidationError("部分章节缺少已发布正文")
+        manifest_hash = _fingerprint(manifest)
+        owner_id = parse_uuid(project.owner_id, "owner_id")
+        existing = await self._repo.source_revision_by_manifest(
+            db,
+            source_novel_id=source_id,
+            owner_id=owner_id,
+            manifest_hash=manifest_hash,
+        )
+        if existing is not None:
+            if existing.status != "ready" or not existing.fingerprint:
+                raise ConflictError("同一正文版本的资料尚未完整冻结")
+            await self.validate_frozen_source_candidate(
+                db,
+                revision_id=str(existing.id),
+            )
+            return existing, False
+        coverage = await get_manifest_index_coverage(
+            db,
+            project_id,
+            {str(item["draft_id"]): str(item["source_hash"]) for item in manifest},
+        )
+        if coverage != set(indices):
+            raise ConflictError("作品索引尚未覆盖冻结正文")
+        scene_coverage = await get_scene_span_coverage(
+            db,
+            project_id,
+            content_mode="canonical",
+        )
+        if (
+            scene_coverage.scene_count == 0
+            or scene_coverage.scene_without_span_count
+            or scene_coverage.imprecise_span_count
+        ):
+            raise ConflictError("作品剧情锚点尚未完整冻结")
+        latest = await self._repo.latest_source_revision(
+            db,
+            source_novel_id=source_id,
+            owner_id=owner_id,
+        )
+        revision = InteractionSourceRevision(
+            id=uuid.uuid4(),
+            source_novel_id=source_id,
+            owner_id=owner_id,
+            parent_revision_id=latest.id if latest else None,
+            version_number=(latest.version_number + 1) if latest else 1,
+            title=project.title,
+            status="ready",
+            source_manifest=manifest,
+            anchor_manifest=[],
+            reference_manifest=[],
+            ambiguities=[],
+            resolutions={},
+            readiness_summary={},
+            manifest_hash=manifest_hash,
+        )
+        references, ambiguities = await self._reference_manifest(db, revision)
+        anchors = await self._anchor_manifest(db, revision)
+        if ambiguities:
+            raise ConflictError("作品仍有需要人工确认的人物或别名")
+        if not anchors or not references:
+            raise ConflictError("作品缺少可冻结的剧情锚点或对象资料")
+        revision.reference_manifest = references
+        revision.anchor_manifest = anchors
+        self._set_fingerprint(revision)
+        revision.ready_at = datetime.now(UTC)
+        revision.readiness_summary = {
+            "message": "作品资料已完整冻结，可以用于公开演示",
+            "chapter_count": len(manifest),
+            "scene_count": scene_coverage.scene_count,
+            "reference_count": len(references),
+        }
+        if execute:
+            db.add(revision)
+            await db.flush()
+        return revision, execute
+
+    def _prepare_setup_for_revision(
+        self,
+        revision: InteractionSourceRevision,
+        setup: JourneySourceSetup,
+    ) -> tuple[InteractionSourceRevision, dict, dict, dict]:
         anchor = self._find_anchor(revision, setup.progress_anchor_key)
         references = {
             item["reference_key"]: item for item in revision.reference_manifest or []

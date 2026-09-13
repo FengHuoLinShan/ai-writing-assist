@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils"
 import AuthGate from "../../../vue/auth/AuthGate.vue"
+import HomeChoiceView from "../../../vue/views/interaction/HomeChoiceView.vue"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 
 enableAutoUnmount(afterEach)
@@ -44,6 +45,21 @@ afterEach(() => {
 })
 
 describe("AuthGate", () => {
+  it("在公共首页提供只读项目和匿名 RP 演示入口", async () => {
+    const wrapper = mount(HomeChoiceView, {
+      props: {
+        selectionOnly: true,
+        demo: { enabled: true, rp_enabled: true },
+      },
+    })
+
+    expect(wrapper.text()).toContain("查看演示项目")
+    expect(wrapper.text()).toContain("进入演示 RP")
+    await wrapper.get("[data-demo-entry='workspace']").trigger("click")
+    await wrapper.get("[data-demo-entry='rp']").trigger("click")
+    expect(wrapper.emitted("demo")).toEqual([["workspace"], ["rp"]])
+  })
+
   it("先选择使用方式，登录页可键盘返回原选项", async () => {
     const wrapper = mount(AuthGate, {
       attachTo: document.body,

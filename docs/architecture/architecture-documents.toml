@@ -133,7 +133,7 @@ kind = "business"
 source_roots = ["backend/modules/interaction"]
 design_docs = ["docs/modules/18_interaction.md"]
 code_docs = ["backend/modules/interaction/README.md"]
-api_prefixes = ["/api/interactions"]
+api_prefixes = ["/api/interactions", "/api/demo"]
 
 [[components]]
 name = "infrastructure"

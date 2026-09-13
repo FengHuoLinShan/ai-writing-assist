@@ -18,6 +18,7 @@ from modules.project.schemas import (
     AuthorTaskListResponse,
     AuthorTaskPatchRequest,
     AuthorTaskResponse,
+    DemoProjectCopyResponse,
     LLMFieldResetResponse,
     LLMProviderTemplateListResponse,
     ProjectBulkPermanentDeleteRequest,
@@ -51,6 +52,19 @@ _workspace_summary_service = ProjectWorkspaceSummaryService(
     project_reader=_service.get_project,
     author_task_summary_reader=_author_task_service.get_workspace_summary,
 )
+
+
+@router.post(
+    "/demo-copy",
+    response_model=DemoProjectCopyResponse,
+    dependencies=[Depends(require_xhr_request)],
+)
+async def api_copy_public_demo(db: DbSession) -> DemoProjectCopyResponse:
+    """Copy the configured public demo into the current account once per version."""
+    from modules.project.demo_copy import DemoProjectCopyService
+
+    result = await DemoProjectCopyService().copy(db)
+    return DemoProjectCopyResponse(status=result.status, project=result.project)
 
 
 @router.post("", response_model=ProjectResponse, status_code=201)

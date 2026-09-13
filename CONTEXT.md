@@ -122,9 +122,14 @@ Context。同一任务的内部复核/格式修复复用原 confirmation；自�
 - **作者任务**：`project_author_tasks` 是 project 拥有、按 `novel_id` 隔离的轻量个人待办；只含标题、备注、`open/completed/archived`、可选日期与一个封闭类型来源。它不同于领域“需要决定”和 `infrastructure/tasks` 后台流程，后两者不能被勾选完成。
 - **授权自动流水线**：深度导入等流水线必须在启动时持久化授权策略与范围；规则明确且可回滚的结果可自动采用，冲突、低置信和无法消歧结果进入待处理，完成结果按已采用/待处理/未采用汇总。
 - **历史状态**：`deprecated` / `ignored` / `merged` / `rolled_back` 等进入历史并默认从主工作区隐藏；除项目永久删除和地图等明确操作外不默认硬删除。
-- **novel_id**：项目隔离键。唯一例外是 ADR-0018 的同 owner、显式版本化 author source →
-  interaction consumer 只读引用；来源查询和 RP 写入仍分别携带各自 `novel_id`。其他流程
-  都不得跨项目读写资产。
+- **novel_id**：项目隔离键。唯一常规例外是 ADR-0018 的同 owner、显式版本化 author source →
+  interaction consumer 只读引用；ADR-0024 仅对配置精确指定、ready/fingerprint/manifest 复验通过的
+  公开 source 为匿名 RP consumer 增加一次受限只读例外。来源查询和 RP 写入仍分别携带各自
+  `novel_id`，其它流程都不得跨项目读写资产。
+- **公开演示**：部署配置启用时，未登录浏览器仅能以服务端构造的 `demo_readonly` principal
+  读取精确配置的 author 项目；它不是 source owner 的普通身份，不能读取其他项目、账户/凭据、
+  助手或任务，也不能写入。登录 owner 的副本始终是新 `novel_id`，按 source/version 幂等，
+  不形成跨项目引用。
 - **Schema guard**：API、LLM 结构化输出和入库都必须经过 Pydantic/调用方校验；不得
   `eval`、`exec` 或直接持久化未校验的 LLM 文本。
 
@@ -151,6 +156,11 @@ Context。同一任务的内部复核/格式修复复用原 confirmation；自�
 事实优先级为最新修正 → 已保存长期约定 → 选中历史/有效回顾 → 固定版本截止点前的作品资料 → 模型知识。
 长期约定保存在既有回顾JSON，自动摘要由代码继承；首次保存不产生摘要覆盖。
 来源归档、manifest/固定引用失效或 source epoch 漂移时失败关闭。
+
+`anonymous_rp` 是 24 小时独立 owner，不是公共项目或系统 principal。它只能使用配置固定的公开
+revision 建立自己的 hidden interaction project；Key 仅存在于当前 SSE provider 请求，绝不进入
+cookie、账户连接、attempt/task snapshot、数据库或日志。分支和手工回顾仍是该 owner 私有资产；
+看海、主动后台任务、web search、导入和 source 管理均不适用。
 
 ## 7. 受控 LLM 工作流
 

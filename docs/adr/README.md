@@ -24,7 +24,7 @@ make docs-check BASE_REF=origin/main
 | [ADR-0008](0008-plot-thread-information-progression.md) | Accepted | 大纲按当前层创作，PlotThread 聚合信息推进，伏笔/揭示保留投影。 |
 | [ADR-0009](0009-vue-frontend-incremental-migration.md) | Accepted / Implemented | Vue 3 SFC 已接管实际页面，hash router 仅保留 route-host seam；2026-09-12 将迁移期像素/DOM冻结要求修订为功能、数据、幂等性与可访问性回归。 |
 | [ADR-0009 附录 A](0009-appendix-a-keep-alive-policy.md) | Accepted / Implemented | 所有视图离开时卸载；草稿和恢复状态使用显式 session，不缓存活 DOM。 |
-| [ADR-0010](0010-public-browser-account-system.md) | Accepted / Amended | 公开账号、浏览器会话和 owner 门禁；账户连接/全局偏好归 account，项目偏好/effective composition 归 project。 |
+| [ADR-0010](0010-public-browser-account-system.md) | Accepted / Amended | 公开账号、浏览器会话和 owner 门禁；账户连接/全局偏好归 account，项目偏好/effective composition 归 project；公开演示只读 principal 与 owner 副本是唯一受限例外。 |
 | [ADR-0011](0011-keyed-task-coalescing-and-domain-owners.md) | Accepted | 任务合并只管 transport，领域 owner/generation/checkpoint 由所属模块保存。 |
 | [ADR-0012](0012-ai-map-atlas-image-storage.md) | Accepted / Implemented | 统一空间版本与图片表现，保留固定图片模型、私有 S3、独立凭证与删除竞态边界。 |
 | [ADR-0013](0013-operation-receipts-and-page-local-recovery.md) | Accepted | 作者发起的 AI 长任务以 operation receipt 去重，最多两个 attempt，只在原页恢复。 |
@@ -39,6 +39,7 @@ make docs-check BASE_REF=origin/main
 | [ADR-0021](0021-world-cocreation-session-persistence.md) | Accepted | 共创终态消息和 checkpoint 指针已持久化并以 CAS 推进；完整历史阅读界面、同步聊天回执和完整 world-state 增量续写尚未完成，不自动采用。 |
 | [ADR-0022](0022-world-review-ownership.md) | Accepted / Implemented | 复核聚合与回执归 World（validation run 扩展影响清单/覆盖进度/逐项复核记录/失效原因）；Evidence 只读供证，Story/Writing/地图经稳定只读接口提供来源；定向查漏与分批续接复用同一 run；政策编辑复用 rule 页版本化政策。 |
 | [ADR-0023](0023-bounded-agent-runtime.md) | Accepted / Implementation in progress | PydanticAI 有界单 Agent、项目助手与 RP 工具执行；Project 连接、Evidence 可见性、成组确认与领域所有权继续有效。 |
+| [ADR-0024](0024-anonymous-public-demo-rp.md) | Accepted / Implemented | 公开演示使用 24 小时匿名 owner、精确冻结 source 与前台 taskless SSE；临时 Key 零持久化，不能放宽普通 source owner 边界。 |
 
 `ADR-0009 附录 A` 延续 ADR-0009 的编号，不是第二个独立决策编号。
 

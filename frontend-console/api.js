@@ -6,6 +6,7 @@
  */
 
 import { forceAccountSafeReload } from "./shared/accountStorage.js"
+import { clearEphemeralDeepSeekKey } from "./shared/ephemeralDeepSeekKey.js"
 import { resolveApiBaseUrl } from "./shared/apiBaseUrl.js"
 import {
   redactSensitiveText as _redactDiagnosticText,
@@ -43,6 +44,9 @@ function _clearAccessToken() {
 
 function _handleUnauthorizedResponse({ invalidateAccount = true } = {}) {
   _clearAccessToken()
+  // Anonymous RP keys are page-session credentials.  A rejected session must
+  // not leave one around for a later account or anonymous session.
+  clearEphemeralDeepSeekKey()
   if (!invalidateAccount || _authMode !== "public") return
   _clearRequestCache()
   forceAccountSafeReload({ reason: "public-unauthorized" })
@@ -157,6 +161,22 @@ function _clearBiblePublishAttempt(novelId, draftId) {
 function _cacheKey(path, options) {
   const method = (options.method || "GET").toUpperCase()
   return `${method}:${path}`
+}
+
+const PUBLIC_DEMO_READONLY_POST_PATHS = new Set([
+  "/evidence/compilation/evidence/grep",
+  "/evidence/compilation/evidence/search",
+  "/evidence/compilation/evidence/read",
+])
+
+function _withPublicDemoQuery(path, method) {
+  if (!globalThis.publicDemoMode || globalThis.publicDemoRpMode) return path
+  const [pathname, query = ""] = String(path).split("?", 2)
+  const readonlyPost = method === "POST" && PUBLIC_DEMO_READONLY_POST_PATHS.has(pathname)
+  if (method !== "GET" && !readonlyPost) return path
+  const params = new URLSearchParams(query)
+  if (!params.has("demo")) params.set("demo", "1")
+  return `${pathname}?${params.toString()}`
 }
 
 function _collectionRoot(path) {
@@ -306,7 +326,6 @@ async function request(path, options = {}) {
     _responseType = "json",
     ...fetchOptions
   } = options
-  const url = `${API_BASE_URL}${path}`
   const controller = new AbortController()
   const timeoutMs = timeout ?? API_TIMEOUT
   let timeoutFired = false
@@ -341,6 +360,8 @@ async function request(path, options = {}) {
   }
 
   const method = (fetchOptions.method || "GET").toUpperCase()
+  const requestPath = _withPublicDemoQuery(path, method)
+  const url = `${API_BASE_URL}${requestPath}`
   const isFormData = fetchOptions.body instanceof FormData
   if (method !== "GET" && method !== "HEAD") {
     headers["X-Requested-With"] = "XMLHttpRequest"
@@ -351,14 +372,14 @@ async function request(path, options = {}) {
     headers["Content-Type"] = "application/json"
   }
 
-  const cacheKey = _cacheKey(path, fetchOptions)
+  const cacheKey = _cacheKey(requestPath, fetchOptions)
   // `no-store` is also honored by our in-memory cache.  Passing it only to
   // fetch would still allow a stale application-cache hit before fetch runs,
   // and an obsolete response could be written back after a project switch.
   const shouldUseResponseCache = method === "GET" && fetchOptions.cache !== "no-store"
   const shouldSharePending = shouldUseResponseCache && !externalSignal
   const responseCacheGeneration = shouldUseResponseCache
-    ? _cacheGeneration(path)
+    ? _cacheGeneration(requestPath)
     : null
 
   if (shouldUseResponseCache) {
@@ -395,7 +416,10 @@ async function request(path, options = {}) {
       }
 
       if (!resp.ok) {
-        if (resp.status === 401) {
+        if (
+          resp.status === 401
+          && !(globalThis.publicDemoMode && !globalThis.publicDemoRpMode)
+        ) {
           _handleUnauthorizedResponse({
             invalidateAccount: !_suppressAccountInvalidation,
           })
@@ -448,12 +472,12 @@ async function request(path, options = {}) {
 
       // 只在写操作成功后才失效相关 GET 缓存，避免失败请求清空有效缓存。
       if (method !== "GET") {
-        _invalidateRelatedCache(path)
+        _invalidateRelatedCache(requestPath)
       }
 
       if (resp.status === 204) {
         if (shouldUseResponseCache) {
-          if (_cacheGeneration(path) !== responseCacheGeneration) {
+          if (_cacheGeneration(requestPath) !== responseCacheGeneration) {
             return request(path, options)
           }
           _setCache(cacheKey, null)
@@ -463,7 +487,7 @@ async function request(path, options = {}) {
 
       const data = _responseType === "blob" ? await resp.blob() : await resp.json()
       if (shouldUseResponseCache) {
-        if (_cacheGeneration(path) !== responseCacheGeneration) {
+        if (_cacheGeneration(requestPath) !== responseCacheGeneration) {
           return request(path, options)
         }
         _setCache(cacheKey, data)
@@ -657,18 +681,26 @@ function contractJson(name, params = {}, query = {}, payload, options = {}) {
   return request(contractRequest.path, contractRequest.options)
 }
 
-async function* streamSse(path, { signal } = {}) {
+async function* streamSse(path, {
+  signal,
+  method = "GET",
+  headers = {},
+  suppressAccountInvalidation = false,
+} = {}) {
   const resp = await fetch(`${API_BASE_URL}${path}`, {
-    method: "GET",
+    method,
     credentials: "include",
     cache: "no-store",
     headers: _authorizationHeaders({
       "Accept": "text/event-stream",
+      ...headers,
     }),
     signal,
   })
   if (!resp.ok) {
-    if (resp.status === 401) _handleUnauthorizedResponse()
+    if (resp.status === 401) {
+      _handleUnauthorizedResponse({ invalidateAccount: !suppressAccountInvalidation })
+    }
     let detail = ""
     try {
       const body = _redactDiagnosticValue(await resp.json())
@@ -746,6 +778,7 @@ const api = {
       cache: "no-store",
       _suppressAccountInvalidation: true,
     }),
+    anonymousRp: (payload) => post("/auth/anonymous-rp", payload, { cache: "no-store", _suppressAccountInvalidation: true }),
     requestEmailCode: (email) =>
       post("/auth/email/request-code", { email }, { cache: "no-store" }),
     verifyEmail: (payload) =>
@@ -775,6 +808,7 @@ const api = {
   // 项目
   // ============================================================
   projects: {
+    demoCopy: () => post("/projects/demo-copy", undefined, { cache: "no-store" }),
     async smartDedupReviewState(id, taskId) { return request(`/projects/${encodeURIComponent(id)}/smart-dedup/scans/${encodeURIComponent(taskId)}/review-state`) },
     async recentSmartDedupScans(id) { return request(`/projects/${encodeURIComponent(id)}/smart-dedup/scans`) },
     async list() {
@@ -845,6 +879,9 @@ const api = {
   },
 
   interactions: {
+    demoSource: () => request("/demo/rp-source", { cache: "no-store", _suppressAccountInvalidation: true }),
+    listDemoJourneys: (params = {}) => request(withQuery("/interactions/demo-journeys", params), { cache: "no-store", _suppressAccountInvalidation: true }),
+    createDemoJourney: (payload) => post("/interactions/demo-journeys", payload, { cache: "no-store", _suppressAccountInvalidation: true }),
     listSources() {
       return contractFetch(
         "interactions.listSources",
@@ -1043,6 +1080,22 @@ const api = {
         { journeyId, attemptId },
         { offset },
       ), options)
+    },
+    streamDemoAttempt(journeyId, attemptId, apiKey, options = {}) {
+      const csrfToken = _cookieValue("aaw_csrf")
+      return streamSse(
+        `/interactions/journeys/${encodeURIComponent(journeyId)}/attempts/${encodeURIComponent(attemptId)}/stream`,
+        {
+          ...options,
+          method: "POST",
+          suppressAccountInvalidation: true,
+          headers: {
+            "X-Requested-With": "XMLHttpRequest",
+            "X-DeepSeek-API-Key": String(apiKey || ""),
+            ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
+          },
+        },
+      )
     },
     stopAttempt(journeyId, attemptId, payload) {
       return contractJson(

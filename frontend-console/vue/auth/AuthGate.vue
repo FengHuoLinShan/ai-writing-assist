@@ -1,6 +1,6 @@
 <template>
   <p v-if="theme.error.value" class="auth-theme-notice" role="status">{{ theme.error.value }}</p>
-  <HomeChoiceView v-if="!account && !entryMode" selection-only @select="selectEntry" />
+  <HomeChoiceView v-if="!account && !entryMode" selection-only :demo="config.demo" @select="selectEntry" @demo="openDemo" />
   <main v-else class="auth-page">
     <section class="auth-card" aria-labelledby="auth-title" :aria-busy="busy">
         <div class="auth-brand"><span class="auth-brand__mark" aria-hidden="true">N</span><span>NovelCraft</span></div>
@@ -89,6 +89,12 @@ async function resetEntry() {
   storeEntryMode(null)
   await nextTick()
   document.querySelector(`.entry-choice [data-entry="${previous}"]`)?.focus()
+}
+function openDemo(target) {
+  const url = new URL(globalThis.location.href)
+  url.searchParams.set("demo", "1")
+  url.hash = target === "rp" ? "demo-rp" : "today"
+  globalThis.location.assign(url)
 }
 async function run(action) {
   busy.value = true

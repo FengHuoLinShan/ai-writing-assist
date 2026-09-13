@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -65,29 +67,18 @@ async def test_interaction_api_hides_all_journey_surfaces_from_other_owner(
         listing = await async_client.get("/api/interactions/journeys")
         protected_reads = [
             await async_client.get(f"/api/interactions/journeys/{journey_id}"),
+            await async_client.get(f"/api/interactions/journeys/{journey_id}/messages"),
+            await async_client.get(f"/api/interactions/journeys/{journey_id}/tree"),
+            await async_client.get(f"/api/interactions/journeys/{journey_id}/path-index"),
+            await async_client.get(f"/api/interactions/journeys/{journey_id}/overview"),
             await async_client.get(
-                f"/api/interactions/journeys/{journey_id}/messages"
+                f"/api/interactions/journeys/{journey_id}/nodes/{node_id}/branches"
             ),
             await async_client.get(
-                f"/api/interactions/journeys/{journey_id}/tree"
+                f"/api/interactions/journeys/{journey_id}/attempts/{attempt_id}"
             ),
             await async_client.get(
-                f"/api/interactions/journeys/{journey_id}/path-index"
-            ),
-            await async_client.get(
-                f"/api/interactions/journeys/{journey_id}/overview"
-            ),
-            await async_client.get(
-                "/api/interactions/journeys/"
-                f"{journey_id}/nodes/{node_id}/branches"
-            ),
-            await async_client.get(
-                "/api/interactions/journeys/"
-                f"{journey_id}/attempts/{attempt_id}"
-            ),
-            await async_client.get(
-                "/api/interactions/journeys/"
-                f"{journey_id}/attempts/{attempt_id}/events"
+                f"/api/interactions/journeys/{journey_id}/attempts/{attempt_id}/events"
             ),
         ]
         protected_write = await async_client.patch(
@@ -199,24 +190,75 @@ async def test_http_first_agreement_save_and_legacy_omission(async_client, db_se
     payload = {
         key: initial[key]
         for key in (
-            "base_revision_id", "base_selected_leaf_node_id", "base_selected_path_hash"
+            "base_revision_id",
+            "base_selected_leaf_node_id",
+            "base_selected_path_hash",
         )
     }
     payload.update(expected_overview_epoch=0, expected_selection_epoch=0)
-    saved = await async_client.put(url, json={
-        **payload, "sections": {"long_term_agreements": "不能使用火焰。"},
-    })
+    saved = await async_client.put(
+        url,
+        json={
+            **payload,
+            "sections": {"long_term_agreements": "不能使用火焰。"},
+        },
+    )
     assert saved.status_code == 200
     body = saved.json()
     assert body["anchor_node_id"] is None
-    payload.update(base_revision_id=body["base_revision_id"],
-                   expected_overview_epoch=body["overview_epoch"])
-    legacy = await async_client.put(url, json={
-        **payload, "sections": {"current_situation": "仍在调查。"},
-    })
+    payload.update(
+        base_revision_id=body["base_revision_id"],
+        expected_overview_epoch=body["overview_epoch"],
+    )
+    legacy = await async_client.put(
+        url,
+        json={
+            **payload,
+            "sections": {"current_situation": "仍在调查。"},
+        },
+    )
     assert legacy.status_code == 200
     assert legacy.json()["sections"]["long_term_agreements"] == "不能使用火焰。"
-    invalid = await async_client.put(url, json={
-        **payload, "sections": {"long_term_agreements": "字" * 4001},
-    })
+    invalid = await async_client.put(
+        url,
+        json={
+            **payload,
+            "sections": {"long_term_agreements": "字" * 4001},
+        },
+    )
     assert invalid.status_code == 422
+
+
+async def test_logged_in_attempt_events_still_stream_persisted_text(
+    async_client,
+    db_session,
+    monkeypatch,
+) -> None:
+    from modules.interaction.tests.test_services import _create_journey
+
+    _service, journey, attempt, _response = await _create_journey(
+        db_session,
+        key="events-regression",
+    )
+    attempt.status = "completed"
+    attempt.visible_text = "已经持久化的故事。"
+    attempt.visible_offset = len(attempt.visible_text)
+    await db_session.flush()
+
+    @asynccontextmanager
+    async def session_scope():
+        yield db_session
+
+    monkeypatch.setattr(
+        "modules.interaction.streaming.get_manager",
+        lambda: SimpleNamespace(session_factory=lambda: session_scope()),
+    )
+
+    response = await async_client.get(
+        f"/api/interactions/journeys/{journey.id}/attempts/{attempt.id}/events"
+    )
+
+    assert response.status_code == 200
+    assert "event: chunk" in response.text
+    assert "已经持久化的故事。" in response.text
+    assert "event: done" in response.text

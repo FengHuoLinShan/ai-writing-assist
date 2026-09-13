@@ -10,8 +10,9 @@
   失败次数和第 5 次失效状态必须随 HTTP 400 一起持久化。
 - 一个账号只保留一个有效浏览器会话。会话 Cookie 只保存随机令牌，数据库只保存
   HMAC 摘要；写请求同时校验同源、XHR 与 CSRF。
-- `pending_deletion` 账号只能退出、查看删除状态、重新认证和撤销删除；到期清理由
-  `scripts/manage_accounts.py purge-due --execute` 执行。
+- `pending_deletion` 账号只能退出、查看删除状态、重新认证和撤销删除；每小时到期清理由
+  `scripts/manage_accounts.py purge-maintenance --execute` 执行，其中也会级联删除到期的
+  24 小时 `anonymous_rp` 账号及其私人旅程。
 - 管理员工具只显示账号元数据和支持码，不读取项目标题、ID 或内容。
 
 Authing 微信由 `AUTHING_WECHAT_ENABLED` 控制。关闭时所有微信入口返回 404；开启前
@@ -21,6 +22,13 @@ loopback）；discovery 的 authorization、token 与 JWKS 端点必须使用 HT
 保持相同 hostname/port。回调从 JWKS 验证 ID token 签名，只允许 `RS256` 或 `ES256`；
 随后要求 `iss`、`aud`、`exp`、`iat`、`sub`，校验 nonce，并以 60 秒 leeway 验证 OIDC
 claims。ID token 提供 `at_hash` 且授权码响应有 access token 时，也会校验二者匹配。
+
+公开演示由部署配置 `PUBLIC_DEMO_ENABLED`、`PUBLIC_DEMO_PROJECT_ID`、
+`PUBLIC_DEMO_VERSION` 与 `PUBLIC_DEMO_RP_ENABLED` 控制。`GET /api/auth/config` 只暴露
+已通过 UUID/版本校验的 `demo` 投影；无效配置一律显示为禁用。未登录浏览器只能以
+`?demo=1` 进入服务端构造的 `demo_readonly` principal，且仅限配置项目的核心工作台读取
+（及显式允许的检索 POST）。它不接受客户端身份 header，不能访问账户/凭据、助手、任务或
+其他项目，也不能读取 Prompt 模板、检索轨迹或上下文快照，且不能写入。普通登录账号可另行请求项目副本。
 
 ## 数据表
 

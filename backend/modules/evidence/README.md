@@ -14,8 +14,8 @@
 
 ## 数据与不变量
 
-- 表名保持 `rag_*`、`context_*` 和 `evidence_links`；`context_snapshots` 新增可空
-  `consumer_novel_id`，用于记录同 owner RP consumer，`novel_id` 仍是资料来源项目；
+- 表名保持 `rag_*`、`context_*` 和 `evidence_links`；RP `context_snapshots` 以 consumer
+  `novel_id` 隔离审计写入，并用 source revision/SourceRangeRef 保留作者资料来源；
 - task type、recovery policy、owner scope 与 action/payload 保持不变；
 - 所有查询和写入保持 owner + `novel_id` 隔离；
 - reader/character 可见性、hidden truth guard、confirmation 精确失效、snapshot 生命周期、
@@ -28,6 +28,9 @@
 - `compile_interaction_story_context()` 是 Evidence 拥有的深层稳定入口；它固定
   `consumer_action=interaction.story`、读者/人物知识与章节/offset 截止。调用方可传本轮
   剩余预算，Evidence 将其限制在 0～16K；必需资料无法容纳时返回 blocker。
+- ADR-0024 仅为 `PUBLIC_DEMO_RP_SOURCE_REVISION_ID` 精确指向、ready、fingerprint 与 manifest
+  均重验通过的公开 source 放宽一次 source/consumer 同 owner 比较；调用方必须显式携带该 contract，
+  任意其它 source 仍按 ADR-0018 拒绝，渲染正文或临时 Key 不进入 snapshot。
 - `author_safe + scene_id` 固定以当前 Scene 为同章截止点；后续或跨越截止点的正文候选在
   原文回读阶段 fail closed，`author_full` 不自动增加该截止。
 

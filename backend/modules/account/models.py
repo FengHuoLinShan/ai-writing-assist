@@ -47,6 +47,9 @@ class Account(Base, UUIDMixin, TimestampMixin):
     legacy_claimed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    temporary_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
 
 
 class AccountIdentity(Base, UUIDMixin, TimestampMixin):

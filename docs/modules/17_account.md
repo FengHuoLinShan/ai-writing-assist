@@ -14,12 +14,17 @@
 
 邮箱与微信是互斥的主身份，不自动绑定。同一个人用两种方式会得到两个独立账号。
 
+部署可配置一个公开演示项目。`GET /api/auth/config` 的 `demo` 仅在配置项目 UUID 与版本有效时
+返回启用状态；未登录的 `?demo=1` 请求由服务端绑定严格的 `demo_readonly` principal，而非
+信任浏览器 header。该 principal 只可读取配置项目的核心工作台和显式允许的检索 POST，不能
+读取账号/凭据、助手、任务、Prompt 模板、检索轨迹、上下文快照或其他项目，也不能写入。
+
 ## 数据与隔离
 
 | 表 | 职责 |
 |---|---|
-| `accounts` | 账号状态、支持码、删除申请和到期时间 |
-| `account_identities` | 唯一邮箱或 Authing 微信主身份 |
+| `accounts` | 账号状态、支持码、删除申请和到期时间；匿名 RP 账户额外记录 24 小时临时到期点 |
+| `account_identities` | 唯一邮箱、Authing 微信或 `anonymous_rp` 临时身份 |
 | `web_sessions` | 单一有效浏览器会话及令牌/CSRF 摘要 |
 | `email_login_challenges` | 邮箱验证码 keyed HMAC、尝试次数和过期状态 |
 | `account_security_events` | 不含项目内容的脱敏安全审计 |
@@ -34,6 +39,7 @@ owner 门禁。
 ## HTTP 入口
 
 - `/api/auth`：配置、邮箱登录/注册、当前账号、退出和邮箱重新认证；
+- `/api/auth/anonymous-rp`：仅在公开演示及精确 source 配置均启用后，记录条款/隐私同意并建立 24 小时匿名 RP 会话；session Cookie 为 HttpOnly，API Key 不进入 cookie、账号或会话表；
 - `/api/account`：延期删除状态、申请与撤销；
 - `/api/auth/wechat`：Authing 微信登录；
 - `/api/auth/reauth/wechat`：微信重新认证。
@@ -58,9 +64,13 @@ python scripts/manage_accounts.py ban <account-uuid>
 python scripts/manage_accounts.py unban <account-uuid>
 python scripts/manage_accounts.py purge-due
 python scripts/manage_accounts.py purge-due --execute
+python scripts/manage_accounts.py purge-expired-anonymous-rp --execute
+python scripts/manage_accounts.py purge-maintenance --execute
 python scripts/manage_accounts.py smtp-smoke --to test@example.com
 ```
 
-每日清理应运行 `purge-due --execute`，超过 26 小时没有成功记录时由部署监控告警。
+每小时清理运行 `purge-maintenance --execute`：它同时清除延期删除账户与超过 24 小时的
+`anonymous_rp` 账户，匿名账户的项目、会话和旅程由外键级联清除。公开演示只接受
+`PUBLIC_DEMO_RP_SOURCE_REVISION_ID` 指向的 ready 且 fingerprint 完整的 revision。
 应用访问日志由部署层按 30 天滚动保留；数据库备份自身最多保留 30 天。两项都属于上线
 门禁，不能因为在线账号已清除而跳过备份到期删除。

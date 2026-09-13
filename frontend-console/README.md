@@ -9,6 +9,22 @@
 若明确继续使用 stale adopted script，Writing wire 使用 `confirm_stale_story_assets=true`；
 服务端 409 使用 `stale_story_assets` code，前端应保留编辑内容并要求作者确认或刷新。
 
+## 公共演示
+
+当服务端 `GET /api/auth/config` 返回启用的 `demo` 配置时，公共首屏提供“查看演示项目”和
+“进入演示 RP”。`?demo=1` 只显示固定项目的核心只读工作台；核心 GET 自动附带 `demo=1`，
+由服务端限制项目和允许的读取范围，前端隐藏设置、助手、导入、日志与写入入口，并禁用明确的
+编辑/生成/保存操作。浏览、筛选、章节/标签切换、地图和检索仍可用。
+
+只读壳的“登录并复制后尝试”将一次性 intent 放在 sessionStorage。邮箱登录成功后立即调用
+`POST /api/projects/demo-copy`，无论服务端返回 `created`、`existing` 或 `restored` 都跳转到用户自己的副本。
+
+匿名 `#demo-rp` 首先公开加载演示资料并尝试恢复现有匿名 session 与最近旅程；无 session 时不会
+自动创建匿名身份。用户勾选当前认证配置提供的用户协议与隐私政策后，点击“开始演示故事”才创建匿名 session。
+临时 DeepSeek Key 只保存在当前页面的 JavaScript 内存中，刷新或关闭即清除；仅在
+`POST /api/interactions/journeys/{journey_id}/attempts/{attempt_id}/stream` 的
+`X-DeepSeek-API-Key` header 中发送，登录/账户边界/会话失效时清除。匿名 v1 不提供看海、主动后台续写或网页搜索。
+
 ## 外观与主题资源包
 
 现代简约为内置外观，作者、认证与互动故事共用主题。顶栏切换浅色、深色或跟随系统；账户菜单 → 外观，以及互动故事更多 → 外观与主题包，进入 `settings?section=appearance`。外观页不依赖模型连接接口成功。

@@ -1,31 +1,35 @@
 <template>
   <div
     class="vue-shell-root creative-shell"
+    :class="{ 'public-demo-shell': publicDemo }"
+    :data-public-demo="publicDemo || undefined"
     :data-theme="theme.resolved.value"
+    @click.capture="blockDemoWorkspaceControl"
+    @keydown.capture="blockDemoWorkspaceControl"
     @pointerdown.capture="dismissTransientUi"
     @shell-theme-request="theme.apply($event.detail)"
   >
     <Topbar v-if="showAuthorChrome" :project-title="projectTitle" :module-title="moduleTitle" :submodule-title="submoduleTitle" :view-note="viewNote"
       :connected="health.connected.value" :theme="theme.current.value" :wordcount="wordcount.dashboard" :wordcount-visible="wordcountVisible"
       :assistant-enabled="assistantEnabled" :assistant-open="assistantOpen" @assistant-context="captureAssistant" @open-assistant="assistantOpen = !assistantOpen" @navigate="navigate"
-      @select-theme="theme.apply" @manage-account="accountOpen = true" @open-settings="navigate('settings')" @show-help="showHelp" />
+      :public-demo="publicDemo" @select-theme="theme.apply" @manage-account="accountOpen = true" @open-settings="navigate('settings')" @show-help="showHelp" @copy-demo="requestDemoCopy" />
     <div id="main-layout" :class="{ 'main-layout--immersive': !showAuthorChrome }">
-      <Sidebar v-if="showAuthorChrome" ref="sidebar" :current-view="shellState.currentView" :project-title="projectTitle" @navigate="navigate" @show-help="showHelp" />
+      <Sidebar v-if="showAuthorChrome" ref="sidebar" :current-view="shellState.currentView" :project-title="projectTitle" :public-demo="publicDemo" @navigate="navigate" @show-help="showHelp" />
       <WorkspaceHost ref="workspace" @ready="setRouteHost" />
       <aside id="contextual-notes"></aside>
-      <ProjectAssistant v-if="showAuthorChrome && shellState.currentProjectId" :project-id="shellState.currentProjectId" :page="shellState.currentView" :open="assistantOpen" :initial-context="assistantContext" @open="assistantOpen = true" @close="assistantOpen = false" @availability="assistantEnabled = $event" />
+      <ProjectAssistant v-if="!publicDemo && showAuthorChrome && shellState.currentProjectId" :project-id="shellState.currentProjectId" :page="shellState.currentView" :open="assistantOpen" :initial-context="assistantContext" @open="assistantOpen = true" @close="assistantOpen = false" @availability="assistantEnabled = $event" />
     </div>
-    <CommandPalette ref="commandPalette" :services="services" />
-    <ShortcutHelp :open="helpOpen" @close="hideHelp" />
-    <ServiceHosts :services="services" />
-    <AccountDialog :open="accountOpen" :account="accountService.current" :config="accountService.config"
+    <CommandPalette v-if="!publicDemo" ref="commandPalette" :services="services" />
+    <ShortcutHelp v-if="!publicDemo" :open="helpOpen" @close="hideHelp" />
+    <ServiceHosts v-if="!publicDemo" :services="services" />
+    <AccountDialog v-if="!publicDemo" :open="accountOpen" :account="accountService.current" :config="accountService.config"
       @close="accountOpen = false" @logout="logout" @account-invalidated="accountService.invalidate('account-deletion')"
       @switch-mode="accountOpen = false; navigate('home')" />
   </div>
 </template>
 
 <script setup>
-import { computed, ref, watch } from "vue"
+import { computed, onBeforeUnmount, ref, watch } from "vue"
 import ProjectAssistant from "../components/ProjectAssistant.vue"
 import { getAssistantWorkContext } from "../bridge/index.js"
 import CommandPalette from "./components/CommandPalette.vue"
@@ -41,6 +45,7 @@ import { useShellState } from "./composables/useShellState.js"
 import { useTheme } from "./composables/useTheme.js"
 import { useWordcountDashboard } from "./composables/useWordcountDashboard.js"
 import { navDestination, normalizeRpReturnTarget } from "./navigation.js"
+import { storeDemoCopyIntent } from "../auth/entryMode.js"
 
 const props = defineProps({
   services: { type: Object, required: true },
@@ -55,6 +60,8 @@ function captureAssistant() {
 }
 
 const services = props.services
+const publicDemo = Boolean(globalThis.publicDemoMode)
+const readonlyDemo = publicDemo && !globalThis.publicDemoRpMode
 const accountService = services.account ?? {
   visible: false,
   current: null,
@@ -73,7 +80,7 @@ const workspace = ref(null)
 const sidebar = ref(null)
 const routeHost = ref(null)
 const showAuthorChrome = computed(() => {
-  if (["home", "journeys", "interaction"].includes(shellState.currentView)) {
+  if (["home", "journeys", "interaction", "demo-rp"].includes(shellState.currentView)) {
     return false
   }
   if (shellState.currentView === "settings") {
@@ -109,9 +116,71 @@ function setRouteHost(element) { routeHost.value = element; syncRouteScope() }
 watch(() => [shellState.currentView, shellState.currentSubView], syncRouteScope)
 watch(() => shellState.backendConnected, (value) => { health.connected.value = Boolean(value) })
 
+let demoObserver = null
+const demoMutationLabel = /新建|新增|添加|创建|保存|完成|稍后处理|删除|导入|上传|生成|更新|修改|编辑|采用|发布|设置|连接|助手|归档|恢复|撤销|重做|清空|日志|待处理|未决|世界健康|AI 工具|更多工具|检查|问世界/
+function isDemoMutationControl(control) {
+  if (!control) return false
+  if (control.matches("textarea, [contenteditable='true'], input[type='file']")) return true
+  if (control.matches("input:not([type]), input[type='text'], input[type='number'], input[type='url']")) {
+    return !/搜索|筛选|检索|查找/.test(`${control.getAttribute("aria-label") || ""} ${control.placeholder || ""}`)
+  }
+  if (!control.matches("button")) return false
+  const label = [
+    control.dataset?.action,
+    control.getAttribute("aria-label"),
+    control.title,
+    control.textContent,
+  ].filter(Boolean).join(" ")
+  return demoMutationLabel.test(label)
+}
+function lockDemoWorkspaceControls() {
+  if (!readonlyDemo) return
+  const roots = [routeHost.value, document.getElementById("sidebar-context-slot")].filter(Boolean)
+  for (const root of roots) {
+    for (const control of root.querySelectorAll("button, input, textarea, select, [contenteditable='true']")) {
+      if (!isDemoMutationControl(control)) continue
+      if (control.matches("input, textarea")) {
+        control.readOnly = true
+        control.setAttribute("aria-readonly", "true")
+      } else if (control.matches("[contenteditable='true']")) {
+        control.setAttribute("contenteditable", "false")
+        control.setAttribute("aria-readonly", "true")
+      } else {
+        control.disabled = true
+        control.setAttribute("aria-disabled", "true")
+      }
+      control.title = "演示项目为只读；登录并复制后可以尝试修改。"
+    }
+  }
+}
+watch(routeHost, (host) => {
+  demoObserver?.disconnect()
+  demoObserver = null
+  if (!readonlyDemo || !host || typeof MutationObserver === "undefined") return
+  lockDemoWorkspaceControls()
+  demoObserver = new MutationObserver(lockDemoWorkspaceControls)
+  demoObserver.observe(host, { childList: true, subtree: true })
+  const sidebarTools = document.getElementById("sidebar-context-slot")
+  if (sidebarTools) demoObserver.observe(sidebarTools, { childList: true, subtree: true })
+}, { flush: "post" })
+onBeforeUnmount(() => demoObserver?.disconnect())
+
 async function navigate(view) {
   try { await services.router.navigate(view, navDestination(services, view)) }
   catch (err) { services.toast(`导航失败：${err?.message || "未知错误"}`, "error") }
+}
+function requestDemoCopy() {
+  storeDemoCopyIntent()
+  const url = new URL(globalThis.location.href)
+  url.searchParams.delete("demo")
+  url.hash = ""
+  globalThis.location.assign(url)
+}
+function blockDemoWorkspaceControl(event) {
+  const control = event.target?.closest?.("button, input, textarea, select, [contenteditable='true']")
+  if (!readonlyDemo || !isDemoMutationControl(control)) return
+  event.preventDefault()
+  event.stopImmediatePropagation()
 }
 function showHelp() { helpOpen.value = true }
 function hideHelp() { helpOpen.value = false }
@@ -128,18 +197,20 @@ function dismissTransientUi(event) {
   if (commandPalette.value?.isOpen() && !commandPalette.value.contains(event.target)) commandPalette.value.close()
 }
 
-useShellShortcuts({
-  services,
-  shellState,
-  getRouteHost: () => routeHost.value,
-  command: {
-    open: (prefix) => commandPalette.value?.open(prefix),
-    close: () => commandPalette.value?.close(),
-    isOpen: () => Boolean(commandPalette.value?.isOpen()),
-  },
-  help: { open: showHelp, close: hideHelp, isOpen: () => helpOpen.value },
-  focusSidebar,
-})
+if (!publicDemo) {
+  useShellShortcuts({
+    services,
+    shellState,
+    getRouteHost: () => routeHost.value,
+    command: {
+      open: (prefix) => commandPalette.value?.open(prefix),
+      close: () => commandPalette.value?.close(),
+      isOpen: () => Boolean(commandPalette.value?.isOpen()),
+    },
+    help: { open: showHelp, close: hideHelp, isOpen: () => helpOpen.value },
+    focusSidebar,
+  })
+}
 
 defineExpose({
   getRouteHost: () => routeHost.value,

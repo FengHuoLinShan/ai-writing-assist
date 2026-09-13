@@ -109,6 +109,9 @@ green. Do not run overlapping aggregate targets back-to-back.
    root user is absent from API/worker runtime configuration. Re-run the initializer to prove
    idempotence and verify versioning plus object-version deletion; never use a production env
    file for this smoke.
+5. **Anonymous public RP changes**: cover isolation, exact frozen-source rejection, request-scoped
+   SSE disconnect/cancellation, and a sentinel proving the temporary provider key is absent from
+   persisted tables, task payloads, errors, and logs. Use synthetic keys only.
 
 Every non-trivial branch still finishes with `make docs-check BASE_REF=origin/main` and
 `git diff --check`. GitHub selects relevant checks on pull requests and runs every gate on the resulting `main`

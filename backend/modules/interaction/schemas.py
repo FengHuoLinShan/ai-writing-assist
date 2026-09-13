@@ -419,6 +419,16 @@ class InteractionSourceListResponse(BaseModel):
     projects: list[InteractionSourceProjectResponse] = Field(default_factory=list)
 
 
+class PublicDemoRpSourceResponse(BaseModel):
+    id: str
+    title: str
+    version_number: int = Field(ge=1)
+    status: Literal["ready"] = "ready"
+    chapter_count: int = Field(ge=0)
+    anchors: list[InteractionSourceAnchorResponse] = Field(default_factory=list)
+    objects: list[InteractionSourceObjectResponse] = Field(default_factory=list)
+
+
 class InteractionSourceFromProjectRequest(BaseModel):
     project_id: str = Field(min_length=36, max_length=36)
     authorization_confirmed: bool = False

@@ -435,4 +435,10 @@ ping 告警。operation lock 持有时 runtime 的无 ping skip 是预期行为�
    邮件告警已完成 `/fail` 与 missed ping 演练。
 9. 一个真实账户在设置页完成文本与图片连接验证；首次付费生图另行确认权限和额度，验收记录和日志不保存 Key、请求正文或用户内容。
 
+公开演示默认关闭。启用前在 mode-0600 `deploy/.env.production` 设置固定的
+`PUBLIC_DEMO_PROJECT_ID`、`PUBLIC_DEMO_VERSION` 与 `PUBLIC_DEMO_RP_SOURCE_REVISION_ID`，并先在专用
+demo 数据库运行 `python scripts/freeze_public_demo_rp_source.py --project-id <id>` dry-run；确认后用
+`--execute` 物化/复用 ready revision。`PUBLIC_DEMO_RP_ENABLED=true` 不保存或提供 provider Key：每次
+匿名 RP 仅在前台请求中由体验者临时提交 Key。
+
 本目录不自动申请域名/证书、不创建 SMTP/Authing/LLM 账户，也不保存任何真实凭据。

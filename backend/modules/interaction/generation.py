@@ -98,6 +98,23 @@ class PreparedSummaryGeneration:
     origin_task_id: str | None = None
 
 
+@dataclass
+class InlineStoryTask:
+    """Ephemeral request-owned task adapter; it is never written to AsyncTask."""
+
+    meta: dict[str, Any]
+    executable_settings: dict[str, Any]
+    execution_id: str
+    inline: bool = True
+
+    def update_progress(self, _value: float) -> None:
+        return None
+
+
+class InteractionClientDisconnectedError(RuntimeError):
+    """Provider stream was cancelled because its request owner disconnected."""
+
+
 class InteractionContextBudgetError(RuntimeError):
     """Fail closed when the selected path cannot be compiled without loss.
 
@@ -258,7 +275,8 @@ class InteractionGenerationWorkflow:
         *,
         task: Any,
     ) -> PreparedStoryGeneration | PreparedSummaryGeneration:
-        require_task_checkpoint_session(db)
+        if not self._is_inline(task):
+            require_task_checkpoint_session(db)
         novel_id, journey_id, attempt_id = self._task_ids(task)
         await require_interaction_project(db, novel_id)
         journey = await self._repo.get_journey_for_task(
@@ -269,14 +287,18 @@ class InteractionGenerationWorkflow:
         )
         if journey is None:
             raise RuntimeError("interaction journey is not active")
-        attempt = await self._repo.get_attempt_for_task(
+        attempt = await self._execution_attempt(
             db,
+            task=task,
             journey=journey,
             attempt_id=attempt_id,
-            task_id=uuid.UUID(str(task.id)),
             for_update=True,
         )
-        if attempt is None or attempt.status != "pending":
+        if attempt is None or (
+            attempt.status not in {"pending", "preparing_context"}
+            if self._is_inline(task)
+            else attempt.status != "pending"
+        ):
             raise RuntimeError("interaction attempt is not pending for this task")
         task_snapshot = dict((task.meta or {}).get("llm_execution_snapshot") or {})
         if task_snapshot != dict(attempt.llm_execution_snapshot or {}):
@@ -349,9 +371,16 @@ class InteractionGenerationWorkflow:
                 or journey.source_context_epoch != attempt.started_source_context_epoch
             ):
                 raise RuntimeError("interaction source context epoch mismatch")
-            source_revision = await self._service._sources.require_ready_revision(
-                db,
-                attempt.source_revision_id,
+            source_revision = (
+                await self._service._sources.require_public_demo_ready_revision(
+                    db,
+                    revision_id=str(attempt.source_revision_id),
+                )
+                if self._is_inline(task)
+                else await self._service._sources.require_ready_revision(
+                    db,
+                    attempt.source_revision_id,
+                )
             )
 
         def build_messages(source_context: str | None) -> list[LLMMessage]:
@@ -404,9 +433,13 @@ class InteractionGenerationWorkflow:
                 resolutions=dict(source_revision.resolutions or {}),
                 reference_policy=dict(journey.reference_policy or {}),
                 query=retrieval_query,
-                task_id=str(task.id),
+                task_id=None if self._is_inline(task) else str(task.id),
                 model=str((task_snapshot.get("profile") or {}).get("model") or ""),
                 budget_tokens=source_budget,
+                public_demo_source=self._is_inline(task),
+                public_demo_source_fingerprint=(
+                    source_revision.fingerprint if self._is_inline(task) else None
+                ),
             )
             if compiled_source.blockers:
                 raise InteractionContextBudgetError(
@@ -443,7 +476,10 @@ class InteractionGenerationWorkflow:
                 started_epoch=journey.overview_epoch,
                 snapshot=task_snapshot,
                 origin_attempt_id=str(attempt.id),
-                origin_task_id=str(task.id),
+                origin_task_id=None if self._is_inline(task) else str(task.id),
+                executable_settings=(
+                    dict(task.executable_settings) if self._is_inline(task) else None
+                ),
             )
             if prepared_summary is None:
                 raise InteractionContextBudgetError(
@@ -472,10 +508,14 @@ class InteractionGenerationWorkflow:
             raise InteractionContextBudgetError(
                 "selected interaction path exceeds hard input budget"
             )
-        executable = await restore_project_llm_execution_settings(
-            db,
-            novel_id,
-            task_snapshot,
+        executable = (
+            dict(task.executable_settings)
+            if self._is_inline(task)
+            else await restore_project_llm_execution_settings(
+                db,
+                novel_id,
+                task_snapshot,
+            )
         )
         attempt.status = "running"
         attempt.usage = {
@@ -520,7 +560,8 @@ class InteractionGenerationWorkflow:
         usage: dict[str, int] | None = None,
         progress: float | None = None,
     ) -> int:
-        require_task_checkpoint_session(db)
+        if not self._is_inline(task):
+            require_task_checkpoint_session(db)
         novel_id, journey_id, attempt_id = self._task_ids(task)
         await require_interaction_project(db, novel_id)
         journey = await self._repo.get_journey_for_task(
@@ -531,11 +572,11 @@ class InteractionGenerationWorkflow:
         )
         if journey is None:
             raise RuntimeError("interaction journey is not active")
-        attempt = await self._repo.get_attempt_for_task(
+        attempt = await self._execution_attempt(
             db,
+            task=task,
             journey=journey,
             attempt_id=attempt_id,
-            task_id=uuid.UUID(str(task.id)),
             for_update=True,
         )
         if attempt is None or attempt.status != "running":
@@ -595,7 +636,8 @@ class InteractionGenerationWorkflow:
         finish_reason: str,
         metadata: InteractionResponseMetadata | None,
     ) -> dict[str, Any]:
-        require_task_checkpoint_session(db)
+        if not self._is_inline(task):
+            require_task_checkpoint_session(db)
         novel_id, journey_id, attempt_id = self._task_ids(task)
         await require_interaction_project(db, novel_id)
         journey = await self._repo.get_journey_for_task(
@@ -606,11 +648,11 @@ class InteractionGenerationWorkflow:
         )
         if journey is None:
             raise RuntimeError("interaction journey is not active")
-        attempt = await self._repo.get_attempt_for_task(
+        attempt = await self._execution_attempt(
             db,
+            task=task,
             journey=journey,
             attempt_id=attempt_id,
-            task_id=uuid.UUID(str(task.id)),
             for_update=True,
         )
         if attempt is None:
@@ -798,7 +840,7 @@ class InteractionGenerationWorkflow:
         self._repo.touch(journey)
 
         summary_task_id = None
-        if selected and not is_clarification:
+        if selected and not is_clarification and not self._is_inline(task):
             current_path = await self._repo.get_selected_path(db, journey=journey)
             await self._service._activate_best_overview_head(
                 db,
@@ -833,7 +875,8 @@ class InteractionGenerationWorkflow:
         error: Exception,
         visible_delta: str = "",
     ) -> None:
-        require_task_checkpoint_session(db)
+        if not self._is_inline(task):
+            require_task_checkpoint_session(db)
         novel_id, journey_id, attempt_id = self._task_ids(task)
         try:
             await require_interaction_project(db, novel_id)
@@ -846,11 +889,11 @@ class InteractionGenerationWorkflow:
             if journey is None:
                 await db.rollback()
                 return
-            attempt = await self._repo.get_attempt_for_task(
+            attempt = await self._execution_attempt(
                 db,
+                task=task,
                 journey=journey,
                 attempt_id=attempt_id,
-                task_id=uuid.UUID(str(task.id)),
                 for_update=True,
             )
             if attempt is None or attempt.status not in {
@@ -871,7 +914,11 @@ class InteractionGenerationWorkflow:
                 attempt.visible_text += visible_delta
                 attempt.visible_offset = len(attempt.visible_text)
                 attempt.last_checkpoint_at = datetime.now(UTC)
-            attempt.status = "failed"
+            attempt.status = (
+                "cancelled"
+                if isinstance(error, InteractionClientDisconnectedError)
+                else "failed"
+            )
             attempt.error_kind = kind
             attempt.error_message = message
             attempt.finish_reason = "provider_error"
@@ -965,6 +1012,7 @@ class InteractionGenerationWorkflow:
         snapshot: dict[str, Any],
         origin_attempt_id: str | None = None,
         origin_task_id: str | None = None,
+        executable_settings: dict[str, Any] | None = None,
     ) -> PreparedSummaryGeneration | None:
         head = await self._repo.get_overview_head(db, journey=journey)
         best_head = await self._service._best_overview_for_path(
@@ -1083,10 +1131,14 @@ class InteractionGenerationWorkflow:
             estimated_input_tokens = candidate_tokens
         if not chunk:
             return None
-        executable = await restore_project_llm_execution_settings(
-            db,
-            str(journey.novel_id),
-            snapshot,
+        executable = (
+            dict(executable_settings)
+            if executable_settings is not None
+            else await restore_project_llm_execution_settings(
+                db,
+                str(journey.novel_id),
+                snapshot,
+            )
         )
         current_ids = [node.id for node in current_path]
         chunk_end_index = current_ids.index(chunk[-1].id)
@@ -1122,7 +1174,8 @@ class InteractionGenerationWorkflow:
         output: InteractionSummaryOutput,
         diagnostics: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        require_task_checkpoint_session(db)
+        if not self._is_inline(task):
+            require_task_checkpoint_session(db)
         await require_interaction_project(db, prepared.novel_id)
         journey = await self._repo.get_journey_for_task(
             db,
@@ -1134,15 +1187,26 @@ class InteractionGenerationWorkflow:
             raise RuntimeError("interaction journey is not active")
         origin_attempt = None
         if prepared.origin_attempt_id is not None:
-            if prepared.origin_task_id != str(task.id):
-                raise RuntimeError("interaction urgent summary task fence mismatch")
-            origin_attempt = await self._repo.get_attempt_for_task(
-                db,
-                journey=journey,
-                attempt_id=uuid.UUID(prepared.origin_attempt_id),
-                task_id=uuid.UUID(prepared.origin_task_id),
-                for_update=True,
-            )
+            if self._is_inline(task):
+                if prepared.origin_task_id is not None:
+                    raise RuntimeError("inline summary task fence mismatch")
+                origin_attempt = await self._execution_attempt(
+                    db,
+                    task=task,
+                    journey=journey,
+                    attempt_id=uuid.UUID(prepared.origin_attempt_id),
+                    for_update=True,
+                )
+            else:
+                if prepared.origin_task_id != str(task.id):
+                    raise RuntimeError("interaction urgent summary task fence mismatch")
+                origin_attempt = await self._repo.get_attempt_for_task(
+                    db,
+                    journey=journey,
+                    attempt_id=uuid.UUID(prepared.origin_attempt_id),
+                    task_id=uuid.UUID(prepared.origin_task_id),
+                    for_update=True,
+                )
             if origin_attempt is None or origin_attempt.status != "preparing_context":
                 task.update_progress(0.12)
                 return {"status": "stale"}
@@ -1152,7 +1216,11 @@ class InteractionGenerationWorkflow:
             or [str(node.id) for node in current_path] != prepared.node_ids
             or journey.overview_epoch != prepared.started_overview_epoch
         ):
-            if current_path and await self._summary_is_due(db, journey, current_path):
+            if (
+                not self._is_inline(task)
+                and current_path
+                and await self._summary_is_due(db, journey, current_path)
+            ):
                 await _enqueue_overview_refresh_task(
                     db,
                     journey=journey,
@@ -1437,6 +1505,44 @@ class InteractionGenerationWorkflow:
         return novel_id, journey_id, attempt_id
 
     @staticmethod
+    def _is_inline(task: Any) -> bool:
+        return bool(getattr(task, "inline", False))
+
+    async def _execution_attempt(
+        self,
+        db: AsyncSession,
+        *,
+        task: Any,
+        journey: InteractionJourney,
+        attempt_id: uuid.UUID,
+        for_update: bool,
+    ) -> InteractionGenerationAttempt | None:
+        if self._is_inline(task):
+            attempt = await self._repo.get_attempt(
+                db,
+                journey=journey,
+                attempt_id=attempt_id,
+                for_update=for_update,
+            )
+            return (
+                attempt
+                if (
+                    attempt is not None
+                    and attempt.task_id is None
+                    and str((attempt.usage or {}).get("inline_execution_id") or "")
+                    == task.execution_id
+                )
+                else None
+            )
+        return await self._repo.get_attempt_for_task(
+            db,
+            journey=journey,
+            attempt_id=attempt_id,
+            task_id=uuid.UUID(str(task.id)),
+            for_update=for_update,
+        )
+
+    @staticmethod
     def _parse_node_ids(
         values: list[str],
         *,
@@ -1468,6 +1574,8 @@ class InteractionGenerationWorkflow:
 
     @staticmethod
     def _safe_story_error(error: Exception) -> tuple[str, str]:
+        if isinstance(error, InteractionClientDisconnectedError):
+            return "client_disconnected", "连接已断开，这次生成可以重新开始"
         if isinstance(error, InteractionContextBudgetError):
             default_message = (
                 "作品资料暂时无法安全引用，请查看作品资料调整后重试"

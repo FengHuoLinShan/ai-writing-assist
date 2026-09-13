@@ -17,6 +17,8 @@
   }
 
   function applyProjectStateSideEffects(key, value, oldValue, target) {
+    // Public demos must not replace a visitor's restored project selection.
+    if (globalThis.publicDemoMode) return
     if (key === "currentProjectId") {
       if (target.viewStates?.writing && oldValue !== value) {
         delete target.viewStates.writing

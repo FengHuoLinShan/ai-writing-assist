@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import get_settings
 from core.errors import NotFoundError
+from modules.account.constants import ANONYMOUS_RP_IDENTITY_TYPE
 from modules.account.context import current_principal as _current_principal
 from modules.account.contracts import (
     BOOTSTRAP_ACCOUNT_ID,
@@ -38,6 +39,25 @@ def current_account_id() -> uuid.UUID:
 def current_account_principal() -> AccountPrincipal | None:
     """Return the request principal for owner-aware domain gates."""
     return _current_principal()
+
+
+def is_demo_readonly_principal() -> bool:
+    principal = _current_principal()
+    return principal is not None and principal.access_scope == "demo_readonly"
+
+
+def current_demo_project_id() -> uuid.UUID | None:
+    principal = _current_principal()
+    if principal is None or principal.access_scope != "demo_readonly":
+        return None
+    return principal.demo_project_id
+
+
+def is_anonymous_rp_principal() -> bool:
+    principal = _current_principal()
+    return bool(
+        principal is not None and principal.identity_type == ANONYMOUS_RP_IDENTITY_TYPE
+    )
 
 
 def current_owner_id_or_system_none() -> uuid.UUID | None:

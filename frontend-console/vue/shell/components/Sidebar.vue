@@ -4,7 +4,7 @@
       <span class="creative-brand__mark" aria-hidden="true">N</span>
       <span class="creative-brand__copy"><strong>NovelCraft</strong><small>让想象，成为故事。</small></span>
     </button>
-    <button class="sidebar-project-switcher" type="button" title="切换作品" @click="$emit('navigate', 'project')">
+    <button v-if="!publicDemo" class="sidebar-project-switcher" type="button" title="切换作品" @click="$emit('navigate', 'project')">
       <span class="sidebar-project-switcher__mark" aria-hidden="true">潮</span>
       <span class="sidebar-project-switcher__copy"><small>当前作品</small><strong>{{ projectTitle || '选择作品' }}</strong></span>
       <span class="sidebar-project-switcher__chevron" aria-hidden="true">⌄</span>
@@ -12,7 +12,7 @@
     <nav aria-label="主导航">
       <span class="creative-nav-heading">创作空间</span>
       <ul id="nav-list" class="sidebar-desktop-nav">
-        <li v-for="item in SHELL_NAV_ITEMS" :key="item.view">
+        <li v-for="item in navItems" :key="item.view">
           <button type="button" class="nav-item" :class="[`nav-item--${item.view}`, { active: currentView === item.view || (item.view === 'today' && currentView === 'writing') }]"
             :data-view="item.view" :title="item.title" :aria-current="currentView === item.view || (item.view === 'today' && currentView === 'writing') ? 'page' : undefined"
             @click="$emit('navigate', item.view)"
@@ -24,7 +24,7 @@
       </ul>
     </nav>
     <div id="sidebar-context-slot" aria-label="当前页面工具"></div>
-    <div class="sidebar-footer">
+    <div v-if="!publicDemo" class="sidebar-footer">
       <details class="sidebar-more" :open="moreOpen" @toggle="moreOpen = $event.target.open">
         <summary class="nav-item" :class="{ active: moreActive }"><span class="nav-icon-frame sidebar-more__icon" aria-hidden="true">•••</span><span class="nav-label">更多工具</span></summary>
         <div class="sidebar-more__panel">
@@ -37,14 +37,14 @@
       </details>
     </div>
     <nav class="sidebar-mobile-nav" aria-label="移动端主导航">
-      <button v-for="item in SHELL_MOBILE_NAV_ITEMS" :key="item.view" type="button" :class="{ active: currentView === item.view || (item.view === 'today' && currentView === 'writing') }" @click="navigateMobile(item.view)">
+      <button v-for="item in mobileNavItems" :key="item.view" type="button" :class="{ active: currentView === item.view || (item.view === 'today' && currentView === 'writing') }" @click="navigateMobile(item.view)">
         <NavIcon :name="item.icon" /><span>{{ item.label }}</span>
       </button>
-      <button ref="mobileMoreTrigger" type="button" :class="{ active: mobileMoreOpen || moreActive }" aria-controls="sidebar-mobile-sheet" :aria-expanded="mobileMoreOpen" @click="toggleMobileMore">
+      <button v-if="!publicDemo" ref="mobileMoreTrigger" type="button" :class="{ active: mobileMoreOpen || moreActive }" aria-controls="sidebar-mobile-sheet" :aria-expanded="mobileMoreOpen" @click="toggleMobileMore">
         <span class="sidebar-more__icon" aria-hidden="true">•••</span><span>全部</span>
       </button>
     </nav>
-    <div v-if="mobileMoreOpen" id="sidebar-mobile-sheet" ref="mobileSheet" class="sidebar-mobile-sheet" role="dialog" aria-label="全部功能" @keydown.esc.stop.prevent="closeMobileMore(true)">
+    <div v-if="!publicDemo && mobileMoreOpen" id="sidebar-mobile-sheet" ref="mobileSheet" class="sidebar-mobile-sheet" role="dialog" aria-label="全部功能" @keydown.esc.stop.prevent="closeMobileMore(true)">
       <button type="button" @click="navigateMobile('map')"><NavIcon name="map" /><span>地图</span></button>
       <button type="button" @click="navigateMobile('rag')"><NavIcon name="search" /><span>查找</span></button>
       <button v-for="item in SHELL_MORE_ITEMS" :key="`mobile-${item.label}`" type="button" @click="navigateMobile(item.view)"><NavIcon :name="item.icon" /><span>{{ item.label }}</span></button>
@@ -57,13 +57,19 @@
 import { computed, nextTick, ref } from "vue"
 import NavIcon from "./NavIcon.vue"
 import { SHELL_MOBILE_NAV_ITEMS, SHELL_MORE_ITEMS, SHELL_NAV_ITEMS } from "../navigation.js"
-const props = defineProps({ currentView: { type: String, default: "project" }, projectTitle: { type: String, default: "" } })
+const props = defineProps({ currentView: { type: String, default: "project" }, projectTitle: { type: String, default: "" }, publicDemo: Boolean })
 const emit = defineEmits(["navigate", "show-help"])
 const moreOpen = ref(false)
 const mobileMoreOpen = ref(false)
 const mobileMoreTrigger = ref(null)
 const mobileSheet = ref(null)
 const moreActive = computed(() => ["generate", "project-settings", "settings"].includes(props.currentView))
+const navItems = computed(() => props.publicDemo
+  ? SHELL_NAV_ITEMS.filter((item) => ["today", "world", "outline", "map", "rag"].includes(item.view))
+  : SHELL_NAV_ITEMS)
+const mobileNavItems = computed(() => props.publicDemo
+  ? navItems.value
+  : SHELL_MOBILE_NAV_ITEMS)
 function navigateMore(item) { moreOpen.value = false; emit("navigate", item.view) }
 function navigateMobile(view) { mobileMoreOpen.value = false; emit("navigate", view) }
 async function toggleMobileMore() {

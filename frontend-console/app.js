@@ -14,13 +14,25 @@ import {
 } from "./shared/accountStorage.js"
 import { mountShell } from "./vue/shell/mountShell.js"
 import { mountAuthGate } from "./vue/auth/mountAuthGate.js"
-import { consumeEntryMode } from "./vue/auth/entryMode.js"
+import {
+  clearDemoCopyIntent,
+  consumeEntryMode,
+  hasDemoCopyIntent,
+} from "./vue/auth/entryMode.js"
 import { registerViewLoaders } from "./vue/viewLoaders.js"
 import { getThemeController } from "./vue/shell/composables/useTheme.js"
 import { notifySmartDedupChanged, registerSmartDedupManager } from "./vue/bridge/index.js"
 
 // 只注册按路由加载的 island import 函数；不会在应用启动或认证门禁期间加载业务模块。
 registerViewLoaders()
+
+function isPublicDemoRequest() {
+  try { return new URLSearchParams(globalThis.location?.search || "").get("demo") === "1" } catch { return false }
+}
+
+function isDemoRpRoute() {
+  return String(globalThis.location?.hash || "").replace(/^#/, "").split("/")[0] === "demo-rp"
+}
 
 const App = {
   _initialized: false,
@@ -33,6 +45,7 @@ const App = {
   _accountStorageHandler: null,
   _accountBoundaryInvalidated: false,
   _authGateLogoutPending: false,
+  _demoCopyError: "",
   _mountShell: mountShell,
   _reload: () => globalThis.location.reload(),
 
@@ -48,6 +61,12 @@ const App = {
         ? await api.auth.config()
         : { auth_mode: "local", wechat_enabled: false }
       globalThis.accountAuthConfig = authConfig
+      if (isPublicDemoRequest() && authConfig.demo?.enabled) {
+        return this._startPublicDemo(authConfig)
+      }
+      globalThis.publicDemoMode = false
+      globalThis.publicDemoConfig = null
+      globalThis.publicDemoRpMode = false
       if (authConfig.auth_mode === "public") {
         let account = null
         try { account = await api.auth.me() } catch (error) {
@@ -65,20 +84,25 @@ const App = {
         this._scopeBrowserState(account.id)
         globalThis.currentAccount = account
       }
+      const copiedProject = await this._copyDemoProjectIfRequested()
       this._restoreProjectState()
-      this._applyAuthenticatedEntry(consumeEntryMode())
+      const entryMode = consumeEntryMode()
+      if (copiedProject) this._openCopiedDemoProject(copiedProject)
+      else this._applyAuthenticatedEntry(entryMode)
 
-      this._smartDedup = createSmartDedupManager({
-        api,
-        router,
-        toast,
-        modal: { showModalHtml, closeModal },
-        esc,
-        onRenderActions: notifySmartDedupChanged,
-        getCurrentProjectId: () => state.currentProjectId,
-        getCurrentRouteKey: () => `${state.currentView || ""}:${state.currentSubView || ""}`,
-      })
-      this._unregisterSmartDedup = registerSmartDedupManager(this._smartDedup)
+      if (!globalThis.publicDemoMode) {
+        this._smartDedup = createSmartDedupManager({
+          api,
+          router,
+          toast,
+          modal: { showModalHtml, closeModal },
+          esc,
+          onRenderActions: notifySmartDedupChanged,
+          getCurrentProjectId: () => state.currentProjectId,
+          getCurrentRouteKey: () => `${state.currentView || ""}:${state.currentSubView || ""}`,
+        })
+        this._unregisterSmartDedup = registerSmartDedupManager(this._smartDedup)
+      }
 
       // mountShell 先创建 #workspace-content，再初始化现有 hash router。
       this._shell = await this._mountShell()
@@ -88,7 +112,18 @@ const App = {
       })
       this._unbindNavigate = typeof unsubscribe === "function" ? unsubscribe : null
 
-      this._smartDedup.syncProject(state.currentProjectId)
+      this._smartDedup?.syncProject(state.currentProjectId)
+
+      if (this._demoCopyError) {
+        toast(`已登录，但演示副本暂时无法创建。${this._demoCopyError} 刷新页面可重试。`, "error")
+        this._demoCopyError = ""
+      } else if (copiedProject) {
+        toast({
+          created: "已创建演示副本，可以开始修改和生成。",
+          existing: "已打开你已有的演示副本。",
+          restored: "已恢复并打开你的演示副本。",
+        }[copiedProject.status] || "已打开你的演示副本，可以开始修改和生成。", "success")
+      }
 
       console.log("小说结构化创作控制台 v2.0 已启动")
       return this._shell
@@ -134,6 +169,59 @@ const App = {
 
   _scopeBrowserState(accountId) {
     if (scopeBrowserStorageToAccount(accountId)) api.clearCache()
+  },
+
+  async _startPublicDemo(authConfig) {
+    const demo = authConfig.demo
+    globalThis.publicDemoMode = true
+    globalThis.publicDemoConfig = demo
+    globalThis.publicDemoRpMode = isDemoRpRoute() && demo.rp_enabled
+    if (!isDemoRpRoute() || !demo.rp_enabled) {
+      state.currentProjectId = demo.project_id
+      state.currentProject = {
+        id: demo.project_id,
+        title: demo.title || "演示项目",
+        summaryOnly: true,
+      }
+      if (!globalThis.location.hash || globalThis.location.hash === "#home") {
+        globalThis.history.replaceState(null, "", "#today")
+      }
+      if (isDemoRpRoute() && !demo.rp_enabled) {
+        globalThis.history.replaceState(null, "", "#today")
+      }
+    }
+    this._shell = await this._mountShell()
+    return this._shell
+  },
+
+  async _copyDemoProjectIfRequested() {
+    if (!hasDemoCopyIntent()) return null
+    try {
+      const result = await api.projects.demoCopy()
+      const status = String(result?.status || "")
+      if (!["created", "existing", "restored"].includes(status)) {
+        throw new Error("服务端没有确认演示副本状态")
+      }
+      const project = result?.project || null
+      const projectId = project?.id || result?.project_id || result?.id || null
+      if (!projectId) throw new Error("服务端没有返回演示副本")
+      clearDemoCopyIntent()
+      return {
+        id: projectId,
+        status,
+        title: project?.title || result?.title || "演示副本",
+        ...project,
+      }
+    } catch (error) {
+      this._demoCopyError = error?.message || "请稍后重试。"
+      return null
+    }
+  },
+
+  _openCopiedDemoProject(project) {
+    state.currentProjectId = project.id
+    state.currentProject = project
+    globalThis.history.replaceState(null, "", "#today")
   },
 
   async _logoutFromAuthGate() {

@@ -4,8 +4,9 @@
 
 project 模块负责统一项目隔离根。作者项目使用 `project_kind=author`；每个 RP 旅程另有一个
 不出现在作者项目列表/回收站的 `project_kind=interaction` 隐藏项目。
-作者项目仍是 RP 作品资料的唯一源隔离根；interaction 只能经 ADR-0018 定义的同 owner
-不可变 source revision 读取，不能把 hidden consumer 当作作者项目。
+作者项目仍是 RP 作品资料的唯一源隔离根；普通 interaction 只能经 ADR-0018 定义的同 owner
+不可变 source revision 读取。ADR-0024 只对部署精确公布且每次重验生命周期的演示 revision
+允许匿名只读引用；所有旅程与审计写入仍属于 consumer，不能把 hidden consumer 当作作者项目。
 其他模块通过 `novel_id` 引用项目，并通过 kind-aware facade 获取项目配置或门禁。
 
 ## 职责
@@ -41,6 +42,7 @@ project 模块负责统一项目隔离根。作者项目使用 `project_kind=aut
 | `project_author_preferences` | 每个项目最多一行的作者偏好覆盖 |
 | `project_author_tasks` | 按 `novel_id` 隔离的作者轻量待办；只保存封闭来源 kind + ID |
 | `smart_dedup_workbench_decisions` | 项目级去重工作台的 `keep_separate` 指纹裁决 |
+| `demo_project_copies` | 登录 owner、公开源项目和部署版本唯一的一份可编辑副本 |
 
 ### projects 表字段
 
@@ -176,6 +178,7 @@ deep-import 快照在提交时已将项目值、环境覆盖和代码默认
 | 方法 | 路径 | 用途 |
 |------|------|------|
 | POST | `/api/projects` | 创建项目 |
+| POST | `/api/projects/demo-copy` | 为当前登录 owner 幂等复制配置的公开演示项目 |
 | GET | `/api/projects` | 项目列表 |
 | GET | `/api/projects/{project_id}` | 项目详情 |
 | GET | `/api/projects/{project_id}/workspace-summary` | 作者工作台摘要：续写位置、统计、场景优先待决与最多 3 项今日任务；前端用可选 `on_date` 传作者本地日期 |
@@ -218,6 +221,13 @@ Scene、本章、项目级，再按需要决定、严重度、更新时间和稳
 
 单个和批量永久删除都必须显式提交 `confirmed=true`，且只能删除已在回收站的
 项目。批量请求会去重 ID；任一项目不在回收站时整批拒绝，不会部分删除。
+
+`demo-copy` 只接受普通已登录 owner，拒绝匿名与 `demo_readonly` principal。它按
+`(owner_id, source_project_id, source_version)` 唯一：活动副本返回 `existing`，回收站副本恢复并
+返回 `restored`，否则创建返回 `created`。副本拥有新项目与资产 UUID，重写项目内引用并复制对象
+图片和已采用地图图片到新前缀；复制失败清理已写媒体并回滚。它复制正文、World/Canon、总纲、
+Scene、来源证据、创作记忆与历史等长期作者资产，排除账户凭据、RP 旅程、助手/任务日志、临时
+候选、偏好、Context 回执与可重建检索索引。
 
 项目软删除与按 `novel_id` 取消 `pending/running` 任务在同一数据库事务中完成。
 取消会清除 lease，记录 `transition_reason="project_soft_deleted"` 和结束时间；终态任务、

@@ -12,6 +12,7 @@
     </div>
     <div class="topbar-right">
       <button v-if="assistantEnabled" type="button" class="btn btn-sm creative-assistant-button" aria-controls="project-assistant-panel" :aria-expanded="assistantOpen" @pointerdown="$emit('assistant-context')" @click="$emit('open-assistant')"><span aria-hidden="true">✦</span>项目助手</button>
+      <button v-if="publicDemo" type="button" class="btn btn-sm creative-assistant-button" @click="$emit('copy-demo')">登录并复制后尝试</button>
       <span id="topbar-status-dot" class="status-indicator" :class="connected ? 'connected' : 'disconnected'" role="status" :aria-label="connectionLabel" :title="connectionLabel"></span>
       <span id="topbar-status" class="status-text">{{ connected ? '已连接' : '未连接' }}</span>
       <div id="topbar-wordcount" class="topbar-wordcount" :class="{ hidden: !wordcountVisible }" aria-label="写作字数仪表盘">
@@ -20,7 +21,7 @@
         <span id="topbar-save-state" class="save-state" :class="wordcount.saveState" :title="saveStateTitle">◆</span>
       </div>
       <ThemePicker :model-value="theme" @update:model-value="$emit('select-theme', $event)" />
-      <details ref="accountMenu" class="topbar-account-menu">
+      <details v-if="!publicDemo" ref="accountMenu" class="topbar-account-menu">
         <summary class="avatar" role="button" :title="accountMenuLabel" aria-label="账户菜单" aria-describedby="topbar-status">U</summary>
         <div class="topbar-account-menu__panel">
           <button type="button" @click="runMenuAction('open-settings')"><strong>账户与模型连接</strong><span>管理 AI 服务和创作偏好</span></button>
@@ -49,10 +50,10 @@ const WORKSPACE_ITEMS = Object.freeze([
 const props = defineProps({
   projectTitle: { type: String, default: "" }, moduleTitle: { type: String, default: "项目" }, submoduleTitle: { type: String, default: "" },
   viewNote: { type: String, default: "" }, connected: Boolean, theme: { type: String, required: true }, wordcount: { type: Object, required: true }, wordcountVisible: Boolean,
-  assistantEnabled: Boolean, assistantOpen: Boolean,
+  assistantEnabled: Boolean, assistantOpen: Boolean, publicDemo: Boolean,
   workspaceItems: { type: Array, default: () => [] },
 })
-const emit = defineEmits(["select-theme", "manage-account", "open-settings", "show-help", "assistant-context", "open-assistant", "navigate"])
+const emit = defineEmits(["select-theme", "manage-account", "open-settings", "show-help", "assistant-context", "open-assistant", "navigate", "copy-demo"])
 const workspaceMenuItems = computed(() => props.workspaceItems.length ? props.workspaceItems : WORKSPACE_ITEMS)
 const accountMenu = ref(null)
 const connectionLabel = computed(() => props.connected ? "服务已连接" : "服务未连接")

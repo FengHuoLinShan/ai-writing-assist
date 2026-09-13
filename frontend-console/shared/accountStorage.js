@@ -1,3 +1,5 @@
+import { clearEphemeralDeepSeekKey } from "./ephemeralDeepSeekKey.js"
+
 export const ACCOUNT_MARKER_KEY = "novel_accountId"
 export const ACCOUNT_INVALIDATED_EVENT = "novel:account-invalidated"
 const THEME_STORAGE_KEY = "novel_theme"
@@ -22,7 +24,7 @@ const SESSION_STORAGE_PREFIXES = Object.freeze([
   "workflow-progress-card:",
   "workflow-progress-details:",
 ])
-const SESSION_STORAGE_KEYS = new Set(["rpSourceSetupDraft:v1"])
+const SESSION_STORAGE_KEYS = new Set(["rpSourceSetupDraft:v1", "ephemeralDeepSeekKey"])
 
 function storageKeys(storage) {
   if (!storage) return []
@@ -61,6 +63,7 @@ export function clearAccountScopedBrowserStorage({
   session = globalThis.sessionStorage,
   preserveAccountMarker = false,
 } = {}) {
+  clearEphemeralDeepSeekKey()
   const preservedLocalKeys = new Set([THEME_STORAGE_KEY])
   if (preserveAccountMarker) preservedLocalKeys.add(ACCOUNT_MARKER_KEY)
   return {

@@ -3,8 +3,11 @@ import { onBeforeUnmount, ref } from "vue"
 import "./rp-redesign.css"
 import { getApi, getAppState, getRouter, getToast } from "../../bridge/index.js"
 
-const props = defineProps({ selectionOnly: { type: Boolean, default: false } })
-const emit = defineEmits(["select"])
+const props = defineProps({
+  selectionOnly: { type: Boolean, default: false },
+  demo: { type: Object, default: null },
+})
+const emit = defineEmits(["select", "demo"])
 const openingAuthor = ref(false)
 let lifecycleGeneration = 0
 let disposed = false
@@ -57,6 +60,10 @@ function enterRp() {
   getRouter().navigate("journeys")
 }
 
+function enterDemo(target) {
+  emit("demo", target)
+}
+
 onBeforeUnmount(() => {
   disposed = true
   lifecycleGeneration += 1
@@ -84,5 +91,16 @@ onBeforeUnmount(() => {
         <i aria-hidden="true">尽情游玩吧 →</i>
       </button>
     </div>
+    <section v-if="demo?.enabled" class="entry-choice__public-demo" aria-label="无需登录的演示">
+      <span>先看看实际作品与互动故事</span>
+      <div>
+        <button type="button" data-demo-entry="workspace" @click="enterDemo('workspace')">查看演示项目</button>
+        <button v-if="demo.rp_enabled" type="button" data-demo-entry="rp" @click="enterDemo('rp')">进入演示 RP</button>
+      </div>
+    </section>
   </main>
 </template>
+
+<style scoped>
+.entry-choice__public-demo{display:grid;gap:10px;width:min(100%,720px);margin:18px auto 0;padding:16px 18px;border:1px solid var(--border);border-radius:14px;background:var(--bg-panel);color:var(--text-body)}.entry-choice__public-demo>span{font-size:14px;color:var(--text-secondary)}.entry-choice__public-demo>div{display:flex;gap:10px;flex-wrap:wrap}.entry-choice__public-demo button{min-height:40px;padding:8px 14px;border:1px solid var(--nc-primary);border-radius:9px;background:transparent;color:var(--nc-primary);font:inherit;cursor:pointer}@media(max-width:520px){.entry-choice__public-demo>div{display:grid;grid-template-columns:1fr}.entry-choice__public-demo button{width:100%}}
+</style>

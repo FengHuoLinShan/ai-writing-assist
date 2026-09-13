@@ -122,8 +122,8 @@ checkpoint `ensure` 产生隐式写入。没有显式关联对象时不回退全
 - `context_confirmations` 面向手动 AI 操作，表示用户确认过的参考资料选择。
 - `context_snapshots` 面向自动流水线审计，表示一次真实 LLM 调用使用过的上下文视图。
 
-RP source snapshot 以 `novel_id` 表示作者资料来源项目，以可空
-`consumer_novel_id` 表示隐藏 interaction 项目。它只保存 fingerprint、SourceRangeRef/对象
+RP source snapshot 以 `novel_id` 和 `consumer_novel_id` 表示隐藏 interaction consumer 项目，
+作者资料来源只通过 source revision 和 SourceRangeRef 记录，不向来源项目写审计行。它只保存 fingerprint、SourceRangeRef/对象
 引用、自然语言原因码、数量和预算摘要；编译时的 rendered source block 只用于当次请求，
 不长期持久化。来源项目或必需固定项失效时返回 blocker，interaction 不得降级到模型知识。
 
@@ -619,6 +619,13 @@ Agent 重用原 confirmation 的 selected/excluded 与可见性，不把跨 cons
 直接关联提名从首轮附完整 NeighborNominations schema，使用低强度 low 推理参数、32768输出上限和600秒受管等待，独立查证与导入调用均保持相同界限。该预算不继承账户通用输出上限，不改变深度1、引用逐字验证、只读权限或续查范围。
 
 一跳提名的 DeepSeek `low` 选项依据[官方思考模式接口](https://api-docs.deepseek.com/guides/thinking_mode/)，只改变这项只读步骤的推理强度；其他工作流设置和证据校验保持各自契约。
+
+## 公开演示 source 例外
+
+`compile_interaction_story_context()` 默认仍要求 source 与 interaction consumer 同 owner。ADR-0024 的
+`public_demo_source` 参数不能由浏览器任意放宽：它经 interaction facade 重新验证配置 revision ID、
+ready 状态、fingerprint 与 exact manifest 后才跳过这一次 owner 比较；source/consumer 的项目 kind、
+manifest/hash、章节/offset、reader/character 可见性及 snapshot 审计继续全部生效。
 ### 世界复核的精确范围
 
 world.validation.semantic 的调用方冻结原 confirmation 编译后保留的 items，而非根据 selected ID 重新读取整份未裁剪资产。确认后的模型输入、源 hash、范围与遗漏共同形成 World 回执，续接保持同一确认。pinned prose 使用 highlight_start/end 截取精确选段；Story 规划与地图当前版本只向无章节/Scene/offset 截止的作者 inspect 开放，reader/character 不走这条缺少可见性投影的路径。
