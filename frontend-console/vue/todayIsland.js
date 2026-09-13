@@ -185,6 +185,48 @@ export async function loadTodayProps() {
     }
   }
 
+  if (globalThis.publicDemoMode && !globalThis.publicDemoRpMode) {
+    try {
+      const result = await api.writing.listChapters(projectId)
+      const chapters = Array.isArray(result?.chapters) ? result.chapters : []
+      const latest = chapters.at(-1) || null
+      return {
+        project,
+        summary: {
+          project_id: projectId,
+          continuation: latest ? {
+            chapter_index: latest.chapter_index,
+            title: latest.title,
+            updated_at: latest.updated_at,
+            has_unpublished_changes: false,
+          } : null,
+          writing: {
+            chapter_count: chapters.length,
+            word_count: chapters.reduce((total, chapter) => total + Number(chapter.word_count || 0), 0),
+          },
+          attention: { items: [], actionable_total: 0 },
+        },
+        workflows: [],
+        creativeContinuation: null,
+        worldContinuations: [],
+        continuationWarning: null,
+        worldLoadError: null,
+        loadError: null,
+      }
+    } catch (error) {
+      return {
+        project,
+        summary: null,
+        workflows: [],
+        creativeContinuation: null,
+        worldContinuations: [],
+        continuationWarning: null,
+        worldLoadError: null,
+        loadError: error?.message || "正文概览暂时无法加载。",
+      }
+    }
+  }
+
   let continuationWarning = null
   const warn = (_code, message) => { continuationWarning = message }
   const pointer = readCreativeContinuation(projectId, { notify: warn })

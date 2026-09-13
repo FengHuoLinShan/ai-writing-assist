@@ -143,7 +143,7 @@ map / rag / outline / settings / project-settings`，其主 DOM 全部由 Vue SF
 | `vue/views/generate/GenerateView.vue` / `vue/components/OwnerAiDrawer.vue` | owner 页 AI 抽屉内复用生成中心：world 共创与 POV 正文都使用表单内唯一主操作，长等待显示真实阶段，失败可聚焦原位重试并保留作者输入；任务资料按作者语言展示标题、状态、加入理由和来源，技术诊断渐进展开，预览按项目在当前标签页恢复；POV 选择/指令进入既有 512 KiB 项目会话，跨世界/写作 owner 时替换到正确所属页；矮窗口解除裁切，手机操作避开固定底栏；保留 checkpoint、continuation、target 与 preset，API/schema/wire 不变；旧 `generate` hash 仅作兼容重定向 |
 | `vue/views/settings/SettingsShellView.vue` / `GlobalSettingsView.vue` / `ProjectSettingsView.vue` | `settings` 与 `project-settings` 共用单标题的账户/当前作品设置外壳；加载失败可原位重试，字段错误和保存状态持续可见，图片连接按需展开，窄屏单栏且无横向溢出；账户级连接、余额、全局偏好和项目级导入参数/作者偏好的 API、保存载荷与离开保护不变，字体和专注模式只在显示层本地化 |
 
-公开演示有已发布正文时，Today 主操作显示「阅读正式正文」并进入只读 Writing 工作台；服务端只投影 `published` 章节/版本，写入、生成、保存和发布仍由公开演示壳统一禁用。
+公开演示有已发布正文时，Today 主操作显示「阅读正式正文」并进入只读 Writing 工作台；首页只从 `published` 章节列表生成简化续读投影，不请求作者 `workspace-summary`、待办或世界工作稿；写入、生成、保存和发布仍由公开演示壳统一禁用。
 
 高级导入默认只显示系统/账户来源或「当前作品有 N 项与默认不同」和「查看专家参数」，不序列化覆盖对象；七组参数整体隐藏，展开后仍按作者问题分组，校验错误会自动打开专家区与对应分组并聚焦字段。默认值、请求 key、项目覆盖和保存 payload 不变。
 

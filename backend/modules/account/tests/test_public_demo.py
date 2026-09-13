@@ -126,6 +126,9 @@ async def test_public_demo_config_and_scoped_viewer_routes(
         config = await async_client.get("/api/auth/config")
         listing = await async_client.get("/api/projects?demo=1")
         detail = await async_client.get(f"/api/projects/{demo.id}?demo=1")
+        workspace_summary = await async_client.get(
+            f"/api/projects/{demo.id}/workspace-summary?demo=1"
+        )
         detail_with_stale_cookie = await async_client.get(
             f"/api/projects/{demo.id}?demo=1",
             headers={"Cookie": f"{SESSION_COOKIE_NAME}=stale-session"},
@@ -175,6 +178,7 @@ async def test_public_demo_config_and_scoped_viewer_routes(
         assert listing.status_code == 200
         assert [item["id"] for item in listing.json()["items"]] == [str(demo.id)]
         assert detail.status_code == 200
+        assert workspace_summary.status_code == 401
         assert detail_with_stale_cookie.status_code == 200
         assert cross_project.status_code == 401
         assert account.status_code == 401
