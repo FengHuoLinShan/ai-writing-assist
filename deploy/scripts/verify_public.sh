@@ -195,7 +195,7 @@ while IFS= read -r asset_path; do
         --output /dev/null --write-out '%{content_type}' \
         "$PUBLIC_BASE_URL$asset_path")
     case "$asset_path:$content_type" in
-        /:*text/html*|*.html:text/html*|*.js:application/javascript*|*.js:text/javascript*|*.css:text/css*|*.json:application/json*|*.txt:text/plain*|*.svg:image/svg+xml*|*.png:image/png*|*.jpg:image/jpeg*|*.jpeg:image/jpeg*|*.gif:image/gif*|*.webp:image/webp*|*.avif:image/avif*|*.woff:font/woff*|*.woff2:font/woff2*|*.woff:application/font-woff*|*.woff2:application/font-woff*|*.woff:application/octet-stream*|*.woff2:application/octet-stream*)
+        /:*text/html*|*.html:text/html*|*.js:application/javascript*|*.js:text/javascript*|*.css:text/css*|*.json:application/json*|*.txt:text/plain*|*.zip:application/zip*|*.svg:image/svg+xml*|*.png:image/png*|*.jpg:image/jpeg*|*.jpeg:image/jpeg*|*.gif:image/gif*|*.webp:image/webp*|*.avif:image/avif*|*.woff:font/woff*|*.woff2:font/woff2*|*.woff:application/font-woff*|*.woff2:application/font-woff*|*.woff:application/octet-stream*|*.woff2:application/octet-stream*)
             ;;
         *)
             echo "Unexpected content type for $asset_path: $content_type" >&2

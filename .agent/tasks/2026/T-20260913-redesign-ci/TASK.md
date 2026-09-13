@@ -3,7 +3,7 @@ id: T-20260913-redesign-ci
 title: 新版前端 CI 与行为门禁同步
 status: completed
 created: 2026-09-13T10:54:42+08:00
-updated: 2026-09-13T12:54:00+08:00
+updated: 2026-09-13T13:24:00+08:00
 ---
 
 ## 目标与边界
@@ -37,10 +37,11 @@ updated: 2026-09-13T12:54:00+08:00
 - PR 全绿后合并规则暴露 5 个未解决的自动评审线程：恢复 Ragas 兼容 pin；无当前作品时隐藏无效继续入口；checkpoint 409 即使无 `saveError` 也显示持久恢复卡；可编辑恢复稿在 URL 保留版本身份并允许同稿本地备份恢复；切换 Scene 同步 `scene_id`。对应 98 个 Vue 定向用例、ESLint 与 Python 3.12 锁定 eval 环境的 Ragas 指标导入通过。
 - 合入 `main` 后的完整 browser gate 再次在同一世界书综合用例耗尽 90 秒；trace 证明“更多工具”点击已完成，下一定位器开始时总预算仅剩约 19ms，页面与 API 均正常。该用例仍保持零重试和全部断言，只将综合流程预算提高到 180 秒。
 - 补丁 PR 的 frontend unit 暴露 API 契约扫描在慢 runner 超过 Vitest 默认预算；扫描目的仅是定位 `api.group.method`，现先用字面候选过滤，把 ESLint 解析从 178 个视图文件缩到 36 个，保留点访问和计算属性访问覆盖。
+- `c2bf4d336eb7e2e67dc738879613e4f7a928a0a1` 首次生产发布通过构建、embedding、备份、恢复演练与 migration，公网完整资产检查因 `.nctheme.zip` 的标准 `application/zip` 未列入允许类型而失败；脚本停止新应用服务并回退 checkout。随后用发布前备份和 `restore.sh` 恢复 `50e31cae470b85aaa143ee408862c0bd8fe170d3`，公网、资产、API、数据库检查全绿。发布合同现显式允许 `.zip:application/zip` 并加入脚本测试。
 - 中间诊断保留：旧依赖轮 266 passed / 6 failed / 1 interrupted 后停止（/tmp/redesign-ci-browser.log）；锁定定向过渡轮 2 passed / 2 failed（/tmp/redesign-ci-locked-targeted.log），问题均已在最终结果中复验。
 - make docs-check BASE_REF=origin/main 与 git diff --check 通过，/tmp/redesign-ci-final-docs.log。
 
 ## 环境与交付
 - 仅新建容器 novelcraft-redesign-ci-test-db（55440）与 novelcraft-redesign-ci-test-minio（59001），数据库 novelcraft_redesign_agent_e2e_test 和 novelcraft_redesign_assistant_agent_e2e_test；服务 18003/18083、18005/18085。测试完成后移除这两个容器及其匿名卷，原服务与持久演示环境保留。
 - 本地脚本和日志保留于 /tmp；浏览器诊断目录 /tmp/redesign-ci-locked-browser-results、/tmp/redesign-ci-final-writing-results、/tmp/redesign-ci-assistant-results。没有调用付费模型。
-- 完成本地实现和验证；远端 GitHub Actions、生产镜像运行及部署未执行。没有未修复的本轮功能用例失败。
+- 本地与远端 GitHub Actions 已执行；`c2bf4d336eb7e2e67dc738879613e4f7a928a0a1` 的生产发布因主题包内容类型合同失败，随后已用发布前备份恢复旧版本并通过公网、资产、API、数据库检查。内容类型修复的新版发布仍待补丁 PR 合入后执行；没有未修复的功能用例失败。
