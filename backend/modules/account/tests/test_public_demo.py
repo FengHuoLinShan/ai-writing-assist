@@ -9,7 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import Settings, get_settings
 from modules.account.constants import SESSION_COOKIE_NAME
-from modules.account.middleware import _is_demo_read_post, _is_demo_read_request
+from modules.account.middleware import (
+    _is_demo_read_post,
+    _is_demo_read_request,
+    _session_cookie_name,
+)
 from modules.account.models import Account
 from modules.account.public_demo import PublicDemoConfig, configured_public_demo
 from modules.project.models import Project
@@ -22,6 +26,20 @@ class _SessionManager:
     @asynccontextmanager
     async def session(self):
         yield self._session
+
+
+def test_demo_rp_cookie_is_selected_only_for_explicit_interaction_requests() -> None:
+    assert (
+        _session_cookie_name(
+            "/api/interactions/demo-journeys",
+            {"x-demo-rp-session": "1"},
+        )
+        == "aaw_demo_rp_session"
+    )
+    assert _session_cookie_name("/api/interactions/demo-journeys", {}) == "aaw_session"
+    assert (
+        _session_cookie_name("/api/projects", {"x-demo-rp-session": "1"}) == "aaw_session"
+    )
 
 
 @pytest.mark.asyncio

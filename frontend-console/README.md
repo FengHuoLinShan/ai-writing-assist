@@ -21,6 +21,7 @@
 
 匿名 `#demo-rp` 首先公开加载演示资料并尝试恢复现有匿名 session 与最近旅程；无 session 时不会
 自动创建匿名身份。用户勾选当前认证配置提供的用户协议与隐私政策后，点击“开始演示故事”才创建匿名 session。
+该 session 使用独立 Cookie，仅显式的演示 RP 交互请求会选择它，因此已登录作者体验演示后仍保留原账户会话。
 临时 DeepSeek Key 只保存在当前页面的 JavaScript 内存中，刷新或关闭即清除；仅在
 `POST /api/interactions/journeys/{journey_id}/attempts/{attempt_id}/stream` 的
 `X-DeepSeek-API-Key` header 中发送，登录/账户边界/会话失效时清除。匿名 v1 不提供看海、主动后台续写或网页搜索。

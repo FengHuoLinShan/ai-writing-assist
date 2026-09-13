@@ -14,7 +14,12 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from core.config import get_settings
 from core.database import get_manager
 from core.errors import NotFoundError
-from modules.account.constants import ANONYMOUS_RP_IDENTITY_TYPE, SESSION_COOKIE_NAME
+from modules.account.constants import (
+    ANONYMOUS_RP_IDENTITY_TYPE,
+    DEMO_RP_SESSION_COOKIE_NAME,
+    DEMO_RP_SESSION_HEADER,
+    SESSION_COOKIE_NAME,
+)
 from modules.account.context import bind_principal, reset_principal
 from modules.account.contracts import AccountPrincipal
 from modules.account.public_demo import PublicDemoConfig, configured_public_demo
@@ -76,6 +81,15 @@ def _anonymous_rp_path_allowed(path: str) -> bool:
     if path == "/api/interactions/demo-journeys":
         return True
     return path.startswith("/api/interactions/journeys/")
+
+
+def _session_cookie_name(path: str, headers: dict[str, str]) -> str:
+    if headers.get(DEMO_RP_SESSION_HEADER) == "1" and (
+        path == "/api/interactions/demo-journeys"
+        or path.startswith("/api/interactions/journeys/")
+    ):
+        return DEMO_RP_SESSION_COOKIE_NAME
+    return SESSION_COOKIE_NAME
 
 
 def _headers(scope: Scope) -> dict[str, str]:
@@ -248,7 +262,7 @@ class AccountAuthMiddleware:
                 reset_principal(token)
             return
 
-        raw_token = _cookie(headers, SESSION_COOKIE_NAME)
+        raw_token = _cookie(headers, _session_cookie_name(path, headers))
         if not raw_token:
             await self._reject(scope, receive, send, 401, "Authentication required")
             return

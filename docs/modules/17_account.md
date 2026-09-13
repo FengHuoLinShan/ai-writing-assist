@@ -39,7 +39,7 @@ owner 门禁。
 ## HTTP 入口
 
 - `/api/auth`：配置、邮箱登录/注册、当前账号、退出和邮箱重新认证；
-- `/api/auth/anonymous-rp`：仅在公开演示及精确 source 配置均启用后，记录条款/隐私同意并建立 24 小时匿名 RP 会话；session Cookie 为 HttpOnly，API Key 不进入 cookie、账号或会话表；
+- `/api/auth/anonymous-rp`：仅在公开演示及精确 source 配置均启用后，记录条款/隐私同意并建立 24 小时匿名 RP 会话；独立 session Cookie 为 HttpOnly，只用于显式标记的 RP 交互请求，不覆盖已登录作者会话；API Key 不进入 cookie、账号或会话表；
 - `/api/account`：延期删除状态、申请与撤销；
 - `/api/auth/wechat`：Authing 微信登录；
 - `/api/auth/reauth/wechat`：微信重新认证。

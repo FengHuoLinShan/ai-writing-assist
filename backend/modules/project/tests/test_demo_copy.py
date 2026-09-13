@@ -388,6 +388,21 @@ async def test_demo_copy_copies_world_object_media_with_fresh_keys(
     entity.image_version = uuid.uuid4()
     await db_session.flush()
     storage = _ImageStorage()
+    lock_acquired = False
+
+    async def tracked_lock(db, owner_id):
+        nonlocal lock_acquired
+        lock_acquired = True
+        return await lock_project_ids_for_owner(db, owner_id)
+
+    def require_unlocked_storage() -> None:
+        assert lock_acquired is False
+
+    storage.on_io = require_unlocked_storage
+    monkeypatch.setattr(
+        "modules.project.demo_copy.lock_project_ids_for_owner",
+        tracked_lock,
+    )
     for variant in ("full", "thumbnail"):
         source_key = image_object_key(
             str(source.id), str(entity.id), str(entity.image_version), variant
@@ -411,6 +426,7 @@ async def test_demo_copy_copies_world_object_media_with_fresh_keys(
                 )
             )
         ).scalar_one()
+        assert lock_acquired is True
         assert copied.image_version is not None
         assert copied.image_version != entity.image_version
         for variant in ("full", "thumbnail"):
@@ -493,12 +509,15 @@ async def test_demo_copy_rejects_images_above_the_account_quota(
 class _ImageStorage:
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
+        self.on_io = lambda: None
 
     async def get_webp(self, key: str, *, max_bytes: int) -> bytes:
         del max_bytes
+        self.on_io()
         return self.objects[key]
 
     async def put_webp(self, key: str, payload: bytes) -> None:
+        self.on_io()
         self.objects[key] = payload
 
     async def delete_object(self, key: str) -> None:

@@ -33,6 +33,13 @@ function _cookieValue(name) {
   return item ? decodeURIComponent(item.slice(prefix.length)) : ""
 }
 
+function _isDemoRpRequest(path) {
+  return Boolean(
+    globalThis.publicDemoRpMode
+    && String(path).split("?", 1)[0].startsWith("/interactions/"),
+  )
+}
+
 function _setAccessToken(token) {
   _accessToken = typeof token === "string" ? token.trim() : ""
   return Boolean(_accessToken)
@@ -363,9 +370,11 @@ async function request(path, options = {}) {
   const requestPath = _withPublicDemoQuery(path, method)
   const url = `${API_BASE_URL}${requestPath}`
   const isFormData = fetchOptions.body instanceof FormData
+  const demoRpRequest = _isDemoRpRequest(requestPath)
+  if (demoRpRequest) headers["X-Demo-RP-Session"] = "1"
   if (method !== "GET" && method !== "HEAD") {
     headers["X-Requested-With"] = "XMLHttpRequest"
-    const csrfToken = _cookieValue("aaw_csrf")
+    const csrfToken = _cookieValue(demoRpRequest ? "aaw_demo_rp_csrf" : "aaw_csrf")
     if (csrfToken) headers["X-CSRF-Token"] = csrfToken
   }
   if (method !== "GET" && method !== "HEAD" && !isFormData) {
@@ -1082,7 +1091,7 @@ const api = {
       ), options)
     },
     streamDemoAttempt(journeyId, attemptId, apiKey, options = {}) {
-      const csrfToken = _cookieValue("aaw_csrf")
+      const csrfToken = _cookieValue("aaw_demo_rp_csrf")
       return streamSse(
         `/interactions/journeys/${encodeURIComponent(journeyId)}/attempts/${encodeURIComponent(attemptId)}/stream`,
         {
@@ -1091,6 +1100,7 @@ const api = {
           suppressAccountInvalidation: true,
           headers: {
             "X-Requested-With": "XMLHttpRequest",
+            "X-Demo-RP-Session": "1",
             "X-DeepSeek-API-Key": String(apiKey || ""),
             ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
           },

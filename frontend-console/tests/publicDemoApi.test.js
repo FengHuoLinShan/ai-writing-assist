@@ -34,9 +34,23 @@ afterEach(() => {
   globalThis.publicDemoMode = false
   globalThis.publicDemoRpMode = false
   document.cookie = "aaw_csrf=; Max-Age=0"
+  document.cookie = "aaw_demo_rp_csrf=; Max-Age=0"
 })
 
 describe("公开演示 API 边界", () => {
+  it("只在 RP 演示中使用隔离会话", async () => {
+    const fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ items: [] }) }))
+    vi.stubGlobal("fetch", fetch)
+    globalThis.publicDemoRpMode = true
+
+    await globalThis.api.interactions.listDemoJourneys()
+
+    expect(fetch.mock.calls[0][1].headers).toMatchObject({ "X-Demo-RP-Session": "1" })
+    globalThis.publicDemoRpMode = false
+    await globalThis.api.interactions.listDemoJourneys()
+    expect(fetch.mock.calls[1][1].headers["X-Demo-RP-Session"]).toBeUndefined()
+  })
+
   it("只给只读工作台 GET 附加 demo=1", async () => {
     const fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ id: "demo-project" }) }))
     vi.stubGlobal("fetch", fetch)
@@ -60,7 +74,8 @@ describe("公开演示 API 边界", () => {
   })
 
   it("匿名 direct stream 才携带临时 DeepSeek Key，且不附加工作台 demo query", async () => {
-    document.cookie = "aaw_csrf=csrf-token"
+    document.cookie = "aaw_csrf=account-csrf-token"
+    document.cookie = "aaw_demo_rp_csrf=demo-csrf-token"
     const fetch = vi.fn(async () => sseResponse())
     vi.stubGlobal("fetch", fetch)
     globalThis.publicDemoMode = true
@@ -76,7 +91,8 @@ describe("公开演示 API 边界", () => {
     expect(fetch.mock.calls[0][1]).toMatchObject({ method: "POST" })
     expect(fetch.mock.calls[0][1].headers).toMatchObject({
       "X-DeepSeek-API-Key": "temporary-key",
-      "X-CSRF-Token": "csrf-token",
+      "X-CSRF-Token": "demo-csrf-token",
+      "X-Demo-RP-Session": "1",
     })
   })
 

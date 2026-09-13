@@ -119,7 +119,6 @@ class DemoProjectCopyService:
         self._require_account_principal()
         owner_id = current_account_id()
         await require_account_active(db, owner_id)
-        owner_project_ids = await lock_project_ids_for_owner(db, owner_id)
 
         copy = (
             await db.execute(
@@ -177,14 +176,19 @@ class DemoProjectCopyService:
             source_id=source.id,
             destination_id=destination_id,
         )
-        await self._copy_media(
+        written = await self._copy_media(
             db,
             source_id=source.id,
             destination_id=destination_id,
-            owner_project_ids=[*owner_project_ids, destination_id],
             copied_rows=copied_rows,
             rewrites=rewrites,
         )
+        try:
+            owner_project_ids = await lock_project_ids_for_owner(db, owner_id)
+            await self._require_image_quota(db, owner_project_ids)
+        except Exception:
+            await self._cleanup_media(written)
+            raise
         return DemoCopyResult(
             status="created",
             project=await self._projects.get_project(db, str(destination_id)),
@@ -376,17 +380,15 @@ class DemoProjectCopyService:
         *,
         source_id: uuid.UUID,
         destination_id: uuid.UUID,
-        owner_project_ids: list[uuid.UUID],
         copied_rows: dict[str, list[dict[str, Any]]],
         rewrites: dict[str, dict[Any, uuid.UUID]],
-    ) -> None:
+    ) -> list[tuple[Any, str]]:
         written: list[tuple[Any, str]] = []
         try:
             await self._copy_entity_images(
                 db,
                 source_id=source_id,
                 destination_id=destination_id,
-                owner_project_ids=owner_project_ids,
                 rows=copied_rows.get("core_entities", []),
                 rewrites=rewrites.get("core_entities", {}),
                 written=written,
@@ -402,6 +404,7 @@ class DemoProjectCopyService:
         except Exception:
             await self._cleanup_media(written)
             raise
+        return written
 
     async def _copy_entity_images(
         self,
@@ -409,7 +412,6 @@ class DemoProjectCopyService:
         *,
         source_id: uuid.UUID,
         destination_id: uuid.UUID,
-        owner_project_ids: list[uuid.UUID],
         rows: Iterable[dict[str, Any]],
         rewrites: dict[Any, uuid.UUID],
         written: list[tuple[Any, str]],
@@ -418,36 +420,11 @@ class DemoProjectCopyService:
         if not image_rows:
             return
         from modules.world.world_object_images import (
-            CHARACTER_IMAGE_LIMIT,
-            OTHER_IMAGE_LIMIT,
             WorldObjectImageStorage,
             image_object_key,
         )
 
         table = Base.metadata.tables["core_entities"]
-        for character, limit, label in (
-            (True, CHARACTER_IMAGE_LIMIT, "人物"),
-            (False, OTHER_IMAGE_LIMIT, "其他对象"),
-        ):
-            category = (
-                table.c.entity_type == "character"
-                if character
-                else table.c.entity_type != "character"
-            )
-            count = await db.scalar(
-                select(func.count(table.c.id)).where(
-                    table.c.novel_id.in_(owner_project_ids),
-                    table.c.image_version.is_not(None),
-                    category,
-                )
-            )
-            if int(count or 0) > limit:
-                raise DomainError(
-                    f"账号的{label}图片已达上限 {limit} 张",
-                    code="demo_image_quota_exceeded",
-                    status_code=409,
-                )
-
         try:
             storage = self._image_storage or WorldObjectImageStorage()
         except RuntimeError as exc:
@@ -456,6 +433,7 @@ class DemoProjectCopyService:
                 code="demo_media_copy_unavailable",
                 status_code=503,
             ) from exc
+
         try:
             for row in image_rows:
                 new_entity_id = rewrites.get(row["id"])
@@ -490,6 +468,40 @@ class DemoProjectCopyService:
                 code="demo_media_copy_failed",
                 status_code=503,
             ) from exc
+
+    @staticmethod
+    async def _require_image_quota(
+        db: AsyncSession,
+        owner_project_ids: list[uuid.UUID],
+    ) -> None:
+        from modules.world.world_object_images import (
+            CHARACTER_IMAGE_LIMIT,
+            OTHER_IMAGE_LIMIT,
+        )
+
+        table = Base.metadata.tables["core_entities"]
+        for character, limit, label in (
+            (True, CHARACTER_IMAGE_LIMIT, "人物"),
+            (False, OTHER_IMAGE_LIMIT, "其他对象"),
+        ):
+            category = (
+                table.c.entity_type == "character"
+                if character
+                else table.c.entity_type != "character"
+            )
+            count = await db.scalar(
+                select(func.count(table.c.id)).where(
+                    table.c.novel_id.in_(owner_project_ids),
+                    table.c.image_version.is_not(None),
+                    category,
+                )
+            )
+            if int(count or 0) > limit:
+                raise DomainError(
+                    f"账号的{label}图片已达上限 {limit} 张",
+                    code="demo_image_quota_exceeded",
+                    status_code=409,
+                )
 
     async def _copy_map_images(
         self,
