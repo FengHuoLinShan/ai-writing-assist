@@ -767,10 +767,7 @@ const api = {
       cache: "no-store",
       _suppressAccountInvalidation: true,
     }),
-    anonymousRp: () => post("/auth/anonymous-rp", {
-      accept_terms: true,
-      accept_privacy: true,
-    }, { cache: "no-store", _suppressAccountInvalidation: true }),
+    anonymousRp: (payload) => post("/auth/anonymous-rp", payload, { cache: "no-store", _suppressAccountInvalidation: true }),
     requestEmailCode: (email) =>
       post("/auth/email/request-code", { email }, { cache: "no-store" }),
     verifyEmail: (payload) =>

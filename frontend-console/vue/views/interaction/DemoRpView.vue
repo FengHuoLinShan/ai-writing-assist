@@ -12,6 +12,7 @@ import {
 } from "../../../shared/ephemeralDeepSeekKey.js"
 
 const api = getApi()
+const authConfig = globalThis.accountAuthConfig || {}
 const source = ref(null)
 const sessionReady = ref(false)
 const loading = ref(true)
@@ -22,6 +23,7 @@ const showKey = ref(false)
 const opening = ref("")
 const composer = ref("")
 const actionOptions = ref(true)
+const consent = ref(false)
 const journey = ref(null)
 const messages = ref([])
 const attempt = ref(null)
@@ -65,6 +67,8 @@ const actionChoices = computed(() => {
   const choices = latestStory.value?.action_options || journey.value?.action_options || []
   return Array.isArray(choices) ? choices : []
 })
+const termsUrl = String(authConfig.terms_url || "")
+const privacyUrl = String(authConfig.privacy_url || "")
 
 function textOf(message) {
   return String(message?.content || message?.text || "")
@@ -102,34 +106,45 @@ async function initialize() {
   loading.value = true
   error.value = ""
   try {
-    await loadExistingDemoSession()
-    sessionReady.value = true
+    source.value = await api.interactions.demoSource()
+    sessionReady.value = await restoreExistingDemoJourney()
   } catch (requestError) {
-    if (requestError?.status !== 401) {
-      showError(requestError, "演示 RP 暂时无法准备，请重试。")
-    } else {
-      try {
-        await api.auth.anonymousRp()
-        await loadExistingDemoSession()
-        sessionReady.value = true
-      } catch (sessionError) {
-        showError(sessionError, "演示 RP 暂时无法准备，请重试。")
-      }
-    }
+    showError(requestError, "演示 RP 暂时无法准备，请重试。")
   } finally {
     loading.value = false
   }
 }
 
-async function loadExistingDemoSession() {
-  source.value = await api.interactions.demoSource()
-  const result = await api.interactions.listDemoJourneys({ status: "active", limit: 1 })
-  const recent = result?.items?.[0]
-  if (!recent?.id) return
-  const restored = await api.interactions.getJourney(recent.id)
-  if (disposed || restored?.id !== recent.id) return
-  applyJourney(restored)
-  if (isGenerating.value && readEphemeralDeepSeekKey()) void followAttempt(attempt.value)
+async function restoreExistingDemoJourney() {
+  try {
+    const result = await api.interactions.listDemoJourneys({ status: "active", limit: 1 })
+    const recent = result?.items?.[0]
+    if (!recent?.id) return true
+    const restored = await api.interactions.getJourney(recent.id)
+    if (disposed || restored?.id !== recent.id) return true
+    applyJourney(restored)
+    if (isGenerating.value && readEphemeralDeepSeekKey()) void followAttempt(attempt.value)
+    return true
+  } catch (requestError) {
+    if (requestError?.status === 401) return false
+    throw requestError
+  }
+}
+
+async function startAnonymousSession() {
+  if (sessionReady.value) return true
+  if (!consent.value) {
+    error.value = "请先阅读并同意用户协议和隐私政策。"
+    return false
+  }
+  try {
+    await api.auth.anonymousRp({ accept_terms: true, accept_privacy: true })
+    sessionReady.value = true
+    return true
+  } catch (requestError) {
+    showError(requestError, "暂时无法开始演示会话，请重试。")
+    return false
+  }
 }
 
 function applyJourney(nextJourney) {
@@ -219,6 +234,7 @@ async function startJourney() {
   busy.value = true
   error.value = ""
   try {
+    if (!await startAnonymousSession()) return
     const result = await api.interactions.createDemoJourney({
       opening_text: value,
       source_setup: sourceSetup.value,
@@ -391,9 +407,10 @@ onBeforeUnmount(() => {
       </div>
       <h2 id="demo-rp-opening-title">从哪里开始？</h2>
       <p v-if="sourceAnchor">从{{ sourceAnchor.chapter_title || '已准备的剧情点' }}开始；你可以在开场里写下自己的身份和愿望。</p>
-      <textarea v-model="opening" rows="6" :disabled="loading || busy || !sessionReady" aria-label="演示旅程开场" placeholder="例如：我是初到此地的旅人，想在雨夜找到一条不被注意的小路……" @keydown="onComposerKeydown"></textarea>
+      <textarea v-model="opening" rows="6" :disabled="loading || busy" aria-label="演示旅程开场" placeholder="例如：我是初到此地的旅人，想在雨夜找到一条不被注意的小路……" @keydown="onComposerKeydown"></textarea>
       <label class="demo-rp-options"><input v-model="actionOptions" type="checkbox">生成后给我行动选项</label>
-      <button class="demo-rp-primary" type="button" :disabled="loading || busy || !opening.trim() || !sessionReady" @click="startJourney">{{ busy ? '正在开始…' : '开始演示故事' }}</button>
+      <label v-if="!sessionReady" class="demo-rp-consent"><input v-model="consent" type="checkbox">我已阅读并同意 <a v-if="termsUrl" :href="termsUrl" target="_blank" rel="noopener noreferrer">用户协议</a><span v-else>用户协议</span>和<a v-if="privacyUrl" :href="privacyUrl" target="_blank" rel="noopener noreferrer">隐私政策</a><span v-else>隐私政策</span></label>
+      <button class="demo-rp-primary" type="button" :disabled="loading || busy || !opening.trim() || (!sessionReady && !consent)" @click="startJourney">{{ busy ? '正在开始…' : '开始演示故事' }}</button>
     </section>
 
     <section v-else class="demo-rp-story" aria-label="演示故事">
@@ -442,5 +459,5 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.demo-rp-page{min-height:100dvh;max-width:920px;margin:auto;padding:clamp(20px,4vw,52px);color:var(--text-body);background:var(--bg-base)}.demo-rp-header,.demo-rp-storybar,.demo-rp-key>div,.demo-rp-composer,.demo-rp-overview header{display:flex;gap:12px;align-items:center;justify-content:space-between}.demo-rp-header{align-items:flex-start;margin-bottom:28px}.demo-rp-eyebrow{font-size:12px;letter-spacing:.12em;color:var(--text-secondary)}.demo-rp-header h1,.demo-rp-header p{margin:4px 0}.demo-rp-back{color:var(--nc-primary);white-space:nowrap}.demo-rp-opening,.demo-rp-story,.demo-rp-overview{display:grid;gap:16px;padding:clamp(18px,3vw,30px);border:1px solid var(--border);border-radius:18px;background:var(--bg-panel)}.demo-rp-key{display:grid;gap:8px;padding-bottom:16px;border-bottom:1px solid var(--border)}.demo-rp-key input{flex:1;min-width:0}.demo-rp-key p{margin:0;color:var(--text-secondary);font-size:13px;line-height:1.5}.demo-rp-options{display:flex;gap:8px;align-items:center}.demo-rp-page textarea,.demo-rp-page input{box-sizing:border-box;width:100%;padding:11px;border:1px solid var(--nc-hairline-strong);border-radius:9px;background:var(--bg-base);color:inherit;font:inherit;line-height:1.55}.demo-rp-page button{min-height:38px;padding:8px 12px;border:1px solid var(--border);border-radius:9px;background:var(--bg-muted);color:inherit;font:inherit;cursor:pointer}.demo-rp-page button:disabled{opacity:.55;cursor:not-allowed}.demo-rp-primary{background:var(--nc-primary)!important;color:var(--nc-on-primary)!important;border-color:var(--nc-primary)!important}.demo-rp-error{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:12px;border-radius:10px;background:var(--nc-error-soft);color:var(--error)}.demo-rp-story{gap:22px}.demo-rp-storybar{position:sticky;top:0;padding-bottom:12px;border-bottom:1px solid var(--border);background:var(--bg-panel);z-index:1}.demo-rp-storybar div{display:grid;gap:3px}.demo-rp-storybar span{font-size:13px;color:var(--text-secondary)}.demo-rp-message{display:grid;gap:7px;max-width:78%;padding:15px;border-radius:14px;background:var(--bg-muted)}.demo-rp-message.is-user{margin-left:auto;background:var(--nc-primary-soft)}.demo-rp-message small{color:var(--text-secondary)}.demo-rp-message-actions,.demo-rp-branches,.demo-rp-actions{display:flex;gap:8px;flex-wrap:wrap}.demo-rp-message-actions button,.demo-rp-branches button,.demo-rp-actions button{min-height:32px;font-size:13px}.demo-rp-branches{padding-top:6px}.demo-rp-composer{align-items:flex-end;border-top:1px solid var(--border);padding-top:16px}.demo-rp-composer textarea{flex:1}.demo-rp-overview{position:fixed;z-index:50;inset:5vh max(16px,calc((100vw - 820px)/2));overflow:auto;box-shadow:0 18px 55px rgb(0 0 0 / .25)}.demo-rp-overview h2,.demo-rp-overview h3,.demo-rp-overview p{margin:0}.demo-rp-overview section,.demo-rp-overview label{display:grid;gap:7px}.demo-rp-overview h3{font-size:14px;color:var(--text-secondary)}.demo-rp-overview footer{display:flex;gap:8px;justify-content:flex-end}@media(max-width:620px){.demo-rp-header,.demo-rp-key>div,.demo-rp-composer{align-items:stretch;flex-direction:column}.demo-rp-message{max-width:100%}.demo-rp-overview{inset:12px}.demo-rp-header{gap:16px}.demo-rp-back{align-self:flex-start}}
+.demo-rp-page{min-height:100dvh;max-width:920px;margin:auto;padding:clamp(20px,4vw,52px);color:var(--text-body);background:var(--bg-base)}.demo-rp-header,.demo-rp-storybar,.demo-rp-key>div,.demo-rp-composer,.demo-rp-overview header{display:flex;gap:12px;align-items:center;justify-content:space-between}.demo-rp-header{align-items:flex-start;margin-bottom:28px}.demo-rp-eyebrow{font-size:12px;letter-spacing:.12em;color:var(--text-secondary)}.demo-rp-header h1,.demo-rp-header p{margin:4px 0}.demo-rp-back{color:var(--nc-primary);white-space:nowrap}.demo-rp-opening,.demo-rp-story,.demo-rp-overview{display:grid;gap:16px;padding:clamp(18px,3vw,30px);border:1px solid var(--border);border-radius:18px;background:var(--bg-panel)}.demo-rp-key{display:grid;gap:8px;padding-bottom:16px;border-bottom:1px solid var(--border)}.demo-rp-key input{flex:1;min-width:0}.demo-rp-key p{margin:0;color:var(--text-secondary);font-size:13px;line-height:1.5}.demo-rp-options,.demo-rp-consent{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.demo-rp-consent a{color:var(--nc-primary)}.demo-rp-page textarea,.demo-rp-page input{box-sizing:border-box;width:100%;padding:11px;border:1px solid var(--nc-hairline-strong);border-radius:9px;background:var(--bg-base);color:inherit;font:inherit;line-height:1.55}.demo-rp-page button{min-height:38px;padding:8px 12px;border:1px solid var(--border);border-radius:9px;background:var(--bg-muted);color:inherit;font:inherit;cursor:pointer}.demo-rp-page button:disabled{opacity:.55;cursor:not-allowed}.demo-rp-primary{background:var(--nc-primary)!important;color:var(--nc-on-primary)!important;border-color:var(--nc-primary)!important}.demo-rp-error{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:12px;border-radius:10px;background:var(--nc-error-soft);color:var(--error)}.demo-rp-story{gap:22px}.demo-rp-storybar{position:sticky;top:0;padding-bottom:12px;border-bottom:1px solid var(--border);background:var(--bg-panel);z-index:1}.demo-rp-storybar div{display:grid;gap:3px}.demo-rp-storybar span{font-size:13px;color:var(--text-secondary)}.demo-rp-message{display:grid;gap:7px;max-width:78%;padding:15px;border-radius:14px;background:var(--bg-muted)}.demo-rp-message.is-user{margin-left:auto;background:var(--nc-primary-soft)}.demo-rp-message small{color:var(--text-secondary)}.demo-rp-message-actions,.demo-rp-branches,.demo-rp-actions{display:flex;gap:8px;flex-wrap:wrap}.demo-rp-message-actions button,.demo-rp-branches button,.demo-rp-actions button{min-height:32px;font-size:13px}.demo-rp-branches{padding-top:6px}.demo-rp-composer{align-items:flex-end;border-top:1px solid var(--border);padding-top:16px}.demo-rp-composer textarea{flex:1}.demo-rp-overview{position:fixed;z-index:50;inset:5vh max(16px,calc((100vw - 820px)/2));overflow:auto;box-shadow:0 18px 55px rgb(0 0 0 / .25)}.demo-rp-overview h2,.demo-rp-overview h3,.demo-rp-overview p{margin:0}.demo-rp-overview section,.demo-rp-overview label{display:grid;gap:7px}.demo-rp-overview h3{font-size:14px;color:var(--text-secondary)}.demo-rp-overview footer{display:flex;gap:8px;justify-content:flex-end}@media(max-width:620px){.demo-rp-header,.demo-rp-key>div,.demo-rp-composer{align-items:stretch;flex-direction:column}.demo-rp-message{max-width:100%}.demo-rp-overview{inset:12px}.demo-rp-header{gap:16px}.demo-rp-back{align-self:flex-start}}
 </style>

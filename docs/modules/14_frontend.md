@@ -127,7 +127,7 @@ map / rag / outline / settings / project-settings`，其主 DOM 全部由 Vue SF
 | 视图 | 当前职责 |
 |------|----------|
 | `vue/views/interaction/HomeChoiceView.vue` | `home` 路由与未登录公共首屏共用的双入口；公共模式只回传作者 / RP 选择，不请求受保护资料。配置启用时额外提供“查看演示项目”和“进入演示 RP”；双入口与沉浸壳跟随当前现代简约双模式而不闪白；已登录作者入口校验当前账户的已选作品并智能续接 Writing Home，无有效作品时回作品档案；RP 卡使用“进入互动故事”并解释一次角色扮演（RP） |
-| `vue/views/interaction/DemoRpView.vue` | `demo-rp` 路由；仅在公开演示配置开启时使用匿名 session 恢复最近演示旅程。开场、流式、分支、重抽、纠正、回顾和行动选项复用既有 interaction wire；不显示看海、主动后台续写或网页搜索。临时 DeepSeek Key 只存当前 tab 的 `sessionStorage`，仅随 direct SSE header 发送，匿名 session / 账户边界失效时清除。 |
+| `vue/views/interaction/DemoRpView.vue` | `demo-rp` 路由；仅在公开演示配置开启时公开加载资料并恢复已有匿名 session 的最近旅程。无 session 不自动创建身份，用户必须勾选当前认证配置的用户协议和隐私政策并点击开始后才创建。开场、流式、分支、重抽、纠正、回顾和行动选项复用既有 interaction wire；不显示看海、主动后台续写或网页搜索。临时 DeepSeek Key 只存当前 tab 的 `sessionStorage`，仅随 direct SSE header 发送，匿名 session / 账户边界失效时清除。 |
 | `vue/views/interaction/JourneyListView.vue` / `RpSourceSetup.vue` | `journeys` 路由；扁平旅程列表、新旅程、归档/搜索；归档与永久删除共用 RP 确认层，永久删除保留完整标题门禁，开场创建在原按钮公开忙碌状态；新建页按资料来源、作品/文件、整理与歧义、角色与开场四步渐进展开，已完成步骤保留摘要和返回编辑；复用现有 session、精确 source revision、整理任务、关键歧义与自然语言剧情候选的显式确认，不改创建 wire |
 | `vue/views/interaction/InteractionView.vue` | `interaction/{journey_id}` 路由；640px 舒适阅读列、可辨认且 reduced-motion 安全的流式段落、composer、分支、回顾、看海与右侧定位；内置主题菜单提供 menuitemradio、roving tabindex、方向键/Escape 与焦点归还；发送、停止、继续与重新生成提供按钮级忙碌反馈，历史段落经 RP 确认层说明后可原位建立新分支；消息操作以正文色和较小字阶常显，导出成功/失败都有反馈；source-bound 旅程从“更多 → 作品资料”抽屉查看版本/进度/本轮引用理由、固定/忽略对象并显式升级 |
 | `vue/views/project/ProjectView.vue` | `project` 路由（Vue island）；紧凑作品档案，默认主操作为“继续写作”，搜索/筛选单行展示；回收站始终可见，批量、编辑和删除在“管理作品”模式渐进展开；作品卡支持鼠标、Enter 与 Space 打开；无作品时优先显示新建与导入 |
