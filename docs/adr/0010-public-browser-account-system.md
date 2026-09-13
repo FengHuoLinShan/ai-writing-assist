@@ -56,3 +56,12 @@ owner 门禁、会话与删除策略不变。账户连接当前提供 DeepSeek �
 account 拥有；项目作者偏好、项目覆盖与 effective composition 由 project 拥有。表名、
 加密格式、secret-free snapshot 语义和一版 `/api/settings` HTTP 兼容路径不变。本说明只收紧
 代码所有权，不改变 owner + `novel_id` 隔离、图片运行时或 interaction 的隐藏项目边界。
+
+## 2026-09-14 公开演示例外
+
+部署可指定一个公开演示 source 项目和版本。未登录请求只能经服务端验证配置、精确项目路径和
+只读 allowlist 后绑定 `demo_readonly` principal；该 principal 不使用 source owner 的普通权限，
+不能访问账户/凭据、助手、任务、其他项目或任何写入。登录用户请求副本时，系统按
+`(owner_id, source_project_id, source_version)` 幂等创建或恢复一个拥有新 UUID 的作者项目，复制
+可编辑资产及私有媒体，排除凭据、RP、任务/候选和可重建索引。此例外不改变普通项目的 owner +
+`novel_id` 门禁，也不建立跨项目写入或长期 source 引用。

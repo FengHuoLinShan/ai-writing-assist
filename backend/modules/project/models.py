@@ -16,6 +16,7 @@ from sqlalchemy import (
     Index,
     String,
     Text,
+    UniqueConstraint,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -101,6 +102,41 @@ class Project(Base, UUIDMixin, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<Project id={self.id} title={self.title!r}>"
+
+
+class DemoProjectCopy(Base, UUIDMixin, TimestampMixin):
+    """One owner-visible editable copy of one configured demo revision."""
+
+    __tablename__ = "demo_project_copies"
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_id",
+            "source_project_id",
+            "source_version",
+            name="uq_demo_project_copies_owner_source_version",
+        ),
+        UniqueConstraint("project_id", name="uq_demo_project_copies_project"),
+        Index("ix_demo_project_copies_source", "source_project_id", "source_version"),
+        {"comment": "登录作者从公开演示创建的可编辑项目副本"},
+    )
+
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUIDType,
+        ForeignKey("accounts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    source_project_id: Mapped[uuid.UUID] = mapped_column(
+        UUIDType,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUIDType,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
 
 
 class SmartDedupWorkbenchDecision(Base, UUIDMixin, TimestampMixin, NovelMixin):

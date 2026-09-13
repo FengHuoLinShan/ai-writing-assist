@@ -10,6 +10,7 @@ project 模块是每部小说的根聚合。所有小说业务模块通过 `nove
 - `projects` — id / owner_id / title / genre / tone / language / target_length / current_stage / default_reveal_policy / settings / deleted_at
 - `project_author_preferences` — 每个项目最多一行的作者偏好覆盖
 - `project_author_tasks` — 按 `novel_id` 隔离的轻量作者待办；封闭来源只保存 kind + 同项目对象 ID
+- `demo_project_copies` — `(owner_id, source_project_id, source_version)` 唯一的公开演示副本标记
 
 `owner_id → accounts.id` 非空。项目 API、回收站、项目上下文和 worker 提交门禁均按当前
 owner 过滤；跨账号访问返回 404，业务响应不返回 `owner_id`。owner 门禁不替代任何
@@ -81,6 +82,7 @@ model capability profile 与 hash，业务模块不得再维护平行窗口表�
 
 ```
 POST   /api/projects                          # 创建项目
+POST   /api/projects/demo-copy                 # 当前登录 owner 幂等复制配置的公开演示
 GET    /api/projects                           # 项目列表
 GET    /api/projects/{id}                      # 项目详情
 GET    /api/projects/{id}/workspace-summary    # 今日工作只读摘要，可带作者本地 on_date
@@ -115,6 +117,12 @@ Outline seam 验证属于当前项目，并以 `chapter_ids` 或 `scene_chunks` 
 标题、可选备注/日期、`open/completed/archived` 与一个封闭来源；请求不接受 owner/
 `novel_id` 或任意路由。来源限于 `world_page | world_entity | writing_chapter | outline_scene`，
 经对应模块 facade 验证同项目。章节来源复用 Writing 的最小合法正文投影获取最新标题，创建、列表与首页均使用该路径；不加载整章正文。失效来源不删任务，已归档任务不硬删除。
+
+公开演示读取是 account middleware 服务端构造的窄 `demo_readonly` principal：只允许配置项目的
+只读核心工作台路径，项目列表也只能返回这一项；不把 demo source owner 当作普通账户范围。
+`POST /api/projects/demo-copy` 只接受普通登录 owner，按 owner/source/version 幂等返回
+`created`、`existing` 或 `restored`。副本保留可编辑作者资产并分配新 UUID、重写内部引用及复制私有
+对象/地图媒体；账户凭据、RP、助手和任务记录、候选、偏好、RAG 索引均不复制。
 
 项目级智能去重只聚合各资产模块的建议；`schema_version=2` 任务结果同时提供
 group 裁决和 legacy suggestions。group apply 必须引用原扫描任务，服务端以任务结果

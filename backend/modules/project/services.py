@@ -26,7 +26,9 @@ from infrastructure.tasks.facade import (
 )
 from modules.account.facade import (
     current_account_id,
+    current_demo_project_id,
     current_owner_id_or_system_none,
+    is_demo_readonly_principal,
     require_account_active,
 )
 from modules.project.contracts import InteractionProjectContract
@@ -152,6 +154,7 @@ class ProjectService:
     async def create_project(
         self, db: AsyncSession, data: ProjectCreate
     ) -> ProjectResponse:
+        self._reject_demo_write()
         if data.settings:
             update_shape = ProjectUpdate(settings=data.settings)
             encrypted = self._encrypt_project_settings_update(update_shape)
@@ -179,6 +182,7 @@ class ProjectService:
 
         This is intentionally not exposed by the public project API.
         """
+        self._reject_demo_write()
         owner_id = current_account_id()
         await require_account_active(db, owner_id)
         project = await self._repo.create(
@@ -198,6 +202,7 @@ class ProjectService:
 
     async def get_project(self, db: AsyncSession, project_id: str) -> ProjectResponse:
         pid = _parse_uuid(project_id, "project_id")
+        self._require_demo_project(pid)
         owner_id = self._request_owner_id()
         project = (
             await self._repo.get(db, pid, owner_id)
@@ -215,7 +220,17 @@ class ProjectService:
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> ProjectListResponse:
         limit = min(limit, MAX_PAGE_SIZE)
+        demo_project_id = current_demo_project_id()
         owner_id = self._request_owner_id()
+        if is_demo_readonly_principal() and demo_project_id is None:
+            return ProjectListResponse(items=[], total=0)
+        if demo_project_id is not None:
+            project = await self._repo.get(db, demo_project_id, owner_id)
+            if project is None:
+                return ProjectListResponse(items=[], total=0)
+            return ProjectListResponse(
+                items=[await self._response_with_stats(db, project)], total=1
+            )
         if owner_id is None:
             items, total = await self._repo.list(db, skip=skip, limit=limit)
         else:
@@ -243,6 +258,7 @@ class ProjectService:
         project_id: str,
         data: ProjectUpdate,
     ) -> ProjectResponse:
+        self._reject_demo_write()
         pid = _parse_uuid(project_id, "project_id")
         data = self._encrypt_project_settings_update(data)
         owner_id = self._request_owner_id()
@@ -273,6 +289,7 @@ class ProjectService:
         project_id: str,
         data: ProjectLLMSettingsUpdate,
     ) -> ProjectLLMSettingsResponse:
+        self._reject_demo_write()
         project = await self._get_existing_project(db, project_id)
         settings = dict(project.settings or {})
         existing_profile = get_llm_profile(settings)
@@ -355,6 +372,7 @@ class ProjectService:
         project_id: str,
         field_name: str,
     ) -> LLMFieldResetResponse:
+        self._reject_demo_write()
         from modules.project.settings_service import LLM_INHERITABLE_FIELDS
 
         if field_name not in LLM_INHERITABLE_FIELDS:
@@ -378,6 +396,7 @@ class ProjectService:
 
     async def delete_project(self, db: AsyncSession, project_id: str) -> None:
         """软删除项目，并在同一事务取消其未完成任务。"""
+        self._reject_demo_write()
         pid = _parse_uuid(project_id, "project_id")
         owner_id = self._request_owner_id()
         deleted = (
@@ -395,6 +414,7 @@ class ProjectService:
 
     async def restore_project(self, db: AsyncSession, project_id: str) -> ProjectResponse:
         """从回收站恢复项目"""
+        self._reject_demo_write()
         pid = _parse_uuid(project_id, "project_id")
         owner_id = self._request_owner_id()
         restored = (
@@ -421,6 +441,7 @@ class ProjectService:
         confirmed: bool = False,
     ) -> None:
         """永久删除项目（级联删除所有关联数据，不可恢复）"""
+        self._reject_demo_write()
         if not confirmed:
             raise ValidationError("permanent delete requires confirmed=true")
         pid = _parse_uuid(project_id, "project_id")
@@ -452,6 +473,7 @@ class ProjectService:
         confirmed: bool = False,
     ) -> ProjectBulkPermanentDeleteResponse:
         """原子地批量永久删除回收站项目。"""
+        self._reject_demo_write()
         if not confirmed:
             raise ValidationError("bulk permanent delete requires confirmed=true")
 
@@ -538,6 +560,8 @@ class ProjectService:
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> ProjectListResponse:
         """列出回收站中的项目"""
+        if is_demo_readonly_principal():
+            return ProjectListResponse(items=[], total=0)
         limit = min(limit, MAX_PAGE_SIZE)
         owner_id = self._request_owner_id()
         if owner_id is None:
@@ -559,6 +583,7 @@ class ProjectService:
         project_kind: str | None = "author",
     ) -> ProjectContext | None:
         pid = _parse_uuid(novel_id, "novel_id")
+        self._require_demo_project(pid)
         owner_id = self._request_owner_id()
         project = (
             await self._repo.get(
@@ -601,6 +626,7 @@ class ProjectService:
     ) -> None:
         """Hold a shared project row lock for the caller's transaction."""
         pid = _parse_uuid(novel_id, "novel_id")
+        self._require_demo_project(pid)
         owner_id = self._request_owner_id()
         project = (
             await self._repo.get_active_for_share(
@@ -629,6 +655,7 @@ class ProjectService:
         project_kind: str | None = "author",
     ) -> None:
         """Hold a short exclusive project lock for source-sensitive finalizers."""
+        self._reject_demo_write()
         pid = _parse_uuid(novel_id, "novel_id")
         owner_id = self._request_owner_id()
         project = (
@@ -655,6 +682,7 @@ class ProjectService:
         db: AsyncSession,
         novel_id: str,
     ) -> None:
+        self._reject_demo_write()
         pid = _parse_uuid(novel_id, "novel_id")
         owner_id = self._request_owner_id()
         deleted = await self._repo.soft_delete(
@@ -676,6 +704,7 @@ class ProjectService:
         db: AsyncSession,
         novel_id: str,
     ) -> None:
+        self._reject_demo_write()
         pid = _parse_uuid(novel_id, "novel_id")
         owner_id = self._request_owner_id()
         restored = await self._repo.restore(
@@ -692,6 +721,7 @@ class ProjectService:
         db: AsyncSession,
         novel_id: str,
     ) -> None:
+        self._reject_demo_write()
         pid = _parse_uuid(novel_id, "novel_id")
         owner_id = self._request_owner_id()
         locked = await self._repo.lock_deleted_ids_for_update(
@@ -720,6 +750,7 @@ class ProjectService:
 
     async def _get_existing_project(self, db: AsyncSession, project_id: str):
         pid = _parse_uuid(project_id, "project_id")
+        self._require_demo_project(pid)
         owner_id = self._request_owner_id()
         project = (
             await self._repo.get(db, pid, owner_id)
@@ -734,6 +765,17 @@ class ProjectService:
     def _request_owner_id() -> uuid.UUID | None:
         """Return the browser owner; public worker calls alone may return None."""
         return current_owner_id_or_system_none()
+
+    @staticmethod
+    def _require_demo_project(project_id: uuid.UUID) -> None:
+        demo_project_id = current_demo_project_id()
+        if is_demo_readonly_principal() and demo_project_id != project_id:
+            raise NotFoundError(f"Project {project_id} not found")
+
+    @staticmethod
+    def _reject_demo_write() -> None:
+        if is_demo_readonly_principal():
+            raise NotFoundError("Project not found")
 
     async def _response_with_stats(
         self,

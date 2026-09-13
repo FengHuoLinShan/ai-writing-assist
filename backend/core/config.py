@@ -476,6 +476,18 @@ class Settings:
     authing_redirect_uri: str = field(
         default_factory=lambda: _env("AUTHING_REDIRECT_URI", "")
     )
+    public_demo_enabled: bool = field(
+        default_factory=lambda: _env_bool("PUBLIC_DEMO_ENABLED", False)
+    )
+    public_demo_project_id: str = field(
+        default_factory=lambda: _env("PUBLIC_DEMO_PROJECT_ID", "")
+    )
+    public_demo_version: str = field(
+        default_factory=lambda: _env("PUBLIC_DEMO_VERSION", "")
+    )
+    public_demo_rp_enabled: bool = field(
+        default_factory=lambda: _env_bool("PUBLIC_DEMO_RP_ENABLED", False)
+    )
     http_rate_limit_per_minute: int = field(
         default_factory=lambda: _env_int("HTTP_RATE_LIMIT_PER_MINUTE", 0)
     )

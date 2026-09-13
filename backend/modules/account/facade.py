@@ -40,6 +40,18 @@ def current_account_principal() -> AccountPrincipal | None:
     return _current_principal()
 
 
+def is_demo_readonly_principal() -> bool:
+    principal = _current_principal()
+    return principal is not None and principal.access_scope == "demo_readonly"
+
+
+def current_demo_project_id() -> uuid.UUID | None:
+    principal = _current_principal()
+    if principal is None or principal.access_scope != "demo_readonly":
+        return None
+    return principal.demo_project_id
+
+
 def current_owner_id_or_system_none() -> uuid.UUID | None:
     """Resolve browser ownership while preserving the public worker seam.
 

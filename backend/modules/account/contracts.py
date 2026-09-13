@@ -18,6 +18,8 @@ class AccountPrincipal:
     session_id: uuid.UUID | None = None
     csrf_digest: str | None = None
     reauthenticated_at_epoch: float | None = None
+    access_scope: str = "account"
+    demo_project_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)

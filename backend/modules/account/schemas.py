@@ -7,6 +7,13 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 
+class PublicDemoConfigResponse(BaseModel):
+    enabled: bool = False
+    project_id: str | None = None
+    version: str | None = None
+    rp_enabled: bool = False
+
+
 class AuthConfigResponse(BaseModel):
     auth_mode: str
     email_enabled: bool
@@ -16,6 +23,7 @@ class AuthConfigResponse(BaseModel):
     terms_url: str = "/legal/terms"
     privacy_url: str = "/legal/privacy"
     support_email: str
+    demo: PublicDemoConfigResponse = Field(default_factory=PublicDemoConfigResponse)
 
 
 class EmailCodeRequest(BaseModel):

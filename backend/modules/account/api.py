@@ -19,6 +19,7 @@ from modules.account.schemas import (
     EmailCodeRequest,
     EmailCodeResponse,
     EmailVerifyRequest,
+    PublicDemoConfigResponse,
 )
 from modules.account.services import EmailVerificationRejected, LoginResult, service
 
@@ -83,6 +84,9 @@ def _verification_rejected_response(
 @router.get("/config", response_model=AuthConfigResponse)
 async def auth_config() -> AuthConfigResponse:
     settings = get_settings()
+    from modules.account.public_demo import configured_public_demo
+
+    demo = configured_public_demo(settings)
     return AuthConfigResponse(
         auth_mode=settings.auth_mode,
         email_enabled=settings.auth_mode == "public",
@@ -92,6 +96,12 @@ async def auth_config() -> AuthConfigResponse:
         terms_version=settings.terms_version,
         privacy_version=settings.privacy_version,
         support_email=settings.support_email,
+        demo=PublicDemoConfigResponse(
+            enabled=demo.enabled,
+            project_id=str(demo.project_id) if demo.project_id else None,
+            version=demo.version,
+            rp_enabled=demo.rp_enabled,
+        ),
     )
 
 

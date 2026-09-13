@@ -125,6 +125,10 @@ Context。同一任务的内部复核/格式修复复用原 confirmation；自�
 - **novel_id**：项目隔离键。唯一例外是 ADR-0018 的同 owner、显式版本化 author source →
   interaction consumer 只读引用；来源查询和 RP 写入仍分别携带各自 `novel_id`。其他流程
   都不得跨项目读写资产。
+- **公开演示**：部署配置启用时，未登录浏览器仅能以服务端构造的 `demo_readonly` principal
+  读取精确配置的 author 项目；它不是 source owner 的普通身份，不能读取其他项目、账户/凭据、
+  助手或任务，也不能写入。登录 owner 的副本始终是新 `novel_id`，按 source/version 幂等，
+  不形成跨项目引用。
 - **Schema guard**：API、LLM 结构化输出和入库都必须经过 Pydantic/调用方校验；不得
   `eval`、`exec` 或直接持久化未校验的 LLM 文本。
 
