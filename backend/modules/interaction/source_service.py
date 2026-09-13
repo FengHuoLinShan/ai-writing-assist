@@ -47,6 +47,7 @@ from modules.project.facade import (
     list_active_project_summaries,
     require_active_project,
     require_active_project_exclusive,
+    validate_configured_public_demo_project,
 )
 from modules.story.facade import get_scene_span_coverage, get_scenes_by_novel
 from modules.world.facade import (
@@ -172,37 +173,15 @@ class InteractionSourceService:
             raise NotFoundError("公开演示作品暂不可用") from exc
         if revision_id is not None and revision_id != str(configured_id):
             raise NotFoundError("公开演示作品暂不可用")
-        revision = await self._repo.get_source_revision_unscoped(
-            db,
-            revision_id=configured_id,
-        )
-        if (
-            revision is None
-            or revision.source_novel_id != demo.project_id
-            or revision.status != "ready"
-            or not revision.fingerprint
-        ):
-            raise NotFoundError("公开演示作品暂不可用")
-        if (
-            not revision.source_manifest
-            or not revision.anchor_manifest
-            or not revision.reference_manifest
-            or any(
-                not isinstance(item, dict)
-                or item.get("ambiguity_key") not in (revision.resolutions or {})
-                for item in (revision.ambiguities or [])
+        try:
+            revision = await self.validate_frozen_source_candidate(
+                db,
+                revision_id=str(configured_id),
+                configured_project_id=demo.project_id,
             )
-        ):
-            raise NotFoundError("公开演示作品暂不可用")
-        if revision.fingerprint != _fingerprint(
-            {
-                "source_manifest": revision.source_manifest,
-                "anchors": revision.anchor_manifest,
-                "references": revision.reference_manifest,
-                "ambiguities": revision.ambiguities,
-                "resolutions": revision.resolutions,
-            }
-        ):
+        except (ConflictError, NotFoundError, ValidationError) as exc:
+            raise NotFoundError("公开演示作品暂不可用") from exc
+        if revision.source_novel_id != demo.project_id:
             raise NotFoundError("公开演示作品暂不可用")
         return revision
 
@@ -231,6 +210,7 @@ class InteractionSourceService:
         db: AsyncSession,
         *,
         revision_id: str,
+        configured_project_id: uuid.UUID | None = None,
     ) -> InteractionSourceRevision:
         """Read-only acceptance gate for an operator-picked demo revision."""
         try:
@@ -243,6 +223,15 @@ class InteractionSourceService:
         )
         if revision is None or revision.status != "ready" or not revision.fingerprint:
             raise ConflictError("作品资料尚未整理完成")
+        try:
+            await validate_configured_public_demo_project(
+                db,
+                str(revision.source_novel_id),
+                str(revision.owner_id),
+                configured_project_id=(configured_project_id or revision.source_novel_id),
+            )
+        except NotFoundError as exc:
+            raise ConflictError("作品项目已不可用") from exc
         if (
             not revision.source_manifest
             or not revision.anchor_manifest

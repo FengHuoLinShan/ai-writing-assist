@@ -19,6 +19,8 @@ from modules.evidence.compilation.services.interaction_story_context import (
     InteractionStoryContextService,
 )
 from modules.evidence.facade import compile_interaction_story_context
+from modules.evidence.indexing.repositories import RagChunkRepository
+from modules.evidence.indexing.schemas import RagChunkCreate
 from modules.interaction.api import _require_non_anonymous_care
 from modules.interaction.generation import (
     PreparedStoryGeneration,
@@ -39,6 +41,8 @@ from modules.interaction.schemas import (
 from modules.interaction.services import InteractionService
 from modules.interaction.source_service import InteractionSourceService, _fingerprint
 from modules.interaction.streaming import stream_anonymous_rp_attempt
+from modules.story.outline_state.models import Scene, SceneSpan
+from modules.writing.facade import create_published_draft_only
 
 pytestmark = pytest.mark.asyncio
 
@@ -81,35 +85,92 @@ async def _public_source(db_session, project_factory):  # noqa: ANN001
         project_kind="author",
         owner_id=source_owner.id,
     )
+    source_text = ("雾从海面涌来，林默听见远处的汽笛。" * 8)[:120]
+    draft = await create_published_draft_only(
+        db_session,
+        str(source_project_id),
+        1,
+        "第一章",
+        source_text,
+    )
+    target_id = uuid.uuid4()
+    await RagChunkRepository().replace_chapter_chunks(
+        db_session,
+        source_project_id,
+        source_type="chapter_text",
+        chapter_index=1,
+        content_mode="canonical",
+        items=[
+            RagChunkCreate(
+                source_type="chapter_text",
+                source_id=str(draft.id),
+                source_content_hash=draft.content_hash,
+                content_mode="canonical",
+                chapter_index=1,
+                chunk_index=0,
+                start_offset=0,
+                end_offset=len(source_text),
+                char_count=len(source_text),
+                text=source_text,
+                character_ids=[str(target_id)],
+                entity_ids=[str(target_id)],
+                index_version="cn-novel-v1",
+            )
+        ],
+    )
+    scene = Scene(
+        novel_id=source_project_id,
+        scene_index=0,
+        title="雾港初见",
+        status="canonical",
+    )
+    db_session.add(scene)
+    await db_session.flush()
+    db_session.add(
+        SceneSpan(
+            novel_id=source_project_id,
+            scene_id=scene.id,
+            chapter_index=1,
+            content_mode="canonical",
+            source_draft_id=uuid.UUID(str(draft.id)),
+            source_content_hash=draft.content_hash,
+            start_offset=0,
+            end_offset=len(source_text),
+            part_no=1,
+            mapping_status="exact",
+            source="manual",
+            status="canonical",
+        )
+    )
     anchor = {
         "anchor_key": "a" * 64,
         "chapter_index": 1,
         "chapter_title": "第一章",
         "label": "雾港初见",
         "excerpt": "雾从海面涌来。",
-        "end_offset": 120,
-        "scene_id": None,
+        "end_offset": len(source_text),
+        "scene_id": str(scene.id),
     }
     reference_key = "c" * 64
     manifest = [
         {
-            "draft_id": str(uuid.uuid4()),
+            "draft_id": str(draft.id),
             "chapter_index": 1,
             "version_number": 1,
-            "source_hash": "b" * 64,
+            "source_hash": draft.content_hash,
             "title": "第一章",
-            "char_count": 120,
+            "char_count": len(source_text),
         }
     ]
     references = [
         {
             "reference_key": reference_key,
-            "target_id": str(uuid.uuid4()),
+            "target_id": str(target_id),
             "entity_type": "character",
             "label": "林默",
             "aliases": ["默默"],
             "first_chapter_index": 1,
-            "first_end_offset": 80,
+            "first_end_offset": min(80, len(source_text)),
         }
     ]
     revision = InteractionSourceRevision(
@@ -171,6 +232,10 @@ async def test_anonymous_demo_journey_is_isolated_and_never_enqueues(
     first_token = bind_principal(_principal(first))
     try:
         created = await service.create_demo_journey(db_session, request)
+        references = await service.get_reference_summary(
+            db_session,
+            journey_id=created.journey.id,
+        )
     finally:
         reset_principal(first_token)
 
@@ -181,6 +246,7 @@ async def test_anonymous_demo_journey_is_isolated_and_never_enqueues(
     assert attempt is not None
     assert attempt.task_id is None
     assert attempt.status == "pending"
+    assert references.source.revision_id == str(revision.id)
     assert "api_key" not in json.dumps(attempt.llm_execution_snapshot)
     assert "deepseek-v4-flash" in json.dumps(attempt.llm_execution_snapshot)
     tasks = list(
@@ -288,6 +354,31 @@ async def test_public_demo_source_must_belong_to_the_configured_project(
     monkeypatch.setattr(
         "modules.interaction.source_service.get_settings",
         lambda: _settings(revision.id, uuid.uuid4()),
+    )
+
+    with pytest.raises(NotFoundError):
+        await InteractionSourceService().public_demo_source(db_session)
+
+
+async def test_public_demo_source_fails_closed_after_the_manuscript_changes(
+    db_session,
+    project_factory,
+    monkeypatch,
+) -> None:
+    revision, _anchor, _reference_key = await _public_source(
+        db_session,
+        project_factory,
+    )
+    monkeypatch.setattr(
+        "modules.interaction.source_service.get_settings",
+        lambda: _settings(revision.id, revision.source_novel_id),
+    )
+    await create_published_draft_only(
+        db_session,
+        str(revision.source_novel_id),
+        1,
+        "第一章（已修订）",
+        "演示正文已发生变化。",
     )
 
     with pytest.raises(NotFoundError):

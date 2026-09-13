@@ -110,6 +110,30 @@ async def get_any_project_context(
     return context
 
 
+async def validate_configured_public_demo_project(
+    db: AsyncSession,
+    novel_id: str,
+    owner_id: str,
+    *,
+    configured_project_id: uuid.UUID,
+) -> None:
+    """Validate the exact deployment-published author project without caller scope."""
+    from modules.account.facade import require_account_active
+
+    project_id = uuid.UUID(novel_id)
+    if configured_project_id != project_id:
+        raise NotFoundError("Demo unavailable")
+    project = await _repo.get(
+        db,
+        project_id,
+        uuid.UUID(owner_id),
+        project_kind="author",
+    )
+    if project is None:
+        raise NotFoundError("Demo unavailable")
+    await require_account_active(db, project.owner_id)
+
+
 async def get_effective_llm_settings(
     db: AsyncSession,
     project_id: uuid.UUID | str,

@@ -5,11 +5,11 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import get_settings
-from core.errors import NotFoundError
+from core.errors import DomainError, NotFoundError
 from modules.account.context import bind_principal, reset_principal
 from modules.account.contracts import AccountPrincipal
 from modules.account.models import Account
@@ -26,7 +26,7 @@ from modules.world.map_atlas_models import MapAtlasNode, MapAtlasPage, MapAtlasR
 from modules.world.map_atlas_storage import page_object_key
 from modules.world.models import CoreEntity, EntityRelation
 from modules.world.models.authority import WorldCanonHead, WorldCanonRevision
-from modules.world.world_object_images import image_object_key
+from modules.world.world_object_images import CHARACTER_IMAGE_LIMIT, image_object_key
 from modules.writing.models import WritingDraft
 
 
@@ -427,6 +427,69 @@ async def test_demo_copy_copies_world_object_media_with_fresh_keys(
         get_settings.cache_clear()
 
 
+@pytest.mark.asyncio
+async def test_demo_copy_rejects_images_above_the_account_quota(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _source_owner, target_owner, source = await _seed_source(db_session)
+    source_entity = (
+        await db_session.execute(
+            select(CoreEntity).where(
+                CoreEntity.novel_id == source.id,
+                CoreEntity.name == "林舟",
+            )
+        )
+    ).scalar_one()
+    source_entity.image_version = uuid.uuid4()
+    quota_project = Project(
+        owner_id=target_owner.id,
+        title="图片配额",
+        language="zh",
+        default_reveal_policy="author_safe",
+        settings={},
+    )
+    db_session.add(quota_project)
+    await db_session.flush()
+    db_session.add_all(
+        [
+            CoreEntity(
+                novel_id=quota_project.id,
+                entity_type="character",
+                name=f"已有人物 {index}",
+                status="canonical",
+                image_version=uuid.uuid4(),
+            )
+            for index in range(CHARACTER_IMAGE_LIMIT)
+        ]
+    )
+    await db_session.flush()
+    storage = _ImageStorage()
+    for variant in ("full", "thumbnail"):
+        storage.objects[
+            image_object_key(
+                str(source.id),
+                str(source_entity.id),
+                str(source_entity.image_version),
+                variant,
+            )
+        ] = variant.encode()
+
+    monkeypatch.setenv("AUTH_MODE", "local")
+    monkeypatch.setenv("PUBLIC_DEMO_ENABLED", "true")
+    monkeypatch.setenv("PUBLIC_DEMO_PROJECT_ID", str(source.id))
+    monkeypatch.setenv("PUBLIC_DEMO_VERSION", "image-quota")
+    get_settings.cache_clear()
+    token = bind_principal(_principal(target_owner))
+    try:
+        with pytest.raises(DomainError, match="人物图片已达上限"):
+            await DemoProjectCopyService(image_storage=storage).copy(db_session)
+        assert len(storage.objects) == 2
+    finally:
+        reset_principal(token)
+        get_settings.cache_clear()
+
+
 class _ImageStorage:
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
@@ -449,6 +512,11 @@ async def test_demo_copy_rewrites_map_media_into_the_destination_prefix(
 ) -> None:
     _source_owner, target_owner, source = await _seed_source(db_session)
     run = MapAtlasRun(novel_id=source.id, run_kind="initial", status="completed")
+    unfinished_run = MapAtlasRun(
+        novel_id=source.id,
+        run_kind="update",
+        status="partial",
+    )
     node = MapAtlasNode(
         novel_id=source.id,
         semantic_key="world",
@@ -456,7 +524,7 @@ async def test_demo_copy_rewrites_map_media_into_the_destination_prefix(
         level="world",
         status="adopted",
     )
-    db_session.add_all([run, node])
+    db_session.add_all([run, unfinished_run, node])
     await db_session.flush()
     page = MapAtlasPage(
         novel_id=source.id,
@@ -469,6 +537,18 @@ async def test_demo_copy_rewrites_map_media_into_the_destination_prefix(
         prompt="世界地图",
     )
     db_session.add(page)
+    db_session.add(
+        MapAtlasPage(
+            novel_id=source.id,
+            run_id=unfinished_run.id,
+            node_id=node.id,
+            generation_status="review_ready",
+            review_status="adopted",
+            title="未完成地图",
+            visual_brief="尚未收口",
+            prompt="不应复制",
+        )
+    )
     await db_session.flush()
     source_key = page_object_key(str(source.id), str(page.id))
     page.object_key = source_key
@@ -495,6 +575,15 @@ async def test_demo_copy_rewrites_map_media_into_the_destination_prefix(
         copied_run = await db_session.get(MapAtlasRun, copied_page.run_id)
         assert copied_run is not None
         assert copied_run.task_id is None
+        assert copied_run.status == "completed"
+        assert (
+            await db_session.scalar(
+                select(func.count(MapAtlasRun.id)).where(
+                    MapAtlasRun.novel_id == copied_id
+                )
+            )
+            == 1
+        )
     finally:
         reset_principal(token)
         get_settings.cache_clear()

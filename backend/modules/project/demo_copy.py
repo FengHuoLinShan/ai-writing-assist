@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.schema import Table
 
@@ -119,7 +119,7 @@ class DemoProjectCopyService:
         self._require_account_principal()
         owner_id = current_account_id()
         await require_account_active(db, owner_id)
-        await lock_project_ids_for_owner(db, owner_id)
+        owner_project_ids = await lock_project_ids_for_owner(db, owner_id)
 
         copy = (
             await db.execute(
@@ -181,6 +181,7 @@ class DemoProjectCopyService:
             db,
             source_id=source.id,
             destination_id=destination_id,
+            owner_project_ids=[*owner_project_ids, destination_id],
             copied_rows=copied_rows,
             rewrites=rewrites,
         )
@@ -292,6 +293,8 @@ class DemoProjectCopyService:
 
     @staticmethod
     def _copyable_row(table: Table, row: dict[str, Any]) -> bool:
+        if table.name == "map_atlas_runs":
+            return row.get("status") == "completed"
         if table.name == "map_atlas_pages":
             return row.get("review_status") in {"adopted", "deprecated"}
         status = row.get("status")
@@ -373,6 +376,7 @@ class DemoProjectCopyService:
         *,
         source_id: uuid.UUID,
         destination_id: uuid.UUID,
+        owner_project_ids: list[uuid.UUID],
         copied_rows: dict[str, list[dict[str, Any]]],
         rewrites: dict[str, dict[Any, uuid.UUID]],
     ) -> None:
@@ -382,6 +386,7 @@ class DemoProjectCopyService:
                 db,
                 source_id=source_id,
                 destination_id=destination_id,
+                owner_project_ids=owner_project_ids,
                 rows=copied_rows.get("core_entities", []),
                 rewrites=rewrites.get("core_entities", {}),
                 written=written,
@@ -404,6 +409,7 @@ class DemoProjectCopyService:
         *,
         source_id: uuid.UUID,
         destination_id: uuid.UUID,
+        owner_project_ids: list[uuid.UUID],
         rows: Iterable[dict[str, Any]],
         rewrites: dict[Any, uuid.UUID],
         written: list[tuple[Any, str]],
@@ -412,9 +418,35 @@ class DemoProjectCopyService:
         if not image_rows:
             return
         from modules.world.world_object_images import (
+            CHARACTER_IMAGE_LIMIT,
+            OTHER_IMAGE_LIMIT,
             WorldObjectImageStorage,
             image_object_key,
         )
+
+        table = Base.metadata.tables["core_entities"]
+        for character, limit, label in (
+            (True, CHARACTER_IMAGE_LIMIT, "人物"),
+            (False, OTHER_IMAGE_LIMIT, "其他对象"),
+        ):
+            category = (
+                table.c.entity_type == "character"
+                if character
+                else table.c.entity_type != "character"
+            )
+            count = await db.scalar(
+                select(func.count(table.c.id)).where(
+                    table.c.novel_id.in_(owner_project_ids),
+                    table.c.image_version.is_not(None),
+                    category,
+                )
+            )
+            if int(count or 0) > limit:
+                raise DomainError(
+                    f"账号的{label}图片已达上限 {limit} 张",
+                    code="demo_image_quota_exceeded",
+                    status_code=409,
+                )
 
         try:
             storage = self._image_storage or WorldObjectImageStorage()
@@ -425,7 +457,6 @@ class DemoProjectCopyService:
                 status_code=503,
             ) from exc
         try:
-            table = Base.metadata.tables["core_entities"]
             for row in image_rows:
                 new_entity_id = rewrites.get(row["id"])
                 if new_entity_id is None:

@@ -625,8 +625,15 @@ class InteractionService:
         journey = await self._owned_journey(db, journey_id)
         if journey.source_revision_id is None:
             raise ConflictError("该旅程未使用作品资料")
-        revision = await self._sources.require_ready_revision(
-            db, journey.source_revision_id
+        revision = (
+            await self._sources.require_public_demo_ready_revision(
+                db,
+                revision_id=str(journey.source_revision_id),
+            )
+            if is_anonymous_rp_principal()
+            else await self._sources.require_ready_revision(
+                db, journey.source_revision_id
+            )
         )
         references = {
             item["reference_key"]: item for item in revision.reference_manifest or []

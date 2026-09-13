@@ -4,8 +4,9 @@
 
 project 模块负责统一项目隔离根。作者项目使用 `project_kind=author`；每个 RP 旅程另有一个
 不出现在作者项目列表/回收站的 `project_kind=interaction` 隐藏项目。
-作者项目仍是 RP 作品资料的唯一源隔离根；interaction 只能经 ADR-0018 定义的同 owner
-不可变 source revision 读取，不能把 hidden consumer 当作作者项目。
+作者项目仍是 RP 作品资料的唯一源隔离根；普通 interaction 只能经 ADR-0018 定义的同 owner
+不可变 source revision 读取。ADR-0024 只对部署精确公布且每次重验生命周期的演示 revision
+允许匿名只读引用；所有旅程与审计写入仍属于 consumer，不能把 hidden consumer 当作作者项目。
 其他模块通过 `novel_id` 引用项目，并通过 kind-aware facade 获取项目配置或门禁。
 
 ## 职责
