@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.schema import Table
 
@@ -53,6 +53,7 @@ _COPY_TABLE_NAMES = (
     "world_bible_pages",
     "world_bible_page_revisions",
     "world_bible_page_projections",
+    "world_bible_page_drafts",
     "knowledge_tags",
     "knowledge_visibility_policies",
     "reader_reveal_policies",
@@ -75,6 +76,14 @@ _COPY_TABLE_NAMES = (
     "story_character_card_revisions",
     "story_scene_script_files",
     "story_scene_script_revisions",
+    "world_canon_revisions",
+    "world_canon_heads",
+    "memory_events",
+    "memory_snapshots",
+    "delta_log",
+    "memory_scene_checkpoints",
+    "memory_scene_snapshots",
+    "evidence_links",
     "map_atlas_runs",
     "map_atlas_nodes",
     "map_atlas_revisions",
@@ -82,12 +91,6 @@ _COPY_TABLE_NAMES = (
     "map_atlas_annotations",
 )
 _CANDIDATE_STATUSES = {"candidate", "pending", "rejected", "failed"}
-_DEFERRED_FOREIGN_COLUMNS = {
-    "adopted_revision_id",
-    "current_revision_id",
-    "derived_from_page_id",
-    "parent_id",
-}
 _DERIVED_COLUMNS = {"embedding", "embedding_text", "pinyin_string", "search_text"}
 
 
@@ -244,6 +247,17 @@ class DemoProjectCopyService:
             for table_rewrites in rewrites.values()
             for source, replacement in table_rewrites.items()
         }
+        if rows_by_table.get("world_canon_revisions"):
+            canon_heads = Base.metadata.tables["world_canon_heads"]
+            canon_revisions = Base.metadata.tables["world_canon_revisions"]
+            await db.execute(
+                delete(canon_heads).where(canon_heads.c.novel_id == destination_id)
+            )
+            await db.execute(
+                delete(canon_revisions).where(
+                    canon_revisions.c.novel_id == destination_id
+                )
+            )
         deferred: list[tuple[Table, uuid.UUID, str, uuid.UUID]] = []
         for position, table in enumerate(tables):
             for row in rows_by_table[table.name]:
@@ -345,11 +359,7 @@ class DemoProjectCopyService:
                     continue
                 return None
             target_after_current = positions.get(target.name, -1) > table_position
-            if (
-                column.name in _DEFERRED_FOREIGN_COLUMNS
-                or target.name == table.name
-                or target_after_current
-            ):
+            if target.name == table.name or target_after_current:
                 values[column.name] = None
                 if "id" in values:
                     deferred.append((table, values["id"], column.name, replacement))

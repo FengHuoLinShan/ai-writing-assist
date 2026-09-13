@@ -7,10 +7,10 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.config import get_settings
+from core.config import Settings, get_settings
 from modules.account.middleware import _is_demo_read_post, _is_demo_read_request
 from modules.account.models import Account
-from modules.account.public_demo import PublicDemoConfig
+from modules.account.public_demo import PublicDemoConfig, configured_public_demo
 from modules.project.models import Project
 
 
@@ -70,6 +70,16 @@ async def test_public_demo_config_and_scoped_viewer_routes(
         assistant = await async_client.get(
             f"/api/assistant/capabilities?novel_id={demo.id}&demo=1"
         )
+        demo_search = await async_client.post(
+            "/api/evidence/compilation/evidence/search?demo=1",
+            json={"novel_id": str(demo.id), "query": "演示"},
+            headers={"Origin": "http://test"},
+        )
+        cross_search = await async_client.post(
+            "/api/evidence/compilation/evidence/search?demo=1",
+            json={"novel_id": str(private.id), "query": "私有"},
+            headers={"Origin": "http://test"},
+        )
         mutated = await async_client.put(
             f"/api/projects/{demo.id}?demo=1",
             json={"title": "不应写入"},
@@ -87,6 +97,8 @@ async def test_public_demo_config_and_scoped_viewer_routes(
         assert cross_project.status_code == 401
         assert account.status_code == 401
         assert assistant.status_code == 401
+        assert demo_search.status_code == 200
+        assert cross_search.status_code == 404
         assert mutated.status_code == 401
         assert (await db_session.get(Project, demo.id)).title == "公开演示"
     finally:
@@ -147,9 +159,21 @@ def test_demo_route_policy_covers_path_scoped_core_reads_only() -> None:
         method="GET",
         config=config,
     )
+    assert _is_demo_read_request(
+        map_scope,
+        path=f"/api/world/map-atlas/{project_id}/runs/latest",
+        method="GET",
+        config=config,
+    )
     assert _is_demo_read_post(
         retrieval_scope,
         path="/api/evidence/indexing/retrieve",
+        method="POST",
+        config=config,
+    )
+    assert _is_demo_read_post(
+        {"query_string": b"demo=1"},
+        path="/api/evidence/compilation/evidence/search",
         method="POST",
         config=config,
     )
@@ -170,4 +194,22 @@ def test_demo_route_policy_covers_path_scoped_core_reads_only() -> None:
         path="/api/world/cocreation/sessions",
         method="GET",
         config=config,
+    )
+
+
+def test_rp_entry_requires_a_valid_configured_source_revision() -> None:
+    project_id = str(uuid.uuid4())
+    base = {
+        "public_demo_enabled": True,
+        "public_demo_project_id": project_id,
+        "public_demo_version": "v1",
+        "public_demo_rp_enabled": True,
+    }
+
+    assert configured_public_demo(Settings(**base)).rp_enabled is False
+    assert (
+        configured_public_demo(
+            Settings(**base, public_demo_rp_source_revision_id=str(uuid.uuid4()))
+        ).rp_enabled
+        is True
     )

@@ -48,6 +48,10 @@ beforeEach(() => {
       sendMessage: vi.fn(),
       editUserMessage: vi.fn(),
       regenerate: vi.fn(),
+      retryAttempt: vi.fn(async () => ({
+        journey: journey({ selection_epoch: 2 }),
+        attempt: { id: "attempt-2", status: "pending", visible_text: "" },
+      })),
       listBranches: vi.fn(),
       selectBranch: vi.fn(),
       getOverview: vi.fn(),
@@ -67,7 +71,9 @@ describe("匿名演示 RP", () => {
     api.interactions.demoSource.mockReset().mockResolvedValue(source)
     api.interactions.listDemoJourneys.mockResolvedValue({ items: [{ id: "journey-1" }] })
     api.interactions.getJourney.mockResolvedValue(journey({
+      setup_messages: [{ id: "setup-1", role: "user", message_kind: "setup", content: "我从雨夜进入雾港。" }],
       messages: [{ id: "story-1", role: "assistant", message_kind: "story", content: "已经抵达的故事。" }],
+      active_attempt: { id: "attempt-1", status: "failed", error_message: "这次生成未完成，请重新生成" },
     }))
 
     const wrapper = mount(DemoRpView)
@@ -76,7 +82,9 @@ describe("匿名演示 RP", () => {
 
     expect(api.auth.anonymousRp).not.toHaveBeenCalled()
     expect(api.interactions.getJourney).toHaveBeenCalledWith("journey-1")
+    expect(wrapper.text()).toContain("我从雨夜进入雾港。")
     expect(wrapper.text()).toContain("已经抵达的故事。")
+    expect(wrapper.text()).toContain("这次生成未完成，请重新生成")
   })
 
   it("只在勾选协议后创建匿名会话", async () => {
@@ -143,6 +151,20 @@ describe("匿名演示 RP", () => {
 
     expect(api.interactions.getJourney).toHaveBeenCalledWith("journey-1")
     expect(wrapper.text()).toContain("请求过快，模型服务需要稍等片刻。")
+    await wrapper.findAll("button").find((button) => button.text() === "换 Key 后重试").trigger("click")
+    await flushPromises()
+
+    expect(api.interactions.retryAttempt).toHaveBeenCalledWith(
+      "journey-1",
+      "attempt-1",
+      expect.objectContaining({ expected_selection_epoch: 1 }),
+    )
+    expect(api.interactions.streamDemoAttempt).toHaveBeenLastCalledWith(
+      "journey-1",
+      "attempt-2",
+      "temporary-key",
+      expect.any(Object),
+    )
   })
 
   it("只把临时 Key 留在 sessionStorage，并只在 direct stream 中发送", async () => {

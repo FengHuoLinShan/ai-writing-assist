@@ -29,9 +29,17 @@ def configured_public_demo(settings: Settings | None = None) -> PublicDemoConfig
         project_id = uuid.UUID(raw_project_id)
     except (AttributeError, TypeError, ValueError):
         return PublicDemoConfig(enabled=False)
+    rp_enabled = False
+    if settings.public_demo_rp_enabled:
+        try:
+            uuid.UUID(settings.public_demo_rp_source_revision_id)
+        except (AttributeError, TypeError, ValueError):
+            pass
+        else:
+            rp_enabled = True
     return PublicDemoConfig(
         enabled=True,
         project_id=project_id,
         version=version,
-        rp_enabled=settings.public_demo_rp_enabled,
+        rp_enabled=rp_enabled,
     )

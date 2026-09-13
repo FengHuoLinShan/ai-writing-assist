@@ -163,9 +163,17 @@ function _cacheKey(path, options) {
   return `${method}:${path}`
 }
 
+const PUBLIC_DEMO_READONLY_POST_PATHS = new Set([
+  "/evidence/compilation/evidence/grep",
+  "/evidence/compilation/evidence/search",
+  "/evidence/compilation/evidence/read",
+])
+
 function _withPublicDemoQuery(path, method) {
-  if (method !== "GET" || !globalThis.publicDemoMode || globalThis.publicDemoRpMode) return path
+  if (!globalThis.publicDemoMode || globalThis.publicDemoRpMode) return path
   const [pathname, query = ""] = String(path).split("?", 2)
+  const readonlyPost = method === "POST" && PUBLIC_DEMO_READONLY_POST_PATHS.has(pathname)
+  if (method !== "GET" && !readonlyPost) return path
   const params = new URLSearchParams(query)
   if (!params.has("demo")) params.set("demo", "1")
   return `${pathname}?${params.toString()}`
@@ -408,7 +416,10 @@ async function request(path, options = {}) {
       }
 
       if (!resp.ok) {
-        if (resp.status === 401) {
+        if (
+          resp.status === 401
+          && !(globalThis.publicDemoMode && !globalThis.publicDemoRpMode)
+        ) {
           _handleUnauthorizedResponse({
             invalidateAccount: !_suppressAccountInvalidation,
           })

@@ -13,16 +13,19 @@ from core.errors import NotFoundError
 from modules.account.context import bind_principal, reset_principal
 from modules.account.contracts import AccountPrincipal
 from modules.account.models import Account
+from modules.evidence.compilation.models import EvidenceLink
 from modules.imports.models import ImportedChapter, ImportRecord
 from modules.project.demo_copy import DemoProjectCopyService
 from modules.project.facade import lock_project_ids_for_owner
 from modules.project.models import DemoProjectCopy, Project
 from modules.project.schemas import ProjectCreate
 from modules.project.services import ProjectService
+from modules.story.continuity.models import MemoryEvent
 from modules.story.outline_state.models import StoryOutlineHead, StoryOutlineRevision
 from modules.world.map_atlas_models import MapAtlasNode, MapAtlasPage, MapAtlasRun
 from modules.world.map_atlas_storage import page_object_key
 from modules.world.models import CoreEntity, EntityRelation
+from modules.world.models.authority import WorldCanonHead, WorldCanonRevision
 from modules.world.world_object_images import image_object_key
 from modules.writing.models import WritingDraft
 
@@ -123,10 +126,49 @@ async def _seed_source(db: AsyncSession) -> tuple[Account, Account, Project]:
         relation_kind="spatial",
         status="canonical",
     )
+    memory_event = MemoryEvent(
+        novel_id=source.id,
+        chapter_index=1,
+        scene_id=None,
+        scene_index=None,
+        scene_sequence=None,
+        dimension="entities",
+        sequence=1,
+        event_type="entity_updated",
+        entity_id=first.id,
+        entity_type="character",
+        snapshot_before=None,
+        snapshot_after={"entity_id": str(first.id), "project_id": str(source.id)},
+        source="manual_edit",
+    )
+    evidence = EvidenceLink(
+        novel_id=source.id,
+        target_ref={"entity_id": str(first.id)},
+        target_hash="c" * 64,
+        claim_path="summary",
+        evidence_type="manuscript",
+        source_ref={"chapter_index": 1, "project_id": str(source.id)},
+        precision="range",
+        status="active",
+        provenance={},
+    )
+    canon_revision = WorldCanonRevision(
+        novel_id=source.id,
+        version_number=1,
+        parent_revision_id=None,
+        manifest_json={"entity_id": str(first.id), "project_id": str(source.id)},
+        manifest_digest="d" * 64,
+        receipt_json={},
+        decision_id=uuid.uuid4(),
+        decision_digest="e" * 64,
+    )
     db.add_all(
         [
             chapter,
             relation,
+            memory_event,
+            evidence,
+            canon_revision,
             WritingDraft(
                 novel_id=source.id,
                 chapter_index=1,
@@ -146,6 +188,13 @@ async def _seed_source(db: AsyncSession) -> tuple[Account, Account, Project]:
                 status="candidate",
             ),
         ]
+    )
+    await db.flush()
+    db.add(
+        WorldCanonHead(
+            novel_id=source.id,
+            current_revision_id=canon_revision.id,
+        )
     )
     await db.flush()
     return source_owner, target_owner, source
@@ -220,6 +269,36 @@ async def test_demo_copy_rewrites_author_assets_and_is_idempotent(
         ).scalar_one()
         assert copied_relation.source_id == copied_entities["林舟"].id
         assert copied_relation.target_id == copied_entities["雾港"].id
+
+        copied_memory = (
+            await db_session.execute(
+                select(MemoryEvent).where(MemoryEvent.novel_id == copied_id)
+            )
+        ).scalar_one()
+        assert copied_memory.entity_id == copied_entities["林舟"].id
+        assert copied_memory.snapshot_after == {
+            "entity_id": str(copied_entities["林舟"].id),
+            "project_id": str(copied_id),
+        }
+        copied_evidence = (
+            await db_session.execute(
+                select(EvidenceLink).where(EvidenceLink.novel_id == copied_id)
+            )
+        ).scalar_one()
+        assert copied_evidence.target_ref == {
+            "entity_id": str(copied_entities["林舟"].id)
+        }
+        copied_canon_head = await db_session.get(WorldCanonHead, copied_id)
+        assert copied_canon_head is not None
+        copied_canon = await db_session.get(
+            WorldCanonRevision,
+            copied_canon_head.current_revision_id,
+        )
+        assert copied_canon is not None
+        assert copied_canon.manifest_json == {
+            "entity_id": str(copied_entities["林舟"].id),
+            "project_id": str(copied_id),
+        }
         source_outline = (
             await db_session.execute(
                 select(StoryOutlineRevision).where(

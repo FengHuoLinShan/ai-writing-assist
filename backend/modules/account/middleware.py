@@ -23,6 +23,7 @@ from modules.account.services import service
 _PUBLIC_AUTH_PATHS = {
     "/api/auth/config",
     "/api/auth/anonymous-rp",
+    "/api/demo/rp-source",
     "/api/auth/email/request-code",
     "/api/auth/email/verify",
     "/api/auth/wechat/start",
@@ -54,6 +55,12 @@ _DEMO_SENSITIVE_READ_SEGMENTS = (
     "/tasks",
     "/validation",
 )
+_DEMO_READONLY_POST_PATHS = {
+    "/api/evidence/compilation/evidence/grep",
+    "/api/evidence/compilation/evidence/search",
+    "/api/evidence/compilation/evidence/read",
+    "/api/evidence/indexing/retrieve",
+}
 
 
 def _anonymous_rp_path_allowed(path: str) -> bool:
@@ -129,12 +136,16 @@ def _is_demo_read_request(
     """Accept only server-configured, project-scoped core workspace reads."""
     if method != "GET" or not config.enabled or config.project_id is None:
         return False
-    if any(segment in path for segment in _DEMO_SENSITIVE_READ_SEGMENTS):
-        return False
     query = _query(scope)
     if _single_query_value(query, "demo") != "1":
         return False
     configured_id = str(config.project_id)
+    map_run_read = path.startswith(f"/api/world/map-atlas/{configured_id}/runs/")
+    if (
+        any(segment in path for segment in _DEMO_SENSITIVE_READ_SEGMENTS)
+        and not map_run_read
+    ):
+        return False
     if path == "/api/projects":
         return True
     if path in {
@@ -157,15 +168,17 @@ def _is_demo_read_post(
 ) -> bool:
     if (
         method != "POST"
-        or path != "/api/evidence/indexing/retrieve"
+        or path not in _DEMO_READONLY_POST_PATHS
         or not config.enabled
         or config.project_id is None
     ):
         return False
     query = _query(scope)
-    return _single_query_value(query, "demo") == "1" and _has_configured_project_query(
-        query, str(config.project_id)
-    )
+    if _single_query_value(query, "demo") != "1":
+        return False
+    if path == "/api/evidence/indexing/retrieve":
+        return _has_configured_project_query(query, str(config.project_id))
+    return True
 
 
 class AccountAuthMiddleware:

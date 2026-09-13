@@ -1,21 +1,21 @@
 ---
 id: T-20260914-public-demo-rp
 title: 免登录演示、匿名 RP 与账户副本
-status: active
+status: completed
 created: 2026-09-14T00:03:45+08:00
-updated: 2026-09-14T00:03:45+08:00
+updated: 2026-09-14T01:41:33+08:00
 ---
 
 # 免登录演示、匿名 RP 与账户副本
 
 ## 恢复快照
 
-- 实际完成：确认工作树干净并从 `origin/main` 的 `b8f7a6832` 建立 `codex/public-demo-rp`；前置 `make docs-check` 通过。
-- 当前里程碑：实现公开只读演示、匿名 RP 临时 Key 和登录后演示项目副本。
-- 下一步：按前端、公开鉴权/副本、匿名 RP 三条互不重叠路径并行实现，主会话收口 migration、共享接口和验收。
+- 实际完成：登录页公开演示/RP 入口、严格项目范围的只读浏览、登录后幂等副本、匿名 24 小时会话和请求内 DeepSeek 流式 RP 已完成。
+- 当前里程碑：主会话已修复 migration 多头、公开搜索/地图读取、RP source 公开边界、只读 UI 误锁和刷新后消息/失败状态恢复。
+- 下一步：如需上线，另行授权 push/PR/部署，并在生产配置固定演示项目、版本与已冻结 RP source revision。
 - 阻塞：无。
-- 工作区：`/Users/tywww/Desktop/项目/ai-writing-assist`，分支 `codex/public-demo-rp`；当前未提交改动仅为本任务笔记。
-- 最后核实：2026-09-14T00:03:45+08:00。
+- 工作区：`/Users/tywww/Desktop/项目/ai-writing-assist`，分支 `codex/public-demo-rp`；实现与主会话验收修复均已收口。
+- 最后核实：2026-09-14T01:41:33+08:00。
 
 ## 目标与验收
 
@@ -33,11 +33,11 @@ updated: 2026-09-14T00:03:45+08:00
 
 ## 里程碑与进度
 
-- [ ] 公开只读演示鉴权与入口。
-- [ ] 登录用户幂等复制演示项目。
-- [ ] 匿名 RP 临时账户、冻结 source 与请求内 SSE。
-- [ ] 前端会话级 Key、匿名 RP 与复制体验。
-- [ ] migration、文档、测试、浏览器验收与主会话复核。
+- [x] 公开只读演示鉴权与入口。
+- [x] 登录用户幂等复制演示项目。
+- [x] 匿名 RP 临时账户、冻结 source 与请求内 SSE。
+- [x] 前端会话级 Key、匿名 RP 与复制体验。
+- [x] migration、文档、测试、浏览器验收与主会话复核。
 
 ## 决策、发现与失败
 
@@ -48,10 +48,15 @@ updated: 2026-09-14T00:03:45+08:00
 ## 验证证据
 
 - `make docs-check`；通过；2026-09-14T00:03:45+08:00；基线 `b8f7a6832`。
+- 前端 Vitest；190 files / 2467 tests 通过；ESLint 与生产构建通过。
+- 后端受影响 account/project/interaction；88 tests 通过；公开证据搜索的配置项目可读且跨项目失败关闭。
+- PostgreSQL 专用库；migration 单一 head `20260914_anonymous_rp_accounts`；副本并发幂等测试通过。
+- 真实浏览器；公开项目、搜索、地图与匿名 RP 可用；伪 Key 失败后可换 Key 重试，刷新保留开场、失败状态和旅程。
+- 临时 Key 全库表扫描无匹配；`make secret-hygiene` 与 `make docs-check BASE_REF=origin/main` 通过。
 
 ## 交付结果
 
-- 已交付：执行中。
-- 未交付：实现、测试、浏览器验收、文档收口。
-- 交付边界：仅本地分支；未提交、未推送、未部署。
-- 正式知识与后续任务：执行中。
+- 已交付：实现、migration、自动化验证、真实浏览器验收、部署配置文档。
+- 未交付：未使用真实 DeepSeek Key 付费生成；未冻结生产 source revision。
+- 交付边界：仅本地 `codex/public-demo-rp` 分支；未 push、未 PR、未部署。
+- 正式知识与后续任务：ADR-0024 和项目/交互模块文档已同步；上线时使用冻结脚本产生并配置 source revision。

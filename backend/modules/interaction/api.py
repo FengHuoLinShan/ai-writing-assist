@@ -87,8 +87,6 @@ def _require_non_anonymous_care() -> None:
 
 @demo_router.get("/rp-source", response_model=PublicDemoRpSourceResponse)
 async def get_public_demo_rp_source(db: DbSession) -> PublicDemoRpSourceResponse:
-    if not is_anonymous_rp_principal():
-        raise ValidationError("请先开始公开体验")
     return await _source_service.public_demo_source(db)
 
 

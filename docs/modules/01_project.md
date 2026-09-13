@@ -121,8 +121,9 @@ Outline seam 验证属于当前项目，并以 `chapter_ids` 或 `scene_chunks` 
 公开演示读取是 account middleware 服务端构造的窄 `demo_readonly` principal：只允许配置项目的
 只读核心工作台路径，项目列表也只能返回这一项；不把 demo source owner 当作普通账户范围。
 `POST /api/projects/demo-copy` 只接受普通登录 owner，按 owner/source/version 幂等返回
-`created`、`existing` 或 `restored`。副本保留可编辑作者资产并分配新 UUID、重写内部引用及复制私有
-对象/地图媒体；账户凭据、RP、助手和任务记录、候选、偏好、RAG 索引均不复制。
+`created`、`existing` 或 `restored`。副本保留正文、World/Canon、总纲、Scene、来源证据、创作记忆
+与历史等长期作者资产，并分配新 UUID、重写内部引用及复制私有对象/地图媒体；账户凭据、RP、助手
+和任务记录、临时候选、偏好、Context 回执与 RAG 索引均不复制。
 
 项目级智能去重只聚合各资产模块的建议；`schema_version=2` 任务结果同时提供
 group 裁决和 legacy suggestions。group apply 必须引用原扫描任务，服务端以任务结果

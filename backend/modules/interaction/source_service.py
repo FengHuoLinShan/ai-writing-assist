@@ -180,6 +180,17 @@ class InteractionSourceService:
         )
         if revision is None or revision.status != "ready" or not revision.fingerprint:
             raise NotFoundError("公开演示作品暂不可用")
+        if (
+            not revision.source_manifest
+            or not revision.anchor_manifest
+            or not revision.reference_manifest
+            or any(
+                not isinstance(item, dict)
+                or item.get("ambiguity_key") not in (revision.resolutions or {})
+                for item in (revision.ambiguities or [])
+            )
+        ):
+            raise NotFoundError("公开演示作品暂不可用")
         if revision.fingerprint != _fingerprint(
             {
                 "source_manifest": revision.source_manifest,
@@ -229,6 +240,17 @@ class InteractionSourceService:
         )
         if revision is None or revision.status != "ready" or not revision.fingerprint:
             raise ConflictError("作品资料尚未整理完成")
+        if (
+            not revision.source_manifest
+            or not revision.anchor_manifest
+            or not revision.reference_manifest
+            or any(
+                not isinstance(item, dict)
+                or item.get("ambiguity_key") not in (revision.resolutions or {})
+                for item in (revision.ambiguities or [])
+            )
+        ):
+            raise ConflictError("作品资料尚未完整冻结")
         expected_fingerprint = _fingerprint(
             {
                 "source_manifest": revision.source_manifest,

@@ -4,6 +4,8 @@
     :class="{ 'public-demo-shell': publicDemo }"
     :data-public-demo="publicDemo || undefined"
     :data-theme="theme.resolved.value"
+    @click.capture="blockDemoWorkspaceControl"
+    @keydown.capture="blockDemoWorkspaceControl"
     @pointerdown.capture="dismissTransientUi"
     @shell-theme-request="theme.apply($event.detail)"
   >
@@ -13,7 +15,7 @@
       :public-demo="publicDemo" @select-theme="theme.apply" @manage-account="accountOpen = true" @open-settings="navigate('settings')" @show-help="showHelp" @copy-demo="requestDemoCopy" />
     <div id="main-layout" :class="{ 'main-layout--immersive': !showAuthorChrome }">
       <Sidebar v-if="showAuthorChrome" ref="sidebar" :current-view="shellState.currentView" :project-title="projectTitle" :public-demo="publicDemo" @navigate="navigate" @show-help="showHelp" />
-      <WorkspaceHost ref="workspace" @ready="setRouteHost" @click.capture="blockDemoWorkspaceControl" @keydown.capture="blockDemoWorkspaceControl" />
+      <WorkspaceHost ref="workspace" @ready="setRouteHost" />
       <aside id="contextual-notes"></aside>
       <ProjectAssistant v-if="!publicDemo && showAuthorChrome && shellState.currentProjectId" :project-id="shellState.currentProjectId" :page="shellState.currentView" :open="assistantOpen" :initial-context="assistantContext" @open="assistantOpen = true" @close="assistantOpen = false" @availability="assistantEnabled = $event" />
     </div>
@@ -59,6 +61,7 @@ function captureAssistant() {
 
 const services = props.services
 const publicDemo = Boolean(globalThis.publicDemoMode)
+const readonlyDemo = publicDemo && !globalThis.publicDemoRpMode
 const accountService = services.account ?? {
   visible: false,
   current: null,
@@ -114,12 +117,12 @@ watch(() => [shellState.currentView, shellState.currentSubView], syncRouteScope)
 watch(() => shellState.backendConnected, (value) => { health.connected.value = Boolean(value) })
 
 let demoObserver = null
-const demoMutationLabel = /新建|新增|创建|保存|删除|导入|上传|生成|更新|修改|编辑|采用|发布|设置|连接|助手|归档|恢复|撤销|重做|清空|日志/
+const demoMutationLabel = /新建|新增|添加|创建|保存|完成|稍后处理|删除|导入|上传|生成|更新|修改|编辑|采用|发布|设置|连接|助手|归档|恢复|撤销|重做|清空|日志|待处理|未决|世界健康|AI 工具|更多工具|检查|问世界/
 function isDemoMutationControl(control) {
   if (!control) return false
   if (control.matches("textarea, [contenteditable='true'], input[type='file']")) return true
   if (control.matches("input:not([type]), input[type='text'], input[type='number'], input[type='url']")) {
-    return !/搜索|筛选/.test(`${control.getAttribute("aria-label") || ""} ${control.placeholder || ""}`)
+    return !/搜索|筛选|检索|查找/.test(`${control.getAttribute("aria-label") || ""} ${control.placeholder || ""}`)
   }
   if (!control.matches("button")) return false
   const label = [
@@ -131,29 +134,34 @@ function isDemoMutationControl(control) {
   return demoMutationLabel.test(label)
 }
 function lockDemoWorkspaceControls() {
-  if (!publicDemo || !routeHost.value) return
-  for (const control of routeHost.value.querySelectorAll("button, input, textarea, select, [contenteditable='true']")) {
-    if (!isDemoMutationControl(control)) continue
-    if (control.matches("input, textarea")) {
-      control.readOnly = true
-      control.setAttribute("aria-readonly", "true")
-    } else if (control.matches("[contenteditable='true']")) {
-      control.setAttribute("contenteditable", "false")
-      control.setAttribute("aria-readonly", "true")
-    } else {
-      control.disabled = true
-      control.setAttribute("aria-disabled", "true")
+  if (!readonlyDemo) return
+  const roots = [routeHost.value, document.getElementById("sidebar-context-slot")].filter(Boolean)
+  for (const root of roots) {
+    for (const control of root.querySelectorAll("button, input, textarea, select, [contenteditable='true']")) {
+      if (!isDemoMutationControl(control)) continue
+      if (control.matches("input, textarea")) {
+        control.readOnly = true
+        control.setAttribute("aria-readonly", "true")
+      } else if (control.matches("[contenteditable='true']")) {
+        control.setAttribute("contenteditable", "false")
+        control.setAttribute("aria-readonly", "true")
+      } else {
+        control.disabled = true
+        control.setAttribute("aria-disabled", "true")
+      }
+      control.title = "演示项目为只读；登录并复制后可以尝试修改。"
     }
-    control.title = "演示项目为只读；登录并复制后可以尝试修改。"
   }
 }
 watch(routeHost, (host) => {
   demoObserver?.disconnect()
   demoObserver = null
-  if (!publicDemo || !host || typeof MutationObserver === "undefined") return
+  if (!readonlyDemo || !host || typeof MutationObserver === "undefined") return
   lockDemoWorkspaceControls()
   demoObserver = new MutationObserver(lockDemoWorkspaceControls)
   demoObserver.observe(host, { childList: true, subtree: true })
+  const sidebarTools = document.getElementById("sidebar-context-slot")
+  if (sidebarTools) demoObserver.observe(sidebarTools, { childList: true, subtree: true })
 }, { flush: "post" })
 onBeforeUnmount(() => demoObserver?.disconnect())
 
@@ -170,7 +178,7 @@ function requestDemoCopy() {
 }
 function blockDemoWorkspaceControl(event) {
   const control = event.target?.closest?.("button, input, textarea, select, [contenteditable='true']")
-  if (!publicDemo || !isDemoMutationControl(control)) return
+  if (!readonlyDemo || !isDemoMutationControl(control)) return
   event.preventDefault()
   event.stopImmediatePropagation()
 }

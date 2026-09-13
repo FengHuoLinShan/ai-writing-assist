@@ -224,8 +224,9 @@ Scene、本章、项目级，再按需要决定、严重度、更新时间和稳
 `demo-copy` 只接受普通已登录 owner，拒绝匿名与 `demo_readonly` principal。它按
 `(owner_id, source_project_id, source_version)` 唯一：活动副本返回 `existing`，回收站副本恢复并
 返回 `restored`，否则创建返回 `created`。副本拥有新项目与资产 UUID，重写项目内引用并复制对象
-图片和已采用地图图片到新前缀；复制失败清理已写媒体并回滚。它只复制可编辑作者资产，排除账户
-凭据、RP 旅程、助手/任务日志、临时候选、偏好与可重建检索索引。
+图片和已采用地图图片到新前缀；复制失败清理已写媒体并回滚。它复制正文、World/Canon、总纲、
+Scene、来源证据、创作记忆与历史等长期作者资产，排除账户凭据、RP 旅程、助手/任务日志、临时
+候选、偏好、Context 回执与可重建检索索引。
 
 项目软删除与按 `novel_id` 取消 `pending/running` 任务在同一数据库事务中完成。
 取消会清除 lease，记录 `transition_reason="project_soft_deleted"` 和结束时间；终态任务、

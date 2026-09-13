@@ -33,7 +33,7 @@ from modules.interaction.schemas import (
     JourneySourceSetup,
 )
 from modules.interaction.services import InteractionService
-from modules.interaction.source_service import _fingerprint
+from modules.interaction.source_service import InteractionSourceService, _fingerprint
 from modules.interaction.streaming import stream_anonymous_rp_attempt
 
 pytestmark = pytest.mark.asyncio
@@ -240,6 +240,34 @@ async def test_anonymous_demo_rejects_any_source_but_the_configured_revision(
             )
     finally:
         reset_principal(token)
+
+
+async def test_public_demo_source_fails_closed_for_an_empty_frozen_manifest(
+    db_session,
+    project_factory,
+    monkeypatch,
+) -> None:
+    revision, _anchor, _reference_key = await _public_source(
+        db_session,
+        project_factory,
+    )
+    revision.reference_manifest = []
+    revision.fingerprint = _fingerprint(
+        {
+            "source_manifest": revision.source_manifest,
+            "anchors": revision.anchor_manifest,
+            "references": revision.reference_manifest,
+            "ambiguities": revision.ambiguities,
+            "resolutions": revision.resolutions,
+        }
+    )
+    monkeypatch.setattr(
+        "modules.interaction.source_service.get_settings",
+        lambda: _settings(revision.id),
+    )
+
+    with pytest.raises(NotFoundError):
+        await InteractionSourceService().public_demo_source(db_session)
 
 
 async def test_evidence_public_demo_exception_rejects_an_arbitrary_revision(

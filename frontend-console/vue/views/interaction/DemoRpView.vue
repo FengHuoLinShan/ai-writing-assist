@@ -150,8 +150,14 @@ async function startAnonymousSession() {
 function applyJourney(nextJourney) {
   if (!nextJourney) return
   journey.value = nextJourney
-  messages.value = [...(nextJourney.messages || [])]
-  attempt.value = nextJourney.active_attempt || attempt.value
+  messages.value = [
+    ...(nextJourney.setup_messages || []),
+    ...(nextJourney.messages || []),
+  ]
+  attempt.value = nextJourney.active_attempt || null
+  if (["failed", "cancelled"].includes(attempt.value?.status)) {
+    setTerminalStreamError(attempt.value)
+  }
 }
 
 async function refreshJourney() {
@@ -306,6 +312,19 @@ async function regenerate(message) {
   }), { clearComposer: false })
 }
 
+async function retryFailedAttempt() {
+  if (!attempt.value?.id) return
+  streamError.value = ""
+  await mutate(() => api.interactions.retryAttempt(
+    journey.value.id,
+    attempt.value.id,
+    {
+      expected_selection_epoch: journey.value.selection_epoch,
+      idempotency_key: interactionOperationKey("demo-retry"),
+    },
+  ), { clearComposer: false })
+}
+
 function beginCorrection(message) {
   editingNodeId.value = message.id
   composer.value = textOf(message)
@@ -433,7 +452,10 @@ onBeforeUnmount(() => {
       <article v-if="streamText" class="demo-rp-message is-assistant is-streaming">
         <small>故事正在抵达</small><RpMarkdownContent :source="streamText" />
       </article>
-      <p v-if="streamError" class="demo-rp-error" role="alert">{{ streamError }}</p>
+      <div v-if="streamError" class="demo-rp-error" role="alert">
+        <span>{{ streamError }}</span>
+        <button type="button" :disabled="busy || isGenerating" @click="retryFailedAttempt">换 Key 后重试</button>
+      </div>
       <div v-if="actionChoices.length && !isGenerating" class="demo-rp-actions" aria-label="行动选项">
         <span>你想怎么做？</span><button v-for="choice in actionChoices" :key="typeof choice === 'string' ? choice : choice.id || choice.label" type="button" @click="chooseAction(choice)">{{ typeof choice === 'string' ? choice : choice.label || choice.content || choice.text }}</button>
       </div>
