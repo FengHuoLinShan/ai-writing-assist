@@ -11,7 +11,7 @@ import {
 import { ragSearchSession } from "../ragSearchSession.js"
 
 /**
- * 检索结果区 — DOM 契约对齐 vanilla _renderSearchResults/_renderSearchError。
+ * 检索结果区 — 迁移来源：vanilla _renderSearchResults/_renderSearchError。
  * 结果读取 ragSearchSession（会话状态，跨 island 重挂载存活）。
  */
 const props = defineProps({

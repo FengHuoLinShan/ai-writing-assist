@@ -18,6 +18,22 @@ def classify(paths: list[str]) -> set[str]:
             selected.add("images")
         elif path.endswith(".md"):
             continue
+        elif path.startswith("frontend-console/e2e/") and re.search(
+            r"\.spec\.js-snapshots/[^/]+\.png$", path
+        ):
+            continue
+        elif path.startswith("frontend-console/tests/") and path.endswith(
+            (".js", ".vue")
+        ):
+            selected.add("frontend")
+        elif path.startswith("backend/") and (
+            "tests" in Path(path).parts
+            and Path(path).name.startswith("test_")
+            and path.endswith(".py")
+        ):
+            selected.add("backend")
+            if path.startswith("backend/tests/e2e/"):
+                selected.add("postgresql")
         elif path in {
             "backend/Dockerfile",
             "frontend-console/Dockerfile",
@@ -30,6 +46,11 @@ def classify(paths: list[str]) -> set[str]:
         else:
             selected.update(GATES)
     return selected
+
+
+def browser_suite(paths: list[str]) -> str:
+    """Frontend redesign can move any task entry; cover the complete behavior suite."""
+    return "test:e2e:functional" if "frontend" in classify(paths) else "test:e2e:smoke"
 
 
 def changed_paths(base: str, head: str) -> list[str]:
@@ -49,14 +70,18 @@ def main() -> None:
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
     if event_name == "pull_request":
         pr = event["pull_request"]
-        selected = classify(changed_paths(pr["base"]["sha"], pr["head"]["sha"]))
+        paths = changed_paths(pr["base"]["sha"], pr["head"]["sha"])
+        selected = classify(paths)
+        suite = browser_suite(paths)
     elif event_name == "push" and event["ref"] == "refs/heads/main":
         selected = set(GATES)
+        suite = "test:e2e:functional"
     else:
         raise ValueError(f"Unsupported CI event: {event_name}")
     output = "".join(
         f"{gate}={str(gate in selected).lower()}\n" for gate in sorted(GATES)
     )
+    output += f"browser_suite={suite}\n"
     # Write only after the complete diff has succeeded; failures cannot select nothing.
     with Path(os.environ["GITHUB_OUTPUT"]).open("a") as stream:
         stream.write(output)

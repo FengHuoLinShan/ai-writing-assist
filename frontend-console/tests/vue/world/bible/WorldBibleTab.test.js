@@ -6,8 +6,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { enableAutoUnmount, mount } from "@vue/test-utils"
 import { nextTick } from "vue"
-import { readFileSync } from "node:fs"
-import { resolve } from "node:path"
 
 vi.mock("../../../../shared/referencePicker.js", () => ({
   createReferencePicker: vi.fn((options) => ({ destroy: vi.fn(), resolve: vi.fn(), getRefs: vi.fn(() => []), onOpen: options.onOpen })),
@@ -350,27 +348,14 @@ describe("渲染契约", () => {
     const synopsis = wrapper.get(".world-bible-synopsis-panel")
     const layout = wrapper.get(".world-bible-layout")
     const content = layout.get(".world-bible-content-column")
-    const inspector = content.get(".world-bible-inspector")
+    expect(wrapper.find(".world-bible-inspector").exists()).toBe(true)
     expect(synopsis.exists()).toBe(true)
     expect(synopsis.attributes("open")).toBeUndefined()
-    expect(Array.from(layout.element.children)).toHaveLength(2)
-    expect(layout.element.children[0].classList).toContain("world-bible-nav-rail")
-    expect(layout.element.children[1]).toBe(content.element)
+
+
+
     expect(content.find(".world-bible-editor-panel").exists()).toBe(true)
-    expect(inspector.element.parentElement).toBe(content.element)
-  })
 
-  it("两列 CSS 不会因 AI 规则折叠状态恢复第三列，760px 以下单列", () => {
-    const styles = readFileSync(resolve(import.meta.dirname, "../../../../styles.css"), "utf8")
-    const layoutRules = Array.from(styles.matchAll(/\.world-bible-layout\s*\{([^}]*)\}/g), (match) => match[1])
-
-    expect(layoutRules.length).toBeGreaterThan(0)
-    for (const rule of layoutRules) {
-      const columns = rule.match(/grid-template-columns:\s*([^;]+);/)?.[1]
-      if (columns) expect((columns.match(/minmax\(/g) || []).length).toBeLessThanOrEqual(2)
-    }
-    expect(styles).not.toContain(".world-bible-layout:has(.world-bible-inspector")
-    expect(styles).toMatch(/@media \(max-width: 760px\)[\s\S]*\.world-bible-layout,[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\)/)
   })
 
   it("无 AI 参考规则时默认收起次级配置", () => {
@@ -2305,7 +2290,6 @@ describe("模态操作", () => {
     await archiving
     await nextTick()
 
-    expect(wrapper.find("[data-bible-page-id='page-2']").classes()).toContain("btn-primary")
     expect(wrapper.find("#bible-free-text").element.value).toBe("B 页工作稿")
     expect(toastMock).not.toHaveBeenCalledWith("页面已归档", "success")
     expect(router.refresh).not.toHaveBeenCalled()

@@ -1,0 +1,87 @@
+[
+  {
+    "mode": "dark",
+    "pair": "ink/bg",
+    "ratio": 15.11
+  },
+  {
+    "mode": "dark",
+    "pair": "muted/bg",
+    "ratio": 7.13
+  },
+  {
+    "mode": "dark",
+    "pair": "muted/surface",
+    "ratio": 6.09
+  },
+  {
+    "mode": "dark",
+    "pair": "blue/blue-bg",
+    "ratio": 5.77
+  },
+  {
+    "mode": "dark",
+    "pair": "purple/purple-bg",
+    "ratio": 6.3
+  },
+  {
+    "mode": "dark",
+    "pair": "green/green-bg",
+    "ratio": 6.81
+  },
+  {
+    "mode": "dark",
+    "pair": "orange/orange-bg",
+    "ratio": 7.03
+  },
+  {
+    "mode": "dark",
+    "pair": "red/red-bg",
+    "ratio": 6.29
+  },
+  {
+    "mode": "light",
+    "pair": "ink/bg",
+    "ratio": 14.51
+  },
+  {
+    "mode": "light",
+    "pair": "blue/blue-bg",
+    "ratio": 5.09
+  },
+  {
+    "mode": "light",
+    "pair": "purple/purple-bg",
+    "ratio": 5.34
+  },
+  {
+    "mode": "light",
+    "pair": "green/green-bg",
+    "ratio": 4.95
+  },
+  {
+    "mode": "light",
+    "pair": "orange/orange-bg",
+    "ratio": 4.73
+  },
+  {
+    "mode": "light",
+    "pair": "red/red-bg",
+    "ratio": 5.07
+  },
+  {
+    "mode": "light",
+    "pair": "muted/bg",
+    "ratio": 5.03
+  },
+  {
+    "mode": "light",
+    "pair": "muted/surface",
+    "ratio": 5.39
+  },
+  {
+    "mode": "light",
+    "pair": "muted/sidebar",
+    "ratio": 4.81
+  }
+]

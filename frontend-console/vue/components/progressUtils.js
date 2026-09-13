@@ -1,6 +1,6 @@
 /**
  * WorkflowProgressCard 纯逻辑 — 从 shared/progressRenderer.js 移植的框架无关部分。
- * DOM 契约（class 名、标签文案、截断数量）与原实现保持一致。
+ * 显示数据与截断结果由行为测试验证；class 和视觉结构可调整。
  */
 
 export const PHASE_DISPLAY_LABELS = {

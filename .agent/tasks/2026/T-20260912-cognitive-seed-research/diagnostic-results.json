@@ -1,0 +1,201 @@
+{
+  "experiment": "diagnostic-interventions-v2",
+  "mechanism_cases": 11,
+  "repair_subsets_per_case": 256,
+  "main_intervention_query_evaluations": 22528,
+  "same_wrong_observable_cases": 10,
+  "cases": [
+    {
+      "id": "D01",
+      "baseline_correct_inputs": 4,
+      "baseline_response_to_shared_question": true,
+      "minimum_successful_edits": [
+        [
+          "refresh_retrieval"
+        ]
+      ],
+      "successful_edit_combinations": 128,
+      "schema_only_restores_all_queries": false
+    },
+    {
+      "id": "D02",
+      "baseline_correct_inputs": 4,
+      "baseline_response_to_shared_question": true,
+      "minimum_successful_edits": [
+        [
+          "refresh_memory"
+        ]
+      ],
+      "successful_edit_combinations": 128,
+      "schema_only_restores_all_queries": false
+    },
+    {
+      "id": "D03",
+      "baseline_correct_inputs": 4,
+      "baseline_response_to_shared_question": true,
+      "minimum_successful_edits": [
+        [
+          "expand_representation"
+        ]
+      ],
+      "successful_edit_combinations": 128,
+      "schema_only_restores_all_queries": true
+    },
+    {
+      "id": "D04",
+      "baseline_correct_inputs": 4,
+      "baseline_response_to_shared_question": true,
+      "minimum_successful_edits": [
+        [
+          "repair_interpreter"
+        ]
+      ],
+      "successful_edit_combinations": 128,
+      "schema_only_restores_all_queries": false
+    },
+    {
+      "id": "D05",
+      "baseline_correct_inputs": 4,
+      "baseline_response_to_shared_question": true,
+      "minimum_successful_edits": [
+        [
+          "select_revision"
+        ]
+      ],
+      "successful_edit_combinations": 128,
+      "schema_only_restores_all_queries": false
+    },
+    {
+      "id": "D06",
+      "baseline_correct_inputs": 4,
+      "baseline_response_to_shared_question": true,
+      "minimum_successful_edits": [
+        [
+          "select_story_time"
+        ]
+      ],
+      "successful_edit_combinations": 128,
+      "schema_only_restores_all_queries": false
+    },
+    {
+      "id": "D07",
+      "baseline_correct_inputs": 4,
+      "baseline_response_to_shared_question": true,
+      "minimum_successful_edits": [
+        [
+          "respect_source_role"
+        ]
+      ],
+      "successful_edit_combinations": 128,
+      "schema_only_restores_all_queries": false
+    },
+    {
+      "id": "D08",
+      "baseline_correct_inputs": 3,
+      "baseline_response_to_shared_question": true,
+      "minimum_successful_edits": [
+        [
+          "preserve_uncertainty"
+        ]
+      ],
+      "successful_edit_combinations": 128,
+      "schema_only_restores_all_queries": false
+    },
+    {
+      "id": "D09",
+      "baseline_correct_inputs": 4,
+      "baseline_response_to_shared_question": true,
+      "minimum_successful_edits": [
+        [
+          "refresh_memory",
+          "repair_interpreter"
+        ]
+      ],
+      "successful_edit_combinations": 64,
+      "schema_only_restores_all_queries": false
+    },
+    {
+      "id": "D10",
+      "baseline_correct_inputs": 8,
+      "baseline_response_to_shared_question": false,
+      "minimum_successful_edits": [
+        []
+      ],
+      "successful_edit_combinations": 256,
+      "schema_only_restores_all_queries": true
+    },
+    {
+      "id": "D11",
+      "baseline_correct_inputs": 4,
+      "baseline_response_to_shared_question": true,
+      "minimum_successful_edits": [
+        [
+          "expand_representation",
+          "repair_interpreter"
+        ]
+      ],
+      "successful_edit_combinations": 64,
+      "schema_only_restores_all_queries": false
+    }
+  ],
+  "compound_failure_grids": {
+    "D09": {
+      "refresh_memory=False,repair_interpreter=False": {
+        "response_to_shared_question": true,
+        "correct_inputs": 4
+      },
+      "refresh_memory=False,repair_interpreter=True": {
+        "response_to_shared_question": true,
+        "correct_inputs": 4
+      },
+      "refresh_memory=True,repair_interpreter=False": {
+        "response_to_shared_question": true,
+        "correct_inputs": 4
+      },
+      "refresh_memory=True,repair_interpreter=True": {
+        "response_to_shared_question": false,
+        "correct_inputs": 8
+      }
+    },
+    "D11": {
+      "expand_representation=False,repair_interpreter=False": {
+        "response_to_shared_question": true,
+        "correct_inputs": 4
+      },
+      "expand_representation=False,repair_interpreter=True": {
+        "response_to_shared_question": true,
+        "correct_inputs": 4
+      },
+      "expand_representation=True,repair_interpreter=False": {
+        "response_to_shared_question": true,
+        "correct_inputs": 4
+      },
+      "expand_representation=True,repair_interpreter=True": {
+        "response_to_shared_question": false,
+        "correct_inputs": 8
+      }
+    }
+  },
+  "ambiguous_causes_shared_action": {
+    "case_ids": [
+      "D01",
+      "D02"
+    ],
+    "identical_answers_over_all_inputs": true,
+    "minimal_shared_edits": [
+      [
+        "refresh_memory",
+        "refresh_retrieval"
+      ]
+    ]
+  },
+  "limitations": [
+    "Mechanisms, diagnosis labels and intervention effects are hand-defined.",
+    "The exhaustive repair oracle is evaluator-only, not an autonomous policy.",
+    "Each trial replays frozen source; actual migration cost is not measured.",
+    "Representation defect is a diagnostic negative case, not a strong baseline.",
+    "No LLM, real manuscript, learned schema or user-quality evaluation occurred."
+  ],
+  "dataset_sha256": "32d44144239cf9694c086a668568bb4b278ee8c120b2d3fa429e57dc777a606f",
+  "script_sha256": "fc67f48f06f830d56b421617191e26d91ec37c27a2a5b0b2e39173c1e311a9f6"
+}

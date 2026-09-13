@@ -1,0 +1,6 @@
+{
+  "result": {
+    "type": "string",
+    "value": "{\"running\":0,\"checks\":[{\"type\":\"checkbox\",\"checked\":true},{\"type\":\"radio\",\"checked\":true},{\"type\":\"radio\",\"checked\":false}]}"
+  }
+}

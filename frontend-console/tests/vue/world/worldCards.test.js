@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs"
-import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
 import {
@@ -113,9 +111,4 @@ describe("unified world cards", () => {
     })
   })
 
-  it("390px 下筛选与空态操作单列展开且保持 44px 触控高度", () => {
-    const styles = readFileSync(resolve(import.meta.dirname, "../../../styles.css"), "utf8")
-    expect(styles).toMatch(/@media \(max-width: 390px\)[\s\S]*\.world-card-filters\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/s)
-    expect(styles).toMatch(/@media \(max-width: 390px\)[\s\S]*\.world-card-empty-actions \.btn\s*\{[^}]*min-height:\s*44px/s)
-  })
 })

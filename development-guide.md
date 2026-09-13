@@ -105,11 +105,12 @@ Frontend uses `npm run lint` for ESLint correctness and Vue essential checks; it
 开发中只跑受影响项；提交前按 `testing-guide.md` 选择一次对应门禁。跨栈、安全或 CI 改动运行
 一次 `make test-ci TEST_WORKERS=2` 即可，不再先跑它已包含的 `make test` 或前端 Vitest。
 
-完整 `npm run test:e2e:functional` 在 GitHub pull request 上运行一次，使用全新的
-专用 PostgreSQL 与 Chromium，固定 workers=1、retries=0，失败诊断保留 14 天。
-`npm run test:e2e:smoke` 和 `npm run test:e2e:map` 保留为本地定向入口，其用例已包含在完整
-Functional 套件中，不再作为独立 CI job。视觉、真实 LLM 和 worker suite 仍需通过
-各自显式命令验收。
+前端源码（包括 CSS、主题与组件）、浏览器配置及未知路径的 PR，以及 main push，运行完整
+`npm run test:e2e:functional`。后端相关 PR 仍使用既有 `test:e2e:smoke`；纯前端单测和
+文档按路径跳过无关浏览器检查。专用 PostgreSQL、私有 MinIO 与全新 Chromium 服务，
+固定 workers=1、retries=0，失败诊断保留 14 天；详情以 `testing-guide.md` 的路径表为准。
+`test:e2e:smoke` 和 `test:e2e:map` 也可作本地定向入口，不增加独立 CI job。
+真实 LLM 和 worker suite 仍需显式验收；截图与录屏只用于设计判断，没有视觉像素比较命令。
 
 `make audit-frontend-deps` uses npm registry/advisory data to check the committed
 lockfile and fails only on high/critical findings. It complements, rather than
@@ -147,13 +148,17 @@ GitHub Actions 的后端门禁、前端 Vitest job、等价本地命令和显式
 
 架构文档清单位于 `docs/architecture/architecture-documents.toml`。涉及 API、schema、
 facade/contracts、任务、前端路由/wire 或 Prompt 的分支必须在收尾运行带 `BASE_REF` 的
-检查；脚本列出但未修改的文档只能在 PR 中逐项说明无影响，不能静默忽略。
+检查；硬门禁列出但未修改的文档须在 PR 中逐项说明无影响。普通实现变化仅提示复核，
+不要求形式化无影响说明。测试与历史截图单独变更按 `testing-guide.md` 的 CI 分类执行。
+前端重设计按用户任务验证功能、数据、保存/提交/重试幂等性和基本可访问性，
+允许修改入口、步骤、定位方式及组件结构；不使用像素、CSS 写法、尺寸或布局门禁。
+用现有 Vitest、生产构建和受影响的 functional Playwright 验证，旧截图仅作历史参考。
 
 ## Pinned production toolchains
 
 Production Dockerfiles and PostgreSQL service declarations use reviewed image tags plus
 immutable SHA-256 digests. The backend image uses Python `3.14.7`, uv `0.12.3`, and
-the frontend build uses Node `24.19.0` LTS; `backend/.python-version` and
+the frontend build uses Node `24.20.0` LTS; `backend/.python-version` and
 `frontend-console/.node-version` record the matching local-tooling versions. CI runs on
 `ubuntu-24.04` and installs those exact interpreter/tool versions before its relevant
 jobs. These pins make build inputs reviewable and repeatable, but do not promise

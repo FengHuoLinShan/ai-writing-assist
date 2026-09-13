@@ -3175,7 +3175,7 @@ label.llm-clear-key {
 
 .writing-tools-menu__body {
   position: absolute;
-  z-index: 10;
+  z-index: 30;
   right: 0;
   top: calc(100% + 4px);
   width: min(260px, 80vw);

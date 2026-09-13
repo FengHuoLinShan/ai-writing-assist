@@ -1,7 +1,7 @@
 <!--
   WorldView — world 视图 Vue 外壳（island 根组件）。
   对应 vanilla worldView 的 _renderHeader（worldView.js:799-820）+ 子标签分派
-  （render L713-742）。DOM class/id/data-action 逐节点保留（e2e 契约）；
+  （render L713-742）。功能与数据契约保留；DOM 与定位器可随重设计调整；
   事件由 Vue 绑定，不再走 bindWorkspaceClick 委托。
 -->
 <template>
@@ -284,8 +284,4 @@ function closeViewOptions() {
 
 </script>
 
-<style scoped>
-@media (max-width: 760px) {
-  .world-toolbar .subnav-item { min-height: 44px; }
-}
-</style>
+<style src="./world-redesign.css"></style>

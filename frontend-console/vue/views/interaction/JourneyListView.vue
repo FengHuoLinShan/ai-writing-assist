@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import "./rp-redesign.css"
 import {
   getApi,
   getAppState,

@@ -1,6 +1,5 @@
 import { test, expect } from "./fixtures.js"
 import { openWorkbench } from "./helpers/workbench.js"
-import { expectNoPageOverflow } from "./helpers/responsive.js"
 
 // Provider/task responses are controlled here; real domain CAS/undo has PostgreSQL tests.
 test("一次授权、成组选择、原文查看与窄屏刷新恢复", async ({ page, projectFactory }, testInfo) => {
@@ -33,6 +32,6 @@ test("一次授权、成组选择、原文查看与窄屏刷新恢复", async ({
   await page.reload()
   await expect(panel).toContainText("已处理 2 / 2")
   expect(submissions).toHaveLength(1)
-  await expectNoPageOverflow(page)
+
   await panel.screenshot({ path: testInfo.outputPath("review-resolution-narrow.png") })
 })

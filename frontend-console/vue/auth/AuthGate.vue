@@ -3,7 +3,7 @@
   <HomeChoiceView v-if="!account && !entryMode" selection-only @select="selectEntry" />
   <main v-else class="auth-page">
     <section class="auth-card" aria-labelledby="auth-title" :aria-busy="busy">
-      <div class="auth-brand">◆ NovelCraft</div>
+        <div class="auth-brand"><span class="auth-brand__mark" aria-hidden="true">N</span><span>NovelCraft</span></div>
       <template v-if="account?.status === 'pending_deletion'">
         <h1 id="auth-title">账号正在等待删除</h1>
         <p>项目仍会保留到 {{ purgeDate }}。撤销删除前，请先按原登录方式重新认证。</p>
@@ -44,6 +44,7 @@
 <script setup>
 import { getThemeController } from "../shell/composables/useTheme.js"
 import { computed, nextTick, ref } from "vue"
+import "../views/interaction/rp-redesign.css"
 import { getApi } from "../bridge/index.js"
 import { useResendCountdown } from "../composables/useResendCountdown.js"
 import HomeChoiceView from "../views/interaction/HomeChoiceView.vue"

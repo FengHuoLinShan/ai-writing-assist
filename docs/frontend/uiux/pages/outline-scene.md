@@ -1,5 +1,7 @@
 # 故事结构与场景工作台 UI/UX 执行规范
 
+> 回归依据：[`testing-guide.md`](../../../../testing-guide.md) 的前端重设计契约。本文外观、固定尺寸、布局、断点、DOM/组件结构及旧操作路径为实现参考，不阻断重设计；功能、数据、幂等性、安全和基本可访问性约束继续适用。
+
 > 上游：`docs/frontend/uiux/design-standard.md`（下称「主规范」）、`docs/product/user-personas.md`。
 > 覆盖范围：`outline` 路由下四个子视图（story 故事总览 / arcs 篇章 / threads 剧情线 / scenes 场景）
 > 与场景工作台（`SceneWorkbenchView` 及其模态、进度卡、融合流程）。源码锚点前缀均为
@@ -325,17 +327,7 @@ bulk-toggle-one/bulk-run/bulk-clear`、`prev/next-outline-structure-page`、stor
 `aria-label="{标题}的更多操作"`。改任何名称前全局 grep 同步
 e2e 的 `getByRole({name})`。
 
-**间距 token 契约（`tests/sceneWorkbenchSpacing.test.js:9-42` 正则断言）**：
-`.outline-scene-layout > .outline-toolbar` 的 `gap: var(--space-2)` + `padding: var(--space-2)
-var(--space-3)`；`.scene-management-filters/.scene-fusion-toolbar/.scene-health-filter/
-.scene-workbench-row` 四处 `padding: var(--space-3) var(--space-4)`；`@media (max-width:760px)`
-内 `.scene-health-filter` grid `minmax(0,1fr) auto` 且 `small` 换行 `grid-column:1/-1;
-margin-left:0`；`.scene-health-count-note` 的 `margin:0` + `padding-inline: var(--space-4)`。
-执行字号/密度修正（§2-8）时不得破坏这些断言。
-
-**Editorial 主题作用域**：修 §2-1 时把三段 `[data-workspace-view="scene"]` 规则改锚
-outline/scenes 可判定条件（如 `.outline-scene-layout` 存在性或 view+subView 复合属性），
-并同步 `tests/editorialTheme.test.js:46` 的视图清单（执行时核实改法）。
+间距、主题作用域、断点与 CSS 组织由重设计决定，不再使用源码正则门禁。键盘、名称、焦点和任务结果在行为测试中验证。
 
 ## 8. 验收标准与验证命令
 
@@ -345,25 +337,19 @@ outline/scenes 可判定条件（如 `.outline-scene-layout` 存在性或 view+s
   状态反馈符合 §5；
 - 390px 无页面级横向溢出；subnav 键盘可达；窄屏抽屉满足对话框语义；
 - 不暴露 raw JSON / 裸 ID；「待处理」计数语义与强调色使用规范一致；
-- §7 全部契约钩子保留（重命名视为破坏性变更，需同步全部 e2e/vitest）。
+- §7 定位器可调整；同步受影响调用方与行为测试，不把改名视为产品语义变化。
 
 **验证命令**（均在 `frontend-console/` 下执行）：
 
 ```bash
-# 单元/契约（间距 token、subnav 可访问性、editorial 主题、骨架屏）
-npx vitest run tests/sceneWorkbenchSpacing.test.js tests/subnavAccessibility.test.js \
-  tests/editorialTheme.test.js tests/loadingSkeleton.test.js
+# 组件行为单测
+npx vitest run tests/vue/outline tests/vue/scene
 
 # 功能 e2e（subnav 归位与键盘往返、场景工作台全流程、伏笔揭示归并、threads/arcs CRUD）
 npx playwright test --config=playwright.functional.config.js \
   e2e/outline-scenes.spec.js e2e/scene-workbench.spec.js \
   e2e/outline-foreshadowing-reveal.spec.js e2e/outline-threads-arcs.spec.js
 
-# 视觉基线：浅／深色 × story/arcs/threads 共 6 张快照（scenes 子视图当前不在基线范围，
-# visual-outline.spec.js:8 明示；本轮修复后应评估把 scenes 纳入基线）
-npx playwright test --config=playwright.visual.config.js e2e/visual-outline.spec.js
-# 基线更新（仅在确认视觉变更为预期后）
-npm run test:e2e:visual:update -- e2e/visual-outline.spec.js
 
 # 收尾门禁
 make docs-check BASE_REF=origin/main

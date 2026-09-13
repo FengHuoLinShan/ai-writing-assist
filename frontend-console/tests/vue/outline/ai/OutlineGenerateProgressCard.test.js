@@ -67,7 +67,7 @@ describe("渲染契约", () => {
     const btn = wrapper.find('[data-action="view-outline-generate-preview"]')
     expect(btn.exists()).toBe(true)
     expect(btn.text()).toBe("检查建议")
-    expect(btn.element.closest(".workflow-progress")).not.toBeNull()
+
   })
 
   it("无 preview 时隐藏预览就绪区", () => {

@@ -30,7 +30,7 @@ describe("ShellApp", () => {
     expect(wrapper.get("#topbar-status-dot").attributes("role")).toBe("status")
     expect(wrapper.get("#topbar-status-dot").attributes("aria-label")).toMatch(/^服务(已|未)连接$/)
     expect(wrapper.get('.nav-item[data-view="world"]').classes()).toContain("active")
-    expect(wrapper.get("#sidebar").element.tagName).toBe("ASIDE")
+
     expect(wrapper.get("#sidebar-context-slot").exists()).toBe(true)
     expect(wrapper.get("#workspace-content").attributes("data-imperative-route-host")).toBe("hash-router")
 

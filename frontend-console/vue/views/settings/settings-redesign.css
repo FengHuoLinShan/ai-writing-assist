@@ -1,0 +1,73 @@
+/* Settings hierarchy: one page title, a quiet scope rail, and real forms. */
+.settings-shell {
+  --settings-surface: var(--nc-surface, var(--bg-panel));
+  --settings-muted: var(--nc-dim, var(--text-tertiary));
+  --settings-ink: var(--nc-ink, var(--text-primary));
+  --settings-line: var(--nc-hairline, var(--border));
+  --settings-soft: var(--nc-surface-muted, var(--bg-hover));
+  --settings-ai: var(--nc-ai, var(--accent));
+  --settings-ai-soft: var(--nc-ai-soft, var(--accent-soft));
+  width: min(100%, 1120px);
+  padding: 36px 40px 72px;
+  color: var(--settings-ink);
+}
+.settings-shell__header { align-items: end; margin-bottom: 30px; }
+.settings-shell__eyebrow { color: var(--settings-muted); font-size: 11px; letter-spacing: .1em; }
+.settings-shell__header h1 { margin: 8px 0 6px; font-size: clamp(26px, 3vw, 34px); letter-spacing: -.045em; }
+.settings-shell__header p { color: var(--settings-muted); font-size: 13px; }
+.settings-shell__project { max-width: 330px; padding-bottom: 7px; color: var(--settings-muted); font-size: 12px; }
+.settings-shell__body { display: grid; grid-template-columns: 176px minmax(0, 1fr); gap: 42px; align-items: start; }
+.settings-shell__navigation { position: sticky; top: 22px; min-width: 0; padding-right: 18px; border-right: 1px solid var(--settings-line); }
+.settings-shell__tabs, .settings-sections { display: grid; gap: 3px; margin: 0 0 24px; border: 0; }
+.settings-shell__nav-label { padding: 4px 10px 7px; color: var(--settings-muted); font-size: 10px; letter-spacing: .08em; }
+.settings-shell__tabs .tab-btn, .settings-sections .tab-btn { min-height: 38px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--settings-muted); font-size: 12px; text-align: left; }
+.settings-shell__tabs .tab-btn:hover, .settings-sections .tab-btn:hover { background: var(--settings-soft); color: var(--settings-ink); }
+.settings-shell__tabs .tab-btn.active, .settings-sections .tab-btn[aria-current="page"] { background: var(--settings-ai-soft); color: var(--settings-ai); font-weight: 650; }
+.settings-shell__content { min-width: 0; }
+.settings-shell .global-settings-view, .settings-shell .project-settings-view { gap: 22px; }
+.settings-shell .settings-section { padding: 24px 0 0; border-top: 1px solid var(--settings-line); }
+.settings-shell .settings-section:first-child { padding-top: 0; border-top: 0; }
+.settings-shell .settings-section > h2, .settings-shell .settings-section-heading h2 { margin: 0 0 8px; color: var(--settings-ink); font-size: 19px; letter-spacing: -.025em; }
+.settings-shell .settings-section-hint, .settings-shell .settings-section-heading p { color: var(--settings-muted); line-height: 1.75; }
+.settings-shell .account-provider-options { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.settings-shell .account-provider-card { min-height: 128px; padding: 16px; border: 1px solid var(--settings-line); border-radius: 11px; background: var(--settings-surface); color: var(--settings-ink); }
+.settings-shell .account-provider-card:hover { border-color: color-mix(in srgb, var(--settings-ai) 48%, var(--settings-line)); background: var(--settings-ai-soft); }
+.settings-shell .account-provider-card.selected { border-color: var(--settings-ai); box-shadow: 0 0 0 2px color-mix(in srgb, var(--settings-ai) 16%, transparent); }
+.settings-shell .account-provider-card__name { font-size: 14px; font-weight: 650; }
+.settings-shell .account-provider-card__model, .settings-shell .account-provider-card__status, .settings-shell .account-provider-card__balance { color: var(--settings-muted); font-size: 11px; }
+.settings-shell .account-key-field { margin-top: 18px; }
+.settings-shell .form-input, .settings-shell .form-select { border-color: var(--settings-line); background: var(--settings-surface); color: var(--settings-ink); }
+.settings-shell .settings-actions { gap: 8px; border-top: 1px solid var(--settings-line); }
+.settings-shell .btn { border: 1px solid var(--settings-line); border-radius: 9px; background: var(--settings-surface); color: var(--settings-ink); }
+.settings-shell .btn:hover:not(:disabled) { border-color: var(--settings-ai); background: var(--settings-soft); }
+.settings-shell .btn.btn-primary { border-color: var(--nc-primary); background: var(--nc-primary); color: var(--nc-on-primary); }
+.settings-shell .btn.btn-link { border-color: transparent; background: transparent; color: var(--settings-ai); }
+.settings-shell .settings-save-state { color: var(--settings-muted); }
+.settings-shell .settings-advanced-section { border-top: 1px solid var(--settings-line); }
+.settings-shell .settings-account-model-notice { padding: 12px 14px; border: 1px solid var(--settings-line); border-radius: 10px; background: var(--settings-soft); color: var(--settings-muted); }
+.settings-shell .settings-tab-nav { width: fit-content; margin: 0 0 18px; padding: 3px; border: 1px solid var(--settings-line); border-radius: 9px; background: var(--settings-soft); }
+.settings-shell .settings-tab-nav .tab-btn { min-height: 34px; border: 0; border-radius: 7px; color: var(--settings-muted); }
+.settings-shell .settings-tab-nav .tab-btn.active { background: var(--settings-surface); color: var(--settings-ink); box-shadow: 0 1px 4px color-mix(in srgb, var(--settings-ink) 10%, transparent); }
+.settings-shell .deep-import-source-hint { padding: 10px 12px; border-left: 3px solid var(--settings-ai); background: var(--settings-ai-soft); color: var(--settings-muted); }
+.settings-shell .appearance-settings { display: grid; gap: 18px; }
+.settings-shell .appearance-heading { align-items: end; margin-bottom: 0; padding-bottom: 20px; border-bottom: 1px solid var(--settings-line); }
+.settings-shell .appearance-heading h2 { margin: 0 0 8px; font-size: 19px; }
+.settings-shell .appearance-heading p, .settings-shell .appearance-note { color: var(--settings-muted); line-height: 1.75; }
+.settings-shell .appearance-modes { display: inline-flex; gap: 4px; padding: 4px; border: 1px solid var(--settings-line); border-radius: 9px; background: var(--settings-soft); }
+.settings-shell .appearance-modes label { min-height: 34px; padding: 7px 11px; border-radius: 7px; color: var(--settings-muted); }
+.settings-shell .appearance-modes label:has(input:checked) { background: var(--settings-surface); color: var(--settings-ink); box-shadow: 0 1px 4px color-mix(in srgb, var(--settings-ink) 10%, transparent); }
+.settings-shell .theme-gallery { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+.settings-shell .theme-card { border-color: var(--settings-line); border-radius: 11px; background: var(--settings-surface); }
+.settings-shell .theme-card__actions .btn { min-height: 34px; }
+
+@media (max-width: 760px) {
+  .settings-shell { padding: 24px 16px 56px; }
+  .settings-shell__header { align-items: start; flex-direction: column; gap: 8px; }
+  .settings-shell__body { grid-template-columns: 1fr; gap: 24px; }
+  .settings-shell__navigation { position: static; padding: 0 0 8px; border-right: 0; border-bottom: 1px solid var(--settings-line); }
+  .settings-shell__tabs, .settings-sections { display: flex; flex-wrap: wrap; margin-bottom: 10px; }
+  .settings-shell__nav-label { width: 100%; }
+  .settings-shell__tabs .tab-btn, .settings-sections .tab-btn { flex: 1 1 140px; }
+  .settings-shell .settings-tab-nav { width: 100%; }
+  .settings-shell .settings-tab-nav .tab-btn { flex: 1; }
+}

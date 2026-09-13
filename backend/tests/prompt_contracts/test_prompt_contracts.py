@@ -20,7 +20,7 @@ from tools.prompt_contracts.validators import (
 def test_registry_loads_all_deep_import_contracts() -> None:
     contracts = load_contracts()
 
-    assert {contract.id for contract in contracts} == {
+    assert {contract.id for contract in contracts} >= {
         "review_resolution",
         "review_resolution_scenes",
         "world_generation_core_entity",

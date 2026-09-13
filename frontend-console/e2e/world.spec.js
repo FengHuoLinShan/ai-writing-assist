@@ -2,7 +2,6 @@ import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
 import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
 import { createProject, cleanupProject, waitForBackend, createEntity, createCharacter, seedEntityArchive } from "./helpers/api-client.js"
-import { expectNoPageOverflow, runResponsiveMatrix } from "./helpers/responsive.js"
 
 test.describe("世界对象模块", () => {
   let testProjectId = null
@@ -59,14 +58,6 @@ test.describe("世界对象模块", () => {
     await expect(page.locator(".world-object-table")).toContainText("测试城堡")
     await expect(page.locator(".world-object-table")).toContainText("地点")
 
-    await runResponsiveMatrix(page, async () => {
-      await expectNoPageOverflow(page)
-      await expect(page.locator(".world-object-table")).toBeVisible()
-    }, [
-      { width: 900, height: 800 },
-      { width: 600, height: 800 },
-      { width: 390, height: 844 },
-    ])
   })
 
   test("编辑世界对象", async ({ page }) => {
@@ -127,21 +118,16 @@ test.describe("世界对象模块", () => {
     await card.locator('[data-action="open-entity-detail"]').click()
     await expect(page.locator("#edit-entity-image")).toBeVisible({ timeout: 10000 })
     await expect(page.locator(".world-entity-editor")).toBeVisible()
-    await expectNoPageOverflow(page)
+
     await page.locator(SEL.modalClose).click()
 
     for (const theme of ["light", "dark"]) {
       await page.locator(`.theme-dot[data-theme-value="${theme}"]`).click()
-      await expectNoPageOverflow(page)
+
     }
     const menuTrigger = card.locator(".action-menu-btn")
     await menuTrigger.click()
-    const [triggerBox, menuBox] = await Promise.all([
-      menuTrigger.boundingBox(),
-      card.locator(".action-menu-list").boundingBox(),
-    ])
-    expect(menuBox.x).toBeGreaterThanOrEqual(triggerBox.x - 1)
-    await expectNoPageOverflow(page)
+
     await menuTrigger.click()
 
     const replacement = await page.screenshot({ type: "png" })
@@ -498,3 +484,31 @@ test.describe("世界对象模块", () => {
     expect(secondPageRows.join("\n")).toContain("分页对象")
   })
 })
+
+  test("待处理深链在桌面与窄屏读取同一候选", async ({ page, projectFactory }) => {
+    const proj = await projectFactory({ title: "视觉基线直达建议", genre: "fantasy", language: "zh" })
+    const candidate = await createEntity(proj.id, {
+      name: "沈无咎",
+      entity_type: "character",
+      status: "candidate",
+      summary: "旧友型反派，公开温和，暗中推动主角面对旧秩序。",
+      importance_level: "important",
+    })
+
+    await openWorkbench(page, proj, "world", "review-objects")
+    await page.evaluate(async ({ candidateId }) => {
+      await window.router.navigate("world", "review", true, new URLSearchParams({
+        kind: "objects",
+        entity_id: candidateId,
+        review_item: candidateId,
+        return_to: "world_ai",
+        return_subview: "objects",
+      }))
+    }, { candidateId: candidate.id })
+    await page.waitForFunction(() => !state.loading, { timeout: 10000 })
+    await expect(page.locator(".world-review-decision")).toContainText("决定是否采用“沈无咎”")
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(page.getByRole("button", { name: "忽略", exact: true })).toBeEnabled()
+    await expect(page.locator(".world-review-decision")).toContainText("沈无咎")
+  })

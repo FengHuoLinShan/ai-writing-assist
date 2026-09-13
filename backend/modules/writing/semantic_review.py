@@ -746,7 +746,11 @@ class WritingSemanticWorkflowService:
                         "continuity_contract_version>=2 时还必须返回 space_continuity、"
                         "time_continuity、logic_continuity。未检查只能标为 "
                         "not_checked，"
-                        "确实不适用才标为 not_applicable。角色有限视角候选的 "
+                        "确实不适用才标为 not_applicable。not_checked 列表仅列出本次"
+                        "本应完成但实际未完成的检查；不适用的合同、非角色视角的知识边界、"
+                        "未启用版本的连续性字段只在 coverage 中标记，不得作为未完成检查"
+                        "放入 not_checked。所有适用检查完成时该列表必须为空。"
+                        "角色有限视角候选的 "
                         "knowledge_boundary 必须为 checked。"
                         "相邻章只用于回归对照，问题位置必须落在 targets。"
                     ),

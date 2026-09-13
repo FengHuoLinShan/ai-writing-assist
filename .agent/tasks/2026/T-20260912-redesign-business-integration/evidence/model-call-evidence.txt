@@ -1,0 +1,16 @@
+2026-09-12 23:47:39,420 [INFO] infrastructure.tasks.worker: Task claimed: 407cbe2b-c230-456a-aa23-ada6f94dd8b0 (type=writing_generate, novel_id=<unverified>)
+2026-09-12 23:47:39,426 [INFO] infrastructure.tasks.worker: Executing task 407cbe2b-c230-456a-aa23-ada6f94dd8b0 (type=writing_generate, novel_id=937c86f1-a2c3-4db5-963d-f3181095f339) with handler handle_writing_generate
+2026-09-12 23:47:42,279 [INFO] httpx: HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+2026-09-12 23:47:45,623 [INFO] infrastructure.tasks.worker: Task completed: 407cbe2b-c230-456a-aa23-ada6f94dd8b0 (type=writing_generate, novel_id=937c86f1-a2c3-4db5-963d-f3181095f339)
+2026-09-12 23:48:30,328 [INFO] infrastructure.tasks.worker: Task claimed: 94410a91-c7e3-4933-9388-d19287087d81 (type=writing_semantic_review, novel_id=<unverified>)
+2026-09-12 23:48:30,337 [INFO] infrastructure.tasks.worker: Executing task 94410a91-c7e3-4933-9388-d19287087d81 (type=writing_semantic_review, novel_id=937c86f1-a2c3-4db5-963d-f3181095f339) with handler handle_writing_semantic_review
+2026-09-12 23:48:30,759 [INFO] httpx: HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+2026-09-12 23:49:04,050 [INFO] httpx: HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+2026-09-12 23:49:10,298 [INFO] infrastructure.tasks.worker: Task completed: 94410a91-c7e3-4933-9388-d19287087d81 (type=writing_semantic_review, novel_id=937c86f1-a2c3-4db5-963d-f3181095f339)
+2026-09-12 23:59:07,129 [INFO] infrastructure.tasks.worker: Task claimed: 888e2c1a-a860-43f0-9349-06c70e38a80b (type=writing_semantic_review, novel_id=<unverified>)
+2026-09-12 23:59:07,164 [INFO] infrastructure.tasks.worker: Executing task 888e2c1a-a860-43f0-9349-06c70e38a80b (type=writing_semantic_review, novel_id=937c86f1-a2c3-4db5-963d-f3181095f339) with handler handle_writing_semantic_review
+2026-09-12 23:59:14,100 [INFO] httpx: HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+2026-09-12 23:59:59,346 [INFO] httpx: HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+2026-09-13 00:00:03,574 [INFO] infrastructure.tasks.worker: Task completed: 888e2c1a-a860-43f0-9349-06c70e38a80b (type=writing_semantic_review, novel_id=937c86f1-a2c3-4db5-963d-f3181095f339)
+2026-09-13 00:15:58,103 [INFO] httpx: HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+2026-09-13 00:16:56,358 [INFO] httpx: HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"

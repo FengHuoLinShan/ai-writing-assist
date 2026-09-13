@@ -21,6 +21,23 @@ spec.loader.exec_module(selector)
         ([], set()),
         (["docs/design.md", "backend/README.md"], set()),
         (["README.md"], {"images"}),
+        (["backend/tests/unit/test_example.py"], {"backend"}),
+        (["backend/modules/world/tests/test_example.py"], {"backend"}),
+        (["backend/tests/e2e/test_example.py"], {"backend", "postgresql"}),
+        (["backend/conftest.py"], {"backend", "postgresql", "browser", "images"}),
+        (["frontend-console/tests/example.test.js"], {"frontend"}),
+        (
+            ["frontend-console/e2e/visual-example.spec.js-snapshots/page-darwin.png"],
+            set(),
+        ),
+        (["frontend-console/e2e/fixtures.js"], {"frontend", "browser", "images"}),
+        (
+            [
+                "frontend-console/e2e/visual-example.spec.js-snapshots/page-darwin.png",
+                "backend/app/main.py",
+            ],
+            {"backend", "postgresql", "browser", "images"},
+        ),
         (["backend/app/main.py"], {"backend", "postgresql", "browser", "images"}),
         (["frontend-console/src/App.vue"], {"frontend", "browser", "images"}),
         (["backend/Dockerfile"], {"backend", "images"}),
@@ -80,7 +97,9 @@ def test_git_diff_includes_deleted_and_both_renamed_paths(tmp_path):
         tmp_path, {"pull_request": {"base": {"sha": base}, "head": {"sha": head}}}
     )
     assert result.returncode == 0, result.stderr
-    assert set(output.splitlines()) == {f"{gate}=true" for gate in selector.GATES}
+    assert set(output.splitlines()) == {f"{gate}=true" for gate in selector.GATES} | {
+        "browser_suite=test:e2e:functional"
+    }
 
 
 @pytest.mark.parametrize("sha", ["0" * 40, "--output=/tmp/unsafe", "main"])
@@ -95,10 +114,31 @@ def test_invalid_or_unavailable_diff_fails_without_outputs(tmp_path, sha):
 def test_main_push_selects_all_without_needing_git(tmp_path):
     result, output = run_selector(tmp_path, {"ref": "refs/heads/main"}, "push")
     assert result.returncode == 0, result.stderr
-    assert set(output.splitlines()) == {f"{gate}=true" for gate in selector.GATES}
+    assert set(output.splitlines()) == {f"{gate}=true" for gate in selector.GATES} | {
+        "browser_suite=test:e2e:functional"
+    }
 
 
 def test_unsupported_event_fails_without_outputs(tmp_path):
     result, output = run_selector(tmp_path, {}, "workflow_dispatch")
     assert result.returncode != 0
     assert output == ""
+
+
+@pytest.mark.parametrize("paths, expected", [
+    (["frontend-console/e2e/generate.spec.js"], "test:e2e:functional"),
+    (["frontend-console/e2e/helpers/workbench.js"], "test:e2e:functional"),
+    (["frontend-console/playwright.functional.config.js"], "test:e2e:functional"),
+    (["frontend-console/package.json"], "test:e2e:functional"),
+    ([".github/workflows/frontend-ci.yml"], "test:e2e:functional"),
+    (["frontend-console/e2e/visual-world.spec.js-snapshots/old.png"], "test:e2e:smoke"),
+    (["frontend-console/styles.css"], "test:e2e:functional"),
+    (["frontend-console/vue/views/world/WorldView.vue"], "test:e2e:functional"),
+    (["frontend-console/vue/shell/creative-shell.css"], "test:e2e:functional"),
+    (["frontend-console/package-lock.json"], "test:e2e:functional"),
+    (["scripts/classify_ci_changes.py"], "test:e2e:functional"),
+    (["backend/modules/writing/api.py"], "test:e2e:smoke"),
+    (["docs/design.md"], "test:e2e:smoke"),
+])
+def test_browser_suite_covers_changed_behavior_collection(paths, expected):
+    assert selector.browser_suite(paths) == expected

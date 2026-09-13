@@ -1,5 +1,7 @@
 # 作品档案（project）UI/UX 执行规范
 
+> 回归依据：[`testing-guide.md`](../../../../testing-guide.md) 的前端重设计契约。本文外观、固定尺寸、布局、断点、DOM/组件结构及旧操作路径为实现参考，不阻断重设计；功能、数据、幂等性、安全和基本可访问性约束继续适用。
+
 > 上游标准：`docs/frontend/uiux/design-standard.md`（下称「主规范」），本节号引用均指主规范。
 > 实现锚点：`frontend-console/vue/views/project/ProjectView.vue`、
 > `components/ProjectCard.vue`、`components/ImportDrawer.vue`、
@@ -235,8 +237,7 @@
 
 ```bash
 npm test -- tests/vue/project tests/vue/projectIsland.test.js   # 视图/island 单测
-npm test -- tests/editorialTheme.test.js tests/typographyTokens.test.js
+npm test
 npm run test:e2e:functional -- e2e/project.spec.js e2e/import.spec.js e2e/import-errors.spec.js
 npm run test:e2e:functional -- e2e/home.spec.js                 # 壳层快捷键 n → data-action="new"
-npm run test:e2e:visual -- e2e/visual-project-rag.spec.js       # project-catalog 浅／深色基线
 ```

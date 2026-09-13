@@ -23,6 +23,7 @@ def test_diagnostic_refuses_dotenv_before_creating_artifacts(tmp_path, monkeypat
 def test_diagnostic_refuses_retargeting_before_changing_environment(
     tmp_path, monkeypatch
 ):
+    monkeypatch.setattr(probe, "ROOT", tmp_path)
     monkeypatch.setattr(probe, "OUT", tmp_path)
     monkeypatch.setenv("DATABASE_URL", "preserve-caller-value")
     (tmp_path / "runtime-private.json").write_text(

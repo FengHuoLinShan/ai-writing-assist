@@ -30,9 +30,10 @@ make docs-check BASE_REF=origin/main
 ```
 
 `scripts/check_architecture_docs.py` 使用 Python 3.12 标准库，不引入新的运行时或前端依赖。
-PR 若确实没有当前文档变化，必须按脚本列出的未更新文档逐项核对，在 PR 模板勾选无影响并
-写出原因；未说明的遗漏会令 CI 失败。新业务模块、`docs/modules/` 文档、
-`docs/architecture/` 文件或 ADR 未登记时也会失败。
+普通实现变化只输出文档复核提示；API/schema/facade 等稳定边界命中硬门禁时，未更新的
+必查文档仍须在 PR 模板勾选无影响并写出原因，不能静默略过。新业务模块、`docs/modules/` 文档、
+`docs/architecture/` 文件或 ADR 未登记时也会失败。表、路由、任务各检查一个权威目录，
+不再要求模块设计与 README 重复枚举全部条目。
 
 ADR-0013 记录作者长任务的 operation receipt、最多两个 attempt 和页内恢复边界；该决定
 复用现有 tasks/LLM/project seams，不新增队列、表、全局任务中心或跨设备锁。ADR-0014 规定

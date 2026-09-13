@@ -76,10 +76,10 @@ watch(visibleIds, (ids) => {
   reconcileBulkSelection(session, PROJECT_CARDS_SCOPE, ids)
 }, { immediate: true })
 
-const currentName = computed(() => {
-  const current = (projects.value || []).find((p) => String(p.id) === String(currentProjectId.value || ""))
-  return current ? projectName(current) : "尚未选择"
-})
+const currentProject = computed(() => (
+  (projects.value || []).find((project) => String(project.id) === String(currentProjectId.value || "")) || null
+))
+const currentName = computed(() => currentProject.value ? projectName(currentProject.value) : "尚未选择")
 
 const filterCountLabel = computed(() => projectCountLabel(visibleProjects.value.length, allProjects.value.length))
 const importActionLabel = computed(() => {
@@ -114,6 +114,10 @@ function openProject(id) {
   state.currentProject = project
   getToast()(`已切换到作品：${project.title || project.name}`, "success")
   getRouter().navigate("today")
+}
+
+function openCurrentProject() {
+  if (currentProjectId.value) openProject(currentProjectId.value)
 }
 
 function toggleSelect(id, checked) {
@@ -177,23 +181,28 @@ async function retryProjects() {
   <section class="project-catalog" aria-labelledby="project-catalog-title">
     <header class="project-archive-hero project-toolbar">
       <div class="project-archive-hero__copy">
-        <h1 id="project-catalog-title"><span>作品</span><em>档案</em></h1>
-        <p>收拢每一个世界，标记每一次续写。让正在发生的故事始终位于视线中心。</p>
+        <span class="project-archive-hero__eyebrow">作品档案</span>
+        <h1 id="project-catalog-title">把故事放在触手可及的地方。</h1>
+        <p><strong data-role="project-total-count">{{ totalCount }} 部作品</strong>；当前作品优先展示，随时从上次停下的地方继续。</p>
       </div>
-      <div class="project-archive-hero__summary">
-        <strong data-role="project-total-count">{{ totalCount }} 部作品</strong>
+      <div class="project-archive-hero__actions">
+        <button class="btn btn-primary" data-action="new" @click="showCreateForm">新建空白作品</button>
+        <button class="btn btn-ghost" data-action="toggle-import" @click="toggleImportSection">{{ importActionLabel }}</button>
+        <button class="btn btn-ghost" data-action="manage-projects" @click="session.manageMode = !session.manageMode">{{ manageLabel }}</button>
+        <button class="btn btn-ghost" data-action="recycle-bin" @click="showRecycleBin()">回收站</button>
+      </div>
+    </header>
+
+    <section v-if="currentProject" class="project-current-resume" aria-label="当前作品">
+      <div class="project-current-resume__copy">
+        <span>继续你的故事</span>
         <div class="project-archive-hero__current">
           <span>当前作品</span>
           <b :title="currentName">{{ currentName }}</b>
         </div>
-        <div class="project-archive-hero__actions">
-          <button class="btn btn-primary" data-action="new" @click="showCreateForm">新建空白作品</button>
-          <button class="btn btn-ghost" data-action="toggle-import" @click="toggleImportSection">{{ importActionLabel }}</button>
-          <button class="btn btn-ghost" data-action="manage-projects" @click="session.manageMode = !session.manageMode">{{ manageLabel }}</button>
-          <button class="btn btn-ghost" data-action="recycle-bin" @click="showRecycleBin()">回收站</button>
-        </div>
       </div>
-    </header>
+      <button class="btn" data-action="continue-current-project" @click="openCurrentProject">继续写作</button>
+    </section>
 
     <div v-if="session.importSectionOpen" class="project-import-drawer">
       <ImportDrawer @import-new-project="importSelectedFileAsNewProject" />
@@ -322,3 +331,5 @@ async function retryProjects() {
     </template>
   </section>
 </template>
+
+<style src="./project-redesign.css"></style>

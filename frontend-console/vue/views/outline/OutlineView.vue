@@ -176,3 +176,5 @@ const hasAnyProgress = computed(() => Boolean(
 ))
 
 </script>
+
+<style src="./outline-redesign.css"></style>

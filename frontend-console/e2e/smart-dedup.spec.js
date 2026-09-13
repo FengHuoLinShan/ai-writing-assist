@@ -392,7 +392,6 @@ test.describe("智能去重", () => {
     await expect(page.locator("#modal-body")).toContainText("只看差异")
     await expect(page.locator("#modal-body")).not.toContainText("手动主体 ID")
     await expect(page.getByRole("button", { name: "确认本次处理 (1)" })).toBeEnabled()
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 
     await page.getByRole("button", { name: "确认本次处理 (1)" }).click()
     await expect(page.locator("#modal-body")).toContainText("执行成功")

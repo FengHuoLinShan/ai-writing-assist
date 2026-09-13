@@ -9,7 +9,7 @@ import {
   stageLabel,
 } from "../logic/projectFilter.js"
 
-/** 单个项目卡 — DOM 契约对齐 vanilla _renderProjectCards。 */
+/** 单个项目卡 — 迁移来源：vanilla _renderProjectCards。 */
 const props = defineProps({
   project: { type: Object, required: true },
   index: { type: Number, required: true },

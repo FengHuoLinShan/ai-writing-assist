@@ -759,3 +759,5 @@ async function runTool(key) {
   if (selector) await focusWorkspaceTool(toolsRoot.value, selector)
 }
 </script>
+
+<style src="./scene-redesign.css"></style>

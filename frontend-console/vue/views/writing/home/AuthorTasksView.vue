@@ -188,6 +188,7 @@ onBeforeUnmount(() => {
     <header class="author-tasks__header">
       <div>
         <button type="button" class="btn btn-sm btn-ghost" :disabled="navigationBusy" @click="openWritingHome">← 写作首页</button>
+        <span class="author-tasks__eyebrow">创作计划</span>
         <h1 id="author-tasks-title">{{ heading }}</h1>
         <p>这是你主动安排的待办；“需要你决定”和后台整理仍在各自区域处理。</p>
       </div>
@@ -244,14 +245,16 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.author-tasks { max-width: 960px; margin: 0 auto; padding: 24px; }
-.author-tasks__header { display: flex; justify-content: space-between; gap: 20px; align-items: end; }
-.author-tasks__header h1 { margin: 10px 0 4px; }
-.author-tasks__header p { margin: 0; color: var(--text-muted); }
-.author-task-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0 16px; }
+.author-tasks { max-width: 960px; margin: 0 auto; padding: clamp(18px, 3vw, 36px); }
+.author-tasks__header { display: flex; justify-content: space-between; gap: 20px; align-items: end; padding-bottom: 18px; border-bottom: 1px solid var(--border); }
+.author-tasks__eyebrow { display: block; margin-top: 18px; color: var(--accent); font-size: var(--text-xs); font-weight: 700; letter-spacing: .08em; }
+.author-tasks__header h1 { margin: 4px 0; letter-spacing: -.025em; }
+.author-tasks__header p { max-width: 58ch; margin: 0; color: var(--text-secondary); }
+.author-task-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 16px 0; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.author-task-tabs .btn[aria-current="page"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .author-task-tabs__archive { margin-left: auto; }
-.author-task-list { display: grid; gap: 10px; padding: 0; list-style: none; }
-.author-task-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-panel); }
+.author-task-list { display: grid; gap: 0; padding: 0; list-style: none; border-top: 1px solid var(--border); }
+.author-task-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 14px 0; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; }
 .author-task-row__check { display: grid; width: 44px; height: 44px; place-items: center; cursor: pointer; }
 .author-task-row__check input { width: 20px; height: 20px; }
 .author-task-row__copy { min-width: 0; display: grid; gap: 5px; }
@@ -260,6 +263,7 @@ onBeforeUnmount(() => {
 .author-task-source { width: fit-content; padding: 0; border: 0; color: var(--accent); background: transparent; text-align: left; text-decoration: underline; cursor: pointer; }
 .author-task-source.is-missing { color: var(--text-muted); text-decoration: none; }
 .author-task-conflict { margin: 0 0 12px; color: var(--danger); }
+.author-tasks .empty-state { min-height: 0; padding: 28px; border: 1px dashed var(--border); border-radius: 10px; background: transparent; }
 @media (max-width: 760px) {
   .author-tasks { padding: 16px; }
   .author-tasks__header { align-items: stretch; flex-direction: column; }

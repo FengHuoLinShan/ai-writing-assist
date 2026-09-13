@@ -3,12 +3,13 @@ import { computed, ref, watch } from "vue"
 import { advancedFilterSummary } from "../logic/searchPayload.js"
 
 /**
- * 检索面板（表单 + 高级筛选）— DOM 契约对齐 vanilla _renderSearch。
+ * 检索面板（表单 + 高级筛选）— 迁移来源：vanilla _renderSearch。
  * form 为 v-model 对象（由 RagSearchView 初始化自路由状态）。
  */
 const form = defineModel("form", { type: Object, required: true })
 
 const props = defineProps({
+  compact: Boolean,
   characters: { type: Array, default: () => [] },
   scenes: { type: Array, default: () => [] },
   chapterRangeError: { type: String, default: "" },
@@ -90,8 +91,10 @@ function characterIdOf(character) {
 <template>
   <form class="card novel-search-panel" @submit.prevent="emit('submit')">
     <header class="rag-search-panel__header">
-      <h2 class="card-title">查找小说资料</h2>
-      <p class="rag-empty-copy">回查人物、场景、设定和原文出处，为当前创作核对事实。</p>
+      <span v-if="!compact" class="creative-search-eyebrow">资料查找</span>
+      <h2 v-if="compact" class="card-title">查找小说资料</h2>
+      <h1 v-else>让记忆，有迹可循。</h1>
+      <p class="rag-empty-copy">从原文、人物和场景中，找回你需要的那一刻。</p>
     </header>
     <p v-if="searchPending" role="status">{{ searchStage || '正在查找资料…' }} <button v-if="form.searchKind !== 'literal'" type="button" class="btn btn-sm" @click="form.searchKind = 'literal'; form.scopes = ['manuscript']; form.includePending = false; emit('submit')">改用字面搜索</button></p>
     <div class="rag-search-form">

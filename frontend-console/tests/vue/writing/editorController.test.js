@@ -143,6 +143,235 @@ describe("editorController", () => {
     controller.dispose()
   })
 
+  it("保存版本冲突时标记冲突并保留可恢复的本地备份", async () => {
+    const { controller, api } = makeController()
+    api.writing.autosave.mockRejectedValueOnce(Object.assign(new Error("工作稿已被更新"), { status: 409 }))
+    await controller.loadChapter(1)
+    document.body.innerHTML = '<textarea id="body"></textarea>'
+    const editor = document.getElementById("body")
+    controller.attach({ title: null, editor })
+    editor.value = "本地 B 版本"
+    editor.dispatchEvent(new Event("input"))
+
+    await controller.autosave()
+
+    expect(controller.snapshot()).toMatchObject({
+      saveConflict: true,
+      saveError: "工作稿已被更新",
+      backupComplete: true,
+      dirty: true,
+    })
+    expect(localStorage.getItem("draft_backup_p1_1_d1")).toContain("本地 B 版本")
+    controller.dispose()
+  })
+
+  it("服务器重载在本地备份失败时拒绝覆盖当前文字", async () => {
+    const { controller, api, confirmDialog } = makeController()
+    await controller.loadChapter(1)
+    document.body.innerHTML = '<textarea id="body"></textarea>'
+    const editor = document.getElementById("body")
+    controller.attach({ title: null, editor })
+    editor.value = "仍在编辑的本地文字"
+    editor.dispatchEvent(new Event("input"))
+    controller.setState({ saveConflict: true })
+    const originalSetItem = localStorage.setItem.bind(localStorage)
+    const storage = vi.spyOn(localStorage, "setItem").mockImplementation((key, value) => {
+      if (String(key).startsWith("draft_backup_")) {
+        throw new DOMException("quota", "QuotaExceededError")
+      }
+      return originalSetItem(key, value)
+    })
+
+    expect(await controller.reloadServerDraft()).toBe(false)
+
+    expect(api.writing.getVersionHistory).toHaveBeenCalledTimes(1)
+    expect(confirmDialog).not.toHaveBeenCalled()
+    expect(controller.snapshot()).toMatchObject({
+      content: "仍在编辑的本地文字",
+      saveConflict: true,
+      backupComplete: false,
+      dirty: true,
+    })
+    storage.mockRestore()
+    controller.dispose()
+  })
+
+  it("取消服务器重载时保留当前文字和本地备份", async () => {
+    const confirmDialog = vi.fn(async () => false)
+    const { controller, api } = makeController({ confirmDialog })
+    await controller.loadChapter(1)
+    document.body.innerHTML = '<textarea id="body"></textarea>'
+    const editor = document.getElementById("body")
+    controller.attach({ title: null, editor })
+    editor.value = "取消重载的本地文字"
+    editor.dispatchEvent(new Event("input"))
+    controller.setState({ saveConflict: true })
+
+    expect(await controller.reloadServerDraft()).toBe(false)
+
+    expect(api.writing.getVersionHistory).toHaveBeenCalledTimes(1)
+    expect(confirmDialog).toHaveBeenCalledWith(expect.stringContaining("服务器最新版"), "载入服务器最新版")
+    expect(controller.snapshot()).toMatchObject({
+      content: "取消重载的本地文字",
+      saveConflict: true,
+      backupComplete: true,
+      dirty: true,
+    })
+    expect(localStorage.getItem("draft_backup_p1_1_d1")).toContain("取消重载的本地文字")
+    controller.dispose()
+  })
+
+  it("确认服务器重载时加载最新工作稿且跳过旧会话和备份恢复", async () => {
+    const { controller, api, onVersionChanged } = makeController()
+    await controller.loadChapter(1)
+    document.body.innerHTML = '<input id="title"><textarea id="body"></textarea>'
+    const title = document.getElementById("title")
+    const editor = document.getElementById("body")
+    controller.attach({ title, editor })
+    title.value = "本地标题"
+    editor.value = "本地未保存正文"
+    editor.dispatchEvent(new Event("input"))
+    controller.setState({ saveConflict: true })
+    controller.persist()
+    api.writing.getVersionHistory.mockResolvedValueOnce({ versions: [{ id: "d2", version_number: 2, status: "draft" }] })
+    api.writing.get.mockResolvedValueOnce({
+      id: "d2",
+      novel_id: "p1",
+      title: "服务器最新版标题",
+      content: "服务器最新版正文",
+      version_number: 2,
+      updated_at: "2026-09-13T10:00:00Z",
+      status: "draft",
+    })
+
+    expect(await controller.reloadServerDraft()).toBe(true)
+
+    expect(controller.snapshot()).toMatchObject({
+      draftId: "d2",
+      title: "服务器最新版标题",
+      content: "服务器最新版正文",
+      lastSavedContent: "服务器最新版正文",
+      dirty: false,
+      saveConflict: false,
+      reloadingServer: false,
+    })
+    expect(localStorage.getItem("draft_backup_p1_1_d1")).toContain("本地未保存正文")
+    expect(onVersionChanged).toHaveBeenCalled()
+    controller.dispose()
+  })
+
+  it("服务器重载读取期间的新输入阻止迟到正文覆盖并保留备份", async () => {
+    const late = deferred()
+    const { controller, api } = makeController()
+    await controller.loadChapter(1)
+    document.body.innerHTML = '<textarea id="body"></textarea>'
+    const editor = document.getElementById("body")
+    controller.attach({ title: null, editor })
+    editor.value = "读取前的本地文字"
+    editor.dispatchEvent(new Event("input"))
+    controller.setState({ saveConflict: true })
+    api.writing.get.mockReturnValueOnce(late.promise)
+
+    const reloading = controller.reloadServerDraft()
+    await vi.waitFor(() => expect(api.writing.get).toHaveBeenCalledTimes(2))
+    expect(controller.snapshot().reloadingServer).toBe(true)
+    editor.value = "读取期间的新本地文字"
+    editor.dispatchEvent(new Event("input"))
+    late.resolve({
+      id: "d2",
+      novel_id: "p1",
+      title: "服务器正文",
+      content: "服务器不应覆盖的正文",
+      version_number: 2,
+      updated_at: "2026-09-13T11:00:00Z",
+      status: "draft",
+    })
+
+    expect(await reloading).toBe(false)
+    expect(controller.snapshot()).toMatchObject({
+      content: "读取期间的新本地文字",
+      lastSavedContent: "原文",
+      dirty: true,
+      saveConflict: true,
+      reloadingServer: false,
+      backupComplete: true,
+    })
+    expect(localStorage.getItem("draft_backup_p1_1_d1")).toContain("读取期间的新本地文字")
+    controller.dispose()
+  })
+
+  it("服务器重载读取失败期间的新输入不被迟到错误恢复覆盖", async () => {
+    const late = deferred()
+    const { controller, api, toast } = makeController()
+    await controller.loadChapter(1)
+    document.body.innerHTML = '<input id="title"><textarea id="body"></textarea>'
+    const title = document.getElementById("title")
+    const editor = document.getElementById("body")
+    controller.attach({ title, editor })
+    editor.value = "读取前的本地文字"
+    editor.dispatchEvent(new Event("input"))
+    controller.setState({ saveConflict: true })
+    api.writing.get.mockReturnValueOnce(late.promise)
+
+    const reloading = controller.reloadServerDraft()
+    await vi.waitFor(() => expect(api.writing.get).toHaveBeenCalledTimes(2))
+    expect(controller.snapshot().reloadingServer).toBe(true)
+    expect(title.readOnly).toBe(true)
+    expect(editor.readOnly).toBe(true)
+    editor.value = "读取失败期间的新本地文字"
+    editor.dispatchEvent(new Event("input"))
+    late.reject(new Error("服务器暂时不可用"))
+
+    expect(await reloading).toBe(false)
+    expect(controller.snapshot()).toMatchObject({
+      content: "读取失败期间的新本地文字",
+      lastSavedContent: "原文",
+      dirty: true,
+      saveConflict: true,
+      reloadingServer: false,
+      backupComplete: true,
+    })
+    expect(title.readOnly).toBe(false)
+    expect(editor.readOnly).toBe(false)
+    expect(toast).not.toHaveBeenCalledWith("服务器暂时不可用", "error")
+    expect(localStorage.getItem("draft_backup_p1_1_d1")).toContain("读取失败期间的新本地文字")
+    controller.dispose()
+  })
+
+  it("服务器重载期间切换项目后丢弃迟到响应", async () => {
+    const late = deferred()
+    const { controller, api, setProject } = makeController()
+    await controller.loadChapter(1)
+    controller.setState({ content: "本地项目文字", saveConflict: true })
+    api.writing.getVersionHistory.mockReturnValueOnce(late.promise)
+    const reloading = controller.reloadServerDraft()
+    await vi.waitFor(() => expect(api.writing.getVersionHistory).toHaveBeenCalledTimes(2))
+    setProject("p2")
+    late.resolve({ versions: [{ id: "p1-late", version_number: 2, status: "draft" }] })
+
+    expect(await reloading).toBe(false)
+    expect(controller.snapshot()).toMatchObject({ chapter: 1, content: "本地项目文字", saveConflict: true })
+    expect(api.writing.get).toHaveBeenCalledTimes(1)
+    controller.dispose()
+  })
+
+  it("服务器重载期间切换章节后丢弃迟到响应", async () => {
+    const late = deferred()
+    const { controller, api } = makeController()
+    await controller.loadChapter(1)
+    controller.setState({ content: "第一章本地文字", saveConflict: true })
+    api.writing.getVersionHistory.mockReturnValueOnce(late.promise)
+    const reloading = controller.reloadServerDraft()
+    await vi.waitFor(() => expect(api.writing.getVersionHistory).toHaveBeenCalledTimes(2))
+
+    expect(await controller.loadChapter(2)).toBe(true)
+    late.resolve({ versions: [{ id: "d-late", version_number: 2, status: "draft" }] })
+
+    expect(await reloading).toBe(false)
+    expect(controller.snapshot()).toMatchObject({ chapter: 2, content: "原文", saveConflict: false })
+    controller.dispose()
+  })
+
   it("光标移动只记录位置，不自动切换 Scene", async () => {
     const { controller } = makeController()
     await controller.loadChapter(1)

@@ -1,0 +1,202 @@
+#redesign-root .rd-world-preview{max-width:1180px}
+#redesign-root .rd-world-preview .rd-page-heading{align-items:flex-start}
+#redesign-root .rd-world-preview .rd-page-heading h1{max-width:720px}
+#redesign-root .rd-world-controls{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:12px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+#redesign-root .rd-world-controls .rd-filter-pills{margin:0;flex:1}
+#redesign-root .rd-world-actions{display:flex;align-items:center;gap:10px;flex-shrink:0}
+#redesign-root .rd-view-toggle{display:flex;gap:2px;padding:3px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+#redesign-root .rd-view-toggle button{display:grid;place-items:center;width:29px;height:27px;border-radius:5px;color:var(--muted)}
+#redesign-root .rd-view-toggle button[aria-pressed='true']{background:var(--blue-bg);color:var(--blue)}
+#redesign-root .rd-view-toggle svg{width:15px;height:15px}
+#redesign-root .rd-world-results{margin-top:8px}
+#redesign-root .rd-world-entry{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:14px;width:100%;padding:16px 8px;border-bottom:1px solid var(--line);text-align:left}
+#redesign-root .rd-world-entry:hover,#redesign-root .rd-world-entry.selected{background:var(--surface);box-shadow:inset 3px 0 var(--blue)}
+#redesign-root .rd-world-entry-mark{display:grid;place-items:center;width:40px;height:40px;border-radius:11px}
+#redesign-root .rd-world-entry-mark svg{width:19px;height:19px}
+#redesign-root .rd-world-entry-copy{min-width:0}
+#redesign-root .rd-world-entry-copy strong{display:block;font-size:14px;overflow-wrap:anywhere}
+#redesign-root .rd-world-entry-copy small{display:block;color:var(--muted);font-size:11px;margin:3px 0 5px;overflow-wrap:anywhere}
+#redesign-root .rd-world-entry-copy>span{display:block;color:var(--muted);font-size:12px;line-height:1.75;overflow-wrap:anywhere}
+#redesign-root .rd-world-entry-meta{display:flex;align-items:center;gap:12px;color:var(--muted);max-width:210px}
+#redesign-root .rd-world-entry-meta small{font-size:10px;overflow-wrap:anywhere;text-align:right}
+#redesign-root .rd-world-entry-meta svg{width:15px;height:15px;flex-shrink:0}
+#redesign-root .rd-world-results.is-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:20px}
+#redesign-root .rd-world-results.is-cards .rd-world-entry{display:flex;align-items:flex-start;flex-wrap:wrap;gap:12px;padding:18px;border:1px solid var(--line);border-radius:11px;background:var(--surface)}
+#redesign-root .rd-world-results.is-cards .rd-world-entry-meta{width:100%;max-width:none;padding-top:10px;border-top:1px solid var(--line);justify-content:space-between}
+#redesign-root .rd-world-secondary{display:flex;align-items:center;justify-content:space-between;gap:24px;margin-top:22px;padding:26px 2px;border-bottom:1px solid var(--line)}
+#redesign-root .rd-world-secondary-copy{max-width:700px}
+#redesign-root .rd-world-secondary h2{font-size:21px;margin:9px 0 7px}
+#redesign-root .rd-world-secondary p{color:var(--muted);font-size:12px;line-height:1.8}
+#redesign-root .rd-world-detail{margin-top:24px}
+#redesign-root .rd-world-detail-lead{max-width:740px;font-size:14px;line-height:1.9;color:var(--ink)!important}
+#redesign-root .rd-world-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:19px}
+#redesign-root .rd-world-detail-grid>div{display:flex;flex-direction:column;gap:6px;padding-top:12px;border-top:1px solid var(--line);min-width:0}
+#redesign-root .rd-world-detail-grid span{font-size:10px;color:var(--muted)}
+#redesign-root .rd-world-detail-grid strong{font-size:12px;overflow-wrap:anywhere}
+#redesign-root .rd-world-detail-overview{display:grid;grid-template-columns:minmax(0,1fr) 190px;gap:24px;margin-top:4px}
+#redesign-root .rd-world-detail-copy{min-width:0}
+#redesign-root .rd-world-detail-copy .rd-badge{margin-bottom:13px}
+#redesign-root .rd-world-detail-copy .rd-field{margin-top:12px}
+#redesign-root .rd-world-image{min-width:0}
+#redesign-root .rd-world-image-preview{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:150px;border:1px dashed var(--line);border-radius:11px;background:var(--bg);color:var(--muted)}
+#redesign-root .rd-world-image-preview.image-ready{background:linear-gradient(145deg,var(--teal-bg),var(--blue-bg));color:var(--teal);border-style:solid}
+#redesign-root .rd-world-image-preview.image-failed{color:var(--orange);background:var(--orange-bg)}
+#redesign-root .rd-world-image-preview svg{width:30px;height:30px}
+#redesign-root .rd-world-image-preview small{font-size:10px}
+#redesign-root .rd-world-image .rd-field{margin-top:10px}
+#redesign-root .rd-world-history{border-top:1px solid var(--line);margin-top:24px;padding-top:19px}
+#redesign-root .rd-world-history .rd-section-title{margin:0 0 12px}
+#redesign-root .rd-world-history h3{font-size:14px}
+#redesign-root .rd-world-history-source{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0;border-bottom:1px solid var(--line)}
+#redesign-root .rd-world-history-source>div{min-width:0}
+#redesign-root .rd-world-history-source span,#redesign-root .rd-world-history-source strong,#redesign-root .rd-world-history-source small{display:block;overflow-wrap:anywhere}
+#redesign-root .rd-world-history-source span{font-size:10px;color:var(--muted)}
+#redesign-root .rd-world-history-source strong{font-size:12px;margin-top:4px}
+#redesign-root .rd-world-history-source small{font-size:10px;color:var(--muted);margin-top:4px}
+#redesign-root .rd-world-history-list{list-style:none;padding:0;margin:0}
+#redesign-root .rd-world-history-list li{display:flex;gap:15px;padding:12px 0;border-bottom:1px solid var(--line)}
+#redesign-root .rd-world-history-list li>span{font-size:10px;color:var(--muted);min-width:34px}
+#redesign-root .rd-world-history-list strong,#redesign-root .rd-world-history-list small{display:block;font-size:11px}
+#redesign-root .rd-world-history-list small{color:var(--muted);font-size:10px;margin-top:3px}
+#redesign-root .rd-world-danger{margin-top:19px;border-top:1px solid var(--line);padding-top:14px}
+#redesign-root .rd-world-danger summary{list-style:none}
+#redesign-root .rd-world-danger summary::-webkit-details-marker{display:none}
+#redesign-root .rd-world-danger p{font-size:11px;line-height:1.8;color:var(--muted);margin:10px 0}
+#redesign-root .rd-world-danger .rd-button{font-size:11px}
+#redesign-root .rd-world-empty{border-top:1px solid var(--line);margin-top:18px}
+#redesign-root .rd-world-loading{display:flex;align-items:center;gap:12px;padding:34px 2px;color:var(--muted);border-bottom:1px solid var(--line)}
+#redesign-root .rd-world-loading small{margin-left:auto;font-size:10px}
+#redesign-root .rd-world-review{margin-top:22px}
+#redesign-root .rd-world-review-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;padding:22px 2px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+#redesign-root .rd-world-review-heading h2{font-size:21px;margin:9px 0 6px}
+#redesign-root .rd-world-review-heading p{font-size:12px;line-height:1.8;color:var(--muted)}
+#redesign-root .rd-world-review-filter{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:17px 0 10px}
+#redesign-root .rd-world-review-filter .rd-search{width:min(320px,100%)}
+#redesign-root .rd-world-review-bulk{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:11px 0;border-bottom:1px solid var(--line)}
+#redesign-root .rd-world-review-bulk label{display:flex;align-items:center;gap:8px;margin-right:auto;font-size:11px;color:var(--muted)}
+#redesign-root .rd-world-review-bucket{margin-top:18px}
+#redesign-root .rd-world-review-bucket .rd-section-title{margin:0 0 8px}
+#redesign-root .rd-world-review-bucket .rd-section-title h3{font-size:14px}
+#redesign-root .rd-world-review-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start;gap:13px;padding:17px 8px;border-bottom:1px solid var(--line);transition:background 140ms,box-shadow 140ms}
+#redesign-root .rd-world-review-row.is-selected{background:var(--surface);box-shadow:inset 3px 0 var(--blue)}
+#redesign-root .rd-world-review-row.is-stale{background:color-mix(in srgb,var(--orange-bg) 38%,transparent)}
+#redesign-root .rd-world-review-row>input{margin-top:5px}
+#redesign-root .rd-world-review-row-copy{min-width:0}
+#redesign-root .rd-world-review-row-title{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+#redesign-root .rd-world-review-row-title strong{font-size:14px;overflow-wrap:anywhere}
+#redesign-root .rd-world-review-row-copy p{font-size:12px;line-height:1.8;margin:7px 0;color:var(--ink)}
+#redesign-root .rd-world-review-row-copy blockquote{font-size:11px;line-height:1.8;margin:8px 0;padding:3px 0 3px 11px}
+#redesign-root .rd-world-review-row-copy small{display:block;color:var(--muted);font-size:10px;overflow-wrap:anywhere}
+#redesign-root .rd-world-review-row-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;max-width:260px}
+#redesign-root .rd-world-review-row-actions .rd-text-button{margin-right:auto}
+#redesign-root .rd-world-review-bucket.is-handled{margin-top:28px;padding-top:18px;border-top:1px solid var(--line)}
+#redesign-root .rd-world-review-handled-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 8px;border-bottom:1px solid var(--line)}
+#redesign-root .rd-world-review-handled-row strong,#redesign-root .rd-world-review-handled-row small{display:block;overflow-wrap:anywhere}
+#redesign-root .rd-world-review-handled-row strong{font-size:12px}
+#redesign-root .rd-world-review-handled-row small{font-size:10px;color:var(--muted);margin-top:3px}
+#redesign-root .rd-world-review-empty{border-top:0;margin-top:16px;padding:38px 20px}
+#redesign-root .rd-world-connections{margin-top:22px}
+#redesign-root .rd-world-graph-layout{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(240px,.9fr);gap:18px;margin-top:20px}
+#redesign-root .rd-world-graph-wrap{min-width:0;border:1px solid var(--line);border-radius:12px;background:radial-gradient(circle at 42% 45%,var(--blue-bg),transparent 58%),var(--surface);padding:14px}
+#redesign-root .rd-world-graph{display:block;width:100%;height:auto;min-height:270px;color:var(--muted)}
+#redesign-root .rd-world-graph-links line{stroke:var(--line);stroke-width:1.5}
+#redesign-root .rd-world-graph-links text{fill:var(--muted);font-size:10px;text-anchor:middle}
+#redesign-root .rd-world-graph-node circle{fill:currentColor;stroke:var(--surface);stroke-width:5}
+#redesign-root .rd-world-graph-node.selected circle{stroke:currentColor;stroke-width:7;filter:drop-shadow(0 4px 8px color-mix(in srgb,currentColor 25%,transparent))}
+#redesign-root .rd-world-graph-node text{fill:var(--surface);font-size:16px;font-weight:600;text-anchor:middle}
+#redesign-root .rd-world-node-list{display:grid;align-content:start;gap:6px}
+#redesign-root .rd-world-node-button{display:flex;align-items:center;gap:10px;width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);text-align:left}
+#redesign-root .rd-world-node-button:hover,#redesign-root .rd-world-node-button.selected{border-color:var(--blue);background:var(--blue-bg)}
+#redesign-root .rd-world-node-button>span:nth-child(2){flex:1;min-width:0}
+#redesign-root .rd-world-node-button strong,#redesign-root .rd-world-node-button small{display:block;overflow-wrap:anywhere}
+#redesign-root .rd-world-node-button strong{font-size:12px}
+#redesign-root .rd-world-node-button small{font-size:10px;color:var(--muted);margin-top:2px}
+#redesign-root .rd-world-node-button>svg{width:14px;height:14px;color:var(--muted)}
+#redesign-root .rd-world-connection-detail{margin-top:20px;padding:22px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+#redesign-root .rd-world-connection-detail p{color:var(--muted);font-size:12px;line-height:1.9;margin-top:14px}
+#redesign-root .rd-world-related-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:16px}
+#redesign-root .rd-world-related-list>div{padding-top:11px;border-top:1px solid var(--line);min-width:0}
+#redesign-root .rd-world-related-list span,#redesign-root .rd-world-related-list strong,#redesign-root .rd-world-related-list small{display:block;overflow-wrap:anywhere}
+#redesign-root .rd-world-related-list span{font-size:10px;color:var(--muted)}
+#redesign-root .rd-world-related-list strong{font-size:12px;margin-top:3px}
+#redesign-root .rd-world-related-list small{font-size:10px;color:var(--muted);margin-top:4px}
+#redesign-root .rd-world-import{margin-top:22px}
+#redesign-root .rd-world-import-tabs{margin-top:18px}
+#redesign-root .rd-import-dropzone{display:flex;align-items:center;gap:15px;margin-top:18px;padding:20px;border:1px dashed var(--line);border-radius:12px;background:var(--surface)}
+#redesign-root .rd-import-dropzone>div{flex:1;min-width:0}
+#redesign-root .rd-import-dropzone h3{font-size:14px}
+#redesign-root .rd-import-dropzone p{color:var(--muted);font-size:11px;margin-top:5px}
+#redesign-root .rd-import-summary{display:grid;grid-template-columns:1fr auto 1fr 1fr;align-items:center;gap:12px;margin-top:18px;padding:16px;border:1px solid var(--line);border-radius:11px;background:var(--surface)}
+#redesign-root .rd-import-summary>div{min-width:0}
+#redesign-root .rd-import-summary span,#redesign-root .rd-import-summary strong,#redesign-root .rd-import-summary small{display:block}
+#redesign-root .rd-import-summary span,#redesign-root .rd-import-summary small{color:var(--muted);font-size:10px}
+#redesign-root .rd-import-summary strong{font-size:18px;margin:4px 0}
+#redesign-root .rd-import-summary>svg{width:18px;color:var(--muted)}
+#redesign-root .rd-world-import-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:18px 0}
+#redesign-root .rd-import-scope{padding:18px;border-left:3px solid var(--purple);border-radius:9px;background:var(--purple-bg);margin:12px 0}
+#redesign-root .rd-import-scope h3{font-size:14px;margin:7px 0}
+#redesign-root .rd-import-scope p{font-size:11px;line-height:1.8;margin-bottom:10px}
+#redesign-root .rd-import-files{margin-top:24px}
+#redesign-root .rd-import-files .rd-section-title{margin:0 0 8px}
+#redesign-root .rd-import-files .rd-section-title h3{font-size:14px}
+#redesign-root .rd-import-file{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;gap:11px;width:100%;padding:13px 7px;border-bottom:1px solid var(--line);text-align:left}
+#redesign-root .rd-import-file:hover,#redesign-root .rd-import-file.selected{background:var(--surface);box-shadow:inset 3px 0 var(--blue)}
+#redesign-root .rd-import-file>span:nth-child(2){min-width:0}
+#redesign-root .rd-import-file strong,#redesign-root .rd-import-file small{display:block;overflow-wrap:anywhere}
+#redesign-root .rd-import-file strong{font-size:12px}
+#redesign-root .rd-import-file small{font-size:10px;color:var(--muted);margin-top:3px}
+#redesign-root .rd-import-file>svg{width:14px;color:var(--muted)}
+#redesign-root .rd-import-file-detail{display:flex;justify-content:space-between;gap:18px;padding:17px;margin-top:15px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+#redesign-root .rd-import-file-detail h3{font-size:14px;margin:5px 0}
+#redesign-root .rd-import-file-detail p{font-size:11px;line-height:1.8;color:var(--muted)}
+#redesign-root .rd-import-before-scan{border-top:0;margin-top:18px;padding:36px 20px}
+#redesign-root .rd-world-health,#redesign-root .rd-world-history-view{margin-top:20px}
+#redesign-root .rd-world-health-heading{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:19px 2px;border-bottom:1px solid var(--line)}
+#redesign-root .rd-world-health-heading h3{font-size:17px;margin:7px 0 5px}
+#redesign-root .rd-world-health-heading p{font-size:11px;color:var(--muted);line-height:1.8}
+#redesign-root .rd-world-health-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:17px}
+#redesign-root .rd-world-health-card{padding:17px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+#redesign-root .rd-world-health-card h4{font-size:13px;margin:12px 0 7px}
+#redesign-root .rd-world-health-card p{font-size:11px;line-height:1.8;color:var(--muted);min-height:58px}
+#redesign-root .rd-world-health-card .rd-text-button{margin-top:12px}
+#redesign-root .rd-world-history-view .rd-field{min-width:145px;margin:0}
+#redesign-root .rd-world-history-view-list{margin-top:17px}
+#redesign-root .rd-world-history-view-row{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:16px 8px;border-bottom:1px solid var(--line)}
+#redesign-root .rd-world-history-view-row>div{min-width:0}
+#redesign-root .rd-world-history-view-row h4{font-size:13px;margin:6px 0}
+#redesign-root .rd-world-history-view-row h4 .rd-badge{margin-left:6px;vertical-align:middle}
+#redesign-root .rd-world-history-view-row p,#redesign-root .rd-world-history-view-row small{display:block;color:var(--muted);font-size:11px;line-height:1.7;overflow-wrap:anywhere}
+#redesign-root .rd-world-history-view-row small{font-size:10px;margin-top:4px}
+@media(max-width:760px){
+  #redesign-root .rd-world-preview .rd-page-heading{flex-direction:column}
+  #redesign-root .rd-world-preview .rd-page-heading .rd-button{width:100%}
+  #redesign-root .rd-world-controls{align-items:stretch;flex-direction:column}
+  #redesign-root .rd-world-actions{justify-content:space-between}
+  #redesign-root .rd-search.compact{flex:1;width:auto}
+  #redesign-root .rd-world-entry{grid-template-columns:auto minmax(0,1fr)}
+  #redesign-root .rd-world-entry-meta{grid-column:2;max-width:none;justify-content:space-between}
+  #redesign-root .rd-world-results.is-cards{grid-template-columns:1fr}
+  #redesign-root .rd-world-secondary{align-items:flex-start;flex-direction:column}
+  #redesign-root .rd-world-detail-grid{grid-template-columns:1fr}
+  #redesign-root .rd-world-detail-overview{grid-template-columns:1fr}
+  #redesign-root .rd-world-image{max-width:280px}
+  #redesign-root .rd-world-review-heading{flex-direction:column}
+  #redesign-root .rd-world-review-filter{align-items:stretch;flex-direction:column}
+  #redesign-root .rd-world-review-filter .rd-search{width:100%}
+  #redesign-root .rd-world-review-row{grid-template-columns:auto minmax(0,1fr)}
+  #redesign-root .rd-world-review-row-actions{grid-column:2;justify-content:flex-start;max-width:none}
+  #redesign-root .rd-world-graph-layout{grid-template-columns:1fr}
+  #redesign-root .rd-world-graph{min-height:210px}
+  #redesign-root .rd-world-related-list{grid-template-columns:1fr}
+  #redesign-root .rd-import-dropzone{align-items:flex-start;flex-wrap:wrap}
+  #redesign-root .rd-import-dropzone>.rd-button{width:100%}
+  #redesign-root .rd-import-summary{grid-template-columns:1fr 1fr;gap:14px}
+  #redesign-root .rd-import-summary>svg{display:none}
+  #redesign-root .rd-import-file{grid-template-columns:auto minmax(0,1fr) auto}
+  #redesign-root .rd-import-file>svg{display:none}
+  #redesign-root .rd-import-file-detail{align-items:flex-start;flex-direction:column}
+  #redesign-root .rd-world-health-heading{align-items:flex-start;flex-direction:column}
+  #redesign-root .rd-world-health-grid{grid-template-columns:1fr}
+  #redesign-root .rd-world-health-card p{min-height:0}
+  #redesign-root .rd-world-history-view-row{align-items:flex-start;flex-direction:column}
+}

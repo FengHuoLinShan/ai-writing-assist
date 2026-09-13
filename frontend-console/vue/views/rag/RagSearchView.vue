@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import RagSearchPanel from "./components/RagSearchPanel.vue"
+import "./rag-redesign.css"
 import RagResultList from "./components/RagResultList.vue"
 import RagEvidenceDrawer from "./components/RagEvidenceDrawer.vue"
 import { getApi, getAppState, getRouteQuery, getRouter, getToast } from "../../bridge/index.js"
@@ -361,7 +362,9 @@ onMounted(() => {
 </script>
 
 <template>
+  <div class="creative-search" :class="{ 'creative-search--embedded': embedded }">
   <RagSearchPanel
+    :compact="embedded"
     :form="form"
     :characters="characters"
     :scenes="scenes"
@@ -472,4 +475,5 @@ onMounted(() => {
     @navigate-scene="drawer.navigateSceneRef"
     @navigate-chapter="drawer.navigateChapterRef"
   />
+  </div>
 </template>

@@ -241,7 +241,10 @@ POV view 和确定性 guard 结果送入审稿；原 hidden guard 词条只在�
 
 审稿支持 selection/volume/book 分片近读，输出 Scene 合同、时间地点、身份关系、能力规则和
 角色知识边界五项结构化 coverage。finding excerpt 必须在冻结正文中唯一定位；缺失 coverage、
-`not_checked` 或歧义位置使回执为 `incomplete`，不能签署 PASS。`writing_targeted_revision`
+模型输出的 `not_checked` 或歧义位置使回执为 `incomplete`，不能签署 PASS。Prompt 明确区分
+实际缺失检查与不适用项：缺少 Scene 合同、非角色视角或未启用的连续性版本只通过 coverage
+标记不适用，不作为模型 `not_checked` 的完成说明。服务端保留所有失败关闭检查，不自动
+把自然语言“不适用”解释成已检查。`writing_targeted_revision`
 合并选中 finding 的重叠范围，模型只返回服务端 patch ID 对应的 replacement，代码应用 patch
 并保证范围外正文不变；返修结果重新运行 hidden guard，且必须再经独立审查通过才能采用。
 

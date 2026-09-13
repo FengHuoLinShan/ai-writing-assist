@@ -1,7 +1,7 @@
 import sampleManifest from '../themes/sample/theme.json'
 import packageSchema from '../themes/theme-package.schema.json'
 import { describe, expect, it } from 'vitest'
-import { COLOR_VARIABLES, DEFAULT_COLORS, resolveVariant, validateThemeManifest, variantVariables } from '../vue/theme/themeTokens.js'
+import { COLOR_VARIABLES, DEFAULT_COLORS, resolveVariant, validateThemeManifest } from '../vue/theme/themeTokens.js'
 
 const valid = () => ({ schemaVersion: 1, id: 'test-pack', name: '测试主题', version: '1.0', variants: { light: {} } })
 describe('theme package trust boundary', () => {
@@ -37,6 +37,5 @@ describe('theme package trust boundary', () => {
     expect(() => validateThemeManifest(JSON.parse('{"schemaVersion":1,"id":"test","name":"test","version":"1","variants":{"light":{}},"__proto__":{}}'))).toThrow()
     const schema = packageSchema
     expect(Object.keys(schema.properties.variants.properties.light.properties.colors.properties)).toEqual(Object.keys(COLOR_VARIABLES))
-    expect(variantVariables(resolveVariant(valid(), 'light'))['--control-height']).toBe('40px')
   })
 })

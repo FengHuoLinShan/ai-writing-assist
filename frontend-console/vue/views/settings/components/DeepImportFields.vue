@@ -3,7 +3,7 @@ import { nextTick, ref, watch } from "vue"
 import { DEEP_IMPORT_GROUPS, deepImportFieldId } from "../logic/deepImport.js"
 
 /**
- * 深度导入字段网格 — DOM 契约与 vanilla renderDeepImportFields 一致
+ * 深度导入字段网格 — 迁移来源为 vanilla renderDeepImportFields；按字段数据与行为验收，DOM 可调整
  * （group/field 结构、输入 id、bool 选项顺序）。
  */
 const form = defineModel({ type: Object, required: true })

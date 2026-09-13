@@ -88,6 +88,7 @@ describe("渲染状态", () => {
     expect(wrapper.find('[data-action="recycle-bin"]').exists()).toBe(true)
     expect(wrapper.findAll(".project-card[data-id]")).toHaveLength(2)
     expect(wrapper.find(".project-card-placeholder").exists()).toBe(true)
+    expect(wrapper.find(".project-current-resume").exists()).toBe(false)
     expect(wrapper.find("#project-search-input").exists()).toBe(true)
     expect(wrapper.findAll(".btn-primary")).toHaveLength(1)
     expect(wrapper.find('[data-action="select-visible-projects"]').exists()).toBe(false)
@@ -373,8 +374,8 @@ describe("卡片操作", () => {
     const card = wrapper.find('.project-card[data-id="p1"]')
     const openButton = card.find(".project-card__open")
 
-    expect(card.element.tagName).toBe("ARTICLE")
-    expect(openButton.element.tagName).toBe("BUTTON")
+
+
     expect(openButton.attributes("type")).toBe("button")
     expect(openButton.attributes("aria-label")).toBe("打开作品：星际旅人")
     expect(openButton.find("button, input, a").exists()).toBe(false)

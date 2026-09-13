@@ -4,8 +4,10 @@
     <button v-if="fromChapter" class="btn btn-sm atlas-writing-return" @click="returnToWriting">回到第 {{ fromChapter }} 章写作</button>
     <header v-if="!structureState.focused" class="atlas-header">
       <div>
+        <span class="atlas-header__eyebrow">地点与地图</span>
         <h1>地图</h1>
-        <p v-if="!atlas.nodes.length && !currentRun">从已知地点建立空间示意，在同一张地图上添加底图与地点配图。</p>
+        <p v-if="activeNode">{{ activeNode.title }} · 地点、图层与资料依据在同一处查看。</p>
+        <p v-else-if="!atlas.nodes.length && !currentRun">从已知地点建立空间示意，在同一张地图上添加底图与地点配图。</p>
       </div>
 
     </header>
@@ -985,3 +987,5 @@ watch(activeNodeId, () => { structureState.value = { dirty: false, revision: nul
 .atlas-mobile-picker{display:none}.atlas-tree button{overflow-wrap:normal;word-break:normal;text-wrap:pretty}.atlas-tree button>span{display:block}.atlas-page-header h2{margin-block:0;font-size:var(--text-lg)}.atlas-header h1{margin-block:0}
 @media(max-width:900px){.atlas-mobile-picker{display:flex;align-items:center;gap:8px}.atlas-mobile-picker select{flex:1;min-width:0;width:0}.atlas-browser>.atlas-tree{display:none}.atlas-workspace{gap:8px;padding:0}.atlas-page{padding:8px}.atlas-header,.atlas-page-header{display:none}}
 </style>
+
+<style src="./map-redesign.css"></style>

@@ -1,0 +1,93 @@
+{
+  "version": "diagnostic-interventions-v2",
+  "scope": "Evaluator-only synthetic mechanisms. Not model prompts, human labels, or autonomous schema-discovery results.",
+  "shared_question": "在查询所指的作品版本和故事时点，持红蜡信、高潮、有担保的旅客能否通行？",
+  "shared_wrong_answer": "可以通行。",
+  "feature_order": ["red_seal", "low_tide", "guarantor"],
+  "source_rules": {
+    "current": "只有低潮且有担保，才可通行；红蜡信只标记监视对象。",
+    "old_revision": "持红蜡信即可通行。",
+    "story_change": "故事时点 0 使用低潮且有担保规则；时点 4 后改为红蜡信许可。查询时点为 2。",
+    "reported_claim": "守闸人声称红蜡信就是通行证；作者明确这句话是谎言，客观规则仍是低潮且有担保。",
+    "insufficient": "只观察到：持信/低潮/有担保时通行，无信/高潮/有担保时不通行，无信/低潮/无担保时不通行。没有完整规则。"
+  },
+  "cases": [
+    {
+      "id": "D01",
+      "situation": "来源和记忆均正确，实际交给回答器的检索包却仍引用旧红蜡解释。",
+      "faults": ["retrieval"],
+      "expected_minimal_edits": ["refresh_retrieval"],
+      "distinguishing_evidence": "对比记忆内容与本次实际输入包；直接提供当前已获准证据后检查全部测试输入。"
+    },
+    {
+      "id": "D02",
+      "situation": "原文已明确双条件，但持久摘要仍写着持信即可通行；检索忠实返回了这条错误摘要。",
+      "faults": ["content"],
+      "expected_minimal_edits": ["refresh_memory"],
+      "distinguishing_evidence": "对比来源与保存摘要；保持 schema 和检索程序不变，仅按同一来源重新形成正确内容。"
+    },
+    {
+      "id": "D03",
+      "situation": "当前人为受限载体把两个条件压平成无合取语义的列表，丢掉了必须同时满足的含义。",
+      "faults": ["representation"],
+      "expected_minimal_edits": ["expand_representation"],
+      "distinguishing_evidence": "冻结正确原文与解释器，比较记录的编码/解码是否保留合取。此弱载体仅用于诊断负例，不充当主研究强基线。"
+    },
+    {
+      "id": "D04",
+      "situation": "持久记录已正确保存低潮 AND 担保，读取程序却把 AND 执行为 OR。",
+      "faults": ["interpreter"],
+      "expected_minimal_edits": ["repair_interpreter"],
+      "distinguishing_evidence": "保持同一记录，分别运行实际解释器与独立真值表，不能因得到错答案就改写正确记忆。"
+    },
+    {
+      "id": "D05",
+      "situation": "新旧作品版本均被保留，查询指定新版本，来源选择器却取了旧稿规则。",
+      "faults": ["revision"],
+      "expected_minimal_edits": ["select_revision"],
+      "distinguishing_evidence": "检查请求版本与实际来源版本；切换选择而保留旧稿，不将历史事实删除。"
+    },
+    {
+      "id": "D06",
+      "situation": "故事时间区间均已保存，历史问题却一律使用最新制度。",
+      "faults": ["story_time"],
+      "expected_minimal_edits": ["select_story_time"],
+      "distinguishing_evidence": "检查查询时点 2 与规则生效时点 4；原载体已经支持区间，无需以 schema 重构代替正确选择。"
+    },
+    {
+      "id": "D07",
+      "situation": "资料同时保留守闸人的谎言和作者说明，回答器却把人物说法当成客观规则。",
+      "faults": ["source_role"],
+      "expected_minimal_edits": ["respect_source_role"],
+      "distinguishing_evidence": "检查被使用的是谁的说法、适用身份及作者说明；保留人物说过谎的记录。"
+    },
+    {
+      "id": "D08",
+      "situation": "来源只有三项观察，尚不能确定查询组合是否通行；系统将偏好的红蜡假说说成确定事实。",
+      "faults": ["certainty"],
+      "expected_minimal_edits": ["preserve_uncertainty"],
+      "distinguishing_evidence": "保留与观察一致的竞争规则；该查询输出未知而不是反向断言不通行。已经观测的三项仍应可回答。"
+    },
+    {
+      "id": "D09",
+      "situation": "摘要仍是旧红蜡解释，且 AND 解释器也有 OR 缺陷；任何一个单独修复都被另一个问题遮蔽。",
+      "faults": ["content", "interpreter"],
+      "expected_minimal_edits": ["refresh_memory", "repair_interpreter"],
+      "distinguishing_evidence": "执行内容与程序的 2×2 配对；单因素无改善不能判定两者均不相关。"
+    },
+    {
+      "id": "D10",
+      "situation": "来源、保存、表示、检索和回答均正确，作为无需修订的健康对照。",
+      "faults": [],
+      "expected_minimal_edits": [],
+      "distinguishing_evidence": "保留正确答案，不因进入检查环节而强迫改变；与十个错误或不当确定案例一起报告。"
+    },
+    {
+      "id": "D11",
+      "situation": "载体丢失合取含义，解释器也把 AND 当 OR；只有一起修复表示和程序，双条件才能被正确使用。",
+      "faults": ["representation", "interpreter"],
+      "expected_minimal_edits": ["expand_representation", "repair_interpreter"],
+      "distinguishing_evidence": "执行表示与程序的 2×2 配对；若仅在表示单独提升后才允许程序实验，将错过这个联合有效的解。"
+    }
+  ]
+}

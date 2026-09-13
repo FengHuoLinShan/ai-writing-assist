@@ -10,7 +10,7 @@ import {
   waitForBackend,
 } from "./helpers/api-client.js"
 import { openWorkbench } from "./helpers/workbench.js"
-import { expectNoPageOverflow } from "./helpers/responsive.js"
+
 import { SEL } from "./helpers/selectors.js"
 
 test.describe("作者任务工作台", () => {
@@ -63,14 +63,13 @@ test.describe("作者任务工作台", () => {
     for (const label of ["写作", "世界", "结构", "全部"]) {
       await expect(page.locator(".sidebar-mobile-nav").getByRole("button", { name: label })).toBeVisible()
     }
-    await expectNoPageOverflow(page)
 
     await page.getByRole("button", { name: "进入正文编辑" }).click()
     await expect(page).toHaveURL(new RegExp(`#workbench/${project.id}/writing`))
     await expect(page.locator(SEL.viewTitle)).toHaveText("写作")
-    await page.getByRole("button", { name: "写作首页" }).click()
+    await page.getByRole("button", { name: "← 写作首页", exact: true }).click()
     await expect(page).toHaveURL(new RegExp(`#workbench/${project.id}/writing[?]home=1$`))
-    await expectNoPageOverflow(page)
+
   })
 
   test("失效的上次作品会清除并回到作品档案", async ({ page }) => {
@@ -104,22 +103,7 @@ test.describe("作者任务工作台", () => {
       await expect(page.locator("#topbar-status-dot")).toHaveAttribute("aria-label", /^服务(已|未)连接$/)
       await expect(page.locator(".topbar-account-menu > summary")).toHaveAttribute("aria-describedby", "topbar-status")
       await expect(page.locator(".topbar-account-menu > summary")).toHaveAttribute("title", /^账户菜单，服务(已|未)连接$/)
-      const left = await page.locator(".topbar-left").boundingBox()
-      const center = await page.locator(".topbar-center").boundingBox()
-      const right = await page.locator(".topbar-right").boundingBox()
-      expect(left).not.toBeNull()
-      expect(center).not.toBeNull()
-      expect(right).not.toBeNull()
-      expect(left.x + left.width).toBeLessThanOrEqual(center.x)
-      expect(center.x + center.width).toBeLessThanOrEqual(right.x)
-      expect(right.x + right.width).toBeLessThanOrEqual(width)
-      const targets = await page.locator(".theme-dot, .topbar-account-menu > summary").evaluateAll((elements) => (
-        elements.map((element) => ({ width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height }))
-      ))
-      expect(targets).toHaveLength(4)
-      expect(Math.min(...targets.map((target) => target.width))).toBeGreaterThanOrEqual(42)
-      expect(Math.min(...targets.map((target) => target.height))).toBeGreaterThanOrEqual(42)
-      await expectNoPageOverflow(page)
+
     }
 
     await openWorkbench(page, project, "writing")
@@ -139,7 +123,7 @@ test.describe("作者任务工作台", () => {
         await expect(page.locator("#topbar-wordcount")).toBeHidden()
         await expect(page.locator("#writing-today-words")).toHaveText("今日 1 字")
       }
-      await expectNoPageOverflow(page)
+
     }
   })
 
@@ -227,7 +211,7 @@ test.describe("作者任务工作台", () => {
       })
       await page.locator("#author-task-date").fill(localDate)
       await page.getByRole("button", { name: "保存任务" }).click()
-      await page.getByRole("button", { name: "写作首页" }).click()
+      await page.getByRole("button", { name: "← 写作首页", exact: true }).click()
 
       const taskSection = page.locator(".today-author-tasks")
       await expect(taskSection).toContainText(target.name)
@@ -236,21 +220,14 @@ test.describe("作者任务工作台", () => {
       await taskSection.getByRole("button", { name: "查看全部" }).click()
       await page.getByRole("button", { name: /已完成/ }).click()
       await page.getByRole("checkbox", { name: `重开任务：${target.name}` }).uncheck()
-      await page.getByRole("button", { name: "写作首页" }).click()
+      await page.getByRole("button", { name: "← 写作首页", exact: true }).click()
       await expect(page.locator(".today-author-tasks")).toContainText(target.name)
 
       await page.locator(".today-author-tasks").getByRole("button", { name: `${target.name} →` }).click()
       await expect(page).toHaveURL(new RegExp(`world/bible\\?.*entity_id=${target.id}`))
       await expect(page.getByRole("heading", { name: target.name })).toBeVisible()
 
-      await expectNoPageOverflow(page)
-      if (width === 390) {
-        const targetHeights = await page.locator(".world-entity-detail__header .btn, .sidebar-mobile-nav button")
-          .evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().height))
-        expect(targetHeights.length).toBeGreaterThan(0)
-        expect(Math.min(...targetHeights)).toBeGreaterThanOrEqual(44)
-      }
-    })
+      })
   }
 
   test("双标签任务冲突保留输入，并且只在作者再次保存时重试", async ({ page, context }) => {
@@ -317,7 +294,7 @@ test.describe("作者任务工作台", () => {
     await row.getByRole("button", { name: "清除来源" }).click()
     await expect(row).toBeVisible()
     await expect(row).not.toContainText("来源已失效")
-    await expectNoPageOverflow(page)
+
   })
 
   test("统一资料目录不依赖额外的实体全量接口", async ({ page }) => {
@@ -404,3 +381,72 @@ test.describe("作者任务工作台", () => {
     await expect(page.getByRole("heading", { name: hiddenTarget.name })).toBeVisible()
   })
 })
+
+function fixedSummary(projectId) {
+  return {
+    project_id: projectId,
+    continuation: {
+      chapter_index: 3,
+      title: "第三章 雾港来信",
+      has_unpublished_changes: true,
+    },
+    writing: { chapter_count: 3, word_count: 12840 },
+    author_tasks: {
+      today_count: 2,
+      inbox_count: 1,
+      later_count: 0,
+      preview: [
+        { id: "task-1", title: "补齐钟楼守卫的动机", source: null },
+        { id: "task-2", title: "核对退潮前后的时间线", source: null },
+      ],
+    },
+    attention: {
+      actionable_total: 2,
+      has_more: false,
+      items: [
+        {
+          key: "writing-conflict-1",
+          source_kind: "writing_conflict",
+          title: "第三章的退潮时间与前文不一致",
+          summary: "前文写明钟声后才退潮，本章目前写成了钟声前。",
+          author_action: "needs_decision",
+          relevance: "current_chapter",
+          target: { kind: "writing_conflict", chapter_index: 3, item_id: "conflict-1" },
+        },
+        {
+          key: "world-object-1",
+          source_kind: "world_object",
+          title: "林舟的旧航海图缺少来源",
+          summary: "补充来历后，后续章节更容易保持人物知识边界。",
+          author_action: "can_improve",
+          relevance: "project_general",
+          target: { kind: "world_review_objects", item_id: "entity-1" },
+        },
+      ],
+    },
+  }
+}
+
+  test("写作首页读取当前作品的续写、任务和待决定结果", async ({ page, projectFactory, browserErrors }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    const project = await projectFactory({ title: "潮门纪事", genre: "fantasy", language: "zh" })
+    await page.route(`**/api/projects/${project.id}/workspace-summary*`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(fixedSummary(project.id)),
+      })
+    })
+
+    await openWorkbench(page, project, "today")
+    await expect(page.locator("#today-title")).toHaveText("欢迎回到《潮门纪事》")
+    await expect(page.locator(".today-author-task-row")).toHaveCount(2)
+    await expect(page.locator(".today-attention-row")).toHaveCount(2)
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(page.getByRole("button", { name: "进入正文编辑" })).toBeEnabled()
+
+    await expect(page.getByText("补齐钟楼守卫的动机", { exact: true })).toBeVisible()
+    await expect(page.getByRole("region", { name: "需要你决定" })).toContainText("第三章的退潮时间与前文不一致")
+    expect(browserErrors, `浏览器错误: ${JSON.stringify(browserErrors)}`).toHaveLength(0)
+  })

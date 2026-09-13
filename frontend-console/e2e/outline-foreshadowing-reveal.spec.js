@@ -1,6 +1,6 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
-import { expectNoPageOverflow } from "./helpers/responsive.js"
+
 import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
 import {
   cleanupProject,
@@ -128,7 +128,7 @@ test.describe("Outline View — 剧情线信息推进", () => {
     await expect(linkedProgress.locator("summary")).toBeFocused()
 
     await page.setViewportSize({ width: 390, height: 844 })
-    await expectNoPageOverflow(page)
+
     await expect(linkedProgress.locator("summary")).toBeVisible()
 
     const unassigned = page.locator("#outline-thread-information .outline-information-unassigned", {

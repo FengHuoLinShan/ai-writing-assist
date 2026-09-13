@@ -4,27 +4,29 @@
 
 :root {
   /* ===== 主题原语（--nc-*）：唯一承载色值的一层 ===== */
-  --nc-bg: #F6F6F8;
+  --nc-bg: #F6F7F9;
   --nc-surface: #FFFFFF;
-  --nc-surface-muted: #EEEEF1;
-  --nc-ink: #202027;
-  --nc-body: #41414B;
-  --nc-dim: #656570;
+  --nc-surface-muted: #F0F2F6;
+  --nc-ink: #20242C;
+  --nc-body: #414955;
+  --nc-dim: #626B78;
   --nc-faint: var(--nc-dim);
   --nc-ghost: var(--nc-hairline-strong);
-  --nc-accent: #4F46E5;
+  --nc-accent: #0960D6;
+  --nc-ai: #7842C3;
+  --nc-ai-soft: color-mix(in srgb, var(--nc-ai) 10%, var(--nc-surface));
   --nc-on-accent: #FFFFFF;
   --nc-accent-soft: color-mix(in srgb, var(--nc-accent) 10%, var(--nc-surface));
-  --nc-hairline: #DDDDE3;
-  --nc-hairline-strong: #83838F;
+  --nc-hairline: #E4E7EC;
+  --nc-hairline-strong: #7C8795;
   --nc-alert-bg: var(--nc-error-soft);
   --nc-alert-ink: var(--nc-error);
   --nc-deco: transparent;
-  --nc-success: #24714D;
+  --nc-success: #197748;
   --nc-success-soft: color-mix(in srgb, var(--nc-success) 10%, var(--nc-surface));
-  --nc-warning: #8A580D;
+  --nc-warning: #986006;
   --nc-warning-soft: color-mix(in srgb, var(--nc-warning) 10%, var(--nc-surface));
-  --nc-error: #B63845;
+  --nc-error: #BE3342;
   --nc-error-soft: color-mix(in srgb, var(--nc-error) 10%, var(--nc-surface));
 
   /* ===== --archive-* 兼容别名：仅转发，供 writing-desk.css 等既有样式消费 ===== */
@@ -100,32 +102,33 @@
   --shadow-lg: 0 8px 24px rgba(23, 23, 22, 0.08);
   --shadow-xl: 0 16px 40px rgba(23, 23, 22, 0.10);
   --shadow-float: 0 12px 32px rgba(23, 23, 22, 0.12);
-  --nc-primary: #25252D;
+  --nc-primary: #0960D6;
   --nc-on-primary: #FFFFFF;
 }
 
 [data-theme="dark"] {
-  --nc-bg: #141416;
-  --nc-surface: #1E1E22;
-  --nc-surface-muted: #2B2B31;
-  --nc-ink: #F4F4F5;
-  --nc-body: #DEDEE3;
-  --nc-dim: #B0B0BC;
+  --nc-bg: #191C22;
+  --nc-surface: #252932;
+  --nc-surface-muted: #333A47;
+  --nc-ink: #F0F1F4;
+  --nc-body: #DEE3EB;
+  --nc-dim: #A0A8B7;
   --nc-faint: var(--nc-dim);
   --nc-ghost: var(--nc-hairline-strong);
-  --nc-accent: #B2B9FF;
-  --nc-on-accent: #1C1B33;
+  --nc-accent: #87B8FF;
+  --nc-ai: #C8A8FF;
+  --nc-on-accent: #192C47;
   --nc-accent-soft: color-mix(in srgb, var(--nc-accent) 10%, var(--nc-surface));
-  --nc-hairline: #38383F;
-  --nc-hairline-strong: #7C7C89;
+  --nc-hairline: #373D48;
+  --nc-hairline-strong: #7F899B;
   --nc-alert-bg: var(--nc-error-soft);
   --nc-alert-ink: var(--nc-error);
   --nc-deco: transparent;
-  --nc-success: #8ED2AE;
+  --nc-success: #83D5A5;
   --nc-success-soft: color-mix(in srgb, var(--nc-success) 10%, var(--nc-surface));
-  --nc-warning: #ECC282;
+  --nc-warning: #F3C26C;
   --nc-warning-soft: color-mix(in srgb, var(--nc-warning) 10%, var(--nc-surface));
-  --nc-error: #FFA3AA;
+  --nc-error: #FF9DA7;
   --nc-error-soft: color-mix(in srgb, var(--nc-error) 10%, var(--nc-surface));
 
   /* 深色下浮层投影加深以保持可辨识 */
@@ -134,8 +137,8 @@
   --shadow-lg: 0 10px 28px rgba(0, 0, 0, 0.42);
   --shadow-xl: 0 18px 44px rgba(0, 0, 0, 0.48);
   --shadow-float: 0 14px 36px rgba(0, 0, 0, 0.50);
-  --nc-primary: #EDEDF2;
-  --nc-on-primary: #202027;
+  --nc-primary: #87B8FF;
+  --nc-on-primary: #20242C;
 }
 
 /* 主题切换过渡：只过渡材质，不动布局 */
@@ -418,6 +421,13 @@ button.theme-dot::before {
 
 .btn:active {
   background: var(--bg-active);
+}
+
+button.btn:not(:disabled):active { transform: scale(.98); }
+.btn { transition: background-color 140ms, color 140ms, border-color 140ms, transform 120ms; }
+@media (prefers-reduced-motion: reduce) {
+  button.btn:not(:disabled):active { transform: none; }
+  .btn { transition: none; }
 }
 
 .writing-page-menu > summary[aria-expanded="true"] {

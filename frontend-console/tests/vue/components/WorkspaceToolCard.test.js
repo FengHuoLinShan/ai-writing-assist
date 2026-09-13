@@ -59,7 +59,8 @@ describe("workspace workflow tools", () => {
     const trigger = document.querySelector(".action-menu-btn")
     trigger.focus(); trigger.click(); await flushPromises()
     const list = document.querySelector('[role="menu"]')
-    expect(list.closest("#sidebar-context-slot")).toBeNull()
+    expect(list).not.toBeNull()
+
     expect(document.activeElement).toBe(button("history"))
     button("history").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
     await flushPromises()

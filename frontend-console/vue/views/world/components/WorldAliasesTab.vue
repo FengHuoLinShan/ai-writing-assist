@@ -2,7 +2,7 @@
   WorldAliasesTab — 别名列表（canonical）。
   对应 vanilla _renderAliases({reviewOnly:false})（worldView.js:2668-2763）的 Vue 化。
   别名按所属对象分组，同一对象的别名共享同一行（rowspan）。
-  DOM class/id/data-action 逐节点保留（e2e 与视觉基线契约）。
+  功能与数据契约保留；DOM 与定位器可随重设计调整。
 -->
 <template>
   <div>

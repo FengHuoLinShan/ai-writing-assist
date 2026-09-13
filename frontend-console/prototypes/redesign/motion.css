@@ -1,0 +1,140 @@
+/* Motion belongs to the preview. Values are Web design choices, not Apple API equivalents. */
+#redesign-root {
+  --rd-feedback: 140ms;
+  --rd-selection: 220ms;
+  --rd-panel: 240ms;
+  --rd-emphasis: 320ms;
+  --rd-ease: cubic-bezier(.2, .8, .2, 1);
+  --rd-settle: cubic-bezier(.2, .9, .25, 1);
+}
+@supports (animation-timing-function: linear(0, 1)) {
+  #redesign-root { --rd-settle: linear(0, .58 30%, .9 55%, 1.02 78%, 1); }
+}
+#redesign-root .rd-button-content {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  pointer-events: none;
+  transition: transform var(--rd-selection) var(--rd-settle);
+}
+#redesign-root .rd-button:not(:disabled):active .rd-button-content { transform: scale(.975); transition-duration: 70ms; }
+#redesign-root .rd-icon-button:not(:disabled):active .rd-button-content { transform: scale(.9); transition-duration: 70ms; }
+#redesign-root button:disabled .rd-button-content { transition: none; }
+#redesign-root .rd-assistant-control svg { transition: transform var(--rd-selection) var(--rd-settle); }
+#redesign-root .rd-assistant-control:active svg { transform: scale(.88); }
+#redesign-root :is(button, input, select, textarea) {
+  transition-property: background-color, color, border-color, box-shadow;
+  transition-duration: var(--rd-feedback);
+  transition-timing-function: ease-out;
+}
+#redesign-root :is(.rd-app, .rd-sidebar, .rd-topbar, .rd-manuscript, .rd-inspector, .rd-paper, .rd-dialog, .rd-editor-footer, .rd-settings-group) {
+  transition-property: background-color, color, border-color;
+  transition-duration: 180ms;
+  transition-timing-function: ease-out;
+}
+#redesign-root .rd-switch span { transition: transform var(--rd-selection) var(--rd-settle), scale var(--rd-feedback); }
+#redesign-root .rd-switch:active span { scale: 1.06; }
+#redesign-root input:is([type='checkbox'], [type='radio']) {
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  margin: 0;
+  flex-shrink: 0;
+  border: 1.5px solid var(--muted);
+  border-radius: 4px;
+  vertical-align: middle;
+  background: var(--surface);
+}
+#redesign-root input[type='checkbox']::after {
+  content: '';
+  width: 9px;
+  height: 5px;
+  border-left: 2px solid var(--surface);
+  border-bottom: 2px solid var(--surface);
+  transform: rotate(-45deg) scale(0);
+  transition: transform 160ms var(--rd-settle);
+}
+#redesign-root input[type='checkbox']:checked { background: var(--blue); border-color: var(--blue); }
+#redesign-root input[type='checkbox']:checked::after { transform: rotate(-45deg) scale(1); }
+#redesign-root input[type='radio'] { border-radius: 50%; }
+#redesign-root input[type='radio']::after {
+  content: ''; width: 9px; height: 9px; border-radius: 50%; background: var(--blue);
+  transform: scale(0); transition: transform 160ms var(--rd-settle);
+}
+#redesign-root input[type='radio']:checked { border-color: var(--blue); }
+#redesign-root input[type='radio']:checked::after { transform: scale(1); }
+#redesign-root input:disabled { opacity: .5; }
+#redesign-root input:disabled::after { transition: none; }
+#redesign-root .rd-segments { position: relative; isolation: isolate; --rd-segments: 3; --rd-selected: 0; }
+#redesign-root .rd-segments::before {
+  content: ''; position: absolute; top: 3px; bottom: 3px; left: 3px;
+  width: calc((100% - 6px - (var(--rd-segments) - 1) * 2px) / var(--rd-segments));
+  border-radius: 5px; background: var(--surface); box-shadow: 0 1px 4px #00000014;
+  transform: translateX(calc(var(--rd-selected) * (100% + 2px)));
+  transition: transform var(--rd-selection) var(--rd-ease), background-color 180ms ease-out;
+  pointer-events: none; z-index: -1;
+}
+#redesign-root .rd-segments button { position: relative; }
+#redesign-root .rd-segments button[aria-pressed='true'] { background: transparent; box-shadow: none; }
+#redesign-root .rd-filter-pills button { transition: background-color var(--rd-feedback), color var(--rd-feedback), box-shadow var(--rd-feedback); }
+#redesign-root .rd-filter-pills button[aria-pressed='true'] { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue) 14%, transparent); }
+#redesign-root .action-menu-list {
+  opacity: 0; transform: translateY(-3px) scale(.97); transform-origin: top right;
+  transition: opacity 160ms ease-out, transform 160ms var(--rd-ease), display 160ms allow-discrete;
+}
+#redesign-root .action-menu.open .action-menu-list { opacity: 1; transform: none; animation: none; }
+#redesign-root .rd-document-menu .action-menu-list { transform-origin: top left; }
+@starting-style { #redesign-root .action-menu.open .action-menu-list { opacity: 0; transform: translateY(-3px) scale(.97); } }
+#redesign-root .rd-preview-popover {
+  opacity: 0; transform: translateY(4px) scale(.97); transform-origin: bottom left;
+  transition: opacity 160ms ease-out, transform 160ms var(--rd-ease);
+}
+#redesign-root .rd-preview-tools[open] .rd-preview-popover { opacity: 1; transform: none; }
+#redesign-root .rd-preview-tools>summary svg { transition: transform var(--rd-feedback); }
+#redesign-root .rd-preview-tools[open]>summary svg { transform: rotate(180deg); }
+@supports selector(details::details-content) {
+  #redesign-root .rd-preview-tools::details-content { content-visibility: hidden; transition: content-visibility 160ms allow-discrete; }
+  #redesign-root .rd-preview-tools[open]::details-content { content-visibility: visible; }
+}
+@starting-style { #redesign-root .rd-preview-tools[open] .rd-preview-popover { opacity: 0; transform: translateY(4px) scale(.97); } }
+#redesign-root .rd-dialog {
+  transition: opacity 200ms ease-out, transform 200ms var(--rd-ease), background-color 180ms,
+    display 200ms allow-discrete, overlay 200ms allow-discrete;
+}
+#redesign-root .rd-dialog.is-drawer { transition-duration: var(--rd-panel); }
+#redesign-root .rd-chapters, #redesign-root .rd-inspector { animation: rd-rail-enter var(--rd-panel) var(--rd-ease); }
+#redesign-root .rd-chapters[inert], #redesign-root .rd-inspector[inert] { animation: none; }
+#redesign-root .rd-map-marker { transition: outline-color var(--rd-selection), box-shadow var(--rd-selection), background-color var(--rd-feedback); outline: 3px solid transparent; }
+#redesign-root .rd-map-marker.selected { outline-color: #2070c780; box-shadow: 0 3px 12px #246aa12a; }
+#redesign-root .rd-map-marker>span { transition: transform var(--rd-selection) var(--rd-settle); }
+#redesign-root .rd-map-marker.selected>span { transform: scale(1.08); }
+#redesign-root .rd-reader-choices button { transition: background-color var(--rd-selection), border-color var(--rd-selection), color var(--rd-feedback); }
+#redesign-root .rd-theme-cards>button { transition: border-color var(--rd-selection), box-shadow var(--rd-selection); }
+#redesign-root .rd-theme-cards>button[aria-pressed='true'] { box-shadow: 0 0 0 2px var(--blue-bg); }
+#redesign-root progress::-webkit-progress-value { transition: width var(--rd-selection) var(--rd-ease); }
+#redesign-root progress::-moz-progress-bar { transition: width var(--rd-selection) var(--rd-ease); }
+#redesign-root .rd-notice { animation: rd-notice-in var(--rd-emphasis) var(--rd-ease); }
+#redesign-root .rd-notice-icon svg { width: 13px; height: 13px; }
+#redesign-root [data-symbol='check'] path { stroke-dasharray: 1; animation: rd-check-in 200ms ease-out; }
+#redesign-root .rd-symbol-enter-active, #redesign-root .rd-symbol-leave-active { transition: opacity 160ms ease-out, transform 160ms var(--rd-ease); transform-origin: center; }
+#redesign-root .rd-symbol-enter-from { opacity: 0; transform: scale(.85) rotate(8deg); }
+#redesign-root .rd-symbol-leave-to { opacity: 0; transform: scale(.85) rotate(-8deg); }
+#redesign-root .rd-motion-settings { display: flex; align-items: center; gap: 16px; padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); margin: 18px 0; }
+#redesign-root .rd-motion-settings>div { flex: 1; }
+#redesign-root .rd-motion-settings p { font-size: 12px; color: var(--muted); margin-top: 5px; }
+#redesign-root .rd-motion-settings strong { font-size: 13px; }
+#redesign-root [data-reduced-motion='true'] *, #redesign-root [data-reduced-motion='true'] *::before, #redesign-root [data-reduced-motion='true'] *::after,
+#redesign-root [data-reduced-motion='true'] details::details-content {
+  transition: none !important; animation: none !important; scroll-behavior: auto !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  #redesign-root *, #redesign-root *::before, #redesign-root *::after, #redesign-root details::details-content {
+    transition: none !important; animation: none !important; scroll-behavior: auto !important;
+  }
+}
+@keyframes rd-rail-enter { from { opacity: .6; } to { opacity: 1; } }
+@keyframes rd-check-in { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }

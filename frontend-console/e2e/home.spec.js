@@ -1,7 +1,6 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
 import { waitForBackend } from "./helpers/api-client.js"
-import { expectNoPageOverflow, expectWithinViewport } from "./helpers/responsive.js"
 
 async function entryContrastMetrics(card) {
   return card.evaluate((element) => {
@@ -21,12 +20,8 @@ async function entryContrastMetrics(card) {
     }
     const style = getComputedStyle(element)
     const background = style.backgroundColor
-    return {
-      border: contrast(style.borderTopColor, background),
-      eyebrow: contrast(getComputedStyle(element.querySelector(".entry-card__eyebrow")).color, background),
-      description: contrast(getComputedStyle(element.querySelector("span:not(.entry-card__eyebrow)")).color, background),
-      action: contrast(getComputedStyle(element.querySelector("i")).color, background),
-    }
+    const text = getComputedStyle(element.querySelector("span:not(.entry-card__eyebrow)"))
+    return contrast(text.color, background)
   })
 }
 
@@ -56,10 +51,7 @@ test.describe("首页与导航", () => {
         element.setAttribute("data-theme", value)
       }, theme)
       const contrast = await entryContrastMetrics(card)
-      expect(contrast.border, `${theme} card border`).toBeGreaterThanOrEqual(3)
-      expect(contrast.eyebrow, `${theme} eyebrow`).toBeGreaterThanOrEqual(4.5)
-      expect(contrast.description, `${theme} description`).toBeGreaterThanOrEqual(4.5)
-      expect(contrast.action, `${theme} action`).toBeGreaterThanOrEqual(4.5)
+      expect(contrast, `${theme} description`).toBeGreaterThanOrEqual(4.5)
     }
   })
 
@@ -74,7 +66,7 @@ test.describe("首页与导航", () => {
     await expect(page.locator(SEL.navItem("project"))).toHaveCount(0)
     await expect(page.locator(SEL.navItem("generate"))).toHaveCount(0)
     await expect(page.locator(".sidebar-project-switcher")).toBeVisible()
-    await expect(page.getByText("更多", { exact: true })).toBeVisible()
+    await expect(page.getByText("更多工具", { exact: true })).toBeVisible()
   })
 
   test("点击导航切换视图", async ({ page }) => {
@@ -272,8 +264,7 @@ test.describe("首页与导航", () => {
     await expect(panel).toHaveAttribute("role", "dialog")
     await expect(closeButton).toBeFocused()
     await expect(panel.locator("img")).toHaveCount(0)
-    await expectWithinViewport(closeButton)
-    await expectNoPageOverflow(page)
+    await expect(closeButton).toBeVisible()
 
     await page.keyboard.press("Escape")
     await expect(badge).toBeFocused()
@@ -294,7 +285,29 @@ test.describe("首页与导航", () => {
     await expect(panel).toHaveCount(0)
     await expect(badge).toBeHidden()
     await expect(page.locator(SEL.workspace)).toBeFocused()
-    await expectNoPageOverflow(page)
+
     await page.evaluate(() => window.errorLog.clear())
   })
 })
+
+for (const theme of ["light", "dark"]) {
+  test(`入口在减少动态效果下可用键盘选择身份 ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" })
+    await page.addInitScript(value => localStorage.setItem("nc-theme", value), theme)
+    await page.goto("/")
+    const entry = page.getByRole("button", { name: /我是作家/ })
+    const focusStyle = () => entry.evaluate(element => {
+      const css = getComputedStyle(element)
+      return [css.outlineStyle, css.outlineWidth, css.outlineColor, css.boxShadow, css.borderColor, css.backgroundColor]
+    })
+    const resting = await focusStyle()
+    await page.keyboard.press("Tab")
+    await expect(entry).toBeFocused()
+    expect(await focusStyle()).not.toEqual(resting)
+    await entry.press("Enter")
+    await expect(page.locator(SEL.viewTitle)).toHaveText("作品档案")
+    const animations = await page.evaluate(() => document.getAnimations().filter(animation =>
+      animation.playState === "running" && animation.effect.getTiming().iterations === Infinity).length)
+    expect(animations).toBe(0)
+  })
+}

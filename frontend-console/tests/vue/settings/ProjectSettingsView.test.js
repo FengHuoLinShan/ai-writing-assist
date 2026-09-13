@@ -77,6 +77,7 @@ describe("结构与导航", () => {
 
   it("创作偏好在前，高级导入和模型连接保留次级入口", async () => {
     const wrapper = mount(ProjectSettingsView, { props: makeProps() })
+    await flushPromises()
     const tabs = wrapper.findAll(".settings-tab-nav .tab-btn")
     expect(tabs.map((item) => item.text())).toEqual(["创作偏好", "高级导入"])
     expect(wrapper.text()).toContain("AI 文本服务：DeepSeek · deepseek-v4-flash · 未连接")
@@ -84,6 +85,41 @@ describe("结构与导航", () => {
 
     await wrapper.find("#project-settings-goto-global").trigger("click")
     expect(globalThis.router.navigate).toHaveBeenCalledWith("settings")
+  })
+
+  it("模型提示使用账户当前连接 metadata，不误读旧的有效设置模型", async () => {
+    globalThis.api.settings.listLLMConnections.mockResolvedValueOnce({
+      active_provider_id: "deepseek",
+      providers: [{
+        provider_id: "deepseek",
+        label: "DeepSeek",
+        model: "deepseek-flash",
+        connected: true,
+        active: true,
+      }],
+    })
+    const wrapper = mount(ProjectSettingsView, {
+      props: makeProps({
+        effectiveLLM: makeEffectiveLLM({
+          model: { value: "deepseek-v4-flash", source: "global" },
+        }),
+      }),
+    })
+
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("AI 文本服务：DeepSeek · deepseek-flash")
+    expect(wrapper.text()).not.toContain("deepseek-v4-flash")
+  })
+
+  it("账户连接 metadata 读取失败时不显示旧模型值", async () => {
+    globalThis.api.settings.listLLMConnections.mockRejectedValueOnce(new Error("连接读取失败"))
+    const wrapper = mount(ProjectSettingsView, { props: makeProps() })
+
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("AI 文本服务：账户连接暂时无法读取")
+    expect(wrapper.text()).not.toContain("deepseek-v4-flash")
   })
 
   it("作品级导入覆盖只显示作者摘要，不显示 raw 设置对象", async () => {
@@ -118,7 +154,7 @@ describe("结构与导航", () => {
     expect(wrapper.text()).toContain("当前作品有 1 项与默认不同")
     expect(wrapper.text()).not.toContain("target_input_chars")
     expect(wrapper.text()).not.toContain("80000")
-    expect(wrapper.get("#deep-import-expert-fields").element.style.display).toBe("none")
+    expect(wrapper.get('[data-action="toggle-deep-import-expert"]').attributes("aria-expanded")).toBe("false")
   })
 
   it("Tab 选择在页面往返间保留", async () => {
@@ -336,11 +372,10 @@ describe("深度导入", () => {
     const expert = wrapper.get('[data-action="toggle-deep-import-expert"]')
     expect(expert.attributes("aria-expanded")).toBe("false")
     expect(expert.text()).toBe("查看专家参数")
-    expect(wrapper.get("#deep-import-expert-fields").element.style.display).toBe("none")
+    expect(wrapper.get('[data-action="toggle-deep-import-expert"]').attributes("aria-expanded")).toBe("false")
     await expert.trigger("click")
     const group = wrapper.get('[aria-controls="deep-import-group-phase0"]')
     expect(group.attributes("aria-expanded")).toBe("false")
-    expect(wrapper.get("#deep-import-phase0-target-input-chars").element.closest(".form-row").style.display).toBe("none")
     await group.trigger("click")
     expect(group.attributes("aria-expanded")).toBe("true")
     expect(wrapper.find("#deep-import-phase0-target-input-chars").attributes("aria-describedby")).toContain("-help")

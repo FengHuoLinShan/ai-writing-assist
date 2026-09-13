@@ -1,7 +1,6 @@
 <!--
   OutlineThreadsTab — outline/threads 剧情线子标签（vanilla _renderThreads L1145-1207
-  + _renderThreadInformationProgression L1258-1288）。DOM 结构/class/id/data-action
-  逐节点对齐。vanilla 的 _renderForeshadowing/_renderReveals 为未挂载死代码，
+  + _renderThreadInformationProgression L1258-1288）。按用户任务验证功能；DOM 与定位器可调整。vanilla 的 _renderForeshadowing/_renderReveals 为未挂载死代码，
   threads 视图契约不含伏笔/揭示列表，本组件不渲染。
   筛选变更一律 router.navigate("outline", "threads", true, query)。
 -->

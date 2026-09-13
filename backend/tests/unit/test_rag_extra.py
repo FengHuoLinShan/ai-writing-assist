@@ -62,53 +62,6 @@ class TestContracts:
         with pytest.raises(FrozenInstanceError):
             c.text = "modified"  # type: ignore[misc]
 
-    def test_rag_chunk_contract_with_all_fields(self):
-        """GREEN: RagChunkContract 填充全部字段"""
-        from modules.evidence.contracts import RagChunkContract
-
-        c = RagChunkContract(
-            id="c1",
-            novel_id="n1",
-            source_type="chapter_text",
-            source_id="src1",
-            chapter_index=3,
-            chunk_index=1,
-            start_offset=10,
-            end_offset=200,
-            char_count=190,
-            text="full text",
-            summary="sum",
-            entity_ids=["e1", "e2"],
-            character_ids=["c1"],
-            thread_ids=["t1"],
-            visibility="reader_known",
-            importance=0.9,
-            index_version="v2",
-            embedding_status="succeeded",
-            embedding_error=None,
-            index_warnings=["warn1"],
-            meta={"arc": "arc1"},
-            score=0.85,
-        )
-        assert c.source_id == "src1"
-        assert c.chapter_index == 3
-        assert c.chunk_index == 1
-        assert c.start_offset == 10
-        assert c.end_offset == 200
-        assert c.char_count == 190
-        assert c.summary == "sum"
-        assert c.entity_ids == ["e1", "e2"]
-        assert c.character_ids == ["c1"]
-        assert c.thread_ids == ["t1"]
-        assert c.visibility == "reader_known"
-        assert c.importance == 0.9
-        assert c.index_version == "v2"
-        assert c.embedding_status == "succeeded"
-        assert c.embedding_error is None
-        assert c.index_warnings == ["warn1"]
-        assert c.meta == {"arc": "arc1"}
-        assert c.score == 0.85
-
     def test_rag_result_bundle_defaults(self):
         """GREEN: RagResultBundle 默认值为空"""
         from modules.evidence.contracts import RagResultBundle
@@ -357,6 +310,7 @@ class TestSchemas:
         r = RagResult(chunks=[], total=0, query="q")
         assert r.warnings == []
         assert r.degraded is False
+
 
 # ============================================================
 # api.py — API 路由

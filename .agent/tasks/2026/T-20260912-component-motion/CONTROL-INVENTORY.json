@@ -1,0 +1,5309 @@
+{
+  "baselineNativeDeclarations": 131,
+  "baselineButtonDeclarations": 103,
+  "currentNativeDeclarations": 133,
+  "currentButtonDeclarations": 105,
+  "items": [
+    {
+      "id": "C001",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 21,
+      "tag": "button",
+      "label": "{{item}}",
+      "family": "M08",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "if: page === 'settings'",
+        "for: item in ['账户','模型连接','作品偏好','外观']"
+      ],
+      "events": [
+        "click: section = item"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "key",
+          "value": "item"
+        },
+        {
+          "name": "aria-current",
+          "value": "section === item ? 'page' : undefined"
+        }
+      ],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "if: page === 'settings'"
+      ],
+      "trigger": "click: section = item",
+      "before": "基础选中背景，内容直接替换",
+      "decisionAndReason": "完善；当前对象清楚，内容连续",
+      "normal": "选中背景/文字短过渡，内容区域轻淡化",
+      "interruption": "旧内容动画取消，最新内容/选择立即生效",
+      "reducedMotion": "对象直接更新，不改变阅读位置",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M08",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C002",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 22,
+      "tag": "input",
+      "label": "显示名称",
+      "family": "M05",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "if: page === 'settings'",
+        "if: section === '账户'"
+      ],
+      "events": [],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "if: page === 'settings'"
+      ],
+      "trigger": "原生输入/键盘/选择",
+      "before": "原生输入；基础背景/焦点样式",
+      "decisionAndReason": "完善外层；输入本体保留静态",
+      "normal": "边框与背景短过渡，输入/光标/选区不动",
+      "interruption": "连续输入不触发结果淡化、延迟或选区重置",
+      "reducedMotion": "正常原生输入与即时焦点",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M05",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C003",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 22,
+      "tag": "button",
+      "label": "作者与故事探索者",
+      "family": "M09",
+      "class": "rd-text-button",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "if: page === 'settings'",
+        "if: section === '账户'"
+      ],
+      "events": [
+        "click: emit('navigate', 'identity')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "if: page === 'settings'"
+      ],
+      "trigger": "click: emit('navigate', 'identity')",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C004",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 22,
+      "tag": "button",
+      "label": "重要创作提醒",
+      "family": "M04",
+      "class": "rd-switch",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "if: page === 'settings'",
+        "if: section === '账户'"
+      ],
+      "events": [
+        "click: notifications = !notifications"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "aria-checked",
+          "value": "notifications"
+        }
+      ],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "if: page === 'settings'"
+      ],
+      "trigger": "click: notifications = !notifications",
+      "before": "开关基础线性过渡；checkbox/radio原生外观",
+      "decisionAndReason": "完善；选择即时、反馈细腻",
+      "normal": "滑块轻微弹性；原生input保持语义，CSS绘制勾/圆点",
+      "interruption": "连续操作直接承接当前样式，不等待完成",
+      "reducedMotion": "勾/圆点/滑块即时改变；禁用无动效",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M04",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C005",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 22,
+      "tag": "button",
+      "label": "退出账户",
+      "family": "M09",
+      "class": "rd-text-button rd-danger-text",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "if: page === 'settings'",
+        "if: section === '账户'"
+      ],
+      "events": [
+        "click: emit('open', '退出示例账户', 'danger')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "if: page === 'settings'"
+      ],
+      "trigger": "click: emit('open', '退出示例账户', 'danger')",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C006",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 23,
+      "tag": "select",
+      "label": "选择模型服务 示例服务",
+      "family": "M06",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "if: page === 'settings'",
+        "else-if: section === '模型连接'"
+      ],
+      "events": [],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "if: page === 'settings'"
+      ],
+      "trigger": "原生下拉/键盘",
+      "before": "原生select/range，保留平台交互",
+      "decisionAndReason": "保留原生静态交互；避免重造选择器",
+      "normal": "仅外层焦点/边框反馈，平台负责下拉与拖动",
+      "interruption": "不拦截原生键盘或拖动",
+      "reducedMotion": "保留全部原生操作",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M06",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C007",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 23,
+      "tag": "input",
+      "label": "预览中不输入真实密钥",
+      "family": "M05",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "if: page === 'settings'",
+        "else-if: section === '模型连接'"
+      ],
+      "events": [],
+      "disabled": "true",
+      "model": "",
+      "inputType": "password",
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "if: page === 'settings'"
+      ],
+      "trigger": "原生输入/键盘/选择",
+      "before": "原生输入；基础背景/焦点样式",
+      "decisionAndReason": "保留静态；禁用控件不提供可操作暗示。忙碌按钮内的进度指示仅表达进行中的演示状态。",
+      "normal": "边框与背景短过渡，输入/光标/选区不动",
+      "interruption": "连续输入不触发结果淡化、延迟或选区重置",
+      "reducedMotion": "正常原生输入与即时焦点",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M05",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C008",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 23,
+      "tag": "button",
+      "label": "查看连接状态示例",
+      "family": "M01",
+      "class": "rd-button primary",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "if: page === 'settings'",
+        "else-if: section === '模型连接'"
+      ],
+      "events": [
+        "click: emit('open', '连接状态', 'connection')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "if: page === 'settings'"
+      ],
+      "trigger": "click: emit('open', '连接状态', 'connection')",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C009",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 24,
+      "tag": "input",
+      "label": "每日目标字数",
+      "family": "M05",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "if: page === 'settings'",
+        "else-if: section === '作品偏好'"
+      ],
+      "events": [],
+      "disabled": "false",
+      "model": "",
+      "inputType": "number",
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "if: page === 'settings'"
+      ],
+      "trigger": "原生输入/键盘/选择",
+      "before": "原生输入；基础背景/焦点样式",
+      "decisionAndReason": "完善外层；输入本体保留静态",
+      "normal": "边框与背景短过渡，输入/光标/选区不动",
+      "interruption": "连续输入不触发结果淡化、延迟或选区重置",
+      "reducedMotion": "正常原生输入与即时焦点",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M05",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C010",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 24,
+      "tag": "select",
+      "label": "舒适 · 18 紧凑 · 16 宽松 · 20",
+      "family": "M06",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "if: page === 'settings'",
+        "else-if: section === '作品偏好'"
+      ],
+      "events": [],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "if: page === 'settings'"
+      ],
+      "trigger": "原生下拉/键盘",
+      "before": "原生select/range，保留平台交互",
+      "decisionAndReason": "保留原生静态交互；避免重造选择器",
+      "normal": "仅外层焦点/边框反馈，平台负责下拉与拖动",
+      "interruption": "不拦截原生键盘或拖动",
+      "reducedMotion": "保留全部原生操作",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M06",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C011",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 24,
+      "tag": "select",
+      "label": "第三人称 · 有限视角 第一人称",
+      "family": "M06",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "if: page === 'settings'",
+        "else-if: section === '作品偏好'"
+      ],
+      "events": [],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "if: page === 'settings'"
+      ],
+      "trigger": "原生下拉/键盘",
+      "before": "原生select/range，保留平台交互",
+      "decisionAndReason": "保留原生静态交互；避免重造选择器",
+      "normal": "仅外层焦点/边框反馈，平台负责下拉与拖动",
+      "interruption": "不拦截原生键盘或拖动",
+      "reducedMotion": "保留全部原生操作",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M06",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C012",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 25,
+      "tag": "button",
+      "label": "{{mode === 'light' ? '晴日' : '静夜'}} {{theme === mode ? '✓ 已选择' : '选择外观'}}",
+      "family": "M13",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "if: page === 'settings'",
+        "for: mode in ['light','dark']"
+      ],
+      "events": [
+        "click: emit('theme', mode)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "key",
+          "value": "mode"
+        },
+        {
+          "name": "aria-pressed",
+          "value": "theme === mode"
+        }
+      ],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "if: page === 'settings'"
+      ],
+      "trigger": "click: emit('theme', mode)",
+      "before": "基础边框选择，主题表面直接切换",
+      "decisionAndReason": "完善；外观选择清楚、布局不变",
+      "normal": "边框、表面颜色和选中强调短过渡",
+      "interruption": "CSS从当前颜色承接反向",
+      "reducedMotion": "色彩直接切换，文本布局不变",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M13",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C013",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 28,
+      "tag": "button",
+      "label": "我是创作者 把脑海里的世界 变成有人想读的故事。 进入创作空间 →",
+      "family": "M09",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'identity'"
+      ],
+      "events": [
+        "click: emit('navigate', 'today')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'identity'"
+      ],
+      "trigger": "click: emit('navigate', 'today')",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C014",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 28,
+      "tag": "button",
+      "label": "✦ 我是探索者 带着自己的选择 走进一段未知的旅程。 发现互动故事 →",
+      "family": "M09",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'identity'"
+      ],
+      "events": [
+        "click: emit('navigate', 'journeys')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'identity'"
+      ],
+      "trigger": "click: emit('navigate', 'journeys')",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C015",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 29,
+      "tag": "button",
+      "label": "开启新旅程",
+      "family": "M01",
+      "class": "rd-button purple",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'journeys'"
+      ],
+      "events": [
+        "click: emit('open', '开启新的旅程', 'journey')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'journeys'"
+      ],
+      "trigger": "click: emit('open', '开启新的旅程', 'journey')",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C016",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 29,
+      "tag": "button",
+      "label": "继续你的旅程 潮汐之间 灯塔亮起的那一刻， 你决定留下来。 回到白沙港 →",
+      "family": "M09",
+      "class": "rd-journey-hero",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'journeys'"
+      ],
+      "events": [
+        "click: emit('navigate', 'reading')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'journeys'"
+      ],
+      "trigger": "click: emit('navigate', 'reading')",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C017",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 29,
+      "tag": "button",
+      "label": "01 / MYSTERY 雾林来客 这里的树，记得每一个经过的人。 探索这个世界",
+      "family": "M09",
+      "class": "rd-discovery tone-purple",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'journeys'"
+      ],
+      "events": [
+        "click: emit('open', '雾林来客', 'journey')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'journeys'"
+      ],
+      "trigger": "click: emit('open', '雾林来客', 'journey')",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C018",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 29,
+      "tag": "button",
+      "label": "02 / EVERYDAY MAGIC 第七封来信 明天的你，寄来了一封今天的信。 探索这个世界",
+      "family": "M09",
+      "class": "rd-discovery tone-orange",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'journeys'"
+      ],
+      "events": [
+        "click: emit('open', '第七封来信', 'journey')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'journeys'"
+      ],
+      "trigger": "click: emit('open', '第七封来信', 'journey')",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C019",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 30,
+      "tag": "button",
+      "label": "{{String(i+1).padStart(2,'0')}} {{item}}",
+      "family": "M11",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'reading'",
+        "for: (item,i) in ['问他为什么认识这张海图','问起三年前熄灭的灯塔','暂时沉默，观察那盏风灯']"
+      ],
+      "events": [
+        "click: choice = i"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "key",
+          "value": "item"
+        },
+        {
+          "name": "aria-pressed",
+          "value": "choice === i"
+        }
+      ],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'reading'"
+      ],
+      "trigger": "click: choice = i",
+      "before": "分支选中底色；图标直接替换",
+      "decisionAndReason": "完善；选择被确认，正文不动",
+      "normal": "选中底色、边框和SVG勾选切换",
+      "interruption": "最新分支立即选中；不生成正文",
+      "reducedMotion": "同样清楚的静态选中和勾选",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M11",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C020",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 30,
+      "tag": "input",
+      "label": "也可以，写下自己的选择…",
+      "family": "M05",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'reading'"
+      ],
+      "events": [],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'reading'"
+      ],
+      "trigger": "原生输入/键盘/选择",
+      "before": "原生输入；基础背景/焦点样式",
+      "decisionAndReason": "完善外层；输入本体保留静态",
+      "normal": "边框与背景短过渡，输入/光标/选区不动",
+      "interruption": "连续输入不触发结果淡化、延迟或选区重置",
+      "reducedMotion": "正常原生输入与即时焦点",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M05",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C021",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 30,
+      "tag": "button",
+      "label": "查看分支反馈示例",
+      "family": "M02",
+      "class": "rd-icon-button",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'reading'"
+      ],
+      "events": [
+        "click: emit('open', '你的选择，故事的下一步', 'branch')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'reading'"
+      ],
+      "trigger": "click: emit('open', '你的选择，故事的下一步', 'branch')",
+      "before": "统一按钮按下下移；状态SVG直接替换",
+      "decisionAndReason": "完善；明确图标的状态身份",
+      "normal": "内部图标按压；SVG组交叉淡化与轻微缩放；勾选描绘",
+      "interruption": "Vue keyed过渡处理替换，外框和命中区稳定",
+      "reducedMotion": "图标直接替换，保留可访问名称",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M02",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C022",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 30,
+      "tag": "button",
+      "label": "旅程回顾",
+      "family": "M09",
+      "class": "rd-text-button",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'reading'"
+      ],
+      "events": [
+        "click: emit('open', '这一路的回顾', 'recap', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'reading'"
+      ],
+      "trigger": "click: emit('open', '这一路的回顾', 'recap', true)",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C023",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 30,
+      "tag": "button",
+      "label": "人物与线索",
+      "family": "M09",
+      "class": "rd-text-button",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'reading'"
+      ],
+      "events": [
+        "click: emit('open', '随行资料', 'person', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'reading'"
+      ],
+      "trigger": "click: emit('open', '随行资料', 'person', true)",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C024",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 33,
+      "tag": "button",
+      "label": "继续写作",
+      "family": "M01",
+      "class": "rd-button primary",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "events": [
+        "click: emit('open', '继续创作', 'scene')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "trigger": "click: emit('open', '继续创作', 'scene')",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C025",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 33,
+      "tag": "button",
+      "label": "获取灵感",
+      "family": "M01",
+      "class": "rd-button purple",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "events": [
+        "click: emit('open', '写作伙伴', 'ai', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "trigger": "click: emit('open', '写作伙伴', 'ai', true)",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C026",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 33,
+      "tag": "button",
+      "label": "查看资料",
+      "family": "M01",
+      "class": "rd-button",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "events": [
+        "click: emit('open', '资料面板', 'detail', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "trigger": "click: emit('open', '资料面板', 'detail', true)",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C027",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 33,
+      "tag": "button",
+      "label": "稍后处理",
+      "family": "M01",
+      "class": "rd-button subtle",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "events": [
+        "click: emit('open', '次级操作', 'states')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "trigger": "click: emit('open', '次级操作', 'states')",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C028",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 33,
+      "tag": "button",
+      "label": "移入历史",
+      "family": "M01",
+      "class": "rd-button danger",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "events": [
+        "click: emit('open', '移入历史', 'danger')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "trigger": "click: emit('open', '移入历史', 'danger')",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C029",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 33,
+      "tag": "button",
+      "label": "暂不可用",
+      "family": "M01",
+      "class": "rd-button",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "events": [],
+      "disabled": "true",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "trigger": "原生点击/键盘",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "保留静态；禁用控件不提供可操作暗示。忙碌按钮内的进度指示仅表达进行中的演示状态。",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C030",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 33,
+      "tag": "button",
+      "label": "处理中…",
+      "family": "M01",
+      "class": "rd-button",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "events": [],
+      "disabled": "true",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "trigger": "原生点击/键盘",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "保留静态；禁用控件不提供可操作暗示。忙碌按钮内的进度指示仅表达进行中的演示状态。",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C031",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 33,
+      "tag": "button",
+      "label": "{{item}}",
+      "family": "M03",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'",
+        "for: item in ['全部','进行中','已完成']"
+      ],
+      "events": [
+        "click: section = item"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "key",
+          "value": "item"
+        },
+        {
+          "name": "aria-pressed",
+          "value": "(section === '账户' ? '全部' : section) === item"
+        }
+      ],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "trigger": "click: section = item",
+      "before": "各按钮独立选中背景，无连续指示器",
+      "decisionAndReason": "新增；一个连续选择位置",
+      "normal": "CSS同一底部指示器移动，文本不移动",
+      "interruption": "CSS承接当前位置，不排队；最新aria-pressed即时",
+      "reducedMotion": "指示器立即到位",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M03",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C032",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 33,
+      "tag": "button",
+      "label": "示例开关",
+      "family": "M04",
+      "class": "rd-switch",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "events": [
+        "click: notifications = !notifications"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "aria-checked",
+          "value": "notifications"
+        }
+      ],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "trigger": "click: notifications = !notifications",
+      "before": "开关基础线性过渡；checkbox/radio原生外观",
+      "decisionAndReason": "完善；选择即时、反馈细腻",
+      "normal": "滑块轻微弹性；原生input保持语义，CSS绘制勾/圆点",
+      "interruption": "连续操作直接承接当前样式，不等待完成",
+      "reducedMotion": "勾/圆点/滑块即时改变；禁用无动效",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M04",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C033",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 33,
+      "tag": "input",
+      "label": "包含归档资料",
+      "family": "M04",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "events": [],
+      "disabled": "false",
+      "model": "",
+      "inputType": "checkbox",
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "trigger": "原生输入/键盘/选择",
+      "before": "开关基础线性过渡；checkbox/radio原生外观",
+      "decisionAndReason": "完善；选择即时、反馈细腻",
+      "normal": "滑块轻微弹性；原生input保持语义，CSS绘制勾/圆点",
+      "interruption": "连续操作直接承接当前样式，不等待完成",
+      "reducedMotion": "勾/圆点/滑块即时改变；禁用无动效",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M04",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C034",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 33,
+      "tag": "input",
+      "label": "舒适",
+      "family": "M04",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "events": [],
+      "disabled": "false",
+      "model": "",
+      "inputType": "radio",
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "trigger": "原生输入/键盘/选择",
+      "before": "开关基础线性过渡；checkbox/radio原生外观",
+      "decisionAndReason": "完善；选择即时、反馈细腻",
+      "normal": "滑块轻微弹性；原生input保持语义，CSS绘制勾/圆点",
+      "interruption": "连续操作直接承接当前样式，不等待完成",
+      "reducedMotion": "勾/圆点/滑块即时改变；禁用无动效",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M04",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C035",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 33,
+      "tag": "input",
+      "label": "紧凑",
+      "family": "M04",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "events": [],
+      "disabled": "false",
+      "model": "",
+      "inputType": "radio",
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "trigger": "原生输入/键盘/选择",
+      "before": "开关基础线性过渡；checkbox/radio原生外观",
+      "decisionAndReason": "完善；选择即时、反馈细腻",
+      "normal": "滑块轻微弹性；原生input保持语义，CSS绘制勾/圆点",
+      "interruption": "连续操作直接承接当前样式，不等待完成",
+      "reducedMotion": "勾/圆点/滑块即时改变；禁用无动效",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M04",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C036",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 34,
+      "tag": "input",
+      "label": "作品名称 名称可以随故事成长而改变。",
+      "family": "M05",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "events": [],
+      "disabled": "false",
+      "model": "sampleText",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "trigger": "原生输入/键盘/选择",
+      "before": "原生输入；基础背景/焦点样式",
+      "decisionAndReason": "完善外层；输入本体保留静态",
+      "normal": "边框与背景短过渡，输入/光标/选区不动",
+      "interruption": "连续输入不触发结果淡化、延迟或选区重置",
+      "reducedMotion": "正常原生输入与即时焦点",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M05",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C037",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 34,
+      "tag": "input",
+      "label": "为故事起个名字",
+      "family": "M05",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "events": [],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "trigger": "原生输入/键盘/选择",
+      "before": "原生输入；基础背景/焦点样式",
+      "decisionAndReason": "完善外层；输入本体保留静态",
+      "normal": "边框与背景短过渡，输入/光标/选区不动",
+      "interruption": "连续输入不触发结果淡化、延迟或选区重置",
+      "reducedMotion": "正常原生输入与即时焦点",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M05",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C038",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 34,
+      "tag": "select",
+      "label": "奇幻 悬疑 文学",
+      "family": "M06",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "events": [],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "trigger": "原生下拉/键盘",
+      "before": "原生select/range，保留平台交互",
+      "decisionAndReason": "保留原生静态交互；避免重造选择器",
+      "normal": "仅外层焦点/边框反馈，平台负责下拉与拖动",
+      "interruption": "不拦截原生键盘或拖动",
+      "reducedMotion": "保留全部原生操作",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M06",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C039",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 34,
+      "tag": "textarea",
+      "label": "如果那座灯塔，从未真正熄灭…",
+      "family": "M05",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "events": [],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "trigger": "原生文本输入",
+      "before": "原生输入；基础背景/焦点样式",
+      "decisionAndReason": "完善外层；输入本体保留静态",
+      "normal": "边框与背景短过渡，输入/光标/选区不动",
+      "interruption": "连续输入不触发结果淡化、延迟或选区重置",
+      "reducedMotion": "正常原生输入与即时焦点",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M05",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C040",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 35,
+      "tag": "button",
+      "label": "{{option.label}}",
+      "family": "M14",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'",
+        "for: option in statusOptions"
+      ],
+      "events": [
+        "click: emit('state', option.id)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "key",
+          "value": "option.id"
+        },
+        {
+          "name": "aria-pressed",
+          "value": "state === option.id"
+        }
+      ],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "trigger": "click: emit('state', option.id)",
+      "before": "独立筛选底色；结果直接替换",
+      "decisionAndReason": "完善；选择清楚、不逐标签弹跳",
+      "normal": "颜色/轻描边响应，结果区整体轻淡化",
+      "interruption": "只响应显式类别改变；输入查询不反复淡化",
+      "reducedMotion": "直接选择并显示结果",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M14",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C041",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 35,
+      "tag": "button",
+      "label": "查看建议 →",
+      "family": "M09",
+      "class": "rd-text-button",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "events": [
+        "click: emit('open', '比较建议', 'compare')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "trigger": "click: emit('open', '比较建议', 'compare')",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C042",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 35,
+      "tag": "progress",
+      "label": "整理进度 · 手动演示 已完成 {{motionStage}} / 3 个阶段",
+      "family": "M12",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "events": [],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "value",
+          "value": "motionStage"
+        }
+      ],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "trigger": "由显式示例值驱动",
+      "before": "加载旋转/提示入场；进度固定样例，状态更换强调不统一",
+      "decisionAndReason": "完善；只表达已给定的示例状态",
+      "normal": "进行中才转动；手动进度值过渡；提醒首次出现强调一次",
+      "interruption": "状态变化移除旧提示/转圈；切页取消局部动画",
+      "reducedMotion": "停止转圈，仍显示“正在载入”；进度与提醒即时",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M12",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C043",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 35,
+      "tag": "button",
+      "label": "下一阶段（演示）",
+      "family": "M01",
+      "class": "rd-button",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "events": [
+        "click: motionStage = motionStage === 3 ? 0 : motionStage + 1"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "trigger": "click: motionStage = motionStage === 3 ? 0 : motionStage + 1",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C044",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 36,
+      "tag": "button",
+      "label": "预览减少动态效果",
+      "family": "M04",
+      "class": "rd-switch",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "events": [
+        "click: emit('motion-reduced', !reducedMotion)"
+      ],
+      "disabled": "systemReducedMotion",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "aria-checked",
+          "value": "reducedMotion"
+        },
+        {
+          "name": "disabled",
+          "value": "systemReducedMotion"
+        }
+      ],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "trigger": "click: emit('motion-reduced', !reducedMotion)",
+      "before": "开关基础线性过渡；checkbox/radio原生外观",
+      "decisionAndReason": "完善；选择即时、反馈细腻",
+      "normal": "滑块轻微弹性；原生input保持语义，CSS绘制勾/圆点",
+      "interruption": "连续操作直接承接当前样式，不等待完成",
+      "reducedMotion": "勾/圆点/滑块即时改变；禁用无动效",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M04",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C045",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 36,
+      "tag": "button",
+      "label": "打开对话框",
+      "family": "M01",
+      "class": "rd-button",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "events": [
+        "click: emit('open', '标准对话框', 'new')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "trigger": "click: emit('open', '标准对话框', 'new')",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C046",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 36,
+      "tag": "button",
+      "label": "打开侧边抽屉",
+      "family": "M01",
+      "class": "rd-button",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "events": [
+        "click: emit('open', '资料检查器', 'detail', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "trigger": "click: emit('open', '资料检查器', 'detail', true)",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C047",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 36,
+      "tag": "button",
+      "label": "打开比较面板",
+      "family": "M01",
+      "class": "rd-button",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "events": [
+        "click: emit('open', '比较与决定', 'compare')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "trigger": "click: emit('open', '比较与决定', 'compare')",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C048",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 36,
+      "tag": "button",
+      "label": "查看通知",
+      "family": "M01",
+      "class": "rd-button",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "events": [
+        "click: emit('open', '通知示例', 'notification')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "trigger": "click: emit('open', '通知示例', 'notification')",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C049",
+      "file": "prototypes/redesign/PreviewDialog.vue",
+      "line": 47,
+      "tag": "button",
+      "label": "关闭面板",
+      "family": "M02",
+      "class": "rd-icon-button",
+      "conditions": [],
+      "events": [
+        "click: close"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: close",
+      "before": "统一按钮按下下移；状态SVG直接替换",
+      "decisionAndReason": "完善；明确图标的状态身份",
+      "normal": "内部图标按压；SVG组交叉淡化与轻微缩放；勾选描绘",
+      "interruption": "Vue keyed过渡处理替换，外框和命中区稳定",
+      "reducedMotion": "图标直接替换，保留可访问名称",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M02",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C050",
+      "file": "prototypes/redesign/PreviewNotice.vue",
+      "line": 11,
+      "tag": "button",
+      "label": "{{notices[state].action}}",
+      "family": "M01",
+      "class": "rd-button subtle",
+      "conditions": [
+        "if: notices[state]"
+      ],
+      "events": [
+        "click: $emit('action')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: $emit('action')",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C051",
+      "file": "prototypes/redesign/PreviewNotice.vue",
+      "line": 14,
+      "tag": "button",
+      "label": "查看新建面板",
+      "family": "M01",
+      "class": "rd-button primary",
+      "conditions": [
+        "else-if: state === 'empty'"
+      ],
+      "events": [
+        "click: $emit('action')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: $emit('action')",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C052",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 85,
+      "tag": "button",
+      "label": "N NovelCraft 让想象，成为故事。",
+      "family": "M08",
+      "class": "rd-brand",
+      "conditions": [],
+      "events": [
+        "click: navigate('today')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: navigate('today')",
+      "before": "基础选中背景，内容直接替换",
+      "decisionAndReason": "完善；当前对象清楚，内容连续",
+      "normal": "选中背景/文字短过渡，内容区域轻淡化",
+      "interruption": "旧内容动画取消，最新内容/选择立即生效",
+      "reducedMotion": "对象直接更新，不改变阅读位置",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M08",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C053",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 87,
+      "tag": "button",
+      "label": "{{item.title}} 3",
+      "family": "M08",
+      "class": "",
+      "conditions": [
+        "for: item in navigation"
+      ],
+      "events": [
+        "click: navigate(item.id)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "aria-current",
+          "value": "page === item.id ? 'page' : undefined"
+        }
+      ],
+      "page": [],
+      "trigger": "click: navigate(item.id)",
+      "before": "基础选中背景，内容直接替换",
+      "decisionAndReason": "完善；当前对象清楚，内容连续",
+      "normal": "选中背景/文字短过渡，内容区域轻淡化",
+      "interruption": "旧内容动画取消，最新内容/选择立即生效",
+      "reducedMotion": "对象直接更新，不改变阅读位置",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M08",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C054",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 88,
+      "tag": "button",
+      "label": "林 林间 把今天写进故事里",
+      "family": "M08",
+      "class": "rd-profile-button",
+      "conditions": [],
+      "events": [
+        "click: navigate('settings')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: navigate('settings')",
+      "before": "基础选中背景，内容直接替换",
+      "decisionAndReason": "完善；当前对象清楚，内容连续",
+      "normal": "选中背景/文字短过渡，内容区域轻淡化",
+      "interruption": "旧内容动画取消，最新内容/选择立即生效",
+      "reducedMotion": "对象直接更新，不改变阅读位置",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M08",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C055",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 97,
+      "tag": "button",
+      "label": "返回",
+      "family": "M02",
+      "class": "rd-icon-button",
+      "conditions": [
+        "else-if: isImmersive"
+      ],
+      "events": [
+        "click: navigate(page === 'reading' ? 'journeys' : 'today')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: navigate(page === 'reading' ? 'journeys' : 'today')",
+      "before": "统一按钮按下下移；状态SVG直接替换",
+      "decisionAndReason": "完善；明确图标的状态身份",
+      "normal": "内部图标按压；SVG组交叉淡化与轻微缩放；勾选描绘",
+      "interruption": "Vue keyed过渡处理替换，外框和命中区稳定",
+      "reducedMotion": "图标直接替换，保留可访问名称",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M02",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C056",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 102,
+      "tag": "button",
+      "label": "切换章节目录",
+      "family": "M02",
+      "class": "rd-icon-button",
+      "conditions": [
+        "if: page === 'writing'",
+        "if: !focus"
+      ],
+      "events": [
+        "click: toggleChapters"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "aria-pressed",
+          "value": "writingView?.chaptersVisible || false"
+        }
+      ],
+      "page": [
+        "if: page === 'writing'"
+      ],
+      "trigger": "click: toggleChapters",
+      "before": "统一按钮按下下移；状态SVG直接替换",
+      "decisionAndReason": "完善；明确图标的状态身份",
+      "normal": "内部图标按压；SVG组交叉淡化与轻微缩放；勾选描绘",
+      "interruption": "Vue keyed过渡处理替换，外框和命中区稳定",
+      "reducedMotion": "图标直接替换，保留可访问名称",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M02",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C057",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 103,
+      "tag": "button",
+      "label": "字体与阅读设置",
+      "family": "M02",
+      "class": "rd-icon-button",
+      "conditions": [
+        "if: page === 'writing'"
+      ],
+      "events": [
+        "click: open('正文排版', 'type')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: page === 'writing'"
+      ],
+      "trigger": "click: open('正文排版', 'type')",
+      "before": "统一按钮按下下移；状态SVG直接替换",
+      "decisionAndReason": "完善；明确图标的状态身份",
+      "normal": "内部图标按压；SVG组交叉淡化与轻微缩放；勾选描绘",
+      "interruption": "Vue keyed过渡处理替换，外框和命中区稳定",
+      "reducedMotion": "图标直接替换，保留可访问名称",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M02",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C058",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 104,
+      "tag": "button",
+      "label": "版本历史",
+      "family": "M02",
+      "class": "rd-icon-button",
+      "conditions": [
+        "if: page === 'writing'"
+      ],
+      "events": [
+        "click: open('版本历史', 'versions', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: page === 'writing'"
+      ],
+      "trigger": "click: open('版本历史', 'versions', true)",
+      "before": "统一按钮按下下移；状态SVG直接替换",
+      "decisionAndReason": "完善；明确图标的状态身份",
+      "normal": "内部图标按压；SVG组交叉淡化与轻微缩放；勾选描绘",
+      "interruption": "Vue keyed过渡处理替换，外框和命中区稳定",
+      "reducedMotion": "图标直接替换，保留可访问名称",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M02",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C059",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 107,
+      "tag": "button",
+      "label": "focus ? '退出专注' : '切换专注模式'",
+      "family": "M02",
+      "class": "rd-icon-button",
+      "conditions": [
+        "if: page === 'writing'"
+      ],
+      "events": [
+        "click: toggleFocus"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "aria-label",
+          "value": "focus ? '退出专注' : '切换专注模式'"
+        },
+        {
+          "name": "title",
+          "value": "focus ? '退出专注 · Esc' : '专注模式'"
+        },
+        {
+          "name": "aria-pressed",
+          "value": "focus"
+        }
+      ],
+      "page": [
+        "if: page === 'writing'"
+      ],
+      "trigger": "click: toggleFocus",
+      "before": "统一按钮按下下移；状态SVG直接替换",
+      "decisionAndReason": "完善；明确图标的状态身份",
+      "normal": "内部图标按压；SVG组交叉淡化与轻微缩放；勾选描绘",
+      "interruption": "Vue keyed过渡处理替换，外框和命中区稳定",
+      "reducedMotion": "图标直接替换，保留可访问名称",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M02",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C060",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 108,
+      "tag": "button",
+      "label": "切换资料栏",
+      "family": "M02",
+      "class": "rd-icon-button",
+      "conditions": [
+        "if: page === 'writing'",
+        "if: !focus"
+      ],
+      "events": [
+        "click: toggleInspector"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "aria-pressed",
+          "value": "writingView?.inspectorVisible || false"
+        }
+      ],
+      "page": [
+        "if: page === 'writing'"
+      ],
+      "trigger": "click: toggleInspector",
+      "before": "统一按钮按下下移；状态SVG直接替换",
+      "decisionAndReason": "完善；明确图标的状态身份",
+      "normal": "内部图标按压；SVG组交叉淡化与轻微缩放；勾选描绘",
+      "interruption": "Vue keyed过渡处理替换，外框和命中区稳定",
+      "reducedMotion": "图标直接替换，保留可访问名称",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M02",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C061",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 110,
+      "tag": "button",
+      "label": "写作伙伴",
+      "family": "M02",
+      "class": "rd-assistant-control",
+      "conditions": [
+        "if: page === 'writing'",
+        "if: !focus"
+      ],
+      "events": [
+        "click: panelKind === 'ai' ? dialog.close() : open('写作伙伴', 'ai', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "aria-pressed",
+          "value": "panelKind === 'ai' || panelKind === 'compare'"
+        }
+      ],
+      "page": [
+        "if: page === 'writing'"
+      ],
+      "trigger": "click: panelKind === 'ai' ? dialog.close() : open('写作伙伴', 'ai', true)",
+      "before": "统一按钮按下下移；状态SVG直接替换",
+      "decisionAndReason": "完善；明确图标的状态身份",
+      "normal": "内部图标按压；SVG组交叉淡化与轻微缩放；勾选描绘",
+      "interruption": "Vue keyed过渡处理替换，外框和命中区稳定",
+      "reducedMotion": "图标直接替换，保留可访问名称",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M02",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C062",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 113,
+      "tag": "button",
+      "label": "阅读设置",
+      "family": "M02",
+      "class": "rd-icon-button",
+      "conditions": [
+        "if: isReader && page !== 'identity'"
+      ],
+      "events": [
+        "click: open('阅读设置', 'type')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: open('阅读设置', 'type')",
+      "before": "统一按钮按下下移；状态SVG直接替换",
+      "decisionAndReason": "完善；明确图标的状态身份",
+      "normal": "内部图标按压；SVG组交叉淡化与轻微缩放；勾选描绘",
+      "interruption": "Vue keyed过渡处理替换，外框和命中区稳定",
+      "reducedMotion": "图标直接替换，保留可访问名称",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M02",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C063",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 113,
+      "tag": "button",
+      "label": "旅程回顾",
+      "family": "M02",
+      "class": "rd-icon-button",
+      "conditions": [
+        "if: isReader && page !== 'identity'",
+        "if: page === 'reading'"
+      ],
+      "events": [
+        "click: open('旅程回顾', 'recap', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: page === 'reading'"
+      ],
+      "trigger": "click: open('旅程回顾', 'recap', true)",
+      "before": "统一按钮按下下移；状态SVG直接替换",
+      "decisionAndReason": "完善；明确图标的状态身份",
+      "normal": "内部图标按压；SVG组交叉淡化与轻微缩放；勾选描绘",
+      "interruption": "Vue keyed过渡处理替换，外框和命中区稳定",
+      "reducedMotion": "图标直接替换，保留可访问名称",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M02",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C064",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 114,
+      "tag": "button",
+      "label": "打开查找",
+      "family": "M02",
+      "class": "rd-icon-button",
+      "conditions": [
+        "else-if: page !== 'writing'"
+      ],
+      "events": [
+        "click: navigate('search')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: navigate('search')",
+      "before": "统一按钮按下下移；状态SVG直接替换",
+      "decisionAndReason": "完善；明确图标的状态身份",
+      "normal": "内部图标按压；SVG组交叉淡化与轻微缩放；勾选描绘",
+      "interruption": "Vue keyed过渡处理替换，外框和命中区稳定",
+      "reducedMotion": "图标直接替换，保留可访问名称",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M02",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C065",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 115,
+      "tag": "button",
+      "label": "theme === 'light' ? '切换到深色' : '切换到浅色'",
+      "family": "M02",
+      "class": "rd-icon-button",
+      "conditions": [],
+      "events": [
+        "click: theme = theme === 'light' ? 'dark' : 'light'"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "aria-label",
+          "value": "theme === 'light' ? '切换到深色' : '切换到浅色'"
+        }
+      ],
+      "page": [],
+      "trigger": "click: theme = theme === 'light' ? 'dark' : 'light'",
+      "before": "统一按钮按下下移；状态SVG直接替换",
+      "decisionAndReason": "完善；明确图标的状态身份",
+      "normal": "内部图标按压；SVG组交叉淡化与轻微缩放；勾选描绘",
+      "interruption": "Vue keyed过渡处理替换，外框和命中区稳定",
+      "reducedMotion": "图标直接替换，保留可访问名称",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M02",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C066",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 124,
+      "tag": "summary",
+      "label": "设计预览",
+      "family": "M07",
+      "class": "",
+      "conditions": [],
+      "events": [],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "原生点击/键盘",
+      "before": "菜单以入场为主，details主要静态展开",
+      "decisionAndReason": "完善；从触发点展开和返回",
+      "normal": "本地CSS位置锚定、淡化、小幅缩放；原生离散显示过渡",
+      "interruption": "CSS反向，控制器即时关闭/还焦点，布局不变",
+      "reducedMotion": "直接开关；不支持details增强时仍可用",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M07",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C067",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 125,
+      "tag": "select",
+      "label": "页面演示状态",
+      "family": "M06",
+      "class": "",
+      "conditions": [],
+      "events": [],
+      "disabled": "false",
+      "model": "state",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "原生下拉/键盘",
+      "before": "原生select/range，保留平台交互",
+      "decisionAndReason": "保留原生静态交互；避免重造选择器",
+      "normal": "仅外层焦点/边框反馈，平台负责下拉与拖动",
+      "interruption": "不拦截原生键盘或拖动",
+      "reducedMotion": "保留全部原生操作",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M06",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C068",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 125,
+      "tag": "button",
+      "label": "组件与动效",
+      "family": "M01",
+      "class": "rd-button",
+      "conditions": [],
+      "events": [
+        "click: navigate('components')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: navigate('components')",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C069",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 130,
+      "tag": "button",
+      "label": "{{item}}",
+      "family": "M09",
+      "class": "rd-suggestion",
+      "conditions": [
+        "else-if: kind === 'ai'",
+        "for: item in ['让这场相遇更有张力','从沈雁的视角想一想','看看哪些细节值得保留']"
+      ],
+      "events": [
+        "click: open('一个可能的方向', 'compare', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "key",
+          "value": "item"
+        }
+      ],
+      "page": [],
+      "trigger": "click: open('一个可能的方向', 'compare', true)",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C070",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 130,
+      "tag": "textarea",
+      "label": "我希望这一幕的情绪更克制一点…",
+      "family": "M05",
+      "class": "",
+      "conditions": [
+        "else-if: kind === 'ai'"
+      ],
+      "events": [],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "原生文本输入",
+      "before": "原生输入；基础背景/焦点样式",
+      "decisionAndReason": "完善外层；输入本体保留静态",
+      "normal": "边框与背景短过渡，输入/光标/选区不动",
+      "interruption": "连续输入不触发结果淡化、延迟或选区重置",
+      "reducedMotion": "正常原生输入与即时焦点",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M05",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C071",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 131,
+      "tag": "button",
+      "label": "保留原稿",
+      "family": "M01",
+      "class": "rd-button",
+      "conditions": [
+        "else-if: kind === 'compare'"
+      ],
+      "events": [
+        "click: open('暂不采用', 'rejected')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: open('暂不采用', 'rejected')",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C072",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 131,
+      "tag": "button",
+      "label": "采用示例建议",
+      "family": "M01",
+      "class": "rd-button purple",
+      "conditions": [
+        "else-if: kind === 'compare'"
+      ],
+      "events": [
+        "click: open('采用结果示例', 'adopted')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: open('采用结果示例', 'adopted')",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C073",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 134,
+      "tag": "button",
+      "label": "{{i === 0 ? '●' : '✓'}} {{item}} {{['1,862 字','1,524 字','1,080 字'][i]}} · 示例版本",
+      "family": "M08",
+      "class": "rd-version-row",
+      "conditions": [
+        "else-if: kind === 'versions'",
+        "for: (item,i) in ['今天 14:32 · 当前工作稿','今天 11:08 · 补充码头对话','昨天 20:16 · 第一版场景']"
+      ],
+      "events": [
+        "click: open(item, 'compare', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "key",
+          "value": "item"
+        }
+      ],
+      "page": [],
+      "trigger": "click: open(item, 'compare', true)",
+      "before": "基础选中背景，内容直接替换",
+      "decisionAndReason": "完善；当前对象清楚，内容连续",
+      "normal": "选中背景/文字短过渡，内容区域轻淡化",
+      "interruption": "旧内容动画取消，最新内容/选择立即生效",
+      "reducedMotion": "对象直接更新，不改变阅读位置",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M08",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C074",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 135,
+      "tag": "input",
+      "label": "写下一个名字或目标",
+      "family": "M05",
+      "class": "",
+      "conditions": [
+        "else-if: kind === 'new' || kind === 'task'"
+      ],
+      "events": [],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "原生输入/键盘/选择",
+      "before": "原生输入；基础背景/焦点样式",
+      "decisionAndReason": "完善外层；输入本体保留静态",
+      "normal": "边框与背景短过渡，输入/光标/选区不动",
+      "interruption": "连续输入不触发结果淡化、延迟或选区重置",
+      "reducedMotion": "正常原生输入与即时焦点",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M05",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C075",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 135,
+      "tag": "textarea",
+      "label": "最想留下的那个念头…",
+      "family": "M05",
+      "class": "",
+      "conditions": [
+        "else-if: kind === 'new' || kind === 'task'"
+      ],
+      "events": [],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "原生文本输入",
+      "before": "原生输入；基础背景/焦点样式",
+      "decisionAndReason": "完善外层；输入本体保留静态",
+      "normal": "边框与背景短过渡，输入/光标/选区不动",
+      "interruption": "连续输入不触发结果淡化、延迟或选区重置",
+      "reducedMotion": "正常原生输入与即时焦点",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M05",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C076",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 135,
+      "tag": "button",
+      "label": "取消",
+      "family": "M01",
+      "class": "rd-button",
+      "conditions": [
+        "else-if: kind === 'new' || kind === 'task'"
+      ],
+      "events": [
+        "click: close"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: close",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C077",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 135,
+      "tag": "button",
+      "label": "创建示例",
+      "family": "M01",
+      "class": "rd-button primary",
+      "conditions": [
+        "else-if: kind === 'new' || kind === 'task'"
+      ],
+      "events": [
+        "click: open('创建反馈示例', 'adopted')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: open('创建反馈示例', 'adopted')",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C078",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 137,
+      "tag": "select",
+      "label": "系统字体 衬线体示例",
+      "family": "M06",
+      "class": "",
+      "conditions": [
+        "else-if: kind === 'type'"
+      ],
+      "events": [],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "原生下拉/键盘",
+      "before": "原生select/range，保留平台交互",
+      "decisionAndReason": "保留原生静态交互；避免重造选择器",
+      "normal": "仅外层焦点/边框反馈，平台负责下拉与拖动",
+      "interruption": "不拦截原生键盘或拖动",
+      "reducedMotion": "保留全部原生操作",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M06",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C079",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 137,
+      "tag": "input",
+      "label": "字号",
+      "family": "M06",
+      "class": "",
+      "conditions": [
+        "else-if: kind === 'type'"
+      ],
+      "events": [],
+      "disabled": "false",
+      "model": "",
+      "inputType": "range",
+      "conditionStates": [],
+      "page": [],
+      "trigger": "原生输入/键盘/选择",
+      "before": "原生select/range，保留平台交互",
+      "decisionAndReason": "保留原生静态交互；避免重造选择器",
+      "normal": "仅外层焦点/边框反馈，平台负责下拉与拖动",
+      "interruption": "不拦截原生键盘或拖动",
+      "reducedMotion": "保留全部原生操作",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M06",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C080",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 137,
+      "tag": "select",
+      "label": "舒适 紧凑 宽松",
+      "family": "M06",
+      "class": "",
+      "conditions": [
+        "else-if: kind === 'type'"
+      ],
+      "events": [],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "原生下拉/键盘",
+      "before": "原生select/range，保留平台交互",
+      "decisionAndReason": "保留原生静态交互；避免重造选择器",
+      "normal": "仅外层焦点/边框反馈，平台负责下拉与拖动",
+      "interruption": "不拦截原生键盘或拖动",
+      "reducedMotion": "保留全部原生操作",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M06",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C081",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 138,
+      "tag": "button",
+      "label": "保留并返回",
+      "family": "M01",
+      "class": "rd-button",
+      "conditions": [
+        "else-if: kind === 'danger'"
+      ],
+      "events": [
+        "click: close"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: close",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C082",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 138,
+      "tag": "button",
+      "label": "查看确认后反馈",
+      "family": "M01",
+      "class": "rd-button danger",
+      "conditions": [
+        "else-if: kind === 'danger'"
+      ],
+      "events": [
+        "click: open('操作结果示例', 'notification')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: open('操作结果示例', 'notification')",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C083",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 139,
+      "tag": "button",
+      "label": "进入示例写作台 →",
+      "family": "M01",
+      "class": "rd-button primary",
+      "conditions": [
+        "else-if: kind === 'project'"
+      ],
+      "events": [
+        "click: navigate('writing')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: navigate('writing')",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C084",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 140,
+      "tag": "button",
+      "label": "查看审阅面板 →",
+      "family": "M01",
+      "class": "rd-button primary",
+      "conditions": [
+        "else-if: kind === 'import'"
+      ],
+      "events": [
+        "click: open('审阅导入资料', 'compare', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: open('审阅导入资料', 'compare', true)",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C085",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 141,
+      "tag": "button",
+      "label": "进入示例故事 →",
+      "family": "M01",
+      "class": "rd-button purple",
+      "conditions": [
+        "else-if: kind === 'journey' || kind === 'branch'"
+      ],
+      "events": [
+        "click: navigate('reading')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: navigate('reading')",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C086",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 145,
+      "tag": "input",
+      "label": "{{item}}",
+      "family": "M04",
+      "class": "",
+      "conditions": [
+        "else-if: kind === 'layers'",
+        "for: item in ['地点与名称','人物足迹','航线与关联','地形底图']"
+      ],
+      "events": [],
+      "disabled": "false",
+      "model": "",
+      "inputType": "checkbox",
+      "conditionStates": [],
+      "page": [],
+      "trigger": "原生输入/键盘/选择",
+      "before": "开关基础线性过渡；checkbox/radio原生外观",
+      "decisionAndReason": "完善；选择即时、反馈细腻",
+      "normal": "滑块轻微弹性；原生input保持语义，CSS绘制勾/圆点",
+      "interruption": "连续操作直接承接当前样式，不等待完成",
+      "reducedMotion": "勾/圆点/滑块即时改变；禁用无动效",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M04",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C087",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 22,
+      "tag": "button",
+      "label": "继续你的故事 潮汐来信 第三章 · 潮汐之间 回到写作 潮",
+      "family": "M09",
+      "class": "rd-continue-card",
+      "conditions": [
+        "if: state !== 'empty'",
+        "if: page === 'today'"
+      ],
+      "events": [
+        "click: emit('navigate', 'writing')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: page === 'today'"
+      ],
+      "trigger": "click: emit('navigate', 'writing')",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C088",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 22,
+      "tag": "progress",
+      "label": "示例写作目标",
+      "family": "M12",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty'",
+        "if: page === 'today'"
+      ],
+      "events": [],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: page === 'today'"
+      ],
+      "trigger": "由显式示例值驱动",
+      "before": "加载旋转/提示入场；进度固定样例，状态更换强调不统一",
+      "decisionAndReason": "完善；只表达已给定的示例状态",
+      "normal": "进行中才转动；手动进度值过渡；提醒首次出现强调一次",
+      "interruption": "状态变化移除旧提示/转圈；切页取消局部动画",
+      "reducedMotion": "停止转圈，仍显示“正在载入”；进度与提醒即时",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M12",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C089",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 22,
+      "tag": "button",
+      "label": "一起看看 →",
+      "family": "M09",
+      "class": "rd-text-button",
+      "conditions": [
+        "if: state !== 'empty'",
+        "if: page === 'today'"
+      ],
+      "events": [
+        "click: emit('navigate', 'world', '需要决定')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: page === 'today'"
+      ],
+      "trigger": "click: emit('navigate', 'world', '需要决定')",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C090",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 23,
+      "tag": "button",
+      "label": "全部计划",
+      "family": "M09",
+      "class": "rd-text-button",
+      "conditions": [
+        "if: state !== 'empty'",
+        "if: page === 'today'"
+      ],
+      "events": [
+        "click: emit('navigate', 'tasks')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: page === 'today'"
+      ],
+      "trigger": "click: emit('navigate', 'tasks')",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C091",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 23,
+      "tag": "button",
+      "label": "{{item}} {{['第三章 · 写作', '人物与世界', '故事结构'][i]}} {{i === 0 ? '今天' : '稍后'}}",
+      "family": "M09",
+      "class": "rd-task-row",
+      "conditions": [
+        "if: state !== 'empty'",
+        "if: page === 'today'",
+        "for: (item, i) in ['写完码头相遇的最后一幕', '补全沈雁的过往', '梳理第一部的三条线索']"
+      ],
+      "events": [
+        "click: emit('open', item, 'task', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "key",
+          "value": "item"
+        }
+      ],
+      "page": [
+        "if: page === 'today'"
+      ],
+      "trigger": "click: emit('open', item, 'task', true)",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C092",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 23,
+      "tag": "button",
+      "label": "和写作伙伴聊聊",
+      "family": "M01",
+      "class": "rd-button purple",
+      "conditions": [
+        "if: state !== 'empty'",
+        "if: page === 'today'"
+      ],
+      "events": [
+        "click: emit('open', '探索这个念头', 'ai', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "if: page === 'today'"
+      ],
+      "trigger": "click: emit('open', '探索这个念头', 'ai', true)",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C093",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 26,
+      "tag": "button",
+      "label": "新建作品",
+      "family": "M01",
+      "class": "rd-button primary",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'projects'"
+      ],
+      "events": [
+        "click: emit('open', '开始新作品', 'new')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "else-if: page === 'projects'"
+      ],
+      "trigger": "click: emit('open', '开始新作品', 'new')",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C094",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 27,
+      "tag": "button",
+      "label": "{{item}}",
+      "family": "M03",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'projects'",
+        "for: item in ['正在创作','已完成','已归档']"
+      ],
+      "events": [
+        "click: tab = item"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "key",
+          "value": "item"
+        },
+        {
+          "name": "aria-pressed",
+          "value": "(tab === '全部' ? '正在创作' : tab) === item"
+        }
+      ],
+      "page": [
+        "else-if: page === 'projects'"
+      ],
+      "trigger": "click: tab = item",
+      "before": "各按钮独立选中背景，无连续指示器",
+      "decisionAndReason": "新增；一个连续选择位置",
+      "normal": "CSS同一底部指示器移动，文本不移动",
+      "interruption": "CSS承接当前位置，不排队；最新aria-pressed即时",
+      "reducedMotion": "指示器立即到位",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M03",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C095",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 27,
+      "tag": "button",
+      "label": "导入已有作品",
+      "family": "M09",
+      "class": "rd-text-button",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'projects'"
+      ],
+      "events": [
+        "click: emit('navigate', 'import')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "else-if: page === 'projects'"
+      ],
+      "trigger": "click: emit('navigate', 'import')",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C096",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 28,
+      "tag": "button",
+      "label": "{{['LETTERS FROM THE TIDE','ECHOES OF THE MOUNTAINS','A SUNDAY UNIVERSE'][i]}} {{book}} 林间 / 著 {{book}} {{['奇幻 · 6 章 · 今天编辑','文学 · 12 章 · 昨天编辑','短篇集 · 3 章 · 3 天前'][i]}}",
+      "family": "M09",
+      "class": "rd-book",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'projects'",
+        "if: tab === '全部' || tab === '正在创作'",
+        "for: (book, i) in ['潮汐来信','群山的回声','星期天的宇宙']"
+      ],
+      "events": [
+        "click: emit('open', book, 'project')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "key",
+          "value": "book"
+        }
+      ],
+      "page": [
+        "else-if: page === 'projects'"
+      ],
+      "trigger": "click: emit('open', book, 'project')",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C097",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 28,
+      "tag": "button",
+      "label": "＋ 下一个故事 灵感便笺",
+      "family": "M09",
+      "class": "rd-book rd-book-new",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'projects'",
+        "if: tab === '全部' || tab === '正在创作'"
+      ],
+      "events": [
+        "click: emit('open', '开始新作品', 'new')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "else-if: page === 'projects'"
+      ],
+      "trigger": "click: emit('open', '开始新作品', 'new')",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C098",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 32,
+      "tag": "button",
+      "label": "添加资料",
+      "family": "M01",
+      "class": "rd-button primary",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'world'"
+      ],
+      "events": [
+        "click: emit('open', '添加世界资料', 'new')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "else-if: page === 'world'"
+      ],
+      "trigger": "click: emit('open', '添加世界资料', 'new')",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C099",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 33,
+      "tag": "button",
+      "label": "{{item}} 3",
+      "family": "M14",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'world'",
+        "for: item in worldTabs"
+      ],
+      "events": [
+        "click: tab = item"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "key",
+          "value": "item"
+        },
+        {
+          "name": "aria-pressed",
+          "value": "tab === item"
+        }
+      ],
+      "page": [
+        "else-if: page === 'world'"
+      ],
+      "trigger": "click: tab = item",
+      "before": "独立筛选底色；结果直接替换",
+      "decisionAndReason": "完善；选择清楚、不逐标签弹跳",
+      "normal": "颜色/轻描边响应，结果区整体轻淡化",
+      "interruption": "只响应显式类别改变；输入查询不反复淡化",
+      "reducedMotion": "直接选择并显示结果",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M14",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C100",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 33,
+      "tag": "input",
+      "label": "搜索世界资料",
+      "family": "M05",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'world'"
+      ],
+      "events": [],
+      "disabled": "false",
+      "model": "query",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "else-if: page === 'world'"
+      ],
+      "trigger": "原生输入/键盘/选择",
+      "before": "原生输入；基础背景/焦点样式",
+      "decisionAndReason": "完善外层；输入本体保留静态",
+      "normal": "边框与背景短过渡，输入/光标/选区不动",
+      "interruption": "连续输入不触发结果淡化、延迟或选区重置",
+      "reducedMotion": "正常原生输入与即时焦点",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M05",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C101",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 34,
+      "tag": "button",
+      "label": "查看与比较 →",
+      "family": "M01",
+      "class": "rd-button",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'world'",
+        "if: tab === '需要决定'",
+        "for: (item,i) in ['沈雁离港的时间，与灯塔记录不同','北境海图上的银色记号','林舟与引航人协会的关联']"
+      ],
+      "events": [
+        "click: emit('open', item, 'compare', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "else-if: page === 'world'"
+      ],
+      "trigger": "click: emit('open', item, 'compare', true)",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C102",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 35,
+      "tag": "button",
+      "label": "查看关系详情",
+      "family": "M01",
+      "class": "rd-button",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'world'",
+        "else-if: tab === '关系'"
+      ],
+      "events": [
+        "click: emit('open', '林舟的关系', 'person', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "else-if: page === 'world'"
+      ],
+      "trigger": "click: emit('open', '林舟的关系', 'person', true)",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C103",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 36,
+      "tag": "button",
+      "label": "查看",
+      "family": "M09",
+      "class": "rd-text-button",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'world'",
+        "else-if: tab === '别名'",
+        "for: item in [['沈雁','守塔人、提灯的年轻人'],['白沙港','旧港、南岸港口'],['北境海图','旧海图、银色航线图']]"
+      ],
+      "events": [
+        "click: emit('open', item[0] + ' · 别名', 'detail', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "else-if: page === 'world'"
+      ],
+      "trigger": "click: emit('open', item[0] + ' · 别名', 'detail', true)",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C104",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 37,
+      "tag": "button",
+      "label": "{{person.initials}} {{person.type}} {{person.name}} {{person.type}} · {{person.role}} {{person.note}}",
+      "family": "M09",
+      "class": "rd-world-card",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'world'",
+        "for: person in filteredPeople"
+      ],
+      "events": [
+        "click: emit('open', person.name, person.type === '人物' ? 'person' : 'detail', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "key",
+          "value": "person.name"
+        }
+      ],
+      "page": [
+        "else-if: page === 'world'"
+      ],
+      "trigger": "click: emit('open', person.name, person.type === '人物' ? 'person' : 'detail', true)",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C105",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 40,
+      "tag": "button",
+      "label": "梳理思路",
+      "family": "M01",
+      "class": "rd-button purple",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'outline'"
+      ],
+      "events": [
+        "click: emit('open', '一起梳理故事', 'ai', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "else-if: page === 'outline'"
+      ],
+      "trigger": "click: emit('open', '一起梳理故事', 'ai', true)",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C106",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 41,
+      "tag": "button",
+      "label": "{{item}}",
+      "family": "M03",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'outline'",
+        "for: item in outlineTabs"
+      ],
+      "events": [
+        "click: tab = item"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "key",
+          "value": "item"
+        },
+        {
+          "name": "aria-pressed",
+          "value": "(tab === '全部' ? '故事总览' : tab) === item"
+        }
+      ],
+      "page": [
+        "else-if: page === 'outline'"
+      ],
+      "trigger": "click: tab = item",
+      "before": "各按钮独立选中背景，无连续指示器",
+      "decisionAndReason": "新增；一个连续选择位置",
+      "normal": "CSS同一底部指示器移动，文本不移动",
+      "interruption": "CSS承接当前位置，不排队；最新aria-pressed即时",
+      "reducedMotion": "指示器立即到位",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M03",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C107",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 43,
+      "tag": "button",
+      "label": "线索 {{i+1}} {{item}} {{['发现 → 追寻 → 怀疑 → 抉择 → 归来','沉默 → 试探 → 袒露 → 共同承担','预兆 → 靠近 → 风暴 → 平静'][i]}}",
+      "family": "M09",
+      "class": "rd-thread",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'outline'",
+        "if: tab === '剧情线'",
+        "for: (item,i) in ['寻找父亲的航线','沈雁与灯塔的秘密','港口即将到来的大潮']"
+      ],
+      "events": [
+        "click: emit('open', item, 'outline', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "key",
+          "value": "item"
+        },
+        {
+          "name": "class",
+          "value": "['tone-blue','tone-purple','tone-orange'][i]"
+        }
+      ],
+      "page": [
+        "else-if: page === 'outline'"
+      ],
+      "trigger": "click: emit('open', item, 'outline', true)",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C108",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 44,
+      "tag": "button",
+      "label": "{{column}} {{name}} 每一个场景，都让人物离答案更近一步。 林",
+      "family": "M09",
+      "class": "rd-scene-card",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'outline'",
+        "else-if: tab === '场景'",
+        "for: (column,i) in ['待展开','正在写','已完成']",
+        "for: name in (i === 0 ? ['夜探灯塔','海图的新航线'] : i === 1 ? ['码头上的初次相遇'] : ['林舟回到白沙港'])"
+      ],
+      "events": [
+        "click: emit('open', name, 'scene', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "key",
+          "value": "name"
+        }
+      ],
+      "page": [
+        "else-if: page === 'outline'"
+      ],
+      "trigger": "click: emit('open', name, 'scene', true)",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C109",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 45,
+      "tag": "button",
+      "label": "0 {{i+1}} {{act}} {{['回到故乡。海图上的秘密，让两个陌生人走到一起。','真相浮出水面，每个人都必须重新选择相信什么。','潮水退去之后，留下来的会是新的开始。'][i]}} {{['6 章 · 2 章已完成','8 章 · 故事构思中','4 章 · 故事构思中'][i]}}",
+      "family": "M09",
+      "class": "rd-act",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'outline'",
+        "for: (act,i) in ['潮声','暗流','归岸']"
+      ],
+      "events": [
+        "click: emit('open', `第${i+1}部 · ${act}`, 'outline', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "key",
+          "value": "act"
+        }
+      ],
+      "page": [
+        "else-if: page === 'outline'"
+      ],
+      "trigger": "click: emit('open', `第${i+1}部 · ${act}`, 'outline', true)",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C110",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 48,
+      "tag": "button",
+      "label": "图层与标记",
+      "family": "M01",
+      "class": "rd-button",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'map'"
+      ],
+      "events": [
+        "click: emit('open', '地图图层', 'layers')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "else-if: page === 'map'"
+      ],
+      "trigger": "click: emit('open', '地图图层', 'layers')",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C111",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 49,
+      "tag": "button",
+      "label": "{{['●','✦','◆','➤'][i]}} {{place}}",
+      "family": "M10",
+      "class": "rd-map-marker",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'map'",
+        "for: (place,i) in ['白沙港','旧灯塔','雾隐岛','北境航线']"
+      ],
+      "events": [
+        "click: mapPlace = place"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "key",
+          "value": "place"
+        },
+        {
+          "name": "class",
+          "value": "[`marker-${i}`, { selected: mapPlace === place }]"
+        },
+        {
+          "name": "aria-pressed",
+          "value": "mapPlace === place"
+        }
+      ],
+      "page": [
+        "else-if: page === 'map'"
+      ],
+      "trigger": "click: mapPlace = place",
+      "before": "标记选中态，说明直接替换",
+      "decisionAndReason": "完善；明确选择而不移动地图",
+      "normal": "选中环/标记短过渡，地点说明整体淡化",
+      "interruption": "连续切点只保留最新说明；无自动飞行/缩放",
+      "reducedMotion": "选择和说明直接替换",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M10",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C112",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 49,
+      "tag": "button",
+      "label": "查看地点资料 →",
+      "family": "M09",
+      "class": "rd-text-button",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'map'"
+      ],
+      "events": [
+        "click: emit('open', mapPlace, 'detail', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "else-if: page === 'map'"
+      ],
+      "trigger": "click: emit('open', mapPlace, 'detail', true)",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C113",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 52,
+      "tag": "input",
+      "label": "搜索作品内容",
+      "family": "M05",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'search'"
+      ],
+      "events": [],
+      "disabled": "false",
+      "model": "query",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "else-if: page === 'search'"
+      ],
+      "trigger": "原生输入/键盘/选择",
+      "before": "原生输入；基础背景/焦点样式",
+      "decisionAndReason": "完善外层；输入本体保留静态",
+      "normal": "边框与背景短过渡，输入/光标/选区不动",
+      "interruption": "连续输入不触发结果淡化、延迟或选区重置",
+      "reducedMotion": "正常原生输入与即时焦点",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M05",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C114",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 52,
+      "tag": "button",
+      "label": "{{item}}",
+      "family": "M14",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'search'",
+        "for: item in ['全部','正文','人物与世界']"
+      ],
+      "events": [
+        "click: tab = item"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "key",
+          "value": "item"
+        },
+        {
+          "name": "aria-pressed",
+          "value": "tab === item"
+        }
+      ],
+      "page": [
+        "else-if: page === 'search'"
+      ],
+      "trigger": "click: tab = item",
+      "before": "独立筛选底色；结果直接替换",
+      "decisionAndReason": "完善；选择清楚、不逐标签弹跳",
+      "normal": "颜色/轻描边响应，结果区整体轻淡化",
+      "interruption": "只响应显式类别改变；输入查询不反复淡化",
+      "reducedMotion": "直接选择并显示结果",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M14",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C115",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 52,
+      "tag": "button",
+      "label": "查找状态",
+      "family": "M09",
+      "class": "rd-text-button",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'search'"
+      ],
+      "events": [
+        "click: emit('open', '查找状态', 'search-status')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "else-if: page === 'search'"
+      ],
+      "trigger": "click: emit('open', '查找状态', 'search-status')",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C116",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 52,
+      "tag": "button",
+      "label": "{{i === 2 ? '人物与世界 / 人物' : `潮汐来信 / 第 ${i+1} 章`}} {{item}} 雾从海面升起的时候， 灯塔 已经熄灭了三年。而那些留下的人，还在等待一个答案。",
+      "family": "M09",
+      "class": "rd-search-result",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'search'",
+        "for: (item,i) in (query && !'灯塔林舟海图沈雁'.includes(query) ? [] : ['雾中的灯塔','潮汐之间','沈雁 · 灯塔守望者'])"
+      ],
+      "events": [
+        "click: emit('open', item, i === 2 ? 'person' : 'source', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "key",
+          "value": "item"
+        },
+        {
+          "name": "show",
+          "value": "tab === '全部' || (tab === '正文' ? i < 2 : i === 2)"
+        }
+      ],
+      "page": [
+        "else-if: page === 'search'"
+      ],
+      "trigger": "click: emit('open', item, i === 2 ? 'person' : 'source', true)",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C117",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 55,
+      "tag": "button",
+      "label": "添加计划",
+      "family": "M01",
+      "class": "rd-button primary",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'tasks'"
+      ],
+      "events": [
+        "click: emit('open', '添加创作计划', 'task')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "else-if: page === 'tasks'"
+      ],
+      "trigger": "click: emit('open', '添加创作计划', 'task')",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C118",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 55,
+      "tag": "button",
+      "label": "{{name}} 潮汐来信 · 创作计划",
+      "family": "M09",
+      "class": "rd-task-row",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'tasks'",
+        "for: (group,i) in ['今天','接下来']",
+        "for: name in (i === 0 ? ['写完码头相遇的最后一幕','补全沈雁的过往'] : ['梳理第一部的三条线索','展开夜探灯塔的场景'])"
+      ],
+      "events": [
+        "click: emit('open', name, 'task', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "key",
+          "value": "name"
+        }
+      ],
+      "page": [
+        "else-if: page === 'tasks'"
+      ],
+      "trigger": "click: emit('open', name, 'task', true)",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C119",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 58,
+      "tag": "button",
+      "label": "让故事在这里继续。 查看《潮汐来信》的示例导入流程 选择示例文稿 本预览不读取本地文件",
+      "family": "M09",
+      "class": "rd-drop-zone",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'import'"
+      ],
+      "events": [
+        "click: emit('open', '选择示例文稿', 'import')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "else-if: page === 'import'"
+      ],
+      "trigger": "click: emit('open', '选择示例文稿', 'import')",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C120",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 58,
+      "tag": "button",
+      "label": "开始审阅 →",
+      "family": "M01",
+      "class": "rd-button",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'import'"
+      ],
+      "events": [
+        "click: emit('open', '审阅导入资料', 'compare', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [
+        "else-if: page === 'import'"
+      ],
+      "trigger": "click: emit('open', '审阅导入资料', 'compare', true)",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C121",
+      "file": "prototypes/redesign/WritingPreview.vue",
+      "line": 30,
+      "tag": "button",
+      "label": "收起章节目录",
+      "family": "M02",
+      "class": "rd-icon-button",
+      "conditions": [],
+      "events": [
+        "click: chaptersOpen = false"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: chaptersOpen = false",
+      "before": "统一按钮按下下移；状态SVG直接替换",
+      "decisionAndReason": "完善；明确图标的状态身份",
+      "normal": "内部图标按压；SVG组交叉淡化与轻微缩放；勾选描绘",
+      "interruption": "Vue keyed过渡处理替换，外框和命中区稳定",
+      "reducedMotion": "图标直接替换，保留可访问名称",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M02",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C122",
+      "file": "prototypes/redesign/WritingPreview.vue",
+      "line": 31,
+      "tag": "button",
+      "label": "第一部 · 潮声 6 章 · 7,828 字",
+      "family": "M09",
+      "class": "rd-volume",
+      "conditions": [],
+      "events": [
+        "click: emit('open', '第一部 · 潮声', 'outline')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: emit('open', '第一部 · 潮声', 'outline')",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C123",
+      "file": "prototypes/redesign/WritingPreview.vue",
+      "line": 32,
+      "tag": "button",
+      "label": "{{String(i + 1).padStart(2, '0')}} {{chapter.title}} {{chapter.words}} 字 ✓",
+      "family": "M08",
+      "class": "rd-chapter",
+      "conditions": [
+        "for: (chapter, i) in chapters"
+      ],
+      "events": [
+        "click: selected = i"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "key",
+          "value": "chapter.title"
+        },
+        {
+          "name": "class",
+          "value": "{ selected: selected === i }"
+        },
+        {
+          "name": "aria-current",
+          "value": "selected === i ? 'true' : undefined"
+        }
+      ],
+      "page": [],
+      "trigger": "click: selected = i",
+      "before": "基础选中背景，内容直接替换",
+      "decisionAndReason": "完善；当前对象清楚，内容连续",
+      "normal": "选中背景/文字短过渡，内容区域轻淡化",
+      "interruption": "旧内容动画取消，最新内容/选择立即生效",
+      "reducedMotion": "对象直接更新，不改变阅读位置",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M08",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C124",
+      "file": "prototypes/redesign/WritingPreview.vue",
+      "line": 33,
+      "tag": "button",
+      "label": "新建章节",
+      "family": "M09",
+      "class": "rd-new-chapter",
+      "conditions": [],
+      "events": [
+        "click: emit('open', '新建章节', 'new')"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: emit('open', '新建章节', 'new')",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C125",
+      "file": "prototypes/redesign/WritingPreview.vue",
+      "line": 34,
+      "tag": "progress",
+      "label": "示例今日写作进度",
+      "family": "M12",
+      "class": "",
+      "conditions": [],
+      "events": [],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "由显式示例值驱动",
+      "before": "加载旋转/提示入场；进度固定样例，状态更换强调不统一",
+      "decisionAndReason": "完善；只表达已给定的示例状态",
+      "normal": "进行中才转动；手动进度值过渡；提醒首次出现强调一次",
+      "interruption": "状态变化移除旧提示/转圈；切页取消局部动画",
+      "reducedMotion": "停止转圈，仍显示“正在载入”；进度与提醒即时",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M12",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C126",
+      "file": "prototypes/redesign/WritingPreview.vue",
+      "line": 49,
+      "tag": "button",
+      "label": "关闭资料栏",
+      "family": "M02",
+      "class": "rd-icon-button",
+      "conditions": [],
+      "events": [
+        "click: inspectorOpen = false"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: inspectorOpen = false",
+      "before": "统一按钮按下下移；状态SVG直接替换",
+      "decisionAndReason": "完善；明确图标的状态身份",
+      "normal": "内部图标按压；SVG组交叉淡化与轻微缩放；勾选描绘",
+      "interruption": "Vue keyed过渡处理替换，外框和命中区稳定",
+      "reducedMotion": "图标直接替换，保留可访问名称",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M02",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C127",
+      "file": "prototypes/redesign/WritingPreview.vue",
+      "line": 50,
+      "tag": "button",
+      "label": "{{tab}}",
+      "family": "M03",
+      "class": "",
+      "conditions": [
+        "for: tab in ['本章', '人物', '灵感']"
+      ],
+      "events": [
+        "click: reference = tab"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [
+        {
+          "name": "key",
+          "value": "tab"
+        },
+        {
+          "name": "aria-pressed",
+          "value": "reference === tab"
+        }
+      ],
+      "page": [],
+      "trigger": "click: reference = tab",
+      "before": "各按钮独立选中背景，无连续指示器",
+      "decisionAndReason": "新增；一个连续选择位置",
+      "normal": "CSS同一底部指示器移动，文本不移动",
+      "interruption": "CSS承接当前位置，不排队；最新aria-pressed即时",
+      "reducedMotion": "指示器立即到位",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M03",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C128",
+      "file": "prototypes/redesign/WritingPreview.vue",
+      "line": 52,
+      "tag": "button",
+      "label": "回看相关设定",
+      "family": "M09",
+      "class": "rd-text-button",
+      "conditions": [
+        "if: reference === '本章'"
+      ],
+      "events": [
+        "click: emit('open', '灯塔与沈雁的秘密', 'detail', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: emit('open', '灯塔与沈雁的秘密', 'detail', true)",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C129",
+      "file": "prototypes/redesign/WritingPreview.vue",
+      "line": 53,
+      "tag": "button",
+      "label": "详情",
+      "family": "M09",
+      "class": "rd-text-button",
+      "conditions": [
+        "if: reference === '本章'"
+      ],
+      "events": [
+        "click: emit('open', '场景目标', 'scene', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: emit('open', '场景目标', 'scene', true)",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C130",
+      "file": "prototypes/redesign/WritingPreview.vue",
+      "line": 55,
+      "tag": "button",
+      "label": "林 林舟 她在寻找父亲留下的答案",
+      "family": "M09",
+      "class": "rd-person-row",
+      "conditions": [
+        "if: reference === '本章'"
+      ],
+      "events": [
+        "click: emit('open', '林舟', 'person', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: emit('open', '林舟', 'person', true)",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C131",
+      "file": "prototypes/redesign/WritingPreview.vue",
+      "line": 55,
+      "tag": "button",
+      "label": "沈 沈雁 他知道更多，却选择沉默",
+      "family": "M09",
+      "class": "rd-person-row",
+      "conditions": [
+        "if: reference === '本章'"
+      ],
+      "events": [
+        "click: emit('open', '沈雁', 'person', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: emit('open', '沈雁', 'person', true)",
+      "before": "表面反馈与统一按下位移；封面悬停抬升5px并倾斜",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M09",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C132",
+      "file": "prototypes/redesign/WritingPreview.vue",
+      "line": 56,
+      "tag": "button",
+      "label": "打开人物档案",
+      "family": "M01",
+      "class": "rd-button",
+      "conditions": [
+        "else-if: reference === '人物'"
+      ],
+      "events": [
+        "click: emit('open', '林舟 · 人物档案', 'person', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: emit('open', '林舟 · 人物档案', 'person', true)",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    },
+    {
+      "id": "C133",
+      "file": "prototypes/redesign/WritingPreview.vue",
+      "line": 57,
+      "tag": "button",
+      "label": "查看建议",
+      "family": "M01",
+      "class": "rd-button purple",
+      "conditions": [],
+      "events": [
+        "click: emit('open', '比较创作建议', 'compare', true)"
+      ],
+      "disabled": "false",
+      "model": "",
+      "inputType": null,
+      "conditionStates": [],
+      "page": [],
+      "trigger": "click: emit('open', '比较创作建议', 'compare', true)",
+      "before": "统一按钮按下下移1px；hover表面反馈",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态",
+      "validation": {
+        "status": "共享行为族正常/中断/减少运动已验证；入口和条件经过源码核对",
+        "family": "M01",
+        "evidence": "VALIDATION.md#行为族验收",
+        "runtimeCensus": "evidence/runtime-controls.json",
+        "scope": "声明不等同于逐实例点击；实际操作见验证记录"
+      }
+    }
+  ],
+  "reused": [
+    {
+      "id": "R01",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 17,
+      "tag": "PreviewNotice",
+      "label": "",
+      "family": "M12",
+      "class": "",
+      "conditions": [
+        "if: page !== 'components'"
+      ],
+      "events": [
+        "action: emit('open', '状态示例', 'states')"
+      ],
+      "disabled": "",
+      "model": "",
+      "controls": "进度、加载、失败/冲突/成功入口",
+      "decisionAndReason": "完善；只表达已给定的示例状态",
+      "normal": "进行中才转动；手动进度值过渡；提醒首次出现强调一次",
+      "interruption": "状态变化移除旧提示/转圈；切页取消局部动画",
+      "reducedMotion": "停止转圈，仍显示“正在载入”；进度与提醒即时",
+      "validation": {
+        "evidence": "VALIDATION.md#行为族验收",
+        "status": "共享规则通过",
+        "scope": "入口/条件核对，实际到达见runtime-controls.json"
+      }
+    },
+    {
+      "id": "R02",
+      "file": "prototypes/redesign/ExperiencePreview.vue",
+      "line": 35,
+      "tag": "PreviewNotice",
+      "label": "",
+      "family": "M12",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty' || page === 'components'",
+        "else-if: page === 'components'"
+      ],
+      "events": [
+        "action: emit('open', '状态的下一步', state === 'conflict' ? 'compare' : 'states')"
+      ],
+      "disabled": "",
+      "model": "",
+      "controls": "进度、加载、失败/冲突/成功入口",
+      "decisionAndReason": "完善；只表达已给定的示例状态",
+      "normal": "进行中才转动；手动进度值过渡；提醒首次出现强调一次",
+      "interruption": "状态变化移除旧提示/转圈；切页取消局部动画",
+      "reducedMotion": "停止转圈，仍显示“正在载入”；进度与提醒即时",
+      "validation": {
+        "evidence": "VALIDATION.md#行为族验收",
+        "status": "共享规则通过",
+        "scope": "入口/条件核对，实际到达见runtime-controls.json"
+      }
+    },
+    {
+      "id": "R03",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 86,
+      "tag": "ActionMenu",
+      "label": "作品菜单",
+      "family": "M07",
+      "class": "",
+      "conditions": [],
+      "events": [
+        "select: item => navigate(item.action, item.action === 'settings' ? '作品偏好' : '全部')"
+      ],
+      "disabled": "",
+      "model": "",
+      "controls": "ActionMenu、设计预览details",
+      "decisionAndReason": "完善；从触发点展开和返回",
+      "normal": "本地CSS位置锚定、淡化、小幅缩放；原生离散显示过渡",
+      "interruption": "CSS反向，控制器即时关闭/还焦点，布局不变",
+      "reducedMotion": "直接开关；不支持details增强时仍可用",
+      "validation": {
+        "evidence": "VALIDATION.md#行为族验收",
+        "status": "共享规则通过",
+        "scope": "入口/条件核对，实际到达见runtime-controls.json"
+      }
+    },
+    {
+      "id": "R04",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 94,
+      "tag": "ActionMenu",
+      "label": "浏览作品与工作区",
+      "family": "M07",
+      "class": "",
+      "conditions": [
+        "if: page === 'writing'"
+      ],
+      "events": [
+        "select: item => navigate(item.action)"
+      ],
+      "disabled": "",
+      "model": "",
+      "controls": "ActionMenu、设计预览details",
+      "decisionAndReason": "完善；从触发点展开和返回",
+      "normal": "本地CSS位置锚定、淡化、小幅缩放；原生离散显示过渡",
+      "interruption": "CSS反向，控制器即时关闭/还焦点，布局不变",
+      "reducedMotion": "直接开关；不支持details增强时仍可用",
+      "validation": {
+        "evidence": "VALIDATION.md#行为族验收",
+        "status": "共享规则通过",
+        "scope": "入口/条件核对，实际到达见runtime-controls.json"
+      }
+    },
+    {
+      "id": "R05",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 128,
+      "tag": "PreviewDialog",
+      "label": "共用模态/非模态面板；按kind展示内容",
+      "family": "M15",
+      "class": "",
+      "conditions": [],
+      "events": [
+        "panel: value => panelKind = value"
+      ],
+      "disabled": "",
+      "model": "",
+      "controls": "复用dialog及AI/人物/版本面板",
+      "decisionAndReason": "完善；保留任务与空间关系",
+      "normal": "模态保持居中，非模态保持右侧，内部布局全程不变",
+      "interruption": "开关/再开可反向；切内容只淡化内容，原焦点规则保持",
+      "reducedMotion": "即时开关，输入/关闭焦点保持",
+      "validation": {
+        "evidence": "VALIDATION.md#行为族验收",
+        "status": "共享规则通过",
+        "scope": "入口/条件核对，实际到达见runtime-controls.json"
+      }
+    },
+    {
+      "id": "R06",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 132,
+      "tag": "PreviewNotice",
+      "label": "",
+      "family": "M12",
+      "class": "",
+      "conditions": [
+        "else-if: kind === 'adopted'"
+      ],
+      "events": [
+        "action: open('版本历史', 'versions', true)"
+      ],
+      "disabled": "",
+      "model": "",
+      "controls": "进度、加载、失败/冲突/成功入口",
+      "decisionAndReason": "完善；只表达已给定的示例状态",
+      "normal": "进行中才转动；手动进度值过渡；提醒首次出现强调一次",
+      "interruption": "状态变化移除旧提示/转圈；切页取消局部动画",
+      "reducedMotion": "停止转圈，仍显示“正在载入”；进度与提醒即时",
+      "validation": {
+        "evidence": "VALIDATION.md#行为族验收",
+        "status": "共享规则通过",
+        "scope": "入口/条件核对，实际到达见runtime-controls.json"
+      }
+    },
+    {
+      "id": "R07",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 144,
+      "tag": "PreviewNotice",
+      "label": "",
+      "family": "M12",
+      "class": "",
+      "conditions": [
+        "else-if: kind === 'states'"
+      ],
+      "events": [
+        "action: open('保存成功反馈', 'adopted')"
+      ],
+      "disabled": "",
+      "model": "",
+      "controls": "进度、加载、失败/冲突/成功入口",
+      "decisionAndReason": "完善；只表达已给定的示例状态",
+      "normal": "进行中才转动；手动进度值过渡；提醒首次出现强调一次",
+      "interruption": "状态变化移除旧提示/转圈；切页取消局部动画",
+      "reducedMotion": "停止转圈，仍显示“正在载入”；进度与提醒即时",
+      "validation": {
+        "evidence": "VALIDATION.md#行为族验收",
+        "status": "共享规则通过",
+        "scope": "入口/条件核对，实际到达见runtime-controls.json"
+      }
+    },
+    {
+      "id": "R08",
+      "file": "prototypes/redesign/RedesignApp.vue",
+      "line": 144,
+      "tag": "PreviewNotice",
+      "label": "",
+      "family": "M12",
+      "class": "",
+      "conditions": [
+        "else-if: kind === 'states'"
+      ],
+      "events": [
+        "action: open('版本比较', 'compare')"
+      ],
+      "disabled": "",
+      "model": "",
+      "controls": "进度、加载、失败/冲突/成功入口",
+      "decisionAndReason": "完善；只表达已给定的示例状态",
+      "normal": "进行中才转动；手动进度值过渡；提醒首次出现强调一次",
+      "interruption": "状态变化移除旧提示/转圈；切页取消局部动画",
+      "reducedMotion": "停止转圈，仍显示“正在载入”；进度与提醒即时",
+      "validation": {
+        "evidence": "VALIDATION.md#行为族验收",
+        "status": "共享规则通过",
+        "scope": "入口/条件核对，实际到达见runtime-controls.json"
+      }
+    },
+    {
+      "id": "R09",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 18,
+      "tag": "PreviewNotice",
+      "label": "",
+      "family": "M12",
+      "class": "",
+      "conditions": [],
+      "events": [
+        "action: emit('open', '状态与下一步', 'states')"
+      ],
+      "disabled": "",
+      "model": "",
+      "controls": "进度、加载、失败/冲突/成功入口",
+      "decisionAndReason": "完善；只表达已给定的示例状态",
+      "normal": "进行中才转动；手动进度值过渡；提醒首次出现强调一次",
+      "interruption": "状态变化移除旧提示/转圈；切页取消局部动画",
+      "reducedMotion": "停止转圈，仍显示“正在载入”；进度与提醒即时",
+      "validation": {
+        "evidence": "VALIDATION.md#行为族验收",
+        "status": "共享规则通过",
+        "scope": "入口/条件核对，实际到达见runtime-controls.json"
+      }
+    },
+    {
+      "id": "R10",
+      "file": "prototypes/redesign/WorkspacePreview.vue",
+      "line": 29,
+      "tag": "PreviewNotice",
+      "label": "",
+      "family": "M12",
+      "class": "",
+      "conditions": [
+        "if: state !== 'empty'",
+        "else-if: page === 'projects'"
+      ],
+      "events": [
+        "action: emit('open', '开始新作品', 'new')"
+      ],
+      "disabled": "",
+      "model": "",
+      "controls": "进度、加载、失败/冲突/成功入口",
+      "decisionAndReason": "完善；只表达已给定的示例状态",
+      "normal": "进行中才转动；手动进度值过渡；提醒首次出现强调一次",
+      "interruption": "状态变化移除旧提示/转圈；切页取消局部动画",
+      "reducedMotion": "停止转圈，仍显示“正在载入”；进度与提醒即时",
+      "validation": {
+        "evidence": "VALIDATION.md#行为族验收",
+        "status": "共享规则通过",
+        "scope": "入口/条件核对，实际到达见runtime-controls.json"
+      }
+    },
+    {
+      "id": "R11",
+      "file": "prototypes/redesign/WritingPreview.vue",
+      "line": 38,
+      "tag": "PreviewNotice",
+      "label": "",
+      "family": "M12",
+      "class": "",
+      "conditions": [],
+      "events": [
+        "action: emit('open', '反馈与保护路径', state === 'conflict' ? 'compare' : 'states')"
+      ],
+      "disabled": "",
+      "model": "",
+      "controls": "进度、加载、失败/冲突/成功入口",
+      "decisionAndReason": "完善；只表达已给定的示例状态",
+      "normal": "进行中才转动；手动进度值过渡；提醒首次出现强调一次",
+      "interruption": "状态变化移除旧提示/转圈；切页取消局部动画",
+      "reducedMotion": "停止转圈，仍显示“正在载入”；进度与提醒即时",
+      "validation": {
+        "evidence": "VALIDATION.md#行为族验收",
+        "status": "共享规则通过",
+        "scope": "入口/条件核对，实际到达见runtime-controls.json"
+      }
+    }
+  ],
+  "rules": {
+    "M01": {
+      "controls": "主/次/危险按钮、确认和取消",
+      "decisionAndReason": "完善；收到操作但不移动命中区",
+      "normal": "内部内容轻压缩，表面颜色响应；危险动作不做庆祝",
+      "interruption": "松开从当前压缩值恢复，无JS动作队列；业务状态即时",
+      "reducedMotion": "内部内容即时呈现，焦点立即可见；禁用完全静态"
+    },
+    "M02": {
+      "controls": "图标按钮、AI、主题与阅读勾选图标",
+      "decisionAndReason": "完善；明确图标的状态身份",
+      "normal": "内部图标按压；SVG组交叉淡化与轻微缩放；勾选描绘",
+      "interruption": "Vue keyed过渡处理替换，外框和命中区稳定",
+      "reducedMotion": "图标直接替换，保留可访问名称"
+    },
+    "M03": {
+      "controls": "章节资料/作品状态/故事/实验区分段",
+      "decisionAndReason": "新增；一个连续选择位置",
+      "normal": "CSS同一底部指示器移动，文本不移动",
+      "interruption": "CSS承接当前位置，不排队；最新aria-pressed即时",
+      "reducedMotion": "指示器立即到位"
+    },
+    "M04": {
+      "controls": "开关、checkbox、radio",
+      "decisionAndReason": "完善；选择即时、反馈细腻",
+      "normal": "滑块轻微弹性；原生input保持语义，CSS绘制勾/圆点",
+      "interruption": "连续操作直接承接当前样式，不等待完成",
+      "reducedMotion": "勾/圆点/滑块即时改变；禁用无动效"
+    },
+    "M05": {
+      "controls": "文本框、名称、查询、描述",
+      "decisionAndReason": "完善外层；输入本体保留静态",
+      "normal": "边框与背景短过渡，输入/光标/选区不动",
+      "interruption": "连续输入不触发结果淡化、延迟或选区重置",
+      "reducedMotion": "正常原生输入与即时焦点"
+    },
+    "M06": {
+      "controls": "原生select、range",
+      "decisionAndReason": "保留原生静态交互；避免重造选择器",
+      "normal": "仅外层焦点/边框反馈，平台负责下拉与拖动",
+      "interruption": "不拦截原生键盘或拖动",
+      "reducedMotion": "保留全部原生操作"
+    },
+    "M07": {
+      "controls": "ActionMenu、设计预览details",
+      "decisionAndReason": "完善；从触发点展开和返回",
+      "normal": "本地CSS位置锚定、淡化、小幅缩放；原生离散显示过渡",
+      "interruption": "CSS反向，控制器即时关闭/还焦点，布局不变",
+      "reducedMotion": "直接开关；不支持details增强时仍可用"
+    },
+    "M08": {
+      "controls": "主导航、章节、版本、设置类别",
+      "decisionAndReason": "完善；当前对象清楚，内容连续",
+      "normal": "选中背景/文字短过渡，内容区域轻淡化",
+      "interruption": "旧内容动画取消，最新内容/选择立即生效",
+      "reducedMotion": "对象直接更新，不改变阅读位置"
+    },
+    "M09": {
+      "controls": "卡片、对象条目、任务、书封与详情入口",
+      "decisionAndReason": "完善；内容对应关系比装饰重要",
+      "normal": "表面反馈；书封只轻抬内部封面，去除倾斜",
+      "interruption": "hover离开即回归；无自动入场队列",
+      "reducedMotion": "表面/选中反馈静态保留"
+    },
+    "M10": {
+      "controls": "地图地点标记",
+      "decisionAndReason": "完善；明确选择而不移动地图",
+      "normal": "选中环/标记短过渡，地点说明整体淡化",
+      "interruption": "连续切点只保留最新说明；无自动飞行/缩放",
+      "reducedMotion": "选择和说明直接替换"
+    },
+    "M11": {
+      "controls": "阅读分支",
+      "decisionAndReason": "完善；选择被确认，正文不动",
+      "normal": "选中底色、边框和SVG勾选切换",
+      "interruption": "最新分支立即选中；不生成正文",
+      "reducedMotion": "同样清楚的静态选中和勾选"
+    },
+    "M12": {
+      "controls": "进度、加载、失败/冲突/成功入口",
+      "decisionAndReason": "完善；只表达已给定的示例状态",
+      "normal": "进行中才转动；手动进度值过渡；提醒首次出现强调一次",
+      "interruption": "状态变化移除旧提示/转圈；切页取消局部动画",
+      "reducedMotion": "停止转圈，仍显示“正在载入”；进度与提醒即时"
+    },
+    "M13": {
+      "controls": "明暗外观缩略图",
+      "decisionAndReason": "完善；外观选择清楚、布局不变",
+      "normal": "边框、表面颜色和选中强调短过渡",
+      "interruption": "CSS从当前颜色承接反向",
+      "reducedMotion": "色彩直接切换，文本布局不变"
+    },
+    "M14": {
+      "controls": "世界/查找分类筛选标签",
+      "decisionAndReason": "完善；选择清楚、不逐标签弹跳",
+      "normal": "颜色/轻描边响应，结果区整体轻淡化",
+      "interruption": "只响应显式类别改变；输入查询不反复淡化",
+      "reducedMotion": "直接选择并显示结果"
+    },
+    "M15": {
+      "controls": "复用dialog及AI/人物/版本面板",
+      "decisionAndReason": "完善；保留任务与空间关系",
+      "normal": "模态保持居中，非模态保持右侧，内部布局全程不变",
+      "interruption": "开关/再开可反向；切内容只淡化内容，原焦点规则保持",
+      "reducedMotion": "即时开关，输入/关闭焦点保持"
+    },
+    "M16": {
+      "controls": "正文、数值、阅读/专注布局及内容区域",
+      "decisionAndReason": "保留静态布局，新增必要内容淡化",
+      "normal": "不逐帧改变正文宽度；显式章节/结果更换只淡化新内容",
+      "interruption": "每个内容区域最多一个WAAPI动画；卸载/减效立即取消，过期完成不回写",
+      "reducedMotion": "完全静态，正文、数值和焦点均立即可用"
+    }
+  },
+  "runtimeCensus": "evidence/runtime-controls.json"
+}

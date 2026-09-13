@@ -101,6 +101,7 @@ export async function loadWritingProps({ homeMode: requestedHomeMode } = {}) {
     ? {
         chapter: queryChapter,
         draftId: query.get("draft_id") || null,
+        restoreSourceVersion: Number(query.get("restore_source_version")) || null,
         sceneId: querySceneId,
         openConflict,
         conflictItemId,
@@ -517,6 +518,14 @@ export function useWritingWorkspace(props) {
         if (!loaded && generation === selectionGeneration) versions.value = []
         return false
       }
+      if (options.restoreSourceVersion) {
+        const latest = versions.value.filter(isVersionActive).reduce(
+          (best, item) => Number(item.version_number) > Number(best?.version_number || 0) ? item : best,
+          null,
+        )
+        editorState.restoreExpectedVersion = latest?.version_number || null
+        editorState.restoreExpectedUpdatedAt = latest?.updated_at || null
+      }
       const available = activeScenes.value.filter((scene) => sceneMatchesChapter(scene, next))
       const requestedScene = available.find((scene) => scene.id === options.sceneId)
       const rememberedScene = available.find((scene) => scene.id === rememberedSceneId)
@@ -531,6 +540,22 @@ export function useWritingWorkspace(props) {
         setFocusMode(true)
       }
       await loadSceneContext()
+      if (generation === selectionGeneration && !disposed.value) {
+        const query = new URLSearchParams(router?.getCurrentQuery?.()?.toString() || "")
+        query.set("chapter_index", String(next))
+        // Current working text restores its local backup; explicit readonly versions stay pinned.
+        if ((editorState.readonly || editorState.restoreSourceVersion) && editorState.draftId) query.set("draft_id", editorState.draftId)
+        else query.delete("draft_id")
+        if (editorState.restoreSourceVersion) query.set("restore_source_version", String(editorState.restoreSourceVersion))
+        else query.delete("restore_source_version")
+        if (selectedSceneId.value) query.set("scene_id", selectedSceneId.value)
+        else query.delete("scene_id")
+        if (chapterChanged) {
+          query.delete("open")
+          query.delete("conflict_item_id")
+        }
+        router?.commitCurrentQuery?.(query, "replace")
+      }
       return true
     } finally {
       if (generation === selectionGeneration) editorState.loading = false
@@ -549,6 +574,10 @@ export function useWritingWorkspace(props) {
     selectedSceneId.value = scene.id
     syncLegacyState()
     await loadSceneContext()
+    if (selectedSceneId.value !== scene.id) return false
+    const query = new URLSearchParams(router?.getCurrentQuery?.()?.toString() || "")
+    query.set("scene_id", scene.id)
+    router?.commitCurrentQuery?.(query, "replace")
     return true
   }
 
@@ -1515,9 +1544,10 @@ export function useWritingWorkspace(props) {
         draftId: requested.draftId || null,
         versionNumber: requested.versionNumber,
         isReadonly: requested.isReadonly,
+        restoreSourceVersion: requested.restoreSourceVersion,
         sceneId: requested.sceneId,
         allowMissingPointerFallback: requested.source === "pointer",
-        allowBackupRestore: requested.source === "pointer",
+        allowBackupRestore: requested.source === "pointer" || Boolean(requested.restoreSourceVersion),
       })
       if (requested.openConflict) {
         if (requested.conflictItemId && !(conflictState.latest?.items || []).some((item) => item.id === requested.conflictItemId)) {
@@ -1620,6 +1650,7 @@ export function useWritingWorkspace(props) {
     attachEditor,
     detachEditor,
     autosave: saveCurrent,
+    reloadServerDraft: () => editor.reloadServerDraft(),
     saveMobileNote,
     checkpoint: editor.checkpoint,
     discardChanges: editor.discardChanges,

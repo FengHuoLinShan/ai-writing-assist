@@ -25,3 +25,5 @@ defineProps({
     <TodayView v-else v-bind="$props" />
   </div>
 </template>
+
+<style src="./writing-home-redesign.css"></style>

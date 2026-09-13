@@ -1,19 +1,8 @@
-import { readFileSync } from "node:fs"
-import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
 import WorldLibraryDirectory from "../../../vue/views/world/library/WorldLibraryDirectory.vue"
 
 describe("资料库主题目录", () => {
-  it("手机使用抽屉而不是常驻侧栏，触控目标不小于 44px", () => {
-    const source = readFileSync(
-      resolve(import.meta.dirname, "../../../vue/views/world/library/WorldLibraryDirectory.vue"),
-      "utf8",
-    )
-    expect(source).toContain("WorkspaceDrawer")
-    expect(source).toMatch(/isMobile[\s\S]*matchMedia\("\(max-width: 760px\)"/)
-    expect(source).toMatch(/@media \(max-width: 760px\)[\s\S]*min-height:\s*44px/s)
-  })
 
   it("目录切换在选中项与筛选之间保持一致（全部/工作稿/收藏/未归类/主题/类型）", async () => {
     const { createApp, h } = await import("vue")

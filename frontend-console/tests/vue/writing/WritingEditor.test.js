@@ -65,6 +65,32 @@ describe("WritingEditor semantic review gate", () => {
     expect(wrapper.get(".btn-primary").text()).toBe("采用到工作稿")
   })
 
+  it("保存冲突提供导出与明确载入入口，备份失败时不能覆盖本地文字", async () => {
+    const draft = state(null, { status: "draft", readonly: false, dirty: false, saveError: null, saveConflict: true, backupComplete: true })
+    const wrapper = mount(WritingEditor, { props: { state: draft, attach: vi.fn(), detach: vi.fn() } })
+    expect(wrapper.get('[role="alert"]').text()).toContain("没有覆盖服务器的修改")
+    const reload = wrapper.findAll('button').find(button => button.text() === "载入服务器最新版")
+    await reload.trigger('click')
+    expect(wrapper.emitted('reload-server')).toHaveLength(1)
+    await wrapper.findAll('button').find(button => button.text() === "导出当前文字").trigger('click')
+    expect(wrapper.emitted('export')).toHaveLength(1)
+    await wrapper.setProps({ state: { ...draft, backupComplete: false } })
+    expect(reload.attributes('disabled')).toBeDefined()
+    expect(wrapper.find('#writing-retry-save').exists()).toBe(false)
+  })
+
+  it("审查未完成时明确阻止采用，不显示审查成功", () => {
+    const wrapper = mount(WritingEditor, { props: {
+      state: state({ review_required: true, independent_review: { verdict: "incomplete", blocking_count: 0 } }),
+      attach: vi.fn(), detach: vi.fn(),
+    } })
+    expect(wrapper.text()).toContain("尚未完成必要检查")
+    expect(wrapper.text()).not.toContain("审查已通过")
+    expect(wrapper.findAll("button").some(button => button.text() === "采用到工作稿")).toBe(false)
+    expect(wrapper.get(".btn-primary").text()).toBe("重新独立审查")
+    expect(wrapper.findAll("button").filter(button => button.text().includes("独立审查"))).toHaveLength(1)
+  })
+
   it("候选操作期间禁用决策并就地显示失败", () => {
     const wrapper = mount(WritingEditor, {
       props: {
@@ -111,8 +137,8 @@ describe("WritingEditor semantic review gate", () => {
     expect(document.activeElement).toBe(aiSummary.element)
 
     await saveSummary.trigger("click")
-    await wrapper.get("#btn-autosave").trigger("click")
-    expect(wrapper.emitted("autosave")).toHaveLength(1)
+    await wrapper.get("#btn-checkpoint-version").trigger("click")
+    expect(wrapper.emitted("checkpoint")).toHaveLength(1)
     expect(menus[0].attributes("open")).toBeUndefined()
     expect(document.activeElement).toBe(saveSummary.element)
 

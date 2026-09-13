@@ -1,25 +1,12 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
-import { openWorkbench, reloadWorkbench, waitWritingReady } from "./helpers/workbench.js"
+import { clickWritingTool, openWorkbench, reloadWorkbench, waitWritingReady } from "./helpers/workbench.js"
 import {
   createProject,
   cleanupProject,
   waitForBackend,
   createDraft,
 } from "./helpers/api-client.js"
-
-async function openWritingToolMenu(page, selector) {
-  const tool = page.locator(selector)
-  const menu = page.locator("details.writing-tools-menu").filter({ has: tool })
-  if (await menu.getAttribute("open") === null) {
-    await menu.locator(":scope > summary").click()
-  }
-}
-
-async function clickWritingTool(page, selector) {
-  await openWritingToolMenu(page, selector)
-  await page.locator(selector).click()
-}
 
 test.describe("写作工作台 — 版本冲突", () => {
   let testProjectId = null

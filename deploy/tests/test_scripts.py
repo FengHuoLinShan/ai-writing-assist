@@ -2,6 +2,7 @@ import hashlib
 import importlib.util
 import io
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -395,28 +396,13 @@ def test_first_party_services_use_the_shared_read_only_runtime_policy() -> None:
             assert "tmpfs" not in service
 
 
-def test_production_database_image_is_explicitly_tagged_and_digest_pinned() -> None:
+@pytest.mark.parametrize("variable", ["POSTGRES_IMAGE", "EMBEDDING_IMAGE"])
+def test_production_service_images_are_pinned_and_match_examples(variable: str) -> None:
     compose = (DEPLOY_ROOT / "compose.production.yml").read_text(encoding="utf-8")
     example = (DEPLOY_ROOT / ".env.production.example").read_text(encoding="utf-8")
-    expected = (
-        "docker.m.daocloud.io/pgvector/pgvector:0.8.6-pg17-bookworm@sha256:"
-        "cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f"
-    )
-
-    assert f"image: ${{POSTGRES_IMAGE:-{expected}}}" in compose
-    assert f"POSTGRES_IMAGE={expected}" in example
-
-
-def test_production_embedding_image_uses_one_index_digest() -> None:
-    compose = (DEPLOY_ROOT / "compose.production.yml").read_text(encoding="utf-8")
-    example = (DEPLOY_ROOT / ".env.production.example").read_text(encoding="utf-8")
-    expected = (
-        "ghcr.io/huggingface/text-embeddings-inference:cpu-1.9@sha256:"
-        "ad950d30878eceb72aaf32024d26fa2b1d04a75304fa0b4776b49aa1941fea07"
-    )
-
-    assert f"image: ${{EMBEDDING_IMAGE:-{expected}}}" in compose
-    assert f"EMBEDDING_IMAGE={expected}" in example
+    image = re.search(rf"^{variable}=(.+)$", example, re.MULTILINE).group(1)
+    assert re.fullmatch(r"[^@]+:[^@]+@sha256:[0-9a-f]{64}", image)
+    assert f"image: ${{{variable}:-{image}}}" in compose
 
 
 def test_frontend_nginx_locations_keep_security_headers() -> None:

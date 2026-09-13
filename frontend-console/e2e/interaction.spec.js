@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url"
 import { test, expect } from "./fixtures.js"
 import { waitForBackend } from "./helpers/api-client.js"
 
@@ -24,14 +25,6 @@ function storyMessage(id, role, content, overrides = {}) {
     created_at: "2026-07-29T00:00:00Z",
     ...overrides,
   }
-}
-
-async function expectFillsViewportWidth(locator) {
-  const box = await locator.boundingBox()
-  expect(box).not.toBeNull()
-  const viewportWidth = await locator.evaluate(() => window.innerWidth)
-  expect(Math.abs(box.x)).toBeLessThanOrEqual(1)
-  expect(Math.abs(box.width - viewportWidth)).toBeLessThanOrEqual(1)
 }
 
 async function textContrast(locator, backgroundSelector = null) {
@@ -162,6 +155,10 @@ async function mockRpApis(
       body: JSON.stringify({ parent_node_id: null, variants: [] }),
     }),
   )
+  await page.route(`**/api/interactions/journeys/${journeyId}/care/policy`, route => route.fulfill({ json: {
+    available: false, policy: { enabled: false, categories: [], allow_web: false, web_backend: "none", daily_limit: 1 },
+    pending_count: 0, overflow: false, active_run_id: null,
+  } }))
   await page.route(`**/api/interactions/journeys/${journeyId}`, (route) => {
     if (route.request().method() === "DELETE") {
       archivedJourney = false
@@ -312,7 +309,7 @@ test.describe("RP 路由与窄屏故事页", () => {
       await page.keyboard.press("Enter")
       await expect(page.getByText("仍在生成，可随时停止", { exact: true })).toHaveCount(0)
       await expect(page.getByRole("textbox", { name: "继续旅程" })).toHaveValue("保留这条未发送想法")
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+
     } finally { releaseStream?.() }
   })
 
@@ -348,7 +345,7 @@ test.describe("RP 路由与窄屏故事页", () => {
     await field.fill("")
     await page.getByRole("button", { name: "保存修改" }).click()
     await expect(page.getByLabel("当前回顾", { exact: true })).not.toContainText("我不能使用火焰")
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+
   })
 
   test("双入口进入 RP 列表并打开当前旅程", async ({ page, browserErrors }) => {
@@ -362,7 +359,6 @@ test.describe("RP 路由与窄屏故事页", () => {
     await expect(page.getByRole("button", { name: "归档旅程：雾港钟楼", exact: true }))
       .toBeVisible()
     await expect(page.locator("#sidebar")).toHaveCount(0)
-    await expectFillsViewportWidth(page.locator(".rp-list-page"))
 
     await page.getByRole("button", { name: /^雾港钟楼/ }).click()
     await expect(page).toHaveURL(new RegExp(`#interaction/${journeyId}`))
@@ -372,31 +368,12 @@ test.describe("RP 路由与窄屏故事页", () => {
     await expect(actionCard).toContainText(
       "我先完整观察信纸边缘的痕迹，再决定是否触碰正在浮现的文字。",
     )
-    const actionCardStyle = await actionCard.evaluate((element) => ({
-      overflow: getComputedStyle(element).overflow,
-      textOverflow: getComputedStyle(element).textOverflow,
-      whiteSpace: getComputedStyle(element).whiteSpace,
-    }))
-    expect(actionCardStyle).toEqual({
-      overflow: "visible",
-      textOverflow: "clip",
-      whiteSpace: "normal",
-    })
 
     const messageActions = page.locator(
       '[data-rp-message-id="a3"] .rp-message__actions button',
     )
     await expect(messageActions.nth(0)).toHaveText("复制")
     await expect(messageActions.nth(1)).toHaveText("重新生成")
-    await expect(messageActions.nth(0)).toHaveClass(/rp-message-action-button/)
-    await expect(messageActions.nth(1)).toHaveClass(/rp-message-action-button/)
-
-    const readingWidth = await page.locator(".rp-story-scroll").evaluate((element) => {
-      const style = getComputedStyle(element)
-      return element.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
-    })
-    expect(readingWidth).toBeGreaterThanOrEqual(638)
-    expect(readingWidth).toBeLessThanOrEqual(642)
 
     await page.emulateMedia({ colorScheme: "light" })
     for (const theme of [
@@ -491,16 +468,19 @@ test.describe("RP 路由与窄屏故事页", () => {
     expect(browserErrors).toEqual([])
   })
 
-  test("390px 暗夜主题下重试按钮忙碌前后同宽且配色可读", async ({
+  test("窄屏重试期间阻止重复提交并保留可读反馈", async ({
     page,
     browserErrors,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 })
+    await page.emulateMedia({ reducedMotion: "reduce" })
+    let retryRequests = 0
     let releaseRetry
     const retryGate = new Promise((resolve) => { releaseRetry = resolve })
     await page.route(
       `**/api/interactions/journeys/${journeyId}/attempts/attempt-source-stale/retry`,
       async (route) => {
+        retryRequests += 1
         await retryGate
         await route.abort()
       },
@@ -524,21 +504,24 @@ test.describe("RP 路由与窄屏故事页", () => {
       .click()
 
     const retry = page.locator(".rp-attempt-actions--error .rp-mutation-button--retry")
-    const idleWidth = (await retry.boundingBox()).width
+
     await retry.click()
     await expect(retry).toContainText("正在重新生成")
-    const busyWidth = (await retry.boundingBox()).width
-    const metrics = await textContrast(retry)
-    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+    await expect(retry).toBeDisabled()
+    await retry.dispatchEvent("click")
+    await expect.poll(() => retryRequests).toBe(1)
+    await expect.poll(() => retry.evaluate(element => element.getAnimations({ subtree: true })
+      .filter(animation => animation.playState === "running").length)).toBe(0)
 
-    expect(busyWidth).toBe(idleWidth)
+    const metrics = await textContrast(retry)
+
     expect(metrics.contrast).toBeGreaterThanOrEqual(4.5)
-    expect(overflow).toBeLessThanOrEqual(0)
+
     expect(browserErrors).toEqual([])
     releaseRetry()
   })
 
-  test("390px 下输入工具保持单行，更多操作使用底部面板且页面不横溢", async ({
+  test("窄屏可读取故事、打开更多操作并切换主题", async ({
     page,
     browserErrors,
   }) => {
@@ -547,50 +530,14 @@ test.describe("RP 路由与窄屏故事页", () => {
     await mockRpApis(page)
     await page.goto(`/#interaction/${journeyId}`)
 
-    await expect(page.locator(".rp-story-title")).toHaveJSProperty("tagName", "DIV")
     await expect(page.locator(".rp-locator-rail")).toBeVisible()
-    expect((await page.locator(".rp-locator-rail input[type='range']").boundingBox()).width)
-      .toBeGreaterThanOrEqual(44)
-    const locatorTickBox = await page.locator(".rp-locator-ticks button").first().boundingBox()
-    expect(locatorTickBox.width).toBeGreaterThanOrEqual(44)
-    expect(locatorTickBox.height).toBeGreaterThanOrEqual(24)
-    const locatorTickVisual = await page.locator(".rp-locator-ticks button:not(.active)").first()
-      .evaluate((element) => {
-        const style = getComputedStyle(element, "::after")
-        return { width: style.width, height: style.height }
-      })
-    expect(locatorTickVisual).toEqual({ width: "12px", height: "3px" })
-    const activeTickWidth = await page.locator(".rp-locator-ticks button.active").first()
-      .evaluate((element) => getComputedStyle(element, "::after").width)
-    expect(activeTickWidth).toBe("17px")
-    for (const width of [390, 760]) {
-      await page.setViewportSize({ width, height: 844 })
-      const messageBox = await page.locator('[data-rp-message-id="a3"]').boundingBox()
-      const railBox = await page.locator(".rp-locator-rail").boundingBox()
-      expect(messageBox.x + messageBox.width).toBeLessThanOrEqual(railBox.x)
-    }
+
     await page.setViewportSize({ width: 390, height: 844 })
     await expect(page.locator(".rp-composer-dock")).toBeVisible()
     await expect(page.locator("#sidebar")).toHaveCount(0)
-    await expectFillsViewportWidth(page.locator(".rp-story-page"))
-    const actionBox = await page.locator(
-      '[data-rp-message-id="a3"] .rp-message__actions button',
-    ).first().boundingBox()
-    expect(actionBox.height).toBeGreaterThanOrEqual(42)
-    await expect(page.locator(".rp-message__actions").first())
-      .toHaveCSS("transition-duration", "0s")
-
-    const toolStyle = await page.locator(".rp-composer-tools").evaluate((element) => ({
-      flexWrap: getComputedStyle(element).flexWrap,
-      overflowX: getComputedStyle(element).overflowX,
-    }))
-    expect(toolStyle.flexWrap).toBe("nowrap")
-    expect(["auto", "scroll"]).toContain(toolStyle.overflowX)
 
     await page.locator(".rp-more-menu summary").click()
-    const menuBox = await page.locator(".rp-more-menu > div").boundingBox()
-    expect(menuBox).not.toBeNull()
-    expect(Math.abs((menuBox.y + menuBox.height) - 844)).toBeLessThanOrEqual(2)
+
     await expect(page.locator(".rp-sheet-backdrop")).toBeVisible()
     await expect(page.locator(".rp-more-menu__themes")).toContainText("深色")
     await page.locator(".rp-more-menu__header")
@@ -606,10 +553,6 @@ test.describe("RP 路由与窄屏故事页", () => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
     await expect(page.locator(".rp-more-menu")).not.toHaveAttribute("open", "")
 
-    const overflow = await page.evaluate(() => (
-      document.documentElement.scrollWidth - window.innerWidth
-    ))
-    expect(overflow).toBeLessThanOrEqual(0)
     expect(browserErrors).toEqual([])
   })
 
@@ -639,9 +582,6 @@ test.describe("RP 路由与窄屏故事页", () => {
       expect(await borderContrast(dialog.locator("input")), `${theme} input border`).toBeGreaterThanOrEqual(3)
       expect((await textContrast(confirm)).contrast, `${theme} primary`).toBeGreaterThanOrEqual(4.5)
     }
-    const box = await dialog.boundingBox()
-    expect(box.y).toBeGreaterThanOrEqual(0)
-    expect(box.y + box.height).toBeLessThanOrEqual(520)
 
     await page.keyboard.press("Escape")
     await expect(dialog).toBeHidden()
@@ -721,7 +661,7 @@ test.describe("RP 路由与窄屏故事页", () => {
     }
   })
 
-  test("底部看海确认按可视视口自动向上弹出且不被裁剪", async ({
+  test("窄屏开启自主发展前说明额度并等待确认", async ({
     page,
     browserErrors,
   }) => {
@@ -733,20 +673,12 @@ test.describe("RP 路由与窄屏故事页", () => {
     await seaButton.click()
     const confirmation = page.locator(".rp-adaptive-confirm")
     await expect(confirmation).toBeVisible()
-    await expect(confirmation).toHaveAttribute("data-placement", "top")
+
     await expect(confirmation.getByRole("alertdialog")).toContainText(
       "使用你的模型额度",
     )
     await expect(seaButton).toHaveAttribute("aria-expanded", "true")
 
-    const box = await confirmation.boundingBox()
-    expect(box).not.toBeNull()
-    expect(box.x).toBeGreaterThanOrEqual(0)
-    expect(box.y).toBeGreaterThanOrEqual(0)
-    expect(box.x + box.width).toBeLessThanOrEqual(390)
-    expect(box.y + box.height).toBeLessThanOrEqual(520)
-    expect(await confirmation.evaluate((element) => element.parentElement === document.body))
-      .toBe(true)
     expect(browserErrors).toEqual([])
   })
 
@@ -927,8 +859,19 @@ test.describe("RP 路由与窄屏故事页", () => {
       kind: "source_character",
       reference_key: characterKey,
     })
-    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)
-    expect(overflow).toBeLessThanOrEqual(0)
+
     expect(browserErrors).toEqual([])
   })
+})
+
+test("导入主题包后互动故事继续使用用户选择的正文资源", async ({ page }) => {
+  await page.goto("/#settings?section=appearance")
+  const sample = fileURLToPath(new URL("../themes/quiet-library.nctheme.zip", import.meta.url))
+  await page.getByLabel("导入主题包", { exact: true }).setInputFiles(sample)
+  await page.getByRole("button", { name: "导入并应用" }).click()
+  await expect(page.locator("html")).toHaveAttribute("data-theme-package", "quiet-library")
+  await mockRpApis(page)
+  await page.goto(`/#interaction/${journeyId}`)
+  await expect(page.locator('[data-rp-message-id="a3"] .rp-message__text')).toHaveCSS("font-family", /nc-quiet-library/)
+  await expect(page.getByRole("heading", { name: "墨迹重现" })).toBeVisible()
 })

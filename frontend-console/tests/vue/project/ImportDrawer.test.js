@@ -56,7 +56,7 @@ describe("ImportDrawer", () => {
     expect(wrapper.find(".project-import-list__item-name").text()).toBe("旧稿.txt")
     expect(wrapper.find(".project-import-list__item-status").text()).toBe("完成")
     expect(wrapper.find(".pill").exists()).toBe(false)
-    expect(wrapper.find('[data-action="upload-file"]').classes()).not.toContain("btn-primary")
+
     expect(wrapper.text()).toContain("成功 10 / 共 10 章")
   })
 

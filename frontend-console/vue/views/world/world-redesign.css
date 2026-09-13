@@ -1,0 +1,216 @@
+/* The redesign is deliberately scoped to the real World route: it restyles
+   existing controls instead of introducing a second state or card system. */
+.world-view {
+  --world-paper: var(--nc-surface, var(--bg-elevated));
+  --world-wash: var(--nc-ai-soft, var(--accent-soft));
+  --world-ink: var(--text-primary);
+  --world-rule: var(--border);
+  display: grid;
+  gap: clamp(18px, 2.5vw, 32px);
+  color: var(--world-ink);
+}
+
+.world-view .world-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px 24px;
+  align-items: end;
+  margin: 0;
+  padding: 0 0 14px;
+  border: 0;
+  border-bottom: 1px solid var(--world-rule);
+  background: transparent;
+}
+.world-view .world-toolbar .subnav,
+.world-view .world-review-tabs {
+  display: flex;
+  min-width: 0;
+  gap: 4px;
+  margin: 0;
+  overflow-x: auto;
+  border: 0;
+  scrollbar-width: thin;
+}
+.world-view .world-toolbar .subnav-item,
+.world-view .world-review-tabs .subnav-item {
+  position: relative;
+  min-height: 40px;
+  padding: 8px 11px;
+  border: 0;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-weight: 650;
+  white-space: nowrap;
+}
+.world-view .world-toolbar .subnav-item::after,
+.world-view .world-review-tabs .subnav-item::after {
+  position: absolute;
+  right: 11px;
+  bottom: 0;
+  left: 11px;
+  height: 2px;
+  background: transparent;
+  content: "";
+}
+.world-view .world-toolbar .subnav-item.active,
+.world-view .world-review-tabs .subnav-item.active {
+  background: var(--world-wash);
+  color: var(--accent);
+}
+.world-view .world-toolbar .subnav-item.active::after,
+.world-view .world-review-tabs .subnav-item.active::after { background: var(--accent); }
+.world-view .world-toolbar .today-count { margin-left: 4px; }
+.world-view .view-header__tail { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 16px; }
+.world-view .view-header__title { margin: 0; font-size: clamp(20px, 2vw, 28px); letter-spacing: -.025em; }
+.world-view .view-header__count,
+.world-view .view-toolbar__project { display: inline-block; margin-left: 8px; color: var(--text-tertiary); font-size: var(--text-sm); font-weight: 500; letter-spacing: 0; }
+.world-view .view-toolbar__project { max-width: 18ch; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; white-space: nowrap; }
+.world-view .view-header__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+
+.world-view .world-filter-panel,
+.world-view .world-card-filters,
+.world-view .world-canonical-search,
+.world-view .review-search-bar {
+  padding: 12px 0;
+  border-block: 1px solid var(--world-rule);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.world-view .world-filter-panel__heading { min-height: 36px; }
+.world-view .world-filter-panel__body { padding-top: 12px; }
+.world-view .world-filter-panel__active,
+.world-view .world-review-active-filters { color: var(--accent); }
+.world-view .form-input,
+.world-view .form-select,
+.world-view input:not([type="checkbox"]):not([type="radio"]),
+.world-view select,
+.world-view textarea {
+  border-color: var(--world-rule);
+  border-radius: 8px;
+  background: var(--world-paper);
+}
+.world-view .form-input:focus,
+.world-view .form-select:focus,
+.world-view input:focus,
+.world-view select:focus,
+.world-view textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--world-wash); }
+
+/* Library: color belongs to the object marker, while the surface stays quiet. */
+.world-view .world-library-home,
+.world-view .world-library-browse,
+.world-view .world-library-content,
+.world-view .world-bible-gallery { display: grid; gap: 24px; }
+.world-view .world-bible-gallery { padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.world-view .world-library-home__section { padding: 0 0 20px; border: 0; border-bottom: 1px solid var(--world-rule); background: transparent; }
+.world-view .world-library-home__heading,
+.world-view .world-type-results__header,
+.world-view .world-bible-toolbar,
+.world-view .world-entity-detail__header,
+.world-view .world-page-reader__header { align-items: flex-start; border: 0; }
+.world-view .world-library-home__heading h3,
+.world-view .world-type-results__header h2,
+.world-view .world-bible-toolbar h1,
+.world-view .world-entity-detail h1,
+.world-view .world-page-reader h1 { letter-spacing: -.02em; }
+.world-view .world-library-home__list,
+.world-view .world-library-home__topics,
+.world-view .world-library-list { display: grid; gap: 2px; }
+.world-view .world-library-home__list button,
+.world-view .world-library-home__topics button,
+.world-view .world-library-list__row { border-radius: 8px; }
+.world-view .world-library-home__list button:hover,
+.world-view .world-library-home__topics button:hover,
+.world-view .world-library-list__row:hover { background: var(--world-wash); }
+.world-view .world-library-browse { grid-template-columns: minmax(180px, 220px) minmax(0, 1fr); align-items: start; }
+.world-view .world-library-directory { position: sticky; top: 16px; padding: 0 16px 0 0; border: 0; border-right: 1px solid var(--world-rule); border-radius: 0; background: transparent; box-shadow: none; }
+.world-view .world-library-directory__nav button[aria-current="page"],
+.world-view .world-library-directory__topic-name[aria-current="page"] { background: var(--world-wash); color: var(--accent); }
+.world-view .world-bible-page-card-grid { gap: 12px; }
+.world-view .world-bible-page-card,
+.world-view .world-object-card { min-height: 0; border: 1px solid var(--world-rule); border-radius: 12px; background: var(--world-paper); box-shadow: none; }
+.world-view .world-bible-page-card { overflow: hidden; }
+.world-view .world-bible-page-card__band { height: 4px; background: var(--world-bible-type-color, var(--accent)); }
+.world-view .world-bible-page-card:hover,
+.world-view .world-object-card:hover { border-color: var(--world-bible-type-color, var(--accent)); box-shadow: 0 7px 20px color-mix(in srgb, var(--accent) 10%, transparent); }
+.world-view .world-bible-page-card__icon,
+.world-view .world-object-card__avatar,
+.world-view .world-library-list__symbol,
+.world-view .world-library-home__symbol { color: var(--world-bible-type-color, var(--accent)); }
+.world-view .world-library-list__row { border-bottom: 1px solid var(--world-rule); }
+.world-view .world-library-list__actions { padding-inline: 0; }
+
+/* Detail and reader remain content-first rather than becoming another dashboard. */
+.world-view .world-entity-detail,
+.world-view .world-page-reader { max-width: 980px; margin-inline: auto; padding: clamp(18px, 3vw, 36px) 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.world-view .world-entity-detail__header,
+.world-view .world-page-reader__header { padding-bottom: 18px; border-bottom: 1px solid var(--world-rule); }
+.world-view .world-entity-overview,
+.world-view .world-entity-basic,
+.world-view .world-character-profile,
+.world-view .world-page-reader__block,
+.world-view .world-page-reader__refs { border-color: var(--world-rule); border-radius: 10px; background: var(--world-paper); box-shadow: none; }
+.world-view .world-entity-basic__secret { border-left-color: var(--nc-ai, var(--accent)); background: var(--world-wash); }
+.world-view .world-page-reader__content { max-width: 74ch; }
+.world-view .world-page-reader__markdown { font-size: 1rem; line-height: 1.85; }
+
+/* Canonical lists and review queues: one clear table/queue, calm supporting evidence. */
+.world-view .data-table { border: 0; border-collapse: collapse; background: transparent; }
+.world-view .data-table thead { background: transparent; }
+.world-view .data-table th { border-bottom: 1px solid var(--world-rule); color: var(--text-tertiary); font-size: var(--text-xs); letter-spacing: .04em; }
+.world-view .data-table td { border-bottom: 1px solid var(--world-rule); background: transparent; }
+.world-view .data-table tbody tr:hover td { background: color-mix(in srgb, var(--world-wash) 65%, transparent); }
+.world-view .world-review-tabs { margin-bottom: 4px; border-bottom: 1px solid var(--world-rule); }
+.world-view .world-review-overview { max-width: none; grid-template-columns: minmax(0, 1.35fr) minmax(340px, .65fr); align-items: stretch; }
+.world-view .world-review-next { display: grid; align-content: center; min-height: 184px; padding: clamp(20px, 3vw, 36px); border: 0; border-left: 4px solid var(--nc-ai, var(--accent)); border-radius: 0; background: var(--world-wash); }
+.world-view .world-review-overview__cards { grid-template-columns: 1fr; gap: 2px; }
+.world-view .world-review-overview-card { min-height: 0; padding: 16px; border: 0; border-bottom: 1px solid var(--world-rule); border-radius: 0; background: transparent; }
+.world-view .world-review-overview-card:hover { background: var(--world-wash); }
+.world-view .world-review-overview-card strong { color: var(--accent); font-size: 22px; }
+.world-view .world-review-workbench { gap: clamp(20px, 3vw, 36px); }
+.world-view .world-review-decision { top: 16px; padding: 20px; border: 1px solid var(--world-rule); border-top: 3px solid var(--nc-ai, var(--accent)); border-radius: 12px; background: var(--world-paper); box-shadow: none; }
+.world-view .world-review-preview,
+.world-view .world-alias-decision__target,
+.world-view .world-relation-decision__pairing { border-color: var(--world-rule); border-radius: 8px; background: var(--world-wash); }
+.world-view .review-group-card { border-color: var(--world-rule); border-radius: 10px; background: var(--world-paper); box-shadow: none; }
+.world-view .review-group-card.is-active,
+.world-view .review-member-row.is-active { border-color: var(--accent); background: var(--world-wash); }
+.world-view .world-review-candidate-cell > p,
+.world-view .world-review-evidence-cell,
+.world-view .world-text-dim { color: var(--text-secondary); }
+
+/* World book tools keep a clear primary edit surface and secondary tool context. */
+.world-view .world-bible-toolbar { margin: 0; padding: 0 0 16px; border: 0; border-bottom: 1px solid var(--world-rule); background: transparent; }
+.world-view .world-bible-layout { gap: 24px; }
+.world-view .world-bible-nav-rail { border-color: var(--world-rule); border-radius: 0; background: transparent; }
+.world-view .world-bible-editor-panel,
+.world-view .world-bible-inspector,
+.world-view .world-bible-graph,
+.world-view .world-health-panel { border-color: var(--world-rule); border-radius: 12px; background: var(--world-paper); box-shadow: none; }
+.world-view .world-bible-nav-rail button[aria-current="page"],
+.world-view .world-bible-nav-rail .is-active { background: var(--world-wash); color: var(--accent); }
+.world-view .world-bible-graph__node { border-radius: 8px; }
+
+.world-view :is(button, a, summary):focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 860px) {
+  .world-view .world-toolbar { grid-template-columns: 1fr; align-items: start; }
+  .world-view .view-header__tail { justify-content: space-between; }
+  .world-view .world-library-browse { grid-template-columns: 1fr; }
+  .world-view .world-library-directory { position: static; padding: 0 0 12px; border-right: 0; border-bottom: 1px solid var(--world-rule); }
+  .world-view .world-review-overview { grid-template-columns: 1fr; }
+}
+@media (max-width: 760px) {
+  .world-view .world-toolbar .subnav-item,
+  .world-view .world-review-tabs .subnav-item { min-height: 44px; }
+  .world-view .view-header__tail { width: 100%; align-items: flex-start; flex-direction: column; }
+  .world-view .view-header__tail .view-header__title { display: block; width: 100%; }
+  .world-view .view-header__title > .view-header__count,
+  .world-view .view-header__title > .view-toolbar__project { display: inline-block; }
+  .world-view .view-header__actions { width: 100%; justify-content: flex-start; }
+  .world-view .world-bible-page-card-grid,
+  .world-view .world-object-card-grid { grid-template-columns: 1fr; }
+  .world-view .world-entity-detail,
+  .world-view .world-page-reader { padding-inline: 0; }
+  .world-view .world-review-decision { top: auto; border-inline: 0; border-radius: 0; }
+}

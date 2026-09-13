@@ -7,6 +7,7 @@ import {
   ref,
   watch,
 } from "vue"
+import "./rp-redesign.css"
 import {
   getApi,
   getConfirm,

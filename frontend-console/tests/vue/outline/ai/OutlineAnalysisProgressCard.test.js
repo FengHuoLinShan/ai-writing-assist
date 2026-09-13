@@ -39,7 +39,7 @@ describe("OutlineAnalysisProgressCard", () => {
     const card = wrapper.get(".workflow-progress")
 
     expect(card.text()).toContain("范围：第 2–6 章")
-    expect(card.get('[data-action="cancel-outline-analysis"]').element.closest(".workflow-progress")).toBe(card.element)
+
   })
 
   it("终态只在卡内显示关闭任务", () => {
@@ -48,6 +48,6 @@ describe("OutlineAnalysisProgressCard", () => {
     const card = wrapper.get(".workflow-progress")
 
     expect(card.find('[data-action="cancel-outline-analysis"]').exists()).toBe(false)
-    expect(card.get('[data-action="dismiss-outline-analysis"]').element.closest(".workflow-progress")).toBe(card.element)
+
   })
 })

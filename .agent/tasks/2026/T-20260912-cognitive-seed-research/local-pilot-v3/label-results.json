@@ -1,0 +1,462 @@
+{
+  "status": "automatic-label-check-only",
+  "run_status": "completed",
+  "totals": {
+    "raw_prefix": {
+      "correct": 16,
+      "questions": 20
+    },
+    "memory": {
+      "correct": 19,
+      "questions": 20
+    }
+  },
+  "rows": [
+    {
+      "trajectory": "r17",
+      "arm": "raw_prefix",
+      "question": "q1",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "守闸人虽如此说，但后续材料证明此为敷衍。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r17",
+      "arm": "raw_prefix",
+      "question": "q2",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "现有材料显示红蜡并非通行许可。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r17",
+      "arm": "raw_prefix",
+      "question": "q3",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "档案明确规定旧章至今从未变更。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r17",
+      "arm": "raw_prefix",
+      "question": "q4",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "黎安未进入档案室，未获知客观条件。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r17",
+      "arm": "raw_prefix",
+      "question": "q5",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "此时仅有守闸人的话，未证明其为必然许可。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r17",
+      "arm": "memory",
+      "question": "q1",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "守闸人明确红蜡并非规章，且红蜡是受监视者的标记。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r17",
+      "arm": "memory",
+      "question": "q2",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "现有材料未提及初四的通行规则，且红蜡非通行许可。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r17",
+      "arm": "memory",
+      "question": "q3",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "现有材料未提及初三发生任何制度变更。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r17",
+      "arm": "memory",
+      "question": "q4",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "黎安目前仅目睹他人通行，尚未获知客观通行条件。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r17",
+      "arm": "memory",
+      "question": "q5",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "守闸人的回答及后续发现证明红蜡并非通行许可。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r29",
+      "arm": "memory",
+      "question": "q1",
+      "expected": "yes",
+      "answer": "no",
+      "label_correct": false,
+      "source_ids_resolve": true,
+      "why": "旧规规定持信可获资格，但初二观察到需配合签名。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r29",
+      "arm": "memory",
+      "question": "q2",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "初三新令要求同时满足低潮和实名担保。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r29",
+      "arm": "memory",
+      "question": "q3",
+      "expected": "yes",
+      "answer": "yes",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "记忆状态明确记录了初三签发的新令内容。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r29",
+      "arm": "memory",
+      "question": "q4",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "黎安目前尚未获知新令，处于修补信件状态。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r29",
+      "arm": "memory",
+      "question": "q5",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "仅有观察结论，尚未证明红蜡是必然许可。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r29",
+      "arm": "raw_prefix",
+      "question": "q1",
+      "expected": "yes",
+      "answer": "yes",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "守闸人明确表示“持红蜡的，夜里也能走”。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r29",
+      "arm": "raw_prefix",
+      "question": "q2",
+      "expected": "no",
+      "answer": "yes",
+      "label_correct": false,
+      "source_ids_resolve": true,
+      "why": "n29明确旧规规定红蜡本身即可获得资格。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r29",
+      "arm": "raw_prefix",
+      "question": "q3",
+      "expected": "yes",
+      "answer": "yes",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "文本明确叙述了初三签发的新令及制度变更。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r29",
+      "arm": "raw_prefix",
+      "question": "q4",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "黎安尚未看到新令，且对旧规并不了解。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r29",
+      "arm": "raw_prefix",
+      "question": "q5",
+      "expected": "no",
+      "answer": "yes",
+      "label_correct": false,
+      "source_ids_resolve": true,
+      "why": "守闸人的话直接证明了红蜡是通行许可。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r43",
+      "arm": "raw_prefix",
+      "question": "q1",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "修订说明明确红蜡始终只是监视标记。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r43",
+      "arm": "raw_prefix",
+      "question": "q2",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "修订说明明确红蜡始终只是监视标记。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r43",
+      "arm": "raw_prefix",
+      "question": "q3",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "修订说明明确故事中没有发生初三改制。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r43",
+      "arm": "raw_prefix",
+      "question": "q4",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "黎安未查阅规章，且修订说明称她未收到说明。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r43",
+      "arm": "raw_prefix",
+      "question": "q5",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "旧稿中守闸人虽说“持红蜡的，夜里也能走”，但未证明其必然性。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r43",
+      "arm": "memory",
+      "question": "q1",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "守闸人称红蜡仅为监视标记，非通行资格。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r43",
+      "arm": "memory",
+      "question": "q2",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "现有材料未提及初四的任何通行规则。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r43",
+      "arm": "memory",
+      "question": "q3",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "现有材料未提及初三发生任何制度变更。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r43",
+      "arm": "memory",
+      "question": "q4",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "黎安仅在观察中推测关联，尚未确知客观条件。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r43",
+      "arm": "memory",
+      "question": "q5",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "守闸人明确红蜡非通行资格，且黎安在推测。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r61",
+      "arm": "memory",
+      "question": "q1",
+      "expected": "unknown",
+      "answer": "unknown",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "守闸人仅称其可通行，未明确是否为唯一或充分条件。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r61",
+      "arm": "memory",
+      "question": "q2",
+      "expected": "unknown",
+      "answer": "unknown",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "此时尚未提供初四的任何材料或相关规则。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r61",
+      "arm": "memory",
+      "question": "q3",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "作者说明明确红蜡作用及初三制度改变均未定论。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r61",
+      "arm": "memory",
+      "question": "q4",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "作者说明明确黎安目前并不知晓实际规章。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r61",
+      "arm": "memory",
+      "question": "q5",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "守闸人仅是口头称述，且黎安尚未获知客观规章。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r61",
+      "arm": "raw_prefix",
+      "question": "q1",
+      "expected": "unknown",
+      "answer": "no",
+      "label_correct": false,
+      "source_ids_resolve": true,
+      "why": "守闸人虽有此说法，但后续观察显示仍需签名或纸张。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r61",
+      "arm": "raw_prefix",
+      "question": "q2",
+      "expected": "unknown",
+      "answer": "no",
+      "label_correct": false,
+      "source_ids_resolve": true,
+      "why": "文本显示通行仍伴随签名、纸张及水位等其他因素。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r61",
+      "arm": "raw_prefix",
+      "question": "q3",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "作者明确说明目前没有写出初三制度改变的事件。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r61",
+      "arm": "raw_prefix",
+      "question": "q4",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "作者注称黎安不知道实际规章，且黎安也未查过规章。",
+      "grounding_review": "pending"
+    },
+    {
+      "trajectory": "r61",
+      "arm": "raw_prefix",
+      "question": "q5",
+      "expected": "no",
+      "answer": "no",
+      "label_correct": true,
+      "source_ids_resolve": true,
+      "why": "文本仅记录守闸人的话，且黎安随后观察到其他必要条件。",
+      "grounding_review": "pending"
+    }
+  ],
+  "constant_no_control": {
+    "correct": 16,
+    "questions": 20
+  },
+  "oracle_sha256": "2bd86db0f784e77922266ceccf23fec1c707a1fcc61ecdb48ccaa54a163a12b1",
+  "limitations": "Development material; unbalanced labels; no independent human or literary-quality review; no confidence interval."
+}

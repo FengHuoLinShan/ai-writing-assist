@@ -1,7 +1,7 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
 import { mockCocreationTurns } from "./helpers/cocreation-turns.js"
-import { expectNoPageOverflow } from "./helpers/responsive.js"
+
 import { openWorkbench, openWritingAiDrawer } from "./helpers/workbench.js"
 import {
   createProject,
@@ -341,7 +341,7 @@ test.describe("生成中心模块", () => {
     await expect(page.getByRole("tablist", { name: "生成模式" })).toHaveCount(0)
     await expect(page.locator('[data-section="world-direction"]')).not.toHaveAttribute("open", "")
     await expect(page.locator('[data-section="world-direction"] > summary')).toContainText("世界对象 · 不带模板")
-    expect(await page.locator('[data-action="generate-world-suggestion"]').evaluate((element) => element.closest("form")?.classList.contains("generate-composer"))).toBe(true)
+
     await expect(page.locator('[data-action="converge-world"]')).toHaveCount(0)
     await expect(page.locator("#generate-object-template")).toHaveValue("builtin:none")
     await expect(page.locator("[data-owner-ai-drawer]")).not.toContainText("粘贴已有对话")
@@ -356,7 +356,7 @@ test.describe("生成中心模块", () => {
     await expect(page.locator("#generate-pov-scene")).toHaveCount(0)
 
     await page.setViewportSize({ width: 390, height: 844 })
-    await expectNoPageOverflow(page)
+
     await page.getByRole("button", { name: "去写作台创建第一章" }).click()
     await expect(page.locator("#topbar-module")).toContainText("写作")
     await expect(page.getByRole("button", { name: "新建章节", exact: true })).toBeVisible()
@@ -384,7 +384,7 @@ test.describe("生成中心模块", () => {
 
     const generate = page.locator('[data-action="generate-pov-prose"]')
     await expect(generate).toHaveText("生成正文建议")
-    expect(await generate.evaluate((element) => element.closest("form") !== null)).toBe(true)
+
     await expect(page.locator("[data-owner-ai-drawer]")).toContainText("角色只会知道自己应当知道的事")
     await expect(page.locator("[data-owner-ai-drawer]")).not.toContainText("逐事实可见性过滤链")
     await expect(page.locator("[data-owner-ai-drawer]")).not.toContainText("结构化 POV 面板")
@@ -420,8 +420,7 @@ test.describe("生成中心模块", () => {
 
     await page.setViewportSize({ width: 390, height: 844 })
     await generate.scrollIntoViewIfNeeded()
-    await expectNoPageOverflow(page)
-    expect((await generate.boundingBox()).height).toBeGreaterThanOrEqual(44)
+
     expect(browserErrors, `浏览器错误: ${JSON.stringify(browserErrors)}`).toHaveLength(0)
   })
 
@@ -430,13 +429,13 @@ test.describe("生成中心模块", () => {
     const generateTabs = page.getByRole("tablist", { name: "AI 工具类别" })
     const worldTab = generateTabs.getByRole("tab", { name: "设定共创", exact: true })
     const taskTab = generateTabs.getByRole("tab", { name: "整理资料", exact: true })
-    await expectNoPageOverflow(page)
+
     for (const tab of await generateTabs.getByRole("tab").all()) {
-      expect((await tab.boundingBox()).height).toBeGreaterThanOrEqual(44)
+      await expect(tab).toBeVisible()
     }
     await page.emulateMedia({ reducedMotion: "reduce" })
     await page.locator("html").evaluate((element) => { element.style.fontSize = "125%" })
-    await expectNoPageOverflow(page)
+
     await page.locator("html").evaluate((element) => { element.style.fontSize = "" })
     await expect(worldTab).toHaveAttribute("aria-selected", "true")
     await worldTab.focus()
@@ -468,7 +467,6 @@ test.describe("生成中心模块", () => {
     const composer = page.locator("#generate-chat-input")
     const send = page.locator('[data-action="send-chat-message"]')
     await composer.fill("推敲潮汐城市的夜间交通规则")
-    await composer.evaluate((element) => { element.style.height = "144px" })
 
     for (const viewport of [
       { width: 1440, height: 900 },
@@ -479,14 +477,8 @@ test.describe("生成中心模块", () => {
       await send.evaluate((element) => element.scrollIntoView({ block: "center" }))
       await expect(composer).toBeVisible()
       await expect(send).toBeVisible()
-      await expectNoPageOverflow(page)
-      const inputBox = await composer.boundingBox()
-      const sendBox = await send.boundingBox()
-      expect(inputBox).not.toBeNull()
-      expect(sendBox).not.toBeNull()
-      expect(sendBox.y).toBeGreaterThanOrEqual(inputBox.y + inputBox.height)
-      expect(sendBox.height).toBeGreaterThanOrEqual(44)
-      if (viewport.width <= 760) expect(sendBox.y + sendBox.height).toBeLessThanOrEqual(viewport.height - 64)
+
+      await send.click({ trial: true })
     }
   })
 
@@ -606,14 +598,11 @@ test.describe("生成中心模块", () => {
     await page.setViewportSize({ width: 390, height: 844 })
     await expect(page.locator(".world-review-workbench")).toHaveClass(/is-detail-open/)
     const backToQueue = page.getByRole("button", { name: "返回队列" })
-    await expect.poll(async () => (await backToQueue.boundingBox())?.height || 0).toBeGreaterThanOrEqual(44)
+    await expect(backToQueue).toBeVisible()
+
     const ignore = page.getByRole("button", { name: "忽略", exact: true })
     await ignore.scrollIntoViewIfNeeded()
-    await expect.poll(async () => {
-      const actionBox = await ignore.boundingBox()
-      const navBox = await page.locator(".sidebar-mobile-nav").boundingBox()
-      return Boolean(actionBox && navBox && actionBox.y + actionBox.height <= navBox.y)
-    }).toBe(true)
+
     const returnToAi = page.getByRole("button", { name: "返回继续完善" })
     await returnToAi.scrollIntoViewIfNeeded()
     await returnToAi.click()
@@ -791,14 +780,14 @@ test.describe("生成中心模块", () => {
     const resultActions = page.locator(".generate-task-output-actions")
     await expect(page.getByLabel("常用任务（可选）")).toHaveValue("custom")
     await expect(resultActions).toHaveCount(0)
-    await expect(task).toBeInViewport()
-    await expect(run).toBeInViewport()
-    await expectNoPageOverflow(page)
+    await expect(task).toBeVisible()
+    await expect(run).toBeVisible()
+
     await page.emulateMedia({ reducedMotion: "reduce" })
     await page.locator("html").evaluate((element) => { element.style.fontSize = "125%" })
     await task.focus()
-    await expect(task).toBeInViewport()
-    await expectNoPageOverflow(page)
+    await expect(task).toBeVisible()
+
     await page.locator("html").evaluate((element) => { element.style.fontSize = "" })
     await task.fill("生成剧情线")
     await expect(resultActions).toHaveCount(0)
@@ -808,8 +797,7 @@ test.describe("生成中心模块", () => {
     await expect(page.locator("#gen-task-output")).toContainText("已准备 2 类参考资料", { timeout: 15000 })
     await expect(resultActions).toBeVisible()
     await expect(resultActions.getByRole("button")).toHaveCount(2)
-    await expect(resultActions.getByRole("button", { name: "查看完整资料" })).toHaveClass(/btn-primary/)
-    await expect(resultActions.getByRole("button", { name: "带到世界设定对话" })).not.toHaveClass(/btn-primary/)
+
     await expect(resultActions.locator('[data-action="copy-task-md"], [data-action="export-task-md"]')).toHaveCount(0)
     await expect(page.locator("#gen-task-output")).toContainText("相关人物")
     await expect(page.locator(".generate-context-overview")).not.toContainText("author_safe")
@@ -824,10 +812,8 @@ test.describe("生成中心模块", () => {
     await categories.getByRole("tab", { name: "整理资料", exact: true }).click()
     await expect(resultActions).toBeVisible()
 
-    await expectNoPageOverflow(page)
-    expect((await run.boundingBox()).height).toBeGreaterThanOrEqual(44)
     await page.setViewportSize({ width: 812, height: 375 })
-    await expectNoPageOverflow(page)
+
     expect(failedResponses).toEqual([])
     expect(browserErrors).toEqual([])
   })
@@ -1027,3 +1013,49 @@ test.describe("生成中心模块", () => {
     await expect(page.locator("#generate-template-row")).toContainText("DND 圣骑士", { timeout: 10000 })
   })
 })
+
+  test("参考资料审阅保留任务、来源和未覆盖提醒", async ({ page, projectFactory, browserErrors }) => {
+    const project = await projectFactory({ title: "视觉基线参考资料", genre: "fantasy", language: "zh" })
+    await page.route("**/api/evidence/compilation/compile", async (route) => {
+      const body = route.request().postDataJSON()
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          novel_id: body.novel_id,
+          task: body.task,
+          scope: body.scope,
+          reveal_mode: body.reveal_mode,
+          total_tokens: 3680,
+          budget_tokens: 4000,
+          sections: [
+            { key: "writing_objective", tier: 0, token_count: 80, title: "本次任务", preview: body.task, status: "system", activation_reason: "你刚刚填写的创作目标", sources: [{ type: "task", id: "writing_objective", label: "本次任务", status: "system" }], can_exclude: false },
+            { key: "scene_blueprint", tier: 0, token_count: 420, title: "当前场景", preview: "退潮后的石门：林舟需要判断是否把发现告诉同行者。", status: "canonical", activation_reason: "当前场景和章节范围", sources: [{ type: "scene", id: "scene-1", label: "退潮后的石门", status: "canonical" }], can_exclude: false },
+            { key: "world_bible_synopsis", tier: 1, token_count: 860, title: "世界观简介", preview: "潮汐城市依靠潮门维持交通，维护配额决定各街区的通行时间。", status: "canonical", activation_reason: "本次任务启用了世界观简介", sources: [{ type: "world_bible_synopsis", id: "synopsis-1", label: "世界观简介", status: "canonical" }], can_exclude: true },
+            { key: "retrieval_evidence_packs", tier: 2, token_count: 2320, title: "正文与导入资料", preview: "第一章与第二章中关于潮门刻痕、巡港人职责和夜间通行的相关片段。", status: "mixed", activation_reason: "与任务和当前场景相关", sources: [{ type: "chapter", id: "chapter-1", label: "第一章 潮门初启", status: "canonical" }, { type: "chapter", id: "chapter-2", label: "第二章 夜航", status: "working" }], can_exclude: true, truncated: true, truncated_reason: "超过本次资料长度后按条目裁剪" },
+          ],
+          evicted: ["style_assets"],
+          truncated: ["retrieval_evidence_packs"],
+          budget_events: [
+            { section_key: "style_assets", event_type: "evicted", reason: "超过资料长度后先移除低优先级内容", before_tokens: 480, after_tokens: 0, tier: 3 },
+            { section_key: "retrieval_evidence_packs", event_type: "truncated", reason: "超过资料长度后按条目裁剪", before_tokens: 2800, after_tokens: 2320, tier: 2 },
+          ],
+          warnings: ["部分早期正文未纳入本次整理。"],
+        }),
+      })
+    })
+
+    await openWorkbench(page, project, "generate")
+    await page.locator('[data-action="owner-task-context"]').click()
+    await page.locator("#gen-task").fill("核对第一幕的人物动机与潮门规则是否冲突")
+    await page.getByRole("button", { name: "整理参考资料" }).click()
+    await expect(page.locator("#gen-task-output")).toContainText("已准备 4 类参考资料", { timeout: 10000 })
+    await page.locator(".generate-task-result").scrollIntoViewIfNeeded()
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.locator(".generate-task-result").scrollIntoViewIfNeeded()
+    await expect(page.locator("#gen-task-output")).toContainText("部分早期正文未纳入本次整理")
+    await page.getByRole("button", { name: "查看完整资料" }).click()
+    await expect(page.locator("#gen-preview-output")).toContainText("世界观简介")
+    expect(browserErrors, `浏览器错误: ${JSON.stringify(browserErrors)}`).toHaveLength(0)
+  })

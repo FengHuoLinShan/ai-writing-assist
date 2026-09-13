@@ -74,8 +74,8 @@ describe("渲染", () => {
     const wrapper = mountTab()
     const table = wrapper.find("table.data-table")
     expect(table.exists()).toBe(true)
-    expect(table.classes()).toContain("table-card-list")
-    expect(table.classes()).toContain("world-alias-list")
+
+
     const rows = wrapper.findAll("tbody tr[data-id]")
     // 3 个别名 = 3 行
     expect(rows).toHaveLength(3)

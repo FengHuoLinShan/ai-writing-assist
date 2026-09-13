@@ -1,6 +1,6 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
-import { expectNoPageOverflow } from "./helpers/responsive.js"
+
 import { openProjectList, reloadProjectList } from "./helpers/workbench.js"
 import {
   API_BASE,
@@ -114,7 +114,7 @@ test.describe("项目回收站", () => {
     await expect(bulkDelete).toBeEnabled()
 
     await page.setViewportSize({ width: 390, height: 844 })
-    await expectNoPageOverflow(page)
+
   })
 
   test("永久删除项目后不可恢复", async ({ page }) => {

@@ -34,15 +34,14 @@
       @click="exitFocusMode"
     >退出专注 <kbd aria-hidden="true">Esc</kbd></button>
   </header>
-  <div v-else class="view-header writing-toolbar">
+  <div v-else class="writing-toolbar writing-document-toolbar">
     <div class="view-header__title">
       <button type="button" class="btn btn-sm btn-ghost writing-home-back" data-action="open-writing-home" @click="openWritingHome">← 写作首页</button>
-      <span>写作</span>
       <span class="view-header__count">共 {{ vm.chapterList.value.length }} 章</span>
     </div>
     <div class="view-header__actions">
-      <button v-if="vm.isNarrow.value" type="button" class="btn" :aria-expanded="leftRailOpen" @click="toggleRail('chapters')">章节</button>
-      <button v-if="vm.isNarrow.value" type="button" class="btn" :aria-expanded="rightRailOpen" @click="toggleRail('reference')">本章资料</button>
+      <button type="button" class="btn btn-sm" :aria-expanded="leftRailOpen" @click="toggleRail('chapters')">章节</button>
+      <button type="button" class="btn btn-sm" :aria-expanded="rightRailOpen" @click="toggleRail('reference')">本章资料</button>
       <button ref="chapterMapTriggerEl" type="button" class="btn btn-sm" :disabled="!hasEditableChapter" data-action="open-chapter-map" @click="openChapterMap()">本章地图</button>
       <details ref="viewMenuEl" class="writing-page-menu" @toggle="onViewMenuToggle" @keydown="onViewMenuKeydown">
         <summary
@@ -51,12 +50,12 @@
           :aria-expanded="String(viewMenuOpen)"
         >写作视图 <span class="writing-page-menu__chevron" aria-hidden="true">⌄</span></summary>
         <div id="writing-page-menu-body" class="writing-page-menu__body" @click="closeViewMenuAfterAction">
-          <button v-if="vm.isNarrow.value" type="button" class="btn btn-sm" :disabled="!hasEditableChapter" @click="toggleFocusMode">进入专注</button>
+          <button type="button" class="btn btn-sm" :disabled="!hasEditableChapter" @click="toggleFocusMode">进入专注</button>
           <button type="button" class="btn btn-sm" data-action="toggle-outline-float" @click="vm.toggleOutlineFloat">故事结构浮窗</button>
           <button type="button" class="btn btn-sm" @click="vm.navigateOutline">打开故事结构</button>
+          <button type="button" class="btn btn-sm" :disabled="!vm.selectedChapter.value" @click="addChapterTask">添加到计划中的任务</button>
         </div>
       </details>
-      <button type="button" class="btn btn-sm" :disabled="!vm.selectedChapter.value" @click="addChapterTask">添加到计划中的任务</button>
     </div>
   </div>
 
@@ -148,9 +147,10 @@
         @compare-candidate="vm.compareCandidateWithWorkingDraft"
         @export="vm.exportChapter"
         @retry-load="vm.retryChapterLoad"
+        @reload-server="reloadServerDraft"
       >
         <template #context-actions>
-          <div v-if="vm.activeVersions.value.length" id="writing-versions-container" class="writing-version-bar writing-version-bar--compact">
+          <div v-if="versionChoices.length" id="writing-versions-container" class="writing-version-bar writing-version-bar--compact">
             <label class="writing-version-label" for="version-selector">版本</label>
             <span class="writing-version-select-wrap">
               <select
@@ -161,11 +161,11 @@
                 @change="vm.switchVersion($event.target.value)"
               >
                 <option
-                  v-for="(version, index) in vm.activeVersions.value"
+                  v-for="version in versionChoices"
                   :key="version.id"
                   :value="version.id"
                   :data-version="version.version_number"
-                  :data-latest="index === 0 ? 1 : 0"
+                  :data-latest="version.id === vm.activeVersions.value[0]?.id ? 1 : 0"
                 >v{{ version.version_number }} · {{ version.status === 'published' ? '正式正文' : version.status === 'candidate' ? '待处理' : version.status === 'deprecated' ? '历史' : '工作稿' }}</option>
               </select>
             </span>
@@ -351,6 +351,7 @@ const props = defineProps({
 })
 
 const vm = useWritingWorkspace(props)
+const versionChoices = computed(() => vm.versions.value.filter(version => version.status !== "deprecated" || version.id === vm.editorState.draftId))
 const router = getRouter()
 function openReviewResolution(taskId) { router?.navigate("world", "review", true, new URLSearchParams(taskId ? { review_task_id: taskId } : {})) }
 const viewMenuEl = ref(null)
@@ -483,6 +484,12 @@ const leftRailOpen = ref(
   ),
 )
 const rightRailOpen = ref(!vm.isNarrow.value && stored("reference", props.scenes.some(scene => ["draft", "canonical"].includes(scene.status))))
+
+async function reloadServerDraft() {
+  if (!await vm.reloadServerDraft()) return
+  await nextTick()
+  focusWritingEditor()
+}
 
 function focusWritingEditor() {
   document.querySelector("#writing-editor")?.focus()

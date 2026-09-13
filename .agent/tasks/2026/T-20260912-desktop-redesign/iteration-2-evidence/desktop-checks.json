@@ -1,0 +1,142 @@
+[
+  {
+    "heading": "创作概览",
+    "scrollWidth": 1200,
+    "width": 1200,
+    "label": "创作概览",
+    "mode": "light"
+  },
+  {
+    "heading": "作品档案",
+    "scrollWidth": 1200,
+    "width": 1200,
+    "label": "作品档案",
+    "mode": "light"
+  },
+  {
+    "heading": "人物与世界",
+    "scrollWidth": 1200,
+    "width": 1200,
+    "label": "人物与世界 3",
+    "mode": "light"
+  },
+  {
+    "heading": "故事结构",
+    "scrollWidth": 1200,
+    "width": 1200,
+    "label": "故事结构",
+    "mode": "light"
+  },
+  {
+    "heading": "白沙海岸",
+    "scrollWidth": 1200,
+    "width": 1200,
+    "label": "地图",
+    "mode": "light"
+  },
+  {
+    "heading": "查找",
+    "scrollWidth": 1200,
+    "width": 1200,
+    "label": "查找",
+    "mode": "light"
+  },
+  {
+    "heading": "创作计划",
+    "scrollWidth": 1200,
+    "width": 1200,
+    "label": "创作计划",
+    "mode": "light"
+  },
+  {
+    "heading": "导入文稿",
+    "scrollWidth": 1200,
+    "width": 1200,
+    "label": "导入与审阅",
+    "mode": "light"
+  },
+  {
+    "heading": "互动故事",
+    "scrollWidth": 1200,
+    "width": 1200,
+    "label": "互动故事",
+    "mode": "light"
+  },
+  {
+    "heading": "潮汐之间",
+    "scrollWidth": 1200,
+    "width": 1200,
+    "label": "写作",
+    "mode": "light"
+  },
+  {
+    "heading": "创作概览",
+    "scrollWidth": 1440,
+    "width": 1440,
+    "label": "创作概览",
+    "mode": "dark"
+  },
+  {
+    "heading": "作品档案",
+    "scrollWidth": 1440,
+    "width": 1440,
+    "label": "作品档案",
+    "mode": "dark"
+  },
+  {
+    "heading": "人物与世界",
+    "scrollWidth": 1440,
+    "width": 1440,
+    "label": "人物与世界 3",
+    "mode": "dark"
+  },
+  {
+    "heading": "故事结构",
+    "scrollWidth": 1440,
+    "width": 1440,
+    "label": "故事结构",
+    "mode": "dark"
+  },
+  {
+    "heading": "白沙海岸",
+    "scrollWidth": 1440,
+    "width": 1440,
+    "label": "地图",
+    "mode": "dark"
+  },
+  {
+    "heading": "查找",
+    "scrollWidth": 1440,
+    "width": 1440,
+    "label": "查找",
+    "mode": "dark"
+  },
+  {
+    "heading": "创作计划",
+    "scrollWidth": 1440,
+    "width": 1440,
+    "label": "创作计划",
+    "mode": "dark"
+  },
+  {
+    "heading": "导入文稿",
+    "scrollWidth": 1440,
+    "width": 1440,
+    "label": "导入与审阅",
+    "mode": "dark"
+  },
+  {
+    "heading": "互动故事",
+    "scrollWidth": 1440,
+    "width": 1440,
+    "label": "互动故事",
+    "mode": "dark"
+  },
+  {
+    "heading": "潮汐之间",
+    "scrollWidth": 1440,
+    "width": 1440,
+    "label": "写作",
+    "mode": "dark"
+  }
+]

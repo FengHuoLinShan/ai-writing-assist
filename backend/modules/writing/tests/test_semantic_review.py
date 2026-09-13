@@ -223,6 +223,8 @@ async def test_review_materializes_context_without_sending_hidden_guard_terms(
     assert payload["targets"][0]["review_context"]["knowledge_boundary_checked"] is True
     assert payload["targets"][0]["review_context"]["continuity_contract_version"] == 2
     assert "space_continuity" in request.messages[0].content
+    assert "本应完成但实际未完成" in request.messages[0].content
+    assert "所有适用检查完成时该列表必须为空" in request.messages[0].content
     assert context["context_fingerprint"]
 
 

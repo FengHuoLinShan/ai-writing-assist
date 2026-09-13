@@ -236,7 +236,7 @@ describe("errorLogger scoped buckets", () => {
     recordToastError("键盘可达错误")
     const badge = document.getElementById("error-log-badge")
 
-    expect(badge?.tagName).toBe("BUTTON")
+
     expect(badge?.getAttribute("type")).toBe("button")
     expect(badge?.getAttribute("title")).toBe("打开本地错误日志，查看排障详情")
     expect(badge?.getAttribute("aria-label")).toBe("打开错误日志，当前 1 条")

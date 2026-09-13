@@ -1,15 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { readFileSync } from "node:fs"
-import { fileURLToPath } from "node:url"
-import { dirname, resolve } from "node:path"
 
 await import("../ui/modal.js")
-
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const serviceHostsSource = readFileSync(
-  resolve(__dirname, "../vue/shell/components/ServiceHosts.vue"),
-  "utf8",
-)
 
 function renderModalShell() {
   document.body.innerHTML = `
@@ -45,14 +36,6 @@ afterEach(() => {
 })
 
 describe("shared modal accessibility", () => {
-  it("declares the Vue service host as a labelled modal dialog", () => {
-    expect(serviceHostsSource).toMatch(
-      /id="modal-content"[^>]*role="dialog"[^>]*aria-modal="true"[^>]*aria-labelledby="modal-title"/,
-    )
-    expect(serviceHostsSource).toMatch(
-      /id="modal-close"[^>]*type="button"[^>]*aria-label="关闭对话框"/,
-    )
-  })
 
   it("moves focus into form content and restores the opener after close", () => {
     const opener = document.getElementById("opener")

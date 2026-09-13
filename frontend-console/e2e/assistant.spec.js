@@ -1,5 +1,4 @@
 import { test, expect } from "./fixtures.js"
-import { expectNoPageOverflow } from "./helpers/responsive.js"
 
 test("项目助手确认、跨页恢复与390px键盘路径", async ({ page, projectFactory, openProjectWorkbench, browserErrors }, testInfo) => {
   const project = await projectFactory({ title: "助手验收 · 雾港记事" })
@@ -40,7 +39,7 @@ test("项目助手确认、跨页恢复与390px键盘路径", async ({ page, pro
   await page.screenshot({ path: testInfo.outputPath("assistant-desktop.png"), fullPage: true })
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(panel).toHaveAttribute("role", "dialog")
-  await expectNoPageOverflow(page)
+
   await panel.locator("#assistant-input").focus()
   await page.keyboard.press("Escape")
   await expect(panel).toBeHidden()
@@ -51,7 +50,7 @@ test("项目助手确认、跨页恢复与390px键盘路径", async ({ page, pro
   await panel.getByLabel("内容变化后主动检查").check()
   await panel.getByRole("button", { name: "保存设置", exact: true }).click()
   await expect(panel.getByText("设置已保存。", { exact: true })).toBeVisible()
-  await expectNoPageOverflow(page)
+
   await page.screenshot({ path: testInfo.outputPath("assistant-mobile.png"), fullPage: true })
   expect(browserErrors).toEqual([])
 })

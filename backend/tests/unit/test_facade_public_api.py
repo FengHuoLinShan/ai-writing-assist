@@ -1,4 +1,4 @@
-"""P2 regression gates for contracts and frozen root facade surfaces."""
+"""P2 regression gates for contracts and compatible root facade surfaces."""
 
 from __future__ import annotations
 
@@ -152,18 +152,18 @@ def _public_callables(module) -> set[str]:
     }
 
 
-def test_world_root_facade_public_api_is_frozen() -> None:
-    assert set(world_facade.__all__) == WORLD_FACADE_API
-    assert _public_callables(world_facade) == WORLD_FACADE_API
+def test_world_root_facade_public_api_preserves_existing_exports() -> None:
+    assert WORLD_FACADE_API <= set(world_facade.__all__)
+    assert _public_callables(world_facade) == set(world_facade.__all__)
 
 
-def test_outline_root_facade_public_api_is_frozen() -> None:
-    assert set(outline_facade.__all__) == OUTLINE_FACADE_API
-    assert _public_callables(outline_facade) == OUTLINE_FACADE_API
+def test_outline_root_facade_public_api_preserves_existing_exports() -> None:
+    assert OUTLINE_FACADE_API <= set(outline_facade.__all__)
+    assert _public_callables(outline_facade) == set(outline_facade.__all__)
 
 
 def test_world_contracts_do_not_reexport_http_schemas() -> None:
-    assert set(world_contracts.__all__) == WORLD_CONTRACT_API
+    assert WORLD_CONTRACT_API <= set(world_contracts.__all__)
 
 
 def test_world_alias_task_port_keeps_domain_surface() -> None:

@@ -51,6 +51,8 @@ export function createEditorController({
     provenanceJson: null,
     saving: false,
     saveError: null,
+    saveConflict: false,
+    reloadingServer: false,
     backupComplete: true,
     loadError: null,
     candidateAction: null,
@@ -133,7 +135,9 @@ export function createEditorController({
   function syncElements() {
     if (elements.title && elements.title.value !== state.title) elements.title.value = state.title
     if (elements.editor && elements.editor.value !== state.content) elements.editor.value = state.content
-    if (elements.editor) elements.editor.readOnly = state.readonly
+    const readOnly = state.readonly || state.reloadingServer
+    if (elements.title) elements.title.readOnly = readOnly
+    if (elements.editor) elements.editor.readOnly = readOnly
     if (elements.editor && pendingCursorRestore) {
       const offset = Math.min(Math.max(0, state.cursorOffset), elements.editor.value.length)
       elements.editor.setSelectionRange(offset, offset)
@@ -279,6 +283,7 @@ export function createEditorController({
     state.restoreExpectedUpdatedAt = options.restoreExpectedUpdatedAt || null
     state.provenanceJson = draft.provenance_json || null
     state.saveError = null
+    state.saveConflict = false
     state.backupComplete = true
     state.candidateAction = null
     state.candidateActionError = null
@@ -322,11 +327,21 @@ export function createEditorController({
         }
       } else {
         const history = await api.writing.getVersionHistory(state.chapter, projectId)
-        if (generation !== loadGeneration || lifecycle !== lifecycleGeneration || projectId !== getProjectId()) return false
+        if (
+          generation !== loadGeneration
+          || lifecycle !== lifecycleGeneration
+          || projectId !== getProjectId()
+          || (options.expectedEditRevision != null && options.expectedEditRevision !== editRevision)
+        ) return false
         const latest = (history?.versions || []).find(isVersionActive)
         if (latest) draft = await api.writing.get(latest.id, projectId)
       }
-      if (generation !== loadGeneration || lifecycle !== lifecycleGeneration || projectId !== getProjectId()) return false
+      if (
+        generation !== loadGeneration
+        || lifecycle !== lifecycleGeneration
+        || projectId !== getProjectId()
+        || (options.expectedEditRevision != null && options.expectedEditRevision !== editRevision)
+      ) return false
       if (draft?.novel_id && draft.novel_id !== projectId) throw new Error("工作稿项目不匹配")
       if (draft) applyDraft(draft, options)
       else applyDraft({ title: `第 ${state.chapter} 章`, content: "", status: "draft" })
@@ -335,7 +350,8 @@ export function createEditorController({
         version: state.versionNumber,
         updatedAt: state.updatedAt,
       }
-      const mayRestoreLocal = !options.draftId || options.allowBackupRestore === true
+      const mayRestoreLocal = !options.skipLocalRestore
+        && (!options.draftId || options.allowBackupRestore === true)
       if (mayRestoreLocal && !restoreSession(projectId, state.chapter)) {
         restoreBackup(projectId, state.chapter)
       }
@@ -344,7 +360,12 @@ export function createEditorController({
       emit()
       return true
     } catch (err) {
-      if (generation !== loadGeneration || lifecycle !== lifecycleGeneration || projectId !== getProjectId()) return false
+      if (
+        generation !== loadGeneration
+        || lifecycle !== lifecycleGeneration
+        || projectId !== getProjectId()
+        || (options.expectedEditRevision != null && options.expectedEditRevision !== editRevision)
+      ) return false
       Object.assign(state, previousState, { loadError: err?.message || "加载工作稿失败" })
       toast(state.loadError, "error")
       emit({ persist: false })
@@ -484,6 +505,7 @@ export function createEditorController({
         }
         syncElements()
       }
+      state.saveConflict = false
       if (changedDraft) clearBackup(sourceDraftId)
       if (hasNewerEdits || keepsLocalFormatting) saveBackup()
       else clearBackup(sourceDraftId)
@@ -505,6 +527,7 @@ export function createEditorController({
       ) {
         const backupComplete = flushLocalPersistence()
         state.saveError = err?.message || "保存失败"
+        state.saveConflict = Number(err?.status) === 409
         const reason = state.saveError.replace(/[。.!！]+$/u, "")
         toast(
           backupComplete
@@ -522,6 +545,69 @@ export function createEditorController({
       }
     })
     return savePromise
+  }
+
+  async function reloadServerDraft() {
+    const chapter = state.chapter
+    const projectId = getProjectId()
+    if (!projectId || !chapter || state.saving || state.reloadingServer) return false
+    const backupMessage = "当前文字未能完成本地备份，未载入服务器版本。"
+    if (!flushLocalPersistence()) {
+      state.saveError = backupMessage
+      emit({ persist: false })
+      toast(backupMessage, "error")
+      return false
+    }
+    const owner = {
+      projectId,
+      chapter,
+      lifecycle: lifecycleGeneration,
+      load: loadGeneration,
+      editRevision,
+    }
+    if (!(await confirmDialog(
+      "将加载服务器最新版，当前文字会保留在本机备份中，建议先导出后继续。是否继续？",
+      "载入服务器最新版",
+    ))) return false
+    if (
+      disposed
+      || owner.lifecycle !== lifecycleGeneration
+      || owner.load !== loadGeneration
+      || owner.projectId !== getProjectId()
+      || owner.chapter !== state.chapter
+    ) return false
+    if (owner.editRevision !== editRevision) {
+      if (!flushLocalPersistence()) {
+        state.saveError = backupMessage
+        emit({ persist: false })
+        toast(backupMessage, "error")
+      }
+      return false
+    }
+    if (!flushLocalPersistence()) {
+      state.saveError = backupMessage
+      emit({ persist: false })
+      toast(backupMessage, "error")
+      return false
+    }
+    state.reloadingServer = true
+    syncElements()
+    emit({ persist: false })
+    try {
+      const loaded = await loadChapter(chapter, {
+        skipLocalRestore: true,
+        expectedEditRevision: owner.editRevision,
+      })
+      if (loaded) await refreshVersions()
+      return loaded
+    } finally {
+      if (owner.lifecycle === lifecycleGeneration) {
+        if (owner.projectId === getProjectId() && owner.chapter === state.chapter) flushLocalPersistence()
+        state.reloadingServer = false
+        syncElements()
+        emit({ persist: false })
+      }
+    }
   }
 
   async function checkpoint() {
@@ -564,6 +650,7 @@ export function createEditorController({
         clearBackup(owner.draftId)
         syncElements()
       }
+      state.saveConflict = false
       if (hasNewerEdits) {
         if (result?.id && result.id !== owner.draftId) clearBackup(owner.draftId)
         saveBackup()
@@ -574,6 +661,7 @@ export function createEditorController({
       return result
     } catch (err) {
       if (!ownsCommandTarget(owner)) return null
+      if (Number(err?.status) === 409) state.saveConflict = true
       toast(err?.message || "保存新版本失败", "error")
       return null
     } finally {
@@ -617,6 +705,7 @@ export function createEditorController({
         clearBackup(owner.draftId)
         syncElements()
       }
+      state.saveConflict = false
       emit()
       toast(hasNewerEdits ? "已回到上一版；之后的输入仍待保存" : "已回到上一版", "success")
       await refreshVersions(result)
@@ -736,6 +825,7 @@ export function createEditorController({
     detach,
     loadChapter,
     autosave,
+    reloadServerDraft,
     checkpoint,
     discardChanges,
     adoptCandidate,

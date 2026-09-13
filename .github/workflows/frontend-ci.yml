@@ -54,6 +54,7 @@ jobs:
         if: steps.changes.outputs.frontend == 'true'
         run: npm run lint
 
+      # Regression gates verify behavior, data and accessibility; screenshots are diagnostics only.
       - name: Run frontend unit tests
         if: steps.changes.outputs.frontend == 'true'
         run: npm test
@@ -67,19 +68,19 @@ jobs:
       postgres:
         image: pgvector/pgvector:0.8.6-pg17-bookworm@sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f
         env:
-          POSTGRES_DB: ai_writing_functional_browser_e2e_test
+          POSTGRES_DB: ai_writing_functional_browser_agent_e2e_test
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: "${{ github.run_id }}"
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d ai_writing_functional_browser_e2e_test"
+          --health-cmd "pg_isready -U postgres -d ai_writing_functional_browser_agent_e2e_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 12
 
     env:
-      DATABASE_URL: "postgresql+asyncpg://postgres:${{ github.run_id }}@127.0.0.1:5432/ai_writing_functional_browser_e2e_test"
+      DATABASE_URL: "postgresql+asyncpg://postgres:${{ github.run_id }}@127.0.0.1:5432/ai_writing_functional_browser_agent_e2e_test"
       MAP_ATLAS_S3_BUCKET: "ai-writing-assist-map-atlas"
       WORLD_OBJECT_S3_BUCKET: "ai-writing-assist-world-objects"
       MAP_ATLAS_S3_REGION: "us-east-1"
@@ -141,13 +142,20 @@ jobs:
         if: steps.changes.outputs.browser == 'true'
         run: docker compose run --rm --no-deps minio-init
 
+      # Frontend changes run all behavior tests, including theme, reader and workspace flows.
       - name: Run frontend functional browser
         if: steps.changes.outputs.browser == 'true'
         env:
-          BROWSER_SUITE: ${{ github.event_name == 'pull_request' && 'test:e2e:smoke' || 'test:e2e:functional' }}
+          BROWSER_SUITE: ${{ steps.changes.outputs.browser_suite }}
         run: >-
           uv run --project backend --locked --extra ci --
           npm --prefix frontend-console run "$BROWSER_SUITE" -- --workers=1 --retries=0
+
+      - name: Run assistant behavior with its isolated synthetic model harness
+        if: steps.changes.outputs.browser == 'true'
+        run: >-
+          uv run --project backend --locked --extra ci --
+          npm --prefix frontend-console run test:e2e:assistant -- --workers=1 --retries=0
 
       - name: Upload frontend functional browser diagnostics
         if: failure() && steps.changes.outputs.browser == 'true'

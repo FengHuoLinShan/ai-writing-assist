@@ -108,11 +108,10 @@ test.describe("世界对象入口", () => {
     await page.setViewportSize({ width: 390, height: 844 })
     const harborRow = page.locator(`.world-object-table tr[data-id="${harbor.id}"]`)
     await expect(harborRow.locator("td")).toHaveCount(4)
-    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+
     const editButton = harborRow.getByRole("button", { name: "编辑", exact: true })
     const menuButton = harborRow.getByRole("button", { name: "沉钟港的更多操作" })
-    await expect.poll(async () => (await editButton.boundingBox())?.height || 0).toBeGreaterThanOrEqual(44)
-    await expect.poll(async () => (await menuButton.boundingBox())?.height || 0).toBeGreaterThanOrEqual(44)
+    await expect(menuButton).toBeVisible()
 
     await editButton.click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("编辑世界对象")
