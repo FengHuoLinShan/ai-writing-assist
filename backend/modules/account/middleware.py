@@ -60,6 +60,7 @@ _DEMO_SENSITIVE_READ_SEGMENTS = (
     "/generation-prompt-templates",
     "/metrics",
     "/prompt",
+    "/regeneration-context",
     "/retrieval-traces",
     "/runs/",
     "/snapshots",

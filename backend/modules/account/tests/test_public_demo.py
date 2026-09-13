@@ -18,6 +18,7 @@ from modules.account.middleware import (
 from modules.account.models import Account
 from modules.account.public_demo import PublicDemoConfig, configured_public_demo
 from modules.project.models import Project
+from modules.writing.models import WritingDraft
 
 
 class _SessionManager:
@@ -79,6 +80,35 @@ async def test_public_demo_config_and_scoped_viewer_routes(
     )
     db_session.add_all([demo, private])
     await db_session.flush()
+    published = WritingDraft(
+        novel_id=demo.id,
+        chapter_index=1,
+        title="已发布章节",
+        content="公开正文",
+        content_hash="a" * 64,
+        version_number=1,
+        status="published",
+    )
+    unpublished = WritingDraft(
+        novel_id=demo.id,
+        chapter_index=1,
+        title="未发布修改",
+        content="不得公开",
+        content_hash="b" * 64,
+        version_number=2,
+        status="draft",
+    )
+    draft_only = WritingDraft(
+        novel_id=demo.id,
+        chapter_index=2,
+        title="未发布章节",
+        content="不得公开",
+        content_hash="c" * 64,
+        version_number=1,
+        status="draft",
+    )
+    db_session.add_all([published, unpublished, draft_only])
+    await db_session.flush()
 
     monkeypatch.setenv("AUTH_MODE", "public")
     monkeypatch.setenv("AUTH_SECRET_KEY", "x" * 32)
@@ -119,6 +149,22 @@ async def test_public_demo_config_and_scoped_viewer_routes(
             f"/api/projects/{demo.id}?demo=1",
             json={"title": "不应写入"},
         )
+        chapters = await async_client.get(
+            f"/api/writing/chapters?novel_id={demo.id}&demo=1"
+        )
+        latest = await async_client.get(
+            f"/api/writing/chapters/1/draft?novel_id={demo.id}&demo=1"
+        )
+        versions = await async_client.get(
+            f"/api/writing/chapters/1/versions?novel_id={demo.id}&demo=1"
+        )
+        hidden_draft = await async_client.get(
+            f"/api/writing/drafts/{unpublished.id}?novel_id={demo.id}&demo=1"
+        )
+        regeneration = await async_client.get(
+            f"/api/writing/drafts/{published.id}/regeneration-context"
+            f"?novel_id={demo.id}&demo=1"
+        )
 
         assert config.json()["demo"] == {
             "enabled": True,
@@ -136,6 +182,12 @@ async def test_public_demo_config_and_scoped_viewer_routes(
         assert demo_search.status_code == 200
         assert cross_search.status_code == 404
         assert mutated.status_code == 401
+        assert chapters.json()["chapter_indices"] == [1]
+        assert chapters.json()["chapters"][0]["id"] == str(published.id)
+        assert latest.json()["id"] == str(published.id)
+        assert [item["id"] for item in versions.json()["versions"]] == [str(published.id)]
+        assert hidden_draft.status_code == 404
+        assert regeneration.status_code == 401
         assert (await db_session.get(Project, demo.id)).title == "公开演示"
     finally:
         get_settings.cache_clear()

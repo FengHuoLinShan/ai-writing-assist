@@ -21,6 +21,7 @@ from infrastructure.tasks.facade import (
     enqueue_task_with_optional_operation,
     get_operation_task,
 )
+from modules.account.facade import is_demo_readonly_principal
 from modules.evidence.facade import (
     bind_confirmed_action_result,
 )
@@ -513,7 +514,12 @@ async def get_draft(
 ) -> WritingDraftResponse:
     """获取指定草稿"""
     await require_active_project(db, novel_id)
-    return await _service.get_draft(db, draft_id, novel_id)
+    return await _service.get_draft(
+        db,
+        draft_id,
+        novel_id,
+        published_only=is_demo_readonly_principal(),
+    )
 
 
 @router.get(
@@ -693,7 +699,12 @@ async def get_latest_chapter_draft(
 ) -> WritingDraftResponse:
     """获取指定章节的最新草稿"""
     await require_active_project(db, novel_id)
-    return await _service.get_latest_draft(db, novel_id, chapter_index)
+    return await _service.get_latest_draft(
+        db,
+        novel_id,
+        chapter_index,
+        published_only=is_demo_readonly_principal(),
+    )
 
 
 @router.get(
@@ -708,7 +719,12 @@ async def get_chapter_version_history(
 ) -> VersionHistoryResponse:
     """获取指定章节的版本历史"""
     await require_active_project(db, novel_id)
-    return await _service.get_version_history(db, novel_id, chapter_index)
+    return await _service.get_version_history(
+        db,
+        novel_id,
+        chapter_index,
+        published_only=is_demo_readonly_principal(),
+    )
 
 
 @router.get(
@@ -722,7 +738,11 @@ async def list_chapters(
 ) -> ChapterIndicesResponse:
     """列出该小说所有有草稿的章节索引（去重、升序）"""
     await require_active_project(db, novel_id)
-    chapters = await _service.list_chapter_summaries(db, novel_id)
+    chapters = await _service.list_chapter_summaries(
+        db,
+        novel_id,
+        published_only=is_demo_readonly_principal(),
+    )
     return ChapterIndicesResponse(
         chapter_indices=[item.chapter_index for item in chapters],
         chapters=chapters,
