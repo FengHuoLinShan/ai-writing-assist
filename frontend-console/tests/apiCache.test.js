@@ -1086,6 +1086,33 @@ describe("api.js request headers", () => {
     }
   })
 
+  it("does not invalidate author state when the isolated demo RP session expires", async () => {
+    const onInvalidated = vi.fn((event) => event.preventDefault())
+    window.addEventListener(ACCOUNT_INVALIDATED_EVENT, onInvalidated)
+    try {
+      mockJsonResponse({ auth_mode: "public" })
+      await window.api.auth.config()
+      localStorage.setItem("draft_backup_project-1_1", "private")
+      globalThis.publicDemoRpMode = true
+      globalThis.fetch = vi.fn(() => Promise.resolve({
+        ok: false,
+        status: 401,
+        json: () => Promise.resolve({ detail: "Authentication required" }),
+      }))
+
+      await expect(window.api.interactions.getJourney("expired-demo"))
+        .rejects.toMatchObject({ status: 401 })
+
+      expect(onInvalidated).not.toHaveBeenCalled()
+      expect(localStorage.getItem("draft_backup_project-1_1")).toBe("private")
+    } finally {
+      globalThis.publicDemoRpMode = false
+      window.removeEventListener(ACCOUNT_INVALIDATED_EVENT, onInvalidated)
+      mockJsonResponse({ auth_mode: "closed_test" })
+      await window.api.auth.config()
+    }
+  })
+
   it("uses the same in-memory token for upload XHR without exposing a getter", async () => {
     window.api.setAccessToken("closed-token")
     const instances = []

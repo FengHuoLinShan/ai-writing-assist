@@ -10,7 +10,12 @@ from sqlalchemy import select
 from core.config import Settings
 from core.errors import NotFoundError, ValidationError
 from modules.account.api import _set_login_cookies
-from modules.account.constants import ANONYMOUS_RP_SESSION_SECONDS, SESSION_COOKIE_NAME
+from modules.account.constants import (
+    ANONYMOUS_RP_SESSION_SECONDS,
+    DEMO_RP_CSRF_COOKIE_NAME,
+    DEMO_RP_SESSION_COOKIE_NAME,
+    SESSION_COOKIE_NAME,
+)
 from modules.account.models import Account, AccountConsent, AccountIdentity, WebSession
 from modules.account.services import service
 
@@ -77,9 +82,13 @@ async def test_anonymous_rp_session_is_temporary_consented_and_keyless(
         response,
         result.login,
         max_age=ANONYMOUS_RP_SESSION_SECONDS,
+        session_cookie_name=DEMO_RP_SESSION_COOKIE_NAME,
+        csrf_cookie_name=DEMO_RP_CSRF_COOKIE_NAME,
     )
     cookies = "\n".join(response.headers.getlist("set-cookie"))
-    assert f"{SESSION_COOKIE_NAME}=" in cookies
+    assert f"{DEMO_RP_SESSION_COOKIE_NAME}=" in cookies
+    assert f"{DEMO_RP_CSRF_COOKIE_NAME}=" in cookies
+    assert f"{SESSION_COOKIE_NAME}=" not in cookies
     assert "HttpOnly" in cookies
     assert result.login.session_token in cookies
     assert "temporary-deepseek-key" not in cookies

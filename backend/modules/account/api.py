@@ -13,6 +13,8 @@ from core.errors import NotFoundError, ValidationError
 from modules.account.constants import (
     ANONYMOUS_RP_SESSION_SECONDS,
     CSRF_COOKIE_NAME,
+    DEMO_RP_CSRF_COOKIE_NAME,
+    DEMO_RP_SESSION_COOKIE_NAME,
     SESSION_COOKIE_NAME,
 )
 from modules.account.context import current_principal
@@ -50,12 +52,14 @@ def _set_login_cookies(
     result: LoginResult,
     *,
     max_age: int | None = None,
+    session_cookie_name: str = SESSION_COOKIE_NAME,
+    csrf_cookie_name: str = CSRF_COOKIE_NAME,
 ) -> None:
     settings = get_settings()
     secure = settings.public_base_url.startswith("https://")
     ttl = settings.session_absolute_seconds if max_age is None else max_age
     response.set_cookie(
-        SESSION_COOKIE_NAME,
+        session_cookie_name,
         result.session_token,
         httponly=True,
         secure=secure,
@@ -64,7 +68,7 @@ def _set_login_cookies(
         max_age=ttl,
     )
     response.set_cookie(
-        CSRF_COOKIE_NAME,
+        csrf_cookie_name,
         result.csrf_token,
         httponly=False,
         secure=secure,
@@ -135,6 +139,8 @@ async def create_anonymous_rp_session(
         response,
         result.login,
         max_age=ANONYMOUS_RP_SESSION_SECONDS,
+        session_cookie_name=DEMO_RP_SESSION_COOKIE_NAME,
+        csrf_cookie_name=DEMO_RP_CSRF_COOKIE_NAME,
     )
     return AnonymousRpSessionResponse(expires_at=result.expires_at)
 

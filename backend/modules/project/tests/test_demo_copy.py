@@ -336,6 +336,64 @@ async def test_demo_copy_rewrites_author_assets_and_is_idempotent(
 
 
 @pytest.mark.asyncio
+async def test_demo_copy_recovers_a_concurrent_unique_conflict(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _source_owner, target_owner, source = await _seed_source(db_session)
+    winner = Project(
+        owner_id=target_owner.id,
+        title="已创建的演示副本",
+        language="zh",
+        default_reveal_policy="author_safe",
+        settings={},
+    )
+    db_session.add(winner)
+    await db_session.flush()
+    db_session.add(
+        DemoProjectCopy(
+            owner_id=target_owner.id,
+            source_project_id=source.id,
+            source_version="concurrent-v1",
+            project_id=winner.id,
+        )
+    )
+    await db_session.flush()
+    project_count = int(await db_session.scalar(select(func.count(Project.id))) or 0)
+
+    monkeypatch.setenv("AUTH_MODE", "local")
+    monkeypatch.setenv("PUBLIC_DEMO_ENABLED", "true")
+    monkeypatch.setenv("PUBLIC_DEMO_PROJECT_ID", str(source.id))
+    monkeypatch.setenv("PUBLIC_DEMO_VERSION", "concurrent-v1")
+    get_settings.cache_clear()
+    token = bind_principal(_principal(target_owner))
+    service = DemoProjectCopyService()
+    find_copy = service._find_copy
+    calls = 0
+
+    async def hide_first_lookup(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return None
+        return await find_copy(*args, **kwargs)
+
+    monkeypatch.setattr(service, "_find_copy", hide_first_lookup)
+    try:
+        result = await service.copy(db_session)
+
+        assert result.status == "existing"
+        assert result.project.id == str(winner.id)
+        assert (
+            int(await db_session.scalar(select(func.count(Project.id))) or 0)
+            == project_count
+        )
+    finally:
+        reset_principal(token)
+        get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
 async def test_demo_principal_is_limited_to_the_configured_project(
     db_session: AsyncSession,
 ) -> None:
@@ -388,6 +446,21 @@ async def test_demo_copy_copies_world_object_media_with_fresh_keys(
     entity.image_version = uuid.uuid4()
     await db_session.flush()
     storage = _ImageStorage()
+    lock_acquired = False
+
+    async def tracked_lock(db, owner_id):
+        nonlocal lock_acquired
+        lock_acquired = True
+        return await lock_project_ids_for_owner(db, owner_id)
+
+    def require_unlocked_storage() -> None:
+        assert lock_acquired is False
+
+    storage.on_io = require_unlocked_storage
+    monkeypatch.setattr(
+        "modules.project.demo_copy.lock_project_ids_for_owner",
+        tracked_lock,
+    )
     for variant in ("full", "thumbnail"):
         source_key = image_object_key(
             str(source.id), str(entity.id), str(entity.image_version), variant
@@ -411,6 +484,7 @@ async def test_demo_copy_copies_world_object_media_with_fresh_keys(
                 )
             )
         ).scalar_one()
+        assert lock_acquired is True
         assert copied.image_version is not None
         assert copied.image_version != entity.image_version
         for variant in ("full", "thumbnail"):
@@ -465,6 +539,11 @@ async def test_demo_copy_rejects_images_above_the_account_quota(
     )
     await db_session.flush()
     storage = _ImageStorage()
+    storage.on_delete = lambda: (
+        None
+        if not db_session.in_transaction()
+        else pytest.fail("必须在释放账户配额锁后清理对象存储")
+    )
     for variant in ("full", "thumbnail"):
         storage.objects[
             image_object_key(
@@ -493,15 +572,20 @@ async def test_demo_copy_rejects_images_above_the_account_quota(
 class _ImageStorage:
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
+        self.on_io = lambda: None
+        self.on_delete = lambda: None
 
     async def get_webp(self, key: str, *, max_bytes: int) -> bytes:
         del max_bytes
+        self.on_io()
         return self.objects[key]
 
     async def put_webp(self, key: str, payload: bytes) -> None:
+        self.on_io()
         self.objects[key] = payload
 
     async def delete_object(self, key: str) -> None:
+        self.on_delete()
         self.objects.pop(key, None)
 
 
