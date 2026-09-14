@@ -334,6 +334,7 @@ test.describe("世界书工作台", () => {
     await expect(page.locator(SEL.modalBody)).toContainText("丢弃这个工作稿")
     await page.locator(SEL.modalFooter).locator(".btn-danger").click()
     await expect(page.locator(SEL.toastContainer)).toContainText("已丢弃")
+    await expect(page.locator("[data-action='world-reader-edit']")).toBeVisible()
 
     await openMoreTool(page, "管理分类")
     await expect(page.locator(SEL.modalTitle)).toHaveText("管理世界书分类")
