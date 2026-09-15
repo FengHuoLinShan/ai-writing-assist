@@ -18,6 +18,10 @@ from core.errors import DomainError, ValidationError
 from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+from modules.evidence.contracts import (
+    GroupSource,
+    govern_group_output,
+)
 from modules.world.models import Character, CoreEntity, EntityRelation, Event
 from modules.world.repositories import CoreEntityRepository
 from modules.world.schemas import EntityFusionApplyItem
@@ -815,6 +819,44 @@ class WorldEntityFusionService:
             stale_pairs=stale_pairs,
             decisions=all_decisions if include_all_decisions else None,
         )
+        client = self._llm_client
+        if client is None:  # pragma: no cover - task entry always binds one.
+            raise RuntimeError("project LLM client is required")
+        governed = await govern_group_output(
+            client,
+            capability="world.entity_fusion",
+            novel_id=plan.novel_id,
+            group_key=plan.workflow_id or plan.input_fingerprint,
+            sources=(
+                GroupSource(
+                    source_key="entity_fusion_pairs",
+                    source_type="world_entities",
+                    content_hash=plan.input_fingerprint,
+                    label="对象融合候选与证据",
+                    dimensions=("world_entities", "imported_assets"),
+                ),
+            ),
+            output=json.dumps(result, ensure_ascii=False, default=str),
+            task_instruction="判断对象对应合并、登记别名或保持独立。",
+            generator_context=json.dumps(
+                [
+                    {
+                        "source": pair.source_snapshot,
+                        "target": pair.target_snapshot,
+                        "evidence": pair.evidence,
+                    }
+                    for pair in plan.pairs
+                ],
+                ensure_ascii=False,
+                default=str,
+            ),
+            step_prefix="world.entity_fusion.knowledge",
+        )
+        review = governed["review"]
+        result["knowledge_review"] = review
+        result["suggestions"] = [
+            {**item, "knowledge_review": review} for item in result["suggestions"]
+        ]
         await _run_checkpoint_callback(checkpoint_callback, result, 1.0)
         return result
 

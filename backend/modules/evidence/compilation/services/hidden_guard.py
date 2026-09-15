@@ -1,10 +1,17 @@
-"""Hidden guard material for character reveal validation."""
+"""Hidden guard material for character reveal validation.
+
+Guard terms derive from the frozen compile's own sources (authoritative scope)
+instead of re-querying the world with arbitrary limits. The literal guard stays
+a deterministic first layer; synonym/implicit spoilers belong to the semantic
+audit (ADR-0025).
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.evidence.compilation.contracts import ConfirmedAIActionContext
@@ -29,72 +36,132 @@ class HiddenGuardBuilder:
         confirmed_context: ConfirmedAIActionContext,
     ) -> list[HiddenGuardTerm]:
         options = dict(confirmed_context.compile_options or {})
-        novel_id = confirmed_context.confirmation.novel_id
         character_id = options.get("viewpoint_character_id")
         if not character_id:
             return []
 
+        novel_id = confirmed_context.confirmation.novel_id
+        entity_ids, relation_ids = self._collect_frozen_targets(confirmed_context)
+        knowledge_by_id = await self._knowledge_by_target(
+            db,
+            novel_id=novel_id,
+            character_id=str(character_id),
+            entity_ids=entity_ids,
+            relation_ids=relation_ids,
+            visible_until_chapter=options.get("visible_until_chapter"),
+        )
+
         terms: list[HiddenGuardTerm] = []
-        terms.extend(
-            await self._world_hidden_terms(
-                db,
-                novel_id=novel_id,
-                character_id=character_id,
+        if entity_ids:
+            terms.extend(
+                await self._world_hidden_terms(
+                    db,
+                    novel_id=novel_id,
+                    entity_ids=entity_ids,
+                    knowledge_by_id=knowledge_by_id,
+                )
             )
-        )
-        terms.extend(
-            await self._relation_hidden_terms(
-                db,
-                novel_id=novel_id,
-                character_id=character_id,
+        if relation_ids:
+            terms.extend(
+                await self._relation_hidden_terms(
+                    db,
+                    novel_id=novel_id,
+                    relation_ids=relation_ids,
+                    knowledge_by_id=knowledge_by_id,
+                )
             )
-        )
         terms.extend(self._director_terms(confirmed_context, options))
         return self._dedupe_terms(terms)
 
-    async def _world_hidden_terms(
-        self,
+    @staticmethod
+    def _collect_frozen_targets(
+        confirmed_context: ConfirmedAIActionContext,
+    ) -> tuple[list[str], list[str]]:
+        """Enumerate guard targets from the frozen compile's own sources.
+
+        The compile is the authoritative frozen scope, so every world entity or
+        relation it referenced is guarded — no arbitrary limit and no second
+        unbounded world query.
+        """
+        entity_ids: dict[str, str] = {}
+        relation_ids: set[str] = set()
+        for section in confirmed_context.compiled.sections:
+            for source in section.sources:
+                source_type = str(source.get("type") or "")
+                source_id = str(source.get("id") or "")
+                if not source_id:
+                    continue
+                if source_type in {"entity", "world_entity", "character", "item",
+                    "location", "faction", "event"}:
+                    entity_ids.setdefault(source_id, str(source.get("label") or ""))
+                elif source_type in {"relation", "entity_relation"}:
+                    relation_ids.add(source_id)
+        return sorted(entity_ids), sorted(relation_ids)
+
+    @staticmethod
+    async def _knowledge_by_target(
         db: AsyncSession,
         *,
         novel_id: str,
         character_id: str,
-    ) -> list[HiddenGuardTerm]:
-        from modules.world.facade import (
-            get_character_knowledge_context,
-            get_world_context,
-        )
+        entity_ids: list[str],
+        relation_ids: list[str],
+        visible_until_chapter: int | None,
+    ) -> dict[str, Any]:
+        from modules.world.facade import get_character_knowledge_context
 
-        world = await get_world_context(
-            db,
-            novel_id,
-            reveal_mode="author_full",
-            limit=100,
-        )
-        entities = [
-            item.model_dump() if hasattr(item, "model_dump") else dict(item)
-            for item in (world.entities if world else [])
-        ]
-        target_ids = [str(item.get("entity_id") or item.get("id")) for item in entities]
+        target_ids = sorted(set(entity_ids) | set(relation_ids))
+        valid_ids = [str(item) for item in target_ids if _is_uuid(item)]
+        if not valid_ids:
+            return {}
         knowledge = await get_character_knowledge_context(
             db,
             novel_id,
             character_id,
-            target_ids=[item for item in target_ids if item],
+            target_ids=valid_ids,
+            visible_until_chapter=(
+                int(visible_until_chapter)
+                if visible_until_chapter is not None
+                else None
+            ),
         )
-        knowledge_by_id = {str(item.target_id): item for item in knowledge or []}
+        return {str(item.target_id): item for item in knowledge or []}
 
+    @staticmethod
+    async def _world_hidden_terms(
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        entity_ids: list[str],
+        knowledge_by_id: dict[str, Any],
+    ) -> list[HiddenGuardTerm]:
+        import uuid as uuid_module
+
+        from modules.world.models import CoreEntity
+
+        parsed = [uuid_module.UUID(hex=item) for item in entity_ids if _is_uuid(item)]
+        if not parsed:
+            return []
+        rows = (
+            (
+                await db.execute(
+                    select(CoreEntity).where(
+                        CoreEntity.novel_id == uuid_module.UUID(hex=novel_id),
+                        CoreEntity.id.in_(parsed),
+                        CoreEntity.hidden_truth.is_not(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
         terms: list[HiddenGuardTerm] = []
-        for item in entities:
-            entity_id = str(item.get("entity_id") or item.get("id") or "")
-            if not entity_id:
-                continue
+        for entity in rows:
+            entity_id = str(entity.id)
             record = knowledge_by_id.get(entity_id)
             if getattr(record, "knowledge_level", None) == "full":
                 continue
-            hidden_truth = item.get("hidden_truth")
-            if not hidden_truth:
-                continue
-            for phrase in _guard_phrases(hidden_truth):
+            for phrase in _guard_phrases(entity.hidden_truth):
                 terms.append(
                     HiddenGuardTerm(
                         phrase=phrase,
@@ -102,35 +169,41 @@ class HiddenGuardBuilder:
                         severity="error",
                         source_type="core_entity",
                         source_id=entity_id,
-                        source_label=str(item.get("name") or "已过滤的隐藏事实"),
+                        source_label=str(entity.name or "已过滤的隐藏事实"),
                     )
                 )
         return terms
 
+    @staticmethod
     async def _relation_hidden_terms(
-        self,
         db: AsyncSession,
         *,
         novel_id: str,
-        character_id: str,
+        relation_ids: list[str],
+        knowledge_by_id: dict[str, Any],
     ) -> list[HiddenGuardTerm]:
-        from modules.world.facade import (
-            get_character_knowledge_context,
-            get_entity_relations,
-        )
+        import uuid as uuid_module
 
-        relations, _total = await get_entity_relations(db, novel_id, skip=0, limit=200)
-        relation_ids = [str(item.id) for item in relations or []]
-        knowledge = await get_character_knowledge_context(
-            db,
-            novel_id,
-            character_id,
-            target_ids=relation_ids,
-        )
-        knowledge_by_id = {str(item.target_id): item for item in knowledge or []}
+        from modules.world.models import EntityRelation
 
+        parsed = [uuid_module.UUID(hex=item) for item in relation_ids if _is_uuid(item)]
+        if not parsed:
+            return []
+        rows = (
+            (
+                await db.execute(
+                    select(EntityRelation).where(
+                        EntityRelation.novel_id == uuid_module.UUID(hex=novel_id),
+                        EntityRelation.id.in_(parsed),
+                        EntityRelation.description.is_not(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
         terms: list[HiddenGuardTerm] = []
-        for rel in relations or []:
+        for rel in rows:
             record = knowledge_by_id.get(str(rel.id))
             if getattr(record, "knowledge_level", None) == "full":
                 continue
@@ -188,6 +261,16 @@ class HiddenGuardBuilder:
             seen.add(key)
             result.append(term)
         return result
+
+
+def _is_uuid(value: object) -> bool:
+    import uuid as uuid_module
+
+    try:
+        uuid_module.UUID(hex=str(value))
+    except (ValueError, AttributeError, TypeError):
+        return False
+    return True
 
 
 def _guard_phrases(value: str | None) -> list[str]:

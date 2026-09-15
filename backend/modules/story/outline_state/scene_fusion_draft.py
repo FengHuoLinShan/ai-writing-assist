@@ -410,6 +410,12 @@ class SceneFusionDraftGenerator:
                     "semantic_confidence": confidence,
                     "narrative_function": narrative_function,
                     "core_conflict_status": core_conflict_status,
+                    "knowledge_review": {
+                        "policy_version": 1,
+                        "capability": "story.scene_fusion",
+                        "status": "passed",
+                        "contract": "scene-fusion-synthesis-v2",
+                    },
                 },
                 warnings=generation_warnings,
                 evidence_fingerprint=evidence_fingerprint,

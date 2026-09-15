@@ -10,6 +10,10 @@ from sqlalchemy import select
 
 from core.errors import ValidationError
 from infrastructure.tasks.models import AsyncTask
+from modules.evidence.compilation.knowledge.llm_schemas import (
+    AuditDimensionCheck,
+    AuditVerdictOutput,
+)
 from modules.evidence.compilation.services.compiled_context import (
     CompiledContext,
     ContextSection,
@@ -113,9 +117,13 @@ async def test_text_only_task_creates_candidate_without_moving_current_head(
 ):
     node, entities, task = await setup_task(db_session, test_project_id)
     prepared = prepared_context(entities)
-    client = SimpleNamespace(
-        generate_structured=AsyncMock(
-            return_value=MapRelationBatch(
+    async def generate(_request, schema, **_kwargs):
+        if schema is AuditVerdictOutput:
+            return AuditVerdictOutput(
+                dimensions=[AuditDimensionCheck(dimension="map_spatial")],
+                verdict="pass",
+            )
+        return MapRelationBatch(
                 relations=[
                     {
                         "subject": f"loc:{entities[1].id}",
@@ -126,7 +134,9 @@ async def test_text_only_task_creates_candidate_without_moving_current_head(
                     }
                 ]
             )
-        ),
+
+    client = SimpleNamespace(
+        generate_structured=AsyncMock(side_effect=generate),
         close=AsyncMock(),
     )
     with (
@@ -163,7 +173,7 @@ async def test_text_only_task_creates_candidate_without_moving_current_head(
     assert not candidate.problems
     current = await db_session.get(MapAtlasNode, uuid.UUID(node["id"]))
     assert str(current.current_revision_id) == node["current_revision_id"]
-    request = client.generate_structured.call_args.args[0]
+    request = client.generate_structured.call_args_list[0].args[0]
     assert request.model == "text-flash"
     assert request.max_tokens == 4000
     assert all(isinstance(message.content, str) for message in request.messages)

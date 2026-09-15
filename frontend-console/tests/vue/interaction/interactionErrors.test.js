@@ -29,6 +29,7 @@ describe("RP 安全错误文案", () => {
     [{ error_kind: "context_budget" }, "context_budget"],
     [{ error_kind: "source_context_stale" }, "source_context_stale"],
     [{ error_kind: "source_context_blocked" }, "source_context_blocked"],
+    [{ error_kind: "knowledge_review_blocked" }, "knowledge_review_blocked"],
     [{ error_kind: "empty_response" }, "empty_response"],
     [{ message: "当前浏览器无法安全生成操作标识，请更换浏览器后重试" }, "client_security"],
   ])("把稳定错误形状映射到本地文案", (error, expectedKind) => {

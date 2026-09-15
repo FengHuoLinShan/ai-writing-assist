@@ -323,3 +323,5 @@ P13 v4 的 `entity_type` 清单来自同一系统校验集合，同时进入首�
 智能整理导入候选使用 Imports 的 `import_review_resolution` 持久任务，工作台与项目助手共用入口；
 结果区分已整理、需要决定、可选建议与处理未完成。授权、恢复、来源和质量资格边界见
 `backend/modules/imports/README.md` 的“智能整理现有候选”。旧候选与旧授权不自动迁移。
+
+Phase 1/2/3、定向补全与 review resolution 按窗口/Scene/候选组/问题组执行知识复核；blocked 不进入正式写入，回执进现有 checkpoint 以供恢复。

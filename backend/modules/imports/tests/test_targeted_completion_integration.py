@@ -9,6 +9,10 @@ import pytest
 from sqlalchemy import select
 
 from infrastructure.tasks.models import AsyncTask
+from modules.evidence.compilation.knowledge.llm_schemas import (
+    AuditDimensionCheck,
+    AuditVerdictOutput,
+)
 from modules.imports.orchestrator import DeepImportOrchestrator
 from modules.imports.workflow_runs import ImportWorkflowRunService
 from modules.world.facade import initialize_world_canon
@@ -30,6 +34,18 @@ def provider(monkeypatch, db_session):
 
     async def structured(client, request, schema, **kwargs):
         assert not db_session.in_transaction(), "provider I/O held a DB transaction"
+        if schema is AuditVerdictOutput:
+            return AuditVerdictOutput(
+                dimensions=[
+                    AuditDimensionCheck(dimension=dimension)
+                    for dimension in (
+                        "prior_prose",
+                        "imported_assets",
+                        "world_entities",
+                    )
+                ],
+                verdict="pass",
+            )
         payload = json.loads(request.messages[1].content)
         calls.append({"step": kwargs["step_name"], "payload": payload})
         if kwargs["step_name"] == "evidence.focused_neighbors":
@@ -149,6 +165,10 @@ def provider(monkeypatch, db_session):
     )
     monkeypatch.setattr(
         "modules.evidence.compilation.services.focused_evidence.run_managed_structured",
+        structured,
+    )
+    monkeypatch.setattr(
+        "modules.evidence.compilation.knowledge.workflow.run_managed_structured",
         structured,
     )
     monkeypatch.setattr("infrastructure.llm.client.LLMClient.generate_embedding", embed)

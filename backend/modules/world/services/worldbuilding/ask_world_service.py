@@ -142,6 +142,12 @@ class AskWorldService:
                     included,
                     model=model,
                 )
+                generated, knowledge_review = await self._govern_answer(
+                    client,
+                    data,
+                    included,
+                    generated,
+                )
                 provider = str(client.provider)
             await self._revalidate_sources(db, data.novel_id, included)
             response = self._response_from_generated(
@@ -152,6 +158,9 @@ class AskWorldService:
                 model=model,
                 provider=provider,
                 snapshot_id=snapshot_id,
+            )
+            response = response.model_copy(
+                update={"knowledge_review": knowledge_review}
             )
         except Exception as exc:
             if snapshot_id:
@@ -453,6 +462,82 @@ class AskWorldService:
                 }
             )
         return candidates, len(bundle.entities) > _MAX_WORLD_OBJECT_CANDIDATES
+
+    async def _govern_answer(
+        self,
+        client: LLMClient,
+        data: AskWorldQuestionRequest,
+        sources: list[dict],
+        generated: GeneratedAskWorldOutput,
+    ) -> tuple[GeneratedAskWorldOutput, dict]:
+        """全知审查问答输出（world.ask，ADR-0025）。
+
+        blocked 时以 no-answer 形态返回（不携带任何 claim/正文），回执随响应
+        透出；Ask World 属展示类能力，不做返修（作者可调整问题重试）。
+        """
+        from modules.world.schemas import WorldBibleSourceRef
+        from modules.world.services.worldbuilding.knowledge_governance import (
+            govern_world_output,
+            serialize_governed_output,
+        )
+
+        refs = []
+        for item in sources:
+            citation = item.get("citation")
+            if isinstance(citation, dict):
+                page_id = citation.get("page_id")
+                target_ref = citation.get("target_ref") or {}
+                target_id = (
+                    target_ref.get("id") if isinstance(target_ref, dict) else None
+                )
+                chapter_index = citation.get("chapter_index")
+            else:
+                page_id = getattr(citation, "page_id", None)
+                target_ref = getattr(citation, "target_ref", None) or {}
+                target_id = (
+                    target_ref.get("id") if isinstance(target_ref, dict) else None
+                )
+                chapter_index = getattr(citation, "chapter_index", None)
+            kind = str(item["kind"])
+            refs.append(
+                WorldBibleSourceRef(
+                    source_type=(
+                        "world_bible_page"
+                        if kind == "world_bible_page"
+                        else "core_entity"
+                        if kind == "world_object"
+                        else "writing_chapter"
+                    ),
+                    source_id=str(page_id or target_id or chapter_index or "") or None,
+                    source_hash=str(item.get("source_hash") or ""),
+                    title=str(item.get("title") or kind),
+                    chapter_index=chapter_index,
+                )
+            )
+        rendered = "\n\n".join(
+            f"【{item['title']}】\n{item.get('content') or ''}" for item in sources
+        )
+        result = await govern_world_output(
+            client,
+            capability="world.ask",
+            novel_id=data.novel_id,
+            source_refs=refs,
+            rendered_context=rendered,
+            output=serialize_governed_output(generated),
+            task_instruction="回答作者关于当前世界设定的问题；每条事实必须引用来源",
+        )
+        review = result["review"]
+        if result["status"] == "passed":
+            return generated, review
+        return (
+            GeneratedAskWorldOutput(
+                answer="（本次不作答）",
+                claims=[],
+                no_answer=True,
+                uncertainty="知识审查未通过：回答可能越界或缺乏来源支持，本次不作答。",
+            ),
+            review,
+        )
 
     async def _generate(
         self,

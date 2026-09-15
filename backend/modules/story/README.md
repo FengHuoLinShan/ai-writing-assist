@@ -133,3 +133,7 @@ P20采用在同一事务向 source.changed 发出真实成果引用；规则引�
 ## 导入场景的定向核对
 
 Story 提供 `preview_import_scene_resolution`、`apply_import_scene_resolution` 和对应撤销 seam。Imports 冻结原场景指纹、从 Evidence 读取来源、执行边界提案与终检；Story 在提交时重验正文和全章覆盖。当前仅自动处理原定位不变、未编辑的导入草稿；改变引用范围的提案保持待决定。字段必须有独立证据，不因边界正确而自动通过写作约束，自动核对不伪造人工 reviewed_at。
+
+## 知识回执
+
+P20、人物卡/反应/剧本预览、总纲与 Scene fusion 在输出后复核。总纲/P20 采用经 Evidence 公共门禁要求 `knowledge_review.status=passed`；旧任务或 blocked 回执必须重新生成。

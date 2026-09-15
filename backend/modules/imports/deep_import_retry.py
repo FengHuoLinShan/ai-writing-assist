@@ -81,6 +81,8 @@ def classify_deep_import_error(exc: Exception) -> DeepImportErrorType:
         return "timeout"
     if isinstance(exc, (LLMTimeoutError, TimeoutError)):
         return "timeout"
+    if "knowledge_governance_blocked" in text:
+        return "quality_gate"
     if isinstance(exc, httpx.TimeoutException):
         return "timeout"
     if _looks_like_empty_result(exc):

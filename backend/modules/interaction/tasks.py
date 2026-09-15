@@ -149,6 +149,26 @@ async def handle_interaction_story_generate(db, task):
             progress=0.95,
         )
         pending_visible = ""
+        # ADR-0025 held release：审查通过前正文留在私有 hold，不写 visible_text。
+        governed = await _workflow.govern_held_story(
+            db,
+            task=task,
+            client=client,
+            prepared=prepared,
+        )
+        if governed["status"] == "passed":
+            await _workflow.release_story_task(
+                db,
+                task=task,
+                text=governed["text"],
+                review=governed.get("review"),
+            )
+        else:
+            return await _workflow.fail_knowledge_hold(
+                db,
+                task=task,
+                review=governed.get("review") or {},
+            )
         return await _workflow.finalize_story_task(
             db,
             task=task,

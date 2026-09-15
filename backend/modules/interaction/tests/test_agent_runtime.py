@@ -30,9 +30,10 @@ from modules.interaction.runtime_policy import (
 from modules.interaction.schemas import JourneyCreateRequest
 from modules.interaction.services import InteractionService
 from modules.interaction.tasks import handle_interaction_story_generate
+from modules.interaction.tests.governance_fakes import GovernedAuditMixin
 
 
-class PlanningClient:
+class PlanningClient(GovernedAuditMixin):
     model_name = "deepseek-v4-flash"
 
     def __init__(self):
@@ -140,7 +141,13 @@ async def test_agent_story_uses_selected_history_then_existing_stream_finalizer(
         result = await handle_interaction_story_generate(db_session, task)
         assert result["status"] == "completed"
     attempt = await db_session.get(InteractionGenerationAttempt, attempt_id)
-    assert attempt.visible_text == "街道很静，报童站在路口。"
+    if fail_stream:
+        # ADR-0025 held release：未通过审查的部分正文不再公开，只留私有记录
+        assert attempt.visible_text == ""
+        hold = (attempt.agent_checkpoint_json or {}).get("knowledge_hold") or {}
+        assert hold.get("text") == "街道很静，报童站在路口。"
+    else:
+        assert attempt.visible_text == "街道很静，报童站在路口。"
     assert attempt.usage["agent_budget"]["requests"] == 3
     assert attempt.status == ("failed" if fail_stream else "completed")
     assert attempt.usage["prompt_tokens"] == (20 if fail_stream else 27)
@@ -336,7 +343,7 @@ async def test_closed_search_does_not_break_a_frozen_length_continuation(monkeyp
     async def scope():
         return False, [], []
 
-    class Client:
+    class Client(GovernedAuditMixin):
         model_name = "deepseek-flash"
 
         async def generate_stream(self, request, **kwargs):

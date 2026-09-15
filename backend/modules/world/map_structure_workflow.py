@@ -18,6 +18,7 @@ from infrastructure.tasks.facade import (
     require_running_task_attempt,
     require_task_checkpoint_session,
 )
+from modules.evidence.contracts import GroupSource, govern_group_output
 from modules.evidence.facade import (
     attach_result_ref,
     prepare_confirmed_ai_action,
@@ -687,6 +688,38 @@ async def run_structure(db, task):
                     partial_list_fields={"relations"},
                     diagnostics=diagnostics,
                 )
+                governed = await govern_group_output(
+                    client,
+                    capability="world.map_structure.generate",
+                    novel_id=novel_id,
+                    group_key=f"batch:{batch_index}",
+                    sources=(
+                        GroupSource(
+                            source_key=f"map_sources:{batch_index}",
+                            source_type="imported_assets",
+                            content_hash=hashlib.sha256(
+                                json.dumps(
+                                    texts, ensure_ascii=False, sort_keys=True
+                                ).encode("utf-8")
+                            ).hexdigest(),
+                            label="地图结构证据",
+                            dimensions=(
+                                "map_spatial",
+                                "world_entities",
+                                "world_rules",
+                                "imported_assets",
+                            ),
+                        ),
+                    ),
+                    output=output.model_dump_json(),
+                    task_instruction="从已确认资料中提取地图结构关系。",
+                    generator_context=relation_prompt(
+                        symbols, sorted(batch_keys), texts
+                    ),
+                    step_prefix="world.map_structure.generate.knowledge",
+                )
+                if governed["status"] != "passed":
+                    raise ValueError("knowledge_governance_blocked")
                 relations, reasons = check_extracted_relations(
                     output, valid_keys, batch_keys, texts
                 )
@@ -705,6 +738,7 @@ async def run_structure(db, task):
                     "failed": False,
                     "truncated": truncated,
                     "source_keys": sorted(texts),
+                    "knowledge_review": governed["review"],
                 }
             except Exception:
                 call_summary = structured_call_summary(diagnostics)

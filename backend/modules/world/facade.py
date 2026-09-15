@@ -11,6 +11,8 @@ Facade 不写复杂业务逻辑，只做稳定的对外代理。
   worldbuilding_facade — 世界书 / 上下文激活
 """
 
+from typing import TYPE_CHECKING
+
 from modules.world.attention_facade import (  # noqa: F401
     get_author_attention_summary,
 )
@@ -70,6 +72,9 @@ from modules.world.event_facade import (  # noqa: F401
 from modules.world.map_atlas_facade import (  # noqa: F401
     list_adopted_map_continuity_facts,
 )
+from modules.world.services.core.knowledge_visibility_service import (
+    check_knowledge_visibility as _check_knowledge_visibility_impl,
+)
 from modules.world.worldbuilding_facade import (  # noqa: F401
     apply_focused_world_package,
     apply_review_resolution_decision,
@@ -93,6 +98,13 @@ from modules.world.worldbuilding_facade import (  # noqa: F401
     submit_focused_world_package,
 )
 
+if TYPE_CHECKING:
+
+    pass
+
+check_knowledge_visibility = _check_knowledge_visibility_impl
+
+
 # Frozen cross-module API. New names require a deletion test, contract/README
 # update, and an explicit change to the public-surface regression test.
 __all__ = [
@@ -102,6 +114,7 @@ __all__ = [
     "apply_review_resolution_decision",
     "resolve_redundant_review_alias",
     "authorize_focused_world_completion",
+    "check_knowledge_visibility",
     "submit_focused_world_package",
     "apply_focused_world_package",
     "rollback_focused_world_package",

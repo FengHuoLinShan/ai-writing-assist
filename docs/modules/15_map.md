@@ -289,3 +289,5 @@ World 影响清单将地图节点绑定到当前空间 revision，来源读取�
 ### 上游智能整理
 
 世界对象可经作者审核或已授权、通过证据及准入门禁的智能整理成为已采用资料。地图仍只消费已采用资料；导入整理不生成/采用地图，也不把普通地点名称当作坐标或地理关系。已有空间位置和地图采用/回滚状态机继续由地图域维护。
+
+地图结构关系、Atlas plan 和图像 Prompt brief 分别绑定 `world.map_structure.generate / world.map_atlas.plan / world.map_image_prompt` 回执。栵格图像不参与事实审查，blocked plan/brief 不进入生图。

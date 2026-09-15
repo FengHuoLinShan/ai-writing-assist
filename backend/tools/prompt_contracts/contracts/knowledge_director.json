@@ -1,0 +1,31 @@
+{
+  "id": "knowledge_director",
+  "version": 1,
+  "owner": "evidence",
+  "schema_model": "modules.evidence.compilation.knowledge.llm_schemas.DirectorShardPlan",
+  "declared_prompt_fields": [
+    "dispositions",
+    "dispositions.source_key",
+    "dispositions.disposition",
+    "dispositions.reason"
+  ],
+  "forbidden_fields": [
+    "id",
+    "novel_id",
+    "chapter_index",
+    "scene_id",
+    "visibility",
+    "canon_status"
+  ],
+  "required_evidence_field": null,
+  "strict_schema_coverage": true,
+  "required_mappings": [],
+  "observed_fields": [
+    "dispositions",
+    "dispositions.source_key",
+    "dispositions.disposition",
+    "dispositions.reason"
+  ],
+  "ignored_fields": [],
+  "probes": []
+}

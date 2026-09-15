@@ -1,0 +1,9 @@
+{
+  "dispositions": [
+    {
+      "source_key": "source-1",
+      "disposition": "required_for_generation",
+      "reason": "支持本次任务"
+    }
+  ]
+}

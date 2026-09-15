@@ -1,0 +1,45 @@
+{
+  "id": "knowledge_audit",
+  "version": 1,
+  "owner": "evidence",
+  "schema_model": "modules.evidence.compilation.knowledge.llm_schemas.AuditVerdictOutput",
+  "declared_prompt_fields": [
+    "findings",
+    "findings.kind",
+    "findings.severity",
+    "findings.message",
+    "findings.excerpt",
+    "findings.source_key",
+    "dimensions",
+    "dimensions.dimension",
+    "dimensions.checked",
+    "dimensions.note",
+    "verdict"
+  ],
+  "forbidden_fields": [
+    "id",
+    "novel_id",
+    "chapter_index",
+    "scene_id",
+    "visibility",
+    "canon_status"
+  ],
+  "required_evidence_field": null,
+  "strict_schema_coverage": true,
+  "required_mappings": [],
+  "observed_fields": [
+    "findings",
+    "findings.kind",
+    "findings.severity",
+    "findings.message",
+    "findings.excerpt",
+    "findings.source_key",
+    "dimensions",
+    "dimensions.dimension",
+    "dimensions.checked",
+    "dimensions.note",
+    "verdict"
+  ],
+  "ignored_fields": [],
+  "probes": []
+}

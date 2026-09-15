@@ -13,7 +13,7 @@ import re
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from copy import deepcopy
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
@@ -133,6 +133,14 @@ class _WritingGenerationTaskPlan:
     scene_execution_bundle_hash: str | None
     confirm_stale_story_assets: bool
     story_asset_basis: tuple[dict[str, Any], ...]
+    knowledge_policy_id: str = ""
+    knowledge_scope_receipt: dict[str, Any] = field(default_factory=dict)
+    knowledge_generator_keys: tuple[str, ...] = ()
+    knowledge_audit_only_keys: tuple[str, ...] = ()
+    knowledge_hidden_phrases: tuple[str, ...] = ()
+    knowledge_task_instruction: str = ""
+    knowledge_generator_context: str = ""
+    knowledge_authority_context: str = ""
 
 
 _DEFAULT_WRITING_SYSTEM_PROMPT = (
@@ -215,6 +223,25 @@ def _sanitize_draft_create(
         "title_html_removed": title.html_removed,
         "content_html_removed": content.html_removed,
     }
+
+
+def _mark_knowledge_review_stale(
+    provenance: dict[str, Any],
+    *,
+    changed: bool,
+) -> dict[str, Any]:
+    """作者实质修改后，先前的 AI 知识审查 PASS 不再适用（不清除历史记录）。"""
+    knowledge = provenance.get("knowledge_review")
+    if changed and isinstance(knowledge, dict) and knowledge:
+        provenance["knowledge_review"] = {**knowledge, "stale_after_edit": True}
+    return provenance
+
+
+def _mark_knowledge_review_stale_in_place(draft: object) -> None:
+    provenance = dict(getattr(draft, "provenance_json", None) or {})
+    _mark_knowledge_review_stale(provenance, changed=True)
+    if provenance.get("knowledge_review", {}).get("stale_after_edit"):
+        draft.provenance_json = provenance  # type: ignore[union-attr]
 
 
 def _sanitize_draft_update(data: WritingDraftUpdate) -> WritingDraftUpdate:
@@ -525,6 +552,13 @@ class WritingDraftService:
 
         await validate_candidate_upstream(db, draft)
 
+        from modules.evidence.contracts import require_knowledge_review_for_adoption
+
+        require_knowledge_review_for_adoption(
+            dict(draft.provenance_json or {}),
+            label="该 AI 正文候选",
+        )
+
         adopted_at = datetime.now(UTC).isoformat()
         adopted_provenance = {
             **(draft.provenance_json or {}),
@@ -603,8 +637,9 @@ class WritingDraftService:
             if sanitized_data.content is not None
             else draft.content
         )
+        content_changed = has_substantive_change(draft.content, next_content)
         if draft.status == "published":
-            if not has_substantive_change(draft.content, next_content):
+            if not content_changed:
                 return WritingDraftResponse.model_validate(draft)
             copied = WritingDraftCreate(
                 novel_id=str(draft.novel_id),
@@ -619,18 +654,21 @@ class WritingDraftService:
                     if sanitized_data.content is not None
                     else draft.content
                 ),
-                provenance_json={
-                    **(draft.provenance_json or {}),
-                    "copied_from_published_draft_id": str(draft.id),
-                    "base_draft_id": str(draft.id),
-                    "version_origin": "auto",
-                },
+                provenance_json=_mark_knowledge_review_stale(
+                    {
+                        **(draft.provenance_json or {}),
+                        "copied_from_published_draft_id": str(draft.id),
+                        "base_draft_id": str(draft.id),
+                        "version_origin": "auto",
+                    },
+                    changed=content_changed,
+                ),
             )
             updated = await self._repo.create(db, copied)
             updated.conflict_check_snapshot_json = draft.conflict_check_snapshot_json
             await db.flush()
         elif (draft.provenance_json or {}).get("version_origin") == "manual":
-            if not has_substantive_change(draft.content, next_content):
+            if not content_changed:
                 return WritingDraftResponse.model_validate(draft)
             copied = WritingDraftCreate(
                 novel_id=str(draft.novel_id),
@@ -641,11 +679,14 @@ class WritingDraftService:
                     else draft.title
                 ),
                 content=next_content,
-                provenance_json={
-                    **(draft.provenance_json or {}),
-                    "base_draft_id": str(draft.id),
-                    "version_origin": "auto",
-                },
+                provenance_json=_mark_knowledge_review_stale(
+                    {
+                        **(draft.provenance_json or {}),
+                        "base_draft_id": str(draft.id),
+                        "version_origin": "auto",
+                    },
+                    changed=content_changed,
+                ),
             )
             updated = await self._repo.create(db, copied)
         elif (draft.provenance_json or {}).get("version_origin") == "auto":
@@ -657,8 +698,12 @@ class WritingDraftService:
                     db, draft, base, "automatic_revert"
                 )
             updated = await self._repo.update(db, draft, sanitized_data)
+            if updated is not None and content_changed:
+                _mark_knowledge_review_stale_in_place(updated)
         else:
             updated = await self._repo.update(db, draft, sanitized_data)
+            if updated is not None and content_changed:
+                _mark_knowledge_review_stale_in_place(updated)
         if updated is None:
             raise NotFoundError(f"Draft {draft_id} not found")
         return WritingDraftResponse.model_validate(updated)
@@ -1047,6 +1092,7 @@ class WritingDraftService:
             display_state=projection["display_state"],
             source=projection["source"],
             attention_reasons=projection["attention_reasons"],
+            knowledge_review=projection.get("knowledge_review"),
             created_at=draft.created_at,  # type: ignore[union-attr]
             updated_at=draft.updated_at,  # type: ignore[union-attr]
         )
@@ -1073,6 +1119,7 @@ class WritingDraftService:
             display_state=projection["display_state"],
             source=projection["source"],
             attention_reasons=projection["attention_reasons"],
+            knowledge_review=projection.get("knowledge_review"),
             created_at=mapping["created_at"],  # type: ignore[index]
             updated_at=mapping["updated_at"],  # type: ignore[index]
         )
@@ -2764,6 +2811,7 @@ class WritingGenerationService:
         scene_id: str | None = None,
         scene_execution_bundle: dict[str, Any] | None = None,
         scene_execution_bundle_hash: str | None = None,
+        knowledge_review: dict[str, Any] | None = None,
     ) -> WritingDraftCreate:
         is_pov = profile.profile == GenerationProfile.POV_CHARACTER
         pov_view = None
@@ -2836,6 +2884,7 @@ class WritingGenerationService:
             MANAGED_LLM_PROVENANCE_KEY: [deepcopy(managed_llm_provenance)],
             "pov_view": pov_view,
             "pov_validation": pov_validation,
+            "knowledge_review": deepcopy(knowledge_review or {}),
             "content_sanitization": {
                 "content_html_removed": content_sanitized.html_removed,
                 "title_html_removed": title_sanitized.html_removed,
@@ -3007,6 +3056,12 @@ class WritingGenerationService:
                     confirmed_context=confirmed_context,
                 )
             )
+        knowledge_plan = self._build_knowledge_scope_plan(
+            confirmed_context,
+            chapter_index=chapter_index,
+            instruction=instruction,
+            guard_terms=guard_terms,
+        )
 
         snapshot_profile = llm_execution_snapshot.get("profile")
         model = (
@@ -3077,7 +3132,116 @@ class WritingGenerationService:
             scene_execution_bundle_hash=execution_bundle_hash,
             confirm_stale_story_assets=confirm_stale_story_assets,
             story_asset_basis=tuple(deepcopy(story_asset_basis or [])),
+            knowledge_policy_id=knowledge_plan["policy_id"],
+            knowledge_scope_receipt=dict(knowledge_plan["scope_receipt"]),
+            knowledge_generator_keys=tuple(knowledge_plan["generator_keys"]),
+            knowledge_audit_only_keys=tuple(knowledge_plan["audit_only_keys"]),
+            knowledge_hidden_phrases=tuple(knowledge_plan["hidden_phrases"]),
+            knowledge_task_instruction=knowledge_plan["task_instruction"],
+            knowledge_generator_context=knowledge_plan["generator_context"],
+            knowledge_authority_context=knowledge_plan["authority_context"],
         )
+
+    @staticmethod
+    def _build_knowledge_scope_plan(
+        confirmed_context: object,
+        *,
+        chapter_index: int,
+        instruction: str | None,
+        guard_terms: tuple[_FrozenHiddenGuardTerm, ...],
+    ) -> dict[str, Any]:
+        """冻结写作生成的知识范围（ADR-0025）：receipt + 导演/审查所需材料。
+
+        生成者可见集 = 冻结编译来源 − 被 hidden guard 保护的对象 − audit_only 引用；
+        权威上下文额外携带隐藏事实短语，仅供独立审查，不进生成 Prompt。
+        """
+        from modules.evidence.contracts import (
+            KnowledgeSubject,
+            build_scope_receipt,
+            require_capability_policy,
+        )
+
+        confirmation = getattr(confirmed_context, "confirmation")
+        options = dict(getattr(confirmed_context, "compile_options", None) or {})
+        if options.get("reveal_mode") == "character":
+            cutoff_present = bool(
+                options.get("visible_until_chapter")
+                or options.get("visible_until_scene_id")
+                or options.get("visible_until_offset")
+            )
+            if not (
+                options.get("scene_id")
+                and options.get("viewpoint_character_id")
+                and cutoff_present
+            ):
+                raise ValidationError(
+                    "角色模式生成必须同时具备 Scene、视角人物和揭示截止点",
+                    code="pov_knowledge_scope_incomplete",
+                    status_code=422,
+                )
+
+        policy = require_capability_policy("writing.generate")
+        subject = KnowledgeSubject(
+            subject_type={
+                "reader": "reader",
+                "character": "character",
+            }.get(options.get("reveal_mode"), "author"),
+            character_id=options.get("viewpoint_character_id"),
+            cutoff_chapter=options.get("visible_until_chapter")
+            or options.get("requested_chapter_index"),
+            cutoff_scene_id=options.get("visible_until_scene_id")
+            or options.get("scene_id"),
+            cutoff_offset=options.get("visible_until_offset"),
+        )
+        preliminary = build_scope_receipt(
+            getattr(confirmed_context, "compiled"),
+            policy,
+            subject,
+            novel_id=str(getattr(confirmation, "novel_id", "")),
+            reference_usages=options.get("reference_usages") or {},
+        )
+        authority_only = {
+            f"core_entity:{term.source_id}"
+            for term in guard_terms
+            if term.source_type == "core_entity"
+        }
+        allowed = (
+            set(preliminary.receipt.source_keys())
+            - authority_only
+            - set(preliminary.audit_only_keys)
+        )
+        scope_build = build_scope_receipt(
+            getattr(confirmed_context, "compiled"),
+            policy,
+            subject,
+            novel_id=str(getattr(confirmation, "novel_id", "")),
+            reference_usages=options.get("reference_usages") or {},
+            generator_visible=allowed,
+        )
+        rendered = str(getattr(confirmed_context, "rendered_markdown", "") or "")
+        hidden_lines = [
+            f"- {term.phrase}（来源：{term.source_label}）"
+            for term in guard_terms
+        ]
+        authority_context = rendered
+        if hidden_lines:
+            authority_context = (
+                rendered
+                + "\n\n【仅审查可见的隐藏事实短语（不得出现在正文中）】\n"
+                + "\n".join(hidden_lines)
+            )
+        return {
+            "policy_id": policy.capability_id,
+            "scope_receipt": scope_build.receipt.to_dict(),
+            "generator_keys": scope_build.generator_keys,
+            "audit_only_keys": scope_build.audit_only_keys,
+            "hidden_phrases": tuple(term.phrase for term in guard_terms),
+            "task_instruction": str(
+                instruction or getattr(confirmation, "task", "") or ""
+            ),
+            "generator_context": rendered,
+            "authority_context": authority_context,
+        }
 
     async def generate_candidate_for_task(
         self,
@@ -3115,6 +3279,14 @@ class WritingGenerationService:
         )
 
         try:
+            from modules.evidence.contracts import (
+                GovernedWorkflowHooks,
+                KnowledgeScopeBuild,
+                KnowledgeScopeReceipt,
+                knowledge_review_payload,
+                require_capability_policy,
+                run_governed_generation,
+            )
             from modules.project.facade import open_project_snapshot_llm_client
 
             async with open_project_snapshot_llm_client(
@@ -3125,11 +3297,39 @@ class WritingGenerationService:
                 injected_client=self._llm,
             ) as client:
                 await self._checkpoint_before_external_call(db)
-                response = await run_managed_generate(
+                response_holder: dict[str, Any] = {}
+
+                async def _governed_generate(_plan, _generator_keys) -> str:
+                    response = await run_managed_generate(
+                        client,
+                        plan.request,
+                        step_name="writing.generation.candidate.generate",
+                        timeout=WRITING_GENERATION_TIMEOUT_SECONDS,
+                    )
+                    response_holder["model"] = response.model
+                    return response.content
+
+                scope_build = KnowledgeScopeBuild(
+                    receipt=KnowledgeScopeReceipt.from_dict(
+                        plan.knowledge_scope_receipt
+                    ),
+                    generator_keys=tuple(plan.knowledge_generator_keys),
+                    audit_only_keys=tuple(plan.knowledge_audit_only_keys),
+                )
+                outcome = await run_governed_generation(
                     client,
-                    plan.request,
-                    step_name="writing.generation.candidate.generate",
-                    timeout=WRITING_GENERATION_TIMEOUT_SECONDS,
+                    policy=require_capability_policy(plan.knowledge_policy_id),
+                    scope_build=scope_build,
+                    hooks=GovernedWorkflowHooks(
+                        generate=_governed_generate,
+                        repair=None,
+                        task_instruction=plan.knowledge_task_instruction,
+                        generator_context=plan.knowledge_generator_context,
+                        authority_context=plan.knowledge_authority_context,
+                        hidden_phrases=tuple(plan.knowledge_hidden_phrases),
+                    ),
+                    step_prefix="writing.generate",
+                    enforce_scope_complete=False,
                 )
                 managed_llm_provenance = build_managed_llm_provenance(
                     client,
@@ -3137,10 +3337,26 @@ class WritingGenerationService:
                     request=plan.request,
                     novel_id=plan.novel_id,
                 )
-                model_name = response.model or getattr(
+                model_name = response_holder.get("model") or getattr(
                     client,
                     "model_name",
                     plan.request.model,
+                )
+                knowledge_review = knowledge_review_payload(
+                    audit=outcome.audit,
+                    repaired=outcome.repaired,
+                    visible_keys=outcome.generator_keys,
+                    hidden_phrases=tuple(plan.knowledge_hidden_phrases),
+                )
+                knowledge_review.update(
+                    {
+                        "scope_receipt_fingerprint": (
+                            scope_build.receipt.receipt_fingerprint()
+                        ),
+                        "director_plan_fingerprint": outcome.plan.plan_fingerprint(),
+                        "audit_fingerprint": outcome.audit.audit_fingerprint(),
+                        "stage_trace": list(outcome.stage_trace),
+                    }
                 )
                 candidate = self._build_candidate_create(
                     novel_id=plan.novel_id,
@@ -3151,7 +3367,7 @@ class WritingGenerationService:
                     context_result_refs=list(plan.context_result_refs),
                     profile=plan.profile,
                     prompt=plan.prompt,
-                    response_content=response.content,
+                    response_content=outcome.raw_output,
                     model_name=model_name,
                     managed_llm_provenance=managed_llm_provenance,
                     guard_terms=list(plan.hidden_guard_terms),
@@ -3162,6 +3378,7 @@ class WritingGenerationService:
                     scene_id=plan.scene_id,
                     scene_execution_bundle=plan.scene_execution_bundle,
                     scene_execution_bundle_hash=plan.scene_execution_bundle_hash,
+                    knowledge_review=knowledge_review,
                 )
         except asyncio.CancelledError:
             raise

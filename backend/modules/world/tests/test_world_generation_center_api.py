@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.schemas import LLMCallResponse
 from infrastructure.tasks.models import AsyncTask
+from modules.evidence.compilation.knowledge.llm_schemas import AuditVerdictOutput
 from modules.evidence.compilation.models import ContextSnapshot
 from modules.evidence.contracts import StructureContextBundle
 from modules.project.models import Project
@@ -39,12 +40,13 @@ from modules.world.models import (
     WorldBiblePage,
     WorldBiblePageDraft,
 )
+from modules.world.tests.governance_fakes import GovernedWorldAuditMixin
 from modules.world.tests.helpers import publish_bible_draft
 
 pytestmark = pytest.mark.usefixtures("account_llm_connection")
 
 
-class _FakeWorldGenerationClient:
+class _FakeWorldGenerationClient(GovernedWorldAuditMixin):
     provider = "fake-provider"
     model_name = "fake-default-model"
 
@@ -106,6 +108,14 @@ class _FakeWorldGenerationClient:
             hook_result = self.before_generate()
             if isawaitable(hook_result):
                 await hook_result
+        if schema is AuditVerdictOutput:
+            # 知识治理审查调用不进入生成请求断言序列（单独记录）
+            if not hasattr(self, "audit_requests"):
+                self.audit_requests = []
+            self.audit_requests.append(request)
+            return await self._governed_generate_structured(
+                request, schema, **_kwargs
+            )
         self.requests.append(request)
         if self.error is not None:
             raise self.error

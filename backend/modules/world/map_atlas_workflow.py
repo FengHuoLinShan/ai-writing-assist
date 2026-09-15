@@ -21,6 +21,7 @@ from infrastructure.tasks.facade import (
     require_running_task_attempt,
     require_task_checkpoint_session,
 )
+from modules.evidence.contracts import GroupSource, govern_group_output
 from modules.project.facade import (
     create_project_snapshot_llm_client,
     open_project_image_client,
@@ -1391,6 +1392,7 @@ async def _plan(db, task, run: MapAtlasRun) -> None:
     )
     await db.commit()
     client = create_project_snapshot_llm_client(settings, novel_id=str(run.novel_id))
+    knowledge_reviews: dict[str, dict[str, Any]] = {}
     try:
         spatial, spatial_manifest = await _spatial_evidence(db, task, run, client)
         # The planner only sees server-selected sources and compact facts.
@@ -1510,6 +1512,33 @@ async def _plan(db, task, run: MapAtlasRun) -> None:
             AtlasPlan,
             max_fix_attempts=2,
         )
+        source_hash = hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+        for capability, instruction in (
+            ("world.map_atlas.plan", "规划地图图集的页面层级与视觉说明。"),
+            ("world.map_image_prompt", "核对地图图像 Prompt 所依赖的视觉 brief。"),
+        ):
+            governed = await govern_group_output(
+                client,
+                capability=capability,
+                novel_id=str(run.novel_id),
+                group_key=str(run.id),
+                sources=(
+                    GroupSource(
+                        source_key="map_atlas_context",
+                        source_type="world_bible",
+                        content_hash=source_hash,
+                        label="地图图集资料",
+                        dimensions=("map_spatial", "world_entities", "world_bible"),
+                    ),
+                ),
+                output=plan.model_dump_json(),
+                task_instruction=instruction,
+                generator_context=rendered,
+                step_prefix=f"{capability}.knowledge",
+            )
+            knowledge_reviews[capability] = governed["review"]
+            if governed["status"] != "passed":
+                raise ValueError("knowledge_governance_blocked")
     finally:
         await client.close()
     _validate_plan_sources(plan, str(run.novel_id), manifest)
@@ -1517,7 +1546,11 @@ async def _plan(db, task, run: MapAtlasRun) -> None:
         await require_active_project(db, str(run.novel_id))
         run = await _require_attempt(db, task, str(run.novel_id), str(run.id))
         run.atlas_plan = plan.model_dump(mode="json")
-        run.context_snapshot = {**base_snapshot, "spatial_evidence": spatial}
+        run.context_snapshot = {
+            **base_snapshot,
+            "spatial_evidence": spatial,
+            "knowledge_reviews": knowledge_reviews,
+        }
         run.source_manifest = current_manifest
         run.planned_page_count = 0
         run.status = "review_ready"
@@ -1534,7 +1567,11 @@ async def _plan(db, task, run: MapAtlasRun) -> None:
     await require_active_project(db, str(run.novel_id))
     run = await _require_attempt(db, task, str(run.novel_id), str(run.id))
     run.context_hash = hashlib.sha256(rendered.encode("utf-8")).hexdigest()
-    run.context_snapshot = {**base_snapshot, "spatial_evidence": spatial}
+    run.context_snapshot = {
+        **base_snapshot,
+        "spatial_evidence": spatial,
+        "knowledge_reviews": knowledge_reviews,
+    }
     run.source_manifest = _flatten_source_manifest(manifest)
     await _persist_plan(db, task, run, plan)
 

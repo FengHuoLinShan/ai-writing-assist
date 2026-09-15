@@ -92,3 +92,5 @@ Story 经 list_world_dependencies/read_world_dependency 提供故事线、篇章
 ### 场景核对结果
 
 Story 持有智能整理中的场景基线、必要问题和可选字段状态；Imports 只编排来源查证与提案。自动核对不得覆盖作者编辑，不能把“边界正确”替代语义字段证据，也不授予人物知识。详情和警报均定位到对应场景，来源失效时保留受影响使用门禁。
+
+Story 生成预览与 Imports Phase 1c/3 均保留组级回执。P20/总纲采用要求 passed；被作者编辑或上游指纹漂移的回执不再有效。

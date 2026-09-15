@@ -98,7 +98,11 @@ async def test_candidate_is_excluded_until_copy_on_adopt_makes_it_latest(
             chapter_index=2,
             title="AI 建议",
             content="待采用的关键线索",
-            provenance_json={"source": "writing_generate", "model": "test"},
+                provenance_json={
+                    "source": "writing_generate",
+                    "model": "test",
+                    "knowledge_review": {"status": "passed"},
+                },
         ),
         status="candidate",
     )

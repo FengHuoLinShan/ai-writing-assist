@@ -340,3 +340,7 @@ UUID。过滤在领取 SQL 中完成，只处理匹配的 pending 任务；不�
 ### 共创回合恢复
 
 `world_cocreation_turn` 使用 `auto_requeue`、至多两个 attempt 与现有 transport retry scope。World 持有业务判断，任务基础设施只提供 operation fingerprint、lease commit fence 和精确 `novel_id + task_type + session_id` 的最后操作查询；该类型禁止 generic submit。终态回合与可恢复结果原子保存，进度不等于采用内容；没有新任务表或调度器。
+
+### 知识治理阶段
+
+长任务继续使用原 task/result/checkpoint 字段，可投影 `collecting_context / directing / generating / reviewing / repairing`。调度器不解释治理结论；业务域在 lease 内保存回执并在正式写入前重验。

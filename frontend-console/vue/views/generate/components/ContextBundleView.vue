@@ -137,11 +137,11 @@ const sourceSummary = computed(() => sourceCount.value
 const scopeLabel = computed(() => SCOPE_OPTIONS.find((item) => item.value === props.bundle?.scope)?.label || ({ scene: "当前场景", generation_center: "当前创作任务" })[props.bundle?.scope] || "当前任务范围")
 const revealLabel = computed(() => REVEAL_OPTIONS.find((item) => item.value === props.bundle?.reveal_mode)?.label || "按当前可见边界")
 const sectionGroups = computed(() => {
-  const model = sections.value.filter((section) => section.status !== "director_only")
-  const authorOnly = sections.value.filter((section) => section.status === "director_only")
+  const model = sections.value.filter((section) => !["director_only", "audit_only"].includes(section.status))
+  const authorOnly = sections.value.filter((section) => ["director_only", "audit_only"].includes(section.status))
   return [
-    model.length ? { key: "model", title: "会交给 AI 的资料", hint: "核对这些资料是否足以支持本次任务。", items: model } : null,
-    authorOnly.length ? { key: "author", title: "仅供作者约束", hint: "这些信息不会被当成角色已经知道的事实。", items: authorOnly } : null,
+    model.length ? { key: "model", title: "生成时会参考", hint: "这些资料会直接支持本次生成。", items: model } : null,
+    authorOnly.length ? { key: "author", title: "仅在复核时核对", hint: "用于检查遗漏、冲突或提前泄露，不会交给生成步骤。", items: authorOnly } : null,
   ].filter(Boolean)
 })
 const evictedKeys = computed(() => [...new Set([...(props.bundle?.evicted || []), ...budgetEvents.value.filter((event) => event.event_type === "evicted").map((event) => event.section_key)].filter(Boolean))])
@@ -175,7 +175,7 @@ function previewText(section) {
   return value.length > 240 ? `${value.slice(0, 240)}…` : value
 }
 function statusLabel(status) {
-  return ({ system: "本次要求", canonical: "已采用", working: "工作稿", candidate: "待处理", review: "待处理", mixed: "多种来源", director_only: "作者约束", unknown: "状态未说明" })[status] || "状态未说明"
+  return ({ system: "本次要求", canonical: "已采用", working: "工作稿", candidate: "待处理", review: "待处理", mixed: "多种来源", director_only: "仅复核", audit_only: "仅复核", unknown: "状态未说明" })[status] || "状态未说明"
 }
 function sourceLabel(source) { return authorText(source?.label || ({ character: "人物", entity: "世界资料", rag: "正文资料", chapter: "章节", scene: "场景", task: "本次任务" })[source?.type] || "来源资料") }
 function sourceKey(section, source) { return `${section.key}:${source?.type || "source"}:${source?.id || source?.label || "unknown"}` }

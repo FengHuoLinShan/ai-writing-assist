@@ -232,3 +232,7 @@ Agent 准备阶段仅替换故事执行指令，保留已物化的长期约定�
 后台连续性结果保存可重验的 source_state。提醒展示只检查原固定版本、owner、来源可用性、
 选中叶节点和回顾 epoch，不在 GET 中重编译 Context 或发模型请求。旧结果缺少来源状态时
 标记需要重新检查。care/notices/{id}/recheck 复用 Assistant 调度与幂等回执，准备失败也可恢复。
+
+## RP 正文扣留与释放
+
+正文先进 attempt 私有 `knowledge_hold`，SSE 在 PASS 前不发放 chunk。PASS 后才释放并创建节点；返修仍失败时以 `knowledge_review_blocked` 失败，私有候选留在 checkpoint 但 API 不返回正文。

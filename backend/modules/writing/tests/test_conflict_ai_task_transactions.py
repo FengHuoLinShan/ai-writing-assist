@@ -11,6 +11,10 @@ import pytest
 
 from core.errors import NotFoundError, ValidationError
 from infrastructure.tasks.models import AsyncTask
+from modules.evidence.compilation.knowledge.llm_schemas import (
+    AuditDimensionCheck,
+    AuditVerdictOutput,
+)
 from modules.evidence.compilation.services.compiled_context import (
     CompiledContext,
     ContextSection,
@@ -182,6 +186,11 @@ class _Client:
 
     async def generate_structured(self, _request, schema, **_kwargs):
         assert self._db.in_transaction() is False
+        if schema is AuditVerdictOutput:
+            return AuditVerdictOutput(
+                dimensions=[AuditDimensionCheck(dimension="prior_prose")],
+                verdict="pass",
+            )
         if isinstance(self._outcome, BaseException):
             raise self._outcome
         return schema(issues=self._outcome or [])
@@ -594,6 +603,11 @@ async def test_real_task_session_checkpoints_before_provider_wait(
 
         async def generate_structured(self, _request, schema, **_kwargs):
             transaction_states.append(task_session.in_transaction())
+            if schema is AuditVerdictOutput:
+                return AuditVerdictOutput(
+                    dimensions=[AuditDimensionCheck(dimension="prior_prose")],
+                    verdict="pass",
+                )
             return schema(issues=[])
 
     task_session.set_task_commit_hook(_checkpoint)
@@ -615,7 +629,7 @@ async def test_real_task_session_checkpoints_before_provider_wait(
 
         assert result.ai_review_status == "done"
         assert items == []
-        assert transaction_states == [False]
+        assert transaction_states == [False, False]
         assert checkpoint_count == 1
     finally:
         await task_session.close()

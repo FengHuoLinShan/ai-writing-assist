@@ -7,6 +7,10 @@ from unittest import mock
 
 import pytest
 
+from modules.evidence.compilation.knowledge.llm_schemas import (
+    AuditDimensionCheck,
+    AuditVerdictOutput,
+)
 from modules.imports.entity_extraction import (
     scene_entity_alias_relation_task as task_module,
 )
@@ -26,6 +30,31 @@ pytestmark = pytest.mark.asyncio
 
 NOVEL_ID = "11111111-1111-1111-1111-111111111111"
 CONFIRMATION_ID = "22222222-2222-2222-2222-222222222222"
+
+
+@pytest.fixture(autouse=True)
+def _governance_client(monkeypatch: pytest.MonkeyPatch):
+    client = SimpleNamespace(
+        model_name="frozen-model",
+        close=mock.AsyncMock(),
+    )
+
+    async def generate_structured(_request, schema, **_kwargs):
+        assert schema is AuditVerdictOutput
+        return AuditVerdictOutput(
+            dimensions=[
+                AuditDimensionCheck(dimension=dimension)
+                for dimension in ("prior_prose", "world_entities")
+            ],
+            verdict="pass",
+        )
+
+    client.generate_structured = generate_structured
+    monkeypatch.setattr(
+        "modules.project.facade.create_project_snapshot_llm_client",
+        lambda *_args, **_kwargs: client,
+    )
+    return client
 
 
 def _confirmation() -> dict:

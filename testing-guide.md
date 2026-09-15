@@ -463,3 +463,7 @@ CI 显示名称或重复的工具版本常量。新增 facade/Prompt 合同不�
 后端覆盖率阈值由 pyproject.toml 唯一配置为 85%，不可用重试或吞 warning 隐藏失败。
 
 项目助手功能另由 `test:e2e:assistant` 使用已有的合成模型 harness 验证（专用库名含 `agent_e2e`）；普通 functional 不加载此用例。CI 两者都运行，仍无付费模型调用。
+
+### 知识治理验收
+
+合成 provider 至少覆盖 PASS、blocked、一次返修后 PASS 与一次返修后仍 blocked；同时断言 blocked 不展示/不采用/不写正式资产，回执与来源指纹可恢复。真实模型验收单独授权与记录，不代替确定性门禁。

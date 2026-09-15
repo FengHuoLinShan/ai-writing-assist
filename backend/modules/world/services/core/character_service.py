@@ -349,6 +349,7 @@ class CharacterService(
         novel_id: str,
         character_id: str,
         target_ids: list[str] | None = None,
+        visible_until_chapter: int | None = None,
     ) -> list:
         """返回 knowledge 上下文, 留为返回 dict (避免循环 import schema)。"""
         from modules.world.schemas import CharacterKnowledgeContext
@@ -361,6 +362,7 @@ class CharacterService(
             nid,
             cid,
             tids,
+            visible_until_chapter=visible_until_chapter,
         )
 
         return [

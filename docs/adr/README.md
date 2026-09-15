@@ -40,6 +40,7 @@ make docs-check BASE_REF=origin/main
 | [ADR-0022](0022-world-review-ownership.md) | Accepted / Implemented | 复核聚合与回执归 World（validation run 扩展影响清单/覆盖进度/逐项复核记录/失效原因）；Evidence 只读供证，Story/Writing/地图经稳定只读接口提供来源；定向查漏与分批续接复用同一 run；政策编辑复用 rule 页版本化政策。 |
 | [ADR-0023](0023-bounded-agent-runtime.md) | Accepted / Implementation in progress | PydanticAI 有界单 Agent、项目助手与 RP 工具执行；Project 连接、Evidence 可见性、成组确认与领域所有权继续有效。 |
 | [ADR-0024](0024-anonymous-public-demo-rp.md) | Accepted / Implemented | 公开演示使用 24 小时匿名 owner、精确冻结 source 与前台 taskless SSE；临时 Key 零持久化，不能放宽普通 source owner 边界。 |
+| [ADR-0025](0025-product-knowledge-governance.md) | Accepted / Implemented | 全产品知识治理：全知导演、最小知情生成、独立复核；静态能力注册表 + 版本化回执 + 一次语义返修 + held release；不新增表/事实库/Agent 平台。 |
 
 `ADR-0009 附录 A` 延续 ADR-0009 的编号，不是第二个独立决策编号。
 

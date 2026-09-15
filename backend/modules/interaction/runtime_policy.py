@@ -61,7 +61,7 @@ def clear_private_agent_state(attempt):
     """Closed attempts retain usage and citations, never resumable model messages."""
     checkpoint = getattr(attempt, "agent_checkpoint_json", None)
     if checkpoint:
-        attempt.agent_checkpoint_json = {
+        preserved = {
             "budget": checkpoint.get("budget", {}),
             "evidence_receipts": checkpoint.get("evidence_receipts")
             or [
@@ -69,6 +69,12 @@ def clear_private_agent_state(attempt):
                 for ref in (checkpoint.get("references") or {}).values()
             ],
         }
+        knowledge_hold = checkpoint.get("knowledge_hold")
+        if isinstance(knowledge_hold, dict) and knowledge_hold:
+            # ADR-0025：失败/关闭的 attempt 保留私有 hold 记录（正文与回执
+            # 不展示、不经 API 返回），供排查与审计。
+            preserved["knowledge_hold"] = knowledge_hold
+        attempt.agent_checkpoint_json = preserved
 
 
 def agent_story_enabled(snapshot: dict) -> bool:

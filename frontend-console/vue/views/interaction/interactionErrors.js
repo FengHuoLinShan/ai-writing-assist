@@ -39,6 +39,10 @@ const ERROR_STATES = {
     message: "作品资料已变化，请重新生成。",
     action: "retry",
   },
+  knowledge_review_blocked: {
+    message: "这段内容未通过世界设定与知识边界复核，已扣留；可以重新生成或换个说法。",
+    action: "retry",
+  },
   empty_response: {
     message: "这次没有生成内容，请重新生成。",
     action: "retry",

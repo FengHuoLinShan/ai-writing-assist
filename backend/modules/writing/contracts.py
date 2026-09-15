@@ -33,6 +33,7 @@ class WritingDraftContract:
     display_state: str = "active"
     source: str = "manual"
     attention_reasons: list[str] = field(default_factory=list)
+    knowledge_review: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

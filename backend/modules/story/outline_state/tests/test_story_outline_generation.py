@@ -90,6 +90,18 @@ def _preview() -> StoryOutlineContent:
     )
 
 
+def _task_result_with_review() -> dict:
+    """带 ADR-0025 知识治理回执的总纲任务结果 fixture。"""
+    return {
+        **_preview().model_dump(mode="json"),
+        "knowledge_review": {
+            "policy_version": 1,
+            "capability": "story.story_outline.generate",
+            "status": "passed",
+        },
+    }
+
+
 def _plan(
     data: StoryOutlineGenerateRequest | None = None,
     *,
@@ -578,7 +590,15 @@ async def test_task_restores_project_snapshot_and_waits_without_transaction() ->
             context_checkpoint=checkpoints.append,
         )
 
-    assert result == _preview().model_dump(mode="json")
+    assert result == {
+        **_preview().model_dump(mode="json"),
+        "knowledge_review": {
+            "policy_version": 1,
+            "capability": "story.story_outline.generate",
+            "status": "passed",
+            "context_fingerprint": prepared.source_fingerprint,
+        },
+    }
     assert checkpoints == [prepared.context_provenance]
     assert db.commit_count == 1
     assert db.expire_all_count == 1
@@ -897,7 +917,7 @@ async def test_apply_edited_preview_uses_server_task_provenance_and_no_lower_wri
                 ],
             },
         },
-        result=_preview().model_dump(mode="json"),
+        result=_task_result_with_review(),
         recovery_policy="restart_origin",
         max_attempts=1,
         attempt=1,
@@ -979,7 +999,7 @@ async def test_apply_preview_rejects_cross_project_or_client_provenance(
                 "source_refs": [],
             },
         },
-        result=_preview().model_dump(mode="json"),
+        result=_task_result_with_review(),
         recovery_policy="restart_origin",
         max_attempts=1,
         attempt=1,
@@ -1039,7 +1059,7 @@ async def test_apply_preview_rejects_wrong_action_and_forbidden_result_fields(
                     "action": "outline.generate",
                     "context_provenance": context_provenance,
                 },
-                result=_preview().model_dump(mode="json"),
+                result=_task_result_with_review(),
                 recovery_policy="restart_origin",
                 max_attempts=1,
                 attempt=1,
@@ -1116,7 +1136,7 @@ async def test_apply_preview_rejects_cross_project_or_disallowed_context_sources
                     "action": STORY_OUTLINE_GENERATE_ACTION,
                     "context_provenance": provenance,
                 },
-                result=_preview().model_dump(mode="json"),
+                result=_task_result_with_review(),
                 recovery_policy="restart_origin",
                 max_attempts=1,
                 attempt=1,

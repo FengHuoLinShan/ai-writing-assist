@@ -117,7 +117,16 @@ async def test_structure_task_keeps_parent_and_adopts_original_information_packa
         ],
     )
     task.status = "done"
-    task.result = P20GenerationService.task_result(plan, output, task_id=str(task.id))
+    task.result = P20GenerationService.task_result(
+        plan,
+        output,
+        task_id=str(task.id),
+        knowledge_review={
+            "policy_version": 1,
+            "capability": "story.outline.p20",
+            "status": "passed",
+        },
+    )
     await db.flush()
     assert await db.scalar(select(func.count()).select_from(PlotThread)) == 0
     assert (await operation.read_result(db, nid, reference))["draft_structure"][

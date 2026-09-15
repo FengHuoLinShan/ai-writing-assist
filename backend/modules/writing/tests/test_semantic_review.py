@@ -52,13 +52,17 @@ def test_candidate_projection_exposes_independent_review_gate() -> None:
         "candidate",
         {"source": "writing_generate", "review_required": True},
     )
-    assert pending["attention_reasons"] == ["semantic_review_required"]
+    assert pending["attention_reasons"] == [
+        "semantic_review_required",
+        "knowledge_review_legacy",
+    ]
 
     blocked = project_writing_draft_state(
         "candidate",
         {
             "source": "writing_generate",
             "review_required": True,
+            "knowledge_review": {"status": "passed"},
             "independent_review": {
                 "verdict": "needs_revision",
                 "blocking_count": 2,
@@ -66,6 +70,35 @@ def test_candidate_projection_exposes_independent_review_gate() -> None:
         },
     )
     assert blocked["attention_reasons"] == ["semantic_review_blocked"]
+
+    knowledge_blocked = project_writing_draft_state(
+        "candidate",
+        {
+            "source": "writing_generate",
+            "review_required": True,
+            "knowledge_review": {"status": "blocked"},
+            "independent_review": {
+                "verdict": "pass",
+                "blocking_count": 0,
+            },
+        },
+    )
+    assert knowledge_blocked["attention_reasons"] == ["knowledge_review_blocked"]
+    assert knowledge_blocked["knowledge_review"]["status"] == "blocked"
+
+    knowledge_stale = project_writing_draft_state(
+        "candidate",
+        {
+            "source": "writing_generate",
+            "review_required": True,
+            "knowledge_review": {"status": "passed", "stale_after_edit": True},
+        },
+    )
+    assert knowledge_stale["attention_reasons"] == [
+        "semantic_review_required",
+        "knowledge_review_stale",
+    ]
+    assert knowledge_stale["knowledge_review"]["status"] == "legacy_unchecked"
 
 
 @pytest.mark.anyio
@@ -99,9 +132,10 @@ async def test_generated_candidate_requires_context_aware_review(
             "review_required": True,
         },
     )
-    with pytest.raises(ConflictError, match="独立语义审查"):
+    with pytest.raises(ConflictError, match="未经知识治理审查"):
         await validate_candidate_upstream(None, draft)  # type: ignore[arg-type]
 
+    draft.provenance_json["knowledge_review"] = {"status": "passed"}
     draft.provenance_json["independent_review"] = {
         "draft_hash": draft.content_hash,
         "verdict": "pass",

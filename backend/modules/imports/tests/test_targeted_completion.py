@@ -11,6 +11,10 @@ import pytest
 from pydantic import ValidationError
 
 from core.errors import ConflictError
+from modules.evidence.compilation.knowledge.llm_schemas import (
+    AuditDimensionCheck,
+    AuditVerdictOutput,
+)
 from modules.imports.api import DeepImportRequest
 from modules.imports.completion_hints import alias_completion_hints, completion_hints
 from modules.imports.llm_schemas import ExtractedEntity, SceneEntityExtractionOutput
@@ -128,8 +132,17 @@ def test_wire_requires_explicit_authorization_and_exclusive_identity():
 
 
 async def test_completion_first_request_declares_schema_and_reasoning_budget():
+    async def audit(_request, schema, **_kwargs):
+        assert schema is AuditVerdictOutput
+        return AuditVerdictOutput(
+            dimensions=[AuditDimensionCheck(dimension="prior_prose")],
+            verdict="pass",
+        )
+
     client = SimpleNamespace(
-        model_name="deepseek-v4-flash", profile_summary={"provider_id": "deepseek"}
+        model_name="deepseek-v4-flash",
+        profile_summary={"provider_id": "deepseek"},
+        generate_structured=audit,
     )
     target = SimpleNamespace(
         key="root", name="青港", depth=0, resolution="resolved", root_keys=["root"]
@@ -141,6 +154,7 @@ async def test_completion_first_request_declares_schema_and_reasoning_budget():
     ) as call:
         await _complete_batch(
             client,
+            novel_id="novel-1",
             result=SimpleNamespace(evidence=[]),
             targets=[target],
             batch_keys=["root"],

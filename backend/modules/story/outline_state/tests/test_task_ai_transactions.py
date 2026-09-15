@@ -734,7 +734,13 @@ async def test_p20_compiles_fresh_context_before_exclusive_finalization_lock(
     generation = SimpleNamespace(
         prepare=mock.AsyncMock(side_effect=prepare),
         execute=mock.AsyncMock(return_value=SimpleNamespace()),
-        task_result=mock.MagicMock(return_value={"requires_apply": True}),
+        task_result=mock.MagicMock(
+            return_value={
+                "requires_apply": True,
+                "knowledge_review": {"status": "passed"},
+            }
+        ),
+        last_knowledge_review={"status": "passed"},
     )
     monkeypatch.setattr(
         "modules.story.outline_state.p20_service.P20GenerationService",
@@ -779,7 +785,10 @@ async def test_p20_compiles_fresh_context_before_exclusive_finalization_lock(
         llm_execution_snapshot={"profile_hash": "frozen"},
     )
 
-    assert result == {"requires_apply": True}
+    assert result == {
+        "requires_apply": True,
+        "knowledge_review": {"status": "passed"},
+    }
     assert events == [
         "prepare",
         "prepare",

@@ -6,6 +6,10 @@ from unittest.mock import AsyncMock
 import pytest
 from pydantic import ValidationError
 
+from modules.evidence.compilation.knowledge.llm_schemas import (
+    AuditDimensionCheck,
+    AuditVerdictOutput,
+)
 from modules.imports.entity_extraction.scene_entity_config import (
     current_phase2_novel_id,
     current_phase2_project_settings,
@@ -33,8 +37,23 @@ class _FakeClient:
     def __init__(self) -> None:
         self.requests = []
         self.close = AsyncMock()
+        self.audit_verdicts: list[str] = []
 
     async def generate_structured(self, request, schema, **_kwargs):
+        if schema is AuditVerdictOutput:
+            return AuditVerdictOutput(
+                dimensions=[
+                    AuditDimensionCheck(dimension=dimension)
+                    for dimension in (
+                        "prior_prose",
+                        "world_entities",
+                        "imported_assets",
+                    )
+                ],
+                verdict=self.audit_verdicts.pop(0)
+                if self.audit_verdicts
+                else "pass",
+            )
         self.requests.append(request)
         return schema()
 
@@ -107,6 +126,54 @@ async def test_alias_relation_adapter_closes_snapshot_client_on_cancellation(
 async def test_phase2_llm_adapter_fails_closed_without_project_snapshot() -> None:
     with pytest.raises(RuntimeError, match="project LLM settings context"):
         await call_llm_extraction("text", "entities", "memory")
+
+
+@pytest.mark.asyncio
+async def test_phase2a_attaches_passed_knowledge_review(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _FakeClient()
+    monkeypatch.setattr(
+        "modules.project.facade.create_project_snapshot_llm_client",
+        lambda *_args, **_kwargs: fake,
+    )
+
+    with phase2_project_settings_context(
+        {"llm": {"model": "project-model"}}, novel_id="phase2-novel-id"
+    ):
+        output = await call_llm_extraction(
+            "Scene 正文",
+            "",
+            "",
+            context_bundle={
+                "scene_card": {"id": "scene-1"},
+                "context_fingerprint": "b" * 64,
+            },
+        )
+
+    assert output.knowledge_review is not None
+    assert output.knowledge_review["status"] == "passed"
+
+
+@pytest.mark.asyncio
+async def test_phase2a_blocks_unreviewed_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _FakeClient()
+    fake.audit_verdicts = ["blocked"]
+    monkeypatch.setattr(
+        "modules.project.facade.create_project_snapshot_llm_client",
+        lambda *_args, **_kwargs: fake,
+    )
+
+    with phase2_project_settings_context(
+        {"llm": {"model": "project-model"}}, novel_id="phase2-novel-id"
+    ):
+        output = await call_llm_extraction("Scene 正文", "", "")
+
+    assert output.knowledge_review is not None
+    assert output.knowledge_review["status"] == "blocked"
+    assert output.entities == []
 
 
 @pytest.mark.asyncio

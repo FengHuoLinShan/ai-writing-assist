@@ -347,6 +347,8 @@ class Phase1cSceneFusionService:
             )
         ]
         failures = len(review_errors) + len(synthesis_errors)
+        pop_reviews = getattr(self.llm, "pop_knowledge_reviews", None)
+        knowledge_reviews = pop_reviews() if callable(pop_reviews) else []
         return Phase1cFusionResult(
             candidates=output,
             suggestions=suggestions,
@@ -369,7 +371,14 @@ class Phase1cSceneFusionService:
                 "input_truncated": False,
                 "contract_version": "phase1c-v2",
             },
-            diagnostics=[*diagnostics, *review_errors],
+            diagnostics=[
+                *diagnostics,
+                *review_errors,
+                *(
+                    {"kind": "knowledge_review", **review}
+                    for review in knowledge_reviews
+                ),
+            ],
             degraded=failures > 0,
             block_reason="phase1c_review_or_synthesis_failures" if failures else None,
         )

@@ -73,3 +73,5 @@ source 才能被 24 小时匿名 RP consumer 只读使用，临时 Key 只在前
 专项查证继续沿既有 imports/writing/world → Evidence → Writing/World 资料流，
 一跳只读提名不是自治 Agent。模块图的节点、分层与基础设施保持不变；新增的
 evidence_focused_search / targeted_completion 任务由原 task registry 登记。
+
+知识治理的跨模块决策见 [ADR-0025](../adr/0025-product-knowledge-governance.md)。Evidence 持有契约与策略，Writing/World/Story/Imports/Interaction/Assistant 持有各自生成、采用与恢复语义；未新增模块、调度器或事实库。

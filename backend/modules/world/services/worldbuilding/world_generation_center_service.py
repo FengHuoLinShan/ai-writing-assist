@@ -94,6 +94,9 @@ from modules.world.services.worldbuilding.generation_prompt_template_service imp
     GenerationPromptTemplateService,
     ResolvedGenerationTemplate,
 )
+from modules.world.services.worldbuilding.knowledge_governance import (
+    serialize_governed_output,
+)
 from modules.world.services.worldbuilding.page_template_service import (
     WorldBiblePageTemplateService,
 )
@@ -507,6 +510,24 @@ class WorldGenerationCenterService:
                     step_name="world.generation.design_iteration",
                     timeout=WORLD_GENERATION_TIMEOUT_SECONDS,
                 )
+                output, knowledge_review = await self._govern_structured(
+                    client,
+                    capability="world.generation.design_iteration",
+                    novel_id=data.novel_id,
+                    prepared=prepared,
+                    generated=output,
+                    request=request,
+                    schema=WorldDesignIterationOutput,
+                    decision_state=None,
+                    step_name="world.generation.design_iteration",
+                    quality_mode="fast",
+                    task_instruction="在作者既有世界模型上做一轮有类型的变化推演",
+                )
+                if knowledge_review.get("status") != "passed":
+                    raise ValidationError(
+                        "本轮推演未通过知识审查（已返修仍失败），未创建新阶段成果；"
+                        "请调整资料或范围后重试。"
+                    )
             # Apply the same validation as author save before presenting any proposal.
             if data.world_state_sections:
                 changed = {
@@ -591,6 +612,15 @@ class WorldGenerationCenterService:
                             client,
                             review_request,
                         )
+                    reply_text, knowledge_review = await self._govern_text(
+                        client,
+                        capability="world.generation.chat",
+                        novel_id=data.novel_id,
+                        prepared=prepared,
+                        text=response.reply,
+                        task_instruction="回答作者关于当前世界设定的创作问题",
+                    )
+                    response = GeneratedWorldGenerationChatOutput(reply=reply_text)
                 provider = str(client.provider)
             await self._revalidate_source(db, data, prepared)
         except Exception as exc:
@@ -616,6 +646,7 @@ class WorldGenerationCenterService:
             provider=provider,
             context_usage=self._context_usage(prepared["background"]),
             source_snapshot=prepared["source_snapshot"],
+            knowledge_review=knowledge_review,
         )
 
     @staticmethod
@@ -671,6 +702,7 @@ class WorldGenerationCenterService:
         issues: list[str] = []
         covered: set[str] = set()
         provider = ""
+        knowledge_review: dict[str, Any] | None = None
         try:
             sources = self._convergence_sources(data, prepared)
             manifest_hash = self._convergence_manifest_hash(sources)
@@ -690,6 +722,21 @@ class WorldGenerationCenterService:
                         )
                     except LLMInvalidResponseError:
                         issues = ["模型未能返回可校验的收束结构，请缩小材料范围后重试。"]
+                if generated is not None:
+                    _governed_text, knowledge_review = await self._govern_text(
+                        client,
+                        capability="world.generation.convergence",
+                        novel_id=data.novel_id,
+                        prepared=prepared,
+                        text=serialize_governed_output(generated),
+                        task_instruction="把作者选定的来源收束为决策卡，不新增无来源事实",
+                    )
+                    if knowledge_review.get("status") != "passed":
+                        generated = None
+                        issues = [
+                            "收束结果未通过知识审查，已整体扣留；请调整来源范围后重试。"
+                        ]
+                        covered = set()
             await self._revalidate_source(db, data, prepared)
         except Exception as exc:
             await self._finish_context_snapshot(
@@ -715,6 +762,7 @@ class WorldGenerationCenterService:
             covered=covered,
             model=model,
             provider=provider,
+            knowledge_review=knowledge_review,
         )
 
     async def explore(
@@ -739,6 +787,7 @@ class WorldGenerationCenterService:
             stop_reason="当前来源没有足够材料支持一条有后果的相邻探索。",
         )
         provider = ""
+        knowledge_review: dict[str, Any] | None = None
         try:
             sources = self._convergence_sources(data, prepared)
             if sources:
@@ -754,6 +803,22 @@ class WorldGenerationCenterService:
                             data,
                             sources,
                             model=model,
+                        )
+                    _text, knowledge_review = await self._govern_text(
+                        client,
+                        capability="world.generation.exploration",
+                        novel_id=data.novel_id,
+                        prepared=prepared,
+                        text=serialize_governed_output(generated),
+                        task_instruction="列出最多三条有后果的相邻设定缺口，不虚构事实",
+                    )
+                    if knowledge_review.get("status") != "passed":
+                        generated = GeneratedWorldGenerationExplorationOutput(
+                            targets=[],
+                            stop_reason=(
+                                "探索结果未通过知识审查，已整体扣留；"
+                                "请调整来源范围后重试。"
+                            ),
                         )
                 await self._revalidate_source(db, data, prepared)
         except Exception as exc:
@@ -778,6 +843,7 @@ class WorldGenerationCenterService:
             fingerprint=fingerprint,
             model=model,
             provider=provider,
+            knowledge_review=knowledge_review,
         )
 
     async def inspect_current_page(
@@ -797,6 +863,7 @@ class WorldGenerationCenterService:
             model=model,
         )
         provider = ""
+        knowledge_review: dict[str, Any] | None = None
         try:
             sources = [
                 source
@@ -825,6 +892,19 @@ class WorldGenerationCenterService:
                         data,
                         sources,
                         model=model,
+                    )
+                _text, knowledge_review = await self._govern_text(
+                    client,
+                    capability="world.generation.semantic_inspection",
+                    novel_id=data.novel_id,
+                    prepared=prepared,
+                    text=serialize_governed_output(generated),
+                    task_instruction="检查当前世界书页的语义问题；每条发现必须有页面原文佐证",
+                )
+                if knowledge_review.get("status") != "passed":
+                    raise ValidationError(
+                        "语义检修结果未通过知识审查（发现缺乏来源支持或含未检查项），"
+                        "本次不落任何诊断；请调整检查范围后重试。"
                     )
             await self._revalidate_source(db, data, prepared)
             findings = self._semantic_inspection_findings(sources, generated)
@@ -890,6 +970,7 @@ class WorldGenerationCenterService:
             provider=provider,
             context_usage=self._context_usage(prepared["background"]),
             source_snapshot=prepared["source_snapshot"],
+            knowledge_review=knowledge_review,
         )
 
     async def generate_suggestion(
@@ -1025,6 +1106,7 @@ class WorldGenerationCenterService:
             provider=provider,
             context_usage=self._context_usage(prepared["background"]),
             source_snapshot=prepared["source_snapshot"],
+            knowledge_review=result.proposal.knowledge_review,
         )
 
     @staticmethod
@@ -1283,6 +1365,102 @@ class WorldGenerationCenterService:
             timeout=WORLD_GENERATION_TIMEOUT_SECONDS,
         )
 
+    async def _govern_structured(
+        self,
+        client: LLMClient,
+        *,
+        capability: str,
+        novel_id: str,
+        prepared: dict[str, Any],
+        generated: Any,
+        request: LLMCallRequest,
+        schema: type[Any],
+        decision_state: GeneratedWorldGenerationDecisionState | None,
+        step_name: str,
+        quality_mode: str,
+        task_instruction: str,
+    ) -> tuple[Any, dict[str, Any]]:
+        """全知审查结构化提案（+≤1 次同 schema 返修 → 复审）。
+
+        返回 (最终提案, knowledge_review)。blocked 时最终提案为最后一次受审
+        输出：调用方仍可保存为不可采用 candidate，但不得当作已审查通过。
+        quality_mode=fast 只省略 pro 润色，知识审查不可跳（ADR-0025）。
+        """
+        from modules.evidence.contracts import REPAIR_INSTRUCTION_TEMPLATE
+        from modules.world.services.worldbuilding.knowledge_governance import (
+            govern_world_output,
+            serialize_governed_output,
+        )
+
+        holder: dict[str, Any] = {"output": generated}
+
+        async def _repair(findings_block: str) -> str:
+            repair_request = request.model_copy(deep=True)
+            repair_request.messages.append(
+                LLMMessage(
+                    role="user",
+                    content=REPAIR_INSTRUCTION_TEMPLATE.format(
+                        findings_block=findings_block
+                    ),
+                )
+            )
+            repaired = await self._run_structured_with_decision_guard(
+                client,
+                repair_request,
+                schema,
+                decision_state=decision_state,
+                step_name=f"{step_name}.knowledge.repair",
+                quality_mode=quality_mode,
+            )
+            holder["output"] = repaired
+            return serialize_governed_output(repaired)
+
+        result = await govern_world_output(
+            client,
+            capability=capability,
+            novel_id=novel_id,
+            source_refs=prepared["source_refs"],
+            rendered_context=str(prepared["background"].get("rendered_context") or ""),
+            output=serialize_governed_output(generated),
+            task_instruction=task_instruction,
+            repair=_repair,
+            step_prefix=step_name,
+        )
+        return holder["output"], result["review"]
+
+    async def _govern_text(
+        self,
+        client: LLMClient,
+        *,
+        capability: str,
+        novel_id: str,
+        prepared: dict[str, Any],
+        text: str,
+        task_instruction: str,
+    ) -> tuple[str, dict[str, Any]]:
+        """全知审查自由文本（chat 等展示类；不可修复的直接阻断）。
+
+        返回 (最终正文, knowledge_review)；blocked 时正文为面向作者的阻断说明，
+        不包含任何生成内容。
+        """
+        from modules.world.services.worldbuilding.knowledge_governance import (
+            govern_world_output,
+            knowledge_blocked_reply,
+        )
+
+        result = await govern_world_output(
+            client,
+            capability=capability,
+            novel_id=novel_id,
+            source_refs=prepared["source_refs"],
+            rendered_context=str(prepared["background"].get("rendered_context") or ""),
+            output=text,
+            task_instruction=task_instruction,
+        )
+        if result["status"] == "passed":
+            return result["text"], result["review"]
+        return knowledge_blocked_reply(), result["review"]
+
     async def _run_structured_with_decision_guard(
         self,
         client: LLMClient,
@@ -1445,16 +1623,17 @@ class WorldGenerationCenterService:
         *,
         model: str,
     ) -> WorldGenerationCoreEntityResult:
+        final_instruction = (
+            "请根据目前的共创结果生成一个具体的世界对象建议。实现作者当前"
+            "支持最充分的方向，使对象的创意核心和内在逻辑清楚成立。"
+        )
         request = LLMCallRequest(
             model=model,
             messages=self._structured_messages(
                 data,
                 prepared,
                 system_prompt=_CORE_ENTITY_SYSTEM_PROMPT,
-                final_instruction=(
-                    "请根据目前的共创结果生成一个具体的世界对象建议。实现作者当前"
-                    "支持最充分的方向，使对象的创意核心和内在逻辑清楚成立。"
-                ),
+                final_instruction=final_instruction,
             ),
             temperature=0.35,
         )
@@ -1465,6 +1644,19 @@ class WorldGenerationCenterService:
             decision_state=prepared.get("decision_state"),
             step_name="world.generation.core_entity.structured",
             quality_mode=data.quality_mode,
+        )
+        generated, knowledge_review = await self._govern_structured(
+            client,
+            capability="world.generation.suggestion",
+            novel_id=data.novel_id,
+            prepared=prepared,
+            generated=generated,
+            request=request,
+            schema=GeneratedObjectDraftOutput,
+            decision_state=prepared.get("decision_state"),
+            step_name="world.generation.core_entity",
+            quality_mode=data.quality_mode,
+            task_instruction=final_instruction,
         )
         await self._revalidate_source(db, data, prepared)
         template: ResolvedGenerationTemplate = prepared["object_template"]
@@ -1503,6 +1695,7 @@ class WorldGenerationCenterService:
             importance_level=generated.importance_level,
             reveal_level=generated.reveal_level,
             source_refs=prepared["source_refs"],
+            knowledge_review=knowledge_review,
         )
         suggestion, _shadow = await self._suggestions.create_core_entity_suggestion(
             db,
@@ -1532,25 +1725,40 @@ class WorldGenerationCenterService:
         *,
         model: str,
     ) -> WorldGenerationPageResult:
+        final_instruction = (
+            "请根据作者当前意图生成完整的世界书页面提案。输出整页最终形态，"
+            "不要输出追加补丁。"
+        )
+        request = LLMCallRequest(
+            model=model,
+            messages=self._structured_messages(
+                data,
+                prepared,
+                system_prompt=_PAGE_SYSTEM_PROMPT,
+                final_instruction=final_instruction,
+            ),
+            temperature=0.35,
+        )
         generated = await self._run_structured_with_decision_guard(
             client,
-            LLMCallRequest(
-                model=model,
-                messages=self._structured_messages(
-                    data,
-                    prepared,
-                    system_prompt=_PAGE_SYSTEM_PROMPT,
-                    final_instruction=(
-                        "请根据作者当前意图生成完整的世界书页面提案。输出整页最终形态，"
-                        "不要输出追加补丁。"
-                    ),
-                ),
-                temperature=0.35,
-            ),
+            request,
             GeneratedWorldBiblePageProposal,
             decision_state=prepared.get("decision_state"),
             step_name="world.generation.world_bible_page.structured",
             quality_mode=data.quality_mode,
+        )
+        generated, knowledge_review = await self._govern_structured(
+            client,
+            capability="world.generation.suggestion",
+            novel_id=data.novel_id,
+            prepared=prepared,
+            generated=generated,
+            request=request,
+            schema=GeneratedWorldBiblePageProposal,
+            decision_state=prepared.get("decision_state"),
+            step_name="world.generation.world_bible_page",
+            quality_mode=data.quality_mode,
+            task_instruction=final_instruction,
         )
         await self._revalidate_source(db, data, prepared)
         page_content = self._map_existing_page_proposal(generated, prepared)
@@ -1571,6 +1779,7 @@ class WorldGenerationCenterService:
             review_notes=generated.review_notes,
             source_refs=prepared["source_refs"],
             decision_state=prepared.get("decision_state"),
+            knowledge_review=knowledge_review,
         )
         suggestion = await self._create_page_suggestion(db, data, payload)
         return WorldGenerationPageResult(
@@ -1595,26 +1804,40 @@ class WorldGenerationCenterService:
             if data.exploration_selection is not None
             else " 本次不是相邻探索，source_revision 必须为 null。"
         )
+        final_instruction = (
+            "请根据作者当前意图生成完整的新世界书页面提案。页面应拥有明确"
+            "的主题和独立用途，不要把来源资料简单拼接成页面。" + exploration_instruction
+        )
+        request = LLMCallRequest(
+            model=model,
+            messages=self._structured_messages(
+                data,
+                prepared,
+                system_prompt=_NEW_PAGE_SYSTEM_PROMPT,
+                final_instruction=final_instruction,
+            ),
+            temperature=0.35,
+        )
         generated = await self._run_structured_with_decision_guard(
             client,
-            LLMCallRequest(
-                model=model,
-                messages=self._structured_messages(
-                    data,
-                    prepared,
-                    system_prompt=_NEW_PAGE_SYSTEM_PROMPT,
-                    final_instruction=(
-                        "请根据作者当前意图生成完整的新世界书页面提案。页面应拥有明确"
-                        "的主题和独立用途，不要把来源资料简单拼接成页面。"
-                        + exploration_instruction
-                    ),
-                ),
-                temperature=0.35,
-            ),
+            request,
             GeneratedWorldBibleNewPageProposal,
             decision_state=prepared.get("decision_state"),
             step_name="world.generation.world_bible_new_page.structured",
             quality_mode=data.quality_mode,
+        )
+        generated, knowledge_review = await self._govern_structured(
+            client,
+            capability="world.generation.suggestion",
+            novel_id=data.novel_id,
+            prepared=prepared,
+            generated=generated,
+            request=request,
+            schema=GeneratedWorldBibleNewPageProposal,
+            decision_state=prepared.get("decision_state"),
+            step_name="world.generation.world_bible_new_page",
+            quality_mode=data.quality_mode,
+            task_instruction=final_instruction,
         )
         await self._revalidate_source(db, data, prepared)
         page_content = self._map_new_page_proposal(generated, prepared)
@@ -1636,6 +1859,7 @@ class WorldGenerationCenterService:
             review_notes=generated.review_notes,
             source_refs=prepared["source_refs"],
             decision_state=prepared.get("decision_state"),
+            knowledge_review=knowledge_review,
         )
         suggestion = await self._create_page_suggestion(db, data, payload)
         result = WorldGenerationPageResult(
@@ -2584,6 +2808,7 @@ class WorldGenerationCenterService:
         fingerprint: str,
         model: str,
         provider: str,
+        knowledge_review: dict[str, Any] | None = None,
     ) -> WorldGenerationExplorationResponse:
         by_key = {source["manifest"].key: source["manifest"] for source in sources}
         targets: list[WorldGenerationExplorationTarget] = []
@@ -2617,6 +2842,7 @@ class WorldGenerationCenterService:
             provider=provider,
             context_usage=self._context_usage(prepared["background"]),
             source_snapshot=prepared["source_snapshot"],
+            knowledge_review=knowledge_review,
         )
 
     async def _run_convergence_workflow(
@@ -2911,6 +3137,7 @@ class WorldGenerationCenterService:
         covered: set[str],
         model: str,
         provider: str,
+        knowledge_review: dict[str, Any] | None = None,
     ) -> WorldGenerationConvergenceResponse:
         manifest = [source["manifest"] for source in sources]
         source_keys = {item.key for item in manifest}
@@ -2999,6 +3226,7 @@ class WorldGenerationCenterService:
                 generated,
                 coverage_complete=complete,
             ),
+            knowledge_review=knowledge_review,
         )
 
     @staticmethod

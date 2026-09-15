@@ -20,6 +20,7 @@ from infrastructure.llm.errors import LLMInvalidResponseError
 from infrastructure.llm.profiles import resolve_llm_profile
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.stable_hash import stable_hash
+from modules.evidence.contracts import GroupSource, govern_group_output
 from modules.imports.entity_extraction import scene_entity_config as _phase2_config
 from modules.imports.entity_extraction.scene_entity_alias_relation import (
     _accepts_keyword,
@@ -86,6 +87,7 @@ class _AliasRelationProviderReceipt(BaseModel):
     concurrency: int = Field(ge=1, le=1_000)
     llm_timeout_s: int = Field(ge=1, le=604_800)
     scenes: list[_AliasRelationReceiptScene] = Field(max_length=10_000)
+    knowledge_review: dict[str, Any] | None = None
     receipt_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
     @model_validator(mode="after")
@@ -592,7 +594,53 @@ class AliasRelationTaskMixin:
             },
             require_hash=False,
         )
-        return receipt
+        from modules.project.facade import create_project_snapshot_llm_client
+
+        client = create_project_snapshot_llm_client(project_settings, novel_id=novel_id)
+        try:
+            governed = await govern_group_output(
+                client,
+                capability="world.alias_relations.extract",
+                novel_id=novel_id,
+                group_key=str(runtime_plan.get("plan_fingerprint") or ""),
+                sources=(
+                    GroupSource(
+                        source_key="alias_relation_scenes",
+                        source_type="imported_assets",
+                        content_hash=_stable_hash(
+                            [
+                                {
+                                    "scene_id": item.get("scene_id"),
+                                    "input_fingerprint": item.get("input_fingerprint"),
+                                    "context_fingerprint": (
+                                        item.get("context_bundle") or {}
+                                    ).get("context_fingerprint"),
+                                }
+                                for item in prepared
+                            ]
+                        ),
+                        label="Scene 别名与关系证据",
+                        dimensions=("prior_prose", "world_entities"),
+                    ),
+                ),
+                output=_stable_json(receipt["scenes"]),
+                task_instruction="根据 Scene 证据抽取对象别名与关系。",
+                generator_context=_stable_json(
+                    [
+                        {
+                            "scene_id": item.get("scene_id"),
+                            "chapters_text": item.get("chapters_text"),
+                            "context_bundle": item.get("context_bundle"),
+                        }
+                        for item in prepared
+                    ]
+                ),
+                step_prefix="world.alias_relations.extract.knowledge",
+            )
+        finally:
+            await client.close()
+        receipt["knowledge_review"] = governed["review"]
+        return _validated_receipt_payload(receipt, require_hash=False)
 
     async def finalize(
         self,
@@ -629,6 +677,8 @@ class AliasRelationTaskMixin:
             for item in recompiled["runtime_plan"].get("scenes") or []
         }
         receipt = _validated_receipt_payload(receipt, require_hash=True)
+        if (receipt.get("knowledge_review") or {}).get("status") != "passed":
+            raise ValueError("knowledge_governance_blocked")
         if str(receipt.get("plan_fingerprint") or "") != str(
             manifest.get("plan_fingerprint") or ""
         ):
@@ -686,6 +736,7 @@ class AliasRelationTaskMixin:
                 "relations": 0,
                 "uncertain_items": 0,
                 "fallback": status == "fallback",
+                "knowledge_review": receipt["knowledge_review"],
             }
             snapshot_id = source.get("context_snapshot_id")
             if status == "skipped":

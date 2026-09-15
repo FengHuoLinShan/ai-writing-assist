@@ -28,6 +28,7 @@ from modules.writing.schemas import (
     WritingDraftUpdate,
 )
 from modules.writing.services import WritingDraftService
+from modules.writing.tests.governance_fakes import GovernedStructuredMixin
 
 
 @pytest.fixture
@@ -58,7 +59,7 @@ def update_data() -> WritingDraftUpdate:
     )
 
 
-class FakeLLMClient:
+class FakeLLMClient(GovernedStructuredMixin):
     async def generate(self, request):
         return LLMCallResponse(content="这是 AI 生成的候选正文。")
 
@@ -66,7 +67,7 @@ class FakeLLMClient:
         return None
 
 
-class FakePovLLMClient:
+class FakePovLLMClient(GovernedStructuredMixin):
     model_name = "fake-pov-model"
 
     def __init__(self, content: str) -> None:
@@ -1004,7 +1005,7 @@ async def test_writing_generation_saves_secret_safe_managed_llm_provenance(
     from modules.project.models import Project
     from modules.writing.services import WritingGenerationService
 
-    class ProvenanceLLMClient:
+    class ProvenanceLLMClient(GovernedStructuredMixin):
         model_name = "writing-phase-model"
         profile_summary = {
             "provider_id": "compatible",
@@ -1286,6 +1287,7 @@ async def test_writing_generation_pov_profile_saves_structured_view_and_validati
         scene_id=str(scene.id),
         reveal_mode="character",
         viewpoint_character_id=str(char_id),
+        visible_until_chapter=4,
         character_ids=[str(char_id)],
         include_pending_objects=True,
     )
@@ -1404,6 +1406,7 @@ async def test_writing_generation_pov_parse_failure_keeps_raw_candidate(
         scene_id=str(scene.id),
         reveal_mode="character",
         viewpoint_character_id=str(char_id),
+        visible_until_chapter=4,
         character_ids=[str(char_id)],
     )
     service = WritingGenerationService(

@@ -1128,3 +1128,7 @@ Writing 连续性检查只通过 `facade.list_adopted_map_continuity_facts` 读�
 resolve_redundant_review_alias、prepare_review_resolution_decision、apply_review_resolution_decision。
 它们只处理可证明导入来源的候选；其他 AI 建议继续遵守原 confirmation 与领域采用规则。
 作者注意事项读取 Imports 的新鲜分流，生命周期候选总数与必须决定的问题数分别展示。
+
+## 世界生成与地图复核
+
+生成中心、Ask World、简介、对象融合、别名/关系任务及地图结构/图集 brief 均保存组级回执。建议与采用包确认时要求 passed；blocked 对话/检查不返回生成正文或写诊断。地图像素仍不是事实来源。

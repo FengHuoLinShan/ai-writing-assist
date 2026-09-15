@@ -363,3 +363,7 @@ API 与 worker 的进程环境设置 `WEB_SEARCH_URL=http://127.0.0.1:8888`。�
 主动服务授权仍需明确开启。开发模拟使用独立数据库与 tests.support.assistant_browser_app 的
 合成模型 IO；真实搜索可单独启用。Computer Use 操作必须从页面实际入口进行，不能把该模拟
 或合成模型响应当成真实模型质量与产品验收。
+
+### 知识治理开发门禁
+
+新增生产 LLM/Agent/stream/image 调用时必须在 `tools/prompt_contracts/capability_bindings.py` 绑定 capability，或声明不产出事实的基础设施豁免。使用 `modules.evidence.contracts` 的公共治理出口，不跨模块导入 compilation 实现；改动后运行 `python -m tools.prompt_contracts check`。

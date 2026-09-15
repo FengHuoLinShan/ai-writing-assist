@@ -145,6 +145,11 @@ class InteractionAgentRun:
         usage["agent_budget"] = budget
         attempt.usage = usage
         self.state.update({"budget": budget, "references": dict(self.references)})
+        # ADR-0025 held release：checkpoint_story_task 写入的 knowledge_hold
+        # 不在 agent state 副本里，重写前必须保留最新值。
+        current_hold = dict(attempt.agent_checkpoint_json or {}).get("knowledge_hold")
+        if isinstance(current_hold, dict) and current_hold:
+            self.state["knowledge_hold"] = current_hold
         attempt.agent_checkpoint_json = dict(self.state)
         await self.db.commit()
         self.db.expire_all()

@@ -1811,6 +1811,60 @@ async def test_parallel_llm_fallback_extracts_before_serial_persistence() -> Non
 
 
 @pytest.mark.asyncio
+async def test_parallel_phase2_blocks_governance_failure_before_persistence() -> None:
+    svc = SceneEntityExtractionService()
+    scene = {
+        "id": "blocked-scene",
+        "novel_id": "novel-1",
+        "scene_index": 1,
+        "chapter_ids": ["1"],
+    }
+    db = Mock()
+    db.flush = AsyncMock()
+    with (
+        patch.object(
+            svc, "_load_scene_chapters", autospec=True, return_value="Scene 正文"
+        ),
+        patch.object(
+            svc,
+            "_create_phase2_snapshot",
+            autospec=True,
+            return_value=Mock(id="snapshot-blocked"),
+        ),
+        patch.object(
+            svc,
+            "_call_llm_extraction",
+            autospec=True,
+            return_value=SceneEntityExtractionOutput(
+                knowledge_review={"status": "blocked"}
+            ),
+        ),
+        patch.object(
+            svc, "_persist_entities", autospec=True, return_value=1
+        ) as persist_entities,
+        patch.object(svc, "_record_deltas", autospec=True, return_value=0),
+        _patched_phase2_summaries(svc),
+        patch("modules.evidence.facade.fail_context_snapshot", autospec=True) as fail,
+    ):
+        result = await svc._process_scenes_parallel_llm(
+            db,
+            "00000000-0000-0000-0000-000000000001",
+            [scene],
+            "",
+            workflow_id="wf-blocked",
+            on_scene_progress=None,
+            bulk_error_kind="unified_activation:fresh",
+            include_alias_relations=False,
+        )
+
+    persist_entities.assert_not_awaited()
+    fail.assert_awaited_once()
+    checkpoint = result["checkpoints"]["phase2"]["scenes"][0]
+    assert checkpoint["status"] == "quality_failed"
+    assert checkpoint["knowledge_review"]["status"] == "blocked"
+
+
+@pytest.mark.asyncio
 async def test_parallel_phase2_skips_unresolved_scene_without_failing_stage() -> None:
     svc = SceneEntityExtractionService()
     scene = {

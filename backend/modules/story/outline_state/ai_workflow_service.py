@@ -279,7 +279,12 @@ class OutlineAIWorkflowService:
                 "P20 context changed while finalizing the preview; "
                 "discarded stale preview"
             )
-        result = generation.task_result(plan, output, task_id=task_id)
+        result = generation.task_result(
+            plan,
+            output,
+            task_id=task_id,
+            knowledge_review=generation.last_knowledge_review,
+        )
         await context_facade.attach_result_ref(
             db,
             novel_id=data.novel_id,

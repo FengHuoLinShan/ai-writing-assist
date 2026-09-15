@@ -54,6 +54,7 @@ output_validator 校验，修复计入同一执行预算；固定审稿保留原
 | `story/outline_state/ai_workflow_service.py` | 内联 step `outline.ai_workflow.analyze.generate`：回答作者指定的大纲结构问题 | Story outline_state 手动大纲分析 |
 | `interaction/prompts.py` / `evidence/compilation/services/interaction_story_context.py` | 内联 `interaction-story-v7`：兼容模型知识 RP，source-bound 旅程额外注入版本/截止点经 Evidence 校验且统一转义围栏的作品参考块；相关往事数据块能力保留但当前生产门禁关闭；可选隐藏尾部元数据 | interaction 故事任务 |
 | `interaction/prompts.py` | 内联 `interaction-summary-v3` / `interaction-summary-output-v2`：一次生成新分段概要与更新后总回顾 | interaction 回顾任务 |
+| `evidence/compilation/knowledge/workflow.py` | 内联 steps `<capability>.knowledge.director.shard_N`（manifest 分片处置：生成必需/生成可用/仅审查可见/禁止，只引用短 key）与 `<capability>.knowledge.audit.verdict`（独立复核：遗漏/无证据/越界/提前揭示/无关/冲突/未检查，服务端按 finding 强度收口 verdict） | 全部用户可见生成与检查能力（ADR-0025 知识治理） |
 
 ## 3. Prompt Contract System
 

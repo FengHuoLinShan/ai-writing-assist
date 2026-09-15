@@ -71,12 +71,14 @@ async def get_character_knowledge_context(
     novel_id: str,
     character_id: str,
     target_ids: list[str] | None = None,
+    visible_until_chapter: int | None = None,
 ) -> list[CharacterKnowledgeContext]:
     return await _character_service.get_character_knowledge_context(
         db,
         novel_id,
         character_id,
         target_ids,
+        visible_until_chapter=visible_until_chapter,
     )
 
 

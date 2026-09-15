@@ -64,6 +64,7 @@ from modules.assistant.schemas import (
     WorkContext,
 )
 from modules.assistant.sessions import AssistantSessionService
+from modules.evidence.contracts import GroupSource, govern_group_output
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
     create_project_snapshot_llm_client,
@@ -991,9 +992,7 @@ class AssistantService:
                 }
                 record_run_event(row, "reviewing")
                 await db.commit()
-                review = await run_project_agent(
-                    client,
-                    LLMCallRequest(
+                review_request = LLMCallRequest(
                         model=client.model_name,
                         messages=[
                             LLMMessage(
@@ -1016,21 +1015,68 @@ class AssistantService:
                                 ),
                             ),
                         ],
-                    ),
-                    tools=[],
-                    deps=deps,
-                    output_type=AssistantAnswer,
-                    output_validator=validate_agent_answer,
-                    budget=budget,
-                    input_limit=profile.hard_input_tokens,
-                    checkpoint=checkpoint,
                 )
-                answer = review.output
+
+                async def repair(_findings: str) -> str:
+                    review = await run_project_agent(
+                        client,
+                        review_request,
+                        tools=[],
+                        deps=deps,
+                        output_type=AssistantAnswer,
+                        output_validator=validate_agent_answer,
+                        budget=budget,
+                        input_limit=profile.hard_input_tokens,
+                        checkpoint=checkpoint,
+                    )
+                    return review.output.model_dump_json()
+
+                evidence_hash = fingerprint(deps.evidence_refs)
+                governed = await govern_group_output(
+                    client,
+                    capability="assistant.turn",
+                    novel_id=novel_id,
+                    group_key=f"run:{run_id}",
+                    sources=(
+                        GroupSource(
+                            source_key="assistant_evidence",
+                            source_type="imported_assets",
+                            content_hash=evidence_hash,
+                            label="项目助手已查证资料",
+                            dimensions=(
+                                "world_entities",
+                                "world_rules",
+                                "world_bible",
+                                "prior_prose",
+                                "outline",
+                                "plot_threads",
+                                "memory",
+                            ),
+                        ),
+                    ),
+                    output=answer.model_dump_json(),
+                    task_instruction=payload["message"],
+                    generator_context=json.dumps(
+                        deps.evidence_refs, ensure_ascii=False, default=str
+                    ),
+                    repair=repair,
+                    step_prefix="assistant.turn.knowledge",
+                )
+                knowledge_review = governed["review"]
+                answer = (
+                    AssistantAnswer.model_validate_json(governed["text"])
+                    if governed["status"] == "passed"
+                    else AssistantAnswer(
+                        answer="本轮答复未通过知识复核，已扣留未核实内容。",
+                        omissions=["请补充可核对资料后重试。"],
+                    )
+                )
                 row = await self.require_run(db, novel_id, run_id, lock=True)
                 row.checkpoint_json = {
                     **row.checkpoint_json,
                     "planned_answer": answer.model_dump(mode="json"),
                     "quality_review_done": True,
+                    "knowledge_review": knowledge_review,
                 }
                 await db.commit()
             cited = list(
@@ -1050,6 +1096,10 @@ class AssistantService:
             if run.status != "running" or str(run.task_id) != str(task.id):
                 return {"status": "superseded"}
             result_json = answer.model_dump(mode="json")
+            if knowledge_review := (run.checkpoint_json or {}).get(
+                "knowledge_review"
+            ):
+                result_json["knowledge_review"] = knowledge_review
             result_json["sources"] = display_sources(deps.evidence_refs, cited)
             result_json["actions"] = prepared
             if prepared:

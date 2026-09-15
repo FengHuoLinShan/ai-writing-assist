@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from .capability_bindings import validate_capability_bindings
 from .models import ContractIssue
 from .registry import ContractRegistryError, load_contract, load_contracts
 from .report import format_json, format_text, has_blocking_issues
@@ -45,6 +46,7 @@ def _check(
     try:
         contracts = [load_contract(contract_id)] if contract_id else load_contracts()
         issues = validate_contracts(contracts, include_fixtures=include_fixtures)
+        issues.extend(validate_capability_bindings())
     except ContractRegistryError as exc:
         contracts = []
         issues = [

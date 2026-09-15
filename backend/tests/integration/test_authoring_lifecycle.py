@@ -12,6 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.schemas import LLMCallResponse
 from infrastructure.tasks.models import AsyncTask
+from modules.evidence.compilation.knowledge.llm_schemas import (
+    AuditDimensionCheck,
+    AuditVerdictOutput,
+    DirectorShardPlan,
+)
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -31,6 +36,26 @@ class _DeterministicWritingClient:
 
     async def generate_structured(self, request, schema, **_kwargs):
         self.requests.append(request)
+        if schema is DirectorShardPlan:
+            keys = [
+                line[2:].split(" | ", 1)[0]
+                for line in request.messages[-1].content.splitlines()
+                if line.startswith("- ")
+            ]
+            return DirectorShardPlan(
+                dispositions=[
+                    {
+                        "source_key": key,
+                        "disposition": "required_for_generation",
+                    }
+                    for key in keys
+                ]
+            )
+        if schema is AuditVerdictOutput:
+            return AuditVerdictOutput(
+                dimensions=[AuditDimensionCheck(dimension="prior_prose")],
+                verdict="pass",
+            )
         payload = json.loads(request.messages[-1].content)
         return schema.model_validate(
             {
@@ -273,8 +298,8 @@ async def test_import_generate_publish_and_retrieve_serial_flow(
         handle_writing_generate,
     )
     candidate_id = generation_result["draft_id"]
-    assert len(writing_client.requests) == 1
-    generation_prompt = writing_client.requests[0].messages[-1].content
+    assert len(writing_client.requests) == 3
+    generation_prompt = writing_client.requests[1].messages[-1].content
     assert "柳青带着旧钥匙与林舟会合" in generation_prompt
     assert "异项目禁入标记" not in generation_prompt
     assert account_llm_connection["api_key"] not in generation_prompt
@@ -304,7 +329,7 @@ async def test_import_generate_publish_and_retrieve_serial_flow(
     assert review_result["mechanical_checks_can_sign_literary_pass"] is False
     assert review_result["coverage"]["context_checked_draft_ids"] == [candidate_id]
     assert review_result["frozen_manifest"][0]["context_fingerprint"]
-    assert len(writing_client.requests) == 2
+    assert len(writing_client.requests) == 4
     review_prompt = writing_client.requests[-1].messages[-1].content
     assert "confirmed_context" in review_prompt
     assert "柳青带着旧钥匙与林舟会合" in review_prompt

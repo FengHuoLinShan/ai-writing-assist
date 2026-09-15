@@ -4,6 +4,11 @@
  */
 
 export const PHASE_DISPLAY_LABELS = {
+  collecting_context: "整理参考资料",
+  directing: "确认本次可用资料",
+  generating: "生成内容",
+  reviewing: "核对内容与设定",
+  repairing: "修正未通过项",
   targeted_completion: "查漏补全",
   scene_plan: "规划场景范围",
   scene_segmentation: "整理场景骨架",
@@ -37,6 +42,7 @@ export const ERROR_KIND_LABELS = {
   missing_world_object_context: "缺少必要的世界设定上下文",
   fallback: "已使用降级结果",
   degraded: "已使用降级结果",
+  knowledge_governance_blocked: "内容未通过知识复核",
 }
 
 export function errorKindLabel(value) {

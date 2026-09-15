@@ -166,6 +166,22 @@ class BulkSceneEntityExtractionMixin:
         delta_count = 0
         if indexed_extractions and not isinstance(indexed_extractions[0], tuple):
             indexed_extractions = list(enumerate(indexed_extractions))
+        if any(
+            review is not None and review.get("status") != "passed"
+            for _, extraction in indexed_extractions
+            if (review := getattr(extraction, "knowledge_review", None)) is not None
+        ):
+            if snapshot_id is not None:
+                from modules.evidence.facade import fail_context_snapshot
+
+                await fail_context_snapshot(
+                    db,
+                    novel_id=str(nid),
+                    snapshot_id=snapshot_id,
+                    error_kind="knowledge_governance_blocked",
+                    error_message="knowledge_governance_blocked",
+                )
+            raise ValueError("knowledge_governance_blocked")
         for source_index, extraction in indexed_extractions:
             scene = text_scenes[int(source_index)]
             scene_index = int(scene.get("scene_index") or 0)
@@ -420,6 +436,14 @@ class BulkSceneEntityExtractionMixin:
                 "created": 0,
                 "created_entity_ids": [],
                 "error_kind": service._error_kind(exc),
+            }
+
+        knowledge_review = getattr(extraction, "knowledge_review", None)
+        if knowledge_review is not None and knowledge_review.get("status") != "passed":
+            return {
+                "created": 0,
+                "created_entity_ids": [],
+                "error_kind": "knowledge_governance_blocked",
             }
 
         result_refs: list[dict[str, str]] = []

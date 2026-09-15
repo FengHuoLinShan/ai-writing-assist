@@ -238,3 +238,5 @@ ADR-0023 的正文复核是直接只读能力，复用 Writing 回执并共享�
 候选页可读取 `drafts/{id}/regeneration-context`，带回原参考范围及排除项，经原弹窗确认后生成
 新的 candidate；不重绑旧 confirmation。缺记录明确采用本章重新选材流程，旧建议仍不能
 通过严格审查。当前编辑、原工作稿和旧 candidate 在生成期间均保留，跨页面晚到响应不提交。
+
+AI 正文候选的采用现统一要求新鲜 `knowledge_review.status=passed`；作者改稿后回执失效但不限制手写草稿发布。冲突 AI review/suggestion 同样保存范围回执。

@@ -12,6 +12,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.models import AsyncTask
+from modules.evidence.compilation.knowledge.llm_schemas import (
+    AuditDimensionCheck,
+    AuditVerdictOutput,
+)
 from modules.evidence.compilation.models import ContextConfirmation
 from modules.project.models import Project
 from modules.writing import facade as writing_facade
@@ -30,6 +34,15 @@ from modules.writing.schemas import (
 from modules.writing.services import WritingConflictCheckService
 
 pytestmark = pytest.mark.usefixtures("account_llm_connection")
+
+
+def _audit_response(schema):
+    if schema is not AuditVerdictOutput:
+        return None
+    return AuditVerdictOutput(
+        dimensions=[AuditDimensionCheck(dimension="prior_prose")],
+        verdict="pass",
+    )
 
 
 async def _create_project(async_client: AsyncClient, title: str = "冲突检查项目") -> str:
@@ -1195,6 +1208,8 @@ async def test_ai_review_valid_output_adds_ai_judgment_items(
     )
 
     async def fake_generate_structured(_self, _request, schema, **_kwargs):
+        if audit := _audit_response(schema):
+            return audit
         return schema.model_validate(
             {
                 "issues": [
@@ -1268,6 +1283,8 @@ async def test_ai_review_inherits_project_budget_and_uses_concise_prompt_constra
     )
 
     async def fake_generate_structured(_self, request, schema, **_kwargs):
+        if audit := _audit_response(schema):
+            return audit
         assert request.max_tokens is None
         prompt = request.messages[-1].content
         assert "最多输出 2 条 issues" in prompt
@@ -1441,6 +1458,8 @@ async def test_ai_review_partial_invalid_output_records_discard_count(
     )
 
     async def fake_generate_structured(_self, _request, schema, **_kwargs):
+        if audit := _audit_response(schema):
+            return audit
         return schema.model_validate(
             {
                 "issues": [
@@ -1579,6 +1598,8 @@ async def test_ai_suggestion_stores_manual_suggestion_without_mutating_draft(
     )
 
     async def fake_generate_structured(_self, _request, schema, **_kwargs):
+        if audit := _audit_response(schema):
+            return audit
         return schema.model_validate(
             {
                 "suggestion": {
@@ -1691,6 +1712,8 @@ async def test_ai_suggestion_uses_large_budget_and_concise_prompt_constraints(
     )
 
     async def fake_generate_structured(_self, request, schema, **_kwargs):
+        if audit := _audit_response(schema):
+            return audit
         assert request.max_tokens is None
         return schema.model_validate(
             {

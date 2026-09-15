@@ -317,6 +317,7 @@ async def test_get_character_knowledge_context_with_target_ids_returns_list():
         novel_id,
         char_id,
         [target_id],
+        visible_until_chapter=None,
     )
     assert result == expected
 
@@ -345,6 +346,7 @@ async def test_get_character_knowledge_context_with_none_target_ids_returns_list
         novel_id,
         char_id,
         None,
+        visible_until_chapter=None,
     )
     assert result == []
 
@@ -373,6 +375,7 @@ async def test_get_character_knowledge_context_with_empty_target_ids_returns_lis
         novel_id,
         char_id,
         [],
+        visible_until_chapter=None,
     )
     assert result == []
 

@@ -1,0 +1,11 @@
+{
+  "findings": [],
+  "dimensions": [
+    {
+      "dimension": "prior_prose",
+      "checked": true,
+      "note": ""
+    }
+  ],
+  "verdict": "pass"
+}

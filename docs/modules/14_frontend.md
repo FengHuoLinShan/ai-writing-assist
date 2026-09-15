@@ -613,3 +613,5 @@ WorldDesignPanel 编辑本轮 typed 变化，CocreationHistory 提供历史分�
 智能整理导入候选使用 Imports 的 `import_review_resolution` 持久任务，工作台与项目助手共用入口；
 结果区分已整理、需要决定、可选建议与处理未完成。授权、恢复、来源和质量资格边界见
 `backend/modules/imports/README.md` 的“智能整理现有候选”。旧候选与旧授权不自动迁移。
+
+参考资料预览分为“生成时会参考”和“仅在复核时核对”，仅复核资料不发送给生成步骤。长任务显示整理、裁决、生成、复核、修正的作者/读者文案；RP 在复核完成前只显示等待区，blocked 不显示被扣留正文。

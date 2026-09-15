@@ -137,3 +137,5 @@ RP 新运行 v2 使用显式的旅程 `web_search_enabled` 与冻结 SearXNG 后
 读取，既有准备结果仍保留；联网子额度耗尽记入遗漏，不重置整轮预算。错误网页引用返回有界
 参数修正机会，任意 URL 不可读取。连续性复核回执保存选中叶、各状态 epoch、回顾与固定
 来源版本指纹；读取 freshness 不编译新 Context，不访问模型，也不跟随作者最新稿扩大知识。
+
+RP 正文使用 held 释放语义：审查前 SSE 不发 chunk，PASS 后一次释放，返修后 blocked 则仅显示安全错误与重试入口。详见 `backend/modules/interaction/README.md`。

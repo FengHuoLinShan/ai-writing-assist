@@ -518,3 +518,5 @@ handler 普通失败时保留领域经 fenced checkpoint 写入的双恢复标�
 ### 共创回合恢复
 
 `world_cocreation_turn` 使用 `auto_requeue`、至多两个 attempt 与现有 transport retry scope。World 持有业务判断，任务基础设施只提供 operation fingerprint、lease commit fence 和精确 `novel_id + task_type + session_id` 的最后操作查询；该类型禁止 generic submit。终态回合与可恢复结果原子保存，进度不等于采用内容；没有新任务表或调度器。
+
+知识治理复用现有 managed harness、project snapshot client、task lease 与 context snapshot，不新增常驻服务或自治 Agent runtime。阶段投影不改变调度器状态机。

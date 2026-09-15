@@ -48,12 +48,14 @@ async def compile_review_world_evidence(
         scope="chapter",
         chapter_index=chapter_index,
         scene_id=scene_id,
-        reveal_mode="author_safe",
+        reveal_mode="author_full",
         content_mode="working",
         context_mode="canonical",
         include_pending_objects=False,
         retrieval_purpose="conflict_review",
         budget_tokens=4000,
+        capability="writing.semantic_review",
+        scope_complete=True,
     )
     excluded = {value.rsplit(":", 1)[-1] for value in excluded_targets}
     visibility = VisibilityContextContract(

@@ -539,7 +539,15 @@ class StoryOutlineGenerationService:
             len(plan.context["world_bible_pages"])
             + len(plan.context["core_world_rules"]),
         )
-        return preview.model_dump(mode="json")
+        return {
+            **preview.model_dump(mode="json"),
+            "knowledge_review": {
+                "policy_version": 1,
+                "capability": "story.story_outline.generate",
+                "status": "passed",
+                "context_fingerprint": plan.source_fingerprint,
+            },
+        }
 
     @staticmethod
     async def _checkpoint_before_provider(db: AsyncSession) -> None:

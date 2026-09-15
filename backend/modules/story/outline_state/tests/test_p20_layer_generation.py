@@ -215,6 +215,11 @@ async def test_p20_apply_compiles_before_exclusive_lock(
             },
             "draft_structure": output.model_dump(mode="json"),
             "context_fingerprint": "frozen",
+            "knowledge_review": {
+                "policy_version": 1,
+                "capability": "story.outline.p20",
+                "status": "passed",
+            },
         },
     )
     db = SimpleNamespace(begin_nested=lambda: _Nested())
@@ -289,15 +294,14 @@ async def test_p20_semantic_audit_revises_once_then_rechecks(
     assert "hidden_truth 使用了项目外部正史" in revision_request.messages[-1].content
 
 
-async def test_p20_semantic_audit_allows_second_revision_within_same_budget(
+async def test_p20_semantic_audit_allows_one_revision_within_same_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from modules.story.outline_state import p20_service
 
     first = P20PlotThreadOutput(result="no_change")
     revised_once = P20PlotThreadOutput(result="needs_author_decision")
-    revised_twice = P20PlotThreadOutput(result="proposed")
-    candidates = [first, revised_once, revised_twice]
+    candidates = [first, revised_once]
     candidate_count = 0
     progress: list[float] = []
 
@@ -307,7 +311,7 @@ async def test_p20_semantic_audit_allows_second_revision_within_same_budget(
             candidate = candidates[candidate_count]
             candidate_count += 1
             return candidate
-        if candidate_count < 3 and "evidence_canon_audit" in kwargs["step_name"]:
+        if candidate_count < 2 and "evidence_canon_audit" in kwargs["step_name"]:
             return P20SemanticAudit(
                 verdict="revise",
                 violations=[
@@ -329,24 +333,31 @@ async def test_p20_semantic_audit_allows_second_revision_within_same_budget(
         context_provenance={},
         source_fingerprint="frozen",
     )
+    service = P20GenerationService()
 
-    actual = await P20GenerationService().execute(
+    actual = await service.execute(
         SimpleNamespace(model_name="test-model"),
         plan,
         progress_callback=progress.append,
     )
 
-    assert actual is revised_twice
-    assert candidate_count == 3
-    assert progress == [0.4, 0.55, 0.65, 0.72, 0.78, 0.82]
-    assert managed.await_count == 12
-    second_revision = [
+    # ADR-0025：语义返修预算从 ≤2 收敛为 ≤1（初稿 → 一次返修 → 终审通过）
+    assert actual is revised_once
+    assert candidate_count == 2
+    assert progress == [0.4, 0.55, 0.65, 0.75]
+    assert managed.await_count == 8
+    revision = [
         call.args[1]
         for call in managed.await_args_list
-        if call.kwargs["step_name"].endswith("semantic_revision_2")
+        if call.kwargs["step_name"].endswith("semantic_revision")
     ][0]
-    assert "正确的短引用" in second_revision.messages[-1].content
-    assert "清空该引用" in second_revision.messages[-1].content
+    assert "正确的短引用" in revision.messages[-1].content
+    assert "清空该引用" in revision.messages[-1].content
+    review = service.last_knowledge_review
+    assert review["status"] == "passed"
+    assert review["repaired"] is True
+    assert review["audit_rounds"] == ["initial", "final"]
+    assert review["context_fingerprint"] == "frozen"
 
 
 async def test_p20_deterministic_guard_revises_embedded_scene_citation(
@@ -488,8 +499,10 @@ async def test_p20_final_audit_failure_exposes_bounded_actionable_violations(
             plan,
         )
 
+    # ADR-0025：一次语义返修后终审仍失败即阻断（不再有第二次返修）
     step_names = [call.kwargs["step_name"] for call in managed.await_args_list]
-    assert any(name.endswith("semantic_revision_2") for name in step_names)
+    assert any(name.endswith("semantic_revision") for name in step_names)
+    assert not any(name.endswith("semantic_revision_2") for name in step_names)
     assert any(name.endswith("evidence_canon_audit.final") for name in step_names)
     assert any(name.endswith("scope_rule_audit.final") for name in step_names)
     assert any(name.endswith("author_instruction_audit.final") for name in step_names)

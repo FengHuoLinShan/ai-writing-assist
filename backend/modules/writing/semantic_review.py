@@ -236,6 +236,18 @@ async def validate_candidate_upstream(
 
     if not require_review or not provenance.get("review_required"):
         return
+    knowledge = provenance.get("knowledge_review")
+    if not isinstance(knowledge, dict) or not knowledge:
+        raise ConflictError(
+            "该 AI 候选未经知识治理审查（旧候选），采用前需按当前标准重新生成或重查。"
+        )
+    if knowledge.get("stale_after_edit"):
+        raise ConflictError("正文在知识审查后已被修改，先前的审查结论不再适用。")
+    if knowledge.get("status") != "passed":
+        raise ConflictError(
+            "知识审查未通过，不能采用；"
+            "可将其作为手工素材重新编辑，但不能沿用 AI 审查结论。"
+        )
     review = provenance.get("independent_review")
     if not isinstance(review, dict):
         raise ConflictError("请先完成独立语义审查，再采用正文建议。")

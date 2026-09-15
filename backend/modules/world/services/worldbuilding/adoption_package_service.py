@@ -493,6 +493,14 @@ class WorldAdoptionPackageService:
             return CreationSuggestionResponse.model_validate(pending)
         if pending.status != "pending":
             raise ConflictError("World adoption package is no longer pending")
+        from modules.world.services.worldbuilding.knowledge_governance import (
+            require_knowledge_review_passed,
+        )
+
+        if dict(pending.payload_json or {}).get("knowledge_review") is not None:
+            require_knowledge_review_passed(
+                dict(pending.payload_json), label="该 AI 生成内容包"
+            )
         package = self._package(pending)
         await self._validate_checkpoint_lineage(db, novel_id, package)
         authorization_actor = await self._active_owner_actor(db, novel_id)

@@ -41,6 +41,7 @@ from modules.interaction.schemas import (
 from modules.interaction.services import InteractionService
 from modules.interaction.source_service import InteractionSourceService, _fingerprint
 from modules.interaction.streaming import stream_anonymous_rp_attempt
+from modules.interaction.tests.governance_fakes import GovernedAuditMixin
 from modules.story.outline_state.models import Scene, SceneSpan
 from modules.writing.facade import create_published_draft_only
 
@@ -722,6 +723,20 @@ async def _claimed_demo_attempt(db_session, project_factory, monkeypatch):  # no
     return principal, created, execution_id
 
 
+def _govern_passed():
+    async def _govern(db, *, task, client, prepared):  # noqa: ANN001
+        return {"status": "passed", "text": "审查通过的故事。", "review": {}}
+
+    return _govern
+
+
+def _noop_async():
+    async def _noop(*args, **kwargs):  # noqa: ANN002, ANN003
+        return None
+
+    return _noop
+
+
 async def test_request_stream_keeps_temporary_key_out_of_attempt_and_task_storage(
     db_session,
     project_factory,
@@ -790,7 +805,7 @@ async def test_request_stream_keeps_temporary_key_out_of_attempt_and_task_storag
         summary_finalized.append((prepared, output))
         return {"status": "completed", "story_resume": True}
 
-    class Client:
+    class Client(GovernedAuditMixin):
         async def generate_structured(self, _request, _schema, **_kwargs):  # noqa: ANN001
             return InteractionSummaryOutput.model_validate(
                 {
@@ -815,6 +830,16 @@ async def test_request_stream_keeps_temporary_key_out_of_attempt_and_task_storag
     monkeypatch.setattr(streaming._inline_workflow, "prepare_story_task", prepare)
     monkeypatch.setattr(streaming._inline_workflow, "checkpoint_story_task", checkpoint)
     monkeypatch.setattr(streaming._inline_workflow, "finalize_story_task", finalize)
+    monkeypatch.setattr(
+        streaming._inline_workflow,
+        "govern_held_story",
+        _govern_passed(),
+    )
+    monkeypatch.setattr(
+        streaming._inline_workflow,
+        "release_story_task",
+        _noop_async(),
+    )
     monkeypatch.setattr(
         streaming._inline_workflow,
         "finalize_summary_task",

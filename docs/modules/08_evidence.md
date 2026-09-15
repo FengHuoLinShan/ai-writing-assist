@@ -443,3 +443,5 @@ World 复核使用原确认编译后实际保留的内容；Focused Evidence 只
 ### 智能整理的证据范围
 
 review_resolution 的场景/章节回读使用稳定 Evidence facade，补查使用既有 focused retrieval；每次模型步骤保存来源与上下文回执。输出只能引用冻结候选与实际证据，后序支持需先明确时序/可见性，不能回流为原场景已有事实。索引和角色/读者编译边界不因减少确认而放宽。
+
+Knowledge 子包提供跨模块稳定契约：capability policy、scope receipt、director plan、audit receipt、组级执行与采用门禁。完整规则见 `backend/modules/evidence/compilation/README.md` 和 ADR-0025。

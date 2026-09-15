@@ -451,6 +451,39 @@ class ParallelSceneEntityExtractionMixin:
                     completed_scenes += 1
                 continue
 
+            raw_knowledge_review = getattr(extraction, "knowledge_review", None)
+            knowledge_review = dict(raw_knowledge_review or {})
+            if raw_knowledge_review is not None and knowledge_review.get(
+                "status"
+            ) != "passed":
+                failed_scene_indices.append(scene_index)
+                if snapshot_id is not None:
+                    from modules.evidence.facade import fail_context_snapshot
+
+                    await fail_context_snapshot(
+                        db,
+                        novel_id=str(nid),
+                        snapshot_id=snapshot_id,
+                        error_kind="knowledge_governance_blocked",
+                        error_message="knowledge_governance_blocked",
+                    )
+                scene_checkpoints.append(
+                    service._build_scene_checkpoint(
+                        scene,
+                        status="quality_failed",
+                        workflow_id=workflow_id,
+                        scene_provenance_key=scene_provenance_key,
+                        retry_count=1,
+                        error="knowledge_governance_blocked",
+                        error_kind="knowledge_governance_blocked",
+                        activation_version=item["activation"]["activation_version"],
+                        activation_source_count=len(item["activation"]["sources"]),
+                        input_fingerprint=item["input_fingerprint"],
+                        knowledge_review=knowledge_review,
+                    )
+                )
+                continue
+
             result_refs: list[dict[str, str]] = []
             try:
                 created_count = await service._persist_entities(
@@ -555,6 +588,7 @@ class ParallelSceneEntityExtractionMixin:
                     completion_hints=completion_hints(
                         extraction, scene_id=scene_id, source_text=item["chapters_text"]
                     ),
+                    knowledge_review=raw_knowledge_review,
                 )
             )
             try:

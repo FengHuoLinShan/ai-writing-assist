@@ -97,3 +97,7 @@ World 负责世界书编辑/发布/恢复与历史读取；Story 负责信息计
 ## 导入确认减负
 
 `imports.resolve_review` 按明确章节/候选范围启动 Imports 智能整理，`imports.accept_review` 预览并采用作者选中的具体结果。v3 的 `review_resolution_result` 只经 Evidence 回读范围内的新鲜结果；固定 confirmation 或排除项无法证明一致时不开放整批结果。已获授权的后台整理不逐项回到助手确认，身份/事实冲突仍以领域操作批次处理。
+
+## 最终答复复核
+
+pro 模式将本轮实际工具证据冻结为 `assistant.turn` 组级 scope，先独立 audit；仅 blocked 时生成一份修正答复并复审。仍失败时只返回扣留说明且不准备 actions，回执进现有 run checkpoint/result。

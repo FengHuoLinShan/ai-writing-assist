@@ -68,6 +68,11 @@ from modules.project.facade import (
 )
 
 
+async def _noop_generate(_plan, _generator_keys) -> str:
+    """仅审查场景的占位生成回调（RP 生成已由流式循环完成）。"""
+    return ""
+
+
 @dataclass(frozen=True)
 class PreparedStoryGeneration:
     novel_id: str
@@ -587,8 +592,15 @@ class InteractionGenerationWorkflow:
         ):
             raise RuntimeError("interaction source context changed during generation")
         if visible_delta:
-            attempt.visible_text += visible_delta
-            attempt.visible_offset = len(attempt.visible_text)
+            # ADR-0025 held release：正文先入私有 hold，审查通过才写入
+            # visible_text；SSE 只读 visible_text/visible_offset，因此 PASS 前零 chunk。
+            hold = self._knowledge_hold(attempt)
+            hold["release_state"] = "held"
+            hold["text"] = str(hold.get("text") or "") + visible_delta
+            self._write_knowledge_hold(attempt, hold)
+            held_offset = len(hold["text"])
+        else:
+            held_offset = int(attempt.visible_offset or 0)
         if metadata_text is not None:
             attempt.metadata_text = metadata_text[:8192]
         if usage:
@@ -619,14 +631,309 @@ class InteractionGenerationWorkflow:
                 totals["continuation_keys"] = continuation_keys
             attempt.usage = totals
         attempt.last_checkpoint_at = datetime.now(UTC)
-        visible_offset = attempt.visible_offset
         if progress is not None:
             task.update_progress(max(0.02, min(0.94, progress)))
         await db.commit()
         if db.in_transaction():
             raise RuntimeError("interaction stream checkpoint must close transaction")
         db.expire_all()
-        return visible_offset
+        return held_offset
+
+    @staticmethod
+    def _knowledge_hold(attempt: Any) -> dict[str, Any]:
+        checkpoint = dict(getattr(attempt, "agent_checkpoint_json", None) or {})
+        hold = checkpoint.get("knowledge_hold")
+        return dict(hold) if isinstance(hold, dict) else {}
+
+    @staticmethod
+    def _write_knowledge_hold(attempt: Any, hold: dict[str, Any]) -> None:
+        checkpoint = dict(getattr(attempt, "agent_checkpoint_json", None) or {})
+        checkpoint["knowledge_hold"] = hold
+        attempt.agent_checkpoint_json = checkpoint  # type: ignore[union-attr]
+
+    async def _attempt_source_fingerprint(self, db, *, task: Any) -> str:
+        novel_id, journey_id, attempt_id = self._task_ids(task)
+        journey = await self._repo.get_journey_for_task(
+            db,
+            journey_id=journey_id,
+            novel_id=uuid.UUID(novel_id),
+            for_update=False,
+        )
+        attempt = (
+            await self._repo.get_attempt(
+                db,
+                journey=journey,
+                attempt_id=attempt_id,
+            )
+            if journey is not None
+            else None
+        )
+        if attempt is None:
+            return ""
+        return str(getattr(attempt, "source_context_fingerprint", "") or "")
+
+    async def held_story_text(
+        self,
+        db: AsyncSession,
+        *,
+        task: Any,
+    ) -> str:
+        """读取当前 hold 的私有正文（仅 worker 内部使用）。"""
+        novel_id, journey_id, attempt_id = self._task_ids(task)
+        attempt = await self._repo.get_attempt(
+            db,
+            journey=await self._repo.get_journey_for_task(
+                db,
+                journey_id=journey_id,
+                novel_id=uuid.UUID(novel_id),
+                for_update=False,
+            ),
+            attempt_id=attempt_id,
+        )
+        if attempt is None:
+            return ""
+        return str(self._knowledge_hold(attempt).get("text") or "")
+
+    async def release_story_task(
+        self,
+        db: AsyncSession,
+        *,
+        task: Any,
+        text: str,
+        review: dict[str, Any] | None = None,
+    ) -> None:
+        """审查通过后一次性公开全文；hold 转为 released 并留存脱敏回执。"""
+        if not self._is_inline(task):
+            require_task_checkpoint_session(db)
+        novel_id, journey_id, attempt_id = self._task_ids(task)
+        await require_interaction_project(db, novel_id)
+        journey = await self._repo.get_journey_for_task(
+            db,
+            journey_id=journey_id,
+            novel_id=uuid.UUID(novel_id),
+            for_update=True,
+        )
+        if journey is None:
+            raise RuntimeError("interaction journey is not active")
+        attempt = await self._execution_attempt(
+            db,
+            task=task,
+            journey=journey,
+            attempt_id=attempt_id,
+            for_update=True,
+        )
+        if attempt is None or attempt.status != "running":
+            raise RuntimeError("interaction attempt cannot release held text")
+        attempt.visible_text = text
+        attempt.visible_offset = len(text)
+        attempt.last_checkpoint_at = datetime.now(UTC)
+        self._write_knowledge_hold(
+            attempt,
+            {
+                "release_state": "released",
+                "knowledge_review": dict(review or {}),
+            },
+        )
+        await db.flush()
+
+    async def fail_knowledge_hold(
+        self,
+        db: AsyncSession,
+        *,
+        task: Any,
+        review: dict[str, Any],
+    ) -> dict[str, Any]:
+        """一次返修仍失败：attempt 失败，正文保留私有记录但不展示。"""
+        if not self._is_inline(task):
+            require_task_checkpoint_session(db)
+        novel_id, journey_id, attempt_id = self._task_ids(task)
+        await require_interaction_project(db, novel_id)
+        journey = await self._repo.get_journey_for_task(
+            db,
+            journey_id=journey_id,
+            novel_id=uuid.UUID(novel_id),
+            for_update=True,
+        )
+        if journey is None:
+            raise RuntimeError("interaction journey is not active")
+        attempt = await self._execution_attempt(
+            db,
+            task=task,
+            journey=journey,
+            attempt_id=attempt_id,
+            for_update=True,
+        )
+        if attempt is None:
+            raise RuntimeError("interaction attempt not found")
+        hold = self._knowledge_hold(attempt)
+        hold["release_state"] = "blocked"
+        hold["knowledge_review"] = dict(review or {})
+        self._write_knowledge_hold(attempt, hold)
+        attempt.status = "failed"
+        attempt.error_kind = "knowledge_review_blocked"
+        attempt.error_message = "这段内容未通过知识边界审查；请重新生成或换个说法"
+        attempt.finish_reason = "knowledge_review_blocked"
+        attempt.metadata_text = ""
+        if self._attempt_is_see_sea_step(attempt):
+            journey.see_sea_enabled = False
+            journey.see_sea_last_heartbeat_at = None
+        task.update_progress(1.0)
+        await db.flush()
+        return {"attempt_id": str(attempt.id), "status": "failed"}
+
+    async def govern_held_story(
+        self,
+        db: AsyncSession,
+        *,
+        task: Any,
+        client: Any,
+        prepared: PreparedStoryGeneration,
+    ) -> dict[str, Any]:
+        """对 hold 正文执行独立知识审查；blocked 时最多一次返修后复审。
+
+        返回 {"status": passed|blocked, "text": 最终正文, "review": 脱敏回执}。
+        生成者可见资料 = 本次 prompt（已由 Evidence 按截止点裁剪）；权威对照
+        同源，隐藏真相未进入生成包，审查重点是越界、无依据与冲突。
+        """
+        from modules.evidence.contracts import (
+            REPAIR_INSTRUCTION_TEMPLATE,
+            GovernedWorkflowHooks,
+            KnowledgeDirectorDisposition,
+            KnowledgeDirectorPlan,
+            KnowledgeScopeBuild,
+            KnowledgeScopeReceipt,
+            KnowledgeSourceEntry,
+            KnowledgeSubject,
+            knowledge_review_payload,
+            require_capability_policy,
+            run_knowledge_audit,
+        )
+
+        novel_id, _journey_id, _attempt_id = self._task_ids(task)
+        held = await self.held_story_text(db, task=task)
+        policy = require_capability_policy("interaction.story_generate")
+        source_fingerprint = await self._attempt_source_fingerprint(db, task=task)
+        included = (
+            (
+                KnowledgeSourceEntry(
+                    source_key=f"source_context:{source_fingerprint[:16]}",
+                    source_type="source_context",
+                    source_id=source_fingerprint[:16],
+                    content_hash=source_fingerprint,
+                    label="冻结作品资料包",
+                    dimensions=("source_canon",),
+                ),
+            )
+            if source_fingerprint
+            else ()
+        )
+        receipt = KnowledgeScopeReceipt(
+            policy_version=1,
+            capability=policy.capability_id,
+            novel_id=novel_id,
+            subject=KnowledgeSubject(subject_type="reader"),
+            included=included,
+            scope_complete=True,
+            authority_fingerprint=str(source_fingerprint or "no-source"),
+            generator_fingerprint=str(source_fingerprint or "no-source"),
+        )
+        plan = KnowledgeDirectorPlan(
+            policy_version=1,
+            capability=policy.capability_id,
+            receipt_fingerprint=receipt.receipt_fingerprint(),
+            dispositions=(
+                KnowledgeDirectorDisposition(
+                    source_key=entry.source_key,
+                    disposition="required_for_generation",
+                )
+                for entry in included
+            ),
+        )
+        plan.validate_against_receipt(receipt)
+        scope_build = KnowledgeScopeBuild(
+            receipt=receipt,
+            generator_keys=tuple(entry.source_key for entry in included),
+            audit_only_keys=(),
+        )
+
+        rendered_context = "\n\n".join(
+            f"【{message.role}】\n{message.content}" for message in prepared.messages
+        )[:24000]
+
+        async def _audit(text: str):  # noqa: ANN202
+            return await run_knowledge_audit(
+                client,
+                policy=policy,
+                scope_build=scope_build,
+                plan=plan,
+                hooks=GovernedWorkflowHooks(
+                    generate=_noop_generate,
+                    task_instruction="以读者视角续写互动故事，遵守知识边界",
+                    generator_context=rendered_context,
+                    authority_context=rendered_context,
+                ),
+                output=text,
+                step_prefix="interaction.story_generate",
+            )
+
+        audit = await _audit(held)
+        if audit.verdict == "pass":
+            return {
+                "status": "passed",
+                "text": held,
+                "review": knowledge_review_payload(
+                    audit=audit, visible_keys=scope_build.generator_keys
+                ),
+            }
+
+        if audit.verdict not in {"blocked"}:
+            return {
+                "status": "blocked",
+                "text": "",
+                "review": knowledge_review_payload(
+                    audit=audit, visible_keys=scope_build.generator_keys
+                ),
+            }
+
+        # 最多一次返修：原对话 + 已生成正文 + 脱敏问题，重生成一次
+        findings_block = "\n".join(
+            f"- [{item.severity}] {item.kind}: {item.message}"
+            for item in audit.findings
+        )
+        repair_messages = [
+            *prepared.messages,
+            LLMMessage(role="assistant", content=held),
+            LLMMessage(
+                role="user",
+                content=REPAIR_INSTRUCTION_TEMPLATE.format(
+                    findings_block=findings_block
+                ),
+            ),
+        ]
+        profile = dict(prepared.executable_settings.get("llm") or {})
+        repair_request = LLMCallRequest(
+            model=str(profile.get("model") or ""),
+            messages=repair_messages,
+            temperature=0.3,
+            max_tokens=story_request(prepared).max_tokens,
+        )
+        from infrastructure.llm.agent_step_harness import run_managed_generate
+
+        repair_response = await run_managed_generate(
+            client,
+            repair_request,
+            step_name="interaction.story_generate.knowledge.repair",
+        )
+        repaired_text = str(repair_response.content or "")
+        repair_audit = await _audit(repaired_text)
+        review = knowledge_review_payload(
+            audit=repair_audit,
+            repaired=True,
+            visible_keys=scope_build.generator_keys,
+        )
+        if repair_audit.verdict == "pass":
+            return {"status": "passed", "text": repaired_text, "review": review}
+        return {"status": "blocked", "text": "", "review": review}
 
     async def finalize_story_task(
         self,
@@ -911,8 +1218,11 @@ class InteractionGenerationWorkflow:
                 and journey.source_context_epoch == attempt.started_source_context_epoch
                 and journey.selection_epoch == attempt.started_selection_epoch
             ):
-                attempt.visible_text += visible_delta
-                attempt.visible_offset = len(attempt.visible_text)
+                # 未审查的部分正文进私有 hold，不向用户公开
+                hold = self._knowledge_hold(attempt)
+                hold["release_state"] = "held"
+                hold["text"] = str(hold.get("text") or "") + visible_delta
+                self._write_knowledge_hold(attempt, hold)
                 attempt.last_checkpoint_at = datetime.now(UTC)
             attempt.status = (
                 "cancelled"

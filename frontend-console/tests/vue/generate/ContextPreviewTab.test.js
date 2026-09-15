@@ -22,6 +22,10 @@ const bundle = {
       sources: [{ type: "chapter", id: "chapter-secret-id", label: "第一章 潮门初启" }],
       truncated: true,
     },
+    {
+      key: "hidden_truth", tier: 1, token_count: 120, title: "作者已知真相",
+      preview: "仅用于复核提前泄露。", status: "audit_only", sources: [],
+    },
   ],
   evicted: ["style_assets"],
   truncated: ["retrieval_evidence_packs"],
@@ -36,11 +40,13 @@ describe("author-facing context review", () => {
     const wrapper = mount(ContextBundleView, { props: { bundle }, attachTo: document.body })
 
     const overview = wrapper.get(".generate-context-overview")
-    expect(overview.text()).toContain("已准备 2 类参考资料")
+    expect(overview.text()).toContain("已准备 3 类参考资料")
     expect(overview.text()).toContain("来自 2 项可核对来源")
     expect(overview.text()).toContain("文风参考未加入本次资料")
     expect(overview.text()).not.toContain("author_safe")
     expect(wrapper.get(".generate-context-sections").text()).toContain("当前场景")
+    expect(wrapper.text()).toContain("生成时会参考")
+    expect(wrapper.text()).toContain("仅在复核时核对")
     expect(wrapper.get(".generate-context-sections").text()).toContain("退潮后的石门")
     expect(wrapper.get(".generate-context-sections").text()).toContain("当前场景/章节范围")
     expect(wrapper.find("img").exists()).toBe(false)
@@ -55,7 +61,7 @@ describe("author-facing context review", () => {
     })
 
     expect(wrapper.text()).toContain("完整参考资料")
-    expect(wrapper.text()).toContain("已准备 2 类参考资料")
+    expect(wrapper.text()).toContain("已准备 3 类参考资料")
     expect(wrapper.get(".generate-context-markdown").element.open).toBe(true)
     expect(wrapper.get(".generate-markdown-pre").text()).toContain("# 完整资料")
     expect(wrapper.get('[data-action="copy-task-md"]').text()).toBe("复制完整文本")

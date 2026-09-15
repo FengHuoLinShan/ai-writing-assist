@@ -6,10 +6,16 @@ import {
   checkItems,
   errorItems,
   eventItems,
+  phaseDisplayLabel,
   timelineItems,
 } from "../../vue/components/progressUtils.js"
 
 describe("progressUtils 作者诊断投影", () => {
+  it("把知识治理阶段显示为用户语言", () => {
+    expect(phaseDisplayLabel("directing")).toBe("确认本次可用资料")
+    expect(phaseDisplayLabel("reviewing")).toBe("核对内容与设定")
+    expect(authorFacingDiagnosticText("knowledge_governance_blocked")).toBe("内容未通过知识复核")
+  })
   it("可读错误保留原因但不暴露异常类名", () => {
     expect(authorFacingDiagnosticText("RuntimeError: 直接关联对象查读未完成，已保留进度供恢复")).toBe("直接关联对象查读未完成，已保留进度供恢复")
   })

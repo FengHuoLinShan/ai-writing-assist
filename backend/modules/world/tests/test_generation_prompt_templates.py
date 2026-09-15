@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.schemas import LLMCallResponse
+from modules.evidence.compilation.knowledge.llm_schemas import AuditVerdictOutput
 from modules.world.models import (
     CoreEntity,
     GenerationPromptTemplate,
@@ -19,11 +20,12 @@ from modules.world.services.worldbuilding.generation_prompt_template_service imp
     _placeholders,
     validate_template,
 )
+from modules.world.tests.governance_fakes import GovernedWorldAuditMixin
 
 pytestmark = pytest.mark.usefixtures("account_llm_connection")
 
 
-class _FakeLLMClient:
+class _FakeLLMClient(GovernedWorldAuditMixin):
     provider = "fake-provider"
 
     def __init__(self) -> None:
@@ -38,6 +40,10 @@ class _FakeLLMClient:
         )
 
     async def generate_structured(self, request, schema, **_kwargs):
+        if schema is AuditVerdictOutput:
+            return await self._governed_generate_structured(
+                request, schema, **_kwargs
+            )
         self.requests.append(request)
         return schema(
             name="誓约骑士",

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.llm.schemas import LLMCallResponse
 from modules.world.models.cocreation import WorldCocreationMessage
 from modules.world.models.worldbuilding import CreationSuggestion
+from modules.world.tests.governance_fakes import GovernedWorldAuditMixin
 
 
 @pytest.mark.asyncio
@@ -304,6 +305,8 @@ async def test_all_design_actions_generate_typed_previews_without_advancing_or_a
     rule["costs"] = ["每次耗盐五袋"]
 
     async def structured(request, schema, **_kwargs):
+        if schema.__name__ == "AuditVerdictOutput":
+            return await fake._governed_generate_structured(request, schema, **_kwargs)
         fake.requests.append(request)
         return schema.model_validate(
             {"summary": "具体说明潮门维护成本", "changes": {"rules": [rule]}}
@@ -459,7 +462,7 @@ async def _insert_checkpoint_suggestion(
     return suggestion
 
 
-class _FakeChatClient:
+class _FakeChatClient(GovernedWorldAuditMixin):
     provider = "fake-provider"
     model_name = "fake-default-model"
 
@@ -473,6 +476,9 @@ class _FakeChatClient:
             model=request.model,
             provider=self.provider,
         )
+
+    async def generate_structured(self, request, schema, **kwargs):
+        return await self._governed_generate_structured(request, schema, **kwargs)
 
     async def close(self) -> None:
         return None
@@ -537,13 +543,16 @@ async def test_enabled_cocreation_reuses_identity_and_queues_only_one_agent(
     from modules.assistant.service import AssistantService
     from modules.assistant.tests.test_assistant import FakeClient
 
-    class Client(FakeClient):
+    class Client(GovernedWorldAuditMixin, FakeClient):
         def __init__(self):
             self.requests = []
 
         async def generate(self, request, *, transport_retries):
             self.requests.append(request)
             return await super().generate(request, transport_retries=transport_retries)
+
+        async def generate_structured(self, request, schema, **kwargs):
+            return await self._governed_generate_structured(request, schema, **kwargs)
 
     client = Client()
     monkeypatch.setattr(
@@ -556,10 +565,10 @@ async def test_enabled_cocreation_reuses_identity_and_queues_only_one_agent(
     await db_session.flush()
     result = await AssistantService().execute(db_session, task)
     assert result["status"] == "waiting_approval"
-    assert len(client.requests) == (2 if quality_mode == "pro" else 1)
+    assert len(client.requests) == 1
     if quality_mode == "pro":
-        assert len(client.requests[-1].tools) == 1
         assert stored.checkpoint_json["quality_review_done"]
+        assert stored.checkpoint_json["knowledge_review"]["status"] == "passed"
 
 
 def _install_fake_llm(monkeypatch: pytest.MonkeyPatch) -> _FakeChatClient:

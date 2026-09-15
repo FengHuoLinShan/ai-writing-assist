@@ -9,6 +9,10 @@ from pydantic import ValidationError as SchemaError
 from sqlalchemy import func, select
 
 from core.errors import ConflictError, ValidationError
+from modules.evidence.compilation.knowledge.llm_schemas import (
+    AuditDimensionCheck,
+    AuditVerdictOutput,
+)
 from modules.evidence.compilation.services.compiled_context import (
     CompiledContext,
     ContextItem,
@@ -589,9 +593,13 @@ async def test_manual_workflow_keeps_source_range_and_original_geometry(
         model.structure_task_id = task.id
         await db_session.flush()
         db_session.task_checkpoint_enabled = True
-        client = SimpleNamespace(
-            generate_structured=AsyncMock(
-                return_value=MapRelationBatch(
+        async def generate(_request, schema, **_kwargs):
+            if schema is AuditVerdictOutput:
+                return AuditVerdictOutput(
+                    dimensions=[AuditDimensionCheck(dimension="map_spatial")],
+                    verdict="pass",
+                )
+            return MapRelationBatch(
                     relations=[
                         dict(
                             subject="a",
@@ -602,7 +610,9 @@ async def test_manual_workflow_keeps_source_range_and_original_geometry(
                         )
                     ]
                 )
-            ),
+
+        client = SimpleNamespace(
+            generate_structured=AsyncMock(side_effect=generate),
             close=AsyncMock(),
         )
         with (
@@ -640,7 +650,7 @@ async def test_manual_workflow_keeps_source_range_and_original_geometry(
         assert (
             candidate.document["features"] == document.model_dump(mode="json")["features"]
         )
-        request = client.generate_structured.call_args.args[0]
+        request = client.generate_structured.call_args_list[0].args[0]
         assert "甲城在乙城以北" in request.messages[0].content
         assert await db_session.scalar(select(func.count(CoreEntity.id))) == 0
         client.close.assert_awaited_once()

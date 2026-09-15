@@ -45,14 +45,19 @@ from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
 from modules.world.services.worldbuilding.world_bible_synopsis_service import (
     WorldBibleSynopsisService,
 )
+from modules.world.tests.governance_fakes import GovernedWorldAuditMixin
 from modules.world.tests.helpers import publish_bible_draft
 
 
-class _FakeSynopsisClient:
+class _FakeSynopsisClient(GovernedWorldAuditMixin):
     provider = "fake-provider"
     model_name = "fake-synopsis-model"
 
     async def generate_structured(self, _request, schema, **_kwargs):
+        if schema.__name__ == "AuditVerdictOutput":
+            return await self._governed_generate_structured(
+                _request, schema, **_kwargs
+            )
         return schema(
             sections=[
                 {
@@ -332,7 +337,8 @@ async def test_synopsis_ordinary_refresh_keeps_caller_transaction(
     )
 
     assert promoted is True
-    assert client.transaction_states == [True]
+    # 生成 + 知识审查两次 provider 调用均在调用方事务内
+    assert client.transaction_states == [True, True]
 
 
 @pytest.mark.asyncio
@@ -1184,6 +1190,7 @@ async def test_suggestion_edit_applies_to_working_draft_only(
                     "linked_asset_refs_json": [],
                 },
                 "source_refs": [],
+                "knowledge_review": {"status": "passed"},
             },
         ),
     )
@@ -1270,6 +1277,7 @@ async def test_suggestion_explicit_empty_page_text_does_not_restore_ai_text(
                     "sections_json": [],
                     "linked_asset_refs_json": [],
                 },
+                "knowledge_review": {"status": "passed"},
             },
         ),
     )

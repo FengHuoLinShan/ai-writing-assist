@@ -21,7 +21,11 @@ async def test_adoption_rechecks_working_head_and_restore_creates_a_working_copy
     candidate = await WritingDraftRepository().create_with_status(
         db,
         WritingDraftCreate(
-            novel_id=nid, chapter_index=1, title="候选", content="供作者选择的正文"
+            novel_id=nid,
+            chapter_index=1,
+            title="候选",
+            content="供作者选择的正文",
+            provenance_json={"knowledge_review": {"status": "passed"}},
         ),
         status="candidate",
     )

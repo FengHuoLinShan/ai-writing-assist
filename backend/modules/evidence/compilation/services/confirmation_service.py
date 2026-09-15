@@ -509,6 +509,9 @@ class ContextConfirmationService:
             ),
             "compiled_context_fingerprint": options.compiled_context_fingerprint,
             "scene_memory_contract_version": options.scene_memory_contract_version,
+            "capability": options.capability,
+            "scope_complete": options.scope_complete,
+            "reference_usages": options.reference_usages,
         }
 
     @staticmethod

@@ -164,7 +164,9 @@ async def authorize_resolution(db, *, novel_id, task_id, permission):
     return {**permission, **grant}
 
 
-async def judge(client, *, rows, evidence, stage="review", previous=None):
+async def judge(
+    client, *, novel_id: str, rows, evidence, stage="review", previous=None
+):
     from infrastructure.llm.agent_step_harness import (
         ContextBudget,
         run_managed_structured,
@@ -223,7 +225,37 @@ async def judge(client, *, rows, evidence, stage="review", previous=None):
     )
     if {item.candidate_key for item in result.judgments} != {row["key"] for row in rows}:
         raise ValueError("模型返回的候选集合不完整")
-    return result
+    from modules.evidence.contracts import (
+        GroupSource,
+        govern_group_output,
+        serialize_group_output,
+    )
+
+    group_key = stable_hash([row["key"] for row in rows])
+    governed = await govern_group_output(
+        client,
+        capability="imports.review_resolution",
+        novel_id=novel_id,
+        group_key=f"problem:{group_key}",
+        sources=(
+            GroupSource(
+                source_key=f"problem_evidence:{group_key}",
+                source_type="imported_assets",
+                content_hash=stable_hash({"rows": rows, "evidence": evidence}),
+                label="导入问题组证据",
+                dimensions=("prior_prose", "imported_assets", "world_entities"),
+            ),
+        ),
+        output=serialize_group_output(result),
+        task_instruction="核对导入候选的支持证据、反证与身份归属。",
+        generator_context=json.dumps(payload, ensure_ascii=False),
+        step_prefix=f"imports.review_resolution.{stage}.knowledge",
+    )
+    if governed["status"] != "passed":
+        raise ValueError("knowledge_governance_blocked")
+    return ReviewJudgments.model_validate_json(governed["text"]).model_copy(
+        update={"knowledge_review": governed["review"]}
+    )
 
 
 def evidence_for_judgment(judgment, evidence):
@@ -495,6 +527,8 @@ async def run_resolution(db, *, task, progress, checkpoint, project_settings):
                         state=state,
                         save=save,
                     )
+                    if review := getattr(output, "knowledge_review", None):
+                        group["knowledge_review"] = review
                     group["judgment"] = output.model_dump(mode="json")
                     await save()
                 questions = group.get("questions") or list(
@@ -547,6 +581,8 @@ async def run_resolution(db, *, task, progress, checkpoint, project_settings):
                                 save=save,
                                 previous=output.model_dump(mode="json"),
                             )
+                            if review := getattr(output, "knowledge_review", None):
+                                group["knowledge_review"] = review
                             group[f"{stage}_judgment"] = output.model_dump(mode="json")
                             await save()
                     group["revision_checked"] = True
@@ -994,7 +1030,12 @@ async def audited_judgment(
     await save()
     try:
         result = await judge(
-            client, rows=rows, evidence=evidence, stage=stage, previous=previous
+            client,
+            novel_id=task.meta["novel_id"],
+            rows=rows,
+            evidence=evidence,
+            stage=stage,
+            previous=previous,
         )
     except Exception as exc:
         await fail_context_snapshot(
@@ -1093,6 +1134,8 @@ async def resolve_scene_boundaries(
                     previous=previous.get("repair"),
                     save=save,
                 )
+                if review := getattr(output, "knowledge_review", None):
+                    previous["knowledge_review"] = review
                 previous[stage] = output.model_dump(mode="json")
                 await save()
             judgments = SceneBoundaryReview.model_validate(previous["verify"]).scenes
@@ -1196,6 +1239,36 @@ async def audited_scene_judgment(
             item.scene_id for item in result.scenes
         } != {item["scene_id"] for item in frozen["members"]}:
             raise ValueError("场景核对结果超出范围")
+        from modules.evidence.contracts import (
+            GroupSource,
+            govern_group_output,
+            serialize_group_output,
+        )
+
+        governed = await govern_group_output(
+            client,
+            capability="imports.review_resolution",
+            novel_id=task.meta["novel_id"],
+            group_key=f"scene:{frozen['scene_id']}",
+            sources=(
+                GroupSource(
+                    source_key=f"scene_evidence:{frozen['scene_id']}",
+                    source_type="prior_prose",
+                    content_hash=stable_hash(payload),
+                    label="Scene 问题组证据",
+                    dimensions=("prior_prose", "imported_assets", "world_entities"),
+                ),
+            ),
+            output=serialize_group_output(result),
+            task_instruction="核对导入 Scene 边界与原文证据。",
+            generator_context=json.dumps(payload, ensure_ascii=False),
+            step_prefix=f"imports.review_resolution.scene_{stage}.knowledge",
+        )
+        if governed["status"] != "passed":
+            raise ValueError("knowledge_governance_blocked")
+        result = SceneBoundaryReview.model_validate_json(governed["text"]).model_copy(
+            update={"knowledge_review": governed["review"]}
+        )
     except Exception as exc:
         await fail_context_snapshot(
             db,

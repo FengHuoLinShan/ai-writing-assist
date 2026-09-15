@@ -427,6 +427,7 @@ class SuggestionQueueService:
         core_entity_changes: CoreEntitySuggestionEditConfirmRequest | None = None,
     ) -> CreationSuggestionResponse:
         suggestion = await self._get_pending(db, novel_id, suggestion_id)
+        self._require_knowledge_review_passed(suggestion)
         payload_json = self._validated_payload_json(
             suggestion.target_type,
             suggestion.payload_json,
@@ -636,6 +637,7 @@ class SuggestionQueueService:
             raise ValidationError(
                 "This decision is only available for generation-center page drafts"
             )
+        self._require_knowledge_review_passed(pending)
         payload = WorldBiblePageDraftSuggestionPayload.model_validate(
             pending.payload_json
         )
@@ -695,6 +697,14 @@ class SuggestionQueueService:
                 ),
             )
         edited_payload = payload.model_copy(update={"page": page_content})
+        if page_content != payload.page:
+            # 作者改写后原 AI 审查结论不再适用：保留回执但标记 stale（ADR-0025）
+            review = dict(edited_payload.knowledge_review or {})
+            if review:
+                review["author_edited"] = True
+                edited_payload = edited_payload.model_copy(
+                    update={"knowledge_review": review}
+                )
         suggestion.payload_json = edited_payload.model_dump(mode="json")
         accepted = await self._mark_accepted(
             db,
@@ -1028,6 +1038,29 @@ class SuggestionQueueService:
             )
         await db.flush()
         return CreationSuggestionResponse.model_validate(suggestion)
+
+    @staticmethod
+    def _require_knowledge_review_passed(suggestion: CreationSuggestion) -> None:
+        """知识治理采用门禁（ADR-0025）：接入治理的 AI 提案必须知识审查 PASS。
+
+        world_bible_page_draft 仅由生成中心创建，core_entity* 区分来源
+        （generation center 的 source_module="world"）；缺失回执的旧提案按
+        legacy 拒绝（fail closed）。其余来源在接入治理后由 payload 携带
+        knowledge_review 键时同样强制。
+        """
+        from modules.world.services.worldbuilding.knowledge_governance import (
+            require_knowledge_review_passed,
+        )
+
+        target_type = str(suggestion.target_type)
+        source_module = str(suggestion.source_module or "")
+        payload_json = dict(suggestion.payload_json or {})
+        governed_source = target_type == "world_bible_page_draft" or (
+            target_type in {"core_entity", "core_entity_draft"}
+            and source_module == "world"
+        )
+        if payload_json.get("knowledge_review") is not None or governed_source:
+            require_knowledge_review_passed(payload_json, label="该 AI 建议")
 
     def _validated_payload_json(
         self,

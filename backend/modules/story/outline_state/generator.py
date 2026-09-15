@@ -15,6 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.token_estimation import estimate_token_count
+from modules.evidence.contracts import (
+    GroupSource,
+    govern_group_output,
+)
 from modules.story.outline_state.generation.context_builder import (
     PlotStructureContext,
     PlotStructureContextBuilder,
@@ -245,8 +249,48 @@ class PlotStructureGenerator:
                 )
             return data
 
+        knowledge_review: dict[str, Any] | None = None
+        if fast_structured and workflow_id:
+            governed = await govern_group_output(
+                self._llm_client,
+                capability="imports.structure_analysis",
+                novel_id=novel_id,
+                group_key=f"structure:{workflow_id}",
+                sources=(
+                    GroupSource(
+                        source_key=f"structure_context:{workflow_id}",
+                        source_type="imported_assets",
+                        content_hash=hashlib.sha256(
+                            context.markdown.encode("utf-8")
+                        ).hexdigest(),
+                        label="导入结构上下文",
+                        dimensions=("prior_prose", "imported_assets", "outline"),
+                    ),
+                ),
+                output=json.dumps(
+                    self._preview_result(parsed, warnings=context.warnings)[
+                        "draft_structure"
+                    ],
+                    ensure_ascii=False,
+                ),
+                task_instruction="根据已导入 Scene 生成剧情线、篇章纲与伏笔计划。",
+                generator_context=context.markdown,
+                step_prefix="imports.structure_analysis.knowledge",
+            )
+            knowledge_review = governed["review"]
+            if governed["status"] != "passed":
+                error = ValueError("knowledge_governance_blocked")
+                if snapshot_id is not None:
+                    await self._mark_structure_snapshot_failed(
+                        db, novel_id, snapshot_id, error
+                    )
+                    await db.commit()
+                raise error
+
         if not persist:
             data = self._preview_result(parsed, warnings=context.warnings)
+            if knowledge_review is not None:
+                data["knowledge_review"] = knowledge_review
             if snapshot_id is not None:
                 from modules.evidence.facade import succeed_context_snapshot
 
@@ -315,6 +359,8 @@ class PlotStructureGenerator:
                     workflow_id=workflow_id,
                 )
             data = result.to_dict()
+            if knowledge_review is not None:
+                data["knowledge_review"] = knowledge_review
             if snapshot_id is not None:
                 refs = self._result_refs(data)
                 from modules.evidence.facade import succeed_context_snapshot

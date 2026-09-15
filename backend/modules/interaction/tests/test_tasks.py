@@ -226,6 +226,32 @@ class _StreamingClient:
         self.closed = True
 
 
+def _governance_patches(held_text: str = "受审正文"):
+    """给 handler 测试补上治理三件套的替身（govern/release/fail）。"""
+    from contextlib import contextmanager
+
+    governed = {"status": "passed", "text": held_text, "review": {"status": "passed"}}
+
+    @contextmanager
+    def _patches():
+        with (
+            patch.object(
+                tasks._workflow,
+                "govern_held_story",
+                autospec=True,
+                return_value=governed,
+            ) as govern,
+            patch.object(
+                tasks._workflow,
+                "release_story_task",
+                autospec=True,
+            ) as release,
+        ):
+            yield govern, release
+
+    return _patches
+
+
 async def test_story_handler_checkpoints_by_size_and_flushes_tail() -> None:
     prepared = PreparedStoryGeneration(
         novel_id=str(uuid.uuid4()),
@@ -258,6 +284,7 @@ async def test_story_handler_checkpoints_by_size_and_flushes_tail() -> None:
             autospec=True,
             return_value={"status": "completed"},
         ) as finalize,
+        _governance_patches()(),
         patch(
             "modules.interaction.tasks.create_project_snapshot_llm_client",
             autospec=True,
@@ -322,6 +349,7 @@ async def test_story_handler_runs_bounded_summary_passes_before_story() -> None:
             autospec=True,
             return_value={"status": "completed"},
         ),
+        _governance_patches()(),
         patch(
             "modules.interaction.tasks.create_project_snapshot_llm_client",
             autospec=True,

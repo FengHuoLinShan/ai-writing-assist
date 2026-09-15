@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 from copy import deepcopy
@@ -19,6 +20,11 @@ from infrastructure.llm.client import LLMClient
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from infrastructure.stable_hash import stable_hash as _stable_fingerprint
+from modules.evidence.contracts import (
+    GroupSource,
+    govern_group_output,
+    serialize_group_output,
+)
 from modules.writing.repositories import (
     AI_REVIEW_TASK_OWNER_KEY,
     WritingConflictCheckRepository,
@@ -259,7 +265,7 @@ class ConflictCheckAiReviewService:
         client: LLMClient,
         plan: _ConflictReviewTaskPlan,
     ) -> WritingConflictAiReviewRawOutput:
-        return await run_managed_structured(
+        output = await run_managed_structured(
             client,
             LLMCallRequest(
                 model=getattr(client, "model_name", "deepseek-v4-flash"),
@@ -272,6 +278,30 @@ class ConflictCheckAiReviewService:
             WritingConflictAiReviewRawOutput,
             step_name="writing.conflict_check.ai_review.structured",
         )
+        governed = await govern_group_output(
+            client,
+            capability=AI_REVIEW_ACTION,
+            novel_id=plan.novel_id,
+            group_key=f"check:{plan.check_id}",
+            sources=(
+                GroupSource(
+                    source_key=f"conflict_review:{plan.check_id}",
+                    source_type="imported_assets",
+                    content_hash=plan.source_fingerprint,
+                    label="冲突检查冻结资料",
+                    dimensions=("prior_prose", "world_entities", "scene_state"),
+                ),
+            ),
+            output=serialize_group_output(output),
+            task_instruction="复核冲突检查项的证据与结论。",
+            generator_context=plan.prompt,
+            step_prefix="writing.conflict_check.ai_review.knowledge",
+        )
+        if governed["status"] != "passed":
+            raise ValueError("knowledge_governance_blocked")
+        return WritingConflictAiReviewRawOutput.model_validate_json(
+            governed["text"]
+        ).model_copy(update={"knowledge_review": governed["review"]})
 
     async def _finalize_task_success(
         self,
@@ -367,6 +397,8 @@ class ConflictCheckAiReviewService:
             status=status,
             discarded_count=discarded_count,
         )
+        if review := getattr(output, "knowledge_review", None):
+            summary["knowledge_review"] = review
         updated = await self._repo.update_loaded_ai_review(
             db,
             check,
@@ -561,6 +593,30 @@ class ConflictSuggestionService:
                 WritingConflictSuggestionOutput,
                 step_name="writing.conflict_check.ai_suggestion.structured",
             )
+            governed = await govern_group_output(
+                client,
+                capability=AI_SUGGESTION_ACTION,
+                novel_id=plan.novel_id,
+                group_key=f"item:{plan.item_id}",
+                sources=(
+                    GroupSource(
+                        source_key=f"conflict_suggestion:{plan.item_id}",
+                        source_type="imported_assets",
+                        content_hash=plan.source_fingerprint,
+                        label="冲突修复冻结资料",
+                        dimensions=("prior_prose", "world_entities", "scene_state"),
+                    ),
+                ),
+                output=serialize_group_output(output),
+                task_instruction="为已确认的冲突检查项生成局部修复建议。",
+                generator_context=plan.prompt,
+                step_prefix="writing.conflict_check.ai_suggestion.knowledge",
+            )
+            if governed["status"] != "passed":
+                raise ValueError("knowledge_governance_blocked")
+            output = WritingConflictSuggestionOutput.model_validate_json(
+                governed["text"]
+            ).model_copy(update={"knowledge_review": governed["review"]})
         except Exception as exc:
             from infrastructure.llm.retry import is_retryable_llm_error
 
@@ -635,7 +691,13 @@ class ConflictSuggestionService:
             confirmation_id=_parse_uuid(
                 context_confirmation_id, "context_confirmation_id"
             ),
-            ai_suggestion=output.suggestion.model_dump_json(ensure_ascii=False),
+            ai_suggestion=json.dumps(
+                {
+                    **output.suggestion.model_dump(mode="json"),
+                    "knowledge_review": getattr(output, "knowledge_review", None),
+                },
+                ensure_ascii=False,
+            ),
             llm_rationale=output.suggestion.rationale,
             error=None,
         )

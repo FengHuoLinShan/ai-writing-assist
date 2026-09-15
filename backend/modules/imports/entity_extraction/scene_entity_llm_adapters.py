@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any
 
+from modules.evidence.contracts import (
+    GroupSource,
+    govern_group_output,
+    serialize_group_output,
+)
 from modules.imports.entity_extraction.scene_entity_config import (
     PHASE2A_PROMPT_CONTRACT_VERSION,
 )
@@ -68,12 +74,15 @@ async def call_llm_extraction(
     project_settings = current_phase2_project_settings()
     if project_settings is None:
         raise RuntimeError("Phase 2 project LLM settings context is required")
+    novel_id = current_phase2_novel_id()
+    if not novel_id:
+        raise RuntimeError("Phase 2 novel_id context is required")
     from modules.project.facade import create_project_snapshot_llm_client
 
     llm_client = create_project_snapshot_llm_client(
         project_settings,
         timeout_override=client_timeout,
-        novel_id=current_phase2_novel_id(),
+        novel_id=novel_id,
     )
     request_model = current_phase2_request_model() or llm_client.model_name
     request_extra = _reasoning_extra(
@@ -138,10 +147,22 @@ async def call_llm_extraction(
                 "不要 Markdown 或解释。"
             ),
         )
-        return _materialize_phase2a_output(
+        governed = await _govern_phase2a_output(
+            llm_client,
+            raw=raw,
+            chapters_text=chapters_text,
+            context_bundle=materialization_context,
+            novel_id=novel_id,
+        )
+        if governed["status"] != "passed":
+            return SceneEntityExtractionOutput(knowledge_review=governed["review"])
+        materialized = _materialize_phase2a_output(
             raw,
             current_scene_text=chapters_text,
             context_bundle=materialization_context,
+        )
+        return materialized.model_copy(
+            update={"knowledge_review": governed["review"]}
         )
     finally:
         await llm_client.close()
@@ -161,6 +182,74 @@ def _escape_untrusted_json(payload: dict[str, Any]) -> str:
         .replace(">", "\\u003e")
         .replace("\u2028", "\\u2028")
         .replace("\u2029", "\\u2029")
+    )
+
+
+async def _govern_phase2a_output(
+    client: Any,
+    *,
+    raw: Phase2aSceneExtractionOutput,
+    chapters_text: str,
+    context_bundle: dict[str, Any],
+    novel_id: str,
+) -> dict[str, Any]:
+    scene_card = context_bundle.get("scene_card") or {}
+    scene_id = str(
+        scene_card.get("id")
+        or scene_card.get("scene_id")
+        or scene_card.get("scene_index")
+        or hashlib.sha256(chapters_text.encode("utf-8")).hexdigest()
+    )
+    context_fingerprint = str(context_bundle.get("context_fingerprint") or "")
+    if not context_fingerprint:
+        context_fingerprint = hashlib.sha256(
+            json.dumps(
+                {
+                    key: value
+                    for key, value in context_bundle.items()
+                    if key != "scene_card" and not str(key).startswith("_")
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                default=str,
+            ).encode("utf-8")
+        ).hexdigest()
+    return await govern_group_output(
+        client,
+        capability="imports.entity_extraction",
+        novel_id=novel_id,
+        group_key=f"scene:{scene_id}",
+        sources=(
+            GroupSource(
+                source_key=f"scene_text:{scene_id}",
+                source_type="prior_prose",
+                source_id=scene_id,
+                content_hash=hashlib.sha256(chapters_text.encode("utf-8")).hexdigest(),
+                label="Scene 正文",
+                dimensions=("prior_prose",),
+            ),
+            GroupSource(
+                source_key=f"workflow_context:{scene_id}",
+                source_type="imported_assets",
+                source_id=scene_id,
+                content_hash=context_fingerprint,
+                label="导入工作流上下文",
+                dimensions=("world_entities", "imported_assets"),
+            ),
+        ),
+        output=serialize_group_output(raw),
+        task_instruction="只根据当前 Scene 正文抽取可持久化的世界对象与状态变化。",
+        generator_context=_escape_untrusted_json(
+            {
+                "current_scene_text": chapters_text,
+                **{
+                    key: value
+                    for key, value in context_bundle.items()
+                    if not str(key).startswith("_")
+                },
+            }
+        ),
+        step_prefix="imports.scene_entity.extraction.knowledge",
     )
 
 

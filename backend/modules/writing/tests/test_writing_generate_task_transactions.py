@@ -59,6 +59,7 @@ def _confirmed(
                 "scene_id": "scene-1",
                 "reveal_mode": "character",
                 "viewpoint_character_id": "character-1",
+                "visible_until_scene_id": "scene-1",
             }
         )
     return SimpleNamespace(
@@ -160,7 +161,18 @@ def _patch_facades(
     return prepared, hidden, bound, guard
 
 
-class _Client:
+class _GovernedFakeClientMixin:
+    """为治理执行器提供导演/审查的合成结构化应答。"""
+
+    async def generate_structured(self, request, schema, **kwargs):  # noqa: ANN001
+        from modules.writing.tests.governance_fakes import GovernedStructuredMixin
+
+        return await GovernedStructuredMixin.generate_structured(
+            self, request, schema, **kwargs
+        )
+
+
+class _Client(_GovernedFakeClientMixin):
     model_name = "live-model"
 
     def __init__(self, db: _CheckpointSession, outcome: object = "candidate") -> None:
@@ -808,7 +820,7 @@ async def test_real_task_session_checkpoints_before_provider_wait(
             lease_id=lease_id,
         )
 
-    class _RealClient:
+    class _RealClient(_GovernedFakeClientMixin):
         model_name = "frozen-model"
 
         async def generate(self, _request):
@@ -882,7 +894,7 @@ async def test_real_worker_rejected_finalization_rolls_back_candidate_and_bindin
             self.engine = test_engine
             self.session_factory = sessions
 
-    class _CancellingClient:
+    class _CancellingClient(_GovernedFakeClientMixin):
         model_name = "frozen-model"
 
         def __init__(self) -> None:

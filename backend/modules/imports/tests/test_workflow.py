@@ -14,7 +14,13 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from infrastructure.tasks.models import AsyncTask
+from modules.evidence.compilation.knowledge.llm_schemas import (
+    AuditDimensionCheck,
+    AuditVerdictOutput,
+)
+from modules.evidence.contracts import GroupSource
 from modules.imports.adoption_policy import build_authorization_snapshot
 from modules.imports.entity_extraction.scene_entity_extraction import (
     SceneEntityExtractionService,
@@ -26,6 +32,7 @@ from modules.imports.llm_schemas import (
     SceneCandidateOutput,
     SceneChunk,
     SceneEntityExtractionOutput,
+    SceneSlicingOutput,
 )
 from modules.imports.orchestrator import (
     DeepImportOrchestrator,
@@ -774,6 +781,93 @@ async def test_deep_import_structured_call_uses_configured_fix_attempts(monkeypa
     assert "scenes" in captured["partial_list_fields"]
     assert "missing_or_uncertain_items" in captured["partial_list_fields"]
     assert captured["format_repair_attempts"] == 1
+
+
+@pytest.mark.asyncio
+async def test_deep_import_structured_call_attaches_group_review() -> None:
+    class FakeClient:
+        close = AsyncMock()
+
+        async def generate_structured(self, _request, schema, **_kwargs):
+            if schema is AuditVerdictOutput:
+                return AuditVerdictOutput(
+                    dimensions=[AuditDimensionCheck(dimension="prior_prose")],
+                    verdict="pass",
+                )
+            return schema()
+
+    output = await _run_deep_import_structured_call(
+        FakeClient(),
+        LLMCallRequest(messages=[LLMMessage(role="user", content="Scene 正文")]),
+        SceneSlicingOutput,
+        transport_retries=False,
+        fix_prompt="fix",
+        timeout_seconds=1,
+        governance={
+            "capability": "imports.scene_slicing",
+            "novel_id": "novel-1",
+            "group_key": "window-1",
+            "sources": (
+                GroupSource(
+                    source_key="window-1",
+                    source_type="prior_prose",
+                    content_hash="a" * 64,
+                    dimensions=("prior_prose",),
+                ),
+            ),
+            "context": "Scene 正文",
+            "task_instruction": "切分 Scene",
+        },
+    )
+
+    assert output.knowledge_review["status"] == "passed"
+
+
+@pytest.mark.asyncio
+async def test_deep_import_structured_call_repairs_once_then_blocks() -> None:
+    calls: list[type] = []
+
+    class FakeClient:
+        close = AsyncMock()
+
+        async def generate_structured(self, _request, schema, **_kwargs):
+            calls.append(schema)
+            if schema is AuditVerdictOutput:
+                return AuditVerdictOutput(
+                    dimensions=[AuditDimensionCheck(dimension="prior_prose")],
+                    verdict="blocked",
+                )
+            return schema()
+
+    with pytest.raises(ValueError, match="knowledge_governance_blocked"):
+        await _run_deep_import_structured_call(
+            FakeClient(),
+            LLMCallRequest(
+                messages=[LLMMessage(role="user", content="Scene 正文")]
+            ),
+            SceneSlicingOutput,
+            transport_retries=False,
+            fix_prompt="fix",
+            timeout_seconds=1,
+            governance={
+                "capability": "imports.scene_slicing",
+                "novel_id": "novel-1",
+                "group_key": "window-1",
+                "sources": (
+                    GroupSource(
+                        source_key="window-1",
+                        source_type="prior_prose",
+                        content_hash="a" * 64,
+                        dimensions=("prior_prose",),
+                    ),
+                ),
+                "context": "Scene 正文",
+                "task_instruction": "切分 Scene",
+            },
+        )
+
+    assert calls.count(SceneSlicingOutput) == 2
+    assert calls.count(AuditVerdictOutput) == 2
 
 
 def test_diagnostic_samples_keep_chapter_locator_fields():

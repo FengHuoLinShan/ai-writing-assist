@@ -182,7 +182,7 @@ const hasActiveConnection = computed(() => (
   && !connectionProblem.value
 ))
 const isGenerating = computed(() => (
-  ["pending", "preparing_context", "running"].includes(
+  ["pending", "preparing_context", "running", "reviewing", "repairing"].includes(
     currentAttempt.value?.status,
   )
 ))
@@ -454,7 +454,7 @@ async function sendHeartbeat() {
     const attempt = result.attempt
     if (
       attempt
-      && ["pending", "preparing_context", "running"].includes(attempt.status)
+      && ["pending", "preparing_context", "running", "reviewing", "repairing"].includes(attempt.status)
       && attempt.id !== currentAttempt.value?.id
     ) {
       void followAttempt(attempt)
@@ -517,6 +517,8 @@ async function refreshJourney() {
     "pending",
     "preparing_context",
     "running",
+    "reviewing",
+    "repairing",
   ].includes(next.active_attempt?.status)) {
     stopAfterCurrentNotice.value = false
   }
@@ -610,7 +612,7 @@ async function followAttempt(attempt) {
     const successor = next.active_attempt
     if (
       successor
-      && ["pending", "preparing_context", "running"].includes(successor.status)
+      && ["pending", "preparing_context", "running", "reviewing", "repairing"].includes(successor.status)
     ) {
       void followAttempt(successor)
     } else {
@@ -1535,7 +1537,7 @@ async function toggleMode(field) {
     )
     stopAfterCurrentNotice.value = Boolean(
       turningSeaOff
-      && ["pending", "preparing_context", "running"].includes(
+      && ["pending", "preparing_context", "running", "reviewing", "repairing"].includes(
         currentAttempt.value?.status,
       )
     )
@@ -1543,7 +1545,7 @@ async function toggleMode(field) {
     if (
       responseOnCurrentBranch
       && result.attempt
-      && ["pending", "preparing_context", "running"].includes(
+      && ["pending", "preparing_context", "running", "reviewing", "repairing"].includes(
         result.attempt.status,
       )
     ) {
@@ -1912,7 +1914,7 @@ onMounted(() => {
     await restoreScrollPosition()
     if (
       currentAttempt.value
-      && ["pending", "preparing_context", "running"].includes(
+      && ["pending", "preparing_context", "running", "reviewing", "repairing"].includes(
         currentAttempt.value.status,
       )
     ) {
@@ -2121,7 +2123,7 @@ onBeforeUnmount(() => {
           正在整理最近剧情…
         </p>
         <p v-if="isGenerating && !streamText" class="rp-stream-status" role="status">
-          {{ firstTextWaitLong ? "仍在生成，可随时停止" : "正在准备这一段故事，首段可能需要稍等…" }}
+          {{ firstTextWaitLong ? "正在生成并核对这一段，可随时停止" : "正在准备并核对这一段故事…" }}
         </p>
         <RpMarkdownContent
           v-if="streamText"

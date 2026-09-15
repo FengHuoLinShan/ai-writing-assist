@@ -473,3 +473,7 @@ result.review_resolution 单独列出 organized、decision、optional、incomple
 `POST /api/imports/review-resolutions/{task_id}/scene-groups/{group_key}/apply` 绑定
 原分组指纹与明确确认；成功后可按原预算继续原失败任务中的依赖核对。撤销按整组 CAS，
 任一成员被后续编辑时保留整组，避免部分撤销造成空洞或重叠。
+
+## 组级知识治理
+
+Phase 1a 按窗口、Phase 1b/2a 按 Scene、Phase 1c/3 按候选组、review resolution/targeted completion 按问题组冻结 receipt。结果在持久化前复核，blocked 沿用原失败/降级/恢复语义且不落正式资产；Scene checkpoint、补全页和问题组保存脱敏回执。

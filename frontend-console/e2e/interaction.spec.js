@@ -300,14 +300,14 @@ test.describe("RP 路由与窄屏故事页", () => {
     })
     try {
       await page.goto(`/#interaction/${journeyId}`)
-      await expect(page.getByText("仍在生成，可随时停止", { exact: true })).toBeVisible()
+      await expect(page.getByText("正在生成并核对这一段，可随时停止", { exact: true })).toBeVisible()
       await page.getByRole("textbox", { name: "继续旅程" }).fill("保留这条未发送想法")
       const stop = page.getByRole("button", { name: "停止生成", exact: true })
       await stop.focus()
       await expect(stop).toBeFocused()
       await page.screenshot({ path: testInfo.outputPath("max-wait-390.png"), fullPage: true })
       await page.keyboard.press("Enter")
-      await expect(page.getByText("仍在生成，可随时停止", { exact: true })).toHaveCount(0)
+      await expect(page.getByText("正在生成并核对这一段，可随时停止", { exact: true })).toHaveCount(0)
       await expect(page.getByRole("textbox", { name: "继续旅程" })).toHaveValue("保留这条未发送想法")
 
     } finally { releaseStream?.() }

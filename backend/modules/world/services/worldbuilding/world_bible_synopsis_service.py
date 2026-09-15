@@ -518,8 +518,15 @@ class WorldBibleSynopsisService:
             db,
             novel_id,
         )
+        knowledge_review: dict[str, Any] | None = None
         async with self._open_client(db, novel_id, llm_client=llm_client) as client:
             generation = await self._generate_synopsis(manifest, client)
+            knowledge_review = await self._govern_synopsis(
+                client,
+                novel_id=novel_id,
+                manifest=manifest,
+                generation=generation,
+            )
         nid = parse_uuid(novel_id, "novel_id")
         head = await self._get_or_create_head(db, nid, for_update=True)
         max_version = await db.scalar(
@@ -536,6 +543,7 @@ class WorldBibleSynopsisService:
             and head.desired_source_hash in {"", source_hash}
             and requested_source_hash == source_hash
             and (owns_active_task or direct_first_refresh)
+            and knowledge_review.get("status") == "passed"
         )
         rendered_claims = json.loads(generation.claims_json)
         revision = WorldBibleSynopsisRevision(
@@ -571,6 +579,7 @@ class WorldBibleSynopsisService:
                 "llm_execution_snapshot": llm_execution_snapshot,
                 "editable": False,
                 "rollback": True,
+                "knowledge_review": knowledge_review,
             },
         )
         db.add(revision)
@@ -1142,6 +1151,55 @@ class WorldBibleSynopsisService:
 
         async with open_project_llm_client(db, novel_id) as opened:
             yield opened
+
+    async def _govern_synopsis(
+        self,
+        client: LLMClient,
+        *,
+        novel_id: str,
+        manifest: list[dict[str, Any]],
+        generation: _SynopsisGeneration,
+    ) -> dict[str, Any]:
+        """全知审查简介生成（world.world_bible.synopsis，ADR-0025）。
+
+        后台维护任务不做返修：blocked 时版本照存但不晋升 ready，简介保持
+        旧版（作者可手动重试），回执进 generation_meta_json。
+        """
+        from modules.world.schemas import WorldBibleSourceRef
+        from modules.world.services.worldbuilding.knowledge_governance import (
+            govern_world_output,
+        )
+
+        refs = [
+            WorldBibleSourceRef(
+                source_type=str(item.get("type") or "world_entity"),
+                source_id=str(item.get("id") or "") or None,
+                source_hash=str(item.get("source_hash") or ""),
+                title=str(item.get("title") or ""),
+            )
+            for item in manifest
+        ]
+        rendered = "\n\n".join(
+            f"【{item.get('title') or ''}】\n{item.get('summary') or ''}"
+            for item in manifest
+        )
+        result = await govern_world_output(
+            client,
+            capability="world.world_bible.synopsis",
+            novel_id=novel_id,
+            source_refs=refs,
+            rendered_context=rendered,
+            output=json.dumps(
+                {
+                    "rendered_text": generation.rendered_text,
+                    "claims_json": json.loads(generation.claims_json),
+                },
+                ensure_ascii=False,
+                default=str,
+            ),
+            task_instruction="把当前项目资料组织成世界观简介；每条 claim 引用来源",
+        )
+        return result["review"]
 
     async def _generate_synopsis(
         self,

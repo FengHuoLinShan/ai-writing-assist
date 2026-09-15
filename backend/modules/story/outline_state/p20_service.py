@@ -24,7 +24,10 @@ from infrastructure.llm.prompt_loader import load_prompt
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from infrastructure.tasks.contracts import CompletedTaskPayloadContract
 from modules.evidence import facade as context_facade
-from modules.evidence.contracts import ConfirmedAIActionContext
+from modules.evidence.contracts import (
+    ConfirmedAIActionContext,
+    require_knowledge_review_for_adoption,
+)
 from modules.story.outline_state.models import (
     ForeshadowingPlan,
     OutlineArc,
@@ -148,6 +151,33 @@ class P20SemanticAuditError(DomainError):
 class P20GenerationService:
     def __init__(self, context_builder: P20ContextBuilder | None = None) -> None:
         self.context_builder = context_builder or P20ContextBuilder()
+        # 最近一次 execute 通过三审计后的脱敏知识回执（ADR-0025）；
+        # 每个任务使用独立 service 实例（ai_workflow_service 每次 handler 新建）。
+        self.last_knowledge_review: dict[str, Any] | None = None
+
+    @staticmethod
+    def _knowledge_review_payload(
+        plan: P20GenerationPlan,
+        *,
+        audit_rounds: list[str],
+        revisions: int,
+    ) -> dict[str, Any]:
+        """P20 知识治理回执：三审计（evidence/scope/author_instruction）读权威包
+        （plan.context），通过即 PASS；记录轮次、返修次数与上下文指纹。"""
+        return {
+            "policy_version": 1,
+            "capability": "story.outline.p20",
+            "status": "passed",
+            "repaired": revisions > 0,
+            "audits": [
+                "p20_evidence_audit",
+                "p20_scope_rule_audit",
+                "p20_author_instruction_audit",
+            ],
+            "audit_rounds": audit_rounds,
+            "revisions": revisions,
+            "context_fingerprint": plan.source_fingerprint,
+        }
 
     async def prepare(
         self,
@@ -190,9 +220,11 @@ class P20GenerationService:
             temperature=0.55,
             response_format={"type": "json_object"},
         )
-        # Candidate, independent audits and at most two semantic revisions share
-        # one phase budget. Each audit may be deep, but cannot multiply the task
-        # into several independent 30-minute waits.
+        # Candidate, independent audits and at most ONE semantic revision share
+        # one phase budget (ADR-0025 返修预算收敛：≤2 → ≤1). Each audit may be
+        # deep, but cannot multiply the task into independent 30-minute waits.
+        audit_rounds: list[str] = []
+        revisions = 0
         async with asyncio.timeout(P20_TIMEOUT_SECONDS):
             candidate = await self._run_candidate(
                 client,
@@ -202,22 +234,26 @@ class P20GenerationService:
             )
             if progress_callback is not None:
                 progress_callback(0.4)
-            for attempt in range(3):
+            for attempt in range(2):
+                audit_round = "initial" if attempt == 0 else "final"
+                audit_rounds.append(audit_round)
                 audit = await self._audit_candidate(
                     client,
                     plan,
                     candidate,
-                    audit_round=(
-                        "initial"
-                        if attempt == 0
-                        else ("revision_1" if attempt == 1 else "final")
-                    ),
+                    audit_round=audit_round,
                 )
                 if progress_callback is not None:
-                    progress_callback((0.55, 0.72, 0.82)[attempt])
+                    progress_callback((0.55, 0.75)[attempt])
                 if audit.verdict == "pass":
+                    self.last_knowledge_review = self._knowledge_review_payload(
+                        plan,
+                        audit_rounds=audit_rounds,
+                        revisions=revisions,
+                    )
                     return candidate
-                if attempt < 2:
+                if attempt == 0:
+                    revisions = 1
                     request.messages.extend(
                         [
                             LLMMessage(
@@ -261,11 +297,10 @@ class P20GenerationService:
                         schema,
                         step_name=(
                             f"outline.p20.{plan.request.target}.semantic_revision"
-                            + ("" if attempt == 0 else f"_{attempt + 1}")
                         ),
                     )
                     if progress_callback is not None:
-                        progress_callback((0.65, 0.78)[attempt])
+                        progress_callback(0.65)
                     continue
                 raise P20SemanticAuditError(audit.violations)
         raise AssertionError("unreachable P20 semantic audit state")
@@ -420,6 +455,7 @@ class P20GenerationService:
         output: BaseModel,
         *,
         task_id: str,
+        knowledge_review: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         draft = output.model_dump(mode="json")
         target = plan.request.target
@@ -445,6 +481,7 @@ class P20GenerationService:
             "_reference_map": plan.reference_map,
             "_request": plan.request.model_dump(mode="json"),
             "_context_provenance": plan.context_provenance,
+            "knowledge_review": knowledge_review,
         }
 
     @staticmethod
@@ -494,6 +531,11 @@ class P20ApplyService:
             raise ValueError("P20 source task novel mismatch")
         if request.context_confirmation_id != confirmation_id:
             raise ValueError("P20 source task confirmation mismatch")
+        require_knowledge_review_for_adoption(
+            task_result,
+            label="该总纲分层预览",
+            error_type=P20ConflictError,
+        )
 
         preview = task_result.get("draft_structure")
         if not isinstance(preview, dict):

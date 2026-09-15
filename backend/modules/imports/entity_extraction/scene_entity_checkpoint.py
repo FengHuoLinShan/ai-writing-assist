@@ -225,6 +225,7 @@ def build_scene_checkpoint(
     activation_source_count: int | None = None,
     input_fingerprint: str | None = None,
     completion_hints: list[dict] | None = None,
+    knowledge_review: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     checkpoint = {
         "scene_id": service._scene_id(scene),
@@ -241,6 +242,8 @@ def build_scene_checkpoint(
     }
     if completion_hints:
         checkpoint["completion_hints"] = completion_hints
+    if knowledge_review is not None:
+        checkpoint["knowledge_review"] = knowledge_review
     if error is not None:
         checkpoint["error"] = error
     if error_kind is not None:

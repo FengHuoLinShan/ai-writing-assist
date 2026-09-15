@@ -213,3 +213,7 @@ migration 与测试，再更新此词汇表。跨模块语义或资产所有权�
 统一地图的 `world.map_atlas.structure` 消费同一已确认 Context 中实际保留的来源，仅让文本模型
 提取关系；程序布局和图片校准不回写世界对象。作者端阅读预览按章首执行可见性及几何依赖过滤，
 整图阅读确认绑定图片 hash；它不提供公开分享或 RP 地图能力。
+
+## 知识治理
+
+用户可见 AI 能力按 [ADR-0025](docs/adr/0025-product-knowledge-governance.md) 区分权威资料、生成可见资料与仅复核资料。`knowledge_review` 是现有 task/provenance JSON 中的回执，不是新事实源；AI 待采用产物只有在回执仍新鲜且为 `passed` 时才能采用。

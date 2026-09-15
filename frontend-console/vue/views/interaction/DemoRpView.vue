@@ -49,7 +49,7 @@ const overviewSections = [
   { key: "must_remember", label: "必须继续记住" },
 ]
 
-const isGenerating = computed(() => ["pending", "preparing_context", "running"].includes(attempt.value?.status))
+const isGenerating = computed(() => ["pending", "preparing_context", "running", "reviewing", "repairing"].includes(attempt.value?.status))
 const sourceAnchor = computed(() => source.value?.anchors?.[0] || null)
 const sourceSetup = computed(() => {
   if (!source.value?.id || !sourceAnchor.value?.anchor_key) return null
@@ -449,8 +449,8 @@ onBeforeUnmount(() => {
           <button v-for="branch in branches[message.id]" :key="branch.id || branch.node_id" type="button" @click="selectBranch(branch)">{{ branch.label || branch.excerpt || branch.content || '选择这条分支' }}</button>
         </div>
       </article>
-      <article v-if="streamText" class="demo-rp-message is-assistant is-streaming">
-        <small>故事正在抵达</small><RpMarkdownContent :source="streamText" />
+      <article v-if="isGenerating || streamText" class="demo-rp-message is-assistant is-streaming" :aria-busy="isGenerating">
+        <small>{{ isGenerating ? '正在生成并核对故事…' : '未完成的故事' }}</small><RpMarkdownContent v-if="streamText" :source="streamText" />
       </article>
       <div v-if="streamError" class="demo-rp-error" role="alert">
         <span>{{ streamError }}</span>

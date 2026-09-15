@@ -96,3 +96,7 @@ World 使用确认后保留的 compiled items 作为实际语义输入，Focused
 ## 智能整理来源
 
 导入候选整理使用 `read_review_resolution_sources` 回读完整精确场景、`read_review_resolution_chapters` 回读边界核对章节，再按问题复用 focused retrieval。每份来源受小说、章节、当前草稿/hash 约束；较晚章节的支持不能使事实提前进入原场景。`read_review_resolution_evidence` 仅向作者返回对应范围内的当前整理结果，建议不是已采用事实。
+
+## 统一知识治理
+
+`compilation/knowledge` 拥有 capability 策略、scope/director/audit 版本化契约、组级治理与采用门禁。其他模块只经 `modules.evidence.contracts`/`facade` 消费；回执是派生审计状态，不代替 Writing/World/Story 的事实与采用所有权。

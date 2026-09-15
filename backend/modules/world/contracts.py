@@ -271,6 +271,35 @@ class WorldBackgroundBundleContract:
 
 
 @dataclass(frozen=True)
+class KnowledgeVisibilityRequest:
+    """一次批量可见性判定中的单个请求。
+
+    character_id 为空表示读者主体；cutoff 语义为保守截止（当章不揭示）。
+    """
+
+    target_type: str
+    target_id: str
+    character_id: str | None = None
+    cutoff_chapter: int | None = None
+    cutoff_scene_id: str | None = None
+    apply_reader_reveal: bool = True
+
+
+@dataclass(frozen=True)
+class KnowledgeVisibilityDecision:
+    """服务端判定的生成者可见性；reasons 只含短原因，不含隐藏正文。"""
+
+    target_type: str
+    target_id: str
+    visible: bool
+    knowledge_level: str | None = None
+    visibility_source: str = "public_default"
+    has_reader_policy: bool = False
+    reader_revealed: bool | None = None
+    reasons: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class WorldBibleSynopsisContextContract:
     """Author-only derived synopsis material exposed to Context."""
 
@@ -378,6 +407,8 @@ __all__ = [
     "EntityRevisionContract",
     "EventContract",
     "GenerationBackgroundProvider",
+    "KnowledgeVisibilityDecision",
+    "KnowledgeVisibilityRequest",
     "MergeResult",
     "ResolveResult",
     "WorldBackgroundBundleContract",

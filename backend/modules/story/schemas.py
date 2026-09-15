@@ -327,6 +327,7 @@ class CardPreview(StorySchema):
     character_id: uuid.UUID
     content: CharacterCardContent
     warnings: list[StoryText] = Field(default_factory=list, max_length=20)
+    knowledge_review: dict[str, Any] | None = None
 
 
 class ReactionProposal(StorySchema):
@@ -349,6 +350,7 @@ class ReactionPreview(StorySchema):
     scene_id: uuid.UUID
     proposals: list[ReactionProposal] = Field(default_factory=list, max_length=24)
     warnings: list[StoryText] = Field(default_factory=list, max_length=20)
+    knowledge_review: dict[str, Any] | None = None
 
 
 class ScriptBeat(StorySchema):
@@ -369,6 +371,7 @@ class ScriptPreview(StorySchema):
     narrative_plan: LongStoryText
     unresolved_questions: list[StoryText] = Field(default_factory=list, max_length=20)
     warnings: list[StoryText] = Field(default_factory=list, max_length=20)
+    knowledge_review: dict[str, Any] | None = None
 
 
 class OneClickOutput(StorySchema):

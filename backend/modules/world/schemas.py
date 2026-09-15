@@ -629,6 +629,7 @@ class WorldGenerationChatResponse(BaseModel):
     provider: str = ""
     context_usage: GenerationContextUsage | None = None
     source_snapshot: WorldGenerationSourceSnapshot
+    knowledge_review: dict[str, Any] | None = None
 
 
 class WorldBibleSourceRef(BaseModel):
@@ -690,6 +691,7 @@ class WorldGenerationExplorationResponse(BaseModel):
     provider: str = ""
     context_usage: GenerationContextUsage | None = None
     source_snapshot: WorldGenerationSourceSnapshot
+    knowledge_review: dict[str, Any] | None = None
 
 
 class WorldGenerationSemanticInspectionFinding(BaseModel):
@@ -735,6 +737,7 @@ class WorldGenerationSemanticInspectionResponse(BaseModel):
     provider: str = ""
     context_usage: GenerationContextUsage | None = None
     source_snapshot: WorldGenerationSourceSnapshot
+    knowledge_review: dict[str, Any] | None = None
 
 
 class AskWorldQuestionRequest(BaseModel):
@@ -788,6 +791,7 @@ class AskWorldResponse(BaseModel):
     model: str = ""
     provider: str = ""
     context_snapshot_id: str | None = None
+    knowledge_review: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def validate_citations(self) -> AskWorldResponse:
@@ -919,6 +923,7 @@ class WorldGenerationConvergenceResponse(BaseModel):
     source_snapshot: WorldGenerationSourceSnapshot
     external_packet: WorldGenerationExternalPacket | None = None
     world_core: WorldCoreHandoff | None = None
+    knowledge_review: dict[str, Any] | None = None
 
 
 class CoreEntityDraftSuggestionPayload(BaseModel):
@@ -932,6 +937,7 @@ class CoreEntityDraftSuggestionPayload(BaseModel):
     importance_level: str = Field(default="normal", max_length=16)
     reveal_level: str = Field(default="author_only", max_length=16)
     source_refs: list[WorldBibleSourceRef] = Field(default_factory=list)
+    knowledge_review: dict[str, Any] | None = None
 
     @field_validator("entity_type")
     @classmethod
@@ -951,6 +957,7 @@ class EntityRelationSuggestionPayload(BaseModel):
     source_chapter_id: str | None = None
     quote: str | None = None
     source_refs: list[WorldBibleSourceRef] = Field(default_factory=list)
+    knowledge_review: dict[str, Any] | None = None
 
     @field_validator("source_id", "target_id", "source_chapter_id")
     @classmethod
@@ -970,6 +977,7 @@ class EntityAliasSuggestionPayload(BaseModel):
     source_chapter_index: int | None = Field(default=None, ge=0)
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     source_refs: list[WorldBibleSourceRef] = Field(default_factory=list)
+    knowledge_review: dict[str, Any] | None = None
 
     @field_validator("entity_id")
     @classmethod
@@ -3756,6 +3764,7 @@ class WorldBiblePageDraftSuggestionPayload(BaseModel):
     review_notes: list[str] = Field(default_factory=list, max_length=20)
     source_refs: list[WorldBibleSourceRef] = Field(default_factory=list)
     decision_state: GeneratedWorldGenerationDecisionState | None = None
+    knowledge_review: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def validate_operation(self) -> WorldBiblePageDraftSuggestionPayload:
@@ -4516,6 +4525,7 @@ class WorldDesignIterationResponse(WorldDesignIterationOutput):
     parent_checkpoint_id: str
     context_confirmation_id: str
     source_manifest_hash: str
+    knowledge_review: dict[str, Any] | None = None
 
 
 class WorldAdoptionSourceRef(BaseModel):
@@ -4943,6 +4953,7 @@ class WorldGenerationSuggestionResponse(BaseModel):
     provider: str = ""
     context_usage: GenerationContextUsage | None = None
     source_snapshot: WorldGenerationSourceSnapshot
+    knowledge_review: dict[str, Any] | None = None
 
 
 class WorldGenerationApplyPageDraftResponse(BaseModel):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import inspect
 import json
 from typing import Any, get_origin
@@ -14,6 +15,11 @@ from infrastructure.llm.agent_step_harness import (
     run_managed_structured,
 )
 from infrastructure.llm.profiles import ResolvedLLMProfile, resolve_llm_profile
+from modules.evidence.contracts import (
+    GroupSource,
+    govern_group_output,
+    serialize_group_output,
+)
 from modules.imports.chapter_loader import build_chapters_text
 from modules.imports.env_helpers import positive_int_env
 from shared.deep_import_settings import (
@@ -38,6 +44,12 @@ PHASE1B_ENRICH_TIMEOUT_SECONDS = 1200
 PHASE1C_TIMEOUT_SECONDS = 1200
 PHASE2_WORLD_TIMEOUT_SECONDS = 1200
 PHASE2_WORLD_MIN_MAX_TOKENS = 32_768
+
+
+class ImportKnowledgeGovernanceBlockedError(ValueError):
+    def __init__(self, review: dict[str, Any]) -> None:
+        super().__init__("knowledge_governance_blocked")
+        self.review = review
 
 
 def _phase0_scene_max_tokens(
@@ -269,6 +281,23 @@ def _serialize_phase1a_untrusted_json(value: Any) -> str:
     )
 
 
+def _group_source(
+    *,
+    key: str,
+    source_type: str,
+    value: Any,
+    dimensions: tuple[str, ...],
+) -> GroupSource:
+    serialized = _serialize_phase1a_untrusted_json(value)
+    return GroupSource(
+        source_key=key,
+        source_type=source_type,
+        content_hash=hashlib.sha256(serialized.encode("utf-8")).hexdigest(),
+        label=source_type,
+        dimensions=dimensions,
+    )
+
+
 def _phase1a_scene_system_prompt() -> str:
     return (
         "你是一位长篇小说叙事结构编辑。你的任务是把连续正文识别为作者能够"
@@ -447,7 +476,7 @@ class _Phase1aSceneSlicingLLM:
             ),
         )
         try:
-            return await _call_structured(
+            output = await _call_structured(
                 _llm_client_for_profile(self.project_settings, novel_id=self.novel_id),
                 request,
                 SceneSlicingOutput,
@@ -470,7 +499,44 @@ class _Phase1aSceneSlicingLLM:
                     "core_conflict=null 与 core_conflict_status=not_applicable。"
                     "只输出 JSON object，不要 Markdown 或额外字段。"
                 ),
+                governance={
+                    "capability": "imports.scene_slicing",
+                    "novel_id": self.novel_id,
+                    "group_key": f"window:{window_id}",
+                    "sources": (
+                        _group_source(
+                            key=f"window_text:{window_id}",
+                            source_type="prior_prose",
+                            value=chapters,
+                            dimensions=("prior_prose",),
+                        ),
+                        _group_source(
+                            key=f"window_context:{window_id}",
+                            source_type="imported_assets",
+                            value={
+                                "left_boundary_context": left_boundary_context,
+                                "reference_context": reference_context,
+                            },
+                            dimensions=("scene_state", "imported_assets"),
+                        ),
+                    ),
+                    "context": _serialize_phase1a_untrusted_json(
+                        {
+                            "chapters": chapters,
+                            "left_boundary_context": left_boundary_context,
+                            "reference_context": reference_context,
+                        }
+                    ),
+                    "task_instruction": "根据完整窗口正文识别 Scene 边界。",
+                },
             )
+            review = getattr(output, "knowledge_review", None)
+            if review is not None:
+                diagnostics.append({"kind": "knowledge_review", **review})
+            return output
+        except ImportKnowledgeGovernanceBlockedError as exc:
+            diagnostics.append({"kind": "knowledge_review", **exc.review})
+            raise
         finally:
             self._diagnostics_by_window[window_id] = diagnostics
 
@@ -691,6 +757,10 @@ class _Phase1bSceneEnrichmentLLM:
         self.project_settings = project_settings
         self.novel_id = novel_id
         self.high_quality = high_quality
+        self._knowledge_reviews: dict[str, dict[str, Any]] = {}
+
+    def pop_knowledge_review(self, group_key: str) -> dict[str, Any] | None:
+        return self._knowledge_reviews.pop(group_key, None)
 
     async def __call__(self, payload: dict[str, Any]) -> Any:
         from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
@@ -703,6 +773,9 @@ class _Phase1bSceneEnrichmentLLM:
         related_context = payload.get("related_context") or {}
         source_integrity = payload.get("source_integrity") or {}
         context_fingerprint = str(payload.get("context_fingerprint") or "")
+        scene_group_key = str(
+            locked_scene.get("candidate_id") or payload.get("sequence_index")
+        )
         prompt_input = {
             "locked_scene": locked_scene,
             "scene_source": scene_source,
@@ -794,25 +867,57 @@ class _Phase1bSceneEnrichmentLLM:
                 high_quality=self.high_quality,
             ),
         )
-        return await _call_structured(
-            _llm_client_for_profile(self.project_settings, novel_id=self.novel_id),
-            request,
-            SceneEnrichmentOutput,
-            step_name="phase1b_enrichment",
-            transport_retries=False,
-            timeout_seconds=_phase1b_enrich_timeout_seconds(self.project_settings),
-            max_fix_attempts=1,
-            project_settings=self.project_settings,
-            fix_prompt=(
-                "上一轮输出无法通过 SceneEnrichmentOutput 校验。只输出 JSON object，"
-                "只能包含 emotional_beat、must_happen、must_not_happen、"
-                "narrative_tag、narrative_function、basis、field_evidence、uncertain_fields、"
-                "confidence。三个叙事字段可以为 null；narrative_tag 只能从"
-                "draft、hook、inciting_incident、rising_action、climax、valley、"
-                "transition、payoff 中选择。"
-                "不要输出 title、goal、core_conflict、start_chapter、end_chapter。"
-            ),
-        )
+        try:
+            output = await _call_structured(
+                _llm_client_for_profile(self.project_settings, novel_id=self.novel_id),
+                request,
+                SceneEnrichmentOutput,
+                step_name="phase1b_enrichment",
+                transport_retries=False,
+                timeout_seconds=_phase1b_enrich_timeout_seconds(self.project_settings),
+                max_fix_attempts=1,
+                project_settings=self.project_settings,
+                fix_prompt=(
+                    "上一轮输出无法通过 SceneEnrichmentOutput 校验。只输出 JSON object，"
+                    "只能包含 emotional_beat、must_happen、must_not_happen、"
+                    "narrative_tag、narrative_function、basis、field_evidence、"
+                    "uncertain_fields、confidence。三个叙事字段可以为 null；"
+                    "narrative_tag 只能从 draft、hook、inciting_incident、"
+                    "rising_action、climax、valley、transition、payoff 中选择。"
+                    "不要输出 title、goal、core_conflict、start_chapter、end_chapter。"
+                ),
+                governance={
+                    "capability": "imports.scene_enrichment",
+                    "novel_id": self.novel_id,
+                    "group_key": f"scene:{scene_group_key}",
+                "sources": (
+                    _group_source(
+                        key="scene_source",
+                        source_type="prior_prose",
+                        value=scene_source,
+                        dimensions=("prior_prose",),
+                    ),
+                    _group_source(
+                        key="scene_context",
+                        source_type="imported_assets",
+                        value={
+                            "locked_scene": locked_scene,
+                            "related_context": related_context,
+                            "context_fingerprint": context_fingerprint,
+                        },
+                        dimensions=("scene_state", "imported_assets"),
+                    ),
+                ),
+                "context": _serialize_phase1a_untrusted_json(prompt_input),
+                "task_instruction": "在不改变锁定边界的前提下充实 Scene 叙事字段。",
+                },
+            )
+        except ImportKnowledgeGovernanceBlockedError as exc:
+            self._knowledge_reviews[scene_group_key] = exc.review
+            raise
+        if review := getattr(output, "knowledge_review", None):
+            self._knowledge_reviews[scene_group_key] = review
+        return output
 
 
 class _Phase1cSceneFusionLLM:
@@ -828,6 +933,11 @@ class _Phase1cSceneFusionLLM:
         self.project_settings = project_settings
         self.novel_id = novel_id
         self.high_quality = high_quality
+        self._knowledge_reviews: list[dict[str, Any]] = []
+
+    def pop_knowledge_reviews(self) -> list[dict[str, Any]]:
+        reviews, self._knowledge_reviews = self._knowledge_reviews, []
+        return reviews
 
     async def __call__(self, payload: dict[str, Any]) -> Any:
         from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
@@ -962,25 +1072,66 @@ class _Phase1cSceneFusionLLM:
                 high_quality=self.high_quality,
             ),
         )
-        return await _call_structured(
-            _llm_client_for_profile(self.project_settings, novel_id=self.novel_id),
-            request,
-            schema_model,
-            step_name=(
-                "phase1c_scene_synthesis" if synthesis else "phase1c_boundary_review"
-            ),
-            transport_retries=False,
-            timeout_seconds=deep_import_int_setting(
-                self.project_settings,
-                "phase1c",
-                "timeout_seconds",
-                env_name="PHASE1C_TIMEOUT_SECONDS",
-                default=PHASE1C_TIMEOUT_SECONDS,
-            ),
-            max_fix_attempts=1,
-            project_settings=self.project_settings,
-            fix_prompt=fix_prompt,
+        group_key = str(
+            payload.get("window_id")
+            or payload.get("component_id")
+            or hashlib.sha256(
+                _serialize_phase1a_untrusted_json(payload).encode("utf-8")
+            ).hexdigest()
         )
+        try:
+            output = await _call_structured(
+                _llm_client_for_profile(self.project_settings, novel_id=self.novel_id),
+                request,
+                schema_model,
+                step_name=(
+                    "phase1c_scene_synthesis"
+                    if synthesis
+                    else "phase1c_boundary_review"
+                ),
+                transport_retries=False,
+                timeout_seconds=deep_import_int_setting(
+                    self.project_settings,
+                    "phase1c",
+                    "timeout_seconds",
+                    env_name="PHASE1C_TIMEOUT_SECONDS",
+                    default=PHASE1C_TIMEOUT_SECONDS,
+                ),
+                max_fix_attempts=1,
+                project_settings=self.project_settings,
+                fix_prompt=fix_prompt,
+                governance={
+                "capability": "imports.scene_fusion",
+                "novel_id": self.novel_id,
+                "group_key": group_key,
+                "sources": (
+                    _group_source(
+                        key="scene_fusion_input",
+                        source_type="prior_prose",
+                        value=payload,
+                        dimensions=(
+                            "prior_prose",
+                            "scene_state",
+                            "imported_assets",
+                        ),
+                    ),
+                ),
+                "context": _serialize_phase1a_untrusted_json(payload),
+                "task_instruction": (
+                    "综合 Scene 候选组。" if synthesis else "复核 Scene 候选边界。"
+                ),
+                },
+            )
+        except ImportKnowledgeGovernanceBlockedError as exc:
+            self._knowledge_reviews.append(
+                {"group_key": group_key, "task": task, **exc.review}
+            )
+            raise
+        if review := getattr(output, "knowledge_review", None):
+            self._knowledge_reviews.append(
+                {"group_key": group_key, "task": task, **review}
+            )
+        return output
 
 
 class _Phase2WorldExtractionLLM:
@@ -1166,6 +1317,7 @@ async def _run_deep_import_structured_call(
     max_fix_attempts: int | None = None,
     project_settings: dict[str, Any] | None = None,
     diagnostics: list[dict[str, Any]] | None = None,
+    governance: dict[str, Any] | None = None,
 ):
     from core.config import get_settings
 
@@ -1177,7 +1329,7 @@ async def _run_deep_import_structured_call(
         + _deep_import_structured_timeout_grace_seconds(project_settings)
     )
     try:
-        return await run_managed_structured(
+        output = await run_managed_structured(
             client,
             request,
             schema,
@@ -1195,6 +1347,60 @@ async def _run_deep_import_structured_call(
             permission_level=AgentPermissionLevel.draft,
             read_only=False,
             timeout=timeout,
+        )
+        if governance is None:
+            return output
+        novel_id = str(governance.get("novel_id") or "")
+        if not novel_id:
+            raise RuntimeError("deep import knowledge governance requires novel_id")
+
+        async def repair(findings: str) -> str:
+            from infrastructure.llm.schemas import LLMMessage
+
+            repaired = await run_managed_structured(
+                client,
+                request.model_copy(
+                    update={
+                        "messages": [
+                            *request.messages,
+                            LLMMessage(
+                                role="user",
+                                content=(
+                                    "知识复核发现以下问题，请只修正这些问题并"
+                                    "重新输出完整 JSON：\n" + findings
+                                ),
+                            ),
+                        ]
+                    }
+                ),
+                schema,
+                step_name=f"{step_name}.knowledge_repair",
+                max_fix_attempts=0,
+                transport_retries=False,
+                partial_list_fields=_structured_list_fields(schema),
+                format_repair_attempts=1,
+                permission_level=AgentPermissionLevel.draft,
+                read_only=False,
+                timeout=timeout,
+            )
+            return serialize_group_output(repaired)
+
+        governed = await govern_group_output(
+            client,
+            capability=str(governance["capability"]),
+            novel_id=novel_id,
+            group_key=str(governance["group_key"]),
+            sources=governance["sources"],
+            output=serialize_group_output(output),
+            task_instruction=str(governance["task_instruction"]),
+            generator_context=str(governance.get("context") or ""),
+            repair=repair,
+            step_prefix=f"{step_name}.knowledge",
+        )
+        if governed["status"] != "passed":
+            raise ImportKnowledgeGovernanceBlockedError(governed["review"])
+        return schema.model_validate_json(governed["text"]).model_copy(
+            update={"knowledge_review": governed["review"]}
         )
     finally:
         close = getattr(client, "close", None)

@@ -555,3 +555,5 @@ creation_suggestion_queue 中保存封闭的 owner 授权 carrier；普通建议
 智能整理导入候选使用 Imports 的 `import_review_resolution` 持久任务，工作台与项目助手共用入口；
 结果区分已整理、需要决定、可选建议与处理未完成。授权、恢复、来源和质量资格边界见
 `backend/modules/imports/README.md` 的“智能整理现有候选”。旧候选与旧授权不自动迁移。
+
+世界生成、融合、别名/关系与地图 brief 的回执和采用门禁见 `backend/modules/world/README.md`；旧待采用 AI 产物缺 passed 回执时要求重新生成，不回写旧已采用正史。

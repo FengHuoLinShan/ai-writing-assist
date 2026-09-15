@@ -198,6 +198,11 @@ class Phase1bSceneEnricher:
         diagnostics["max_tokens"] = self.max_tokens
         diagnostics["source_integrity"] = _compact_source_integrity(source_integrity)
         diagnostics["context_fingerprint"] = context_fingerprint
+        pop_review = getattr(self.llm, "pop_knowledge_review", None)
+        if callable(pop_review) and (
+            knowledge_review := pop_review(scene.candidate_id)
+        ) is not None:
+            diagnostics["knowledge_review"] = knowledge_review
 
         if retry_result.final_status != "success":
             error_kind = retry_result.final_error_type or "phase1b_failed"

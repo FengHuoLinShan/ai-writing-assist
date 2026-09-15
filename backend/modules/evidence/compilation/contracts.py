@@ -122,10 +122,18 @@ class CompileOptions:
     """Scene 时点状态版本；旧 confirmation 缺省按 V1 回放"""
     compiled_context_fingerprint: str | None = None
     """预算执行后完整 Context 与来源身份的稳定指纹"""
+    capability: str | None = None
+    """知识治理能力 ID（CAPABILITY_REGISTRY）；scope_complete 模式必填"""
+    scope_complete: bool = False
+    """完整范围模式：权威 manifest 缺失记为 omission 并阻断，不静默裁剪"""
+    reference_usages: dict[str, str] = field(default_factory=dict)
+    """作者确认的引用用途分区：selection_ref_key → creation / audit_only"""
 
     def __post_init__(self) -> None:
         if self.reveal_mode == "author_safe" and self.scene_id:
             self.visible_until_scene_id = self.scene_id
+        if self.scope_complete and not self.capability:
+            raise ValueError("scope_complete 编译必须声明 capability")
 
 
 @dataclass
@@ -486,4 +494,57 @@ CONTEXT_BUDGET: dict[str, int] = {
 AUTHOR_ONLY_WARNING = (
     "【作者视角信息】此为隐藏真相，角色和读者均不知情。"
     "不得直接让角色知道，不得在读者层提前揭示。"
+)
+
+
+# 知识治理稳定出口（ADR-0025）：跨模块仅经本文件消费
+from modules.evidence.compilation.knowledge import (  # noqa: F401,E402
+    AUDIT_FINDING_KINDS,
+    AUDIT_VERDICTS,
+    BLOCKING_SEVERITIES,
+    CAPABILITY_REGISTRY,
+    DIRECTOR_DISPOSITIONS,
+    GOVERNANCE_STAGES,
+    KNOWLEDGE_POLICY_VERSION,
+    REPAIR_INSTRUCTION_TEMPLATE,
+    REVIEW_STATUSES,
+    CapabilityKnowledgePolicy,
+    GovernedGenerationOutcome,
+    GovernedWorkflowHooks,
+    GroupSource,
+    KnowledgeAuditFinding,
+    KnowledgeAuditReceipt,
+    KnowledgeContractError,
+    KnowledgeDimensionCoverage,
+    KnowledgeDirectorDisposition,
+    KnowledgeDirectorPlan,
+    KnowledgeReviewProjection,
+    KnowledgeScopeBuild,
+    KnowledgeScopeReceipt,
+    KnowledgeSourceEntry,
+    KnowledgeSubject,
+    apply_director_plan,
+    build_group_scope,
+    build_scope_receipt,
+    capability_ids,
+    get_capability_policy,
+    govern_group_output,
+    governance_stage_payload,
+    knowledge_canonical_hash,
+    knowledge_review_payload,
+    knowledge_subject_from_options,
+    legacy_unchecked_payload,
+    redact_hidden_phrases,
+    reduce_dispositions,
+    require_capability_policy,
+    require_knowledge_review_for_adoption,
+    require_scope_complete,
+    run_governed_generation,
+    run_knowledge_audit,
+    run_knowledge_director,
+    sanitize_audit_receipt,
+    scope_continuation_token,
+    serialize_group_output,
+    shard_source_keys,
+    validate_registry,
 )

@@ -60,13 +60,37 @@ def project_writing_draft_state(
             attention_reasons.append("semantic_review_required")
         elif review.get("verdict") != "pass" or int(review.get("blocking_count") or 0):
             attention_reasons.append("semantic_review_blocked")
+    knowledge = provenance.get("knowledge_review")
+    if isinstance(knowledge, dict) and knowledge:
+        if knowledge.get("stale_after_edit"):
+            attention_reasons.append("knowledge_review_stale")
+        elif knowledge.get("status") == "blocked":
+            attention_reasons.append("knowledge_review_blocked")
+        elif knowledge.get("status") == "checking":
+            attention_reasons.append("knowledge_review_required")
+    elif provenance.get("review_required"):
+        attention_reasons.append("knowledge_review_legacy")
     if provenance.get("upstream_validation") == "stale":
         attention_reasons.append("upstream_stale")
+
+    knowledge_projection: dict[str, Any] | None = None
+    if isinstance(knowledge, dict) and knowledge:
+        knowledge_projection = {
+            "status": (
+                "legacy_unchecked"
+                if knowledge.get("stale_after_edit")
+                else str(knowledge.get("status") or "checking")
+            ),
+            "repaired": bool(knowledge.get("repaired")),
+            "issue_counts": dict(knowledge.get("issue_counts") or {}),
+            "issues": list(knowledge.get("issues") or []),
+        }
 
     return {
         "display_state": display_state,
         "source": source,
         "attention_reasons": list(dict.fromkeys(attention_reasons)),
+        "knowledge_review": knowledge_projection,
     }
 
 

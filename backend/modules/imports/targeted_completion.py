@@ -15,6 +15,11 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from infrastructure.stable_hash import stable_hash as _shared_stable_hash
+from modules.evidence.contracts import (
+    GroupSource,
+    govern_group_output,
+    serialize_group_output,
+)
 from modules.imports.llm_schemas import (
     _AI_WORLD_ENTITY_TYPES,
     RelationKind,
@@ -202,7 +207,7 @@ def _batch_payload(result, *, targets: list, batch_keys: list[str]) -> dict:
 
 
 async def _complete_batch(
-    client, *, result, targets: list, batch_keys: list[str]
+    client, *, novel_id: str, result, targets: list, batch_keys: list[str]
 ) -> CompletionOutput:
     from infrastructure.llm.agent_step_harness import (
         ContextBudget,
@@ -234,20 +239,72 @@ async def _complete_batch(
             LLMMessage(role="user", content=json.dumps(payload, ensure_ascii=False)),
         ],
     )
-    return await asyncio.wait_for(
-        run_managed_structured(
-            client,
-            request,
-            CompletionOutput,
-            step_name="imports.targeted_completion.structured",
-            max_fix_attempts=1,
-            transport_retries=False,
+    async def generate(active_request, *, step_name: str):  # noqa: ANN001,ANN202
+        return await asyncio.wait_for(
+            run_managed_structured(
+                client,
+                active_request,
+                CompletionOutput,
+                step_name=step_name,
+                max_fix_attempts=1 if step_name.endswith("structured") else 0,
+                transport_retries=False,
+                timeout=COMPLETION_TIMEOUT_SECONDS,
+                context_budget=ContextBudget(
+                    max_input_chars=100_000, max_output_chars=40_000
+                ),
+            ),
             timeout=COMPLETION_TIMEOUT_SECONDS,
-            context_budget=ContextBudget(
-                max_input_chars=100_000, max_output_chars=40_000
+        )
+
+    output = await generate(request, step_name="imports.targeted_completion.structured")
+
+    async def repair(findings: str) -> str:
+        repaired_request = request.model_copy(
+            update={
+                "messages": [
+                    *request.messages,
+                    LLMMessage(
+                        role="user",
+                        content=(
+                            "知识复核发现以下问题，只修正这些问题并"
+                            "重新输出完整 JSON：\n" + findings
+                        ),
+                    ),
+                ]
+            }
+        )
+        return serialize_group_output(
+            await generate(
+                repaired_request,
+                step_name="imports.targeted_completion.knowledge_repair",
+            )
+        )
+
+    group_key = stable_hash(batch_keys)
+    governed = await govern_group_output(
+        client,
+        capability="imports.targeted_completion",
+        novel_id=novel_id,
+        group_key=f"targets:{group_key}",
+        sources=(
+            GroupSource(
+                source_key=f"target_evidence:{group_key}",
+                source_type="imported_assets",
+                content_hash=stable_hash(payload),
+                label="定向补全证据",
+                dimensions=("imported_assets", "world_entities", "prior_prose"),
             ),
         ),
-        timeout=COMPLETION_TIMEOUT_SECONDS,
+        output=serialize_group_output(output),
+        task_instruction="根据冻结证据补全指定世界对象与直接关系。",
+        generator_context=json.dumps(payload, ensure_ascii=False),
+        repair=repair,
+        step_prefix="imports.targeted_completion.knowledge",
+    )
+    if governed["status"] != "passed":
+        raise ValueError("knowledge_governance_blocked")
+    return CompletionOutput.model_validate_json(governed["text"]).model_copy(
+        update={"knowledge_review": governed["review"]}
     )
 
 
@@ -841,8 +898,20 @@ async def _run_targeted_completion(
                     state.setdefault("snapshot_ids", []).append(snapshot.id)
                     await save()
                     output = await _complete_batch(
-                        client, result=result, targets=result.targets, batch_keys=selected
+                        client,
+                        novel_id=novel_id,
+                        result=result,
+                        targets=result.targets,
+                        batch_keys=selected,
                     )
+                    if review := getattr(output, "knowledge_review", None):
+                        diagnostics.append(
+                            {
+                                "kind": "knowledge_review",
+                                "target_keys": selected,
+                                **review,
+                            }
+                        )
                     outputs.append((selected, output))
                 # Entity packages precede all links, so links across target batches
                 # resolve earlier package receipts without broadening discovery.

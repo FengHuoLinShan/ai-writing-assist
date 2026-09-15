@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.evidence.contracts import require_knowledge_review_for_adoption
 from modules.story.outline_state.models import StoryOutlineHead, StoryOutlineRevision
 from modules.story.outline_state.story_outline_repository import StoryOutlineRepository
 from modules.story.outline_state.story_outline_schemas import (
@@ -249,12 +250,18 @@ class StoryOutlineService:
             "managed_llm_steps",
             "apply_status",
             "applied_revision_id",
+            "knowledge_review",
         }
         unexpected_result_fields = set(task.result) - allowed_result_fields
         if unexpected_result_fields:
             raise StoryOutlineConflictError(
                 "source task StoryOutline preview contains forbidden fields"
             )
+        require_knowledge_review_for_adoption(
+            task.result,
+            label="该总纲预览",
+            error_type=StoryOutlineConflictError,
+        )
         preview_payload = {
             field_name: task.result[field_name]
             for field_name in StoryOutlineContent.model_fields

@@ -639,3 +639,7 @@ world.validation.semantic 的调用方冻结原 confirmation 编译后保留的 
 ## 候选整理与边界核对
 
 Imports 的 review_resolution 通过本域读取完整场景/章节并保存 ContextSnapshot；模型失败和返修分别有回执，原文不截断后冒称已读完。补查复用有界 focused evidence，快照保留源引用、输入指纹和调用阶段。未解决的来源/场景问题保持未完成，不通过修改展示标签绕过编译边界。
+
+## Knowledge 子包
+
+`knowledge/` 拥有 capability 注册表、scope/director/audit 版本化契约、组级治理和采用门禁。导演只能缩小生成可见集；audit 绑定输出 hash，语义返修最多一次，`unverifiable/not_checked` 失败关闭。

@@ -381,3 +381,7 @@ confirmation、正文、finding、Scene bundle 校验。恢复历史版本创建
 ### 审阅与导航体验约定
 
 检查弹窗按稿件ID、版本、内容hash及是否包含候选复用当前检查，作者可显式重跑规则检查。AI复核任务提交成功后立即显示运行状态，完成零问题与尚未复核分别呈现；结构警报直接指向场景编辑，不能依赖检查记录存在。
+
+## 知识治理与采用
+
+正文生成保存 scope/director/audit 指纹，作者修改后标记 stale。AI candidate copy-on-adopt 先重验上游，再经 Evidence 公共门禁要求 passed；手写草稿不走该 AI 采用入口。冲突 AI review/suggestion 按 check/item 冻结回执，blocked 不追加判断或修复建议。

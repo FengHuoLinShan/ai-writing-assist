@@ -308,6 +308,8 @@ async def stream_anonymous_rp_attempt(
             framer = InteractionStreamFramer()
             finish_reason = "stop"
             final_usage: dict[str, int] | None = None
+            # ADR-0025 held release：匿名演示同样不得在审查通过前输出正文；
+            # chunk 只入私有 hold，PASS 后一次性发放全文。
             async for chunk in client.generate_stream(
                 story_request(prepared),
                 transport_retries=False,
@@ -316,22 +318,17 @@ async def stream_anonymous_rp_attempt(
                     raise InteractionClientDisconnectedError()
                 visible = framer.feed(chunk.content)
                 if visible:
-                    offset = await _inline_workflow.checkpoint_story_task(
+                    await _inline_workflow.checkpoint_story_task(
                         db,
                         task=task,
                         visible_delta=visible,
-                    )
-                    yield _event(
-                        "chunk",
-                        {"offset": offset, "text": visible},
-                        event_id=offset,
                     )
                 if chunk.finish_reason:
                     finish_reason = str(chunk.finish_reason)
                 if chunk.usage is not None:
                     final_usage = chunk.usage.model_dump()
             trailing, metadata, raw_metadata = framer.finish()
-            offset = await _inline_workflow.checkpoint_story_task(
+            await _inline_workflow.checkpoint_story_task(
                 db,
                 task=task,
                 visible_delta=trailing,
@@ -339,12 +336,47 @@ async def stream_anonymous_rp_attempt(
                 usage=final_usage,
                 progress=0.95,
             )
-            if trailing:
-                yield _event(
-                    "chunk",
-                    {"offset": offset, "text": trailing},
-                    event_id=offset,
+            governed = await _inline_workflow.govern_held_story(
+                db,
+                task=task,
+                client=client,
+                prepared=prepared,
+            )
+            if governed["status"] != "passed":
+                await _inline_workflow.fail_knowledge_hold(
+                    db,
+                    task=task,
+                    review=governed.get("review") or {},
                 )
+                yield _event(
+                    "status",
+                    {
+                        "status": "failed",
+                        "offset": 0,
+                        "finish_reason": "knowledge_review_blocked",
+                        "error_kind": "knowledge_review_blocked",
+                        "error_message": (
+                            "这段内容未通过知识边界审查；请重新生成或换个说法"
+                        ),
+                        "result_node_id": None,
+                    },
+                )
+                yield _event(
+                    "done",
+                    {"status": "failed", "offset": 0, "result_node_id": None},
+                )
+                return
+            await _inline_workflow.release_story_task(
+                db,
+                task=task,
+                text=governed["text"],
+                review=governed.get("review"),
+            )
+            yield _event(
+                "chunk",
+                {"offset": len(governed["text"]), "text": governed["text"]},
+                event_id=len(governed["text"]),
+            )
             result = await _inline_workflow.finalize_story_task(
                 db,
                 task=task,

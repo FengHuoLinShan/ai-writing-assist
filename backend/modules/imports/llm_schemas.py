@@ -985,6 +985,7 @@ class SceneEntityExtractionOutput(BaseModel):
     relations: list[ExtractedRelation] = Field(default_factory=list)
     delta_events: list[DeltaEvent] = Field(default_factory=list)
     uncertain_items: list[Phase2aUncertainItem] = Field(default_factory=list)
+    knowledge_review: dict[str, Any] | None = None
 
     @field_validator(
         "entities",

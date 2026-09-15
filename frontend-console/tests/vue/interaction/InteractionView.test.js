@@ -198,14 +198,14 @@ describe("RP 故事页", () => {
     api.interactions.getJourney.mockResolvedValue(active)
     const wrapper = mount(InteractionView, { props: { initialJourney: active } })
     try {
-      expect(wrapper.text()).toContain("首段可能需要稍等")
+      expect(wrapper.text()).toContain("正在准备并核对这一段故事")
       await vi.advanceTimersByTimeAsync(29999)
-      expect(wrapper.text()).not.toContain("仍在生成，可随时停止")
+      expect(wrapper.text()).not.toContain("正在生成并核对这一段，可随时停止")
       await vi.advanceTimersByTimeAsync(1)
-      expect(wrapper.text()).toContain("仍在生成，可随时停止")
+      expect(wrapper.text()).toContain("正在生成并核对这一段，可随时停止")
       nextChunk.resolve()
       await vi.advanceTimersByTimeAsync(0)
-      expect(wrapper.text()).not.toContain("仍在生成，可随时停止")
+      expect(wrapper.text()).not.toContain("正在生成并核对这一段，可随时停止")
     } finally {
       wrapper.unmount()
       streamEnd.resolve()
