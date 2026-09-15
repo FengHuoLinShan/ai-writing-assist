@@ -11,11 +11,11 @@ parent: .agent/tasks/agent-integration.md
 
 ## 恢复快照
 
-- 实际完成：Wave 0 只读冻结与 W0-B 第二轮重新冻结完成（三份 artifacts）；Wave 1 核心契约与
-  S2.1 契约修正已完成并通过定向与全量 fast 层门禁；Wave 2 三路已从 `badac2db4` 启动。
-- 当前里程碑：M0、M1 完成；M2 进行中（Wave 2 三路并行）。
-- 下一步：等待 W2-Text / W2-Agent / W2-Task 各自完成后逐路审查、集成并复跑回归；集成点之后才
-  进入 Wave 3。
+- 实际完成：Wave 0 只读冻结与 W0-B 第二轮重新冻结完成；Wave 1 + S2.1 契约修正完成；Wave 2 三路
+  （W2-Text / W2-Agent / W2-Task）已实现、逐路复核并全部集成到主题分支。
+- 当前里程碑：M0、M1 完成；M2 完成（provider 计量单入口 + Agent 归属 + task 私有信封）。
+- 下一步：Wave 3 业务通道迁移前，先按 W0-B 修订表冻结各能力的 A 与 L0（含把通用 task 的临时
+  额度替换为真实上限、删除 root capability 回退），再启动 W3-A/W3-B/W3-C。
 - 阻塞：无硬阻塞。需要用户确认的决策点是 W0-B 发现的"无有限上界能力"（imports 各阶段、
   writing.generate、world.entity_fusion 等）迁移前必须先冻结的领域上界口径；真实 provider 验收仍需
   另行取得费用与凭据授权。
@@ -333,7 +333,8 @@ parent: .agent/tasks/agent-integration.md
   身份/恢复矩阵与 W0-B 第二轮预算上界均已落盘 artifacts 并通过主 Agent 抽查。
 - [x] M1：v1 envelope 与 v0 compatibility projection 完成，无领域行为变化——含 S2.1 契约
   修正与 44 项信封测试。
-- [ ] M2：文本、structured、stream、Agent、research、图片 provider 计量单入口完成。
+- [x] M2：文本、structured、stream、Agent、research 计量单入口完成（W2-Text + W2-Agent）；
+  task 身份与私有信封完成（W2-Task）；图片通道仍属 Wave 3-B。
 - [ ] M3：task/inline/requeue/stale 跨 attempt 累计和 private persistence 完成。
 - [ ] M4：全部业务调用迁移并启用 capability/runtime fail-closed 门禁。
 - [ ] M5：文档、定向/PG/完整 CI 验收完成；真实 provider 状态单独记录。
@@ -440,6 +441,31 @@ parent: .agent/tasks/agent-integration.md
   `test_output_validation.py` 与 `test_agent_live.py`。另记：agent step 名暂固定
   `infrastructure.agent_loop`、output retry 未标 `purpose=schema_repair`、research step 的
   `profile_source` 为 unknown，均为 Wave 3/4 跟进项。
+- 2026-09-15 W2-Task 审查（主 Agent 独立复核分支 `codex/ai-run-envelope-w2-task`，提交
+  `0eea5a85d`）：独立复跑 `pytest infrastructure/tasks/tests` → 144 passed（基线 121）。确认
+  `checkpoint_run_envelope` 是唯一窄 merge（FOR UPDATE + status=running + lease 匹配，只改 meta 的
+  `_ai_run_envelope`，不提交业务事务），信封只写私有 meta、公开 wire 靠既有下划线剥离；两个缺陷的
+  修复与报告一致：transient requeue 先 lease-fenced 落回执再重排，`retry_transient_llm_errors` 任务
+  里的 `LLMError` 不再走通用 auto_requeue（普通非 LLM 重排不变）。
+- 2026-09-15 W2-Task 三项裁决（主 Agent）：①legacy 判定用"无信封且 attempt>1"——首次领取的新任务从
+  本次开始完整跟踪，接受，不做"一律 legacy"；②通用 task 的临时额度
+  `_TASK_RUN_INTERIM_REQUEST_LIMIT=1_000_000` 与 `deadline_at=None` 只计量不新增闸门，接受为过渡，
+  **Wave 3 必须按 `L0=min(A,H)` 冻结真实上限与 deadline 并删除临时常量**；③root capability 由
+  registry 声明、未声明回退 `task.<task_type>`——接受为 Wave 2 过渡，**Wave 3/4 必须为每个 task type
+  声明注册表内 capability 并删除回退**，否则 Wave 5 的"零未知 capability"无法通过；任务内显式传
+  canonical capability 时必须在 `TaskRegistry.register` 声明同一 `root_capability_id`。
+- 2026-09-15 Wave 2 集成：三路分别复核后合并到 `codex/ai-run-envelope`（`ba79d2392` 集成
+  W2-Text+W2-Agent，`8bd569f61` 集成 W2-Task，均无冲突）。W2-Text 的改动经 W2-Agent 的
+  cherry-pick `166df920a` 进入历史，内容与原始提交 `0a521a116` 一致。集成后
+  `infrastructure/llm/tests + infrastructure/tasks/tests` → 416 passed, 2 deselected；
+  `make prompt-contracts` 24 passed；`make docs-check BASE_REF=origin/main` 通过；`git diff --check` 干净。
+- 2026-09-15 Wave 2 最终集成验收（全部由主 Agent 独立执行，非采信子代理数字）：
+  `make test-fast-coverage TEST_WORKERS=2` → **5638 passed, 13 skipped**，覆盖率 85.87%；
+  `infrastructure/llm/tests + infrastructure/tasks/tests` → 416 passed；PostgreSQL 专用库
+  `ai_novel_knowledge_e2e`（显式 `E2E_DATABASE_URL`，未使用开发库）：
+  `tests/e2e/test_task_run_envelope_postgres.py` → 2 passed，
+  `test_task_coalescing_concurrency.py + test_project_task_gate_concurrency.py` → 7 passed，
+  证明 lease fence、coalescing 与 project task gate 语义未被 worker 改动破坏。
 - 2026-09-15 W0-B 重新冻结：主 Agent 抽查 5 处关键证据（world schemas 的 max_packets/max_suggestions
   上限、map_structure 的合计 ≤20 校验器与 max_fix_attempts、entity_fusion 深导入 10_000）全部与
   修订后的表一致；13 条修正与 6 项存疑已记入 artifact 第 5、6 节。
@@ -455,8 +481,9 @@ parent: .agent/tasks/agent-integration.md
   `AIStepReceiptV1` 契约、`AIRunEnvelope` 累计账本与 ContextVar scope、受管 step 归属、
   v0 兼容投影、37 项定向测试，以及 `infrastructure/llm/README.md`、`docs/modules/12_infrastructure.md`
   的同步。
-- 未交付：Wave 2–5 的 provider 单入口接线、task/领域持久化、capability 门禁修正、ADR 更新、
-  真实 provider 验收，以及 push、PR、合并与部署。
+- 未交付：Wave 3–5 的业务通道迁移（含图片通道）、capability 门禁修正、ADR 更新、真实 provider
+  验收，以及 push、PR、合并到 main 与部署。Wave 2 的 provider 单入口接线与 task 私有信封已在本地
+  主题分支完成并集成。
 - 交付边界：改动只存在于本 worktree 的主题分支 `codex/ai-run-envelope`；未 push、未合并、
   未部署；`origin/main` 未受影响。
 - 正式知识与后续任务：ADR-0023/ADR-0025 与 LLM/tasks README 的完整更新按计划在 Wave 4 完成；
