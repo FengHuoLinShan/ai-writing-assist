@@ -371,9 +371,9 @@ retry 与 `auto_requeue` 重放都消耗同一额度，只有作者显式续算�
 | task type | root capability | 请求额度 L0 | deadline |
 |---|---|---|---|
 | `world_validation` | `world.validation` | `6×min(planned_packets, max_packets)`；提交时冻结进 `meta._validation_plan`，旧在途任务回退 schema 上界 P≤256 即 1536 | per-packet timeout × P × 2 + 60s 退避余量 |
-| `world_alias_relation_extraction` | `world.alias_relations.extract` | 显式 `scene_ids` 时 `4S+6`；章节范围任务的 S 无冻结输入，保持过渡计量额度（不猜 A） | 无（领域自带 per-phase asyncio 总超时） |
+| `world_alias_relation_extraction` | 暂停，未声明 root | 章节范围任务的 Scene 数量领取前不可冻结；不使用通用临时额度，待 Phase 0 manifest 或分批授权 | 迁移裁决后再冻结 |
 | `world_entity_fusion_suggestions` | `world.entity_fusion` | `12M+6`（M=冻结 `max_suggestions`，schema le=200） | 无（仅 provider 180s 边界） |
-| `world_bible_synopsis_refresh` | `world.world_bible.synopsis` | 36 | 1800s |
+| `world_bible_synopsis_refresh` | `world.world_bible.synopsis` | 36 | 无（main/audit 只有各自 step timeout，无既有 run 总时限） |
 | `world_generation_suggestion` | `world.generation.suggestion` | 96 | 3660s（阶段 1800s × 2 attempt + 余量） |
 | `world_map_schematic_generate` | `world.map_structure.generate` | 60（⌈S/5⌉≤4 批 × [U(1,0)+U(2,0)]，S≤20 为 schema 校验器上界；manual_resume 的续跑是新授权动作，额度只覆盖单次 attempt） | 无（manual_resume 恢复不受 frozen deadline 死锁） |
 

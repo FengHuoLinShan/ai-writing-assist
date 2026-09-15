@@ -16,6 +16,7 @@ from sqlalchemy.orm import aliased
 
 from infrastructure.llm.schemas import (
     AI_RUN_ENVELOPE_KEY,
+    AIRunAuthorizationReason,
     AIRunEnvelopeVersionError,
     AIRunStatus,
     AITaskIdentityV1,
@@ -37,6 +38,20 @@ logger = logging.getLogger(__name__)
 
 _INVALID_TASK_META = object()
 _AUTO_REQUEUE_DELAYS_SECONDS = (1, 2, 4, 8, 16, 30)
+
+
+def _task_run_envelope(task: AsyncTask):
+    try:
+        return read_ai_run_envelope((task.meta or {}).get(AI_RUN_ENVELOPE_KEY))
+    except (AIRunEnvelopeVersionError, ValueError):
+        return None
+
+
+def _run_budget_exhausted(task: AsyncTask) -> bool:
+    payload = _task_run_envelope(task)
+    return bool(
+        payload is not None and payload.requests_started >= payload.request_limit
+    )
 
 
 def _handler_retry_ready(now: datetime) -> Any:
@@ -187,6 +202,21 @@ class TaskLifecycleService:
             return lifecycle_contract(task, max_heartbeat_gap=0)
         result_data = dict(task.result or {})
         meta_data = dict(task.meta or {})
+        payload = _task_run_envelope(task)
+        if payload is not None and payload.requests_started >= payload.request_limit:
+            from infrastructure.tasks.registry import TaskRegistry
+
+            registry = TaskRegistry()
+            additional = registry.resolve_run_request_limit(task.task_type, task)
+            declared = registry.get_root_capability(task.task_type)
+            if additional is None or declared != payload.root_capability_id:
+                raise ValueError("task run envelope cannot authorize this resume")
+            ledger = AIRunEnvelope(payload)
+            await ledger.authorize_additional_requests(
+                additional,
+                reason=AIRunAuthorizationReason.author_resume,
+            )
+            meta_data[AI_RUN_ENVELOPE_KEY] = ledger.snapshot().model_dump(mode="json")
         for payload in (result_data, meta_data):
             payload["interrupted"] = False
             payload["recovery_required"] = False
@@ -1245,8 +1275,11 @@ def lifecycle_contract(
     attempt = _int_attr(task, "attempt", 0)
     max_attempts = _int_attr(task, "max_attempts", 1)
     recovery_required = bool(
-        result_data.get("recovery_required") is True
-        and meta_data.get("recovery_required") is True
+        (
+            result_data.get("recovery_required") is True
+            and meta_data.get("recovery_required") is True
+        )
+        or _run_budget_exhausted(task)
     )
     actions: list[TaskAction] = []
     if task.status in {"pending", "running"}:

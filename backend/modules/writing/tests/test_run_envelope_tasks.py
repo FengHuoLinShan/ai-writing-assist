@@ -228,9 +228,13 @@ def test_writing_generate_resolver_reads_frozen_receipt() -> None:
 @pytest.mark.parametrize(
     ("task_type", "deadline"),
     [
-        ("writing_generate", 1800.0),
-        ("writing_semantic_review", 1800.0),
-        ("writing_targeted_revision", 1800.0),
+        # generation/director/audit 与 targeted revision 只有单 step timeout；
+        # 整条串行链及 auto-requeue 没有既有 run 总时限。
+        ("writing_generate", None),
+        # 主 Agent 裁决：逐 chunk 串行的总时长随章节数增长，静态 run deadline
+        # 会发明比现状更紧的时间边界；每片的 step 1800s 仍是真实边界。
+        ("writing_semantic_review", None),
+        ("writing_targeted_revision", None),
         # 冲突链没有 step/阶段超时来源，不硬编码 run deadline（报告已标注）。
         ("writing_conflict_ai_review", None),
         ("writing_conflict_item_ai_suggestion", None),
@@ -338,7 +342,9 @@ async def test_writing_semantic_review_chain_builds_envelope_through_worker(
             assert envelope.requests_settled == 1
             assert envelope.requests_unknown == 0
             assert envelope.request_limit == 144
-            assert envelope.deadline_at is not None
+            # 主 Agent 裁决：该任务不设 run 级 deadline（逐 chunk 串行总时长
+            # 随章节数增长，不发明更紧边界）。
+            assert envelope.deadline_at is None
             assert envelope.task is not None
             assert str(envelope.task.task_id) == str(task_id)
             # 信封是 meta 私有键：公开投影剥离，result 不写信封。

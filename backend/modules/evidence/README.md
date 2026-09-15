@@ -1,5 +1,11 @@
 # Evidence 模块
 
+## 统一 AI 运行信封
+
+`evidence_focused_search` 在领取时冻结 `infrastructure.rag_query_planner` 和 9 次请求；planner
+与 nomination 保留各自 30/600 秒 step timeout，但不把单 step timeout 冒充整个 run deadline。
+embedding、索引维护与确定性回标任务仍是首轮非目标，不建立信封。
+
 小说证据的唯一领域实现。Evidence 把原 RAG 召回和 Context 编译放在同一所有权边界内，
 但保留两条清晰的内部流水线：
 

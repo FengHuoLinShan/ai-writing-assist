@@ -24,6 +24,7 @@ from infrastructure.llm.native_search import (
 from infrastructure.llm.retry import llm_transport_retry_scope
 from infrastructure.llm.schemas import (
     AIChargeState,
+    AIRequestOutcome,
     AIRunEnvelopeV1,
     AIStepCallKind,
     AIStepPurpose,
@@ -575,6 +576,49 @@ async def test_research_failure_with_measured_usage_is_recorded(
     assert snapshot.requests_settled == 1
     assert snapshot.requests_unknown == 0
     assert snapshot.usage.total_tokens == _SUCCESS_USAGE.total_tokens
+    assert snapshot.recent_attempts[0].outcome is AIRequestOutcome.failed
+
+
+@pytest.mark.asyncio
+async def test_research_envelope_refusal_does_not_mutate_legacy_budget(
+    native_search_enabled: None,
+) -> None:
+    provider = _ResearchProvider(attempts=1, usage=_SUCCESS_USAGE)
+    client = _research_client(provider)
+    ledger = AIRunEnvelope(_raw_envelope(request_limit=0))
+    legacy_reserves = 0
+
+    async def before_request() -> None:
+        nonlocal legacy_reserves
+        legacy_reserves += 1
+
+    with ai_run_scope(ledger), managed_step_scope(_step()):
+        with pytest.raises(AIRunBudgetExceededError):
+            await client.research("水的沸点", before_request=before_request)
+
+    assert legacy_reserves == 0
+    assert ledger.snapshot().requests_started == 0
+
+
+@pytest.mark.asyncio
+async def test_research_legacy_refusal_discards_envelope_reservation(
+    native_search_enabled: None,
+) -> None:
+    provider = _ResearchProvider(attempts=1, usage=_SUCCESS_USAGE)
+    client = _research_client(provider)
+    ledger = AIRunEnvelope(_raw_envelope())
+
+    async def before_request() -> None:
+        raise RuntimeError("legacy budget rejected")
+
+    with ai_run_scope(ledger), managed_step_scope(_step()):
+        with pytest.raises(RuntimeError, match="legacy budget rejected"):
+            await client.research("水的沸点", before_request=before_request)
+
+    snapshot = ledger.snapshot()
+    assert snapshot.requests_started == 0
+    assert snapshot.recent_attempts == []
+    assert snapshot.steps == []
 
 
 @pytest.mark.asyncio

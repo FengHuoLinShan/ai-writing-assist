@@ -46,32 +46,22 @@ from modules.interaction.runtime_policy import AGENT_STORY_TASK
 
 
 def test_interaction_tasks_declare_run_envelope_contracts() -> None:
-    """四个生产 task type 的 canonical root / L0 / deadline 声明契约。"""
+    """单 task run 声明信封；跨 task 的 story attempt 在领域接线前保持旧预算。"""
     import modules.interaction.proactive  # noqa: F401  注册副作用
     import modules.interaction.tasks  # noqa: F401  注册副作用
 
     registry = get_registry()
     task = object()
     expected = {
-        "interaction_story_generate": (
-            "interaction.story_generate",
-            46,
-            None,
-        ),
-        "interaction_agent_story_generate": (
-            "interaction.story_generate",
-            29,
-            1800.0,
-        ),
         "interaction_summary_refresh": (
             "interaction.summary_refresh",
             8,
-            3600.0,
+            None,
         ),
         "interaction_continuity_review": (
             "interaction.continuity_review",
             9,
-            1620.0,
+            None,
         ),
     }
     for task_type, (root, limit, deadline) in expected.items():
@@ -80,6 +70,9 @@ def test_interaction_tasks_declare_run_envelope_contracts() -> None:
         assert registry.resolve_run_deadline_seconds(task_type, task) == deadline, (
             task_type
         )
+    for task_type in ("interaction_story_generate", "interaction_agent_story_generate"):
+        assert registry.get_root_capability(task_type) is None
+        assert registry.resolve_run_request_limit(task_type, task) is None
 
 
 _SUMMARY_PAYLOAD = {
@@ -323,7 +316,7 @@ async def test_summary_refresh_chain_builds_envelope_and_keeps_wire_clean(
             assert envelope.operation_id == str(task_id)
             assert envelope.root_capability_id == "interaction.summary_refresh"
             assert envelope.request_limit == 8
-            assert envelope.deadline_at is not None
+            assert envelope.deadline_at is None
             assert envelope.requests_started == 1
             assert envelope.requests_settled == 1
             assert envelope.status.value == "succeeded"

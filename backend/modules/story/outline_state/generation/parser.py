@@ -383,7 +383,7 @@ async def _review_structure_evidence(
                 llm_client,
                 request,
                 StructureEvidenceReviewOutput,
-                step_name=f"outline.structure_parser.evidence_review_{review_calls}",
+                step_name="outline.structure_parser.evidence_review",
                 max_fix_attempts=1,
                 transport_retries=True,
                 format_repair_attempts=1,

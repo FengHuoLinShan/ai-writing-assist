@@ -270,7 +270,9 @@ async def run_knowledge_director(
                 temperature=0.0,
             ),
             DirectorShardPlan,
-            step_name=f"{prefix}.shard_{index}",
+            # shard 序号属于本次输入的迭代，不是新的能力 step；保持稳定名，
+            # 让同一 run 的回执按逻辑阶段聚合。
+            step_name=f"{prefix}.shard",
             max_fix_attempts=2,
         )
         shard_results.extend(

@@ -40,18 +40,6 @@ def _writing_generate_run_request_limit(task) -> int:
     return 6 * shards + 8
 
 
-def _writing_generation_run_deadline(_task) -> float:
-    from modules.writing.services import WRITING_GENERATION_TIMEOUT_SECONDS
-
-    return float(WRITING_GENERATION_TIMEOUT_SECONDS)
-
-
-def _semantic_review_run_deadline(_task) -> float:
-    from modules.writing.semantic_review import SEMANTIC_REVIEW_TIMEOUT_SECONDS
-
-    return float(SEMANTIC_REVIEW_TIMEOUT_SECONDS)
-
-
 async def _require_llm_execution_snapshot(
     db,
     task,
@@ -205,7 +193,9 @@ async def handle_publish_chapter(db, task):
     retry_transient_llm_errors=True,
     root_capability_id="writing.generate",
     run_request_limit=_writing_generate_run_request_limit,
-    run_deadline_seconds=_writing_generation_run_deadline,
+    # director/candidate/audit 各自已有 step timeout，但整条串行链没有既有
+    # wall-clock 上界；不把单 step 的 1800s 误当成整个 run 的 deadline。
+    run_deadline_seconds=None,
 )
 async def handle_writing_generate(db, task):
     """处理 AI 正文建议生成任务。"""
@@ -259,7 +249,10 @@ async def handle_writing_generate(db, task):
     retry_transient_llm_errors=True,
     root_capability_id="writing.semantic_review",
     run_request_limit=144,
-    run_deadline_seconds=_semantic_review_run_deadline,
+    # 不设 run 级 deadline：逐 chunk 串行（≤24 片，每片 step 1800s）的总时长
+    # 随正文章节数增长，任何静态 run deadline 都会发明比现状更紧的时间边界；
+    # 每片的 step timeout 仍是真实边界。
+    run_deadline_seconds=None,
 )
 async def handle_writing_semantic_review(db, task):
     """用与生成器分离的 managed run 运行正文语义审查。"""
@@ -306,7 +299,9 @@ async def handle_writing_semantic_review(db, task):
     retry_transient_llm_errors=True,
     root_capability_id="writing.targeted_revision",
     run_request_limit=4,
-    run_deadline_seconds=_semantic_review_run_deadline,
+    # 单次 structured step 有 1800s timeout；run 还可能 auto-requeue，
+    # 没有既有总时限可冻结。
+    run_deadline_seconds=None,
 )
 async def handle_writing_targeted_revision(db, task):
     """按冻结 finding 生成新候选，不覆盖原稿。"""

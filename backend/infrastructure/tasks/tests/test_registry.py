@@ -148,3 +148,26 @@ class TestTaskRegistry:
         r2 = get_registry()
         assert r1 is r2
         assert r1 is TaskRegistry()
+
+
+def test_production_root_capabilities_freeze_request_limits() -> None:
+    from app.task_runtime import register_task_handlers
+    from modules.evidence.contracts import CAPABILITY_REGISTRY
+
+    register_task_handlers()
+    registry = get_registry()
+    missing = [
+        task_type
+        for task_type in registry.registered_types
+        if registry.get_root_capability(task_type)
+        and registry.get_definition(task_type).run_request_limit is None
+    ]
+
+    assert missing == []
+    unknown = [
+        (task_type, root)
+        for task_type in registry.registered_types
+        for root in [registry.get_root_capability(task_type)]
+        if root and root not in CAPABILITY_REGISTRY
+    ]
+    assert unknown == []

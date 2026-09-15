@@ -148,7 +148,8 @@ request messages。需要主动裁剪上下文时，应显式使用 `ContextBudg
 repair 与 `generate_stream()` 的建流尝试、`research()` 的每个 attempt 都回到同一入口，已开始的
 stream 不自动重放。deadline 到期后不再退避也不再发请求：完整退避 delay 会跨过剩余 deadline 时不
 执行整段 sleep、不发出下一次请求，直接抛出原始错误（structured/format repair 按各自的既有失败
-契约收尾）；没有活动信封时重试行为与改造前一致。
+契约收尾）；进程级 RPM token 与并发 semaphore 的 admission wait 同样受剩余 deadline 约束。
+没有活动信封时重试与 admission 行为均与改造前一致。
 
 checkpoint 是账本权威的一部分：持久化通道失效（租约被拒、DB 故障）时，reserve 在任何计数与
 provider I/O 之前失败关闭（`AIRunCheckpointError`），瞬时故障恢复后自动补写自愈；settle 与收尾

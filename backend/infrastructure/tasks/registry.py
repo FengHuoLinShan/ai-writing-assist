@@ -143,7 +143,7 @@ class TaskRegistry:
         raise ValueError(f"{field} must be a number or a callable")
 
     def resolve_run_request_limit(self, task_type: str, task: Any) -> int | None:
-        """解析该任务一次 run 的请求额度；未声明返回 None（过渡计量额度）。"""
+        """解析该任务一次 run 的请求额度；未声明返回 None（不建立信封）。"""
         definition = self._definitions.get(task_type)
         if definition is None:
             return None

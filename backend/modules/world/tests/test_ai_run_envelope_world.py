@@ -347,6 +347,20 @@ def test_world_validation_limit_falls_back_to_schema_ceiling() -> None:
     assert _registry_deadline("world_validation", disabled) == 60
 
 
+def test_world_validation_limit_rejects_out_of_schema_private_plan() -> None:
+    task = SimpleNamespace(
+        meta={
+            "_validation_plan": {
+                "planned_packets": 999_999,
+                "max_packets": 999_999,
+                "per_packet_timeout_seconds": 999_999,
+            }
+        }
+    )
+    assert _registry_limit("world_validation", task) == 1536
+    assert _registry_deadline("world_validation", task) == 256 * 180 * 2 + 60
+
+
 def test_world_entity_fusion_limit_scales_with_frozen_suggestions() -> None:
     """A = 12M + 6；M 夹在 schema 上界 200 内。"""
     assert (
@@ -368,14 +382,15 @@ def test_world_entity_fusion_limit_scales_with_frozen_suggestions() -> None:
     )
 
 
-def test_world_alias_relation_limit_needs_frozen_scene_ids() -> None:
-    """显式 scene_ids 时 A = 4S + 6；章节范围任务不猜 A，保持过渡计量额度。"""
-    explicit = SimpleNamespace(
-        meta={"scene_ids": [str(uuid.uuid4()) for _ in range(3)]}
+def test_world_alias_relation_task_remains_paused_until_scope_is_frozen() -> None:
+    """章节范围的 Scene 数量运行期才知，未冻结前不建立运行信封。"""
+    registry = get_registry()
+    task = SimpleNamespace(meta={"scene_ids": [str(uuid.uuid4()) for _ in range(3)]})
+    assert registry.get_root_capability("world_alias_relation_extraction") is None
+    assert (
+        registry.resolve_run_request_limit("world_alias_relation_extraction", task)
+        is None
     )
-    assert _registry_limit("world_alias_relation_extraction", explicit) == 4 * 3 + 6
-    chapter_range = SimpleNamespace(meta={"start_chapter": 1, "end_chapter": 10})
-    assert _registry_limit("world_alias_relation_extraction", chapter_range) is None
 
 
 def test_static_limits_are_declared_for_remaining_world_tasks() -> None:
@@ -383,7 +398,8 @@ def test_static_limits_are_declared_for_remaining_world_tasks() -> None:
     assert _registry_limit("world_generation_suggestion", task) == 96
     assert _registry_deadline("world_generation_suggestion", task) == 3660.0
     assert _registry_limit("world_bible_synopsis_refresh", task) == 36
-    assert _registry_deadline("world_bible_synopsis_refresh", task) == 1800.0
+    # main/audit 各有 step timeout，但整条串行链及 auto-requeue 无总时限。
+    assert _registry_deadline("world_bible_synopsis_refresh", task) is None
     assert _registry_limit("world_map_schematic_generate", task) == 60
     assert _registry_deadline("world_map_schematic_generate", task) is None
 

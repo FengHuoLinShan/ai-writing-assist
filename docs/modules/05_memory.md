@@ -1,5 +1,8 @@
 # Module: Story continuity / 长期记忆
 
+Memory/continuity 不直接拥有 provider 任务；若由 Story 任务触发 AI 检查，预算与恢复归该
+Story root 的统一运行信封，memory event/snapshot 的持久化与 rollback 契约不变。
+
 > 当前生产 owner 是 `modules.story.continuity`。旧 `modules.memory` Python import
 > 兼容入口已退场；`/api/novels/{novel_id}/memories`
 > 继续保持稳定。表名、任务、snapshot/checkpoint/rollback 行为不变；

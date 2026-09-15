@@ -295,8 +295,13 @@ provider 错误才自动重排，且本次 attempt 的失败回执先于 lease �
 终止旧 attempt）；未声明任务保持改造前行为，不建信封也不标 legacy。没有"未声明回退"能力名；领域
 一旦在任务内显式绑定 capability，就必须声明同一个 root，恢复路径还会校验持久化 run 的 root 与声明
 不漂移。
-声明的任务还应通过 `run_request_limit` / `run_deadline_seconds` 冻结一次 run 的请求额度与 deadline
-（静态值，或从任务冻结输入同步计算 A 的 callable）；未声明额度的已声明任务暂用过渡计量额度。
+声明的任务必须通过 `run_request_limit` 冻结一次 run 的请求额度（静态值，或从任务冻结输入同步
+计算 A 的 callable）；只有领域已有整条 run 的 wall-clock 边界时才声明 `run_deadline_seconds`，
+单 step/provider timeout 不冒充 run deadline。已声明 root 却无法冻结额度会在 provider
+前失败关闭，不得回退到通用临时上限。当前 `evidence_focused_search` 使用 L0=9，并保留各 step
+自身 timeout，不新增 run 总 deadline；
+章节范围导致 Scene 数量运行期才知的 `world_alias_relation_extraction` 暂不声明 root，等待
+Phase 0 估算或分批授权。
 
 task status/cancel/retry 在查询 task 前通过组合根注入的
 `project.require_active` 检查 query `novel_id`，回收站项目统一返回 404，
@@ -307,6 +312,10 @@ task status/cancel/retry 在查询 task 前通过组合根注入的
 submit；其 `meta` 先按该 schema 重建，再在存在 `novel_id` 时执行项目门禁。校验失败的
 422 只返回受控字段位置与错误类型，不回显提交值或动态 mapping key。
 infrastructure 仅依赖 DI 容器键，不 import project 模块。
+
+`manual_resume` 任务若因信封额度耗尽而失败，公开 lifecycle 直接给出 resume；作者点击继续时按
+该 task type 的冻结 L0 追加一次 `author_resume` 授权并增加 `authorization_revision`，不移动 deadline。
+未耗尽额度的普通恢复不扩额，自动 retry/requeue/recovery 永不调用该授权路径。
 
 公开 cancel/retry 都会按 `task_id + novel_id` 锁定任务行后重验状态。cancel 只把
 `pending/running` 写为 `cancelled`；retry 只允许首个合格的 `failed -> pending`，并发后续
@@ -340,8 +349,9 @@ keyed coalescing。新增任务仍需独立证明 scope、合并模式和领域�
 RP max 沿用既有任务、lease、心跳与恢复策略；Interaction handler 通过 Project facade
 传入冻结的900秒客户端超时，不延长失效lease，也不增加重试层数。
 
-专项任务仍使用同一队列：`evidence_focused_search` 属于 Evidence compilation，
-`targeted_completion`、`import_review_resolution` 属于 imports，均通过领域入口提交并使用 manual_resume。
+专项任务仍使用同一队列：`evidence_focused_search` 属于 Evidence compilation，额度为 9，
+不新增 run 总 deadline；`targeted_completion`、`import_review_resolution` 属于 imports，均通过领域入口提交并
+使用 manual_resume，但因运行期规模未冻结暂不建立 AI 运行信封。
 通用 `/api/tasks` 不允许提交它们；状态响应隐藏 meta/result 顶层下划线内部字段。
 查证 checkpoint 不给客户端回传为可修改状态，续查只接受任务标识并重验项目/来源/lease。
 

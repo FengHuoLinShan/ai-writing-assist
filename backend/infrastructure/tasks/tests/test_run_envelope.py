@@ -15,6 +15,7 @@ from infrastructure.llm.errors import LLMAuthError, LLMTimeoutError
 from infrastructure.llm.schemas import (
     AI_RUN_ENVELOPE_KEY,
     AIChargeState,
+    AIRunAuthorizationReason,
     AIRunStatus,
     AIStepCallKind,
     AITaskIdentityV1,
@@ -23,6 +24,7 @@ from infrastructure.llm.schemas import (
 )
 from infrastructure.llm.workflow_budget import (
     AIManagedStepContext,
+    AIRunIdentityError,
     ai_run_scope,
     current_ai_run_envelope,
     managed_step_scope,
@@ -30,10 +32,10 @@ from infrastructure.llm.workflow_budget import (
 )
 from infrastructure.tasks.api import _public_task_meta, _public_task_result
 from infrastructure.tasks.enqueuer import enqueue_task
-from infrastructure.tasks.lifecycle import TaskLifecycleService
+from infrastructure.tasks.lifecycle import TaskLifecycleService, lifecycle_contract
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
-from infrastructure.tasks.worker import TaskWorker
+from infrastructure.tasks.worker import TaskRunEnvelopeKeeper, TaskWorker
 
 _USAGE = LLMUsage(prompt_tokens=3, completion_tokens=5, total_tokens=8)
 
@@ -63,6 +65,38 @@ async def _record_request(*, usage: LLMUsage | None = _USAGE) -> None:
 
 def _stored_envelope(task: AsyncTask):
     return read_ai_run_envelope((task.meta or {}).get(AI_RUN_ENVELOPE_KEY))
+
+
+def test_declared_root_without_frozen_limit_fails_before_envelope_creation() -> None:
+    registry = TaskRegistry()
+    task_type = f"w4-missing-limit-{uuid.uuid4().hex}"
+
+    async def handler(*, db, task):
+        del db, task
+
+    registry.register(task_type, handler, root_capability_id="writing.generate")
+    task = type(
+        "Task",
+        (),
+        {
+            "id": uuid.uuid4(),
+            "task_type": task_type,
+            "novel_id": None,
+            "attempt": 0,
+            "meta": {},
+        },
+    )()
+    try:
+        with pytest.raises(AIRunIdentityError, match="run_request_limit"):
+            TaskRunEnvelopeKeeper(
+                task=task,
+                lease_id="",
+                registry=registry,
+                session_factory=None,
+            ).open()
+        assert task.meta == {}
+    finally:
+        registry.unregister(task_type)
 
 
 async def _enqueue(
@@ -100,6 +134,7 @@ async def test_success_persists_private_envelope_and_finishes_the_run(
         handler,
         owner_scope="global",
         root_capability_id="writing.generate",
+        run_request_limit=10,
     )
     task_id = uuid.uuid4()
     try:
@@ -164,6 +199,7 @@ async def test_legacy_in_flight_task_without_envelope_is_marked_untracked(
         owner_scope="global",
         recovery_policy=policy,
         root_capability_id="writing.generate",
+        run_request_limit=10,
     )
     task_id = uuid.uuid4()
     try:
@@ -226,6 +262,7 @@ async def test_transient_requeue_persists_receipt_and_keeps_counting_same_run(
         max_attempts=3,
         retry_transient_llm_errors=True,
         root_capability_id="writing.generate",
+        run_request_limit=10,
     )
     task_id = uuid.uuid4()
     try:
@@ -294,6 +331,7 @@ async def test_non_transient_llm_error_is_not_auto_requeued_for_llm_tasks(
         max_attempts=3,
         retry_transient_llm_errors=True,
         root_capability_id="writing.generate",
+        run_request_limit=10,
     )
     task_id = uuid.uuid4()
     try:
@@ -338,6 +376,7 @@ async def test_plain_non_llm_auto_requeue_semantics_are_unchanged(test_engine) -
         recovery_policy="auto_requeue",
         max_attempts=2,
         root_capability_id="writing.generate",
+        run_request_limit=10,
     )
     task_id = uuid.uuid4()
     try:
@@ -389,6 +428,7 @@ async def test_failure_then_manual_resume_continues_the_same_run(test_engine) ->
         recovery_policy="manual_resume",
         max_attempts=1,
         root_capability_id="writing.generate",
+        run_request_limit=10,
     )
     task_id = uuid.uuid4()
     try:
@@ -434,6 +474,80 @@ async def test_failure_then_manual_resume_continues_the_same_run(test_engine) ->
             assert envelope.requests_started == 2
             assert envelope.requests_settled == 2
             assert envelope.status is AIRunStatus.succeeded
+            assert envelope.authorization_revision == 0
+    finally:
+        registry.unregister(task_type)
+        await _cleanup(sessions, [task_id])
+
+
+@pytest.mark.asyncio
+async def test_manual_resume_authorizes_one_more_frozen_budget_when_exhausted(
+    test_engine,
+) -> None:
+    sessions = async_sessionmaker(test_engine, expire_on_commit=False, autoflush=False)
+    task_type = f"w5-envelope-budget-resume-{uuid.uuid4().hex}"
+    registry = TaskRegistry()
+    novel_id = str(uuid.uuid4())
+
+    async def handler(*, db, task):
+        del db, task
+
+    registry.register(
+        task_type,
+        handler,
+        recovery_policy="manual_resume",
+        root_capability_id="writing.generate",
+        run_request_limit=1,
+    )
+    task_id = uuid.uuid4()
+    try:
+        task_id = await _enqueue(
+            sessions,
+            task_type,
+            meta={},
+            novel_id=novel_id,
+        )
+        ledger = new_ai_run_envelope(
+            operation_id=str(task_id),
+            run_id=str(task_id),
+            root_capability_id="writing.generate",
+            novel_id=novel_id,
+            request_limit=1,
+        )
+        with managed_step_scope(_step_context()):
+            reservation = await ledger.reserve()
+            await ledger.settle(reservation, usage=LLMUsage(total_tokens=1))
+        await ledger.finish(AIRunStatus.failed)
+        async with sessions.begin() as db:
+            task = await db.get(AsyncTask, task_id)
+            assert task is not None
+            task.status = "failed"
+            task.recovery_policy = "manual_resume"
+            task.meta = {
+                **dict(task.meta or {}),
+                AI_RUN_ENVELOPE_KEY: ledger.snapshot().model_dump(mode="json"),
+            }
+            assert "resume" in lifecycle_contract(
+                task,
+                max_heartbeat_gap=0,
+            ).available_actions
+
+        async with sessions.begin() as db:
+            resumed = await TaskLifecycleService().resume_manual(
+                db,
+                task_id=str(task_id),
+                task_types={task_type},
+                novel_id=novel_id,
+            )
+            assert resumed.status == "pending"
+            task = await db.get(AsyncTask, task_id)
+            envelope = _stored_envelope(task)
+            assert envelope is not None
+            assert envelope.request_limit == 2
+            assert envelope.authorization_revision == 1
+            assert envelope.authorizations[-1].reason is (
+                AIRunAuthorizationReason.author_resume
+            )
     finally:
         registry.unregister(task_type)
         await _cleanup(sessions, [task_id])
@@ -458,6 +572,7 @@ async def test_cancel_finishes_the_run_without_resetting_counts(test_engine) -> 
         max_attempts=3,
         retry_transient_llm_errors=True,
         root_capability_id="writing.generate",
+        run_request_limit=10,
     )
     task_id = uuid.uuid4()
     try:
@@ -732,6 +847,7 @@ async def test_inline_execution_injects_own_run_identity(test_engine) -> None:
         handler,
         owner_scope="global",
         root_capability_id="writing.generate",
+        run_request_limit=10,
     )
     task_id = uuid.uuid4()
     try:
@@ -946,6 +1062,7 @@ async def test_declared_task_without_managed_step_fails_closed_with_zero_io(
         handler,
         owner_scope="global",
         root_capability_id="interaction.summary_refresh",
+        run_request_limit=8,
     )
     task_id = uuid.uuid4()
     try:
@@ -1007,6 +1124,7 @@ async def test_rejected_envelope_persist_before_handler_terminates_the_attempt(
         recovery_policy="auto_requeue",
         max_attempts=3,
         root_capability_id="writing.generate",
+        run_request_limit=10,
     )
     task_id = uuid.uuid4()
     try:
@@ -1080,6 +1198,7 @@ async def test_reserve_checkpoint_rejection_blocks_provider_io(
         recovery_policy="auto_requeue",
         max_attempts=3,
         root_capability_id="writing.generate",
+        run_request_limit=10,
     )
     task_id = uuid.uuid4()
     try:
@@ -1132,6 +1251,7 @@ async def test_ai_run_envelope_error_is_never_auto_requeued(test_engine) -> None
         recovery_policy="auto_requeue",
         max_attempts=3,
         root_capability_id="writing.generate",
+        run_request_limit=10,
     )
     task_id = uuid.uuid4()
     try:
@@ -1175,6 +1295,7 @@ async def test_declared_root_drift_with_persisted_envelope_fails_closed(
         handler,
         owner_scope="project",
         root_capability_id="writing.generate",
+        run_request_limit=10,
     )
     try:
         envelope = new_ai_run_envelope(

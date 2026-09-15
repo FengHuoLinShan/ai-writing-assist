@@ -58,28 +58,6 @@ def _optional_int(value: object) -> int | None:
     return int(value)
 
 
-def _story_outline_run_deadline(_task) -> float:
-    from modules.story.outline_state.story_outline_generation import (
-        STORY_OUTLINE_TIMEOUT_SECONDS,
-    )
-
-    return float(STORY_OUTLINE_TIMEOUT_SECONDS)
-
-
-def _p20_run_deadline(_task) -> float:
-    from modules.story.outline_state.p20_service import P20_TIMEOUT_SECONDS
-
-    return float(P20_TIMEOUT_SECONDS)
-
-
-def _scene_fusion_run_deadline(_task) -> float:
-    from modules.story.outline_state.scene_fusion_draft import (
-        SCENE_FUSION_TIMEOUT_SECONDS,
-    )
-
-    return float(SCENE_FUSION_TIMEOUT_SECONDS)
-
-
 async def _require_llm_execution_snapshot(db, task, meta: dict, novel_id: str) -> dict:
     from infrastructure.tasks.facade import require_task_checkpoint_session
 
@@ -109,7 +87,9 @@ async def _require_llm_execution_snapshot(db, task, meta: dict, novel_id: str) -
     retry_transient_llm_errors=True,
     root_capability_id="story.story_outline.generate",
     run_request_limit=64,
-    run_deadline_seconds=_story_outline_run_deadline,
+    # 1800s 是单个 task attempt 的既有阶段 timeout；auto-requeue 后的
+    # 整个 run 没有既有 wall-clock 上界。
+    run_deadline_seconds=None,
 )
 async def handle_story_outline_generate(db, task):
     """Generate one strict StoryOutline preview without writing domain assets."""
@@ -300,7 +280,7 @@ async def handle_outline_analyze(db, task):
     retry_transient_llm_errors=True,
     root_capability_id="story.outline.p20",
     run_request_limit=64,
-    run_deadline_seconds=_p20_run_deadline,
+    run_deadline_seconds=None,
 )
 async def handle_outline_generate(db, task):
     """Generate one P20 v2 current-layer preview."""
@@ -385,7 +365,7 @@ async def handle_outline_generate(db, task):
     retry_transient_llm_errors=True,
     root_capability_id="story.scene_fusion",
     run_request_limit=12,
-    run_deadline_seconds=_scene_fusion_run_deadline,
+    run_deadline_seconds=None,
 )
 async def handle_scene_fusion_preview(db, task):
     from modules.story.outline_state.scene_workbench import SceneWorkbenchService

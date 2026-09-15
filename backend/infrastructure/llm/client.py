@@ -41,6 +41,7 @@ from infrastructure.llm.retry import (
     sleep_before_retry,
 )
 from infrastructure.llm.schemas import (
+    AIRequestOutcome,
     AIStepCallKind,
     AIStepPurpose,
     LLMCallRequest,
@@ -494,6 +495,11 @@ async def _settle_ai_run_request(
         error_kind=_safe_error_kind(error),
         retryable=isinstance(error, Exception)
         and is_retryable_transport_error(error),
+        outcome=(
+            AIRequestOutcome.failed
+            if error is not None and usage is not None
+            else None
+        ),
     )
 
 
@@ -902,8 +908,13 @@ class LLMClient:
         pending: list[tuple[AIRunEnvelope, AIRunRequestReservation]] = []
 
         async def metered_before_request() -> None:
-            await before_request()
             ledger, reservation = await _reserve_ai_run_request()
+            try:
+                await before_request()
+            except BaseException:
+                if ledger is not None and reservation is not None:
+                    await ledger.discard(reservation)
+                raise
             if ledger is not None and reservation is not None:
                 pending.append((ledger, reservation))
 

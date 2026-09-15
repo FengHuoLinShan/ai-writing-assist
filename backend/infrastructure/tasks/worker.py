@@ -81,11 +81,6 @@ _TASK_TYPE_LOG_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
 #: 运行信封按显式声明 opt-in：只有 TaskRegistry 注册了 canonical
 #: root_capability_id 的任务才建立账本，未迁移任务保持改造前行为。
 _TASK_RUN_GLOBAL_NOVEL_ID = "global"
-#: Wave 3 之前不引入新的预算闸门：通用 task 路径只计量、不因额度拒绝请求。
-#: 领域迁移时必须按 L0 = min(A, H) 冻结真实上限并替换该临时值。
-_TASK_RUN_INTERIM_REQUEST_LIMIT = 1_000_000
-
-
 class _TaskWorkerRecoveryError(RuntimeError):
     """Stable, secret-free failure used when task/domain recovery cannot converge."""
 
@@ -315,14 +310,20 @@ class TaskRunEnvelopeKeeper:
                 if self._registry is not None
                 else None
             )
+            if request_limit is None:
+                raise AIRunIdentityError(
+                    "declared task must freeze run_request_limit before opening "
+                    "an AI run envelope",
+                    run_id=str(self._task.id),
+                )
             payload = new_ai_run_envelope(
                 operation_id=str(self._task.id),
                 run_id=str(self._task.id),
                 root_capability_id=declared,
                 novel_id=self._novel_id(),
-                # 领域按 L0 = min(A, H) 冻结真实额度；未声明额度的已声明任务
-                # 暂用过渡计量额度，Wave 3/4 迁移时逐任务替换。
-                request_limit=request_limit or _TASK_RUN_INTERIM_REQUEST_LIMIT,
+                # 领域按 L0 = min(A, H) 冻结真实额度；已声明任务不得使用
+                # 通用临时额度。
+                request_limit=request_limit,
                 deadline_at=(
                     datetime.now(UTC) + timedelta(seconds=deadline_seconds)
                     if deadline_seconds is not None

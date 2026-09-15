@@ -1,5 +1,8 @@
 # Story Scene 模块
 
+Story 的 AI 预览任务由统一运行信封记录 root capability、L0 与恢复累计；领域采用、CAS、
+回滚和 Scene 资产仍由本模块拥有，信封不会成为公开结果字段。
+
 Story 是作者工作台的 Scene 级派生层，保存人物卡的时点状态和 Scene 剧本文件的可编辑版本。
 World 仍拥有 canonical Character，Outline 仍拥有 Scene；Story 通过 facade 校验二者，不把
 人物卡或剧本写回 World、Memory、Writing。

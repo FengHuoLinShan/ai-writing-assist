@@ -3,8 +3,8 @@
 覆盖：
 1. 生产注册的 9 个 story / outline task type 都显式声明 canonical root
    capability 与冻结请求额度（L0）；
-2. deadline 只从既有代码来源推导：单链任务用其阶段预算，多链串行任务
-   （reaction / one_click）按冻结的 character_ids 推导总时限；
+2. 单 step/单 attempt timeout 不冒充整个可重排 run 的 deadline；没有既有
+   run 总时限时保持 None；
 3. 一条真实链：TaskWorker.run_once → story_character_card_generate handler →
    真实 LLMClient（provider 替身），断言任务 done、信封只写 meta 私有键、
    请求计数与该链预期一致、公开投影不含 `_ai_run_envelope`。
@@ -145,13 +145,16 @@ def test_story_tasks_declare_canonical_root_and_frozen_limit(
 @pytest.mark.parametrize(
     ("task_type", "deadline"),
     [
-        ("story_outline_generate", 1800.0),
-        # outline_analyze 链路没有任何 step/阶段超时来源，不硬编码（报告已标注）。
+        # 各路径只有单 step 或单 attempt timeout；auto-requeue 后的整个 run
+        # 没有既有 wall-clock 上界。
+        ("story_outline_generate", None),
         ("outline_analyze", None),
-        ("outline_generate", 1800.0),
-        ("scene_fusion_preview", 1800.0),
-        ("story_character_card_generate", 1800.0),
-        ("story_scene_script_generate", 1800.0),
+        ("outline_generate", None),
+        ("scene_fusion_preview", None),
+        ("story_character_card_generate", None),
+        ("story_reaction_propose", None),
+        ("story_scene_script_generate", None),
+        ("story_one_click", None),
     ],
 )
 def test_story_tasks_declare_deadline_with_code_source(
@@ -162,37 +165,6 @@ def test_story_tasks_declare_deadline_with_code_source(
         registry.resolve_run_deadline_seconds(task_type, SimpleNamespace(meta={}))
         == deadline
     )
-
-
-@pytest.mark.parametrize(
-    ("task_type", "resolver"),
-    [
-        ("story_reaction_propose", "reaction"),
-        ("story_one_click", "one_click"),
-    ],
-)
-def test_multi_chain_story_deadlines_derive_from_frozen_character_ids(
-    task_type: str, resolver: str
-) -> None:
-    registry = _production_registry_with_story()
-    flat = SimpleNamespace(meta={"character_ids": ["a", "b", "c"]})
-    nested = SimpleNamespace(
-        meta={"request": {"character_ids": ["a", "b", "c"]}},
-    )
-    expected_chains = 3 if resolver == "reaction" else 2 * 3 + 1
-    assert registry.resolve_run_deadline_seconds(task_type, flat) == (
-        1800.0 * expected_chains
-    )
-    assert registry.resolve_run_deadline_seconds(task_type, nested) == (
-        1800.0 * expected_chains
-    )
-    # 没有冻结人物时按单链保守推导，不放大授权。
-    empty = SimpleNamespace(meta={})
-    assert registry.resolve_run_deadline_seconds(task_type, empty) == 1800.0 * (
-        1 if resolver == "reaction" else 2 * 0 + 1
-    )
-
-
 # ---------------------------------------------------------------------------
 # 2. 真实链：worker → handler → 真实 LLMClient（provider 替身）
 # ---------------------------------------------------------------------------
@@ -342,12 +314,7 @@ async def test_story_character_card_chain_builds_envelope_through_worker(
             assert envelope.requests_settled == 2
             assert envelope.requests_unknown == 0
             assert envelope.request_limit == 28
-            assert envelope.deadline_at is not None
-            deadline_seconds = (
-                envelope.deadline_at - envelope.started_at
-            ).total_seconds()
-            # 同一时刻读取存在亚毫秒漂移，冻结的预算就是 1800s。
-            assert 1799 < deadline_seconds <= 1800
+            assert envelope.deadline_at is None
             step_names = {step.step_name for step in envelope.steps}
             # 稳定 step 名：结构化生成 + 知识审查各一条，不含调用序数。
             assert step_names == {

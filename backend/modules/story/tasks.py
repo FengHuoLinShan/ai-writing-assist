@@ -50,37 +50,6 @@ from modules.story.schemas import (
 logger = logging.getLogger(__name__)
 
 
-def _story_generation_run_deadline(_task) -> float:
-    from modules.story.generation import STORY_GENERATION_TIMEOUT_SECONDS
-
-    return float(STORY_GENERATION_TIMEOUT_SECONDS)
-
-
-def _frozen_character_ids(meta: dict[str, Any]) -> list[str]:
-    """读取任务冻结输入里的目标人物列表（新任务嵌套 request，旧任务平铺）。"""
-    request = meta.get("request")
-    payload = request if isinstance(request, dict) else meta
-    values = payload.get("character_ids")
-    return [str(value) for value in values] if isinstance(values, list) else []
-
-
-def _story_reaction_run_deadline(task) -> float:
-    """每人物一条完整链，各自持有既有 step 预算；run deadline 按链数推导。"""
-    from modules.story.generation import STORY_GENERATION_TIMEOUT_SECONDS
-
-    chains = max(1, len(_frozen_character_ids(getattr(task, "meta", None) or {})))
-    return float(STORY_GENERATION_TIMEOUT_SECONDS) * chains
-
-
-def _story_one_click_run_deadline(task) -> float:
-    """串行 2N+1 条链（每人物 card+reaction，最后一条 script），无阶段预算；
-    run deadline 按既有 step 预算 × 链数如实推导，不发明更紧的总时限。"""
-    from modules.story.generation import STORY_GENERATION_TIMEOUT_SECONDS
-
-    chains = 2 * len(_frozen_character_ids(getattr(task, "meta", None) or {})) + 1
-    return float(STORY_GENERATION_TIMEOUT_SECONDS) * chains
-
-
 @task_handler("story_reference_review", recovery_policy="manual_resume")
 async def handle_story_reference_review(db, task):
     from modules.story.proactive import review_references
@@ -487,7 +456,7 @@ def _require_character_ids(values: list[str]) -> list[str]:
     retry_transient_llm_errors=True,
     root_capability_id="story.character_card",
     run_request_limit=28,
-    run_deadline_seconds=_story_generation_run_deadline,
+    run_deadline_seconds=None,
 )
 async def handle_story_character_card_generate(db, task):
     (
@@ -536,7 +505,7 @@ async def handle_story_character_card_generate(db, task):
     retry_transient_llm_errors=True,
     root_capability_id="story.reaction",
     run_request_limit=672,
-    run_deadline_seconds=_story_reaction_run_deadline,
+    run_deadline_seconds=None,
 )
 async def handle_story_reaction_propose(db, task):
     (
@@ -598,7 +567,7 @@ async def handle_story_reaction_propose(db, task):
     retry_transient_llm_errors=True,
     root_capability_id="story.script",
     run_request_limit=28,
-    run_deadline_seconds=_story_generation_run_deadline,
+    run_deadline_seconds=None,
 )
 async def handle_story_scene_script_generate(db, task):
     (
@@ -652,7 +621,9 @@ async def handle_story_scene_script_generate(db, task):
     retry_transient_llm_errors=True,
     root_capability_id="story.one_click",
     run_request_limit=1372,
-    run_deadline_seconds=_story_one_click_run_deadline,
+    # 2N+1 个 preview 各自还包含 generation/audit/repair step；只按链数
+    # 乘单 step timeout 会低估，且 auto-requeue 后没有既有总时限。
+    run_deadline_seconds=None,
 )
 async def handle_story_one_click(db, task):
     (

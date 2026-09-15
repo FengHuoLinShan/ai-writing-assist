@@ -57,6 +57,10 @@
 8. 新任务冻结 `knowledge_policy_version=1`；在途旧任务按原快照结束并标记
    `legacy_unchecked`；旧已采用资产不追溯改写，旧待采用 AI 资产采用前必须通过当前重查。
 
+知识导演、审查与返修 step 归属宿主能力的统一运行信封；分片序号不进入 step 名，回执按
+稳定逻辑阶段聚合。知识治理 helper 不拥有独立 root，不能把内部格式修复或导演审查伪装成
+`infrastructure.format_repair` 能力。
+
 ## 结果与非目标
 
 - 每个能力的导演+审查带来至少两次额外模型调用，成本与延迟上升被接受；Imports/Map

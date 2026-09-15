@@ -3,7 +3,7 @@ id: T-20260915-ai-run-envelope
 title: 统一 AI 运行信封
 status: active
 created: 2026-09-15T10:42:18+08:00
-updated: 2026-09-15T12:19:34+08:00
+updated: 2026-09-15T18:10:00+08:00
 parent: .agent/tasks/agent-integration.md
 ---
 
@@ -11,20 +11,20 @@ parent: .agent/tasks/agent-integration.md
 
 ## 恢复快照
 
-- 实际完成：Wave 0 冻结（含 W0-B 第二轮与接手后第三轮修正）；Wave 1 + S2.1 契约修正；Wave 2 三路
-  集成；接手后 W2.1 集成修复已完成并提交（opt-in 信封边界、lease/checkpoint 约束 provider I/O、
-  deadline-aware 退避、双预算原子化、信封错误分类、W0-B 公式第三轮修正）。
-- 当前里程碑：M0、M1、M2 完成；M2 后的 W2.1 修复完成（Wave 3 前置集成修复）。
-- 下一步：Wave 3 业务通道迁移（W3-A Writing+Story / W3-B World+Map / W3-C Assistant+Interaction /
-  主 Agent Imports+Evidence），从 W2.1 commit 创建隔离 worktree，为每个 task type 显式声明
-  `root_capability_id` 并按 L0=min(A,H) 冻结真实上限与 deadline，替换 `_TASK_RUN_INTERIM_REQUEST_LIMIT`。
-- 阻塞：无技术阻塞。会改变产品语义且无证据支持的 H 阈值（如 world.entity_fusion 深导入、imports
-  各 C3 阶段）迁移时逐能力暂停并请求一次聚焦裁决，其余能力继续；真实 provider 验收仍需另行取得
-  费用与凭据授权。
-- 工作区：实现 worktree `.worktrees/ai-run-envelope`，主题分支 `codex/ai-run-envelope`；W2.1 修复
-  以单个本地 commit 提交在该分支（见"验证证据"），未 push、未合并。W2-Text/W2-Agent/W2-Task
-  worktree 与分支保留未清理。
-- 最后核实：2026-09-15（W2.1 提交时，5666 passed / 85.90% 覆盖率后）。
+- 实际完成：Wave 0–2 与 W2.1；Writing/Story、World 的已冻结单-task 能力、Assistant、Interaction
+  summary/continuity、Evidence focused search 的 opt-in 迁移；静态绑定/稳定 step/文档门禁。独立复核
+  又修正 research 双账本顺序、recent 窗口与并发 request index、RPM/semaphore deadline、虚假 run
+  deadline、额度耗尽的 `author_resume`，以及 validation 私有计划边界。
+- 当前里程碑：M0–M3 完成；M4 仍为部分完成。无法在领取前冻结规模或无法保持同一领域 run 身份的
+  task 明确不声明信封，不用临时额度伪装完成。
+- 下一步：对 Imports C3、entity_fusion 深导入、Map atlas、smart dedup、alias/relation 和
+  world co-creation 做 Phase 0 估算/分批授权裁决；Interaction story 需把 envelope 的 run_id 与
+  persistence 接到 `InteractionGenerationAttempt.id` 后再启用。配置专用 PostgreSQL 后补 E2E。
+- 阻塞：上述路径需要产品裁决或领域持久化接线；真实 provider 验收另需费用与凭据授权。
+- 工作区：实现 worktree `.worktrees/ai-run-envelope`，主题分支 `codex/ai-run-envelope`；未 push、
+  未合并、未部署。W2/W3 子 worktree 已不存在；集成分支待本轮提交后按 ancestry 清理。
+- 最后核实：2026-09-15（定向 517 passed / 2 deselected；prompt-contracts 24、docs-check
+  BASE_REF=origin/main、lint、diff-check 通过；完整回归 5727 passed / 13 skipped / 85.95%）。
 
 ## 目标与验收
 
@@ -349,6 +349,26 @@ reserve checkpoint 被拒时 provider 为 0 且旧 attempt 终止；退避跨 de
 - 所有子代理只改各自领域与定向测试，不改 `capability_bindings.py`、共享 schema/runtime、公共文档
   或其他代理文件。主 Agent 逐路审查后才集成。
 
+### Wave 3/4 当前执行快照（2026-09-15，主 Agent 接手继续）
+
+- W3-A/B/C 已集成至 `3d17e8443`；独立复核保留 Writing/Story、World/Map、Assistant 与
+  Interaction summary/continuity 中能证明单一 run 身份的声明，并撤销不满足该条件的误迁移。
+- Evidence focused search 使用 `infrastructure.rag_query_planner`、L0=9；planner/nomination 保留各自
+  step timeout，不新增虚假的 600 秒 run 总 deadline。
+  `world_alias_relation_extraction` 因章节范围的 Scene 数量领取前不可冻结，已退回暂停/不建信封；
+  这不是发明临时额度的替代方案。
+- `interaction_story_generate` / `interaction_agent_story_generate` 因同一 generation attempt 的续写会
+  更换 task id，已退回 opt-out；继续使用既有 AgentRunBudget，待 envelope 接到 attempt checkpoint。
+- `world_cocreation_turn` 同一 task type 同时承载 chat/design 两个业务 root，保持 opt-out。
+- Task worker 删除 `_TASK_RUN_INTERIM_REQUEST_LIMIT`：已声明 root 但没有冻结 `run_request_limit`
+  的任务在 provider 前以 `AIRunIdentityError` 失败关闭；未声明 root 的 C3/非目标任务保持旧行为。
+- W4-Gate 已完成当前调用绑定错位修正；知识治理 helper 继承宿主 capability，解析生产模块失败报 P1；
+  parser/知识导演分片使用稳定 step 名。相关模块 README、`docs/modules/*`、ADR-0023/0025、LLM/tasks
+  README 已同步。
+- 独立复核新增的 fail-closed 细节：research 先过信封再扣旧预算；discard 不复用 index、不破坏最近
+  256 条；RPM token/semaphore 等待不能越过 deadline；只把已有整条 run 时限写进 envelope；
+  manual resume 仅在额度已耗尽时按冻结 L0 追加一次 `author_resume`，自动恢复仍不扩额。
+
 ### Wave 4：静态门禁、文档与独立复核
 
 - W4-Gate 单一写入者：更新 `capability_bindings.py` 和 prompt-contract 测试；唯一 managed/Agent/
@@ -382,8 +402,9 @@ reserve checkpoint 被拒时 provider 为 0 且旧 attempt 终止；退避跨 de
   修正与 44 项信封测试。
 - [x] M2：文本、structured、stream、Agent、research 计量单入口完成（W2-Text + W2-Agent）；
   task 身份与私有信封完成（W2-Task）；图片通道仍属 Wave 3-B。
-- [ ] M3：task/inline/requeue/stale 跨 attempt 累计和 private persistence 完成。
-- [ ] M4：全部业务调用迁移并启用 capability/runtime fail-closed 门禁。
+- [x] M3：task/inline/requeue/stale 跨 attempt 累计和 private persistence 完成。
+- [ ] M4：可证明单一 run 身份的已冻结业务调用完成迁移并启用门禁；C3、跨能力与跨 task run
+  仍按矩阵暂停。
 - [ ] M5：文档、定向/PG/完整 CI 验收完成；真实 provider 状态单独记录。
 
 ## 验证矩阵
@@ -543,17 +564,34 @@ reserve checkpoint 被拒时 provider 为 0 且旧 attempt 终止；退避跨 de
   - changed-file `ruff check` All checks passed；`make prompt-contracts` 24 passed；
     `make docs-check BASE_REF=origin/main` 通过（已同步 llm/tasks README）；`git diff --check` 干净。
   - 全量回归：`make test-fast-coverage TEST_WORKERS=2` → **5666 passed, 13 skipped**，覆盖率
-    85.90%（门槛 85%）。PostgreSQL 专用库 E2E 未在 W2.1 门禁清单内，未运行；未配置
-    `E2E_DATABASE_URL` 时不连接开发库。
+  85.90%（门槛 85%）。PostgreSQL 专用库 E2E 未在 W2.1 门禁清单内，未运行；未配置
+  `E2E_DATABASE_URL` 时不连接开发库。
+- 2026-09-15 继续执行 Wave 3/4/5：focused evidence 额度/期限、C3 alias 暂停、临时额度删除、
+  稳定 step 名、AST 失败 P1、生产 root 额度测试与文档同步完成；定向 task/evidence/world 回归
+  **88 passed**，`make prompt-contracts` **24 passed**，`make docs-check BASE_REF=origin/main`
+  通过，`make lint` 通过，完整 `make test-fast-coverage TEST_WORKERS=2` → **5719 passed,
+  13 skipped，覆盖率 85.95%**。当前未配置 `E2E_DATABASE_URL`/`DATABASE_URL`，未连接 PostgreSQL。
+- 2026-09-15 独立 review + 修复：
+  - 代码复现并修正：research 在信封拒绝前已扣旧预算；discard 在 recent 满/并发时丢 receipt 并复用
+    request index；RPM/semaphore admission 可睡过 deadline；已知 usage 的 research 失败误记 succeeded；
+    多个 task 把单 step/provider timeout 误作 run deadline；Interaction story 跨 task 续写重置信封；
+    Assistant research 未被静态门禁扫描；validation 私有计划未重验 schema 边界。
+  - 额度耗尽的 manual task 现在直接呈现 resume；作者继续时按该 task 的冻结 L0 追加一次
+    `author_resume`，未耗尽恢复与自动 retry/requeue 不扩额。
+  - 定向 `pytest`（LLM/tasks + 六个领域代表套件 + capability binding）→ **517 passed,
+    2 deselected**；`make lint`、`make prompt-contracts`（24）、`make docs-check BASE_REF=origin/main`、
+    `git diff --check` 通过。
+  - 完整 `make test-fast-coverage TEST_WORKERS=2` → **5727 passed, 13 skipped**，覆盖率 **85.95%**。
+    当前 `E2E_DATABASE_URL`/`DATABASE_URL` 均未配置，按测试规则未连接开发库，PostgreSQL E2E 未执行。
 
 ## 交付结果
 
-- 已交付：Wave 0 只读冻结结论与 artifacts（含 W2.1 第三轮修正）；Wave 1 契约与账本；
-  Wave 2 三路集成；W2.1 集成修复（opt-in 信封、checkpoint 权威、deadline 退避、双预算原子化、
-  错误分类、公式修正、README 同步）。
-- 未交付：Wave 3–5 的业务通道迁移（含图片通道）、capability 绑定修正、ADR 更新、真实 provider
-  验收，以及 push、PR、合并到 main 与部署。
-- 交付边界：改动只存在于本 worktree 的主题分支 `codex/ai-run-envelope`；未 push、未合并、
-  未部署；`origin/main` 未受影响。
-- 正式知识与后续任务：ADR-0023/ADR-0025 与 LLM/tasks README 的完整更新按计划在 Wave 4 完成；
-  本 TASK 保持唯一进度源。
+- 已交付：Wave 0 artifacts；Wave 1/S2.1 契约与账本；Wave 2/W2.1；可证明单一 run 的 Wave 3
+  业务通道；静态门禁、稳定 step、额度/deadline/author-resume 修复与架构文档。
+- 未交付：PostgreSQL/真实 provider 验收；Imports C3、entity_fusion 深导入、Map atlas、smart dedup、
+  alias/relation、world co-creation 的产品裁决与迁移；Interaction story 的 attempt 级信封持久化；
+  push、PR、合并到 main 与部署。
+- 交付边界：改动只存在于 worktree `.worktrees/ai-run-envelope` 的主题分支
+  `codex/ai-run-envelope`；未 push、未合并、未部署；`origin/main` 未受影响。归档/演示 worktree
+  与用户 WIP 不在清理范围。
+- 正式知识已同步 ADR-0023/ADR-0025、LLM/tasks README 和受影响模块文档；本 TASK 保持唯一进度源。

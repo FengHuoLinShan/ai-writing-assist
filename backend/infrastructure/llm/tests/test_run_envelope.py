@@ -366,7 +366,7 @@ class TestRunLedger:
     async def test_terminal_run_converges_in_flight_requests(self) -> None:
         ledger = _ledger()
         with ai_run_scope(ledger), managed_step_scope(_step()):
-            await ledger.reserve()
+            reservation = await ledger.reserve()
         await ledger.finish(AIRunStatus.failed)
         snapshot = ledger.snapshot()
         assert snapshot.status is AIRunStatus.failed
@@ -378,6 +378,10 @@ class TestRunLedger:
         assert [a.outcome for a in snapshot.recent_attempts] == [
             AIRequestOutcome.unknown
         ]
+
+        with pytest.raises(AIRunStateError):
+            await ledger.settle(reservation, usage=LLMUsage(total_tokens=1))
+        assert ledger.snapshot() == snapshot
 
     async def test_known_usage_failure_records_charge_consistently(self) -> None:
         ledger = _ledger()
@@ -729,6 +733,30 @@ class TestCheckpointAuthorityAndDiscard:
         assert snapshot.charge_state is AIChargeState.none
         # 撤销后的快照同样通过 checkpoint 持久化，不留部分变更。
         assert persisted[-1] == 0
+
+    async def test_discard_restores_recent_window_and_keeps_indices_monotonic(
+        self,
+    ) -> None:
+        ledger = _ledger(request_limit=300)
+        with managed_step_scope(_step()):
+            for _ in range(AI_RUN_RECENT_ATTEMPT_LIMIT):
+                reservation = await ledger.reserve()
+                await ledger.settle(reservation, usage=LLMUsage())
+
+            first = await ledger.reserve()
+            second = await ledger.reserve()
+            await ledger.settle(second, usage=LLMUsage())
+            await ledger.discard(first)
+            third = await ledger.reserve()
+            await ledger.settle(third, usage=LLMUsage())
+
+        snapshot = ledger.snapshot()
+        assert snapshot.requests_started == AI_RUN_RECENT_ATTEMPT_LIMIT + 2
+        assert len(snapshot.recent_attempts) == AI_RUN_RECENT_ATTEMPT_LIMIT
+        assert snapshot.recent_attempts_overflow == 2
+        assert [
+            attempt.request_index for attempt in snapshot.recent_attempts[-2:]
+        ] == [AI_RUN_RECENT_ATTEMPT_LIMIT + 2, AI_RUN_RECENT_ATTEMPT_LIMIT + 3]
 
     async def test_discard_rejects_an_already_settled_reservation(self) -> None:
         ledger = _ledger()

@@ -40,10 +40,6 @@ _WORLD_RUN_REQUEUE_BACKOFF_MARGIN_SECONDS = 60.0
 _WORLD_ENTITY_FUSION_REQUESTS_PER_SUGGESTION = 12
 _WORLD_ENTITY_FUSION_GOVERNANCE_REQUESTS = 6
 _WORLD_ENTITY_FUSION_MAX_SUGGESTIONS_CEILING = 200
-# world.alias_relations.extract：每 Scene U(0,1)=2（R=1）× auto_requeue 2 = 4，
-# 外加任务级知识审查 3 × 2 = 6。
-_WORLD_ALIAS_RELATION_REQUESTS_PER_SCENE = 4
-_WORLD_ALIAS_RELATION_GOVERNANCE_REQUESTS = 6
 # world.generation.suggestion：阶段 asyncio.timeout(1800) × auto_requeue 2 + 退避余量。
 _WORLD_GENERATION_SUGGESTION_REQUEST_LIMIT = 96
 _WORLD_GENERATION_SUGGESTION_DEADLINE_SECONDS = 2 * 1800.0 + (
@@ -63,7 +59,11 @@ def _validation_run_plan(task: Any) -> tuple[int | None, int, float]:
             return None, _WORLD_VALIDATION_FALLBACK_MAX_PACKETS, (
                 _WORLD_VALIDATION_FALLBACK_PACKET_TIMEOUT_SECONDS
             )
-        if max_packets > 0:
+        if (
+            planned >= 0
+            and 1 <= max_packets <= _WORLD_VALIDATION_FALLBACK_MAX_PACKETS
+            and 30.0 <= per_packet <= 1800.0
+        ):
             # planned_packets=0 是合法冻结值（语义检查关闭，无 provider 请求）。
             return planned, max_packets, per_packet
     return None, _WORLD_VALIDATION_FALLBACK_MAX_PACKETS, (
@@ -115,21 +115,6 @@ def _world_entity_fusion_request_limit(task: Any) -> int:
     return (
         max_suggestions * _WORLD_ENTITY_FUSION_REQUESTS_PER_SUGGESTION
         + _WORLD_ENTITY_FUSION_GOVERNANCE_REQUESTS
-    )
-
-
-def _world_alias_relation_request_limit(task: Any) -> int | None:
-    """A = 4S + 6；S 只能从冻结的显式 scene_ids 计算。
-
-    章节范围任务（未显式给 scene_ids）的 Scene 数在领取前无法同步冻结，
-    返回 None 保持过渡计量额度，不猜测 A 导致运行中途失败关闭。
-    """
-    scene_ids = (task.meta or {}).get("scene_ids")
-    if not isinstance(scene_ids, list) or not scene_ids:
-        return None
-    return (
-        len(scene_ids) * _WORLD_ALIAS_RELATION_REQUESTS_PER_SCENE
-        + _WORLD_ALIAS_RELATION_GOVERNANCE_REQUESTS
     )
 
 
@@ -274,8 +259,6 @@ async def _commit_alias_relation_checkpoint(
     recovery_policy="auto_requeue",
     max_attempts=2,
     retry_transient_llm_errors=True,
-    root_capability_id="world.alias_relations.extract",
-    run_request_limit=_world_alias_relation_request_limit,
 )
 async def handle_world_alias_relation_extraction(db, task):
     """Run manual alias/relation extraction with fenced provider boundaries."""
@@ -812,7 +795,9 @@ async def handle_world_bible_projection_refresh(db, task):
     max_attempts=2,
     root_capability_id="world.world_bible.synopsis",
     run_request_limit=36,
-    run_deadline_seconds=1800.0,
+    # main + knowledge audit 各自有 1800s step timeout，但整条串行链及
+    # auto-requeue 没有既有总时限。
+    run_deadline_seconds=None,
 )
 async def handle_world_bible_synopsis_refresh(db, task):
     """Refresh the immutable author-only World Bible synopsis revision."""

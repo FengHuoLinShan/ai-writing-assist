@@ -130,8 +130,8 @@ step 的 profile 摘要按 allowlist 重建，Key、完整 endpoint、Prompt 与
 稳定 step 名聚合，chunk/packet/shard 序数不得拼进 step 名。
 文本 provider I/O 的单入口是 `LLMClient.generate()`：transport 尝试、关闭 transport retry 的
 structured、format repair、stream 建流尝试与 research 的每个 attempt 在活动信封下恰好
-reserve/settle 一次，缺 usage 记 unknown/possible，deadline 到期不再退避或发请求。embedding 与
-健康检查是首轮非目标。
+reserve/settle 一次，缺 usage 记 unknown/possible；deadline 到期不再退避、等待 RPM/并发 admission
+或发请求。embedding 与健康检查是首轮非目标。
 `managed_llm_steps` 保持 v0 五字段兼容，v1 由同一信封的 step receipt 派生。
 
 Task 路径把同一信封落在 `async_tasks.meta` 的私有键 `_ai_run_envelope`：worker 与 inline 在 handler

@@ -1,5 +1,12 @@
 # Module: interaction / RP 互动旅程
 
+Interaction 已迁移的连续性复核与摘要任务在领取时冻结统一运行信封；重启或重排累计同一 run，
+私有回执不进入消息节点、attempt wire 或作者项目。
+
+`interaction_story_generate` / `interaction_agent_story_generate` 的同一 generation attempt 可因
+`length/看海` 续写更换 task id；在 envelope 接到 attempt 私有 checkpoint 前暂不建立 task 级信封，
+继续由既有 `AgentRunBudget` 累计，避免续写重置成本账本。
+
 ## 定位
 
 interaction 为 `我是 RP 用户` 路径保存私人互动故事。用户可直接描述世界和开场，也可从

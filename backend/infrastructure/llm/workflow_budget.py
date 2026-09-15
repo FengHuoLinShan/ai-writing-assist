@@ -292,6 +292,17 @@ class AIRunEnvelope:
         self._on_change = on_change
         self._lock = asyncio.Lock()
         self._persist_error: BaseException | None = None
+        self._next_request_index = (
+            max(
+                (attempt.request_index for attempt in self._envelope.recent_attempts),
+                default=self._envelope.requests_started,
+            )
+            + 1
+        )
+        # 仅在存在尚可 discard 的并发预留时保留被挤出窗口的 attempt；
+        # 顺序请求 settle 后立即清空，运行期内存仍随 in-flight 数量有界。
+        self._active_reservations: set[int] = set()
+        self._evicted_attempts: list[AIStepAttemptV1] = []
         self._steps: dict[tuple[str, str, str, str, str], AIStepReceiptV1] = {
             _step_key(step): step for step in self._envelope.steps
         }
@@ -381,7 +392,7 @@ class AIRunEnvelope:
             call_kind=step.call_kind,
             purpose=step.purpose,
             profile_hash=step.profile_hash,
-            request_index=self._envelope.requests_started,
+            request_index=self._next_request_index,
             started_at=started_at,
             monotonic_started=self._monotonic(),
         )
@@ -393,14 +404,17 @@ class AIRunEnvelope:
             request_index=reservation.request_index,
             started_at=started_at,
         )
+        self._next_request_index += 1
+        self._active_reservations.add(reservation.request_index)
         self._append_attempt(attempt)
+        self._trim_evicted_attempts()
         self._refresh_derived()
         try:
             await self._notify()
         except BaseException:
             # checkpoint 写不进去说明账本权威性已失效：回滚本次预留并在
             # provider I/O 之前失败关闭；请求不计入任何计数。
-            self._rollback_reservation(reservation, step, attempt)
+            self._rollback_reservation(reservation, step)
             raise
         return reservation
 
@@ -413,18 +427,7 @@ class AIRunEnvelope:
         """
         self._require_open(reservation)
         step = self._step_for(reservation)
-        step.requests_started -= 1
-        self._envelope.requests_started -= 1
-        attempts = self._envelope.recent_attempts
-        for index, attempt in enumerate(attempts):
-            if (
-                attempt.request_index == reservation.request_index
-                and attempt.outcome is AIRequestOutcome.in_flight
-            ):
-                del attempts[index]
-                break
-        self._drop_step_if_empty(step)
-        reservation.settled = True
+        self._rollback_reservation(reservation, step)
         self._refresh_derived()
         await self._notify_tolerant()
 
@@ -466,6 +469,7 @@ class AIRunEnvelope:
         if error_kind:
             step.error_kind = safe_receipt_token(error_kind, limit=64)
         reservation.settled = True
+        self._active_reservations.discard(reservation.request_index)
         self._resolve_attempt(
             reservation,
             outcome=outcome
@@ -479,6 +483,7 @@ class AIRunEnvelope:
             error_kind=error_kind,
             retryable=retryable,
         )
+        self._trim_evicted_attempts()
         self._refresh_derived()
         await self._notify_tolerant()
 
@@ -613,12 +618,29 @@ class AIRunEnvelope:
             raise AIRunEnvelopeError(
                 "provider request was already settled", run_id=self.run_id
             )
+        if self._envelope.status is not AIRunStatus.running:
+            raise AIRunStateError(
+                f"run is {self._envelope.status.value}; reservation is no longer open",
+                run_id=self.run_id,
+            )
+        attempt = self._attempt_for(reservation.request_index)
+        if attempt is None or attempt.outcome is not AIRequestOutcome.in_flight:
+            raise AIRunEnvelopeError(
+                "provider request is no longer in flight", run_id=self.run_id
+            )
+
+    def _attempt_for(self, request_index: int) -> AIStepAttemptV1 | None:
+        for attempts in (self._evicted_attempts, self._envelope.recent_attempts):
+            for attempt in attempts:
+                if attempt.request_index == request_index:
+                    return attempt
+        return None
 
     def _append_attempt(self, attempt: AIStepAttemptV1) -> None:
         """只保留最近 N 条 attempt 摘要；溢出计入 overflow，总计数不受影响。"""
         attempts = self._envelope.recent_attempts
         if len(attempts) >= AI_RUN_RECENT_ATTEMPT_LIMIT:
-            del attempts[0]
+            self._evicted_attempts.append(attempts.pop(0))
             self._envelope.recent_attempts_overflow += 1
         attempts.append(attempt)
 
@@ -635,7 +657,10 @@ class AIRunEnvelope:
             self._envelope.requests_unknown += in_flight
             converted += in_flight
         if converted:
-            for attempt in self._envelope.recent_attempts:
+            for attempt in [
+                *self._evicted_attempts,
+                *self._envelope.recent_attempts,
+            ]:
                 if attempt.outcome is AIRequestOutcome.in_flight:
                     attempt.outcome = AIRequestOutcome.unknown
         return converted
@@ -650,18 +675,17 @@ class AIRunEnvelope:
         error_kind: str,
         retryable: bool,
     ) -> None:
-        for attempt in self._envelope.recent_attempts:
-            if attempt.request_index != reservation.request_index:
-                continue
-            attempt.outcome = outcome
-            attempt.elapsed_ms = elapsed_ms
-            attempt.retryable = retryable
-            if error_kind:
-                attempt.error_kind = safe_receipt_token(error_kind, limit=64)
-            attempt.charge_state = (
-                AIChargeState.recorded if usage_known else AIChargeState.possible
-            )
+        attempt = self._attempt_for(reservation.request_index)
+        if attempt is None:
             return
+        attempt.outcome = outcome
+        attempt.elapsed_ms = elapsed_ms
+        attempt.retryable = retryable
+        if error_kind:
+            attempt.error_kind = safe_receipt_token(error_kind, limit=64)
+        attempt.charge_state = (
+            AIChargeState.recorded if usage_known else AIChargeState.possible
+        )
 
     def _refresh_derived(self) -> None:
         self._envelope.usage = _sum_usage(step.usage for step in self._envelope.steps)
@@ -713,22 +737,57 @@ class AIRunEnvelope:
         self,
         reservation: AIRunRequestReservation,
         step: AIStepReceiptV1,
-        attempt: AIStepAttemptV1,
     ) -> None:
         """把一次尚未发出 I/O 的预留完整退回：计数、attempt 摘要与空 step。"""
         step.requests_started -= 1
         self._envelope.requests_started -= 1
-        attempts = self._envelope.recent_attempts
-        for index, existing in enumerate(attempts):
-            if (
-                existing.request_index == attempt.request_index
-                and existing.outcome is AIRequestOutcome.in_flight
-            ):
-                del attempts[index]
-                break
+        self._active_reservations.discard(reservation.request_index)
+        self._remove_attempt(reservation.request_index)
         self._drop_step_if_empty(step)
         # 幽灵墓碑：已回滚的预留不得再被 settle 或 discard。
         reservation.settled = True
+        self._trim_evicted_attempts()
+
+    def _remove_attempt(self, request_index: int) -> None:
+        """移除未发出请求，并把窗口外最新的真实 attempt 补回 recent。"""
+        attempts = self._envelope.recent_attempts
+        for index, attempt in enumerate(attempts):
+            if attempt.request_index != request_index:
+                continue
+            del attempts[index]
+            if self._evicted_attempts:
+                attempts.insert(0, self._evicted_attempts.pop())
+                self._envelope.recent_attempts_overflow -= 1
+            return
+        for index, attempt in enumerate(self._evicted_attempts):
+            if attempt.request_index == request_index:
+                del self._evicted_attempts[index]
+                self._envelope.recent_attempts_overflow -= 1
+                return
+
+    def _trim_evicted_attempts(self) -> None:
+        """只保留并发 discard 恢复 recent 窗口所需的运行期尾部。"""
+        if not self._evicted_attempts:
+            return
+        active = self._active_reservations
+        active_recent = sum(
+            attempt.request_index in active
+            for attempt in self._envelope.recent_attempts
+        )
+        settled = [
+            attempt
+            for attempt in self._evicted_attempts
+            if attempt.request_index not in active
+        ]
+        keep_settled = {
+            attempt.request_index for attempt in settled[-active_recent:]
+        }
+        self._evicted_attempts = [
+            attempt
+            for attempt in self._evicted_attempts
+            if attempt.request_index in active
+            or attempt.request_index in keep_settled
+        ]
 
     def _drop_step_if_empty(self, step: AIStepReceiptV1) -> None:
         if (

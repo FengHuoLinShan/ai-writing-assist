@@ -379,7 +379,10 @@ async def test_successful_preflight_leaves_handler_without_transaction(
         return {"ok": True}
 
     registry.register(
-        task_type, handler, root_capability_id="writing.generate"
+        task_type,
+        handler,
+        root_capability_id="writing.generate",
+        run_request_limit=1,
     )
     try:
         async with sessions.begin() as setup_db:

@@ -1,5 +1,8 @@
 # Module: Story outline_state / 大纲与结构
 
+大纲生成、分析、P20 与 Scene fusion handler 在领取时冻结各自 root capability、请求额度和
+可选 deadline；重排/恢复累计同一 run，信封不进入 outline 或 Scene 的公开结果。
+
 > 当前生产 owner 是 `modules.story.outline_state`。旧 `modules.outline` Python import
 > 兼容入口已退场；`/api/outline/*` 继续保持稳定。
 > 表名、任务、CAS、SceneSpan、Workbench、揭示和回滚

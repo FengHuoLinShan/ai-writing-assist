@@ -36,8 +36,8 @@ class TaskDefinition:
     owner_scope: TaskOwnerScope = "project"
     retry_transient_llm_errors: bool = False
     # 领域按 L0 = min(A, H) 冻结的一次 run 请求额度：静态 int，或从任务冻结
-    # 输入（meta/plan）计算 A 的同步 callable。None 表示该任务尚未迁移出
-    # 过渡计量额度，不得据此放行无限请求。
+    # 输入（meta/plan）计算 A 的同步 callable。声明 root capability 的任务
+    # 必须同时提供该字段；未声明 root 的任务保持旧行为且不建立信封。
     run_request_limit: int | Any = None
     # 一次 run 的 deadline（秒）：静态 float，或从冻结输入计算的同步 callable。
     # None 表示无统一 deadline，既有更短 provider/step timeout 继续生效。

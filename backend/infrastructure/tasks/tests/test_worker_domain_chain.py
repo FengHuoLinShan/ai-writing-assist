@@ -17,7 +17,12 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from infrastructure.llm.limits import reset_llm_limiter_for_tests
-from infrastructure.llm.schemas import LLMCallResponse
+from infrastructure.llm.schemas import (
+    AI_RUN_ENVELOPE_KEY,
+    AIRunStatus,
+    LLMCallResponse,
+    read_ai_run_envelope,
+)
 from infrastructure.llm.workflow_budget import current_ai_run_envelope
 from infrastructure.tasks.api import _public_task_meta
 from infrastructure.tasks.enqueuer import enqueue_task
@@ -165,11 +170,17 @@ async def test_interaction_summary_refresh_chain_runs_through_worker_and_client(
             stored = await db.get(AsyncTask, task_id)
             assert stored is not None
             assert (stored.result or {}).get("status") == "completed"
-            # W2.1 后该生产任务类型尚未声明 root capability：不建信封、不留 legacy。
-            assert "_ai_run_envelope" not in (stored.meta or {})
-            assert read_ai_run_envelope(
+            # W3-C 起该任务声明 root=interaction.summary_refresh（L0=8）：
+            # 信封写入私有 meta，公开投影不暴露。
+            envelope = read_ai_run_envelope(
                 (stored.meta or {}).get("_ai_run_envelope")
-            ) is None
+            )
+            assert envelope is not None
+            assert envelope.root_capability_id == "interaction.summary_refresh"
+            assert envelope.requests_started == 1
+            assert envelope.requests_settled == 1
+            assert envelope.status is AIRunStatus.succeeded
+            assert "_ai_run_envelope" not in (stored.result or {})
             assert current_ai_run_envelope() is None
     finally:
         await _cleanup(sessions, [task_id])
@@ -334,9 +345,18 @@ async def test_world_map_schematic_generate_chain_runs_through_worker_and_client
         async with sessions() as db:
             stored = await db.get(AsyncTask, task_id)
             assert stored is not None
-            # 生产任务类型尚未声明 root capability：不建信封，公开 meta 无私有键。
-            assert "_ai_run_envelope" not in (stored.meta or {})
-            assert "_ai_run_envelope" not in _public_task_meta(stored.meta)
+            # W3-B 起该任务声明 root=world.map_structure.generate（L0=60）：
+            # 信封写入私有 meta，公开投影仍剥离。
+            envelope = read_ai_run_envelope(
+                (stored.meta or {}).get(AI_RUN_ENVELOPE_KEY)
+            )
+            assert envelope is not None
+            assert envelope.root_capability_id == "world.map_structure.generate"
+            assert envelope.request_limit == 60
+            assert envelope.requests_started == 1
+            assert envelope.status is AIRunStatus.succeeded
+            assert AI_RUN_ENVELOPE_KEY not in (stored.result or {})
+            assert AI_RUN_ENVELOPE_KEY not in _public_task_meta(stored.meta)
     finally:
         await _cleanup(sessions, [task_id])
 
