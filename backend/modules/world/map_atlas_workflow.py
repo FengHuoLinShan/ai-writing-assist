@@ -15,6 +15,7 @@ from sqlalchemy import func, select, update
 from infrastructure.llm.image_client import ImageGenerationError
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+from infrastructure.llm.workflow_budget import AIRunEnvelopeError
 from infrastructure.tasks.facade import (
     enqueue_task,
     list_task_lifecycle_contracts,
@@ -1862,6 +1863,10 @@ async def _generate_page(db, task, run: MapAtlasRun, page: MapAtlasPage) -> bool
                             quality="high" if run.quality == "fine" else "medium",
                         )
                     break
+                except AIRunEnvelopeError:
+                    # 信封在请求前拒绝（预算/deadline/checkpoint 失效）说明
+                    # provider 请求从未发出，不得伪装成可能已扣费的页失败。
+                    raise
                 except ImageGenerationError as error:
                     if error.retryable and not error.possible_charge and attempt < 2:
                         await asyncio.sleep(2**attempt)
