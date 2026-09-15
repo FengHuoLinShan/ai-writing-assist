@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from core.errors import ConflictError, NotFoundError
+from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.capabilities import capability_from_execution_settings
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from infrastructure.tasks.facade import enqueue_task, require_task_checkpoint_session
@@ -233,7 +234,12 @@ async def handle_continuity_review(db, task):
         ):
             raise ConflictError("近期资料超过当前检查预算")
         await db.commit()
-        output = await client.generate_structured(request, ContinuityReview)
+        output = await run_managed_structured(
+            client,
+            request,
+            ContinuityReview,
+            step_name="interaction.continuity_review.review",
+        )
     finally:
         await client.close()
     current = await _materialize(db, task)

@@ -25,7 +25,10 @@ from infrastructure.llm.native_search import (
     verified_native_search,
 )
 from infrastructure.llm.schemas import LLMMessage
-from infrastructure.llm.workflow_budget import budgeted_tool
+from infrastructure.llm.workflow_budget import (
+    AIRunEnvelopeError,
+    budgeted_tool,
+)
 from infrastructure.tasks.facade import require_task_checkpoint_session
 from modules.evidence.facade import compile_interaction_story_context
 from modules.interaction.generation import (
@@ -33,6 +36,7 @@ from modules.interaction.generation import (
     InteractionGenerationWorkflow,
     estimate_input_tokens,
     story_request,
+    story_stream_step_scope,
 )
 from modules.project.facade import get_any_project_context, require_interaction_project
 
@@ -464,6 +468,9 @@ class InteractionAgentRun:
                 state_checkpoint=self.save_model_state,
                 state=self.state.get("model_history"),
                 future_requests=1,
+                # 活动 run 的 root capability；信封据此把准备 Agent 循环
+                # 归入 interaction.story_generate（非 root 会被拒绝）。
+                capability_id="interaction.story_generate",
             )
             plan = result.output
             if not set(plan.evidence_ids).issubset(self.references):
@@ -506,14 +513,29 @@ class InteractionAgentRun:
         self.budget.reserve(requests=1)
         await self.checkpoint()
         usage = None
+        stream_opened = False
+        request_released = False
+        wrapped = story_stream_step_scope(
+            client,
+            client.generate_stream(base, transport_retries=False),
+        )
         try:
             async with asyncio.timeout(self.budget.remaining_seconds):
-                async for chunk in client.generate_stream(base, transport_retries=False):
+                async for chunk in wrapped:
+                    stream_opened = True
                     if chunk.usage is not None:
                         usage = chunk.usage
                     yield chunk
+        except AIRunEnvelopeError:
+            if not stream_opened:
+                # 流从未打开：信封在 provider I/O 前拒绝建流，回滚兼容账本的
+                # 请求预留，不把这次拒绝当成未知用量的真实请求。
+                request_released = True
+                self.budget.release_pending_request()
+            raise
         finally:
-            self.budget.add_usage(usage)
+            if not request_released:
+                self.budget.add_usage(usage)
             # A cancelled worker no longer owns the lease. The reservation was
             # already saved with pending usage before provider I/O.
             if not asyncio.current_task().cancelling():

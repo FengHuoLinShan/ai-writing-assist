@@ -982,6 +982,9 @@ class AssistantService:
                     checkpoint=checkpoint,
                     state_checkpoint=save_state,
                     state=saved_state.get("model_history"),
+                    # 活动 run 的 root capability；信封据此把主 Agent 循环
+                    # 归入 assistant.turn（非 root 会被拒绝）。
+                    capability_id="assistant.turn",
                 )
                 answer = result.output
             if quality_review and not saved_state.get("quality_review_done"):
@@ -1028,6 +1031,7 @@ class AssistantService:
                         budget=budget,
                         input_limit=profile.hard_input_tokens,
                         checkpoint=checkpoint,
+                        capability_id="assistant.turn",
                     )
                     return review.output.model_dump_json()
 

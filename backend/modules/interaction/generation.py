@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -22,7 +23,11 @@ from infrastructure.llm.errors import (
     LLMRateLimitError,
     LLMTimeoutError,
 )
-from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+from infrastructure.llm.schemas import (
+    LLMCallRequest,
+    LLMMessage,
+    LLMStreamChunk,
+)
 from infrastructure.llm.token_estimation import estimate_token_count
 from infrastructure.tasks.facade import enqueue_task, require_task_checkpoint_session
 from modules.evidence.facade import (
@@ -1990,6 +1995,47 @@ def rp_timeout_seconds(
     return capability_from_execution_settings(
         prepared.executable_settings
     ).interaction_timeout_seconds
+
+
+_STORY_STREAM_STEP_NAME = "interaction.story.stream"
+"""RP 正文流的稳定 step 名；不携带请求序数或动态后缀。"""
+
+
+def story_stream_step_context(client: Any):
+    """正文流受管 step 的身份；provider I/O 据此归属到当前 run 的 root。
+
+    无活动 run 信封时这只是 provenance 元数据；声明 root 的任务里裸
+    ``generate_stream`` 的建流预留必须能看到受管 step 上下文。
+    """
+    from infrastructure.llm.schemas import AIStepCallKind
+    from infrastructure.llm.workflow_budget import AIManagedStepContext
+
+    runtime_scope = getattr(client, "runtime_scope", None)
+    profile_summary = getattr(client, "profile_summary", None)
+    return AIManagedStepContext(
+        step_name=_STORY_STREAM_STEP_NAME,
+        call_kind=AIStepCallKind.stream,
+        profile_source=(
+            str(runtime_scope.get("profile_source") or "")
+            if isinstance(runtime_scope, Mapping)
+            else ""
+        ),
+        profile_summary=(
+            dict(profile_summary) if isinstance(profile_summary, Mapping) else {}
+        ),
+    )
+
+
+def story_stream_step_scope(client: Any, stream: AsyncIterator[LLMStreamChunk]):
+    """在受管 step 作用域内消费裸正文流；无信封时透传，不重放已开始的流。"""
+    from infrastructure.llm.workflow_budget import managed_step_scope
+
+    async def _consume():
+        with managed_step_scope(story_stream_step_context(client)):
+            async for chunk in stream:
+                yield chunk
+
+    return _consume()
 
 
 def _bounded_rp_request(prepared, request: LLMCallRequest) -> LLMCallRequest:
