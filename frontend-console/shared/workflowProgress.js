@@ -580,4 +580,51 @@ export function pollTaskProgress({
   return { stop }
 }
 
+function createAbortError() {
+  if (typeof DOMException === "function") return new DOMException("Aborted", "AbortError")
+  const error = new Error("Aborted")
+  error.name = "AbortError"
+  return error
+}
+
+export function waitForTaskTerminal({ signal, onUpdate, ...options } = {}) {
+  return new Promise((resolve, reject) => {
+    let poller = null
+    let settled = false
+    const cleanup = () => signal?.removeEventListener?.("abort", abort)
+    const finish = (callback) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      callback()
+    }
+    const abort = () => {
+      poller?.stop()
+      finish(() => reject(createAbortError()))
+    }
+
+    if (signal?.aborted) return abort()
+    try {
+      poller = pollTaskProgress({
+        ...options,
+        onUpdate: (...args) => {
+          if (settled) return
+          try {
+            onUpdate?.(...args)
+          } catch (error) {
+            poller?.stop()
+            finish(() => reject(error))
+          }
+        },
+        onDone: (progress, task) => finish(() => resolve({ progress, task })),
+        onFailed: (progress, task) => finish(() => resolve({ progress, task })),
+      })
+      signal?.addEventListener?.("abort", abort, { once: true })
+      if (signal?.aborted) abort()
+    } catch (error) {
+      finish(() => reject(error))
+    }
+  })
+}
+
 export const workflowProgressStorageKey = ACTIVE_WORKFLOWS_KEY

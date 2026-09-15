@@ -21,7 +21,7 @@ import { buildVersionDiff } from "./versionDiff.js"
 import { isVersionActive } from "./versionState.js"
 import { applyToolsResult } from "../../../shared/writingToolsResult.js"
 import { importAuthorizationPayload } from "../../../shared/importAuthorization.js"
-import { sanitizeTaskErrorMessage } from "../../../shared/workflowProgress.js"
+import { pollTaskProgress, sanitizeTaskErrorMessage } from "../../../shared/workflowProgress.js"
 import { confirmAsync } from "../../../shared/confirmAsync.js"
 import { createEditorController, substantiveWritingText } from "./controllers/editorController.js"
 import { createWritingCommandController } from "./controllers/writingCommandController.js"
@@ -226,7 +226,7 @@ export function useWritingWorkspace(props) {
   let sceneLensGeneration = 0
   let publishGeneration = 0
   let versionDiffGeneration = 0
-  let publishTimer = null
+  let publishPoller = null
   let lastPublishPayload = null
   let lastChapterSelection = null
 
@@ -985,8 +985,8 @@ export function useWritingWorkspace(props) {
     if (!canEdit.value || !editorState.content.trim() || publishProgress.active) return
     const generation = ++publishGeneration
     lastPublishPayload = { ...payload }
-    if (publishTimer) clearTimeout(publishTimer)
-    publishTimer = null
+    publishPoller?.stop()
+    publishPoller = null
     publishProgress.active = true
     publishProgress.retryable = false
     publishProgress.taskId = null
@@ -1036,8 +1036,8 @@ export function useWritingWorkspace(props) {
   }
 
   function dismissPublishError() {
-    if (publishTimer) clearTimeout(publishTimer)
-    publishTimer = null
+    publishPoller?.stop()
+    publishPoller = null
     publishGeneration += 1
     Object.assign(publishProgress, { active: false, taskId: null, phase: null, progress: null, message: "", retryable: false })
   }
@@ -1052,37 +1052,57 @@ export function useWritingWorkspace(props) {
   }
 
   function schedulePublishPoll(generation, taskId) {
-    if (publishTimer) clearTimeout(publishTimer)
-    publishTimer = setTimeout(async () => {
-      if (generation !== publishGeneration || disposed.value || getAppState()?.currentProjectId !== projectId) return
-      try {
-        const task = await api.tasks.get(taskId, projectId)
-        if (
-          generation !== publishGeneration
-          || disposed.value
-          || getAppState()?.currentProjectId !== projectId
-        ) return
-        publishProgress.progress = task.progress == null ? null : Math.round(Number(task.progress) * (Number(task.progress) <= 1 ? 100 : 1))
-        publishProgress.phase = task.status
-        if (["done", "failed", "cancelled"].includes(task.status)) {
-          publishProgress.active = false
-          publishProgress.message = task.status === "done"
-            ? "正式正文已就绪"
-            : (sanitizeTaskErrorMessage(task.error_message || task.result?.error_message || task.result?.error, "publish_chapter") || `任务${task.status}`)
-          publishProgress.retryable = task.status !== "done"
-          publishProgress.taskId = null
+    publishPoller?.stop()
+    publishPoller = pollTaskProgress({
+      taskId,
+      workflowType: "publish_chapter",
+      novelId: projectId,
+      receiptStorage: null,
+      intervalMs: 2000,
+      apiClient: api,
+      onUpdate: (progress, task) => {
+        if (generation !== publishGeneration || disposed.value || getAppState()?.currentProjectId !== projectId) {
+          publishPoller?.stop()
           return
         }
-      } catch {
+        if (!task) {
+          publishProgress.active = true
+          publishProgress.taskId = taskId
+          publishProgress.phase = "running"
+          publishProgress.retryable = false
+          publishProgress.message = "状态暂不可用，正在重试"
+          return
+        }
+        publishProgress.active = !progress.terminal
+        publishProgress.taskId = taskId
+        publishProgress.progress = progress.percent
+        publishProgress.phase = task.status
+        if (!progress.terminal) {
+          publishProgress.retryable = false
+          publishProgress.message = "正在整理相关资料..."
+        }
+      },
+      onDone: () => {
+        if (generation !== publishGeneration || disposed.value || getAppState()?.currentProjectId !== projectId) return
         publishProgress.active = false
-        publishProgress.phase = "failed"
+        publishProgress.phase = "done"
+        publishProgress.progress = 100
+        publishProgress.message = "正式正文已就绪"
+        publishProgress.retryable = false
+        publishProgress.taskId = null
+      },
+      onFailed: (progress, task) => {
+        if (generation !== publishGeneration || disposed.value || getAppState()?.currentProjectId !== projectId) return
+        publishProgress.active = false
+        publishProgress.phase = progress.cancelled ? "cancelled" : "failed"
+        publishProgress.progress = progress.percent
+        publishProgress.message = task
+          ? (sanitizeTaskErrorMessage(task.error_message || task.result?.error_message || task.result?.error, "publish_chapter") || (progress.cancelled ? "任务已取消" : "任务失败"))
+          : progress.errorMessage || "未找到原任务，请重新开始。"
         publishProgress.retryable = true
         publishProgress.taskId = null
-        publishProgress.message = "正式正文的后续状态暂时无法读取。工作稿已保留，可手动重试。"
-        return
-      }
-      schedulePublishPoll(generation, taskId)
-    }, 2000)
+      },
+    })
   }
 
   function requestConflictCheck() {
@@ -1591,8 +1611,8 @@ export function useWritingWorkspace(props) {
     sceneLensGeneration += 1
     publishGeneration += 1
     versionDiffGeneration += 1
-    if (publishTimer) clearTimeout(publishTimer)
-    publishTimer = null
+    publishPoller?.stop()
+    publishPoller = null
     if (inputDerivedFrame != null) cancelAnimationFrame(inputDerivedFrame)
     inputDerivedFrame = null
     editor.dispose()

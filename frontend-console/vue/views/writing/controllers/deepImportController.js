@@ -1,6 +1,6 @@
 import {
   clearActiveWorkflow,
-  pollRetryDelay,
+  pollTaskProgress,
   persistActiveWorkflow,
   recoverActiveWorkflows,
   TASK_CANCELLED_MESSAGE,
@@ -38,8 +38,7 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
   let taskId = null
   let projectId = null
   let progress = null
-  let timer = null
-  let pollFailures = 0
+  let poller = null
   let generation = 0
   let disposed = false
   // dispose 是终态：组件卸载后不得再被晚到的 startTask/recover 复活，
@@ -49,9 +48,8 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
   function emit() { onChange({ taskId, projectId, progress: progress ? { ...progress } : null }) }
   function stop() {
     generation += 1
-    if (timer) clearTimeout(timer)
-    timer = null
-    pollFailures = 0
+    poller?.stop()
+    poller = null
   }
 
   function operationSnapshot() {
@@ -59,6 +57,7 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
       taskId,
       projectId,
       generation,
+      workflowType: progress?.workflowType || null,
     }
   }
 
@@ -123,54 +122,40 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
     }
   }
 
-  function schedule(token, delayMs = POLL_INTERVAL_MS) {
-    timer = setTimeout(() => poll(token), delayMs)
-  }
-
-  async function poll(token = generation) {
-    if (disposed || token !== generation || !taskId || getProjectId() !== projectId) return
-    const requestedTaskId = taskId
-    const requestedProjectId = projectId
-    let nextDelay = POLL_INTERVAL_MS
-    try {
-      const task = await api.tasks.get(requestedTaskId, requestedProjectId)
-      if (
-        disposed
-        || token !== generation
-        || taskId !== requestedTaskId
-        || projectId !== requestedProjectId
-        || getProjectId() !== requestedProjectId
-      ) return
-      pollFailures = 0
-      progress = fromTask(task, { label: progress?.label, workflowType: progress?.workflowType })
-      emit()
-      if (["done", "failed", "cancelled"].includes(task.status)) {
-        if (task.status === "done") {
-          await onDone?.()
+  function startPolling(snapshot) {
+    poller?.stop()
+    poller = pollTaskProgress({
+      taskId: snapshot.taskId,
+      workflowType: snapshot.workflowType,
+      novelId: snapshot.projectId,
+      receiptStorage: globalThis.localStorage,
+      intervalMs: POLL_INTERVAL_MS,
+      apiClient: api,
+      onUpdate: (_sharedProgress, task) => {
+        if (!operationIsCurrent(snapshot)) {
+          poller?.stop()
+          return
         }
-        return
-      }
-    } catch (err) {
-      if (
-        disposed
-        || token !== generation
-        || taskId !== requestedTaskId
-        || projectId !== requestedProjectId
-        || getProjectId() !== requestedProjectId
-      ) return
-      if (err?.status === 404) {
-        clearActiveWorkflow(requestedTaskId)
-        taskId = null
-        progress = null
+        progress = task
+          ? fromTask(task, { label: progress?.label, workflowType: progress?.workflowType })
+          : { ...(progress || {}), status: "unknown", message: "任务状态暂不可用，正在重试..." }
         emit()
-        return
-      }
-      pollFailures += 1
-      nextDelay = pollRetryDelay(pollFailures)
-      progress = { ...(progress || {}), message: "任务状态暂不可用，正在重试..." }
-      emit()
-    }
-    schedule(token, nextDelay)
+      },
+      onDone: async () => {
+        if (!operationIsCurrent(snapshot)) return
+        await onDone?.()
+      },
+      onFailed: (_sharedProgress, task) => {
+        if (!operationIsCurrent(snapshot)) return
+        if (!task) {
+          clearActiveWorkflow(snapshot.taskId, globalThis.localStorage)
+          taskId = null
+          progress = null
+          emit()
+          return
+        }
+      },
+    })
   }
 
   function startTask(info = {}) {
@@ -204,7 +189,7 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
       meta: { stage: info.stage, startChapter: info.startChapter, endChapter: info.endChapter },
     })
     emit()
-    poll(generation)
+    startPolling(operationSnapshot())
   }
 
   async function recover(requestedTaskId = null) {
@@ -222,9 +207,17 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
         taskId = requestedTaskId
         progress = fromTask(task)
         emit()
-        if (!["done", "failed", "cancelled"].includes(task.status)) schedule(token)
+        if (!["done", "failed", "cancelled"].includes(task.status)) startPolling(operationSnapshot())
       } catch (error) {
-        if (!finalized && token === generation && getProjectId() === requestedProject) toast(error.message || "整理回执暂时无法读取。", "error")
+        if (finalized || token !== generation || getProjectId() !== requestedProject) return
+        if (error?.status === 404) {
+          clearActiveWorkflow(requestedTaskId, globalThis.localStorage)
+          taskId = null
+          progress = null
+          emit()
+          return
+        }
+        toast(error.message || "整理回执暂时无法读取。", "error")
       }
       return
     }
@@ -237,7 +230,7 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
     taskId = workflow.taskId
     progress = { phase: "running", status: "running", workflowType: workflow.workflowType, label: workflow.label || "自动提取", message: "正在恢复任务...", percent: null }
     emit()
-    await poll(generation)
+    startPolling(operationSnapshot())
   }
 
   async function cancel() {
@@ -260,13 +253,15 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
   async function resume() {
     if (!taskId) return false
     const snapshot = operationSnapshot()
+    poller?.stop()
+    poller = null
     try {
       const result = await api.imports.resumeDeepImport(snapshot.taskId)
       if (!operationIsCurrent(snapshot)) return true
       taskId = result?.task_id || snapshot.taskId
       progress = { ...(progress || {}), phase: "running", status: "running", message: "任务已继续" }
       emit()
-      poll(generation)
+      startPolling(operationSnapshot())
       return true
     } catch (err) {
       if (!operationIsCurrent(snapshot)) return true

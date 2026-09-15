@@ -37,6 +37,7 @@ function makeController(overrides = {}) {
     getProjectId: () => project.value,
     getCheck: () => state.check,
     onCheck,
+    onProgress: overrides.onProgress,
   })
   return { controller, api, toast, state, project, onCheck }
 }
@@ -164,6 +165,23 @@ describe("conflictController", () => {
     expect(api.writing.getConflictCheck).toHaveBeenCalledWith("check-1", "p1")
     expect(state.check).toEqual(completed)
     expect(toast).not.toHaveBeenCalled()
+    controller.dispose()
+  })
+
+  it("轮询任务不存在时清理回执而不再次提交", async () => {
+    const onProgress = vi.fn()
+    const { controller, api } = makeController({
+      onProgress,
+      tasks: { get: vi.fn().mockRejectedValue(Object.assign(new Error("missing"), { status: 404 })) },
+    })
+    await controller.runAiReview()
+
+    expect(api.writing.enqueueConflictAiReview).toHaveBeenCalledOnce()
+    expect(api.tasks.get).toHaveBeenCalledOnce()
+    expect(JSON.parse(sessionStorage.getItem("novel_active_workflows_v1") || "[]")).toEqual([])
+    expect(onProgress).toHaveBeenLastCalledWith(expect.objectContaining({
+      progress: expect.objectContaining({ terminal: true, stateUnknown: true }),
+    }))
     controller.dispose()
   })
 

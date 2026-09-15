@@ -270,6 +270,57 @@ test.describe("写作台模块", () => {
     await expect(page.locator("#writing-save-status")).toHaveText("已保存 · 与正式正文一致")
   })
 
+  test("发布后的任务状态暂不可读时继续跟踪且不重复提交", async ({ page }) => {
+    let taskPolls = 0
+    let publishRequests = 0
+    page.on("request", (request) => {
+      const url = new URL(request.url())
+      if (request.method() === "POST" && url.pathname === "/api/writing/drafts") publishRequests += 1
+    })
+    await page.route("**/api/tasks/**", async (route) => {
+      if (route.request().method() !== "GET") return route.fallback()
+      taskPolls += 1
+      if (taskPolls === 1) {
+        await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ detail: "temporary status failure" }) })
+        return
+      }
+      const taskId = new URL(route.request().url()).pathname.split("/").at(-1)
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          task_id: taskId,
+          task_type: "publish_chapter",
+          status: "done",
+          progress: 1,
+          meta: { novel_id: testProjectId, chapter_index: 1 },
+          result: {},
+          error_message: null,
+          created_at: null,
+          started_at: null,
+          finished_at: null,
+          heartbeat_at: null,
+          attempt: 1,
+          max_attempts: 1,
+          stale: false,
+          lifecycle: {},
+          available_actions: ["dismiss"],
+        }),
+      })
+    })
+
+    await createFirstChapter(page)
+    await page.locator("#writing-editor").fill("状态恢复后仍只发布一次。")
+    await clickWritingTool(page, "#btn-publish")
+    await confirmPublishIfPrompted(page)
+
+    const feedback = page.locator("#writing-publish-bar-container")
+    await expect(feedback).toContainText("状态暂不可用，正在重试", { timeout: 5000 })
+    await expect(feedback).toContainText("正式正文已就绪", { timeout: 8000 })
+    expect(taskPolls).toBe(2)
+    expect(publishRequests).toBe(1)
+  })
+
   // ============================================================
   // Scene 切换不丢失内容
   // ============================================================

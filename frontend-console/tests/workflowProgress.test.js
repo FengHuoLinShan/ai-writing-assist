@@ -6,6 +6,7 @@ import {
   pollTaskProgress,
   recoverActiveWorkflows,
   sanitizeTaskErrorMessage,
+  waitForTaskTerminal,
 } from "../shared/workflowProgress.js"
 
 beforeEach(() => {
@@ -503,6 +504,104 @@ describe("pollTaskProgress", () => {
       stateUnknown: true,
       errorMessage: "未找到原任务，请重新开始。",
     })
+    expect(apiClient.tasks.get).toHaveBeenCalledOnce()
+  })
+})
+
+describe("waitForTaskTerminal", () => {
+  it.each([
+    ["done", { task_id: "done-task", status: "done", result: { value: 1 } }],
+    ["failed", { task_id: "failed-task", status: "failed", error_message: "失败" }],
+    ["cancelled", { task_id: "cancelled-task", status: "cancelled" }],
+  ])("resolves %s with normalized progress and raw task", async (_label, task) => {
+    const apiClient = { tasks: { get: vi.fn().mockResolvedValue(task) } }
+
+    const result = await waitForTaskTerminal({
+      taskId: task.task_id,
+      workflowType: "writing_generate",
+      novelId: "p1",
+      apiClient,
+    })
+
+    expect(result).toMatchObject({ task })
+    expect(result.progress).toMatchObject({ status: task.status, terminal: true })
+    expect(apiClient.tasks.get).toHaveBeenCalledWith(task.task_id, "p1")
+  })
+
+  it("resolves a missing task as terminal and clears its receipt", async () => {
+    const apiClient = {
+      tasks: { get: vi.fn().mockRejectedValue(Object.assign(new Error("missing"), { status: 404 })) },
+    }
+    persistActiveWorkflow({ taskId: "missing-task", workflowType: "writing_generate", projectId: "p1" })
+
+    const result = await waitForTaskTerminal({
+      taskId: "missing-task",
+      workflowType: "writing_generate",
+      novelId: "p1",
+      apiClient,
+    })
+
+    expect(result.task).toBeNull()
+    expect(result.progress).toMatchObject({ terminal: true, stateUnknown: true, errorMessage: "未找到原任务，请重新开始。" })
+    expect(recoverActiveWorkflows("p1")).toEqual([])
+  })
+
+  it("keeps retrying after a transient error and resolves the later terminal task", async () => {
+    vi.useFakeTimers()
+    const apiClient = {
+      tasks: {
+        get: vi.fn()
+          .mockRejectedValueOnce(new Error("network down"))
+          .mockResolvedValueOnce({ task_id: "retry-task", status: "done", result: {} }),
+      },
+    }
+    const waiting = waitForTaskTerminal({ taskId: "retry-task", intervalMs: 10, apiClient })
+    await Promise.resolve()
+    await vi.advanceTimersByTimeAsync(2999)
+    expect(apiClient.tasks.get).toHaveBeenCalledOnce()
+    await vi.advanceTimersByTimeAsync(1)
+
+    await expect(waiting).resolves.toMatchObject({ task: { status: "done" } })
+    expect(apiClient.tasks.get).toHaveBeenCalledTimes(2)
+    vi.useRealTimers()
+  })
+
+  it("aborts and ignores a late response without invoking updates", async () => {
+    let resolveTask
+    const onUpdate = vi.fn()
+    const controller = new AbortController()
+    const apiClient = { tasks: { get: vi.fn(() => new Promise((resolve) => { resolveTask = resolve })) } }
+    const waiting = waitForTaskTerminal({
+      taskId: "late-task",
+      apiClient,
+      signal: controller.signal,
+      onUpdate,
+    })
+    await vi.waitFor(() => expect(apiClient.tasks.get).toHaveBeenCalledOnce())
+
+    controller.abort()
+    await expect(waiting).rejects.toMatchObject({ name: "AbortError" })
+    resolveTask({ task_id: "late-task", status: "done", result: {} })
+    await Promise.resolve()
+    expect(onUpdate).not.toHaveBeenCalled()
+  })
+
+  it("stops and rejects when the consumer update callback throws", async () => {
+    vi.useFakeTimers()
+    const apiClient = {
+      tasks: {
+        get: vi.fn().mockResolvedValue({ task_id: "callback-task", status: "running" }),
+      },
+    }
+    const waiting = waitForTaskTerminal({
+      taskId: "callback-task",
+      intervalMs: 10,
+      apiClient,
+      onUpdate: () => { throw new Error("render failed") },
+    })
+
+    await expect(waiting).rejects.toThrow("render failed")
+    await vi.advanceTimersByTimeAsync(100)
     expect(apiClient.tasks.get).toHaveBeenCalledOnce()
   })
 })
