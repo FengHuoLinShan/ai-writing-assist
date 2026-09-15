@@ -13,6 +13,44 @@ logger = logging.getLogger(__name__)
 _MAX_RETRIES = 3
 _LEGACY_UNOWNED_AI_REVIEW_KEY = "_legacy_unowned_ai_review"
 
+# writing.generate 的导演分片大小（evidence knowledge workflow 冻结常量）。
+_WRITING_GENERATE_DIRECTOR_SHARD_SIZE = 64
+#: 入队 meta 未冻结 knowledge_scope_receipt 时的保守 included 来源上界。
+#: 编译预算上限 32000 token（ContextSelectionRequest.budget_tokens le）下每个
+#: 来源至少占用约 2 token 的渲染行，16384 是该物理上界附近的保守值；精确 A
+#: 需要入队侧把 receipt 冻结进 meta（已列入共享层跟进）。
+_WRITING_GENERATE_FALLBACK_INCLUDED_SOURCES = 16_384
+
+
+def _writing_generate_run_request_limit(task) -> int:
+    """按冻结知识回执计算 A = 6⌈K/64⌉+8（W0-B 第三轮公式，R=1、task ×2 已含）。
+
+    K = knowledge_scope_receipt.included 的来源数；只在任务冻结输入
+    （task.meta）里读取，不做任何 DB/I/O。当前入队路径尚未把 receipt 冻结进
+    meta，此时回退到保守上界（见 _WRITING_GENERATE_FALLBACK_INCLUDED_SOURCES）。
+    """
+    meta = getattr(task, "meta", None) or {}
+    receipt = meta.get("knowledge_scope_receipt")
+    included = receipt.get("included") if isinstance(receipt, dict) else None
+    if isinstance(included, list) and included:
+        included_sources = len(included)
+    else:
+        included_sources = _WRITING_GENERATE_FALLBACK_INCLUDED_SOURCES
+    shards = -(-included_sources // _WRITING_GENERATE_DIRECTOR_SHARD_SIZE)
+    return 6 * shards + 8
+
+
+def _writing_generation_run_deadline(_task) -> float:
+    from modules.writing.services import WRITING_GENERATION_TIMEOUT_SECONDS
+
+    return float(WRITING_GENERATION_TIMEOUT_SECONDS)
+
+
+def _semantic_review_run_deadline(_task) -> float:
+    from modules.writing.semantic_review import SEMANTIC_REVIEW_TIMEOUT_SECONDS
+
+    return float(SEMANTIC_REVIEW_TIMEOUT_SECONDS)
+
 
 async def _require_llm_execution_snapshot(
     db,
@@ -165,6 +203,9 @@ async def handle_publish_chapter(db, task):
     recovery_policy="auto_requeue",
     max_attempts=2,
     retry_transient_llm_errors=True,
+    root_capability_id="writing.generate",
+    run_request_limit=_writing_generate_run_request_limit,
+    run_deadline_seconds=_writing_generation_run_deadline,
 )
 async def handle_writing_generate(db, task):
     """处理 AI 正文建议生成任务。"""
@@ -216,6 +257,9 @@ async def handle_writing_generate(db, task):
     recovery_policy="auto_requeue",
     max_attempts=2,
     retry_transient_llm_errors=True,
+    root_capability_id="writing.semantic_review",
+    run_request_limit=144,
+    run_deadline_seconds=_semantic_review_run_deadline,
 )
 async def handle_writing_semantic_review(db, task):
     """用与生成器分离的 managed run 运行正文语义审查。"""
@@ -260,6 +304,9 @@ async def handle_writing_semantic_review(db, task):
     recovery_policy="auto_requeue",
     max_attempts=2,
     retry_transient_llm_errors=True,
+    root_capability_id="writing.targeted_revision",
+    run_request_limit=4,
+    run_deadline_seconds=_semantic_review_run_deadline,
 )
 async def handle_writing_targeted_revision(db, task):
     """按冻结 finding 生成新候选，不覆盖原稿。"""
@@ -302,6 +349,8 @@ async def handle_writing_targeted_revision(db, task):
     recovery_policy="auto_requeue",
     max_attempts=2,
     retry_transient_llm_errors=True,
+    root_capability_id="writing.conflict_check.ai_review",
+    run_request_limit=6,
 )
 async def handle_writing_conflict_ai_review(db, task):
     """处理写作冲突检查的 AI 软复核任务。"""
@@ -361,6 +410,8 @@ async def handle_writing_conflict_ai_review(db, task):
     recovery_policy="auto_requeue",
     max_attempts=2,
     retry_transient_llm_errors=True,
+    root_capability_id="writing.conflict_check.ai_suggestion",
+    run_request_limit=6,
 )
 async def handle_writing_conflict_item_ai_suggestion(db, task):
     from modules.writing.schemas import WritingConflictAiSuggestionRequest
