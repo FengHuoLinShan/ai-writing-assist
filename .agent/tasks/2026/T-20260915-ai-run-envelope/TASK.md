@@ -3,7 +3,7 @@ id: T-20260915-ai-run-envelope
 title: 统一 AI 运行信封
 status: active
 created: 2026-09-15T10:42:18+08:00
-updated: 2026-09-15T18:10:00+08:00
+updated: 2026-09-15T18:20:00+08:00
 parent: .agent/tasks/agent-integration.md
 ---
 
@@ -22,7 +22,8 @@ parent: .agent/tasks/agent-integration.md
   persistence 接到 `InteractionGenerationAttempt.id` 后再启用。配置专用 PostgreSQL 后补 E2E。
 - 阻塞：上述路径需要产品裁决或领域持久化接线；真实 provider 验收另需费用与凭据授权。
 - 工作区：实现 worktree `.worktrees/ai-run-envelope`，主题分支 `codex/ai-run-envelope`；未 push、
-  未合并、未部署。W2/W3 子 worktree 已不存在；集成分支待本轮提交后按 ancestry 清理。
+  未合并、未部署。W2/W3 子 worktree 已不存在；六个已合入分支按 ancestry 删除，W2-Text 原分支
+  与集成提交 tree 完全相同后删除；计划分支已删除，根 worktree 回到 `main`。
 - 最后核实：2026-09-15（定向 517 passed / 2 deselected；prompt-contracts 24、docs-check
   BASE_REF=origin/main、lint、diff-check 通过；完整回归 5727 passed / 13 skipped / 85.95%）。
 
@@ -593,5 +594,5 @@ reserve checkpoint 被拒时 provider 为 0 且旧 attempt 终止；退避跨 de
   push、PR、合并到 main 与部署。
 - 交付边界：改动只存在于 worktree `.worktrees/ai-run-envelope` 的主题分支
   `codex/ai-run-envelope`；未 push、未合并、未部署；`origin/main` 未受影响。归档/演示 worktree
-  与用户 WIP 不在清理范围。
+  与用户 WIP 不在清理范围。W2/W3 临时分支和已不存在的子 worktree 已清理，主实现 worktree 保留。
 - 正式知识已同步 ADR-0023/ADR-0025、LLM/tasks README 和受影响模块文档；本 TASK 保持唯一进度源。
