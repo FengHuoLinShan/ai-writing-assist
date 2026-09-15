@@ -186,6 +186,16 @@ class ScenePhaseRunner:
             status="completed",
             details=phase0_result.quality_stats,
         )
+        from modules.imports.admission import build_scene_phase_manifest
+
+        # Phase 0 is the last deterministic point before Scene-slicing I/O.
+        # Persist the known window scope, but do not invent a finite A: the
+        # model decides how many Scenes each window yields.
+        progress.phase_artifacts["run_admission"] = {
+            "phase0_scene_slicing": build_scene_phase_manifest(
+                window_count=len(phase0_result.windows),
+            )
+        }
 
         # Phase 1a: text-backed Scene slicing.
         progress.current_step = DeepImportStep.scene_segmentation

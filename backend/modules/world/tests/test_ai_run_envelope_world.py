@@ -382,6 +382,28 @@ def test_world_entity_fusion_limit_scales_with_frozen_suggestions() -> None:
     )
 
 
+def test_world_cocreation_uses_one_parent_with_mode_specific_bounded_limits() -> None:
+    registry = get_registry()
+    assert registry.get_root_capability("world_cocreation_turn") == (
+        "world.generation.cocreation"
+    )
+    assert _registry_limit(
+        "world_cocreation_turn",
+        SimpleNamespace(meta={"mode": "chat", "quality_mode": "fast"}),
+    ) == 10
+    assert _registry_limit(
+        "world_cocreation_turn",
+        SimpleNamespace(meta={"mode": "chat", "quality_mode": "pro"}),
+    ) == 14
+    assert _registry_limit(
+        "world_cocreation_turn",
+        SimpleNamespace(meta={"mode": "design"}),
+    ) == 24
+    assert _registry_deadline(
+        "world_cocreation_turn", SimpleNamespace(meta={})
+    ) is None
+
+
 def test_world_alias_relation_task_remains_paused_until_scope_is_frozen() -> None:
     """章节范围的 Scene 数量运行期才知，未冻结前不建立运行信封。"""
     registry = get_registry()

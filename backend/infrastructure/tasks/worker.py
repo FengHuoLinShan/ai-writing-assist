@@ -316,9 +316,15 @@ class TaskRunEnvelopeKeeper:
                     "an AI run envelope",
                     run_id=str(self._task.id),
                 )
+            resolved_run_id = (
+                self._registry.resolve_run_id(self._task.task_type, self._task)
+                if self._registry is not None
+                else None
+            )
+            stable_run_id = resolved_run_id or str(self._task.id)
             payload = new_ai_run_envelope(
-                operation_id=str(self._task.id),
-                run_id=str(self._task.id),
+                operation_id=stable_run_id,
+                run_id=stable_run_id,
                 root_capability_id=declared,
                 novel_id=self._novel_id(),
                 # 领域按 L0 = min(A, H) 冻结真实额度；已声明任务不得使用
@@ -333,7 +339,10 @@ class TaskRunEnvelopeKeeper:
                 # 旧在途 = 已领取过（attempt > 1）却没有任何信封：历史 provider
                 # 用量不可考，只能标记 legacy 且 usage_complete=false，不回填猜测
                 # 计数。首次领取的任务没有历史请求，从本 attempt 开始完整跟踪。
-                legacy_untracked=int(self._task.attempt or 0) > 1,
+                legacy_untracked=(
+                    int(self._task.attempt or 0) > 1
+                    or stable_run_id != str(self._task.id)
+                ),
             ).snapshot()
         else:
             if declared and payload.root_capability_id != declared:
@@ -419,6 +428,12 @@ class TaskRunEnvelopeKeeper:
                 envelope=payload,
             )
             if accepted:
+                if self._registry is not None:
+                    mirror = self._registry.get_run_envelope_checkpoint(
+                        self._task.task_type
+                    )
+                    if mirror is not None:
+                        await mirror(session, self._task, payload)
                 await session.commit()
             else:
                 await session.rollback()
@@ -1065,6 +1080,10 @@ class TaskWorker:
             meta = dict(task.meta or {})
             meta[AI_RUN_ENVELOPE_KEY] = envelope
             task.meta = meta
+        if envelope is not None and self._registry is not None:
+            mirror = self._registry.get_run_envelope_checkpoint(task.task_type)
+            if mirror is not None:
+                await mirror(session, task, envelope)
         if not await self._lifecycle.checkpoint_running_attempt(
             session,
             task=task,

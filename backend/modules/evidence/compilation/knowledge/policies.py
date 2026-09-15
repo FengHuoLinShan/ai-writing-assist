@@ -238,6 +238,26 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             outputs=(OUTPUT_PROPOSAL,),
         ),
         _policy(
+            "world.generation.cocreation",
+            DOMAIN_WORLD,
+            "世界共创回合（聊天/推演）",
+            subjects=("author",),
+            dimensions=(
+                "world_entities",
+                "world_rules",
+                "world_bible",
+                "timeline",
+                "plot_threads",
+            ),
+            confirmation=CONFIRMATION_REQUIRED,
+            outputs=(OUTPUT_ANSWER, OUTPUT_PROPOSAL),
+            gate=ADOPTION_DISPLAY_ONLY,
+            notes=(
+                "同一 world_cocreation_turn 的 canonical parent；chat/design 仍按各自"
+                "子步骤使用对应知识审查策略。"
+            ),
+        ),
+        _policy(
             "world.generation.convergence",
             DOMAIN_WORLD,
             "设定收束",

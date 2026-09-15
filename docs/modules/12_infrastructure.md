@@ -141,6 +141,12 @@ Task 路径把同一信封落在 `async_tasks.meta` 的私有键 `_ai_run_envelo
 终态由 `finalize(envelope=...)` 与任务终态在同一事务提交，stale 与 cancel 在同一事务内把未 settle
 的请求收敛为 unknown/possible。普通 task API、领域 result 消费者（含 Story Outline 采用路径）看不到该键；
 缺少信封的旧在途任务记 `legacy_untracked/usage_complete=false`。
+Interaction story task 额外通过注册表的窄 mirror callback，把同一快照写入
+`InteractionGenerationAttempt.agent_checkpoint_json`；`length/看海` 新 task 仍沿用 attempt.id 的
+`run_id`，不得按新 task id 开第二本账。
+跨 task 领域通过 registry `run_id` resolver 冻结该身份；旧在途缺信封时标记
+`legacy_untracked/usage_complete=false`。mirror 使用 `SKIP LOCKED` 避免与 Interaction
+stop/archive 的 attempt→task 锁序互等；运行中跳过会在 provider 前失败关闭，终态由持 attempt 锁的领域事务收口。
 
 ### 配置与健康检查
 
@@ -542,6 +548,11 @@ handler 普通失败时保留领域经 fenced checkpoint 写入的双恢复标�
 任务生命周期保留原恢复默认；Imports 对已核验 deferred 阶段可显式请求 completed task 再入队，仍受类型、项目和领域锁约束。详见 tasks README。
 ### 共创回合恢复
 
-`world_cocreation_turn` 使用 `auto_requeue`、至多两个 attempt 与现有 transport retry scope。World 持有业务判断，任务基础设施只提供 operation fingerprint、lease commit fence 和精确 `novel_id + task_type + session_id` 的最后操作查询；该类型禁止 generic submit。终态回合与可恢复结果原子保存，进度不等于采用内容；没有新任务表或调度器。
+`world_cocreation_turn` 使用 `auto_requeue`、至多两个 attempt 与现有 transport retry scope，并以
+`world.generation.cocreation` 作为 chat/design 共用的 canonical parent；子步骤仍由 World 按模式
+选择 `world.generation.chat` 或 `world.generation.design_iteration` 的知识策略。World 持有业务判断，
+任务基础设施只提供 operation fingerprint、lease commit fence 和精确 `novel_id + task_type + session_id`
+的最后操作查询；该类型禁止 generic submit。终态回合与可恢复结果原子保存，进度不等于采用内容；
+没有新任务表或调度器。
 
 知识治理复用现有 managed harness、project snapshot client、task lease 与 context snapshot，不新增常驻服务或自治 Agent runtime。阶段投影不改变调度器状态机。

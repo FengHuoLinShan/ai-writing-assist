@@ -176,6 +176,47 @@ async def test_success_persists_private_envelope_and_finishes_the_run(
 
 
 @pytest.mark.asyncio
+async def test_domain_envelope_mirror_runs_with_each_fenced_checkpoint(
+    test_engine,
+) -> None:
+    sessions = async_sessionmaker(test_engine, expire_on_commit=False, autoflush=False)
+    task_type = f"w2-envelope-mirror-{uuid.uuid4().hex}"
+    registry = TaskRegistry()
+    mirrored: list[tuple[int, str]] = []
+
+    async def mirror(session, task, payload):
+        mirrored.append((int(payload["requests_started"]), str(task.id)))
+
+    async def handler(*, db, task):
+        del db, task
+        await _record_request()
+        return {"ok": True}
+
+    registry.register(
+        task_type,
+        handler,
+        owner_scope="global",
+        root_capability_id="writing.generate",
+        run_request_limit=10,
+        run_envelope_checkpoint=mirror,
+    )
+    task_id = uuid.uuid4()
+    try:
+        task_id = await _enqueue(sessions, task_type, meta={})
+        returned = await TaskWorker(
+            db_manager=_TaskManager(test_engine, sessions),
+            heartbeat_interval=60.0,
+        ).run_once()
+
+        assert returned is not None and returned.status == "done"
+        assert [count for count, mirrored_task_id in mirrored] == [0, 1, 1, 1]
+        assert {mirrored_task_id for _, mirrored_task_id in mirrored} == {str(task_id)}
+    finally:
+        registry.unregister(task_type)
+        await _cleanup(sessions, [task_id])
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("policy", "attempt_before_claim"),
     [("restart_origin", 0), ("auto_requeue", 1), ("manual_resume", 2)],
@@ -832,6 +873,7 @@ async def test_inline_execution_injects_own_run_identity(test_engine) -> None:
     task_type = f"w2-envelope-inline-{uuid.uuid4().hex}"
     registry = TaskRegistry()
     observed: dict[str, Any] = {}
+    mirrored: list[dict[str, Any]] = []
 
     async def handler(*, db, task):
         del db
@@ -842,12 +884,17 @@ async def test_inline_execution_injects_own_run_identity(test_engine) -> None:
         observed["task"] = snapshot.task
         return {"ok": True}
 
+    async def mirror(session, task, payload):
+        del session, task
+        mirrored.append(payload)
+
     registry.register(
         task_type,
         handler,
         owner_scope="global",
         root_capability_id="writing.generate",
         run_request_limit=10,
+        run_envelope_checkpoint=mirror,
     )
     task_id = uuid.uuid4()
     try:
@@ -872,6 +919,7 @@ async def test_inline_execution_injects_own_run_identity(test_engine) -> None:
             assert envelope is not None
             assert envelope.status is AIRunStatus.succeeded
             assert envelope.run_id == str(task_id)
+            assert mirrored and mirrored[-1]["status"] == "succeeded"
     finally:
         registry.unregister(task_type)
         await _cleanup(sessions, [task_id])

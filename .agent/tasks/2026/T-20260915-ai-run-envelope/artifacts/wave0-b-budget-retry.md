@@ -21,7 +21,7 @@
 - **H 是产品安全闸门**。本轮不定义 H 的数值；但必须明确两点：
   1. **C3 能力**（运行中才发现规模）的 H 必须显著小于 A，且必须**分批/分阶段授权**——A 只能说明"最坏要花多少"，
      不能作为一次性下发的额度。
-  2. **world.entity_fusion 深导入路径**（A=180000）必须显著小于 A 地授权，且**不可直接授权**：它既没有 schema
+  2. **world.entity_fusion 深导入路径**（A_total=180009；pair 决策 180000 + audit 9）必须显著小于 A 地授权，且**不可直接授权**：它既没有 schema
      收紧，也没有请求数闸门，额度必须由分批（按 `_TASK_REVALIDATION_BATCH_SIZE`=12 对一批）逐批追加。
 - **A 只统计"会打到 provider 的请求"**；命中 checkpoint 跳过、确定性判定（无需 LLM）的 pair 不计入。
 - **A 的口径是"单次授权动作在合法最大参数与既有自动重试下能发出的请求数"**。manual_resume / resume_manual 是
@@ -80,7 +80,7 @@
 | world.world_bible.synopsis | world_bible_synopsis_service.py:1211 | T2 × [U(2,0)+U(2,0)]，R=3 | 36 | C1 | step+provider 1800（:51,1254） | R=3（world/tasks.py:694-697 未开 retry_llm）→ fix3；govern_world_output repair=None → 无返修；task ×2 | world/tasks.py:694-697 |
 | world.validation | world/services/worldbuilding/world_validation_service.py:1411（packet 循环 :1380） | **A = 6P**：T2 × P × U(2,0)，P=`min(planned_packets, max_packets)`，R=1，P≤256 | **1536** | **C2**（P 由冻结的 packet 计划决定；`max_packets` schema 上限 256，默认 24——第一轮误把默认 24 当上限） | per_packet_timeout_seconds 默认 180s（schemas.py:3219），无外层 asyncio | R=1（world/tasks.py:31-35）→ fix3 → task ×2；已完成 packet 按 input_hash 跳过（:1377-1382） | **schemas.py:3216 `max_packets: int = Field(default=24, ge=1, le=256)`**；world_validation_engine.py:1100-1214（batch 切片 :1203-1210）；world_validation_service.py:852-894,1380-1419；world/tasks.py:31-35 |
 | world.entity_fusion（交互任务路径） | world/entity_fusion.py:1748（_decide；候选循环 :764-780；plan :646-652） | T2 × 3M × U(1,0)，M=`max_suggestions`≤200，R=1 | **2400** | **C2**（M 的 schema 上限 200；pairs=3M 由 M 与候选集决定） | 无 step timeout=、无 asyncio（仅 provider 180s） | R=1（world/tasks.py:436-440）→ fix2 → task ×2；批 12 对仅做 checkpoint（:34,:764） | **schemas.py:1715 `max_suggestions: int = Field(default=50, ge=1, le=200)`**；world/api.py:3091-3131（FastAPI 校验请求体）；entity_fusion.py:646-652,764-780,1723-1774;world/tasks.py:436-440 |
-| world.entity_fusion（**深导入路径·不可直接授权的异常高风险**） | imports/workflow_entity_phase.py:579 → world/entity_facade.py:532-551 → entity_fusion.py:419-432（`max_suggestions=10_000`） | N×3M×U(1,0)，M=10000，N=2（deep_import manual_resume，但 checkpoint 复用不重放已完成对）；成对上限 30000 | **180000** | **C3（异常高风险；必须分批授权）** | 无 heredoc timeout、无 asyncio；唯一护栏是 `deep_import` 任务的 lease/心跳 | R=3（imports/tasks.py:61 `recovery_policy="manual_resume"`，**未开 retry_llm**）；`deep_import_dedup` 异常被吞掉降级（workflow_entity_phase.py:589-599） | entity_fusion.py:419-432（注释仅称"一次导入上限 1 万对象"，**无硬性收紧**）、:646-652、:764-780；imports/workflow_entity_phase.py:553-599；imports/tasks.py:61 |
+| world.entity_fusion（**深导入路径·不可直接授权的异常高风险**） | imports/workflow_entity_phase.py:579 → world/entity_facade.py:532-551 → entity_fusion.py:419-432（`max_suggestions=10_000`） | N×3M×U(1,0)，M=10000，N=2（deep_import manual_resume，但 checkpoint 复用不重放已完成对）；成对上限 30000；另有整段 knowledge audit | **180009**（pair 180000 + audit 9） | **C3（异常高风险；必须分批授权）** | 无 heredoc timeout、无 asyncio；唯一护栏是 `deep_import` 任务的 lease/心跳 | R=3（imports/tasks.py:61 `recovery_policy="manual_resume"`，**未开 retry_llm**）；`deep_import_dedup` 异常被吞掉降级（workflow_entity_phase.py:589-599） | entity_fusion.py:419-432（注释仅称"一次导入上限 1 万对象"，**无硬性收紧**）、:646-652、:764-780、:827-853；imports/workflow_entity_phase.py:553-599；imports/tasks.py:61 |
 | world.alias_relations.extract | world/tasks.py:164 → imports/entity_extraction/scene_entity_alias_relation.py:613-636 → scene_entity_llm_adapters.py:429-497 | T2 × S × U(0,1)，R=1 | 4S | **C2**（S=所选章节范围内的 Scene 数，任务输入在执行前冻结） | 每 scene wait_for（scene_entity_alias_relation.py:617-633）+ **全阶段** `phase2_alias_relation_total_timeout_seconds`（scene_entity_config.py:186+） | R=1（world/tasks.py:164-168 retry_llm=True）→ fix0+format1 → task ×2；并发由 `phase2_alias_relation_concurrency()` 决定 | world/tasks.py:164-168；scene_entity_alias_relation.py:613-636；scene_entity_llm_adapters.py:435,488-497 |
 | world.map_structure.generate | world/map_structure_workflow.py:672（批次循环 :639-653） | **⌈S/5⌉ × [U(1,0)+U(1,0)(治理)]，R=3，且 S≤20（schema：location_ids+feature_ids 合计 ≤20）** | **60** | **C2**（S 的上限来自 schema，不是默认值） | provider 120s（map_structure_workflow.py:658 `timeout_override=120`）；无 harness timeout | R=3（map_atlas_tasks.py:19-21 `manual_resume`，未开 retry_llm）；`max_fix_attempts=1`（:687）；治理审计 fix3，无返修（:691-722） | **map_structure_schemas.py:288 `if not 1 <= len(self.location_ids)+len(self.feature_ids) <= 20`**（两个字段各自 max_length=20，:279-280）；map_structure_workflow.py:219-316（symbols 只来自 selected）、:639-653、:687、:691-722；map_atlas_tasks.py:19-21 |
 | world.map_atlas.plan | world/map_atlas_workflow.py:1492 + :750 | U(2,0) + U(1,0) + focused(1+2n)，R=3；**plan 路径 nodes≤20** | **16+2n（n 未核实上界）** | **C3（n 不受常量约束，需分批）** | 无 harness timeout（仅 provider 快照 timeout） | R=3（map_atlas_tasks.py:28-32 `manual_resume`，max_attempts=20 只对 auto_requeue 有意义）；fix3 / fix2 | map_atlas_workflow.py:750,1492,1317；**map_atlas_schemas.py:186 `nodes: list[AtlasNodePlan] = Field(max_length=20)`**、:462 pages max_length=20 |
@@ -142,7 +142,7 @@
 5. **A = 2 × 256 × 3 = 1536**。已完成 packet 按 `input_hash` 跳过（:1377-1382），故 A 是"全部 packet 都要打"的最坏上界；
    实际被 `allow_over_budget` 切成多个执行批次时，A 应按"每次执行 ≤256 packet × 单次尝试层"分片计算。
 
-### 4.3 world.entity_fusion：交互 2400 / 深导入 180000（必须单列）
+### 4.3 world.entity_fusion：交互 2400 / 深导入 180000 + 9（必须单列）
 1. pair 数 = `max_pairs=max_suggestions * 3`（entity_fusion.py:650），逐对一次 `_decide`（:764-780）→
    每对一次 `run_managed_structured(max_fix_attempts=1)`（:1748-1774）⇒ `U(1,0)=2·R`。
 2. 交互任务路径：`max_suggestions` 来自 schema，**上限 200**（schemas.py:1715）；任务 R=1（world/tasks.py:436-440）；
@@ -153,13 +153,17 @@
    代码里唯一"依据"是 :420-421 的注释（"一次导入上限 1 万对象"），**没有任何硬性收紧**。
    pair 上限 = 30000；`_TASK_REVALIDATION_BATCH_SIZE=12`（:34）只用于 checkpoint 落盘，**不是请求闸门**；
    deep_import 任务的 R=3（imports/tasks.py:61 `manual_resume`，未开 retry_llm）。
-   **A = 30000 × 2 × 3 = 180000**。
+   pair 决策部分 **A_pair = 30000 × 2 × 3 = 180000**；当前代码随后还会对整段结果做一次
+   knowledge audit（`max_fix_attempts=2`、transport R=3），所以完整 manifest 的
+   **A_total = 180000 + 9 = 180009**。此前 180000 只覆盖 pair 决策，保留为风险量级简称，
+   不再当作完整请求上界。
 4. **为什么不能进常规 L0**：它 (a) 不经过任何 schema/产品输入校验；(b) 没有请求数闸门、没有 per-batch 授权；
    (c) 异常被吞成降级结果（workflow_entity_phase.py:589-599），失败不会自动止血；(d) 单次动作的请求量比表中
    第二大的 world.generation.convergence（18405）还高一个数量级。
    **要求：H 必须显著小于 A，且按 12 对一批逐批追加授权；在此之前不得把该路径纳入自动额度下发。**
    （注：第一轮正文写"最坏 60000 次/尝试 ×2 = 180000"，与它自己表里的 600 不一致；本轮以 pair 上限
-   30000 × U(1,0) 的 R=3 口径给出 180000，并明确它是**单次授权动作**的上界。）
+   30000 × U(1,0) 的 R=3 口径给出 180000，并明确它是**pair 决策部分**的上界；本轮准入
+   manifest 另计 9 次 knowledge audit。）
 
 ### 4.4 执行前已冻结工作量的能力：只记动态公式，不新增产品输入限制
 - **writing.generate**：K = `receipt.included` 的条目数（scope.py:183-184），receipt 由
@@ -204,7 +208,7 @@
 5. **world.entity_fusion 交互路径上界**：600 → **2400**（3×200 对 × U(1,0)=2 × T2）。
    证据：schemas.py:1715（`max_suggestions ... le=200`）；entity_fusion.py:650（`max_pairs=max_suggestions*3`）、
    :764-780、:1748-1774；world/tasks.py:436-440。
-6. **world.entity_fusion 深导入路径**：60000 次/尝试 ×2（正文）与表内 600 自相矛盾 → **180000，单列为"不可直接授权的
+6. **world.entity_fusion 深导入路径**：60000 次/尝试 ×2（正文）与表内 600 自相矛盾 → **180000 pair 决策 + 9 audit，单列为"不可直接授权的
    异常高风险路径"**，并写明不得进入常规 L0。
    证据：entity_fusion.py:419-432,646-652,764-780；imports/workflow_entity_phase.py:553-599；imports/tasks.py:61。
 7. **writing.generate 公式**：2×(3⌈K/64⌉+4) → **6⌈K/64⌉+8**（去掉不存在的返修段），并把"无常量上界"改为
@@ -277,7 +281,7 @@
 10. **C1/C2/C3 归类（按任务协议三分）**：C1=编译期常量（如 world.validation=1536、story.outline.p20=64）；
     C2=本次冻结工作量可动态计算（writing.generate 6⌈K/64⌉+8、story.structure_dedup 3200/8000、
     深导入 1920、world.alias_relations.extract 4S 等）；C3=运行中才知规模、需分批授权（imports 各阶段、
-    targeted_completion 自动 roots、world.entity_fusion 深导入 180000 的常规路径）。
+    targeted_completion 自动 roots、world.entity_fusion 深导入 180009 的常规路径）。
     第二轮 §6 存疑项 1-5 维持，但第 3、6 条（structure_dedup）按本轮结论关闭。
 
 ## 7. 与第一轮一致的结论（本轮未推翻）

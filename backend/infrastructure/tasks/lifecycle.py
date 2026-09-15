@@ -197,7 +197,7 @@ class TaskLifecycleService:
             task.meta = meta_data
             task.mark_cancelled()
             task.transition_reason = "superseded"
-            await self._merge_run_envelope(task, status=AIRunStatus.cancelled)
+            await self._merge_run_envelope(db, task, status=AIRunStatus.cancelled)
             await db.flush()
             return lifecycle_contract(task, max_heartbeat_gap=0)
         result_data = dict(task.result or {})
@@ -264,7 +264,7 @@ class TaskLifecycleService:
             raise ValueError("task not found")
         task.mark_cancelled()
         task.transition_reason = "recovery_abandoned"
-        await self._merge_run_envelope(task, status=AIRunStatus.cancelled)
+        await self._merge_run_envelope(db, task, status=AIRunStatus.cancelled)
         await db.flush()
         return lifecycle_contract(task, max_heartbeat_gap=0)
 
@@ -320,7 +320,7 @@ class TaskLifecycleService:
             return lifecycle_contract(task, max_heartbeat_gap=0)
         task.mark_cancelled()
         task.transition_reason = str(transition_reason)[:64]
-        await self._merge_run_envelope(task, status=AIRunStatus.cancelled)
+        await self._merge_run_envelope(db, task, status=AIRunStatus.cancelled)
         await db.flush()
         return lifecycle_contract(task, max_heartbeat_gap=0)
 
@@ -879,9 +879,9 @@ class TaskLifecycleService:
     ) -> bool:
         """Apply one transition, optionally merging the private run envelope.
 
-        The envelope is merged lease-fenced in the same transaction as the task
-        transition, so a rejected attempt writes neither the envelope nor the
-        terminal state.
+        The envelope and any domain-owned mirror are merged lease-fenced in the
+        same transaction as the task transition, so a rejected attempt writes
+        neither projection nor terminal state.
         """
         if envelope is not None and not await self.checkpoint_run_envelope(
             db,
@@ -890,8 +890,9 @@ class TaskLifecycleService:
             envelope=envelope,
         ):
             return False
-        if status == "pending":
-            task = (
+        task_for_mirror: AsyncTask | None = None
+        if envelope is not None:
+            task_for_mirror = (
                 await db.execute(
                     select(AsyncTask)
                     .where(
@@ -902,6 +903,30 @@ class TaskLifecycleService:
                     .with_for_update()
                 )
             ).scalar_one_or_none()
+            if task_for_mirror is None:
+                await db.rollback()
+                return False
+            from infrastructure.tasks.registry import TaskRegistry
+
+            mirror = TaskRegistry().get_run_envelope_checkpoint(
+                task_for_mirror.task_type
+            )
+            if mirror is not None:
+                await mirror(db, task_for_mirror, dict(envelope))
+        if status == "pending":
+            task = task_for_mirror
+            if task is None:
+                task = (
+                    await db.execute(
+                        select(AsyncTask)
+                        .where(
+                            AsyncTask.id == task_id,
+                            AsyncTask.status == "running",
+                            AsyncTask.lease_id == lease_id,
+                        )
+                        .with_for_update()
+                    )
+                ).scalar_one_or_none()
             if task is None:
                 await db.rollback()
                 return False
@@ -910,6 +935,7 @@ class TaskLifecycleService:
                 task.transition_reason = "superseded"
                 if envelope is not None:
                     await self._merge_run_envelope(
+                        db,
                         task,
                         status=AIRunStatus.cancelled,
                     )
@@ -1024,7 +1050,7 @@ class TaskLifecycleService:
         if await self._has_pending_follower(db, task):
             task.mark_cancelled()
             task.transition_reason = "superseded"
-            await self._merge_run_envelope(task, status=AIRunStatus.cancelled)
+            await self._merge_run_envelope(db, task, status=AIRunStatus.cancelled)
             await db.flush()
             return
         task.status = "pending"
@@ -1067,10 +1093,11 @@ class TaskLifecycleService:
                 task.mark_cancelled()
                 task.stale_detected_at = now
                 task.transition_reason = "superseded"
-                await self._merge_run_envelope(task, status=AIRunStatus.cancelled)
+                await self._merge_run_envelope(db, task, status=AIRunStatus.cancelled)
             else:
                 self._transition_stale(task, now=now)
                 await self._merge_run_envelope(
+                    db,
                     task,
                     status=(
                         None if task.status == "pending" else AIRunStatus.failed
@@ -1112,7 +1139,7 @@ class TaskLifecycleService:
         for child in orphans:
             child.mark_cancelled()
             child.transition_reason = "parent_unavailable"
-            await self._merge_run_envelope(child, status=AIRunStatus.cancelled)
+            await self._merge_run_envelope(db, child, status=AIRunStatus.cancelled)
         counts["failed"] += len(orphans)
         if tasks or orphans:
             await db.commit()
@@ -1120,6 +1147,7 @@ class TaskLifecycleService:
 
     @staticmethod
     async def _merge_run_envelope(
+        db: AsyncSession,
         task: AsyncTask,
         *,
         status: AIRunStatus | None,
@@ -1167,6 +1195,11 @@ class TaskLifecycleService:
         meta = dict(task.meta or {})
         meta[AI_RUN_ENVELOPE_KEY] = ledger.snapshot().model_dump(mode="json")
         task.meta = meta
+        from infrastructure.tasks.registry import TaskRegistry
+
+        mirror = TaskRegistry().get_run_envelope_checkpoint(task.task_type)
+        if mirror is not None:
+            await mirror(db, task, meta[AI_RUN_ENVELOPE_KEY])
 
     @staticmethod
     async def _has_pending_follower(

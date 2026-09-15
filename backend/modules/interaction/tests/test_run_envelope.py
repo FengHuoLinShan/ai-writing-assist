@@ -14,12 +14,17 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from infrastructure.llm.capabilities import (
+    LLM_CAPABILITY_SNAPSHOT_KEY,
+    resolve_llm_capability_profile,
+)
 from infrastructure.llm.limits import reset_llm_limiter_for_tests
 from infrastructure.llm.schemas import (
     AI_RUN_ENVELOPE_KEY,
+    AIRunStatus,
     LLMCallResponse,
     LLMMessage,
     LLMStreamChunk,
@@ -28,6 +33,7 @@ from infrastructure.llm.schemas import (
     read_ai_run_envelope,
 )
 from infrastructure.llm.workflow_budget import (
+    AIRunCheckpointError,
     AIRunEnvelope,
     new_ai_run_envelope,
 )
@@ -43,15 +49,18 @@ from modules.interaction.generation import (
     PreparedSummaryGeneration,
 )
 from modules.interaction.runtime_policy import AGENT_STORY_TASK
+from modules.interaction.schemas import JourneyCreateRequest
+from modules.interaction.services import InteractionService
+from modules.project.models import Project
 
 
 def test_interaction_tasks_declare_run_envelope_contracts() -> None:
-    """单 task run 声明信封；跨 task 的 story attempt 在领域接线前保持旧预算。"""
+    """Story tasks reuse the InteractionGenerationAttempt run envelope."""
     import modules.interaction.proactive  # noqa: F401  注册副作用
     import modules.interaction.tasks  # noqa: F401  注册副作用
 
     registry = get_registry()
-    task = object()
+    task = SimpleNamespace(task_type="interaction_story_generate")
     expected = {
         "interaction_summary_refresh": (
             "interaction.summary_refresh",
@@ -70,9 +79,24 @@ def test_interaction_tasks_declare_run_envelope_contracts() -> None:
         assert registry.resolve_run_deadline_seconds(task_type, task) == deadline, (
             task_type
         )
-    for task_type in ("interaction_story_generate", "interaction_agent_story_generate"):
-        assert registry.get_root_capability(task_type) is None
-        assert registry.resolve_run_request_limit(task_type, task) is None
+    assert registry.get_root_capability("interaction_story_generate") == (
+        "interaction.story_generate"
+    )
+    assert registry.resolve_run_request_limit(
+        "interaction_story_generate", task
+    ) == 46
+    attempt_id = uuid.uuid4()
+    task.meta = {"attempt_id": str(attempt_id)}
+    assert registry.resolve_run_id("interaction_story_generate", task) == str(
+        attempt_id
+    )
+    task = SimpleNamespace(task_type=AGENT_STORY_TASK)
+    assert registry.get_root_capability("interaction_agent_story_generate") == (
+        "interaction.story_generate"
+    )
+    assert registry.resolve_run_request_limit(
+        "interaction_agent_story_generate", task
+    ) == 29
 
 
 _SUMMARY_PAYLOAD = {
@@ -192,6 +216,28 @@ class _StoryAgentProvider:
         return _chunks()
 
 
+class _LengthThenStopProvider:
+    name = "fake"
+
+    def __init__(self, *, first_finish: str = "length") -> None:
+        self.calls = 0
+        self.first_finish = first_finish
+
+    async def generate_stream(self, request):
+        del request
+        self.calls += 1
+        finish_reason = self.first_finish if self.calls == 1 else "stop"
+
+        async def _chunks():
+            yield LLMStreamChunk(
+                content=f"第{self.calls}段正文。",
+                finish_reason=finish_reason,
+                usage=LLMUsage(prompt_tokens=2, completion_tokens=2, total_tokens=4),
+            )
+
+        return _chunks()
+
+
 def _chain_client(monkeypatch: pytest.MonkeyPatch, provider: Any):
     from infrastructure.llm.client import LLMClient
 
@@ -208,6 +254,54 @@ class _TaskManager:
     def __init__(self, engine: Any, sessions: Any) -> None:
         self.engine = engine
         self.session_factory = sessions
+
+
+@pytest.mark.asyncio
+async def test_terminal_mirror_skips_locked_attempt_instead_of_reversing_lock_order(
+) -> None:
+    attempt_id = uuid.uuid4()
+    novel_id = uuid.uuid4()
+    task = SimpleNamespace(
+        id=uuid.uuid4(),
+        meta={"attempt_id": str(attempt_id), "novel_id": str(novel_id)},
+    )
+    envelope = new_ai_run_envelope(
+        operation_id=str(attempt_id),
+        run_id=str(attempt_id),
+        root_capability_id="interaction.story_generate",
+        novel_id=str(novel_id),
+        request_limit=46,
+    ).snapshot().model_copy(update={"status": AIRunStatus.succeeded})
+    statements = []
+
+    class Result:
+        def __init__(self, value):
+            self.value = value
+
+        def scalar_one_or_none(self):
+            return self.value
+
+    class Session:
+        async def execute(self, statement):
+            statements.append(statement)
+            return Result(None if len(statements) == 1 else attempt_id)
+
+    await interaction_tasks.checkpoint_interaction_run_envelope(
+        Session(),
+        task,
+        envelope.model_dump(mode="json"),
+    )
+
+    assert statements[0]._for_update_arg.skip_locked is True
+
+    running = envelope.model_copy(update={"status": AIRunStatus.running})
+    statements.clear()
+    with pytest.raises(AIRunCheckpointError, match="target is unavailable"):
+        await interaction_tasks.checkpoint_interaction_run_envelope(
+            Session(),
+            task,
+            running.model_dump(mode="json"),
+        )
 
 
 async def _enqueue(
@@ -228,6 +322,251 @@ async def _cleanup(sessions: Any, task_ids: list[uuid.UUID]) -> None:
         return
     async with sessions.begin() as db:
         await db.execute(delete(AsyncTask).where(AsyncTask.id.in_(ids)))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "continuation_mode",
+    ["manual", "see_sea", "legacy_pending"],
+)
+async def test_story_worker_lifecycle_handles_continuations_and_legacy_pending(
+    test_engine,
+    monkeypatch,
+    continuation_mode: str,
+) -> None:
+    sessions = async_sessionmaker(test_engine, expire_on_commit=False, autoflush=False)
+    provider = _LengthThenStopProvider(
+        first_finish="stop" if continuation_mode == "legacy_pending" else "length"
+    )
+    service = InteractionService()
+
+    async def snapshot(_db, novel_id: str) -> dict:
+        return {
+            **_SETTINGS,
+            "version": "1",
+            "novel_id": novel_id,
+            "profile": {
+                "provider_id": "deepseek",
+                "model": "deepseek-v4-flash",
+            },
+            LLM_CAPABILITY_SNAPSHOT_KEY: resolve_llm_capability_profile(
+                "deepseek",
+                "deepseek-v4-flash",
+            ).to_snapshot(),
+        }
+
+    async def restore(*_args, **_kwargs) -> dict:
+        return dict(_SETTINGS)
+
+    monkeypatch.setattr(
+        "modules.interaction.services.build_project_llm_execution_snapshot",
+        snapshot,
+    )
+    monkeypatch.setattr(
+        "modules.interaction.generation.restore_project_llm_execution_settings",
+        restore,
+    )
+    monkeypatch.setattr(
+        interaction_tasks,
+        "create_project_snapshot_llm_client",
+        lambda *_args, **_kwargs: _chain_client(monkeypatch, provider),
+    )
+
+    async def pass_review(_db, *, task, client, prepared):
+        del _db, task, client, prepared
+        return {"status": "passed", "text": f"第{provider.calls}段正文。", "review": {}}
+
+    async def summary_not_due(*_args, **_kwargs) -> bool:
+        return False
+
+    monkeypatch.setattr(interaction_tasks._workflow, "govern_held_story", pass_review)
+    monkeypatch.setattr(
+        interaction_tasks._workflow,
+        "_summary_is_due",
+        summary_not_due,
+    )
+
+    novel_id: uuid.UUID | None = None
+    old_task_id: uuid.UUID | None = None
+    new_task_id: uuid.UUID | None = None
+    try:
+        async with sessions.begin() as db:
+            created = await service.create_journey(
+                db,
+                JourneyCreateRequest(
+                    opening_text="我走进雨夜。",
+                    idempotency_key=f"worker-{continuation_mode}-{uuid.uuid4()}",
+                ),
+            )
+            from modules.interaction.models import InteractionGenerationAttempt
+
+            attempt = await db.get(
+                InteractionGenerationAttempt,
+                uuid.UUID(created.attempt.id),
+            )
+            assert attempt is not None and attempt.task_id is not None
+            old_task_id = attempt.task_id
+            novel_id = attempt.novel_id
+            if continuation_mode == "legacy_pending":
+                task = await db.get(AsyncTask, old_task_id)
+                assert task is not None
+                task.meta = {
+                    key: value
+                    for key, value in dict(task.meta or {}).items()
+                    if key != AI_RUN_ENVELOPE_KEY
+                }
+                attempt.agent_checkpoint_json = {}
+            if continuation_mode == "see_sea":
+                from modules.interaction.models import InteractionJourney
+
+                journey = await db.get(InteractionJourney, attempt.journey_id)
+                assert journey is not None
+                journey.see_sea_enabled = True
+                attempt.request_kind = "see_sea"
+
+        worker = TaskWorker(
+            db_manager=_TaskManager(test_engine, sessions),
+            heartbeat_interval=60.0,
+        )
+        first = await worker.run_once(task_id=old_task_id, novel_id=novel_id)
+        assert first is not None and first.status == "done"
+
+        if continuation_mode == "legacy_pending":
+            async with sessions() as db:
+                from modules.interaction.models import InteractionGenerationAttempt
+
+                attempt = await db.get(
+                    InteractionGenerationAttempt,
+                    uuid.UUID(created.attempt.id),
+                )
+                assert attempt is not None and attempt.status == "completed"
+                legacy = read_ai_run_envelope(
+                    (attempt.agent_checkpoint_json or {}).get(AI_RUN_ENVELOPE_KEY)
+                )
+                assert legacy is not None
+                assert legacy.run_id == str(attempt.id)
+                assert legacy.operation_id == str(attempt.id)
+                assert legacy.legacy_untracked is True
+                assert legacy.usage_complete is False
+            return
+
+        async with sessions() as db:
+            from modules.interaction.models import InteractionGenerationAttempt
+
+            attempt = await db.get(
+                InteractionGenerationAttempt,
+                uuid.UUID(created.attempt.id),
+            )
+            assert attempt is not None
+            if continuation_mode == "manual":
+                await service.continue_attempt(
+                    db,
+                    journey_id=str(attempt.journey_id),
+                    attempt_id=str(attempt.id),
+                    expected_selection_epoch=attempt.started_selection_epoch,
+                    idempotency_key="worker-manual-continuation",
+                )
+                before_repeat = read_ai_run_envelope(
+                    (attempt.agent_checkpoint_json or {}).get(AI_RUN_ENVELOPE_KEY)
+                )
+                await db.commit()
+                db.expire_all()
+                attempt = await db.get(
+                    InteractionGenerationAttempt,
+                    uuid.UUID(created.attempt.id),
+                )
+                assert attempt is not None
+                await service.continue_attempt(
+                    db,
+                    journey_id=str(attempt.journey_id),
+                    attempt_id=str(attempt.id),
+                    expected_selection_epoch=attempt.started_selection_epoch,
+                    idempotency_key="worker-manual-continuation",
+                )
+                after_repeat = read_ai_run_envelope(
+                    (attempt.agent_checkpoint_json or {}).get(AI_RUN_ENVELOPE_KEY)
+                )
+                assert before_repeat is not None and after_repeat is not None
+                assert after_repeat.request_limit == before_repeat.request_limit
+                assert (
+                    after_repeat.authorization_revision
+                    == before_repeat.authorization_revision
+                )
+                assert after_repeat.authorizations == before_repeat.authorizations
+            new_task_id = attempt.task_id
+            continued = read_ai_run_envelope(
+                (attempt.agent_checkpoint_json or {}).get(AI_RUN_ENVELOPE_KEY)
+            )
+            assert continued is not None
+            assert continued.run_id == str(attempt.id)
+            assert continued.request_limit == 92
+            assert continued.authorization_revision == 1
+            assert new_task_id != old_task_id
+            await db.commit()
+
+        second = await worker.run_once(task_id=new_task_id, novel_id=novel_id)
+        assert second is not None and second.status == "done"
+        assert provider.calls == 2
+        async with sessions() as db:
+            from modules.interaction.models import InteractionGenerationAttempt
+
+            attempt = await db.get(
+                InteractionGenerationAttempt,
+                uuid.UUID(created.attempt.id),
+            )
+            assert attempt is not None and attempt.status == "completed"
+            final = read_ai_run_envelope(
+                (attempt.agent_checkpoint_json or {}).get(AI_RUN_ENVELOPE_KEY)
+            )
+            assert final is not None
+            assert final.run_id == str(attempt.id)
+            assert final.request_limit == 92
+            assert final.authorization_revision == 1
+            assert final.requests_started == 2
+            assert final.status.value == "succeeded"
+    finally:
+        async with sessions.begin() as db:
+            if old_task_id or new_task_id:
+                await db.execute(
+                    delete(AsyncTask).where(
+                        AsyncTask.id.in_(
+                            [item for item in (old_task_id, new_task_id) if item]
+                        )
+                    )
+                )
+            if novel_id is not None:
+                from modules.interaction.models import (
+                    InteractionBranchSelection,
+                    InteractionGenerationAttempt,
+                    InteractionJourney,
+                    InteractionMessageNode,
+                )
+
+                await db.execute(
+                    delete(InteractionBranchSelection).where(
+                        InteractionBranchSelection.journey_id.in_(
+                            select(InteractionJourney.id).where(
+                                InteractionJourney.novel_id == novel_id
+                            )
+                        )
+                    )
+                )
+                await db.execute(
+                    delete(InteractionGenerationAttempt).where(
+                        InteractionGenerationAttempt.novel_id == novel_id
+                    )
+                )
+                await db.execute(
+                    delete(InteractionMessageNode).where(
+                        InteractionMessageNode.novel_id == novel_id
+                    )
+                )
+                await db.execute(
+                    delete(InteractionJourney).where(
+                        InteractionJourney.novel_id == novel_id
+                    )
+                )
+                await db.execute(delete(Project).where(Project.id == novel_id))
 
 
 def _summary_prepared(novel_id: str) -> PreparedSummaryGeneration:

@@ -42,6 +42,14 @@ class TaskDefinition:
     # 一次 run 的 deadline（秒）：静态 float，或从冻结输入计算的同步 callable。
     # None 表示无统一 deadline，既有更短 provider/step timeout 继续生效。
     run_deadline_seconds: float | Any = None
+    # Optional stable domain run id resolver for task types whose authoritative
+    # run spans multiple queue rows. Operation id uses the same stable value.
+    run_id: str | Any = None
+    # Optional domain-owned mirror for a run envelope whose authoritative
+    # checkpoint lives beside the queue task (for example an interaction
+    # generation attempt).  The callback runs in the worker's checkpoint
+    # transaction and must only write its narrow private JSON projection.
+    run_envelope_checkpoint: Any = None
 
 
 @dataclass(frozen=True)

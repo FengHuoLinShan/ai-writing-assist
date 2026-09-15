@@ -43,6 +43,7 @@ class TaskRegistry:
     _handlers: dict[str, Callable[..., Any]]
     _definitions: dict[str, TaskDefinition]
     _root_capabilities: dict[str, str]
+    _run_envelope_checkpoints: dict[str, Any]
 
     def __new__(cls) -> TaskRegistry:
         if cls._instance is None:
@@ -50,6 +51,7 @@ class TaskRegistry:
             cls._instance._handlers = {}
             cls._instance._definitions = {}
             cls._instance._root_capabilities = {}
+            cls._instance._run_envelope_checkpoints = {}
         return cls._instance
 
     def register(
@@ -65,6 +67,8 @@ class TaskRegistry:
         root_capability_id: str | None = None,
         run_request_limit: int | Any = None,
         run_deadline_seconds: float | Any = None,
+        run_id: str | Any = None,
+        run_envelope_checkpoint: Any = None,
     ) -> None:
         """注册一个任务类型的处理器
 
@@ -77,6 +81,10 @@ class TaskRegistry:
                 从任务冻结输入计算 A 的同步 callable。
             run_deadline_seconds: 一次 run 的 deadline 秒数；静态 float 或
                 同步 callable。
+            run_id: 可选领域稳定 run id；静态值或从任务冻结输入
+                解析的同步 callable。未声明时使用 task id。
+            run_envelope_checkpoint: 可选的领域私有 checkpoint mirror，运行在
+                worker 信封 checkpoint 事务内。
 
         Raises:
             ValueError: 该任务类型已注册
@@ -111,9 +119,13 @@ class TaskRegistry:
             retry_transient_llm_errors=retry_transient_llm_errors,
             run_request_limit=run_request_limit,
             run_deadline_seconds=run_deadline_seconds,
+            run_id=run_id,
+            run_envelope_checkpoint=run_envelope_checkpoint,
         )
         if normalized_capability is not None:
             self._root_capabilities[task_type] = normalized_capability
+        if run_envelope_checkpoint is not None:
+            self._run_envelope_checkpoints[task_type] = run_envelope_checkpoint
         logger.info("Task handler registered: %s -> %s", task_type, handler.__name__)
 
     def get_handler(self, task_type: str) -> Callable[..., Any] | None:
@@ -133,6 +145,10 @@ class TaskRegistry:
     def get_root_capability(self, task_type: str) -> str | None:
         """返回该任务声明的一次权威运行 root capability（如有）。"""
         return self._root_capabilities.get(task_type)
+
+    def get_run_envelope_checkpoint(self, task_type: str) -> Any:
+        """Return the optional domain mirror for one task type."""
+        return self._run_envelope_checkpoints.get(task_type)
 
     @staticmethod
     def _resolve_run_value(resolver: Any, task: Any, *, field: str) -> Any:
@@ -172,11 +188,26 @@ class TaskRegistry:
             raise ValueError("run_deadline_seconds must be positive")
         return value
 
+    def resolve_run_id(self, task_type: str, task: Any) -> str | None:
+        """Resolve an optional stable domain run id for a queue task."""
+        definition = self._definitions.get(task_type)
+        if definition is None:
+            return None
+        resolver = definition.run_id
+        value = resolver(task) if callable(resolver) else resolver
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        if not normalized or len(normalized) > 160:
+            raise ValueError("run_id must be a non-empty value of at most 160 chars")
+        return normalized
+
     def unregister(self, task_type: str) -> None:
         """注销一个任务类型的处理器（主要用于测试）"""
         self._handlers.pop(task_type, None)
         self._definitions.pop(task_type, None)
         self._root_capabilities.pop(task_type, None)
+        self._run_envelope_checkpoints.pop(task_type, None)
         logger.info("Task handler unregistered: %s", task_type)
 
     @property
@@ -208,6 +239,8 @@ def task_handler(
     root_capability_id: str | None = None,
     run_request_limit: int | Any = None,
     run_deadline_seconds: float | Any = None,
+    run_id: str | Any = None,
+    run_envelope_checkpoint: Any = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """装饰器：将函数注册为指定任务类型的处理器
 
@@ -229,6 +262,8 @@ def task_handler(
             root_capability_id=root_capability_id,
             run_request_limit=run_request_limit,
             run_deadline_seconds=run_deadline_seconds,
+            run_id=run_id,
+            run_envelope_checkpoint=run_envelope_checkpoint,
         )
         return func
 

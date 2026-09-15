@@ -3,7 +3,7 @@ id: T-20260915-ai-run-envelope
 title: 统一 AI 运行信封
 status: active
 created: 2026-09-15T10:42:18+08:00
-updated: 2026-09-15T18:20:00+08:00
+updated: 2026-09-16T02:14:40+08:00
 parent: .agent/tasks/agent-integration.md
 ---
 
@@ -17,15 +17,21 @@ parent: .agent/tasks/agent-integration.md
   deadline、额度耗尽的 `author_resume`，以及 validation 私有计划边界。
 - 当前里程碑：M0–M3 完成；M4 仍为部分完成。无法在领取前冻结规模或无法保持同一领域 run 身份的
   task 明确不声明信封，不用临时额度伪装完成。
-- 下一步：对 Imports C3、entity_fusion 深导入、Map atlas、smart dedup、alias/relation 和
-  world co-creation 做 Phase 0 估算/分批授权裁决；Interaction story 需把 envelope 的 run_id 与
-  persistence 接到 `InteractionGenerationAttempt.id` 后再启用。配置专用 PostgreSQL 后补 E2E。
-- 阻塞：上述路径需要产品裁决或领域持久化接线；真实 provider 验收另需费用与凭据授权。
+- 最近完成：Interaction story 旧/新 task 的 successor-aware mirror CAS、分段
+  `author_resume`、旧在途兼容与无互等 mirror；entity-fusion 的 batch/pairs-complete/audited
+  续算，以及 Imports 独占 deep-import admission manifest 的领域边界。
+- 下一步：处理 `smart_dedup_scan` 的零-provider准入与 canonical parent 裁决，再补齐
+  PostgreSQL 验收。
+- 阻塞：C3 的产品安全闸门 H、smart_dedup 的跨 capability parent 仍需产品/领域裁决；真实
+  provider 验收另需费用与凭据授权。
 - 工作区：实现 worktree `.worktrees/ai-run-envelope`，主题分支 `codex/ai-run-envelope`；未 push、
   未合并、未部署。W2/W3 子 worktree 已不存在；六个已合入分支按 ancestry 删除，W2-Text 原分支
   与集成提交 tree 完全相同后删除；计划分支已删除，根 worktree 回到 `main`。
-- 最后核实：2026-09-15（定向 517 passed / 2 deselected；prompt-contracts 24、docs-check
-  BASE_REF=origin/main、lint、diff-check 通过；完整回归 5727 passed / 13 skipped / 85.95%）。
+- 最后核实：2026-09-16（本轮合并定向 pytest **378 passed, 2 deselected**；
+  `make prompt-contracts` **24 contracts passed**；changed-file Ruff、docs-check BASE_REF 与 diff-check 通过。
+  主 Agent 独立完成 `make test-ci TEST_WORKERS=2`：test-deploy **270 passed**，backend
+  **5746 passed, 13 skipped, 11 warnings**，coverage **86.02%**，frontend **191 files / 2491 tests**；
+  secret hygiene、backend/frontend audit、lint、docs 通过。PostgreSQL 与真实 provider 未执行）。
 
 ## 目标与验收
 
@@ -59,7 +65,7 @@ parent: .agent/tasks/agent-integration.md
 
 - 权威依据：ADR-0023 保留有界 Agent、累计预算与恢复不重置；ADR-0025 保留 canonical capability、
   确定性 step 和现有 JSON 回执，不新增运行时或事实库。
-- 当前事实：`CAPABILITY_REGISTRY` 有 46 项（41 项业务能力、5 项 infrastructure）；
+- 当前事实：`CAPABILITY_REGISTRY` 有 48 项（43 项业务能力、5 项 infrastructure）；
   `managed_llm_steps` 只冻结 step/profile 五类摘要，不能解释每层 provider request、总预算或扣费状态。
 - 当前调用盲区：文件级 `CAPABILITY_BINDINGS` 不证明具体调用身份；`.generate`、`.research` 和图片
   generate/edit 未被可靠扫描，且 Interaction summary、Writing targeted revision、World design
@@ -105,7 +111,7 @@ parent: .agent/tasks/agent-integration.md
   （max_suggestions le=200）、`map_structure_schemas.py:279-290`（location+feature 合计 ≤20）、
   `map_structure_workflow.py:687`（max_fix_attempts=1）、`entity_fusion.py:426-427`
   （深导入 max_suggestions=10_000）。关键修正：`world.map_structure.generate` **60**、
-  `world.validation` **1536**（A=6P，P≤256）、`world.entity_fusion` 交互 **2400** / 深导入 **180000**
+  `world.validation` **1536**（A=6P，P≤256）、`world.entity_fusion` 交互 **2400** / 深导入 **180009**（pair 决策 180000 + audit 9）
   （不可直接授权，必须分批且不得进入常规 L0）、`world.generation.suggestion` 同步 API **192**
   （原为算术错 144）、`story.structure_dedup` 复算 **870**（原 3200 无法复现）。
   `writing.generate`（6⌈K/64⌉+8）与 `world.alias_relations.extract`（4S）等执行前已冻结工作量的
@@ -125,7 +131,7 @@ parent: .agent/tasks/agent-integration.md
   层：`writing.generate` 随确认来源数 K，`imports.scene_slicing/enrichment/fusion/entity_extraction/
   structure_analysis/targeted_completion` 随 Scene 数 S 与复核批次数 B，`world.alias_relations.extract`
   与 `world.map_structure.generate` 随所选范围，均无代码级常量上界；单点最大值是 `world.entity_fusion`
-  深导入路径的 180000 次（`entity_fusion.py:422-432,650`）。按计划这些能力必须先补领域上界才能迁移，
+  深导入路径的 180009 次（pair 决策 180000 + knowledge audit 9；`entity_fusion.py:422-432,650,827-853`）。按计划这些能力必须先补领域上界才能迁移，
   口径需要用户确认。另有 `imports.scene_plan` 实际 0 次 provider 请求（确定性规划）。
 - W0-B 计量旁路（Wave 2 必须覆盖）：① 关闭 transport retries 时 `generate_structured` 直连
   `self._provider.generate` 跳过 meter（`client.py:736-742,980-986`）；② `generate_stream` 完全不查
@@ -217,7 +223,7 @@ reserve checkpoint 被拒时 provider 为 0 且旧 attempt 终止；退避跨 de
 - A 由领域在运行开始时按已冻结输入（K/S/P/M 等）计算，不发明更宽松重试；自动 retry、自动
   requeue 与恢复都只消耗同一 A，不增加额度。
 - H 是产品安全闸门，按能力的单次授权风险设定；当 A 显著大于 H 时必须分批授权，而不是一次性
-  发放 A。`world.entity_fusion` 深导入路径（M=10000，A=180000）不得进入常规 L0。
+  发放 A。`world.entity_fusion` 深导入路径（M=10000，A=180009）不得进入常规 L0。
 - 超过 L0 后只有作者明确续算或确认可能重复扣费才能提高额度（`authorization_revision`），且不
   移动 deadline；需要新的时间边界时由领域建立新 run 并用 `previous_run_id` 关联。
 
@@ -350,17 +356,23 @@ reserve checkpoint 被拒时 provider 为 0 且旧 attempt 终止；退避跨 de
 - 所有子代理只改各自领域与定向测试，不改 `capability_bindings.py`、共享 schema/runtime、公共文档
   或其他代理文件。主 Agent 逐路审查后才集成。
 
-### Wave 3/4 当前执行快照（2026-09-15，主 Agent 接手继续）
+### Wave 3/4 当前执行快照（2026-09-16，主 Agent 接手继续）
 
 - W3-A/B/C 已集成至 `3d17e8443`；独立复核保留 Writing/Story、World/Map、Assistant 与
   Interaction summary/continuity 中能证明单一 run 身份的声明，并撤销不满足该条件的误迁移。
+- Interaction story 两个 task 已接入 `interaction.story_generate`：`run_id` 固定为
+  `InteractionGenerationAttempt.id`，队列信封与 attempt 私有 checkpoint 通过 registry mirror
+  窄同步，length/看海续写换 task 仍沿用同一账本。
 - Evidence focused search 使用 `infrastructure.rag_query_planner`、L0=9；planner/nomination 保留各自
   step timeout，不新增虚假的 600 秒 run 总 deadline。
   `world_alias_relation_extraction` 因章节范围的 Scene 数量领取前不可冻结，已退回暂停/不建信封；
   这不是发明临时额度的替代方案。
-- `interaction_story_generate` / `interaction_agent_story_generate` 因同一 generation attempt 的续写会
-  更换 task id，已退回 opt-out；继续使用既有 AgentRunBudget，待 envelope 接到 attempt checkpoint。
-- `world_cocreation_turn` 同一 task type 同时承载 chat/design 两个业务 root，保持 opt-out。
+- `interaction_story_generate` / `interaction_agent_story_generate` 已启用 attempt 级 envelope；同一
+  generation attempt 的续写更换 task id 时，由 registry mirror 保持同一 run 账本，不回退到 opt-out。
+- `world_cocreation_turn` 已以 `world.generation.cocreation` 作为 chat/design 共用 canonical
+  parent；模式子步骤仍保留各自知识策略，task path 的冻结 A 为 10/14/24。
+- `smart_dedup_scan` 仍未声明 root：world 候选全集的 provider cardinality 需先完成零-provider
+  manifest/产品安全闸门，不能用 `project.smart_dedup` 临时掩盖无界路径。
 - Task worker 删除 `_TASK_RUN_INTERIM_REQUEST_LIMIT`：已声明 root 但没有冻结 `run_request_limit`
   的任务在 provider 前以 `AIRunIdentityError` 失败关闭；未声明 root 的 C3/非目标任务保持旧行为。
 - W4-Gate 已完成当前调用绑定错位修正；知识治理 helper 继承宿主 capability，解析生产模块失败报 P1；
@@ -407,6 +419,58 @@ reserve checkpoint 被拒时 provider 为 0 且旧 attempt 终止；退避跨 de
 - [ ] M4：可证明单一 run 身份的已冻结业务调用完成迁移并启用门禁；C3、跨能力与跨 task run
   仍按矩阵暂停。
 - [ ] M5：文档、定向/PG/完整 CI 验收完成；真实 provider 状态单独记录。
+
+## 下一步执行清单（按顺序）
+
+### N1：统一准入估算与分批授权（M4 第一优先级）
+
+- [x] 只读复核“用户触发 → enqueue → TaskRegistry policy → 信封创建 → 进度/恢复”的真实链路，确定
+  一个复用现有 task meta/result、registry 和 `resume_manual` 的最小准入接缝；不得新增表、队列或
+  第二套预算运行时。证据见 `artifacts/wave4-admission-chain.md`。
+- [x] 第一批的零-provider manifest 已接入现有 Imports `phase_artifacts` 与 entity-fusion
+  `phase2_dedup` checkpoint；manifest 可重放窗口/候选对、批次粒度和请求公式，不含正文或凭据。
+- [ ] 冻结通用语义：首次 provider I/O 前以确定性、零-provider 的 workload manifest 计算 A；
+  `A≤H` 时 `L0=A` 并直接运行，`A>H` 时展示规模、预计请求上限和批次范围，作者确认后只授权
+  `L0=H`。
+- [ ] 冻结续算语义：到达已确认批次边界时先持久化领域 checkpoint 与信封，再暂停；只有明确的
+  `author_resume` 可追加下一批额度，自动 retry/requeue/recovery 不扩额、不移动 deadline；禁止静默
+  截断或使用通用临时大额度。
+- [ ] 为每项能力依据现有 schema 上限、真实 workload 单位和 checkpoint 粒度冻结公式、H 与批次；
+  无产品证据时不发明 H。入口门禁是“manifest、A、H、批次边界均可在首次 provider I/O 前重放”。
+- [ ] 第一批实现并验收 Imports C3 与 `world.entity_fusion` 深导入；第二批再覆盖
+  `targeted_completion`、`import_review_resolution`、`world.alias_relations.extract` 和 Map atlas。
+
+### N2：修复 run 身份与 capability 归属（M4 第二优先级）
+
+- [x] 将 Interaction story 信封的 `run_id` 与 persistence 接到
+  `InteractionGenerationAttempt.id` 的私有 checkpoint；length/manual/看海续写创建新 task 后恢复
+  同一账本，验证 run_id/额度与 task projection 不重置，再恢复两个 task type 的 opt-in。定向
+  service、worker mirror 与 Interaction 回归已覆盖。
+- [ ] 对 `smart_dedup_scan` 裁决并实现 canonical parent 或拆分任务；其 world 候选全集仍需
+  首次 I/O 前的可重放 manifest 与产品安全闸门。不得用 `infrastructure.*` 或运行时 fallback
+  掩盖真实业务身份。
+- [x] 对 `world_cocreation_turn` 采用 `world.generation.cocreation` canonical parent，按
+  chat fast/pro、design 冻结 A=10/14/24；子步骤保留 `world.generation.chat` /
+  `world.generation.design_iteration` 的知识策略，未拆分用户可见 task type。
+- [x] 重新运行 capability/step 静态门禁，确认所有新启用 task 均有冻结 L0、稳定 step 名且不存在
+  未知 root capability；`make prompt-contracts` 24 passed，完整任务回归含 registry 门禁通过。
+
+### N3：完成 M5 验收
+
+- [x] 主 Agent 重新枚举 worker → handler → LLMClient/image client 调用链，核对启用信封任务零旁路、
+  零未知 capability、零公开 `_ai_run_envelope`；仍保留的直接 provider 调用均在已记录的 opt-out/
+  非目标路径，证据见 `artifacts/wave5-call-chain.md`。
+- [ ] 仅在配置专用 `E2E_DATABASE_URL` 后运行 PostgreSQL worker/requeue/concurrency E2E；不得回退到
+  开发库或受保护验收库。
+- [x] 运行受影响定向测试、`make prompt-contracts`、`make test-ci TEST_WORKERS=2`、
+  `make docs-check BASE_REF=origin/main`、lint 与 `git diff --check`，并更新本任务的真实结果；
+  当前结果见“验证结果”。
+- [ ] 真实 provider 最小验收保持可选；只有另行获得费用和凭据授权后执行，未执行时单独标记，不把
+  自动化绿色写成真实 provider 通过。
+
+### N4：交付边界
+
+- [ ] M4/M5 必需项完成后才把本任务改为 `complete`；提交、push、PR、合并与部署继续分别取得授权。
 
 ## 验证矩阵
 
@@ -585,12 +649,30 @@ reserve checkpoint 被拒时 provider 为 0 且旧 attempt 终止；退避跨 de
   - 完整 `make test-fast-coverage TEST_WORKERS=2` → **5727 passed, 13 skipped**，覆盖率 **85.95%**。
     当前 `E2E_DATABASE_URL`/`DATABASE_URL` 均未配置，按测试规则未连接开发库，PostgreSQL E2E 未执行。
 
+- 2026-09-16 继续执行 N1/N2/N3：新增 `imports.run-admission.v1` 的 Phase 0 / entity-fusion
+  零-provider manifest；修正 entity-fusion 最后 batch checkpoint 的续算起点，并让预算类
+  `AIRunEnvelopeError` 不再被吞成 degraded；Interaction story 两个 task 以
+  `InteractionGenerationAttempt.id` 为 run_id，队列快照经 registry mirror 同步到 attempt 私有
+  checkpoint，length/看海续写复用同一账本；`world_cocreation_turn` 以
+  `world.generation.cocreation` canonical parent 接入，task-path A=10/14/24；inline 终态 mirror
+  收口到 lifecycle。定向 World **960 passed**、registry/capability **20 passed**；
+  `make test-fast-coverage TEST_WORKERS=2` → **5734 passed, 13 skipped，85.99%**；
+  `make test-ci TEST_WORKERS=2` 的 docs/secret/dependency/lint/deploy/backend/
+  frontend 门禁全部通过（backend 同样 5734/13、frontend 2491）。PostgreSQL/真实 provider 未执行；
+  当前 `E2E_DATABASE_URL`/`DATABASE_URL` 均未配置。smart_dedup 的 parent/H 仍未擅自裁决。
+- 2026-09-16 最终修复后主 Agent 独立运行 `make test-ci TEST_WORKERS=2`：
+  test-deploy **270 passed**；backend **5746 passed, 13 skipped, 11 warnings**，coverage **86.02%**；
+  frontend **191 files / 2491 tests**；secret hygiene、backend/frontend audit、lint、docs 均通过。
+  backend audit 只报告已存档的 `langchain-community` adverse status，无漏洞。
+  PostgreSQL 与真实 provider 仍未执行，未使用开发库或受保护验收库。
+
 ## 交付结果
 
 - 已交付：Wave 0 artifacts；Wave 1/S2.1 契约与账本；Wave 2/W2.1；可证明单一 run 的 Wave 3
-  业务通道；静态门禁、稳定 step、额度/deadline/author-resume 修复与架构文档。
+  业务通道；Imports Phase 0/entity-fusion 的零-provider准入 manifest 与 checkpoint 续算；Interaction
+  story attempt 级信封持久化/队列 mirror；静态门禁、稳定 step、额度/deadline/author-resume 修复与架构文档。
 - 未交付：PostgreSQL/真实 provider 验收；Imports C3、entity_fusion 深导入、Map atlas、smart dedup、
-  alias/relation、world co-creation 的产品裁决与迁移；Interaction story 的 attempt 级信封持久化；
+  alias/relation 的产品裁决与迁移；C3 的 H/批次、smart_dedup 的跨 capability canonical parent；
   push、PR、合并到 main 与部署。
 - 交付边界：改动只存在于 worktree `.worktrees/ai-run-envelope` 的主题分支
   `codex/ai-run-envelope`；未 push、未合并、未部署；`origin/main` 未受影响。归档/演示 worktree

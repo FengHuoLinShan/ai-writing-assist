@@ -3,11 +3,20 @@
 from __future__ import annotations
 
 import time
+import uuid
+
+from sqlalchemy import select
 
 from infrastructure.llm.agent_runtime import run_project_agent
 from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.capabilities import capability_from_execution_settings
 from infrastructure.llm.retry import retry_with_backoff
+from infrastructure.llm.schemas import (
+    AI_RUN_ENVELOPE_KEY,
+    AIRunStatus,
+    read_ai_run_envelope,
+)
+from infrastructure.llm.workflow_budget import AIRunCheckpointError
 from infrastructure.tasks.registry import task_handler
 from modules.interaction.agent_runtime import InteractionAgentRun
 from modules.interaction.framing import InteractionStreamFramer
@@ -20,7 +29,12 @@ from modules.interaction.generation import (
     story_stream_step_scope,
     summary_request,
 )
-from modules.interaction.runtime_policy import AGENT_STORY_TASK, agent_story_enabled
+from modules.interaction.runtime_policy import (
+    AGENT_STORY_TASK,
+    agent_story_enabled,
+    interaction_story_run_id,
+    interaction_story_run_request_limit,
+)
 from modules.interaction.schemas import InteractionSummaryOutput
 from modules.project.facade import create_project_snapshot_llm_client
 
@@ -30,6 +44,85 @@ _CHECKPOINT_SECONDS = 2.0
 _MAX_URGENT_SUMMARY_PASSES = 4
 
 
+async def checkpoint_interaction_run_envelope(session, task, envelope: dict) -> None:
+    """Mirror the queue receipt into the owning InteractionGenerationAttempt."""
+    from modules.interaction.models import InteractionGenerationAttempt
+
+    try:
+        payload = read_ai_run_envelope(envelope)
+        attempt_id = uuid.UUID(str((task.meta or {}).get("attempt_id") or ""))
+        novel_id = uuid.UUID(str((task.meta or {}).get("novel_id") or ""))
+        task_id = uuid.UUID(str(task.id))
+    except (TypeError, ValueError) as exc:
+        raise AIRunCheckpointError(
+            "interaction run envelope target is invalid",
+            run_id=str(envelope.get("run_id") or ""),
+        ) from exc
+    if payload is None:
+        raise AIRunCheckpointError("interaction run envelope is missing")
+    attempt = (
+        await session.execute(
+            select(InteractionGenerationAttempt)
+            .where(
+                InteractionGenerationAttempt.id == attempt_id,
+                InteractionGenerationAttempt.novel_id == novel_id,
+            )
+            .with_for_update(skip_locked=True)
+        )
+    ).scalar_one_or_none()
+    if attempt is None:
+        exists = (
+            await session.execute(
+                select(InteractionGenerationAttempt.id).where(
+                    InteractionGenerationAttempt.id == attempt_id,
+                    InteractionGenerationAttempt.novel_id == novel_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if exists is not None and payload.status is not AIRunStatus.running:
+            # A domain stop/archive transaction owns attempt -> task order. A
+            # terminal task must release its task lock instead of waiting back
+            # on that attempt; the domain transaction owns the terminal state.
+            return
+        raise AIRunCheckpointError(
+            "interaction run envelope target is unavailable",
+            run_id=payload.run_id,
+        )
+    if (
+        payload.run_id != str(attempt.id)
+        or payload.operation_id != str(attempt.id)
+        or payload.novel_id != str(attempt.novel_id)
+        or payload.root_capability_id != "interaction.story_generate"
+    ):
+        raise AIRunCheckpointError(
+            "interaction run envelope identity is invalid",
+            run_id=payload.run_id,
+        )
+    if attempt.task_id != task_id:
+        # A length handler may atomically enqueue its successor before the old
+        # queue row reaches terminal state. The old lease remains valid for its
+        # own row but must not overwrite the successor's run projection.
+        successor = read_ai_run_envelope(
+            dict(attempt.agent_checkpoint_json or {}).get(AI_RUN_ENVELOPE_KEY)
+        )
+        if not (
+            attempt.status in {"pending", "preparing_context", "running"}
+            and int(attempt.continuation_count or 0) > 0
+            and successor is not None
+            and successor.run_id == str(attempt.id)
+            and successor.novel_id == str(attempt.novel_id)
+            and successor.authorization_revision
+            > payload.authorization_revision
+        ):
+            raise AIRunCheckpointError(
+                "interaction run envelope owner is stale",
+                run_id=payload.run_id,
+            )
+        return
+    checkpoint = dict(attempt.agent_checkpoint_json or {})
+    checkpoint[AI_RUN_ENVELOPE_KEY] = dict(envelope)
+    attempt.agent_checkpoint_json = checkpoint
+    await session.flush()
 @task_handler(
     "interaction_continuity_review",
     recovery_policy="manual_resume",
@@ -48,10 +141,18 @@ async def handle_interaction_continuity_review(db, task):
 @task_handler(
     "interaction_story_generate",
     recovery_policy="restart_origin",
+    root_capability_id="interaction.story_generate",
+    run_request_limit=interaction_story_run_request_limit,
+    run_id=interaction_story_run_id,
+    run_envelope_checkpoint=checkpoint_interaction_run_envelope,
 )
 @task_handler(
     "interaction_agent_story_generate",
     recovery_policy="restart_origin",
+    root_capability_id="interaction.story_generate",
+    run_request_limit=interaction_story_run_request_limit,
+    run_id=interaction_story_run_id,
+    run_envelope_checkpoint=checkpoint_interaction_run_envelope,
 )
 async def handle_interaction_story_generate(db, task):
     client = None

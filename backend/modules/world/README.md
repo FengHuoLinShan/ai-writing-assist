@@ -132,6 +132,10 @@ Prompt 校验外，`/api/world` 与 `/api/world/map-atlas` 的项目级读、写
 - 面向项目级智能去重的实体融合子 facade（`entity_facade.suggest_entity_fusion` /
   `entity_facade.apply_entity_fusion`；root `facade.py` 仅 re-export）
 - imports 专用的 `dedupe_deep_import_workflow_candidates` 只处理同 `workflow_id`、未编辑且仍为 candidate 的两端，复用同一融合判定、指纹重验与软合并。它不改变项目级智能去重、canonical 确认或 HTTP 契约
+- 深度导入准入 manifest 由 Imports 经 facade callback 提供，World 只以单一
+  `ENTITY_FUSION_CHECKPOINT_PAIR_BATCH_SIZE=12` 执行批次 checkpoint。普通项目级融合不生成
+  `task_type=deep_import` manifest。`batch` 和 `pairs_complete` 从已完成 pair 续算，合法尾批可小于
+  12；只有带 `knowledge_review` 的 `decided` 才直接进入 apply。旧 `decided` 缺审查回执时只补 audit，不重放 pair。
 - 世界上下文/检索词典/批次（`EntityContextService`）
 - 实体统计与自动抽取批次查询（`EntityStatsService`）
 - 实体 embedding 回填（`EntityEmbeddingService`）
@@ -375,14 +379,15 @@ retry 与 `auto_requeue` 重放都消耗同一额度，只有作者显式续算�
 | `world_entity_fusion_suggestions` | `world.entity_fusion` | `12M+6`（M=冻结 `max_suggestions`，schema le=200） | 无（仅 provider 180s 边界） |
 | `world_bible_synopsis_refresh` | `world.world_bible.synopsis` | 36 | 无（main/audit 只有各自 step timeout，无既有 run 总时限） |
 | `world_generation_suggestion` | `world.generation.suggestion` | 96 | 3660s（阶段 1800s × 2 attempt + 余量） |
+| `world_cocreation_turn` | `world.generation.cocreation` | chat fast 10 / chat pro 14 / design 24 | 无（每个 provider step 仍受现有 1800s timeout） |
 | `world_map_schematic_generate` | `world.map_structure.generate` | 60（⌈S/5⌉≤4 批 × [U(1,0)+U(2,0)]，S≤20 为 schema 校验器上界；manual_resume 的续跑是新授权动作，额度只覆盖单次 attempt） | 无（manual_resume 恢复不受 frozen deadline 死锁） |
 
 `world_bible_projection_refresh` 是确定性投影，无 provider 请求，不声明；`map_atlas_generate`
 的 focused 检索分页 n 无常量上界（A 无法在执行前冻结），在补领域上界或分批授权方案前
 暂不声明，行为保持不变；两个清理任务（`map_atlas_storage_cleanup` /
-`world_object_image_cleanup`）同样不声明。`world_cocreation_turn` 暂不声明：单一 root
-契约无法同时容纳 chat 模式绑定的 `world.generation.chat` 与 design 模式绑定的
-`world.generation.design_iteration`，按 chat 声明会让 design 回合在账本校验处失败关闭。
+`world_object_image_cleanup`）同样不声明。`world_cocreation_turn` 使用
+`world.generation.cocreation` 作为 canonical parent；chat/design 的子步骤仍按各自知识
+策略审查，任务信封只记录 parent root，避免同一 task type 因 mode 发生身份漂移。
 图片 generate/edit 的真实 Image API 请求由 `OpenAIImageClient` 单点 reserve/settle：
 step 名稳定为 `world.map_image.render`，canonical capability 为
 `world.map_image.generate`（generate/edit 由 call_kind 区分；该注册表项由共享层新增），

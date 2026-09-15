@@ -46,6 +46,24 @@ _WORLD_GENERATION_SUGGESTION_DEADLINE_SECONDS = 2 * 1800.0 + (
     _WORLD_RUN_REQUEUE_BACKOFF_MARGIN_SECONDS
 )
 
+# world_cocreation_turn is one task/result contract with a mode-specific child
+# workflow. The canonical parent owns the run; these are the exact bounded
+# task-path requests after the worker disables transport retry for transient
+# task requeue (two attempts max).
+_WORLD_COCREATION_CHAT_FAST_REQUEST_LIMIT = 10  # 2 replies + 3 audit × 2
+_WORLD_COCREATION_CHAT_PRO_REQUEST_LIMIT = 14  # 4 replies + 3 audit × 2
+_WORLD_COCREATION_DESIGN_REQUEST_LIMIT = 24  # (3 + 3 + 3 + 3) × 2
+
+
+def _world_cocreation_request_limit(task: Any) -> int:
+    """Freeze A for the shared chat/design task before provider I/O."""
+    meta = task.meta or {}
+    if str(meta.get("mode") or "chat") == "design":
+        return _WORLD_COCREATION_DESIGN_REQUEST_LIMIT
+    if str(meta.get("quality_mode") or "fast") == "pro":
+        return _WORLD_COCREATION_CHAT_PRO_REQUEST_LIMIT
+    return _WORLD_COCREATION_CHAT_FAST_REQUEST_LIMIT
+
 
 def _validation_run_plan(task: Any) -> tuple[int | None, int, float]:
     """读取提交时冻结的 packet 计划；planned=None 表示旧任务无冻结计划。"""
@@ -589,6 +607,8 @@ async def handle_world_entity_fusion_suggestions(db, task):
     recovery_policy="auto_requeue",
     max_attempts=2,
     retry_transient_llm_errors=True,
+    root_capability_id="world.generation.cocreation",
+    run_request_limit=_world_cocreation_request_limit,
 )
 async def handle_world_cocreation_turn(db, task):
     from infrastructure.tasks.facade import require_task_checkpoint_session

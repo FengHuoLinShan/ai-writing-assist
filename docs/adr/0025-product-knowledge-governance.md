@@ -60,6 +60,9 @@
 知识导演、审查与返修 step 归属宿主能力的统一运行信封；分片序号不进入 step 名，回执按
 稳定逻辑阶段聚合。知识治理 helper 不拥有独立 root，不能把内部格式修复或导演审查伪装成
 `infrastructure.format_repair` 能力。
+信封只记录模型请求与授权，不替代知识审查回执；Interaction RP 的 length/manual/看海续段
+以同一 generation attempt 为 run，每个合法续段由作者授权追加一份分段额度，不移动 deadline。
+旧 task 终态只能收口自己的队列行，不得覆盖已转交给新 task 的 attempt 进度。
 
 ## 结果与非目标
 

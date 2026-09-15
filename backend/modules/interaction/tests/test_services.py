@@ -16,7 +16,12 @@ from infrastructure.llm.capabilities import (
     resolve_llm_capability_profile,
 )
 from infrastructure.llm.errors import LLMContentFilterError
-from infrastructure.llm.schemas import LLMMessage
+from infrastructure.llm.schemas import (
+    AI_RUN_ENVELOPE_KEY,
+    LLMMessage,
+    read_ai_run_envelope,
+)
+from infrastructure.llm.workflow_budget import AIRunCheckpointError
 from infrastructure.tasks.models import AsyncTask
 from modules.interaction.generation import (
     InteractionContextBudgetError,
@@ -39,6 +44,11 @@ from modules.interaction.prompts import (
     render_overview_sections,
     render_related_memory,
 )
+from modules.interaction.runtime_policy import (
+    AGENT_STORY_TASK,
+    LEGACY_STORY_TASK,
+    authorize_interaction_story_continuation,
+)
 from modules.interaction.schemas import (
     InteractionActionSuggestion,
     InteractionOverviewSections,
@@ -47,6 +57,7 @@ from modules.interaction.schemas import (
     JourneyCreateRequest,
 )
 from modules.interaction.services import InteractionService, path_hash
+from modules.interaction.tasks import checkpoint_interaction_run_envelope
 from modules.project.services import ProjectService
 
 pytestmark = pytest.mark.asyncio
@@ -114,6 +125,56 @@ async def _create_journey(db_session, *, key: str = "create-journey-0001"):
         )
     ).scalar_one()
     return service, journey, attempt, response
+
+
+async def test_story_attempt_freezes_one_run_envelope_across_task_projection(
+    db_session,
+) -> None:
+    _service, journey, attempt, _response = await _create_journey(
+        db_session,
+        key="create-envelope-run",
+    )
+    task = await db_session.get(AsyncTask, attempt.task_id)
+    assert task is not None
+    task_envelope = read_ai_run_envelope(
+        (task.meta or {}).get(AI_RUN_ENVELOPE_KEY)
+    )
+    attempt_envelope = read_ai_run_envelope(
+        (attempt.agent_checkpoint_json or {}).get(AI_RUN_ENVELOPE_KEY)
+    )
+    assert task_envelope is not None
+    assert attempt_envelope is not None
+    assert task_envelope.run_id == str(attempt.id)
+    assert task_envelope.operation_id == str(attempt.id)
+    assert task_envelope.run_id == attempt_envelope.run_id
+    assert task_envelope.request_limit == 46
+    assert task_envelope.root_capability_id == "interaction.story_generate"
+    assert str(task.meta["attempt_id"]) == str(attempt.id)
+    assert str(task.meta["novel_id"]) == str(journey.novel_id)
+
+
+async def test_story_envelope_mirror_fails_closed_on_scope_or_stale_owner(
+    db_session,
+) -> None:
+    _service, _journey, attempt, _response = await _create_journey(
+        db_session,
+        key="mirror-scope-owner",
+    )
+    task = await db_session.get(AsyncTask, attempt.task_id)
+    assert task is not None
+    envelope = dict((task.meta or {})[AI_RUN_ENVELOPE_KEY])
+
+    with pytest.raises(AIRunCheckpointError, match="identity is invalid"):
+        await checkpoint_interaction_run_envelope(
+            db_session,
+            task,
+            {**envelope, "novel_id": str(uuid.uuid4())},
+        )
+
+    attempt.task_id = uuid.uuid4()
+    await db_session.flush()
+    with pytest.raises(AIRunCheckpointError, match="owner is stale"):
+        await checkpoint_interaction_run_envelope(db_session, task, envelope)
 
 
 async def _append_selected_node(
@@ -1698,6 +1759,16 @@ async def test_continue_idempotency_precedes_stale_selection_epoch(
         expected_selection_epoch=0,
         idempotency_key="continue-same-request",
     )
+    continued_task = await db_session.get(AsyncTask, attempt.task_id)
+    assert continued_task is not None
+    continued_envelope = read_ai_run_envelope(
+        (continued_task.meta or {}).get(AI_RUN_ENVELOPE_KEY)
+    )
+    assert continued_envelope is not None
+    assert continued_envelope.run_id == str(attempt.id)
+    assert continued_envelope.request_limit == 92
+    assert continued_envelope.authorization_revision == 1
+    assert continued_envelope.authorizations[-1].reason.value == "author_resume"
     attempt.status = "completed"
     journey.selection_epoch = 1
     await db_session.flush()
@@ -1712,6 +1783,130 @@ async def test_continue_idempotency_precedes_stale_selection_epoch(
 
     assert repeated.attempt.id == first.attempt.id
     assert repeated.attempt.status == "completed"
+    repeated_envelope = read_ai_run_envelope(
+        (attempt.agent_checkpoint_json or {}).get(AI_RUN_ENVELOPE_KEY)
+    )
+    assert repeated_envelope is not None
+    assert repeated_envelope.request_limit == 92
+    assert repeated_envelope.authorization_revision == 1
+
+
+async def test_agent_continuation_adds_one_segment_and_resets_only_compat_budget(
+    db_session,
+) -> None:
+    service, journey, attempt, _response = await _create_journey(
+        db_session,
+        key="create-agent-continuation-budget",
+    )
+    attempt.status = "awaiting_continue"
+    attempt.llm_execution_snapshot = {
+        **dict(attempt.llm_execution_snapshot or {}),
+        "agent_runtime": {"version": "1", "mode": "rp", "allow_web": True},
+    }
+    checkpoint = dict(attempt.agent_checkpoint_json or {})
+    envelope = read_ai_run_envelope(checkpoint.get(AI_RUN_ENVELOPE_KEY))
+    assert envelope is not None
+    deadline = datetime.now(UTC) + timedelta(minutes=20)
+    checkpoint[AI_RUN_ENVELOPE_KEY] = envelope.model_copy(
+        update={"request_limit": 29, "deadline_at": deadline}
+    ).model_dump(mode="json")
+    checkpoint["budget"] = {
+        "mode": "rp",
+        "requests": 8,
+        "tool_attempts": 0,
+        "web_requests": 0,
+        "prompt_tokens": 1,
+        "completion_tokens": 1,
+        "usage_complete": True,
+        "pending_usage": 0,
+        "usage_unknown": False,
+    }
+    checkpoint["plan"] = {"scene_intent": "继续当前场景"}
+    attempt.agent_checkpoint_json = checkpoint
+    await db_session.flush()
+
+    await service.continue_attempt(
+        db_session,
+        journey_id=str(journey.id),
+        attempt_id=str(attempt.id),
+        expected_selection_epoch=journey.selection_epoch,
+        idempotency_key="continue-agent-budget",
+    )
+
+    resumed = dict(attempt.agent_checkpoint_json or {})
+    resumed_envelope = read_ai_run_envelope(resumed.get(AI_RUN_ENVELOPE_KEY))
+    assert resumed_envelope is not None
+    assert resumed_envelope.request_limit == 58
+    assert resumed_envelope.authorization_revision == 1
+    assert resumed_envelope.deadline_at == deadline
+    assert "budget" not in resumed
+    assert resumed["plan"] == {"scene_intent": "继续当前场景"}
+
+
+async def test_legacy_awaiting_continue_creates_stable_untracked_run(
+    db_session,
+) -> None:
+    service, journey, attempt, _response = await _create_journey(
+        db_session,
+        key="legacy-awaiting-continuation",
+    )
+    attempt.status = "awaiting_continue"
+    attempt.visible_text = "旧版已生成但未续完的正文。"
+    attempt.agent_checkpoint_json = {}
+    await db_session.flush()
+
+    await service.continue_attempt(
+        db_session,
+        journey_id=str(journey.id),
+        attempt_id=str(attempt.id),
+        expected_selection_epoch=journey.selection_epoch,
+        idempotency_key="legacy-awaiting-resume",
+    )
+
+    task = await db_session.get(AsyncTask, attempt.task_id)
+    assert task is not None
+    envelope = read_ai_run_envelope(
+        (attempt.agent_checkpoint_json or {}).get(AI_RUN_ENVELOPE_KEY)
+    )
+    task_envelope = read_ai_run_envelope(
+        (task.meta or {}).get(AI_RUN_ENVELOPE_KEY)
+    )
+    assert envelope is not None and task_envelope is not None
+    assert envelope == task_envelope
+    assert envelope.run_id == str(attempt.id)
+    assert envelope.operation_id == str(attempt.id)
+    assert envelope.request_limit == 46
+    assert envelope.authorization_revision == 1
+    assert envelope.legacy_untracked is True
+    assert envelope.usage_complete is False
+
+
+@pytest.mark.parametrize(
+    ("task_type", "segment_limit"),
+    [(LEGACY_STORY_TASK, 46), (AGENT_STORY_TASK, 29)],
+)
+async def test_legacy_continuation_authorizes_only_the_new_segment(
+    task_type: str,
+    segment_limit: int,
+) -> None:
+    attempt = SimpleNamespace(
+        id=uuid.uuid4(),
+        novel_id=uuid.uuid4(),
+        continuation_count=1,
+        agent_checkpoint_json={},
+    )
+
+    await authorize_interaction_story_continuation(attempt, task_type=task_type)
+
+    envelope = read_ai_run_envelope(
+        attempt.agent_checkpoint_json.get(AI_RUN_ENVELOPE_KEY)
+    )
+    assert envelope is not None
+    assert envelope.request_limit == segment_limit
+    assert envelope.authorization_revision == 1
+    assert envelope.authorizations[0].additional_requests == segment_limit
+    assert envelope.legacy_untracked is True
+    assert envelope.usage_complete is False
 
 
 async def test_continue_rejects_an_already_continued_attempt(
@@ -3650,6 +3845,12 @@ async def test_first_see_sea_length_cutoff_continues_same_attempt(
     assert attempt.request_kind == "see_sea_continue"
     assert attempt.continuation_count == 1
     assert attempt.task_id != old_task_id
+    continued_envelope = read_ai_run_envelope(
+        (attempt.agent_checkpoint_json or {}).get(AI_RUN_ENVELOPE_KEY)
+    )
+    assert continued_envelope is not None
+    assert continued_envelope.request_limit == 92
+    assert continued_envelope.authorization_revision == 1
     assistant_count = (
         await db_session.execute(
             select(func.count(InteractionMessageNode.id)).where(

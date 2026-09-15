@@ -22,6 +22,7 @@ from modules.evidence.contracts import (
     GroupSource,
     govern_group_output,
 )
+from modules.world.contracts import ENTITY_FUSION_CHECKPOINT_PAIR_BATCH_SIZE
 from modules.world.models import Character, CoreEntity, EntityRelation, Event
 from modules.world.repositories import CoreEntityRepository
 from modules.world.schemas import EntityFusionApplyItem
@@ -31,7 +32,6 @@ from modules.world.services.core.entity_alias_service import EntityAliasService
 
 logger = logging.getLogger(__name__)
 
-_TASK_REVALIDATION_BATCH_SIZE = 12
 _WORKFLOW_DEDUP_POLICY = "deep-import-workflow-candidate-dedup-v1"
 _WORKFLOW_DEDUP_THRESHOLD = 0.80
 
@@ -287,6 +287,8 @@ class WorldEntityFusionService:
         workflow_id: str | None = None,
         include_all_decisions: bool = False,
         allowed_entity_ids: list[str] | None = None,
+        previous_result: dict[str, Any] | None = None,
+        workload_manifest_factory: Callable[[int], dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Generate suggestions without holding a transaction during LLM calls.
 
@@ -328,6 +330,8 @@ class WorldEntityFusionService:
                 plan,
                 checkpoint_callback=checkpoint_callback,
                 include_all_decisions=include_all_decisions,
+                previous_result=previous_result,
+                workload_manifest_factory=workload_manifest_factory,
             )
 
         if not snapshot:
@@ -355,6 +359,8 @@ class WorldEntityFusionService:
                 plan,
                 checkpoint_callback=checkpoint_callback,
                 include_all_decisions=include_all_decisions,
+                previous_result=previous_result,
+                workload_manifest_factory=workload_manifest_factory,
             )
         finally:
             await client.close()
@@ -368,6 +374,7 @@ class WorldEntityFusionService:
         checkpoint_callback: Callable[[dict[str, Any], float], Any],
         llm_execution_snapshot: dict[str, Any],
         previous_checkpoint: dict[str, Any] | None = None,
+        workload_manifest_factory: Callable[[int], dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Strictly deduplicate candidates created by one deep-import workflow."""
         from infrastructure.tasks.facade import require_task_checkpoint_session
@@ -381,6 +388,7 @@ class WorldEntityFusionService:
             novel_id=novel_id,
             workflow_id=workflow_id,
         )
+        previous_result: dict[str, Any] | None = None
         if (
             previous.get("version") == _WORKFLOW_DEDUP_POLICY
             and previous.get("workflow_id") == workflow_id
@@ -391,10 +399,29 @@ class WorldEntityFusionService:
             ):
                 return {**previous["result"], "checkpoint_reused": True}
             reusable = previous.get("decision_result")
-            if previous.get("stage") in {"decided", "applying"} and isinstance(
-                reusable, dict
+            if (
+                previous.get("stage")
+                in {
+                    "planning",
+                    "batch",
+                    "deciding",
+                    "pairs_complete",
+                    "decided",
+                    "applying",
+                }
+                and isinstance(reusable, dict)
             ):
-                decision_result = reusable
+                if not (
+                    previous.get("stage") in {"decided", "applying"}
+                    and isinstance(reusable.get("knowledge_review"), dict)
+                ):
+                    # Continue after the last committed pair batch; replaying
+                    # the plan would spend the same request budget twice. Old
+                    # decided checkpoints without a review are pre-audit.
+                    previous_result = reusable
+                    decision_result = None
+                else:
+                    decision_result = reusable
             else:
                 decision_result = None
         else:
@@ -405,10 +432,24 @@ class WorldEntityFusionService:
                 "version": _WORKFLOW_DEDUP_POLICY,
                 "workflow_id": workflow_id,
                 "threshold": _WORKFLOW_DEDUP_THRESHOLD,
-                "stage": "decided" if value >= 1.0 else "deciding",
+                "stage": (
+                    "decided"
+                    if value >= 1.0
+                    and isinstance(result.get("knowledge_review"), dict)
+                    else (
+                        "pairs_complete"
+                        if value >= 1.0
+                        else (
+                            "batch"
+                            if int(result.get("processed_pair_count", 0) or 0) > 0
+                            else "planning"
+                        )
+                    )
+                ),
                 "state_fingerprint": current_state,
                 "input_fingerprint": result.get("input_fingerprint"),
                 "decision_result": result,
+                "admission": result.get("admission"),
             }
             await _run_checkpoint_callback(
                 checkpoint_callback,
@@ -429,6 +470,8 @@ class WorldEntityFusionService:
                 llm_execution_snapshot=llm_execution_snapshot,
                 workflow_id=workflow_id,
                 include_all_decisions=True,
+                previous_result=previous_result,
+                workload_manifest_factory=workload_manifest_factory,
             )
 
         decisions = [
@@ -743,28 +786,64 @@ class WorldEntityFusionService:
         *,
         checkpoint_callback: Callable[[dict[str, Any], float], None],
         include_all_decisions: bool = False,
+        previous_result: dict[str, Any] | None = None,
+        workload_manifest_factory: Callable[[int], dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         from modules.project.facade import require_active_project
 
-        suggestions: list[dict[str, Any]] = []
-        all_decisions: list[dict[str, Any]] = []
-        stale_pairs: list[dict[str, str]] = []
-        processed = 0
-        initial = self._task_result(
-            plan,
-            suggestions=suggestions,
-            processed_pair_count=processed,
-            stale_pairs=stale_pairs,
-            decisions=all_decisions if include_all_decisions else None,
+        previous = previous_result if isinstance(previous_result, dict) else {}
+        previous_processed = int(previous.get("processed_pair_count", 0) or 0)
+        if (
+            previous.get("input_fingerprint") != plan.input_fingerprint
+            or previous_processed < 0
+            or previous_processed > len(plan.pairs)
+            or (
+                previous_processed % ENTITY_FUSION_CHECKPOINT_PAIR_BATCH_SIZE
+                and previous_processed != len(plan.pairs)
+            )
+        ):
+            previous = {}
+        suggestions: list[dict[str, Any]] = [
+            item for item in previous.get("suggestions", []) if isinstance(item, dict)
+        ]
+        all_decisions: list[dict[str, Any]] = [
+            item for item in previous.get("decisions", []) if isinstance(item, dict)
+        ]
+        stale_pairs: list[dict[str, str]] = [
+            item for item in previous.get("stale_pairs", []) if isinstance(item, dict)
+        ]
+        processed = min(
+            max(0, int(previous.get("processed_pair_count", 0) or 0)),
+            len(plan.pairs),
         )
+        admission = (
+            workload_manifest_factory(len(plan.pairs))
+            if workload_manifest_factory is not None
+            else None
+        )
+        initial = self._task_result(
+                plan,
+                suggestions=suggestions,
+                processed_pair_count=processed,
+                stale_pairs=stale_pairs,
+                decisions=all_decisions if include_all_decisions else None,
+            )
+        if admission is not None:
+            initial["admission"] = admission
         await _run_checkpoint_callback(checkpoint_callback, initial, 0.15)
         # This is the key lease/project-fenced boundary before external I/O.
         await db.commit()
 
-        for offset in range(0, len(plan.pairs), _TASK_REVALIDATION_BATCH_SIZE):
+        for offset in range(
+            processed,
+            len(plan.pairs),
+            ENTITY_FUSION_CHECKPOINT_PAIR_BATCH_SIZE,
+        ):
             if len(suggestions) >= plan.max_suggestions:
                 break
-            batch = plan.pairs[offset : offset + _TASK_REVALIDATION_BATCH_SIZE]
+            batch = plan.pairs[
+                offset : offset + ENTITY_FUSION_CHECKPOINT_PAIR_BATCH_SIZE
+            ]
             decisions: list[tuple[_PreparedFusionPair, EntityFusionDecision]] = []
             for pair in batch:
                 if db.in_transaction():
@@ -800,12 +879,14 @@ class WorldEntityFusionService:
                 ]
             )
             result = self._task_result(
-                plan,
-                suggestions=suggestions,
-                processed_pair_count=processed,
-                stale_pairs=stale_pairs,
-                decisions=all_decisions if include_all_decisions else None,
-            )
+                    plan,
+                    suggestions=suggestions,
+                    processed_pair_count=processed,
+                    stale_pairs=stale_pairs,
+                    decisions=all_decisions if include_all_decisions else None,
+                )
+            if admission is not None:
+                result["admission"] = admission
             progress = 0.15 + 0.85 * min(1.0, processed / len(plan.pairs))
             await _run_checkpoint_callback(checkpoint_callback, result, progress)
             # Revalidation and the detached task result become durable under the
@@ -813,12 +894,14 @@ class WorldEntityFusionService:
             await db.commit()
 
         result = self._task_result(
-            plan,
-            suggestions=suggestions,
-            processed_pair_count=processed,
-            stale_pairs=stale_pairs,
-            decisions=all_decisions if include_all_decisions else None,
-        )
+                plan,
+                suggestions=suggestions,
+                processed_pair_count=processed,
+                stale_pairs=stale_pairs,
+                decisions=all_decisions if include_all_decisions else None,
+            )
+        if admission is not None:
+            result["admission"] = admission
         client = self._llm_client
         if client is None:  # pragma: no cover - task entry always binds one.
             raise RuntimeError("project LLM client is required")

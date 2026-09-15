@@ -324,6 +324,199 @@ async def test_workflow_dedup_done_checkpoint_skips_llm_when_state_is_unchanged(
     service.suggest_for_task.assert_not_awaited()
 
 
+async def test_workflow_dedup_reuses_last_completed_batch_on_resume(
+    db_session: AsyncSession,
+    project_novel_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_session.task_checkpoint_enabled = True
+    service = WorldEntityFusionService(llm_client=object())
+    service._workflow_state_fingerprint = mock.AsyncMock(return_value="stable-state")
+    service.suggest_for_task = mock.AsyncMock(
+        return_value={
+            "decisions": [],
+            "suggestions": [],
+            "stale_pairs": [],
+            "processed_pair_count": 24,
+        }
+    )
+    monkeypatch.setattr(
+        "modules.world.entity_fusion._workflow_dedup_groups",
+        lambda _decisions: ([], [], []),
+    )
+    monkeypatch.setattr(
+        "modules.world.entity_fusion.govern_group_output",
+        mock.AsyncMock(
+            return_value={"status": "passed", "text": "{}", "review": {}}
+        ),
+    )
+    previous_result = {
+        "processed_pair_count": 24,
+        "decisions": [],
+        "suggestions": [],
+        "stale_pairs": [],
+    }
+
+    await service.dedupe_workflow_candidates_for_task(
+        db_session,
+        novel_id=project_novel_id,
+        workflow_id="workflow-1",
+        checkpoint_callback=mock.MagicMock(),
+        llm_execution_snapshot={"provider": "test"},
+        previous_checkpoint={
+            "version": "deep-import-workflow-candidate-dedup-v1",
+            "workflow_id": "workflow-1",
+            "stage": "batch",
+            "state_fingerprint": "stable-state",
+            "decision_result": previous_result,
+        },
+    )
+
+    service.suggest_for_task.assert_awaited_once()
+    assert (
+        service.suggest_for_task.await_args.kwargs["previous_result"]
+        == previous_result
+    )
+
+
+async def test_workflow_dedup_decided_checkpoint_never_replays_pair_decisions(
+    db_session: AsyncSession,
+    project_novel_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_session.task_inline_execution_enabled = True
+    service = WorldEntityFusionService(llm_client=object())
+    service._workflow_state_fingerprint = mock.AsyncMock(return_value="stable-state")
+    real_suggest = service.suggest_for_task
+    service.suggest_for_task = mock.AsyncMock(wraps=real_suggest)
+    decide = mock.AsyncMock(side_effect=AssertionError("pair decision replayed"))
+    monkeypatch.setattr(service, "_decide", decide)
+    monkeypatch.setattr(
+        "modules.world.entity_fusion._workflow_dedup_groups",
+        lambda _decisions: ([], [], []),
+    )
+    monkeypatch.setattr(
+        "modules.world.entity_fusion.govern_group_output",
+        mock.AsyncMock(
+            return_value={"status": "passed", "text": "{}", "review": {}}
+        ),
+    )
+
+    result = await service.dedupe_workflow_candidates_for_task(
+        db_session,
+        novel_id=project_novel_id,
+        workflow_id="workflow-1",
+        checkpoint_callback=mock.MagicMock(),
+        llm_execution_snapshot={"provider": "test"},
+        previous_checkpoint={
+            "version": "deep-import-workflow-candidate-dedup-v1",
+            "workflow_id": "workflow-1",
+            "stage": "decided",
+            "state_fingerprint": "stable-state",
+            "decision_result": {
+                "input_fingerprint": "frozen-plan",
+                "candidate_pair_count": 1,
+                "processed_pair_count": 1,
+                "decisions": [],
+                "suggestions": [],
+                "stale_pairs": [],
+                "knowledge_review": {"status": "passed"},
+            },
+        },
+    )
+
+    service.suggest_for_task.assert_not_awaited()
+    decide.assert_not_awaited()
+    assert result["llm_checked"] == 1
+
+
+async def test_workflow_dedup_tail_batch_resume_runs_only_missing_audit(
+    db_session: AsyncSession,
+    project_novel_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow_id = "workflow-tail-resume"
+    for index in range(14):
+        entity_id = await _create_entity(
+            db_session,
+            project_novel_id,
+            name="尾批候选",
+            status="candidate",
+        )
+        entity = await db_session.get(CoreEntity, uuid.UUID(entity_id))
+        assert entity is not None
+        entity.content_json = {
+            "_meta": {"source": "deep_import", "workflow_id": workflow_id}
+        }
+    await db_session.flush()
+    db_session.task_inline_execution_enabled = True
+    service = WorldEntityFusionService(llm_client=object())
+    pair_calls = 0
+
+    async def decide(*_args, **_kwargs):
+        nonlocal pair_calls
+        pair_calls += 1
+        return EntityFusionDecision(
+            action="keep_separate",
+            confidence=0.9,
+            reason="保持分开",
+        )
+
+    audit_calls = 0
+
+    async def audit(*_args, **_kwargs):
+        nonlocal audit_calls
+        audit_calls += 1
+        if audit_calls == 1:
+            raise RuntimeError("crash before knowledge audit receipt")
+        return {"status": "passed", "text": "{}", "review": {"status": "passed"}}
+
+    monkeypatch.setattr(service, "_decide", decide)
+    monkeypatch.setattr("modules.world.entity_fusion.govern_group_output", audit)
+    checkpoints: list[dict] = []
+    with pytest.raises(RuntimeError, match="before knowledge audit receipt"):
+        await service.dedupe_workflow_candidates_for_task(
+            db_session,
+            novel_id=project_novel_id,
+            workflow_id=workflow_id,
+            checkpoint_callback=lambda value, _progress: checkpoints.append(value),
+            llm_execution_snapshot={"provider": "test"},
+        )
+
+    pre_audit = checkpoints[-1]
+    assert pre_audit["stage"] == "pairs_complete"
+    assert pre_audit["decision_result"]["processed_pair_count"] == 13
+    assert pair_calls == 13
+    assert audit_calls == 1
+
+    checkpoints.clear()
+    legacy_pre_audit = {**pre_audit, "stage": "decided"}
+    await service.dedupe_workflow_candidates_for_task(
+        db_session,
+        novel_id=project_novel_id,
+        workflow_id=workflow_id,
+        checkpoint_callback=lambda value, _progress: checkpoints.append(value),
+        llm_execution_snapshot={"provider": "test"},
+        previous_checkpoint=legacy_pre_audit,
+    )
+    audited = next(item for item in checkpoints if item["stage"] == "decided")
+    assert pair_calls == 13
+    assert audit_calls == 2
+    assert audited["decision_result"]["knowledge_review"] == {"status": "passed"}
+
+    checkpoints.clear()
+    await service.dedupe_workflow_candidates_for_task(
+        db_session,
+        novel_id=project_novel_id,
+        workflow_id=workflow_id,
+        checkpoint_callback=lambda value, _progress: checkpoints.append(value),
+        llm_execution_snapshot={"provider": "test"},
+        previous_checkpoint=audited,
+    )
+    assert pair_calls == 13
+    assert audit_calls == 2
+
+
 async def test_pair_similarity_short_circuits_alias_name_match(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1127,6 +1320,7 @@ async def test_task_entity_fusion_releases_transaction_and_uses_project_first_or
         await task_session.close()
 
     assert result["suggestion_count"] == 1
+    assert "admission" not in result
     evidence_search.assert_not_awaited()
     assert transaction_states == [False]
     assert events == [
@@ -1273,6 +1467,97 @@ async def test_task_entity_fusion_multi_batch_caps_results_and_isolates_novel(
     assert decide.await_count == 24
     assert result_ids <= owned_ids
     assert result_ids.isdisjoint(other_ids)
+
+
+async def test_task_entity_fusion_resumes_after_durable_batch_without_replay(
+    db_session: AsyncSession,
+    project_novel_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for index in range(14):
+        await _create_entity(
+            db_session,
+            project_novel_id,
+            name="可恢复同名对象",
+            status="canonical" if index == 0 else "candidate",
+        )
+
+    from infrastructure.tasks.worker import _TaskHandlerSession
+
+    bind = db_session.bind
+    assert bind is not None
+    task_session = _TaskHandlerSession(
+        bind=bind,
+        expire_on_commit=False,
+        join_transaction_mode="create_savepoint",
+    )
+    task_session.set_task_commit_hook(mock.AsyncMock(return_value=True))
+    service = WorldEntityFusionService(llm_client=mock.MagicMock())
+    plan = await service._prepare_task_scan(
+        task_session,
+        novel_id=project_novel_id,
+        entity_type=None,
+        status=None,
+        limit=200,
+        max_suggestions=50,
+    )
+    assert len(plan.pairs) == 13
+    captured: list[dict] = []
+    calls = 0
+
+    async def interrupt_after_one_batch(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 13:
+            raise RuntimeError("simulated crash after durable batch")
+        return EntityFusionDecision(
+            action="keep_separate",
+            confidence=0.9,
+            reason="保持分开",
+        )
+
+    monkeypatch.setattr(service, "_decide", interrupt_after_one_batch)
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        await service._decide_task_plan(
+            task_session,
+            plan,
+            checkpoint_callback=lambda result, _progress: captured.append(result),
+            include_all_decisions=True,
+        )
+    durable = captured[-1]
+    assert durable["processed_pair_count"] == 12
+
+    resumed_calls = 0
+
+    async def resumed_decide(*_args, **_kwargs):
+        nonlocal resumed_calls
+        resumed_calls += 1
+        return EntityFusionDecision(
+            action="keep_separate",
+            confidence=0.9,
+            reason="保持分开",
+        )
+
+    monkeypatch.setattr(service, "_decide", resumed_decide)
+    monkeypatch.setattr(
+        "modules.world.entity_fusion.govern_group_output",
+        mock.AsyncMock(
+            return_value={"status": "passed", "text": "{}", "review": {}}
+        ),
+    )
+    try:
+        result = await service._decide_task_plan(
+            task_session,
+            plan,
+            checkpoint_callback=lambda _result, _progress: None,
+            include_all_decisions=True,
+            previous_result=durable,
+        )
+    finally:
+        await task_session.close()
+
+    assert resumed_calls == 1
+    assert result["processed_pair_count"] == 13
 
 
 async def test_task_entity_fusion_skips_asset_that_drifts_during_decision(

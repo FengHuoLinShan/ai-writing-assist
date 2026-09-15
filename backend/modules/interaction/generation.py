@@ -53,7 +53,11 @@ from modules.interaction.prompts import (
     summary_system_prompt,
 )
 from modules.interaction.repositories import InteractionRepository
-from modules.interaction.runtime_policy import clear_private_agent_state, story_task_type
+from modules.interaction.runtime_policy import (
+    authorize_interaction_story_continuation,
+    clear_private_agent_state,
+    story_task_type,
+)
 from modules.interaction.schemas import (
     InteractionOverviewSections,
     InteractionResponseMetadata,
@@ -1047,9 +1051,16 @@ class InteractionGenerationWorkflow:
                 attempt.request_kind = "see_sea_continue"
                 attempt.continuation_count += 1
                 attempt.metadata_text = ""
+                task_type = story_task_type(
+                    dict(attempt.llm_execution_snapshot or {})
+                )
+                await authorize_interaction_story_continuation(
+                    attempt,
+                    task_type=task_type,
+                )
                 next_task_id = enqueue_task(
                     db,
-                    story_task_type(dict(attempt.llm_execution_snapshot or {})),
+                    task_type,
                     meta=self._service._story_task_meta(journey, attempt),
                     novel_id=str(journey.novel_id),
                 )

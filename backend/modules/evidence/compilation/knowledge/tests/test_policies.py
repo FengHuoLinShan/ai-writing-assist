@@ -26,6 +26,7 @@ EXPECTED_CAPABILITIES = (
     # World
     "world.generation.chat",
     "world.generation.design_iteration",
+    "world.generation.cocreation",
     "world.generation.convergence",
     "world.generation.exploration",
     "world.generation.semantic_inspection",

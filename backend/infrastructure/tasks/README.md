@@ -302,6 +302,19 @@ provider 错误才自动重排，且本次 attempt 的失败回执先于 lease �
 自身 timeout，不新增 run 总 deadline；
 章节范围导致 Scene 数量运行期才知的 `world_alias_relation_extraction` 暂不声明 root，等待
 Phase 0 估算或分批授权。
+task type 的权威 run 若会跨多个队列行，通过注册的 `run_id` resolver 从冻结 meta 解析
+稳定领域 ID；未声明时仍使用 task id。旧 task 缺少信封但已有跨 task run id 时，首次领取标记
+`legacy_untracked/usage_complete=false`，不把不可考的历史用量写成 0。
+旧 awaiting-continue 的历史分段同样不当作未消费额度；领域从 0 可用额度建立兼容账本，
+再以一条 `author_resume` 授权追加唯一可用的新分段额度。
+Interaction story task 的注册声明还提供一个窄 mirror callback，把队列快照同步到
+`InteractionGenerationAttempt.agent_checkpoint_json`；`length/看海` 续写换 task 时沿用 attempt.id
+的 `run_id`，不另开账本。每个合法 manual/看海续段只追加一次同分段 `author_resume`
+额度，并保留 deadline；旧 task 终态 mirror 发现 attempt 已由更高授权版本的新 task 接管时
+只收口旧队列行，不覆盖新快照。
+mirror 读 attempt 使用 `FOR UPDATE SKIP LOCKED`：运行中 checkpoint 未取得 attempt 锁时在
+provider I/O 前失败关闭；终态与领域 stop/archive 碰撞时不持 task 锁回等 attempt，由已持有
+attempt 的领域事务收口，避免 task→attempt 与 attempt→task 互等。
 
 task status/cancel/retry 在查询 task 前通过组合根注入的
 `project.require_active` 检查 query `novel_id`，回收站项目统一返回 404，

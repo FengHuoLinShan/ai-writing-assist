@@ -24,7 +24,7 @@ from infrastructure.llm.native_search import (
     validate_fact_question,
     verified_native_search,
 )
-from infrastructure.llm.schemas import LLMMessage
+from infrastructure.llm.schemas import AI_RUN_ENVELOPE_KEY, LLMMessage
 from infrastructure.llm.workflow_budget import (
     AIRunEnvelopeError,
     budgeted_tool,
@@ -154,6 +154,11 @@ class InteractionAgentRun:
         current_hold = dict(attempt.agent_checkpoint_json or {}).get("knowledge_hold")
         if isinstance(current_hold, dict) and current_hold:
             self.state["knowledge_hold"] = current_hold
+        current_envelope = dict(attempt.agent_checkpoint_json or {}).get(
+            AI_RUN_ENVELOPE_KEY
+        )
+        if isinstance(current_envelope, dict) and current_envelope:
+            self.state[AI_RUN_ENVELOPE_KEY] = current_envelope
         attempt.agent_checkpoint_json = dict(self.state)
         await self.db.commit()
         self.db.expire_all()
