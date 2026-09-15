@@ -1484,9 +1484,12 @@ async def test_generate_structured_masks_dynamic_mapping_keys_in_errors(
 
 
 @pytest.mark.asyncio
-async def test_generate_structured_can_bypass_transport_retries() -> None:
+async def test_generate_structured_without_transport_retries_uses_metred_generate(
+    monkeypatch,
+) -> None:
     client = LLMClient()
     requests: list[LLMCallRequest] = []
+    generate_calls: list[bool] = []
 
     class FakeProvider:
         name = "fake"
@@ -1501,14 +1504,26 @@ async def test_generate_structured_can_bypass_transport_retries() -> None:
                 provider="fake",
             )
 
-    async def forbidden_generate(
+    async def forbidden_retry(*_args, **_kwargs):
+        raise AssertionError("transport retry helper should be bypassed")
+
+    metred_generate = client.generate
+
+    async def spying_generate(
         self: LLMClient,
         request: LLMCallRequest,
+        *,
+        transport_retries: bool = True,
     ) -> LLMCallResponse:
-        raise AssertionError("client.generate should be bypassed")
+        generate_calls.append(transport_retries)
+        return await metred_generate(request, transport_retries=transport_retries)
 
     client._provider = FakeProvider()  # type: ignore[assignment]
-    client.generate = MethodType(forbidden_generate, client)  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        "infrastructure.llm.client.retry_with_backoff",
+        forbidden_retry,
+    )
+    client.generate = MethodType(spying_generate, client)  # type: ignore[method-assign]
 
     result = await client.generate_structured(
         LLMCallRequest(
@@ -1521,6 +1536,7 @@ async def test_generate_structured_can_bypass_transport_retries() -> None:
     )
 
     assert result.value == "direct"
+    assert generate_calls == [False]
     assert len(requests) == 1
 
 

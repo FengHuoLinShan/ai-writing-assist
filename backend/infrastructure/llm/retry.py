@@ -81,7 +81,7 @@ def is_retryable_llm_error(error: Exception) -> bool:
     return False
 
 
-def _is_retryable(error: Exception) -> bool:
+def is_retryable_transport_error(error: Exception) -> bool:
     """Preserve the legacy client transport retry policy."""
     if isinstance(
         error,
@@ -98,6 +98,17 @@ def _is_retryable(error: Exception) -> bool:
 
 def transport_retries_enabled() -> bool:
     return _transport_retries_enabled.get()
+
+
+def ai_run_deadline_exceeded() -> bool:
+    """活动运行信封的 deadline 是否已过；没有活动信封时恒为 False。
+
+    无信封路径必须与改造前完全等价，因此只有信封存在时才可能返回 True。
+    """
+    from infrastructure.llm.workflow_budget import current_ai_run_envelope
+
+    envelope = current_ai_run_envelope()
+    return envelope is not None and envelope.deadline_exceeded()
 
 
 @contextmanager
@@ -138,17 +149,29 @@ async def retry_with_backoff(
 
     Raises:
         LLMError: 所有重试均失败时抛出最后一次的异常
+
+    活动 AI 运行信封的 deadline 到期后不再退避等待、也不再发出下一次请求，
+    直接抛出最后一次错误以保留原有异常类型与 retryable 语义；没有活动信封时
+    重试行为与改造前完全一致。
     """
     last_error: Exception | None = None
 
     for attempt in range(1, max_attempts + 1):
+        if attempt > 1 and last_error is not None and ai_run_deadline_exceeded():
+            logger.warning(
+                "AI run deadline passed before attempt %d/%d: %s",
+                attempt,
+                max_attempts,
+                redact_diagnostic(last_error, limit=500),
+            )
+            raise last_error
         try:
             return await fn(**kwargs)
         except Exception as e:
             last_error = e
             diagnostic = redact_diagnostic(e, limit=500)
 
-            if not _is_retryable(e):
+            if not is_retryable_transport_error(e):
                 logger.warning(
                     "Non-retryable error at attempt %d/%d: %s",
                     attempt,
@@ -160,6 +183,15 @@ async def retry_with_backoff(
             if attempt == max_attempts:
                 logger.error(
                     "All %d retry attempts exhausted: %s",
+                    max_attempts,
+                    diagnostic,
+                )
+                raise
+
+            if ai_run_deadline_exceeded():
+                logger.warning(
+                    "AI run deadline passed; not retrying attempt %d/%d: %s",
+                    attempt,
                     max_attempts,
                     diagnostic,
                 )
