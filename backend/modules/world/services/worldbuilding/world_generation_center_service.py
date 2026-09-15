@@ -18,7 +18,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, ValidationError
-from infrastructure.llm.agent_step_harness import run_managed_structured
+from infrastructure.llm.agent_step_harness import (
+    run_managed_generate,
+    run_managed_structured,
+)
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.errors import LLMInvalidResponseError
 from infrastructure.llm.redaction import redact_diagnostic
@@ -508,6 +511,7 @@ class WorldGenerationCenterService:
                     request,
                     schema=WorldDesignIterationOutput,
                     step_name="world.generation.design_iteration",
+                    capability_id="world.generation.design_iteration",
                     timeout=WORLD_GENERATION_TIMEOUT_SECONDS,
                 )
                 output, knowledge_review = await self._govern_structured(
@@ -657,7 +661,14 @@ class WorldGenerationCenterService:
         """Generate natural chat text without DeepSeek's lossy JSON mode."""
         async with asyncio.timeout(WORLD_GENERATION_TIMEOUT_SECONDS):
             for attempt in range(2):
-                response = await client.generate(request)
+                # 受管入口：自由问答的真实 provider 请求也要能归属到运行信封
+                # 的显式 step；无信封时受管包装是透传。
+                response = await run_managed_generate(
+                    client,
+                    request,
+                    step_name="world.generation.chat.reply",
+                    capability_id="world.generation.chat",
+                )
                 try:
                     return GeneratedWorldGenerationChatOutput(reply=response.content)
                 except PydanticValidationError as exc:

@@ -10,7 +10,9 @@ from collections import Counter
 from sqlalchemy import select
 
 from core.errors import ConflictError, ValidationError
+from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+from infrastructure.llm.workflow_budget import AIRunEnvelopeError
 from infrastructure.tasks.facade import (
     enqueue_operation_task,
     get_operation_task,
@@ -669,7 +671,10 @@ async def run_structure(db, task):
                         break
             diagnostics = []
             try:
-                output = await client.generate_structured(
+                # 受管入口：活动运行信封要求每个 provider 请求都可归属到
+                # 显式 step；无信封时行为与直连 generate_structured 一致。
+                output = await run_managed_structured(
+                    client,
                     LLMCallRequest(
                         model=settings["llm"]["model"],
                         messages=[
@@ -684,6 +689,8 @@ async def run_structure(db, task):
                         max_tokens=4000,
                     ),
                     MapRelationBatch,
+                    step_name="world.map_structure.generate.relations",
+                    capability_id="world.map_structure.generate",
                     max_fix_attempts=1,
                     partial_list_fields={"relations"},
                     diagnostics=diagnostics,
@@ -740,6 +747,10 @@ async def run_structure(db, task):
                     "source_keys": sorted(texts),
                     "knowledge_review": governed["review"],
                 }
+            except AIRunEnvelopeError:
+                # 运行信封的预算/deadline/checkpoint 拒绝必须失败关闭，
+                # 不得被吞成"失败批次"伪装成部分结果。
+                raise
             except Exception:
                 call_summary = structured_call_summary(diagnostics)
                 skipped = call_summary["schema_discarded"]

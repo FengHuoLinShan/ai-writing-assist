@@ -358,6 +358,38 @@ PNG 后才进入地图册私有 S3。此例外不改变 imports 的文稿上传�
 - imports 模块拥有深度导入和阶段化正文抽取的编排、授权快照、Scene 证据与
   candidate 写入契约；world 只提供受控的对象、别名和关系持久化 seam。
 
+## 任务级 AI 运行信封
+
+会发出 provider 请求的生产 task type 在 `TaskRegistry.register` 显式声明 canonical
+`root_capability_id`，worker 才为该任务建立/恢复私有运行账本（`meta["_ai_run_envelope"]`，
+公开 wire 剥离）；声明的任务必须全部经 `run_managed_generate`/`run_managed_structured`
+等受管入口发出请求，裸 `client.generate*` 在活动信封下零 I/O 失败关闭。请求额度
+`run_request_limit` 按 `L0=min(A,H)` 从冻结输入计算：自动 transport/schema/semantic
+retry 与 `auto_requeue` 重放都消耗同一额度，只有作者显式续算才增加；deadline 覆盖
+整个 run（含自动 requeue 的重试 attempt），不因重试或续算移动。
+
+| task type | root capability | 请求额度 L0 | deadline |
+|---|---|---|---|
+| `world_validation` | `world.validation` | `6×min(planned_packets, max_packets)`；提交时冻结进 `meta._validation_plan`，旧在途任务回退 schema 上界 P≤256 即 1536 | per-packet timeout × P × 2 + 60s 退避余量 |
+| `world_alias_relation_extraction` | `world.alias_relations.extract` | 显式 `scene_ids` 时 `4S+6`；章节范围任务的 S 无冻结输入，保持过渡计量额度（不猜 A） | 无（领域自带 per-phase asyncio 总超时） |
+| `world_entity_fusion_suggestions` | `world.entity_fusion` | `12M+6`（M=冻结 `max_suggestions`，schema le=200） | 无（仅 provider 180s 边界） |
+| `world_bible_synopsis_refresh` | `world.world_bible.synopsis` | 36 | 1800s |
+| `world_generation_suggestion` | `world.generation.suggestion` | 96 | 3660s（阶段 1800s × 2 attempt + 余量） |
+| `world_map_schematic_generate` | `world.map_structure.generate` | 60（⌈S/5⌉≤4 批 × [U(1,0)+U(2,0)]，S≤20 为 schema 校验器上界；manual_resume 的续跑是新授权动作，额度只覆盖单次 attempt） | 无（manual_resume 恢复不受 frozen deadline 死锁） |
+
+`world_bible_projection_refresh` 是确定性投影，无 provider 请求，不声明；`map_atlas_generate`
+的 focused 检索分页 n 无常量上界（A 无法在执行前冻结），在补领域上界或分批授权方案前
+暂不声明，行为保持不变；两个清理任务（`map_atlas_storage_cleanup` /
+`world_object_image_cleanup`）同样不声明。`world_cocreation_turn` 暂不声明：单一 root
+契约无法同时容纳 chat 模式绑定的 `world.generation.chat` 与 design 模式绑定的
+`world.generation.design_iteration`，按 chat 声明会让 design 回合在账本校验处失败关闭。
+图片 generate/edit 的真实 Image API 请求由 `OpenAIImageClient` 单点 reserve/settle：
+step 名稳定为 `world.map_image.render`，canonical capability 为
+`world.map_image.generate`（generate/edit 由 call_kind 区分；该注册表项由共享层新增），
+无活动信封时行为与接线前一致，Map 的
+`provider_in_flight → retry_requires_confirmation → confirm_possible_duplicate_charge`
+补偿语义不变。
+
 ## 数据表
 
 | 表名 | 用途 |

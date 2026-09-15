@@ -17,7 +17,13 @@ from modules.world.world_object_images import (
 
 
 @task_handler(
-    "world_map_schematic_generate", recovery_policy="manual_resume", max_attempts=4
+    "world_map_schematic_generate",
+    recovery_policy="manual_resume",
+    max_attempts=4,
+    root_capability_id="world.map_structure.generate",
+    # A = ⌈S/5⌉ × [U(1,0)+U(2,0)] = 4 × (6+9) = 60（S≤20 为 schema 校验器上界，
+    # R=3）。manual_resume 是新的作者授权动作，A 只覆盖单次 attempt。
+    run_request_limit=60,
 )
 async def handle_map_structure_generate(db, task):
     from modules.world.map_structure_workflow import run_structure
