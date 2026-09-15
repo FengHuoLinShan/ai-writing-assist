@@ -117,6 +117,16 @@ step envelope 可表达 read / suggest / draft / act-with-confirmation 权限，
 
 Embedding、streaming 和 `generate_simple()` 不是本 harness 的默认迁移范围。
 
+统一运行信封（ADR-0023 / ADR-0025）在 harness 之上提供版本化契约：
+`infrastructure.llm.schemas.AIRunEnvelopeV1` 定义 run 级累计账本与 step 回执，
+`infrastructure.llm.workflow_budget.AIRunEnvelope` 负责累计，`ai_run_scope()` 与
+`managed_step_scope()` 通过 ContextVar 把运行身份与当前 step 注入 provider 调用链。
+自动重试、恢复、requeue 与 manual resume 累加同一 run；只有作者显式续算或确认可能重复扣费
+才增加请求额度，且不移动 deadline。已取得含 usage 完整回执记 `recorded`；已发出但结果或
+用量证据不完整记 `possible`；预算或 deadline 拒绝记 `none`，且拒绝发生在任何计数之前。
+`recent_attempts` 有界 256 条，溢出只合并摘要，不丢总请求、未知请求、重试与 usage 计数。
+`managed_llm_steps` 保持 v0 五字段兼容，v1 由同一信封的 step receipt 派生。
+
 ### 配置与健康检查
 
 业务调用由 `modules.project.facade.open_project_llm_client()` 根据项目 owner 加载当前

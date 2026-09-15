@@ -1,9 +1,9 @@
 ---
 id: T-20260915-ai-run-envelope
 title: 统一 AI 运行信封
-status: draft
+status: active
 created: 2026-09-15T10:42:18+08:00
-updated: 2026-09-15T11:08:46+08:00
+updated: 2026-09-15T12:19:34+08:00
 parent: .agent/tasks/agent-integration.md
 ---
 
@@ -11,17 +11,18 @@ parent: .agent/tasks/agent-integration.md
 
 ## 恢复快照
 
-- 实际完成：已复核当前文本、structured、stream、Agent、research、图片、预算、task retry、
-  provenance 与 capability 门禁；已形成决策完整的实施顺序和子代理 wave。尚未实现代码。
-- 当前里程碑：计划已冻结，状态为 `draft`。
-- 下一步：用户明确要求实施后，从当前已核实的 `origin/main` 创建干净
-  `codex/ai-run-envelope` worktree，执行 Wave 0 基线复核。
-- 阻塞：无技术阻塞；当前请求授权计划落盘、清理已证明冗余的副本并提交，未授权运行时代码
-  实现、推送或部署。
-- 工作区：主题分支 `codex/ai-run-envelope-plan` 从
-  `origin/main == 5a2524dae7b5322f83fe68353b8962d24900bb0e` 创建；32 个既存 `* 2.*` 未跟踪文件均与
-  正式文件字节一致，已移入系统废纸篓。当前仅本 TASK 与 `.agent/TASKS.md` 属于交付改动。
-- 最后核实：2026-09-15T11:08:46+08:00。
+- 实际完成：Wave 0 只读冻结（W0-A 调用清单、W0-C 身份/持久化/恢复矩阵已落盘 artifacts；
+  W0-B 逐能力请求上界待收尾）；Wave 1 核心契约已实现并通过定向门禁。
+- 当前里程碑：M1 进行中——v1 envelope 与 v0 兼容投影已完成，尚无领域行为变化。
+- 下一步：W0-B 上界表落盘后，从本分支当前集成点按 Wave 2 启动 W2-Text / W2-Agent / W2-Task
+  三路并行；每路独立 worktree，写入范围互斥。
+- 阻塞：无硬阻塞。需要用户确认的决策点是 W0-B 发现的"无有限上界能力"（imports 各阶段、
+  writing.generate、world.entity_fusion 等）迁移前必须先冻结的领域上界口径；真实 provider 验收仍需
+  另行取得费用与凭据授权。
+- 工作区：实现 worktree `.worktrees/ai-run-envelope`，主题分支 `codex/ai-run-envelope`，从计划
+  提交 `81ef210e8` 创建；该提交等于 `origin/main 5a2524dae` 加一个仅含本 TASK 与
+  `.agent/TASKS.md` 的文档提交，因此代码基线与 `origin/main` 完全一致。
+- 最后核实：2026-09-15T12:19:34+08:00。
 
 ## 目标与验收
 
@@ -69,6 +70,53 @@ parent: .agent/tasks/agent-integration.md
   reasoning、私人来源文本或用户输入；只保留 allowlist 字段、稳定 ID、计数、哈希和安全错误类型。
 - 架构边界：infrastructure 不反向 import Evidence 实现；业务侧和静态门禁校验 capability registry
   membership，基础设施只校验格式、活动 scope 和同一 run 内身份不漂移。
+
+## Wave 0 冻结结论（2026-09-15，只读）
+
+- W0-A 调用清单（完整报告：`artifacts/wave0-a-call-inventory.md`）：`backend/modules` 生产路径有
+  42 个受管入口调用点与 14 个裸 client 调用点。16 个调用点当前"不可见或绑定错误"：
+  `writing.targeted_revision`、`interaction.summary_refresh`、`world.generation.design_iteration`、
+  `imports.scene_enrichment`、`imports.scene_fusion`、`world.alias_relations.extract`，
+  `evidence/compilation/knowledge/workflow.py` 整文件误挂 `infrastructure.format_repair`，
+  `story/outline_state/generation/parser.py` 误挂 `story.outline.p20`，以及 5 个不被门禁标记识别的
+  调用点（`assistant/evidence_tools.py:362`、`interaction/agent_runtime.py:313` 的 research、
+  `map_atlas_workflow.py:1843/1857` 的图片 edit/generate、`world_generation_center_service.py:660`
+  的自由问答）。注册表 46 项中 3 项从未绑定：`writing.targeted_revision`、`story.one_click`、
+  `infrastructure.embedding`；`selection_proposal.py` 的 `infrastructure.rag_query_planner` 归属待复核。
+- W0-C 身份与恢复（完整报告：`artifacts/wave0-c-identity-recovery.md`）：operation/run/task 在
+  Assistant 与 Imports 上恒等（`operation_id == AssistantRun.id == task.id`；Imports
+  `run.id == task_id`），在 Interaction 与 Map 上 run 稳定而 task 换行；Imports 的第二次尝试
+  计数在领域列 `generation`，Map 靠 `run.task_id != task.id` 判定换 attempt，`AsyncTask.attempt`
+  不足以表达跨 task 的运行进度。
+- W0-C 关键风险与归属：把 `_ai_run_envelope` 写进 task.result 会打断 Story Outline 采用，因为
+  域内采用走 `get_completed_payload`（`infrastructure/tasks/lifecycle.py:394-405`，原样返回含
+  `_` 键的 result），而 `story_outline_service.py:248-259` 用 exact-key allowlist 判 forbidden。
+  归属 W2-Task（过滤私有键）或 W3-A（扩 allowlist），二者必须完成一处。
+- W0-C 其它硬约束：worker 成功路径整体替换 task.result，checkpoint 写入的 envelope 必须像
+  `managed_llm_steps` 一样显式并入 result；lease 丢失时没有终态写入路径；`managed_llm_steps`
+  现在就在公开 wire 上，前端 Story Outline 对顶层键做 exact-key 校验，因此"顶层只允许
+  `managed_llm_steps` 一个非下划线兼容键、其余运行态一律下划线私有"是既有约束而非新增选择。
+- W0-B 预算/retry/扣费（完整报告：`artifacts/wave0-b-budget-retry.md`）：transport 尝试次数不是
+  全局常量——`infrastructure/tasks/worker.py:591-593` 按 task 的 `retry_transient_llm_errors` 在每次
+  handler 执行前把 transport retry 置为 1 次；writing/story/world 系结构化调用实际 R=1、重试改由任务层
+  整链重放（×2），其余路径 R=3，公式不带此分叉会整体高估 3 倍。请求上界的瓶颈在数据规模而非 provider
+  层：`writing.generate` 随确认来源数 K，`imports.scene_slicing/enrichment/fusion/entity_extraction/
+  structure_analysis/targeted_completion` 随 Scene 数 S 与复核批次数 B，`world.alias_relations.extract`
+  与 `world.map_structure.generate` 随所选范围，均无代码级常量上界；单点最大值是 `world.entity_fusion`
+  深导入路径的 180000 次（`entity_fusion.py:422-432,650`）。按计划这些能力必须先补领域上界才能迁移，
+  口径需要用户确认。另有 `imports.scene_plan` 实际 0 次 provider 请求（确定性规划）。
+- W0-B 计量旁路（Wave 2 必须覆盖）：① 关闭 transport retries 时 `generate_structured` 直连
+  `self._provider.generate` 跳过 meter（`client.py:736-742,980-986`）；② `generate_stream` 完全不查
+  `current_workflow_budget()`（`client.py:630-665`）；③ `research` 与远程 `generate_embedding` 不计
+  （`client.py:667-683,1134-1144`）；④ `AgentRunBudget` 与 `WorkflowBudget` 无互斥，理论上同一请求会
+  记 2 次（`agent_runtime.py:317` 与 `client.py:614-626`），当前 4 个 `run_project_agent` 调用点不在
+  budget 上下文内故不可达，但 Wave 2 需要显式保护。
+- W0-B 既有语义：文本 LLM 全链路没有 possible_charge 概念，`managed_llm_steps` 无 token 计数且按
+  identity 去重，不能当账本；唯一有"可能已扣费"语义的是 Map 图片（页级 CAS →
+  `retry_requires_confirmation` → `confirm_possible_duplicate_charge` → 补偿删除）。信封的
+  `charge_state=possible` 必须与该既有语义对齐。
+- 方法教训：Wave 0 与 Wave 1 曾并发读写同一 worktree，只读结论的行号按基线 `5a2524dae` 使用；
+  后续只读核查必须记录读取时的 blob SHA。
 
 ## 冻结设计
 
@@ -226,8 +274,10 @@ parent: .agent/tasks/agent-integration.md
 
 ## 里程碑与进度
 
-- [ ] M0：干净 worktree 基线、调用/capability/budget/run 身份清单冻结。
-- [ ] M1：v1 envelope 与 v0 compatibility projection 完成，无领域行为变化。
+- [ ] M0：干净 worktree 基线、调用/capability/budget/run 身份清单冻结——W0-A 调用清单与
+  W0-C 身份/恢复矩阵已完成并落盘 artifacts；W0-B 逐能力请求上界待收尾。
+- [ ] M1：v1 envelope 与 v0 compatibility projection 完成，无领域行为变化——代码与 37 项定向
+  测试已完成（见验证证据），待本分支提交。
 - [ ] M2：文本、structured、stream、Agent、research、图片 provider 计量单入口完成。
 - [ ] M3：task/inline/requeue/stale 跨 attempt 累计和 private persistence 完成。
 - [ ] M4：全部业务调用迁移并启用 capability/runtime fail-closed 门禁。
@@ -268,6 +318,20 @@ parent: .agent/tasks/agent-integration.md
   用户文件来获得绿色结果。
 - 2026-09-15：用户随后明确要求清理并提交；逐个 `cmp` 证明 32 个副本完全相同后才移入系统
   废纸篓，未删除任何不同内容或缺少正式对应文件的路径。
+- 2026-09-15：用户确认执行范围 S0–S2（基线、Wave 0 冻结、v1 核心契约），授权按 wave 并行委派
+  子代理，并允许提交到主题分支但不 push。
+- 2026-09-15：实现 worktree 从计划提交 `81ef210e8` 而非 `origin/main` 创建，以便唯一进度源
+  TASK 随分支移动；两处差异仅为 `.agent/` 文档，代码基线与 `origin/main` 逐字节一致。
+- 2026-09-15：运行账本落地在现有 `workflow_budget.py`，v1 契约在 `schemas.py`；不新建第二个
+  运行模块，基础设施只校验格式、活动 scope 与同 run 身份不漂移，不 import capability 注册表。
+- 2026-09-15：`requests_settled` 冻结为"已取得含 usage 完整回执的请求"，`requests_unknown` 为
+  "已发出但结果或用量的证据不完整"；未知用量记 possible 且 `usage_complete=false`，绝不写零。
+- 2026-09-15：同 run 增加额度只接受可审计原因码（`AIRunAuthorizationReason`），不保存作者自由
+  文本，以符合"信封不含用户输入"的安全边界；deadline 不随额度移动。
+- 2026-09-15：v1 兼容投影把细节放在 `managed_llm_steps` 记录内的单一 `ai_run` 注释块，前五个
+  字段与 v0 完全一致；合并时对注释块做严格重验，未知键被丢弃而不是进入公开 result。
+- 2026-09-15：Wave 1 只在受管入口建立 step 上下文，不在 harness 内预留 provider 请求；真正的
+  每请求 reserve/settle 归 Wave 2 的 `client.generate()` 单入口，避免重复计数。
 
 ## 验证证据
 
@@ -279,12 +343,31 @@ parent: .agent/tasks/agent-integration.md
 - 清理前 `make docs-check` 基线失败于未跟踪重复 ADR；清理后本主题分支的 `make docs-check` 与
   `make docs-check BASE_REF=origin/main` 均通过，影响检查确认没有 architecture-sensitive source
   change；tracked diff 与新增 TASK 的 no-index whitespace 检查均通过。
+- 2026-09-15 Wave 1（worktree `.worktrees/ai-run-envelope`，基线 = `origin/main 5a2524dae`）：
+  - 基线复跑：`make prompt-contracts` 24 passed；`make docs-check BASE_REF=origin/main` 通过；
+    `python -m pytest infrastructure/llm/tests infrastructure/tasks/tests -q` 319 passed,
+    2 deselected。
+  - 实现后：同两套件 356 passed, 2 deselected（新增 37 项信封测试）；`ruff check` 对 4 个改动
+    文件 All checks passed；`make prompt-contracts` 24 passed；`make docs-check
+    BASE_REF=origin/main` 通过（已同步 `backend/infrastructure/llm/README.md` 与
+    `docs/modules/12_infrastructure.md`）；`git diff --check` 干净。
+  - 全量回归：`make test-fast-coverage TEST_WORKERS=2` → 5578 passed, 13 skipped，覆盖率
+    85.69%（门槛 85%），确认共享契约改动没有领域行为回归。
+  - 覆盖的门禁项：v0/v1 混读与未知版本失败关闭、契约 JSON round-trip、step 能力越界拒绝、
+    计数与 usage 收款一致性、预算/deadline 拒绝前零计数、未知 usage 记 possible、
+    256 条 recent attempt 溢出聚合、嵌套 scope 复用与 run 身份漂移拒绝、asyncio 并发隔离与
+    子任务共享账本、授权追加额度不移动 deadline、恢复把 in-flight 转 unknown、v0 五字段兼容
+    投影、秘密/正文/endpoint 不入信封。
 
 ## 交付结果
 
-- 已交付：本实施计划、固定 contract/兼容/失败语义、子代理 wave、写入所有权与验收矩阵。
-- 未交付：任何运行时代码、测试修改、正式文档同步、推送、PR、合并或部署。
-- 交付边界：本 TASK 与开放任务索引是本次唯一提交内容；32 个完全相同的冗余副本已移入可恢复的
-  系统废纸篓。未授权 push、合并、部署或其他清理。
-- 正式知识与后续任务：实施完成后按实际结果更新 ADR-0023/ADR-0025 和基础设施文档；本 TASK
-  保持唯一进度源。
+- 已交付：Wave 0 只读冻结结论与两份 artifacts；Wave 1 的 `AIRunEnvelopeV1` /
+  `AIStepReceiptV1` 契约、`AIRunEnvelope` 累计账本与 ContextVar scope、受管 step 归属、
+  v0 兼容投影、37 项定向测试，以及 `infrastructure/llm/README.md`、`docs/modules/12_infrastructure.md`
+  的同步。
+- 未交付：Wave 2–5 的 provider 单入口接线、task/领域持久化、capability 门禁修正、ADR 更新、
+  真实 provider 验收，以及 push、PR、合并与部署。
+- 交付边界：改动只存在于本 worktree 的主题分支 `codex/ai-run-envelope`；未 push、未合并、
+  未部署；`origin/main` 未受影响。
+- 正式知识与后续任务：ADR-0023/ADR-0025 与 LLM/tasks README 的完整更新按计划在 Wave 4 完成；
+  本 TASK 保持唯一进度源。
