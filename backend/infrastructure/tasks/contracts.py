@@ -35,6 +35,13 @@ class TaskDefinition:
     generic_submit_schema: type[BaseModel] | None = None
     owner_scope: TaskOwnerScope = "project"
     retry_transient_llm_errors: bool = False
+    # 领域按 L0 = min(A, H) 冻结的一次 run 请求额度：静态 int，或从任务冻结
+    # 输入（meta/plan）计算 A 的同步 callable。None 表示该任务尚未迁移出
+    # 过渡计量额度，不得据此放行无限请求。
+    run_request_limit: int | Any = None
+    # 一次 run 的 deadline（秒）：静态 float，或从冻结输入计算的同步 callable。
+    # None 表示无统一 deadline，既有更短 provider/step timeout 继续生效。
+    run_deadline_seconds: float | Any = None
 
 
 @dataclass(frozen=True)

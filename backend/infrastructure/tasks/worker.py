@@ -20,7 +20,7 @@ import logging
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import nullcontext
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from time import monotonic
 from typing import Any
 from uuid import UUID
@@ -303,12 +303,31 @@ class TaskRunEnvelopeKeeper:
         if payload is None:
             if not declared:
                 return None
+            request_limit = (
+                self._registry.resolve_run_request_limit(self._task.task_type, self._task)
+                if self._registry is not None
+                else None
+            )
+            deadline_seconds = (
+                self._registry.resolve_run_deadline_seconds(
+                    self._task.task_type, self._task
+                )
+                if self._registry is not None
+                else None
+            )
             payload = new_ai_run_envelope(
                 operation_id=str(self._task.id),
                 run_id=str(self._task.id),
                 root_capability_id=declared,
                 novel_id=self._novel_id(),
-                request_limit=_TASK_RUN_INTERIM_REQUEST_LIMIT,
+                # 领域按 L0 = min(A, H) 冻结真实额度；未声明额度的已声明任务
+                # 暂用过渡计量额度，Wave 3/4 迁移时逐任务替换。
+                request_limit=request_limit or _TASK_RUN_INTERIM_REQUEST_LIMIT,
+                deadline_at=(
+                    datetime.now(UTC) + timedelta(seconds=deadline_seconds)
+                    if deadline_seconds is not None
+                    else None
+                ),
                 task=self._identity(),
                 # 旧在途 = 已领取过（attempt > 1）却没有任何信封：历史 provider
                 # 用量不可考，只能标记 legacy 且 usage_complete=false，不回填猜测

@@ -63,12 +63,20 @@ class TaskRegistry:
         owner_scope: TaskOwnerScope = "project",
         retry_transient_llm_errors: bool = False,
         root_capability_id: str | None = None,
+        run_request_limit: int | Any = None,
+        run_deadline_seconds: float | Any = None,
     ) -> None:
         """注册一个任务类型的处理器
 
         Args:
             task_type: 任务类型标识
             handler: 处理异步函数（接受 (db, task) 参数）
+            root_capability_id: 一次权威 run 的 canonical capability；声明后
+                worker 才为该任务建立运行信封（opt-in）。
+            run_request_limit: 按 L0 = min(A, H) 冻结的请求额度；静态 int 或
+                从任务冻结输入计算 A 的同步 callable。
+            run_deadline_seconds: 一次 run 的 deadline 秒数；静态 float 或
+                同步 callable。
 
         Raises:
             ValueError: 该任务类型已注册
@@ -101,6 +109,8 @@ class TaskRegistry:
             generic_submit_schema=generic_submit_schema,
             owner_scope=owner_scope,
             retry_transient_llm_errors=retry_transient_llm_errors,
+            run_request_limit=run_request_limit,
+            run_deadline_seconds=run_deadline_seconds,
         )
         if normalized_capability is not None:
             self._root_capabilities[task_type] = normalized_capability
@@ -123,6 +133,44 @@ class TaskRegistry:
     def get_root_capability(self, task_type: str) -> str | None:
         """返回该任务声明的一次权威运行 root capability（如有）。"""
         return self._root_capabilities.get(task_type)
+
+    @staticmethod
+    def _resolve_run_value(resolver: Any, task: Any, *, field: str) -> Any:
+        if resolver is None or isinstance(resolver, (int, float)):
+            return resolver
+        if callable(resolver):
+            return resolver(task)
+        raise ValueError(f"{field} must be a number or a callable")
+
+    def resolve_run_request_limit(self, task_type: str, task: Any) -> int | None:
+        """解析该任务一次 run 的请求额度；未声明返回 None（过渡计量额度）。"""
+        definition = self._definitions.get(task_type)
+        if definition is None:
+            return None
+        value = self._resolve_run_value(
+            definition.run_request_limit, task, field="run_request_limit"
+        )
+        if value is None:
+            return None
+        value = int(value)
+        if value < 1:
+            raise ValueError("run_request_limit must be positive")
+        return value
+
+    def resolve_run_deadline_seconds(self, task_type: str, task: Any) -> float | None:
+        """解析该任务一次 run 的 deadline 秒数；未声明返回 None。"""
+        definition = self._definitions.get(task_type)
+        if definition is None:
+            return None
+        value = self._resolve_run_value(
+            definition.run_deadline_seconds, task, field="run_deadline_seconds"
+        )
+        if value is None:
+            return None
+        value = float(value)
+        if value <= 0:
+            raise ValueError("run_deadline_seconds must be positive")
+        return value
 
     def unregister(self, task_type: str) -> None:
         """注销一个任务类型的处理器（主要用于测试）"""
@@ -158,6 +206,8 @@ def task_handler(
     owner_scope: TaskOwnerScope = "project",
     retry_transient_llm_errors: bool = False,
     root_capability_id: str | None = None,
+    run_request_limit: int | Any = None,
+    run_deadline_seconds: float | Any = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """装饰器：将函数注册为指定任务类型的处理器
 
@@ -177,6 +227,8 @@ def task_handler(
             owner_scope=owner_scope,
             retry_transient_llm_errors=retry_transient_llm_errors,
             root_capability_id=root_capability_id,
+            run_request_limit=run_request_limit,
+            run_deadline_seconds=run_deadline_seconds,
         )
         return func
 

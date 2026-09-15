@@ -295,6 +295,8 @@ provider 错误才自动重排，且本次 attempt 的失败回执先于 lease �
 终止旧 attempt）；未声明任务保持改造前行为，不建信封也不标 legacy。没有"未声明回退"能力名；领域
 一旦在任务内显式绑定 capability，就必须声明同一个 root，恢复路径还会校验持久化 run 的 root 与声明
 不漂移。
+声明的任务还应通过 `run_request_limit` / `run_deadline_seconds` 冻结一次 run 的请求额度与 deadline
+（静态值，或从任务冻结输入同步计算 A 的 callable）；未声明额度的已声明任务暂用过渡计量额度。
 
 task status/cancel/retry 在查询 task 前通过组合根注入的
 `project.require_active` 检查 query `novel_id`，回收站项目统一返回 404，
