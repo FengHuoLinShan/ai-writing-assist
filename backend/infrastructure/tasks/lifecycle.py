@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
+from collections.abc import Mapping
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -12,6 +14,14 @@ from sqlalchemy import String, and_, case, delete, exists, func, or_, select, up
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from infrastructure.llm.schemas import (
+    AI_RUN_ENVELOPE_KEY,
+    AIRunEnvelopeVersionError,
+    AIRunStatus,
+    AITaskIdentityV1,
+    read_ai_run_envelope,
+)
+from infrastructure.llm.workflow_budget import AIRunEnvelope, AIRunEnvelopeError
 from infrastructure.tasks.contracts import (
     CompletedTaskPayloadContract,
     TaskAction,
@@ -22,6 +32,8 @@ from infrastructure.tasks.enqueuer import lock_task_coalescing_key
 from infrastructure.tasks.identity import require_matching_task_identity
 from infrastructure.tasks.models import AsyncTask
 from shared.constants import TASK_MAX_HEARTBEAT_GAP
+
+logger = logging.getLogger(__name__)
 
 _INVALID_TASK_META = object()
 _AUTO_REQUEUE_DELAYS_SECONDS = (1, 2, 4, 8, 16, 30)
@@ -170,6 +182,7 @@ class TaskLifecycleService:
             task.meta = meta_data
             task.mark_cancelled()
             task.transition_reason = "superseded"
+            await self._merge_run_envelope(task, status=AIRunStatus.cancelled)
             await db.flush()
             return lifecycle_contract(task, max_heartbeat_gap=0)
         result_data = dict(task.result or {})
@@ -221,6 +234,7 @@ class TaskLifecycleService:
             raise ValueError("task not found")
         task.mark_cancelled()
         task.transition_reason = "recovery_abandoned"
+        await self._merge_run_envelope(task, status=AIRunStatus.cancelled)
         await db.flush()
         return lifecycle_contract(task, max_heartbeat_gap=0)
 
@@ -276,6 +290,7 @@ class TaskLifecycleService:
             return lifecycle_contract(task, max_heartbeat_gap=0)
         task.mark_cancelled()
         task.transition_reason = str(transition_reason)[:64]
+        await self._merge_run_envelope(task, status=AIRunStatus.cancelled)
         await db.flush()
         return lifecycle_contract(task, max_heartbeat_gap=0)
 
@@ -521,6 +536,42 @@ class TaskLifecycleService:
         )
         await db.flush()
         return bool(result.rowcount)
+
+    async def checkpoint_run_envelope(
+        self,
+        db: AsyncSession,
+        *,
+        task_id: Any,
+        lease_id: str,
+        envelope: Mapping[str, Any],
+    ) -> bool:
+        """Merge only the private run envelope while fencing the running lease.
+
+        The current row metadata is read under the same lease fence, so the
+        merge cannot clobber a concurrent metadata writer and never commits or
+        replaces the handler's business transaction.  A cleared/replaced lease
+        returns False after rolling back; the caller must not persist anything
+        for that attempt.
+        """
+        task = (
+            await db.execute(
+                select(AsyncTask)
+                .where(
+                    AsyncTask.id == task_id,
+                    AsyncTask.status == "running",
+                    AsyncTask.lease_id == lease_id,
+                )
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if task is None:
+            await db.rollback()
+            return False
+        meta = dict(task.meta or {})
+        meta[AI_RUN_ENVELOPE_KEY] = deepcopy(dict(envelope))
+        task.meta = meta
+        await db.flush()
+        return True
 
     async def cancel_unfinished_for_novel(
         self,
@@ -794,7 +845,21 @@ class TaskLifecycleService:
         result_data: dict | None = None,
         error_message: str | None = None,
         recovery_policy: str | None = None,
+        envelope: Mapping[str, Any] | None = None,
     ) -> bool:
+        """Apply one transition, optionally merging the private run envelope.
+
+        The envelope is merged lease-fenced in the same transaction as the task
+        transition, so a rejected attempt writes neither the envelope nor the
+        terminal state.
+        """
+        if envelope is not None and not await self.checkpoint_run_envelope(
+            db,
+            task_id=task_id,
+            lease_id=lease_id,
+            envelope=envelope,
+        ):
+            return False
         if status == "pending":
             task = (
                 await db.execute(
@@ -813,6 +878,11 @@ class TaskLifecycleService:
             if await self._has_pending_follower(db, task):
                 task.mark_cancelled()
                 task.transition_reason = "superseded"
+                if envelope is not None:
+                    await self._merge_run_envelope(
+                        task,
+                        status=AIRunStatus.cancelled,
+                    )
             else:
                 task.status = "pending"
                 task.finished_at = None
@@ -924,6 +994,7 @@ class TaskLifecycleService:
         if await self._has_pending_follower(db, task):
             task.mark_cancelled()
             task.transition_reason = "superseded"
+            await self._merge_run_envelope(task, status=AIRunStatus.cancelled)
             await db.flush()
             return
         task.status = "pending"
@@ -966,8 +1037,15 @@ class TaskLifecycleService:
                 task.mark_cancelled()
                 task.stale_detected_at = now
                 task.transition_reason = "superseded"
+                await self._merge_run_envelope(task, status=AIRunStatus.cancelled)
             else:
                 self._transition_stale(task, now=now)
+                await self._merge_run_envelope(
+                    task,
+                    status=(
+                        None if task.status == "pending" else AIRunStatus.failed
+                    ),
+                )
             if task.status == "pending":
                 counts["auto_requeued"] += 1
             else:
@@ -1004,10 +1082,61 @@ class TaskLifecycleService:
         for child in orphans:
             child.mark_cancelled()
             child.transition_reason = "parent_unavailable"
+            await self._merge_run_envelope(child, status=AIRunStatus.cancelled)
         counts["failed"] += len(orphans)
         if tasks or orphans:
             await db.commit()
         return counts
+
+    @staticmethod
+    async def _merge_run_envelope(
+        task: AsyncTask,
+        *,
+        status: AIRunStatus | None,
+    ) -> None:
+        """Converge an ended attempt's run envelope inside the caller's transaction.
+
+        Unsettled provider requests become unknown/possible, the run keeps its
+        identity and counters, and a terminal task transition finishes the same
+        run.  The snapshot is persisted through the locked ORM row, so no
+        detached checkpoint can race this transaction.  A missing or unreadable
+        envelope is left untouched: one task's payload must not fail closed the
+        whole scan.
+        """
+        try:
+            payload = read_ai_run_envelope((task.meta or {}).get(AI_RUN_ENVELOPE_KEY))
+        except (AIRunEnvelopeVersionError, ValueError):
+            logger.warning(
+                "Task %s has an unreadable AI run envelope; stale recovery skipped it",
+                task.id,
+            )
+            return
+        if payload is None:
+            return
+        identity = AITaskIdentityV1(
+            task_id=str(task.id),
+            attempt=max(int(task.attempt or 0), 0),
+            lease_id=None,
+        )
+        ledger = AIRunEnvelope(
+            payload.model_copy(
+                update={"task": identity, "status": AIRunStatus.running}
+            )
+        )
+        try:
+            if status is None:
+                await ledger.mark_in_flight_unknown()
+            else:
+                await ledger.finish(status)
+        except AIRunEnvelopeError:
+            logger.warning(
+                "Task %s run envelope could not be converged; keeping the last snapshot",
+                task.id,
+            )
+            return
+        meta = dict(task.meta or {})
+        meta[AI_RUN_ENVELOPE_KEY] = ledger.snapshot().model_dump(mode="json")
+        task.meta = meta
 
     @staticmethod
     async def _has_pending_follower(

@@ -401,12 +401,13 @@ async def test_successful_preflight_leaves_handler_without_transaction(
 
         assert returned is not None
         assert returned.status == "done"
-        assert observed == {
-            "in_transaction": False,
-            "meta": expected_meta,
-            "progress": 0.25,
-            "log_novel_id": novel_id,
-        }
+        assert observed["in_transaction"] is False
+        assert observed["progress"] == 0.25
+        assert observed["log_novel_id"] == novel_id
+        # 私有运行信封只增加下划线键，业务 meta 必须原样保留。
+        observed_meta = dict(observed["meta"])
+        assert observed_meta.pop("_ai_run_envelope")["run_id"] == str(task_id)
+        assert observed_meta == expected_meta
         assert f"novel_id={novel_id}" in "\n".join(caplog.messages)
         assert current_novel_id_for_log() == "<none>"
     finally:

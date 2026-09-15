@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -16,6 +17,20 @@ from pydantic import BaseModel
 from infrastructure.tasks.contracts import RecoveryPolicy, TaskDefinition, TaskOwnerScope
 
 logger = logging.getLogger(__name__)
+
+_ROOT_CAPABILITY_RE = re.compile(r"^[A-Za-z0-9_.:\-]{1,160}$")
+
+
+def normalize_root_capability_id(value: Any) -> str | None:
+    """Validate one task's canonical run capability before it reaches the ledger."""
+    if value is None:
+        return None
+    if not isinstance(value, str) or not _ROOT_CAPABILITY_RE.fullmatch(value):
+        raise ValueError(
+            "root_capability_id must be a canonical capability token of "
+            "1-160 [A-Za-z0-9_.:-] characters"
+        )
+    return value
 
 
 class TaskRegistry:
@@ -27,12 +42,14 @@ class TaskRegistry:
     _instance: TaskRegistry | None = None
     _handlers: dict[str, Callable[..., Any]]
     _definitions: dict[str, TaskDefinition]
+    _root_capabilities: dict[str, str]
 
     def __new__(cls) -> TaskRegistry:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._handlers = {}
             cls._instance._definitions = {}
+            cls._instance._root_capabilities = {}
         return cls._instance
 
     def register(
@@ -45,6 +62,7 @@ class TaskRegistry:
         generic_submit_schema: type[BaseModel] | None = None,
         owner_scope: TaskOwnerScope = "project",
         retry_transient_llm_errors: bool = False,
+        root_capability_id: str | None = None,
     ) -> None:
         """注册一个任务类型的处理器
 
@@ -73,6 +91,7 @@ class TaskRegistry:
             or not issubclass(generic_submit_schema, BaseModel)
         ):
             raise TypeError("generic_submit_schema must be a Pydantic BaseModel class")
+        normalized_capability = normalize_root_capability_id(root_capability_id)
         self._handlers[task_type] = handler
         self._definitions[task_type] = TaskDefinition(
             task_type=task_type,
@@ -83,6 +102,8 @@ class TaskRegistry:
             owner_scope=owner_scope,
             retry_transient_llm_errors=retry_transient_llm_errors,
         )
+        if normalized_capability is not None:
+            self._root_capabilities[task_type] = normalized_capability
         logger.info("Task handler registered: %s -> %s", task_type, handler.__name__)
 
     def get_handler(self, task_type: str) -> Callable[..., Any] | None:
@@ -99,10 +120,15 @@ class TaskRegistry:
     def get_definition(self, task_type: str) -> TaskDefinition | None:
         return self._definitions.get(task_type)
 
+    def get_root_capability(self, task_type: str) -> str | None:
+        """返回该任务声明的一次权威运行 root capability（如有）。"""
+        return self._root_capabilities.get(task_type)
+
     def unregister(self, task_type: str) -> None:
         """注销一个任务类型的处理器（主要用于测试）"""
         self._handlers.pop(task_type, None)
         self._definitions.pop(task_type, None)
+        self._root_capabilities.pop(task_type, None)
         logger.info("Task handler unregistered: %s", task_type)
 
     @property
@@ -131,6 +157,7 @@ def task_handler(
     generic_submit_schema: type[BaseModel] | None = None,
     owner_scope: TaskOwnerScope = "project",
     retry_transient_llm_errors: bool = False,
+    root_capability_id: str | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """装饰器：将函数注册为指定任务类型的处理器
 
@@ -149,6 +176,7 @@ def task_handler(
             generic_submit_schema=generic_submit_schema,
             owner_scope=owner_scope,
             retry_transient_llm_errors=retry_transient_llm_errors,
+            root_capability_id=root_capability_id,
         )
         return func
 

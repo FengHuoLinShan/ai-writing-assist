@@ -16,9 +16,12 @@ from infrastructure.llm.agent_step_harness import (
     merge_managed_llm_provenance,
 )
 from infrastructure.llm.redaction import redact_diagnostic
+from infrastructure.llm.schemas import AIRunStatus
+from infrastructure.llm.workflow_budget import ai_run_scope, current_ai_run_envelope
 from infrastructure.tasks.lifecycle import TaskLifecycleService
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
+from infrastructure.tasks.worker import TaskRunEnvelopeKeeper
 from shared.constants import TASK_HEARTBEAT_INTERVAL
 
 logger = logging.getLogger(__name__)
@@ -90,9 +93,24 @@ async def run_task_inline(
     previous_inline_marker = getattr(db, "task_inline_execution_enabled", None)
     db.task_inline_execution_enabled = True
     restore_commit = _install_commit_fence(db, task=task, lease_id=lease_id)
+    # 内联子任务在其父 run 内执行：注入父 run，不另开账本、不覆盖父级执行载体。
+    # 独立内联执行（无活动 run）才为自身建立/恢复私有信封。
+    keeper: TaskRunEnvelopeKeeper | None = None
+    run_envelope = current_ai_run_envelope()
+    if run_envelope is None:
+        keeper = TaskRunEnvelopeKeeper(
+            task=task,
+            lease_id=lease_id,
+            registry=TaskRegistry(),
+            session_factory=sessions,
+        )
+        run_envelope = keeper.open()
     with managed_llm_provenance_scope() as managed_steps:
         try:
-            result = await handler(db=db, task=task)
+            if keeper is not None:
+                await keeper.persist()
+            with ai_run_scope(run_envelope):
+                result = await handler(db=db, task=task)
             restore_commit()
             result_data = result if isinstance(result, dict) else {"result": result}
             if managed_steps:
@@ -106,6 +124,11 @@ async def run_task_inline(
                 lease_id=lease_id,
                 status="done",
                 result_data=result_data,
+                envelope=(
+                    await keeper.finish(AIRunStatus.succeeded)
+                    if keeper is not None
+                    else None
+                ),
             )
             if not accepted:
                 raise asyncio.CancelledError
@@ -122,6 +145,11 @@ async def run_task_inline(
                         task_id=claimed_task_id,
                         lease_id=lease_id,
                         status="cancelled",
+                        envelope=(
+                            await keeper.finish(AIRunStatus.cancelled)
+                            if keeper is not None
+                            else None
+                        ),
                     )
             else:
                 await TaskLifecycleService().finalize(
@@ -129,6 +157,11 @@ async def run_task_inline(
                     task_id=claimed_task_id,
                     lease_id=lease_id,
                     status="cancelled",
+                    envelope=(
+                        await keeper.finish(AIRunStatus.cancelled)
+                        if keeper is not None
+                        else None
+                    ),
                 )
             raise
         except Exception as exc:
@@ -141,6 +174,11 @@ async def run_task_inline(
                 status="failed",
                 error_message=redact_diagnostic(
                     f"{type(exc).__name__}: {exc}", limit=1000
+                ),
+                envelope=(
+                    await keeper.finish(AIRunStatus.failed)
+                    if keeper is not None
+                    else None
                 ),
             )
             raise

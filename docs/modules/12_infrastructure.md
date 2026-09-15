@@ -134,6 +134,14 @@ reserve/settle 一次，缺 usage 记 unknown/possible，deadline 到期不再�
 健康检查是首轮非目标。
 `managed_llm_steps` 保持 v0 五字段兼容，v1 由同一信封的 step receipt 派生。
 
+Task 路径把同一信封落在 `async_tasks.meta` 的私有键 `_ai_run_envelope`：worker 与 inline 在 handler
+执行前注入 `task_id/attempt/lease_id` 并恢复同一 run，自动 requeue、stale 恢复与 manual resume
+不重置累计计数、冻结额度或 deadline，inline 子任务复用父 run。快照经
+`TaskLifecycleService.checkpoint_run_envelope()` 的窄 lease-fenced merge 落库，lease 丢失不写；
+终态由 `finalize(envelope=...)` 与任务终态在同一事务提交，stale 与 cancel 在同一事务内把未 settle
+的请求收敛为 unknown/possible。普通 task API、领域 result 消费者（含 Story Outline 采用路径）看不到该键；
+缺少信封的旧在途任务记 `legacy_untracked/usage_complete=false`。
+
 ### 配置与健康检查
 
 业务调用由 `modules.project.facade.open_project_llm_client()` 根据项目 owner 加载当前

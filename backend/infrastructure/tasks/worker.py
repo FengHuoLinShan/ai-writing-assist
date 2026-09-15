@@ -19,6 +19,7 @@ import asyncio
 import logging
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from time import monotonic
 from typing import Any
@@ -38,10 +39,25 @@ from infrastructure.llm.agent_step_harness import (
     managed_llm_provenance_scope,
     merge_managed_llm_provenance,
 )
+from infrastructure.llm.errors import LLMError
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.retry import (
     is_retryable_llm_error,
     llm_transport_retry_scope,
+)
+from infrastructure.llm.schemas import (
+    AI_RUN_ENVELOPE_KEY,
+    AIRunEnvelopeV1,
+    AIRunStatus,
+    AITaskIdentityV1,
+    read_ai_run_envelope,
+    safe_receipt_token,
+)
+from infrastructure.llm.workflow_budget import (
+    AIRunEnvelope,
+    AIRunEnvelopeError,
+    ai_run_scope,
+    new_ai_run_envelope,
 )
 from infrastructure.tasks.lifecycle import TaskLifecycleService
 from infrastructure.tasks.models import AsyncTask
@@ -58,6 +74,14 @@ _TASK_DB_ERROR_MESSAGE = "后台任务遇到数据库临时错误，请稍后重
 _TASK_PREFLIGHT_WRITE_ERROR = "Task preflight must be read-only"
 _TASK_RECOVERY_FAILURE_MESSAGE = "Task worker recovery failed safely; restart required."
 _TASK_TYPE_LOG_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
+
+#: 没有历史执行证据的任务在首次领取时建立 run；已领取过（attempt > 1）却没
+#: 有信封的任务属于"旧在途"，其历史 provider 用量不可考，只能标记 legacy。
+_TASK_RUN_FALLBACK_CAPABILITY_PREFIX = "task."
+_TASK_RUN_GLOBAL_NOVEL_ID = "global"
+#: Wave 3 之前不引入新的预算闸门：通用 task 路径只计量、不因额度拒绝请求。
+#: 领域迁移时必须按 L0 = min(A, H) 冻结真实上限并替换该临时值。
+_TASK_RUN_INTERIM_REQUEST_LIMIT = 1_000_000
 
 
 class _TaskWorkerRecoveryError(RuntimeError):
@@ -217,6 +241,183 @@ def _handler_failure_result(task: AsyncTask, *, requeued: bool) -> dict[str, Any
     )
     result["lifecycle"] = lifecycle
     return result
+
+
+def _llm_error_uses_task_policy(definition: Any, error: Exception) -> bool:
+    """Whether this LLM error's retry decision belongs to the task definition.
+
+    A task registered with retry_transient_llm_errors owns the whole LLM retry
+    decision: only classified transient provider failures may requeue, while
+    auth/quota/content/invalid-response failures stay terminal.  Non-LLM
+    handler failures keep the ordinary auto-requeue semantics.
+    """
+    return bool(
+        definition is not None
+        and definition.retry_transient_llm_errors
+        and isinstance(error, LLMError)
+    )
+
+
+class TaskRunEnvelopeKeeper:
+    """一次 lease-fenced attempt 的私有 v1 运行信封。
+
+    信封只写 meta 的下划线私有键（AI_RUN_ENVELOPE_KEY），公开投影和 handler
+    返回值都看不到它。每个快照都经 lease-fenced 窄 merge 落库，lease 丢失时
+    不写任何内容；终态快照由 lifecycle.finalize 与任务终态在同一事务合并，
+    避免出现"任务转换被拒但运行已终态"的漂移。
+    """
+
+    def __init__(
+        self,
+        *,
+        task: AsyncTask,
+        lease_id: str,
+        registry: TaskRegistry | None,
+        session_factory: Any,
+        lifecycle: TaskLifecycleService | None = None,
+    ) -> None:
+        self._task = task
+        self._lease_id = str(lease_id or "")
+        self._registry = registry
+        self._session_factory = session_factory
+        self._lifecycle = lifecycle or TaskLifecycleService()
+        self._ledger: AIRunEnvelope | None = None
+
+    @property
+    def ledger(self) -> AIRunEnvelope | None:
+        return self._ledger
+
+    def open(self) -> AIRunEnvelope:
+        """恢复同一 run，或为没有信封的任务建立 v1 运行账本。"""
+        if self._ledger is not None:
+            return self._ledger
+        payload = read_ai_run_envelope((self._task.meta or {}).get(AI_RUN_ENVELOPE_KEY))
+        if payload is None:
+            payload = new_ai_run_envelope(
+                operation_id=str(self._task.id),
+                run_id=str(self._task.id),
+                root_capability_id=self._root_capability(),
+                novel_id=self._novel_id(),
+                request_limit=_TASK_RUN_INTERIM_REQUEST_LIMIT,
+                task=self._identity(),
+                # 旧在途 = 已领取过（attempt > 1）却没有任何信封：历史 provider
+                # 用量不可考，只能标记 legacy 且 usage_complete=false，不回填猜测
+                # 计数。首次领取的任务没有历史请求，从本 attempt 开始完整跟踪。
+                legacy_untracked=int(self._task.attempt or 0) > 1,
+            ).snapshot()
+        else:
+            # 自动 requeue / stale 恢复 / manual resume 继续累计同一 run：只把
+            # 执行载体换成当前 attempt 并重新打开，不重置计数、额度或 deadline。
+            payload = payload.model_copy(
+                update={"task": self._identity(), "status": AIRunStatus.running}
+            )
+        self._ledger = AIRunEnvelope(payload, on_change=self._checkpoint)
+        self._store(self._ledger.snapshot())
+        return self._ledger
+
+    async def converge(self) -> dict[str, Any] | None:
+        """把未 settle 请求收敛为 unknown/possible，返回 running 快照。"""
+        if self._ledger is None:
+            return None
+        await self._ledger.mark_in_flight_unknown()
+        return self._snapshot()
+
+    async def finish(self, status: AIRunStatus) -> dict[str, Any] | None:
+        """进入终态并返回终态快照，供 finalize 在同一事务内合并。"""
+        if self._ledger is None:
+            return None
+        try:
+            await self._ledger.finish(status)
+        except AIRunEnvelopeError:
+            logger.warning(
+                "Task %s run envelope was already finished; keeping its snapshot",
+                self._task.id,
+            )
+        return self._terminal_snapshot()
+
+    def _terminal_snapshot(self) -> dict[str, Any] | None:
+        """终态 run 不再持有 lease，回执里也不得声称仍持有。"""
+        snapshot = self._snapshot()
+        if snapshot is None:
+            return None
+        task_identity = snapshot.get("task")
+        if isinstance(task_identity, dict) and task_identity.get("lease_id"):
+            snapshot["task"] = {**task_identity, "lease_id": None}
+        return snapshot
+
+    async def persist(self) -> bool:
+        """立即写入当前快照；lease 丢失时返回 False 且不落库。"""
+        snapshot = self._snapshot()
+        if snapshot is None:
+            return False
+        return await self._persist_payload(snapshot)
+
+    def _snapshot(self) -> dict[str, Any] | None:
+        if self._ledger is None:
+            return None
+        return self._ledger.snapshot().model_dump(mode="json")
+
+    async def _checkpoint(self, snapshot: AIRunEnvelopeV1) -> None:
+        """账本变更回调：只写私有 meta，不提交 handler 的业务事务。"""
+        self._store(snapshot)
+        if snapshot.status is not AIRunStatus.running:
+            # 终态快照由 finalize 与任务终态原子合并，这里不单独落库。
+            return
+        try:
+            await self._persist_payload(snapshot.model_dump(mode="json"))
+        except Exception as error:
+            # 一次 checkpoint 失败不能让 provider 调用失败；计数仍留在内存
+            # 账本中，后续变更或 finalize 会再次尝试持久化。
+            logger.warning(
+                "Task %s run envelope checkpoint failed: %s",
+                self._task.id,
+                type(error).__name__,
+            )
+
+    async def _persist_payload(self, payload: dict[str, Any]) -> bool:
+        async with self._session_factory() as session:
+            accepted = await self._lifecycle.checkpoint_run_envelope(
+                session,
+                task_id=self._task.id,
+                lease_id=self._lease_id,
+                envelope=payload,
+            )
+            if accepted:
+                await session.commit()
+            else:
+                await session.rollback()
+            return accepted
+
+    def _store(self, snapshot: AIRunEnvelopeV1) -> None:
+        meta = dict(self._task.meta or {})
+        meta[AI_RUN_ENVELOPE_KEY] = snapshot.model_dump(mode="json")
+        self._task.meta = meta
+
+    def _identity(self) -> AITaskIdentityV1:
+        return AITaskIdentityV1(
+            task_id=str(self._task.id),
+            attempt=max(int(self._task.attempt or 0), 0),
+            lease_id=self._lease_id or None,
+        )
+
+    def _novel_id(self) -> str:
+        if self._task.novel_id is None:
+            return _TASK_RUN_GLOBAL_NOVEL_ID
+        return str(self._task.novel_id)
+
+    def _root_capability(self) -> str:
+        declared = (
+            self._registry.get_root_capability(self._task.task_type)
+            if self._registry is not None
+            else None
+        )
+        if declared:
+            return declared
+        token = safe_receipt_token(
+            f"{_TASK_RUN_FALLBACK_CAPABILITY_PREFIX}{self._task.task_type}",
+            limit=160,
+        )
+        return token or f"{_TASK_RUN_FALLBACK_CAPABILITY_PREFIX}unknown"
 
 
 class TaskWorker:
@@ -430,8 +631,16 @@ class TaskWorker:
         session.set_task_progress_checkpoint_hook(
             lambda: self._checkpoint_handler_progress(task, lease_id)
         )
+        # 运行信封由持有持久化通道的领取方创建；直接调用 _execute_task 的
+        # 内存级单元测试不承担该依赖。
+        keeper = TaskRunEnvelopeKeeper(
+            task=task,
+            lease_id=lease_id,
+            registry=self._registry,
+            session_factory=self._db_manager.session_factory,
+        )
         try:
-            await self._execute_task(task, session)
+            await self._execute_task(task, session, keeper=keeper)
         finally:
             await session.close()
         async with self._db_manager.session_factory() as reload_session:
@@ -519,17 +728,21 @@ class TaskWorker:
         self,
         task: AsyncTask,
         session: AsyncSession,
+        *,
+        keeper: TaskRunEnvelopeKeeper | None = None,
     ) -> bool:
         # Do not trust task.meta merely because it contains a UUID-shaped value.
         # The composition-root preflight uses a project facade lookup, which binds
         # the canonical ID only after the active-project check succeeds.
         with novel_log_scope():
-            return await self._execute_task_in_scope(task, session)
+            return await self._execute_task_in_scope(task, session, keeper=keeper)
 
     async def _execute_task_in_scope(
         self,
         task: AsyncTask,
         session: AsyncSession,
+        *,
+        keeper: TaskRunEnvelopeKeeper | None = None,
     ) -> bool:
         """执行任务的完整生命周期"""
         self._stats["processed"] += 1
@@ -549,6 +762,7 @@ class TaskWorker:
         with managed_llm_provenance_scope() as managed_llm_steps:
             definition = None
             terminal_recovery_policy: str | None = None
+            run_envelope: AIRunEnvelope | None = None
             try:
                 definition = self._registry.get_definition(task.task_type)
                 if definition is not None:
@@ -579,6 +793,12 @@ class TaskWorker:
                         if isinstance(session, _TaskHandlerSession):
                             session.end_task_preflight()
 
+                # 私有运行信封：恢复同一 run 或为旧在途任务建立 v1 账本，
+                # 并在 handler 执行前先落一次 lease-fenced 快照。
+                if keeper is not None:
+                    run_envelope = keeper.open()
+                    await keeper.persist()
+
                 logger.info(
                     "Executing task %s (type=%s, novel_id=%s) with handler %s",
                     task.id,
@@ -588,7 +808,12 @@ class TaskWorker:
                 )
 
                 # 执行任务处理器
-                with llm_transport_retry_scope(
+                run_scope = (
+                    ai_run_scope(run_envelope)
+                    if run_envelope is not None
+                    else nullcontext()
+                )
+                with run_scope, llm_transport_retry_scope(
                     enabled=not bool(definition and definition.retry_transient_llm_errors)
                 ):
                     result = (
@@ -608,13 +833,20 @@ class TaskWorker:
                         result_data,
                         managed_llm_steps,
                     )
+                finalize_kwargs: dict[str, Any] = {
+                    "task_id": task.id,
+                    "lease_id": lease_id,
+                    "status": "done",
+                    "result_data": result_data,
+                }
+                if keeper is not None:
+                    finalize_kwargs["envelope"] = await keeper.finish(
+                        AIRunStatus.succeeded
+                    )
                 accepted = await self._finalize_task(
                     session,
                     task=task,
-                    task_id=task.id,
-                    lease_id=lease_id,
-                    status="done",
-                    result_data=result_data,
+                    **finalize_kwargs,
                 )
                 if accepted:
                     self._stats["succeeded"] += 1
@@ -642,13 +874,20 @@ class TaskWorker:
                     else None
                 )
                 await session.rollback()
+                cancelled_kwargs: dict[str, Any] = {
+                    "task_id": task.id,
+                    "lease_id": lease_id,
+                    "status": "cancelled",
+                    "result_data": failure_result,
+                }
+                if keeper is not None:
+                    cancelled_kwargs["envelope"] = await keeper.finish(
+                        AIRunStatus.cancelled
+                    )
                 accepted = await self._finalize_task(
                     session,
                     task=task,
-                    task_id=task.id,
-                    lease_id=lease_id,
-                    status="cancelled",
-                    result_data=failure_result,
+                    **cancelled_kwargs,
                 )
                 if accepted:
                     self._stats["cancelled"] += 1
@@ -662,29 +901,44 @@ class TaskWorker:
                 )
 
             except Exception as e:
-                requeue = terminal_recovery_policy is None and (
-                    _should_auto_requeue_handler_failure(task)
-                )
-                failure_result = (
-                    merge_managed_llm_provenance(
-                        _handler_failure_result(task, requeued=requeue),
-                        managed_llm_steps,
-                    )
-                    if managed_llm_steps
-                    else _handler_failure_result(task, requeued=requeue)
-                )
-                await session.rollback()
-                if (
+                transient_requeue = bool(
                     definition is not None
                     and definition.retry_transient_llm_errors
                     and is_retryable_llm_error(e)
                     and int(task.attempt or 0) < int(task.max_attempts or 1)
-                ):
+                )
+                # retry_transient_llm_errors 的任务拥有自己的 LLM 重试决策：
+                # 非 transient 的 LLM 错误不得再被通用 handler-error 分支重排；
+                # 普通非 LLM 错误的 auto_requeue 语义保持不变。
+                requeue = terminal_recovery_policy is None and (
+                    not _llm_error_uses_task_policy(definition, e)
+                    and _should_auto_requeue_handler_failure(task)
+                )
+                failure_result = (
+                    merge_managed_llm_provenance(
+                        _handler_failure_result(
+                            task,
+                            requeued=requeue or transient_requeue,
+                        ),
+                        managed_llm_steps,
+                    )
+                    if managed_llm_steps
+                    else _handler_failure_result(
+                        task,
+                        requeued=requeue or transient_requeue,
+                    )
+                )
+                await session.rollback()
+                if transient_requeue:
                     accepted = await self._requeue_transient_failure(
                         session,
                         task=task,
                         task_id=task.id,
                         lease_id=lease_id,
+                        result_data=failure_result,
+                        envelope=(
+                            await keeper.converge() if keeper is not None else None
+                        ),
                     )
                     attempt_accepted = accepted
                     logger.warning(
@@ -701,6 +955,14 @@ class TaskWorker:
                     "result_data": failure_result,
                     "error_message": _public_task_error_message(e),
                 }
+                if keeper is not None:
+                    finalize_kwargs["envelope"] = (
+                        # 任务回到 pending：同一 run 继续累计，只把本 attempt
+                        # 未 settle 的请求收敛为 unknown/possible。
+                        await keeper.converge()
+                        if requeue
+                        else await keeper.finish(AIRunStatus.failed)
+                    )
                 if terminal_recovery_policy is not None:
                     finalize_kwargs["recovery_policy"] = terminal_recovery_policy
                 accepted = await self._finalize_task(
@@ -743,11 +1005,31 @@ class TaskWorker:
         task: AsyncTask,
         task_id: Any,
         lease_id: str,
+        result_data: dict[str, Any] | None,
+        envelope: dict[str, Any] | None,
     ) -> bool:
+        """Persist this attempt's receipt, then release the lease in one transaction.
+
+        The narrow lease-fenced checkpoint and the requeue share a transaction,
+        so the receipt and the private run envelope become durable exactly when
+        the attempt stops owning the lease; a lost lease writes neither.
+        """
         if isinstance(session, _TaskHandlerSession):
             session.disable_task_commit_hook()
         if self._task_commit_guard is not None and not await self._task_commit_guard(
             session, task
+        ):
+            await session.rollback()
+            return False
+        task.result = result_data
+        if envelope is not None:
+            meta = dict(task.meta or {})
+            meta[AI_RUN_ENVELOPE_KEY] = envelope
+            task.meta = meta
+        if not await self._lifecycle.checkpoint_running_attempt(
+            session,
+            task=task,
+            lease_id=lease_id,
         ):
             await session.rollback()
             return False

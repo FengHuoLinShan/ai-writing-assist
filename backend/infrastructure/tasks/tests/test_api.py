@@ -192,6 +192,51 @@ async def test_task_status_hides_operation_fingerprint(
 
 
 @pytest.mark.asyncio
+async def test_task_status_hides_private_run_envelope(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """私有运行信封只存在于 meta，公开 wire 必须继续剥离下划线键。"""
+    novel_id = str(uuid.uuid4())
+    await _add_project(db_session, novel_id)
+    task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="writing_generate",
+        status="running",
+        meta={
+            "novel_id": novel_id,
+            "chapter_index": 3,
+            "_ai_run_envelope": {
+                "version": 1,
+                "run_id": "run-must-not-leak",
+                "operation_id": "run-must-not-leak",
+                "root_capability_id": "writing.generate",
+                "novel_id": novel_id,
+                "started_at": "2026-09-15T00:00:00Z",
+                "request_limit": 8,
+                "requests_started": 2,
+                "prompt": "must-not-leak",
+            },
+        },
+        result={"ok": True},
+    )
+    db_session.add(task)
+    await db_session.flush()
+
+    response = await async_client.get(
+        f"/api/tasks/{task.id}",
+        params={"novel_id": novel_id},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["meta"] == {"novel_id": novel_id, "chapter_index": 3}
+    assert response.json()["result"] == {"ok": True}
+    assert "_ai_run_envelope" not in response.text
+    assert "run-must-not-leak" not in response.text
+    assert "must-not-leak" not in response.text
+
+
+@pytest.mark.asyncio
 async def test_cancel_task_requires_matching_novel_id(
     async_client: AsyncClient,
     db_session: AsyncSession,
