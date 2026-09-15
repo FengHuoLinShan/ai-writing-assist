@@ -3,14 +3,14 @@ id: T-20260914-knowledge-governance
 title: 全产品知识治理：全知导演、最小知情生成、独立复核
 status: completed
 created: 2026-09-14T00:00:00+08:00
-updated: 2026-09-15T09:24:00+08:00
+updated: 2026-09-15T09:32:01+08:00
 ---
 
 # 全产品知识治理：全知导演、最小知情生成、独立复核
 
 ## 恢复快照
 
-- **最终状态（2026-09-15）**：M0–M12 全部完成；知识治理覆盖 Writing、World、Story、Imports、Map、Interaction/RP、Assistant 与检查类能力，统一采用门禁和前端双分区/阶段/阻断展示已落地。全量 CI、专用 PostgreSQL、完整 functional Playwright、文档门禁及 DeepSeek v4 Flash 最小真实审查均通过；仅本地工作树，未 commit/push/部署。
+- **最终状态（2026-09-15）**：M0–M12 全部完成；知识治理覆盖 Writing、World、Story、Imports、Map、Interaction/RP、Assistant 与检查类能力，统一采用门禁和前端双分区/阶段/阻断展示已落地。全量 CI、专用 PostgreSQL、完整 functional Playwright、文档门禁及 DeepSeek v4 Flash 最小真实审查均通过；提交 `21ddd6f0a` 已经本次整理合入本地 `main`，未 push/部署。
 
 - 实际完成：分支 `codex/knowledge-governance`（基线 4db3df9b6）；**M0–M4、M8、M11-AST、M5 主体已完成**。M5 已落地：新模块 `modules/world/services/worldbuilding/knowledge_governance.py`（`govern_world_output` audit+≤1返修+复审、`world_scope_entries`（source_refs+rendered_context→scope receipt，全票 required，author_messages 不入知识源）、`serialize_governed_output`、`require_knowledge_review_passed` 门禁 helper、`knowledge_blocked_reply`）；generation center 六入口接线（core entity/existing page/new page 建议 → `_govern_structured`（返修=同 schema 决策守卫重跑，回执进 payload `knowledge_review` 字段——`CoreEntityDraftSuggestionPayload`/`WorldBiblePageDraftSuggestionPayload` 尾部加字段）；chat → `_govern_text`（blocked 换阻断说明）；design_iteration → blocked 抛 400 不建 checkpoint；converge/explore → blocked 整体扣留；semantic_inspection → blocked 抛 400 不落诊断）；Ask World `_govern_answer`（blocked → no_answer 形态，`AskWorldResponse.knowledge_review`）；synopsis `_govern_synopsis`（audit-only，blocked 版本不晋升 ready，回执进 generation_meta_json）；采用门禁三处（`SuggestionQueueService.confirm`/`apply_world_generation_page_draft` 的 `_require_knowledge_review_passed`——world_bible_page_draft 恒管、core_entity* 仅 source_module=="world"、payload 带 knowledge_review 键即管；作者改写 page apply 标记 `author_edited: True`；`adoption_package_service.apply` 单点覆盖 package/focused/review resolution）；六个响应 schema + AskWorldResponse 尾部加 `knowledge_review` 字段；测试基建 `modules/world/tests/governance_fakes.py`（`GovernedWorldAuditMixin`，`audit_verdicts` 队列驱动 blocked/返修路径；假 client 的 `generate_structured` 对 AuditVerdictOutput 分流且不计入 `requests` 断言序列——已应用到 `_FakeWorldGenerationClient`/`_FakeSynopsisClient`/cocreation `_FakeChatClient`/prompt_templates `_FakeLLMClient`）。
 - M6 已落地：**P20**——`p20_service.py` 返修 `range(3)`→`range(2)`（初稿→一次返修→终审，仍失败抛 P20SemanticAuditError）；`P20GenerationService.last_knowledge_review`（`_knowledge_review_payload`：policy_version/capability="story.outline.p20"/status/audit_rounds/revisions/context_fingerprint）经 `ai_workflow_service.generate_layer_for_task` 进 task_result；`P20ApplyService.apply` 门禁（receipt 非 passed → P20ConflictError「旧版本任务；请重新生成」）。三审计本就读权威包（plan.context）。**card/reaction/script previews**——`StoryGenerationService._govern_preview`（minimal receipt：compiled_context+scene_context 两条 entry；audit→blocked 时同 schema 返修→复审；unverifiable 不返修直接 blocked 回执）；`CardPreview/ReactionPreview/ScriptPreview` 尾部加 `knowledge_review` 字段；one_click 复用三个已治理 preview 自动覆盖。**总纲**——`story_outline_generation.generate_for_task` 返回值附 knowledge_review；`story_outline_service.apply_generated_preview` allowlist 加 knowledge_review + 门禁（非 passed → StoryOutlineConflictError）。**scene fusion**——既有「候选→确定性检查→≤1返修→失败抛错」结构保持，semantic_meta 附 receipt（capability="story.scene_fusion"）。`story.outline.analyze` 并入 M9 检查类。
@@ -26,7 +26,7 @@ updated: 2026-09-15T09:24:00+08:00
 - 当前里程碑：M12 已完成，任务关闭。
 - 下一步：无；如需交付 Git/远端/生产，须另行授权 commit、push、PR 或部署。
 - 阻塞：无。
-- 工作区：`/Users/tywww/Desktop/项目/ai-writing-assist`，分支 `codex/knowledge-governance`，全部改动不 commit/push/部署。
+- 工作区：`/Users/tywww/Desktop/项目/ai-writing-assist`，提交 `21ddd6f0a` 已合入本地 `main`；未 push/部署。
 - 最后核实：2026-09-15（`make test-ci TEST_WORKERS=2`、专用 PostgreSQL critical、完整 functional Playwright、DeepSeek v4 Flash PASS 路径均通过）。
 
 ## 目标与验收
@@ -96,7 +96,7 @@ updated: 2026-09-15T09:24:00+08:00
 
 ## 交付结果
 
-- 已交付：M0–M12 全部实现与验证（本地工作树，未提交）。
-- 未交付：无任务内实现项；Git 提交、推送、PR 与部署不在授权范围内。
-- 交付边界：仅本地工作树，不 commit/push/部署。
+- 已交付：M0–M12 全部实现、验证并以提交 `21ddd6f0a` 合入本地 `main`。
+- 未交付：推送、PR 与部署不在授权范围内。
+- 交付边界：已本地提交并合入 `main`；未 push/部署。
 - 正式知识与后续任务：ADR-0025（Accepted / Implemented）；Prompt体系设计.md 与受影响模块权威文档已同步。
