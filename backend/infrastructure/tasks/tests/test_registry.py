@@ -86,6 +86,34 @@ class TestTaskRegistry:
             )
         assert "test_type" not in registry
 
+    def test_root_capability_is_optional_and_frozen_per_task_type(self) -> None:
+        registry = get_registry()
+
+        async def handler(db, task):
+            return {"ok": True}
+
+        registry.register("test_type", handler, root_capability_id="writing.generate")
+        assert registry.get_root_capability("test_type") == "writing.generate"
+        registry.register("dup_type", handler)
+        assert registry.get_root_capability("dup_type") is None
+        registry.unregister("dup_type")
+        assert "dup_type" not in registry.registered_types
+
+    @pytest.mark.parametrize(
+        "capability",
+        ["", "has space", "bad/slash", "a" * 161, 7],
+        ids=["empty", "space", "slash", "too-long", "not-a-string"],
+    )
+    def test_register_rejects_non_canonical_root_capability(self, capability) -> None:
+        registry = get_registry()
+
+        async def handler(db, task):
+            return {"ok": True}
+
+        with pytest.raises(ValueError, match="root_capability_id"):
+            registry.register("test_type", handler, root_capability_id=capability)
+        assert "test_type" not in registry
+
     def test_duplicate_raises(self) -> None:
         registry = get_registry()
 

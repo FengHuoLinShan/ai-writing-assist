@@ -274,6 +274,23 @@ available_actions`。前端只渲染后端返回的固定 action，不根据 hea
 lifecycle 恢复路径保留原值，但 task status API 永不返回；非下划线公共结果保持原 wire
 shape。业务 handler 不得把前端所需字段放进私有键。
 
+私有 AI 运行信封只写 `meta["_ai_run_envelope"]`（`infrastructure.llm.schemas.AI_RUN_ENVELOPE_KEY`），
+不写 `result`，因此 `story_outline_generate` 等按 result 顶层 exact-key 校验的领域采用路径不受影响；
+`GET /api/tasks/{task_id}` 的 meta/result 投影继续剥离下划线键，不新增公开 wire 字段。
+worker 与 inline 在 handler 执行前为 attempt 注入 `task_id/attempt/lease_id` 并建立或恢复同一 run：
+自动 requeue、stale 恢复与 manual resume 只更换执行载体，不重置累计计数、冻结额度或 deadline；
+inline 子任务复用父 run，不另开账本。快照通过 `TaskLifecycleService.checkpoint_run_envelope()` 的
+窄 lease-fenced merge 落库，只合并该私有键，不提交或覆盖 handler 的业务事务；lease 丢失时拒绝写入。
+终态快照由 `finalize(envelope=...)` 与任务终态在同一事务提交，stale 扫描与 cancel 路径在同一事务内
+把未 settle 的请求收敛为 unknown/possible。没有信封且已领取过一次（`attempt > 1`）的旧在途任务标记
+`legacy_untracked` 且 `usage_complete=false`，不回填猜测计数；首次领取的新任务从本 attempt 开始完整跟踪。
+
+声明 `retry_transient_llm_errors=True` 的任务由 worker 决策 LLM 重试：只有明确分类为 transient 的
+provider 错误才自动重排，且本次 attempt 的失败回执先于 lease 释放、在同一事务内持久化；认证、额度、
+内容过滤与结构错误不再被通用 handler-error 分支重排。普通非 LLM 任务的 `auto_requeue` 语义不变。
+任务一次权威 run 的 canonical capability 用 `TaskRegistry.register(..., root_capability_id=...)` 声明；
+未声明时回退为 `task.<task_type>`，领域一旦在任务内显式绑定 capability，就必须声明同一个 root。
+
 task status/cancel/retry 在查询 task 前通过组合根注入的
 `project.require_active` 检查 query `novel_id`，回收站项目统一返回 404，
 不暴露 task meta/result。通用 submit 保留“模块专属类型/未知类型”的原有
