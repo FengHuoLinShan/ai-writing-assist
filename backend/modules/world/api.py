@@ -2922,6 +2922,30 @@ async def extract_alias_relations(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    frozen_scene_ids = data.scene_ids
+    if frozen_scene_ids is None:
+        from modules.story.facade import get_scenes_by_novel
+
+        scenes = await get_scenes_by_novel(
+            db,
+            data.novel_id,
+            status_filter=["draft", "canonical"],
+        )
+        frozen_scene_ids = [
+            str(scene["id"])
+            for scene in scenes
+            if data.start_chapter
+            <= max(
+                [
+                    int(chapter)
+                    for chapter in scene.get("chapter_ids") or []
+                    if str(chapter).isdigit()
+                ]
+                or [int(scene.get("scene_index") or 0)]
+            )
+            <= data.end_chapter
+        ]
+
     llm_execution_snapshot = await build_project_llm_execution_snapshot(
         db,
         data.novel_id,
@@ -2935,6 +2959,9 @@ async def extract_alias_relations(
             request_payload=payload,
             meta={
                 **payload,
+                # Freeze an omitted chapter-range selection before enqueue so
+                # the run budget and provider inputs share one exact Scene set.
+                "scene_ids": frozen_scene_ids,
                 "llm_execution_snapshot": llm_execution_snapshot,
             },
         )

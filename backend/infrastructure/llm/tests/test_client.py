@@ -573,7 +573,7 @@ async def test_project_chat_profile_cannot_override_remote_embedding_client(
 async def test_generate_uses_process_concurrency_limiter(monkeypatch) -> None:
     monkeypatch.setattr(
         "infrastructure.llm.limits.get_settings",
-        lambda: _limit_settings(max_concurrent_requests=1),
+        lambda: _limit_settings(max_concurrent_requests=1, rate_limit_per_minute=1),
     )
     first_client = LLMClient()
     second_client = LLMClient()
@@ -1070,6 +1070,71 @@ async def test_different_scopes_share_global_rpm_bucket(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_ai_run_deadline_stops_rate_limit_wait(monkeypatch) -> None:
+    from infrastructure.llm.workflow_budget import AIRunDeadlineExceededError
+
+    monkeypatch.setattr(
+        "infrastructure.llm.limits.get_settings",
+        lambda: _limit_settings(rate_limit_per_minute=1),
+    )
+    limiter = LLMProcessLimiter()
+    await limiter._ensure_ready()
+    limiter._tokens = 0.0
+    envelope = SimpleNamespace(remaining_seconds=lambda: 0.01, run_id="run-rate")
+    monkeypatch.setattr(
+        "infrastructure.llm.workflow_budget.current_ai_run_envelope",
+        lambda: envelope,
+    )
+    called = False
+
+    async def provider() -> None:
+        nonlocal called
+        called = True
+
+    with pytest.raises(AIRunDeadlineExceededError):
+        await limiter.run(provider)
+    assert called is False
+
+
+@pytest.mark.asyncio
+async def test_ai_run_deadline_bounds_semaphore_wait(monkeypatch) -> None:
+    from infrastructure.llm.workflow_budget import AIRunDeadlineExceededError
+
+    monkeypatch.setattr(
+        "infrastructure.llm.limits.get_settings",
+        lambda: _limit_settings(max_concurrent_requests=1),
+    )
+    limiter = LLMProcessLimiter()
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def holder() -> None:
+        entered.set()
+        await release.wait()
+
+    first = asyncio.create_task(limiter.run(holder))
+    await entered.wait()
+    limiter._tokens = 1.0
+    envelope = SimpleNamespace(remaining_seconds=lambda: 0.01, run_id="run-slot")
+    monkeypatch.setattr(
+        "infrastructure.llm.workflow_budget.current_ai_run_envelope",
+        lambda: envelope,
+    )
+    called = False
+
+    async def provider() -> None:
+        nonlocal called
+        called = True
+
+    with pytest.raises(AIRunDeadlineExceededError):
+        await limiter.run(provider)
+    assert called is False
+    assert limiter._tokens == 1.0
+    release.set()
+    await first
+
+
+@pytest.mark.asyncio
 async def test_breaker_state_is_process_local(monkeypatch) -> None:
     monkeypatch.setattr(
         "infrastructure.llm.limits.get_settings",
@@ -1484,9 +1549,12 @@ async def test_generate_structured_masks_dynamic_mapping_keys_in_errors(
 
 
 @pytest.mark.asyncio
-async def test_generate_structured_can_bypass_transport_retries() -> None:
+async def test_generate_structured_without_transport_retries_uses_metred_generate(
+    monkeypatch,
+) -> None:
     client = LLMClient()
     requests: list[LLMCallRequest] = []
+    generate_calls: list[bool] = []
 
     class FakeProvider:
         name = "fake"
@@ -1501,14 +1569,26 @@ async def test_generate_structured_can_bypass_transport_retries() -> None:
                 provider="fake",
             )
 
-    async def forbidden_generate(
+    async def forbidden_retry(*_args, **_kwargs):
+        raise AssertionError("transport retry helper should be bypassed")
+
+    metred_generate = client.generate
+
+    async def spying_generate(
         self: LLMClient,
         request: LLMCallRequest,
+        *,
+        transport_retries: bool = True,
     ) -> LLMCallResponse:
-        raise AssertionError("client.generate should be bypassed")
+        generate_calls.append(transport_retries)
+        return await metred_generate(request, transport_retries=transport_retries)
 
     client._provider = FakeProvider()  # type: ignore[assignment]
-    client.generate = MethodType(forbidden_generate, client)  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        "infrastructure.llm.client.retry_with_backoff",
+        forbidden_retry,
+    )
+    client.generate = MethodType(spying_generate, client)  # type: ignore[method-assign]
 
     result = await client.generate_structured(
         LLMCallRequest(
@@ -1521,6 +1601,7 @@ async def test_generate_structured_can_bypass_transport_retries() -> None:
     )
 
     assert result.value == "direct"
+    assert generate_calls == [False]
     assert len(requests) == 1
 
 

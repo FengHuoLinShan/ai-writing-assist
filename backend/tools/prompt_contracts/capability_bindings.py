@@ -27,6 +27,7 @@ _CALL_NAME_MARKERS = frozenset(
 _ATTRIBUTE_MARKERS = frozenset(
     {
         "generate_structured",
+        "research",
     }
 )
 
@@ -39,6 +40,10 @@ EXEMPT_FILES = frozenset(
         "infrastructure/llm/client.py",
         "infrastructure/llm/agent_runtime.py",
         "infrastructure/llm/native_search.py",
+        # 跨能力知识治理 helper：director/audit 的 step capability 由调用方
+        # policy.capability_id 在运行期归属（等于宿主 run root），文件本身
+        # 不拥有独立业务能力；真实格式修复在 infrastructure/llm/client.py。
+        "modules/evidence/compilation/knowledge/workflow.py",
     )
 )
 
@@ -47,7 +52,10 @@ EXEMPT_FILES = frozenset(
 CAPABILITY_BINDINGS: dict[str, tuple[str, ...]] = {
     # Writing
     "modules/writing/services.py": ("writing.generate",),
-    "modules/writing/semantic_review.py": ("writing.semantic_review",),
+    "modules/writing/semantic_review.py": (
+        "writing.semantic_review",
+        "writing.targeted_revision",
+    ),
     "modules/writing/conflict_ai.py": (
         "writing.conflict_check.ai_review",
         "writing.conflict_check.ai_suggestion",
@@ -59,8 +67,6 @@ CAPABILITY_BINDINGS: dict[str, tuple[str, ...]] = {
         "world.generation.convergence",
         "world.generation.exploration",
         "world.generation.semantic_inspection",
-    ),
-    "modules/world/services/worldbuilding/cocreation_session_service.py": (
         "world.generation.design_iteration",
     ),
     "modules/world/services/worldbuilding/ask_world_service.py": ("world.ask",),
@@ -71,10 +77,11 @@ CAPABILITY_BINDINGS: dict[str, tuple[str, ...]] = {
         "world.validation",
     ),
     "modules/world/entity_fusion.py": ("world.entity_fusion",),
-    "modules/world/tasks.py": ("world.alias_relations.extract",),
     "modules/world/map_atlas_workflow.py": (
+        "world.map_atlas.generate",
         "world.map_atlas.plan",
         "world.map_image_prompt",
+        "world.map_image.generate",
     ),
     "modules/world/map_structure_workflow.py": ("world.map_structure.generate",),
     "modules/world/map_structure_images.py": ("world.map_image_prompt",),
@@ -109,7 +116,10 @@ CAPABILITY_BINDINGS: dict[str, tuple[str, ...]] = {
     "modules/imports/review_resolution.py": ("imports.review_resolution",),
     "modules/imports/targeted_completion.py": ("imports.targeted_completion",),
     # Interaction / RP
-    "modules/interaction/tasks.py": ("interaction.story_generate",),
+    "modules/interaction/tasks.py": (
+        "interaction.story_generate",
+        "interaction.summary_refresh",
+    ),
     "modules/interaction/generation.py": (
         "interaction.story_generate",
         "interaction.summary_refresh",
@@ -125,14 +135,12 @@ CAPABILITY_BINDINGS: dict[str, tuple[str, ...]] = {
     "modules/interaction/proactive.py": ("interaction.continuity_review",),
     # Assistant
     "modules/assistant/service.py": ("assistant.turn",),
+    "modules/assistant/evidence_tools.py": ("assistant.turn",),
     # Evidence 内部 helper（登记为基础设施豁免能力）
     "modules/evidence/compilation/services/retrieval_query_planner.py": (
         "infrastructure.rag_query_planner",
     ),
     "modules/evidence/indexing/reranker.py": ("infrastructure.reranker",),
-    "modules/evidence/compilation/knowledge/workflow.py": (
-        "infrastructure.format_repair",
-    ),
     # 账户连接测试
     "modules/account/settings_service.py": ("infrastructure.account_connection_test",),
     # 检索辅助（不得产出答案/权限/事实）
@@ -145,22 +153,25 @@ CAPABILITY_BINDINGS: dict[str, tuple[str, ...]] = {
     # 导入 LLM 适配层
     "modules/imports/entity_extraction/scene_entity_llm_adapters.py": (
         "imports.entity_extraction",
+        "world.alias_relations.extract",
     ),
     "modules/imports/workflow_llm_adapters.py": (
         "imports.scene_plan",
         "imports.scene_slicing",
+        "imports.scene_enrichment",
+        "imports.scene_fusion",
         "imports.structure_analysis",
     ),
-    # Story 输出解析/修复
-    "modules/story/outline_state/generation/parser.py": ("story.outline.p20",),
+    # Story 输出解析/修复：parser 只服务 deep-import Phase3 结构分析。
+    "modules/story/outline_state/generation/parser.py": ("imports.structure_analysis",),
 }
 
 
 def _file_uses_llm_calls(path: Path) -> bool:
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"))
-    except (OSError, SyntaxError):
-        return False
+    except (OSError, SyntaxError) as exc:
+        raise RuntimeError(f"cannot parse capability binding source: {path}") from exc
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             func = node.func
@@ -199,7 +210,20 @@ def validate_capability_bindings() -> list[ContractIssue]:
         relative = path.relative_to(BACKEND_ROOT).as_posix()
         if relative in EXEMPT_FILES or "/tests/" in f"/{relative}":
             continue
-        if _file_uses_llm_calls(path):
+        try:
+            uses_llm_calls = _file_uses_llm_calls(path)
+        except RuntimeError as exc:
+            issues.append(
+                ContractIssue(
+                    severity="P1",
+                    contract_id="capability_bindings",
+                    code="binding.ast_unreadable",
+                    message=str(exc),
+                    path=relative,
+                )
+            )
+            continue
+        if uses_llm_calls:
             flagged.append(relative)
 
     for relative in flagged:

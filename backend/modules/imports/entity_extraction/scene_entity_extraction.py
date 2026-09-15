@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.redaction import redact_diagnostic
+from modules.imports.admission import propagate_run_envelope_error
 from modules.imports.entity_extraction import scene_entity_config as _phase2_config
 from modules.imports.entity_extraction.scene_entity_alias_relation import (
     AliasRelationExtractionMixin,
@@ -372,6 +373,7 @@ class SceneEntityExtractionService(
                     authorization_snapshot=authorization_snapshot,
                 )
             except Exception as exc:
+                propagate_run_envelope_error(exc)
                 bulk_error_kind = self._error_kind(exc)
                 logger.warning(
                     "Bulk scene entity extraction failed; falling back to "
@@ -612,6 +614,7 @@ class SceneEntityExtractionService(
                     )
                 )
             except Exception as exc:
+                propagate_run_envelope_error(exc)
                 scene_index_value = (
                     scene.get("scene_index")
                     if isinstance(scene, dict)
@@ -1198,6 +1201,7 @@ class SceneEntityExtractionService(
                     **process_kwargs,
                 )
             except Exception as exc:
+                propagate_run_envelope_error(exc)
                 error_kind_value = self._error_kind(exc)
                 error_message = redact_diagnostic(exc, limit=300)
                 failed_scene_indices.append(
@@ -1351,6 +1355,7 @@ class SceneEntityExtractionService(
                         timeout=remaining_s,
                     )
             except Exception as exc:
+                propagate_run_envelope_error(exc)
                 counts["failed"] += 1
                 error_kind_value = self._error_kind(exc)
                 error_message = redact_diagnostic(exc, limit=300)
@@ -1543,6 +1548,7 @@ class SceneEntityExtractionService(
                 "error_message": error_message,
             }
         except Exception as exc:
+            propagate_run_envelope_error(exc)
             error_kind_value = self._error_kind(exc)
             error_message = redact_diagnostic(exc, limit=300)
             logger.warning(
@@ -1572,6 +1578,7 @@ class SceneEntityExtractionService(
                 "error_message": error_message,
             }
         except Exception as exc:
+            propagate_run_envelope_error(exc)
             error_kind_value = self._error_kind(exc)
             error_message = redact_diagnostic(exc, limit=300)
             logger.warning(

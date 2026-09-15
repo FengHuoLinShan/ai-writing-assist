@@ -86,6 +86,34 @@ class TestTaskRegistry:
             )
         assert "test_type" not in registry
 
+    def test_root_capability_is_optional_and_frozen_per_task_type(self) -> None:
+        registry = get_registry()
+
+        async def handler(db, task):
+            return {"ok": True}
+
+        registry.register("test_type", handler, root_capability_id="writing.generate")
+        assert registry.get_root_capability("test_type") == "writing.generate"
+        registry.register("dup_type", handler)
+        assert registry.get_root_capability("dup_type") is None
+        registry.unregister("dup_type")
+        assert "dup_type" not in registry.registered_types
+
+    @pytest.mark.parametrize(
+        "capability",
+        ["", "has space", "bad/slash", "a" * 161, 7],
+        ids=["empty", "space", "slash", "too-long", "not-a-string"],
+    )
+    def test_register_rejects_non_canonical_root_capability(self, capability) -> None:
+        registry = get_registry()
+
+        async def handler(db, task):
+            return {"ok": True}
+
+        with pytest.raises(ValueError, match="root_capability_id"):
+            registry.register("test_type", handler, root_capability_id=capability)
+        assert "test_type" not in registry
+
     def test_duplicate_raises(self) -> None:
         registry = get_registry()
 
@@ -120,3 +148,26 @@ class TestTaskRegistry:
         r2 = get_registry()
         assert r1 is r2
         assert r1 is TaskRegistry()
+
+
+def test_production_root_capabilities_freeze_request_limits() -> None:
+    from app.task_runtime import register_task_handlers
+    from modules.evidence.contracts import CAPABILITY_REGISTRY
+
+    register_task_handlers()
+    registry = get_registry()
+    missing = [
+        task_type
+        for task_type in registry.registered_types
+        if registry.get_root_capability(task_type)
+        and registry.get_definition(task_type).run_request_limit is None
+    ]
+
+    assert missing == []
+    unknown = [
+        (task_type, root)
+        for task_type in registry.registered_types
+        for root in [registry.get_root_capability(task_type)]
+        if root and root not in CAPABILITY_REGISTRY
+    ]
+    assert unknown == []

@@ -11,6 +11,7 @@ from time import monotonic
 from sqlalchemy import select
 
 from core.database import get_manager
+from infrastructure.llm.agent_step_harness import run_managed_structured
 from modules.account.context import bind_principal, reset_principal
 from modules.account.contracts import AccountPrincipal
 from modules.interaction.framing import InteractionStreamFramer
@@ -21,6 +22,7 @@ from modules.interaction.generation import (
     PreparedStoryGeneration,
     PreparedSummaryGeneration,
     story_request,
+    story_stream_step_scope,
     summary_request,
 )
 from modules.interaction.models import (
@@ -271,9 +273,11 @@ async def stream_anonymous_rp_attempt(
                     novel_id=prepared.novel_id,
                 )
                 try:
-                    output = await summary_client.generate_structured(
+                    output = await run_managed_structured(
+                        summary_client,
                         summary_request(prepared),
                         InteractionSummaryOutput,
+                        step_name="interaction.summary.generate",
                         max_fix_attempts=1,
                         diagnostics=[],
                         fix_prompt=(
@@ -310,9 +314,12 @@ async def stream_anonymous_rp_attempt(
             final_usage: dict[str, int] | None = None
             # ADR-0025 held release：匿名演示同样不得在审查通过前输出正文；
             # chunk 只入私有 hold，PASS 后一次性发放全文。
-            async for chunk in client.generate_stream(
-                story_request(prepared),
-                transport_retries=False,
+            async for chunk in story_stream_step_scope(
+                client,
+                client.generate_stream(
+                    story_request(prepared),
+                    transport_retries=False,
+                ),
             ):
                 if await request.is_disconnected():
                     raise InteractionClientDisconnectedError()

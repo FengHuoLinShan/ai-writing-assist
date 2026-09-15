@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError, ValidationError
+from infrastructure.llm.schemas import AI_RUN_ENVELOPE_KEY
 from infrastructure.tasks.facade import (
     cancel_exact_task,
     enqueue_coalesced_task,
@@ -30,8 +31,10 @@ from modules.interaction.repositories import InteractionRepository
 from modules.interaction.runtime_policy import (
     STORY_TASK_TYPES,
     anonymous_rp_execution_snapshot,
+    authorize_interaction_story_continuation,
     clear_private_agent_state,
     is_anonymous_rp_snapshot,
+    new_interaction_story_envelope,
     story_task_type,
 )
 from modules.interaction.schemas import (
@@ -1507,9 +1510,14 @@ class InteractionService:
         attempt.request_kind = "continue"
         attempt.continuation_count += 1
         if not is_anonymous_rp_principal():
+            task_type = story_task_type(dict(attempt.llm_execution_snapshot or {}))
+            await authorize_interaction_story_continuation(
+                attempt,
+                task_type=task_type,
+            )
             task_id = enqueue_task(
                 db,
-                story_task_type(dict(attempt.llm_execution_snapshot or {})),
+                task_type,
                 meta=self._story_task_meta(journey, attempt),
                 novel_id=str(journey.novel_id),
             )
@@ -2339,6 +2347,15 @@ class InteractionService:
         db.add(attempt)
         await db.flush()
         if not is_anonymous_rp_principal():
+            attempt.agent_checkpoint_json = {
+                AI_RUN_ENVELOPE_KEY: new_interaction_story_envelope(
+                    attempt_id=str(attempt.id),
+                    novel_id=str(journey.novel_id),
+                    task_type=story_task_type(dict(llm_execution_snapshot or {})),
+                )
+            }
+            await db.flush()
+        if not is_anonymous_rp_principal():
             task_id = enqueue_task(
                 db,
                 story_task_type(dict(attempt.llm_execution_snapshot or {})),
@@ -2354,12 +2371,16 @@ class InteractionService:
         journey: InteractionJourney,
         attempt: InteractionGenerationAttempt,
     ) -> dict:
-        return {
+        meta = {
             "novel_id": str(journey.novel_id),
             "journey_id": str(journey.id),
             "attempt_id": str(attempt.id),
             "llm_execution_snapshot": dict(attempt.llm_execution_snapshot or {}),
         }
+        envelope = dict(attempt.agent_checkpoint_json or {}).get(AI_RUN_ENVELOPE_KEY)
+        if isinstance(envelope, dict) and envelope:
+            meta[AI_RUN_ENVELOPE_KEY] = envelope
+        return meta
 
     async def _try_start_see_sea(
         self,
@@ -2487,9 +2508,14 @@ class InteractionService:
         attempt.continuation_count += 1
         attempt.error_kind = None
         attempt.error_message = None
+        task_type = story_task_type(dict(attempt.llm_execution_snapshot or {}))
+        await authorize_interaction_story_continuation(
+            attempt,
+            task_type=task_type,
+        )
         task_id = enqueue_task(
             db,
-            story_task_type(dict(attempt.llm_execution_snapshot or {})),
+            task_type,
             meta=self._story_task_meta(journey, attempt),
             novel_id=str(journey.novel_id),
         )

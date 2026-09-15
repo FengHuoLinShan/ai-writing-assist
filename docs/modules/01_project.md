@@ -125,7 +125,7 @@ Outline seam 验证属于当前项目，并以 `chapter_ids` 或 `scene_chunks` 
 与历史等长期作者资产，并分配新 UUID、重写内部引用及复制私有对象/地图媒体；账户凭据、RP、助手
 和任务记录、临时候选、偏好、Context 回执与 RAG 索引均不复制。
 
-项目级智能去重只聚合各资产模块的建议；`schema_version=2` 任务结果同时提供
+项目级智能去重以 `project.smart_dedup` 作为跨 World/Story 的运行父能力，只聚合各资产模块的建议；World 扫描复用 `3 × max_suggestions` 的有界候选前沿，`schema_version=2` 任务结果同时提供
 group 裁决和 legacy suggestions。group apply 必须引用原扫描任务，服务端以任务结果
 校验成员、动作和 execution fingerprint，并以每组 savepoint 保证组内原子、组间
 独立。实体或结构资产的判断、指纹和实际写入仍由 world / outline 拥有。

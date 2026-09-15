@@ -85,6 +85,11 @@ async def _require_llm_execution_snapshot(db, task, meta: dict, novel_id: str) -
     recovery_policy="auto_requeue",
     max_attempts=2,
     retry_transient_llm_errors=True,
+    root_capability_id="story.story_outline.generate",
+    run_request_limit=64,
+    # 1800s 是单个 task attempt 的既有阶段 timeout；auto-requeue 后的
+    # 整个 run 没有既有 wall-clock 上界。
+    run_deadline_seconds=None,
 )
 async def handle_story_outline_generate(db, task):
     """Generate one strict StoryOutline preview without writing domain assets."""
@@ -235,6 +240,8 @@ async def handle_chapter_scene_generate(db, task):
     recovery_policy="auto_requeue",
     max_attempts=2,
     retry_transient_llm_errors=True,
+    root_capability_id="story.outline.analyze",
+    run_request_limit=2,
 )
 async def handle_outline_analyze(db, task):
     """处理确认后的剧情分析任务。"""
@@ -271,6 +278,9 @@ async def handle_outline_analyze(db, task):
     recovery_policy="auto_requeue",
     max_attempts=2,
     retry_transient_llm_errors=True,
+    root_capability_id="story.outline.p20",
+    run_request_limit=64,
+    run_deadline_seconds=None,
 )
 async def handle_outline_generate(db, task):
     """Generate one P20 v2 current-layer preview."""
@@ -353,6 +363,9 @@ async def handle_outline_generate(db, task):
     recovery_policy="auto_requeue",
     max_attempts=2,
     retry_transient_llm_errors=True,
+    root_capability_id="story.scene_fusion",
+    run_request_limit=12,
+    run_deadline_seconds=None,
 )
 async def handle_scene_fusion_preview(db, task):
     from modules.story.outline_state.scene_workbench import SceneWorkbenchService

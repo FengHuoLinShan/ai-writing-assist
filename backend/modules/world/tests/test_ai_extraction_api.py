@@ -43,6 +43,7 @@ async def test_world_alias_relation_extract_enqueues_domain_task_after_confirmat
     async_client: AsyncClient,
     db_session: AsyncSession,
     account_llm_connection: dict,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project_resp = await async_client.post(
         "/api/projects",
@@ -62,6 +63,23 @@ async def test_world_alias_relation_extract_enqueues_domain_task_after_confirmat
     )
     assert confirmation_resp.status_code == 201
     confirmation_id = confirmation_resp.json()["id"]
+    frozen_scene_id = str(uuid.uuid4())
+
+    async def scenes(*_args, **_kwargs):
+        return [
+            {
+                "id": frozen_scene_id,
+                "scene_index": 1,
+                "chapter_ids": [1],
+            },
+            {
+                "id": str(uuid.uuid4()),
+                "scene_index": 4,
+                "chapter_ids": [4],
+            },
+        ]
+
+    monkeypatch.setattr("modules.story.facade.get_scenes_by_novel", scenes)
 
     resp = await async_client.post(
         "/api/world/alias-relations/extract",
@@ -70,7 +88,6 @@ async def test_world_alias_relation_extract_enqueues_domain_task_after_confirmat
             "context_confirmation_id": confirmation_id,
             "start_chapter": 1,
             "end_chapter": 3,
-            "scene_ids": ["scene-a"],
         },
     )
 
@@ -86,7 +103,7 @@ async def test_world_alias_relation_extract_enqueues_domain_task_after_confirmat
     assert task.meta["context_confirmation_id"] == confirmation_id
     assert task.meta["start_chapter"] == 1
     assert task.meta["end_chapter"] == 3
-    assert task.meta["scene_ids"] == ["scene-a"]
+    assert task.meta["scene_ids"] == [frozen_scene_id]
     assert task.meta["llm_execution_snapshot"]["novel_id"] == novel_id
     assert task.meta["llm_execution_snapshot"]["profile_hash"]
 

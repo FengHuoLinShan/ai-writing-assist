@@ -537,6 +537,7 @@ async def dedupe_deep_import_workflow_candidates(
     checkpoint_callback,
     llm_execution_snapshot: dict,
     previous_checkpoint: dict | None = None,
+    workload_manifest_factory=None,
 ) -> dict:
     """Auto-merge only untouched candidates created by one deep import."""
     from modules.world.entity_fusion import WorldEntityFusionService
@@ -548,6 +549,7 @@ async def dedupe_deep_import_workflow_candidates(
         checkpoint_callback=checkpoint_callback,
         llm_execution_snapshot=llm_execution_snapshot,
         previous_checkpoint=previous_checkpoint,
+        workload_manifest_factory=workload_manifest_factory,
     )
 
 

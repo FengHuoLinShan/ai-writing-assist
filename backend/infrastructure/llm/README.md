@@ -121,6 +121,48 @@ owner 当前账户连接，不得被净化为 `unknown`。
 request messages。需要主动裁剪上下文时，应显式使用 `ContextBudgetGuard`。
 本 harness 不实现自治 agent loop、工具自主选择或跨模块业务编排。
 
+### AI 运行信封
+
+`schemas.py` 定义版本化内部契约 `AIRunEnvelopeV1` 与 `AIStepReceiptV1`；
+`workflow_budget.py` 的 `AIRunEnvelope` 是运行期累计账本，`ai_run_scope()` 与
+`managed_step_scope()` 用 ContextVar 把运行身份和当前受管 step 注入调用链。
+一次权威领域运行只有一个 run：自动重试、恢复、requeue 与 manual resume 都累加同一账本，
+只有作者明确续算或确认可能重复扣费时才通过 `authorize_additional_requests()` 增加请求额度，
+且不移动既有 deadline。
+
+所有变更与 `on_change` checkpoint 在同一临界区内串行，持久化顺序与变更顺序一致，旧快照
+不会后写覆盖新状态；回调不得重入同一账本。
+
+账本只保存稳定 ID、计数、哈希与安全错误类型，step 的 profile 摘要按 allowlist 重建，`api_key`、
+完整 endpoint、Prompt 与正文不会进入信封。`requests_started` 是已发出的 provider 请求，
+`requests_settled` 是已取得含 usage 完整回执的请求，`requests_unknown` 是已发出但结果或用量
+证据不完整的请求（超时、中断、取消、崩溃、provider 未返回 usage）。未知用量记 `possible`
+且 `usage_complete=false`，不得写成零；有已知 usage 的失败请求同样记 `recorded`。
+`recent_attempts` 保留最近 256 条摘要（新条目挤掉最旧），溢出计入 `recent_attempts_overflow`，
+总请求、未知请求、重试与 usage 聚合不受影响。预算或 deadline 拒绝发生在任何计数之前，被拒绝的
+调用不产生扣费记录；恢复与进入终态前，未 settle 的请求一律收敛为 unknown/possible，而不是删除
+或当成未请求。自动 retry/requeue/recovery 只能累计同一 run，只有作者确认路径可以增加额度。
+
+文本 provider I/O 由 `LLMClient` 单入口计量：`generate()` 对每次真实请求（含每次 transport
+尝试）reserve 一次，并在取得响应、异常或取消后 settle；关闭 transport retry 的 structured、format
+repair 与 `generate_stream()` 的建流尝试、`research()` 的每个 attempt 都回到同一入口，已开始的
+stream 不自动重放。deadline 到期后不再退避也不再发请求：完整退避 delay 会跨过剩余 deadline 时不
+执行整段 sleep、不发出下一次请求，直接抛出原始错误（structured/format repair 按各自的既有失败
+契约收尾）；进程级 RPM token 与并发 semaphore 的 admission wait 同样受剩余 deadline 约束。
+没有活动信封时重试与 admission 行为均与改造前一致。
+
+checkpoint 是账本权威的一部分：持久化通道失效（租约被拒、DB 故障）时，reserve 在任何计数与
+provider I/O 之前失败关闭（`AIRunCheckpointError`），瞬时故障恢复后自动补写自愈；settle 与收尾
+路径的 checkpoint 失败不回滚已发出请求的落定真相，恢复按上次成功持久化的 in-flight 收敛为
+unknown/possible。`discard()` 用于 provider I/O 前撤销一次预留：活动信封是权威请求闸门，兼容的
+`AgentRunBudget`/`WorkflowBudget` 在其后预留、被拒时由此补偿，任一预算拒绝都不会让另一个账本
+留下部分变更，成功请求在两个账本上各恰好计一次。embedding 与健康检查是首轮非目标。
+
+`root_capability_id` 每 run 唯一；step 的 `step_capability_id` 必须等于 root 或取
+`infrastructure.*`，否则账本拒绝。`managed_llm_steps` 仍是兼容投影：v0 五字段原样可读，
+v1 由 `project_managed_llm_steps()` 从同一信封的 step receipt 派生，v1 细节放在 `ai_run`
+注释块内，不构成第二事实源。
+
 业务 prompt 将稳定角色、规则和 JSON schema 放在消息前缀，把动态 Scene、正文和 Context
 放在最后的数据块，以利用 provider 自动前缀缓存。每次调用仍是独立、无状态的 Chat
 Completions 请求；缓存命中不等于复用同一会话，项目不保存 provider 会话状态。

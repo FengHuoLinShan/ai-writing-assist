@@ -100,13 +100,22 @@ async def open_project_image_client(
     novel_id: str,
     *,
     snapshot: dict[str, Any] | None = None,
+    envelope_capability_id: str | None = None,
 ) -> AsyncIterator[OpenAIImageClient]:
     """Open the owner's fixed GPT Image 2 connection for one project."""
     if snapshot is None:
         _context, profile = await _resolve_profile(db, novel_id)
     else:
         profile = await restore_project_image_runtime_profile(db, novel_id, snapshot)
-    client = OpenAIImageClient(api_key=profile.api_key, timeout=profile.timeout)
+    client = OpenAIImageClient(
+        api_key=profile.api_key,
+        timeout=profile.timeout,
+        **(
+            {"envelope_capability_id": envelope_capability_id}
+            if envelope_capability_id is not None
+            else {}
+        ),
+    )
     try:
         yield client
     finally:

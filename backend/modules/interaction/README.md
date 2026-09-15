@@ -1,5 +1,18 @@
 # interaction — RP 互动旅程
 
+已迁移的连续性复核与摘要任务在领取时冻结各自的 root capability、请求额度和可选 deadline；
+task attempt 恢复沿用同一运行信封，消息树和公开 wire 不暴露私有回执。
+
+故事生成 attempt 的 `length/看海` 续写会换 task id；统一信封以
+`InteractionGenerationAttempt.id` 作为 `run_id`，并在 task 私有 meta 与 attempt 私有
+`agent_checkpoint_json` 双向窄同步。新 task 只恢复同一 attempt 的账本，不重置累计预算；既有
+`AgentRunBudget` 仍保留用于 Agent 工具/web 子预算。每个合法 manual/看海续段只追加一次
+同分段 `author_resume` 额度，不移动 deadline；旧 task 终态不覆盖已转交的新 task 快照。
+旧 pending/awaiting-continue attempt 缺少信封时，以已有 attempt id 建立稳定 run 并标记
+`legacy_untracked/usage_complete=false`；不更换已有 task/attempt ID，也不猜测历史用量。
+已在 `awaiting_continue` 的旧 attempt 不把历史分段当作未消费额度；续段授权后只有新分段
+46（legacy）/29（Agent）次可用额度，而非 92/58。
+
 ## 定位
 
 `interaction` 服务“进入幻想世界”的 RP 用户。它保存不可变消息树、当前分支选择、流式生成

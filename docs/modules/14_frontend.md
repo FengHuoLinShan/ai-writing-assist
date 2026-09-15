@@ -275,6 +275,8 @@ map / rag / outline / settings / project-settings`，其主 DOM 全部由 Vue SF
   显示紧凑摘要，失败或调用方标记 `attentionRequired` 的恢复、重试和确认状态
   默认展开；用户保存状态优先于自动规则。取消终态统一说明为停止后续处理并保留已保存阶段，
   不把任务租约失效表述成远端模型连接已瞬时中断。
+- RP 在 `length` 边界后的手动“继续”与看海自动续段仍展示同一 attempt；换用新 task
+  只是后端恢复载体，前端不显示内部 run/task ID，也不因旧 task 终态覆盖新续段的文本或进度。
 - 作者显式发起的 World/Outline/Writing 长耗时 AI 操作在请求前生成
   `operation_id` 并写入当前项目的页内 workflow 记录。刷新或离开返回只查询原 task；
   404 显示“未找到原任务，请重新开始”，不自动重放不确定提交。进度和结果只在

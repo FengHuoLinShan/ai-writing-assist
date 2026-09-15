@@ -1,5 +1,10 @@
 # Assistant — 项目助手（ADR-0023）
 
+## 统一 AI 运行信封
+
+`assistant_turn` 在 worker 领取时冻结 root capability、请求额度和 30 分钟 deadline；恢复与
+重排累计同一 run。信封只写任务私有元数据，公共响应仍只返回既有结果投影。
+
 Assistant 拥有跨页面讨论、Agent 执行、成组提案与提醒展示；不拥有世界事实、正文、结构、
 RP 历史或领域复核。PydanticAI 仅通过 Project LLM gateway 执行注册工具，内部资料只经
 Evidence 读取；业务写入需具体批次确认与来源重验。

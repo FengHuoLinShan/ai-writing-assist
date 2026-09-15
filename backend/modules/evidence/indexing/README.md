@@ -1,5 +1,8 @@
 # Evidence indexing / 检索与索引子域
 
+索引与 embedding worker 当前不声明 AI 运行信封能力；它们继续沿用既有任务重试、索引新鲜度
+和 owner/`novel_id` 隔离边界，待独立预算模型冻结后再迁移。
+
 ## 定位
 
 Evidence 的 indexing 子域负责从结构化小说知识库和文本片段中检索与当前创作任务相关的信息。

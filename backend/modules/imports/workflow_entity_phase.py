@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.redaction import redact_diagnostic
+from infrastructure.llm.workflow_budget import AIRunEnvelopeError
 from modules.imports.service_phase_artifacts import (
     add_phase_artifact,
     phase2_checkpoint_summary,
@@ -178,6 +179,11 @@ class EntityExtractionPhaseRunner:
                 if phase2_result.get("degraded")
                 else None,
             )
+        except AIRunEnvelopeError:
+            # Budget/deadline/identity failures are admission decisions, not a
+            # degradable domain result.  Let the worker persist the resumable
+            # attempt and surface the author-resume action.
+            raise
         except Exception as exc:
             phase2_failed = True
             await workflow._rollback_after_phase_failure(db, "entity_extraction", exc)
@@ -549,6 +555,7 @@ class EntityExtractionPhaseRunner:
         progress_start: float,
         progress_end: float,
     ) -> dict[str, Any]:
+        from modules.imports.admission import build_entity_fusion_deep_manifest
         from modules.imports.entity_extraction import merge_alias_relation_result
         from modules.world.facade import dedupe_deep_import_workflow_candidates
 
@@ -585,7 +592,15 @@ class EntityExtractionPhaseRunner:
                 previous_checkpoint=(
                     previous_checkpoint if isinstance(previous_checkpoint, dict) else None
                 ),
+                workload_manifest_factory=lambda pair_count: (
+                    build_entity_fusion_deep_manifest(pair_count=pair_count)
+                ),
             )
+        except AIRunEnvelopeError:
+            # Budget/deadline/identity failures are admission decisions, not a
+            # degradable domain result.  Let the worker persist the resumable
+            # attempt and surface the author-resume action.
+            raise
         except Exception as exc:
             if hasattr(db, "rollback"):
                 await db.rollback()

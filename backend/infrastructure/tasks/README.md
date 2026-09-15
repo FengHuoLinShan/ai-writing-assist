@@ -274,6 +274,48 @@ available_actions`。前端只渲染后端返回的固定 action，不根据 hea
 lifecycle 恢复路径保留原值，但 task status API 永不返回；非下划线公共结果保持原 wire
 shape。业务 handler 不得把前端所需字段放进私有键。
 
+私有 AI 运行信封只写 `meta["_ai_run_envelope"]`（`infrastructure.llm.schemas.AI_RUN_ENVELOPE_KEY`），
+不写 `result`，因此 `story_outline_generate` 等按 result 顶层 exact-key 校验的领域采用路径不受影响；
+`GET /api/tasks/{task_id}` 的 meta/result 投影继续剥离下划线键，不新增公开 wire 字段。
+worker 与 inline 在 handler 执行前为 attempt 注入 `task_id/attempt/lease_id` 并建立或恢复同一 run：
+自动 requeue、stale 恢复与 manual resume 只更换执行载体，不重置累计计数、冻结额度或 deadline；
+inline 子任务复用父 run，不另开账本。快照通过 `TaskLifecycleService.checkpoint_run_envelope()` 的
+窄 lease-fenced merge 落库，只合并该私有键，不提交或覆盖 handler 的业务事务；lease 丢失时拒绝写入。
+终态快照由 `finalize(envelope=...)` 与任务终态在同一事务提交，stale 扫描与 cancel 路径在同一事务内
+把未 settle 的请求收敛为 unknown/possible。没有信封且已领取过一次（`attempt > 1`）的旧在途任务标记
+`legacy_untracked` 且 `usage_complete=false`，不回填猜测计数；首次领取的新任务从本 attempt 开始完整跟踪。
+
+声明 `retry_transient_llm_errors=True` 的任务由 worker 决策 LLM 重试：只有明确分类为 transient 的
+provider 错误才自动重排，且本次 attempt 的失败回执先于 lease 释放、在同一事务内持久化；认证、额度、
+内容过滤与结构错误不再被通用 handler-error 分支重排。运行信封自身的拒绝（预算耗尽、deadline、
+身份漂移、缺受管 step、checkpoint 失效）一律失败关闭，不进入任何自动重排；普通非 LLM 任务的
+`auto_requeue` 语义不变。
+任务一次权威 run 的 canonical capability 用 `TaskRegistry.register(..., root_capability_id=...)` 显式
+声明，信封按声明 opt-in：只有声明的任务才建立/恢复账本并在 handler 前做 lease-fenced 落盘（被拒即
+终止旧 attempt）；未声明任务保持改造前行为，不建信封也不标 legacy。没有"未声明回退"能力名；领域
+一旦在任务内显式绑定 capability，就必须声明同一个 root，恢复路径还会校验持久化 run 的 root 与声明
+不漂移。
+声明的任务必须通过 `run_request_limit` 冻结一次 run 的请求额度（静态值，或从任务冻结输入同步
+计算 A 的 callable）；只有领域已有整条 run 的 wall-clock 边界时才声明 `run_deadline_seconds`，
+单 step/provider timeout 不冒充 run deadline。已声明 root 却无法冻结额度会在 provider
+前失败关闭，不得回退到通用临时上限。当前 `evidence_focused_search` 使用 L0=9，并保留各 step
+自身 timeout，不新增 run 总 deadline；
+章节范围导致 Scene 数量运行期才知的 `world_alias_relation_extraction` 暂不声明 root，等待
+Phase 0 估算或分批授权。
+task type 的权威 run 若会跨多个队列行，通过注册的 `run_id` resolver 从冻结 meta 解析
+稳定领域 ID；未声明时仍使用 task id。旧 task 缺少信封但已有跨 task run id 时，首次领取标记
+`legacy_untracked/usage_complete=false`，不把不可考的历史用量写成 0。
+旧 awaiting-continue 的历史分段同样不当作未消费额度；领域从 0 可用额度建立兼容账本，
+再以一条 `author_resume` 授权追加唯一可用的新分段额度。
+Interaction story task 的注册声明还提供一个窄 mirror callback，把队列快照同步到
+`InteractionGenerationAttempt.agent_checkpoint_json`；`length/看海` 续写换 task 时沿用 attempt.id
+的 `run_id`，不另开账本。每个合法 manual/看海续段只追加一次同分段 `author_resume`
+额度，并保留 deadline；旧 task 终态 mirror 发现 attempt 已由更高授权版本的新 task 接管时
+只收口旧队列行，不覆盖新快照。
+mirror 读 attempt 使用 `FOR UPDATE SKIP LOCKED`：运行中 checkpoint 未取得 attempt 锁时在
+provider I/O 前失败关闭；终态与领域 stop/archive 碰撞时不持 task 锁回等 attempt，由已持有
+attempt 的领域事务收口，避免 task→attempt 与 attempt→task 互等。
+
 task status/cancel/retry 在查询 task 前通过组合根注入的
 `project.require_active` 检查 query `novel_id`，回收站项目统一返回 404，
 不暴露 task meta/result。通用 submit 保留“模块专属类型/未知类型”的原有
@@ -283,6 +325,10 @@ task status/cancel/retry 在查询 task 前通过组合根注入的
 submit；其 `meta` 先按该 schema 重建，再在存在 `novel_id` 时执行项目门禁。校验失败的
 422 只返回受控字段位置与错误类型，不回显提交值或动态 mapping key。
 infrastructure 仅依赖 DI 容器键，不 import project 模块。
+
+`manual_resume` 任务若因信封额度耗尽而失败，公开 lifecycle 直接给出 resume；作者点击继续时按
+该 task type 的冻结 L0 追加一次 `author_resume` 授权并增加 `authorization_revision`，不移动 deadline。
+未耗尽额度的普通恢复不扩额，自动 retry/requeue/recovery 永不调用该授权路径。
 
 公开 cancel/retry 都会按 `task_id + novel_id` 锁定任务行后重验状态。cancel 只把
 `pending/running` 写为 `cancelled`；retry 只允许首个合格的 `failed -> pending`，并发后续
@@ -316,8 +362,9 @@ keyed coalescing。新增任务仍需独立证明 scope、合并模式和领域�
 RP max 沿用既有任务、lease、心跳与恢复策略；Interaction handler 通过 Project facade
 传入冻结的900秒客户端超时，不延长失效lease，也不增加重试层数。
 
-专项任务仍使用同一队列：`evidence_focused_search` 属于 Evidence compilation，
-`targeted_completion`、`import_review_resolution` 属于 imports，均通过领域入口提交并使用 manual_resume。
+专项任务仍使用同一队列：`evidence_focused_search` 属于 Evidence compilation，额度为 9，
+不新增 run 总 deadline；`targeted_completion`、`import_review_resolution` 属于 imports，均通过领域入口提交并
+使用 manual_resume，但因运行期规模未冻结暂不建立 AI 运行信封。
 通用 `/api/tasks` 不允许提交它们；状态响应隐藏 meta/result 顶层下划线内部字段。
 查证 checkpoint 不给客户端回传为可修改状态，续查只接受任务标识并重验项目/来源/lease。
 

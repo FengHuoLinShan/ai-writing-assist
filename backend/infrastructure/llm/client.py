@@ -16,9 +16,11 @@ import json
 import logging
 import re
 import typing
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
+from contextlib import contextmanager
 from copy import deepcopy
-from typing import Any, TypeVar
+from dataclasses import replace
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
@@ -32,13 +34,28 @@ from infrastructure.llm.profiles import (
 )
 from infrastructure.llm.providers import get_provider
 from infrastructure.llm.redaction import redact_diagnostic
-from infrastructure.llm.retry import retry_with_backoff
+from infrastructure.llm.retry import (
+    is_retryable_transport_error,
+    retry_delay_crosses_deadline,
+    retry_with_backoff,
+    sleep_before_retry,
+)
 from infrastructure.llm.schemas import (
+    AIRequestOutcome,
+    AIStepCallKind,
+    AIStepPurpose,
     LLMCallRequest,
     LLMCallResponse,
     LLMMessage,
     LLMStreamChunk,
+    LLMUsage,
 )
+
+if TYPE_CHECKING:
+    from infrastructure.llm.workflow_budget import (
+        AIRunEnvelope,
+        AIRunRequestReservation,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +64,14 @@ _TRUNCATION_RETRY_MAX_TOKENS = 40000
 _TOKEN_LIMIT_PROXIMITY = 0.95
 _FORMAT_REPAIR_RAW_RESPONSE_LIMIT = 12000
 _FORMAT_REPAIR_ERROR_LIMIT = 4000
+
+# 修复用途同时是重试证据：每个修复请求都算一次对应类型的自动重试，
+# 落在该请求自己的 step receipt 上；transport 重试只记 transport，不重复计修复。
+_PURPOSE_RETRY_KINDS: dict[AIStepPurpose, str] = {
+    AIStepPurpose.schema_repair: "structured",
+    AIStepPurpose.format_repair: "format",
+    AIStepPurpose.semantic_repair: "semantic",
+}
 
 
 class _StructuredParseError(ValueError):
@@ -396,6 +421,135 @@ def _apply_partial_list_validation(
     return normalized
 
 
+@contextmanager
+def _managed_step_overrides(
+    *,
+    call_kind: AIStepCallKind | None = None,
+    purpose: AIStepPurpose | None = None,
+) -> Iterator[None]:
+    """在受管 step 作用域内声明本次 provider 请求的形态与用途。
+
+    没有活动 step 作用域时原样放行：只有运行信封真正要求归属时，缺少 step 上下文
+    才会由账本拒绝，无信封的调用链行为不变。
+    """
+    from infrastructure.llm.workflow_budget import (
+        current_managed_step_context,
+        managed_step_scope,
+    )
+
+    context = current_managed_step_context()
+    if context is None:
+        yield
+        return
+    overrides: dict[str, Any] = {}
+    if call_kind is not None and context.call_kind != call_kind:
+        overrides["call_kind"] = call_kind
+    if purpose is not None and context.purpose != purpose:
+        overrides["purpose"] = purpose
+    if not overrides:
+        yield
+        return
+    with managed_step_scope(replace(context, **overrides)):
+        yield
+
+
+async def _reserve_ai_run_request() -> tuple[
+    AIRunEnvelope | None, AIRunRequestReservation | None
+]:
+    """在活动运行信封中预留一次 provider 请求。
+
+    reserve 发生在真正 provider I/O 之前；账本因预算或 deadline 拒绝时不产生任何计数。
+    没有活动信封时返回 (None, None)，调用链行为与改造前一致。
+    """
+    from infrastructure.llm.workflow_budget import current_ai_run_envelope
+
+    ledger = current_ai_run_envelope()
+    if ledger is None:
+        return None, None
+    return ledger, await ledger.reserve()
+
+
+def _safe_error_kind(error: BaseException | None) -> str:
+    """只使用稳定错误类型；账本会再次脱敏并限长。"""
+    if error is None:
+        return ""
+    kind = getattr(error, "error_kind", "")
+    return str(kind) if kind else type(error).__name__
+
+
+async def _settle_ai_run_request(
+    ledger: AIRunEnvelope | None,
+    reservation: AIRunRequestReservation | None,
+    *,
+    usage: LLMUsage | None,
+    finish_reason: str = "",
+    error: BaseException | None = None,
+) -> None:
+    """落定一次已预留请求；缺 usage 记 unknown/possible，绝不写成零用量。"""
+    if ledger is None or reservation is None:
+        return
+    await ledger.settle(
+        reservation,
+        usage=usage,
+        finish_reason=finish_reason,
+        error_kind=_safe_error_kind(error),
+        retryable=isinstance(error, Exception)
+        and is_retryable_transport_error(error),
+        outcome=(
+            AIRequestOutcome.failed
+            if error is not None and usage is not None
+            else None
+        ),
+    )
+
+
+async def _record_ai_run_retry(
+    ledger: AIRunEnvelope | None,
+    reservation: AIRunRequestReservation | None,
+    *,
+    attempt: int,
+) -> None:
+    """在请求成功预留后累计自动重试次数；被拒绝的请求不计数。
+
+    attempt 是同一 generate() 调用内的第几次 transport 尝试：第 2 次起记 transport
+    重试；首次尝试若承载修复用途，则记该用途对应的 structured/format/semantic 重试。
+    自动重试只累计同一 run 的计数，绝不扩大 request_limit。
+    """
+    if ledger is None or reservation is None:
+        return
+    if attempt > 1:
+        await ledger.record_retry(reservation, kind="transport")
+        return
+    from infrastructure.llm.workflow_budget import current_managed_step_context
+
+    context = current_managed_step_context()
+    kind = _PURPOSE_RETRY_KINDS.get(context.purpose) if context is not None else None
+    if kind is not None:
+        await ledger.record_retry(reservation, kind=kind)
+
+
+async def _settle_pending_ai_run_requests(
+    pending: list[tuple[AIRunEnvelope, AIRunRequestReservation]],
+    *,
+    usage: LLMUsage | None,
+    error: BaseException | None = None,
+) -> None:
+    """按发出顺序落定 reserve 结果；只有最后一次请求可携带聚合 usage。
+
+    多 attempt 协议（例如 native search 的多轮内置搜索）只回报聚合用量，单次请求的
+    用量证据不完整，因此前面的请求记 unknown/possible，聚合值记在最后一次上，
+    既不丢总数也不伪造成单次已知用量。
+    """
+    for index, (ledger, reservation) in enumerate(pending):
+        await _settle_ai_run_request(
+            ledger,
+            reservation,
+            usage=usage if index == len(pending) - 1 else None,
+            error=error,
+        )
+    pending.clear()
+
+
 class LLMClient:
     """LLM 客户端
 
@@ -583,8 +737,12 @@ class LLMClient:
     ) -> LLMCallResponse:
         """执行 LLM 调用（带自动重试）
 
+        这是文本 provider I/O 的唯一计量入口：每次真实 provider 请求（含每次
+        transport 重试）在活动运行信封下恰好 reserve 并 settle 一次。
+
         Args:
             request: 调用请求参数
+            transport_retries: 是否在传输错误后自动重试
 
         Returns:
             LLM 调用响应
@@ -597,16 +755,43 @@ class LLMClient:
         from infrastructure.llm.retry import transport_retries_enabled
         from infrastructure.llm.workflow_budget import current_workflow_budget
 
+        attempts = 0
+
         async def provider_request():
+            nonlocal attempts
+            attempts += 1
             meter = current_workflow_budget()
-            if meter is not None:
-                await meter.before_request()
+            # 活动信封是权威请求闸门：先在信封预留；兼容预算随后预留，若它拒绝，
+            # 立即撤销信封预留。任一预算在 provider I/O 前拒绝时，两个账本都不计数。
+            ledger, reservation = await _reserve_ai_run_request()
+            try:
+                if meter is not None:
+                    await meter.before_request()
+            except BaseException:
+                if ledger is not None and reservation is not None:
+                    await ledger.discard(reservation)
+                raise
+            await _record_ai_run_retry(ledger, reservation, attempt=attempts)
             try:
                 response = await self._provider.generate(resolved_request)
-            except Exception:
+            except Exception as exc:
+                await _settle_ai_run_request(
+                    ledger, reservation, usage=None, error=exc
+                )
                 if meter is not None:
                     await meter.completed(None)
                 raise
+            except BaseException as exc:
+                await _settle_ai_run_request(
+                    ledger, reservation, usage=None, error=exc
+                )
+                raise
+            await _settle_ai_run_request(
+                ledger,
+                reservation,
+                usage=response.usage,
+                finish_reason=response.finish_reason,
+            )
             if meter is not None:
                 await meter.completed(response.usage)
             return response
@@ -643,29 +828,75 @@ class LLMClient:
             LLMStreamChunk: 流式输出片段
         """
         # 流式调用也包装重试，但只在开始前重试
-        # 一旦流开始后断掉，由上层处理
+        # 一旦流开始后断掉，由上层处理；已开始的流禁止自动重放
         resolved_request = self.resolve_request_defaults(request)
         limiter = get_llm_limiter()
         async with limiter.scope(limiter_scope=self._limiter_scope("chat")):
             from infrastructure.llm.retry import transport_retries_enabled
 
+            open_attempts = 0
+
+            async def open_stream():
+                nonlocal open_attempts
+                open_attempts += 1
+                # 只在 reserve/settle 附近声明 call_kind，避免在 yield 期间把
+                # step 覆盖留在消费者同一 task 的上下文里。
+                with _managed_step_overrides(call_kind=AIStepCallKind.stream):
+                    ledger, reservation = await _reserve_ai_run_request()
+                    await _record_ai_run_retry(
+                        ledger, reservation, attempt=open_attempts
+                    )
+                try:
+                    stream = await self._provider.generate_stream(
+                        request=resolved_request,
+                    )
+                except BaseException as exc:
+                    await _settle_ai_run_request(
+                        ledger, reservation, usage=None, error=exc
+                    )
+                    raise
+                return stream, ledger, reservation
+
             if transport_retries and transport_retries_enabled():
-                stream = await retry_with_backoff(
-                    self._provider.generate_stream,
+                stream, ledger, reservation = await retry_with_backoff(
+                    open_stream,
                     max_attempts=self._settings.llm_retry_max_attempts,
                     base_delay=self._settings.llm_retry_base_delay,
                     max_delay=self._settings.llm_retry_max_delay,
-                    request=resolved_request,
                 )
             else:
-                stream = await self._provider.generate_stream(
-                    request=resolved_request,
+                stream, ledger, reservation = await open_stream()
+            final_usage: LLMUsage | None = None
+            finish_reason = ""
+            stream_error: BaseException | None = None
+            try:
+                async for chunk in stream:
+                    if chunk.usage is not None:
+                        final_usage = chunk.usage
+                    if chunk.finish_reason:
+                        finish_reason = chunk.finish_reason
+                    yield chunk
+            except BaseException as exc:
+                # 取消/断流且没有最终 usage：结果证据不完整，记 unknown/possible。
+                stream_error = exc
+                final_usage = None
+                finish_reason = ""
+                raise
+            finally:
+                await _settle_ai_run_request(
+                    ledger,
+                    reservation,
+                    usage=final_usage,
+                    finish_reason=finish_reason,
+                    error=stream_error,
                 )
-            async for chunk in stream:
-                yield chunk
 
     async def research(self, question: str, *, before_request):
-        """Use this account's native search protocol in an isolated request."""
+        """Use this account's native search protocol in an isolated request.
+
+        每个 before_request 对应一次真实 provider 请求；deepseek 分支一次，
+        Kimi 内置搜索分支最多三次，全部按 call_kind=research 计量。
+        """
         from infrastructure.llm.native_search import (
             NativeSearchUnavailableError,
             verified_native_search,
@@ -674,13 +905,38 @@ class LLMClient:
         provider_id = self.profile_summary.get("provider_id", "")
         if verified_native_search(provider_id, self.model_name) is None:
             raise NativeSearchUnavailableError("当前模型尚未提供已适配的原生联网能力。")
+        pending: list[tuple[AIRunEnvelope, AIRunRequestReservation]] = []
+
+        async def metered_before_request() -> None:
+            ledger, reservation = await _reserve_ai_run_request()
+            try:
+                await before_request()
+            except BaseException:
+                if ledger is not None and reservation is not None:
+                    await ledger.discard(reservation)
+                raise
+            if ledger is not None and reservation is not None:
+                pending.append((ledger, reservation))
+
         async with get_llm_limiter().scope(limiter_scope=self._limiter_scope("chat")):
-            return await self._provider.research(
-                provider_id=provider_id,
-                model=self.model_name,
-                question=question,
-                before_request=before_request,
-            )
+            with _managed_step_overrides(call_kind=AIStepCallKind.research):
+                try:
+                    result = await self._provider.research(
+                        provider_id=provider_id,
+                        model=self.model_name,
+                        question=question,
+                        before_request=metered_before_request,
+                    )
+                except BaseException as exc:
+                    run_usage = getattr(exc, "usage", None)
+                    await _settle_pending_ai_run_requests(
+                        pending,
+                        usage=run_usage if isinstance(run_usage, LLMUsage) else None,
+                        error=exc,
+                    )
+                    raise
+        await _settle_pending_ai_run_requests(pending, usage=result.usage)
+        return result
 
     async def generate_structured(
         self,
@@ -729,17 +985,20 @@ class LLMClient:
         last_error_kind: str | None = None
         response: LLMCallResponse | None = None
 
+        from infrastructure.llm.retry import transport_retries_enabled
+
+        # 关闭 transport retry 时同样走 generate() 单入口，不再直连 provider 绕过计量。
+        effective_transport_retries = transport_retries and transport_retries_enabled()
+
         for attempt in range(max_fix_attempts + 1):
             try:
-                from infrastructure.llm.retry import transport_retries_enabled
-
-                if transport_retries and transport_retries_enabled():
-                    response = await self.generate(req)
-                else:
-                    response = await get_llm_limiter().run(
-                        lambda: self._provider.generate(req),
-                        limiter_scope=self._limiter_scope("chat"),
-                    )
+                with _managed_step_overrides(
+                    purpose=AIStepPurpose.schema_repair if attempt else None
+                ):
+                    if effective_transport_retries:
+                        response = await self.generate(req)
+                    else:
+                        response = await self.generate(req, transport_retries=False)
                 finish_reason = getattr(response, "finish_reason", "")
                 completion_tokens = getattr(response.usage, "completion_tokens", 0)
                 max_tokens = req.max_tokens
@@ -878,8 +1137,9 @@ class LLMClient:
                     base_delay=self._settings.llm_retry_base_delay,
                     max_delay=self._settings.llm_retry_max_delay,
                 )
-                if delay > 0:
-                    await asyncio.sleep(delay)
+                # 完整 delay 会跨过活动信封剩余 deadline 时立即停止：
+                # 不执行整段 sleep，也不再发出下一次请求，保留原始错误类型。
+                await sleep_before_retry(delay, last_error=last_error)
                 if error_kind == "truncated_json":
                     original_budget = req.max_tokens
                     req.max_tokens = _expanded_token_budget(req.max_tokens)
@@ -977,13 +1237,13 @@ class LLMClient:
                 ),
             ]
             try:
-                if transport_retries:
-                    response = await self.generate(repair_req)
-                else:
-                    response = await get_llm_limiter().run(
-                        lambda: self._provider.generate(repair_req),
-                        limiter_scope=self._limiter_scope("chat"),
-                    )
+                with _managed_step_overrides(purpose=AIStepPurpose.format_repair):
+                    if transport_retries:
+                        response = await self.generate(repair_req)
+                    else:
+                        response = await self.generate(
+                            repair_req, transport_retries=False
+                        )
                 last_raw_response = redact_diagnostic(response.content)
                 truncated_like = _looks_truncated_response(
                     finish_reason=getattr(response, "finish_reason", ""),
@@ -1031,6 +1291,10 @@ class LLMClient:
                         base_delay=self._settings.llm_retry_base_delay,
                         max_delay=self._settings.llm_retry_max_delay,
                     )
+                    if retry_delay_crosses_deadline(delay):
+                        # 完整 delay 会跨过活动信封剩余 deadline：不 sleep 也不
+                        # 发送下一次格式修复请求，按本循环的失败契约收尾。
+                        break
                     if delay > 0:
                         await asyncio.sleep(delay)
 

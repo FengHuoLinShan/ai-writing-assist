@@ -1,5 +1,11 @@
 # Module: map / 统一地图底座
 
+地图结构与图片任务沿用统一运行信封的 root/额度/deadline；`map_atlas_generate` 以
+`world.map_atlas.generate` 为 canonical parent，并把累计账本镜像到稳定的 MapAtlasRun。
+空间线索只处理确认顺序中的前 20 个已采用地点，与 20 页 AtlasPlan 上限一致；文本规划最多
+51 次请求，图片按已确认页面每页最多 3 次追加授权。图片 provider 的可能扣费、恢复确认和
+页面 CAS 仍由地图状态机决定，确认可能重复扣费使用独立授权原因码。
+
 ## 定位
 
 地图是 world 拥有的作者工作台子系统。一套地图节点同时承载空间示意、图片底图与地点配图。

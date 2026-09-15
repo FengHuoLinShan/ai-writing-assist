@@ -19,6 +19,8 @@ from infrastructure.llm.image_client import (
     GeneratedImage,
     OpenAIImageClient,
 )
+from infrastructure.llm.schemas import AI_RUN_ENVELOPE_KEY, read_ai_run_envelope
+from infrastructure.llm.workflow_budget import new_ai_run_envelope
 from infrastructure.tasks.facade import enqueue_task
 from infrastructure.tasks.models import AsyncTask
 from modules.world.map_atlas_models import MapAtlasNode, MapAtlasPage, MapAtlasRun
@@ -37,6 +39,7 @@ from modules.world.map_atlas_storage import (
     require_matching_mask,
     validate_png,
 )
+from modules.world.map_atlas_tasks import checkpoint_map_atlas_run_envelope
 from modules.world.map_atlas_workflow import (
     _atlas_source_manifest,
     _attempt_object_key,
@@ -1201,6 +1204,160 @@ async def test_create_run_allows_new_run_after_ordinary_partial(
 
     assert result["id"] != str(old.id)
     assert result["status"] == "planning"
+
+
+@pytest.mark.asyncio
+async def test_map_task_authorizes_and_refreshes_a_reused_follower(
+    db_session, test_project_id
+) -> None:
+    run_id = uuid.uuid4()
+    initial = new_ai_run_envelope(
+        operation_id=str(run_id),
+        run_id=str(run_id),
+        root_capability_id="world.map_atlas.generate",
+        novel_id=test_project_id,
+        request_limit=51,
+    ).snapshot().model_dump(mode="json")
+    run = MapAtlasRun(
+        id=run_id,
+        novel_id=uuid.UUID(test_project_id),
+        run_kind="initial",
+        status="generating",
+        context_snapshot={AI_RUN_ENVELOPE_KEY: initial},
+    )
+    db_session.add(run)
+    await db_session.flush()
+    node = MapAtlasNode(
+        novel_id=run.novel_id,
+        created_by_run_id=run.id,
+        semantic_key="world",
+        title="世界",
+        level="world",
+    )
+    db_session.add(node)
+    await db_session.flush()
+    db_session.add(
+        MapAtlasPage(
+            novel_id=run.novel_id,
+            run_id=run.id,
+            node_id=node.id,
+            generation_status="prepared",
+            title="世界",
+            visual_brief="世界地图",
+            prompt="no text",
+        )
+    )
+    await db_session.flush()
+    task_id = str(uuid.uuid4())
+    with (
+        patch(
+            "modules.world.map_atlas_service.enqueue_coalesced_task",
+            autospec=True,
+            return_value=SimpleNamespace(task_id=task_id, reused=True),
+        ) as enqueue,
+        patch(
+            "infrastructure.tasks.facade.update_task_projection",
+            autospec=True,
+            return_value=True,
+        ) as update,
+    ):
+        assert (
+            await MapAtlasService._enqueue_run_task(
+                db_session,
+                test_project_id,
+                run,
+                mode="one_pending_follower",
+            )
+            == task_id
+        )
+
+    task_meta = enqueue.call_args.kwargs["meta"]
+    task_envelope = read_ai_run_envelope(task_meta[AI_RUN_ENVELOPE_KEY])
+    assert task_meta["run_request_limit"] == 3
+    assert task_envelope is not None
+    assert task_envelope.run_id == str(run.id)
+    assert task_envelope.request_limit == 54
+    assert task_envelope.authorization_revision == 1
+    updated_envelope = read_ai_run_envelope(
+        update.call_args.kwargs["meta_patch"][AI_RUN_ENVELOPE_KEY]
+    )
+    assert updated_envelope is not None and updated_envelope.request_limit == 54
+    mirrored = read_ai_run_envelope(run.context_snapshot[AI_RUN_ENVELOPE_KEY])
+    assert mirrored is not None and mirrored.request_limit == 54
+
+
+@pytest.mark.asyncio
+async def test_first_map_task_seeds_the_domain_run_envelope(
+    db_session, test_project_id
+) -> None:
+    run = MapAtlasRun(
+        novel_id=uuid.UUID(test_project_id),
+        run_kind="initial",
+        status="planning",
+        page_limit=20,
+        review_image_prompts=False,
+        context_snapshot={},
+    )
+    db_session.add(run)
+    await db_session.flush()
+    task_id = str(uuid.uuid4())
+    with patch(
+        "modules.world.map_atlas_service.enqueue_coalesced_task",
+        autospec=True,
+        return_value=SimpleNamespace(task_id=task_id),
+    ) as enqueue:
+        await MapAtlasService._enqueue_run_task(
+            db_session,
+            test_project_id,
+            run,
+            mode="reuse_active",
+        )
+
+    task_meta = enqueue.call_args.kwargs["meta"]
+    envelope = read_ai_run_envelope(task_meta[AI_RUN_ENVELOPE_KEY])
+    assert task_meta["run_request_limit"] == 111
+    assert envelope is not None
+    assert envelope.run_id == str(run.id)
+    assert envelope.legacy_untracked is False
+    assert envelope.request_limit == 111
+
+
+@pytest.mark.asyncio
+async def test_map_task_checkpoint_mirrors_the_stable_run(
+    db_session, test_project_id
+) -> None:
+    task = AsyncTask(
+        task_type="map_atlas_generate",
+        novel_id=uuid.UUID(test_project_id),
+        status="running",
+        attempt=1,
+        lease_id=str(uuid.uuid4()),
+        meta={},
+    )
+    db_session.add(task)
+    await db_session.flush()
+    run = MapAtlasRun(
+        novel_id=uuid.UUID(test_project_id),
+        task_id=task.id,
+        run_kind="initial",
+        status="planning",
+        context_snapshot={},
+    )
+    db_session.add(run)
+    await db_session.flush()
+    task.meta = {"novel_id": test_project_id, "run_id": str(run.id)}
+    envelope = new_ai_run_envelope(
+        operation_id=str(run.id),
+        run_id=str(run.id),
+        root_capability_id="world.map_atlas.generate",
+        novel_id=test_project_id,
+        request_limit=51,
+    ).snapshot().model_dump(mode="json")
+
+    await checkpoint_map_atlas_run_envelope(db_session, task, envelope)
+
+    mirrored = read_ai_run_envelope(run.context_snapshot[AI_RUN_ENVELOPE_KEY])
+    assert mirrored is not None and mirrored.run_id == str(run.id)
 
 
 @pytest.mark.asyncio

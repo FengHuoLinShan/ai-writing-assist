@@ -45,6 +45,12 @@ Phase 1c 仅在 `high_quality=true` 时运行：先按窗口批量审阅完整�
 `workflow.py` 仅保留 `DeepImportWorkflowRuntime` 要求的活跃 phase runner seam；
 非 runtime seam 的薄包装/死代码已清理，PhaseRunner DI 大重构不属于本次变更。
 
+完整导入与三个分阶段任务使用 `imports.deep_import` 运行父能力。由于 Scene、问题组和候选对
+由前序模型结果产生，运行不伪造整轮精确上界，而按每次作者授权 256 个 provider 请求分段；
+Phase 0 在首次请求前把当前窗口与未知基数原因写入 `imports.run-admission.v1`。额度用尽保留
+领域 checkpoint 并进入既有恢复状态，只有作者“继续”才追加下一段，自动恢复不增加额度。
+独立 targeted completion 与 review resolution 则从入队授权快照计算完整上界。
+
 ### Phase 0: deterministic plan
 - 不调用 LLM；按章节字符数生成窗口计划、owned range、右侧 overlap 和每窗 token 预算。
 - 计划结果决定 Phase 1a 的输入范围和 `max_tokens`，避免由模型自行决定 batch 边界。

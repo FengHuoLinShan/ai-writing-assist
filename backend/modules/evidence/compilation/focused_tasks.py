@@ -235,7 +235,16 @@ async def resume_focused_search(db, novel_id: str, task_id: str):
     return {"task_id": resumed.task_id, "status": resumed.status}
 
 
-@task_handler(FOCUSED_TASK, recovery_policy="manual_resume", max_attempts=5)
+@task_handler(
+    FOCUSED_TASK,
+    recovery_policy="manual_resume",
+    max_attempts=5,
+    root_capability_id="infrastructure.rag_query_planner",
+    run_request_limit=9,
+    # 30s/600s 是 planner/nomination 单 step timeout；一次查阅可有多个
+    # nomination packet，整条 run 没有既有 wall-clock 上界。
+    run_deadline_seconds=None,
+)
 async def handle_focused_search(db, task):
     require_task_checkpoint_session(db)
     request = FocusedEvidenceRequest.model_validate(

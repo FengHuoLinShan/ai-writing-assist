@@ -42,6 +42,10 @@ ADR-0018 定义同 owner author source revision 到 hidden interaction consumer 
 例外：Writing 保留原文，Evidence 按 manifest/截止点编译，interaction 只保存私人旅程。
 ADR-0024 补充一个不扩张该规则的公开演示 contract：配置精确指定的 ready/fingerprint/manifest
 source 才能被 24 小时匿名 RP consumer 只读使用，临时 Key 只在前台 SSE 请求内存在。
+ADR-0023/ADR-0025 的有界 Agent、canonical capability 和回执约束由统一 AI 运行信封落实：
+任务注册时冻结 root/额度，文本、stream、research 与图片在 provider I/O 单入口计量，
+跨 task 的领域 run 只在既有 JSON checkpoint 镜像账本，不新增表或调度器。Imports 对模型
+产生的规模按作者授权段续算；Map Atlas 复用稳定 MapAtlasRun 身份及原 possible-charge 门禁。
 
 ## 当前读图约定
 

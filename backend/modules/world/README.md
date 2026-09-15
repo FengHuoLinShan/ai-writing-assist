@@ -132,6 +132,10 @@ Prompt 校验外，`/api/world` 与 `/api/world/map-atlas` 的项目级读、写
 - 面向项目级智能去重的实体融合子 facade（`entity_facade.suggest_entity_fusion` /
   `entity_facade.apply_entity_fusion`；root `facade.py` 仅 re-export）
 - imports 专用的 `dedupe_deep_import_workflow_candidates` 只处理同 `workflow_id`、未编辑且仍为 candidate 的两端，复用同一融合判定、指纹重验与软合并。它不改变项目级智能去重、canonical 确认或 HTTP 契约
+- 深度导入准入 manifest 由 Imports 经 facade callback 提供，World 只以单一
+  `ENTITY_FUSION_CHECKPOINT_PAIR_BATCH_SIZE=12` 执行批次 checkpoint。普通项目级融合不生成
+  `task_type=deep_import` manifest。`batch` 和 `pairs_complete` 从已完成 pair 续算，合法尾批可小于
+  12；只有带 `knowledge_review` 的 `decided` 才直接进入 apply。旧 `decided` 缺审查回执时只补 audit，不重放 pair。
 - 世界上下文/检索词典/批次（`EntityContextService`）
 - 实体统计与自动抽取批次查询（`EntityStatsService`）
 - 实体 embedding 回填（`EntityEmbeddingService`）
@@ -357,6 +361,41 @@ PNG 后才进入地图册私有 S3。此例外不改变 imports 的文稿上传�
 - 作者明确选“修订此版”时，生成请求可携带 `revises_suggestion_id`。服务在模型调用前校验同项目、同生成目标且 parent 仍为 pending；模型返回后在同一 request transaction 创建新版并用现有 pending CAS 封存旧版及兼容影子。`result_ref_json.revision_link` 只保存单一 predecessor/successor，并以 typed `revision_link` 投影给读取端；采用、忽略等终态写入不得丢失该关系。“另起方案”不携带 parent，已采用设定的修改仍走既有对象或页面 revision 流程。
 - imports 模块拥有深度导入和阶段化正文抽取的编排、授权快照、Scene 证据与
   candidate 写入契约；world 只提供受控的对象、别名和关系持久化 seam。
+
+## 任务级 AI 运行信封
+
+会发出 provider 请求的生产 task type 在 `TaskRegistry.register` 显式声明 canonical
+`root_capability_id`，worker 才为该任务建立/恢复私有运行账本（`meta["_ai_run_envelope"]`，
+公开 wire 剥离）；声明的任务必须全部经 `run_managed_generate`/`run_managed_structured`
+等受管入口发出请求，裸 `client.generate*` 在活动信封下零 I/O 失败关闭。请求额度
+`run_request_limit` 按 `L0=min(A,H)` 从冻结输入计算：自动 transport/schema/semantic
+retry 与 `auto_requeue` 重放都消耗同一额度，只有作者显式续算才增加；deadline 覆盖
+整个 run（含自动 requeue 的重试 attempt），不因重试或续算移动。
+
+| task type | root capability | 请求额度 L0 | deadline |
+|---|---|---|---|
+| `world_validation` | `world.validation` | `6×min(planned_packets, max_packets)`；提交时冻结进 `meta._validation_plan`，旧在途任务回退 schema 上界 P≤256 即 1536 | per-packet timeout × P × 2 + 60s 退避余量 |
+| `world_alias_relation_extraction` | `world.alias_relations.extract` | API 在入队前把章节范围解析为精确 Scene ID 清单；`4S+6` 覆盖两个 task attempt 及组级知识审查 | 无（保留阶段总时限） |
+| `world_entity_fusion_suggestions` | `world.entity_fusion` | `12M+6`（M=冻结 `max_suggestions`，schema le=200） | 无（仅 provider 180s 边界） |
+| `world_bible_synopsis_refresh` | `world.world_bible.synopsis` | 36 | 无（main/audit 只有各自 step timeout，无既有 run 总时限） |
+| `world_generation_suggestion` | `world.generation.suggestion` | 96 | 3660s（阶段 1800s × 2 attempt + 余量） |
+| `world_cocreation_turn` | `world.generation.cocreation` | chat fast 10 / chat pro 14 / design 24 | 无（每个 provider step 仍受现有 1800s timeout） |
+| `world_map_schematic_generate` | `world.map_structure.generate` | 60（⌈S/5⌉≤4 批 × [U(1,0)+U(2,0)]，S≤20 为 schema 校验器上界；manual_resume 的续跑是新授权动作，额度只覆盖单次 attempt） | 无（manual_resume 恢复不受 frozen deadline 死锁） |
+| `map_atlas_generate` | `world.map_atlas.generate` | 文本规划最多 51；直接生成再预留每页最多 3 次图片请求。Prompt 确认、停止后继续与单页重试只由对应作者动作追加当前图片段 | 无（保留文本/图片 provider 边界） |
+
+`world_bible_projection_refresh` 是确定性投影，无 provider 请求，不声明。Map Atlas 只对
+确认清单中按顺序出现的前 20 个已采用地点抽取空间线索，与 AtlasPlan 的 20 页硬上限一致；
+文本规划、图片生成/编辑共用 `MapAtlasRun.id`，信封镜像保存在 run 私有 context snapshot，
+跨 task 续跑不重置计数。两个清理任务（`map_atlas_storage_cleanup` /
+`world_object_image_cleanup`）同样不声明。`world_cocreation_turn` 使用
+`world.generation.cocreation` 作为 canonical parent；chat/design 的子步骤仍按各自知识
+策略审查，任务信封只记录 parent root，避免同一 task type 因 mode 发生身份漂移。
+图片 generate/edit 的真实 Image API 请求由 `OpenAIImageClient` 单点 reserve/settle：
+step 名稳定为 `world.map_image.render`；独立图片测试使用 `world.map_image.generate`，
+Atlas task 内归属 `world.map_atlas.generate` canonical parent（generate/edit 由 call_kind 区分），
+无活动信封时行为与接线前一致，Map 的
+`provider_in_flight → retry_requires_confirmation → confirm_possible_duplicate_charge`
+补偿语义不变。
 
 ## 数据表
 

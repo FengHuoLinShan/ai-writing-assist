@@ -26,6 +26,12 @@ PydanticAI 通过项目模型适配器复用 gateway、限流、错误分类和�
 
 运行有请求/工具尝试/联网次数、上下文及总时限上限，恢复不重置累计预算。任务、lease、
 CAS、操作回执、取消与错误恢复仍由代码拥有；provider 等待期间不持有数据库事务。
+
+实现统一 `AIRunEnvelopeV1` 作为一次权威 run 的内部账本：任务 worker 在领取时冻结
+`root_capability_id`、L0 请求额度和可选 deadline，auto-requeue、stale 恢复、manual resume
+与 inline 子任务累计同一 run；额度或 checkpoint 拒绝在 provider 前失败关闭。未能在领取前冻结
+规模的 C3 任务不声明 root，待 Phase 0 估算或分批授权后再迁移。信封仅写任务私有 meta，
+不进入公开 task result/wire。
 工具写入执行前重验授权与来源；批次按业务原子组执行，失败阻断依赖，重试不得重复执行。
 
 主动服务需持久化项目级持续授权，按变化合并运行，默认关闭。提醒仅是领域结果的展示投影，

@@ -13,15 +13,31 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.tasks.models import AsyncTask
 from modules.project.models import Project, SmartDedupWorkbenchDecision
 from modules.project.repositories import SmartDedupWorkbenchDecisionRepository
-from modules.project.schemas import SmartDedupApplyRequest
+from modules.project.schemas import SmartDedupApplyRequest, SmartDedupScanRequest
 from modules.project.smart_dedup import (
     SmartDedupService,
     _build_world_groups,
     _validate_group_request,
 )
-from modules.project.tasks import handle_smart_dedup_scan
+from modules.project.tasks import (
+    _smart_dedup_run_request_limit,
+    handle_smart_dedup_scan,
+)
 
 pytestmark = [pytest.mark.asyncio]
+
+
+async def test_smart_dedup_scope_and_run_budget_are_frozen() -> None:
+    with pytest.raises(PydanticValidationError):
+        SmartDedupScanRequest(scopes=["world_entity", "world_entity"])
+    with pytest.raises(PydanticValidationError):
+        SmartDedupScanRequest(scopes=["unsupported"])
+
+    task = SimpleNamespace(meta={"max_suggestions": 300})
+    assert _smart_dedup_run_request_limit(task) == 11_600
+    assert _smart_dedup_run_request_limit(
+        SimpleNamespace(meta={"scopes": ["world_entity"], "max_suggestions": 12})
+    ) == 144
 
 
 async def test_smart_dedup_scan_api_enqueues_task(
@@ -262,7 +278,10 @@ async def test_smart_dedup_scan_sets_recommended_primary(
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    world_options = {}
+
     async def fake_world_suggest(*args, **kwargs):
+        world_options.update(kwargs)
         return {
             "total_entities_scanned": 2,
             "suggestion_count": 1,
@@ -317,6 +336,7 @@ async def test_smart_dedup_scan_sets_recommended_primary(
     assert world["recommended_primary_title"] == "主体世界对象"
     assert outline["recommended_primary_asset_id"] == "target-outline"
     assert outline["recommended_primary_title"] == "主体剧情线"
+    assert world_options["group_before_budget"] is False
 
 
 async def test_smart_dedup_scan_marks_alias_derived_title_conflict_high_risk(
