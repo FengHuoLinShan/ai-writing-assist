@@ -287,9 +287,14 @@ inline 子任务复用父 run，不另开账本。快照通过 `TaskLifecycleSer
 
 声明 `retry_transient_llm_errors=True` 的任务由 worker 决策 LLM 重试：只有明确分类为 transient 的
 provider 错误才自动重排，且本次 attempt 的失败回执先于 lease 释放、在同一事务内持久化；认证、额度、
-内容过滤与结构错误不再被通用 handler-error 分支重排。普通非 LLM 任务的 `auto_requeue` 语义不变。
-任务一次权威 run 的 canonical capability 用 `TaskRegistry.register(..., root_capability_id=...)` 声明；
-未声明时回退为 `task.<task_type>`，领域一旦在任务内显式绑定 capability，就必须声明同一个 root。
+内容过滤与结构错误不再被通用 handler-error 分支重排。运行信封自身的拒绝（预算耗尽、deadline、
+身份漂移、缺受管 step、checkpoint 失效）一律失败关闭，不进入任何自动重排；普通非 LLM 任务的
+`auto_requeue` 语义不变。
+任务一次权威 run 的 canonical capability 用 `TaskRegistry.register(..., root_capability_id=...)` 显式
+声明，信封按声明 opt-in：只有声明的任务才建立/恢复账本并在 handler 前做 lease-fenced 落盘（被拒即
+终止旧 attempt）；未声明任务保持改造前行为，不建信封也不标 legacy。没有"未声明回退"能力名；领域
+一旦在任务内显式绑定 capability，就必须声明同一个 root，恢复路径还会校验持久化 run 的 root 与声明
+不漂移。
 
 task status/cancel/retry 在查询 task 前通过组合根注入的
 `project.require_active` 检查 query `novel_id`，回收站项目统一返回 404，

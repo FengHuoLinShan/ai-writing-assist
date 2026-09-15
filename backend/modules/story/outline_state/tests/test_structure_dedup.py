@@ -668,3 +668,110 @@ async def test_structure_dedup_only_loads_fusion_decisions_for_scene_scope(
     )
 
     assert result["suggestion_count"] == 1
+
+
+async def test_keep_separate_decisions_never_stop_the_scan_or_create_suggestions(
+    db_session: AsyncSession,
+    test_project_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """全部 keep_separate 的最坏路径：每类 pair 都要调用 LLM，不触发全局提前停止。
+
+    W0-B 成本公式依赖该行为：5 类 × 每类 2×outline_budget 个 pair 全部需要
+    一次结构化判定，keep_separate 不写入建议也不消耗建议额度。
+    """
+    from modules.story.outline_state.models import PlotThread
+    from modules.story.outline_state.structure_dedup import (
+        _SUPPORTED_ASSET_TYPES,
+        StructureDedupDecision,
+        _StructureAsset,
+    )
+
+    service = OutlineStructureDedupService(
+        llm_client=mock.MagicMock(model_name="test-model")
+    )
+
+    def _asset(asset_type: str) -> _StructureAsset:
+        return _StructureAsset(
+            asset_type=asset_type,
+            asset_id=str(uuid.uuid4()),
+            title="王都暗线调查",
+            status="draft",
+            chapter_start=1,
+            chapter_end=2,
+            summary="围绕王都连环案展开的调查线。",
+            raw=PlotThread(
+                id=uuid.uuid4(),
+                novel_id=uuid.UUID(hex=test_project_id),
+                name="王都暗线调查",
+                thread_type="main",
+                status="draft",
+            ),
+        )
+
+    assets = {
+        asset_type: [_asset(asset_type), _asset(asset_type)]
+        for asset_type in sorted(_SUPPORTED_ASSET_TYPES)
+    }
+
+    async def stub_load_assets(_db, *, novel_id, limit):
+        del novel_id, limit
+        return assets
+
+    decide_calls = 0
+
+    async def stub_decide(*_args, **_kwargs):
+        nonlocal decide_calls
+        decide_calls += 1
+        return StructureDedupDecision(
+            action="keep_separate",
+            confidence=0.42,
+            reason="标题相同但叙事身份不同",
+        )
+
+    monkeypatch.setattr(service, "_load_assets", stub_load_assets)
+    monkeypatch.setattr(service, "_decide", stub_decide)
+
+    result = await service.suggest(
+        db_session,
+        novel_id=test_project_id,
+        max_suggestions=80,
+    )
+
+    # keep_separate 不写入建议，也不能提前终止扫描：5 类 × 1 对全部被判定。
+    assert decide_calls == len(_SUPPORTED_ASSET_TYPES)
+    assert result["suggestion_count"] == 0
+    assert set(result["scanned_counts"]) == set(_SUPPORTED_ASSET_TYPES)
+
+
+def test_candidate_pairs_cap_limits_each_asset_type() -> None:
+    """每类 pair 数被 max_pairs = 2×max_suggestions 封顶，超出部分不产生 LLM 判定。"""
+    from modules.story.outline_state.models import PlotThread
+    from modules.story.outline_state.structure_dedup import (
+        _SUPPORTED_ASSET_TYPES,
+        _StructureAsset,
+    )
+
+    service = OutlineStructureDedupService()
+
+    def _asset(index: int) -> _StructureAsset:
+        return _StructureAsset(
+            asset_type=_SUPPORTED_ASSET_TYPES[0],
+            asset_id=str(uuid.uuid4()),
+            title="王都暗线调查",
+            status="draft",
+            chapter_start=index,
+            chapter_end=index,
+            summary="围绕王都连环案展开的调查线。",
+            raw=PlotThread(
+                id=uuid.uuid4(),
+                novel_id=uuid.uuid4(),
+                name="王都暗线调查",
+                thread_type="main",
+                status="draft",
+            ),
+        )
+
+    items = [_asset(index) for index in range(20)]
+    pairs = service._candidate_pairs(items, max_pairs=6)
+    assert len(pairs) == 6

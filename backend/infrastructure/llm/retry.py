@@ -111,6 +111,44 @@ def ai_run_deadline_exceeded() -> bool:
     return envelope is not None and envelope.deadline_exceeded()
 
 
+def ai_run_remaining_seconds() -> float | None:
+    """活动运行信封的剩余秒数；没有活动信封时返回 None。"""
+    from infrastructure.llm.workflow_budget import current_ai_run_envelope
+
+    envelope = current_ai_run_envelope()
+    if envelope is None:
+        return None
+    return envelope.remaining_seconds()
+
+
+def retry_delay_crosses_deadline(delay: float) -> bool:
+    """完整退避 delay 是否会跨过活动运行信封的剩余 deadline。
+
+    没有活动信封时恒为 False，行为与改造前完全一致。
+    """
+    if delay <= 0:
+        return False
+    remaining = ai_run_remaining_seconds()
+    return remaining is not None and delay >= remaining
+
+
+async def sleep_before_retry(delay: float, *, last_error: Exception | None) -> None:
+    """下一次重试前的统一退避等待。
+
+    活动 AI 运行信封的剩余 deadline 不足以覆盖完整 delay 时，不执行整段 sleep
+    也不发出下一次请求，立即抛出原始错误以保留原有异常类型；没有活动信封时
+    与改造前完全一致。
+    """
+    if retry_delay_crosses_deadline(delay):
+        if last_error is not None:
+            raise last_error
+        from infrastructure.llm.errors import LLMError
+
+        raise LLMError("retry delay would cross the AI run deadline")
+    if delay > 0:
+        await asyncio.sleep(delay)
+
+
 @contextmanager
 def llm_transport_retry_scope(*, enabled: bool):
     token = _transport_retries_enabled.set(enabled)
@@ -215,7 +253,7 @@ async def retry_with_backoff(
                 jitter,
                 diagnostic,
             )
-            await asyncio.sleep(actual_delay)
+            await sleep_before_retry(actual_delay, last_error=e)
 
     # 理论上不会到这里，但为类型安全保留
     if last_error:

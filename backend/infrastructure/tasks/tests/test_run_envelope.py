@@ -158,7 +158,13 @@ async def test_legacy_in_flight_task_without_envelope_is_marked_untracked(
         del db, task
         return {"ok": True}
 
-    registry.register(task_type, handler, owner_scope="global", recovery_policy=policy)
+    registry.register(
+        task_type,
+        handler,
+        owner_scope="global",
+        recovery_policy=policy,
+        root_capability_id="writing.generate",
+    )
     task_id = uuid.uuid4()
     try:
         async with sessions.begin() as db:
@@ -287,6 +293,7 @@ async def test_non_transient_llm_error_is_not_auto_requeued_for_llm_tasks(
         recovery_policy="auto_requeue",
         max_attempts=3,
         retry_transient_llm_errors=True,
+        root_capability_id="writing.generate",
     )
     task_id = uuid.uuid4()
     try:
@@ -330,6 +337,7 @@ async def test_plain_non_llm_auto_requeue_semantics_are_unchanged(test_engine) -
         owner_scope="global",
         recovery_policy="auto_requeue",
         max_attempts=2,
+        root_capability_id="writing.generate",
     )
     task_id = uuid.uuid4()
     try:
@@ -449,6 +457,7 @@ async def test_cancel_finishes_the_run_without_resetting_counts(test_engine) -> 
         recovery_policy="auto_requeue",
         max_attempts=3,
         retry_transient_llm_errors=True,
+        root_capability_id="writing.generate",
     )
     task_id = uuid.uuid4()
     try:
@@ -718,7 +727,12 @@ async def test_inline_execution_injects_own_run_identity(test_engine) -> None:
         observed["task"] = snapshot.task
         return {"ok": True}
 
-    registry.register(task_type, handler, owner_scope="global")
+    registry.register(
+        task_type,
+        handler,
+        owner_scope="global",
+        root_capability_id="writing.generate",
+    )
     task_id = uuid.uuid4()
     try:
         task_id = await _enqueue(sessions, task_type, meta={})
@@ -796,6 +810,409 @@ async def test_inline_child_reuses_the_active_parent_run(test_engine) -> None:
             assert stored is not None
             # 子任务不建立自己的信封：run 属于父操作。
             assert AI_RUN_ENVELOPE_KEY not in (stored.meta or {})
+    finally:
+        registry.unregister(task_type)
+        await _cleanup(sessions, [task_id])
+
+
+class _FakeLLMProvider:
+    """provider 传输层替身：记录调用次数，从不触网。"""
+
+    name = "fake"
+
+    def __init__(self, content: str = '{"ok": true}') -> None:
+        self.calls = 0
+        self._content = content
+
+    async def generate(self, request):
+        from infrastructure.llm.schemas import LLMCallResponse
+
+        self.calls += 1
+        return LLMCallResponse(
+            content=self._content,
+            finish_reason="stop",
+            model="fake",
+            provider="fake",
+        )
+
+
+def _bare_client(monkeypatch: pytest.MonkeyPatch, provider: _FakeLLMProvider):
+    """把真实 LLMClient（假 provider）交给 handler 的裸调用路径。"""
+    from infrastructure.llm.client import LLMClient
+    from infrastructure.llm.limits import reset_llm_limiter_for_tests
+
+    reset_llm_limiter_for_tests()
+    client = LLMClient()
+    client._provider = provider  # type: ignore[attr-defined]
+    monkeypatch.setattr(
+        "infrastructure.llm.client.get_llm_limiter",
+        lambda: _NullLimiter(),
+    )
+    return client
+
+
+class _NullLimiter:
+    """测试用直通 limiter。"""
+
+    def run(self, call, *, limiter_scope=None):
+        return call()
+
+    async def scope(self, *, limiter_scope=None):
+        import contextlib
+
+        return contextlib.nullcontext()
+
+
+@pytest.mark.asyncio
+async def test_undeclared_task_keeps_pre_envelope_behavior_for_bare_calls(
+    test_engine,
+    monkeypatch,
+) -> None:
+    """未声明 root capability 的任务不建信封，裸 client 调用照常执行。"""
+    from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+
+    sessions = async_sessionmaker(test_engine, expire_on_commit=False, autoflush=False)
+    task_type = f"w21-bare-legacy-{uuid.uuid4().hex}"
+    registry = TaskRegistry()
+    provider = _FakeLLMProvider()
+
+    async def handler(*, db, task):
+        del db
+        assert current_ai_run_envelope() is None
+        client = _bare_client(monkeypatch, provider)
+        try:
+            response = await client.generate(
+                LLMCallRequest(
+                    model="fake",
+                    messages=[LLMMessage(role="user", content="hi")],
+                ),
+                transport_retries=False,
+            )
+            return {"ok": True, "content": response.content}
+        finally:
+            await client.close()
+
+    registry.register(task_type, handler, owner_scope="global")
+    task_id = uuid.uuid4()
+    try:
+        task_id = await _enqueue(sessions, task_type, meta={})
+        returned = await TaskWorker(
+            db_manager=_TaskManager(test_engine, sessions),
+            heartbeat_interval=60.0,
+        ).run_once()
+
+        assert returned is not None and returned.status == "done"
+        assert provider.calls == 1
+        async with sessions() as db:
+            stored = await db.get(AsyncTask, task_id)
+            assert stored is not None
+            # 未迁移任务不创建信封，也不标记 legacy：保持改造前行为。
+            assert AI_RUN_ENVELOPE_KEY not in (stored.meta or {})
+    finally:
+        registry.unregister(task_type)
+        await _cleanup(sessions, [task_id])
+
+
+@pytest.mark.asyncio
+async def test_declared_task_without_managed_step_fails_closed_with_zero_io(
+    test_engine,
+    monkeypatch,
+) -> None:
+    """已声明任务缺受管 step：信封拒绝发生在 provider I/O 之前，失败关闭。"""
+    from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+
+    sessions = async_sessionmaker(test_engine, expire_on_commit=False, autoflush=False)
+    task_type = f"w21-bare-declared-{uuid.uuid4().hex}"
+    registry = TaskRegistry()
+    provider = _FakeLLMProvider()
+
+    async def handler(*, db, task):
+        del db
+        assert current_ai_run_envelope() is not None
+        client = _bare_client(monkeypatch, provider)
+        try:
+            return await client.generate(
+                LLMCallRequest(
+                    model="fake",
+                    messages=[LLMMessage(role="user", content="hi")],
+                ),
+                transport_retries=False,
+            )
+        finally:
+            await client.close()
+
+    registry.register(
+        task_type,
+        handler,
+        owner_scope="global",
+        root_capability_id="interaction.summary_refresh",
+    )
+    task_id = uuid.uuid4()
+    try:
+        task_id = await _enqueue(sessions, task_type, meta={})
+        returned = await TaskWorker(
+            db_manager=_TaskManager(test_engine, sessions),
+            heartbeat_interval=60.0,
+        ).run_once()
+
+        # 零 I/O 失败关闭：provider 从未被调用，任务终态失败且不重排。
+        assert provider.calls == 0
+        assert returned is not None and returned.status == "failed"
+        assert returned.attempt == 1
+        assert "AIManagedStepContextError" in (returned.error_message or "")
+        async with sessions() as db:
+            stored = await db.get(AsyncTask, task_id)
+            assert stored is not None
+            envelope = _stored_envelope(stored)
+            assert envelope is not None
+            assert envelope.status is AIRunStatus.failed
+            assert envelope.requests_started == 0
+    finally:
+        registry.unregister(task_type)
+        await _cleanup(sessions, [task_id])
+
+
+@pytest.mark.asyncio
+async def test_rejected_envelope_persist_before_handler_terminates_the_attempt(
+    test_engine,
+) -> None:
+    """handler 启动前 persist 被租约拒绝：旧 attempt 立即终止，handler 不执行。"""
+    from sqlalchemy import update
+
+    sessions = async_sessionmaker(test_engine, expire_on_commit=False, autoflush=False)
+    task_type = f"w21-stolen-lease-{uuid.uuid4().hex}"
+    registry = TaskRegistry()
+    calls = 0
+    thief_lease = str(uuid.uuid4())
+
+    async def preflight(_db, task):
+        # 模拟心跳超时后被 stale recovery 接管：租约在独立事务里换成新 attempt。
+        async with sessions.begin() as thief_db:
+            await thief_db.execute(
+                update(AsyncTask)
+                .where(AsyncTask.id == task.id)
+                .values(lease_id=thief_lease)
+            )
+
+    async def handler(*, db, task):
+        del db, task
+        nonlocal calls
+        calls += 1
+        return {"ok": True}
+
+    registry.register(
+        task_type,
+        handler,
+        owner_scope="global",
+        recovery_policy="auto_requeue",
+        max_attempts=3,
+        root_capability_id="writing.generate",
+    )
+    task_id = uuid.uuid4()
+    try:
+        task_id = await _enqueue(sessions, task_type, meta={})
+        returned = await TaskWorker(
+            db_manager=_TaskManager(test_engine, sessions),
+            heartbeat_interval=60.0,
+            task_preflight=preflight,
+        ).run_once()
+
+        assert calls == 0
+        # 终态写入被租约拒绝：任务留在新 attempt 手里，旧 worker 不产生任何写入。
+        assert returned is not None and returned.status == "running"
+        assert returned.lease_id == thief_lease
+    finally:
+        registry.unregister(task_type)
+        await _cleanup(sessions, [task_id])
+
+
+@pytest.mark.asyncio
+async def test_reserve_checkpoint_rejection_blocks_provider_io(
+    test_engine,
+    monkeypatch,
+) -> None:
+    """handler 运行中租约被拒：reserve 的 checkpoint 失败关闭，provider 为 0。"""
+    from sqlalchemy import update
+
+    from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+    from infrastructure.llm.workflow_budget import (
+        AIRunCheckpointError,
+        managed_step_scope,
+    )
+
+    sessions = async_sessionmaker(test_engine, expire_on_commit=False, autoflush=False)
+    task_type = f"w21-reserve-fence-{uuid.uuid4().hex}"
+    registry = TaskRegistry()
+    provider = _FakeLLMProvider()
+    observed_errors: list[BaseException] = []
+
+    async def handler(*, db, task):
+        client = _bare_client(monkeypatch, provider)
+        try:
+            # 在真实 provider I/O 前夺走租约，模拟新 attempt 已接管。
+            async with sessions.begin() as thief_db:
+                await thief_db.execute(
+                    update(AsyncTask)
+                    .where(AsyncTask.id == task.id)
+                    .values(lease_id=str(uuid.uuid4()))
+                )
+            ledger = current_ai_run_envelope()
+            assert ledger is not None
+            with managed_step_scope(_step_context()):
+                await client.generate(
+                    LLMCallRequest(
+                        model="fake",
+                        messages=[LLMMessage(role="user", content="hi")],
+                    ),
+                    transport_retries=False,
+                )
+            return {"ok": True}
+        except BaseException as exc:  # noqa: BLE001 - 测试观察点
+            observed_errors.append(exc)
+            raise
+        finally:
+            await client.close()
+
+    registry.register(
+        task_type,
+        handler,
+        owner_scope="global",
+        recovery_policy="auto_requeue",
+        max_attempts=3,
+        root_capability_id="writing.generate",
+    )
+    task_id = uuid.uuid4()
+    try:
+        task_id = await _enqueue(sessions, task_type, meta={})
+        returned = await TaskWorker(
+            db_manager=_TaskManager(test_engine, sessions),
+            heartbeat_interval=60.0,
+        ).run_once()
+
+        assert provider.calls == 0
+        # checkpoint 被租约拒绝 → 账本权威失效 → provider I/O 前失败关闭。
+        assert any(
+            isinstance(exc, AIRunCheckpointError) for exc in observed_errors
+        )
+        # 旧 attempt 的失败终态被租约 fence 拒绝：任务归新 attempt 所有。
+        assert returned is not None and returned.status == "running"
+        assert returned.lease_id is not None
+        async with sessions() as db:
+            stored = await db.get(AsyncTask, task_id)
+            assert stored is not None
+            envelope = _stored_envelope(stored)
+            assert envelope is not None
+            # 失败关闭发生在任何 provider 请求之前：账本没有计数。
+            assert envelope.requests_started == 0
+    finally:
+        registry.unregister(task_type)
+        await _cleanup(sessions, [task_id])
+
+
+@pytest.mark.asyncio
+async def test_ai_run_envelope_error_is_never_auto_requeued(test_engine) -> None:
+    """信封拒绝（预算耗尽）失败关闭：不进入普通 auto_requeue。"""
+    from infrastructure.llm.workflow_budget import AIRunBudgetExceededError
+
+    sessions = async_sessionmaker(test_engine, expire_on_commit=False, autoflush=False)
+    task_type = f"w21-envelope-requeue-{uuid.uuid4().hex}"
+    registry = TaskRegistry()
+    calls = 0
+
+    async def handler(*, db, task):
+        del db, task
+        nonlocal calls
+        calls += 1
+        raise AIRunBudgetExceededError("run request limit reached")
+
+    registry.register(
+        task_type,
+        handler,
+        owner_scope="global",
+        recovery_policy="auto_requeue",
+        max_attempts=3,
+        root_capability_id="writing.generate",
+    )
+    task_id = uuid.uuid4()
+    try:
+        task_id = await _enqueue(sessions, task_type, meta={})
+        worker = TaskWorker(
+            db_manager=_TaskManager(test_engine, sessions),
+            heartbeat_interval=60.0,
+        )
+        returned = await worker.run_once()
+
+        assert returned is not None and returned.status == "failed"
+        assert returned.attempt == 1
+        assert calls == 1
+        # 预算耗尽保留给领域续算路径，重排只会原样再失败一次。
+        assert await worker.run_once() is None
+    finally:
+        registry.unregister(task_type)
+        await _cleanup(sessions, [task_id])
+
+
+@pytest.mark.asyncio
+async def test_declared_root_drift_with_persisted_envelope_fails_closed(
+    test_engine,
+) -> None:
+    """恢复的 run 与注册声明的能力不一致：身份漂移失败关闭。"""
+    sessions = async_sessionmaker(test_engine, expire_on_commit=False, autoflush=False)
+    task_type = f"w21-root-drift-{uuid.uuid4().hex}"
+    registry = TaskRegistry()
+    calls = 0
+    novel_id = str(uuid.uuid4())
+    task_id = uuid.uuid4()
+
+    async def handler(*, db, task):
+        del db, task
+        nonlocal calls
+        calls += 1
+        return {"ok": True}
+
+    registry.register(
+        task_type,
+        handler,
+        owner_scope="project",
+        root_capability_id="writing.generate",
+    )
+    try:
+        envelope = new_ai_run_envelope(
+            operation_id=str(task_id),
+            run_id=str(task_id),
+            root_capability_id="story.outline.p20",
+            novel_id=novel_id,
+            request_limit=10,
+        ).snapshot()
+        async with sessions.begin() as db:
+            db.add(
+                AsyncTask(
+                    id=task_id,
+                    novel_id=uuid.UUID(novel_id),
+                    task_type=task_type,
+                    status="pending",
+                    meta={
+                        "novel_id": novel_id,
+                        AI_RUN_ENVELOPE_KEY: envelope.model_dump(mode="json"),
+                    },
+                    recovery_policy="auto_requeue",
+                    max_attempts=3,
+                )
+            )
+        returned = await TaskWorker(
+            db_manager=_TaskManager(test_engine, sessions),
+            heartbeat_interval=60.0,
+        ).run_once()
+
+        assert calls == 0
+        assert returned is not None and returned.status == "failed"
+        async with sessions() as db:
+            stored = await db.get(AsyncTask, task_id)
+            assert stored is not None
+            drifted = _stored_envelope(stored)
+            assert drifted is not None
+            # run 保持原 root，未被悄悄改写成新声明。
+            assert drifted.root_capability_id == "story.outline.p20"
     finally:
         registry.unregister(task_type)
         await _cleanup(sessions, [task_id])

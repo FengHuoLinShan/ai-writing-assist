@@ -6,6 +6,7 @@ import asyncio
 import logging
 import uuid
 from collections.abc import Callable
+from contextlib import nullcontext
 from typing import Any
 
 from sqlalchemy import select
@@ -17,7 +18,11 @@ from infrastructure.llm.agent_step_harness import (
 )
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import AIRunStatus
-from infrastructure.llm.workflow_budget import ai_run_scope, current_ai_run_envelope
+from infrastructure.llm.workflow_budget import (
+    AIRunEnvelopeError,
+    ai_run_scope,
+    current_ai_run_envelope,
+)
 from infrastructure.tasks.lifecycle import TaskLifecycleService
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
@@ -94,7 +99,8 @@ async def run_task_inline(
     db.task_inline_execution_enabled = True
     restore_commit = _install_commit_fence(db, task=task, lease_id=lease_id)
     # 内联子任务在其父 run 内执行：注入父 run，不另开账本、不覆盖父级执行载体。
-    # 独立内联执行（无活动 run）才为自身建立/恢复私有信封。
+    # 独立内联执行（无活动 run）只为显式声明 root capability 的任务建立/恢复
+    # 私有信封；未迁移任务保持改造前行为。
     keeper: TaskRunEnvelopeKeeper | None = None
     run_envelope = current_ai_run_envelope()
     if run_envelope is None:
@@ -107,9 +113,19 @@ async def run_task_inline(
         run_envelope = keeper.open()
     with managed_llm_provenance_scope() as managed_steps:
         try:
-            if keeper is not None:
-                await keeper.persist()
-            with ai_run_scope(run_envelope):
+            if keeper is not None and run_envelope is not None:
+                if not await keeper.persist():
+                    raise AIRunEnvelopeError(
+                        "run envelope lease fence rejected this attempt; "
+                        "terminating the stale worker",
+                        run_id=run_envelope.run_id,
+                    )
+            run_scope = (
+                ai_run_scope(run_envelope)
+                if run_envelope is not None
+                else nullcontext()
+            )
+            with run_scope:
                 result = await handler(db=db, task=task)
             restore_commit()
             result_data = result if isinstance(result, dict) else {"result": result}

@@ -200,3 +200,104 @@ class TestRetryWithBackoff:
         assert secret not in caplog.text
         assert "[REDACTED]" in caplog.text
         assert retry_waits == []
+
+
+class TestDeadlineAwareBackoff:
+    """完整 delay 会跨过活动信封剩余 deadline 时立即停止，不 sleep 不再请求。"""
+
+    def _envelope_with_remaining(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        remaining: float | None,
+    ) -> None:
+        from infrastructure.llm import retry as retry_module
+
+        monkeypatch.setattr(
+            retry_module,
+            "ai_run_remaining_seconds",
+            lambda: remaining,
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_envelope_sleeps_as_before(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        waits: list[float] = []
+
+        async def capture_sleep(delay: float) -> None:
+            waits.append(delay)
+
+        monkeypatch.setattr("infrastructure.llm.retry.asyncio.sleep", capture_sleep)
+        from infrastructure.llm.retry import sleep_before_retry
+
+        await sleep_before_retry(30.0, last_error=None)
+        assert waits == [30.0]
+
+    @pytest.mark.asyncio
+    async def test_delay_crossing_deadline_raises_original_error(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        waits: list[float] = []
+
+        async def capture_sleep(delay: float) -> None:
+            waits.append(delay)
+
+        monkeypatch.setattr("infrastructure.llm.retry.asyncio.sleep", capture_sleep)
+        self._envelope_with_remaining(monkeypatch, remaining=2.0)
+        from infrastructure.llm.retry import sleep_before_retry
+
+        original = LLMTimeoutError("timeout", provider="test", model="m")
+        with pytest.raises(LLMTimeoutError) as exc_info:
+            await sleep_before_retry(30.0, last_error=original)
+        assert exc_info.value is original
+        assert waits == []
+
+    @pytest.mark.asyncio
+    async def test_delay_within_deadline_sleeps(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        waits: list[float] = []
+
+        async def capture_sleep(delay: float) -> None:
+            waits.append(delay)
+
+        monkeypatch.setattr("infrastructure.llm.retry.asyncio.sleep", capture_sleep)
+        self._envelope_with_remaining(monkeypatch, remaining=60.0)
+        from infrastructure.llm.retry import sleep_before_retry
+
+        await sleep_before_retry(5.0, last_error=None)
+        assert waits == [5.0]
+
+    @pytest.mark.asyncio
+    async def test_transport_retry_stops_when_delay_crosses_deadline(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """transport 退避跨过 deadline：保留原始错误类型，不再发起下一次请求。"""
+        calls = 0
+
+        async def always_timeout() -> str:
+            nonlocal calls
+            calls += 1
+            raise LLMTimeoutError("timeout", provider="test", model="m")
+
+        waits: list[float] = []
+
+        async def capture_sleep(delay: float) -> None:
+            waits.append(delay)
+
+        monkeypatch.setattr("infrastructure.llm.retry.asyncio.sleep", capture_sleep)
+        monkeypatch.setattr(
+            "infrastructure.llm.retry.random.uniform",
+            lambda _minimum, _maximum: 1.0,
+        )
+        self._envelope_with_remaining(monkeypatch, remaining=1.0)
+
+        with pytest.raises(LLMTimeoutError):
+            await retry_with_backoff(always_timeout, max_attempts=3, base_delay=30.0)
+        # deadline 只够覆盖决定重试，但覆盖不了 30s 退避：不 sleep，也不再请求。
+        assert calls == 1
+        assert waits == []

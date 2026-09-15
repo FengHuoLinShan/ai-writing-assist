@@ -378,7 +378,9 @@ async def test_successful_preflight_leaves_handler_without_transaction(
         observed["log_novel_id"] = current_novel_id_for_log()
         return {"ok": True}
 
-    registry.register(task_type, handler)
+    registry.register(
+        task_type, handler, root_capability_id="writing.generate"
+    )
     try:
         async with sessions.begin() as setup_db:
             setup_db.add(

@@ -35,9 +35,10 @@ from infrastructure.llm.profiles import (
 from infrastructure.llm.providers import get_provider
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.retry import (
-    ai_run_deadline_exceeded,
     is_retryable_transport_error,
+    retry_delay_crosses_deadline,
     retry_with_backoff,
+    sleep_before_retry,
 )
 from infrastructure.llm.schemas import (
     AIStepCallKind,
@@ -754,9 +755,16 @@ class LLMClient:
             nonlocal attempts
             attempts += 1
             meter = current_workflow_budget()
-            if meter is not None:
-                await meter.before_request()
+            # 活动信封是权威请求闸门：先在信封预留；兼容预算随后预留，若它拒绝，
+            # 立即撤销信封预留。任一预算在 provider I/O 前拒绝时，两个账本都不计数。
             ledger, reservation = await _reserve_ai_run_request()
+            try:
+                if meter is not None:
+                    await meter.before_request()
+            except BaseException:
+                if ledger is not None and reservation is not None:
+                    await ledger.discard(reservation)
+                raise
             await _record_ai_run_retry(ledger, reservation, attempt=attempts)
             try:
                 response = await self._provider.generate(resolved_request)
@@ -1118,8 +1126,9 @@ class LLMClient:
                     base_delay=self._settings.llm_retry_base_delay,
                     max_delay=self._settings.llm_retry_max_delay,
                 )
-                if delay > 0 and not ai_run_deadline_exceeded():
-                    await asyncio.sleep(delay)
+                # 完整 delay 会跨过活动信封剩余 deadline 时立即停止：
+                # 不执行整段 sleep，也不再发出下一次请求，保留原始错误类型。
+                await sleep_before_retry(delay, last_error=last_error)
                 if error_kind == "truncated_json":
                     original_budget = req.max_tokens
                     req.max_tokens = _expanded_token_budget(req.max_tokens)
@@ -1271,7 +1280,11 @@ class LLMClient:
                         base_delay=self._settings.llm_retry_base_delay,
                         max_delay=self._settings.llm_retry_max_delay,
                     )
-                    if delay > 0 and not ai_run_deadline_exceeded():
+                    if retry_delay_crosses_deadline(delay):
+                        # 完整 delay 会跨过活动信封剩余 deadline：不 sleep 也不
+                        # 发送下一次格式修复请求，按本循环的失败契约收尾。
+                        break
+                    if delay > 0:
                         await asyncio.sleep(delay)
 
         raise LLMInvalidResponseError(

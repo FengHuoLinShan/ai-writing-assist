@@ -131,6 +131,14 @@ class AIRunStateError(AIRunEnvelopeError):
     """运行已进入终态，不再接受新的请求或状态迁移。"""
 
 
+class AIRunCheckpointError(AIRunEnvelopeError):
+    """运行信封的 checkpoint 通道失效（如 lease 丢失）；provider I/O 前拒绝。
+
+    账本的权威性依赖 checkpoint 与持有者绑定一致；持久化被拒或失败时，
+    在发出任何 provider 请求之前失败关闭。
+    """
+
+
 @dataclass(frozen=True)
 class AIManagedStepContext:
     """当前受管 step 的身份；provider I/O 只能归属到显式 step。"""
@@ -283,6 +291,7 @@ class AIRunEnvelope:
         self._monotonic = monotonic or time.monotonic
         self._on_change = on_change
         self._lock = asyncio.Lock()
+        self._persist_error: BaseException | None = None
         self._steps: dict[tuple[str, str, str, str, str], AIStepReceiptV1] = {
             _step_key(step): step for step in self._envelope.steps
         }
@@ -290,6 +299,11 @@ class AIRunEnvelope:
     @property
     def run_id(self) -> str:
         return self._envelope.run_id
+
+    @property
+    def persist_error(self) -> BaseException | None:
+        """最近一次 checkpoint 持久化失败；成功写入后清空。"""
+        return self._persist_error
 
     @property
     def operation_id(self) -> str:
@@ -321,7 +335,11 @@ class AIRunEnvelope:
     async def reserve(
         self, *, purpose: AIStepPurpose | None = None
     ) -> AIRunRequestReservation:
-        """预留一次 provider 请求；被预算/deadline 拒绝时不产生任何计数。"""
+        """预留一次 provider 请求；被预算/deadline 拒绝时不产生任何计数。
+
+        checkpoint 通道失效（lease 丢失、持久化失败）同样在计数前拒绝：
+        账本失去持久化权威时不得继续授权 provider I/O。
+        """
         context = current_managed_step_context()
         if context is None:
             raise AIManagedStepContextError(
@@ -332,6 +350,16 @@ class AIRunEnvelope:
                 f"run is {self._envelope.status.value}; no further request is authorized",
                 run_id=self.run_id,
             )
+        if self._persist_error is not None:
+            # 先尝试补写缺口：瞬时故障恢复后账本自愈；权威性仍失效时在
+            # provider I/O 之前失败关闭。
+            await self._notify_tolerant()
+            if self._persist_error is not None:
+                raise AIRunCheckpointError(
+                    "run envelope checkpoint was rejected; provider I/O is not "
+                    "authorized",
+                    run_id=self.run_id,
+                )
         if self.deadline_exceeded():
             raise AIRunDeadlineExceededError(
                 "run deadline passed before the request started", run_id=self.run_id
@@ -357,19 +385,48 @@ class AIRunEnvelope:
             started_at=started_at,
             monotonic_started=self._monotonic(),
         )
-        self._append_attempt(
-            AIStepAttemptV1(
-                step_name=step.step_name,
-                step_capability_id=step.step_capability_id,
-                call_kind=step.call_kind,
-                purpose=step.purpose,
-                request_index=reservation.request_index,
-                started_at=started_at,
-            )
+        attempt = AIStepAttemptV1(
+            step_name=step.step_name,
+            step_capability_id=step.step_capability_id,
+            call_kind=step.call_kind,
+            purpose=step.purpose,
+            request_index=reservation.request_index,
+            started_at=started_at,
         )
+        self._append_attempt(attempt)
         self._refresh_derived()
-        await self._notify()
+        try:
+            await self._notify()
+        except BaseException:
+            # checkpoint 写不进去说明账本权威性已失效：回滚本次预留并在
+            # provider I/O 之前失败关闭；请求不计入任何计数。
+            self._rollback_reservation(reservation, step, attempt)
+            raise
         return reservation
+
+    @_serialized
+    async def discard(self, reservation: AIRunRequestReservation) -> None:
+        """撤销一次尚未发出 I/O 的预留（兼容预算在信封之后拒绝时使用）。
+
+        只有 provider I/O 前的补偿路径可以调用：请求未落定、未结算，撤销后
+        两个账本都回到"未请求"状态，不留下不可回滚的部分变更。
+        """
+        self._require_open(reservation)
+        step = self._step_for(reservation)
+        step.requests_started -= 1
+        self._envelope.requests_started -= 1
+        attempts = self._envelope.recent_attempts
+        for index, attempt in enumerate(attempts):
+            if (
+                attempt.request_index == reservation.request_index
+                and attempt.outcome is AIRequestOutcome.in_flight
+            ):
+                del attempts[index]
+                break
+        self._drop_step_if_empty(step)
+        reservation.settled = True
+        self._refresh_derived()
+        await self._notify_tolerant()
 
     @_serialized
     async def settle(
@@ -383,7 +440,11 @@ class AIRunEnvelope:
         retryable: bool = False,
         outcome: AIRequestOutcome | None = None,
     ) -> None:
-        """落定一次请求；缺少 usage 时记为 possible，不得写成零用量。"""
+        """落定一次请求；缺少 usage 时记为 possible，不得写成零用量。
+
+        请求已经发出，checkpoint 失败不能回滚这次落定：内存账本保留真实结果，
+        上次成功持久化的快照仍显示 in-flight，恢复时收敛为 unknown/possible。
+        """
         self._require_open(reservation)
         step = self._step_for(reservation)
         elapsed = (
@@ -419,7 +480,7 @@ class AIRunEnvelope:
             retryable=retryable,
         )
         self._refresh_derived()
-        await self._notify()
+        await self._notify_tolerant()
 
     @_serialized
     async def record_retry(
@@ -432,7 +493,7 @@ class AIRunEnvelope:
         field_name = _RETRY_FIELDS[kind]
         setattr(step, field_name, getattr(step, field_name) + 1)
         self._refresh_derived()
-        await self._notify()
+        await self._notify_tolerant()
 
     @_serialized
     async def authorize_additional_requests(
@@ -450,9 +511,9 @@ class AIRunEnvelope:
                 additional_requests=additional,
                 reason=reason,
                 authorized_at=self._clock(),
-            )
+            ),
         )
-        await self._notify()
+        await self._notify_tolerant()
 
     @_serialized
     async def mark_in_flight_unknown(self) -> int:
@@ -460,7 +521,7 @@ class AIRunEnvelope:
         converted = self._converge_in_flight()
         if converted:
             self._refresh_derived()
-            await self._notify()
+            await self._notify_tolerant()
         return converted
 
     @_serialized
@@ -477,7 +538,7 @@ class AIRunEnvelope:
         self._converge_in_flight()
         self._envelope.status = status
         self._refresh_derived()
-        await self._notify()
+        await self._notify_tolerant()
 
     def _ensure_step(
         self, context: AIManagedStepContext, purpose: AIStepPurpose
@@ -632,7 +693,54 @@ class AIRunEnvelope:
     async def _notify(self) -> None:
         if self._on_change is None:
             return
-        await self._on_change(self.snapshot())
+        try:
+            await self._on_change(self.snapshot())
+        except BaseException as error:
+            # checkpoint 失败记录在案：reserve 会据此在 provider I/O 前失败关闭；
+            # 下一次成功写入后自动清除（瞬时 DB 故障可以自愈）。
+            self._persist_error = error
+            raise
+        self._persist_error = None
+
+    async def _notify_tolerant(self) -> None:
+        """落定/收尾路径的 checkpoint：失败不改变内存真相，也不打断调用方。"""
+        try:
+            await self._notify()
+        except Exception:
+            return
+
+    def _rollback_reservation(
+        self,
+        reservation: AIRunRequestReservation,
+        step: AIStepReceiptV1,
+        attempt: AIStepAttemptV1,
+    ) -> None:
+        """把一次尚未发出 I/O 的预留完整退回：计数、attempt 摘要与空 step。"""
+        step.requests_started -= 1
+        self._envelope.requests_started -= 1
+        attempts = self._envelope.recent_attempts
+        for index, existing in enumerate(attempts):
+            if (
+                existing.request_index == attempt.request_index
+                and existing.outcome is AIRequestOutcome.in_flight
+            ):
+                del attempts[index]
+                break
+        self._drop_step_if_empty(step)
+        # 幽灵墓碑：已回滚的预留不得再被 settle 或 discard。
+        reservation.settled = True
+
+    def _drop_step_if_empty(self, step: AIStepReceiptV1) -> None:
+        if (
+            step.requests_started <= 0
+            and not step.requests_settled
+            and not step.requests_unknown
+        ):
+            key = _step_key(step)
+            if self._steps.get(key) is step:
+                del self._steps[key]
+            if step in self._envelope.steps:
+                self._envelope.steps.remove(step)
 
 
 def _step_key(step: AIStepReceiptV1) -> tuple[str, str, str, str, str]:

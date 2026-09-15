@@ -146,7 +146,16 @@ request messages。需要主动裁剪上下文时，应显式使用 `ContextBudg
 文本 provider I/O 由 `LLMClient` 单入口计量：`generate()` 对每次真实请求（含每次 transport
 尝试）reserve 一次，并在取得响应、异常或取消后 settle；关闭 transport retry 的 structured、format
 repair 与 `generate_stream()` 的建流尝试、`research()` 的每个 attempt 都回到同一入口，已开始的
-stream 不自动重放。deadline 到期后不再退避也不再发请求。embedding 与健康检查是首轮非目标。
+stream 不自动重放。deadline 到期后不再退避也不再发请求：完整退避 delay 会跨过剩余 deadline 时不
+执行整段 sleep、不发出下一次请求，直接抛出原始错误（structured/format repair 按各自的既有失败
+契约收尾）；没有活动信封时重试行为与改造前一致。
+
+checkpoint 是账本权威的一部分：持久化通道失效（租约被拒、DB 故障）时，reserve 在任何计数与
+provider I/O 之前失败关闭（`AIRunCheckpointError`），瞬时故障恢复后自动补写自愈；settle 与收尾
+路径的 checkpoint 失败不回滚已发出请求的落定真相，恢复按上次成功持久化的 in-flight 收敛为
+unknown/possible。`discard()` 用于 provider I/O 前撤销一次预留：活动信封是权威请求闸门，兼容的
+`AgentRunBudget`/`WorkflowBudget` 在其后预留、被拒时由此补偿，任一预算拒绝都不会让另一个账本
+留下部分变更，成功请求在两个账本上各恰好计一次。embedding 与健康检查是首轮非目标。
 
 `root_capability_id` 每 run 唯一；step 的 `step_capability_id` 必须等于 root 或取
 `infrastructure.*`，否则账本拒绝。`managed_llm_steps` 仍是兼容投影：v0 五字段原样可读，

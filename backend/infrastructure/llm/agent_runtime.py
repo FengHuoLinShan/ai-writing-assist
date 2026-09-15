@@ -165,6 +165,18 @@ class AgentRunBudget(BaseModel):
             self.prompt_tokens += usage.prompt_tokens
             self.completion_tokens += usage.completion_tokens
 
+    def release_pending_request(self, *, requests: int = 1) -> None:
+        """撤销一次尚未发出 provider I/O 的请求预留。
+
+        活动运行信封在 provider I/O 前拒绝时，兼容账本同样不得留下"已请求"
+        计数；工具数与 web 子预算不受影响。
+        """
+        if requests < 0:
+            raise ValueError("Budget releases must be nonnegative")
+        self.requests = max(0, self.requests - requests)
+        self.pending_usage = max(0, self.pending_usage - requests)
+        self.usage_complete = not self.pending_usage and not self.usage_unknown
+
 
 BudgetCheckpoint = Callable[[dict[str, Any]], Awaitable[None]]
 _HISTORY_VERSION = "pydantic-ai-2.42.0"
@@ -389,12 +401,22 @@ class ProjectGatewayModel(Model):
         request = self._request(messages, params)
         # 外层 WorkflowBudget 已承担本次请求的预留与用量时不再重复预留。
         delegated = _workflow_meter_owns_provider_request()
+        from infrastructure.llm.workflow_budget import AIRunEnvelopeError
+
         if not delegated:
             self.budget.reserve(requests=1, future_requests=self.future_requests)
         await self.save_budget()
         await self.save_history(messages)
-        with self._managed_step():
-            response = await self.client.generate(request, transport_retries=False)
+        try:
+            with self._managed_step():
+                response = await self.client.generate(request, transport_retries=False)
+        except AIRunEnvelopeError:
+            # 信封在 provider I/O 前拒绝：兼容账本回滚本次请求预留，两个账本
+            # 都不留下部分变更，异常按原类型继续向上传播。
+            if not delegated:
+                self.budget.release_pending_request()
+                await self.save_budget()
+            raise
         if not delegated:
             self.budget.add_usage(response.usage)
         # Count all proposed calls, including invalid/unknown calls, before execution.
@@ -478,8 +500,13 @@ class GatewayStream(StreamedResponse):
     async def _get_event_iterator(self) -> AsyncIterator[ModelResponseStreamEvent]:
         seen: set[int] = set()
         final_usage = None
+        stream_opened = False
+        request_released = False
+        from infrastructure.llm.workflow_budget import AIRunEnvelopeError
+
         try:
             async for chunk in self.stream:
+                stream_opened = True
                 if chunk.usage is not None:
                     final_usage = chunk.usage
                     self._usage = _usage(chunk.usage)
@@ -514,10 +541,19 @@ class GatewayStream(StreamedResponse):
                         if chunk.finish_reason == "length"
                         else "stop"
                     )
-        finally:
-            self.model.budget.add_usage(final_usage)
-            if not asyncio.current_task().cancelling():
+        except AIRunEnvelopeError:
+            if not stream_opened:
+                # 流从未打开：信封在 provider I/O 前拒绝建流，回滚兼容账本的
+                # 请求预留，不把这次拒绝当成未知用量的真实请求。
+                request_released = True
+                self.model.budget.release_pending_request()
                 await self.model.save_budget()
+            raise
+        finally:
+            if not request_released:
+                self.model.budget.add_usage(final_usage)
+                if not asyncio.current_task().cancelling():
+                    await self.model.save_budget()
 
     async def close_stream(self) -> None:
         await self.stream.aclose()

@@ -12,6 +12,7 @@
 > 本轮所有行号均在本 HEAD 上**重新打开文件核对过**；`agent_step_harness.py` 的 `run_managed_generate` / `run_managed_structured`
 > 在本 HEAD 实测位于 **873 / 926 行**（第一轮引用的 826/840 已漂移，本轮已更新）。
 > 未验证项一律标注"未核实"并说明原因，不猜测。
+> **第三轮（W2.1 接手主 Agent）已修正 story.structure_dedup 与深导入结论，见 §6a；§4.5/§5 中与 §6a 冲突的第二轮断言作废，主表已同步。**
 
 ## 0. 预算语义（供 Wave 3/4 使用）
 
@@ -92,7 +93,7 @@
 | story.script | story/generation.py:348-389 | T2 × 1 × [U(2,1)+U(2,0)] | 28 | C1 | 同 character_card | R=1（story/tasks.py:557-561）；task ×2 | story/tasks.py:557-561 |
 | story.one_click | story/tasks.py:608-613，循环 :636-672 | T2 × [N×(14+14) + 14]，N≤24，R=1 | 1372 | **C2**（N≤24，story/schemas.py:295） | 同 character_card；串行 2N+1 条链，无阶段预算 | R=1（story/tasks.py:608-612）；子能力各自 fix3+repair1/审计 3；task ×2 | story/schemas.py:295；story/tasks.py:608-672 |
 | story.scene_fusion | task：outline_state/scene_fusion_draft.py:533（阶段 :370）；废弃同步 API：outline_state/api.py:860-881 | task：T2×2×U(1,1)；同步 API：2×U(1,1)(R3) | 12（task）/18（废弃 API） | C1 | 阶段 1800s（:370）+ step 1800（:585）+ provider 1800（:311） | task R=1（outline_state/tasks.py:351-355）；fix2+repair1；task ×2 | outline_state/tasks.py:351-355 |
-| story.structure_dedup（去重 task） | story/outline_state/structure_dedup.py:588；task project/tasks.py:9；深导入 imports/deep_import_dedup.py:25-35 | **重核后**：M=`outline_budget=ceil(2·max_suggestions/3)`；LLM 数 ≤ Σ_type min(pairs_type, 2M)；task 默认 M=87→ **870** | 870（默认 120）/ 上限随 max_suggestions 线性无界 | **C2 with caveat**（每个子服务都有限；**聚合器 `smart_dedup_scan` 的 max_suggestions 是未校验 int，默认 120，无 schema 上限**，见"仍存疑项"） | 无 harness timeout（:563-624 未传）；仅 provider 180s | 去重 task R=1（project/tasks.py:9-14 retry_llm=True）；fix2；task ×2。深导入：M=40、4 类、`open_project_llm_client`（无重试包装），R=1（**不在 imports 的 transport 关闭范围内**——经 `outline_facade` 调用 `open_project_llm_client`），4×80×U(1,0)=640 | structure_dedup.py:74-133,563-624,752-758,100；project/tasks.py:9-14,46-54；smart_dedup.py:86-92,144-157；deep_import_dedup.py:25-35 |
+| story.structure_dedup（去重 task） | story/outline_state/structure_dedup.py:588；task project/tasks.py:9；深导入 imports/deep_import_dedup.py:25-35 | **第三轮修正**：smart_dedup 拆分 `world_legacy_budget=max_suggestions//3`、`outline_budget=max_suggestions−world_legacy_budget`（默认 120→40/80；API 上限 300→100/200）；outline 每类 `max_pairs=2×outline_budget`，keep_separate 不写入建议也不触发全局提前停止 ⇒ 默认 5 类×160 pair×U(1,0)=2×T2 = **3200**；API 上限 300 时 5×400×2×2 = **8000**。深导入：4 类、max_suggestions=40、每类 80 pair、R=3、max_fix_attempts=1 ⇒ 4×80×6 = **1920** | 3200（默认）/ 8000（API 上限）/ 深导入 1920 | **C2**（outline_budget 与 API 上限均已冻结；深导入 C2） | 无 harness timeout（:563-624 未传）；仅 provider 180s | 去重 task R=1（project/tasks.py:9-14 retry_llm=True）；fix1（structure_dedup.py:617 max_fix_attempts=1）；task ×2。深导入：R=3（imports/tasks.py:61 manual_resume 未开 retry_llm），经 `outline_facade` 调用 `open_project_llm_client` | structure_dedup.py:122-133,617,752-758；smart_dedup.py:86-92,144-157；project/schemas.py:479（`max_suggestions le=300`）；project/tasks.py:9-14；deep_import_dedup.py:25-35 |
 | imports.scene_plan | imports/workflow.py:302-339（scene_planning.py:128 `llm_calls=0`） | 0 | 0 | C1（无 provider I/O） | 无 | 无 | imports/workflow.py:302-339；scene_planning.py:128 |
 | imports.scene_slicing | workflow_scene_phase.py:222 → workflow.py:341-366 → scene_slicing.py:117-306 | W×(T×2×(F+G))×2 + S×F + G_gap×F；W=Phase0 窗口数、S=Scene 数**由模型决定** | 无编译期常量上界 | **C3（必须分批授权）** | 步骤 wait_for `phase1a.scene_slicing_timeout_seconds` 默认 900（workflow_llm_adapters.py:110-119,485） | R=3（imports/tasks.py:61 manual_resume）；窗口并发 50（scene_slicing.py:28）；token 升级 ≤3；整窗重发 ≤2（:602-607）；结构化 max_fix1+format1=3；语义纠错 ≤2 | scene_slicing.py:28,602-607,2386-2391；workflow_llm_adapters.py:313-314 |
 | imports.scene_enrichment | workflow_scene_phase.py:372 → workflow.py:368-407 → scene_enrichment.py:73-124 | S × 2 × (F+G) | 24S（S 无编译期上限） | **C3** | 步骤 wait_for `phase1b.enrich_timeout_seconds` 默认 1200（workflow_llm_adapters.py:122-131,877） | R=3；每 Scene 独立、并发 200（scene_enrichment.py:20）；重试 ≤2；max_fix1+format1=3 | scene_enrichment.py:20,183-193 |
@@ -239,6 +240,45 @@
 6. **第一轮 `story.structure_dedup` 的 3200 是否来自某个未读到的调用点**：本轮按代码重核未复现该数字；
    若主 Agent 有反例（例如某调用点显式传 `max_suggestions=160` 且 asset_types 只有 5 类），请提供调用点，
    我会再核算。
+
+
+## 6a. 第三轮复核（2026-09-15 W2.1 接手主 Agent，逐行对照代码）
+
+第二轮的 story.structure_dedup 复算（870）与"未校验 int"存疑已被第三轮推翻，以下结论以代码为准：
+
+1. **smart_dedup 预算拆分（smart_dedup.py:91-92）**：`world_legacy_budget = max(1, max_suggestions // 3)`、
+   `outline_budget = max(1, max_suggestions − world_legacy_budget)`。默认 120 ⇒ 40/80；第二轮引用的
+   `max(1, max_suggestions − max(1, max_suggestions//3))` 算出的 87 是算术错误（120−40=80）。
+2. **outline 侧每类 pair 上限（structure_dedup.py:128）**：`max_pairs = max_suggestions × 2`（此处
+   max_suggestions 实参即 outline_budget）⇒ 默认每类 ≤160 对，5 类 ⇒ ≤800 对/attempt。
+3. **keep_separate 不提前停止（structure_dedup.py:132-133,151-152,200-201）**：`_decide` 返回
+   keep_separate 时 `continue`，不追加建议；全局提前停止只在 `len(suggestions) >= max_suggestions`
+   时触发。最坏路径是"全部 pair 都被 keep_separate"，全部 pair 都要打一次 LLM。行为由
+   `test_structure_dedup.py::test_keep_separate_decisions_never_stop_the_scan_or_create_suggestions` 固化。
+4. **每对请求次数（structure_dedup.py:617 `max_fix_attempts=1`）**：去重 task 注册
+   `retry_transient_llm_errors=True` ⇒ worker 关闭 transport retry ⇒ R=1 ⇒ U(1,0)=2。
+5. **任务层乘数（project/tasks.py:9-14）**：`auto_requeue`、`max_attempts=2` ⇒ T=2。
+   **默认最坏上界 A = 5×160×2×2 = 3200**。
+6. **API 合法上限（project/schemas.py:479）**：`max_suggestions: int = Field(default=120, ge=1, le=300)`
+   ——第二轮"未校验 int"的存疑已被此 schema 推翻。上限 300 ⇒ outline_budget=200 ⇒
+   A = 5×400×2×2 = **8000**。task meta 的 `int(meta.get(...))` 读的是经该 schema 校验后冻结的入队值。
+7. **深导入路径（deep_import_dedup.py:25-35）**：4 类资产（无 scene）、`max_suggestions=40` ⇒
+   每类 ≤80 对；R=3（imports task `manual_resume` 未开 retry_llm）；`max_fix_attempts=1` ⇒ 每对
+   U(1,0)=2·R=6。**A = 4×80×6 = 1920**（第二轮写 640，漏乘了 R=3 的 transport 尝试）。参数由
+   `test_deep_import_dedup.py::test_structure_review_budget_is_frozen_for_deep_import` 固化。
+8. **world entity 部分**：smart_dedup 的 world 建议走 `world_facade.suggest_entity_fusion`，属于
+   `world.entity_fusion` 能力（交互路径公式 3M×U(1,0)×T2，M≤200），与 outline 侧的
+   `story.structure_dedup` 分属两个 root capability，不重复计入本能力，也不并入其 A。
+9. **writing.generate 公式复核（维持第二轮 6⌈K/64⌉+8，本轮补齐推导）**：R=1（writing/tasks.py:163-167
+   retry_llm=True）、task ×2（auto_requeue max_attempts=2）；director 分片 64（workflow.py:55）每片
+   U(2,0)=3；candidate 是 `run_managed_generate` 单请求（services.py:3303）=1；audit 一次
+   U(2,0)=3（knowledge/workflow.py:367-376）；repair=None 无返修段。
+   A = 2×(3⌈K/64⌉+1+3) = **6⌈K/64⌉+8**。
+10. **C1/C2/C3 归类（按任务协议三分）**：C1=编译期常量（如 world.validation=1536、story.outline.p20=64）；
+    C2=本次冻结工作量可动态计算（writing.generate 6⌈K/64⌉+8、story.structure_dedup 3200/8000、
+    深导入 1920、world.alias_relations.extract 4S 等）；C3=运行中才知规模、需分批授权（imports 各阶段、
+    targeted_completion 自动 roots、world.entity_fusion 深导入 180000 的常规路径）。
+    第二轮 §6 存疑项 1-5 维持，但第 3、6 条（structure_dedup）按本轮结论关闭。
 
 ## 7. 与第一轮一致的结论（本轮未推翻）
 

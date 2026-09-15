@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -10,7 +11,11 @@ import pytest
 from pydantic import BaseModel, Field
 
 from infrastructure.llm.client import LLMClient
-from infrastructure.llm.errors import LLMConnectionError, LLMTimeoutError
+from infrastructure.llm.errors import (
+    LLMConnectionError,
+    LLMInvalidResponseError,
+    LLMTimeoutError,
+)
 from infrastructure.llm.limits import reset_llm_limiter_for_tests
 from infrastructure.llm.native_search import (
     NativeSearchUnavailableError,
@@ -655,3 +660,169 @@ async def test_project_scoped_client_without_envelope_keeps_previous_behavior(
     assert structured.value == "direct"
     assert len(provider.requests) == 4
     assert retry_waits == [1.0, 1.0]
+
+
+@pytest.mark.asyncio
+async def test_structured_backoff_crossing_deadline_stops_without_next_request(
+    retry_waits: list[float],
+) -> None:
+    """structured 退避跨过 deadline：不 sleep、不发下一次请求、保留原始错误类型。"""
+    ledger = AIRunEnvelope(
+        _raw_envelope(deadline_at=_STARTED_AT + timedelta(seconds=30)),
+        clock=lambda: _STARTED_AT + timedelta(seconds=28),
+    )
+    provider = _TextProvider(contents=["not json at all"])
+    client = _client(provider, max_attempts=3)
+    client._settings = SimpleNamespace(
+        llm_retry_max_attempts=3,
+        llm_retry_base_delay=30.0,
+        llm_retry_max_delay=30.0,
+    )
+
+    with ai_run_scope(ledger), managed_step_scope(_step()):
+        with pytest.raises(LLMInvalidResponseError):
+            await client.generate_structured(
+                _request(),
+                _Payload,
+                max_fix_attempts=2,
+                transport_retries=False,
+            )
+
+    snapshot = ledger.snapshot()
+    # 一次真实 provider 请求，退避被 deadline 切断后不再发起修复请求。
+    assert len(provider.requests) == 1
+    assert retry_waits == []
+    assert snapshot.requests_started == 1
+    assert snapshot.requests_settled == 1
+    assert snapshot.steps[0].structured_retries == 0
+
+
+@pytest.mark.asyncio
+async def test_format_repair_backoff_crossing_deadline_stops_without_next_request(
+    retry_waits: list[float],
+) -> None:
+    """format repair 退避跨过 deadline：按既有失败契约收尾，不再发请求。"""
+    ledger = AIRunEnvelope(
+        _raw_envelope(deadline_at=_STARTED_AT + timedelta(seconds=30)),
+        clock=lambda: _STARTED_AT + timedelta(seconds=28),
+    )
+    provider = _TextProvider(contents=["still not json", "bad again"])
+    client = _client(provider, max_attempts=3)
+    client._settings = SimpleNamespace(
+        llm_retry_max_attempts=3,
+        llm_retry_base_delay=30.0,
+        llm_retry_max_delay=30.0,
+    )
+
+    with ai_run_scope(ledger), managed_step_scope(_step()):
+        with pytest.raises(LLMInvalidResponseError):
+            await client.generate_structured(
+                _request(),
+                _Payload,
+                max_fix_attempts=0,
+                format_repair_attempts=2,
+                transport_retries=False,
+            )
+
+    snapshot = ledger.snapshot()
+    assert len(provider.requests) == 2
+    assert retry_waits == []
+    assert snapshot.requests_started == 2
+    assert snapshot.requests_settled == 2
+    assert sum(step.format_retries for step in snapshot.steps) == 1
+
+
+@pytest.mark.asyncio
+async def test_envelope_refusal_keeps_compatible_budget_untouched() -> None:
+    """信封在 provider I/O 前拒绝：兼容预算不得先增长。"""
+    from infrastructure.llm.agent_runtime import AgentRunBudget
+    from infrastructure.llm.workflow_budget import workflow_budget
+
+    calls = 0
+
+    class _CountingProvider(_TextProvider):
+        async def generate(self, request: LLMCallRequest) -> LLMCallResponse:
+            nonlocal calls
+            calls += 1
+            return await super().generate(request)
+
+    provider = _CountingProvider()
+    client = _client(provider)
+    ledger = AIRunEnvelope(_raw_envelope(request_limit=0))
+    budget = AgentRunBudget(mode="author")
+
+    with (
+        ai_run_scope(ledger),
+        managed_step_scope(_step()),
+        workflow_budget(budget, lambda _snapshot: asyncio.sleep(0)),
+    ):
+        with pytest.raises(AIRunBudgetExceededError):
+            await client.generate(_request())
+
+    assert calls == 0
+    assert ledger.snapshot().requests_started == 0
+    # 信封拒绝发生在兼容预算预留之前：不产生"已请求"的部分计数。
+    assert budget.requests == 0
+    assert budget.pending_usage == 0
+
+
+@pytest.mark.asyncio
+async def test_compatible_budget_refusal_discards_envelope_reservation() -> None:
+    """兼容预算在信封之后拒绝：信封预留被撤销，两个账本都不计数。"""
+    from infrastructure.llm.agent_runtime import AgentBudgetError, AgentRunBudget
+    from infrastructure.llm.workflow_budget import workflow_budget
+
+    calls = 0
+
+    class _CountingProvider(_TextProvider):
+        async def generate(self, request: LLMCallRequest) -> LLMCallResponse:
+            nonlocal calls
+            calls += 1
+            return await super().generate(request)
+
+    provider = _CountingProvider()
+    client = _client(provider)
+    ledger = AIRunEnvelope(_raw_envelope(request_limit=10))
+    budget = AgentRunBudget(mode="author", requests=12)
+
+    with (
+        ai_run_scope(ledger),
+        managed_step_scope(_step()),
+        workflow_budget(budget, lambda _snapshot: asyncio.sleep(0)),
+    ):
+        with pytest.raises(AgentBudgetError):
+            await client.generate(_request())
+
+    assert calls == 0
+    assert ledger.snapshot().requests_started == 0
+    assert ledger.snapshot().recent_attempts == []
+    assert budget.requests == 12
+    assert budget.pending_usage == 0
+
+
+@pytest.mark.asyncio
+async def test_successful_request_counts_once_on_both_ledgers() -> None:
+    """成功请求在信封与兼容预算上各恰好计一次。"""
+    from infrastructure.llm.agent_runtime import AgentRunBudget
+    from infrastructure.llm.workflow_budget import workflow_budget
+
+    provider = _TextProvider()
+    client = _client(provider)
+    ledger = AIRunEnvelope(_raw_envelope(request_limit=10))
+    budget = AgentRunBudget(mode="author")
+
+    with (
+        ai_run_scope(ledger),
+        managed_step_scope(_step()),
+        workflow_budget(budget, lambda _snapshot: asyncio.sleep(0)),
+    ):
+        await client.generate(_request())
+
+    snapshot = ledger.snapshot()
+    assert provider.requests
+    assert snapshot.requests_started == 1
+    assert snapshot.requests_settled == 1
+    assert snapshot.requests_unknown == 0
+    assert budget.requests == 1
+    assert budget.pending_usage == 0
+    assert budget.usage_unknown is False

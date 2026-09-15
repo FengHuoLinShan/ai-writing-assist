@@ -11,18 +11,20 @@ parent: .agent/tasks/agent-integration.md
 
 ## 恢复快照
 
-- 实际完成：Wave 0 只读冻结与 W0-B 第二轮重新冻结完成；Wave 1 + S2.1 契约修正完成；Wave 2 三路
-  （W2-Text / W2-Agent / W2-Task）已实现、逐路复核并全部集成到主题分支。
-- 当前里程碑：M0、M1 完成；M2 完成（provider 计量单入口 + Agent 归属 + task 私有信封）。
-- 下一步：Wave 3 业务通道迁移前，先按 W0-B 修订表冻结各能力的 A 与 L0（含把通用 task 的临时
-  额度替换为真实上限、删除 root capability 回退），再启动 W3-A/W3-B/W3-C。
-- 阻塞：无硬阻塞。需要用户确认的决策点是 W0-B 发现的"无有限上界能力"（imports 各阶段、
-  writing.generate、world.entity_fusion 等）迁移前必须先冻结的领域上界口径；真实 provider 验收仍需
-  另行取得费用与凭据授权。
-- 工作区：实现 worktree `.worktrees/ai-run-envelope`，主题分支 `codex/ai-run-envelope`，从计划
-  提交 `81ef210e8` 创建；该提交等于 `origin/main 5a2524dae` 加一个仅含本 TASK 与
-  `.agent/TASKS.md` 的文档提交，因此代码基线与 `origin/main` 完全一致。
-- 最后核实：2026-09-15T12:19:34+08:00。
+- 实际完成：Wave 0 冻结（含 W0-B 第二轮与接手后第三轮修正）；Wave 1 + S2.1 契约修正；Wave 2 三路
+  集成；接手后 W2.1 集成修复已完成并提交（opt-in 信封边界、lease/checkpoint 约束 provider I/O、
+  deadline-aware 退避、双预算原子化、信封错误分类、W0-B 公式第三轮修正）。
+- 当前里程碑：M0、M1、M2 完成；M2 后的 W2.1 修复完成（Wave 3 前置集成修复）。
+- 下一步：Wave 3 业务通道迁移（W3-A Writing+Story / W3-B World+Map / W3-C Assistant+Interaction /
+  主 Agent Imports+Evidence），从 W2.1 commit 创建隔离 worktree，为每个 task type 显式声明
+  `root_capability_id` 并按 L0=min(A,H) 冻结真实上限与 deadline，替换 `_TASK_RUN_INTERIM_REQUEST_LIMIT`。
+- 阻塞：无技术阻塞。会改变产品语义且无证据支持的 H 阈值（如 world.entity_fusion 深导入、imports
+  各 C3 阶段）迁移时逐能力暂停并请求一次聚焦裁决，其余能力继续；真实 provider 验收仍需另行取得
+  费用与凭据授权。
+- 工作区：实现 worktree `.worktrees/ai-run-envelope`，主题分支 `codex/ai-run-envelope`；W2.1 修复
+  以单个本地 commit 提交在该分支（见"验证证据"），未 push、未合并。W2-Text/W2-Agent/W2-Task
+  worktree 与分支保留未清理。
+- 最后核实：2026-09-15（W2.1 提交时，5666 passed / 85.90% 覆盖率后）。
 
 ## 目标与验收
 
@@ -107,8 +109,14 @@ parent: .agent/tasks/agent-integration.md
   （原为算术错 144）、`story.structure_dedup` 复算 **870**（原 3200 无法复现）。
   `writing.generate`（6⌈K/64⌉+8）与 `world.alias_relations.extract`（4S）等执行前已冻结工作量的
   能力记为 C2 动态公式，不要求新增产品输入限制。
-- W0-B 仍存疑（artifact 第 6 节 6 项），迁移前必须由领域确认的主要一项：`story.structure_dedup` 的
-  `smart_dedup_scan.max_suggestions` 是未校验 int（`modules/project/tasks.py:51`），A 随它线性增长。
+- W0-B 第三轮复核（2026-09-15，接手主 Agent 逐行对照代码，详见 artifact §6a）：推翻第二轮的
+  `story.structure_dedup` 复算——`smart_dedup` 预算拆分为 `world_legacy_budget=max_suggestions//3`
+  与 `outline_budget=max_suggestions−world_legacy_budget`（默认 120→40/80，第二轮的 87 是算术错）；
+  outline 每类 `max_pairs=2×outline_budget` 且 keep_separate 不写入建议、不触发全局提前停止；
+  `max_fix_attempts=1`、task R=1、max_attempts=2 ⇒ **默认最坏上界 5×160×2×2=3200**；API 合法上限
+  `max_suggestions le=300`（`project/schemas.py:479`，推翻"未校验 int"存疑）⇒ **5×400×2×2=8000**；
+  深导入 4 类×80 pair×R=3×fix1 ⇒ **1920**（第二轮 640 漏乘 transport 尝试）。`writing.generate`
+  公式 6⌈K/64⌉+8 经代码证实（director 3⌈K/64⌉ + candidate 1 + audit 3，×2 task attempts）。
 - W0-B 预算/retry/扣费（完整报告：`artifacts/wave0-b-budget-retry.md`）：transport 尝试次数不是
   全局常量——`infrastructure/tasks/worker.py:591-593` 按 task 的 `retry_transient_llm_errors` 在每次
   handler 执行前把 transport retry 置为 1 次；writing/story/world 系结构化调用实际 R=1、重试改由任务层
@@ -155,6 +163,45 @@ parent: .agent/tasks/agent-integration.md
   `writing.semantic_review.chunk_{index}`、`world.validation.packet_N`、
   `{capability}.knowledge.director.shard_N`、`{step_name}.author_decision_audit` 以及 Imports 各阶段
   的 step_name 参数。Wave 4 门禁需要增加"领域 step 名不含调用序数"的检查项。
+
+## W2.1 集成修复（2026-09-15，接手主 Agent 单写）
+
+接手复核证实了 8 项风险后完成的 Wave 3 前置修复；全部改动由主 Agent 单一写入。
+
+1. **恢复渐进迁移边界（opt-in 信封）**：`TaskRunEnvelopeKeeper.open()` 只为 `TaskRegistry`
+   显式声明 canonical `root_capability_id` 的任务建立/恢复账本；未声明任务（当前全部生产
+   task_handler）不建信封、不标 legacy，裸 client 调用保持改造前行为。删除 `task.<task_type>`
+   与 `task.unknown` 回退常量；恢复路径校验持久化 run 的 root 与注册声明漂移（`AIRunIdentityError`
+   失败关闭）。inline 独立执行路径同样按声明 opt-in，inline 子任务继续复用父 run。
+2. **lease/checkpoint 真正约束外部 I/O**：handler 启动前 `keeper.persist()` 被租约拒绝时立即
+   终止本 attempt（旧 worker 不执行 handler、不发 provider 请求；终态写入被 fence 拒绝，任务归
+   新 attempt）。`AIRunEnvelope` 新增 checkpoint 权威语义：`on_change` 失败记录 `persist_error`，
+   reserve 在计数前先补写缺口，仍失效则抛 `AIRunCheckpointError`（失败关闭）；瞬时 DB 故障恢复后
+   自愈。settle/record_retry/收尾路径的 checkpoint 失败不回滚内存真相——上次成功持久化的快照
+   仍显示 in-flight，恢复收敛为 unknown/possible。keeper 的 `_checkpoint` 不再吞掉拒绝与异常。
+3. **deadline-aware backoff**：`retry.py` 新增 `ai_run_remaining_seconds()`、
+   `retry_delay_crosses_deadline()` 与 `sleep_before_retry()`；transport 退避（`retry_with_backoff`）
+   与 structured 退避在完整 delay 会跨过剩余 deadline 时不 sleep、不发下一次请求，抛原始错误实例
+   保留异常类型；format repair 退避按同一判定 break 到既有失败契约（`LLMInvalidResponseError`），
+   不泄漏内部解析错误类型。无活动信封时行为与改造前完全一致。
+4. **双预算部分变更消除**：`client.generate()` 的 `provider_request` 改为信封先 reserve、兼容
+   `WorkflowBudget` 后 reserve；兼容预算拒绝时新增 `AIRunEnvelope.discard()` 撤销信封预留，两个
+   账本都不留下"已请求"计数，成功请求恰好各计一次。`ProjectGatewayModel.request` 在信封拒绝时
+   调用新增的 `AgentRunBudget.release_pending_request()` 回滚预留并重新落盘；
+   `GatewayStream` 建流被信封拒绝（流从未打开）时同样回滚，不把拒绝当成未知用量的真实请求。
+   Agent 工具数、web 子预算、恢复限制与公开兼容数据全部保留。
+5. **worker 错误分类**：`AIRunEnvelopeError`（预算耗尽、deadline、身份漂移、缺受管 step、
+   checkpoint 失效等）不再进入普通 `auto_requeue`，任务终态失败；预算耗尽保留给领域的作者续算
+   路径。transient LLM 错误的专属重排与普通非 LLM 错误的既有 auto_requeue 保持不变。
+6. **W0-B 与 TASK 修正**：见上方"W0-B 第三轮复核"。清除已推翻的 870/"未校验 int"/"等待用户确认"
+   结论；补 C1/C2/C3 三分归类。
+
+新增回归（详见"验证证据"）：未迁移裸 client task 经真实 TaskWorker 正常执行且不建信封；已声明
+任务缺受管 step 时零 I/O 失败关闭；handler 前 persist 被拒时 handler/provider 均不执行；运行中
+reserve checkpoint 被拒时 provider 为 0 且旧 attempt 终止；退避跨 deadline 不 sleep；信封/兼容预算
+双向拒绝零部分计数；`AIRunEnvelopeError` 不自动 requeue；普通 RuntimeError requeue 不变；两条真实
+`TaskWorker → 领域 handler → LLMClient` 代表链（`interaction_summary_refresh`、
+`world_map_schematic_generate`）；structure_dedup 全 keep_separate 最坏路径与深导入预算参数锁。
 
 ## 预算产品语义（Wave 3/4 实现约束）
 
@@ -388,6 +435,13 @@ parent: .agent/tasks/agent-integration.md
   字段与 v0 完全一致；合并时对注释块做严格重验，未知键被丢弃而不是进入公开 result。
 - 2026-09-15：Wave 1 只在受管入口建立 step 上下文，不在 harness 内预留 provider 请求；真正的
   每请求 reserve/settle 归 Wave 2 的 `client.generate()` 单入口，避免重复计数。
+- 2026-09-15（W2.1）：信封按显式声明 opt-in 而非无条件建立——Wave 2 的"无条件 + task.<type> 回退"
+  会让所有生产任务在活动信封下因裸调用零 I/O 失败（`reserve` 要求受管 step 上下文）；渐进迁移边界
+  优先于全面计量。
+- 2026-09-15（W2.1）：checkpoint 是账本权威的一部分——持久化通道失效（租约被拒/DB 故障）时
+  reserve 在 I/O 前失败关闭，而不是"计数留在内存继续调用"；settle 侧相反，不回滚已发出的请求。
+- 2026-09-15（W2.1）：活动信封下的权威请求闸门是 AIRunEnvelope；兼容预算在其后预留、被拒时用
+  `discard()`/`release_pending_request()` 补偿，避免引入第三账本或分布式事务即实现原子性。
 - 2026-09-15：主 Agent 复核确认 W0-C 结论——`get_completed_payload`（`lifecycle.py:394-405`）
   原样返回含 `_` 键的 result，而 `story_outline_service.py:248-259` 对 result 顶层键做 exact-key
   校验。因此通用 task 路径的运行信封**写入私有 meta**（`_ai_run_envelope`），不写 result：
@@ -475,15 +529,30 @@ parent: .agent/tasks/agent-integration.md
     子任务共享账本、授权追加额度不移动 deadline、恢复把 in-flight 转 unknown、v0 五字段兼容
     投影、秘密/正文/endpoint 不入信封。
 
+- 2026-09-15 W2.1 集成修复（全部由接手主 Agent 独立执行，非采信子代理数字）：
+  - 接手复核：git 状态/拓扑与简报一致；8 项风险全部由代码证实；基线
+    `pytest infrastructure/llm/tests infrastructure/tasks/tests` → 416 passed（与 Wave 2 记录一致）；
+    `make prompt-contracts` 24 passed；`make docs-check BASE_REF=origin/main` 通过；
+    `git diff --check` 干净。
+  - 实现后定向回归：`pytest infrastructure/llm/tests infrastructure/tasks/tests
+    modules/story/outline_state/tests modules/imports/tests/test_deep_import_dedup.py` →
+    **827 passed, 12 skipped, 2 deselected**（新增 30 项 W2.1 回归：deadline 退避 4、
+    structured/format 跨 deadline 2、双预算原子性 5、账本 discard/persist 权威 6、
+    worker opt-in/零 I/O/持久拒绝/信封错误分类/根漂移 6、两条代表链 2、
+    structure_dedup keep_separate 最坏路径 2、深导入预算参数锁 1、既有测试按 opt-in 契约更新 8）。
+  - changed-file `ruff check` All checks passed；`make prompt-contracts` 24 passed；
+    `make docs-check BASE_REF=origin/main` 通过（已同步 llm/tasks README）；`git diff --check` 干净。
+  - 全量回归：`make test-fast-coverage TEST_WORKERS=2` → **5666 passed, 13 skipped**，覆盖率
+    85.90%（门槛 85%）。PostgreSQL 专用库 E2E 未在 W2.1 门禁清单内，未运行；未配置
+    `E2E_DATABASE_URL` 时不连接开发库。
+
 ## 交付结果
 
-- 已交付：Wave 0 只读冻结结论与两份 artifacts；Wave 1 的 `AIRunEnvelopeV1` /
-  `AIStepReceiptV1` 契约、`AIRunEnvelope` 累计账本与 ContextVar scope、受管 step 归属、
-  v0 兼容投影、37 项定向测试，以及 `infrastructure/llm/README.md`、`docs/modules/12_infrastructure.md`
-  的同步。
-- 未交付：Wave 3–5 的业务通道迁移（含图片通道）、capability 门禁修正、ADR 更新、真实 provider
-  验收，以及 push、PR、合并到 main 与部署。Wave 2 的 provider 单入口接线与 task 私有信封已在本地
-  主题分支完成并集成。
+- 已交付：Wave 0 只读冻结结论与 artifacts（含 W2.1 第三轮修正）；Wave 1 契约与账本；
+  Wave 2 三路集成；W2.1 集成修复（opt-in 信封、checkpoint 权威、deadline 退避、双预算原子化、
+  错误分类、公式修正、README 同步）。
+- 未交付：Wave 3–5 的业务通道迁移（含图片通道）、capability 绑定修正、ADR 更新、真实 provider
+  验收，以及 push、PR、合并到 main 与部署。
 - 交付边界：改动只存在于本 worktree 的主题分支 `codex/ai-run-envelope`；未 push、未合并、
   未部署；`origin/main` 未受影响。
 - 正式知识与后续任务：ADR-0023/ADR-0025 与 LLM/tasks README 的完整更新按计划在 Wave 4 完成；

@@ -51,11 +51,12 @@ from infrastructure.llm.schemas import (
     AIRunStatus,
     AITaskIdentityV1,
     read_ai_run_envelope,
-    safe_receipt_token,
 )
 from infrastructure.llm.workflow_budget import (
+    AIRunCheckpointError,
     AIRunEnvelope,
     AIRunEnvelopeError,
+    AIRunIdentityError,
     ai_run_scope,
     new_ai_run_envelope,
 )
@@ -77,7 +78,8 @@ _TASK_TYPE_LOG_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
 
 #: 没有历史执行证据的任务在首次领取时建立 run；已领取过（attempt > 1）却没
 #: 有信封的任务属于"旧在途"，其历史 provider 用量不可考，只能标记 legacy。
-_TASK_RUN_FALLBACK_CAPABILITY_PREFIX = "task."
+#: 运行信封按显式声明 opt-in：只有 TaskRegistry 注册了 canonical
+#: root_capability_id 的任务才建立账本，未迁移任务保持改造前行为。
 _TASK_RUN_GLOBAL_NOVEL_ID = "global"
 #: Wave 3 之前不引入新的预算闸门：通用 task 路径只计量、不因额度拒绝请求。
 #: 领域迁移时必须按 L0 = min(A, H) 冻结真实上限并替换该临时值。
@@ -287,16 +289,24 @@ class TaskRunEnvelopeKeeper:
     def ledger(self) -> AIRunEnvelope | None:
         return self._ledger
 
-    def open(self) -> AIRunEnvelope:
-        """恢复同一 run，或为没有信封的任务建立 v1 运行账本。"""
+    def open(self) -> AIRunEnvelope | None:
+        """恢复同一 run，或为显式声明 root capability 的任务建立 v1 运行账本。
+
+        未声明 canonical root_capability_id 的任务不建立信封：调用链尚未完成
+        受管迁移，保持改造前行为。已有信封的恢复路径校验 root 漂移，防止
+        注册声明变化后把同一 run 悄悄归到另一个能力。
+        """
         if self._ledger is not None:
             return self._ledger
+        declared = self._declared_root_capability()
         payload = read_ai_run_envelope((self._task.meta or {}).get(AI_RUN_ENVELOPE_KEY))
         if payload is None:
+            if not declared:
+                return None
             payload = new_ai_run_envelope(
                 operation_id=str(self._task.id),
                 run_id=str(self._task.id),
-                root_capability_id=self._root_capability(),
+                root_capability_id=declared,
                 novel_id=self._novel_id(),
                 request_limit=_TASK_RUN_INTERIM_REQUEST_LIMIT,
                 task=self._identity(),
@@ -306,6 +316,12 @@ class TaskRunEnvelopeKeeper:
                 legacy_untracked=int(self._task.attempt or 0) > 1,
             ).snapshot()
         else:
+            if declared and payload.root_capability_id != declared:
+                raise AIRunIdentityError(
+                    "persisted run envelope root capability does not match the "
+                    "registered task capability",
+                    run_id=payload.root_capability_id,
+                )
             # 自动 requeue / stale 恢复 / manual resume 继续累计同一 run：只把
             # 执行载体换成当前 attempt 并重新打开，不重置计数、额度或 deadline。
             payload = payload.model_copy(
@@ -358,20 +374,20 @@ class TaskRunEnvelopeKeeper:
         return self._ledger.snapshot().model_dump(mode="json")
 
     async def _checkpoint(self, snapshot: AIRunEnvelopeV1) -> None:
-        """账本变更回调：只写私有 meta，不提交 handler 的业务事务。"""
+        """账本变更回调：只写私有 meta，不提交 handler 的业务事务。
+
+        checkpoint 被租约拒绝或持久化失败时必须抛出：账本失去持久化权威后，
+        reserve 会在发出 provider I/O 之前失败关闭，绝不带着失效的账本继续请求。
+        终态快照由 finalize 与任务终态原子合并，这里不单独落库。
+        """
         self._store(snapshot)
         if snapshot.status is not AIRunStatus.running:
-            # 终态快照由 finalize 与任务终态原子合并，这里不单独落库。
             return
-        try:
-            await self._persist_payload(snapshot.model_dump(mode="json"))
-        except Exception as error:
-            # 一次 checkpoint 失败不能让 provider 调用失败；计数仍留在内存
-            # 账本中，后续变更或 finalize 会再次尝试持久化。
-            logger.warning(
-                "Task %s run envelope checkpoint failed: %s",
-                self._task.id,
-                type(error).__name__,
+        accepted = await self._persist_payload(snapshot.model_dump(mode="json"))
+        if not accepted:
+            raise AIRunCheckpointError(
+                "run envelope checkpoint was rejected by the lease fence",
+                run_id=snapshot.run_id,
             )
 
     async def _persist_payload(self, payload: dict[str, Any]) -> bool:
@@ -405,19 +421,13 @@ class TaskRunEnvelopeKeeper:
             return _TASK_RUN_GLOBAL_NOVEL_ID
         return str(self._task.novel_id)
 
-    def _root_capability(self) -> str:
-        declared = (
+    def _declared_root_capability(self) -> str | None:
+        """registry 显式声明的 canonical root capability；未声明返回 None。"""
+        return (
             self._registry.get_root_capability(self._task.task_type)
             if self._registry is not None
             else None
         )
-        if declared:
-            return declared
-        token = safe_receipt_token(
-            f"{_TASK_RUN_FALLBACK_CAPABILITY_PREFIX}{self._task.task_type}",
-            limit=160,
-        )
-        return token or f"{_TASK_RUN_FALLBACK_CAPABILITY_PREFIX}unknown"
 
 
 class TaskWorker:
@@ -793,11 +803,17 @@ class TaskWorker:
                         if isinstance(session, _TaskHandlerSession):
                             session.end_task_preflight()
 
-                # 私有运行信封：恢复同一 run 或为旧在途任务建立 v1 账本，
-                # 并在 handler 执行前先落一次 lease-fenced 快照。
+                # 私有运行信封：只为显式声明 canonical root capability 的任务
+                # 建立或恢复；handler 启动前先落一次 lease-fenced 快照，租约已被
+                # 新 attempt 接管时立即终止本 attempt，不得执行任何 handler 逻辑。
                 if keeper is not None:
                     run_envelope = keeper.open()
-                    await keeper.persist()
+                    if run_envelope is not None and not await keeper.persist():
+                        raise AIRunEnvelopeError(
+                            "run envelope lease fence rejected this attempt; "
+                            "terminating the stale worker",
+                            run_id=run_envelope.run_id,
+                        )
 
                 logger.info(
                     "Executing task %s (type=%s, novel_id=%s) with handler %s",
@@ -909,9 +925,12 @@ class TaskWorker:
                 )
                 # retry_transient_llm_errors 的任务拥有自己的 LLM 重试决策：
                 # 非 transient 的 LLM 错误不得再被通用 handler-error 分支重排；
-                # 普通非 LLM 错误的 auto_requeue 语义保持不变。
+                # 运行信封拒绝（预算/deadline/身份/checkpoint）失败关闭，预算
+                # 耗尽保留给领域的作者续算路径；普通非 LLM 错误的 auto_requeue
+                # 语义保持不变。
                 requeue = terminal_recovery_policy is None and (
-                    not _llm_error_uses_task_policy(definition, e)
+                    not isinstance(e, AIRunEnvelopeError)
+                    and not _llm_error_uses_task_policy(definition, e)
                     and _should_auto_requeue_handler_failure(task)
                 )
                 failure_result = (

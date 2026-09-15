@@ -789,3 +789,56 @@ async def test_nested_workflow_meter_owns_the_model_request():
     assert agent_budget.tool_attempts == 2
     # 最后一次落盘来自 AgentRunBudget（只累计工具尝试），请求数保持 0。
     assert saved[-1]["requests"] == 0 and saved[-1]["tool_attempts"] == 2
+
+
+@pytest.mark.asyncio
+async def test_envelope_refusal_releases_the_agent_budget_request_reservation():
+    """信封在 provider I/O 前拒绝：网关的兼容"已请求"预留必须回滚。"""
+    from infrastructure.llm.workflow_budget import AIRunBudgetExceededError
+
+    client, provider = _scripted_client([_tool_turn(), _answer_turn()])
+    # 额度只够第一次请求：第二次请求的拒绝发生在信封内、provider I/O 前。
+    ledger = _agent_ledger(request_limit=1)
+    budget = AgentRunBudget()
+
+    with ai_run_scope(ledger), pytest.raises(AIRunBudgetExceededError):
+        await run_project_agent(
+            client,
+            LLMCallRequest(messages=[LLMMessage(role="user", content="甲在哪里？")]),
+            tools=[Tool(_lookup, name="lookup")],
+            deps=None,
+            output_type=Answer,
+            budget=budget,
+            input_limit=8000,
+            capability_id="assistant.turn",
+        )
+
+    assert len(provider.requests) == 1
+    envelope = ledger.snapshot()
+    assert envelope.requests_started == 1
+    # 拒绝后兼容账本回到"只有第一次成功请求"的状态，没有幽灵计数。
+    assert budget.requests == 1
+    assert budget.pending_usage == 0
+
+
+@pytest.mark.asyncio
+async def test_stream_envelope_refusal_releases_the_budget_before_any_io():
+    """建流被信封拒绝：流式请求的兼容预留同样回滚，不产生未知用量。"""
+    from infrastructure.llm.workflow_budget import AIRunBudgetExceededError
+
+    client, provider = _scripted_client([])
+    ledger = _agent_ledger(request_limit=0)
+    budget = AgentRunBudget()
+    model = ProjectGatewayModel(client, LLMCallRequest(), budget, input_limit=8000)
+    with ai_run_scope(ledger):
+        with pytest.raises(AIRunBudgetExceededError):
+            async with model.request_stream(
+                [ModelRequest([UserPromptPart("hi")])], None, ModelRequestParameters()
+            ) as stream:
+                async for _event in stream:
+                    pass
+
+    assert provider.requests == []
+    assert budget.requests == 0
+    assert budget.pending_usage == 0
+    assert ledger.snapshot().requests_started == 0

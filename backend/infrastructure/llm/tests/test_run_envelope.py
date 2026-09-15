@@ -35,6 +35,7 @@ from infrastructure.llm.workflow_budget import (
     AIManagedStepContext,
     AIManagedStepContextError,
     AIRunBudgetExceededError,
+    AIRunCheckpointError,
     AIRunDeadlineExceededError,
     AIRunEnvelope,
     AIRunEnvelopeError,
@@ -702,3 +703,107 @@ def test_new_ai_run_envelope_freezes_started_at_and_limit() -> None:
     assert snapshot.legacy_untracked is True
     assert snapshot.usage_complete is False
     assert snapshot.status is AIRunStatus.running
+
+
+class TestCheckpointAuthorityAndDiscard:
+    """W2.1：checkpoint 权威失效必须阻止 provider I/O；预留可被撤销。"""
+
+    async def test_discard_rolls_back_an_unsettled_reservation(self) -> None:
+        persisted: list[int] = []
+
+        async def on_change(snapshot: AIRunEnvelopeV1) -> None:
+            persisted.append(snapshot.requests_started)
+
+        ledger = AIRunEnvelope(_raw_envelope(), on_change=on_change)
+        with managed_step_scope(_step()):
+            reservation = await ledger.reserve()
+        assert ledger.snapshot().requests_started == 1
+        assert len(ledger.snapshot().recent_attempts) == 1
+
+        await ledger.discard(reservation)
+
+        snapshot = ledger.snapshot()
+        assert snapshot.requests_started == 0
+        assert snapshot.recent_attempts == []
+        assert snapshot.steps == []
+        assert snapshot.charge_state is AIChargeState.none
+        # 撤销后的快照同样通过 checkpoint 持久化，不留部分变更。
+        assert persisted[-1] == 0
+
+    async def test_discard_rejects_an_already_settled_reservation(self) -> None:
+        ledger = _ledger()
+        with managed_step_scope(_step()):
+            reservation = await ledger.reserve()
+            await ledger.settle(reservation, usage=LLMUsage())
+            with pytest.raises(AIRunEnvelopeError):
+                await ledger.discard(reservation)
+        assert ledger.snapshot().requests_settled == 1
+
+    async def test_settled_reservation_cannot_be_discarded_twice(self) -> None:
+        ledger = _ledger()
+        with managed_step_scope(_step()):
+            reservation = await ledger.reserve()
+            await ledger.discard(reservation)
+            with pytest.raises(AIRunEnvelopeError):
+                await ledger.discard(reservation)
+
+    async def test_broken_checkpoint_blocks_reserve_before_counting(self) -> None:
+        class _BrokenCheckpointError(Exception):
+            pass
+
+        async def failing_checkpoint(_snapshot: AIRunEnvelopeV1) -> None:
+            raise _BrokenCheckpointError("persist channel rejected")
+
+        ledger = AIRunEnvelope(_raw_envelope(), on_change=failing_checkpoint)
+        with managed_step_scope(_step()):
+            with pytest.raises(_BrokenCheckpointError):
+                await ledger.reserve()
+        # 预留已回滚：请求不计入账本，后续 reserve 在 provider I/O 前失败关闭。
+        snapshot = ledger.snapshot()
+        assert snapshot.requests_started == 0
+        assert snapshot.recent_attempts == []
+        assert isinstance(ledger.persist_error, _BrokenCheckpointError)
+        with managed_step_scope(_step()):
+            with pytest.raises(AIRunCheckpointError):
+                await ledger.reserve()
+        snapshot = ledger.snapshot()
+        assert snapshot.requests_started == 0
+        assert snapshot.steps == []
+
+    async def test_transient_checkpoint_failure_heals_on_next_write(self) -> None:
+        state = {"broken": True}
+
+        async def flaky_checkpoint(_snapshot: AIRunEnvelopeV1) -> None:
+            if state["broken"]:
+                raise RuntimeError("transient db outage")
+
+        ledger = AIRunEnvelope(_raw_envelope(), on_change=flaky_checkpoint)
+        with managed_step_scope(_step()):
+            with pytest.raises(RuntimeError):
+                await ledger.reserve()
+            assert ledger.persist_error is not None
+            state["broken"] = False
+            reservation = await ledger.reserve()
+            await ledger.settle(reservation, usage=LLMUsage())
+        assert ledger.persist_error is None
+        assert ledger.snapshot().requests_started == 1
+
+    async def test_settle_keeps_in_memory_truth_when_checkpoint_fails(self) -> None:
+        """provider 已调用后 settle checkpoint 失败：落定保留，恢复按 in-flight 收敛。"""
+        calls = {"n": 0}
+
+        async def failing_after_reserve(_snapshot: AIRunEnvelopeV1) -> None:
+            calls["n"] += 1
+            if calls["n"] > 1:
+                raise RuntimeError("db down")
+
+        ledger = AIRunEnvelope(_raw_envelope(), on_change=failing_after_reserve)
+        with managed_step_scope(_step()):
+            # reserve 的首次 checkpoint 成功（in-flight 已持久化），随后通道失效。
+            reservation = await ledger.reserve()
+            await ledger.settle(reservation, usage=LLMUsage())
+        snapshot = ledger.snapshot()
+        # 请求已真实发出：内存账本保留落定真相，绝不回滚成"未请求"。
+        assert snapshot.requests_started == 1
+        assert snapshot.requests_settled == 1
+        assert ledger.persist_error is not None

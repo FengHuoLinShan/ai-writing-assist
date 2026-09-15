@@ -197,3 +197,40 @@ async def test_structure_review_counts_many_to_many_pairs_as_unique_assets(monke
         ],
         "not_adopted_asset_ids": [],
     }
+
+
+@pytest.mark.asyncio
+async def test_structure_review_budget_is_frozen_for_deep_import(monkeypatch):
+    """深导入结构去重的成本公式输入：4 类资产、max_suggestions=40。
+
+    深导入 R=3（未开 retry_llm）、max_fix_attempts=1 ⇒ 每 pair 最多 6 次
+    provider 请求；4×80×6 = 1920 的上界依赖这两个冻结参数。
+    """
+    from modules.story import facade as outline_facade
+
+    captured: dict = {}
+
+    async def fake_suggest_structure_dedup(*args, **kwargs):
+        captured.update(kwargs)
+        return {"total_assets_scanned": 0, "suggestions": []}
+
+    monkeypatch.setattr(
+        outline_facade,
+        "suggest_structure_dedup",
+        fake_suggest_structure_dedup,
+    )
+
+    result = await StructureReviewAgent().review(
+        object(),
+        novel_id="novel-1",
+        workflow_id="wf-1",
+    )
+
+    assert result["degraded"] == 0
+    assert captured["max_suggestions"] == 40
+    assert captured["asset_types"] == [
+        "plot_thread",
+        "outline_arc",
+        "foreshadowing_plan",
+        "reveal_plan",
+    ]
