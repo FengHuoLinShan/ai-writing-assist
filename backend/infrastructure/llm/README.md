@@ -130,13 +130,18 @@ request messages。需要主动裁剪上下文时，应显式使用 `ContextBudg
 只有作者明确续算或确认可能重复扣费时才通过 `authorize_additional_requests()` 增加请求额度，
 且不移动既有 deadline。
 
-账本只保存稳定 ID、计数、哈希与安全错误类型。`requests_started` 是已发出的 provider 请求，
+所有变更与 `on_change` checkpoint 在同一临界区内串行，持久化顺序与变更顺序一致，旧快照
+不会后写覆盖新状态；回调不得重入同一账本。
+
+账本只保存稳定 ID、计数、哈希与安全错误类型，step 的 profile 摘要按 allowlist 重建，`api_key`、
+完整 endpoint、Prompt 与正文不会进入信封。`requests_started` 是已发出的 provider 请求，
 `requests_settled` 是已取得含 usage 完整回执的请求，`requests_unknown` 是已发出但结果或用量
 证据不完整的请求（超时、中断、取消、崩溃、provider 未返回 usage）。未知用量记 `possible`
-且 `usage_complete=false`，不得写成零。`recent_attempts` 只保留最近 256 条摘要，超出合并为
-`recent_attempts_overflow`，总请求、未知请求、重试与 usage 聚合不受影响。预算或 deadline
-拒绝发生在任何计数之前，被拒绝的调用不产生扣费记录；恢复时未 settle 的请求转为
-unknown/possible，而不是删除或当成未请求。
+且 `usage_complete=false`，不得写成零；有已知 usage 的失败请求同样记 `recorded`。
+`recent_attempts` 保留最近 256 条摘要（新条目挤掉最旧），溢出计入 `recent_attempts_overflow`，
+总请求、未知请求、重试与 usage 聚合不受影响。预算或 deadline 拒绝发生在任何计数之前，被拒绝的
+调用不产生扣费记录；恢复与进入终态前，未 settle 的请求一律收敛为 unknown/possible，而不是删除
+或当成未请求。自动 retry/requeue/recovery 只能累计同一 run，只有作者确认路径可以增加额度。
 
 `root_capability_id` 每 run 唯一；step 的 `step_capability_id` 必须等于 root 或取
 `infrastructure.*`，否则账本拒绝。`managed_llm_steps` 仍是兼容投影：v0 五字段原样可读，

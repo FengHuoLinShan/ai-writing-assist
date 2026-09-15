@@ -11,11 +11,12 @@ parent: .agent/tasks/agent-integration.md
 
 ## 恢复快照
 
-- 实际完成：Wave 0 只读冻结（W0-A 调用清单、W0-C 身份/持久化/恢复矩阵已落盘 artifacts；
-  W0-B 逐能力请求上界待收尾）；Wave 1 核心契约已实现并通过定向门禁。
-- 当前里程碑：M1 进行中——v1 envelope 与 v0 兼容投影已完成，尚无领域行为变化。
-- 下一步：W0-B 上界表落盘后，从本分支当前集成点按 Wave 2 启动 W2-Text / W2-Agent / W2-Task
-  三路并行；每路独立 worktree，写入范围互斥。
+- 实际完成：Wave 0 只读冻结（三份 artifacts）；Wave 1 核心契约与 S2.1 契约修正已完成并通过
+  定向与全量 fast 层门禁；W0-B 正在按"编译期常量 / 冻结工作量可算 / 运行期才知规模"三分类重新
+  冻结。
+- 当前里程碑：M1 完成——v1 envelope 与 v0 兼容投影稳定，仍无领域行为变化。
+- 下一步：提交 S2.1 后，从该集成点启动 Wave 2 三路并行（W2-Text / W2-Agent / W2-Task），
+  每路独立 worktree/分支，写入范围互斥。
 - 阻塞：无硬阻塞。需要用户确认的决策点是 W0-B 发现的"无有限上界能力"（imports 各阶段、
   writing.generate、world.entity_fusion 等）迁移前必须先冻结的领域上界口径；真实 provider 验收仍需
   另行取得费用与凭据授权。
@@ -117,6 +118,48 @@ parent: .agent/tasks/agent-integration.md
   `charge_state=possible` 必须与该既有语义对齐。
 - 方法教训：Wave 0 与 Wave 1 曾并发读写同一 worktree，只读结论的行号按基线 `5a2524dae` 使用；
   后续只读核查必须记录读取时的 blob SHA。
+
+## S2.1 契约修正（2026-09-15）
+
+- 并发顺序：所有公开变更经 `_serialized` 在同一 `asyncio.Lock` 内完成"计数变更 +
+  `on_change` checkpoint"，持久化顺序与变更顺序一致，旧快照不会后写覆盖新状态；回调
+  不得重入同一账本（会自锁）。
+- 信封边界：profile 摘要改由 `schemas.sanitize_profile_summary()` 按 allowlist 重建（从 harness
+  移入契约层，v0/v1 共用同一函数与同一名单），白名单外的 `api_key`、`base_url`、Prompt、正文等
+  一律丢弃；`profile_hash` 不再由调用方提供，改由净化后的摘要派生，v0 与 v1 身份函数统一。
+- 终态一致性：`finish()` 写入终态前先把未 settle 请求收敛为 unknown/possible，终态信封不再
+  保留 in-flight。
+- 扣费一致性：有已知 usage 的失败请求在 step 与 attempt 上同为 `recorded`；缺少 usage 仍为
+  unknown/possible，不伪造零用量。
+- 窗口语义：`recent_attempts` 保留**最近** 256 条（新条目挤掉最旧），总请求、重试与 usage 聚合
+  不受影响。
+- 授权语义：从 `AIRunAuthorizationReason` 移除 `domain_recovery`，只保留作者确认路径可用的
+  `author_resume` 与 `duplicate_charge_confirmed`；自动 retry/requeue/recovery 只能累计同一 run，
+  不得增加 `request_limit`（测试 `test_automatic_recovery_never_expands_the_limit` 固化）。
+- step 身份约束（Wave 3 必须遵守）：`steps` 按 (step_name, capability, call_kind, purpose,
+  profile_hash) 聚合，动态 `step_name` 会让持久化 `steps` 随调用数增长。领域迁移必须使用稳定
+  step 名（例如 `writing.semantic_review.chunk`），把 chunk/packet/shard 下标放进
+  `input_fingerprint` 或 step 级计数，而不是拼进 `step_name`。已确认会踩坑的动态命名：
+  `writing.semantic_review.chunk_{index}`、`world.validation.packet_N`、
+  `{capability}.knowledge.director.shard_N`、`{step_name}.author_decision_audit` 以及 Imports 各阶段
+  的 step_name 参数。Wave 4 门禁需要增加"领域 step 名不含调用序数"的检查项。
+
+## 预算产品语义（Wave 3/4 实现约束）
+
+```text
+算法上界 A = 本次冻结工作量下的主请求
+           + 既有 transport/schema/format/semantic retry
+           + 既有自动 requeue
+
+本次初始额度 L0 = min(A, capability 的单次授权安全闸门 H)
+```
+
+- A 由领域在运行开始时按已冻结输入（K/S/P/M 等）计算，不发明更宽松重试；自动 retry、自动
+  requeue 与恢复都只消耗同一 A，不增加额度。
+- H 是产品安全闸门，按能力的单次授权风险设定；当 A 显著大于 H 时必须分批授权，而不是一次性
+  发放 A。`world.entity_fusion` 深导入路径（M=10000，A=180000）不得进入常规 L0。
+- 超过 L0 后只有作者明确续算或确认可能重复扣费才能提高额度（`authorization_revision`），且不
+  移动 deadline；需要新的时间边界时由领域建立新 run 并用 `previous_run_id` 关联。
 
 ## 冻结设计
 
@@ -276,8 +319,8 @@ parent: .agent/tasks/agent-integration.md
 
 - [ ] M0：干净 worktree 基线、调用/capability/budget/run 身份清单冻结——W0-A 调用清单与
   W0-C 身份/恢复矩阵已完成并落盘 artifacts；W0-B 逐能力请求上界待收尾。
-- [ ] M1：v1 envelope 与 v0 compatibility projection 完成，无领域行为变化——代码与 37 项定向
-  测试已完成（见验证证据），待本分支提交。
+- [x] M1：v1 envelope 与 v0 compatibility projection 完成，无领域行为变化——含 S2.1 契约
+  修正与 44 项信封测试。
 - [ ] M2：文本、structured、stream、Agent、research、图片 provider 计量单入口完成。
 - [ ] M3：task/inline/requeue/stale 跨 attempt 累计和 private persistence 完成。
 - [ ] M4：全部业务调用迁移并启用 capability/runtime fail-closed 门禁。
@@ -353,6 +396,15 @@ parent: .agent/tasks/agent-integration.md
     `docs/modules/12_infrastructure.md`）；`git diff --check` 干净。
   - 全量回归：`make test-fast-coverage TEST_WORKERS=2` → 5578 passed, 13 skipped，覆盖率
     85.69%（门槛 85%），确认共享契约改动没有领域行为回归。
+- 2026-09-15 S2.1 契约修正：
+  - `pytest infrastructure/llm/tests` → 242 passed, 2 deselected（新增 6 项 S2.1 回归：
+    并发 checkpoint 单调、hostile profile_summary、终态收敛、已知 usage 失败、
+    自动恢复不扩额、动态 step 名计数）。
+  - 并发回归做了变异验证：临时移除 `reserve` 的 `@_serialized` 后该测试失败，恢复后通过，
+    证明测试确实覆盖"旧快照后写覆盖新状态"。
+  - `ruff check infrastructure/llm/` All checks passed；`make prompt-contracts` 24 passed；
+    `make docs-check BASE_REF=origin/main` 通过；`git diff --check` 干净。
+  - 全量回归：`make test-fast-coverage TEST_WORKERS=2` → 5585 passed, 13 skipped，覆盖率 85.83%。
   - 覆盖的门禁项：v0/v1 混读与未知版本失败关闭、契约 JSON round-trip、step 能力越界拒绝、
     计数与 usage 收款一致性、预算/deadline 拒绝前零计数、未知 usage 记 possible、
     256 条 recent attempt 溢出聚合、嵌套 scope 复用与 run 身份漂移拒绝、asyncio 并发隔离与

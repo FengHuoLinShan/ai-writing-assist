@@ -33,7 +33,10 @@ from infrastructure.llm.schemas import (
     AIStepReceiptV1,
     AITaskIdentityV1,
     LLMUsage,
+    profile_summary_hash,
+    safe_profile_source,
     safe_receipt_token,
+    sanitize_profile_summary,
 )
 
 RETRY_KINDS = ("transport", "structured", "format", "semantic")
@@ -136,7 +139,6 @@ class AIManagedStepContext:
     call_kind: AIStepCallKind
     capability_id: str | None = None
     purpose: AIStepPurpose = AIStepPurpose.primary
-    profile_hash: str = ""
     profile_source: str = "unknown"
     profile_summary: Mapping[str, Any] = field(default_factory=dict)
     input_fingerprint: str | None = None
@@ -245,11 +247,27 @@ def new_ai_run_envelope(
     )
 
 
+def _serialized(method):
+    """把"变更 + checkpoint"串行化。
+
+    并发 reserve/settle 必须让 checkpoint 的落盘顺序与变更顺序一致，否则旧快照可能
+    后写并回退新状态。临界区包含 `on_change` 的 await，因此回调不得重入同一账本。
+    """
+
+    @wraps(method)
+    async def run(self, *args, **kwargs):
+        async with self._lock:
+            return await method(self, *args, **kwargs)
+
+    return run
+
+
 class AIRunEnvelope:
     """一次权威领域运行的累计账本。
 
-    所有变更都在不包含 await 的临界区中完成，因此并发 reserve/settle 不会交错；
-    `on_change` 在每次变更后按最新快照通知持有者写入领域 checkpoint。
+    所有公开变更都经 `_serialized` 串行化：计数变更与 `on_change` checkpoint 在
+    同一临界区内完成，保证持久化顺序单调，不会出现旧快照覆盖新快照。
+    `on_change` 回调不得重入同一账本（会自锁），只应把快照写入领域 checkpoint。
     """
 
     def __init__(
@@ -264,6 +282,7 @@ class AIRunEnvelope:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._monotonic = monotonic or time.monotonic
         self._on_change = on_change
+        self._lock = asyncio.Lock()
         self._steps: dict[tuple[str, str, str, str, str], AIStepReceiptV1] = {
             _step_key(step): step for step in self._envelope.steps
         }
@@ -298,6 +317,7 @@ class AIRunEnvelope:
         self._refresh_derived()
         return self._envelope.model_copy(deep=True)
 
+    @_serialized
     async def reserve(
         self, *, purpose: AIStepPurpose | None = None
     ) -> AIRunRequestReservation:
@@ -351,6 +371,7 @@ class AIRunEnvelope:
         await self._notify()
         return reservation
 
+    @_serialized
     async def settle(
         self,
         reservation: AIRunRequestReservation,
@@ -392,6 +413,7 @@ class AIRunEnvelope:
                 if usage is not None
                 else AIRequestOutcome.unknown
             ),
+            usage_known=usage is not None,
             elapsed_ms=elapsed,
             error_kind=error_kind,
             retryable=retryable,
@@ -399,6 +421,7 @@ class AIRunEnvelope:
         self._refresh_derived()
         await self._notify()
 
+    @_serialized
     async def record_retry(
         self, reservation: AIRunRequestReservation, *, kind: RetryKind
     ) -> None:
@@ -411,6 +434,7 @@ class AIRunEnvelope:
         self._refresh_derived()
         await self._notify()
 
+    @_serialized
     async def authorize_additional_requests(
         self, additional: int, *, reason: AIRunAuthorizationReason
     ) -> None:
@@ -430,26 +454,16 @@ class AIRunEnvelope:
         )
         await self._notify()
 
+    @_serialized
     async def mark_in_flight_unknown(self) -> int:
         """恢复时把未 settle 的请求转为 unknown/possible，不删除也不当成未请求。"""
-        converted = 0
-        for step in self._envelope.steps:
-            in_flight = (
-                step.requests_started - step.requests_settled - step.requests_unknown
-            )
-            if in_flight <= 0:
-                continue
-            step.requests_unknown += in_flight
-            self._envelope.requests_unknown += in_flight
-            converted += in_flight
+        converted = self._converge_in_flight()
         if converted:
-            for attempt in self._envelope.recent_attempts:
-                if attempt.outcome is AIRequestOutcome.in_flight:
-                    attempt.outcome = AIRequestOutcome.unknown
             self._refresh_derived()
             await self._notify()
         return converted
 
+    @_serialized
     async def finish(self, status: AIRunStatus) -> None:
         if status is AIRunStatus.running:
             raise AIRunStateError(
@@ -460,6 +474,7 @@ class AIRunEnvelope:
                 f"run already finished as {self._envelope.status.value}",
                 run_id=self.run_id,
             )
+        self._converge_in_flight()
         self._envelope.status = status
         self._refresh_derived()
         await self._notify()
@@ -481,15 +496,15 @@ class AIRunEnvelope:
                 "infrastructure.*",
                 run_id=self.run_id,
             )
+        profile_summary = sanitize_profile_summary(context.profile_summary)
         receipt = AIStepReceiptV1(
             step_name=step_name,
             step_capability_id=capability_id,
             call_kind=context.call_kind,
             purpose=purpose,
-            profile_hash=safe_receipt_token(context.profile_hash, limit=128),
-            profile_source=safe_receipt_token(context.profile_source, limit=64)
-            or "unknown",
-            profile_summary=dict(context.profile_summary),
+            profile_hash=profile_summary_hash(profile_summary),
+            profile_source=safe_profile_source(context.profile_source),
+            profile_summary=profile_summary,
             input_fingerprint=safe_receipt_token(context.input_fingerprint, limit=128)
             or None,
             prompt_contract_id=safe_receipt_token(
@@ -539,17 +554,37 @@ class AIRunEnvelope:
             )
 
     def _append_attempt(self, attempt: AIStepAttemptV1) -> None:
+        """只保留最近 N 条 attempt 摘要；溢出计入 overflow，总计数不受影响。"""
         attempts = self._envelope.recent_attempts
         if len(attempts) >= AI_RUN_RECENT_ATTEMPT_LIMIT:
+            del attempts[0]
             self._envelope.recent_attempts_overflow += 1
-            return
         attempts.append(attempt)
+
+    def _converge_in_flight(self) -> int:
+        """把仍在途的请求收敛为 unknown/possible；返回收敛数量。"""
+        converted = 0
+        for step in self._envelope.steps:
+            in_flight = (
+                step.requests_started - step.requests_settled - step.requests_unknown
+            )
+            if in_flight <= 0:
+                continue
+            step.requests_unknown += in_flight
+            self._envelope.requests_unknown += in_flight
+            converted += in_flight
+        if converted:
+            for attempt in self._envelope.recent_attempts:
+                if attempt.outcome is AIRequestOutcome.in_flight:
+                    attempt.outcome = AIRequestOutcome.unknown
+        return converted
 
     def _resolve_attempt(
         self,
         reservation: AIRunRequestReservation,
         *,
         outcome: AIRequestOutcome,
+        usage_known: bool,
         elapsed_ms: float,
         error_kind: str,
         retryable: bool,
@@ -563,9 +598,7 @@ class AIRunEnvelope:
             if error_kind:
                 attempt.error_kind = safe_receipt_token(error_kind, limit=64)
             attempt.charge_state = (
-                AIChargeState.recorded
-                if outcome is AIRequestOutcome.succeeded
-                else AIChargeState.possible
+                AIChargeState.recorded if usage_known else AIChargeState.possible
             )
             return
 

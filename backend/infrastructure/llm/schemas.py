@@ -6,11 +6,14 @@ LLM 调用相关的 Pydantic schema
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -217,6 +220,127 @@ def safe_receipt_token(value: Any, *, limit: int = _RECEIPT_TOKEN_LIMIT) -> str:
     return _SAFE_RECEIPT_TOKEN.sub("_", text)[:limit]
 
 
+_KNOWN_PROFILE_SOURCES = frozenset(
+    {
+        "account",
+        "default",
+        "global",
+        "project",
+        "project_snapshot",
+        "system",
+        "test",
+        "test_override",
+        "timeout_override",
+        "unset",
+        "unknown",
+    }
+)
+_PROFILE_TEXT_FIELDS = ("provider_id", "label")
+_PROFILE_NUMBER_FIELDS = ("timeout", "max_tokens", "temperature", "top_p")
+
+
+def safe_text(value: Any, *, limit: int = 256) -> str:
+    """脱敏并限长；信封的 allowlist 文本字段一律经此收敛。"""
+    if value is None:
+        return ""
+    return redact_diagnostic(value, limit=limit).replace("\x00", "")
+
+
+def safe_profile_source(value: Any) -> str:
+    """profile 来源只允许登记值，其余降级为 unknown。"""
+    source = safe_text(value, limit=64).strip().lower()
+    return source if source in _KNOWN_PROFILE_SOURCES else "unknown"
+
+
+def safe_base_url_host(value: Any) -> str:
+    """只保留 host，丢弃 scheme、path、query 与凭据。"""
+    text = safe_text(value, limit=2048).strip()
+    if not text:
+        return ""
+    candidate = text if "://" in text else f"//{text}"
+    try:
+        return safe_text(urlparse(candidate).hostname or "", limit=253)
+    except ValueError:
+        return ""
+
+
+def sanitize_profile_summary(
+    value: Mapping[str, Any] | None,
+    *,
+    request: LLMCallRequest | None = None,
+) -> dict[str, Any]:
+    """按 allowlist 重建 profile 摘要；白名单外的键一律丢弃。
+
+    provider 响应、Prompt、正文、Key、完整 endpoint 与任意自定义键都不得进入信封，
+    因此这里不做"保留未知字段"，只重建已知字段。
+    """
+    raw = value or {}
+    summary: dict[str, Any] = {}
+    for field_name in _PROFILE_TEXT_FIELDS:
+        if field_name in raw:
+            summary[field_name] = safe_text(raw[field_name])
+
+    default_model = safe_text(raw.get("model"))
+    if default_model:
+        summary["model"] = default_model
+    if "default_model" in raw:
+        summary["default_model"] = safe_text(raw.get("default_model"))
+    if "base_url_host" in raw:
+        summary["base_url_host"] = safe_base_url_host(raw["base_url_host"])
+
+    for field_name in _PROFILE_NUMBER_FIELDS:
+        raw_value = raw.get(field_name)
+        if isinstance(raw_value, (int, float)) and not isinstance(raw_value, bool):
+            summary[field_name] = raw_value
+        elif raw_value is None and field_name in raw:
+            summary[field_name] = None
+
+    if "api_key_configured" in raw:
+        summary["api_key_configured"] = bool(raw["api_key_configured"])
+
+    sources = raw.get("sources")
+    if isinstance(sources, Mapping):
+        summary["sources"] = {
+            safe_text(key, limit=64): safe_profile_source(source)
+            for key, source in sources.items()
+            if safe_text(key, limit=64)
+        }
+
+    extra_keys = raw.get("extra_keys")
+    if isinstance(extra_keys, (list, tuple, set, frozenset)):
+        summary["extra_keys"] = sorted(
+            {safe_key for key in extra_keys if (safe_key := safe_text(key, limit=64))}
+        )
+
+    if request is not None:
+        actual_model = safe_text(getattr(request, "model", ""))
+        if default_model:
+            summary["default_model"] = default_model
+        if actual_model:
+            summary["model"] = actual_model
+        for field_name in ("max_tokens", "temperature", "top_p"):
+            request_value = getattr(request, field_name, None)
+            if isinstance(request_value, (int, float)) and not isinstance(
+                request_value, bool
+            ):
+                summary[field_name] = request_value
+            elif request_value is None and field_name != "max_tokens":
+                summary[field_name] = None
+
+    return summary
+
+
+def profile_summary_hash(profile_summary: Mapping[str, Any]) -> str:
+    """profile 摘要的稳定哈希；v0 与 v1 记录共用同一身份函数。"""
+    canonical = json.dumps(
+        dict(profile_summary),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 class AIRunStatus(StrEnum):
     """一次权威领域运行的状态；自动重试/恢复保持同一 run。"""
 
@@ -266,11 +390,14 @@ class AIRequestOutcome(StrEnum):
 
 
 class AIRunAuthorizationReason(StrEnum):
-    """同 run 增加额度只允许这几种可审计原因；不记录作者自由文本。"""
+    """同 run 增加额度只允许作者确认路径使用，并只记录可审计原因码。
+
+    自动 transport/schema/format/semantic retry、自动 requeue 与各类自动恢复都不得
+    调用授权入口；它们只能累计同一 run 的计数，不能扩大 request_limit。
+    """
 
     author_resume = "author_resume"
     duplicate_charge_confirmed = "duplicate_charge_confirmed"
-    domain_recovery = "domain_recovery"
 
 
 class AITaskIdentityV1(BaseModel):

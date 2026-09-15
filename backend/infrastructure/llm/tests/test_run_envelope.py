@@ -70,7 +70,6 @@ def _step(**overrides) -> AIManagedStepContext:
     options = {
         "step_name": "writing.generate.primary",
         "call_kind": AIStepCallKind.generate,
-        "profile_hash": "a" * 64,
         "profile_source": "project",
         "profile_summary": {"model": "gpt-x", "provider_id": "openai"},
     }
@@ -331,11 +330,106 @@ class TestRunLedger:
         snapshot = ledger.snapshot()
         assert len(snapshot.recent_attempts) == AI_RUN_RECENT_ATTEMPT_LIMIT
         assert snapshot.recent_attempts_overflow == 44
+        assert snapshot.recent_attempts[0].request_index == 45
+        assert snapshot.recent_attempts[-1].request_index == limit
         assert snapshot.requests_started == limit
         assert snapshot.requests_settled == limit
         assert snapshot.usage.total_tokens == limit
         assert snapshot.steps[0].requests_started == limit
         assert read_ai_run_envelope(snapshot.model_dump(mode="json")) is not None
+
+    async def test_checkpoint_writes_stay_monotonic_under_concurrency(self) -> None:
+        written: list[int] = []
+        first_writing = asyncio.Event()
+        release = asyncio.Event()
+
+        async def on_change(snapshot: AIRunEnvelopeV1) -> None:
+            if snapshot.requests_started == 1:
+                first_writing.set()
+                await release.wait()
+            written.append(snapshot.requests_started)
+
+        ledger = AIRunEnvelope(_raw_envelope(request_limit=4), on_change=on_change)
+        with ai_run_scope(ledger), managed_step_scope(_step()):
+            first_task = asyncio.create_task(ledger.reserve())
+            await first_writing.wait()
+            second_task = asyncio.create_task(ledger.reserve())
+            await asyncio.sleep(0.01)
+            release.set()
+            first = await first_task
+            second = await second_task
+            await ledger.settle(first, usage=LLMUsage(total_tokens=1))
+            await ledger.settle(second, usage=LLMUsage(total_tokens=1))
+        assert written == [1, 2, 2, 2]
+
+    async def test_terminal_run_converges_in_flight_requests(self) -> None:
+        ledger = _ledger()
+        with ai_run_scope(ledger), managed_step_scope(_step()):
+            await ledger.reserve()
+        await ledger.finish(AIRunStatus.failed)
+        snapshot = ledger.snapshot()
+        assert snapshot.status is AIRunStatus.failed
+        assert snapshot.requests_started == 1
+        assert snapshot.requests_settled == 0
+        assert snapshot.requests_unknown == 1
+        assert snapshot.usage_complete is False
+        assert snapshot.charge_state is AIChargeState.possible
+        assert [a.outcome for a in snapshot.recent_attempts] == [
+            AIRequestOutcome.unknown
+        ]
+
+    async def test_known_usage_failure_records_charge_consistently(self) -> None:
+        ledger = _ledger()
+        with ai_run_scope(ledger), managed_step_scope(_step()):
+            reservation = await ledger.reserve()
+            await ledger.settle(
+                reservation,
+                usage=LLMUsage(prompt_tokens=3, completion_tokens=1, total_tokens=4),
+                outcome=AIRequestOutcome.failed,
+                error_kind="provider_http_400",
+            )
+        snapshot = ledger.snapshot()
+        assert snapshot.requests_settled == 1
+        assert snapshot.requests_unknown == 0
+        assert snapshot.usage_complete is True
+        assert snapshot.usage.total_tokens == 4
+        assert snapshot.steps[0].charge_state is AIChargeState.recorded
+        assert snapshot.recent_attempts[0].outcome is AIRequestOutcome.failed
+        assert snapshot.recent_attempts[0].charge_state is AIChargeState.recorded
+
+    async def test_automatic_recovery_never_expands_the_limit(self) -> None:
+        ledger = _ledger(request_limit=1)
+        with ai_run_scope(ledger), managed_step_scope(_step()):
+            reservation = await ledger.reserve()
+            await ledger.settle(reservation, usage=None, error_kind="timeout")
+            await ledger.record_retry(reservation, kind="transport")
+            await ledger.mark_in_flight_unknown()
+            await ledger.finish(AIRunStatus.failed)
+        snapshot = ledger.snapshot()
+        assert snapshot.request_limit == 1
+        assert snapshot.authorization_revision == 0
+        assert snapshot.authorizations == []
+        assert [reason.value for reason in AIRunAuthorizationReason] == [
+            "author_resume",
+            "duplicate_charge_confirmed",
+        ]
+
+    async def test_distinct_step_names_all_stay_counted(self) -> None:
+        """steps 按 step 身份聚合；动态 step 名会让它随调用数增长（约束见 TASK）。"""
+        limit = 300
+        ledger = _ledger(request_limit=limit)
+        with ai_run_scope(ledger):
+            for index in range(limit):
+                with managed_step_scope(_step(step_name=f"dynamic.chunk_{index}")):
+                    reservation = await ledger.reserve()
+                    await ledger.settle(reservation, usage=LLMUsage(total_tokens=1))
+        snapshot = ledger.snapshot()
+        assert snapshot.requests_started == limit
+        assert snapshot.requests_settled == limit
+        assert snapshot.usage.total_tokens == limit
+        assert len(snapshot.steps) == limit
+        assert len(snapshot.recent_attempts) == AI_RUN_RECENT_ATTEMPT_LIMIT
+        assert snapshot.recent_attempts_overflow == limit - AI_RUN_RECENT_ATTEMPT_LIMIT
 
     async def test_recovery_turns_in_flight_requests_into_unknown(self) -> None:
         ledger = _ledger()
@@ -537,12 +631,37 @@ class TestCompatibilityProjection:
 
 
 class TestEnvelopeSecrecy:
-    async def test_receipts_drop_bodies_endpoints_and_credentials(self) -> None:
+    async def test_hostile_profile_summary_cannot_reach_the_snapshot(self) -> None:
         ledger = _ledger()
         hostile = _step(
-            step_name="step sk-live-abcdef123\napi_key=SECRET",
-            profile_hash="hash",
+            profile_summary={
+                "provider_id": "openai",
+                "model": "gpt-x",
+                "api_key": "sk-live-abcdef123456",
+                "base_url": "https://api.example.com/v1/chat/completions",
+                "base_url_host": "https://api.example.com/v1/chat?token=abc",
+                "prompt": "secret manuscript text",
+                "messages": [{"role": "user", "content": "body"}],
+            }
         )
+        with ai_run_scope(ledger), managed_step_scope(hostile):
+            reservation = await ledger.reserve()
+            await ledger.settle(reservation, usage=LLMUsage(total_tokens=1))
+        snapshot = ledger.snapshot()
+        assert snapshot.steps[0].profile_summary == {
+            "provider_id": "openai",
+            "model": "gpt-x",
+            "base_url_host": "api.example.com",
+        }
+        serialized = json.dumps(snapshot.model_dump(mode="json"))
+        assert "sk-live" not in serialized
+        assert "api.example.com/v1" not in serialized
+        assert "token=abc" not in serialized
+        assert "secret manuscript" not in serialized
+
+    async def test_receipts_drop_bodies_endpoints_and_credentials(self) -> None:
+        ledger = _ledger()
+        hostile = _step(step_name="step sk-live-abcdef123\napi_key=SECRET")
         with ai_run_scope(ledger), managed_step_scope(hostile):
             reservation = await ledger.reserve()
             await ledger.settle(
