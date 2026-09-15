@@ -17,8 +17,8 @@ from infrastructure.llm.errors import (
 )
 from infrastructure.llm.limits import LLMCircuitBreakerOpenError
 from infrastructure.llm.retry import (
-    _is_retryable,
     is_retryable_llm_error,
+    is_retryable_transport_error,
     retry_with_backoff,
 )
 
@@ -41,29 +41,35 @@ def retry_waits(monkeypatch: pytest.MonkeyPatch) -> list[float]:
 
 class TestIsRetryable:
     def test_timeout_is_retryable(self) -> None:
-        assert _is_retryable(LLMTimeoutError("timeout", provider="test", model="m"))
+        assert is_retryable_transport_error(
+            LLMTimeoutError("timeout", provider="test", model="m")
+        )
 
     def test_rate_limit_is_retryable(self) -> None:
-        assert _is_retryable(
+        assert is_retryable_transport_error(
             LLMRateLimitError("rate limited", provider="test", model="m", retry_after=5),
         )
 
     def test_connection_is_retryable(self) -> None:
-        assert _is_retryable(LLMConnectionError("disconnected", provider="test"))
+        assert is_retryable_transport_error(
+            LLMConnectionError("disconnected", provider="test")
+        )
 
     def test_open_circuit_is_retryable_for_task_attempt(self) -> None:
         assert is_retryable_llm_error(LLMCircuitBreakerOpenError(retry_after=1.0))
 
     def test_auth_not_retryable(self) -> None:
-        assert not _is_retryable(LLMAuthError("auth", provider="test", model="m"))
+        assert not is_retryable_transport_error(
+            LLMAuthError("auth", provider="test", model="m")
+        )
 
     def test_content_filter_not_retryable(self) -> None:
-        assert not _is_retryable(
+        assert not is_retryable_transport_error(
             LLMContentFilterError("filtered", provider="test", model="m"),
         )
 
     def test_invalid_response_not_retryable(self) -> None:
-        assert not _is_retryable(
+        assert not is_retryable_transport_error(
             LLMInvalidResponseError("bad response", provider="test"),
         )
 
@@ -81,7 +87,7 @@ class TestIsRetryable:
         )
 
     def test_unknown_error_not_retryable(self) -> None:
-        assert not _is_retryable(ValueError("something else"))
+        assert not is_retryable_transport_error(ValueError("something else"))
 
 
 class TestRetryWithBackoff:
