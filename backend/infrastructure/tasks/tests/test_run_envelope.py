@@ -1216,3 +1216,52 @@ async def test_declared_root_drift_with_persisted_envelope_fails_closed(
     finally:
         registry.unregister(task_type)
         await _cleanup(sessions, [task_id])
+
+
+@pytest.mark.asyncio
+async def test_declared_run_limit_and_deadline_freeze_the_envelope(test_engine) -> None:
+    """声明的额度/deadline resolver 在建立新 run 时冻结进信封。"""
+    sessions = async_sessionmaker(test_engine, expire_on_commit=False, autoflush=False)
+    task_type = f"w3-limit-deadline-{uuid.uuid4().hex}"
+    registry = TaskRegistry()
+
+    def _limit(task) -> int:
+        return int((task.meta or {}).get("frozen_requests") or 4)
+
+    async def handler(*, db, task):
+        del db, task
+        await _record_request()
+        return {"ok": True}
+
+    registry.register(
+        task_type,
+        handler,
+        owner_scope="global",
+        recovery_policy="auto_requeue",
+        max_attempts=2,
+        root_capability_id="infrastructure.rag_query_planner",
+        run_request_limit=_limit,
+        run_deadline_seconds=600,
+    )
+    task_id = uuid.uuid4()
+    try:
+        task_id = await _enqueue(sessions, task_type, meta={"frozen_requests": 4})
+        returned = await TaskWorker(
+            db_manager=_TaskManager(test_engine, sessions),
+            heartbeat_interval=60.0,
+        ).run_once()
+
+        assert returned is not None and returned.status == "done"
+        async with sessions() as db:
+            stored = await db.get(AsyncTask, task_id)
+            assert stored is not None
+            envelope = _stored_envelope(stored)
+            assert envelope is not None
+            assert envelope.root_capability_id == "infrastructure.rag_query_planner"
+            assert envelope.request_limit == 4
+            assert envelope.deadline_at is not None
+            assert envelope.status is AIRunStatus.succeeded
+            assert envelope.requests_started == 1
+    finally:
+        registry.unregister(task_type)
+        await _cleanup(sessions, [task_id])

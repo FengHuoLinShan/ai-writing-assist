@@ -365,6 +365,20 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
                 "supported/visual_fill/conflicts 分区保持。"
             ),
         ),
+        _policy(
+            "world.map_image.generate",
+            DOMAIN_WORLD,
+            "地图图片实际生成/编辑（Image API）",
+            subjects=("author",),
+            dimensions=("map_spatial",),
+            outputs=(OUTPUT_PROPOSAL,),
+            notes=(
+                "表示真实 Image API 请求的运行归属：generate 与 edit 共用本"
+                " capability，由运行回执的 call_kind 区分；不与"
+                " world.map_image_prompt（视觉 brief）混用。页级"
+                " possible-charge 确认语义仍由地图领域拥有。"
+            ),
+        ),
         # --- Story ---
         _policy(
             "story.story_outline.generate",

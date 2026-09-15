@@ -38,6 +38,7 @@ EXPECTED_CAPABILITIES = (
     "world.map_structure.generate",
     "world.map_atlas.plan",
     "world.map_image_prompt",
+    "world.map_image.generate",
     # Story
     "story.story_outline.generate",
     "story.outline.p20",
