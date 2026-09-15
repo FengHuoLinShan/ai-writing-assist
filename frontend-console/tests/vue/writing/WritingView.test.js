@@ -1222,6 +1222,56 @@ describe("WritingView", () => {
     wrapper.unmount()
   })
 
+  it("发布后状态查询暂时失败时保留任务并继续轮询，不重复提交", async () => {
+    vi.useFakeTimers()
+    globalThis.api.writing.listConflictChecks.mockResolvedValue({ items: [{ id: "check-1", items: [], summary_json: { open_high_count: 0 } }] })
+    globalThis.api.writing.publish.mockResolvedValue({ task_id: "publish-retry-task", new_version: true })
+    globalThis.api.tasks.get
+      .mockRejectedValueOnce(new Error("network down"))
+      .mockResolvedValueOnce({ status: "done", progress: 1 })
+    globalThis.api.writing.listChapters.mockResolvedValue({ chapter_indices: [1] })
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+    await wrapper.get("#btn-publish").trigger("click")
+    await flushPromises()
+
+    await vi.advanceTimersByTimeAsync(2999)
+    await flushPromises()
+    expect(wrapper.get("#writing-publish-bar-container").text()).toContain("状态暂不可用，正在重试")
+    expect(wrapper.vm.$.setupState.vm.publishProgress.taskId).toBe("publish-retry-task")
+    expect(wrapper.vm.$.setupState.vm.publishProgress.active).toBe(true)
+    expect(globalThis.api.writing.publish).toHaveBeenCalledOnce()
+
+    await vi.advanceTimersByTimeAsync(1)
+    await flushPromises()
+    expect(globalThis.api.tasks.get).toHaveBeenCalledTimes(2)
+    expect(globalThis.api.writing.publish).toHaveBeenCalledOnce()
+    expect(wrapper.get("#writing-publish-bar-container").text()).toContain("正式正文已就绪")
+    expect(wrapper.vm.$.setupState.vm.publishProgress).toMatchObject({
+      active: false,
+      taskId: null,
+      phase: "done",
+      progress: 100,
+    })
+    wrapper.unmount()
+  })
+
+  it("发布任务不存在时显示可重试失败且不重复提交", async () => {
+    globalThis.api.writing.listConflictChecks.mockResolvedValue({ items: [{ id: "check-1", items: [], summary_json: { open_high_count: 0 } }] })
+    globalThis.api.writing.publish.mockResolvedValue({ task_id: "missing-publish-task", new_version: true })
+    globalThis.api.tasks.get.mockRejectedValue(Object.assign(new Error("missing"), { status: 404 }))
+    globalThis.api.writing.listChapters.mockResolvedValue({ chapter_indices: [1] })
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+    await wrapper.get("#btn-publish").trigger("click")
+    await flushPromises()
+
+    expect(wrapper.get("#writing-publish-bar-container").text()).toContain("未找到原任务，请重新开始")
+    expect(wrapper.findAll("button").some((button) => button.text() === "手动重试")).toBe(true)
+    expect(globalThis.api.writing.publish).toHaveBeenCalledOnce()
+    wrapper.unmount()
+  })
+
   it("发布 payload 使用当前手选 Scene", async () => {
     globalThis.api.writing.listConflictChecks.mockResolvedValue({ items: [{ id: "check-1", items: [], summary_json: { open_high_count: 0 } }] })
     globalThis.api.writing.publish.mockResolvedValue({ new_version: false })

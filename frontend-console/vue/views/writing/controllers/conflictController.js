@@ -3,9 +3,9 @@ import {
   clearActiveWorkflow,
   createOperationId,
   normalizeTaskProgress,
-  pollRetryDelay,
   persistActiveWorkflow,
   recoverActiveWorkflows,
+  waitForTaskTerminal,
 } from "../../../../shared/workflowProgress.js"
 
 const ABORTED = Symbol("conflict-controller-aborted")
@@ -14,19 +14,10 @@ export function createConflictController({ api, toast, getProjectId, getCheck, o
   const receiptStorage = globalThis.sessionStorage
   let generation = 0
   let disposed = false
-  let timer = null
+  let activeWaitController = null
 
   function guard(token, projectId) {
     if (disposed || token !== generation || getProjectId() !== projectId) throw ABORTED
-  }
-
-  function wait(token, projectId, delay = 1000) {
-    return new Promise((resolve, reject) => {
-      timer = setTimeout(() => {
-        timer = null
-        try { guard(token, projectId); resolve() } catch (err) { reject(err) }
-      }, delay)
-    })
   }
 
   function replaceItem(updated) {
@@ -87,27 +78,44 @@ export function createConflictController({ api, toast, getProjectId, getCheck, o
   }
 
   async function waitForTask(taskId, projectId, token, workflowType) {
-    let pollFailures = 0
-    while (true) {
-      let task
-      try { task = await api.tasks.get(taskId, projectId) } catch (err) {
-        if (Number(err?.status) === 404) {
-          clearActiveWorkflow(taskId, receiptStorage)
-          onProgress({ taskId, progress: normalizeTaskProgress({ id: taskId, task_type: workflowType, status: "failed", error_message: "未找到原任务，请重新开始。" }, workflowType) })
-          throw Object.assign(new Error("未找到原任务，请重新开始。"), { workflowProgressVisible: true })
-        }
-        pollFailures += 1
-        await wait(token, projectId, pollRetryDelay(pollFailures)); continue
+    activeWaitController?.abort()
+    const controller = new AbortController()
+    activeWaitController = controller
+    try {
+      const { progress, task } = await waitForTaskTerminal({
+        taskId,
+        workflowType,
+        novelId: projectId,
+        receiptStorage,
+        apiClient: api,
+        intervalMs: 1000,
+        signal: controller.signal,
+        onUpdate: (nextProgress) => {
+          if (disposed || token !== generation || getProjectId() !== projectId) {
+            controller.abort()
+            return
+          }
+          onProgress({ taskId, progress: nextProgress })
+        },
+      })
+      if (disposed || token !== generation || getProjectId() !== projectId) throw ABORTED
+      if (!task) {
+        onProgress({ taskId, progress })
+        throw Object.assign(new Error("未找到原任务，请重新开始。"), { workflowProgressVisible: true })
       }
-      pollFailures = 0
-      guard(token, projectId)
-      onProgress({ taskId, progress: normalizeTaskProgress(task, workflowType) })
-      if (task?.status === "done") { clearActiveWorkflow(taskId, receiptStorage); return task }
-      if (task?.status === "failed" || task?.status === "cancelled") {
+      if (progress.done) {
+        clearActiveWorkflow(taskId, receiptStorage)
+        return task
+      }
+      if (progress.failed || progress.cancelled) {
         clearActiveWorkflow(taskId, receiptStorage)
         throw Object.assign(new Error(task.error_message || "AI 任务失败"), { workflowProgressVisible: true })
       }
-      await wait(token, projectId)
+    } catch (error) {
+      if (error?.name === "AbortError") throw ABORTED
+      throw error
+    } finally {
+      if (activeWaitController === controller) activeWaitController = null
     }
   }
 
@@ -134,6 +142,7 @@ export function createConflictController({ api, toast, getProjectId, getCheck, o
     const check = getCheck(); const projectId = getProjectId()
     if (!check?.id || !projectId) return null
     if (activeWorkflow(projectId)) { toast("已有 AI 冲突任务正在进行", "info"); return null }
+    activeWaitController?.abort()
     const token = ++generation
     try {
       const confirmation = await confirmAiReference({ novel_id: projectId, action: "writing.conflict_check.ai_review", task: "writing conflict AI review", scope: "chapter", chapter_index: check.chapter_index, scene_id: check.scene_id, context_mode: "canonical", include_pending_objects: Boolean(check.include_candidates), budget_tokens: 0 })
@@ -154,6 +163,7 @@ export function createConflictController({ api, toast, getProjectId, getCheck, o
     const check = getCheck(); const projectId = getProjectId()
     if (!check?.id || !itemId || !projectId) return null
     if (activeWorkflow(projectId)) { toast("已有 AI 冲突任务正在进行", "info"); return null }
+    activeWaitController?.abort()
     const token = ++generation
     try {
       const confirmation = await confirmAiReference({ novel_id: projectId, action: "writing.conflict_check.ai_suggestion", task: "writing conflict AI suggestion", scope: "chapter", chapter_index: check.chapter_index, scene_id: check.scene_id, context_mode: "canonical", include_pending_objects: Boolean(check.include_candidates), budget_tokens: 0 })
@@ -167,12 +177,13 @@ export function createConflictController({ api, toast, getProjectId, getCheck, o
   async function recover() {
     const projectId = getProjectId(); const workflow = activeWorkflow(projectId)
     if (!workflow) return false
+    activeWaitController?.abort()
     const token = ++generation
     try { const task = await waitForTask(workflow.taskId, projectId, token, workflow.workflowType); guard(token, projectId); const check = await api.writing.getConflictCheck(workflow.meta?.checkId, projectId); guard(token, projectId); onCheck(check); return task } catch (err) { if (err !== ABORTED && !disposed && token === generation && !err?.workflowProgressVisible) toast(err?.message || "AI 冲突任务恢复失败", "error"); return false }
   }
   async function cancel() { const workflow = activeWorkflow(); if (!workflow) return false; try { await api.tasks.cancel(workflow.taskId, getProjectId()) } catch (err) { toast(err?.message || "取消任务失败", "error"); return false } return true }
   function dismiss() { const workflow = activeWorkflow(); if (workflow) clearActiveWorkflow(workflow.taskId, receiptStorage); onProgress({ taskId: null, progress: null }) }
-  function dispose() { disposed = true; generation += 1; if (timer) clearTimeout(timer); timer = null }
+  function dispose() { disposed = true; generation += 1; activeWaitController?.abort(); activeWaitController = null }
 
   return { updateStatus, confirmContinuity, runAiReview, requestSuggestion, recover, cancel, dismiss, dispose }
 }

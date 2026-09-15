@@ -96,6 +96,32 @@ describe("deepImportController", () => {
     controller.dispose()
   })
 
+  it("轮询任务不存在时清理回执并收起状态", async () => {
+    localStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
+      id: "p1:deep_import:missing-task",
+      taskId: "missing-task",
+      workflowType: "deep_import",
+      projectId: "p1",
+    }]))
+    const changes = []
+    const api = {
+      tasks: { get: vi.fn().mockRejectedValue(Object.assign(new Error("missing"), { status: 404 })) },
+      world: {},
+      imports: {},
+    }
+    const controller = createDeepImportController({
+      api,
+      toast: vi.fn(),
+      getProjectId: () => "p1",
+      onChange: (value) => changes.push(value),
+    })
+
+    await controller.recover()
+    await vi.waitFor(() => expect(changes.at(-1)).toEqual(expect.objectContaining({ taskId: null, progress: null })))
+    expect(JSON.parse(localStorage.getItem("novel_active_workflows_v1") || "[]")).toEqual([])
+    controller.dispose()
+  })
+
   it("完成态在再次打开时仍可恢复，直到作者明确关闭", async () => {
     localStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
       id: "p1:deep_import:task-done",

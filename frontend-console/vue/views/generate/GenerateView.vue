@@ -80,9 +80,9 @@ import {
   createOperationId,
   normalizeTaskProgress,
   persistActiveWorkflow,
-  pollRetryDelay,
   pollTaskProgress,
   recoverActiveWorkflows,
+  waitForTaskTerminal,
 } from "../../../shared/workflowProgress.js"
 import {
   clearCreativeContinuation,
@@ -1366,41 +1366,36 @@ async function changePovChapter(value, { preserveSelection = false } = {}) {
   } finally { owner.finish(scope) }
 }
 function changePovScene(id) { const scene = pov.scenes.find((item) => item.id === id); povForm.value = { ...povForm.value, sceneId: id || "", viewpointCharacterId: scene?.pov_character_id || "" }; povSubmission.value = null }
-function abortableDelay(ms, signal) { return new Promise((resolve, reject) => { const timer = setTimeout(resolve, ms); signal.addEventListener("abort", () => { clearTimeout(timer); reject(new DOMException("Aborted", "AbortError")) }, { once: true }) }) }
 async function waitForPovTask(taskId, scope) {
-  let pollFailures = 0
-  while (owner.isActive(scope)) {
-    let task
-    try {
-      task = await api.tasks.get(taskId, props.projectId)
-    } catch (err) {
-      if (!owner.isActive(scope)) throw new DOMException("Aborted", "AbortError")
-      if (Number(err?.status) === 404) {
-        clearActiveWorkflow(taskId, receiptStorage)
-        throw new Error("未找到原任务，请重新开始。")
-      }
-      pollFailures += 1
-      await abortableDelay(pollRetryDelay(pollFailures), scope.controller.signal)
-      continue
-    }
-    pollFailures = 0
-    if (!owner.isActive(scope)) throw new DOMException("Aborted", "AbortError")
-    povProgress.value = Number(task?.progress || 0)
-    if (task?.status === "done") {
-      if (!task.result?.draft_id) throw new Error("任务已完成，但正文建议未能加载")
-      return task
-    }
-    if (task?.status === "failed") {
-      clearActiveWorkflow(taskId, receiptStorage)
-      throw new Error(task.error_message || task.result?.error_message || "角色视角正文生成失败")
-    }
-    if (task?.status === "cancelled") {
-      clearActiveWorkflow(taskId, receiptStorage)
-      throw new Error("角色视角正文生成已取消")
-    }
-    await abortableDelay(1500, scope.controller.signal)
+  const { progress, task } = await waitForTaskTerminal({
+    taskId,
+    workflowType: "writing_generate",
+    novelId: props.projectId,
+    receiptStorage,
+    apiClient: api,
+    signal: scope.controller.signal,
+    onUpdate: (nextProgress) => {
+      if (owner.isActive(scope) && nextProgress.percent != null) povProgress.value = nextProgress.percent / 100
+    },
+  })
+  if (!owner.isActive(scope)) throw new DOMException("Aborted", "AbortError")
+  if (!task) {
+    clearActiveWorkflow(taskId, receiptStorage)
+    throw new Error("未找到原任务，请重新开始。")
   }
-  throw new DOMException("Aborted", "AbortError")
+  if (progress.done) {
+    if (!task.result?.draft_id) throw new Error("任务已完成，但正文建议未能加载")
+    return task
+  }
+  if (progress.failed) {
+    clearActiveWorkflow(taskId, receiptStorage)
+    throw new Error(task.error_message || task.result?.error_message || "角色视角正文生成失败")
+  }
+  if (progress.cancelled) {
+    clearActiveWorkflow(taskId, receiptStorage)
+    throw new Error("角色视角正文生成已取消")
+  }
+  return task
 }
 async function generatePov() {
   if (povPending.value) return false

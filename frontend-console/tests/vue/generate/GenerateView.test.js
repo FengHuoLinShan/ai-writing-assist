@@ -1756,6 +1756,26 @@ describe("GenerateView Vue behavior matrix", () => {
     expect(toast).toHaveBeenCalledWith(severity === "info" ? "已取消生成，当前选择仍保留" : `角色视角正文生成失败：${expectedMessage}`, severity)
   })
 
+  it("角色视角任务不存在时清理回执并保留一次提交", async () => {
+    api.outline.listScenesByChapter.mockResolvedValue([{ id: "scene-1", title: "第一场", pov_character_id: "char-1" }])
+    confirmAiReference.mockResolvedValue({ id: "confirm-1", user_note: "" })
+    api.writing.generate.mockResolvedValue({ task_id: "missing-pov-task" })
+    api.tasks.get.mockRejectedValue(Object.assign(new Error("missing"), { status: 404 }))
+    const wrapper = mount(GenerateView, { props: baseProps({
+      tab: "pov_prose",
+      povChapters: [{ chapter_index: 1, title: "旧怨" }],
+      povCharacters: [{ entity_id: "char-1", name: "秦岚" }],
+    }), attachTo: document.body })
+    await wrapper.get("#generate-pov-chapter").setValue("1")
+    await waitFor(() => expect(wrapper.findAll("#generate-pov-scene option")).toHaveLength(2))
+    await wrapper.get("#generate-pov-scene").setValue("scene-1")
+    await wrapper.get('[data-action="generate-pov-prose"]').trigger("click")
+
+    await waitFor(() => expect(wrapper.get("#generate-pov-result").text()).toContain("未找到原任务，请重新开始。"))
+    expect(api.writing.generate).toHaveBeenCalledOnce()
+    expect(JSON.parse(sessionStorage.getItem("novel_active_workflows_v1") || "[]")).toEqual([])
+  })
+
   it("focuses a failed POV result and retries without clearing the form", async () => {
     api.outline.listScenesByChapter.mockResolvedValue([{ id: "scene-1", title: "第一场", pov_character_id: "char-1" }])
     confirmAiReference.mockResolvedValue({ id: "confirm-1", user_note: "" })
