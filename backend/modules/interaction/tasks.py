@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 
 from infrastructure.llm.agent_runtime import run_project_agent
+from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.capabilities import capability_from_execution_settings
 from infrastructure.llm.retry import retry_with_backoff
 from infrastructure.tasks.registry import task_handler
@@ -16,6 +17,7 @@ from modules.interaction.generation import (
     PreparedSummaryGeneration,
     rp_timeout_seconds,
     story_request,
+    story_stream_step_scope,
     summary_request,
 )
 from modules.interaction.runtime_policy import AGENT_STORY_TASK, agent_story_enabled
@@ -28,15 +30,41 @@ _CHECKPOINT_SECONDS = 2.0
 _MAX_URGENT_SUMMARY_PASSES = 4
 
 
-@task_handler("interaction_continuity_review", recovery_policy="manual_resume")
+@task_handler(
+    "interaction_continuity_review",
+    recovery_policy="manual_resume",
+    # A = 1 次结构化审查（1 + max_fix_attempts=2 次格式修复）× transport R3 = 9；
+    # 单 attempt（manual_resume），每请求默认 provider 180s ⇒ 9 × 180 = 1620s。
+    root_capability_id="interaction.continuity_review",
+    run_request_limit=9,
+    run_deadline_seconds=1620.0,
+)
 async def handle_interaction_continuity_review(db, task):
     from modules.interaction.proactive import handle_continuity_review
 
     return await handle_continuity_review(db, task)
 
 
-@task_handler("interaction_story_generate", recovery_policy="restart_origin")
-@task_handler("interaction_agent_story_generate", recovery_policy="restart_origin")
+@task_handler(
+    "interaction_story_generate",
+    recovery_policy="restart_origin",
+    # 旧执行版本（快照未启用 agent runtime）仍走完整 provider 链：4 次紧急回顾
+    # pass ×（1 主请求 + 1 次格式修复）×R3 + 正文流 1 + 治理 9 + 返修 3 + 复审 9
+    # = 46。旧链没有整体 wall-clock 边界（仅每请求 900s provider timeout），
+    # 不发明新边界，故不声明 deadline。
+    root_capability_id="interaction.story_generate",
+    run_request_limit=46,
+)
+@task_handler(
+    "interaction_agent_story_generate",
+    recovery_policy="restart_origin",
+    # agent 路径：主循环（准备 agent + 紧急回顾 agent + 正文流预留）由
+    # AgentRunBudget(rp) 封顶 8 次 + 治理审查 9 + 返修 3 + 复审 9 = 29；
+    # agent 段 asyncio.timeout ≤ 1800s 与 Agent 30 分钟窗口一致。
+    root_capability_id="interaction.story_generate",
+    run_request_limit=29,
+    run_deadline_seconds=1800.0,
+)
 async def handle_interaction_story_generate(db, task):
     client = None
     framer = InteractionStreamFramer()
@@ -82,12 +110,17 @@ async def handle_interaction_story_generate(db, task):
                         ).hard_input_tokens,
                         checkpoint=agent_run.checkpoint,
                         future_requests=2,
+                        # 活动 run 的 root capability；信封据此把本 Agent 循环
+                        # 归入 interaction.story_generate（非 root 会被拒绝）。
+                        capability_id="interaction.story_generate",
                     )
                     output = summary_output.output
                 else:
-                    output = await summary_client.generate_structured(
+                    output = await run_managed_structured(
+                        summary_client,
                         summary_request(prepared),
                         InteractionSummaryOutput,
+                        step_name="interaction.summary.generate",
                         max_fix_attempts=1,
                         diagnostics=summary_diagnostics,
                         fix_prompt=(
@@ -115,7 +148,10 @@ async def handle_interaction_story_generate(db, task):
         stream = (
             agent_run.stream(client, prepared)
             if agent_run is not None
-            else client.generate_stream(story_request(prepared), transport_retries=False)
+            else story_stream_step_scope(
+                client,
+                client.generate_stream(story_request(prepared), transport_retries=False),
+            )
         )
         async for chunk in stream:
             visible = framer.feed(chunk.content)
@@ -190,6 +226,12 @@ async def handle_interaction_story_generate(db, task):
     "interaction_summary_refresh",
     recovery_policy="auto_requeue",
     max_attempts=2,
+    # A = 2 次 task attempt × [2 次内层重试 ×（1 主请求 + 1 次格式修复）]
+    # = 8；每次结构化调用内层重试链的 wall-clock 边界为
+    # 2 次内层 ×（1+1）请求 × provider 900s = 3600s。
+    root_capability_id="interaction.summary_refresh",
+    run_request_limit=8,
+    run_deadline_seconds=3600.0,
 )
 async def handle_interaction_summary_refresh(db, task):
     prepared = None
@@ -205,9 +247,11 @@ async def handle_interaction_summary_refresh(db, task):
         )
         diagnostics: list[dict] = []
         output = await retry_with_backoff(
-            lambda: client.generate_structured(
+            lambda: run_managed_structured(
+                client,
                 summary_request(prepared),
                 InteractionSummaryOutput,
+                step_name="interaction.summary.generate",
                 max_fix_attempts=1,
                 transport_retries=False,
                 diagnostics=diagnostics,

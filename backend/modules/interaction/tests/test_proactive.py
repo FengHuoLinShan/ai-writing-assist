@@ -86,7 +86,7 @@ async def test_rp_policy_is_journey_scoped_and_review_does_not_change_story(
         model_name = "deepseek-v4-flash"
         closed = False
 
-        async def generate_structured(self, request, schema):
+        async def generate_structured(self, request, schema, **_kwargs):
             text = "\n".join(message.content for message in request.messages)
             assert "未选分支暗号" not in text
             return schema.model_validate(
@@ -175,7 +175,7 @@ async def test_review_can_quote_agreements_and_fixed_sources_but_not_invent_refs
     class Client:
         model_name = "deepseek-v4-flash"
 
-        async def generate_structured(self, request, schema):
+        async def generate_structured(self, request, schema, **_kwargs):
             return schema.model_validate(
                 {
                     "findings": [
