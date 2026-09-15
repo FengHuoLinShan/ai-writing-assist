@@ -2,11 +2,12 @@
 
 ## 结论
 
-主 Agent 重新从生产 `modules/` 的调用标记反查到 TaskRegistry/worker：当前 33 个生产文件含
+主 Agent 重新从生产 `modules/` 的调用标记反查到 TaskRegistry/worker：当前生产文件含
 受管入口或 `research`/stream/image 标记；`make prompt-contracts` 24 passed，未发现 AST 解析失败、
 未知 capability 或未登记绑定。任务 registry 的 root/额度门禁已纳入本轮合并定向回归；新增的
 `world_cocreation_turn` 已有 `world.generation.cocreation` parent，Interaction story 两个 task
-也都有显式 root 与冻结额度。
+也都有显式 root 与冻结额度。后续收口新增 `project.smart_dedup`、`imports.deep_import` 与
+`world.map_atlas.generate` parent，注册表现为 51 项（46 业务 + 5 infrastructure）。
 
 ## 边界核对
 
@@ -21,12 +22,14 @@
   队列行，不覆盖新 task 的 attempt 快照。
   旧 pending/awaiting-continue 缺信封时以 attempt id 建立稳定
   `legacy_untracked/usage_complete=false` run。mirror 以 `SKIP LOCKED` 避免与领域
-  attempt→task 路径互等；本轮只做了 SQLite/语句锁序回归，PostgreSQL 仍待专用库验收。
+  attempt→task 路径互等；专用 PostgreSQL 的 task envelope lease/terminal merge 已通过。
   旧 awaiting-continue 的未知历史段不产生可用额度；新授权后最终 limit 为 46/29、revision=1，
   新版已跟踪段的正常续写仍为 92/58。
-- 直接 provider 调用仍存在于已明确的 opt-out/非目标路径：Map atlas 的 focused plan/image、
-  embedding/indexing 与健康/连接检查；这些路径没有声明 root，不会被误报为已迁移。未把它们写成
-  “零旁路已完成”。
+- Map Atlas 的 structured plan/spatial calls 已改走 managed step，图片 client 归属
+  `world.map_atlas.generate` parent，并把同一账本镜像到 MapAtlasRun。仍保留的 opt-out/非目标仅为
+  embedding/indexing、健康/连接检查、离线 eval 与历史回填；这些不会被误报为业务迁移。
+- Smart Dedup World 扫描不再穷举全部对象对，复用 `3×max_suggestions` 前沿；Imports 四类 C3
+  task 使用固定作者授权段。所有新 root 都通过 registry/capability 静态门禁。
 - `_ai_run_envelope` 仅保留在私有 meta/attempt checkpoint；公开 task meta/result 经过投影剥离，
   相关 worker/lifecycle/Interaction 回归通过。
 
@@ -41,4 +44,6 @@
   **5746 passed, 13 skipped, 11 warnings**，coverage **86.02%**；frontend **191 files / 2491 tests**。
   secret hygiene、backend/frontend audit、lint、docs 均通过；backend audit 仅有已存档的
   `langchain-community` adverse status，无漏洞。
-- PostgreSQL E2E 与真实 provider 未执行；不将 CI 绿色表述为它们已通过。
+- 专用 PostgreSQL 更新后的 merge-gate critical（含 3 个信封/Map mirror 用例）**36 passed**；
+  完整 deterministic E2E 排除 3 个未被本分支改变的基线漂移后 **133 passed, 10 deselected**。
+  真实 provider 未执行，不将自动化绿色表述为真实模型通过。

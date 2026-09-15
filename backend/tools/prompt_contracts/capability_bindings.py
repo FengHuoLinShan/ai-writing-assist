@@ -78,6 +78,7 @@ CAPABILITY_BINDINGS: dict[str, tuple[str, ...]] = {
     ),
     "modules/world/entity_fusion.py": ("world.entity_fusion",),
     "modules/world/map_atlas_workflow.py": (
+        "world.map_atlas.generate",
         "world.map_atlas.plan",
         "world.map_image_prompt",
         "world.map_image.generate",

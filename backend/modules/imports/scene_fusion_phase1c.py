@@ -11,6 +11,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from modules.imports.admission import propagate_run_envelope_error
 from modules.imports.llm_schemas import SceneChunk
 from modules.imports.scene_fusion import FinalSceneCandidate
 from modules.story.contracts import (
@@ -138,6 +139,7 @@ class Phase1cSceneFusionService:
                 )
                 concerns = list(review.candidate_concerns)
             except Exception as exc:
+                propagate_run_envelope_error(exc)
                 error = type(exc).__name__
                 errors.append(
                     {
@@ -242,6 +244,7 @@ class Phase1cSceneFusionService:
                     payload,
                 )
             except Exception as exc:
+                propagate_run_envelope_error(exc)
                 synthesis_errors[indices] = type(exc).__name__
 
         await asyncio.gather(*(synthesize(component) for component in components))

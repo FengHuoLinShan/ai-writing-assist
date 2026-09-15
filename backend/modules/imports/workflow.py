@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.config import get_settings
 from core.container import get as _container_get
 from infrastructure.llm.redaction import redact_diagnostic
+from modules.imports.admission import propagate_run_envelope_error
 from modules.imports.chapter_loader import load_chapter_range
 from modules.imports.service_phase_artifacts import coverage_summary
 from modules.imports.workflow_entity_phase import EntityExtractionPhaseRunner
@@ -870,6 +871,7 @@ class DeepImportWorkflow:
             )
             return result
         except Exception as exc:
+            propagate_run_envelope_error(exc)
             logger.warning(
                 "Phase 3 structure analysis failed: %s",
                 redact_diagnostic(exc, limit=300),

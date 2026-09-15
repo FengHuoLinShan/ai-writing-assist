@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.errors import LLMInvalidResponseError
 from infrastructure.llm.redaction import redact_diagnostic
+from modules.imports.admission import propagate_run_envelope_error
 from modules.imports.completion_hints import alias_completion_hints
 from modules.imports.entity_extraction.scene_entity_config import (
     phase2_alias_relation_concurrency,
@@ -632,6 +633,7 @@ async def _run_alias_relation_llm_calls(
                     timeout=llm_timeout_seconds,
                 )
             except Exception as exc:
+                propagate_run_envelope_error(exc)
                 return {**item, "format_diagnostics": format_diagnostics}, None, exc
             return {**item, "format_diagnostics": format_diagnostics}, output, None
 

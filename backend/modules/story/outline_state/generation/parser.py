@@ -10,6 +10,7 @@ from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest
+from infrastructure.llm.workflow_budget import AIRunEnvelopeError
 from modules.story.outline_state.generation.context_builder import PlotStructureContext
 from modules.story.outline_state.generation.models import (
     ForeshadowingPlan,
@@ -187,6 +188,8 @@ class PlotStructureParser:
                     call_diagnostics
                 )
             except Exception as exc:
+                if isinstance(exc, AIRunEnvelopeError):
+                    raise
                 last_error = exc
                 logger.warning(
                     "Deep import simple structure parse failed at max_tokens=%s: %s",
@@ -397,6 +400,8 @@ async def _review_structure_evidence(
             for key, value in batch_usage.items():
                 cache_usage[key] = cache_usage.get(key, 0) + int(value or 0)
         except Exception as exc:
+            if isinstance(exc, AIRunEnvelopeError):
+                raise
             call_failures += 1
             logger.warning(
                 "Phase 3 evidence review batch failed: %s",

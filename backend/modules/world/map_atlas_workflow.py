@@ -12,9 +12,10 @@ from typing import Any
 
 from sqlalchemy import func, select, update
 
+from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.image_client import ImageGenerationError
 from infrastructure.llm.redaction import redact_diagnostic
-from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+from infrastructure.llm.schemas import AI_RUN_ENVELOPE_KEY, LLMCallRequest, LLMMessage
 from infrastructure.llm.workflow_budget import AIRunEnvelopeError
 from infrastructure.tasks.facade import (
     enqueue_task,
@@ -486,13 +487,15 @@ async def _spatial_evidence(
         prepared, include_working=run.include_working_drafts
     )
     allowed_refs = [entry["ref"] for entry in retained.values()]
-    entity_ids = {
-        str(ref["target_ref"]["target_id"])
-        for ref in allowed_refs
-        if ref.get("target_ref", {}).get("target_type")
-        in {"entity", "core_entity", "world_entity", "location"}
-    }
-    locations = list(
+    entity_ids = list(
+        dict.fromkeys(
+            str(ref["target_ref"]["target_id"])
+            for ref in allowed_refs
+            if ref.get("target_ref", {}).get("target_type")
+            in {"entity", "core_entity", "world_entity", "location"}
+        )
+    )
+    loaded_locations = list(
         (
             await db.scalars(
                 select(CoreEntity)
@@ -502,10 +505,17 @@ async def _spatial_evidence(
                     CoreEntity.entity_type == "location",
                     CoreEntity.status == "canonical",
                 )
-                .order_by(CoreEntity.id)
             )
         ).all()
     )
+    by_id = {str(location.id): location for location in loaded_locations}
+    location_limit = min(20, int(run.page_limit or 20))
+    locations = [
+        by_id[entity_id]
+        for entity_id in entity_ids
+        if entity_id in by_id
+    ][:location_limit]
+    omitted_location_count = max(0, len(loaded_locations) - len(locations))
     if not locations:
         return (
             {
@@ -748,13 +758,15 @@ async def _spatial_evidence(
             + json.dumps(batch, ensure_ascii=False)
         )
         try:
-            result = await client.generate_structured(
+            result = await run_managed_structured(
+                client,
                 LLMCallRequest(
                     messages=[LLMMessage(role="user", content=prompt)],
                     temperature=0,
                     max_tokens=4000,
                 ),
                 SpatialFactBatchResult,
+                step_name="world.map_atlas.spatial_facts",
                 max_fix_attempts=1,
             )
             allowed = {
@@ -772,12 +784,19 @@ async def _spatial_evidence(
                     facts.append(fact.model_dump())
                 else:
                     discarded_facts += 1
+        except AIRunEnvelopeError:
+            raise
         except Exception as exc:
             failed_batches += 1
             logger.warning(
                 "map spatial extraction failed: %s", redact_diagnostic(exc, limit=120)
             )
-    if discarded_facts:
+    if omitted_location_count:
+        message = (
+            f"本轮地图册最多处理 {location_limit} 个地点，"
+            f"其余 {omitted_location_count} 个留待下一轮。"
+        )
+    elif discarded_facts:
         message = "存在无法核验来源的空间线索，已忽略。"
     elif unavailable_sources:
         message = "部分已确认资料缺少可核对的来源，已用其余资料继续。"
@@ -1351,6 +1370,11 @@ async def _plan(db, task, run: MapAtlasRun) -> None:
         ),
         "rendered_context": rendered,
         "warnings": usage.get("warnings", []),
+        **(
+            {AI_RUN_ENVELOPE_KEY: (run.context_snapshot or {})[AI_RUN_ENVELOPE_KEY]}
+            if (run.context_snapshot or {}).get(AI_RUN_ENVELOPE_KEY)
+            else {}
+        ),
     }
     raw_manifest = (
         usage.get("included_asset_manifest") or usage.get("included_asset_ids") or {}
@@ -1490,7 +1514,8 @@ async def _plan(db, task, run: MapAtlasRun) -> None:
         run.context_snapshot = {**base_snapshot, "spatial_evidence": spatial}
         run.source_manifest = current_manifest
         await db.commit()
-        plan = await client.generate_structured(
+        plan = await run_managed_structured(
+            client,
             LLMCallRequest(
                 messages=[
                     LLMMessage(
@@ -1511,6 +1536,7 @@ async def _plan(db, task, run: MapAtlasRun) -> None:
                 max_tokens=12000,
             ),
             AtlasPlan,
+            step_name="world.map_atlas.plan.structured",
             max_fix_attempts=2,
         )
         source_hash = hashlib.sha256(rendered.encode("utf-8")).hexdigest()
@@ -1815,6 +1841,7 @@ async def _generate_page(db, task, run: MapAtlasRun, page: MapAtlasPage) -> bool
             db,
             str(run.novel_id),
             snapshot=dict(run.image_execution_snapshot or {}),
+            envelope_capability_id="world.map_atlas.generate",
         ) as client:
             await db.commit()
             await require_active_project(db, str(run.novel_id))
@@ -1894,6 +1921,27 @@ async def _generate_page(db, task, run: MapAtlasRun, page: MapAtlasPage) -> bool
                         possible_charge=True,
                     )
                     raise
+    except AIRunEnvelopeError:
+        await db.rollback()
+        await require_active_project(db, str(run.novel_id))
+        run = await _require_attempt(db, task, str(run.novel_id), str(run.id))
+        await db.execute(
+            update(MapAtlasPage)
+            .where(
+                MapAtlasPage.novel_id == run.novel_id,
+                MapAtlasPage.id == page_id,
+                MapAtlasPage.run_id == run.id,
+                MapAtlasPage.generation_status == "provider_in_flight",
+            )
+            .values(
+                generation_status="prepared",
+                object_key=None,
+                error_code=None,
+                error_message=None,
+            )
+        )
+        await db.commit()
+        raise
     except asyncio.CancelledError:
         raise
     except BaseException as error:

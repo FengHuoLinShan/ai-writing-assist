@@ -375,22 +375,24 @@ retry 与 `auto_requeue` 重放都消耗同一额度，只有作者显式续算�
 | task type | root capability | 请求额度 L0 | deadline |
 |---|---|---|---|
 | `world_validation` | `world.validation` | `6×min(planned_packets, max_packets)`；提交时冻结进 `meta._validation_plan`，旧在途任务回退 schema 上界 P≤256 即 1536 | per-packet timeout × P × 2 + 60s 退避余量 |
-| `world_alias_relation_extraction` | 暂停，未声明 root | 章节范围任务的 Scene 数量领取前不可冻结；不使用通用临时额度，待 Phase 0 manifest 或分批授权 | 迁移裁决后再冻结 |
+| `world_alias_relation_extraction` | `world.alias_relations.extract` | API 在入队前把章节范围解析为精确 Scene ID 清单；`4S+6` 覆盖两个 task attempt 及组级知识审查 | 无（保留阶段总时限） |
 | `world_entity_fusion_suggestions` | `world.entity_fusion` | `12M+6`（M=冻结 `max_suggestions`，schema le=200） | 无（仅 provider 180s 边界） |
 | `world_bible_synopsis_refresh` | `world.world_bible.synopsis` | 36 | 无（main/audit 只有各自 step timeout，无既有 run 总时限） |
 | `world_generation_suggestion` | `world.generation.suggestion` | 96 | 3660s（阶段 1800s × 2 attempt + 余量） |
 | `world_cocreation_turn` | `world.generation.cocreation` | chat fast 10 / chat pro 14 / design 24 | 无（每个 provider step 仍受现有 1800s timeout） |
 | `world_map_schematic_generate` | `world.map_structure.generate` | 60（⌈S/5⌉≤4 批 × [U(1,0)+U(2,0)]，S≤20 为 schema 校验器上界；manual_resume 的续跑是新授权动作，额度只覆盖单次 attempt） | 无（manual_resume 恢复不受 frozen deadline 死锁） |
+| `map_atlas_generate` | `world.map_atlas.generate` | 文本规划最多 51；直接生成再预留每页最多 3 次图片请求。Prompt 确认、停止后继续与单页重试只由对应作者动作追加当前图片段 | 无（保留文本/图片 provider 边界） |
 
-`world_bible_projection_refresh` 是确定性投影，无 provider 请求，不声明；`map_atlas_generate`
-的 focused 检索分页 n 无常量上界（A 无法在执行前冻结），在补领域上界或分批授权方案前
-暂不声明，行为保持不变；两个清理任务（`map_atlas_storage_cleanup` /
+`world_bible_projection_refresh` 是确定性投影，无 provider 请求，不声明。Map Atlas 只对
+确认清单中按顺序出现的前 20 个已采用地点抽取空间线索，与 AtlasPlan 的 20 页硬上限一致；
+文本规划、图片生成/编辑共用 `MapAtlasRun.id`，信封镜像保存在 run 私有 context snapshot，
+跨 task 续跑不重置计数。两个清理任务（`map_atlas_storage_cleanup` /
 `world_object_image_cleanup`）同样不声明。`world_cocreation_turn` 使用
 `world.generation.cocreation` 作为 canonical parent；chat/design 的子步骤仍按各自知识
 策略审查，任务信封只记录 parent root，避免同一 task type 因 mode 发生身份漂移。
 图片 generate/edit 的真实 Image API 请求由 `OpenAIImageClient` 单点 reserve/settle：
-step 名稳定为 `world.map_image.render`，canonical capability 为
-`world.map_image.generate`（generate/edit 由 call_kind 区分；该注册表项由共享层新增），
+step 名稳定为 `world.map_image.render`；独立图片测试使用 `world.map_image.generate`，
+Atlas task 内归属 `world.map_atlas.generate` canonical parent（generate/edit 由 call_kind 区分），
 无活动信封时行为与接线前一致，Map 的
 `provider_in_flight → retry_requires_confirmation → confirm_possible_duplicate_charge`
 补偿语义不变。

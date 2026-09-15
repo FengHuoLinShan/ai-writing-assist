@@ -190,6 +190,11 @@ Claude Code 通过 `CLAUDE.md` 导入同一规则。安全、隔离、用户确�
 15_map、14_frontend；新增模型步骤和任务同时登记 Prompt 清单与基础设施任务清单。
 不能以检索只读为由遗漏调用方的确认、权限或恢复文档。
 
+统一 AI 运行信封的维护落点：root capability 或 task 额度变化同步所属模块 README、
+`docs/modules/12_infrastructure.md` 与 capability/Prompt 门禁；跨 task run 镜像或作者续算语义
+还要同步领域恢复文档，并把 lease/终态合并用例保留在 PostgreSQL critical 集合。内部信封
+只使用既有私有 JSON checkpoint 时不据此新增数据库表说明。
+
 自动目录各保留一个权威位置：表名在 `docs/01_数据库设计.md`，前端路由在
 `docs/modules/14_frontend.md`，任务名在 `backend/infrastructure/tasks/README.md`。
 其他说明按需要链接引用，不要求重复枚举；已有领域语义说明仍须保持准确。

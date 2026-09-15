@@ -10,6 +10,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from modules.imports.admission import propagate_run_envelope_error
 from modules.imports.deep_import_retry import (
     DeepImportRetryResult,
     run_deep_import_llm_with_retry,
@@ -436,6 +437,7 @@ class Phase1aSceneSlicer:
                     )
                     return
             except Exception as exc:
+                propagate_run_envelope_error(exc)
                 candidate.diagnostics["anchor_repair"] = {
                     "status": "failed",
                     "error_type": type(exc).__name__,
@@ -555,7 +557,8 @@ class Phase1aSceneSlicer:
                 recovered, replacements = materialized
                 _apply_candidate_replacements(existing_candidates, replacements)
                 return True, recovered
-            except Exception:
+            except Exception as exc:
+                propagate_run_envelope_error(exc)
                 return False, []
 
         recovered: list[SceneSliceCandidate] = []

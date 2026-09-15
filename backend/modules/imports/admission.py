@@ -12,12 +12,20 @@ from dataclasses import dataclass
 from math import ceil
 from typing import Any
 
+from infrastructure.llm.workflow_budget import AIRunEnvelopeError
 from infrastructure.stable_hash import stable_hash
 from modules.world.contracts import ENTITY_FUSION_CHECKPOINT_PAIR_BATCH_SIZE
 
 ADMISSION_VERSION = "imports.run-admission.v1"
 ENTITY_FUSION_DEEP_REQUESTS_PER_PAIR = 6
 ENTITY_FUSION_DEEP_AUDIT_REQUESTS = 9
+IMPORT_RUN_REQUEST_LIMIT = 256
+
+
+def propagate_run_envelope_error(error: BaseException) -> None:
+    """Never turn a shared admission decision into a domain fallback."""
+    if isinstance(error, AIRunEnvelopeError):
+        raise error
 
 
 @dataclass(frozen=True)
@@ -34,6 +42,7 @@ class WorkloadManifest:
     status: str
     formula: str
     reason: str | None = None
+    safety_limit: int = IMPORT_RUN_REQUEST_LIMIT
 
     def as_dict(self) -> dict[str, Any]:
         payload = {
@@ -48,6 +57,7 @@ class WorkloadManifest:
             "status": self.status,
             "formula": self.formula,
             "reason": self.reason,
+            "safety_limit": self.safety_limit,
         }
         payload["fingerprint"] = stable_hash(payload, stringify_unknown=False)
         return payload
@@ -65,9 +75,12 @@ def build_scene_phase_manifest(*, window_count: int) -> dict[str, Any]:
         request_upper_bound=None,
         batch_size=1,
         batch_count=windows,
-        status="awaiting_model_cardinality",
+        status="segmented",
         formula="scene_slicing requires model-produced Scene count before A is finite",
-        reason="scene_count_is_produced_by_phase1a",
+        reason=(
+            "scene_count_is_produced_by_phase1a; "
+            "author continuation is required per segment"
+        ),
     ).as_dict()
 
 
@@ -97,7 +110,7 @@ def build_entity_fusion_deep_manifest(
         request_upper_bound=request_upper_bound,
         batch_size=size,
         batch_count=ceil(pairs / size) if pairs else 0,
-        status="safety_limit_required",
+        status="segmented",
         formula="6 * candidate_pairs + 9 knowledge_audit requests",
-        reason="product safety gate H is intentionally not inferred",
+        reason="request_upper_bound above safety_limit requires author continuation",
     ).as_dict()

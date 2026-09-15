@@ -404,15 +404,16 @@ def test_world_cocreation_uses_one_parent_with_mode_specific_bounded_limits() ->
     ) is None
 
 
-def test_world_alias_relation_task_remains_paused_until_scope_is_frozen() -> None:
-    """章节范围的 Scene 数量运行期才知，未冻结前不建立运行信封。"""
+def test_world_alias_relation_task_uses_frozen_scene_scope() -> None:
     registry = get_registry()
     task = SimpleNamespace(meta={"scene_ids": [str(uuid.uuid4()) for _ in range(3)]})
-    assert registry.get_root_capability("world_alias_relation_extraction") is None
     assert (
-        registry.resolve_run_request_limit("world_alias_relation_extraction", task)
-        is None
+        registry.get_root_capability("world_alias_relation_extraction")
+        == "world.alias_relations.extract"
     )
+    assert registry.resolve_run_request_limit(
+        "world_alias_relation_extraction", task
+    ) == 18
 
 
 def test_static_limits_are_declared_for_remaining_world_tasks() -> None:
@@ -423,6 +424,16 @@ def test_static_limits_are_declared_for_remaining_world_tasks() -> None:
     # main/audit 各有 step timeout，但整条串行链及 auto-requeue 无总时限。
     assert _registry_deadline("world_bible_synopsis_refresh", task) is None
     assert _registry_limit("world_map_schematic_generate", task) == 60
+    atlas_run_id = str(uuid.uuid4())
+    atlas_task = SimpleNamespace(
+        meta={"run_id": atlas_run_id, "run_request_limit": 111}
+    )
+    assert (
+        get_registry().get_root_capability("map_atlas_generate")
+        == "world.map_atlas.generate"
+    )
+    assert _registry_limit("map_atlas_generate", atlas_task) == 111
+    assert get_registry().resolve_run_id("map_atlas_generate", atlas_task) == atlas_run_id
     assert _registry_deadline("world_map_schematic_generate", task) is None
 
 

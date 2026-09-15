@@ -468,16 +468,37 @@ class ProjectLLMSettingsResponse(BaseModel):
     api_key_configured_providers: list[str] = Field(default_factory=list)
 
 
+SmartDedupScope = Literal[
+    "world_entity",
+    "plot_thread",
+    "outline_arc",
+    "scene",
+    "foreshadowing_plan",
+    "reveal_plan",
+]
+
+
 class SmartDedupScanRequest(BaseModel):
     """Request one project-wide smart dedupe scan."""
 
-    scopes: list[str] | None = Field(
+    scopes: list[SmartDedupScope] | None = Field(
         default=None,
+        min_length=1,
+        max_length=6,
         description="资产范围；为空时扫描世界对象和全部 outline 结构资产",
     )
     limit_per_scope: int = Field(default=1000, ge=2, le=5000)
     max_suggestions: int = Field(default=120, ge=1, le=300)
     operation_id: uuid.UUID | None = None
+
+    @field_validator("scopes")
+    @classmethod
+    def require_unique_scopes(
+        cls, value: list[SmartDedupScope] | None
+    ) -> list[SmartDedupScope] | None:
+        if value is not None and len(value) != len(set(value)):
+            raise ValueError("smart dedup scopes must be unique")
+        return value
 
 
 class SmartDedupScanResponse(BaseModel):

@@ -14,6 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ValidationError
 from infrastructure.llm.errors import LLMTimeoutError
+from infrastructure.llm.workflow_budget import (
+    AIRunBudgetExceededError,
+    ai_run_scope,
+    new_ai_run_envelope,
+)
 from modules.world.entity_fusion import (
     EntityFusionDecision,
     WorldEntityFusionService,
@@ -377,6 +382,55 @@ async def test_workflow_dedup_reuses_last_completed_batch_on_resume(
         service.suggest_for_task.await_args.kwargs["previous_result"]
         == previous_result
     )
+
+
+async def test_deep_import_budget_stops_before_an_uncheckpointed_pair_batch(
+    db_session: AsyncSession,
+    project_novel_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entity_ids = [
+        await _create_entity(
+            db_session,
+            project_novel_id,
+            name="同名预算对象",
+            status="candidate",
+        )
+        for _ in range(2)
+    ]
+    service = WorldEntityFusionService(llm_client=object())
+    plan = await service._prepare_task_scan(
+        db_session,
+        novel_id=project_novel_id,
+        entity_type=None,
+        status="candidate",
+        limit=10_000,
+        max_suggestions=10_000,
+        allowed_entity_ids=entity_ids,
+    )
+    decide = mock.AsyncMock()
+    monkeypatch.setattr(service, "_decide", decide)
+    run_id = str(uuid.uuid4())
+    envelope = new_ai_run_envelope(
+        operation_id=run_id,
+        run_id=run_id,
+        root_capability_id="imports.deep_import",
+        novel_id=project_novel_id,
+        request_limit=8,
+    )
+
+    with ai_run_scope(envelope), pytest.raises(
+        AIRunBudgetExceededError,
+        match="checkpoint batch",
+    ):
+        await service._decide_task_plan(
+            db_session,
+            plan,
+            checkpoint_callback=mock.AsyncMock(),
+        )
+
+    decide.assert_not_awaited()
+    assert envelope.snapshot().requests_started == 0
 
 
 async def test_workflow_dedup_decided_checkpoint_never_replays_pair_decisions(

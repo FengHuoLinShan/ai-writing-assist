@@ -18,6 +18,11 @@ from core.errors import DomainError, ValidationError
 from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+from infrastructure.llm.workflow_budget import (
+    AIRunBudgetExceededError,
+    AIRunEnvelopeError,
+    current_ai_run_envelope,
+)
 from modules.evidence.contracts import (
     GroupSource,
     govern_group_output,
@@ -844,6 +849,21 @@ class WorldEntityFusionService:
             batch = plan.pairs[
                 offset : offset + ENTITY_FUSION_CHECKPOINT_PAIR_BATCH_SIZE
             ]
+            envelope = current_ai_run_envelope()
+            if (
+                envelope is not None
+                and envelope.root_capability_id == "imports.deep_import"
+            ):
+                snapshot = envelope.snapshot()
+                remaining = snapshot.request_limit - snapshot.requests_started
+                required = 6 * len(batch) + (
+                    9 if offset + len(batch) >= len(plan.pairs) else 0
+                )
+                if remaining < required:
+                    raise AIRunBudgetExceededError(
+                        "the next entity-fusion checkpoint batch needs author resume",
+                        run_id=envelope.run_id,
+                    )
             decisions: list[tuple[_PreparedFusionPair, EntityFusionDecision]] = []
             for pair in batch:
                 if db.in_transaction():
@@ -1856,6 +1876,8 @@ class WorldEntityFusionService:
                 max_fix_attempts=1,
             )
         except Exception as exc:
+            if isinstance(exc, AIRunEnvelopeError):
+                raise
             if not allow_degraded:
                 raise
             # Provider errors can contain request details.  Keep task/API logs

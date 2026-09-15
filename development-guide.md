@@ -278,6 +278,10 @@ Modules choose files by responsibility. Do not create empty contracts or pass-th
 - **`core/`**: Config (`config.py`, frozen dataclass, `get_settings()` singleton), Database lifecycle (`database.py`, `DatabaseManager`, `get_db()` dependency), ORM base (`base.py`, UUID/Timestamp/Status mixins), Dependency injection (`container.py` process singleton/transient scopes and shutdown, `dependencies.py` `DbSession`/`AppSettings` type aliases)
 - **`infrastructure/llm/`**: LLM client with OpenAI-compatible providers, account-template runtime profiles opened through the project facade, secret-free resumable snapshots, inherited general request budgets (`max_tokens=None` resolves from the client profile; system default `12000`), explicit HTTP transport/proxy controls, retry with exponential backoff, structured JSON output with Pydantic schema validation, streaming support, balance adapters, and sanitized health checks (`GET /api/health/llm`)
 - **`infrastructure/tasks/`**: Async task system with `@task_handler` registry, status tracking, heartbeat, FOR UPDATE SKIP LOCKED for worker safety
+- 生产 AI task 只有在注册表同时声明 canonical `root_capability_id` 与冻结
+  `run_request_limit` 后才启用统一运行信封。provider 请求必须位于受管 step；自动重试、
+  requeue 和跨 task 续跑累计同一 run，只有领域已确认的作者动作可增加额度。
+  相关 PostgreSQL lease/终态合并回归属于 `make test-postgresql-critical`。
 - 作者长任务可按 ADR-0013 使用前端生成的 operation receipt：UUID 直接作为 task ID，
   同一项目、类型和请求指纹恢复原任务；选择性 LLM handler 最多两个 attempt，并关闭
   client transport retry。它复用现有 PostgreSQL 队列，不引入新调度器或全局任务中心。

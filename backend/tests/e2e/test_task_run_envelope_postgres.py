@@ -21,6 +21,7 @@ from infrastructure.llm.workflow_budget import (
     AIManagedStepContext,
     current_ai_run_envelope,
     managed_step_scope,
+    new_ai_run_envelope,
 )
 from infrastructure.tasks.enqueuer import enqueue_task
 from infrastructure.tasks.lifecycle import TaskLifecycleService
@@ -28,6 +29,8 @@ from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
 from infrastructure.tasks.worker import TaskWorker
 from modules.project.models import Project
+from modules.world.map_atlas_models import MapAtlasRun
+from modules.world.map_atlas_tasks import checkpoint_map_atlas_run_envelope
 from tests.e2e.config import DATABASE_URL
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
@@ -125,6 +128,7 @@ async def test_worker_merges_the_run_envelope_in_postgres() -> None:
     registry = TaskRegistry()
     task_type = f"run-envelope-pg-{uuid.uuid4().hex}"
     task_id = uuid.uuid4()
+    novel_id = uuid.uuid4()
     try:
         async def handler(*, db, task):
             del db, task
@@ -134,13 +138,25 @@ async def test_worker_merges_the_run_envelope_in_postgres() -> None:
         registry.register(
             task_type,
             handler,
-            owner_scope="global",
             root_capability_id="writing.generate",
+            run_request_limit=1,
         )
         async with sessions.begin() as db:
-            task_id = uuid.UUID(enqueue_task(db, task_type, meta={}, novel_id=None))
+            db.add(Project(id=novel_id, title="run envelope worker"))
+            await db.flush()
+            task_id = uuid.UUID(
+                enqueue_task(
+                    db,
+                    task_type,
+                    meta={"novel_id": str(novel_id)},
+                    novel_id=novel_id,
+                )
+            )
 
-        returned = await TaskWorker(heartbeat_interval=60.0).run_once()
+        returned = await TaskWorker(heartbeat_interval=60.0).run_once(
+            task_id=task_id,
+            novel_id=novel_id,
+        )
         assert returned is not None and returned.status == "done"
 
         async with sessions() as db:
@@ -163,3 +179,58 @@ async def test_worker_merges_the_run_envelope_in_postgres() -> None:
         registry.unregister(task_type)
         async with sessions.begin() as cleanup_db:
             await cleanup_db.execute(delete(AsyncTask).where(AsyncTask.id == task_id))
+            await cleanup_db.execute(delete(Project).where(Project.id == novel_id))
+
+
+async def test_map_atlas_envelope_mirrors_into_the_stable_run() -> None:
+    manager = get_manager()
+    sessions = manager.session_factory
+    novel_id, task_id, run_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    try:
+        async with sessions.begin() as db:
+            db.add(Project(id=novel_id, title="map envelope mirror"))
+            await db.flush()
+            task = AsyncTask(
+                id=task_id,
+                novel_id=novel_id,
+                task_type="map_atlas_generate",
+                status="running",
+                attempt=1,
+                lease_id=str(uuid.uuid4()),
+                meta={"novel_id": str(novel_id), "run_id": str(run_id)},
+            )
+            db.add(task)
+            await db.flush()
+            db.add(
+                MapAtlasRun(
+                    id=run_id,
+                    novel_id=novel_id,
+                    task_id=task_id,
+                    run_kind="initial",
+                    status="planning",
+                    context_snapshot={},
+                )
+            )
+            await db.flush()
+            envelope = new_ai_run_envelope(
+                operation_id=str(run_id),
+                run_id=str(run_id),
+                root_capability_id="world.map_atlas.generate",
+                novel_id=str(novel_id),
+                request_limit=51,
+            ).snapshot().model_dump(mode="json")
+            await checkpoint_map_atlas_run_envelope(db, task, envelope)
+
+        async with sessions() as db:
+            run = await db.get(MapAtlasRun, run_id)
+            mirrored = read_ai_run_envelope(
+                (run.context_snapshot or {}).get(AI_RUN_ENVELOPE_KEY)
+            )
+            assert mirrored is not None
+            assert mirrored.run_id == str(run_id)
+            assert mirrored.request_limit == 51
+    finally:
+        async with sessions.begin() as db:
+            await db.execute(delete(MapAtlasRun).where(MapAtlasRun.id == run_id))
+            await db.execute(delete(AsyncTask).where(AsyncTask.id == task_id))
+            await db.execute(delete(Project).where(Project.id == novel_id))

@@ -23,6 +23,7 @@ DOMAIN_STORY = "story"
 DOMAIN_IMPORTS = "imports"
 DOMAIN_INTERACTION = "interaction"
 DOMAIN_ASSISTANT = "assistant"
+DOMAIN_PROJECT = "project"
 DOMAIN_INFRASTRUCTURE = "infrastructure"
 
 CONFIRMATION_REQUIRED = "required"
@@ -217,6 +218,20 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             outputs=(OUTPUT_FINDING,),
             gate=ADOPTION_DISPLAY_ONLY,
         ),
+        # --- Project ---
+        _policy(
+            "project.smart_dedup",
+            DOMAIN_PROJECT,
+            "项目级相似资料扫描",
+            subjects=("author",),
+            dimensions=("world_entities", "outline", "plot_threads", "scene_state"),
+            outputs=(OUTPUT_PROPOSAL,),
+            gate=ADOPTION_DISPLAY_ONLY,
+            notes=(
+                "跨 World 与 Story 的 canonical parent；扫描只生成有界候选，"
+                "实际处理仍由各资产模块在作者确认后完成。"
+            ),
+        ),
         # --- World ---
         _policy(
             "world.generation.chat",
@@ -371,6 +386,19 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             subjects=("author",),
             dimensions=("map_spatial", "world_entities", "world_bible"),
             outputs=(OUTPUT_PROPOSAL,),
+        ),
+        _policy(
+            "world.map_atlas.generate",
+            DOMAIN_WORLD,
+            "地图图集生成运行",
+            subjects=("author",),
+            dimensions=("map_spatial", "world_entities", "world_bible"),
+            outputs=(OUTPUT_PROPOSAL,),
+            gate=ADOPTION_DISPLAY_ONLY,
+            notes=(
+                "地图规划、视觉 brief 与图片请求的 canonical parent；"
+                "页级 possible-charge 确认和采用仍由 Map Atlas 领域拥有。"
+            ),
         ),
         _policy(
             "world.map_image_prompt",
@@ -537,6 +565,26 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             dimensions=("prior_prose", "imported_assets"),
             outputs=(OUTPUT_PROPOSAL,),
             notes="Phase 1 每窗口冻结一份组级 receipt，组内 LLM step 引用并逐项复核。",
+        ),
+        _policy(
+            "imports.deep_import",
+            DOMAIN_IMPORTS,
+            "分段式导入整理运行",
+            subjects=("author",),
+            dimensions=(
+                "prior_prose",
+                "scene_state",
+                "world_entities",
+                "outline",
+                "imported_assets",
+            ),
+            confirmation=CONFIRMATION_REQUIRED,
+            outputs=(OUTPUT_PROPOSAL,),
+            gate=ADOPTION_REQUIRES_PASS,
+            notes=(
+                "完整导入及三个独立阶段的 canonical parent；模型产生的工作量"
+                "按固定授权段和领域 checkpoint 续算，自动恢复不得扩额。"
+            ),
         ),
         _policy(
             "imports.scene_slicing",

@@ -17,6 +17,7 @@ from infrastructure.llm.errors import (
     LLMTimeoutError,
 )
 from infrastructure.llm.redaction import redact_diagnostic
+from modules.imports.admission import propagate_run_envelope_error
 
 DeepImportErrorType = Literal[
     "422",
@@ -148,6 +149,7 @@ async def run_deep_import_llm_with_retry[T](
             if is_empty_result is not None and is_empty_result(value):
                 raise DeepImportEmptyResultError("LLM returned empty result")
         except Exception as exc:
+            propagate_run_envelope_error(exc)
             elapsed_ms = _elapsed_ms(started_at)
             error_type = classify_deep_import_error(exc)
             retry_scheduled = should_retry_deep_import_error(

@@ -218,6 +218,17 @@ def _alias_relation_scene_ids(value: Any) -> list[str] | None:
     return normalized
 
 
+def _world_alias_relation_request_limit(task: Any) -> int:
+    scene_ids = _alias_relation_scene_ids(
+        (getattr(task, "meta", None) or {}).get("scene_ids")
+    )
+    if scene_ids is None:
+        raise ValueError("world alias/relation task must freeze scene_ids before enqueue")
+    # Per attempt: two requests per Scene plus one three-request knowledge audit.
+    # The task permits two transport-error attempts and both consume the same run.
+    return max(1, 4 * len(scene_ids) + 6)
+
+
 def _require_alias_relation_confirmation_owner(
     confirmation: Any,
     *,
@@ -277,6 +288,8 @@ async def _commit_alias_relation_checkpoint(
     recovery_policy="auto_requeue",
     max_attempts=2,
     retry_transient_llm_errors=True,
+    root_capability_id="world.alias_relations.extract",
+    run_request_limit=_world_alias_relation_request_limit,
 )
 async def handle_world_alias_relation_extraction(db, task):
     """Run manual alias/relation extraction with fenced provider boundaries."""

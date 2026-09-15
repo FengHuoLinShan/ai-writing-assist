@@ -15,6 +15,7 @@ from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+from infrastructure.llm.workflow_budget import AIRunEnvelopeError
 from modules.story.outline_state.foreshadowing_repository import (
     ForeshadowingPlanRepository,
 )
@@ -617,6 +618,8 @@ class OutlineStructureDedupService:
                 max_fix_attempts=1,
             )
         except Exception as exc:
+            if isinstance(exc, AIRunEnvelopeError):
+                raise
             logger.warning(
                 "Outline structure dedupe LLM failed: %s",
                 redact_diagnostic(exc, limit=300),

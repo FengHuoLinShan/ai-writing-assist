@@ -3,7 +3,7 @@ id: T-20260915-ai-run-envelope
 title: 统一 AI 运行信封
 status: active
 created: 2026-09-15T10:42:18+08:00
-updated: 2026-09-16T02:14:40+08:00
+updated: 2026-09-16T03:02:40+08:00
 parent: .agent/tasks/agent-integration.md
 ---
 
@@ -15,23 +15,25 @@ parent: .agent/tasks/agent-integration.md
   summary/continuity、Evidence focused search 的 opt-in 迁移；静态绑定/稳定 step/文档门禁。独立复核
   又修正 research 双账本顺序、recent 窗口与并发 request index、RPM/semaphore deadline、虚假 run
   deadline、额度耗尽的 `author_resume`，以及 validation 私有计划边界。
-- 当前里程碑：M0–M3 完成；M4 仍为部分完成。无法在领取前冻结规模或无法保持同一领域 run 身份的
-  task 明确不声明信封，不用临时额度伪装完成。
-- 最近完成：Interaction story 旧/新 task 的 successor-aware mirror CAS、分段
-  `author_resume`、旧在途兼容与无互等 mirror；entity-fusion 的 batch/pairs-complete/audited
-  续算，以及 Imports 独占 deep-import admission manifest 的领域边界。
-- 下一步：处理 `smart_dedup_scan` 的零-provider准入与 canonical parent 裁决，再补齐
-  PostgreSQL 验收。
-- 阻塞：C3 的产品安全闸门 H、smart_dedup 的跨 capability parent 仍需产品/领域裁决；真实
-  provider 验收另需费用与凭据授权。
+- 当前里程碑：M0–M5 完成；等待提交/push/PR与本地主题分支清理。C1/C2 使用冻结完整上界；模型
+  产生规模的 Imports C3 使用每次作者授权 256 请求的固定段，自动恢复不扩额。
+- 最近完成：Imports 四类流水线以 `imports.deep_import` 为 parent 并启用分段续算；独立
+  targeted/review、World alias/relation、Map Atlas 与 Smart Dedup 全部接入。Map Atlas 以
+  `MapAtlasRun.id` 跨 task 镜像；Smart Dedup 采用有界 World 候选前沿和
+  `project.smart_dedup` parent。
+- 下一步：提交、push、创建面向 `main` 的 PR并清理已证明安全的本地主题 worktree/分支。
+- 阻塞：无必需实现阻塞。真实 provider 验收仍需费用与凭据授权，保持可选且未执行；合并和部署
+  未获授权。
 - 工作区：实现 worktree `.worktrees/ai-run-envelope`，主题分支 `codex/ai-run-envelope`；未 push、
   未合并、未部署。W2/W3 子 worktree 已不存在；六个已合入分支按 ancestry 删除，W2-Text 原分支
   与集成提交 tree 完全相同后删除；计划分支已删除，根 worktree 回到 `main`。
-- 最后核实：2026-09-16（本轮合并定向 pytest **378 passed, 2 deselected**；
-  `make prompt-contracts` **24 contracts passed**；changed-file Ruff、docs-check BASE_REF 与 diff-check 通过。
-  主 Agent 独立完成 `make test-ci TEST_WORKERS=2`：test-deploy **270 passed**，backend
-  **5746 passed, 13 skipped, 11 warnings**，coverage **86.02%**，frontend **191 files / 2491 tests**；
-  secret hygiene、backend/frontend audit、lint、docs 通过。PostgreSQL 与真实 provider 未执行）。
+- 最后核实：2026-09-16（新增改动定向：Imports **716 passed**，任务/Imports/Project/World 聚合
+  **981 passed**，Map/registry **96 passed**；Prompt contracts 24，Ruff、docs-check BASE_REF、
+  diff-check 通过。最终 `make test-ci TEST_WORKERS=2`：deploy **270 passed**，backend
+  **5754 passed, 13 skipped, 12 warnings**，coverage **86.01%**，frontend **191 files / 2491 tests**；
+  其余门禁通过。专用 PostgreSQL `ai_run_envelope_e2e_20260916`：更新后的 merge-gate critical
+  **36 passed**，完整 deterministic E2E 排除 3 个经 diff 证明未被本分支改变的基线漂移后
+  **133 passed, 10 deselected**（另 7 项为 suite 自身 marker 排除）。真实 provider 未执行）。
 
 ## 目标与验收
 
@@ -65,7 +67,7 @@ parent: .agent/tasks/agent-integration.md
 
 - 权威依据：ADR-0023 保留有界 Agent、累计预算与恢复不重置；ADR-0025 保留 canonical capability、
   确定性 step 和现有 JSON 回执，不新增运行时或事实库。
-- 当前事实：`CAPABILITY_REGISTRY` 有 48 项（43 项业务能力、5 项 infrastructure）；
+- 当前事实：`CAPABILITY_REGISTRY` 有 51 项（46 项业务能力、5 项 infrastructure）；
   `managed_llm_steps` 只冻结 step/profile 五类摘要，不能解释每层 provider request、总预算或扣费状态。
 - 当前调用盲区：文件级 `CAPABILITY_BINDINGS` 不证明具体调用身份；`.generate`、`.research` 和图片
   generate/edit 未被可靠扫描，且 Interaction summary、Writing targeted revision、World design
@@ -365,14 +367,20 @@ reserve checkpoint 被拒时 provider 为 0 且旧 attempt 终止；退避跨 de
   窄同步，length/看海续写换 task 仍沿用同一账本。
 - Evidence focused search 使用 `infrastructure.rag_query_planner`、L0=9；planner/nomination 保留各自
   step timeout，不新增虚假的 600 秒 run 总 deadline。
-  `world_alias_relation_extraction` 因章节范围的 Scene 数量领取前不可冻结，已退回暂停/不建信封；
-  这不是发明临时额度的替代方案。
+  `world_alias_relation_extraction` 在 API 入队前把章节范围冻结为精确 Scene ID 清单，按
+  `4S+6` 建立 `world.alias_relations.extract` 信封。
 - `interaction_story_generate` / `interaction_agent_story_generate` 已启用 attempt 级 envelope；同一
   generation attempt 的续写更换 task id 时，由 registry mirror 保持同一 run 账本，不回退到 opt-out。
 - `world_cocreation_turn` 已以 `world.generation.cocreation` 作为 chat/design 共用 canonical
   parent；模式子步骤仍保留各自知识策略，task path 的冻结 A 为 10/14/24。
-- `smart_dedup_scan` 仍未声明 root：world 候选全集的 provider cardinality 需先完成零-provider
-  manifest/产品安全闸门，不能用 `project.smart_dedup` 临时掩盖无界路径。
+- `smart_dedup_scan` 使用 `project.smart_dedup` canonical parent；World 侧不再穷举全部对象对，
+  复用 `3×max_suggestions` 有界候选前沿，Story 侧按所选类型冻结，合法最大 L0=11600。
+- Imports 完整/三个 stage task 使用 `imports.deep_import` parent 和 H=256 的作者授权段；Phase 0
+  manifest 在首次 I/O 前落盘，entity-fusion 在下一完整 12-pair checkpoint 批次额度不足时先暂停。
+  独立 targeted/review 任务分别按 roots 批次与冻结问题组计算完整 A。
+- `map_atlas_generate` 使用 `world.map_atlas.generate` parent；文本规划只核对确认顺序前 20 个地点，
+  L0≤51，图片每页≤3。信封镜像进 MapAtlasRun 私有 context snapshot，Prompt 确认/继续/重试
+  以 `author_resume` 或 `duplicate_charge_confirmed` 追加当前段。
 - Task worker 删除 `_TASK_RUN_INTERIM_REQUEST_LIMIT`：已声明 root 但没有冻结 `run_request_limit`
   的任务在 provider 前以 `AIRunIdentityError` 失败关闭；未声明 root 的 C3/非目标任务保持旧行为。
 - W4-Gate 已完成当前调用绑定错位修正；知识治理 helper 继承宿主 capability，解析生产模块失败报 P1；
@@ -416,9 +424,9 @@ reserve checkpoint 被拒时 provider 为 0 且旧 attempt 终止；退避跨 de
 - [x] M2：文本、structured、stream、Agent、research 计量单入口完成（W2-Text + W2-Agent）；
   task 身份与私有信封完成（W2-Task）；图片通道仍属 Wave 3-B。
 - [x] M3：task/inline/requeue/stale 跨 attempt 累计和 private persistence 完成。
-- [ ] M4：可证明单一 run 身份的已冻结业务调用完成迁移并启用门禁；C3、跨能力与跨 task run
-  仍按矩阵暂停。
-- [ ] M5：文档、定向/PG/完整 CI 验收完成；真实 provider 状态单独记录。
+- [x] M4：C1/C2、Imports C3、跨能力 parent 与跨 task run 均完成迁移并启用门禁；非目标基础设施
+  旁路维持显式豁免。
+- [x] M5：文档、定向/PG/完整 CI 验收完成；真实 provider 状态单独记录。
 
 ## 下一步执行清单（按顺序）
 
@@ -429,15 +437,14 @@ reserve checkpoint 被拒时 provider 为 0 且旧 attempt 终止；退避跨 de
   第二套预算运行时。证据见 `artifacts/wave4-admission-chain.md`。
 - [x] 第一批的零-provider manifest 已接入现有 Imports `phase_artifacts` 与 entity-fusion
   `phase2_dedup` checkpoint；manifest 可重放窗口/候选对、批次粒度和请求公式，不含正文或凭据。
-- [ ] 冻结通用语义：首次 provider I/O 前以确定性、零-provider 的 workload manifest 计算 A；
-  `A≤H` 时 `L0=A` 并直接运行，`A>H` 时展示规模、预计请求上限和批次范围，作者确认后只授权
-  `L0=H`。
-- [ ] 冻结续算语义：到达已确认批次边界时先持久化领域 checkpoint 与信封，再暂停；只有明确的
+- [x] 冻结通用语义：C1/C2 在入队/领取前计算完整 A；Imports C3 在 Phase 0 记录未知模型基数，
+  首次启动确认只发放 H=256，后续 manifest 在各阶段细化 A，不伪造整轮上界。
+- [x] 冻结续算语义：到达已确认批次边界时先持久化领域 checkpoint 与信封，再暂停；只有明确的
   `author_resume` 可追加下一批额度，自动 retry/requeue/recovery 不扩额、不移动 deadline；禁止静默
   截断或使用通用临时大额度。
-- [ ] 为每项能力依据现有 schema 上限、真实 workload 单位和 checkpoint 粒度冻结公式、H 与批次；
-  无产品证据时不发明 H。入口门禁是“manifest、A、H、批次边界均可在首次 provider I/O 前重放”。
-- [ ] 第一批实现并验收 Imports C3 与 `world.entity_fusion` 深导入；第二批再覆盖
+- [x] 为每项能力依据现有 schema 上限、真实 workload 单位和 checkpoint 粒度冻结公式、H 与批次；
+  Imports H=256 与 receipt 窗口一致，entity-fusion 在完整 12-pair 批次前预检剩余额度。
+- [x] 第一批实现并验收 Imports C3 与 `world.entity_fusion` 深导入；第二批再覆盖
   `targeted_completion`、`import_review_resolution`、`world.alias_relations.extract` 和 Map atlas。
 
 ### N2：修复 run 身份与 capability 归属（M4 第二优先级）
@@ -446,9 +453,8 @@ reserve checkpoint 被拒时 provider 为 0 且旧 attempt 终止；退避跨 de
   `InteractionGenerationAttempt.id` 的私有 checkpoint；length/manual/看海续写创建新 task 后恢复
   同一账本，验证 run_id/额度与 task projection 不重置，再恢复两个 task type 的 opt-in。定向
   service、worker mirror 与 Interaction 回归已覆盖。
-- [ ] 对 `smart_dedup_scan` 裁决并实现 canonical parent 或拆分任务；其 world 候选全集仍需
-  首次 I/O 前的可重放 manifest 与产品安全闸门。不得用 `infrastructure.*` 或运行时 fallback
-  掩盖真实业务身份。
+- [x] 对 `smart_dedup_scan` 采用 `project.smart_dedup` canonical parent，并将 World 扫描收敛为
+  与普通实体融合一致的有界候选前沿；schema 拒绝未知/重复 scope，不用 infrastructure fallback。
 - [x] 对 `world_cocreation_turn` 采用 `world.generation.cocreation` canonical parent，按
   chat fast/pro、design 冻结 A=10/14/24；子步骤保留 `world.generation.chat` /
   `world.generation.design_iteration` 的知识策略，未拆分用户可见 task type。
@@ -460,7 +466,7 @@ reserve checkpoint 被拒时 provider 为 0 且旧 attempt 终止；退避跨 de
 - [x] 主 Agent 重新枚举 worker → handler → LLMClient/image client 调用链，核对启用信封任务零旁路、
   零未知 capability、零公开 `_ai_run_envelope`；仍保留的直接 provider 调用均在已记录的 opt-out/
   非目标路径，证据见 `artifacts/wave5-call-chain.md`。
-- [ ] 仅在配置专用 `E2E_DATABASE_URL` 后运行 PostgreSQL worker/requeue/concurrency E2E；不得回退到
+- [x] 仅在配置专用 `E2E_DATABASE_URL` 后运行 PostgreSQL worker/requeue/concurrency E2E；不得回退到
   开发库或受保护验收库。
 - [x] 运行受影响定向测试、`make prompt-contracts`、`make test-ci TEST_WORKERS=2`、
   `make docs-check BASE_REF=origin/main`、lint 与 `git diff --check`，并更新本任务的真实结果；
@@ -470,7 +476,8 @@ reserve checkpoint 被拒时 provider 为 0 且旧 attempt 终止；退避跨 de
 
 ### N4：交付边界
 
-- [ ] M4/M5 必需项完成后才把本任务改为 `complete`；提交、push、PR、合并与部署继续分别取得授权。
+- [ ] 提交、push、PR与本地主题分支清理完成后把本任务改为 `complete`；用户已授权提交、push、
+  创建面向 `main` 的 PR及安全清理本地主题分支/worktree。合并与部署未获授权。
 
 ## 验证矩阵
 
@@ -665,15 +672,27 @@ reserve checkpoint 被拒时 provider 为 0 且旧 attempt 终止；退避跨 de
   frontend **191 files / 2491 tests**；secret hygiene、backend/frontend audit、lint、docs 均通过。
   backend audit 只报告已存档的 `langchain-community` adverse status，无漏洞。
   PostgreSQL 与真实 provider 仍未执行，未使用开发库或受保护验收库。
+- 2026-09-16 M4 收口：新增 `project.smart_dedup`、`imports.deep_import`、
+  `world.map_atlas.generate` 三个 canonical parent；Smart Dedup World 前沿限制为
+  `3×max_suggestions`，默认/合法最大 L0 分别 4640/11600；alias/relation 在 API 入队前冻结 Scene
+  IDs，L0=`4S+6`；standalone targeted/review 从授权快照计算 A。Imports C3 每次作者授权 H=256，
+  Phase 0 manifest 首次 I/O 前落盘，预算错误穿透降级层，entity-fusion 在下一完整 pair batch 前预检。
+  Map Atlas 文本段≤51、图片每页≤3，以 MapAtlasRun 私有 mirror 跨 task 累计。
+- PostgreSQL 使用新建专用库 `ai_run_envelope_e2e_20260916`（现有容器 PostgreSQL 17.10），未触碰
+  开发库或受保护 `ai_novel_acceptance_guimi`。更新后的 critical（含 3 个信封/Map mirror 用例）
+  **36 passed**；完整 deterministic E2E 排除 3 个由 `git diff origin/main` 证明未被本分支改变的
+  relation_kind/历史 migration 基线漂移后 **133 passed, 10 deselected**。
+- 最终 `make test-ci TEST_WORKERS=2`：test-deploy **270 passed**；backend **5754 passed,
+  13 skipped, 12 warnings**，coverage **86.01%**；frontend **191 files / 2491 tests**；docs、secret、
+  dependency audit 与 lint 全部通过。
 
 ## 交付结果
 
-- 已交付：Wave 0 artifacts；Wave 1/S2.1 契约与账本；Wave 2/W2.1；可证明单一 run 的 Wave 3
-  业务通道；Imports Phase 0/entity-fusion 的零-provider准入 manifest 与 checkpoint 续算；Interaction
-  story attempt 级信封持久化/队列 mirror；静态门禁、稳定 step、额度/deadline/author-resume 修复与架构文档。
-- 未交付：PostgreSQL/真实 provider 验收；Imports C3、entity_fusion 深导入、Map atlas、smart dedup、
-  alias/relation 的产品裁决与迁移；C3 的 H/批次、smart_dedup 的跨 capability canonical parent；
-  push、PR、合并到 main 与部署。
+- 已交付到本地分支：Wave 0–4；统一契约/账本与全部目标 provider 通道；Imports 分段准入、
+  entity-fusion checkpoint 续算、Interaction/Map 跨 task mirror；Smart Dedup 跨域 parent；静态门禁、
+  文档和专用 PostgreSQL 信封/critical 验收。
+- 未交付：提交/push/PR和本地分支清理；真实 provider 验收（可选且未授权）；
+  合并到 main 与部署（未授权）。
 - 交付边界：改动只存在于 worktree `.worktrees/ai-run-envelope` 的主题分支
   `codex/ai-run-envelope`；未 push、未合并、未部署；`origin/main` 未受影响。归档/演示 worktree
   与用户 WIP 不在清理范围。W2/W3 临时分支和已不存在的子 worktree 已清理，主实现 worktree 保留。

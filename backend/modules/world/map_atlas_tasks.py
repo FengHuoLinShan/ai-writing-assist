@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+import uuid
+
+from sqlalchemy import select
+
+from infrastructure.llm.schemas import read_ai_run_envelope
+from infrastructure.llm.workflow_budget import AIRunCheckpointError
 from infrastructure.tasks.registry import task_handler
 from modules.world.map_atlas_storage import (
     MapAtlasStorage,
@@ -14,6 +20,63 @@ from modules.world.world_object_images import (
     delete_unreferenced_image_version,
     require_project_image_prefix,
 )
+
+
+def _map_atlas_run_id(task) -> str:
+    return str(uuid.UUID(str((getattr(task, "meta", None) or {}).get("run_id") or "")))
+
+
+def _map_atlas_request_limit(task) -> int:
+    value = int((getattr(task, "meta", None) or {}).get("run_request_limit") or 0)
+    if value < 1:
+        raise ValueError("map atlas task must freeze a positive run_request_limit")
+    return value
+
+
+async def checkpoint_map_atlas_run_envelope(session, task, envelope: dict) -> None:
+    """Mirror the queue receipt into the stable MapAtlasRun identity."""
+    from infrastructure.llm.schemas import AI_RUN_ENVELOPE_KEY
+    from modules.world.map_atlas_models import MapAtlasRun
+
+    payload = read_ai_run_envelope(envelope)
+    if payload is None:
+        raise AIRunCheckpointError("map atlas run envelope is missing")
+    try:
+        run_id = uuid.UUID(str((task.meta or {}).get("run_id") or ""))
+        novel_id = uuid.UUID(str((task.meta or {}).get("novel_id") or ""))
+    except (TypeError, ValueError) as exc:
+        raise AIRunCheckpointError(
+            "map atlas run envelope target is invalid", run_id=payload.run_id
+        ) from exc
+    run = (
+        await session.execute(
+            select(MapAtlasRun)
+            .where(MapAtlasRun.id == run_id, MapAtlasRun.novel_id == novel_id)
+            .with_for_update(skip_locked=True)
+        )
+    ).scalar_one_or_none()
+    if run is None:
+        raise AIRunCheckpointError(
+            "map atlas run envelope target is unavailable", run_id=payload.run_id
+        )
+    if (
+        payload.run_id != str(run.id)
+        or payload.operation_id != str(run.id)
+        or payload.novel_id != str(run.novel_id)
+        or payload.root_capability_id != "world.map_atlas.generate"
+    ):
+        raise AIRunCheckpointError(
+            "map atlas run envelope identity is invalid", run_id=payload.run_id
+        )
+    if run.task_id != task.id:
+        raise AIRunCheckpointError(
+            "map atlas run envelope owner is stale", run_id=payload.run_id
+        )
+    run.context_snapshot = {
+        **dict(run.context_snapshot or {}),
+        AI_RUN_ENVELOPE_KEY: dict(envelope),
+    }
+    await session.flush()
 
 
 @task_handler(
@@ -35,6 +98,10 @@ async def handle_map_structure_generate(db, task):
     "map_atlas_generate",
     recovery_policy="manual_resume",
     max_attempts=20,
+    root_capability_id="world.map_atlas.generate",
+    run_request_limit=_map_atlas_request_limit,
+    run_id=_map_atlas_run_id,
+    run_envelope_checkpoint=checkpoint_map_atlas_run_envelope,
 )
 async def handle_map_atlas_generate(db, task):
     return await run_map_atlas_workflow(db, task)

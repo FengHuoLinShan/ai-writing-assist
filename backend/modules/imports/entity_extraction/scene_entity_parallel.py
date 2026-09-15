@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.redaction import redact_diagnostic
+from modules.imports.admission import propagate_run_envelope_error
 from modules.imports.completion_hints import completion_hints
 from modules.imports.entity_extraction.scene_entity_checkpoint import (
     phase2a_input_fingerprint,
@@ -295,6 +296,7 @@ class ParallelSceneEntityExtractionMixin:
                     timeout=llm_timeout_seconds,
                 )
             except Exception as exc:
+                propagate_run_envelope_error(exc)
                 return {
                     **item,
                     "extraction": None,

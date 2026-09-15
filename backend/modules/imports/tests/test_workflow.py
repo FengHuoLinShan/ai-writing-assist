@@ -3521,6 +3521,8 @@ class TestDeepImportWorkflowAutoRun:
 
         assert emitted == [
             (0.0, "running", "scene_segmentation", "phase0_plan", []),
+            # Phase 0 admission manifest is checkpointed before provider I/O.
+            (0.0, "running", "scene_segmentation", "phase0_plan", []),
             (0.1, "running", "scene_segmentation", "phase1a_scene_slicing", []),
             (0.2, "running", "scene_segmentation", "phase1b_enrichment", []),
             (0.35, "running", "scene_segmentation", "scene_commit", []),

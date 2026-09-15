@@ -196,6 +196,10 @@ class ScenePhaseRunner:
                 window_count=len(phase0_result.windows),
             )
         }
+        # Persist the segmented admission record before the first provider call.
+        # The start confirmation authorizes only the first segment; later
+        # segments continue through the existing manual-resume action.
+        await DeepImportProgressTracker.emit_progress(progress, 0.0, on_progress)
 
         # Phase 1a: text-backed Scene slicing.
         progress.current_step = DeepImportStep.scene_segmentation

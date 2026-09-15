@@ -119,10 +119,9 @@ class SmartDedupService:
                 db,
                 novel_id,
                 limit=min(limit_per_scope, 1000),
-                # World connected components must see the complete edge set within
-                # the project-level suggestion budget before group trimming.
                 max_suggestions=max_suggestions,
-                group_before_budget=True,
+                # Keep the provider frontier at the World service's 3N bound.
+                group_before_budget=False,
                 progress_callback=lambda value: _progress(
                     progress_callback,
                     0.05,

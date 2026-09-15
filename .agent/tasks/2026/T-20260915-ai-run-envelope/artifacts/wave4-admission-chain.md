@@ -41,14 +41,19 @@
   `mode/quality_mode` 在领取前冻结 task-path A=10/14/24；其 chat/design 子步骤仍沿用各自
   知识审查策略。
 
-## 未擅自裁决
+## 后续裁决与完成
 
-- `H`（单次授权安全闸门）仍未写死：没有产品证据时不发明额度。
-- 完整 `deep_import` 仍跨 `imports.scene_*`、`imports.entity_extraction`、
-  `imports.structure_analysis` 与 `world.entity_fusion` 多个 root，继续 opt-out；不得用单一
-  root 或 `infrastructure.*` 伪装迁移。
-- 因此本轮只把 manifest 和可恢复批次语义落到现有 checkpoint；真正的 L0/H 暂停/续算 UI 需要
-  产品确认后接入，不改变已存在的正常任务行为。
+- 用户要求持续完成计划后，Imports 的完整/分阶段流水线采用真实业务 parent
+  `imports.deep_import`，而不是 infrastructure fallback。模型产生的整轮 A 仍不伪造；每次
+  作者授权 H=256，与信封 recent-attempt 窗口一致。首次 `authorization_confirmed` 只授权首段，
+  后续沿用现有 resume/abandon，`author_resume` 每次只追加一段。
+- Phase 0 manifest 在首次 provider I/O 前通过现有 progress callback 持久化。所有会把 provider
+  失败降级的 Imports/Story/World 边界均先传播 `AIRunEnvelopeError`；额度耗尽不会静默 fallback。
+- Entity fusion 在进入下一完整 12-pair checkpoint 批次前检查剩余额度，并为尾批预留最终 9 次
+  knowledge audit 上界，避免为额度不足发出无法落盘的一部分 pair 请求。
+- 独立 targeted completion / review resolution 分别从冻结 roots 批次与候选/Scene 问题组计算
+  完整 A；alias/relation 在 API 入队前把章节范围解析为精确 Scene ID 清单；Map Atlas 使用自己的
+  稳定 run mirror。未新增表、队列、通用预算服务或前端状态机。
 
 ## 本轮验收
 
@@ -59,4 +64,4 @@
   **5746 passed, 13 skipped, 11 warnings**，coverage **86.02%**；frontend **191 files / 2491 tests**。
   secret hygiene、backend/frontend audit、lint、docs 均通过；backend audit 仅有已存档的
   `langchain-community` adverse status，无漏洞。
-- PostgreSQL 与真实 provider 未执行；未连接开发库或受保护验收库。
+- 后续专用 PostgreSQL 验收见 TASK；真实 provider 未获费用/凭据授权，保持未执行。

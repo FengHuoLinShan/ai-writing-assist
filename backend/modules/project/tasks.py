@@ -5,12 +5,36 @@ import inspect
 from infrastructure.tasks.registry import task_handler
 from modules.project.smart_dedup import SmartDedupService
 
+_SMART_DEDUP_OUTLINE_SCOPES = {
+    "plot_thread",
+    "outline_arc",
+    "scene",
+    "foreshadowing_plan",
+    "reveal_plan",
+}
+
+
+def _smart_dedup_run_request_limit(task) -> int:
+    """Freeze the bounded World + Story provider frontier for both attempts."""
+    meta = getattr(task, "meta", None) or {}
+    maximum = int(meta.get("max_suggestions", 120))
+    selected = set(
+        meta.get("scopes")
+        or ["world_entity", *_SMART_DEDUP_OUTLINE_SCOPES]
+    )
+    outline_budget = max(1, maximum - max(1, maximum // 3))
+    world = 12 * maximum if "world_entity" in selected else 0
+    outline = 8 * outline_budget * len(selected & _SMART_DEDUP_OUTLINE_SCOPES)
+    return max(1, world + outline)
+
 
 @task_handler(
     "smart_dedup_scan",
     recovery_policy="auto_requeue",
     max_attempts=2,
     retry_transient_llm_errors=True,
+    root_capability_id="project.smart_dedup",
+    run_request_limit=_smart_dedup_run_request_limit,
 )
 async def handle_smart_dedup_scan(db, task):
     """Run one project-wide smart dedupe scan and store suggestions in task result."""
