@@ -128,6 +128,10 @@ Embedding、streaming 和 `generate_simple()` 不是本 harness 的默认迁移�
 变更与 checkpoint 串行落盘，持久化顺序不会回退；写入终态前先把在途请求收敛为 unknown/possible。
 step 的 profile 摘要按 allowlist 重建，Key、完整 endpoint、Prompt 与正文不进入信封；领域必须用
 稳定 step 名聚合，chunk/packet/shard 序数不得拼进 step 名。
+文本 provider I/O 的单入口是 `LLMClient.generate()`：transport 尝试、关闭 transport retry 的
+structured、format repair、stream 建流尝试与 research 的每个 attempt 在活动信封下恰好
+reserve/settle 一次，缺 usage 记 unknown/possible，deadline 到期不再退避或发请求。embedding 与
+健康检查是首轮非目标。
 `managed_llm_steps` 保持 v0 五字段兼容，v1 由同一信封的 step receipt 派生。
 
 ### 配置与健康检查

@@ -143,6 +143,11 @@ request messages。需要主动裁剪上下文时，应显式使用 `ContextBudg
 调用不产生扣费记录；恢复与进入终态前，未 settle 的请求一律收敛为 unknown/possible，而不是删除
 或当成未请求。自动 retry/requeue/recovery 只能累计同一 run，只有作者确认路径可以增加额度。
 
+文本 provider I/O 由 `LLMClient` 单入口计量：`generate()` 对每次真实请求（含每次 transport
+尝试）reserve 一次，并在取得响应、异常或取消后 settle；关闭 transport retry 的 structured、format
+repair 与 `generate_stream()` 的建流尝试、`research()` 的每个 attempt 都回到同一入口，已开始的
+stream 不自动重放。deadline 到期后不再退避也不再发请求。embedding 与健康检查是首轮非目标。
+
 `root_capability_id` 每 run 唯一；step 的 `step_capability_id` 必须等于 root 或取
 `infrastructure.*`，否则账本拒绝。`managed_llm_steps` 仍是兼容投影：v0 五字段原样可读，
 v1 由 `project_managed_llm_steps()` 从同一信封的 step receipt 派生，v1 细节放在 `ai_run`

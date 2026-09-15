@@ -423,6 +423,13 @@ parent: .agent/tasks/agent-integration.md
   - `ruff check infrastructure/llm/` All checks passed；`make prompt-contracts` 24 passed；
     `make docs-check BASE_REF=origin/main` 通过；`git diff --check` 干净。
   - 全量回归：`make test-fast-coverage TEST_WORKERS=2` → 5585 passed, 13 skipped，覆盖率 85.83%。
+- 2026-09-15 W2-Text 审查（主 Agent 独立复核提交 `0a521a116`）：独立复跑
+  `pytest infrastructure/llm/tests` → 258 passed；确认 `generate()` 计量块在真实 provider I/O 前
+  reserve、成功/异常/取消都 settle，且保留 WorkflowBudget 原有语义（BaseException 分支不额外调用
+  `completed`）；被改写的旧测试改为断言"仍走 `generate(transport_retries=False)`、只发 1 次请求、
+  不使用 retry helper"，属加严而非放宽；fail-closed 未启用也未留不可达分支。集成时需补
+  README 与 `docs/modules/12_infrastructure.md` 的单入口口径，并把"semantic 返修不得再次
+  `record_retry`"列为 Wave 3 约束。
 - 2026-09-15 W0-B 重新冻结：主 Agent 抽查 5 处关键证据（world schemas 的 max_packets/max_suggestions
   上限、map_structure 的合计 ≤20 校验器与 max_fix_attempts、entity_fusion 深导入 10_000）全部与
   修订后的表一致；13 条修正与 6 项存疑已记入 artifact 第 5、6 节。
