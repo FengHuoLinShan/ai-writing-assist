@@ -11,12 +11,11 @@ parent: .agent/tasks/agent-integration.md
 
 ## 恢复快照
 
-- 实际完成：Wave 0 只读冻结（三份 artifacts）；Wave 1 核心契约与 S2.1 契约修正已完成并通过
-  定向与全量 fast 层门禁；W0-B 正在按"编译期常量 / 冻结工作量可算 / 运行期才知规模"三分类重新
-  冻结。
-- 当前里程碑：M1 完成——v1 envelope 与 v0 兼容投影稳定，仍无领域行为变化。
-- 下一步：提交 S2.1 后，从该集成点启动 Wave 2 三路并行（W2-Text / W2-Agent / W2-Task），
-  每路独立 worktree/分支，写入范围互斥。
+- 实际完成：Wave 0 只读冻结与 W0-B 第二轮重新冻结完成（三份 artifacts）；Wave 1 核心契约与
+  S2.1 契约修正已完成并通过定向与全量 fast 层门禁；Wave 2 三路已从 `badac2db4` 启动。
+- 当前里程碑：M0、M1 完成；M2 进行中（Wave 2 三路并行）。
+- 下一步：等待 W2-Text / W2-Agent / W2-Task 各自完成后逐路审查、集成并复跑回归；集成点之后才
+  进入 Wave 3。
 - 阻塞：无硬阻塞。需要用户确认的决策点是 W0-B 发现的"无有限上界能力"（imports 各阶段、
   writing.generate、world.entity_fusion 等）迁移前必须先冻结的领域上界口径；真实 provider 验收仍需
   另行取得费用与凭据授权。
@@ -97,6 +96,19 @@ parent: .agent/tasks/agent-integration.md
   `managed_llm_steps` 一样显式并入 result；lease 丢失时没有终态写入路径；`managed_llm_steps`
   现在就在公开 wire 上，前端 Story Outline 对顶层键做 exact-key 校验，因此"顶层只允许
   `managed_llm_steps` 一个非下划线兼容键、其余运行态一律下划线私有"是既有约束而非新增选择。
+- W0-B 重新冻结（第二轮，2026-09-15）：第一轮报告把**默认值当合法最大值**，已按"C1 编译期常量
+  上界 / C2 本次冻结工作量可算 / C3 运行期才知规模需分批授权"三分类重写，共 13 条修正。主 Agent 抽查
+  5 处证据全部复现：`modules/world/schemas.py:3216`（max_packets le=256）、`schemas.py:1715`
+  （max_suggestions le=200）、`map_structure_schemas.py:279-290`（location+feature 合计 ≤20）、
+  `map_structure_workflow.py:687`（max_fix_attempts=1）、`entity_fusion.py:426-427`
+  （深导入 max_suggestions=10_000）。关键修正：`world.map_structure.generate` **60**、
+  `world.validation` **1536**（A=6P，P≤256）、`world.entity_fusion` 交互 **2400** / 深导入 **180000**
+  （不可直接授权，必须分批且不得进入常规 L0）、`world.generation.suggestion` 同步 API **192**
+  （原为算术错 144）、`story.structure_dedup` 复算 **870**（原 3200 无法复现）。
+  `writing.generate`（6⌈K/64⌉+8）与 `world.alias_relations.extract`（4S）等执行前已冻结工作量的
+  能力记为 C2 动态公式，不要求新增产品输入限制。
+- W0-B 仍存疑（artifact 第 6 节 6 项），迁移前必须由领域确认的主要一项：`story.structure_dedup` 的
+  `smart_dedup_scan.max_suggestions` 是未校验 int（`modules/project/tasks.py:51`），A 随它线性增长。
 - W0-B 预算/retry/扣费（完整报告：`artifacts/wave0-b-budget-retry.md`）：transport 尝试次数不是
   全局常量——`infrastructure/tasks/worker.py:591-593` 按 task 的 `retry_transient_llm_errors` 在每次
   handler 执行前把 transport retry 置为 1 次；writing/story/world 系结构化调用实际 R=1、重试改由任务层
@@ -317,8 +329,8 @@ parent: .agent/tasks/agent-integration.md
 
 ## 里程碑与进度
 
-- [ ] M0：干净 worktree 基线、调用/capability/budget/run 身份清单冻结——W0-A 调用清单与
-  W0-C 身份/恢复矩阵已完成并落盘 artifacts；W0-B 逐能力请求上界待收尾。
+- [x] M0：干净 worktree 基线、调用/capability/budget/run 身份清单冻结——W0-A 调用清单、W0-C
+  身份/恢复矩阵与 W0-B 第二轮预算上界均已落盘 artifacts 并通过主 Agent 抽查。
 - [x] M1：v1 envelope 与 v0 compatibility projection 完成，无领域行为变化——含 S2.1 契约
   修正与 44 项信封测试。
 - [ ] M2：文本、structured、stream、Agent、research、图片 provider 计量单入口完成。
@@ -375,6 +387,12 @@ parent: .agent/tasks/agent-integration.md
   字段与 v0 完全一致；合并时对注释块做严格重验，未知键被丢弃而不是进入公开 result。
 - 2026-09-15：Wave 1 只在受管入口建立 step 上下文，不在 harness 内预留 provider 请求；真正的
   每请求 reserve/settle 归 Wave 2 的 `client.generate()` 单入口，避免重复计数。
+- 2026-09-15：主 Agent 复核确认 W0-C 结论——`get_completed_payload`（`lifecycle.py:394-405`）
+  原样返回含 `_` 键的 result，而 `story_outline_service.py:248-259` 对 result 顶层键做 exact-key
+  校验。因此通用 task 路径的运行信封**写入私有 meta**（`_ai_run_envelope`），不写 result：
+  `_public_task_meta` 会剥离下划线键，story 采用门校验的是 result 而非 meta，成功路径整体替换
+  result 也不会丢信封。领域自身 checkpoint（Assistant/Interaction/Imports/Map/Evidence）按原设计
+  不变。
 
 ## 验证证据
 
@@ -405,6 +423,9 @@ parent: .agent/tasks/agent-integration.md
   - `ruff check infrastructure/llm/` All checks passed；`make prompt-contracts` 24 passed；
     `make docs-check BASE_REF=origin/main` 通过；`git diff --check` 干净。
   - 全量回归：`make test-fast-coverage TEST_WORKERS=2` → 5585 passed, 13 skipped，覆盖率 85.83%。
+- 2026-09-15 W0-B 重新冻结：主 Agent 抽查 5 处关键证据（world schemas 的 max_packets/max_suggestions
+  上限、map_structure 的合计 ≤20 校验器与 max_fix_attempts、entity_fusion 深导入 10_000）全部与
+  修订后的表一致；13 条修正与 6 项存疑已记入 artifact 第 5、6 节。
   - 覆盖的门禁项：v0/v1 混读与未知版本失败关闭、契约 JSON round-trip、step 能力越界拒绝、
     计数与 usage 收款一致性、预算/deadline 拒绝前零计数、未知 usage 记 possible、
     256 条 recent attempt 溢出聚合、嵌套 scope 复用与 run 身份漂移拒绝、asyncio 并发隔离与
