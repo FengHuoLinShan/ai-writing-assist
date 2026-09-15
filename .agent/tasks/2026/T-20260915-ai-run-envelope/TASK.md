@@ -430,6 +430,16 @@ parent: .agent/tasks/agent-integration.md
   不使用 retry helper"，属加严而非放宽；fail-closed 未启用也未留不可达分支。集成时需补
   README 与 `docs/modules/12_infrastructure.md` 的单入口口径，并把"semantic 返修不得再次
   `record_retry`"列为 Wave 3 约束。
+- 2026-09-15 W2-Agent 审查（主 Agent 独立复核分支 `codex/ai-run-envelope-w2-agent`，本路提交
+  `c05ac8b7a`，其上 `166df920a` 为 cherry-pick 的 W2-Text）：独立复跑
+  `pytest infrastructure/llm/tests` → 272 passed。双扣修复为"存在外层 WorkflowBudget 时
+  ProjectGatewayModel 不再对 AgentRunBudget reserve/add_usage"（`agent_runtime.py:390-399`），
+  `workflow_budget.py` 未改，无 meter 时行为逐字不变，并做了变异验证。
+  接受的偏离：root capability 是"活动信封下必填并在零 I/O 前失败关闭"，不是签名强制必填——4 个生产
+  调用点属 W3-C、capability id 属 W4 绑定决定；Wave 3-C 必须为这 4 处显式传 capability 并同步
+  `test_output_validation.py` 与 `test_agent_live.py`。另记：agent step 名暂固定
+  `infrastructure.agent_loop`、output retry 未标 `purpose=schema_repair`、research step 的
+  `profile_source` 为 unknown，均为 Wave 3/4 跟进项。
 - 2026-09-15 W0-B 重新冻结：主 Agent 抽查 5 处关键证据（world schemas 的 max_packets/max_suggestions
   上限、map_structure 的合计 ≤20 校验器与 max_fix_attempts、entity_fusion 深导入 10_000）全部与
   修订后的表一致；13 条修正与 6 项存疑已记入 artifact 第 5、6 节。
