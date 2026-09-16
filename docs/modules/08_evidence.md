@@ -202,6 +202,7 @@ regex、随机概率或任意表达式。draft 只用于编辑和 dry-run，发�
 手动 AI 操作在 world / outline / writing / Story 等入口发起前统一先预览再创建确认记录：
 
 - `confirm_context()`：编译并落一条 `context_confirmations`
+- `get_context_confirmation()`：按 `confirmation_id + novel_id` 回读已持久化摘要，不重编译历史 Context
 - `require_confirmation()`：校验 action / novel_id / confirmation_id 是否匹配
 - `prepare_confirmed_ai_action(..., for_update=True)`：任务 finalize 在重编译上下文前锁定 confirmation owner
 - `attach_result_ref()`：把后续任务或产物回写到确认记录
@@ -233,6 +234,10 @@ character 模式下，前端完整展示 `role_visible_knowledge`，并把它与
 世界对象”警告。context confirmation 和 snapshot 是调用审计，不表示建议已被采用。
 
 `POST /api/evidence/compilation/confirm` 会落库一条 `context_confirmations`，并在响应中返回本次编译的 `sections/items`、`selection_state`、`context_fingerprint` 和 `budget_events`。展示详情不持久化；持久化仍只保存 `selected_asset_ids`、`compile_options`、`warnings`、`result_refs`、`stale_reasons` 等摘要。
+对应 `GET /api/evidence/compilation/confirmations/{confirmation_id}` 先执行 owner 和
+`novel_id` 门禁，跨项目与不存在统一 404，且不返回 `compile_options`、Prompt、正文、
+provider、Key 或私有 checkpoint。`stale_reasons` 为来源有效性的权威事实；
+即使 `result_status` 后续变为 `done/adopted/rejected`，fresh gate 仍失败关闭。
 其中 `compile_options.chapter_index` 是实际检索锚点，而 `requested_chapter_index` 是作者确认的
 目标章节；两者在普通单章确认中相同。跨章 Scene 使用末章提高相关性时，必须保留后者，避免
 writing 将同一确认错误复用于锚点章节。

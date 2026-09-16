@@ -116,6 +116,13 @@
           </li>
         </ul>
         <p v-if="state.candidateActionError" class="writing-candidate-action-error" role="alert">{{ state.candidateActionError }}</p>
+        <AIResultTraceDetails
+          v-if="candidateConfirmationId && candidateTaskId && projectId"
+          :project-id="projectId"
+          :confirmation-id="candidateConfirmationId"
+          :task-id="candidateTaskId"
+          :knowledge-review="state.provenanceJson?.knowledge_review || null"
+        />
         <div class="writing-candidate-review-actions">
           <button v-if="canAdoptCandidate" class="btn btn-primary" :disabled="candidateBusy" @click="$emit('adopt')">{{ state.candidateAction === 'adopt' ? '采用中…' : '采用到工作稿' }}</button>
           <button v-else-if="reviewBlocked" class="btn btn-primary" :disabled="candidateBusy" @click="$emit('targeted-revision')">{{ generationLoading ? '处理中…' : '按问题定向返修' }}</button>
@@ -155,8 +162,10 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import AIResultTraceDetails from "../../../components/AIResultTraceDetails.vue"
 
 const props = defineProps({
+  projectId: { type: String, default: null },
   narrow: Boolean,
   state: { type: Object, required: true },
   targetChapter: { type: Number, default: null },
@@ -196,6 +205,8 @@ const reviewBlocked = computed(() => independentReview.value?.verdict === "needs
 const canAdoptCandidate = computed(() => !props.state.provenanceJson?.review_required || independentReview.value?.verdict === "pass")
 const candidateBusy = computed(() => Boolean(props.generationLoading || props.state.candidateAction))
 const candidateIdentity = computed(() => props.state.status === "candidate" ? props.state.draftId : null)
+const candidateConfirmationId = computed(() => props.state.provenanceJson?.context_confirmation_id || props.state.provenanceJson?.source_confirmation_id || null)
+const candidateTaskId = computed(() => props.state.provenanceJson?.source_task_id || null)
 const candidateReady = computed(() => !props.state.loading && !props.state.loadError ? candidateIdentity.value : null)
 const reviewStatusText = computed(() => {
   if (!props.state.provenanceJson?.review_required) return "请先阅读建议正文；采用会创建新工作稿，拒绝只会将建议留在版本历史中。"

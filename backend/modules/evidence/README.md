@@ -74,6 +74,9 @@ author-only inspection 加入 World 工作稿、采用地图与 Scene 人物卡/
 不能从这些作者入口获得内容。引用与实际读取分开计量，确认前重新物化/重验原来源。
 资产失效事件在原事务向组合根注册的 source.changed port 发出；Evidence 不调度主动任务，
 也不取得业务写入权限。专门 confirmation preview 与确认使用同一参数和指纹。
+Confirmation 可经 canonical compilation API 按 owner + `novel_id` 精确回读，不重编译
+历史 Context 或暴露私有编译选项。`stale_reasons` 独立于运行/采用状态；一旦非空，
+后续结果绑定不会使记录恢复新鲜。
 
 `list_author_task_evidence` 是作者待办的有界只读出口；调用方必须为作者视角，复用 Project
 的日期/状态/分页查询，不将工作事项当成角色知识。TargetRef.target_path 继续只表示字段

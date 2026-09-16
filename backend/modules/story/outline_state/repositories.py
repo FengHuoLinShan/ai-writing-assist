@@ -28,7 +28,26 @@ from modules.story.outline_state.schemas import (
 from shared.constants import DEFAULT_PAGE_SIZE
 
 
-async def _notify_structure_change(db, row, kind, *, related_scene_ids=None):
+async def _notify_structure_change(
+    db,
+    row,
+    kind,
+    *,
+    related_scene_ids=None,
+    invalidate_context=False,
+):
+    if invalidate_context:
+        from modules.evidence.facade import mark_asset_context_changed
+
+        await mark_asset_context_changed(
+            db,
+            novel_id=str(row.novel_id),
+            asset_type=kind,
+            asset_id=str(row.id),
+            reason="source_changed",
+            related_scene_ids=related_scene_ids,
+        )
+        return
     from core.container import get
 
     try:
@@ -199,7 +218,11 @@ class StructurePlanRepository[ModelT]:
         db.add(plan)
         await db.flush()
         await _notify_structure_change(
-            db, plan, self.change_type, related_scene_ids=previous_scenes
+            db,
+            plan,
+            self.change_type,
+            related_scene_ids=previous_scenes,
+            invalidate_context=True,
         )
         return plan
 
@@ -402,7 +425,11 @@ class PlotThreadRepository:
             await db.flush()
             if changed:
                 await _notify_structure_change(
-                    db, thread, "plot_thread", related_scene_ids=previous_scenes
+                    db,
+                    thread,
+                    "plot_thread",
+                    related_scene_ids=previous_scenes,
+                    invalidate_context=True,
                 )
 
         return thread
@@ -599,7 +626,11 @@ class OutlineArcRepository:
             await db.flush()
             if changed:
                 await _notify_structure_change(
-                    db, arc, "outline_arc", related_scene_ids=previous_scenes
+                    db,
+                    arc,
+                    "outline_arc",
+                    related_scene_ids=previous_scenes,
+                    invalidate_context=True,
                 )
 
         return arc
@@ -1665,7 +1696,12 @@ class SceneRepository:
         } & fields_set:
             await self.stale_fusion_suggestions_for_scene(db, scene)
         if changed:
-            await _notify_structure_change(db, scene, "outline_scene")
+            await _notify_structure_change(
+                db,
+                scene,
+                "outline_scene",
+                invalidate_context=True,
+            )
         return scene
 
     async def deprecate_with_reference(

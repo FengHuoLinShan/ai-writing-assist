@@ -111,6 +111,9 @@ RAG 或 LLM 上下文。
 执行前重编译指纹不一致时 409 失败关闭；同步结果的 context snapshot 或 suggestion、异步 task
 都会回写 confirmation result ref。领域服务可追加执行所需资料，但问世界与对象融合按最终
 selected assets 过滤，避免把作者在审查窗排除的页面、正文或对象重新送入模型。
+写作 Hidden Guard 只经 World facade 的窄批量 seam 按同一项目和冻结的
+entity/relation IDs 读取既有 contract，不直接查询 World ORM，不扩大资产范围。
+隐藏事实仍只作服务端检查，不进入生成 Prompt。
 世界健康的确定性校验仍检查冻结的完整 manifest，但语义分片只从 confirmation 实际选中的
 页面/工作稿生成；人工简介刷新同样按 selected assets 过滤 source manifest，自动维护路径继续
 使用完整 manifest。人工刷新不会复用一个没有该 confirmation 的既有自动任务。

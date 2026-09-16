@@ -1550,6 +1550,7 @@ async def test_repository_content_mutations_take_writing_version_lock(
     second = _make_draft(novel_id=novel_id, chapter_index=3, content="old")
     lock = AsyncMock()
     monkeypatch.setattr(repo, "lock_version_chapters_for_revalidation", lock)
+    monkeypatch.setattr(repo, "_changed", AsyncMock())
     monkeypatch.setattr(
         repo,
         "get_latest_by_chapter",

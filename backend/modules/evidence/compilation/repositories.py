@@ -152,6 +152,7 @@ class ContextConfirmationRepository:
         novel_id: uuid.UUID,
         asset_type: str,
         asset_id: str,
+        exclude_confirmation_id: uuid.UUID | None = None,
     ) -> list[ContextConfirmation]:
         stmt = (
             select(ContextConfirmation)
@@ -170,6 +171,8 @@ class ContextConfirmationRepository:
             .with_for_update(of=ContextConfirmation)
             .execution_options(populate_existing=True)
         )
+        if exclude_confirmation_id is not None:
+            stmt = stmt.where(ContextConfirmation.id != exclude_confirmation_id)
         result = await db.execute(stmt)
         return list(result.unique().scalars().all())
 

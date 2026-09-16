@@ -127,6 +127,7 @@ export function captureOutlineGeneratePreview(task, progress) {
   state.preview = {
     sourceTaskId,
     contextConfirmationId,
+    knowledgeReview: result.knowledge_review || null,
     draftStructure: JSON.parse(JSON.stringify(result.draft_structure)),
     warnings: Array.isArray(result.warnings) ? result.warnings : [],
     target: result.target || state.meta?.target,

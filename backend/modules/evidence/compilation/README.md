@@ -59,6 +59,7 @@ async def compile_interaction_story_context(...) -> InteractionStoryContextContr
 async def render_compiled_context_markdown(...) -> str
 async def compile_generation_background(...) -> dict
 async def confirm_context(...) -> ContextConfirmationContract
+async def get_context_confirmation(...) -> ContextConfirmationContract
 async def require_confirmation(...) -> ContextConfirmationContract
 async def require_fresh_confirmation(...) -> ContextConfirmationContract
 async def prepare_confirmed_ai_action(..., for_update=False) -> ConfirmedAIActionContext
@@ -112,6 +113,12 @@ checkpoint `ensure` 产生隐式写入。没有显式关联对象时不回退全
 `mark_context_snapshot_failed()` 保留为兼容 wrapper；新生产调用应使用
 `ContextSnapshotRequest` + `open/succeed/fail` 生命周期入口。
 
+`GET /api/evidence/compilation/confirmations/{confirmation_id}?novel_id=...` 按
+`confirmation_id + novel_id` 读取已持久化的确认记录，先执行当前 owner 与
+活跃项目门禁；不存在和跨项目统一返回 404。该入口不重新编译当前
+Context，不返回 `compile_options`、rendered context、Prompt、provider、密钥或私有
+checkpoint；历史来源只展示当时保存的类型、数量、指纹、结果引用与状态。
+
 ## 数据表
 
 | 表 | 说明 |
@@ -148,6 +155,11 @@ rehydrate 门禁；不新增 RAG scope、port 或索引。失效/跨项目/旧�
 `id + novel_id` 行锁内同步 `result` 引用；失效只通过精确表匹配类型与 ID，不回退扫描 JSON。
 JSON wire 中为兼容保留 `world_entities/scenes/...` 等复数 key；精确引用表会规范为
 `world_entity/scene/...` 单数资产类型，使各领域的失效命令使用同一类型词汇。
+`outline_scene` 与 `scene_story_assets` 在精确失效时规范为 `scene`。
+`stale_reasons` 是独立的来源有效性事实：非空时 `require_fresh_confirmation()`
+必须失败关闭，之后的 result attach 或 `done/adopted/rejected` 状态更新不得将其覆盖为
+新鲜。`mark_asset_context_changed()` 可排除当前 confirmation 并把关联 Scene
+传给既有主动检查通知；结果绑定与失效仍在行锁下串行，重复原因幂等。
 
 默认只保存可复现摘要和 metadata；`retain_rendered_context=True` 时才保存完整上下文并设置过期时间。清理任务只清空 `rendered_context` 和 `rendered_context_expires_at`，不删除快照行、hash、资产 ID、结果引用或 metadata。
 

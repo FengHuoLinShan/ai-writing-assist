@@ -269,6 +269,22 @@ test.describe("Outline View — 场景工作台", () => {
       }],
     }
     let applyPayload = null
+    await page.route(`**/api/evidence/compilation/confirmations/${contextConfirmationId}*`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: contextConfirmationId,
+          task: "生成场景细纲",
+          scope: "project",
+          compiled_at: "2026-09-16T05:00:00Z",
+          selected_asset_ids: { scenes: ["scene-source-e2e"] },
+          result_refs: [{ type: "task", id: taskId }, { type: "scene", id: "scene-result-e2e" }],
+          result_status: "done",
+          stale_reasons: [],
+        }),
+      })
+    })
     await page.route(`**/api/tasks/${taskId}*`, async (route) => {
       await route.fulfill({
         status: 200,
@@ -313,9 +329,15 @@ test.describe("Outline View — 场景工作台", () => {
         createdAt: now,
         updatedAt: now,
       }]))
-      return window.router.navigate("outline", "scenes", true, new URLSearchParams("review=ai"))
+      return window.router.navigate("outline", "scenes", true)
     }, { projectId: testProjectId, sourceTaskId: taskId, confirmationId: contextConfirmationId })
+    await page.reload()
+    await page.waitForFunction(() => !state.loading)
 
+    await page.getByLabel("展开细纲建议进度").click()
+    const progressCard = page.locator(".outline-progress-card-wrap")
+    await expect(progressCard.locator(".ai-result-trace")).toBeVisible()
+    await progressCard.locator('[data-action="view-outline-generate-preview"]').click()
     const review = page.locator(".outline-scene-review")
     await expect(review.getByRole("heading", { name: "检查场景细纲" })).toBeVisible()
     await expect(page.locator("#outline-layer-preview-json")).toHaveCount(0)

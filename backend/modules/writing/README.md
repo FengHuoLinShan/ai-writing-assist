@@ -116,7 +116,7 @@ async def build_manuscript_range_ref(db, novel_id, draft_id, start_offset, end_o
 ```
 
 `facade.create_published_draft_only` 只创建一个已发布正文版本，批量导入使用 `create_published_drafts_only`，按章节顺序取得既有 advisory lock、分组读取最大版本并统一 flush；两者都不入队。`facade.create_draft_only` 仅创建草稿，不会提交发布任务。facade create 系列返回跨模块 `WritingDraftContract`，API 层负责适配为 `WritingDraftResponse` 并提交 `publish_chapter` 发布任务。导入模块等内部调用方不需要直接访问 RAG 模块。
-AI 生成结果会在 `provenance_json` 中记录 `source_confirmation_id` 和来源任务。兼容期内底层仍以 `candidate` 保存建议，但 API/contract 投影为 `display_state=review` 和 `source=ai_generated`，不将其当作工作稿。
+AI 生成结果会在 `provenance_json` 中记录 `source_confirmation_id` 和来源任务。兼容期内底层仍以 `candidate` 保存建议，但 API/contract 投影为 `display_state=review` 和 `source=ai_generated`，不将其当作工作稿。候选审阅区以共享内联详情合并展示该 Confirmation、确切 task operation、知识复核、结果引用与失效事实；追踪读取失败不阻断原采用、拒绝或编辑操作。
 
 `publish_chapter` 通过 Evidence indexing 的 task-only DI port 执行索引：先在 worker fence 下结束
 source-read checkpoint，再在无 PostgreSQL 事务时等待 embedding，入库前重验
@@ -234,6 +234,10 @@ Scene 确认存在时，生成 prompt 附带 outline-owned 执行 bundle，候�
 provenance 冻结 `scene_execution_bundle_hash` 和 exact `upstream_manifest`。
 候选打开和采用前重算当前 bundle；总纲、`story_execution_profile.v1`、
 Scene 或 context confirmation 漂移时显示待复核，采用返回 409。
+采用候选会追加新 working draft 结果引用并把原 Confirmation 标为
+`adopted`；拒绝保留原候选引用与历史并标为 `rejected`。新建稿件仍只发出既有
+主动通知；已有稿件的真实内容更新经 Evidence 精确失效入口处理，不扫描无关
+Confirmation。没有 Confirmation 的 legacy 草稿保持原行为。
 
 `writing_semantic_review` 是与 generator 分离的 managed task。它冻结目标正文
 hash、相邻章回归上下文、Scene bundle，以及 AI candidate 服务端 provenance 绑定的

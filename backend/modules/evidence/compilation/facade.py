@@ -958,6 +958,20 @@ async def require_confirmation(
     )
 
 
+async def get_context_confirmation(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    confirmation_id: str,
+) -> ContextConfirmationContract:
+    """Read the persisted author-safe confirmation summary without recompiling."""
+    return await _confirmation_service.get_confirmation(
+        db,
+        novel_id=novel_id,
+        confirmation_id=confirmation_id,
+    )
+
+
 async def require_fresh_confirmation(
     db: AsyncSession,
     *,
@@ -1081,6 +1095,8 @@ async def mark_asset_context_changed(
     asset_type: str,
     asset_id: str,
     reason: str,
+    exclude_confirmation_id: str | None = None,
+    related_scene_ids: list[str] | None = None,
 ) -> int:
     changed = await _confirmation_service.mark_asset_context_changed(
         db,
@@ -1088,6 +1104,7 @@ async def mark_asset_context_changed(
         asset_type=asset_type,
         asset_id=asset_id,
         reason=reason,
+        exclude_confirmation_id=exclude_confirmation_id,
     )
     from core.container import get
 
@@ -1096,7 +1113,17 @@ async def mark_asset_context_changed(
     except KeyError:
         observer = None
     if observer is not None:
-        await observer(db, novel_id, asset_type, asset_id)
+        await observer(
+            db,
+            novel_id,
+            asset_type,
+            asset_id,
+            **(
+                {"related_scene_ids": related_scene_ids}
+                if related_scene_ids is not None
+                else {}
+            ),
+        )
     return changed
 
 

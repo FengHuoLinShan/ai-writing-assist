@@ -14,6 +14,7 @@ beforeEach(() => {
   outlineGenerateManager.state.meta = null
   outlineGenerateManager.state.progress = null
   outlineGenerateManager.state.preview = null
+  outlineGenerateManager.state.ownerProjectId = null
 })
 
 afterEach(() => {
@@ -62,11 +63,13 @@ describe("渲染契约", () => {
       contextConfirmationId: "cc1",
       draftStructure: {},
     }
+    outlineGenerateManager.state.ownerProjectId = "novel-1"
     const wrapper = mount(OutlineGenerateProgressCard)
     expect(wrapper.find(".outline-preview-ready").exists()).toBe(true)
     const btn = wrapper.find('[data-action="view-outline-generate-preview"]')
     expect(btn.exists()).toBe(true)
     expect(btn.text()).toBe("检查建议")
+    expect(wrapper.findComponent({ name: "AIResultTraceDetails" }).exists()).toBe(true)
 
   })
 

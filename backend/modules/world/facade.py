@@ -50,6 +50,7 @@ from modules.world.entity_facade import (  # noqa: F401
     get_entity_relations,
     get_focused_world_neighbors,
     get_focused_world_terms,
+    get_hidden_guard_sources,
     get_world_context,
     list_auto_ingested_entities,
     list_entities,
@@ -99,7 +100,6 @@ from modules.world.worldbuilding_facade import (  # noqa: F401
 )
 
 if TYPE_CHECKING:
-
     pass
 
 check_knowledge_visibility = _check_knowledge_visibility_impl
@@ -149,6 +149,7 @@ __all__ = [
     "get_entity_importance_map",
     "get_focused_world_terms",
     "get_focused_world_neighbors",
+    "get_hidden_guard_sources",
     "get_entity_relations",
     "get_entity_revisions",
     "get_events_context",

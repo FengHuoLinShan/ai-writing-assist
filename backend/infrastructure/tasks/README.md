@@ -177,6 +177,10 @@ request/meta，并在首次 provider I/O 前调用 Evidence 的 `prepare_confirm
 调用方传入的同名私有字段和 operation fingerprint 会被 enqueuer 丢弃并按实际路径重建，不能
 通过 metadata 冒充更强幂等保证。公开状态只返回模式枚举，不返回 fingerprint 或 coalescing key。
 
+成果页的追踪视图在前端组合确切 task 的 `operation` 与领域 Evidence
+Confirmation。tasks 只拥有提交/运行/恢复事实，不推导或持久领域采用、拒绝与来源
+失效状态；已清理旧 task 时，Confirmation 与成果引用仍可独立读取。
+
 声明 `retry_transient_llm_errors=True` 的 handler 在 task 内关闭 LLM client transport retry，
 由 worker 仅对明确临时 provider 错误自动重排，总 attempt 上限为 2。业务不得
 在首次临时失败时提前写终态失败。

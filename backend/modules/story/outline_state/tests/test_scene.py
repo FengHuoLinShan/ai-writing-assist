@@ -644,6 +644,10 @@ class TestSceneRepository:
             "stale_fusion_suggestions_for_scene",
             fake_stale,
         )
+        monkeypatch.setattr(
+            "modules.story.outline_state.repositories._notify_structure_change",
+            AsyncMock(),
+        )
         db = FakeSession()
 
         updated = await repo.update(

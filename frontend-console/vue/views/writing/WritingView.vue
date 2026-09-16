@@ -147,6 +147,7 @@
 
     <main id="writing-editor-container">
       <WritingEditor
+        :project-id="props.projectId"
         :narrow="vm.isNarrow.value"
         :state="vm.editorState"
         :target-chapter="vm.selectedChapter.value"

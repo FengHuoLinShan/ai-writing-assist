@@ -65,6 +65,30 @@ describe("WritingEditor semantic review gate", () => {
     expect(wrapper.get(".btn-primary").text()).toBe("采用到工作稿")
   })
 
+  it("有完整生成回执时展示共享成果追踪入口", () => {
+    const wrapper = mount(WritingEditor, {
+      props: {
+        projectId: "novel-1",
+        state: state({
+          source: "writing_generate",
+          context_confirmation_id: "confirmation-1",
+          source_task_id: "task-1",
+          knowledge_review: { status: "passed" },
+        }),
+        attach: vi.fn(),
+        detach: vi.fn(),
+      },
+    })
+
+    const trace = wrapper.findComponent({ name: "AIResultTraceDetails" })
+    expect(trace.exists()).toBe(true)
+    expect(trace.props()).toMatchObject({
+      projectId: "novel-1",
+      confirmationId: "confirmation-1",
+      taskId: "task-1",
+    })
+  })
+
   it("保存冲突提供导出与明确载入入口，备份失败时不能覆盖本地文字", async () => {
     const draft = state(null, { status: "draft", readonly: false, dirty: false, saveError: null, saveConflict: true, backupComplete: true })
     const wrapper = mount(WritingEditor, { props: { state: draft, attach: vi.fn(), detach: vi.fn() } })

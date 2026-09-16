@@ -108,7 +108,11 @@ bounded, directly associated Scenes. It is a reference check, not a semantic or 
 Assistant 的 story.plan_structure 复用 P20 的整层来源快照、outline_generate 任务和提案结构，
 story.adopt_structure 复用原采用包及 revision history、场景正文映射和信息推进投影。API 与助手
 共享 OutlineAIWorkflowService.submit_layer_generation；新工具不进入旧冻结运行的目录。
-P20采用在同一事务向 source.changed 发出真实成果引用；规则引用检查不等同语义强提醒。
+P20 三种预览在原结果卡共用同一内联追踪入口，组合展示当时 Confirmation、
+确切 task operation、知识复核、结果引用与来源失效。预览保持待处理；采用成功后把
+Confirmation 标为 `adopted`，并对新建或修改的 PlotThread、OutlineArc 和 Scene 调用
+Evidence 精确失效：排除本次 Confirmation，但使仍引用旧状态的其他记录失效，
+同时复用该入口中的 `source.changed` 通知，不另发一路重复通知。规则引用检查不等同语义强提醒。
 
 
 ### 助手维护与变化检查

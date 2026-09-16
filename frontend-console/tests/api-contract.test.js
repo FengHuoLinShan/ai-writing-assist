@@ -287,6 +287,9 @@ describe("前后端 API 契约", () => {
       method: "POST",
       timeout: 600000,
     })
+    expect(contractPath("context.getConfirmation", { confirmationId: "confirmation-1" }, {
+      novel_id: "novel-1",
+    })).toBe("/evidence/compilation/confirmations/confirmation-1?novel_id=novel-1")
     expect(getApiContract("context.compile")).toMatchObject({
       method: "POST",
       timeout: 600000,

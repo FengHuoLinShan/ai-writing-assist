@@ -38,6 +38,20 @@ class WritingDraftRepository:
     async def _changed(db, draft):
         if draft.status not in WORKING_DRAFT_STATUSES:
             return
+        from modules.evidence.facade import mark_asset_context_changed
+
+        await mark_asset_context_changed(
+            db,
+            novel_id=str(draft.novel_id),
+            asset_type="writing_draft",
+            asset_id=str(draft.id),
+            reason="source_changed",
+        )
+
+    @staticmethod
+    async def _created(db, draft):
+        if draft.status not in WORKING_DRAFT_STATUSES:
+            return
         from core.container import get
 
         try:
@@ -82,7 +96,7 @@ class WritingDraftRepository:
         draft = await self._build_draft(db, data, status="draft")
         db.add(draft)
         await db.flush()
-        await self._changed(db, draft)
+        await self._created(db, draft)
         return draft
 
     async def create_with_status(
@@ -96,7 +110,7 @@ class WritingDraftRepository:
         draft = await self._build_draft(db, data, status=status)
         db.add(draft)
         await db.flush()
-        await self._changed(db, draft)
+        await self._created(db, draft)
         return draft
 
     async def create_many_with_status(
@@ -153,7 +167,7 @@ class WritingDraftRepository:
         db.add_all(drafts)
         await db.flush()
         for draft in drafts:
-            await self._changed(db, draft)
+            await self._created(db, draft)
         return drafts
 
     async def get(

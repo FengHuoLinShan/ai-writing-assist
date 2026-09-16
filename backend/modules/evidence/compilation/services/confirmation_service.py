@@ -29,6 +29,8 @@ from modules.story.contracts import (
 from shared.utils import parse_uuid
 
 _ASSET_TYPE_ALIASES = {
+    "outline_scene": "scene",
+    "scene_story_assets": "scene",
     "scenes": "scene",
     "outline_arcs": "outline_arc",
     "world_entities": "world_entity",
@@ -221,6 +223,23 @@ class ContextConfirmationService:
             raise ValueError("context confirmation action mismatch")
         return self._to_contract(record)
 
+    async def get_confirmation(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        confirmation_id: str | uuid.UUID,
+    ) -> ContextConfirmationContract:
+        """Read one author-owned confirmation without recompiling its context."""
+        record = await self._repo.get(
+            db,
+            self._as_uuid(confirmation_id),
+            novel_id=parse_uuid(novel_id, "novel_id"),
+        )
+        if record is None:
+            raise ValueError("context confirmation not found")
+        return self._to_contract(record)
+
     async def require_fresh_confirmation(
         self,
         db: AsyncSession,
@@ -237,7 +256,9 @@ class ContextConfirmationService:
             confirmation_id=confirmation_id,
             for_update=for_update,
         )
-        if confirmation.result_status in {"stale_context", "needs_review"}:
+        if confirmation.result_status in {"stale_context", "needs_review"} or (
+            confirmation.stale_reasons
+        ):
             raise ValueError("参考资料已更新，请重新确认后开始任务")
         return confirmation
 
@@ -397,13 +418,16 @@ class ContextConfirmationService:
         asset_type: str,
         asset_id: str,
         reason: str,
+        exclude_confirmation_id: str | uuid.UUID | None = None,
     ) -> int:
-        records = await self._repo.list_by_asset_ref(
-            db,
-            novel_id=parse_uuid(novel_id, "novel_id"),
-            asset_type=self._normalized_asset_type(asset_type),
-            asset_id=asset_id,
-        )
+        query = {
+            "novel_id": parse_uuid(novel_id, "novel_id"),
+            "asset_type": self._normalized_asset_type(asset_type),
+            "asset_id": asset_id,
+        }
+        if exclude_confirmation_id is not None:
+            query["exclude_confirmation_id"] = self._as_uuid(exclude_confirmation_id)
+        records = await self._repo.list_by_asset_ref(db, **query)
         status = "needs_review" if reason == "candidate_promoted" else "stale_context"
         updates = []
         for record in records:

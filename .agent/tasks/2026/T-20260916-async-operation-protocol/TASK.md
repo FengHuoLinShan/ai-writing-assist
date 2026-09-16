@@ -5,6 +5,7 @@ status: completed
 created: 2026-09-16T11:07:35+08:00
 updated: 2026-09-16T13:00:27+08:00
 predecessor: .agent/tasks/2026/T-20260915-ai-run-envelope/TASK.md
+successor: .agent/tasks/2026/T-20260916-ai-result-trace/TASK.md
 ---
 
 # 统一异步操作协议
@@ -13,13 +14,11 @@ predecessor: .agent/tasks/2026/T-20260915-ai-run-envelope/TASK.md
 
 - 实际完成：PR #143 已 squash 合并到 `main`（`7bb786a66`）；M1–M3 已实现：实际提交模式
   receipt、`TaskOperationProjectionV1`、worker 稳定错误码、task API 和前端共享 normalizer。
-- 当前里程碑：M0–M4 全部完成，本地实现与验收闭环。
-- 下一步：用户已授权本任务独立 commit、push、PR、CI 通过后 squash 合并与
-  安全清理；完成后从更新的 `main` 启动成果追踪任务。
+- 当前里程碑：M0–M4、本地/远端验收和交付全部完成。
+- 下一步：后继成果追踪任务已从更新的 `main` 启动。
 - 阻塞：无。真实 provider、部署及真实项目数据不在本任务范围。
-- 工作区：`/Users/tywww/Desktop/项目/ai-writing-assist`，分支
-  `codex/async-operation-protocol`，基线 `7bb786a66`；当前改动均属本任务。
-- 最后核实：2026-09-16T13:00:27+08:00。
+- 工作区：PR #144 已 squash 合并到 `main` 的 `aebf69263`；主题分支已清理。
+- 最后核实：2026-09-16T13:16:48+08:00。
 
 ## 目标与验收
 
@@ -99,7 +98,9 @@ predecessor: .agent/tasks/2026/T-20260915-ai-run-envelope/TASK.md
 
 - 已交付：本地 `codex/async-operation-protocol` 已实现版本化异步操作投影、实际提交模式 receipt、
   稳定错误码及前端共享 normalizer，并同步 task README 与 Infrastructure 模块文档。
-- 未交付：当前检查点尚未 commit/push/PR/合并；未部署，也未调用真实 provider。
-- 交付边界：已获授权按独立 PR 交付并合并到 `main`；未触碰真实业务数据或
-  受保护验收库，专用 E2E 数据库保留复验。
+- 已交付：本地提交 `580cdbccf`，PR #144 全部远端门禁通过后 squash 合并为
+  `aebf69263`；本地/远端主题分支均已清理。
+- 未交付：部署与真实 provider 调用。
+- 交付边界：本地 `main`、`origin/main`、`upstream/main` 均为 `aebf69263`；未触碰真实
+  业务数据或受保护验收库，专用 E2E 数据库保留复验。
 - 正式知识与后续任务：正式知识已同步现有文档；后续成果治理方向需建立独立任务。

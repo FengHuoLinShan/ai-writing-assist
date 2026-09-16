@@ -8,6 +8,7 @@ import json
 from sqlalchemy import or_, select
 
 from modules.project.facade import require_active_project
+from modules.world.contracts import CoreEntityContract, EntityRelationContract
 from modules.world.models import CoreEntity, EntityRelation
 from shared.utils import parse_uuid
 
@@ -150,3 +151,92 @@ def relation_projection(row):
     )
     item["source_hash"] = _hash(item)
     return item
+
+
+async def get_hidden_guard_sources(
+    db,
+    *,
+    novel_id: str,
+    entity_ids: list[str],
+    relation_ids: list[str],
+) -> tuple[list[CoreEntityContract], list[EntityRelationContract]]:
+    """Batch-read the exact frozen World sources needed by Hidden Guard."""
+    await require_active_project(db, novel_id)
+    nid = parse_uuid(novel_id, "novel_id")
+    parsed_entities = list(
+        dict.fromkeys(parse_uuid(value, "entity_id") for value in entity_ids)
+    )
+    parsed_relations = list(
+        dict.fromkeys(parse_uuid(value, "relation_id") for value in relation_ids)
+    )
+    entities = (
+        list(
+            (
+                await db.execute(
+                    select(CoreEntity)
+                    .where(
+                        CoreEntity.novel_id == nid,
+                        CoreEntity.id.in_(parsed_entities),
+                    )
+                    .order_by(CoreEntity.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if parsed_entities
+        else []
+    )
+    relations = (
+        list(
+            (
+                await db.execute(
+                    select(EntityRelation)
+                    .where(
+                        EntityRelation.novel_id == nid,
+                        EntityRelation.id.in_(parsed_relations),
+                    )
+                    .order_by(EntityRelation.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if parsed_relations
+        else []
+    )
+    return (
+        [
+            CoreEntityContract(
+                novel_id=str(entity.novel_id),
+                entity_id=str(entity.id),
+                entity_type=entity.entity_type,
+                name=entity.name,
+                summary=entity.summary,
+                public_info=entity.public_info,
+                hidden_truth=entity.hidden_truth,
+                importance=float(
+                    entity.importance if entity.importance is not None else 0.5
+                ),
+                importance_level=entity.importance_level or "normal",
+                reveal_level=entity.reveal_level or "author_only",
+                status=entity.status,
+            )
+            for entity in entities
+        ],
+        [
+            EntityRelationContract(
+                novel_id=str(relation.novel_id),
+                relation_id=str(relation.id),
+                source_id=str(relation.source_id),
+                target_id=str(relation.target_id),
+                relation_type=relation.relation_type,
+                description=relation.description,
+                strength=float(
+                    relation.strength if relation.strength is not None else 0.5
+                ),
+                status=relation.status,
+            )
+            for relation in relations
+        ],
+    )

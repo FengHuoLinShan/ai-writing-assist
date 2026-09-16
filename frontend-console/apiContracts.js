@@ -325,6 +325,10 @@
       hasBody: true,
       timeout: CONTEXT_CONFIRM_TIMEOUT,
     }),
+    "context.getConfirmation": define("GET", ({ confirmationId }) => `/evidence/compilation/confirmations/${required(confirmationId, "confirmationId", "context.getConfirmation")}`, {
+      requiredParams: ["confirmationId"],
+      requiredQuery: ["novel_id"],
+    }),
     "context.compile": define("POST", () => "/evidence/compilation/compile", {
       hasBody: true,
       timeout: CONTEXT_COMPILE_TIMEOUT,
