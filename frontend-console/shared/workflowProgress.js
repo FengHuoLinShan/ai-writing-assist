@@ -354,13 +354,16 @@ export function normalizeTaskProgress(task, workflowType = undefined) {
     ? raw.error_message || result.error_message || result.error || null
     : null
   const lifecycle = safeObject(raw.lifecycle)
+  const operation = safeObject(raw.operation)
   const recoveryRequired = Boolean(
     lifecycle.recovery_required
     || result.recovery_required
     || meta.recovery_required,
   )
-  const availableActions = Array.isArray(raw.available_actions)
-    ? raw.available_actions.filter(Boolean)
+  const availableActions = Array.isArray(operation.available_actions)
+    ? operation.available_actions.filter(Boolean)
+    : Array.isArray(raw.available_actions)
+      ? raw.available_actions.filter(Boolean)
     : recoveryRequired
       ? ["resume", "abandon"]
       : status === "failed"
@@ -368,6 +371,17 @@ export function normalizeTaskProgress(task, workflowType = undefined) {
         : RUNNING_STATUSES.has(status)
           ? ["cancel"]
           : ["dismiss"]
+  const stage = typeof operation.stage === "string" && operation.stage
+    ? operation.stage
+    : result.current_phase || result.phase || result.current_operation || status
+  const errorCode = typeof operation.error_code === "string" && operation.error_code
+    ? operation.error_code
+    : result.error_code || lifecycle.error_code || null
+  const retryable = typeof operation.retryable === "boolean"
+    ? operation.retryable
+    : availableActions.some((action) => ["retry", "resume", "restart_origin"].includes(action))
+  const possibleCharge = operation.possible_charge === true || result.possible_charge === true
+  const partialResult = operation.partial_result === true || result.partial_result === true
 
   return {
     id: raw.id || raw.task_id || meta.task_id || null,
@@ -406,6 +420,12 @@ export function normalizeTaskProgress(task, workflowType = undefined) {
     attempt: Number.isFinite(raw.attempt) ? raw.attempt : 0,
     maxAttempts: Number.isFinite(raw.max_attempts) ? raw.max_attempts : 1,
     stale: Boolean(raw.stale),
+    operation,
+    stage,
+    errorCode,
+    retryable,
+    possibleCharge,
+    partialResult,
     lifecycle,
     recoveryRequired,
     availableActions,

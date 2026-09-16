@@ -23,7 +23,28 @@ TaskAction = Literal[
     "dismiss",
 ]
 TaskCoalescingMode = Literal["reuse_active", "one_pending_follower"]
+TaskSubmissionMode = Literal[
+    "append",
+    "exact_operation",
+    "reuse_active",
+    "one_pending_follower",
+    "legacy",
+]
 TaskOwnerScope = Literal["project", "global"]
+TASK_SUBMISSION_MODE_META_KEY = "_task_submission_mode"
+
+
+class TaskOperationProjectionV1(BaseModel):
+    """Versioned, author-safe projection for one asynchronous operation."""
+
+    version: Literal[1] = 1
+    submission_mode: TaskSubmissionMode
+    stage: str
+    error_code: str | None
+    retryable: bool
+    possible_charge: bool
+    partial_result: bool
+    available_actions: list[TaskAction]
 
 
 @dataclass(frozen=True)
@@ -69,6 +90,7 @@ class TaskLifecycleContract:
     attempt: int
     max_attempts: int
     recovery_policy: str
+    operation: TaskOperationProjectionV1
     lease_id: str | None = None
     heartbeat_at: str | None = None
     stale_detected_at: str | None = None

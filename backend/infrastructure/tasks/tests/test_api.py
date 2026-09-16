@@ -237,6 +237,53 @@ async def test_task_status_hides_private_run_envelope(
 
 
 @pytest.mark.asyncio
+async def test_task_status_exposes_versioned_operation_projection(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    novel_id = str(uuid.uuid4())
+    await _add_project(db_session, novel_id)
+    task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="deep_import",
+        status="failed",
+        recovery_policy="restart_origin",
+        coalescing_key="b" * 64,
+        meta={
+            "novel_id": novel_id,
+            "_task_submission_mode": "reuse_active",
+        },
+        result={
+            "current_phase": "structure_analysis",
+            "partial_result": True,
+            "lifecycle": {"error_code": "llm_timeout"},
+        },
+    )
+    db_session.add(task)
+    await db_session.flush()
+
+    response = await async_client.get(
+        f"/api/tasks/{task.id}",
+        params={"novel_id": novel_id},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["operation"] == {
+        "version": 1,
+        "submission_mode": "reuse_active",
+        "stage": "structure_analysis",
+        "error_code": "llm_timeout",
+        "retryable": True,
+        "possible_charge": False,
+        "partial_result": True,
+        "available_actions": ["restart_origin"],
+    }
+    assert payload["available_actions"] == ["restart_origin"]
+    assert "_task_submission_mode" not in response.text
+
+
+@pytest.mark.asyncio
 async def test_cancel_task_requires_matching_novel_id(
     async_client: AsyncClient,
     db_session: AsyncSession,

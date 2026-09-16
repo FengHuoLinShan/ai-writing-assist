@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import uuid
 from collections.abc import Mapping
 from copy import deepcopy
@@ -16,6 +17,7 @@ from sqlalchemy.orm import aliased
 
 from infrastructure.llm.schemas import (
     AI_RUN_ENVELOPE_KEY,
+    AIChargeState,
     AIRunAuthorizationReason,
     AIRunEnvelopeVersionError,
     AIRunStatus,
@@ -24,10 +26,13 @@ from infrastructure.llm.schemas import (
 )
 from infrastructure.llm.workflow_budget import AIRunEnvelope, AIRunEnvelopeError
 from infrastructure.tasks.contracts import (
+    TASK_SUBMISSION_MODE_META_KEY,
     CompletedTaskPayloadContract,
     TaskAction,
     TaskLifecycleContract,
+    TaskOperationProjectionV1,
     TaskOwnerContract,
+    TaskSubmissionMode,
 )
 from infrastructure.tasks.enqueuer import lock_task_coalescing_key
 from infrastructure.tasks.identity import require_matching_task_identity
@@ -38,6 +43,30 @@ logger = logging.getLogger(__name__)
 
 _INVALID_TASK_META = object()
 _AUTO_REQUEUE_DELAYS_SECONDS = (1, 2, 4, 8, 16, 30)
+_OPERATION_TOKEN_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,160}$")
+_NON_PARTIAL_RESULT_KEYS = {
+    "acceptance_checks",
+    "current_operation",
+    "current_phase",
+    "diagnostic_counts",
+    "error",
+    "error_code",
+    "error_message",
+    "interrupted",
+    "lifecycle",
+    "managed_llm_steps",
+    "message",
+    "partial_result",
+    "partial_result_available",
+    "phase",
+    "phase_errors",
+    "phase_timeline",
+    "progress_events",
+    "recoverable",
+    "recovery_required",
+    "summary",
+    "warnings",
+}
 
 
 def _task_run_envelope(task: AsyncTask):
@@ -49,8 +78,86 @@ def _task_run_envelope(task: AsyncTask):
 
 def _run_budget_exhausted(task: AsyncTask) -> bool:
     payload = _task_run_envelope(task)
-    return bool(
-        payload is not None and payload.requests_started >= payload.request_limit
+    return bool(payload is not None and payload.requests_started >= payload.request_limit)
+
+
+def _operation_token(value: Any) -> str | None:
+    return (
+        value if isinstance(value, str) and _OPERATION_TOKEN_RE.fullmatch(value) else None
+    )
+
+
+def _task_submission_mode(task: AsyncTask) -> TaskSubmissionMode:
+    meta = task.meta or {}
+    if task.coalescing_key:
+        mode = meta.get(TASK_SUBMISSION_MODE_META_KEY)
+        if mode in {"reuse_active", "one_pending_follower"}:
+            return mode
+        return "legacy"
+    if isinstance(meta.get("operation_fingerprint"), str):
+        return "exact_operation"
+    return "append"
+
+
+def _task_operation_projection(
+    task: AsyncTask,
+    *,
+    actions: list[TaskAction],
+) -> TaskOperationProjectionV1:
+    result = task.result if isinstance(task.result, Mapping) else {}
+    lifecycle = result.get("lifecycle")
+    lifecycle = lifecycle if isinstance(lifecycle, Mapping) else {}
+    stage = next(
+        (
+            token
+            for value in (
+                result.get("current_phase"),
+                result.get("phase"),
+                result.get("current_operation"),
+                task.status,
+            )
+            if (token := _operation_token(value)) is not None
+        ),
+        "unknown",
+    )
+    error_code = next(
+        (
+            token
+            for value in (result.get("error_code"), lifecycle.get("error_code"))
+            if (token := _operation_token(value)) is not None
+        ),
+        None,
+    )
+    if error_code is None and task.status == "failed":
+        error_code = _operation_token(task.transition_reason) or "task_failed"
+
+    envelope = _task_run_envelope(task)
+    possible_charge = bool(
+        result.get("possible_charge") is True
+        or (envelope is not None and envelope.charge_state is AIChargeState.possible)
+    )
+    partial_result = bool(
+        result.get("partial_result") is True
+        or result.get("partial_result_available") is True
+    )
+    if not partial_result and task.status in {"failed", "cancelled"}:
+        partial_result = any(
+            isinstance(key, str)
+            and not key.startswith("_")
+            and key not in _NON_PARTIAL_RESULT_KEYS
+            for key in result
+        )
+
+    return TaskOperationProjectionV1(
+        submission_mode=_task_submission_mode(task),
+        stage=stage,
+        error_code=error_code,
+        retryable=any(
+            action in {"retry", "resume", "restart_origin"} for action in actions
+        ),
+        possible_charge=possible_charge,
+        partial_result=partial_result,
+        available_actions=actions,
     )
 
 
@@ -908,9 +1015,7 @@ class TaskLifecycleService:
                 return False
             from infrastructure.tasks.registry import TaskRegistry
 
-            mirror = TaskRegistry().get_run_envelope_checkpoint(
-                task_for_mirror.task_type
-            )
+            mirror = TaskRegistry().get_run_envelope_checkpoint(task_for_mirror.task_type)
             if mirror is not None:
                 await mirror(db, task_for_mirror, dict(envelope))
         if status == "pending":
@@ -1099,9 +1204,7 @@ class TaskLifecycleService:
                 await self._merge_run_envelope(
                     db,
                     task,
-                    status=(
-                        None if task.status == "pending" else AIRunStatus.failed
-                    ),
+                    status=(None if task.status == "pending" else AIRunStatus.failed),
                 )
             if task.status == "pending":
                 counts["auto_requeued"] += 1
@@ -1177,9 +1280,7 @@ class TaskLifecycleService:
             lease_id=None,
         )
         ledger = AIRunEnvelope(
-            payload.model_copy(
-                update={"task": identity, "status": AIRunStatus.running}
-            )
+            payload.model_copy(update={"task": identity, "status": AIRunStatus.running})
         )
         try:
             if status is None:
@@ -1337,6 +1438,7 @@ def lifecycle_contract(
         attempt=attempt,
         max_attempts=max_attempts,
         recovery_policy=recovery_policy,
+        operation=_task_operation_projection(task, actions=actions),
         lease_id=_string_attr(task, "lease_id"),
         heartbeat_at=heartbeat_at.isoformat() if heartbeat_at else None,
         stale_detected_at=(

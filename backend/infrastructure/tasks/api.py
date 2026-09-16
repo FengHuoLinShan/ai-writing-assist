@@ -22,7 +22,7 @@ from sqlalchemy import select
 from core.api_params import NovelIdQuery
 from core.container import get as get_container_service
 from core.dependencies import DbSession
-from infrastructure.tasks.contracts import TaskAction
+from infrastructure.tasks.contracts import TaskAction, TaskOperationProjectionV1
 from infrastructure.tasks.enqueuer import enqueue_task
 from infrastructure.tasks.lifecycle import TaskLifecycleService, lifecycle_contract
 from infrastructure.tasks.models import AsyncTask
@@ -175,6 +175,7 @@ class TaskStatusResponse(BaseModel):
     attempt: int = 0
     max_attempts: int = 1
     stale: bool = False
+    operation: TaskOperationProjectionV1
     lifecycle: dict[str, Any] = Field(default_factory=dict)
     available_actions: list[TaskAction] = Field(default_factory=list)
 
@@ -312,6 +313,7 @@ async def get_task_status(
         attempt=lifecycle.attempt,
         max_attempts=lifecycle.max_attempts,
         stale=lifecycle.stale,
+        operation=lifecycle.operation,
         lifecycle={
             "reason": lifecycle.transition_reason,
             "recovery_policy": lifecycle.recovery_policy,

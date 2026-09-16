@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.tasks.contracts import TASK_SUBMISSION_MODE_META_KEY
 from infrastructure.tasks.enqueuer import enqueue_coalesced_task, enqueue_task
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
@@ -90,6 +91,25 @@ def test_ordinary_enqueue_canonicalizes_project_identity() -> None:
     assert task.meta == {"novel_id": str(project_id)}
 
 
+def test_ordinary_enqueue_cannot_spoof_stronger_submission_receipt() -> None:
+    db = MagicMock()
+    project_id = str(uuid.uuid4())
+
+    enqueue_task(
+        db,
+        "unknown-task",
+        meta={
+            "novel_id": project_id,
+            "operation_fingerprint": "spoofed",
+            TASK_SUBMISSION_MODE_META_KEY: "one_pending_follower",
+        },
+        novel_id=project_id,
+    )
+
+    task = db.add.call_args.args[0]
+    assert task.meta == {"novel_id": project_id}
+
+
 def test_registered_owner_scope_is_enforced() -> None:
     registry = TaskRegistry()
 
@@ -122,7 +142,10 @@ async def test_coalesced_enqueue_populates_identity_projection(
 
     assert task is not None
     assert task.novel_id == uuid.UUID(project_id)
-    assert task.meta == {"novel_id": project_id}
+    assert task.meta == {
+        "novel_id": project_id,
+        TASK_SUBMISSION_MODE_META_KEY: "reuse_active",
+    }
 
 
 @pytest.mark.asyncio

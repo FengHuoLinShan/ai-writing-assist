@@ -450,6 +450,14 @@ POST /api/tasks/{id}/retry  # 重试可恢复的失败/取消任务
 私有 checkpoint/receipt：数据库、重试和 lifecycle 恢复路径保留原值，但
 `GET /api/tasks/{id}` 不返回它们；业务 handler 不得把前端必需字段放入私有键。
 
+同一响应的 `operation` 是版本化公共投影：`submission_mode / stage / error_code /
+retryable / possible_charge / partial_result / available_actions` 由 task lifecycle 单点生成。
+submission mode 来自实际 enqueuer 路径（append、exact operation、复用活动任务或单 pending
+follower），不是调用方 metadata 声明；旧 coalesced row 无 receipt 时安全标为 legacy。worker
+只把稳定、脱敏的失败 code 写入既有 lifecycle receipt，前端共享 `workflowProgress` normalizer
+优先消费该投影并保留旧 wire fallback。`possible_charge` 只公开聚合布尔值，私有 AI 信封不进入
+公开 wire。
+
 作者显式长操作可以前端预先生成的 `operation_id` 作为 task UUID。同一
 `operation_id + novel_id + task_type + request fingerprint` 复用原任务（含终态），同 ID
 异请求返回 409。这是提交回执，不是新队列或全局锁，也不取代业务来源与 lease fence。

@@ -3,7 +3,7 @@ id: T-20260915-ai-run-envelope
 title: 统一 AI 运行信封
 status: complete
 created: 2026-09-15T10:42:18+08:00
-updated: 2026-09-16T03:21:38+08:00
+updated: 2026-09-16T11:07:35+08:00
 parent: .agent/tasks/agent-integration.md
 ---
 
@@ -15,17 +15,18 @@ parent: .agent/tasks/agent-integration.md
   summary/continuity、Evidence focused search 的 opt-in 迁移；静态绑定/稳定 step/文档门禁。独立复核
   又修正 research 双账本顺序、recent 窗口与并发 request index、RPM/semaphore deadline、虚假 run
   deadline、额度耗尽的 `author_resume`，以及 validation 私有计划边界。
-- 当前里程碑：M0–M5 与本地交付完成；PR #143 已创建并可合并，远端 CI 正在执行。C1/C2 使用冻结完整上界；模型
+- 当前里程碑：M0–M5、远端交付与合并完成；PR #143 已于 2026-09-16 squash 合并到
+  `main`（`7bb786a66`）。C1/C2 使用冻结完整上界；模型
   产生规模的 Imports C3 使用每次作者授权 256 请求的固定段，自动恢复不扩额。
 - 最近完成：Imports 四类流水线以 `imports.deep_import` 为 parent 并启用分段续算；独立
   targeted/review、World alias/relation、Map Atlas 与 Smart Dedup 全部接入。Map Atlas 以
   `MapAtlasRun.id` 跨 task 镜像；Smart Dedup 采用有界 World 候选前沿和
   `project.smart_dedup` parent。
-- 下一步：等待 PR #143 远端 CI；本轮收尾提交推送后移除本地主题 worktree/分支。远端 PR 分支保留。
-- 阻塞：无必需实现阻塞。真实 provider 验收仍需费用与凭据授权，保持可选且未执行；合并和部署
-  未获授权。
-- 工作区：实现提交 `2ba06fc47` 已推送到 `codex/ai-run-envelope`，PR #143 目标为 `main` 且
-  GitHub 判定 mergeable；未合并、未部署。本收尾提交推送后删除本地主题 worktree/分支。
+- 下一步：无；后继方向见
+  `.agent/tasks/2026/T-20260916-async-operation-protocol/TASK.md`。
+- 阻塞：无。真实 provider 验收仍需费用与凭据授权，保持可选且未执行；未部署。
+- 工作区：PR #143 的 squash 提交 `7bb786a66` 已在本地与远端 `main`；未部署。本地主题
+  worktree/分支已删除，远端主题分支由仓库合并策略清理。
   W2/W3 子 worktree 已不存在；六个已合入分支按 ancestry 删除，W2-Text 原分支
   与集成提交 tree 完全相同后删除；计划分支已删除，根 worktree 回到 `main`。
 - 最后核实：2026-09-16（新增改动定向：Imports **716 passed**，任务/Imports/Project/World 聚合
@@ -689,12 +690,11 @@ reserve checkpoint 被拒时 provider 为 0 且旧 attempt 终止；退避跨 de
 
 ## 交付结果
 
-- 已交付到本地分支：Wave 0–4；统一契约/账本与全部目标 provider 通道；Imports 分段准入、
+- 已交付到 `main`：Wave 0–4；统一契约/账本与全部目标 provider 通道；Imports 分段准入、
   entity-fusion checkpoint 续算、Interaction/Map 跨 task mirror；Smart Dedup 跨域 parent；静态门禁、
   文档和专用 PostgreSQL 信封/critical 验收。
-- 未交付：真实 provider 验收（可选且未授权）；合并到 main 与部署（未授权）。PR #143 的远端
-  CI 状态单独观察，不把本地绿色写成远端完成。
-- 交付边界：改动已推送到远端主题分支并创建 PR #143；`origin/main` 未受影响。归档/演示 worktree
-  与用户 WIP 不在清理范围。W2/W3 临时分支已清理；本收尾提交推送后移除主实现 worktree和本地
-  `codex/ai-run-envelope`，远端 PR 分支保留。
+- 未交付：真实 provider 验收（可选且未授权）与部署。PR #143 全部远端 CI 通过后由用户授权
+  squash 合并。
+- 交付边界：本地与远端 `main` 均为 `7bb786a66`；实现 worktree、本地主题分支及空闲 Docker
+  临时资源已清理。归档/演示 worktree 与用户 WIP 未触碰；专用 PostgreSQL 验证库保留供复验。
 - 正式知识已同步 ADR-0023/ADR-0025、LLM/tasks README 和受影响模块文档；本 TASK 保持唯一进度源。

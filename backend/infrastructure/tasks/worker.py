@@ -75,12 +75,31 @@ _TASK_DB_ERROR_MESSAGE = "后台任务遇到数据库临时错误，请稍后重
 _TASK_PREFLIGHT_WRITE_ERROR = "Task preflight must be read-only"
 _TASK_RECOVERY_FAILURE_MESSAGE = "Task worker recovery failed safely; restart required."
 _TASK_TYPE_LOG_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
+_TASK_ERROR_CODE_RE = re.compile(r"^[a-z][a-z0-9_]{0,79}$")
+_TASK_ERROR_CODES_BY_TYPE = {
+    "AIManagedStepContextError": "ai_step_context_missing",
+    "AIRunBudgetExceededError": "ai_budget_exceeded",
+    "AIRunCheckpointError": "ai_checkpoint_failed",
+    "AIRunDeadlineExceededError": "ai_deadline_exceeded",
+    "AIRunIdentityError": "ai_identity_mismatch",
+    "AIRunStateError": "ai_run_state_invalid",
+    "LLMAuthError": "llm_auth_failed",
+    "LLMConnectionError": "llm_connection_failed",
+    "LLMContentFilterError": "llm_content_filtered",
+    "LLMInvalidResponseError": "llm_invalid_response",
+    "LLMQuotaError": "llm_quota_exhausted",
+    "LLMRateLimitError": "llm_rate_limited",
+    "LLMTimeoutError": "llm_timeout",
+    "_TaskOwnerScopeInvariantError": "task_owner_scope_mismatch",
+}
 
 #: 没有历史执行证据的任务在首次领取时建立 run；已领取过（attempt > 1）却没
 #: 有信封的任务属于"旧在途"，其历史 provider 用量不可考，只能标记 legacy。
 #: 运行信封按显式声明 opt-in：只有 TaskRegistry 注册了 canonical
 #: root_capability_id 的任务才建立账本，未迁移任务保持改造前行为。
 _TASK_RUN_GLOBAL_NOVEL_ID = "global"
+
+
 class _TaskWorkerRecoveryError(RuntimeError):
     """Stable, secret-free failure used when task/domain recovery cannot converge."""
 
@@ -172,6 +191,34 @@ def _public_task_error_message(exc: Exception) -> str:
     return redact_diagnostic(raw, limit=1000)
 
 
+def _task_failure_error_code(exc: Exception) -> str:
+    """Map one failure to a stable, secret-free operation code."""
+    if isinstance(exc, DomainError):
+        code = getattr(exc, "code", None)
+        return (
+            code
+            if isinstance(code, str) and _TASK_ERROR_CODE_RE.fullmatch(code)
+            else "domain_error"
+        )
+    if isinstance(exc, SQLAlchemyError):
+        return "task_database_error"
+    mapped = _TASK_ERROR_CODES_BY_TYPE.get(type(exc).__name__)
+    if mapped is not None:
+        return mapped
+    if isinstance(exc, AIRunEnvelopeError):
+        return "ai_run_failed"
+    if isinstance(exc, LLMError):
+        error_kind = getattr(exc, "error_kind", "")
+        if isinstance(error_kind, str) and _TASK_ERROR_CODE_RE.fullmatch(error_kind):
+            return f"llm_{error_kind}"[:80]
+        return "llm_failed"
+    if isinstance(exc, TimeoutError):
+        return "task_timeout"
+    if isinstance(exc, ConnectionError):
+        return "task_connection_failed"
+    return "task_failed"
+
+
 def _task_result_snapshot(task: AsyncTask) -> dict[str, Any]:
     result = task.result
     return dict(result) if isinstance(result, Mapping) else {}
@@ -211,7 +258,12 @@ def _should_auto_requeue_handler_failure(task: AsyncTask) -> bool:
     )
 
 
-def _handler_failure_result(task: AsyncTask, *, requeued: bool) -> dict[str, Any]:
+def _handler_failure_result(
+    task: AsyncTask,
+    *,
+    requeued: bool,
+    error_code: str = "task_failed",
+) -> dict[str, Any]:
     result = _task_result_snapshot(task)
     lifecycle = dict(result.get("lifecycle") or {})
     transitions = list(lifecycle.get("transitions") or [])
@@ -221,12 +273,14 @@ def _handler_failure_result(task: AsyncTask, *, requeued: bool) -> dict[str, Any
             "from": "running",
             "to": "pending" if requeued else "failed",
             "reason": "handler_error",
+            "error_code": error_code,
             "attempt": int(getattr(task, "attempt", 0) or 0),
         }
     )
     lifecycle.update(
         {
             "reason": "handler_error",
+            "error_code": error_code,
             "recovery_policy": str(getattr(task, "recovery_policy", "")),
             "recovery_required": bool(
                 getattr(task, "recovery_policy", None) == "manual_resume"
@@ -864,8 +918,13 @@ class TaskWorker:
                     if run_envelope is not None
                     else nullcontext()
                 )
-                with run_scope, llm_transport_retry_scope(
-                    enabled=not bool(definition and definition.retry_transient_llm_errors)
+                with (
+                    run_scope,
+                    llm_transport_retry_scope(
+                        enabled=not bool(
+                            definition and definition.retry_transient_llm_errors
+                        )
+                    ),
                 ):
                     result = (
                         await self._execution_wrapper(session, task, handler)
@@ -952,6 +1011,7 @@ class TaskWorker:
                 )
 
             except Exception as e:
+                error_code = _task_failure_error_code(e)
                 transient_requeue = bool(
                     definition is not None
                     and definition.retry_transient_llm_errors
@@ -973,6 +1033,7 @@ class TaskWorker:
                         _handler_failure_result(
                             task,
                             requeued=requeue or transient_requeue,
+                            error_code=error_code,
                         ),
                         managed_llm_steps,
                     )
@@ -980,6 +1041,7 @@ class TaskWorker:
                     else _handler_failure_result(
                         task,
                         requeued=requeue or transient_requeue,
+                        error_code=error_code,
                     )
                 )
                 await session.rollback()

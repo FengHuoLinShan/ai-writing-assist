@@ -9,8 +9,76 @@ from sqlalchemy import select
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.schemas import AI_RUN_ENVELOPE_KEY
 from infrastructure.tasks.lifecycle import TaskLifecycleService, lifecycle_contract
 from infrastructure.tasks.models import AsyncTask
+
+
+def test_operation_projection_unifies_receipt_recovery_and_partial_result() -> None:
+    novel_id = str(uuid.uuid4())
+    task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="deep_import",
+        status="failed",
+        recovery_policy="restart_origin",
+        coalescing_key="a" * 64,
+        meta={
+            "novel_id": novel_id,
+            "_task_submission_mode": "one_pending_follower",
+            AI_RUN_ENVELOPE_KEY: {
+                "version": 1,
+                "operation_id": "operation-1",
+                "run_id": "run-1",
+                "root_capability_id": "imports.deep_import",
+                "novel_id": novel_id,
+                "started_at": "2026-09-16T00:00:00Z",
+                "request_limit": 1,
+                "requests_started": 1,
+                "requests_unknown": 1,
+                "usage_complete": False,
+                "charge_state": "possible",
+                "status": "failed",
+                "steps": [
+                    {
+                        "step_name": "imports.scene_enrichment",
+                        "step_capability_id": "imports.deep_import",
+                        "call_kind": "structured",
+                        "requests_started": 1,
+                        "requests_unknown": 1,
+                        "usage_complete": False,
+                        "charge_state": "possible",
+                    }
+                ],
+            },
+        },
+        result={
+            "current_phase": "entity_extraction",
+            "checkpoint": {"completed": 4},
+            "lifecycle": {"error_code": "llm_timeout"},
+        },
+    )
+
+    operation = lifecycle_contract(task, max_heartbeat_gap=60).operation
+
+    assert operation.model_dump() == {
+        "version": 1,
+        "submission_mode": "one_pending_follower",
+        "stage": "entity_extraction",
+        "error_code": "llm_timeout",
+        "retryable": True,
+        "possible_charge": True,
+        "partial_result": True,
+        "available_actions": ["restart_origin"],
+    }
+
+    task.result = {
+        "current_phase": "entity_extraction",
+        "partial_result": False,
+        "lifecycle": {"error_code": "llm_timeout"},
+    }
+    assert (
+        lifecycle_contract(task, max_heartbeat_gap=60).operation.partial_result is False
+    )
 
 
 @pytest.mark.asyncio

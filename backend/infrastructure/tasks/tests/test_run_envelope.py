@@ -568,10 +568,13 @@ async def test_manual_resume_authorizes_one_more_frozen_budget_when_exhausted(
                 **dict(task.meta or {}),
                 AI_RUN_ENVELOPE_KEY: ledger.snapshot().model_dump(mode="json"),
             }
-            assert "resume" in lifecycle_contract(
-                task,
-                max_heartbeat_gap=0,
-            ).available_actions
+            assert (
+                "resume"
+                in lifecycle_contract(
+                    task,
+                    max_heartbeat_gap=0,
+                ).available_actions
+            )
 
         async with sessions.begin() as db:
             resumed = await TaskLifecycleService().resume_manual(
@@ -1258,9 +1261,7 @@ async def test_reserve_checkpoint_rejection_blocks_provider_io(
 
         assert provider.calls == 0
         # checkpoint 被租约拒绝 → 账本权威失效 → provider I/O 前失败关闭。
-        assert any(
-            isinstance(exc, AIRunCheckpointError) for exc in observed_errors
-        )
+        assert any(isinstance(exc, AIRunCheckpointError) for exc in observed_errors)
         # 旧 attempt 的失败终态被租约 fence 拒绝：任务归新 attempt 所有。
         assert returned is not None and returned.status == "running"
         assert returned.lease_id is not None
@@ -1312,6 +1313,7 @@ async def test_ai_run_envelope_error_is_never_auto_requeued(test_engine) -> None
 
         assert returned is not None and returned.status == "failed"
         assert returned.attempt == 1
+        assert returned.result["lifecycle"]["error_code"] == "ai_budget_exceeded"
         assert calls == 1
         # 预算耗尽保留给领域续算路径，重排只会原样再失败一次。
         assert await worker.run_once() is None

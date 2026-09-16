@@ -28,6 +28,34 @@ function mockVisibilityState(initial = "visible") {
 }
 
 describe("normalizeTaskProgress", () => {
+  it("prefers the versioned operation projection while keeping legacy fields", () => {
+    const progress = normalizeTaskProgress({
+      task_id: "operation-1",
+      task_type: "deep_import",
+      status: "failed",
+      result: { current_phase: "legacy_phase", error_code: "legacy_error" },
+      available_actions: ["dismiss"],
+      operation: {
+        version: 1,
+        submission_mode: "one_pending_follower",
+        stage: "entity_extraction",
+        error_code: "llm_timeout",
+        retryable: true,
+        possible_charge: true,
+        partial_result: true,
+        available_actions: ["resume", "abandon"],
+      },
+    })
+
+    expect(progress.stage).toBe("entity_extraction")
+    expect(progress.errorCode).toBe("llm_timeout")
+    expect(progress.retryable).toBe(true)
+    expect(progress.possibleCharge).toBe(true)
+    expect(progress.partialResult).toBe(true)
+    expect(progress.availableActions).toEqual(["resume", "abandon"])
+    expect(progress.currentPhase).toBe("legacy_phase")
+  })
+
   it("normalizes legacy asset-state words from backend progress text", () => {
     const progress = normalizeTaskProgress({
       id: "task-copy",
