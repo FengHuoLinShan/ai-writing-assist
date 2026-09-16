@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_ai import Agent, Tool
@@ -32,6 +32,7 @@ from pydantic_ai.usage import RequestUsage, UsageLimits
 
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import (
+    AIStepCallKind,
     LLMCallRequest,
     LLMCallResponse,
     LLMMessage,
@@ -41,6 +42,51 @@ from infrastructure.llm.schemas import (
     LLMUsage,
 )
 from infrastructure.llm.token_estimation import estimate_token_count
+
+if TYPE_CHECKING:
+    from infrastructure.llm.workflow_budget import AIManagedStepContext
+
+AGENT_STEP_NAME = "infrastructure.agent_loop"
+"""有界 Agent 自身模型回合的稳定 step 名；不携带请求序数或动态后缀。"""
+
+
+def _workflow_meter_owns_provider_request() -> bool:
+    """本次 provider 请求是否已由外层 WorkflowBudget 承担预留与用量。
+
+    `LLMClient.generate()` 的 provider_request 闭包在存在 WorkflowBudget 时会先
+    `before_request()` 预留一次；`budgeted_tool` 的既定语义是“工具内准备的模型调用记在
+    工具账本上”。因此内层显式 meter 存在时由它计量，AgentRunBudget 不再对同一次 provider
+    I/O 预留或落定用量，一次请求只在一个 meter 上记一次。
+    """
+    from infrastructure.llm.workflow_budget import current_workflow_budget
+
+    return current_workflow_budget() is not None
+
+
+def _require_root_capability(capability_id: str | None) -> None:
+    """活动运行信封下必须显式声明本 run 的 root capability。
+
+    声明早于任何预算预留与 provider I/O：缺失或与本 run root 不一致时失败关闭，
+    不把 Agent 循环静默归属到信封 root。
+    """
+    from infrastructure.llm.workflow_budget import (
+        AIManagedStepContextError,
+        AIRunIdentityError,
+        current_ai_run_envelope,
+    )
+
+    envelope = current_ai_run_envelope()
+    if envelope is None:
+        return
+    if capability_id is None:
+        raise AIManagedStepContextError(
+            "run_project_agent 在活动运行信封下必须显式声明 root capability"
+        )
+    if capability_id != envelope.root_capability_id:
+        raise AIRunIdentityError(
+            f"run_project_agent 声明的 capability {capability_id!r} 不是本 run 的 root",
+            run_id=envelope.run_id,
+        )
 
 
 class AgentBudgetError(ValueError):
@@ -119,6 +165,18 @@ class AgentRunBudget(BaseModel):
             self.prompt_tokens += usage.prompt_tokens
             self.completion_tokens += usage.completion_tokens
 
+    def release_pending_request(self, *, requests: int = 1) -> None:
+        """撤销一次尚未发出 provider I/O 的请求预留。
+
+        活动运行信封在 provider I/O 前拒绝时，兼容账本同样不得留下"已请求"
+        计数；工具数与 web 子预算不受影响。
+        """
+        if requests < 0:
+            raise ValueError("Budget releases must be nonnegative")
+        self.requests = max(0, self.requests - requests)
+        self.pending_usage = max(0, self.pending_usage - requests)
+        self.usage_complete = not self.pending_usage and not self.usage_unknown
+
 
 BudgetCheckpoint = Callable[[dict[str, Any]], Awaitable[None]]
 _HISTORY_VERSION = "pydantic-ai-2.42.0"
@@ -169,6 +227,7 @@ class ProjectGatewayModel(Model):
         budget: AgentRunBudget,
         *,
         input_limit: int,
+        capability_id: str | None = None,
         checkpoint: BudgetCheckpoint | None = None,
         state_checkpoint: BudgetCheckpoint | None = None,
         future_requests: int = 0,
@@ -180,6 +239,7 @@ class ProjectGatewayModel(Model):
         self.template = template
         self.budget = budget
         self.input_limit = input_limit
+        self.capability_id = capability_id
         self.checkpoint = checkpoint
         self.state_checkpoint = state_checkpoint
         self.future_requests = future_requests
@@ -195,6 +255,31 @@ class ProjectGatewayModel(Model):
     async def save_budget(self) -> None:
         if self.checkpoint is not None:
             await self.checkpoint(self.budget.model_dump(mode="json"))
+
+    def _step_context(self) -> AIManagedStepContext:
+        """本模型回合的受管 step 归属；信封据此把请求计入 run 的 root capability。"""
+        from infrastructure.llm.workflow_budget import AIManagedStepContext
+
+        runtime_scope = getattr(self.client, "runtime_scope", None)
+        profile_summary = getattr(self.client, "profile_summary", None)
+        return AIManagedStepContext(
+            step_name=AGENT_STEP_NAME,
+            call_kind=AIStepCallKind.generate,
+            capability_id=self.capability_id,
+            profile_source=(
+                str(runtime_scope.get("profile_source") or "")
+                if isinstance(runtime_scope, Mapping)
+                else ""
+            ),
+            profile_summary=(
+                dict(profile_summary) if isinstance(profile_summary, Mapping) else {}
+            ),
+        )
+
+    def _managed_step(self) -> Iterator[AIManagedStepContext]:
+        from infrastructure.llm.workflow_budget import managed_step_scope
+
+        return managed_step_scope(self._step_context())
 
     async def save_history(self, messages: list[ModelMessage]) -> None:
         if self.state_checkpoint is not None:
@@ -314,11 +399,26 @@ class ProjectGatewayModel(Model):
     ) -> ModelResponse:
         _, params = self.prepare_request(model_settings, model_request_parameters)
         request = self._request(messages, params)
-        self.budget.reserve(requests=1, future_requests=self.future_requests)
+        # 外层 WorkflowBudget 已承担本次请求的预留与用量时不再重复预留。
+        delegated = _workflow_meter_owns_provider_request()
+        from infrastructure.llm.workflow_budget import AIRunEnvelopeError
+
+        if not delegated:
+            self.budget.reserve(requests=1, future_requests=self.future_requests)
         await self.save_budget()
         await self.save_history(messages)
-        response = await self.client.generate(request, transport_retries=False)
-        self.budget.add_usage(response.usage)
+        try:
+            with self._managed_step():
+                response = await self.client.generate(request, transport_retries=False)
+        except AIRunEnvelopeError:
+            # 信封在 provider I/O 前拒绝：兼容账本回滚本次请求预留，两个账本
+            # 都不留下部分变更，异常按原类型继续向上传播。
+            if not delegated:
+                self.budget.release_pending_request()
+                await self.save_budget()
+            raise
+        if not delegated:
+            self.budget.add_usage(response.usage)
         # Count all proposed calls, including invalid/unknown calls, before execution.
         try:
             self.budget.reserve(tools=len(response.tool_calls))
@@ -355,12 +455,16 @@ class ProjectGatewayModel(Model):
     ):
         _, params = self.prepare_request(model_settings, model_request_parameters)
         request = self._request(messages, params)
+        # 流式不经 client.generate 的 provider_request 闭包，不查 WorkflowBudget；
+        # 因此流式请求仍由 AgentRunBudget 单独计量，避免用量无人落定。
         self.budget.reserve(requests=1, future_requests=self.future_requests)
         await self.save_budget()
         await self.save_history(messages)
         stream = self.client.generate_stream(request, transport_retries=False)
         try:
-            yield GatewayStream(params, self, stream)
+            # 生成器在首次迭代才发请求，受管 step 必须覆盖整个消费区间。
+            with self._managed_step():
+                yield GatewayStream(params, self, stream)
         finally:
             await stream.aclose()
 
@@ -396,8 +500,13 @@ class GatewayStream(StreamedResponse):
     async def _get_event_iterator(self) -> AsyncIterator[ModelResponseStreamEvent]:
         seen: set[int] = set()
         final_usage = None
+        stream_opened = False
+        request_released = False
+        from infrastructure.llm.workflow_budget import AIRunEnvelopeError
+
         try:
             async for chunk in self.stream:
+                stream_opened = True
                 if chunk.usage is not None:
                     final_usage = chunk.usage
                     self._usage = _usage(chunk.usage)
@@ -432,10 +541,19 @@ class GatewayStream(StreamedResponse):
                         if chunk.finish_reason == "length"
                         else "stop"
                     )
-        finally:
-            self.model.budget.add_usage(final_usage)
-            if not asyncio.current_task().cancelling():
+        except AIRunEnvelopeError:
+            if not stream_opened:
+                # 流从未打开：信封在 provider I/O 前拒绝建流，回滚兼容账本的
+                # 请求预留，不把这次拒绝当成未知用量的真实请求。
+                request_released = True
+                self.model.budget.release_pending_request()
                 await self.model.save_budget()
+            raise
+        finally:
+            if not request_released:
+                self.model.budget.add_usage(final_usage)
+                if not asyncio.current_task().cancelling():
+                    await self.model.save_budget()
 
     async def close_stream(self) -> None:
         await self.stream.aclose()
@@ -455,13 +573,21 @@ async def run_project_agent(
     state: dict | None = None,
     future_requests: int = 0,
     output_validator=None,
+    capability_id: str | None = None,
 ):
-    """Caller owns data/permissions and client lifetime; no automatic run replay."""
+    """Caller owns data/permissions and client lifetime; no automatic run replay.
+
+    ``capability_id`` 是本 Agent 循环服务的 canonical root capability。活动运行信封下必须
+    显式声明：每次模型请求、工具内嵌的受管 step 与 research 子请求都以它归入同一 run，
+    与信封 root 不一致时由信封拒绝；没有活动信封时省略即可保持原有 AgentRunBudget 行为。
+    """
+    _require_root_capability(capability_id)
     model = ProjectGatewayModel(
         client,
         request,
         budget,
         input_limit=input_limit,
+        capability_id=capability_id,
         checkpoint=checkpoint,
         state_checkpoint=state_checkpoint,
         future_requests=future_requests,

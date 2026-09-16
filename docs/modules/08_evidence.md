@@ -1,5 +1,9 @@
 # Module: evidence / 检索、编译与确认模块
 
+专项查阅的 provider 请求由 `evidence_focused_search` 的统一运行信封累计（L0=9）；planner 与
+nomination 保留各自 step timeout，整条 run 不新增总 deadline。索引与 embedding 任务保持
+非目标，不把确定性索引工作量冒充模型预算。
+
 ## 定位
 
 evidence 是小说证据的唯一领域实现：indexing 子域负责 chunk、混合检索、embedding 与索引

@@ -241,6 +241,11 @@ LLM execution snapshot，worker 恢复冻结配置后调用各模块 facade。�
 返回 `groups`，同时保留 `suggestions` 供旧客户端降级展示。实际资产判断、
 语义/执行指纹和写入规则仍属于资产拥有模块：
 
+该任务以 `project.smart_dedup` 作为跨 World/Story 的 canonical 运行父能力。
+World 候选复用实体融合的 `3 × max_suggestions` 有界前沿，不再为成组展示穷举
+全部对象对；Story 按所选资产类型和 outline 建议预算计算。两侧最坏请求上界在
+入队参数中即可冻结，自动重排继续累计同一运行账本。
+
 官方前端提交扫描前先持久化页内 `operation_id`；同一 ID 和请求指纹可在刷新后恢复
 原任务（含终态），不同请求复用同一 ID 返回 409。该 receipt 只约束当前操作，不建立
 账户级、项目级或跨设备扫描锁。

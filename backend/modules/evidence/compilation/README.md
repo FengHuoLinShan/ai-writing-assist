@@ -1,5 +1,12 @@
 # Evidence compilation / 上下文编译与确认子域
 
+专项查阅任务 `evidence_focused_search` 使用统一 AI 运行信封：一次 run 最多 9 次请求，manual
+resume 不重置累计账本；planner/nomination 的 step timeout 保持原样，整条 run 不新增总 deadline。
+回执保留在任务私有元数据，不进入编译结果。
+知识导演、生成与审查继续分别产生 `KnowledgeScopeReceipt` /
+`KnowledgeAuditReceipt`；它们的 provider step 只继承宿主 capability 的运行信封，不建立第二账本。
+运行信封中只保存稳定 step 名、计数和脱敏指纹，不保存编译正文或 Prompt。
+
 ## 定位
 
 Evidence 的 compilation 子域决定本次 AI 操作能看到哪些资料、哪些资料要被裁剪，以及哪些

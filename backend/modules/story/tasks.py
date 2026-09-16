@@ -454,6 +454,9 @@ def _require_character_ids(values: list[str]) -> list[str]:
     recovery_policy="auto_requeue",
     max_attempts=2,
     retry_transient_llm_errors=True,
+    root_capability_id="story.character_card",
+    run_request_limit=28,
+    run_deadline_seconds=None,
 )
 async def handle_story_character_card_generate(db, task):
     (
@@ -500,6 +503,9 @@ async def handle_story_character_card_generate(db, task):
     recovery_policy="auto_requeue",
     max_attempts=2,
     retry_transient_llm_errors=True,
+    root_capability_id="story.reaction",
+    run_request_limit=672,
+    run_deadline_seconds=None,
 )
 async def handle_story_reaction_propose(db, task):
     (
@@ -559,6 +565,9 @@ async def handle_story_reaction_propose(db, task):
     recovery_policy="auto_requeue",
     max_attempts=2,
     retry_transient_llm_errors=True,
+    root_capability_id="story.script",
+    run_request_limit=28,
+    run_deadline_seconds=None,
 )
 async def handle_story_scene_script_generate(db, task):
     (
@@ -610,6 +619,11 @@ async def handle_story_scene_script_generate(db, task):
     recovery_policy="auto_requeue",
     max_attempts=2,
     retry_transient_llm_errors=True,
+    root_capability_id="story.one_click",
+    run_request_limit=1372,
+    # 2N+1 个 preview 各自还包含 generation/audit/repair step；只按链数
+    # 乘单 step timeout 会低估，且 auto-requeue 后没有既有总时限。
+    run_deadline_seconds=None,
 )
 async def handle_story_one_click(db, task):
     (

@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.redaction import redact_diagnostic
+from modules.imports.admission import propagate_run_envelope_error
 
 
 class StructureReviewAgent:
@@ -34,6 +35,7 @@ class StructureReviewAgent:
                 max_suggestions=40,
             )
         except Exception as exc:
+            propagate_run_envelope_error(exc)
             return {
                 "checked": 0,
                 "suggestions_recorded": 0,

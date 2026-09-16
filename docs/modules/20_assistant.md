@@ -1,5 +1,8 @@
 # Assistant 项目助手
 
+Assistant 每个后台 run 在 worker 领取时冻结统一 AI 运行信封；Agent/研究/回顾重试与恢复只
+累计该 run，私有预算、step 回执和供应商摘要不进入公开 Assistant wire。
+
 架构依据为 ADR-0023。Assistant 整合注册的领域能力，不复制领域数据和采用权限。
 模块协议与表职责见 `backend/modules/assistant/README.md`。
 

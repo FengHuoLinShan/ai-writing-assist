@@ -18,7 +18,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, ValidationError
-from infrastructure.llm.agent_step_harness import run_managed_structured
+from infrastructure.llm.agent_step_harness import (
+    run_managed_generate,
+    run_managed_structured,
+)
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.errors import LLMInvalidResponseError
 from infrastructure.llm.redaction import redact_diagnostic
@@ -120,6 +123,20 @@ _CONVERGENCE_CALL_INPUT_CHARS = 90_000
 _CONVERGENCE_MAX_SOURCES = 256
 _AUTHOR_OPEN_QUESTIONS_SECTION_ID = "author-open-questions"
 WORLD_GENERATION_TIMEOUT_SECONDS = 1800
+_COCREATION_ROOT_CAPABILITY = "world.generation.cocreation"
+
+
+def _cocreation_step_capability(capability: str) -> str | None:
+    """Use the canonical parent while the shared task envelope is active."""
+    from infrastructure.llm.workflow_budget import current_ai_run_envelope
+
+    envelope = current_ai_run_envelope()
+    if (
+        envelope is not None
+        and envelope.root_capability_id == _COCREATION_ROOT_CAPABILITY
+    ):
+        return None
+    return capability
 
 _QUALITY_REVIEW_INSTRUCTION = """\
 这是作者选择的“加强复核”第二遍。把上一份输出当作待审初稿，只修正会影响
@@ -508,6 +525,9 @@ class WorldGenerationCenterService:
                     request,
                     schema=WorldDesignIterationOutput,
                     step_name="world.generation.design_iteration",
+                    capability_id=_cocreation_step_capability(
+                        "world.generation.design_iteration"
+                    ),
                     timeout=WORLD_GENERATION_TIMEOUT_SECONDS,
                 )
                 output, knowledge_review = await self._govern_structured(
@@ -657,7 +677,14 @@ class WorldGenerationCenterService:
         """Generate natural chat text without DeepSeek's lossy JSON mode."""
         async with asyncio.timeout(WORLD_GENERATION_TIMEOUT_SECONDS):
             for attempt in range(2):
-                response = await client.generate(request)
+                # 受管入口：自由问答的真实 provider 请求也要能归属到运行信封
+                # 的显式 step；无信封时受管包装是透传。
+                response = await run_managed_generate(
+                    client,
+                    request,
+                    step_name="world.generation.chat.reply",
+                    capability_id=_cocreation_step_capability("world.generation.chat"),
+                )
                 try:
                     return GeneratedWorldGenerationChatOutput(reply=response.content)
                 except PydanticValidationError as exc:

@@ -15,6 +15,9 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
 
+ENTITY_FUSION_CHECKPOINT_PAIR_BATCH_SIZE = 12
+
+
 @dataclass(frozen=True)
 class CoreEntityContract:
     """核心实体契约 — 其他模块通过此契约获取对象信息"""

@@ -7,6 +7,7 @@ import pytest
 
 from core.errors import ConflictError
 from core.errors import ValidationError as DomainValidationError
+from infrastructure.llm.workflow_budget import AIRunAuthorizationReason
 from modules.world.map_atlas_models import MapAtlasNode, MapAtlasPage, MapAtlasRun
 from modules.world.map_atlas_schemas import (
     MapAtlasConfirmPromptsRequest,
@@ -142,6 +143,49 @@ async def test_prompt_cas_and_freeze(db_session, test_project_id) -> None:
                 expected_updated_at=page.updated_at,
             ),
         )
+
+
+@pytest.mark.asyncio
+async def test_prompt_confirmation_preserves_duplicate_charge_authorization(
+    db_session, test_project_id
+) -> None:
+    run, (page,) = await _prompt_run(db_session, test_project_id)
+    run.context_snapshot = {
+        "_ai_run_pending_duplicate_charge_confirmation": True,
+    }
+    service = MapAtlasService(storage=MagicMock(spec=MapAtlasStorage))
+    with (
+        patch(
+            "modules.world.map_atlas_service.build_project_image_execution_snapshot",
+            autospec=True,
+            return_value={"snapshot_hash": "image"},
+        ),
+        patch.object(
+            service,
+            "_enqueue_run_task",
+            autospec=True,
+            return_value=str(uuid.uuid4()),
+        ) as enqueue,
+    ):
+        await service.confirm_prompts(
+            db_session,
+            test_project_id,
+            str(run.id),
+            MapAtlasConfirmPromptsRequest(
+                pages=[
+                    MapAtlasPromptConfirmation(
+                        page_id=page.id,
+                        expected_updated_at=page.updated_at,
+                    )
+                ]
+            ),
+        )
+
+    assert (
+        enqueue.call_args.kwargs["authorization_reason"]
+        is AIRunAuthorizationReason.duplicate_charge_confirmed
+    )
+    assert "_ai_run_pending_duplicate_charge_confirmation" not in run.context_snapshot
 
 
 @pytest.mark.asyncio

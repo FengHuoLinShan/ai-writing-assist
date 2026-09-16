@@ -1,10 +1,14 @@
 # Module: world / 世界对象模块
 
+World 的异步 AI 任务在 worker 领取时建立统一运行信封并累计恢复额度。别名/关系补抽在
+入队前把章节范围冻结为精确 Scene ID 清单并按 `4S+6` 计量；Map Atlas 以稳定 run ID 跨
+task 镜像同一信封，Prompt 确认、继续和图片重试只追加作者明确授权的当前段。
+
 ## 定位
 
 world 模块管理小说世界中的核心对象及其关系，是结构化创作的事实底座。
 
-imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用限定 workflow candidate 的严格自动去重。该 seam 复用现有融合判定、指纹重验、candidate 软合并与项目 LLM snapshot，不改变项目级智能去重、canonical 确认、HTTP 或数据库契约。
+imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用限定 workflow candidate 的严格自动去重。该 seam 复用现有融合判定、指纹重验、candidate 软合并与项目 LLM snapshot，不改变项目级智能去重、canonical 确认、HTTP 或数据库契约。深度导入准入 manifest 只由 imports 生成并经该 facade 的窄 callback 交给 World checkpoint；普通 World 融合不携带 deep-import task 声明。末批 pair 数可小于 12；pair 全部落盘只记 `pairs_complete`，知识审查回执落盘后才记 `decided`。
 
 ## 核心原则
 
@@ -543,7 +547,10 @@ creation_suggestion_queue 中保存封闭的 owner 授权 carrier；普通建议
 
 ## 持续共创与定向复核补全
 
-共创聊天/模型变化通过 world_cocreation_turn 保存可恢复终态；完整模型以父成果＋typed changes 续写，稳定身份、原作者决定与未改区域继承，相关旧检查重新待查。最近消息与长期决定分离，历史引用必须显式选择，当前工作区与历史起点不能混用。具体契约见 ADR-0021。
+共创聊天/模型变化通过 world_cocreation_turn 保存可恢复终态；该 task type 以
+`world.generation.cocreation` 作为 chat/design 共用的 canonical parent，完整模型以父成果＋typed
+changes 续写，稳定身份、原作者决定与未改区域继承，相关旧检查重新待查。最近消息与长期决定分离，
+历史引用必须显式选择，当前工作区与历史起点不能混用。具体契约见 ADR-0021。
 
 跨域影响包含 Story 结构、正文精确 range 和地图当前 revision；打开来源与使用回执前校验 hash。语义复核仅使用同一确认实际保留的资料，并记录 domains/depth/遗漏；采用包作为受审内容不扩大其外部引用权限。旧未冻结实际语义内容的回执需重建，见 ADR-0022。
 

@@ -300,6 +300,7 @@ class AliasRelationTaskMixin:
             )
         if start_chapter < 1 or end_chapter < start_chapter:
             raise ValueError("invalid alias/relation chapter range")
+        has_requested_scene_scope = scene_ids is not None
         requested_scene_ids = list(dict.fromkeys(scene_ids or []))
         if any(not str(item).strip() for item in requested_scene_ids):
             raise ValueError("scene_ids must contain non-empty ids")
@@ -323,14 +324,14 @@ class AliasRelationTaskMixin:
             if not scene_id or scene_id in seen_ids:
                 raise ValueError("scene identity is missing or duplicated")
             seen_ids.add(scene_id)
-            if requested and scene_id not in requested:
+            if has_requested_scene_scope and scene_id not in requested:
                 continue
             chapter_index = int(self._scene_source_chapter_index(scene) or 0)
             if chapter_index < start_chapter or chapter_index > end_chapter:
                 continue
             selected.append(scene)
         selected_ids = {str(self._scene_id(scene)) for scene in selected}
-        if requested and selected_ids != requested:
+        if has_requested_scene_scope and selected_ids != requested:
             missing = sorted(requested - selected_ids)
             raise ValueError(
                 f"requested scenes are unavailable: {','.join(missing)[:300]}"

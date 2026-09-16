@@ -15,6 +15,16 @@ from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError, ValidationError
+from infrastructure.llm.schemas import (
+    AI_RUN_ENVELOPE_KEY,
+    AIRunStatus,
+    read_ai_run_envelope,
+)
+from infrastructure.llm.workflow_budget import (
+    AIRunAuthorizationReason,
+    AIRunEnvelope,
+    new_ai_run_envelope,
+)
 from infrastructure.tasks.facade import enqueue_coalesced_task, enqueue_task
 from modules.project.facade import (
     build_project_image_execution_snapshot,
@@ -60,6 +70,9 @@ RECOVERABLE_PAGE_ERROR_CODES = {
     "retry_requires_confirmation",
     "worker_interrupted",
 }
+_MAP_ATLAS_TEXT_PLAN_LIMIT = 51
+_MAP_ATLAS_IMAGE_PAGE_LIMIT = 3
+_MAP_ATLAS_PENDING_DUPLICATE_AUTH = "_ai_run_pending_duplicate_charge_confirmation"
 
 
 def _uuid(value: Any) -> str | None:
@@ -266,6 +279,9 @@ class MapAtlasService:
             .scalars()
             .all()
         )
+        duplicate_charge_confirmed = bool(
+            in_flight and confirm_possible_duplicate_charge
+        )
         if in_flight and not confirm_possible_duplicate_charge:
             for page in in_flight:
                 page.generation_status = "retry_requires_confirmation"
@@ -289,12 +305,25 @@ class MapAtlasService:
                 )
             )
             if prepared:
+                if duplicate_charge_confirmed:
+                    run.context_snapshot = {
+                        **dict(run.context_snapshot or {}),
+                        _MAP_ATLAS_PENDING_DUPLICATE_AUTH: True,
+                    }
                 run.status = "prompt_review"
                 await db.flush()
                 return self._run_dict(run)
         run.status = "generating" if run.atlas_plan else "planning"
         task_id = await self._enqueue_run_task(
-            db, novel_id, run, mode="one_pending_follower"
+            db,
+            novel_id,
+            run,
+            mode="one_pending_follower",
+            authorization_reason=(
+                AIRunAuthorizationReason.duplicate_charge_confirmed
+                if duplicate_charge_confirmed
+                else AIRunAuthorizationReason.author_resume
+            ),
         )
         run.task_id = parse_uuid(task_id, "task_id")
         await db.flush()
@@ -754,6 +783,11 @@ class MapAtlasService:
         if any(page.updated_at != expected[page.id] for page in pages):
             raise ConflictError("Prompt 已在别处更新，请刷新后重试")
         internal = [page for page in pages if page.generation_choice == "internal"]
+        context_snapshot = dict(run.context_snapshot or {})
+        duplicate_charge_confirmed = bool(
+            context_snapshot.pop(_MAP_ATLAS_PENDING_DUPLICATE_AUTH, False)
+        )
+        run.context_snapshot = context_snapshot
         if not internal:
             for page in pages:
                 page.generation_status = "prompt_only"
@@ -772,7 +806,15 @@ class MapAtlasService:
         run.completed_page_count = len(pages) - len(internal)
         run.status = "generating"
         task_id = await self._enqueue_run_task(
-            db, novel_id, run, mode="one_pending_follower"
+            db,
+            novel_id,
+            run,
+            mode="one_pending_follower",
+            authorization_reason=(
+                AIRunAuthorizationReason.duplicate_charge_confirmed
+                if duplicate_charge_confirmed
+                else AIRunAuthorizationReason.author_resume
+            ),
         )
         run.task_id = parse_uuid(task_id, "task_id")
         await db.flush()
@@ -1073,9 +1115,12 @@ class MapAtlasService:
         page = await self._require_page(db, novel_id, page_id, for_update=True)
         if page.generation_status not in {"failed", "retry_requires_confirmation"}:
             raise ConflictError("该图片当前不需要重试")
-        if (
+        duplicate_charge_confirmed = bool(
             page.generation_status == "retry_requires_confirmation"
-            and not confirm_possible_duplicate_charge
+            and confirm_possible_duplicate_charge
+        )
+        if page.generation_status == "retry_requires_confirmation" and not (
+            confirm_possible_duplicate_charge
         ):
             raise ConflictError(
                 "上次请求可能已经产生费用；确认可能重复扣费后才能重试",
@@ -1100,7 +1145,16 @@ class MapAtlasService:
         run.error_code = None
         run.error_message = None
         task_id = await self._enqueue_run_task(
-            db, novel_id, run, mode="one_pending_follower"
+            db,
+            novel_id,
+            run,
+            mode="one_pending_follower",
+            segment_limit=_MAP_ATLAS_IMAGE_PAGE_LIMIT,
+            authorization_reason=(
+                AIRunAuthorizationReason.duplicate_charge_confirmed
+                if duplicate_charge_confirmed
+                else AIRunAuthorizationReason.author_resume
+            ),
         )
         run.task_id = parse_uuid(task_id, "task_id")
         await db.flush()
@@ -1535,21 +1589,105 @@ class MapAtlasService:
         return (await db.execute(statement)).scalar_one_or_none()
 
     @staticmethod
+    async def _run_segment_request_limit(db: AsyncSession, run: MapAtlasRun) -> int:
+        if run.status == "planning":
+            if (run.context_snapshot or {}).get("source_map_revision_id"):
+                return 1 if run.review_image_prompts else _MAP_ATLAS_IMAGE_PAGE_LIMIT
+            return _MAP_ATLAS_TEXT_PLAN_LIMIT + (
+                0
+                if run.review_image_prompts
+                else _MAP_ATLAS_IMAGE_PAGE_LIMIT * min(20, int(run.page_limit or 20))
+            )
+        if run.status == "generating":
+            prepared = int(
+                await db.scalar(
+                    select(func.count(MapAtlasPage.id)).where(
+                        MapAtlasPage.run_id == run.id,
+                        MapAtlasPage.generation_status == "prepared",
+                    )
+                )
+                or 0
+            )
+            return max(1, _MAP_ATLAS_IMAGE_PAGE_LIMIT * prepared)
+        return 1
+
+    @staticmethod
     async def _enqueue_run_task(
         db: AsyncSession,
         novel_id: str,
         run: MapAtlasRun,
         *,
         mode: str,
+        segment_limit: int | None = None,
+        authorization_reason: AIRunAuthorizationReason = (
+            AIRunAuthorizationReason.author_resume
+        ),
     ) -> str:
+        segment_limit = segment_limit or await MapAtlasService._run_segment_request_limit(
+            db, run
+        )
+        context_snapshot = dict(run.context_snapshot or {})
+        envelope = read_ai_run_envelope(context_snapshot.get(AI_RUN_ENVELOPE_KEY))
+        task_envelope = None
+        if envelope is None:
+            task_envelope = new_ai_run_envelope(
+                operation_id=str(run.id),
+                run_id=str(run.id),
+                root_capability_id="world.map_atlas.generate",
+                novel_id=str(run.novel_id),
+                request_limit=segment_limit,
+                legacy_untracked=run.task_id is not None,
+            ).snapshot().model_dump(mode="json")
+            context_snapshot[AI_RUN_ENVELOPE_KEY] = task_envelope
+            run.context_snapshot = context_snapshot
+        else:
+            if (
+                envelope.run_id != str(run.id)
+                or envelope.novel_id != str(run.novel_id)
+                or envelope.root_capability_id != "world.map_atlas.generate"
+            ):
+                raise ValueError("map atlas run envelope identity is invalid")
+            ledger = AIRunEnvelope(
+                envelope.model_copy(update={"status": AIRunStatus.running})
+            )
+            await ledger.authorize_additional_requests(
+                segment_limit,
+                reason=authorization_reason,
+            )
+            task_envelope = ledger.snapshot().model_dump(mode="json")
+            context_snapshot[AI_RUN_ENVELOPE_KEY] = task_envelope
+            run.context_snapshot = context_snapshot
         queued = await enqueue_coalesced_task(
             db,
             task_type=MAP_ATLAS_TASK_TYPE,
             novel_id=novel_id,
             scope=("map_atlas_run", str(run.id)),
-            meta={"run_id": str(run.id)},
+            meta={
+                "run_id": str(run.id),
+                "run_request_limit": segment_limit,
+                **(
+                    {AI_RUN_ENVELOPE_KEY: task_envelope}
+                    if task_envelope is not None
+                    else {}
+                ),
+            },
             mode=mode,
         )
+        if getattr(queued, "reused", False):
+            from infrastructure.tasks.facade import update_task_projection
+
+            updated = await update_task_projection(
+                db,
+                task_id=queued.task_id,
+                task_type=MAP_ATLAS_TASK_TYPE,
+                novel_id=novel_id,
+                meta_patch={
+                    "run_request_limit": segment_limit,
+                    AI_RUN_ENVELOPE_KEY: task_envelope,
+                },
+            )
+            if not updated:
+                raise ConflictError("地图生成任务状态已变化，请刷新后重试")
         return queued.task_id
 
     async def _require_page(

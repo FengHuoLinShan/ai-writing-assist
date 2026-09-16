@@ -125,7 +125,12 @@ class LLMProcessLimiter:
             if semaphore is None:
                 raise RuntimeError("LLM limiter semaphore was not initialized")
 
-            async with semaphore:
+            try:
+                await self._acquire_semaphore(semaphore)
+            except BaseException:
+                await self._return_rate_token()
+                raise
+            try:
                 try:
                     yield
                 except Exception as exc:
@@ -141,6 +146,8 @@ class LLMProcessLimiter:
                     raise
                 else:
                     await self.record_success(bucket)
+            finally:
+                semaphore.release()
         except BaseException:
             await self._release_half_open_probe(
                 bucket,
@@ -197,6 +204,15 @@ class LLMProcessLimiter:
             self._last_refill_at = monotonic()
             self._breakers.clear()
 
+    async def _return_rate_token(self) -> None:
+        """Provider admission failed before I/O; return a consumed RPM token."""
+        async with self._lock:
+            config = self._active_config()
+            if config.rate_limit_per_minute > 0:
+                self._tokens = min(
+                    float(config.rate_limit_per_minute), self._tokens + 1.0
+                )
+
     async def _wait_for_rate_token(self) -> None:
         while True:
             async with self._lock:
@@ -217,7 +233,24 @@ class LLMProcessLimiter:
                     return
 
                 wait_seconds = (1.0 - self._tokens) * 60.0 / per_minute
+            remaining = _ai_run_remaining_seconds()
+            if remaining is not None and wait_seconds >= remaining:
+                _raise_ai_run_deadline()
             await asyncio.sleep(wait_seconds)
+
+    @staticmethod
+    async def _acquire_semaphore(semaphore: asyncio.Semaphore) -> None:
+        remaining = _ai_run_remaining_seconds()
+        if remaining is None:
+            await semaphore.acquire()
+            return
+        if remaining <= 0:
+            _raise_ai_run_deadline()
+        try:
+            async with asyncio.timeout(remaining):
+                await semaphore.acquire()
+        except TimeoutError as exc:
+            _raise_ai_run_deadline(cause=exc)
 
     async def _begin_breaker_request(self, bucket: LLMLimiterScope) -> bool:
         async with self._lock:
@@ -295,6 +328,29 @@ class LLMProcessLimiter:
 
 
 _PROCESS_LIMITER = LLMProcessLimiter()
+
+
+def _ai_run_remaining_seconds() -> float | None:
+    from infrastructure.llm.workflow_budget import current_ai_run_envelope
+
+    envelope = current_ai_run_envelope()
+    return envelope.remaining_seconds() if envelope is not None else None
+
+
+def _raise_ai_run_deadline(*, cause: BaseException | None = None) -> None:
+    from infrastructure.llm.workflow_budget import (
+        AIRunDeadlineExceededError,
+        current_ai_run_envelope,
+    )
+
+    envelope = current_ai_run_envelope()
+    error = AIRunDeadlineExceededError(
+        "run deadline passed while waiting for provider admission",
+        run_id=envelope.run_id if envelope is not None else "",
+    )
+    if cause is not None:
+        raise error from cause
+    raise error
 
 
 def get_llm_limiter() -> LLMProcessLimiter:

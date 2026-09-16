@@ -117,6 +117,37 @@ step envelope 可表达 read / suggest / draft / act-with-confirmation 权限，
 
 Embedding、streaming 和 `generate_simple()` 不是本 harness 的默认迁移范围。
 
+统一运行信封（ADR-0023 / ADR-0025）在 harness 之上提供版本化契约：
+`infrastructure.llm.schemas.AIRunEnvelopeV1` 定义 run 级累计账本与 step 回执，
+`infrastructure.llm.workflow_budget.AIRunEnvelope` 负责累计，`ai_run_scope()` 与
+`managed_step_scope()` 通过 ContextVar 把运行身份与当前 step 注入 provider 调用链。
+自动重试、恢复、requeue 与 manual resume 累加同一 run；只有作者显式续算或确认可能重复扣费
+才增加请求额度，且不移动 deadline。已取得含 usage 完整回执（含失败请求）记 `recorded`；已发出
+但结果或用量证据不完整记 `possible`；预算或 deadline 拒绝记 `none`，且拒绝发生在任何计数之前。
+`recent_attempts` 保留最近 256 条，溢出只合并摘要，不丢总请求、未知请求、重试与 usage 计数。
+变更与 checkpoint 串行落盘，持久化顺序不会回退；写入终态前先把在途请求收敛为 unknown/possible。
+step 的 profile 摘要按 allowlist 重建，Key、完整 endpoint、Prompt 与正文不进入信封；领域必须用
+稳定 step 名聚合，chunk/packet/shard 序数不得拼进 step 名。
+文本 provider I/O 的单入口是 `LLMClient.generate()`：transport 尝试、关闭 transport retry 的
+structured、format repair、stream 建流尝试与 research 的每个 attempt 在活动信封下恰好
+reserve/settle 一次，缺 usage 记 unknown/possible；deadline 到期不再退避、等待 RPM/并发 admission
+或发请求。embedding 与健康检查是首轮非目标。
+`managed_llm_steps` 保持 v0 五字段兼容，v1 由同一信封的 step receipt 派生。
+
+Task 路径把同一信封落在 `async_tasks.meta` 的私有键 `_ai_run_envelope`：worker 与 inline 在 handler
+执行前注入 `task_id/attempt/lease_id` 并恢复同一 run，自动 requeue、stale 恢复与 manual resume
+不重置累计计数、冻结额度或 deadline，inline 子任务复用父 run。快照经
+`TaskLifecycleService.checkpoint_run_envelope()` 的窄 lease-fenced merge 落库，lease 丢失不写；
+终态由 `finalize(envelope=...)` 与任务终态在同一事务提交，stale 与 cancel 在同一事务内把未 settle
+的请求收敛为 unknown/possible。普通 task API、领域 result 消费者（含 Story Outline 采用路径）看不到该键；
+缺少信封的旧在途任务记 `legacy_untracked/usage_complete=false`。
+Interaction story task 额外通过注册表的窄 mirror callback，把同一快照写入
+`InteractionGenerationAttempt.agent_checkpoint_json`；`length/看海` 新 task 仍沿用 attempt.id 的
+`run_id`，不得按新 task id 开第二本账。
+跨 task 领域通过 registry `run_id` resolver 冻结该身份；旧在途缺信封时标记
+`legacy_untracked/usage_complete=false`。mirror 使用 `SKIP LOCKED` 避免与 Interaction
+stop/archive 的 attempt→task 锁序互等；运行中跳过会在 provider 前失败关闭，终态由持 attempt 锁的领域事务收口。
+
 ### 配置与健康检查
 
 业务调用由 `modules.project.facade.open_project_llm_client()` 根据项目 owner 加载当前
@@ -517,6 +548,11 @@ handler 普通失败时保留领域经 fenced checkpoint 写入的双恢复标�
 任务生命周期保留原恢复默认；Imports 对已核验 deferred 阶段可显式请求 completed task 再入队，仍受类型、项目和领域锁约束。详见 tasks README。
 ### 共创回合恢复
 
-`world_cocreation_turn` 使用 `auto_requeue`、至多两个 attempt 与现有 transport retry scope。World 持有业务判断，任务基础设施只提供 operation fingerprint、lease commit fence 和精确 `novel_id + task_type + session_id` 的最后操作查询；该类型禁止 generic submit。终态回合与可恢复结果原子保存，进度不等于采用内容；没有新任务表或调度器。
+`world_cocreation_turn` 使用 `auto_requeue`、至多两个 attempt 与现有 transport retry scope，并以
+`world.generation.cocreation` 作为 chat/design 共用的 canonical parent；子步骤仍由 World 按模式
+选择 `world.generation.chat` 或 `world.generation.design_iteration` 的知识策略。World 持有业务判断，
+任务基础设施只提供 operation fingerprint、lease commit fence 和精确 `novel_id + task_type + session_id`
+的最后操作查询；该类型禁止 generic submit。终态回合与可恢复结果原子保存，进度不等于采用内容；
+没有新任务表或调度器。
 
 知识治理复用现有 managed harness、project snapshot client、task lease 与 context snapshot，不新增常驻服务或自治 Agent runtime。阶段投影不改变调度器状态机。

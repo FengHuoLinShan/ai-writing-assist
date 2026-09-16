@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -16,6 +17,20 @@ from pydantic import BaseModel
 from infrastructure.tasks.contracts import RecoveryPolicy, TaskDefinition, TaskOwnerScope
 
 logger = logging.getLogger(__name__)
+
+_ROOT_CAPABILITY_RE = re.compile(r"^[A-Za-z0-9_.:\-]{1,160}$")
+
+
+def normalize_root_capability_id(value: Any) -> str | None:
+    """Validate one task's canonical run capability before it reaches the ledger."""
+    if value is None:
+        return None
+    if not isinstance(value, str) or not _ROOT_CAPABILITY_RE.fullmatch(value):
+        raise ValueError(
+            "root_capability_id must be a canonical capability token of "
+            "1-160 [A-Za-z0-9_.:-] characters"
+        )
+    return value
 
 
 class TaskRegistry:
@@ -27,12 +42,16 @@ class TaskRegistry:
     _instance: TaskRegistry | None = None
     _handlers: dict[str, Callable[..., Any]]
     _definitions: dict[str, TaskDefinition]
+    _root_capabilities: dict[str, str]
+    _run_envelope_checkpoints: dict[str, Any]
 
     def __new__(cls) -> TaskRegistry:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._handlers = {}
             cls._instance._definitions = {}
+            cls._instance._root_capabilities = {}
+            cls._instance._run_envelope_checkpoints = {}
         return cls._instance
 
     def register(
@@ -45,12 +64,27 @@ class TaskRegistry:
         generic_submit_schema: type[BaseModel] | None = None,
         owner_scope: TaskOwnerScope = "project",
         retry_transient_llm_errors: bool = False,
+        root_capability_id: str | None = None,
+        run_request_limit: int | Any = None,
+        run_deadline_seconds: float | Any = None,
+        run_id: str | Any = None,
+        run_envelope_checkpoint: Any = None,
     ) -> None:
         """注册一个任务类型的处理器
 
         Args:
             task_type: 任务类型标识
             handler: 处理异步函数（接受 (db, task) 参数）
+            root_capability_id: 一次权威 run 的 canonical capability；声明后
+                worker 才为该任务建立运行信封（opt-in）。
+            run_request_limit: 按 L0 = min(A, H) 冻结的请求额度；静态 int 或
+                从任务冻结输入计算 A 的同步 callable。
+            run_deadline_seconds: 一次 run 的 deadline 秒数；静态 float 或
+                同步 callable。
+            run_id: 可选领域稳定 run id；静态值或从任务冻结输入
+                解析的同步 callable。未声明时使用 task id。
+            run_envelope_checkpoint: 可选的领域私有 checkpoint mirror，运行在
+                worker 信封 checkpoint 事务内。
 
         Raises:
             ValueError: 该任务类型已注册
@@ -73,6 +107,7 @@ class TaskRegistry:
             or not issubclass(generic_submit_schema, BaseModel)
         ):
             raise TypeError("generic_submit_schema must be a Pydantic BaseModel class")
+        normalized_capability = normalize_root_capability_id(root_capability_id)
         self._handlers[task_type] = handler
         self._definitions[task_type] = TaskDefinition(
             task_type=task_type,
@@ -82,7 +117,15 @@ class TaskRegistry:
             generic_submit_schema=generic_submit_schema,
             owner_scope=owner_scope,
             retry_transient_llm_errors=retry_transient_llm_errors,
+            run_request_limit=run_request_limit,
+            run_deadline_seconds=run_deadline_seconds,
+            run_id=run_id,
+            run_envelope_checkpoint=run_envelope_checkpoint,
         )
+        if normalized_capability is not None:
+            self._root_capabilities[task_type] = normalized_capability
+        if run_envelope_checkpoint is not None:
+            self._run_envelope_checkpoints[task_type] = run_envelope_checkpoint
         logger.info("Task handler registered: %s -> %s", task_type, handler.__name__)
 
     def get_handler(self, task_type: str) -> Callable[..., Any] | None:
@@ -99,10 +142,72 @@ class TaskRegistry:
     def get_definition(self, task_type: str) -> TaskDefinition | None:
         return self._definitions.get(task_type)
 
+    def get_root_capability(self, task_type: str) -> str | None:
+        """返回该任务声明的一次权威运行 root capability（如有）。"""
+        return self._root_capabilities.get(task_type)
+
+    def get_run_envelope_checkpoint(self, task_type: str) -> Any:
+        """Return the optional domain mirror for one task type."""
+        return self._run_envelope_checkpoints.get(task_type)
+
+    @staticmethod
+    def _resolve_run_value(resolver: Any, task: Any, *, field: str) -> Any:
+        if resolver is None or isinstance(resolver, (int, float)):
+            return resolver
+        if callable(resolver):
+            return resolver(task)
+        raise ValueError(f"{field} must be a number or a callable")
+
+    def resolve_run_request_limit(self, task_type: str, task: Any) -> int | None:
+        """解析该任务一次 run 的请求额度；未声明返回 None（不建立信封）。"""
+        definition = self._definitions.get(task_type)
+        if definition is None:
+            return None
+        value = self._resolve_run_value(
+            definition.run_request_limit, task, field="run_request_limit"
+        )
+        if value is None:
+            return None
+        value = int(value)
+        if value < 1:
+            raise ValueError("run_request_limit must be positive")
+        return value
+
+    def resolve_run_deadline_seconds(self, task_type: str, task: Any) -> float | None:
+        """解析该任务一次 run 的 deadline 秒数；未声明返回 None。"""
+        definition = self._definitions.get(task_type)
+        if definition is None:
+            return None
+        value = self._resolve_run_value(
+            definition.run_deadline_seconds, task, field="run_deadline_seconds"
+        )
+        if value is None:
+            return None
+        value = float(value)
+        if value <= 0:
+            raise ValueError("run_deadline_seconds must be positive")
+        return value
+
+    def resolve_run_id(self, task_type: str, task: Any) -> str | None:
+        """Resolve an optional stable domain run id for a queue task."""
+        definition = self._definitions.get(task_type)
+        if definition is None:
+            return None
+        resolver = definition.run_id
+        value = resolver(task) if callable(resolver) else resolver
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        if not normalized or len(normalized) > 160:
+            raise ValueError("run_id must be a non-empty value of at most 160 chars")
+        return normalized
+
     def unregister(self, task_type: str) -> None:
         """注销一个任务类型的处理器（主要用于测试）"""
         self._handlers.pop(task_type, None)
         self._definitions.pop(task_type, None)
+        self._root_capabilities.pop(task_type, None)
+        self._run_envelope_checkpoints.pop(task_type, None)
         logger.info("Task handler unregistered: %s", task_type)
 
     @property
@@ -131,6 +236,11 @@ def task_handler(
     generic_submit_schema: type[BaseModel] | None = None,
     owner_scope: TaskOwnerScope = "project",
     retry_transient_llm_errors: bool = False,
+    root_capability_id: str | None = None,
+    run_request_limit: int | Any = None,
+    run_deadline_seconds: float | Any = None,
+    run_id: str | Any = None,
+    run_envelope_checkpoint: Any = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """装饰器：将函数注册为指定任务类型的处理器
 
@@ -149,6 +259,11 @@ def task_handler(
             generic_submit_schema=generic_submit_schema,
             owner_scope=owner_scope,
             retry_transient_llm_errors=retry_transient_llm_errors,
+            root_capability_id=root_capability_id,
+            run_request_limit=run_request_limit,
+            run_deadline_seconds=run_deadline_seconds,
+            run_id=run_id,
+            run_envelope_checkpoint=run_envelope_checkpoint,
         )
         return func
 

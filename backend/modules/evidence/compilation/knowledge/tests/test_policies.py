@@ -23,9 +23,12 @@ EXPECTED_CAPABILITIES = (
     "writing.targeted_revision",
     "writing.conflict_check.ai_review",
     "writing.conflict_check.ai_suggestion",
+    # Project
+    "project.smart_dedup",
     # World
     "world.generation.chat",
     "world.generation.design_iteration",
+    "world.generation.cocreation",
     "world.generation.convergence",
     "world.generation.exploration",
     "world.generation.semantic_inspection",
@@ -37,7 +40,9 @@ EXPECTED_CAPABILITIES = (
     "world.alias_relations.extract",
     "world.map_structure.generate",
     "world.map_atlas.plan",
+    "world.map_atlas.generate",
     "world.map_image_prompt",
+    "world.map_image.generate",
     # Story
     "story.story_outline.generate",
     "story.outline.p20",
@@ -50,6 +55,7 @@ EXPECTED_CAPABILITIES = (
     "story.structure_dedup",
     # Imports
     "imports.scene_plan",
+    "imports.deep_import",
     "imports.scene_slicing",
     "imports.scene_enrichment",
     "imports.scene_fusion",
@@ -92,6 +98,7 @@ def test_registry_covers_all_domains() -> None:
         "imports",
         "interaction",
         "assistant",
+        "project",
         "infrastructure",
     }
 

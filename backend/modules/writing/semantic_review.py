@@ -853,14 +853,18 @@ class WritingSemanticWorkflowService:
                 injected_client=self._llm,
             ) as client:
                 await self._checkpoint(db)
-                for index, chunk in enumerate(chunks, 1):
+                for chunk in chunks:
                     request = self._review_request(
                         model=model,
                         scope=scope,
                         chunk=chunk,
                         adjacent=adjacent,
                     )
-                    step_name = f"writing.semantic_review.chunk_{index}"
+                    # step_name 必须稳定（不含分片序号）：运行信封按
+                    # (step_name, capability, call_kind, purpose, profile_hash)
+                    # 聚合，同名多次调用自动累计；分片进度靠 update_progress
+                    # 与账本 attempt 序列表达，不进 step 身份。
+                    step_name = "writing.semantic_review.chunk"
                     step_diagnostics: list[dict[str, Any]] = []
                     output = await run_managed_structured(
                         client,
@@ -1435,6 +1439,9 @@ class WritingSemanticWorkflowService:
                     client,
                     request,
                     WritingTargetedRevisionOutput,
+                    # 显式绑定定向返修能力：本文件其余调用归属
+                    # writing.semantic_review，这里不得按文件主能力错绑。
+                    capability_id="writing.targeted_revision",
                     step_name="writing.targeted_revision.generate",
                     timeout=SEMANTIC_REVIEW_TIMEOUT_SECONDS,
                     max_fix_attempts=1,

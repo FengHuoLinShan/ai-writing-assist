@@ -18,15 +18,28 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, TypeVar, get_origin
-from urllib.parse import urlparse
 
 from pydantic import BaseModel, ValidationError
 
-from infrastructure.llm.redaction import redact_diagnostic
-from infrastructure.llm.schemas import LLMCallRequest, LLMCallResponse
+from infrastructure.llm.schemas import (
+    AI_RUN_ENVELOPE_VERSION,
+    AI_RUN_STEP_RECEIPT_LIMIT,
+    AIRunEnvelopeV1,
+    AIStepCallKind,
+    AIStepReceiptV1,
+    LLMCallRequest,
+    LLMCallResponse,
+    profile_summary_hash,
+    safe_profile_source,
+    safe_receipt_token,
+    safe_text,
+    sanitize_profile_summary,
+)
 from infrastructure.llm.token_estimation import estimate_token_count
+from infrastructure.llm.workflow_budget import AIManagedStepContext, managed_step_scope
 
 MANAGED_LLM_PROVENANCE_KEY = "managed_llm_steps"
+AI_RUN_STEP_DETAIL_KEY = "ai_run"
 
 __all__ = [
     "AgentErrorKind",
@@ -47,6 +60,7 @@ __all__ = [
     "build_managed_llm_provenance",
     "managed_llm_provenance_scope",
     "merge_managed_llm_provenance",
+    "project_managed_llm_steps",
     "run_managed_generate",
     "run_managed_structured",
 ]
@@ -56,40 +70,6 @@ _MANAGED_LLM_PROVENANCE: ContextVar[list[dict[str, Any]] | None] = ContextVar(
     "managed_llm_provenance",
     default=None,
 )
-_PROFILE_TEXT_FIELDS = ("provider_id", "label")
-_PROFILE_NUMBER_FIELDS = ("timeout", "max_tokens", "temperature", "top_p")
-_KNOWN_PROFILE_SOURCES = {
-    "account",
-    "default",
-    "global",
-    "project",
-    "project_snapshot",
-    "system",
-    "test",
-    "test_override",
-    "timeout_override",
-    "unset",
-    "unknown",
-}
-
-
-def _safe_text(value: Any, *, limit: int = 256) -> str:
-    if value is None:
-        return ""
-    return redact_diagnostic(value, limit=limit).replace("\x00", "")
-
-
-def _safe_base_url_host(value: Any) -> str:
-    text = _safe_text(value, limit=2048).strip()
-    if not text:
-        return ""
-    candidate = text if "://" in text else f"//{text}"
-    try:
-        return _safe_text(urlparse(candidate).hostname or "", limit=253)
-    except ValueError:
-        return ""
-
-
 def _mapping_attr(instance: Any, name: str) -> Mapping[str, Any]:
     try:
         value = getattr(instance, name, None)
@@ -98,80 +78,37 @@ def _mapping_attr(instance: Any, name: str) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
 
 
-def _safe_profile_source(value: Any) -> str:
-    source = _safe_text(value, limit=64).strip().lower()
-    return source if source in _KNOWN_PROFILE_SOURCES else "unknown"
+def project_managed_llm_steps(envelope: AIRunEnvelopeV1) -> list[dict[str, Any]]:
+    """把 v1 step receipt 投影为 managed_llm_steps 兼容记录。
 
-
-def _sanitize_profile_summary(
-    value: Mapping[str, Any] | None,
-    *,
-    request: LLMCallRequest | None = None,
-) -> dict[str, Any]:
-    raw = value or {}
-    summary: dict[str, Any] = {}
-    for field_name in _PROFILE_TEXT_FIELDS:
-        if field_name in raw:
-            summary[field_name] = _safe_text(raw[field_name])
-
-    default_model = _safe_text(raw.get("model"))
-    if default_model:
-        summary["model"] = default_model
-    if "default_model" in raw:
-        summary["default_model"] = _safe_text(raw.get("default_model"))
-    if "base_url_host" in raw:
-        summary["base_url_host"] = _safe_base_url_host(raw["base_url_host"])
-
-    for field_name in _PROFILE_NUMBER_FIELDS:
-        value = raw.get(field_name)
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-            summary[field_name] = value
-        elif value is None and field_name in raw:
-            summary[field_name] = None
-
-    if "api_key_configured" in raw:
-        summary["api_key_configured"] = bool(raw["api_key_configured"])
-
-    sources = raw.get("sources")
-    if isinstance(sources, Mapping):
-        summary["sources"] = {
-            _safe_text(key, limit=64): _safe_profile_source(source)
-            for key, source in sources.items()
-            if _safe_text(key, limit=64)
-        }
-
-    extra_keys = raw.get("extra_keys")
-    if isinstance(extra_keys, (list, tuple, set, frozenset)):
-        summary["extra_keys"] = sorted(
-            {safe_key for key in extra_keys if (safe_key := _safe_text(key, limit=64))}
-        )
-
-    if request is not None:
-        actual_model = _safe_text(getattr(request, "model", ""))
-        if default_model:
-            summary["default_model"] = default_model
-        if actual_model:
-            summary["model"] = actual_model
-        for field_name in ("max_tokens", "temperature", "top_p"):
-            request_value = getattr(request, field_name, None)
-            if isinstance(request_value, (int, float)) and not isinstance(
-                request_value, bool
-            ):
-                summary[field_name] = request_value
-            elif request_value is None and field_name != "max_tokens":
-                summary[field_name] = None
-
-    return summary
-
-
-def _profile_hash(profile_summary: Mapping[str, Any]) -> str:
-    canonical = json.dumps(
-        dict(profile_summary),
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    每个 v0 身份（step_name + profile_source + profile_hash）只输出一行，前五个字段与
+    v0 完全一致；同一行的不同 call_kind/purpose 放在 AI_RUN_STEP_DETAIL_KEY 的 receipts
+    列表中，避免形成第二事实源，也避免 v0 去重身份吞掉 repair 回执。
+    """
+    novel_id = safe_receipt_token(envelope.novel_id, limit=128)
+    run_id = safe_receipt_token(envelope.run_id, limit=128)
+    operation_id = safe_receipt_token(envelope.operation_id, limit=128)
+    grouped: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for step in envelope.steps:
+        key = (step.step_name, step.profile_source, step.profile_hash)
+        record = grouped.get(key)
+        if record is None:
+            record = {
+                "step_name": step.step_name,
+                "novel_id": novel_id,
+                "profile_source": step.profile_source,
+                "profile_summary": dict(step.profile_summary),
+                "profile_hash": step.profile_hash,
+                AI_RUN_STEP_DETAIL_KEY: {
+                    "version": envelope.version,
+                    "run_id": run_id,
+                    "operation_id": operation_id,
+                    "receipts": [],
+                },
+            }
+            grouped[key] = record
+        record[AI_RUN_STEP_DETAIL_KEY]["receipts"].append(step.model_dump(mode="json"))
+    return list(grouped.values())
 
 
 def build_managed_llm_provenance(
@@ -182,7 +119,7 @@ def build_managed_llm_provenance(
     novel_id: str | None = None,
 ) -> dict[str, Any]:
     """Build a stable, allowlisted provenance record for one managed LLM call."""
-    profile_summary = _sanitize_profile_summary(
+    profile_summary = sanitize_profile_summary(
         _mapping_attr(client, "profile_summary"),
         request=request,
     )
@@ -193,11 +130,11 @@ def build_managed_llm_provenance(
         if isinstance(sources, Mapping):
             profile_source = sources.get("model")
     return {
-        "step_name": _safe_text(step_name, limit=160),
-        "novel_id": _safe_text(novel_id or runtime_scope.get("novel_id"), limit=128),
-        "profile_source": _safe_profile_source(profile_source),
+        "step_name": safe_text(step_name, limit=160),
+        "novel_id": safe_text(novel_id or runtime_scope.get("novel_id"), limit=128),
+        "profile_source": safe_profile_source(profile_source),
         "profile_summary": profile_summary,
-        "profile_hash": _profile_hash(profile_summary),
+        "profile_hash": profile_summary_hash(profile_summary),
     }
 
 
@@ -210,19 +147,54 @@ def _provenance_identity(record: Mapping[str, Any]) -> tuple[str, str, str, str]
     )
 
 
+def _normalize_ai_run_detail(value: Any) -> dict[str, Any]:
+    """严格重验 v1 附注块，禁止任意键进入 managed_llm_steps。"""
+    if not isinstance(value, Mapping):
+        return {}
+    run_id = safe_receipt_token(value.get("run_id"), limit=128)
+    operation_id = safe_receipt_token(value.get("operation_id"), limit=128)
+    payloads = value.get("receipts")
+    if (
+        not run_id
+        or not operation_id
+        or not isinstance(payloads, (list, tuple))
+        or not payloads
+    ):
+        return {}
+    receipts: list[dict[str, Any]] = []
+    for payload in payloads[:AI_RUN_STEP_RECEIPT_LIMIT]:
+        if not isinstance(payload, Mapping):
+            return {}
+        try:
+            receipt = AIStepReceiptV1.model_validate(dict(payload))
+        except ValidationError:
+            return {}
+        receipts.append(receipt.model_dump(mode="json"))
+    return {
+        "version": AI_RUN_ENVELOPE_VERSION,
+        "run_id": run_id,
+        "operation_id": operation_id,
+        "receipts": receipts,
+    }
+
+
 def _normalize_provenance_record(record: Mapping[str, Any]) -> dict[str, Any]:
-    profile_summary = _sanitize_profile_summary(
+    profile_summary = sanitize_profile_summary(
         record.get("profile_summary")
         if isinstance(record.get("profile_summary"), Mapping)
         else None
     )
-    return {
-        "step_name": _safe_text(record.get("step_name"), limit=160),
-        "novel_id": _safe_text(record.get("novel_id"), limit=128),
-        "profile_source": _safe_profile_source(record.get("profile_source")),
+    normalized = {
+        "step_name": safe_text(record.get("step_name"), limit=160),
+        "novel_id": safe_text(record.get("novel_id"), limit=128),
+        "profile_source": safe_profile_source(record.get("profile_source")),
         "profile_summary": profile_summary,
-        "profile_hash": _profile_hash(profile_summary),
+        "profile_hash": profile_summary_hash(profile_summary),
     }
+    detail = _normalize_ai_run_detail(record.get(AI_RUN_STEP_DETAIL_KEY))
+    if detail:
+        normalized[AI_RUN_STEP_DETAIL_KEY] = detail
+    return normalized
 
 
 def _collect_managed_llm_provenance(record: Mapping[str, Any]) -> None:
@@ -795,6 +767,7 @@ async def run_managed_generate(
     request: LLMCallRequest,
     *,
     step_name: str,
+    capability_id: str | None = None,
     permission_level: AgentPermissionLevel = AgentPermissionLevel.read,
     read_only: bool = True,
     timeout: int | float | None = None,
@@ -803,7 +776,11 @@ async def run_managed_generate(
     quality_stats: dict[str, Any] | None = None,
     journal: AgentRunJournal | None = None,
 ) -> LLMCallResponse:
-    """Run ``LLMClient.generate`` through a managed step without changing behavior."""
+    """Run ``LLMClient.generate`` through a managed step without changing behavior.
+
+    ``capability_id`` 声明本次调用的 canonical capability；省略时活动运行信封把
+    该 step 归属到 run 的 root capability。
+    """
 
     provenance = build_managed_llm_provenance(
         client,
@@ -823,11 +800,18 @@ async def run_managed_generate(
         journal=journal,
     )
     managed_quality_stats = _quality_stats_with_runtime(quality_stats, provenance)
-    result = await step.run(
-        lambda: client.generate(request),
-        token_usage=token_usage,
-        quality_stats=managed_quality_stats,
-    )
+    with managed_step_scope(
+        _managed_step_context(
+            provenance,
+            call_kind=AIStepCallKind.generate,
+            capability_id=capability_id,
+        )
+    ):
+        result = await step.run(
+            lambda: client.generate(request),
+            token_usage=token_usage,
+            quality_stats=managed_quality_stats,
+        )
     return _unwrap_step_result(result)
 
 
@@ -837,6 +821,7 @@ async def run_managed_structured[StructuredT: BaseModel](
     schema: type[StructuredT],
     *,
     step_name: str,
+    capability_id: str | None = None,
     max_fix_attempts: int = 2,
     fix_prompt: str | None = None,
     transport_retries: bool = True,
@@ -876,20 +861,27 @@ async def run_managed_structured[StructuredT: BaseModel](
         journal=journal,
     )
     managed_quality_stats = _quality_stats_with_runtime(quality_stats, provenance)
-    result = await step.run(
-        lambda: client.generate_structured(
-            request,
-            schema,
-            max_fix_attempts=max_fix_attempts,
-            fix_prompt=fix_prompt,
-            transport_retries=transport_retries,
-            partial_list_fields=partial_list_fields,
-            diagnostics=diagnostics,
-            format_repair_attempts=format_repair_attempts,
-        ),
-        token_usage=token_usage,
-        quality_stats=managed_quality_stats,
-    )
+    with managed_step_scope(
+        _managed_step_context(
+            provenance,
+            call_kind=AIStepCallKind.structured,
+            capability_id=capability_id,
+        )
+    ):
+        result = await step.run(
+            lambda: client.generate_structured(
+                request,
+                schema,
+                max_fix_attempts=max_fix_attempts,
+                fix_prompt=fix_prompt,
+                transport_retries=transport_retries,
+                partial_list_fields=partial_list_fields,
+                diagnostics=diagnostics,
+                format_repair_attempts=format_repair_attempts,
+            ),
+            token_usage=token_usage,
+            quality_stats=managed_quality_stats,
+        )
     return _unwrap_step_result(result)
 
 
@@ -983,6 +975,22 @@ def _unwrap_step_result(result: StepExecutionResult) -> Any:
             raise result.exception
         raise RuntimeError("Managed LLM step failed without an exception")
     return result.output
+
+
+def _managed_step_context(
+    provenance: Mapping[str, Any],
+    *,
+    call_kind: AIStepCallKind,
+    capability_id: str | None,
+) -> AIManagedStepContext:
+    summary = provenance.get("profile_summary")
+    return AIManagedStepContext(
+        step_name=str(provenance.get("step_name") or ""),
+        call_kind=call_kind,
+        capability_id=capability_id,
+        profile_source=str(provenance.get("profile_source") or "unknown"),
+        profile_summary=summary if isinstance(summary, Mapping) else {},
+    )
 
 
 def _quality_stats_with_runtime(

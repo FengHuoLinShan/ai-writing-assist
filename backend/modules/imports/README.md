@@ -200,6 +200,13 @@ World 按应用后值 CAS 撤销，人工后续修改保留并返回 `status=par
 
 ## 深度导入恢复语义
 
+`deep_import`、三个分阶段任务统一以 `imports.deep_import` 为 canonical parent。
+Scene 数、问题组和候选对由模型逐阶段产生时不伪造整轮精确上界；每次作者授权固定为
+256 个 provider 请求。首次 `authorization_confirmed=true` 只授权首段，Phase 0 会在第一
+次 provider I/O 前持久化 `imports.run-admission.v1`；额度用尽后沿用原 `resume + abandon`
+恢复入口，只有作者点击继续才再追加 256，自动 retry、stale recovery 和 worker 重排不扩额。
+专项补全与智能整理的独立任务仍按冻结 roots / 问题组计算各自完整上界。
+
 提交 deep-import/stage task 前会通过 project facade 验证当前 LLM
 execution snapshot。API Key、Base URL 或 model 不可用时直接返回 400，
 不入队，也不执行 force 覆盖前的派生数据废弃。worker 内的工作流

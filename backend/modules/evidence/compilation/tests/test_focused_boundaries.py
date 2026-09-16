@@ -24,6 +24,20 @@ from modules.world.models import Character, CharacterKnowledge, CoreEntity, Enti
 from modules.writing.facade import create_published_draft_only
 
 
+def test_focused_search_freezes_envelope_budget() -> None:
+    from infrastructure.tasks.registry import get_registry
+    from modules.evidence.compilation.focused_tasks import FOCUSED_TASK
+
+    registry = get_registry()
+    task = type("Task", (), {"meta": {}})()
+
+    assert registry.get_root_capability(FOCUSED_TASK) == (
+        "infrastructure.rag_query_planner"
+    )
+    assert registry.resolve_run_request_limit(FOCUSED_TASK, task) == 9
+    assert registry.resolve_run_deadline_seconds(FOCUSED_TASK, task) is None
+
+
 async def entity(db, novel, name, **extra):
     row = CoreEntity(
         novel_id=uuid.UUID(novel),

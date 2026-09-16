@@ -1,5 +1,17 @@
 # Module: interaction / RP 互动旅程
 
+Interaction 已迁移的连续性复核与摘要任务在领取时冻结统一运行信封；重启或重排累计同一 run，
+私有回执不进入消息节点、attempt wire 或作者项目。
+
+`interaction_story_generate` / `interaction_agent_story_generate` 的同一 generation attempt 可因
+`length/看海` 续写更换 task id；统一信封以 `InteractionGenerationAttempt.id` 作为 `run_id`，在
+task 私有 meta 与 attempt 私有 `agent_checkpoint_json` 双向窄同步。续写只更换 task 载体，不重置
+累计预算；每个合法续段只追加一次 `author_resume` 分段额度且不移动 deadline。
+`AgentRunBudget` 仍负责当前 Agent handler 的工具/web 子预算，旧 task 终态不覆盖新续段快照。
+旧 pending/awaiting-continue attempt 缺少信封时不改已有 ID；它以 attempt id 建立稳定 run，
+标记 `legacy_untracked/usage_complete=false` 后才领取或续写。旧 awaiting-continue 的未知历史额度不视为
+未消费；新授权后只留一个 46（legacy）/29（Agent）的续段额度。
+
 ## 定位
 
 interaction 为 `我是 RP 用户` 路径保存私人互动故事。用户可直接描述世界和开场，也可从

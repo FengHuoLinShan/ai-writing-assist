@@ -7,6 +7,7 @@ import json
 import pytest
 
 from infrastructure.llm.errors import LLMInvalidResponseError, LLMTimeoutError
+from infrastructure.llm.workflow_budget import AIRunBudgetExceededError
 from modules.imports.deep_import_retry import (
     DeepImportRetryResult,
     classify_deep_import_error,
@@ -21,6 +22,15 @@ class StatusCodeError(Exception):
     def __init__(self, status_code: int) -> None:
         self.status_code = status_code
         super().__init__(f"HTTP {status_code}")
+
+
+@pytest.mark.asyncio
+async def test_retry_wrapper_never_degrades_run_admission_errors() -> None:
+    async def operation() -> None:
+        raise AIRunBudgetExceededError("segment exhausted", run_id="run")
+
+    with pytest.raises(AIRunBudgetExceededError, match="segment exhausted"):
+        await run_deep_import_llm_with_retry(operation)
 
 
 def failed_retry_result(error_type: str) -> DeepImportRetryResult:

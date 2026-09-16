@@ -6,12 +6,40 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
+from math import ceil
 from typing import Any
 
 from infrastructure.tasks.registry import task_handler
+from modules.imports.admission import IMPORT_RUN_REQUEST_LIMIT
 from modules.imports.orchestrator import DeepImportOrchestrator
 
 logger = logging.getLogger(__name__)
+
+
+def _authorization(task: Any, key: str) -> dict[str, Any]:
+    snapshot = (getattr(task, "meta", None) or {}).get("authorization_snapshot") or {}
+    value = snapshot.get(key)
+    return value if isinstance(value, dict) else {}
+
+
+def _targeted_completion_run_request_limit(task: Any) -> int:
+    """One explicit-root batch uses at most 21 provider requests."""
+    roots = _authorization(task, "targeted_completion").get("roots") or []
+    return max(1, 21 * ceil(len(roots) / 5))
+
+
+def _review_resolution_run_request_limit(task: Any) -> int:
+    """Freeze candidate and Scene review groups from the submission snapshot."""
+    permission = _authorization(task, "review_resolution")
+    by_scene = Counter(
+        str((item.get("meta") or {}).get("scene_id") or "missing")
+        for item in permission.get("items") or []
+        if isinstance(item, dict)
+    )
+    candidate_groups = sum(ceil(count / 32) for count in by_scene.values())
+    scene_groups = len(permission.get("scene_items") or [])
+    return max(1, 30 * candidate_groups + 20 * scene_groups)
 
 
 @task_handler("imports_completion_review", recovery_policy="manual_resume")
@@ -58,7 +86,12 @@ async def _project_task(task, result: dict[str, Any], progress: float) -> None:
     task.update_progress(progress)
 
 
-@task_handler("deep_import", recovery_policy="manual_resume")
+@task_handler(
+    "deep_import",
+    recovery_policy="manual_resume",
+    root_capability_id="imports.deep_import",
+    run_request_limit=IMPORT_RUN_REQUEST_LIMIT,
+)
 async def handle_deep_import(db, task) -> dict[str, Any]:
     """处理深度导入任务 — 全自动三阶段（Scene 切分 + 实体提取 + 结构分析）
 
@@ -89,7 +122,12 @@ async def handle_deep_import(db, task) -> dict[str, Any]:
     return result
 
 
-@task_handler("scene_auto_extraction", recovery_policy="manual_resume")
+@task_handler(
+    "scene_auto_extraction",
+    recovery_policy="manual_resume",
+    root_capability_id="imports.deep_import",
+    run_request_limit=IMPORT_RUN_REQUEST_LIMIT,
+)
 async def handle_scene_auto_extraction(db, task) -> dict[str, Any]:
     """处理从正文提取 Scene 任务 — Phase0/1a/1b + Scene commit。"""
     orchestrator = DeepImportOrchestrator()
@@ -110,7 +148,12 @@ async def handle_scene_auto_extraction(db, task) -> dict[str, Any]:
     return result
 
 
-@task_handler("world_object_auto_extraction", recovery_policy="manual_resume")
+@task_handler(
+    "world_object_auto_extraction",
+    recovery_policy="manual_resume",
+    root_capability_id="imports.deep_import",
+    run_request_limit=IMPORT_RUN_REQUEST_LIMIT,
+)
 async def handle_world_object_auto_extraction(db, task) -> dict[str, Any]:
     """处理世界对象与别名/关系自动提取任务 — Phase2a/2b。"""
     orchestrator = DeepImportOrchestrator()
@@ -135,7 +178,12 @@ async def handle_world_object_auto_extraction(db, task) -> dict[str, Any]:
     return result
 
 
-@task_handler("plot_structure_auto_extraction", recovery_policy="manual_resume")
+@task_handler(
+    "plot_structure_auto_extraction",
+    recovery_policy="manual_resume",
+    root_capability_id="imports.deep_import",
+    run_request_limit=IMPORT_RUN_REQUEST_LIMIT,
+)
 async def handle_plot_structure_auto_extraction(db, task) -> dict[str, Any]:
     """处理剧情线自动提取任务 — Phase3。"""
     orchestrator = DeepImportOrchestrator()
@@ -160,7 +208,12 @@ async def handle_plot_structure_auto_extraction(db, task) -> dict[str, Any]:
     return result
 
 
-@task_handler("targeted_completion", recovery_policy="manual_resume")
+@task_handler(
+    "targeted_completion",
+    recovery_policy="manual_resume",
+    root_capability_id="imports.targeted_completion",
+    run_request_limit=_targeted_completion_run_request_limit,
+)
 async def handle_targeted_completion(db, task) -> dict[str, Any]:
     """The targeted operation shares imports' single-flight and owner fencing."""
     orchestrator = DeepImportOrchestrator()
@@ -172,7 +225,12 @@ async def handle_targeted_completion(db, task) -> dict[str, Any]:
     )
 
 
-@task_handler("import_review_resolution", recovery_policy="manual_resume")
+@task_handler(
+    "import_review_resolution",
+    recovery_policy="manual_resume",
+    root_capability_id="imports.review_resolution",
+    run_request_limit=_review_resolution_run_request_limit,
+)
 async def handle_import_review_resolution(db, task):
     attempt = await _claim_workflow_attempt(db, task)
     return await DeepImportOrchestrator().run_attempt(

@@ -11,7 +11,7 @@ from urllib.parse import unquote, urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from infrastructure.llm.schemas import LLMUsage
+from infrastructure.llm.schemas import AIStepCallKind, LLMUsage
 
 
 class NativeSearchUnavailableError(ValueError):
@@ -224,6 +224,39 @@ def native_search_status(provider_id: str, model: str) -> dict:
     }
 
 
+RESEARCH_STEP_NAME = "infrastructure.native_search"
+"""research 供应商请求的稳定 step 名；Kimi 的多轮 attempt 复用同一步。"""
+
+
+async def _reserve_supplier_request(
+    before_request: Callable[[], Awaitable[None]], *, provider_id: str, model: str
+) -> None:
+    """在 research step 作用域内执行一次供应商请求前的预留。
+
+    供应商请求的 reserve/settle 由 `LLMClient.research()` 的 provider 单入口承担；这里
+    只声明 step 身份与 call_kind，让信封把每个请求（含 Kimi 的多轮 attempt）归到当前 run
+    的 research step。外层已声明受管 step 时沿用外层身份；无活动信封时行为与改造前一致。
+    """
+    from infrastructure.llm.workflow_budget import (
+        AIManagedStepContext,
+        current_managed_step_context,
+        managed_step_scope,
+    )
+
+    if current_managed_step_context() is not None:
+        await before_request()
+        return
+    with managed_step_scope(
+        AIManagedStepContext(
+            step_name=RESEARCH_STEP_NAME,
+            call_kind=AIStepCallKind.research,
+            profile_source="unknown",
+            profile_summary={"provider_id": provider_id, "model": model},
+        )
+    ):
+        await before_request()
+
+
 async def research_with_supplier(
     sdk: Any,
     *,
@@ -244,7 +277,9 @@ async def research_with_supplier(
         "资料不足时明确说明，不能编造来源或查阅小说剧情。"
     )
     if provider_id == "deepseek":
-        await before_request()
+        await _reserve_supplier_request(
+            before_request, provider_id=provider_id, model=model
+        )
         response = await sdk.responses.create(
             model=model,
             instructions=instruction,
@@ -318,7 +353,10 @@ async def research_with_supplier(
     usage_complete = True
     executed = False
     for attempt in range(3):
-        await before_request()
+        # Kimi 的每一轮 attempt 都是一次真实供应商请求，逐次声明 research step。
+        await _reserve_supplier_request(
+            before_request, provider_id=provider_id, model=model
+        )
         response = await sdk.chat.completions.create(
             model=model,
             messages=messages,

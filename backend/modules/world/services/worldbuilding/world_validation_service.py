@@ -534,6 +534,14 @@ class WorldValidationService:
                 "novel_id": data.novel_id,
                 "run_id": str(run.id),
                 "context_confirmation_id": data.context_confirmation_id,
+                # 下划线私有键：运行信封按冻结 packet 计划计算 A，不进入公开 wire。
+                "_validation_plan": {
+                    "planned_packets": int(plan.get("planned_packets") or 0),
+                    "max_packets": int(policy.max_packets),
+                    "per_packet_timeout_seconds": float(
+                        policy.per_packet_timeout_seconds
+                    ),
+                },
             },
         )
         run.task_id = uuid.UUID(receipt.task_id)
@@ -1412,9 +1420,8 @@ class WorldValidationService:
                     client,
                     request,
                     WorldValidationSemanticOutput,
-                    step_name=(
-                        f"world.validation.packet_{int(packet['shard_index']) + 1}"
-                    ),
+                    # 稳定 step 名：账本按 step 聚合，分片序号不进 step_name。
+                    step_name="world.validation.packet",
                     timeout=policy.per_packet_timeout_seconds,
                 )
                 packet_findings, packet_coverage = validate_semantic_output(

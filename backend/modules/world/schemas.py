@@ -170,8 +170,20 @@ class WorldAliasRelationExtractRequest(BaseModel):
     context_confirmation_id: str
     start_chapter: int = Field(..., ge=1)
     end_chapter: int = Field(..., ge=1)
-    scene_ids: list[str] | None = Field(default=None)
+    scene_ids: list[str] | None = Field(default=None, min_length=1, max_length=10_000)
     operation_id: uuid.UUID | None = None
+
+    @field_validator("scene_ids")
+    @classmethod
+    def require_unique_scene_ids(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        normalized = [item.strip() for item in value]
+        if any(not item for item in normalized) or len(normalized) != len(
+            set(normalized)
+        ):
+            raise ValueError("scene_ids must contain unique non-empty ids")
+        return normalized
 
 
 class WorldAliasRelationExtractResponse(BaseModel):

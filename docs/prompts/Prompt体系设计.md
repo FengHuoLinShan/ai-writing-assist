@@ -56,6 +56,12 @@ output_validator 校验，修复计入同一执行预算；固定审稿保留原
 | `interaction/prompts.py` | 内联 `interaction-summary-v3` / `interaction-summary-output-v2`：一次生成新分段概要与更新后总回顾 | interaction 回顾任务 |
 | `evidence/compilation/knowledge/workflow.py` | 内联 steps `<capability>.knowledge.director.shard_N`（manifest 分片处置：生成必需/生成可用/仅审查可见/禁止，只引用短 key）与 `<capability>.knowledge.audit.verdict`（独立复核：遗漏/无证据/越界/提前揭示/无关/冲突/未检查，服务端按 finding 强度收口 verdict） | 全部用户可见生成与检查能力（ADR-0025 知识治理） |
 
+深度导入的 entity-fusion 候选对清单由 Imports 在首次 pair provider 请求前生成并持久化
+`imports.run-admission.v1`；普通 World 融合不附带 `task_type=deep_import` 的准入声明。
+`phase2_dedup` 每 12 对持久一次，尾批可小于 12；`batch` / `pairs_complete` 恢复从已处理
+对数继续。只有带 `knowledge_review` 的 `decided` 才表示 audit 已完成；旧 `decided` 缺该回执时
+只补 audit。上述恢复均不重放已完成的 pair Prompt。
+
 ## 3. Prompt Contract System
 
 深度导入链路和生成中心结构化建议链路使用 `backend/tools/prompt_contracts/` 做开发期漂移检查，覆盖
