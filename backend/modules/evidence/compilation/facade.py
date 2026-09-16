@@ -958,6 +958,20 @@ async def require_confirmation(
     )
 
 
+async def get_context_confirmation(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    confirmation_id: str,
+) -> ContextConfirmationContract:
+    """Read the persisted author-safe confirmation summary without recompiling."""
+    return await _confirmation_service.get_confirmation(
+        db,
+        novel_id=novel_id,
+        confirmation_id=confirmation_id,
+    )
+
+
 async def require_fresh_confirmation(
     db: AsyncSession,
     *,

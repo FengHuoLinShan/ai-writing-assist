@@ -19,6 +19,9 @@ from modules.evidence.compilation.facade import (
     create_activation_profile as _create_activation_profile,
 )
 from modules.evidence.compilation.facade import (
+    get_context_confirmation as _get_context_confirmation,
+)
+from modules.evidence.compilation.facade import (
     get_context_snapshot as _get_context_snapshot,
 )
 from modules.evidence.compilation.facade import (
@@ -342,6 +345,32 @@ async def confirm_context(
         activation_profile_version=request.activation_profile_version,
         expected_context_fingerprint=request.expected_context_fingerprint,
     )
+    return ContextConfirmationResponse(**confirmation.__dict__)
+
+
+@router.get(
+    "/confirmations/{confirmation_id}",
+    response_model=ContextConfirmationResponse,
+)
+async def get_context_confirmation(
+    confirmation_id: str,
+    db: DbSession,
+    *,
+    novel_id: NovelIdQuery,
+) -> ContextConfirmationResponse:
+    """Read one persisted confirmation without rebuilding historical context."""
+    await require_active_project(db, novel_id)
+    try:
+        confirmation = await _get_context_confirmation(
+            db,
+            novel_id=novel_id,
+            confirmation_id=confirmation_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Context confirmation not found",
+        ) from exc
     return ContextConfirmationResponse(**confirmation.__dict__)
 
 

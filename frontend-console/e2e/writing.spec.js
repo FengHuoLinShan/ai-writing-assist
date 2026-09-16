@@ -426,6 +426,8 @@ test.describe("写作台模块", () => {
   })
 
   test("AI 建议在刷新和返回后仍先决策，采用前可取消确认", async ({ page, browserErrors, projectFactory }) => {
+    const confirmationId = "confirmation-writing-review-e2e"
+    const sourceTaskId = "task-writing-review-e2e"
     const baseCreated = await createDraft(testProjectId, 1, "第一章 雾港来信", "潮声退到石阶之外，石门仍旧紧闭。")
     const base = baseCreated.draft || baseCreated
     const created = await createDraft(testProjectId, 1, "第一章 雾港来信", "潮声退到石阶之外，露出一道从未被记载的门。")
@@ -438,6 +440,44 @@ test.describe("写作台模块", () => {
       version_number: Number(candidate.version_number || 1) + 1,
       provenance_json: { source: "ai_generated", adopted_from_candidate_id: candidate.id },
     }
+    await page.route(`**/api/evidence/compilation/confirmations/${confirmationId}*`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: confirmationId,
+          task: "生成正文建议",
+          scope: "chapter",
+          compiled_at: "2026-09-16T05:00:00Z",
+          selected_asset_ids: { writing_drafts: [base.id], scenes: ["scene-review-e2e"] },
+          result_refs: [{ type: "task", id: sourceTaskId }, { type: "writing_candidate", id: candidate.id }],
+          result_status: "done",
+          stale_reasons: [],
+        }),
+      })
+    })
+    await page.route(`**/api/tasks/${sourceTaskId}*`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          task_id: sourceTaskId,
+          task_type: "writing_generate",
+          status: "done",
+          result: { knowledge_review: { status: "passed", issues: [] } },
+          operation: {
+            version: 1,
+            submission_mode: "exact_operation",
+            stage: "completed",
+            error_code: null,
+            retryable: false,
+            possible_charge: false,
+            partial_result: false,
+            available_actions: [],
+          },
+        }),
+      })
+    })
     await page.route(`**/api/writing/drafts/${candidate.id}/adopt*`, async (route) => {
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(adopted) })
     })
@@ -449,7 +489,13 @@ test.describe("写作台模块", () => {
         body: JSON.stringify({
           ...candidate,
           status: "candidate",
-          provenance_json: { source: "writing_generate", review_required: false },
+          provenance_json: {
+            source: "writing_generate",
+            review_required: false,
+            context_confirmation_id: confirmationId,
+            source_task_id: sourceTaskId,
+            knowledge_review: { status: "passed", issues: [] },
+          },
         }),
       })
     })
@@ -484,6 +530,17 @@ test.describe("写作台模块", () => {
     await expect(page.locator(".writing-candidate-review-actions .btn-primary")).toHaveCount(1)
     await expect(page.locator("#btn-publish")).toHaveCount(0)
     await expect(page.locator("#writing-editor")).toHaveAttribute("readonly", "")
+
+    const trace = panel.locator(".ai-result-trace")
+    const traceSummary = trace.locator("summary")
+    await traceSummary.focus()
+    await page.keyboard.press("Enter")
+    await expect(trace).toContainText("正文 1")
+    await expect(trace).toContainText("知识复核")
+    await expect(trace).toContainText("打开正文建议")
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(trace).toBeVisible()
+    await page.setViewportSize({ width: 1280, height: 720 })
 
     const compareButton = panel.getByRole("button", { name: "与当前工作稿比较" })
     await compareButton.click()

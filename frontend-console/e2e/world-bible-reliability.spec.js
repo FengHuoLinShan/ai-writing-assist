@@ -187,10 +187,11 @@ test.describe("世界书可靠保存", () => {
     await page.reload()
     await openPageInReader(page, projectId, sourcePage.id)
     const restoreDialog = page.waitForEvent("dialog")
-    await page.locator("[data-action='world-reader-edit']").click()
+    const enterEdit = page.locator("[data-action='world-reader-edit']").click()
     const dialog = await restoreDialog
     expect(dialog.message()).toContain("未完成本机备份")
     await dialog.accept()
+    await enterEdit
     await expect(page.locator("#bible-free-text")).toHaveValue("断网期间未保存的补充内容。")
 
     // 恢复的内容确认后自动保存到服务器工作稿

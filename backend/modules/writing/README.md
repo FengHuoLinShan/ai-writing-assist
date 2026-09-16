@@ -116,7 +116,7 @@ async def build_manuscript_range_ref(db, novel_id, draft_id, start_offset, end_o
 ```
 
 `facade.create_published_draft_only` 只创建一个已发布正文版本，批量导入使用 `create_published_drafts_only`，按章节顺序取得既有 advisory lock、分组读取最大版本并统一 flush；两者都不入队。`facade.create_draft_only` 仅创建草稿，不会提交发布任务。facade create 系列返回跨模块 `WritingDraftContract`，API 层负责适配为 `WritingDraftResponse` 并提交 `publish_chapter` 发布任务。导入模块等内部调用方不需要直接访问 RAG 模块。
-AI 生成结果会在 `provenance_json` 中记录 `source_confirmation_id` 和来源任务。兼容期内底层仍以 `candidate` 保存建议，但 API/contract 投影为 `display_state=review` 和 `source=ai_generated`，不将其当作工作稿。
+AI 生成结果会在 `provenance_json` 中记录 `source_confirmation_id` 和来源任务。兼容期内底层仍以 `candidate` 保存建议，但 API/contract 投影为 `display_state=review` 和 `source=ai_generated`，不将其当作工作稿。候选审阅区以共享内联详情合并展示该 Confirmation、确切 task operation、知识复核、结果引用与失效事实；追踪读取失败不阻断原采用、拒绝或编辑操作。
 
 `publish_chapter` 通过 Evidence indexing 的 task-only DI port 执行索引：先在 worker fence 下结束
 source-read checkpoint，再在无 PostgreSQL 事务时等待 embedding，入库前重验

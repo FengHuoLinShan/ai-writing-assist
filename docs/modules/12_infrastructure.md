@@ -458,6 +458,10 @@ follower），不是调用方 metadata 声明；旧 coalesced row 无 receipt �
 优先消费该投影并保留旧 wire fallback。`possible_charge` 只公开聚合布尔值，私有 AI 信封不进入
 公开 wire。
 
+成果页在前端将这个确切 task 投影与 Evidence Confirmation 组合展示。任务基础设施
+不拥有采用、拒绝或来源失效状态，也不建立成果聚合服务；历史 task 被清理时，领域
+Confirmation 与成果引用仍可单独展示。
+
 作者显式长操作可以前端预先生成的 `operation_id` 作为 task UUID。同一
 `operation_id + novel_id + task_type + request fingerprint` 复用原任务（含终态），同 ID
 异请求返回 409。这是提交回执，不是新队列或全局锁，也不取代业务来源与 lease fence。

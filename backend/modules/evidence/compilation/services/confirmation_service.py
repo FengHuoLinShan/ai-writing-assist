@@ -221,6 +221,23 @@ class ContextConfirmationService:
             raise ValueError("context confirmation action mismatch")
         return self._to_contract(record)
 
+    async def get_confirmation(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        confirmation_id: str | uuid.UUID,
+    ) -> ContextConfirmationContract:
+        """Read one author-owned confirmation without recompiling its context."""
+        record = await self._repo.get(
+            db,
+            self._as_uuid(confirmation_id),
+            novel_id=parse_uuid(novel_id, "novel_id"),
+        )
+        if record is None:
+            raise ValueError("context confirmation not found")
+        return self._to_contract(record)
+
     async def require_fresh_confirmation(
         self,
         db: AsyncSession,

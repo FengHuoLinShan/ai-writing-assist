@@ -2128,6 +2128,10 @@ const api = {
       return contractJson("context.confirm", {}, {}, payload)
     },
 
+    async getConfirmation(confirmationId, novelId) {
+      return contractFetch("context.getConfirmation", { confirmationId }, { novel_id: novelId }, { cache: "no-store" })
+    },
+
     async proposeSelection(payload, options = {}) {
       return contractJson("context.proposeSelection", {}, {}, payload, options)
     },

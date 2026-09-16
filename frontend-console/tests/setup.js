@@ -145,6 +145,7 @@ globalThis.api = {
     compile: vi.fn(),
     render: vi.fn(),
     confirm: vi.fn(),
+    getConfirmation: vi.fn(),
     proposeSelection: vi.fn(),
     listSnapshots: vi.fn(),
     getSnapshot: vi.fn(),

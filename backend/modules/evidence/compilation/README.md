@@ -59,6 +59,7 @@ async def compile_interaction_story_context(...) -> InteractionStoryContextContr
 async def render_compiled_context_markdown(...) -> str
 async def compile_generation_background(...) -> dict
 async def confirm_context(...) -> ContextConfirmationContract
+async def get_context_confirmation(...) -> ContextConfirmationContract
 async def require_confirmation(...) -> ContextConfirmationContract
 async def require_fresh_confirmation(...) -> ContextConfirmationContract
 async def prepare_confirmed_ai_action(..., for_update=False) -> ConfirmedAIActionContext
@@ -111,6 +112,12 @@ checkpoint `ensure` 产生隐式写入。没有显式关联对象时不回退全
 `create_context_snapshot()`、`mark_context_snapshot_succeeded()` 和
 `mark_context_snapshot_failed()` 保留为兼容 wrapper；新生产调用应使用
 `ContextSnapshotRequest` + `open/succeed/fail` 生命周期入口。
+
+`GET /api/evidence/compilation/confirmations/{confirmation_id}?novel_id=...` 按
+`confirmation_id + novel_id` 读取已持久化的确认记录，先执行当前 owner 与
+活跃项目门禁；不存在和跨项目统一返回 404。该入口不重新编译当前
+Context，不返回 `compile_options`、rendered context、Prompt、provider、密钥或私有
+checkpoint；历史来源只展示当时保存的类型、数量、指纹、结果引用与状态。
 
 ## 数据表
 

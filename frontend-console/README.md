@@ -430,6 +430,7 @@ frontend-console/
 - 任务进度默认显示紧凑摘要、状态和细进度条；失败、恢复或需要用户确认的状态自动展开，用户手动选择在任务重绘时保持。
 - 共享业务模态框使用带标题关联的 modal dialog 语义；打开后焦点进入内容或操作区，背景不可操作，Tab/Shift+Tab 不离开对话框，Escape 关闭后恢复到有效的原触发控件。连续替换模态内容时仍保留最初触发点；正文中的可编辑控件发生未保存变化时，关闭按钮、取消、遮罩和 Escape 都会先确认是否放弃，成功操作不重复确认。AI 参考资料可通过关闭、遮罩或 Escape 正常取消；晚到结果不会写入后续弹窗。
 - AI 参考资料窗打开即执行零持久化预览，按“必须使用 / 系统找到 / 我添加的 / 本次不用”展示逐项资料；手动搜索和自然语言提议均需重新编译，预览指纹、blocker 或待处理 patch 会确定性控制“按这份资料开始”。所有作者手动模型 wire 统一携带 `context_confirmation_id`；本轮不新增数据库表。
+- Writing 候选审阅与 Story P20 结果卡共用 `AIResultTraceDetails`；首次展开时读取确切 Confirmation 与 task，复用 `normalizeTaskProgress` 和成果定位器。加载、失败、task 已清理、来源过期、可能计费和部分结果都是就地状态；任何追踪读取失败都不禁用原成果操作，也不展示 raw ID、Prompt、provider 或私有 checkpoint。
 
 ## 安全与契约
 

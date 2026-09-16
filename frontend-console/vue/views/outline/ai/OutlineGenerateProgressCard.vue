@@ -8,6 +8,7 @@ import { computed } from "vue"
 import { outlineGenerateManager } from "./outlineWorkflowManagers.js"
 import { showOutlineGeneratePreview } from "./outlineAiOps.js"
 import WorkflowProgressCard from "../../../components/WorkflowProgressCard.vue"
+import AIResultTraceDetails from "../../../components/AIResultTraceDetails.vue"
 
 const state = outlineGenerateManager.state
 
@@ -51,6 +52,13 @@ const hasContent = computed(() => !!state.progress)
           @click="showOutlineGeneratePreview"
         >检查建议</button>
       </div>
+      <AIResultTraceDetails
+        v-if="state.preview?.contextConfirmationId && state.preview?.sourceTaskId && state.ownerProjectId"
+        :project-id="state.ownerProjectId"
+        :confirmation-id="state.preview.contextConfirmationId"
+        :task-id="state.preview.sourceTaskId"
+        :knowledge-review="state.preview.knowledgeReview || null"
+      />
     </WorkflowProgressCard>
   </div>
 </template>
