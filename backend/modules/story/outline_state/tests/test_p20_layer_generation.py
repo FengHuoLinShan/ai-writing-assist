@@ -176,7 +176,11 @@ async def test_p20_apply_compiles_before_exclusive_lock(
     confirmed_context_value = confirmed_context
     generation = SimpleNamespace(prepare=mock.AsyncMock(side_effect=prepare))
     service = P20ApplyService(generation=generation)
-    monkeypatch.setattr(service, "_apply_threads", mock.AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        service,
+        "_apply_threads",
+        mock.AsyncMock(return_value=[{"type": "plot_thread", "id": "thread-1"}]),
+    )
 
     async def exclusive(_db, _novel_id):
         events.append("exclusive")
@@ -192,9 +196,15 @@ async def test_p20_apply_compiles_before_exclusive_lock(
         "modules.story.outline_state.p20_service.context_facade.require_fresh_confirmation",
         require_fresh,
     )
+    attach_results = mock.AsyncMock()
+    mark_changed = mock.AsyncMock()
     monkeypatch.setattr(
         "modules.story.outline_state.p20_service.context_facade.attach_result_refs",
-        mock.AsyncMock(),
+        attach_results,
+    )
+    monkeypatch.setattr(
+        "modules.story.outline_state.p20_service.context_facade.mark_asset_context_changed",
+        mark_changed,
     )
     monkeypatch.setattr(
         "infrastructure.tasks.facade.replace_completed_task_result",
@@ -242,6 +252,15 @@ async def test_p20_apply_compiles_before_exclusive_lock(
     assert generation.prepare.await_args_list[-1].kwargs == {
         "confirmed_context": confirmed_context,
     }
+    assert attach_results.await_args.kwargs["status"] == "adopted"
+    mark_changed.assert_awaited_once_with(
+        db,
+        novel_id=novel_id,
+        asset_type="plot_thread",
+        asset_id="thread-1",
+        reason="source_changed",
+        exclude_confirmation_id=request.context_confirmation_id,
+    )
 
 
 async def test_p20_semantic_audit_revises_once_then_rechecks(

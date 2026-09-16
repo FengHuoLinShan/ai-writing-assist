@@ -17,7 +17,9 @@ from modules.evidence.contracts import ContextSnapshotRequest
 from modules.evidence.facade import (
     attach_result_ref,
     fail_context_snapshot,
+    mark_asset_context_changed,
     open_context_snapshot,
+    require_fresh_confirmation,
     succeed_context_snapshot,
 )
 from modules.project.models import Project
@@ -175,6 +177,86 @@ async def test_competing_snapshot_terminals_have_one_winner() -> None:
             else:
                 assert stored.result_refs == []
                 assert stored.error_kind == "provider_error"
+    finally:
+        async with sessions.begin() as cleanup_db:
+            await cleanup_db.execute(delete(Project).where(Project.id == novel_id))
+        await engine.dispose()
+
+
+async def test_result_attach_and_source_change_preserve_stale_authority() -> None:
+    engine = create_async_engine(DATABASE_URL, pool_size=3, max_overflow=0)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    novel_id = uuid.uuid4()
+
+    try:
+        async with sessions.begin() as setup_db:
+            setup_db.add(Project(id=novel_id, title="result invalidation concurrency"))
+            await setup_db.flush()
+            confirmation = await ContextConfirmationRepository().create(
+                setup_db,
+                novel_id=novel_id,
+                action="writing.generate",
+                task="concurrent result trace",
+                scope="chapter",
+                context_mode="canonical",
+                include_pending_objects=False,
+                excluded_asset_ids={},
+                selected_asset_ids={},
+                user_note=None,
+                compile_options={},
+                warnings=[],
+            )
+            confirmation_id = str(confirmation.id)
+            await attach_result_ref(
+                setup_db,
+                novel_id=str(novel_id),
+                confirmation_id=confirmation_id,
+                result_type="writing_draft",
+                result_id="draft-1",
+                status="running",
+            )
+
+        async def attach_final_result():
+            async with sessions.begin() as db:
+                return await attach_result_ref(
+                    db,
+                    novel_id=str(novel_id),
+                    confirmation_id=confirmation_id,
+                    result_type="writing_draft",
+                    result_id="draft-2",
+                    status="adopted",
+                )
+
+        async def mark_source_stale():
+            async with sessions.begin() as db:
+                return await mark_asset_context_changed(
+                    db,
+                    novel_id=str(novel_id),
+                    asset_type="writing_draft",
+                    asset_id="draft-1",
+                    reason="source_changed",
+                )
+
+        await asyncio.gather(attach_final_result(), mark_source_stale())
+
+        async with sessions() as verify_db:
+            stored = await verify_db.get(
+                ContextConfirmation,
+                uuid.UUID(confirmation_id),
+            )
+            assert stored is not None
+            assert stored.stale_reasons == ["source_changed"]
+            assert {(item["type"], item["id"]) for item in stored.result_refs} == {
+                ("writing_draft", "draft-1"),
+                ("writing_draft", "draft-2"),
+            }
+            with pytest.raises(ValueError, match="参考资料已更新"):
+                await require_fresh_confirmation(
+                    verify_db,
+                    novel_id=str(novel_id),
+                    action="writing.generate",
+                    confirmation_id=confirmation_id,
+                )
     finally:
         async with sessions.begin() as cleanup_db:
             await cleanup_db.execute(delete(Project).where(Project.id == novel_id))

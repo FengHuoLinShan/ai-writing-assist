@@ -234,6 +234,10 @@ Scene 确认存在时，生成 prompt 附带 outline-owned 执行 bundle，候�
 provenance 冻结 `scene_execution_bundle_hash` 和 exact `upstream_manifest`。
 候选打开和采用前重算当前 bundle；总纲、`story_execution_profile.v1`、
 Scene 或 context confirmation 漂移时显示待复核，采用返回 409。
+采用候选会追加新 working draft 结果引用并把原 Confirmation 标为
+`adopted`；拒绝保留原候选引用与历史并标为 `rejected`。新建稿件仍只发出既有
+主动通知；已有稿件的真实内容更新经 Evidence 精确失效入口处理，不扫描无关
+Confirmation。没有 Confirmation 的 legacy 草稿保持原行为。
 
 `writing_semantic_review` 是与 generator 分离的 managed task。它冻结目标正文
 hash、相邻章回归上下文、Scene bundle，以及 AI candidate 服务端 provenance 绑定的

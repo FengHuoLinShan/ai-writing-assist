@@ -627,12 +627,17 @@ class P20ApplyService:
                 novel_id=novel_id,
                 confirmation_id=confirmation_id,
                 result_refs=result_refs,
-                status="done",
+                status="adopted",
             )
-            from modules.story.proactive import changed
-
             for reference in result_refs:
-                await changed(db, novel_id, reference["id"], asset_type=reference["type"])
+                await context_facade.mark_asset_context_changed(
+                    db,
+                    novel_id=novel_id,
+                    asset_type=reference["type"],
+                    asset_id=reference["id"],
+                    reason="source_changed",
+                    exclude_confirmation_id=confirmation_id,
+                )
             applied_result = {
                 "status": "applied",
                 "contract_version": "outline_layer_v2",

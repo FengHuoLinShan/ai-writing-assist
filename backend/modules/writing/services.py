@@ -244,6 +244,15 @@ def _mark_knowledge_review_stale_in_place(draft: object) -> None:
         draft.provenance_json = provenance  # type: ignore[union-attr]
 
 
+def _result_confirmation_id(draft: object) -> str | None:
+    provenance = dict(getattr(draft, "provenance_json", None) or {})
+    value = provenance.get("context_confirmation_id") or provenance.get(
+        "source_confirmation_id"
+    )
+    normalized = str(value or "").strip()
+    return normalized or None
+
+
 def _sanitize_draft_update(data: WritingDraftUpdate) -> WritingDraftUpdate:
     updates: dict[str, str | None] = {}
     if data.title is not None:
@@ -586,6 +595,17 @@ class WritingDraftService:
         draft.status = "deprecated"
         db.add(draft)
         await db.flush()
+        if confirmation_id := _result_confirmation_id(draft):
+            from modules.evidence.facade import attach_result_ref
+
+            await attach_result_ref(
+                db,
+                novel_id=str(draft.novel_id),
+                confirmation_id=confirmation_id,
+                result_type="writing_draft",
+                result_id=str(adopted.id),
+                status="adopted",
+            )
         return WritingDraftResponse.model_validate(adopted)
 
     async def adopt_candidate_to_working_contract(
@@ -931,6 +951,17 @@ class WritingDraftService:
             }
             db.add(deleted)
             await db.flush()
+            if confirmation_id := _result_confirmation_id(deleted):
+                from modules.evidence.facade import attach_result_ref
+
+                await attach_result_ref(
+                    db,
+                    novel_id=str(deleted.novel_id),
+                    confirmation_id=confirmation_id,
+                    result_type="writing_draft",
+                    result_id=str(deleted.id),
+                    status="rejected",
+                )
 
     async def delete_chapter(
         self,
@@ -3220,8 +3251,7 @@ class WritingGenerationService:
         )
         rendered = str(getattr(confirmed_context, "rendered_markdown", "") or "")
         hidden_lines = [
-            f"- {term.phrase}（来源：{term.source_label}）"
-            for term in guard_terms
+            f"- {term.phrase}（来源：{term.source_label}）" for term in guard_terms
         ]
         authority_context = rendered
         if hidden_lines:
@@ -3310,9 +3340,7 @@ class WritingGenerationService:
                     return response.content
 
                 scope_build = KnowledgeScopeBuild(
-                    receipt=KnowledgeScopeReceipt.from_dict(
-                        plan.knowledge_scope_receipt
-                    ),
+                    receipt=KnowledgeScopeReceipt.from_dict(plan.knowledge_scope_receipt),
                     generator_keys=tuple(plan.knowledge_generator_keys),
                     audit_only_keys=tuple(plan.knowledge_audit_only_keys),
                 )

@@ -677,7 +677,7 @@ class OutlineAIWorkflowService:
             novel_id=novel_id,
             confirmation_id=confirmation_id,
             result_refs=generator.result_refs(result),
-            status="done",
+            status="adopted",
         )
         replaced = await replace_completed_task_result(
             db,

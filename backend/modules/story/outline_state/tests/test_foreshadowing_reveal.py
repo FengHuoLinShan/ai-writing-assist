@@ -57,6 +57,10 @@ async def test_foreshadowing_update_reuses_loaded_plan(
         return plan
 
     monkeypatch.setattr(repo, "get", fake_get)
+    monkeypatch.setattr(
+        "modules.story.outline_state.repositories._notify_structure_change",
+        mock.AsyncMock(),
+    )
     db = _FakeSession()
 
     result = await repo.update(db, plan_id, {"name": "新伏笔"})  # type: ignore[arg-type]
@@ -85,6 +89,10 @@ async def test_reveal_update_reuses_loaded_plan(
         return plan
 
     monkeypatch.setattr(repo, "get", fake_get)
+    monkeypatch.setattr(
+        "modules.story.outline_state.repositories._notify_structure_change",
+        mock.AsyncMock(),
+    )
     db = _FakeSession()
 
     result = await repo.update(

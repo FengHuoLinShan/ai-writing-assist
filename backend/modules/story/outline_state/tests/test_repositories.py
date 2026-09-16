@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -230,6 +231,10 @@ class TestPlotThreadRepository:
                 self.flush_count += 1
 
         monkeypatch.setattr(repo, "get", fake_get)
+        monkeypatch.setattr(
+            "modules.story.outline_state.repositories._notify_structure_change",
+            AsyncMock(),
+        )
         db = Session()
 
         updated = await repo.update(
@@ -448,6 +453,10 @@ class TestOutlineArcRepository:
                 self.flush_count += 1
 
         monkeypatch.setattr(repo, "get", fake_get)
+        monkeypatch.setattr(
+            "modules.story.outline_state.repositories._notify_structure_change",
+            AsyncMock(),
+        )
         db = Session()
 
         updated = await repo.update(
