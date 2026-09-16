@@ -198,6 +198,7 @@ async def test_non_retryable_llm_failure_finishes_immediately(test_engine) -> No
         ).run_once()
         assert result is not None and result.status == "failed"
         assert result.attempt == 1
+        assert result.result["lifecycle"]["error_code"] == "llm_auth_failed"
         assert calls == 1
     finally:
         registry.unregister(task_type)
@@ -256,6 +257,7 @@ async def test_handler_failure_auto_requeues_only_until_frozen_attempt_limit(
         assert first.finished_at is None
         assert first.lease_id is None
         assert first.result["lifecycle"]["reason"] == "handler_error"
+        assert first.result["lifecycle"]["error_code"] == "task_failed"
 
         assert await worker.run_once() is None
         async with sessions.begin() as retry_db:

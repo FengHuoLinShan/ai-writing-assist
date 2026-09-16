@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from infrastructure.tasks.contracts import TASK_SUBMISSION_MODE_META_KEY
 from infrastructure.tasks.facade import enqueue_coalesced_task, enqueue_operation_task
 from infrastructure.tasks.lifecycle import TaskLifecycleService
 from infrastructure.tasks.models import AsyncTask
@@ -66,6 +67,11 @@ async def test_concurrent_transactions_reuse_one_pending_task() -> None:
                 )
             )
             assert count == 1
+            task = await verify_db.scalar(
+                select(AsyncTask).where(AsyncTask.id == uuid.UUID(first_id))
+            )
+            assert task is not None
+            assert task.meta[TASK_SUBMISSION_MODE_META_KEY] == "reuse_active"
     finally:
         async with sessions.begin() as cleanup_db:
             await cleanup_db.execute(
@@ -154,11 +160,18 @@ async def test_concurrent_operation_receipt_creates_one_task() -> None:
 
         assert first_id == second_id == operation_id
         async with sessions() as verify_db:
-            assert await verify_db.scalar(
-                select(func.count())
-                .select_from(AsyncTask)
-                .where(AsyncTask.id == uuid.UUID(operation_id))
-            ) == 1
+            assert (
+                await verify_db.scalar(
+                    select(func.count())
+                    .select_from(AsyncTask)
+                    .where(AsyncTask.id == uuid.UUID(operation_id))
+                )
+                == 1
+            )
+            task = await verify_db.get(AsyncTask, uuid.UUID(operation_id))
+            assert task is not None
+            assert task.meta["operation_fingerprint"]
+            assert TASK_SUBMISSION_MODE_META_KEY not in task.meta
     finally:
         async with sessions.begin() as cleanup_db:
             await cleanup_db.execute(
@@ -229,6 +242,10 @@ async def test_running_owner_allows_only_one_pending_follower() -> None:
             claimed_follower = await lifecycle.claim_next(follower_db)
             assert claimed_follower is not None
             assert str(claimed_follower.id) == follower_ids[0]
+            assert (
+                claimed_follower.meta[TASK_SUBMISSION_MODE_META_KEY]
+                == "one_pending_follower"
+            )
     finally:
         async with sessions.begin() as cleanup_db:
             await cleanup_db.execute(

@@ -10,7 +10,10 @@ from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.schema import CreateIndex
 
-from infrastructure.tasks.contracts import CoalescedTaskContract
+from infrastructure.tasks.contracts import (
+    TASK_SUBMISSION_MODE_META_KEY,
+    CoalescedTaskContract,
+)
 from infrastructure.tasks.enqueuer import (
     build_task_coalescing_key,
     lock_task_coalescing_key,
@@ -58,6 +61,8 @@ async def test_operation_receipt_reuses_terminal_task_and_rejects_drift(
     )
     task = await db_session.get(AsyncTask, uuid.UUID(operation_id))
     assert task is not None
+    assert task.meta["operation_fingerprint"]
+    assert TASK_SUBMISSION_MODE_META_KEY not in task.meta
     task.mark_done({"value": "ready"})
     await db_session.flush()
 
@@ -101,6 +106,7 @@ async def test_operation_receipt_reuses_terminal_task_and_rejects_drift(
         status="done",
         reused=True,
     )
+
 
 def test_coalescing_partial_unique_indexes_compile_for_supported_databases() -> None:
     indexes = {index.name: index for index in AsyncTask.__table__.indexes}

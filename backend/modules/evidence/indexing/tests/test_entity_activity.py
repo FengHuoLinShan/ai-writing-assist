@@ -68,9 +68,7 @@ async def test_replace_appearances_deduplicates_scene_and_chapter_fallback(
     rows = list(
         (
             await db_session.execute(
-                select(RagEntityAppearance).order_by(
-                    RagEntityAppearance.chapter_index
-                )
+                select(RagEntityAppearance).order_by(RagEntityAppearance.chapter_index)
             )
         ).scalars()
     )
@@ -331,19 +329,19 @@ async def test_reannotation_coalesces_per_project(
     second = await service.request_reannotation(db_session, test_project_id)
 
     assert second == first
+    from infrastructure.tasks.contracts import TASK_SUBMISSION_MODE_META_KEY
     from infrastructure.tasks.models import AsyncTask
 
     tasks = list(
         (
             await db_session.execute(
-                select(AsyncTask).where(
-                    AsyncTask.task_type == "rag_reannotate_entities"
-                )
+                select(AsyncTask).where(AsyncTask.task_type == "rag_reannotate_entities")
             )
         ).scalars()
     )
     assert len(tasks) == 1
-    assert tasks[0].meta == {"novel_id": test_project_id}
+    assert tasks[0].meta["novel_id"] == test_project_id
+    assert tasks[0].meta[TASK_SUBMISSION_MODE_META_KEY] == "one_pending_follower"
 
 
 @pytest.mark.asyncio

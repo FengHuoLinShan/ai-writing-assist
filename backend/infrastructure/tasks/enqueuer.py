@@ -17,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.contracts import (
+    TASK_SUBMISSION_MODE_META_KEY,
     CoalescedTaskContract,
     TaskCoalescingMode,
 )
@@ -59,11 +60,21 @@ def _new_task(
     coalescing_key: str | None,
     novel_id: str | None,
     task_id: uuid.UUID | None = None,
+    operation_fingerprint: str | None = None,
+    submission_mode: TaskCoalescingMode | None = None,
 ) -> AsyncTask:
     definition = TaskRegistry().get_definition(task_type)
     if novel_id is None and task_novel_id_from_meta(meta) is not None:
         raise ValueError("project-scoped tasks require an explicit novel_id argument")
     task_novel_id, task_meta = prepare_task_identity(meta, novel_id=novel_id)
+    # These fields describe how this row was actually created. Callers cannot
+    # claim a stronger idempotency contract by smuggling private metadata.
+    task_meta.pop("operation_fingerprint", None)
+    task_meta.pop(TASK_SUBMISSION_MODE_META_KEY, None)
+    if operation_fingerprint is not None:
+        task_meta["operation_fingerprint"] = operation_fingerprint
+    if submission_mode is not None:
+        task_meta[TASK_SUBMISSION_MODE_META_KEY] = submission_mode
     if definition is not None:
         if definition.owner_scope == "project" and task_novel_id is None:
             raise ValueError("project-scoped tasks require a novel_id")
@@ -139,11 +150,12 @@ async def enqueue_operation_task(
     task = _new_task(
         task_id=task_id,
         task_type=task_type,
-        meta={**(meta or {}), "operation_fingerprint": submission_fingerprint},
+        meta=meta,
         status="pending",
         progress=0.0,
         coalescing_key=None,
         novel_id=normalized_novel_id,
+        operation_fingerprint=submission_fingerprint,
     )
     try:
         async with db.begin_nested():
@@ -292,6 +304,7 @@ async def enqueue_coalesced_task(
         progress=0.0,
         coalescing_key=key,
         novel_id=novel_id,
+        submission_mode=mode,
     )
     try:
         async with db.begin_nested():

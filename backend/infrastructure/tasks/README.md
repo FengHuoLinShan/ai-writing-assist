@@ -171,6 +171,12 @@ request/meta，并在首次 provider I/O 前调用 Evidence 的 `prepare_confirm
 无确认请求升级成已授权任务。内部格式修复、复核和返修复用原 confirmation；自动流水线只在
 启动时确认一次，内部阶段继续使用冻结 snapshot。
 
+三种入队原语同时构成提交协议：普通 `enqueue_task` 是 `append`；
+`enqueue_operation_task` 由不可伪造的 request fingerprint 投影为 `exact_operation`；
+`enqueue_coalesced_task` 在私有 meta 记录实际 `reuse_active` 或 `one_pending_follower` 模式。
+调用方传入的同名私有字段和 operation fingerprint 会被 enqueuer 丢弃并按实际路径重建，不能
+通过 metadata 冒充更强幂等保证。公开状态只返回模式枚举，不返回 fingerprint 或 coalescing key。
+
 声明 `retry_transient_llm_errors=True` 的 handler 在 task 内关闭 LLM client transport retry，
 由 worker 仅对明确临时 provider 错误自动重排，总 attempt 上限为 2。业务不得
 在首次临时失败时提前写终态失败。
@@ -269,14 +275,18 @@ heartbeat timeout 不会让 RAG/imports/interaction 领域状态继续指向 fai
 唯一约束与领域 generation fence 仍负责多 worker 收敛。
 
 `GET /api/tasks/{task_id}` 加性返回 `attempt / max_attempts / stale / lifecycle /
-available_actions`。前端只渲染后端返回的固定 action，不根据 heartbeat 或 task type
-自行推测恢复方式。`result` 顶层以下划线开头的键是 worker 私有 checkpoint：数据库与
+available_actions / operation`。`operation` 是版本化的作者安全投影，统一给出实际
+`submission_mode`、当前 `stage`、稳定 `error_code`、是否可恢复、是否可能扣费、是否已有
+部分结果及固定 action。前端优先消费该投影，不根据 heartbeat、异常文案或 task type 推测
+恢复方式；旧 task 没有 coalescing 模式 receipt 时只标记 `legacy`。`result` 顶层以下划线开头
+的键是 worker 私有 checkpoint：数据库与
 lifecycle 恢复路径保留原值，但 task status API 永不返回；非下划线公共结果保持原 wire
 shape。业务 handler 不得把前端所需字段放进私有键。
 
 私有 AI 运行信封只写 `meta["_ai_run_envelope"]`（`infrastructure.llm.schemas.AI_RUN_ENVELOPE_KEY`），
 不写 `result`，因此 `story_outline_generate` 等按 result 顶层 exact-key 校验的领域采用路径不受影响；
-`GET /api/tasks/{task_id}` 的 meta/result 投影继续剥离下划线键，不新增公开 wire 字段。
+`GET /api/tasks/{task_id}` 的 meta/result 投影继续剥离下划线键；公共 `operation.possible_charge`
+只暴露聚合布尔值，不返回信封身份、模型、用量、Prompt 或 provider 诊断。
 worker 与 inline 在 handler 执行前为 attempt 注入 `task_id/attempt/lease_id` 并建立或恢复同一 run：
 自动 requeue、stale 恢复与 manual resume 只更换执行载体，不重置累计计数、冻结额度或 deadline；
 inline 子任务复用父 run，不另开账本。快照通过 `TaskLifecycleService.checkpoint_run_envelope()` 的

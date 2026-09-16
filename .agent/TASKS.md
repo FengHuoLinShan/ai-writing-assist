@@ -12,4 +12,3 @@
 - [T-20260911-promo-recording-readiness](tasks/2026/T-20260911-promo-recording-readiness/TASK.md) — 演示项目宣传视频剧本与产品录屏就绪计划
 - [T-20260911-full-codebase-optimization-implementation](tasks/2026/T-20260911-full-codebase-optimization-implementation/TASK.md) — 全代码库优化实施
 - [T-20260912-cognitive-seed-research](tasks/2026/T-20260912-cognitive-seed-research/TASK.md) — 逐章认知形成与可演化记忆结构研究
-- [T-20260915-ai-run-envelope](tasks/2026/T-20260915-ai-run-envelope/TASK.md) — 统一 AI 运行信封
