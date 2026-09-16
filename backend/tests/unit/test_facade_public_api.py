@@ -15,6 +15,7 @@ WORLD_FACADE_API = {
     "resolve_redundant_review_alias",
     "get_focused_world_terms",
     "get_focused_world_neighbors",
+    "get_hidden_guard_sources",
     "authorize_focused_world_completion",
     "check_knowledge_visibility",
     "submit_focused_world_package",

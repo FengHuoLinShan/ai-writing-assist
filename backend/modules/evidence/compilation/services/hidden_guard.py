@@ -11,7 +11,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.evidence.compilation.contracts import ConfirmedAIActionContext
@@ -51,25 +50,18 @@ class HiddenGuardBuilder:
             visible_until_chapter=options.get("visible_until_chapter"),
         )
 
-        terms: list[HiddenGuardTerm] = []
-        if entity_ids:
-            terms.extend(
-                await self._world_hidden_terms(
-                    db,
-                    novel_id=novel_id,
-                    entity_ids=entity_ids,
-                    knowledge_by_id=knowledge_by_id,
-                )
-            )
-        if relation_ids:
-            terms.extend(
-                await self._relation_hidden_terms(
-                    db,
-                    novel_id=novel_id,
-                    relation_ids=relation_ids,
-                    knowledge_by_id=knowledge_by_id,
-                )
-            )
+        from modules.world.facade import get_hidden_guard_sources
+
+        entities, relations = await get_hidden_guard_sources(
+            db,
+            novel_id=novel_id,
+            entity_ids=entity_ids,
+            relation_ids=relation_ids,
+        )
+        terms: list[HiddenGuardTerm] = [
+            *self._world_hidden_terms(entities, knowledge_by_id),
+            *self._relation_hidden_terms(relations, knowledge_by_id),
+        ]
         terms.extend(self._director_terms(confirmed_context, options))
         return self._dedupe_terms(terms)
 
@@ -89,10 +81,17 @@ class HiddenGuardBuilder:
             for source in section.sources:
                 source_type = str(source.get("type") or "")
                 source_id = str(source.get("id") or "")
-                if not source_id:
+                if not source_id or not _is_uuid(source_id):
                     continue
-                if source_type in {"entity", "world_entity", "character", "item",
-                    "location", "faction", "event"}:
+                if source_type in {
+                    "entity",
+                    "world_entity",
+                    "character",
+                    "item",
+                    "location",
+                    "faction",
+                    "event",
+                }:
                     entity_ids.setdefault(source_id, str(source.get("label") or ""))
                 elif source_type in {"relation", "entity_relation"}:
                     relation_ids.add(source_id)
@@ -120,44 +119,19 @@ class HiddenGuardBuilder:
             character_id,
             target_ids=valid_ids,
             visible_until_chapter=(
-                int(visible_until_chapter)
-                if visible_until_chapter is not None
-                else None
+                int(visible_until_chapter) if visible_until_chapter is not None else None
             ),
         )
         return {str(item.target_id): item for item in knowledge or []}
 
     @staticmethod
-    async def _world_hidden_terms(
-        db: AsyncSession,
-        *,
-        novel_id: str,
-        entity_ids: list[str],
+    def _world_hidden_terms(
+        entities: list[Any],
         knowledge_by_id: dict[str, Any],
     ) -> list[HiddenGuardTerm]:
-        import uuid as uuid_module
-
-        from modules.world.models import CoreEntity
-
-        parsed = [uuid_module.UUID(hex=item) for item in entity_ids if _is_uuid(item)]
-        if not parsed:
-            return []
-        rows = (
-            (
-                await db.execute(
-                    select(CoreEntity).where(
-                        CoreEntity.novel_id == uuid_module.UUID(hex=novel_id),
-                        CoreEntity.id.in_(parsed),
-                        CoreEntity.hidden_truth.is_not(None),
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
         terms: list[HiddenGuardTerm] = []
-        for entity in rows:
-            entity_id = str(entity.id)
+        for entity in entities:
+            entity_id = str(entity.entity_id)
             record = knowledge_by_id.get(entity_id)
             if getattr(record, "knowledge_level", None) == "full":
                 continue
@@ -175,36 +149,13 @@ class HiddenGuardBuilder:
         return terms
 
     @staticmethod
-    async def _relation_hidden_terms(
-        db: AsyncSession,
-        *,
-        novel_id: str,
-        relation_ids: list[str],
+    def _relation_hidden_terms(
+        relations: list[Any],
         knowledge_by_id: dict[str, Any],
     ) -> list[HiddenGuardTerm]:
-        import uuid as uuid_module
-
-        from modules.world.models import EntityRelation
-
-        parsed = [uuid_module.UUID(hex=item) for item in relation_ids if _is_uuid(item)]
-        if not parsed:
-            return []
-        rows = (
-            (
-                await db.execute(
-                    select(EntityRelation).where(
-                        EntityRelation.novel_id == uuid_module.UUID(hex=novel_id),
-                        EntityRelation.id.in_(parsed),
-                        EntityRelation.description.is_not(None),
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
         terms: list[HiddenGuardTerm] = []
-        for rel in rows:
-            record = knowledge_by_id.get(str(rel.id))
+        for rel in relations:
+            record = knowledge_by_id.get(str(rel.relation_id))
             if getattr(record, "knowledge_level", None) == "full":
                 continue
             if not rel.description:
@@ -216,7 +167,7 @@ class HiddenGuardBuilder:
                         rule="hidden_relation_match",
                         severity="warning",
                         source_type="entity_relation",
-                        source_id=str(rel.id),
+                        source_id=str(rel.relation_id),
                         source_label="已过滤的隐藏关系",
                     )
                 )

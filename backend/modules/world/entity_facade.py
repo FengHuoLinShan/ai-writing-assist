@@ -6,6 +6,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.world.contracts import CoreEntityContract, EntityRelationContract
 from modules.world.schemas import (
     EntityFusionApplyItem,
     EntityRelationResponse,
@@ -60,6 +61,25 @@ async def get_focused_world_neighbors(
         include_review=include_review,
         skip=skip,
         limit=limit,
+    )
+
+
+async def get_hidden_guard_sources(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    entity_ids: list[str],
+    relation_ids: list[str],
+) -> tuple[list[CoreEntityContract], list[EntityRelationContract]]:
+    from modules.world.services.core.focused_world_read import (
+        get_hidden_guard_sources as _get_hidden_guard_sources,
+    )
+
+    return await _get_hidden_guard_sources(
+        db,
+        novel_id=novel_id,
+        entity_ids=entity_ids,
+        relation_ids=relation_ids,
     )
 
 

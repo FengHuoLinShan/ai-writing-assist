@@ -699,6 +699,11 @@ checkpoint、stale/resolved 冲突、已处理建议和 task-only 临时结果�
 待处理名称/别名用于发现关键同名歧义，不会将 candidate 属性自动提升为正史。对象、
 关系与 CharacterKnowledge 只在 interaction source revision 创建时冻结读投影，RP 结果不回写 world。
 
+`get_hidden_guard_sources()` 是 Evidence Hidden Guard 的窄批量读取 seam：只按同一
+`novel_id` 与冻结 Context 中的精确 entity/relation IDs 返回既有
+`CoreEntityContract` / `EntityRelationContract`。它不提供任意搜索或分页；Hidden Guard
+不再直读 World ORM，且隐藏内容仍只用于服务端检查，不加入生成 Prompt。
+
 ```python
 # ---- CoreEntity ----
 async def list_entities(db, novel_id, *, entity_type=None, statuses=None, display_state=None, limit=100) -> list[dict]
