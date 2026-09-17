@@ -910,7 +910,7 @@ async def test_provider_call_is_clipped_by_remaining_run_deadline() -> None:
             return await super().generate(request)
 
     provider = SlowProvider()
-    provider._timeout = 120
+    provider.request_timeout = 120
     client = _client(provider, max_attempts=1)
     deadline = datetime.now(UTC) + timedelta(seconds=0.2)
     ledger = AIRunEnvelope(_raw_envelope(request_limit=6, deadline_at=deadline))
@@ -937,7 +937,7 @@ async def test_remote_embedding_is_metred_by_the_run_envelope(
     """P1-5：远程 embedding 与文本请求共用同一信封（用量未知按 possible 落账）。"""
 
     class EmbeddingProvider(_TextProvider):
-        _timeout = 30
+        request_timeout = 30
 
         async def generate_embedding(self, text, model=None):  # noqa: ANN001
             self.requests.append(text)  # type: ignore[arg-type]

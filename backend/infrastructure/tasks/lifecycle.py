@@ -80,12 +80,7 @@ def _run_budget_exhausted(task: AsyncTask) -> bool:
     payload = _task_run_envelope(task)
     if payload is None:
         return False
-    if payload.requests_started >= payload.request_limit:
-        return True
-    return bool(
-        payload.token_limit is not None
-        and payload.usage.total_tokens >= payload.token_limit
-    )
+    return payload.request_budget_exhausted() or payload.token_budget_exhausted()
 
 
 def _operation_token(value: Any) -> str | None:

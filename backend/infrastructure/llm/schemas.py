@@ -527,6 +527,17 @@ class AIRunEnvelopeV1(BaseModel):
             INFRASTRUCTURE_CAPABILITY_PREFIX
         )
 
+    def request_budget_exhausted(self) -> bool:
+        """请求额度闸门的唯一权威谓词；reserve 与恢复判定共用。"""
+        return self.requests_started >= self.request_limit
+
+    def token_budget_exhausted(self) -> bool:
+        """累计 token 闸门：按已结算用量判定；未声明 token_limit 时恒 False。"""
+        return (
+            self.token_limit is not None
+            and self.usage.total_tokens >= self.token_limit
+        )
+
     @model_validator(mode="after")
     def validate_ledger(self) -> AIRunEnvelopeV1:
         if self.requests_settled + self.requests_unknown > self.requests_started:

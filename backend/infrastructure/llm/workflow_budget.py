@@ -383,17 +383,13 @@ class AIRunEnvelope:
             raise AIRunDeadlineExceededError(
                 "run deadline passed before the request started", run_id=self.run_id
             )
-        if self._envelope.requests_started >= self._envelope.request_limit:
+        if self._envelope.request_budget_exhausted():
             raise AIRunBudgetExceededError(
                 "run request limit reached; only an explicit author authorization "
                 "may raise it",
                 run_id=self.run_id,
             )
-        token_limit = self._envelope.token_limit
-        if (
-            token_limit is not None
-            and self._envelope.usage.total_tokens >= token_limit
-        ):
+        if self._envelope.token_budget_exhausted():
             raise AIRunBudgetExceededError(
                 "run token limit reached; only an explicit author authorization "
                 "may raise it",

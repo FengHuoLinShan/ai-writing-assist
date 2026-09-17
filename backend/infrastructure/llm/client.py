@@ -64,6 +64,7 @@ _TRUNCATION_RETRY_MAX_TOKENS = 40000
 _TOKEN_LIMIT_PROXIMITY = 0.95
 _FORMAT_REPAIR_RAW_RESPONSE_LIMIT = 12000
 _FORMAT_REPAIR_ERROR_LIMIT = 4000
+_EXPIRED_DEADLINE_CALL_TIMEOUT_SECONDS = 0.05
 
 # 修复用途同时是重试证据：每个修复请求都算一次对应类型的自动重试，
 # 落在该请求自己的 step receipt 上；transport 重试只记 transport，不重复计修复。
@@ -610,7 +611,7 @@ class LLMClient:
                 "api_key": getattr(self._provider, "_api_key", ""),
                 "base_url": getattr(self._provider, "_base_url", ""),
                 "model": self._default_model,
-                "timeout": getattr(self._provider, "_timeout", None),
+                "timeout": getattr(self._provider, "request_timeout", None),
                 "max_tokens": self._default_max_tokens,
             }
         )
@@ -706,7 +707,7 @@ class LLMClient:
                 "api_key": getattr(self._provider, "_api_key", ""),
                 "base_url": getattr(self._provider, "_base_url", ""),
                 "model": self._default_model,
-                "timeout": getattr(self._provider, "_timeout", None),
+                "timeout": getattr(self._provider, "request_timeout", None),
                 "max_tokens": self._default_max_tokens,
             }
         )
@@ -768,13 +769,13 @@ class LLMClient:
         deadline 在 reserve 之后、I/O 之前越过时立即失败，而不是让在途请求
         运行完整 provider timeout 越过 run 边界。
         """
-        profile_timeout = getattr(self._provider, "_timeout", None)
+        profile_timeout = getattr(self._provider, "request_timeout", None)
         timeout = float(profile_timeout) if profile_timeout else None
         if remaining_run_seconds is None:
             return timeout
         remaining = max(float(remaining_run_seconds), 0.0)
         if remaining <= 0:
-            return 0.05
+            return _EXPIRED_DEADLINE_CALL_TIMEOUT_SECONDS
         return min(timeout, remaining) if timeout is not None else remaining
 
     def _limiter_scope(self, operation_kind: str) -> LLMLimiterScope:
