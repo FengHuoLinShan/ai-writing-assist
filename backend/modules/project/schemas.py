@@ -11,6 +11,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from infrastructure.llm.profiles import sanitize_project_settings
+from infrastructure.llm.providers import reject_reserved_extra_keys
 from shared.constants import DEFAULT_LLM_MAX_TOKENS
 from shared.deep_import_settings import clean_deep_import_settings
 
@@ -440,6 +441,14 @@ class ProjectLLMSettingsUpdate(BaseModel):
     @classmethod
     def strip_text(cls, v: str | None) -> str | None:
         return v.strip() if isinstance(v, str) else v
+
+    @field_validator("extra")
+    @classmethod
+    def reject_formal_field_overrides(cls, v: dict[str, Any]) -> dict[str, Any]:
+        # extra 只承载 provider 特定参数；正式 request 字段（含 token/采样）必须走
+        # 各自的可校验字段，否则会绕过 schema 上限直达 provider kwargs。
+        reject_reserved_extra_keys(v, source="project settings")
+        return v
 
     @field_validator("deep_import", mode="before")
     @classmethod

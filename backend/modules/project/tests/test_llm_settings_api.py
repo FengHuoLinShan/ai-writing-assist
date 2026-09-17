@@ -558,3 +558,20 @@ async def test_project_context_keeps_only_project_owned_nonsecret_settings(
     assert context_with_global is not None
     assert context_with_global.settings == context.settings
     assert "account-runtime-key" not in str(context_with_global.model_dump())
+
+
+def test_llm_settings_extra_cannot_shadow_formal_request_fields() -> None:
+    """P1-2：项目 extra 不允许承载正式 request 字段，防止绕过 schema 上限。"""
+    from pydantic import ValidationError as PydanticValidationError
+
+    from modules.project.schemas import ProjectLLMSettingsUpdate
+
+    with pytest.raises(PydanticValidationError, match="formal request fields"):
+        ProjectLLMSettingsUpdate(extra={"max_tokens": 999999})
+    with pytest.raises(PydanticValidationError, match="formal request fields"):
+        ProjectLLMSettingsUpdate(extra={"max_completion_tokens": 999999})
+    with pytest.raises(PydanticValidationError, match="formal request fields"):
+        ProjectLLMSettingsUpdate(extra={"temperature": 2.5})
+
+    allowed = ProjectLLMSettingsUpdate(extra={"reasoning_effort": "high"})
+    assert allowed.extra == {"reasoning_effort": "high"}

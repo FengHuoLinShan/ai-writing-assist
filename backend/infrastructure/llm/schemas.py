@@ -87,8 +87,8 @@ class LLMCallRequest(BaseModel):
     """模型名称"""
     messages: list[LLMMessage] = Field(default_factory=list)
     """对话消息列表"""
-    temperature: float | None = 0.7
-    """生成温度"""
+    temperature: float | None = None
+    """生成温度；None 表示继承 client 解析出的 profile 默认"""
     max_tokens: int | None = None
     """最大输出 token 数；None 表示继承当前 LLMClient 的默认值"""
     response_format: dict[str, str] | None = None

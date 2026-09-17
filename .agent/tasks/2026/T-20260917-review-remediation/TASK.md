@@ -62,6 +62,10 @@ Luna 专属默认。
   以 --no-change-reason 通过（无 ORM/map/DB 影响，行为契约同步 02_world.md）。
 - 新增测试：test_world_decision_merge.py（4）、test_workflow.py 审查 prompt 组装（2）、
   test_world_knowledge_governance.py 冻结投影接线（1）。
+- Wave 2：全量 modules 3429 passed, 12 skipped（temperature 默认 0.7→None 全局回归无异常）；
+  llm client/schema/envelope 85+74 passed；project 147 passed；ruff 通过；docs-check 通过
+  （12_infrastructure.md 与 llm README 同步 profile 请求默认与 extra 信任边界）。
+  新增测试：test_client.py profile 默认/extra 封锁（4）、test_llm_settings_api.py extra 校验（1）。
 
 ## 阻塞 / 下一步
 
