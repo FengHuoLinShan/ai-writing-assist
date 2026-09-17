@@ -101,6 +101,16 @@ evals/artifacts/results/outline.result.json" \
 make eval-fast
 ```
 
+## World design verified-review pair gate
+
+`manifests/world-design-review-v1.json` 固定 11 类合成覆盖面：目标误读、作者禁区、资源闭环、
+信息传播、制度执行、维护故障、长期反馈、合理怪异设定、无问题、证据不足和价值冲突。真实模型
+运行仍使用现有独立 review/adjudication 流程；只有双方都完成 adjudication，且 model、冻结
+context hash 与总 token budget 完全相同的配对结果，才能交给
+`evals.world_design_review.evaluate_world_design_review_pairs`。门禁要求严重目标／因果错误严格减少、
+误报与无谓作者决策不增加、知识边界和项目隔离回归为零。该离线门禁不发起付费模型调用；没有
+单独授权时只能验证工程闭环，不能据此宣称产品质量提升。
+
 `eval-fixture-manifest` covers the stable Writing, Outline, and World synthetic
 and prompt-contract fixtures. It stores only logical roles, repository-relative
 paths, sizes, and SHA-256 hashes; fixture payloads are not copied into the

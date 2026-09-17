@@ -1,0 +1,16 @@
+{
+  "schema_version": "world-design-review-manifest.v1",
+  "cases": [
+    {"case_id": "goal-misread", "scenario": "目标误读"},
+    {"case_id": "author-boundary", "scenario": "作者禁区"},
+    {"case_id": "resource-loop", "scenario": "资源闭环"},
+    {"case_id": "information-flow", "scenario": "信息传播"},
+    {"case_id": "institution-enforcement", "scenario": "制度执行"},
+    {"case_id": "maintenance-failure", "scenario": "维护故障"},
+    {"case_id": "long-feedback", "scenario": "长期反馈"},
+    {"case_id": "reasonable-weirdness", "scenario": "合理怪异设定"},
+    {"case_id": "no-issue", "scenario": "无问题样本"},
+    {"case_id": "insufficient-evidence", "scenario": "证据不足"},
+    {"case_id": "value-tradeoff", "scenario": "价值冲突"}
+  ]
+}
