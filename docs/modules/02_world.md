@@ -562,6 +562,16 @@ creation_suggestion_queue 中保存封闭的 owner 授权 carrier；普通建议
 changes 续写，稳定身份、原作者决定与未改区域继承，相关旧检查重新待查。最近消息与长期决定分离，
 历史引用必须显式选择，当前工作区与历史起点不能混用。具体契约见 ADR-0021。
 
+仅 design 精细模式在同一模型快照与 Evidence confirmation 内执行可验证反例闭环：强制任务卡、
+目标范围／因果运转两路隔离审查、逐项独立核验、至多一次 confirmed 定向返修、返修后知识复审和
+无二次返修的终审。`insufficient` 保持待补证据，`tradeoff` 保持待作者决定；任一 schema、问题 ID、
+缺项或超时错误失败关闭。稳定阶段响应与完整回执保存在任务私有结果中供自动重排恢复，公开任务
+wire 只返回任务卡和精简检查结论。
+
+保存可携带 `origin_task_id`。服务端重读同项目已完成 design task，并重验父 checkpoint、confirmation、
+来源与最终内容 hash；原结果保存精简审查引用，作者编辑后降级为 `author_edited_unreviewed`，旧客户端
+为 `unreviewed`。终审 blocked 的原样提案不能保存为已检查成果，编辑后仍可作为未复核阶段成果保存。
+
 跨域影响包含 Story 结构、正文精确 range 和地图当前 revision；打开来源与使用回执前校验 hash。语义复核仅使用同一确认实际保留的资料，并记录 domains/depth/遗漏；采用包作为受审内容不扩大其外部引用权限。旧未冻结实际语义内容的回执需重建，见 ADR-0022。
 
 

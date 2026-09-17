@@ -400,7 +400,7 @@ UUID。过滤在领取 SQL 中完成，只处理匹配的 pending 任务；不�
 `resume_manual_task(..., allow_completed=True)` 是 Imports 已核验 deferred 阶段的窄继续入口；默认仍只恢复要求人工恢复的 failed task。调用方必须在同一事务持有项目与领域运行锁，确认范围、阶段和单飞后使用；队列仍执行 task type/novel、恢复策略与后继任务门禁。`list_recent_task_summaries` 只返回指定项目、任务类型的时间与状态，不暴露 meta/result。
 ### 共创回合恢复
 
-`world_cocreation_turn` 使用 `auto_requeue`、至多两个 attempt 与现有 transport retry scope。World 持有业务判断，任务基础设施只提供 operation fingerprint、lease commit fence 和精确 `novel_id + task_type + session_id` 的最后操作查询；该类型禁止 generic submit。终态回合与可恢复结果原子保存，进度不等于采用内容；没有新任务表或调度器。
+`world_cocreation_turn` 使用 `auto_requeue`、至多两个 attempt 与现有 transport retry scope。World 持有业务判断，任务基础设施只提供 operation fingerprint、lease commit fence 和精确 `novel_id + task_type + session_id` 的最后操作查询；该类型禁止 generic submit。终态回合与可恢复结果原子保存，进度不等于采用内容；没有新任务表或调度器。design 精细模式把任务卡、初稿、两路审查、核验、返修、知识复审和终审按稳定阶段写入下划线私有 result；重排仅在输入 hash 相同时复用，公开任务响应继续过滤这些键。
 
 ### 知识治理阶段
 
