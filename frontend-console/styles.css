@@ -467,6 +467,7 @@ html, body {
 
 /* ===== 顶部状态栏 ===== */
 #topbar {
+  position: relative; /* display:contents 壳层下不依赖 flex-item 的 z-index 语义 */
   height: var(--topbar-height);
   min-height: var(--topbar-height);
   display: flex;
@@ -915,6 +916,14 @@ html, body {
   transform: translateX(-50%) translateY(0);
   opacity: 1;
   pointer-events: auto;
+}
+
+/* 移动端让位固定底部导航（64px + 安全区） */
+@media (max-width: 760px) {
+  #command-bar {
+    bottom: calc(76px + env(safe-area-inset-bottom));
+    max-width: calc(100vw - var(--space-4));
+  }
 }
 
 .command-header {
@@ -14219,8 +14228,9 @@ button.rp-journey-card__main:hover {
   right: 0;
   display: grid;
   width: 180px;
-  max-height: calc(100vh - var(--topbar-height) - 24px);
-  max-height: calc(100dvh - var(--topbar-height) - 24px);
+  /* 故事页自己的顶栏是 58px（.rp-story-page 首行），不引用全局 --topbar-height */
+  max-height: calc(100vh - 82px);
+  max-height: calc(100dvh - 82px);
   overflow-y: auto;
   padding: 6px;
   border: 1px solid var(--rp-border);
@@ -14695,7 +14705,8 @@ button.rp-journey-card__main:hover {
   z-index: 16;
   top: 82px;
   right: 12px;
-  bottom: 150px;
+  /* 输入坞多行增高时可到 ~300px；底边随视口高度弹性留白，避免轨道尾端被输入坞盖住 */
+  bottom: clamp(150px, 30dvh, 300px);
   display: flex;
   width: 34px;
   flex-direction: column;

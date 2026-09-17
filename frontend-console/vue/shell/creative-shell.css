@@ -1,5 +1,7 @@
 /* Production shell layer: visual language from prototypes, behavior from services. */
 .creative-shell {
+  /* 壳层实际顶栏高度，供 sticky/fixed 偏移与 max-height 计算消费（styles.css 基线为 64px）。 */
+  --topbar-height: 68px;
   --shell-bg: var(--nc-bg, var(--bg-base));
   --shell-surface: var(--nc-surface, var(--bg-panel));
   --shell-muted: var(--nc-dim, var(--text-tertiary));
@@ -19,8 +21,8 @@
 }
 
 .creative-shell #topbar {
-  height: 68px;
-  min-height: 68px;
+  height: var(--topbar-height);
+  min-height: var(--topbar-height);
   padding: 0 26px;
   gap: 18px;
   background: color-mix(in srgb, var(--shell-bg) 94%, transparent);
@@ -114,6 +116,7 @@
 .creative-shell :where(button, a, summary, input, select, textarea):focus-visible { outline-color: var(--shell-blue); }
 
 @media (max-width: 760px) {
+  .creative-shell { --topbar-height: 60px; }
   .creative-shell #topbar { height: 60px; min-height: 60px; padding-inline: 12px; gap: 8px; }
   .creative-shell .topbar-left { display: flex; min-width: auto; }
   .creative-shell .logo-name, .creative-shell .topbar-context-label, .creative-shell .topbar-center .separator, .creative-shell #topbar-module, .creative-shell #topbar-submodule, .creative-shell .topbar-view-note, .creative-shell .status-text { display: none; }
