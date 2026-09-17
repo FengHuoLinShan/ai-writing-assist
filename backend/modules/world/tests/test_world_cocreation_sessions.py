@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 
 import pytest
@@ -366,6 +367,195 @@ async def test_all_design_actions_generate_typed_previews_without_advancing_or_a
         )
         assert detail.json()["session"]["current_checkpoint_id"] == parent_id
     assert len(fake.requests) == 4
+
+
+@pytest.mark.asyncio
+async def test_pro_design_runs_verified_review_persists_private_receipt_and_binds_save(
+    async_client,
+    db_session,
+    monkeypatch,
+    account_llm_connection,
+):
+    from infrastructure.tasks.facade import run_task_inline
+    from modules.world.tests.test_world_design_iteration import _parent
+
+    fake = _install_fake_llm(monkeypatch)
+    calls = []
+
+    async def structured(request, schema, **kwargs):
+        calls.append((schema.__name__, request))
+        if schema.__name__ == "AuditVerdictOutput":
+            return await fake._governed_generate_structured(request, schema, **kwargs)
+        if schema.__name__ == "GeneratedWorldGenerationDecisionState":
+            return schema.model_validate(
+                {
+                    "current_author_goal": "补足潮门维护闭环",
+                    "working_assumptions": ["盐料可储存七日"],
+                    "checkable_commitments": ["说明资源、维护和故障反馈"],
+                    "confidence": 0.9,
+                }
+            )
+        if schema.__name__ == "WorldDesignIterationOutput":
+            summary = (
+                "补上七日储备与降级运转"
+                if any("CONFIRMED_ISSUES" in item.content for item in request.messages)
+                else "潮门依赖每日盐料"
+            )
+            return schema.model_validate({"summary": summary, "changes": {}})
+        if schema.__name__ == "GeneratedWorldDesignIssueBatch":
+            if "目标与范围" in request.messages[0].content:
+                return schema.model_validate({"issues": []})
+            return schema.model_validate(
+                {
+                    "issues": [
+                        {
+                            "commitment": "说明资源、维护和故障反馈",
+                            "trigger": "连续七日断盐",
+                            "counterexample": "储备耗尽后港口停摆",
+                            "expected": "存在降级路径",
+                            "current": "没有替代来源",
+                            "severity": "major",
+                        }
+                    ]
+                }
+            )
+        if schema.__name__ == "GeneratedWorldDesignVerification":
+            cards = (
+                request.messages[-1]
+                .content.split("<ISSUE_CARDS>\n", 1)[1]
+                .split("\n</ISSUE_CARDS>", 1)[0]
+            )
+            issue_id = json.loads(cards)[0]["issue_id"]
+            return schema.model_validate(
+                {
+                    "verdicts": [
+                        {
+                            "issue_id": issue_id,
+                            "verdict": "confirmed",
+                            "reason": "冻结输入支持该反例",
+                        }
+                    ]
+                }
+            )
+        if schema.__name__ == "GeneratedWorldDesignFinalReview":
+            return schema.model_validate(
+                {
+                    "status": "passed",
+                    "checked_aspects": ["作者目标", "资源与维护"],
+                    "addressed_issues": ["储备耗尽后港口停摆"],
+                }
+            )
+        raise AssertionError(f"unexpected schema: {schema}")
+
+    monkeypatch.setattr(fake, "generate_structured", structured, raising=False)
+    novel_id = await _create_project(async_client, "精细反例审查")
+    session = await _create_session(async_client, novel_id)
+    checkpoint = _parent()
+    checkpoint.world_state.project.id = novel_id
+    saved = await async_client.post(
+        "/api/world/design-checkpoints",
+        json={
+            "novel_id": novel_id,
+            "checkpoint": checkpoint.model_dump(mode="json", by_alias=True),
+        },
+    )
+    parent_id = saved.json()["id"]
+    await async_client.post(
+        f"/api/world/cocreation-sessions/{session['id']}/checkpoint",
+        json={
+            "novel_id": novel_id,
+            "checkpoint_suggestion_id": parent_id,
+            "expected_checkpoint_id": None,
+        },
+    )
+    confirmation = await _confirm_chat_context(async_client, novel_id)
+    task_id = str(uuid.uuid4())
+    submitted = await async_client.post(
+        "/api/world/cocreation-turns/task",
+        json={
+            "novel_id": novel_id,
+            "session_id": session["id"],
+            "operation_id": task_id,
+            "mode": "design",
+            "workflow_preset": "world_core",
+            "target": {"kind": "core_entity", "template": "none"},
+            "expected_checkpoint_id": parent_id,
+            "parent_checkpoint_id": parent_id,
+            "session_action": "pressure",
+            "quality_mode": "pro",
+            "context_confirmation_id": confirmation,
+            "messages": [{"role": "user", "content": "补足潮门维护闭环"}],
+        },
+    )
+    assert submitted.status_code == 202, submitted.text
+    result = await run_task_inline(
+        db_session, task_id=task_id, expected_task_type="world_cocreation_turn"
+    )
+    assert result["summary"] == "补上七日储备与降级运转"
+    assert result["review_summary"]["status"] == "passed"
+    assert result["_world_design_review_receipt"]["receipt_hash"]
+    assert result["_world_design_review_state"]["final_review"]["status"] == "passed"
+    step_names = {item["step_name"] for item in result["managed_llm_steps"]}
+    assert {
+        "world.generation.design_iteration.counterexample.intent",
+        "world.generation.design_iteration.counterexample.causal",
+        "world.generation.design_iteration.counterexample.verify",
+        "world.generation.design_iteration.counterexample.repair",
+        "world.generation.design_iteration.counterexample.final",
+    } <= step_names
+    assert all("attempt" not in name and "packet" not in name for name in step_names)
+
+    from infrastructure.tasks.models import AsyncTask
+    from modules.world.schemas import (
+        WorldCocreationTurnTaskRequest,
+        WorldDesignIterationRequest,
+    )
+    from modules.world.services.worldbuilding.world_generation_center_service import (
+        WorldGenerationCenterService,
+    )
+
+    task = await db_session.get(AsyncTask, uuid.UUID(task_id))
+    task_data = WorldCocreationTurnTaskRequest.model_validate(
+        {**task.meta, "operation_id": task_id}
+    )
+    call_count = len(calls)
+    resumed = await WorldGenerationCenterService().design_iteration(
+        db_session,
+        WorldDesignIterationRequest.model_validate(
+            {**task_data.model_dump(), "action": task_data.session_action}
+        ),
+        llm_execution_snapshot=task.meta["llm_execution_snapshot"],
+        resume_review_state=result["_world_design_review_state"],
+    )
+    assert resumed.review_summary.status == "passed"
+    assert len(calls) == call_count
+
+    public_task = await async_client.get(
+        f"/api/tasks/{task_id}", params={"novel_id": novel_id}
+    )
+    assert all(not key.startswith("_") for key in public_task.json()["result"])
+
+    revision = await async_client.post(
+        "/api/world/design-checkpoints/revisions",
+        json={
+            "novel_id": novel_id,
+            "session_id": session["id"],
+            "parent_checkpoint_id": parent_id,
+            "expected_checkpoint_id": parent_id,
+            "action": "pressure",
+            "summary": result["summary"],
+            "changes": result["changes"],
+            "context_confirmation_id": confirmation,
+            "origin_task_id": task_id,
+        },
+    )
+    assert revision.status_code == 201, revision.text
+    review_ref = revision.json()["payload_json"]["world_state"]["extensions"][
+        "verified_counterexample_review"
+    ]
+    assert review_ref["status"] == "passed"
+    assert review_ref["origin_task_id"] == task_id
+    assert len([name for name, _ in calls if name == "WorldDesignIterationOutput"]) == 2
 
 
 async def _create_project(client: AsyncClient, title: str) -> str:

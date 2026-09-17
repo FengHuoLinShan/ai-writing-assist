@@ -49,6 +49,16 @@ class GeneratedWorldGenerationDecisionState(BaseModel):
         description="被作者明确作废且不得在提案中再次出现的名称或短语。",
     )
     unresolved_choices: list[str] = Field(default_factory=list, max_length=64)
+    working_assumptions: list[Annotated[str, Field(max_length=1000)]] = Field(
+        default_factory=list,
+        max_length=16,
+        description="为完成本轮推演暂时采用、但尚未被作者确认为事实的假设。",
+    )
+    checkable_commitments: list[Annotated[str, Field(max_length=1000)]] = Field(
+        default_factory=list,
+        max_length=16,
+        description="本轮结果必须满足、可由独立审查逐项核对的承诺。",
+    )
     knowledge_expression_boundaries: list[Annotated[str, Field(max_length=1000)]] = Field(
         default_factory=list,
         max_length=32,
@@ -110,6 +120,72 @@ class GeneratedWorldGenerationDecisionAudit(BaseModel):
 
     verdict: Literal["pass", "revise"]
     violations: list[str] = Field(default_factory=list, max_length=20)
+
+
+class GeneratedWorldDesignIssue(BaseModel):
+    """One concrete counterexample proposed by an isolated reviewer."""
+
+    model_config = {"extra": "forbid"}
+
+    commitment: str = Field(..., min_length=1, max_length=1000)
+    trigger: str = Field(..., min_length=1, max_length=1000)
+    counterexample: str = Field(..., min_length=1, max_length=1500)
+    expected: str = Field(..., min_length=1, max_length=1000)
+    current: str = Field(..., min_length=1, max_length=1000)
+    severity: Literal["blocker", "major", "minor"]
+
+
+class GeneratedWorldDesignIssueBatch(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    issues: list[GeneratedWorldDesignIssue] = Field(default_factory=list, max_length=4)
+
+
+class GeneratedWorldDesignIssueVerdict(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    issue_id: str = Field(..., min_length=1, max_length=128)
+    verdict: Literal["confirmed", "rejected", "insufficient", "tradeoff"]
+    reason: str = Field(..., min_length=1, max_length=1000)
+
+
+class GeneratedWorldDesignVerification(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    verdicts: list[GeneratedWorldDesignIssueVerdict] = Field(
+        default_factory=list, max_length=8
+    )
+
+
+class GeneratedWorldDesignFinalReview(BaseModel):
+    """Fresh-context terminal review; callers never loop on this output."""
+
+    model_config = {"extra": "forbid"}
+
+    status: Literal["passed", "passed_with_open_questions", "blocked"]
+    checked_aspects: list[Annotated[str, Field(max_length=300)]] = Field(
+        default_factory=list, max_length=8
+    )
+    addressed_issues: list[Annotated[str, Field(max_length=600)]] = Field(
+        default_factory=list, max_length=8
+    )
+    insufficient_evidence: list[Annotated[str, Field(max_length=600)]] = Field(
+        default_factory=list, max_length=8
+    )
+    author_decisions: list[Annotated[str, Field(max_length=600)]] = Field(
+        default_factory=list, max_length=8
+    )
+    blockers: list[Annotated[str, Field(max_length=600)]] = Field(
+        default_factory=list, max_length=8
+    )
+
+    @model_validator(mode="after")
+    def validate_status(self) -> GeneratedWorldDesignFinalReview:
+        if self.status == "blocked" and not self.blockers:
+            raise ValueError("blocked final review requires blockers")
+        if self.status != "blocked" and self.blockers:
+            raise ValueError("non-blocked final review forbids blockers")
+        return self
 
 
 class GeneratedWorldGenerationConvergenceItem(BaseModel):

@@ -52,14 +52,17 @@ _WORLD_GENERATION_SUGGESTION_DEADLINE_SECONDS = 2 * 1800.0 + (
 # task requeue (two attempts max).
 _WORLD_COCREATION_CHAT_FAST_REQUEST_LIMIT = 10  # 2 replies + 3 audit × 2
 _WORLD_COCREATION_CHAT_PRO_REQUEST_LIMIT = 14  # 4 replies + 3 audit × 2
-_WORLD_COCREATION_DESIGN_REQUEST_LIMIT = 24  # (3 + 3 + 3 + 3) × 2
+_WORLD_COCREATION_DESIGN_FAST_REQUEST_LIMIT = 24
+_WORLD_COCREATION_DESIGN_PRO_REQUEST_LIMIT = 66
 
 
 def _world_cocreation_request_limit(task: Any) -> int:
     """Freeze A for the shared chat/design task before provider I/O."""
     meta = task.meta or {}
     if str(meta.get("mode") or "chat") == "design":
-        return _WORLD_COCREATION_DESIGN_REQUEST_LIMIT
+        if str(meta.get("quality_mode") or "fast") == "pro":
+            return _WORLD_COCREATION_DESIGN_PRO_REQUEST_LIMIT
+        return _WORLD_COCREATION_DESIGN_FAST_REQUEST_LIMIT
     if str(meta.get("quality_mode") or "fast") == "pro":
         return _WORLD_COCREATION_CHAT_PRO_REQUEST_LIMIT
     return _WORLD_COCREATION_CHAT_FAST_REQUEST_LIMIT
@@ -253,14 +256,14 @@ def _require_alias_relation_confirmation_owner(
         )
 
 
-async def _commit_alias_relation_checkpoint(
+async def _commit_world_task_checkpoint(
     db: Any,
     task: Any,
     *,
     result: dict[str, Any],
     progress: float,
 ) -> None:
-    """Persist one detached checkpoint or restore the last durable task state."""
+    """Persist one detached World task checkpoint behind the worker lease fence."""
     previous_result = getattr(task, "result", None)
     previous_progress = getattr(task, "progress", None)
     missing = object()
@@ -279,7 +282,7 @@ async def _commit_alias_relation_checkpoint(
             task.heartbeat_at = previous_heartbeat
         raise
     if db.in_transaction():
-        raise RuntimeError("alias/relation checkpoint left a transaction")
+        raise RuntimeError("World task checkpoint left a transaction")
     db.expire_all()
 
 
@@ -416,7 +419,7 @@ async def handle_world_alias_relation_extraction(db, task):
 
     receipt = state.get("receipt") if state.get("stage") == "llm_complete" else None
     if receipt is None:
-        await _commit_alias_relation_checkpoint(
+        await _commit_world_task_checkpoint(
             db,
             task,
             result={
@@ -439,7 +442,7 @@ async def handle_world_alias_relation_extraction(db, task):
         )
         if not isinstance(receipt, dict):
             raise ValueError("alias/relation provider receipt is invalid")
-        await _commit_alias_relation_checkpoint(
+        await _commit_world_task_checkpoint(
             db,
             task,
             result={
@@ -540,7 +543,7 @@ async def handle_world_alias_relation_extraction(db, task):
             status="done",
         )
     public_result = {**result, "llm_execution_snapshot": llm_execution_snapshot}
-    await _commit_alias_relation_checkpoint(
+    await _commit_world_task_checkpoint(
         db,
         task,
         result={
@@ -653,7 +656,21 @@ async def handle_world_cocreation_turn(db, task):
     session = await sessions._require_session(db, data.novel_id, data.session_id)
     completed = (task.result or {}).get("_cocreation_turn_response")
     if isinstance(completed, dict):
-        return completed
+        receipt = (task.result or {}).get("_world_design_review_receipt")
+        review_state = (task.result or {}).get("_world_design_review_state")
+        return {
+            **completed,
+            **(
+                {"_world_design_review_receipt": receipt}
+                if isinstance(receipt, dict)
+                else {}
+            ),
+            **(
+                {"_world_design_review_state": review_state}
+                if isinstance(review_state, dict)
+                else {}
+            ),
+        }
     snapshot = meta.get("llm_execution_snapshot")
     if not isinstance(snapshot, dict) or not snapshot:
         raise ValueError("llm_execution_snapshot is required")
@@ -663,12 +680,26 @@ async def handle_world_cocreation_turn(db, task):
     task.update_progress(0.05)
     service = WorldGenerationCenterService()
     if data.mode == "design":
+
+        async def checkpoint_review_state(state: dict[str, Any], progress: float) -> None:
+            await _commit_world_task_checkpoint(
+                db,
+                task,
+                result={
+                    **dict(task.result or {}),
+                    "_world_design_review_state": state,
+                },
+                progress=progress,
+            )
+
         result = await service.design_iteration(
             db,
             WorldDesignIterationRequest.model_validate(
                 {**data.model_dump(), "action": data.session_action}
             ),
             llm_execution_snapshot=snapshot,
+            resume_review_state=(task.result or {}).get("_world_design_review_state"),
+            review_checkpoint_callback=checkpoint_review_state,
         )
         reply = result.summary
     else:
@@ -711,10 +742,18 @@ async def handle_world_cocreation_turn(db, task):
         "mode": data.mode,
         "session_id": data.session_id,
     }
-    task.result = {**(task.result or {}), "_cocreation_turn_response": response}
+    private_result = {"_cocreation_turn_response": response}
+    review_state = (task.result or {}).get("_world_design_review_state")
+    if isinstance(review_state, dict):
+        private_result["_world_design_review_state"] = review_state
+    if service.last_design_review_receipt is not None:
+        private_result["_world_design_review_receipt"] = (
+            service.last_design_review_receipt
+        )
+    task.result = {**(task.result or {}), **private_result}
     task.update_progress(1.0)
     await db.commit()
-    return response
+    return {**response, **private_result}
 
 
 @task_handler(

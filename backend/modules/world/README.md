@@ -349,6 +349,10 @@ PNG 后才进入地图册私有 S3。此例外不改变 imports 的文稿上传�
   规则原子、阻断矛盾和一条日常＋故障纵切。只有作者 seed 全覆盖、
   来源 manifest 覆盖完整、规则与决定项一一绑定且无阻断矛盾时才返回
   `ready_for_handoff=true`。人物、总纲、Scene 和完整国家／历史不属于该预设。
+  design `quality_mode=pro` 会先编译含工作假设与可检验承诺的任务卡，再并行运行目标范围、
+  因果运转两路隔离反例审查；每路最多 4 张问题卡，稳定 ID 去重后总计最多 8 张。独立核验将
+  问题逐项分为 `confirmed/rejected/insufficient/tradeoff`，只有 confirmed 进入一次定向返修；
+  返修后执行无自动返修的知识复审和新上下文终审，终审不再开启第二轮。fast 仍走原流程。
   `world_adoption_package.v1` 是作者显式保存的 pending 包；完成的 Deep Import 也会按冻结的
   Scene hash、workflow 与授权回执幂等组装一个包。已自动写入的对象以 `existing_ref/no-op`
   显示，candidate 对象/关系仍由作者 preview/apply；apply 不重复创建前者。preview 不写库，按 source refs、
@@ -379,7 +383,7 @@ retry 与 `auto_requeue` 重放都消耗同一额度，只有作者显式续算�
 | `world_entity_fusion_suggestions` | `world.entity_fusion` | `12M+6`（M=冻结 `max_suggestions`，schema le=200） | 无（仅 provider 180s 边界） |
 | `world_bible_synopsis_refresh` | `world.world_bible.synopsis` | 36 | 无（main/audit 只有各自 step timeout，无既有 run 总时限） |
 | `world_generation_suggestion` | `world.generation.suggestion` | 96 | 3660s（阶段 1800s × 2 attempt + 余量） |
-| `world_cocreation_turn` | `world.generation.cocreation` | chat fast 10 / chat pro 14 / design 24 | 无（每个 provider step 仍受现有 1800s timeout） |
+| `world_cocreation_turn` | `world.generation.cocreation` | chat fast 10 / chat pro 14 / design fast 24 / design pro 66 | 无（每个 provider step 仍受现有 1800s timeout） |
 | `world_map_schematic_generate` | `world.map_structure.generate` | 60（⌈S/5⌉≤4 批 × [U(1,0)+U(2,0)]，S≤20 为 schema 校验器上界；manual_resume 的续跑是新授权动作，额度只覆盖单次 attempt） | 无（manual_resume 恢复不受 frozen deadline 死锁） |
 | `map_atlas_generate` | `world.map_atlas.generate` | 文本规划最多 51；直接生成再预留每页最多 3 次图片请求。Prompt 确认、停止后继续与单页重试只由对应作者动作追加当前图片段 | 无（保留文本/图片 provider 边界） |
 
@@ -390,6 +394,9 @@ retry 与 `auto_requeue` 重放都消耗同一额度，只有作者显式续算�
 `world_object_image_cleanup`）同样不声明。`world_cocreation_turn` 使用
 `world.generation.cocreation` 作为 canonical parent；chat/design 的子步骤仍按各自知识
 策略审查，任务信封只记录 parent root，避免同一 task type 因 mode 发生身份漂移。
+design pro 的任务卡、生成、两路审查、核验、返修、知识复审与终审响应按稳定阶段写入任务
+私有 result；自动重排校验同一输入 hash 后复用已完成阶段。完整回执与输入/输出 hash 也只在
+私有顶层键保存，任务状态 API 继续剥离所有下划线键。
 图片 generate/edit 的真实 Image API 请求由 `OpenAIImageClient` 单点 reserve/settle：
 step 名稳定为 `world.map_image.render`；独立图片测试使用 `world.map_image.generate`，
 Atlas task 内归属 `world.map_atlas.generate` canonical parent（generate/edit 由 call_kind 区分），
@@ -1151,7 +1158,7 @@ Writing 连续性检查只通过 `facade.list_adopted_map_continuity_facts` 读�
 
 ## 持续模型、跨域复核与大库入口
 
-`POST /api/world/cocreation-turns/task` 将聊天与完整模型推演纳入 `world_cocreation_turn`（chat/design）。输入绑定服务器会话、expected checkpoint、显式历史与聚焦面向；Model 内项目标识不代替业务 novel/owner。完整模型由 `POST /api/world/design-checkpoints/revisions` 按 typed changes 继承并推进，作者决定独立于近期消息，旧成果从独立会话继续。原同步聊天仅兼容，不承担恢复。
+`POST /api/world/cocreation-turns/task` 将聊天与完整模型推演纳入 `world_cocreation_turn`（chat/design）。输入绑定服务器会话、expected checkpoint、显式历史与聚焦面向；Model 内项目标识不代替业务 novel/owner。完整模型由 `POST /api/world/design-checkpoints/revisions` 按 typed changes 继承并推进；可选 `origin_task_id` 只接受同项目、同会话、同父 checkpoint、同 confirmation 与来源 hash 的已完成 design task。未改内容保存精简审查引用；作者修改后标为 `author_edited_unreviewed`，旧客户端为 `unreviewed`，原样 blocked 提案拒绝保存为已检查成果。作者决定独立于近期消息，旧成果从独立会话继续。原同步聊天仅兼容，不承担恢复。
 
 `GET /cocreation-sessions/.../messages` 支持 search、skip/limit 与 around_message_id，并返回实际 offset；session detail 带最后操作引用。历史浏览不自动进入模型，未保存的推演预览可回看/显式恢复。完整模型条目可送入既有待审建议，模型快照不可直接采用。
 

@@ -8,7 +8,9 @@ import uuid
 from datetime import UTC, datetime
 
 from core.errors import ValidationError
+from infrastructure.stable_hash import stable_hash
 from modules.world.schemas import (
+    WorldDesignChanges,
     WorldDesignCheckpointPayload,
     WorldDesignRevisionRequest,
 )
@@ -53,9 +55,35 @@ def _check_proposal(value, evidence: set[str]) -> None:
             _check_proposal(child, evidence)
 
 
+def world_design_revision_content_hash(
+    *,
+    summary: str,
+    changes,
+    decisions: list | None = None,  # noqa: ANN001
+) -> str:
+    """Hash only author-editable proposal content, independent of transport metadata."""
+    change_payload = WorldDesignChanges.model_validate(changes).model_dump(
+        mode="json", by_alias=True, exclude_none=True
+    )
+    decision_payload = [
+        item.model_dump(mode="json") if hasattr(item, "model_dump") else item
+        for item in (decisions or [])
+    ]
+    return stable_hash(
+        {
+            "summary": summary,
+            "changes": change_payload,
+            "decisions": decision_payload,
+        }
+    )
+
+
 def revise_world_design(
     parent: WorldDesignCheckpointPayload,
     request: WorldDesignRevisionRequest,
+    *,
+    decision_state=None,  # noqa: ANN001
+    review_reference: dict | None = None,
 ) -> WorldDesignCheckpointPayload:
     """Merge only explicit entries; recompute lineage and invalidate dependents."""
     state = parent.world_state.model_dump(mode="json", by_alias=True)
@@ -261,6 +289,8 @@ def revise_world_design(
             "action": request.action,
         }
     )
+    if review_reference is not None:
+        state["extensions"]["verified_counterexample_review"] = review_reference
     payload = parent.model_dump(mode="json", by_alias=True)
     payload.update(
         world_state=state,
@@ -271,6 +301,10 @@ def revise_world_design(
         action=request.action,
         decisions=decisions,
         world_core=None,
-        decision_state=None,
+        decision_state=(
+            decision_state.model_dump(mode="json")
+            if hasattr(decision_state, "model_dump")
+            else decision_state
+        ),
     )
     return WorldDesignCheckpointPayload.model_validate(payload)

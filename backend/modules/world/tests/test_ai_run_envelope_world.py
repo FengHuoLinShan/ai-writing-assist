@@ -387,21 +387,35 @@ def test_world_cocreation_uses_one_parent_with_mode_specific_bounded_limits() ->
     assert registry.get_root_capability("world_cocreation_turn") == (
         "world.generation.cocreation"
     )
-    assert _registry_limit(
-        "world_cocreation_turn",
-        SimpleNamespace(meta={"mode": "chat", "quality_mode": "fast"}),
-    ) == 10
-    assert _registry_limit(
-        "world_cocreation_turn",
-        SimpleNamespace(meta={"mode": "chat", "quality_mode": "pro"}),
-    ) == 14
-    assert _registry_limit(
-        "world_cocreation_turn",
-        SimpleNamespace(meta={"mode": "design"}),
-    ) == 24
-    assert _registry_deadline(
-        "world_cocreation_turn", SimpleNamespace(meta={})
-    ) is None
+    assert (
+        _registry_limit(
+            "world_cocreation_turn",
+            SimpleNamespace(meta={"mode": "chat", "quality_mode": "fast"}),
+        )
+        == 10
+    )
+    assert (
+        _registry_limit(
+            "world_cocreation_turn",
+            SimpleNamespace(meta={"mode": "chat", "quality_mode": "pro"}),
+        )
+        == 14
+    )
+    assert (
+        _registry_limit(
+            "world_cocreation_turn",
+            SimpleNamespace(meta={"mode": "design", "quality_mode": "fast"}),
+        )
+        == 24
+    )
+    assert (
+        _registry_limit(
+            "world_cocreation_turn",
+            SimpleNamespace(meta={"mode": "design", "quality_mode": "pro"}),
+        )
+        == 66
+    )
+    assert _registry_deadline("world_cocreation_turn", SimpleNamespace(meta={})) is None
 
 
 def test_world_alias_relation_task_uses_frozen_scene_scope() -> None:

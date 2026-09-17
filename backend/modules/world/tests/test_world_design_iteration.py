@@ -193,3 +193,27 @@ def test_new_entry_references_are_resolved_and_external_model_identity_is_preser
     assert first.world_state.dependencies[-1].to == identity
     assert first.world_state.project.id == "world:synthetic"
     assert first.world_core is None and first.decision_state is None
+
+
+def test_revision_persists_task_brief_and_compact_review_reference():
+    parent = _parent()
+    decision_state = {
+        "current_author_goal": "补足潮门维护闭环",
+        "working_assumptions": ["盐由港务机构统一配给"],
+        "checkable_commitments": ["说明资源来源与故障后果"],
+        "confidence": 0.8,
+    }
+    reference = {
+        "schema_version": "world_design_review_ref.v1",
+        "status": "passed",
+        "origin_task_id": str(uuid.uuid4()),
+        "receipt_hash": "b" * 64,
+    }
+    result = revise_world_design(
+        parent,
+        _request(parent),
+        decision_state=decision_state,
+        review_reference=reference,
+    )
+    assert result.decision_state.current_author_goal == "补足潮门维护闭环"
+    assert result.world_state.extensions["verified_counterexample_review"] == reference
