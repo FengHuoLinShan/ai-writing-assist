@@ -505,7 +505,8 @@ async def handle_story_character_card_generate(db, task):
     retry_transient_llm_errors=True,
     root_capability_id="story.reaction",
     run_request_limit=672,
-    run_deadline_seconds=None,
+    # 单 step 已有 timeout；本 run 补保守总墙钟护栏，只切病态挂起。
+    run_deadline_seconds=3600.0,
 )
 async def handle_story_reaction_propose(db, task):
     (
@@ -622,8 +623,8 @@ async def handle_story_scene_script_generate(db, task):
     root_capability_id="story.one_click",
     run_request_limit=1372,
     # 2N+1 个 preview 各自还包含 generation/audit/repair step；只按链数
-    # 乘单 step timeout 会低估，且 auto-requeue 后没有既有总时限。
-    run_deadline_seconds=None,
+    # 乘单 step timeout 会低估，此处用保守总墙钟护栏兜住病态挂起。
+    run_deadline_seconds=7200.0,
 )
 async def handle_story_one_click(db, task):
     (

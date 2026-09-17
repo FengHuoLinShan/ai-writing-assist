@@ -1,8 +1,9 @@
 # Writing 模块 — 正文事实源与受控候选生成
 
 正文生成、语义审查、定向返修与冲突 AI 任务使用统一 AI 运行信封；worker 在领取时冻结额度，
-恢复不重置计数。这些串行链不把单 step timeout 冒充整个 run 的 deadline，继续由各 step 的
-既有 timeout 约束；信封不会进入候选结果。
+恢复不重置计数。单 step timeout 不冒充整个 run 的 deadline：只有串行长链补保守总墙钟护栏
+（writing_generate 7200s，只切病态挂起），其余链继续由各 step 既有 timeout 约束；冲突任务
+配额按"两次 attempt 合法重放 + transport 余量"冻结 16；信封不会进入候选结果。
 
 ## 定位
 

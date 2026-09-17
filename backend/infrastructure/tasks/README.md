@@ -312,12 +312,17 @@ provider 错误才自动重排，且本次 attempt 的失败回执先于 lease �
 声明的任务必须通过 `run_request_limit` 冻结一次 run 的请求额度（静态值，或从任务冻结输入同步
 计算 A 的 callable），可选 `run_token_limit` 冻结累计 token 上限（闸门按已结算用量判定，
 manual resume 按注册值续算 token）；只有领域已有整条 run 的 wall-clock 边界时才声明
-`run_deadline_seconds`，单 step/provider timeout 不冒充 run deadline。已声明 root 却无法冻结
-额度会在 provider 前失败关闭，不得回退到通用临时上限。当前 `evidence_focused_search` 使用
-L0=9，并保留各 step 自身 timeout，不新增 run 总 deadline；远程 embedding 的 RAG 任务
-（`rag_index_chapter` 64 请求 / `rag_reindex_novel` 4096 / `rag_retry_embeddings` 2048，
-均含 token 上限与 run deadline）以宽上界冻结"批量 + 逐 chunk fallback"量级，越界失败关闭
-并保留 manual resume；
+`run_deadline_seconds`，单 step/provider timeout 不冒充 run deadline——但只挂单 step
+timeout 的串行长链（如 writing generate、story one_click/reaction、smart dedup）补保守
+总墙钟护栏（7200/3600s），只切病态挂起、不约束正常长链。已声明 root 却无法冻结额度会在
+provider 前失败关闭，不得回退到通用临时上限。`writing_generate` 在入队时把确认编译产物的
+确定性来源计数冻结为 `included_sources_upper_bound`，配额按真实 K 计算而不是退回 16384
+物理上界（1,544 请求虚高 cap 仅历史在途任务才会走到）；`writing_conflict_*` 两任务按"两次
+attempt 合法重放 12 + transport 余量 4"冻结 16，覆盖完整合法成功路径。当前
+`evidence_focused_search` 使用 L0=9，并保留各 step 自身 timeout，不新增 run 总 deadline；
+远程 embedding 的 RAG 任务（`rag_index_chapter` 64 请求 / `rag_reindex_novel` 4096 /
+`rag_retry_embeddings` 2048，均含 token 上限与 run deadline）以宽上界冻结"批量 + 逐
+chunk fallback"量级，越界失败关闭并保留 manual resume；
 章节范围导致 Scene 数量运行期才知的 `world_alias_relation_extraction` 暂不声明 root，等待
 Phase 0 估算或分批授权。
 task type 的权威 run 若会跨多个队列行，通过注册的 `run_id` resolver 从冻结 meta 解析

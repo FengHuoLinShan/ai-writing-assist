@@ -70,10 +70,13 @@ Luna 专属默认。
     （2 个失败为仓库根目录跑 pytest 的相对路径伪失败，backend/ 下复跑 76 passed）；ruff、
     docs-check 通过（12_infrastructure.md 与 tasks README 同步 token_limit/deadline 裁剪/
     embedding 计量/RAG 任务上限）。
+- Wave 4：writing/story/project/imports 1614→全部通过（更新 2 个 deadline pin）；
+  evals 141+193 passed；ruff、docs-check（--no-change-reason 核对豁免）通过。
 
 ## 阻塞 / 下一步
 
-- 全部 5 波完成（Wave 2/3/4 的进度与验证记录见各分支上的本文件较新版本）：
+- 全部 5 波完成（Wave 2/3/4 的进度与验证记录见各分支上的本文件较新版本，已随本合并进入
+  main 历史）：
   - Wave 1 `codex/world-review-root-cause`：RB-1 + RB-2（036e97a83）。
   - Wave 2 `codex/llm-profile-extra-boundary`：P1-1 + P1-2（e7bd69ba6）。
   - Wave 3 `codex/llm-envelope-hardening`（基于 Wave 2）：P1-3/4/5（2073ce0b9）。
