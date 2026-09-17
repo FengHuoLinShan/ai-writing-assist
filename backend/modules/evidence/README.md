@@ -4,7 +4,9 @@
 
 `evidence_focused_search` 在领取时冻结 `infrastructure.rag_query_planner` 和 9 次请求；planner
 与 nomination 保留各自 30/600 秒 step timeout，但不把单 step timeout 冒充整个 run deadline。
-embedding、索引维护与确定性回标任务仍是首轮非目标，不建立信封。
+索引与 embedding 任务（`rag_index_chapter` 64 / `rag_reindex_novel` 4096 /
+`rag_retry_embeddings` 2048，含 token 上限与 run deadline）以宽上界声明信封，远程 embedding
+经同一信封按 honest-unknown 计量；确定性回标不建立信封（详见 indexing README）。
 
 小说证据的唯一领域实现。Evidence 把原 RAG 召回和 Context 编译放在同一所有权边界内，
 但保留两条清晰的内部流水线：

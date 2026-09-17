@@ -1,8 +1,10 @@
 # Module: evidence / 检索、编译与确认模块
 
 专项查阅的 provider 请求由 `evidence_focused_search` 的统一运行信封累计（L0=9）；planner 与
-nomination 保留各自 step timeout，整条 run 不新增总 deadline。索引与 embedding 任务保持
-非目标，不把确定性索引工作量冒充模型预算。
+nomination 保留各自 step timeout，整条 run 不新增总 deadline。远程 embedding 的索引任务
+（`rag_index_chapter` 64 / `rag_reindex_novel` 4096 / `rag_retry_embeddings` 2048 请求，
+均含 token 上限与 run deadline）以宽上界声明信封，embedding 用量按 honest-unknown 计量；
+确定性索引工作量本身不冒充模型预算。
 
 ## 定位
 
