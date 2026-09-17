@@ -41,6 +41,7 @@ from modules.evidence.compilation.knowledge.llm_schemas import (
     DirectorShardPlan,
 )
 from modules.evidence.compilation.knowledge.policies import (
+    OUTPUT_PERMISSION_AUDIT_CLAUSES,
     CapabilityKnowledgePolicy,
 )
 from modules.evidence.compilation.knowledge.projection import redact_hidden_phrases
@@ -75,17 +76,19 @@ DIRECTOR_SYSTEM_PROMPT = """\
 AUDIT_SYSTEM_PROMPT = """\
 你是创作知识治理的独立审查者，与生成者相互隔离。你会得到：
 - 任务指令（作者要什么）；
+- 作者要求（冻结投影，如有）：与生成器同源的作者决定状态；
 - 生成者可见资料（生成者被允许知道什么）；
 - 权威资料（任务范围内完整事实，可能包含生成者不知道的隐藏真相）；
 - 生成输出（待审文本）与导演处置摘要。
 
 逐类检查输出：
-- missing_required：遗漏了必需信息（对照权威资料与任务指令）；
-- unsupported_fact：出现了资料中没有依据的事实；
+- missing_required：遗漏了必需信息（对照权威资料、任务指令与作者要求）；
+- unsupported_fact：出现了资料中没有依据的事实（先对照【输出权限】：提案类
+  输出的新增内容不属于此项；正文/回答类断言必须有据）；
 - out_of_scope_knowledge：使用了导演标记为仅审查可见/禁止的资料；
 - premature_reveal：把生成者不可见的隐藏真相（或其同义改写）写进了输出；
 - irrelevant_content：与任务无关的内容；
-- conflict：与权威资料矛盾；
+- conflict：与权威资料或作者要求中已锁定的边界矛盾；
 - unchecked：声称做了但资料中无法核验的内容。
 
 规则：
@@ -157,6 +160,8 @@ class GovernedWorkflowHooks:
     """(原输出, 脱敏 finding) -> 返修输出；不提供则直接阻断"""
     on_stage: Callable[[str], None] | None = None
     task_instruction: str = ""
+    author_requirements: str = ""
+    """作者本轮要求与决定的冻结投影（与生成器同源）；不截断，只进审查 Prompt"""
     generator_context: str = ""
     """生成者可见上下文摘要（审查者对照用，来自最小知情包渲染）"""
     authority_context: str = ""
@@ -204,16 +209,27 @@ def _audit_messages(
         + (f"（{item.reason}）" if item.reason else "")
         for item in plan.dispositions
     )
-    user_prompt = (
-        f"能力：{policy.title}（{policy.capability_id}）\n"
-        f"必查维度：{', '.join(policy.required_dimensions)}\n\n"
-        f"【任务指令】\n{hooks.task_instruction or '（见生成者资料）'}\n\n"
-        f"【生成者可见资料】\n{hooks.generator_context or '（空）'}\n\n"
-        f"【权威资料（可能含隐藏真相，仅供审查）】"
-        f"\n{hooks.authority_context or '（空）'}\n\n"
-        f"【导演处置摘要】\n{disposition_summary or '（无）'}\n\n"
-        f"【生成输出（待审）】\n{output}"
+    permission_clauses = "；".join(
+        OUTPUT_PERMISSION_AUDIT_CLAUSES[permission]
+        for permission in policy.output_permissions
+        if permission in OUTPUT_PERMISSION_AUDIT_CLAUSES
     )
+    sections = [
+        f"能力：{policy.title}（{policy.capability_id}）",
+        f"必查维度：{', '.join(policy.required_dimensions)}",
+    ]
+    if permission_clauses:
+        sections.append(f"【输出权限】\n{permission_clauses}")
+    sections.append(f"【任务指令】\n{hooks.task_instruction or '（见生成者资料）'}")
+    if hooks.author_requirements:
+        sections.append(f"【作者要求（冻结投影）】\n{hooks.author_requirements}")
+    sections.append(f"【生成者可见资料】\n{hooks.generator_context or '（空）'}")
+    sections.append(
+        f"【权威资料（可能含隐藏真相，仅供审查）】\n{hooks.authority_context or '（空）'}"
+    )
+    sections.append(f"【导演处置摘要】\n{disposition_summary or '（无）'}")
+    sections.append(f"【生成输出（待审）】\n{output}")
+    user_prompt = "\n\n".join(sections)
     return [
         LLMMessage(role="system", content=AUDIT_SYSTEM_PROMPT),
         LLMMessage(role="user", content=user_prompt),

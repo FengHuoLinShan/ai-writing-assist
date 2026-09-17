@@ -60,6 +60,19 @@ OUTPUT_PERMISSIONS = frozenset(
     {OUTPUT_PROSE, OUTPUT_PROPOSAL, OUTPUT_FINDING, OUTPUT_ANSWER, OUTPUT_INTERNAL}
 )
 
+OUTPUT_PERMISSION_AUDIT_CLAUSES: dict[str, str] = {
+    OUTPUT_PROPOSAL: (
+        "本能力输出是向作者提出的候选提案：新增设定、命名、结构或推演不因资料中"
+        "没有依据而单独构成 unsupported_fact；但新增内容不得与权威资料矛盾、不得"
+        "违反任务指令或作者要求中已锁定的边界，对既有事实的引用必须与资料一致。"
+    ),
+    OUTPUT_PROSE: "本能力输出是创作正文：对既有事实的引用必须与资料一致。",
+    OUTPUT_FINDING: "本能力输出是检查发现：每条发现必须给出资料内依据。",
+    OUTPUT_ANSWER: "本能力输出是回答：事实性断言必须有资料依据。",
+    OUTPUT_INTERNAL: "本能力输出仅供内部流程使用：按资料一致性审查。",
+}
+"""输出权限的审查语义；进入审查 prompt，决定 unsupported_fact 的适用范围。"""
+
 KNOWLEDGE_DIMENSIONS: dict[str, str] = {
     "prior_prose": "截止点前正文与选中路径",
     "scene_state": "Scene 四维记忆时点",

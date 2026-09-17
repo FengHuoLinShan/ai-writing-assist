@@ -112,6 +112,7 @@ async def govern_world_output(
     rendered_context: str,
     output: str,
     task_instruction: str,
+    author_requirements: str = "",
     repair: Callable[[str], Awaitable[str]] | None = None,
     step_prefix: str | None = None,
 ) -> dict:
@@ -120,6 +121,7 @@ async def govern_world_output(
     返回 ``{"status": passed|blocked, "text": 最终输出, "review": 脱敏回执}``；
     blocked 时 text 为空串（调用方不得展示/采用原文，建议类仍可保存为不可采用
     candidate）。生成者可见资料 = 本次编译上下文（服务端已裁剪）；权威对照同源。
+    author_requirements 是与生成器同源的作者决定冻结投影，不截断进入审查。
     """
     policy = require_capability_policy(capability)
     entries = world_scope_entries(source_refs, rendered_context)
@@ -152,6 +154,8 @@ async def govern_world_output(
         generator_keys=tuple(entry.source_key for entry in entries),
         audit_only_keys=(),
     )
+    # 资料投影按预算截断；作者决定投影（author_requirements）不截断——
+    # 审查者必须看到与生成器等价的作者边界才能核验提案是否遵守。
     context_for_audit = rendered_context[:24000]
 
     async def _audit(text: str):  # noqa: ANN202
@@ -163,6 +167,7 @@ async def govern_world_output(
             hooks=GovernedWorkflowHooks(
                 generate=_noop_generate,
                 task_instruction=task_instruction,
+                author_requirements=author_requirements,
                 generator_context=context_for_audit,
                 authority_context=context_for_audit,
             ),
