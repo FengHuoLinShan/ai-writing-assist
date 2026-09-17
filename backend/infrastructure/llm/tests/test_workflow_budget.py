@@ -140,3 +140,21 @@ async def test_budgeted_tool_charges_an_embedded_agent_run_once():
     )
     assert current_workflow_budget() is None
     assert [item["requests"] for item in saved][-1] == 2
+
+
+@pytest.mark.asyncio
+async def test_workflow_budget_checkpoint_failure_releases_pending_request() -> None:
+    """P1-4：checkpoint 失败的请求没有发出 provider I/O，不得留下幻影计数。"""
+    from infrastructure.llm.agent_runtime import AgentRunBudget
+    from infrastructure.llm.workflow_budget import WorkflowBudget
+
+    async def failing_checkpoint(_payload):
+        raise RuntimeError("checkpoint down")
+
+    budget = AgentRunBudget(mode="author")
+    workflow = WorkflowBudget(budget, failing_checkpoint)
+    with pytest.raises(RuntimeError, match="checkpoint down"):
+        await workflow.before_request()
+    assert budget.requests == 0
+    assert budget.pending_usage == 0
+    assert budget.usage_complete is True

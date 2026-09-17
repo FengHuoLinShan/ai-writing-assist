@@ -124,6 +124,8 @@ Embedding、streaming 和 `generate_simple()` 不是本 harness 的默认迁移�
 自动重试、恢复、requeue 与 manual resume 累加同一 run；只有作者显式续算或确认可能重复扣费
 才增加请求额度，且不移动 deadline。已取得含 usage 完整回执（含失败请求）记 `recorded`；已发出
 但结果或用量证据不完整记 `possible`；预算或 deadline 拒绝记 `none`，且拒绝发生在任何计数之前。
+任务注册可声明 `run_token_limit` 冻结累计 token 上限：闸门在 reserve 时按已结算用量判定，
+单次响应可能越过上限（事后不可撤回），越界后拒绝新请求，manual resume 按注册值续算 token。
 `recent_attempts` 保留最近 256 条，溢出只合并摘要，不丢总请求、未知请求、重试与 usage 计数。
 变更与 checkpoint 串行落盘，持久化顺序不会回退；写入终态前先把在途请求收敛为 unknown/possible。
 step 的 profile 摘要按 allowlist 重建，Key、完整 endpoint、Prompt 与正文不进入信封；领域必须用
@@ -131,7 +133,10 @@ step 的 profile 摘要按 allowlist 重建，Key、完整 endpoint、Prompt 与
 文本 provider I/O 的单入口是 `LLMClient.generate()`：transport 尝试、关闭 transport retry 的
 structured、format repair、stream 建流尝试与 research 的每个 attempt 在活动信封下恰好
 reserve/settle 一次，缺 usage 记 unknown/possible；deadline 到期不再退避、等待 RPM/并发 admission
-或发请求。embedding 与健康检查是首轮非目标。
+或发请求。单次 provider 调用上限取 profile timeout 与剩余 run deadline 的较小值，
+deadline 前一刻发出的在途请求不会运行完整 provider timeout 越过 run 边界。远程 embedding
+经同一信封计量（provider 不返回用量，按 unknown/possible 落账，归属
+`infrastructure.embedding` step）；本地 BGE 是登记的非计费窄例外；健康检查不计费。
 `managed_llm_steps` 保持 v0 五字段兼容，v1 由同一信封的 step receipt 派生。
 
 Task 路径把同一信封落在 `async_tasks.meta` 的私有键 `_ai_run_envelope`：worker 与 inline 在 handler

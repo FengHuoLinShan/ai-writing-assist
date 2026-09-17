@@ -60,6 +60,10 @@ Luna 专属默认。
 - Wave 1：world+evidence 全量 1561 passed, 2 deselected；writing 治理/semantic/interaction
   knowledge 25 passed；prompt contracts 18 passed；ruff 通过；docs-check BASE_REF=origin/main
   以 --no-change-reason 通过（无 ORM/map/DB 影响，行为契约同步 02_world.md）。
+- Wave 3：infrastructure+evidence 1061+205 passed；modules+infrastructure 全量 3904 passed
+    （2 个失败为仓库根目录跑 pytest 的相对路径伪失败，backend/ 下复跑 76 passed）；ruff、
+    docs-check 通过（12_infrastructure.md 与 tasks README 同步 token_limit/deadline 裁剪/
+    embedding 计量/RAG 任务上限）。
 - Wave 2：全量 modules 3429 passed, 12 skipped（temperature 默认 0.7→None 全局回归无异常）；
   llm client/schema/envelope 85+74 passed；project 147 passed；ruff 通过；docs-check 通过
   （12_infrastructure.md 与 llm README 同步 profile 请求默认与 extra 信任边界）。
@@ -69,8 +73,16 @@ Luna 专属默认。
 
 ## 阻塞 / 下一步
 
-- 无阻塞。Wave 2 实现完成于 `codex/llm-profile-extra-boundary`（LLMCallRequest.temperature
-  默认改 None；resolve_request_defaults 填充 profile temperature/top_p 并按键合并 extra；
-  `_RESERVED_EXTRA_FIELDS` 补齐正式字段与 max_completion_tokens 同义词；项目设置 schema、
-  `_encrypt_project_settings_update`、`from_resolved_profile` 三层拒绝 reserved extra）。
-  下一步：Wave 3 `codex/llm-envelope-hardening`。Wave 1/2 合并 main 待用户授权。
+- 无阻塞。Wave 3 实现完成于 `codex/llm-envelope-hardening`（基于 Wave 2 分支叠加）：
+  - P1-3：`AIRunEnvelopeV1.token_limit`（可选累计 token 上限，reserve 按已结算用量闸断）；
+    `AIRunAuthorizationV1.additional_tokens` + `authorize_additional_requests` 续算；registry
+    `run_token_limit` 声明链 + worker 冻结 + lifecycle 预算判定/manual resume；单次 provider
+    调用 timeout 取 min(profile timeout, 剩余 run deadline)（generate/generate_stream 建流/
+    远程 embedding）。
+  - P1-4：`WorkflowBudget.before_request` checkpoint 失败时 `release_pending_request()` 回滚
+    兼容账本，不再留幻影计数。
+  - P1-5：远程 embedding 经 `_embedding_step_scope`（infrastructure.embedding step）接入同一
+    信封，honest-unknown 落账；本地 BGE 标注非计费窄例外；RAG 三任务（index_chapter 64 /
+    reindex_novel 4096 / retry_embeddings 2048 请求 + token 上限 + deadline）声明信封，
+    capabilities 注册 infrastructure.rag_* 三项。
+  下一步：Wave 4 `codex/budget-caps-provenance`。Wave 1/2/3 合并 main 待用户授权。

@@ -357,6 +357,11 @@ class TaskRunEnvelopeKeeper:
                 if self._registry is not None
                 else None
             )
+            token_limit = (
+                self._registry.resolve_run_token_limit(self._task.task_type, self._task)
+                if self._registry is not None
+                else None
+            )
             deadline_seconds = (
                 self._registry.resolve_run_deadline_seconds(
                     self._task.task_type, self._task
@@ -384,6 +389,7 @@ class TaskRunEnvelopeKeeper:
                 # 领域按 L0 = min(A, H) 冻结真实额度；已声明任务不得使用
                 # 通用临时额度。
                 request_limit=request_limit,
+                token_limit=token_limit,
                 deadline_at=(
                     datetime.now(UTC) + timedelta(seconds=deadline_seconds)
                     if deadline_seconds is not None

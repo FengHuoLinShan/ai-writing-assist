@@ -16,7 +16,15 @@ _SCENE_ANNOTATION_SOURCES = {
 }
 
 
-@task_handler("rag_index_chapter", recovery_policy="auto_requeue", max_attempts=2)
+@task_handler(
+    "rag_index_chapter",
+    recovery_policy="auto_requeue",
+    max_attempts=2,
+    root_capability_id="infrastructure.rag_index_chapter",
+    run_request_limit=64,
+    run_token_limit=2_000_000,
+    run_deadline_seconds=1800.0,
+)
 async def handle_rag_index_chapter(db, task):
     """处理 RAG 章节索引任务
 
@@ -76,7 +84,17 @@ async def handle_rag_index_chapter(db, task):
     }
 
 
-@task_handler("rag_reindex_novel", recovery_policy="auto_requeue", max_attempts=2)
+@task_handler(
+    "rag_reindex_novel",
+    recovery_policy="auto_requeue",
+    max_attempts=2,
+    root_capability_id="infrastructure.rag_reindex_novel",
+    # 全量重建无章节上界，配额取"批量 + 逐 chunk fallback"量级的宽上界：
+    # 越界失败关闭并保留 manual resume，而不是无界运行。
+    run_request_limit=4096,
+    run_token_limit=32_000_000,
+    run_deadline_seconds=21_600.0,
+)
 async def handle_rag_reindex_novel(db, task):
     """处理项目级 RAG 全量重建任务。
 
@@ -186,7 +204,16 @@ async def handle_rag_reannotate_entities(db, task):
     return result
 
 
-@task_handler("rag_retry_embeddings", recovery_policy="auto_requeue", max_attempts=2)
+@task_handler(
+    "rag_retry_embeddings",
+    recovery_policy="auto_requeue",
+    max_attempts=2,
+    root_capability_id="infrastructure.rag_retry_embeddings",
+    # 批量 500 条/请求；逐 chunk fallback 最坏 500 请求/批，配额按其宽上界冻结。
+    run_request_limit=2048,
+    run_token_limit=16_000_000,
+    run_deadline_seconds=7200.0,
+)
 async def handle_rag_retry_embeddings(db, task):
     """重试 failed / pending_vectorization chunk 的 embedding。"""
     meta = task.meta or {}

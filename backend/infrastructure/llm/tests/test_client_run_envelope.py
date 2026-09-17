@@ -870,3 +870,94 @@ async def test_successful_request_counts_once_on_both_ledgers() -> None:
     assert budget.requests == 1
     assert budget.pending_usage == 0
     assert budget.usage_unknown is False
+
+
+@pytest.mark.asyncio
+async def test_token_limit_refuses_new_requests_after_settled_usage() -> None:
+    """P1-3：累计 token 上限按已结算用量闸断新请求；显式续算可提高。"""
+    from infrastructure.llm.schemas import AIRunAuthorizationReason
+
+    provider = _TextProvider()
+    client = _client(provider, max_attempts=1)
+    ledger = AIRunEnvelope(_raw_envelope(request_limit=6, token_limit=5))
+
+    with ai_run_scope(ledger), managed_step_scope(_step()):
+        await client.generate(_request())
+        with pytest.raises(AIRunBudgetExceededError, match="token limit"):
+            await client.generate(_request())
+
+    snapshot = ledger.snapshot()
+    assert snapshot.requests_started == 1
+    assert snapshot.usage.total_tokens == _SUCCESS_USAGE.total_tokens
+
+    await ledger.authorize_additional_requests(
+        3,
+        reason=AIRunAuthorizationReason.author_resume,
+        additional_tokens=100,
+    )
+    snapshot = ledger.snapshot()
+    assert snapshot.token_limit == 105
+    assert snapshot.authorizations[-1].additional_tokens == 100
+
+
+@pytest.mark.asyncio
+async def test_provider_call_is_clipped_by_remaining_run_deadline() -> None:
+    """P1-3：deadline 前一刻发出的在途请求不得运行完整 provider timeout。"""
+
+    class SlowProvider(_TextProvider):
+        async def generate(self, request: LLMCallRequest) -> LLMCallResponse:
+            await asyncio.sleep(2.0)
+            return await super().generate(request)
+
+    provider = SlowProvider()
+    provider._timeout = 120
+    client = _client(provider, max_attempts=1)
+    deadline = datetime.now(UTC) + timedelta(seconds=0.2)
+    ledger = AIRunEnvelope(_raw_envelope(request_limit=6, deadline_at=deadline))
+
+    started = asyncio.get_running_loop().time()
+    with (
+        ai_run_scope(ledger),
+        managed_step_scope(_step()),
+        pytest.raises(asyncio.TimeoutError),
+    ):
+        await client.generate(_request(), transport_retries=False)
+    elapsed = asyncio.get_running_loop().time() - started
+
+    assert elapsed < 1.5
+    snapshot = ledger.snapshot()
+    assert snapshot.requests_started == 1
+    assert snapshot.requests_unknown == 1
+
+
+@pytest.mark.asyncio
+async def test_remote_embedding_is_metred_by_the_run_envelope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """P1-5：远程 embedding 与文本请求共用同一信封（用量未知按 possible 落账）。"""
+
+    class EmbeddingProvider(_TextProvider):
+        _timeout = 30
+
+        async def generate_embedding(self, text, model=None):  # noqa: ANN001
+            self.requests.append(text)  # type: ignore[arg-type]
+            return [[0.1, 0.2] for _ in (text if isinstance(text, list) else [text])]
+
+    provider = EmbeddingProvider()
+    client = _client(provider, max_attempts=1)
+    monkeypatch.setattr(
+        "infrastructure.llm.client.get_settings",
+        lambda: SimpleNamespace(embedding_provider="openai"),
+    )
+    ledger = AIRunEnvelope(_raw_envelope(request_limit=6))
+
+    with ai_run_scope(ledger):
+        vectors = await client.generate_embedding(["一段文本", "另一段文本"])
+
+    assert vectors == [[0.1, 0.2], [0.1, 0.2]]
+    snapshot = ledger.snapshot()
+    assert snapshot.requests_started == 1
+    assert snapshot.requests_settled == 0
+    assert snapshot.requests_unknown == 1
+    assert snapshot.charge_state is AIChargeState.possible
+    assert snapshot.steps[0].step_capability_id == "infrastructure.embedding"
