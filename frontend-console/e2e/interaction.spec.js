@@ -875,3 +875,28 @@ test("导入主题包后互动故事继续使用用户选择的正文资源", as
   await expect(page.locator('[data-rp-message-id="a3"] .rp-message__text')).toHaveCSS("font-family", /nc-quiet-library/)
   await expect(page.getByRole("heading", { name: "墨迹重现" })).toBeVisible()
 })
+
+test("390px 输入框展开后定位轨道不被输入坞遮挡", async ({ page, browserErrors }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockRpApis(page)
+  await page.goto(`/#interaction/${journeyId}`)
+  const composer = page.getByLabel("继续旅程")
+  await expect(composer).toBeVisible()
+
+  await composer.fill("第一行\n第二行\n第三行\n第四行\n第五行\n第六行\n第七行\n第八行\n第九行\n第十行")
+  // 直接撑到 CSS 允许的最大输入高度，验证最坏情况下的轨道/输入坞几何
+  await composer.evaluate((node) => { node.style.height = "214px" })
+
+  const geometry = await page.evaluate(() => {
+    const rail = document.querySelector(".rp-locator-rail")
+    const dock = document.querySelector(".rp-composer-dock")
+    if (!rail || !dock) return { missing: !rail ? "rail" : "dock" }
+    const railRect = rail.getBoundingClientRect()
+    const dockRect = dock.getBoundingClientRect()
+    return { railBottom: railRect.bottom, dockTop: dockRect.top, gap: dockRect.top - railRect.bottom }
+  })
+  expect(geometry.missing).toBeUndefined()
+  expect(geometry.gap).toBeGreaterThanOrEqual(0)
+
+  expect(browserErrors).toEqual([])
+})

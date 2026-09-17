@@ -1,7 +1,12 @@
 /* Production shell layer: visual language from prototypes, behavior from services. */
-.creative-shell {
-  /* 壳层实际顶栏高度，供 sticky/fixed 偏移与 max-height 计算消费（styles.css 基线为 64px）。 */
+/* 壳层实际顶栏高度挂在 html 上（经 :has 感知壳层存在），使 Teleport 到 body 的
+   浮层（owner-ai 抽屉等）与壳内消费方解析到同一值；styles.css 基线为 64px，
+   不支持 :has 的引擎按基线回退。 */
+html:has(.creative-shell) {
   --topbar-height: 68px;
+}
+
+.creative-shell {
   --shell-bg: var(--nc-bg, var(--bg-base));
   --shell-surface: var(--nc-surface, var(--bg-panel));
   --shell-muted: var(--nc-dim, var(--text-tertiary));
@@ -116,7 +121,7 @@
 .creative-shell :where(button, a, summary, input, select, textarea):focus-visible { outline-color: var(--shell-blue); }
 
 @media (max-width: 760px) {
-  .creative-shell { --topbar-height: 60px; }
+  html:has(.creative-shell) { --topbar-height: 60px; }
   .creative-shell #topbar { height: 60px; min-height: 60px; padding-inline: 12px; gap: 8px; }
   .creative-shell .topbar-left { display: flex; min-width: auto; }
   .creative-shell .logo-name, .creative-shell .topbar-context-label, .creative-shell .topbar-center .separator, .creative-shell #topbar-module, .creative-shell #topbar-submodule, .creative-shell .topbar-view-note, .creative-shell .status-text { display: none; }
