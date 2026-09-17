@@ -64,6 +64,7 @@ _TRUNCATION_RETRY_MAX_TOKENS = 40000
 _TOKEN_LIMIT_PROXIMITY = 0.95
 _FORMAT_REPAIR_RAW_RESPONSE_LIMIT = 12000
 _FORMAT_REPAIR_ERROR_LIMIT = 4000
+_EXPIRED_DEADLINE_CALL_TIMEOUT_SECONDS = 0.05
 
 # 修复用途同时是重试证据：每个修复请求都算一次对应类型的自动重试，
 # 落在该请求自己的 step receipt 上；transport 重试只记 transport，不重复计修复。
@@ -469,6 +470,32 @@ async def _reserve_ai_run_request() -> tuple[
     return ledger, await ledger.reserve()
 
 
+@contextmanager
+def _embedding_step_scope():
+    """让没有受管 step 上下文的远程 embedding 调用可归属到信封。
+
+    已有 step 上下文时（如在受管文本 step 内触发 embedding）沿用原上下文，
+    避免覆盖调用方的 step 身份。
+    """
+    from infrastructure.llm.workflow_budget import (
+        AIManagedStepContext,
+        current_managed_step_context,
+        managed_step_scope,
+    )
+
+    if current_managed_step_context() is not None:
+        yield
+        return
+    with managed_step_scope(
+        AIManagedStepContext(
+            step_name="infrastructure.embedding",
+            call_kind=AIStepCallKind.generate,
+            capability_id="infrastructure.embedding",
+        )
+    ):
+        yield
+
+
 def _safe_error_kind(error: BaseException | None) -> str:
     """只使用稳定错误类型；账本会再次脱敏并限长。"""
     if error is None:
@@ -584,7 +611,7 @@ class LLMClient:
                 "api_key": getattr(self._provider, "_api_key", ""),
                 "base_url": getattr(self._provider, "_base_url", ""),
                 "model": self._default_model,
-                "timeout": getattr(self._provider, "_timeout", None),
+                "timeout": getattr(self._provider, "request_timeout", None),
                 "max_tokens": self._default_max_tokens,
             }
         )
@@ -680,7 +707,7 @@ class LLMClient:
                 "api_key": getattr(self._provider, "_api_key", ""),
                 "base_url": getattr(self._provider, "_base_url", ""),
                 "model": self._default_model,
-                "timeout": getattr(self._provider, "_timeout", None),
+                "timeout": getattr(self._provider, "request_timeout", None),
                 "max_tokens": self._default_max_tokens,
             }
         )
@@ -733,6 +760,23 @@ class LLMClient:
             merged_extra.update(resolved.extra)
             resolved.extra = merged_extra
         return resolved
+
+    def _provider_call_timeout(
+        self, remaining_run_seconds: float | None
+    ) -> float | None:
+        """单次 provider 调用上限 = profile timeout 与剩余 run deadline 的较小值。
+
+        deadline 在 reserve 之后、I/O 之前越过时立即失败，而不是让在途请求
+        运行完整 provider timeout 越过 run 边界。
+        """
+        profile_timeout = getattr(self._provider, "request_timeout", None)
+        timeout = float(profile_timeout) if profile_timeout else None
+        if remaining_run_seconds is None:
+            return timeout
+        remaining = max(float(remaining_run_seconds), 0.0)
+        if remaining <= 0:
+            return _EXPIRED_DEADLINE_CALL_TIMEOUT_SECONDS
+        return min(timeout, remaining) if timeout is not None else remaining
 
     def _limiter_scope(self, operation_kind: str) -> LLMLimiterScope:
         """Return the secret-free availability bucket for this client call."""
@@ -792,7 +836,12 @@ class LLMClient:
                 raise
             await _record_ai_run_retry(ledger, reservation, attempt=attempts)
             try:
-                response = await self._provider.generate(resolved_request)
+                response = await asyncio.wait_for(
+                    self._provider.generate(resolved_request),
+                    timeout=self._provider_call_timeout(
+                        ledger.remaining_seconds() if ledger is not None else None
+                    ),
+                )
             except Exception as exc:
                 await _settle_ai_run_request(
                     ledger, reservation, usage=None, error=exc
@@ -866,8 +915,11 @@ class LLMClient:
                         ledger, reservation, attempt=open_attempts
                     )
                 try:
-                    stream = await self._provider.generate_stream(
-                        request=resolved_request,
+                    stream = await asyncio.wait_for(
+                        self._provider.generate_stream(request=resolved_request),
+                        timeout=self._provider_call_timeout(
+                            ledger.remaining_seconds() if ledger is not None else None
+                        ),
                     )
                 except BaseException as exc:
                     await _settle_ai_run_request(
@@ -1381,6 +1433,7 @@ class LLMClient:
         provider = settings.embedding_provider
 
         if provider == "bge_onnx":
+            # 本地 BGE 不产生 provider I/O 与费用，是登记在静态门禁的非计费窄例外。
             from infrastructure.embedding.client import BgeEmbeddingClient
 
             client = await BgeEmbeddingClient.get_instance()
@@ -1413,18 +1466,37 @@ class LLMClient:
             finally:
                 await embedding_client.close()
 
-        # OpenAI / 其他远程 provider
-        return await get_llm_limiter().run(
-            lambda: retry_with_backoff(
-                self._provider.generate_embedding,
-                max_attempts=self._settings.llm_retry_max_attempts,
-                base_delay=self._settings.llm_retry_base_delay,
-                max_delay=self._settings.llm_retry_max_delay,
-                text=text,
-                model=model,
-            ),
-            limiter_scope=self._limiter_scope("embedding"),
-        )
+        # OpenAI / 其他远程 provider：与文本请求同一运行信封计量。provider 不返回
+        # embedding 用量，因此按 honest-unknown 落账（requests_unknown / possible）。
+        async def metered_embedding_request():
+            ledger, reservation = await _reserve_ai_run_request()
+            try:
+                result = await asyncio.wait_for(
+                    self._provider.generate_embedding(text=text, model=model),
+                    timeout=self._provider_call_timeout(
+                        ledger.remaining_seconds() if ledger is not None else None
+                    ),
+                )
+            except BaseException as exc:
+                await _settle_ai_run_request(
+                    ledger, reservation, usage=None, error=exc
+                )
+                raise
+            await _settle_ai_run_request(
+                ledger, reservation, usage=None, finish_reason="embedding"
+            )
+            return result
+
+        with _embedding_step_scope():
+            return await get_llm_limiter().run(
+                lambda: retry_with_backoff(
+                    metered_embedding_request,
+                    max_attempts=self._settings.llm_retry_max_attempts,
+                    base_delay=self._settings.llm_retry_base_delay,
+                    max_delay=self._settings.llm_retry_max_delay,
+                ),
+                limiter_scope=self._limiter_scope("embedding"),
+            )
 
     async def get_usage_stats(self) -> dict[str, Any]:
         """获取当前 provider 状态信息

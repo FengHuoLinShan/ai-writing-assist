@@ -60,7 +60,13 @@ class WorkflowBudget:
     async def before_request(self):
         async with self.lock:
             self.budget.reserve(requests=1, future_requests=self.future_requests)
-            await self.checkpoint(self.budget.model_dump(mode="json"))
+            try:
+                await self.checkpoint(self.budget.model_dump(mode="json"))
+            except BaseException:
+                # checkpoint 失败：请求尚未发出 provider I/O，兼容账本不得留下
+                # 幻影请求计数侵蚀后续额度。
+                self.budget.release_pending_request()
+                raise
 
     async def completed(self, usage):
         async with self.lock:
@@ -231,6 +237,7 @@ def new_ai_run_envelope(
     root_capability_id: str,
     novel_id: str,
     request_limit: int,
+    token_limit: int | None = None,
     deadline_at: datetime | None = None,
     previous_run_id: str | None = None,
     task: AITaskIdentityV1 | None = None,
@@ -249,6 +256,7 @@ def new_ai_run_envelope(
             started_at=started_at or datetime.now(UTC),
             deadline_at=deadline_at,
             request_limit=request_limit,
+            token_limit=token_limit,
             legacy_untracked=legacy_untracked,
             usage_complete=not legacy_untracked,
         )
@@ -375,9 +383,15 @@ class AIRunEnvelope:
             raise AIRunDeadlineExceededError(
                 "run deadline passed before the request started", run_id=self.run_id
             )
-        if self._envelope.requests_started >= self._envelope.request_limit:
+        if self._envelope.request_budget_exhausted():
             raise AIRunBudgetExceededError(
                 "run request limit reached; only an explicit author authorization "
+                "may raise it",
+                run_id=self.run_id,
+            )
+        if self._envelope.token_budget_exhausted():
+            raise AIRunBudgetExceededError(
+                "run token limit reached; only an explicit author authorization "
                 "may raise it",
                 run_id=self.run_id,
             )
@@ -502,18 +516,33 @@ class AIRunEnvelope:
 
     @_serialized
     async def authorize_additional_requests(
-        self, additional: int, *, reason: AIRunAuthorizationReason
+        self,
+        additional: int,
+        *,
+        reason: AIRunAuthorizationReason,
+        additional_tokens: int = 0,
     ) -> None:
         """作者明确续算或确认可能重复扣费时增加额度；不移动既有 deadline。"""
         if additional < 1:
             raise ValueError("additional requests must be positive")
+        if additional_tokens < 0:
+            raise ValueError("additional tokens must be nonnegative")
         revision = self._envelope.authorization_revision + 1
         self._envelope.authorization_revision = revision
         self._envelope.request_limit += additional
+        if additional_tokens:
+            # 从"当前已结算用量"与既有上限的较大者续算：从未声明上限的 run
+            # 首次续算 token 时，授权的是从当前进度起再可用 additional_tokens。
+            base = max(
+                self._envelope.token_limit or 0,
+                self._envelope.usage.total_tokens,
+            )
+            self._envelope.token_limit = base + additional_tokens
         self._envelope.authorizations.append(
             AIRunAuthorizationV1(
                 revision=revision,
                 additional_requests=additional,
+                additional_tokens=additional_tokens,
                 reason=reason,
                 authorized_at=self._clock(),
             ),

@@ -411,12 +411,13 @@ class AITaskIdentityV1(BaseModel):
 
 
 class AIRunAuthorizationV1(BaseModel):
-    """同一 run 内追加请求额度的作者授权记录；不移动既有 deadline。"""
+    """同一 run 内追加请求/Token 额度的作者授权记录；不移动既有 deadline。"""
 
     model_config = ConfigDict(extra="forbid")
 
     revision: int = Field(ge=1)
     additional_requests: int = Field(ge=1)
+    additional_tokens: int = Field(default=0, ge=0)
     reason: AIRunAuthorizationReason
     authorized_at: datetime
 
@@ -493,6 +494,12 @@ class AIRunEnvelopeV1(BaseModel):
     started_at: datetime
     deadline_at: datetime | None = None
     request_limit: int = Field(ge=0)
+    token_limit: int | None = Field(default=None, ge=0)
+    """累计 token 用量上限；None 表示只受 request_limit 约束。
+
+    闸门在 reserve 时按已结算用量判定：单次响应可能越过上限（事后可见、
+    不可撤回），但越界后不再授权任何新请求，除非作者显式续算。
+    """
     requests_started: int = Field(default=0, ge=0)
     requests_settled: int = Field(default=0, ge=0)
     requests_unknown: int = Field(default=0, ge=0)
@@ -518,6 +525,17 @@ class AIRunEnvelopeV1(BaseModel):
         """step 能力只能是本 run 的 root，或显式 infrastructure.* helper。"""
         return capability_id == self.root_capability_id or capability_id.startswith(
             INFRASTRUCTURE_CAPABILITY_PREFIX
+        )
+
+    def request_budget_exhausted(self) -> bool:
+        """请求额度闸门的唯一权威谓词；reserve 与恢复判定共用。"""
+        return self.requests_started >= self.request_limit
+
+    def token_budget_exhausted(self) -> bool:
+        """累计 token 闸门：按已结算用量判定；未声明 token_limit 时恒 False。"""
+        return (
+            self.token_limit is not None
+            and self.usage.total_tokens >= self.token_limit
         )
 
     @model_validator(mode="after")

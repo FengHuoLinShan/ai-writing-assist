@@ -220,6 +220,11 @@ class OpenAIProvider:
     def name(self) -> str:
         return "openai"
 
+    @property
+    def request_timeout(self) -> int:
+        """单次 provider 调用的 httpx timeout（秒）；client 侧按 run 剩余时间裁剪。"""
+        return int(self._timeout)
+
     async def close(self) -> None:
         """关闭 HTTP 连接，释放 AsyncOpenAI 客户端资源
 

@@ -76,6 +76,9 @@ EXPECTED_CAPABILITIES = (
     "infrastructure.format_repair",
     "infrastructure.embedding",
     "infrastructure.account_connection_test",
+    "infrastructure.rag_index_chapter",
+    "infrastructure.rag_reindex_novel",
+    "infrastructure.rag_retry_embeddings",
 )
 
 

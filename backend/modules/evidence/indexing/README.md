@@ -1,7 +1,11 @@
 # Evidence indexing / 检索与索引子域
 
-索引与 embedding worker 当前不声明 AI 运行信封能力；它们继续沿用既有任务重试、索引新鲜度
-和 owner/`novel_id` 隔离边界，待独立预算模型冻结后再迁移。
+三个 RAG 任务已声明 AI 运行信封：`rag_index_chapter`（64 请求 / 2M token / 1800s）、
+`rag_reindex_novel`（4096 / 32M / 21600s）、`rag_retry_embeddings`（2048 / 16M / 7200s），
+覆盖"批量 + 逐 chunk fallback"量级的宽上界，越界失败关闭并保留 manual resume。远程
+embedding 经同一信封计量（provider 不返回用量，按 unknown/possible 落账，归属
+`infrastructure.embedding` step）；本地 BGE 是登记的非计费窄例外。任务重试、索引新鲜度
+和 owner/`novel_id` 隔离边界不变。
 
 ## 定位
 

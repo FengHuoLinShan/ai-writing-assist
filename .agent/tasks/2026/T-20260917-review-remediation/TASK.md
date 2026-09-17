@@ -66,6 +66,10 @@ Luna 专属默认。
   llm client/schema/envelope 85+74 passed；project 147 passed；ruff 通过；docs-check 通过
   （12_infrastructure.md 与 llm README 同步 profile 请求默认与 extra 信任边界）。
   新增测试：test_client.py profile 默认/extra 封锁（4）、test_llm_settings_api.py extra 校验（1）。
+- Wave 3：infrastructure+evidence 1061+205 passed；modules+infrastructure 全量 3904 passed
+    （2 个失败为仓库根目录跑 pytest 的相对路径伪失败，backend/ 下复跑 76 passed）；ruff、
+    docs-check 通过（12_infrastructure.md 与 tasks README 同步 token_limit/deadline 裁剪/
+    embedding 计量/RAG 任务上限）。
 
 ## 阻塞 / 下一步
 

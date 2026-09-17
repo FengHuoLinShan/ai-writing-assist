@@ -78,7 +78,9 @@ def _task_run_envelope(task: AsyncTask):
 
 def _run_budget_exhausted(task: AsyncTask) -> bool:
     payload = _task_run_envelope(task)
-    return bool(payload is not None and payload.requests_started >= payload.request_limit)
+    if payload is None:
+        return False
+    return payload.request_budget_exhausted() or payload.token_budget_exhausted()
 
 
 def _operation_token(value: Any) -> str | None:
@@ -310,7 +312,7 @@ class TaskLifecycleService:
         result_data = dict(task.result or {})
         meta_data = dict(task.meta or {})
         payload = _task_run_envelope(task)
-        if payload is not None and payload.requests_started >= payload.request_limit:
+        if payload is not None and _run_budget_exhausted(task):
             from infrastructure.tasks.registry import TaskRegistry
 
             registry = TaskRegistry()
@@ -318,10 +320,14 @@ class TaskLifecycleService:
             declared = registry.get_root_capability(task.task_type)
             if additional is None or declared != payload.root_capability_id:
                 raise ValueError("task run envelope cannot authorize this resume")
+            additional_tokens = registry.resolve_run_token_limit(
+                task.task_type, task
+            )
             ledger = AIRunEnvelope(payload)
             await ledger.authorize_additional_requests(
                 additional,
                 reason=AIRunAuthorizationReason.author_resume,
+                additional_tokens=additional_tokens or 0,
             )
             meta_data[AI_RUN_ENVELOPE_KEY] = ledger.snapshot().model_dump(mode="json")
         for payload in (result_data, meta_data):

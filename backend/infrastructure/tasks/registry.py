@@ -66,6 +66,7 @@ class TaskRegistry:
         retry_transient_llm_errors: bool = False,
         root_capability_id: str | None = None,
         run_request_limit: int | Any = None,
+        run_token_limit: int | Any = None,
         run_deadline_seconds: float | Any = None,
         run_id: str | Any = None,
         run_envelope_checkpoint: Any = None,
@@ -79,6 +80,8 @@ class TaskRegistry:
                 worker 才为该任务建立运行信封（opt-in）。
             run_request_limit: 按 L0 = min(A, H) 冻结的请求额度；静态 int 或
                 从任务冻结输入计算 A 的同步 callable。
+            run_token_limit: 一次 run 的累计 token 用量上限；静态 int 或
+                同步 callable；None 表示只受请求额度约束。
             run_deadline_seconds: 一次 run 的 deadline 秒数；静态 float 或
                 同步 callable。
             run_id: 可选领域稳定 run id；静态值或从任务冻结输入
@@ -118,6 +121,7 @@ class TaskRegistry:
             owner_scope=owner_scope,
             retry_transient_llm_errors=retry_transient_llm_errors,
             run_request_limit=run_request_limit,
+            run_token_limit=run_token_limit,
             run_deadline_seconds=run_deadline_seconds,
             run_id=run_id,
             run_envelope_checkpoint=run_envelope_checkpoint,
@@ -171,6 +175,21 @@ class TaskRegistry:
         value = int(value)
         if value < 1:
             raise ValueError("run_request_limit must be positive")
+        return value
+
+    def resolve_run_token_limit(self, task_type: str, task: Any) -> int | None:
+        """解析该任务一次 run 的累计 token 上限；未声明返回 None。"""
+        definition = self._definitions.get(task_type)
+        if definition is None:
+            return None
+        value = self._resolve_run_value(
+            definition.run_token_limit, task, field="run_token_limit"
+        )
+        if value is None:
+            return None
+        value = int(value)
+        if value < 1:
+            raise ValueError("run_token_limit must be positive")
         return value
 
     def resolve_run_deadline_seconds(self, task_type: str, task: Any) -> float | None:
@@ -238,6 +257,7 @@ def task_handler(
     retry_transient_llm_errors: bool = False,
     root_capability_id: str | None = None,
     run_request_limit: int | Any = None,
+    run_token_limit: int | Any = None,
     run_deadline_seconds: float | Any = None,
     run_id: str | Any = None,
     run_envelope_checkpoint: Any = None,
@@ -261,6 +281,7 @@ def task_handler(
             retry_transient_llm_errors=retry_transient_llm_errors,
             root_capability_id=root_capability_id,
             run_request_limit=run_request_limit,
+            run_token_limit=run_token_limit,
             run_deadline_seconds=run_deadline_seconds,
             run_id=run_id,
             run_envelope_checkpoint=run_envelope_checkpoint,

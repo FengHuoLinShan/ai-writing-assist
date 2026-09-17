@@ -60,6 +60,9 @@ class TaskDefinition:
     # 输入（meta/plan）计算 A 的同步 callable。声明 root capability 的任务
     # 必须同时提供该字段；未声明 root 的任务保持旧行为且不建立信封。
     run_request_limit: int | Any = None
+    # 一次 run 的累计 token 用量上限：静态 int，或同步 callable；None 表示只受
+    # 请求额度约束。闸门按已结算用量判定，越界后拒绝新请求。
+    run_token_limit: int | Any = None
     # 一次 run 的 deadline（秒）：静态 float，或从冻结输入计算的同步 callable。
     # None 表示无统一 deadline，既有更短 provider/step timeout 继续生效。
     run_deadline_seconds: float | Any = None
