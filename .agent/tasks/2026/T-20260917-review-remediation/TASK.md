@@ -93,5 +93,15 @@ Luna 专属默认。
   run_managed_structured 重复与大类拆分维持缓议（与首轮审计决定一致）。
   修正后回归：W5 1139 passed、W3 线 3906 passed、W4 线 32 targeted passed；ruff/
   docs-check 全过。
-- 下一步：等待用户合并授权（建议顺序 Wave 1 → Wave 5 → Wave 2 → Wave 3 → Wave 4；
-  main 合并后 world 分支需再 rebase 吸收 Wave 2–4）。付费 11 对验收重跑需单独授权。
+- 下一步：2026-09-17 用户授权合并与付费重跑，均已执行完毕——
+  - 合并：Wave 1 → 5 → 2 → 3 → 4 依次 --no-ff 合入 main（合并解决 TASK.md 并集 +
+    infrastructure/tasks/README 语义并集）；合并后门禁后端 5815 passed / 前端 2500
+    passed / ruff / docs-check 全过（其中修正 Wave 3 漏同步的 evidence 模块 README 与
+    08_evidence.md 信封声明过时，d670c65f8）；已推送 origin/main。
+  - 付费重跑（11 对，baseline f67845dc1 vs candidate d670c65f8，真实 DeepSeek）：
+    gate 仍失败但结构反转——severe 11 vs 10（severe_errors_reduced 首次转绿，首轮
+    8 vs 11 未减少）；新增 review friction 2（insufficient-evidence）与 knowledge-
+    boundary 回归 2（information-flow、insufficient-evidence）致总体不通过。证据与
+    脱敏总览：backend/.test-artifacts/world-verified-review-live-20260917/（SUMMARY.md）。
+    一次性库/worktree 已清理。后续若继续：先定位低证据场景下新返修/复审链的判定
+    口径，再另行授权付费验收。

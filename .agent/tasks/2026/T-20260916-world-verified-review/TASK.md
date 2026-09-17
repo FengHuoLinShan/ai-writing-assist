@@ -80,3 +80,17 @@ updated: 2026-09-16T20:36:47+08:00
   baseline/candidate 的 request_limits 与 reasoning_efforts。
 - 确定性回归：worktree world+evals 1139 passed；ruff、docs-check 通过。
 - 下一步：等待 Wave 1–5 合并 main 授权；付费 11 对重跑需单独授权（gate 通过后再议）。
+
+## 2026-09-17 修复后付费重跑（授权后执行）
+
+- baseline = f67845dc1（原基线），candidate = d670c65f8（Wave 1–5 合并后 main）；
+  11/11 对 model（deepseek-flash）/context_hash/token_budget 一致，全部 settled、零 unknown。
+- Gate 仍失败但关键反转：severe baseline 11 vs candidate 10，severe_errors_reduced
+  首次通过（首轮 8 vs 11 未减少）；未过项转为 review friction 2（insufficient-evidence）
+  与 knowledge-boundary 回归 2（information-flow、insufficient-evidence）。
+- 运行：baseline 0 done/11 failed、1,156,564 tokens/73 req（cap 24）；candidate 1 done/
+  10 failed、1,366,954 tokens/96 req（cap 66）。失败均按观测计分不隐藏；一次 harness
+  崩溃尝试（profile_summary dict，83,312 tokens）按 preflight 排除。
+- 证据：`backend/.test-artifacts/world-verified-review-live-20260917/`（gate/pairs/reviewer
+  JSON + 脱敏 SUMMARY.md）；一次性数据库与 worktree 已清理。
+- 结论：不宣称质量通过；候选根因——低证据场景下新返修/复审链判定口径偏严。
