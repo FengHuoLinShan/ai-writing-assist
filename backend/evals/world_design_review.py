@@ -85,8 +85,16 @@ def evaluate_world_design_review_pairs(
             candidate_boundary_regressions == 0
         ),
     }
+    def unique(arm: str, field: str) -> list:
+        values = (getattr(getattr(pair, arm), field) for pair in pairs)
+        return sorted({value for value in values if value})
+
     return {
         "case_count": len(pairs),
+        "baseline_request_limits": unique("baseline", "request_limit"),
+        "candidate_request_limits": unique("candidate", "request_limit"),
+        "baseline_reasoning_efforts": unique("baseline", "reasoning_effort"),
+        "candidate_reasoning_efforts": unique("candidate", "reasoning_effort"),
         "baseline_requests_used": total("baseline", "requests_used"),
         "candidate_requests_used": total("candidate", "requests_used"),
         "baseline_tokens_used": total("baseline", "tokens_used"),

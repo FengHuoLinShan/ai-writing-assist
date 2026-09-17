@@ -298,15 +298,17 @@ _WORLD_DESIGN_REVIEW_STAGE_ORDER = (
     "final_knowledge_review",
     "final_review",
 )
-_WORLD_DESIGN_REVIEW_FAILURE_KEY = "world_design_review_failure"
+_WORLD_DESIGN_REVIEW_FAILURE_KEY = "_world_design_review_failure"
 
 
 def _world_design_failure_receipt(task: Any, exc: BaseException) -> dict[str, Any]:
-    """脱敏的失败停止回执：阶段进度、attempt、信封用量与作者可见错误信息。
+    """脱敏的失败停止回执：阶段进度、attempt、信封用量与脱敏错误信息。
 
-    只进入公开 task result（无下划线前缀，wire 不剥离）；不含正文、Prompt、
-    模型身份或 provider 诊断。
+    私有键（下划线前缀）：公开任务 wire 剥离，仅供失败诊断与离线导出 harness
+    读取；不含正文、Prompt、模型身份或 provider 诊断，错误文本经
+    redact_diagnostic 消毒并限长。
     """
+    from infrastructure.llm.redaction import redact_diagnostic
     from infrastructure.llm.schemas import AI_RUN_ENVELOPE_KEY, read_ai_run_envelope
 
     state = (getattr(task, "result", None) or {}).get("_world_design_review_state")
@@ -321,7 +323,7 @@ def _world_design_failure_receipt(task: Any, exc: BaseException) -> dict[str, An
         "schema_version": "world_design_review_failure.v1",
         "attempt": int(getattr(task, "attempt", 1) or 1),
         "error_kind": type(exc).__name__,
-        "message": str(exc)[:500],
+        "message": redact_diagnostic(exc, limit=500),
         "review_progress": [
             key
             for key in _WORLD_DESIGN_REVIEW_STAGE_ORDER
@@ -753,8 +755,9 @@ async def handle_world_cocreation_turn(db, task):
                 review_checkpoint_callback=checkpoint_review_state,
             )
         except BaseException as exc:
-            # P1-8/RB-3：失败也留下可诊断的脱敏停止回执（阶段进度 + attempt +
-            # 信封用量 + 作者可见错误），否则失败 artifact 只有 result={}。
+            # P1-8/RB-3：失败也留下可诊断的私有脱敏停止回执（阶段进度 + attempt +
+            # 信封用量 + 脱敏错误；公开 wire 剥离下划线键），否则失败导出只有
+            # result={}。
             await _commit_world_task_checkpoint(
                 db,
                 task,

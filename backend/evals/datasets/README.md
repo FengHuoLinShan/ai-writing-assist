@@ -112,7 +112,8 @@ context hash 与名义 token budget 标签完全相同的配对结果，才能�
 在报告中分别呈现，不得据此宣称"同预算"。门禁要求严重目标／因果错误严格减少、
 误报与无谓作者决策不增加、知识边界和项目隔离回归为零。该离线门禁不发起付费模型调用；没有
 单独授权时只能验证工程闭环，不能据此宣称产品质量提升。失败案例必须携带脱敏的停止阶段回执
-（world_design_review_failure），区分模型误判、审查误杀、预算耗尽与导出丢失。
+（`_world_design_review_failure`，私有键；公开任务 wire 剥离，导出 harness 从任务
+载荷读取），区分模型误判、审查误杀、预算耗尽与导出丢失。
 
 `eval-fixture-manifest` covers the stable Writing, Outline, and World synthetic
 and prompt-contract fixtures. It stores only logical roles, repository-relative

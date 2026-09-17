@@ -940,6 +940,7 @@ class WorldGenerationCenterService:
                     ),
                     output=serialize_governed_output(output),
                     task_instruction="核对反例返修后的世界设计变化",
+                    author_requirements=self._author_requirements_projection(prepared),
                     repair=None,
                     step_prefix=(
                         "world.generation.design_iteration.counterexample.final_knowledge"

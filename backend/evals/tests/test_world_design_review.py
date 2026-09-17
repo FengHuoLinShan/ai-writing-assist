@@ -29,7 +29,7 @@ def _arm(**updates):
     }
 
 
-def test_same_budget_gate_requires_fewer_severe_errors_without_new_friction():
+def test_nominal_budget_pair_gate_requires_fewer_severe_errors_without_new_friction():
     pair = WorldDesignReviewPair.model_validate(
         {
             "case_id": "resource-loop",
@@ -115,6 +115,10 @@ def test_gate_reports_per_arm_actual_usage_not_nominal_budget():
         }
     )
     report = evaluate_world_design_review_pairs([pair])
+    assert report["baseline_request_limits"] == [24]
+    assert report["candidate_request_limits"] == [66]
+    assert report["baseline_reasoning_efforts"] == ["high"]
+    assert report["candidate_reasoning_efforts"] == ["high"]
     assert report["baseline_requests_used"] == 5
     assert report["candidate_requests_used"] == 8
     assert report["baseline_tokens_used"] == 70299

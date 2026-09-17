@@ -72,8 +72,11 @@ updated: 2026-09-16T20:36:47+08:00
 - 外部审计判定当前形态不可发布（RB-1/2/3）；根因修复在
   `codex/world-review-root-cause`（RB-1 矛盾决定卡、RB-2 审查冻结投影/输出权限语义）。
 - 本分支 WIP 已整理为 5 个提交并 rebase 到该修复分支（关键合并结果经逐项验证）。
-- 新增：失败路径公开脱敏停止回执 `world_design_review_failure`（阶段进度/attempt/信封用量/
+- 新增：失败路径私有脱敏停止回执 `_world_design_review_failure`（阶段进度/attempt/信封用量/
   作者可见错误）；离线 gate 去除"同预算"表述，两臂真实 cap 与实际用量分别报告
   （requests_used/tokens_used/reasoning_effort）。
+- 2026-09-17 二轮 review 修正：返修后知识复审补传 author_requirements 冻结投影；失败回执
+  改为私有键（公开 wire 剥离）且错误文本经 redact_diagnostic 消毒；离线 gate 报告补
+  baseline/candidate 的 request_limits 与 reasoning_efforts。
 - 确定性回归：worktree world+evals 1139 passed；ruff、docs-check 通过。
 - 下一步：等待 Wave 1–5 合并 main 授权；付费 11 对重跑需单独授权（gate 通过后再议）。

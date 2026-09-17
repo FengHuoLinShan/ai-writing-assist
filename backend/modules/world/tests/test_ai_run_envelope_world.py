@@ -665,7 +665,7 @@ async def test_budget_rejection_fails_task_closed_with_zero_provider_calls(
 
 
 def test_world_design_failure_receipt_reports_stage_usage_and_message():
-    """P1-8/RB-3：失败回执公开脱敏的阶段进度、attempt 与信封用量。"""
+    """P1-8/RB-3：私有失败回执记录阶段进度、attempt、信封用量与脱敏错误。"""
     from datetime import UTC, datetime
 
     from infrastructure.llm.schemas import (
@@ -715,12 +715,15 @@ def test_world_design_failure_receipt_reports_stage_usage_and_message():
     assert read_ai_run_envelope(task.meta[AI_RUN_ENVELOPE_KEY]) is not None
 
     receipt = _world_design_failure_receipt(
-        task, RuntimeError("本轮推演未通过知识审查（已返修仍失败）")
+        task,
+        RuntimeError("复审失败 api_key=sk-live-secret123 请核对"),
     )
     assert receipt["schema_version"] == "world_design_review_failure.v1"
     assert receipt["attempt"] == 1
     assert receipt["error_kind"] == "RuntimeError"
-    assert "知识审查" in receipt["message"]
+    # 错误文本经 redact_diagnostic 消毒：凭据不落回执。
+    assert "sk-live-secret123" not in receipt["message"]
+    assert "api_key=" in receipt["message"]
     assert receipt["review_progress"] == ["task_brief", "generated_output"]
     assert receipt["requests_started"] == 9
     assert receipt["requests_settled"] == 7
