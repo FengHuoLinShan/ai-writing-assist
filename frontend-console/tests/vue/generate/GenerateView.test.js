@@ -2337,6 +2337,30 @@ describe("GenerateView Vue behavior matrix", () => {
     expect(toast).toHaveBeenCalledWith(expect.stringContaining("请刷新并核对"), "warning")
   })
 
+  it("binds a saved design revision to its originating task", async () => {
+    const key = generateSessionKey("p1", null, "core_entity", "world_core")
+    const checkpoint = { depth: 'seed', round_no: 1, decisions: [], world_state: {} }
+    const initialSession = {
+      ...emptyGenerateSession(),
+      serverSessionId: 'cs-1', checkpointId: 'parent-1', serverCheckpointId: 'parent-1', checkpointDepth: 'seed',
+      worldDesignCheckpoint: checkpoint,
+      worldDesignProposal: {
+        originTaskId: 'task-1', parent_checkpoint_id: 'parent-1', context_confirmation_id: 'confirmation-1',
+        action: 'pressure', summary: '补足潮门维护闭环', changes: {}, decisions: [], depth: 'seed',
+        review_summary: { status: 'passed', checked_aspects: ['资源与维护'] },
+      },
+    }
+    api.world.reviseDesignCheckpoint.mockResolvedValue({ id: 'checkpoint-2', payload_json: { ...checkpoint, round_no: 2 } })
+    const wrapper = mount(GenerateView, { props: baseProps({ preset: "world_core", sessionKey: key, initialSession }), attachTo: document.body })
+
+    await wrapper.findAll('button').find(button => button.text() === '保存本轮阶段成果').trigger('click')
+    await waitFor(() => expect(api.world.reviseDesignCheckpoint).toHaveBeenCalledTimes(1))
+    expect(api.world.reviseDesignCheckpoint).toHaveBeenCalledWith(expect.objectContaining({
+      novel_id: 'p1', session_id: 'cs-1', parent_checkpoint_id: 'parent-1',
+      context_confirmation_id: 'confirmation-1', origin_task_id: 'task-1',
+    }))
+  })
+
   it("records the author decision into the server session history", async () => {
     const key = generateSessionKey("p1", null, "core_entity", "world_core")
     api.generate.convergeWorld.mockResolvedValue(worldCoreResponse())

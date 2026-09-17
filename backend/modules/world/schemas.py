@@ -4519,6 +4519,7 @@ class WorldDesignRevisionRequest(BaseModel):
     )
     depth: Literal["seed", "candidate", "instance"] | None = None
     context_confirmation_id: uuid.UUID | None = None
+    origin_task_id: uuid.UUID | None = None
 
 
 class WorldDesignIterationRequest(WorldGenerationChatRequest):
@@ -4533,11 +4534,40 @@ class WorldDesignIterationOutput(BaseModel):
     changes: WorldDesignChanges
 
 
+class WorldDesignReviewSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["passed", "passed_with_open_questions", "blocked"]
+    checked_aspects: list[str] = Field(default_factory=list, max_length=8)
+    addressed_issues: list[str] = Field(default_factory=list, max_length=8)
+    insufficient_evidence: list[str] = Field(default_factory=list, max_length=8)
+    author_decisions: list[str] = Field(default_factory=list, max_length=8)
+
+    @model_validator(mode="after")
+    def forbid_internal_review_details(self) -> WorldDesignReviewSummary:
+        text = "\n".join(
+            [
+                *self.checked_aspects,
+                *self.addressed_issues,
+                *self.insufficient_evidence,
+                *self.author_decisions,
+            ]
+        ).lower()
+        if re.search(
+            r"world-design:[a-z0-9]|intent_scope|causal_operability|\bprompt\b",
+            text,
+        ):
+            raise ValueError("review_summary must not expose internal review details")
+        return self
+
+
 class WorldDesignIterationResponse(WorldDesignIterationOutput):
     parent_checkpoint_id: str
     context_confirmation_id: str
     source_manifest_hash: str
     knowledge_review: dict[str, Any] | None = None
+    task_brief: GeneratedWorldGenerationDecisionState | None = None
+    review_summary: WorldDesignReviewSummary | None = None
 
 
 class WorldAdoptionSourceRef(BaseModel):

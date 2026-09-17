@@ -387,21 +387,35 @@ def test_world_cocreation_uses_one_parent_with_mode_specific_bounded_limits() ->
     assert registry.get_root_capability("world_cocreation_turn") == (
         "world.generation.cocreation"
     )
-    assert _registry_limit(
-        "world_cocreation_turn",
-        SimpleNamespace(meta={"mode": "chat", "quality_mode": "fast"}),
-    ) == 10
-    assert _registry_limit(
-        "world_cocreation_turn",
-        SimpleNamespace(meta={"mode": "chat", "quality_mode": "pro"}),
-    ) == 14
-    assert _registry_limit(
-        "world_cocreation_turn",
-        SimpleNamespace(meta={"mode": "design"}),
-    ) == 24
-    assert _registry_deadline(
-        "world_cocreation_turn", SimpleNamespace(meta={})
-    ) is None
+    assert (
+        _registry_limit(
+            "world_cocreation_turn",
+            SimpleNamespace(meta={"mode": "chat", "quality_mode": "fast"}),
+        )
+        == 10
+    )
+    assert (
+        _registry_limit(
+            "world_cocreation_turn",
+            SimpleNamespace(meta={"mode": "chat", "quality_mode": "pro"}),
+        )
+        == 14
+    )
+    assert (
+        _registry_limit(
+            "world_cocreation_turn",
+            SimpleNamespace(meta={"mode": "design", "quality_mode": "fast"}),
+        )
+        == 24
+    )
+    assert (
+        _registry_limit(
+            "world_cocreation_turn",
+            SimpleNamespace(meta={"mode": "design", "quality_mode": "pro"}),
+        )
+        == 66
+    )
+    assert _registry_deadline("world_cocreation_turn", SimpleNamespace(meta={})) is None
 
 
 def test_world_alias_relation_task_uses_frozen_scene_scope() -> None:
@@ -648,3 +662,69 @@ async def test_budget_rejection_fails_task_closed_with_zero_provider_calls(
     finally:
         registry.unregister(probe_type)
         await _cleanup(sessions, [task_id])
+
+
+def test_world_design_failure_receipt_reports_stage_usage_and_message():
+    """P1-8/RB-3：私有失败回执记录阶段进度、attempt、信封用量与脱敏错误。"""
+    from datetime import UTC, datetime
+
+    from infrastructure.llm.schemas import (
+        AI_RUN_ENVELOPE_KEY,
+        AIRunEnvelopeV1,
+        AIStepReceiptV1,
+        read_ai_run_envelope,
+    )
+    from modules.world.tasks import _world_design_failure_receipt
+
+    started = datetime.now(UTC)
+    envelope = AIRunEnvelopeV1(
+        operation_id="op-1",
+        run_id="run-1",
+        root_capability_id="world.generation.cocreation",
+        novel_id="novel-1",
+        started_at=started,
+        request_limit=66,
+        requests_started=9,
+        requests_settled=7,
+        requests_unknown=2,
+        usage=LLMUsage(prompt_tokens=60, completion_tokens=30, total_tokens=90),
+        steps=[
+            AIStepReceiptV1(
+                step_name="world.generation.design_iteration",
+                step_capability_id="world.generation.cocreation",
+                call_kind=AIStepCallKind.structured,
+                requests_started=9,
+                requests_settled=7,
+                requests_unknown=2,
+                usage=LLMUsage(prompt_tokens=60, completion_tokens=30, total_tokens=90),
+            )
+        ],
+    )
+    # 通过 schema 校验器要求 step 账目自洽：直接用无 step 的聚合（校验允许 0 step）。
+    task = SimpleNamespace(
+        attempt=1,
+        result={
+            "_world_design_review_state": {
+                "schema_version": "world_design_review_state.v1",
+                "task_brief": {"goal": "x"},
+                "generated_output": {"changes": {}},
+            }
+        },
+        meta={AI_RUN_ENVELOPE_KEY: envelope.model_dump(mode="json")},
+    )
+    assert read_ai_run_envelope(task.meta[AI_RUN_ENVELOPE_KEY]) is not None
+
+    receipt = _world_design_failure_receipt(
+        task,
+        RuntimeError("复审失败 api_key=sk-live-secret123 请核对"),
+    )
+    assert receipt["schema_version"] == "world_design_review_failure.v1"
+    assert receipt["attempt"] == 1
+    assert receipt["error_kind"] == "RuntimeError"
+    # 错误文本经 redact_diagnostic 消毒：凭据不落回执。
+    assert "sk-live-secret123" not in receipt["message"]
+    assert "api_key=" in receipt["message"]
+    assert receipt["review_progress"] == ["task_brief", "generated_output"]
+    assert receipt["requests_started"] == 9
+    assert receipt["requests_settled"] == 7
+    assert receipt["requests_unknown"] == 2

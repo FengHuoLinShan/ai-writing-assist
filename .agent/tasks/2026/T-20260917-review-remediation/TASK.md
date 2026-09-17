@@ -1,9 +1,9 @@
 ---
 id: T-20260917-review-remediation
 title: 审计报告核查与全量修复（World 根因 / LLM 信任边界 / 信封加固 / 配额 provenance）
-status: in_progress
+status: complete
 created: 2026-09-17T13:30:00+08:00
-updated: 2026-09-17T13:30:00+08:00
+updated: 2026-09-17T21:30:00+08:00
 parent: .agent/tasks/agent-integration.md
 ---
 
@@ -65,5 +65,22 @@ Luna 专属默认。
 
 ## 阻塞 / 下一步
 
-- 无阻塞。下一步：Wave 2 `codex/llm-profile-extra-boundary`（P1-1 profile 请求默认透传 +
-  P1-2 extra 保留字段封锁）。Wave 1 合并 main 待用户授权。
+- 全部 5 波完成（Wave 2/3/4 的进度与验证记录见各分支上的本文件较新版本）：
+  - Wave 1 `codex/world-review-root-cause`：RB-1 + RB-2（036e97a83）。
+  - Wave 2 `codex/llm-profile-extra-boundary`：P1-1 + P1-2（e7bd69ba6）。
+  - Wave 3 `codex/llm-envelope-hardening`（基于 Wave 2）：P1-3/4/5（2073ce0b9）。
+  - Wave 4 `codex/budget-caps-provenance`：P1-6/7/8 + P2（e98485213）。
+  - Wave 5 `codex/world-verified-review`（rebase 到 Wave 1）：WIP 整理为 5 提交 +
+    失败公开停止回执 + gate 去同预算化（a6d6d11df）；worktree world+evals 1139 passed。
+- 2026-09-17 二轮 review（Standards 3 硬性 + Spec 4）：全部修复——
+  W5 返修后知识复审补传 author_requirements（7a488c34d）；失败回执改私有键
+  `_world_design_review_failure` + redact_diagnostic 消毒（公开 wire 剥离）；writing/
+  story/project 模块 README 同步墙钟与冲突配额（e7efe7293，Wave 4 分支）；gate 报告补
+  per-arm request_limits/reasoning_efforts 并清理 same_budget 测试名；indexing README
+  同步 RAG 信封声明、provider 暴露 request_timeout、预算谓词收敛 schema 单点
+  （af684b56e，Wave 3 分支）；codex max 补参数化测试。判断性气味中 WGC 三处
+  run_managed_structured 重复与大类拆分维持缓议（与首轮审计决定一致）。
+  修正后回归：W5 1139 passed、W3 线 3906 passed、W4 线 32 targeted passed；ruff/
+  docs-check 全过。
+- 下一步：等待用户合并授权（建议顺序 Wave 1 → Wave 5 → Wave 2 → Wave 3 → Wave 4；
+  main 合并后 world 分支需再 rebase 吸收 Wave 2–4）。付费 11 对验收重跑需单独授权。

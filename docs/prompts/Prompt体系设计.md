@@ -43,7 +43,7 @@ output_validator 校验，修复计入同一执行预算；固定审稿保留原
 | `alias_relation_extraction.md` | 深度导入 Phase 2b，基于完整锁定 Scene 与冻结对象/关系引用提取别名和关系连续性 | imports |
 | `entity_fusion.py` | 内联 step `world.entity_fusion.decision.structured`：项目级智能去重与深度导入 `phase2_dedup` 共用的结构化实体融合判定；导入路径只发送同 workflow candidate 的类型、名称、已确认别名、截断摘要和 Scene/章节来源，不加载整书 RAG | world |
 | `scene_fusion_draft.py` | 内联 step `outline.scene_fusion.draft.structured`：基于选中 Scene 卡和精确正文生成融合语义草稿 | Scene 工作台 |
-| `world_generation_center_service.py` | 内联 steps `world.generation.design_iteration`、`world.generation.chat.generate`、`world.generation.convergence.map/reduce`、`world.generation.exploration.preview`、`world.generation.semantic_inspection`、`world.generation.core_entity.structured`、`world.generation.world_bible_page.structured`、`world.generation.world_bible_new_page.structured`：世界设定共创、只读收束、一跳探索、当前页检修与结构化建议；加强复核在同一冻结账户模型上追加 `.quality_review` 第二遍 | world 生成中心 |
+| `world_generation_center_service.py` | 内联 steps `world.generation.design_iteration`、`.counterexample.intent/causal/verify/repair/final_knowledge/final`、`world.generation.chat.generate`、`world.generation.convergence.map/reduce`、`world.generation.exploration.preview`、`world.generation.semantic_inspection`、`world.generation.core_entity.structured`、`world.generation.world_bible_page.structured`、`world.generation.world_bible_new_page.structured`：世界设定共创、精细设计反例审查、只读收束、一跳探索、当前页检修与结构化建议；普通加强复核在同一冻结账户模型上追加 `.quality_review` 第二遍 | world 生成中心 |
 | `ask_world_service.py` | 内联 step `world.ask`（snapshot prompt name `world.ask.v1`）：只根据当前项目作者可见证据生成带引用回答或明确拒答 | world 作者问答 |
 | `selection_proposal.py` | 内联 step `evidence.context.selection.suggest`：把作者资料调整要求映射到服务端 `candidate-NNN`，只返回待应用 include/exclude patch | Context 任务前审查 |
 | `world_bible_synopsis_service.py` | 内联 step `world.world_bible.synopsis.structured`：把已采用世界事实压缩为作者版 P1 世界观简介 | world 世界书简介刷新任务 |
@@ -421,6 +421,11 @@ RAG 证据的关联顺序取 Top-K；人物上限 6，相关世界对象上限 1
 官方前端通过 `world_cocreation_turn` 执行，终态回合与结果由 fenced commit 保存；刷新只查询原任务。
 `world.generation.design_iteration` 在同一已确认参考边界内输出 typed changes，继承父模型、保留 ID，
 不重建 seed 或写 Canon。步骤日志标明 design iteration，任务 mode 区分聊天与模型推演。
+精细 design 强制把单轮对话与持久决定编译为含 `working_assumptions`、`checkable_commitments` 的任务卡。
+目标范围与因果运转审查只看同一冻结输入、彼此不看对方输出；服务端分配稳定问题 ID、去重并限制
+每路 4 张／总计 8 张。核验器必须为每个 ID 恰好返回一次 confirmed/rejected/insufficient/tradeoff；
+只有 confirmed 进入一次返修。返修后知识审查不再自动返修，终审新发现阻断即停止。所有 step 名固定，
+不含 attempt、packet 或动态序号；任务私有检查点按输入 hash 复用已完成响应。
 聊天正文使用普通文本生成，Prompt 明确要求直接回应作者而不输出 JSON 或协议包装；
 调用层把返回文本放入只含 `reply` 的 schema 校验非空与长度。自由聊天不启用 provider
 JSON mode；偶发空文本只在同一阶段时限内重试一次，也不把任意原始输出直接当作业务响应。
@@ -483,7 +488,8 @@ Evidence Search 构造最多 40 个短键候选；system 规则禁止发明引�
 `world.generation.conversation_decision_state`。该 step 不继续创作，只按时间顺序编译作者
 当前目标、已确认要求、受支持发展、已否定内容、禁用专名、未决项、命名权限，以及可选的
 “谁能知道／如何表达”边界。该边界只约束本轮提案，不写 CharacterKnowledge、术语表或世界
-事实。后续生成只消费这个决策状态，不直接重放可能含作废方案的助手历史；检索 focus 也只
+事实。精细 design 即使只有首轮作者消息也强制运行，并额外输出临时工作假设与可检验承诺；
+假设不能升级为确认事实。后续生成只消费这个决策状态，不直接重放可能含作废方案的助手历史；检索 focus 也只
 使用最新作者消息，
 避免修正语句中的旧名称再次污染背景。禁用专名或未经允许的专名会触发确定性守卫并在同一
 1800 秒总预算内重生成。候选还会经过一次窄语义审计，只检查是否违反作者已确认要求、复活

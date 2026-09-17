@@ -13,8 +13,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, ValidationError
+from infrastructure.stable_hash import stable_hash
 from modules.project.facade import get_project_context, require_active_project
 from modules.world.contracts import PostImportWorldAdoptionResultContract
+from modules.world.llm_schemas import GeneratedWorldGenerationDecisionState
 from modules.world.models import CoreEntity, CreationSuggestion, EntityRelation
 from modules.world.schemas import (
     CoreEntityCreate,
@@ -151,8 +153,17 @@ class WorldAdoptionPackageService:
                 action="world.generation.chat",
                 confirmation_id=str(request.context_confirmation_id),
             )
+        parent_checkpoint = WorldDesignCheckpointPayload.model_validate(
+            parent.payload_json
+        )
+        decision_state, review_reference = await self._design_review_binding(
+            db, request=request, parent=parent_checkpoint
+        )
         checkpoint = revise_world_design(
-            WorldDesignCheckpointPayload.model_validate(parent.payload_json), request
+            parent_checkpoint,
+            request,
+            decision_state=decision_state,
+            review_reference=review_reference,
         )
         saved = await self.save_design_checkpoint(
             db,
@@ -175,6 +186,115 @@ class WorldAdoptionPackageService:
             ),
         )
         return saved
+
+    @staticmethod
+    async def _design_review_binding(
+        db: AsyncSession,
+        *,
+        request: WorldDesignRevisionRequest,
+        parent: WorldDesignCheckpointPayload,
+    ) -> tuple[GeneratedWorldGenerationDecisionState | None, dict[str, Any]]:
+        """Bind one saved revision to its exact completed design task, if supplied."""
+        if request.origin_task_id is None:
+            return None, {
+                "schema_version": "world_design_review_ref.v1",
+                "status": "unreviewed",
+            }
+
+        from infrastructure.tasks.facade import get_completed_task_payload
+        from modules.world.services.worldbuilding.world_design_iteration import (
+            world_design_revision_content_hash,
+        )
+
+        origin_task_id = str(request.origin_task_id)
+        task = await get_completed_task_payload(
+            db,
+            task_id=origin_task_id,
+            task_type="world_cocreation_turn",
+            novel_id=request.novel_id,
+            for_update=True,
+        )
+        if task is None:
+            raise ValidationError("原始推演任务不存在、未完成或不属于当前项目")
+        result = dict(task.result or {})
+        response = result.get("_cocreation_turn_response")
+        if not isinstance(response, dict):
+            response = result
+        if (
+            response.get("mode") != "design"
+            or str(response.get("session_id")) != str(request.session_id)
+            or str(response.get("parent_checkpoint_id"))
+            != str(request.parent_checkpoint_id)
+            or str(response.get("context_confirmation_id"))
+            != str(request.context_confirmation_id)
+            or response.get("source_manifest_hash") != parent.source_manifest_hash
+        ):
+            raise ValidationError("原始推演任务与当前会话、阶段成果或参考来源不匹配")
+
+        raw_brief = response.get("task_brief")
+        decision_state = (
+            GeneratedWorldGenerationDecisionState.model_validate(raw_brief)
+            if isinstance(raw_brief, dict)
+            else None
+        )
+        reference: dict[str, Any] = {
+            "schema_version": "world_design_review_ref.v1",
+            "status": "unreviewed",
+            "origin_task_id": origin_task_id,
+        }
+        receipt = result.get("_world_design_review_receipt")
+        if not isinstance(receipt, dict):
+            return decision_state, reference
+        claimed_receipt_hash = receipt.get("receipt_hash")
+        if (
+            not isinstance(claimed_receipt_hash, str)
+            or stable_hash(
+                {key: value for key, value in receipt.items() if key != "receipt_hash"}
+            )
+            != claimed_receipt_hash
+            or str(receipt.get("parent_checkpoint_id"))
+            != str(request.parent_checkpoint_id)
+            or str(receipt.get("context_confirmation_id"))
+            != str(request.context_confirmation_id)
+            or receipt.get("source_manifest_hash") != parent.source_manifest_hash
+        ):
+            raise ValidationError("原始推演审查回执已损坏或与当前来源不匹配")
+
+        response_hash = world_design_revision_content_hash(
+            summary=str(response.get("summary") or ""),
+            changes=response.get("changes") or {},
+            decisions=[],
+        )
+        if response_hash != receipt.get("final_output_hash"):
+            raise ValidationError("原始推演结果与审查回执不匹配")
+        request_hash = world_design_revision_content_hash(
+            summary=request.summary,
+            changes=request.changes,
+            decisions=request.decisions,
+        )
+        summary = receipt.get("review_summary")
+        if not isinstance(summary, dict) or summary.get("status") not in {
+            "passed",
+            "passed_with_open_questions",
+            "blocked",
+        }:
+            raise ValidationError("原始推演缺少有效终审结论")
+        if request_hash != response_hash:
+            return decision_state, {
+                **reference,
+                "status": "author_edited_unreviewed",
+                "source_receipt_hash": claimed_receipt_hash,
+            }
+        if summary["status"] == "blocked":
+            raise ValidationError(
+                "该提案终审未通过；请先修改后保存为未复核阶段成果，或补充信息重新推演"
+            )
+        return decision_state, {
+            **reference,
+            "status": summary["status"],
+            "receipt_hash": claimed_receipt_hash,
+            "final_output_hash": response_hash,
+        }
 
     async def save(
         self,

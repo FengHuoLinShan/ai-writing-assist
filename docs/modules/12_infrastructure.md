@@ -565,6 +565,8 @@ handler 普通失败时保留领域经 fenced checkpoint 写入的双恢复标�
 选择 `world.generation.chat` 或 `world.generation.design_iteration` 的知识策略。World 持有业务判断，
 任务基础设施只提供 operation fingerprint、lease commit fence 和精确 `novel_id + task_type + session_id`
 的最后操作查询；该类型禁止 generic submit。终态回合与可恢复结果原子保存，进度不等于采用内容；
-没有新任务表或调度器。
+没有新任务表或调度器。额度为 chat fast 10、chat pro 14、design fast 24、design pro 66；后者覆盖
+现有 4 组和新增 7 组 schema 请求、每组最多 3 次并乘最多 2 个 attempt。精细 design 的稳定阶段响应
+写入私有 task result，重排只在输入 hash 一致时复用；任务状态 API 不投影下划线键。
 
 知识治理复用现有 managed harness、project snapshot client、task lease 与 context snapshot，不新增常驻服务或自治 Agent runtime。阶段投影不改变调度器状态机。
