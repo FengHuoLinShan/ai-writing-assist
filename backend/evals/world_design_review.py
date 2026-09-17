@@ -1,4 +1,10 @@
-"""Offline same-budget gate for adjudicated World design review pairs."""
+"""Offline gate for adjudicated World design review pairs.
+
+配对只要求相同的"名义冻结上限"（token_budget 标签、模型与 context hash）；
+两臂的真实 request cap 与实际累计用量分别记录并分别报告——名义上限不是
+运行时累计闸门，报告不得据此宣称"同预算"。
+"""
+
 
 from __future__ import annotations
 
@@ -11,6 +17,15 @@ class WorldDesignArmScore(BaseModel):
     model: str = Field(min_length=1)
     context_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     token_budget: int = Field(gt=0)
+    """名义冻结上限标签（如 66 x 131072）；不是运行时累计闸门。"""
+    request_limit: int = Field(ge=1)
+    """该臂真实冻结的请求额度（两臂允许不同）。"""
+    requests_used: int = Field(ge=0)
+    """该臂实际发出的 provider 请求数（含 transport 重试）。"""
+    tokens_used: int = Field(ge=0)
+    """该臂实际结算的累计 token 用量；未知用量按 possible 计入请求数。"""
+    reasoning_effort: str | None = None
+    """该臂实际生效的 reasoning effort（evaluator provenance）。"""
     adjudicated: bool
     severe_goal_errors: int = Field(ge=0)
     severe_causal_errors: int = Field(ge=0)
@@ -72,6 +87,10 @@ def evaluate_world_design_review_pairs(
     }
     return {
         "case_count": len(pairs),
+        "baseline_requests_used": total("baseline", "requests_used"),
+        "candidate_requests_used": total("candidate", "requests_used"),
+        "baseline_tokens_used": total("baseline", "tokens_used"),
+        "candidate_tokens_used": total("candidate", "tokens_used"),
         "baseline_severe_errors": baseline_severe,
         "candidate_severe_errors": candidate_severe,
         "baseline_review_friction": baseline_friction,

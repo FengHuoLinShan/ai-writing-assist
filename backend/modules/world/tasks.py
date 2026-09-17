@@ -286,6 +286,56 @@ async def _commit_world_task_checkpoint(
     db.expire_all()
 
 
+_WORLD_DESIGN_REVIEW_STAGE_ORDER = (
+    "task_brief",
+    "generated_output",
+    "initial_output",
+    "initial_knowledge_review",
+    "intent_review",
+    "causal_review",
+    "verification",
+    "repaired_output",
+    "final_knowledge_review",
+    "final_review",
+)
+_WORLD_DESIGN_REVIEW_FAILURE_KEY = "world_design_review_failure"
+
+
+def _world_design_failure_receipt(task: Any, exc: BaseException) -> dict[str, Any]:
+    """脱敏的失败停止回执：阶段进度、attempt、信封用量与作者可见错误信息。
+
+    只进入公开 task result（无下划线前缀，wire 不剥离）；不含正文、Prompt、
+    模型身份或 provider 诊断。
+    """
+    from infrastructure.llm.schemas import AI_RUN_ENVELOPE_KEY, read_ai_run_envelope
+
+    state = (getattr(task, "result", None) or {}).get("_world_design_review_state")
+    state = state if isinstance(state, dict) else {}
+    try:
+        envelope = read_ai_run_envelope(
+            (getattr(task, "meta", None) or {}).get(AI_RUN_ENVELOPE_KEY)
+        )
+    except Exception:  # noqa: BLE001 - 回执必须失败开放，不放大原错误
+        envelope = None
+    receipt: dict[str, Any] = {
+        "schema_version": "world_design_review_failure.v1",
+        "attempt": int(getattr(task, "attempt", 1) or 1),
+        "error_kind": type(exc).__name__,
+        "message": str(exc)[:500],
+        "review_progress": [
+            key
+            for key in _WORLD_DESIGN_REVIEW_STAGE_ORDER
+            if isinstance(state.get(key), dict) or state.get(key)
+        ],
+    }
+    if envelope is not None:
+        receipt["requests_started"] = envelope.requests_started
+        receipt["requests_settled"] = envelope.requests_settled
+        receipt["requests_unknown"] = envelope.requests_unknown
+        receipt["usage_total_tokens"] = envelope.usage.total_tokens
+    return receipt
+
+
 @task_handler(
     "world_alias_relation_extraction",
     recovery_policy="auto_requeue",
@@ -692,15 +742,31 @@ async def handle_world_cocreation_turn(db, task):
                 progress=progress,
             )
 
-        result = await service.design_iteration(
-            db,
-            WorldDesignIterationRequest.model_validate(
-                {**data.model_dump(), "action": data.session_action}
-            ),
-            llm_execution_snapshot=snapshot,
-            resume_review_state=(task.result or {}).get("_world_design_review_state"),
-            review_checkpoint_callback=checkpoint_review_state,
-        )
+        try:
+            result = await service.design_iteration(
+                db,
+                WorldDesignIterationRequest.model_validate(
+                    {**data.model_dump(), "action": data.session_action}
+                ),
+                llm_execution_snapshot=snapshot,
+                resume_review_state=(task.result or {}).get("_world_design_review_state"),
+                review_checkpoint_callback=checkpoint_review_state,
+            )
+        except BaseException as exc:
+            # P1-8/RB-3：失败也留下可诊断的脱敏停止回执（阶段进度 + attempt +
+            # 信封用量 + 作者可见错误），否则失败 artifact 只有 result={}。
+            await _commit_world_task_checkpoint(
+                db,
+                task,
+                result={
+                    **dict(task.result or {}),
+                    _WORLD_DESIGN_REVIEW_FAILURE_KEY: _world_design_failure_receipt(
+                        task, exc
+                    ),
+                },
+                progress=1.0,
+            )
+            raise
         reply = result.summary
     else:
         result = await service.chat(db, data, llm_execution_snapshot=snapshot)
@@ -750,7 +816,11 @@ async def handle_world_cocreation_turn(db, task):
         private_result["_world_design_review_receipt"] = (
             service.last_design_review_receipt
         )
-    task.result = {**(task.result or {}), **private_result}
+    task.result = {
+        key: value
+        for key, value in {**(task.result or {}), **private_result}.items()
+        if key != _WORLD_DESIGN_REVIEW_FAILURE_KEY
+    }
     task.update_progress(1.0)
     await db.commit()
     return {**response, **private_result}

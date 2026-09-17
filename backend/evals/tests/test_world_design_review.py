@@ -14,6 +14,10 @@ def _arm(**updates):
         "model": "frozen-model",
         "context_hash": "a" * 64,
         "token_budget": 12000,
+        "request_limit": 24,
+        "requests_used": 6,
+        "tokens_used": 70000,
+        "reasoning_effort": "high",
         "adjudicated": True,
         "severe_goal_errors": 1,
         "severe_causal_errors": 1,
@@ -94,3 +98,24 @@ def test_manifest_covers_required_world_design_failure_modes():
         "insufficient-evidence",
         "value-tradeoff",
     }
+
+
+def test_gate_reports_per_arm_actual_usage_not_nominal_budget():
+    """RB-3：名义上限相同的两臂，真实 cap 与实际用量分别进入报告。"""
+    pair = WorldDesignReviewPair.model_validate(
+        {
+            "case_id": "resource-loop",
+            "baseline": _arm(request_limit=24, requests_used=5, tokens_used=70299),
+            "candidate": _arm(
+                request_limit=66,
+                requests_used=8,
+                tokens_used=101691,
+                severe_goal_errors=0,
+            ),
+        }
+    )
+    report = evaluate_world_design_review_pairs([pair])
+    assert report["baseline_requests_used"] == 5
+    assert report["candidate_requests_used"] == 8
+    assert report["baseline_tokens_used"] == 70299
+    assert report["candidate_tokens_used"] == 101691

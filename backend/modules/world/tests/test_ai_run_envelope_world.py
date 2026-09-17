@@ -662,3 +662,66 @@ async def test_budget_rejection_fails_task_closed_with_zero_provider_calls(
     finally:
         registry.unregister(probe_type)
         await _cleanup(sessions, [task_id])
+
+
+def test_world_design_failure_receipt_reports_stage_usage_and_message():
+    """P1-8/RB-3：失败回执公开脱敏的阶段进度、attempt 与信封用量。"""
+    from datetime import UTC, datetime
+
+    from infrastructure.llm.schemas import (
+        AI_RUN_ENVELOPE_KEY,
+        AIRunEnvelopeV1,
+        AIStepReceiptV1,
+        read_ai_run_envelope,
+    )
+    from modules.world.tasks import _world_design_failure_receipt
+
+    started = datetime.now(UTC)
+    envelope = AIRunEnvelopeV1(
+        operation_id="op-1",
+        run_id="run-1",
+        root_capability_id="world.generation.cocreation",
+        novel_id="novel-1",
+        started_at=started,
+        request_limit=66,
+        requests_started=9,
+        requests_settled=7,
+        requests_unknown=2,
+        usage=LLMUsage(prompt_tokens=60, completion_tokens=30, total_tokens=90),
+        steps=[
+            AIStepReceiptV1(
+                step_name="world.generation.design_iteration",
+                step_capability_id="world.generation.cocreation",
+                call_kind=AIStepCallKind.structured,
+                requests_started=9,
+                requests_settled=7,
+                requests_unknown=2,
+                usage=LLMUsage(prompt_tokens=60, completion_tokens=30, total_tokens=90),
+            )
+        ],
+    )
+    # 通过 schema 校验器要求 step 账目自洽：直接用无 step 的聚合（校验允许 0 step）。
+    task = SimpleNamespace(
+        attempt=1,
+        result={
+            "_world_design_review_state": {
+                "schema_version": "world_design_review_state.v1",
+                "task_brief": {"goal": "x"},
+                "generated_output": {"changes": {}},
+            }
+        },
+        meta={AI_RUN_ENVELOPE_KEY: envelope.model_dump(mode="json")},
+    )
+    assert read_ai_run_envelope(task.meta[AI_RUN_ENVELOPE_KEY]) is not None
+
+    receipt = _world_design_failure_receipt(
+        task, RuntimeError("本轮推演未通过知识审查（已返修仍失败）")
+    )
+    assert receipt["schema_version"] == "world_design_review_failure.v1"
+    assert receipt["attempt"] == 1
+    assert receipt["error_kind"] == "RuntimeError"
+    assert "知识审查" in receipt["message"]
+    assert receipt["review_progress"] == ["task_brief", "generated_output"]
+    assert receipt["requests_started"] == 9
+    assert receipt["requests_settled"] == 7
+    assert receipt["requests_unknown"] == 2

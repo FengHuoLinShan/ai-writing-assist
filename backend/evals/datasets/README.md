@@ -106,10 +106,13 @@ make eval-fast
 `manifests/world-design-review-v1.json` 固定 11 类合成覆盖面：目标误读、作者禁区、资源闭环、
 信息传播、制度执行、维护故障、长期反馈、合理怪异设定、无问题、证据不足和价值冲突。真实模型
 运行仍使用现有独立 review/adjudication 流程；只有双方都完成 adjudication，且 model、冻结
-context hash 与总 token budget 完全相同的配对结果，才能交给
-`evals.world_design_review.evaluate_world_design_review_pairs`。门禁要求严重目标／因果错误严格减少、
+context hash 与名义 token budget 标签完全相同的配对结果，才能交给
+`evals.world_design_review.evaluate_world_design_review_pairs`。名义标签不是运行时累计闸门：
+两臂的真实 request cap（如 24/66）与实际累计 usage（requests_used/tokens_used）逐臂记录并
+在报告中分别呈现，不得据此宣称"同预算"。门禁要求严重目标／因果错误严格减少、
 误报与无谓作者决策不增加、知识边界和项目隔离回归为零。该离线门禁不发起付费模型调用；没有
-单独授权时只能验证工程闭环，不能据此宣称产品质量提升。
+单独授权时只能验证工程闭环，不能据此宣称产品质量提升。失败案例必须携带脱敏的停止阶段回执
+（world_design_review_failure），区分模型误判、审查误杀、预算耗尽与导出丢失。
 
 `eval-fixture-manifest` covers the stable Writing, Outline, and World synthetic
 and prompt-contract fixtures. It stores only logical roles, repository-relative
