@@ -87,6 +87,16 @@ transport attempt。
 ADR-0023 的 `agent_runtime.py` 通过 `ProjectGatewayModel` 接入锁定的 PydanticAI。
 工具历史使用显式调用 ID、JSON 参数和配对结果，拒绝孤立/重复/未完成配对；`extra` 和
 `extra_body` 不可注入工具。供应商思考续接字段只在私有模型协议中保留，不进入普通 dump。
+
+### Profile 请求默认与 extra 信任边界
+
+`from_resolved_profile` 构造的 client 携带 profile 请求默认：
+`resolve_request_defaults` 仅为请求未显式设置的 temperature / top_p / max_tokens
+填充 profile 值，并把 profile `extra` 按键合并为请求 extra 的底座（请求键优先）。
+`LLMCallRequest.temperature` 默认 None，未设置时继承 profile 默认（代码默认 0.3），
+不再内置 0.7。`extra` 只允许 provider 特定参数：正式 request 字段与其 token 同义词
+（`max_tokens`、`max_completion_tokens`、`temperature`、`top_p` 等）在项目设置
+保存、client 构造与 provider kwargs 构建三层 fail closed。
 请求、全部工具尝试和联网子请求按运行预算累计，恢复不重置；新 Agent 关闭 transport
 自动重放，格式修复由 PydanticAI 独立拥有。现有确定性 structured helper 不改变行为。
 `native_search.py` 保留供应商原生协议兼容代码，未通过真实兼容验证的能力不注册。

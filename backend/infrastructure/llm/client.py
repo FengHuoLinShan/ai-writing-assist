@@ -32,7 +32,7 @@ from infrastructure.llm.profiles import (
     default_llm_profile,
     resolve_llm_profile,
 )
-from infrastructure.llm.providers import get_provider
+from infrastructure.llm.providers import get_provider, reject_reserved_extra_keys
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.retry import (
     is_retryable_transport_error,
@@ -596,6 +596,8 @@ class LLMClient:
             "_embedding_base_url",
             runtime_profile.base_url,
         )
+        self._profile_request_defaults = runtime_profile.request_defaults()
+        self._profile_extra_defaults = dict(runtime_profile.extra)
         self._uses_system_embedding_profile = False
         self._runtime_scope: dict[str, Any] = {"profile_source": "system"}
 
@@ -630,6 +632,9 @@ class LLMClient:
         client._profile_summary = profile.sanitized_summary()
         client._limiter_provider_id = profile.provider_id
         client._limiter_base_url = profile.base_url
+        reject_reserved_extra_keys(profile.extra, source="profile")
+        client._profile_request_defaults = profile.request_defaults()
+        client._profile_extra_defaults = dict(profile.extra)
         return client
 
     def bind_runtime_scope(
@@ -687,6 +692,8 @@ class LLMClient:
             "_embedding_base_url",
             runtime_profile.base_url,
         )
+        self._profile_request_defaults = runtime_profile.request_defaults()
+        self._profile_extra_defaults = dict(runtime_profile.extra)
 
     @property
     def provider(self) -> str:
@@ -709,10 +716,22 @@ class LLMClient:
         return deepcopy(self._runtime_scope)
 
     def resolve_request_defaults(self, request: LLMCallRequest) -> LLMCallRequest:
-        """Return a request copy with client-owned defaults materialized."""
+        """Return a request copy with client-owned defaults materialized.
+
+        Profile 请求默认（temperature/top_p/extra）只填充请求未显式设置的槽位；
+        显式 request 值始终优先，避免覆盖各能力的定制采样参数。
+        """
         resolved = request.model_copy(deep=True)
         if resolved.max_tokens is None:
             resolved.max_tokens = self._default_max_tokens
+        if resolved.temperature is None:
+            resolved.temperature = self._profile_request_defaults.get("temperature")
+        if resolved.top_p is None:
+            resolved.top_p = self._profile_request_defaults.get("top_p")
+        if self._profile_extra_defaults:
+            merged_extra = dict(self._profile_extra_defaults)
+            merged_extra.update(resolved.extra)
+            resolved.extra = merged_extra
         return resolved
 
     def _limiter_scope(self, operation_kind: str) -> LLMLimiterScope:

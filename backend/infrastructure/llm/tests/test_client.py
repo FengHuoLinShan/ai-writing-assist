@@ -26,7 +26,7 @@ from infrastructure.llm.limits import (
     reset_llm_limiter_for_tests,
 )
 from infrastructure.llm.profiles import resolve_llm_profile
-from infrastructure.llm.providers import OpenAIProvider
+from infrastructure.llm.providers import OpenAIProvider, get_provider
 from infrastructure.llm.schemas import (
     LLMCallRequest,
     LLMCallResponse,
@@ -1292,6 +1292,8 @@ async def test_client_accepts_real_provider_stream_coroutine_shape(monkeypatch) 
     client._runtime_scope = {"profile_source": "system"}
     client._limiter_provider_id = "openai"
     client._limiter_base_url = "https://chat.example/v1"
+    client._profile_request_defaults = {}
+    client._profile_extra_defaults = {}
 
     chunks = [
         chunk
@@ -2080,3 +2082,74 @@ def test_escape_recovery_rejects_truncation_unicode_damage_and_excess(text, reco
 
     with pytest.raises(_StructuredParseError):
         _parse_structured_json(text, _StructuredPayload, allow_truncated_recovery=recover)
+
+
+def test_resolved_profile_request_defaults_fill_unset_slots() -> None:
+    """P1-1：profile 采样参数经 client seam 成为请求默认；显式值优先。"""
+    profile = resolve_llm_profile(
+        test_overrides={
+            "api_key": "sk-test",
+            "base_url": "https://api.deepseek.com/v1",
+            "model": "deepseek-chat",
+            "temperature": 0.2,
+            "top_p": 0.9,
+            "extra": {"reasoning_effort": "high", "logit_bias": {"1": 2}},
+        }
+    )
+    client = LLMClient.from_resolved_profile(profile)
+
+    filled = client.resolve_request_defaults(
+        LLMCallRequest(messages=[LLMMessage(role="user", content="hi")])
+    )
+    assert filled.temperature == 0.2
+    assert filled.top_p == 0.9
+    assert filled.extra["reasoning_effort"] == "high"
+    assert filled.extra["logit_bias"] == {"1": 2}
+
+    explicit = client.resolve_request_defaults(
+        LLMCallRequest(
+            messages=[LLMMessage(role="user", content="hi")],
+            temperature=1.1,
+            extra={"reasoning_effort": "low"},
+        )
+    )
+    assert explicit.temperature == 1.1
+    assert explicit.extra["reasoning_effort"] == "low"
+
+
+def test_default_client_carries_code_default_temperature() -> None:
+    client = LLMClient()
+    filled = client.resolve_request_defaults(
+        LLMCallRequest(messages=[LLMMessage(role="user", content="hi")])
+    )
+    assert filled.temperature == 0.3
+
+
+def test_from_resolved_profile_rejects_reserved_extra_keys() -> None:
+    profile = resolve_llm_profile(
+        test_overrides={"api_key": "sk-test", "extra": {"max_tokens": 999999}}
+    )
+    with pytest.raises(ValueError, match="formal request fields"):
+        LLMClient.from_resolved_profile(profile)
+
+
+def test_provider_rejects_extra_token_and_sampling_overrides() -> None:
+    """P1-2：extra/extra_body 不得覆盖已验证的正式 request 字段。"""
+    provider = get_provider("openai", api_key="sk-test")
+    base = LLMCallRequest(
+        messages=[LLMMessage(role="user", content="hi")], max_tokens=100
+    )
+    with pytest.raises(ValueError, match="reserved LLM extra fields"):
+        provider._build_kwargs(
+            base.model_copy(update={"extra": {"max_completion_tokens": 999999}}),
+            "deepseek-chat",
+        )
+    with pytest.raises(ValueError, match="reserved LLM extra_body fields"):
+        provider._build_kwargs(
+            base.model_copy(update={"extra": {"extra_body": {"temperature": 2.0}}}),
+            "deepseek-chat",
+        )
+    with pytest.raises(ValueError, match="reserved LLM extra fields"):
+        provider._build_kwargs(
+            base.model_copy(update={"extra": {"top_p": 1.5}}), "deepseek-chat"
+        )

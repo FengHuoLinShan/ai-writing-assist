@@ -172,6 +172,13 @@ temperature / top_p / extra，并保留字段来源。日志、JSONL、health ch
 只能使用脱敏 summary：`provider_id`、`label`、`model`、`base_url_host`、
 `timeout`、`max_tokens`、`api_key_configured`、`sources`、`extra_keys`。API Key
 不得进入日志、错误信息、任务结果或前端响应。
+profile 的 temperature / top_p / extra 是实际生效的请求默认：`LLMClient` 在
+`resolve_request_defaults` 中只为请求未显式设置的槽位填充 profile 默认，显式
+request 值始终优先；`LLMCallRequest.temperature` 默认为 None（不再内置 0.7）。
+`extra` 只承载 provider 特定参数，正式 request 字段（model/messages、token 上限、
+temperature/top_p/stop/seed/penalty/response_format 等）及其同义词
+（`max_completion_tokens` 等）在保存与 provider 构建两层均被拒绝，防止绕过 schema
+与领域上限。
 账户 Key 的等值指纹使用部署加密密钥和用途分隔的 HMAC-SHA256；旧无密钥指纹在作者下次
 保存连接并完成真实验证后惰性改写，数据库字段与 wire 不变。provider 初始化日志只记录固定
 事件名，不记录 model、endpoint 或动态异常值；运行时 profile summary 只允许在受管边界记录

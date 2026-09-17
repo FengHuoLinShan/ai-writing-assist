@@ -19,6 +19,7 @@ from infrastructure.llm.profiles import (
     list_account_provider_templates,
     sanitize_llm_profile,
 )
+from infrastructure.llm.providers import reject_reserved_extra_keys
 from infrastructure.tasks.facade import (
     cancel_unfinished_tasks_for_novel,
     delete_tasks_for_novel,
@@ -363,6 +364,12 @@ class ProjectService:
                 )
             except ValueError as exc:
                 raise ValidationError(str(exc)) from exc
+        try:
+            reject_reserved_extra_keys(
+                next_llm.get("extra") or {}, source="project settings"
+            )
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
         settings[LLM_SETTINGS_KEY] = next_llm
         return data.model_copy(update={"settings": settings})
 

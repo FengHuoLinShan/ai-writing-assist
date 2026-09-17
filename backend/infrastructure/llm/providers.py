@@ -67,6 +67,18 @@ _RESERVED_EXTRA_FIELDS = {
     "tool_choice",
     "functions",
     "function_call",
+    # 正式 request 字段与其 provider 同义词：extra 在正式参数之后写入，
+    # 不拦截会绕过 schema 与领域上限（如经 max_completion_tokens 覆盖 max_tokens）。
+    "temperature",
+    "max_tokens",
+    "max_completion_tokens",
+    "top_p",
+    "stop",
+    "seed",
+    "frequency_penalty",
+    "presence_penalty",
+    "response_format",
+    "n",
 }
 
 _EXTRA_BODY_FIELDS = {
@@ -76,6 +88,18 @@ _EXTRA_BODY_FIELDS = {
 _JSON_OBJECT_OUTPUT_INSTRUCTION = (
     "Return exactly one valid JSON object matching the requested schema."
 )
+
+
+def reject_reserved_extra_keys(extra: dict[str, Any], *, source: str) -> None:
+    """Fail closed when provider-specific extras try to own formal request fields."""
+    reserved = _RESERVED_EXTRA_FIELDS.intersection(
+        str(key).lower() for key in extra
+    )
+    if reserved:
+        fields = ", ".join(sorted(reserved))
+        raise ValueError(
+            f"{source} extra fields cannot override formal request fields: {fields}"
+        )
 
 _OPENAI_PROVIDER_ERRORS = (
     APITimeoutError,
