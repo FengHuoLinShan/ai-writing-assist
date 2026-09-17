@@ -1,9 +1,9 @@
 ---
 id: T-20260917-review-remediation
 title: 审计报告核查与全量修复（World 根因 / LLM 信任边界 / 信封加固 / 配额 provenance）
-status: in_progress
+status: complete
 created: 2026-09-17T13:30:00+08:00
-updated: 2026-09-17T13:30:00+08:00
+updated: 2026-09-17T21:30:00+08:00
 parent: .agent/tasks/agent-integration.md
 ---
 
@@ -65,5 +65,12 @@ Luna 专属默认。
 
 ## 阻塞 / 下一步
 
-- 无阻塞。下一步：Wave 2 `codex/llm-profile-extra-boundary`（P1-1 profile 请求默认透传 +
-  P1-2 extra 保留字段封锁）。Wave 1 合并 main 待用户授权。
+- 全部 5 波完成（Wave 2/3/4 的进度与验证记录见各分支上的本文件较新版本）：
+  - Wave 1 `codex/world-review-root-cause`：RB-1 + RB-2（036e97a83）。
+  - Wave 2 `codex/llm-profile-extra-boundary`：P1-1 + P1-2（e7bd69ba6）。
+  - Wave 3 `codex/llm-envelope-hardening`（基于 Wave 2）：P1-3/4/5（2073ce0b9）。
+  - Wave 4 `codex/budget-caps-provenance`：P1-6/7/8 + P2（e98485213）。
+  - Wave 5 `codex/world-verified-review`（rebase 到 Wave 1）：WIP 整理为 5 提交 +
+    失败公开停止回执 + gate 去同预算化（a6d6d11df）；worktree world+evals 1139 passed。
+- 下一步：等待用户合并授权（建议顺序 Wave 1 → Wave 5 → Wave 2 → Wave 3 → Wave 4；
+  main 合并后 world 分支需再 rebase 吸收 Wave 2–4）。付费 11 对验收重跑需单独授权。
