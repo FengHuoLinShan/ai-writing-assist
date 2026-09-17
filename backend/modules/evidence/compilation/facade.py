@@ -1017,6 +1017,28 @@ async def build_hidden_guard_context(
     return await _hidden_guard_builder.build(db, confirmed_context)
 
 
+def confirmed_knowledge_source_count(confirmed_context: ConfirmedAIActionContext) -> int:
+    """确定性统计冻结编译产物中可能进入知识范围回执的来源数。
+
+    供调用方在任务入队时冻结工作量上界（配额公式 A=6⌈K/64⌉+8 的 K）；
+    统计包含被排除/被驱逐来源，结果只会不小于实际 included 数。
+    """
+    from modules.evidence.compilation.knowledge.scope import source_key_of
+
+    compiled = confirmed_context.compiled
+    keys: set[str] = set()
+    for section in compiled.sections:
+        for source in section.sources:
+            key = source_key_of(source)
+            if key:
+                keys.add(key)
+    for item in [*compiled.excluded_items, *compiled.omitted_items]:
+        key = source_key_of(item.source)
+        if key:
+            keys.add(key)
+    return len(keys)
+
+
 async def compile_from_confirmation(
     db: AsyncSession,
     *,

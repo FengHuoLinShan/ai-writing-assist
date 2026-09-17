@@ -35,6 +35,8 @@ def _smart_dedup_run_request_limit(task) -> int:
     retry_transient_llm_errors=True,
     root_capability_id="project.smart_dedup",
     run_request_limit=_smart_dedup_run_request_limit,
+    # 请求额度按冻结工作量计；补保守总墙钟护栏，只切病态挂起。
+    run_deadline_seconds=7200.0,
 )
 async def handle_smart_dedup_scan(db, task):
     """Run one project-wide smart dedupe scan and store suggestions in task result."""

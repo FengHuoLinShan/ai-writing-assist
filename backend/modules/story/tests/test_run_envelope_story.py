@@ -152,9 +152,10 @@ def test_story_tasks_declare_canonical_root_and_frozen_limit(
         ("outline_generate", None),
         ("scene_fusion_preview", None),
         ("story_character_card_generate", None),
-        ("story_reaction_propose", None),
+        # reaction/one_click 补保守总墙钟护栏（只切病态挂起）。
+        ("story_reaction_propose", 3600.0),
         ("story_scene_script_generate", None),
-        ("story_one_click", None),
+        ("story_one_click", 7200.0),
     ],
 )
 def test_story_tasks_declare_deadline_with_code_source(

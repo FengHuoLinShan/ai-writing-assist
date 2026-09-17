@@ -58,7 +58,7 @@ class CodexStructuredExecutor:
             raise ValueError(f"eval model must be one of: {allowed}")
         if reasoning_effort is None and model == "gpt-5.6-luna":
             reasoning_effort = "medium"
-        if reasoning_effort not in {None, "low", "medium", "high", "xhigh"}:
+        if reasoning_effort not in {None, "low", "medium", "high", "xhigh", "max"}:
             raise ValueError("unsupported eval reasoning effort")
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")

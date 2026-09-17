@@ -190,11 +190,11 @@ def _production_registry_with_writing() -> TaskRegistry:
         ("writing_generate", "writing.generate", None),
         ("writing_semantic_review", "writing.semantic_review", 144),
         ("writing_targeted_revision", "writing.targeted_revision", 4),
-        ("writing_conflict_ai_review", "writing.conflict_check.ai_review", 6),
+        ("writing_conflict_ai_review", "writing.conflict_check.ai_review", 16),
         (
             "writing_conflict_item_ai_suggestion",
             "writing.conflict_check.ai_suggestion",
-            6,
+            16,
         ),
     ],
 )
@@ -211,6 +211,17 @@ def test_writing_tasks_declare_canonical_root_and_frozen_limit(
         assert resolved == limit
 
 
+def test_writing_conflict_caps_cover_full_legal_replay() -> None:
+    """P1-6：两次 attempt 的合法重放（3+3 ×2）必须落在冻结配额内。"""
+    registry = _production_registry_with_writing()
+    for task_type in (
+        "writing_conflict_ai_review",
+        "writing_conflict_item_ai_suggestion",
+    ):
+        cap = registry.resolve_run_request_limit(task_type, SimpleNamespace(meta={}))
+        assert cap >= 2 * (3 + 3)
+
+
 def test_writing_generate_resolver_reads_frozen_receipt() -> None:
     registry = _production_registry_with_writing()
     receipt_included = [{"source_key": f"src:{index}"} for index in range(129)]
@@ -219,7 +230,10 @@ def test_writing_generate_resolver_reads_frozen_receipt() -> None:
     )
     # ⌈129/64⌉=3 → A = 6×3 + 8。
     assert registry.resolve_run_request_limit("writing_generate", task_with_receipt) == 26
-    # 读不到 receipt 时回退保守上界，不再使用过渡计量额度。
+    # 入队冻结的来源上界（不小于实际 included）同样进入公式：⌈100/64⌉=2 → 20。
+    task_with_bound = SimpleNamespace(meta={"included_sources_upper_bound": 100})
+    assert registry.resolve_run_request_limit("writing_generate", task_with_bound) == 20
+    # 两者都缺失时才回退保守物理上界（仅历史在途任务）。
     assert registry.resolve_run_request_limit(
         "writing_generate", SimpleNamespace(meta={})
     ) == 6 * 256 + 8
@@ -228,9 +242,9 @@ def test_writing_generate_resolver_reads_frozen_receipt() -> None:
 @pytest.mark.parametrize(
     ("task_type", "deadline"),
     [
-        # generation/director/audit 与 targeted revision 只有单 step timeout；
-        # 整条串行链及 auto-requeue 没有既有 run 总时限。
-        ("writing_generate", None),
+        # generation/director/audit 各自有单 step timeout；整条串行链补保守总
+        # 墙钟护栏（只切病态挂起，不约束正常长链）。
+        ("writing_generate", 7200.0),
         # 主 Agent 裁决：逐 chunk 串行的总时长随章节数增长，静态 run deadline
         # 会发明比现状更紧的时间边界；每片的 step 1800s 仍是真实边界。
         ("writing_semantic_review", None),

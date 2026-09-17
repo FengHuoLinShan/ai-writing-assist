@@ -22,6 +22,8 @@ Assistant 是 `world_cocreation_sessions`、`world_cocreation_messages` 的唯�
 PydanticAI 复用 Project 当前账户客户端与冻结快照；按 author/rp/background 的有限预算
 执行允许的读取和提案工具。写入按具体预览成组确认，执行前后核验基线；外部资料不构成
 正史或权限。后台检查依赖已保存的持续授权，提醒的忽略不改变领域结论。
+配额分两层且有意不一致：外层 task run 为 30 请求 / 1800 秒，内层 author agent 预算
+为 12 请求 / 32 工具 / 4 web（更保守的内层先触顶是预期行为，不是配额丢失）。
 
 会话历史通过消息的 `assistant_run_id` 恢复任意旧回合，包括失败、停止、待确认和部分完成
 的方案。sources 保留领域结果身份及审稿覆盖/遗漏，前端只接受固定导航目的地与领域引用；

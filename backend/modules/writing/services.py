@@ -2583,6 +2583,7 @@ class WritingGenerationService:
         )
         from modules.evidence.facade import (
             bind_confirmed_action_result,
+            confirmed_knowledge_source_count,
             prepare_confirmed_ai_action,
         )
         from modules.project.facade import (
@@ -2666,6 +2667,11 @@ class WritingGenerationService:
                     **payload,
                     "story_asset_basis": basis,
                     "llm_execution_snapshot": snapshot,
+                    # 冻结本次确认编译产物的来源数上界：任务配额公式按真实 K 计，
+                    # 不再退回 16384 的物理上界导致 1544 请求的虚高 cap。
+                    "included_sources_upper_bound": confirmed_knowledge_source_count(
+                        confirmed
+                    ),
                     **(internal_meta or {}),
                 },
             )

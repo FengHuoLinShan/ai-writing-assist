@@ -15,10 +15,10 @@ _LEGACY_UNOWNED_AI_REVIEW_KEY = "_legacy_unowned_ai_review"
 
 # writing.generate 的导演分片大小（evidence knowledge workflow 冻结常量）。
 _WRITING_GENERATE_DIRECTOR_SHARD_SIZE = 64
-#: 入队 meta 未冻结 knowledge_scope_receipt 时的保守 included 来源上界。
+#: 入队 meta 未冻结来源上界时的保守 included 来源上界（仅历史在途任务）。
 #: 编译预算上限 32000 token（ContextSelectionRequest.budget_tokens le）下每个
-#: 来源至少占用约 2 token 的渲染行，16384 是该物理上界附近的保守值；精确 A
-#: 需要入队侧把 receipt 冻结进 meta（已列入共享层跟进）。
+#: 来源至少占用约 2 token 的渲染行，16384 是该物理上界附近的保守值；新任务
+#: 由入队侧冻结 included_sources_upper_bound / knowledge_scope_receipt。
 _WRITING_GENERATE_FALLBACK_INCLUDED_SOURCES = 16_384
 
 
@@ -26,8 +26,10 @@ def _writing_generate_run_request_limit(task) -> int:
     """按冻结知识回执计算 A = 6⌈K/64⌉+8（W0-B 第三轮公式，R=1、task ×2 已含）。
 
     K = knowledge_scope_receipt.included 的来源数；只在任务冻结输入
-    （task.meta）里读取，不做任何 DB/I/O。当前入队路径尚未把 receipt 冻结进
-    meta，此时回退到保守上界（见 _WRITING_GENERATE_FALLBACK_INCLUDED_SOURCES）。
+    （task.meta）里读取，不做任何 DB/I/O。入队侧已冻结
+    included_sources_upper_bound（确认编译产物的确定性来源计数，不小于实际
+    included）；两者都缺失时才回退到保守物理上界（见
+    _WRITING_GENERATE_FALLBACK_INCLUDED_SOURCES，仅历史在途任务会走到）。
     """
     meta = getattr(task, "meta", None) or {}
     receipt = meta.get("knowledge_scope_receipt")
@@ -35,7 +37,12 @@ def _writing_generate_run_request_limit(task) -> int:
     if isinstance(included, list) and included:
         included_sources = len(included)
     else:
-        included_sources = _WRITING_GENERATE_FALLBACK_INCLUDED_SOURCES
+        bound = meta.get("included_sources_upper_bound")
+        included_sources = (
+            int(bound)
+            if isinstance(bound, int) and bound > 0
+            else _WRITING_GENERATE_FALLBACK_INCLUDED_SOURCES
+        )
     shards = -(-included_sources // _WRITING_GENERATE_DIRECTOR_SHARD_SIZE)
     return 6 * shards + 8
 
@@ -193,9 +200,9 @@ async def handle_publish_chapter(db, task):
     retry_transient_llm_errors=True,
     root_capability_id="writing.generate",
     run_request_limit=_writing_generate_run_request_limit,
-    # director/candidate/audit 各自已有 step timeout，但整条串行链没有既有
-    # wall-clock 上界；不把单 step 的 1800s 误当成整个 run 的 deadline。
-    run_deadline_seconds=None,
+    # director/candidate/audit 各自已有 step timeout；整条串行链补保守总
+    # wall-clock 护栏（7200s 只切病态挂起，不约束正常长链）。
+    run_deadline_seconds=7200.0,
 )
 async def handle_writing_generate(db, task):
     """处理 AI 正文建议生成任务。"""
@@ -345,7 +352,10 @@ async def handle_writing_targeted_revision(db, task):
     max_attempts=2,
     retry_transient_llm_errors=True,
     root_capability_id="writing.conflict_check.ai_review",
-    run_request_limit=6,
+    # 单 attempt 合法上界 = structured 3 + knowledge audit 3；无 checkpoint，
+    # auto_requeue 第二次 attempt 全量重放 → 12；再加 4 次 transport 重试余量
+    # （每次 transport 尝试计一个信封请求）= 16。
+    run_request_limit=16,
 )
 async def handle_writing_conflict_ai_review(db, task):
     """处理写作冲突检查的 AI 软复核任务。"""
@@ -406,7 +416,8 @@ async def handle_writing_conflict_ai_review(db, task):
     max_attempts=2,
     retry_transient_llm_errors=True,
     root_capability_id="writing.conflict_check.ai_suggestion",
-    run_request_limit=6,
+    # 同 writing_conflict_ai_review：两 attempt 合法重放 12 + transport 余量 4。
+    run_request_limit=16,
 )
 async def handle_writing_conflict_item_ai_suggestion(db, task):
     from modules.writing.schemas import WritingConflictAiSuggestionRequest

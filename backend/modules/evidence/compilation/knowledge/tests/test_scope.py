@@ -353,3 +353,37 @@ def test_content_hash_prefers_declared_hash() -> None:
         novel_id="novel-1",
     )
     assert build.receipt.entry("world_entity:a").content_hash == "declared"
+
+
+def test_confirmed_knowledge_source_count_dedupes_across_sections() -> None:
+    """P1-7：入队冻结的来源上界按稳定 key 去重，且不小于实际 included。"""
+    from types import SimpleNamespace
+
+    from modules.evidence.compilation.facade import confirmed_knowledge_source_count
+    from modules.evidence.compilation.services.compiled_context import (
+        CompiledContext,
+        ContextSection,
+        Tier,
+    )
+
+    def _sources(*ids):
+        return [{"type": "world_entity", "id": value, "label": value} for value in ids]
+
+    compiled = CompiledContext(
+        sections=[
+            ContextSection(
+                key="world_entities",
+                tier=Tier.P1,
+                content="",
+                sources=_sources("a", "b"),
+            ),
+            ContextSection(
+                key="world_bible_working_pages",
+                tier=Tier.P2,
+                content="",
+                sources=_sources("b", "c"),
+            ),
+        ]
+    )
+    context = SimpleNamespace(compiled=compiled)
+    assert confirmed_knowledge_source_count(context) == 3
