@@ -33,6 +33,30 @@
     </details>
     <button v-if="!readOnly" class="btn btn-ghost" type="button" @click="emit('export')">导出完整世界模型</button>
     <fieldset v-if="proposal" :disabled="busy || historical || readOnly">
+      <section v-if="proposal.task_brief" class="world-design-panel__review" data-section="world-design-task-brief">
+        <h3>本轮理解</h3>
+        <p>{{ proposal.task_brief.current_author_goal }}</p>
+        <template v-if="proposal.task_brief.working_assumptions?.length">
+          <strong>暂用假设</strong>
+          <ul><li v-for="item in proposal.task_brief.working_assumptions" :key="item">{{ item }}</li></ul>
+        </template>
+        <template v-if="proposal.task_brief.checkable_commitments?.length">
+          <strong>本轮承诺</strong>
+          <ul><li v-for="item in proposal.task_brief.checkable_commitments" :key="item">{{ item }}</li></ul>
+        </template>
+      </section>
+      <section v-if="proposal.review_summary" class="world-design-panel__review" data-section="world-design-review-summary">
+        <h3>检查结论</h3>
+        <p><strong>{{ reviewStatusLabel }}</strong></p>
+        <p v-if="proposal.review_summary.checked_aspects?.length">已检查：{{ proposal.review_summary.checked_aspects.join('；') }}</p>
+        <template v-for="group in reviewGroups" :key="group.key">
+          <div v-if="proposal.review_summary[group.key]?.length">
+            <strong>{{ group.label }}</strong>
+            <ul><li v-for="item in proposal.review_summary[group.key]" :key="item">{{ item }}</li></ul>
+          </div>
+        </template>
+        <p v-if="proposal.reviewInvalidated" role="alert">你已修改本轮内容；可以保存阶段成果，但检查结论不再适用于修改后的版本。</p>
+      </section>
       <h3>本轮改变</h3>
       <p v-if="proposal.stale" role="alert">资料或输入已变化；本轮提案保留供核对，请重新推演。</p>
       <p v-if="readOnly">{{ proposal.summary }}</p>
@@ -64,7 +88,7 @@
       </template>
       <label>保存阶段<select :value="proposal.depth || checkpoint.depth" @change="update(['depth'], $event.target.value)"><option value="seed">灵感种子</option><option value="candidate">候选世界</option><option value="instance">具体实例</option></select></label>
       <p>未列出的内容会继续保留；相关依赖和旧检查会在保存时重新核定。阶段深度不代表正式采用。</p>
-      <button class="btn btn-primary" type="button" :disabled="busy || proposal.stale || !proposal.summary?.trim()" @click="$emit('save')">保存本轮阶段成果</button>
+      <button class="btn btn-primary" type="button" :disabled="saveDisabled" @click="$emit('save')">{{ saveLabel }}</button>
       <button class="btn btn-ghost" type="button" :disabled="busy" @click="$emit('discard')">放弃本轮修改</button>
     </fieldset>
   </section>
@@ -84,6 +108,15 @@ const decisionLabel = { locked: '继续保留', rejected: '明确放弃', open: 
 const editableSections = new Set(Object.keys(sectionLabels).filter(key => !['authority', 'change_log', 'audit'].includes(key)))
 const focusSections = [...editableSections]
 const depthLabel = computed(() => ({ seed: '灵感种子', candidate: '候选世界', instance: '具体实例' }[props.checkpoint.depth] || '阶段成果'))
+const reviewGroups = [
+  { key: 'addressed_issues', label: '已解决' },
+  { key: 'insufficient_evidence', label: '待补证据' },
+  { key: 'author_decisions', label: '待你决定' },
+]
+const reviewStatusLabel = computed(() => ({ passed: '已通过本轮检查', passed_with_open_questions: '检查完成，仍有待定项', blocked: '发现阻断问题' }[props.proposal?.review_summary?.status] || ''))
+const blockedUnedited = computed(() => props.proposal?.review_summary?.status === 'blocked' && !props.proposal?.reviewInvalidated)
+const saveDisabled = computed(() => props.busy || props.proposal?.stale || !props.proposal?.summary?.trim() || blockedUnedited.value)
+const saveLabel = computed(() => blockedUnedited.value ? '先修改或重新推演' : props.proposal?.reviewInvalidated ? '保存未复核阶段成果' : '保存本轮阶段成果')
 function entries(section, value) {
   if (!value) return []
   if (Array.isArray(value)) return value.map((item, index) => ({ key: item.id || index, title: item.name || (section === 'dependencies' ? '依赖关系' : '条目'), value: item, path: [index] }))
@@ -97,17 +130,18 @@ function previous(section, entry) { return entries(section, props.checkpoint.wor
 function referenceName(id) { return Object.entries(props.checkpoint.world_state).flatMap(([key, value]) => entries(key, value)).find(item => item.value.id === id)?.title || '本轮关联资料' }
 function statusOptions(status) { return [['draft', 'proposed', 'author-required', 'deprecated'], ['gap', 'partial', 'covered', 'not-applicable'], ['not-run', 'pass', 'mixed', 'fail'], ['not-started', 'ready', 'in-progress', 'needs-review', 'invalidated', 'blocked']].find(group => group.includes(status)) || ['proposed', 'deprecated'] }
 function draft() { return JSON.parse(JSON.stringify(props.proposal || { summary: '调整世界设计', changes: {}, decisions: [], depth: props.checkpoint.depth })) }
-function update(path, value) { const next = draft(); let target = next; for (const key of path.slice(0, -1)) target = target[key]; target[path.at(-1)] = value; emit('update:proposal', next) }
+function invalidateReview(next) { if (next.review_summary) next.reviewInvalidated = true }
+function update(path, value) { const next = draft(); let target = next; for (const key of path.slice(0, -1)) target = target[key]; target[path.at(-1)] = value; if (path[0] !== 'depth') invalidateReview(next); emit('update:proposal', next) }
 function updateEntry(section, entry, field, value) { update(['changes', section, ...entry.path, field], value) }
 function editEntry(section, entry) {
   const next = draft(); const value = JSON.parse(JSON.stringify(entry.value)); if (['canon', 'valid'].includes(value.status)) value.status = value.status === 'canon' ? 'proposed' : 'needs-review'
   if (section === 'premise') next.changes.premise = value
   else if (Array.isArray(props.checkpoint.world_state[section])) { next.changes[section] ||= []; const index = next.changes[section].findIndex(item => item.id === value.id && (item.id || (item.from === value.from && item.to === value.to))); if (index < 0) next.changes[section].push(value); else next.changes[section][index] = value }
   else { next.changes[section] ||= {}; const key = entry.path[0]; if (entry.path.length === 1) next.changes[section][key] = value; else { next.changes[section][key] ||= []; const index = next.changes[section][key].findIndex(item => item.id === value.id); if (index < 0) next.changes[section][key].push(value); else next.changes[section][key][index] = value } }
-  emit('update:proposal', next)
+  invalidateReview(next); emit('update:proposal', next)
 }
-function editDecision(decision) { const next = draft(); next.decisions ||= []; if (decision && next.decisions.some(item => item.item_key === decision.item_key)) return; next.decisions.push(decision ? JSON.parse(JSON.stringify(decision)) : { item_key: `author-${crypto.randomUUID()}`, text: '', disposition: 'open', source_keys: [] }); emit('update:proposal', next) }
-function removeEntry(section, entry) { const next = draft(); if (!entry.path.length) delete next.changes[section]; else { let target = next.changes[section]; for (const key of entry.path.slice(0, -1)) target = target[key]; if (Array.isArray(target)) target.splice(entry.path.at(-1), 1); else delete target[entry.path.at(-1)] }; emit('update:proposal', next) }
+function editDecision(decision) { const next = draft(); next.decisions ||= []; if (decision && next.decisions.some(item => item.item_key === decision.item_key)) return; next.decisions.push(decision ? JSON.parse(JSON.stringify(decision)) : { item_key: `author-${crypto.randomUUID()}`, text: '', disposition: 'open', source_keys: [] }); invalidateReview(next); emit('update:proposal', next) }
+function removeEntry(section, entry) { const next = draft(); if (!entry.path.length) delete next.changes[section]; else { let target = next.changes[section]; for (const key of entry.path.slice(0, -1)) target = target[key]; if (Array.isArray(target)) target.splice(entry.path.at(-1), 1); else delete target[entry.path.at(-1)] }; invalidateReview(next); emit('update:proposal', next) }
 </script>
 
 <style scoped>
@@ -115,6 +149,7 @@ function removeEntry(section, entry) { const next = draft(); if (!entry.path.len
 .world-design-panel__bar { display: flex; justify-content: space-between; align-items: start; gap: var(--space-3, 12px); flex-wrap: wrap; }
 .world-design-panel__entry { padding-block: var(--space-3, 12px); border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
 .world-design-panel__fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: var(--space-3, 12px); }
+.world-design-panel__review { padding: var(--space-3, 12px); border: 1px solid var(--border); border-radius: var(--radius-md, 8px); }
 .world-design-panel label { display: grid; gap: var(--space-2, 8px); min-width: 0; }
 .world-design-panel fieldset { min-width: 0; border: 0; padding: 0; display: grid; gap: var(--space-3, 12px); }
 .world-design-panel textarea, .world-design-panel select { width: 100%; min-height: 44px; }

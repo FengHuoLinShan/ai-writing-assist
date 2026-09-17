@@ -876,6 +876,7 @@ async function saveDesignRevision() {
       changes: proposal.changes, decisions: proposal.decisions || [],
       depth: proposal.depth || session.checkpointDepth,
       context_confirmation_id: proposal.context_confirmation_id || null,
+      origin_task_id: proposal.originTaskId || null,
     })
     if (!owner.isActive(scope)) return false
     session.worldDesignCheckpoint = saved.payload_json

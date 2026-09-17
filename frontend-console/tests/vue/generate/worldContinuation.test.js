@@ -36,6 +36,40 @@ describe('persistent world continuation', () => {
     expect(decision.disposition).toBe('rejected')
   })
 
+  it('shows author-facing review conclusions and requires an edit before saving a blocked result', async () => {
+    const proposal = {
+      summary: '潮门依赖每日盐料', changes: {}, decisions: [],
+      task_brief: {
+        current_author_goal: '补足潮门维护闭环',
+        working_assumptions: ['盐料可储存七日'],
+        checkable_commitments: ['说明资源、维护和故障反馈'],
+      },
+      review_summary: {
+        status: 'blocked', checked_aspects: ['作者目标', '资源与维护'],
+        addressed_issues: ['已补降级路径'], insufficient_evidence: ['盐矿产量待补证据'],
+        author_decisions: ['效率与自治需要作者决定', '维护职责仍悬空'],
+        internal_issue_id: 'world-design:private', role_name: 'causal_reviewer', prompt: 'hidden prompt',
+      },
+    }
+    const wrapper = mount(WorldDesignPanel, { props: { checkpoint: { depth: 'seed', decisions: [], world_state: {} }, proposal } })
+    expect(wrapper.get('[data-section="world-design-task-brief"]').text()).toContain('补足潮门维护闭环')
+    const review = wrapper.get('[data-section="world-design-review-summary"]')
+    expect(review.text()).toContain('盐矿产量待补证据')
+    expect(review.text()).toContain('效率与自治需要作者决定')
+    expect(review.text()).toContain('维护职责仍悬空')
+    expect(wrapper.text()).not.toContain('world-design:private')
+    expect(wrapper.text()).not.toContain('causal_reviewer')
+    expect(wrapper.text()).not.toContain('hidden prompt')
+    const save = wrapper.findAll('button').find(button => button.text() === '先修改或重新推演')
+    expect(save.element.disabled).toBe(true)
+    await wrapper.get('textarea').setValue('作者修改后的说明')
+    const edited = wrapper.emitted('update:proposal').at(-1)[0]
+    expect(edited.reviewInvalidated).toBe(true)
+    await wrapper.setProps({ proposal: edited })
+    const editedSave = wrapper.findAll('button').find(button => button.text() === '保存未复核阶段成果')
+    expect(editedSave.element.disabled).toBe(false)
+  })
+
   it('paginates all sessions, reads historical context and only explicitly selects a reference', async () => {
     const api = { world: {
       listCocreationSessions: vi.fn(async () => ({ total: 101, items: [{ id: 'session-1', title: '盐商历史', status: 'active' }] })),
