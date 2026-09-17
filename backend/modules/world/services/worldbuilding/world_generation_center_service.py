@@ -37,6 +37,7 @@ from modules.world.llm_schemas import (
     GeneratedWorldGenerationDecisionState,
     GeneratedWorldGenerationExplorationOutput,
     GeneratedWorldSemanticInspectionOutput,
+    normalize_decision_text,
 )
 from modules.world.models import (
     CoreEntity,
@@ -1231,6 +1232,9 @@ class WorldGenerationCenterService:
             if state
             else {"current_author_goal": goal, "confidence": 1.0}
         )
+        decision_texts = {
+            normalize_decision_text(item["text"]) for item in decisions
+        }
         for field, disposition in (
             ("confirmed_requirements", "locked"),
             ("rejected_elements", "rejected"),
@@ -1239,8 +1243,6 @@ class WorldGenerationCenterService:
             durable = [
                 item["text"] for item in decisions if item["disposition"] == disposition
             ]
-            if field == "rejected_elements":
-                durable.extend(authority.get("constraints") or [])
             groups = {
                 "confirmed_requirements": ("locked_decisions",),
                 "unresolved_choices": ("open_questions", "author_required"),
@@ -1251,6 +1253,15 @@ class WorldGenerationCenterService:
                 for item in authority.get(group, [])
                 if item.get("status") != "deprecated"
             )
+            if field == "confirmed_requirements":
+                # authority.constraints 是作者权威区硬约束：与既有决定同文的条目已按
+                # 决定本身归类；其余只能作为锁定要求，不得落入 rejected_elements
+                # 与 confirmed 形成同一约束既要遵守又要拒绝的矛盾任务卡。
+                durable.extend(
+                    text
+                    for text in (authority.get("constraints") or [])
+                    if normalize_decision_text(text) not in decision_texts
+                )
             payload[field] = list(dict.fromkeys([*durable, *payload.get(field, [])]))
         try:
             return GeneratedWorldGenerationDecisionState.model_validate(payload)
@@ -1450,6 +1461,7 @@ class WorldGenerationCenterService:
             rendered_context=str(prepared["background"].get("rendered_context") or ""),
             output=serialize_governed_output(generated),
             task_instruction=task_instruction,
+            author_requirements=self._author_requirements_projection(prepared),
             repair=_repair,
             step_prefix=step_name,
         )
@@ -1483,6 +1495,7 @@ class WorldGenerationCenterService:
             rendered_context=str(prepared["background"].get("rendered_context") or ""),
             output=text,
             task_instruction=task_instruction,
+            author_requirements=self._author_requirements_projection(prepared),
         )
         if result["status"] == "passed":
             return result["text"], result["review"]
@@ -1571,14 +1584,8 @@ class WorldGenerationCenterService:
                     LLMMessage(
                         role="user",
                         content=(
-                            "<AUTHOR_DECISION_STATE>\n"
-                            + json.dumps(
-                                decision_state.model_dump(mode="json"),
-                                ensure_ascii=False,
-                                indent=2,
-                            )
-                            + "\n</AUTHOR_DECISION_STATE>\n"
-                            "<CANDIDATE_PROPOSAL>\n"
+                            self._author_decision_state_block(decision_state)
+                            + "\n<CANDIDATE_PROPOSAL>\n"
                             + json.dumps(
                                 payload,
                                 ensure_ascii=False,
@@ -1615,6 +1622,28 @@ class WorldGenerationCenterService:
             + "\n</OUTPUT_CONTRACT>\n"
             "直接输出一个匹配该 schema 的 JSON 对象；不要添加外层包装。"
         )
+
+    @staticmethod
+    def _author_decision_state_block(
+        decision_state: GeneratedWorldGenerationDecisionState,
+    ) -> str:
+        """与生成器同源的作者决定冻结投影；生成、决策审计与知识审查共用。"""
+        return (
+            "<AUTHOR_DECISION_STATE>\n"
+            + json.dumps(
+                decision_state.model_dump(mode="json"),
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n</AUTHOR_DECISION_STATE>"
+        )
+
+    @classmethod
+    def _author_requirements_projection(cls, prepared: dict[str, Any]) -> str:
+        decision_state = prepared.get("decision_state")
+        if decision_state is None:
+            return ""
+        return cls._author_decision_state_block(decision_state)
 
     @staticmethod
     def _decision_state_violations(
@@ -3411,14 +3440,8 @@ class WorldGenerationCenterService:
                 LLMMessage(
                     role="user",
                     content=(
-                        "<AUTHOR_DECISION_STATE>\n"
-                        + json.dumps(
-                            decision_state.model_dump(mode="json"),
-                            ensure_ascii=False,
-                            indent=2,
-                        )
-                        + "\n</AUTHOR_DECISION_STATE>\n"
-                        "这是完整对话编译后的当前作者边界。只使用已确认要求和受支持的"
+                        self._author_decision_state_block(decision_state)
+                        + "\n这是完整对话编译后的当前作者边界。只使用已确认要求和受支持的"
                         "发展；不得恢复已否定内容，不替作者解决未决选择，也不得越过"
                         "知识与表达边界。"
                     ),

@@ -9,6 +9,7 @@ import pytest
 from modules.evidence.compilation.knowledge.contracts import (
     KnowledgeContractError,
     KnowledgeDirectorDisposition,
+    KnowledgeDirectorPlan,
     KnowledgeSubject,
 )
 from modules.evidence.compilation.knowledge.llm_schemas import (
@@ -471,3 +472,50 @@ def test_redact_hidden_phrases() -> None:
     redacted = redact_hidden_phrases(text, ["隐藏反派真实身份是某某"])
     assert "隐藏反派真实身份是某某" not in redacted
     assert "离场" in redacted
+
+
+@pytest.mark.asyncio
+async def test_audit_prompt_carries_output_permissions_and_author_requirements() -> None:
+    """RB-2：审查者必须看到输出权限语义与生成器同源的作者要求投影。"""
+    policy, build = _scope_build()
+    client = FakeGovernedClient(audit_outputs=[_audit([], verdict="pass")])
+    hooks = _hooks("生成正文")
+    hooks.author_requirements = (
+        '<AUTHOR_DECISION_STATE>{"confirmed_requirements": '
+        '["不得复活死者"]}</AUTHOR_DECISION_STATE>'
+    )
+    outcome = await run_governed_generation(
+        client, policy=policy, scope_build=build, hooks=hooks
+    )
+    assert outcome.passed
+    prompt = client.audit_calls[0]
+    assert "【输出权限】" in prompt
+    assert "不因资料中没有依据而单独构成 unsupported_fact" in prompt
+    assert "【作者要求（冻结投影）】" in prompt
+    assert "不得复活死者" in prompt
+    assert prompt.index("【输出权限】") < prompt.index("【任务指令】")
+    assert prompt.index("【作者要求（冻结投影）】") < prompt.index("【生成者可见资料】")
+
+
+def test_audit_prompt_omits_empty_requirements_and_renders_factual_policy() -> None:
+    """answer 类能力没有提案豁免子句；未提供作者要求时不渲染空段落。"""
+    from modules.evidence.compilation.knowledge.workflow import _audit_messages
+
+    answer_policy = require_capability_policy("world.ask")
+    plan = KnowledgeDirectorPlan(
+        policy_version=1,
+        capability=answer_policy.capability_id,
+        receipt_fingerprint="0" * 64,
+        dispositions=(),
+    )
+
+    async def _generate(plan, generator_keys):  # noqa: ANN001
+        return "正文"
+
+    hooks = GovernedWorkflowHooks(generate=_generate, task_instruction="回答问题")
+    messages = _audit_messages(answer_policy, hooks, plan, "回答正文")
+    prompt = messages[-1].content
+    assert "【输出权限】" in prompt
+    assert "不因资料中没有依据而单独构成 unsupported_fact" not in prompt
+    assert "事实性断言必须有资料依据" in prompt
+    assert "【作者要求（冻结投影）】" not in prompt

@@ -182,3 +182,51 @@ async def test_blocked_ask_world_returns_no_answer(
     assert body["no_answer"] is True
     assert body["claims"] == []
     assert "重建了航路" not in body["uncertainty"]
+
+
+@pytest.mark.asyncio
+async def test_govern_world_output_passes_frozen_requirements_to_audit() -> None:
+    """RB-2：知识审查看到与生成器同源的作者要求投影（不截断），资料仍按预算截断。"""
+    from modules.evidence.compilation.knowledge.llm_schemas import (
+        AuditDimensionCheck,
+        AuditVerdictOutput,
+    )
+    from modules.world.services.worldbuilding.knowledge_governance import (
+        govern_world_output,
+    )
+
+    audit_prompts: list[str] = []
+
+    class AuditOnlyClient:
+        async def generate_structured(self, request, schema, **kwargs):  # noqa: ANN001
+            audit_prompts.append(request.messages[-1].content)
+            return AuditVerdictOutput(
+                findings=[],
+                dimensions=[
+                    AuditDimensionCheck(dimension=d, checked=True)
+                    for d in ("world_entities", "world_rules", "world_bible", "timeline")
+                ],
+                verdict="pass",
+            )
+
+    requirements = (
+        '<AUTHOR_DECISION_STATE>{"confirmed_requirements": '
+        f'"不得复活死者", "padding": "{"x" * 25_000}"}}</AUTHOR_DECISION_STATE>'
+    )
+    result = await govern_world_output(
+        AuditOnlyClient(),
+        capability="world.generation.suggestion",
+        novel_id=str(uuid.uuid4()),
+        source_refs=[],
+        rendered_context="资" * 30_000,
+        output="提案正文",
+        task_instruction="生成对象建议",
+        author_requirements=requirements,
+    )
+    assert result["status"] == "passed"
+    prompt = audit_prompts[0]
+    assert "不得复活死者" in prompt
+    assert "【作者要求（冻结投影）】" in prompt
+    assert "【输出权限】" in prompt
+    assert "x" * 25_000 in prompt  # 作者要求投影未被 24K 截断
+    assert "资" * 24_001 not in prompt  # 资料投影仍按预算截断

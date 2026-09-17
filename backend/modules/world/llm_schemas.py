@@ -5,6 +5,11 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
+def normalize_decision_text(text: str) -> str:
+    # 仅用于重叠比较，不改变存储文本：去除全部空白（CJK 文本内部空格是噪音）。
+    return "".join(text.split()).casefold()
+
+
 class GeneratedWorldGenerationChatOutput(BaseModel):
     """Validated natural-language reply for Generation Center world chat."""
 
@@ -54,6 +59,26 @@ class GeneratedWorldGenerationDecisionState(BaseModel):
     )
     naming_policy: Literal["allowed", "unnamed_placeholder", "uncertain"] = "allowed"
     confidence: float = Field(..., ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _sanitize_confirmed_rejected_overlap(
+        self,
+    ) -> GeneratedWorldGenerationDecisionState:
+        # 同一规范化约束不得同时是"必须遵守"和"已否定"：两条作者权威渠道
+        # （决定与 authority.constraints）可能写入同一文本，任务卡一旦自相矛盾
+        # 生成与审查都无法满足。冲突时以 confirmed_requirements 为准。
+        confirmed = {
+            normalize_decision_text(text)
+            for text in self.confirmed_requirements
+            if normalize_decision_text(text)
+        }
+        self.rejected_elements = [
+            text
+            for text in self.rejected_elements
+            if not normalize_decision_text(text)
+            or normalize_decision_text(text) not in confirmed
+        ]
+        return self
 
     @field_validator("forbidden_exact_terms")
     @classmethod

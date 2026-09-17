@@ -410,6 +410,13 @@ provider/model 快照，同一次聊天、收束、探索、检修或建议内�
 `quality_mode=pro` 是 provider-neutral 的加强复核：同一模型对初稿多做一遍有界审查并返回
 完整修订结果；它不再映射或覆盖账户模型。
 
+作者决定状态按单一归类合并：`authority.constraints` 中与既有决定同文的条目跟随该决定的
+归属，其余按锁定要求进入 `confirmed_requirements`；同一规范化文本（去空白 + casefold）不得
+同时出现在 confirmed 与 rejected，冲突时以 confirmed 为准。进入知识审查时，审查者收到与
+生成器同源的 `<AUTHOR_DECISION_STATE>` 冻结投影（不截断；资料投影仍按预算截断）与能力
+`output_permissions` 语义：提案类输出的新增内容不因资料无依据单独判为 unsupported_fact，
+但仍核对与权威资料、作者锁定边界的冲突。
+
 “问世界”复用 context 规划检索、证据回读和预算，不建立第二套 Wiki 或向量库。首版只服务
 作者：候选必须属于当前 `novel_id`、作者可见且为当前正式版本，回答的关键主张必须引用可重新
 打开的来源；没有足够证据时明确拒答。问答 endpoint 不写业务资产，作者另行点击保存后也只会
