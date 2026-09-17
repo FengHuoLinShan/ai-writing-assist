@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.schema import Table
@@ -29,6 +29,10 @@ from modules.project.services import ProjectService, _secret_free_project_contex
 
 # Only durable author-editable assets are copied.  Async tasks, generated
 # candidates, assistant/RP data, retrieval indexes, and user UI history stay out.
+# Immutable revision history is not copied verbatim: canon admissions are author
+# provenance and are re-based onto the destination bootstrap canon by one
+# demo_import revision (see _append_canon_import); other revision chains are
+# copied with fresh ids, remapped references, and recomputed digests.
 _COPY_TABLE_NAMES = (
     "import_records",
     "writing_drafts",
@@ -77,8 +81,6 @@ _COPY_TABLE_NAMES = (
     "story_character_card_revisions",
     "story_scene_script_files",
     "story_scene_script_revisions",
-    "world_canon_revisions",
-    "world_canon_heads",
     "memory_events",
     "memory_snapshots",
     "delta_log",
@@ -93,6 +95,19 @@ _COPY_TABLE_NAMES = (
 )
 _CANDIDATE_STATUSES = {"candidate", "pending", "rejected", "failed"}
 _DERIVED_COLUMNS = {"embedding", "embedding_text", "pinyin_string", "search_text"}
+
+# Head/pointer tables and their revision tables form FK cycles (each revision
+# row references its NOT NULL parent id while the parent holds a mutable
+# current-revision pointer), so a strict table order is impossible.  These
+# mutable parent tables are inserted first with their pointer columns NULL,
+# every revision row is inserted once in its final state, and the pointers are
+# then moved onto the copied revisions in one final pass.  Immutable revision
+# rows are never rewritten.
+_POINTER_FORWARD_REFERENCES = {
+    "story_character_cards": frozenset({"story_character_card_revisions"}),
+    "story_scene_script_files": frozenset({"story_scene_script_revisions"}),
+    "map_atlas_nodes": frozenset({"map_atlas_revisions"}),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,10 +192,19 @@ class DemoProjectCopyService:
                     return existing
             raise
 
-        copied_rows, rewrites = await self._copy_assets(
+        copied_rows, rewrites, digest_rewrites = await self._copy_assets(
             db,
             source_id=source.id,
             destination_id=destination_id,
+        )
+        await self._append_canon_import(
+            db,
+            source=source,
+            destination_id=destination_id,
+            owner_id=owner_id,
+            version=config.version,
+            rewrites=rewrites,
+            digest_rewrites=digest_rewrites,
         )
         written = await self._copy_media(
             db,
@@ -276,7 +300,18 @@ class DemoProjectCopyService:
         *,
         source_id: uuid.UUID,
         destination_id: uuid.UUID,
-    ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, dict[Any, uuid.UUID]]]:
+    ) -> tuple[
+        dict[str, list[dict[str, Any]]],
+        dict[str, dict[Any, uuid.UUID]],
+        dict[str, dict[Any, tuple[uuid.UUID, str]]],
+    ]:
+        """Copy author assets with a full identity-space transform.
+
+        All destination ids are pre-allocated, every reference is remapped to
+        its final value, rows are ordered so referenced rows always exist, and
+        each row is inserted exactly once in its final state.  Immutable rows
+        are never updated or deleted.
+        """
         tables = self._copy_tables()
         rows_by_table: dict[str, list[dict[str, Any]]] = {}
         rewrites: dict[str, dict[Any, uuid.UUID]] = {}
@@ -301,39 +336,233 @@ class DemoProjectCopyService:
             for table_rewrites in rewrites.values()
             for source, replacement in table_rewrites.items()
         }
-        if rows_by_table.get("world_canon_revisions"):
-            canon_heads = Base.metadata.tables["world_canon_heads"]
-            canon_revisions = Base.metadata.tables["world_canon_revisions"]
-            await db.execute(
-                delete(canon_heads).where(canon_heads.c.novel_id == destination_id)
-            )
-            await db.execute(
-                delete(canon_revisions).where(
-                    canon_revisions.c.novel_id == destination_id
-                )
-            )
-        deferred: list[tuple[Table, uuid.UUID, str, uuid.UUID]] = []
-        for position, table in enumerate(tables):
-            for row in rows_by_table[table.name]:
+        digest_rewrites = self._revision_digest_rewrites(
+            destination_id,
+            rows_by_table,
+            rewrites,
+        )
+        position = {table.name: index for index, table in enumerate(tables)}
+        forward_pointer_pairs = {
+            (parent_table, target_table)
+            for parent_table, targets in _POINTER_FORWARD_REFERENCES.items()
+            for target_table in targets
+            if position[target_table] > position[parent_table]
+        }
+        tables_by_name = {table.name: table for table in tables}
+        for table in tables:
+            for row in self._order_rows_for_insert(table, rows_by_table[table.name]):
                 values = self._row_values(
                     table,
                     row,
                     destination_id=destination_id,
                     rewrites=rewrites,
                     global_rewrites=global_rewrites,
-                    table_position=position,
-                    tables=tables,
-                    deferred=deferred,
+                    digest_rewrites=digest_rewrites,
+                    forward_pointer_pairs=forward_pointer_pairs,
                 )
                 if values is not None:
                     await db.execute(table.insert().values(**values))
-
-        for table, row_id, column_name, value in deferred:
-            await db.execute(
-                update(table).where(table.c.id == row_id).values({column_name: value})
-            )
+        await self._move_pointer_references(
+            db,
+            rows_by_table=rows_by_table,
+            tables=tables_by_name,
+            rewrites=rewrites,
+            forward_pointer_pairs=forward_pointer_pairs,
+        )
         await db.flush()
-        return rows_by_table, rewrites
+        return rows_by_table, rewrites, digest_rewrites
+
+    @staticmethod
+    async def _move_pointer_references(
+        db: AsyncSession,
+        *,
+        rows_by_table: dict[str, list[dict[str, Any]]],
+        tables: dict[str, Table],
+        rewrites: dict[str, dict[Any, uuid.UUID]],
+        forward_pointer_pairs: set[tuple[str, str]],
+    ) -> None:
+        """Move mutable current-pointers onto the copied revision rows.
+
+        Only nullable pointer columns of whitelisted forward constraints are
+        updated; revision rows stay untouched after their single final-state
+        insert.
+        """
+        for parent_table_name, target_table_name in sorted(forward_pointer_pairs):
+            parent = tables[parent_table_name]
+            revision_rewrites = rewrites.get(target_table_name, {})
+            parent_rewrites = rewrites.get(parent_table_name, {})
+            pointer_columns = [
+                column.name
+                for constraint in parent.foreign_key_constraints
+                if constraint.referred_table.name == target_table_name
+                for column in constraint.columns
+                if column.nullable and column.name != "novel_id"
+            ]
+            for row in rows_by_table.get(parent_table_name, []):
+                new_parent_id = parent_rewrites.get(row.get("id"))
+                if new_parent_id is None:
+                    continue
+                updates: dict[str, Any] = {}
+                for pointer_column in pointer_columns:
+                    source_pointer = row.get(pointer_column)
+                    updates[pointer_column] = (
+                        revision_rewrites.get(source_pointer)
+                        if source_pointer is not None
+                        else None
+                    )
+                if not updates:
+                    continue
+                await db.execute(
+                    update(parent)
+                    .where(parent.c.id == new_parent_id)
+                    .values(**updates)
+                )
+
+    async def _append_canon_import(
+        self,
+        db: AsyncSession,
+        *,
+        source: Project,
+        destination_id: uuid.UUID,
+        owner_id: uuid.UUID,
+        version: str,
+        rewrites: dict[str, dict[Any, uuid.UUID]],
+        digest_rewrites: dict[str, dict[Any, tuple[uuid.UUID, str]]],
+    ) -> None:
+        """Re-base the source canon onto the destination bootstrap canon.
+
+        Appends one demo_import revision carrying the source head manifest
+        rewritten into the destination identity space; the destination head
+        pointer is then moved by the authority service's guarded update.
+        """
+        from modules.world import facade as world_facade
+        from modules.world.canon_import import CanonImportResourceMaps
+
+        import_source = await world_facade.load_demo_import_source(
+            db, str(source.id)
+        )
+        if import_source is None:
+            return
+        maps = CanonImportResourceMaps(
+            novel_id=destination_id,
+            page_ids=rewrites.get("world_bible_pages", {}),
+            page_revisions=digest_rewrites.get("world_bible_page_revisions", {}),
+            template_ids=rewrites.get("entity_profile_templates", {}),
+            template_revisions=digest_rewrites.get(
+                "entity_profile_template_revisions", {}
+            ),
+        )
+        manifest = world_facade.rewrite_demo_import_manifest(
+            import_source.manifest, maps
+        )
+        if manifest is None:
+            return
+        await world_facade.append_demo_import_revision(
+            db,
+            novel_id=str(destination_id),
+            authorizer_id=owner_id,
+            source_project_id=source.id,
+            source_demo_version=version,
+            source_head_revision_id=import_source.head_revision_id,
+            source_head_manifest_digest=import_source.manifest_digest,
+            manifest=manifest,
+            decision_id=uuid.uuid4(),
+        )
+
+    @staticmethod
+    def _revision_digest_rewrites(
+        destination_id: uuid.UUID,
+        rows_by_table: dict[str, list[dict[str, Any]]],
+        rewrites: dict[str, dict[Any, uuid.UUID]],
+    ) -> dict[str, dict[Any, tuple[uuid.UUID, str]]]:
+        """Recompute identity-bound revision digests for the destination.
+
+        Resource revision digests hash the owning novel, the resource id, and
+        the revision id together with the snapshot, so copied revision rows
+        must carry digests recomputed for their new identity to stay verifiable.
+        """
+        from modules.world.canon_import import revision_import_digest
+
+        specs = (
+            (
+                "world_bible_page_revisions",
+                "world_bible_pages",
+                "page_id",
+                "world_bible_page",
+            ),
+            (
+                "entity_profile_template_revisions",
+                "entity_profile_templates",
+                "template_id",
+                "entity_profile_template",
+            ),
+        )
+        digest_rewrites: dict[str, dict[Any, tuple[uuid.UUID, str]]] = {}
+        for table_name, parent_table, parent_column, kind in specs:
+            rows = rows_by_table.get(table_name)
+            if not rows:
+                continue
+            parent_rewrites = rewrites.get(parent_table, {})
+            revision_rewrites = rewrites.get(table_name, {})
+            computed: dict[Any, tuple[uuid.UUID, str]] = {}
+            for row in rows:
+                new_revision_id = revision_rewrites.get(row.get("id"))
+                new_parent_id = parent_rewrites.get(row.get(parent_column))
+                if new_revision_id is None or new_parent_id is None:
+                    continue
+                digest = revision_import_digest(
+                    kind,
+                    novel_id=destination_id,
+                    resource_id=new_parent_id,
+                    revision_id=new_revision_id,
+                    snapshot=row.get("snapshot_json") or {},
+                )
+                computed[row["id"]] = (new_revision_id, digest)
+            digest_rewrites[table_name] = computed
+        return digest_rewrites
+
+    @staticmethod
+    def _order_rows_for_insert(
+        table: Table,
+        rows: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Order rows so self-referenced rows are inserted before referrers.
+
+        Handles chains, trees, DAGs, multiple roots, and optional parents.
+        Dependency cycles mean the source violates its own lineage invariants
+        and abort the copy as a server defect.
+        """
+        dependency_columns = sorted(
+            {
+                foreign_key.parent.name
+                for foreign_key in table.foreign_keys
+                if foreign_key.column.table is table
+                and foreign_key.parent.name != "novel_id"
+            }
+        )
+        if not dependency_columns:
+            return rows
+        result: list[dict[str, Any]] = []
+        done: set[Any] = set()
+        pending = list(rows)
+        while pending:
+            ready = [
+                row
+                for row in pending
+                if all(
+                    row.get(column) is None or row[column] in done
+                    for column in dependency_columns
+                )
+            ]
+            if not ready:
+                raise RuntimeError(
+                    f"Demo copy source rows for {table.name} contain a "
+                    "self-reference cycle"
+                )
+            result.extend(ready)
+            done.update(row["id"] for row in ready if row.get("id") is not None)
+            pending = [row for row in pending if row.get("id") not in done]
+        return result
 
     @staticmethod
     def _copy_tables() -> list[Table]:
@@ -361,9 +590,8 @@ class DemoProjectCopyService:
         destination_id: uuid.UUID,
         rewrites: dict[str, dict[Any, uuid.UUID]],
         global_rewrites: dict[str, uuid.UUID],
-        table_position: int,
-        tables: list[Table],
-        deferred: list[tuple[Table, uuid.UUID, str, uuid.UUID]],
+        digest_rewrites: dict[str, dict[Any, tuple[uuid.UUID, str]]],
+        forward_pointer_pairs: set[tuple[str, str]],
     ) -> dict[str, Any] | None:
         values = {
             column.name: _rewrite_embedded_ids(value, global_rewrites)
@@ -378,6 +606,9 @@ class DemoProjectCopyService:
             values["novel_id"] = destination_id
         if "id" in values and table.name in rewrites:
             values["id"] = rewrites[table.name][row["id"]]
+        recomputed = digest_rewrites.get(table.name, {}).get(row.get("id"))
+        if recomputed is not None and "revision_digest" in values:
+            values["revision_digest"] = recomputed[1]
         if table.name == "core_entities" and values.get("image_version") is not None:
             values["image_version"] = uuid.uuid4()
         if table.name == "map_atlas_pages":
@@ -396,30 +627,35 @@ class DemoProjectCopyService:
                 if column_name in values:
                     values[column_name] = value
 
-        positions = {candidate.name: index for index, candidate in enumerate(tables)}
-        for foreign_key in table.foreign_keys:
-            column = foreign_key.parent
-            value = row.get(column.name)
-            if value is None or column.name == "novel_id":
+        for constraint in table.foreign_key_constraints:
+            target = constraint.referred_table
+            if (table.name, target.name) in forward_pointer_pairs:
+                # Mutable current-pointer onto a later revision table: the
+                # pointer pass assigns the copied revision after inserts.
+                for column in constraint.columns:
+                    if column.nullable and column.name != "novel_id":
+                        values[column.name] = None
                 continue
-            target = foreign_key.column.table
-            target_rewrites = rewrites.get(target.name)
-            if target_rewrites is None:
-                if target.name in {"async_tasks", "map_atlas_runs"}:
-                    values[column.name] = None
-                continue
-            replacement = target_rewrites.get(value)
-            if replacement is None:
-                if column.nullable:
-                    values[column.name] = None
+            for column in constraint.columns:
+                if column.name == "novel_id":
                     continue
-                return None
-            target_after_current = positions.get(target.name, -1) > table_position
-            if target.name == table.name or target_after_current:
-                values[column.name] = None
-                if "id" in values:
-                    deferred.append((table, values["id"], column.name, replacement))
-            else:
+                value = row.get(column.name)
+                if value is None:
+                    continue
+                target_rewrites = rewrites.get(target.name)
+                if target_rewrites is None:
+                    if target.name in {"async_tasks", "map_atlas_runs"}:
+                        values[column.name] = None
+                    continue
+                replacement = target_rewrites.get(value)
+                if replacement is None:
+                    if column.nullable:
+                        values[column.name] = None
+                        continue
+                    return None
+                # Self-table references are ordered by _order_rows_for_insert,
+                # so the referenced row already exists; cross-table references
+                # resolve through the audited table order.
                 values[column.name] = replacement
         return values
 
