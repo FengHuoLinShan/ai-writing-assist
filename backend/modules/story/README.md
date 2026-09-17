@@ -1,8 +1,9 @@
 # Story Scene vertical slice
 
 Story 的异步 AI handler 在 worker 领取时冻结 root capability 与 L0 请求额度，auto-requeue 和
-manual resume 累计同一 run；各 step/attempt 保留既有 timeout，但没有既有 run 总时限的链不
-新增 deadline。信封只作为任务私有审计元数据，不改变 Scene、CAS 或采用回执。
+manual resume 累计同一 run；各 step/attempt 保留既有 timeout，串行长链补保守总墙钟护栏
+（reaction 3600s、one_click 7200s，只切病态挂起）。信封只作为任务私有审计元数据，不改变
+Scene、CAS 或采用回执。
 
 Story owns the author-editable, Scene-scoped projections used by the writing
 workbench. Canonical characters remain owned by `world`; outline structure and
