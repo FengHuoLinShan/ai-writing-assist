@@ -38,6 +38,7 @@ from modules.world.models.authority import (
     WorldCanonRevision,
 )
 from modules.world.models.profiles import EntityProfileTemplate
+from modules.world.models.worldbuilding import WorldBiblePage, WorldBiblePageRevision
 from modules.world.services.worldbuilding.world_authority_service import (
     WorldAuthorityService,
 )
@@ -116,6 +117,56 @@ async def _seed_history_source(
     authority = WorldAuthorityService()
     bootstrap_revision = await authority.initialize_empty_canon(db, str(source_id))
 
+    entity = CoreEntity(
+        novel_id=source_id,
+        entity_type="item",
+        name="来源道具",
+        status="canonical",
+        content_json={"project_id": str(source_id)},
+    )
+    db.add(entity)
+    await db.flush()
+    page = WorldBiblePage(
+        novel_id=source_id,
+        page_type="location",
+        page_key="linked-place",
+        title="关联地点",
+        status="canonical",
+        linked_asset_refs_json=[{"type": "profile", "id": str(entity.id)}],
+    )
+    db.add(page)
+    await db.flush()
+    page_snapshot = {
+        "page_type": page.page_type,
+        "page_key": page.page_key,
+        "title": page.title,
+        "status": page.status,
+        "page_meta_json": page.page_meta_json,
+        "free_text": page.free_text,
+        "sections_json": page.sections_json,
+        "linked_asset_refs_json": page.linked_asset_refs_json,
+        "activation_defaults_json": page.activation_defaults_json,
+        "template_key": page.template_key,
+        "template_version": page.template_version,
+        "sort_order": page.sort_order,
+    }
+    page_revision_id = uuid.uuid4()
+    page_revision = WorldBiblePageRevision(
+        id=page_revision_id,
+        novel_id=source_id,
+        page_id=page.id,
+        version_number=1,
+        snapshot_json=page_snapshot,
+        revision_digest=resource_revision_digest(
+            ResourceRef(kind="world_bible_page", novel_id=source_id, resource_id=page.id),
+            page_revision_id,
+            page_snapshot,
+        ),
+        revision_reason="bootstrap",
+    )
+    db.add(page_revision)
+    await db.flush()
+
     template_id = uuid.uuid4()
     template_revision_id = uuid.uuid4()
     template = EntityProfileTemplate(
@@ -153,6 +204,13 @@ async def _seed_history_source(
             )
         },
         active_resources=[
+            ExactResourceRevisionRef(
+                resource=ResourceRef(
+                    kind="world_bible_page", novel_id=source_id, resource_id=page.id
+                ),
+                revision_id=page_revision.id,
+                revision_digest=page_revision.revision_digest,
+            ),
             ExactResourceRevisionRef(
                 resource=ResourceRef(
                     kind="entity_profile_template",
@@ -274,15 +332,6 @@ async def _seed_history_source(
     await db.flush()
     card.current_revision_id = card_revisions[-1].id
 
-    entity = CoreEntity(
-        novel_id=source_id,
-        entity_type="item",
-        name="来源道具",
-        status="canonical",
-        content_json={"project_id": str(source_id)},
-    )
-    db.add(entity)
-    await db.flush()
     db.add(
         EvidenceLink(
             novel_id=source_id,
@@ -363,6 +412,10 @@ async def test_demo_copy_rebases_history_without_rewriting_immutables(
             assert head.current_revision_id == import_revision.id
             receipt = import_revision.receipt_json
             assert receipt["action"] == "demo_import"
+            assert (
+                receipt["authorization_policy"]["artifact_id"]
+                == "world.canon.demo-import"
+            )
             assert receipt["admission_input"]["source_project_id"] == str(source_id)
 
             outline_revisions = list(
@@ -439,6 +492,16 @@ async def test_demo_copy_rebases_history_without_rewriting_immutables(
             assert copied_entity.content_json["project_id"] == str(copied_id)
             assert copied_evidence.target_ref["project_id"] == str(copied_id)
             assert copied_evidence.source_ref["project_id"] == str(copied_id)
+            copied_page_revision = (
+                await verify_db.execute(
+                    select(WorldBiblePageRevision).where(
+                        WorldBiblePageRevision.novel_id == copied_id
+                    )
+                )
+            ).scalar_one()
+            assert copied_page_revision.snapshot_json["linked_asset_refs_json"] == [
+                {"type": "profile", "id": str(copied_entity.id)}
+            ]
 
             # The copied canon must replay end to end on PostgreSQL.
             await WorldAuthorityService().get_head(verify_db, str(copied_id))

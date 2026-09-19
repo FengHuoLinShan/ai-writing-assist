@@ -110,10 +110,16 @@ def test_order_rows_for_insert_allows_multiple_roots_and_optional_parents() -> N
 
 
 def test_revision_digest_rewrites_bind_destination_identity() -> None:
+    source_entity_id = uuid.uuid4()
+    destination_entity_id = uuid.uuid4()
     destination_id = uuid.uuid4()
     new_page_id = uuid.uuid4()
     new_revision_id = uuid.uuid4()
-    snapshot = {"title": "示例", "sections_json": []}
+    snapshot = {
+        "title": "示例",
+        "sections_json": [],
+        "linked_asset_refs_json": [{"type": "profile", "id": str(source_entity_id)}],
+    }
     rows_by_table = {
         "world_bible_page_revisions": [
             {"id": "src-rev", "page_id": "src-page", "snapshot_json": snapshot}
@@ -125,7 +131,10 @@ def test_revision_digest_rewrites_bind_destination_identity() -> None:
     }
 
     digests = DemoProjectCopyService._revision_digest_rewrites(
-        destination_id, rows_by_table, rewrites
+        destination_id,
+        rows_by_table,
+        rewrites,
+        {str(source_entity_id): destination_entity_id},
     )
 
     new_id, digest = digests["world_bible_page_revisions"]["src-rev"]
@@ -135,7 +144,12 @@ def test_revision_digest_rewrites_bind_destination_identity() -> None:
         novel_id=destination_id,
         resource_id=new_page_id,
         revision_id=new_revision_id,
-        snapshot=snapshot,
+        snapshot={
+            **snapshot,
+            "linked_asset_refs_json": [
+                {"type": "profile", "id": str(destination_entity_id)}
+            ],
+        },
     )
 
 

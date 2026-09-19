@@ -385,6 +385,7 @@ async def test_demo_copy_rewrites_author_assets_and_is_idempotent(
         ).scalar_one()
         receipt = import_revision.receipt_json
         assert receipt["action"] == "demo_import"
+        assert receipt["authorization_policy"]["artifact_id"] == "world.canon.demo-import"
         assert receipt["authorizer"] == {
             "kind": "account",
             "version": 1,

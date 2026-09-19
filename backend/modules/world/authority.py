@@ -187,6 +187,11 @@ EXPLICIT_AUTHOR_POLICY_REF = VersionedArtifactRef(
     version=1,
     digest="2ee3ff5a3c5d64259b5712a3d17f869b6d717e1efd0325effb8cebd1f328d1b6",
 )
+DEMO_IMPORT_POLICY_REF = VersionedArtifactRef(
+    artifact_id="world.canon.demo-import",
+    version=1,
+    digest="0533c54d9b76c0ee888bede4fc9b90a82b00a715e4f2990217ea17f54eb24505",
+)
 PERSISTED_WORKFLOW_POLICY_REF = VersionedArtifactRef(
     artifact_id="world.canon.persisted-workflow",
     version=1,
@@ -202,6 +207,7 @@ AUTHORIZATION_POLICIES = {
     for item in (
         BOOTSTRAP_POLICY_REF,
         EXPLICIT_AUTHOR_POLICY_REF,
+        DEMO_IMPORT_POLICY_REF,
         PERSISTED_WORKFLOW_POLICY_REF,
     )
 }
@@ -241,6 +247,17 @@ SEALED_ARTIFACT_DESCRIPTORS: dict[tuple[str, int], dict[str, Any]] = {
 }
 
 AUTHORIZATION_POLICY_DESCRIPTORS: dict[tuple[str, int], dict[str, Any]] = {
+    ("world.canon.demo-import", 1): {
+        "kind": "canon_authorization_policy",
+        "version": 1,
+        "policy_id": "world.canon.demo-import",
+        "authorizer": "current_project_owner",
+        "executor_kinds": ["account_request"],
+        "requires_authorized_demo_copy": True,
+        "requires_fresh_destination": True,
+        "requires_expected_head": True,
+        "allows_ai_authorizer": False,
+    },
     ("world.canon.explicit-author", 1): {
         "kind": "canon_authorization_policy",
         "version": 1,
@@ -917,7 +934,12 @@ class CanonAdmissionReceiptV1(AuthorityValue):
         if isinstance(self.executor, AccountRequestExecutorRefV1):
             if (
                 self.executor.account_id != self.authorizer.account_id
-                or self.authorization_policy != EXPLICIT_AUTHOR_POLICY_REF
+                or self.authorization_policy
+                != (
+                    DEMO_IMPORT_POLICY_REF
+                    if isinstance(self.admission_input, DemoImportInputV1)
+                    else EXPLICIT_AUTHOR_POLICY_REF
+                )
             ):
                 raise ValueError("invalid explicit-author receipt")
         elif isinstance(self.executor, TaskAttemptExecutorRefV1):

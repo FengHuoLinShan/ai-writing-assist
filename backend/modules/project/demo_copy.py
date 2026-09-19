@@ -340,6 +340,7 @@ class DemoProjectCopyService:
             destination_id,
             rows_by_table,
             rewrites,
+            global_rewrites,
         )
         position = {table.name: index for index, table in enumerate(tables)}
         forward_pointer_pairs = {
@@ -436,14 +437,13 @@ class DemoProjectCopyService:
         pointer is then moved by the authority service's guarded update.
         """
         from modules.world import facade as world_facade
-        from modules.world.canon_import import CanonImportResourceMaps
 
         import_source = await world_facade.load_demo_import_source(
             db, str(source.id)
         )
         if import_source is None:
             return
-        maps = CanonImportResourceMaps(
+        maps = world_facade.CanonImportResourceMaps(
             novel_id=destination_id,
             page_ids=rewrites.get("world_bible_pages", {}),
             page_revisions=digest_rewrites.get("world_bible_page_revisions", {}),
@@ -474,6 +474,7 @@ class DemoProjectCopyService:
         destination_id: uuid.UUID,
         rows_by_table: dict[str, list[dict[str, Any]]],
         rewrites: dict[str, dict[Any, uuid.UUID]],
+        global_rewrites: dict[str, uuid.UUID],
     ) -> dict[str, dict[Any, tuple[uuid.UUID, str]]]:
         """Recompute identity-bound revision digests for the destination.
 
@@ -481,7 +482,7 @@ class DemoProjectCopyService:
         the revision id together with the snapshot, so copied revision rows
         must carry digests recomputed for their new identity to stay verifiable.
         """
-        from modules.world.canon_import import revision_import_digest
+        from modules.world import facade as world_facade
 
         specs = (
             (
@@ -510,12 +511,14 @@ class DemoProjectCopyService:
                 new_parent_id = parent_rewrites.get(row.get(parent_column))
                 if new_revision_id is None or new_parent_id is None:
                     continue
-                digest = revision_import_digest(
+                digest = world_facade.revision_import_digest(
                     kind,
                     novel_id=destination_id,
                     resource_id=new_parent_id,
                     revision_id=new_revision_id,
-                    snapshot=row.get("snapshot_json") or {},
+                    snapshot=_rewrite_embedded_ids(
+                        row.get("snapshot_json") or {}, global_rewrites
+                    ),
                 )
                 computed[row["id"]] = (new_revision_id, digest)
             digest_rewrites[table_name] = computed

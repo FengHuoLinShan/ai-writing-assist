@@ -13,6 +13,7 @@ from core.errors import ConflictError, DomainError, NotFoundError
 from modules.project.facade import get_project_context
 from modules.world.authority import (
     BOOTSTRAP_POLICY_REF,
+    DEMO_IMPORT_POLICY_REF,
     EXPLICIT_AUTHOR_POLICY_REF,
     STATEMENT_SCHEMA_REF,
     AssertBatchInputV1,
@@ -730,7 +731,11 @@ class WorldAuthorityService:
                     "version": 1,
                     "account_id": str(authorizer_id),
                 },
-                "authorization_policy": EXPLICIT_AUTHOR_POLICY_REF.model_dump(
+                "authorization_policy": (
+                    DEMO_IMPORT_POLICY_REF
+                    if action == "demo_import"
+                    else EXPLICIT_AUTHOR_POLICY_REF
+                ).model_dump(
                     mode="json"
                 ),
                 "authorization_decision": "allow",

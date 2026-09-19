@@ -17,7 +17,9 @@ from modules.world.attention_facade import (  # noqa: F401
     get_author_attention_summary,
 )
 from modules.world.canon_import import (  # noqa: F401
+    CanonImportResourceMaps,
     load_demo_import_source,
+    revision_import_digest,
     rewrite_demo_import_manifest,
 )
 from modules.world.character_facade import (  # noqa: F401
@@ -165,8 +167,10 @@ __all__ = [
     "get_world_bible_synopsis_context",
     "get_world_bible_working_pages_context",
     "append_demo_import_revision",
+    "CanonImportResourceMaps",
     "initialize_world_canon",
     "load_demo_import_source",
+    "revision_import_digest",
     "rewrite_demo_import_manifest",
     "list_world_bible_working_page_ids",
     "get_world_context",
