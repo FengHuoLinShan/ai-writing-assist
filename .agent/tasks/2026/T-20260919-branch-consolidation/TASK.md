@@ -1,9 +1,9 @@
 ---
 id: T-20260919-branch-consolidation
 title: 逐分支审查、修复、合入 main 与安全清理
-status: active
+status: completed
 created: 2026-09-19T20:00:00+08:00
-updated: 2026-09-19T21:28:17+08:00
+updated: 2026-09-19T21:52:30+08:00
 ---
 
 # 分支整合
@@ -11,11 +11,11 @@ updated: 2026-09-19T21:28:17+08:00
 ## 恢复快照
 
 - 实际完成：从 origin/main d66eb40cb 建隔离 worktree；逐支审查并整合前端修复、demo-copy、resume-qr 和 8 个 Dependabot 分支，修复审查发现的阻断项。旧 World/LLM 分支均为 main 祖先；归档和受保护 WIP 保留。
-- 当前里程碑：本地跨栈、PostgreSQL、镜像与完整浏览器门禁通过；远端 main 仍为 d66eb40cb。
-- 下一步：推送整合分支并创建 PR，等待 required CI 后合并，再按祖先关系清理。
+- 当前里程碑：PR [#151](https://github.com/FengHuoLinShan/ai-writing-assist/pull/151) 以 merge commit 合入远端 main `74879496f`；PR 与该 main push 的检查均通过，分支和本轮专用测试资源已清理。
+- 下一步：本任务无；生产发布与线上真实账号验收须另行授权。
 - 阻塞：无。
-- 工作区：整合分支 codex/branch-consolidation-20260919；主工作树、ai-generation-quality、归档研究及 detached demo 均有受保护 WIP，不改动。
-- 最后核实：2026-09-19 21:28 +08:00。
+- 工作区：主工作树在 main `74879496f`，原有 README、宣传任务笔记和未跟踪内容未改；`ai-generation-quality`、归档研究及 detached 诡秘演示保留 WIP。干净旧 checkout 的依赖缓存保留在 detached worktree。
+- 最后核实：2026-09-19 21:52 +08:00。
 
 ## 目标与验收
 
@@ -33,15 +33,15 @@ updated: 2026-09-19T21:28:17+08:00
 
 ## 里程碑与进度
 
-- [x] 逐分支审查并记录处置：11 个领先候选整合；6 个已合入 main 的旧开发分支待按工作树状态清理；archive/dirty/detached 保留。
+- [x] 逐分支审查并记录处置：11 个领先候选整合；5 个无 WIP 的旧祖先分支清理，`ai-generation-quality` 因未提交工作保留；archive/dirty/detached 保留。
 - [x] 修复与本地验证：demo-copy 目标快照 digest、World facade、专用导入策略及反例；Vitest 5 测试适配；静态简历路径；依赖/镜像版本对齐；生成中心参考栏刷新恢复。最终浏览器全量 289 passed/2 skipped。
-- [ ] 合入 main 并清理安全引用。
+- [x] PR #151 合入远端和本地 main；GitHub 自动关闭 8 个 Dependabot PR 并删除其远端分支，另删除 `resume-qr` 远端、本地及干净 worktree；删除 8 条其他已合入本地分支。脏 WIP 与归档保留。
 
 ## 决策、发现与失败
 
 - 2026-09-19：Dependabot 后端组把 langchain-community 0.4.1 改为已知不兼容的 0.4.2，须修复后纳入。
 - 2026-09-19：demo-copy 的源快照摘要与实际复制快照不一致；已按目标 JSON 重算并用真实 PG 关联页回放验证。旧任务的 D1–D5 报告补于 `T-20260917-immutable-copy-invariant-audit/AUDIT.md`。
-- 2026-09-19：首次浏览器全量 287 passed/2 skipped/2 failed，失败源于隔离环境未配置私有图片存储；专用测试桶配置后两项均通过。第二次全量 288 passed/2 skipped/1 failed，参考栏刷新状态存在项目 ID 晚到与异步 toggle 竞态；修复后定向 5 次通过，最终全量复验进行中。
+- 2026-09-19：首次浏览器全量 287 passed/2 skipped/2 failed，失败源于隔离环境未配置私有图片存储；专用测试桶配置后两项均通过。第二次全量 288 passed/2 skipped/1 failed，参考栏刷新状态存在项目 ID 晚到与异步 toggle 竞态；修复后定向 5 次及最终全量 289 passed/2 skipped 均通过。
 
 | 领先分支 | 审查结论与处置 |
 |---|---|
@@ -68,10 +68,11 @@ updated: 2026-09-19T21:28:17+08:00
 - 2026-09-19：`make test-ci TEST_WORKERS=2` 通过：deploy 270、backend 5823 passed/13 skipped、frontend 2503 passed，覆盖率 86.14%；`make docs-check BASE_REF=origin/main`、前端 lint/build、`make test-production-images` 通过。
 - 2026-09-19：专用 PostgreSQL 17 + pgvector 上 demo-copy E2E 2/2、`make test-postgresql-critical` 37/37；隔离 Python 3.13 环境中 Ragas 0.4.3 + langchain-community 0.4.1 导入成功。生产镜像包含 `/resume/` 页面与 PDF。
 - 2026-09-19：最终 `DATABASE_URL=<dedicated-PG> PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:functional -- --workers=1 --retries=0` 在专用 PG/MinIO 桶上 289 passed、2 skipped、0 failed；参考栏失败用例修复后连续 5 次通过。
+- 2026-09-19：PR #151 的全部远端检查通过；main push `74879496f` 的 Backend CI、Frontend CI、Production Image CI、Architecture docs 和 CodeQL 均为 success。独立测试库/桶已移除。
 
 ## 交付结果
 
-- 已交付：本地隔离整合分支及可复验修复。
-- 未交付：远端 PR/main 合并、分支清理。
-- 交付边界：目前仅本地隔离分支；未修改 main、未推送、未部署。
+- 已交付：PR #151、远端/本地 main `74879496f`、分支安全清理和审查/验证记录。
+- 未交付：生产部署与真实账号线上验收（本任务未授权）。
+- 交付边界：已提交、推送、合并且主干 CI 通过；未部署。
 - 正式知识与后续任务：无。
