@@ -1,4 +1,4 @@
-FROM node:24.20.0-alpine3.23@sha256:0388af2af070cd4736a1567cfed02469ba117848845b4165d87a333edb53d2ca AS build
+FROM node:24.21.0-alpine3.23@sha256:159fe64649038c30f8cc1ec4be3af3a6e93e3648678c31294e2c5058dbeb99f3 AS build
 
 WORKDIR /app
 
@@ -8,7 +8,7 @@ RUN npm ci
 COPY frontend-console/ ./
 RUN npm run build
 
-FROM nginx:1.31.5-alpine@sha256:72ba65eb42c10344912a84ff42408db7d34f2feb642204570ab8fc5ffd29f1d3
+FROM nginx:1.31.6-alpine@sha256:d0a6faaed2491faecdb9021f449e8edd7b1bbba246fe2ddf7eba63cccd5b9803
 
 COPY frontend-console/nginx.production.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist/ /usr/share/nginx/html/
