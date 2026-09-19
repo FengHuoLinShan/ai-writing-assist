@@ -299,7 +299,7 @@
       </div>
     </div>
     <details class="workspace-rail generate-side-rail workspace-rail--right" :open="railOpen" :data-workspace-rail-key="railKey" @toggle="onRailToggle">
-      <summary class="workspace-rail__summary" :aria-label="`${railOpen ? '收起' : '展开'}本轮参考资料`">
+      <summary class="workspace-rail__summary" :aria-label="`${railOpen ? '收起' : '展开'}本轮参考资料`" @click="rememberRailClick">
         <span class="workspace-rail__title">本轮参考资料</span>
         <span class="generate-reference-rail-summary">{{ referenceSummary }}</span>
         <span class="workspace-rail__chevron" aria-hidden="true">⌄</span>
@@ -445,6 +445,7 @@ function packetLabel(item) { return item.packetTotal ? `第 ${item.packetIndex}/
 function packetStatus(status) { return ({ previewed: "已形成预览", incomplete: "需要重新准备", decision_ready: "已形成作者消息", exact_duplicate: "完全重复，未重复处理" })[status] || "已记录" }
 const railKey = computed(() => `workspace-rail:${props.projectId || "global"}:generate:assistant`)
 const railOpen = ref(readRail())
+watch(railKey, () => { railOpen.value = readRail() })
 const composing = ref(false)
 const messagesEl = ref(null)
 let stickToLatest = true
@@ -454,6 +455,9 @@ function readRail() {
     if (stored) return stored !== "closed"
   } catch {}
   return !globalThis.matchMedia?.("(max-width: 900px)")?.matches
+}
+function rememberRailClick(event) {
+  try { sessionStorage.setItem(railKey.value, event.currentTarget.parentElement.open ? "closed" : "open") } catch {}
 }
 function onRailToggle(event) { railOpen.value = event.target.open; try { sessionStorage.setItem(railKey.value, railOpen.value ? "open" : "closed") } catch {} }
 async function focusComposer() { if (props.assistantEnabled) { emit("open-assistant"); return } await nextTick(); document.getElementById("generate-chat-input")?.focus() }

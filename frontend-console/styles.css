@@ -467,6 +467,7 @@ html, body {
 
 /* ===== 顶部状态栏 ===== */
 #topbar {
+  position: relative; /* display:contents 壳层下不依赖 flex-item 的 z-index 语义 */
   height: var(--topbar-height);
   min-height: var(--topbar-height);
   display: flex;
@@ -915,6 +916,14 @@ html, body {
   transform: translateX(-50%) translateY(0);
   opacity: 1;
   pointer-events: auto;
+}
+
+/* 移动端让位固定底部导航（64px + 安全区） */
+@media (max-width: 760px) {
+  #command-bar {
+    bottom: calc(76px + env(safe-area-inset-bottom));
+    max-width: calc(100vw - var(--space-4));
+  }
 }
 
 .command-header {
@@ -14219,8 +14228,10 @@ button.rp-journey-card__main:hover {
   right: 0;
   display: grid;
   width: 180px;
-  max-height: calc(100vh - var(--topbar-height) - 24px);
-  max-height: calc(100dvh - var(--topbar-height) - 24px);
+  /* 故事页首行轨道 58px，但 .rp-story-topbar 有 min-height:66px（rp-redesign），
+     以 66px 为基准再加呼吸空间，不引用全局 --topbar-height */
+  max-height: calc(100vh - 90px);
+  max-height: calc(100dvh - 90px);
   overflow-y: auto;
   padding: 6px;
   border: 1px solid var(--rp-border);
@@ -14691,22 +14702,28 @@ button.rp-journey-card__main:hover {
 }
 
 .rp-locator-rail {
-  position: absolute;
+  /* 作为正文滚动行（row 2）的 grid item 而非整页绝对定位：轨道只占故事区高度，
+     与输入坞（row 3）结构上不可能重叠，无需猜测 dock 实际高度。 */
+  position: relative;
   z-index: 16;
-  top: 82px;
-  right: 12px;
-  bottom: 150px;
+  grid-column: 1;
+  grid-row: 2;
+  justify-self: end;
+  align-self: stretch;
+  margin-right: 12px;
   display: flex;
   width: 34px;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 7px;
+  max-height: 100%;
 }
 
 .rp-locator-rail input[type="range"] {
   width: 44px;
   height: min(52vh, 420px);
+  max-height: 100%;
   margin: 0;
   accent-color: var(--rp-accent);
   cursor: pointer;
@@ -15274,7 +15291,7 @@ button.rp-journey-card__main:hover {
   }
 
   .rp-locator-rail {
-    right: 0;
+    margin-right: 0;
     width: 44px;
     opacity: 0.72;
   }

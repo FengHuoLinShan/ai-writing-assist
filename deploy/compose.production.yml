@@ -94,7 +94,7 @@ x-ops-environment: &ops-environment
 
 services:
   searxng:
-    image: searxng/searxng@sha256:2fb0fa85096fe6df5c3ab98ecb4d6e0ee2ef66b8fb96ce6fce0f75b51c4bd90a
+    image: searxng/searxng@sha256:ba0a344c566ecc6e4429e81d02d93a01fa05c80e9fb6d08f0a1e57a729aa6d87
     profiles: [search]
     restart: unless-stopped
     logging: *bounded-logging
@@ -126,7 +126,7 @@ services:
       - data
 
   embedding:
-    image: ${EMBEDDING_IMAGE:-ghcr.io/huggingface/text-embeddings-inference:cpu-1.9@sha256:ad950d30878eceb72aaf32024d26fa2b1d04a75304fa0b4776b49aa1941fea07}
+    image: ${EMBEDDING_IMAGE:-ghcr.io/huggingface/text-embeddings-inference:cpu-1.9@sha256:2538ea1c9640d3763b15af668039d24172d063b42337b0c27796fc2be180c78d}
     platform: linux/amd64
     restart: unless-stopped
     logging: *bounded-logging

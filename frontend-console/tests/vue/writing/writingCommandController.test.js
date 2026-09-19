@@ -319,12 +319,7 @@ describe("writingCommandController", () => {
 
 describe("取消任务失败必须反馈而不是静默 unhandled rejection", () => {
   it("cancel 网络失败时 toast 错误并返回 false", async () => {
-    const storage = {}
-    globalThis.sessionStorage = {
-      getItem: (key) => storage[key] ?? null,
-      setItem: (key, value) => { storage[key] = String(value) },
-      removeItem: (key) => { delete storage[key] },
-    }
+    sessionStorage.clear()
     const workflow = {
       id: "p1:writing:task-cancel-fail",
       projectId: "p1",
@@ -333,7 +328,7 @@ describe("取消任务失败必须反馈而不是静默 unhandled rejection", ()
       view: "writing",
       updatedAt: "2026-08-19T00:00:00Z",
     }
-    storage.novel_active_workflows_v1 = JSON.stringify([workflow])
+    sessionStorage.setItem("novel_active_workflows_v1", JSON.stringify([workflow]))
     const toast = vi.fn()
     const controller = createWritingCommandController({
       api: {
@@ -350,6 +345,6 @@ describe("取消任务失败必须反馈而不是静默 unhandled rejection", ()
 
     expect(result).toBe(false)
     expect(toast).toHaveBeenCalledWith("网络中断", "error")
-    delete globalThis.sessionStorage
+    sessionStorage.clear()
   })
 })

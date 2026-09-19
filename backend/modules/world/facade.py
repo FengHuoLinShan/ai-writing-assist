@@ -16,6 +16,12 @@ from typing import TYPE_CHECKING
 from modules.world.attention_facade import (  # noqa: F401
     get_author_attention_summary,
 )
+from modules.world.canon_import import (  # noqa: F401
+    CanonImportResourceMaps,
+    load_demo_import_source,
+    revision_import_digest,
+    rewrite_demo_import_manifest,
+)
 from modules.world.character_facade import (  # noqa: F401
     create_character,
     filter_context_by_character_knowledge,
@@ -77,6 +83,7 @@ from modules.world.services.core.knowledge_visibility_service import (
     check_knowledge_visibility as _check_knowledge_visibility_impl,
 )
 from modules.world.worldbuilding_facade import (  # noqa: F401
+    append_demo_import_revision,
     apply_focused_world_package,
     apply_review_resolution_decision,
     assemble_post_import_adoption_package,
@@ -159,7 +166,12 @@ __all__ = [
     "get_world_bible_projection_candidates",
     "get_world_bible_synopsis_context",
     "get_world_bible_working_pages_context",
+    "append_demo_import_revision",
+    "CanonImportResourceMaps",
     "initialize_world_canon",
+    "load_demo_import_source",
+    "revision_import_digest",
+    "rewrite_demo_import_manifest",
     "list_world_bible_working_page_ids",
     "get_world_context",
     "list_auto_ingested_entities",

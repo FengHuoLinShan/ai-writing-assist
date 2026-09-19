@@ -13,6 +13,7 @@ from core.errors import ConflictError, DomainError, NotFoundError
 from modules.project.facade import get_project_context
 from modules.world.authority import (
     BOOTSTRAP_POLICY_REF,
+    DEMO_IMPORT_POLICY_REF,
     EXPLICIT_AUTHOR_POLICY_REF,
     STATEMENT_SCHEMA_REF,
     AssertBatchInputV1,
@@ -26,6 +27,7 @@ from modules.world.authority import (
     CanonHeadResponse,
     CanonManifestV1,
     CanonRevisionResponse,
+    DemoImportInputV1,
     EntityRelationStatementV1,
     EntityScalarStatementV1,
     ExactResourceRevisionRef,
@@ -392,6 +394,12 @@ class WorldAuthorityService:
                 code="canon_authorization_denied",
                 status_code=403,
             )
+        elif isinstance(request.input, DemoImportInputV1):
+            raise _fail(
+                "Demo import is applied through the project copy workflow",
+                code="canon_authorization_denied",
+                status_code=403,
+            )
         else:
             raise _fail(
                 "Bootstrap is only available during project initialization",
@@ -411,6 +419,66 @@ class WorldAuthorityService:
             action=action,
             affected_resources=affected,
             public_changes=public_changes,
+        )
+
+    async def append_demo_import_revision(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str | uuid.UUID,
+        authorizer_id: uuid.UUID,
+        source_project_id: uuid.UUID,
+        source_demo_version: str,
+        source_head_revision_id: uuid.UUID,
+        source_head_manifest_digest: str,
+        manifest: CanonManifestV1,
+        decision_id: uuid.UUID,
+    ) -> CanonRevisionResponse:
+        """Append the demo-import revision onto a fresh bootstrap canon.
+
+        The destination owner authorizes importing the demo world snapshot;
+        the source head id and manifest digest are recorded as provenance.
+        """
+        nid = parse_uuid(str(novel_id), "novel_id")
+        await self._require_authorizer(db, nid, authorizer_id)
+        head, current = await self._locked_head(db, nid)
+        if current.version_number != 0 or current.parent_revision_id is not None:
+            raise _fail(
+                "Demo import requires a fresh project canon",
+                code="canon_import_requires_fresh_canon",
+                status_code=409,
+            )
+        admission_input = DemoImportInputV1(
+            novel_id=nid,
+            source_project_id=source_project_id,
+            source_demo_version=source_demo_version,
+            source_head_revision_id=source_head_revision_id,
+            source_head_manifest_digest=source_head_manifest_digest,
+        )
+        decision_digest = self._decision_digest(admission_input, current.id)
+        existing = await self._existing_decision_response(
+            db,
+            novel_id=nid,
+            decision_id=decision_id,
+            decision_digest=decision_digest,
+        )
+        if existing is not None:
+            return existing
+        return await self._append_revision(
+            db,
+            novel_id=nid,
+            head=head,
+            current=current,
+            manifest=manifest,
+            decision_id=decision_id,
+            decision_digest=decision_digest,
+            admission_input=admission_input.model_dump(mode="json"),
+            authorizer_id=authorizer_id,
+            action="demo_import",
+            affected_resources=[
+                item.model_dump(mode="json") for item in manifest.active_resources
+            ],
+            public_changes={"source_project_id": str(source_project_id)},
         )
 
     async def resolve_target(
@@ -663,7 +731,11 @@ class WorldAuthorityService:
                     "version": 1,
                     "account_id": str(authorizer_id),
                 },
-                "authorization_policy": EXPLICIT_AUTHOR_POLICY_REF.model_dump(
+                "authorization_policy": (
+                    DEMO_IMPORT_POLICY_REF
+                    if action == "demo_import"
+                    else EXPLICIT_AUTHOR_POLICY_REF
+                ).model_dump(
                     mode="json"
                 ),
                 "authorization_decision": "allow",
@@ -840,6 +912,14 @@ class WorldAuthorityService:
                     db,
                     current,
                     receipt,
+                )
+            elif isinstance(receipt.admission_input, DemoImportInputV1):
+                dependencies = (
+                    await self._validate_demo_import_replay(
+                        db,
+                        current,
+                        receipt,
+                    ),
                 )
             await self._validate_resource_refs(
                 db,
@@ -1232,6 +1312,26 @@ class WorldAuthorityService:
         ):
             self._digest_mismatch()
         return parent, target
+
+    async def _validate_demo_import_replay(
+        self,
+        db: AsyncSession,
+        revision: WorldCanonRevision,
+        receipt: CanonAdmissionReceiptV1,
+    ) -> WorldCanonRevision:
+        admission_input = receipt.admission_input
+        if not isinstance(admission_input, DemoImportInputV1):
+            self._digest_mismatch()
+        if revision.parent_revision_id is None:
+            self._digest_mismatch()
+        parent = await self._get_revision_model(
+            db,
+            revision.novel_id,
+            revision.parent_revision_id,
+        )
+        if parent.version_number + 1 != revision.version_number:
+            self._digest_mismatch()
+        return parent
 
     async def _response(
         self,

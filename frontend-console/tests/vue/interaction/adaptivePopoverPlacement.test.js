@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { flushPromises, mount } from "@vue/test-utils"
 import RpAdaptiveConfirmPopover from "../../../vue/views/interaction/RpAdaptiveConfirmPopover.vue"
+import { calculateAdaptivePopoverPlacement } from "../../../vue/views/interaction/adaptivePopoverPlacement.js"
 
 const originalVisualViewport = Object.getOwnPropertyDescriptor(
   globalThis,
@@ -96,5 +97,19 @@ describe("RP 自适应确认框定位", () => {
     await flushPromises()
     expect(document.activeElement).toBe(anchor)
     wrapper.unmount()
+  })
+
+  it("两侧空间都极小时保留最小可交互高度", () => {
+    const result = calculateAdaptivePopoverPlacement({
+      anchorRect: rect(120, 80, 100, 44),
+      popoverRect: rect(0, 0, 320, 128),
+      viewportRect: { left: 0, top: 0, right: 390, bottom: 200, width: 390, height: 200 },
+    })
+
+    // 视口 200px 高、锚点居中：上下可用空间都远小于弹窗高度。
+    expect(result.spaceAbove).toBeLessThan(128)
+    expect(result.spaceBelow).toBeLessThan(128)
+    expect(result.maxHeight).toBe(Math.min(160, 200 - 24))
+    expect(result.top + Math.min(128, result.maxHeight)).toBeLessThanOrEqual(200 - 12)
   })
 })
