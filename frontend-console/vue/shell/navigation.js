@@ -18,6 +18,7 @@ export const SHELL_MORE_ITEMS = Object.freeze([
   { view: "project", label: "作品档案与导入", title: "管理作品与导入正文", icon: "project" },
   { view: "project-settings", label: "作品偏好", title: "作品偏好", icon: "project-settings" },
   { view: "generate", label: "高级生成工具", title: "恢复已有生成会话", icon: "generate" },
+  { view: "journeys", label: "互动故事", title: "进入角色扮演（RP）", icon: "interaction" },
   { view: "settings", label: "账户与模型连接", title: "管理账户、模型和外观", icon: "project-settings" },
 ])
 

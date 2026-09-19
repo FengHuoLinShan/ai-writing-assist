@@ -85,6 +85,36 @@ async def initialize_world_canon(db, novel_id: str) -> None:
     await WorldAuthorityService().initialize_empty_canon(db, novel_id)
 
 
+async def append_demo_import_revision(
+    db,
+    *,
+    novel_id: str,
+    authorizer_id,
+    source_project_id,
+    source_demo_version: str,
+    source_head_revision_id,
+    source_head_manifest_digest: str,
+    manifest,
+    decision_id,
+):
+    """Append the one demo-import revision onto a fresh bootstrap canon."""
+    from modules.world.services.worldbuilding.world_authority_service import (
+        WorldAuthorityService,
+    )
+
+    return await WorldAuthorityService().append_demo_import_revision(
+        db,
+        novel_id=novel_id,
+        authorizer_id=authorizer_id,
+        source_project_id=source_project_id,
+        source_demo_version=source_demo_version,
+        source_head_revision_id=source_head_revision_id,
+        source_head_manifest_digest=source_head_manifest_digest,
+        manifest=manifest,
+        decision_id=decision_id,
+    )
+
+
 async def assemble_post_import_adoption_package(db, request):
     """Create or return the one pending package for a completed deep import."""
     from modules.world.services.worldbuilding.adoption_package_service import (

@@ -11,6 +11,9 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - 每个作者项目创建空 `C0` 与唯一 Canon head。World Bible 发布经服务端
   Preview/Admit 把精确 PageRevision 选入新 CanonRevision；同 decision 幂等，head 变化或
   工作稿漂移时 409 且保留工作稿。
+- 演示副本只在目标空 C0 上追加 `demo_import` 修订，不复制来源 Canon 准入历史；
+  World facade 提供来源 manifest 映射，修订摘要绑定目标 ID 与实际快照，回执使用
+  专用 demo-import 策略。公开 Admit 拒绝此输入类型。
 - Canon receipt 的 authorizer 只能由服务端取得的当前 owner 账户或封闭 C0
   bootstrap 主体承担；AI、worker、validation result 和请求体字段不能授权。
 - 历史 replay 不只校验 receipt/manifest 各自 digest；bootstrap 必须是确定性空 C0，

@@ -157,7 +157,9 @@ map / rag / outline / settings / project-settings`，其主 DOM 全部由 Vue SF
   必须通过小写路由白名单并拒绝 `__proto__`、`prototype`、`constructor`，避免把路由输入解释为
   对象原型属性。主视图切换后仍恢复最后子标签，公开 hash 与生命周期契约不变。
 - 作者 shell 的桌面主导航固定为“写作、人物与世界、故事结构、地图、查找”；移动端固定为
-  “写作、世界、结构、全部”。项目切换器位于导航顶部，导入与项目偏好从“更多”进入，AI 工具在 owner 页就地打开；旧入口仅保留兼容路由，或由上下文错误进入。`writing?home=1` 是作者有效项目的默认续接页；`today` 仅为薄兼容别名。
+  “写作、世界、结构、全部”。项目切换器位于导航顶部，导入与项目偏好从“更多”进入，“更多”同时提供“互动故事”
+  入口直达 `journeys`（公开演示壳层不提供，匿名无账号旅程）；顶栏“工作区”菜单列出同一组入口并以浮动态
+  视口钳位呈现，AI 工具在 owner 页就地打开；旧入口仅保留兼容路由，或由上下文错误进入。`writing?home=1` 是作者有效项目的默认续接页；`today` 仅为薄兼容别名。
 - `writing?home=1` 不装载章节、全部 Scene、编辑偏好或编辑器恢复监听；普通写作入口保持完整初始化。RAG 状态子页同样不装载未使用的人物和 Scene 列表。
 - 命令面板只暴露作者任务语言：资料检索统一使用 `:search <关键词>` 或 `/关键词`；RAG、Context、Generate 保留为内部路由/实现名，不注册为作者命令。
 - `writing?home=1&panel=tasks&scope=today|inbox|later|completed|archived` 是作者任务的可恢复 URL 状态；列表与 workspace-summary 都传浏览器本地 `on_date`，PATCH 带 `expected_updated_at` 且同状态重试不改写时间。409 保留标题/备注/日期，冲突恢复读取使用 `cache: no-store` 取得最新版本，作者再次保存才重试；章节、Scene、Page 与 Entity 入口的 `task_title` 使用真实来源名称。任务表单的标题、备注和日期按项目隔离暂存在 `sessionStorage`，切换范围、返回首页或刷新后可恢复；路由离开与脏表单取消均经二次确认，只在保存成功或确认放弃后清理。进行中的写入会暂时阻止任务页导航，成功后用无重载 query replace 清除来源参数。不新增一级任务导航或前端状态库。
@@ -182,6 +184,8 @@ map / rag / outline / settings / project-settings`，其主 DOM 全部由 Vue SF
   编辑/生成/保存控件不可用，浏览、章节切换、标签、展开、筛选、地图和检索保持可用。CTA 把一次性
   copy intent 放入 sessionStorage；登录成功后立即调用 `POST /api/projects/demo-copy`，按
   `created / existing / restored` 结果打开用户自己的副本，不将演示项目或 intent 写入项目缓存。
+- `/resume/` 是前端 `public/resume/` 中的静态简历入口，二维码指向该路径；
+  PDF 与页面随 Vite 生产构建进入同一静态站点。
 - RP source 向导只使用读者语言，不展示 UUID/JSON/task/token/Prompt。四步只挂载当前决定，已完成
   步骤保留摘要与返回编辑；步骤、revision、剧情点和身份随既有 session + 服务端 source 恢复。
   session 作为账户私有浏览器状态纳入统一账户切换清理；所有会回写 revision、步骤或剧情候选的异步
@@ -254,7 +258,8 @@ map / rag / outline / settings / project-settings`，其主 DOM 全部由 Vue SF
   不再使用旧主题点缀，导入资源仅进入固定装饰区域。详见 `docs/frontend/uiux/design-standard.md`。
 - 路由在 `#workspace-content` 写入 `data-workspace-view/subview` 只供样式
   定位，不得被业务逻辑、数据请求或测试 fixture 当作状态来源。
-- 全局布局尺寸：`--topbar-height:64px`、`--sidebar-width:224px`（桌面正文编辑时 72px 图标栏）、rail 折叠 `44px`；
+- 全局布局尺寸：`--topbar-height` 基线 64px，生产壳层（creative-shell）覆盖为桌面 68px / ≤760px 60px，
+  顶栏实际高度与 sticky/fixed 偏移消费方统一读取该变量；`--sidebar-width:224px`（桌面正文编辑时 72px 图标栏）、rail 折叠 `44px`；
   写作页固定三栏：章节树 238px / 正文弹性 / 本章资料 257px。
 - 功能性按钮、输入框、选择器和编辑区要比只读内容更易辨识，但不脱离主题：主操作使用主题
   黑白明暗实体面和通过 4.5:1 的主题前景色，普通操作保留可见边框；可编辑字段使用

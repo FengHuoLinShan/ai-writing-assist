@@ -14,6 +14,9 @@ imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用�
 
 - 作者项目拥有空 `C0`、唯一 Canon head 和追加式 CanonRevision 历史；
   World Bible 发布通过唯一 Admit 原子 seal PageRevision、选入新 manifest 并推进 head。
+- 演示副本在目标 C0 后经 Project 的已授权复制流程追加一次 `demo_import`；World facade
+  重写来源 manifest 的资源引用，Page/Template revision 摘要按目标身份和已重写快照计算。
+  回执使用专用 demo-import 策略，公开 Admit 不接受这一输入类型。
 - Phase 0 只启用 C0、Page documentary selection 和追加式 revert；所有 formal
   family 仍是 `formal-disabled`，`world_assertions` 没有准入入口。
 - 对象抽取不是 NER，而是长期创作资产识别

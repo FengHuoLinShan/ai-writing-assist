@@ -2,7 +2,7 @@
   <header id="topbar">
     <div class="topbar-left"><div class="logo"><span class="logo-mark" aria-hidden="true">N</span><span class="logo-name">NovelCraft</span></div></div>
     <div class="topbar-center">
-      <ActionMenu class="topbar-workspace-menu" menu-id="topbar-workspaces" label="浏览作品与工作区" trigger-text="工作区" :items="workspaceMenuItems" @select="navigateItem" />
+      <ActionMenu class="topbar-workspace-menu" menu-id="topbar-workspaces" label="浏览作品与工作区" trigger-text="工作区" :items="workspaceMenuItems" floating @select="navigateItem" />
       <span class="topbar-context-label">正在创作</span><span class="separator">/</span>
       <span id="topbar-project" :title="projectTitle">{{ projectTitle || '选择作品' }}</span><span class="separator">/</span>
       <span id="topbar-module">{{ moduleTitle }}</span>
@@ -54,7 +54,11 @@ const props = defineProps({
   workspaceItems: { type: Array, default: () => [] },
 })
 const emit = defineEmits(["select-theme", "manage-account", "open-settings", "show-help", "assistant-context", "open-assistant", "navigate", "copy-demo"])
-const workspaceMenuItems = computed(() => props.workspaceItems.length ? props.workspaceItems : WORKSPACE_ITEMS)
+const workspaceMenuItems = computed(() => {
+  const base = props.workspaceItems.length ? props.workspaceItems : WORKSPACE_ITEMS
+  // 公开演示没有账号态的 RP 旅程，避免点入只看到加载失败。
+  return props.publicDemo ? base.filter((item) => item.action !== "journeys") : base
+})
 const accountMenu = ref(null)
 const connectionLabel = computed(() => props.connected ? "服务已连接" : "服务未连接")
 const accountMenuLabel = computed(() => `账户菜单，${connectionLabel.value}`)

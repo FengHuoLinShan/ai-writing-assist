@@ -67,7 +67,7 @@ def _valid_values() -> dict[str, str]:
         "EMBEDDING_DEPLOYMENT": "local_tei",
         "EMBEDDING_IMAGE": (
             "ghcr.io/huggingface/text-embeddings-inference:cpu-1.9"
-            "@sha256:ad950d30878eceb72aaf32024d26fa2b1d04a75304fa0b4776b49aa1941fea07"
+            "@sha256:2538ea1c9640d3763b15af668039d24172d063b42337b0c27796fc2be180c78d"
         ),
         "EMBEDDING_MODEL_ID": "BAAI/bge-base-zh-v1.5",
         "EMBEDDING_PROVIDER": "openai",

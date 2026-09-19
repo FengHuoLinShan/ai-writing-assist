@@ -1,6 +1,8 @@
 const DEFAULT_GAP = 8
 const DEFAULT_MARGIN = 12
 const MIN_ARROW_INSET = 18
+// 锚点贴边时两侧可用高度都可能趋近 0；保留可交互的下限，剩余部分交给表面内部滚动。
+const MIN_POPOVER_HEIGHT = 160
 
 function finiteNumber(value, fallback = 0) {
   const number = Number(value)
@@ -91,7 +93,12 @@ export function calculateAdaptivePopoverPlacement({
   else placement = spaceAbove > spaceBelow ? "top" : "bottom"
 
   const availableHeight = placement === "top" ? spaceAbove : spaceBelow
-  const height = Math.min(popover.height, availableHeight)
+  const usableViewportHeight = Math.max(0, viewport.height - 2 * verticalMargin)
+  const boundedMaxHeight = Math.min(
+    Math.max(availableHeight, Math.min(MIN_POPOVER_HEIGHT, usableViewportHeight)),
+    usableViewportHeight,
+  )
+  const height = Math.min(popover.height, boundedMaxHeight)
   const availableWidth = Math.max(0, viewportRight - viewportLeft)
   const width = Math.min(popover.width, availableWidth)
   const anchorCenter = clamp(
@@ -115,7 +122,7 @@ export function calculateAdaptivePopoverPlacement({
     left,
     top,
     width,
-    maxHeight: availableHeight,
+    maxHeight: boundedMaxHeight,
     arrowX,
     spaceAbove,
     spaceBelow,

@@ -942,7 +942,7 @@ describe("GenerateView Vue behavior matrix", () => {
     expect(wrapper.get("#generate-object-template-hint").text()).toContain("采用前仍可调整")
   })
 
-  it("keeps the reference rail compact on narrow screens and restores the project preference", () => {
+  it("keeps the reference rail compact on narrow screens and restores each project preference", async () => {
     const originalMatchMedia = globalThis.matchMedia
     globalThis.matchMedia = vi.fn(() => ({ matches: true }))
     try {
@@ -954,6 +954,11 @@ describe("GenerateView Vue behavior matrix", () => {
       sessionStorage.setItem("workspace-rail:p1:generate:assistant", "open")
       const restored = mount(GenerateView, { props: baseProps(), attachTo: document.body })
       expect(restored.get(".generate-side-rail").attributes("open")).toBeDefined()
+      sessionStorage.setItem("workspace-rail:p2:generate:assistant", "closed")
+      await restored.setProps({ projectId: "p2" })
+      expect(restored.get(".generate-side-rail").attributes("open")).toBeUndefined()
+      await restored.get(".generate-side-rail summary").trigger("click")
+      expect(sessionStorage.getItem("workspace-rail:p2:generate:assistant")).toBe("open")
     } finally {
       globalThis.matchMedia = originalMatchMedia
     }

@@ -41,6 +41,7 @@ make docs-check BASE_REF=origin/main
 | [ADR-0023](0023-bounded-agent-runtime.md) | Accepted / Implementation in progress | PydanticAI 有界单 Agent、项目助手与 RP 工具执行；Project 连接、Evidence 可见性、成组确认与领域所有权继续有效。 |
 | [ADR-0024](0024-anonymous-public-demo-rp.md) | Accepted / Implemented | 公开演示使用 24 小时匿名 owner、精确冻结 source 与前台 taskless SSE；临时 Key 零持久化，不能放宽普通 source owner 边界。 |
 | [ADR-0025](0025-product-knowledge-governance.md) | Accepted / Implemented | 全产品知识治理：全知导演、最小知情生成、独立复核；静态能力注册表 + 版本化回执 + 一次语义返修 + held release；不新增表/事实库/Agent 平台。 |
+| [ADR-0026](0026-persistence-write-semantics-and-copy-policy.md) | Accepted / Implemented | 持久化数据五分类（可变/不可变修订/可变指针/派生/引导）；触发器为权威守卫；复制走身份映射→拓扑→单次最终态 INSERT；不可变历史不转移，demo copy 以追加 demo_import 修订重建副本历史。 |
 
 2026-09-15 的运行信封实现补充：已冻结能力使用 `AIRunEnvelopeV1` 累计请求与恢复，未冻结规模的
 C3 任务仍按 ADR-0023/0025 的授权和领域边界暂停，不以通用临时额度替代产品裁决。
