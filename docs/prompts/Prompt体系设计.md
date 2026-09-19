@@ -43,7 +43,7 @@ output_validator 校验，修复计入同一执行预算；固定审稿保留原
 | `alias_relation_extraction.md` | 深度导入 Phase 2b，基于完整锁定 Scene 与冻结对象/关系引用提取别名和关系连续性 | imports |
 | `entity_fusion.py` | 内联 step `world.entity_fusion.decision.structured`：项目级智能去重与深度导入 `phase2_dedup` 共用的结构化实体融合判定；导入路径只发送同 workflow candidate 的类型、名称、已确认别名、截断摘要和 Scene/章节来源，不加载整书 RAG | world |
 | `scene_fusion_draft.py` | 内联 step `outline.scene_fusion.draft.structured`：基于选中 Scene 卡和精确正文生成融合语义草稿 | Scene 工作台 |
-| `world_generation_center_service.py` | 内联 steps `world.generation.design_iteration`、`.counterexample.intent/causal/verify/repair/final_knowledge/final`、`world.generation.chat.generate`、`world.generation.convergence.map/reduce`、`world.generation.exploration.preview`、`world.generation.semantic_inspection`、`world.generation.core_entity.structured`、`world.generation.world_bible_page.structured`、`world.generation.world_bible_new_page.structured`：世界设定共创、精细设计反例审查、只读收束、一跳探索、当前页检修与结构化建议；普通加强复核在同一冻结账户模型上追加 `.quality_review` 第二遍 | world 生成中心 |
+| `world_generation_center_service.py` | 内联 steps `world.generation.design_iteration`、`.counterexample.intent/causal/verify/repair/knowledge_repair/final_knowledge/final`、`world.generation.chat.generate`、`world.generation.chat.knowledge.repair`、`world.generation.convergence.map/reduce`、`world.generation.exploration.preview`、`world.generation.semantic_inspection`、`world.generation.core_entity.structured`、`world.generation.world_bible_page.structured`、`world.generation.world_bible_new_page.structured`：世界设定共创、精细设计反例审查、只读收束、一跳探索、当前页检修与结构化建议；普通加强复核在同一冻结账户模型上追加 `.quality_review` 第二遍 | world 生成中心 |
 | `ask_world_service.py` | 内联 step `world.ask`（snapshot prompt name `world.ask.v1`）：只根据当前项目作者可见证据生成带引用回答或明确拒答 | world 作者问答 |
 | `selection_proposal.py` | 内联 step `evidence.context.selection.suggest`：把作者资料调整要求映射到服务端 `candidate-NNN`，只返回待应用 include/exclude patch | Context 任务前审查 |
 | `world_bible_synopsis_service.py` | 内联 step `world.world_bible.synopsis.structured`：把已采用世界事实压缩为作者版 P1 世界观简介 | world 世界书简介刷新任务 |
@@ -52,7 +52,7 @@ output_validator 校验，修复计入同一执行预算；固定审稿保留原
 | `writing/services.py` | 内联 step `writing.generation.candidate.generate`：根据已确认上下文生成正文候选 | writing 正文生成 |
 | `writing/semantic_review.py` | 内联 steps `writing.semantic_review.chunk_N`、`writing.targeted_revision.generate`：冻结正文、原 confirmation CompiledContext、POV/hidden-guard 指纹和合同的独立近读，并让 finding-bound 返修复用同一资料 | writing 审查返修 |
 | `story/outline_state/ai_workflow_service.py` | 内联 step `outline.ai_workflow.analyze.generate`：回答作者指定的大纲结构问题 | Story outline_state 手动大纲分析 |
-| `interaction/prompts.py` / `evidence/compilation/services/interaction_story_context.py` | 内联 `interaction-story-v7`：兼容模型知识 RP，source-bound 旅程额外注入版本/截止点经 Evidence 校验且统一转义围栏的作品参考块；相关往事数据块能力保留但当前生产门禁关闭；可选隐藏尾部元数据 | interaction 故事任务 |
+| `interaction/prompts.py` / `evidence/compilation/services/interaction_story_context.py` | 内联 `interaction-story-v8`：兼容模型知识 RP，source-bound 旅程额外注入版本/截止点经 Evidence 校验且统一转义围栏的作品参考块；相关往事数据块能力保留但当前生产门禁关闭；可选隐藏尾部元数据 | interaction 故事任务 |
 | `interaction/prompts.py` | 内联 `interaction-summary-v3` / `interaction-summary-output-v2`：一次生成新分段概要与更新后总回顾 | interaction 回顾任务 |
 | `evidence/compilation/knowledge/workflow.py` | 内联 steps `<capability>.knowledge.director.shard_N`（manifest 分片处置：生成必需/生成可用/仅审查可见/禁止，只引用短 key）与 `<capability>.knowledge.audit.verdict`（独立复核：遗漏/无证据/越界/提前揭示/无关/冲突/未检查，服务端按 finding 强度收口 verdict） | 全部用户可见生成与检查能力（ADR-0025 知识治理） |
 
@@ -192,6 +192,9 @@ abstention；`uncertain`、低置信或 provider/schema 失败保留原排序并
 ### 小说总纲类
 
 `outline.story_outline.generate.structured` 用于世界设定之后、正式写作之前的长篇总纲创设。
+作者要求覆盖高潮选择与结局时，候选须给出具体主方案与代价；不得把全部结果移入开放决策。
+审查区分“提出候选”与“替作者采用”，同时尊重作者明确保留的开放性。
+同一审查还检查支撑主方案的金额、数量、时间与因果是否自洽，不能放过候选内部的计算矛盾。
 system 只加载 `story_outline.md`；作者意图、项目概况、世界书简介/页面、核心规则、
 显式选择或自动 Top-K 的人物/对象和可选当前总纲全部作为不可信 user JSON 数据块注入。
 输入不加载章节正文、Scene、RAG、OutlineArc、PlotThread、伏笔或揭示计划。World Bible
@@ -422,15 +425,19 @@ RAG 证据的关联顺序取 Top-K；人物上限 6，相关世界对象上限 1
 `world.generation.design_iteration` 在同一已确认参考边界内输出 typed changes，继承父模型、保留 ID，
 不重建 seed 或写 Canon。步骤日志标明 design iteration，任务 mode 区分聊天与模型推演。
 精细 design 强制把单轮对话与持久决定编译为含 `working_assumptions`、`checkable_commitments` 的任务卡。
+该附加指令仅进入 design/pro 编译调用，不进入普通 fast 建议。返修后终审重新构造当前候选与
+当前 proposal；审查者按实际保存阶段评价增量，不要求种子成果成为完整世界。
 目标范围与因果运转审查只看同一冻结输入、彼此不看对方输出；服务端分配稳定问题 ID、去重并限制
 每路 4 张／总计 8 张。核验器必须为每个 ID 恰好返回一次 confirmed/rejected/insufficient/tradeoff；
-只有 confirmed 进入一次返修。返修后知识审查不再自动返修，终审新发现阻断即停止。所有 step 名固定，
+只有 confirmed 进入一次返修。返修后的知识复审可在同一边界内修正一次并复审，仍失败即阻断；
+修正须同步受影响的字段、情境和计算，摘要只概括最终内容。终审新发现阻断即停止。所有 step 名固定，
 不含 attempt、packet 或动态序号；任务私有检查点按输入 hash 复用已完成响应。
 聊天正文使用普通文本生成，Prompt 明确要求直接回应作者而不输出 JSON 或协议包装；
 调用层把返回文本放入只含 `reply` 的 schema 校验非空与长度。自由聊天不启用 provider
 JSON mode；偶发空文本只在同一阶段时限内重试一次，也不把任意原始输出直接当作业务响应。
 聊天还执行最低充分内容约束：短灵感优先给一个主方向、必要条件、普通日常切片、最高风险或
 作者边界和自然下一步，真正阻塞时最多追问一个问题；明确的完整范围请求优先于该默认收束。
+作者已经指定交付物或篇幅时只交付该内容，不附加点评与下一步邀请；篇幅约束计入整条可见回复。
 横向规则已充分时固定一个具体锚点，沿日常、故障和历史反馈纵切，压力测试实例不视为已采用
 事实。若内容已经属于人物选择、事件或 Scene，只输出可编辑交接摘要并建议使用既有 Scene
 规划流程；该 Prompt 不获得创建 Scene、修改 StoryOutline 或调用跨模块工具的能力。
@@ -558,7 +565,7 @@ interaction Prompt 由 `modules/interaction/prompts.py` 代码组装，不进入
 source-bound 旅程额外消费 Evidence 编译的 `<SOURCE_REFERENCE_DATA>`。未选 sibling、失败残段、
 隐藏项目 ID、未选资料版本、未来章节和被忽略对象都不得进入。
 
-`interaction-story-v7` 直接输出可见故事。正文之后可以有一个带固定边界标记的可选 JSON
+`interaction-story-v8` 直接输出可见故事。正文之后可以有一个带固定边界标记的可选 JSON
 尾块，承载 `response_kind / suggested_title / branch_hint / story_ended /
 action_suggestions`。framing parser 在流式过程中隔离尾块；尾块缺失、截断或 schema 无效时
 只丢弃附加信息，不判废已经生成的正文。行动选项开启且当前情境适合时，模型尽量提供

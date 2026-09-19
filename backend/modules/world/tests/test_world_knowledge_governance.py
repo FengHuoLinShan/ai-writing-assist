@@ -116,8 +116,11 @@ async def test_blocked_chat_withholds_unsafe_reply(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake = _install_fake_llm(monkeypatch)
-    fake.chat_contents = ["主角其实早已死亡，这段是凶手视角的剧透正文。"]
-    fake.audit_verdicts = ["blocked"]
+    fake.chat_contents = [
+        "主角其实早已死亡，这段是凶手视角的剧透正文。",
+        "返修后仍是剧透正文。",
+    ]
+    fake.audit_verdicts = ["blocked", "blocked"]
     novel_id = await _create_llm_project(async_client, "阻断聊天")
 
     response = await async_client.post(
@@ -130,6 +133,27 @@ async def test_blocked_chat_withholds_unsafe_reply(
     assert body["knowledge_review"]["status"] == "blocked"
     assert "剧透" not in body["reply"]
     assert "知识审查未通过" in body["reply"]
+    assert body["knowledge_review"]["repaired"] is True
+
+
+@pytest.mark.asyncio
+async def test_chat_repairs_once_with_the_original_reply_and_rechecks(
+    async_client, monkeypatch
+):
+    fake = _install_fake_llm(monkeypatch)
+    fake.chat_contents = ["人物偷知隐藏真相。", "人物只按已知线索行动。"]
+    fake.audit_verdicts = ["blocked", "pass"]
+    novel_id = await _create_llm_project(async_client, "聊天修复")
+    response = await async_client.post(
+        "/api/world/generation-center/chat", json=_project_source_payload(novel_id)
+    )
+    assert response.status_code == 200
+    assert response.json()["reply"] == "人物只按已知线索行动。"
+    assert response.json()["knowledge_review"]["repaired"] is True
+    assert any(
+        message.role == "assistant" and message.content == "人物偷知隐藏真相。"
+        for message in fake.requests[-1].messages
+    )
 
 
 @pytest.mark.asyncio
@@ -186,7 +210,7 @@ async def test_blocked_ask_world_returns_no_answer(
 
 @pytest.mark.asyncio
 async def test_govern_world_output_passes_frozen_requirements_to_audit() -> None:
-    """RB-2：知识审查看到与生成器同源的作者要求投影（不截断），资料仍按预算截断。"""
+    """审查看到完整冻结的资料和作者要求，不做第二次静默截断。"""
     from modules.evidence.compilation.knowledge.llm_schemas import (
         AuditDimensionCheck,
         AuditVerdictOutput,
@@ -229,4 +253,111 @@ async def test_govern_world_output_passes_frozen_requirements_to_audit() -> None
     assert "【作者要求（冻结投影）】" in prompt
     assert "【输出权限】" in prompt
     assert "x" * 25_000 in prompt  # 作者要求投影未被 24K 截断
-    assert "资" * 24_001 not in prompt  # 资料投影仍按预算截断
+    assert "资" * 30_000 in prompt
+
+
+@pytest.mark.asyncio
+async def test_world_review_receives_workspace_first_turn_and_repairs_exact_draft():
+    from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+    from modules.evidence.compilation.knowledge.llm_schemas import AuditVerdictOutput
+    from modules.world.schemas import WorldDesignIterationOutput
+    from modules.world.services.worldbuilding.world_generation_center_service import (
+        WorldGenerationCenterService,
+    )
+
+    class Client:
+        audits = []
+        repairs = []
+
+        async def generate_structured(self, request, schema, **_kwargs):
+            if schema is AuditVerdictOutput:
+                self.audits.append(request.messages[-1].content)
+                return schema(
+                    findings=[],
+                    dimensions=[],
+                    verdict="blocked" if len(self.audits) == 1 else "pass",
+                )
+            self.repairs.append(request)
+            return schema(summary="已补轮值", changes={})
+
+    client = Client()
+    service = WorldGenerationCenterService()
+    output, review = await service._govern_structured(
+        client,
+        capability="world.generation.design_iteration",
+        novel_id=str(uuid.uuid4()),
+        prepared={
+            "source_refs": [],
+            "background": {"rendered_context": "公共背景"},
+            "knowledge_context": "已保存成果：盐料七日，双人轮值。",
+            "conversation_messages": [
+                LLMMessage(role="user", content="只整理已有轮值，不增加机构")
+            ],
+        },
+        generated=WorldDesignIterationOutput(summary="初稿缺少轮值安排", changes={}),
+        request=LLMCallRequest(
+            messages=[LLMMessage(role="user", content="原始生成请求")]
+        ),
+        schema=WorldDesignIterationOutput,
+        decision_state=None,
+        step_name="world.generation.design_iteration",
+        quality_mode="fast",
+        task_instruction="整理",
+    )
+    assert review["status"] == "passed"
+    assert output.summary == "已补轮值"
+    assert all("已保存成果：盐料七日，双人轮值。" in prompt for prompt in client.audits)
+    assert all("只整理已有轮值，不增加机构" in prompt for prompt in client.audits)
+    assert all("来源回溯" in prompt for prompt in client.audits)
+    assert any(
+        message.role == "assistant" and "初稿缺少轮值安排" in message.content
+        for message in client.repairs[0].messages
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("verdict", ["pass", "blocked"])
+async def test_deterministic_boundary_failure_uses_the_single_repair_allowance(verdict):
+    from core.errors import ValidationError
+    from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+    from modules.evidence.compilation.knowledge.llm_schemas import AuditVerdictOutput
+    from modules.world.schemas import WorldDesignIterationOutput
+    from modules.world.services.worldbuilding.world_generation_center_service import (
+        WorldGenerationCenterService,
+    )
+
+    class Client:
+        repairs = 0
+        audits = 0
+
+        async def generate_structured(self, request, schema, **_kwargs):
+            if schema is AuditVerdictOutput:
+                self.audits += 1
+                return schema(findings=[], dimensions=[], verdict=verdict)
+            self.repairs += 1
+            assert "未确认的来源" in "\n".join(m.content for m in request.messages)
+            return schema(summary="修复来源", changes={})
+
+    def validate(output, _previous):
+        if output.summary == "错误来源":
+            raise ValidationError("本轮变化引用了未确认的来源")
+        return output
+
+    client = Client()
+    _, review = await WorldGenerationCenterService()._govern_structured(
+        client,
+        capability="world.generation.design_iteration",
+        novel_id=str(uuid.uuid4()),
+        prepared={"source_refs": [], "background": {}},
+        generated=WorldDesignIterationOutput(summary="错误来源", changes={}),
+        request=LLMCallRequest(messages=[LLMMessage(content="生成")]),
+        schema=WorldDesignIterationOutput,
+        decision_state=None,
+        step_name="world.generation.design_iteration",
+        quality_mode="fast",
+        task_instruction="推演",
+        normalize=validate,
+    )
+    assert client.repairs == client.audits == 1
+    assert review["repaired"] is True
+    assert review["status"] == ("passed" if verdict == "pass" else "blocked")

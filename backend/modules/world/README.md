@@ -352,7 +352,20 @@ PNG 后才进入地图册私有 S3。此例外不改变 imports 的文稿上传�
   design `quality_mode=pro` 会先编译含工作假设与可检验承诺的任务卡，再并行运行目标范围、
   因果运转两路隔离反例审查；每路最多 4 张问题卡，稳定 ID 去重后总计最多 8 张。独立核验将
   问题逐项分为 `confirmed/rejected/insufficient/tradeoff`，只有 confirmed 进入一次定向返修；
-  返修后执行无自动返修的知识复审和新上下文终审，终审不再开启第二轮。fast 仍走原流程。
+  返修后执行知识复审，发现问题可在同一来源与目标内追加至多一次定向知识修正并复审，
+  仍不通过即阻断；随后进入新上下文终审，终审不再开启返修。fast 仍走原流程。
+  任务卡扩展指令仅用于 design/pro。终审重新物化返修后的 proposal 与 candidate，不混入旧候选。
+  typed changes 中省略的既有条目字段继承父成果，条目内显式空列表或空字符串仍表示清空；知识审查和返修均消费
+  物化后的同一提案。返修是对上一提案的增量更新，省略条目保留，弃用须显式标记 deprecated；
+  对外结果仍是相对父成果的完整本轮变化。新条目（含知识层）与 known_by 等引用在审查前使用
+  同一确定性 ID，任务结果使用公开字段别名。confirmation 记录参考与创作要求的来源，不把
+  候选自动变为已确认事实；部分覆盖/非零成熟度仍须有来源，不能以候选为由清空证据。
+  依赖变更仍使旧检查待复核，不把保留结果当作已经复测。
+  固定分类的 ID 与名称沿用父成果，作者和模型只修改分类内容；返修须同步受影响的情境、压测与计算。
+  审查使用生成器的完整已过滤参考与原作者对话，包含已保存成果；不再额外截断到 24K 字符。
+  保存/采用等系统成果通知保留在历史界面，但不投影成新的作者指令。作者要求设计的缺失细节
+  可作为候选提出，不自动全部冻结成待作者决定。共创聊天发现知识问题时，用原回复与同一参考
+  最多返修一次并复审；只读收束/探索/检修仍不追加返修。
   `world_adoption_package.v1` 是作者显式保存的 pending 包；完成的 Deep Import 也会按冻结的
   Scene hash、workflow 与授权回执幂等组装一个包。已自动写入的对象以 `existing_ref/no-op`
   显示，candidate 对象/关系仍由作者 preview/apply；apply 不重复创建前者。preview 不写库，按 source refs、
@@ -383,7 +396,7 @@ retry 与 `auto_requeue` 重放都消耗同一额度，只有作者显式续算�
 | `world_entity_fusion_suggestions` | `world.entity_fusion` | `12M+6`（M=冻结 `max_suggestions`，schema le=200） | 无（仅 provider 180s 边界） |
 | `world_bible_synopsis_refresh` | `world.world_bible.synopsis` | 36 | 无（main/audit 只有各自 step timeout，无既有 run 总时限） |
 | `world_generation_suggestion` | `world.generation.suggestion` | 96 | 3660s（阶段 1800s × 2 attempt + 余量） |
-| `world_cocreation_turn` | `world.generation.cocreation` | chat fast 10 / chat pro 14 / design fast 24 / design pro 66 | 无（每个 provider step 仍受现有 1800s timeout） |
+| `world_cocreation_turn` | `world.generation.cocreation` | chat fast 20 / chat pro 24 / design fast 24 / design pro 78 | 无（每个 provider step 仍受现有 1800s timeout） |
 | `world_map_schematic_generate` | `world.map_structure.generate` | 60（⌈S/5⌉≤4 批 × [U(1,0)+U(2,0)]，S≤20 为 schema 校验器上界；manual_resume 的续跑是新授权动作，额度只覆盖单次 attempt） | 无（manual_resume 恢复不受 frozen deadline 死锁） |
 | `map_atlas_generate` | `world.map_atlas.generate` | 文本规划最多 51；直接生成再预留每页最多 3 次图片请求。Prompt 确认、停止后继续与单页重试只由对应作者动作追加当前图片段 | 无（保留文本/图片 provider 边界） |
 

@@ -87,6 +87,10 @@ stats = await llm.get_usage_stats()
 `run_managed_structured()`。业务模块的普通文本生成和结构化生成应通过这两个
 helper 进入，以统一 step name、journal、timeout 和错误分类。
 
+结构化调用首次发送前由 `LLMClient.generate_structured()` 补齐当前 Pydantic JSON schema，
+已有相同紧凑 schema 时不再追加；JSON 模式本身不代表模型知道字段合同。原请求保持不变，
+Pydantic 校验、受限格式修复与信封计量继续覆盖每次请求。
+
 Context 自然语言调整使用同一 harness 的单次 `suggest + read_only` structured step：候选最多
 40 项、输出最多 20 个 include/exclude、120 秒超时、无工具、无自治循环且 transport retry
 关闭。候选正文被包在不可信数据边界内，模型只能返回服务端分配的 `candidate-NNN`；应用选择

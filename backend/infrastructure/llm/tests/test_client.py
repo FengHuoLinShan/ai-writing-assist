@@ -1381,6 +1381,36 @@ async def test_generate_structured_retries_truncated_json_with_larger_budget(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("already_supplied", [False, True])
+async def test_structured_first_call_has_schema_without_mutating_or_duplicating_request(
+    already_supplied,
+):
+    client = LLMClient()
+    schema_json = json.dumps(
+        _StructuredPayload.model_json_schema(), ensure_ascii=False, separators=(",", ":")
+    )
+    request = LLMCallRequest(
+        messages=[
+            LLMMessage(
+                role="user", content=schema_json if already_supplied else "给出一个值"
+            )
+        ]
+    )
+    original = request.model_dump()
+
+    async def generate(self, actual):
+        rendered = "\n".join(message.content for message in actual.messages)
+        assert rendered.count(schema_json) == 1
+        return LLMCallResponse(content='{"value":"valid"}')
+
+    client.generate = MethodType(generate, client)
+    assert (
+        await client.generate_structured(request, _StructuredPayload)
+    ).value == "valid"
+    assert request.model_dump() == original
+
+
+@pytest.mark.asyncio
 async def test_generate_structured_validation_retry_keeps_existing_fix_path() -> None:
     client = LLMClient()
     requests: list[LLMCallRequest] = []

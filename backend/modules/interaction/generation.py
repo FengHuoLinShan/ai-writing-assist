@@ -867,7 +867,7 @@ class InteractionGenerationWorkflow:
 
         rendered_context = "\n\n".join(
             f"【{message.role}】\n{message.content}" for message in prepared.messages
-        )[:24000]
+        )
 
         async def _audit(text: str):  # noqa: ANN202
             return await run_knowledge_audit(
@@ -878,6 +878,14 @@ class InteractionGenerationWorkflow:
                 hooks=GovernedWorkflowHooks(
                     generate=_noop_generate,
                     task_instruction="以读者视角续写互动故事，遵守知识边界",
+                    author_requirements=next(
+                        (
+                            message.content
+                            for message in reversed(prepared.messages)
+                            if message.role == "user"
+                        ),
+                        "",
+                    ),
                     generator_context=rendered_context,
                     authority_context=rendered_context,
                 ),
@@ -906,17 +914,14 @@ class InteractionGenerationWorkflow:
 
         # 最多一次返修：原对话 + 已生成正文 + 脱敏问题，重生成一次
         findings_block = "\n".join(
-            f"- [{item.severity}] {item.kind}: {item.message}"
-            for item in audit.findings
+            f"- [{item.severity}] {item.kind}: {item.message}" for item in audit.findings
         )
         repair_messages = [
             *prepared.messages,
             LLMMessage(role="assistant", content=held),
             LLMMessage(
                 role="user",
-                content=REPAIR_INSTRUCTION_TEMPLATE.format(
-                    findings_block=findings_block
-                ),
+                content=REPAIR_INSTRUCTION_TEMPLATE.format(findings_block=findings_block),
             ),
         ]
         profile = dict(prepared.executable_settings.get("llm") or {})
@@ -1051,9 +1056,7 @@ class InteractionGenerationWorkflow:
                 attempt.request_kind = "see_sea_continue"
                 attempt.continuation_count += 1
                 attempt.metadata_text = ""
-                task_type = story_task_type(
-                    dict(attempt.llm_execution_snapshot or {})
-                )
+                task_type = story_task_type(dict(attempt.llm_execution_snapshot or {}))
                 await authorize_interaction_story_continuation(
                     attempt,
                     task_type=task_type,

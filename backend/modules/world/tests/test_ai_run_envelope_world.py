@@ -392,14 +392,14 @@ def test_world_cocreation_uses_one_parent_with_mode_specific_bounded_limits() ->
             "world_cocreation_turn",
             SimpleNamespace(meta={"mode": "chat", "quality_mode": "fast"}),
         )
-        == 10
+        == 20
     )
     assert (
         _registry_limit(
             "world_cocreation_turn",
             SimpleNamespace(meta={"mode": "chat", "quality_mode": "pro"}),
         )
-        == 14
+        == 24
     )
     assert (
         _registry_limit(
@@ -413,7 +413,7 @@ def test_world_cocreation_uses_one_parent_with_mode_specific_bounded_limits() ->
             "world_cocreation_turn",
             SimpleNamespace(meta={"mode": "design", "quality_mode": "pro"}),
         )
-        == 66
+        == 78
     )
     assert _registry_deadline("world_cocreation_turn", SimpleNamespace(meta={})) is None
 

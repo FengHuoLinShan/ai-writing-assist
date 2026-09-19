@@ -24,6 +24,7 @@ from modules.story.schemas import (
 async def _noop_generate(_plan, _generator_keys) -> str:  # noqa: ANN001
     return ""
 
+
 STORY_CHARACTER_CARD_ACTION = "story.character_card.generate"
 STORY_REACTION_ACTION = "story.reaction.generate"
 STORY_SCRIPT_ACTION = "story.script.generate"
@@ -87,9 +88,7 @@ class StoryGenerationService:
         policy = require_capability_policy(capability)
         context_digest = hashlib.sha256(context_markdown.encode("utf-8")).hexdigest()
         scene_digest = hashlib.sha256(
-            json.dumps(scene_context, ensure_ascii=False, sort_keys=True).encode(
-                "utf-8"
-            )
+            json.dumps(scene_context, ensure_ascii=False, sort_keys=True).encode("utf-8")
         ).hexdigest()
         entries = (
             KnowledgeSourceEntry(
@@ -138,6 +137,9 @@ class StoryGenerationService:
             audit_only_keys=(),
         )
         holder: dict[str, Any] = {"output": output}
+        review_context = "\n\n".join(
+            f"【{message.role}】\n{message.content}" for message in request.messages
+        )
 
         async def _audit(text: str):  # noqa: ANN202
             return await run_knowledge_audit(
@@ -148,8 +150,8 @@ class StoryGenerationService:
                 hooks=GovernedWorkflowHooks(
                     generate=_noop_generate,
                     task_instruction=f"生成 {policy.title} 预览，只用输入资料",
-                    generator_context=context_markdown[:24000],
-                    authority_context=context_markdown[:24000],
+                    generator_context=review_context,
+                    authority_context=review_context,
                 ),
                 output=text,
                 step_prefix=capability,
@@ -168,13 +170,16 @@ class StoryGenerationService:
 
         async def _repair(findings_block: str) -> str:  # noqa: ANN202
             repair_request = request.model_copy(deep=True)
-            repair_request.messages.append(
-                LLMMessage(
-                    role="user",
-                    content=REPAIR_INSTRUCTION_TEMPLATE.format(
-                        findings_block=findings_block
+            repair_request.messages.extend(
+                [
+                    LLMMessage(role="assistant", content=_serialize(holder["output"])),
+                    LLMMessage(
+                        role="user",
+                        content=REPAIR_INSTRUCTION_TEMPLATE.format(
+                            findings_block=findings_block
+                        ),
                     ),
-                )
+                ]
             )
             repaired = await self._run(
                 client,

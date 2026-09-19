@@ -50,10 +50,11 @@ _WORLD_GENERATION_SUGGESTION_DEADLINE_SECONDS = 2 * 1800.0 + (
 # workflow. The canonical parent owns the run; these are the exact bounded
 # task-path requests after the worker disables transport retry for transient
 # task requeue (two attempts max).
-_WORLD_COCREATION_CHAT_FAST_REQUEST_LIMIT = 10  # 2 replies + 3 audit × 2
-_WORLD_COCREATION_CHAT_PRO_REQUEST_LIMIT = 14  # 4 replies + 3 audit × 2
+# (2 reply + 3 audit + 2 repair + 3 audit) × 2 attempts.
+_WORLD_COCREATION_CHAT_FAST_REQUEST_LIMIT = 20
+_WORLD_COCREATION_CHAT_PRO_REQUEST_LIMIT = 24  # pro adds 2 polish replies per attempt
 _WORLD_COCREATION_DESIGN_FAST_REQUEST_LIMIT = 24
-_WORLD_COCREATION_DESIGN_PRO_REQUEST_LIMIT = 66
+_WORLD_COCREATION_DESIGN_PRO_REQUEST_LIMIT = 78
 
 
 def _world_cocreation_request_limit(task: Any) -> int:
@@ -295,6 +296,7 @@ _WORLD_DESIGN_REVIEW_STAGE_ORDER = (
     "causal_review",
     "verification",
     "repaired_output",
+    "final_knowledge_repair_output",
     "final_knowledge_review",
     "final_review",
 )
@@ -807,7 +809,7 @@ async def handle_world_cocreation_turn(db, task):
         **kwargs,
     )
     response = {
-        **result.model_dump(mode="json"),
+        **result.model_dump(mode="json", by_alias=True),
         "mode": data.mode,
         "session_id": data.session_id,
     }

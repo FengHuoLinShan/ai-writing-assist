@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from types import SimpleNamespace
 
@@ -113,6 +114,16 @@ def test_insufficient_evidence_and_tradeoff_stay_open_instead_of_becoming_facts(
     }
 
 
+def test_confirmed_but_unresolved_issue_is_not_reported_as_addressed():
+    summary = WorldGenerationCenterService._world_design_review_summary(
+        GeneratedWorldDesignFinalReview(status="blocked", blockers=["维护职责仍悬空"]),
+        issues=[{"issue_id": "i1", "counterexample": "维护职责仍悬空"}],
+        verdicts={"i1": {"verdict": "confirmed"}},
+    )
+    assert summary.addressed_issues == []
+    assert summary.author_decisions == ["维护职责仍悬空"]
+
+
 @pytest.mark.parametrize(
     "private_text",
     ["world-design:abc123", "intent_scope", "causal_operability", "hidden Prompt"],
@@ -145,8 +156,9 @@ def _task_source(request, *, status: str = "passed") -> SimpleNamespace:
         "source_manifest_hash": "a" * 64,
         "input_hash": "c" * 64,
         "final_output_hash": world_design_revision_content_hash(
-            summary=request.summary, changes=request.changes, decisions=[]
+            summary=request.summary, changes=request.changes, decisions=[], depth="seed"
         ),
+        "depth": "seed",
         "task_brief": response["task_brief"],
         "issues": [],
         "verdicts": [],
@@ -165,7 +177,13 @@ def _task_source(request, *, status: str = "passed") -> SimpleNamespace:
 
 
 @pytest.mark.asyncio
-async def test_save_binding_keeps_exact_review_and_invalidates_author_edits(monkeypatch):
+@pytest.mark.parametrize(
+    "edit",
+    [{"summary": "作者改写后的说明"}, {"depth": "candidate"}, {"depth": "instance"}],
+)
+async def test_save_binding_keeps_exact_review_and_invalidates_author_edits(
+    monkeypatch, edit
+):
     parent = _parent()
     request = _request(
         parent,
@@ -187,7 +205,12 @@ async def test_save_binding_keeps_exact_review_and_invalidates_author_edits(monk
     assert reference["status"] == "passed"
     assert len(reference["receipt_hash"]) == 64
 
-    edited = request.model_copy(update={"summary": "作者改写后的说明"})
+    _, explicit_stage = await WorldAdoptionPackageService._design_review_binding(
+        None, request=request.model_copy(update={"depth": parent.depth}), parent=parent
+    )
+    assert explicit_stage == reference
+
+    edited = request.model_copy(update=edit)
     _, edited_reference = await WorldAdoptionPackageService._design_review_binding(
         None, request=edited, parent=parent
     )
@@ -214,6 +237,67 @@ async def test_blocked_exact_result_cannot_be_saved_as_reviewed(monkeypatch):
         await WorldAdoptionPackageService._design_review_binding(
             None, request=request, parent=parent
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["passed", "blocked"])
+async def test_legacy_receipt_never_certifies_depth_and_preserves_blocker(
+    monkeypatch, status
+):
+    parent = _parent()
+    request = _request(
+        parent,
+        context_confirmation_id=str(uuid.uuid4()),
+        origin_task_id=str(uuid.uuid4()),
+    )
+    source = _task_source(request, status=status)
+    receipt = source.result["_world_design_review_receipt"]
+    receipt.pop("depth")
+    receipt["receipt_hash"] = stable_hash(
+        {key: value for key, value in receipt.items() if key != "receipt_hash"}
+    )
+
+    async def completed(*_args, **_kwargs):
+        return source
+
+    monkeypatch.setattr(
+        "infrastructure.tasks.facade.get_completed_task_payload", completed
+    )
+    if status == "blocked":
+        with pytest.raises(ValidationError, match="终审未通过"):
+            await WorldAdoptionPackageService._design_review_binding(
+                None, request=request, parent=parent
+            )
+    else:
+        _, reference = await WorldAdoptionPackageService._design_review_binding(
+            None, request=request, parent=parent
+        )
+        assert reference["status"] == "unreviewed"
+
+
+@pytest.mark.asyncio
+async def test_only_design_pro_compiles_assumptions_and_commitments():
+    service = WorldGenerationCenterService()
+    _, data, prepared, _, _, _, brief = _review_run_inputs()
+
+    class Compiler:
+        requests = []
+
+        async def generate_structured(self, request, schema, **_kwargs):
+            self.requests.append(request)
+            return brief
+
+    client = Compiler()
+    ordinary = data.model_copy(update={"quality_mode": "fast"})
+    await service._compile_conversation_decision_state(
+        client, ordinary, model="fake", force=True
+    )
+    await service._compile_world_design_task_brief(client, data, prepared, model="fake")
+    # The schema stays compatible; only design adds task-card instructions.
+    assert "精细设计" not in client.requests[0].messages[0].content
+    assert "精细设计" not in client.requests[0].messages[1].content
+    assert "working_assumptions" in client.requests[1].messages[0].content
+    assert "checkable_commitments" in client.requests[1].messages[0].content
 
 
 class _ReviewClient:
@@ -265,7 +349,19 @@ class _ReviewClient:
             )
         if schema is WorldDesignIterationOutput:
             self.repairs += 1
-            return schema(summary="补上七日储备与降级运转", changes={})
+            return schema(
+                summary="补上七日储备与降级运转",
+                changes={
+                    "actors": [
+                        {
+                            "id": "actor:1",
+                            "name": "盐商",
+                            "summary": "维持七日储备，断盐时改走陆路",
+                            "status": "proposed",
+                        }
+                    ]
+                },
+            )
         if schema is GeneratedWorldDesignFinalReview:
             return schema(
                 status=self.final_status,
@@ -398,6 +494,25 @@ async def test_confirmed_issue_repairs_once_while_rejected_critique_is_ignored(
     ]
     assert len(review_prompts) == 2
     assert all("储备耗尽后港口停摆" not in prompt for prompt in review_prompts)
+    final_prompt = next(
+        request.messages[-1].content
+        for schema, request in client.requests
+        if schema == "GeneratedWorldDesignFinalReview"
+    )
+    final_payload = json.loads(
+        final_prompt.split("<WORLD_DESIGN_FINAL_INPUT>\n", 1)[1].split(
+            "\n</WORLD_DESIGN_FINAL_INPUT>", 1
+        )[0]
+    )
+    assert final_payload["proposal"] == final_output.model_dump(
+        mode="json", by_alias=True
+    )
+    assert (
+        final_payload["candidate_world_state"]["actors"][0]["summary"]
+        == "维持七日储备，断盐时改走陆路"
+    )
+    assert final_payload["parent_world_state"]["actors"][0]["summary"] == "维护潮门"
+    assert "final_proposal" not in final_payload
 
     resumed = _ReviewClient()
     (
@@ -472,12 +587,95 @@ async def test_terminal_blocker_stops_without_a_second_repair(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("knowledge_status", ["passed", "blocked"])
+async def test_final_knowledge_correction_updates_candidate_and_resumes_without_recharge(
+    monkeypatch,
+    knowledge_status,
+):
+    class Client(_ReviewClient):
+        async def generate_structured(self, request, schema, **kwargs):
+            if schema is WorldDesignIterationOutput and self.repairs == 1:
+                self.repairs += 1
+                self.requests.append((schema.__name__, request))
+                return schema(
+                    summary="对齐所有库存计算",
+                    changes={
+                        "actors": [
+                            {
+                                "id": "actor:1",
+                                "name": "盐商",
+                                "status": "proposed",
+                                "summary": "使用最新库存参数",
+                            }
+                        ]
+                    },
+                )
+            return await super().generate_structured(request, schema, **kwargs)
+
+    async def knowledge(*_args, repair, **_kwargs):
+        await repair("前提已经变化，请同步依赖它的所有日数")
+        return {
+            "status": knowledge_status,
+            "review": {"status": knowledge_status, "repaired": True},
+        }
+
+    async def checkpoint(_progress):
+        return None
+
+    monkeypatch.setattr(
+        "modules.world.services.worldbuilding.world_generation_center_service.govern_world_output",
+        knowledge,
+    )
+    parent, data, prepared, candidate, request, output, brief = _review_run_inputs()
+    service = WorldGenerationCenterService()
+    state = {}
+    kwargs = dict(
+        model="fake",
+        data=data,
+        prepared=prepared,
+        parent=parent,
+        candidate=candidate,
+        request=request,
+        output=output,
+        task_brief=brief,
+        knowledge_review={"status": "passed"},
+        revise_world_design=revise_world_design,
+        review_state=state,
+        checkpoint_review=checkpoint,
+    )
+    client = Client()
+    if knowledge_status == "blocked":
+        with pytest.raises(ValidationError, match="知识复审未通过"):
+            await service._run_verified_world_design_review(client, **kwargs)
+        assert client.repairs == 2
+        resumed = Client()
+        with pytest.raises(ValidationError, match="知识复审未通过"):
+            await service._run_verified_world_design_review(resumed, **kwargs)
+        assert resumed.requests == []
+        return
+    (
+        final_output,
+        final_candidate,
+        review,
+        _,
+        receipt,
+    ) = await service._run_verified_world_design_review(client, **kwargs)
+    assert client.repairs == 2
+    assert final_output.summary == "对齐所有库存计算"
+    assert final_candidate.world_state.actors[0].summary == "使用最新库存参数"
+    assert review["repaired"] is True
+    assert state["final_knowledge_repair_output"]["summary"] == final_output.summary
+    resumed = Client()
+    again = await service._run_verified_world_design_review(resumed, **kwargs)
+    assert resumed.requests == []
+    assert again[-1] == receipt
+
+
+@pytest.mark.asyncio
 async def test_no_issue_passes_without_verification_or_repair():
     client = _ReviewClient(with_issues=False)
     service = WorldGenerationCenterService()
-    parent, data, prepared, candidate, request, output, task_brief = (
-        _review_run_inputs()
-    )
+    parent, data, prepared, candidate, request, output, task_brief = _review_run_inputs()
 
     async def checkpoint(_progress):
         return None
@@ -509,34 +707,28 @@ async def test_no_issue_passes_without_verification_or_repair():
     ("verdict", "field"),
     [("insufficient", "insufficient_evidence"), ("tradeoff", "author_decisions")],
 )
-async def test_unconfirmed_issue_stays_open_and_never_triggers_repair(
-    verdict, field
-):
+async def test_unconfirmed_issue_stays_open_and_never_triggers_repair(verdict, field):
     client = _ReviewClient(causal_verdict=verdict)
     service = WorldGenerationCenterService()
-    parent, data, prepared, candidate, request, output, task_brief = (
-        _review_run_inputs()
-    )
+    parent, data, prepared, candidate, request, output, task_brief = _review_run_inputs()
 
     async def checkpoint(_progress):
         return None
 
-    final_output, _, _, summary, _ = (
-        await service._run_verified_world_design_review(
-            client,
-            model="fake",
-            data=data,
-            prepared=prepared,
-            parent=parent,
-            candidate=candidate,
-            request=request,
-            output=output,
-            task_brief=task_brief,
-            knowledge_review={"status": "passed"},
-            revise_world_design=revise_world_design,
-            review_state={},
-            checkpoint_review=checkpoint,
-        )
+    final_output, _, _, summary, _ = await service._run_verified_world_design_review(
+        client,
+        model="fake",
+        data=data,
+        prepared=prepared,
+        parent=parent,
+        candidate=candidate,
+        request=request,
+        output=output,
+        task_brief=task_brief,
+        knowledge_review={"status": "passed"},
+        revise_world_design=revise_world_design,
+        review_state={},
+        checkpoint_review=checkpoint,
     )
     assert final_output == output
     assert summary.status == "passed_with_open_questions"

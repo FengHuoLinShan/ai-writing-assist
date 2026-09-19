@@ -164,6 +164,123 @@ def test_depth_requires_real_content_and_does_not_imply_canon():
     assert instance.world_state.audit.valid is None
 
 
+def test_partial_rule_update_inherits_omitted_fields_but_explicit_clear_is_respected():
+    parent = _parent()
+    partial = {
+        "id": "rule:tide",
+        "name": "潮门",
+        "status": "proposed",
+        "capability": "输送货物",
+        "impossibility": "不能运送生命",
+        "knowledge_layer": "author_truth",
+        "maintenance": ["双人轮值"],
+    }
+    result = revise_world_design(parent, _request(parent, changes={"rules": [partial]}))
+    rule = result.world_state.rules[0]
+    assert rule.costs == ["每次耗盐"]
+    assert rule.impossibility == "不能运送生命"
+    assert rule.evidence == ["author:1"]
+    assert rule.maintenance == ["双人轮值"]
+    cleared = revise_world_design(
+        parent, _request(parent, changes={"rules": [{**partial, "costs": []}]})
+    )
+    assert cleared.world_state.rules[0].costs == []
+    assert parent.world_state.rules[0].maintenance == []
+
+
+def test_new_knowledge_identity_and_knower_reference_are_materialized_together():
+    parent = _parent()
+    result = revise_world_design(
+        parent,
+        _request(
+            parent,
+            changes={
+                "actors": [{"id": "new:keeper", "name": "值守者", "status": "proposed"}],
+                "knowledge_layers": {
+                    "public_beliefs": [
+                        {
+                            "id": "new:alarm-belief",
+                            "claim": "旗色表示闸门故障",
+                            "status": "proposed",
+                            "known_by": ["new:keeper"],
+                            "evidence": ["author:1"],
+                        }
+                    ]
+                },
+            },
+        ),
+    )
+    keeper = next(item for item in result.world_state.actors if item.name == "值守者")
+    belief = result.world_state.knowledge_layers.public_beliefs[0]
+    assert belief.known_by == [keeper.id]
+    assert not belief.id.startswith("new:")
+
+
+def test_fixed_test_name_is_metadata_while_revised_content_is_preserved():
+    parent = _parent()
+    original = parent.world_state.pressure_tests[-1]
+    update = original.model_dump()
+    update.update(
+        name="三年窗口（十年后保持未运行）",
+        result="前三年的变化与剩余七年缺口",
+        status="not-run",
+    )
+    result = revise_world_design(
+        parent, _request(parent, changes={"pressure_tests": [update]})
+    )
+    test = result.world_state.pressure_tests[-1]
+    assert test.name == original.name
+    assert test.result == update["result"]
+
+
+def test_repair_keeps_previous_new_entries_and_accepts_explicit_field_clear():
+    from modules.world.schemas import WorldDesignChanges
+    from modules.world.services.worldbuilding.world_design_iteration import (
+        merge_world_design_changes,
+    )
+
+    previous = WorldDesignChanges.model_validate(
+        {
+            "actors": [
+                {
+                    "id": "actors:watch",
+                    "name": "值守者",
+                    "status": "proposed",
+                    "summary": "驻守码头",
+                    "evidence": ["author:1"],
+                }
+            ],
+            "knowledge_layers": {
+                "public_beliefs": [
+                    {
+                        "id": "knowledge:alarm",
+                        "claim": "旗色表示故障",
+                        "status": "proposed",
+                        "known_by": ["actors:watch"],
+                    }
+                ]
+            },
+        }
+    )
+    repair = WorldDesignChanges.model_validate(
+        {
+            "actors": [
+                {
+                    "id": "actors:watch",
+                    "name": "值守者",
+                    "status": "proposed",
+                    "summary": "",
+                    "evidence": [],
+                }
+            ],
+        }
+    )
+    merged = merge_world_design_changes(previous, repair)
+    assert merged.knowledge_layers == previous.knowledge_layers
+    assert merged.actors[0].summary == ""
+    assert merged.actors[0].evidence == []
+
+
 def test_new_entry_references_are_resolved_and_external_model_identity_is_preserved():
     parent = _parent()
     parent.world_state.project.id = "world:synthetic"

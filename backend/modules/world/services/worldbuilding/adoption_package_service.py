@@ -260,18 +260,6 @@ class WorldAdoptionPackageService:
         ):
             raise ValidationError("原始推演审查回执已损坏或与当前来源不匹配")
 
-        response_hash = world_design_revision_content_hash(
-            summary=str(response.get("summary") or ""),
-            changes=response.get("changes") or {},
-            decisions=[],
-        )
-        if response_hash != receipt.get("final_output_hash"):
-            raise ValidationError("原始推演结果与审查回执不匹配")
-        request_hash = world_design_revision_content_hash(
-            summary=request.summary,
-            changes=request.changes,
-            decisions=request.decisions,
-        )
         summary = receipt.get("review_summary")
         if not isinstance(summary, dict) or summary.get("status") not in {
             "passed",
@@ -279,6 +267,22 @@ class WorldAdoptionPackageService:
             "blocked",
         }:
             raise ValidationError("原始推演缺少有效终审结论")
+        if "depth" in receipt and receipt["depth"] != parent.depth:
+            raise ValidationError("原始推演审查阶段与父阶段成果不匹配")
+        response_hash = world_design_revision_content_hash(
+            summary=str(response.get("summary") or ""),
+            changes=response.get("changes") or {},
+            decisions=[],
+            depth=parent.depth,
+        )
+        if "depth" in receipt and response_hash != receipt.get("final_output_hash"):
+            raise ValidationError("原始推演结果与审查回执不匹配")
+        request_hash = world_design_revision_content_hash(
+            summary=request.summary,
+            changes=request.changes,
+            decisions=request.decisions,
+            depth=request.depth or parent.depth,
+        )
         if request_hash != response_hash:
             return decision_state, {
                 **reference,
@@ -289,6 +293,9 @@ class WorldAdoptionPackageService:
             raise ValidationError(
                 "该提案终审未通过；请先修改后保存为未复核阶段成果，或补充信息重新推演"
             )
+        if "depth" not in receipt:
+            # Legacy receipts cannot certify the stage, but remain saveable.
+            return decision_state, reference
         return decision_state, {
             **reference,
             "status": summary["status"],

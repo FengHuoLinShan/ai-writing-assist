@@ -414,3 +414,8 @@ UUID。过滤在领取 SQL 中完成，只处理匹配的 pending 任务；不�
 ### 知识治理阶段
 
 长任务继续使用原 task/result/checkpoint 字段，可投影 `collecting_context / directing / generating / reviewing / repairing`。调度器不解释治理结论；业务域在 lease 内保存回执并在正式写入前重验。
+
+World 共创聊天的初始额度包含一次知识返修与复审：fast 20 / pro 24 次覆盖两个 attempt；
+design pro 初始额度为 78 次，覆盖反例返修后至多一次知识修正与复审；design fast 为 24 次。
+知识修正结果也保存为私有稳定阶段，恢复不重复修正；知识复审仍失败或终审阻断即停止。
+旧运行仍保留冻结额度，不因代码更新或 requeue 自动扩额。

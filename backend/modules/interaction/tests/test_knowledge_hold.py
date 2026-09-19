@@ -117,13 +117,28 @@ async def test_govern_held_story_pass_and_block_paths(monkeypatch) -> None:  # n
         journey_id=journey_id,
         attempt_id=attempt_id,
         request_kind="message",
-        messages=[LLMMessage(role="user", content="继续")],
+        messages=[
+            LLMMessage(
+                role="user",
+                content="Earlier event. " * 2000 + "本轮选择：绕开卫兵，从码头离开。",
+            ),
+            LLMMessage(role="assistant", content="你来到码头。"),
+            LLMMessage(role="user", content="修正：随身只有一封信，没有工具箱。"),
+        ],
         executable_settings={"llm": {"model": "m", "max_tokens": 128}},
         existing_visible_text="",
     )
 
     class _PassClient:
         async def generate_structured(self, request, schema, **kwargs):  # noqa: ANN001
+            assert "本轮选择：绕开卫兵，从码头离开。" in request.messages[-1].content
+            requirements = (
+                request.messages[-1]
+                .content.split("【作者要求（冻结投影）】\n", 1)[1]
+                .split("【生成者可见资料】", 1)[0]
+            )
+            assert "随身只有一封信，没有工具箱" in requirements
+            assert "Earlier event" not in requirements
             if schema is DirectorShardPlan:
                 return DirectorShardPlan(dispositions=[])
             return AuditVerdictOutput(
@@ -165,8 +180,13 @@ async def test_govern_held_story_pass_and_block_paths(monkeypatch) -> None:  # n
             return LLMCallResponse(content="返修后仍剧透。")
 
     blocker = _BlockClient()
+    from dataclasses import replace
+
     governed_blocked = await workflow.govern_held_story(
-        None, task=task, client=blocker, prepared=prepared
+        None,
+        task=task,
+        client=blocker,
+        prepared=replace(prepared, messages=[LLMMessage(role="user", content="继续")]),
     )
     assert governed_blocked["status"] == "blocked"
     assert governed_blocked["text"] == ""

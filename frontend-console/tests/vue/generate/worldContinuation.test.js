@@ -8,6 +8,28 @@ enableAutoUnmount(afterEach)
 afterEach(resetBridgeOverrides)
 
 describe('persistent world continuation', () => {
+  it('keeps fixed test names read-only while allowing result edits', async () => {
+    const entry = { id: 'T12', name: '十年后', status: 'not-run', result: '待推演' }
+    const wrapper = mount(WorldDesignPanel, { props: { checkpoint: { depth: 'seed', decisions: [], world_state: { pressure_tests: [entry] } }, proposal: { summary: '观察反馈', changes: { pressure_tests: [entry] }, decisions: [] } } })
+    const name = wrapper.findAll('label').find(label => label.text().startsWith('名称'))
+    expect(name.find('textarea').exists()).toBe(false)
+    const result = wrapper.findAll('label').find(label => label.text().startsWith('推演结果'))
+    await result.get('textarea').setValue('十年后的资源变化')
+    expect(wrapper.emitted('update:proposal').at(-1)[0].changes.pressure_tests[0]).toMatchObject({ name: '十年后', result: '十年后的资源变化' })
+  })
+
+  it.each(['candidate', 'instance'])('invalidates a passed review when saving at %s depth', async depth => {
+    const proposal = { summary: '潮门维护', changes: {}, decisions: [], depth: 'seed', review_summary: { status: 'passed' } }
+    const wrapper = mount(WorldDesignPanel, { props: { checkpoint: { depth: 'seed', decisions: [], world_state: {} }, proposal } })
+    const stage = wrapper.findAll('select').find(select => select.find('option[value="instance"]').exists())
+    await stage.setValue(depth)
+    const edited = wrapper.emitted('update:proposal').at(-1)[0]
+    expect(edited).toMatchObject({ depth, reviewInvalidated: true })
+    await wrapper.setProps({ proposal: edited })
+    expect(wrapper.text()).toContain('保存未复核阶段成果')
+    expect(proposal.depth).toBe('seed')
+  })
+
   it('edits a typed change without changing its saved parent or showing internal identities', async () => {
     const checkpoint = { depth: 'candidate', decisions: [], world_state: { rules: [{ id: 'rule:private-id', name: '潮门', status: 'proposed', capability: '运货', impossibility: '不能运人', costs: ['耗盐'] }] } }
     const original = JSON.stringify(checkpoint)

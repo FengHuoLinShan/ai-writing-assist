@@ -124,6 +124,8 @@ ADR-0023 的 `agent_runtime.py` 通过 `ProjectGatewayModel` 接入锁定的 Pyd
 `OutputGuard` 是直接使用 `ManagedLLMStep` 时可选的低层 output schema guard；
 `run_managed_structured()` 默认不启用第二层 `OutputGuard`，避免和
 `LLMClient.generate_structured()` 的结构化校验/修复语义重叠。
+`generate_structured()` 首次请求即补入当前 Pydantic JSON schema；调用方已给出相同紧凑 schema
+时不重复追加。不修改调用方原请求，后续格式修复、预算和校验路径保持原契约。
 受管 provenance 会保留白名单内的字段来源；`account` 表示 provider/model 来自项目
 owner 当前账户连接，不得被净化为 `unknown`。
 

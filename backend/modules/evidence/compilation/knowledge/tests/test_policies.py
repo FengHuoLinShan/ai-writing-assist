@@ -128,6 +128,14 @@ def test_writing_generate_requires_confirmation_and_dual_gate() -> None:
     assert "reader_reveal" in policy.required_dimensions
 
 
+def test_world_cocreation_can_propose_but_source_questions_remain_answers() -> None:
+    chat = require_capability_policy("world.generation.chat")
+    ask = require_capability_policy("world.ask")
+    assert chat.output_permissions == ("proposal",)
+    assert ask.output_permissions == ("answer",)
+    assert chat.adoption_gate == ask.adoption_gate == "display_only"
+
+
 def test_rp_capabilities_declare_held_release_notes() -> None:
     story = require_capability_policy("interaction.story_generate")
     assert "release_state=held" in story.notes

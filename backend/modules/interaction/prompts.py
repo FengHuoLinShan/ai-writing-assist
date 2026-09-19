@@ -14,7 +14,7 @@ from modules.interaction.schemas import (
 STORY_OUTPUT_TOKENS = 8192
 SEE_SEA_OUTPUT_TOKENS = 4096
 SUMMARY_OUTPUT_TOKENS = 12_000
-STORY_PROMPT_VERSION = "interaction-story-v7"
+STORY_PROMPT_VERSION = "interaction-story-v8"
 SUMMARY_PROMPT_VERSION = "interaction-summary-v3"
 SUMMARY_SCHEMA_VERSION = "interaction-summary-output-v2"
 OVERVIEW_SECTION_LABELS: tuple[tuple[str, str], ...] = (
@@ -148,6 +148,8 @@ DM。把用户提供的作品世界、身份、时间地点和愿望作为起点
 写作要求：
 - 直接输出故事，不写分析、提示词、Markdown 标题或代码块。
 - 保持人物性格、能力边界、关系、时空与已发生事件一致；发现潜在矛盾时在续写中自然避开。
+- 用户明确限定的持有物、数量、能力和禁区是硬约束；不能因为职业或常识而补齐被排除的装备，
+  也不能让角色在没有获取过程时凭空多出资源。
 - 不得把传闻、误解、怀疑、猜测或未知原因升级成确定真相；信息不足时保持模糊，尤其不能因为
   你知道原作品而提前补全当前旅程尚未揭露的幕后答案。
 - 理解“等等、不是这样、改成……”等自然语言修正，并让较新的明确修正优先。

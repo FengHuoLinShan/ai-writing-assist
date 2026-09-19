@@ -13,3 +13,4 @@
 - [T-20260911-full-codebase-optimization-implementation](tasks/2026/T-20260911-full-codebase-optimization-implementation/TASK.md) — 全代码库优化实施
 - [T-20260912-cognitive-seed-research](tasks/2026/T-20260912-cognitive-seed-research/TASK.md) — 逐章认知形成与可演化记忆结构研究
 - [T-20260917-review-remediation](tasks/2026/T-20260917-review-remediation/TASK.md) — 审计报告核查与全量修复（World 根因/LLM 边界/信封/配额）
+- [T-20260917-ai-generation-quality](tasks/2026/T-20260917-ai-generation-quality/TASK.md) — AI 生成可用性修复与真实质量验证

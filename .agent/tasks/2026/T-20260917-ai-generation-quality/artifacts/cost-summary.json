@@ -1,0 +1,180 @@
+{
+  "currency": "CNY",
+  "pricing": "DeepSeek Flash off-peak 1/0.02/4 per million miss/hit/output tokens",
+  "excludes": "Account connection verification micro-requests; not an invoice",
+  "runs": [
+    {
+      "run": "live",
+      "provider_requests": 78,
+      "estimated_cny": 2.03935468,
+      "prompt_tokens": 695891,
+      "cache_hit_tokens": 185984,
+      "completion_tokens": 381432,
+      "unknown_charge": false
+    },
+    {
+      "run": "acceptance-v1",
+      "provider_requests": 129,
+      "estimated_cny": 4.10440576,
+      "prompt_tokens": 1266019,
+      "cache_hit_tokens": 269438,
+      "completion_tokens": 775609,
+      "unknown_charge": false
+    },
+    {
+      "run": "rp",
+      "provider_requests": 2,
+      "estimated_cny": 0.01120868,
+      "prompt_tokens": 2717,
+      "cache_hit_tokens": 384,
+      "completion_tokens": 2217,
+      "unknown_charge": false
+    },
+    {
+      "run": "acceptance-v2",
+      "provider_requests": 123,
+      "estimated_cny": 3.2658598,
+      "prompt_tokens": 1082055,
+      "cache_hit_tokens": 202240,
+      "completion_tokens": 595500,
+      "unknown_charge": false
+    },
+    {
+      "run": "rp-v2",
+      "provider_requests": 2,
+      "estimated_cny": 0.01732724,
+      "prompt_tokens": 2841,
+      "cache_hit_tokens": 512,
+      "completion_tokens": 3747,
+      "unknown_charge": false
+    },
+    {
+      "run": "acceptance-v3",
+      "provider_requests": 38,
+      "estimated_cny": 1.2759532,
+      "prompt_tokens": 424950,
+      "cache_hit_tokens": 108160,
+      "completion_tokens": 239250,
+      "unknown_charge": false
+    },
+    {
+      "run": "acceptance-v4",
+      "provider_requests": 12,
+      "estimated_cny": 0.4193978,
+      "prompt_tokens": 137285,
+      "cache_hit_tokens": 45440,
+      "completion_tokens": 81661,
+      "unknown_charge": false
+    },
+    {
+      "run": "acceptance-v5",
+      "provider_requests": 14,
+      "estimated_cny": 0.24555832,
+      "prompt_tokens": 86686,
+      "cache_hit_tokens": 47616,
+      "completion_tokens": 51384,
+      "unknown_charge": false
+    },
+    {
+      "run": "acceptance-v6",
+      "provider_requests": 11,
+      "estimated_cny": 0.34072232,
+      "prompt_tokens": 131078,
+      "cache_hit_tokens": 34816,
+      "completion_tokens": 60941,
+      "unknown_charge": false
+    },
+    {
+      "run": "fresh",
+      "provider_requests": 6,
+      "estimated_cny": 0.08385384,
+      "prompt_tokens": 11526,
+      "cache_hit_tokens": 4992,
+      "completion_tokens": 19305,
+      "unknown_charge": false
+    },
+    {
+      "run": "fresh-v2",
+      "provider_requests": 6,
+      "estimated_cny": 0.06180088,
+      "prompt_tokens": 11262,
+      "cache_hit_tokens": 6144,
+      "completion_tokens": 14140,
+      "unknown_charge": false
+    },
+    {
+      "run": "fresh-v3",
+      "provider_requests": 16,
+      "estimated_cny": 0.17972344,
+      "prompt_tokens": 28054,
+      "cache_hit_tokens": 12672,
+      "completion_tokens": 41022,
+      "unknown_charge": false
+    },
+    {
+      "run": "private-resource",
+      "provider_requests": 1,
+      "estimated_cny": 0.0077268,
+      "prompt_tokens": 1430,
+      "cache_hit_tokens": 640,
+      "completion_tokens": 1731,
+      "unknown_charge": false
+    },
+    {
+      "run": "arithmetic-controls",
+      "provider_requests": 2,
+      "estimated_cny": 0.01460716,
+      "prompt_tokens": 2951,
+      "cache_hit_tokens": 1408,
+      "completion_tokens": 3259,
+      "unknown_charge": false
+    },
+    {
+      "run": "remaining",
+      "provider_requests": 5,
+      "estimated_cny": 0.1495192,
+      "prompt_tokens": 26848,
+      "cache_hit_tokens": 2560,
+      "completion_tokens": 31295,
+      "unknown_charge": false
+    },
+    {
+      "run": "remaining-v2",
+      "provider_requests": 5,
+      "estimated_cny": 0.03504672,
+      "prompt_tokens": 42776,
+      "cache_hit_tokens": 20736,
+      "completion_tokens": 3148,
+      "unknown_charge": false
+    },
+    {
+      "run": "outline-v2",
+      "provider_requests": 5,
+      "estimated_cny": 0.1387516,
+      "prompt_tokens": 25610,
+      "cache_hit_tokens": 4480,
+      "completion_tokens": 29383,
+      "unknown_charge": false
+    },
+    {
+      "run": "outline-arithmetic",
+      "provider_requests": 3,
+      "estimated_cny": 0.05834968,
+      "prompt_tokens": 18302,
+      "cache_hit_tokens": 384,
+      "completion_tokens": 10106,
+      "unknown_charge": false
+    },
+    {
+      "run": "outline-v3",
+      "provider_requests": 6,
+      "estimated_cny": 0.23088852,
+      "prompt_tokens": 32293,
+      "cache_hit_tokens": 11776,
+      "completion_tokens": 52534,
+      "unknown_charge": false
+    }
+  ],
+  "provider_requests": 464,
+  "estimated_total_cny": 12.68005564
+}

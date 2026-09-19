@@ -75,7 +75,7 @@
               <template v-for="(fieldValue, field) in entry.value" :key="field">
                 <label v-if="fieldLabels[field] && (typeof fieldValue === 'string' || (Array.isArray(fieldValue) && fieldValue.every(item => typeof item === 'string')))">
                   {{ fieldLabels[field] }}
-                  <p v-if="readOnly">{{ field === 'status' ? statusLabels[fieldValue] : Array.isArray(fieldValue) ? fieldValue.join('；') : fieldValue }}</p>
+                  <p v-if="readOnly || (field === 'name' && ['facets', 'coupling_chains', 'pressure_tests'].includes(section))">{{ field === 'status' ? statusLabels[fieldValue] : Array.isArray(fieldValue) ? fieldValue.join('；') : fieldValue }}</p>
                   <select v-else-if="field === 'status'" :value="fieldValue" @change="updateEntry(section, entry, field, $event.target.value)"><option v-for="key in statusOptions(fieldValue)" :key="key" :value="key">{{ statusLabels[key] }}</option></select>
                   <textarea v-else :value="Array.isArray(fieldValue) ? fieldValue.join('\n') : fieldValue" rows="3" @input="updateEntry(section, entry, field, Array.isArray(fieldValue) ? $event.target.value.split('\n').filter(line => line.trim()) : $event.target.value)" />
                 </label>
@@ -131,7 +131,7 @@ function referenceName(id) { return Object.entries(props.checkpoint.world_state)
 function statusOptions(status) { return [['draft', 'proposed', 'author-required', 'deprecated'], ['gap', 'partial', 'covered', 'not-applicable'], ['not-run', 'pass', 'mixed', 'fail'], ['not-started', 'ready', 'in-progress', 'needs-review', 'invalidated', 'blocked']].find(group => group.includes(status)) || ['proposed', 'deprecated'] }
 function draft() { return JSON.parse(JSON.stringify(props.proposal || { summary: '调整世界设计', changes: {}, decisions: [], depth: props.checkpoint.depth })) }
 function invalidateReview(next) { if (next.review_summary) next.reviewInvalidated = true }
-function update(path, value) { const next = draft(); let target = next; for (const key of path.slice(0, -1)) target = target[key]; target[path.at(-1)] = value; if (path[0] !== 'depth') invalidateReview(next); emit('update:proposal', next) }
+function update(path, value) { const next = draft(); let target = next; for (const key of path.slice(0, -1)) target = target[key]; target[path.at(-1)] = value; invalidateReview(next); emit('update:proposal', next) }
 function updateEntry(section, entry, field, value) { update(['changes', section, ...entry.path, field], value) }
 function editEntry(section, entry) {
   const next = draft(); const value = JSON.parse(JSON.stringify(entry.value)); if (['canon', 'valid'].includes(value.status)) value.status = value.status === 'canon' ? 'proposed' : 'needs-review'

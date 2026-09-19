@@ -65,8 +65,16 @@ OUTPUT_PERMISSION_AUDIT_CLAUSES: dict[str, str] = {
         "本能力输出是向作者提出的候选提案：新增设定、命名、结构或推演不因资料中"
         "没有依据而单独构成 unsupported_fact；但新增内容不得与权威资料矛盾、不得"
         "违反任务指令或作者要求中已锁定的边界，对既有事实的引用必须与资料一致。"
+        "任务要求回答既有事实、抽取或忠实整理已有资料时，不能补造原文没有的身份、关系、事件；"
+        "候选状态不免除这类任务的来源要求。"
     ),
-    OUTPUT_PROSE: "本能力输出是创作正文：对既有事实的引用必须与资料一致。",
+    OUTPUT_PROSE: (
+        "本能力输出是创作正文：在作者授权与情境允许范围内推进动作、对话、感官细节与"
+        "新的局部事件，不因这些尚未写过而判 unsupported_fact。对既有事实、人物身份、"
+        "世界规则、时间线及明确限定的持有物与数量仍须与资料一致；"
+        "不能因职业或场景常识补齐用户明确排除的装备与资源。新增情节不能赋予角色尚未获得的知识，"
+        "也不能提前揭示被禁止的真相。"
+    ),
     OUTPUT_FINDING: "本能力输出是检查发现：每条发现必须给出资料内依据。",
     OUTPUT_ANSWER: "本能力输出是回答：事实性断言必须有资料依据。",
     OUTPUT_INTERNAL: "本能力输出仅供内部流程使用：按资料一致性审查。",
@@ -249,10 +257,10 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
         _policy(
             "world.generation.chat",
             DOMAIN_WORLD,
-            "生成中心自由问答",
+            "世界设定共创",
             subjects=("author",),
             dimensions=("world_entities", "world_rules", "world_bible", "timeline"),
-            outputs=(OUTPUT_ANSWER,),
+            outputs=(OUTPUT_PROPOSAL,),
             gate=ADOPTION_DISPLAY_ONLY,
             notes="临时回答未通过知识审查不返回不安全正文。",
         ),

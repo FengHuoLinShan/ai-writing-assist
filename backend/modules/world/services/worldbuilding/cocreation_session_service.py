@@ -71,6 +71,9 @@ class WorldCocreationSessionService(AssistantSessionService):
             else:
                 checkpoint = dict(row.payload_json)
         recent, _ = await self.recent_messages(db, session)
+        # Outcome notifications describe completed application actions, not a
+        # fresh author instruction. The checkpoint itself is projected below.
+        recent = [item for item in recent if item.outcome_suggestion_id is None]
         if any(item.role == "user" for item in data.messages):
             recent = recent[-39:]
         selected_ids = set(data.selected_history_ids)

@@ -520,12 +520,9 @@ async def _settle_ai_run_request(
         usage=usage,
         finish_reason=finish_reason,
         error_kind=_safe_error_kind(error),
-        retryable=isinstance(error, Exception)
-        and is_retryable_transport_error(error),
+        retryable=isinstance(error, Exception) and is_retryable_transport_error(error),
         outcome=(
-            AIRequestOutcome.failed
-            if error is not None and usage is not None
-            else None
+            AIRequestOutcome.failed if error is not None and usage is not None else None
         ),
     )
 
@@ -761,9 +758,7 @@ class LLMClient:
             resolved.extra = merged_extra
         return resolved
 
-    def _provider_call_timeout(
-        self, remaining_run_seconds: float | None
-    ) -> float | None:
+    def _provider_call_timeout(self, remaining_run_seconds: float | None) -> float | None:
         """单次 provider 调用上限 = profile timeout 与剩余 run deadline 的较小值。
 
         deadline 在 reserve 之后、I/O 之前越过时立即失败，而不是让在途请求
@@ -843,16 +838,12 @@ class LLMClient:
                     ),
                 )
             except Exception as exc:
-                await _settle_ai_run_request(
-                    ledger, reservation, usage=None, error=exc
-                )
+                await _settle_ai_run_request(ledger, reservation, usage=None, error=exc)
                 if meter is not None:
                     await meter.completed(None)
                 raise
             except BaseException as exc:
-                await _settle_ai_run_request(
-                    ledger, reservation, usage=None, error=exc
-                )
+                await _settle_ai_run_request(ledger, reservation, usage=None, error=exc)
                 raise
             await _settle_ai_run_request(
                 ledger,
@@ -911,9 +902,7 @@ class LLMClient:
                 # step 覆盖留在消费者同一 task 的上下文里。
                 with _managed_step_overrides(call_kind=AIStepCallKind.stream):
                     ledger, reservation = await _reserve_ai_run_request()
-                    await _record_ai_run_retry(
-                        ledger, reservation, attempt=open_attempts
-                    )
+                    await _record_ai_run_retry(ledger, reservation, attempt=open_attempts)
                 try:
                     stream = await asyncio.wait_for(
                         self._provider.generate_stream(request=resolved_request),
@@ -1047,6 +1036,17 @@ class LLMClient:
         """
         # 设置 JSON 输出格式
         req = self.resolve_request_defaults(request)
+        schema_json = json.dumps(
+            schema.model_json_schema(), ensure_ascii=False, separators=(",", ":")
+        )
+        if not any(schema_json in message.content for message in req.messages):
+            req.messages.append(
+                LLMMessage(
+                    role="system",
+                    content="Return one JSON object matching this output schema: "
+                    + schema_json,
+                )
+            )
         if req.response_format is None:
             req.response_format = {"type": "json_object"}
         if req.temperature is None:
@@ -1478,9 +1478,7 @@ class LLMClient:
                     ),
                 )
             except BaseException as exc:
-                await _settle_ai_run_request(
-                    ledger, reservation, usage=None, error=exc
-                )
+                await _settle_ai_run_request(ledger, reservation, usage=None, error=exc)
                 raise
             await _settle_ai_run_request(
                 ledger, reservation, usage=None, finish_reason="embedding"

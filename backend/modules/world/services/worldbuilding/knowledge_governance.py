@@ -124,6 +124,14 @@ async def govern_world_output(
     author_requirements 是与生成器同源的作者决定冻结投影，不截断进入审查。
     """
     policy = require_capability_policy(capability)
+    if capability == "world.generation.design_iteration":
+        task_instruction += (
+            "\n世界设计 evidence 中的 confirmation 是本轮参考与创作要求的来源回溯，"
+            "不是作者逐条确认了候选新细节。获准的候选推演可保留这个真实来源；"
+            "不得仅因候选新增而要求删除其来源。仍须阻断伪造来源、与资料矛盾，"
+            "或把候选表述为已确认事实；coverage/maturity 描述本轮设计展开程度，"
+            "不等同正典采用或现实验证。"
+        )
     entries = world_scope_entries(source_refs, rendered_context)
     fingerprint = "|".join(entry.content_hash for entry in entries)
     receipt = KnowledgeScopeReceipt(
@@ -154,9 +162,9 @@ async def govern_world_output(
         generator_keys=tuple(entry.source_key for entry in entries),
         audit_only_keys=(),
     )
-    # 资料投影按预算截断；作者决定投影（author_requirements）不截断——
-    # 审查者必须看到与生成器等价的作者边界才能核验提案是否遵守。
-    context_for_audit = rendered_context[:24000]
+    # The caller already froze/budgeted this scope. A second silent truncation
+    # makes the audit judge evidence it never received and falsifies coverage.
+    context_for_audit = rendered_context
 
     async def _audit(text: str):  # noqa: ANN202
         return await run_knowledge_audit(
@@ -206,7 +214,7 @@ def serialize_governed_output(output) -> str:  # noqa: ANN001
     """结构化输出折成待审文本（pydantic → 紧凑 JSON）。"""
     if hasattr(output, "model_dump"):
         return json.dumps(
-            output.model_dump(mode="json"), ensure_ascii=False, default=str
+            output.model_dump(mode="json", by_alias=True), ensure_ascii=False, default=str
         )
     return str(output)
 

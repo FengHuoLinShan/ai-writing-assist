@@ -198,6 +198,20 @@ async def test_model_focus_keeps_decisions_and_selected_edge_of_recent_window(
     assert context["model_context"]["selected_history"][0]["id"] == recent[0].id
     assert len(context["recent_messages"]) == 39
     assert context["checkpoint"]["world_state"]["actors"]
+    await service.append_message(
+        db_session,
+        row,
+        role="author",
+        kind="decision",
+        content="保存第 3 轮阶段成果",
+        outcome_suggestion_id=str(suggestion.id),
+        outcome_kind="world_design_checkpoint",
+    )
+    current = await service.generation_context(db_session, data)
+    assert all(
+        item["content"] != "保存第 3 轮阶段成果" for item in current["recent_messages"]
+    )
+    assert current["checkpoint"] == context["checkpoint"]
     from core.errors import ValidationError
 
     with pytest.raises(ValidationError, match="场景可见性投影"):
@@ -370,11 +384,13 @@ async def test_all_design_actions_generate_typed_previews_without_advancing_or_a
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("saved_depth", [None, "candidate", "instance"])
 async def test_pro_design_runs_verified_review_persists_private_receipt_and_binds_save(
     async_client,
     db_session,
     monkeypatch,
     account_llm_connection,
+    saved_depth,
 ):
     from infrastructure.tasks.facade import run_task_inline
     from modules.world.tests.test_world_design_iteration import _parent
@@ -401,7 +417,21 @@ async def test_pro_design_runs_verified_review_persists_private_receipt_and_bind
                 if any("CONFIRMED_ISSUES" in item.content for item in request.messages)
                 else "潮门依赖每日盐料"
             )
-            return schema.model_validate({"summary": summary, "changes": {}})
+            return schema.model_validate(
+                {
+                    "summary": summary,
+                    "changes": {
+                        "dependencies": [
+                            {
+                                "from": "actor:1",
+                                "to": "rule:tide",
+                                "kind": "requires",
+                                "status": "active",
+                            }
+                        ]
+                    },
+                }
+            )
         if schema.__name__ == "GeneratedWorldDesignIssueBatch":
             if "目标与范围" in request.messages[0].content:
                 return schema.model_validate({"issues": []})
@@ -452,6 +482,9 @@ async def test_pro_design_runs_verified_review_persists_private_receipt_and_bind
     session = await _create_session(async_client, novel_id)
     checkpoint = _parent()
     checkpoint.world_state.project.id = novel_id
+    checkpoint.world_state.situated_tests.ordinary_tuesday.status = "partial"
+    checkpoint.world_state.situated_tests.ordinary_tuesday.scenario = "盐商轮值维护潮门"
+    checkpoint.world_state.situated_tests.ordinary_tuesday.evidence = ["author:1"]
     saved = await async_client.post(
         "/api/world/design-checkpoints",
         json={
@@ -493,6 +526,7 @@ async def test_pro_design_runs_verified_review_persists_private_receipt_and_bind
     )
     assert result["summary"] == "补上七日储备与降级运转"
     assert result["review_summary"]["status"] == "passed"
+    assert result["changes"]["dependencies"][0]["from"] == "actor:1"
     assert result["_world_design_review_receipt"]["receipt_hash"]
     assert result["_world_design_review_state"]["final_review"]["status"] == "passed"
     step_names = {item["step_name"] for item in result["managed_llm_steps"]}
@@ -547,13 +581,16 @@ async def test_pro_design_runs_verified_review_persists_private_receipt_and_bind
             "changes": result["changes"],
             "context_confirmation_id": confirmation,
             "origin_task_id": task_id,
+            "depth": saved_depth,
         },
     )
     assert revision.status_code == 201, revision.text
     review_ref = revision.json()["payload_json"]["world_state"]["extensions"][
         "verified_counterexample_review"
     ]
-    assert review_ref["status"] == "passed"
+    assert review_ref["status"] == (
+        "passed" if saved_depth is None else "author_edited_unreviewed"
+    )
     assert review_ref["origin_task_id"] == task_id
     assert len([name for name, _ in calls if name == "WorldDesignIterationOutput"]) == 2
 
