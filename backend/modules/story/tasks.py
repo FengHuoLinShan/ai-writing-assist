@@ -204,6 +204,18 @@ async def _compile_character_reveals(
         ]
         reveals[str(character_id)] = {
             "markdown": rendered,
+            "known_actor_ids": sorted(
+                {
+                    str(item.source.get("id"))
+                    for section in getattr(compiled, "sections", [])
+                    if not getattr(section, "excluded", False)
+                    for item in getattr(section, "items", [])
+                    if item.selection_state not in {"excluded", "omitted"}
+                    and item.source.get("type")
+                    in {"entity", "world_entity", "core_entity", "character"}
+                    and item.source.get("id")
+                }
+            ),
             "hash": _stable_hash(
                 {
                     "sections": stable_sections,
@@ -641,6 +653,20 @@ async def handle_story_one_click(db, task):
         request_model=StoryOneClickTaskRequest,
     )
     character_ids = _require_character_ids(data.character_ids)
+    if data.simulation_protocol == "rehearsal_v1":
+        from modules.story.rehearsals import run_rehearsal
+
+        async with _open_client(settings, data.novel_id) as client:
+            result = await run_rehearsal(
+                db,
+                task,
+                data,
+                client=client,
+                authority=context_markdown,
+                scene_context=story_context,
+                character_reveals=character_reveals,
+            )
+        return {**result, "context_snapshot_id": context_snapshot_id}
     generation = StoryGenerationService()
     task.update_progress(0.1)
     async with _open_client(settings, data.novel_id) as client:
@@ -684,6 +710,14 @@ async def handle_story_one_click(db, task):
                 accepted_beats=[
                     item.model_dump(mode="json") for item in data.accepted_beats
                 ],
+                simulation_candidates={
+                    "cards": [card.model_dump(mode="json") for card in cards],
+                    "reactions": [
+                        reaction.model_dump(mode="json") for reaction in reactions
+                    ],
+                }
+                if data.use_round_candidates
+                else None,
             )
             preview = OneClickOutput(
                 scene_id=data.scene_id,

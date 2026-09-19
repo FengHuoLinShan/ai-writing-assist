@@ -2,6 +2,9 @@
 
 from modules.evidence.compilation.facade import *  # noqa: F403
 from modules.evidence.indexing.facade import *  # noqa: F403
+from modules.evidence.team_projection import (
+    project_team_artifact as project_team_artifact,
+)
 
 
 async def retrieve_focused_evidence(db, request, *, llm_client=None, before_llm=None):

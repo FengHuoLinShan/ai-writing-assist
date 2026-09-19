@@ -831,6 +831,7 @@ async def update_modes(
         see_sea_enabled=data.see_sea_enabled,
         action_options_enabled=data.action_options_enabled,
         web_search_enabled=data.web_search_enabled,
+        generation_mode=data.generation_mode,
         expected_selection_epoch=data.expected_selection_epoch,
     )
 

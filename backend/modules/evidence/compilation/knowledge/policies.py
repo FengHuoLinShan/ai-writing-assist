@@ -189,8 +189,7 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             outputs=(OUTPUT_FINDING,),
             gate=ADOPTION_DISPLAY_ONLY,
             notes=(
-                "审查输出逐条 finding 必须绑定精确来源；"
-                "与知识审查合流复用同一冻结范围。"
+                "审查输出逐条 finding 必须绑定精确来源；与知识审查合流复用同一冻结范围。"
             ),
         ),
         _policy(
@@ -270,7 +269,12 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             "共创推演会话",
             subjects=("author",),
             dimensions=(
-    "world_entities", "world_rules", "world_bible", "timeline", "plot_threads"),
+                "world_entities",
+                "world_rules",
+                "world_bible",
+                "timeline",
+                "plot_threads",
+            ),
             outputs=(OUTPUT_PROPOSAL,),
         ),
         _policy(
@@ -321,13 +325,22 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             notes="逐条 finding 验证精确来源；无证据 finding 不得静默保留。",
         ),
         _policy(
+            "world.team_stress",
+            DOMAIN_WORLD,
+            "有限协作规则压力测试",
+            subjects=("author",),
+            dimensions=("world_entities", "world_rules", "world_bible"),
+            outputs=(OUTPUT_FINDING, OUTPUT_PROPOSAL),
+            gate=ADOPTION_DISPLAY_ONLY,
+            notes="反例须满足原规则前提；额外假设与修订提案不冒充事实，不是形式证明。",
+        ),
+        _policy(
             "world.generation.suggestion",
             DOMAIN_WORLD,
             "对象/物品与世界书页建议",
             subjects=("author",),
             dimensions=("world_entities", "world_rules", "world_bible", "timeline"),
-            outputs=(
-                OUTPUT_PROPOSAL,),
+            outputs=(OUTPUT_PROPOSAL,),
             notes=(
                 "无来源新创意必须标记为 proposal，不得冒充既有事实或冲突正史；"
                 "阻断建议仍保存为 candidate。"
@@ -384,8 +397,12 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             DOMAIN_WORLD,
             "别名与关系抽取（检查类）",
             subjects=("author",),
-            dimensions=("prior_prose", "world_entities", "world_bible",
-                "imported_assets"),
+            dimensions=(
+                "prior_prose",
+                "world_entities",
+                "world_bible",
+                "imported_assets",
+            ),
             confirmation=CONFIRMATION_REQUIRED,
             outputs=(OUTPUT_PROPOSAL,),
             notes="实体抽取仅留长期创作资产；别名附着已有对象，不重复建实体。",
@@ -395,8 +412,12 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             DOMAIN_WORLD,
             "地图结构生成",
             subjects=("author",),
-            dimensions=("map_spatial", "world_entities", "world_rules",
-                "imported_assets"),
+            dimensions=(
+                "map_spatial",
+                "world_entities",
+                "world_rules",
+                "imported_assets",
+            ),
             outputs=(OUTPUT_PROPOSAL,),
             notes="栅格像素不作为事实来源，仍由作者采用。",
         ),
@@ -426,8 +447,7 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             DOMAIN_WORLD,
             "地图图片 Prompt（视觉 brief）",
             subjects=("author",),
-            dimensions=(
-                "map_spatial", "world_bible"),
+            dimensions=("map_spatial", "world_bible"),
             outputs=(OUTPUT_PROPOSAL,),
             notes=(
                 "图片 Prompt 使用审过的视觉 brief；"

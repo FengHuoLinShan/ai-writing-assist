@@ -94,6 +94,7 @@
     </div>
   </div>
 
+  <section v-if="props.semanticReview" aria-label="深度审稿报告"><AssistantReviewResult :result="props.semanticReview" /><p>问题由你决定如何处理；可就地修改正文，保存后重新审稿。</p><button class="btn btn-sm" :disabled="vm.editorState.dirty || vm.editorState.saving" @click="openDeepReview">重新深度审稿</button></section>
   <WritingWorkflowBars
     :publish="vm.publishProgress"
     :conflict="vm.conflictState"
@@ -148,6 +149,7 @@
     <main id="writing-editor-container">
       <WritingEditor
         :project-id="props.projectId"
+        :deep-review-available="deepReviewAvailable"
         :narrow="vm.isNarrow.value"
         :state="vm.editorState"
         :target-chapter="vm.selectedChapter.value"
@@ -178,6 +180,7 @@
         @adopt="adoptCandidate"
         @reject="rejectCandidate"
         @semantic-review="vm.reviewCandidate"
+        @deep-review="openDeepReview"
         @targeted-revision="vm.reviseCandidate"
         @regenerate-candidate="vm.regenerateCandidate"
         @compare-candidate="vm.compareCandidateWithWorkingDraft"
@@ -353,6 +356,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import AssistantReviewResult from "../../components/AssistantReviewResult.vue"
 import ChapterTree from "./components/ChapterTree.vue"
 import ChapterMapDialog from "./components/ChapterMapDialog.vue"
 import AutoExtractionDialog from "./components/AutoExtractionDialog.vue"
@@ -368,7 +372,7 @@ import WritingWorkflowBars from "./components/WritingWorkflowBars.vue"
 import WritingHomeView from "./home/WritingHomeView.vue"
 import { authorTaskPanelQuery } from "./home/authorTaskSource.js"
 import OwnerAiDrawer from "../../components/OwnerAiDrawer.vue"
-import { getRouter } from "../../bridge/index.js"
+import { getRouter, getApi, getToast, openProjectAssistant } from "../../bridge/index.js"
 import { useWritingWorkspace } from "./useWritingWorkspace.js"
 import "./writing-desk.css"
 
@@ -385,11 +389,32 @@ const props = defineProps({
   homeProps: { type: Object, default: () => ({}) },
   ownerAiOpen: { type: Boolean, default: false },
   ownerAiMode: { type: String, default: "writing" },
+  semanticReview: { type: Object, default: null },
 })
 
 const vm = useWritingWorkspace(props)
 const versionChoices = computed(() => vm.versions.value.filter(version => version.status !== "deprecated" || version.id === vm.editorState.draftId))
 const router = getRouter()
+const deepReviewAvailable = ref(false)
+watch(() => props.projectId, async projectId => {
+  deepReviewAvailable.value = false
+  try { const value = await getApi().assistant.capabilities(projectId); if (projectId === props.projectId) deepReviewAvailable.value = value.collaboration?.some(item => item.id === "deep_review" && item.available) === true } catch { /* ordinary review remains available */ }
+}, { immediate: true })
+async function openDeepReview() {
+  if (vm.editorState.dirty || vm.editorState.saving) return
+  try {
+    const capabilities = await getApi().assistant.capabilities(props.projectId)
+    const capability = capabilities.collaboration?.find(item => item.id === "deep_review")
+    if (!capability?.available) throw new Error(capability?.reason || "深度审稿尚未开启。")
+    const confirmation = vm.editorState.provenanceJson?.context_confirmation_id || vm.editorState.provenanceJson?.source_confirmation_id
+    await openProjectAssistant({ projectId: props.projectId, blueprint: "deep_review",
+      context: { page: "writing", scope: "current", chapter_index: vm.selectedChapter.value,
+        draft_id: vm.editorState.draftId, scene_id: vm.currentScene.value?.id || null,
+        ...(confirmation ? { context_confirmation_id: confirmation, context_confirmation_action: "writing.generate" } : {}) },
+      message: "深度审稿这一章：独立核对事实规则、人物动机与知识、叙事和读者信息。保留有意留白，列明证据、反证与未检查范围。",
+    })
+  } catch (error) { getToast()(error.message || "暂时无法打开深度审稿。", "error") }
+}
 function openReviewResolution(taskId) { router?.navigate("world", "review", true, new URLSearchParams(taskId ? { review_task_id: taskId } : {})) }
 const viewMenuEl = ref(null)
 const viewMenuOpen = ref(false)

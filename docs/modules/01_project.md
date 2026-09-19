@@ -148,3 +148,6 @@ group 裁决和 legacy suggestions。group apply 必须引用原扫描任务，�
 `group_receipts`，同一成功组相同决定幂等重放，不同决定拒绝；失败组仍保留独立处理回执。
 
 首页待决定按来源渐进展开；最近智能去重扫描通过项目 owner 门禁读取任务摘要，批次裁决保留独立指纹和回执，详见 Project README。
+
+Project 的执行快照入口支持明确的 `interaction_ensemble` 选择，在签名之前冻结受开关控制的
+RP v3 策略；该参数不覆盖账户 provider/model/Key，也不能用于 author 项目。

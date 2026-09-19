@@ -1,0 +1,4 @@
+NOTE: inventory: 9 business modules, 118 ORM tables, 47 task handlers, 16 frontend routes, 35 ADR files
+NOTE: review user-facing behavior documentation if needed: frontend-production, infrastructure-production, module-production
+WARNING: impact rules architecture-decisions, architecture-governance, database-migrations, frontend-wire, llm-infrastructure, module-contract, module-schema, module-tasks, prompt-contracts, shared-foundation, task-infrastructure require review of: backend/modules/evidence/indexing/README.md, docs/architecture/documentation-maintenance.md, docs/modules/05_memory.md, docs/modules/07_outline.md, docs/modules/15_map.md; explicitly acknowledged as no current-doc change: 已核对 Evidence indexing、Memory、Outline、Map 及文档维护流程：本次协作复用其既有读取、已采用资产和确认接口，没有更改分块/索引、连续性事实、结构状态机、地图生成/采用或文档门禁。新增契约已同步 Evidence compilation、Story、Interaction、World、Writing、Project、Assistant、Tasks、数据库、Prompt 与开发测试指南。
+Architecture documentation checks passed.

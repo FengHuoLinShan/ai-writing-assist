@@ -283,6 +283,17 @@ class InteractionGenerationWorkflow:
         self._repo = repo or InteractionRepository()
         self._service = service or InteractionService(self._repo)
 
+    async def selected_context_nodes(self, db, *, journey, attempt):
+        """Read and validate only the ancestry selected for this attempt."""
+        response_to = await self._repo.get_node(
+            db, journey=journey, node_id=attempt.response_to_node_id
+        )
+        if response_to is None:
+            raise RuntimeError("interaction response target is unavailable")
+        nodes = await self._repo.get_ancestry(db, journey=journey, node=response_to)
+        self._validate_context_chain(nodes, attempt)
+        return nodes
+
     async def prepare_story_task(
         self,
         db: AsyncSession,
@@ -319,21 +330,10 @@ class InteractionGenerationWorkflow:
             raise RuntimeError("interaction LLM snapshot mismatch")
         capability = capability_from_execution_snapshot(task_snapshot)
 
-        response_to = await self._repo.get_node(
-            db,
-            journey=journey,
-            node_id=attempt.response_to_node_id,
-        )
-        if response_to is None:
-            raise RuntimeError("interaction response target is unavailable")
-        nodes = await self._repo.get_ancestry(
-            db,
-            journey=journey,
-            node=response_to,
-        )
         if journey.selection_epoch != attempt.started_selection_epoch:
             raise RuntimeError("interaction context selection epoch mismatch")
-        self._validate_context_chain(nodes, attempt)
+        nodes = await self.selected_context_nodes(db, journey=journey, attempt=attempt)
+        response_to = nodes[-1]
         overview = await self._service._best_overview_for_path(
             db,
             journey=journey,
@@ -1130,6 +1130,21 @@ class InteractionGenerationWorkflow:
         attempt.result_node_id = node.id
         attempt.status = terminal_status
         attempt.metadata_text = ""
+        if (
+            (attempt.llm_execution_snapshot.get("agent_runtime") or {}).get("version")
+            == "3"
+            and completion_state == "complete"
+            and not is_clarification
+        ):
+            from modules.interaction.ensemble import persist_actor_states
+
+            actor_refs = await persist_actor_states(
+                db, journey=journey, attempt=attempt, node=node
+            )
+            attempt.agent_checkpoint_json = {
+                **attempt.agent_checkpoint_json,
+                "actor_state_refs": actor_refs,
+            }
         clear_private_agent_state(attempt)
         selected = selection_is_current
         if selected:

@@ -586,3 +586,9 @@ handler 普通失败时保留领域经 fenced checkpoint 写入的双恢复标�
 写入私有 task result，重排只在输入 hash 一致时复用；任务状态 API 不投影下划线键。
 
 知识治理复用现有 managed harness、project snapshot client、task lease 与 context snapshot，不新增常驻服务或自治 Agent runtime。阶段投影不改变调度器状态机。
+
+## 有限协作执行
+
+ADR-0027 在原任务租约内增加 `collaboration.py` 有界 DAG helper，不新增队列。
+三成员共享根计量，member allocation 只是份额；请求前 checkpoint 失败不发送 provider，
+未知费用不返还为新额度。JSON checkpoint 单写，所有成员读取使用独立短生命周期 session。

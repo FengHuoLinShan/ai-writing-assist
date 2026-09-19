@@ -90,9 +90,14 @@ export async function loadWritingProps({ homeMode: requestedHomeMode } = {}) {
     publicDemo,
     ownerAiOpen: query.get("owner_ai") === "1",
     ownerAiMode: query.get("owner_ai_mode") || "writing",
+    semanticReview: null,
   }
   if (!projectId || !api) return result
   if (homeMode) return result
+  if (!publicDemo && query.get("semantic_review_task_id")) {
+    try { result.semanticReview = await api.writing.semanticReviewResult(projectId, query.get("semantic_review_task_id")) }
+    catch { result.semanticReview = { status: "failed", not_checked: ["审稿结果暂时无法读取；正文仍可正常编辑，请稍后重新打开报告。"] } }
+  }
 
   const session = getWritingSession(projectId)
   const queryChapter = Number(query.get("chapter_index") || 0)

@@ -11,6 +11,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -111,8 +112,13 @@ class InteractionSourceRevision(Base, UUIDMixin, TimestampMixin):
 
 
 class InteractionJourney(Base, UUIDMixin, TimestampMixin):
+    generation_mode: Mapped[str] = mapped_column(
+        String(16), default="standard", server_default="standard"
+    )
+
     __tablename__ = "interaction_journeys"
     __table_args__ = (
+        UniqueConstraint("novel_id", "id", name="uq_interaction_journey_novel"),
         CheckConstraint(
             "status IN ('active', 'archived')",
             name="ck_interaction_journey_status",
@@ -222,6 +228,9 @@ class InteractionJourney(Base, UUIDMixin, TimestampMixin):
 class InteractionMessageNode(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "interaction_message_nodes"
     __table_args__ = (
+        UniqueConstraint(
+            "novel_id", "journey_id", "id", name="uq_interaction_node_journey_novel"
+        ),
         CheckConstraint(
             "role IN ('user', 'assistant')",
             name="ck_interaction_message_role",
@@ -540,3 +549,46 @@ class InteractionAccountPreference(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         default=False,
     )
+
+
+class InteractionActorStateRevision(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """Derived character state bound to one immutable, branch-owned story node."""
+
+    __tablename__ = "interaction_actor_state_revisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id", "journey_id", "id", name="uq_interaction_actor_state_scope"
+        ),
+        UniqueConstraint(
+            "message_node_id", "actor_id", name="uq_interaction_actor_state_node"
+        ),
+        ForeignKeyConstraint(
+            ["novel_id", "journey_id"],
+            ["interaction_journeys.novel_id", "interaction_journeys.id"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["novel_id", "journey_id", "message_node_id"],
+            [
+                "interaction_message_nodes.novel_id",
+                "interaction_message_nodes.journey_id",
+                "interaction_message_nodes.id",
+            ],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["novel_id", "journey_id", "parent_id"],
+            [
+                "interaction_actor_state_revisions.novel_id",
+                "interaction_actor_state_revisions.journey_id",
+                "interaction_actor_state_revisions.id",
+            ],
+        ),
+    )
+    journey_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False)
+    message_node_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False)
+    actor_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False)
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
+    source_revision_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False)
+    state_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    state_hash: Mapped[str] = mapped_column(String(64), nullable=False)

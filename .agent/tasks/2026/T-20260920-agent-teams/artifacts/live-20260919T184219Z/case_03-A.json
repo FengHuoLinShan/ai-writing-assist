@@ -1,0 +1,130 @@
+{
+  "case_id": "case_03",
+  "path": "A",
+  "task_status": "done",
+  "run_status": "done",
+  "seconds": 50.54,
+  "provider_requests": 2,
+  "prompt_tokens": 4810,
+  "completion_tokens": 10964,
+  "output": {
+    "schema": "writing_semantic_review.v2",
+    "review_task_id": "c73c053f-735a-4c06-b046-9ba4fe3bb224",
+    "scope": "selection",
+    "verdict": "needs_revision",
+    "blocking_count": 1,
+    "coverage": {
+      "target_draft_ids": [
+        "7c4b884c-473b-4bf1-ab36-7266009629ef"
+      ],
+      "target_chapters": [
+        1
+      ],
+      "adjacent_regression_draft_ids": [],
+      "context_checked_draft_ids": [],
+      "knowledge_boundary_checked_draft_ids": [],
+      "context_not_checked_draft_ids": [
+        "7c4b884c-473b-4bf1-ab36-7266009629ef"
+      ],
+      "frozen_manifest_hash": "14e43026a76bd7d2486dd40a89e8eca34743ab96263015f9046589ca4c10ef7d",
+      "world_constraints": {
+        "7c4b884c-473b-4bf1-ab36-7266009629ef": {
+          "chapter_index": 1,
+          "scene_id": null,
+          "checked": false,
+          "sources": []
+        }
+      },
+      "chunk_count": 1,
+      "semantic_checks": {
+        "7c4b884c-473b-4bf1-ab36-7266009629ef": {
+          "scene_contract": "not_applicable",
+          "timeline_location": "not_applicable",
+          "space_continuity": null,
+          "time_continuity": null,
+          "logic_continuity": null,
+          "identity_relation": "not_applicable",
+          "ability_world_rule": "not_applicable",
+          "knowledge_boundary": "not_applicable"
+        }
+      },
+      "incomplete_draft_ids": []
+    },
+    "frozen_manifest": [
+      {
+        "draft_id": "7c4b884c-473b-4bf1-ab36-7266009629ef",
+        "chapter_index": 1,
+        "content_hash": "e4eb3b4c830cdfa83aa6e41cd107efb72d994ea3739b6522b706e73328e3189a",
+        "scene_id": null,
+        "scene_execution_bundle_hash": null,
+        "role": "target",
+        "context_fingerprint": "adf9071c739458dcb3904dfddce7cff6c18bb73379f85569a171c98f75b7ede2"
+      }
+    ],
+    "findings": [
+      {
+        "finding_id": "finding_6241532357f3b820cd57",
+        "severity": "major",
+        "category": "literary_quality",
+        "location": {
+          "draft_id": "7c4b884c-473b-4bf1-ab36-7266009629ef",
+          "chapter_index": 1,
+          "excerpt": "但读者此前已经看到他收下贿赂，让商贩溜进了城。阿澄尚不知此事，暂时相信门卫。门卫撒谎是作者有意安排的线索。",
+          "start_hint": 20,
+          "end_hint": 73
+        },
+        "message": "正文中混入了面向作者/读者的创作说明而非叙事内容：「但读者此前已经看到他收下贿赂」「阿澄尚不知此事」「门卫撒谎是作者有意安排的线索」都是意图备注与全知解说，不是场景内的可感材料。它们同时制造了两个问题：一是把反讽提前点破，读者不再需要从门卫的台词与动作中自行推断谎言，悬念与重读价值被消解；二是以全知口吻断言「阿澄尚不知此事，暂时相信门卫」，在视角未明的情况下直接侵入人物内心，人物有限视角不成立。建议删除全部说明句，改为可被观察的场面：门卫拍胸口立誓的语气与细微破绽（回避眼神、袖口的钱袋、城外商贩的痕迹等），让谎言由读者自行识破；阿澄的「相信」通过他此后的行动与判断体现，而非叙述者代述。",
+        "contract_refs": [],
+        "world_evidence": [],
+        "preserve": [
+          "门卫拍着胸口说：“昨夜没有任何人出入。”",
+          "门卫受贿与商贩入城构成的反讽线索本身"
+        ]
+      }
+    ],
+    "not_checked": [
+      "只核对本次回读的世界资料，未覆盖整部作品或人物知识边界",
+      "没有可用于核对的世界资料，本次仅检查正文",
+      "第 1 章没有已确认 AI 参考资料，未检查角色知识边界"
+    ],
+    "managed_llm_steps": [
+      {
+        "step_name": "writing.semantic_review.chunk",
+        "novel_id": "4a8fd15d-8e88-4dc7-b694-648cc3b66002",
+        "profile_source": "project_snapshot",
+        "profile_summary": {
+          "provider_id": "deepseek",
+          "label": "DeepSeek",
+          "model": "deepseek-flash",
+          "default_model": "deepseek-flash",
+          "base_url_host": "api.deepseek.com",
+          "timeout": 1800,
+          "max_tokens": 8192,
+          "temperature": 0.1,
+          "top_p": null,
+          "api_key_configured": true,
+          "sources": {
+            "provider_id": "account",
+            "label": "account",
+            "base_url": "account",
+            "model": "account",
+            "timeout": "timeout_override",
+            "max_tokens": "account",
+            "temperature": "account",
+            "top_p": "account",
+            "extra": "account",
+            "creative_mode": "account",
+            "api_key": "account"
+          },
+          "extra_keys": []
+        },
+        "profile_hash": "fdd3c1ce3aca9faa8b9e6bc534bc100e87ddc7a6bee84116a008129797d50f9b"
+      }
+    ],
+    "mechanical_checks_can_sign_literary_pass": false,
+    "reviewer_separate_from_generator": true
+  },
+  "failure": null,
+  "fees": "not_estimated",
+  "human_review": "pending"
+}

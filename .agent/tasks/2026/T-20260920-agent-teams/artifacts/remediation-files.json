@@ -1,0 +1,32 @@
+{
+  "verified_at": "2026-09-20T04:30:12+08:00",
+  "base_commit": "9b7ba092a",
+  "state": "uncommitted worktree",
+  "files": {
+    "backend/modules/assistant/service.py": "3e5a9a1819f4331cd458e967c7212fb33ee92e6a71f889370d1d0d34ce1fd185",
+    "backend/modules/assistant/teams/plans.py": "c9d4ba86d0ec874d528a7213f85986965345a570f989ff1e5c30d665303f392f",
+    "backend/modules/assistant/teams/runner.py": "820e5b59d6db7edbe2bbcb57c8f282d32a6c21a80cfe366aeee2ce26367cfbf8",
+    "backend/infrastructure/llm/collaboration.py": "ed2e9a5e77d0a593862c65e272963ba06da4c983cb6330518be805fc10a132ad",
+    "backend/modules/interaction/ensemble.py": "1b99e81a1ac2933def77ec129cb5ddbb678f17e4e1dc3fb8a08c88572716a8e5",
+    "backend/modules/interaction/agent_runtime.py": "44142aff3b51fa6115e4a40eaabc270582ae9663b8a138fd4195b4e53f3984ff",
+    "backend/modules/interaction/generation.py": "5a5ab8e4513a187101ba5f37ceabd6d6ae112dfe333d3f53d5f4a8ecbafe3908",
+    "backend/modules/interaction/source_service.py": "b8e57f9a62a2295175914e20c467e73b655fa369e1df0899b2b1d6150e00a58e",
+    "backend/modules/interaction/services.py": "e925cd645a772a0b6a2d98ad6def638a5422e4e67e64ac592b2e54575ded3e8f",
+    "backend/alembic/versions/20260920_interaction_ensemble.py": "a294b7e35e00e3948b7e4464a99a51c794254223436daedd7849a013f0788976",
+    "backend/alembic/versions/20260920_story_simulation.py": "695e3bd554c1d54fb81952e661d98abb30d8c92d2f2a6616bc56419a89a57db7",
+    "backend/tests/fixtures/immutable_writes.py": "6133045609def079382777f6b72573a2af969d944072c10bdd0de063d72433da",
+    "backend/modules/project/tests/test_demo_copy_table_order.py": "bd6f4f08d0fc7278fb0d8b4559391397df415f4b902cc59c3c9bf3984b1e65d7",
+    "backend/modules/assistant/tests/test_team_plans.py": "1ddc205c80f236dd7fa1a98a2803fe13cc21ce6a6c0210744159e34b218902fa",
+    "backend/tests/e2e/test_agent_teams_runtime.py": "f2b8149c93b2115463f6197f538204af99d20f41c86122ccf1a3bd3b865f992a",
+    "backend/tests/e2e/test_team_history.py": "c70b55c9cacb826d4fb3d84f50b37c4757541c5ce7ced01945a752f1b530eeb3",
+    "frontend-console/vue/composables/useProjectAssistant.js": "1f111aaa7f459349d50c5c3364f9d47bfbc29191af9bcfd5210bb787108fbab1",
+    "frontend-console/vue/views/world/components/WorldStressReport.vue": "11ce10befa61a682ee50d79d5461f7196e9caefaea0c04ae1e6580c7a403aac9",
+    "frontend-console/tests/vue/assistant/useProjectAssistant.test.js": "bc96cbfb71816508fc22f5309985e3e71d69e01d6282e9a598b7a93b7a8ee8f2",
+    "frontend-console/tests/vue/assistant/TeamDomainControls.test.js": "ccbcfad19bb5694a868bfd419f5ea7b305b2f416e2ef19fbea120b3f3d52ba2b",
+    "frontend-console/e2e/agent-teams.spec.js": "95823456f5c4d77647500f19ff0d348325e1395c29f796816c44961f4cd40c63",
+    "backend/modules/assistant/README.md": "f0279947e5dc1f3b907b2c9c90a2b9391cb4b18e4acfe11a3efc93c06366b33d",
+    "docs/adr/0027-bounded-collaboration.md": "ec26d412db08cb4ec47de9fc7c236c41148d38885b4942dc6b6f0722d1e00857",
+    "docs/01_数据库设计.md": "f0073b03fa35b2461fd21f2e100d79b5881b13ff0ee57a6ad67595877149d4a5",
+    "development-guide.md": "e15c2c1d0115d8b28ee13d152b3485cf32153b880d06a74612aa06ebac03c6c2"
+  }
+}

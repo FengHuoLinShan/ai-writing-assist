@@ -332,3 +332,7 @@ AuthorTaskService 的 today/inbox/later/completed/archived 与分页规则，每
 首页将当前页待决定事项按来源聚合为最多五组，并保留原始事项和后续领域入口。`GET /api/projects/{project_id}/smart-dedup/scans` 通过任务 facade 返回该项目最近二十次扫描身份、时间和状态，经原项目 owner 门禁；完整结果仍走受保护的任务查询。去重确认集合按不重叠批次顺序执行，逐批指纹重验；过期或无明确回执的组暂停，不重写原裁决。浏览器仅保留按账户、项目、扫描隔离的裁决位置和回执。
 
 去重成功回执与批准的原始裁决保存在扫描任务 result.workbench_receipts，同一事务落盘；重放相同裁决返回已有回执，改变已完成裁决必须重新扫描。review-state 读取这些回执，并兼容已有二元 keep_separate 账本，避免换浏览器后把已完成组当作未处理。
+
+`build_project_llm_execution_snapshot(..., interaction_ensemble=True)` 仅对启用后的 interaction
+项目冻结 ADR-0027 v3 策略，再计算完整快照 hash；provider/model/轮换 Key 仍由原 owner 连接解析。
+恢复不根据新开关升级旧运行，也不接受业务模块手工改写快照。

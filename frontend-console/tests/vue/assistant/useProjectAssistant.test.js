@@ -35,6 +35,75 @@ beforeEach(() => {
 afterEach(() => { controller.dispose(); setBridgeOverrides({ api: undefined, state: undefined, writingFingerprint: undefined }); localStorage.clear() })
 
 describe("project assistant durable interaction", () => {
+  it("restores an uncertain team submission with the same receipt and no web permission", async () => {
+    api.submitTeam = vi.fn().mockRejectedValueOnce(new Error("response lost")).mockImplementation(async (_id, body) => run(body))
+    await controller.load("p1")
+    controller.state.blueprint = "deep_review"
+    controller.state.context = { page: "writing", draft_id: "draft", chapter_index: 1 }
+    setBridgeOverrides({ writingFingerprint: async () => "frozen-source-hash" })
+    controller.setInput("深度审稿")
+    controller.setAllowWeb(true)
+    await controller.send()
+    const payload = api.submitTeam.mock.calls[0][1]
+    expect(payload).toMatchObject({ blueprint: "deep_review", allow_web: false, web_backend: null, context: { source_hash: "frozen-source-hash" } })
+    api.run.mockRejectedValue(Object.assign(new Error("not found"), { status: 404 }))
+    await controller.recoverSubmission()
+    expect(api.submitTeam.mock.calls[1][1]).toEqual(payload)
+    expect(api.submit).not.toHaveBeenCalled()
+    expect(controller.state.pendingSubmission).toBe(false)
+  })
+  it.each([false, true])("consumes team permission after an acknowledged submission, including recovery (%s)", async recover => {
+    api.submitTeam = vi.fn(async (_id, body) => run(body))
+    if (recover) api.submitTeam.mockRejectedValueOnce(new Error("response lost"))
+    await controller.load("p1")
+    controller.state.blueprint = "world_stress"
+    controller.state.previousReportId = "old-report"
+    controller.state.scenarioKeys = ["door"]
+    controller.state.preservedConstraints = "保留机关"
+    controller.setInput("重测")
+    await controller.send()
+    if (recover) await controller.recoverSubmission()
+    expect(controller.state).toMatchObject({ blueprint: null, previousReportId: null, scenarioKeys: [], preservedConstraints: "" })
+    const done = { ...controller.state.run, status: "completed" }
+    api.session.mockResolvedValue({ session: { id: "p1-s" }, messages: [], latest_run: done })
+    controller.dispose()
+    controller = createProjectAssistant()
+    await controller.load("p1")
+    expect(controller.state.blueprint).toBeNull()
+    controller.setInput("解释一下刚才的结论")
+    await controller.send()
+    expect(api.submit).toHaveBeenCalledTimes(1)
+    expect(api.submit.mock.calls[0][1]).not.toHaveProperty("blueprint")
+    expect(api.submitTeam).toHaveBeenCalledTimes(1)
+  })
+  it("does not restore legacy sticky team permission", async () => {
+    localStorage.setItem("novel_assistant_v1:local:p1", JSON.stringify({ sessionId: "p1-s", drafts: { "p1-s": { text: "普通后续问题", blueprint: "deep_review" } } }))
+    await controller.load("p1")
+    expect(controller.state.input).toBe("普通后续问题")
+    expect(controller.state.blueprint).toBeNull()
+  })
+  it("preserves retest scope and author constraints through backup and first session creation", async () => {
+    api.sessions.mockResolvedValue({ items: [], total: 0 })
+    api.submitTeam = vi.fn(async (_id, body) => run(body))
+    await controller.load("p1")
+    controller.state.blueprint = "world_stress"
+    controller.state.context = { page: "world", target: { target_type: "world_entity", target_id: "rule" } }
+    controller.state.preservedConstraints = "保留城门不便"
+    controller.state.previousReportId = "report"
+    controller.state.scenarioKeys = ["outside"]
+    controller.setInput("只重测外侧推门")
+    controller.dispose()
+    controller = createProjectAssistant()
+    await controller.load("p1")
+    await controller.send()
+    expect(api.submitTeam).toHaveBeenCalledWith("p1-new", expect.objectContaining({
+      blueprint: "world_stress", preserved_constraints: ["保留城门不便"], previous_report_id: "report", scenario_keys: ["outside"],
+      context: { page: "world", target: { target_type: "world_entity", target_id: "rule" } },
+    }))
+    await controller.selectSession(null)
+    expect(controller.state.blueprint).toBeNull()
+    expect(controller.state.input).toBe("")
+  })
   it("keeps the first composition scope and explicit web choice when creating its session", async () => {
     api.sessions.mockResolvedValue({ items: [], total: 0 })
     api.capabilities.mockResolvedValue({ enabled: true, web_search: { available: true } })

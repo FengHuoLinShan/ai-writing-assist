@@ -21,6 +21,7 @@ from infrastructure.llm.agent_runtime import (
 from infrastructure.llm.capabilities import capability_from_execution_snapshot
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from infrastructure.llm.web_search import search_snapshot, search_snapshot_matches
+from infrastructure.llm.workflow_budget import workflow_budget
 from infrastructure.tasks.facade import (
     enqueue_operation_task,
     list_task_lifecycle_contracts,
@@ -330,6 +331,14 @@ class AssistantService:
             cocreation_request_hash=request_hash,
         )
 
+    @staticmethod
+    def require_team_enabled(blueprint):
+        settings = get_settings()
+        if not settings.assistant_enabled or not getattr(
+            settings, f"assistant_{blueprint}_enabled", False
+        ):
+            raise ConflictError("这项专项协作尚未开启", code="team_unavailable")
+
     async def submit(
         self,
         db,
@@ -343,9 +352,16 @@ class AssistantService:
         cocreation_action=None,
         cocreation_intent=None,
         cocreation_request_hash=None,
+        regression_targets=None,
     ):
         if not get_settings().assistant_enabled:
             raise ValidationError("项目助手暂未开启")
+        team = None
+        if getattr(data, "blueprint", None):
+            from modules.assistant.teams.contracts import blueprint_snapshot
+
+            self.require_team_enabled(data.blueprint)
+            team = blueprint_snapshot(data.blueprint)
         novel_id = str(data.novel_id)
         await require_active_project(db, novel_id)
         project = await get_any_project_context(db, novel_id)
@@ -362,6 +378,8 @@ class AssistantService:
         if session is None or session.status != "active":
             raise NotFoundError("助手会话不存在或已归档")
         payload = data.model_dump(mode="json") | {"session_id": session_id}
+        if regression_targets:
+            payload["regression_targets"] = regression_targets
         if quoted_discussion:
             payload["quoted_discussion"] = quoted_discussion
         if cocreation_action:
@@ -416,6 +434,20 @@ class AssistantService:
             db, novel_id, owner_id, data.context, None, AgentRunBudget(), None
         )
         await scope.guard()
+        if team and data.context.target:
+            from modules.assistant.operation_scope import require_operation_targets
+
+            await require_operation_targets(
+                db,
+                novel_id,
+                AssistantOperationContext(str(data.operation_id), owner_id, data.context),
+                [
+                    (
+                        data.context.target.get("target_type"),
+                        data.context.target.get("target_id"),
+                    )
+                ],
+            )
         if data.context.target:
             from modules.evidence.facade import inspect_novel_target
 
@@ -463,6 +495,7 @@ class AssistantService:
             | {
                 "llm_snapshot": snapshot,
                 "runtime_version": "3",
+                **({"team": team} if team else {}),
                 "web_search": search_snapshot()
                 if data.allow_web and data.web_backend == "searxng-v1"
                 else None,
@@ -472,7 +505,9 @@ class AssistantService:
                     for tool in author_read_tools(allow_web=True, version="3")
                 },
             },
-            budget_json=AgentRunBudget().model_dump(mode="json"),
+            budget_json=AgentRunBudget(
+                policy_version="team_v1" if team or regression_targets else "legacy_v1"
+            ).model_dump(mode="json"),
             status="pending",
         )
         try:
@@ -594,6 +629,28 @@ class AssistantService:
                 and AgentRunBudget.model_validate(run.budget_json).remaining_seconds > 0
             ),
         )
+        if run.request_json.get("team"):
+            from modules.assistant.teams.runner import public_collaboration
+
+            collaboration = public_collaboration(
+                run.checkpoint_json, root_status=run.status
+            )
+            if run.status in {"completed", "waiting_approval"}:
+                scope = AssistantToolContext(
+                    db,
+                    novel_id,
+                    str(run.owner_id),
+                    WorkContext.model_validate(run.request_json["context"]),
+                    None,
+                    AgentRunBudget.model_validate(run.budget_json),
+                    None,
+                    evidence_refs=(run.checkpoint_json or {}).get("evidence_refs", {}),
+                )
+                try:
+                    await scope.revalidate(list(scope.evidence_refs))
+                except (ConflictError, NotFoundError):
+                    collaboration["freshness"] = "stale"
+            view["result"] = {**view["result"], "collaboration": collaboration}
         batch = await db.scalar(
             select(AssistantActionBatch).where(
                 AssistantActionBatch.novel_id == run.novel_id,
@@ -682,6 +739,28 @@ class AssistantService:
             ):
                 raise ConflictError("该任务无需续查", code="assistant_not_resumable")
             payload = run.request_json
+            if payload.get("team"):
+                from modules.assistant.teams.contracts import TeamRunCreate
+
+                return await self.submit(
+                    db,
+                    str(run.session_id),
+                    TeamRunCreate(
+                        novel_id=data.novel_id,
+                        operation_id=data.operation_id,
+                        message=payload["message"],
+                        context=WorkContext.model_validate(payload["context"]),
+                        blueprint=payload["team"]["id"],
+                        allow_web=payload.get("allow_web", False),
+                        web_backend=payload.get("web_backend"),
+                        preserved_constraints=payload.get("preserved_constraints", []),
+                        reading_start_chapter=payload.get("reading_start_chapter"),
+                        previous_report_id=payload.get("previous_report_id"),
+                        scenario_keys=payload.get("scenario_keys", []),
+                    ),
+                    owner_id,
+                    continuation_of=run_id,
+                )
             return await self.submit(
                 db,
                 str(run.session_id),
@@ -755,9 +834,17 @@ class AssistantService:
         if project is None or str(project.owner_id) != str(run.owner_id):
             raise NotFoundError("助手授权已失效")
         payload = dict(run.request_json)
-        quality_review = (payload.get("cocreation_intent") or {}).get(
-            "quality_mode"
-        ) == "pro"
+        from modules.assistant.teams.contracts import TeamAnswer
+        from modules.assistant.teams.runner import validate_team_answer
+
+        answer_type = TeamAnswer if payload.get("team") else AssistantAnswer
+        answer_validator = (
+            validate_team_answer if payload.get("team") else validate_agent_answer
+        )
+        quality_review = (
+            bool(payload.get("team"))
+            or (payload.get("cocreation_intent") or {}).get("quality_mode") == "pro"
+        )
         protocol = runtime_protocol(payload)
         operations = resolve_operations(protocol["operations"])
         read_tools = {
@@ -833,6 +920,7 @@ class AssistantService:
                     )
                 ),
                 web_snapshot=payload.get("web_search"),
+                team_blueprint=(payload.get("team") or {}).get("id"),
                 run_id=run_id,
                 task_id=str(task.id),
                 llm_snapshot=payload["llm_snapshot"],
@@ -870,7 +958,8 @@ class AssistantService:
                 messages.append(
                     LLMMessage(
                         role="user",
-                        content="作者本次附带的此前讨论（不是事实证据，也不扩大工具授权）：\n"
+                        content="作者本次附带的此前讨论（不是事"
+                        "实证据，也不扩大工具授权）：\n"
                         + json.dumps(payload["quoted_discussion"], ensure_ascii=False),
                     )
                 )
@@ -935,7 +1024,23 @@ class AssistantService:
             )
             await db.commit()
             if saved_state.get("planned_answer"):
-                answer = AssistantAnswer.model_validate(saved_state["planned_answer"])
+                answer = answer_type.model_validate(saved_state["planned_answer"])
+            elif payload.get("regression_targets"):
+                from modules.assistant.teams.plans import run_plan_regression
+
+                answer = await run_plan_regression(deps, payload["regression_targets"])
+            elif payload.get("team"):
+                from modules.assistant.teams.runner import run_team
+
+                answer = await run_team(
+                    self,
+                    db,
+                    task,
+                    run_id,
+                    payload,
+                    deps,
+                    profile,
+                )
             else:
                 result = await run_project_agent(
                     client,
@@ -987,6 +1092,20 @@ class AssistantService:
                     capability_id="assistant.turn",
                 )
                 answer = result.output
+            if payload.get("team"):
+                row = await self.require_run(db, novel_id, run_id)
+                if (row.checkpoint_json.get("collaboration_v1") or {}).get(
+                    "summary_unavailable"
+                ):
+                    quality_review = False
+                    row.checkpoint_json = {
+                        **row.checkpoint_json,
+                        "knowledge_review": {
+                            "status": "not_checked",
+                            "reason": "团队汇总未完成；仅保留原领域回执与状态说明",
+                        },
+                    }
+                    await db.commit()
             if quality_review and not saved_state.get("quality_review_done"):
                 row = await self.require_run(db, novel_id, run_id, lock=True)
                 row.checkpoint_json = {
@@ -996,28 +1115,28 @@ class AssistantService:
                 record_run_event(row, "reviewing")
                 await db.commit()
                 review_request = LLMCallRequest(
-                        model=client.model_name,
-                        messages=[
-                            LLMMessage(
-                                role="system",
-                                content=_INSTRUCTIONS
-                                + "\n这是固定的独立复核步骤。核对作者意图、证据与初稿，"
-                                "修正未证实判断；不可调用工具或创造引用。"
-                                "保留不确定性，返回完整且可继续审阅的答复。",
+                    model=client.model_name,
+                    messages=[
+                        LLMMessage(
+                            role="system",
+                            content=_INSTRUCTIONS
+                            + "\n这是固定的独立复核步骤。核对作者意图、证据与初稿，"
+                            "修正未证实判断；不可调用工具或创造引用。"
+                            "保留不确定性，返回完整且可继续审阅的答复。",
+                        ),
+                        LLMMessage(
+                            role="user",
+                            content=json.dumps(
+                                {
+                                    "author_request": payload["message"],
+                                    "intent": payload.get("cocreation_intent"),
+                                    "draft": answer.model_dump(mode="json"),
+                                    "evidence": deps.evidence_refs,
+                                },
+                                ensure_ascii=False,
                             ),
-                            LLMMessage(
-                                role="user",
-                                content=json.dumps(
-                                    {
-                                        "author_request": payload["message"],
-                                        "intent": payload.get("cocreation_intent"),
-                                        "draft": answer.model_dump(mode="json"),
-                                        "evidence": deps.evidence_refs,
-                                    },
-                                    ensure_ascii=False,
-                                ),
-                            ),
-                        ],
+                        ),
+                    ],
                 )
 
                 async def repair(_findings: str) -> str:
@@ -1026,8 +1145,8 @@ class AssistantService:
                         review_request,
                         tools=[],
                         deps=deps,
-                        output_type=AssistantAnswer,
-                        output_validator=validate_agent_answer,
+                        output_type=answer_type,
+                        output_validator=answer_validator,
                         budget=budget,
                         input_limit=profile.hard_input_tokens,
                         checkpoint=checkpoint,
@@ -1036,41 +1155,48 @@ class AssistantService:
                     return review.output.model_dump_json()
 
                 evidence_hash = fingerprint(deps.evidence_refs)
-                governed = await govern_group_output(
-                    client,
-                    capability="assistant.turn",
-                    novel_id=novel_id,
-                    group_key=f"run:{run_id}",
-                    sources=(
-                        GroupSource(
-                            source_key="assistant_evidence",
-                            source_type="imported_assets",
-                            content_hash=evidence_hash,
-                            label="项目助手已查证资料",
-                            dimensions=(
-                                "world_entities",
-                                "world_rules",
-                                "world_bible",
-                                "prior_prose",
-                                "outline",
-                                "plot_threads",
-                                "memory",
+                with workflow_budget(budget, checkpoint):
+                    governed = await govern_group_output(
+                        client,
+                        capability="assistant.turn",
+                        novel_id=novel_id,
+                        group_key=f"run:{run_id}",
+                        sources=(
+                            GroupSource(
+                                source_key="assistant_evidence",
+                                source_type="imported_assets",
+                                content_hash=evidence_hash,
+                                label="项目助手已查证资料",
+                                dimensions=(
+                                    "world_entities",
+                                    "world_rules",
+                                    "world_bible",
+                                    "prior_prose",
+                                    "outline",
+                                    "plot_threads",
+                                    "memory",
+                                ),
                             ),
                         ),
-                    ),
-                    output=answer.model_dump_json(),
-                    task_instruction=payload["message"],
-                    generator_context=json.dumps(
-                        deps.evidence_refs, ensure_ascii=False, default=str
-                    ),
-                    repair=repair,
-                    step_prefix="assistant.turn.knowledge",
-                )
+                        output=answer.model_dump_json(),
+                        task_instruction=payload["message"]
+                        + (
+                            "\n必须保留："
+                            + "；".join(payload.get("preserved_constraints", []))
+                            if payload.get("team")
+                            else ""
+                        ),
+                        generator_context=json.dumps(
+                            deps.evidence_refs, ensure_ascii=False, default=str
+                        ),
+                        repair=repair,
+                        step_prefix="assistant.turn.knowledge",
+                    )
                 knowledge_review = governed["review"]
                 answer = (
-                    AssistantAnswer.model_validate_json(governed["text"])
+                    answer_type.model_validate_json(governed["text"])
                     if governed["status"] == "passed"
-                    else AssistantAnswer(
+                    else answer_type(
                         answer="本轮答复未通过知识复核，已扣留未核实内容。",
                         omissions=["请补充可核对资料后重试。"],
                     )
@@ -1089,7 +1215,11 @@ class AssistantService:
                     + [key for finding in answer.findings for key in finding.evidence_ids]
                 )
             )
-            await deps.revalidate(list(deps.evidence_refs) if answer.actions else cited)
+            await deps.revalidate(
+                list(deps.evidence_refs)
+                if answer.actions or getattr(answer, "plans", None)
+                else cited
+            )
             prepared = await prepare_actions(
                 db,
                 novel_id,
@@ -1100,10 +1230,36 @@ class AssistantService:
             if run.status != "running" or str(run.task_id) != str(task.id):
                 return {"status": "superseded"}
             result_json = answer.model_dump(mode="json")
-            if knowledge_review := (run.checkpoint_json or {}).get(
-                "knowledge_review"
-            ):
+            if payload.get("team"):
+                from modules.assistant.teams.runner import public_collaboration
+
+                team_state = dict(run.checkpoint_json.get("collaboration_v1") or {})
+                team_state["phase"] = "completed"
+                if (run.checkpoint_json.get("knowledge_review") or {}).get(
+                    "status"
+                ) != "passed":
+                    team_state["completion"] = (
+                        "partial" if team_state.get("summary_unavailable") else "blocked"
+                    )
+                run.checkpoint_json = {
+                    **run.checkpoint_json,
+                    "collaboration_v1": team_state,
+                }
+                result_json["collaboration"] = public_collaboration(run.checkpoint_json)
+            if knowledge_review := (run.checkpoint_json or {}).get("knowledge_review"):
                 result_json["knowledge_review"] = knowledge_review
+            if payload.get("team"):
+                options = []
+                for plan in answer.plans:
+                    actions = await prepare_actions(
+                        db,
+                        novel_id,
+                        plan.actions,
+                        context=AssistantOperationContext(run_id, owner_id, work),
+                    )
+                    option = {**plan.model_dump(mode="json"), "actions": actions}
+                    options.append({**option, "fingerprint": fingerprint(option)})
+                result_json["plans"] = options
             result_json["sources"] = display_sources(deps.evidence_refs, cited)
             result_json["actions"] = prepared
             if prepared:

@@ -293,8 +293,32 @@ class Settings:
     assistant_enabled: bool = field(
         default_factory=lambda: _env_bool("ASSISTANT_ENABLED", False)
     )
+    assistant_deep_review_enabled: bool = field(
+        default_factory=lambda: _env_bool("ASSISTANT_DEEP_REVIEW_ENABLED", False)
+    )
+    assistant_world_stress_enabled: bool = field(
+        default_factory=lambda: _env_bool("ASSISTANT_WORLD_STRESS_ENABLED", False)
+    )
+    assistant_cross_revision_enabled: bool = field(
+        default_factory=lambda: _env_bool("ASSISTANT_CROSS_REVISION_ENABLED", False)
+    )
+    assistant_research_enabled: bool = field(
+        default_factory=lambda: _env_bool("ASSISTANT_RESEARCH_ENABLED", False)
+    )
+    assistant_import_consult_enabled: bool = field(
+        default_factory=lambda: _env_bool("ASSISTANT_IMPORT_CONSULT_ENABLED", False)
+    )
     interaction_agent_enabled: bool = field(
         default_factory=lambda: _env_bool("INTERACTION_AGENT_ENABLED", False)
+    )
+    assistant_blind_reader_enabled: bool = field(
+        default_factory=lambda: _env_bool("ASSISTANT_BLIND_READER_ENABLED", False)
+    )
+    interaction_team_enabled: bool = field(
+        default_factory=lambda: _env_bool("INTERACTION_TEAM_ENABLED", False)
+    )
+    story_rehearsal_enabled: bool = field(
+        default_factory=lambda: _env_bool("STORY_REHEARSAL_ENABLED", False)
     )
     web_search_url: str = field(default_factory=lambda: _env("WEB_SEARCH_URL", ""))
     web_dns_servers: str = field(default_factory=lambda: _env("WEB_DNS_SERVERS", ""))

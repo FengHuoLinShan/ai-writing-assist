@@ -1,0 +1,16 @@
+{
+  "model": "deepseek-flash",
+  "max_requests": 120,
+  "max_prompt_tokens": 2000000,
+  "max_completion_tokens": 256000,
+  "max_output_per_request": 8192,
+  "cases": [
+    "case_01",
+    "case_02",
+    "case_03",
+    "case_04"
+  ],
+  "comparison": "A existing semantic review; B single agent with team_v1 cap and pro final review; C team. Actual usage is measured, not asserted equal.",
+  "human_review": "pending",
+  "production_enabled": false
+}

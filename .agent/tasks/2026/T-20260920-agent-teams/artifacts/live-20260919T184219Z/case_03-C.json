@@ -1,0 +1,78 @@
+{
+  "case_id": "case_03",
+  "path": "C",
+  "task_status": "failed",
+  "run_status": "failed",
+  "seconds": 96.72,
+  "provider_requests": 11,
+  "prompt_tokens": 50233,
+  "completion_tokens": 28199,
+  "output": {},
+  "failure": {
+    "kind": "UnexpectedModelBehavior",
+    "frames": [
+      {
+        "file": "graph_builder.py",
+        "line": 911,
+        "function": "_run_task"
+      },
+      {
+        "file": "step.py",
+        "line": 253,
+        "function": "_call_node"
+      },
+      {
+        "file": "_agent_graph.py",
+        "line": 1940,
+        "function": "run"
+      },
+      {
+        "file": "contextlib.py",
+        "line": 221,
+        "function": "__aexit__"
+      },
+      {
+        "file": "_agent_graph.py",
+        "line": 1961,
+        "function": "stream"
+      },
+      {
+        "file": "combined.py",
+        "line": 615,
+        "function": "wrap_run_event_stream"
+      },
+      {
+        "file": "abstract.py",
+        "line": 910,
+        "function": "wrap_run_event_stream"
+      },
+      {
+        "file": "abstract.py",
+        "line": 910,
+        "function": "wrap_run_event_stream"
+      },
+      {
+        "file": "_run_context.py",
+        "line": 91,
+        "function": "dispatch_event_stream"
+      },
+      {
+        "file": "_agent_graph.py",
+        "line": 198,
+        "function": "_with_event_stream_buffer"
+      },
+      {
+        "file": "_agent_graph.py",
+        "line": 2165,
+        "function": "_run_stream"
+      },
+      {
+        "file": "_agent_graph.py",
+        "line": 2030,
+        "function": "_run_stream"
+      }
+    ]
+  },
+  "fees": "not_estimated",
+  "human_review": "pending"
+}

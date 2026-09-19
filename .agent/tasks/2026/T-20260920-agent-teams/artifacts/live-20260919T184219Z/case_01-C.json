@@ -1,0 +1,78 @@
+{
+  "case_id": "case_01",
+  "path": "C",
+  "task_status": "failed",
+  "run_status": "failed",
+  "seconds": 100.12,
+  "provider_requests": 12,
+  "prompt_tokens": 82312,
+  "completion_tokens": 32663,
+  "output": {},
+  "failure": {
+    "kind": "UnexpectedModelBehavior",
+    "frames": [
+      {
+        "file": "combined.py",
+        "line": 615,
+        "function": "wrap_run_event_stream"
+      },
+      {
+        "file": "abstract.py",
+        "line": 910,
+        "function": "wrap_run_event_stream"
+      },
+      {
+        "file": "abstract.py",
+        "line": 910,
+        "function": "wrap_run_event_stream"
+      },
+      {
+        "file": "_run_context.py",
+        "line": 91,
+        "function": "dispatch_event_stream"
+      },
+      {
+        "file": "_agent_graph.py",
+        "line": 198,
+        "function": "_with_event_stream_buffer"
+      },
+      {
+        "file": "_agent_graph.py",
+        "line": 2165,
+        "function": "_run_stream"
+      },
+      {
+        "file": "_agent_graph.py",
+        "line": 2130,
+        "function": "_run_stream"
+      },
+      {
+        "file": "_agent_graph.py",
+        "line": 2248,
+        "function": "_handle_tool_calls"
+      },
+      {
+        "file": "_tool_execution.py",
+        "line": 371,
+        "function": "process_tool_calls"
+      },
+      {
+        "file": "_tool_execution.py",
+        "line": 503,
+        "function": "run"
+      },
+      {
+        "file": "_tool_execution.py",
+        "line": 1153,
+        "function": "_run_strategy"
+      },
+      {
+        "file": "_tool_execution.py",
+        "line": 605,
+        "function": "_run_output"
+      }
+    ]
+  },
+  "fees": "not_estimated",
+  "human_review": "pending"
+}

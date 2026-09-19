@@ -223,6 +223,8 @@
           @restore-history="storyWorkspace.restoreCardRevision"
         />
         <SceneSimulationPanel
+          :project-id="props.projectId"
+          :characters="storyWorkspace.characters"
           v-else-if="storyWorkspace.activeTab === 'simulation'"
           :scene="storyWorkspace.scene"
           :simulation="storyWorkspace.simulation"

@@ -283,3 +283,10 @@ DeepSeek 新能力快照以可选 `interaction_reasoning_effort=max`、`interact
 工具准备与读取中的内部模型步骤使用 workflow_budget.budgeted_tool；原工具签名保留，嵌套
 工作流共享累计预算且不会重复计数，离开工具后恢复外层上下文。Pydantic 主循环的模型请求
 仍由 ProjectGatewayModel 计量，不套入工具内部计量层。
+
+### 有限协作
+
+`collaboration.py` 只执行白名单角色的有界 DAG：最多三项并发、十二项工作，先持久化再
+公布成功产物，验证输入/输出 hash，失败阻塞依赖，系统故障取消在途工作。宿主负责身份、
+短事务和 lease fencing。`AgentAllocation` 只限制根预算的成员份额；legacy_v1 预算保持
+旧语义，team_v1 共享 30/48/4 上限，成员额度不会成为第二计费账本。

@@ -1,0 +1,377 @@
+{
+  "case_id": "case_01",
+  "path": "B",
+  "task_status": "done",
+  "run_status": "completed",
+  "seconds": 193.12,
+  "provider_requests": 9,
+  "prompt_tokens": 69314,
+  "completion_tokens": 42051,
+  "output": {
+    "answer": "## 一、结论（先分清事实、推论与虚构选择）\n\n本轮只有两个来源：一份正文草稿（draft 2ad4f51b…，第 1 章，v1，working，99 字，已读完，next_offset=null）和一份复核记录（writing_semantic_review c541d241…，verdict=needs_revision，coverage=partial）。两者独立指向同一处：正文同一段内四条陈述不能同时为真。这条硬矛盾**已确认**（issue 绑定领域结果 finding_a0746c698734689c4ea9）；它**是否笔误，未确认**——文本保留了可作反证的措辞，也没有任何不可靠叙述或有意违规的标记。按证据不按票数，我不替作者裁定 (a) 与 (d) 哪一句为假。\n\n三层分开记：\n\n- **现实事实（可核）**：该草稿 v1 全文 99 字，逐字为「铜门规则明文规定：唯一的开启机关位于内侧，外侧没有锁孔，也没有遥控装置。阿澄站在门外，从未进过门内，手中也没有工具。叙述者确认没有其他人在场。下一刻，她按下门外的开启机关，铜门依照原来的规则打开了。」；world／outline 检索零命中，世界约束记为 `checked: false`、`sources: []`；current_scene 未绑定；复核明确写明「第 1 章没有已确认 AI 参考资料，未检查角色知识边界」；只有 1 个分块、1 个 v1 版本。\n- **推论（我的）**：阿澄的动作预设了文内未交代的信息来源；「规则描述失真／门的行为例外／叙述者不可靠」三种解读都能覆盖现有句子。\n- **虚构选择（归作者）**：规则文本是真是假、门是否有例外、叙述者是否可靠、她是知情还是误触——都属设定选择，本轮资料不足以判定，也不该由我判定。\n\n## 二、查清的问题：1 处硬矛盾\n\n四项陈述：(a)「铜门规则明文规定：唯一的开启机关位于内侧，外侧没有锁孔，也没有遥控装置。」(b)「阿澄站在门外，从未进过门内，手中也没有工具。」(c)「叙述者确认没有其他人在场。」(d)「下一刻，她按下门外的开启机关，铜门依照原来的规则打开了。」若 (a) 为真，门外不存在可被按下的机关，(d) 在 (b)(c) 条件下不可能成立；若 (d) 为真，(a) 的「唯一／外侧没有」不成立。四句都是文本的直接陈述，冲突不是我的推断。\n\n**合并说明**：evidence 18c601b9… 与 4eca478d… 是同一段落、同一 source_hash，只算一条；线索报告的第 1 条与领域结果 finding_a0746c698734689c4ea9 同根因，合并为一条 issue，不重复计数。\n\n## 三、人物信息缺口（条件性，不升级为第二处硬错误）\n\n文本把阿澄的信息状态收得很窄（门外、从未进过门内、无工具），却让她径直「按下门外的开启机关」，隐含她事先知道门外存在这样一个可操作构造。这是我的推断：原文未写动机，也未点明是有意操作而非误触；「没有工具」只排除器械，不排除知情。若作者设定她事前掌握一条与「明文规定」不符的信息（继承旧规则、有人告知、只是试探），这一条就不成立。复核记录本身写着「没有可用于核对的世界资料」「未检查角色知识边界」，即此项**缺少可核对的资料**，所以只能作为条件性缺口提出。它与第 1 条同根因（都出自「按下门外的开启机关」），绑定同一 finding_id，不新增未查证的指控。\n\n## 四、仍未被验证的（未检查 ≠ 通过）\n\n- 铜门规则的**设定原文**未读到，无法判断规则文本是否被篡改、是否存在新旧两套规则。\n- current_scene 未绑定，人物知识边界无从核对。\n- 只读了第 1 章的 99 字，未读后续章节，无法判断矛盾是否已在其后揭示或本就是伏笔。\n- 只有 v1，无其他版本可 diff，无法区分笔误与改写痕迹。\n- 未检查是否有同规则的其他门、该门是否唯一场景。\n- 复核覆盖里 `adjacent_regression_draft_ids` 与 `context_checked_draft_ids` 均为空。另注意：复核自身把 `logic_continuity` 记为 `not_applicable`，却给出 `category: causality` 的 blocker——这说明该矛盾是靠逐字阅读（`ability_world_rule: checked`）发现的，不是靠世界资料比对得出的。资料缺失不影响这条判断成立，但也意味着「规则文本本身是否可信」无法从资料侧确认。\n\n## 五、反证、前提与争议（保留，不裁定）\n\n- **反证**：末句「铜门依照原来的规则打开了」可读作开门确实符合真正的原始规则，从而把冲突从结果移到第一句对规则内容的陈述上（规则被误述、被篡改，或「明文规定」本身就是陷阱）。\n- **前提 1**：把「铜门规则明文规定」读作面向读者的客观陈述，而非某个角色转述、可能出错的规则文本。\n- **前提 2**：把「按下机关」读作有意操作（原文未点明意图）。\n- **争议（保持未决）**：判为伏笔需后续兑现，否则读者在三解之间悬置；判为笔误则牺牲「依照原来的规则」已铺好的反转可能。本轮资料不足以二分。\n\n## 六、可选修法（作者选择，不排队执行）\n\n- **路线 A（最小改动，保住悬念）**：不动 (d)，给 (a) 或 (d) 加一个可辨认的标记——把规则陈述改成有来源的转述（「门上石刻写着」「据村里人说」「她记得规定这样写」），或在按下前后点明该构造此前被规定否认。保留双关与三解空间，代价是短期读感像失序，需要后续兑现。\n- **路线 B（保守改写，保住逻辑）**：让开门不经门外机关达成（仍在门内／他人代开／工具／她并未真正开门），或把动作写成无意的触碰。保住因果链，代价是放弃该处的规则反转张力。\n- 也可局部叠加：规则加限定 + 保留门外机关 + 补一幕可回读的痕迹。\n\n## 七、为什么不给 plans 与 actions\n\n仅 cross_revision、world_stress、import_consult 三类可返回 plans，本轮 available_operations 为空，故不提供假计划；actions 为空，避免生成立即执行的操作。若需受控界面，可用 `world` 核对／登记铜门规则原文，用 `writing` 处理正文修改。\n\n## 八、保留项\n\n铜门内外规则的悬念；阿澄信息受限的处境（从未进过门内、手中无工具）；「依照原来的规则」所允许的规则真假反转。",
+    "evidence_ids": [
+      "18c601b9ab1533ec6818ede1abb76b03743a7379fe005e07dc5844399f292169",
+      "4eca478d38332ae54c3f707ed40722b97fff8f89ffbaa5fa9b72ba887ec29da3",
+      "097bccd4d83594984ad410a5ceacc31340e23678131facb3274d246a89d29e0d",
+      "869127da9c3857d255eebe2a113fd1d46e66d203b7f49dceae2db236b5b52c8a"
+    ],
+    "actions": [],
+    "findings": [
+      {
+        "title": "硬矛盾（blocker）：门外无机关与「她按下门外机关」同段互斥",
+        "summary": "逐字引用四项：(a)「铜门规则明文规定：唯一的开启机关位于内侧，外侧没有锁孔，也没有遥控装置。」(b)「阿澄站在门外，从未进过门内，手中也没有工具。」(c)「叙述者确认没有其他人在场。」(d)「下一刻，她按下门外的开启机关，铜门依照原来的规则打开了。」若 (a) 为真，门外不存在可被按下的机关，(d) 在 (b)(c) 条件下不可能成立；若 (d) 为真，(a) 的「唯一／外侧没有」不成立。四句均为文本直接陈述，冲突不由推断产生。合并：18c601b9 与 4eca478d 是同段同 source_hash，只算一条证据；线索报告第 1 条与领域 finding 同根因，合并为本条 issue。反证：末句「铜门依照原来的规则打开了」可读作开门确实符合真正的原始规则，冲突从结果移到第一句对规则内容的陈述上（规则被误述、被篡改，或「明文规定」本身是陷阱）。前提：把「铜门规则明文规定」读作面向读者的客观陈述，而非角色转述。文本无任何不可靠叙述或有意违规标记，叙述者同时担保 (c)(d)，文内无法判定 (a) 与 (d) 谁为假——不按票数裁定，不断言笔误，也不断定哪句是伏笔。",
+        "kind": "issue",
+        "evidence_ids": [
+          "18c601b9ab1533ec6818ede1abb76b03743a7379fe005e07dc5844399f292169",
+          "869127da9c3857d255eebe2a113fd1d46e66d203b7f49dceae2db236b5b52c8a"
+        ],
+        "domain_finding_id": "finding_a0746c698734689c4ea9"
+      },
+      {
+        "title": "人物信息缺口：动作预设了文内未交代的信息来源（条件性，未升级为硬错误）",
+        "summary": "文本把阿澄的信息状态收得很窄（门外、「从未进过门内」、「手中也没有工具」），却让她径直「按下门外的开启机关」，隐含她事先知道门外存在这样一个可操作构造。这是我的推断：原文未写动机，也未点明是有意操作而非误触；「没有工具」只排除器械，不排除知情。可能解释：她提前获知了与规则相反的信息、她只是试探、或纯属误触。若作者设定她事前知道一条与「明文规定」不符的信息，本条不成立。复核记录本身写明「第 1 章没有已确认 AI 参考资料，未检查角色知识边界」、世界约束 checked:false 且无 sources，即缺少可核对的人物知识边界资料；故只作条件性缺口，不升级为第二处硬错误。与第 1 条同根因（都出自「按下门外的开启机关」），绑定同一 finding_id，不新增未查证的指控。",
+        "kind": "issue",
+        "evidence_ids": [
+          "18c601b9ab1533ec6818ede1abb76b03743a7379fe005e07dc5844399f292169",
+          "869127da9c3857d255eebe2a113fd1d46e66d203b7f49dceae2db236b5b52c8a"
+        ],
+        "domain_finding_id": "finding_a0746c698734689c4ea9"
+      },
+      {
+        "title": "建议：读者信息层缺少可判定的真假标记",
+        "summary": "同一叙述者既担保「没有其他人在场」，又担保开门「依照原来的规则」发生，段内却没有「她以为」「据说」「规定如此写着」之类限定，读者无法在「规则描述失真／门的行为例外／叙述者不可靠」三者间判读。这不是事实错误，是叙事信息设计上的开放点；本轮只读到 99 字、world／outline 零命中、后续章节未读，无法判断其后是否已有揭示，故只作可选提案，不主张现有文字有误。低成本做法：下一段补一处指向同一谜团的可见痕迹（门内侧机关的状态、规则文本的材质或署名），让读者知道矛盾有归宿；若确为伏笔，也可在后文给出与 (a) 规则文本相对照的第二份规则来源。",
+        "kind": "suggestion",
+        "evidence_ids": [
+          "18c601b9ab1533ec6818ede1abb76b03743a7379fe005e07dc5844399f292169"
+        ],
+        "domain_finding_id": null
+      },
+      {
+        "title": "提醒：未检查项不得视为通过，结论仅覆盖 99 字与一次复核",
+        "summary": "复核覆盖为 partial：world／outline 零命中（无「铜门规则」设定原文，无法判断是否被篡改或存在新旧两套规则）、current_scene 未绑定、仅 1 章 1 个 99 字分块、仅 v1 无其他版本可 diff、knowledge boundary 明确 not_checked、adjacent_regression 与 context_checked 均为空。且复核自身把 logic_continuity 记为 not_applicable，却给出 category=causality 的 blocker，说明该矛盾来自逐字阅读与 ability_world_rule 通道，而非世界资料比对。因此「未发现其他错误」只等于「在这 99 字内未发现」；后续若读到世界规则或后续章节，第 1 条的性质（笔误／伏笔／规则陷阱）可能整体反转。",
+        "kind": "reminder",
+        "evidence_ids": [
+          "869127da9c3857d255eebe2a113fd1d46e66d203b7f49dceae2db236b5b52c8a",
+          "097bccd4d83594984ad410a5ceacc31340e23678131facb3274d246a89d29e0d"
+        ],
+        "domain_finding_id": null
+      }
+    ],
+    "omissions": [
+      "world 与 outline 检索零命中，未读到铜门规则的设定原文，无法判断规则文本是否被篡改或是否存在新旧两套规则",
+      "current_scene 未绑定，人物知识边界无从核对（复核亦记 knowledge_boundary=not_applicable、世界约束 checked:false）",
+      "仅检查第 1 章 99 字正文，未读后续章节，无法判断该矛盾是否已被揭示或本就是有意伏笔",
+      "仅有 v1，未与其他草稿版本 diff，无法区分笔误与改写痕迹",
+      "未检查是否存在同规则的其他门、该门是否为唯一场景",
+      "复核覆盖未做相邻章回归与上下文核对（adjacent_regression_draft_ids、context_checked_draft_ids 均为空）",
+      "本轮 available_operations 为空，未做 cross_revision／world_stress／import_consult 三类计划，也未生成任何可执行动作"
+    ],
+    "next_steps": [
+      "world",
+      "writing"
+    ],
+    "plans": [],
+    "collaboration": {
+      "blueprint": "deep_review",
+      "label": "深度审稿",
+      "experimental": true,
+      "phase": "completed",
+      "completion": "partial",
+      "freshness": "fresh",
+      "unread_chapters": [],
+      "enumerated_sources": 0,
+      "coverage_basis": "仅覆盖本轮实际回读的资料；检索命中不代表全书或全部网络来源。",
+      "completed_count": 1,
+      "total_count": 1,
+      "reading_nodes": [],
+      "work_items": [
+        {
+          "key": "single",
+          "label": "补查分歧",
+          "status": "succeeded",
+          "attempt": 1
+        }
+      ],
+      "coverage": [
+        {
+          "label": "补查分歧",
+          "checked_dimensions": [
+            "事实规则一致性（规则陈述 vs 事件结果）",
+            "人物动机与知识边界",
+            "叙事与读者信息（不可靠叙述标记）",
+            "反证检索（文内反证＋跨资料检索）",
+            "设定／大纲交叉核对",
+            "排除性条件的完整性检查"
+          ],
+          "omissions": [
+            "world 与 outline 检索零命中，未读到铜门规则的设定原文，无法判断规则文本本身是否被篡改或是否存在新旧两套规则",
+            "未绑定当前场景（current_scene 返回未覆盖），人物知识边界无从核对",
+            "仅检查 99 字正文，未读后续章节或其他版本，无法判断矛盾是否已被揭示或为有意伏笔",
+            "未核对其他草稿版本与 working 版本差异（本轮仅有 v1）",
+            "未检查该门是否为唯一场景、是否存在同规则的其他门（无相关资料）"
+          ]
+        }
+      ],
+      "remaining_work": [],
+      "domain_results": [
+        {
+          "type": "writing_review",
+          "id": "c541d241-3870-5970-bd3f-23943d6cb9d4",
+          "task_id": "c541d241-3870-5970-bd3f-23943d6cb9d4",
+          "task_type": "writing_semantic_review",
+          "target": {
+            "type": "writing_draft",
+            "id": "2ad4f51b-5068-4f9c-81fb-bc5385afdf59",
+            "chapter_index": 1
+          },
+          "label": "已开始独立审查，结果生成后可继续处理"
+        }
+      ]
+    },
+    "knowledge_review": {
+      "status": "passed",
+      "repaired": false,
+      "coverage": [
+        {
+          "dimension": "world_entities",
+          "covered_by": [],
+          "omitted": false,
+          "omission_reason": null
+        },
+        {
+          "dimension": "world_rules",
+          "covered_by": [],
+          "omitted": false,
+          "omission_reason": null
+        },
+        {
+          "dimension": "world_bible",
+          "covered_by": [],
+          "omitted": false,
+          "omission_reason": null
+        },
+        {
+          "dimension": "prior_prose",
+          "covered_by": [],
+          "omitted": false,
+          "omission_reason": null
+        },
+        {
+          "dimension": "outline",
+          "covered_by": [],
+          "omitted": false,
+          "omission_reason": null
+        },
+        {
+          "dimension": "plot_threads",
+          "covered_by": [],
+          "omitted": false,
+          "omission_reason": null
+        },
+        {
+          "dimension": "memory",
+          "covered_by": [],
+          "omitted": false,
+          "omission_reason": null
+        }
+      ],
+      "issue_counts": {
+        "conflict": 0,
+        "irrelevant_content": 0,
+        "missing_required": 0,
+        "out_of_scope_knowledge": 0,
+        "premature_reveal": 0,
+        "unchecked": 1,
+        "unsupported_fact": 1
+      },
+      "issues": [
+        {
+          "kind": "unchecked",
+          "severity": "minor",
+          "message": "输出把「本轮 available_operations 为空」以及「仅 cross_revision／world_stress／import_consult 三类可返回 plans」当作既成事实，用来支撑「不提供 plans」的结论；但本任务范围内的资料（正文草稿条目与复核记录）里没有任何可用操作清单或能力契约字段可供比对，这类运行环境状态无法从所给资料核验，宜标明为据运行环境所得或未知，而非直接作为事实陈述。",
+          "open_target": ""
+        },
+        {
+          "kind": "unsupported_fact",
+          "severity": "minor",
+          "message": "输出把复核记录的覆盖情况转写为「coverage=partial」，但资料中的 coverage 只有分块数、未覆盖清单、全量覆盖标志等具体字段，并没有部分覆盖这一取值；这是对既有记录的轻度不准确概括，建议按字段如实描述（例如「存在未检查项」），以免读者误以为复核记录里存在该判定值。",
+          "open_target": ""
+        }
+      ]
+    },
+    "sources": [
+      {
+        "evidence_id": "18c601b9ab1533ec6818ede1abb76b03743a7379fe005e07dc5844399f292169",
+        "title": "正文",
+        "snippet": "铜门规则明文规定：唯一的开启机关位于内侧，外侧没有锁孔，也没有遥控装置。阿澄站在门外，从未进过门内，手中也没有工具。叙述者确认没有其他人在场。下一刻，她按下门外的开启机关，铜门依照原来的规则打开了。",
+        "excerpted": false,
+        "source_ref": {
+          "draft_id": "2ad4f51b-5068-4f9c-81fb-bc5385afdf59",
+          "chapter_index": 1,
+          "version_number": 1,
+          "content_mode": "working",
+          "start_offset": 0,
+          "end_offset": 99,
+          "source_hash": "e30908b97fe9aceb0add78ec68affc8caf9e9c29779be88ea3ff45e26f363572",
+          "range_hash": "e30908b97fe9aceb0add78ec68affc8caf9e9c29779be88ea3ff45e26f363572"
+        },
+        "target_ref": null,
+        "related_results": [],
+        "sources": [],
+        "web_source": null,
+        "domain_reference": null,
+        "review_result": null,
+        "domain_result": null
+      },
+      {
+        "evidence_id": "4eca478d38332ae54c3f707ed40722b97fff8f89ffbaa5fa9b72ba887ec29da3",
+        "title": "正文",
+        "snippet": "铜门规则明文规定：唯一的开启机关位于内侧，外侧没有锁孔，也没有遥控装置。阿澄站在门外，从未进过门内，手中也没有工具。叙述者确认没有其他人在场。下一刻，她按下门外的开启机关，铜门依照原来的规则打开了。",
+        "excerpted": false,
+        "source_ref": {
+          "draft_id": "2ad4f51b-5068-4f9c-81fb-bc5385afdf59",
+          "chapter_index": 1,
+          "version_number": 1,
+          "content_mode": "working",
+          "start_offset": 0,
+          "end_offset": 99,
+          "source_hash": "e30908b97fe9aceb0add78ec68affc8caf9e9c29779be88ea3ff45e26f363572",
+          "range_hash": "e30908b97fe9aceb0add78ec68affc8caf9e9c29779be88ea3ff45e26f363572"
+        },
+        "target_ref": null,
+        "related_results": [],
+        "sources": [],
+        "web_source": null,
+        "domain_reference": null,
+        "review_result": null,
+        "domain_result": null
+      },
+      {
+        "evidence_id": "097bccd4d83594984ad410a5ceacc31340e23678131facb3274d246a89d29e0d",
+        "title": "复核深度审稿调查线索",
+        "snippet": "本次复核的过程回执；尚未形成完整结论",
+        "excerpted": false,
+        "source_ref": null,
+        "target_ref": {
+          "target_type": "writing_draft",
+          "target_id": "2ad4f51b-5068-4f9c-81fb-bc5385afdf59"
+        },
+        "related_results": [],
+        "sources": [],
+        "web_source": null,
+        "domain_reference": {
+          "type": "writing_review",
+          "id": "c541d241-3870-5970-bd3f-23943d6cb9d4",
+          "task_id": "c541d241-3870-5970-bd3f-23943d6cb9d4",
+          "task_type": "writing_semantic_review",
+          "target": {
+            "type": "writing_draft",
+            "id": "2ad4f51b-5068-4f9c-81fb-bc5385afdf59",
+            "chapter_index": 1
+          },
+          "label": "已开始独立审查，结果生成后可继续处理"
+        },
+        "review_result": null,
+        "domain_result": null
+      },
+      {
+        "evidence_id": "869127da9c3857d255eebe2a113fd1d46e66d203b7f49dceae2db236b5b52c8a",
+        "title": "复核深度审稿调查线索",
+        "snippet": "同一段内的四项陈述互斥，导致核心事件在文内不可能成立：（a）铜门规则明文规定唯一的开启机关位于内侧，外侧既无锁孔也无遥控装置；（b）阿澄在门外、从未进过门内、手中无工具；（c）叙述者担保没有其他人在场；（d）她却在门外按下了开启机关且门开了。若（a）为真，门外不存在可被按下的机关，（d）无法由（b）（c）条件下的当事人完成；若（d）为真，则（a）的“唯一／外侧没有”不成立。全段没有任何“她以为”“据说”“规定如此写着”之类限定标记，叙述者同时以全知语气担保（c）与（d），读者在文内无法判定究竟是规则描述失真、门的行为例外，还是叙述者不可靠。此外，（d）还隐含她事前知道门外存在这样一个可操作机关，这与她被刻意收紧的信息状态（从未进过门内、无工具、无人在场）之间缺少一致的来源解释。建议二选一：要么让（a）的规则文本在文内被标记为有误／被篡改／仅为传闻（例如改为“门上石刻写着”“据村里人说”“她记得规定这样写”），要么让（d）的开门不经门外机关达成（如她并未真正开门、机关其实在门缝外侧的例外、或在场另有其人并给出可回读的线索）。",
+        "excerpted": false,
+        "source_ref": null,
+        "target_ref": {
+          "target_type": "writing_draft",
+          "target_id": "2ad4f51b-5068-4f9c-81fb-bc5385afdf59"
+        },
+        "related_results": [],
+        "sources": [],
+        "web_source": null,
+        "domain_reference": {
+          "type": "writing_review",
+          "id": "c541d241-3870-5970-bd3f-23943d6cb9d4",
+          "task_id": "c541d241-3870-5970-bd3f-23943d6cb9d4",
+          "task_type": "writing_semantic_review",
+          "target": {
+            "type": "writing_draft",
+            "id": "2ad4f51b-5068-4f9c-81fb-bc5385afdf59",
+            "chapter_index": 1
+          },
+          "label": "已开始独立审查，结果生成后可继续处理"
+        },
+        "review_result": {
+          "status": "completed",
+          "verdict": "needs_revision",
+          "coverage": {
+            "target_draft_ids": [
+              "2ad4f51b-5068-4f9c-81fb-bc5385afdf59"
+            ],
+            "target_chapters": [
+              1
+            ],
+            "adjacent_regression_draft_ids": [],
+            "context_checked_draft_ids": [],
+            "knowledge_boundary_checked_draft_ids": [],
+            "context_not_checked_draft_ids": [
+              "2ad4f51b-5068-4f9c-81fb-bc5385afdf59"
+            ],
+            "frozen_manifest_hash": "c607fff4e3e6aee5e5047633ef97c6860d50959f29430d205b904971aae46ab8",
+            "world_constraints": {
+              "2ad4f51b-5068-4f9c-81fb-bc5385afdf59": {
+                "chapter_index": 1,
+                "scene_id": null,
+                "checked": false,
+                "sources": []
+              }
+            },
+            "chunk_count": 1,
+            "semantic_checks": {
+              "2ad4f51b-5068-4f9c-81fb-bc5385afdf59": {
+                "scene_contract": "not_applicable",
+                "timeline_location": "checked",
+                "space_continuity": "not_applicable",
+                "time_continuity": "not_applicable",
+                "logic_continuity": "not_applicable",
+                "identity_relation": "not_applicable",
+                "ability_world_rule": "checked",
+                "knowledge_boundary": "not_applicable"
+              }
+            },
+            "incomplete_draft_ids": []
+          },
+          "not_checked": [
+            "只核对本次回读的世界资料，未覆盖整部作品或人物知识边界",
+            "没有可用于核对的世界资料，本次仅检查正文",
+            "第 1 章没有已确认 AI 参考资料，未检查角色知识边界"
+          ],
+          "findings": [
+            {
+              "finding_id": "finding_a0746c698734689c4ea9",
+              "severity": "blocker",
+              "category": "causality",
+              "location": {
+                "draft_id": "2ad4f51b-5068-4f9c-81fb-bc5385afdf59",
+                "chapter_index": 1,
+                "excerpt": "铜门规则明文规定：唯一的开启机关位于内侧，外侧没有锁孔，也没有遥控装置。阿澄站在门外，从未进过门内，手中也没有工具。叙述者确认没有其他人在场。下一刻，她按下门外的开启机关，铜门依照原来的规则打开了。",
+                "start_hint": 0,
+                "end_hint": 99
+              },
+              "message": "同一段内的四项陈述互斥，导致核心事件在文内不可能成立：（a）铜门规则明文规定唯一的开启机关位于内侧，外侧既无锁孔也无遥控装置；（b）阿澄在门外、从未进过门内、手中无工具；（c）叙述者担保没有其他人在场；（d）她却在门外按下了开启机关且门开了。若（a）为真，门外不存在可被按下的机关，（d）无法由（b）（c）条件下的当事人完成；若（d）为真，则（a）的“唯一／外侧没有”不成立。全段没有任何“她以为”“据说”“规定如此写着”之类限定标记，叙述者同时以全知语气担保（c）与（d），读者在文内无法判定究竟是规则描述失真、门的行为例外，还是叙述者不可靠。此外，（d）还隐含她事前知道门外存在这样一个可操作机关，这与她被刻意收紧的信息状态（从未进过门内、无工具、无人在场）之间缺少一致的来源解释。建议二选一：要么让（a）的规则文本在文内被标记为有误／被篡改／仅为传闻（例如改为“门上石刻写着”“据村里人说”“她记得规定这样写”），要么让（d）的开门不经门外机关达成（如她并未真正开门、机关其实在门缝外侧的例外、或在场另有其人并给出可回读的线索）。",
+              "contract_refs": [],
+              "world_evidence": [],
+              "preserve": [
+                "铜门内外规则的悬念设置",
+                "阿澄信息受限的处境（从未进过门内、手中无工具）",
+                "“依照原来的规则”这一措辞所允许的规则真假反转"
+              ]
+            }
+          ]
+        },
+        "domain_result": null
+      }
+    ]
+  },
+  "failure": null,
+  "fees": "not_estimated",
+  "human_review": "pending"
+}

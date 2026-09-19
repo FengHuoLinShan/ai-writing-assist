@@ -16,6 +16,7 @@ from infrastructure.llm.agent_runtime import (
     run_project_agent,
 )
 from infrastructure.llm.capabilities import capability_from_execution_settings
+from infrastructure.llm.collaboration import checkpoint_transaction
 from infrastructure.llm.errors import LLMError
 from infrastructure.llm.native_search import (
     NativeSearchUnavailableError,
@@ -68,6 +69,7 @@ class InteractionAgentRun:
         self.references: dict[str, dict] = {}
         self.client = None
         self.prepared = None
+        self._checkpoint_lock = asyncio.Lock()
 
     async def guard(self):
         require_task_checkpoint_session(self.db)
@@ -129,13 +131,26 @@ class InteractionAgentRun:
         _, attempt, _ = await self.guard()
         self.state = dict(attempt.agent_checkpoint_json or {})
         self.budget = AgentRunBudget.model_validate(
-            self.state.get("budget") or {"mode": "rp"}
+            self.state.get("budget")
+            or {
+                "mode": "rp",
+                "policy_version": "team_v1"
+                if (attempt.llm_execution_snapshot.get("agent_runtime") or {}).get(
+                    "version"
+                )
+                == "3"
+                else "legacy_v1",
+            }
         )
         self.references = dict(self.state.get("references") or {})
         await self.db.commit()
         self.db.expire_all()
 
     async def checkpoint(self, values=None):
+        async with checkpoint_transaction(self._checkpoint_lock, self.db):
+            await self._checkpoint_locked(values)
+
+    async def _checkpoint_locked(self, values=None):
         _, attempt, _ = await self.guard()
         prior = (attempt.agent_checkpoint_json or {}).get("budget") or {}
         budget = values or self.budget.model_dump(mode="json")
@@ -176,13 +191,9 @@ class InteractionAgentRun:
         if not 1 <= len(query.strip()) <= 600:
             raise ModelRetry("请使用简短的前情查询")
         journey, attempt, _ = await self.guard()
-        response_to = await self.workflow._repo.get_node(
-            self.db, journey=journey, node_id=attempt.response_to_node_id
+        nodes = await self.workflow.selected_context_nodes(
+            self.db, journey=journey, attempt=attempt
         )
-        nodes = await self.workflow._repo.get_ancestry(
-            self.db, journey=journey, node=response_to
-        )
-        self.workflow._validate_context_chain(nodes, attempt)
         hits = []
         for node in reversed(nodes):
             position = node.content.casefold().find(query.casefold())
@@ -441,6 +452,12 @@ class InteractionAgentRun:
             web_tools = [Tool(research_general_fact, sequential=True)]
         if prepared.existing_visible_text and self.state.get("plan"):
             plan = StoryPreparation.model_validate(self.state["plan"])
+        elif policy.get("version") == "3":
+            from modules.interaction.ensemble import prepare_ensemble
+
+            plan = await prepare_ensemble(self)
+            self.state["plan"] = plan.model_dump(mode="json")
+            await self.checkpoint()
         else:
             planning = base.model_copy(deep=True)
             planning.messages = [
@@ -510,6 +527,9 @@ class InteractionAgentRun:
                 + payload,
             ),
         )
+        if policy.get("version") == "3":
+            # Held review must audit the same adjudicated observations as narration.
+            prepared.messages[:] = base.messages
         if (
             estimate_input_tokens(base.messages, model=client.model_name)
             > capability.hard_input_tokens

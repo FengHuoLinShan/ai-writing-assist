@@ -1,0 +1,130 @@
+{
+  "case_id": "case_02",
+  "path": "A",
+  "task_status": "done",
+  "run_status": "done",
+  "seconds": 12.68,
+  "provider_requests": 1,
+  "prompt_tokens": 1759,
+  "completion_tokens": 2702,
+  "output": {
+    "schema": "writing_semantic_review.v2",
+    "review_task_id": "6e151e21-f8f6-43bb-a6d1-c321bae5ee02",
+    "scope": "selection",
+    "verdict": "needs_revision",
+    "blocking_count": 1,
+    "coverage": {
+      "target_draft_ids": [
+        "c909a055-18e1-4517-a684-f6d95b0b4ee0"
+      ],
+      "target_chapters": [
+        1
+      ],
+      "adjacent_regression_draft_ids": [],
+      "context_checked_draft_ids": [],
+      "knowledge_boundary_checked_draft_ids": [],
+      "context_not_checked_draft_ids": [
+        "c909a055-18e1-4517-a684-f6d95b0b4ee0"
+      ],
+      "frozen_manifest_hash": "38672d82e9f111b1af1f77d507f23808e14fd454b38b094be5ba832a35d28605",
+      "world_constraints": {
+        "c909a055-18e1-4517-a684-f6d95b0b4ee0": {
+          "chapter_index": 1,
+          "scene_id": null,
+          "checked": false,
+          "sources": []
+        }
+      },
+      "chunk_count": 1,
+      "semantic_checks": {
+        "c909a055-18e1-4517-a684-f6d95b0b4ee0": {
+          "scene_contract": "not_applicable",
+          "timeline_location": "not_applicable",
+          "space_continuity": "not_applicable",
+          "time_continuity": "not_applicable",
+          "logic_continuity": "checked",
+          "identity_relation": "not_applicable",
+          "ability_world_rule": "not_applicable",
+          "knowledge_boundary": "not_applicable"
+        }
+      },
+      "incomplete_draft_ids": []
+    },
+    "frozen_manifest": [
+      {
+        "draft_id": "c909a055-18e1-4517-a684-f6d95b0b4ee0",
+        "chapter_index": 1,
+        "content_hash": "a6e34873fe2703790fb2d9508e2739ba4d3b2ec2c060994ca32c33441f08e32f",
+        "scene_id": null,
+        "scene_execution_bundle_hash": null,
+        "role": "target",
+        "context_fingerprint": "adf9071c739458dcb3904dfddce7cff6c18bb73379f85569a171c98f75b7ede2"
+      }
+    ],
+    "findings": [
+      {
+        "finding_id": "finding_a67719518f30347e4228",
+        "severity": "blocker",
+        "category": "continuity",
+        "location": {
+          "draft_id": "c909a055-18e1-4517-a684-f6d95b0b4ee0",
+          "chapter_index": 1,
+          "excerpt": "盒中最初有五枚硬币。少年先取走两枚，又取走三枚。期间无人放入硬币，盒子也没有夹层。掌柜翻开盒子，叙述明确数出里面仍有五枚硬币。",
+          "start_hint": 0,
+          "end_hint": 63
+        },
+        "message": "正文内部逻辑连续性矛盾：盒中最初五枚，少年先取两枚又取三枚，且期间无人放入硬币、盒子无夹层，则余数应为零；但后文明确称掌柜翻开后仍有五枚。该矛盾破坏事件因果链，需修正其中一处计数或补充能解释硬币未减少的机制。",
+        "contract_refs": [],
+        "world_evidence": [],
+        "preserve": [
+          "盒中最初有五枚硬币。",
+          "掌柜翻开盒子，叙述明确数出里面仍有五枚硬币。"
+        ]
+      }
+    ],
+    "not_checked": [
+      "只核对本次回读的世界资料，未覆盖整部作品或人物知识边界",
+      "没有可用于核对的世界资料，本次仅检查正文",
+      "第 1 章没有已确认 AI 参考资料，未检查角色知识边界"
+    ],
+    "managed_llm_steps": [
+      {
+        "step_name": "writing.semantic_review.chunk",
+        "novel_id": "00421063-be3a-4406-8604-594ed19d462a",
+        "profile_source": "project_snapshot",
+        "profile_summary": {
+          "provider_id": "deepseek",
+          "label": "DeepSeek",
+          "model": "deepseek-flash",
+          "default_model": "deepseek-flash",
+          "base_url_host": "api.deepseek.com",
+          "timeout": 1800,
+          "max_tokens": 8192,
+          "temperature": 0.1,
+          "top_p": null,
+          "api_key_configured": true,
+          "sources": {
+            "provider_id": "account",
+            "label": "account",
+            "base_url": "account",
+            "model": "account",
+            "timeout": "timeout_override",
+            "max_tokens": "account",
+            "temperature": "account",
+            "top_p": "account",
+            "extra": "account",
+            "creative_mode": "account",
+            "api_key": "account"
+          },
+          "extra_keys": []
+        },
+        "profile_hash": "fdd3c1ce3aca9faa8b9e6bc534bc100e87ddc7a6bee84116a008129797d50f9b"
+      }
+    ],
+    "mechanical_checks_can_sign_literary_pass": false,
+    "reviewer_separate_from_generator": true
+  },
+  "failure": null,
+  "fees": "not_estimated",
+  "human_review": "pending"
+}

@@ -1,0 +1,68 @@
+
+> frontend-console@1.0.0 test:e2e:functional
+> playwright test --config=playwright.functional.config.js agent-teams.spec.js --workers=1 --retries=0
+
+[WebServer] INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+[WebServer] INFO  [alembic.runtime.migration] Will assume transactional DDL.
+[WebServer] INFO:     Started server process [65976]
+[WebServer] INFO:     Waiting for application startup.
+[WebServer] 2026-09-20 04:28:10 [INFO] app.main: Starting ai-novel-structural-engine v2.0.0
+[WebServer] 2026-09-20 04:28:10 [INFO] core.database: DatabaseManager initialized — pool_size=10, max_overflow=20
+[WebServer] 2026-09-20 04:28:10 [WARNING] core.database: DatabaseManager already initialized, skipping.
+[WebServer] 2026-09-20 04:28:10 [INFO] app.main: pgvector extension detected — vector ops enabled.
+[WebServer] 2026-09-20 04:28:10 [INFO] app.main: Application startup complete.
+[WebServer] INFO:     Application startup complete.
+[WebServer] INFO:     Uvicorn running on http://0.0.0.0:18162 (Press CTRL+C to quit)
+[WebServer] 2026-09-20 04:28:10 [INFO] app.main: Request completed method=GET route=/api/health status=200 duration_ms=9.1 novel_id=<none>
+[WebServer] (node:66005) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+
+(node:66008) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] 2026-09-20 04:28:12 [INFO] app.main: Request completed method=POST route=/api/projects status=201 duration_ms=245.4 novel_id=<none>
+[WebServer] 2026-09-20 04:28:13 [INFO] app.main: Request completed method=POST route=/api/writing/drafts status=201 duration_ms=286.7 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:13 [INFO] app.main: Request completed method=GET route=/api/auth/config status=200 duration_ms=1.1 novel_id=<none>
+[WebServer] 2026-09-20 04:28:13 [INFO] app.main: Request completed method=GET route=/api/health status=200 duration_ms=5.3 novel_id=<none>
+[WebServer] 2026-09-20 04:28:13 [INFO] app.main: Request completed method=GET route=/api/assistant/sessions status=200 duration_ms=41.3 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:13 [INFO] app.main: Request completed method=GET route=/api/assistant/policy status=200 duration_ms=48.7 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:14 [INFO] app.main: Request completed method=GET route=/api/outline/scenes/ordered status=200 duration_ms=39.1 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:14 [INFO] app.main: Request completed method=GET route=/api/writing/chapters status=200 duration_ms=43.1 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:14 [INFO] app.main: Request completed method=GET route=/api/projects/{project_id}/effective-author-preferences status=200 duration_ms=50.8 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:14 [INFO] app.main: Request completed method=GET route=/api/writing/chapters/{chapter_index}/versions status=200 duration_ms=11.6 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:14 [INFO] app.main: Request completed method=GET route=/api/writing/drafts/{draft_id} status=200 duration_ms=11.8 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:14 [INFO] app.main: Request completed method=POST route=/api/assistant/sessions status=201 duration_ms=19.0 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:14 [INFO] app.main: Request completed method=GET route=/api/assistant/sessions/{session_id} status=200 duration_ms=24.8 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:14 [INFO] app.main: Request completed method=GET route=/api/world/review-type-catalog status=200 duration_ms=1.0 novel_id=<none>
+[WebServer] 2026-09-20 04:28:14 [INFO] app.main: Request completed method=GET route=/api/world/entity-types status=200 duration_ms=29.0 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:14 [INFO] app.main: Request completed method=GET route=/api/world/aliases status=200 duration_ms=22.8 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:14 [INFO] app.main: Request completed method=GET route=/api/world/entities status=200 duration_ms=57.7 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:14 [INFO] app.main: Request completed method=GET route=/api/world/relations status=200 duration_ms=55.7 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:14 [INFO] app.main: Request completed method=GET route=/api/world/bible/categories status=200 duration_ms=10.2 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:15 [INFO] app.main: Request completed method=GET route=/api/world/library/overview status=200 duration_ms=78.8 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:17 [INFO] app.main: Request completed method=GET route=/api/assistant/sessions/{session_id} status=200 duration_ms=35.4 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:18 [INFO] app.main: Request completed method=GET route=/api/auth/config status=200 duration_ms=2.7 novel_id=<none>
+[WebServer] 2026-09-20 04:28:18 [INFO] app.main: Request completed method=GET route=/api/health status=200 duration_ms=19.9 novel_id=<none>
+[WebServer] 2026-09-20 04:28:18 [INFO] app.main: Request completed method=GET route=/api/projects/{project_id} status=200 duration_ms=19.9 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:18 [INFO] app.main: Request completed method=GET route=/api/assistant/policy status=200 duration_ms=11.3 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:18 [INFO] app.main: Request completed method=GET route=/api/assistant/sessions status=200 duration_ms=12.9 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:18 [INFO] app.main: Request completed method=GET route=/api/assistant/sessions/{session_id} status=200 duration_ms=27.2 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:18 [INFO] app.main: Request completed method=GET route=/api/world/review-type-catalog status=200 duration_ms=2.4 novel_id=<none>
+[WebServer] 2026-09-20 04:28:18 [INFO] app.main: Request completed method=GET route=/api/world/aliases status=200 duration_ms=10.4 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:18 [INFO] app.main: Request completed method=GET route=/api/world/entity-types status=200 duration_ms=16.9 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:18 [INFO] app.main: Request completed method=GET route=/api/world/entities status=200 duration_ms=15.2 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:18 [INFO] app.main: Request completed method=GET route=/api/world/relations status=200 duration_ms=13.2 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:18 [INFO] app.main: Request completed method=GET route=/api/world/bible/categories status=200 duration_ms=10.0 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:18 [INFO] app.main: Request completed method=GET route=/api/world/library/overview status=200 duration_ms=61.1 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:18 [INFO] app.main: Request completed method=GET route=/api/writing/chapters status=200 duration_ms=18.8 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:18 [INFO] app.main: Request completed method=GET route=/api/outline/scenes/ordered status=200 duration_ms=16.4 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:18 [INFO] app.main: Request completed method=GET route=/api/projects/{project_id}/effective-author-preferences status=200 duration_ms=16.9 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:18 [INFO] app.main: Request completed method=GET route=/api/writing/drafts/{draft_id} status=200 duration_ms=8.5 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:18 [INFO] app.main: Request completed method=GET route=/api/writing/chapters/{chapter_index}/versions status=200 duration_ms=11.5 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:18 [INFO] app.main: Request completed method=GET route=/api/assistant/sessions/{session_id} status=200 duration_ms=13.5 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:18 [INFO] app.main: Request completed method=DELETE route=/api/projects/{project_id} status=204 duration_ms=22.7 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+[WebServer] 2026-09-20 04:28:18 [INFO] app.main: Request completed method=DELETE route=/api/projects/{project_id}/permanent status=204 duration_ms=81.2 novel_id=71c77b2c-9528-4f12-9df8-82e7e6d76a7d
+  ✓  1 e2e/agent-teams.spec.js:4:1 › 深度审稿原位启动、离开恢复、部分覆盖与窄屏导航 (6.6s)
+
+  1 passed (14.2s)

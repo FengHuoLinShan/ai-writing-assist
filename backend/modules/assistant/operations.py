@@ -267,7 +267,12 @@ async def execute_suggestion(ctx, capability, arguments):
             **(
                 {"review_result": result}
                 if capability
-                in {"world.review", "writing.review", "writing.review_world"}
+                in {
+                    "world.review",
+                    "writing.review",
+                    "writing.review_world",
+                    "writing.review_team",
+                }
                 else {"domain_result": result}
             ),
             "snippet": "\n".join(snippets)
@@ -355,6 +360,11 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
     if len(keys) != len(decision.selected) or len(selected) != len(keys):
         raise ValidationError("所选操作不属于当前方案")
     if batch.authorization_json:
+        if (
+            bool(batch.authorization_json.get("review_after", False))
+            != decision.review_after
+        ):
+            raise ConflictError("复核授权与原确认不同，请使用原决定重试")
         if set(batch.authorization_json.get("selected", [])) != keys:
             raise ConflictError(
                 "该方案已有不同的确认决定", code="assistant_batch_decided"
@@ -432,6 +442,7 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
         "selected": decision.selected,
         "confirmed_at": datetime.now(UTC).isoformat(),
         "fingerprint": batch.fingerprint,
+        "review_after": decision.review_after,
     }
     if decision.retry_operation_id:
         batch.authorization_json = {

@@ -1,0 +1,27 @@
+{
+  "model": "deepseek-flash",
+  "max_requests": 120,
+  "max_prompt_tokens": 2000000,
+  "max_completion_tokens": 256000,
+  "max_output_per_request": 8192,
+  "cases": [
+    "case_01",
+    "case_02",
+    "case_03",
+    "case_04"
+  ],
+  "comparison": "A existing semantic review; B one investigator with 12 requests; C three investigators with 4 each. B/C use the same authorized tools, frozen scope, shared total 30, domain acceptance and final audit. Actual usage is measured, not asserted equal.",
+  "prior_requests": 16,
+  "prior_prompt_reserved_including_unknown": 1068541,
+  "prior_completion_reserved_including_unknown": 45813,
+  "human_review": "pending",
+  "production_enabled": false,
+  "code_hashes": {
+    "backend/infrastructure/llm/agent_runtime.py": "a96b0c35315e664efb1f24c27b22b7bffeea4e35bf02cafb32fec610b41b441d",
+    "backend/infrastructure/llm/collaboration.py": "d56558fc9f2e9b7f0db3ef53b8fdfa36598b7028215e4a106587872134e7caea",
+    "backend/modules/assistant/teams/runner.py": "f13d3ee0ca3693a95e39b6df230cd5d87acc75d56465c9fea8d2849ab4a36983",
+    "backend/modules/assistant/teams/contracts.py": "214c6824ab44641738e47e8c7e37aaa1d91bd4a87c378f4e7749c0fc6385ffb5",
+    "backend/modules/assistant/evidence_tools.py": "6a27a66b24828adb499da809bf1c4f60e0e7ae683e4fa8fb9173565477b9aca7",
+    "backend/modules/writing/semantic_review.py": "e03c71bba0833d6d38615ae2996c5562b822f063e648508bb42b719e46ae83eb"
+  }
+}

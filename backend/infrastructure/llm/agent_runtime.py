@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -93,9 +95,37 @@ class AgentBudgetError(ValueError):
     """The saved run needs explicit continuation, not automatic replay."""
 
 
+@dataclass
+class AgentAllocation:
+    """A member's slice of the root ledger, never an additional budget."""
+
+    work_item_id: str
+    request_limit: int = 4
+    requests: int = 0
+    final_reserve: int = 6
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    usage_unknown: bool = False
+
+
+_ALLOCATION: ContextVar[AgentAllocation | None] = ContextVar(
+    "agent_allocation", default=None
+)
+
+
+@contextmanager
+def agent_allocation(allocation: AgentAllocation):
+    token = _ALLOCATION.set(allocation)
+    try:
+        yield allocation
+    finally:
+        _ALLOCATION.reset(token)
+
+
 class AgentRunBudget(BaseModel):
     model_config = ConfigDict(extra="forbid")
     mode: Literal["author", "rp", "background"] = "author"
+    policy_version: Literal["legacy_v1", "team_v1"] = "legacy_v1"
     started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     requests: int = Field(default=0, ge=0)
     tool_attempts: int = Field(default=0, ge=0)
@@ -119,6 +149,8 @@ class AgentRunBudget(BaseModel):
 
     @property
     def limits(self) -> tuple[int, int, int]:
+        if self.policy_version == "team_v1":
+            return (30, 48, 4)
         return {"author": (12, 32, 4), "rp": (8, 24, 2), "background": (6, 16, 2)}[
             self.mode
         ]
@@ -135,6 +167,13 @@ class AgentRunBudget(BaseModel):
     ) -> None:
         if min(requests, tools, web, future_requests) < 0:
             raise ValueError("Budget reservations must be nonnegative")
+        allocation = _ALLOCATION.get()
+        if allocation:
+            future_requests = max(future_requests, allocation.final_reserve)
+            if allocation.requests + requests > allocation.request_limit:
+                raise AgentBudgetError(
+                    "本项查证达到分配额度，保留其余专项与最终复核额度。"
+                )
         limits = self.limits
         if self.remaining_seconds <= 0 or any(
             value > limit
@@ -150,6 +189,8 @@ class AgentRunBudget(BaseModel):
         ):
             raise AgentBudgetError("本次查证已达到预算，请查看已有结果后决定是否继续。")
         self.requests += requests
+        if allocation:
+            allocation.requests += requests
         self.pending_usage += requests
         if requests:
             self.usage_complete = False
@@ -164,6 +205,12 @@ class AgentRunBudget(BaseModel):
         if usage is not None:
             self.prompt_tokens += usage.prompt_tokens
             self.completion_tokens += usage.completion_tokens
+        if allocation := _ALLOCATION.get():
+            if usage is None or not usage.total_tokens:
+                allocation.usage_unknown = True
+            else:
+                allocation.prompt_tokens += usage.prompt_tokens
+                allocation.completion_tokens += usage.completion_tokens
 
     def release_pending_request(self, *, requests: int = 1) -> None:
         """撤销一次尚未发出 provider I/O 的请求预留。
@@ -174,6 +221,8 @@ class AgentRunBudget(BaseModel):
         if requests < 0:
             raise ValueError("Budget releases must be nonnegative")
         self.requests = max(0, self.requests - requests)
+        if allocation := _ALLOCATION.get():
+            allocation.requests = max(0, allocation.requests - requests)
         self.pending_usage = max(0, self.pending_usage - requests)
         self.usage_complete = not self.pending_usage and not self.usage_unknown
 
@@ -405,8 +454,13 @@ class ProjectGatewayModel(Model):
 
         if not delegated:
             self.budget.reserve(requests=1, future_requests=self.future_requests)
-        await self.save_budget()
-        await self.save_history(messages)
+        try:
+            await self.save_budget()
+            await self.save_history(messages)
+        except BaseException:
+            if not delegated:
+                self.budget.release_pending_request()
+            raise
         try:
             with self._managed_step():
                 response = await self.client.generate(request, transport_retries=False)

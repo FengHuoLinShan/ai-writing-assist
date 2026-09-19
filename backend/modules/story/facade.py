@@ -431,3 +431,10 @@ async def apply_import_scene_resolution_group(db, **kwargs):
     from modules.story.outline_state.scene_resolution import apply_group
 
     return await apply_group(db, **kwargs)
+
+
+async def rehearse_round(**kwargs):
+    """Interaction supplies its own attempt, source packets and checkpoint owner."""
+    from modules.story.simulation import rehearse_round as run
+
+    return await run(**kwargs)

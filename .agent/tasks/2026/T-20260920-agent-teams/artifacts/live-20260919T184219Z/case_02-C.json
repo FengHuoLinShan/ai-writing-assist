@@ -1,0 +1,385 @@
+{
+  "case_id": "case_02",
+  "path": "C",
+  "task_status": "done",
+  "run_status": "completed",
+  "seconds": 96.4,
+  "provider_requests": 13,
+  "prompt_tokens": 54384,
+  "completion_tokens": 26662,
+  "output": {
+    "answer": "# 硬币段复核结论（blueprint: deep_review ｜ 第 1 章 · working 版 · version 1）\n\n## 一、读了什么（引用已读原文）\n- 正文：`2285de0f…`（start 0 / end 63，next_offset=null，已读完）与 `5ec9be45…`（同一段）。原文：**“盒中最初有五枚硬币。少年先取走两枚，又取走三枚。期间无人放入硬币，盒子也没有夹层。掌柜翻开盒子，叙述明确数出里面仍有五枚硬币。”**\n- 领域复核：`b54caaed…`（writing_semantic_review，结论 finding_cc04bee1d09eb83b86a3，major / causality）。\n- 过程回执：`e65ec263…`（仅记录复核已开始，非结论）。\n\n## 二、现实事实（可逐字定位，不依赖作者意图）\n文本在同一段给出四个点：①初值 5；②取走 2；③再取走 3（合计 5）；④显式排除“有人投入”与“盒子有夹层”；⑤末句“仍有五枚”。在通常的数量守恒下 **5−2−3=0 ≠ 5**。这是全篇唯一可逐字定位的明确不一致——除此之外，正文 63 字内无场景、无时序、无能力/规则对象可查，故不存在其他可核对矛盾。\n\n## 三、推论（带前提，未作为既定事实）\n该不一致成立需三个前提：**（P1）**两次“取走”互不重叠、都从该盒取出、合计 5；**（P2）**两处“五枚”指同一盒同批硬币、单位一致；**（P3）**末句“数出”是叙述层对盒内实际枚数的陈述，而非角色的主观判断词。任一前提不成立，矛盾强度即下降。目前无资料可推翻或证实任一前提。\n\n## 四、反证与争议（保留，不按票数裁定）\n- **反证：**末句用“**叙述明确数出**”这一元叙述措辞，且文本预先堵掉“投入”“夹层”两条最易想到的解释通道——这恰是谜题/魔术/不可靠叙述的收口特征。若属有意缺陷（作者有意违约/未揭示机制），则**不应改数**。\n- **争议未决：**笔误 vs 有意设计的悖论 vs 后续将揭示的超自然规则，三种读法现有证据均不足以排除对方。以“掌柜翻开盒子”引入视角，却在结论处退回叙述权威，使“角色误认”这条退路也被关闭。\n- 三份子报告结论一致，**但一致本身不是裁定依据**；依据是上述算术不闭合与文本的自我封闭。按根因合并后，实质只有 **1 条硬矛盾**（另两条是对同一根因的“叙述层定性”复述，不另立错误）。\n\n## 五、人物信息缺口（本次未查清）\n无角色卡、无对话、无承诺语句；`current_scene` 明确“未绑定当前场景，未检查人物知识边界”；world / outline 检索均 0 命中。因此“少年取币动机”“掌柜是否知情/是否被蒙在鼓里”“末句计数出自叙述者之口还是掌柜之眼”均无证据，不作断言。**未检查≠通过**：本稿的知识边界、能力/世界规则维度本轮未核对，不能宣称“已按设定检查通过”。\n\n## 六、文学建议（可选修法，需作者先确认意图后再动笔）\n择一，并保持内部唯一：\n- **A 写实化：**末句改为“里面空空如也”（或把初值/取走量改到相称），保留“无人投入/无夹层”排除句。代价：牺牲悖论/神秘效果。\n- **B 保留悖论：**不动数字，把“叙述明确数出”改为角色层观察并留迟疑（如“掌柜数了两遍仍是五枚，抬眼看向少年”），或后文补一句可被读者识别的机制/叙述者不可信信号，把矛盾转为可追踪伏笔。代价：需额外篇幅承担解释，否则仍被读作硬伤。\n\n## 七、未验证范围\n仅第 1 章 working v1，未查其他版本/章节；检索为 retrieval_only，可能漏未索引内容；无 world/outline 佐证硬币规则或超自然机制；视野限制无法从视角设定上验证。以上均未通过，不作为“无问题”的证据。</answer>\n<parameter name=\"findings\">[{\"title\": \"硬币数量守恒矛盾：取走合计 5 枚后仍称余 5 枚（合并三份报告同一根因）\", \"kind\": \"issue\", \"domain_finding_id\": \"finding_cc04bee1d09eb83b86a3\", \"evidence_ids\": [\"2285de0f93bdd7cd40f5b29c39de24bacea09de87f6250ba61691b88c0586185\", \"5ec9be45dee5faa25a1abda7f3eec87ec4016986ae752c7abef2b1ffebe4bed5\", \"b54caaed36d37dacaf34670528cabd0a9a1959a0777c893e80cba0ad1068d775\"], \"summary\": \"正文同段给出：初值 5 枚；取走 2 枚；又取走 3 枚（合计 5 枚）；显式排除“有人放入”“盒子有夹层”；末句“叙述明确数出里面仍有五枚硬币”。按通常守恒 5−2−3=0，与“仍有五枚”直接冲突，且余数恰等于初值，是全文唯一可逐字定位的不一致。成立需前提 P1/P2/P3（见 answer 第三节），缺一即减弱。反证：末句“叙述明确数出”的元叙述措辞 + 预先堵死两条常规解释，更像刻意谜题/魔术/不可靠叙述收口，若属有意缺陷则不应改数。争议未决：笔误 vs 有意设计 vs 后续揭示的超自然规则，现有证据均不能排除对方。三份子报告结论一致，但结论以算术不闭合与文本自我封闭为依据，而非票数。\"}, {\"title\": \"叙述层担保措辞使矛盾无处可退（文学建议，非新增错误）\", \"kind\": \"suggestion\", \"evidence_ids\": [\"2285de0f93bdd7cd40f5b29c39de24bacea09de87f6250ba61691b88c0586185\", \"5ec9be45dee5faa25a1abda7f3eec87ec4016986ae752c7abef2b1ffebe4bed5\"], \"summary\": \"“叙述明确数出”将计数声明为叙述层事实断言，而非“掌柜认为/数了两遍”。若作者打算走不可靠叙述或限制视角，此措辞反而与之相抵；若走写实，则宜直接改数字并删去该项担保。建议仅在作者确认意图后处理：保留悖论则改用带迟疑的角色层观察，使不可靠/异常解释有落点。\"}, {\"title\": \"人物信息缺口：动机与否知情均无资料，不可归因于角色（提醒，未检查≠通过）\", \"kind\": \"suggestion\", \"evidence_ids\": [\"e65ec263cc606913f05b5af575b681e4638e37566bf4c46f81e79e254117c643\", \"b54caaed36d37dacaf34670528cabd0a9a1959a0777c893e80cba0ad1068d775\"], \"summary\": \"无角色卡、无对话、无承诺语句；current_scene 未绑定，未检查人物知识边界；world/outline 检索 0 命中。故“少年动机”“掌柜是否知情”“末句归属叙述者还是掌柜视角”都无证据，不作断言，“不可靠叙述/掌柜被骗”只能作为待验证假设。本稿的知识边界、能力/世界规则维度本轮未核对，不得据此宣称已按设定检查通过。\"}]",
+    "evidence_ids": [
+      "2285de0f93bdd7cd40f5b29c39de24bacea09de87f6250ba61691b88c0586185",
+      "5ec9be45dee5faa25a1abda7f3eec87ec4016986ae752c7abef2b1ffebe4bed5",
+      "b54caaed36d37dacaf34670528cabd0a9a1959a0777c893e80cba0ad1068d775",
+      "e65ec263cc606913f05b5af575b681e4638e37566bf4c46f81e79e254117c643"
+    ],
+    "actions": [],
+    "findings": [],
+    "omissions": [
+      "全文仅第 1 章、version 1、working 版 63 字，next_offset=null；未读取其他版本或其他章节，无法排除后续揭示承担解释功能。",
+      "world 与 outline 检索均 0 命中，无设定/大纲可佐证硬币规则、复制/幻术/超自然机制是否存在。",
+      "current_scene 未绑定，未检查人物知识边界；无法核验少年/掌柜各自可知什么，故“不可靠叙述/掌柜被欺”无法证实或证伪。",
+      "未核查是否存在非 working 模式或其他 version_number，无法确认矛盾是修订遗留还是当前稿状态。",
+      "检索覆盖为 retrieval_only，可能有未索引内容未纳入。",
+      "未评估文风、角色塑造、节奏、主题等维度（不属本次分配范围）。"
+    ],
+    "next_steps": [
+      "writing",
+      "world"
+    ],
+    "plans": [],
+    "collaboration": {
+      "blueprint": "deep_review",
+      "label": "深度审稿",
+      "experimental": true,
+      "phase": "completed",
+      "completion": "partial",
+      "freshness": "fresh",
+      "unread_chapters": [],
+      "enumerated_sources": 0,
+      "coverage_basis": "仅覆盖本轮实际回读的资料；检索命中不代表全书或全部网络来源。",
+      "completed_count": 3,
+      "total_count": 3,
+      "reading_nodes": [],
+      "work_items": [
+        {
+          "key": "facts",
+          "label": "事实与规则",
+          "status": "succeeded",
+          "attempt": 1
+        },
+        {
+          "key": "characters",
+          "label": "人物动机与知识",
+          "status": "succeeded",
+          "attempt": 1
+        },
+        {
+          "key": "narrative",
+          "label": "叙事结构与读者信息",
+          "status": "succeeded",
+          "attempt": 1
+        }
+      ],
+      "coverage": [
+        {
+          "label": "事实与规则",
+          "checked_dimensions": [
+            "数量/守恒一致性",
+            "时序（先取两枚、又取三枚）",
+            "因果与规则（排除夹层、他人投入）",
+            "叙述可靠性层级",
+            "地点/机关设定",
+            "世界设定与大纲覆盖情况"
+          ],
+          "omissions": [
+            "world 与 outline 检索均为空，无设定或大纲可佐证硬币规则/是否存在超自然机制",
+            "无绑定场景，未取得人物知识与历史状态，无法判断角色是否可知该矛盾",
+            "仅读到 chapter 1、version 1 的当前工作稿（63字），未读取其他版本或其他章节",
+            "检索覆盖面为 retrieval_only，可能有未索引内容未纳入"
+          ]
+        },
+        {
+          "label": "人物动机与知识",
+          "checked_dimensions": [
+            "数值/事实层的一致性（硬币计数）",
+            "承诺与行动是否一致",
+            "行动动机是否有据",
+            "信息来源与知识边界（是否有角色资料支撑）",
+            "是否为有意设置的歧义/不可靠叙述"
+          ],
+          "omissions": [
+            "正文仅一段 63 字，无后续内容（next_offset=null），未检查更长篇幅。",
+            "world 与 outline 两个 scope 检索均 0 命中，无可对照的设定/大纲资料。",
+            "current_scene 明确返回\"未绑定当前场景，未检查人物知识边界\"，故无法核验少年/掌柜各自知道什么。",
+            "无角色卡、无承诺语句、无对话，\"承诺与违约\"维度在本稿无适用对象。",
+            "少年取走硬币的动机、掌柜数币的动机与可信度、末句计数出自叙述者还是掌柜视角，均无证据，未做断言。",
+            "无法确认该数量不一致属作者有意缺陷还是笔误（意图信息未在可查资料中给出）。"
+          ]
+        },
+        {
+          "label": "叙事结构与读者信息",
+          "checked_dimensions": [
+            "正文内部数量与因果一致性",
+            "铺垫与兑现：解释机制是否被文本封闭",
+            "信息落差与不可靠叙述的可能性",
+            "叙述层担保措辞对索赔的影响",
+            "跨章／跨文档反证检索（manuscript/outline/world）",
+            "视角与人物知识边界（无法验证）"
+          ],
+          "omissions": [
+            "本轮可见正文仅此 63 字，无其他章节、场景或修订版本可比对，故无法排除后文揭示与既有矛盾。",
+            "outline 与 world 两个 scope 检索均无命中，无设定/大纲可佐证是否存在魔术、复制或幻术规则。",
+            "current_scene 报告未绑定场景，未检查人物知识边界，叙述可靠性无法从视角设置上验证。",
+            "未核查该草稿是否存在非 working 模式或其他 version_number 的版本，无法确认矛盾是修订遗留还是当前稿状态。",
+            "未评估文风、角色塑造、节奏与主题维度（不属本次分配范围）。"
+          ]
+        }
+      ],
+      "remaining_work": [],
+      "domain_results": [
+        {
+          "type": "writing_review",
+          "id": "d17f819d-c78a-538d-9c63-51c81a02960c",
+          "task_id": "d17f819d-c78a-538d-9c63-51c81a02960c",
+          "task_type": "writing_semantic_review",
+          "target": {
+            "type": "writing_draft",
+            "id": "395df3cd-03bb-4df9-9964-8fd18191ae59",
+            "chapter_index": 1
+          },
+          "label": "已开始独立审查，结果生成后可继续处理"
+        }
+      ]
+    },
+    "knowledge_review": {
+      "status": "passed",
+      "repaired": false,
+      "coverage": [
+        {
+          "dimension": "world_entities",
+          "covered_by": [],
+          "omitted": false,
+          "omission_reason": null
+        },
+        {
+          "dimension": "world_rules",
+          "covered_by": [],
+          "omitted": false,
+          "omission_reason": null
+        },
+        {
+          "dimension": "world_bible",
+          "covered_by": [],
+          "omitted": false,
+          "omission_reason": null
+        },
+        {
+          "dimension": "world_bible/prior_prose",
+          "covered_by": [],
+          "omitted": false,
+          "omission_reason": null
+        },
+        {
+          "dimension": "outline",
+          "covered_by": [],
+          "omitted": false,
+          "omission_reason": null
+        },
+        {
+          "dimension": "plot_threads",
+          "covered_by": [],
+          "omitted": false,
+          "omission_reason": null
+        },
+        {
+          "dimension": "memory",
+          "covered_by": [],
+          "omitted": false,
+          "omission_reason": null
+        }
+      ],
+      "issue_counts": {
+        "conflict": 0,
+        "irrelevant_content": 0,
+        "missing_required": 0,
+        "out_of_scope_knowledge": 0,
+        "premature_reveal": 0,
+        "unchecked": 2,
+        "unsupported_fact": 0
+      },
+      "issues": [
+        {
+          "kind": "unchecked",
+          "severity": "minor",
+          "message": "输出把本次检索描述为“retrieval_only”，但所给资料中只显示一次带假设清单的复核调用与覆盖范围说明，并未说明检索模式；这属于对工具行为的机制性断言，资料内无法核验。它只是限制声明，不影响结论实质。",
+          "open_target": ""
+        },
+        {
+          "kind": "unchecked",
+          "severity": "minor",
+          "message": "输出称“三份子报告结论一致”，并把其余条目说成对同一根因的两条复述；但资料中该次复核给出的待查假设条目多于三条，合并口径未交代，数量对应不上。结论实质（同一根因、不以票数裁定）未受影响。",
+          "open_target": ""
+        }
+      ]
+    },
+    "sources": [
+      {
+        "evidence_id": "2285de0f93bdd7cd40f5b29c39de24bacea09de87f6250ba61691b88c0586185",
+        "title": "正文",
+        "snippet": "盒中最初有五枚硬币。少年先取走两枚，又取走三枚。期间无人放入硬币，盒子也没有夹层。掌柜翻开盒子，叙述明确数出里面仍有五枚硬币。",
+        "excerpted": false,
+        "source_ref": {
+          "draft_id": "395df3cd-03bb-4df9-9964-8fd18191ae59",
+          "chapter_index": 1,
+          "version_number": 1,
+          "content_mode": "working",
+          "start_offset": 0,
+          "end_offset": 63,
+          "source_hash": "a6e34873fe2703790fb2d9508e2739ba4d3b2ec2c060994ca32c33441f08e32f",
+          "range_hash": "a6e34873fe2703790fb2d9508e2739ba4d3b2ec2c060994ca32c33441f08e32f"
+        },
+        "target_ref": null,
+        "related_results": [],
+        "sources": [],
+        "web_source": null,
+        "domain_reference": null,
+        "review_result": null,
+        "domain_result": null
+      },
+      {
+        "evidence_id": "5ec9be45dee5faa25a1abda7f3eec87ec4016986ae752c7abef2b1ffebe4bed5",
+        "title": "正文",
+        "snippet": "盒中最初有五枚硬币。少年先取走两枚，又取走三枚。期间无人放入硬币，盒子也没有夹层。掌柜翻开盒子，叙述明确数出里面仍有五枚硬币。",
+        "excerpted": false,
+        "source_ref": {
+          "draft_id": "395df3cd-03bb-4df9-9964-8fd18191ae59",
+          "chapter_index": 1,
+          "version_number": 1,
+          "content_mode": "working",
+          "start_offset": 0,
+          "end_offset": 63,
+          "source_hash": "a6e34873fe2703790fb2d9508e2739ba4d3b2ec2c060994ca32c33441f08e32f",
+          "range_hash": "a6e34873fe2703790fb2d9508e2739ba4d3b2ec2c060994ca32c33441f08e32f"
+        },
+        "target_ref": null,
+        "related_results": [],
+        "sources": [],
+        "web_source": null,
+        "domain_reference": null,
+        "review_result": null,
+        "domain_result": null
+      },
+      {
+        "evidence_id": "b54caaed36d37dacaf34670528cabd0a9a1959a0777c893e80cba0ad1068d775",
+        "title": "复核深度审稿调查线索",
+        "snippet": "同一段内数量守恒被破坏：初始 5 枚，被取走 2 枚再取走 3 枚（合计 5 枚），文本又显式排除“有人放入”与“盒子有夹层”两条补偿路径，按字面盒内应为 0 枚；但末句以“叙述明确数出里面仍有五枚硬币”作出陈述层的事实断言，而不是“掌柜认为”这类主观判断，矛盾落在叙述权威层面，读者既不能归因于角色误认，也不能归因于机关。且余数恰等于初值，使该不一致唯一可逐字定位。本轮无 scene 合同、无 confirmed_context、无 world_evidence 可交叉验证，无法判定这是笔误、后续揭示的超自然规则，还是作者刻意设置的不可靠叙述/魔术式谜题（“无人放入”“没有夹层”的预先收口与“叙述明确数出”的元叙述措辞都带有刻意痕迹）；因此按“需作者确认的矛盾点”报出，不建议在作者确认前径行改数，建议保留排除项与元叙述措辞以备转成有意设计。",
+        "excerpted": false,
+        "source_ref": null,
+        "target_ref": {
+          "target_type": "writing_draft",
+          "target_id": "395df3cd-03bb-4df9-9964-8fd18191ae59"
+        },
+        "related_results": [],
+        "sources": [],
+        "web_source": null,
+        "domain_reference": {
+          "type": "writing_review",
+          "id": "d17f819d-c78a-538d-9c63-51c81a02960c",
+          "task_id": "d17f819d-c78a-538d-9c63-51c81a02960c",
+          "task_type": "writing_semantic_review",
+          "target": {
+            "type": "writing_draft",
+            "id": "395df3cd-03bb-4df9-9964-8fd18191ae59",
+            "chapter_index": 1
+          },
+          "label": "已开始独立审查，结果生成后可继续处理"
+        },
+        "review_result": {
+          "status": "completed",
+          "verdict": "needs_revision",
+          "coverage": {
+            "target_draft_ids": [
+              "395df3cd-03bb-4df9-9964-8fd18191ae59"
+            ],
+            "target_chapters": [
+              1
+            ],
+            "adjacent_regression_draft_ids": [],
+            "context_checked_draft_ids": [],
+            "knowledge_boundary_checked_draft_ids": [],
+            "context_not_checked_draft_ids": [
+              "395df3cd-03bb-4df9-9964-8fd18191ae59"
+            ],
+            "frozen_manifest_hash": "e66c6775f20d2a67a65e078af622bb5ff294fa529e1bce0ff718707971809e7a",
+            "world_constraints": {
+              "395df3cd-03bb-4df9-9964-8fd18191ae59": {
+                "chapter_index": 1,
+                "scene_id": null,
+                "checked": false,
+                "sources": []
+              }
+            },
+            "chunk_count": 1,
+            "semantic_checks": {
+              "395df3cd-03bb-4df9-9964-8fd18191ae59": {
+                "scene_contract": "not_applicable",
+                "timeline_location": "not_applicable",
+                "space_continuity": "not_applicable",
+                "time_continuity": "not_applicable",
+                "logic_continuity": "not_applicable",
+                "identity_relation": "not_applicable",
+                "ability_world_rule": "not_checked",
+                "knowledge_boundary": "not_applicable"
+              }
+            },
+            "incomplete_draft_ids": [
+              "395df3cd-03bb-4df9-9964-8fd18191ae59"
+            ]
+          },
+          "not_checked": [
+            "只核对本次回读的世界资料，未覆盖整部作品或人物知识边界",
+            "没有可用于核对的世界资料，本次仅检查正文",
+            "第 1 章没有已确认 AI 参考资料，未检查角色知识边界",
+            "ability_world_rule：review_context 未提供任何 world_evidence，world_constraints 模式下无可回读的世界资料，本次未能核对能力/世界规则，不得据此宣称已按设定检查"
+          ],
+          "findings": [
+            {
+              "finding_id": "finding_cc04bee1d09eb83b86a3",
+              "severity": "major",
+              "category": "causality",
+              "location": {
+                "draft_id": "395df3cd-03bb-4df9-9964-8fd18191ae59",
+                "chapter_index": 1,
+                "excerpt": "盒中最初有五枚硬币。少年先取走两枚，又取走三枚。期间无人放入硬币，盒子也没有夹层。掌柜翻开盒子，叙述明确数出里面仍有五枚硬币。",
+                "start_hint": 0,
+                "end_hint": 63
+              },
+              "message": "同一段内数量守恒被破坏：初始 5 枚，被取走 2 枚再取走 3 枚（合计 5 枚），文本又显式排除“有人放入”与“盒子有夹层”两条补偿路径，按字面盒内应为 0 枚；但末句以“叙述明确数出里面仍有五枚硬币”作出陈述层的事实断言，而不是“掌柜认为”这类主观判断，矛盾落在叙述权威层面，读者既不能归因于角色误认，也不能归因于机关。且余数恰等于初值，使该不一致唯一可逐字定位。本轮无 scene 合同、无 confirmed_context、无 world_evidence 可交叉验证，无法判定这是笔误、后续揭示的超自然规则，还是作者刻意设置的不可靠叙述/魔术式谜题（“无人放入”“没有夹层”的预先收口与“叙述明确数出”的元叙述措辞都带有刻意痕迹）；因此按“需作者确认的矛盾点”报出，不建议在作者确认前径行改数，建议保留排除项与元叙述措辞以备转成有意设计。",
+              "contract_refs": [],
+              "world_evidence": [],
+              "preserve": [
+                "“期间无人放入硬币，盒子也没有夹层”这两处预先排除，作为谜题收口手法可保留",
+                "“叙述明确数出”的元叙述措辞在确认意图为不可靠叙述时可保留"
+              ]
+            }
+          ]
+        },
+        "domain_result": null
+      },
+      {
+        "evidence_id": "e65ec263cc606913f05b5af575b681e4638e37566bf4c46f81e79e254117c643",
+        "title": "复核深度审稿调查线索",
+        "snippet": "本次复核的过程回执；尚未形成完整结论",
+        "excerpted": false,
+        "source_ref": null,
+        "target_ref": {
+          "target_type": "writing_draft",
+          "target_id": "395df3cd-03bb-4df9-9964-8fd18191ae59"
+        },
+        "related_results": [],
+        "sources": [],
+        "web_source": null,
+        "domain_reference": {
+          "type": "writing_review",
+          "id": "d17f819d-c78a-538d-9c63-51c81a02960c",
+          "task_id": "d17f819d-c78a-538d-9c63-51c81a02960c",
+          "task_type": "writing_semantic_review",
+          "target": {
+            "type": "writing_draft",
+            "id": "395df3cd-03bb-4df9-9964-8fd18191ae59",
+            "chapter_index": 1
+          },
+          "label": "已开始独立审查，结果生成后可继续处理"
+        },
+        "review_result": null,
+        "domain_result": null
+      }
+    ]
+  },
+  "failure": null,
+  "fees": "not_estimated",
+  "human_review": "pending"
+}

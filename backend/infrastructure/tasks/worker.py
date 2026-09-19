@@ -25,6 +25,7 @@ from time import monotonic
 from typing import Any
 from uuid import UUID
 
+from anyio import CancelScope
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -480,6 +481,13 @@ class TaskRunEnvelopeKeeper:
             )
 
     async def _persist_payload(self, payload: dict[str, Any]) -> bool:
+        # Provider task groups use level cancellation. Let this short, lease-fenced
+        # transaction return its connection before cancellation resumes; model IO
+        # remains cancellable. This also covers inline and single-agent callers.
+        with CancelScope(shield=True):
+            return await self._persist_payload_transaction(payload)
+
+    async def _persist_payload_transaction(self, payload: dict[str, Any]) -> bool:
         async with self._session_factory() as session:
             accepted = await self._lifecycle.checkpoint_run_envelope(
                 session,

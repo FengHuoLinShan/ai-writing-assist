@@ -25,6 +25,17 @@ export function locateAssistantSource(source) {
   const id = target.id || target.target_id
   const query = new URLSearchParams()
   let page, subview = null
+  if (source.type === "writing_review") {
+    if (!source.task_id) return false
+    query.set("semantic_review_task_id", source.task_id)
+    if (target.chapter_index) query.set("chapter_index", target.chapter_index)
+    if (id) query.set("draft_id", id)
+    return getRouter().navigate("writing", null, true, query)
+  }
+  if (type === "world_stress_report") {
+    query.set("stress_report_id", id)
+    return getRouter().navigate("world", "bible", true, query)
+  }
   if (type === "smart_dedup_scan") {
     if (!source.task_id && !id) return false
     void openSmartDedupTask(source.task_id || id).catch(error => getToast()(error.message, "error"))

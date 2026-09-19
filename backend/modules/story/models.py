@@ -242,3 +242,46 @@ class SceneScriptRevision(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMix
     source_task_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
     context_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
     base_revision_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
+
+
+class StorySimulationRun(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """A frozen, author-owned rehearsal; it never becomes story truth by itself."""
+
+    __tablename__ = "story_simulation_runs"
+    __table_args__ = (
+        UniqueConstraint("novel_id", "id", name="uq_story_simulation_run_novel"),
+        ForeignKeyConstraint(
+            ["novel_id", "parent_id"],
+            ["story_simulation_runs.novel_id", "story_simulation_runs.id"],
+        ),
+    )
+    scene_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False)
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
+    fork_round: Mapped[int] = mapped_column(Integer, default=0)
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    budget_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    result_json: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class StorySimulationStep(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """Append-only completed rounds; branch-local observations and derived state."""
+
+    __tablename__ = "story_simulation_steps"
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id", "run_id", "round_number", name="uq_story_simulation_step_round"
+        ),
+        ForeignKeyConstraint(
+            ["novel_id", "run_id"],
+            ["story_simulation_runs.novel_id", "story_simulation_runs.id"],
+            ondelete="CASCADE",
+        ),
+    )
+    run_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False)
+    round_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    input_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    output_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    intents_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    events_json: Mapped[list] = mapped_column(JSON, default=list)
+    state_json: Mapped[dict] = mapped_column(JSON, default=dict)

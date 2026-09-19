@@ -1,0 +1,78 @@
+{
+  "case_id": "case_04",
+  "path": "B",
+  "task_status": "failed",
+  "run_status": "failed",
+  "seconds": 0.27,
+  "provider_requests": 0,
+  "prompt_tokens": 0,
+  "completion_tokens": 0,
+  "output": {},
+  "failure": {
+    "kind": "RuntimeError",
+    "frames": [
+      {
+        "file": "step.py",
+        "line": 253,
+        "function": "_call_node"
+      },
+      {
+        "file": "_agent_graph.py",
+        "line": 1173,
+        "function": "run"
+      },
+      {
+        "file": "_agent_graph.py",
+        "line": 1474,
+        "function": "_make_request"
+      },
+      {
+        "file": "_agent_graph.py",
+        "line": 1451,
+        "function": "model_handler"
+      },
+      {
+        "file": "_agent_graph.py",
+        "line": 1034,
+        "function": "model_request"
+      },
+      {
+        "file": "agent_runtime.py",
+        "line": 466,
+        "function": "request"
+      },
+      {
+        "file": "client.py",
+        "line": 872,
+        "function": "generate"
+      },
+      {
+        "file": "limits.py",
+        "line": 110,
+        "function": "run"
+      },
+      {
+        "file": "client.py",
+        "line": 870,
+        "function": "call"
+      },
+      {
+        "file": "client.py",
+        "line": 834,
+        "function": "provider_request"
+      },
+      {
+        "file": "tasks.py",
+        "line": 488,
+        "function": "wait_for"
+      },
+      {
+        "file": "agent_teams_live.py",
+        "line": 81,
+        "function": "measured"
+      }
+    ]
+  },
+  "fees": "not_estimated",
+  "human_review": "pending"
+}

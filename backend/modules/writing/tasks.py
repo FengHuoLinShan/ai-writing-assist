@@ -287,6 +287,7 @@ async def handle_writing_semantic_review(db, task):
         novel_id=novel_id,
         draft_ids=draft_ids,
         scope=str(meta.get("scope") or "selection"),
+        investigation_hypotheses=meta.get("investigation_hypotheses"),
         llm_execution_snapshot=snapshot,
         manual_world_scope=WritingWorldReviewScope.model_validate(
             meta["manual_world_scope"]

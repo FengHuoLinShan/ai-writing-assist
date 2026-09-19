@@ -458,6 +458,14 @@ async def _enqueue_confirmed_task(
         exclude_none=True,
         exclude={"operation_id"},
     )
+    if (
+        isinstance(data, StoryOneClickTaskRequest)
+        and data.simulation_protocol == "legacy"
+    ):
+        for key in ("simulation_protocol", "rehearsal_rounds", "fork_round"):
+            request_payload.pop(key, None)
+        if not data.use_round_candidates:
+            request_payload.pop("use_round_candidates", None)
     try:
         existing = await get_operation_task(
             db,
@@ -505,7 +513,6 @@ async def _enqueue_confirmed_task(
         return StoryTaskResponse(task_id=receipt.task_id, status=receipt.status)
     except Exception as exc:
         raise _error(exc) from exc
-
 
 
 @router.post("/tasks/character-card", response_model=StoryTaskResponse, status_code=202)
@@ -556,6 +563,11 @@ async def api_submit_one_click_task(
     db: DbSession,
 ) -> StoryTaskResponse:
     await require_active_project(db, data.novel_id)
+    if data.simulation_protocol == "rehearsal_v1":
+        from core.config import get_settings
+
+        if not get_settings().story_rehearsal_enabled:
+            raise HTTPException(status_code=409, detail="场景排演尚未开启")
     return await _enqueue_confirmed_task(
         db,
         data,
@@ -763,4 +775,46 @@ async def api_scene_simulate(
 ) -> StoryTaskResponse:
     if data.scene_id != scene_id:
         raise HTTPException(status_code=400, detail="scene path does not match body")
+    return await api_submit_one_click_task(data, db)
+
+
+@router.post(
+    "/scenes/{scene_id}/rehearsals", response_model=StoryTaskResponse, status_code=202
+)
+async def start_rehearsal(scene_id: str, data: StoryOneClickTaskRequest, db: DbSession):
+    if data.scene_id != scene_id or data.simulation_protocol != "rehearsal_v1":
+        raise HTTPException(status_code=422, detail="请选择当前场景的排演方式")
+    return await api_submit_one_click_task(data, db)
+
+
+@router.get("/rehearsals/{run_id}")
+async def get_rehearsal(
+    run_id: uuid.UUID,
+    db: DbSession,
+    novel_id: NovelIdQuery,
+    actor_id: uuid.UUID | None = None,
+):
+    from modules.account.facade import is_demo_readonly_principal
+    from modules.story.rehearsals import read_rehearsal
+
+    await require_active_project(db, novel_id)
+    if is_demo_readonly_principal():
+        raise HTTPException(status_code=404, detail="排演不存在")
+    return await read_rehearsal(
+        db, novel_id, str(run_id), str(actor_id) if actor_id else None
+    )
+
+
+@router.post(
+    "/rehearsals/{run_id}/forks", response_model=StoryTaskResponse, status_code=202
+)
+async def fork_rehearsal(
+    run_id: uuid.UUID, data: StoryOneClickTaskRequest, db: DbSession
+):
+    from modules.story.rehearsals import read_rehearsal
+
+    await require_active_project(db, data.novel_id)
+    await read_rehearsal(db, data.novel_id, str(run_id))
+    if data.parent_rehearsal_id != run_id or data.simulation_protocol != "rehearsal_v1":
+        raise HTTPException(status_code=422, detail="分叉必须绑定准确的原排演")
     return await api_submit_one_click_task(data, db)

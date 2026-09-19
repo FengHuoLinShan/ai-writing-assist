@@ -26,6 +26,7 @@ from modules.assistant.schemas import (
     TurnCreate,
 )
 from modules.assistant.service import AssistantService, record_run_event
+from modules.assistant.teams.contracts import BLUEPRINTS, TeamPlanSelection, TeamRunCreate
 from modules.project.facade import require_active_project
 
 router = APIRouter(prefix="/api/assistant", tags=["assistant"])
@@ -69,6 +70,22 @@ async def capabilities(db: DbSession, novel_id: UUID):
     )
     return {
         "enabled": get_settings().assistant_enabled,
+        "collaboration": [
+            {
+                "id": key,
+                "label": value["label"],
+                "experimental": True,
+                "available": reason is None
+                and getattr(get_settings(), f"assistant_{key}_enabled"),
+                "reason": reason
+                or (
+                    None
+                    if getattr(get_settings(), f"assistant_{key}_enabled")
+                    else "这项专项协作尚未开启"
+                ),
+            }
+            for key, value in BLUEPRINTS.items()
+        ],
         "operations": [
             {
                 "name": name,
@@ -82,6 +99,12 @@ async def capabilities(db: DbSession, novel_id: UUID):
         "destinations": [
             {"id": key, "label": label} for key, label in CONTROLLED_DESTINATIONS.items()
         ],
+        "rehearsal": {
+            "available": model_ready and get_settings().story_rehearsal_enabled,
+            "reason": None
+            if model_ready and get_settings().story_rehearsal_enabled
+            else "场景排演尚未开启或模型未连接",
+        },
         "runtime": "pydantic-ai-2.42.0",
         "model": {
             "available": model_ready,
@@ -172,6 +195,44 @@ async def get_run(db: DbSession, run_id: UUID, novel_id: UUID):
     return await service.get_run(db, str(novel_id), str(run_id))
 
 
+@router.post(
+    "/sessions/{session_id}/team-runs", status_code=202, response_model=RunResponse
+)
+async def submit_team(db: DbSession, session_id: UUID, data: TeamRunCreate):
+    await require_active_project(db, str(data.novel_id))
+    return await service.submit(db, str(session_id), data, str(current_account_id()))
+
+
+@router.get("/runs/{run_id}/collaboration")
+async def get_collaboration(db: DbSession, run_id: UUID, novel_id: UUID):
+    result = await service.get_run(db, str(novel_id), str(run_id))
+    run = await service.require_run(db, str(novel_id), str(run_id))
+    if not run.request_json.get("team"):
+        raise NotFoundError("协作记录不存在")
+    from modules.assistant.teams.runner import public_collaboration
+
+    return {
+        **result["result"].get(
+            "collaboration", public_collaboration(run.checkpoint_json)
+        ),
+        "run": result,
+    }
+
+
+@router.post("/runs/{run_id}/collaboration/continue", response_model=RunResponse)
+async def continue_collaboration(db: DbSession, run_id: UUID, data: RunResume):
+    await require_active_project(db, str(data.novel_id))
+    return await service.resume(db, str(run_id), data, str(current_account_id()))
+
+
+@router.post("/runs/{run_id}/select-plan", response_model=RunResponse)
+async def select_team_plan(db: DbSession, run_id: UUID, data: TeamPlanSelection):
+    from modules.assistant.teams.plans import select_plan
+
+    await require_active_project(db, data.novel_id)
+    return await select_plan(db, str(run_id), data, str(current_account_id()))
+
+
 @router.get("/runs/{run_id}/events", response_model=RunEventsResponse)
 async def get_run_events(
     db: DbSession, run_id: UUID, novel_id: UUID, after: int = Query(0, ge=0)
@@ -214,7 +275,14 @@ async def stop_run(db: DbSession, run_id: UUID, novel_id: UUID):
 @router.post("/batches/{batch_id}/decide")
 async def approve_batch(db: DbSession, batch_id: UUID, data: BatchDecision):
     await require_active_project(db, str(data.novel_id))
-    return await decide_batch(db, str(batch_id), data, str(current_account_id()))
+    result = await decide_batch(db, str(batch_id), data, str(current_account_id()))
+    if data.review_after and data.selected:
+        from modules.assistant.teams.plans import enqueue_plan_regression
+
+        result["regression"] = await enqueue_plan_regression(
+            db, str(batch_id), str(data.novel_id), str(current_account_id())
+        )
+    return result
 
 
 @router.post("/batches/{batch_id}/recheck", response_model=RunResponse, status_code=202)

@@ -145,6 +145,7 @@ class JourneyCreateRequest(BaseModel):
     action_options_enabled: bool = True
     source_setup: JourneySourceSetup | None = None
     web_search_enabled: bool = False
+    generation_mode: Literal["standard", "ensemble"] = "standard"
 
     @field_validator("opening_text")
     @classmethod
@@ -156,6 +157,7 @@ class JourneyModeUpdateRequest(BaseModel):
     see_sea_enabled: bool | None = None
     action_options_enabled: bool | None = None
     web_search_enabled: bool | None = None
+    generation_mode: Literal["standard", "ensemble"] | None = None
     expected_selection_epoch: int = Field(..., ge=0)
 
 
@@ -311,6 +313,8 @@ class JourneySummaryResponse(BaseModel):
     see_sea_enabled: bool
     action_options_enabled: bool
     web_search_enabled: bool = False
+    generation_mode: Literal["standard", "ensemble"] = "standard"
+    ensemble_available: bool = False
     selection_epoch: int
     latest_activity_at: datetime
     current_excerpt: str | None = None
@@ -333,6 +337,8 @@ class JourneyDetailResponse(BaseModel):
     see_sea_enabled: bool
     action_options_enabled: bool
     web_search_enabled: bool = False
+    generation_mode: Literal["standard", "ensemble"] = "standard"
+    ensemble_available: bool = False
     selection_epoch: int
     overview_epoch: int
     selected_leaf_node_id: str | None = None

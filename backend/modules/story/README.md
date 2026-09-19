@@ -26,7 +26,7 @@ through its stable facade and never writes World, Memory, or Writing records.
 
 ## Persistence
 
-The migration creates exactly four Story tables:
+The original Scene asset migration creates four Story tables; ADR-0027 adds the two rehearsal tables below:
 
 1. `story_character_cards` — one `(novel_id, scene_id, character_id)` head.
 2. `story_character_card_revisions` — immutable card payloads and provenance.
@@ -152,3 +152,12 @@ P20、人物卡/反应/剧本预览、总纲与 Scene fusion 在输出后复核�
 
 人物卡/反应/剧本的复核读取生成时实际发送的完整请求，包括同一场景、目标人物、作者补充与
 已裁剪的参考；不在审查层再次截断为 24K 字符。返修包含原预览及问题清单，最多一次。
+
+## 有限排演（ADR-0027）
+
+`simulation_protocol=rehearsal_v1` 仍使用原 one-click task 与 confirmation，最多三人、每次一至三轮。
+人物分别读取自己的 Evidence 包和上一轮观察；环境只裁决动作结果，服务器投影公开/私下/耳语事件。
+`story_simulation_runs`、`story_simulation_steps` 保存来源、完成回合与分叉，回放不重新生成。
+回合不可变；分叉校验原回合 hash 与当前来源，不修改父排演。叙述只消费已裁决事件，仍是待审预览。
+旧 one-click 默认不消费本轮候选；新客户端显式使用 `simulation_candidates`，不冒充 `accepted_reactions`。
+启用见 development-guide；工程验证与模型自然性验收分别记录。

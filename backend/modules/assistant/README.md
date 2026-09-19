@@ -106,3 +106,25 @@ World 负责世界书编辑/发布/恢复与历史读取；Story 负责信息计
 ## 最终答复复核
 
 pro 模式将本轮实际工具证据冻结为 `assistant.turn` 组级 scope，先独立 audit；仅 blocked 时生成一份修正答复并复审。仍失败时只返回扣留说明且不准备 actions，回执进现有 run checkpoint/result。
+
+## 有限协作（ADR-0027）
+
+`POST /sessions/{id}/team-runs` 在同一助手任务内运行 `deep_review`，冻结蓝图、参数签名和
+预算策略。三调查员使用独立 session、模型历史及相同授权的受限资料，自主调用只读工具；
+原文引用必须精确回读。成果经 Writing 原语义审稿复核，主编保留争议和遗漏，最终答复继续
+通过组级知识审查。`GET /runs/{id}/collaboration` 只返回阶段、覆盖和领域引用；
+`POST /runs/{id}/collaboration/continue` 委托原恢复服务。来源变化显示旧报告失效。
+
+`ASSISTANT_DEEP_REVIEW_ENABLED` 默认关闭；还需原 `ASSISTANT_ENABLED` 与可用模型。
+首版 checkpoint 使用 `collaboration_v1`、上限 1 MiB，版本不兼容明确拒绝。team_v1 总额
+30 请求/48 工具，每调查员最多 4 请求并保留 12 次最终复核额度；所有请求仍受同一任务信封。
+成员完成回执先保存后发布；普通失败为 partial，权限/租约故障停止全组。取消保留回执。
+
+同一团队入口还注册 world_stress、cross_revision、blind_reader、research、import_consult，各自
+独立开关。只读蓝图禁止修改 plans；导入会诊只可为原疑难组当前候选准备 imports.accept_review。
+跨章/World 方案选择后仍使用原批次和 fingerprint；确认后的复核另建同域任务，不把成功写入当质量通过。
+盲读逐章冻结认知，研究必须本次明确联网；来源、未读范围与失败通过安全投影显示。
+
+专项选择只授权本次提交；收到回执后恢复为普通讨论，不确定提交保留原 operation_id 与授权用于恢复。
+坏响应与内容过滤仅使对应成员失败，账户限流/额度/认证错误仍中止整组。
+关闭专项功能后不物化新方案、不启动修改后复核；旧方案回执及已物化批次保留，已执行修改不会因复核关闭而回滚。

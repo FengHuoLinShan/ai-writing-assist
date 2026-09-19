@@ -1000,11 +1000,11 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
     )
   }
 
-  async function startSimulation() {
+  async function startSimulation(options = {}) {
     const targetScene = scene.value
     if (!targetScene?.id || simulationRunning.value) return false
-    const characterIds = characters.value.map((item) => item.id).filter((id) => id && !id.startsWith("character-"))
-    if (!characterIds.length) {
+    const characterIds = options.rehearsal ? options.characterIds : characters.value.map((item) => item.id).filter((id) => id && !id.startsWith("character-"))
+    if (!characterIds?.length || (options.rehearsal && characterIds.length > 3)) {
       loadError.value = "先在场景管理关联人物或建立人物卡，再开始一键推演"
       toast(loadError.value, "warning")
       return false
@@ -1033,7 +1033,7 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
     }
     const submission = sceneRuntimeManager.beginSubmission(projectId, targetScene.id, "simulation")
     if (!submission) return false
-    const runner = api.story?.startOneClickTask || api.story?.startSceneSimulation
+    const runner = options.rehearsal ? api.story?.startRehearsal : api.story?.startOneClickTask || api.story?.startSceneSimulation
     try {
       if (typeof runner !== "function") {
         loadError.value = "一键推演服务暂不可用；当前草稿和已有结果未改变"
@@ -1046,14 +1046,17 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
         character_ids: characterIds,
         context_confirmation_id: confirmation.id,
         operation_id: submission.operationId,
-        submit_authorized: true,
+        submit_authorized: !options.rehearsal,
+        use_round_candidates: !options.rehearsal,
+        ...(options.rehearsal ? { simulation_protocol: "rehearsal_v1", rehearsal_rounds: options.rounds || 2,
+          ...(options.parentId ? { parent_rehearsal_id: options.parentId, fork_round: options.forkRound, parent_round_hash: options.parentHash } : {}) } : {}),
         additional_notes: additionalNotes(),
         accepted_reactions: acceptedReactionPayload(simulation.value),
         accepted_beats: acceptedBeatPayload(simulation.value),
       }
-      const response = api.story?.startOneClickTask
-        ? await runner(oneClickPayload)
-        : await runner(projectId, targetScene.id, oneClickPayload)
+      const response = options.rehearsal
+        ? options.parentId ? await api.story.forkRehearsal(options.parentId, oneClickPayload) : await runner(targetScene.id, oneClickPayload)
+        : api.story?.startOneClickTask ? await runner(oneClickPayload) : await runner(projectId, targetScene.id, oneClickPayload)
       if (!owns(requestToken, targetScene.id)) return false
       if (response?.task_id) {
         sceneRuntimeManager.adopt(response, { sceneId: targetScene.id, stage: "simulation" }, projectId, targetScene.id)
@@ -1132,7 +1135,7 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
     if (stage === "reaction" && simulation.value) {
       simulation.value = { ...simulation.value, reactions: next.reactions, warnings: next.warnings, generatedAt: next.generatedAt }
     } else {
-      simulation.value = next
+      simulation.value = { ...next, rehearsalId: result.rehearsal_id || null }
     }
     persistDraft()
   }

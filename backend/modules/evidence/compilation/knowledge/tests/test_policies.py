@@ -32,6 +32,7 @@ EXPECTED_CAPABILITIES = (
     "world.generation.convergence",
     "world.generation.exploration",
     "world.generation.semantic_inspection",
+    "world.team_stress",
     "world.generation.suggestion",
     "world.ask",
     "world.world_bible.synopsis",

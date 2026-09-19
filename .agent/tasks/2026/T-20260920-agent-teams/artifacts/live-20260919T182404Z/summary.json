@@ -1,0 +1,550 @@
+[
+  {
+    "case_id": "case_01",
+    "path": "A",
+    "task_status": "done",
+    "run_status": "done",
+    "seconds": 24.62,
+    "provider_requests": 1,
+    "prompt_tokens": 1775,
+    "completion_tokens": 5167,
+    "output": {
+      "schema": "writing_semantic_review.v2",
+      "review_task_id": "a08bd73d-4224-4cf4-a746-df5195813d9a",
+      "scope": "selection",
+      "verdict": "needs_revision",
+      "blocking_count": 1,
+      "coverage": {
+        "target_draft_ids": [
+          "6259e7f2-ade7-4e8c-9ef2-8cf805358f53"
+        ],
+        "target_chapters": [
+          1
+        ],
+        "adjacent_regression_draft_ids": [],
+        "context_checked_draft_ids": [],
+        "knowledge_boundary_checked_draft_ids": [],
+        "context_not_checked_draft_ids": [
+          "6259e7f2-ade7-4e8c-9ef2-8cf805358f53"
+        ],
+        "frozen_manifest_hash": "f0ef55585a9a1fd650af6a98e921873370ab5b4401407ca0b5dfb3cd7f8e7e98",
+        "world_constraints": {
+          "6259e7f2-ade7-4e8c-9ef2-8cf805358f53": {
+            "chapter_index": 1,
+            "scene_id": null,
+            "checked": false,
+            "sources": []
+          }
+        },
+        "chunk_count": 1,
+        "semantic_checks": {
+          "6259e7f2-ade7-4e8c-9ef2-8cf805358f53": {
+            "scene_contract": "not_applicable",
+            "timeline_location": "not_applicable",
+            "space_continuity": "not_applicable",
+            "time_continuity": "not_applicable",
+            "logic_continuity": "not_applicable",
+            "identity_relation": "not_applicable",
+            "ability_world_rule": "checked",
+            "knowledge_boundary": "not_applicable"
+          }
+        },
+        "incomplete_draft_ids": []
+      },
+      "frozen_manifest": [
+        {
+          "draft_id": "6259e7f2-ade7-4e8c-9ef2-8cf805358f53",
+          "chapter_index": 1,
+          "content_hash": "e30908b97fe9aceb0add78ec68affc8caf9e9c29779be88ea3ff45e26f363572",
+          "scene_id": null,
+          "scene_execution_bundle_hash": null,
+          "role": "target",
+          "context_fingerprint": "adf9071c739458dcb3904dfddce7cff6c18bb73379f85569a171c98f75b7ede2"
+        }
+      ],
+      "findings": [
+        {
+          "finding_id": "finding_e6bf62afd28e963e3e5d",
+          "severity": "blocker",
+          "category": "causality",
+          "location": {
+            "draft_id": "6259e7f2-ade7-4e8c-9ef2-8cf805358f53",
+            "chapter_index": 1,
+            "excerpt": "下一刻，她按下门外的开启机关，铜门依照原来的规则打开了。",
+            "start_hint": 71,
+            "end_hint": 99
+          },
+          "message": "前文明确规则：唯一开启机关位于内侧，外侧没有锁孔也没有遥控装置；阿澄在门外、从未进过门内、手中没有工具、且无其他人在场。后文却让她在门外按下“门外的开启机关”，并称铜门“依照原来的规则”打开。这直接违背已确立的机关规则与因果条件，使“内侧才有唯一机关”和“她在门外无工具且无他人”同时为真时事件不可能发生。建议修改为：机关在内侧由他人触发、阿澄设法进入门内、她使用被规则允许的工具/遥控，或调整铜门规则。",
+          "contract_refs": [],
+          "world_evidence": [],
+          "preserve": [
+            "铜门规则明文规定唯一开启机关位于内侧",
+            "阿澄从未进过门内且手中没有工具"
+          ]
+        }
+      ],
+      "not_checked": [
+        "只核对本次回读的世界资料，未覆盖整部作品或人物知识边界",
+        "没有可用于核对的世界资料，本次仅检查正文",
+        "第 1 章没有已确认 AI 参考资料，未检查角色知识边界"
+      ],
+      "managed_llm_steps": [
+        {
+          "step_name": "writing.semantic_review.chunk",
+          "novel_id": "f4b7209c-91f7-4cfc-85f3-0986c7f20f00",
+          "profile_source": "project_snapshot",
+          "profile_summary": {
+            "provider_id": "deepseek",
+            "label": "DeepSeek",
+            "model": "deepseek-flash",
+            "default_model": "deepseek-flash",
+            "base_url_host": "api.deepseek.com",
+            "timeout": 1800,
+            "max_tokens": 8192,
+            "temperature": 0.1,
+            "top_p": null,
+            "api_key_configured": true,
+            "sources": {
+              "provider_id": "account",
+              "label": "account",
+              "base_url": "account",
+              "model": "account",
+              "timeout": "timeout_override",
+              "max_tokens": "account",
+              "temperature": "account",
+              "top_p": "account",
+              "extra": "account",
+              "creative_mode": "account",
+              "api_key": "account"
+            },
+            "extra_keys": []
+          },
+          "profile_hash": "fdd3c1ce3aca9faa8b9e6bc534bc100e87ddc7a6bee84116a008129797d50f9b"
+        }
+      ],
+      "mechanical_checks_can_sign_literary_pass": false,
+      "reviewer_separate_from_generator": true
+    },
+    "failure": null,
+    "fees": "not_estimated",
+    "human_review": "pending"
+  },
+  {
+    "case_id": "case_01",
+    "path": "B",
+    "task_status": "done",
+    "run_status": "completed",
+    "seconds": 103.27,
+    "provider_requests": 6,
+    "prompt_tokens": 51468,
+    "completion_tokens": 21592,
+    "output": {
+      "answer": "已按要求做只读复核：结论是全文（第 1 章，99 字）只有 1 处明确矛盾，两位独立审查都命中并判为 blocker，位置一致。\n\n矛盾本体（第 71–99 字）：\n- 前提 A：「唯一的开启机关位于内侧，外侧没有锁孔，也没有遥控装置。」\n- 前提 B：「阿澄站在门外，从未进过门内，手中也没有工具。」\n- 前提 C：「叙述者确认没有其他人在场。」\n- 动作 D：「下一刻，她按下门外的开启机关，铜门依照原来的规则打开了。」\n若把 A 当作叙述事实，D 与之直接互斥：唯一机关在内侧，门外就不该存在可按下并生效的开启机关；B、C 又排除了「她进去过」「有人在内侧代开」「她有工具或遥控」等替代路径。\n\n关于你想保护的三种情况，边界如下：\n- 不可靠叙述：挡住这条路的正是 C 与 D 的措辞。C 是叙述层断言（「叙述者确认」），D 也是（「依照原来的规则打开了」）。矛盾不只是「她做到了不可能的事」，而是叙述同时断言规则未被破坏、且无人可帮她。若要写成不可靠叙述，需让 A 落在人物信念或传闻层，而不是由叙述者背书。\n- 人物有意违约：「依照原来的规则打开了」恰恰否认了违约发生；且 A 描述的是物理结构属性，不属于可被故意违反的约定类规则（除非在你的设定里它其实是禁忌/约定）。\n- 未揭示信息：B、C 的绝对化封口句（「从未进过门内」「没有工具」「没有其他人在场」）已提前关闭了这个空间。若想留反转，要改的是这些封口句，而不是她的动作。\n\n三条最小改动路线（任选其一）：\n1. 保留矛盾当异常：删改「依照原来的规则打开了」，给出门或叙述层面的「这不可能」信号，让矛盾成为钩子。\n2. 保留反转、放宽封口：把 B、C 改成人物自述或有限视角，不写死「从未」「没有」「确认没有」。\n3. 按笔误处理：改 A（机关确实在内侧则动作需相应改写）或改 D（给她外部手段并交代来源）。\n\n核对范围与不足：只覆盖本章。作品内世界对象、别名、关系、场景、人物卡均为 0，也没有任何已确认参考资料，因此只能判定正文内部自相矛盾，无法判定「铜门规则」是否与世界设定冲突。人物知识边界未检查（审查明确记为未覆盖）。相关检索在当前授权范围内无命中，仅代表未命中，不代表不存在。无前后章节，因此「不可靠叙述」「有意违约」是否已有铺垫，我没有替你下结论。",
+      "evidence_ids": [
+        "a245138d4fc2f5b1ad92b1bbd2c9a0a1b77816d25ad9e233529e171fd50df2b0",
+        "083b26294af499f256e1d72a9a0dd13ffdd0636e9a4eb653bc84b79cd9414871",
+        "1281b151c4f30dc0472aeb3cb9e86ad9a85049ee5af9bf520e58c6ec6e73e11d",
+        "b1132ac9c0c483918889ec0b8bafedc53292587ca274919f40f91717c15d83ac"
+      ],
+      "actions": [],
+      "findings": [
+        {
+          "title": "门外按压机关与「唯一机关在内侧」的明文规则互斥",
+          "summary": "第 1 章第 71–99 字：「下一刻，她按下门外的开启机关，铜门依照原来的规则打开了。」与前文「唯一的开启机关位于内侧，外侧没有锁孔，也没有遥控装置」直接冲突；「站在门外、从未进过门内、手中也没有工具」以及「叙述者确认没有其他人在场」又排除了代开、工具、遥控、内部机关等替代路径。两位独立审查均判 blocker（因果链与连续性）。此为全文唯一一处明确矛盾。",
+          "kind": "issue",
+          "evidence_ids": [
+            "a245138d4fc2f5b1ad92b1bbd2c9a0a1b77816d25ad9e233529e171fd50df2b0",
+            "083b26294af499f256e1d72a9a0dd13ffdd0636e9a4eb653bc84b79cd9414871"
+          ],
+          "domain_finding_id": "finding_1cb403e0c90f2e2eeac6"
+        },
+        {
+          "title": "叙述层断言封住了不可靠叙述与有意违约的余地",
+          "summary": "「叙述者确认没有其他人在场」与「铜门依照原来的规则打开了」都是叙述层断言：前者关掉了隐藏帮助者，后者断言规则未被破坏，因此「叙述者不可靠」「阿澄有意违约」在当前文本里无法成立为解释，矛盾会读成作者失误。若本意是不可靠叙述或有意违约，需要把规则句下沉到人物信念/传闻层，并去掉「依照原来的规则」这类确认性措辞。",
+          "kind": "reminder",
+          "evidence_ids": [
+            "a245138d4fc2f5b1ad92b1bbd2c9a0a1b77816d25ad9e233529e171fd50df2b0",
+            "1281b151c4f30dc0472aeb3cb9e86ad9a85049ee5af9bf520e58c6ec6e73e11d"
+          ],
+          "domain_finding_id": "finding_fd40e6b8bebc577c172d"
+        },
+        {
+          "title": "「铜门规则」目前只是正文自述，无世界资料可对照",
+          "summary": "作品内世界对象、别名、关系、场景、人物卡与已确认参考资料均为 0，独立审查也记录「没有可用于核对的世界资料」。因此无法判断这条规则是设定事实还是人物转述，也无法检查人物知识边界；本次结论限于正文内部一致性。",
+          "kind": "suggestion",
+          "evidence_ids": [
+            "1281b151c4f30dc0472aeb3cb9e86ad9a85049ee5af9bf520e58c6ec6e73e11d",
+            "b1132ac9c0c483918889ec0b8bafedc53292587ca274919f40f91717c15d83ac"
+          ],
+          "domain_finding_id": null
+        }
+      ],
+      "omissions": [
+        "无世界书页面、世界对象、别名、关系、场景规划与人物卡，无法核对该「铜门规则」是否与已设定冲突",
+        "人物知识边界未检查：审查明确记录第 1 章没有已确认参考资料，未覆盖知识边界",
+        "仅有第 1 章 99 字，无前后章节，无法判断「不可靠叙述」或「有意违约」是否已在别处铺垫",
+        "相关检索在当前授权范围内无命中，属未命中而非不存在",
+        "本次讨论来源与已保存阶段成果读取受限，未纳入判断"
+      ],
+      "next_steps": [
+        "writing"
+      ],
+      "knowledge_review": {
+        "status": "passed",
+        "repaired": false,
+        "coverage": [
+          {
+            "dimension": "world_entities",
+            "covered_by": [],
+            "omitted": false,
+            "omission_reason": null
+          },
+          {
+            "dimension": "world_rules",
+            "covered_by": [],
+            "omitted": false,
+            "omission_reason": null
+          },
+          {
+            "dimension": "world_bible",
+            "covered_by": [],
+            "omitted": false,
+            "omission_reason": null
+          },
+          {
+            "dimension": "prior_prose",
+            "covered_by": [],
+            "omitted": false,
+            "omission_reason": null
+          },
+          {
+            "dimension": "outline",
+            "covered_by": [],
+            "omitted": false,
+            "omission_reason": null
+          },
+          {
+            "dimension": "plot_threads",
+            "covered_by": [],
+            "omitted": false,
+            "omission_reason": null
+          },
+          {
+            "dimension": "memory",
+            "covered_by": [],
+            "omitted": false,
+            "omission_reason": null
+          }
+        ],
+        "issue_counts": {
+          "conflict": 0,
+          "irrelevant_content": 0,
+          "missing_required": 0,
+          "out_of_scope_knowledge": 0,
+          "premature_reveal": 0,
+          "unchecked": 0,
+          "unsupported_fact": 0
+        },
+        "issues": []
+      },
+      "sources": [
+        {
+          "evidence_id": "a245138d4fc2f5b1ad92b1bbd2c9a0a1b77816d25ad9e233529e171fd50df2b0",
+          "title": "正文",
+          "snippet": "铜门规则明文规定：唯一的开启机关位于内侧，外侧没有锁孔，也没有遥控装置。阿澄站在门外，从未进过门内，手中也没有工具。叙述者确认没有其他人在场。下一刻，她按下门外的开启机关，铜门依照原来的规则打开了。",
+          "excerpted": false,
+          "source_ref": {
+            "draft_id": "37185c7a-904e-4b34-8d22-18927416e49b",
+            "chapter_index": 1,
+            "version_number": 1,
+            "content_mode": "working",
+            "start_offset": 0,
+            "end_offset": 99,
+            "source_hash": "e30908b97fe9aceb0add78ec68affc8caf9e9c29779be88ea3ff45e26f363572",
+            "range_hash": "e30908b97fe9aceb0add78ec68affc8caf9e9c29779be88ea3ff45e26f363572"
+          },
+          "target_ref": null,
+          "related_results": [],
+          "sources": [],
+          "web_source": null,
+          "domain_reference": null,
+          "review_result": null,
+          "domain_result": null
+        },
+        {
+          "evidence_id": "083b26294af499f256e1d72a9a0dd13ffdd0636e9a4eb653bc84b79cd9414871",
+          "title": "独立审查正文",
+          "snippet": "前文明确给出铜门规则：唯一开启机关在内侧，外侧没有锁孔，也没有遥控装置；同时阿澄站在门外、从未进过门内、手中没有工具，且叙述者确认没有其他人在场。在这些前提下，阿澄不可能操作门外的开启机关，铜门也不可能“依照原来的规则”从外侧打开。该动作与已给出的世界规则直接矛盾，破坏了因果链。建议改为门内机关被触发、门从内侧打开，或同步改写规则并交代阿澄可用的外部手段。",
+          "excerpted": false,
+          "source_ref": null,
+          "target_ref": {
+            "target_type": "writing_draft",
+            "target_id": "37185c7a-904e-4b34-8d22-18927416e49b"
+          },
+          "related_results": [],
+          "sources": [],
+          "web_source": null,
+          "domain_reference": {
+            "type": "writing_review",
+            "id": "0e8b1954-d25c-5069-8fff-dcbe6db721e0",
+            "task_id": "0e8b1954-d25c-5069-8fff-dcbe6db721e0",
+            "task_type": "writing_semantic_review",
+            "target": {
+              "type": "writing_draft",
+              "id": "37185c7a-904e-4b34-8d22-18927416e49b",
+              "chapter_index": 1
+            },
+            "label": "已开始独立审查，结果生成后可继续处理"
+          },
+          "review_result": {
+            "status": "completed",
+            "verdict": "needs_revision",
+            "coverage": {
+              "target_draft_ids": [
+                "37185c7a-904e-4b34-8d22-18927416e49b"
+              ],
+              "target_chapters": [
+                1
+              ],
+              "adjacent_regression_draft_ids": [],
+              "context_checked_draft_ids": [],
+              "knowledge_boundary_checked_draft_ids": [],
+              "context_not_checked_draft_ids": [
+                "37185c7a-904e-4b34-8d22-18927416e49b"
+              ],
+              "frozen_manifest_hash": "ef11138eceb95ce449d0edb663f7d5f0df4ac95be4bd2d4bbe883a8bf6400c82",
+              "world_constraints": {},
+              "chunk_count": 1,
+              "semantic_checks": {
+                "37185c7a-904e-4b34-8d22-18927416e49b": {
+                  "scene_contract": "not_applicable",
+                  "timeline_location": "not_applicable",
+                  "space_continuity": "not_applicable",
+                  "time_continuity": "not_applicable",
+                  "logic_continuity": "not_applicable",
+                  "identity_relation": "not_applicable",
+                  "ability_world_rule": "checked",
+                  "knowledge_boundary": "not_applicable"
+                }
+              },
+              "incomplete_draft_ids": []
+            },
+            "not_checked": [
+              "第 1 章没有已确认 AI 参考资料，未检查角色知识边界"
+            ],
+            "findings": [
+              {
+                "finding_id": "finding_1cb403e0c90f2e2eeac6",
+                "severity": "blocker",
+                "category": "causality",
+                "location": {
+                  "draft_id": "37185c7a-904e-4b34-8d22-18927416e49b",
+                  "chapter_index": 1,
+                  "excerpt": "铜门规则明文规定：唯一的开启机关位于内侧，外侧没有锁孔，也没有遥控装置。阿澄站在门外，从未进过门内，手中也没有工具。叙述者确认没有其他人在场。下一刻，她按下门外的开启机关，铜门依照原来的规则打开了。",
+                  "start_hint": 0,
+                  "end_hint": 99
+                },
+                "message": "前文明确给出铜门规则：唯一开启机关在内侧，外侧没有锁孔，也没有遥控装置；同时阿澄站在门外、从未进过门内、手中没有工具，且叙述者确认没有其他人在场。在这些前提下，阿澄不可能操作门外的开启机关，铜门也不可能“依照原来的规则”从外侧打开。该动作与已给出的世界规则直接矛盾，破坏了因果链。建议改为门内机关被触发、门从内侧打开，或同步改写规则并交代阿澄可用的外部手段。",
+                "contract_refs": [],
+                "world_evidence": [],
+                "preserve": []
+              }
+            ]
+          },
+          "domain_result": null
+        },
+        {
+          "evidence_id": "1281b151c4f30dc0472aeb3cb9e86ad9a85049ee5af9bf520e58c6ec6e73e11d",
+          "title": "核对人工正文与世界设定（不签署人物知识边界）",
+          "snippet": "前文明确‘唯一的开启机关位于内侧，外侧没有锁孔，也没有遥控装置’，且阿澄从未进门、无工具、无他人；随后她却能在门外按下开启机关并符合原规则开门，直接违反已给出的世界规则，构成因果与连续性矛盾。",
+          "excerpted": false,
+          "source_ref": null,
+          "target_ref": {
+            "target_type": "writing_draft",
+            "target_id": "37185c7a-904e-4b34-8d22-18927416e49b"
+          },
+          "related_results": [],
+          "sources": [],
+          "web_source": null,
+          "domain_reference": {
+            "type": "writing_review",
+            "id": "eb9eec5e-7322-5aac-9d9f-eeb5d1c01355",
+            "task_id": "eb9eec5e-7322-5aac-9d9f-eeb5d1c01355",
+            "task_type": "writing_semantic_review",
+            "target": {
+              "type": "writing_draft",
+              "id": "37185c7a-904e-4b34-8d22-18927416e49b",
+              "chapter_index": 1
+            },
+            "label": "已开始独立审查，结果生成后可继续处理"
+          },
+          "review_result": {
+            "status": "completed",
+            "verdict": "needs_revision",
+            "coverage": {
+              "target_draft_ids": [
+                "37185c7a-904e-4b34-8d22-18927416e49b"
+              ],
+              "target_chapters": [
+                1
+              ],
+              "adjacent_regression_draft_ids": [],
+              "context_checked_draft_ids": [],
+              "knowledge_boundary_checked_draft_ids": [],
+              "context_not_checked_draft_ids": [
+                "37185c7a-904e-4b34-8d22-18927416e49b"
+              ],
+              "frozen_manifest_hash": "648972b4044aa8d0973eb25e7b4ac180f653c45b38710ad2cde8507d5f7ae091",
+              "world_constraints": {
+                "37185c7a-904e-4b34-8d22-18927416e49b": {
+                  "chapter_index": 1,
+                  "scene_id": null,
+                  "checked": false,
+                  "sources": []
+                }
+              },
+              "chunk_count": 1,
+              "semantic_checks": {
+                "37185c7a-904e-4b34-8d22-18927416e49b": {
+                  "scene_contract": "not_applicable",
+                  "timeline_location": "not_applicable",
+                  "space_continuity": "not_applicable",
+                  "time_continuity": "not_applicable",
+                  "logic_continuity": "not_applicable",
+                  "identity_relation": "not_applicable",
+                  "ability_world_rule": "checked",
+                  "knowledge_boundary": "not_applicable"
+                }
+              },
+              "incomplete_draft_ids": []
+            },
+            "not_checked": [
+              "只核对本次回读的世界资料，未覆盖整部作品或人物知识边界",
+              "没有可用于核对的世界资料，本次仅检查正文",
+              "第 1 章没有已确认 AI 参考资料，未检查角色知识边界"
+            ],
+            "findings": [
+              {
+                "finding_id": "finding_fd40e6b8bebc577c172d",
+                "severity": "blocker",
+                "category": "continuity",
+                "location": {
+                  "draft_id": "37185c7a-904e-4b34-8d22-18927416e49b",
+                  "chapter_index": 1,
+                  "excerpt": "下一刻，她按下门外的开启机关，铜门依照原来的规则打开了。",
+                  "start_hint": 71,
+                  "end_hint": 99
+                },
+                "message": "前文明确‘唯一的开启机关位于内侧，外侧没有锁孔，也没有遥控装置’，且阿澄从未进门、无工具、无他人；随后她却能在门外按下开启机关并符合原规则开门，直接违反已给出的世界规则，构成因果与连续性矛盾。",
+                "contract_refs": [],
+                "world_evidence": [],
+                "preserve": [
+                  "铜门规则明文规定：唯一的开启机关位于内侧，外侧没有锁孔，也没有遥控装置。"
+                ]
+              }
+            ]
+          },
+          "domain_result": null
+        },
+        {
+          "evidence_id": "b1132ac9c0c483918889ec0b8bafedc53292587ca274919f40f91717c15d83ac",
+          "title": "当前工作概览",
+          "snippet": "",
+          "excerpted": false,
+          "source_ref": null,
+          "target_ref": {
+            "target_type": "project_workspace",
+            "target_id": "a12fbce3-1fd4-4340-a5e9-8ac47bcc1f90"
+          },
+          "related_results": [],
+          "sources": [],
+          "web_source": null,
+          "domain_reference": null,
+          "review_result": null,
+          "domain_result": null
+        }
+      ]
+    },
+    "failure": null,
+    "fees": "not_estimated",
+    "human_review": "pending"
+  },
+  {
+    "case_id": "case_01",
+    "path": "C",
+    "task_status": "failed",
+    "run_status": "failed",
+    "seconds": 8.53,
+    "provider_requests": 9,
+    "prompt_tokens": 15298,
+    "completion_tokens": 2670,
+    "output": {},
+    "failure": {
+      "kind": "ValueError",
+      "frames": [
+        {
+          "file": "combined.py",
+          "line": 1032,
+          "function": "wrapped"
+        },
+        {
+          "file": "abstract.py",
+          "line": 1141,
+          "function": "wrap_tool_execute"
+        },
+        {
+          "file": "tool_manager.py",
+          "line": 454,
+          "function": "do_execute"
+        },
+        {
+          "file": "tool_manager.py",
+          "line": 1014,
+          "function": "_raw_execute"
+        },
+        {
+          "file": "combined.py",
+          "line": 99,
+          "function": "call_tool"
+        },
+        {
+          "file": "_tool_search.py",
+          "line": 437,
+          "function": "call_tool"
+        },
+        {
+          "file": "wrapper.py",
+          "line": 70,
+          "function": "call_tool"
+        },
+        {
+          "file": "combined.py",
+          "line": 99,
+          "function": "call_tool"
+        },
+        {
+          "file": "function.py",
+          "line": 711,
+          "function": "call_tool"
+        },
+        {
+          "file": "_function_schema.py",
+          "line": 85,
+          "function": "call"
+        },
+        {
+          "file": "workflow_budget.py",
+          "line": 97,
+          "function": "run"
+        },
+        {
+          "file": "evidence_tools.py",
+          "line": 390,
+          "function": "inspect_current"
+        }
+      ]
+    },
+    "fees": "not_estimated",
+    "human_review": "pending"
+  }
+]

@@ -36,6 +36,10 @@ class ReviewChapters(BaseModel):
     draft_ids: list[UUID] = Field(min_length=1, max_length=200)
 
 
+class ReviewTeamChapters(ReviewChapters):
+    hypotheses: list[str] = Field(default_factory=list, max_length=24)
+
+
 class NewChapter(BaseModel):
     model_config = ConfigDict(extra="forbid")
     title: str = Field(min_length=1, max_length=500)
@@ -148,6 +152,7 @@ async def _review_apply(
         internal_meta=context.internal_meta if context else None,
         llm_execution_snapshot=context.llm_snapshot if context else None,
         manual_world_scope=manual_world_scope,
+        investigation_hypotheses=getattr(args, "hypotheses", None),
     )
     return {
         "type": "writing_review",
@@ -190,6 +195,54 @@ async def _world_review_apply(db, novel_id, args, preview, *, context=None):
     )
 
 
+async def _team_review_context(db, novel_id, args, context):
+    from dataclasses import replace
+
+    from modules.assistant.facade import require_operation_targets
+    from modules.writing.semantic_review import (
+        _candidate_confirmation_id,
+        _requires_confirmed_context,
+    )
+
+    await require_operation_targets(
+        db, novel_id, context, [("writing_draft", value) for value in args.draft_ids]
+    )
+    drafts = [await get_draft(db, novel_id, str(value)) for value in args.draft_ids]
+    if any(draft is None for draft in drafts):
+        raise NotFoundError("正文不存在")
+    if any(_requires_confirmed_context(draft.provenance_json or {}) for draft in drafts):
+        if context.work.excluded_targets or any(
+            _candidate_confirmation_id(draft.provenance_json or {})
+            != str(context.work.context_confirmation_id)
+            for draft in drafts
+        ):
+            raise ConflictError("AI 正文深度审稿必须绑定原生成参考资料")
+        return replace(
+            context,
+            work=context.work.model_copy(
+                update={
+                    "context_confirmation_id": None,
+                    "context_confirmation_action": None,
+                }
+            ),
+        ), None
+    return context, _world_scope(context)
+
+
+async def _team_review_prepare(db, novel_id, args, *, context=None):
+    context, scope = await _team_review_context(db, novel_id, args, context)
+    return await _review_prepare(
+        db, novel_id, args, context=context, manual_world_scope=scope
+    )
+
+
+async def _team_review_apply(db, novel_id, args, preview, *, context=None):
+    context, scope = await _team_review_context(db, novel_id, args, context)
+    return await _review_apply(
+        db, novel_id, args, preview, context=context, manual_world_scope=scope
+    )
+
+
 async def _review_result(db, novel_id, reference):
     from infrastructure.tasks.facade import get_completed_task_payload
 
@@ -206,6 +259,20 @@ async def _review_result(db, novel_id, reference):
             "not_checked": ["正文复核没有完整完成，不能据此出具通过结论"],
         }
     result = payload.result
+    for source in result.get("frozen_manifest", []):
+        draft = await get_draft(db, novel_id, source["draft_id"])
+        latest = await get_latest_draft_for_chapter(db, novel_id, source["chapter_index"])
+        if (
+            draft is None
+            or draft.content_hash != source["content_hash"]
+            or draft.status == "deprecated"
+            or (draft.status != "candidate" and (latest is None or latest.id != draft.id))
+        ):
+            return {
+                "status": "stale",
+                "findings": [],
+                "not_checked": ["审查依据的正文已变化，请重新检查当前稿"],
+            }
     import json
 
     from modules.evidence.contracts import VisibilityContextContract
@@ -392,6 +459,14 @@ async def _apply(db, novel_id, args, preview, *, context=None):
 
 
 OPERATIONS = {
+    "writing.review_team": AssistantOperation(
+        "复核深度审稿调查线索",
+        ReviewTeamChapters,
+        _team_review_prepare,
+        _team_review_apply,
+        permission="suggest",
+        read_result=_review_result,
+    ),
     "writing.review_world": AssistantOperation(
         "核对人工正文与世界设定（不签署人物知识边界）",
         ReviewChapters,
