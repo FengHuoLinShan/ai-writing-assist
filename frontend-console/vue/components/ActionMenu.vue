@@ -49,7 +49,9 @@ const props = defineProps({
 })
 const emit = defineEmits(["select", "close"])
 
-const floatingTarget = typeof document !== "undefined" && document.getElementById("main-layout") ? "#main-layout" : "body"
+// 固定挂到 body：目标与初始化时序解耦（#main-layout 是否已渲染不影响结果），
+// fixed 定位也不受 #app/#main-layout 的 overflow 裁剪。
+const floatingTarget = "body"
 const root = ref(null)
 const trigger = ref(null)
 const list = ref(null)

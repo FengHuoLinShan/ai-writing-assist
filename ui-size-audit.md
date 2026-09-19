@@ -2,6 +2,20 @@
 
 日期：2026-09-11。范围：`frontend-console/` 全部页面样式（styles.css 17679 行、editorial-theme.css、writing-desk.css、全部 Vue 视图/组件的 `<style>`、内联样式与 JS 尺寸计算；不含 prototypes/dist/tests）。方法：10 个并行只读审查，按统一场景维度判定；关键论断已抽查源码验证。
 
+> **改版后复查（2026-09-17/18，用户报告线上多处显示不正确）**：先排除部署链路——线上 `novel.zhh.se`（部署于 09-16 08:55）的 CSS 与当时 main 字节一致（CSS 自 09-14 后零改动），index.html `no-store` 无缓存陈旧，主要路由在 500/768/1024/1440 宽几何扫描零页面级溢出；入口页视觉正常。"大量页面错乱"的主体判定为共享组件层叠缺陷（ActionMenu 全站复用）+ 入口孤岛 + 少量硬编码，非全局 CSS 回归。本轮修复六项（分支 `codex/frontend-occlusion-rp-entry-20260917`）：
+> 1. **顶栏工作区菜单被遮挡/左溢出**（用户截图实锤）：非浮动态 `.action-menu-list` 为 absolute right:0（曾实测向左溢出视口 59px），层叠依赖 `.vue-shell-root{display:contents}` + `#topbar` 静态 z-index 的 flex-item 语义，WebKit 类引擎下被正文盖住。修复：Topbar 工作区菜单启用 ActionMenu 现有 `floating` 模式（fixed、视口钳位、z-110、teleport body），`#topbar` 补 `position:relative` 兜底账户菜单等其余浮层。本地 1440/500 实测菜单 fixed z110 全视口内、命中项为菜单自身；移动端该菜单本就被 `#topbar .topbar-center > :not(#topbar-project){display:none}`（≤760）隐藏由底栏承担，不受影响。
+> 2. **作家模式→RP 无入口**（用户报告）：`journeys` 路由与回程一直在，但 `SHELL_MORE_ITEMS` 无此项。修复：增加「互动故事」入口（generate 之后），侧栏「更多」、移动端「全部」sheet 与顶栏工作区菜单（WORKSPACE_ITEMS 拼接）同步获得；公开演示壳层过滤该项（匿名无账号旅程）；NavIcon 补 `interaction` 对话图标。
+> 3. **`--topbar-height` 双源漂移**：壳层实际 68px/≤760 60px vs 变量 64px。修复：`html:has(.creative-shell)` 定义 68px（≤760 60px），`#topbar` 尺寸引变量，消费方（outline 浮层、场景抽屉、移动 toast、writing-desk 偏移及 **Teleport 到 body 的 owner-ai 抽屉**——首轮挂在 `.creative-shell` 上漏掉 teleport 内容，评审指出后上提至 html）对齐；不支持 :has 的引擎按 64px 基线回退。
+> 4. **command-bar 移动端被底栏遮挡**：bottom:60px/z-200 vs 底栏 64px+safe-area/z-500。修复：≤760 `bottom:calc(76px + env(safe-area-inset-bottom))`（实测 76px）。
+> 5. **RP 定位轨道底边硬编码**：`.rp-locator-rail` bottom:150px 在多行输入（dock 可至 ~300px、z18>z16）时被盖。修复（评审后终版）：改为故事区行（grid-row 2）的 grid item（justify-self:end + align-self:stretch），与输入坞（row 3）结构性不相交，不再依赖 dock 高度估算；首轮 clamp(150px,30dvh,300px) 方案在 390×844（30dvh=253px < dock ~303px）仍可能被盖，已废弃。新增 e2e 几何断言（390×844、输入框撑满 214px 时 rail.bottom ≤ dock.top）。
+> 6. **RP 确认弹窗 maxHeight 无下界**（一.五 轮遗留理论风险）：anchor 贴边时 availableHeight 趋 0 弹窗压扁。修复：`calculateAdaptivePopoverPlacement` 增加 160px 可交互下限（表面已有内部滚动）；顺带把 `.rp-more-menu>div` 的 `--topbar-height` 错位引用改为基于故事页顶栏（轨道 58px、`min-height:66px`）的 `calc(100dvh - 90px)`。
+> 7. **ActionMenu 浮动挂载目标确定化**（评审发现）：原 `#main-layout ?? body` 在模块加载时求值，随初始化路径漂移；统一固定 `body`（fixed 定位不受 #app/#main-layout overflow 裁剪），Topbar 测试断言与真实路径一致。
+>
+> **RP 模式全功能深审（同轮）**：入口/旅程列表/来源向导/故事页（11 项菜单、五抽屉、分支、行动选项、续写三联、冲突横幅、定位轨道）/公开 demo RP 全部界面过查。强项：确认弹窗 teleport+visualViewport 自适应、移动端菜单/分支 popover 转 bottom-sheet（z70+backdrop+safe-area+70dvh）、rp-drawer 全屏化、回到最新浮标已 grid-item 化、行为测试 53+ 用例。遗留记录：公开 demo RP 入口受 `demo.rp_enabled` 服务端配置关闭，非缺陷；41 处 sub-12px 字号等低优先排版债维持不动。
+>
+> **验证（2026-09-18，含评审返修轮）**：前端 ESLint、Vitest 193 文件/2503 项、生产构建、e2e 冒烟 57 项 + interaction 15 项（含 390px 窄屏故事页与新增轨道/输入坞几何断言）+ workflow-toolbars 3 项全部通过；本地 1440/500×844 浏览器实测菜单层叠/钳位、journeys 导航闭环、html/body 上 68/60px 变量解析（覆盖 Teleport 内容）；`make docs-check BASE_REF=origin/main` 通过（同步 00_整体设计、14_frontend、frontend-console/README）；`git diff --check` 干净。线上复核需按 `deploy/scripts/release.sh` 发版后进行。
+
+
 > **核对记录（2026-09-11 二轮）**：全部 71 条论断已由 7 组并行核对逐条对照源码复核。约六成完全属实；10 条修正或收窄（下文已就地更正）；1 条推翻（四.4 flex-wrap"被覆盖"）、1 条撤销（一.1 表 outline-information-unassigned，实有 ≤760 单列兜底）；2 条比原报告更严重（审校弹窗仅剩 2px 余量、ProjectAssistant 801–900px 段更窄）。行号均已按实测校准。
 >
 > **独立核对（2026-09-11 三轮）**：再次按当前工作树追踪样式级联、Vue/旧渲染器入口，并用 Chromium 对关键几何做最小复现。主体问题成立，但需覆盖二轮结论的 7 点：审校行在 640px 弹窗内不是“剩 2px”，而是实测产生约 14px 横向溢出；项目空态在 768px 壳层内实测约溢出 32px、约 801px 已恢复；手机横屏的通用 `.generate-chatbox` 已被 ≤900px 规则解除固定高度，只有 owner 抽屉在 >900px 矮窗的高特异度冲突成立；workflow 通知在 761/768/800/900/901/1000/1099/1100/1280px 实测均与工作区中心重合；z-index 顺序本身不能证明穿插 bug；SVG 标签仅是最小字号钳制下的条件风险；版本对比只能统一 Vue 的 `data-side` 为“左/右”，不能反改共享 CSS，因为旧渲染器仍输出“左/右”。以下修复计划以本轮结论为准。
