@@ -3,19 +3,19 @@ id: T-20260917-immutable-copy-invariant-audit
 title: demo copy 不可变历史修复与全库不变量冲突审计
 status: delivered-on-branch
 created: 2026-09-17T23:30:00+08:00
-updated: 2026-09-17T23:30:00+08:00
+updated: 2026-09-19T21:00:00+08:00
 ---
 
 # demo copy 不可变历史修复与全库不变量冲突审计
 
 ## 恢复快照
 
-- 实际完成：根因修复 + 全库审计 + 测试 + ADR-0026 全部落地并提交。commit `2212e6dd9`（分支 `codex/demo-copy-immutable-history`，基线 origin/main d66eb40cb）。验证：backend 全量 5094 passed；e2e 133 passed + 新增 3 个 demo-copy e2e 全绿（真 PG 触发器、历史源、回滚无残留、重试幂等、并发）；lint 全过；docs-check 通过。e2e 有 3 个基线失败（test_02_world 两例 + test_assistant_migration 一例），在未改动 main 上同样失败，与本分支无关。
-- 当前里程碑：已交付待评审。合入 main 与生产发布需另行授权。
-- 下一步：评审合并；线上发布后用一个真实账号点击「创建演示副本」做一次线上验收。
+- 实际完成：原分支 tip `b62229e49` 已纳入整合分支；审查修正了关联资产快照 digest、跨模块 facade 边界和 demo-import 专用策略。D1–D5 与九项交付核查补在 [AUDIT.md](AUDIT.md)，正式决定见 ADR-0026。2026-09-19 定向单测 24 passed、真 PG E2E 2 passed、PostgreSQL 合并门禁 37 passed；跨栈总门禁见整合任务。
+- 当前里程碑：整合验证中；旧记录中的 `2212e6dd9` 是重整前提交，旧测试总数不能当作当前结果。
+- 下一步：整合分支合入 main 后，另行授权生产发布；发布后用真实账号验收「创建演示副本」。
 - 阻塞：无。
-- 生产核查（D4）：demo_project_copies=0（功能从未成功过，无残留）；demo 源 outline/page-revision/template-revision 均 0 行（outline 雷未引爆，修复顺带排除）；world_canon_revisions 仅 4 行全属源项目；每次失败尝试都死于媒体复制之前的同一条 DELETE 且单事务回滚——生产无脏数据、无孤儿对象。遗留 `deploy/.state/current-commit` 旧文件停在 8/6（deployment-state.json 为准，建议运维顺手清理）。
-- 最后核实：2026-09-17。
+- 生产核查（D4）：2026-09-17 旧快照见 [AUDIT.md](AUDIT.md)；2026-09-19 未重查生产数据，不对当前残留作断言。
+- 最后核实：2026-09-19。
 
 ## 目标与验收
 
@@ -32,3 +32,5 @@ updated: 2026-09-17T23:30:00+08:00
 - e2e conftest 跑 alembic head（触发器在），现有 demo copy 测试源无历史数据 ⇒ 分支覆盖缺口。
 - 仅 demo_copy.py 用 Core 表级 SQL；ORM 层对四张 authority 守卫表无直接 UPDATE/DELETE。
 - 线上：API 容器=f67845dc（deployment-state.json 为准，遗留 current-commit 文件陈旧停 8/6）；demo_project_copies=0；world_canon_revisions 全库 4 行（全部属 demo 源）。
+
+上述线上数值仅为 2026-09-17 历史记录；当前生产状态须在发布验收时重新核实。
